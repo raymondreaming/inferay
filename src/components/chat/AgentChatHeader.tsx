@@ -42,7 +42,7 @@ export function AgentChatHeader({
 
 	return (
 		<div
-			className={`electrobun-webkit-app-region-drag shrink-0 flex items-center gap-1.5 px-3 py-1.5 border-b border-inferay-gray-border ${draggable ? "cursor-grab active:cursor-grabbing" : ""} select-none`}
+			className={`electrobun-webkit-app-region-no-drag shrink-0 flex items-center gap-1.5 px-3 py-1.5 border-b border-inferay-gray-border ${draggable ? "cursor-grab active:cursor-grabbing" : ""} select-none`}
 			draggable={draggable}
 			onDragStart={onDragStart}
 			onDragEnd={onDragEnd}

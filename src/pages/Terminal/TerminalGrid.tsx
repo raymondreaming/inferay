@@ -1,5 +1,12 @@
 import type React from "react";
-import { memo, useCallback, useLayoutEffect, useRef, useState } from "react";
+import {
+	memo,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import type { AgentChatHandle } from "../../components/chat/AgentChatView.tsx";
 import type {
 	AgentKind,
@@ -66,6 +73,11 @@ export const TerminalGrid = memo(function TerminalGrid(
 	const dragIndexRef = useRef<number | null>(null);
 	const [dragIndex, setDragIndex] = useState<number | null>(null);
 	const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+	const clearDragState = useCallback(() => {
+		dragIndexRef.current = null;
+		setDragIndex(null);
+		setDragOverIndex(null);
+	}, []);
 
 	useLayoutEffect(() => {
 		const el = containerRef.current?.parentElement;
@@ -87,10 +99,8 @@ export const TerminalGrid = memo(function TerminalGrid(
 	);
 
 	const handleHeaderDragEnd = useCallback(() => {
-		dragIndexRef.current = null;
-		setDragIndex(null);
-		setDragOverIndex(null);
-	}, []);
+		clearDragState();
+	}, [clearDragState]);
 
 	const handleDragOver = useCallback((e: React.DragEvent, index: number) => {
 		e.preventDefault();
@@ -104,12 +114,19 @@ export const TerminalGrid = memo(function TerminalGrid(
 			const fromIndex = dragIndexRef.current;
 			if (fromIndex !== null && fromIndex !== toIndex && onReorderPanes)
 				onReorderPanes(fromIndex, toIndex);
-			dragIndexRef.current = null;
-			setDragIndex(null);
-			setDragOverIndex(null);
+			clearDragState();
 		},
-		[onReorderPanes]
+		[clearDragState, onReorderPanes]
 	);
+
+	useEffect(() => {
+		window.addEventListener("dragend", clearDragState);
+		window.addEventListener("drop", clearDragState);
+		return () => {
+			window.removeEventListener("dragend", clearDragState);
+			window.removeEventListener("drop", clearDragState);
+		};
+	}, [clearDragState]);
 
 	const cellStyle = (idx: number): React.CSSProperties =>
 		({
