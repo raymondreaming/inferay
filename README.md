@@ -74,6 +74,27 @@ bash scripts/build-dmg.sh
 
 After the build completes, you'll find the installer at `artifacts/inferay-installer.dmg`.
 
+## Release
+
+Use the release script so the CLI version, DMG asset, GitHub release, and npm
+package stay in sync.
+
+```bash
+# Prepare the next patch release locally:
+bun run release patch
+
+# Prepare and publish in one run:
+bun run release patch --publish
+
+# Retry publishing an already prepared release:
+bun run release:publish
+```
+
+The script updates `packages/inferay`, builds the DMG, creates
+`artifacts/inferay-macos-arm64.dmg`, writes `artifacts/checksums.txt`, commits
+`release vX.Y.Z`, tags `vX.Y.Z`, and optionally publishes the GitHub release and
+npm CLI package.
+
 ### Installing
 
 1. Download the `.dmg` file

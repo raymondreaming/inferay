@@ -10,6 +10,8 @@
 		"build:renderer": "bun scripts/build-renderer.ts",
 		"build": "bun run build:renderer && bun run build:native && bash scripts/electrobun.sh build",
 		"start": "bash scripts/electrobun.sh run",
+		"release": "bun scripts/release.ts",
+		"release:publish": "bun scripts/release.ts --publish-existing",
 		"format": "bunx biome format --write ./src",
 		"format:prettier": "prettier . --write",
 		"check": "bunx biome check --write ./src"
