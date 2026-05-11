@@ -3,7 +3,7 @@ import { launchApp } from "./launch.js";
 import { doctor } from "./doctor.js";
 import { getChannel, setChannel } from "./config.js";
 
-const VERSION = "0.1.12";
+const VERSION = "0.1.13";
 
 function printHelp() {
 	console.log(`inferay ${VERSION}
