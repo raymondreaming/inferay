@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isAbsolute, relative, resolve } from "node:path";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import {
 	createAgentEnv,
 	resolveAgentBinary,
@@ -94,19 +94,71 @@ function summarizeToolEvent(toolName: string, payload: any): string {
 	return toolName;
 }
 
-function resolveChangedPath(cwd: string, value: unknown): string | null {
-	if (typeof value !== "string" || !value) return null;
-	const absolutePath = isAbsolute(value) ? resolve(value) : resolve(cwd, value);
-	return isWithinDirectory(absolutePath, cwd) ? absolutePath : null;
+function getReferenceWorkspaceDir(path: string): string | null {
+	const resolved = resolve(path);
+	try {
+		const stat = statSync(resolved);
+		if (stat.isDirectory()) return resolved;
+		if (stat.isFile()) return dirname(resolved);
+		return null;
+	} catch {
+		return null;
+	}
 }
 
-function getDisplayPath(cwd: string, absolutePath: string): string {
-	const relativePath = relative(cwd, absolutePath);
-	return relativePath &&
-		!relativePath.startsWith("..") &&
-		!isAbsolute(relativePath)
-		? relativePath
-		: absolutePath;
+function getWorkspaceRoots(
+	cwd: string,
+	referencePaths?: readonly string[]
+): string[] {
+	const cwdRoot = resolve(cwd);
+	const roots: string[] = [cwdRoot];
+	for (const path of referencePaths ?? []) {
+		if (typeof path !== "string" || !path.trim()) continue;
+		const root = getReferenceWorkspaceDir(path.trim());
+		if (!root || isWithinDirectory(root, cwdRoot)) continue;
+		if (roots.some((existingRoot) => isWithinDirectory(root, existingRoot)))
+			continue;
+		roots.push(root);
+	}
+	return roots;
+}
+
+function getCodexWorkspaceArgs(ctx: AgentRunContext): string[] {
+	const args = ["--cd", ctx.cwd];
+	for (const root of getWorkspaceRoots(ctx.cwd, ctx.referencePaths).slice(1)) {
+		args.push("--add-dir", root);
+	}
+	return args;
+}
+
+function isRelativeChild(pathname: string): boolean {
+	return !!pathname && !pathname.startsWith("..") && !isAbsolute(pathname);
+}
+
+function resolveChangedPath(
+	ctx: AgentRunContext,
+	value: unknown
+): string | null {
+	if (typeof value !== "string" || !value) return null;
+	const absolutePath = isAbsolute(value)
+		? resolve(value)
+		: resolve(ctx.cwd, value);
+	return getWorkspaceRoots(ctx.cwd, ctx.referencePaths).some((root) =>
+		isWithinDirectory(absolutePath, root)
+	)
+		? absolutePath
+		: null;
+}
+
+function getDisplayPath(ctx: AgentRunContext, absolutePath: string): string {
+	for (const root of getWorkspaceRoots(ctx.cwd, ctx.referencePaths)) {
+		const relativePath = relative(root, absolutePath);
+		if (!isRelativeChild(relativePath)) continue;
+		return root === resolve(ctx.cwd)
+			? relativePath
+			: `${basename(root)}/${relativePath}`;
+	}
+	return absolutePath;
 }
 
 function readSnapshot(path: string): string | null {
@@ -120,16 +172,16 @@ function readSnapshot(path: string): string | null {
 	}
 }
 
-function getFileChangePaths(cwd: string, item: any): string[] {
+function getFileChangePaths(ctx: AgentRunContext, item: any): string[] {
 	const changes = Array.isArray(item?.changes) ? item.changes : [];
 	const paths = changes
 		.map((change: any) =>
-			resolveChangedPath(cwd, change?.path ?? change?.file_path ?? change?.file)
+			resolveChangedPath(ctx, change?.path ?? change?.file_path ?? change?.file)
 		)
 		.filter((path: string | null): path is string => Boolean(path));
-	if (paths.length > 0) return [...new Set(paths)];
+	if (paths.length > 0) return Array.from(new Set<string>(paths));
 	const singlePath = resolveChangedPath(
-		cwd,
+		ctx,
 		item?.path ?? item?.file_path ?? item?.file
 	);
 	return singlePath ? [singlePath] : [];
@@ -216,7 +268,7 @@ function handleCodexEvent(
 		if (before === after) return;
 		if (before.length + after.length > MAX_INLINE_DIFF_CHARS) return;
 		const input = {
-			file_path: getDisplayPath(ctx.cwd, absolutePath),
+			file_path: getDisplayPath(ctx, absolutePath),
 			old_string: before,
 			new_string: after,
 		};
@@ -279,7 +331,7 @@ function handleCodexEvent(
 		}
 		closeTool();
 	} else if (event?.type === "item.started" && item?.type === "file_change") {
-		const paths = getFileChangePaths(ctx.cwd, item);
+		const paths = getFileChangePaths(ctx, item);
 		for (const path of paths) {
 			state.fileSnapshots.set(path, readSnapshot(path));
 		}
@@ -292,7 +344,7 @@ function handleCodexEvent(
 		});
 		startTool("patch", payload);
 	} else if (event?.type === "item.completed" && item?.type === "file_change") {
-		const paths = getFileChangePaths(ctx.cwd, item);
+		const paths = getFileChangePaths(ctx, item);
 		closeTool();
 		for (const path of paths) {
 			const before = state.fileSnapshots.get(path);
@@ -471,9 +523,19 @@ export const codexAdapter: AgentAdapter<CodexRunState> = {
 					baseArgs.push("-c", `reasoning_effort="${reasoningEffort}"`);
 				}
 				const sessionId = ctx.getSessionId();
+				const workspaceArgs = getCodexWorkspaceArgs(ctx);
 				const args = sessionId
-					? [codexCmd, "exec", "resume", ...baseArgs, sessionId, "--", prompt]
-					: [codexCmd, "exec", ...baseArgs, "--", prompt];
+					? [
+							codexCmd,
+							...workspaceArgs,
+							"exec",
+							"resume",
+							...baseArgs,
+							sessionId,
+							"--",
+							prompt,
+						]
+					: [codexCmd, ...workspaceArgs, "exec", ...baseArgs, "--", prompt];
 
 				proc = Bun.spawn(args, {
 					stdout: "pipe",
