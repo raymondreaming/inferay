@@ -20,15 +20,15 @@
 		"*": "prettier --write --ignore-unknown"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.4.7",
+		"@biomejs/biome": "^2.4.15",
 		"@stylexjs/unplugin": "^0.18.3",
-		"@tailwindcss/cli": "^4.2.2",
+		"@tailwindcss/cli": "^4.3.0",
 		"@types/bun": "latest",
 		"@types/react": "^19.2.14",
 		"@types/react-dom": "^19.2.3",
 		"husky": "^9.1.7",
 		"lint-staged": "^16.4.0",
-		"prettier": "^3.8.1"
+		"prettier": "^3.8.3"
 	},
 	"peerDependencies": {
 		"typescript": "^5.9.3"
@@ -40,11 +40,11 @@
 		"@xterm/addon-web-links": "^0.12.0",
 		"@xterm/xterm": "^6.0.0",
 		"electrobun": "^1.18.1",
-		"react": "^19.2.4",
-		"react-dom": "^19.2.4",
-		"react-router-dom": "^7.13.1",
+		"react": "^19.2.6",
+		"react-dom": "^19.2.6",
+		"react-router-dom": "^7.15.0",
 		"shiki": "^4.0.2",
-		"tailwindcss": "^4.2.1",
-		"yaml": "^2.8.2"
+		"tailwindcss": "^4.3.0",
+		"yaml": "^2.9.0"
 	}
 }
