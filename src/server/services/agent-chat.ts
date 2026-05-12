@@ -151,6 +151,13 @@ class ChatMessageBuffer {
 		this.trim();
 	}
 
+	replaceInAssistantMessages(replacer: (content: string) => string) {
+		for (const message of this.messages) {
+			if (message.role !== "assistant") continue;
+			message.content = replacer(message.content);
+		}
+	}
+
 	getMessages(): ServerChatMessage[] {
 		return this.messages;
 	}
@@ -458,6 +465,13 @@ function goalResultStatus(text?: string): "complete" | "paused" | "active" {
 	if (text.includes(GOAL_COMPLETE_MARKER)) return "complete";
 	if (text.includes(GOAL_NEEDS_INPUT_MARKER)) return "paused";
 	return "active";
+}
+
+function stripGoalMarkers(text: string): string {
+	return text
+		.replaceAll(GOAL_COMPLETE_MARKER, "")
+		.replaceAll(GOAL_NEEDS_INPUT_MARKER, "")
+		.trim();
 }
 
 function getLastAssistantMessage(result: Awaited<ReturnType<typeof runAgent>>) {
@@ -789,13 +803,16 @@ export const ChatService = {
 				}
 
 				if (session.goal && resultStatus === "complete") {
+					session.messageBuffer.replaceInAssistantMessages(stripGoalMarkers);
 					const message = `Goal achieved after ${session.goal.turns} turns`;
 					session.goal = null;
 					session.messageBuffer.pushSystem(message);
 					broadcast(session, { type: "chat:system", paneId, message });
 				} else if (session.goal && resultStatus === "paused") {
+					session.messageBuffer.replaceInAssistantMessages(stripGoalMarkers);
 					session.goal.status = "paused";
-					const message = "Goal paused because Codex needs user input";
+					const message =
+						"Goal paused because Codex needs input. Reply with the missing detail or use /goal resume.";
 					session.messageBuffer.pushSystem(message);
 					broadcast(session, { type: "chat:system", paneId, message });
 				} else if (session.goal && session.goal.turns >= GOAL_MAX_TURNS) {
