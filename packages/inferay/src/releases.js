@@ -1,6 +1,5 @@
-import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { tmpdir } from "node:os";
@@ -50,11 +49,6 @@ export function findAsset(release, platform) {
 	return preferred.map((matcher) => assets.find(matcher)).find(Boolean);
 }
 
-function findChecksumAsset(release) {
-	const assets = Array.isArray(release.assets) ? release.assets : [];
-	return assets.find((asset) => /checksums?\.txt$/i.test(asset.name || ""));
-}
-
 export async function downloadAsset(asset) {
 	if (!asset?.browser_download_url) {
 		throw new Error("release asset is missing a download URL");
@@ -70,22 +64,4 @@ export async function downloadAsset(asset) {
 	}
 	await pipeline(response.body, createWriteStream(destination));
 	return destination;
-}
-
-async function sha256(filePath) {
-	const hash = createHash("sha256");
-	const file = await readFile(filePath);
-	hash.update(file);
-	return hash.digest("hex");
-}
-
-async function verifyChecksum(filePath, expected) {
-	if (!expected) {
-		return null;
-	}
-	const actual = await sha256(filePath);
-	if (actual !== expected) {
-		throw new Error(`checksum mismatch for ${filePath}`);
-	}
-	return actual;
 }

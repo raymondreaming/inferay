@@ -167,8 +167,13 @@ async function setCliVersion(version: string) {
 		/const VERSION = "\d+\.\d+\.\d+";/,
 		`const VERSION = "${version}";`
 	);
-	if (next === source) throw new Error("could not update CLI VERSION constant");
-	await writeFile(CLI_SOURCE, next);
+	if (next !== source) {
+		await writeFile(CLI_SOURCE, next);
+		return;
+	}
+	if (!source.includes("version: VERSION")) {
+		throw new Error("could not update CLI VERSION constant");
+	}
 }
 
 async function setDesktopVersion(version: string) {

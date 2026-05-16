@@ -1,9 +1,20 @@
+import { createRequire } from "node:module";
 import { install } from "./install.js";
 import { launchApp } from "./launch.js";
 import { doctor } from "./doctor.js";
 import { getChannel, setChannel } from "./config.js";
 
-const VERSION = "0.1.14";
+const require = createRequire(import.meta.url);
+const { version: VERSION } = require("../package.json");
+const KNOWN_COMMANDS = new Set([
+	"help",
+	"install",
+	"launch",
+	"doctor",
+	"update",
+	"channel",
+	"version",
+]);
 
 function printHelp() {
 	console.log(`inferay ${VERSION}
@@ -110,13 +121,5 @@ export async function main(argv) {
 }
 
 function isKnownCommand(command) {
-	return new Set([
-		"help",
-		"install",
-		"launch",
-		"doctor",
-		"update",
-		"channel",
-		"version",
-	]).has(command);
+	return KNOWN_COMMANDS.has(command);
 }

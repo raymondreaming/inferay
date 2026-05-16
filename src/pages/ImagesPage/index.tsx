@@ -5,6 +5,7 @@ import { IconCamera, IconTrash } from "../../components/ui/Icons.tsx";
 import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
 import { lacksPath } from "../../lib/data.ts";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
+import { formatBytes, formatRelativeTime } from "../../lib/format.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 
 interface ImageEntry {
@@ -12,29 +13,6 @@ interface ImageEntry {
 	path: string;
 	timestamp: number;
 	size: number;
-}
-
-function formatBytes(bytes: number): string {
-	if (bytes < 1024) return `${bytes} B`;
-	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatTime(ts: number): string {
-	const d = new Date(ts);
-	const now = new Date();
-	const diff = now.getTime() - ts;
-	if (diff < 60_000) return "just now";
-	if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-	if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-	if (d.getFullYear() === now.getFullYear()) {
-		return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-	}
-	return d.toLocaleDateString(undefined, {
-		month: "short",
-		day: "numeric",
-		year: "numeric",
-	});
 }
 
 export function ImagesPage() {
@@ -101,7 +79,7 @@ export function ImagesPage() {
 								<div {...stylex.props(styles.rowText)}>
 									<div {...stylex.props(styles.imageName)}>{img.name}</div>
 									<div {...stylex.props(styles.imageMeta)}>
-										<span>{formatTime(img.timestamp)}</span>
+										<span>{formatRelativeTime(img.timestamp)}</span>
 										<span>{formatBytes(img.size)}</span>
 									</div>
 								</div>

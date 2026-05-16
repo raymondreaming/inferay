@@ -24,6 +24,7 @@ interface CodexRunState {
 	toolOpen: boolean;
 	sawAssistantStream: boolean;
 	hasFinalAssistantMessage: boolean;
+	completedFromEvent: boolean;
 	lastAssistantMessage: string;
 	currentToolId: string | null;
 	fileSnapshots: Map<string, string | null>;
@@ -450,17 +451,21 @@ function handleCodexEvent(
 	} else if (event?.type === "error" && event.message) {
 		ctx.emitAgentEvent({ type: "error", message: event.message });
 		ctx.emitSystemMessage(event.message);
-	} else if (
-		event?.type === "task_complete" &&
-		typeof event.last_agent_message === "string" &&
-		event.last_agent_message
-	) {
-		if (!state.sawAssistantStream) {
+	} else if (event?.type === "task_complete") {
+		state.completedFromEvent = true;
+		const finalText =
+			typeof event.last_agent_message === "string"
+				? event.last_agent_message
+				: "";
+		if (finalText) {
+			state.lastAssistantMessage = finalText;
+		}
+		if (finalText && !state.sawAssistantStream) {
 			ctx.emitChatEvent({
 				type: "result",
-				result: event.last_agent_message,
+				result: finalText,
 			});
-			ctx.emitAgentEvent({ type: "result", text: event.last_agent_message });
+			ctx.emitAgentEvent({ type: "result", text: finalText });
 			state.hasFinalAssistantMessage = true;
 		}
 	} else if (
@@ -490,6 +495,7 @@ export const codexAdapter: AgentAdapter<CodexRunState> = {
 			toolOpen: false,
 			sawAssistantStream: false,
 			hasFinalAssistantMessage: false,
+			completedFromEvent: false,
 			lastAssistantMessage: "",
 			currentToolId: null,
 			fileSnapshots: new Map(),
@@ -550,17 +556,28 @@ export const codexAdapter: AgentAdapter<CodexRunState> = {
 				const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
 				const decoder = new TextDecoder();
 				let leftover = "";
+				let completionStopRequested = false;
+				const handleStdoutEvent = (event: any) => {
+					handleCodexEvent(
+						ctx,
+						state,
+						event?.type === "event_msg" && event.payload?.type
+							? event.payload
+							: event
+					);
+				};
 
 				while (true) {
 					const { done, value } = await reader.read();
 					if (done) break;
 					leftover += decoder.decode(value, { stream: true });
-					leftover = parseNdjsonLines(
-						leftover,
-						handleCodexEvent.bind(null, ctx, state)
-					);
+					leftover = parseNdjsonLines(leftover, handleStdoutEvent);
+					if (state.completedFromEvent && !completionStopRequested) {
+						completionStopRequested = true;
+						killProcess();
+					}
 				}
-				flushNdjsonLeftover(leftover, handleCodexEvent.bind(null, ctx, state));
+				flushNdjsonLeftover(leftover, handleStdoutEvent);
 
 				const exitCode = await proc.exited;
 				proc = null;
@@ -600,13 +617,16 @@ export const codexAdapter: AgentAdapter<CodexRunState> = {
 						result: assistantText,
 					});
 					ctx.emitAgentEvent({ type: "result", text: assistantText });
-				} else if (exitCode !== 0 && stderrText) {
+				} else if (exitCode !== 0 && stderrText && !state.completedFromEvent) {
 					ctx.emitAgentEvent({ type: "error", message: stderrText });
 					ctx.emitSystemMessage(stderrText);
 				}
 				ctx.emitAgentEvent({
 					type: "finish",
-					reason: exitCode === 0 ? "completed" : `exit:${exitCode}`,
+					reason:
+						exitCode === 0 || state.completedFromEvent
+							? "completed"
+							: `exit:${exitCode}`,
 				});
 
 				return { lastAssistantMessage: state.lastAssistantMessage };

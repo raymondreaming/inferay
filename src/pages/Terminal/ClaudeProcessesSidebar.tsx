@@ -3,15 +3,9 @@ import { memo } from "react";
 import { IconButton } from "../../components/ui/IconButton.tsx";
 import { IconCircle, IconRobot, IconX } from "../../components/ui/Icons.tsx";
 import type { ClaudeProcess } from "../../features/agents/useClaudeProcesses.ts";
-import { basename } from "../../lib/format.ts";
+import { basename, formatKilobytes } from "../../lib/format.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 import { CollapsibleSidebarSection } from "./CollapsibleSidebarSection.tsx";
-
-function formatRss(rssKb: number): string {
-	if (rssKb >= 1024 * 1024) return `${(rssKb / (1024 * 1024)).toFixed(1)}G`;
-	if (rssKb >= 1024) return `${Math.round(rssKb / 1024)}M`;
-	return `${rssKb}K`;
-}
 
 function formatElapsed(elapsed: string): string {
 	// ps etime format: [[dd-]hh:]mm:ss
@@ -56,7 +50,7 @@ export const ClaudeProcessesSidebar = memo(function ClaudeProcessesSidebar({
 				<div {...stylex.props(styles.summary)}>
 					<span {...stylex.props(styles.metaText)}>
 						{processes.length} process{processes.length !== 1 ? "es" : ""} ·{" "}
-						{formatRss(totalRss)}
+						{formatKilobytes(totalRss)}
 					</span>
 					{processes.length > 1 && (
 						<button
@@ -89,7 +83,8 @@ export const ClaudeProcessesSidebar = memo(function ClaudeProcessesSidebar({
 							{p.cwd ? basename(p.cwd) : "unknown"}
 						</p>
 						<p {...stylex.props(styles.metaText, styles.truncate)}>
-							{p.cpu}% CPU · {formatRss(p.rss)} · {formatElapsed(p.elapsed)}
+							{p.cpu}% CPU · {formatKilobytes(p.rss)} ·{" "}
+							{formatElapsed(p.elapsed)}
 						</p>
 					</div>
 					<IconButton

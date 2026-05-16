@@ -32,6 +32,10 @@ import {
 } from "../../features/terminal/terminal-utils.ts";
 import { lacksValue } from "../../lib/data.ts";
 import { fetchJsonOr, sendJsonWithBusy } from "../../lib/fetch-json.ts";
+import {
+	fetchForgeAccounts,
+	fetchGithubRepos,
+} from "../../lib/forge-client.ts";
 import type { ForgeAccount, GithubRepo } from "../../lib/forge-types.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 
@@ -58,22 +62,6 @@ function stepClass(
 	return ci < ti ? before : after;
 }
 
-async function fetchAccounts(): Promise<ForgeAccount[]> {
-	const data = await fetchJsonOr<{ accounts?: ForgeAccount[] }>(
-		"/api/forge/accounts",
-		{}
-	);
-	return Array.isArray(data.accounts) ? data.accounts : [];
-}
-
-async function fetchRepos(): Promise<GithubRepo[]> {
-	const data = await fetchJsonOr<{ repos?: GithubRepo[] }>(
-		"/api/forge/repos?limit=50",
-		{}
-	);
-	return Array.isArray(data.repos) ? data.repos : [];
-}
-
 /* ─── Main component ─── */
 
 export function OnboardingPage() {
@@ -84,10 +72,14 @@ export function OnboardingPage() {
 		data: accounts,
 		loading: accountsLoading,
 		refresh: refreshAccountsResource,
-	} = useAsyncResource(fetchAccounts, [], []);
+	} = useAsyncResource(fetchForgeAccounts, [], []);
 	const [connecting, setConnecting] = useState(false);
-	const { data: repos, loading: reposLoading } = useAsyncResource(
-		async () => (accounts.length > 0 ? fetchRepos() : []),
+	const {
+		data: repos,
+		loading: reposLoading,
+		refresh: refreshRepos,
+	} = useAsyncResource(
+		async () => (accounts.length > 0 ? fetchGithubRepos() : []),
 		[],
 		[accounts.length]
 	);
@@ -225,7 +217,7 @@ export function OnboardingPage() {
 				hasGithub={accounts.length > 0}
 				selected={selectedRepos}
 				onToggle={toggleRepo}
-				onRefreshRepos={loadRepos}
+				onRefreshRepos={refreshRepos}
 				localFolders={localFolders}
 				isAddingFolder={isAddingFolder}
 				onPickFolder={pickFolder}

@@ -31,6 +31,14 @@ import {
 } from "../../lib/app-theme.ts";
 import { isActive, lacksValue } from "../../lib/data.ts";
 import { fetchJsonOr, sendJsonWithBusy } from "../../lib/fetch-json.ts";
+import {
+	fetchForgeAccounts,
+	fetchGithubRepos,
+	getCachedForgeAccounts,
+	getCachedGithubRepos,
+	invalidateForgeAccountsCache,
+	invalidateGithubReposCache,
+} from "../../lib/forge-client.ts";
 import type { ForgeAccount, GithubRepo } from "../../lib/forge-types.ts";
 import { setupTerminalThemePanelShortcut } from "../../lib/react-events.ts";
 import { removeStoredValue } from "../../lib/stored-json.ts";
@@ -40,14 +48,6 @@ import { ONBOARDING_DONE_KEY } from "../OnboardingPage/index.tsx";
 import { TerminalSettingsPanel } from "../Terminal/TerminalSettingsPanel.tsx";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
-const PROFILE_CACHE_TTL_MS = 120_000;
-
-let cachedAccounts: { value: ForgeAccount[]; cachedAt: number } | null = null;
-let cachedRepos: { value: GithubRepo[]; cachedAt: number } | null = null;
-
-function isFresh(cachedAt: number) {
-	return Date.now() - cachedAt < PROFILE_CACHE_TTL_MS;
-}
 
 async function fetchSimulatorProjectFolders(): Promise<string[]> {
 	const response = await fetch("/api/simulator/project-folders");
@@ -56,46 +56,19 @@ async function fetchSimulatorProjectFolders(): Promise<string[]> {
 	return Array.isArray(payload.folders) ? payload.folders : [];
 }
 
-async function fetchAccounts(): Promise<ForgeAccount[]> {
-	if (cachedAccounts && isFresh(cachedAccounts.cachedAt)) {
-		return cachedAccounts.value;
-	}
-	const response = await fetch("/api/forge/accounts");
-	if (!response.ok) throw new Error(await response.text());
-	const payload = (await response.json()) as { accounts?: ForgeAccount[] };
-	const nextAccounts = Array.isArray(payload.accounts) ? payload.accounts : [];
-	cachedAccounts = { value: nextAccounts, cachedAt: Date.now() };
-	return nextAccounts;
-}
-
-async function fetchRepos(): Promise<GithubRepo[]> {
-	if (cachedRepos && isFresh(cachedRepos.cachedAt)) {
-		return cachedRepos.value;
-	}
-	const response = await fetch("/api/forge/repos?limit=50");
-	if (!response.ok) throw new Error(await response.text());
-	const payload = (await response.json()) as { repos?: GithubRepo[] };
-	const nextRepos = Array.isArray(payload.repos) ? payload.repos : [];
-	cachedRepos = { value: nextRepos, cachedAt: Date.now() };
-	return nextRepos;
-}
-
 export function ProfilePage() {
 	const navigate = useNavigate();
 	const resetOnboarding = () => {
 		removeStoredValue(ONBOARDING_DONE_KEY);
 		navigate("/onboarding", { replace: true });
 	};
-	const initialAccounts =
-		cachedAccounts && isFresh(cachedAccounts.cachedAt)
-			? cachedAccounts.value
-			: [];
+	const initialAccounts = getCachedForgeAccounts();
 	const {
 		data: accounts,
 		loading: accountsLoading,
 		error: accountsError,
 		refresh: refreshAccounts,
-	} = useAsyncResource(fetchAccounts, initialAccounts, []);
+	} = useAsyncResource(fetchForgeAccounts, initialAccounts, []);
 	const loadState: LoadState = accountsLoading
 		? "loading"
 		: accountsError
@@ -114,8 +87,8 @@ export function ProfilePage() {
 		error: reposError,
 		refresh: refreshRepos,
 	} = useAsyncResource(
-		async () => (accounts.length > 0 ? fetchRepos() : []),
-		cachedRepos && isFresh(cachedRepos.cachedAt) ? cachedRepos.value : [],
+		async () => (accounts.length > 0 ? fetchGithubRepos() : []),
+		getCachedGithubRepos(),
 		[accounts.length]
 	);
 	const [error, setError] = useState<string | null>(null);
@@ -249,7 +222,7 @@ export function ProfilePage() {
 	const loadAccounts = useCallback(
 		async (force = false) => {
 			setError(null);
-			if (force) cachedAccounts = null;
+			if (force) invalidateForgeAccountsCache();
 			await refreshAccounts();
 		},
 		[refreshAccounts]
@@ -260,7 +233,7 @@ export function ProfilePage() {
 	const loadRepos = useCallback(
 		async (force = false) => {
 			setError(null);
-			if (force) cachedRepos = null;
+			if (force) invalidateGithubReposCache();
 			await refreshRepos();
 		},
 		[refreshRepos]
@@ -319,7 +292,7 @@ export function ProfilePage() {
 				displayPath?: string;
 			};
 			if (!response.ok) throw new Error(payload.error ?? "Clone failed");
-			cachedRepos = null;
+			invalidateGithubReposCache();
 			setCloneStatus(`Cloned ${repo.full_name} to ${payload.displayPath}`);
 			window.dispatchEvent(new Event("terminal-shell-change"));
 		} catch (err) {
