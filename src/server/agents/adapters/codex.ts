@@ -52,10 +52,6 @@ function extractText(value: any): string {
 	return "";
 }
 
-function safePaneFileStem(paneId: string): string {
-	return paneId.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "pane";
-}
-
 function summarizeToolEvent(toolName: string, payload: any): string {
 	if (!payload) return toolName;
 	if (typeof payload.command === "string" && payload.command) {
@@ -484,7 +480,8 @@ export const codexAdapter: AgentAdapter<CodexRunState> = {
 	displayName: "Codex",
 
 	createState(ctx) {
-		const paneFileStem = safePaneFileStem(ctx.paneId);
+		const paneFileStem =
+			ctx.paneId.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "pane";
 		return {
 			outputPath: resolve(
 				tmpdir(),

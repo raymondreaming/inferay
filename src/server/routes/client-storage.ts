@@ -11,7 +11,7 @@ type ClientStorageSnapshot = Record<string, string>;
 
 const CLIENT_STORAGE_PATH = userDataPath("client-storage.json");
 
-function normalizeEntries(value: unknown): Record<string, StoredValue> {
+export function normalizeEntries(value: unknown): Record<string, StoredValue> {
 	if (typeof value !== "object" || value === null) return {};
 	const entries: Record<string, StoredValue> = {};
 	for (const [key, raw] of Object.entries(value)) {

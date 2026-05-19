@@ -43,7 +43,9 @@ export function isLoopbackHost(value: string | null): boolean {
 export function isTrustedLocalOrigin(origin: string | null): boolean {
 	if (!origin || origin === "null") return false;
 	try {
-		return isLoopbackHost(new URL(origin).host);
+		const url = new URL(origin);
+		if (url.protocol === "views:") return true;
+		return isLoopbackHost(url.host);
 	} catch {
 		return false;
 	}
@@ -52,6 +54,7 @@ export function isTrustedLocalOrigin(origin: string | null): boolean {
 export function isTrustedLocalRequest(req: Request): boolean {
 	const origin = req.headers.get("origin");
 	const fetchSite = req.headers.get("sec-fetch-site");
+	const fromAppView = origin?.startsWith("views:") ?? false;
 	const trustedOrigin =
 		origin === null
 			? fetchSite === "same-origin" || fetchSite === "none"
@@ -59,8 +62,8 @@ export function isTrustedLocalRequest(req: Request): boolean {
 	return (
 		isLoopbackHost(req.headers.get("host")) &&
 		trustedOrigin &&
-		isAuthorizedLocalRequest(req) &&
-		req.headers.get("sec-fetch-site") !== "cross-site"
+		(isAuthorizedLocalRequest(req) || fromAppView) &&
+		(fromAppView || req.headers.get("sec-fetch-site") !== "cross-site")
 	);
 }
 

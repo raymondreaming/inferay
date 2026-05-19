@@ -1,15 +1,16 @@
 #!/usr/bin/env bun
 
 import { spawn } from "node:child_process";
-import { watch } from "node:fs";
-import { resolve } from "node:path";
-import { resolveExitCode, targetExists } from "./watch-utils.ts";
+import { existsSync, watch } from "node:fs";
+import { cp, readdir, rm } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { resolveExitCode } from "./watch-utils.ts";
 
 const ROOT = process.cwd();
 const watchTargets = [
 	{ path: resolve(ROOT, "src"), recursive: true },
 	{ path: resolve(ROOT, "scripts", "build-renderer.ts"), recursive: false },
-].filter(targetExists);
+].filter((target) => existsSync(target.path));
 
 let debounce: ReturnType<typeof setTimeout> | null = null;
 let building = false;
@@ -36,6 +37,32 @@ function runBuild(): Promise<number> {
 	});
 }
 
+async function syncDevViews() {
+	const buildDir = resolve(ROOT, "build", "dev-macos-arm64");
+	if (
+		!existsSync(buildDir) ||
+		!existsSync(resolve(ROOT, "dist", "index.html"))
+	) {
+		return;
+	}
+
+	const entries = await readdir(buildDir, { withFileTypes: true });
+	for (const entry of entries) {
+		if (!entry.isDirectory() || !entry.name.endsWith(".app")) continue;
+		const viewsDir = join(
+			buildDir,
+			entry.name,
+			"Contents",
+			"Resources",
+			"app",
+			"views"
+		);
+		await rm(viewsDir, { recursive: true, force: true });
+		await cp(resolve(ROOT, "dist"), viewsDir, { recursive: true });
+		console.log(`[views] synced renderer files -> ${entry.name}`);
+	}
+}
+
 async function buildQueued() {
 	if (building) {
 		pending = true;
@@ -45,7 +72,9 @@ async function buildQueued() {
 	try {
 		do {
 			pending = false;
-			await runBuild();
+			if ((await runBuild()) === 0) {
+				await syncDevViews();
+			}
 		} while (pending);
 	} finally {
 		building = false;

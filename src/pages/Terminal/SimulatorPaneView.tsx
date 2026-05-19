@@ -73,6 +73,7 @@ interface SimulatorSnapshot {
 	devices: SimulatorDevice[];
 	projects: SimulatorProject[];
 	status: BaguetteStatus | null;
+	error?: string;
 }
 
 async function loadSimulatorSnapshot(): Promise<SimulatorSnapshot> {
@@ -82,12 +83,25 @@ async function loadSimulatorSnapshot(): Promise<SimulatorSnapshot> {
 		fetch("/api/simulator/projects"),
 	]);
 	const listJson = await listRes.json();
-	const statusJson = (await statusRes.json()) as BaguetteStatus;
+	const statusJson = statusRes.ok
+		? ((await statusRes.json()) as BaguetteStatus)
+		: null;
 	const projectsJson = await projectsRes.json();
+	const error =
+		(!listRes.ok && typeof listJson.error === "string"
+			? listJson.error
+			: null) ??
+		(!projectsRes.ok && typeof projectsJson.error === "string"
+			? projectsJson.error
+			: null) ??
+		undefined;
 	return {
-		devices: (listJson.devices ?? []) as SimulatorDevice[],
-		projects: (projectsJson.projects ?? []) as SimulatorProject[],
+		devices: listRes.ok ? ((listJson.devices ?? []) as SimulatorDevice[]) : [],
+		projects: projectsRes.ok
+			? ((projectsJson.projects ?? []) as SimulatorProject[])
+			: [],
 		status: statusJson,
+		error,
 	};
 }
 
@@ -546,7 +560,12 @@ export function SimulatorPaneView() {
 			{ devices: [], projects: [], status: null },
 			[]
 		);
-	const { devices, projects, status } = simulatorSnapshot;
+	const {
+		devices,
+		projects,
+		status,
+		error: simulatorError,
+	} = simulatorSnapshot;
 	const [selectedUdid, setSelectedUdid] = useState<string | null>(null);
 	const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
 		null
@@ -773,7 +792,11 @@ export function SimulatorPaneView() {
 								}))}
 								onChange={(id) => setSelectedUdid(id)}
 								placeholder="Select simulator"
-								emptyLabel="No simulators"
+								emptyLabel={
+									simulatorError
+										? "Simulator service unavailable"
+										: "No simulators"
+								}
 								fullWidth
 								minWidth={260}
 								buttonClassName={
@@ -806,6 +829,8 @@ export function SimulatorPaneView() {
 						</div>
 						{launchError ? (
 							<div {...stylex.props(styles.launchError)}>{launchError}</div>
+						) : simulatorError ? (
+							<div {...stylex.props(styles.launchError)}>{simulatorError}</div>
 						) : null}
 						<div {...stylex.props(styles.projectSearchWrap)}>
 							<IconSearch size={12} />
@@ -1196,7 +1221,10 @@ export function SimulatorPaneView() {
 								) : (
 									<div {...stylex.props(styles.streamEmpty)}>
 										<IconSimulator size={24} />
-										<span>No simulator devices found.</span>
+										<span>
+											{simulatorError ??
+												"No simulator devices found. Open Simulator or install an iOS simulator runtime in Xcode."}
+										</span>
 									</div>
 								)
 							) : canStream ? (

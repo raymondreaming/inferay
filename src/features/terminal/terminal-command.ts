@@ -7,13 +7,6 @@ const isWin = process.platform === "win32";
 const homeDir =
 	process.env.HOME || process.env.USERPROFILE || process.env.HOMEPATH || null;
 
-function withExecutableExtension(pathname: string): string {
-	if (!isWin || pathname.endsWith(".cmd") || pathname.endsWith(".exe")) {
-		return pathname;
-	}
-	return `${pathname}.cmd`;
-}
-
 function findInNvmVersions(binaryName: string): string | null {
 	const home = homeDir;
 	if (!home) return null;
@@ -54,7 +47,12 @@ function getAgentPathCandidates(kind: ChatAgentKind): string[] {
 				"/usr/local/bin/codex",
 			];
 
-	return candidates.filter(isNonEmptyString).map(withExecutableExtension);
+	return candidates.filter(isNonEmptyString).map((pathname) => {
+		if (!isWin || pathname.endsWith(".cmd") || pathname.endsWith(".exe")) {
+			return pathname;
+		}
+		return `${pathname}.cmd`;
+	});
 }
 
 export function resolveAgentBinary(kind: ChatAgentKind): string {

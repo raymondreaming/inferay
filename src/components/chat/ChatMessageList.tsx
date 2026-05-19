@@ -16,17 +16,13 @@ import {
 } from "../ui/Icons.tsx";
 import { GroupedEditDiff, MiniEditDiff } from "./ChatEditDiff.tsx";
 import { AskUserQuestionCard, Markdown } from "./ChatRichContent.tsx";
+import {
+	buildRenderItems,
+	type RenderChatMessage,
+} from "./chat-message-render-utils.ts";
 import { renderTextPills } from "./chat-token-decorators.tsx";
 
-type ChatMessage = {
-	id: string;
-	role: "user" | "assistant" | "tool" | "system" | "btw";
-	content: string;
-	toolName?: string;
-	isStreaming?: boolean;
-	btwQuestion?: string;
-	images?: string[];
-};
+export type ChatMessage = RenderChatMessage;
 
 type CheckpointInfo = {
 	id: string;
@@ -36,87 +32,6 @@ type CheckpointInfo = {
 	reverted: boolean;
 	afterMessageId: string | null;
 };
-
-type RenderItem =
-	| { type: "message"; message: ChatMessage }
-	| { type: "edit-group"; filePath: string; edits: ChatMessage[] };
-
-function isActivityBarTool(msg: ChatMessage): boolean {
-	return (
-		msg.role === "tool" &&
-		msg.toolName !== "AskUserQuestion" &&
-		msg.toolName !== "Edit"
-	);
-}
-
-function getEditFilePath(msg: ChatMessage): string | null {
-	if (msg.role !== "tool" || msg.toolName !== "Edit" || !msg.content)
-		return null;
-	try {
-		const parsed = JSON.parse(msg.content);
-		return parsed.file_path || null;
-	} catch {
-		return null;
-	}
-}
-
-function buildRenderItems(messages: ChatMessage[]): RenderItem[] {
-	const items: RenderItem[] = [];
-	const filtered = messages.filter((msg) => !isActivityBarTool(msg));
-	const editGroups = new Map<
-		number,
-		{ filePath: string; edits: ChatMessage[]; lastIdx: number }
-	>();
-	const skipIndices = new Set<number>();
-
-	for (let i = 0; i < filtered.length; i++) {
-		if (skipIndices.has(i)) continue;
-		const msg = filtered[i]!;
-		const filePath = getEditFilePath(msg);
-		if (!filePath) continue;
-		const edits: ChatMessage[] = [msg];
-		const editIndices: number[] = [i];
-		let j = i + 1;
-
-		while (j < filtered.length) {
-			const nextMsg = filtered[j]!;
-			const nextFilePath = getEditFilePath(nextMsg);
-			if (nextFilePath === filePath) {
-				edits.push(nextMsg);
-				editIndices.push(j);
-				j++;
-			} else if (nextMsg.role === "assistant" || nextMsg.role === "user") {
-				j++;
-			} else if (nextFilePath && nextFilePath !== filePath) {
-				break;
-			} else {
-				j++;
-			}
-		}
-
-		if (edits.length > 1) {
-			for (const idx of editIndices) skipIndices.add(idx);
-			const lastEditIdx = editIndices[editIndices.length - 1]!;
-			editGroups.set(lastEditIdx, { filePath, edits, lastIdx: lastEditIdx });
-		}
-	}
-
-	for (let i = 0; i < filtered.length; i++) {
-		const group = editGroups.get(i);
-		if (group) {
-			items.push({
-				type: "edit-group",
-				filePath: group.filePath,
-				edits: group.edits,
-			});
-			continue;
-		}
-		if (skipIndices.has(i)) continue;
-		items.push({ type: "message", message: filtered[i]! });
-	}
-
-	return items;
-}
 
 function ToolOutputHighlight({ content }: { content: string }) {
 	try {

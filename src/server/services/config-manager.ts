@@ -41,7 +41,7 @@ export class ConfigManager {
 			let base = { ...DEFAULT_CONFIG };
 			if (await baseFile.exists()) {
 				const text = await baseFile.text();
-				base = this.deepMerge(
+				base = deepMergeRecords(
 					base,
 					(YAML.parse(text) ?? {}) as Record<string, unknown>
 				);
@@ -49,7 +49,7 @@ export class ConfigManager {
 
 			if (await localFile.exists()) {
 				const text = await localFile.text();
-				base = this.deepMerge(
+				base = deepMergeRecords(
 					base,
 					(YAML.parse(text) ?? {}) as Record<string, unknown>
 				);
@@ -90,7 +90,7 @@ export class ConfigManager {
 			const baseCurrent = (await baseFile.exists())
 				? (YAML.parse(await baseFile.text()) ?? {})
 				: { ...DEFAULT_CONFIG };
-			const mergedBase = this.deepMerge(
+			const mergedBase = deepMergeRecords(
 				baseCurrent as Record<string, unknown>,
 				baseUpdates
 			);
@@ -103,7 +103,7 @@ export class ConfigManager {
 			const localCurrent = (await localFile.exists())
 				? (YAML.parse(await localFile.text()) ?? {})
 				: {};
-			const mergedLocal = this.deepMerge(
+			const mergedLocal = deepMergeRecords(
 				localCurrent as Record<string, unknown>,
 				localUpdates
 			);
@@ -113,33 +113,33 @@ export class ConfigManager {
 			);
 		}
 
-		const merged = this.deepMerge(current, updates);
+		const merged = deepMergeRecords(current, updates);
 		this.cache = merged;
 		return merged;
 	}
+}
 
-	private deepMerge(
-		target: Record<string, unknown>,
-		source: Record<string, unknown>
-	): Record<string, unknown> {
-		const result = { ...target };
-		for (const key of Object.keys(source)) {
-			if (
-				source[key] &&
-				typeof source[key] === "object" &&
-				!Array.isArray(source[key]) &&
-				target[key] &&
-				typeof target[key] === "object" &&
-				!Array.isArray(target[key])
-			) {
-				result[key] = this.deepMerge(
-					target[key] as Record<string, unknown>,
-					source[key] as Record<string, unknown>
-				);
-			} else {
-				result[key] = source[key];
-			}
+export function deepMergeRecords(
+	target: Record<string, unknown>,
+	source: Record<string, unknown>
+): Record<string, unknown> {
+	const result = { ...target };
+	for (const key of Object.keys(source)) {
+		if (
+			source[key] &&
+			typeof source[key] === "object" &&
+			!Array.isArray(source[key]) &&
+			target[key] &&
+			typeof target[key] === "object" &&
+			!Array.isArray(target[key])
+		) {
+			result[key] = deepMergeRecords(
+				target[key] as Record<string, unknown>,
+				source[key] as Record<string, unknown>
+			);
+		} else {
+			result[key] = source[key];
 		}
-		return result;
 	}
+	return result;
 }

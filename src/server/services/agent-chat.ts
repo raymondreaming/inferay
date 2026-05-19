@@ -1,5 +1,6 @@
 import type { ServerWebSocket } from "bun";
 import type { ChatAgentKind } from "../../features/agents/agents.ts";
+import { getToolBlockInitialContent } from "../../features/chat/chat-stream-events.ts";
 import {
 	createAgentEnv,
 	resolveAgentBinary,
@@ -97,7 +98,10 @@ class ChatMessageBuffer {
 			} else if (block?.type === "tool_use") {
 				this.currentAssistantIdx = -1;
 				this.currentToolIdx = this.messages.length;
-				this.push("tool", "", { toolName: block.name, isStreaming: true });
+				this.push("tool", getToolBlockInitialContent(block), {
+					toolName: block.name,
+					isStreaming: true,
+				});
 			}
 		} else if (event.type === "content_block_delta") {
 			const delta = event.delta;

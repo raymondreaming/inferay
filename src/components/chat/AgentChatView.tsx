@@ -44,6 +44,7 @@ import {
 	type SlashCommand,
 	trimMessages,
 } from "../../features/chat/agent-chat-shared.ts";
+import { getToolBlockInitialContent } from "../../features/chat/chat-stream-events.ts";
 import { ChatComposer } from "./ChatComposer.tsx";
 import { ChatMessageList } from "./ChatMessageList.tsx";
 import {
@@ -1109,7 +1110,7 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 						appendMessage.bind(null, {
 							id,
 							role: "tool",
-							content: "",
+							content: getToolBlockInitialContent(block),
 							toolName: block.name,
 							isStreaming: true,
 						})

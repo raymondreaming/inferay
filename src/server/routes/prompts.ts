@@ -49,7 +49,7 @@ async function loadLocalPrompts(): Promise<Prompt[]> {
 	return JSON.parse(await file.text()) as Prompt[];
 }
 
-function mergePrompts(bundled: Prompt[], local: Prompt[]): Prompt[] {
+export function mergePrompts(bundled: Prompt[], local: Prompt[]): Prompt[] {
 	const localById = new Map(local.map((prompt) => [prompt._id, prompt]));
 	const localBuiltInByCommand = new Map(
 		local.filter(isBuiltIn).map((prompt) => [prompt.command, prompt])

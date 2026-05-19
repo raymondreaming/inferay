@@ -130,8 +130,10 @@ export async function hydrateStoredValues(): Promise<void> {
 		for (const [key, value] of Object.entries(entries)) {
 			if (!shouldSyncClientStorageKey(key)) continue;
 			if (!shouldApplyServerValue(key, value)) continue;
-			if (value === null) localStorage.removeItem(key);
-			else localStorage.setItem(key, value);
+			try {
+				if (value === null) localStorage.removeItem(key);
+				else localStorage.setItem(key, value);
+			} catch {}
 		}
 	} finally {
 		hydrating = false;

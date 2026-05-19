@@ -2,10 +2,6 @@ export function isStagedChange(file: { staged: boolean }): boolean {
 	return file.staged;
 }
 
-export function isUnstagedChange(file: { staged: boolean }): boolean {
-	return !file.staged;
-}
-
 export function isUnstagedTrackedChange(file: {
 	staged: boolean;
 	status: string;
@@ -20,7 +16,10 @@ export function isUntrackedChange(file: { status: string }): boolean {
 export function orderGitFiles<T extends { staged: boolean }>(
 	files: readonly T[]
 ): T[] {
-	return [...files.filter(isUnstagedChange), ...files.filter(isStagedChange)];
+	return [
+		...files.filter((file) => !file.staged),
+		...files.filter(isStagedChange),
+	];
 }
 
 export function orderProjectGitFiles<T extends { staged: boolean }>(

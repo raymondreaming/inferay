@@ -2,10 +2,10 @@
  * Watches server-side sources and the Bun entrypoint for .ts changes and
  * restarts the electrobun dev process when they change.
  */
-import { watch } from "node:fs";
+import { existsSync, watch } from "node:fs";
 import { resolve } from "node:path";
 import { execFile, spawn } from "node:child_process";
-import { resolveExitCode, targetExists } from "./watch-utils.ts";
+import { resolveExitCode } from "./watch-utils.ts";
 
 const ROOT = process.cwd();
 const ELECTROBUN =
@@ -17,7 +17,7 @@ const watchTargets = [
 	{ path: resolve(ROOT, "src/server"), recursive: true },
 	{ path: resolve(ROOT, "src/lib"), recursive: true },
 	{ path: resolve(ROOT, "src/index.ts"), recursive: false },
-].filter(targetExists);
+].filter((target) => existsSync(target.path));
 
 let child: ReturnType<typeof spawn> | null = null;
 let debounce: ReturnType<typeof setTimeout> | null = null;
@@ -47,16 +47,13 @@ async function getDevAppPids(): Promise<number[]> {
 	return [...pids].sort((a, b) => a - b);
 }
 
-async function keepMainDevAppOnly(): Promise<boolean> {
+async function killDevApps(): Promise<void> {
 	const pids = await getDevAppPids();
-	if (pids.length === 0) return false;
-	const [, ...duplicates] = pids;
-	for (const pid of duplicates) {
+	for (const pid of pids) {
 		try {
 			process.kill(pid, "SIGTERM");
 		} catch {}
 	}
-	return true;
 }
 
 function runElectrobun(args: string[]): Promise<number> {
@@ -91,10 +88,7 @@ async function startApp() {
 	restarting = true;
 	try {
 		await killChild();
-		if (await keepMainDevAppOnly()) {
-			await runElectrobun(["build", "--env=dev"]);
-			return;
-		}
+		await killDevApps();
 		// Brief pause to let ports and file locks release
 		await new Promise((r) => setTimeout(r, 200));
 		child = spawn(ELECTROBUN, ["dev"], {
@@ -122,7 +116,7 @@ startApp();
 
 async function shutdown() {
 	await killChild();
-	await keepMainDevAppOnly();
+	await killDevApps();
 	process.exit(0);
 }
 

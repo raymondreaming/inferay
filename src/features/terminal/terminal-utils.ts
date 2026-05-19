@@ -289,18 +289,10 @@ export function createTerminalPane(
 	};
 }
 
-function createAgentChatPane(
-	agentKind: ChatAgentKind = loadDefaultChatSettings().agentKind,
-	cwd?: string,
-	pendingCwd = false
-): TerminalPaneModel {
-	return createTerminalPane(agentKind, cwd, pendingCwd);
-}
-
 export function createPendingAgentChatPane(
 	agentKind: ChatAgentKind = loadDefaultChatSettings().agentKind
 ): TerminalPaneModel {
-	return createAgentChatPane(agentKind, undefined, true);
+	return createTerminalPane(agentKind, undefined, true);
 }
 
 function createDefaultGroup(): TerminalGroupModel {

@@ -54,7 +54,7 @@ interface SimctlDeviceListEntry {
 	udid: string;
 	name: string;
 	state: string;
-	isAvailable: boolean;
+	isAvailable?: boolean;
 }
 
 interface BuildTarget {
@@ -444,29 +444,44 @@ export async function startBaguetteServer(): Promise<BaguetteStatus> {
 	};
 }
 
+export function parseSimctlDevices(data: unknown): SimulatorDevice[] {
+	if (!data || typeof data !== "object") return [];
+	const runtimes = (data as { devices?: unknown }).devices;
+	if (!runtimes || typeof runtimes !== "object") return [];
+	const devices: SimulatorDevice[] = [];
+
+	for (const [runtime, deviceList] of Object.entries(runtimes)) {
+		if (!Array.isArray(deviceList)) continue;
+		for (const device of deviceList as SimctlDeviceListEntry[]) {
+			if (!device.udid || !device.name || device.isAvailable === false)
+				continue;
+			devices.push({
+				udid: device.udid,
+				name: device.name,
+				state: device.state ?? "Unknown",
+				runtime: runtime.replace("com.apple.CoreSimulator.SimRuntime.", ""),
+				isAvailable: device.isAvailable !== false,
+			});
+		}
+	}
+
+	return devices;
+}
+
 export async function listSimulators(): Promise<SimulatorDevice[]> {
 	try {
 		const result = await $`xcrun simctl list devices -j`.quiet();
-		const data = JSON.parse(result.stdout.toString());
-		const devices: SimulatorDevice[] = [];
-
-		for (const [runtime, deviceList] of Object.entries(data.devices)) {
-			if (!Array.isArray(deviceList)) continue;
-			for (const device of deviceList as SimctlDeviceListEntry[]) {
-				if (!device.isAvailable) continue;
-				devices.push({
-					udid: device.udid,
-					name: device.name,
-					state: device.state,
-					runtime: runtime.replace("com.apple.CoreSimulator.SimRuntime.", ""),
-					isAvailable: device.isAvailable,
-				});
-			}
-		}
-
-		return devices;
-	} catch {
-		return [];
+		return parseSimctlDevices(JSON.parse(result.stdout.toString()));
+	} catch (error) {
+		const stderr =
+			typeof (error as { stderr?: { toString(): string } })?.stderr
+				?.toString === "function"
+				? (error as { stderr: { toString(): string } }).stderr.toString().trim()
+				: "";
+		const message =
+			stderr ||
+			(error instanceof Error ? error.message : "Failed to list simulators");
+		throw new Error(message);
 	}
 }
 

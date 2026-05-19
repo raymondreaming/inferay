@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { copyFile, readdir } from "node:fs/promises";
+import { cp, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 const buildDir = process.env.ELECTROBUN_BUILD_DIR;
@@ -9,7 +9,8 @@ if (!buildDir) {
 	process.exit(0);
 }
 
-const sourceIndex = join(process.cwd(), "dist", "index.html");
+const sourceDir = join(process.cwd(), "dist");
+const sourceIndex = join(sourceDir, "index.html");
 
 async function waitForFile(path: string, timeoutMs = 5000) {
 	const start = Date.now();
@@ -39,8 +40,9 @@ try {
 			"app",
 			"views"
 		);
-		await copyFile(sourceIndex, join(viewsDir, "index.html"));
-		console.log(`[views] copied index.html -> ${app.name}`);
+		await rm(viewsDir, { recursive: true, force: true });
+		await cp(sourceDir, viewsDir, { recursive: true });
+		console.log(`[views] copied renderer files -> ${app.name}`);
 	}
 } catch (error) {
 	console.warn(

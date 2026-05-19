@@ -140,14 +140,10 @@ export function hasPaneId(paneId: unknown, item: { paneId: string }): boolean {
 	return item.paneId === paneId;
 }
 
-export function pidDoesNotMatch(pid: number, item: { pid: number }): boolean {
-	return item.pid !== pid;
-}
-
 export function removePidFromList<T extends { pid: number }>(
 	pid: number
 ): (items: T[]) => T[] {
-	return (items) => items.filter(pidDoesNotMatch.bind(null, pid));
+	return (items) => items.filter((item) => item.pid !== pid);
 }
 
 export function rangeContainsLine(
