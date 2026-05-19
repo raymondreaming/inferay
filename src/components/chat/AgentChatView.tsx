@@ -209,13 +209,59 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 			[]
 		);
 		const [input, setInputRaw] = useState(() => loadStoredInput(paneId));
+		const inputRef = useRef(input);
+		const inputUndoHistoryRef = useRef<string[]>([]);
+		const inputRedoHistoryRef = useRef<string[]>([]);
 		const setInput = useCallback(
 			(val: string) => {
+				if (val === inputRef.current) return;
+				inputUndoHistoryRef.current.push(inputRef.current);
+				if (inputUndoHistoryRef.current.length > 100) {
+					inputUndoHistoryRef.current.shift();
+				}
+				inputRedoHistoryRef.current = [];
+				inputRef.current = val;
 				setInputRaw(val);
 				saveStoredInput(paneId, val);
 			},
 			[paneId]
 		);
+		const undoInput = useCallback(() => {
+			const previous = inputUndoHistoryRef.current.pop();
+			if (previous === undefined) return false;
+			inputRedoHistoryRef.current.push(inputRef.current);
+			inputRef.current = previous;
+			setInputRaw(previous);
+			saveStoredInput(paneId, previous);
+			return true;
+		}, [paneId]);
+		const redoInput = useCallback(() => {
+			const next = inputRedoHistoryRef.current.pop();
+			if (next === undefined) return false;
+			inputUndoHistoryRef.current.push(inputRef.current);
+			inputRef.current = next;
+			setInputRaw(next);
+			saveStoredInput(paneId, next);
+			return true;
+		}, [paneId]);
+		const restoreInputSelection = useCallback((target: HTMLTextAreaElement) => {
+			requestAnimationFrame(() => {
+				target.focus();
+				const end = target.value.length;
+				target.setSelectionRange(end, end);
+			});
+		}, []);
+
+		useEffect(() => {
+			inputUndoHistoryRef.current = [];
+			inputRedoHistoryRef.current = [];
+			const storedInput = loadStoredInput(paneId);
+			inputRef.current = storedInput;
+			setInputRaw(storedInput);
+		}, [paneId]);
+		useEffect(() => {
+			inputRef.current = input;
+		}, [input]);
 
 		const cwdList = useMemo(() => (cwd ? [cwd] : []), [cwd]);
 		const { projects: gitProjects } = useGitStatus(cwdList);
@@ -1249,6 +1295,21 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 
 		const handleKeyDown = useCallback(
 			(e: React.KeyboardEvent) => {
+				const isUndoShortcut =
+					(e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "z";
+				const isRedoShortcut =
+					(e.metaKey || e.ctrlKey) &&
+					!e.altKey &&
+					(e.key.toLowerCase() === "y" ||
+						(e.shiftKey && e.key.toLowerCase() === "z"));
+				if (isUndoShortcut || isRedoShortcut) {
+					const restored = isRedoShortcut ? redoInput() : undoInput();
+					if (restored) {
+						e.preventDefault();
+						restoreInputSelection(e.currentTarget as HTMLTextAreaElement);
+						return;
+					}
+				}
 				if (fileMenu.show && fileResults.length > 0) {
 					if (e.key === "ArrowDown") {
 						e.preventDefault();
@@ -1327,6 +1388,9 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 				selectFile,
 				setFileMenu,
 				setSlashMenu,
+				undoInput,
+				redoInput,
+				restoreInputSelection,
 			]
 		);
 
