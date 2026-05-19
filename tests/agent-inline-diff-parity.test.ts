@@ -7,7 +7,7 @@ import {
 import {
 	buildRenderItems,
 	getEditFilePath,
-	type ChatMessage,
+	type RenderChatMessage as ChatMessage,
 } from "../src/components/chat/chat-message-render-utils.ts";
 import { getToolBlockInitialContent } from "../src/features/chat/chat-stream-events.ts";
 
@@ -90,6 +90,7 @@ describe("Claude and Codex inline edit diff parity", () => {
 		expect(diff.allLines).toEqual([
 			"export const answer = 41;",
 			"export const answer = 42;",
+			"",
 		]);
 	});
 
@@ -130,12 +131,30 @@ describe("Claude and Codex inline edit diff parity", () => {
 		});
 	});
 
+	test("orders replacement hunks as removed block followed by added block", () => {
+		const diff = computeDiffHunks(
+			["const config = {", "\tlineHeight: 19,", "\tfontSize: 12,", "};"].join(
+				"\n"
+			),
+			["const config = {", "\tlineHeight: 15,", "\tfontSize: 10,", "};"].join(
+				"\n"
+			),
+			1
+		);
+
+		expect(
+			diff.flatMap((hunk) =>
+				hunk.filter((line) => line.type !== "context").map((line) => line.type)
+			)
+		).toEqual(["removed", "removed", "added", "added"]);
+	});
+
 	/*
-	 * This protects grouped edit rendering. Consecutive edits for the same file
-	 * should collapse into one edit group, and sequential edit application should
-	 * show the final file text instead of an empty or single-step placeholder.
+	 * This protects grouped edit rendering. Adjacent edits for the same file should
+	 * collapse into one edit group, and sequential edit application should show
+	 * the final file text instead of an empty or single-step placeholder.
 	 */
-	test("groups repeated Edit messages and applies their changes sequentially", () => {
+	test("groups adjacent Edit messages and applies their changes sequentially", () => {
 		const first = {
 			file_path: "src/example.ts",
 			old_string: "one\ntwo\n",
@@ -145,6 +164,45 @@ describe("Claude and Codex inline edit diff parity", () => {
 			file_path: "src/example.ts",
 			old_string: "2\n",
 			new_string: "two\nthree\n",
+		};
+		const messages: ChatMessage[] = [
+			{
+				id: "edit-1",
+				role: "tool",
+				toolName: "Edit",
+				content: JSON.stringify(first),
+			},
+			{
+				id: "edit-2",
+				role: "tool",
+				toolName: "Edit",
+				content: JSON.stringify(second),
+			},
+		];
+
+		expect(buildRenderItems(messages)).toEqual([
+			{
+				type: "edit-group",
+				filePath: "src/example.ts",
+				edits: [messages[0]!, messages[1]!],
+			},
+		]);
+		expect(applyEditsSequentially([first, second])).toEqual({
+			originalText: "one\ntwo\n",
+			finalText: "one\ntwo\nthree\n",
+		});
+	});
+
+	test("does not combine Edit messages across assistant text", () => {
+		const first = {
+			file_path: "src/example.ts",
+			old_string: "one\n",
+			new_string: "1\n",
+		};
+		const second = {
+			file_path: "src/example.ts",
+			old_string: "two\n",
+			new_string: "2\n",
 		};
 		const messages: ChatMessage[] = [
 			{
@@ -167,19 +225,9 @@ describe("Claude and Codex inline edit diff parity", () => {
 		];
 
 		expect(buildRenderItems(messages)).toEqual([
-			{
-				type: "message",
-				message: messages[1],
-			},
-			{
-				type: "edit-group",
-				filePath: "src/example.ts",
-				edits: [messages[0], messages[2]],
-			},
+			{ type: "message", message: messages[0]! },
+			{ type: "message", message: messages[1]! },
+			{ type: "message", message: messages[2]! },
 		]);
-		expect(applyEditsSequentially([first, second])).toEqual({
-			originalText: "one\ntwo\n",
-			finalText: "one\ntwo\nthree\n",
-		});
 	});
 });

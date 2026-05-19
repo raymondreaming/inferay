@@ -55,12 +55,8 @@ export function buildRenderItems(messages: RenderChatMessage[]): RenderItem[] {
 				edits.push(nextMsg);
 				editIndices.push(j);
 				j++;
-			} else if (nextMsg.role === "assistant" || nextMsg.role === "user") {
-				j++;
-			} else if (nextFilePath && nextFilePath !== filePath) {
-				break;
 			} else {
-				j++;
+				break;
 			}
 		}
 

@@ -13,10 +13,33 @@ export function summarizeHunks(hunks: DiffLine[][]) {
 		for (const line of hunk) {
 			if (line.type === "added") added++;
 			else if (line.type === "removed") removed++;
-			if (line.type !== "context" && line.text.trim()) allLines.push(line.text);
+			allLines.push(line.text);
 		}
 	}
 	return { hunks, stats: { added, removed }, allLines };
+}
+
+function groupChangedRuns(lines: DiffLine[]): DiffLine[] {
+	const result: DiffLine[] = [];
+	let changedRun: DiffLine[] = [];
+	const flushChangedRun = () => {
+		if (changedRun.length === 0) return;
+		result.push(...changedRun.filter((line) => line.type === "removed"));
+		result.push(...changedRun.filter((line) => line.type === "added"));
+		changedRun = [];
+	};
+
+	for (const line of lines) {
+		if (line.type === "removed" || line.type === "added") {
+			changedRun.push(line);
+			continue;
+		}
+		flushChangedRun();
+		result.push(line);
+	}
+
+	flushChangedRun();
+	return result;
 }
 
 export function computeDiffHunks(
@@ -137,7 +160,7 @@ export function computeDiffHunks(
 	}
 
 	if (currentHunk.length > 0) hunks.push(currentHunk);
-	return hunks;
+	return hunks.map(groupChangedRuns);
 }
 
 export function applyEditsSequentially(

@@ -17,12 +17,14 @@ type EditMessage = {
 
 function EditDiffCard({
 	fileName,
+	filePath,
 	hunks,
 	stats,
 	allLines,
 	isStreaming,
 }: {
 	fileName: string;
+	filePath: string;
 	hunks: DiffLine[][];
 	stats: { added: number; removed: number };
 	allLines: string[];
@@ -35,6 +37,13 @@ function EditDiffCard({
 	const removedBorder = "rgba(248,81,73,0.32)";
 	const addedBg = "rgba(46,160,67,0.08)";
 	const addedBorder = "rgba(46,160,67,0.32)";
+	const maxLineChars = Math.max(
+		24,
+		...hunks.flatMap((hunk) =>
+			hunk.map((line) => line.text.replace(/\t/g, "    ").length)
+		)
+	);
+	const contentWidth = `max(100%, ${maxLineChars + 12}ch)`;
 	let globalLineIdx = 0;
 
 	return (
@@ -61,7 +70,9 @@ function EditDiffCard({
 				) : (
 					<IconFilePlus size={10} {...stylex.props(styles.headerIcon)} />
 				)}
-				<span {...stylex.props(styles.fileName)}>{fileName}</span>
+				<span {...stylex.props(styles.fileName)} title={filePath}>
+					{fileName}
+				</span>
 				<span {...stylex.props(styles.stats)}>
 					{stats.added > 0 && (
 						<span {...stylex.props(styles.addedStat)}>+{stats.added}</span>
@@ -73,71 +84,71 @@ function EditDiffCard({
 			</button>
 			{isExpanded && (
 				<div {...stylex.props(styles.body)}>
-					{hunks.map((hunk, hunkIdx) => {
-						let hunkLineIdx = globalLineIdx;
-						const changedLines = hunk.filter(
-							(line) => line.type !== "context" && line.text.trim() !== ""
-						);
+					<div
+						{...stylex.props(styles.bodyInner)}
+						style={{ width: contentWidth }}
+					>
+						{hunks.map((hunk, hunkIdx) => {
+							return (
+								<div key={hunkIdx}>
+									{hunk.map((line, lineIdx) => {
+										const isRemoved = line.type === "removed";
+										const isAdded = line.type === "added";
+										const highlightedHtml = highlighted.get(globalLineIdx);
 
-						return (
-							<div key={hunkIdx}>
-								{hunkIdx > 0 && <div {...stylex.props(styles.hunkDivider)} />}
-								{changedLines.map((line, lineIdx) => {
-									const currentLineIdx = hunkLineIdx++;
-									const highlightedHtml = highlighted.get(currentLineIdx);
-									const isRemoved = line.type === "removed";
-									const isAdded = line.type === "added";
+										globalLineIdx++;
 
-									if (
-										hunkIdx === hunks.length - 1 &&
-										lineIdx === changedLines.length - 1
-									) {
-										globalLineIdx = currentLineIdx + 1;
-									}
+										const lineContent =
+											isReady && highlightedHtml ? (
+												<span
+													{...stylex.props(styles.lineText)}
+													// biome-ignore lint/security/noDangerouslySetInnerHtml: Shiki returns escaped syntax-highlighted HTML.
+													dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+												/>
+											) : (
+												<span {...stylex.props(styles.lineText)}>
+													{line.text || " "}
+												</span>
+											);
 
-									const lineContent =
-										isReady && highlightedHtml ? (
-											<span
-												{...stylex.props(styles.lineText)}
-												// biome-ignore lint/security/noDangerouslySetInnerHtml: Shiki returns escaped syntax-highlighted HTML.
-												dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-											/>
-										) : (
-											<span {...stylex.props(styles.lineText)}>
-												{line.text || " "}
-											</span>
-										);
-
-									return (
-										<div
-											key={`${hunkIdx}-${lineIdx}`}
-											{...stylex.props(styles.diffLine)}
-											style={{
-												backgroundColor: isRemoved
-													? removedBg
-													: isAdded
-														? addedBg
-														: "transparent",
-												borderLeft: `2px solid ${isRemoved ? removedBorder : isAdded ? addedBorder : "transparent"}`,
-											}}
-										>
-											<span
-												{...stylex.props(styles.sign)}
+										return (
+											<div
+												key={`${hunkIdx}-${lineIdx}`}
+												{...stylex.props(styles.diffLine)}
 												style={{
-													color: isRemoved
-														? "rgba(248,81,73,0.7)"
-														: "rgba(46,160,67,0.7)",
+													backgroundColor: isRemoved
+														? removedBg
+														: isAdded
+															? addedBg
+															: "transparent",
+													borderLeft: `2px solid ${isRemoved ? removedBorder : isAdded ? addedBorder : "transparent"}`,
 												}}
 											>
-												{isRemoved ? "−" : "+"}
-											</span>
-											{lineContent}
-										</div>
-									);
-								})}
-							</div>
-						);
-					})}
+												<span
+													{...stylex.props(styles.sign)}
+													style={{
+														color: isRemoved
+															? "rgba(248,81,73,0.7)"
+															: isAdded
+																? "rgba(46,160,67,0.7)"
+																: "rgba(255,255,255,0.22)",
+													}}
+												>
+													{isRemoved ? "−" : isAdded ? "+" : " "}
+												</span>
+												<span {...stylex.props(styles.lineNumber)}>
+													{line.type === "added"
+														? line.newLineNum
+														: line.oldLineNum}
+												</span>
+												{lineContent}
+											</div>
+										);
+									})}
+								</div>
+							);
+						})}
+					</div>
 				</div>
 			)}
 		</div>
@@ -220,24 +231,30 @@ const styles = stylex.create({
 		maxHeight: 240,
 		overflow: "auto",
 	},
-	hunkDivider: {
-		backgroundColor: color.border,
-		height: 1,
-		marginBlock: "0.125rem",
-		opacity: 0.3,
+	bodyInner: {
+		minWidth: "100%",
 	},
 	diffLine: {
 		display: "flex",
 		lineHeight: "15px",
 		minWidth: "100%",
-		width: "fit-content",
+		width: "100%",
 	},
 	sign: {
 		flexShrink: 0,
 		fontSize: font.size_2,
 		textAlign: "center",
 		userSelect: "none",
-		width: controlSize._5,
+		width: controlSize._4,
+	},
+	lineNumber: {
+		color: color.textFaint,
+		flexShrink: 0,
+		fontSize: font.size_1,
+		paddingRight: controlSize._2,
+		textAlign: "right",
+		userSelect: "none",
+		width: controlSize._7,
 	},
 	lineText: {
 		color: color.textMain,
@@ -268,6 +285,7 @@ export function MiniEditDiff({
 		<EditDiffCard
 			key={`${filePath}:${oldStr}:${newStr}:${isStreaming ? "streaming" : "done"}`}
 			fileName={fileName}
+			filePath={filePath}
 			hunks={hunks}
 			stats={stats}
 			allLines={allLines}
@@ -319,6 +337,7 @@ export function GroupedEditDiff({
 		<EditDiffCard
 			key={`${filePath}:${edits.length}:${edits.map(contentOf).join("\u0000")}`}
 			fileName={fileName}
+			filePath={filePath}
 			hunks={hunks}
 			stats={stats}
 			allLines={allLines}

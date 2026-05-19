@@ -1,6 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import {
 	memo,
+	type CSSProperties,
 	type ReactNode,
 	useCallback,
 	useEffect,
@@ -12,7 +13,6 @@ import { MarkdownPreview } from "../../components/diff/MarkdownPreview.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
 import {
 	IconChevronRight,
-	IconCopy,
 	IconGitBranch,
 	IconLayoutGrid,
 	IconX,
@@ -58,7 +58,7 @@ const TOKEN_CLASSES: Record<string, string> = {
 const DIFF_CONFIG = {
 	lineHeight: 15, // Height of each line in pixels
 	lineNumFontSize: 9, // Line number font size
-	signFontSize: 9, // +/- sign font size
+	signFontSize: 10, // +/- sign font size
 	contentFontSize: 10, // Code content font size
 	lineNumWidth: 36, // Line number column width
 	signWidth: 12, // +/- sign column width
@@ -82,6 +82,8 @@ const OVERSCAN = DIFF_CONFIG.overscan;
 const MAX_RENDERED_DIFF_LINES = 6000;
 const MAX_RENDERED_LINE_CHARS = 4000;
 const MAX_PANEL_CONTENT_WIDTH = 8000;
+const INLINE_CONTEXT_LINES = 4;
+type DiffRowStyle = CSSProperties & { "--hover-bg"?: string };
 
 const diffStyles = stylex.create({
 	virtualRoot: {
@@ -131,26 +133,6 @@ const diffStyles = stylex.create({
 		borderTopColor: "rgba(255, 255, 255, 0.2)",
 		borderBottomColor: "rgba(255, 255, 255, 0.2)",
 		backgroundColor: "rgba(255, 255, 255, 0.1)",
-	},
-	copyFeedback: {
-		position: "absolute",
-		top: controlSize._2,
-		right: controlSize._2,
-		zIndex: 10,
-		borderRadius: radius.sm,
-		backgroundColor: color.accent,
-		color: color.backgroundRaised,
-		fontSize: font.size_2,
-		fontWeight: font.weight_5,
-		paddingBlock: controlSize._1,
-		paddingInline: controlSize._2,
-		animationName: stylex.keyframes({
-			"50%": {
-				opacity: 0.55,
-			},
-		}),
-		animationDuration: "1s",
-		animationIterationCount: "infinite",
 	},
 	singlePanel: {
 		display: "flex",
@@ -376,10 +358,18 @@ const diffStyles = stylex.create({
 		marginInline: "auto",
 	},
 	hunkSeparator: {
-		backgroundColor: color.border,
-		height: 6,
-		marginBlock: 2,
-		opacity: 0.15,
+		alignItems: "center",
+		backgroundColor: color.surfaceSubtle,
+		borderBlockColor: color.borderSubtle,
+		borderBlockStyle: "solid",
+		borderBlockWidth: 1,
+		color: color.textMuted,
+		display: "flex",
+		fontFamily: font.familyDiff,
+		fontSize: font.size_1,
+		height: LINE_H,
+		lineHeight: `${LINE_H}px`,
+		paddingInline: controlSize._2,
 	},
 	spacer: {
 		backgroundColor: "rgba(255,255,255,0.02)",
@@ -395,11 +385,14 @@ const diffStyles = stylex.create({
 		position: "relative",
 	},
 	lineNumber: {
+		borderRightColor: color.borderSubtle,
+		borderRightStyle: "solid",
+		borderRightWidth: 1,
 		flexShrink: 0,
 		fontFamily: font.familyDiff,
 		lineHeight: `${LINE_H}px`,
 		overflow: "hidden",
-		paddingRight: controlSize._1,
+		paddingRight: controlSize._1_5,
 		textAlign: "right",
 		userSelect: "none",
 		width: DIFF_CONFIG.lineNumWidth,
@@ -426,7 +419,7 @@ const diffStyles = stylex.create({
 		position: "absolute",
 		left: 0,
 		width: GUTTER_W,
-		backgroundColor: color.background,
+		backgroundColor: color.surfaceInset,
 	},
 	gutterRow: {
 		display: "flex",
@@ -434,7 +427,7 @@ const diffStyles = stylex.create({
 		maxHeight: LINE_H,
 		minHeight: LINE_H,
 		overflow: "hidden",
-		backgroundColor: color.background,
+		backgroundColor: color.surfaceInset,
 	},
 	content: {
 		flex: 1,
@@ -442,25 +435,9 @@ const diffStyles = stylex.create({
 		lineHeight: `${LINE_H}px`,
 		overflow: "hidden",
 		minWidth: "max-content",
-		paddingLeft: controlSize._1,
+		paddingLeft: controlSize._2,
 		paddingRight: controlSize._3,
 		whiteSpace: "pre",
-	},
-	copyLineButton: {
-		backgroundColor: color.surfaceControl,
-		borderRadius: radius.sm,
-		opacity: {
-			default: 0.35,
-			":hover": 1,
-		},
-		padding: controlSize._0_5,
-		position: "absolute",
-		right: controlSize._1,
-		top: "50%",
-		transform: "translateY(-50%)",
-		transitionDuration: motion.durationBase,
-		transitionProperty: "opacity",
-		transitionTimingFunction: motion.ease,
 	},
 });
 
@@ -485,7 +462,6 @@ const DiffRow = memo(function DiffRow({
 	line,
 	tokens,
 	highlightedHtml,
-	onCopy,
 	isHighlighted,
 	minWidth,
 	hideGutter,
@@ -494,7 +470,6 @@ const DiffRow = memo(function DiffRow({
 	ext: string;
 	tokens: Token[] | null;
 	highlightedHtml?: string;
-	onCopy?: (content: string) => void;
 	isHighlighted?: boolean;
 	minWidth?: number;
 	hideGutter?: boolean;
@@ -505,6 +480,7 @@ const DiffRow = memo(function DiffRow({
 				{...stylex.props(diffStyles.hunkSeparator)}
 				style={{
 					minWidth: minWidth || "100%",
+					paddingLeft: hideGutter ? GUTTER_W + 8 : undefined,
 				}}
 			/>
 		);
@@ -530,12 +506,6 @@ const DiffRow = memo(function DiffRow({
 			: undefined;
 	const bgColor = getDiffRowBg(line, isHighlighted);
 
-	const handleCopy = (e: React.MouseEvent) => {
-		e.stopPropagation();
-		if (onCopy && line.content) {
-			onCopy(line.content);
-		}
-	};
 	const rowProps = stylex.props(diffStyles.row);
 	const content =
 		line.content.length > MAX_RENDERED_LINE_CHARS
@@ -564,13 +534,16 @@ const DiffRow = memo(function DiffRow({
 		<div
 			{...rowProps}
 			className={`diff-row ${rowProps.className ?? ""}`}
-			style={{
-				lineHeight: `${LINE_H}px`,
-				backgroundColor: bgColor,
-				minWidth: minWidth || "100%",
-				paddingLeft: hideGutter ? GUTTER_W : undefined,
-				"--hover-bg": hoverBg,
-			}}
+			style={
+				{
+					lineHeight: `${LINE_H}px`,
+					backgroundColor: bgColor,
+					minWidth: minWidth || "100%",
+					paddingLeft: hideGutter ? GUTTER_W : undefined,
+					width: "max-content",
+					"--hover-bg": hoverBg,
+				} as DiffRowStyle
+			}
 		>
 			{!hideGutter && <DiffGutterCells line={line} />}
 
@@ -583,20 +556,6 @@ const DiffRow = memo(function DiffRow({
 			>
 				{lineContent}
 			</span>
-
-			{line.content && onCopy && (
-				<button
-					type="button"
-					onClick={handleCopy}
-					{...stylex.props(diffStyles.copyLineButton)}
-					title="Copy line"
-				>
-					<IconCopy
-						size={10}
-						style={{ color: "var(--color-inferay-soft-white)" }}
-					/>
-				</button>
-			)}
 		</div>
 	);
 });
@@ -685,7 +644,6 @@ function VirtualPanel({
 	showMinimap: _showMinimap = false,
 	externalScrollTop,
 	filePath,
-	onCopyLine,
 	highlightedChangeIdx,
 	changeLineMap,
 }: {
@@ -697,7 +655,6 @@ function VirtualPanel({
 	showMinimap?: boolean;
 	externalScrollTop?: number;
 	filePath?: string;
-	onCopyLine?: (content: string) => void;
 	highlightedChangeIdx?: number;
 	changeLineMap?: Map<number, number>;
 }) {
@@ -759,7 +716,7 @@ function VirtualPanel({
 	}, [lines]);
 	const minContentWidth = Math.min(
 		MAX_PANEL_CONTENT_WIDTH,
-		DIFF_CONFIG.lineNumWidth + DIFF_CONFIG.signWidth + maxLineLength * 7 + 20
+		DIFF_CONFIG.lineNumWidth + DIFF_CONFIG.signWidth + maxLineLength * 9 + 48
 	);
 
 	const start = Math.max(0, Math.floor(scrollTop / LINE_H) - OVERSCAN);
@@ -871,7 +828,6 @@ function VirtualPanel({
 									ext={ext}
 									tokens={tokens}
 									highlightedHtml={highlightedHtml}
-									onCopy={onCopyLine}
 									isHighlighted={isHighlighted}
 									minWidth={minContentWidth}
 									hideGutter
@@ -999,11 +955,6 @@ const DiffMinimap = memo(function DiffMinimap({
 		</div>
 	);
 });
-const CopyFeedback = memo(function CopyFeedback({ show }: { show: boolean }) {
-	if (!show) return null;
-	return <div {...stylex.props(diffStyles.copyFeedback)}>Copied!</div>;
-});
-
 export const GitDiffView = memo(function GitDiffView({
 	diff,
 	filePath,
@@ -1025,7 +976,6 @@ export const GitDiffView = memo(function GitDiffView({
 	const viewMode = controlledViewMode ?? internalViewMode;
 	const setViewMode = onViewModeChange ?? setInternalViewMode;
 	const [externalScrollTop, setExternalScrollTop] = useState(-1);
-	const [showCopyFeedback, setShowCopyFeedback] = useState(false);
 	const [highlightedChangeIdx, setHighlightedChangeIdx] = useState<
 		number | undefined
 	>();
@@ -1105,12 +1055,6 @@ export const GitDiffView = memo(function GitDiffView({
 	);
 	const goToNextChange = useCallback(() => stepChange(1), [stepChange]);
 	const goToPrevChange = useCallback(() => stepChange(-1), [stepChange]);
-	const handleCopyLine = useCallback((content: string) => {
-		navigator.clipboard.writeText(content).then(() => {
-			setShowCopyFeedback(true);
-			setTimeout(() => setShowCopyFeedback(false), 1000);
-		});
-	}, []);
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
 			const target = e.target as HTMLElement;
@@ -1200,7 +1144,7 @@ export const GitDiffView = memo(function GitDiffView({
 
 	const hunkLines = useMemo(() => {
 		if (oversizedMessage) return [];
-		return buildStackedLines(diff.oldLines, diff.newLines, true);
+		return buildInlineHunkLines(diff.oldLines, diff.newLines);
 	}, [diff.oldLines, diff.newLines, oversizedMessage]);
 
 	const sync = useCallback(
@@ -1315,7 +1259,6 @@ export const GitDiffView = memo(function GitDiffView({
 					showMinimap={false}
 					externalScrollTop={externalScrollTop}
 					filePath={filePath}
-					onCopyLine={handleCopyLine}
 					highlightedChangeIdx={highlightedChangeIdx}
 					changeLineMap={changeLineMap}
 				/>
@@ -1333,7 +1276,6 @@ export const GitDiffView = memo(function GitDiffView({
 				showMinimap
 				externalScrollTop={externalScrollTop}
 				filePath={filePath}
-				onCopyLine={handleCopyLine}
 				highlightedChangeIdx={highlightedChangeIdx}
 				changeLineMap={changeLineMap}
 			/>
@@ -1345,7 +1287,6 @@ export const GitDiffView = memo(function GitDiffView({
 			ref={containerRef}
 			{...stylex.props(diffStyles.shell, diffStyles.shellRelative)}
 		>
-			<CopyFeedback show={showCopyFeedback} />
 			{!hideHeader && (
 				<DiffHeader
 					filePath={filePath}
@@ -1373,7 +1314,6 @@ export const GitDiffView = memo(function GitDiffView({
 						disableTokenize={disableTokenize}
 						externalScrollTop={externalScrollTop}
 						filePath={filePath}
-						onCopyLine={handleCopyLine}
 					/>
 				)}
 			</div>
@@ -1414,20 +1354,76 @@ function buildStackedLines(
 	return result;
 }
 
+function buildInlineHunkLines(
+	oldLines: DiffLine[],
+	newLines: DiffLine[]
+): DiffLine[] {
+	const stacked = buildStackedLines(oldLines, newLines, false);
+	const changedRows: number[] = [];
+
+	for (let i = 0; i < stacked.length; i++) {
+		const type = stacked[i]?.type;
+		if (type === "add" || type === "remove") changedRows.push(i);
+	}
+
+	if (changedRows.length === 0) return stacked;
+
+	const ranges: Array<{ start: number; end: number }> = [];
+	for (const row of changedRows) {
+		const start = Math.max(0, row - INLINE_CONTEXT_LINES);
+		const end = Math.min(stacked.length - 1, row + INLINE_CONTEXT_LINES);
+		const previous = ranges[ranges.length - 1];
+		if (previous && start <= previous.end + INLINE_CONTEXT_LINES + 1) {
+			previous.end = Math.max(previous.end, end);
+		} else {
+			ranges.push({ start, end });
+		}
+	}
+
+	const result: DiffLine[] = [];
+	for (let i = 0; i < ranges.length; i++) {
+		const range = ranges[i]!;
+		const rows = stacked.slice(range.start, range.end + 1);
+		if (i > 0) result.push({ number: null, content: "", type: "hunk" });
+		appendInlineRows(result, rows);
+	}
+
+	return result;
+}
+
+function appendInlineRows(result: DiffLine[], rows: DiffLine[]) {
+	let changedRun: DiffLine[] = [];
+	const flushChangedRun = () => {
+		if (changedRun.length === 0) return;
+		result.push(...changedRun.filter((line) => line.type === "remove"));
+		result.push(...changedRun.filter((line) => line.type === "add"));
+		changedRun = [];
+	};
+
+	for (const row of rows) {
+		if (row.type === "add" || row.type === "remove") {
+			changedRun.push(row);
+			continue;
+		}
+		flushChangedRun();
+		result.push(row);
+	}
+
+	flushChangedRun();
+}
+
 function SinglePanel({
 	lines,
 	ext,
 	disableTokenize,
 	externalScrollTop,
 	filePath,
-	onCopyLine,
 }: {
 	lines: DiffLine[];
 	ext: string;
 	disableTokenize: boolean;
 	externalScrollTop?: number;
 	filePath?: string;
-	onCopyLine?: (content: string) => void;
 }) {
 	const scrollRef = useRef<HTMLDivElement>(null);
 	return (
@@ -1440,7 +1436,6 @@ function SinglePanel({
 				showMinimap
 				externalScrollTop={externalScrollTop}
 				filePath={filePath}
-				onCopyLine={onCopyLine}
 			/>
 		</div>
 	);
