@@ -10,7 +10,7 @@ DMG_NAME="inferay-installer"
 # Use dev build to avoid Electrobun self-extraction bug (blackboardsh/electrobun#359)
 BUILD_DIR="build/dev-macos-arm64"
 OUTPUT_DIR="artifacts"
-BACKGROUND="public/dmg-background.png"
+CREATE_DMG="./node_modules/.bin/create-dmg"
 
 echo "Building inferay..."
 
@@ -37,20 +37,24 @@ fi
 rm -f "${OUTPUT_DIR}/${DMG_NAME}.dmg"
 rm -f "${OUTPUT_DIR}/stable-macos-arm64-inferay.dmg"
 
-# Create the polished DMG with create-dmg
-create-dmg \
-  --volname "${APP_NAME}" \
-  --window-pos 200 120 \
-  --window-size 660 400 \
-  --background "${BACKGROUND}" \
-  --icon-size 120 \
-  --text-size 14 \
-  --icon "${APP_NAME}.app" 180 200 \
-  --hide-extension "${APP_NAME}.app" \
-  --app-drop-link 480 200 \
-  --no-internet-enable \
-  "${OUTPUT_DIR}/${DMG_NAME}.dmg" \
-  "${BUILD_DIR}/${APP_NAME}.app"
+# Create the DMG with create-dmg, then normalize the filename expected by the
+# release script.
+"${CREATE_DMG}" \
+  "${BUILD_DIR}/${APP_NAME}.app" \
+  "${OUTPUT_DIR}" \
+  --overwrite \
+  --no-version-in-filename \
+  --dmg-title="${APP_NAME}" \
+  --no-code-sign
+
+if [ -f "${OUTPUT_DIR}/${APP_NAME}.dmg" ]; then
+  mv "${OUTPUT_DIR}/${APP_NAME}.dmg" "${OUTPUT_DIR}/${DMG_NAME}.dmg"
+fi
+
+if [ ! -f "${OUTPUT_DIR}/${DMG_NAME}.dmg" ]; then
+  echo "Expected DMG not found: ${OUTPUT_DIR}/${DMG_NAME}.dmg"
+  exit 1
+fi
 
 echo ""
 echo "Done! DMG created at: ${OUTPUT_DIR}/${DMG_NAME}.dmg"

@@ -521,7 +521,7 @@ export function Sidebar() {
 		[refreshGithubAccount]
 	);
 
-	const githubLabel = githubAccount?.login || githubAccount?.name || "";
+	const githubLabel = githubAccount?.login || githubAccount?.name || "Profile";
 	const shellProps = stylex.props(
 		styles.shell,
 		collapsed ? styles.shellCollapsed : styles.shellOpen,
@@ -664,25 +664,21 @@ export function Sidebar() {
 					<IconSettings size={14} className="shrink-0" />
 					{!collapsed ? <span>Settings</span> : null}
 				</button>
-				{githubAccount ? (
-					<NavLink
-						to="/profile"
-						className={
-							stylex.props(
-								styles.profileButton,
-								collapsed
-									? styles.profileButtonCollapsed
-									: styles.profileButtonOpen
-							).className ?? ""
-						}
-						title={collapsed ? githubLabel : undefined}
-					>
-						<SidebarAccountAvatar account={githubAccount} />
-						{!collapsed ? (
-							<span {...stylex.props(styles.profileLabel)}>{githubLabel}</span>
-						) : null}
-					</NavLink>
-				) : null}
+				<NavLink
+					to="/profile"
+					className={
+						stylex.props(
+							styles.profileButton,
+							collapsed ? styles.profileButtonCollapsed : styles.profileButtonOpen
+						).className ?? ""
+					}
+					title={collapsed ? githubLabel : undefined}
+				>
+					<SidebarAccountAvatar account={githubAccount} />
+					{!collapsed ? (
+						<span {...stylex.props(styles.profileLabel)}>{githubLabel}</span>
+					) : null}
+				</NavLink>
 			</div>
 		</aside>
 	);

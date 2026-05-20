@@ -6,6 +6,10 @@ CRATE_DIR="${ROOT}/native/diff-engine"
 OUT_DIR="${ROOT}/native/bin"
 BIN_NAME="inferay-native-diff"
 
+if ! command -v cargo >/dev/null 2>&1 && [ -x "${HOME:-}/.cargo/bin/cargo" ]; then
+	export PATH="${HOME}/.cargo/bin:${PATH}"
+fi
+
 if ! command -v cargo >/dev/null 2>&1; then
 	echo "[native] cargo not found; Rust is required for this build" >&2
 	exit 1

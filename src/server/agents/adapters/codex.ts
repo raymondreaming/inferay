@@ -514,6 +514,7 @@ export const codexAdapter: AgentAdapter<CodexRunState> = {
 				const baseArgs = [
 					"--json",
 					"--skip-git-repo-check",
+					"--dangerously-bypass-approvals-and-sandbox",
 					"--output-last-message",
 					state.outputPath,
 				];
