@@ -9,12 +9,14 @@ import {
 	type TerminalGroupModel,
 	type TerminalPaneModel,
 } from "../src/features/terminal/terminal-utils.ts";
+import { summarizeHunkDiff } from "../src/features/git/useGitDiff.ts";
 import {
 	isUnstagedTrackedChange,
 	isUntrackedChange,
 	orderGitFiles,
 	orderProjectGitFiles,
 } from "../src/lib/git-file-utils.ts";
+import { normalizeNumstatPath } from "../src/server/services/git.ts";
 
 const pane = (
 	id: string,
@@ -139,5 +141,29 @@ describe("terminal state and git change behavior", () => {
 		expect(isUntrackedChange(files[2]!)).toBe(true);
 		expect(isUnstagedTrackedChange(files[1]!)).toBe(true);
 		expect(isUnstagedTrackedChange(files[2]!)).toBe(false);
+	});
+
+	test("summarizes deletion-only diffs as navigable hunks", () => {
+		expect(
+			summarizeHunkDiff({
+				oldLines: [
+					{ number: 1, content: "remove me", type: "remove" },
+					{ number: 2, content: "keep", type: "context" },
+				],
+				newLines: [
+					{ number: null, content: "", type: "spacer" },
+					{ number: 1, content: "keep", type: "context" },
+				],
+				isBinary: false,
+				isNew: false,
+			})
+		).toEqual({ added: 0, removed: 1, hunks: 1, lines: 2 });
+	});
+
+	test("normalizes git numstat rename paths for sidebar diff stats", () => {
+		expect(normalizeNumstatPath("src/old.ts => src/new.ts")).toBe("src/new.ts");
+		expect(normalizeNumstatPath("src/{old => new}/file.ts")).toBe(
+			"src/new/file.ts"
+		);
 	});
 });

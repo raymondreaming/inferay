@@ -1,8 +1,8 @@
 import * as stylex from "@stylexjs/stylex";
 import {
 	lazy,
-	Suspense,
 	type MouseEvent as ReactMouseEvent,
+	Suspense,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -10,10 +10,7 @@ import {
 	useState,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-	savePendingSend,
-	saveStoredInput,
-} from "../../features/chat/chat-session-store.ts";
+import { DiffViewerBoundary } from "../../components/diff/DiffViewerBoundary.tsx";
 import {
 	ChangeFileSidebar,
 	type SelectedFile,
@@ -31,6 +28,10 @@ import {
 } from "../../components/ui/Icons.tsx";
 import type { AgentKind } from "../../features/agents/agents.ts";
 import {
+	savePendingSend,
+	saveStoredInput,
+} from "../../features/chat/chat-session-store.ts";
+import {
 	buildCommitMessage,
 	buildRepoExplainPrompt,
 	buildSummaryPrompt,
@@ -39,17 +40,11 @@ import {
 	buildReviewPrompt as composeReviewPrompt,
 	createChangeSignature,
 } from "../../features/git/changes-workspace.ts";
-import {
-	isStagedChange,
-	isUnstagedTrackedChange,
-	isUntrackedChange,
-	orderGitFiles,
-	orderProjectGitFiles,
-} from "../../lib/git-file-utils.ts";
-import { hasCwd, lacksValue } from "../../lib/data.ts";
-import { listenWindowEvent } from "../../lib/react-events.ts";
 import { useGitChangeActions } from "../../features/git/useGitChangeActions.ts";
-import { useGitDiff } from "../../features/git/useGitDiff.ts";
+import {
+	summarizeHunkDiff,
+	useGitDiff,
+} from "../../features/git/useGitDiff.ts";
 import { useGitStatus } from "../../features/git/useGitStatus.ts";
 import {
 	appendPaneToGroup,
@@ -61,7 +56,15 @@ import {
 	loadTerminalState,
 	saveTerminalState,
 } from "../../features/terminal/terminal-utils.ts";
+import { hasCwd, lacksValue } from "../../lib/data.ts";
 import { fetchJson, postJson } from "../../lib/fetch-json.ts";
+import {
+	isStagedChange,
+	isUnstagedTrackedChange,
+	isUntrackedChange,
+	orderProjectGitFiles,
+} from "../../lib/git-file-utils.ts";
+import { listenWindowEvent } from "../../lib/react-events.ts";
 import {
 	readStoredJson,
 	writeStoredJson,
@@ -114,6 +117,7 @@ export function GitPage() {
 		loadDiff,
 		clear: clearDiff,
 	} = useGitDiff();
+	const selectedDiffStats = useMemo(() => summarizeHunkDiff(diff), [diff]);
 	const project = useMemo(() => {
 		if (activeCwd) {
 			const found = projects.find(hasCwd.bind(null, activeCwd));
@@ -712,29 +716,33 @@ export function GitPage() {
 							</div>
 						</div>
 					) : diff && diffReq ? (
-						<Suspense
-							fallback={
-								<div {...stylex.props(styles.centerPage)}>
-									<div {...stylex.props(styles.loadingRow)}>
-										<div {...stylex.props(styles.spinner)} />
-										<span {...stylex.props(styles.loadingText)}>
-											Loading diff viewer...
-										</span>
-									</div>
-								</div>
-							}
+						<DiffViewerBoundary
+							resetKey={`${diffReq.cwd}:${diffReq.staged ? "staged" : "unstaged"}:${diffReq.file}`}
 						>
-							<GitDiffView
-								diff={diff}
-								filePath={diffReq.file}
-								staged={diffReq.staged}
-								loading={false}
-								onClose={() => {
-									clearDiff();
-									setSelFile(null);
-								}}
-							/>
-						</Suspense>
+							<Suspense
+								fallback={
+									<div {...stylex.props(styles.centerPage)}>
+										<div {...stylex.props(styles.loadingRow)}>
+											<div {...stylex.props(styles.spinner)} />
+											<span {...stylex.props(styles.loadingText)}>
+												Loading diff viewer...
+											</span>
+										</div>
+									</div>
+								}
+							>
+								<GitDiffView
+									diff={diff}
+									filePath={diffReq.file}
+									staged={diffReq.staged}
+									loading={false}
+									onClose={() => {
+										clearDiff();
+										setSelFile(null);
+									}}
+								/>
+							</Suspense>
+						</DiffViewerBoundary>
 					) : (
 						<div {...stylex.props(styles.centerPage, styles.centerPad)}>
 							<div {...stylex.props(styles.emptyWorktree)}>
@@ -800,6 +808,7 @@ export function GitPage() {
 							untracked={untracked}
 							staged={staged}
 							selectedFile={selFile}
+							selectedDiffStats={selectedDiffStats}
 							onSelectFile={(file) => selectFile(file.path, file.staged)}
 							onStageFile={stageFile}
 							onUnstageFile={unstageFile}

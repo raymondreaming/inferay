@@ -24,10 +24,12 @@
 		"@stylexjs/unplugin": "^0.18.3",
 		"@tailwindcss/cli": "^4.3.0",
 		"@types/bun": "latest",
+		"@types/jsdom": "^28.0.3",
 		"@types/react": "^19.2.14",
 		"@types/react-dom": "^19.2.3",
 		"create-dmg": "^8.1.0",
 		"husky": "^9.1.7",
+		"jsdom": "^29.1.1",
 		"lint-staged": "^16.4.0",
 		"prettier": "^3.8.3",
 		"unplugin": "^2.3.11"

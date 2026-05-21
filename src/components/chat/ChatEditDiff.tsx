@@ -6,9 +6,11 @@ import { color, controlSize, font } from "../../tokens.stylex.ts";
 import { IconChevronRight, IconFilePlus } from "../ui/Icons.tsx";
 import {
 	applyEditsSequentially,
-	computeDiffHunks,
+	diffLineTextSegments,
+	type DiffHunk,
 	type DiffLine,
-	summarizeHunks,
+	type LineTextSegment,
+	summarizeDiff,
 } from "./chat-edit-diff-utils.ts";
 
 type EditMessage = {
@@ -21,13 +23,15 @@ function EditDiffCard({
 	hunks,
 	stats,
 	allLines,
+	totalHidden,
 	isStreaming,
 }: {
 	fileName: string;
 	filePath: string;
-	hunks: DiffLine[][];
+	hunks: DiffHunk[];
 	stats: { added: number; removed: number };
 	allLines: string[];
+	totalHidden: number;
 	isStreaming?: boolean;
 }) {
 	const { highlighted, isReady } = useShikiSnippet(allLines, fileName, true);
@@ -40,10 +44,10 @@ function EditDiffCard({
 	const maxLineChars = Math.max(
 		24,
 		...hunks.flatMap((hunk) =>
-			hunk.map((line) => line.text.replace(/\t/g, "    ").length)
+			hunk.lines.map((line) => line.text.replace(/\t/g, "    ").length)
 		)
 	);
-	const contentWidth = `max(100%, ${maxLineChars + 12}ch)`;
+	const contentWidth = `max(100%, ${maxLineChars + 18}ch)`;
 	let globalLineIdx = 0;
 
 	return (
@@ -73,6 +77,10 @@ function EditDiffCard({
 				<span {...stylex.props(styles.fileName)} title={filePath}>
 					{fileName}
 				</span>
+				<span {...stylex.props(styles.headerMeta)}>
+					{hunks.length} hunk{hunks.length === 1 ? "" : "s"}
+					{totalHidden > 0 ? `, ${totalHidden} hidden` : ""}
+				</span>
 				<span {...stylex.props(styles.stats)}>
 					{stats.added > 0 && (
 						<span {...stylex.props(styles.addedStat)}>+{stats.added}</span>
@@ -89,32 +97,59 @@ function EditDiffCard({
 						style={{ width: contentWidth }}
 					>
 						{hunks.map((hunk, hunkIdx) => {
+							const segmentMap = buildChangedLineSegmentMap(hunk.lines);
 							return (
-								<div key={hunkIdx}>
-									{hunk.map((line, lineIdx) => {
+								<div key={hunkIdx} {...stylex.props(styles.hunkBlock)}>
+									{hunk.hiddenBefore > 0 && (
+										<HunkSeparator
+											hiddenCount={hunk.hiddenBefore}
+											hunk={hunk}
+										/>
+									)}
+									{hunk.lines.map((line, lineIdx) => {
 										const isRemoved = line.type === "removed";
 										const isAdded = line.type === "added";
 										const highlightedHtml = highlighted.get(globalLineIdx);
+										const lineSegments = segmentMap.get(lineIdx);
 
 										globalLineIdx++;
 
-										const lineContent =
-											isReady && highlightedHtml ? (
-												<span
-													{...stylex.props(styles.lineText)}
-													// biome-ignore lint/security/noDangerouslySetInnerHtml: Shiki returns escaped syntax-highlighted HTML.
-													dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-												/>
-											) : (
-												<span {...stylex.props(styles.lineText)}>
-													{line.text || " "}
-												</span>
-											);
+										const lineContent = lineSegments ? (
+											<span {...stylex.props(styles.lineText)}>
+												{lineSegments.map((segment, segmentIdx) => (
+													<span
+														key={segmentIdx}
+														{...stylex.props(
+															segment.changed &&
+																(isRemoved
+																	? styles.inlineRemoved
+																	: styles.inlineAdded)
+														)}
+													>
+														{segment.text || " "}
+													</span>
+												))}
+											</span>
+										) : isReady && highlightedHtml ? (
+											<span
+												{...stylex.props(styles.lineText)}
+												// biome-ignore lint/security/noDangerouslySetInnerHtml: Shiki returns escaped syntax-highlighted HTML.
+												dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+											/>
+										) : (
+											<span {...stylex.props(styles.lineText)}>
+												{line.text || " "}
+											</span>
+										);
 
 										return (
 											<div
 												key={`${hunkIdx}-${lineIdx}`}
-												{...stylex.props(styles.diffLine)}
+												{...stylex.props(
+													styles.diffLine,
+													isRemoved && styles.removedLine,
+													isAdded && styles.addedLine
+												)}
 												style={{
 													backgroundColor: isRemoved
 														? removedBg
@@ -136,21 +171,93 @@ function EditDiffCard({
 												>
 													{isRemoved ? "−" : isAdded ? "+" : " "}
 												</span>
-												<span {...stylex.props(styles.lineNumber)}>
-													{line.type === "added"
-														? line.newLineNum
-														: line.oldLineNum}
+												<span {...stylex.props(styles.lineNumberPair)}>
+													<span {...stylex.props(styles.oldLineNumber)}>
+														{line.oldLineNum ?? ""}
+													</span>
+													<span {...stylex.props(styles.newLineNumber)}>
+														{line.newLineNum ?? ""}
+													</span>
 												</span>
 												{lineContent}
 											</div>
 										);
 									})}
+									{hunk.hiddenAfter > 0 && (
+										<HunkSeparator hiddenCount={hunk.hiddenAfter} />
+									)}
 								</div>
 							);
 						})}
 					</div>
 				</div>
 			)}
+		</div>
+	);
+}
+
+function buildChangedLineSegmentMap(lines: DiffLine[]) {
+	const map = new Map<number, LineTextSegment[]>();
+	let index = 0;
+
+	while (index < lines.length) {
+		if (lines[index]?.type === "context") {
+			index++;
+			continue;
+		}
+
+		const removed: Array<{ line: DiffLine; index: number }> = [];
+		const added: Array<{ line: DiffLine; index: number }> = [];
+		while (lines[index]?.type === "removed") {
+			removed.push({ line: lines[index]!, index });
+			index++;
+		}
+		while (lines[index]?.type === "added") {
+			added.push({ line: lines[index]!, index });
+			index++;
+		}
+
+		const pairCount = Math.min(removed.length, added.length);
+		for (let pairIdx = 0; pairIdx < pairCount; pairIdx++) {
+			const oldLine = removed[pairIdx]!;
+			const newLine = added[pairIdx]!;
+			const segments = diffLineTextSegments(
+				oldLine.line.text,
+				newLine.line.text
+			);
+			map.set(oldLine.index, segments.oldSegments);
+			map.set(newLine.index, segments.newSegments);
+		}
+	}
+
+	return map;
+}
+
+function formatRange(start: number, count: number): string {
+	if (count === 0) return `${start},0`;
+	return count === 1 ? `${start}` : `${start},${count}`;
+}
+
+function HunkSeparator({
+	hiddenCount,
+	hunk,
+}: {
+	hiddenCount: number;
+	hunk?: DiffHunk;
+}) {
+	const specs = hunk
+		? `@@ -${formatRange(hunk.oldStart, hunk.oldCount)} +${formatRange(
+				hunk.newStart,
+				hunk.newCount
+			)} @@`
+		: null;
+	return (
+		<div {...stylex.props(styles.hunkSeparator)}>
+			<span {...stylex.props(styles.hunkSpec)}>{specs ?? "..."}</span>
+			<span {...stylex.props(styles.hunkHidden)}>
+				{hiddenCount.toLocaleString()} unchanged{" "}
+				{hiddenCount === 1 ? "line" : "lines"} hidden
+			</span>
 		</div>
 	);
 }
@@ -214,6 +321,12 @@ const styles = stylex.create({
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 	},
+	headerMeta: {
+		color: color.textMuted,
+		flexShrink: 0,
+		fontSize: font.size_1,
+		fontVariantNumeric: "tabular-nums",
+	},
 	stats: {
 		alignItems: "center",
 		display: "flex",
@@ -234,11 +347,43 @@ const styles = stylex.create({
 	bodyInner: {
 		minWidth: "100%",
 	},
+	hunkBlock: {
+		borderBottomWidth: 1,
+		borderBottomStyle: "solid",
+		borderBottomColor: color.borderSubtle,
+	},
+	hunkSeparator: {
+		alignItems: "center",
+		backgroundColor: color.surfaceSubtle,
+		borderLeftWidth: 2,
+		borderLeftStyle: "solid",
+		borderLeftColor: color.borderControl,
+		color: color.textMuted,
+		display: "flex",
+		fontSize: font.size_1,
+		gap: controlSize._2,
+		lineHeight: "17px",
+		minWidth: "100%",
+		paddingInline: controlSize._2,
+	},
+	hunkSpec: {
+		color: color.textSoft,
+		fontVariantNumeric: "tabular-nums",
+	},
+	hunkHidden: {
+		color: color.textMuted,
+	},
 	diffLine: {
 		display: "flex",
 		lineHeight: "15px",
 		minWidth: "100%",
 		width: "100%",
+	},
+	removedLine: {
+		color: "var(--color-git-deleted)",
+	},
+	addedLine: {
+		color: "var(--color-git-added)",
 	},
 	sign: {
 		flexShrink: 0,
@@ -247,14 +392,23 @@ const styles = stylex.create({
 		userSelect: "none",
 		width: controlSize._4,
 	},
-	lineNumber: {
-		color: color.textFaint,
+	lineNumberPair: {
+		display: "grid",
 		flexShrink: 0,
+		gridTemplateColumns: `${controlSize._6} ${controlSize._6}`,
+		userSelect: "none",
+	},
+	oldLineNumber: {
+		color: color.textFaint,
+		fontSize: font.size_1,
+		paddingRight: controlSize._1,
+		textAlign: "right",
+	},
+	newLineNumber: {
+		color: color.textFaint,
 		fontSize: font.size_1,
 		paddingRight: controlSize._2,
 		textAlign: "right",
-		userSelect: "none",
-		width: controlSize._7,
 	},
 	lineText: {
 		color: color.textMain,
@@ -262,6 +416,16 @@ const styles = stylex.create({
 		fontSize: font.size_2,
 		paddingRight: controlSize._2,
 		whiteSpace: "pre",
+	},
+	inlineRemoved: {
+		backgroundColor: "rgba(248,81,73,0.24)",
+		borderRadius: 2,
+		color: color.textMain,
+	},
+	inlineAdded: {
+		backgroundColor: "rgba(46,160,67,0.24)",
+		borderRadius: 2,
+		color: color.textMain,
 	},
 });
 
@@ -277,8 +441,8 @@ export function MiniEditDiff({
 	isStreaming?: boolean;
 }) {
 	const fileName = filePath.split("/").pop() || filePath;
-	const { hunks, stats, allLines } = useMemo(() => {
-		return summarizeHunks(computeDiffHunks(oldStr, newStr, 1));
+	const { hunks, stats, allLines, totalHidden } = useMemo(() => {
+		return summarizeDiff(oldStr, newStr, 2);
 	}, [newStr, oldStr]);
 
 	return (
@@ -289,6 +453,7 @@ export function MiniEditDiff({
 			hunks={hunks}
 			stats={stats}
 			allLines={allLines}
+			totalHidden={totalHidden}
 			isStreaming={isStreaming}
 		/>
 	);
@@ -302,7 +467,7 @@ export function GroupedEditDiff({
 	edits: EditMessage[];
 }) {
 	const fileName = filePath.split("/").pop() || filePath;
-	const { hunks, stats, allLines } = useMemo(() => {
+	const { hunks, stats, allLines, totalHidden } = useMemo(() => {
 		const parsedEdits: { old_string: string; new_string: string }[] = [];
 
 		for (const edit of edits) {
@@ -323,12 +488,15 @@ export function GroupedEditDiff({
 
 		const result = applyEditsSequentially(parsedEdits);
 		if (!result) {
-			return { hunks: [], stats: { added: 0, removed: 0 }, allLines: [] };
+			return {
+				hunks: [],
+				stats: { added: 0, removed: 0 },
+				allLines: [],
+				totalHidden: 0,
+			};
 		}
 
-		return summarizeHunks(
-			computeDiffHunks(result.originalText, result.finalText, 1)
-		);
+		return summarizeDiff(result.originalText, result.finalText, 2);
 	}, [edits]);
 
 	if (hunks.length === 0) return null;
@@ -341,6 +509,7 @@ export function GroupedEditDiff({
 			hunks={hunks}
 			stats={stats}
 			allLines={allLines}
+			totalHidden={totalHidden}
 		/>
 	);
 }

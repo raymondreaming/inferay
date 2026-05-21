@@ -669,7 +669,9 @@ export function Sidebar() {
 					className={
 						stylex.props(
 							styles.profileButton,
-							collapsed ? styles.profileButtonCollapsed : styles.profileButtonOpen
+							collapsed
+								? styles.profileButtonCollapsed
+								: styles.profileButtonOpen
 						).className ?? ""
 					}
 					title={collapsed ? githubLabel : undefined}

@@ -1,5 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { HunkDiffStats } from "../../features/git/useGitDiff.ts";
 import type { GitFileEntry } from "../../features/git/useGitStatus.ts";
 import { postJson } from "../../lib/fetch-json.ts";
 import { color, controlSize, font, radius } from "../../tokens.stylex.ts";
@@ -30,6 +31,7 @@ export function ChangeFileSidebar({
 	untracked,
 	staged,
 	selectedFile,
+	selectedDiffStats,
 	onSelectFile,
 	onStageFile,
 	onUnstageFile,
@@ -62,6 +64,7 @@ export function ChangeFileSidebar({
 	untracked: GitFileEntry[];
 	staged: GitFileEntry[];
 	selectedFile: SelectedFile | null;
+	selectedDiffStats?: HunkDiffStats;
 	onSelectFile: (f: GitFileEntry) => void;
 	onStageFile: (path: string) => void;
 	onUnstageFile: (path: string) => void;
@@ -112,12 +115,19 @@ export function ChangeFileSidebar({
 						</div>
 					) : (
 						<>
+							{selectedFile && selectedDiffStats && (
+								<SelectedDiffSummary
+									selectedFile={selectedFile}
+									stats={selectedDiffStats}
+								/>
+							)}
 							<FileGroup
 								title="Unstaged"
 								files={[...modified, ...untracked]}
 								selected={selectedFile}
 								onSelect={onSelectFile}
 								actionLabel={showFileActions ? "Stage" : undefined}
+								onAction={showFileActions ? onStageFile : undefined}
 								onActionAll={showFileActions ? onStageAll : undefined}
 								viewMode={fileViewMode}
 							/>
@@ -127,6 +137,7 @@ export function ChangeFileSidebar({
 								selected={selectedFile}
 								onSelect={onSelectFile}
 								actionLabel={showFileActions ? "Unstage" : undefined}
+								onAction={showFileActions ? onUnstageFile : undefined}
 								onActionAll={showFileActions ? onUnstageAll : undefined}
 								viewMode={fileViewMode}
 							/>
@@ -331,6 +342,52 @@ const styles = stylex.create({
 		backgroundColor: color.background,
 		paddingBlock: controlSize._2,
 		paddingInline: controlSize._3,
+	},
+	diffSummary: {
+		display: "flex",
+		flexShrink: 0,
+		flexDirection: "column",
+		gap: controlSize._1,
+		borderBottomWidth: 1,
+		borderBottomStyle: "solid",
+		borderBottomColor: color.border,
+		backgroundColor: color.background,
+		paddingBlock: controlSize._2,
+		paddingInline: controlSize._3,
+	},
+	diffSummaryTop: {
+		alignItems: "center",
+		display: "flex",
+		gap: controlSize._2,
+		minWidth: 0,
+	},
+	diffSummaryPath: {
+		color: color.textSoft,
+		flex: 1,
+		fontSize: font.size_2,
+		fontWeight: font.weight_6,
+		minWidth: 0,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
+	diffSummaryMeta: {
+		alignItems: "center",
+		color: color.textMuted,
+		display: "flex",
+		fontSize: font.size_1,
+		fontVariantNumeric: "tabular-nums",
+		gap: controlSize._2,
+	},
+	stagedTag: {
+		borderRadius: radius.sm,
+		backgroundColor: color.accentWash,
+		color: color.accent,
+		flexShrink: 0,
+		fontSize: font.size_0_5,
+		fontWeight: font.weight_6,
+		paddingBlock: controlSize._0_5,
+		paddingInline: controlSize._1,
 	},
 	wipDot: {
 		width: font.size_3,
@@ -877,6 +934,42 @@ const styles = stylex.create({
 
 /* ── Sub-components ───────────────────────────────────── */
 
+function SelectedDiffSummary({
+	selectedFile,
+	stats,
+}: {
+	selectedFile: SelectedFile;
+	stats: HunkDiffStats;
+}) {
+	return (
+		<div {...stylex.props(styles.diffSummary)}>
+			<div {...stylex.props(styles.diffSummaryTop)}>
+				<span
+					{...stylex.props(styles.diffSummaryPath)}
+					title={selectedFile.path}
+				>
+					{selectedFile.path}
+				</span>
+				{selectedFile.staged && (
+					<span {...stylex.props(styles.stagedTag)}>staged</span>
+				)}
+			</div>
+			<div {...stylex.props(styles.diffSummaryMeta)}>
+				<span>
+					{stats.hunks} hunk{stats.hunks === 1 ? "" : "s"}
+				</span>
+				<span>{stats.lines.toLocaleString()} rendered lines</span>
+				{stats.added > 0 && (
+					<span {...stylex.props(styles.addedText)}>+{stats.added}</span>
+				)}
+				{stats.removed > 0 && (
+					<span {...stylex.props(styles.deletedText)}>-{stats.removed}</span>
+				)}
+			</div>
+		</div>
+	);
+}
+
 function ChangeFileSidebarHeader({
 	fileViewMode,
 	onFileViewModeChange,
@@ -1376,6 +1469,7 @@ function TreeNodeRow({
 						>
 							{node.name}
 						</span>
+						<FileDiffStats file={file} />
 						{onAction && (
 							<button
 								type="button"
@@ -1543,6 +1637,7 @@ function FileGroup({
 											{f.path}
 										</span>
 									</button>
+									<FileDiffStats file={f} />
 									{onAction && (
 										<button
 											type="button"
@@ -1584,5 +1679,22 @@ function FileGroup({
 				</div>
 			) : null}
 		</div>
+	);
+}
+
+function FileDiffStats({ file }: { file: GitFileEntry }) {
+	const additions = file.additions ?? 0;
+	const deletions = file.deletions ?? 0;
+	if (additions === 0 && deletions === 0) return null;
+
+	return (
+		<span {...stylex.props(styles.fileStats)} aria-label="Diff stats">
+			{additions > 0 && (
+				<span {...stylex.props(styles.addedText)}>+{additions}</span>
+			)}
+			{deletions > 0 && (
+				<span {...stylex.props(styles.deletedText)}>-{deletions}</span>
+			)}
+		</span>
 	);
 }

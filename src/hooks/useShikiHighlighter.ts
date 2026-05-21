@@ -84,6 +84,79 @@ function highlightLine(
 	}
 }
 
+const HIGHLIGHT_CONTEXT_LINES = 200;
+type IdleWindow = Window & {
+	requestIdleCallback?: (
+		callback: () => void,
+		options?: { timeout?: number }
+	) => number;
+	cancelIdleCallback?: (handle: number) => void;
+};
+
+function scheduleHighlightWork(callback: () => void) {
+	const win = window as IdleWindow;
+	if (win.requestIdleCallback && win.cancelIdleCallback) {
+		const handle = win.requestIdleCallback(callback, { timeout: 120 });
+		return () => win.cancelIdleCallback?.(handle);
+	}
+	const handle = window.setTimeout(callback, 0);
+	return () => window.clearTimeout(handle);
+}
+
+function highlightLineRange(
+	hl: Highlighter,
+	lines: string[],
+	start: number,
+	end: number,
+	language: BundledLanguage,
+	theme: BundledTheme
+) {
+	const from = Math.max(0, start - HIGHLIGHT_CONTEXT_LINES);
+	const to = Math.min(lines.length - 1, end);
+	if (to < start) return new Map<number, string>();
+
+	try {
+		const html = hl.codeToHtml(lines.slice(from, to + 1).join("\n"), {
+			lang: language,
+			theme,
+		});
+		const codeMatch = html.match(/<code[^>]*>([\s\S]*?)<\/code>/);
+		const codeHtml = codeMatch?.[1] ?? "";
+		const renderedLines = splitRenderedLines(codeHtml);
+		const highlighted = new Map<number, string>();
+
+		for (let lineIdx = start; lineIdx <= to; lineIdx++) {
+			const rendered = renderedLines[lineIdx - from];
+			highlighted.set(
+				lineIdx,
+				rendered != null
+					? rendered || escapeHtml(lines[lineIdx] ?? "")
+					: highlightLine(hl, lines[lineIdx] ?? "", language, theme)
+			);
+		}
+		return highlighted;
+	} catch {
+		const highlighted = new Map<number, string>();
+		for (let lineIdx = start; lineIdx <= to; lineIdx++) {
+			highlighted.set(
+				lineIdx,
+				highlightLine(hl, lines[lineIdx] ?? "", language, theme)
+			);
+		}
+		return highlighted;
+	}
+}
+
+function splitRenderedLines(codeHtml: string) {
+	const parts = codeHtml.split(LINE_SPAN_PREFIX).slice(1);
+	return parts.map((part) => {
+		const trimmed = part.trimEnd();
+		return trimmed.endsWith(SPAN_CLOSE)
+			? trimmed.slice(0, -SPAN_CLOSE.length)
+			: trimmed;
+	});
+}
+
 function getLanguageFromPath(filePath: string): BundledLanguage | null {
 	const ext = filePath.split(".").pop()?.toLowerCase();
 	if (!ext) return null;
@@ -99,6 +172,7 @@ export interface UseShikiHighlighterOptions {
 }
 
 export interface ShikiHighlighterAPI {
+	ensureHighlightedRange: (start: number, end: number) => boolean;
 	getHighlightedLine: (lineIdx: number) => string | undefined;
 	isReady: boolean;
 	language: string | null;
@@ -134,6 +208,7 @@ export function useShikiHighlighter({
 			setIsReady(true); // Ready but won't highlight
 			return;
 		}
+		const resolvedLanguage = language;
 
 		const controller = new AbortController();
 		const { signal } = controller;
@@ -144,19 +219,24 @@ export function useShikiHighlighter({
 				const hl = await getHighlighter();
 				if (signal.aborted) return;
 
-				await ensureLanguage(hl, language);
+				await ensureLanguage(hl, resolvedLanguage);
 				if (signal.aborted) return;
 
 				highlighterRef.current = hl;
-				langRef.current = language;
+				langRef.current = resolvedLanguage;
 
-				// Immediately highlight visible lines before setting ready
 				const [start, end] = visibleRangeRef.current;
 				const currentLines = linesRef.current;
-				for (let i = start; i <= end && i < currentLines.length; i++) {
-					const line = currentLines[i];
-					if (!line) continue;
-					cacheRef.current.set(i, highlightLine(hl, line, language, theme));
+				const highlighted = highlightLineRange(
+					hl,
+					currentLines,
+					start,
+					end,
+					resolvedLanguage,
+					theme
+				);
+				for (const [lineIdx, html] of highlighted) {
+					cacheRef.current.set(lineIdx, html);
 				}
 
 				setIsReady(true);
@@ -169,41 +249,89 @@ export function useShikiHighlighter({
 		init();
 
 		return controller.abort.bind(controller);
-	}, [enabled, filePath, language, theme]);
+	}, [enabled, filePath, language, lines, theme]);
 
-	// Highlight visible lines when range changes
+	// Keep normal scrolling responsive; programmatic jumps call
+	// ensureHighlightedRange before moving the viewport.
 	useEffect(() => {
 		if (!isReady || !highlighterRef.current || !langRef.current) return;
 
-		const [start, end] = visibleRange;
-		const hl = highlighterRef.current;
-		const lang = langRef.current;
+		return scheduleHighlightWork(() => {
+			const [start, end] = visibleRangeRef.current;
+			const currentLines = linesRef.current;
+			const hl = highlighterRef.current;
+			const lang = langRef.current;
+			if (!hl || !lang) return;
 
-		let newLinesHighlighted = false;
+			let missingStart = Number.POSITIVE_INFINITY;
+			let missingEnd = -1;
 
-		// Highlight lines that aren't cached yet
-		for (let i = start; i <= end && i < lines.length; i++) {
-			if (cacheRef.current.has(i)) continue;
+			for (let i = start; i <= end && i < currentLines.length; i++) {
+				if (cacheRef.current.has(i)) continue;
+				missingStart = Math.min(missingStart, i);
+				missingEnd = Math.max(missingEnd, i);
+			}
 
-			const line = lines[i];
-			if (!line) continue;
-
-			cacheRef.current.set(i, highlightLine(hl, line, lang, theme));
-			newLinesHighlighted = true;
-		}
-
-		// Force re-render if new lines were highlighted
-		if (newLinesHighlighted) {
-			setHighlightVersion(incrementNumber);
-		}
+			if (missingEnd >= missingStart) {
+				const highlighted = highlightLineRange(
+					hl,
+					currentLines,
+					missingStart,
+					missingEnd,
+					lang,
+					theme
+				);
+				for (const [lineIdx, html] of highlighted) {
+					cacheRef.current.set(lineIdx, html);
+				}
+				setHighlightVersion(incrementNumber);
+			}
+		});
 	}, [isReady, visibleRange, lines, theme]);
 
 	const getHighlightedLine = useCallback(
 		(lineIdx: number): string | undefined => cacheRef.current.get(lineIdx),
 		[]
 	);
+	const ensureHighlightedRange = useCallback(
+		(start: number, end: number) => {
+			const hl = highlighterRef.current;
+			const lang = langRef.current;
+			const currentLines = linesRef.current;
+			if (!isReady || !hl || !lang || currentLines.length === 0) return false;
+
+			const safeStart = Math.max(0, Math.floor(start));
+			const safeEnd = Math.min(currentLines.length - 1, Math.ceil(end));
+			let missingStart = Number.POSITIVE_INFINITY;
+			let missingEnd = -1;
+
+			for (let i = safeStart; i <= safeEnd; i++) {
+				if (cacheRef.current.has(i)) continue;
+				missingStart = Math.min(missingStart, i);
+				missingEnd = Math.max(missingEnd, i);
+			}
+
+			if (missingEnd < missingStart) return true;
+
+			const highlighted = highlightLineRange(
+				hl,
+				currentLines,
+				missingStart,
+				missingEnd,
+				lang,
+				theme
+			);
+			for (const [lineIdx, html] of highlighted) {
+				cacheRef.current.set(lineIdx, html);
+			}
+			setHighlightVersion(incrementNumber);
+			return true;
+		},
+		[isReady, theme]
+	);
 
 	return {
+		ensureHighlightedRange,
 		getHighlightedLine,
 		isReady,
 		language,
@@ -254,6 +382,7 @@ export function useShikiSnippet(
 			setIsReady(true);
 			return;
 		}
+		const resolvedLanguage = language;
 
 		const controller = new AbortController();
 		const { signal } = controller;
@@ -263,23 +392,17 @@ export function useShikiSnippet(
 				const hl = await getHighlighter();
 				if (signal.aborted) return;
 
-				await ensureLanguage(hl, language);
+				await ensureLanguage(hl, resolvedLanguage);
 				if (signal.aborted) return;
 
-				const result = new Map<number, string>();
-
-				for (let i = 0; i < lines.length; i++) {
-					const line = lines[i];
-					if (!line) {
-						result.set(i, "");
-						continue;
-					}
-
-					result.set(
-						i,
-						highlightLine(hl, line, language, "github-dark-default")
-					);
-				}
+				const result = highlightLineRange(
+					hl,
+					lines,
+					0,
+					lines.length - 1,
+					resolvedLanguage,
+					"github-dark-default"
+				);
 
 				if (!signal.aborted) {
 					setHighlighted(result);

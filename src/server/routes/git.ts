@@ -1,11 +1,11 @@
 import { resolve } from "node:path";
 import { rangeContainsLine } from "../../lib/data.ts";
 import { badRequest, tryRoute } from "../../lib/route-helpers.ts";
-import { unwatchDirectory, watchDirectory } from "../services/file-watcher.ts";
 import {
 	resolveAllowedChildPath,
 	resolveRealAllowedLocalPath,
 } from "../security.ts";
+import { unwatchDirectory, watchDirectory } from "../services/file-watcher.ts";
 import {
 	commit,
 	type GitStatusResult,
@@ -49,10 +49,12 @@ interface HunkDiff {
 	isNew: boolean;
 	isImage?: boolean;
 	imagePath?: string;
+	rawPatch?: string;
+	mergeConflictContent?: string;
 }
 
-const MAX_UNTRACKED_FILE_BYTES = 120_000;
-const MAX_RENDERED_DIFF_LINES = 6000;
+const MAX_UNTRACKED_FILE_BYTES = 500_000;
+const MAX_RENDERED_DIFF_LINES = 12_000;
 const MAX_RENDERED_LINE_CHARS = 8000;
 
 const IMAGE_EXTENSIONS = new Set([
@@ -80,12 +82,110 @@ function tooLargeDiff(message: string, isNew = false): HunkDiff {
 	};
 }
 
-async function getHunkDiff(
+async function runGitText(
+	cwd: string,
+	args: string[],
+	timeoutMs = 5000
+): Promise<string | null> {
+	try {
+		const proc = Bun.spawn(["git", ...args], {
+			cwd,
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		let timeout: ReturnType<typeof setTimeout> | null = null;
+		const timeoutPromise = new Promise<"timeout">((resolve) => {
+			timeout = setTimeout(() => {
+				try {
+					proc.kill();
+				} catch {}
+				resolve("timeout");
+			}, timeoutMs);
+		});
+		const result = await Promise.race([
+			Promise.all([new Response(proc.stdout).text(), proc.exited]),
+			timeoutPromise,
+		]);
+		if (timeout) clearTimeout(timeout);
+		if (result === "timeout") return null;
+		const [text, exitCode] = result;
+		return exitCode === 0 ? text : null;
+	} catch {
+		return null;
+	}
+}
+
+async function getRawGitPatch(
+	cwd: string,
+	filePath: string,
+	staged: boolean
+): Promise<string> {
+	const args = staged
+		? ["diff", "--cached", "--binary", "--find-renames", "--", filePath]
+		: ["diff", "--binary", "--find-renames", "--", filePath];
+	const patch = (await runGitText(cwd, args, 5000)) ?? "";
+	if (!/^new file mode/m.test(patch)) return patch;
+
+	const allArgs = staged
+		? ["diff", "--cached", "--binary", "--find-renames"]
+		: ["diff", "--binary", "--find-renames"];
+	const fullPatch = (await runGitText(cwd, allArgs, 5000)) ?? "";
+	return extractPatchForPath(fullPatch, filePath) ?? patch;
+}
+
+function createUntrackedPatch(filePath: string, content: string): string {
+	const lines = content.split("\n");
+	return [
+		`diff --git a/${filePath} b/${filePath}`,
+		"new file mode 100644",
+		"index 0000000..0000000",
+		"--- /dev/null",
+		`+++ b/${filePath}`,
+		`@@ -0,0 +1,${lines.length} @@`,
+		...lines.map((line) => `+${line}`),
+	].join("\n");
+}
+
+function extractPatchForPath(patch: string, filePath: string): string | null {
+	if (!patch.trim()) return null;
+	const blocks = patch
+		.split(/(?=^diff --git )/m)
+		.map((block) => block.trimEnd())
+		.filter(Boolean);
+	for (const block of blocks) {
+		const header = block.split("\n", 1)[0] ?? "";
+		if (
+			header.endsWith(` b/${filePath}`) ||
+			block.includes(`\nrename to ${filePath}\n`) ||
+			block.includes(`\n+++ b/${filePath}\n`)
+		) {
+			return `${block}\n`;
+		}
+	}
+	return null;
+}
+
+function hasMergeConflictMarkers(content: string): boolean {
+	return (
+		content.includes("<<<<<<< ") &&
+		content.includes("\n=======") &&
+		content.includes("\n>>>>>>> ")
+	);
+}
+
+export async function getHunkDiff(
 	cwd: string,
 	filePath: string,
 	staged: boolean
 ): Promise<HunkDiff> {
-	const fullPath = await resolveRealAllowedLocalPath(resolve(cwd, filePath));
+	const requestedPath = resolve(cwd, filePath);
+	const rawPatch = await getRawGitPatch(cwd, filePath, staged);
+	const deletedPatch = /^(deleted file mode|\+\+\+ \/dev\/null)/m.test(
+		rawPatch
+	);
+	const fullPath = deletedPatch
+		? requestedPath
+		: await resolveRealAllowedLocalPath(requestedPath);
 	if (!fullPath) return tooLargeDiff("Access denied");
 
 	if (isImageFile(filePath)) {
@@ -96,38 +196,55 @@ async function getHunkDiff(
 			isNew: true,
 			isImage: true,
 			imagePath: fullPath,
+			rawPatch,
 		};
 	}
 
 	let currentContent = "";
-	let readAttempts = 0;
-	const maxAttempts = 3;
-	while (readAttempts < maxAttempts) {
-		try {
-			const f = Bun.file(fullPath);
-			if (f.size > MAX_UNTRACKED_FILE_BYTES) {
-				return tooLargeDiff("File too large to render safely", true);
+	if (!deletedPatch) {
+		let readAttempts = 0;
+		const maxAttempts = 3;
+		while (readAttempts < maxAttempts) {
+			try {
+				const f = Bun.file(fullPath);
+				if (f.size > MAX_UNTRACKED_FILE_BYTES) {
+					return {
+						...tooLargeDiff("File too large to render safely", true),
+						rawPatch,
+					};
+				}
+				currentContent = await f.text();
+				if (currentContent.includes("\0")) {
+					return {
+						oldLines: [],
+						newLines: [],
+						isBinary: true,
+						isNew: false,
+						rawPatch,
+					};
+				}
+				break;
+			} catch {
+				readAttempts++;
+				if (readAttempts >= maxAttempts) {
+					return {
+						oldLines: [],
+						newLines: [
+							{ number: 1, content: "Cannot read file", type: "context" },
+						],
+						isBinary: false,
+						isNew: true,
+						rawPatch,
+					};
+				}
+				await new Promise((r) => setTimeout(r, 100));
 			}
-			currentContent = await f.text();
-			if (currentContent.includes("\0")) {
-				return { oldLines: [], newLines: [], isBinary: true, isNew: false };
-			}
-			break;
-		} catch {
-			readAttempts++;
-			if (readAttempts >= maxAttempts) {
-				return {
-					oldLines: [],
-					newLines: [
-						{ number: 1, content: "Cannot read file", type: "context" },
-					],
-					isBinary: false,
-					isNew: true,
-				};
-			}
-			await new Promise((r) => setTimeout(r, 100));
 		}
 	}
+
+	const mergeConflictContent = hasMergeConflictMarkers(currentContent)
+		? currentContent
+		: undefined;
 
 	let oldContent = "";
 	let isNew = false;
@@ -151,6 +268,25 @@ async function getHunkDiff(
 		isNew = true;
 	}
 
+	if (deletedPatch) {
+		const lines = oldContent.split("\n");
+		return {
+			oldLines: lines.map((c, i) => ({
+				number: i + 1,
+				content: c,
+				type: "remove" as const,
+			})),
+			newLines: lines.map(() => ({
+				number: null,
+				content: "",
+				type: "spacer",
+			})),
+			isBinary: false,
+			isNew: false,
+			rawPatch,
+		};
+	}
+
 	if (isNew) {
 		const lines = currentContent.split("\n");
 		return {
@@ -162,13 +298,15 @@ async function getHunkDiff(
 			})),
 			isBinary: false,
 			isNew: true,
+			rawPatch: rawPatch || createUntrackedPatch(filePath, currentContent),
+			mergeConflictContent,
 		};
 	}
 
 	const oldFileLines = oldContent.split("\n");
 	const newFileLines = currentContent.split("\n");
 	if (oldFileLines.length + newFileLines.length > MAX_RENDERED_DIFF_LINES) {
-		return tooLargeDiff("Diff too large to render safely");
+		return { ...tooLargeDiff("Diff too large to render safely"), rawPatch };
 	}
 	let longestLine = 0;
 	for (const line of oldFileLines)
@@ -176,9 +314,12 @@ async function getHunkDiff(
 	for (const line of newFileLines)
 		longestLine = Math.max(longestLine, line.length);
 	if (longestLine > MAX_RENDERED_LINE_CHARS) {
-		return tooLargeDiff(
-			"Diff contains a very long line and cannot render safely"
-		);
+		return {
+			...tooLargeDiff(
+				"Diff contains a very long line and cannot render safely"
+			),
+			rawPatch,
+		};
 	}
 
 	interface DiffHunk {
@@ -191,10 +332,9 @@ async function getHunkDiff(
 
 	try {
 		const args = staged
-			? ["git", "diff", "--cached", "-U0", "--", filePath]
-			: ["git", "diff", "-U0", "--", filePath];
-		const proc = Bun.spawn(args, { cwd, stdout: "pipe", stderr: "pipe" });
-		const diffText = await new Response(proc.stdout).text();
+			? ["diff", "--cached", "-U0", "--", filePath]
+			: ["diff", "-U0", "--", filePath];
+		const diffText = (await runGitText(cwd, args, 5000)) ?? "";
 
 		for (const line of diffText.split("\n")) {
 			if (line.startsWith("@@")) {
@@ -305,7 +445,14 @@ async function getHunkDiff(
 		}
 	}
 
-	return { oldLines, newLines, isBinary: false, isNew: false };
+	return {
+		oldLines,
+		newLines,
+		isBinary: false,
+		isNew: false,
+		rawPatch,
+		mergeConflictContent,
+	};
 }
 
 export function gitRoutes() {

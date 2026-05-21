@@ -14,6 +14,8 @@ export interface GitFileEntry {
 	staged: boolean;
 	path: string;
 	originalPath?: string;
+	additions?: number;
+	deletions?: number;
 }
 
 export interface GitStatusResult {
@@ -179,6 +181,16 @@ export async function getStatus(cwd: string): Promise<GitStatusResult | null> {
 	const unstagedCount = files.filter(isUnstagedTrackedChange).length;
 	const untrackedCount = files.filter(isUntrackedChange).length;
 	const name = cwd.split("/").pop() || cwd;
+	const diffStats = await getWorkingTreeNumstat(cwd);
+	for (const file of files) {
+		const stats = diffStats.get(
+			`${file.staged ? "staged" : "unstaged"}:${file.path}`
+		);
+		if (stats) {
+			file.additions = stats.additions;
+			file.deletions = stats.deletions;
+		}
+	}
 
 	return {
 		cwd,
@@ -192,6 +204,57 @@ export async function getStatus(cwd: string): Promise<GitStatusResult | null> {
 		untrackedCount,
 		files,
 	};
+}
+
+async function getWorkingTreeNumstat(cwd: string) {
+	const stats = new Map<string, { additions: number; deletions: number }>();
+	await addNumstatEntries(stats, cwd, false);
+	await addNumstatEntries(stats, cwd, true);
+	return stats;
+}
+
+async function addNumstatEntries(
+	stats: Map<string, { additions: number; deletions: number }>,
+	cwd: string,
+	staged: boolean
+) {
+	const result = await runSafe(
+		staged ? ["diff", "--cached", "--numstat"] : ["diff", "--numstat"],
+		cwd,
+		3000
+	);
+	if (!result) return;
+	const prefix = staged ? "staged" : "unstaged";
+	for (const line of result.split("\n")) {
+		if (!line) continue;
+		const parts = line.split("\t");
+		if (parts.length < 3) continue;
+		const additions =
+			parts[0] === "-" ? 0 : Number.parseInt(parts[0]!, 10) || 0;
+		const deletions =
+			parts[1] === "-" ? 0 : Number.parseInt(parts[1]!, 10) || 0;
+		const rawPath = parts[parts.length - 1]!;
+		stats.set(`${prefix}:${normalizeNumstatPath(rawPath)}`, {
+			additions,
+			deletions,
+		});
+	}
+}
+
+export function normalizeNumstatPath(path: string) {
+	const arrowIdx = path.indexOf(" => ");
+	if (arrowIdx === -1) return path;
+	const braceStart = path.lastIndexOf("{", arrowIdx);
+	const braceEnd = path.indexOf("}", arrowIdx);
+	if (braceStart !== -1 && braceEnd !== -1) {
+		return (
+			path.slice(0, braceStart) +
+			path.slice(arrowIdx + 4, braceEnd) +
+			path.slice(braceEnd + 1)
+		).replace(/^\/+/, "");
+	}
+	const suffix = path.slice(arrowIdx + 4);
+	return suffix.replace(/^\/+/, "");
 }
 
 export async function getDiff(

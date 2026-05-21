@@ -11,7 +11,7 @@ import {
 	type AgentChatHandle,
 	AgentChatView,
 } from "../../components/chat/AgentChatView.tsx";
-import { clearAgentChatMessages } from "../../features/chat/chat-session-store.ts";
+import { DiffViewerBoundary } from "../../components/diff/DiffViewerBoundary.tsx";
 import {
 	ChangeFileSidebar,
 	type SelectedFile,
@@ -27,27 +27,26 @@ import {
 	IconX,
 } from "../../components/ui/Icons.tsx";
 import { useActivityFeed } from "../../features/activity-feed/useActivityFeed.ts";
-import { useFileWatcher } from "../../features/file-watcher/useFileWatcher.ts";
+import { isChatAgentKind } from "../../features/agents/agents.ts";
 import { useAgentSessions } from "../../features/agents/useAgentSessions.ts";
-import {
-	isStagedChange,
-	isUnstagedTrackedChange,
-	isUntrackedChange,
-	orderGitFiles,
-	orderProjectGitFiles,
-} from "../../lib/git-file-utils.ts";
-import {
-	listenWindowEvent,
-	setupTerminalThemePanelShortcut,
-} from "../../lib/react-events.ts";
+import { clearAgentChatMessages } from "../../features/chat/chat-session-store.ts";
+import { useFileWatcher } from "../../features/file-watcher/useFileWatcher.ts";
 import { useGitChangeActions } from "../../features/git/useGitChangeActions.ts";
-import { type DiffRequest, useGitDiff } from "../../features/git/useGitDiff.ts";
+import {
+	type DiffRequest,
+	summarizeHunkDiff,
+	useGitDiff,
+} from "../../features/git/useGitDiff.ts";
 import {
 	useCommitDetails,
 	useGitGraph,
 } from "../../features/git/useGitGraph.ts";
 import { useGitStatus } from "../../features/git/useGitStatus.ts";
-import { isChatAgentKind } from "../../features/agents/agents.ts";
+import {
+	loadTerminalState,
+	type TerminalGroupModel,
+	type ThemeId,
+} from "../../features/terminal/terminal-utils.ts";
 import {
 	loadAppThemeId,
 	mapAppThemeToTerminalTheme,
@@ -58,15 +57,20 @@ import {
 	toggleBoolean,
 } from "../../lib/data.ts";
 import {
+	isStagedChange,
+	isUnstagedTrackedChange,
+	isUntrackedChange,
+	orderProjectGitFiles,
+} from "../../lib/git-file-utils.ts";
+import {
+	listenWindowEvent,
+	setupTerminalThemePanelShortcut,
+} from "../../lib/react-events.ts";
+import {
 	readStoredValue,
 	removeStoredValue,
 	writeStoredValue,
 } from "../../lib/stored-json.ts";
-import {
-	loadTerminalState,
-	type TerminalGroupModel,
-	type ThemeId,
-} from "../../features/terminal/terminal-utils.ts";
 import { wsClient } from "../../lib/websocket.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 import { type DiffViewMode, GitDiffView } from "../Terminal/GitDiffView.tsx";
@@ -231,6 +235,7 @@ export function EditorPage({
 		loadDiff,
 		clear: clearDiff,
 	} = useGitDiff();
+	const selectedDiffStats = useMemo(() => summarizeHunkDiff(diff), [diff]);
 
 	const refresh = useCallback(() => setTick(incrementNumber), []);
 	useEffect(wsClient.connect.bind(wsClient), []);
@@ -516,18 +521,22 @@ export function EditorPage({
 			diffLoading ? (
 				<Placeholder label="Loading diff..." />
 			) : diff && request ? (
-				<GitDiffView
-					diff={diff}
-					filePath={request.file}
-					staged={request.staged}
-					scrollToChange={scrollToChange}
-					loading={false}
-					onClose={clearDiff}
-					hideHeader
-					hideToolbar
-					viewMode={diffViewMode}
-					onViewModeChange={setDiffViewMode}
-				/>
+				<DiffViewerBoundary
+					resetKey={`${request.cwd}:${request.staged ? "staged" : "unstaged"}:${request.file}`}
+				>
+					<GitDiffView
+						diff={diff}
+						filePath={request.file}
+						staged={request.staged}
+						scrollToChange={scrollToChange}
+						loading={false}
+						onClose={clearDiff}
+						hideHeader
+						hideToolbar
+						viewMode={diffViewMode}
+						onViewModeChange={setDiffViewMode}
+					/>
+				</DiffViewerBoundary>
 			) : (
 				<Placeholder
 					label={project ? "Select a changed file" : "No diff available"}
@@ -556,6 +565,7 @@ export function EditorPage({
 		untracked,
 		staged,
 		selectedFile,
+		selectedDiffStats,
 		onSelectFile: (f: { path: string; staged: boolean }) =>
 			session?.cwd &&
 			selectFile(session.paneId, {
@@ -678,6 +688,7 @@ export function EditorPage({
 								diffViewMode={diffViewMode}
 								filePath={request?.file}
 								selectedFile={selectedFile}
+								diffStats={selectedDiffStats}
 								sidebarVisible={sidebarVisible}
 								onStageFile={stageFile}
 								onUnstageFile={unstageFile}
@@ -840,6 +851,7 @@ function DiffViewerTopBar({
 	diffViewMode,
 	filePath,
 	selectedFile,
+	diffStats,
 	sidebarVisible,
 	onStageFile,
 	onUnstageFile,
@@ -851,6 +863,7 @@ function DiffViewerTopBar({
 	diffViewMode: DiffViewMode;
 	filePath?: string;
 	selectedFile: SelectedFile | null;
+	diffStats: ReturnType<typeof summarizeHunkDiff>;
 	sidebarVisible: boolean;
 	onStageFile: (path: string) => void;
 	onUnstageFile: (path: string) => void;
@@ -886,6 +899,21 @@ function DiffViewerTopBar({
 
 			{filePath && (
 				<span {...stylex.props(styles.filePathLabel)}>{filePath}</span>
+			)}
+			{filePath && mainViewMode === "diff" && (
+				<span {...stylex.props(styles.diffStatsLabel)}>
+					<span>
+						{diffStats.hunks} hunk{diffStats.hunks === 1 ? "" : "s"}
+					</span>
+					{diffStats.added > 0 && (
+						<span {...stylex.props(styles.addedText)}>+{diffStats.added}</span>
+					)}
+					{diffStats.removed > 0 && (
+						<span {...stylex.props(styles.deletedText)}>
+							-{diffStats.removed}
+						</span>
+					)}
+				</span>
 			)}
 			{filePath && selectedFile && (
 				<IconButton
@@ -1162,5 +1190,20 @@ const styles = stylex.create({
 		color: color.textMuted,
 		fontFamily: "var(--font-diff)",
 		fontSize: font.size_1,
+	},
+	diffStatsLabel: {
+		alignItems: "center",
+		color: color.textMuted,
+		display: "flex",
+		flexShrink: 0,
+		fontSize: font.size_1,
+		fontVariantNumeric: "tabular-nums",
+		gap: controlSize._1,
+	},
+	addedText: {
+		color: color.gitAdded,
+	},
+	deletedText: {
+		color: color.gitDeleted,
 	},
 });

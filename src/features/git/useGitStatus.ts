@@ -7,6 +7,8 @@ export interface GitFileEntry {
 	staged: boolean;
 	path: string;
 	originalPath?: string;
+	additions?: number;
+	deletions?: number;
 }
 
 export interface GitProjectStatus {
