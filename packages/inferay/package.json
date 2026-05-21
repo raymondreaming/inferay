@@ -1,7 +1,7 @@
 {
 	"name": "inferay",
-	"version": "0.1.19",
-	"description": "Command-line installer and launcher for Inferay.",
+	"version": "0.1.20",
+	"description": "Install and launch Inferay, a macOS AI workspace for multi-pane Claude/Codex chats, project context, slash commands, terminals, and diffs.",
 	"type": "module",
 	"main": "./index.js",
 	"exports": "./index.js",
@@ -17,6 +17,29 @@
 	"engines": {
 		"node": ">=18"
 	},
+	"homepage": "https://inferay.com",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/raymondreaming/inferay.git",
+		"directory": "packages/inferay"
+	},
+	"bugs": {
+		"url": "https://github.com/raymondreaming/inferay/issues"
+	},
+	"keywords": [
+		"inferay",
+		"claude",
+		"codex",
+		"ai-agent",
+		"agent-chat",
+		"slash-commands",
+		"multi-pane",
+		"terminal",
+		"macos",
+		"desktop",
+		"diff",
+		"installer"
+	],
 	"license": "MIT",
 	"publishConfig": {
 		"access": "public"
