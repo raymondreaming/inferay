@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { HunkDiffStats } from "../../features/git/useGitDiff.ts";
 import type { GitFileEntry } from "../../features/git/useGitStatus.ts";
 import { postJson } from "../../lib/fetch-json.ts";
@@ -262,18 +262,18 @@ const styles = stylex.create({
 		top: 0,
 		zIndex: 20,
 		display: "flex",
+		height: controlSize._8,
 		alignItems: "center",
 		gap: controlSize._2,
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
 		backgroundColor: color.background,
-		paddingBlock: controlSize._2,
 		paddingInline: controlSize._3,
 	},
 	headerLabel: {
 		color: color.textSoft,
-		fontSize: font.size_3,
+		fontSize: font.size_2,
 		fontWeight: font.weight_6,
 		letterSpacing: "0.01em",
 	},
@@ -282,7 +282,7 @@ const styles = stylex.create({
 	},
 	segmented: {
 		display: "flex",
-		height: controlSize._6,
+		height: controlSize._5,
 		alignItems: "center",
 		overflow: "hidden",
 		borderWidth: 1,
@@ -323,9 +323,9 @@ const styles = stylex.create({
 			":hover": color.textMain,
 		},
 		display: "inline-flex",
-		height: controlSize._6,
+		height: controlSize._5,
 		justifyContent: "center",
-		width: controlSize._6,
+		width: controlSize._5,
 		transitionProperty: "background-color, border-color, color",
 		transitionDuration: "120ms",
 	},
@@ -1688,7 +1688,7 @@ function FileDiffStats({ file }: { file: GitFileEntry }) {
 	if (additions === 0 && deletions === 0) return null;
 
 	return (
-		<span {...stylex.props(styles.fileStats)} aria-label="Diff stats">
+		<span {...stylex.props(styles.fileStats)}>
 			{additions > 0 && (
 				<span {...stylex.props(styles.addedText)}>+{additions}</span>
 			)}

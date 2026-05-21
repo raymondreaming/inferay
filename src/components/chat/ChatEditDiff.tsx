@@ -1,14 +1,17 @@
 import * as stylex from "@stylexjs/stylex";
 import { useMemo, useState } from "react";
-import { useShikiSnippet } from "../../hooks/useShikiHighlighter.ts";
+import {
+	useShikiSnippet,
+	useSyntaxHighlightTheme,
+} from "../../hooks/useShikiHighlighter.ts";
 import { contentOf } from "../../lib/data.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 import { IconChevronRight, IconFilePlus } from "../ui/Icons.tsx";
 import {
 	applyEditsSequentially,
-	diffLineTextSegments,
 	type DiffHunk,
 	type DiffLine,
+	diffLineTextSegments,
 	type LineTextSegment,
 	summarizeDiff,
 } from "./chat-edit-diff-utils.ts";
@@ -34,7 +37,13 @@ function EditDiffCard({
 	totalHidden: number;
 	isStreaming?: boolean;
 }) {
-	const { highlighted, isReady } = useShikiSnippet(allLines, fileName, true);
+	const [syntaxTheme] = useSyntaxHighlightTheme();
+	const { highlighted, isReady } = useShikiSnippet(
+		allLines,
+		fileName,
+		true,
+		syntaxTheme
+	);
 	const [isExpanded, setIsExpanded] = useState(true);
 
 	const removedBg = "rgba(248,81,73,0.08)";

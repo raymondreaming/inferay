@@ -230,10 +230,13 @@ export function useGitDiff() {
 	const [diff, setDiff] = useState<HunkDiff | null>(null);
 	const [request, setRequest] = useState<DiffRequest | null>(null);
 	const activeId = useRef(0);
+	const activeAbort = useRef<AbortController | null>(null);
 
 	const loadDiff = useCallback((req: DiffRequest) => {
 		const id = ++requestCounter;
+		activeAbort.current?.abort();
 		const controller = new AbortController();
+		activeAbort.current = controller;
 		const timeout = setTimeout(controller.abort.bind(controller), 12000);
 		const cacheKey = diffCacheKey(req);
 		const cached = diffCache.get(cacheKey);
@@ -273,12 +276,17 @@ export function useGitDiff() {
 			})
 			.finally(() => {
 				clearTimeout(timeout);
+				if (activeId.current === id && activeAbort.current === controller) {
+					activeAbort.current = null;
+				}
 			});
 	}, []);
 
 	// Clear current diff state
 	const clear = useCallback(() => {
 		activeId.current = ++requestCounter;
+		activeAbort.current?.abort();
+		activeAbort.current = null;
 		setDiff(null);
 		setRequest(null);
 		setLoading(false);

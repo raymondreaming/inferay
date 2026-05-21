@@ -126,6 +126,38 @@ describe("GitDiffView custom renderer", () => {
 			root.unmount();
 		}
 	});
+
+	test("renders deleted files without crashing on spacer-only new panes", async () => {
+		const { root, rootElement } = setupDom();
+		try {
+			const removedLines = Array.from({ length: 104 }, (_, index) => ({
+				number: index + 1,
+				content: `const value${index} = ${index};`,
+				type: "remove" as const,
+			}));
+			const diff: HunkDiff = {
+				oldLines: removedLines,
+				newLines: removedLines.map(() => ({
+					number: null,
+					content: "",
+					type: "spacer" as const,
+				})),
+				isBinary: false,
+				isNew: false,
+				rawPatch:
+					"diff --git a/src/__tests__/keyboardHelpers.test.ts b/src/__tests__/keyboardHelpers.test.ts\ndeleted file mode 100644",
+			};
+
+			await renderDiff(root, rootElement, diff);
+
+			expect(rootElement.textContent).toContain("const value0 = 0;");
+			expect(rootElement.querySelectorAll(".diff-row").length).toBeGreaterThan(
+				0
+			);
+		} finally {
+			root.unmount();
+		}
+	});
 });
 
 function domWindow() {

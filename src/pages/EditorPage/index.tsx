@@ -946,7 +946,7 @@ function DiffViewerTopBar({
 					icon={<IconGitBranch size={11} />}
 				/>
 				<ToolbarButton
-					active={!sidebarVisible}
+					active={sidebarVisible}
 					title={
 						sidebarVisible ? "Hide changes sidebar" : "Show changes sidebar"
 					}

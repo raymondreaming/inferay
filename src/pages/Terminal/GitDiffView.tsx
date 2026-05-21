@@ -25,7 +25,11 @@ import {
 	shouldDisableDiffTokenization,
 	summarizeHunkDiff,
 } from "../../features/git/useGitDiff.ts";
-import { useShikiHighlighter } from "../../hooks/useShikiHighlighter.ts";
+import {
+	type SyntaxHighlightTheme,
+	useShikiHighlighter,
+	useSyntaxHighlightTheme,
+} from "../../hooks/useShikiHighlighter.ts";
 import { contentOf } from "../../lib/data.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import { type Token, tokenizeLine } from "../../lib/syntax-tokens.ts";
@@ -50,6 +54,7 @@ interface GitDiffViewProps {
 	onViewModeChange?: (viewMode: DiffViewMode) => void;
 	hideToolbar?: boolean;
 	scrollToChange?: number;
+	syntaxTheme?: SyntaxHighlightTheme;
 }
 
 const TOKEN_CLASSES: Record<string, string> = {
@@ -117,7 +122,7 @@ const diffStyles = stylex.create({
 		contain: "layout paint style",
 	},
 	minimap: {
-		width: "14px",
+		width: "16px",
 		flexShrink: 0,
 		borderLeftWidth: 1,
 		borderLeftStyle: "solid",
@@ -130,14 +135,19 @@ const diffStyles = stylex.create({
 	},
 	minimapSegment: {
 		position: "absolute",
-		right: 0,
-		width: "6px",
+		right: "3px",
+		width: "9px",
+		borderRadius: "2px",
 	},
 	minimapAdd: {
-		backgroundColor: color.gitAdded,
+		backgroundColor: "color-mix(in srgb, var(--color-git-added) 92%, white)",
+		boxShadow:
+			"0 0 0 1px color-mix(in srgb, var(--color-git-added) 70%, white), 0 0 8px color-mix(in srgb, var(--color-git-added) 42%, transparent)",
 	},
 	minimapDelete: {
-		backgroundColor: color.gitDeleted,
+		backgroundColor: "color-mix(in srgb, var(--color-git-deleted) 92%, white)",
+		boxShadow:
+			"0 0 0 1px color-mix(in srgb, var(--color-git-deleted) 70%, white), 0 0 8px color-mix(in srgb, var(--color-git-deleted) 42%, transparent)",
 	},
 	minimapThumb: {
 		position: "absolute",
@@ -150,7 +160,8 @@ const diffStyles = stylex.create({
 		borderBottomStyle: "solid",
 		borderTopColor: "rgba(255, 255, 255, 0.2)",
 		borderBottomColor: "rgba(255, 255, 255, 0.2)",
-		backgroundColor: "rgba(255, 255, 255, 0.1)",
+		backgroundColor: "rgba(255, 255, 255, 0.14)",
+		boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, 0.14)",
 	},
 	singlePanel: {
 		display: "flex",
@@ -690,6 +701,7 @@ const VirtualPanel = memo(function VirtualPanel({
 	filePath,
 	highlightedChangeIdx,
 	changeLineMap,
+	syntaxTheme,
 }: {
 	lines: DiffLine[];
 	ext: string;
@@ -707,6 +719,7 @@ const VirtualPanel = memo(function VirtualPanel({
 	filePath?: string;
 	highlightedChangeIdx?: number;
 	changeLineMap?: Map<number, number>;
+	syntaxTheme: SyntaxHighlightTheme;
 }) {
 	const [scrollTop, setScrollTop] = useState(0);
 	const [viewH, setViewH] = useState(600);
@@ -779,6 +792,7 @@ const VirtualPanel = memo(function VirtualPanel({
 		filePath: filePath ?? `file.${ext}`,
 		lines: lineContents,
 		visibleRange,
+		theme: syntaxTheme,
 		enabled: !disableTokenize && !!filePath,
 	});
 
@@ -970,6 +984,7 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 	newLines,
 	oldLines,
 	scrollRef,
+	syntaxTheme,
 }: {
 	changeLineMap?: Map<number, number>;
 	disableTokenize: boolean;
@@ -981,6 +996,7 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 	newLines: DiffLine[];
 	oldLines: DiffLine[];
 	scrollRef: React.RefObject<HTMLDivElement | null>;
+	syntaxTheme: SyntaxHighlightTheme;
 }) {
 	const [scrollTop, setScrollTop] = useState(0);
 	const [viewH, setViewH] = useState(600);
@@ -1041,12 +1057,14 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 		filePath: filePath ?? `file.${ext}`,
 		lines: oldContents,
 		visibleRange,
+		theme: syntaxTheme,
 		enabled: !disableTokenize && !!filePath,
 	});
 	const newHighlighter = useShikiHighlighter({
 		filePath: filePath ?? `file.${ext}`,
 		lines: newContents,
 		visibleRange,
+		theme: syntaxTheme,
 		enabled: !disableTokenize && !!filePath,
 	});
 	const minimapSegments = useMemo(
@@ -1109,6 +1127,10 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 										</div>
 									);
 								}
+								const oldHighlightedHtml =
+									oldHighlighter.getHighlightedLine(index);
+								const newHighlightedHtml =
+									newHighlighter.getHighlightedLine(index);
 								return (
 									<div
 										key={index}
@@ -1134,15 +1156,11 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 												line={oldLine}
 												ext={ext}
 												tokens={
-													oldHighlighter.isReady &&
-													oldHighlighter.language &&
-													!disableTokenize
+													oldHighlightedHtml
 														? null
 														: getTokens(oldLine.content, ext, disableTokenize)
 												}
-												highlightedHtml={oldHighlighter.getHighlightedLine(
-													index
-												)}
+												highlightedHtml={oldHighlightedHtml}
 												isHighlighted={isHighlighted}
 											/>
 										</div>
@@ -1159,15 +1177,11 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 												line={newLine}
 												ext={ext}
 												tokens={
-													newHighlighter.isReady &&
-													newHighlighter.language &&
-													!disableTokenize
+													newHighlightedHtml
 														? null
 														: getTokens(newLine.content, ext, disableTokenize)
 												}
-												highlightedHtml={newHighlighter.getHighlightedLine(
-													index
-												)}
+												highlightedHtml={newHighlightedHtml}
 												isHighlighted={isHighlighted}
 											/>
 										</div>
@@ -1292,8 +1306,7 @@ const DiffMinimap = memo(function DiffMinimap({
 					)}
 					style={{
 						top: seg.startLine * lineHeight,
-						height: Math.max(2, (seg.endLine - seg.startLine) * lineHeight),
-						opacity: 0.7,
+						height: Math.max(3, (seg.endLine - seg.startLine) * lineHeight),
 					}}
 				/>
 			))}
@@ -1315,6 +1328,7 @@ export const GitDiffView = memo(function GitDiffView({
 	onViewModeChange,
 	hideToolbar = false,
 	scrollToChange,
+	syntaxTheme: controlledSyntaxTheme,
 }: GitDiffViewProps) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const rightRef = useRef<HTMLDivElement>(null);
@@ -1322,6 +1336,8 @@ export const GitDiffView = memo(function GitDiffView({
 		useState<DiffViewMode>("split");
 	const viewMode = controlledViewMode ?? internalViewMode;
 	const setViewMode = onViewModeChange ?? setInternalViewMode;
+	const [storedSyntaxTheme] = useSyntaxHighlightTheme();
+	const syntaxTheme = controlledSyntaxTheme ?? storedSyntaxTheme;
 	const [externalScrollTop, setExternalScrollTop] = useState(-1);
 	const [externalScrollSource, setExternalScrollSource] = useState<
 		"left" | "right" | "all"
@@ -1566,6 +1582,7 @@ export const GitDiffView = memo(function GitDiffView({
 					disableTokenize={disableTokenize}
 					ext={ext}
 					filePath={filePath}
+					syntaxTheme={syntaxTheme}
 				/>
 			</div>
 		);
@@ -1653,6 +1670,7 @@ export const GitDiffView = memo(function GitDiffView({
 						filePath={filePath}
 						highlightedChangeIdx={highlightedChangeIdx}
 						changeLineMap={changeLineMap}
+						syntaxTheme={syntaxTheme}
 					/>
 				) : (
 					<SinglePanel
@@ -1663,6 +1681,7 @@ export const GitDiffView = memo(function GitDiffView({
 						externalScrollTop={externalScrollTop}
 						externalScrollSource={externalScrollSource}
 						filePath={filePath}
+						syntaxTheme={syntaxTheme}
 					/>
 				)}
 			</div>
@@ -1788,11 +1807,13 @@ function MergeConflictPanel({
 	disableTokenize,
 	ext,
 	filePath,
+	syntaxTheme,
 }: {
 	content: string;
 	disableTokenize: boolean;
 	ext: string;
 	filePath: string;
+	syntaxTheme: SyntaxHighlightTheme;
 }) {
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const lines = useMemo(() => buildMergeConflictLines(content), [content]);
@@ -1826,6 +1847,7 @@ function MergeConflictPanel({
 				showMinimap
 				side="single"
 				filePath={filePath}
+				syntaxTheme={syntaxTheme}
 			/>
 		</div>
 	);
@@ -1838,6 +1860,7 @@ function SinglePanel({
 	externalScrollTop,
 	externalScrollSource,
 	filePath,
+	syntaxTheme,
 }: {
 	lines: DiffLine[];
 	ext: string;
@@ -1845,6 +1868,7 @@ function SinglePanel({
 	externalScrollTop?: number;
 	externalScrollSource?: "left" | "right" | "all";
 	filePath?: string;
+	syntaxTheme: SyntaxHighlightTheme;
 }) {
 	const scrollRef = useRef<HTMLDivElement>(null);
 	return (
@@ -1859,6 +1883,7 @@ function SinglePanel({
 				externalScrollSource={externalScrollSource}
 				side="single"
 				filePath={filePath}
+				syntaxTheme={syntaxTheme}
 			/>
 		</div>
 	);

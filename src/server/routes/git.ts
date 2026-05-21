@@ -270,6 +270,19 @@ export async function getHunkDiff(
 
 	if (deletedPatch) {
 		const lines = oldContent.split("\n");
+		if (lines.length > MAX_RENDERED_DIFF_LINES) {
+			return { ...tooLargeDiff("Diff too large to render safely"), rawPatch };
+		}
+		for (const line of lines) {
+			if (line.length > MAX_RENDERED_LINE_CHARS) {
+				return {
+					...tooLargeDiff(
+						"Diff contains a very long line and cannot render safely"
+					),
+					rawPatch,
+				};
+			}
+		}
 		return {
 			oldLines: lines.map((c, i) => ({
 				number: i + 1,

@@ -1,18 +1,9 @@
 import * as stylex from "@stylexjs/stylex";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../components/ui/Button.tsx";
+import { DropdownButton } from "../../components/ui/DropdownButton.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
 import { IconX } from "../../components/ui/Icons.tsx";
-import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
-import {
-	APP_THEMES,
-	type AppThemeId,
-	applyAppTheme,
-	loadAppThemeId,
-	mapAppThemeToTerminalTheme,
-	saveAppThemeId,
-} from "../../lib/app-theme.ts";
-import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import {
 	type CustomThemeColors,
 	type HexColor,
@@ -22,6 +13,21 @@ import {
 	saveTerminalState,
 	type ThemeId,
 } from "../../features/terminal/terminal-utils.ts";
+import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
+import {
+	SYNTAX_HIGHLIGHT_THEMES,
+	type SyntaxHighlightTheme,
+	useSyntaxHighlightTheme,
+} from "../../hooks/useShikiHighlighter.ts";
+import {
+	APP_THEMES,
+	type AppThemeId,
+	applyAppTheme,
+	loadAppThemeId,
+	mapAppThemeToTerminalTheme,
+	saveAppThemeId,
+} from "../../lib/app-theme.ts";
+import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import { setInputValue } from "../../lib/react-events.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 
@@ -248,6 +254,7 @@ export const TerminalSettingsPanel = memo(function TerminalSettingsPanel({
 	onClose,
 }: TerminalSettingsPanelProps) {
 	const [appThemeId, setAppThemeId] = useState<AppThemeId>(loadAppThemeId);
+	const [syntaxTheme, setSyntaxTheme] = useSyntaxHighlightTheme();
 
 	const handleThemeChange = useCallback(
 		(id: AppThemeId) => {
@@ -381,6 +388,23 @@ export const TerminalSettingsPanel = memo(function TerminalSettingsPanel({
 							</div>
 						</>
 					)}
+					<div {...stylex.props(styles.divider)} />
+					<div {...stylex.props(styles.section)}>
+						<h4 {...stylex.props(styles.sectionHeading)}>DIFFS</h4>
+						<p {...stylex.props(styles.sectionDescription)}>
+							Syntax highlighting used by full file diffs and inline agent edit
+							diffs.
+						</p>
+						<DropdownButton
+							value={syntaxTheme}
+							options={SYNTAX_HIGHLIGHT_THEMES}
+							onChange={(id) => setSyntaxTheme(id as SyntaxHighlightTheme)}
+							placeholder="Syntax theme"
+							fullWidth
+							buttonClassName={stylex.props(styles.syntaxThemeButton).className}
+							labelClassName={stylex.props(styles.syntaxThemeLabel).className}
+						/>
+					</div>
 					<div {...stylex.props(styles.divider)} />
 					<SearchFoldersSection />
 				</div>
@@ -522,6 +546,16 @@ const styles = stylex.create({
 		color: color.textMuted,
 		fontSize: font.size_1,
 		lineHeight: 1.45,
+	},
+	syntaxThemeButton: {
+		height: controlSize._8,
+		borderColor: color.border,
+		backgroundColor: color.backgroundRaised,
+		color: color.textSoft,
+		fontSize: font.size_2,
+	},
+	syntaxThemeLabel: {
+		fontSize: font.size_2,
 	},
 	colorList: {
 		display: "flex",

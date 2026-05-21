@@ -46,6 +46,84 @@ const EXTENSION_TO_LANG: Record<string, BundledLanguage> = {
 let highlighterInstance: Highlighter | null = null;
 let highlighterPromise: Promise<Highlighter> | null = null;
 const loadedLanguages = new Set<string>();
+const loadedThemes = new Set<BundledTheme>(["github-dark-default"]);
+
+export type SyntaxHighlightTheme = BundledTheme;
+
+export const DEFAULT_SYNTAX_HIGHLIGHT_THEME: SyntaxHighlightTheme =
+	"github-dark-default";
+
+export const SYNTAX_HIGHLIGHT_THEMES: {
+	id: SyntaxHighlightTheme;
+	label: string;
+}[] = [
+	{ id: "github-dark-default", label: "GitHub Dark" },
+	{ id: "vitesse-dark", label: "Vitesse Dark" },
+	{ id: "one-dark-pro", label: "One Dark" },
+	{ id: "dracula", label: "Dracula" },
+	{ id: "slack-dark", label: "Slack Dark" },
+];
+
+const SYNTAX_THEME_STORAGE_KEY = "inferay-syntax-highlight-theme" as const;
+const SYNTAX_THEME_EVENT = "inferay-syntax-highlight-theme-change" as const;
+
+function normalizeSyntaxTheme(theme: string | null): SyntaxHighlightTheme {
+	return (
+		SYNTAX_HIGHLIGHT_THEMES.find((entry) => entry.id === theme)?.id ??
+		DEFAULT_SYNTAX_HIGHLIGHT_THEME
+	);
+}
+
+function readSyntaxTheme(): SyntaxHighlightTheme {
+	if (typeof window === "undefined") return DEFAULT_SYNTAX_HIGHLIGHT_THEME;
+	try {
+		return normalizeSyntaxTheme(
+			window.localStorage.getItem(SYNTAX_THEME_STORAGE_KEY)
+		);
+	} catch {
+		return DEFAULT_SYNTAX_HIGHLIGHT_THEME;
+	}
+}
+
+export function saveSyntaxHighlightTheme(theme: SyntaxHighlightTheme) {
+	if (typeof window === "undefined") return;
+	try {
+		window.localStorage.setItem(SYNTAX_THEME_STORAGE_KEY, theme);
+	} catch {}
+	window.dispatchEvent(new CustomEvent(SYNTAX_THEME_EVENT, { detail: theme }));
+}
+
+export function useSyntaxHighlightTheme() {
+	const [theme, setThemeState] =
+		useState<SyntaxHighlightTheme>(readSyntaxTheme);
+
+	useEffect(() => {
+		const handleStorage = (event: StorageEvent) => {
+			if (event.key !== SYNTAX_THEME_STORAGE_KEY) return;
+			setThemeState(normalizeSyntaxTheme(event.newValue));
+		};
+		const handleThemeChange = (event: Event) => {
+			setThemeState(
+				normalizeSyntaxTheme((event as CustomEvent<string>).detail ?? null)
+			);
+		};
+
+		window.addEventListener("storage", handleStorage);
+		window.addEventListener(SYNTAX_THEME_EVENT, handleThemeChange);
+		return () => {
+			window.removeEventListener("storage", handleStorage);
+			window.removeEventListener(SYNTAX_THEME_EVENT, handleThemeChange);
+		};
+	}, []);
+
+	const setTheme = useCallback((nextTheme: SyntaxHighlightTheme) => {
+		const normalized = normalizeSyntaxTheme(nextTheme);
+		setThemeState(normalized);
+		saveSyntaxHighlightTheme(normalized);
+	}, []);
+
+	return [theme, setTheme] as const;
+}
 
 async function getHighlighter(): Promise<Highlighter> {
 	if (highlighterInstance) return highlighterInstance;
@@ -66,6 +144,12 @@ async function ensureLanguage(hl: Highlighter, language: BundledLanguage) {
 	if (loadedLanguages.has(language)) return;
 	await hl.loadLanguage(language);
 	loadedLanguages.add(language);
+}
+
+async function ensureTheme(hl: Highlighter, theme: SyntaxHighlightTheme) {
+	if (loadedThemes.has(theme)) return;
+	await hl.loadTheme(theme);
+	loadedThemes.add(theme);
 }
 
 function highlightLine(
@@ -220,6 +304,7 @@ export function useShikiHighlighter({
 				if (signal.aborted) return;
 
 				await ensureLanguage(hl, resolvedLanguage);
+				await ensureTheme(hl, theme);
 				if (signal.aborted) return;
 
 				highlighterRef.current = hl;
@@ -359,7 +444,8 @@ function escapeHtml(text: string): string {
 export function useShikiSnippet(
 	lines: string[],
 	filePath: string,
-	enabled = true
+	enabled = true,
+	theme: SyntaxHighlightTheme = DEFAULT_SYNTAX_HIGHLIGHT_THEME
 ): { highlighted: Map<number, string>; isReady: boolean } {
 	const [highlighted, setHighlighted] = useState<Map<number, string>>(
 		new Map()
@@ -393,6 +479,7 @@ export function useShikiSnippet(
 				if (signal.aborted) return;
 
 				await ensureLanguage(hl, resolvedLanguage);
+				await ensureTheme(hl, theme);
 				if (signal.aborted) return;
 
 				const result = highlightLineRange(
@@ -401,7 +488,7 @@ export function useShikiSnippet(
 					0,
 					lines.length - 1,
 					resolvedLanguage,
-					"github-dark-default"
+					theme
 				);
 
 				if (!signal.aborted) {
@@ -418,7 +505,7 @@ export function useShikiSnippet(
 		highlight();
 
 		return controller.abort.bind(controller);
-	}, [lines, language, enabled, isReady]);
+	}, [lines, language, enabled, isReady, theme]);
 
 	return { highlighted, isReady };
 }
