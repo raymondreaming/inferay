@@ -343,7 +343,11 @@ async function cloneRepository(gitUrl: string, cloneDirectory: string) {
 export function forgeRoutes() {
 	return {
 		"/api/forge/accounts": {
-			GET: tryRoute(async () => {
+			GET: tryRoute(async (req) => {
+				const url = new URL(req.url);
+				if (url.searchParams.has("refresh")) {
+					accountsCache = null;
+				}
 				const accounts = await listGithubAccounts();
 				return Response.json({ accounts });
 			}),

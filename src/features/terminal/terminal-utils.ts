@@ -194,9 +194,9 @@ export const DEFAULT_FONT_FAMILY: TerminalFont = "SF Mono";
 
 export const DEFAULT_OPACITY = 1 as const;
 
-export const DEFAULT_COLUMNS = 2 as const;
+export const DEFAULT_COLUMNS = 3 as const;
 
-export const DEFAULT_ROWS = 1 as const;
+export const DEFAULT_ROWS = 2 as const;
 
 export const DEFAULT_CHAT_AGENT_KIND: ChatAgentKind = "codex";
 
@@ -295,13 +295,15 @@ export function createPendingAgentChatPane(
 	return createTerminalPane(agentKind, undefined, true);
 }
 
-function createDefaultGroup(): TerminalGroupModel {
-	const pane = createPendingAgentChatPane();
+export function createDefaultAgentChatGroup(): TerminalGroupModel {
+	const panes = Array.from({ length: DEFAULT_COLUMNS * DEFAULT_ROWS }, () =>
+		createPendingAgentChatPane()
+	);
 	return {
 		id: createGroupId(),
 		name: "Default",
-		panes: [pane],
-		selectedPaneId: pane.id,
+		panes,
+		selectedPaneId: panes[0]?.id ?? null,
 		columns: DEFAULT_COLUMNS,
 		rows: DEFAULT_ROWS,
 	};
@@ -342,7 +344,9 @@ export function migrateGroup(
 
 export function getInitialGroups(): TerminalGroupModel[] {
 	return (
-		loadTerminalState()?.groups.map(migrateGroup) ?? [createDefaultGroup()]
+		loadTerminalState()?.groups.map(migrateGroup) ?? [
+			createDefaultAgentChatGroup(),
+		]
 	);
 }
 

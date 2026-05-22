@@ -28,12 +28,14 @@ export function invalidateGithubReposCache(): void {
 	cachedRepos = null;
 }
 
-export async function fetchForgeAccounts(): Promise<ForgeAccount[]> {
-	if (cachedAccounts && isFresh(cachedAccounts.cachedAt)) {
+export async function fetchForgeAccounts(
+	refresh = false
+): Promise<ForgeAccount[]> {
+	if (!refresh && cachedAccounts && isFresh(cachedAccounts.cachedAt)) {
 		return cachedAccounts.value;
 	}
 	const data = await fetchJsonOr<{ accounts?: ForgeAccount[] }>(
-		"/api/forge/accounts",
+		refresh ? "/api/forge/accounts?refresh=1" : "/api/forge/accounts",
 		{}
 	);
 	const accounts = Array.isArray(data.accounts) ? data.accounts : [];

@@ -939,6 +939,7 @@ const styles = stylex.create({
 		transitionDuration: "200ms",
 		transitionProperty: "width",
 		transitionTimingFunction: "ease",
+		userSelect: "none",
 	},
 	shellCollapsed: {
 		width: controlSize._12,

@@ -1100,6 +1100,7 @@ const styles = stylex.create({
 		fontWeight: font.weight_5,
 		gap: controlSize._1,
 		paddingInline: controlSize._1,
+		userSelect: "none",
 		backgroundColor: {
 			default: "transparent",
 			":hover": color.accentWash,
@@ -1114,6 +1115,7 @@ const styles = stylex.create({
 		fontWeight: font.weight_5,
 		gap: controlSize._1,
 		paddingInline: controlSize._1,
+		userSelect: "none",
 		backgroundColor: {
 			default: "transparent",
 			":hover": color.accentWash,
@@ -1180,6 +1182,7 @@ const styles = stylex.create({
 		backgroundColor: "transparent",
 		borderWidth: 0,
 		boxShadow: "none",
+		cursor: "text",
 		display: "block",
 		fontSize: "0.8125rem",
 		outline: "none",
@@ -1187,6 +1190,7 @@ const styles = stylex.create({
 		paddingRight: controlSize._8,
 		position: "relative",
 		resize: "none",
+		userSelect: "none",
 		width: "100%",
 	},
 	pickerRow: {
@@ -1197,5 +1201,6 @@ const styles = stylex.create({
 		overflowX: "auto",
 		paddingBottom: "0.375rem",
 		paddingInline: controlSize._2,
+		userSelect: "none",
 	},
 });

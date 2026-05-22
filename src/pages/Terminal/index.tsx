@@ -419,7 +419,7 @@ export function TerminalPage() {
 		const stored = readStoredValue("terminal-main-view");
 		return stored === "chat" || stored === "graph" || stored === "changes"
 			? stored
-			: "editor";
+			: "chat";
 	});
 	useEffect(() => {
 		writeStoredValue("terminal-layout-mode", layoutMode);
@@ -583,7 +583,7 @@ export function TerminalPage() {
 				storedView === "graph" ||
 				storedView === "changes"
 					? storedView
-					: "editor";
+					: "chat";
 			if (nextMainView !== mainView) {
 				setMainView(nextMainView);
 			}

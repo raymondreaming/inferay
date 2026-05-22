@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	appendPaneToGroup,
+	createDefaultAgentChatGroup,
 	getPaneTitle,
 	getStatusInfo,
 	migrateGroup,
@@ -56,13 +57,24 @@ describe("terminal state and git change behavior", () => {
 		});
 
 		expect(migrated.selectedPaneId).toBe("p1");
-		expect(migrated.columns).toBe(2);
-		expect(migrated.rows).toBe(1);
+		expect(migrated.columns).toBe(3);
+		expect(migrated.rows).toBe(2);
 		expect(migrated.panes.map((item) => item.agentKind)).toEqual([
 			"codex",
 			"claude",
 		]);
 		expect(migrated.panes.map((item) => item.isClaude)).toEqual([false, true]);
+	});
+
+	test("creates the default workspace as a six-pane agent chat grid", () => {
+		const group = createDefaultAgentChatGroup();
+
+		expect(group.columns).toBe(3);
+		expect(group.rows).toBe(2);
+		expect(group.panes).toHaveLength(6);
+		expect(group.selectedPaneId).toBe(group.panes[0]?.id);
+		expect(group.panes.every((item) => item.agentKind === "codex")).toBe(true);
+		expect(group.panes.every((item) => item.pendingCwd)).toBe(true);
 	});
 
 	/*

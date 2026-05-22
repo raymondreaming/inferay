@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../../components/ui/Button.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
@@ -20,13 +20,10 @@ import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
 import { resolveServerUrl } from "../../lib/server-origin.ts";
 import { writeStoredValue } from "../../lib/stored-json.ts";
 import {
-	createGroupId,
-	createTerminalPane,
-	DEFAULT_COLUMNS,
+	createDefaultAgentChatGroup,
 	DEFAULT_FONT_FAMILY,
 	DEFAULT_FONT_SIZE,
 	DEFAULT_OPACITY,
-	DEFAULT_ROWS,
 	loadTerminalState,
 	saveTerminalState,
 } from "../../features/terminal/terminal-utils.ts";
@@ -35,6 +32,7 @@ import { fetchJsonOr, sendJsonWithBusy } from "../../lib/fetch-json.ts";
 import {
 	fetchForgeAccounts,
 	fetchGithubRepos,
+	invalidateForgeAccountsCache,
 } from "../../lib/forge-client.ts";
 import type { ForgeAccount, GithubRepo } from "../../lib/forge-types.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
@@ -70,8 +68,8 @@ export function OnboardingPage() {
 
 	const {
 		data: accounts,
+		setData: setAccounts,
 		loading: accountsLoading,
-		refresh: refreshAccountsResource,
 	} = useAsyncResource(fetchForgeAccounts, [], []);
 	const [connecting, setConnecting] = useState(false);
 	const {
@@ -91,17 +89,27 @@ export function OnboardingPage() {
 	// Selected repos
 	const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set());
 
-	const connectGithub = sendJsonWithBusy.bind(
-		null,
-		setConnecting,
-		"/api/forge/connect",
-		{ provider: "github" },
-		undefined
-	);
-
 	const refreshAccounts = async () => {
-		await refreshAccountsResource();
+		invalidateForgeAccountsCache();
+		setAccounts(await fetchForgeAccounts(true));
 	};
+
+	const connectGithub = async () => {
+		await sendJsonWithBusy(setConnecting, "/api/forge/connect", {
+			provider: "github",
+		});
+		invalidateForgeAccountsCache();
+		setAccounts(await fetchForgeAccounts(true));
+	};
+
+	useEffect(() => {
+		if (step !== "github" || accounts.length > 0 || connecting) return;
+		const id = window.setInterval(() => {
+			invalidateForgeAccountsCache();
+			fetchForgeAccounts(true).then(setAccounts).catch(() => undefined);
+		}, 3000);
+		return () => window.clearInterval(id);
+	}, [accounts.length, connecting, step]);
 
 	const pickFolder = async () => {
 		if (isAddingFolder) return;
@@ -139,21 +147,13 @@ export function OnboardingPage() {
 		writeStoredValue(ONBOARDING_DONE_KEY, "true");
 		// Default to grid layout
 		writeStoredValue("terminal-layout-mode", "grid");
-		// Ensure at least 1 terminal pane exists in the default group
+		writeStoredValue("terminal-main-view", "chat");
+		// New users land directly in the multi-agent chat grid.
 		if (!loadTerminalState()) {
-			const pane = createTerminalPane("terminal");
-			const groupId = createGroupId();
+			const group = createDefaultAgentChatGroup();
+			const groupId = group.id;
 			saveTerminalState({
-				groups: [
-					{
-						id: groupId,
-						name: "Default",
-						panes: [pane],
-						selectedPaneId: pane.id,
-						columns: DEFAULT_COLUMNS,
-						rows: DEFAULT_ROWS,
-					},
-				],
+				groups: [group],
 				selectedGroupId: groupId,
 				themeId: "default",
 				fontSize: DEFAULT_FONT_SIZE,

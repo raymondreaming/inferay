@@ -326,6 +326,7 @@ const styles = stylex.create({
 		transitionDuration: "150ms",
 		transitionProperty: "background-color, border-color, color",
 		transitionTimingFunction: "ease",
+		userSelect: "none",
 	},
 	buttonClosed: {
 		backgroundColor: {
@@ -353,6 +354,7 @@ const styles = stylex.create({
 		boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.75)",
 		overflow: "hidden",
 		position: "fixed",
+		userSelect: "none",
 		zIndex: 50,
 	},
 	searchWrap: {
@@ -374,6 +376,7 @@ const styles = stylex.create({
 		paddingBlock: "0.375rem",
 		paddingInline: "0.625rem",
 		width: "100%",
+		userSelect: "text",
 		"::placeholder": {
 			color: color.textMuted,
 		},
@@ -410,6 +413,7 @@ const styles = stylex.create({
 		transitionDuration: "150ms",
 		transitionProperty: "background-color, color",
 		transitionTimingFunction: "ease",
+		userSelect: "none",
 		width: "100%",
 	},
 	optionSelected: {

@@ -42,7 +42,7 @@ interface TerminalMainViewRoute {
 }
 
 export const DEFAULT_APP_ROUTE = "/terminal";
-export const DEFAULT_TERMINAL_MAIN_VIEW: TerminalMainView = "editor";
+export const DEFAULT_TERMINAL_MAIN_VIEW: TerminalMainView = "chat";
 
 const ALL_APP_PAGE_ROUTES = [
 	{ id: "terminal", label: "Terminal", path: "/terminal" },

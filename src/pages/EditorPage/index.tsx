@@ -714,16 +714,7 @@ export function EditorPage({
 }
 
 function EmptyState() {
-	return (
-		<div {...stylex.props(styles.emptyWrap)}>
-			<div {...stylex.props(styles.emptyCard)}>
-				<h2 {...stylex.props(styles.emptyTitle)}>No saved agent sessions</h2>
-				<p {...stylex.props(styles.emptyDescription)}>
-					Open Claude or Codex in the chat grid and it will appear here.
-				</p>
-			</div>
-		</div>
-	);
+	return null;
 }
 
 function Placeholder({ label }: { label: string }) {

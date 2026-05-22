@@ -335,6 +335,7 @@ const styles = stylex.create({
 		gap: controlSize._3,
 		height: controlSize._12,
 		paddingInline: controlSize._3,
+		userSelect: "none",
 	},
 	viewTabs: {
 		alignItems: "center",

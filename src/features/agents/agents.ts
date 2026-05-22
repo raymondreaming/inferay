@@ -137,7 +137,6 @@ const AGENT_DEFINITIONS: Record<AgentKind, AgentDefinition> = {
 } as const;
 
 export const NEW_PANE_AGENT_KINDS = [
-	"terminal",
 	"claude",
 	"codex",
 ] as const satisfies readonly AgentKind[];

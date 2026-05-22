@@ -202,6 +202,7 @@ const styles = stylex.create({
 		justifyContent: "space-between",
 		paddingBlock: controlSize._1,
 		paddingInline: controlSize._3,
+		userSelect: "none",
 	},
 	toolIcon: {
 		flexShrink: 0,
