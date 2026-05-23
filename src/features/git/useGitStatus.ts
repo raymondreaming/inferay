@@ -1,28 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { postJson } from "../../lib/fetch-json.ts";
 import { usePollingResource } from "../../hooks/usePollingResource.ts";
-
-export interface GitFileEntry {
-	status: string;
-	staged: boolean;
-	path: string;
-	originalPath?: string;
-	additions?: number;
-	deletions?: number;
-}
-
-export interface GitProjectStatus {
-	cwd: string;
-	name: string;
-	branch: string;
-	upstream: string | null;
-	ahead: number;
-	behind: number;
-	stagedCount: number;
-	unstagedCount: number;
-	untrackedCount: number;
-	files: GitFileEntry[];
-}
+import type { GitProjectStatus } from "./types.ts";
 
 export function useGitStatus(cwds: string[]) {
 	const fetcher = useCallback(

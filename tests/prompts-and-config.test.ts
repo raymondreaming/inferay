@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { deepMergeRecords } from "../src/server/services/config-manager.ts";
-import { mergePrompts } from "../src/server/routes/prompts.ts";
+import { mergePrompts } from "../src/server/services/prompts.ts";
 
 function prompt(overrides = {}) {
 	return {

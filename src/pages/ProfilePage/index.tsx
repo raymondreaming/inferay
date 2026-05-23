@@ -39,8 +39,8 @@ import {
 	getCachedGithubRepos,
 	invalidateForgeAccountsCache,
 	invalidateGithubReposCache,
-} from "../../lib/forge-client.ts";
-import type { ForgeAccount, GithubRepo } from "../../lib/forge-types.ts";
+} from "../../features/forge/forge-client.ts";
+import type { ForgeAccount, GithubRepo } from "../../features/forge/types.ts";
 import { setupTerminalThemePanelShortcut } from "../../lib/react-events.ts";
 import { removeStoredValue } from "../../lib/stored-json.ts";
 import type { ThemeId } from "../../features/terminal/terminal-utils.ts";

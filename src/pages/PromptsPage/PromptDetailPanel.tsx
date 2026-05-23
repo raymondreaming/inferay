@@ -10,7 +10,10 @@ import {
 	radius,
 	shadow,
 } from "../../tokens.stylex.ts";
-import { CATEGORIES, type Prompt } from "./support.ts";
+import {
+	PROMPT_CATEGORIES,
+	type Prompt,
+} from "../../features/prompts/types.ts";
 
 interface PromptDetailPanelProps {
 	selectedPrompt: Prompt | null;
@@ -215,7 +218,7 @@ export function PromptDetailPanel({
 								onChange={(e) => onFormChange("category", e.target.value)}
 								{...stylex.props(styles.input)}
 							>
-								{CATEGORIES.map((c) => (
+								{PROMPT_CATEGORIES.map((c) => (
 									<option key={c.value} value={c.value}>
 										{c.label}
 									</option>

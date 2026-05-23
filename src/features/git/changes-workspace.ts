@@ -1,9 +1,9 @@
-import type { GitFileEntry, GitProjectStatus } from "./useGitStatus.ts";
+import type { GitFileEntry, GitProjectStatus } from "./types.ts";
 import {
 	isStagedChange,
 	isUnstagedTrackedChange,
 	isUntrackedChange,
-} from "../../lib/git-file-utils.ts";
+} from "../../features/git/git-file-utils.ts";
 
 export interface ChangeCheckpoint {
 	id: string;

@@ -33,8 +33,8 @@ import {
 	fetchForgeAccounts,
 	fetchGithubRepos,
 	invalidateForgeAccountsCache,
-} from "../../lib/forge-client.ts";
-import type { ForgeAccount, GithubRepo } from "../../lib/forge-types.ts";
+} from "../../features/forge/forge-client.ts";
+import type { ForgeAccount, GithubRepo } from "../../features/forge/types.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 
 export const ONBOARDING_DONE_KEY = "inferay-onboarding-done";
@@ -106,7 +106,9 @@ export function OnboardingPage() {
 		if (step !== "github" || accounts.length > 0 || connecting) return;
 		const id = window.setInterval(() => {
 			invalidateForgeAccountsCache();
-			fetchForgeAccounts(true).then(setAccounts).catch(() => undefined);
+			fetchForgeAccounts(true)
+				.then(setAccounts)
+				.catch(() => undefined);
 		}, 3000);
 		return () => window.clearInterval(id);
 	}, [accounts.length, connecting, step]);

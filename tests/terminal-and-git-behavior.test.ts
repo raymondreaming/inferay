@@ -16,7 +16,7 @@ import {
 	isUntrackedChange,
 	orderGitFiles,
 	orderProjectGitFiles,
-} from "../src/lib/git-file-utils.ts";
+} from "../src/features/git/git-file-utils.ts";
 import { isTerminalMainView } from "../src/lib/app-navigation.tsx";
 import { normalizeNumstatPath } from "../src/server/services/git.ts";
 

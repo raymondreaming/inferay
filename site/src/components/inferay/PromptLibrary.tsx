@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { filterPrompts } from "../../../../src/lib/prompt-utils.ts";
+import { filterPrompts } from "../../../../src/features/prompts/prompt-utils.ts";
 import { Icons } from "./Icons";
 
 type Prompt = {

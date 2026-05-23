@@ -27,7 +27,12 @@ import {
 } from "../../components/ui/Icons.tsx";
 import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
 import { hasId, hasUdid, noop, toggleBoolean } from "../../lib/data.ts";
-import { isBootedSimulatorDevice } from "../../lib/simulator-utils.ts";
+import { isBootedSimulatorDevice } from "../../features/simulator/simulator-utils.ts";
+import type {
+	BaguetteStatus,
+	SimulatorDevice,
+	SimulatorProject,
+} from "../../features/simulator/types.ts";
 import {
 	readStoredJson,
 	readStoredValue,
@@ -36,38 +41,6 @@ import {
 	writeStoredValue,
 } from "../../lib/stored-json.ts";
 import { color, controlSize, font, radius } from "../../tokens.stylex.ts";
-
-interface SimulatorDevice {
-	udid: string;
-	name: string;
-	state: string;
-	runtime: string;
-	isAvailable: boolean;
-}
-
-interface BaguetteStatus {
-	installed: boolean;
-	running: boolean;
-	port: number;
-	baseUrl: string;
-	error?: string;
-}
-
-interface SimulatorProject {
-	id: string;
-	name: string;
-	kind: "xcode" | "react-native";
-	path: string;
-	projectPath?: string;
-	workspacePath?: string;
-	iosPath?: string;
-	schemes: string[];
-	defaultScheme?: string;
-	bundleId?: string | null;
-	bootedDeviceUdid?: string | null;
-	installed: boolean;
-	running: boolean;
-}
 
 interface SimulatorSnapshot {
 	devices: SimulatorDevice[];

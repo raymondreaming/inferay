@@ -13,7 +13,7 @@ export interface Prompt {
 	updatedAt: number;
 }
 
-export const CATEGORIES = [
+export const PROMPT_CATEGORIES = [
 	{ value: "code", label: "Code" },
 	{ value: "refactoring", label: "Refactoring" },
 	{ value: "security", label: "Security" },
@@ -26,4 +26,4 @@ export const CATEGORIES = [
 	{ value: "learning", label: "Learning" },
 	{ value: "conversation", label: "Conversation" },
 	{ value: "custom", label: "Custom" },
-];
+] as const;

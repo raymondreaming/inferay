@@ -8,7 +8,6 @@ import {
 import { unwatchDirectory, watchDirectory } from "../services/file-watcher.ts";
 import {
 	commit,
-	type GitStatusResult,
 	getBlame,
 	getBranches,
 	getCommitDetails,
@@ -22,6 +21,7 @@ import {
 	unstageAll,
 	unstageFile,
 } from "../services/git.ts";
+import type { GitProjectStatus } from "../../features/git/types.ts";
 import {
 	getNativeGitGraph,
 	getNativeGitStatuses,
@@ -508,7 +508,7 @@ export function gitRoutes() {
 					return Response.json(nativeStatuses);
 				}
 				const results = await Promise.all(unique.map((cwd) => getStatus(cwd)));
-				return Response.json(results.filter(Boolean) as GitStatusResult[]);
+				return Response.json(results.filter(Boolean) as GitProjectStatus[]);
 			}),
 		},
 

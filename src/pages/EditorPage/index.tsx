@@ -61,7 +61,7 @@ import {
 	isUnstagedTrackedChange,
 	isUntrackedChange,
 	orderProjectGitFiles,
-} from "../../lib/git-file-utils.ts";
+} from "../../features/git/git-file-utils.ts";
 import {
 	listenWindowEvent,
 	setupTerminalThemePanelShortcut,

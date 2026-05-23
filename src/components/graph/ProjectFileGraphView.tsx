@@ -1,6 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { useMemo, useState } from "react";
-import type { GitProjectStatus } from "../../features/git/useGitStatus.ts";
+import type { GitProjectStatus } from "../../features/git/types.ts";
 import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
 import { hasId, hasPath } from "../../lib/data.ts";
 import {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { filterPrompts } from "../src/lib/prompt-utils.ts";
-import { normalizeEntries } from "../src/server/routes/client-storage.ts";
+import { filterPrompts } from "../src/features/prompts/prompt-utils.ts";
+import { normalizeEntries } from "../src/server/services/client-storage.ts";
 import { TERMINAL_STATE_STORAGE_KEY } from "../src/lib/client-storage-keys.ts";
 
 describe("prompt search and client storage sync filters", () => {

@@ -1,7 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { useCallback, useMemo, useState } from "react";
 import type { HunkDiffStats } from "../../features/git/useGitDiff.ts";
-import type { GitFileEntry } from "../../features/git/useGitStatus.ts";
+import type { GitFileEntry } from "../../features/git/types.ts";
 import { postJson } from "../../lib/fetch-json.ts";
 import { color, controlSize, font, radius } from "../../tokens.stylex.ts";
 import { Button } from "../ui/Button.tsx";

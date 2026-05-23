@@ -1,5 +1,5 @@
-import { fetchJsonOr } from "./fetch-json.ts";
-import type { ForgeAccount, GithubRepo } from "./forge-types.ts";
+import { fetchJsonOr } from "../../lib/fetch-json.ts";
+import type { ForgeAccount, GithubRepo } from "./types.ts";
 
 const CACHE_TTL_MS = 120_000;
 

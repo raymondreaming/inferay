@@ -3,33 +3,15 @@ import {
 	isStagedChange,
 	isUnstagedTrackedChange,
 	isUntrackedChange,
-} from "../../lib/git-file-utils.ts";
+} from "../../features/git/git-file-utils.ts";
 import {
 	isSafeRelativePath,
 	resolveRealAllowedLocalPath,
 } from "../security.ts";
-
-export interface GitFileEntry {
-	status: string; // M, A, D, ?, R, C, U
-	staged: boolean;
-	path: string;
-	originalPath?: string;
-	additions?: number;
-	deletions?: number;
-}
-
-export interface GitStatusResult {
-	cwd: string;
-	name: string;
-	branch: string;
-	upstream: string | null;
-	ahead: number;
-	behind: number;
-	stagedCount: number;
-	unstagedCount: number;
-	untrackedCount: number;
-	files: GitFileEntry[];
-}
+import type {
+	GitFileEntry,
+	GitProjectStatus,
+} from "../../features/git/types.ts";
 
 async function run(
 	args: string[],
@@ -97,7 +79,7 @@ function parseCommitSummaryLog(result: string | null) {
 		});
 }
 
-export async function getStatus(cwd: string): Promise<GitStatusResult | null> {
+export async function getStatus(cwd: string): Promise<GitProjectStatus | null> {
 	if (!(await isGitRepo(cwd))) return null;
 
 	const raw = await run(

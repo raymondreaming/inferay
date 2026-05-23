@@ -14,11 +14,13 @@ import {
 	radius,
 	shadow,
 } from "../../tokens.stylex.ts";
-import { filterPrompts } from "../../lib/prompt-utils.ts";
+import { filterPrompts } from "../../features/prompts/prompt-utils.ts";
+import {
+	PROMPT_CATEGORIES,
+	type Prompt,
+} from "../../features/prompts/types.ts";
 import { listenDocumentEvent, setInputValue } from "../../lib/react-events.ts";
 import { PromptDetailPanel } from "./PromptDetailPanel.tsx";
-import type { Prompt } from "./support.ts";
-import { CATEGORIES } from "./support.ts";
 
 interface FormState {
 	name: string;
@@ -314,7 +316,7 @@ const FILTER_OPTIONS = [
 	{ value: "all", label: "All prompts" },
 	{ value: "builtin", label: "Built-in" },
 	{ value: "custom", label: "Custom" },
-	...CATEGORIES.map((c) => ({ value: c.value, label: c.label })),
+	...PROMPT_CATEGORIES.map((c) => ({ value: c.value, label: c.label })),
 ];
 
 function FilterDropdown({

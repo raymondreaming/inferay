@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import type { GitProjectStatus } from "./useGitStatus.ts";
+import type { GitProjectStatus } from "./types.ts";
 
 export function useGitChangeActions({
 	cwd,
