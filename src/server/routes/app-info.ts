@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { PROJECT_ROOT } from "../../lib/path-utils.ts";
 
 interface AppInfo {
@@ -12,7 +12,10 @@ interface AppInfo {
 	production: boolean;
 }
 
-const VERSION_JSON = resolve(PROJECT_ROOT, "version.json");
+const VERSION_JSON_CANDIDATES = [
+	resolve(PROJECT_ROOT, "version.json"),
+	resolve(dirname(PROJECT_ROOT), "version.json"),
+];
 const PACKAGE_JSON = resolve(PROJECT_ROOT, "packages/inferay/package.json");
 
 async function readJson(path: string): Promise<Record<string, unknown> | null> {
@@ -25,7 +28,12 @@ async function readJson(path: string): Promise<Record<string, unknown> | null> {
 }
 
 async function loadAppInfo(): Promise<AppInfo> {
-	const versionInfo = await readJson(VERSION_JSON);
+	let versionInfo: Record<string, unknown> | null = null;
+	for (const path of VERSION_JSON_CANDIDATES) {
+		versionInfo = await readJson(path);
+		if (versionInfo) break;
+	}
+
 	if (versionInfo) {
 		return {
 			name: String(versionInfo.name || "inferay"),

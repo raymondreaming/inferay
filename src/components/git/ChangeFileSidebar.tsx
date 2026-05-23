@@ -10,6 +10,7 @@ import {
 	IconChevronRight,
 	IconFolderFill,
 	IconGitCommit,
+	IconMinus,
 	IconPanelLeft,
 	IconPencil,
 	IconPlus,
@@ -31,7 +32,6 @@ export function ChangeFileSidebar({
 	untracked,
 	staged,
 	selectedFile,
-	selectedDiffStats,
 	onSelectFile,
 	onStageFile,
 	onUnstageFile,
@@ -115,12 +115,6 @@ export function ChangeFileSidebar({
 						</div>
 					) : (
 						<>
-							{selectedFile && selectedDiffStats && (
-								<SelectedDiffSummary
-									selectedFile={selectedFile}
-									stats={selectedDiffStats}
-								/>
-							)}
 							<FileGroup
 								title="Unstaged"
 								files={[...modified, ...untracked]}
@@ -342,52 +336,6 @@ const styles = stylex.create({
 		backgroundColor: color.background,
 		paddingBlock: controlSize._2,
 		paddingInline: controlSize._3,
-	},
-	diffSummary: {
-		display: "flex",
-		flexShrink: 0,
-		flexDirection: "column",
-		gap: controlSize._1,
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
-		borderBottomColor: color.border,
-		backgroundColor: color.background,
-		paddingBlock: controlSize._2,
-		paddingInline: controlSize._3,
-	},
-	diffSummaryTop: {
-		alignItems: "center",
-		display: "flex",
-		gap: controlSize._2,
-		minWidth: 0,
-	},
-	diffSummaryPath: {
-		color: color.textSoft,
-		flex: 1,
-		fontSize: font.size_2,
-		fontWeight: font.weight_6,
-		minWidth: 0,
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-	},
-	diffSummaryMeta: {
-		alignItems: "center",
-		color: color.textMuted,
-		display: "flex",
-		fontSize: font.size_1,
-		fontVariantNumeric: "tabular-nums",
-		gap: controlSize._2,
-	},
-	stagedTag: {
-		borderRadius: radius.sm,
-		backgroundColor: color.accentWash,
-		color: color.accent,
-		flexShrink: 0,
-		fontSize: font.size_0_5,
-		fontWeight: font.weight_6,
-		paddingBlock: controlSize._0_5,
-		paddingInline: controlSize._1,
 	},
 	wipDot: {
 		width: font.size_3,
@@ -763,10 +711,11 @@ const styles = stylex.create({
 	},
 	actionAllButton: {
 		height: controlSize._6,
-		gap: controlSize._1,
-		paddingInline: controlSize._2,
+		justifyContent: "center",
+		paddingInline: 0,
 		fontSize: font.size_2,
 		fontWeight: font.weight_6,
+		width: controlSize._6,
 	},
 	groupList: {
 		flex: 1,
@@ -934,39 +883,17 @@ const styles = stylex.create({
 
 /* ── Sub-components ───────────────────────────────────── */
 
-function SelectedDiffSummary({
-	selectedFile,
-	stats,
+function FileActionIcon({
+	actionLabel,
+	size = 11,
 }: {
-	selectedFile: SelectedFile;
-	stats: HunkDiffStats;
+	actionLabel?: string;
+	size?: number;
 }) {
-	return (
-		<div {...stylex.props(styles.diffSummary)}>
-			<div {...stylex.props(styles.diffSummaryTop)}>
-				<span
-					{...stylex.props(styles.diffSummaryPath)}
-					title={selectedFile.path}
-				>
-					{selectedFile.path}
-				</span>
-				{selectedFile.staged && (
-					<span {...stylex.props(styles.stagedTag)}>staged</span>
-				)}
-			</div>
-			<div {...stylex.props(styles.diffSummaryMeta)}>
-				<span>
-					{stats.hunks} hunk{stats.hunks === 1 ? "" : "s"}
-				</span>
-				<span>{stats.lines.toLocaleString()} rendered lines</span>
-				{stats.added > 0 && (
-					<span {...stylex.props(styles.addedText)}>+{stats.added}</span>
-				)}
-				{stats.removed > 0 && (
-					<span {...stylex.props(styles.deletedText)}>-{stats.removed}</span>
-				)}
-			</div>
-		</div>
+	return actionLabel === "Unstage" ? (
+		<IconMinus size={size} />
+	) : (
+		<IconPlus size={size} />
 	);
 }
 
@@ -1483,7 +1410,7 @@ function TreeNodeRow({
 								)}
 								title={`${actionLabel} ${file.path}`}
 							>
-								<IconPlus size={11} />
+								<FileActionIcon actionLabel={actionLabel} />
 							</button>
 						)}
 					</>
@@ -1594,8 +1521,7 @@ function FileGroup({
 						size="sm"
 						className={stylex.props(styles.actionAllButton).className}
 					>
-						<IconPlus size={11} />
-						<span>{actionLabel} all</span>
+						<FileActionIcon actionLabel={actionLabel} />
 					</Button>
 				)}
 			</div>
@@ -1651,7 +1577,7 @@ function FileGroup({
 											)}
 											title={`${actionLabel} ${f.path}`}
 										>
-											<IconPlus size={11} />
+											<FileActionIcon actionLabel={actionLabel} />
 										</button>
 									)}
 								</div>

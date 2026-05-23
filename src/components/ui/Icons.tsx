@@ -73,6 +73,7 @@ export const {
 	IconSwift,
 	IconX,
 	IconPlus,
+	IconMinus,
 	IconCheck,
 	IconRefreshCw,
 	IconTrash,
@@ -166,6 +167,7 @@ export const {
 	]),
 	IconX: icon("M18 6L6 18M6 6l12 12"),
 	IconPlus: icon("M12 5v14M5 12h14"),
+	IconMinus: icon("M5 12h14"),
 	IconCheck: icon("M20 6L9 17l-5-5"),
 	IconRefreshCw: icon([
 		"M21 12a9 9 0 0 0-15.5-6.3L3 8",
