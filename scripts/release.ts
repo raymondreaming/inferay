@@ -14,7 +14,7 @@ const ARTIFACTS_DIR = join(ROOT, "artifacts");
 const INSTALLER_DMG = join(ARTIFACTS_DIR, "inferay-installer.dmg");
 const PLATFORM_DMG = join(ARTIFACTS_DIR, "inferay-macos-arm64.dmg");
 const CHECKSUMS = join(ARTIFACTS_DIR, "checksums.txt");
-const NPM_CACHE = "/private/tmp/inferay-npm-cache";
+const BUN_CACHE = "/private/tmp/inferay-bun-cache";
 const DEFAULT_RELEASE_REPO = "raymondreaming/inferay";
 
 type Bump = "major" | "minor" | "patch";
@@ -199,17 +199,9 @@ async function buildArtifacts(version: string) {
 	await mkdir(ARTIFACTS_DIR, { recursive: true });
 	await run(["bash", "scripts/build-dmg.sh"]);
 	await copyFile(INSTALLER_DMG, PLATFORM_DMG);
-	await run(
-		[
-			"npm",
-			"pack",
-			"--pack-destination",
-			"../../artifacts",
-			"--cache",
-			NPM_CACHE,
-		],
-		{ cwd: CLI_DIR }
-	);
+	await run(["bun", "pm", "pack", "--destination", "../../artifacts"], {
+		cwd: CLI_DIR,
+	});
 	await writeChecksums([INSTALLER_DMG, PLATFORM_DMG]);
 	await run(["hdiutil", "verify", INSTALLER_DMG]);
 	await run(["hdiutil", "verify", PLATFORM_DMG]);
@@ -265,47 +257,34 @@ async function releaseExists(tag: string, repo: string) {
 
 async function preflightPublish() {
 	await run(["gh", "auth", "status"]);
-	let npmUser: string | null = null;
+	let npmUser: string;
 	try {
-		npmUser = await capture([
-			"npm",
-			"whoami",
-			"--registry",
-			"https://registry.npmjs.org",
-			"--cache",
-			NPM_CACHE,
-		]);
-	} catch {
-		console.log("npm login required.");
-		await run([
-			"npm",
-			"login",
-			"--registry",
-			"https://registry.npmjs.org",
-			"--cache",
-			NPM_CACHE,
-		]);
-		npmUser = await capture([
-			"npm",
-			"whoami",
-			"--registry",
-			"https://registry.npmjs.org",
-			"--cache",
-			NPM_CACHE,
-		]);
+		npmUser = await capture(["bun", "pm", "whoami"]);
+	} catch (error) {
+		throw new Error(
+			`npm registry auth is required for publishing. Run "bunx npm login" and retry.\n${
+				error instanceof Error ? error.message : String(error)
+			}`
+		);
 	}
 	console.log(`npm user: ${npmUser}`);
 }
 
 async function publishNpmPackage() {
-	const cmd = ["npm", "publish", "--access", "public", "--cache", NPM_CACHE];
-	let env = process.env;
+	const cmd = [
+		"bun",
+		"publish",
+		"--access",
+		"public",
+		"--cache-dir",
+		BUN_CACHE,
+	];
+	let otp: string | null = null;
 
 	for (let attempt = 1; attempt <= 3; attempt++) {
-		const exitCode = await run(cmd, {
+		const exitCode = await run(otp ? [...cmd, "--otp", otp] : cmd, {
 			cwd: CLI_DIR,
 			allowFailure: true,
-			env,
 		});
 		if (exitCode === 0) return;
 		if (attempt === 3) break;
@@ -313,7 +292,7 @@ async function publishNpmPackage() {
 		const answer = await promptLine(
 			"Complete npm browser auth and press Enter to retry, or enter an npm OTP: "
 		);
-		env = answer ? { ...process.env, npm_config_otp: answer } : process.env;
+		otp = answer || null;
 	}
 
 	throw new Error("npm publish failed after auth retries");
