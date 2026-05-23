@@ -257,17 +257,6 @@ async function releaseExists(tag: string, repo: string) {
 
 async function preflightPublish() {
 	await run(["gh", "auth", "status"]);
-	let npmUser: string;
-	try {
-		npmUser = await capture(["bun", "pm", "whoami"]);
-	} catch (error) {
-		throw new Error(
-			`npm registry auth is required for publishing. Run "bunx npm login" and retry.\n${
-				error instanceof Error ? error.message : String(error)
-			}`
-		);
-	}
-	console.log(`npm user: ${npmUser}`);
 }
 
 async function publishNpmPackage() {
@@ -295,7 +284,9 @@ async function publishNpmPackage() {
 		otp = answer || null;
 	}
 
-	throw new Error("npm publish failed after auth retries");
+	throw new Error(
+		"npm publish failed after auth retries. Authenticate Bun with an npm token via NPM_CONFIG_TOKEN or an .npmrc entry, then run bun run release:resume."
+	);
 }
 
 async function publishRelease(version: string, repo: string) {
