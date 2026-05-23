@@ -48,6 +48,11 @@ import {
 	type ThemeId,
 } from "../../features/terminal/terminal-utils.ts";
 import {
+	DEFAULT_TERMINAL_MAIN_VIEW,
+	isTerminalMainView,
+	type TerminalMainView,
+} from "../../lib/app-navigation.tsx";
+import {
 	loadAppThemeId,
 	mapAppThemeToTerminalTheme,
 } from "../../lib/app-theme.ts";
@@ -58,8 +63,6 @@ import {
 } from "../../lib/react-events.ts";
 import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
-
-type MainViewMode = "editor" | "chat" | "graph" | "changes";
 
 function GraphEmptyState({ message }: { message: string }) {
 	return (
@@ -415,11 +418,9 @@ function groupsReducer(
 export function TerminalPage() {
 	useEffect(wsClient.connect.bind(wsClient), []);
 	const [layoutMode, setLayoutMode] = useState(loadTerminalLayoutMode);
-	const [mainView, setMainView] = useState<MainViewMode>(() => {
+	const [mainView, setMainView] = useState<TerminalMainView>(() => {
 		const stored = readStoredValue("terminal-main-view");
-		return stored === "chat" || stored === "graph" || stored === "changes"
-			? stored
-			: "chat";
+		return isTerminalMainView(stored) ? stored : DEFAULT_TERMINAL_MAIN_VIEW;
 	});
 	useEffect(() => {
 		writeStoredValue("terminal-layout-mode", layoutMode);
@@ -578,12 +579,9 @@ export function TerminalPage() {
 				}
 			}
 			const storedView = readStoredValue("terminal-main-view");
-			const nextMainView =
-				storedView === "chat" ||
-				storedView === "graph" ||
-				storedView === "changes"
-					? storedView
-					: "chat";
+			const nextMainView = isTerminalMainView(storedView)
+				? storedView
+				: DEFAULT_TERMINAL_MAIN_VIEW;
 			if (nextMainView !== mainView) {
 				setMainView(nextMainView);
 			}

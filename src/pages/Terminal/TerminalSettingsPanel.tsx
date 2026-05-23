@@ -14,6 +14,7 @@ import {
 	type ThemeId,
 } from "../../features/terminal/terminal-utils.ts";
 import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
+import { useAppInfo } from "../../hooks/useAppInfo.ts";
 import {
 	SYNTAX_HIGHLIGHT_THEMES,
 	type SyntaxHighlightTheme,
@@ -255,6 +256,7 @@ export const TerminalSettingsPanel = memo(function TerminalSettingsPanel({
 }: TerminalSettingsPanelProps) {
 	const [appThemeId, setAppThemeId] = useState<AppThemeId>(loadAppThemeId);
 	const [syntaxTheme, setSyntaxTheme] = useSyntaxHighlightTheme();
+	const { data: appInfo } = useAppInfo();
 
 	const handleThemeChange = useCallback(
 		(id: AppThemeId) => {
@@ -407,6 +409,7 @@ export const TerminalSettingsPanel = memo(function TerminalSettingsPanel({
 					</div>
 					<div {...stylex.props(styles.divider)} />
 					<SearchFoldersSection />
+					<p {...stylex.props(styles.versionText)}>inferay {appInfo.version}</p>
 				</div>
 			</div>
 		</>
@@ -661,5 +664,10 @@ const styles = stylex.create({
 		"::placeholder": {
 			color: color.textMuted,
 		},
+	},
+	versionText: {
+		color: color.textMuted,
+		fontSize: font.size_1,
+		textAlign: "center",
 	},
 });

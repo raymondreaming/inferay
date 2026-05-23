@@ -17,6 +17,7 @@ import {
 	orderGitFiles,
 	orderProjectGitFiles,
 } from "../src/lib/git-file-utils.ts";
+import { isTerminalMainView } from "../src/lib/app-navigation.tsx";
 import { normalizeNumstatPath } from "../src/server/services/git.ts";
 
 const pane = (
@@ -124,6 +125,12 @@ describe("terminal state and git change behavior", () => {
 		expect(getStatusInfo("queued")).toEqual(
 			expect.objectContaining({ label: "queued", isActive: false })
 		);
+	});
+
+	test("accepts editor as a restorable terminal main view", () => {
+		expect(isTerminalMainView("editor")).toBe(true);
+		expect(isTerminalMainView("chat")).toBe(true);
+		expect(isTerminalMainView("missing")).toBe(false);
 	});
 
 	/*

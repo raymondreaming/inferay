@@ -25,6 +25,7 @@ import {
 	saveDefaultChatSettings,
 } from "../../features/agents/agents.ts";
 import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
+import { useAppInfo } from "../../hooks/useAppInfo.ts";
 import {
 	loadAppThemeId,
 	mapAppThemeToTerminalTheme,
@@ -106,6 +107,7 @@ export function ProfilePage() {
 	);
 	const [simFoldersLoading, setSimFoldersLoading] = useState(false);
 	const [simFoldersStatus, setSimFoldersStatus] = useState<string | null>(null);
+	const { data: appInfo } = useAppInfo();
 	const defaultAgentDefinition = getAgentDefinition(
 		defaultChatSettings.agentKind
 	);
@@ -320,6 +322,9 @@ export function ProfilePage() {
 								<p {...stylex.props(styles.profileMeta)}>
 									{activeAccount ? `@${activeAccount.login}` : "Not connected"}
 								</p>
+								<p {...stylex.props(styles.versionMeta)}>
+									inferay {appInfo.version}
+								</p>
 							</div>
 						</div>
 						<div {...stylex.props(styles.profileActionCards)}>
@@ -343,23 +348,25 @@ export function ProfilePage() {
 									</span>
 								</button>
 							) : null}
-							<button
-								type="button"
-								onClick={resetOnboarding}
-								{...stylex.props(styles.profileActionCard)}
-							>
-								<span {...stylex.props(styles.profileActionIcon)}>
-									<IconRefreshCw size={14} />
-								</span>
-								<span {...stylex.props(styles.profileActionTextGroup)}>
-									<span {...stylex.props(styles.profileActionTitle)}>
-										Replay Onboarding
+							{!appInfo.production ? (
+								<button
+									type="button"
+									onClick={resetOnboarding}
+									{...stylex.props(styles.profileActionCard)}
+								>
+									<span {...stylex.props(styles.profileActionIcon)}>
+										<IconRefreshCw size={14} />
 									</span>
-									<span {...stylex.props(styles.profileActionText)}>
-										Reset setup and walk through it again.
+									<span {...stylex.props(styles.profileActionTextGroup)}>
+										<span {...stylex.props(styles.profileActionTitle)}>
+											Replay Onboarding
+										</span>
+										<span {...stylex.props(styles.profileActionText)}>
+											Reset setup and walk through it again.
+										</span>
 									</span>
-								</span>
-							</button>
+								</button>
+							) : null}
 						</div>
 					</section>
 
@@ -840,6 +847,11 @@ const styles = stylex.create({
 		whiteSpace: "nowrap",
 		color: color.textMuted,
 		fontSize: font.size_2,
+	},
+	versionMeta: {
+		marginTop: "0.1875rem",
+		color: color.textMuted,
+		fontSize: font.size_1,
 	},
 	defaultSettingsGrid: {
 		display: "grid",
