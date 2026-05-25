@@ -205,6 +205,7 @@ interface ChatSession {
 	referencePaths: string[];
 	messageBuffer: ChatMessageBuffer;
 	cleanupTimer: ReturnType<typeof setTimeout> | null;
+	cancelled: boolean;
 	goal: GoalState | null;
 	agentEvents: AgentEvent[];
 }
@@ -732,6 +733,7 @@ export const ChatService = {
 				referencePaths: nextReferencePaths,
 				messageBuffer: new ChatMessageBuffer(),
 				cleanupTimer: null,
+				cancelled: false,
 				goal: null,
 				agentEvents: [],
 			};
@@ -796,6 +798,7 @@ export const ChatService = {
 				session.goal.turns += 1;
 				let resultStatus = goalResultStatus(getLastAssistantMessage(result));
 				while (
+					!session.cancelled &&
 					session.goal?.status === "active" &&
 					resultStatus === "active" &&
 					session.goal.turns < GOAL_MAX_TURNS
@@ -941,6 +944,10 @@ export const ChatService = {
 
 	destroySession(paneId: string) {
 		const session = sessions.get(paneId);
+		if (session) {
+			session.cancelled = true;
+			session.goal = null;
+		}
 		if (session?.currentHandle) {
 			try {
 				session.currentHandle.kill();
@@ -1025,6 +1032,8 @@ export const ChatService = {
 
 	destroyAll() {
 		for (const [_, session] of sessions) {
+			session.cancelled = true;
+			session.goal = null;
 			if (session.currentHandle) {
 				try {
 					session.currentHandle.kill();

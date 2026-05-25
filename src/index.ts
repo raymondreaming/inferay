@@ -84,9 +84,11 @@ const windowRpc = defineElectrobunRPC<WindowControlsRPC>("bun", {
 		requests: {
 			closeWindow() {
 				mainWindow?.close();
+				return undefined;
 			},
 			minimizeWindow() {
 				mainWindow?.minimize();
+				return undefined;
 			},
 			toggleMaximizeWindow() {
 				if (!mainWindow) {
@@ -106,6 +108,7 @@ mainWindow = new BrowserWindow({
 	url: rendererUrl,
 	rpc: windowRpc,
 	titleBarStyle: "hiddenInset",
+	trafficLightOffset: { x: 56, y: 13 },
 	frame: {
 		x: 120,
 		y: 80,
@@ -113,6 +116,8 @@ mainWindow = new BrowserWindow({
 		height: 920,
 	},
 });
+
+mainWindow.on("close", shutdownAppServices);
 
 process.on("SIGTERM", shutdownAppServices);
 process.on("SIGINT", shutdownAppServices);

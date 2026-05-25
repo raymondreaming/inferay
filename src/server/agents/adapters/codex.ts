@@ -9,6 +9,7 @@ import {
 import { noop } from "../../../lib/data.ts";
 import { basename, trimText as trimSummary } from "../../../lib/format.ts";
 import { isWithinDirectory } from "../../security.ts";
+import { PidTracker } from "../../services/pid-tracker.ts";
 import { summarizeToolInput } from "../events.ts";
 import {
 	drainStreamToString,
@@ -504,7 +505,8 @@ export const codexAdapter: AgentAdapter<CodexRunState> = {
 		let proc: ReturnType<typeof Bun.spawn> | null = null;
 		const killProcess = () => {
 			try {
-				proc?.kill();
+				if (proc?.pid) PidTracker.killPid(proc.pid);
+				else proc?.kill();
 			} catch {}
 		};
 
@@ -547,6 +549,7 @@ export const codexAdapter: AgentAdapter<CodexRunState> = {
 					cwd: ctx.cwd,
 					env: createAgentEnv("codex"),
 				});
+				if (proc.pid) PidTracker.trackPid(proc.pid);
 
 				const stderrPromise = drainStreamToString(
 					proc.stderr as ReadableStream<Uint8Array>
@@ -578,6 +581,7 @@ export const codexAdapter: AgentAdapter<CodexRunState> = {
 				flushNdjsonLeftover(leftover, handleStdoutEvent);
 
 				const exitCode = await proc.exited;
+				if (proc.pid) PidTracker.untrackPid(proc.pid);
 				proc = null;
 				const stderrText = (await stderrPromise).trim();
 

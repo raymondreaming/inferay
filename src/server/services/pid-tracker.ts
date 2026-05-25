@@ -25,18 +25,32 @@ function scheduleSave(): void {
 	}, 200);
 }
 
-async function treeKill(pid: number): Promise<void> {
+function treeKill(pid: number): void {
 	if (!Number.isSafeInteger(pid) || pid <= 0) return;
 	try {
 		if (isWin) {
-			const proc = Bun.spawn(["taskkill", "/T", "/F", "/PID", String(pid)], {
-				stdout: "pipe",
-				stderr: "pipe",
+			Bun.spawnSync(["taskkill", "/T", "/F", "/PID", String(pid)], {
+				stdio: ["ignore", "ignore", "ignore"],
 			});
-			await proc.exited;
-		} else {
-			process.kill(pid, "SIGTERM");
+			return;
 		}
+	} catch {}
+
+	try {
+		const result = Bun.spawnSync(["pgrep", "-P", String(pid)]);
+		if (result.stdout) {
+			for (const childPid of result.stdout
+				.toString()
+				.trim()
+				.split("\n")
+				.filter(Boolean)) {
+				treeKill(Number(childPid));
+			}
+		}
+	} catch {}
+
+	try {
+		process.kill(pid, "SIGTERM");
 	} catch {}
 }
 
@@ -53,19 +67,21 @@ export const PidTracker = {
 		scheduleSave();
 	},
 
+	killPid(pid: number): void {
+		treeKill(pid);
+	},
+
 	async cleanupOrphans(): Promise<void> {
 		try {
 			const file = Bun.file(PID_FILE);
 			if (await file.exists()) {
 				const pids = (await file.json()) as unknown;
 				if (Array.isArray(pids) && pids.length > 0) {
-					await Promise.all(
-						pids
-							.filter(
-								(pid): pid is number => Number.isSafeInteger(pid) && pid > 0
-							)
-							.map(treeKill)
-					);
+					for (const pid of pids.filter(
+						(pid): pid is number => Number.isSafeInteger(pid) && pid > 0
+					)) {
+						treeKill(pid);
+					}
 				}
 			}
 		} catch (e) {
