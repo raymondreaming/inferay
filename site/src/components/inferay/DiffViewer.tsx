@@ -1,5 +1,3 @@
-import React, { useMemo } from "react";
-import { useShikiSnippet } from "../../../../src/hooks/useShikiHighlighter.ts";
 import { colors, diffRows, inlineDiffLines } from "./data";
 
 // Diagonal hatch pattern for empty cells
@@ -14,12 +12,10 @@ function DiffLine({
 	lineNum,
 	content,
 	type,
-	highlightedHtml,
 }: {
 	lineNum: number | null;
 	content: string;
 	type: string;
-	highlightedHtml?: string;
 }) {
 	const bgStyle =
 		type === "added"
@@ -38,46 +34,18 @@ function DiffLine({
 			>
 				{lineNum ?? ""}
 			</span>
-			{type !== "empty" && highlightedHtml ? (
-				<span
-					className="flex-1 pr-1.5 whitespace-pre font-mono overflow-hidden"
-					style={{ lineHeight: "15px", fontSize: "9px" }}
-					dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-				/>
-			) : (
-				<span
-					className="flex-1 pr-1.5 whitespace-pre font-mono overflow-hidden text-inferay-text"
-					style={{ lineHeight: "15px", fontSize: "9px" }}
-				>
-					{type !== "empty" ? content : ""}
-				</span>
-			)}
+			<span
+				className="flex-1 pr-1.5 whitespace-pre font-mono overflow-hidden text-inferay-text"
+				style={{ lineHeight: "15px", fontSize: "9px" }}
+			>
+				{type !== "empty" ? content : ""}
+			</span>
 		</div>
 	);
 }
 
-// Shiki Diff Viewer (side-by-side)
-export function ShikiDiffViewer({ filePath }: { filePath: string }) {
-	const allLines = useMemo(() => {
-		const lines: string[] = [];
-		for (const row of diffRows) {
-			if (row.left.content) lines.push(row.left.content);
-			if (row.right.content) lines.push(row.right.content);
-		}
-		return [...new Set(lines)];
-	}, []);
-
-	const { highlighted } = useShikiSnippet(allLines, filePath);
-
-	const highlightMap = useMemo(() => {
-		const map = new Map<string, string>();
-		allLines.forEach((line, idx) => {
-			const html = highlighted.get(idx);
-			if (html) map.set(line, html);
-		});
-		return map;
-	}, [allLines, highlighted]);
-
+// Static diff viewer for the marketing demo.
+export function ShikiDiffViewer({ filePath: _filePath }: { filePath: string }) {
 	return (
 		<div className="flex-1 min-h-0 min-w-0 overflow-auto bg-black">
 			{diffRows.map((row, i) => (
@@ -87,7 +55,6 @@ export function ShikiDiffViewer({ filePath }: { filePath: string }) {
 							lineNum={row.left.num}
 							content={row.left.content}
 							type={row.left.type}
-							highlightedHtml={highlightMap.get(row.left.content)}
 						/>
 					</div>
 					<div className="w-px shrink-0 bg-inferay-border" />
@@ -96,7 +63,6 @@ export function ShikiDiffViewer({ filePath }: { filePath: string }) {
 							lineNum={row.right.num}
 							content={row.right.content}
 							type={row.right.type}
-							highlightedHtml={highlightMap.get(row.right.content)}
 						/>
 					</div>
 				</div>
@@ -108,14 +74,11 @@ export function ShikiDiffViewer({ filePath }: { filePath: string }) {
 // Inline diff block with Shiki (for chat messages)
 export function InlineDiffBlock({
 	lines,
-	filePath,
+	filePath: _filePath,
 }: {
 	lines: typeof inlineDiffLines;
 	filePath: string;
 }) {
-	const lineContents = useMemo(() => lines.map((l) => l.content), [lines]);
-	const { highlighted } = useShikiSnippet(lineContents, filePath);
-
 	return (
 		<div className="max-h-36 overflow-auto bg-black">
 			{lines.map((line, idx) => (
@@ -145,16 +108,9 @@ export function InlineDiffBlock({
 					>
 						{line.type === "added" ? "+" : line.type === "removed" ? "−" : " "}
 					</span>
-					{highlighted.get(idx) ? (
-						<span
-							className="flex-1 whitespace-pre pr-1.5 overflow-hidden text-[8px] font-mono"
-							dangerouslySetInnerHTML={{ __html: highlighted.get(idx)! }}
-						/>
-					) : (
-						<span className="flex-1 whitespace-pre pr-1.5 overflow-hidden text-[8px] font-mono text-inferay-text">
-							{line.content}
-						</span>
-					)}
+					<span className="flex-1 whitespace-pre pr-1.5 overflow-hidden text-[8px] font-mono text-inferay-text">
+						{line.content}
+					</span>
 				</div>
 			))}
 		</div>

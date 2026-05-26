@@ -408,37 +408,40 @@ import Inferay from "../components/Inferay";
 						</p>
 					</div>
 
-					<!-- Form with enhanced styling -->
+					<!-- Install command -->
 					<div class="hero-fade relative max-w-md mx-auto" style="animation-delay: 0.6s;">
-						<!-- Multi-layer glow behind form -->
+						<!-- Multi-layer glow behind command -->
 						<div class="absolute -inset-8 bg-gradient-to-r from-amber-500/10 via-white/10 to-amber-500/10 rounded-3xl blur-2xl animate-pulse-slow"></div>
 						<div class="absolute -inset-4 bg-white/5 rounded-2xl blur-xl"></div>
-						<div class="relative" style="height: 52px;">
-							<form id="waitlist-form" class="absolute inset-0 flex items-center gap-0">
-								<input
-									type="email"
-									placeholder="Enter your email"
-									required
-									class="flex-1 h-full px-5 rounded-l-xl bg-black/60 backdrop-blur-md border border-white/20 border-r-0 text-white text-[15px] placeholder:text-white/40 outline-none focus:border-white/40 focus:bg-black/70 transition-all"
-								/>
+						<div class="relative">
+							<div class="flex h-[52px] items-center overflow-hidden rounded-xl border border-white/20 bg-black/60 shadow-2xl shadow-black/30 backdrop-blur-md">
+								<div class="flex min-w-0 flex-1 items-center gap-3 px-5">
+									<span class="h-2 w-2 shrink-0 rounded-full bg-green-400 shadow-[0_0_16px_rgba(74,222,128,0.65)]"></span>
+									<code id="install-command" class="truncate font-mono text-[15px] font-medium text-white">npx inferay</code>
+								</div>
 								<button
-									type="submit"
-									class="h-full px-7 rounded-r-xl bg-white text-black font-semibold text-[15px] hover:bg-white/95 hover:shadow-xl hover:shadow-white/20 transition-all whitespace-nowrap group"
+									id="copy-install-command"
+									type="button"
+									class="h-full border-l border-white/15 bg-white px-6 text-[14px] font-semibold text-black transition-all hover:bg-white/90"
 								>
-									<span class="group-hover:translate-x-0.5 transition-transform inline-block">Join waitlist</span>
+									Copy
 								</button>
-							</form>
-							<p id="waitlist-success" class="hidden absolute inset-0 flex items-center justify-center text-[14px] text-green-400 font-medium">
-								<svg class="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-								You're on the list
+							</div>
+							<p id="copy-install-feedback" class="mt-3 text-center text-[13px] text-white/45">
+								Install or launch from your terminal.
 							</p>
 						</div>
 					</div>
 					<script>
-						document.getElementById('waitlist-form')?.addEventListener('submit', function(e) {
-							e.preventDefault();
-							this.style.display = 'none';
-							document.getElementById('waitlist-success')?.classList.remove('hidden');
+						document.getElementById('copy-install-command')?.addEventListener('click', async function() {
+							const command = document.getElementById('install-command')?.textContent?.trim() || 'npx inferay';
+							const feedback = document.getElementById('copy-install-feedback');
+							try {
+								await navigator.clipboard.writeText(command);
+								if (feedback) feedback.textContent = 'Copied. Paste it into your terminal.';
+							} catch {
+								if (feedback) feedback.textContent = command;
+							}
 						});
 					</script>
 				</div>
