@@ -23,6 +23,17 @@
 	--color-inferay-text-2: rgba(255, 255, 255, 0.72);
 	--color-inferay-text-3: rgba(255, 255, 255, 0.45);
 
+	/* Main app token aliases used by the product replica. */
+	--color-inferay-black: #000000;
+	--color-inferay-dark-gray: #1c1c1e;
+	--color-inferay-gray: #2c2c2e;
+	--color-inferay-light-gray: #3a3a3c;
+	--color-inferay-gray-border: rgba(255, 255, 255, 0.08);
+	--color-inferay-gray-border-bold: rgba(255, 255, 255, 0.15);
+	--color-inferay-white: #f5f5f7;
+	--color-inferay-soft-white: rgba(255, 255, 255, 0.72);
+	--color-inferay-muted-gray: rgba(255, 255, 255, 0.45);
+
 	/* Git status — muted, desaturated tones */
 	--color-git-added: #5a9e80;
 	--color-git-modified: #8e8e6e;
@@ -124,6 +135,25 @@ body {
 	height: 100%;
 	margin: 0;
 	overflow-x: hidden;
+}
+
+.site-grid-bg {
+	background-image:
+		linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+		linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+		radial-gradient(
+			circle at 50% 18%,
+			rgba(255, 255, 255, 0.08),
+			transparent 36rem
+		);
+	background-position:
+		center top,
+		center top,
+		center top;
+	background-size:
+		48px 48px,
+		48px 48px,
+		100% 100%;
 }
 
 button,

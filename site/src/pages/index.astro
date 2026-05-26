@@ -21,7 +21,7 @@ import "../styles/global.css";
 		/>
 	</head>
 	<body
-		class="min-h-screen overflow-x-hidden bg-black font-sans text-white antialiased"
+		class="site-grid-bg min-h-screen overflow-x-hidden bg-black font-sans text-white antialiased"
 	>
 		<header class="fixed left-0 right-0 top-0 z-50 px-4 py-4">
 			<nav class="mx-auto flex max-w-6xl items-center justify-between px-5 py-3">
@@ -105,15 +105,8 @@ import "../styles/global.css";
 					</script>
 				</div>
 
-				<div class="relative mx-auto w-full max-w-7xl">
-					<div
-						class="absolute -inset-x-20 -inset-y-16 rounded-[4rem] opacity-90"
-						style="background: radial-gradient(ellipse 70% 55% at 50% 50%, rgba(180,180,185,0.18) 0%, rgba(140,140,145,0.08) 42%, transparent 72%); filter: blur(42px);"
-					>
-					</div>
-					<div class="relative">
-						<Inferay client:visible />
-					</div>
+				<div class="mx-auto w-full max-w-7xl">
+					<Inferay client:visible />
 				</div>
 			</section>
 		</main>
