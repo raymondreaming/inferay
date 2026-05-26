@@ -1,6 +1,9 @@
 import React, { useState } from "react";
-import { stopPropagation } from "../../../../src/lib/react-events.ts";
 import { Icons } from "./Icons";
+
+function stopPropagation(event: React.MouseEvent) {
+	event.stopPropagation();
+}
 
 type TerminalLine = {
 	type: "command" | "output" | "error" | "success" | "info";

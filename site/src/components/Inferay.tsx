@@ -1,541 +1,706 @@
-import React, { useState, useEffect, useRef } from "react";
-
-// Import all components from the inferay module
-import { Icons } from "./inferay/Icons";
-import {
-	ClaudeAvatar,
-	ModelSelector,
-	CommandBar,
-	ThinkingIndicator,
-	Minimap,
-} from "./inferay/shared";
+import type { ReactElement, ReactNode } from "react";
+import { useState } from "react";
+import { ChatGridView, ChatPanel } from "./inferay/ChatPanel";
 import { ShikiDiffViewer } from "./inferay/DiffViewer";
-import { ChatPanel, ChatGridView } from "./inferay/ChatPanel";
-import { UnifiedSidebar } from "./inferay/Sidebar";
 import { GraphView } from "./inferay/GraphView";
-import { TimelineView } from "./inferay/TimelineView";
-import { TerminalPanel } from "./inferay/TerminalPanel";
-import { PromptLibrary } from "./inferay/PromptLibrary";
-import { Workspaces } from "./inferay/Workspaces";
-import { ImageStudio } from "./inferay/ImageStudio";
-import { Profile } from "./inferay/Settings";
-import { WorkflowBuilder } from "./inferay/WorkflowBuilder";
-import { Repositories } from "./inferay/Repositories";
+import { Icons } from "./inferay/Icons";
 
-// ============ MAIN COMPONENT ============
+type View =
+	| "chat"
+	| "editor"
+	| "changes"
+	| "graph"
+	| "prompts"
+	| "goals"
+	| "automations"
+	| "files"
+	| "simulators"
+	| "profile";
 
-function Inferay() {
-	const [view, setView] = useState<
-		| "code"
-		| "chat"
-		| "graph"
-		| "timeline"
-		| "prompts"
-		| "workspaces"
-		| "images"
-		| "workflow"
-		| "profile"
-		| "repositories"
-	>("chat");
+const terminalViews: Array<{
+	id: Extract<View, "chat" | "editor" | "changes" | "graph">;
+	label: string;
+	icon: ReactElement;
+}> = [
+	{ id: "chat", label: "Chat", icon: <Icons.Chat /> },
+	{ id: "editor", label: "Editor", icon: <Icons.Code /> },
+	{ id: "changes", label: "Changes", icon: <Icons.Git /> },
+	{ id: "graph", label: "Graph", icon: <Icons.Graph /> },
+];
 
-	const [showCommandBar, setShowCommandBar] = useState(false);
-	const [showSidebar, setShowSidebar] = useState(true);
-	const [showMinimap, setShowMinimap] = useState(false);
-	const [zenMode, setZenMode] = useState(false);
-	const [selectedFile, setSelectedFile] = useState("SettingsPanel.tsx");
-	const [selectedModel, setSelectedModel] = useState("claude-4");
-	const [showTerminal, setShowTerminal] = useState(false);
-	const [showCursor, setShowCursor] = useState(true);
-	const [cursorPos, setCursorPos] = useState({ x: 85, y: 36 });
-	const [isClicking, setIsClicking] = useState(false);
+const sidebarRoutes: Array<{
+	id: Extract<
+		View,
+		"prompts" | "goals" | "automations" | "files" | "simulators"
+	>;
+	label: string;
+	icon: ReactElement;
+}> = [
+	{ id: "prompts", label: "Prompts", icon: <Icons.File /> },
+	{ id: "goals", label: "Goals", icon: <Icons.Check /> },
+	{ id: "automations", label: "Automations", icon: <Icons.Workflow /> },
+	{ id: "files", label: "Files", icon: <Icons.FilePlus /> },
+	{ id: "simulators", label: "Simulators", icon: <Icons.Image /> },
+];
 
-	// Animated cursor that moves to different buttons - tabs and sidebar
-	useEffect(() => {
-		if (!showCursor) return;
+const workspaces = [
+	{
+		id: "main",
+		name: "Main",
+		items: [
+			{ title: "Align site demo", folder: "inferay", type: "codex" },
+			{ title: "Files workflow", folder: "inferay", type: "claude" },
+		],
+	},
+	{
+		id: "release",
+		name: "Release",
+		items: [{ title: "Vercel build", folder: "site", type: "codex" }],
+	},
+];
 
-		// Layout measurements:
-		// - Window chrome: ~20px height (px-3 py-1.5)
-		// - Sidebar: 40px width (w-10), buttons centered at x=20
-		// - Logo area in sidebar: 32px height (h-8)
-		// - Nav padding: 8px (py-2), gap between buttons: 8px (gap-2)
-		// - Sidebar buttons: 28px (w-7 h-7), centered in 40px = x center at 20
-		// - Header tabs: h-8 (32px), after sidebar (40px) + px-2 (8px)
-		// - Each tab button: h-6 px-2, with gap-1.5
+const fileRows = [
+	{
+		name: "Screenshot_2026-05-26_at_8.25.47_AM.png",
+		added: "May 26",
+		size: "1.8 MB",
+		selected: true,
+		color: "from-sky-300/60 to-zinc-900",
+	},
+	{
+		name: "site-hero-container.png",
+		added: "May 26",
+		size: "962 KB",
+		selected: true,
+		color: "from-amber-300/60 to-zinc-900",
+	},
+	{
+		name: "fullscreen-titlebar-check.png",
+		added: "May 25",
+		size: "712 KB",
+		selected: false,
+		color: "from-emerald-300/50 to-zinc-900",
+	},
+	{
+		name: "files-page-reference.png",
+		added: "May 25",
+		size: "540 KB",
+		selected: false,
+		color: "from-violet-300/50 to-zinc-900",
+	},
+];
 
-		// Header tabs (y = chrome 20 + half of h-8 = 20 + 16 = 36):
-		// Editor: "Editor" ~45px wide, starts at x=48, center ~70
-		// Chat: starts after Editor + gap, center ~115
-		// Graph: starts after Chat + gap, center ~160
+const changes = [
+	{ name: "Inferay.tsx", path: "site/src/components", status: "M" },
+	{ name: "ChatPanel.tsx", path: "site/src/components/inferay", status: "M" },
+	{ name: "DiffViewer.tsx", path: "site/src/components/inferay", status: "M" },
+	{ name: "package-lock.json", path: "site", status: "M" },
+];
 
-		// Sidebar buttons (x = 20 center):
-		// First button y: 20 (chrome) + 32 (logo h-8) + 8 (py-2) + 14 (half of 28) = 74
-		// Gap: 8px (gap-2), button: 28px, so spacing = 36px
+function AppButton({
+	active,
+	children,
+	onClick,
+	title,
+}: {
+	active?: boolean;
+	children: ReactNode;
+	onClick?: () => void;
+	title?: string;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			title={title}
+			className={`flex h-7 items-center justify-center rounded-md border px-2 text-[10px] font-medium transition-colors ${
+				active
+					? "border-inferay-border bg-inferay-surface-2 text-inferay-text"
+					: "border-transparent text-inferay-text-3 hover:bg-inferay-surface hover:text-inferay-text-2"
+			}`}
+		>
+			{children}
+		</button>
+	);
+}
 
-		// Tab positions (measured from container left edge):
-		// - Sidebar: 40px, then px-2 (8px) = tabs start at x=48
-		// - Chrome height: ~12px (py-1.5), header h-8 centered = y center ~12 + 16 = 28
-		// - Editor tab: ~67px wide, center at x = 48 + 33 = 81
-		// - Chat tab: starts at ~121, ~57px wide, center at x = 121 + 28 = 149
-		// - Graph tab: starts at ~184, ~62px wide, center at x = 184 + 31 = 215
-		//
-		// Sidebar buttons (centered at x=20):
-		// - Chrome: 12px, logo h-8: 32px, py-2: 8px = first button starts at y=52
-		// - Buttons are 28px (w-7 h-7), gap-2 (8px), so spacing = 36px
-		// - First button center: 52 + 14 = 66
-		// Position cursor below/beside buttons so it doesn't block them
-		// The cursor tip points to top-left, so position it bottom-right of the button
-		// Order: Editor -> Chat -> Graph -> then sidebar buttons
-		const positions = [
-			{ x: 95, y: 42, action: () => setView("code") },
-			{ x: 165, y: 42, action: () => setView("chat") },
-			{ x: 230, y: 42, action: () => setView("graph") },
-			{ x: 30, y: 80, action: () => setView("prompts") },
-			{ x: 30, y: 116, action: () => setView("workspaces") },
-			{ x: 30, y: 152, action: () => setView("images") },
-			{ x: 30, y: 188, action: () => setView("workflow") },
-			{ x: 30, y: 224, action: () => setView("repositories") },
-		];
+function Sidebar({
+	view,
+	setView,
+}: {
+	view: View;
+	setView: (view: View) => void;
+}) {
+	return (
+		<aside className="flex w-48 shrink-0 flex-col border-r border-inferay-border bg-inferay-bg">
+			<div className="flex h-11 items-center gap-2 border-b border-inferay-border px-3">
+				<img
+					src="/app-icon.png"
+					alt="inferay"
+					className="h-6 w-6 rounded-md object-cover"
+				/>
+				<div className="min-w-0">
+					<div className="text-[11px] font-semibold text-inferay-text">
+						inferay
+					</div>
+					<div className="text-[8px] text-inferay-text-3">
+						Multi-agent terminal
+					</div>
+				</div>
+			</div>
 
-		let currentIndex = 0;
+			<div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+				<div className="mb-2 flex items-center justify-between px-1">
+					<span className="text-[8px] font-semibold uppercase tracking-wide text-inferay-text-3">
+						Workspaces
+					</span>
+					<button
+						type="button"
+						className="flex h-5 w-5 items-center justify-center rounded text-inferay-text-3 hover:bg-inferay-surface hover:text-inferay-text"
+						title="New workspace"
+					>
+						<Icons.Plus />
+					</button>
+				</div>
 
-		// Start with first position
-		setCursorPos(positions[0]);
-		setTimeout(() => {
-			setIsClicking(true);
-			positions[0].action();
-			setTimeout(() => setIsClicking(false), 300);
-		}, 500);
+				<div className="space-y-2">
+					{workspaces.map((workspace) => (
+						<div key={workspace.id}>
+							<button
+								type="button"
+								className="flex w-full items-center gap-1 rounded-md px-1 py-1 text-left text-[9px] font-medium text-inferay-text-2 hover:bg-inferay-surface"
+							>
+								<span className="rotate-90 text-inferay-text-3">
+									<Icons.Chevron />
+								</span>
+								{workspace.name}
+							</button>
+							<div className="space-y-1">
+								{workspace.items.map((item, index) => (
+									<button
+										key={`${workspace.id}-${item.title}`}
+										type="button"
+										onClick={() => setView("chat")}
+										className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${
+											workspace.id === "main" && index === 0
+												? "bg-inferay-surface-2 text-inferay-text"
+												: "text-inferay-text-3 hover:bg-inferay-surface hover:text-inferay-text-2"
+										}`}
+									>
+										<span
+											className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[8px] ${
+												item.type === "codex"
+													? "border-emerald-400/20 bg-emerald-400/10 text-emerald-200"
+													: "border-amber-400/20 bg-amber-400/10 text-amber-200"
+											}`}
+										>
+											{item.type === "codex" ? "C" : "A"}
+										</span>
+										<span className="min-w-0 flex-1">
+											<span className="block truncate text-[9px] font-medium">
+												{item.folder}
+											</span>
+											<span className="block truncate text-[8px] opacity-70">
+												{item.title}
+											</span>
+										</span>
+									</button>
+								))}
+							</div>
+						</div>
+					))}
+				</div>
 
-		const interval = setInterval(() => {
-			currentIndex = (currentIndex + 1) % positions.length;
-			setCursorPos(positions[currentIndex]);
-			setTimeout(() => {
-				setIsClicking(true);
-				positions[currentIndex].action();
-				setTimeout(() => setIsClicking(false), 300);
-			}, 500);
-		}, 3500);
+				<div className="mt-4 border-t border-inferay-border pt-2">
+					{sidebarRoutes.map((route) => (
+						<button
+							key={route.id}
+							type="button"
+							onClick={() => setView(route.id)}
+							className={`mb-1 flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[10px] font-medium ${
+								view === route.id
+									? "bg-inferay-surface-2 text-inferay-text"
+									: "text-inferay-text-3 hover:bg-inferay-surface hover:text-inferay-text-2"
+							}`}
+						>
+							<span className="w-4 shrink-0">{route.icon}</span>
+							{route.label}
+						</button>
+					))}
+				</div>
+			</div>
 
-		// Hide cursor when user interacts
-		const hideOnInteraction = () => {
-			setShowCursor(false);
-			clearInterval(interval);
-		};
+			<div className="border-t border-inferay-border p-2">
+				<button
+					type="button"
+					onClick={() => setView("profile")}
+					className={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-[10px] ${
+						view === "profile"
+							? "bg-inferay-surface-2 text-inferay-text"
+							: "text-inferay-text-3 hover:bg-inferay-surface hover:text-inferay-text-2"
+					}`}
+				>
+					<Icons.Profile />
+					<span className="min-w-0 flex-1 truncate text-left">
+						raymondreaming
+					</span>
+				</button>
+			</div>
+		</aside>
+	);
+}
 
-		window.addEventListener("click", hideOnInteraction);
-		window.addEventListener("touchstart", hideOnInteraction);
+function ShellHeader({
+	view,
+	setView,
+	layoutMode,
+	setLayoutMode,
+}: {
+	view: View;
+	setView: (view: View) => void;
+	layoutMode: "grid" | "rows";
+	setLayoutMode: (mode: "grid" | "rows") => void;
+}) {
+	const isTerminalView = terminalViews.some((item) => item.id === view);
+	return (
+		<header className="flex h-12 shrink-0 items-center gap-3 border-b border-inferay-border bg-inferay-bg px-3">
+			<div className="flex items-center gap-1">
+				{terminalViews.map((tab) => (
+					<AppButton
+						key={tab.id}
+						active={view === tab.id}
+						onClick={() => setView(tab.id)}
+					>
+						<span className="mr-1.5">{tab.icon}</span>
+						{tab.label}
+					</AppButton>
+				))}
+				<AppButton
+					active={view === "automations"}
+					onClick={() => setView("automations")}
+				>
+					<span className="mr-1.5">
+						<Icons.Workflow />
+					</span>
+					Automations
+				</AppButton>
+			</div>
+			<span className="min-w-0 flex-1" />
+			{isTerminalView && (
+				<div className="flex items-center gap-2">
+					{view === "chat" && (
+						<>
+							<div className="flex h-7 items-center gap-1 rounded-md border border-inferay-border bg-inferay-surface px-1.5">
+								<span className="text-[8px] text-inferay-text-3">Col</span>
+								<span className="rounded bg-inferay-bg px-1.5 py-0.5 font-mono text-[9px] text-inferay-text">
+									3
+								</span>
+							</div>
+							<div className="flex h-7 items-center gap-1 rounded-md border border-inferay-border bg-inferay-surface px-1.5">
+								<span className="text-[8px] text-inferay-text-3">Row</span>
+								<span className="rounded bg-inferay-bg px-1.5 py-0.5 font-mono text-[9px] text-inferay-text">
+									1
+								</span>
+							</div>
+							<div className="flex h-7 overflow-hidden rounded-md border border-inferay-border bg-inferay-surface">
+								<button
+									type="button"
+									onClick={() => setLayoutMode("grid")}
+									className={`flex w-7 items-center justify-center ${
+										layoutMode === "grid"
+											? "bg-inferay-surface-2 text-inferay-text"
+											: "text-inferay-text-3"
+									}`}
+									title="Grid layout"
+								>
+									<Icons.Context />
+								</button>
+								<button
+									type="button"
+									onClick={() => setLayoutMode("rows")}
+									className={`flex w-7 items-center justify-center border-l border-inferay-border ${
+										layoutMode === "rows"
+											? "bg-inferay-surface-2 text-inferay-text"
+											: "text-inferay-text-3"
+									}`}
+									title="Rows layout"
+								>
+									<Icons.Stack />
+								</button>
+							</div>
+						</>
+					)}
+					<button
+						type="button"
+						className="flex h-7 items-center gap-1.5 rounded-md border border-inferay-border bg-inferay-surface-2 px-2 text-[10px] font-semibold text-inferay-text hover:bg-inferay-surface"
+					>
+						New
+						<Icons.Plus />
+					</button>
+					{view === "editor" && (
+						<button
+							type="button"
+							className="flex h-7 w-7 items-center justify-center rounded-md border border-inferay-border bg-inferay-surface text-inferay-text-3"
+							title="Enter zen mode"
+						>
+							<Icons.Expand />
+						</button>
+					)}
+				</div>
+			)}
+		</header>
+	);
+}
 
-		return () => {
-			clearInterval(interval);
-			window.removeEventListener("click", hideOnInteraction);
-			window.removeEventListener("touchstart", hideOnInteraction);
-		};
-	}, [showCursor]);
+function ChangesSidebar() {
+	return (
+		<aside className="flex w-56 shrink-0 flex-col border-l border-inferay-border bg-inferay-bg">
+			<div className="flex h-9 items-center gap-1 border-b border-inferay-border px-2">
+				<button className="h-6 rounded-md border border-inferay-border bg-inferay-surface-2 px-2 text-[9px] text-inferay-text">
+					Git
+				</button>
+				<button className="h-6 rounded-md border border-transparent px-2 text-[9px] text-inferay-text-3">
+					Activity
+				</button>
+				<span className="flex-1" />
+				<span className="rounded-full bg-inferay-surface px-1.5 text-[8px] text-inferay-text-3">
+					4
+				</span>
+			</div>
+			<div className="min-h-0 flex-1 overflow-auto p-2">
+				<div className="mb-1 flex items-center gap-1 text-[9px] font-medium text-inferay-text-2">
+					<span className="rotate-90">
+						<Icons.Chevron />
+					</span>
+					Unstaged
+					<span className="ml-auto text-[8px] text-inferay-text-3">4</span>
+				</div>
+				<div className="space-y-1">
+					{changes.map((file) => (
+						<button
+							type="button"
+							key={file.name}
+							className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left hover:bg-inferay-surface"
+						>
+							<span className="text-amber-300">
+								<Icons.Edit />
+							</span>
+							<span className="min-w-0 flex-1">
+								<span className="block truncate font-mono text-[9px] text-inferay-text">
+									{file.name}
+								</span>
+								<span className="block truncate text-[8px] text-inferay-text-3">
+									{file.path}
+								</span>
+							</span>
+							<span className="text-[8px] text-inferay-text-3">
+								{file.status}
+							</span>
+						</button>
+					))}
+				</div>
+			</div>
+			<div className="border-t border-inferay-border p-2">
+				<input
+					placeholder="Summary"
+					className="mb-1 h-7 w-full rounded-md border border-inferay-border bg-inferay-surface px-2 text-[9px] text-inferay-text placeholder:text-inferay-text-3"
+				/>
+				<button className="flex h-7 w-full items-center justify-center gap-1 rounded-md border border-inferay-border bg-inferay-surface-2 text-[9px] font-medium text-inferay-text">
+					<Icons.Check />
+					Commit (0)
+				</button>
+			</div>
+		</aside>
+	);
+}
+
+function EditorView() {
+	return (
+		<div className="flex min-h-0 flex-1 overflow-hidden">
+			<section className="w-[300px] shrink-0 border-r border-inferay-border">
+				<ChatPanel />
+			</section>
+			<div className="flex min-w-0 flex-1 flex-col">
+				<ShikiDiffViewer filePath="ChatComposer.tsx" />
+				<div className="flex h-8 shrink-0 items-center gap-2 border-t border-inferay-border bg-inferay-bg px-3">
+					<Icons.Terminal />
+					<span className="text-[10px] font-medium text-inferay-text-2">
+						Terminal
+					</span>
+					<span className="flex-1" />
+					<span className="font-mono text-[8px] text-inferay-text-3">
+						2 shells
+					</span>
+					<Icons.Chevron />
+				</div>
+			</div>
+			<ChangesSidebar />
+		</div>
+	);
+}
+
+function ChangesView() {
+	return (
+		<div className="flex min-h-0 flex-1 overflow-hidden">
+			<div className="w-60 shrink-0 border-r border-inferay-border bg-inferay-bg">
+				<div className="flex h-9 items-center gap-2 border-b border-inferay-border px-3">
+					<Icons.Git />
+					<span className="text-[10px] font-semibold text-inferay-text">
+						Changes
+					</span>
+					<span className="ml-auto rounded-full bg-inferay-surface px-1.5 text-[8px] text-inferay-text-3">
+						4
+					</span>
+				</div>
+				<div className="p-2">
+					{changes.map((file, index) => (
+						<button
+							key={file.name}
+							type="button"
+							className={`mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${
+								index === 0
+									? "bg-inferay-surface-2 text-inferay-text"
+									: "text-inferay-text-3 hover:bg-inferay-surface"
+							}`}
+						>
+							<Icons.FilePlus />
+							<span className="min-w-0 flex-1 truncate font-mono text-[9px]">
+								{file.name}
+							</span>
+							<span className="text-[8px]">{file.status}</span>
+						</button>
+					))}
+				</div>
+			</div>
+			<ShikiDiffViewer filePath="Inferay.tsx" />
+		</div>
+	);
+}
+
+function FilesView() {
+	const [selectedCount, setSelectedCount] = useState(2);
+	return (
+		<div className="flex h-full min-w-0 items-start justify-center overflow-hidden bg-inferay-bg px-8 py-10">
+			<section className="flex h-full w-full max-w-3xl flex-col gap-5">
+				<div className="flex items-center gap-4">
+					<h2 className="m-0 text-2xl font-semibold tracking-normal text-white">
+						Files
+					</h2>
+					<label className="ml-auto flex h-8 w-56 items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3">
+						<Icons.Search />
+						<input
+							type="search"
+							placeholder="Search files"
+							className="min-w-0 flex-1 bg-transparent text-[11px] text-inferay-text outline-none placeholder:text-inferay-text-3"
+						/>
+					</label>
+				</div>
+				<div className="flex items-center gap-2">
+					<button
+						type="button"
+						className="flex h-8 items-center gap-1.5 rounded-full border border-white bg-white px-3 text-[11px] font-semibold text-black disabled:opacity-45"
+						disabled={selectedCount === 0}
+					>
+						<Icons.Chat />
+						Start chat
+					</button>
+					<button
+						type="button"
+						className="flex h-8 items-center gap-1.5 rounded-full border border-red-400/30 px-3 text-[11px] font-semibold text-red-300 disabled:opacity-45"
+						disabled={selectedCount === 0}
+						onClick={() => setSelectedCount(0)}
+					>
+						<Icons.Close />
+						Delete
+					</button>
+					<span className="ml-auto text-[11px] font-semibold text-inferay-text">
+						{selectedCount} selected
+					</span>
+				</div>
+				<div className="min-h-0 flex-1 overflow-hidden">
+					<div className="grid h-8 grid-cols-[2.5rem_minmax(0,1fr)_8rem_6rem] items-center px-1 text-[11px] font-semibold text-inferay-text-2">
+						<span />
+						<span>Name</span>
+						<span>Added</span>
+						<span>Size</span>
+					</div>
+					<div className="min-h-0 overflow-y-auto">
+						{fileRows.map((file) => (
+							<div
+								key={file.name}
+								className={`grid min-h-[58px] grid-cols-[2.5rem_minmax(0,1fr)_8rem_6rem] items-center border-b border-white/[0.06] px-1 ${
+									file.selected && selectedCount > 0
+										? "rounded-md bg-white/10"
+										: "hover:bg-white/[0.05]"
+								}`}
+							>
+								<span
+									className={`mx-auto flex h-4 w-4 items-center justify-center rounded border ${
+										file.selected && selectedCount > 0
+											? "border-white bg-white text-black"
+											: "border-white/25 bg-white/10"
+									}`}
+								>
+									{file.selected && selectedCount > 0 ? <Icons.Check /> : null}
+								</span>
+								<div className="flex min-w-0 items-center gap-3">
+									<span
+										className={`h-8 w-8 shrink-0 rounded-md border border-white/15 bg-gradient-to-br ${file.color}`}
+									/>
+									<span className="min-w-0 truncate text-[11px] font-semibold text-inferay-text">
+										{file.name}
+									</span>
+								</div>
+								<span className="text-[11px] font-medium text-inferay-text">
+									{file.added}
+								</span>
+								<span className="text-[11px] font-medium text-inferay-text">
+									{file.size}
+								</span>
+							</div>
+						))}
+					</div>
+				</div>
+			</section>
+		</div>
+	);
+}
+
+function SimplePage({
+	title,
+	icon,
+	children,
+}: {
+	title: string;
+	icon: ReactElement;
+	children: ReactNode;
+}) {
+	return (
+		<div className="flex h-full items-center justify-center bg-inferay-bg p-8">
+			<div className="w-full max-w-2xl">
+				<div className="mb-4 flex items-center gap-2">
+					<span className="flex h-9 w-9 items-center justify-center rounded-lg border border-inferay-border bg-inferay-surface text-inferay-text-3">
+						{icon}
+					</span>
+					<h2 className="m-0 text-xl font-semibold tracking-normal text-inferay-text">
+						{title}
+					</h2>
+				</div>
+				<div className="grid gap-2">{children}</div>
+			</div>
+		</div>
+	);
+}
+
+function RouteBody({ view }: { view: View }) {
+	if (view === "chat") return <ChatGridView />;
+	if (view === "editor") return <EditorView />;
+	if (view === "changes") return <ChangesView />;
+	if (view === "graph") return <GraphView />;
+	if (view === "files") return <FilesView />;
+	if (view === "prompts") {
+		return (
+			<SimplePage title="Prompts" icon={<Icons.File />}>
+				{["/review", "/explain", "/goal", "/bug"].map((item) => (
+					<div
+						key={item}
+						className="rounded-md border border-inferay-border bg-inferay-surface px-3 py-2 font-mono text-[12px] text-inferay-text"
+					>
+						{item}
+					</div>
+				))}
+			</SimplePage>
+		);
+	}
+	if (view === "goals") {
+		return (
+			<SimplePage title="Goals" icon={<Icons.Check />}>
+				<div className="rounded-md border border-inferay-border bg-inferay-surface px-3 py-2 text-[12px] text-inferay-text">
+					Active goal: align the marketing site with the current app shell.
+				</div>
+			</SimplePage>
+		);
+	}
+	if (view === "automations") {
+		return (
+			<SimplePage title="Automations" icon={<Icons.Workflow />}>
+				{["Release checklist", "Vercel deploy watch", "Package audit"].map(
+					(item) => (
+						<div
+							key={item}
+							className="rounded-md border border-inferay-border bg-inferay-surface px-3 py-2 text-[12px] text-inferay-text"
+						>
+							{item}
+						</div>
+					)
+				)}
+			</SimplePage>
+		);
+	}
+	if (view === "simulators") {
+		return (
+			<SimplePage title="Simulators" icon={<Icons.Image />}>
+				<div className="rounded-md border border-inferay-border bg-inferay-surface px-3 py-2 text-[12px] text-inferay-text">
+					iPhone 16 Pro · booted · screenshot ready
+				</div>
+			</SimplePage>
+		);
+	}
+	return (
+		<SimplePage title="Profile" icon={<Icons.Profile />}>
+			<div className="rounded-md border border-inferay-border bg-inferay-surface px-3 py-2 text-[12px] text-inferay-text">
+				Default agent: Codex · GPT-5.5 · Low reasoning
+			</div>
+		</SimplePage>
+	);
+}
+
+export default function Inferay() {
+	const [view, setView] = useState<View>("chat");
+	const [layoutMode, setLayoutMode] = useState<"grid" | "rows">("grid");
 
 	return (
 		<section
 			className="mb-24 animate-slide-up"
 			style={{ animationDelay: "0.3s" }}
 		>
-			{/* Outer glow effect */}
-			<div className="relative group">
-				{/* Outer warm ambient glow */}
+			<div className="relative">
 				<div
-					className="absolute -inset-12 rounded-3xl opacity-40"
+					className="absolute -inset-8 rounded-3xl opacity-60"
 					style={{
 						background:
-							"radial-gradient(ellipse 90% 70% at 50% 50%, rgba(255,200,150,0.08) 0%, transparent 60%)",
-						filter: "blur(50px)",
+							"radial-gradient(ellipse 80% 55% at 50% 45%, rgba(255,255,255,0.08), transparent 70%)",
+						filter: "blur(35px)",
 					}}
 				/>
-				{/* Inner white glow */}
 				<div
-					className="absolute -inset-6 rounded-2xl opacity-60"
+					className="relative overflow-hidden rounded-xl border border-black/40 bg-inferay-bg"
 					style={{
-						background:
-							"radial-gradient(ellipse 80% 60% at 50% 50%, rgba(255,255,255,0.05) 0%, transparent 70%)",
-						filter: "blur(25px)",
-					}}
-				/>
-				{/* Subtle reflection on bottom */}
-				<div
-					className="absolute -bottom-20 left-[10%] right-[10%] h-32 opacity-20"
-					style={{
-						background:
-							"radial-gradient(ellipse 100% 100% at 50% 0%, rgba(255,255,255,0.1) 0%, transparent 70%)",
-						filter: "blur(20px)",
-						transform: "scaleY(-1)",
-					}}
-				/>
-				{/* Main container with enhanced shadow */}
-				<div
-					className="relative rounded-xl overflow-hidden border border-black/40"
-					style={{
-						boxShadow: `
-							inset 0 1px 0 0 rgba(255,255,255,0.1),
-							0 2px 4px -1px rgba(0,0,0,0.2),
-							0 8px 16px -4px rgba(0,0,0,0.3),
-							0 20px 40px -8px rgba(0,0,0,0.4),
-							0 40px 80px -16px rgba(0,0,0,0.5),
-							0 0 120px -30px rgba(0,0,0,0.6)
-						`,
+						boxShadow:
+							"inset 0 1px 0 rgba(255,255,255,0.1), 0 30px 90px rgba(0,0,0,0.58)",
 					}}
 				>
-					{/* Window Chrome */}
-					<div className="bg-inferay-bg px-3 py-1.5 flex items-center">
-						<div className="flex gap-1.5">
-							<div className="w-2.5 h-2.5 rounded-full bg-[#FF5F57]" />
-							<div className="w-2.5 h-2.5 rounded-full bg-[#FEBC2E]" />
-							<div className="w-2.5 h-2.5 rounded-full bg-[#28C840]" />
+					<div className="flex h-6 items-center gap-1.5 bg-inferay-bg px-3">
+						<span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
+						<span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
+						<span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
+					</div>
+					<div className="flex h-[650px] bg-inferay-bg">
+						<Sidebar view={view} setView={setView} />
+						<div className="flex min-w-0 flex-1 flex-col">
+							<ShellHeader
+								view={view}
+								setView={setView}
+								layoutMode={layoutMode}
+								setLayoutMode={setLayoutMode}
+							/>
+							<main className="min-h-0 flex-1 overflow-hidden">
+								<RouteBody view={view} />
+							</main>
 						</div>
 					</div>
-
-					{/* App Layout */}
-					<div className="flex h-[630px] bg-inferay-bg">
-						{/* Icon Sidebar - Minimal */}
-						<aside className="w-10 flex flex-col border-r border-inferay-border bg-inferay-bg shrink-0">
-							{/* Logo */}
-							<div className="flex h-8 items-center justify-center">
-								<img
-									src="/app-icon.png"
-									alt="inferay"
-									className="h-5 w-5 rounded-md object-cover"
-								/>
-							</div>
-							<nav className="flex-1 py-2 flex flex-col items-center gap-2">
-								<button
-									onClick={() => setView("prompts")}
-									className={`w-7 h-7 flex items-center justify-center rounded-md border transition-colors ${
-										view === "prompts"
-											? "border-inferay-border bg-inferay-surface-2 text-inferay-text"
-											: "border-transparent text-inferay-text-3 hover:bg-inferay-surface hover:text-inferay-text-2"
-									}`}
-									title="Prompts"
-								>
-									<Icons.File />
-								</button>
-								<button
-									onClick={() => setView("workspaces")}
-									className={`w-7 h-7 flex items-center justify-center rounded-md border transition-colors ${
-										view === "workspaces"
-											? "border-inferay-border bg-inferay-surface-2 text-inferay-text"
-											: "border-transparent text-inferay-text-3 hover:bg-inferay-surface hover:text-inferay-text-2"
-									}`}
-									title="Workspaces"
-								>
-									<Icons.Layers />
-								</button>
-								<button
-									onClick={() => setView("images")}
-									className={`w-7 h-7 flex items-center justify-center rounded-md border transition-colors ${
-										view === "images"
-											? "border-inferay-border bg-inferay-surface-2 text-inferay-text"
-											: "border-transparent text-inferay-text-3 hover:bg-inferay-surface hover:text-inferay-text-2"
-									}`}
-									title="Image Studio"
-								>
-									<Icons.Image />
-								</button>
-								<button
-									onClick={() => setView("workflow")}
-									className={`w-7 h-7 flex items-center justify-center rounded-md border transition-colors ${
-										view === "workflow"
-											? "border-inferay-border bg-inferay-surface-2 text-inferay-text"
-											: "border-transparent text-inferay-text-3 hover:bg-inferay-surface hover:text-inferay-text-2"
-									}`}
-									title="Workflow Builder"
-								>
-									<Icons.Workflow />
-								</button>
-								<button
-									onClick={() => setView("repositories")}
-									className={`w-7 h-7 flex items-center justify-center rounded-md border transition-colors ${
-										view === "repositories"
-											? "border-inferay-border bg-inferay-surface-2 text-inferay-text"
-											: "border-transparent text-inferay-text-3 hover:bg-inferay-surface hover:text-inferay-text-2"
-									}`}
-									title="Repositories"
-								>
-									<Icons.Git />
-								</button>
-							</nav>
-							<div className="py-2 flex flex-col items-center gap-2">
-								<button
-									onClick={() => setView("profile")}
-									className={`w-7 h-7 flex items-center justify-center rounded-md border transition-colors ${
-										view === "profile"
-											? "border-inferay-border bg-inferay-surface-2 text-inferay-text"
-											: "border-transparent text-inferay-text-3 hover:bg-inferay-surface hover:text-inferay-text-2"
-									}`}
-									title="Profile"
-								>
-									<Icons.Profile />
-								</button>
-							</div>
-						</aside>
-
-						{/* Main Content */}
-						<div className="flex-1 flex flex-col min-w-0">
-							{/* Header */}
-							<div className="flex items-center gap-1.5 border-b border-inferay-border px-2 h-8">
-								{/* View tabs */}
-								<div className="flex items-center gap-1.5">
-									{[
-										{ id: "code", label: "Editor", icon: <Icons.Code /> },
-										{ id: "chat", label: "Chat", icon: <Icons.Terminal /> },
-										{ id: "graph", label: "Graph", icon: <Icons.Graph /> },
-										{
-											id: "timeline",
-											label: "Timeline",
-											icon: <Icons.Timeline />,
-										},
-									].map((tab) => (
-										<button
-											key={tab.id}
-											onClick={() => {
-												setView(tab.id as typeof view);
-												setZenMode(false);
-											}}
-											className={`flex items-center gap-1 h-6 px-2 rounded-md border text-[10px] font-medium transition-colors ${
-												view === tab.id
-													? "border-inferay-border bg-inferay-surface-2 text-inferay-text"
-													: "border-transparent text-inferay-text-3 hover:bg-inferay-surface hover:text-inferay-text-2"
-											}`}
-										>
-											{tab.icon}
-											{tab.label}
-										</button>
-									))}
-								</div>
-
-								<div className="flex-1" />
-
-								{/* Branch indicator - only show in non-chat views */}
-								{view !== "chat" && (
-									<div className="hidden md:flex items-center gap-1 h-6 px-1.5 rounded-md bg-inferay-surface border border-inferay-border">
-										<Icons.Branch />
-										<span className="text-[9px] font-mono text-inferay-text-2">
-											main
-										</span>
-									</div>
-								)}
-
-								{/* View toggles - show in code and graph views */}
-								{(view === "code" || view === "graph") && (
-									<div className="flex items-center gap-0.5 h-6 px-1 rounded-md bg-inferay-surface border border-inferay-border">
-										<button
-											onClick={() => setShowSidebar(!showSidebar)}
-											className={`p-0.5 rounded transition-colors ${showSidebar ? "text-inferay-text" : "text-inferay-text-3 hover:text-inferay-text-2"}`}
-											title="Sidebar"
-										>
-											<Icons.Layers />
-										</button>
-									</div>
-								)}
-
-								<div className="flex items-center h-6 px-1 rounded-md bg-inferay-surface border border-inferay-border">
-									<button
-										onClick={() => setZenMode(!zenMode)}
-										className={`p-0.5 rounded transition-colors ${zenMode ? "text-inferay-accent" : "text-inferay-text-3 hover:text-inferay-text-2"}`}
-										title="Focus mode"
-									>
-										{zenMode ? <Icons.Collapse /> : <Icons.Expand />}
-									</button>
-								</div>
-							</div>
-
-							{/* Content Area */}
-							<div className="flex-1 flex overflow-hidden">
-								{/* Main View Content */}
-								{view === "code" ? (
-									<>
-										{/* Chat Panel - hidden in zen mode */}
-										{!zenMode && (
-											<section className="w-[300px] shrink-0 flex flex-col border-r border-inferay-border">
-												<ChatPanel
-													selectedModel={selectedModel}
-													onSelectModel={setSelectedModel}
-												/>
-											</section>
-										)}
-
-										{/* Center column: Diff Viewer + Terminal */}
-										<div className="flex-1 min-w-0 flex flex-col">
-											{/* Diff Viewer */}
-											<div className="flex-1 min-h-0 flex bg-black relative">
-												<ShikiDiffViewer filePath={selectedFile} />
-												{showMinimap && !zenMode && <Minimap />}
-												{/* Minimap toggle button */}
-												{!zenMode && (
-													<button
-														onClick={() => setShowMinimap(!showMinimap)}
-														className={`absolute top-2 right-2 p-1.5 rounded-md border transition-colors ${
-															showMinimap
-																? "bg-inferay-surface-2 border-inferay-border text-inferay-text"
-																: "bg-inferay-surface/80 border-inferay-border/50 text-inferay-text-3 hover:text-inferay-text hover:bg-inferay-surface"
-														}`}
-														title="Minimap"
-													>
-														<Icons.Minimap />
-													</button>
-												)}
-											</div>
-
-											{/* Terminal Panel */}
-											{!zenMode && (
-												<TerminalPanel
-													isExpanded={showTerminal}
-													onToggle={() => setShowTerminal(!showTerminal)}
-												/>
-											)}
-										</div>
-
-										{/* Unified Sidebar (Activity + Changes) - always show in code view when enabled */}
-										{showSidebar && (
-											<UnifiedSidebar
-												selectedFile={selectedFile}
-												onSelectFile={setSelectedFile}
-											/>
-										)}
-									</>
-								) : view === "chat" ? (
-									<ChatGridView
-										selectedModel={selectedModel}
-										onSelectModel={setSelectedModel}
-									/>
-								) : view === "graph" ? (
-									<>
-										<GraphView />
-										{showSidebar && (
-											<UnifiedSidebar
-												selectedFile={selectedFile}
-												onSelectFile={setSelectedFile}
-											/>
-										)}
-									</>
-								) : view === "timeline" ? (
-									<TimelineView />
-								) : view === "prompts" ? (
-									<PromptLibrary />
-								) : view === "workspaces" ? (
-									<Workspaces />
-								) : view === "images" ? (
-									<ImageStudio />
-								) : view === "workflow" ? (
-									<WorkflowBuilder />
-								) : view === "profile" ? (
-									<Profile />
-								) : view === "repositories" ? (
-									<Repositories />
-								) : null}
-							</div>
-
-							{/* Zen Mode Floating Panel */}
-							{zenMode && (
-								<div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-50 w-full max-w-2xl px-6">
-									<div className="rounded-2xl border border-inferay-border bg-inferay-surface backdrop-blur-xl shadow-2xl overflow-hidden">
-										{/* Combined context + status bar */}
-										<div className="flex items-center gap-2 px-4 py-2 border-b border-inferay-border/30">
-											{/* Model indicator */}
-											<div className="flex items-center gap-1.5">
-												<span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-												<span className="text-[10px] font-medium text-inferay-text-2">
-													Opus 4.7
-												</span>
-											</div>
-											<span className="text-inferay-text-3/50">/</span>
-											{/* Project path */}
-											<div className="flex items-center gap-1 text-inferay-text-3">
-												<Icons.Folder />
-												<span className="text-[10px] font-mono">
-													projects/my-app
-												</span>
-											</div>
-											<span className="text-inferay-text-3/50">/</span>
-											{/* Branch */}
-											<div className="flex items-center gap-1 text-inferay-text-3">
-												<Icons.Branch />
-												<span className="text-[10px] font-mono">main</span>
-											</div>
-											<span className="flex-1" />
-											{/* Thinking + time */}
-											<ThinkingIndicator />
-											<span className="text-[10px] tabular-nums text-inferay-text-3">
-												0:42
-											</span>
-											<button className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] bg-inferay-error/10 text-inferay-error border border-inferay-error/30 hover:bg-inferay-error/20 transition-colors">
-												<Icons.Pause />
-												Stop
-											</button>
-										</div>
-
-										{/* Input */}
-										<div className="flex items-center gap-3 px-4 py-3">
-											<input
-												type="text"
-												placeholder="What would you like to do next?"
-												className="flex-1 bg-transparent text-[13px] text-inferay-text outline-none placeholder:text-inferay-text-3"
-											/>
-											<button className="p-2 rounded-lg text-inferay-text-3 hover:bg-inferay-surface-2 hover:text-inferay-text transition-colors">
-												<Icons.Plus />
-											</button>
-										</div>
-									</div>
-								</div>
-							)}
-						</div>
-					</div>
-
-					{/* Animated cursor hint */}
-					{showCursor && (
-						<div
-							className="absolute z-[100] pointer-events-none transition-all duration-500 ease-out"
-							style={{
-								left: cursorPos.x,
-								top: cursorPos.y,
-							}}
-						>
-							{/* Cursor */}
-							<svg
-								width="28"
-								height="28"
-								viewBox="0 0 24 24"
-								fill="none"
-								className="drop-shadow-2xl relative -translate-x-1 -translate-y-1"
-								style={{ filter: "drop-shadow(0 0 6px rgba(255,255,255,0.4))" }}
-							>
-								<path
-									d="M5.5 3.21V20.8c0 .45.54.67.85.35l4.86-4.86a.5.5 0 0 1 .35-.15h6.87c.48 0 .72-.58.38-.92L6.35 2.97a.5.5 0 0 0-.85.24Z"
-									fill="white"
-									stroke="black"
-									strokeWidth="1.5"
-								/>
-							</svg>
-							{/* Click ripple - only shows when clicking */}
-							{isClicking && (
-								<div
-									className="absolute top-0 left-0 w-8 h-8 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/60"
-									style={{
-										animation: "click-ripple 0.3s ease-out forwards",
-									}}
-								/>
-							)}
-							{/* Label */}
-							<div className="absolute top-6 left-6 px-2 py-1 rounded-md bg-black/80 backdrop-blur-sm border border-white/10 text-[10px] text-white/90 whitespace-nowrap">
-								Click to explore
-							</div>
-						</div>
-					)}
-					<style>{`
-						@keyframes click-ripple {
-							0% { transform: translate(-50%, -50%) scale(0.5); opacity: 1; }
-							100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
-						}
-					`}</style>
 				</div>
 			</div>
 		</section>
 	);
 }
-
-export default Inferay;

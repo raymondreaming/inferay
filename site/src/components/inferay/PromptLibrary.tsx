@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { filterPrompts } from "../../../../src/features/prompts/prompt-utils.ts";
 import { Icons } from "./Icons";
 
 type Prompt = {
@@ -159,6 +158,30 @@ const CATEGORIES = [
 	{ value: "docs", label: "Docs" },
 	{ value: "custom", label: "Custom" },
 ];
+
+function filterPrompts(
+	items: Prompt[],
+	filter: string,
+	search: string
+): Prompt[] {
+	const needle = search.trim().toLowerCase();
+	return items.filter((prompt) => {
+		const matchesFilter =
+			filter === "all" ||
+			(filter === "builtin" && prompt.isBuiltIn) ||
+			(filter === "custom" && !prompt.isBuiltIn) ||
+			prompt.category === filter;
+		if (!matchesFilter) return false;
+		if (!needle) return true;
+		return [
+			prompt.command,
+			prompt.name,
+			prompt.description,
+			prompt.category,
+			...prompt.tags,
+		].some((value) => value.toLowerCase().includes(needle));
+	});
+}
 
 function FilterDropdown({
 	filter,

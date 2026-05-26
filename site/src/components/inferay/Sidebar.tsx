@@ -1,8 +1,12 @@
+import type { MouseEvent } from "react";
 import { useState } from "react";
-import { stopPropagation } from "../../../../src/lib/react-events.ts";
 import { Icons } from "./Icons";
 import { activityTimeline, sessionTimeline } from "./data";
 import { gitStatusColors } from "./fileIcons";
+
+function stopPropagation(event: MouseEvent) {
+	event.stopPropagation();
+}
 
 // Path-based file list for git changes
 type PathFile = {

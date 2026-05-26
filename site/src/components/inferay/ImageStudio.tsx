@@ -180,20 +180,20 @@ function ImageDetail({
 					type="button"
 					className="w-full h-7 rounded-md bg-inferay-surface-2 border border-inferay-border text-[10px] font-medium text-inferay-text hover:bg-inferay-accent hover:text-black hover:border-inferay-accent transition-colors"
 				>
-					Download
+					Start chat
 				</button>
 				<div className="flex gap-2">
 					<button
 						type="button"
 						className="flex-1 h-6 rounded-md border border-inferay-border text-[9px] text-inferay-text-3 hover:bg-inferay-surface transition-colors"
 					>
-						Remix
+						Select
 					</button>
 					<button
 						type="button"
 						className="flex-1 h-6 rounded-md border border-inferay-border text-[9px] text-inferay-text-3 hover:bg-inferay-surface transition-colors"
 					>
-						Upscale
+						Delete
 					</button>
 				</div>
 			</div>

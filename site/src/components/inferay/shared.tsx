@@ -1,7 +1,11 @@
+import type { MouseEvent } from "react";
 import { useState } from "react";
-import { stopPropagation } from "../../../../src/lib/react-events.ts";
 import { Icons } from "./Icons";
 import { models } from "./data";
+
+function stopPropagation(event: MouseEvent) {
+	event.stopPropagation();
+}
 
 export function ClaudeAvatar({ size = "sm" }: { size?: "sm" | "md" | "lg" }) {
 	const sizeClasses = {
