@@ -1,268 +1,554 @@
 import * as stylex from "@stylexjs/stylex";
-import { useCallback, useState } from "react";
-import { IconButton } from "../../components/ui/IconButton.tsx";
-import { IconCamera, IconTrash } from "../../components/ui/Icons.tsx";
+import { useCallback, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+	IconCheck,
+	IconMessageCircle,
+	IconSearch,
+	IconTrash,
+} from "../../components/ui/Icons.tsx";
+import { isChatAgentKind } from "../../features/agents/agents.ts";
+import { savePendingSend } from "../../features/chat/chat-session-store.ts";
+import {
+	createPendingAgentChatPane,
+	DEFAULT_FONT_FAMILY,
+	DEFAULT_FONT_SIZE,
+	DEFAULT_OPACITY,
+	getInitialGroups,
+	loadTerminalState,
+	saveTerminalState,
+	type TerminalGroupModel,
+} from "../../features/terminal/terminal-utils.ts";
 import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
-import { lacksPath } from "../../lib/data.ts";
+import { DEFAULT_APP_ROUTE } from "../../lib/app-navigation.tsx";
+import {
+	loadAppThemeId,
+	mapAppThemeToTerminalTheme,
+} from "../../lib/app-theme.ts";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
-import { formatBytes, formatRelativeTime } from "../../lib/format.ts";
-import { color, controlSize, font } from "../../tokens.stylex.ts";
+import { formatBytes } from "../../lib/format.ts";
+import { setInputValue } from "../../lib/react-events.ts";
+import { writeStoredValue } from "../../lib/stored-json.ts";
+import { color, controlSize, font, radius } from "../../tokens.stylex.ts";
 
-interface ImageEntry {
+interface FileEntry {
 	name: string;
 	path: string;
 	timestamp: number;
 	size: number;
 }
 
+function formatAddedDate(timestamp: number): string {
+	return new Intl.DateTimeFormat(undefined, {
+		month: "short",
+		day: "numeric",
+	}).format(new Date(timestamp));
+}
+
+function selectedFiles(
+	files: FileEntry[],
+	selectedPaths: Set<string>
+): FileEntry[] {
+	return files.filter((file) => selectedPaths.has(file.path));
+}
+
+function buildFileChatMessage(files: FileEntry[]) {
+	const displayText =
+		files.length === 1
+			? `Attached ${files[0]?.name ?? "file"}`
+			: `Attached ${files.length} files`;
+	return {
+		displayText,
+		fullText: `${displayText}\n\nHere are the images at these paths:\n${files
+			.map((file) => file.path)
+			.join("\n")}`,
+	};
+}
+
+function ensureChatPaneId(): string | null {
+	const existing = loadTerminalState();
+	const groups = (existing?.groups ?? getInitialGroups()).map((group) => ({
+		...group,
+		panes: [...group.panes],
+	}));
+	const selectedGroupId = existing?.selectedGroupId ?? groups[0]?.id ?? null;
+	const groupIndex = Math.max(
+		0,
+		groups.findIndex((group) => group.id === selectedGroupId)
+	);
+	const group = groups[groupIndex];
+	if (!group) return null;
+
+	let pane =
+		group.panes.find(
+			(candidate) =>
+				candidate.id === group.selectedPaneId &&
+				isChatAgentKind(candidate.agentKind)
+		) ?? group.panes.find((candidate) => isChatAgentKind(candidate.agentKind));
+
+	if (!pane) {
+		pane = createPendingAgentChatPane();
+		group.panes.unshift(pane);
+	}
+	group.selectedPaneId = pane.id;
+
+	const nextGroups = groups.map(
+		(candidate, index): TerminalGroupModel =>
+			index === groupIndex ? group : candidate
+	);
+
+	saveTerminalState({
+		groups: nextGroups,
+		selectedGroupId: group.id,
+		themeId: existing?.themeId ?? mapAppThemeToTerminalTheme(loadAppThemeId()),
+		fontSize: existing?.fontSize ?? DEFAULT_FONT_SIZE,
+		fontFamily: existing?.fontFamily ?? DEFAULT_FONT_FAMILY,
+		opacity: existing?.opacity ?? DEFAULT_OPACITY,
+	});
+
+	return pane.id;
+}
+
 export function ImagesPage() {
+	const navigate = useNavigate();
 	const {
-		data: images,
-		setData: setImages,
+		data: files,
+		setData: setFiles,
 		loading,
-	} = useAsyncResource<ImageEntry[]>(
+	} = useAsyncResource<FileEntry[]>(
 		() =>
-			fetchJsonOr<{ images?: ImageEntry[] }>("/api/images", {}).then(
+			fetchJsonOr<{ images?: FileEntry[] }>("/api/images", {}).then(
 				(d) => d.images ?? []
 			),
 		[],
 		[]
 	);
-	const [selected, setSelected] = useState<ImageEntry | null>(null);
-
-	const deleteImage = useCallback(
-		async (img: ImageEntry) => {
-			try {
-				await fetch(`/api/delete-temp?path=${encodeURIComponent(img.path)}`, {
-					method: "DELETE",
-				});
-				setImages((prev) => prev.filter(lacksPath.bind(null, img.path)));
-				if (selected?.path === img.path) setSelected(null);
-			} catch {}
-		},
-		[selected, setImages]
+	const [query, setQuery] = useState("");
+	const [selectedPaths, setSelectedPaths] = useState<Set<string>>(
+		() => new Set()
 	);
+
+	const visibleFiles = useMemo(() => {
+		const needle = query.trim().toLowerCase();
+		if (!needle) return files;
+		return files.filter((file) => file.name.toLowerCase().includes(needle));
+	}, [files, query]);
+
+	const selected = useMemo(
+		() => selectedFiles(files, selectedPaths),
+		[files, selectedPaths]
+	);
+	const allVisibleSelected =
+		visibleFiles.length > 0 &&
+		visibleFiles.every((file) => selectedPaths.has(file.path));
+
+	const toggleSelection = useCallback((file: FileEntry) => {
+		setSelectedPaths((prev) => {
+			const next = new Set(prev);
+			if (next.has(file.path)) next.delete(file.path);
+			else next.add(file.path);
+			return next;
+		});
+	}, []);
+
+	const toggleAllVisible = useCallback(() => {
+		setSelectedPaths((prev) => {
+			const next = new Set(prev);
+			if (visibleFiles.every((file) => next.has(file.path))) {
+				for (const file of visibleFiles) next.delete(file.path);
+			} else {
+				for (const file of visibleFiles) next.add(file.path);
+			}
+			return next;
+		});
+	}, [visibleFiles]);
+
+	const deleteSelected = useCallback(async () => {
+		if (selected.length === 0) return;
+		const paths = selected.map((file) => file.path);
+		await Promise.all(
+			paths.map((path) =>
+				fetch(`/api/delete-temp?path=${encodeURIComponent(path)}`, {
+					method: "DELETE",
+				}).catch(() => null)
+			)
+		);
+		setFiles((prev) => prev.filter((file) => !paths.includes(file.path)));
+		setSelectedPaths(new Set());
+	}, [selected, setFiles]);
+
+	const startChat = useCallback(() => {
+		if (selected.length === 0) return;
+		const paneId = ensureChatPaneId();
+		if (!paneId) return;
+
+		const { fullText } = buildFileChatMessage(selected);
+		savePendingSend(paneId, fullText);
+		writeStoredValue("terminal-main-view", "chat");
+		window.dispatchEvent(new Event("terminal-shell-change"));
+		navigate(DEFAULT_APP_ROUTE);
+	}, [navigate, selected]);
 
 	return (
 		<div {...stylex.props(styles.root)}>
-			<div {...stylex.props(styles.sidebar)}>
-				<div {...stylex.props(styles.header)}>
-					<IconCamera size={14} {...stylex.props(styles.mutedIcon)} />
-					<span {...stylex.props(styles.title)}>Images</span>
-					<span {...stylex.props(styles.count)}>{images.length}</span>
-				</div>
-				<div {...stylex.props(styles.list)}>
-					{loading ? (
-						<div {...stylex.props(styles.noticeText)}>Loading...</div>
-					) : images.length === 0 ? (
-						<div {...stylex.props(styles.noticeText)}>
-							No images yet. Attach an image in a chat to see it here.
-						</div>
-					) : (
-						images.map((img) => (
-							<button
-								key={img.path}
-								type="button"
-								onClick={() => setSelected(img)}
-								{...stylex.props(
-									styles.imageRow,
-									selected?.path === img.path
-										? styles.imageRowActive
-										: styles.imageRowIdle
-								)}
-							>
-								<img
-									src={`/api/file?path=${encodeURIComponent(img.path)}`}
-									alt=""
-									{...stylex.props(styles.thumbnail)}
-								/>
-								<div {...stylex.props(styles.rowText)}>
-									<div {...stylex.props(styles.imageName)}>{img.name}</div>
-									<div {...stylex.props(styles.imageMeta)}>
-										<span>{formatRelativeTime(img.timestamp)}</span>
-										<span>{formatBytes(img.size)}</span>
-									</div>
-								</div>
-								<IconButton
-									type="button"
-									onClick={(e) => {
-										e.stopPropagation();
-										deleteImage(img);
-									}}
-									variant="danger"
-									size="md"
-									className={stylex.props(styles.noShrink).className}
-									title="Delete"
-								>
-									<IconTrash size={12} />
-								</IconButton>
-							</button>
-						))
-					)}
-				</div>
-			</div>
-
-			<div {...stylex.props(styles.previewPane)}>
-				{selected ? (
-					<div {...stylex.props(styles.previewContent)}>
-						<img
-							src={`/api/file?path=${encodeURIComponent(selected.path)}`}
-							alt={selected.name}
-							{...stylex.props(styles.previewImage)}
+			<section {...stylex.props(styles.library)}>
+				<div {...stylex.props(styles.topBar)}>
+					<h1 {...stylex.props(styles.title)}>Files</h1>
+					<label {...stylex.props(styles.searchBox)}>
+						<IconSearch size={12} {...stylex.props(styles.searchIcon)} />
+						<input
+							type="search"
+							value={query}
+							onChange={setInputValue.bind(null, setQuery)}
+							placeholder="Search files"
+							{...stylex.props(styles.searchInput)}
 						/>
-						<div {...stylex.props(styles.previewMeta)}>
-							<span>{selected.name}</span>
-							<span>{formatBytes(selected.size)}</span>
-							<span>{new Date(selected.timestamp).toLocaleString()}</span>
-						</div>
+					</label>
+				</div>
+
+				<div {...stylex.props(styles.actionBar)}>
+					<button
+						type="button"
+						onClick={startChat}
+						disabled={selected.length === 0}
+						{...stylex.props(
+							styles.actionButton,
+							selected.length === 0
+								? styles.actionButtonDisabled
+								: styles.actionButtonPrimary
+						)}
+					>
+						<IconMessageCircle size={13} />
+						<span>Start chat</span>
+					</button>
+					<button
+						type="button"
+						onClick={deleteSelected}
+						disabled={selected.length === 0}
+						{...stylex.props(
+							styles.actionButton,
+							selected.length === 0
+								? styles.actionButtonDisabled
+								: styles.actionButtonDanger
+						)}
+					>
+						<IconTrash size={13} />
+						<span>Delete</span>
+					</button>
+					<div {...stylex.props(styles.selectionLabel)}>
+						{selected.length === 1
+							? "1 selected"
+							: `${selected.length} selected`}
 					</div>
-				) : (
-					<span {...stylex.props(styles.previewEmpty)}>
-						Select an image to preview
-					</span>
-				)}
-			</div>
+				</div>
+
+				<div {...stylex.props(styles.table)}>
+					<div {...stylex.props(styles.tableHeader)}>
+						<button
+							type="button"
+							onClick={toggleAllVisible}
+							{...stylex.props(
+								styles.checkBox,
+								allVisibleSelected && styles.checkBoxChecked
+							)}
+							aria-label="Select all visible files"
+						>
+							{allVisibleSelected ? <IconCheck size={10} /> : null}
+						</button>
+						<span>Name</span>
+						<span>Added</span>
+						<span>Size</span>
+					</div>
+
+					<div {...stylex.props(styles.rows)}>
+						{loading ? (
+							<div {...stylex.props(styles.emptyState)}>Loading files...</div>
+						) : visibleFiles.length === 0 ? (
+							<div {...stylex.props(styles.emptyState)}>
+								No files found. Attach an image in chat to add it here.
+							</div>
+						) : (
+							visibleFiles.map((file) => {
+								const isSelected = selectedPaths.has(file.path);
+								return (
+									<div
+										key={file.path}
+										{...stylex.props(
+											styles.row,
+											isSelected ? styles.rowSelected : styles.rowIdle
+										)}
+									>
+										<button
+											type="button"
+											onClick={() => toggleSelection(file)}
+											{...stylex.props(
+												styles.checkBox,
+												isSelected && styles.checkBoxChecked
+											)}
+											aria-label={`Select ${file.name}`}
+										>
+											{isSelected ? <IconCheck size={10} /> : null}
+										</button>
+										<button
+											type="button"
+											onClick={() => toggleSelection(file)}
+											{...stylex.props(styles.nameCell)}
+										>
+											<span {...stylex.props(styles.thumbnailFrame)}>
+												<img
+													src={`/api/file?path=${encodeURIComponent(file.path)}`}
+													alt=""
+													{...stylex.props(styles.thumbnail)}
+												/>
+											</span>
+											<span {...stylex.props(styles.fileName)}>
+												{file.name}
+											</span>
+										</button>
+										<span {...stylex.props(styles.metaCell)}>
+											{formatAddedDate(file.timestamp)}
+										</span>
+										<span {...stylex.props(styles.metaCell)}>
+											{formatBytes(file.size)}
+										</span>
+									</div>
+								);
+							})
+						)}
+					</div>
+				</div>
+			</section>
 		</div>
 	);
 }
 
 const styles = stylex.create({
 	root: {
-		display: "flex",
+		backgroundColor: "#000",
+		color: color.textMain,
 		height: "100%",
-		backgroundColor: color.background,
+		overflow: "hidden",
+		paddingBlock: "3rem",
 	},
-	sidebar: {
+	library: {
 		display: "flex",
-		width: "20rem",
 		flexDirection: "column",
-		borderRightWidth: 1,
-		borderRightStyle: "solid",
-		borderRightColor: color.border,
+		gap: controlSize._5,
+		height: "100%",
+		marginInline: "auto",
+		maxWidth: 760,
+		minWidth: 0,
+		width: "min(760px, calc(100% - 4rem))",
 	},
-	header: {
-		display: "flex",
-		height: "2.5rem",
+	topBar: {
 		alignItems: "center",
-		gap: controlSize._2,
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
-		borderBottomColor: color.border,
-		paddingInline: controlSize._3,
-	},
-	mutedIcon: {
-		color: color.textMuted,
+		display: "flex",
+		gap: controlSize._4,
+		justifyContent: "space-between",
 	},
 	title: {
-		color: color.textSoft,
-		fontSize: "0.75rem",
-		fontWeight: font.weight_5,
+		color: "#fff",
+		fontSize: "1.5rem",
+		fontWeight: font.weight_6,
+		letterSpacing: 0,
+		lineHeight: 1,
+		margin: 0,
 	},
-	count: {
-		marginLeft: "auto",
+	searchBox: {
+		alignItems: "center",
+		backgroundColor: "rgba(255, 255, 255, 0.12)",
+		borderColor: "rgba(255, 255, 255, 0.18)",
+		borderRadius: 999,
+		borderStyle: "solid",
+		borderWidth: 1,
+		display: "flex",
+		gap: controlSize._2,
+		height: 34,
+		paddingInline: controlSize._3,
+		width: 216,
+	},
+	searchIcon: {
 		color: color.textMuted,
-		fontSize: "0.625rem",
+		flexShrink: 0,
 	},
-	list: {
+	searchInput: {
+		backgroundColor: "transparent",
+		borderWidth: 0,
+		color: color.textMain,
 		flex: 1,
+		fontSize: font.size_2,
+		minWidth: 0,
+		outline: "none",
+		padding: 0,
+		"::placeholder": {
+			color: color.textMuted,
+		},
+	},
+	actionBar: {
+		alignItems: "center",
+		display: "flex",
+		gap: controlSize._2,
+	},
+	actionButton: {
+		alignItems: "center",
+		borderRadius: 999,
+		borderStyle: "solid",
+		borderWidth: 1,
+		display: "inline-flex",
+		fontSize: font.size_2,
+		fontWeight: font.weight_6,
+		gap: controlSize._1_5,
+		height: 32,
+		paddingInline: controlSize._3,
+		transitionDuration: "120ms",
+		transitionProperty: "background-color, border-color, color",
+	},
+	actionButtonPrimary: {
+		backgroundColor: "#fff",
+		borderColor: "#fff",
+		color: "#000",
+	},
+	actionButtonDanger: {
+		backgroundColor: "transparent",
+		borderColor: color.dangerBorder,
+		color: color.danger,
+	},
+	actionButtonDisabled: {
+		backgroundColor: "rgba(255, 255, 255, 0.08)",
+		borderColor: "rgba(255, 255, 255, 0.1)",
+		color: color.textMuted,
+		cursor: "not-allowed",
+	},
+	selectionLabel: {
+		color: color.textMain,
+		fontSize: font.size_2,
+		fontWeight: font.weight_6,
+		marginLeft: "auto",
+	},
+	table: {
+		display: "flex",
+		flex: 1,
+		flexDirection: "column",
+		minHeight: 0,
+	},
+	tableHeader: {
+		alignItems: "center",
+		color: color.textSoft,
+		display: "grid",
+		fontSize: font.size_2,
+		fontWeight: font.weight_6,
+		gridTemplateColumns: "2.5rem minmax(0, 1fr) 10rem 8rem",
+		height: 32,
+		paddingInline: controlSize._1,
+	},
+	rows: {
+		display: "flex",
+		flex: 1,
+		flexDirection: "column",
+		minHeight: 0,
 		overflowY: "auto",
+		paddingBottom: controlSize._8,
 		scrollbarWidth: "none",
 		"::-webkit-scrollbar": {
 			display: "none",
 		},
 	},
-	noticeText: {
-		padding: controlSize._4,
-		color: color.textMuted,
-		fontSize: font.size_2,
-		lineHeight: 1.5,
-	},
-	imageRow: {
-		display: "flex",
-		width: "100%",
+	row: {
 		alignItems: "center",
-		gap: "0.625rem",
-		borderWidth: 0,
-		backgroundColor: "transparent",
-		paddingBlock: controlSize._2,
-		paddingInline: controlSize._3,
-		textAlign: "left",
-		transitionProperty: "background-color",
+		borderBottomColor: "rgba(255, 255, 255, 0.06)",
+		borderBottomStyle: "solid",
+		borderBottomWidth: 1,
+		display: "grid",
+		gap: 0,
+		gridTemplateColumns: "2.5rem minmax(0, 1fr) 10rem 8rem",
+		minHeight: 58,
+		paddingInline: controlSize._1,
 		transitionDuration: "120ms",
+		transitionProperty: "background-color, border-color",
 	},
-	imageRowIdle: {
+	rowIdle: {
 		backgroundColor: {
 			default: "transparent",
-			":hover": "rgba(255, 255, 255, 0.03)",
+			":hover": "rgba(255, 255, 255, 0.05)",
 		},
 	},
-	imageRowActive: {
-		backgroundColor: "rgba(255, 255, 255, 0.06)",
+	rowSelected: {
+		backgroundColor: "rgba(255, 255, 255, 0.1)",
+		borderRadius: radius.md,
+		borderBottomColor: "transparent",
+	},
+	checkBox: {
+		alignItems: "center",
+		backgroundColor: "rgba(255, 255, 255, 0.08)",
+		borderColor: "rgba(255, 255, 255, 0.22)",
+		borderRadius: 4,
+		borderStyle: "solid",
+		borderWidth: 1,
+		color: "#000",
+		display: "flex",
+		height: 16,
+		justifyContent: "center",
+		marginInline: "auto",
+		padding: 0,
+		width: 16,
+	},
+	checkBoxChecked: {
+		backgroundColor: "#fff",
+		borderColor: "#fff",
+	},
+	nameCell: {
+		alignItems: "center",
+		backgroundColor: "transparent",
+		borderWidth: 0,
+		color: color.textMain,
+		display: "flex",
+		gap: controlSize._3,
+		minWidth: 0,
+		padding: 0,
+		textAlign: "left",
+	},
+	thumbnailFrame: {
+		alignItems: "center",
+		backgroundColor: "rgba(255, 255, 255, 0.1)",
+		borderColor: "rgba(255, 255, 255, 0.18)",
+		borderRadius: 6,
+		borderStyle: "solid",
+		borderWidth: 1,
+		display: "flex",
+		flexShrink: 0,
+		height: 30,
+		justifyContent: "center",
+		overflow: "hidden",
+		width: 30,
 	},
 	thumbnail: {
-		width: "2.5rem",
-		height: "2.5rem",
-		flexShrink: 0,
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: 4,
+		height: "100%",
 		objectFit: "cover",
+		width: "100%",
 	},
-	rowText: {
-		minWidth: 0,
-		flex: 1,
-	},
-	imageName: {
+	fileName: {
+		color: color.textMain,
+		fontSize: font.size_2,
+		fontWeight: font.weight_6,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
-		color: color.textSoft,
+	},
+	metaCell: {
+		color: color.textMain,
 		fontSize: font.size_2,
-	},
-	imageMeta: {
-		display: "flex",
-		gap: controlSize._2,
-		color: color.textMuted,
-		fontSize: "0.625rem",
-	},
-	noShrink: {
-		flexShrink: 0,
-	},
-	previewPane: {
-		display: "flex",
-		flex: 1,
-		alignItems: "center",
-		justifyContent: "center",
+		fontWeight: font.weight_5,
 		overflow: "hidden",
-		padding: controlSize._6,
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
 	},
-	previewContent: {
-		display: "flex",
-		width: "100%",
-		height: "100%",
-		flexDirection: "column",
+	emptyState: {
 		alignItems: "center",
-		gap: controlSize._3,
-	},
-	previewImage: {
-		maxWidth: "100%",
-		maxHeight: "calc(100% - 3rem)",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: 8,
-		objectFit: "contain",
-	},
-	previewMeta: {
-		display: "flex",
-		alignItems: "center",
-		gap: controlSize._3,
 		color: color.textMuted,
+		display: "flex",
 		fontSize: font.size_2,
-	},
-	previewEmpty: {
-		color: color.textMuted,
-		fontSize: "0.75rem",
+		height: 180,
+		justifyContent: "center",
+		textAlign: "center",
 	},
 });

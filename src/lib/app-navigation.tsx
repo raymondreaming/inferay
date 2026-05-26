@@ -2,8 +2,8 @@ import type { ComponentType } from "react";
 import { hasId } from "./data.ts";
 import { FEATURE_FLAGS } from "./feature-flags.ts";
 import {
-	IconCamera,
 	IconCode,
+	IconFilePlus,
 	IconGitBranch,
 	IconGitCommit,
 	IconMessageCircle,
@@ -70,10 +70,10 @@ const ALL_APP_PAGE_ROUTES = [
 	},
 	{
 		id: "images",
-		label: "Images",
+		label: "Files",
 		path: "/images",
 		sidebar: true,
-		icon: IconCamera,
+		icon: IconFilePlus,
 	},
 	{
 		id: "simulators",
