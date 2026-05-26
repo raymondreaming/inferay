@@ -154,16 +154,19 @@ export const claudeAdapter: AgentAdapter<undefined> = {
 					const exitCode = await proc.exited;
 					proc = null;
 					const stderrText = (await stderrPromise).trim();
-					if (exitCode !== 0 && stderrText) {
+					if (exitCode !== 0 && stderrText && !ctx.isCancelled()) {
 						ctx.emitAgentEvent({ type: "error", message: stderrText });
 						ctx.emitSystemMessage(stderrText);
 					}
-					ctx.emitAgentEvent({
-						type: "finish",
-						reason: exitCode === 0 ? "completed" : `exit:${exitCode}`,
-					});
+					const finishReason = ctx.isCancelled()
+						? "cancelled"
+						: exitCode === 0
+							? "completed"
+							: `exit:${exitCode}`;
+					ctx.emitAgentEvent({ type: "finish", reason: finishReason });
 					return lastAssistantMessage ? { lastAssistantMessage } : undefined;
 				} catch (err: any) {
+					if (ctx.isCancelled()) return undefined;
 					const msg = err.message || "Claude encountered an error";
 					ctx.emitAgentEvent({ type: "error", message: msg });
 					ctx.emitSystemMessage(msg);

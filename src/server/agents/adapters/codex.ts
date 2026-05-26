@@ -29,6 +29,7 @@ interface CodexRunState {
 	lastAssistantMessage: string;
 	currentToolId: string | null;
 	fileSnapshots: Map<string, string | null>;
+	activePatchPaths: string[];
 	commandOutputs: Map<string, string>;
 }
 
@@ -171,18 +172,30 @@ function readSnapshot(path: string): string | null {
 }
 
 function getFileChangePaths(ctx: AgentRunContext, item: any): string[] {
-	const changes = Array.isArray(item?.changes) ? item.changes : [];
-	const paths = changes
-		.map((change: any) =>
-			resolveChangedPath(ctx, change?.path ?? change?.file_path ?? change?.file)
-		)
+	const candidates: unknown[] = [];
+	if (Array.isArray(item?.changes)) {
+		for (const change of item.changes) {
+			candidates.push(
+				typeof change === "string"
+					? change
+					: (change?.path ?? change?.file_path ?? change?.file)
+			);
+		}
+	}
+	if (Array.isArray(item?.files)) {
+		for (const file of item.files) {
+			candidates.push(
+				typeof file === "string"
+					? file
+					: (file?.path ?? file?.file_path ?? file?.file)
+			);
+		}
+	}
+	candidates.push(item?.path, item?.file_path, item?.file);
+	const paths = candidates
+		.map((candidate) => resolveChangedPath(ctx, candidate))
 		.filter((path: string | null): path is string => Boolean(path));
-	if (paths.length > 0) return Array.from(new Set<string>(paths));
-	const singlePath = resolveChangedPath(
-		ctx,
-		item?.path ?? item?.file_path ?? item?.file
-	);
-	return singlePath ? [singlePath] : [];
+	return Array.from(new Set<string>(paths));
 }
 
 function handleCodexEvent(
@@ -273,6 +286,21 @@ function handleCodexEvent(
 		startTool("Edit", input);
 		closeTool();
 	};
+	const snapshotPaths = (paths: readonly string[]) => {
+		for (const path of paths) {
+			state.fileSnapshots.set(path, readSnapshot(path));
+		}
+	};
+	const emitDiffsForPaths = (paths: readonly string[]) => {
+		for (const path of paths) {
+			const before = state.fileSnapshots.get(path);
+			const after = readSnapshot(path);
+			state.fileSnapshots.delete(path);
+			if (before !== null && before !== undefined && after !== null) {
+				emitEditDiff(path, before, after);
+			}
+		}
+	};
 	const emitCommandOutputDelta = (item: any) => {
 		if (typeof item?.aggregated_output !== "string" || !item.aggregated_output)
 			return;
@@ -330,9 +358,7 @@ function handleCodexEvent(
 		closeTool();
 	} else if (event?.type === "item.started" && item?.type === "file_change") {
 		const paths = getFileChangePaths(ctx, item);
-		for (const path of paths) {
-			state.fileSnapshots.set(path, readSnapshot(path));
-		}
+		snapshotPaths(paths);
 		const payload = { changes: item.changes ?? paths };
 		ctx.emitStatus("tool:patch", true);
 		ctx.emitActivity({
@@ -344,14 +370,7 @@ function handleCodexEvent(
 	} else if (event?.type === "item.completed" && item?.type === "file_change") {
 		const paths = getFileChangePaths(ctx, item);
 		closeTool();
-		for (const path of paths) {
-			const before = state.fileSnapshots.get(path);
-			const after = readSnapshot(path);
-			state.fileSnapshots.delete(path);
-			if (before !== null && before !== undefined && after !== null) {
-				emitEditDiff(path, before, after);
-			}
-		}
+		emitDiffsForPaths(paths);
 	} else if (
 		event?.type === "item.completed" &&
 		item?.type === "agent_message"
@@ -393,7 +412,10 @@ function handleCodexEvent(
 	} else if (event?.type === "exec_command_end") {
 		closeTool();
 	} else if (event?.type === "patch_apply_begin") {
-		const payload = { changes: event.changes ?? event.files ?? [] };
+		const paths = getFileChangePaths(ctx, event);
+		state.activePatchPaths = paths;
+		snapshotPaths(paths);
+		const payload = { changes: event.changes ?? event.files ?? paths };
 		ctx.emitStatus("tool:patch", true);
 		ctx.emitActivity({
 			toolName: "patch",
@@ -403,6 +425,9 @@ function handleCodexEvent(
 		startTool("patch", payload);
 	} else if (event?.type === "patch_apply_end") {
 		closeTool();
+		const paths = getFileChangePaths(ctx, event);
+		emitDiffsForPaths(paths.length > 0 ? paths : state.activePatchPaths);
+		state.activePatchPaths = [];
 	} else if (event?.type === "web_search_begin") {
 		const payload = { query: event.query ?? "" };
 		ctx.emitStatus("tool:web_search", true);
@@ -497,6 +522,7 @@ export const codexAdapter: AgentAdapter<CodexRunState> = {
 			lastAssistantMessage: "",
 			currentToolId: null,
 			fileSnapshots: new Map(),
+			activePatchPaths: [],
 			commandOutputs: new Map(),
 		};
 	},
@@ -619,17 +645,21 @@ export const codexAdapter: AgentAdapter<CodexRunState> = {
 						result: assistantText,
 					});
 					ctx.emitAgentEvent({ type: "result", text: assistantText });
-				} else if (exitCode !== 0 && stderrText && !state.completedFromEvent) {
+				} else if (
+					exitCode !== 0 &&
+					stderrText &&
+					!state.completedFromEvent &&
+					!ctx.isCancelled()
+				) {
 					ctx.emitAgentEvent({ type: "error", message: stderrText });
 					ctx.emitSystemMessage(stderrText);
 				}
-				ctx.emitAgentEvent({
-					type: "finish",
-					reason:
-						exitCode === 0 || state.completedFromEvent
-							? "completed"
-							: `exit:${exitCode}`,
-				});
+				const finishReason = ctx.isCancelled()
+					? "cancelled"
+					: exitCode === 0 || state.completedFromEvent
+						? "completed"
+						: `exit:${exitCode}`;
+				ctx.emitAgentEvent({ type: "finish", reason: finishReason });
 
 				return { lastAssistantMessage: state.lastAssistantMessage };
 			},

@@ -390,6 +390,7 @@ async function runAgent(
 		model: session.model,
 		reasoningLevel: session.reasoningLevel,
 		getSessionId: () => session.sessionId,
+		isCancelled: () => session.cancelled,
 		updateSessionId: (nextSessionId) =>
 			updateSessionId(session, paneId, nextSessionId),
 		emitChatEvent: (event) => {
@@ -764,6 +765,7 @@ export const ChatService = {
 			});
 			return;
 		}
+		session.cancelled = false;
 
 		const goalCommand = agentKind === "codex" ? parseGoalCommand(text) : null;
 		let prompt = text;
@@ -935,6 +937,10 @@ export const ChatService = {
 
 	stopGeneration(paneId: string) {
 		const session = sessions.get(paneId);
+		if (session) {
+			session.cancelled = true;
+			session.goal = null;
+		}
 		if (session?.currentHandle) {
 			try {
 				session.currentHandle.stop();

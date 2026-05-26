@@ -52,6 +52,7 @@ export async function runAgentOnce({
 		model: resolveAgentModel(agentKind, model),
 		reasoningLevel,
 		getSessionId: () => sessionId,
+		isCancelled: () => false,
 		updateSessionId: (nextSessionId) => {
 			sessionId = nextSessionId;
 		},

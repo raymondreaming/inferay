@@ -14,6 +14,7 @@ export interface AgentRunContext {
 	readonly model?: string;
 	readonly reasoningLevel?: string;
 	getSessionId(): string | null;
+	isCancelled(): boolean;
 	updateSessionId(nextSessionId: string): void;
 	emitChatEvent(event: unknown): void;
 	emitAgentEvent(event: AgentEvent): void;
