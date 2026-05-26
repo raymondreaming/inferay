@@ -97,18 +97,34 @@ const windowRpc = defineElectrobunRPC<WindowControlsRPC>("bun", {
 
 				const fs = mainWindow.isFullScreen();
 				mainWindow.setFullScreen(!fs);
+				scheduleFullScreenChromeSync();
 				return { maximized: !fs };
 			},
 		},
 	},
 });
 
+function syncFullScreenChrome() {
+	if (!mainWindow) return;
+	const fullScreen = mainWindow.isFullScreen();
+	mainWindow.webview.executeJavascript(
+		`document.documentElement.dataset.inferayFullscreen = ${JSON.stringify(
+			fullScreen ? "true" : "false"
+		)};`
+	);
+}
+
+function scheduleFullScreenChromeSync() {
+	syncFullScreenChrome();
+	setTimeout(syncFullScreenChrome, 250);
+	setTimeout(syncFullScreenChrome, 1000);
+}
+
 mainWindow = new BrowserWindow({
 	title: "inferay",
 	url: rendererUrl,
 	rpc: windowRpc,
 	titleBarStyle: "hiddenInset",
-	trafficLightOffset: { x: 56, y: 13 },
 	frame: {
 		x: 120,
 		y: 80,
@@ -118,6 +134,9 @@ mainWindow = new BrowserWindow({
 });
 
 mainWindow.on("close", shutdownAppServices);
+mainWindow.on("resize", scheduleFullScreenChromeSync);
+mainWindow.on("focus", scheduleFullScreenChromeSync);
+scheduleFullScreenChromeSync();
 
 process.on("SIGTERM", shutdownAppServices);
 process.on("SIGINT", shutdownAppServices);

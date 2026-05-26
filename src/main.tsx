@@ -112,6 +112,7 @@ function AppShell() {
 			{...themeProps}
 			className={`flex h-screen flex-col bg-inferay-black ${themeProps.className ?? ""}`}
 		>
+			<div className="inferay-window-spacer electrobun-webkit-app-region-drag h-6 shrink-0 bg-inferay-black" />
 			<div className="flex min-h-0 flex-1">
 				<Sidebar />
 				<div className="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -155,6 +156,7 @@ function OnboardingShell() {
 			{...themeProps}
 			className={`flex h-screen flex-col bg-inferay-black ${themeProps.className ?? ""}`}
 		>
+			<div className="inferay-window-spacer electrobun-webkit-app-region-drag h-6 shrink-0 bg-inferay-black" />
 			<div className="min-h-0 flex-1">
 				<OnboardingPage />
 			</div>

@@ -214,6 +214,10 @@ select,
 	user-select: none;
 }
 
+html[data-inferay-fullscreen="true"] .inferay-window-spacer {
+	display: none;
+}
+
 input,
 textarea,
 [contenteditable="true"] {
