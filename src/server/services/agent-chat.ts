@@ -24,8 +24,8 @@ interface ServerChatMessage {
 	isStreaming?: boolean;
 }
 
-const MAX_BUFFER_MESSAGES = 100;
-const MAX_BUFFER_CHARS = 200_000;
+const MAX_BUFFER_MESSAGES = 500;
+const MAX_BUFFER_CHARS = 1_000_000;
 const DISCONNECTED_SESSION_TTL_MS = 5 * 60 * 1000;
 
 let serverMsgId = 0;

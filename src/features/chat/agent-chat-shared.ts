@@ -49,8 +49,8 @@ export interface SlashCommand {
 	isFromLibrary?: boolean;
 }
 
-const MAX_MESSAGES = 80;
-const MAX_TOTAL_CHARS = 150000;
+const MAX_RETAINED_MESSAGES = 500;
+const MAX_RETAINED_CHARS = 1_000_000;
 
 let msgId = 0;
 
@@ -59,17 +59,17 @@ export function nextId() {
 }
 
 export function trimMessages(msgs: ChatMessage[]): ChatMessage[] {
-	if (msgs.length <= MAX_MESSAGES) return msgs;
-	let trimmed = msgs.slice(-MAX_MESSAGES);
-	if (trimmed.length > 50) {
-		let totalChars = trimmed.reduce(
-			(sum, message) => sum + message.content.length,
-			0
-		);
-		while (totalChars > MAX_TOTAL_CHARS && trimmed.length > 1) {
-			totalChars -= trimmed[0]?.content.length ?? 0;
-			trimmed = trimmed.slice(1);
-		}
+	let trimmed =
+		msgs.length > MAX_RETAINED_MESSAGES
+			? msgs.slice(-MAX_RETAINED_MESSAGES)
+			: msgs;
+	let totalChars = trimmed.reduce(
+		(sum, message) => sum + message.content.length,
+		0
+	);
+	while (totalChars > MAX_RETAINED_CHARS && trimmed.length > 1) {
+		totalChars -= trimmed[0]?.content.length ?? 0;
+		trimmed = trimmed.slice(1);
 	}
 
 	return trimmed;

@@ -1,5 +1,13 @@
 import * as stylex from "@stylexjs/stylex";
-import React, { useCallback, useMemo, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import React, {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import {
 	color,
 	controlSize,
@@ -19,6 +27,7 @@ import { AskUserQuestionCard, Markdown } from "./ChatRichContent.tsx";
 import {
 	buildRenderItems,
 	type RenderChatMessage,
+	type RenderItem,
 } from "./chat-message-render-utils.ts";
 import { renderTextPills } from "./chat-token-decorators.tsx";
 
@@ -32,6 +41,47 @@ type CheckpointInfo = {
 	reverted: boolean;
 	afterMessageId: string | null;
 };
+
+export type ChatVirtualizerControls = {
+	scrollToEnd: (behavior?: ScrollBehavior) => void;
+	isAtEnd: () => boolean;
+	getDistanceFromEnd: () => number;
+};
+
+type ChatRenderRow =
+	| RenderItem
+	| { type: "thinking"; key: string; startTime: number };
+
+function estimateRowSize(row: ChatRenderRow | undefined): number {
+	if (!row) return 80;
+	if (row.type === "thinking") return 48;
+	if (row.type === "edit-group") return 260;
+
+	const message = row.message;
+	if (message.role === "tool") {
+		return message.toolName === "Edit" ? 260 : 56;
+	}
+	if (message.role === "assistant" || message.role === "btw") {
+		return Math.min(
+			460,
+			Math.max(72, 52 + Math.ceil(message.content.length / 90) * 18)
+		);
+	}
+	if (message.role === "system") return 48;
+	return Math.min(
+		220,
+		Math.max(56, 44 + Math.ceil(message.content.length / 120) * 16)
+	);
+}
+
+function getRowKey(row: ChatRenderRow | undefined, index: number) {
+	if (!row) return `row-${index}`;
+	if (row.type === "thinking") return row.key;
+	if (row.type === "edit-group") {
+		return `edit-group:${row.filePath}:${row.edits.map((edit) => edit.id).join(":")}`;
+	}
+	return row.message.id;
+}
 
 function ToolOutputHighlight({ content }: { content: string }) {
 	try {
@@ -380,6 +430,8 @@ const Bubble = React.memo(function Bubble({
 
 export function ChatMessageList({
 	messages,
+	scrollElementRef,
+	onVirtualizerReady,
 	expandedTools,
 	toggleTool,
 	checkpoints,
@@ -391,6 +443,8 @@ export function ChatMessageList({
 	slashCommandNames,
 }: {
 	messages: ChatMessage[];
+	scrollElementRef: React.RefObject<HTMLDivElement | null>;
+	onVirtualizerReady?: (controls: ChatVirtualizerControls | null) => void;
 	expandedTools: Set<string>;
 	toggleTool: (id: string) => void;
 	checkpoints: CheckpointInfo[];
@@ -402,21 +456,93 @@ export function ChatMessageList({
 	slashCommandNames: readonly string[];
 }) {
 	const renderItems = useMemo(() => buildRenderItems(messages), [messages]);
+	const renderRows = useMemo<ChatRenderRow[]>(() => {
+		if (!isLoading || !startTime) return renderItems;
+		return [
+			...renderItems,
+			{ type: "thinking", key: `thinking-${startTime}`, startTime },
+		];
+	}, [isLoading, renderItems, startTime]);
+	const virtualizer = useVirtualizer({
+		count: renderRows.length,
+		getScrollElement: () => scrollElementRef.current,
+		estimateSize: (index) => estimateRowSize(renderRows[index]),
+		getItemKey: (index) => getRowKey(renderRows[index], index),
+		anchorTo: "end",
+		followOnAppend: true,
+		scrollEndThreshold: 80,
+		overscan: 6,
+		gap: 8,
+		paddingStart: 8,
+		paddingEnd: 32,
+		useFlushSync: false,
+	});
+	const didInitialScrollRef = useRef(false);
+
+	useEffect(() => {
+		onVirtualizerReady?.({
+			scrollToEnd: (behavior = "smooth") => {
+				virtualizer.scrollToEnd({ behavior });
+			},
+			isAtEnd: () => virtualizer.isAtEnd(80),
+			getDistanceFromEnd: () => virtualizer.getDistanceFromEnd(),
+		});
+		return () => onVirtualizerReady?.(null);
+	}, [onVirtualizerReady, virtualizer]);
+
+	useLayoutEffect(() => {
+		if (didInitialScrollRef.current || renderRows.length === 0) return;
+		didInitialScrollRef.current = true;
+		const raf = requestAnimationFrame(() => {
+			virtualizer.scrollToEnd({ behavior: "auto" });
+		});
+		return () => cancelAnimationFrame(raf);
+	}, [renderRows.length, virtualizer]);
+
+	const virtualItems = virtualizer.getVirtualItems();
 	return (
-		<div {...stylex.props(styles.messageList)}>
-			{renderItems.map((item, idx) => {
+		<div
+			{...stylex.props(styles.messageList)}
+			style={{ height: virtualizer.getTotalSize() }}
+		>
+			{virtualItems.map((virtualItem) => {
+				const item = renderRows[virtualItem.index];
+				if (!item) return null;
+				if (item.type === "thinking") {
+					return (
+						<div
+							key={virtualItem.key}
+							ref={virtualizer.measureElement}
+							data-index={virtualItem.index}
+							{...stylex.props(styles.virtualRow)}
+							style={{ transform: `translateY(${virtualItem.start}px)` }}
+						>
+							<ThinkingIndicator startTime={item.startTime} />
+						</div>
+					);
+				}
 				if (item.type === "edit-group") {
 					return (
-						<GroupedEditDiff
-							key={`edit-group-${item.filePath}-${idx}`}
-							filePath={item.filePath}
-							edits={item.edits}
-						/>
+						<div
+							key={virtualItem.key}
+							ref={virtualizer.measureElement}
+							data-index={virtualItem.index}
+							{...stylex.props(styles.virtualRow)}
+							style={{ transform: `translateY(${virtualItem.start}px)` }}
+						>
+							<GroupedEditDiff filePath={item.filePath} edits={item.edits} />
+						</div>
 					);
 				}
 				const msg = item.message;
 				return (
-					<React.Fragment key={msg.id}>
+					<div
+						key={virtualItem.key}
+						ref={virtualizer.measureElement}
+						data-index={virtualItem.index}
+						{...stylex.props(styles.virtualRow)}
+						style={{ transform: `translateY(${virtualItem.start}px)` }}
+					>
 						<Bubble
 							msg={msg}
 							collapsed={!expandedTools.has(msg.id)}
@@ -438,10 +564,9 @@ export function ChatMessageList({
 									/>
 								);
 							})()}
-					</React.Fragment>
+					</div>
 				);
 			})}
-			{isLoading && startTime && <ThinkingIndicator startTime={startTime} />}
 		</div>
 	);
 }
@@ -745,12 +870,17 @@ const styles = stylex.create({
 		color: color.success,
 	},
 	messageList: {
-		display: "flex",
-		flexDirection: "column",
-		gap: controlSize._2,
+		minHeight: "100%",
 		minWidth: 0,
-		paddingBottom: controlSize._8,
+		position: "relative",
+		width: "100%",
+	},
+	virtualRow: {
+		boxSizing: "border-box",
+		left: 0,
 		paddingInline: controlSize._3,
-		paddingTop: controlSize._2,
+		position: "absolute",
+		top: 0,
+		width: "100%",
 	},
 });

@@ -5,7 +5,6 @@ import {
 	useCallback,
 	useEffect,
 	useImperativeHandle,
-	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -46,7 +45,10 @@ import {
 } from "../../features/chat/agent-chat-shared.ts";
 import { getToolBlockInitialContent } from "../../features/chat/chat-stream-events.ts";
 import { ChatComposer } from "./ChatComposer.tsx";
-import { ChatMessageList } from "./ChatMessageList.tsx";
+import {
+	ChatMessageList,
+	type ChatVirtualizerControls,
+} from "./ChatMessageList.tsx";
 import {
 	clearLiveActivities,
 	extractToolActivities,
@@ -156,6 +158,13 @@ const LOCAL_COMMANDS: SlashCommand[] = [
 ];
 
 const TEXTAREA_MEASURE_CHAR_LIMIT = 6000;
+const MESSAGE_SAVE_INTERVAL_MS = 1000;
+
+function prepareMessagesForStorage(messages: ChatMessage[]) {
+	return trimMessages(messages).map((message) =>
+		message.isStreaming ? { ...message, isStreaming: false } : message
+	);
+}
 
 export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 	function AgentChatView(
@@ -240,11 +249,20 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 			pendingWorkspacePathsRef.current = [];
 			savePendingWorkspacePaths(paneId, []);
 		}, [paneId]);
+		const flushPendingMessageSave = useCallback(() => {
+			if (saveTimerRef.current) {
+				clearTimeout(saveTimerRef.current);
+				saveTimerRef.current = null;
+			}
+			if (pendingMessageSaveRef.current) {
+				saveStoredMessages(paneId, pendingMessageSaveRef.current);
+				pendingMessageSaveRef.current = null;
+			}
+		}, [paneId]);
 		const scheduleMessageSave = useCallback(
 			(nextMessages: ChatMessage[]) => {
-				if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-				if (nextMessages.some((message) => message.isStreaming)) return;
-				pendingMessageSaveRef.current = nextMessages;
+				const storedMessages = prepareMessagesForStorage(nextMessages);
+				pendingMessageSaveRef.current = storedMessages;
 				// Generate AI title from first user message (fire-and-forget)
 				if (!summaryRef.current && !titleRequestedRef.current) {
 					const firstUser = nextMessages.find(hasRole.bind(null, "user"));
@@ -264,12 +282,12 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 							.catch(noop);
 					}
 				}
+				if (saveTimerRef.current) return;
 				saveTimerRef.current = setTimeout(() => {
-					saveStoredMessages(paneId, nextMessages);
-					pendingMessageSaveRef.current = null;
-				}, 2000);
+					flushPendingMessageSave();
+				}, MESSAGE_SAVE_INTERVAL_MS);
 			},
-			[paneId]
+			[flushPendingMessageSave, paneId]
 		);
 		const setMessages = useCallback(
 			(update: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
@@ -287,13 +305,25 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 		);
 		useEffect(
 			() => () => {
-				if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-				if (pendingMessageSaveRef.current) {
-					saveStoredMessages(paneId, pendingMessageSaveRef.current);
-				}
+				flushPendingMessageSave();
 			},
-			[paneId]
+			[flushPendingMessageSave]
 		);
+		useEffect(() => {
+			const flushCurrentMessages = () => {
+				saveStoredMessages(
+					paneId,
+					prepareMessagesForStorage(messagesRef.current)
+				);
+				pendingMessageSaveRef.current = null;
+			};
+			window.addEventListener("beforeunload", flushCurrentMessages);
+			window.addEventListener("pagehide", flushCurrentMessages);
+			return () => {
+				window.removeEventListener("beforeunload", flushCurrentMessages);
+				window.removeEventListener("pagehide", flushCurrentMessages);
+			};
+		}, [paneId]);
 		const [input, setInputRaw] = useState(() => loadStoredInput(paneId));
 		const pendingSendConsumedRef = useRef(false);
 		const setInput = useCallback(
@@ -421,6 +451,7 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 		const checkpointsRef = useRef(checkpoints);
 		checkpointsRef.current = checkpoints;
 		const scrollRef = useRef<HTMLDivElement>(null);
+		const chatVirtualizerRef = useRef<ChatVirtualizerControls | null>(null);
 		const textareaRef = useRef<HTMLTextAreaElement>(null);
 		const highlightOverlayRef = useRef<HTMLDivElement>(null);
 		const inputContainerRef = useRef<HTMLDivElement>(null);
@@ -459,7 +490,9 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 		const handleScroll = useCallback(() => {
 			const el = scrollRef.current;
 			if (!el) return;
-			const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+			const atBottom =
+				chatVirtualizerRef.current?.isAtEnd() ??
+				el.scrollHeight - el.scrollTop - el.clientHeight < 48;
 			setIsAtBottom(atBottom);
 			if (programmaticScrollRef.current) return;
 			autoFollowRef.current = atBottom;
@@ -471,7 +504,11 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 				if (!el) return;
 				autoFollowRef.current = true;
 				programmaticScrollRef.current = true;
-				el.scrollTo({ top: el.scrollHeight, behavior });
+				if (chatVirtualizerRef.current) {
+					chatVirtualizerRef.current.scrollToEnd(behavior);
+				} else {
+					el.scrollTo({ top: el.scrollHeight, behavior });
+				}
 				setIsAtBottom(true);
 				window.setTimeout(
 					() => {
@@ -482,21 +519,13 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 			},
 			[]
 		);
-
-		useLayoutEffect(() => {
-			if (!autoFollowRef.current) return;
-			const el = scrollRef.current;
-			if (!el) return;
-			programmaticScrollRef.current = true;
-			el.scrollTop = el.scrollHeight;
-			setIsAtBottom(true);
-			const raf = requestAnimationFrame(() => {
-				const current = scrollRef.current;
-				if (current) current.scrollTop = current.scrollHeight;
-				programmaticScrollRef.current = false;
-			});
-			return () => cancelAnimationFrame(raf);
-		}, [messages, liveActivities, isLoading]);
+		const handleVirtualizerReady = useCallback(
+			(controls: ChatVirtualizerControls | null) => {
+				chatVirtualizerRef.current = controls;
+				if (controls) setIsAtBottom(controls.isAtEnd());
+			},
+			[]
+		);
 
 		useEffect(() => {
 			if (!isSelected) return;
@@ -803,11 +832,7 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 						saveStoredSessionId(paneId, msg.sessionId);
 					}
 				} else if (msg.type === "chat:done") {
-					const updated = trimMessages(
-						messagesRef.current.map((m) =>
-							m.isStreaming ? { ...m, isStreaming: false } : m
-						)
-					);
+					const updated = prepareMessagesForStorage(messagesRef.current);
 					saveStoredMessages(paneId, updated);
 					setMessages(updated);
 					const ids = new Set(updated.map((m) => m.id));
@@ -907,7 +932,7 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 					setMessages((prev) =>
 						trimMessages(mergeSyncedMessages(prev, serverMessages))
 					);
-					saveStoredMessages(paneId, serverMessages);
+					saveStoredMessages(paneId, prepareMessagesForStorage(serverMessages));
 					if (msg.isStreaming) {
 						setLoadingState({
 							isLoading: true,
@@ -1627,6 +1652,8 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 								)}
 							<ChatMessageList
 								messages={messages}
+								scrollElementRef={scrollRef}
+								onVirtualizerReady={handleVirtualizerReady}
 								expandedTools={expandedTools}
 								toggleTool={toggleTool}
 								checkpoints={checkpoints}
