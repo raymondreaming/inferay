@@ -186,12 +186,12 @@ export const TerminalGrid = memo(function TerminalGrid(
 		return (
 			<div
 				ref={containerRef}
-				className="flex h-full min-h-0 w-full overflow-x-auto overflow-y-hidden overscroll-none bg-inferay-black"
+				className="electrobun-webkit-app-region-drag flex h-full min-h-0 w-full overflow-x-auto overflow-y-hidden overscroll-none bg-inferay-black"
 			>
 				{panes.map((pane, idx) => (
 					<div
 						key={pane.id}
-						className="h-full min-h-0 min-w-0 shrink-0 overflow-hidden border-r border-inferay-gray-border transition-all"
+						className="electrobun-webkit-app-region-no-drag h-full min-h-0 min-w-0 shrink-0 overflow-hidden border-r border-inferay-gray-border transition-all"
 						style={{ ...cellStyle(pane, idx), width: 400 }}
 						onDragOver={(e) => handleDragOver(e, idx)}
 						onDrop={(e) => handleDrop(e, idx)}
@@ -216,7 +216,7 @@ export const TerminalGrid = memo(function TerminalGrid(
 	return (
 		<div
 			ref={containerRef}
-			className="grid h-full min-h-0 w-full overflow-x-hidden overflow-y-auto overscroll-none bg-inferay-black"
+			className="electrobun-webkit-app-region-drag grid h-full min-h-0 w-full overflow-x-hidden overflow-y-auto overscroll-none bg-inferay-black"
 			style={{
 				gridTemplateColumns: `repeat(${normalizedColumns}, minmax(0, 1fr))`,
 				gridTemplateRows: `repeat(${totalGridRows}, ${typeof gridRowHeight === "number" ? `${gridRowHeight}px` : gridRowHeight})`,
@@ -228,7 +228,7 @@ export const TerminalGrid = memo(function TerminalGrid(
 					ref={
 						pane.id === props.selectedPaneId ? setSelectedCellNode : undefined
 					}
-					className="min-h-0 min-w-0 overflow-hidden border-r border-b border-inferay-gray-border transition-all"
+					className="electrobun-webkit-app-region-no-drag min-h-0 min-w-0 overflow-hidden border-r border-b border-inferay-gray-border transition-all"
 					style={cellStyle(pane, index)}
 					onDragOver={(e) => handleDragOver(e, index)}
 					onDrop={(e) => handleDrop(e, index)}
