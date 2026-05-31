@@ -16,6 +16,7 @@ import {
 	type NEW_PANE_AGENT_KINDS,
 } from "../../features/agents/agents.ts";
 import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
+import { useAppInfo } from "../../hooks/useAppInfo.ts";
 import {
 	DEFAULT_TERMINAL_MAIN_VIEW,
 	isTerminalMainView,
@@ -76,6 +77,7 @@ import {
 	IconMessageCircle,
 	IconPencil,
 	IconPlus,
+	IconRefreshCw,
 	IconSearch,
 	IconTerminal,
 	IconUser,
@@ -435,6 +437,7 @@ export function Sidebar() {
 	}, []);
 
 	const [workspaces, setWorkspaces] = useState(loadWorkspaces);
+	const { data: appInfo } = useAppInfo();
 
 	useEffect(() => {
 		const refresh = () => setWorkspaces(loadWorkspaces());
@@ -684,6 +687,12 @@ export function Sidebar() {
 	);
 
 	const githubLabel = githubAccount?.login || githubAccount?.name || "Profile";
+	const updateInfo = appInfo.update;
+	const updateAvailable = updateInfo.available && !!updateInfo.url;
+	const openUpdate = useCallback(() => {
+		if (!updateInfo.url) return;
+		window.open(updateInfo.url, "_blank", "noopener,noreferrer");
+	}, [updateInfo.url]);
 	const selectedGroup =
 		workspaces.groups.find(hasId.bind(null, workspaces.selectedGroupId)) ??
 		null;
@@ -1136,6 +1145,28 @@ export function Sidebar() {
 				<div
 					className={`electrobun-webkit-app-region-no-drag ${footerProps.className ?? ""}`}
 				>
+					{updateAvailable ? (
+						<button
+							type="button"
+							onClick={openUpdate}
+							{...stylex.props(
+								styles.updateButton,
+								collapsed
+									? styles.updateButtonCollapsed
+									: styles.updateButtonOpen
+							)}
+							title={
+								collapsed ? `Update to ${updateInfo.latestVersion}` : undefined
+							}
+						>
+							<IconRefreshCw size={12} />
+							{!collapsed ? (
+								<span {...stylex.props(styles.updateLabel)}>
+									Update to {updateInfo.latestVersion}
+								</span>
+							) : null}
+						</button>
+					) : null}
 					<NavLink
 						to="/profile"
 						className={({ isActive }) =>
@@ -1774,6 +1805,41 @@ const styles = stylex.create({
 		flexDirection: "column",
 		gap: controlSize._1,
 		padding: "0.375rem",
+	},
+	updateButton: {
+		alignItems: "center",
+		backgroundColor: color.controlActive,
+		backgroundImage: effect.controlDepthHover,
+		borderColor: color.borderStrong,
+		borderRadius: 8,
+		borderStyle: "solid",
+		borderWidth: 1,
+		boxShadow: shadow.controlDepth,
+		color: color.textMain,
+		display: "flex",
+		fontSize: "0.6875rem",
+		fontWeight: font.weight_6,
+		gap: controlSize._1,
+		justifyContent: "center",
+		padding: 0,
+		transitionDuration: "150ms",
+		transitionProperty: "background-color, box-shadow, color",
+		transitionTimingFunction: "ease",
+	},
+	updateButtonOpen: {
+		height: controlSize._7,
+		paddingInline: "0.375rem",
+		width: "100%",
+	},
+	updateButtonCollapsed: {
+		height: controlSize._7,
+		width: controlSize._9,
+	},
+	updateLabel: {
+		minWidth: 0,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
 	},
 	commandBackdrop: {
 		alignItems: "center",

@@ -8,6 +8,14 @@ export interface AppInfo {
 	channel: string;
 	identifier?: string;
 	production: boolean;
+	update: {
+		available: boolean;
+		currentVersion: string;
+		latestVersion: string | null;
+		url: string | null;
+		checkedAt: number;
+		error?: string;
+	};
 }
 
 export const FALLBACK_APP_INFO: AppInfo = {
@@ -15,6 +23,13 @@ export const FALLBACK_APP_INFO: AppInfo = {
 	version: "dev",
 	channel: "dev",
 	production: false,
+	update: {
+		available: false,
+		currentVersion: "dev",
+		latestVersion: null,
+		url: null,
+		checkedAt: 0,
+	},
 };
 
 export function useAppInfo() {
