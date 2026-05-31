@@ -1,7 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import {
 	type DragEvent as ReactDragEvent,
-	type MouseEvent as ReactMouseEvent,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -9,30 +8,19 @@ import {
 	useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
 import {
 	isChatAgentKind,
 	loadDefaultChatSettings,
-	type NEW_PANE_AGENT_KINDS,
 } from "../../features/agents/agents.ts";
 import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
 import { useAppInfo } from "../../hooks/useAppInfo.ts";
 import {
-	DEFAULT_TERMINAL_MAIN_VIEW,
-	isTerminalMainView,
 	SIDEBAR_NAV_ROUTES,
 	TERMINAL_MAIN_VIEWS,
-	type TerminalMainView,
 } from "../../lib/app-navigation.tsx";
-import { CLIENT_STORAGE_CHANGED_EVENT } from "../../lib/client-storage-sync.ts";
-import {
-	hasId,
-	hasRole,
-	lacksId,
-	noop,
-	toggleBoolean,
-} from "../../lib/data.ts";
+import { hasRole, noop, toggleBoolean } from "../../lib/data.ts";
 import { fetchJsonOr, postJson } from "../../lib/fetch-json.ts";
 import {
 	listenWindowEvent,
@@ -40,19 +28,10 @@ import {
 	stopPropagation,
 	stopPropagationAndCall,
 } from "../../lib/react-events.ts";
-import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
-import { wsClient } from "../../lib/websocket.ts";
+import { writeStoredValue } from "../../lib/stored-json.ts";
 import {
-	createGroupId,
-	createPendingAgentChatPane,
-	createTerminalPane,
-	DEFAULT_COLUMNS,
-	DEFAULT_ROWS,
 	listenTerminalLayoutMode,
 	loadTerminalLayoutMode,
-	loadTerminalState,
-	prependPaneToGroup,
-	saveTerminalState,
 	type TerminalPaneModel,
 } from "../../features/terminal/terminal-utils.ts";
 import {
@@ -84,6 +63,8 @@ import {
 	IconUser,
 	IconX,
 } from "../ui/Icons.tsx";
+import { useResizableSidebar } from "./useResizableSidebar.ts";
+import { useSidebarWorkspaces } from "./useSidebarWorkspaces.ts";
 
 interface ForgeAccount {
 	provider: "github";
@@ -104,9 +85,6 @@ async function loadGithubAccount(): Promise<ForgeAccount | null> {
 	return accounts.find((item) => item.active) ?? accounts[0] ?? null;
 }
 
-const DEFAULT_SIDEBAR_WIDTH = 192;
-const MIN_SIDEBAR_WIDTH = 152;
-const MAX_SIDEBAR_WIDTH = 340;
 const GRID_SIZE_OPTIONS = [
 	{ id: "1", label: "1" },
 	{ id: "2", label: "2" },
@@ -119,13 +97,6 @@ const pendingTitleRequests = new Set<string>();
 
 function getPaneBaseFolder(pane: TerminalPaneModel): string {
 	return pane.cwd?.split("/").filter(Boolean).pop() || "No folder";
-}
-
-function loadSidebarWidth() {
-	const stored = Number(readStoredValue("main-sidebar-width"));
-	return Number.isFinite(stored)
-		? Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, stored))
-		: DEFAULT_SIDEBAR_WIDTH;
 }
 
 function deriveSummary(paneId: string): string | null {
@@ -485,51 +456,31 @@ function WorkspaceItem({
 }
 
 export function Sidebar() {
-	const navigate = useNavigate();
 	const location = useLocation();
 	const collapsed = false;
-	const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
-	const [resizing, setResizing] = useState(false);
 	const [layoutMode, setLayoutMode] = useState(loadTerminalLayoutMode);
 	const [commandOpen, setCommandOpen] = useState(false);
 	const [commandQuery, setCommandQuery] = useState("");
 	const [activeCommandIndex, setActiveCommandIndex] = useState(-1);
 	const { data: githubAccount, refresh: refreshGithubAccount } =
 		useAsyncResource(loadGithubAccount, null, []);
-	const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
-	const resizeWidthRef = useRef(sidebarWidth);
-
-	// Workspace state
-	const loadWorkspaces = useCallback(() => {
-		const state = loadTerminalState();
-		const mainView = readStoredValue("terminal-main-view");
-		return {
-			groups: state?.groups ?? [],
-			selectedGroupId: state?.selectedGroupId ?? state?.groups[0]?.id ?? null,
-			mainView: isTerminalMainView(mainView)
-				? mainView
-				: DEFAULT_TERMINAL_MAIN_VIEW,
-			editorZenMode: readStoredValue("terminal-editor-zen") === "true",
-		};
-	}, []);
-
-	const [workspaces, setWorkspaces] = useState(loadWorkspaces);
 	const { data: appInfo } = useAppInfo();
-
-	useEffect(() => {
-		const refresh = () => setWorkspaces(loadWorkspaces());
-		return listenWindowEvent("terminal-shell-change", refresh);
-	}, [loadWorkspaces]);
-	useEffect(
-		() =>
-			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
-				const key = (event as CustomEvent<{ key?: string }>).detail?.key;
-				if (key === "main-sidebar-width") {
-					setSidebarWidth(loadSidebarWidth());
-				}
-			}),
-		[]
-	);
+	const {
+		workspaces,
+		selectedGroup,
+		selectWorkspace,
+		selectPane,
+		addWorkspace,
+		updateMainView,
+		addPaneToSelectedGroup,
+		updateSelectedGroupGrid,
+		updateEditorZenMode,
+		removeWorkspace,
+		removeWorkspacePane,
+		renameWorkspace,
+		reorderWorkspacePane,
+	} = useSidebarWorkspaces();
+	const { sidebarWidth, resizing, handleResizeStart } = useResizableSidebar();
 
 	useEffect(listenTerminalLayoutMode.bind(null, setLayoutMode), []);
 
@@ -552,232 +503,11 @@ export function Sidebar() {
 		return () => window.removeEventListener("keydown", handleKeyDown);
 	}, [commandOpen, openShellCommandMenu]);
 
-	const selectWorkspace = useCallback(
-		(groupId: string) => {
-			// Optimistic update — render immediately, then persist
-			setWorkspaces((prev) => ({ ...prev, selectedGroupId: groupId as never }));
-			const state = loadTerminalState();
-			if (!state) return;
-			saveTerminalState({ ...state, selectedGroupId: groupId as never });
-			window.dispatchEvent(new Event("terminal-shell-change"));
-			if (window.location.hash !== "#/terminal") {
-				navigate("/terminal");
-			}
-		},
-		[navigate]
-	);
-
-	const selectPane = useCallback(
-		(groupId: string, paneId: string) => {
-			const state = loadTerminalState();
-			if (!state) return;
-			const gid = groupId as never;
-			const pid = paneId as never;
-			saveTerminalState({
-				...state,
-				selectedGroupId: gid,
-				groups: state.groups.map((g) =>
-					g.id === groupId ? { ...g, selectedPaneId: pid } : g
-				),
-			});
-			setWorkspaces(loadWorkspaces);
-			// When on editor view, also update the editor's selected pane
-			writeStoredValue("editor-selected-pane", paneId);
-			window.dispatchEvent(new Event("terminal-shell-change"));
-			if (window.location.hash !== "#/terminal") {
-				navigate("/terminal");
-			}
-		},
-		[navigate, loadWorkspaces]
-	);
-
-	const addWorkspace = useCallback(() => {
-		const state = loadTerminalState();
-		if (!state) return;
-		const selectedGroup =
-			state.groups.find(hasId.bind(null, state.selectedGroupId)) ??
-			state.groups[0];
-		const pane = createPendingAgentChatPane();
-		const group = {
-			id: createGroupId(),
-			name: `Workspace ${state.groups.length + 1}`,
-			panes: [pane],
-			selectedPaneId: pane.id,
-			columns: selectedGroup?.columns ?? DEFAULT_COLUMNS,
-			rows: selectedGroup?.rows ?? DEFAULT_ROWS,
-		};
-		saveTerminalState({
-			...state,
-			groups: [...state.groups, group],
-			selectedGroupId: group.id,
-		});
-		window.dispatchEvent(new Event("terminal-shell-change"));
-		navigate("/terminal");
-	}, [navigate]);
-
-	const updateMainView = useCallback(
-		(view: TerminalMainView) => {
-			writeStoredValue("terminal-main-view", view);
-			setWorkspaces(loadWorkspaces);
-			window.dispatchEvent(new Event("terminal-shell-change"));
-			navigate("/terminal");
-		},
-		[loadWorkspaces, navigate]
-	);
-
-	const addPaneToSelectedGroup = useCallback(
-		(agentKind: (typeof NEW_PANE_AGENT_KINDS)[number]) => {
-			const state = loadTerminalState();
-			if (!state) return;
-			const selectedGroupId = state.selectedGroupId ?? state.groups[0]?.id;
-			if (!selectedGroupId) return;
-			const pane = createTerminalPane(agentKind, undefined, true);
-			saveTerminalState({
-				...state,
-				groups: state.groups.map(
-					prependPaneToGroup.bind(null, selectedGroupId, pane)
-				),
-			});
-			window.dispatchEvent(new Event("terminal-shell-change"));
-			navigate("/terminal");
-		},
-		[navigate]
-	);
-
 	const updateLayoutMode = useCallback((mode: "grid" | "rows") => {
 		writeStoredValue("terminal-layout-mode", mode);
 		setLayoutMode(mode);
 		window.dispatchEvent(new Event("terminal-shell-change"));
 	}, []);
-
-	const updateSelectedGroupGrid = useCallback(
-		(patch: { columns?: number; rows?: number }) => {
-			const state = loadTerminalState();
-			if (!state?.selectedGroupId) return;
-			saveTerminalState({
-				...state,
-				groups: state.groups.map((group) =>
-					group.id === state.selectedGroupId
-						? {
-								...group,
-								columns: patch.columns ?? group.columns,
-								rows: patch.rows ?? group.rows,
-							}
-						: group
-				),
-			});
-			window.dispatchEvent(new Event("terminal-shell-change"));
-		},
-		[]
-	);
-
-	const updateEditorZenMode = useCallback((next: boolean) => {
-		writeStoredValue("terminal-editor-zen", next ? "true" : "false");
-		window.dispatchEvent(new Event("terminal-shell-change"));
-	}, []);
-
-	const removeWorkspace = useCallback((groupId: string) => {
-		const state = loadTerminalState();
-		if (!state) return;
-		if (state.groups.length <= 1) return;
-		const filtered = state.groups.filter(lacksId.bind(null, groupId));
-		const newSelected =
-			state.selectedGroupId === groupId
-				? (filtered[0]?.id ?? null)
-				: state.selectedGroupId;
-		saveTerminalState({
-			...state,
-			groups: filtered,
-			selectedGroupId: newSelected,
-		});
-		window.dispatchEvent(new Event("terminal-shell-change"));
-	}, []);
-
-	const removeWorkspacePane = useCallback((groupId: string, paneId: string) => {
-		const state = loadTerminalState();
-		if (!state) return;
-		wsClient.send({ type: "terminal:destroy", paneId });
-		saveTerminalState({
-			...state,
-			groups: state.groups.map((group) => {
-				if (group.id !== groupId) return group;
-				const panes = group.panes.filter(lacksId.bind(null, paneId));
-				if (panes.length === 0) {
-					const pane = createPendingAgentChatPane();
-					return { ...group, panes: [pane], selectedPaneId: pane.id };
-				}
-				return {
-					...group,
-					panes,
-					selectedPaneId:
-						group.selectedPaneId === paneId
-							? (panes[0]?.id ?? null)
-							: group.selectedPaneId,
-				};
-			}),
-		});
-		window.dispatchEvent(new Event("terminal-shell-change"));
-	}, []);
-
-	const renameWorkspace = useCallback((groupId: string, name: string) => {
-		const state = loadTerminalState();
-		if (!state) return;
-		saveTerminalState({
-			...state,
-			groups: state.groups.map((g) => (g.id === groupId ? { ...g, name } : g)),
-		});
-		window.dispatchEvent(new Event("terminal-shell-change"));
-	}, []);
-
-	const reorderWorkspacePane = useCallback(
-		(groupId: string, sourcePaneId: string, targetPaneId: string) => {
-			const state = loadTerminalState();
-			if (!state) return;
-			const groups = state.groups.map((group) => {
-				if (group.id !== groupId) return group;
-				const fromIndex = group.panes.findIndex(hasId.bind(null, sourcePaneId));
-				const toIndex = group.panes.findIndex(hasId.bind(null, targetPaneId));
-				if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return group;
-				const panes = [...group.panes];
-				const [moved] = panes.splice(fromIndex, 1);
-				if (moved) panes.splice(toIndex, 0, moved);
-				return { ...group, panes };
-			});
-			saveTerminalState({ ...state, groups });
-			setWorkspaces(loadWorkspaces);
-			window.dispatchEvent(new Event("terminal-shell-change"));
-		},
-		[loadWorkspaces]
-	);
-
-	const handleResizeStart = useCallback(
-		(event: ReactMouseEvent<HTMLDivElement>) => {
-			event.preventDefault();
-			setResizing(true);
-			resizeWidthRef.current = sidebarWidth;
-			resizeRef.current = { startX: event.clientX, startWidth: sidebarWidth };
-			const handleMove = (moveEvent: MouseEvent) => {
-				if (!resizeRef.current) return;
-				const delta = moveEvent.clientX - resizeRef.current.startX;
-				const nextWidth = Math.min(
-					MAX_SIDEBAR_WIDTH,
-					Math.max(MIN_SIDEBAR_WIDTH, resizeRef.current.startWidth + delta)
-				);
-				resizeWidthRef.current = nextWidth;
-				setSidebarWidth(nextWidth);
-			};
-			const handleUp = () => {
-				resizeRef.current = null;
-				setResizing(false);
-				writeStoredValue("main-sidebar-width", String(resizeWidthRef.current));
-				window.removeEventListener("mousemove", handleMove);
-				window.removeEventListener("mouseup", handleUp);
-			};
-			window.addEventListener("mousemove", handleMove);
-			window.addEventListener("mouseup", handleUp);
-		},
-		[sidebarWidth]
-	);
 
 	useEffect(
 		() => listenWindowEvent("focus", () => void refreshGithubAccount()),
@@ -796,9 +526,6 @@ export function Sidebar() {
 			})
 			.catch(() => window.open(url, "_blank", "noopener,noreferrer"));
 	}, [updateInfo.url]);
-	const selectedGroup =
-		workspaces.groups.find(hasId.bind(null, workspaces.selectedGroupId)) ??
-		null;
 	const isTerminalRoute = location.pathname === "/terminal";
 	const shellCommands = useMemo(
 		() => [
