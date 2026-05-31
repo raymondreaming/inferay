@@ -88,7 +88,7 @@ export function createAgentEnv(kind: ChatAgentKind): Record<string, string> {
 
 const availabilityCache: Partial<Record<ChatAgentKind, boolean>> = {};
 
-async function hasCli(kind: ChatAgentKind): Promise<boolean> {
+export async function hasAgentCli(kind: ChatAgentKind): Promise<boolean> {
 	const cached = availabilityCache[kind];
 	if (cached != null) return cached;
 
@@ -123,7 +123,7 @@ export async function resolveInteractiveAgentCommand(
 	}
 
 	if (kind === "claude") {
-		const available = await hasCli("claude");
+		const available = await hasAgentCli("claude");
 		return {
 			ok: true,
 			cmd: available
@@ -136,7 +136,7 @@ export async function resolveInteractiveAgentCommand(
 		};
 	}
 
-	const available = await hasCli("codex");
+	const available = await hasAgentCli("codex");
 	if (!available) {
 		return { ok: false, error: "Codex CLI not found in PATH" };
 	}

@@ -1,3 +1,4 @@
+import { agentAccountRoutes } from "./agent-accounts.ts";
 import { appInfoRoutes } from "./app-info.ts";
 import { checkpointRoutes } from "./checkpoint.ts";
 import { clientStorageRoutes } from "./client-storage.ts";
@@ -13,6 +14,7 @@ import { terminalRoutes } from "./terminal.ts";
 import { titleRoutes } from "./title.ts";
 export function buildApiRoutes() {
 	return {
+		...agentAccountRoutes(),
 		...appInfoRoutes(),
 		...configRoutes(),
 		...fileRoutes(),

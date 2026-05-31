@@ -1,21 +1,24 @@
 import * as stylex from "@stylexjs/stylex";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../../components/ui/Button.tsx";
 import { DropdownButton } from "../../components/ui/DropdownButton.tsx";
 import {
-	IconAlertTriangle,
-	IconCheck,
-	IconExternalLink,
-	IconGitBranch,
 	IconPlus,
 	IconRefreshCw,
 	IconTerminal,
-	IconUser,
 	IconX,
 } from "../../components/ui/Icons.tsx";
-import { Notice, Panel, PanelHeader } from "../../components/ui/Surface.tsx";
+import { Panel, PanelHeader } from "../../components/ui/Surface.tsx";
 import { TextInput } from "../../components/ui/TextInput.tsx";
+import {
+	WorkspaceButton,
+	WorkspaceContent,
+	WorkspacePage,
+	WorkspaceToolbar,
+	WorkspaceToolbarSpacer,
+} from "../../components/ui/WorkspacePage.tsx";
+import type { AgentAccountProviderStatus } from "../../features/agents/agent-account-status.ts";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
 import {
 	type ChatAgentKind,
@@ -24,14 +27,6 @@ import {
 	loadDefaultChatSettings,
 	saveDefaultChatSettings,
 } from "../../features/agents/agents.ts";
-import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
-import { useAppInfo } from "../../hooks/useAppInfo.ts";
-import {
-	loadAppThemeId,
-	mapAppThemeToTerminalTheme,
-} from "../../lib/app-theme.ts";
-import { isActive, lacksValue } from "../../lib/data.ts";
-import { fetchJsonOr, sendJsonWithBusy } from "../../lib/fetch-json.ts";
 import {
 	fetchForgeAccounts,
 	fetchGithubRepos,
@@ -40,13 +35,21 @@ import {
 	invalidateForgeAccountsCache,
 	invalidateGithubReposCache,
 } from "../../features/forge/forge-client.ts";
-import type { ForgeAccount, GithubRepo } from "../../features/forge/types.ts";
-import { setupTerminalThemePanelShortcut } from "../../lib/react-events.ts";
+import type { GithubRepo } from "../../features/forge/types.ts";
+import { useAppInfo } from "../../hooks/useAppInfo.ts";
+import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
+import { isActive, lacksValue } from "../../lib/data.ts";
+import { fetchJsonOr, sendJsonWithBusy } from "../../lib/fetch-json.ts";
 import { removeStoredValue } from "../../lib/stored-json.ts";
-import type { ThemeId } from "../../features/terminal/terminal-utils.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 import { ONBOARDING_DONE_KEY } from "../OnboardingPage/index.tsx";
-import { TerminalSettingsPanel } from "../Terminal/TerminalSettingsPanel.tsx";
+import { ProfileAgentAccountCard } from "./ProfileAgentAccountCard.tsx";
+import { ProfileGithubEmptyState, ProfileRepoRow } from "./ProfileGithub.tsx";
+import {
+	ProfileAccountAvatar,
+	ProfileErrorBanner,
+	ProfileSuccessBanner,
+} from "./ProfileStatus.tsx";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 
@@ -92,16 +95,28 @@ export function ProfilePage() {
 		getCachedGithubRepos(),
 		[accounts.length]
 	);
+	const {
+		data: agentAccountStatuses,
+		loading: agentAccountStatusesLoading,
+		error: agentAccountStatusesError,
+		refresh: refreshAgentAccountStatuses,
+	} = useAsyncResource(
+		async () =>
+			fetchJsonOr<{ providers?: AgentAccountProviderStatus[] }>(
+				"/api/agents/account-status",
+				{}
+			).then((payload) =>
+				Array.isArray(payload.providers) ? payload.providers : []
+			),
+		[],
+		[]
+	);
 	const [error, setError] = useState<string | null>(null);
 	const [connecting, setConnecting] = useState(false);
 	const [repoQuery, setRepoQuery] = useState("");
 	const [cloneDirectory, setCloneDirectory] = useState("~/Desktop");
 	const [cloneStatus, setCloneStatus] = useState<string | null>(null);
 	const [cloningRepo, setCloningRepo] = useState<string | null>(null);
-	const [showSettings, setShowSettings] = useState(false);
-	const [themeId, setThemeId] = useState<ThemeId>(
-		() => mapAppThemeToTerminalTheme(loadAppThemeId()) as ThemeId
-	);
 	const [defaultChatSettings, setDefaultChatSettings] = useState(() =>
 		loadDefaultChatSettings()
 	);
@@ -192,7 +207,9 @@ export function ProfilePage() {
 					? `${nextFolders.length} project folders configured.`
 					: "No simulator projects were detected."
 			);
-			if (nextFolders.length > 0) navigate("/simulators");
+			if (nextFolders.length > 0) {
+				navigate("/simulators");
+			}
 		} catch (err) {
 			setError(
 				err instanceof Error
@@ -230,8 +247,6 @@ export function ProfilePage() {
 		[refreshAccounts]
 	);
 
-	useEffect(setupTerminalThemePanelShortcut.bind(null, setShowSettings), []);
-
 	const loadRepos = useCallback(
 		async (force = false) => {
 			setError(null);
@@ -242,7 +257,11 @@ export function ProfilePage() {
 	);
 
 	const resourceError =
-		error ?? simProjectFoldersError ?? accountsError ?? reposError;
+		error ??
+		simProjectFoldersError ??
+		accountsError ??
+		reposError ??
+		agentAccountStatusesError;
 
 	const activeAccount = useMemo(
 		() => accounts.find(isActive) ?? accounts[0] ?? null,
@@ -307,12 +326,34 @@ export function ProfilePage() {
 	};
 
 	return (
-		<div {...stylex.props(styles.root)}>
-			<main {...stylex.props(styles.main)}>
+		<WorkspacePage>
+			<WorkspaceToolbar>
+				<WorkspaceToolbarSpacer />
+				<WorkspaceButton
+					type="button"
+					onClick={() => void loadAccounts(true)}
+					variant="secondary"
+				>
+					<IconRefreshCw size={12} />
+					Refresh
+				</WorkspaceButton>
+				{!activeAccount ? (
+					<WorkspaceButton
+						type="button"
+						onClick={connectGithub}
+						variant="primary"
+						disabled={connecting}
+					>
+						<IconTerminal size={12} />
+						Connect
+					</WorkspaceButton>
+				) : null}
+			</WorkspaceToolbar>
+			<WorkspaceContent scroll>
 				<div {...stylex.props(styles.content)}>
 					<section {...stylex.props(styles.profileSummary)}>
 						<div {...stylex.props(styles.accountPreview)}>
-							<AccountAvatar account={activeAccount} size="md" />
+							<ProfileAccountAvatar account={activeAccount} size="md" />
 							<div {...stylex.props(styles.rowText)}>
 								<p {...stylex.props(styles.profileName)}>
 									{activeAccount?.name ||
@@ -426,6 +467,36 @@ export function ProfilePage() {
 
 					<Panel>
 						<PanelHeader
+							title="Claude / Codex Accounts"
+							description="Read-only local CLI health, auth hints, and usage visibility. Account switching stays inside the native CLIs."
+							actions={
+								<Button
+									type="button"
+									onClick={() => void refreshAgentAccountStatuses()}
+									variant="secondary"
+									size="sm"
+								>
+									<IconRefreshCw size={12} />
+									<span>Refresh</span>
+								</Button>
+							}
+						/>
+						<div {...stylex.props(styles.agentAccountGrid)}>
+							{agentAccountStatusesLoading &&
+							agentAccountStatuses.length === 0 ? (
+								<div {...stylex.props(styles.agentAccountLoading)}>
+									Checking local agent CLIs...
+								</div>
+							) : (
+								agentAccountStatuses.map((status) => (
+									<ProfileAgentAccountCard key={status.kind} status={status} />
+								))
+							)}
+						</div>
+					</Panel>
+
+					<Panel>
+						<PanelHeader
 							title="Xcode Projects"
 							description="Configure folders Inferay scans for Xcode and React Native simulator apps."
 							actions={
@@ -502,32 +573,12 @@ export function ProfilePage() {
 								Inferay uses your local GitHub CLI login for repositories.
 							</p>
 						</div>
-						<div {...stylex.props(styles.headerActions)}>
-							<Button
-								type="button"
-								onClick={() => void loadAccounts(true)}
-								variant="secondary"
-								size="sm"
-							>
-								<IconRefreshCw size={12} />
-								<span>Refresh</span>
-							</Button>
-							{!activeAccount ? (
-								<Button
-									type="button"
-									onClick={connectGithub}
-									variant="primary"
-									size="sm"
-								>
-									<IconTerminal size={12} />
-									<span>Connect</span>
-								</Button>
-							) : null}
-						</div>
 					</header>
 
-					{resourceError ? <ErrorBanner message={resourceError} /> : null}
-					{cloneStatus ? <SuccessBanner message={cloneStatus} /> : null}
+					{resourceError ? (
+						<ProfileErrorBanner message={resourceError} />
+					) : null}
+					{cloneStatus ? <ProfileSuccessBanner message={cloneStatus} /> : null}
 
 					{loadState === "loading" || accounts.length === 0 ? (
 						<Panel>
@@ -536,7 +587,7 @@ export function ProfilePage() {
 									Checking GitHub CLI account...
 								</div>
 							) : (
-								<EmptyState onConnect={connectGithub} />
+								<ProfileGithubEmptyState onConnect={connectGithub} />
 							)}
 						</Panel>
 					) : null}
@@ -598,7 +649,7 @@ export function ProfilePage() {
 									</div>
 								) : (
 									filteredRepos.map((repo) => (
-										<RepoRow
+										<ProfileRepoRow
 											key={repo.full_name}
 											repo={repo}
 											cloning={cloningRepo === repo.full_name}
@@ -610,138 +661,12 @@ export function ProfilePage() {
 						</Panel>
 					) : null}
 				</div>
-			</main>
-			{showSettings ? (
-				<TerminalSettingsPanel
-					themeId={themeId}
-					onThemeChange={(nextThemeId: ThemeId) => setThemeId(nextThemeId)}
-					onClose={setShowSettings.bind(null, false)}
-				/>
-			) : null}
-		</div>
-	);
-}
-
-function RepoRow({
-	repo,
-	cloning,
-	onClone,
-}: {
-	repo: GithubRepo;
-	cloning: boolean;
-	onClone: () => void;
-}) {
-	return (
-		<div {...stylex.props(styles.repoRow)}>
-			<div {...stylex.props(styles.rowText)}>
-				<div {...stylex.props(styles.inlineRow)}>
-					<p {...stylex.props(styles.repoName)}>{repo.full_name}</p>
-					{repo.private ? (
-						<span {...stylex.props(styles.privatePill)}>Private</span>
-					) : null}
-				</div>
-				<p {...stylex.props(styles.repoDescription)}>
-					{repo.description || repo.language || "No description"}
-				</p>
-			</div>
-			<a
-				href={repo.html_url}
-				target="_blank"
-				rel="noreferrer"
-				{...stylex.props(styles.externalLink)}
-				title="Open on GitHub"
-			>
-				<IconExternalLink size={12} />
-			</a>
-			<Button
-				type="button"
-				onClick={onClone}
-				disabled={cloning}
-				variant="primary"
-				size="sm"
-			>
-				<IconPlus size={12} />
-				<span>{cloning ? "Cloning" : "Clone"}</span>
-			</Button>
-		</div>
-	);
-}
-
-function AccountAvatar({
-	account,
-	size,
-}: {
-	account: ForgeAccount | null;
-	size: "md" | "lg";
-}) {
-	const fallback = account?.login.slice(0, 2).toUpperCase() || "GH";
-
-	return (
-		<div
-			{...stylex.props(
-				styles.avatar,
-				size === "lg" ? styles.avatarLg : styles.avatarMd
-			)}
-		>
-			{account?.avatarUrl ? (
-				<img
-					src={account.avatarUrl}
-					alt={account.login}
-					{...stylex.props(styles.avatarImage)}
-				/>
-			) : account ? (
-				fallback
-			) : (
-				<IconUser size={18} />
-			)}
-		</div>
-	);
-}
-
-function EmptyState({ onConnect }: { onConnect: () => void }) {
-	return (
-		<div {...stylex.props(styles.emptyState)}>
-			<div {...stylex.props(styles.emptyIcon)}>
-				<IconGitBranch size={17} />
-			</div>
-			<div>
-				<p {...stylex.props(styles.emptyTitle)}>No GitHub accounts found</p>
-				<p {...stylex.props(styles.emptyText)}>
-					Connect with the GitHub CLI and Inferay will pick up the account
-					automatically.
-				</p>
-			</div>
-			<Button type="button" onClick={onConnect} variant="primary" size="sm">
-				<IconTerminal size={12} />
-				<span>Run gh auth login</span>
-			</Button>
-		</div>
-	);
-}
-
-function ErrorBanner({ message }: { message: string }) {
-	return (
-		<Notice tone="warning" icon={<IconAlertTriangle size={13} />}>
-			{message}
-		</Notice>
-	);
-}
-
-function SuccessBanner({ message }: { message: string }) {
-	return (
-		<Notice tone="success" icon={<IconCheck size={13} />}>
-			{message}
-		</Notice>
+			</WorkspaceContent>
+		</WorkspacePage>
 	);
 }
 
 const styles = stylex.create({
-	root: {
-		display: "flex",
-		height: "100%",
-		minHeight: 0,
-		backgroundColor: color.background,
-	},
 	accountPreview: {
 		display: "flex",
 		alignItems: "center",
@@ -780,15 +705,12 @@ const styles = stylex.create({
 		display: "flex",
 		alignItems: "center",
 		gap: controlSize._3,
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: controlSize._2,
 		backgroundColor: {
-			default: color.backgroundRaised,
-			":hover": color.controlActive,
+			default: color.transparent,
+			":hover": color.surfaceSubtle,
 		},
-		padding: controlSize._3,
+		paddingBlock: controlSize._2,
+		paddingInline: 0,
 		textAlign: "left",
 		transitionProperty: "background-color, opacity",
 		transitionDuration: "120ms",
@@ -804,11 +726,6 @@ const styles = stylex.create({
 		flexShrink: 0,
 		alignItems: "center",
 		justifyContent: "center",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: controlSize._2,
-		backgroundColor: color.background,
 		color: color.textSoft,
 	},
 	profileActionTextGroup: {
@@ -862,6 +779,26 @@ const styles = stylex.create({
 		gap: controlSize._3,
 		padding: controlSize._4,
 	},
+	agentAccountGrid: {
+		borderTopWidth: 1,
+		borderTopStyle: "solid",
+		borderTopColor: color.border,
+		display: "grid",
+		gap: controlSize._3,
+		gridTemplateColumns: {
+			default: "1fr",
+			"@media (min-width: 760px)": "repeat(2, minmax(0, 1fr))",
+		},
+		padding: controlSize._4,
+	},
+	agentAccountLoading: {
+		alignItems: "center",
+		color: color.textMuted,
+		display: "flex",
+		fontSize: font.size_2,
+		justifyContent: "center",
+		minHeight: "6rem",
+	},
 	settingField: {
 		display: "flex",
 		minWidth: 0,
@@ -878,11 +815,6 @@ const styles = stylex.create({
 	},
 	flexInput: {
 		flex: 1,
-	},
-	main: {
-		minWidth: 0,
-		flex: 1,
-		overflowY: "auto",
 	},
 	content: {
 		display: "flex",
@@ -909,11 +841,6 @@ const styles = stylex.create({
 		color: color.textMuted,
 		fontSize: font.size_1,
 	},
-	headerActions: {
-		display: "flex",
-		alignItems: "center",
-		gap: controlSize._2,
-	},
 	panelActions: {
 		display: "flex",
 		alignItems: "center",
@@ -938,16 +865,12 @@ const styles = stylex.create({
 		minHeight: "2.25rem",
 		alignItems: "center",
 		gap: controlSize._2,
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: controlSize._2,
 		backgroundColor: {
-			default: color.backgroundRaised,
-			":hover": color.controlHover,
+			default: color.transparent,
+			":hover": color.surfaceSubtle,
 		},
 		paddingBlock: controlSize._1,
-		paddingInline: controlSize._2,
+		paddingInline: 0,
 	},
 	projectFolderIcon: {
 		display: "flex",
@@ -956,9 +879,7 @@ const styles = stylex.create({
 		flexShrink: 0,
 		alignItems: "center",
 		justifyContent: "center",
-		borderRadius: controlSize._1,
 		color: color.textMuted,
-		backgroundColor: color.controlActive,
 	},
 	projectFolderPath: {
 		minWidth: 0,
@@ -997,11 +918,6 @@ const styles = stylex.create({
 		minHeight: "5rem",
 		alignItems: "center",
 		justifyContent: "center",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: controlSize._2,
-		backgroundColor: color.backgroundRaised,
 		color: color.textMuted,
 		fontSize: font.size_2,
 		lineHeight: 1.5,
@@ -1054,132 +970,5 @@ const styles = stylex.create({
 		justifyContent: "center",
 		color: color.textMuted,
 		fontSize: "0.625rem",
-	},
-	repoRow: {
-		display: "flex",
-		minHeight: "64px",
-		alignItems: "center",
-		gap: controlSize._3,
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
-		borderBottomColor: color.border,
-		paddingBlock: controlSize._3,
-		paddingInline: controlSize._4,
-	},
-	inlineRow: {
-		display: "flex",
-		alignItems: "center",
-		gap: controlSize._2,
-	},
-	repoName: {
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-		color: color.textMain,
-		fontSize: font.size_2,
-		fontWeight: font.weight_5,
-	},
-	repoDescription: {
-		marginTop: controlSize._1,
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-		color: color.textMuted,
-		fontSize: "0.5rem",
-	},
-	privatePill: {
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: "999px",
-		color: color.textMuted,
-		fontSize: "0.4375rem",
-		paddingBlock: "0.125rem",
-		paddingInline: "0.375rem",
-	},
-	externalLink: {
-		display: "flex",
-		width: controlSize._7,
-		height: controlSize._7,
-		alignItems: "center",
-		justifyContent: "center",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: "0.375rem",
-		color: {
-			default: color.textMuted,
-			":hover": color.textSoft,
-		},
-		backgroundColor: {
-			default: "transparent",
-			":hover": color.backgroundRaised,
-		},
-		transitionProperty: "background-color, color",
-		transitionDuration: "120ms",
-	},
-	avatar: {
-		display: "flex",
-		flexShrink: 0,
-		alignItems: "center",
-		justifyContent: "center",
-		overflow: "hidden",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: "999px",
-		backgroundColor: color.controlActive,
-		color: color.textSoft,
-		fontWeight: 600,
-	},
-	avatarMd: {
-		width: "2.5rem",
-		height: "2.5rem",
-		fontSize: font.size_3,
-	},
-	avatarLg: {
-		width: "2.5rem",
-		height: "2.5rem",
-		fontSize: "0.8125rem",
-	},
-	avatarImage: {
-		width: "100%",
-		height: "100%",
-		objectFit: "cover",
-	},
-	emptyState: {
-		display: "flex",
-		minHeight: "180px",
-		flexDirection: "column",
-		alignItems: "center",
-		justifyContent: "center",
-		gap: controlSize._3,
-		paddingInline: controlSize._6,
-		textAlign: "center",
-	},
-	emptyIcon: {
-		display: "flex",
-		width: "2.5rem",
-		height: "2.5rem",
-		alignItems: "center",
-		justifyContent: "center",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: "999px",
-		backgroundColor: color.backgroundRaised,
-		color: color.textMuted,
-	},
-	emptyTitle: {
-		color: color.textMain,
-		fontSize: "0.6875rem",
-		fontWeight: font.weight_5,
-	},
-	emptyText: {
-		maxWidth: "24rem",
-		marginTop: controlSize._1,
-		color: color.textMuted,
-		fontSize: font.size_1,
-		lineHeight: 1.55,
 	},
 });
