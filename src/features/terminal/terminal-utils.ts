@@ -218,20 +218,44 @@ function isValidTerminalState(value: unknown): value is TerminalSavedState {
 	);
 }
 let _cachedTerminalState: TerminalSavedState | null = null;
+let _cachedTerminalStateRaw: string | null | undefined;
+
+function readTerminalStateRaw(): string | null | undefined {
+	try {
+		return localStorage.getItem(TERMINAL_STORAGE_KEY);
+	} catch {
+		return undefined;
+	}
+}
+
+function parseTerminalStateRaw(raw: string | null): TerminalSavedState | null {
+	if (!raw) return null;
+	try {
+		const parsed = JSON.parse(raw) as unknown;
+		return isValidTerminalState(parsed) ? parsed : null;
+	} catch {
+		return null;
+	}
+}
+
 export function cacheTerminalState(state: TerminalSavedState): void {
 	_cachedTerminalState = state;
+	_cachedTerminalStateRaw = JSON.stringify(state);
 }
 
 export function loadTerminalState(): TerminalSavedState | null {
-	if (_cachedTerminalState) return _cachedTerminalState;
-	const parsed = readStoredJson<unknown>(TERMINAL_STORAGE_KEY, null);
-	const state = parsed && isValidTerminalState(parsed) ? parsed : null;
+	const raw = readTerminalStateRaw();
+	if (raw === undefined) return _cachedTerminalState;
+	if (_cachedTerminalStateRaw === raw) return _cachedTerminalState;
+	const state = parseTerminalStateRaw(raw);
 	_cachedTerminalState = state;
+	_cachedTerminalStateRaw = raw;
 	return state;
 }
 
 export function saveTerminalState(state: TerminalSavedState): void {
 	_cachedTerminalState = state;
+	_cachedTerminalStateRaw = JSON.stringify(state);
 	writeStoredJson(TERMINAL_STORAGE_KEY, state);
 	sendJson("/api/terminal/state", state).catch(noop);
 }
