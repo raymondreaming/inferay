@@ -1,28 +1,39 @@
 import * as stylex from "@stylexjs/stylex";
 import type React from "react";
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
 import {
 	CODEX_REASONING_LEVELS,
 	getAgentDefinition,
 } from "../../features/agents/agents.ts";
+import type {
+	AttachedImageInfo,
+	ComposerContextBlock,
+	QueuedMessageInfo,
+	SlashCommand,
+} from "../../features/chat/agent-chat-shared.ts";
+import { describeComposerContextBlock } from "../../features/chat/composer-context.ts";
 import type { AgentKind } from "../../features/terminal/terminal-utils.ts";
 import { hasId } from "../../lib/data.ts";
+import { fetchJsonOr, postJson } from "../../lib/fetch-json.ts";
 import { setInputValue, stopPropagation } from "../../lib/react-events.ts";
 import {
 	color,
 	colorValues,
 	controlSize,
+	effect,
 	font,
 	motion,
 	radius,
 	shadow,
 } from "../../tokens.stylex.ts";
-import { DropdownButton } from "../ui/DropdownButton.tsx";
 import { IconButton } from "../ui/IconButton.tsx";
 import {
 	IconAlertTriangle,
 	IconCheck,
+	IconChevronDown,
+	IconGitBranch,
 	IconMic,
 	IconPencil,
 	IconPlus,
@@ -30,11 +41,6 @@ import {
 	IconTrash,
 	IconX,
 } from "../ui/Icons.tsx";
-import type {
-	AttachedImageInfo,
-	QueuedMessageInfo,
-	SlashCommand,
-} from "../../features/chat/agent-chat-shared.ts";
 import { Markdown } from "./ChatRichContent.tsx";
 import { renderInputHighlights } from "./chat-token-decorators.tsx";
 
@@ -52,6 +58,179 @@ const CLOSED_MD_PREVIEW = {
 	loading: false,
 	error: null,
 };
+
+function imageContextUrl(block: ComposerContextBlock): string | null {
+	if (block.source !== "artifact" || !block.path) return null;
+	if (!/\.(png|jpe?g|gif|webp|bmp|ico)(?:[?#].*)?$/i.test(block.path)) {
+		return null;
+	}
+	return `/api/file?path=${encodeURIComponent(block.path)}`;
+}
+
+interface GitBranch {
+	name: string;
+	current: boolean;
+}
+
+function ComposerBranchDropdown({
+	cwd,
+	branch,
+	onBranchChanged,
+}: {
+	cwd: string;
+	branch: string;
+	onBranchChanged?: () => void;
+}) {
+	const buttonRef = useRef<HTMLButtonElement>(null);
+	const menuRef = useRef<HTMLDivElement>(null);
+	const [open, setOpen] = useState(false);
+	const [branches, setBranches] = useState<GitBranch[]>([]);
+	const [busyBranch, setBusyBranch] = useState<string | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	const [position, setPosition] = useState({
+		bottom: 0,
+		left: 0,
+		width: 240,
+		maxHeight: 320,
+	});
+	const loadBranches = async () => {
+		const payload = await fetchJsonOr<{ branches?: GitBranch[] }>(
+			`/api/git/branches?cwd=${encodeURIComponent(cwd)}`,
+			{ branches: [] }
+		);
+		setBranches(Array.isArray(payload.branches) ? payload.branches : []);
+	};
+	useEffect(() => {
+		void loadBranches();
+	}, [cwd]);
+	useEffect(() => {
+		if (!open) return;
+		const handlePointerDown = (event: MouseEvent) => {
+			const target = event.target as Node;
+			if (
+				menuRef.current?.contains(target) ||
+				buttonRef.current?.contains(target)
+			) {
+				return;
+			}
+			setOpen(false);
+		};
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") setOpen(false);
+		};
+		document.addEventListener("mousedown", handlePointerDown);
+		document.addEventListener("keydown", handleKeyDown);
+		return () => {
+			document.removeEventListener("mousedown", handlePointerDown);
+			document.removeEventListener("keydown", handleKeyDown);
+		};
+	}, [open]);
+	const options = branches.length
+		? branches
+		: [{ name: branch, current: true }];
+	const toggle = () => {
+		if (!open && buttonRef.current) {
+			const rect = buttonRef.current.getBoundingClientRect();
+			const width = Math.max(240, rect.width);
+			setPosition({
+				bottom: window.innerHeight - rect.top + 4,
+				left: Math.min(
+					Math.max(8, rect.left),
+					Math.max(8, window.innerWidth - width - 8)
+				),
+				width,
+				maxHeight: Math.max(180, Math.min(320, rect.top - 12)),
+			});
+		}
+		setOpen((next) => !next);
+	};
+	const checkout = async (nextBranch: string) => {
+		if (nextBranch === branch || busyBranch) return;
+		setBusyBranch(nextBranch);
+		setError(null);
+		try {
+			const result = await postJson<{
+				ok: boolean;
+				branch?: string;
+				error?: string;
+			}>("/api/git/branches", { cwd, branch: nextBranch });
+			if (!result.ok) throw new Error(result.error || "Unable to checkout");
+			await loadBranches();
+			onBranchChanged?.();
+			setOpen(false);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Unable to checkout");
+		} finally {
+			setBusyBranch(null);
+		}
+	};
+
+	return (
+		<>
+			<button
+				type="button"
+				ref={buttonRef}
+				onClick={toggle}
+				{...stylex.props(styles.providerConfigButton)}
+				title={error ?? branch}
+			>
+				<IconGitBranch size={10} {...stylex.props(styles.accentText)} />
+				<span {...stylex.props(styles.providerConfigLabel)}>
+					{busyBranch ? "Switching..." : branch}
+				</span>
+				<IconChevronDown
+					size={10}
+					{...stylex.props(
+						styles.providerConfigChevron,
+						open && styles.providerConfigChevronOpen
+					)}
+				/>
+			</button>
+			{open &&
+				createPortal(
+					<div
+						ref={menuRef}
+						{...stylex.props(styles.providerConfigMenu)}
+						style={{
+							bottom: position.bottom,
+							left: position.left,
+							width: position.width,
+							maxHeight: position.maxHeight,
+						}}
+					>
+						<div {...stylex.props(styles.providerConfigSection)}>
+							<span {...stylex.props(styles.providerConfigSectionLabel)}>
+								Branch
+							</span>
+							<div {...stylex.props(styles.providerConfigChoiceGrid)}>
+								{options.map((option) => (
+									<button
+										type="button"
+										key={option.name}
+										onClick={() => checkout(option.name)}
+										{...stylex.props(
+											styles.providerConfigChoice,
+											option.name === branch &&
+												styles.providerConfigChoiceActive
+										)}
+									>
+										<IconGitBranch size={11} {...stylex.props(styles.shrink)} />
+										<span>{option.name}</span>
+									</button>
+								))}
+							</div>
+							{error && (
+								<span {...stylex.props(styles.providerConfigError)}>
+									{error}
+								</span>
+							)}
+						</div>
+					</div>,
+					document.body
+				)}
+		</>
+	);
+}
 
 export function ChatComposer({
 	showInput,
@@ -97,6 +276,12 @@ export function ChatComposer({
 	onMdFileClick,
 	statusBar,
 	voiceInput,
+	contextBlocks,
+	onRemoveContextBlock,
+	onClearContextBlocks,
+	cwd,
+	gitBranch,
+	onGitBranchChanged,
 }: {
 	showInput: boolean;
 	agentKind: AgentKind;
@@ -180,8 +365,23 @@ export function ChatComposer({
 		isSupported: boolean;
 		onToggleListening: () => void;
 	};
+	contextBlocks: ComposerContextBlock[];
+	onRemoveContextBlock: (id: string) => void;
+	onClearContextBlocks: () => void;
+	cwd?: string | null;
+	gitBranch?: string | null;
+	onGitBranchChanged?: () => void;
 }) {
 	const fileInputRef = useRef<HTMLInputElement>(null);
+	const agentConfigButtonRef = useRef<HTMLButtonElement>(null);
+	const agentConfigMenuRef = useRef<HTMLDivElement>(null);
+	const [agentConfigOpen, setAgentConfigOpen] = useState(false);
+	const [agentConfigPosition, setAgentConfigPosition] = useState({
+		bottom: 0,
+		left: 0,
+		width: 360,
+		maxHeight: 360,
+	});
 	const usePlainTextarea = input.length > HIGHLIGHT_CHAR_LIMIT;
 	const inputHighlights = useMemo(
 		() =>
@@ -192,11 +392,56 @@ export function ChatComposer({
 	const modelOptions = useMemo(
 		() =>
 			agentDefinition.models.map((option) => ({
-				...option,
+				id: option.id,
+				label: option.label,
 				icon: getAgentIcon(agentKind, 12),
 			})),
 		[agentDefinition.models, agentKind]
 	);
+	const folderLabel = cwd ? cwd.split("/").pop() || cwd : "No folder";
+	const selectedModelLabel =
+		modelOptions.find(hasId.bind(null, model))?.label || model || "No model";
+	const selectedReasoningLabel =
+		CODEX_REASONING_LEVELS.find(hasId.bind(null, reasoningLevel))?.label ||
+		reasoningLevel;
+	useEffect(() => {
+		if (!agentConfigOpen) return;
+		const handlePointerDown = (event: MouseEvent) => {
+			const target = event.target as Node;
+			if (
+				agentConfigMenuRef.current?.contains(target) ||
+				agentConfigButtonRef.current?.contains(target)
+			) {
+				return;
+			}
+			setAgentConfigOpen(false);
+		};
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") setAgentConfigOpen(false);
+		};
+		document.addEventListener("mousedown", handlePointerDown);
+		document.addEventListener("keydown", handleKeyDown);
+		return () => {
+			document.removeEventListener("mousedown", handlePointerDown);
+			document.removeEventListener("keydown", handleKeyDown);
+		};
+	}, [agentConfigOpen]);
+	const toggleAgentConfig = () => {
+		if (!agentConfigOpen && agentConfigButtonRef.current) {
+			const rect = agentConfigButtonRef.current.getBoundingClientRect();
+			const width = Math.max(340, rect.width);
+			setAgentConfigPosition({
+				bottom: window.innerHeight - rect.top + 4,
+				left: Math.min(
+					Math.max(8, rect.left),
+					Math.max(8, window.innerWidth - width - 8)
+				),
+				width,
+				maxHeight: Math.max(220, Math.min(380, rect.top - 12)),
+			});
+		}
+		setAgentConfigOpen((open) => !open);
+	};
 	const saveQueuedEdit = (id: string) => {
 		const trimmed = editingQueueText.trim();
 		if (trimmed) {
@@ -209,7 +454,6 @@ export function ChatComposer({
 		}
 		setEditingQueueId(null);
 	};
-
 	return (
 		<>
 			<input
@@ -433,6 +677,55 @@ export function ChatComposer({
 							</div>
 						)}
 
+						{contextBlocks.length > 0 && (
+							<div {...stylex.props(styles.contextRail)}>
+								<div {...stylex.props(styles.contextHeader)}>
+									<span {...stylex.props(styles.contextTitle)}>Reference</span>
+									<button
+										type="button"
+										onClick={onClearContextBlocks}
+										{...stylex.props(styles.contextClear)}
+									>
+										Clear
+									</button>
+								</div>
+								<div {...stylex.props(styles.contextList)}>
+									{contextBlocks.map((block) => {
+										const imageUrl = imageContextUrl(block);
+										return (
+											<div
+												key={block.id}
+												{...stylex.props(styles.contextBlock)}
+											>
+												{imageUrl ? (
+													<img
+														src={imageUrl}
+														alt=""
+														{...stylex.props(styles.contextThumb)}
+													/>
+												) : null}
+												<span {...stylex.props(styles.contextSource)}>
+													{block.source}
+												</span>
+												<span {...stylex.props(styles.contextText)}>
+													{describeComposerContextBlock(block)}
+												</span>
+												<IconButton
+													type="button"
+													onClick={() => onRemoveContextBlock(block.id)}
+													variant="ghost"
+													size="xs"
+													title="Remove context"
+												>
+													<IconX size={10} />
+												</IconButton>
+											</div>
+										);
+									})}
+								</div>
+							</div>
+						)}
+
 						<div {...stylex.props(styles.inputRow)}>
 							<div {...stylex.props(styles.inputActions)}>
 								<IconButton
@@ -454,9 +747,9 @@ export function ChatComposer({
 										className={`shrink-0 ${
 											stylex.props(
 												voiceInput.isListening && styles.voiceButtonListening,
-												!voiceInput.isListening &&
-													voiceInput.error &&
-													styles.voiceButtonError
+												!voiceInput.isListening && voiceInput.error
+													? styles.voiceButtonError
+													: null
 											).className ?? ""
 										}`}
 										title={
@@ -566,65 +859,134 @@ export function ChatComposer({
 							</div>
 						</div>
 						<div {...stylex.props(styles.pickerRow)}>
-							<DropdownButton
-								value={agentKind}
-								options={agentKindOptions}
-								onChange={(id) => onAgentKindChange(id as AgentKind)}
-								icon={
-									<span {...stylex.props(styles.accentText)}>
-										{getAgentIcon(agentKind, 10)}
+							<button
+								type="button"
+								ref={agentConfigButtonRef}
+								onClick={toggleAgentConfig}
+								{...stylex.props(styles.providerConfigButton)}
+								title={`${agentDefinition.label} / ${selectedModelLabel} / ${selectedReasoningLabel}`}
+							>
+								<span {...stylex.props(styles.accentText)}>
+									{getAgentIcon(agentKind, 10)}
+								</span>
+								<span {...stylex.props(styles.providerConfigLabel)}>
+									{agentDefinition.label}
+								</span>
+								<span {...stylex.props(styles.providerConfigLabel)}>
+									{selectedModelLabel}
+								</span>
+								{agentKind === "codex" && (
+									<span {...stylex.props(styles.providerConfigLabel)}>
+										{selectedReasoningLabel}
 									</span>
-								}
-								minWidth={120}
-								menuPlacement="top"
-								buttonClassName={
-									stylex.props(styles.pickerButtonAccent).className
-								}
-								labelClassName={stylex.props(styles.pickerLabel).className}
-								renderOption={(opt, isOptionSelected) => (
-									<div
-										{...stylex.props(
-											styles.agentOption,
-											isOptionSelected && styles.agentOptionSelected
-										)}
-									>
-										<span {...stylex.props(styles.shrink)}>{opt.icon}</span>
-										<span {...stylex.props(styles.optionLabel)}>
-											{opt.label}
-										</span>
-									</div>
 								)}
-							/>
-							{agentDefinition.models.length > 0 && (
-								<DropdownButton
-									value={model}
-									options={modelOptions}
-									onChange={onModelChange}
-									minWidth={190}
-									menuPlacement="top"
-									buttonClassName={
-										stylex.props(styles.pickerButtonMuted).className
-									}
-									labelClassName={stylex.props(styles.modelLabel).className}
+								<IconChevronDown
+									size={10}
+									{...stylex.props(
+										styles.providerConfigChevron,
+										agentConfigOpen && styles.providerConfigChevronOpen
+									)}
 								/>
+							</button>
+							{cwd && (
+								<span {...stylex.props(styles.repoPill)} title={cwd}>
+									{folderLabel}
+								</span>
 							)}
-							{agentKind === "codex" && (
-								<DropdownButton
-									value={reasoningLevel}
-									options={[...CODEX_REASONING_LEVELS]}
-									onChange={onReasoningLevelChange}
-									minWidth={150}
-									menuPlacement="top"
-									buttonClassName={
-										stylex.props(styles.pickerButtonMuted).className
-									}
-									labelClassName={stylex.props(styles.reasoningLabel).className}
+							{cwd && gitBranch && (
+								<ComposerBranchDropdown
+									cwd={cwd}
+									branch={gitBranch}
+									onBranchChanged={onGitBranchChanged}
 								/>
 							)}
 						</div>
 					</div>
 				</div>
 			)}
+
+			{agentConfigOpen &&
+				createPortal(
+					<div
+						ref={agentConfigMenuRef}
+						{...stylex.props(styles.providerConfigMenu)}
+						style={{
+							bottom: agentConfigPosition.bottom,
+							left: agentConfigPosition.left,
+							width: agentConfigPosition.width,
+							maxHeight: agentConfigPosition.maxHeight,
+						}}
+					>
+						<div {...stylex.props(styles.providerConfigSection)}>
+							<span {...stylex.props(styles.providerConfigSectionLabel)}>
+								Provider
+							</span>
+							<div {...stylex.props(styles.providerConfigChoiceGrid)}>
+								{agentKindOptions.map((option) => (
+									<button
+										type="button"
+										key={option.id}
+										onClick={() => onAgentKindChange(option.id)}
+										{...stylex.props(
+											styles.providerConfigChoice,
+											option.id === agentKind &&
+												styles.providerConfigChoiceActive
+										)}
+									>
+										<span {...stylex.props(styles.shrink)}>{option.icon}</span>
+										<span>{option.label}</span>
+									</button>
+								))}
+							</div>
+						</div>
+						{agentDefinition.models.length > 0 && (
+							<div {...stylex.props(styles.providerConfigSection)}>
+								<span {...stylex.props(styles.providerConfigSectionLabel)}>
+									Model
+								</span>
+								<div {...stylex.props(styles.providerConfigChoiceGrid)}>
+									{modelOptions.map((option) => (
+										<button
+											type="button"
+											key={option.id}
+											onClick={() => onModelChange(option.id)}
+											{...stylex.props(
+												styles.providerConfigChoice,
+												option.id === model && styles.providerConfigChoiceActive
+											)}
+										>
+											<span>{option.label}</span>
+										</button>
+									))}
+								</div>
+							</div>
+						)}
+						{agentKind === "codex" && (
+							<div {...stylex.props(styles.providerConfigSection)}>
+								<span {...stylex.props(styles.providerConfigSectionLabel)}>
+									Reasoning
+								</span>
+								<div {...stylex.props(styles.providerConfigChoiceGrid)}>
+									{CODEX_REASONING_LEVELS.map((option) => (
+										<button
+											type="button"
+											key={option.id}
+											onClick={() => onReasoningLevelChange(option.id)}
+											{...stylex.props(
+												styles.providerConfigChoice,
+												option.id === reasoningLevel &&
+													styles.providerConfigChoiceActive
+											)}
+										>
+											<span>{option.label}</span>
+										</button>
+									))}
+								</div>
+							</div>
+						)}
+					</div>,
+					document.body
+				)}
 
 			{mdPreview.show && (
 				<div
@@ -681,6 +1043,8 @@ const styles = stylex.create({
 		flexShrink: 0,
 		alignItems: "center",
 		gap: controlSize._2,
+		maxWidth: "100%",
+		minWidth: 0,
 		overflowX: "auto",
 		overflowY: "hidden",
 		paddingBlock: "0.375rem",
@@ -759,7 +1123,7 @@ const styles = stylex.create({
 		flex: 1,
 		borderWidth: 0,
 		borderRadius: "0.25rem",
-		backgroundColor: "rgba(255, 255, 255, 0.06)",
+		backgroundColor: color.surfaceControl,
 		color: color.textMain,
 		fontSize: "0.6875rem",
 		outline: "none",
@@ -791,6 +1155,106 @@ const styles = stylex.create({
 		alignItems: "center",
 		gap: "0.125rem",
 	},
+	contextRail: {
+		borderBottomColor: color.borderSubtle,
+		borderBottomStyle: "solid",
+		borderBottomWidth: 1,
+		boxSizing: "border-box",
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._1,
+		maxWidth: "100%",
+		minWidth: 0,
+		overflow: "hidden",
+		paddingBlock: controlSize._2,
+		paddingInline: controlSize._2,
+		width: "100%",
+	},
+	contextHeader: {
+		alignItems: "center",
+		display: "flex",
+		gap: controlSize._2,
+		justifyContent: "space-between",
+		minWidth: 0,
+	},
+	contextTitle: {
+		color: color.textMuted,
+		fontSize: font.size_1,
+		fontWeight: font.weight_5,
+		textTransform: "uppercase",
+	},
+	contextClear: {
+		backgroundColor: "transparent",
+		borderWidth: 0,
+		color: color.textMuted,
+		cursor: "pointer",
+		fontSize: font.size_1,
+		padding: 0,
+		":hover": {
+			color: color.textMain,
+		},
+	},
+	contextList: {
+		boxSizing: "border-box",
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._1,
+		maxWidth: "100%",
+		minWidth: 0,
+		overflow: "hidden",
+		width: "100%",
+	},
+	contextBlock: {
+		alignItems: "center",
+		backgroundColor: color.surfaceSubtle,
+		borderColor: color.borderSubtle,
+		borderRadius: 8,
+		borderStyle: "solid",
+		borderWidth: 1,
+		boxSizing: "border-box",
+		display: "flex",
+		flex: "0 1 auto",
+		gap: controlSize._1,
+		maxWidth: "100%",
+		minWidth: 0,
+		overflow: "hidden",
+		paddingBlock: "0.1875rem",
+		paddingInline: controlSize._1,
+		width: "100%",
+	},
+	contextSource: {
+		backgroundColor: color.accentWash,
+		borderRadius: 6,
+		color: color.accent,
+		flexShrink: 0,
+		fontSize: font.size_0_5,
+		fontWeight: font.weight_5,
+		paddingBlock: 1,
+		paddingInline: controlSize._1,
+		textTransform: "uppercase",
+	},
+	contextThumb: {
+		borderColor: color.borderSubtle,
+		borderRadius: 5,
+		borderStyle: "solid",
+		borderWidth: 1,
+		flexShrink: 0,
+		height: "1.375rem",
+		objectFit: "cover",
+		width: "1.375rem",
+	},
+	contextText: {
+		color: color.textSoft,
+		flex: "1 1 0",
+		fontFamily: "var(--font-diff)",
+		fontSize: font.size_1,
+		maxWidth: "100%",
+		minWidth: 0,
+		overflow: "hidden",
+		overflowWrap: "anywhere",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
 	fileMenu: {
 		position: "absolute",
 		left: 0,
@@ -805,7 +1269,8 @@ const styles = stylex.create({
 		borderColor: color.border,
 		borderRadius: controlSize._2,
 		backgroundColor: color.backgroundRaised,
-		boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.6)",
+		backgroundImage: effect.popoverDepth,
+		boxShadow: shadow.popover,
 	},
 	menuHeader: {
 		borderBottomWidth: 1,
@@ -832,9 +1297,14 @@ const styles = stylex.create({
 			default: "transparent",
 			":hover": color.controlHover,
 		},
+		backgroundImage: {
+			default: "none",
+			":hover": effect.controlDepth,
+		},
 	},
 	fileMenuRowActive: {
-		backgroundColor: color.accentWash,
+		backgroundColor: color.controlActive,
+		backgroundImage: effect.controlDepthHover,
 	},
 	fileMenuIcon: {
 		flexShrink: 0,
@@ -874,7 +1344,8 @@ const styles = stylex.create({
 		borderColor: color.border,
 		borderRadius: radius.lg,
 		backgroundColor: color.backgroundRaised,
-		boxShadow: shadow.modal,
+		backgroundImage: effect.popoverDepth,
+		boxShadow: shadow.popover,
 	},
 	commandHeader: {
 		color: color.textMuted,
@@ -904,9 +1375,14 @@ const styles = stylex.create({
 			default: "transparent",
 			":hover": color.controlHover,
 		},
+		backgroundImage: {
+			default: "none",
+			":hover": effect.controlDepth,
+		},
 	},
 	commandRowActive: {
-		backgroundColor: color.accentWash,
+		backgroundColor: color.controlActive,
+		backgroundImage: effect.controlDepthHover,
 	},
 	commandName: {
 		color: color.textMain,
@@ -968,38 +1444,8 @@ const styles = stylex.create({
 	loadingDot3: {
 		animationDelay: "300ms",
 	},
-	accentText: {
-		color: color.accent,
-	},
-	agentOption: {
-		display: "flex",
-		width: "100%",
-		alignItems: "center",
-		gap: controlSize._2,
-		color: color.textMuted,
-		fontSize: font.size_3,
-		paddingBlock: controlSize._2,
-		paddingInline: controlSize._3,
-		textAlign: "left",
-		transitionProperty: "background-color, color",
-		transitionDuration: "120ms",
-		backgroundColor: {
-			default: "transparent",
-			":hover": color.controlHover,
-		},
-		":hover": {
-			color: color.textMain,
-		},
-	},
-	agentOptionSelected: {
-		backgroundColor: color.controlActive,
-		color: color.textMain,
-	},
 	shrink: {
 		flexShrink: 0,
-	},
-	optionLabel: {
-		fontWeight: font.weight_5,
 	},
 	modalBackdrop: {
 		position: "absolute",
@@ -1023,7 +1469,9 @@ const styles = stylex.create({
 		borderStyle: "solid",
 		borderColor: color.border,
 		borderRadius: controlSize._2,
-		backgroundColor: color.background,
+		backgroundColor: color.backgroundRaised,
+		backgroundImage: effect.popoverDepth,
+		boxShadow: shadow.modal,
 	},
 	modalHeader: {
 		display: "flex",
@@ -1066,85 +1514,199 @@ const styles = stylex.create({
 		fontSize: font.size_2,
 	},
 	inputDock: {
+		boxSizing: "border-box",
+		contain: "inline-size",
 		flexShrink: 0,
+		maxWidth: "100%",
+		minWidth: 0,
+		overflow: "visible",
 		paddingBottom: controlSize._2,
 		paddingInline: controlSize._3,
 		paddingTop: controlSize._1,
+		width: "100%",
 	},
 	inputFrame: {
 		backgroundColor: color.backgroundRaised,
+		backgroundImage: effect.controlDepth,
 		borderColor: {
 			default: color.border,
-			":focus-within": color.border,
+			":focus-within": color.borderStrong,
 		},
 		borderRadius: 12,
 		borderStyle: "solid",
 		borderWidth: 1,
+		boxSizing: "border-box",
+		contain: "inline-size",
 		display: "flex",
 		flexDirection: "column",
+		isolation: "isolate",
+		maxWidth: "100%",
+		minWidth: 0,
 		overflow: "visible",
 		position: "relative",
+		width: "100%",
 		boxShadow: {
-			default: "none",
-			":focus-within": "none",
+			default: shadow.composerFrame,
+			":focus-within": shadow.composerFrameFocus,
 		},
 		transitionProperty: "border-color, box-shadow, background-color",
 		transitionDuration: "150ms",
 	},
-	pickerButtonAccent: {
-		height: controlSize._5,
-		borderRadius: 6,
-		borderColor: "transparent",
-		color: color.accent,
-		fontSize: font.size_2,
-		fontWeight: font.weight_5,
-		gap: controlSize._1,
-		paddingInline: controlSize._1,
-		userSelect: "none",
+	repoPill: {
+		alignItems: "center",
 		backgroundColor: {
-			default: "transparent",
-			":hover": color.accentWash,
+			default: color.transparent,
+			":hover": color.transparent,
 		},
-	},
-	pickerButtonMuted: {
-		height: controlSize._5,
+		backgroundImage: "none",
+		borderColor: color.transparent,
 		borderRadius: 6,
-		borderColor: "transparent",
+		borderStyle: "solid",
+		borderWidth: 0,
+		boxShadow: "none",
+		boxSizing: "border-box",
 		color: color.textMuted,
+		display: "inline-flex",
+		fontSize: font.size_2,
+		fontWeight: font.weight_5,
+		height: controlSize._5,
+		lineHeight: 1,
+		maxWidth: "100%",
+		minWidth: 0,
+		paddingBlock: 0,
+		paddingInline: controlSize._1,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
+	accentText: {
+		color: color.accent,
+	},
+	providerConfigButton: {
+		alignItems: "center",
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.transparent,
+		},
+		backgroundImage: "none",
+		borderColor: color.transparent,
+		borderRadius: 6,
+		borderStyle: "solid",
+		borderWidth: 0,
+		boxShadow: "none",
+		boxSizing: "border-box",
+		color: color.textSoft,
+		display: "inline-flex",
 		fontSize: font.size_2,
 		fontWeight: font.weight_5,
 		gap: controlSize._1,
+		height: controlSize._5,
+		lineHeight: 1,
+		maxWidth: "100%",
+		minWidth: 0,
+		paddingBlock: 0,
 		paddingInline: controlSize._1,
-		userSelect: "none",
+	},
+	providerConfigLabel: {
+		minWidth: 0,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
+	providerConfigChevron: {
+		color: color.textMuted,
+		flexShrink: 0,
+		transitionDuration: "150ms",
+		transitionProperty: "transform",
+	},
+	providerConfigChevronOpen: {
+		transform: "rotate(180deg)",
+	},
+	providerConfigMenu: {
+		backgroundColor: color.backgroundRaised,
+		backgroundImage: effect.popoverDepth,
+		borderColor: color.border,
+		borderRadius: 10,
+		borderStyle: "solid",
+		borderWidth: 1,
+		boxShadow: shadow.modal,
+		boxSizing: "border-box",
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._3,
+		overflowY: "auto",
+		padding: controlSize._3,
+		position: "fixed",
+		zIndex: 220,
+	},
+	providerConfigSection: {
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._1,
+	},
+	providerConfigSectionLabel: {
+		color: color.textMuted,
+		fontSize: font.size_1,
+		fontWeight: font.weight_6,
+		textTransform: "uppercase",
+	},
+	providerConfigChoiceGrid: {
+		display: "grid",
+		gap: controlSize._1,
+		gridTemplateColumns: "repeat(auto-fit, minmax(8rem, 1fr))",
+	},
+	providerConfigChoice: {
+		alignItems: "center",
 		backgroundColor: {
-			default: "transparent",
-			":hover": color.accentWash,
+			default: color.transparent,
+			":hover": color.transparent,
 		},
-	},
-	pickerLabel: {
+		backgroundImage: "none",
+		borderColor: color.transparent,
+		borderRadius: 8,
+		borderStyle: "solid",
+		borderWidth: 1,
+		boxShadow: "none",
+		color: {
+			default: color.textSoft,
+			":hover": color.textMain,
+		},
+		display: "flex",
 		fontSize: font.size_2,
+		fontWeight: font.weight_5,
+		gap: controlSize._2,
+		minHeight: controlSize._7,
+		paddingBlock: controlSize._1,
+		paddingInline: controlSize._2,
+		textAlign: "left",
+		transitionDuration: motion.durationBase,
+		transitionProperty:
+			"background-color, background-image, border-color, box-shadow, color",
+		transitionTimingFunction: motion.ease,
 	},
-	modelLabel: {
-		maxWidth: "96px",
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-		fontSize: font.size_2,
+	providerConfigChoiceActive: {
+		backgroundColor: color.controlActive,
+		backgroundImage: effect.controlDepthHover,
+		borderColor: color.borderStrong,
+		boxShadow: shadow.selectedRing,
+		color: color.textMain,
 	},
-	reasoningLabel: {
-		maxWidth: "76px",
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-		fontSize: font.size_2,
+	providerConfigError: {
+		color: color.danger,
+		fontSize: font.size_1,
+		lineHeight: 1.35,
 	},
 	inputRow: {
 		alignItems: "flex-end",
+		boxSizing: "border-box",
 		display: "flex",
 		gap: controlSize._1,
+		maxWidth: "100%",
+		minWidth: 0,
 		paddingBlock: "0.375rem",
 		paddingLeft: controlSize._1,
 		paddingRight: controlSize._3,
+		width: "100%",
 	},
 	inputActions: {
 		alignItems: "center",
@@ -1195,12 +1757,15 @@ const styles = stylex.create({
 	},
 	pickerRow: {
 		alignItems: "center",
+		boxSizing: "border-box",
 		display: "flex",
 		gap: "0.375rem",
+		maxWidth: "100%",
 		minWidth: 0,
 		overflowX: "auto",
 		paddingBottom: "0.375rem",
 		paddingInline: controlSize._2,
 		userSelect: "none",
+		width: "100%",
 	},
 });

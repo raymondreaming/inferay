@@ -23,9 +23,18 @@ export const DEV_FEATURE_FLAGS: FeatureFlags = {
 };
 
 export const PUBLISHED_FEATURE_FLAGS: FeatureFlags = {
-	...ENABLED_FEATURE_FLAGS,
+	terminal: true,
+	git: false,
+	prompts: true,
 	automations: false,
+	goals: false,
+	images: true,
 	simulators: false,
+	profile: false,
+	chat: true,
+	editor: true,
+	changes: false,
+	graph: false,
 };
 
 const buildFeatureFlags =

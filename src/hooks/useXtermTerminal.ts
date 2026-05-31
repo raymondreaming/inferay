@@ -17,6 +17,7 @@ export function useXtermTerminal({
 	theme,
 	fontSize,
 	fontFamily,
+	onSelectionChange,
 }: {
 	enabled: boolean;
 	paneId: string;
@@ -26,6 +27,7 @@ export function useXtermTerminal({
 	theme: Pick<TerminalTheme, "bg" | "fg" | "cursor">;
 	fontSize: number;
 	fontFamily: string;
+	onSelectionChange?: (selection: string) => void;
 }) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const termRef = useRef<Terminal | null>(null);
@@ -104,6 +106,9 @@ export function useXtermTerminal({
 		const resizeDisposable = term.onResize(({ cols, rows }) => {
 			wsClient.send({ type: "terminal:resize", paneId, cols, rows });
 		});
+		const selectionDisposable = term.onSelectionChange(() => {
+			onSelectionChange?.(term.getSelection());
+		});
 		const cleanupMessage = wsClient.subscribe(paneId, (msg: any) => {
 			if (msg.type === "terminal:output") term.write(msg.data);
 			else if (msg.type === "terminal:exit")
@@ -130,6 +135,7 @@ export function useXtermTerminal({
 			reconnectCleanup?.();
 			dataDisposable.dispose();
 			resizeDisposable.dispose();
+			selectionDisposable.dispose();
 			cleanupMessage();
 			cleanupReconnect();
 			if (rafId !== null) cancelAnimationFrame(rafId);
@@ -146,6 +152,7 @@ export function useXtermTerminal({
 		isClaude,
 		fontFamily,
 		fontSize,
+		onSelectionChange,
 		theme.bg,
 		theme.cursor,
 		theme.fg,

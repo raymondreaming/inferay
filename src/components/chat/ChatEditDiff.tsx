@@ -45,17 +45,19 @@ function EditDiffCard({
 		syntaxTheme
 	);
 	const [isExpanded, setIsExpanded] = useState(true);
+	const [isScrollActive, setIsScrollActive] = useState(false);
 
 	const removedBg = "rgba(248,81,73,0.08)";
 	const removedBorder = "rgba(248,81,73,0.32)";
 	const addedBg = "rgba(46,160,67,0.08)";
 	const addedBorder = "rgba(46,160,67,0.32)";
-	const maxLineChars = Math.max(
-		24,
-		...hunks.flatMap((hunk) =>
-			hunk.lines.map((line) => line.text.replace(/\t/g, "    ").length)
-		)
-	);
+	const lineLengths: number[] = [];
+	for (const hunk of hunks) {
+		for (const line of hunk.lines) {
+			lineLengths.push(line.text.replace(/\t/g, "    ").length);
+		}
+	}
+	const maxLineChars = Math.max(24, ...lineLengths);
 	const contentWidth = `max(100%, ${maxLineChars + 18}ch)`;
 	let globalLineIdx = 0;
 
@@ -100,7 +102,20 @@ function EditDiffCard({
 				</span>
 			</button>
 			{isExpanded && (
-				<div {...stylex.props(styles.body)}>
+				<div
+					{...stylex.props(
+						styles.body,
+						isScrollActive && styles.bodyScrollActive
+					)}
+					onClick={() => setIsScrollActive(true)}
+					onMouseLeave={() => setIsScrollActive(false)}
+					tabIndex={0}
+					title={
+						isScrollActive
+							? "Diff scrolling active"
+							: "Click to scroll this diff"
+					}
+				>
 					<div
 						{...stylex.props(styles.bodyInner)}
 						style={{ width: contentWidth }}
@@ -349,8 +364,13 @@ const styles = stylex.create({
 		color: "rgba(248,81,73,0.68)",
 	},
 	body: {
+		cursor: "pointer",
 		fontFamily: "var(--font-diff)",
 		maxHeight: 240,
+		overflow: "hidden",
+	},
+	bodyScrollActive: {
+		cursor: "auto",
 		overflow: "auto",
 	},
 	bodyInner: {

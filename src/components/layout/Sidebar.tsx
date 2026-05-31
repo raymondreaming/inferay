@@ -7,12 +7,22 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { createPortal } from "react-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
-import { isChatAgentKind } from "../../features/agents/agents.ts";
+import {
+	isChatAgentKind,
+	loadDefaultChatSettings,
+	type NEW_PANE_AGENT_KINDS,
+} from "../../features/agents/agents.ts";
 import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
-import { SIDEBAR_NAV_ROUTES } from "../../lib/app-navigation.tsx";
-import { loadAppThemeId } from "../../lib/app-theme.ts";
+import {
+	DEFAULT_TERMINAL_MAIN_VIEW,
+	isTerminalMainView,
+	SIDEBAR_NAV_ROUTES,
+	TERMINAL_MAIN_VIEWS,
+	type TerminalMainView,
+} from "../../lib/app-navigation.tsx";
 import {
 	hasId,
 	hasRole,
@@ -27,22 +37,27 @@ import {
 	stopPropagation,
 	stopPropagationAndCall,
 } from "../../lib/react-events.ts";
-import { resolveServerUrl } from "../../lib/server-origin.ts";
-import {
-	readStoredBoolean,
-	readStoredValue,
-	writeStoredValue,
-} from "../../lib/stored-json.ts";
+import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
 import {
 	createGroupId,
 	createPendingAgentChatPane,
+	createTerminalPane,
 	DEFAULT_COLUMNS,
 	DEFAULT_ROWS,
+	listenTerminalLayoutMode,
+	loadTerminalLayoutMode,
 	loadTerminalState,
+	prependPaneToGroup,
 	saveTerminalState,
 	type TerminalPaneModel,
 } from "../../features/terminal/terminal-utils.ts";
-import { color, controlSize, font } from "../../tokens.stylex.ts";
+import {
+	color,
+	controlSize,
+	effect,
+	font,
+	shadow,
+} from "../../tokens.stylex.ts";
 import {
 	loadStoredMessages,
 	loadStoredSummary,
@@ -51,9 +66,15 @@ import {
 import { IconButton } from "../ui/IconButton.tsx";
 import {
 	IconChevronRight,
+	IconCode,
+	IconCollapse,
+	IconExpand,
+	IconLayoutGrid,
+	IconLayoutRows,
+	IconMessageCircle,
 	IconPencil,
 	IconPlus,
-	IconSettings,
+	IconSearch,
 	IconTerminal,
 	IconUser,
 	IconX,
@@ -78,10 +99,15 @@ async function loadGithubAccount(): Promise<ForgeAccount | null> {
 	return accounts.find((item) => item.active) ?? accounts[0] ?? null;
 }
 
-const logoUrl = resolveServerUrl("/logo.png");
 const DEFAULT_SIDEBAR_WIDTH = 192;
 const MIN_SIDEBAR_WIDTH = 152;
 const MAX_SIDEBAR_WIDTH = 340;
+const GRID_SIZE_OPTIONS = [
+	{ id: "1", label: "1" },
+	{ id: "2", label: "2" },
+	{ id: "3", label: "3" },
+	{ id: "4", label: "4" },
+];
 
 // Track which panes have a pending title request to avoid duplicates
 const pendingTitleRequests = new Set<string>();
@@ -357,31 +383,30 @@ function WorkspaceItem({
 
 export function Sidebar() {
 	const navigate = useNavigate();
-	const [collapsed, setCollapsed] = useState(() => {
-		return readStoredBoolean("sidebar-collapsed");
-	});
+	const location = useLocation();
+	const collapsed = false;
 	const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
 	const [resizing, setResizing] = useState(false);
+	const [layoutMode, setLayoutMode] = useState(loadTerminalLayoutMode);
+	const [commandOpen, setCommandOpen] = useState(false);
+	const [commandQuery, setCommandQuery] = useState("");
+	const [activeCommandIndex, setActiveCommandIndex] = useState(-1);
 	const { data: githubAccount, refresh: refreshGithubAccount } =
 		useAsyncResource(loadGithubAccount, null, []);
 	const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
 	const resizeWidthRef = useRef(sidebarWidth);
 
-	const isDefault = loadAppThemeId() === "default";
-	const logoImageStyle = useMemo(
-		() => ({
-			filter: "saturate(0.94) contrast(1.04) brightness(0.99)",
-			opacity: isDefault ? 1 : 0.7,
-		}),
-		[isDefault]
-	);
-
 	// Workspace state
 	const loadWorkspaces = useCallback(() => {
 		const state = loadTerminalState();
+		const mainView = readStoredValue("terminal-main-view");
 		return {
 			groups: state?.groups ?? [],
 			selectedGroupId: state?.selectedGroupId ?? state?.groups[0]?.id ?? null,
+			mainView: isTerminalMainView(mainView)
+				? mainView
+				: DEFAULT_TERMINAL_MAIN_VIEW,
+			editorZenMode: readStoredValue("terminal-editor-zen") === "true",
 		};
 	}, []);
 
@@ -391,6 +416,27 @@ export function Sidebar() {
 		const refresh = () => setWorkspaces(loadWorkspaces());
 		return listenWindowEvent("terminal-shell-change", refresh);
 	}, [loadWorkspaces]);
+
+	useEffect(listenTerminalLayoutMode.bind(null, setLayoutMode), []);
+
+	const openShellCommandMenu = useCallback(() => {
+		setCommandQuery("");
+		setActiveCommandIndex(-1);
+		setCommandOpen(true);
+	}, []);
+
+	useEffect(() => {
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+				event.preventDefault();
+				openShellCommandMenu();
+			} else if (event.key === "Escape" && commandOpen) {
+				setCommandOpen(false);
+			}
+		};
+		window.addEventListener("keydown", handleKeyDown);
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, [commandOpen, openShellCommandMenu]);
 
 	const selectWorkspace = useCallback(
 		(groupId: string) => {
@@ -455,6 +501,67 @@ export function Sidebar() {
 		navigate("/terminal");
 	}, [navigate]);
 
+	const updateMainView = useCallback(
+		(view: TerminalMainView) => {
+			writeStoredValue("terminal-main-view", view);
+			setWorkspaces(loadWorkspaces);
+			window.dispatchEvent(new Event("terminal-shell-change"));
+			navigate("/terminal");
+		},
+		[loadWorkspaces, navigate]
+	);
+
+	const addPaneToSelectedGroup = useCallback(
+		(agentKind: (typeof NEW_PANE_AGENT_KINDS)[number]) => {
+			const state = loadTerminalState();
+			if (!state) return;
+			const selectedGroupId = state.selectedGroupId ?? state.groups[0]?.id;
+			if (!selectedGroupId) return;
+			const pane = createTerminalPane(agentKind, undefined, true);
+			saveTerminalState({
+				...state,
+				groups: state.groups.map(
+					prependPaneToGroup.bind(null, selectedGroupId, pane)
+				),
+			});
+			window.dispatchEvent(new Event("terminal-shell-change"));
+			navigate("/terminal");
+		},
+		[navigate]
+	);
+
+	const updateLayoutMode = useCallback((mode: "grid" | "rows") => {
+		writeStoredValue("terminal-layout-mode", mode);
+		setLayoutMode(mode);
+		window.dispatchEvent(new Event("terminal-shell-change"));
+	}, []);
+
+	const updateSelectedGroupGrid = useCallback(
+		(patch: { columns?: number; rows?: number }) => {
+			const state = loadTerminalState();
+			if (!state?.selectedGroupId) return;
+			saveTerminalState({
+				...state,
+				groups: state.groups.map((group) =>
+					group.id === state.selectedGroupId
+						? {
+								...group,
+								columns: patch.columns ?? group.columns,
+								rows: patch.rows ?? group.rows,
+							}
+						: group
+				),
+			});
+			window.dispatchEvent(new Event("terminal-shell-change"));
+		},
+		[]
+	);
+
+	const updateEditorZenMode = useCallback((next: boolean) => {
+		writeStoredValue("terminal-editor-zen", next ? "true" : "false");
+		window.dispatchEvent(new Event("terminal-shell-change"));
+	}, []);
+
 	const removeWorkspace = useCallback((groupId: string) => {
 		const state = loadTerminalState();
 		if (!state) return;
@@ -482,13 +589,8 @@ export function Sidebar() {
 		window.dispatchEvent(new Event("terminal-shell-change"));
 	}, []);
 
-	useEffect(() => {
-		writeStoredValue("sidebar-collapsed", String(collapsed));
-	}, [collapsed]);
-
 	const handleResizeStart = useCallback(
 		(event: ReactMouseEvent<HTMLDivElement>) => {
-			if (collapsed) return;
 			event.preventDefault();
 			setResizing(true);
 			resizeWidthRef.current = sidebarWidth;
@@ -513,7 +615,7 @@ export function Sidebar() {
 			window.addEventListener("mousemove", handleMove);
 			window.addEventListener("mouseup", handleUp);
 		},
-		[collapsed, sidebarWidth]
+		[sidebarWidth]
 	);
 
 	useEffect(
@@ -522,167 +624,479 @@ export function Sidebar() {
 	);
 
 	const githubLabel = githubAccount?.login || githubAccount?.name || "Profile";
+	const selectedGroup =
+		workspaces.groups.find(hasId.bind(null, workspaces.selectedGroupId)) ??
+		null;
+	const isTerminalRoute = location.pathname === "/terminal";
+	const shellCommands = useMemo(
+		() => [
+			{
+				id: "new-chat",
+				label: "New chat",
+				detail: "Create a new chat pane",
+				keywords: "add pane agent conversation",
+				icon: <IconPlus size={13} />,
+				run: () => addPaneToSelectedGroup(loadDefaultChatSettings().agentKind),
+			},
+			{
+				id: "view-chat",
+				label: "Open Chat",
+				detail: "Switch to the chat workspace",
+				keywords: "messages agents conversation",
+				icon: <IconMessageCircle size={13} />,
+				run: () => updateMainView("chat"),
+			},
+			{
+				id: "view-editor",
+				label: "Open Editor",
+				detail: "Switch to the editor workspace",
+				keywords: "code files workspace",
+				icon: <IconCode size={13} />,
+				run: () => updateMainView("editor"),
+			},
+			{
+				id: "editor-zen",
+				label: workspaces.editorZenMode ? "Exit editor zen" : "Editor zen",
+				detail: "Toggle editor zen mode",
+				keywords: "focus fullscreen writing",
+				icon: workspaces.editorZenMode ? (
+					<IconCollapse size={13} />
+				) : (
+					<IconExpand size={13} />
+				),
+				run: () => updateEditorZenMode(!workspaces.editorZenMode),
+			},
+		],
+		[
+			addPaneToSelectedGroup,
+			updateEditorZenMode,
+			updateLayoutMode,
+			updateMainView,
+			updateSelectedGroupGrid,
+			workspaces.editorZenMode,
+		]
+	);
+	const filteredShellCommands = useMemo(() => {
+		const needle = commandQuery.trim().toLowerCase();
+		if (!needle) return shellCommands;
+		return shellCommands.filter((command) =>
+			`${command.label} ${command.detail} ${command.keywords}`
+				.toLowerCase()
+				.includes(needle)
+		);
+	}, [commandQuery, shellCommands]);
+	useEffect(() => {
+		if (activeCommandIndex >= filteredShellCommands.length) {
+			setActiveCommandIndex(-1);
+		}
+	}, [activeCommandIndex, filteredShellCommands.length]);
+	const runShellCommand = useCallback((command: { run: () => void }) => {
+		command.run();
+		setCommandOpen(false);
+	}, []);
 	const shellProps = stylex.props(
 		styles.shell,
 		collapsed ? styles.shellCollapsed : styles.shellOpen,
 		resizing && styles.shellResizing
 	);
-	const logoBarProps = stylex.props(styles.logoBar);
-	const logoButtonProps = stylex.props(styles.logoButton);
+	const windowControlsProps = stylex.props(
+		styles.windowControlsBar,
+		collapsed ? styles.windowControlsCollapsed : styles.windowControlsOpen
+	);
 	const workspaceSectionProps = stylex.props(styles.workspaceSection);
 	const footerProps = stylex.props(styles.footer);
 	const resizeHandleProps = stylex.props(styles.resizeHandle);
+	const commandBackdropProps = stylex.props(styles.commandBackdrop);
+	const commandPalette = commandOpen
+		? createPortal(
+				<div
+					{...commandBackdropProps}
+					className={`electrobun-webkit-app-region-no-drag ${commandBackdropProps.className ?? ""}`}
+					onMouseDown={() => setCommandOpen(false)}
+				>
+					<section
+						{...stylex.props(styles.commandPanel)}
+						onMouseDown={stopPropagation}
+					>
+						<div {...stylex.props(styles.commandSearchRow)}>
+							<IconSearch
+								size={13}
+								{...stylex.props(styles.commandSearchIcon)}
+							/>
+							<input
+								autoFocus
+								value={commandQuery}
+								onChange={(event) => {
+									setCommandQuery(event.target.value);
+									setActiveCommandIndex(-1);
+								}}
+								onKeyDown={(event) => {
+									if (event.key === "ArrowDown") {
+										event.preventDefault();
+										setActiveCommandIndex((index) =>
+											filteredShellCommands.length
+												? index < 0
+													? 0
+													: (index + 1) % filteredShellCommands.length
+												: 0
+										);
+									} else if (event.key === "ArrowUp") {
+										event.preventDefault();
+										setActiveCommandIndex((index) =>
+											filteredShellCommands.length
+												? index < 0
+													? filteredShellCommands.length - 1
+													: (index - 1 + filteredShellCommands.length) %
+														filteredShellCommands.length
+												: 0
+										);
+									} else if (event.key === "Enter") {
+										event.preventDefault();
+										const command = filteredShellCommands[activeCommandIndex];
+										if (command) runShellCommand(command);
+									} else if (event.key === "Escape") {
+										setCommandOpen(false);
+									}
+								}}
+								placeholder="Search actions, layout, rows, columns"
+								{...stylex.props(styles.commandInput)}
+							/>
+							<span {...stylex.props(styles.commandShortcut)}>Cmd K</span>
+						</div>
+						<div {...stylex.props(styles.commandLayoutPanel)}>
+							<div {...stylex.props(styles.commandLayoutHeader)}>
+								<span {...stylex.props(styles.commandLayoutTitle)}>Layout</span>
+								<span {...stylex.props(styles.commandLayoutHint)}>
+									Chat workspace
+								</span>
+							</div>
+							<div {...stylex.props(styles.commandLayoutModes)}>
+								<button
+									type="button"
+									onClick={() => updateLayoutMode("grid")}
+									{...stylex.props(
+										styles.commandLayoutCard,
+										layoutMode === "grid" && styles.commandLayoutCardActive
+									)}
+								>
+									<span {...stylex.props(styles.commandLayoutPreviewGrid)}>
+										<span {...stylex.props(styles.commandLayoutPreviewCell)} />
+										<span {...stylex.props(styles.commandLayoutPreviewCell)} />
+										<span {...stylex.props(styles.commandLayoutPreviewCell)} />
+										<span {...stylex.props(styles.commandLayoutPreviewCell)} />
+									</span>
+									<span {...stylex.props(styles.commandLayoutCardText)}>
+										<span {...stylex.props(styles.commandLayoutCardLabel)}>
+											Grid
+										</span>
+										<span {...stylex.props(styles.commandLayoutCardDetail)}>
+											Panes as tiles
+										</span>
+									</span>
+								</button>
+								<button
+									type="button"
+									onClick={() => updateLayoutMode("rows")}
+									{...stylex.props(
+										styles.commandLayoutCard,
+										layoutMode === "rows" && styles.commandLayoutCardActive
+									)}
+								>
+									<span {...stylex.props(styles.commandLayoutPreviewRows)}>
+										<span {...stylex.props(styles.commandLayoutPreviewRow)} />
+										<span {...stylex.props(styles.commandLayoutPreviewRow)} />
+										<span {...stylex.props(styles.commandLayoutPreviewRow)} />
+									</span>
+									<span {...stylex.props(styles.commandLayoutCardText)}>
+										<span {...stylex.props(styles.commandLayoutCardLabel)}>
+											Rows
+										</span>
+										<span {...stylex.props(styles.commandLayoutCardDetail)}>
+											Stacked panes
+										</span>
+									</span>
+								</button>
+							</div>
+							<div {...stylex.props(styles.commandLayoutSizePanel)}>
+								<div {...stylex.props(styles.commandLayoutSizeGroup)}>
+									<span {...stylex.props(styles.commandLayoutSizeLabel)}>
+										Columns
+									</span>
+									<div {...stylex.props(styles.commandLayoutSizeButtons)}>
+										{GRID_SIZE_OPTIONS.map((option) => (
+											<button
+												type="button"
+												key={`visual-columns-${option.id}`}
+												onClick={() =>
+													updateSelectedGroupGrid({
+														columns: Number(option.id),
+													})
+												}
+												{...stylex.props(
+													styles.commandLayoutSizeButton,
+													selectedGroup?.columns === Number(option.id) &&
+														styles.commandLayoutSizeButtonActive
+												)}
+											>
+												{option.label}
+											</button>
+										))}
+									</div>
+								</div>
+								<div {...stylex.props(styles.commandLayoutSizeGroup)}>
+									<span {...stylex.props(styles.commandLayoutSizeLabel)}>
+										Rows
+									</span>
+									<div {...stylex.props(styles.commandLayoutSizeButtons)}>
+										{GRID_SIZE_OPTIONS.map((option) => (
+											<button
+												type="button"
+												key={`visual-rows-${option.id}`}
+												onClick={() =>
+													updateSelectedGroupGrid({
+														rows: Number(option.id),
+													})
+												}
+												{...stylex.props(
+													styles.commandLayoutSizeButton,
+													selectedGroup?.rows === Number(option.id) &&
+														styles.commandLayoutSizeButtonActive
+												)}
+											>
+												{option.label}
+											</button>
+										))}
+									</div>
+								</div>
+							</div>
+						</div>
+						<div
+							{...stylex.props(styles.commandResults)}
+							onMouseLeave={() => setActiveCommandIndex(-1)}
+						>
+							{filteredShellCommands.length === 0 ? (
+								<div {...stylex.props(styles.commandEmpty)}>
+									No matching actions
+								</div>
+							) : (
+								filteredShellCommands.map((command, index) => (
+									<button
+										key={command.id}
+										type="button"
+										onMouseEnter={() => setActiveCommandIndex(index)}
+										onClick={() => runShellCommand(command)}
+										{...stylex.props(
+											styles.commandResult,
+											index === activeCommandIndex && styles.commandResultActive
+										)}
+									>
+										<span {...stylex.props(styles.commandResultIcon)}>
+											{command.icon}
+										</span>
+										<span {...stylex.props(styles.commandResultText)}>
+											<span {...stylex.props(styles.commandResultLabel)}>
+												{command.label}
+											</span>
+											<span {...stylex.props(styles.commandResultDetail)}>
+												{command.detail}
+											</span>
+										</span>
+									</button>
+								))
+							)}
+						</div>
+					</section>
+				</div>,
+				document.body
+			)
+		: null;
 
 	return (
-		<aside
-			{...shellProps}
-			className={`electrobun-webkit-app-region-drag ${shellProps.className ?? ""}`}
-			style={collapsed ? undefined : { width: sidebarWidth }}
-		>
-			{!collapsed && (
-				<div
-					{...resizeHandleProps}
-					className={`electrobun-webkit-app-region-no-drag ${resizeHandleProps.className ?? ""}`}
-					onMouseDown={handleResizeStart}
-				/>
-			)}
-			<div
-				className={`electrobun-webkit-app-region-drag ${logoBarProps.className ?? ""}`}
+		<>
+			<aside
+				{...shellProps}
+				className={`electrobun-webkit-app-region-drag ${shellProps.className ?? ""}`}
+				style={collapsed ? undefined : { width: sidebarWidth }}
 			>
-				<button
-					type="button"
-					onClick={() => setCollapsed(!collapsed)}
-					{...logoButtonProps}
-					className={`electrobun-webkit-app-region-no-drag ${logoButtonProps.className ?? ""}`}
-				>
-					<span {...stylex.props(styles.logoFrame)}>
-						<img
-							src={logoUrl}
-							alt=""
-							{...stylex.props(styles.logo)}
-							style={logoImageStyle}
-						/>
-					</span>
-				</button>
-			</div>
-			<nav {...stylex.props(styles.nav)}>
-				{SIDEBAR_NAV_ROUTES.map((item) => {
-					const Icon = item.icon;
-					return (
-						<NavLink
-							key={item.path}
-							to={item.path}
-							className={({ isActive }) =>
-								`electrobun-webkit-app-region-no-drag ${
-									stylex.props(
-										styles.navItem,
-										isActive ? styles.navItemActive : styles.navItemIdle,
-										collapsed ? styles.navItemCollapsed : styles.navItemOpen
-									).className ?? ""
-								}`
-							}
-							title={collapsed ? item.label : undefined}
-						>
-							<Icon size={14} className="shrink-0" />
-							{!collapsed && <span>{item.label}</span>}
-						</NavLink>
-					);
-				})}
-
-				{/* Workspaces section */}
-				<div
-					className={`electrobun-webkit-app-region-no-drag ${workspaceSectionProps.className ?? ""}`}
-				>
+				{!collapsed && (
 					<div
-						{...stylex.props(
-							styles.workspaceSectionHeader,
-							collapsed
-								? styles.workspaceSectionHeaderCollapsed
-								: styles.workspaceSectionHeaderOpen
-						)}
-					>
-						{collapsed ? (
-							<IconButton
-								type="button"
-								onClick={addWorkspace}
-								variant="ghost"
-								size="md"
-								className="h-8 w-8"
-								title="Add workspace"
+						{...resizeHandleProps}
+						className={`electrobun-webkit-app-region-no-drag ${resizeHandleProps.className ?? ""}`}
+						onMouseDown={handleResizeStart}
+					/>
+				)}
+				<div
+					className={`electrobun-webkit-app-region-drag ${windowControlsProps.className ?? ""}`}
+				/>
+				<nav {...stylex.props(styles.nav)}>
+					<div {...stylex.props(styles.primarySection)}>
+						{TERMINAL_MAIN_VIEWS.map((view) => {
+							const Icon = view.icon;
+							const active = isTerminalRoute && workspaces.mainView === view.id;
+							const viewItemProps = stylex.props(
+								styles.navItem,
+								active ? styles.navItemActive : styles.navItemIdle,
+								collapsed ? styles.navItemCollapsed : styles.navItemOpen,
+								view.id === "chat" && !collapsed && styles.navItemWithAction
+							);
+							if (view.id === "chat" && !collapsed) {
+								return (
+									<div
+										key={view.id}
+										{...stylex.props(styles.navItemActionWrap)}
+									>
+										<button
+											type="button"
+											onClick={() => updateMainView(view.id)}
+											{...viewItemProps}
+											className={`electrobun-webkit-app-region-no-drag ${
+												viewItemProps.className ?? ""
+											}`}
+										>
+											<Icon size={14} className="shrink-0" />
+											<span>Chat</span>
+										</button>
+										<button
+											type="button"
+											onClick={() =>
+												addPaneToSelectedGroup(
+													loadDefaultChatSettings().agentKind
+												)
+											}
+											{...stylex.props(styles.navItemInlineAction)}
+											className={`electrobun-webkit-app-region-no-drag ${
+												stylex.props(styles.navItemInlineAction).className ?? ""
+											}`}
+											title="New chat"
+											aria-label="New chat"
+										>
+											<IconPlus size={11} />
+										</button>
+									</div>
+								);
+							}
+							return (
+								<button
+									key={view.id}
+									type="button"
+									onClick={() => updateMainView(view.id)}
+									{...viewItemProps}
+									className={`electrobun-webkit-app-region-no-drag ${
+										viewItemProps.className ?? ""
+									}`}
+									title={collapsed ? view.label : undefined}
+								>
+									<Icon size={14} className="shrink-0" />
+									{!collapsed && <span>{view.label}</span>}
+								</button>
+							);
+						})}
+					</div>
+					{SIDEBAR_NAV_ROUTES.map((item) => {
+						const Icon = item.icon;
+						return (
+							<NavLink
+								key={item.path}
+								to={item.path}
+								className={({ isActive }) =>
+									`electrobun-webkit-app-region-no-drag ${
+										stylex.props(
+											styles.navItem,
+											isActive ? styles.navItemActive : styles.navItemIdle,
+											collapsed ? styles.navItemCollapsed : styles.navItemOpen
+										).className ?? ""
+									}`
+								}
+								title={collapsed ? item.label : undefined}
 							>
-								<IconPlus size={14} className="shrink-0" />
-							</IconButton>
-						) : (
-							<>
-								<span {...stylex.props(styles.workspaceSectionLabel)}>
-									Workspaces
-								</span>
+								<Icon size={14} className="shrink-0" />
+								{!collapsed && <span>{item.label}</span>}
+							</NavLink>
+						);
+					})}
+
+					{/* Workspaces section */}
+					<div
+						className={`electrobun-webkit-app-region-no-drag ${workspaceSectionProps.className ?? ""}`}
+					>
+						<div
+							{...stylex.props(
+								styles.workspaceSectionHeader,
+								collapsed
+									? styles.workspaceSectionHeaderCollapsed
+									: styles.workspaceSectionHeaderOpen
+							)}
+						>
+							{collapsed ? (
 								<IconButton
 									type="button"
 									onClick={addWorkspace}
 									variant="ghost"
-									size="xs"
-									title="New workspace"
+									size="md"
+									className="h-8 w-8"
+									title="Add workspace"
 								>
-									<IconPlus size={12} />
+									<IconPlus size={14} className="shrink-0" />
 								</IconButton>
-							</>
-						)}
+							) : (
+								<>
+									<span {...stylex.props(styles.workspaceSectionLabel)}>
+										Workspaces
+									</span>
+									<IconButton
+										type="button"
+										onClick={addWorkspace}
+										variant="ghost"
+										size="xs"
+										title="New workspace"
+									>
+										<IconPlus size={12} />
+									</IconButton>
+								</>
+							)}
+						</div>
+						{workspaces.groups.map((group) => (
+							<WorkspaceItem
+								key={group.id}
+								group={group}
+								isActive={group.id === workspaces.selectedGroupId}
+								canDelete={workspaces.groups.length > 1}
+								collapsed={collapsed}
+								selectedPaneId={group.selectedPaneId ?? null}
+								onSelect={() => selectWorkspace(group.id)}
+								onSelectPane={(paneId) => selectPane(group.id, paneId)}
+								onExpandSidebar={noop}
+								onDelete={() => removeWorkspace(group.id)}
+								onRename={(name) => renameWorkspace(group.id, name)}
+							/>
+						))}
 					</div>
-					{workspaces.groups.map((group) => (
-						<WorkspaceItem
-							key={group.id}
-							group={group}
-							isActive={group.id === workspaces.selectedGroupId}
-							canDelete={workspaces.groups.length > 1}
-							collapsed={collapsed}
-							selectedPaneId={group.selectedPaneId ?? null}
-							onSelect={() => selectWorkspace(group.id)}
-							onSelectPane={(paneId) => selectPane(group.id, paneId)}
-							onExpandSidebar={() => setCollapsed(false)}
-							onDelete={() => removeWorkspace(group.id)}
-							onRename={(name) => renameWorkspace(group.id, name)}
-						/>
-					))}
+				</nav>
+				<div
+					className={`electrobun-webkit-app-region-no-drag ${footerProps.className ?? ""}`}
+				>
+					<NavLink
+						to="/profile"
+						className={({ isActive }) =>
+							stylex.props(
+								styles.profileButton,
+								collapsed
+									? styles.profileButtonCollapsed
+									: styles.profileButtonOpen,
+								isActive ? styles.profileButtonActive : styles.profileButtonIdle
+							).className ?? ""
+						}
+						title={collapsed ? githubLabel : undefined}
+					>
+						<SidebarAccountAvatar account={githubAccount} />
+						{!collapsed ? (
+							<span {...stylex.props(styles.profileLabel)}>{githubLabel}</span>
+						) : null}
+					</NavLink>
 				</div>
-			</nav>
-			<div
-				className={`electrobun-webkit-app-region-no-drag ${footerProps.className ?? ""}`}
-			>
-				<button
-					type="button"
-					onClick={() =>
-						window.dispatchEvent(new Event("terminal-open-theme-panel"))
-					}
-					{...stylex.props(
-						styles.footerButton,
-						styles.footerButtonIdle,
-						collapsed ? styles.footerButtonCollapsed : styles.footerButtonOpen
-					)}
-					title={collapsed ? "Settings" : undefined}
-				>
-					<IconSettings size={14} className="shrink-0" />
-					{!collapsed ? <span>Settings</span> : null}
-				</button>
-				<NavLink
-					to="/profile"
-					className={
-						stylex.props(
-							styles.profileButton,
-							collapsed
-								? styles.profileButtonCollapsed
-								: styles.profileButtonOpen
-						).className ?? ""
-					}
-					title={collapsed ? githubLabel : undefined}
-				>
-					<SidebarAccountAvatar account={githubAccount} />
-					{!collapsed ? (
-						<span {...stylex.props(styles.profileLabel)}>{githubLabel}</span>
-					) : null}
-				</NavLink>
-			</div>
-		</aside>
+			</aside>
+			{commandPalette}
+		</>
 	);
 }
 
@@ -718,18 +1132,27 @@ const styles = stylex.create({
 		paddingInline: controlSize._2,
 		textAlign: "left",
 		transitionDuration: "150ms",
-		transitionProperty: "background-color, border-color, color",
+		transitionProperty:
+			"background-color, background-image, border-color, box-shadow, color",
 		transitionTimingFunction: "ease",
 		width: "100%",
 	},
 	paneSummaryIdle: {
 		backgroundColor: {
-			default: "transparent",
-			":hover": color.accentWash,
+			default: color.transparent,
+			":hover": color.transparent,
+		},
+		backgroundImage: {
+			default: "none",
+			":hover": "none",
 		},
 		borderColor: {
-			default: "transparent",
-			":hover": color.border,
+			default: color.transparent,
+			":hover": color.transparent,
+		},
+		boxShadow: {
+			default: "none",
+			":hover": "none",
 		},
 		color: {
 			default: color.textSoft,
@@ -737,8 +1160,10 @@ const styles = stylex.create({
 		},
 	},
 	paneSummarySelected: {
-		backgroundColor: color.accentWash,
+		backgroundColor: color.controlActive,
+		backgroundImage: effect.controlDepthHover,
 		borderColor: color.accentBorder,
+		boxShadow: shadow.selectedRing,
 		color: color.textMain,
 	},
 	paneSummaryIcon: {
@@ -781,16 +1206,23 @@ const styles = stylex.create({
 		marginInline: "0.375rem",
 		position: "relative",
 		transitionDuration: "150ms",
-		transitionProperty: "background-color, color",
+		transitionProperty:
+			"background-color, background-image, border-color, box-shadow, color",
 		transitionTimingFunction: "ease",
 		width: controlSize._8,
 	},
 	collapsedWorkspaceIdle: {
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
+		backgroundImage: "none",
+		borderColor: color.transparent,
+		boxShadow: "none",
 		color: color.textSoft,
 	},
 	collapsedWorkspaceActive: {
-		backgroundColor: "transparent",
+		backgroundColor: color.controlActive,
+		backgroundImage: effect.controlDepthHover,
+		borderColor: color.borderStrong,
+		boxShadow: shadow.selectedRing,
 		color: color.textSoft,
 	},
 	collapsedWorkspaceButton: {
@@ -863,17 +1295,34 @@ const styles = stylex.create({
 		paddingInline: controlSize._2,
 		textAlign: "left",
 		transitionDuration: "150ms",
-		transitionProperty: "background-color, border-color, color",
+		transitionProperty:
+			"background-color, background-image, border-color, box-shadow, color",
 		transitionTimingFunction: "ease",
 	},
 	workspaceHeaderIdle: {
-		backgroundColor: "transparent",
-		borderColor: "transparent",
-		color: color.textSoft,
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.transparent,
+		},
+		backgroundImage: {
+			default: "none",
+			":hover": "none",
+		},
+		borderColor: color.transparent,
+		boxShadow: {
+			default: "none",
+			":hover": "none",
+		},
+		color: {
+			default: color.textSoft,
+			":hover": color.textMain,
+		},
 	},
 	workspaceHeaderActive: {
-		backgroundColor: "transparent",
-		borderColor: "transparent",
+		backgroundColor: color.controlActive,
+		backgroundImage: effect.controlDepthHover,
+		borderColor: color.borderStrong,
+		boxShadow: shadow.selectedRing,
 		color: color.textSoft,
 	},
 	workspaceNameWrap: {
@@ -967,44 +1416,118 @@ const styles = stylex.create({
 		transitionProperty: "background-color",
 		transitionDuration: "120ms",
 	},
-	logoBar: {
+	windowControlsBar: {
 		alignItems: "center",
-		borderBottomColor: color.border,
-		borderBottomStyle: "solid",
-		borderBottomWidth: 1,
 		display: "flex",
-		height: controlSize._12,
-		paddingInline: controlSize._3,
+		height: controlSize._6,
+		marginTop: controlSize._2,
 	},
-	logoButton: {
-		alignItems: "center",
-		borderRadius: 6,
-		display: "flex",
-		flexShrink: 0,
-		height: controlSize._7,
+	windowControlsOpen: {
+		justifyContent: "flex-start",
+		paddingLeft: "4.75rem",
+		paddingRight: controlSize._2,
+	},
+	windowControlsCollapsed: {
 		justifyContent: "center",
-		width: controlSize._7,
-	},
-	logoFrame: {
-		alignItems: "center",
-		borderRadius: 6,
-		display: "flex",
-		height: controlSize._7,
-		justifyContent: "center",
-		overflow: "hidden",
-		position: "relative",
-		width: controlSize._7,
-	},
-	logo: {
-		borderRadius: 6,
-		height: controlSize._7,
-		objectFit: "cover",
-		width: controlSize._7,
+		paddingInline: controlSize._1,
 	},
 	nav: {
 		flex: 1,
 		overflowY: "auto",
-		paddingBlock: "0.375rem",
+		paddingBlock: controlSize._0_5,
+	},
+	primarySection: {
+		marginBottom: controlSize._1,
+	},
+	gridSelectRow: {
+		display: "grid",
+		gap: controlSize._1,
+		gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+		marginInline: "0.375rem",
+	},
+	gridSizeButton: {
+		"--dropdown-button-bg-color": color.transparent,
+		"--dropdown-button-bg-image": "none",
+		"--dropdown-button-border-color": color.transparent,
+		"--dropdown-button-border-width": "1px",
+		"--dropdown-button-hover-bg-color": color.transparent,
+		"--dropdown-button-hover-bg-image": "none",
+		"--dropdown-button-hover-shadow": "none",
+		"--dropdown-button-open-bg-color": color.controlActive,
+		"--dropdown-button-open-bg-image": effect.controlDepthHover,
+		"--dropdown-button-open-border-color": color.borderStrong,
+		"--dropdown-button-open-shadow": shadow.selectedRing,
+		"--dropdown-button-shadow": "none",
+		backgroundColor: color.transparent,
+		backgroundImage: "none",
+		borderColor: color.transparent,
+		borderWidth: 1,
+		boxShadow: "none",
+		color: color.textMuted,
+		fontSize: font.size_2,
+		fontWeight: font.weight_5,
+		gap: controlSize._1,
+		height: controlSize._7,
+		paddingInline: controlSize._2,
+		width: "100%",
+	},
+	gridSizeLabel: {
+		color: "currentColor",
+		fontVariantNumeric: "tabular-nums",
+		whiteSpace: "nowrap",
+	},
+	layoutSegment: {
+		display: "grid",
+		gap: controlSize._1,
+		gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+		marginInline: "0.375rem",
+	},
+	layoutSegmentCollapsed: {
+		display: "flex",
+		flexDirection: "column",
+		marginInline: 0,
+		width: controlSize._8,
+	},
+	layoutSegmentButton: {
+		alignItems: "center",
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.transparent,
+		},
+		backgroundImage: {
+			default: "none",
+			":hover": "none",
+		},
+		borderColor: color.transparent,
+		borderRadius: 8,
+		borderStyle: "solid",
+		borderWidth: 1,
+		boxShadow: {
+			default: "none",
+			":hover": "none",
+		},
+		color: color.textSoft,
+		display: "flex",
+		height: controlSize._7,
+		justifyContent: "center",
+		transitionDuration: "150ms",
+		transitionProperty:
+			"background-color, background-image, border-color, box-shadow, color",
+		transitionTimingFunction: "ease",
+		width: "100%",
+	},
+	layoutSegmentButtonIdle: {
+		color: {
+			default: color.textMuted,
+			":hover": color.textSoft,
+		},
+	},
+	layoutSegmentButtonActive: {
+		backgroundColor: color.controlActive,
+		backgroundImage: effect.controlDepthHover,
+		borderColor: color.borderStrong,
+		boxShadow: shadow.selectedRing,
+		color: color.textMain,
 	},
 	navItem: {
 		alignItems: "center",
@@ -1020,8 +1543,10 @@ const styles = stylex.create({
 		marginInline: "0.375rem",
 		paddingInline: controlSize._2,
 		transitionDuration: "150ms",
-		transitionProperty: "background-color, border-color, color",
+		transitionProperty:
+			"background-color, background-image, border-color, box-shadow, color",
 		transitionTimingFunction: "ease",
+		width: "calc(100% - 0.75rem)",
 	},
 	navItemOpen: {
 		height: controlSize._7,
@@ -1032,12 +1557,50 @@ const styles = stylex.create({
 		paddingInline: controlSize._2,
 		width: controlSize._8,
 	},
+	navItemWithAction: {
+		paddingRight: controlSize._8,
+	},
+	navItemActionWrap: {
+		position: "relative",
+		width: "100%",
+	},
+	navItemInlineAction: {
+		alignItems: "center",
+		backgroundColor: color.transparent,
+		borderColor: color.transparent,
+		borderRadius: 6,
+		borderStyle: "solid",
+		borderWidth: 1,
+		color: color.textMuted,
+		display: "flex",
+		height: controlSize._5,
+		justifyContent: "center",
+		position: "absolute",
+		right: "0.75rem",
+		top: controlSize._1,
+		transitionDuration: "150ms",
+		transitionProperty: "background-color, color",
+		transitionTimingFunction: "ease",
+		width: controlSize._5,
+		":hover": {
+			backgroundColor: color.surfaceControl,
+			color: color.textMain,
+		},
+	},
 	navItemIdle: {
 		backgroundColor: {
-			default: "transparent",
-			":hover": color.backgroundRaised,
+			default: color.transparent,
+			":hover": color.transparent,
 		},
-		borderColor: "transparent",
+		backgroundImage: {
+			default: "none",
+			":hover": "none",
+		},
+		borderColor: color.transparent,
+		boxShadow: {
+			default: "none",
+			":hover": "none",
+		},
 		color: {
 			default: color.textSoft,
 			":hover": color.textMain,
@@ -1045,7 +1608,9 @@ const styles = stylex.create({
 	},
 	navItemActive: {
 		backgroundColor: color.controlActive,
-		borderColor: color.border,
+		backgroundImage: effect.controlDepthHover,
+		borderColor: color.borderStrong,
+		boxShadow: shadow.selectedRing,
 		color: color.textMain,
 	},
 	workspaceSection: {
@@ -1084,52 +1649,321 @@ const styles = stylex.create({
 		gap: controlSize._1,
 		padding: "0.375rem",
 	},
-	footerButton: {
+	commandBackdrop: {
 		alignItems: "center",
-		borderColor: "transparent",
+		backgroundColor: "rgba(0, 0, 0, 0.42)",
+		display: "flex",
+		inset: 0,
+		justifyContent: "center",
+		padding: controlSize._4,
+		position: "fixed",
+		zIndex: 140,
+	},
+	commandPanel: {
+		backgroundColor: color.backgroundRaised,
+		backgroundImage: effect.popoverDepth,
+		borderColor: color.border,
+		borderRadius: 10,
+		borderStyle: "solid",
+		borderWidth: 1,
+		boxShadow: shadow.modal,
+		display: "flex",
+		flexDirection: "column",
+		overflow: "hidden",
+		width: "min(34rem, calc(100vw - 2rem))",
+	},
+	commandSearchRow: {
+		alignItems: "center",
+		borderBottomColor: color.border,
+		borderBottomStyle: "solid",
+		borderBottomWidth: 1,
+		display: "flex",
+		gap: controlSize._2,
+		paddingBlock: controlSize._2,
+		paddingInline: controlSize._3,
+	},
+	commandSearchIcon: {
+		color: color.textMuted,
+		flexShrink: 0,
+	},
+	commandInput: {
+		backgroundColor: color.transparent,
+		borderWidth: 0,
+		color: color.textMain,
+		flex: 1,
+		fontSize: font.size_3,
+		minWidth: 0,
+		outline: "none",
+		"::placeholder": {
+			color: color.textMuted,
+		},
+	},
+	commandShortcut: {
+		color: color.textMuted,
+		flexShrink: 0,
+		fontSize: font.size_1,
+		fontWeight: font.weight_5,
+	},
+	commandLayoutPanel: {
+		borderBottomColor: color.border,
+		borderBottomStyle: "solid",
+		borderBottomWidth: 1,
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._2,
+		padding: controlSize._3,
+	},
+	commandLayoutHeader: {
+		alignItems: "center",
+		display: "flex",
+		justifyContent: "space-between",
+	},
+	commandLayoutTitle: {
+		color: color.textMain,
+		fontSize: font.size_2,
+		fontWeight: font.weight_6,
+	},
+	commandLayoutHint: {
+		color: color.textMuted,
+		fontSize: font.size_1,
+		fontWeight: font.weight_5,
+	},
+	commandLayoutModes: {
+		display: "grid",
+		gap: controlSize._2,
+		gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+	},
+	commandLayoutCard: {
+		alignItems: "center",
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.transparent,
+		},
+		backgroundImage: "none",
+		borderColor: color.transparent,
+		borderRadius: 8,
+		borderStyle: "solid",
+		borderWidth: 1,
+		boxShadow: "none",
+		color: {
+			default: color.textSoft,
+			":hover": color.textMain,
+		},
+		display: "flex",
+		gap: controlSize._2,
+		minWidth: 0,
+		paddingBlock: controlSize._2,
+		paddingInline: controlSize._2,
+		textAlign: "left",
+		transitionDuration: "150ms",
+		transitionProperty:
+			"background-color, background-image, border-color, box-shadow, color",
+		transitionTimingFunction: "ease",
+	},
+	commandLayoutCardActive: {
+		backgroundColor: color.controlActive,
+		backgroundImage: effect.controlDepthHover,
+		borderColor: color.borderStrong,
+		boxShadow: shadow.selectedRing,
+		color: color.textMain,
+	},
+	commandLayoutPreviewGrid: {
+		display: "grid",
+		flexShrink: 0,
+		gap: 2,
+		gridTemplateColumns: "repeat(2, 8px)",
+		width: 18,
+	},
+	commandLayoutPreviewRows: {
+		display: "grid",
+		flexShrink: 0,
+		gap: 2,
+		width: 18,
+	},
+	commandLayoutPreviewCell: {
+		backgroundColor: "currentColor",
+		borderRadius: 2,
+		height: 8,
+		opacity: 0.74,
+		width: 8,
+	},
+	commandLayoutPreviewRow: {
+		backgroundColor: "currentColor",
+		borderRadius: 2,
+		height: 4,
+		opacity: 0.74,
+		width: 18,
+	},
+	commandLayoutCardText: {
+		display: "flex",
+		flexDirection: "column",
+		gap: 1,
+		minWidth: 0,
+	},
+	commandLayoutCardLabel: {
+		fontSize: font.size_2,
+		fontWeight: font.weight_6,
+	},
+	commandLayoutCardDetail: {
+		color: color.textMuted,
+		fontSize: font.size_1,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
+	commandLayoutSizePanel: {
+		display: "grid",
+		gap: controlSize._2,
+		gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+	},
+	commandLayoutSizeGroup: {
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._1,
+		minWidth: 0,
+	},
+	commandLayoutSizeLabel: {
+		color: color.textMuted,
+		fontSize: font.size_1,
+		fontWeight: font.weight_6,
+		textTransform: "uppercase",
+	},
+	commandLayoutSizeButtons: {
+		display: "grid",
+		gap: controlSize._1,
+		gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+	},
+	commandLayoutSizeButton: {
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.transparent,
+		},
+		backgroundImage: "none",
+		borderColor: color.transparent,
+		borderRadius: 6,
+		borderStyle: "solid",
+		borderWidth: 1,
+		boxShadow: "none",
+		color: {
+			default: color.textSoft,
+			":hover": color.textMain,
+		},
+		fontSize: font.size_2,
+		fontWeight: font.weight_6,
+		height: controlSize._6,
+		transitionDuration: "150ms",
+		transitionProperty:
+			"background-color, background-image, border-color, box-shadow, color",
+		transitionTimingFunction: "ease",
+	},
+	commandLayoutSizeButtonActive: {
+		backgroundColor: color.controlActive,
+		backgroundImage: effect.controlDepthHover,
+		borderColor: color.borderStrong,
+		boxShadow: shadow.selectedRing,
+		color: color.textMain,
+	},
+	commandResults: {
+		maxHeight: "20rem",
+		overflowY: "auto",
+		paddingBlock: controlSize._1,
+	},
+	commandEmpty: {
+		color: color.textMuted,
+		fontSize: font.size_2,
+		paddingBlock: controlSize._4,
+		paddingInline: controlSize._3,
+		textAlign: "center",
+	},
+	commandResult: {
+		alignItems: "center",
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.surfaceControl,
+		},
+		borderWidth: 0,
+		color: color.textSoft,
+		display: "grid",
+		gap: controlSize._2,
+		gridTemplateColumns: "1.25rem minmax(0, 1fr)",
+		paddingBlock: controlSize._2,
+		paddingInline: controlSize._3,
+		textAlign: "left",
+		width: "100%",
+	},
+	commandResultActive: {
+		backgroundColor: color.controlActive,
+		backgroundImage: effect.controlDepthHover,
+		color: color.textMain,
+	},
+	commandResultIcon: {
+		alignItems: "center",
+		color: "currentColor",
+		display: "flex",
+		height: controlSize._5,
+		justifyContent: "center",
+		opacity: 0.78,
+		width: controlSize._5,
+	},
+	commandResultText: {
+		display: "flex",
+		flexDirection: "column",
+		gap: 1,
+		minWidth: 0,
+	},
+	commandResultLabel: {
+		fontSize: font.size_2,
+		fontWeight: font.weight_5,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
+	commandResultDetail: {
+		color: color.textMuted,
+		fontSize: font.size_1,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
+	profileButton: {
+		alignItems: "center",
 		borderRadius: 8,
 		borderStyle: "solid",
 		borderWidth: 1,
 		display: "flex",
 		fontSize: "0.6875rem",
 		fontWeight: font.weight_5,
-		gap: controlSize._2,
+		gap: controlSize._1,
 		transitionDuration: "150ms",
-		transitionProperty: "background-color, border-color, color",
+		transitionProperty:
+			"background-color, background-image, border-color, box-shadow, color",
 		transitionTimingFunction: "ease",
 	},
-	footerButtonOpen: {
-		height: controlSize._7,
-		paddingInline: controlSize._2,
-		width: "100%",
-	},
-	footerButtonCollapsed: {
-		height: controlSize._7,
-		marginInline: 0,
-		paddingInline: controlSize._2,
-		width: controlSize._8,
-	},
-	footerButtonIdle: {
+	profileButtonIdle: {
 		backgroundColor: {
-			default: "transparent",
-			":hover": color.backgroundRaised,
+			default: color.transparent,
+			":hover": color.transparent,
+		},
+		backgroundImage: {
+			default: "none",
+			":hover": "none",
+		},
+		borderColor: color.transparent,
+		boxShadow: {
+			default: "none",
+			":hover": "none",
 		},
 		color: {
 			default: color.textSoft,
 			":hover": color.textMain,
 		},
 	},
-	profileButton: {
-		alignItems: "center",
-		borderColor: "transparent",
-		borderRadius: 8,
-		borderStyle: "solid",
-		borderWidth: 1,
-		color: color.textSoft,
-		display: "flex",
-		fontSize: "0.6875rem",
-		fontWeight: font.weight_5,
-		gap: controlSize._1,
+	profileButtonActive: {
+		backgroundColor: color.controlActive,
+		backgroundImage: effect.controlDepthHover,
+		borderColor: color.borderStrong,
+		boxShadow: shadow.selectedRing,
+		color: color.textMain,
 	},
 	profileButtonOpen: {
 		height: controlSize._7,

@@ -12,11 +12,8 @@ import {
 import { Panel, PanelHeader } from "../../components/ui/Surface.tsx";
 import { TextInput } from "../../components/ui/TextInput.tsx";
 import {
-	WorkspaceButton,
 	WorkspaceContent,
 	WorkspacePage,
-	WorkspaceToolbar,
-	WorkspaceToolbarSpacer,
 } from "../../components/ui/WorkspacePage.tsx";
 import type { AgentAccountProviderStatus } from "../../features/agents/agent-account-status.ts";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
@@ -32,7 +29,6 @@ import {
 	fetchGithubRepos,
 	getCachedForgeAccounts,
 	getCachedGithubRepos,
-	invalidateForgeAccountsCache,
 	invalidateGithubReposCache,
 } from "../../features/forge/forge-client.ts";
 import type { GithubRepo } from "../../features/forge/types.ts";
@@ -43,6 +39,7 @@ import { fetchJsonOr, sendJsonWithBusy } from "../../lib/fetch-json.ts";
 import { removeStoredValue } from "../../lib/stored-json.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 import { ONBOARDING_DONE_KEY } from "../OnboardingPage/index.tsx";
+import { TerminalSettingsContent } from "../Terminal/TerminalSettingsPanel.tsx";
 import { ProfileAgentAccountCard } from "./ProfileAgentAccountCard.tsx";
 import { ProfileGithubEmptyState, ProfileRepoRow } from "./ProfileGithub.tsx";
 import {
@@ -71,7 +68,6 @@ export function ProfilePage() {
 		data: accounts,
 		loading: accountsLoading,
 		error: accountsError,
-		refresh: refreshAccounts,
 	} = useAsyncResource(fetchForgeAccounts, initialAccounts, []);
 	const loadState: LoadState = accountsLoading
 		? "loading"
@@ -238,15 +234,6 @@ export function ProfilePage() {
 		}
 	};
 
-	const loadAccounts = useCallback(
-		async (force = false) => {
-			setError(null);
-			if (force) invalidateForgeAccountsCache();
-			await refreshAccounts();
-		},
-		[refreshAccounts]
-	);
-
 	const loadRepos = useCallback(
 		async (force = false) => {
 			setError(null);
@@ -327,28 +314,6 @@ export function ProfilePage() {
 
 	return (
 		<WorkspacePage>
-			<WorkspaceToolbar>
-				<WorkspaceToolbarSpacer />
-				<WorkspaceButton
-					type="button"
-					onClick={() => void loadAccounts(true)}
-					variant="secondary"
-				>
-					<IconRefreshCw size={12} />
-					Refresh
-				</WorkspaceButton>
-				{!activeAccount ? (
-					<WorkspaceButton
-						type="button"
-						onClick={connectGithub}
-						variant="primary"
-						disabled={connecting}
-					>
-						<IconTerminal size={12} />
-						Connect
-					</WorkspaceButton>
-				) : null}
-			</WorkspaceToolbar>
 			<WorkspaceContent scroll>
 				<div {...stylex.props(styles.content)}>
 					<section {...stylex.props(styles.profileSummary)}>
@@ -410,6 +375,14 @@ export function ProfilePage() {
 							) : null}
 						</div>
 					</section>
+
+					<Panel>
+						<PanelHeader
+							title="Appearance"
+							description="Choose the app theme, diff syntax theme, and project search folders."
+						/>
+						<TerminalSettingsContent showVersion={false} />
+					</Panel>
 
 					<Panel>
 						<PanelHeader

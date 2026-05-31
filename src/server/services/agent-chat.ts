@@ -713,7 +713,7 @@ export const ChatService = {
 		cwd?: string,
 		referencePaths?: string[],
 		clientSessionId?: string | null,
-		agentKind: ChatAgentKind = "claude",
+		agentKind: ChatAgentKind = "codex",
 		model?: string,
 		reasoningLevel?: string,
 		systemPrefix?: string
@@ -1034,6 +1034,16 @@ export const ChatService = {
 					...view,
 				};
 			});
+	},
+
+	clearGoal(paneId: string): boolean {
+		const session = sessions.get(paneId);
+		if (!session?.goal) return false;
+		session.goal = null;
+		const message = "Goal cleared";
+		session.messageBuffer.pushSystem(message);
+		broadcast(session, { type: "chat:system", paneId, message });
+		return true;
 	},
 
 	destroyAll() {

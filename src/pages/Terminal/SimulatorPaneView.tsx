@@ -25,14 +25,14 @@ import {
 	IconSimulator,
 	IconSwift,
 } from "../../components/ui/Icons.tsx";
-import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
-import { hasId, hasUdid, noop, toggleBoolean } from "../../lib/data.ts";
 import { isBootedSimulatorDevice } from "../../features/simulator/simulator-utils.ts";
 import type {
 	BaguetteStatus,
 	SimulatorDevice,
 	SimulatorProject,
 } from "../../features/simulator/types.ts";
+import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
+import { hasId, hasUdid, noop, toggleBoolean } from "../../lib/data.ts";
 import {
 	readStoredJson,
 	readStoredValue,
@@ -592,11 +592,11 @@ export function SimulatorPaneView() {
 		[projects]
 	);
 	const selectedDeviceProject = selectedDevice
-		? (projectById.get(deviceProjectIds[selectedDevice.udid]) ?? null)
+		? (projectById.get(deviceProjectIds[selectedDevice.udid] ?? "") ?? null)
 		: null;
 	const projectNameForDevice = useCallback(
 		(device: SimulatorDevice) =>
-			projectById.get(deviceProjectIds[device.udid])?.name ?? null,
+			projectById.get(deviceProjectIds[device.udid] ?? "")?.name ?? null,
 		[deviceProjectIds, projectById]
 	);
 	const filteredProjects = useMemo(() => {

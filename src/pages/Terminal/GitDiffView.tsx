@@ -36,9 +36,11 @@ import { type Token, tokenizeLine } from "../../lib/syntax-tokens.ts";
 import {
 	color,
 	controlSize,
+	effect,
 	font,
 	motion,
 	radius,
+	shadow,
 } from "../../tokens.stylex.ts";
 
 export type DiffViewMode = "split" | "hunks";
@@ -171,6 +173,7 @@ const diffStyles = stylex.create({
 	},
 	toolbar: {
 		display: "flex",
+		height: controlSize._10,
 		flexShrink: 0,
 		alignItems: "center",
 		justifyContent: "flex-end",
@@ -179,19 +182,20 @@ const diffStyles = stylex.create({
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
 		backgroundColor: color.background,
-		paddingBlock: controlSize._1_5,
 		paddingInline: controlSize._3,
 	},
 	segmented: {
 		display: "flex",
-		height: controlSize._5,
+		height: controlSize._7,
 		alignItems: "center",
 		overflow: "hidden",
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		borderRadius: radius.md,
+		borderRadius: radius.lg,
 		backgroundColor: color.backgroundRaised,
+		backgroundImage: effect.controlDepth,
+		boxShadow: shadow.controlDepth,
 	},
 	viewButton: {
 		display: "flex",
@@ -204,11 +208,18 @@ const diffStyles = stylex.create({
 		transitionDuration: motion.durationFast,
 		backgroundColor: {
 			default: color.transparent,
-			":hover": color.controlHover,
+			":hover": color.surfaceControl,
+		},
+		backgroundImage: {
+			default: "none",
+			":hover": effect.controlDepth,
 		},
 	},
 	viewButtonActive: {
 		backgroundColor: color.controlActive,
+		backgroundImage: effect.controlDepthHover,
+		boxShadow:
+			"inset 0 1px 10px rgba(0, 0, 0, 0.26), inset 0 -1px 0 rgba(255, 255, 255, 0.035)",
 		color: color.textMain,
 	},
 	header: {
@@ -414,6 +425,12 @@ const diffStyles = stylex.create({
 		lineHeight: `${LINE_H}px`,
 		paddingInline: controlSize._2,
 	},
+	hunkText: {
+		minWidth: 0,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
 	spacer: {
 		backgroundColor: "rgba(255,255,255,0.02)",
 		backgroundImage:
@@ -528,7 +545,7 @@ const DiffRow = memo(function DiffRow({
 					paddingLeft: hideGutter ? GUTTER_W + 8 : undefined,
 				}}
 			>
-				{line.content}
+				<span {...stylex.props(diffStyles.hunkText)}>{line.content}</span>
 			</div>
 		);
 	}
@@ -1519,7 +1536,6 @@ export const GitDiffView = memo(function GitDiffView({
 		if (oversizedMessage) return [];
 		return buildInlineHunkLines(diff.oldLines, diff.newLines);
 	}, [diff.oldLines, diff.newLines, oversizedMessage]);
-
 	if (loading) {
 		return (
 			<div {...stylex.props(diffStyles.centerState)}>

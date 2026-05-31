@@ -3,20 +3,19 @@ import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { AgentKind } from "../../features/agents/agents.ts";
-import { PROJECT_ROOT } from "../../lib/path-utils.ts";
+import {
+	createAgentEnv,
+	resolveInteractiveAgentCommand,
+} from "../../features/terminal/terminal-command.ts";
 import {
 	compareName,
-	comparePort,
 	hasPid,
 	hasPpid,
 	isFirstPath,
 	ppidNotIn,
 } from "../../lib/data.ts";
+import { PROJECT_ROOT } from "../../lib/path-utils.ts";
 import { badRequest, tryRoute } from "../../lib/route-helpers.ts";
-import {
-	createAgentEnv,
-	resolveInteractiveAgentCommand,
-} from "../../features/terminal/terminal-command.ts";
 import { isAllowedLocalPath, resolveAllowedLocalPath } from "../security.ts";
 import { ChatService } from "../services/agent-chat.ts";
 import { ConfigManager } from "../services/config-manager.ts";
@@ -426,121 +425,6 @@ async function findQuickPicks(): Promise<
 		.map(({ name, path, isGitRepo }) => ({ name, path, isGitRepo }));
 }
 
-interface RunningPort {
-	port: number;
-	pid: number;
-	command: string;
-	name: string;
-}
-
-const DEV_PORT_RANGES = [{ start: 3000, end: 4000 }];
-const DEV_COMMANDS = new Set([
-	"node",
-	"bun",
-	"deno",
-	"ruby",
-	"rails",
-	"go",
-	"cargo",
-	"java",
-	"gradle",
-	"php",
-	"artisan",
-	"nginx",
-	"caddy",
-]);
-const EXCLUDED_COMMANDS = new Set([
-	"rapportd",
-	"airportd",
-	"configd",
-	"mDNSResponder",
-	"ControlCe",
-	"ControlCenter",
-]);
-
-function isDevPort(port: number): boolean {
-	return DEV_PORT_RANGES.some(
-		(range) => port >= range.start && port <= range.end
-	);
-}
-
-async function getRunningPorts(): Promise<RunningPort[]> {
-	try {
-		if (isWin) {
-			const output = (await Bun.$`netstat -ano`.quiet().nothrow()).text();
-			const ports: RunningPort[] = [];
-			const seenPorts = new Set<number>();
-
-			for (const line of output.trim().split("\n")) {
-				if (!line.includes("LISTENING")) continue;
-				const parts = line.trim().split(/\s+/);
-				if (parts.length < 5) continue;
-				const localAddress = parts[1];
-				const pidText = parts[4];
-				if (!localAddress || !pidText) continue;
-				const portMatch = localAddress.match(/:(\d+)$/);
-				if (!portMatch) continue;
-				const port = parseInt(portMatch[1]!, 10);
-				const pid = parseInt(pidText, 10);
-				if (seenPorts.has(port) || !isDevPort(port)) continue;
-				seenPorts.add(port);
-				ports.push({ port, pid, command: "unknown", name: `port ${port}` });
-			}
-			return ports.sort(comparePort);
-		}
-
-		const output = (
-			await Bun.$`/usr/sbin/lsof -i -P -n -sTCP:LISTEN`.quiet().nothrow()
-		).text();
-		const ports: RunningPort[] = [];
-		const seenPorts = new Set<number>();
-
-		for (const line of output.trim().split("\n").slice(1)) {
-			const parts = line.split(/\s+/);
-			if (parts.length < 9) continue;
-
-			const command = parts[0];
-			const pidText = parts[1];
-			const nameText = parts[8];
-			if (!command || !pidText || !nameText) continue;
-			const pid = parseInt(pidText, 10);
-			const portMatch = nameText.match(/:(\d+)$/);
-			if (!portMatch) continue;
-
-			const port = parseInt(portMatch[1]!, 10);
-			if (seenPorts.has(port) || EXCLUDED_COMMANDS.has(command)) continue;
-			if (!isDevPort(port) && !DEV_COMMANDS.has(command)) continue;
-			seenPorts.add(port);
-
-			const nameMap: Record<string, string> = {
-				node: "node server",
-				bun: "bun server",
-				ruby: "Ruby server",
-				nginx: "nginx",
-			};
-			ports.push({ port, pid, command, name: nameMap[command] || command });
-		}
-
-		return ports.sort(comparePort);
-	} catch {
-		return [];
-	}
-}
-
-async function killPort(pid: number): Promise<{ ok: boolean; error?: string }> {
-	try {
-		await (isWin
-			? Bun.$`taskkill /PID ${pid} /F`.quiet()
-			: Bun.$`kill -9 ${pid}`.quiet());
-		return { ok: true };
-	} catch (e) {
-		return {
-			ok: false,
-			error: e instanceof Error ? e.message : "Failed to kill process",
-		};
-	}
-}
-
 interface ClaudeProcess {
 	pid: number;
 	ppid: number;
@@ -671,25 +555,6 @@ export function terminalRoutes() {
 		},
 		"/api/terminal/agent-sessions": {
 			GET: () => Response.json({ sessions: ChatService.listSessions() }),
-		},
-		"/api/terminal/ports": {
-			GET: tryRoute(async () =>
-				Response.json({ ports: await getRunningPorts() })
-			),
-		},
-		"/api/terminal/ports/kill": {
-			POST: tryRoute(async (req) => {
-				const parsed = await requirePid(req);
-				if (parsed instanceof Response) return parsed;
-				const ports = await getRunningPorts();
-				if (!ports.some(hasPid.bind(null, parsed.pid))) {
-					return Response.json(
-						{ error: "PID is not a listed port" },
-						{ status: 403 }
-					);
-				}
-				return Response.json(await killPort(parsed.pid));
-			}),
 		},
 		"/api/terminal/claude-processes": {
 			GET: tryRoute(async () =>

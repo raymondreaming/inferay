@@ -32,11 +32,20 @@ import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import { setInputValue } from "../../lib/react-events.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 
-interface TerminalSettingsPanelProps {
-	themeId: ThemeId;
-	onThemeChange: (id: ThemeId) => void;
-	onClose: () => void;
+interface TerminalSettingsContentProps {
+	themeId?: ThemeId;
+	onThemeChange?: (id: ThemeId) => void;
+	showVersion?: boolean;
 }
+
+const HIDDEN_APP_THEME_IDS = new Set<AppThemeId>([
+	"githubLight",
+	"solarizedLight",
+]);
+const VISIBLE_APP_THEMES = APP_THEMES.filter(
+	(theme) => !HIDDEN_APP_THEME_IDS.has(theme.id)
+);
+const ENABLE_CUSTOM_THEME_PICKER = false;
 
 function ColorInput({
 	label,
@@ -249,12 +258,18 @@ function SearchFoldersSection() {
 	);
 }
 
-export const TerminalSettingsPanel = memo(function TerminalSettingsPanel({
+export const TerminalSettingsContent = memo(function TerminalSettingsContent({
 	themeId,
 	onThemeChange,
-	onClose,
-}: TerminalSettingsPanelProps) {
+	showVersion = true,
+}: TerminalSettingsContentProps) {
 	const [appThemeId, setAppThemeId] = useState<AppThemeId>(loadAppThemeId);
+	const [terminalThemeId, setTerminalThemeId] = useState<ThemeId>(() => {
+		const state = loadTerminalState();
+		return (
+			themeId ?? state?.themeId ?? mapAppThemeToTerminalTheme(loadAppThemeId())
+		);
+	});
 	const [syntaxTheme, setSyntaxTheme] = useSyntaxHighlightTheme();
 	const { data: appInfo } = useAppInfo();
 
@@ -264,7 +279,8 @@ export const TerminalSettingsPanel = memo(function TerminalSettingsPanel({
 			saveAppThemeId(id);
 			applyAppTheme(id);
 			const termThemeId = mapAppThemeToTerminalTheme(id);
-			onThemeChange(termThemeId);
+			setTerminalThemeId(termThemeId);
+			onThemeChange?.(termThemeId);
 			const state = loadTerminalState();
 			if (state) {
 				saveTerminalState({ ...state, themeId: termThemeId });
@@ -280,8 +296,8 @@ export const TerminalSettingsPanel = memo(function TerminalSettingsPanel({
 			setCustom((prev) => {
 				const next = { ...prev, ...patch };
 				saveCustomTheme(next);
-				if (themeId === "custom") {
-					onThemeChange("custom");
+				if (terminalThemeId === "custom") {
+					onThemeChange?.("custom");
 					const state = loadTerminalState();
 					if (state) {
 						saveTerminalState({ ...state, themeId: "custom" });
@@ -291,173 +307,113 @@ export const TerminalSettingsPanel = memo(function TerminalSettingsPanel({
 				return next;
 			});
 		},
-		[themeId, onThemeChange]
+		[terminalThemeId, onThemeChange]
 	);
 	useEffect(() => {
-		if (themeId === "custom") saveCustomTheme(custom);
-	}, [custom, themeId]);
+		if (themeId) setTerminalThemeId(themeId);
+	}, [themeId]);
+	useEffect(() => {
+		if (terminalThemeId === "custom") saveCustomTheme(custom);
+	}, [custom, terminalThemeId]);
 	const isCustom = appThemeId === "custom";
 
 	return (
-		<>
-			<div
-				role="presentation"
-				{...stylex.props(styles.backdrop)}
-				onClick={onClose}
-			/>
-			<div {...stylex.props(styles.panel)}>
-				<div {...stylex.props(styles.panelHeader)}>
-					<span {...stylex.props(styles.panelTitle)}>THEME</span>
-					<IconButton
-						type="button"
-						onClick={onClose}
-						variant="ghost"
-						size="xs"
-						title="Close"
-					>
-						<IconX size={10} />
-					</IconButton>
-				</div>
-				<div {...stylex.props(styles.panelBody)}>
-					<div>
-						<div {...stylex.props(styles.themeGrid)}>
-							{APP_THEMES.map((t) => (
-								<ThemeOrb
-									key={t.id}
-									theme={t}
-									selected={appThemeId === t.id}
-									onClick={() => handleThemeChange(t.id)}
-								/>
-							))}
-							<ThemeOrb
-								theme={{
-									id: "custom",
-									name: "Custom",
-									colors: {
-										accent: custom.cursor,
-										darkGray: custom.bg,
-										black: custom.bg,
-									},
-								}}
-								selected={isCustom}
-								onClick={() => handleThemeChange("custom")}
-								dashed
-							/>
-						</div>
-					</div>
-					{isCustom && (
-						<>
-							<div {...stylex.props(styles.divider)} />
-							<div {...stylex.props(styles.section)}>
-								<h4
-									{...stylex.props(styles.sectionHeading, styles.customHeading)}
-								>
-									CUSTOM COLORS
-								</h4>
-								<div {...stylex.props(styles.colorList)}>
-									<ColorInput
-										label="Background"
-										value={custom.bg}
-										onChange={(v) => updateCustom({ bg: v })}
-									/>
-									<ColorInput
-										label="Foreground"
-										value={custom.fg}
-										onChange={(v) => updateCustom({ fg: v })}
-									/>
-									<ColorInput
-										label="Cursor"
-										value={custom.cursor}
-										onChange={(v) => updateCustom({ cursor: v })}
-									/>
-									<ColorInput
-										label="Separator"
-										value={custom.separator}
-										onChange={(v) => updateCustom({ separator: v })}
-									/>
-								</div>
-								<div
-									{...stylex.props(styles.terminalPreview)}
-									style={{ backgroundColor: custom.bg, color: custom.fg }}
-								>
-									<span style={{ color: custom.cursor }}>$</span> terminal-gui
-									start
-									<br />
-									<span style={{ opacity: 0.6 }}>Loading...</span>
-									<br />
-									<span style={{ color: custom.cursor }}>✓</span> Ready
-								</div>
-							</div>
-						</>
-					)}
+		<div {...stylex.props(styles.panelBody)}>
+			<div {...stylex.props(styles.themeGrid)}>
+				{VISIBLE_APP_THEMES.map((t) => (
+					<ThemeOrb
+						key={t.id}
+						theme={t}
+						selected={appThemeId === t.id}
+						onClick={() => handleThemeChange(t.id)}
+					/>
+				))}
+				{ENABLE_CUSTOM_THEME_PICKER && (
+					<ThemeOrb
+						theme={{
+							id: "custom",
+							name: "Custom",
+							colors: {
+								accent: custom.cursor,
+								darkGray: custom.bg,
+								black: custom.bg,
+							},
+						}}
+						selected={isCustom}
+						onClick={() => handleThemeChange("custom")}
+						dashed
+					/>
+				)}
+			</div>
+			{ENABLE_CUSTOM_THEME_PICKER && isCustom && (
+				<>
 					<div {...stylex.props(styles.divider)} />
 					<div {...stylex.props(styles.section)}>
-						<h4 {...stylex.props(styles.sectionHeading)}>DIFFS</h4>
-						<p {...stylex.props(styles.sectionDescription)}>
-							Syntax highlighting used by full file diffs and inline agent edit
-							diffs.
-						</p>
-						<DropdownButton
-							value={syntaxTheme}
-							options={SYNTAX_HIGHLIGHT_THEMES}
-							onChange={(id) => setSyntaxTheme(id as SyntaxHighlightTheme)}
-							placeholder="Syntax theme"
-							fullWidth
-							buttonClassName={stylex.props(styles.syntaxThemeButton).className}
-							labelClassName={stylex.props(styles.syntaxThemeLabel).className}
-						/>
+						<h4 {...stylex.props(styles.sectionHeading, styles.customHeading)}>
+							CUSTOM COLORS
+						</h4>
+						<div {...stylex.props(styles.colorList)}>
+							<ColorInput
+								label="Background"
+								value={custom.bg}
+								onChange={(v) => updateCustom({ bg: v })}
+							/>
+							<ColorInput
+								label="Foreground"
+								value={custom.fg}
+								onChange={(v) => updateCustom({ fg: v })}
+							/>
+							<ColorInput
+								label="Cursor"
+								value={custom.cursor}
+								onChange={(v) => updateCustom({ cursor: v })}
+							/>
+							<ColorInput
+								label="Separator"
+								value={custom.separator}
+								onChange={(v) => updateCustom({ separator: v })}
+							/>
+						</div>
+						<div
+							{...stylex.props(styles.terminalPreview)}
+							style={{ backgroundColor: custom.bg, color: custom.fg }}
+						>
+							<span style={{ color: custom.cursor }}>$</span> terminal-gui start
+							<br />
+							<span style={{ opacity: 0.6 }}>Loading...</span>
+							<br />
+							<span style={{ color: custom.cursor }}>✓</span> Ready
+						</div>
 					</div>
-					<div {...stylex.props(styles.divider)} />
-					<SearchFoldersSection />
-					<p {...stylex.props(styles.versionText)}>inferay {appInfo.version}</p>
-				</div>
+				</>
+			)}
+			<div {...stylex.props(styles.divider)} />
+			<div {...stylex.props(styles.section)}>
+				<h4 {...stylex.props(styles.sectionHeading)}>DIFFS</h4>
+				<p {...stylex.props(styles.sectionDescription)}>
+					Syntax highlighting used by full file diffs and inline agent edit
+					diffs.
+				</p>
+				<DropdownButton
+					value={syntaxTheme}
+					options={SYNTAX_HIGHLIGHT_THEMES}
+					onChange={(id) => setSyntaxTheme(id as SyntaxHighlightTheme)}
+					placeholder="Syntax theme"
+					fullWidth
+					buttonClassName={stylex.props(styles.syntaxThemeButton).className}
+					labelClassName={stylex.props(styles.syntaxThemeLabel).className}
+				/>
 			</div>
-		</>
+			<div {...stylex.props(styles.divider)} />
+			<SearchFoldersSection />
+			{showVersion ? (
+				<p {...stylex.props(styles.versionText)}>inferay {appInfo.version}</p>
+			) : null}
+		</div>
 	);
 });
 
 const styles = stylex.create({
-	backdrop: {
-		position: "fixed",
-		inset: 0,
-		zIndex: 50,
-		backgroundColor: "rgba(0, 0, 0, 0.3)",
-	},
-	panel: {
-		position: "fixed",
-		right: controlSize._3,
-		top: controlSize._8,
-		zIndex: 51,
-		width: "330px",
-		maxHeight: "calc(100vh - 3rem)",
-		overflowY: "auto",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: controlSize._3,
-		backgroundColor: color.background,
-		boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.7)",
-	},
-	panelHeader: {
-		position: "sticky",
-		top: 0,
-		zIndex: 10,
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "space-between",
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
-		borderBottomColor: color.border,
-		backgroundColor: color.background,
-		paddingBlock: "0.625rem",
-		paddingInline: controlSize._4,
-	},
-	panelTitle: {
-		color: color.textMuted,
-		fontSize: font.size_2,
-		fontWeight: 700,
-		letterSpacing: "0.08em",
-	},
 	panelBody: {
 		display: "flex",
 		flexDirection: "column",

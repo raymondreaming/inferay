@@ -3,7 +3,6 @@ import { lazy, type ReactElement, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Sidebar } from "./components/layout/Sidebar.tsx";
-import { TerminalShellHeader } from "./components/layout/TerminalShellHeader.tsx";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary.tsx";
 import { preloadPrompts } from "./features/prompts/usePrompts.ts";
 import {
@@ -16,13 +15,12 @@ import { hydrateStoredValues } from "./lib/client-storage-sync.ts";
 import { getServerOrigin, resolveServerUrl } from "./lib/server-origin.ts";
 import { readStoredBoolean } from "./lib/stored-json.ts";
 import { AutomationsPage } from "./pages/AutomationsPage";
-import { GitPage } from "./pages/GitPage";
 import { GoalsPage } from "./pages/GoalsPage";
 import { ImagesPage } from "./pages/ImagesPage";
 import { ONBOARDING_DONE_KEY, OnboardingPage } from "./pages/OnboardingPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { PromptsPage } from "./pages/PromptsPage";
-import { SimulatorsPage } from "./pages/SimulatorsPage";
+import { SessionsPage } from "./pages/SessionsPage";
 import {
 	colorTheme,
 	controlSizeTheme,
@@ -88,12 +86,11 @@ const root = createRoot(rootElement);
 function AppShell() {
 	const routeElements = {
 		terminal: <TerminalPage />,
-		git: <GitPage />,
+		sessions: <SessionsPage />,
 		prompts: <PromptsPage />,
 		goals: <GoalsPage />,
 		automations: <AutomationsPage />,
 		images: <ImagesPage />,
-		simulators: <SimulatorsPage />,
 		profile: <ProfilePage />,
 	} satisfies Record<AppRouteId, ReactElement>;
 
@@ -110,32 +107,26 @@ function AppShell() {
 	return (
 		<div
 			{...themeProps}
-			className={`flex h-screen flex-col bg-inferay-black ${themeProps.className ?? ""}`}
+			className={`flex h-screen bg-inferay-black ${themeProps.className ?? ""}`}
 		>
-			<div className="inferay-window-spacer electrobun-webkit-app-region-drag h-6 shrink-0 bg-inferay-black" />
-			<div className="flex min-h-0 flex-1">
-				<Sidebar />
-				<div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-					<TerminalShellHeader />
-					<main className="min-w-0 flex-1 overflow-hidden">
-						<Suspense fallback={null}>
-							<Routes>
-								{APP_PAGE_ROUTES.map((route) => (
-									<Route
-										key={route.id}
-										path={route.path}
-										element={routeElements[route.id]}
-									/>
-								))}
-								<Route
-									path="*"
-									element={<Navigate to={DEFAULT_APP_ROUTE} replace />}
-								/>
-							</Routes>
-						</Suspense>
-					</main>
-				</div>
-			</div>
+			<Sidebar />
+			<main className="min-w-0 flex-1 overflow-hidden">
+				<Suspense fallback={null}>
+					<Routes>
+						{APP_PAGE_ROUTES.map((route) => (
+							<Route
+								key={route.id}
+								path={route.path}
+								element={routeElements[route.id]}
+							/>
+						))}
+						<Route
+							path="*"
+							element={<Navigate to={DEFAULT_APP_ROUTE} replace />}
+						/>
+					</Routes>
+				</Suspense>
+			</main>
 		</div>
 	);
 }

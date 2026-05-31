@@ -1,15 +1,21 @@
 import * as stylex from "@stylexjs/stylex";
 import type React from "react";
-import { memo, useEffect, useRef } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { AgentChatHandle } from "../../components/chat/AgentChatView.tsx";
 import { AgentChatView } from "../../components/chat/AgentChatView.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
-import { IconTerminal, IconX } from "../../components/ui/Icons.tsx";
+import {
+	IconSend,
+	IconSimulator,
+	IconTerminal,
+	IconX,
+} from "../../components/ui/Icons.tsx";
 import {
 	getAgentDefinition,
 	isChatAgentKind,
 	loadDefaultChatSettings,
 } from "../../features/agents/agents.ts";
+import { dispatchComposerContextBlock } from "../../features/chat/composer-context.ts";
 import type {
 	AgentKind,
 	TerminalPaneModel,
@@ -22,10 +28,12 @@ import {
 	stopPropagationAndCall,
 } from "../../lib/react-events.ts";
 import { color, font } from "../../tokens.stylex.ts";
+import { SimulatorPaneView } from "./SimulatorPaneView.tsx";
 
 interface TerminalPaneViewProps {
 	pane: TerminalPaneModel;
 	isSelected: boolean;
+	isHighlighted?: boolean;
 	theme: TerminalTheme;
 	fontSize: number;
 	fontFamily: string;
@@ -46,9 +54,35 @@ interface TerminalPaneViewProps {
 	onSetPaneAgentKind?: (paneId: string, agentKind: AgentKind) => void;
 }
 
+const INTERACTIVE_PANE_FOCUS_SELECTOR = [
+	"button",
+	"a",
+	"input",
+	"textarea",
+	"select",
+	"summary",
+	'[contenteditable="true"]',
+	'[role="button"]',
+	'[role="menuitem"]',
+	'[role="option"]',
+	"[data-pane-focus-skip]",
+].join(",");
+
+function isInteractivePaneClickTarget(target: EventTarget | null) {
+	const targetElement =
+		typeof Element !== "undefined" && target instanceof Element
+			? target
+			: typeof Node !== "undefined" && target instanceof Node
+				? target.parentElement
+				: null;
+
+	return !!targetElement?.closest(INTERACTIVE_PANE_FOCUS_SELECTOR);
+}
+
 export const TerminalPaneView = memo(function TerminalPaneView({
 	pane,
 	isSelected,
+	isHighlighted = false,
 	theme,
 	fontSize,
 	fontFamily,
@@ -64,14 +98,18 @@ export const TerminalPaneView = memo(function TerminalPaneView({
 	onSetPaneAgentKind,
 }: TerminalPaneViewProps) {
 	const chatHandleRef = useRef<AgentChatHandle | null>(null);
+	const [selectedTerminalText, setSelectedTerminalText] = useState("");
+	const isSimulatorPane = pane.utilityPane === "simulator";
 	const viewAgentKind: AgentKind =
 		pane.pendingCwd && !isChatAgentKind(pane.agentKind)
 			? "claude"
 			: pane.agentKind;
 	const isAgentChatPane = isChatAgentKind(viewAgentKind);
-	const paneLabel = getAgentDefinition(viewAgentKind).label;
+	const paneLabel = isSimulatorPane
+		? "Simulator"
+		: getAgentDefinition(viewAgentKind).label;
 	const { containerRef, termRef, refit } = useXtermTerminal({
-		enabled: !isAgentChatPane && !pane.pendingCwd,
+		enabled: !isSimulatorPane && !isAgentChatPane && !pane.pendingCwd,
 		paneId: pane.id,
 		agentKind: pane.agentKind,
 		isClaude: pane.isClaude,
@@ -79,15 +117,58 @@ export const TerminalPaneView = memo(function TerminalPaneView({
 		theme,
 		fontSize,
 		fontFamily,
+		onSelectionChange: setSelectedTerminalText,
 	});
 
 	useEffect(() => {
-		if (isSelected && !isAgentChatPane) refit();
-	}, [isAgentChatPane, isSelected, refit]);
+		if (isSelected && !isSimulatorPane && !isAgentChatPane) {
+			refit();
+		}
+	}, [isAgentChatPane, isSelected, isSimulatorPane, refit]);
+	useEffect(() => {
+		if (isSimulatorPane || isAgentChatPane) setSelectedTerminalText("");
+	}, [isAgentChatPane, isSimulatorPane]);
+	const sendTerminalSelectionToAgent = useCallback(() => {
+		const content = selectedTerminalText.trim();
+		if (!content) return;
+		dispatchComposerContextBlock({
+			source: "terminal",
+			title: `Terminal output from ${new Date().toLocaleTimeString([], {
+				hour: "2-digit",
+				minute: "2-digit",
+			})}`,
+			subtitle: pane.cwd ?? pane.title,
+			content,
+		});
+		setSelectedTerminalText("");
+		termRef.current?.clearSelection();
+	}, [pane.cwd, pane.title, selectedTerminalText, termRef]);
+	const focusChatInput = useCallback(() => {
+		if (!isAgentChatPane) return;
+		const focusInput = () => chatHandleRef.current?.focusInput(true);
+		if (typeof window === "undefined") {
+			focusInput();
+			return;
+		}
+		if (typeof window.requestAnimationFrame === "function") {
+			window.requestAnimationFrame(focusInput);
+			return;
+		}
+		window.setTimeout(focusInput, 0);
+	}, [isAgentChatPane]);
+	const handlePaneClick = useCallback(
+		(event: React.MouseEvent<HTMLDivElement>) => {
+			onSelect(pane.id);
+			if (!isAgentChatPane || isInteractivePaneClickTarget(event.target))
+				return;
+			focusChatInput();
+		},
+		[focusChatInput, isAgentChatPane, onSelect, pane.id]
+	);
 
 	return (
 		<div
-			onClick={() => onSelect(pane.id)}
+			onClick={handlePaneClick}
 			onKeyDown={
 				isAgentChatPane
 					? undefined
@@ -98,8 +179,19 @@ export const TerminalPaneView = memo(function TerminalPaneView({
 			tabIndex={isAgentChatPane ? undefined : 0}
 			role={isAgentChatPane ? undefined : "button"}
 			{...stylex.props(styles.root)}
-			style={isAgentChatPane ? undefined : { backgroundColor: theme.bg }}
+			style={{
+				...(isAgentChatPane ? {} : { backgroundColor: theme.bg }),
+			}}
 		>
+			{(isSelected || isHighlighted) && (
+				<div
+					aria-hidden="true"
+					{...stylex.props(
+						styles.focusGlow,
+						isHighlighted ? styles.focusGlowPreview : styles.focusGlowActive
+					)}
+				/>
+			)}
 			{!isAgentChatPane && (
 				<div
 					className={`electrobun-webkit-app-region-no-drag ${stylex.props(styles.header).className ?? ""}`}
@@ -126,7 +218,11 @@ export const TerminalPaneView = memo(function TerminalPaneView({
 							isSelected && styles.activeAccent
 						)}
 					>
-						<IconTerminal size={10} />
+						{isSimulatorPane ? (
+							<IconSimulator size={10} />
+						) : (
+							<IconTerminal size={10} />
+						)}
 					</span>
 					<span
 						{...stylex.props(
@@ -171,7 +267,7 @@ export const TerminalPaneView = memo(function TerminalPaneView({
 				ref={containerRef}
 				{...stylex.props(styles.termContainer)}
 				style={{
-					display: isAgentChatPane ? "none" : undefined,
+					display: isAgentChatPane || isSimulatorPane ? "none" : undefined,
 					pointerEvents: isSelected ? "auto" : "none",
 					overflow: "hidden",
 					padding: 0,
@@ -184,6 +280,28 @@ export const TerminalPaneView = memo(function TerminalPaneView({
 				tabIndex={0}
 				role="button"
 			/>
+			{!isSimulatorPane && !isAgentChatPane && selectedTerminalText.trim() && (
+				<button
+					type="button"
+					onMouseDown={(event) => event.preventDefault()}
+					onClick={(event) => {
+						event.stopPropagation();
+						sendTerminalSelectionToAgent();
+					}}
+					{...stylex.props(styles.sendSelectionButton)}
+				>
+					<IconSend size={11} />
+					Send to Agent
+				</button>
+			)}
+			{isSimulatorPane && (
+				<div
+					{...stylex.props(styles.utilityPane)}
+					style={{ pointerEvents: isSelected ? "auto" : "none" }}
+				>
+					<SimulatorPaneView />
+				</div>
+			)}
 			{isAgentChatPane && (
 				<div
 					{...stylex.props(styles.agentPane)}
@@ -233,12 +351,28 @@ const styles = stylex.create({
 		display: "flex",
 		height: "100%",
 		minHeight: 0,
+		minWidth: 0,
 		flexDirection: "column",
 		overflow: "hidden",
+	},
+	focusGlow: {
+		inset: 0,
+		pointerEvents: "none",
+		position: "absolute",
+		zIndex: 8,
+	},
+	focusGlowActive: {
+		backgroundImage:
+			"radial-gradient(circle at 0 0, color-mix(in srgb, var(--color-inferay-light-gray) 26%, transparent), transparent 9rem), radial-gradient(circle at 100% 0, color-mix(in srgb, var(--color-inferay-gray) 18%, transparent), transparent 8rem), radial-gradient(circle at 0 100%, color-mix(in srgb, var(--color-inferay-light-gray) 12%, transparent), transparent 8rem), radial-gradient(circle at 100% 100%, color-mix(in srgb, var(--color-inferay-gray) 10%, transparent), transparent 7rem)",
+	},
+	focusGlowPreview: {
+		backgroundImage:
+			"radial-gradient(circle at 0 0, color-mix(in srgb, var(--color-inferay-light-gray) 34%, transparent), transparent 9rem), radial-gradient(circle at 100% 0, color-mix(in srgb, var(--color-inferay-gray) 24%, transparent), transparent 8rem), radial-gradient(circle at 0 100%, color-mix(in srgb, var(--color-inferay-light-gray) 16%, transparent), transparent 8rem), radial-gradient(circle at 100% 100%, color-mix(in srgb, var(--color-inferay-gray) 14%, transparent), transparent 7rem)",
 	},
 	header: {
 		display: "flex",
 		flexShrink: 0,
+		minWidth: 0,
 		cursor: "grab",
 		userSelect: "none",
 		alignItems: "center",
@@ -292,13 +426,49 @@ const styles = stylex.create({
 	},
 	termContainer: {
 		minHeight: 0,
+		minWidth: 0,
 		flex: 1,
 	},
 	agentPane: {
 		display: "flex",
 		minHeight: 0,
+		minWidth: 0,
 		flex: 1,
 		flexDirection: "column",
 		overflow: "hidden",
+	},
+	utilityPane: {
+		display: "flex",
+		minHeight: 0,
+		minWidth: 0,
+		flex: 1,
+		flexDirection: "column",
+		overflow: "hidden",
+	},
+	sendSelectionButton: {
+		alignItems: "center",
+		backdropFilter: "blur(10px)",
+		backgroundColor: "rgba(15, 23, 42, 0.92)",
+		borderColor: color.border,
+		borderRadius: 8,
+		borderStyle: "solid",
+		borderWidth: 1,
+		boxShadow: "0 8px 18px rgba(0, 0, 0, 0.35)",
+		color: color.textSoft,
+		cursor: "pointer",
+		display: "inline-flex",
+		fontSize: font.size_1,
+		fontWeight: font.weight_5,
+		gap: "0.35rem",
+		paddingBlock: "0.35rem",
+		paddingInline: "0.55rem",
+		position: "absolute",
+		right: "0.55rem",
+		top: "2.45rem",
+		zIndex: 6,
+		":hover": {
+			backgroundColor: color.backgroundRaised,
+			color: color.accent,
+		},
 	},
 });

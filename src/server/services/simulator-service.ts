@@ -5,13 +5,13 @@ import { basename, dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { Subprocess } from "bun";
 import { $ } from "bun";
-import { compareName, isString, uniqueTrimmedStrings } from "../../lib/data.ts";
 import { isBootedSimulatorDevice } from "../../features/simulator/simulator-utils.ts";
 import type {
 	BaguetteStatus,
 	SimulatorDevice,
 	SimulatorProject,
 } from "../../features/simulator/types.ts";
+import { compareName, isString, uniqueTrimmedStrings } from "../../lib/data.ts";
 import { resolveAllowedLocalPath } from "../security.ts";
 import { ConfigManager } from "./config-manager.ts";
 import { readTerminalState } from "./terminal-state.ts";
@@ -433,7 +433,7 @@ export function parseSimctlDevices(data: unknown): SimulatorDevice[] {
 				name: device.name,
 				state: device.state ?? "Unknown",
 				runtime: runtime.replace("com.apple.CoreSimulator.SimRuntime.", ""),
-				isAvailable: device.isAvailable !== false,
+				isAvailable: true,
 			});
 		}
 	}

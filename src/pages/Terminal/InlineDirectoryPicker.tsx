@@ -11,7 +11,13 @@ import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import { basename } from "../../lib/format.ts";
 import { setInputValue } from "../../lib/react-events.ts";
-import { color, controlSize, font } from "../../tokens.stylex.ts";
+import {
+	color,
+	controlSize,
+	effect,
+	font,
+	shadow,
+} from "../../tokens.stylex.ts";
 
 interface QuickPick {
 	name: string;
@@ -160,7 +166,6 @@ export function InlineDirectoryPicker({
 	};
 
 	const showResults = true;
-
 	if (hideInput) {
 		return (
 			<div {...stylex.props(styles.compactRoot)}>
@@ -316,23 +321,32 @@ export function InlineDirectoryPicker({
 
 const styles = stylex.create({
 	root: {
+		boxSizing: "border-box",
+		maxWidth: "100%",
+		minWidth: 0,
+		overflow: "hidden",
 		position: "relative",
 		width: "100%",
 	},
 	compactRoot: {
-		width: "100%",
+		boxSizing: "border-box",
+		maxWidth: "100%",
+		minWidth: 0,
 		overflow: "hidden",
+		width: "100%",
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
 		borderRadius: controlSize._3,
 		backgroundColor: "rgba(28, 28, 30, 0.95)",
-		boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.6)",
+		backgroundImage: effect.popoverDepth,
+		boxShadow:
+			"inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 24px 54px rgba(0, 0, 0, 0.64)",
 	},
 	compactList: {
 		maxHeight: "210px",
 		overflowY: "auto",
-		paddingBlock: controlSize._1,
+		paddingBlock: 0,
 	},
 	resultRow: {
 		display: "flex",
@@ -349,13 +363,19 @@ const styles = stylex.create({
 			default: "transparent",
 			":hover": color.controlHover,
 		},
+		backgroundImage: {
+			default: "none",
+			":hover": effect.controlDepth,
+		},
 	},
 	resultRowActive: {
 		backgroundColor: color.controlHover,
+		backgroundImage: effect.controlDepth,
 		color: color.textMain,
 	},
 	resultRowActiveAccent: {
 		backgroundColor: color.controlActive,
+		backgroundImage: effect.controlDepthHover,
 		color: color.textMain,
 	},
 	resultIcon: {
@@ -416,6 +436,7 @@ const styles = stylex.create({
 		gap: controlSize._1,
 		borderRadius: "0.375rem",
 		backgroundColor: "rgba(255, 255, 255, 0.05)",
+		backgroundImage: effect.controlDepth,
 		color: color.textSoft,
 		fontSize: font.size_1,
 		fontWeight: font.weight_5,
@@ -431,6 +452,7 @@ const styles = stylex.create({
 		borderColor: color.border,
 		borderRadius: "0.25rem",
 		backgroundColor: color.controlActive,
+		backgroundImage: effect.controlDepth,
 		color: color.textSoft,
 		fontSize: font.size_1,
 		fontWeight: font.weight_5,
@@ -487,8 +509,11 @@ const styles = stylex.create({
 		overflowY: "auto",
 	},
 	unifiedFrame: {
+		boxSizing: "border-box",
 		display: "flex",
 		flexDirection: "column",
+		maxWidth: "100%",
+		minWidth: 0,
 		width: "100%",
 		overflow: "hidden",
 		borderWidth: 1,
@@ -496,13 +521,17 @@ const styles = stylex.create({
 		borderColor: color.border,
 		borderRadius: controlSize._3,
 		backgroundColor: color.backgroundRaised,
+		backgroundImage: effect.popoverDepth,
+		boxShadow:
+			"inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 24px 54px rgba(0, 0, 0, 0.64)",
 	},
 	unifiedList: {
 		display: "flex",
 		flexDirection: "column",
+		minWidth: 0,
 		maxHeight: "220px",
 		overflowY: "auto",
-		paddingBlock: controlSize._1,
+		paddingBlock: 0,
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: "rgba(255, 255, 255, 0.06)",
@@ -510,6 +539,7 @@ const styles = stylex.create({
 	resultRowCompact: {
 		display: "flex",
 		width: "100%",
+		minWidth: 0,
 		alignItems: "center",
 		gap: controlSize._2,
 		color: color.textSoft,
@@ -522,12 +552,17 @@ const styles = stylex.create({
 			default: "transparent",
 			":hover": color.controlHover,
 		},
+		backgroundImage: {
+			default: "none",
+			":hover": effect.controlDepth,
+		},
 	},
 	inputRow: {
 		display: "flex",
 		alignItems: "center",
 		gap: controlSize._2,
-		paddingBlock: controlSize._2,
+		minWidth: 0,
+		paddingBlock: controlSize._1_5,
 		paddingInline: controlSize._3,
 	},
 	inputIcon: {
@@ -552,6 +587,8 @@ const styles = stylex.create({
 		borderColor: color.border,
 		borderRadius: "0.375rem",
 		backgroundColor: color.controlActive,
+		backgroundImage: effect.controlDepth,
+		boxShadow: shadow.controlDepth,
 		color: color.textSoft,
 		fontSize: font.size_2,
 		fontWeight: font.weight_5,

@@ -19,18 +19,25 @@ import {
 import { CommitGraph } from "../../components/git/CommitGraph.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
 import {
+	IconCollapse,
+	IconExpand,
 	IconGitBranch,
 	IconLayoutGrid,
 	IconPanelLeft,
 	IconPlus,
-	IconSettings,
 	IconX,
 } from "../../components/ui/Icons.tsx";
+import { WorkspaceEmptyState } from "../../components/ui/WorkspacePage.tsx";
 import { useActivityFeed } from "../../features/activity-feed/useActivityFeed.ts";
 import { isChatAgentKind } from "../../features/agents/agents.ts";
 import { useAgentSessions } from "../../features/agents/useAgentSessions.ts";
-import { clearAgentChatMessages } from "../../features/chat/chat-session-store.ts";
 import { useFileWatcher } from "../../features/file-watcher/useFileWatcher.ts";
+import {
+	isStagedChange,
+	isUnstagedTrackedChange,
+	isUntrackedChange,
+	orderProjectGitFiles,
+} from "../../features/git/git-file-utils.ts";
 import { useGitChangeActions } from "../../features/git/useGitChangeActions.ts";
 import {
 	type DiffRequest,
@@ -45,27 +52,13 @@ import { useGitStatus } from "../../features/git/useGitStatus.ts";
 import {
 	loadTerminalState,
 	type TerminalGroupModel,
-	type ThemeId,
 } from "../../features/terminal/terminal-utils.ts";
-import {
-	loadAppThemeId,
-	mapAppThemeToTerminalTheme,
-} from "../../lib/app-theme.ts";
 import {
 	incrementNumber,
 	isNonEmptyString,
 	toggleBoolean,
 } from "../../lib/data.ts";
-import {
-	isStagedChange,
-	isUnstagedTrackedChange,
-	isUntrackedChange,
-	orderProjectGitFiles,
-} from "../../features/git/git-file-utils.ts";
-import {
-	listenWindowEvent,
-	setupTerminalThemePanelShortcut,
-} from "../../lib/react-events.ts";
+import { listenWindowEvent } from "../../lib/react-events.ts";
 import {
 	readStoredValue,
 	removeStoredValue,
@@ -74,7 +67,6 @@ import {
 import { wsClient } from "../../lib/websocket.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 import { type DiffViewMode, GitDiffView } from "../Terminal/GitDiffView.tsx";
-import { TerminalSettingsPanel } from "../Terminal/TerminalSettingsPanel.tsx";
 
 interface Session {
 	groupId: string;
@@ -139,7 +131,6 @@ function loadZenMode() {
 interface EditorPageProps {
 	groups?: TerminalGroupModel[];
 	selectedGroupId?: string | null;
-	themeId?: ThemeId;
 	onSelectPane?: (paneId: string) => void;
 	onDirectoryChange?: (
 		paneId: string,
@@ -151,7 +142,6 @@ interface EditorPageProps {
 export function EditorPage({
 	groups: liveGroups,
 	selectedGroupId: liveSelectedGroupId,
-	themeId: liveThemeId,
 	onSelectPane,
 	onDirectoryChange,
 }: EditorPageProps = {}) {
@@ -174,7 +164,6 @@ export function EditorPage({
 	);
 	const [fileViewMode, setFileViewMode] = useState<"path" | "tree">("tree");
 	const [mainViewMode, setMainViewMode] = useState<"diff" | "graph">("diff");
-	const [showSettings, setShowSettings] = useState(false);
 	const chatRef = useRef<AgentChatHandle>(null);
 	const sidebarDragRef = useRef<{
 		startX: number;
@@ -186,10 +175,6 @@ export function EditorPage({
 		() => (liveGroups ? null : loadTerminalState()),
 		[liveGroups, sessionVersion]
 	);
-	const themeId =
-		liveThemeId ??
-		terminalState?.themeId ??
-		mapAppThemeToTerminalTheme(loadAppThemeId());
 	const sourceGroups = liveGroups ?? terminalState?.groups ?? [];
 	const activeGroupId =
 		liveSelectedGroupId ?? terminalState?.selectedGroupId ?? null;
@@ -368,8 +353,6 @@ export function EditorPage({
 		return listenWindowEvent("terminal-shell-change", syncEditorShellState);
 	}, []);
 
-	useEffect(setupTerminalThemePanelShortcut.bind(null, setShowSettings), []);
-
 	useEffect(() => {
 		if (diff && !diffLoading) checkPendingScroll();
 	}, [diff, diffLoading, checkPendingScroll]);
@@ -462,7 +445,6 @@ export function EditorPage({
 
 	const closePane = useCallback(
 		(paneId: string) => {
-			clearAgentChatMessages(paneId);
 			setClosedPaneIds((prev) => new Set(prev).add(paneId));
 			if (effectiveSelectedPaneId === paneId) {
 				const rest = sessions.filter((s) => s.paneId !== paneId);
@@ -543,9 +525,7 @@ export function EditorPage({
 				/>
 			)
 		) : graphLoading ? (
-			<div {...stylex.props(styles.centerFull)}>
-				<p {...stylex.props(styles.placeholderText)}>Loading graph...</p>
-			</div>
+			<Placeholder label="Loading graph..." />
 		) : (
 			<CommitGraph
 				commits={graphCommits}
@@ -633,16 +613,6 @@ export function EditorPage({
 							<span {...stylex.props(styles.topBarLabel)}>
 								No active session
 							</span>
-							<span {...stylex.props(styles.spacer)} />
-							<IconButton
-								type="button"
-								onClick={setShowSettings.bind(null, true)}
-								variant="ghost"
-								size="xs"
-								title="Settings"
-							>
-								<IconSettings size={10} />
-							</IconButton>
 						</div>
 						<EmptyState />
 					</section>
@@ -695,6 +665,8 @@ export function EditorPage({
 								onToggleSidebar={setSidebarVisible.bind(null, toggleBoolean)}
 								onMainViewModeChange={setMainViewMode}
 								onDiffViewModeChange={setDiffViewMode}
+								zenMode={zenMode}
+								onToggleZenMode={() => updateZenMode(true)}
 							/>
 						}
 						viewer={viewer}
@@ -702,25 +674,36 @@ export function EditorPage({
 					/>
 				</div>
 			)}
-			{showSettings && (
-				<TerminalSettingsPanel
-					themeId={themeId}
-					onThemeChange={() => setSessionVersion(incrementNumber)}
-					onClose={setShowSettings.bind(null, false)}
-				/>
-			)}
 		</div>
 	);
 }
 
 function EmptyState() {
-	return null;
+	return (
+		<div {...stylex.props(styles.emptySurface)}>
+			<WorkspaceEmptyState
+				icon={<IconPanelLeft size={16} />}
+				title="No active editor session"
+				description="Open a chat pane with a repository to inspect its changes, review diffs, and keep the agent conversation beside the code."
+			/>
+		</div>
+	);
 }
 
 function Placeholder({ label }: { label: string }) {
 	return (
 		<div {...stylex.props(styles.centerFull, styles.centerPad)}>
-			<p {...stylex.props(styles.placeholderText)}>{label}</p>
+			<WorkspaceEmptyState
+				icon={<IconGitBranch size={16} />}
+				title={label}
+				description={
+					label.startsWith("Loading")
+						? "Inferay is preparing the selected repository view."
+						: label === "Select a changed file"
+							? "Choose a file from the changes sidebar to inspect its diff, stage it, or send targeted context to the active agent."
+							: "Diffs will appear here when the selected editor session has a repository and changed files."
+				}
+			/>
 		</div>
 	);
 }
@@ -849,6 +832,8 @@ function DiffViewerTopBar({
 	onToggleSidebar,
 	onMainViewModeChange,
 	onDiffViewModeChange,
+	zenMode,
+	onToggleZenMode,
 }: {
 	mainViewMode: "diff" | "graph";
 	diffViewMode: DiffViewMode;
@@ -861,6 +846,8 @@ function DiffViewerTopBar({
 	onToggleSidebar: () => void;
 	onMainViewModeChange: (mode: "diff" | "graph") => void;
 	onDiffViewModeChange: (mode: DiffViewMode) => void;
+	zenMode: boolean;
+	onToggleZenMode: () => void;
 }) {
 	const fileActionTitle = selectedFile?.staged ? "Unstage file" : "Stage file";
 	return (
@@ -943,6 +930,12 @@ function DiffViewerTopBar({
 					}
 					onClick={onToggleSidebar}
 					icon={<IconPanelLeft size={11} />}
+				/>
+				<ToolbarButton
+					active={zenMode}
+					title={zenMode ? "Exit focus mode" : "Focus editor"}
+					onClick={onToggleZenMode}
+					icon={zenMode ? <IconCollapse size={11} /> : <IconExpand size={11} />}
 				/>
 			</div>
 		</div>
@@ -1070,13 +1063,13 @@ const styles = stylex.create({
 	},
 	topBar: {
 		display: "flex",
+		height: controlSize._10,
 		flexShrink: 0,
 		alignItems: "center",
 		gap: controlSize._2,
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
-		paddingBlock: controlSize._1,
 		paddingInline: controlSize._3,
 	},
 	topBarLabel: {
@@ -1087,39 +1080,12 @@ const styles = stylex.create({
 	spacer: {
 		flex: 1,
 	},
-	emptyWrap: {
+	emptySurface: {
 		display: "flex",
 		flex: 1,
 		alignItems: "center",
 		justifyContent: "center",
-		paddingInline: controlSize._6,
-	},
-	emptyCard: {
-		maxWidth: "28rem",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		backgroundColor: color.backgroundRaised,
-		padding: controlSize._6,
-		textAlign: "center",
-	},
-	emptyTitle: {
-		color: color.textMain,
-		fontSize: "0.9375rem",
-		fontWeight: 600,
-	},
-	emptyDescription: {
-		marginTop: controlSize._2,
-		color: color.textMuted,
-		fontSize: font.size_3,
-		lineHeight: 1.65,
-	},
-	placeholderText: {
-		maxWidth: "20rem",
-		color: color.textMuted,
-		fontSize: font.size_3,
-		lineHeight: 1.65,
-		textAlign: "center",
+		paddingInline: controlSize._5,
 	},
 	toolbarButton: {
 		display: "flex",

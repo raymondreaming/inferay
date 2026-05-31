@@ -8,24 +8,40 @@ import React, {
 	useRef,
 	useState,
 } from "react";
+import { isChatAgentKind } from "../../features/agents/agents.ts";
+import {
+	createDocumentArtifact,
+	loadDocumentArtifacts,
+} from "../../features/artifacts/artifact-workspace-store.ts";
+import { describeComposerContextBlock } from "../../features/chat/composer-context.ts";
+import {
+	getPaneTitle,
+	loadTerminalState,
+} from "../../features/terminal/terminal-utils.ts";
 import {
 	color,
 	controlSize,
+	effect,
 	font,
 	motion,
 	radius,
+	shadow,
 } from "../../tokens.stylex.ts";
 import { ThinkingIndicator } from "../ui/DotMatrixLoader.tsx";
+import { DropdownButton } from "../ui/DropdownButton.tsx";
 import {
+	IconAlertTriangle,
 	IconCheck,
 	IconChevronDown,
-	IconClock,
 	IconCopy,
+	IconFilePlus,
+	IconSend,
 } from "../ui/Icons.tsx";
 import { GroupedEditDiff, MiniEditDiff } from "./ChatEditDiff.tsx";
 import { AskUserQuestionCard, Markdown } from "./ChatRichContent.tsx";
 import {
 	buildRenderItems,
+	formatSystemMessageNotice,
 	type RenderChatMessage,
 	type RenderItem,
 } from "./chat-message-render-utils.ts";
@@ -33,20 +49,20 @@ import { renderTextPills } from "./chat-token-decorators.tsx";
 
 export type ChatMessage = RenderChatMessage;
 
-type CheckpointInfo = {
-	id: string;
-	timestamp: number;
-	changedFileCount: number;
-	changedFiles: { path: string; action: "created" | "modified" | "deleted" }[];
-	reverted: boolean;
-	afterMessageId: string | null;
-};
-
 export type ChatVirtualizerControls = {
 	scrollToEnd: (behavior?: ScrollBehavior) => void;
 	isAtEnd: () => boolean;
 	getDistanceFromEnd: () => number;
 };
+
+const APP_REGION_NO_DRAG_CLASS = "electrobun-webkit-app-region-no-drag";
+const CHAT_SELECTABLE_NO_DRAG_CLASS = `${APP_REGION_NO_DRAG_CLASS} inferay-chat-selectable-region`;
+
+function selectableNoDragClassName(className?: string) {
+	return className
+		? `${CHAT_SELECTABLE_NO_DRAG_CLASS} ${className}`
+		: CHAT_SELECTABLE_NO_DRAG_CLASS;
+}
 
 type ChatRenderRow =
 	| RenderItem
@@ -81,6 +97,46 @@ function getRowKey(row: ChatRenderRow | undefined, index: number) {
 		return `edit-group:${row.filePath}:${row.edits.map((edit) => edit.id).join(":")}`;
 	}
 	return row.message.id;
+}
+
+function dispatchPaneFocus(paneId: string | null) {
+	window.dispatchEvent(
+		new CustomEvent("inferay:pane-focus-highlight", {
+			detail: { paneId },
+		})
+	);
+}
+
+function buildHandoverPrompt({
+	sourcePaneId,
+	sourceRole,
+	content,
+}: {
+	sourcePaneId: string;
+	sourceRole: string;
+	content: string;
+}) {
+	return [
+		"You are receiving a handoff from another Inferay agent pane.",
+		"",
+		"Read the transferred context, identify the current state, and continue from it without asking the user to repeat themselves.",
+		"",
+		`Source pane: ${sourcePaneId}`,
+		`Source role: ${sourceRole}`,
+		"",
+		"Transferred context:",
+		content.trim(),
+	].join("\n");
+}
+
+function findSavedArtifactForMessage(paneId: string, messageId: string) {
+	return (
+		loadDocumentArtifacts().find(
+			(artifact) =>
+				artifact.sourcePaneId === paneId &&
+				artifact.sourceMessageId === messageId
+		) ?? null
+	);
 }
 
 function ToolOutputHighlight({ content }: { content: string }) {
@@ -150,95 +206,6 @@ function ToolOutputHighlight({ content }: { content: string }) {
 	return <>{content}</>;
 }
 
-function CheckpointMarker({
-	checkpoint,
-	onRevert,
-	disabled,
-}: {
-	checkpoint: CheckpointInfo;
-	onRevert: (id: string) => void;
-	disabled?: boolean;
-}) {
-	const [expanded, setExpanded] = useState(false);
-	return (
-		<div {...stylex.props(styles.checkpointCard)}>
-			<div
-				{...stylex.props(styles.checkpointHeader)}
-				style={{
-					borderBottom: expanded
-						? "1px solid var(--color-inferay-gray-border)"
-						: "none",
-				}}
-			>
-				<button
-					type="button"
-					onClick={() => setExpanded(!expanded)}
-					{...stylex.props(styles.checkpointToggle)}
-				>
-					<IconChevronDown
-						size={11}
-						{...stylex.props(
-							styles.checkpointChevron,
-							!expanded && styles.rotateClosed
-						)}
-					/>
-					<IconClock
-						size={11}
-						{...stylex.props(
-							styles.checkpointIcon,
-							checkpoint.reverted && styles.revertedIcon
-						)}
-					/>
-					<span {...stylex.props(styles.checkpointTitle)}>
-						{checkpoint.changedFileCount} file
-						{checkpoint.changedFileCount !== 1 ? "s" : ""} changed
-					</span>
-				</button>
-				<span {...stylex.props(styles.spacer)} />
-				{!checkpoint.reverted ? (
-					<button
-						type="button"
-						onClick={() => onRevert(checkpoint.id)}
-						disabled={disabled}
-						{...stylex.props(styles.undoButton)}
-					>
-						Undo
-					</button>
-				) : (
-					<span {...stylex.props(styles.revertedLabel)}>reverted</span>
-				)}
-			</div>
-			{expanded && (
-				<div {...stylex.props(styles.checkpointFiles)}>
-					{checkpoint.changedFiles.map((f) => (
-						<div key={f.path} {...stylex.props(styles.checkpointFile)}>
-							<span
-								style={{
-									color:
-										f.action === "created"
-											? "#22c55e"
-											: f.action === "deleted"
-												? "#ef4444"
-												: "#eab308",
-								}}
-							>
-								{f.action === "created"
-									? "+"
-									: f.action === "deleted"
-										? "-"
-										: "~"}
-							</span>
-							<span {...stylex.props(styles.toolMuted)}>
-								{f.path.split("/").pop()}
-							</span>
-						</div>
-					))}
-				</div>
-			)}
-		</div>
-	);
-}
-
 const Bubble = React.memo(function Bubble({
 	msg,
 	collapsed,
@@ -246,6 +213,8 @@ const Bubble = React.memo(function Bubble({
 	onSendMessage,
 	onMdFileClick,
 	slashCommandNames,
+	paneId,
+	cwd,
 }: {
 	msg: ChatMessage;
 	collapsed: boolean;
@@ -253,8 +222,36 @@ const Bubble = React.memo(function Bubble({
 	onSendMessage?: (text: string) => void;
 	onMdFileClick?: (path: string) => void;
 	slashCommandNames: readonly string[];
+	paneId: string;
+	cwd?: string | null;
 }) {
 	const [copied, setCopied] = useState(false);
+	const [savedArtifactId, setSavedArtifactId] = useState(
+		() => findSavedArtifactForMessage(paneId, msg.id)?.id ?? null
+	);
+	const savedArtifact = savedArtifactId !== null;
+	const messageActionIconProps = stylex.props(styles.messageActionIcon);
+	const agentTargets = useMemo(() => {
+		const targets: Array<{ id: string; label: string; cwd?: string }> = [];
+		for (const group of loadTerminalState()?.groups ?? []) {
+			for (const pane of group.panes) {
+				if (!isChatAgentKind(pane.agentKind)) continue;
+				targets.push({
+					id: pane.id,
+					label: getPaneTitle(pane.agentKind, pane.cwd),
+					cwd: pane.cwd,
+				});
+			}
+		}
+		return targets;
+	}, []);
+	const handoverTargets = agentTargets.filter((target) => target.id !== paneId);
+	const handoverOptions = handoverTargets.map((target) => ({
+		id: target.id,
+		label: target.label,
+		detail: target.cwd ? target.cwd.split("/").pop() || target.cwd : undefined,
+		icon: <IconSend size={12} strokeWidth={1.45} {...messageActionIconProps} />,
+	}));
 	const handleCopyMessage = useCallback(() => {
 		if (!msg.content) return;
 		navigator.clipboard
@@ -265,7 +262,56 @@ const Bubble = React.memo(function Bubble({
 			})
 			.catch(() => setCopied(false));
 	}, [msg.content]);
-
+	useEffect(() => {
+		setSavedArtifactId(findSavedArtifactForMessage(paneId, msg.id)?.id ?? null);
+	}, [msg.id, paneId]);
+	const handleHandoverMessage = useCallback(
+		(targetPaneId?: string) => {
+			if (!targetPaneId || !msg.content.trim()) return;
+			const prompt = buildHandoverPrompt({
+				sourcePaneId: paneId,
+				sourceRole: msg.role,
+				content: msg.content,
+			});
+			window.dispatchEvent(
+				new CustomEvent("inferay:agent-handover-request", {
+					detail: {
+						targetPaneId,
+						sourcePaneId: paneId,
+						sourceMessageId: msg.id,
+						prompt,
+					},
+				})
+			);
+			dispatchPaneFocus(null);
+		},
+		[msg.content, msg.id, msg.role, paneId]
+	);
+	const handleSaveArtifact = useCallback(() => {
+		if (!msg.content.trim()) return;
+		const existing = findSavedArtifactForMessage(paneId, msg.id);
+		if (existing) {
+			setSavedArtifactId(existing.id);
+			return;
+		}
+		const firstLine =
+			msg.content
+				.split(/\r?\n/)
+				.map((line) => line.trim().replace(/^#+\s*/, ""))
+				.find(Boolean) ?? "Saved agent note";
+		const title =
+			firstLine.length > 64 ? `${firstLine.slice(0, 61).trim()}...` : firstLine;
+		const artifact = createDocumentArtifact({
+			title,
+			subtitle: `${msg.role} message`,
+			content: msg.content,
+			sourcePaneId: paneId,
+			sourceMessageId: msg.id,
+			sourceRole: msg.role,
+			projectPath: cwd ?? null,
+		});
+		setSavedArtifactId(artifact.id);
+	}, [cwd, msg.content, msg.id, msg.role, paneId]);
 	if (msg.role === "user") {
 		const commandMatch = msg.content.match(/^\/([a-zA-Z0-9_-]+)(\s|$)/);
 		if (
@@ -287,9 +333,27 @@ const Bubble = React.memo(function Bubble({
 			const pathLines = parts[1]?.split("\n").filter((p) => p.trim()) ?? [];
 			imagePaths = pathLines.filter((p) => p.includes("/.tmp/"));
 		}
+		const userBubbleProps = stylex.props(styles.userBubble);
 		return (
 			<div {...stylex.props(styles.userRow)}>
-				<div {...stylex.props(styles.userBubble)}>
+				<div
+					{...userBubbleProps}
+					className={selectableNoDragClassName(userBubbleProps.className)}
+				>
+					{(msg.contextBlocks?.length ?? 0) > 0 && (
+						<div {...stylex.props(styles.userMetaRow)}>
+							{msg.contextBlocks?.slice(0, 3).map((block) => (
+								<span key={block.id} {...stylex.props(styles.contextPill)}>
+									{describeComposerContextBlock(block)}
+								</span>
+							))}
+							{(msg.contextBlocks?.length ?? 0) > 3 && (
+								<span {...stylex.props(styles.contextPill)}>
+									+{(msg.contextBlocks?.length ?? 0) - 3}
+								</span>
+							)}
+						</div>
+					)}
 					{imagePaths.length > 0 && (
 						<div {...stylex.props(styles.userImages)}>
 							{imagePaths.map((imgPath) => (
@@ -316,20 +380,63 @@ const Bubble = React.memo(function Bubble({
 		const runningMatch = msg.content.match(/^Running \/(.+)\.\.\.$/);
 		if (runningMatch?.[1]) {
 			const commandName = runningMatch[1];
+			const systemRunPillProps = stylex.props(styles.systemRunPill);
 			return (
 				<div {...stylex.props(styles.systemRunRow)}>
-					<div {...stylex.props(styles.systemRunPill)}>
+					<div
+						{...systemRunPillProps}
+						className={selectableNoDragClassName(systemRunPillProps.className)}
+					>
 						<span {...stylex.props(styles.runningCommand)}>/{commandName}</span>
 					</div>
 				</div>
 			);
 		}
-		return <p {...stylex.props(styles.systemText)}>{msg.content}</p>;
+		const notice = formatSystemMessageNotice(msg.content);
+		if (notice) {
+			const systemNoticeProps = stylex.props(styles.systemNotice);
+			return (
+				<div
+					{...systemNoticeProps}
+					className={selectableNoDragClassName(systemNoticeProps.className)}
+				>
+					<div {...stylex.props(styles.systemNoticeHeader)}>
+						<IconAlertTriangle
+							size={12}
+							{...stylex.props(styles.systemNoticeIcon)}
+						/>
+						<span {...stylex.props(styles.systemNoticeTitle)}>
+							{notice.title}
+						</span>
+					</div>
+					<p {...stylex.props(styles.systemNoticeDetail)}>{notice.detail}</p>
+					<details {...stylex.props(styles.systemNoticeDetails)}>
+						<summary {...stylex.props(styles.systemNoticeSummary)}>
+							Details
+						</summary>
+						<code {...stylex.props(styles.systemNoticeRaw)}>{notice.raw}</code>
+					</details>
+				</div>
+			);
+		}
+		const systemTextProps = stylex.props(styles.systemText);
+		return (
+			<p
+				{...systemTextProps}
+				className={selectableNoDragClassName(systemTextProps.className)}
+			>
+				{msg.content}
+			</p>
+		);
 	}
 
 	if (msg.role === "btw") {
+		const btwCardProps = stylex.props(styles.btwCard);
 		return (
-			<div {...stylex.props(styles.btwCard)}>
+			<div
+				{...btwCardProps}
+				className={selectableNoDragClassName(btwCardProps.className)}
+			>
 				<div {...stylex.props(styles.btwHeader)}>
 					<span {...stylex.props(styles.btwLabel)}>btw</span>
 					{msg.btwQuestion && (
@@ -356,11 +463,13 @@ const Bubble = React.memo(function Bubble({
 	if (msg.role === "tool") {
 		if (msg.toolName === "AskUserQuestion") {
 			return (
-				<AskUserQuestionCard
-					content={msg.content}
-					isStreaming={msg.isStreaming}
-					onSendMessage={onSendMessage}
-				/>
+				<div className={CHAT_SELECTABLE_NO_DRAG_CLASS}>
+					<AskUserQuestionCard
+						content={msg.content}
+						isStreaming={msg.isStreaming}
+						onSendMessage={onSendMessage}
+					/>
+				</div>
 			);
 		}
 		if (msg.toolName === "Edit" && msg.content) {
@@ -372,18 +481,20 @@ const Bubble = React.memo(function Bubble({
 					parsed.new_string !== undefined
 				) {
 					return (
-						<MiniEditDiff
-							oldStr={parsed.old_string}
-							newStr={parsed.new_string}
-							filePath={parsed.file_path}
-							isStreaming={msg.isStreaming}
-						/>
+						<div className={CHAT_SELECTABLE_NO_DRAG_CLASS}>
+							<MiniEditDiff
+								oldStr={parsed.old_string}
+								newStr={parsed.new_string}
+								filePath={parsed.file_path}
+								isStreaming={msg.isStreaming}
+							/>
+						</div>
 					);
 				}
 			} catch {}
 		}
 		return (
-			<div>
+			<div className={CHAT_SELECTABLE_NO_DRAG_CLASS}>
 				<button
 					type="button"
 					onClick={() => onToggle(msg.id)}
@@ -404,11 +515,91 @@ const Bubble = React.memo(function Bubble({
 		);
 	}
 
+	const assistantMessageProps = stylex.props(styles.assistantMessage);
 	return (
-		<div {...stylex.props(styles.assistantMessage)}>
+		<div
+			{...assistantMessageProps}
+			className={selectableNoDragClassName(assistantMessageProps.className)}
+		>
 			<Markdown text={msg.content} onMdFileClick={onMdFileClick} />
 			{!msg.isStreaming && msg.content.trim() ? (
 				<div {...stylex.props(styles.messageActionRow)}>
+					<button
+						type="button"
+						onClick={handleSaveArtifact}
+						title={
+							savedArtifact ? "Saved as artifact" : "Save message as artifact"
+						}
+						aria-label={
+							savedArtifact ? "Saved as artifact" : "Save message as artifact"
+						}
+						{...stylex.props(
+							styles.copyMessageButton,
+							savedArtifact && styles.artifactSavedButton
+						)}
+					>
+						{savedArtifact ? (
+							<IconCheck
+								size={12}
+								strokeWidth={1.6}
+								{...messageActionIconProps}
+							/>
+						) : (
+							<IconFilePlus
+								size={12}
+								strokeWidth={1.6}
+								{...messageActionIconProps}
+							/>
+						)}
+						<span>{savedArtifact ? "Saved" : "Artifact"}</span>
+					</button>
+					{handoverTargets.length > 0 && (
+						<div {...stylex.props(styles.handoverWrap)}>
+							<DropdownButton
+								value={null}
+								options={handoverOptions}
+								onChange={handleHandoverMessage}
+								placeholder="Handoff"
+								icon={
+									<IconSend
+										size={12}
+										strokeWidth={1.45}
+										{...messageActionIconProps}
+									/>
+								}
+								minWidth={210}
+								menuPlacement="top"
+								buttonClassName={
+									stylex.props(styles.messageActionDropdown).className
+								}
+								labelClassName={
+									stylex.props(styles.messageActionLabel).className
+								}
+								renderOption={(option) => (
+									<div
+										{...stylex.props(styles.handoffOption)}
+										onFocus={() => dispatchPaneFocus(option.id)}
+										onMouseEnter={() => dispatchPaneFocus(option.id)}
+										onMouseLeave={() => dispatchPaneFocus(null)}
+									>
+										<span {...stylex.props(styles.handoffOptionIcon)}>
+											{option.icon}
+										</span>
+										<span {...stylex.props(styles.handoffOptionText)}>
+											<span {...stylex.props(styles.handoffOptionLabel)}>
+												{option.label}
+											</span>
+											{option.detail ? (
+												<span {...stylex.props(styles.handoffOptionDetail)}>
+													{option.detail}
+												</span>
+											) : null}
+										</span>
+									</div>
+								)}
+							/>
+						</div>
+					)}
 					<button
 						type="button"
 						onClick={handleCopyMessage}
@@ -419,7 +610,19 @@ const Bubble = React.memo(function Bubble({
 							copied && styles.copyMessageButtonCopied
 						)}
 					>
-						{copied ? <IconCheck size={11} /> : <IconCopy size={11} />}
+						{copied ? (
+							<IconCheck
+								size={12}
+								strokeWidth={1.6}
+								{...messageActionIconProps}
+							/>
+						) : (
+							<IconCopy
+								size={12}
+								strokeWidth={1.6}
+								{...messageActionIconProps}
+							/>
+						)}
 						<span>{copied ? "Copied" : "Copy"}</span>
 					</button>
 				</div>
@@ -434,32 +637,33 @@ export function ChatMessageList({
 	onVirtualizerReady,
 	expandedTools,
 	toggleTool,
-	checkpoints,
-	revertCheckpoint,
 	isLoading,
 	startTime,
 	handleSendMessage,
 	onMdFileClick,
 	slashCommandNames,
+	paneId,
+	cwd,
 }: {
 	messages: ChatMessage[];
 	scrollElementRef: React.RefObject<HTMLDivElement | null>;
 	onVirtualizerReady?: (controls: ChatVirtualizerControls | null) => void;
 	expandedTools: Set<string>;
 	toggleTool: (id: string) => void;
-	checkpoints: CheckpointInfo[];
-	revertCheckpoint: (id: string) => void;
 	isLoading: boolean;
 	startTime?: number | null;
 	handleSendMessage?: (text: string) => void;
 	onMdFileClick?: (path: string) => void;
 	slashCommandNames: readonly string[];
+	paneId: string;
+	cwd?: string | null;
 }) {
 	const renderItems = useMemo(() => buildRenderItems(messages), [messages]);
 	const renderRows = useMemo<ChatRenderRow[]>(() => {
-		if (!isLoading || !startTime) return renderItems;
+		const rows: ChatRenderRow[] = renderItems;
+		if (!isLoading || !startTime) return rows;
 		return [
-			...renderItems,
+			...rows,
 			{ type: "thinking", key: `thinking-${startTime}`, startTime },
 		];
 	}, [isLoading, renderItems, startTime]);
@@ -530,7 +734,9 @@ export function ChatMessageList({
 							{...stylex.props(styles.virtualRow)}
 							style={{ transform: `translateY(${virtualItem.start}px)` }}
 						>
-							<GroupedEditDiff filePath={item.filePath} edits={item.edits} />
+							<div className={CHAT_SELECTABLE_NO_DRAG_CLASS}>
+								<GroupedEditDiff filePath={item.filePath} edits={item.edits} />
+							</div>
 						</div>
 					);
 				}
@@ -550,20 +756,9 @@ export function ChatMessageList({
 							onSendMessage={handleSendMessage}
 							onMdFileClick={onMdFileClick}
 							slashCommandNames={slashCommandNames}
+							paneId={paneId}
+							cwd={cwd}
 						/>
-						{msg.role === "assistant" &&
-							!msg.isStreaming &&
-							(() => {
-								const cp = checkpoints.find((c) => c.afterMessageId === msg.id);
-								if (!cp) return null;
-								return (
-									<CheckpointMarker
-										checkpoint={cp}
-										onRevert={revertCheckpoint}
-										disabled={isLoading}
-									/>
-								);
-							})()}
 					</div>
 				);
 			})}
@@ -586,106 +781,8 @@ const styles = stylex.create({
 		},
 		textDecorationLine: "underline",
 	},
-	checkpointCard: {
-		backgroundColor: color.backgroundRaised,
-		borderColor: color.border,
-		borderRadius: radius.sm,
-		borderStyle: "solid",
-		borderWidth: 1,
-		marginBlock: controlSize._1,
-		overflow: "hidden",
-	},
-	checkpointHeader: {
-		alignItems: "center",
-		display: "flex",
-		gap: controlSize._1,
-		minHeight: controlSize._5,
-		paddingBlock: controlSize._0_5,
-		paddingInline: controlSize._1_5,
-	},
-	checkpointToggle: {
-		alignItems: "center",
-		color: color.textSoft,
-		display: "flex",
-		flex: 1,
-		fontSize: font.size_1,
-		fontWeight: font.weight_5,
-		gap: controlSize._1,
-		minWidth: 0,
-		textAlign: "left",
-		transitionDuration: motion.durationBase,
-		transitionProperty: "opacity",
-		transitionTimingFunction: motion.ease,
-		":hover": {
-			opacity: 0.8,
-		},
-	},
-	undoButton: {
-		borderRadius: radius.sm,
-		color: color.textMuted,
-		fontSize: font.size_1,
-		fontWeight: font.weight_5,
-		paddingBlock: 0,
-		paddingInline: controlSize._1,
-		transitionDuration: motion.durationBase,
-		transitionProperty: "color, opacity",
-		transitionTimingFunction: motion.ease,
-		":hover": {
-			color: color.textSoft,
-		},
-		":disabled": {
-			opacity: 0.4,
-		},
-	},
-	revertedLabel: {
-		borderRadius: radius.md,
-		color: color.textMuted,
-		fontSize: font.size_2,
-		fontStyle: "italic",
-		paddingBlock: 1,
-		paddingInline: controlSize._1_5,
-	},
-	checkpointFiles: {
-		display: "flex",
-		flexDirection: "column",
-		gap: controlSize._0_5,
-		paddingBottom: controlSize._2,
-		paddingInline: controlSize._2,
-		paddingTop: controlSize._1,
-	},
-	checkpointFile: {
-		alignItems: "center",
-		display: "flex",
-		fontFamily: font.familyMono,
-		fontSize: font.size_1,
-		gap: controlSize._1_5,
-		paddingInline: controlSize._1,
-	},
-	checkpointChevron: {
-		flexShrink: 0,
-		opacity: 0.4,
-		transitionDuration: motion.durationBase,
-		transitionProperty: "transform",
-	},
 	rotateClosed: {
 		transform: "rotate(-90deg)",
-	},
-	checkpointIcon: {
-		flexShrink: 0,
-		opacity: 0.4,
-		color: color.textMuted,
-	},
-	revertedIcon: {
-		color: color.danger,
-	},
-	checkpointTitle: {
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-		opacity: 0.8,
-	},
-	spacer: {
-		flex: 1,
 	},
 	userRow: {
 		display: "flex",
@@ -712,6 +809,31 @@ const styles = stylex.create({
 		borderColor: color.borderControl,
 		borderRadius: radius.sm,
 		objectFit: "cover",
+	},
+	userMetaRow: {
+		display: "flex",
+		flexWrap: "wrap",
+		gap: controlSize._1,
+		justifyContent: "flex-end",
+		marginBottom: controlSize._1,
+		maxWidth: "100%",
+	},
+	contextPill: {
+		backgroundColor: color.surfaceSubtle,
+		borderColor: color.borderSubtle,
+		borderRadius: radius.pill,
+		borderStyle: "solid",
+		borderWidth: 1,
+		color: color.textMuted,
+		display: "inline-block",
+		fontFamily: "var(--font-diff)",
+		fontSize: font.size_0_5,
+		maxWidth: "14rem",
+		overflow: "hidden",
+		paddingBlock: 1,
+		paddingInline: controlSize._1,
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
 	},
 	userText: {
 		whiteSpace: "pre-wrap",
@@ -740,6 +862,58 @@ const styles = stylex.create({
 		fontFamily: font.familyMono,
 		fontSize: font.size_4,
 		fontWeight: font.weight_5,
+	},
+	systemNotice: {
+		borderColor: color.border,
+		borderRadius: radius.lg,
+		borderStyle: "solid",
+		borderWidth: 1,
+		backgroundColor: color.backgroundRaised,
+		color: color.textMuted,
+		marginInline: "auto",
+		maxWidth: "34rem",
+		paddingBlock: controlSize._2,
+		paddingInline: controlSize._3,
+	},
+	systemNoticeHeader: {
+		alignItems: "center",
+		display: "flex",
+		gap: controlSize._1_5,
+	},
+	systemNoticeIcon: {
+		color: color.textMuted,
+		opacity: 0.7,
+	},
+	systemNoticeTitle: {
+		color: color.textSoft,
+		fontSize: font.size_2,
+		fontWeight: font.weight_5,
+	},
+	systemNoticeDetail: {
+		color: color.textMuted,
+		fontSize: font.size_1,
+		lineHeight: 1.45,
+		marginTop: controlSize._1,
+	},
+	systemNoticeDetails: {
+		marginTop: controlSize._1_5,
+	},
+	systemNoticeSummary: {
+		color: color.textMuted,
+		cursor: "pointer",
+		fontSize: font.size_0_5,
+		userSelect: "none",
+	},
+	systemNoticeRaw: {
+		color: color.textMuted,
+		display: "block",
+		fontFamily: font.familyMono,
+		fontSize: font.size_0_5,
+		lineHeight: 1.45,
+		marginTop: controlSize._1,
+		maxHeight: "7rem",
+		overflow: "auto",
+		whiteSpace: "pre-wrap",
 	},
 	dot2: {
 		animationDelay: "0.1s",
@@ -843,17 +1017,94 @@ const styles = stylex.create({
 		justifyContent: "flex-end",
 		marginTop: controlSize._1,
 	},
+	handoverWrap: {
+		position: "relative",
+	},
+	messageActionDropdown: {
+		"--dropdown-button-bg-color": color.transparent,
+		"--dropdown-button-bg-image": "none",
+		"--dropdown-button-border-color": color.transparent,
+		"--dropdown-button-border-width": "0",
+		"--dropdown-button-hover-bg-color": color.transparent,
+		"--dropdown-button-hover-bg-image": "none",
+		"--dropdown-button-hover-shadow": "none",
+		"--dropdown-button-open-bg-color": color.transparent,
+		"--dropdown-button-open-bg-image": "none",
+		"--dropdown-button-open-border-color": color.transparent,
+		"--dropdown-button-open-shadow": "none",
+		"--dropdown-button-shadow": "none",
+		backgroundImage: "none",
+		backgroundColor: color.transparent,
+		borderColor: color.transparent,
+		borderRadius: radius.sm,
+		borderWidth: 0,
+		boxShadow: "none",
+		color: color.textMain,
+		fontSize: font.size_2,
+		fontWeight: font.weight_5,
+		gap: controlSize._1,
+		height: controlSize._6,
+		minHeight: controlSize._6,
+		paddingBlock: controlSize._0_5,
+		paddingInline: controlSize._1_5,
+		transitionDuration: motion.durationBase,
+		transitionProperty: "background-color, color",
+		transitionTimingFunction: motion.ease,
+	},
+	messageActionLabel: {
+		color: "currentColor",
+		fontSize: font.size_2,
+	},
+	messageActionIcon: {
+		color: "currentColor",
+		display: "block",
+		flexShrink: 0,
+		height: controlSize._3,
+		opacity: 1,
+		width: controlSize._3,
+	},
+	handoffOption: {
+		alignItems: "center",
+		color: color.textSoft,
+		display: "flex",
+		gap: controlSize._2,
+		minHeight: 30,
+		paddingBlock: controlSize._1,
+		paddingInline: controlSize._2,
+		textAlign: "left",
+		width: "100%",
+	},
+	handoffOptionIcon: {
+		color: color.textMuted,
+		flexShrink: 0,
+	},
+	handoffOptionText: {
+		display: "flex",
+		flexDirection: "column",
+		gap: 1,
+		minWidth: 0,
+	},
+	handoffOptionLabel: {
+		color: color.textMain,
+		fontSize: font.size_2,
+		fontWeight: font.weight_6,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
+	handoffOptionDetail: {
+		color: color.textMuted,
+		fontSize: font.size_1,
+		fontWeight: font.weight_5,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
 	copyMessageButton: {
 		alignItems: "center",
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.surfaceControl,
-		},
+		backgroundColor: color.transparent,
 		borderRadius: radius.sm,
-		color: {
-			default: color.textMuted,
-			":hover": color.textSoft,
-		},
+		color: color.textMain,
 		display: "inline-flex",
 		fontSize: font.size_2,
 		fontWeight: font.weight_5,
@@ -862,8 +1113,38 @@ const styles = stylex.create({
 		paddingBlock: controlSize._0_5,
 		paddingInline: controlSize._1_5,
 		transitionDuration: motion.durationBase,
-		transitionProperty: "background-color, color",
+		transitionProperty: "color",
 		transitionTimingFunction: motion.ease,
+	},
+	artifactSavedButton: {
+		animationDuration: "900ms",
+		animationIterationCount: 1,
+		animationName: stylex.keyframes({
+			"0%": {
+				backgroundPosition: "0% 50%",
+				boxShadow:
+					"inset 0 0 0 1px color-mix(in srgb, var(--color-inferay-accent) 16%, transparent)",
+			},
+			"45%": {
+				backgroundPosition: "100% 50%",
+				boxShadow:
+					"inset 0 0 0 1px color-mix(in srgb, var(--color-inferay-info) 34%, transparent)",
+			},
+			"100%": {
+				backgroundPosition: "0% 50%",
+				boxShadow:
+					"inset 0 0 0 1px color-mix(in srgb, var(--color-inferay-accent) 20%, transparent)",
+			},
+		}),
+		animationTimingFunction: motion.ease,
+		backgroundColor:
+			"color-mix(in srgb, var(--color-inferay-accent) 8%, transparent)",
+		backgroundImage:
+			"radial-gradient(circle at 0 0, color-mix(in srgb, var(--color-inferay-accent) 24%, transparent), transparent 55%), radial-gradient(circle at 100% 100%, color-mix(in srgb, var(--color-inferay-info) 14%, transparent), transparent 50%)",
+		backgroundSize: "180% 180%",
+		boxShadow:
+			"inset 0 0 0 1px color-mix(in srgb, var(--color-inferay-accent) 20%, transparent)",
+		color: color.textMain,
 	},
 	copyMessageButtonCopied: {
 		backgroundColor: color.successWash,

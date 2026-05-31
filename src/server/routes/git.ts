@@ -1,13 +1,15 @@
 import { resolve } from "node:path";
+import type { GitProjectStatus } from "../../features/git/types.ts";
 import { rangeContainsLine } from "../../lib/data.ts";
 import { badRequest, tryRoute } from "../../lib/route-helpers.ts";
-import {
-	resolveAllowedChildPath,
-	resolveRealAllowedLocalPath,
-} from "../security.ts";
+import { resolveRealAllowedLocalPath } from "../security.ts";
 import { unwatchDirectory, watchDirectory } from "../services/file-watcher.ts";
 import {
+	checkoutBranch,
 	commit,
+	createWorktree,
+	discardFileChanges,
+	discardWorktree,
 	getBlame,
 	getBranches,
 	getCommitDetails,
@@ -16,18 +18,17 @@ import {
 	getGraphLog,
 	getLog,
 	getStatus,
+	mergeWorktree,
 	stageAll,
 	stageFile,
 	unstageAll,
 	unstageFile,
 } from "../services/git.ts";
-import type { GitProjectStatus } from "../../features/git/types.ts";
 import {
 	getNativeGitGraph,
 	getNativeGitStatuses,
 } from "../services/native-git.ts";
 import {
-	forbidden,
 	getDiffParams,
 	isChangedGitFile,
 	safeCwd,
@@ -546,78 +547,6 @@ export function gitRoutes() {
 			}),
 		},
 
-		"/api/git/file-with-diff": {
-			GET: tryRoute(async (req) => {
-				const params = getDiffParams(req);
-				if (!params) return badRequest("Missing cwd or file parameter");
-				if (!(await isChangedGitFile(params.cwd, params.file))) {
-					return Response.json(
-						{ error: "File is not changed" },
-						{ status: 404 }
-					);
-				}
-				const { cwd, file, staged } = params;
-				const childPath = resolveAllowedChildPath(cwd, file);
-				const fullPath = childPath
-					? await resolveRealAllowedLocalPath(childPath)
-					: null;
-				if (!fullPath) return forbidden();
-
-				if (isImageFile(file)) {
-					return Response.json({
-						isImage: true,
-						imagePath: fullPath,
-						lines: [],
-					});
-				}
-
-				let content: string;
-				try {
-					const f = Bun.file(fullPath);
-					if (f.size > 500_000)
-						return Response.json({ error: "File too large", lines: [] });
-					content = await f.text();
-					if (content.includes("\0"))
-						return Response.json({ error: "Binary file", lines: [] });
-				} catch {
-					return Response.json({ error: "Cannot read file", lines: [] });
-				}
-
-				const addedLines = new Set<number>();
-				try {
-					const args = staged
-						? ["git", "diff", "--cached", "-U0", "--", file]
-						: ["git", "diff", "-U0", "--", file];
-					const proc = Bun.spawn(args, { cwd, stdout: "pipe", stderr: "pipe" });
-					const diffText = await new Response(proc.stdout).text();
-
-					let lineNum = 0;
-					for (const line of diffText.split("\n")) {
-						if (line.startsWith("@@")) {
-							const m = line.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-							if (m) lineNum = Number.parseInt(m[1]!, 10);
-							continue;
-						}
-						if (line.startsWith("+") && !line.startsWith("+++")) {
-							addedLines.add(lineNum++);
-						} else if (line.startsWith("-") && !line.startsWith("---")) {
-						} else if (!line.startsWith("\\")) {
-							lineNum++;
-						}
-					}
-				} catch {}
-
-				const fileLines = content.split("\n");
-				const lines = fileLines.map((text, i) => ({
-					number: i + 1,
-					content: text,
-					type: addedLines.has(i + 1) ? "add" : "context",
-				}));
-
-				return Response.json({ lines });
-			}),
-		},
-
 		"/api/git/branches": {
 			GET: tryRoute(async (req) => {
 				const url = new URL(req.url);
@@ -625,6 +554,14 @@ export function gitRoutes() {
 				if (!cwd) return badRequest("Missing cwd parameter");
 				const branches = await getBranches(cwd);
 				return Response.json({ branches });
+			}),
+			POST: tryRoute(async (req) => {
+				const body = (await req.json()) as { cwd?: string; branch?: string };
+				const cwd = safeCwd(body.cwd);
+				if (!cwd) return badRequest("Missing cwd parameter");
+				if (!body.branch) return badRequest("Missing branch parameter");
+				const result = await checkoutBranch(cwd, body.branch);
+				return Response.json(result, { status: result.ok ? 200 : 400 });
 			}),
 		},
 
@@ -719,6 +656,20 @@ export function gitRoutes() {
 			}),
 		},
 
+		"/api/git/discard-file": {
+			POST: tryRoute(async (req) => {
+				const body = (await req.json()) as { cwd: string; file?: string };
+				const cwd = safeCwd(body.cwd);
+				if (!cwd) return badRequest("Missing cwd parameter");
+				if (!safeFilePath(body.file))
+					return badRequest("Invalid file parameter");
+				const result = await discardFileChanges(cwd, body.file);
+				return Response.json(result, {
+					status: result.success ? 200 : 400,
+				});
+			}),
+		},
+
 		"/api/git/commit": {
 			POST: tryRoute(async (req) => {
 				const body = (await req.json()) as { cwd: string; message: string };
@@ -727,6 +678,58 @@ export function gitRoutes() {
 				if (!body.message) return badRequest("Missing message parameter");
 				const result = await commit(cwd, body.message);
 				return Response.json(result);
+			}),
+		},
+
+		"/api/git/worktree": {
+			POST: tryRoute(async (req) => {
+				const body = (await req.json()) as { cwd?: string; name?: string };
+				const cwd = safeCwd(body.cwd);
+				if (!cwd) return badRequest("Missing cwd parameter");
+				const result = await createWorktree(cwd, body.name || "agent-task");
+				return Response.json(result, { status: result.ok ? 200 : 400 });
+			}),
+		},
+
+		"/api/git/worktree/discard": {
+			POST: tryRoute(async (req) => {
+				const body = (await req.json()) as {
+					cwd?: string;
+					worktreePath?: string;
+					branchName?: string;
+				};
+				const cwd = safeCwd(body.cwd);
+				if (!cwd) return badRequest("Missing cwd parameter");
+				if (!body.worktreePath)
+					return badRequest("Missing worktreePath parameter");
+				if (!body.branchName) return badRequest("Missing branchName parameter");
+				const result = await discardWorktree(
+					cwd,
+					body.worktreePath,
+					body.branchName
+				);
+				return Response.json(result, { status: result.ok ? 200 : 400 });
+			}),
+		},
+
+		"/api/git/worktree/merge": {
+			POST: tryRoute(async (req) => {
+				const body = (await req.json()) as {
+					cwd?: string;
+					worktreePath?: string;
+					branchName?: string;
+				};
+				const cwd = safeCwd(body.cwd);
+				if (!cwd) return badRequest("Missing cwd parameter");
+				if (!body.worktreePath)
+					return badRequest("Missing worktreePath parameter");
+				if (!body.branchName) return badRequest("Missing branchName parameter");
+				const result = await mergeWorktree(
+					cwd,
+					body.worktreePath,
+					body.branchName
+				);
+				return Response.json(result, { status: result.ok ? 200 : 400 });
 			}),
 		},
 

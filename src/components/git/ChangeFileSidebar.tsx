@@ -1,9 +1,15 @@
 import * as stylex from "@stylexjs/stylex";
 import { useCallback, useMemo, useState } from "react";
-import type { HunkDiffStats } from "../../features/git/useGitDiff.ts";
 import type { GitFileEntry } from "../../features/git/types.ts";
 import { postJson } from "../../lib/fetch-json.ts";
-import { color, controlSize, font, radius } from "../../tokens.stylex.ts";
+import {
+	color,
+	controlSize,
+	effect,
+	font,
+	radius,
+	shadow,
+} from "../../tokens.stylex.ts";
 import { Button } from "../ui/Button.tsx";
 import { DotMatrixWeave } from "../ui/DotMatrixLoader.tsx";
 import {
@@ -64,7 +70,6 @@ export function ChangeFileSidebar({
 	untracked: GitFileEntry[];
 	staged: GitFileEntry[];
 	selectedFile: SelectedFile | null;
-	selectedDiffStats?: HunkDiffStats;
 	onSelectFile: (f: GitFileEntry) => void;
 	onStageFile: (path: string) => void;
 	onUnstageFile: (path: string) => void;
@@ -434,15 +439,22 @@ const styles = stylex.create({
 		paddingBottom: controlSize._3,
 	},
 	commitEditor: {
-		overflow: "hidden",
-		borderWidth: 1,
-		borderStyle: "solid",
+		backgroundColor: color.backgroundRaised,
+		backgroundImage: effect.controlDepth,
 		borderColor: {
 			default: color.border,
-			":focus-within": color.borderControl,
+			":focus-within": color.borderStrong,
 		},
-		borderRadius: radius.lg,
-		backgroundColor: color.backgroundRaised,
+		borderRadius: 12,
+		borderStyle: "solid",
+		borderWidth: 1,
+		boxShadow: {
+			default: shadow.composerFrame,
+			":focus-within": shadow.composerFrameFocus,
+		},
+		overflow: "hidden",
+		transitionDuration: "150ms",
+		transitionProperty: "border-color, box-shadow, background-color",
 	},
 	summaryRow: {
 		display: "flex",
@@ -512,12 +524,31 @@ const styles = stylex.create({
 		top: controlSize._2_5,
 	},
 	commitButton: {
-		width: "100%",
-		justifyContent: "center",
+		backgroundColor: {
+			default: color.backgroundRaised,
+			":hover": color.controlHover,
+		},
+		backgroundImage: {
+			default: effect.controlDepth,
+			":hover": effect.controlDepthHover,
+		},
+		borderColor: {
+			default: color.border,
+			":hover": color.borderStrong,
+		},
+		borderStyle: "solid",
+		borderWidth: 1,
+		boxShadow: {
+			default: shadow.composerFrame,
+			":hover": shadow.composerFrameFocus,
+		},
+		color: color.textMain,
 		gap: controlSize._2,
-		minHeight: controlSize._9,
 		fontSize: font.size_3,
 		fontWeight: font.weight_6,
+		justifyContent: "center",
+		minHeight: controlSize._9,
+		width: "100%",
 	},
 	detailsRoot: {
 		display: "flex",
@@ -1110,7 +1141,7 @@ function CommitSection({
 					type="button"
 					onClick={onCommit}
 					disabled={!commitMessage.trim() || isCommitting}
-					variant="primary"
+					variant="secondary"
 					size="sm"
 					className={stylex.props(styles.commitButton).className}
 				>
@@ -1356,7 +1387,10 @@ function TreeNodeRow({
 			<div
 				{...stylex.props(styles.treeRow, active && styles.fileRowActive)}
 				style={{ paddingLeft: `${4 + depth * 9}px`, paddingRight: 6 }}
-				onMouseEnter={() => file && onActionHover(file.path)}
+				onMouseEnter={() => {
+					if (!file) return;
+					onActionHover(file.path);
+				}}
 				onMouseLeave={() => file && onActionHover(null)}
 				onClick={() => {
 					if (isDir) {
@@ -1544,7 +1578,9 @@ function FileGroup({
 										styles.pathRow,
 										active && styles.fileRowActive
 									)}
-									onMouseEnter={() => setHoveredActionPath(f.path)}
+									onMouseEnter={() => {
+										setHoveredActionPath(f.path);
+									}}
 									onMouseLeave={() => setHoveredActionPath(null)}
 								>
 									<FileStatusIcon status={f.status} />

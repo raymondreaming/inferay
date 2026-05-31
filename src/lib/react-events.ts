@@ -70,12 +70,3 @@ export function focusRef<T extends { focus(): void }>(ref: {
 }): void {
 	ref.current?.focus();
 }
-
-export function setupTerminalThemePanelShortcut(
-	setShowSettings: (show: boolean) => void
-): () => void {
-	return listenWindowEvent(
-		"terminal-open-theme-panel",
-		setShowSettings.bind(null, true)
-	);
-}

@@ -8,19 +8,14 @@ import {
 	useState,
 } from "react";
 import type { AgentChatHandle } from "../../components/chat/AgentChatView.tsx";
-import { clearAgentChatMessages } from "../../features/chat/chat-session-store.ts";
-import { ProjectFileGraphView } from "../../components/graph/ProjectFileGraphView.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
-import { IconGitBranch, IconX } from "../../components/ui/Icons.tsx";
+import { IconX } from "../../components/ui/Icons.tsx";
 import { useAgentSessions } from "../../features/agents/useAgentSessions.ts";
-import { useGitStatus } from "../../features/git/useGitStatus.ts";
 import { wsClient } from "../../lib/websocket.ts";
 import { EditorPage } from "../EditorPage/index.tsx";
-import { GitPage } from "../GitPage/index.tsx";
 import { InlineDirectoryPicker } from "./InlineDirectoryPicker.tsx";
 import { NewSessionButtons } from "./NewSessionButtons.tsx";
 import { TerminalGrid } from "./TerminalGrid.tsx";
-import { TerminalSettingsPanel } from "./TerminalSettingsPanel.tsx";
 
 import "@xterm/xterm/css/xterm.css";
 
@@ -28,12 +23,14 @@ import {
 	type AgentKind,
 	cacheTerminalState,
 	createPendingAgentChatPane,
+	createSimulatorPane,
 	createTerminalPane,
 	DEFAULT_CHAT_AGENT_KIND,
 	DEFAULT_FONT_FAMILY,
 	DEFAULT_FONT_SIZE,
 	DEFAULT_OPACITY,
 	DEFAULT_ROWS,
+	type GroupId,
 	getInitialGroups,
 	getPaneTitle,
 	getThemeById,
@@ -42,7 +39,6 @@ import {
 	migrateGroup,
 	saveTerminalState,
 	syncTerminalLayoutMode,
-	type GroupId,
 	type TerminalGroupModel,
 	type TerminalPaneModel,
 	type ThemeId,
@@ -56,26 +52,10 @@ import {
 	loadAppThemeId,
 	mapAppThemeToTerminalTheme,
 } from "../../lib/app-theme.ts";
-import { hasId, isNonEmptyString, lacksId } from "../../lib/data.ts";
-import {
-	listenWindowEvent,
-	setupTerminalThemePanelShortcut,
-} from "../../lib/react-events.ts";
+import { hasId, lacksId } from "../../lib/data.ts";
+import { listenWindowEvent } from "../../lib/react-events.ts";
 import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
-
-function GraphEmptyState({ message }: { message: string }) {
-	return (
-		<div {...stylex.props(styles.centerState, styles.centerPad)}>
-			<div {...stylex.props(styles.centerTextBox)}>
-				<div {...stylex.props(styles.iconBox)}>
-					<IconGitBranch size={18} />
-				</div>
-				<p {...stylex.props(styles.centerMessage)}>{message}</p>
-			</div>
-		</div>
-	);
-}
 
 function paneShellKey(pane: TerminalPaneModel) {
 	return {
@@ -83,6 +63,7 @@ function paneShellKey(pane: TerminalPaneModel) {
 		agentKind: pane.agentKind,
 		cwd: pane.cwd ?? null,
 		pendingCwd: pane.pendingCwd ?? false,
+		utilityPane: pane.utilityPane ?? null,
 		title: pane.title,
 	};
 }
@@ -146,6 +127,8 @@ const styles = stylex.create({
 		display: "flex",
 		flex: 1,
 		flexDirection: "column",
+		minHeight: 0,
+		minWidth: 0,
 	},
 	mainPaneHidden: {
 		overflow: "hidden",
@@ -219,6 +202,20 @@ const styles = stylex.create({
 		marginBottom: controlSize._1,
 		paddingInline: controlSize._1,
 	},
+	chatWorkspace: {
+		display: "flex",
+		flex: 1,
+		flexDirection: "column",
+		height: "100%",
+		minHeight: 0,
+		overflow: "hidden",
+	},
+	chatGridSlot: {
+		display: "flex",
+		flex: 1,
+		minHeight: 0,
+		overflow: "hidden",
+	},
 });
 
 function AgentStartPane({
@@ -288,6 +285,7 @@ type GroupAction =
 			pendingCwd?: boolean;
 			referencePaths?: string[];
 	  }
+	| { type: "addSimulatorPane"; groupId: string }
 	| { type: "removePane"; groupId: string; paneId: string; force?: boolean }
 	| { type: "selectPane"; groupId: string; paneId: string }
 	| {
@@ -328,7 +326,14 @@ function groupsReducer(
 			}
 			return state.map((g) => {
 				if (g.id !== action.groupId) return g;
-				return { ...g, panes: [...g.panes, pane], selectedPaneId: pane.id };
+				return { ...g, panes: [pane, ...g.panes], selectedPaneId: pane.id };
+			});
+		}
+		case "addSimulatorPane": {
+			const pane = createSimulatorPane();
+			return state.map((g) => {
+				if (g.id !== action.groupId) return g;
+				return { ...g, panes: [pane, ...g.panes], selectedPaneId: pane.id };
 			});
 		}
 		case "removePane": {
@@ -434,7 +439,6 @@ export function TerminalPage() {
 	const [selectedGroupId, setSelectedGroupId] = useState<GroupId | null>(
 		() => initialState?.selectedGroupId ?? initGroups[0]?.id ?? null
 	);
-	const [showSettings, setShowSettings] = useState(false);
 	const [appearance, setAppearance] = useState(() => ({
 		themeId: (initialState?.themeId ??
 			mapAppThemeToTerminalTheme(loadAppThemeId())) as ThemeId,
@@ -450,35 +454,6 @@ export function TerminalPage() {
 		() => groups.find(hasId.bind(null, selectedGroupId)),
 		[groups, selectedGroupId]
 	);
-	const graphCwds = useMemo(
-		() =>
-			Array.from(
-				new Set(
-					(currentGroup?.panes ?? [])
-						.map((pane) => pane.cwd)
-						.filter(isNonEmptyString)
-				)
-			),
-		[currentGroup]
-	);
-	const [activeGraphCwd, setActiveGraphCwd] = useState<string | null>(null);
-	useEffect(() => {
-		const selectedPaneCwd =
-			currentGroup?.panes.find(
-				(pane) => pane.id === currentGroup.selectedPaneId
-			)?.cwd ?? null;
-		if (selectedPaneCwd && graphCwds.includes(selectedPaneCwd)) {
-			setActiveGraphCwd(selectedPaneCwd);
-			return;
-		}
-		setActiveGraphCwd((current) =>
-			current && graphCwds.includes(current) ? current : (graphCwds[0] ?? null)
-		);
-	}, [currentGroup, graphCwds]);
-	const { projectMap } = useGitStatus(graphCwds);
-	const activeGraphProject = activeGraphCwd
-		? (projectMap.get(activeGraphCwd) ?? null)
-		: null;
 	const restoreSavedState = useCallback(
 		(s: ReturnType<typeof loadTerminalState>) => {
 			if (!s) return;
@@ -499,7 +474,6 @@ export function TerminalPage() {
 	const cleanupPane = useCallback((paneId: string) => {
 		wsClient.send({ type: "terminal:destroy", paneId });
 		chatRefs.current.delete(paneId);
-		clearAgentChatMessages(paneId);
 	}, []);
 	const withSelectedGroup = useCallback(
 		(fn: (groupId: string) => void) => {
@@ -561,6 +535,35 @@ export function TerminalPage() {
 					selectedGroupId: savedState.selectedGroupId,
 				};
 			}
+			const savedSelectedGroup = savedState?.groups.find(
+				hasId.bind(null, savedState.selectedGroupId)
+			);
+			if (savedSelectedGroup?.selectedPaneId) {
+				const currentSavedGroup = latestStateRef.current.groups.find(
+					hasId.bind(null, savedSelectedGroup.id)
+				);
+				if (
+					currentSavedGroup &&
+					currentSavedGroup.selectedPaneId !== savedSelectedGroup.selectedPaneId
+				) {
+					groupsDispatch({
+						type: "selectPane",
+						groupId: savedSelectedGroup.id,
+						paneId: savedSelectedGroup.selectedPaneId,
+					});
+					latestStateRef.current = {
+						...latestStateRef.current,
+						groups: latestStateRef.current.groups.map((group) =>
+							group.id === savedSelectedGroup.id
+								? {
+										...group,
+										selectedPaneId: savedSelectedGroup.selectedPaneId,
+									}
+								: group
+						),
+					};
+				}
+			}
 			// Skip full restore check if we have a pending save - this prevents undoing local changes
 			if (pendingSaveRef.current) {
 				return;
@@ -589,7 +592,6 @@ export function TerminalPage() {
 		};
 		return listenWindowEvent("terminal-shell-change", handleShellChange);
 	}, [groups, mainView, restoreSavedState, selectedGroupId, themeId]);
-	useEffect(setupTerminalThemePanelShortcut.bind(null, setShowSettings), []);
 	const handleAddPane = useCallback(
 		(agentKind: AgentKind) =>
 			withSelectedGroup((groupId) =>
@@ -616,6 +618,17 @@ export function TerminalPage() {
 			),
 		[withSelectedGroup]
 	);
+	useEffect(() => {
+		const handleCreateSimulatorPane = () => {
+			withSelectedGroup((groupId) =>
+				groupsDispatch({ type: "addSimulatorPane", groupId })
+			);
+		};
+		return listenWindowEvent(
+			"inferay:create-simulator-pane",
+			handleCreateSimulatorPane
+		);
+	}, [withSelectedGroup]);
 	const removePane = useCallback(
 		(paneId: string, force?: boolean) => {
 			if (!selectedGroupId) return;
@@ -704,6 +717,22 @@ export function TerminalPage() {
 		},
 		[]
 	);
+	useEffect(
+		() =>
+			listenWindowEvent("inferay:agent-handover-request", (event) => {
+				const detail = (
+					event as CustomEvent<{
+						targetPaneId?: string;
+						sourcePaneId?: string;
+						sourceMessageId?: string;
+						prompt?: string;
+					}>
+				).detail;
+				if (!detail?.targetPaneId || !detail.prompt) return;
+				chatRefs.current.get(detail.targetPaneId)?.sendMessage(detail.prompt);
+			}),
+		[]
+	);
 	const editorViewKey = useMemo(() => {
 		if (!currentGroup) return "none";
 		return `${currentGroup.id}:${currentGroup.panes
@@ -738,6 +767,11 @@ export function TerminalPage() {
 			onSetPaneAgentKind={handleSetPaneAgentKind}
 		/>
 	) : null;
+	const chatWorkspace = currentGroup ? (
+		<div {...stylex.props(styles.chatWorkspace)}>
+			<div {...stylex.props(styles.chatGridSlot)}>{terminalGrid}</div>
+		</div>
+	) : null;
 	return (
 		<div {...stylex.props(styles.appRoot, styles.fullHeight)}>
 			<div {...stylex.props(styles.appFrame)}>
@@ -758,36 +792,13 @@ export function TerminalPage() {
 									key={editorViewKey}
 									groups={groups}
 									selectedGroupId={selectedGroupId}
-									themeId={themeId}
 									onSelectPane={selectPane}
 									onDirectoryChange={handleDirectorySelected}
 								/>
-							) : mainView === "changes" ? (
-								<GitPage />
 							) : mainView === "chat" ? (
-								terminalGrid
-							) : mainView === "graph" ? (
-								graphCwds.length === 0 ? (
-									<GraphEmptyState message="Open a project directory in one of this group's panes to populate the file graph." />
-								) : (
-									<ProjectFileGraphView
-										cwds={graphCwds}
-										activeCwd={activeGraphCwd}
-										onSelectCwd={setActiveGraphCwd}
-										project={activeGraphProject}
-									/>
-								)
+								chatWorkspace
 							) : (
 								terminalGrid
-							)}
-							{showSettings && (
-								<TerminalSettingsPanel
-									themeId={themeId}
-									onThemeChange={(v: ThemeId) =>
-										setAppearance((prev) => ({ ...prev, themeId: v }))
-									}
-									onClose={setShowSettings.bind(null, false)}
-								/>
 							)}
 						</div>
 					</div>

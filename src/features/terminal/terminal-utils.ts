@@ -1,19 +1,19 @@
-import {
-	type AgentKind,
-	type ChatAgentKind,
-	getAgentDefinition,
-	loadDefaultChatSettings,
-} from "../agents/agents.ts";
+import { hasId, noop } from "../../lib/data.ts";
 
 import { sendJson } from "../../lib/fetch-json.ts";
-import { hasId, noop } from "../../lib/data.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
-
 import {
 	readStoredJson,
 	readStoredValue,
 	writeStoredJson,
 } from "../../lib/stored-json.ts";
+import {
+	type AgentKind,
+	type ChatAgentKind,
+	getAgentDefinition,
+	isChatAgentKind,
+	loadDefaultChatSettings,
+} from "../agents/agents.ts";
 
 export type { AgentKind } from "../agents/agents.ts";
 
@@ -50,7 +50,9 @@ export type ThemeId = (typeof THEME_IDS)[keyof typeof THEME_IDS];
 export type TerminalLayoutMode = "grid" | "rows";
 
 export function loadTerminalLayoutMode(): TerminalLayoutMode {
-	return readStoredValue("terminal-layout-mode") === "grid" ? "grid" : "rows";
+	const stored = readStoredValue("terminal-layout-mode");
+	if (stored === "grid" || stored === "rows") return stored;
+	return "rows";
 }
 
 export function syncTerminalLayoutMode(
@@ -68,7 +70,7 @@ export function listenTerminalLayoutMode(
 	);
 }
 
-export function appendPaneToGroup(
+export function prependPaneToGroup(
 	selectedGroupId: string,
 	pane: TerminalPaneModel,
 	group: TerminalGroupModel
@@ -76,7 +78,7 @@ export function appendPaneToGroup(
 	return group.id === selectedGroupId
 		? {
 				...group,
-				panes: [...group.panes, pane],
+				panes: [pane, ...group.panes],
 				selectedPaneId: pane.id,
 			}
 		: group;
@@ -152,12 +154,15 @@ export function createGroupId(): GroupId {
 
 export type PaneType = AgentKind;
 
+export type UtilityPaneKind = "simulator";
+
 export interface TerminalPaneModel {
 	readonly id: PaneId;
 	title: string;
 	readonly agentKind: AgentKind;
 	readonly isClaude: boolean;
 	readonly paneType?: PaneType;
+	utilityPane?: UtilityPaneKind;
 	cwd?: string;
 	pendingCwd?: boolean;
 	referencePaths?: string[];
@@ -248,7 +253,13 @@ export function changePaneAgentKind(
 			panes: g.panes.map((p) =>
 				p.id !== paneId
 					? p
-					: { ...p, agentKind, isClaude: agentKind === "claude" }
+					: {
+							...p,
+							agentKind,
+							isClaude: agentKind === "claude",
+							paneType: agentKind,
+							title: getPaneTitle(agentKind, p.cwd),
+						}
 			),
 		})),
 	});
@@ -293,6 +304,17 @@ export function createPendingAgentChatPane(
 	agentKind: ChatAgentKind = loadDefaultChatSettings().agentKind
 ): TerminalPaneModel {
 	return createTerminalPane(agentKind, undefined, true);
+}
+
+export function createSimulatorPane(): TerminalPaneModel {
+	return {
+		id: createPaneId(),
+		title: "Simulator",
+		agentKind: "terminal",
+		isClaude: false,
+		paneType: "terminal",
+		utilityPane: "simulator",
+	};
 }
 
 export function createDefaultAgentChatGroup(): TerminalGroupModel {
@@ -340,6 +362,28 @@ export function migrateGroup(
 		columns: group.columns ?? DEFAULT_COLUMNS,
 		rows: group.rows ?? DEFAULT_ROWS,
 	};
+}
+
+export function getPreferredEditorPane(
+	group: TerminalGroupModel | null | undefined
+): TerminalPaneModel | null {
+	if (!group) return null;
+	const selectedPane =
+		group.panes.find(hasId.bind(null, group.selectedPaneId)) ?? null;
+	const chatPanes = group.panes.filter((pane) =>
+		isChatAgentKind(pane.agentKind)
+	);
+	if (selectedPane?.cwd && isChatAgentKind(selectedPane.agentKind)) {
+		return selectedPane;
+	}
+	return (
+		chatPanes.find((pane) => !!pane.cwd) ??
+		(selectedPane && isChatAgentKind(selectedPane.agentKind)
+			? selectedPane
+			: null) ??
+		chatPanes[0] ??
+		null
+	);
 }
 
 export function getInitialGroups(): TerminalGroupModel[] {
@@ -475,6 +519,6 @@ export function getThemeById(themeId: string): TerminalTheme {
 	return (
 		TERMINAL_THEMES.find(hasId.bind(null, themeId)) ??
 		TERMINAL_THEMES.find(hasId.bind(null, DEFAULT_THEME_ID)) ??
-		TERMINAL_THEMES[0]
+		TERMINAL_THEMES[0]!
 	);
 }

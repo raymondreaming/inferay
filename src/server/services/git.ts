@@ -1,17 +1,19 @@
-import { resolve } from "node:path";
+import { mkdir } from "node:fs/promises";
+import { basename, dirname, resolve } from "node:path";
 import {
 	isStagedChange,
 	isUnstagedTrackedChange,
 	isUntrackedChange,
 } from "../../features/git/git-file-utils.ts";
-import {
-	isSafeRelativePath,
-	resolveRealAllowedLocalPath,
-} from "../security.ts";
 import type {
 	GitFileEntry,
 	GitProjectStatus,
 } from "../../features/git/types.ts";
+import {
+	isSafeRelativePath,
+	resolveAllowedLocalPath,
+	resolveRealAllowedLocalPath,
+} from "../security.ts";
 
 async function run(
 	args: string[],
@@ -66,6 +68,46 @@ async function runSafe(
 async function isGitRepo(cwd: string): Promise<boolean> {
 	const result = await run(["rev-parse", "--git-dir"], cwd);
 	return result !== null;
+}
+
+export function sanitizeWorktreeSlug(value: string): string {
+	return (
+		value
+			.trim()
+			.toLowerCase()
+			.replace(/[^a-z0-9._-]+/g, "-")
+			.replace(/^-+|-+$/g, "")
+			.slice(0, 48) || "agent-task"
+	);
+}
+
+export function createWorktreeBranchName(value: string): string {
+	return `inferay/${sanitizeWorktreeSlug(value)}-${Date.now().toString(36)}`;
+}
+
+export function createWorktreePath(
+	repoRoot: string,
+	branchName: string
+): string {
+	const slug = branchName
+		.replace(/^inferay\//, "")
+		.replace(/[^a-z0-9._-]+/gi, "-");
+	return resolve(dirname(repoRoot), `${basename(repoRoot)}-${slug}`);
+}
+
+export function isInferayWorktreeBranch(branchName: string): boolean {
+	return /^inferay\/[a-z0-9._-]+-[a-z0-9]+$/i.test(branchName);
+}
+
+export function isExpectedInferayWorktreePath(
+	repoRoot: string,
+	branchName: string,
+	worktreePath: string
+): boolean {
+	return (
+		isInferayWorktreeBranch(branchName) &&
+		resolve(worktreePath) === createWorktreePath(repoRoot, branchName)
+	);
 }
 
 function parseCommitSummaryLog(result: string | null) {
@@ -188,6 +230,171 @@ export async function getStatus(cwd: string): Promise<GitProjectStatus | null> {
 	};
 }
 
+export async function createWorktree(
+	cwd: string,
+	name: string
+): Promise<
+	| { ok: true; worktreePath: string; branchName: string; basePath: string }
+	| { ok: false; error: string }
+> {
+	if (!(await isGitRepo(cwd)))
+		return { ok: false, error: "Not a git repository" };
+
+	const root = (await runSafe(["rev-parse", "--show-toplevel"], cwd))?.trim();
+	if (!root) return { ok: false, error: "Unable to resolve repository root" };
+
+	const branchName = createWorktreeBranchName(name);
+	const worktreePath = createWorktreePath(root, branchName);
+	await mkdir(dirname(worktreePath), { recursive: true });
+
+	const result = await runSafe(
+		["worktree", "add", "-b", branchName, worktreePath, "HEAD"],
+		root,
+		30_000
+	);
+	if (result === null) return { ok: false, error: "Unable to create worktree" };
+
+	return { ok: true, worktreePath, branchName, basePath: root };
+}
+
+export async function discardWorktree(
+	cwd: string,
+	worktreePath: string,
+	branchName: string
+): Promise<
+	| { ok: true; worktreePath: string; branchName: string; basePath: string }
+	| { ok: false; error: string }
+> {
+	if (!(await isGitRepo(cwd)))
+		return { ok: false, error: "Not a git repository" };
+
+	const root = (await runSafe(["rev-parse", "--show-toplevel"], cwd))?.trim();
+	if (!root) return { ok: false, error: "Unable to resolve repository root" };
+	if (!isExpectedInferayWorktreePath(root, branchName, worktreePath)) {
+		return { ok: false, error: "Refusing to discard non-Inferay worktree" };
+	}
+	if (!resolveAllowedLocalPath(worktreePath)) {
+		return { ok: false, error: "Worktree path is outside allowed roots" };
+	}
+
+	const removeResult = await runSafe(
+		["worktree", "remove", "--force", worktreePath],
+		root,
+		30_000
+	);
+	if (removeResult === null) {
+		return { ok: false, error: "Unable to remove worktree" };
+	}
+	await runSafe(["branch", "-D", branchName], root, 10_000);
+	return { ok: true, worktreePath, branchName, basePath: root };
+}
+
+export async function mergeWorktree(
+	cwd: string,
+	worktreePath: string,
+	branchName: string
+): Promise<
+	| {
+			ok: true;
+			worktreePath: string;
+			branchName: string;
+			basePath: string;
+			mergeCommit: string | null;
+			committedWorktreeChanges: boolean;
+	  }
+	| { ok: false; error: string }
+> {
+	if (!(await isGitRepo(cwd)))
+		return { ok: false, error: "Not a git repository" };
+
+	const root = (await runSafe(["rev-parse", "--show-toplevel"], cwd))?.trim();
+	if (!root) return { ok: false, error: "Unable to resolve repository root" };
+	if (!isExpectedInferayWorktreePath(root, branchName, worktreePath)) {
+		return { ok: false, error: "Refusing to merge non-Inferay worktree" };
+	}
+	if (!resolveAllowedLocalPath(worktreePath)) {
+		return { ok: false, error: "Worktree path is outside allowed roots" };
+	}
+	if (!(await isGitRepo(worktreePath))) {
+		return { ok: false, error: "Worktree path is not a git repository" };
+	}
+
+	const currentWorktreeBranch = (
+		await runSafe(["rev-parse", "--abbrev-ref", "HEAD"], worktreePath)
+	)?.trim();
+	if (currentWorktreeBranch !== branchName) {
+		return { ok: false, error: "Worktree branch does not match metadata" };
+	}
+
+	const baseStatus = (
+		await runSafe(["status", "--porcelain=v1", "--untracked-files=all"], root)
+	)?.trim();
+	if (baseStatus) {
+		return {
+			ok: false,
+			error: "Base repository has local changes; commit or stash before merge",
+		};
+	}
+
+	const worktreeStatus = (
+		await runSafe(
+			["status", "--porcelain=v1", "--untracked-files=all"],
+			worktreePath
+		)
+	)?.trim();
+	let committedWorktreeChanges = false;
+	if (worktreeStatus) {
+		const addResult = await runSafe(["add", "-A"], worktreePath, 30_000);
+		if (addResult === null)
+			return { ok: false, error: "Unable to stage worktree changes" };
+		const commitResult = await runSafe(
+			["commit", "-m", "Inferay worktree changes"],
+			worktreePath,
+			30_000
+		);
+		if (commitResult === null)
+			return { ok: false, error: "Unable to commit worktree changes" };
+		committedWorktreeChanges = true;
+	}
+
+	const mergeResult = await runSafe(
+		["merge", "--no-ff", "--no-edit", branchName],
+		root,
+		60_000
+	);
+	if (mergeResult === null) {
+		await runSafe(["merge", "--abort"], root, 10_000);
+		return {
+			ok: false,
+			error:
+				"Merge failed; base repository was restored with git merge --abort",
+		};
+	}
+
+	const mergeCommit =
+		(await runSafe(["rev-parse", "HEAD"], root, 10_000))?.trim() || null;
+	const removeResult = await runSafe(
+		["worktree", "remove", "--force", worktreePath],
+		root,
+		30_000
+	);
+	if (removeResult === null) {
+		return {
+			ok: false,
+			error: "Merged successfully, but unable to remove worktree",
+		};
+	}
+	await runSafe(["branch", "-d", branchName], root, 10_000);
+	return {
+		ok: true,
+		worktreePath,
+		branchName,
+		basePath: root,
+		mergeCommit,
+		committedWorktreeChanges,
+	};
+}
+
 async function getWorkingTreeNumstat(cwd: string) {
 	const stats = new Map<string, { additions: number; deletions: number }>();
 	await addNumstatEntries(stats, cwd, false);
@@ -299,6 +506,39 @@ export async function getBranches(
 			current: line.startsWith("*"),
 			name: line.slice(2).trim(),
 		}));
+}
+
+export async function checkoutBranch(
+	cwd: string,
+	branchName: string
+): Promise<{ ok: boolean; branch?: string; error?: string }> {
+	const branches = await getBranches(cwd);
+	if (!branches.some((branch) => branch.name === branchName)) {
+		return { ok: false, error: "Branch not found" };
+	}
+	try {
+		const proc = Bun.spawn(["git", "checkout", branchName], {
+			cwd,
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		const [stderr, exitCode] = await Promise.all([
+			new Response(proc.stderr).text(),
+			proc.exited,
+		]);
+		if (exitCode !== 0) {
+			return {
+				ok: false,
+				error: stderr.trim() || `Unable to checkout ${branchName}`,
+			};
+		}
+		const current =
+			(await run(["rev-parse", "--abbrev-ref", "HEAD"], cwd, 5000))?.trim() ||
+			branchName;
+		return { ok: true, branch: current };
+	} catch {
+		return { ok: false, error: `Unable to checkout ${branchName}` };
+	}
 }
 
 export interface GitCommit {
@@ -559,6 +799,38 @@ export async function unstageFile(
 export async function unstageAll(cwd: string): Promise<boolean> {
 	const result = await run(["reset", "HEAD"], cwd);
 	return result !== null;
+}
+
+export async function discardFileChanges(
+	cwd: string,
+	filePath: string
+): Promise<{ success: boolean; error?: string }> {
+	if (!isSafeRelativePath(filePath) || !(await isGitRepo(cwd))) {
+		return { success: false, error: "Invalid file or repository" };
+	}
+	const status = await runSafe(
+		["status", "--porcelain=v1", "--untracked-files=all", "--", filePath],
+		cwd,
+		5000
+	);
+	if (status === null)
+		return { success: false, error: "Unable to read status" };
+	if (!status.trim()) return { success: true };
+
+	const isUntracked = status
+		.split("\n")
+		.filter(Boolean)
+		.every((line) => line.startsWith("?? "));
+	const result = isUntracked
+		? await runSafe(["clean", "-f", "--", filePath], cwd, 10_000)
+		: await runSafe(
+				["restore", "--source=HEAD", "--staged", "--worktree", "--", filePath],
+				cwd,
+				10_000
+			);
+	return result === null
+		? { success: false, error: "Unable to discard file changes" }
+		: { success: true };
 }
 
 export async function commit(

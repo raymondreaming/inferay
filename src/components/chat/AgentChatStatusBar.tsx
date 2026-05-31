@@ -1,8 +1,10 @@
 import * as stylex from "@stylexjs/stylex";
 import React, { useEffect, useMemo, useState } from "react";
+import type { ChatMessage } from "../../features/chat/agent-chat-shared.ts";
 import {
 	color,
 	controlSize,
+	effect,
 	font,
 	motion,
 	radius,
@@ -18,7 +20,6 @@ import {
 	IconTerminal,
 	IconWrench,
 } from "../ui/Icons.tsx";
-import type { ChatMessage } from "../../features/chat/agent-chat-shared.ts";
 import {
 	extractToolActivities,
 	getStatusToolName,
@@ -124,7 +125,11 @@ export const AgentChatStatusBar = React.memo(function AgentChatStatusBar({
 					onMouseEnter={() => setIsHovered(true)}
 					onMouseLeave={() => setIsHovered(false)}
 				>
-					<div {...stylex.props(styles.activityPill)}>
+					<button
+						type="button"
+						onClick={onStop}
+						{...stylex.props(styles.activityStopButton)}
+					>
 						{displayToolName && (
 							<span {...stylex.props(styles.activityIcon)}>
 								<ToolStatusIcon toolName={displayToolName} />
@@ -138,7 +143,10 @@ export const AgentChatStatusBar = React.memo(function AgentChatStatusBar({
 								+{activityCount - 1}
 							</span>
 						)}
-					</div>
+						<span {...stylex.props(styles.activityDivider)} />
+						<IconStop size={12} {...stylex.props(styles.toolIcon)} />
+						<span {...stylex.props(styles.stopLabel)}>Stop</span>
+					</button>
 
 					{isHovered && activityCount > 0 && (
 						<div {...stylex.props(styles.activityPopover)}>
@@ -180,15 +188,6 @@ export const AgentChatStatusBar = React.memo(function AgentChatStatusBar({
 					<span {...stylex.props(styles.idleText)}>Working...</span>
 				</div>
 			)}
-
-			<button
-				type="button"
-				onClick={onStop}
-				{...stylex.props(styles.stopButton)}
-			>
-				<IconStop size={12} {...stylex.props(styles.toolIcon)} />
-				Stop
-			</button>
 		</div>
 	);
 });
@@ -208,29 +207,42 @@ const styles = stylex.create({
 		flexShrink: 0,
 	},
 	activityWrap: {
+		minWidth: 0,
 		position: "relative",
 	},
-	activityPill: {
+	activityStopButton: {
 		alignItems: "center",
 		backgroundColor: {
 			default: color.backgroundRaised,
-			":hover": color.controlActive,
+			":hover": color.surfaceControl,
+		},
+		backgroundImage: {
+			default: effect.controlDepth,
+			":hover": effect.controlDepthHover,
 		},
 		borderColor: color.border,
 		borderRadius: radius.md,
 		borderStyle: "solid",
 		borderWidth: 1,
 		color: color.textSoft,
-		cursor: "default",
+		cursor: "pointer",
 		display: "flex",
-		fontSize: font.size_3,
+		flexShrink: 1,
+		fontSize: font.size_2,
 		fontWeight: font.weight_5,
 		gap: controlSize._1_5,
 		height: controlSize._6,
+		maxWidth: "100%",
+		minWidth: 0,
 		paddingInline: controlSize._2_5,
+		boxShadow: shadow.controlDepth,
 		transitionDuration: motion.durationBase,
-		transitionProperty: "background-color, border-color, color",
+		transitionProperty:
+			"background-color, background-image, border-color, box-shadow, color, transform",
 		transitionTimingFunction: motion.ease,
+		":active": {
+			transform: "scale(0.98)",
+		},
 	},
 	activityIcon: {
 		color: color.textMuted,
@@ -247,17 +259,29 @@ const styles = stylex.create({
 		fontSize: font.size_1,
 		fontVariantNumeric: "tabular-nums",
 	},
+	activityDivider: {
+		backgroundColor: color.border,
+		flexShrink: 0,
+		height: controlSize._3,
+		width: 1,
+	},
+	stopLabel: {
+		flexShrink: 0,
+	},
 	tabularText: {
 		fontVariantNumeric: "tabular-nums",
 	},
 	activityPopover: {
+		backdropFilter: "blur(24px)",
 		backgroundColor: color.backgroundRaised,
+		backgroundImage: effect.popoverDepth,
 		borderColor: color.border,
 		borderRadius: radius.lg,
 		borderStyle: "solid",
 		borderWidth: 1,
 		bottom: "100%",
-		boxShadow: shadow.popover,
+		boxShadow:
+			"inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 28px 58px -14px rgba(0, 0, 0, 0.82)",
 		left: 0,
 		marginBottom: controlSize._1,
 		maxWidth: 320,
@@ -280,16 +304,29 @@ const styles = stylex.create({
 		textTransform: "uppercase",
 	},
 	popoverList: {
-		maxHeight: 200,
+		maxHeight: 320,
 		overflowY: "auto",
+		scrollbarWidth: "none",
+		"::-webkit-scrollbar": {
+			display: "none",
+		},
 	},
 	popoverRow: {
 		alignItems: "center",
+		backgroundColor: {
+			default: "transparent",
+			":hover": color.surfaceControl,
+		},
+		backgroundImage: {
+			default: "none",
+			":hover": effect.controlDepth,
+		},
 		display: "flex",
 		fontSize: font.size_2,
 		gap: controlSize._2,
-		paddingBlock: controlSize._1_5,
-		paddingInline: controlSize._2_5,
+		minHeight: 30,
+		paddingBlock: controlSize._1,
+		paddingInline: controlSize._2,
 	},
 	popoverRowBorder: {
 		borderBottomColor: color.borderSubtle,
@@ -318,34 +355,5 @@ const styles = stylex.create({
 	idleText: {
 		color: color.textMuted,
 		fontSize: font.size_2,
-	},
-	stopButton: {
-		alignItems: "center",
-		backgroundColor: {
-			default: color.backgroundRaised,
-			":hover": color.controlActive,
-		},
-		borderColor: color.border,
-		borderRadius: radius.md,
-		borderStyle: "solid",
-		borderWidth: 1,
-		color: {
-			default: color.textSoft,
-			":hover": color.textMain,
-		},
-		display: "inline-flex",
-		flexShrink: 0,
-		fontSize: font.size_3,
-		fontWeight: font.weight_5,
-		gap: controlSize._1_5,
-		height: controlSize._6,
-		justifyContent: "center",
-		paddingInline: controlSize._2_5,
-		transitionDuration: motion.durationBase,
-		transitionProperty: "background-color, border-color, color, transform",
-		transitionTimingFunction: motion.ease,
-		":active": {
-			transform: "scale(0.97)",
-		},
 	},
 });

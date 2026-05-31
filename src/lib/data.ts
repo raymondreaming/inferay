@@ -65,10 +65,6 @@ export function setRecordEntry<T>(
 	setRecord(withRecordEntry(key, value));
 }
 
-export function comparePort(a: { port: number }, b: { port: number }): number {
-	return a.port - b.port;
-}
-
 export function compareName(a: { name: string }, b: { name: string }): number {
 	return a.name.localeCompare(b.name);
 }
