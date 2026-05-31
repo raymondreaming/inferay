@@ -257,12 +257,9 @@ const styles = stylex.create({
 		color: color.success,
 	},
 	inlineCode: {
-		backgroundColor: color.accentWash,
-		borderRadius: radius.xs,
 		color: color.accent,
 		fontFamily: font.familyMono,
 		fontSize: font.size_2,
-		paddingInline: controlSize._0_5,
 	},
 	strong: {
 		color: color.textMain,

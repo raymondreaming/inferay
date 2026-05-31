@@ -51,6 +51,7 @@ type AgentOption = {
 };
 
 const HIGHLIGHT_CHAR_LIMIT = 6000;
+const APP_REGION_NO_DRAG_CLASS = "electrobun-webkit-app-region-no-drag";
 const CLOSED_MD_PREVIEW = {
 	show: false,
 	path: "",
@@ -58,6 +59,12 @@ const CLOSED_MD_PREVIEW = {
 	loading: false,
 	error: null,
 };
+
+function noDragClassName(className?: string) {
+	return className
+		? `${APP_REGION_NO_DRAG_CLASS} ${className}`
+		: APP_REGION_NO_DRAG_CLASS;
+}
 
 function imageContextUrl(block: ComposerContextBlock): string | null {
 	if (block.source !== "artifact" || !block.path) return null;
@@ -474,6 +481,9 @@ export function ChatComposer({
 				<div
 					role="group"
 					{...stylex.props(styles.attachments)}
+					className={noDragClassName(
+						stylex.props(styles.attachments).className
+					)}
 					aria-label="Attached images"
 				>
 					{attachedImages.map((img) => (
@@ -502,7 +512,10 @@ export function ChatComposer({
 			{statusBar}
 
 			{showInput && (
-				<div {...stylex.props(styles.inputDock)}>
+				<div
+					{...stylex.props(styles.inputDock)}
+					className={noDragClassName(stylex.props(styles.inputDock).className)}
+				>
 					<div {...stylex.props(styles.inputFrame)} ref={inputContainerRef}>
 						{fileMenu.show && fileResults.length > 0 && (
 							<div {...stylex.props(styles.fileMenu)}>
@@ -845,17 +858,6 @@ export function ChatComposer({
 										overflowWrap: "break-word",
 									}}
 								/>
-								{isLoading && (
-									<div {...stylex.props(styles.loadingDots)}>
-										<span {...stylex.props(styles.loadingDot)} />
-										<span
-											{...stylex.props(styles.loadingDot, styles.loadingDot2)}
-										/>
-										<span
-											{...stylex.props(styles.loadingDot, styles.loadingDot3)}
-										/>
-									</div>
-								)}
 							</div>
 						</div>
 						<div {...stylex.props(styles.pickerRow)}>
@@ -872,14 +874,6 @@ export function ChatComposer({
 								<span {...stylex.props(styles.providerConfigLabel)}>
 									{agentDefinition.label}
 								</span>
-								<span {...stylex.props(styles.providerConfigLabel)}>
-									{selectedModelLabel}
-								</span>
-								{agentKind === "codex" && (
-									<span {...stylex.props(styles.providerConfigLabel)}>
-										{selectedReasoningLabel}
-									</span>
-								)}
 								<IconChevronDown
 									size={10}
 									{...stylex.props(
@@ -890,7 +884,7 @@ export function ChatComposer({
 							</button>
 							{cwd && (
 								<span {...stylex.props(styles.repoPill)} title={cwd}>
-									{folderLabel}
+									/{folderLabel}
 								</span>
 							)}
 							{cwd && gitBranch && (
@@ -1416,34 +1410,6 @@ const styles = stylex.create({
 		color: color.textMuted,
 		fontSize: "0.6875rem",
 	},
-	loadingDots: {
-		position: "absolute",
-		right: 0,
-		top: "50%",
-		display: "flex",
-		alignItems: "center",
-		gap: "0.125rem",
-		transform: "translateY(-50%)",
-	},
-	loadingDot: {
-		width: controlSize._1,
-		height: controlSize._1,
-		borderRadius: "999px",
-		backgroundColor: color.accent,
-		animationName: stylex.keyframes({
-			"50%": {
-				opacity: 0.35,
-			},
-		}),
-		animationDuration: "1s",
-		animationIterationCount: "infinite",
-	},
-	loadingDot2: {
-		animationDelay: "150ms",
-	},
-	loadingDot3: {
-		animationDelay: "300ms",
-	},
 	shrink: {
 		flexShrink: 0,
 	},
@@ -1528,10 +1494,7 @@ const styles = stylex.create({
 	inputFrame: {
 		backgroundColor: color.backgroundRaised,
 		backgroundImage: effect.controlDepth,
-		borderColor: {
-			default: color.border,
-			":focus-within": color.borderStrong,
-		},
+		borderColor: color.border,
 		borderRadius: 12,
 		borderStyle: "solid",
 		borderWidth: 1,
@@ -1545,10 +1508,7 @@ const styles = stylex.create({
 		overflow: "visible",
 		position: "relative",
 		width: "100%",
-		boxShadow: {
-			default: shadow.composerFrame,
-			":focus-within": shadow.composerFrameFocus,
-		},
+		boxShadow: shadow.composerFrame,
 		transitionProperty: "border-color, box-shadow, background-color",
 		transitionDuration: "150ms",
 	},
@@ -1565,7 +1525,7 @@ const styles = stylex.create({
 		borderWidth: 0,
 		boxShadow: "none",
 		boxSizing: "border-box",
-		color: color.textMuted,
+		color: color.textSoft,
 		display: "inline-flex",
 		fontSize: font.size_2,
 		fontWeight: font.weight_5,
@@ -1580,7 +1540,7 @@ const styles = stylex.create({
 		whiteSpace: "nowrap",
 	},
 	accentText: {
-		color: color.accent,
+		color: "currentColor",
 	},
 	providerConfigButton: {
 		alignItems: "center",

@@ -110,9 +110,9 @@ const shadowValues = {
 	controlDepthHover:
 		"var(--shadow-inferay-control-depth-hover, inset 0 1px 0 rgba(255, 255, 255, 0.055), inset 0 -1px 0 rgba(0, 0, 0, 0.48))",
 	composerFrame:
-		"var(--shadow-inferay-composer-frame, inset 0 1px 0 rgba(255, 255, 255, 0.055), inset 0 -1px 0 rgba(0, 0, 0, 0.48), 0 18px 42px rgba(0, 0, 0, 0.34))",
+		"var(--shadow-inferay-composer-frame, 0 18px 42px rgba(0, 0, 0, 0.34))",
 	composerFrameFocus:
-		"var(--shadow-inferay-composer-frame-focus, inset 0 1px 0 rgba(255, 255, 255, 0.075), inset 0 -1px 0 rgba(0, 0, 0, 0.52), 0 22px 52px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(255, 255, 255, 0.035))",
+		"var(--shadow-inferay-composer-frame-focus, 0 18px 42px rgba(0, 0, 0, 0.34))",
 	selectedRing:
 		"var(--shadow-inferay-selected-ring, 0 0 0 1px rgba(255, 255, 255, 0.05))",
 	focusRing:

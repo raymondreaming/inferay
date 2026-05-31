@@ -79,10 +79,8 @@ const DARK_DEPTH_TOKENS = {
 		"inset 0 1px 0 rgba(255, 255, 255, 0.045), inset 0 -1px 0 rgba(0, 0, 0, 0.42)",
 	"--shadow-inferay-control-depth-hover":
 		"inset 0 1px 0 rgba(255, 255, 255, 0.055), inset 0 -1px 0 rgba(0, 0, 0, 0.48)",
-	"--shadow-inferay-composer-frame":
-		"inset 0 1px 0 rgba(255, 255, 255, 0.055), inset 0 -1px 0 rgba(0, 0, 0, 0.48), 0 18px 42px rgba(0, 0, 0, 0.34)",
-	"--shadow-inferay-composer-frame-focus":
-		"inset 0 1px 0 rgba(255, 255, 255, 0.075), inset 0 -1px 0 rgba(0, 0, 0, 0.52), 0 22px 52px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(255, 255, 255, 0.035)",
+	"--shadow-inferay-composer-frame": "0 18px 42px rgba(0, 0, 0, 0.34)",
+	"--shadow-inferay-composer-frame-focus": "0 18px 42px rgba(0, 0, 0, 0.34)",
 	"--shadow-inferay-selected-ring": "0 0 0 1px rgba(255, 255, 255, 0.05)",
 	"--shadow-inferay-focus-ring": "0 0 0 1px rgba(229, 229, 231, 0.35)",
 	"--shadow-inferay-popover": "0 10px 15px -3px rgba(0, 0, 0, 0.6)",
@@ -100,10 +98,8 @@ const LIGHT_DEPTH_TOKENS = {
 		"inset 0 1px 0 rgba(255, 255, 255, 0.92), inset 0 -1px 0 rgba(31, 35, 40, 0.09)",
 	"--shadow-inferay-control-depth-hover":
 		"inset 0 1px 0 rgba(255, 255, 255, 0.98), inset 0 -1px 0 rgba(31, 35, 40, 0.12)",
-	"--shadow-inferay-composer-frame":
-		"inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(31, 35, 40, 0.08), 0 16px 34px rgba(31, 35, 40, 0.12)",
-	"--shadow-inferay-composer-frame-focus":
-		"inset 0 1px 0 rgba(255, 255, 255, 0.98), inset 0 -1px 0 rgba(31, 35, 40, 0.1), 0 18px 40px rgba(31, 35, 40, 0.14), 0 0 0 1px rgba(31, 35, 40, 0.06)",
+	"--shadow-inferay-composer-frame": "0 16px 34px rgba(31, 35, 40, 0.12)",
+	"--shadow-inferay-composer-frame-focus": "0 16px 34px rgba(31, 35, 40, 0.12)",
 	"--shadow-inferay-selected-ring": "0 0 0 1px rgba(31, 35, 40, 0.08)",
 	"--shadow-inferay-focus-ring": "0 0 0 1px rgba(9, 105, 218, 0.35)",
 	"--shadow-inferay-popover": "0 18px 38px -16px rgba(31, 35, 40, 0.28)",
