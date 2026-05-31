@@ -40,7 +40,7 @@ const TerminalPage = lazy(() =>
 
 if (window.location.origin !== getServerOrigin()) {
 	const originalFetch = window.fetch.bind(window);
-	window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+	const routedFetch = ((input: RequestInfo | URL, init?: RequestInit) => {
 		if (typeof input === "string" && input.startsWith("/")) {
 			return originalFetch(resolveServerUrl(input), init);
 		}
@@ -60,7 +60,9 @@ if (window.location.origin !== getServerOrigin()) {
 			}
 		}
 		return originalFetch(input, init);
-	};
+	}) as typeof window.fetch;
+	Object.assign(routedFetch, window.fetch);
+	window.fetch = routedFetch;
 }
 
 await hydrateStoredValues();

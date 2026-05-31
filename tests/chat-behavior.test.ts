@@ -26,19 +26,19 @@ function message(
 
 describe("chat data behavior", () => {
 	/*
-	 * This protects chat history compaction before messages are stored or sent
-	 * back through the app. The behavior keeps the newest context and also trims
-	 * oversized payloads, which matters for long-running agent sessions.
+	 * This protects lossless chat history persistence. The renderer keeps the
+	 * full local conversation and lets provider-specific send paths decide what
+	 * context window to transmit.
 	 */
-	test("trims chat history by message count and total character budget", () => {
+	test("keeps chat history lossless when storing local messages", () => {
 		const messages = Array.from({ length: 90 }, (_, index) =>
 			message(`m${index}`, `${index}:`.padEnd(2_000, "x"))
 		);
 
 		const trimmed = trimMessages(messages);
 
-		expect(trimmed).toHaveLength(75);
-		expect(trimmed[0]?.id).toBe("m15");
+		expect(trimmed).toHaveLength(90);
+		expect(trimmed[0]?.id).toBe("m0");
 		expect(trimmed.at(-1)?.id).toBe("m89");
 		expect(
 			appendTrimmedMessage(message("m90", "next"), trimmed).at(-1)?.id

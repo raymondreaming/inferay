@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
-	appendPaneToGroup,
 	createDefaultAgentChatGroup,
 	getPaneTitle,
 	getStatusInfo,
 	migrateGroup,
+	prependPaneToGroup,
 	type GroupId,
 	type PaneId,
 	type TerminalGroupModel,
@@ -57,7 +57,7 @@ describe("terminal state and git change behavior", () => {
 			],
 		});
 
-		expect(migrated.selectedPaneId).toBe("p1");
+		expect(migrated.selectedPaneId).toBe("p1" as PaneId);
 		expect(migrated.columns).toBe(3);
 		expect(migrated.rows).toBe(2);
 		expect(migrated.panes.map((item) => item.agentKind)).toEqual([
@@ -73,7 +73,7 @@ describe("terminal state and git change behavior", () => {
 		expect(group.columns).toBe(3);
 		expect(group.rows).toBe(2);
 		expect(group.panes).toHaveLength(6);
-		expect(group.selectedPaneId).toBe(group.panes[0]?.id);
+		expect(group.selectedPaneId).toBe(group.panes[0]?.id ?? null);
 		expect(group.panes.every((item) => item.agentKind === "codex")).toBe(true);
 		expect(group.panes.every((item) => item.pendingCwd)).toBe(true);
 	});
@@ -84,7 +84,7 @@ describe("terminal state and git change behavior", () => {
 	 * pane, while title generation should prefer the workspace directory name
 	 * over generic agent labels.
 	 */
-	test("appends panes only to the selected group and derives workspace titles", () => {
+	test("prepends panes only to the selected group and derives workspace titles", () => {
 		const nextPane = pane("p2", { cwd: "/Users/test/project-a" });
 		const group: TerminalGroupModel = {
 			id: "group-1" as GroupId,
@@ -95,12 +95,12 @@ describe("terminal state and git change behavior", () => {
 			rows: 1,
 		};
 
-		expect(appendPaneToGroup("group-1", nextPane, group)).toEqual({
+		expect(prependPaneToGroup("group-1", nextPane, group)).toEqual({
 			...group,
-			panes: [pane("p1"), nextPane],
-			selectedPaneId: "p2",
+			panes: [nextPane, pane("p1")],
+			selectedPaneId: "p2" as PaneId,
 		});
-		expect(appendPaneToGroup("other", nextPane, group)).toBe(group);
+		expect(prependPaneToGroup("other", nextPane, group)).toBe(group);
 		expect(getPaneTitle("codex", "/Users/test/project-a")).toBe("project-a");
 		expect(getPaneTitle("claude")).toBe("Claude");
 	});

@@ -34,14 +34,18 @@ describe("prompt search and client storage sync filters", () => {
 				isBuiltIn: false,
 			},
 		];
+		const [builtIn, releaseNotes, debugHelp] = prompts;
+		if (!builtIn || !releaseNotes || !debugHelp) {
+			throw new Error("Prompt fixtures failed to initialize.");
+		}
 
-		expect(filterPrompts(prompts, "builtin", "")).toEqual([prompts[0]]);
+		expect(filterPrompts(prompts, "builtin", "")).toEqual([builtIn]);
 		expect(filterPrompts(prompts, "custom", "")).toEqual([
-			prompts[1],
-			prompts[2],
+			releaseNotes,
+			debugHelp,
 		]);
-		expect(filterPrompts(prompts, "code", "runtime")).toEqual([prompts[2]]);
-		expect(filterPrompts(prompts, "all", "REVIEW")).toEqual([prompts[0]]);
+		expect(filterPrompts(prompts, "code", "runtime")).toEqual([debugHelp]);
+		expect(filterPrompts(prompts, "all", "REVIEW")).toEqual([builtIn]);
 	});
 
 	/*
