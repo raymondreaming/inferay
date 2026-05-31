@@ -54,7 +54,7 @@ import {
 	getPaneTitle,
 	loadTerminalState,
 	type PaneId,
-	saveTerminalState,
+	saveSyncedTerminalState,
 	type TerminalGroupModel,
 	type TerminalPaneModel,
 } from "../../features/terminal/terminal-utils.ts";
@@ -63,10 +63,12 @@ import {
 	loadAppThemeId,
 	mapAppThemeToTerminalTheme,
 } from "../../lib/app-theme.ts";
+import { flushPendingClientStorageSync } from "../../lib/client-storage-sync.ts";
 import { hasId } from "../../lib/data.ts";
 import { basename, formatRelativeTime } from "../../lib/format.ts";
 import { setInputValue } from "../../lib/react-events.ts";
 import { writeStoredValue } from "../../lib/stored-json.ts";
+import { dispatchTerminalShellChange } from "../../lib/terminal-shell-events.ts";
 import {
 	color,
 	controlSize,
@@ -110,14 +112,17 @@ function restoreSession(session: StoredChatSession): void {
 
 	if (existingGroup) {
 		existingGroup.selectedPaneId = session.paneId as PaneId;
-		saveTerminalState({
-			groups,
-			selectedGroupId: existingGroup.id,
-			themeId: state?.themeId ?? mapAppThemeToTerminalTheme(loadAppThemeId()),
-			fontSize: state?.fontSize ?? DEFAULT_FONT_SIZE,
-			fontFamily: state?.fontFamily ?? DEFAULT_FONT_FAMILY,
-			opacity: state?.opacity ?? DEFAULT_OPACITY,
-		});
+		saveSyncedTerminalState(
+			{
+				groups,
+				selectedGroupId: existingGroup.id,
+				themeId: state?.themeId ?? mapAppThemeToTerminalTheme(loadAppThemeId()),
+				fontSize: state?.fontSize ?? DEFAULT_FONT_SIZE,
+				fontFamily: state?.fontFamily ?? DEFAULT_FONT_FAMILY,
+				opacity: state?.opacity ?? DEFAULT_OPACITY,
+			},
+			"restore-session"
+		);
 		return;
 	}
 
@@ -144,17 +149,20 @@ function restoreSession(session: StoredChatSession): void {
 	selectedGroup.panes.unshift(pane);
 	selectedGroup.selectedPaneId = pane.id;
 
-	saveTerminalState({
-		groups: groups.map(
-			(group): TerminalGroupModel =>
-				group.id === selectedGroup.id ? selectedGroup : group
-		),
-		selectedGroupId: selectedGroup.id as GroupId,
-		themeId: state?.themeId ?? mapAppThemeToTerminalTheme(loadAppThemeId()),
-		fontSize: state?.fontSize ?? DEFAULT_FONT_SIZE,
-		fontFamily: state?.fontFamily ?? DEFAULT_FONT_FAMILY,
-		opacity: state?.opacity ?? DEFAULT_OPACITY,
-	});
+	saveSyncedTerminalState(
+		{
+			groups: groups.map(
+				(group): TerminalGroupModel =>
+					group.id === selectedGroup.id ? selectedGroup : group
+			),
+			selectedGroupId: selectedGroup.id as GroupId,
+			themeId: state?.themeId ?? mapAppThemeToTerminalTheme(loadAppThemeId()),
+			fontSize: state?.fontSize ?? DEFAULT_FONT_SIZE,
+			fontFamily: state?.fontFamily ?? DEFAULT_FONT_FAMILY,
+			opacity: state?.opacity ?? DEFAULT_OPACITY,
+		},
+		"restore-session"
+	);
 }
 
 function deleteSession(session: StoredChatSession): void {
@@ -162,6 +170,7 @@ function deleteSession(session: StoredChatSession): void {
 		return;
 	}
 	clearAgentChatMessages(session.paneId);
+	flushPendingClientStorageSync();
 }
 
 export function SessionsPage() {
@@ -228,7 +237,8 @@ export function SessionsPage() {
 		(session: StoredChatSession) => {
 			restoreSession(session);
 			writeStoredValue("terminal-main-view", "chat");
-			window.dispatchEvent(new Event("terminal-shell-change"));
+			flushPendingClientStorageSync();
+			dispatchTerminalShellChange({ source: "local", reason: "open-session" });
 			navigate(DEFAULT_APP_ROUTE);
 		},
 		[navigate]
@@ -239,7 +249,11 @@ export function SessionsPage() {
 				detailByPaneId.get(session.paneId) ?? loadSessionDetail(session);
 			dispatchComposerContextBlock(sessionContextBlock(detail));
 			writeStoredValue("terminal-main-view", "chat");
-			window.dispatchEvent(new Event("terminal-shell-change"));
+			flushPendingClientStorageSync();
+			dispatchTerminalShellChange({
+				source: "local",
+				reason: "inject-session",
+			});
 			setDetailStatus(null);
 			navigate(DEFAULT_APP_ROUTE);
 		},

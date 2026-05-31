@@ -11,6 +11,12 @@ import type { AgentChatHandle } from "../../components/chat/AgentChatView.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
 import { IconX } from "../../components/ui/Icons.tsx";
 import { useAgentSessions } from "../../features/agents/useAgentSessions.ts";
+import { flushPendingClientStorageSync } from "../../lib/client-storage-sync.ts";
+import {
+	dispatchTerminalShellChange,
+	isClientStorageTerminalShellChange,
+	TERMINAL_SHELL_CHANGE_EVENT,
+} from "../../lib/terminal-shell-events.ts";
 import { wsClient } from "../../lib/websocket.ts";
 import { EditorPage } from "../EditorPage/index.tsx";
 import { InlineDirectoryPicker } from "./InlineDirectoryPicker.tsx";
@@ -30,6 +36,7 @@ import {
 	DEFAULT_FONT_SIZE,
 	DEFAULT_OPACITY,
 	DEFAULT_ROWS,
+	destroySyncedPane,
 	type GroupId,
 	getInitialGroups,
 	getPaneTitle,
@@ -472,8 +479,8 @@ export function TerminalPage() {
 		[]
 	);
 	const cleanupPane = useCallback((paneId: string) => {
-		wsClient.send({ type: "terminal:destroy", paneId });
 		chatRefs.current.delete(paneId);
+		destroySyncedPane(paneId);
 	}, []);
 	const withSelectedGroup = useCallback(
 		(fn: (groupId: string) => void) => {
@@ -490,6 +497,9 @@ export function TerminalPage() {
 		opacity,
 	});
 	const pendingSaveRef = useRef(false);
+	const pendingSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+		null
+	);
 	useEffect(() => {
 		latestStateRef.current = {
 			groups,
@@ -505,19 +515,34 @@ export function TerminalPage() {
 		pendingSaveRef.current = true;
 		const id = setTimeout(() => {
 			saveTerminalState(latestStateRef.current);
+			flushPendingClientStorageSync();
 			pendingSaveRef.current = false;
-			window.dispatchEvent(new Event("terminal-shell-change"));
+			pendingSaveTimerRef.current = null;
+			dispatchTerminalShellChange({ source: "local", reason: "terminal-save" });
 		}, 100);
-		return () => clearTimeout(id);
+		pendingSaveTimerRef.current = id;
+		return () => {
+			clearTimeout(id);
+			if (pendingSaveTimerRef.current === id) {
+				pendingSaveTimerRef.current = null;
+			}
+		};
 	});
 	useEffect(
 		() => () => {
 			saveTerminalState(latestStateRef.current);
+			flushPendingClientStorageSync(true);
 		},
 		[]
 	);
 	useEffect(() => {
-		const handleShellChange = () => {
+		const handleShellChange = (event: Event) => {
+			const isSharedStorageEvent = isClientStorageTerminalShellChange(event);
+			if (isSharedStorageEvent && pendingSaveTimerRef.current) {
+				clearTimeout(pendingSaveTimerRef.current);
+				pendingSaveTimerRef.current = null;
+				pendingSaveRef.current = false;
+			}
 			const saved = loadTerminalState();
 			if (saved?.themeId && saved.themeId !== themeId) {
 				setAppearance((prev) => ({ ...prev, themeId: saved.themeId }));
@@ -565,7 +590,7 @@ export function TerminalPage() {
 				}
 			}
 			// Skip full restore check if we have a pending save - this prevents undoing local changes
-			if (pendingSaveRef.current) {
+			if (pendingSaveRef.current && !isSharedStorageEvent) {
 				return;
 			}
 			if (savedState) {
@@ -590,7 +615,7 @@ export function TerminalPage() {
 			}
 			syncTerminalLayoutMode(setLayoutMode);
 		};
-		return listenWindowEvent("terminal-shell-change", handleShellChange);
+		return listenWindowEvent(TERMINAL_SHELL_CHANGE_EVENT, handleShellChange);
 	}, [groups, mainView, restoreSavedState, selectedGroupId, themeId]);
 	const handleAddPane = useCallback(
 		(agentKind: AgentKind) =>

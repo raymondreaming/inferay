@@ -10,7 +10,7 @@ import {
 	loadCustomTheme,
 	loadTerminalState,
 	saveCustomTheme,
-	saveTerminalState,
+	saveSyncedTerminalState,
 	type ThemeId,
 } from "../../features/terminal/terminal-utils.ts";
 import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
@@ -284,8 +284,10 @@ export const TerminalSettingsContent = memo(function TerminalSettingsContent({
 			onThemeChange?.(termThemeId);
 			const state = loadTerminalState();
 			if (state) {
-				saveTerminalState({ ...state, themeId: termThemeId });
-				window.dispatchEvent(new Event("terminal-shell-change"));
+				saveSyncedTerminalState(
+					{ ...state, themeId: termThemeId },
+					"theme-change"
+				);
 			}
 		},
 		[onThemeChange]
@@ -301,8 +303,10 @@ export const TerminalSettingsContent = memo(function TerminalSettingsContent({
 					onThemeChange?.("custom");
 					const state = loadTerminalState();
 					if (state) {
-						saveTerminalState({ ...state, themeId: "custom" });
-						window.dispatchEvent(new Event("terminal-shell-change"));
+						saveSyncedTerminalState(
+							{ ...state, themeId: "custom" },
+							"custom-theme"
+						);
 					}
 				}
 				return next;

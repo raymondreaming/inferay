@@ -52,10 +52,11 @@ import {
 	DEFAULT_OPACITY,
 	loadTerminalState,
 	prependPaneToGroup,
-	saveTerminalState,
+	saveSyncedTerminalState,
 } from "../../features/terminal/terminal-utils.ts";
 import { usePollingResource } from "../../hooks/usePollingResource.ts";
 import { DEFAULT_APP_ROUTE } from "../../lib/app-navigation.tsx";
+import { flushPendingClientStorageSync } from "../../lib/client-storage-sync.ts";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import { basename, formatElapsedMs } from "../../lib/format.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
@@ -193,17 +194,19 @@ export function GoalsPage() {
 				!task.cwd
 			);
 			savePendingSend(pane.id, buildTaskAgentPrompt(task, recent));
-			saveTerminalState({
-				groups: groups.map(
-					prependPaneToGroup.bind(null, selectedGroupId, pane)
-				),
-				selectedGroupId,
-				themeId: existing?.themeId ?? ("default" as const),
-				fontSize: existing?.fontSize ?? DEFAULT_FONT_SIZE,
-				fontFamily: existing?.fontFamily ?? DEFAULT_FONT_FAMILY,
-				opacity: existing?.opacity ?? DEFAULT_OPACITY,
-			});
-			window.dispatchEvent(new Event("terminal-shell-change"));
+			saveSyncedTerminalState(
+				{
+					groups: groups.map(
+						prependPaneToGroup.bind(null, selectedGroupId, pane)
+					),
+					selectedGroupId,
+					themeId: existing?.themeId ?? ("default" as const),
+					fontSize: existing?.fontSize ?? DEFAULT_FONT_SIZE,
+					fontFamily: existing?.fontFamily ?? DEFAULT_FONT_FAMILY,
+					opacity: existing?.opacity ?? DEFAULT_OPACITY,
+				},
+				"open-goal-task"
+			);
 			navigate(DEFAULT_APP_ROUTE);
 		},
 		[navigate]
@@ -227,10 +230,12 @@ export function GoalsPage() {
 				body: JSON.stringify({ paneId: task.paneId }),
 			});
 			clearAgentChatMessages(task.paneId);
+			flushPendingClientStorageSync();
 		} else if (task.source === "promoted" && task.promotedTask) {
 			removePromotedTask(task.promotedTask.id);
 		} else if (task.source === "session") {
 			clearAgentChatMessages(task.paneId);
+			flushPendingClientStorageSync();
 		}
 		clearTaskStatusOverride(task.id);
 		setSelectedTaskId(null);
