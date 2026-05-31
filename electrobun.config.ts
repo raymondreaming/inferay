@@ -4,7 +4,7 @@ const config: ElectrobunConfig = {
 	app: {
 		name: "inferay",
 		identifier: "com.inferay.app",
-		version: "0.1.30",
+		version: "0.1.31",
 		description: "Run Claude and Codex side by side in a multi-pane terminal",
 	},
 	build: {
