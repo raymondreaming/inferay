@@ -54,7 +54,11 @@ import {
 import { fetchJsonOr, postJson } from "../../lib/fetch-json.ts";
 import { formatBytes } from "../../lib/format.ts";
 import { setInputValue } from "../../lib/react-events.ts";
-import { readStoredJson, writeStoredValue } from "../../lib/stored-json.ts";
+import {
+	readStoredJson,
+	writeStoredJson,
+	writeStoredValue,
+} from "../../lib/stored-json.ts";
 import {
 	color,
 	controlSize,
@@ -72,6 +76,8 @@ interface FileEntry {
 }
 
 type RepoDocEntry = RepoDocArtifactSource;
+
+const HIDDEN_ARTIFACTS_KEY = "inferay-hidden-artifacts";
 
 function stringArray(value: unknown): string[] {
 	return Array.isArray(value)
@@ -303,9 +309,18 @@ export function ImagesPage() {
 	const [focusedArtifactId, setFocusedArtifactId] = useState<string | null>(
 		null
 	);
-	const artifacts = useMemo(
+	const [hiddenArtifactIds, setHiddenArtifactIds] = useState<Set<string>>(
+		() =>
+			new Set(stringArray(readStoredJson<unknown>(HIDDEN_ARTIFACTS_KEY, [])))
+	);
+	const allArtifacts = useMemo(
 		() => loadArtifactWorkspace(files, repoDocs),
 		[files, repoDocs]
+	);
+	const artifacts = useMemo(
+		() =>
+			allArtifacts.filter((artifact) => !hiddenArtifactIds.has(artifact.id)),
+		[allArtifacts, hiddenArtifactIds]
 	);
 
 	const visibleArtifacts = useMemo(
@@ -354,7 +369,7 @@ export function ImagesPage() {
 	const deleteSelected = useCallback(async () => {
 		if (selected.length === 0) return;
 		const deletable = selected.filter((artifact) => artifact.deletable);
-		const paths = selected
+		const paths = deletable
 			.filter((artifact) => artifact.kind === "image" && artifact.path)
 			.map((artifact) => artifact.path!);
 		await Promise.all(
@@ -365,11 +380,18 @@ export function ImagesPage() {
 			)
 		);
 		for (const artifact of deletable) deleteLocalArtifact(artifact.id);
+		setHiddenArtifactIds((prev) => {
+			const next = new Set(prev);
+			for (const artifact of selected) next.add(artifact.id);
+			writeStoredJson(HIDDEN_ARTIFACTS_KEY, [...next]);
+			return next;
+		});
 		setFiles((prev) => prev.filter((file) => !paths.includes(file.path)));
 		setSelectedIds(new Set());
+		setFocusedArtifactId(null);
 	}, [selected, setFiles]);
 
-	const canDeleteSelected = selected.some((artifact) => artifact.deletable);
+	const canDeleteSelected = selected.length > 0;
 
 	const startChatWithArtifacts = useCallback(
 		(artifactsToAttach: ArtifactEntry[]) => {
