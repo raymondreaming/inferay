@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import type { Prompt } from "../../features/prompts/types.ts";
 import { atomicWriteJson } from "../../lib/atomic-write.ts";
 import {
 	hasCommand,
@@ -10,7 +11,6 @@ import {
 } from "../../lib/data.ts";
 import { PROJECT_ROOT } from "../../lib/path-utils.ts";
 import { userDataPath } from "../../lib/user-data.ts";
-import type { Prompt } from "../../features/prompts/types.ts";
 
 const PROMPTS_FILE = userDataPath("prompts.json");
 const REPO_PROMPTS_FILE = resolve(PROJECT_ROOT, "data/prompts.json");
@@ -32,7 +32,7 @@ async function loadBundledPrompts(): Promise<Prompt[]> {
 	return JSON.parse(await legacyFile.text()) as Prompt[];
 }
 
-async function loadLocalPrompts(): Promise<Prompt[]> {
+export async function loadLocalPrompts(): Promise<Prompt[]> {
 	const file = Bun.file(PROMPTS_FILE);
 	if (!(await file.exists())) return [];
 	return JSON.parse(await file.text()) as Prompt[];
@@ -78,9 +78,8 @@ export function mergePrompts(bundled: Prompt[], local: Prompt[]): Prompt[] {
 			customById.set(prompt._id, prompt);
 		}
 	}
-	const custom = Array.from(customById.values());
 
-	return [...builtIns, ...custom];
+	return [...builtIns, ...Array.from(customById.values())];
 }
 
 export async function loadPrompts(): Promise<Prompt[]> {
@@ -96,7 +95,7 @@ export async function listPromptsByUsage(): Promise<Prompt[]> {
 	return prompts.toSorted((a, b) => b.executionCount - a.executionCount);
 }
 
-async function savePrompts(prompts: Prompt[]): Promise<void> {
+export async function savePrompts(prompts: Prompt[]): Promise<void> {
 	await atomicWriteJson(PROMPTS_FILE, prompts, 2);
 }
 
@@ -158,12 +157,13 @@ export async function updatePrompt(
 		if (idx === -1) return promptError(404, "Not found");
 
 		const current = prompts[idx]!;
-		if (current.isBuiltIn)
+		if (current.isBuiltIn) {
 			return promptError(400, "Cannot edit built-in prompts");
+		}
 
 		if (body.command && body.command !== current.command) {
 			const conflict = prompts.find(
-				(p) => p.command === body.command && lacksObjectId(id, p)
+				(prompt) => prompt.command === body.command && lacksObjectId(id, prompt)
 			);
 			if (conflict) {
 				return promptError(400, `Command /${body.command} already exists`);
@@ -202,8 +202,9 @@ export async function deletePrompt(
 		const prompts = await loadPrompts();
 		const prompt = prompts.find(hasObjectId.bind(null, id));
 		if (!prompt) return promptError(404, "Not found");
-		if (prompt.isBuiltIn)
+		if (prompt.isBuiltIn) {
 			return promptError(400, "Cannot delete built-in prompts");
+		}
 
 		await savePrompts(prompts.filter(lacksObjectId.bind(null, id)));
 		return { ok: true, value: { ok: true } };

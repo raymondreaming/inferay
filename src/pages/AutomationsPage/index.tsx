@@ -17,6 +17,26 @@ import {
 	IconTerminal,
 	IconWorkflow,
 } from "../../components/ui/Icons.tsx";
+import {
+	WorkspaceButton,
+	WorkspaceContent,
+	WorkspaceEmptyState,
+	WorkspaceIconButton,
+	WorkspacePage,
+	WorkspaceToolbar,
+	WorkspaceToolbarSpacer,
+} from "../../components/ui/WorkspacePage.tsx";
+import { createDocumentArtifact } from "../../features/artifacts/artifact-workspace-store.ts";
+import type {
+	AutomationFlow,
+	AutomationNode,
+	AutomationStatus,
+	AutomationNodeKind as NodeKind,
+} from "../../features/automations/types.ts";
+import type { Prompt } from "../../features/prompts/types.ts";
+import { usePrompts } from "../../features/prompts/usePrompts.ts";
+import { loadQuickActions } from "../../features/quick-actions/quick-actions-store.ts";
+import type { QuickActionProfile } from "../../features/quick-actions/types.ts";
 import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
 import { hasId, isPresent, lacksId } from "../../lib/data.ts";
 import { fetchJsonOr, sendJson } from "../../lib/fetch-json.ts";
@@ -24,26 +44,12 @@ import { listenWindowEvent } from "../../lib/react-events.ts";
 import {
 	color,
 	controlSize,
+	effect,
 	font,
 	motion,
 	radius,
 	shadow,
 } from "../../tokens.stylex.ts";
-
-type AutomationStatus = "ready" | "scheduled" | "running";
-type NodeKind =
-	| "input"
-	| "prompt"
-	| "research"
-	| "image"
-	| "code"
-	| "condition"
-	| "output"
-	| "script"
-	| "note"
-	| "agent"
-	| "web"
-	| "shape";
 
 interface NodeKindConfig {
 	label: string;
@@ -54,32 +60,6 @@ interface NodeKindConfig {
 	hint: string;
 	placeholder: string;
 	autoDescription: string;
-}
-
-interface AutomationFlow {
-	id: string;
-	name: string;
-	description: string;
-	schedule: string;
-	nextRun: string;
-	status: AutomationStatus;
-	primaryPath: string;
-	referencePaths: string[];
-	nodes: AutomationNode[];
-	edges: Array<[string, string]>;
-}
-
-interface AutomationNode {
-	id: string;
-	kind: NodeKind;
-	title: string;
-	description: string;
-	x: number;
-	y: number;
-	file: string;
-	contextPaths?: string[];
-	body: string;
-	output: string;
 }
 
 interface NodeDragState {
@@ -101,6 +81,189 @@ interface RunState {
 	failedNodeId: string | null;
 	isRunning: boolean;
 	nodeOutputs: Record<string, string>;
+}
+
+interface WorkflowNodeTemplate {
+	source: "quick-action" | "prompt";
+	sourceId: string;
+	kind: NodeKind;
+	title: string;
+	description: string;
+	body: string;
+	tags: string[];
+	contextPaths?: string[];
+	execution?: AutomationNode["execution"];
+}
+
+function compactLines(lines: Array<string | false | null | undefined>): string {
+	return lines.filter(Boolean).join("\n");
+}
+
+function quickActionToWorkflowTemplate(
+	profile: QuickActionProfile
+): WorkflowNodeTemplate {
+	return {
+		source: "quick-action",
+		sourceId: profile.id,
+		kind: "agent",
+		title: profile.name,
+		description: profile.description,
+		tags: profile.tags,
+		contextPaths: profile.cwd ? [profile.cwd] : [],
+		execution: {
+			source: "quick-action",
+			sourceId: profile.id,
+			agentKind: profile.agentKind,
+			model: profile.model,
+			reasoningLevel: profile.reasoningLevel,
+			useWorktree: profile.useWorktree,
+		},
+		body: compactLines([
+			`Action profile: ${profile.name}`,
+			profile.description ? `Purpose: ${profile.description}` : null,
+			`Agent: ${profile.agentKind}`,
+			`Model: ${profile.model}`,
+			profile.reasoningLevel ? `Reasoning: ${profile.reasoningLevel}` : null,
+			profile.cwd ? `Workspace: ${profile.cwd}` : "Workspace: choose at run",
+			profile.useWorktree ? "Isolation: start in worktree" : null,
+			"",
+			"Prompt:",
+			profile.prompt,
+		]),
+	};
+}
+
+function promptToWorkflowTemplate(
+	prompt: Pick<
+		Prompt,
+		| "_id"
+		| "name"
+		| "description"
+		| "command"
+		| "promptTemplate"
+		| "category"
+		| "tags"
+	>
+): WorkflowNodeTemplate {
+	return {
+		source: "prompt",
+		sourceId: prompt._id,
+		kind: "prompt",
+		title: prompt.name,
+		description: prompt.description,
+		tags: prompt.tags,
+		execution: { source: "prompt", sourceId: prompt._id },
+		body: compactLines([
+			`Prompt command: /${prompt.command}`,
+			prompt.description ? `Purpose: ${prompt.description}` : null,
+			prompt.category ? `Category: ${prompt.category}` : null,
+			"",
+			"Template:",
+			prompt.promptTemplate,
+		]),
+	};
+}
+
+function createAutomationNodeFromTemplate({
+	template,
+	flowId,
+	index,
+	x,
+	y,
+}: {
+	template: WorkflowNodeTemplate;
+	flowId: string;
+	index: number;
+	x: number;
+	y: number;
+}): AutomationNode {
+	const safeTitle =
+		template.title
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, "-")
+			.replace(/^-+|-+$/g, "")
+			.slice(0, 36) || template.kind;
+	return {
+		id: `${template.source}-${safeTitle}-${Date.now().toString(36)}`,
+		kind: template.kind,
+		title: template.title,
+		description: template.description,
+		x,
+		y,
+		file: `automations/${flowId}/${index.toString().padStart(2, "0")}-${safeTitle}.md`,
+		contextPaths: template.contextPaths,
+		body: template.body,
+		output: "",
+		execution: template.execution,
+	};
+}
+
+function summarizeAutomationOutput(value: string, max = 4000): string {
+	const trimmed = value.trim();
+	return trimmed.length <= max
+		? trimmed
+		: `${trimmed.slice(0, max)}\n\n[Output truncated at ${max} characters]`;
+}
+
+function automationRunArtifactDraft(flow: AutomationFlow, run: RunState) {
+	const status = run.isRunning
+		? "running"
+		: run.failedNodeId
+			? "failed"
+			: "completed";
+	const completed = new Set(run.completedNodeIds);
+	return {
+		title: `Automation Run - ${flow.name}`,
+		subtitle: `${status} · ${completed.size}/${flow.nodes.length} steps · ${flow.primaryPath || "No workspace"}`,
+		content: [
+			`# Automation Run: ${flow.name}`,
+			"",
+			`- Status: ${status}`,
+			`- Workflow: ${flow.name}`,
+			`- Schedule: ${flow.schedule}`,
+			`- Workspace: ${flow.primaryPath || "Not set"}`,
+			`- Saved: ${new Date().toLocaleString()}`,
+			`- Steps: ${completed.size}/${flow.nodes.length}`,
+			"",
+			"## Summary",
+			"",
+			flow.description || "No workflow description.",
+			"",
+			"## Steps",
+			"",
+			...flow.nodes.flatMap((node, index) => {
+				const output = run.nodeOutputs[node.id];
+				return [
+					`### ${index + 1}. ${node.title}`,
+					"",
+					`- Kind: ${node.kind}`,
+					`- Status: ${
+						node.id === run.failedNodeId
+							? "failed"
+							: completed.has(node.id)
+								? "completed"
+								: "not run"
+					}`,
+					node.execution?.agentKind
+						? `- Agent: ${node.execution.agentKind}`
+						: null,
+					node.execution?.model ? `- Model: ${node.execution.model}` : null,
+					node.execution?.reasoningLevel
+						? `- Reasoning: ${node.execution.reasoningLevel}`
+						: null,
+					node.file ? `- File: ${node.file}` : null,
+					node.body ? `- Instructions: ${node.body}` : null,
+					"",
+					output ? "Output:" : "Output: none recorded.",
+					output ? "```text" : null,
+					output ? summarizeAutomationOutput(output) : null,
+					output ? "```" : null,
+					"",
+				].filter(isPresent);
+			}),
+		].join("\n"),
+		projectPath: flow.primaryPath || null,
+	};
 }
 
 const NODE_WIDTH = 200;
@@ -359,6 +522,7 @@ function isTextEditingTarget(target: EventTarget | null) {
 }
 
 export function AutomationsPage() {
+	const { prompts } = usePrompts();
 	const { data: flows, setData: setFlows } = useAsyncResource(
 		async () => {
 			const payload = await fetchJsonOr<{ flows?: AutomationFlow[] }>(
@@ -380,6 +544,10 @@ export function AutomationsPage() {
 	const [showAddMenu, setShowAddMenu] = useState(false);
 	const [dragState, setDragState] = useState<NodeDragState | null>(null);
 	const [runState, setRunState] = useState<RunState | null>(null);
+	const [runArtifactStatus, setRunArtifactStatus] = useState<string | null>(
+		null
+	);
+	const [quickActions, setQuickActions] = useState(loadQuickActions);
 	const flowsRef = useRef(flows);
 	const dragStateRef = useRef<NodeDragState | null>(null);
 	const dragCleanupRef = useRef<(() => void) | null>(null);
@@ -397,10 +565,24 @@ export function AutomationsPage() {
 		.filter(([fromId]) => fromId === selectedNode.id)
 		.map(([, toId]) => selectedFlow.nodes.find(hasId.bind(null, toId)))
 		.filter(isPresent);
+	const workflowActions = useMemo(
+		() => quickActions.slice(0, 6),
+		[quickActions]
+	);
+	const workflowPrompts = useMemo(() => prompts.slice(0, 6), [prompts]);
+	const canSaveRunArtifact =
+		runState?.flowId === selectedFlow.id &&
+		!runState.isRunning &&
+		Object.keys(runState.nodeOutputs).length > 0;
 
 	useEffect(() => {
 		flowsRef.current = flows;
 	}, [flows]);
+
+	useEffect(() => {
+		const refreshQuickActions = () => setQuickActions(loadQuickActions());
+		return listenWindowEvent("storage", refreshQuickActions);
+	}, []);
 
 	useEffect(() => {
 		return () => {
@@ -411,25 +593,35 @@ export function AutomationsPage() {
 		};
 	}, []);
 
-	const persistFlows = useCallback((nextFlows: AutomationFlow[]) => {
-		setFlows(nextFlows);
-		flowsRef.current = nextFlows;
-		if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-		persistTimerRef.current = setTimeout(() => {
-			void sendJson(
+	const persistFlows = useCallback(
+		(nextFlows: AutomationFlow[]) => {
+			setFlows(nextFlows);
+			flowsRef.current = nextFlows;
+			if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+			persistTimerRef.current = setTimeout(() => {
+				void sendJson(
+					"/api/automations",
+					{ flows: flowsRef.current },
+					{ method: "PUT" }
+				);
+			}, 400);
+		},
+		[setFlows]
+	);
+
+	const persistFlowsNow = useCallback(
+		async (nextFlows: AutomationFlow[]) => {
+			setFlows(nextFlows);
+			flowsRef.current = nextFlows;
+			if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+			await sendJson(
 				"/api/automations",
-				{ flows: flowsRef.current },
+				{ flows: nextFlows },
 				{ method: "PUT" }
 			);
-		}, 400);
-	}, []);
-
-	const persistFlowsNow = useCallback(async (nextFlows: AutomationFlow[]) => {
-		setFlows(nextFlows);
-		flowsRef.current = nextFlows;
-		if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-		await sendJson("/api/automations", { flows: nextFlows }, { method: "PUT" });
-	}, []);
+		},
+		[setFlows]
+	);
 
 	const updateSelectedFlow = useCallback(
 		(updater: (flow: AutomationFlow) => AutomationFlow) => {
@@ -542,6 +734,33 @@ export function AutomationsPage() {
 		setShowAddMenu(false);
 	};
 
+	const addTemplateNode = useCallback(
+		(template: WorkflowNodeTemplate) => {
+			const sourceNode = selectedNode;
+			const node = createAutomationNodeFromTemplate({
+				template,
+				flowId: selectedFlow.id,
+				index: selectedFlow.nodes.length,
+				x: sourceNode ? sourceNode.x + 260 : 240,
+				y: sourceNode ? sourceNode.y : 180,
+			});
+			updateSelectedFlow((flow) => ({
+				...flow,
+				nodes: [...flow.nodes, node],
+				edges: sourceNode
+					? [...flow.edges, [sourceNode.id, node.id]]
+					: flow.edges,
+			}));
+			setSelectedNodeId(node.id);
+		},
+		[
+			selectedFlow.id,
+			selectedFlow.nodes.length,
+			selectedNode,
+			updateSelectedFlow,
+		]
+	);
+
 	const handleDeleteSelectedNode = useCallback(async () => {
 		if (selectedFlow.nodes.length <= 1) return;
 		const selectedIndex = selectedFlow.nodes.findIndex(
@@ -586,7 +805,7 @@ export function AutomationsPage() {
 	}, [handleDeleteSelectedNode]);
 
 	useEffect(() => {
-		const handleClick = (e: MouseEvent) => {
+		const handleClick = () => {
 			if (showAddMenu) setShowAddMenu(false);
 		};
 		if (showAddMenu) {
@@ -598,6 +817,7 @@ export function AutomationsPage() {
 	const handleRunOnce = async () => {
 		const nodes = selectedFlow.nodes;
 		if (nodes.length < 1) return;
+		setRunArtifactStatus(null);
 
 		const state: RunState = {
 			flowId: selectedFlow.id,
@@ -639,6 +859,9 @@ export function AutomationsPage() {
 						{
 							prompt,
 							cwd: selectedFlow.primaryPath.replace(/^~/, ""),
+							agentKind: node.execution?.agentKind,
+							model: node.execution?.model,
+							reasoningLevel: node.execution?.reasoningLevel,
 						},
 						{ method: "POST" }
 					);
@@ -652,7 +875,13 @@ export function AutomationsPage() {
 					}`;
 					const res = await sendJson(
 						"/api/automations/run",
-						{ prompt, cwd: selectedFlow.primaryPath.replace(/^~/, "") },
+						{
+							prompt,
+							cwd: selectedFlow.primaryPath.replace(/^~/, ""),
+							agentKind: node.execution?.agentKind,
+							model: node.execution?.model,
+							reasoningLevel: node.execution?.reasoningLevel,
+						},
 						{ method: "POST" }
 					);
 					const data = (await res.json()) as { result?: string };
@@ -668,7 +897,7 @@ export function AutomationsPage() {
 				state.nodeOutputs[node.id] = result;
 				state.completedNodeIds.push(node.id);
 				setRunState({ ...state });
-			} catch (err) {
+			} catch {
 				state.failedNodeId = node.id;
 				state.isRunning = false;
 				state.activeNodeId = null;
@@ -681,6 +910,21 @@ export function AutomationsPage() {
 		state.activeNodeId = null;
 		setRunState({ ...state });
 	};
+
+	const saveRunArtifact = useCallback(() => {
+		if (!runState || runState.flowId !== selectedFlow.id) return;
+		const draft = automationRunArtifactDraft(selectedFlow, runState);
+		createDocumentArtifact({
+			title: draft.title,
+			subtitle: draft.subtitle,
+			content: draft.content,
+			sourcePaneId: null,
+			sourceMessageId: null,
+			sourceRole: "automation-run",
+			projectPath: draft.projectPath,
+		});
+		setRunArtifactStatus("Saved run artifact.");
+	}, [runState, selectedFlow]);
 
 	const updateSelectedNodeBody = (body: string) => {
 		updateSelectedFlow((flow) => ({
@@ -823,257 +1067,294 @@ export function AutomationsPage() {
 	};
 
 	return (
-		<div {...stylex.props(styles.root)}>
-			<section {...stylex.props(styles.leftPane)}>
-				<div {...stylex.props(styles.header)}>
-					<div {...stylex.props(styles.titleBlock)}>
-						<span {...stylex.props(styles.kicker)}>Automations</span>
-						<h1 {...stylex.props(styles.title)}>Workflows</h1>
-					</div>
-					<button
-						type="button"
-						onClick={() => void handleAddWorkflow()}
-						title="New workflow"
-						{...stylex.props(styles.iconAction)}
-					>
-						<IconPlus size={13} />
-					</button>
-				</div>
-
-				<div {...stylex.props(styles.flowList)}>
-					{flows.map((flow) => (
-						<button
-							key={flow.id}
-							type="button"
-							onClick={() => selectFlow(flow)}
-							{...stylex.props(
-								styles.flowCard,
-								flow.id === selectedFlow.id && styles.flowCardSelected
-							)}
-						>
-							<span {...stylex.props(styles.flowTitleRow)}>
-								<span {...stylex.props(styles.flowName)}>{flow.name}</span>
-								<AutomationStatusPill status={flow.status} />
-							</span>
-							<span {...stylex.props(styles.flowDescription)}>
-								{flow.description}
-							</span>
-							<span {...stylex.props(styles.flowMeta)}>
-								<span>
-									<IconClock size={11} />
-									{flow.schedule}
-								</span>
-								<span>{flow.nodes.length} steps</span>
-							</span>
-						</button>
-					))}
-				</div>
-			</section>
-
-			<section {...stylex.props(styles.canvasPane)}>
-				<div {...stylex.props(styles.canvasToolbar)}>
-					<div {...stylex.props(styles.toolbarTitle)}>
-						<IconWorkflow size={14} />
-						<span>{selectedFlow.name}</span>
-					</div>
-					<span {...stylex.props(styles.spacer)} />
-					<button
-						type="button"
-						onClick={() => setShowGrid(!showGrid)}
-						{...stylex.props(styles.smallButton)}
-					>
-						Grid
-					</button>
-					<button
-						type="button"
-						onClick={() => void handleRunOnce()}
-						disabled={
-							runState?.flowId === selectedFlow.id && runState.isRunning
-						}
-						{...stylex.props(styles.primaryButton)}
-					>
-						{runState?.flowId === selectedFlow.id && runState.isRunning
-							? "Running..."
-							: "Run"}
-					</button>
-				</div>
-
-				<div
-					{...stylex.props(styles.canvas, showGrid && styles.canvasGrid)}
-					aria-label="Automation canvas"
-					role="region"
+		<WorkspacePage>
+			<WorkspaceToolbar>
+				<WorkspaceToolbarSpacer />
+				<WorkspaceButton
+					type="button"
+					onClick={() => setShowGrid(!showGrid)}
+					variant="ghost"
 				>
-					<div {...stylex.props(styles.addButtonWrap)}>
-						<button
-							type="button"
-							onClick={(e) => {
-								e.stopPropagation();
-								setShowAddMenu(!showAddMenu);
-							}}
-							{...stylex.props(styles.addButton)}
+					Grid
+				</WorkspaceButton>
+				<WorkspaceButton
+					type="button"
+					onClick={() => void handleRunOnce()}
+					disabled={runState?.flowId === selectedFlow.id && runState.isRunning}
+					variant="primary"
+				>
+					{runState?.flowId === selectedFlow.id && runState.isRunning
+						? "Running"
+						: "Run"}
+				</WorkspaceButton>
+				<WorkspaceIconButton
+					type="button"
+					onClick={() => void handleAddWorkflow()}
+					title="New workflow"
+				>
+					<IconPlus size={13} />
+				</WorkspaceIconButton>
+			</WorkspaceToolbar>
+			<WorkspaceContent padding="none">
+				<div {...stylex.props(styles.root)}>
+					<section {...stylex.props(styles.leftPane)}>
+						<div {...stylex.props(styles.sectionHeader)}>
+							<span {...stylex.props(styles.sectionTitle)}>Workflows</span>
+							<span {...stylex.props(styles.sectionMeta)}>{flows.length}</span>
+						</div>
+						<div {...stylex.props(styles.flowList)}>
+							{flows.map((flow) => (
+								<button
+									key={flow.id}
+									type="button"
+									onClick={() => selectFlow(flow)}
+									{...stylex.props(
+										styles.flowCard,
+										flow.id === selectedFlow.id && styles.flowCardSelected
+									)}
+								>
+									<span {...stylex.props(styles.flowTitleRow)}>
+										<span {...stylex.props(styles.flowName)}>{flow.name}</span>
+										<AutomationStatusPill status={flow.status} />
+									</span>
+									<span {...stylex.props(styles.flowDescription)}>
+										{flow.description}
+									</span>
+									<span {...stylex.props(styles.flowMeta)}>
+										<span>
+											<IconClock size={11} />
+											{flow.schedule}
+										</span>
+										<span>{flow.nodes.length} steps</span>
+									</span>
+								</button>
+							))}
+						</div>
+						<WorkflowLibrarySection
+							actions={workflowActions}
+							prompts={workflowPrompts}
+							onAddAction={(profile) =>
+								addTemplateNode(quickActionToWorkflowTemplate(profile))
+							}
+							onAddPrompt={(prompt) =>
+								addTemplateNode(promptToWorkflowTemplate(prompt))
+							}
+						/>
+					</section>
+
+					<section {...stylex.props(styles.canvasPane)}>
+						<div {...stylex.props(styles.canvasToolbar)}>
+							<div {...stylex.props(styles.toolbarTitle)}>
+								<IconWorkflow size={14} />
+								<span>{selectedFlow.name}</span>
+							</div>
+							<span {...stylex.props(styles.spacer)} />
+							<span {...stylex.props(styles.canvasMeta)}>
+								{selectedFlow.nodes.length} steps · {selectedFlow.schedule}
+							</span>
+							{canSaveRunArtifact ? (
+								<WorkspaceButton
+									type="button"
+									variant="secondary"
+									onClick={saveRunArtifact}
+								>
+									<IconFilePlus size={11} />
+									Save Run
+								</WorkspaceButton>
+							) : null}
+						</div>
+
+						<div
+							{...stylex.props(styles.canvas, showGrid && styles.canvasGrid)}
+							aria-label="Automation canvas"
+							role="region"
 						>
-							<IconPlus size={14} />
-						</button>
-						{showAddMenu && (
-							<div
-								{...stylex.props(styles.addMenu)}
-								onClick={(e) => e.stopPropagation()}
+							<div {...stylex.props(styles.addButtonWrap)}>
+								<button
+									type="button"
+									onClick={(e) => {
+										e.stopPropagation();
+										setShowAddMenu(!showAddMenu);
+									}}
+									{...stylex.props(styles.addButton)}
+								>
+									<IconPlus size={14} />
+								</button>
+								{showAddMenu && (
+									<div
+										{...stylex.props(styles.addMenu)}
+										onClick={(e) => e.stopPropagation()}
+									>
+										{toolKinds.map((kind) => {
+											const config = getNodeConfig(kind);
+											const Icon = config.icon;
+											return (
+												<button
+													key={kind}
+													type="button"
+													onClick={() => handleAddNode(kind)}
+													{...stylex.props(styles.addMenuItem)}
+												>
+													<span
+														{...stylex.props(
+															styles.addMenuIcon,
+															styles[`menuIcon${config.tone}`]
+														)}
+													>
+														<Icon size={13} />
+													</span>
+													<span {...stylex.props(styles.addMenuText)}>
+														<span {...stylex.props(styles.addMenuLabel)}>
+															{config.label}
+														</span>
+														<span {...stylex.props(styles.addMenuHint)}>
+															{config.hint}
+														</span>
+													</span>
+												</button>
+											);
+										})}
+									</div>
+								)}
+							</div>
+
+							<svg
+								{...stylex.props(styles.edgeLayer)}
+								aria-hidden="true"
+								width="1400"
+								height="520"
 							>
-								{toolKinds.map((kind) => {
-									const config = getNodeConfig(kind);
-									const Icon = config.icon;
-									return (
-										<button
-											key={kind}
-											type="button"
-											onClick={() => handleAddNode(kind)}
-											{...stylex.props(styles.addMenuItem)}
-										>
+								{edgeLines.map((edge) => (
+									<path
+										key={edge.id}
+										ref={(element) => {
+											if (element) edgePathRefs.current.set(edge.id, element);
+											else edgePathRefs.current.delete(edge.id);
+										}}
+										d={buildEdgePath(edge)}
+										{...stylex.props(styles.edge)}
+									/>
+								))}
+							</svg>
+
+							{selectedFlow.nodes.map((node) => {
+								const nodeConfig = getNodeConfig(node.kind);
+								const Icon = nodeConfig.icon;
+								const isRunActive =
+									runState?.flowId === selectedFlow.id &&
+									runState.activeNodeId === node.id;
+								const isRunComplete =
+									runState?.flowId === selectedFlow.id &&
+									runState.completedNodeIds.includes(node.id);
+								const isRunFailed =
+									runState?.flowId === selectedFlow.id &&
+									runState.failedNodeId === node.id;
+								return (
+									<button
+										key={node.id}
+										type="button"
+										onPointerDown={(event) =>
+											handleNodePointerDown(event, node)
+										}
+										{...stylex.props(
+											styles.nodeCard,
+											styles[`nodeTone${nodeConfig.tone}`],
+											node.id === selectedNode.id && styles.nodeCardSelected,
+											dragState?.nodeId === node.id && styles.nodeCardDragging,
+											isRunActive && styles.nodeCardRunning,
+											isRunComplete && styles.nodeCardComplete,
+											isRunFailed && styles.nodeCardFailed
+										)}
+										style={{ left: node.x, top: node.y }}
+									>
+										<span {...stylex.props(styles.nodeHeader)}>
 											<span
 												{...stylex.props(
-													styles.addMenuIcon,
-													styles[`menuIcon${config.tone}`]
+													styles.nodeIcon,
+													styles[`nodeIcon${nodeConfig.tone}`]
 												)}
 											>
 												<Icon size={13} />
 											</span>
-											<span {...stylex.props(styles.addMenuText)}>
-												<span {...stylex.props(styles.addMenuLabel)}>
-													{config.label}
-												</span>
-												<span {...stylex.props(styles.addMenuHint)}>
-													{config.hint}
-												</span>
+											<span {...stylex.props(styles.nodeTitle)}>
+												{node.title}
 											</span>
-										</button>
-									);
-								})}
+										</span>
+										<span {...stylex.props(styles.nodePorts)}>
+											{nodeConfig.inputs.length > 0 && (
+												<span {...stylex.props(styles.nodeInputPort)}>
+													<span {...stylex.props(styles.portDot)} />
+												</span>
+											)}
+											{nodeConfig.outputs.length > 0 && (
+												<span {...stylex.props(styles.nodeOutputPort)}>
+													{isRunActive
+														? "running..."
+														: isRunComplete
+															? "done"
+															: ""}
+													<span {...stylex.props(styles.portDot)} />
+												</span>
+											)}
+										</span>
+										{node.body && (
+											<span {...stylex.props(styles.nodeBodyPreview)}>
+												{node.body}
+											</span>
+										)}
+									</button>
+								);
+							})}
+						</div>
+					</section>
+
+					<aside {...stylex.props(styles.detailPane)}>
+						<div {...stylex.props(styles.detailHeader)}>
+							<span {...stylex.props(styles.kicker)}>
+								{selectedNodeConfig.label}
+							</span>
+							<input
+								type="text"
+								value={selectedNode.title}
+								onChange={(e) => updateSelectedNodeTitle(e.target.value)}
+								{...stylex.props(styles.detailTitleInput)}
+							/>
+							<span {...stylex.props(styles.detailAutoDesc)}>
+								{selectedNodeConfig.autoDescription}
+							</span>
+						</div>
+
+						<div {...stylex.props(styles.detailBody)}>
+							<textarea
+								value={selectedNode.body}
+								onChange={(e) => updateSelectedNodeBody(e.target.value)}
+								placeholder={selectedNodeConfig.placeholder}
+								{...stylex.props(styles.bodyEditor)}
+							/>
+							<span {...stylex.props(styles.feedsInto)}>
+								{outgoingNodes.length > 0
+									? `Feeds into ${outgoingNodes.map((n) => n.title).join(", ")}`
+									: "Final step"}
+							</span>
+							{runArtifactStatus ? (
+								<span {...stylex.props(styles.feedsInto)}>
+									{runArtifactStatus}
+								</span>
+							) : null}
+						</div>
+
+						{runState?.nodeOutputs[selectedNode.id] && (
+							<div {...stylex.props(styles.detailOutput)}>
+								<span {...stylex.props(styles.kicker)}>Output</span>
+								<div {...stylex.props(styles.outputText)}>
+									{runState.nodeOutputs[selectedNode.id]!.slice(0, 2000)}
+								</div>
 							</div>
 						)}
-					</div>
-
-					<svg
-						{...stylex.props(styles.edgeLayer)}
-						aria-hidden="true"
-						width="1400"
-						height="520"
-					>
-						{edgeLines.map((edge) => (
-							<path
-								key={edge.id}
-								ref={(element) => {
-									if (element) edgePathRefs.current.set(edge.id, element);
-									else edgePathRefs.current.delete(edge.id);
-								}}
-								d={buildEdgePath(edge)}
-								{...stylex.props(styles.edge)}
-							/>
-						))}
-					</svg>
-
-					{selectedFlow.nodes.map((node) => {
-						const nodeConfig = getNodeConfig(node.kind);
-						const Icon = nodeConfig.icon;
-						const isRunActive =
-							runState?.flowId === selectedFlow.id &&
-							runState.activeNodeId === node.id;
-						const isRunComplete =
-							runState?.flowId === selectedFlow.id &&
-							runState.completedNodeIds.includes(node.id);
-						const isRunFailed =
-							runState?.flowId === selectedFlow.id &&
-							runState.failedNodeId === node.id;
-						return (
-							<button
-								key={node.id}
-								type="button"
-								onPointerDown={(event) => handleNodePointerDown(event, node)}
-								{...stylex.props(
-									styles.nodeCard,
-									styles[`nodeTone${nodeConfig.tone}`],
-									node.id === selectedNode.id && styles.nodeCardSelected,
-									dragState?.nodeId === node.id && styles.nodeCardDragging,
-									isRunActive && styles.nodeCardRunning,
-									isRunComplete && styles.nodeCardComplete,
-									isRunFailed && styles.nodeCardFailed
-								)}
-								style={{ left: node.x, top: node.y }}
-							>
-								<span {...stylex.props(styles.nodeHeader)}>
-									<span
-										{...stylex.props(
-											styles.nodeIcon,
-											styles[`nodeIcon${nodeConfig.tone}`]
-										)}
-									>
-										<Icon size={13} />
-									</span>
-									<span {...stylex.props(styles.nodeTitle)}>{node.title}</span>
-								</span>
-								<span {...stylex.props(styles.nodePorts)}>
-									{nodeConfig.inputs.length > 0 && (
-										<span {...stylex.props(styles.nodeInputPort)}>
-											<span {...stylex.props(styles.portDot)} />
-										</span>
-									)}
-									{nodeConfig.outputs.length > 0 && (
-										<span {...stylex.props(styles.nodeOutputPort)}>
-											{isRunActive ? "running..." : isRunComplete ? "done" : ""}
-											<span {...stylex.props(styles.portDot)} />
-										</span>
-									)}
-								</span>
-								{node.body && (
-									<span {...stylex.props(styles.nodeBodyPreview)}>
-										{node.body}
-									</span>
-								)}
-							</button>
-						);
-					})}
+					</aside>
 				</div>
-			</section>
-
-			<aside {...stylex.props(styles.detailPane)}>
-				<div {...stylex.props(styles.detailHeader)}>
-					<span {...stylex.props(styles.kicker)}>
-						{selectedNodeConfig.label}
-					</span>
-					<input
-						type="text"
-						value={selectedNode.title}
-						onChange={(e) => updateSelectedNodeTitle(e.target.value)}
-						{...stylex.props(styles.detailTitleInput)}
-					/>
-					<span {...stylex.props(styles.detailAutoDesc)}>
-						{selectedNodeConfig.autoDescription}
-					</span>
-				</div>
-
-				<div {...stylex.props(styles.detailBody)}>
-					<textarea
-						value={selectedNode.body}
-						onChange={(e) => updateSelectedNodeBody(e.target.value)}
-						placeholder={selectedNodeConfig.placeholder}
-						{...stylex.props(styles.bodyEditor)}
-					/>
-					<span {...stylex.props(styles.feedsInto)}>
-						{outgoingNodes.length > 0
-							? `Feeds into ${outgoingNodes.map((n) => n.title).join(", ")}`
-							: "Final step"}
-					</span>
-				</div>
-
-				{runState?.nodeOutputs[selectedNode.id] && (
-					<div {...stylex.props(styles.detailOutput)}>
-						<span {...stylex.props(styles.kicker)}>Output</span>
-						<div {...stylex.props(styles.outputText)}>
-							{runState.nodeOutputs[selectedNode.id]!.slice(0, 2000)}
-						</div>
-					</div>
-				)}
-			</aside>
-		</div>
+			</WorkspaceContent>
+		</WorkspacePage>
 	);
 }
 
@@ -1093,6 +1374,79 @@ function AutomationStatusPill({ status }: { status: AutomationStatus }) {
 	);
 }
 
+function WorkflowLibrarySection({
+	actions,
+	prompts,
+	onAddAction,
+	onAddPrompt,
+}: {
+	actions: QuickActionProfile[];
+	prompts: Prompt[];
+	onAddAction: (profile: QuickActionProfile) => void;
+	onAddPrompt: (prompt: Prompt) => void;
+}) {
+	return (
+		<div {...stylex.props(styles.libraryShelf)}>
+			<div {...stylex.props(styles.sectionHeader)}>
+				<span {...stylex.props(styles.sectionTitle)}>Reusable pieces</span>
+				<span {...stylex.props(styles.sectionMeta)}>Steps + prompts</span>
+			</div>
+			<div {...stylex.props(styles.libraryGroup)}>
+				<span {...stylex.props(styles.libraryLabel)}>Saved steps</span>
+				{actions.map((profile) => (
+					<button
+						key={profile.id}
+						type="button"
+						onClick={() => onAddAction(profile)}
+						{...stylex.props(styles.libraryCard)}
+					>
+						<span {...stylex.props(styles.libraryCardTitle)}>
+							{profile.name}
+						</span>
+						<span {...stylex.props(styles.libraryCardMeta)}>
+							{profile.agentKind} · {profile.model}
+						</span>
+					</button>
+				))}
+				{actions.length === 0 ? (
+					<div {...stylex.props(styles.libraryEmptyPanel)}>
+						<WorkspaceEmptyState
+							icon={<IconRobot size={14} />}
+							title="No saved steps yet"
+							description="Save reusable steps from prompts or sessions to compose workflows."
+						/>
+					</div>
+				) : null}
+			</div>
+			<div {...stylex.props(styles.libraryGroup)}>
+				<span {...stylex.props(styles.libraryLabel)}>Prompts</span>
+				{prompts.map((prompt) => (
+					<button
+						key={prompt._id}
+						type="button"
+						onClick={() => onAddPrompt(prompt)}
+						{...stylex.props(styles.libraryCard)}
+					>
+						<span {...stylex.props(styles.libraryCardTitle)}>
+							/{prompt.command}
+						</span>
+						<span {...stylex.props(styles.libraryCardMeta)}>{prompt.name}</span>
+					</button>
+				))}
+				{prompts.length === 0 ? (
+					<div {...stylex.props(styles.libraryEmptyPanel)}>
+						<WorkspaceEmptyState
+							icon={<IconFilePlus size={14} />}
+							title="No prompts loaded"
+							description="Prompt Library entries appear here as reusable workflow steps."
+						/>
+					</div>
+				) : null}
+			</div>
+		</div>
+	);
+}
+
 const styles = stylex.create({
 	root: {
 		backgroundColor: color.background,
@@ -1104,6 +1458,7 @@ const styles = stylex.create({
 		overflow: "hidden",
 	},
 	leftPane: {
+		backgroundColor: color.background,
 		borderRightColor: color.border,
 		borderRightStyle: "solid",
 		borderRightWidth: 1,
@@ -1112,19 +1467,25 @@ const styles = stylex.create({
 		minHeight: 0,
 		overflow: "hidden",
 	},
-	header: {
+	sectionHeader: {
 		alignItems: "center",
 		borderBottomColor: color.border,
 		borderBottomStyle: "solid",
 		borderBottomWidth: 1,
 		display: "flex",
 		gap: controlSize._3,
+		justifyContent: "space-between",
 		paddingBlock: controlSize._3,
 		paddingInline: controlSize._3,
 	},
-	titleBlock: {
-		flex: 1,
-		minWidth: 0,
+	sectionTitle: {
+		color: color.textMain,
+		fontSize: font.size_2,
+		fontWeight: font.weight_6,
+	},
+	sectionMeta: {
+		color: color.textMuted,
+		fontSize: font.size_1,
 	},
 	kicker: {
 		color: color.textMuted,
@@ -1133,42 +1494,84 @@ const styles = stylex.create({
 		fontWeight: font.weight_5,
 		textTransform: "uppercase",
 	},
-	title: {
-		color: color.textMain,
-		fontSize: font.size_5,
-		fontWeight: font.weight_6,
-		lineHeight: 1.25,
-		margin: 0,
-		marginTop: controlSize._0_5,
+	flowList: {
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._2,
+		maxHeight: "42%",
+		overflowY: "auto",
+		padding: controlSize._3,
 	},
-	iconAction: {
-		alignItems: "center",
+	libraryShelf: {
+		borderTopColor: color.border,
+		borderTopStyle: "solid",
+		borderTopWidth: 1,
+		display: "flex",
+		flex: 1,
+		flexDirection: "column",
+		minHeight: 0,
+		overflowY: "auto",
+	},
+	libraryGroup: {
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._1,
+		paddingBlock: controlSize._2,
+		paddingInline: controlSize._3,
+	},
+	libraryLabel: {
+		color: color.textMuted,
+		fontSize: font.size_0_5,
+		fontWeight: font.weight_6,
+		textTransform: "uppercase",
+	},
+	libraryCard: {
 		backgroundColor: {
-			default: color.surfaceControl,
-			":hover": color.surfaceControlHover,
+			default: color.backgroundRaised,
+			":hover": color.surfaceControl,
+		},
+		backgroundImage: {
+			default: effect.controlDepth,
+			":hover": effect.controlDepthHover,
 		},
 		borderColor: color.border,
 		borderRadius: radius.md,
 		borderStyle: "solid",
 		borderWidth: 1,
-		color: color.textSoft,
+		boxShadow: shadow.controlDepth,
 		display: "flex",
-		height: controlSize._7,
-		justifyContent: "center",
-		width: controlSize._7,
-	},
-	flowList: {
-		display: "flex",
-		flex: 1,
 		flexDirection: "column",
-		gap: controlSize._2,
-		overflowY: "auto",
-		padding: controlSize._3,
+		gap: controlSize._0_5,
+		paddingBlock: controlSize._1_5,
+		paddingInline: controlSize._2,
+		textAlign: "left",
+	},
+	libraryCardTitle: {
+		color: color.textMain,
+		fontSize: font.size_1,
+		fontWeight: font.weight_6,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
+	libraryCardMeta: {
+		color: color.textMuted,
+		fontSize: font.size_0_5,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
+	libraryEmptyPanel: {
+		minHeight: "8rem",
 	},
 	flowCard: {
 		backgroundColor: {
-			default: color.surfaceTranslucent,
+			default: color.backgroundRaised,
 			":hover": color.surfaceControl,
+		},
+		backgroundImage: {
+			default: effect.controlDepth,
+			":hover": effect.controlDepthHover,
 		},
 		borderColor: color.border,
 		borderRadius: radius.lg,
@@ -1180,13 +1583,17 @@ const styles = stylex.create({
 		padding: controlSize._3,
 		textAlign: "left",
 		transitionDuration: motion.durationBase,
-		transitionProperty: "background-color, border-color, box-shadow",
+		boxShadow: shadow.controlDepth,
+		transitionProperty:
+			"background-color, background-image, border-color, box-shadow",
 		transitionTimingFunction: motion.ease,
 	},
 	flowCardSelected: {
-		backgroundColor: color.controlActive,
-		borderColor: color.borderStrong,
-		boxShadow: shadow.selectedRing,
+		backgroundColor: color.surfaceControl,
+		backgroundImage: effect.controlDepthHover,
+		borderColor: "rgba(58, 132, 255, 0.42)",
+		boxShadow:
+			"inset 0 0 0 1px rgba(58, 132, 255, 0.12), 0 0 22px rgba(58, 132, 255, 0.08)",
 	},
 	flowTitleRow: {
 		alignItems: "center",
@@ -1216,6 +1623,7 @@ const styles = stylex.create({
 		justifyContent: "space-between",
 	},
 	canvasPane: {
+		backgroundColor: color.background,
 		display: "flex",
 		flexDirection: "column",
 		minHeight: 0,
@@ -1227,6 +1635,7 @@ const styles = stylex.create({
 		borderBottomColor: color.border,
 		borderBottomStyle: "solid",
 		borderBottomWidth: 1,
+		backgroundColor: color.background,
 		display: "flex",
 		gap: controlSize._2,
 		height: controlSize._10,
@@ -1241,34 +1650,12 @@ const styles = stylex.create({
 		gap: controlSize._2,
 	},
 	spacer: { flex: 1 },
-	smallButton: {
-		backgroundColor: {
-			default: color.surfaceControl,
-			":hover": color.surfaceControlHover,
-		},
-		borderColor: color.border,
-		borderRadius: radius.md,
-		borderStyle: "solid",
-		borderWidth: 1,
-		color: color.textSoft,
+	canvasMeta: {
+		color: color.textMuted,
 		fontSize: font.size_1,
-		height: controlSize._6,
-		paddingInline: controlSize._2,
-	},
-	primaryButton: {
-		backgroundColor: {
-			default: color.textMain,
-			":hover": color.textSoft,
-		},
-		borderRadius: radius.md,
-		color: color.background,
-		fontSize: font.size_1,
-		fontWeight: font.weight_6,
-		height: controlSize._6,
-		paddingInline: controlSize._3,
 	},
 	canvas: {
-		backgroundColor: "#050505",
+		backgroundColor: color.background,
 		flex: 1,
 		minHeight: 0,
 		overflow: "auto",
@@ -1276,7 +1663,7 @@ const styles = stylex.create({
 	},
 	canvasGrid: {
 		backgroundImage:
-			"radial-gradient(circle at 1px 1px, rgba(255,255,255,0.055) 1px, transparent 0)",
+			"radial-gradient(circle at 1px 1px, rgba(255,255,255,0.038) 1px, transparent 0)",
 		backgroundSize: "32px 32px",
 	},
 	addButtonWrap: {
@@ -1288,13 +1675,18 @@ const styles = stylex.create({
 	addButton: {
 		alignItems: "center",
 		backgroundColor: {
-			default: "rgba(255,255,255,0.08)",
-			":hover": "rgba(255,255,255,0.14)",
+			default: color.backgroundRaised,
+			":hover": color.surfaceControl,
 		},
-		borderColor: "rgba(255,255,255,0.15)",
+		backgroundImage: {
+			default: effect.controlDepth,
+			":hover": effect.controlDepthHover,
+		},
+		borderColor: color.border,
 		borderRadius: radius.md,
 		borderStyle: "solid",
 		borderWidth: 1,
+		boxShadow: shadow.controlDepth,
 		color: color.textMain,
 		display: "flex",
 		height: controlSize._8,
@@ -1303,8 +1695,9 @@ const styles = stylex.create({
 	},
 	addMenu: {
 		backdropFilter: "blur(16px)",
-		backgroundColor: "rgba(12, 12, 14, 0.95)",
-		borderColor: "rgba(255,255,255,0.1)",
+		backgroundColor: color.backgroundRaised,
+		backgroundImage: effect.popoverDepth,
+		borderColor: color.border,
 		borderRadius: radius.lg,
 		borderStyle: "solid",
 		borderWidth: 1,
@@ -1320,7 +1713,11 @@ const styles = stylex.create({
 		alignItems: "center",
 		backgroundColor: {
 			default: "transparent",
-			":hover": "rgba(255,255,255,0.06)",
+			":hover": color.surfaceControl,
+		},
+		backgroundImage: {
+			default: "none",
+			":hover": effect.controlDepth,
 		},
 		borderRadius: radius.md,
 		color: color.textMain,
@@ -1332,6 +1729,9 @@ const styles = stylex.create({
 	},
 	addMenuIcon: {
 		alignItems: "center",
+		backgroundImage: effect.controlDepth,
+		borderStyle: "solid",
+		borderWidth: 1,
 		borderRadius: radius.sm,
 		display: "flex",
 		flexShrink: 0,
@@ -1339,13 +1739,41 @@ const styles = stylex.create({
 		justifyContent: "center",
 		width: controlSize._6,
 	},
-	menuIconemerald: { backgroundColor: "rgba(16, 185, 129, 0.8)" },
-	menuIconblue: { backgroundColor: "rgba(59, 130, 246, 0.8)" },
-	menuIconpurple: { backgroundColor: "rgba(168, 85, 247, 0.8)" },
-	menuIconamber: { backgroundColor: "rgba(245, 158, 11, 0.8)" },
-	menuIconcyan: { backgroundColor: "rgba(6, 182, 212, 0.8)" },
-	menuIconpink: { backgroundColor: "rgba(236, 72, 153, 0.8)" },
-	menuIconorange: { backgroundColor: "rgba(249, 115, 22, 0.8)" },
+	menuIconemerald: {
+		backgroundColor: "rgba(16, 185, 129, 0.1)",
+		borderColor: "rgba(16, 185, 129, 0.28)",
+		color: "rgba(167, 243, 208, 0.92)",
+	},
+	menuIconblue: {
+		backgroundColor: "rgba(59, 130, 246, 0.1)",
+		borderColor: "rgba(59, 130, 246, 0.28)",
+		color: "rgba(191, 219, 254, 0.92)",
+	},
+	menuIconpurple: {
+		backgroundColor: "rgba(168, 85, 247, 0.1)",
+		borderColor: "rgba(168, 85, 247, 0.28)",
+		color: "rgba(233, 213, 255, 0.92)",
+	},
+	menuIconamber: {
+		backgroundColor: "rgba(245, 158, 11, 0.1)",
+		borderColor: "rgba(245, 158, 11, 0.28)",
+		color: "rgba(253, 230, 138, 0.92)",
+	},
+	menuIconcyan: {
+		backgroundColor: "rgba(6, 182, 212, 0.1)",
+		borderColor: "rgba(6, 182, 212, 0.28)",
+		color: "rgba(165, 243, 252, 0.92)",
+	},
+	menuIconpink: {
+		backgroundColor: "rgba(236, 72, 153, 0.1)",
+		borderColor: "rgba(236, 72, 153, 0.28)",
+		color: "rgba(251, 207, 232, 0.92)",
+	},
+	menuIconorange: {
+		backgroundColor: "rgba(249, 115, 22, 0.1)",
+		borderColor: "rgba(249, 115, 22, 0.28)",
+		color: "rgba(254, 215, 170, 0.92)",
+	},
 	addMenuText: {
 		display: "flex",
 		flex: 1,
@@ -1376,14 +1804,18 @@ const styles = stylex.create({
 	},
 	nodeCard: {
 		backgroundColor: {
-			default: "rgba(12, 12, 14, 0.94)",
-			":hover": "rgba(18, 18, 20, 0.96)",
+			default: color.backgroundRaised,
+			":hover": color.surfaceControl,
+		},
+		backgroundImage: {
+			default: effect.controlDepth,
+			":hover": effect.controlDepthHover,
 		},
 		borderColor: color.border,
 		borderRadius: radius.lg,
 		borderStyle: "solid",
 		borderWidth: 1,
-		boxShadow: shadow.popover,
+		boxShadow: shadow.controlDepth,
 		cursor: "grab",
 		display: "flex",
 		flexDirection: "column",
@@ -1393,43 +1825,37 @@ const styles = stylex.create({
 		textAlign: "left",
 		touchAction: "none",
 		transitionDuration: motion.durationBase,
-		transitionProperty: "background-color, border-color, transform",
+		transitionProperty:
+			"background-color, background-image, border-color, box-shadow, transform",
 		transitionTimingFunction: motion.ease,
 		userSelect: "none",
 		width: NODE_WIDTH,
 	},
 	nodeToneemerald: {
-		backgroundColor:
-			"color-mix(in srgb, var(--color-inferay-success) 5%, #050505)",
-		borderColor: "rgba(16, 185, 129, 0.4)",
+		borderColor: color.border,
 	},
 	nodeToneblue: {
-		backgroundColor: "color-mix(in srgb, #3b82f6 7%, #050505)",
-		borderColor: "rgba(59, 130, 246, 0.4)",
+		borderColor: color.border,
 	},
 	nodeTonepurple: {
-		backgroundColor: "color-mix(in srgb, #a855f7 8%, #050505)",
-		borderColor: "rgba(168, 85, 247, 0.4)",
+		borderColor: color.border,
 	},
 	nodeTonepink: {
-		backgroundColor: "color-mix(in srgb, #ec4899 8%, #050505)",
-		borderColor: "rgba(236, 72, 153, 0.4)",
+		borderColor: color.border,
 	},
 	nodeToneamber: {
-		backgroundColor: "color-mix(in srgb, #f59e0b 7%, #050505)",
-		borderColor: "rgba(245, 158, 11, 0.4)",
+		borderColor: color.border,
 	},
 	nodeToneorange: {
-		backgroundColor: "color-mix(in srgb, #f97316 7%, #050505)",
-		borderColor: "rgba(249, 115, 22, 0.4)",
+		borderColor: color.border,
 	},
 	nodeTonecyan: {
-		backgroundColor: "color-mix(in srgb, #06b6d4 7%, #050505)",
-		borderColor: "rgba(6, 182, 212, 0.4)",
+		borderColor: color.border,
 	},
 	nodeCardSelected: {
-		borderColor: color.focusRing,
-		boxShadow: shadow.focusRing,
+		borderColor: "rgba(58, 132, 255, 0.58)",
+		boxShadow:
+			"inset 0 1px 14px rgba(0, 0, 0, 0.22), inset 0 -1px 0 rgba(255, 255, 255, 0.03), 0 0 0 1px rgba(58, 132, 255, 0.28), 0 0 26px rgba(58, 132, 255, 0.14), 0 12px 30px rgba(0, 0, 0, 0.36)",
 	},
 	nodeCardDragging: {
 		borderColor: color.textSoft,
@@ -1460,21 +1886,51 @@ const styles = stylex.create({
 	},
 	nodeIcon: {
 		alignItems: "center",
+		backgroundImage: effect.controlDepth,
+		borderStyle: "solid",
+		borderWidth: 1,
 		borderRadius: radius.sm,
-		color: color.textMain,
 		display: "flex",
 		flexShrink: 0,
 		height: controlSize._4,
 		justifyContent: "center",
 		width: controlSize._4,
 	},
-	nodeIconemerald: { backgroundColor: "rgba(16, 185, 129, 0.8)" },
-	nodeIconblue: { backgroundColor: "#3b82f6" },
-	nodeIconpurple: { backgroundColor: "#a855f7" },
-	nodeIconpink: { backgroundColor: "#ec4899" },
-	nodeIconamber: { backgroundColor: "#f59e0b" },
-	nodeIconorange: { backgroundColor: "#f97316" },
-	nodeIconcyan: { backgroundColor: "#06b6d4" },
+	nodeIconemerald: {
+		backgroundColor: "rgba(16, 185, 129, 0.1)",
+		borderColor: "rgba(16, 185, 129, 0.28)",
+		color: "rgba(167, 243, 208, 0.92)",
+	},
+	nodeIconblue: {
+		backgroundColor: "rgba(59, 130, 246, 0.1)",
+		borderColor: "rgba(59, 130, 246, 0.28)",
+		color: "rgba(191, 219, 254, 0.92)",
+	},
+	nodeIconpurple: {
+		backgroundColor: "rgba(168, 85, 247, 0.1)",
+		borderColor: "rgba(168, 85, 247, 0.28)",
+		color: "rgba(233, 213, 255, 0.92)",
+	},
+	nodeIconpink: {
+		backgroundColor: "rgba(236, 72, 153, 0.1)",
+		borderColor: "rgba(236, 72, 153, 0.28)",
+		color: "rgba(251, 207, 232, 0.92)",
+	},
+	nodeIconamber: {
+		backgroundColor: "rgba(245, 158, 11, 0.1)",
+		borderColor: "rgba(245, 158, 11, 0.28)",
+		color: "rgba(253, 230, 138, 0.92)",
+	},
+	nodeIconorange: {
+		backgroundColor: "rgba(249, 115, 22, 0.1)",
+		borderColor: "rgba(249, 115, 22, 0.28)",
+		color: "rgba(254, 215, 170, 0.92)",
+	},
+	nodeIconcyan: {
+		backgroundColor: "rgba(6, 182, 212, 0.1)",
+		borderColor: "rgba(6, 182, 212, 0.28)",
+		color: "rgba(165, 243, 252, 0.92)",
+	},
 	nodeTitle: {
 		color: color.textMain,
 		fontSize: font.size_1,
@@ -1534,6 +1990,7 @@ const styles = stylex.create({
 		paddingInline: controlSize._2,
 	},
 	detailPane: {
+		backgroundColor: color.background,
 		borderLeftColor: color.border,
 		borderLeftStyle: "solid",
 		borderLeftWidth: 1,
@@ -1583,8 +2040,9 @@ const styles = stylex.create({
 		padding: controlSize._3,
 	},
 	bodyEditor: {
-		backgroundColor: color.surfaceInset,
-		borderColor: color.borderSubtle,
+		backgroundColor: color.backgroundRaised,
+		backgroundImage: effect.controlDepth,
+		borderColor: color.border,
 		borderRadius: radius.md,
 		borderStyle: "solid",
 		borderWidth: 1,
@@ -1598,6 +2056,7 @@ const styles = stylex.create({
 			default: "none",
 			":focus": "none",
 		},
+		boxShadow: shadow.controlDepth,
 		padding: controlSize._2,
 		resize: "vertical",
 		width: "100%",
@@ -1619,8 +2078,9 @@ const styles = stylex.create({
 		padding: controlSize._3,
 	},
 	outputText: {
-		backgroundColor: color.surfaceInset,
-		borderColor: color.borderSubtle,
+		backgroundColor: color.backgroundRaised,
+		backgroundImage: effect.controlDepth,
+		borderColor: color.border,
 		borderRadius: radius.md,
 		borderStyle: "solid",
 		borderWidth: 1,
@@ -1630,6 +2090,7 @@ const styles = stylex.create({
 		lineHeight: 1.5,
 		maxHeight: 200,
 		overflow: "auto",
+		boxShadow: shadow.controlDepth,
 		padding: controlSize._2,
 		whiteSpace: "pre-wrap",
 		wordBreak: "break-word",

@@ -11,9 +11,7 @@ function fallbackTitle(userMessage: string): string {
 
 export async function generateTitle(userMessage: string): Promise<string> {
 	const result = await runAgentOnce({
-		agentKind: "claude",
 		cwd: process.cwd(),
-		model: "claude-haiku-4-5",
 		timeoutMs: 20_000,
 		prompt: `Generate a concise title (max 6 words) that summarizes what this chat is about. Output ONLY the title, nothing else.\n\nUser message:\n${userMessage.slice(0, 500)}`,
 	});
@@ -54,9 +52,7 @@ export async function generateCommitMessage(
 		diff.length > 8000 ? `${diff.slice(0, 8000)}\n\n[diff truncated...]` : diff;
 
 	return runAgentOnce({
-		agentKind: "claude",
 		cwd,
-		model: "claude-haiku-4-5",
 		timeoutMs: 30_000,
 		prompt: `You are a git commit message generator. Based on the following staged diff, write a concise commit message.
 

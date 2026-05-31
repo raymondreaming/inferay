@@ -8,5 +8,14 @@ export function goalRoutes() {
 				return Response.json({ goals: ChatService.listGoals() });
 			}),
 		},
+		"/api/goals/clear": {
+			POST: tryRoute(async (req) => {
+				const body = (await req.json()) as { paneId?: string };
+				if (typeof body.paneId !== "string" || !body.paneId.trim()) {
+					return Response.json({ error: "Missing paneId" }, { status: 400 });
+				}
+				return Response.json({ ok: ChatService.clearGoal(body.paneId) });
+			}),
+		},
 	};
 }

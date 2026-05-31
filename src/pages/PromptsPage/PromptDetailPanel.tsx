@@ -1,6 +1,15 @@
 import * as stylex from "@stylexjs/stylex";
 import { useEffect, useRef } from "react";
-import { IconPencil, IconTrash, IconX } from "../../components/ui/Icons.tsx";
+import {
+	IconPencil,
+	IconSparkles,
+	IconTrash,
+	IconX,
+} from "../../components/ui/Icons.tsx";
+import {
+	PROMPT_CATEGORIES,
+	type Prompt,
+} from "../../features/prompts/types.ts";
 import { measureTextHeight } from "../../lib/pretext-utils.ts";
 import { setInputValue } from "../../lib/react-events.ts";
 import {
@@ -10,10 +19,6 @@ import {
 	radius,
 	shadow,
 } from "../../tokens.stylex.ts";
-import {
-	PROMPT_CATEGORIES,
-	type Prompt,
-} from "../../features/prompts/types.ts";
 
 interface PromptDetailPanelProps {
 	selectedPrompt: Prompt | null;
@@ -27,8 +32,11 @@ interface PromptDetailPanelProps {
 	formCategory: string;
 	formTags: string;
 	formError: string;
+	isActionCreated: boolean;
 	onFormChange: (field: string, value: string) => void;
 	onStartEditing: () => void;
+	onCreateAction: () => void;
+	onRemoveAction: () => void;
 	onCancelEditing: () => void;
 	onSave: (isInlineEdit: boolean) => void;
 	onDelete: () => void;
@@ -84,8 +92,11 @@ export function PromptDetailPanel({
 	formCategory,
 	formTags,
 	formError,
+	isActionCreated,
 	onFormChange,
 	onStartEditing,
+	onCreateAction,
+	onRemoveAction,
 	onCancelEditing,
 	onSave,
 	onDelete,
@@ -162,28 +173,7 @@ export function PromptDetailPanel({
 								{isSaving ? "..." : "Save"}
 							</button>
 						</>
-					) : (
-						<>
-							{selectedPrompt && !selectedPrompt.isBuiltIn && (
-								<button
-									type="button"
-									onClick={onStartEditing}
-									{...stylex.props(styles.iconButton)}
-								>
-									<IconPencil size={12} />
-								</button>
-							)}
-							{selectedPrompt && !selectedPrompt.isBuiltIn && (
-								<button
-									type="button"
-									onClick={onDelete}
-									{...stylex.props(styles.iconButton)}
-								>
-									<IconTrash size={12} />
-								</button>
-							)}
-						</>
-					)}
+					) : null}
 					<button
 						type="button"
 						onClick={onClose}
@@ -195,6 +185,54 @@ export function PromptDetailPanel({
 			</div>
 
 			<div {...stylex.props(styles.body)}>
+				{!isEditMode && selectedPrompt ? (
+					<div {...stylex.props(styles.actionStack)}>
+						<button
+							type="button"
+							onClick={onCreateAction}
+							{...stylex.props(styles.primaryAction)}
+						>
+							<IconSparkles size={12} />
+							<span>{isActionCreated ? "Update Action" : "Make Action"}</span>
+						</button>
+						<div {...stylex.props(styles.secondaryActions)}>
+							{isActionCreated ? (
+								<button
+									type="button"
+									onClick={onRemoveAction}
+									title="Remove action"
+									aria-label="Remove prompt action"
+									{...stylex.props(styles.textAction, styles.dangerAction)}
+								>
+									<IconTrash size={13} />
+									<span>Remove Action</span>
+								</button>
+							) : null}
+							{!selectedPrompt.isBuiltIn ? (
+								<>
+									<button
+										type="button"
+										onClick={onStartEditing}
+										title="Edit"
+										aria-label="Edit prompt"
+										{...stylex.props(styles.iconAction)}
+									>
+										<IconPencil size={13} />
+									</button>
+									<button
+										type="button"
+										onClick={onDelete}
+										title="Delete"
+										aria-label="Delete prompt"
+										{...stylex.props(styles.iconAction, styles.dangerAction)}
+									>
+										<IconTrash size={13} />
+									</button>
+								</>
+							) : null}
+						</div>
+					</div>
+				) : null}
 				<div {...stylex.props(styles.formGrid)}>
 					<div {...stylex.props(styles.flexField)}>
 						<span {...stylex.props(styles.label)}>Name</span>
@@ -309,7 +347,9 @@ export function PromptDetailPanel({
 const styles = stylex.create({
 	root: {
 		display: "flex",
+		flex: 1,
 		height: "100%",
+		minHeight: 0,
 		flexDirection: "column",
 		overflow: "hidden",
 		backgroundColor: color.background,
@@ -350,7 +390,7 @@ const styles = stylex.create({
 		width: "6rem",
 		borderWidth: 0,
 		borderRadius: radius.md,
-		backgroundColor: color.backgroundRaised,
+		backgroundColor: color.background,
 		color: color.textMain,
 		fontFamily: font.familyMono,
 		fontSize: font.size_2,
@@ -414,6 +454,85 @@ const styles = stylex.create({
 			":hover": color.surfaceSubtle,
 		},
 		color: color.textMuted,
+	},
+	actionStack: {
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._1,
+	},
+	primaryAction: {
+		alignItems: "center",
+		backgroundColor: {
+			default: color.surfaceControl,
+			":hover": color.surfaceControlHover,
+		},
+		borderColor: color.borderStrong,
+		borderRadius: radius.md,
+		borderStyle: "solid",
+		borderWidth: 1,
+		color: color.textMain,
+		display: "flex",
+		fontSize: font.size_1,
+		fontWeight: font.weight_6,
+		gap: controlSize._1,
+		height: controlSize._7,
+		justifyContent: "center",
+		width: "100%",
+	},
+	secondaryActions: {
+		alignItems: "center",
+		display: "flex",
+		gap: controlSize._1,
+	},
+	iconAction: {
+		alignItems: "center",
+		backgroundColor: {
+			default: color.background,
+			":hover": color.surfaceSubtle,
+		},
+		borderColor: color.border,
+		borderRadius: radius.md,
+		borderStyle: "solid",
+		borderWidth: 1,
+		color: color.textMuted,
+		display: "flex",
+		flex: 1,
+		height: controlSize._7,
+		justifyContent: "center",
+		minWidth: 0,
+		":disabled": {
+			opacity: 0.45,
+		},
+	},
+	textAction: {
+		alignItems: "center",
+		backgroundColor: {
+			default: color.background,
+			":hover": color.surfaceSubtle,
+		},
+		borderColor: color.border,
+		borderRadius: radius.md,
+		borderStyle: "solid",
+		borderWidth: 1,
+		color: color.textMuted,
+		display: "flex",
+		flex: 2,
+		fontSize: font.size_1,
+		gap: controlSize._1,
+		height: controlSize._7,
+		justifyContent: "center",
+		minWidth: 0,
+		paddingInline: controlSize._2,
+		":disabled": {
+			opacity: 0.45,
+		},
+	},
+	dangerAction: {
+		":hover": {
+			backgroundColor: color.dangerWash,
+			borderColor: color.dangerBorder,
+			color: color.danger,
+		},
 	},
 	body: {
 		flex: 1,
@@ -482,7 +601,7 @@ const styles = stylex.create({
 			":focus": color.textMuted,
 		},
 		borderRadius: radius.md,
-		backgroundColor: color.backgroundRaised,
+		backgroundColor: color.background,
 		color: color.textMain,
 		fontFamily: font.familyMono,
 		fontSize: font.size_2,
@@ -516,7 +635,7 @@ const styles = stylex.create({
 		borderStyle: "solid",
 		borderColor: color.border,
 		borderRadius: radius.md,
-		backgroundColor: color.backgroundRaised,
+		backgroundColor: color.background,
 		color: color.textSoft,
 		fontFamily: font.familyMono,
 		fontSize: font.size_2,

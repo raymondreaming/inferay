@@ -1,3 +1,4 @@
+import type { ChatAgentKind } from "../../features/agents/agents.ts";
 import { atomicWriteJson } from "../../lib/atomic-write.ts";
 import { userDataPath } from "../../lib/user-data.ts";
 import { runAgentOnce } from "./agent-once.ts";
@@ -11,6 +12,9 @@ export interface AutomationStore {
 export interface AutomationRunRequest {
 	prompt?: string;
 	cwd?: string;
+	agentKind?: string;
+	model?: string;
+	reasoningLevel?: string;
 	timeoutMs?: number;
 }
 
@@ -47,11 +51,17 @@ export async function runAutomationOnce(
 	if (!body.prompt) {
 		return { ok: false, status: 400, error: "prompt is required" };
 	}
+	const agentKind: ChatAgentKind =
+		body.agentKind === "codex" || body.agentKind === "claude"
+			? body.agentKind
+			: "claude";
 
 	const result = await runAgentOnce({
-		agentKind: "claude",
+		agentKind,
 		prompt: body.prompt,
 		cwd: body.cwd || process.cwd(),
+		model: body.model,
+		reasoningLevel: agentKind === "codex" ? body.reasoningLevel : undefined,
 		timeoutMs: body.timeoutMs ?? 120_000,
 	});
 	return { ok: true, result };

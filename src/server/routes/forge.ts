@@ -6,8 +6,8 @@ import { basename, resolve } from "node:path";
 import { promisify } from "node:util";
 import { isActive, isString } from "../../lib/data.ts";
 import { badRequest, tryRoute } from "../../lib/route-helpers.ts";
-import { ConfigManager } from "../services/config-manager.ts";
 import { resolveAllowedLocalPath } from "../security.ts";
+import { ConfigManager } from "../services/config-manager.ts";
 
 const execFileAsync = promisify(execFile);
 const configManager = new ConfigManager();
