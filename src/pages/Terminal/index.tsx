@@ -726,10 +726,13 @@ export function TerminalPage() {
 						sourcePaneId?: string;
 						sourceMessageId?: string;
 						prompt?: string;
+						displayText?: string;
 					}>
 				).detail;
 				if (!detail?.targetPaneId || !detail.prompt) return;
-				chatRefs.current.get(detail.targetPaneId)?.sendMessage(detail.prompt);
+				chatRefs.current
+					.get(detail.targetPaneId)
+					?.sendMessage(detail.prompt, detail.displayText ?? "Hand off");
 			}),
 		[]
 	);

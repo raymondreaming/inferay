@@ -327,6 +327,7 @@ const Bubble = React.memo(function Bubble({
 						sourcePaneId: paneId,
 						sourceMessageId: msg.id,
 						prompt,
+						displayText: "Hand off",
 					},
 				})
 			);
@@ -634,9 +635,12 @@ const Bubble = React.memo(function Bubble({
 								labelClassName={
 									stylex.props(styles.messageActionLabel).className
 								}
-								renderOption={(option) => (
+								renderOption={(option, isSelected) => (
 									<div
-										{...stylex.props(styles.handoffOption)}
+										{...stylex.props(
+											styles.handoffOption,
+											isSelected && styles.handoffOptionSelected
+										)}
 										onFocus={() => dispatchPaneFocus(option.id)}
 										onMouseEnter={() => dispatchPaneFocus(option.id)}
 										onMouseLeave={() => dispatchPaneFocus(null)}
@@ -1144,14 +1148,39 @@ const styles = stylex.create({
 	},
 	handoffOption: {
 		alignItems: "center",
-		color: color.textSoft,
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlHover,
+		},
+		backgroundImage: {
+			default: "none",
+			":hover": effect.controlDepth,
+		},
+		borderRadius: radius.sm,
+		boxShadow: {
+			default: "none",
+			":hover": shadow.controlDepth,
+		},
+		color: {
+			default: color.textSoft,
+			":hover": color.textMain,
+		},
 		display: "flex",
 		gap: controlSize._2,
 		minHeight: 30,
 		paddingBlock: controlSize._1,
 		paddingInline: controlSize._2,
 		textAlign: "left",
+		transitionDuration: motion.durationBase,
+		transitionProperty: "background-color, background-image, box-shadow, color",
+		transitionTimingFunction: motion.ease,
 		width: "100%",
+	},
+	handoffOptionSelected: {
+		backgroundColor: color.controlActive,
+		backgroundImage: effect.controlDepthHover,
+		boxShadow: shadow.selectedRing,
+		color: color.textMain,
 	},
 	handoffOptionIcon: {
 		color: color.textMuted,
