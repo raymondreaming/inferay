@@ -32,6 +32,7 @@ import { useActivityFeed } from "../../features/activity-feed/useActivityFeed.ts
 import { isChatAgentKind } from "../../features/agents/agents.ts";
 import { useAgentSessions } from "../../features/agents/useAgentSessions.ts";
 import { useFileWatcher } from "../../features/file-watcher/useFileWatcher.ts";
+import { loadPendingWorkspacePaths } from "../../features/chat/chat-session-store.ts";
 import {
 	isStagedChange,
 	isUnstagedTrackedChange,
@@ -85,23 +86,28 @@ let cachedSessions: Session[] = [];
 
 function flattenSessions(groups: TerminalGroupModel[]): Session[] {
 	return groups.flatMap((g) =>
-		g.panes.flatMap((p) =>
-			isChatAgentKind(p.agentKind)
-				? [
-						{
-							groupId: g.id,
-							groupName: g.name,
-							paneId: p.id,
-							paneTitle: p.title,
-							agentKind: p.agentKind,
-							cwd: p.cwd,
-							referencePaths: p.referencePaths,
-							pendingCwd: p.pendingCwd,
-							messageCount: 0,
-						},
-					]
-				: []
-		)
+		g.panes.flatMap((p) => {
+			if (!isChatAgentKind(p.agentKind)) return [];
+			const pendingWorkspacePaths = p.cwd
+				? []
+				: loadPendingWorkspacePaths(p.id);
+			return [
+				{
+					groupId: g.id,
+					groupName: g.name,
+					paneId: p.id,
+					paneTitle: p.title,
+					agentKind: p.agentKind,
+					cwd: p.cwd ?? pendingWorkspacePaths[0],
+					referencePaths: p.cwd
+						? p.referencePaths
+						: pendingWorkspacePaths.slice(1),
+					pendingCwd:
+						p.pendingCwd || (!p.cwd && pendingWorkspacePaths.length > 0),
+					messageCount: 0,
+				},
+			];
+		})
 	);
 }
 
