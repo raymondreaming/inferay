@@ -86,9 +86,6 @@ export interface SlashCommand {
 	isFromLibrary?: boolean;
 }
 
-const MAX_RETAINED_MESSAGES = 500;
-const MAX_RETAINED_CHARS = 1_000_000;
-
 let msgId = 0;
 
 export function nextId() {
@@ -96,20 +93,7 @@ export function nextId() {
 }
 
 export function trimMessages(msgs: ChatMessage[]): ChatMessage[] {
-	let trimmed =
-		msgs.length > MAX_RETAINED_MESSAGES
-			? msgs.slice(-MAX_RETAINED_MESSAGES)
-			: msgs;
-	let totalChars = trimmed.reduce(
-		(sum, message) => sum + message.content.length,
-		0
-	);
-	while (totalChars > MAX_RETAINED_CHARS && trimmed.length > 1) {
-		totalChars -= trimmed[0]?.content.length ?? 0;
-		trimmed = trimmed.slice(1);
-	}
-
-	return trimmed;
+	return msgs;
 }
 
 export function appendMessage(

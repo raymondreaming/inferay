@@ -44,6 +44,30 @@ export function mergeSyncedMessages(
 	localMessages: ChatStateMessage[],
 	serverMessages: ChatStateMessage[]
 ): ChatStateMessage[] {
+	const serverWithLocalDisplayText = mergeUserDisplayText(
+		localMessages,
+		serverMessages
+	);
+	if (localMessages.length === 0) return serverWithLocalDisplayText;
+	if (serverMessages.length === 0) return localMessages;
+
+	const overlapStart = findServerOverlapStart(localMessages, serverMessages);
+	if (overlapStart >= 0) {
+		return [
+			...localMessages.slice(0, overlapStart),
+			...serverWithLocalDisplayText,
+		];
+	}
+
+	return serverMessages.length < localMessages.length
+		? localMessages
+		: serverWithLocalDisplayText;
+}
+
+function mergeUserDisplayText(
+	localMessages: ChatStateMessage[],
+	serverMessages: ChatStateMessage[]
+): ChatStateMessage[] {
 	const localUserMsgs = localMessages.filter(hasRole.bind(null, "user"));
 	const serverUserMsgs = serverMessages.filter(hasRole.bind(null, "user"));
 	const displayTextMap = new Map<number, string>();
@@ -61,4 +85,49 @@ export function mergeSyncedMessages(
 		userIdx++;
 		return displayText ? { ...message, content: displayText } : message;
 	});
+}
+
+function findServerOverlapStart(
+	localMessages: ChatStateMessage[],
+	serverMessages: ChatStateMessage[]
+): number {
+	let bestStart = -1;
+	let bestLength = 0;
+
+	for (let start = 0; start < localMessages.length; start += 1) {
+		let length = 0;
+		while (
+			start + length < localMessages.length &&
+			length < serverMessages.length &&
+			messagesOverlap(localMessages[start + length]!, serverMessages[length]!)
+		) {
+			length += 1;
+		}
+		if (length > bestLength) {
+			bestStart = start;
+			bestLength = length;
+		}
+	}
+
+	return bestLength > 0 ? bestStart : -1;
+}
+
+function messagesOverlap(
+	localMessage: ChatStateMessage,
+	serverMessage: ChatStateMessage
+): boolean {
+	if (localMessage.id === serverMessage.id) return true;
+	if (localMessage.role !== serverMessage.role) return false;
+	if (localMessage.role === "user") {
+		const shorter =
+			localMessage.content.length <= serverMessage.content.length
+				? localMessage.content
+				: serverMessage.content;
+		const longer =
+			localMessage.content.length > serverMessage.content.length
+				? localMessage.content
+				: serverMessage.content;
+		return shorter.trim().length > 0 && longer.includes(shorter);
+	}
+	return localMessage.content === serverMessage.content;
 }

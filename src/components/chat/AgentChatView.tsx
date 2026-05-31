@@ -1209,15 +1209,19 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 					if (serverMessages.length === 0) return;
 					const currentMessages = messagesRef.current;
 					const shouldSkipSync =
-						serverMessages.length < currentMessages.length && !msg.isStreaming;
+						!msg.isStreaming &&
+						currentMessages.length > 0 &&
+						serverMessages.length <= currentMessages.length &&
+						!currentMessages.some((message) => message.isStreaming);
 
 					if (shouldSkipSync) {
 						return;
 					}
-					setMessages((prev) =>
-						trimMessages(mergeSyncedMessages(prev, serverMessages))
+					const mergedMessages = trimMessages(
+						mergeSyncedMessages(currentMessages, serverMessages)
 					);
-					saveStoredMessages(paneId, prepareMessagesForStorage(serverMessages));
+					setMessages(mergedMessages);
+					saveStoredMessages(paneId, prepareMessagesForStorage(mergedMessages));
 					if (msg.isStreaming) {
 						setLoadingState({
 							isLoading: true,
