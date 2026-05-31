@@ -242,6 +242,10 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 		const agentKind = activeAgentKind;
 		const [optimisticWorkspace, setOptimisticWorkspace] =
 			useState<ActiveWorkspace | null>(null);
+		const [pendingWorkspacePaths, setPendingWorkspacePaths] = useState<
+			string[]
+		>(() => loadPendingWorkspacePaths(paneId));
+		const pendingWorkspacePathsRef = useRef<string[]>(pendingWorkspacePaths);
 		const activeWorkspace = useMemo<ActiveWorkspace>(
 			() => ({
 				cwd: cwd ?? optimisticWorkspace?.cwd ?? null,
@@ -252,6 +256,15 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 			}),
 			[cwd, optimisticWorkspace, referencePaths]
 		);
+		const visibleWorkspace = useMemo<ActiveWorkspace>(() => {
+			if (activeWorkspace.cwd || pendingWorkspacePaths.length === 0) {
+				return activeWorkspace;
+			}
+			return {
+				cwd: pendingWorkspacePaths[0] ?? null,
+				referencePaths: pendingWorkspacePaths.slice(1),
+			};
+		}, [activeWorkspace, pendingWorkspacePaths]);
 		const activeWorkspaceRef = useRef<ActiveWorkspace>(activeWorkspace);
 		activeWorkspaceRef.current = activeWorkspace;
 		useEffect(() => {
@@ -329,7 +342,6 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 		const pendingMessageSaveRef = useRef<ChatMessage[] | null>(null);
 		const summaryRef = useRef<string | null>(loadStoredSummary(paneId));
 		const titleRequestedRef = useRef(false);
-		const pendingWorkspacePathsRef = useRef<string[]>([]);
 		const getPendingWorkspacePaths = useCallback(() => {
 			const paths =
 				pendingWorkspacePathsRef.current.length > 0
@@ -339,8 +351,14 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 		}, [paneId]);
 		const clearPendingWorkspacePaths = useCallback(() => {
 			pendingWorkspacePathsRef.current = [];
+			setPendingWorkspacePaths([]);
 			savePendingWorkspacePaths(paneId, []);
 		}, [paneId]);
+		useEffect(() => {
+			if (activeWorkspace.cwd && pendingWorkspacePathsRef.current.length > 0) {
+				clearPendingWorkspacePaths();
+			}
+		}, [activeWorkspace.cwd, clearPendingWorkspacePaths]);
 		const flushPendingMessageSave = useCallback(() => {
 			if (saveTimerRef.current) {
 				clearTimeout(saveTimerRef.current);
@@ -454,8 +472,8 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 		} = useSpeechToText({ value: input, onChange: setInput });
 
 		const cwdList = useMemo(
-			() => (activeWorkspace.cwd ? [activeWorkspace.cwd] : []),
-			[activeWorkspace.cwd]
+			() => (visibleWorkspace.cwd ? [visibleWorkspace.cwd] : []),
+			[visibleWorkspace.cwd]
 		);
 		const { projects: gitProjects, refetch: refetchGitStatus } =
 			useGitStatus(cwdList);
@@ -872,7 +890,7 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 			selectCommand,
 			selectFile,
 		} = useAgentChatMenus({
-			cwd: activeWorkspace.cwd ?? undefined,
+			cwd: visibleWorkspace.cwd ?? undefined,
 			input,
 			setInput,
 			allCommands,
@@ -1683,10 +1701,10 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 			clearAttachedImages();
 			if (textareaRef.current) textareaRef.current.style.height = "20px";
 
+			const selectedWorkspace = consumePendingWorkspace();
 			if (isLoading) {
 				queueMessage(promptText, displayText, imagePaths);
 			} else {
-				const selectedWorkspace = consumePendingWorkspace();
 				appendLocalMessages([
 					{
 						role: "user",
@@ -1956,6 +1974,7 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 												showStartButton={false}
 												onSelectionChange={(paths) => {
 													pendingWorkspacePathsRef.current = paths;
+													setPendingWorkspacePaths(paths);
 													savePendingWorkspacePaths(paneId, paths);
 												}}
 												onMultiSelect={(paths) => {
@@ -1983,7 +2002,7 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 								onMdFileClick={handleMdFileClick}
 								slashCommandNames={slashCommandNames}
 								paneId={paneId}
-								cwd={activeWorkspace.cwd}
+								cwd={visibleWorkspace.cwd}
 							/>
 						</div>
 						{!isAtBottom && (
@@ -2047,7 +2066,7 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 								)
 							}
 							onClearContextBlocks={() => setComposerContextBlocks([])}
-							cwd={activeWorkspace.cwd}
+							cwd={visibleWorkspace.cwd}
 							gitBranch={gitBranch}
 							onGitBranchChanged={refetchGitStatus}
 							queuedMessages={queuedMessages}
