@@ -226,8 +226,8 @@ export function parseBlocks(src: string): MdBlock[] {
 		if (headingMatch) {
 			blocks.push({
 				type: "heading",
-				level: headingMatch[1]?.length,
-				content: headingMatch[2]?.replace(/\s+#+\s*$/, ""), // strip trailing #
+				level: headingMatch[1]!.length,
+				content: headingMatch[2]!.replace(/\s+#+\s*$/, ""), // strip trailing #
 			});
 			i++;
 			continue;
@@ -260,8 +260,7 @@ export function parseBlocks(src: string): MdBlock[] {
 		) {
 			const rows: string[][] = [];
 			while (i < lines.length && lines[i]?.includes("|")) {
-				const row = lines[i]
-					?.replace(/^\||\|$/g, "")
+				const row = lines[i]!.replace(/^\||\|$/g, "")
 					.split("|")
 					.map((c) => c.trim());
 				rows.push(row);
@@ -280,7 +279,7 @@ export function parseBlocks(src: string): MdBlock[] {
 				i < lines.length &&
 				(lines[i]?.startsWith("> ") || lines[i] === ">")
 			) {
-				bqLines.push(lines[i]?.replace(/^>\s?/, ""));
+				bqLines.push(lines[i]!.replace(/^>\s?/, ""));
 				i++;
 			}
 			blocks.push({ type: "blockquote", content: bqLines.join("\n") });
