@@ -81,7 +81,7 @@ const ALL_APP_PAGE_ROUTES: readonly AppPageRoute[] = [
 		sidebar: true,
 		icon: IconFilePlus,
 	},
-	{ id: "profile", label: "Profile", path: "/profile", feature: "profile" },
+	{ id: "profile", label: "Profile", path: "/profile" },
 ] as const;
 
 export const APP_PAGE_ROUTES = ALL_APP_PAGE_ROUTES.filter(
