@@ -7,6 +7,7 @@ import {
 	IconTarget,
 	IconWorkflow,
 } from "../components/ui/Icons.tsx";
+import { FEATURE_FLAGS, type FeatureFlagName } from "./feature-flags.ts";
 
 export type AppRouteId =
 	| "terminal"
@@ -25,6 +26,7 @@ interface AppPageRoute {
 	id: AppRouteId;
 	label: string;
 	path: string;
+	feature?: FeatureFlagName;
 	sidebar?: boolean;
 	icon?: NavigationIcon;
 }
@@ -32,13 +34,14 @@ interface AppPageRoute {
 interface TerminalMainViewRoute {
 	id: TerminalMainView;
 	label: string;
+	feature: FeatureFlagName;
 	icon: NavigationIcon;
 }
 
 export const DEFAULT_APP_ROUTE = "/terminal";
 export const DEFAULT_TERMINAL_MAIN_VIEW: TerminalMainView = "chat";
 
-export const APP_PAGE_ROUTES: readonly AppPageRoute[] = [
+const ALL_APP_PAGE_ROUTES: readonly AppPageRoute[] = [
 	{ id: "terminal", label: "Terminal", path: "/terminal" },
 	{
 		id: "sessions",
@@ -50,6 +53,7 @@ export const APP_PAGE_ROUTES: readonly AppPageRoute[] = [
 		id: "prompts",
 		label: "Prompts",
 		path: "/prompts",
+		feature: "prompts",
 		sidebar: true,
 		icon: IconSlash,
 	},
@@ -57,6 +61,7 @@ export const APP_PAGE_ROUTES: readonly AppPageRoute[] = [
 		id: "goals",
 		label: "Work",
 		path: "/goals",
+		feature: "goals",
 		sidebar: true,
 		icon: IconTarget,
 	},
@@ -64,6 +69,7 @@ export const APP_PAGE_ROUTES: readonly AppPageRoute[] = [
 		id: "automations",
 		label: "Automations",
 		path: "/automations",
+		feature: "automations",
 		sidebar: true,
 		icon: IconWorkflow,
 	},
@@ -71,11 +77,16 @@ export const APP_PAGE_ROUTES: readonly AppPageRoute[] = [
 		id: "images",
 		label: "Artifacts",
 		path: "/images",
+		feature: "images",
 		sidebar: true,
 		icon: IconFilePlus,
 	},
-	{ id: "profile", label: "Profile", path: "/profile" },
+	{ id: "profile", label: "Profile", path: "/profile", feature: "profile" },
 ] as const;
+
+export const APP_PAGE_ROUTES = ALL_APP_PAGE_ROUTES.filter(
+	(route) => route.feature === undefined || FEATURE_FLAGS[route.feature]
+);
 
 export const SIDEBAR_NAV_ROUTES = APP_PAGE_ROUTES.filter(
 	(
@@ -86,13 +97,17 @@ export const SIDEBAR_NAV_ROUTES = APP_PAGE_ROUTES.filter(
 	} => route.sidebar === true && !!route.icon
 );
 
-export const TERMINAL_MAIN_VIEWS: readonly TerminalMainViewRoute[] = [
-	{ id: "chat", label: "Chat", icon: IconMessageCircle },
-	{ id: "editor", label: "Editor", icon: IconCode },
-] as const;
+const ALL_TERMINAL_MAIN_VIEWS: readonly TerminalMainViewRoute[] = [
+	{ id: "chat", label: "Chat", feature: "chat", icon: IconMessageCircle },
+	{ id: "editor", label: "Editor", feature: "editor", icon: IconCode },
+];
+
+export const TERMINAL_MAIN_VIEWS = ALL_TERMINAL_MAIN_VIEWS.filter(
+	(view) => FEATURE_FLAGS[view.feature]
+);
 
 export function isTerminalMainView(
 	value: string | null
 ): value is TerminalMainView {
-	return value === "chat" || value === "editor";
+	return TERMINAL_MAIN_VIEWS.some((view) => view.id === value);
 }
