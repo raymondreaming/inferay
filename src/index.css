@@ -208,28 +208,9 @@ select,
 button,
 select,
 [role="button"],
-.electrobun-webkit-app-region-drag,
-.electrobun-webkit-app-region-no-drag {
+.electrobun-webkit-app-region-drag {
 	-webkit-user-select: none;
 	user-select: none;
-}
-
-::selection {
-	background-color: color-mix(
-		in srgb,
-		var(--color-inferay-light-gray) 38%,
-		transparent
-	);
-	color: var(--color-inferay-white);
-}
-
-::-moz-selection {
-	background-color: color-mix(
-		in srgb,
-		var(--color-inferay-light-gray) 38%,
-		transparent
-	);
-	color: var(--color-inferay-white);
 }
 
 .electrobun-webkit-app-region-drag {
@@ -238,19 +219,6 @@ select,
 
 .electrobun-webkit-app-region-no-drag {
 	-webkit-app-region: no-drag;
-}
-
-.inferay-chat-selectable-region,
-.inferay-chat-selectable-region * {
-	-webkit-user-select: text;
-	user-select: text;
-}
-
-.inferay-chat-selectable-region button,
-.inferay-chat-selectable-region [role="button"],
-.inferay-chat-selectable-region select {
-	-webkit-user-select: none;
-	user-select: none;
 }
 
 html[data-inferay-fullscreen="true"] .inferay-window-spacer {

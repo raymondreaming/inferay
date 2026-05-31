@@ -452,7 +452,6 @@ function getAppThemeById(id: AppThemeId): AppTheme {
 
 export function applyAppTheme(id: AppThemeId): void {
 	const root = document.documentElement;
-	const meta = document.querySelector('meta[name="theme-color"]');
 	const theme = getAppThemeById(id);
 	for (const [key, cssVar] of Object.entries(CSS_VAR_MAP)) {
 		const value = theme.colors[key as keyof AppThemeColors];
@@ -471,7 +470,6 @@ export function applyAppTheme(id: AppThemeId): void {
 		root.style.setProperty(key, value);
 	}
 	root.style.colorScheme = light ? "light" : "dark";
-	meta?.setAttribute("content", theme.colors.black);
 }
 
 function isLightColor(hex: string): boolean {
