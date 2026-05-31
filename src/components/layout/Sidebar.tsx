@@ -38,6 +38,7 @@ import {
 	stopPropagationAndCall,
 } from "../../lib/react-events.ts";
 import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
+import { wsClient } from "../../lib/websocket.ts";
 import {
 	createGroupId,
 	createPendingAgentChatPane,
@@ -157,38 +158,57 @@ function PaneSummaryItem({
 	pane,
 	isActive,
 	onClick,
+	onDelete,
 }: {
 	pane: TerminalPaneModel;
 	isActive: boolean;
 	onClick: () => void;
+	onDelete: () => void;
 }) {
+	const [hovered, setHovered] = useState(false);
 	const isChat = isChatAgentKind(pane.agentKind);
 	const summary = isChat ? deriveSummary(pane.id) : null;
 	const folderLabel = getPaneBaseFolder(pane);
 	const primaryLabel = isChat ? (summary ?? pane.title) : pane.title;
 
 	return (
-		<button
-			type="button"
-			onClick={onClick}
-			{...stylex.props(
-				styles.paneSummary,
-				styles.paneSummaryIdle,
-				isActive && styles.paneSummarySelected
-			)}
+		<div
+			{...stylex.props(styles.paneSummaryWrap)}
+			onMouseEnter={setHovered.bind(null, true)}
+			onMouseLeave={setHovered.bind(null, false)}
 		>
-			<span {...stylex.props(styles.paneSummaryIcon)}>
-				{isChat ? (
-					getAgentIcon(pane.agentKind, 12, "opacity-60")
-				) : (
-					<IconTerminal size={12} className="opacity-60" />
+			<button
+				type="button"
+				onClick={onClick}
+				{...stylex.props(
+					styles.paneSummary,
+					styles.paneSummaryIdle,
+					isActive && styles.paneSummarySelected
 				)}
-			</span>
-			<div {...stylex.props(styles.paneSummaryText)}>
-				<p {...stylex.props(styles.paneSummaryFolder)}>{folderLabel}</p>
-				<p {...stylex.props(styles.paneSummaryTitle)}>{primaryLabel}</p>
-			</div>
-		</button>
+			>
+				<span {...stylex.props(styles.paneSummaryIcon)}>
+					{isChat ? (
+						getAgentIcon(pane.agentKind, 12, "opacity-60")
+					) : (
+						<IconTerminal size={12} className="opacity-60" />
+					)}
+				</span>
+				<div {...stylex.props(styles.paneSummaryText)}>
+					<p {...stylex.props(styles.paneSummaryFolder)}>{folderLabel}</p>
+					<p {...stylex.props(styles.paneSummaryTitle)}>{primaryLabel}</p>
+				</div>
+			</button>
+			{(hovered || isActive) && (
+				<button
+					type="button"
+					onClick={stopPropagationAndCall.bind(null, onDelete)}
+					{...stylex.props(styles.paneSummaryDelete)}
+					title="Delete chat"
+				>
+					<IconX size={10} />
+				</button>
+			)}
+		</div>
 	);
 }
 
@@ -202,6 +222,7 @@ function WorkspaceItem({
 	onSelectPane,
 	onExpandSidebar,
 	onDelete,
+	onDeletePane,
 	onRename,
 }: {
 	group: {
@@ -218,6 +239,7 @@ function WorkspaceItem({
 	onSelectPane: (paneId: string) => void;
 	onExpandSidebar: () => void;
 	onDelete: () => void;
+	onDeletePane: (paneId: string) => void;
 	onRename: (name: string) => void;
 }) {
 	const [expanded, setExpanded] = useState(true);
@@ -287,14 +309,14 @@ function WorkspaceItem({
 						{group.panes.length}
 					</span>
 				)}
-				{canDelete && hovered && (
+				{canDelete && (hovered || isActive) && (
 					<button
 						type="button"
 						onClick={stopPropagationAndCall.bind(null, onDelete)}
 						{...stylex.props(styles.collapsedWorkspaceDelete)}
 						title="Delete workspace"
 					>
-						<IconX size={7} />
+						<IconX size={9} />
 					</button>
 				)}
 			</div>
@@ -353,14 +375,14 @@ function WorkspaceItem({
 					size={10}
 					className={`shrink-0 transition-transform duration-150 ${expanded ? "rotate-90" : ""}`}
 				/>
-				{canDelete && hovered && !editing && (
+				{canDelete && (hovered || isActive) && !editing && (
 					<button
 						type="button"
 						onClick={stopPropagationAndCall.bind(null, onDelete)}
 						{...stylex.props(styles.workspaceDelete)}
 						title="Delete workspace"
 					>
-						<IconX size={9} />
+						<IconX size={10} />
 					</button>
 				)}
 			</div>
@@ -373,6 +395,7 @@ function WorkspaceItem({
 							pane={pane}
 							isActive={isActive && pane.id === selectedPaneId}
 							onClick={onSelectPane.bind(null, pane.id)}
+							onDelete={onDeletePane.bind(null, pane.id)}
 						/>
 					))}
 				</div>
@@ -575,6 +598,32 @@ export function Sidebar() {
 			...state,
 			groups: filtered,
 			selectedGroupId: newSelected,
+		});
+		window.dispatchEvent(new Event("terminal-shell-change"));
+	}, []);
+
+	const removeWorkspacePane = useCallback((groupId: string, paneId: string) => {
+		const state = loadTerminalState();
+		if (!state) return;
+		wsClient.send({ type: "terminal:destroy", paneId });
+		saveTerminalState({
+			...state,
+			groups: state.groups.map((group) => {
+				if (group.id !== groupId) return group;
+				const panes = group.panes.filter(lacksId.bind(null, paneId));
+				if (panes.length === 0) {
+					const pane = createPendingAgentChatPane();
+					return { ...group, panes: [pane], selectedPaneId: pane.id };
+				}
+				return {
+					...group,
+					panes,
+					selectedPaneId:
+						group.selectedPaneId === paneId
+							? (panes[0]?.id ?? null)
+							: group.selectedPaneId,
+				};
+			}),
 		});
 		window.dispatchEvent(new Event("terminal-shell-change"));
 	}, []);
@@ -1067,6 +1116,7 @@ export function Sidebar() {
 								onSelectPane={(paneId) => selectPane(group.id, paneId)}
 								onExpandSidebar={noop}
 								onDelete={() => removeWorkspace(group.id)}
+								onDeletePane={(paneId) => removeWorkspacePane(group.id, paneId)}
 								onRename={(name) => renameWorkspace(group.id, name)}
 							/>
 						))}
@@ -1119,6 +1169,9 @@ function SidebarAccountAvatar({ account }: { account: ForgeAccount | null }) {
 }
 
 const styles = stylex.create({
+	paneSummaryWrap: {
+		position: "relative",
+	},
 	paneSummary: {
 		alignItems: "flex-start",
 		borderWidth: 1,
@@ -1130,6 +1183,7 @@ const styles = stylex.create({
 		marginBottom: "0.125rem",
 		paddingBlock: "0.375rem",
 		paddingInline: controlSize._2,
+		paddingRight: controlSize._7,
 		textAlign: "left",
 		transitionDuration: "150ms",
 		transitionProperty:
@@ -1192,6 +1246,35 @@ const styles = stylex.create({
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
+	},
+	paneSummaryDelete: {
+		alignItems: "center",
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlHover,
+		},
+		backgroundImage: {
+			default: "none",
+			":hover": effect.controlDepth,
+		},
+		borderRadius: 6,
+		boxShadow: {
+			default: "none",
+			":hover": shadow.controlDepth,
+		},
+		color: {
+			default: color.textMuted,
+			":hover": color.textSoft,
+		},
+		display: "flex",
+		height: controlSize._5,
+		justifyContent: "center",
+		position: "absolute",
+		right: controlSize._1,
+		top: controlSize._1,
+		transitionDuration: "150ms",
+		transitionProperty: "background-color, background-image, box-shadow, color",
+		width: controlSize._5,
 	},
 	collapsedWorkspace: {
 		alignItems: "center",
@@ -1259,20 +1342,35 @@ const styles = stylex.create({
 	},
 	collapsedWorkspaceDelete: {
 		alignItems: "center",
-		backgroundColor: color.accentWash,
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlHover,
+		},
+		backgroundImage: {
+			default: "none",
+			":hover": effect.controlDepth,
+		},
 		borderColor: color.border,
 		borderRadius: 999,
 		borderStyle: "solid",
 		borderWidth: 1,
-		color: color.textSoft,
+		boxShadow: {
+			default: "none",
+			":hover": shadow.controlDepth,
+		},
+		color: {
+			default: color.textMuted,
+			":hover": color.textSoft,
+		},
 		display: "flex",
-		height: 14,
+		height: 18,
 		justifyContent: "center",
 		position: "absolute",
 		right: -4,
 		top: -4,
 		transitionDuration: "150ms",
-		width: 14,
+		transitionProperty: "background-color, background-image, box-shadow, color",
+		width: 18,
 	},
 	workspaceWrap: {
 		marginBottom: controlSize._1,
@@ -1364,10 +1462,27 @@ const styles = stylex.create({
 	},
 	workspaceDelete: {
 		borderRadius: 4,
-		color: color.textSoft,
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlHover,
+		},
+		backgroundImage: {
+			default: "none",
+			":hover": effect.controlDepth,
+		},
+		boxShadow: {
+			default: "none",
+			":hover": shadow.controlDepth,
+		},
+		color: {
+			default: color.textMuted,
+			":hover": color.textSoft,
+		},
 		flexShrink: 0,
 		marginLeft: controlSize._1,
-		padding: "0.125rem",
+		padding: controlSize._0_5,
+		transitionDuration: "150ms",
+		transitionProperty: "background-color, background-image, box-shadow, color",
 	},
 	workspacePaneList: {
 		display: "flex",

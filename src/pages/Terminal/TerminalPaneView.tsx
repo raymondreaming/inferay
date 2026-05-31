@@ -99,6 +99,7 @@ export const TerminalPaneView = memo(function TerminalPaneView({
 }: TerminalPaneViewProps) {
 	const chatHandleRef = useRef<AgentChatHandle | null>(null);
 	const [selectedTerminalText, setSelectedTerminalText] = useState("");
+	const [isPaneHovered, setIsPaneHovered] = useState(false);
 	const isSimulatorPane = pane.utilityPane === "simulator";
 	const viewAgentKind: AgentKind =
 		pane.pendingCwd && !isChatAgentKind(pane.agentKind)
@@ -156,6 +157,9 @@ export const TerminalPaneView = memo(function TerminalPaneView({
 		}
 		window.setTimeout(focusInput, 0);
 	}, [isAgentChatPane]);
+	useEffect(() => {
+		if (isSelected && isAgentChatPane) focusChatInput();
+	}, [focusChatInput, isAgentChatPane, isSelected]);
 	const handlePaneClick = useCallback(
 		(event: React.MouseEvent<HTMLDivElement>) => {
 			onSelect(pane.id);
@@ -165,10 +169,13 @@ export const TerminalPaneView = memo(function TerminalPaneView({
 		},
 		[focusChatInput, isAgentChatPane, onSelect, pane.id]
 	);
+	const chatCloseButtonProps = stylex.props(styles.chatCloseButton);
 
 	return (
 		<div
 			onClick={handlePaneClick}
+			onMouseEnter={setIsPaneHovered.bind(null, true)}
+			onMouseLeave={setIsPaneHovered.bind(null, false)}
 			onKeyDown={
 				isAgentChatPane
 					? undefined
@@ -191,6 +198,21 @@ export const TerminalPaneView = memo(function TerminalPaneView({
 						isHighlighted ? styles.focusGlowPreview : styles.focusGlowActive
 					)}
 				/>
+			)}
+			{isAgentChatPane && (isSelected || isPaneHovered) && (
+				<IconButton
+					type="button"
+					onClick={stopPropagationAndCall.bind(
+						null,
+						onClose.bind(null, pane.id)
+					)}
+					className={`electrobun-webkit-app-region-no-drag ${chatCloseButtonProps.className ?? ""}`}
+					variant="ghost"
+					size="sm"
+					title="Close chat"
+				>
+					<IconX size={10} />
+				</IconButton>
 			)}
 			{!isAgentChatPane && (
 				<div
@@ -423,6 +445,12 @@ const styles = stylex.create({
 		height: "0.375rem",
 		borderRadius: "999px",
 		backgroundColor: "var(--color-inferay-accent)",
+	},
+	chatCloseButton: {
+		position: "absolute",
+		right: "0.5rem",
+		top: "0.5rem",
+		zIndex: 12,
 	},
 	termContainer: {
 		minHeight: 0,
