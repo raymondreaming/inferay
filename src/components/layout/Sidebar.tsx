@@ -1,5 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import {
+	type DragEvent as ReactDragEvent,
 	type MouseEvent as ReactMouseEvent,
 	useCallback,
 	useEffect,
@@ -160,13 +161,25 @@ function deriveSummary(paneId: string): string | null {
 function PaneSummaryItem({
 	pane,
 	isActive,
+	isDragging,
+	isDragTarget,
 	onClick,
 	onDelete,
+	onDragStart,
+	onDragOver,
+	onDrop,
+	onDragEnd,
 }: {
 	pane: TerminalPaneModel;
 	isActive: boolean;
+	isDragging?: boolean;
+	isDragTarget?: boolean;
 	onClick: () => void;
 	onDelete: () => void;
+	onDragStart?: (event: ReactDragEvent<HTMLDivElement>) => void;
+	onDragOver?: (event: ReactDragEvent<HTMLDivElement>) => void;
+	onDrop?: (event: ReactDragEvent<HTMLDivElement>) => void;
+	onDragEnd?: () => void;
 }) {
 	const [hovered, setHovered] = useState(false);
 	const isChat = isChatAgentKind(pane.agentKind);
@@ -176,7 +189,15 @@ function PaneSummaryItem({
 
 	return (
 		<div
-			{...stylex.props(styles.paneSummaryWrap)}
+			{...stylex.props(
+				styles.paneSummaryWrap,
+				isDragging && styles.paneSummaryWrapDragging
+			)}
+			draggable={!!onDragStart}
+			onDragStart={onDragStart}
+			onDragOver={onDragOver}
+			onDrop={onDrop}
+			onDragEnd={onDragEnd}
 			onMouseEnter={setHovered.bind(null, true)}
 			onMouseLeave={setHovered.bind(null, false)}
 		>
@@ -186,7 +207,8 @@ function PaneSummaryItem({
 				{...stylex.props(
 					styles.paneSummary,
 					styles.paneSummaryIdle,
-					isActive && styles.paneSummarySelected
+					isActive && styles.paneSummarySelected,
+					isDragTarget && styles.paneSummaryDropTarget
 				)}
 			>
 				<span {...stylex.props(styles.paneSummaryIcon)}>
@@ -227,6 +249,7 @@ function WorkspaceItem({
 	onDelete,
 	onDeletePane,
 	onRename,
+	onReorderPane,
 }: {
 	group: {
 		id: string;
@@ -244,12 +267,16 @@ function WorkspaceItem({
 	onDelete: () => void;
 	onDeletePane: (paneId: string) => void;
 	onRename: (name: string) => void;
+	onReorderPane: (sourcePaneId: string, targetPaneId: string) => void;
 }) {
 	const [expanded, setExpanded] = useState(true);
 	const [editing, setEditing] = useState(false);
 	const [editValue, setEditValue] = useState(group.name);
 	const [hovered, setHovered] = useState(false);
+	const [draggedPaneId, setDraggedPaneId] = useState<string | null>(null);
+	const [dragOverPaneId, setDragOverPaneId] = useState<string | null>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
+	const draggedPaneIdRef = useRef<string | null>(null);
 
 	// Auto-expand when workspace becomes active
 	useEffect(() => {
@@ -286,6 +313,48 @@ function WorkspaceItem({
 		onSelect();
 		onExpandSidebar();
 	};
+
+	const clearPaneDrag = useCallback(() => {
+		draggedPaneIdRef.current = null;
+		setDraggedPaneId(null);
+		setDragOverPaneId(null);
+	}, []);
+
+	const handlePaneDragStart = useCallback(
+		(paneId: string, event: ReactDragEvent<HTMLDivElement>) => {
+			event.dataTransfer.effectAllowed = "move";
+			event.dataTransfer.setData("text/plain", paneId);
+			draggedPaneIdRef.current = paneId;
+			setDraggedPaneId(paneId);
+		},
+		[]
+	);
+
+	const handlePaneDragOver = useCallback(
+		(paneId: string, event: ReactDragEvent<HTMLDivElement>) => {
+			const sourcePaneId = draggedPaneIdRef.current ?? draggedPaneId;
+			if (!sourcePaneId || sourcePaneId === paneId) return;
+			event.preventDefault();
+			event.dataTransfer.dropEffect = "move";
+			setDragOverPaneId(paneId);
+		},
+		[draggedPaneId]
+	);
+
+	const handlePaneDrop = useCallback(
+		(paneId: string, event: ReactDragEvent<HTMLDivElement>) => {
+			event.preventDefault();
+			const sourcePaneId =
+				draggedPaneIdRef.current ||
+				draggedPaneId ||
+				event.dataTransfer.getData("text/plain");
+			if (sourcePaneId && sourcePaneId !== paneId) {
+				onReorderPane(sourcePaneId, paneId);
+			}
+			clearPaneDrag();
+		},
+		[clearPaneDrag, draggedPaneId, onReorderPane]
+	);
 
 	if (collapsed) {
 		return (
@@ -397,8 +466,16 @@ function WorkspaceItem({
 							key={pane.id}
 							pane={pane}
 							isActive={isActive && pane.id === selectedPaneId}
+							isDragging={draggedPaneId === pane.id}
+							isDragTarget={
+								dragOverPaneId === pane.id && draggedPaneId !== pane.id
+							}
 							onClick={onSelectPane.bind(null, pane.id)}
 							onDelete={onDeletePane.bind(null, pane.id)}
+							onDragStart={handlePaneDragStart.bind(null, pane.id)}
+							onDragOver={handlePaneDragOver.bind(null, pane.id)}
+							onDrop={handlePaneDrop.bind(null, pane.id)}
+							onDragEnd={clearPaneDrag}
 						/>
 					))}
 				</div>
@@ -651,6 +728,27 @@ export function Sidebar() {
 		});
 		window.dispatchEvent(new Event("terminal-shell-change"));
 	}, []);
+
+	const reorderWorkspacePane = useCallback(
+		(groupId: string, sourcePaneId: string, targetPaneId: string) => {
+			const state = loadTerminalState();
+			if (!state) return;
+			const groups = state.groups.map((group) => {
+				if (group.id !== groupId) return group;
+				const fromIndex = group.panes.findIndex(hasId.bind(null, sourcePaneId));
+				const toIndex = group.panes.findIndex(hasId.bind(null, targetPaneId));
+				if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return group;
+				const panes = [...group.panes];
+				const [moved] = panes.splice(fromIndex, 1);
+				if (moved) panes.splice(toIndex, 0, moved);
+				return { ...group, panes };
+			});
+			saveTerminalState({ ...state, groups });
+			setWorkspaces(loadWorkspaces);
+			window.dispatchEvent(new Event("terminal-shell-change"));
+		},
+		[loadWorkspaces]
+	);
 
 	const handleResizeStart = useCallback(
 		(event: ReactMouseEvent<HTMLDivElement>) => {
@@ -1138,6 +1236,9 @@ export function Sidebar() {
 								onDelete={() => removeWorkspace(group.id)}
 								onDeletePane={(paneId) => removeWorkspacePane(group.id, paneId)}
 								onRename={(name) => renameWorkspace(group.id, name)}
+								onReorderPane={(sourcePaneId, targetPaneId) =>
+									reorderWorkspacePane(group.id, sourcePaneId, targetPaneId)
+								}
 							/>
 						))}
 					</div>
@@ -1212,7 +1313,12 @@ function SidebarAccountAvatar({ account }: { account: ForgeAccount | null }) {
 
 const styles = stylex.create({
 	paneSummaryWrap: {
+		cursor: "grab",
 		position: "relative",
+	},
+	paneSummaryWrapDragging: {
+		cursor: "grabbing",
+		opacity: 0.45,
 	},
 	paneSummary: {
 		alignItems: "flex-start",
@@ -1258,6 +1364,13 @@ const styles = stylex.create({
 	paneSummarySelected: {
 		backgroundColor: color.controlActive,
 		backgroundImage: effect.controlDepthHover,
+		borderColor: color.accentBorder,
+		boxShadow: shadow.selectedRing,
+		color: color.textMain,
+	},
+	paneSummaryDropTarget: {
+		backgroundColor: color.controlHover,
+		backgroundImage: effect.controlDepth,
 		borderColor: color.accentBorder,
 		boxShadow: shadow.selectedRing,
 		color: color.textMain,
