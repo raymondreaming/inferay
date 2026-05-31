@@ -55,6 +55,7 @@ export type ChatVirtualizerControls = {
 	getDistanceFromEnd: () => number;
 };
 
+const APP_REGION_DRAG_CLASS = "electrobun-webkit-app-region-drag";
 const APP_REGION_NO_DRAG_CLASS = "electrobun-webkit-app-region-no-drag";
 const CHAT_SELECTABLE_NO_DRAG_CLASS = `${APP_REGION_NO_DRAG_CLASS} inferay-chat-selectable-region`;
 
@@ -62,6 +63,18 @@ function selectableNoDragClassName(className?: string) {
 	return className
 		? `${CHAT_SELECTABLE_NO_DRAG_CLASS} ${className}`
 		: CHAT_SELECTABLE_NO_DRAG_CLASS;
+}
+
+function dragClassName(className?: string) {
+	return className
+		? `${APP_REGION_DRAG_CLASS} ${className}`
+		: APP_REGION_DRAG_CLASS;
+}
+
+function noDragClassName(className?: string) {
+	return className
+		? `${APP_REGION_NO_DRAG_CLASS} ${className}`
+		: APP_REGION_NO_DRAG_CLASS;
 }
 
 type ChatRenderRow =
@@ -516,12 +529,26 @@ const Bubble = React.memo(function Bubble({
 	}
 
 	const assistantMessageProps = stylex.props(styles.assistantMessage);
+	const artifactButtonProps = stylex.props(
+		styles.copyMessageButton,
+		savedArtifact && styles.artifactSavedButton
+	);
+	const copyButtonProps = stylex.props(
+		styles.copyMessageButton,
+		copied && styles.copyMessageButtonCopied
+	);
+	const messageActionDropdownProps = stylex.props(styles.messageActionDropdown);
 	return (
 		<div
 			{...assistantMessageProps}
-			className={selectableNoDragClassName(assistantMessageProps.className)}
+			className={dragClassName(assistantMessageProps.className)}
 		>
-			<Markdown text={msg.content} onMdFileClick={onMdFileClick} />
+			<div
+				className={CHAT_SELECTABLE_NO_DRAG_CLASS}
+				style={{ display: "inline-block", maxWidth: "100%" }}
+			>
+				<Markdown text={msg.content} onMdFileClick={onMdFileClick} />
+			</div>
 			{!msg.isStreaming && msg.content.trim() ? (
 				<div {...stylex.props(styles.messageActionRow)}>
 					<button
@@ -533,10 +560,8 @@ const Bubble = React.memo(function Bubble({
 						aria-label={
 							savedArtifact ? "Saved as artifact" : "Save message as artifact"
 						}
-						{...stylex.props(
-							styles.copyMessageButton,
-							savedArtifact && styles.artifactSavedButton
-						)}
+						{...artifactButtonProps}
+						className={noDragClassName(artifactButtonProps.className)}
 					>
 						{savedArtifact ? (
 							<IconCheck
@@ -569,9 +594,9 @@ const Bubble = React.memo(function Bubble({
 								}
 								minWidth={210}
 								menuPlacement="top"
-								buttonClassName={
-									stylex.props(styles.messageActionDropdown).className
-								}
+								buttonClassName={noDragClassName(
+									messageActionDropdownProps.className
+								)}
 								labelClassName={
 									stylex.props(styles.messageActionLabel).className
 								}
@@ -605,10 +630,8 @@ const Bubble = React.memo(function Bubble({
 						onClick={handleCopyMessage}
 						title={copied ? "Copied" : "Copy message"}
 						aria-label={copied ? "Copied message" : "Copy message"}
-						{...stylex.props(
-							styles.copyMessageButton,
-							copied && styles.copyMessageButtonCopied
-						)}
+						{...copyButtonProps}
+						className={noDragClassName(copyButtonProps.className)}
 					>
 						{copied ? (
 							<IconCheck
@@ -704,9 +727,12 @@ export function ChatMessageList({
 	}, [renderRows.length, virtualizer]);
 
 	const virtualItems = virtualizer.getVirtualItems();
+	const messageListProps = stylex.props(styles.messageList);
+	const virtualRowProps = stylex.props(styles.virtualRow);
 	return (
 		<div
-			{...stylex.props(styles.messageList)}
+			{...messageListProps}
+			className={dragClassName(messageListProps.className)}
 			style={{ height: virtualizer.getTotalSize() }}
 		>
 			{virtualItems.map((virtualItem) => {
@@ -718,7 +744,8 @@ export function ChatMessageList({
 							key={virtualItem.key}
 							ref={virtualizer.measureElement}
 							data-index={virtualItem.index}
-							{...stylex.props(styles.virtualRow)}
+							{...virtualRowProps}
+							className={dragClassName(virtualRowProps.className)}
 							style={{ transform: `translateY(${virtualItem.start}px)` }}
 						>
 							<ThinkingIndicator startTime={item.startTime} />
@@ -731,7 +758,8 @@ export function ChatMessageList({
 							key={virtualItem.key}
 							ref={virtualizer.measureElement}
 							data-index={virtualItem.index}
-							{...stylex.props(styles.virtualRow)}
+							{...virtualRowProps}
+							className={dragClassName(virtualRowProps.className)}
 							style={{ transform: `translateY(${virtualItem.start}px)` }}
 						>
 							<div className={CHAT_SELECTABLE_NO_DRAG_CLASS}>
@@ -746,7 +774,8 @@ export function ChatMessageList({
 						key={virtualItem.key}
 						ref={virtualizer.measureElement}
 						data-index={virtualItem.index}
-						{...stylex.props(styles.virtualRow)}
+						{...virtualRowProps}
+						className={dragClassName(virtualRowProps.className)}
 						style={{ transform: `translateY(${virtualItem.start}px)` }}
 					>
 						<Bubble
@@ -1039,7 +1068,7 @@ const styles = stylex.create({
 		borderRadius: radius.sm,
 		borderWidth: 0,
 		boxShadow: "none",
-		color: color.textMain,
+		color: color.textMuted,
 		fontSize: font.size_2,
 		fontWeight: font.weight_5,
 		gap: controlSize._1,
@@ -1104,7 +1133,7 @@ const styles = stylex.create({
 		alignItems: "center",
 		backgroundColor: color.transparent,
 		borderRadius: radius.sm,
-		color: color.textMain,
+		color: color.textMuted,
 		display: "inline-flex",
 		fontSize: font.size_2,
 		fontWeight: font.weight_5,

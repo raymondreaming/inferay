@@ -610,6 +610,22 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 			},
 			[]
 		);
+		const scrollChatByArrow = useCallback((direction: 1 | -1) => {
+			const el = scrollRef.current;
+			if (!el) return;
+			autoFollowRef.current = false;
+			programmaticScrollRef.current = true;
+			const amount = Math.max(56, Math.round(el.clientHeight * 0.18));
+			el.scrollBy({ top: direction * amount, behavior: "auto" });
+			requestAnimationFrame(() => {
+				const atBottom =
+					chatVirtualizerRef.current?.isAtEnd() ??
+					el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+				setIsAtBottom(atBottom);
+				autoFollowRef.current = atBottom;
+				programmaticScrollRef.current = false;
+			});
+		}, []);
 		const handleVirtualizerReady = useCallback(
 			(controls: ChatVirtualizerControls | null) => {
 				chatVirtualizerRef.current = controls;
@@ -1663,6 +1679,16 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 				if (e.key === "Enter" && !e.shiftKey) {
 					e.preventDefault();
 					sendMessage();
+				} else if (
+					(e.key === "ArrowDown" || e.key === "ArrowUp") &&
+					input.trim().length === 0 &&
+					!e.altKey &&
+					!e.ctrlKey &&
+					!e.metaKey &&
+					!e.shiftKey
+				) {
+					e.preventDefault();
+					scrollChatByArrow(e.key === "ArrowDown" ? 1 : -1);
 				} else if (composerOnly && e.key === "Escape") {
 					e.preventDefault();
 					onExitComposerOnly?.();
@@ -1671,6 +1697,8 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 			[
 				composerOnly,
 				sendMessage,
+				input,
+				scrollChatByArrow,
 				onExitComposerOnly,
 				showCommands,
 				filteredCommands,
@@ -1764,6 +1792,8 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 			styles.root,
 			composerOnly && styles.composerOnlyRoot
 		);
+		const messageRegionProps = stylex.props(styles.messageRegion);
+		const scrollAreaProps = stylex.props(styles.scrollArea);
 		const composerRegionProps = stylex.props(styles.composerRegion);
 		const directoryPickerInnerProps = stylex.props(styles.directoryPickerInner);
 		const scrollButtonProps = stylex.props(styles.scrollButton);
@@ -1792,10 +1822,14 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 				onDrop={handleDrop}
 			>
 				{!composerOnly && (
-					<div {...stylex.props(styles.messageRegion)}>
+					<div
+						{...messageRegionProps}
+						className={`${APP_REGION_DRAG_CLASS} ${messageRegionProps.className ?? ""}`}
+					>
 						<div
 							ref={scrollRef}
-							{...stylex.props(styles.scrollArea)}
+							{...scrollAreaProps}
+							className={`${APP_REGION_DRAG_CLASS} ${scrollAreaProps.className ?? ""}`}
 							onScroll={handleScroll}
 						>
 							{messages.length === 0 &&
@@ -1860,7 +1894,7 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 
 				<div
 					{...composerRegionProps}
-					className={`${APP_REGION_NO_DRAG_CLASS} ${composerRegionProps.className ?? ""}`}
+					className={`${APP_REGION_DRAG_CLASS} ${composerRegionProps.className ?? ""}`}
 				>
 					{!composerOnly && (
 						<>

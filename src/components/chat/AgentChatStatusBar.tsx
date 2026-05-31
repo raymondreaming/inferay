@@ -1,5 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ChatMessage } from "../../features/chat/agent-chat-shared.ts";
 import {
 	color,
@@ -26,6 +27,8 @@ import {
 	normalizeToolName,
 	type ToolActivity,
 } from "./chat-agent-utils.ts";
+
+const APP_REGION_NO_DRAG_CLASS = "electrobun-webkit-app-region-no-drag";
 
 interface AgentChatStatusBarProps {
 	messages: ChatMessage[];
@@ -67,6 +70,16 @@ export const AgentChatStatusBar = React.memo(function AgentChatStatusBar({
 	onStop,
 }: AgentChatStatusBarProps) {
 	const [isHovered, setIsHovered] = useState(false);
+	const [isPopoverHovered, setIsPopoverHovered] = useState(false);
+	const activityButtonRef = useRef<HTMLButtonElement>(null);
+	const [popoverPosition, setPopoverPosition] = useState({
+		bottom: 0,
+		left: 0,
+		maxHeight: 260,
+		placement: "top" as "top" | "bottom",
+		top: 0,
+		width: 260,
+	});
 	const [statusActivities, setStatusActivities] = useState<
 		Array<{
 			id: string;
@@ -116,6 +129,44 @@ export const AgentChatStatusBar = React.memo(function AgentChatStatusBar({
 		statusToolName ??
 		(status === "responding" ? "Responding" : "Working...");
 	const activityCount = activityItems.length;
+	const showActivityPopover =
+		(isHovered || isPopoverHovered) && activityCount > 0;
+
+	useEffect(() => {
+		if (!showActivityPopover) return;
+		const updatePosition = () => {
+			const rect = activityButtonRef.current?.getBoundingClientRect();
+			if (!rect) return;
+			const width = 260;
+			const gap = 6;
+			const spaceAbove = rect.top - gap;
+			const spaceBelow = window.innerHeight - rect.bottom - gap;
+			const placeAbove = spaceAbove >= 160 || spaceAbove >= spaceBelow;
+			const maxHeight = Math.max(
+				120,
+				Math.min(260, (placeAbove ? spaceAbove : spaceBelow) - 8)
+			);
+			setPopoverPosition({
+				bottom: placeAbove ? window.innerHeight - rect.top + gap : 0,
+				left: Math.min(
+					Math.max(8, rect.left),
+					Math.max(8, window.innerWidth - width - 8)
+				),
+				maxHeight,
+				placement: placeAbove ? "top" : "bottom",
+				top: placeAbove ? 0 : rect.bottom + gap,
+				width,
+			});
+		};
+		updatePosition();
+		window.addEventListener("resize", updatePosition);
+		window.addEventListener("scroll", updatePosition, true);
+		return () => {
+			window.removeEventListener("resize", updatePosition);
+			window.removeEventListener("scroll", updatePosition, true);
+		};
+	}, [showActivityPopover]);
+	const activityPopoverProps = stylex.props(styles.activityPopover);
 
 	return (
 		<div {...stylex.props(styles.root)}>
@@ -126,9 +177,11 @@ export const AgentChatStatusBar = React.memo(function AgentChatStatusBar({
 					onMouseLeave={() => setIsHovered(false)}
 				>
 					<button
+						ref={activityButtonRef}
 						type="button"
 						onClick={onStop}
 						{...stylex.props(styles.activityStopButton)}
+						className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.activityStopButton).className ?? ""}`}
 					>
 						{displayToolName && (
 							<span {...stylex.props(styles.activityIcon)}>
@@ -147,40 +200,6 @@ export const AgentChatStatusBar = React.memo(function AgentChatStatusBar({
 						<IconStop size={12} {...stylex.props(styles.toolIcon)} />
 						<span {...stylex.props(styles.stopLabel)}>Stop</span>
 					</button>
-
-					{isHovered && activityCount > 0 && (
-						<div {...stylex.props(styles.activityPopover)}>
-							<div {...stylex.props(styles.popoverHeader)}>
-								<span>Activity</span>
-								<span {...stylex.props(styles.tabularText)}>
-									{activityCount}
-								</span>
-							</div>
-							<div {...stylex.props(styles.popoverList)}>
-								{activityItems.map((activity, idx) => (
-									<div
-										key={activity.id}
-										{...stylex.props(
-											styles.popoverRow,
-											idx < activityItems.length - 1
-												? styles.popoverRowBorder
-												: null
-										)}
-									>
-										<span {...stylex.props(styles.activityIcon)}>
-											<ToolStatusIcon toolName={activity.toolName} />
-										</span>
-										<span {...stylex.props(styles.popoverSummary)}>
-											{activity.summary}
-										</span>
-										{activity.isStreaming && (
-											<span {...stylex.props(styles.liveDot)} />
-										)}
-									</div>
-								))}
-							</div>
-						</div>
-					)}
 				</div>
 			) : (
 				<div {...stylex.props(styles.idleStatus)}>
@@ -188,6 +207,57 @@ export const AgentChatStatusBar = React.memo(function AgentChatStatusBar({
 					<span {...stylex.props(styles.idleText)}>Working...</span>
 				</div>
 			)}
+			{showActivityPopover &&
+				createPortal(
+					<div
+						{...activityPopoverProps}
+						className={`${APP_REGION_NO_DRAG_CLASS} ${activityPopoverProps.className ?? ""}`}
+						onMouseEnter={() => setIsPopoverHovered(true)}
+						onMouseLeave={() => setIsPopoverHovered(false)}
+						style={{
+							bottom:
+								popoverPosition.placement === "top"
+									? popoverPosition.bottom
+									: undefined,
+							left: popoverPosition.left,
+							maxHeight: popoverPosition.maxHeight,
+							top:
+								popoverPosition.placement === "bottom"
+									? popoverPosition.top
+									: undefined,
+							width: popoverPosition.width,
+						}}
+					>
+						<div {...stylex.props(styles.popoverHeader)}>
+							<span>Activity</span>
+							<span {...stylex.props(styles.tabularText)}>{activityCount}</span>
+						</div>
+						<div {...stylex.props(styles.popoverList)}>
+							{activityItems.map((activity, idx) => (
+								<div
+									key={activity.id}
+									{...stylex.props(
+										styles.popoverRow,
+										idx < activityItems.length - 1
+											? styles.popoverRowBorder
+											: null
+									)}
+								>
+									<span {...stylex.props(styles.activityIcon)}>
+										<ToolStatusIcon toolName={activity.toolName} />
+									</span>
+									<span {...stylex.props(styles.popoverSummary)}>
+										{activity.summary}
+									</span>
+									{activity.isStreaming && (
+										<span {...stylex.props(styles.liveDot)} />
+									)}
+								</div>
+							))}
+						</div>
+					</div>,
+					document.body
+				)}
 		</div>
 	);
 });
@@ -220,10 +290,10 @@ const styles = stylex.create({
 			default: effect.controlDepth,
 			":hover": effect.controlDepthHover,
 		},
-		borderColor: color.border,
+		borderColor: color.borderSubtle,
 		borderRadius: radius.md,
 		borderStyle: "solid",
-		borderWidth: 1,
+		borderWidth: 0.5,
 		color: color.textSoft,
 		cursor: "pointer",
 		display: "flex",
@@ -279,15 +349,15 @@ const styles = stylex.create({
 		borderRadius: radius.lg,
 		borderStyle: "solid",
 		borderWidth: 1,
-		bottom: "100%",
 		boxShadow:
 			"inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 28px 58px -14px rgba(0, 0, 0, 0.82)",
-		left: 0,
-		marginBottom: controlSize._1,
+		display: "flex",
+		flexDirection: "column",
 		maxWidth: 320,
 		minWidth: 240,
 		overflow: "hidden",
-		position: "absolute",
+		position: "fixed",
+		zIndex: 240,
 	},
 	popoverHeader: {
 		alignItems: "center",
@@ -304,7 +374,6 @@ const styles = stylex.create({
 		textTransform: "uppercase",
 	},
 	popoverList: {
-		maxHeight: 320,
 		overflowY: "auto",
 		scrollbarWidth: "none",
 		"::-webkit-scrollbar": {

@@ -214,6 +214,32 @@ select,
 	user-select: none;
 }
 
+::selection {
+	background-color: color-mix(
+		in srgb,
+		var(--color-inferay-light-gray) 38%,
+		transparent
+	);
+	color: var(--color-inferay-white);
+}
+
+::-moz-selection {
+	background-color: color-mix(
+		in srgb,
+		var(--color-inferay-light-gray) 38%,
+		transparent
+	);
+	color: var(--color-inferay-white);
+}
+
+.electrobun-webkit-app-region-drag {
+	-webkit-app-region: drag;
+}
+
+.electrobun-webkit-app-region-no-drag {
+	-webkit-app-region: no-drag;
+}
+
 .inferay-chat-selectable-region,
 .inferay-chat-selectable-region * {
 	-webkit-user-select: text;
@@ -246,10 +272,13 @@ textarea::placeholder {
 }
 
 *:focus,
-*:focus-visible,
-*:focus-within {
+*:focus-visible {
 	outline: none;
 	box-shadow: none;
+}
+
+*:focus-within {
+	outline: none;
 }
 
 * {
