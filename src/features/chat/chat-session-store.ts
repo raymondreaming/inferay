@@ -80,6 +80,37 @@ function removePaneValue(prefix: string, paneId: string) {
 	removeStoredValue(storageKey(prefix, paneId));
 }
 
+function messageRole(value: unknown): string | null {
+	return typeof value === "object" &&
+		value !== null &&
+		typeof (value as { role?: unknown }).role === "string"
+		? (value as { role: string }).role
+		: null;
+}
+
+function messageContentLength(value: unknown): number {
+	return typeof value === "object" &&
+		value !== null &&
+		typeof (value as { content?: unknown }).content === "string"
+		? (value as { content: string }).content.length
+		: 0;
+}
+
+function messageHistoryScore(messages: unknown[]): number {
+	return messages.reduce<number>((score, message) => {
+		const role = messageRole(message);
+		if (!role) return score;
+		return score + 1 + messageContentLength(message);
+	}, 0);
+}
+
+function hasAssistantSideHistory(messages: unknown[]): boolean {
+	return messages.some((message) => {
+		const role = messageRole(message);
+		return role === "assistant" || role === "tool" || role === "system";
+	});
+}
+
 export function loadStoredMessages<T>(paneId: string): T[] {
 	const parsed = readPaneJson<unknown>(STORAGE_KEY_PREFIX, paneId, []);
 	return Array.isArray(parsed) ? (parsed as T[]) : [];
@@ -101,6 +132,14 @@ export function loadStoredChatPaneIds(): string[] {
 }
 
 export function saveStoredMessages<T>(paneId: string, messages: T[]) {
+	const current = loadStoredMessages<unknown>(paneId);
+	if (
+		hasAssistantSideHistory(current) &&
+		!hasAssistantSideHistory(messages) &&
+		messageHistoryScore(current) > messageHistoryScore(messages)
+	) {
+		return;
+	}
 	writePaneJson(STORAGE_KEY_PREFIX, paneId, messages);
 }
 
@@ -341,10 +380,15 @@ export function clearAgentChatMessages(paneId: string) {
 		STORAGE_KEY_PREFIX,
 		SESSION_KEY_PREFIX,
 		INPUT_KEY_PREFIX,
+		CHECKPOINT_KEY_PREFIX,
+		MODEL_KEY_PREFIX,
+		REASONING_KEY_PREFIX,
+		PENDING_SEND_KEY_PREFIX,
 		SUMMARY_KEY_PREFIX,
 		PENDING_WORKSPACE_KEY_PREFIX,
 		QUEUE_KEY_PREFIX,
 		LOADING_STATE_KEY_PREFIX,
+		COMPOSER_CONTEXT_KEY_PREFIX,
 		WORKTREE_INFO_KEY_PREFIX,
 	]) {
 		removePaneValue(prefix, paneId);

@@ -1,5 +1,5 @@
+import { flushPendingClientStorageSync } from "../../lib/client-storage-sync.ts";
 import { hasId, noop } from "../../lib/data.ts";
-
 import { sendJson } from "../../lib/fetch-json.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import {
@@ -8,12 +8,18 @@ import {
 	writeStoredJson,
 } from "../../lib/stored-json.ts";
 import {
+	dispatchTerminalShellChange,
+	TERMINAL_SHELL_CHANGE_EVENT,
+} from "../../lib/terminal-shell-events.ts";
+import { wsClient } from "../../lib/websocket.ts";
+import {
 	type AgentKind,
 	type ChatAgentKind,
 	getAgentDefinition,
 	isChatAgentKind,
 	loadDefaultChatSettings,
 } from "../agents/agents.ts";
+import { clearAgentChatMessages } from "../chat/chat-session-store.ts";
 
 export type { AgentKind } from "../agents/agents.ts";
 
@@ -65,7 +71,7 @@ export function listenTerminalLayoutMode(
 	setLayoutMode: (mode: TerminalLayoutMode) => void
 ): () => void {
 	return listenWindowEvent(
-		"terminal-shell-change",
+		TERMINAL_SHELL_CHANGE_EVENT,
 		syncTerminalLayoutMode.bind(null, setLayoutMode)
 	);
 }
@@ -260,6 +266,21 @@ export function saveTerminalState(state: TerminalSavedState): void {
 	sendJson("/api/terminal/state", state).catch(noop);
 }
 
+export function saveSyncedTerminalState(
+	state: TerminalSavedState,
+	reason?: string
+): void {
+	saveTerminalState(state);
+	flushPendingClientStorageSync();
+	dispatchTerminalShellChange({ source: "local", reason });
+}
+
+export function destroySyncedPane(paneId: string): void {
+	wsClient.send({ type: "terminal:destroy", paneId });
+	clearAgentChatMessages(paneId);
+	flushPendingClientStorageSync();
+}
+
 /**
  * Change a pane's agent kind directly via localStorage + event.
  * No prop-drilling needed — call from any component.
@@ -270,24 +291,26 @@ export function changePaneAgentKind(
 ): void {
 	const state = loadTerminalState();
 	if (!state) return;
-	saveTerminalState({
-		...state,
-		groups: state.groups.map((g) => ({
-			...g,
-			panes: g.panes.map((p) =>
-				p.id !== paneId
-					? p
-					: {
-							...p,
-							agentKind,
-							isClaude: agentKind === "claude",
-							paneType: agentKind,
-							title: getPaneTitle(agentKind, p.cwd),
-						}
-			),
-		})),
-	});
-	window.dispatchEvent(new Event("terminal-shell-change"));
+	saveSyncedTerminalState(
+		{
+			...state,
+			groups: state.groups.map((g) => ({
+				...g,
+				panes: g.panes.map((p) =>
+					p.id !== paneId
+						? p
+						: {
+								...p,
+								agentKind,
+								isClaude: agentKind === "claude",
+								paneType: agentKind,
+								title: getPaneTitle(agentKind, p.cwd),
+							}
+				),
+			})),
+		},
+		"pane-agent-kind"
+	);
 }
 
 export function getPaneTitle(pane: TerminalPaneModel): string;

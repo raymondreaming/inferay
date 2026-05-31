@@ -3,6 +3,7 @@ import {
 	TERMINAL_STATE_STORAGE_KEY,
 } from "./client-storage-keys.ts";
 import { noop } from "./data.ts";
+import { dispatchTerminalShellChange } from "./terminal-shell-events.ts";
 
 type StoredValue = string | null;
 
@@ -22,6 +23,7 @@ const TERMINAL_SYNC_KEYS = new Set([
 	"terminal-layout-mode",
 	"terminal-main-view",
 ]);
+const CHAT_MESSAGES_STORAGE_KEY_PREFIX = "inferay-chat-";
 export const CLIENT_STORAGE_CHANGED_EVENT = "inferay:client-storage-changed";
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 const localWriteTimes = new Map<string, number>();
@@ -59,6 +61,27 @@ function terminalStateScore(value: string | null): number {
 	}
 }
 
+function chatMessagesScore(value: string | null): number {
+	if (!value) return 0;
+	try {
+		const parsed = JSON.parse(value) as unknown;
+		if (!Array.isArray(parsed)) return 0;
+		return parsed.reduce((score, message) => {
+			if (
+				typeof message !== "object" ||
+				message === null ||
+				typeof (message as { role?: unknown }).role !== "string"
+			) {
+				return score;
+			}
+			const content = (message as { content?: unknown }).content;
+			return score + 1 + (typeof content === "string" ? content.length : 0);
+		}, 0);
+	} catch {
+		return 0;
+	}
+}
+
 function shouldApplyServerValue(
 	key: string,
 	serverValue: StoredValue
@@ -81,6 +104,11 @@ function shouldApplyServerValue(
 		localWriteValues.get(key) === localValue
 	) {
 		return false;
+	}
+	if (key.startsWith(CHAT_MESSAGES_STORAGE_KEY_PREFIX)) {
+		const serverScore = chatMessagesScore(serverValue);
+		const localScore = chatMessagesScore(localValue);
+		if (localScore > 0 && localScore > serverScore) return false;
 	}
 	if (serverValue === null) return localValue !== null;
 	if (localValue === null) return true;
@@ -148,6 +176,10 @@ function flushPendingSync(useBeacon = false) {
 		.catch(noop);
 }
 
+export function flushPendingClientStorageSync(useBeacon = false): void {
+	flushPendingSync(useBeacon);
+}
+
 export function syncStoredValue(key: string, value: StoredValue): void {
 	if (hydrating || !shouldSyncClientStorageKey(key)) return;
 	localWriteTimes.set(key, Date.now());
@@ -205,7 +237,7 @@ function applyServerEntries(entries: Record<string, StoredValue>): string[] {
 		hydrating = false;
 	}
 	if (changedKeys.some((key) => TERMINAL_SYNC_KEYS.has(key))) {
-		window.dispatchEvent(new Event("terminal-shell-change"));
+		dispatchTerminalShellChange({ source: "client-storage", changedKeys });
 	}
 	return changedKeys;
 }
