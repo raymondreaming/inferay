@@ -62,6 +62,7 @@ export type ChatVirtualizerControls = {
 
 const APP_REGION_DRAG_CLASS = "electrobun-webkit-app-region-drag";
 const APP_REGION_NO_DRAG_CLASS = "electrobun-webkit-app-region-no-drag";
+const CHAT_SCROLL_DISTANCE_KEY_PREFIX = "chat-scroll-distance:";
 
 function dragClassName(className?: string) {
 	return className
@@ -157,6 +158,28 @@ function getRowKey(row: ChatRenderRow | undefined, index: number) {
 		return `edit-group:${row.filePath}:${row.edits.map((edit) => edit.id).join(":")}`;
 	}
 	return row.message.id;
+}
+
+function loadScrollDistance(paneId: string): number | null {
+	try {
+		const stored = localStorage.getItem(
+			`${CHAT_SCROLL_DISTANCE_KEY_PREFIX}${paneId}`
+		);
+		if (stored === null) return null;
+		const value = Number(stored);
+		return Number.isFinite(value) && value >= 0 ? value : null;
+	} catch {
+		return null;
+	}
+}
+
+function saveScrollDistance(paneId: string, distance: number): void {
+	try {
+		localStorage.setItem(
+			`${CHAT_SCROLL_DISTANCE_KEY_PREFIX}${paneId}`,
+			String(Math.max(0, Math.round(distance)))
+		);
+	} catch {}
 }
 
 function dispatchPaneFocus(paneId: string | null) {
@@ -747,7 +770,8 @@ export const ChatMessageList = React.memo(function ChatMessageList({
 		paddingEnd: 32,
 		useFlushSync: false,
 	});
-	const didInitialScrollRef = useRef(false);
+	const didInitialRestoreRef = useRef(false);
+	const saveScrollFrameRef = useRef<number | null>(null);
 
 	useEffect(() => {
 		const refreshTargets = () =>
@@ -769,13 +793,53 @@ export const ChatMessageList = React.memo(function ChatMessageList({
 	}, [onVirtualizerReady, virtualizer]);
 
 	useLayoutEffect(() => {
-		if (didInitialScrollRef.current || renderRows.length === 0) return;
-		didInitialScrollRef.current = true;
-		const raf = requestAnimationFrame(() => {
-			virtualizer.scrollToEnd({ behavior: "auto" });
-		});
+		if (didInitialRestoreRef.current || renderRows.length === 0) return;
+		didInitialRestoreRef.current = true;
+		const savedDistance = loadScrollDistance(paneId);
+		let raf = 0;
+		let frame = 0;
+		const restore = () => {
+			const el = scrollElementRef.current;
+			if (el) {
+				if (savedDistance === null || savedDistance <= 80) {
+					virtualizer.scrollToEnd({ behavior: "auto" });
+				} else {
+					const offset = Math.max(
+						0,
+						virtualizer.getTotalSize() - el.clientHeight - savedDistance
+					);
+					virtualizer.scrollToOffset(offset, { behavior: "auto" });
+				}
+			}
+			frame += 1;
+			if (frame < 5) raf = requestAnimationFrame(restore);
+		};
+		raf = requestAnimationFrame(restore);
 		return () => cancelAnimationFrame(raf);
-	}, [renderRows.length, virtualizer]);
+	}, [paneId, renderRows.length, scrollElementRef, virtualizer]);
+
+	useEffect(() => {
+		const el = scrollElementRef.current;
+		if (!el) return;
+		const persist = () => {
+			saveScrollFrameRef.current = null;
+			saveScrollDistance(paneId, virtualizer.getDistanceFromEnd());
+		};
+		const handleScroll = () => {
+			if (saveScrollFrameRef.current !== null) {
+				cancelAnimationFrame(saveScrollFrameRef.current);
+			}
+			saveScrollFrameRef.current = requestAnimationFrame(persist);
+		};
+		el.addEventListener("scroll", handleScroll, { passive: true });
+		return () => {
+			el.removeEventListener("scroll", handleScroll);
+			if (saveScrollFrameRef.current !== null) {
+				cancelAnimationFrame(saveScrollFrameRef.current);
+				persist();
+			}
+		};
+	}, [paneId, scrollElementRef, virtualizer]);
 
 	const virtualItems = virtualizer.getVirtualItems();
 	const messageListProps = stylex.props(styles.messageList);
