@@ -789,7 +789,12 @@ export function Sidebar() {
 	const updateAvailable = updateInfo.available && !!updateInfo.url;
 	const openUpdate = useCallback(() => {
 		if (!updateInfo.url) return;
-		window.open(updateInfo.url, "_blank", "noopener,noreferrer");
+		const url = updateInfo.url;
+		postJson<{ ok?: boolean }>("/api/native/open-url", { url })
+			.then((response) => {
+				if (!response.ok) window.open(url, "_blank", "noopener,noreferrer");
+			})
+			.catch(() => window.open(url, "_blank", "noopener,noreferrer"));
 	}, [updateInfo.url]);
 	const selectedGroup =
 		workspaces.groups.find(hasId.bind(null, workspaces.selectedGroupId)) ??

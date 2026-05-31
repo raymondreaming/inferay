@@ -2,7 +2,7 @@ import { badRequest, tryRoute } from "../../lib/route-helpers.ts";
 import { resolveAllowedLocalPath } from "../security.ts";
 import { resolveNativeCoreBinary } from "../services/native-core.ts";
 import { computeNativeDiff } from "../services/native-diff.ts";
-import { openNativePath } from "../services/native-open.ts";
+import { openNativePath, openNativeUrl } from "../services/native-open.ts";
 
 export function nativeRoutes() {
 	return {
@@ -45,6 +45,18 @@ export function nativeRoutes() {
 					return Response.json({ error: "Access denied" }, { status: 403 });
 				}
 				const ok = await openNativePath(resolvedPath, Boolean(body.reveal));
+				return Response.json({ ok });
+			}),
+		},
+		"/api/native/open-url": {
+			POST: tryRoute(async (req) => {
+				const body = (await req.json()) as {
+					url?: string;
+				};
+				if (typeof body.url !== "string" || !body.url.trim()) {
+					return badRequest("Missing url");
+				}
+				const ok = await openNativeUrl(body.url);
 				return Response.json({ ok });
 			}),
 		},
