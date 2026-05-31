@@ -1,6 +1,6 @@
 {
 	"name": "inferay",
-	"version": "0.1.27",
+	"version": "0.1.28",
 	"description": "Install and launch Inferay, a macOS AI workspace for multi-pane Claude/Codex chats, project context, slash commands, terminals, and diffs.",
 	"type": "module",
 	"main": "./index.js",
