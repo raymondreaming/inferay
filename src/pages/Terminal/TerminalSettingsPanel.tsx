@@ -28,8 +28,9 @@ import {
 	mapAppThemeToTerminalTheme,
 	saveAppThemeId,
 } from "../../lib/app-theme.ts";
+import { CLIENT_STORAGE_CHANGED_EVENT } from "../../lib/client-storage-sync.ts";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
-import { setInputValue } from "../../lib/react-events.ts";
+import { listenWindowEvent, setInputValue } from "../../lib/react-events.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 
 interface TerminalSettingsContentProps {
@@ -312,6 +313,18 @@ export const TerminalSettingsContent = memo(function TerminalSettingsContent({
 	useEffect(() => {
 		if (themeId) setTerminalThemeId(themeId);
 	}, [themeId]);
+	useEffect(
+		() =>
+			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
+				const key = (event as CustomEvent<{ key?: string }>).detail?.key;
+				if (key !== "inferay-app-theme-id") return;
+				const nextAppThemeId = loadAppThemeId();
+				const nextTerminalThemeId = mapAppThemeToTerminalTheme(nextAppThemeId);
+				setAppThemeId(nextAppThemeId);
+				setTerminalThemeId(nextTerminalThemeId);
+			}),
+		[]
+	);
 	useEffect(() => {
 		if (terminalThemeId === "custom") saveCustomTheme(custom);
 	}, [custom, terminalThemeId]);

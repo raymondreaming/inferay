@@ -74,6 +74,7 @@ import {
 	changePaneAgentKind,
 } from "../../features/terminal/terminal-utils.ts";
 import { hasId, hasRole, noop } from "../../lib/data.ts";
+import { CLIENT_STORAGE_CHANGED_EVENT } from "../../lib/client-storage-sync.ts";
 import { postJson } from "../../lib/fetch-json.ts";
 import { measureTextareaHeight } from "../../lib/pretext-utils.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
@@ -111,6 +112,13 @@ import { useSpeechToText } from "./useSpeechToText.ts";
 
 const APP_REGION_DRAG_CLASS = "electrobun-webkit-app-region-drag";
 const APP_REGION_NO_DRAG_CLASS = "electrobun-webkit-app-region-no-drag";
+const CHAT_MESSAGES_KEY_PREFIX = "inferay-chat-";
+const CHAT_INPUT_KEY_PREFIX = "inferay-chat-input-";
+const CHAT_LOADING_KEY_PREFIX = "inferay-chat-loading-";
+const CHAT_MODEL_KEY_PREFIX = "inferay-chat-model-";
+const CHAT_REASONING_KEY_PREFIX = "inferay-chat-reasoning-";
+const CHAT_SUMMARY_KEY_PREFIX = "inferay-chat-summary-";
+const CHAT_COMPOSER_CONTEXT_KEY_PREFIX = "inferay-chat-composer-context-";
 
 interface AgentChatViewProps {
 	paneId: string;
@@ -577,6 +585,79 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 			handleDrop,
 			handlePaste,
 		} = useAgentChatComposerState(paneId);
+
+		useEffect(
+			() =>
+				listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
+					const detail = (
+						event as CustomEvent<{ key?: string; value?: string | null }>
+					).detail;
+					const key = detail?.key;
+					if (!key) return;
+
+					if (key === `${CHAT_MESSAGES_KEY_PREFIX}${paneId}`) {
+						const storedMessages = loadStoredMessages<ChatMessage>(paneId);
+						setMessagesRaw((prev) => {
+							const next = trimMessages(
+								mergeSyncedMessages(prev, storedMessages)
+							);
+							messagesRef.current = next;
+							return next;
+						});
+						return;
+					}
+
+					if (
+						key === `${CHAT_INPUT_KEY_PREFIX}${paneId}` &&
+						document.activeElement !== textareaRef.current
+					) {
+						setInputRaw(loadStoredInput(paneId));
+						return;
+					}
+
+					if (key === `${CHAT_LOADING_KEY_PREFIX}${paneId}`) {
+						const storedLoading = loadStoredLoadingState(paneId);
+						setLoadingState(
+							storedLoading ?? {
+								isLoading: false,
+								status: "idle",
+								startTime: null,
+							}
+						);
+						return;
+					}
+
+					if (key === `${CHAT_MODEL_KEY_PREFIX}${paneId}`) {
+						const storedModel = loadStoredModel(paneId);
+						if (storedModel) {
+							selectedModelRef.current = storedModel;
+							setSelectedModel(storedModel);
+						}
+						return;
+					}
+
+					if (key === `${CHAT_REASONING_KEY_PREFIX}${paneId}`) {
+						const storedReasoning = loadStoredReasoningLevel(paneId);
+						if (storedReasoning) {
+							selectedReasoningLevelRef.current = storedReasoning;
+							setSelectedReasoningLevel(storedReasoning);
+						}
+						return;
+					}
+
+					if (key === `${CHAT_SUMMARY_KEY_PREFIX}${paneId}`) {
+						summaryRef.current = loadStoredSummary(paneId);
+						return;
+					}
+
+					if (key === `${CHAT_COMPOSER_CONTEXT_KEY_PREFIX}${paneId}`) {
+						setComposerContextBlocks(
+							loadStoredComposerContextBlocks<ComposerContextBlock>(paneId)
+						);
+					}
+				}),
+			[paneId, setLoadingState]
+		);
 
 		const handleScroll = useCallback(() => {
 			const el = scrollRef.current;

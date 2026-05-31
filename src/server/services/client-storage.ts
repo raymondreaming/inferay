@@ -7,7 +7,7 @@ import { userDataPath } from "../../lib/user-data.ts";
 import { readTerminalState } from "./terminal-state.ts";
 
 type StoredValue = string | null;
-type ClientStorageSnapshot = Record<string, string>;
+type ClientStorageSnapshot = Record<string, StoredValue>;
 
 const CLIENT_STORAGE_PATH = userDataPath("client-storage.json");
 
@@ -45,8 +45,7 @@ export async function applyClientStorageEntries(
 		{}
 	);
 	for (const [key, value] of Object.entries(entries)) {
-		if (value === null) delete snapshot[key];
-		else snapshot[key] = value;
+		snapshot[key] = value;
 	}
 	await writeJson(CLIENT_STORAGE_PATH, snapshot);
 }

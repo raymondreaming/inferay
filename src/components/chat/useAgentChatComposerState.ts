@@ -4,7 +4,9 @@ import {
 	loadStoredQueue,
 	saveStoredQueue,
 } from "../../features/chat/chat-session-store.ts";
+import { CLIENT_STORAGE_CHANGED_EVENT } from "../../lib/client-storage-sync.ts";
 import { lacksId, lacksPath } from "../../lib/data.ts";
+import { listenWindowEvent } from "../../lib/react-events.ts";
 import { wsClient } from "../../lib/websocket.ts";
 
 interface QueuedMessage {
@@ -30,6 +32,7 @@ interface MarkdownPreviewState {
 }
 
 let queueIdCounter = 0;
+const CHAT_QUEUE_KEY_PREFIX = "inferay-chat-queue-";
 
 export function useAgentChatComposerState(paneId: string) {
 	const [isDragOver, setIsDragOver] = useState(false);
@@ -88,6 +91,20 @@ export function useAgentChatComposerState(paneId: string) {
 			setQueuedMessagesState(messages);
 			saveStoredQueue(paneId, messages);
 		},
+		[paneId]
+	);
+
+	useEffect(
+		() =>
+			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
+				const detail = (
+					event as CustomEvent<{ key?: string; value?: string | null }>
+				).detail;
+				if (detail?.key !== `${CHAT_QUEUE_KEY_PREFIX}${paneId}`) return;
+				const next = loadStoredQueue<QueuedMessage>(paneId);
+				queueRef.current = next;
+				setQueuedMessagesState(next);
+			}),
 		[paneId]
 	);
 

@@ -11,7 +11,10 @@ import {
 	DEFAULT_APP_ROUTE,
 } from "./lib/app-navigation.tsx";
 import { applyAppTheme, loadAppThemeId } from "./lib/app-theme.ts";
-import { hydrateStoredValues } from "./lib/client-storage-sync.ts";
+import {
+	CLIENT_STORAGE_CHANGED_EVENT,
+	hydrateStoredValues,
+} from "./lib/client-storage-sync.ts";
 import { getServerOrigin, resolveServerUrl } from "./lib/server-origin.ts";
 import { readStoredBoolean } from "./lib/stored-json.ts";
 import { AutomationsPage } from "./pages/AutomationsPage";
@@ -66,6 +69,12 @@ const onboardingDone = readStoredBoolean(ONBOARDING_DONE_KEY);
 const defaultRoute = onboardingDone ? DEFAULT_APP_ROUTE : "/onboarding";
 
 applyAppTheme(loadAppThemeId());
+window.addEventListener(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
+	const key = (event as CustomEvent<{ key?: string }>).detail?.key;
+	if (key === "inferay-app-theme-id" || key === "inferay-app-custom-theme") {
+		applyAppTheme(loadAppThemeId());
+	}
+});
 
 if (typeof window !== "undefined") {
 	const idle =

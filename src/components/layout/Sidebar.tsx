@@ -23,6 +23,7 @@ import {
 	TERMINAL_MAIN_VIEWS,
 	type TerminalMainView,
 } from "../../lib/app-navigation.tsx";
+import { CLIENT_STORAGE_CHANGED_EVENT } from "../../lib/client-storage-sync.ts";
 import {
 	hasId,
 	hasRole,
@@ -439,6 +440,16 @@ export function Sidebar() {
 		const refresh = () => setWorkspaces(loadWorkspaces());
 		return listenWindowEvent("terminal-shell-change", refresh);
 	}, [loadWorkspaces]);
+	useEffect(
+		() =>
+			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
+				const key = (event as CustomEvent<{ key?: string }>).detail?.key;
+				if (key === "main-sidebar-width") {
+					setSidebarWidth(loadSidebarWidth());
+				}
+			}),
+		[]
+	);
 
 	useEffect(listenTerminalLayoutMode.bind(null, setLayoutMode), []);
 

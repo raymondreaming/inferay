@@ -1,12 +1,9 @@
 import type { ElectrobunConfig } from "electrobun";
 
-const isDevBuild =
-	process.argv.includes("dev") || process.argv.includes("--env=dev");
-
 const config: ElectrobunConfig = {
 	app: {
 		name: "inferay",
-		identifier: isDevBuild ? "com.inferay.app.dev" : "com.inferay.app",
+		identifier: "com.inferay.app",
 		version: "0.1.28",
 		description: "Run Claude and Codex side by side in a multi-pane terminal",
 	},
