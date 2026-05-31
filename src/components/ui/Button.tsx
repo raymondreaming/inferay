@@ -3,9 +3,11 @@ import type { ButtonHTMLAttributes } from "react";
 import {
 	color,
 	controlSize,
+	effect,
 	font,
 	motion,
 	radius,
+	shadow,
 } from "../../tokens.stylex.ts";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -41,9 +43,10 @@ const styles = stylex.create({
 		fontWeight: font.weight_5,
 		gap: controlSize._1_5,
 		justifyContent: "center",
+		boxShadow: shadow.controlDepth,
 		transitionDuration: motion.durationBase,
 		transitionProperty:
-			"background-color, border-color, color, transform, opacity",
+			"background-color, border-color, box-shadow, color, transform, opacity",
 		transitionTimingFunction: motion.ease,
 		":active": {
 			transform: "scale(0.97)",
@@ -73,6 +76,16 @@ const styles = stylex.create({
 			default: color.accent,
 			":hover": color.accentHover,
 		},
+		backgroundImage: {
+			default:
+				"linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.05) 45%, rgba(0, 0, 0, 0.16))",
+			":hover":
+				"linear-gradient(180deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.08) 45%, rgba(0, 0, 0, 0.18))",
+		},
+		boxShadow: {
+			default: shadow.controlDepth,
+			":hover": shadow.controlDepthHover,
+		},
 		color: color.accentForeground,
 	},
 	secondary: {
@@ -80,9 +93,17 @@ const styles = stylex.create({
 			default: color.surfaceControl,
 			":hover": color.surfaceControlHover,
 		},
+		backgroundImage: {
+			default: effect.controlDepth,
+			":hover": effect.controlDepthHover,
+		},
 		borderColor: color.border,
 		borderStyle: "solid",
 		borderWidth: 1,
+		boxShadow: {
+			default: shadow.controlDepth,
+			":hover": shadow.controlDepthHover,
+		},
 		color: color.textSoft,
 	},
 	ghost: {
@@ -90,6 +111,14 @@ const styles = stylex.create({
 		backgroundColor: {
 			default: "transparent",
 			":hover": color.controlActive,
+		},
+		backgroundImage: {
+			default: "none",
+			":hover": effect.controlDepth,
+		},
+		boxShadow: {
+			default: shadow.none,
+			":hover": shadow.controlDepth,
 		},
 		color: {
 			default: color.textMuted,
@@ -101,6 +130,8 @@ const styles = stylex.create({
 			default: color.dangerWash,
 			":hover": color.dangerHover,
 		},
+		backgroundImage:
+			"linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.01) 46%, rgba(0, 0, 0, 0.18))",
 		borderColor: color.dangerBorder,
 		borderStyle: "solid",
 		borderWidth: 1,

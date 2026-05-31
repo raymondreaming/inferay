@@ -9,7 +9,10 @@ import {
 	shadow,
 } from "../../tokens.stylex.ts";
 
-interface TextInputProps extends InputHTMLAttributes<HTMLInputElement> {
+interface TextInputProps extends Omit<
+	InputHTMLAttributes<HTMLInputElement>,
+	"size"
+> {
 	size?: "sm" | "md";
 	fullWidth?: boolean;
 }

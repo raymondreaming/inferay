@@ -7,7 +7,13 @@ import {
 	activateOnEnterOrSpacePreventDefault,
 	setInputValue,
 } from "../../lib/react-events.ts";
-import { color, controlSize, font } from "../../tokens.stylex.ts";
+import {
+	color,
+	controlSize,
+	effect,
+	font,
+	shadow,
+} from "../../tokens.stylex.ts";
 import { IconChevronDown } from "./Icons.tsx";
 
 interface DropdownOption {
@@ -92,6 +98,7 @@ export function DropdownButton({
 	const searchRef = useRef<HTMLInputElement>(null);
 	const [pos, setPos] = useState({
 		top: 0,
+		bottom: 0,
 		left: 0,
 		width: 0,
 		maxH: 300,
@@ -132,20 +139,23 @@ export function DropdownButton({
 			const placeAbove =
 				menuPlacement === "top" ||
 				(menuPlacement === "auto" && spaceAbove > spaceBelow);
-			const rowHeight = 32;
-			const searchHeight = options.length > 5 ? 42 : 0;
+			const rowHeight = renderOption ? 34 : 30;
+			const searchHeight = options.length > 5 ? 38 : 0;
 			const contentHeight = Math.min(
-				options.length * rowHeight + searchHeight,
+				options.length * rowHeight + searchHeight + 2,
 				400
 			);
 			const maxH = Math.min(
 				contentHeight,
-				placeAbove ? spaceAbove : spaceBelow,
-				400
+				placeAbove ? spaceAbove : spaceBelow
 			);
 			setPos({
-				top: placeAbove ? Math.max(8, rect.top - maxH - 4) : rect.bottom + 4,
-				left: rect.left,
+				top: placeAbove ? 0 : rect.bottom + 4,
+				bottom: placeAbove ? window.innerHeight - rect.top + 4 : 0,
+				left: Math.min(
+					Math.max(8, rect.left),
+					Math.max(8, window.innerWidth - Math.max(rect.width, minWidth) - 8)
+				),
 				width: Math.max(rect.width, minWidth),
 				maxH,
 				placement: placeAbove ? "top" : "bottom",
@@ -190,7 +200,7 @@ export function DropdownButton({
 	const optionsBox = (
 		<div
 			{...stylex.props(styles.optionsBox)}
-			style={{ maxHeight: pos.maxH - (showSearch ? 42 : 2) }}
+			style={{ maxHeight: Math.max(44, pos.maxH - (showSearch ? 38 : 0)) }}
 		>
 			{filtered.length === 0 ? (
 				<p {...stylex.props(styles.empty)}>
@@ -223,15 +233,15 @@ export function DropdownButton({
 							)}
 						>
 							{opt.icon && (
-								<span className="shrink-0 text-inferay-muted-gray">
+								<span className="shrink-0 text-inferay-muted-gray [&_svg]:h-3 [&_svg]:w-3">
 									{opt.icon}
 								</span>
 							)}
-							<div>
-								<span className="font-medium">{opt.label}</span>
+							<div className="min-w-0">
+								<span className="block truncate font-medium">{opt.label}</span>
 								{opt.detail && (
 									<span
-										className={`ml-2 rounded-md px-1.5 py-0.5 text-[9px] font-medium ${
+										className={`ml-1.5 rounded px-1 py-0.5 text-[8px] font-medium ${
 											opt.detail.includes("★")
 												? "bg-inferay-white/[0.08] text-inferay-soft-white"
 												: opt.detail.includes("Best")
@@ -243,7 +253,7 @@ export function DropdownButton({
 									</span>
 								)}
 								{opt.status && (
-									<span className="ml-2 text-[10px] text-inferay-muted-gray">
+									<span className="ml-1.5 text-[9px] text-inferay-muted-gray">
 										{opt.status}
 									</span>
 								)}
@@ -263,7 +273,7 @@ export function DropdownButton({
 				{...(buttonClassName ? {} : buttonProps)}
 				className={
 					buttonClassName
-						? `flex items-center text-xs transition-colors ${fullWidth ? "w-full" : ""} ${buttonClassName}`
+						? `${buttonProps.className ?? ""} flex items-center text-xs transition-colors ${fullWidth ? "w-full" : ""} ${buttonClassName}`
 						: buttonProps.className
 				}
 			>
@@ -284,7 +294,8 @@ export function DropdownButton({
 						ref={menuRef}
 						{...stylex.props(styles.menu)}
 						style={{
-							top: pos.top,
+							top: pos.placement === "bottom" ? pos.top : undefined,
+							bottom: pos.placement === "top" ? pos.bottom : undefined,
 							left: pos.left,
 							minWidth: pos.width,
 							maxHeight: pos.maxH,
@@ -323,8 +334,10 @@ const styles = stylex.create({
 		gap: controlSize._2,
 		height: controlSize._7,
 		paddingInline: controlSize._3,
+		boxShadow: shadow.controlDepth,
 		transitionDuration: "150ms",
-		transitionProperty: "background-color, border-color, color",
+		transitionProperty:
+			"background-color, background-image, border-color, box-shadow, color",
 		transitionTimingFunction: "ease",
 		userSelect: "none",
 	},
@@ -333,12 +346,23 @@ const styles = stylex.create({
 			default: color.backgroundRaised,
 			":hover": color.controlHover,
 		},
+		backgroundImage: {
+			default: effect.controlDepth,
+			":hover": effect.controlDepthHover,
+		},
 		borderColor: color.border,
 		color: color.textSoft,
+		boxShadow: {
+			default: shadow.controlDepth,
+			":hover": shadow.controlDepthHover,
+		},
 	},
 	buttonOpen: {
 		backgroundColor: color.controlActive,
+		backgroundImage: effect.controlDepthHover,
 		borderColor: "rgba(229, 229, 231, 0.4)",
+		boxShadow:
+			"inset 0 1px 14px rgba(0, 0, 0, 0.24), inset 0 -1px 0 rgba(255, 255, 255, 0.028), 0 12px 30px rgba(0, 0, 0, 0.36)",
 		color: color.textMain,
 	},
 	fullWidth: {
@@ -346,51 +370,60 @@ const styles = stylex.create({
 	},
 	menu: {
 		backdropFilter: "blur(24px)",
-		backgroundColor: "rgba(28, 28, 30, 0.95)",
+		backgroundColor: color.backgroundRaised,
+		backgroundImage: effect.popoverDepth,
 		borderColor: color.border,
 		borderRadius: 8,
 		borderStyle: "solid",
 		borderWidth: 1,
-		boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.75)",
+		boxShadow:
+			"inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 28px 58px -14px rgba(0, 0, 0, 0.82)",
 		overflow: "hidden",
 		position: "fixed",
 		userSelect: "none",
-		zIndex: 50,
+		zIndex: 120,
 	},
 	searchWrap: {
 		borderBottomColor: color.border,
 		borderBottomStyle: "solid",
 		borderBottomWidth: 1,
-		paddingBlock: "0.375rem",
+		paddingBlock: controlSize._1,
 		paddingInline: controlSize._2,
 	},
 	searchInput: {
 		backgroundColor: "rgba(28, 28, 30, 0.5)",
+		backgroundImage:
+			"linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.01))",
 		borderColor: "rgba(255, 255, 255, 0.04)",
 		borderRadius: 6,
 		borderStyle: "solid",
 		borderWidth: 1,
 		color: color.textMain,
-		fontSize: font.size_3,
+		fontSize: font.size_2,
 		outline: "none",
-		paddingBlock: "0.375rem",
-		paddingInline: "0.625rem",
+		paddingBlock: controlSize._1,
+		paddingInline: controlSize._2,
 		width: "100%",
 		userSelect: "text",
 		"::placeholder": {
 			color: color.textMuted,
 		},
 		":focus": {
-			borderColor: color.border,
+			borderColor: color.accentBorder,
+			boxShadow: "0 0 0 1px rgba(255, 255, 255, 0.06)",
 		},
 	},
 	optionsBox: {
 		overflowY: "auto",
+		scrollbarWidth: "none",
+		"::-webkit-scrollbar": {
+			display: "none",
+		},
 	},
 	empty: {
 		color: color.textMuted,
-		fontSize: font.size_3,
-		paddingBlock: controlSize._4,
+		fontSize: font.size_2,
+		paddingBlock: controlSize._3,
 		paddingInline: controlSize._3,
 		textAlign: "center",
 	},
@@ -400,15 +433,20 @@ const styles = stylex.create({
 			default: "transparent",
 			":hover": color.controlHover,
 		},
+		backgroundImage: {
+			default: "none",
+			":hover": effect.controlDepth,
+		},
 		color: {
 			default: color.textMuted,
 			":hover": color.textMain,
 		},
 		display: "flex",
-		fontSize: font.size_3,
+		fontSize: font.size_2,
 		gap: controlSize._2,
-		paddingBlock: controlSize._2,
-		paddingInline: controlSize._3,
+		minHeight: 26,
+		paddingBlock: controlSize._1,
+		paddingInline: controlSize._2,
 		textAlign: "left",
 		transitionDuration: "150ms",
 		transitionProperty: "background-color, color",
@@ -418,6 +456,8 @@ const styles = stylex.create({
 	},
 	optionSelected: {
 		backgroundColor: color.controlActive,
+		backgroundImage:
+			"linear-gradient(90deg, rgba(0, 0, 0, 0.12), rgba(255, 255, 255, 0.018))",
 		color: color.textMain,
 	},
 });

@@ -9,12 +9,12 @@ export const colorValues = {
 	surfaceTranslucent: "rgba(28, 28, 30, 0.2)",
 	surfaceInset: "rgba(0, 0, 0, 0.15)",
 	surfaceSubtle: "rgba(255, 255, 255, 0.04)",
-	surfaceControl: "rgba(255, 255, 255, 0.08)",
-	surfaceControlHover: "rgba(255, 255, 255, 0.12)",
-	border: "var(--color-inferay-gray-border)",
-	borderSubtle: "rgba(255, 255, 255, 0.04)",
-	borderStrong: "var(--color-inferay-gray-border-bold)",
-	borderControl: "rgba(255, 255, 255, 0.2)",
+	surfaceControl: "rgba(255, 255, 255, 0.055)",
+	surfaceControlHover: "rgba(255, 255, 255, 0.085)",
+	border: "rgba(255, 255, 255, 0.075)",
+	borderSubtle: "rgba(255, 255, 255, 0.028)",
+	borderStrong: "rgba(255, 255, 255, 0.13)",
+	borderControl: "rgba(255, 255, 255, 0.12)",
 	focusRing: "rgba(229, 229, 231, 0.6)",
 	controlHover: "var(--color-inferay-gray)",
 	controlActive:
@@ -99,6 +99,10 @@ const motionValues = {
 
 const shadowValues = {
 	none: "none",
+	controlDepth:
+		"inset 0 1px 12px rgba(0, 0, 0, 0.18), inset 0 -1px 0 rgba(255, 255, 255, 0.025), 0 8px 22px rgba(0, 0, 0, 0.22)",
+	controlDepthHover:
+		"inset 0 1px 14px rgba(0, 0, 0, 0.22), inset 0 -1px 0 rgba(255, 255, 255, 0.03), 0 10px 26px rgba(0, 0, 0, 0.28)",
 	selectedRing: "0 0 0 1px rgba(255, 255, 255, 0.05)",
 	focusRing: "0 0 0 1px rgba(229, 229, 231, 0.35)",
 	popover: "0 10px 15px -3px rgba(0, 0, 0, 0.6)",
@@ -106,6 +110,12 @@ const shadowValues = {
 } as const;
 
 export const effectValues = {
+	controlDepth:
+		"linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(0, 0, 0, 0.08) 48%, rgba(0, 0, 0, 0.2))",
+	controlDepthHover:
+		"linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(0, 0, 0, 0.1) 48%, rgba(0, 0, 0, 0.24))",
+	popoverDepth:
+		"linear-gradient(180deg, rgba(255, 255, 255, 0.014), rgba(0, 0, 0, 0.08) 42%, rgba(0, 0, 0, 0.22))",
 	composerBackdrop:
 		"linear-gradient(to bottom, transparent 0%, color-mix(in srgb, var(--color-inferay-black) 90%, transparent) 38%, var(--color-inferay-black) 72%)",
 	composerFade:

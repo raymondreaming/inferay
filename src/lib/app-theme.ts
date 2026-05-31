@@ -1,10 +1,10 @@
+import type { ThemeId } from "../features/terminal/terminal-utils.ts";
+import { hasId } from "./data.ts";
 import {
 	readStoredJson,
 	readStoredValue,
 	writeStoredValue,
 } from "./stored-json.ts";
-import type { ThemeId } from "../features/terminal/terminal-utils.ts";
-import { hasId } from "./data.ts";
 
 interface AppThemeColors {
 	readonly black: string;
@@ -70,29 +70,67 @@ const ACCENT_FOREGROUND_CSS_VAR = "--color-inferay-accent-foreground" as const;
 
 // Compact theme data:
 // [id, name, black, darkGray, gray, lightGray, grayBorder, grayBorderBold, accent, accentHover, success, warning, error, info, white, softWhite, mutedGray, light?]
-type ThemeTuple = [AppThemeId, string, ...string[]] & { length: 17 | 18 };
+type ThemeTuple = [
+	AppThemeId,
+	string,
+	string,
+	string,
+	string,
+	string,
+	string,
+	string,
+	string,
+	string,
+	string,
+	string,
+	string,
+	string,
+	string,
+	string,
+	string,
+	"L"?,
+];
 
 function makeTheme(t: ThemeTuple): AppTheme {
+	const [
+		id,
+		name,
+		black,
+		darkGray,
+		gray,
+		lightGray,
+		grayBorder,
+		grayBorderBold,
+		accent,
+		accentHover,
+		success,
+		warning,
+		error,
+		info,
+		white,
+		softWhite,
+		mutedGray,
+	] = t;
 	return {
-		id: t[0],
-		name: t[1],
+		id,
+		name,
 		...(t.length === 18 ? { light: true } : {}),
 		colors: {
-			black: t[2],
-			darkGray: t[3],
-			gray: t[4],
-			lightGray: t[5],
-			grayBorder: t[6],
-			grayBorderBold: t[7],
-			accent: t[8],
-			accentHover: t[9],
-			success: t[10],
-			warning: t[11],
-			error: t[12],
-			info: t[13],
-			white: t[14],
-			softWhite: t[15],
-			mutedGray: t[16],
+			black,
+			darkGray,
+			gray,
+			lightGray,
+			grayBorder,
+			grayBorderBold,
+			accent,
+			accentHover,
+			success,
+			warning,
+			error,
+			info,
+			white,
+			softWhite,
+			mutedGray,
 		},
 	};
 }
@@ -108,12 +146,12 @@ const THEME_DATA = [
 		"#3a3a3c",
 		"rgba(255, 255, 255, 0.08)",
 		"rgba(255, 255, 255, 0.15)",
-		"#e5e5e7",
-		"#ffffff",
+		"#5A8CFF",
+		"#7AA3FF",
 		"#30D158",
 		"#FF9F0A",
 		"#FF453A",
-		"#64D2FF",
+		"#8a8aff",
 		"#F5F5F7",
 		"rgba(255, 255, 255, 0.55)",
 		"rgba(255, 255, 255, 0.3)",

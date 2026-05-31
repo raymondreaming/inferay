@@ -26,7 +26,10 @@ export function Panel({
 	);
 }
 
-interface PanelHeaderProps extends HTMLAttributes<HTMLDivElement> {
+interface PanelHeaderProps extends Omit<
+	HTMLAttributes<HTMLDivElement>,
+	"title"
+> {
 	title: ReactNode;
 	description?: ReactNode;
 	actions?: ReactNode;
