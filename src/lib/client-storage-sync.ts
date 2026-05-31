@@ -16,6 +16,7 @@ const pendingSync = new Map<string, StoredValue>();
 const HYDRATION_TIMEOUT_MS = 2500;
 const HYDRATION_RETRY_DELAYS_MS = [0, 200, 700] as const;
 const STORAGE_POLL_INTERVAL_MS = 1000;
+const LOCAL_WRITE_PROTECT_MS = 8000;
 const TERMINAL_SYNC_KEYS = new Set([
 	TERMINAL_STATE_STORAGE_KEY,
 	"terminal-layout-mode",
@@ -23,6 +24,8 @@ const TERMINAL_SYNC_KEYS = new Set([
 ]);
 export const CLIENT_STORAGE_CHANGED_EVENT = "inferay:client-storage-changed";
 let pollTimer: ReturnType<typeof setInterval> | null = null;
+const localWriteTimes = new Map<string, number>();
+const localWriteValues = new Map<string, StoredValue>();
 
 function readLocalEntries(): Record<string, string> {
 	const entries: Record<string, string> = {};
@@ -66,15 +69,28 @@ function shouldApplyServerValue(
 	} catch {
 		return false;
 	}
+	if (serverValue === localValue) {
+		localWriteTimes.delete(key);
+		localWriteValues.delete(key);
+		return false;
+	}
+	const localWriteAt = localWriteTimes.get(key);
+	if (
+		localWriteAt &&
+		Date.now() - localWriteAt < LOCAL_WRITE_PROTECT_MS &&
+		localWriteValues.get(key) === localValue
+	) {
+		return false;
+	}
 	if (serverValue === null) return localValue !== null;
 	if (localValue === null) return true;
 	if (key === TERMINAL_STATE_STORAGE_KEY) {
 		const serverScore = terminalStateScore(serverValue);
 		const localScore = terminalStateScore(localValue);
 		if (serverScore <= 1 && localScore > serverScore) return false;
-		return serverValue !== localValue;
+		return true;
 	}
-	return serverValue !== localValue;
+	return true;
 }
 
 async function sendStoragePatch(entries: Record<string, StoredValue>) {
@@ -95,6 +111,25 @@ function sendStorageBeacon(entries: Record<string, StoredValue>): boolean {
 	);
 }
 
+function clearSyncedLocalWrites(entries: Record<string, StoredValue>) {
+	for (const [key, value] of Object.entries(entries)) {
+		let localValue: string | null = null;
+		try {
+			localValue = localStorage.getItem(key);
+		} catch {
+			continue;
+		}
+		const expectedValue = value === null ? null : value;
+		if (
+			localValue === expectedValue &&
+			localWriteValues.get(key) === expectedValue
+		) {
+			localWriteTimes.delete(key);
+			localWriteValues.delete(key);
+		}
+	}
+}
+
 function wait(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -108,11 +143,15 @@ function flushPendingSync(useBeacon = false) {
 	const entries = Object.fromEntries(pendingSync);
 	pendingSync.clear();
 	if (useBeacon && sendStorageBeacon(entries)) return;
-	sendStoragePatch(entries).catch(noop);
+	sendStoragePatch(entries)
+		.then(() => clearSyncedLocalWrites(entries))
+		.catch(noop);
 }
 
 export function syncStoredValue(key: string, value: StoredValue): void {
 	if (hydrating || !shouldSyncClientStorageKey(key)) return;
+	localWriteTimes.set(key, Date.now());
+	localWriteValues.set(key, value);
 	pendingSync.set(key, value);
 	if (syncTimer) return;
 	syncTimer = setTimeout(flushPendingSync, 250);
