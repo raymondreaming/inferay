@@ -34,6 +34,12 @@ interface MarkdownPreviewState {
 let queueIdCounter = 0;
 const CHAT_QUEUE_KEY_PREFIX = "inferay-chat-queue-";
 
+function nextQueueId(): string {
+	return typeof crypto !== "undefined" && "randomUUID" in crypto
+		? crypto.randomUUID()
+		: `${Date.now()}-${++queueIdCounter}`;
+}
+
 export function useAgentChatComposerState(paneId: string) {
 	const [isDragOver, setIsDragOver] = useState(false);
 	const [attachedImages, setAttachedImages] = useState<AttachedImageState[]>(
@@ -113,7 +119,7 @@ export function useAgentChatComposerState(paneId: string) {
 			setQueuedMessages([
 				...queueRef.current,
 				{
-					id: String(++queueIdCounter),
+					id: nextQueueId(),
 					text,
 					displayText,
 					images: images?.length ? images : undefined,

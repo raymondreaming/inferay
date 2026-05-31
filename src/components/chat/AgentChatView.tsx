@@ -37,7 +37,6 @@ import {
 	clearStoredSessionId,
 	clearStoredWorktreeInfo,
 	loadPendingSend,
-	loadPendingWorkspacePaths,
 	loadStoredCheckpoints,
 	loadStoredComposerContextBlocks,
 	loadStoredInput,
@@ -48,7 +47,6 @@ import {
 	loadStoredSessionId,
 	loadStoredSummary,
 	loadStoredWorktreeInfo,
-	savePendingWorkspacePaths,
 	saveStoredCheckpoints,
 	saveStoredComposerContextBlocks,
 	saveStoredInput,
@@ -57,7 +55,6 @@ import {
 	saveStoredModel,
 	saveStoredReasoningLevel,
 	saveStoredSessionId,
-	saveStoredSummary,
 	upsertSessionLibraryEntry,
 } from "../../features/chat/chat-session-store.ts";
 import { getToolBlockInitialContent } from "../../features/chat/chat-stream-events.ts";
@@ -73,21 +70,19 @@ import {
 	type AgentKind,
 	changePaneAgentKind,
 } from "../../features/terminal/terminal-utils.ts";
-import { CLIENT_STORAGE_CHANGED_EVENT } from "../../lib/client-storage-sync.ts";
-import { hasId, hasRole, noop } from "../../lib/data.ts";
-import { postJson } from "../../lib/fetch-json.ts";
+import {
+	CLIENT_STORAGE_CHANGED_EVENT,
+	flushPendingClientStorageSync,
+} from "../../lib/client-storage-sync.ts";
+import { hasId, noop } from "../../lib/data.ts";
 import { measureTextareaHeight } from "../../lib/pretext-utils.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import { wsClient } from "../../lib/websocket.ts";
-import { InlineDirectoryPicker } from "../../pages/Terminal/InlineDirectoryPicker.tsx";
-import { color, controlSize, effectValues } from "../../tokens.stylex.ts";
-import { IconArrowDown } from "../ui/Icons.tsx";
+import { controlSize, effectValues } from "../../tokens.stylex.ts";
 import { AgentChatStatusBar } from "./AgentChatStatusBar.tsx";
+import { AgentChatMessagePane } from "./AgentChatMessagePane.tsx";
 import { ChatComposer } from "./ChatComposer.tsx";
-import {
-	ChatMessageList,
-	type ChatVirtualizerControls,
-} from "./ChatMessageList.tsx";
+import type { ChatVirtualizerControls } from "./ChatMessageList.tsx";
 import {
 	clearLiveActivities,
 	extractToolActivities,
@@ -109,9 +104,16 @@ import {
 import { useAgentChatComposerState } from "./useAgentChatComposerState.ts";
 import { useAgentChatMenus } from "./useAgentChatMenus.ts";
 import { useSpeechToText } from "./useSpeechToText.ts";
+import {
+	type ActiveWorkspace,
+	useAgentChatWorkspace,
+} from "./useAgentChatWorkspace.ts";
+import {
+	prepareMessagesForStorage,
+	useStoredChatMessages,
+} from "./useStoredChatMessages.ts";
 
 const APP_REGION_DRAG_CLASS = "electrobun-webkit-app-region-drag";
-const APP_REGION_NO_DRAG_CLASS = "electrobun-webkit-app-region-no-drag";
 const CHAT_MESSAGES_KEY_PREFIX = "inferay-chat-";
 const CHAT_INPUT_KEY_PREFIX = "inferay-chat-input-";
 const CHAT_LOADING_KEY_PREFIX = "inferay-chat-loading-";
@@ -148,11 +150,6 @@ interface AgentChatViewProps {
 	onAddPane?: (agentKind: AgentKind) => void;
 }
 
-interface ActiveWorkspace {
-	cwd: string | null;
-	referencePaths: string[];
-}
-
 export interface AgentChatHandle {
 	sendMessage: (text: string, displayText?: string) => void;
 	sendMessageWithImages: (text: string, images?: string[]) => void;
@@ -187,23 +184,6 @@ const LOCAL_COMMANDS: SlashCommand[] = [
 ];
 
 const TEXTAREA_MEASURE_CHAR_LIMIT = 6000;
-const MESSAGE_SAVE_INTERVAL_MS = 1000;
-
-function prepareMessagesForStorage(messages: ChatMessage[]) {
-	return trimMessages(messages).map((message) =>
-		message.isStreaming ? { ...message, isStreaming: false } : message
-	);
-}
-
-function getLastSessionMessage(messages: ChatMessage[]): string | null {
-	const message = [...messages]
-		.reverse()
-		.find((item) => item.role === "user" || item.role === "assistant");
-	if (!message?.content) return null;
-	const text = message.content.trim().replace(/\s+/g, " ");
-	return text.length > 180 ? `${text.slice(0, 177)}...` : text;
-}
-
 export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 	function AgentChatView(
 		{
@@ -240,50 +220,24 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 			activeAgentKindRef.current = activeAgentKind;
 		}, [activeAgentKind]);
 		const agentKind = activeAgentKind;
-		const [optimisticWorkspace, setOptimisticWorkspace] =
-			useState<ActiveWorkspace | null>(null);
-		const [pendingWorkspacePaths, setPendingWorkspacePaths] = useState<
-			string[]
-		>(() => loadPendingWorkspacePaths(paneId));
-		const pendingWorkspacePathsRef = useRef<string[]>(pendingWorkspacePaths);
-		const activeWorkspace = useMemo<ActiveWorkspace>(
-			() => ({
-				cwd: cwd ?? optimisticWorkspace?.cwd ?? null,
-				referencePaths:
-					cwd != null
-						? (referencePaths ?? [])
-						: (optimisticWorkspace?.referencePaths ?? referencePaths ?? []),
-			}),
-			[cwd, optimisticWorkspace, referencePaths]
-		);
-		const visibleWorkspace = useMemo<ActiveWorkspace>(() => {
-			if (activeWorkspace.cwd || pendingWorkspacePaths.length === 0) {
-				return activeWorkspace;
-			}
-			return {
-				cwd: pendingWorkspacePaths[0] ?? null,
-				referencePaths: pendingWorkspacePaths.slice(1),
-			};
-		}, [activeWorkspace, pendingWorkspacePaths]);
-		const activeWorkspaceRef = useRef<ActiveWorkspace>(activeWorkspace);
-		activeWorkspaceRef.current = activeWorkspace;
-		useEffect(() => {
-			if (cwd) setOptimisticWorkspace(null);
-		}, [cwd]);
-		const [messages, setMessagesRaw] = useState<ChatMessage[]>(() =>
-			loadStoredMessages<ChatMessage>(paneId).map((message) => ({
-				...message,
-				isStreaming: false,
-			}))
-		);
+		const {
+			activeWorkspace,
+			visibleWorkspace,
+			activeWorkspaceRef,
+			setPendingWorkspacePaths,
+			consumePendingWorkspace,
+		} = useAgentChatWorkspace({
+			paneId,
+			cwd,
+			referencePaths,
+			onWorkspaceConsumed: onDirectoryChange,
+		});
 		const [composerContextBlocks, setComposerContextBlocks] = useState<
 			ComposerContextBlock[]
 		>(() => loadStoredComposerContextBlocks<ComposerContextBlock>(paneId));
 		const [worktreeInfo, setWorktreeInfo] = useState<WorktreeLaunchInfo | null>(
 			() => loadStoredWorktreeInfo(paneId)
 		);
-		const messagesRef = useRef(messages);
-		messagesRef.current = messages;
 		const getDefaultModel = useCallback((kind: AgentKind) => {
 			const definition = getAgentDefinition(kind);
 			const defaults = loadDefaultChatSettings();
@@ -338,122 +292,18 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 		useEffect(() => {
 			selectedReasoningLevelRef.current = selectedReasoningLevel;
 		}, [selectedReasoningLevel]);
-		const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-		const pendingMessageSaveRef = useRef<ChatMessage[] | null>(null);
-		const summaryRef = useRef<string | null>(loadStoredSummary(paneId));
-		const titleRequestedRef = useRef(false);
-		const getPendingWorkspacePaths = useCallback(() => {
-			const paths =
-				pendingWorkspacePathsRef.current.length > 0
-					? pendingWorkspacePathsRef.current
-					: loadPendingWorkspacePaths(paneId);
-			return paths.filter(Boolean);
-		}, [paneId]);
-		const clearPendingWorkspacePaths = useCallback(() => {
-			pendingWorkspacePathsRef.current = [];
-			setPendingWorkspacePaths([]);
-			savePendingWorkspacePaths(paneId, []);
-		}, [paneId]);
-		useEffect(() => {
-			if (activeWorkspace.cwd && pendingWorkspacePathsRef.current.length > 0) {
-				clearPendingWorkspacePaths();
-			}
-		}, [activeWorkspace.cwd, clearPendingWorkspacePaths]);
-		const flushPendingMessageSave = useCallback(() => {
-			if (saveTimerRef.current) {
-				clearTimeout(saveTimerRef.current);
-				saveTimerRef.current = null;
-			}
-			if (pendingMessageSaveRef.current) {
-				saveStoredMessages(paneId, pendingMessageSaveRef.current);
-				const workspace = activeWorkspaceRef.current;
-				upsertSessionLibraryEntry(paneId, {
-					agentKind,
-					cwd: workspace.cwd,
-					referencePaths: workspace.referencePaths,
-					model: effectiveSelectedModel,
-					reasoningLevel: selectedReasoningLevel,
-					summary: summaryRef.current,
-					lastMessage: getLastSessionMessage(pendingMessageSaveRef.current),
-					messageCount: pendingMessageSaveRef.current.length,
-				});
-				pendingMessageSaveRef.current = null;
-			}
-		}, [agentKind, effectiveSelectedModel, paneId, selectedReasoningLevel]);
-		const scheduleMessageSave = useCallback(
-			(nextMessages: ChatMessage[]) => {
-				const storedMessages = prepareMessagesForStorage(nextMessages);
-				pendingMessageSaveRef.current = storedMessages;
-				// Generate AI title from first user message (fire-and-forget)
-				if (!summaryRef.current && !titleRequestedRef.current) {
-					const firstUser = nextMessages.find(hasRole.bind(null, "user"));
-					if (firstUser?.content) {
-						titleRequestedRef.current = true;
-						postJson<{ title?: string }>("/api/generate-title", {
-							message: firstUser.content,
-						})
-							.then((data) => {
-								const title = data?.title?.trim();
-								if (title) {
-									summaryRef.current = title;
-									saveStoredSummary(paneId, title);
-									window.dispatchEvent(new Event("terminal-shell-change"));
-								}
-							})
-							.catch(noop);
-					}
-				}
-				if (saveTimerRef.current) return;
-				saveTimerRef.current = setTimeout(() => {
-					flushPendingMessageSave();
-				}, MESSAGE_SAVE_INTERVAL_MS);
-			},
-			[flushPendingMessageSave, paneId]
+		const getActiveWorkspaceSnapshot = useCallback(
+			() => activeWorkspaceRef.current,
+			[]
 		);
-		const setMessages = useCallback(
-			(update: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
-				setMessagesRaw((prev) => {
-					const next =
-						typeof update === "function"
-							? (update as (prev: ChatMessage[]) => ChatMessage[])(prev)
-							: update;
-					messagesRef.current = next;
-					scheduleMessageSave(next);
-					return next;
-				});
-			},
-			[scheduleMessageSave]
-		);
-		useEffect(
-			() => () => {
-				flushPendingMessageSave();
-			},
-			[flushPendingMessageSave]
-		);
-		useEffect(() => {
-			const flushCurrentMessages = () => {
-				const storedMessages = prepareMessagesForStorage(messagesRef.current);
-				saveStoredMessages(paneId, storedMessages);
-				const workspace = activeWorkspaceRef.current;
-				upsertSessionLibraryEntry(paneId, {
-					agentKind,
-					cwd: workspace.cwd,
-					referencePaths: workspace.referencePaths,
-					model: effectiveSelectedModel,
-					reasoningLevel: selectedReasoningLevel,
-					summary: summaryRef.current,
-					lastMessage: getLastSessionMessage(storedMessages),
-					messageCount: storedMessages.length,
-				});
-				pendingMessageSaveRef.current = null;
-			};
-			window.addEventListener("beforeunload", flushCurrentMessages);
-			window.addEventListener("pagehide", flushCurrentMessages);
-			return () => {
-				window.removeEventListener("beforeunload", flushCurrentMessages);
-				window.removeEventListener("pagehide", flushCurrentMessages);
-			};
-		}, [agentKind, effectiveSelectedModel, paneId, selectedReasoningLevel]);
+		const { messages, setMessages, setMessagesRaw, messagesRef, summaryRef } =
+			useStoredChatMessages({
+				paneId,
+				agentKind,
+				model: effectiveSelectedModel,
+				reasoningLevel: selectedReasoningLevel,
+				getWorkspace: getActiveWorkspaceSnapshot,
+			});
 		const [input, setInputRaw] = useState(() => loadStoredInput(paneId));
 		const pendingSendConsumedRef = useRef(false);
 		const setInput = useCallback(
@@ -543,6 +393,9 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 				const prev = chatUiStateRef.current;
 				const patch = typeof v === "function" ? v(prev) : v;
 				const next = { ...prev, ...patch };
+				if (!next.isLoading) {
+					next.liveActivities = [];
+				}
 				chatUiStateRef.current = next;
 				setChatUiState(next);
 				if (next.isLoading && next.startTime) {
@@ -1238,7 +1091,12 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 						if (lastTool) currentToolRef.current = lastTool.id;
 					} else {
 						setLoadingState((prev) => {
-							if (prev.isLoading) return prev; // Don't interrupt active loading
+							if (
+								prev.isLoading &&
+								currentMessages.some((message) => message.isStreaming)
+							) {
+								return prev;
+							}
 							return {
 								isLoading: false,
 								status: "idle",
@@ -1576,6 +1434,7 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 					if (cmd.name === "clear") {
 						setMessages([]);
 						clearAgentChatMessages(paneId);
+						flushPendingClientStorageSync();
 						setCheckpoints([]);
 						clearStoredCheckpoints(paneId);
 						setMessages([
@@ -1626,33 +1485,6 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 				setMessages,
 			]
 		);
-
-		const consumePendingWorkspace = useCallback(() => {
-			const pendingWorkspacePaths = getPendingWorkspacePaths();
-			const selectedWorkspace =
-				!activeWorkspaceRef.current.cwd && pendingWorkspacePaths.length > 0
-					? {
-							cwd: pendingWorkspacePaths[0]!,
-							referencePaths: pendingWorkspacePaths.slice(1),
-						}
-					: undefined;
-			if (selectedWorkspace?.cwd) {
-				setOptimisticWorkspace(selectedWorkspace);
-				activeWorkspaceRef.current = selectedWorkspace;
-				onDirectoryChange?.(
-					paneId,
-					selectedWorkspace.cwd,
-					selectedWorkspace.referencePaths
-				);
-				clearPendingWorkspacePaths();
-			}
-			return selectedWorkspace;
-		}, [
-			clearPendingWorkspacePaths,
-			getPendingWorkspacePaths,
-			onDirectoryChange,
-			paneId,
-		]);
 
 		const sendMessage = useCallback(() => {
 			const text = input.trim();
@@ -1739,110 +1571,6 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 			cancelSpeechListening,
 		]);
 
-		const handleMenuKey = useCallback(
-			<S extends { show: boolean; selectedIdx: number }>(
-				e: React.KeyboardEvent,
-				count: number,
-				setMenu: React.Dispatch<React.SetStateAction<S>>,
-				selectIdx: number,
-				onSelect: (idx: number) => void
-			): boolean => {
-				if (e.key === "ArrowDown") {
-					e.preventDefault();
-					setMenu((prev) => ({
-						...prev,
-						selectedIdx: (prev.selectedIdx + 1) % count,
-					}));
-					return true;
-				}
-				if (e.key === "ArrowUp") {
-					e.preventDefault();
-					setMenu((prev) => ({
-						...prev,
-						selectedIdx: (prev.selectedIdx - 1 + count) % count,
-					}));
-					return true;
-				}
-				if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
-					e.preventDefault();
-					onSelect(selectIdx);
-					return true;
-				}
-				if (e.key === "Escape") {
-					e.preventDefault();
-					setMenu(hideMenuState);
-					return true;
-				}
-				return false;
-			},
-			[]
-		);
-
-		const handleKeyDown = useCallback(
-			(e: React.KeyboardEvent) => {
-				if (
-					fileMenu.show &&
-					fileResults.length > 0 &&
-					handleMenuKey(
-						e,
-						fileResults.length,
-						setFileMenu,
-						fileMenu.selectedIdx,
-						selectFile
-					)
-				)
-					return;
-				if (
-					showCommands &&
-					filteredCommands.length > 0 &&
-					handleMenuKey(
-						e,
-						filteredCommands.length,
-						setSlashMenu,
-						slashMenu.selectedIdx,
-						selectCommand
-					)
-				)
-					return;
-
-				if (e.key === "Enter" && !e.shiftKey) {
-					e.preventDefault();
-					sendMessage();
-				} else if (
-					(e.key === "ArrowDown" || e.key === "ArrowUp") &&
-					input.trim().length === 0 &&
-					!e.altKey &&
-					!e.ctrlKey &&
-					!e.metaKey &&
-					!e.shiftKey
-				) {
-					e.preventDefault();
-					scrollChatByArrow(e.key === "ArrowDown" ? 1 : -1);
-				} else if (composerOnly && e.key === "Escape") {
-					e.preventDefault();
-					onExitComposerOnly?.();
-				}
-			},
-			[
-				composerOnly,
-				sendMessage,
-				input,
-				scrollChatByArrow,
-				onExitComposerOnly,
-				showCommands,
-				filteredCommands,
-				slashMenu.selectedIdx,
-				selectCommand,
-				fileMenu.show,
-				fileMenu.selectedIdx,
-				fileResults,
-				selectFile,
-				setFileMenu,
-				setSlashMenu,
-				handleMenuKey,
-			]
-		);
-
 		const toggleTool = useCallback(
 			(id: string) => {
 				setExpandedTools((prev) => {
@@ -1917,15 +1645,75 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 			},
 			[paneId]
 		);
+		const composerKeyboard = useMemo(
+			() => ({
+				onSubmit: sendMessage,
+				onScrollChatByArrow: scrollChatByArrow,
+				composerOnly,
+				onExitComposerOnly,
+			}),
+			[composerOnly, onExitComposerOnly, scrollChatByArrow, sendMessage]
+		);
+		const composerQueue = useMemo(
+			() => ({
+				queuedMessages,
+				editingQueueId,
+				setEditingQueueId,
+				editingQueueText,
+				setEditingQueueText,
+				queueRef,
+				setQueuedMessages,
+			}),
+			[
+				editingQueueId,
+				editingQueueText,
+				queueRef,
+				queuedMessages,
+				setEditingQueueId,
+				setEditingQueueText,
+				setQueuedMessages,
+			]
+		);
+		const composerFilePicker = useMemo(
+			() => ({
+				menu: fileMenu,
+				setMenu: setFileMenu,
+				results: fileResults,
+				select: selectFile,
+				onInput: handleInputForFileMenu,
+			}),
+			[fileMenu, fileResults, handleInputForFileMenu, selectFile, setFileMenu]
+		);
+		const composerCommandMenu = useMemo(
+			() => ({
+				menu: slashMenu,
+				setMenu: setSlashMenu,
+				show: showCommands,
+				commands: filteredCommands,
+				names: slashCommandNames,
+				select: selectCommand,
+				onInput: handleInputForSlashMenu,
+			}),
+			[
+				filteredCommands,
+				handleInputForSlashMenu,
+				selectCommand,
+				setSlashMenu,
+				showCommands,
+				slashCommandNames,
+				slashMenu,
+			]
+		);
 		const rootProps = stylex.props(
 			styles.root,
 			composerOnly && styles.composerOnlyRoot
 		);
-		const messageRegionProps = stylex.props(styles.messageRegion);
-		const scrollAreaProps = stylex.props(styles.scrollArea);
 		const composerRegionProps = stylex.props(styles.composerRegion);
-		const directoryPickerInnerProps = stylex.props(styles.directoryPickerInner);
-		const scrollButtonProps = stylex.props(styles.scrollButton);
+		const showDirectoryPicker =
+			messages.length === 0 &&
+			!isLoading &&
+			!activeWorkspace.cwd &&
+			Boolean(onDirectoryChange);
 
 		return (
 			<div
@@ -1951,75 +1739,40 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 				onDrop={handleDrop}
 			>
 				{!composerOnly && (
-					<div
-						{...messageRegionProps}
-						className={`${APP_REGION_DRAG_CLASS} ${messageRegionProps.className ?? ""}`}
-					>
-						<div
-							ref={scrollRef}
-							{...scrollAreaProps}
-							className={`${APP_REGION_DRAG_CLASS} ${scrollAreaProps.className ?? ""}`}
-							onScroll={handleScroll}
-						>
-							{messages.length === 0 &&
-								!isLoading &&
-								!activeWorkspace.cwd &&
-								onDirectoryChange && (
-									<div {...stylex.props(styles.directoryPickerWrap)}>
-										<div
-											{...directoryPickerInnerProps}
-											className={`${APP_REGION_NO_DRAG_CLASS} ${directoryPickerInnerProps.className ?? ""}`}
-										>
-											<InlineDirectoryPicker
-												onSelect={(path) => {
-													if (path) onDirectoryChange(paneId, path);
-												}}
-												multiSelect
-												showStartButton={false}
-												onSelectionChange={(paths) => {
-													pendingWorkspacePathsRef.current = paths;
-													setPendingWorkspacePaths(paths);
-													savePendingWorkspacePaths(paneId, paths);
-												}}
-												onMultiSelect={(paths) => {
-													if (paths.length > 0) {
-														onDirectoryChange(
-															paneId,
-															paths[0]!,
-															paths.slice(1)
-														);
-													}
-												}}
-											/>
-										</div>
-									</div>
-								)}
-							<ChatMessageList
+					<AgentChatMessagePane
+						messages={messages}
+						scrollElementRef={scrollRef}
+						onScroll={handleScroll}
+						onVirtualizerReady={handleVirtualizerReady}
+						expandedTools={expandedTools}
+						toggleTool={toggleTool}
+						isLoading={isLoading}
+						startTime={startTime}
+						handleSendMessage={handleSendMessage}
+						onMdFileClick={handleMdFileClick}
+						slashCommandNames={slashCommandNames}
+						paneId={paneId}
+						cwd={visibleWorkspace.cwd}
+						showDirectoryPicker={showDirectoryPicker}
+						onDirectorySelect={(path) => onDirectoryChange?.(paneId, path)}
+						onDirectorySelectionChange={setPendingWorkspacePaths}
+						onDirectoryMultiSelect={(paths) => {
+							if (paths.length > 0) {
+								onDirectoryChange?.(paneId, paths[0]!, paths.slice(1));
+							}
+						}}
+						isAtBottom={isAtBottom}
+						onScrollToBottom={() => scrollToBottom()}
+						statusBar={
+							<AgentChatStatusBar
 								messages={messages}
-								scrollElementRef={scrollRef}
-								onVirtualizerReady={handleVirtualizerReady}
-								expandedTools={expandedTools}
-								toggleTool={toggleTool}
+								liveActivities={liveActivities}
 								isLoading={isLoading}
-								startTime={startTime}
-								handleSendMessage={handleSendMessage}
-								onMdFileClick={handleMdFileClick}
-								slashCommandNames={slashCommandNames}
-								paneId={paneId}
-								cwd={visibleWorkspace.cwd}
+								status={status}
+								onStop={stopGeneration}
 							/>
-						</div>
-						{!isAtBottom && (
-							<button
-								type="button"
-								onClick={() => scrollToBottom()}
-								{...scrollButtonProps}
-								className={`${APP_REGION_NO_DRAG_CLASS} ${scrollButtonProps.className ?? ""}`}
-							>
-								<IconArrowDown size={12} {...stylex.props(styles.scrollIcon)} />
-							</button>
-						)}
-					</div>
+						}
+					/>
 				)}
 
 				<div
@@ -2040,15 +1793,6 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 					)}
 					<div {...stylex.props(styles.composerContent)}>
 						<ChatComposer
-							statusBar={
-								<AgentChatStatusBar
-									messages={messages}
-									liveActivities={liveActivities}
-									isLoading={isLoading}
-									status={status}
-									onStop={stopGeneration}
-								/>
-							}
 							showInput={showInput}
 							agentKind={agentKind}
 							agentKindOptions={agentKindOptions}
@@ -2063,6 +1807,7 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 							attachedImages={attachedImages}
 							removeAttachedImage={removeAttachedImage}
 							attachImage={attachImage}
+							queue={composerQueue}
 							contextBlocks={composerContextBlocks}
 							onRemoveContextBlock={(id) =>
 								setComposerContextBlocks((prev) =>
@@ -2073,27 +1818,10 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 							cwd={visibleWorkspace.cwd}
 							gitBranch={gitBranch}
 							onGitBranchChanged={refetchGitStatus}
-							queuedMessages={queuedMessages}
-							editingQueueId={editingQueueId}
-							setEditingQueueId={setEditingQueueId}
-							editingQueueText={editingQueueText}
-							setEditingQueueText={setEditingQueueText}
-							queueRef={queueRef}
-							setQueuedMessages={setQueuedMessages}
-							fileMenu={fileMenu}
-							setFileMenu={setFileMenu}
-							fileResults={fileResults}
-							selectFile={selectFile}
-							slashMenu={slashMenu}
-							setSlashMenu={setSlashMenu}
-							showCommands={showCommands}
-							filteredCommands={filteredCommands}
-							slashCommandNames={slashCommandNames}
-							selectCommand={selectCommand}
-							handleInputForFileMenu={handleInputForFileMenu}
-							handleInputForSlashMenu={handleInputForSlashMenu}
-							handleKeyDown={handleKeyDown}
+							filePicker={composerFilePicker}
+							commandMenu={composerCommandMenu}
 							handlePaste={handlePaste}
+							keyboard={composerKeyboard}
 							textareaRef={textareaRef}
 							highlightOverlayRef={highlightOverlayRef}
 							inputContainerRef={inputContainerRef}
@@ -2134,76 +1862,6 @@ const styles = stylex.create({
 		width: "min(36rem, calc(100% - 2rem))",
 		height: "auto",
 		transform: "translateX(-50%)",
-	},
-	messageRegion: {
-		display: "flex",
-		gridRow: "1",
-		flex: 1,
-		flexDirection: "column",
-		minHeight: 0,
-		minWidth: 0,
-		overflow: "hidden",
-		position: "relative",
-	},
-	scrollArea: {
-		flex: 1,
-		height: "auto",
-		minHeight: 0,
-		minWidth: 0,
-		overflowX: "hidden",
-		overflowY: "auto",
-		overscrollBehavior: "contain",
-		scrollbarWidth: "none",
-		"::-webkit-scrollbar": {
-			display: "none",
-		},
-	},
-	directoryPickerWrap: {
-		bottom: 0,
-		boxSizing: "border-box",
-		left: 0,
-		maxWidth: "100%",
-		minWidth: 0,
-		overflow: "hidden",
-		paddingBottom: controlSize._2,
-		paddingInline: controlSize._3,
-		pointerEvents: "none",
-		position: "absolute",
-		right: 0,
-		zIndex: 10,
-	},
-	directoryPickerInner: {
-		boxSizing: "border-box",
-		marginInline: "auto",
-		maxWidth: "min(42rem, 100%)",
-		minWidth: 0,
-		pointerEvents: "auto",
-		width: "100%",
-	},
-	scrollButton: {
-		position: "absolute",
-		zIndex: 10,
-		right: controlSize._2,
-		bottom: controlSize._2,
-		display: "flex",
-		width: controlSize._6,
-		height: controlSize._6,
-		alignItems: "center",
-		justifyContent: "center",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: "999px",
-		backgroundColor: {
-			default: color.backgroundRaised,
-			":hover": color.controlHover,
-		},
-		boxShadow: "0 1px 2px rgba(0, 0, 0, 0.24)",
-		transitionProperty: "background-color, opacity",
-		transitionDuration: "120ms",
-	},
-	scrollIcon: {
-		color: color.textSoft,
 	},
 	composerRegion: {
 		position: "relative",

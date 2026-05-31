@@ -17,7 +17,7 @@ import { describeComposerContextBlock } from "../../features/chat/composer-conte
 import type { AgentKind } from "../../features/terminal/terminal-utils.ts";
 import { hasId } from "../../lib/data.ts";
 import { fetchJsonOr, postJson } from "../../lib/fetch-json.ts";
-import { setInputValue, stopPropagation } from "../../lib/react-events.ts";
+import { stopPropagation } from "../../lib/react-events.ts";
 import {
 	color,
 	colorValues,
@@ -31,24 +31,78 @@ import {
 import { IconButton } from "../ui/IconButton.tsx";
 import {
 	IconAlertTriangle,
-	IconCheck,
 	IconChevronDown,
 	IconGitBranch,
 	IconMic,
-	IconPencil,
 	IconPlus,
 	IconStop,
-	IconTrash,
 	IconX,
 } from "../ui/Icons.tsx";
+import { ChatQueueList } from "./ChatQueueList.tsx";
 import { Markdown } from "./ChatRichContent.tsx";
 import { renderInputHighlights } from "./chat-token-decorators.tsx";
+import {
+	type ComposerKeyboardActions,
+	useChatComposerKeyboard,
+} from "./useChatComposerKeyboard.ts";
 
 type AgentOption = {
 	id: AgentKind;
 	label: string;
 	icon: React.ReactNode;
 };
+
+interface ComposerQueueState {
+	queuedMessages: QueuedMessageInfo[];
+	editingQueueId: string | null;
+	setEditingQueueId: (id: string | null) => void;
+	editingQueueText: string;
+	setEditingQueueText: (text: string) => void;
+	queueRef: React.RefObject<QueuedMessageInfo[]>;
+	setQueuedMessages: (messages: QueuedMessageInfo[]) => void;
+}
+
+interface ComposerFilePickerState {
+	menu: {
+		show: boolean;
+		selectedIdx: number;
+		query: string;
+	};
+	setMenu: React.Dispatch<
+		React.SetStateAction<{
+			show: boolean;
+			selectedIdx: number;
+			query: string;
+			atIndex: number;
+			position: {
+				top: number;
+				left: number;
+				width: number;
+				maxHeight: number;
+			} | null;
+		}>
+	>;
+	results: { name: string; path: string; isDir: boolean }[];
+	select: (idx: number) => void;
+	onInput: (value: string, cursorPos: number) => void;
+}
+
+interface ComposerCommandMenuState {
+	menu: { selectedIdx: number };
+	setMenu: React.Dispatch<
+		React.SetStateAction<{
+			show: boolean;
+			selectedIdx: number;
+			query: string;
+			slashIndex: number;
+		}>
+	>;
+	show: boolean;
+	commands: SlashCommand[];
+	names: readonly string[];
+	select: (idx: number) => void;
+	onInput: (value: string, cursorPos: number) => void;
+}
 
 const HIGHLIGHT_CHAR_LIMIT = 6000;
 const APP_REGION_NO_DRAG_CLASS = "electrobun-webkit-app-region-no-drag";
@@ -254,34 +308,17 @@ export function ChatComposer({
 	attachedImages,
 	removeAttachedImage,
 	attachImage,
-	queuedMessages,
-	editingQueueId,
-	setEditingQueueId,
-	editingQueueText,
-	setEditingQueueText,
-	queueRef,
-	setQueuedMessages,
-	fileMenu,
-	setFileMenu,
-	fileResults,
-	selectFile,
-	slashMenu,
-	setSlashMenu,
-	showCommands,
-	filteredCommands,
-	slashCommandNames,
-	selectCommand,
-	handleInputForFileMenu,
-	handleInputForSlashMenu,
-	handleKeyDown,
+	queue,
+	filePicker,
+	commandMenu,
 	handlePaste,
+	keyboard,
 	textareaRef,
 	highlightOverlayRef,
 	inputContainerRef,
 	mdPreview,
 	setMdPreview,
 	onMdFileClick,
-	statusBar,
 	voiceInput,
 	contextBlocks,
 	onRemoveContextBlock,
@@ -304,47 +341,11 @@ export function ChatComposer({
 	attachedImages: AttachedImageInfo[];
 	removeAttachedImage: (path: string) => void;
 	attachImage: (file: File) => Promise<void>;
-	queuedMessages: QueuedMessageInfo[];
-	editingQueueId: string | null;
-	setEditingQueueId: (id: string | null) => void;
-	editingQueueText: string;
-	setEditingQueueText: (text: string) => void;
-	queueRef: React.RefObject<QueuedMessageInfo[]>;
-	setQueuedMessages: (messages: QueuedMessageInfo[]) => void;
-	fileMenu: { show: boolean; selectedIdx: number; query: string };
-	setFileMenu: React.Dispatch<
-		React.SetStateAction<{
-			show: boolean;
-			selectedIdx: number;
-			query: string;
-			atIndex: number;
-			position: {
-				top: number;
-				left: number;
-				width: number;
-				maxHeight: number;
-			} | null;
-		}>
-	>;
-	fileResults: { name: string; path: string; isDir: boolean }[];
-	selectFile: (idx: number) => void;
-	slashMenu: { selectedIdx: number };
-	setSlashMenu: React.Dispatch<
-		React.SetStateAction<{
-			show: boolean;
-			selectedIdx: number;
-			query: string;
-			slashIndex: number;
-		}>
-	>;
-	showCommands: boolean;
-	filteredCommands: SlashCommand[];
-	slashCommandNames: readonly string[];
-	selectCommand: (idx: number) => void;
-	handleInputForFileMenu: (value: string, cursorPos: number) => void;
-	handleInputForSlashMenu: (value: string, cursorPos: number) => void;
-	handleKeyDown: (e: React.KeyboardEvent) => void;
+	queue: ComposerQueueState;
+	filePicker: ComposerFilePickerState;
+	commandMenu: ComposerCommandMenuState;
 	handlePaste: (e: React.ClipboardEvent) => void;
+	keyboard: ComposerKeyboardActions;
 	textareaRef: React.RefObject<HTMLTextAreaElement | null>;
 	highlightOverlayRef: React.RefObject<HTMLDivElement | null>;
 	inputContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -365,7 +366,6 @@ export function ChatComposer({
 		}>
 	>;
 	onMdFileClick: (path: string) => void;
-	statusBar?: React.ReactNode;
 	voiceInput?: {
 		error: string | null;
 		isListening: boolean;
@@ -382,6 +382,22 @@ export function ChatComposer({
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const agentConfigButtonRef = useRef<HTMLButtonElement>(null);
 	const agentConfigMenuRef = useRef<HTMLDivElement>(null);
+	const {
+		menu: fileMenu,
+		setMenu: setFileMenu,
+		results: fileResults,
+		select: selectFile,
+		onInput: handleInputForFileMenu,
+	} = filePicker;
+	const {
+		menu: slashMenu,
+		setMenu: setSlashMenu,
+		show: showCommands,
+		commands: filteredCommands,
+		names: slashCommandNames,
+		select: selectCommand,
+		onInput: handleInputForSlashMenu,
+	} = commandMenu;
 	const [agentConfigOpen, setAgentConfigOpen] = useState(false);
 	const [agentConfigPosition, setAgentConfigPosition] = useState({
 		bottom: 0,
@@ -411,6 +427,19 @@ export function ChatComposer({
 	const selectedReasoningLabel =
 		CODEX_REASONING_LEVELS.find(hasId.bind(null, reasoningLevel))?.label ||
 		reasoningLevel;
+	const handleKeyDown = useChatComposerKeyboard({
+		input,
+		keyboard,
+		fileMenu,
+		fileResultCount: fileResults.length,
+		setFileMenu,
+		selectFile,
+		showCommands,
+		commandMenu: slashMenu,
+		commandCount: filteredCommands.length,
+		setCommandMenu: setSlashMenu,
+		selectCommand,
+	});
 	useEffect(() => {
 		if (!agentConfigOpen) return;
 		const handlePointerDown = (event: MouseEvent) => {
@@ -448,18 +477,6 @@ export function ChatComposer({
 			});
 		}
 		setAgentConfigOpen((open) => !open);
-	};
-	const saveQueuedEdit = (id: string) => {
-		const trimmed = editingQueueText.trim();
-		if (trimmed) {
-			const item = queueRef.current?.find(hasId.bind(null, id));
-			if (item) {
-				item.text = trimmed;
-				item.displayText = trimmed;
-			}
-			setQueuedMessages([...(queueRef.current ?? [])]);
-		}
-		setEditingQueueId(null);
 	};
 	return (
 		<>
@@ -508,8 +525,6 @@ export function ChatComposer({
 					))}
 				</div>
 			)}
-
-			{statusBar}
 
 			{showInput && (
 				<div
@@ -595,100 +610,7 @@ export function ChatComposer({
 								</div>
 							</div>
 						)}
-						{queuedMessages.length > 0 && (
-							<div {...stylex.props(styles.queueList)}>
-								{queuedMessages.map((qm, idx) => (
-									<div key={qm.id} {...stylex.props(styles.queueRow)}>
-										<span {...stylex.props(styles.queueIndex)}>{idx + 1}</span>
-										{editingQueueId === qm.id ? (
-											<div {...stylex.props(styles.queueEditRow)}>
-												<input
-													type="text"
-													ref={(el) => el?.focus()}
-													value={editingQueueText}
-													onChange={setInputValue.bind(
-														null,
-														setEditingQueueText
-													)}
-													onKeyDown={(e) => {
-														if (e.key === "Enter") {
-															saveQueuedEdit(qm.id);
-														} else if (e.key === "Escape") {
-															setEditingQueueId(null);
-														}
-													}}
-													{...stylex.props(styles.queueEditInput)}
-												/>
-												<IconButton
-													type="button"
-													onClick={() => saveQueuedEdit(qm.id)}
-													variant="ghost"
-													size="xs"
-													className={stylex.props(styles.saveButton).className}
-													title="Save"
-												>
-													<IconCheck size={11} />
-												</IconButton>
-												<IconButton
-													type="button"
-													onClick={() => setEditingQueueId(null)}
-													variant="ghost"
-													size="xs"
-													title="Cancel"
-												>
-													<IconX size={11} />
-												</IconButton>
-											</div>
-										) : (
-											<>
-												{qm.images && qm.images.length > 0 && (
-													<img
-														src={`/api/file?path=${encodeURIComponent(qm.images[0]!)}`}
-														alt=""
-														{...stylex.props(styles.queueImage)}
-													/>
-												)}
-												<span {...stylex.props(styles.queueText)}>
-													{qm.displayText}
-												</span>
-												<div {...stylex.props(styles.queueActions)}>
-													<IconButton
-														type="button"
-														onClick={() => {
-															setEditingQueueId(qm.id);
-															setEditingQueueText(qm.text);
-														}}
-														variant="ghost"
-														size="xs"
-														title="Edit"
-													>
-														<IconPencil size={11} />
-													</IconButton>
-													<IconButton
-														type="button"
-														onClick={() => {
-															const next = (queueRef.current ?? []).filter(
-																(q) => q.id !== qm.id
-															);
-															if (queueRef.current) queueRef.current = next;
-															setQueuedMessages([...next]);
-															if (editingQueueId === qm.id) {
-																setEditingQueueId(null);
-															}
-														}}
-														variant="danger"
-														size="xs"
-														title="Remove from queue"
-													>
-														<IconTrash size={11} />
-													</IconButton>
-												</div>
-											</>
-										)}
-									</div>
-								))}
-							</div>
-						)}
+						<ChatQueueList {...queue} />
 
 						{contextBlocks.length > 0 && (
 							<div {...stylex.props(styles.contextRail)}>
@@ -1069,85 +991,6 @@ const styles = stylex.create({
 		borderRadius: "999px",
 		backgroundColor: "rgba(0, 0, 0, 0.7)",
 		color: "#ffffff",
-	},
-	queueList: {
-		borderBottomColor: color.borderSubtle,
-		borderBottomStyle: "solid",
-		borderBottomWidth: 1,
-		flexShrink: 0,
-		maxHeight: "112px",
-		overflowY: "auto",
-		paddingBlock: controlSize._1,
-		paddingInline: controlSize._1,
-	},
-	queueRow: {
-		alignItems: "flex-start",
-		borderRadius: 8,
-		display: "flex",
-		gap: controlSize._2,
-		paddingBlock: controlSize._1,
-		paddingInline: controlSize._2,
-		transitionProperty: "background-color",
-		transitionDuration: "120ms",
-		":hover": {
-			backgroundColor: color.backgroundRaised,
-		},
-	},
-	queueIndex: {
-		alignItems: "center",
-		backgroundColor: color.surfaceSubtle,
-		borderRadius: 999,
-		color: color.textMuted,
-		display: "inline-flex",
-		flexShrink: 0,
-		fontFamily: "var(--font-diff)",
-		fontSize: font.size_1,
-		fontVariantNumeric: "tabular-nums",
-		height: controlSize._5,
-		justifyContent: "center",
-		minWidth: controlSize._5,
-	},
-	queueEditRow: {
-		display: "flex",
-		flex: 1,
-		alignItems: "center",
-		gap: controlSize._1,
-	},
-	queueEditInput: {
-		flex: 1,
-		borderWidth: 0,
-		borderRadius: "0.25rem",
-		backgroundColor: color.surfaceControl,
-		color: color.textMain,
-		fontSize: "0.6875rem",
-		outline: "none",
-		paddingBlock: "0.125rem",
-		paddingInline: controlSize._1,
-	},
-	saveButton: {
-		color: color.accent,
-	},
-	queueImage: {
-		width: controlSize._5,
-		height: controlSize._5,
-		flexShrink: 0,
-		borderRadius: "0.25rem",
-		objectFit: "cover",
-	},
-	queueText: {
-		minWidth: 0,
-		flex: 1,
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-		color: color.textMain,
-		fontSize: "0.6875rem",
-	},
-	queueActions: {
-		display: "flex",
-		flexShrink: 0,
-		alignItems: "center",
-		gap: "0.125rem",
 	},
 	contextRail: {
 		borderBottomColor: color.borderSubtle,
