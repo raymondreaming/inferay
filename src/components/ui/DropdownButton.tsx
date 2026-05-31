@@ -351,7 +351,7 @@ const styles = stylex.create({
 			":hover": `var(--dropdown-button-hover-bg-image, var(--dropdown-button-bg-image, ${effect.controlDepthHover}))`,
 		},
 		borderColor: `var(--dropdown-button-border-color, ${color.border})`,
-		color: color.textSoft,
+		color: `var(--dropdown-button-color, ${color.textSoft})`,
 		boxShadow: {
 			default: `var(--dropdown-button-shadow, ${shadow.controlDepth})`,
 			":hover": `var(--dropdown-button-hover-shadow, var(--dropdown-button-shadow, ${shadow.controlDepthHover}))`,
@@ -362,7 +362,7 @@ const styles = stylex.create({
 		backgroundImage: `var(--dropdown-button-open-bg-image, var(--dropdown-button-bg-image, ${effect.controlDepthHover}))`,
 		borderColor: `var(--dropdown-button-open-border-color, var(--dropdown-button-border-color, ${color.borderStrong}))`,
 		boxShadow: `var(--dropdown-button-open-shadow, var(--dropdown-button-shadow, ${shadow.controlDepthHover}))`,
-		color: color.textMain,
+		color: `var(--dropdown-button-open-color, var(--dropdown-button-color, ${color.textMain}))`,
 	},
 	fullWidth: {
 		width: "100%",

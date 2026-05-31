@@ -2087,7 +2087,7 @@ const styles = stylex.create({
 		left: 0,
 		right: 0,
 		bottom: 0,
-		top: "-36px",
+		top: "-18px",
 	},
 	composerFade: {
 		position: "absolute",
@@ -2095,7 +2095,7 @@ const styles = stylex.create({
 		left: 0,
 		right: 0,
 		bottom: "100%",
-		height: "36px",
+		height: "18px",
 	},
 	composerContent: {
 		position: "relative",

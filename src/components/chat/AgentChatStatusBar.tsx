@@ -114,7 +114,6 @@ export const AgentChatStatusBar = React.memo(function AgentChatStatusBar({
 		});
 	}, [isLoading, statusToolName]);
 
-	if (!isLoading) return null;
 	const activityItems =
 		liveActivities.length > 0
 			? liveActivities
@@ -130,7 +129,7 @@ export const AgentChatStatusBar = React.memo(function AgentChatStatusBar({
 		(status === "responding" ? "Responding" : "Working...");
 	const activityCount = activityItems.length;
 	const showActivityPopover =
-		(isHovered || isPopoverHovered) && activityCount > 0;
+		isLoading && (isHovered || isPopoverHovered) && activityCount > 0;
 
 	useEffect(() => {
 		if (!showActivityPopover) return;
@@ -167,6 +166,8 @@ export const AgentChatStatusBar = React.memo(function AgentChatStatusBar({
 		};
 	}, [showActivityPopover]);
 	const activityPopoverProps = stylex.props(styles.activityPopover);
+
+	if (!isLoading) return null;
 
 	return (
 		<div {...stylex.props(styles.root)}>

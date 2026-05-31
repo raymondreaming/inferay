@@ -15,8 +15,13 @@ import {
 } from "../../features/artifacts/artifact-workspace-store.ts";
 import { describeComposerContextBlock } from "../../features/chat/composer-context.ts";
 import {
+	loadStoredMessages,
+	loadStoredSummary,
+} from "../../features/chat/chat-session-store.ts";
+import {
 	getPaneTitle,
 	loadTerminalState,
+	type TerminalPaneModel,
 } from "../../features/terminal/terminal-utils.ts";
 import {
 	color,
@@ -57,13 +62,6 @@ export type ChatVirtualizerControls = {
 
 const APP_REGION_DRAG_CLASS = "electrobun-webkit-app-region-drag";
 const APP_REGION_NO_DRAG_CLASS = "electrobun-webkit-app-region-no-drag";
-const CHAT_SELECTABLE_NO_DRAG_CLASS = `${APP_REGION_NO_DRAG_CLASS} inferay-chat-selectable-region`;
-
-function selectableNoDragClassName(className?: string) {
-	return className
-		? `${CHAT_SELECTABLE_NO_DRAG_CLASS} ${className}`
-		: CHAT_SELECTABLE_NO_DRAG_CLASS;
-}
 
 function dragClassName(className?: string) {
 	return className
@@ -80,6 +78,55 @@ function noDragClassName(className?: string) {
 type ChatRenderRow =
 	| RenderItem
 	| { type: "thinking"; key: string; startTime: number };
+
+type HandoverTarget = {
+	id: string;
+	label: string;
+	detail?: string;
+};
+
+function compactTitle(text: string) {
+	const normalized = text.trim().split("\n")[0]?.trim() ?? "";
+	return normalized.length > 60
+		? `${normalized.slice(0, 57).trim()}...`
+		: normalized;
+}
+
+function getPaneBaseFolder(pane: TerminalPaneModel): string | undefined {
+	return pane.cwd?.split("/").filter(Boolean).pop();
+}
+
+function getSidebarLikePaneTitle(pane: TerminalPaneModel): string {
+	const storedSummary = loadStoredSummary(pane.id) ?? pane.summary ?? null;
+	if (storedSummary?.trim()) return storedSummary.trim();
+
+	const firstUser = loadStoredMessages<{ role?: string; content?: string }>(
+		pane.id
+	).find((message) => message.role === "user" && message.content?.trim());
+	if (firstUser?.content) {
+		const title = compactTitle(firstUser.content);
+		if (title) return title;
+	}
+
+	return pane.title || getPaneTitle(pane);
+}
+
+function loadHandoverTargets(currentPaneId: string): HandoverTarget[] {
+	const targets: HandoverTarget[] = [];
+	for (const group of loadTerminalState()?.groups ?? []) {
+		for (const pane of group.panes) {
+			if (pane.id === currentPaneId || !isChatAgentKind(pane.agentKind)) {
+				continue;
+			}
+			targets.push({
+				id: pane.id,
+				label: getSidebarLikePaneTitle(pane),
+				detail: getPaneBaseFolder(pane),
+			});
+		}
+	}
+	return targets;
+}
 
 function estimateRowSize(row: ChatRenderRow | undefined): number {
 	if (!row) return 80;
@@ -228,6 +275,7 @@ const Bubble = React.memo(function Bubble({
 	slashCommandNames,
 	paneId,
 	cwd,
+	handoverTargets,
 }: {
 	msg: ChatMessage;
 	collapsed: boolean;
@@ -237,6 +285,7 @@ const Bubble = React.memo(function Bubble({
 	slashCommandNames: readonly string[];
 	paneId: string;
 	cwd?: string | null;
+	handoverTargets: HandoverTarget[];
 }) {
 	const [copied, setCopied] = useState(false);
 	const [savedArtifactId, setSavedArtifactId] = useState(
@@ -244,25 +293,10 @@ const Bubble = React.memo(function Bubble({
 	);
 	const savedArtifact = savedArtifactId !== null;
 	const messageActionIconProps = stylex.props(styles.messageActionIcon);
-	const agentTargets = useMemo(() => {
-		const targets: Array<{ id: string; label: string; cwd?: string }> = [];
-		for (const group of loadTerminalState()?.groups ?? []) {
-			for (const pane of group.panes) {
-				if (!isChatAgentKind(pane.agentKind)) continue;
-				targets.push({
-					id: pane.id,
-					label: getPaneTitle(pane.agentKind, pane.cwd),
-					cwd: pane.cwd,
-				});
-			}
-		}
-		return targets;
-	}, []);
-	const handoverTargets = agentTargets.filter((target) => target.id !== paneId);
 	const handoverOptions = handoverTargets.map((target) => ({
 		id: target.id,
 		label: target.label,
-		detail: target.cwd ? target.cwd.split("/").pop() || target.cwd : undefined,
+		detail: target.detail,
 		icon: <IconSend size={12} strokeWidth={1.45} {...messageActionIconProps} />,
 	}));
 	const handleCopyMessage = useCallback(() => {
@@ -351,7 +385,7 @@ const Bubble = React.memo(function Bubble({
 			<div {...stylex.props(styles.userRow)}>
 				<div
 					{...userBubbleProps}
-					className={selectableNoDragClassName(userBubbleProps.className)}
+					className={noDragClassName(userBubbleProps.className)}
 				>
 					{(msg.contextBlocks?.length ?? 0) > 0 && (
 						<div {...stylex.props(styles.userMetaRow)}>
@@ -398,7 +432,7 @@ const Bubble = React.memo(function Bubble({
 				<div {...stylex.props(styles.systemRunRow)}>
 					<div
 						{...systemRunPillProps}
-						className={selectableNoDragClassName(systemRunPillProps.className)}
+						className={noDragClassName(systemRunPillProps.className)}
 					>
 						<span {...stylex.props(styles.runningCommand)}>/{commandName}</span>
 					</div>
@@ -411,7 +445,7 @@ const Bubble = React.memo(function Bubble({
 			return (
 				<div
 					{...systemNoticeProps}
-					className={selectableNoDragClassName(systemNoticeProps.className)}
+					className={noDragClassName(systemNoticeProps.className)}
 				>
 					<div {...stylex.props(styles.systemNoticeHeader)}>
 						<IconAlertTriangle
@@ -436,7 +470,7 @@ const Bubble = React.memo(function Bubble({
 		return (
 			<p
 				{...systemTextProps}
-				className={selectableNoDragClassName(systemTextProps.className)}
+				className={noDragClassName(systemTextProps.className)}
 			>
 				{msg.content}
 			</p>
@@ -448,7 +482,7 @@ const Bubble = React.memo(function Bubble({
 		return (
 			<div
 				{...btwCardProps}
-				className={selectableNoDragClassName(btwCardProps.className)}
+				className={noDragClassName(btwCardProps.className)}
 			>
 				<div {...stylex.props(styles.btwHeader)}>
 					<span {...stylex.props(styles.btwLabel)}>btw</span>
@@ -476,7 +510,7 @@ const Bubble = React.memo(function Bubble({
 	if (msg.role === "tool") {
 		if (msg.toolName === "AskUserQuestion") {
 			return (
-				<div className={CHAT_SELECTABLE_NO_DRAG_CLASS}>
+				<div className={APP_REGION_NO_DRAG_CLASS}>
 					<AskUserQuestionCard
 						content={msg.content}
 						isStreaming={msg.isStreaming}
@@ -494,7 +528,7 @@ const Bubble = React.memo(function Bubble({
 					parsed.new_string !== undefined
 				) {
 					return (
-						<div className={CHAT_SELECTABLE_NO_DRAG_CLASS}>
+						<div className={APP_REGION_NO_DRAG_CLASS}>
 							<MiniEditDiff
 								oldStr={parsed.old_string}
 								newStr={parsed.new_string}
@@ -507,7 +541,7 @@ const Bubble = React.memo(function Bubble({
 			} catch {}
 		}
 		return (
-			<div className={CHAT_SELECTABLE_NO_DRAG_CLASS}>
+			<div className={APP_REGION_NO_DRAG_CLASS}>
 				<button
 					type="button"
 					onClick={() => onToggle(msg.id)}
@@ -544,7 +578,7 @@ const Bubble = React.memo(function Bubble({
 			className={dragClassName(assistantMessageProps.className)}
 		>
 			<div
-				className={CHAT_SELECTABLE_NO_DRAG_CLASS}
+				className={APP_REGION_NO_DRAG_CLASS}
 				style={{ display: "inline-block", maxWidth: "100%" }}
 			>
 				<Markdown text={msg.content} onMdFileClick={onMdFileClick} />
@@ -654,7 +688,7 @@ const Bubble = React.memo(function Bubble({
 	);
 });
 
-export function ChatMessageList({
+export const ChatMessageList = React.memo(function ChatMessageList({
 	messages,
 	scrollElementRef,
 	onVirtualizerReady,
@@ -681,7 +715,12 @@ export function ChatMessageList({
 	paneId: string;
 	cwd?: string | null;
 }) {
+	const [terminalStateVersion, setTerminalStateVersion] = useState(0);
 	const renderItems = useMemo(() => buildRenderItems(messages), [messages]);
+	const handoverTargets = useMemo(
+		() => loadHandoverTargets(paneId),
+		[paneId, terminalStateVersion]
+	);
 	const renderRows = useMemo<ChatRenderRow[]>(() => {
 		const rows: ChatRenderRow[] = renderItems;
 		if (!isLoading || !startTime) return rows;
@@ -705,6 +744,14 @@ export function ChatMessageList({
 		useFlushSync: false,
 	});
 	const didInitialScrollRef = useRef(false);
+
+	useEffect(() => {
+		const refreshTargets = () =>
+			setTerminalStateVersion((version) => version + 1);
+		window.addEventListener("terminal-shell-change", refreshTargets);
+		return () =>
+			window.removeEventListener("terminal-shell-change", refreshTargets);
+	}, []);
 
 	useEffect(() => {
 		onVirtualizerReady?.({
@@ -762,7 +809,7 @@ export function ChatMessageList({
 							className={dragClassName(virtualRowProps.className)}
 							style={{ transform: `translateY(${virtualItem.start}px)` }}
 						>
-							<div className={CHAT_SELECTABLE_NO_DRAG_CLASS}>
+							<div className={APP_REGION_NO_DRAG_CLASS}>
 								<GroupedEditDiff filePath={item.filePath} edits={item.edits} />
 							</div>
 						</div>
@@ -787,13 +834,14 @@ export function ChatMessageList({
 							slashCommandNames={slashCommandNames}
 							paneId={paneId}
 							cwd={cwd}
+							handoverTargets={handoverTargets}
 						/>
 					</div>
 				);
 			})}
 		</div>
 	);
-}
+});
 
 const styles = stylex.create({
 	toolMuted: {
@@ -1054,12 +1102,14 @@ const styles = stylex.create({
 		"--dropdown-button-bg-image": "none",
 		"--dropdown-button-border-color": color.transparent,
 		"--dropdown-button-border-width": "0",
+		"--dropdown-button-color": color.textMuted,
 		"--dropdown-button-hover-bg-color": color.transparent,
 		"--dropdown-button-hover-bg-image": "none",
 		"--dropdown-button-hover-shadow": "none",
 		"--dropdown-button-open-bg-color": color.transparent,
 		"--dropdown-button-open-bg-image": "none",
 		"--dropdown-button-open-border-color": color.transparent,
+		"--dropdown-button-open-color": color.textMuted,
 		"--dropdown-button-open-shadow": "none",
 		"--dropdown-button-shadow": "none",
 		backgroundImage: "none",
@@ -1173,11 +1223,11 @@ const styles = stylex.create({
 		backgroundSize: "180% 180%",
 		boxShadow:
 			"inset 0 0 0 1px color-mix(in srgb, var(--color-inferay-accent) 20%, transparent)",
-		color: color.textMain,
+		color: color.textMuted,
 	},
 	copyMessageButtonCopied: {
 		backgroundColor: color.successWash,
-		color: color.success,
+		color: color.textMuted,
 	},
 	messageList: {
 		minHeight: "100%",
