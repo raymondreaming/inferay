@@ -16,7 +16,7 @@ function loadMermaid(): Promise<unknown> {
 		const script = document.createElement("script");
 		script.src = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js";
 		script.onload = () => {
-			const m = (window as Record<string, unknown>).mermaid as {
+			const m = (window as unknown as Record<string, unknown>).mermaid as {
 				initialize: (cfg: Record<string, unknown>) => void;
 			};
 			m.initialize({
@@ -54,7 +54,7 @@ function MermaidBlock({ code }: { code: string }) {
 		loadMermaid()
 			.then(() => {
 				if (signal.aborted || !ref.current) return;
-				const m = (window as Record<string, unknown>).mermaid as {
+				const m = (window as unknown as Record<string, unknown>).mermaid as {
 					render: (id: string, code: string) => Promise<{ svg: string }>;
 				};
 				return m.render(id, code);

@@ -214,6 +214,19 @@ select,
 	user-select: none;
 }
 
+.inferay-chat-selectable-region,
+.inferay-chat-selectable-region * {
+	-webkit-user-select: text;
+	user-select: text;
+}
+
+.inferay-chat-selectable-region button,
+.inferay-chat-selectable-region [role="button"],
+.inferay-chat-selectable-region select {
+	-webkit-user-select: none;
+	user-select: none;
+}
+
 html[data-inferay-fullscreen="true"] .inferay-window-spacer {
 	display: none;
 }

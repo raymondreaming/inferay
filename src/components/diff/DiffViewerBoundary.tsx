@@ -14,19 +14,19 @@ export class DiffViewerBoundary extends Component<
 	DiffViewerBoundaryProps,
 	DiffViewerBoundaryState
 > {
-	state: DiffViewerBoundaryState = { error: null };
+	override state: DiffViewerBoundaryState = { error: null };
 
 	static getDerivedStateFromError(error: Error) {
 		return { error };
 	}
 
-	componentDidUpdate(prevProps: DiffViewerBoundaryProps) {
+	override componentDidUpdate(prevProps: DiffViewerBoundaryProps) {
 		if (prevProps.resetKey !== this.props.resetKey && this.state.error) {
 			this.setState({ error: null });
 		}
 	}
 
-	render() {
+	override render() {
 		if (this.state.error) {
 			return (
 				<div

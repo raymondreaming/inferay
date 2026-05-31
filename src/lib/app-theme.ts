@@ -68,6 +68,48 @@ const CSS_VAR_MAP: Record<keyof AppThemeColors, string> = {
 
 const ACCENT_FOREGROUND_CSS_VAR = "--color-inferay-accent-foreground" as const;
 
+const DARK_DEPTH_TOKENS = {
+	"--effect-inferay-control-depth":
+		"linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(0, 0, 0, 0.08) 48%, rgba(0, 0, 0, 0.2))",
+	"--effect-inferay-control-depth-hover":
+		"linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(0, 0, 0, 0.1) 48%, rgba(0, 0, 0, 0.24))",
+	"--effect-inferay-popover-depth":
+		"linear-gradient(180deg, rgba(255, 255, 255, 0.014), rgba(0, 0, 0, 0.08) 42%, rgba(0, 0, 0, 0.22))",
+	"--shadow-inferay-control-depth":
+		"inset 0 1px 0 rgba(255, 255, 255, 0.045), inset 0 -1px 0 rgba(0, 0, 0, 0.42)",
+	"--shadow-inferay-control-depth-hover":
+		"inset 0 1px 0 rgba(255, 255, 255, 0.055), inset 0 -1px 0 rgba(0, 0, 0, 0.48)",
+	"--shadow-inferay-composer-frame":
+		"inset 0 1px 0 rgba(255, 255, 255, 0.055), inset 0 -1px 0 rgba(0, 0, 0, 0.48), 0 18px 42px rgba(0, 0, 0, 0.34)",
+	"--shadow-inferay-composer-frame-focus":
+		"inset 0 1px 0 rgba(255, 255, 255, 0.075), inset 0 -1px 0 rgba(0, 0, 0, 0.52), 0 22px 52px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(255, 255, 255, 0.035)",
+	"--shadow-inferay-selected-ring": "0 0 0 1px rgba(255, 255, 255, 0.05)",
+	"--shadow-inferay-focus-ring": "0 0 0 1px rgba(229, 229, 231, 0.35)",
+	"--shadow-inferay-popover": "0 10px 15px -3px rgba(0, 0, 0, 0.6)",
+	"--shadow-inferay-modal": "0 25px 50px -12px rgba(0, 0, 0, 0.7)",
+} as const;
+
+const LIGHT_DEPTH_TOKENS = {
+	"--effect-inferay-control-depth":
+		"linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.54) 46%, rgba(31, 35, 40, 0.045))",
+	"--effect-inferay-control-depth-hover":
+		"linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.62) 46%, rgba(31, 35, 40, 0.065))",
+	"--effect-inferay-popover-depth":
+		"linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(246, 248, 250, 0.78) 48%, rgba(31, 35, 40, 0.035))",
+	"--shadow-inferay-control-depth":
+		"inset 0 1px 0 rgba(255, 255, 255, 0.92), inset 0 -1px 0 rgba(31, 35, 40, 0.09)",
+	"--shadow-inferay-control-depth-hover":
+		"inset 0 1px 0 rgba(255, 255, 255, 0.98), inset 0 -1px 0 rgba(31, 35, 40, 0.12)",
+	"--shadow-inferay-composer-frame":
+		"inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(31, 35, 40, 0.08), 0 16px 34px rgba(31, 35, 40, 0.12)",
+	"--shadow-inferay-composer-frame-focus":
+		"inset 0 1px 0 rgba(255, 255, 255, 0.98), inset 0 -1px 0 rgba(31, 35, 40, 0.1), 0 18px 40px rgba(31, 35, 40, 0.14), 0 0 0 1px rgba(31, 35, 40, 0.06)",
+	"--shadow-inferay-selected-ring": "0 0 0 1px rgba(31, 35, 40, 0.08)",
+	"--shadow-inferay-focus-ring": "0 0 0 1px rgba(9, 105, 218, 0.35)",
+	"--shadow-inferay-popover": "0 18px 38px -16px rgba(31, 35, 40, 0.28)",
+	"--shadow-inferay-modal": "0 28px 60px -24px rgba(31, 35, 40, 0.34)",
+} as const;
+
 // Compact theme data:
 // [id, name, black, darkGray, gray, lightGray, grayBorder, grayBorderBold, accent, accentHover, success, warning, error, info, white, softWhite, mutedGray, light?]
 type ThemeTuple = [
@@ -428,6 +470,10 @@ export function applyAppTheme(id: AppThemeId): void {
 		id === "custom"
 			? isLightColor(theme.colors.black)
 			: APP_THEMES.find(hasId.bind(null, id))?.light;
+	const depthTokens = light ? LIGHT_DEPTH_TOKENS : DARK_DEPTH_TOKENS;
+	for (const [key, value] of Object.entries(depthTokens)) {
+		root.style.setProperty(key, value);
+	}
 	root.style.colorScheme = light ? "light" : "dark";
 	meta?.setAttribute("content", theme.colors.black);
 }

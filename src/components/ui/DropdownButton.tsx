@@ -328,13 +328,13 @@ const styles = stylex.create({
 		alignItems: "center",
 		borderRadius: 8,
 		borderStyle: "solid",
-		borderWidth: 1,
+		borderWidth: "var(--dropdown-button-border-width, 1px)",
 		display: "flex",
 		fontSize: font.size_3,
 		gap: controlSize._2,
 		height: controlSize._7,
 		paddingInline: controlSize._3,
-		boxShadow: shadow.controlDepth,
+		boxShadow: `var(--dropdown-button-shadow, ${shadow.controlDepth})`,
 		transitionDuration: "150ms",
 		transitionProperty:
 			"background-color, background-image, border-color, box-shadow, color",
@@ -343,26 +343,25 @@ const styles = stylex.create({
 	},
 	buttonClosed: {
 		backgroundColor: {
-			default: color.backgroundRaised,
-			":hover": color.controlHover,
+			default: `var(--dropdown-button-bg-color, ${color.backgroundRaised})`,
+			":hover": `var(--dropdown-button-hover-bg-color, var(--dropdown-button-bg-color, ${color.controlHover}))`,
 		},
 		backgroundImage: {
-			default: effect.controlDepth,
-			":hover": effect.controlDepthHover,
+			default: `var(--dropdown-button-bg-image, ${effect.controlDepth})`,
+			":hover": `var(--dropdown-button-hover-bg-image, var(--dropdown-button-bg-image, ${effect.controlDepthHover}))`,
 		},
-		borderColor: color.border,
+		borderColor: `var(--dropdown-button-border-color, ${color.border})`,
 		color: color.textSoft,
 		boxShadow: {
-			default: shadow.controlDepth,
-			":hover": shadow.controlDepthHover,
+			default: `var(--dropdown-button-shadow, ${shadow.controlDepth})`,
+			":hover": `var(--dropdown-button-hover-shadow, var(--dropdown-button-shadow, ${shadow.controlDepthHover}))`,
 		},
 	},
 	buttonOpen: {
-		backgroundColor: color.controlActive,
-		backgroundImage: effect.controlDepthHover,
-		borderColor: "rgba(229, 229, 231, 0.4)",
-		boxShadow:
-			"inset 0 1px 14px rgba(0, 0, 0, 0.24), inset 0 -1px 0 rgba(255, 255, 255, 0.028), 0 12px 30px rgba(0, 0, 0, 0.36)",
+		backgroundColor: `var(--dropdown-button-open-bg-color, var(--dropdown-button-bg-color, ${color.controlActive}))`,
+		backgroundImage: `var(--dropdown-button-open-bg-image, var(--dropdown-button-bg-image, ${effect.controlDepthHover}))`,
+		borderColor: `var(--dropdown-button-open-border-color, var(--dropdown-button-border-color, ${color.borderStrong}))`,
+		boxShadow: `var(--dropdown-button-open-shadow, var(--dropdown-button-shadow, ${shadow.controlDepthHover}))`,
 		color: color.textMain,
 	},
 	fullWidth: {
@@ -376,8 +375,7 @@ const styles = stylex.create({
 		borderRadius: 8,
 		borderStyle: "solid",
 		borderWidth: 1,
-		boxShadow:
-			"inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 28px 58px -14px rgba(0, 0, 0, 0.82)",
+		boxShadow: shadow.popover,
 		overflow: "hidden",
 		position: "fixed",
 		userSelect: "none",
@@ -391,10 +389,9 @@ const styles = stylex.create({
 		paddingInline: controlSize._2,
 	},
 	searchInput: {
-		backgroundColor: "rgba(28, 28, 30, 0.5)",
-		backgroundImage:
-			"linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.01))",
-		borderColor: "rgba(255, 255, 255, 0.04)",
+		backgroundColor: color.surfaceControl,
+		backgroundImage: effect.controlDepth,
+		borderColor: color.border,
 		borderRadius: 6,
 		borderStyle: "solid",
 		borderWidth: 1,
@@ -410,7 +407,7 @@ const styles = stylex.create({
 		},
 		":focus": {
 			borderColor: color.accentBorder,
-			boxShadow: "0 0 0 1px rgba(255, 255, 255, 0.06)",
+			boxShadow: shadow.focusRing,
 		},
 	},
 	optionsBox: {

@@ -6,16 +6,22 @@ export const colorValues = {
 	backgroundRaised: "var(--color-inferay-dark-gray)",
 	backgroundSubtle: "var(--color-inferay-gray)",
 	backgroundOverlay: "rgba(0, 0, 0, 0.6)",
-	surfaceTranslucent: "rgba(28, 28, 30, 0.2)",
-	surfaceInset: "rgba(0, 0, 0, 0.15)",
-	surfaceSubtle: "rgba(255, 255, 255, 0.04)",
-	surfaceControl: "rgba(255, 255, 255, 0.055)",
-	surfaceControlHover: "rgba(255, 255, 255, 0.085)",
-	border: "rgba(255, 255, 255, 0.075)",
-	borderSubtle: "rgba(255, 255, 255, 0.028)",
-	borderStrong: "rgba(255, 255, 255, 0.13)",
-	borderControl: "rgba(255, 255, 255, 0.12)",
-	focusRing: "rgba(229, 229, 231, 0.6)",
+	surfaceTranslucent:
+		"color-mix(in srgb, var(--color-inferay-dark-gray) 72%, transparent)",
+	surfaceInset:
+		"color-mix(in srgb, var(--color-inferay-gray) 34%, transparent)",
+	surfaceSubtle:
+		"color-mix(in srgb, var(--color-inferay-gray) 34%, transparent)",
+	surfaceControl:
+		"color-mix(in srgb, var(--color-inferay-gray) 54%, transparent)",
+	surfaceControlHover:
+		"color-mix(in srgb, var(--color-inferay-light-gray) 62%, transparent)",
+	border: "var(--color-inferay-gray-border)",
+	borderSubtle:
+		"color-mix(in srgb, var(--color-inferay-gray-border) 48%, transparent)",
+	borderStrong: "var(--color-inferay-gray-border-bold)",
+	borderControl: "var(--color-inferay-gray-border-bold)",
+	focusRing: "color-mix(in srgb, var(--color-inferay-info) 58%, transparent)",
 	controlHover: "var(--color-inferay-gray)",
 	controlActive:
 		"color-mix(in srgb, var(--color-inferay-gray) 82%, var(--color-inferay-light-gray) 18%)",
@@ -100,22 +106,28 @@ const motionValues = {
 const shadowValues = {
 	none: "none",
 	controlDepth:
-		"inset 0 1px 12px rgba(0, 0, 0, 0.18), inset 0 -1px 0 rgba(255, 255, 255, 0.025), 0 8px 22px rgba(0, 0, 0, 0.22)",
+		"var(--shadow-inferay-control-depth, inset 0 1px 0 rgba(255, 255, 255, 0.045), inset 0 -1px 0 rgba(0, 0, 0, 0.42))",
 	controlDepthHover:
-		"inset 0 1px 14px rgba(0, 0, 0, 0.22), inset 0 -1px 0 rgba(255, 255, 255, 0.03), 0 10px 26px rgba(0, 0, 0, 0.28)",
-	selectedRing: "0 0 0 1px rgba(255, 255, 255, 0.05)",
-	focusRing: "0 0 0 1px rgba(229, 229, 231, 0.35)",
-	popover: "0 10px 15px -3px rgba(0, 0, 0, 0.6)",
-	modal: "0 25px 50px -12px rgba(0, 0, 0, 0.7)",
+		"var(--shadow-inferay-control-depth-hover, inset 0 1px 0 rgba(255, 255, 255, 0.055), inset 0 -1px 0 rgba(0, 0, 0, 0.48))",
+	composerFrame:
+		"var(--shadow-inferay-composer-frame, inset 0 1px 0 rgba(255, 255, 255, 0.055), inset 0 -1px 0 rgba(0, 0, 0, 0.48), 0 18px 42px rgba(0, 0, 0, 0.34))",
+	composerFrameFocus:
+		"var(--shadow-inferay-composer-frame-focus, inset 0 1px 0 rgba(255, 255, 255, 0.075), inset 0 -1px 0 rgba(0, 0, 0, 0.52), 0 22px 52px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(255, 255, 255, 0.035))",
+	selectedRing:
+		"var(--shadow-inferay-selected-ring, 0 0 0 1px rgba(255, 255, 255, 0.05))",
+	focusRing:
+		"var(--shadow-inferay-focus-ring, 0 0 0 1px rgba(229, 229, 231, 0.35))",
+	popover: "var(--shadow-inferay-popover, 0 10px 15px -3px rgba(0, 0, 0, 0.6))",
+	modal: "var(--shadow-inferay-modal, 0 25px 50px -12px rgba(0, 0, 0, 0.7))",
 } as const;
 
 export const effectValues = {
 	controlDepth:
-		"linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(0, 0, 0, 0.08) 48%, rgba(0, 0, 0, 0.2))",
+		"var(--effect-inferay-control-depth, linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(0, 0, 0, 0.08) 48%, rgba(0, 0, 0, 0.2)))",
 	controlDepthHover:
-		"linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(0, 0, 0, 0.1) 48%, rgba(0, 0, 0, 0.24))",
+		"var(--effect-inferay-control-depth-hover, linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(0, 0, 0, 0.1) 48%, rgba(0, 0, 0, 0.24)))",
 	popoverDepth:
-		"linear-gradient(180deg, rgba(255, 255, 255, 0.014), rgba(0, 0, 0, 0.08) 42%, rgba(0, 0, 0, 0.22))",
+		"var(--effect-inferay-popover-depth, linear-gradient(180deg, rgba(255, 255, 255, 0.014), rgba(0, 0, 0, 0.08) 42%, rgba(0, 0, 0, 0.22)))",
 	composerBackdrop:
 		"linear-gradient(to bottom, transparent 0%, color-mix(in srgb, var(--color-inferay-black) 90%, transparent) 38%, var(--color-inferay-black) 72%)",
 	composerFade:
