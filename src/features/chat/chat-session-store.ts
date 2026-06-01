@@ -1,6 +1,23 @@
 import { isString, noop } from "../../lib/data.ts";
 import { fetchJsonOr, sendJson } from "../../lib/fetch-json.ts";
 import {
+	CHAT_CHECKPOINT_KEY_PREFIX,
+	CHAT_COMPOSER_CONTEXT_KEY_PREFIX,
+	CHAT_INPUT_KEY_PREFIX,
+	CHAT_LOADING_STATE_KEY_PREFIX,
+	CHAT_MESSAGES_STORAGE_KEY_PREFIX,
+	CHAT_MODEL_KEY_PREFIX,
+	CHAT_PENDING_SEND_KEY_PREFIX,
+	CHAT_PENDING_WORKSPACE_KEY_PREFIX,
+	CHAT_QUEUE_KEY_PREFIX,
+	CHAT_REASONING_KEY_PREFIX,
+	CHAT_SESSION_INDEX_STORAGE_KEY,
+	CHAT_SESSION_KEY_PREFIX,
+	CHAT_SUMMARY_KEY_PREFIX,
+	CHAT_WORKTREE_INFO_KEY_PREFIX,
+} from "../../lib/client-storage-keys.ts";
+import { flushPendingClientStorageSync } from "../../lib/client-storage-sync.ts";
+import {
 	readStoredJson,
 	readStoredValue,
 	removeStoredValue,
@@ -8,20 +25,6 @@ import {
 	writeStoredValue,
 } from "../../lib/stored-json.ts";
 
-const STORAGE_KEY_PREFIX = "inferay-chat-";
-const SESSION_KEY_PREFIX = "inferay-chat-session-";
-const INPUT_KEY_PREFIX = "inferay-chat-input-";
-const CHECKPOINT_KEY_PREFIX = "inferay-checkpoints-";
-const MODEL_KEY_PREFIX = "inferay-chat-model-";
-const REASONING_KEY_PREFIX = "inferay-chat-reasoning-";
-const PENDING_SEND_KEY_PREFIX = "inferay-chat-pending-send-";
-const SUMMARY_KEY_PREFIX = "inferay-chat-summary-";
-const SESSION_INDEX_KEY = "inferay-session-library";
-const PENDING_WORKSPACE_KEY_PREFIX = "inferay-chat-pending-workspace-";
-const QUEUE_KEY_PREFIX = "inferay-chat-queue-";
-const LOADING_STATE_KEY_PREFIX = "inferay-chat-loading-";
-const COMPOSER_CONTEXT_KEY_PREFIX = "inferay-chat-composer-context-";
-const WORKTREE_INFO_KEY_PREFIX = "inferay-chat-worktree-";
 const LOADING_STATE_TTL_MS = 6 * 60 * 60 * 1000;
 
 export interface StoredLoadingState {
@@ -113,7 +116,11 @@ function hasAssistantSideHistory(messages: unknown[]): boolean {
 }
 
 export function loadStoredMessages<T>(paneId: string): T[] {
-	const parsed = readPaneJson<unknown>(STORAGE_KEY_PREFIX, paneId, []);
+	const parsed = readPaneJson<unknown>(
+		CHAT_MESSAGES_STORAGE_KEY_PREFIX,
+		paneId,
+		[]
+	);
 	return Array.isArray(parsed) ? (parsed as T[]) : [];
 }
 
@@ -150,8 +157,8 @@ export function loadStoredChatPaneIds(): string[] {
 		const ids = new Set<string>();
 		for (let index = 0; index < localStorage.length; index += 1) {
 			const key = localStorage.key(index);
-			if (!key?.startsWith(STORAGE_KEY_PREFIX)) continue;
-			const paneId = key.slice(STORAGE_KEY_PREFIX.length);
+			if (!key?.startsWith(CHAT_MESSAGES_STORAGE_KEY_PREFIX)) continue;
+			const paneId = key.slice(CHAT_MESSAGES_STORAGE_KEY_PREFIX.length);
 			if (paneId) ids.add(paneId);
 		}
 		return [...ids];
@@ -169,11 +176,11 @@ export function saveStoredMessages<T>(paneId: string, messages: T[]) {
 	) {
 		return;
 	}
-	writePaneJson(STORAGE_KEY_PREFIX, paneId, messages);
+	writePaneJson(CHAT_MESSAGES_STORAGE_KEY_PREFIX, paneId, messages);
 }
 
 export function loadSessionLibrary(): StoredChatSession[] {
-	const sessions = readStoredJson<unknown>(SESSION_INDEX_KEY, []);
+	const sessions = readStoredJson<unknown>(CHAT_SESSION_INDEX_STORAGE_KEY, []);
 	if (!Array.isArray(sessions)) return [];
 	return [...sessions]
 		.filter(
@@ -185,8 +192,16 @@ export function loadSessionLibrary(): StoredChatSession[] {
 		.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+export function loadStoredChatSession(
+	paneId: string
+): StoredChatSession | null {
+	return (
+		loadSessionLibrary().find((session) => session.paneId === paneId) ?? null
+	);
+}
+
 export function saveSessionLibrary(sessions: StoredChatSession[]) {
-	writeStoredJson(SESSION_INDEX_KEY, sessions);
+	writeStoredJson(CHAT_SESSION_INDEX_STORAGE_KEY, sessions);
 }
 
 export function upsertSessionLibraryEntry(
@@ -224,84 +239,84 @@ export function removeSessionLibraryEntry(paneId: string) {
 }
 
 export function loadStoredInput(paneId: string): string {
-	return readPaneValue(INPUT_KEY_PREFIX, paneId, "") ?? "";
+	return readPaneValue(CHAT_INPUT_KEY_PREFIX, paneId, "") ?? "";
 }
 
 export function saveStoredInput(paneId: string, value: string) {
-	writePaneValue(INPUT_KEY_PREFIX, paneId, value);
+	writePaneValue(CHAT_INPUT_KEY_PREFIX, paneId, value);
 }
 
 export function loadPendingSend(paneId: string): string {
-	return readPaneValue(PENDING_SEND_KEY_PREFIX, paneId, "") ?? "";
+	return readPaneValue(CHAT_PENDING_SEND_KEY_PREFIX, paneId, "") ?? "";
 }
 
 export function savePendingSend(paneId: string, value: string) {
-	writePaneValue(PENDING_SEND_KEY_PREFIX, paneId, value);
+	writePaneValue(CHAT_PENDING_SEND_KEY_PREFIX, paneId, value);
 }
 
 export function clearPendingSend(paneId: string) {
-	removePaneValue(PENDING_SEND_KEY_PREFIX, paneId);
+	removePaneValue(CHAT_PENDING_SEND_KEY_PREFIX, paneId);
 }
 
 export function loadStoredCheckpoints<T>(paneId: string): T[] {
-	const parsed = readPaneJson<unknown>(CHECKPOINT_KEY_PREFIX, paneId, []);
+	const parsed = readPaneJson<unknown>(CHAT_CHECKPOINT_KEY_PREFIX, paneId, []);
 	return Array.isArray(parsed) ? (parsed as T[]) : [];
 }
 
 export function saveStoredCheckpoints<T>(paneId: string, checkpoints: T[]) {
-	writePaneJson(CHECKPOINT_KEY_PREFIX, paneId, checkpoints);
+	writePaneJson(CHAT_CHECKPOINT_KEY_PREFIX, paneId, checkpoints);
 }
 
 export function clearStoredCheckpoints(paneId: string) {
-	removePaneValue(CHECKPOINT_KEY_PREFIX, paneId);
+	removePaneValue(CHAT_CHECKPOINT_KEY_PREFIX, paneId);
 }
 
 export function loadStoredSessionId(paneId: string): string | null {
-	return readPaneValue(SESSION_KEY_PREFIX, paneId);
+	return readPaneValue(CHAT_SESSION_KEY_PREFIX, paneId);
 }
 
 export function saveStoredSessionId(paneId: string, sessionId: string) {
-	writePaneValue(SESSION_KEY_PREFIX, paneId, sessionId);
+	writePaneValue(CHAT_SESSION_KEY_PREFIX, paneId, sessionId);
 	upsertSessionLibraryEntry(paneId, { sessionId });
 }
 
 export function clearStoredSessionId(paneId: string) {
-	removePaneValue(SESSION_KEY_PREFIX, paneId);
+	removePaneValue(CHAT_SESSION_KEY_PREFIX, paneId);
 }
 
 export function loadStoredModel(paneId: string): string | null {
-	return readPaneValue(MODEL_KEY_PREFIX, paneId);
+	return readPaneValue(CHAT_MODEL_KEY_PREFIX, paneId);
 }
 
 export function saveStoredModel(paneId: string, modelId: string) {
-	writePaneValue(MODEL_KEY_PREFIX, paneId, modelId);
+	writePaneValue(CHAT_MODEL_KEY_PREFIX, paneId, modelId);
 	upsertSessionLibraryEntry(paneId, { model: modelId });
 }
 
 export function loadStoredReasoningLevel(paneId: string): string | null {
-	return readPaneValue(REASONING_KEY_PREFIX, paneId);
+	return readPaneValue(CHAT_REASONING_KEY_PREFIX, paneId);
 }
 
 export function saveStoredReasoningLevel(
 	paneId: string,
 	reasoningLevel: string
 ) {
-	writePaneValue(REASONING_KEY_PREFIX, paneId, reasoningLevel);
+	writePaneValue(CHAT_REASONING_KEY_PREFIX, paneId, reasoningLevel);
 	upsertSessionLibraryEntry(paneId, { reasoningLevel });
 }
 
 export function loadStoredSummary(paneId: string): string | null {
-	return readPaneValue(SUMMARY_KEY_PREFIX, paneId);
+	return readPaneValue(CHAT_SUMMARY_KEY_PREFIX, paneId);
 }
 
 export function saveStoredSummary(paneId: string, summary: string) {
-	writePaneValue(SUMMARY_KEY_PREFIX, paneId, summary);
+	writePaneValue(CHAT_SUMMARY_KEY_PREFIX, paneId, summary);
 	upsertSessionLibraryEntry(paneId, { summary });
 }
 
 export function loadPendingWorkspacePaths(paneId: string): string[] {
 	const parsed = readPaneJson<unknown>(
-		PENDING_WORKSPACE_KEY_PREFIX,
+		CHAT_PENDING_WORKSPACE_KEY_PREFIX,
 		paneId,
 		[]
 	);
@@ -309,22 +324,28 @@ export function loadPendingWorkspacePaths(paneId: string): string[] {
 }
 
 export function savePendingWorkspacePaths(paneId: string, paths: string[]) {
-	if (paths.length === 0) removePaneValue(PENDING_WORKSPACE_KEY_PREFIX, paneId);
-	else writePaneJson(PENDING_WORKSPACE_KEY_PREFIX, paneId, paths);
+	if (paths.length === 0)
+		removePaneValue(CHAT_PENDING_WORKSPACE_KEY_PREFIX, paneId);
+	else writePaneJson(CHAT_PENDING_WORKSPACE_KEY_PREFIX, paneId, paths);
 }
 
 export function loadStoredQueue<T>(paneId: string): T[] {
-	const parsed = readPaneJson<unknown>(QUEUE_KEY_PREFIX, paneId, []);
+	const parsed = readPaneJson<unknown>(CHAT_QUEUE_KEY_PREFIX, paneId, []);
 	return Array.isArray(parsed) ? (parsed as T[]) : [];
 }
 
 export function saveStoredQueue<T>(paneId: string, queue: T[]) {
-	if (queue.length === 0) removePaneValue(QUEUE_KEY_PREFIX, paneId);
-	else writePaneJson(QUEUE_KEY_PREFIX, paneId, queue);
+	if (queue.length === 0) removePaneValue(CHAT_QUEUE_KEY_PREFIX, paneId);
+	else writePaneJson(CHAT_QUEUE_KEY_PREFIX, paneId, queue);
+	flushPendingClientStorageSync();
 }
 
 export function loadStoredComposerContextBlocks<T>(paneId: string): T[] {
-	const parsed = readPaneJson<unknown>(COMPOSER_CONTEXT_KEY_PREFIX, paneId, []);
+	const parsed = readPaneJson<unknown>(
+		CHAT_COMPOSER_CONTEXT_KEY_PREFIX,
+		paneId,
+		[]
+	);
 	return Array.isArray(parsed) ? (parsed as T[]) : [];
 }
 
@@ -332,8 +353,9 @@ export function saveStoredComposerContextBlocks<T>(
 	paneId: string,
 	blocks: T[]
 ) {
-	if (blocks.length === 0) removePaneValue(COMPOSER_CONTEXT_KEY_PREFIX, paneId);
-	else writePaneJson(COMPOSER_CONTEXT_KEY_PREFIX, paneId, blocks);
+	if (blocks.length === 0)
+		removePaneValue(CHAT_COMPOSER_CONTEXT_KEY_PREFIX, paneId);
+	else writePaneJson(CHAT_COMPOSER_CONTEXT_KEY_PREFIX, paneId, blocks);
 }
 
 function isStoredWorktreeLaunchInfo(
@@ -352,7 +374,11 @@ function isStoredWorktreeLaunchInfo(
 export function loadStoredWorktreeInfo(
 	paneId: string
 ): StoredWorktreeLaunchInfo | null {
-	const parsed = readPaneJson<unknown>(WORKTREE_INFO_KEY_PREFIX, paneId, null);
+	const parsed = readPaneJson<unknown>(
+		CHAT_WORKTREE_INFO_KEY_PREFIX,
+		paneId,
+		null
+	);
 	return isStoredWorktreeLaunchInfo(parsed) ? parsed : null;
 }
 
@@ -360,18 +386,18 @@ export function saveStoredWorktreeInfo(
 	paneId: string,
 	info: StoredWorktreeLaunchInfo
 ) {
-	writePaneJson(WORKTREE_INFO_KEY_PREFIX, paneId, info);
+	writePaneJson(CHAT_WORKTREE_INFO_KEY_PREFIX, paneId, info);
 }
 
 export function clearStoredWorktreeInfo(paneId: string) {
-	removePaneValue(WORKTREE_INFO_KEY_PREFIX, paneId);
+	removePaneValue(CHAT_WORKTREE_INFO_KEY_PREFIX, paneId);
 }
 
 export function loadStoredLoadingState(
 	paneId: string
 ): StoredLoadingState | null {
 	const parsed = readPaneJson<Partial<StoredLoadingState> | null>(
-		LOADING_STATE_KEY_PREFIX,
+		CHAT_LOADING_STATE_KEY_PREFIX,
 		paneId,
 		null
 	);
@@ -394,31 +420,31 @@ export function saveStoredLoadingState(
 	state: StoredLoadingState
 ) {
 	if (!state.isLoading || !state.startTime) {
-		removePaneValue(LOADING_STATE_KEY_PREFIX, paneId);
+		removePaneValue(CHAT_LOADING_STATE_KEY_PREFIX, paneId);
 		return;
 	}
-	writePaneJson(LOADING_STATE_KEY_PREFIX, paneId, state);
+	writePaneJson(CHAT_LOADING_STATE_KEY_PREFIX, paneId, state);
 }
 
 export function clearStoredLoadingState(paneId: string) {
-	removePaneValue(LOADING_STATE_KEY_PREFIX, paneId);
+	removePaneValue(CHAT_LOADING_STATE_KEY_PREFIX, paneId);
 }
 
 export function clearAgentChatMessages(paneId: string) {
 	for (const prefix of [
-		STORAGE_KEY_PREFIX,
-		SESSION_KEY_PREFIX,
-		INPUT_KEY_PREFIX,
-		CHECKPOINT_KEY_PREFIX,
-		MODEL_KEY_PREFIX,
-		REASONING_KEY_PREFIX,
-		PENDING_SEND_KEY_PREFIX,
-		SUMMARY_KEY_PREFIX,
-		PENDING_WORKSPACE_KEY_PREFIX,
-		QUEUE_KEY_PREFIX,
-		LOADING_STATE_KEY_PREFIX,
-		COMPOSER_CONTEXT_KEY_PREFIX,
-		WORKTREE_INFO_KEY_PREFIX,
+		CHAT_MESSAGES_STORAGE_KEY_PREFIX,
+		CHAT_SESSION_KEY_PREFIX,
+		CHAT_INPUT_KEY_PREFIX,
+		CHAT_CHECKPOINT_KEY_PREFIX,
+		CHAT_MODEL_KEY_PREFIX,
+		CHAT_REASONING_KEY_PREFIX,
+		CHAT_PENDING_SEND_KEY_PREFIX,
+		CHAT_SUMMARY_KEY_PREFIX,
+		CHAT_PENDING_WORKSPACE_KEY_PREFIX,
+		CHAT_QUEUE_KEY_PREFIX,
+		CHAT_LOADING_STATE_KEY_PREFIX,
+		CHAT_COMPOSER_CONTEXT_KEY_PREFIX,
+		CHAT_WORKTREE_INFO_KEY_PREFIX,
 	]) {
 		removePaneValue(prefix, paneId);
 	}

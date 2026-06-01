@@ -1,5 +1,9 @@
 import {
+	isChatMessagesStorageKey,
+	isChatQueueStorageKey,
 	shouldSyncClientStorageKey,
+	TERMINAL_LAYOUT_MODE_STORAGE_KEY,
+	TERMINAL_MAIN_VIEW_STORAGE_KEY,
 	TERMINAL_STATE_STORAGE_KEY,
 } from "./client-storage-keys.ts";
 import { noop } from "./data.ts";
@@ -20,10 +24,9 @@ const STORAGE_POLL_INTERVAL_MS = 1000;
 const LOCAL_WRITE_PROTECT_MS = 8000;
 const TERMINAL_SYNC_KEYS = new Set([
 	TERMINAL_STATE_STORAGE_KEY,
-	"terminal-layout-mode",
-	"terminal-main-view",
+	TERMINAL_LAYOUT_MODE_STORAGE_KEY,
+	TERMINAL_MAIN_VIEW_STORAGE_KEY,
 ]);
-const CHAT_MESSAGES_STORAGE_KEY_PREFIX = "inferay-chat-";
 export const CLIENT_STORAGE_CHANGED_EVENT = "inferay:client-storage-changed";
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 const localWriteTimes = new Map<string, number>();
@@ -82,6 +85,24 @@ function chatMessagesScore(value: string | null): number {
 	}
 }
 
+function storedArrayScore(value: string | null): number {
+	if (!value) return 0;
+	try {
+		const parsed = JSON.parse(value) as unknown;
+		if (!Array.isArray(parsed)) return 0;
+		return parsed.reduce((score, item) => {
+			if (typeof item !== "object" || item === null) return score + 1;
+			const text =
+				typeof (item as { text?: unknown }).text === "string"
+					? (item as { text: string }).text
+					: "";
+			return score + 1 + text.length;
+		}, 0);
+	} catch {
+		return 0;
+	}
+}
+
 function shouldApplyServerValue(
 	key: string,
 	serverValue: StoredValue
@@ -105,9 +126,14 @@ function shouldApplyServerValue(
 	) {
 		return false;
 	}
-	if (key.startsWith(CHAT_MESSAGES_STORAGE_KEY_PREFIX)) {
+	if (isChatMessagesStorageKey(key)) {
 		const serverScore = chatMessagesScore(serverValue);
 		const localScore = chatMessagesScore(localValue);
+		if (localScore > 0 && localScore > serverScore) return false;
+	}
+	if (isChatQueueStorageKey(key)) {
+		const serverScore = storedArrayScore(serverValue);
+		const localScore = storedArrayScore(localValue);
 		if (localScore > 0 && localScore > serverScore) return false;
 	}
 	if (serverValue === null) return localValue !== null;

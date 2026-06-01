@@ -5,6 +5,7 @@ import {
 	saveStoredQueue,
 } from "../../features/chat/chat-session-store.ts";
 import { CLIENT_STORAGE_CHANGED_EVENT } from "../../lib/client-storage-sync.ts";
+import { CHAT_QUEUE_KEY_PREFIX } from "../../lib/client-storage-keys.ts";
 import { lacksId, lacksPath } from "../../lib/data.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import { wsClient } from "../../lib/websocket.ts";
@@ -32,7 +33,6 @@ interface MarkdownPreviewState {
 }
 
 let queueIdCounter = 0;
-const CHAT_QUEUE_KEY_PREFIX = "inferay-chat-queue-";
 
 function nextQueueId(): string {
 	return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -71,6 +71,12 @@ export function useAgentChatComposerState(paneId: string) {
 		});
 		wsClient.send({ type: "file:read", path: filePath });
 	}, []);
+
+	useEffect(() => {
+		const next = loadStoredQueue<QueuedMessage>(paneId);
+		queueRef.current = next;
+		setQueuedMessagesState(next);
+	}, [paneId]);
 
 	useEffect(() => {
 		const handleMessage = (msg: Record<string, unknown>) => {

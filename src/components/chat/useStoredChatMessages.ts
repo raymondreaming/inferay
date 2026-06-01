@@ -78,10 +78,15 @@ export function useStoredChatMessages({
 			saveStoredMessages(paneId, storedMessages);
 			saveFileBackedMessages(paneId, storedMessages);
 			const workspace = getWorkspace();
+			const workspacePatch = workspace.cwd
+				? {
+						cwd: workspace.cwd,
+						referencePaths: workspace.referencePaths,
+					}
+				: {};
 			upsertSessionLibraryEntry(paneId, {
 				agentKind,
-				cwd: workspace.cwd,
-				referencePaths: workspace.referencePaths,
+				...workspacePatch,
 				model,
 				reasoningLevel,
 				summary: summaryRef.current,

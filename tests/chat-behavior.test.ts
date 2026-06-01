@@ -15,6 +15,12 @@ import {
 	mergeSyncedMessages,
 	patchMessageById,
 } from "../src/components/chat/chat-state-utils.ts";
+import {
+	loadStoredQueue,
+	loadStoredChatSession,
+	saveStoredQueue,
+	upsertSessionLibraryEntry,
+} from "../src/features/chat/chat-session-store.ts";
 
 function message(
 	id: string,
@@ -22,6 +28,24 @@ function message(
 	role: ChatMessage["role"] = "user"
 ) {
 	return { id, role, content };
+}
+
+function installMemoryLocalStorage() {
+	const values = new Map<string, string>();
+	globalThis.localStorage = {
+		get length() {
+			return values.size;
+		},
+		clear: () => values.clear(),
+		getItem: (key: string) => values.get(key) ?? null,
+		key: (index: number) => [...values.keys()][index] ?? null,
+		removeItem: (key: string) => {
+			values.delete(key);
+		},
+		setItem: (key: string, value: string) => {
+			values.set(key, String(value));
+		},
+	} as Storage;
 }
 
 describe("chat data behavior", () => {
@@ -124,5 +148,40 @@ describe("chat data behavior", () => {
 			nextValue: "run /review now",
 			nextCursor: 11,
 		});
+	});
+
+	test("keeps an existing session workspace when snapshots omit cwd", () => {
+		installMemoryLocalStorage();
+		upsertSessionLibraryEntry("pane-1", {
+			cwd: "/Users/ray/project",
+			referencePaths: ["/Users/ray/project/src"],
+			model: "gpt-5",
+		});
+		upsertSessionLibraryEntry("pane-1", {
+			model: "gpt-5-codex",
+			lastMessage: "latest",
+		});
+
+		expect(loadStoredChatSession("pane-1")).toMatchObject({
+			paneId: "pane-1",
+			cwd: "/Users/ray/project",
+			referencePaths: ["/Users/ray/project/src"],
+			model: "gpt-5-codex",
+			lastMessage: "latest",
+		});
+	});
+
+	test("persists queued chat messages by pane", () => {
+		installMemoryLocalStorage();
+		saveStoredQueue("pane-queue", [
+			{ id: "q1", text: "first", displayText: "first" },
+			{ id: "q2", text: "second", displayText: "second" },
+		]);
+
+		expect(loadStoredQueue("pane-queue")).toEqual([
+			{ id: "q1", text: "first", displayText: "first" },
+			{ id: "q2", text: "second", displayText: "second" },
+		]);
+		expect(loadStoredQueue("other-pane")).toEqual([]);
 	});
 });

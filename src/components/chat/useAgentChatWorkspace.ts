@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	loadPendingWorkspacePaths,
+	loadStoredChatSession,
 	savePendingWorkspacePaths,
 } from "../../features/chat/chat-session-store.ts";
+import { CLIENT_STORAGE_CHANGED_EVENT } from "../../lib/client-storage-sync.ts";
+import { CHAT_SESSION_INDEX_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
+import { listenWindowEvent } from "../../lib/react-events.ts";
 
 export interface ActiveWorkspace {
 	cwd: string | null;
@@ -28,20 +32,25 @@ export function useAgentChatWorkspace({
 }: UseAgentChatWorkspaceOptions) {
 	const [optimisticWorkspace, setOptimisticWorkspace] =
 		useState<ActiveWorkspace | null>(null);
+	const [storedWorkspaceCwd, setStoredWorkspaceCwd] = useState<string | null>(
+		() => loadStoredChatSession(paneId)?.cwd ?? null
+	);
 	const [pendingWorkspacePaths, setPendingWorkspacePathsState] = useState<
 		string[]
 	>(() => loadPendingWorkspacePaths(paneId));
 	const pendingWorkspacePathsRef = useRef<string[]>(pendingWorkspacePaths);
-	const activeWorkspace = useMemo<ActiveWorkspace>(
-		() => ({
-			cwd: cwd ?? optimisticWorkspace?.cwd ?? null,
-			referencePaths:
-				cwd != null
-					? (referencePaths ?? [])
-					: (optimisticWorkspace?.referencePaths ?? referencePaths ?? []),
-		}),
-		[cwd, optimisticWorkspace, referencePaths]
-	);
+	const activeWorkspace = useMemo<ActiveWorkspace>(() => {
+		if (cwd != null) {
+			return { cwd, referencePaths: referencePaths ?? [] };
+		}
+		if (optimisticWorkspace) {
+			return optimisticWorkspace;
+		}
+		return {
+			cwd: storedWorkspaceCwd,
+			referencePaths: referencePaths ?? [],
+		};
+	}, [cwd, optimisticWorkspace, referencePaths, storedWorkspaceCwd]);
 	const visibleWorkspace = useMemo<ActiveWorkspace>(() => {
 		if (activeWorkspace.cwd || pendingWorkspacePaths.length === 0) {
 			return activeWorkspace;
@@ -57,6 +66,18 @@ export function useAgentChatWorkspace({
 	useEffect(() => {
 		if (cwd) setOptimisticWorkspace(null);
 	}, [cwd]);
+	useEffect(() => {
+		setStoredWorkspaceCwd(loadStoredChatSession(paneId)?.cwd ?? null);
+	}, [paneId]);
+	useEffect(
+		() =>
+			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
+				const key = (event as CustomEvent<{ key?: string }>).detail?.key;
+				if (key !== CHAT_SESSION_INDEX_STORAGE_KEY) return;
+				setStoredWorkspaceCwd(loadStoredChatSession(paneId)?.cwd ?? null);
+			}),
+		[paneId]
+	);
 
 	const setPendingWorkspacePaths = useCallback(
 		(paths: string[]) => {
