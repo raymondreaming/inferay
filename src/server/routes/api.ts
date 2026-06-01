@@ -1,9 +1,11 @@
 import { agentAccountRoutes } from "./agent-accounts.ts";
 import { appInfoRoutes } from "./app-info.ts";
+import { chatQueueRoutes } from "./chat-queues.ts";
 import { chatTranscriptRoutes } from "./chat-transcripts.ts";
 import { checkpointRoutes } from "./checkpoint.ts";
 import { clientStorageRoutes } from "./client-storage.ts";
 import { configRoutes } from "./config.ts";
+import { documentArtifactRoutes } from "./document-artifacts.ts";
 import { featureRoutes } from "./feature-routes.ts";
 import { fileRoutes } from "./files.ts";
 import { forgeRoutes } from "./forge.ts";
@@ -22,8 +24,10 @@ export function buildApiRoutes() {
 		...forgeRoutes(),
 		...nativeRoutes(),
 		...terminalRoutes(),
+		...chatQueueRoutes(),
 		...chatTranscriptRoutes(),
 		...clientStorageRoutes(),
+		...documentArtifactRoutes(),
 		...checkpointRoutes(),
 		...promptRoutes(),
 		...gitRoutes(),

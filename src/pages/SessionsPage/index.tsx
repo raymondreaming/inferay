@@ -282,27 +282,30 @@ export function SessionsPage() {
 		visibleSessions.find((session) => session.paneId === selectedPaneId) ??
 		visibleSessions[0] ??
 		null;
-	const saveSessionArtifact = useCallback((session: StoredChatSession) => {
-		const messages = loadStoredMessages<ChatMessage>(session.paneId);
-		const checkpoints = loadStoredCheckpoints<CheckpointInfo>(session.paneId);
-		const detail = buildSessionDetailModel(session, messages, checkpoints);
-		try {
-			const artifact = createDocumentArtifact({
-				title: detail.transcriptArtifact.title,
-				subtitle: detail.transcriptArtifact.subtitle,
-				content: detail.transcriptArtifact.content,
-				sourcePaneId: session.paneId,
-				sourceMessageId: null,
-				sourceRole: "session-transcript",
-				projectPath: session.cwd,
-			});
-			setArtifactVersion((version) => version + 1);
-			setDetailStatus(`Saved "${artifact.title}" to Artifacts.`);
-		} catch (error) {
-			console.error(error);
-			setDetailStatus("Could not save artifact.");
-		}
-	}, []);
+	const saveSessionArtifact = useCallback(
+		async (session: StoredChatSession) => {
+			const messages = loadStoredMessages<ChatMessage>(session.paneId);
+			const checkpoints = loadStoredCheckpoints<CheckpointInfo>(session.paneId);
+			const detail = buildSessionDetailModel(session, messages, checkpoints);
+			try {
+				const artifact = await createDocumentArtifact({
+					title: detail.transcriptArtifact.title,
+					subtitle: detail.transcriptArtifact.subtitle,
+					content: detail.transcriptArtifact.content,
+					sourcePaneId: session.paneId,
+					sourceMessageId: null,
+					sourceRole: "session-transcript",
+					projectPath: session.cwd,
+				});
+				setArtifactVersion((version) => version + 1);
+				setDetailStatus(`Saved "${artifact.title}" to Artifacts.`);
+			} catch (error) {
+				console.error(error);
+				setDetailStatus("Could not save artifact.");
+			}
+		},
+		[]
+	);
 
 	return (
 		<WorkspacePage>

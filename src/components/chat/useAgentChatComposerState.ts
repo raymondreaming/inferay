@@ -1,6 +1,7 @@
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+	loadFileBackedQueue,
 	loadStoredQueue,
 	saveStoredQueue,
 } from "../../features/chat/chat-session-store.ts";
@@ -40,6 +41,13 @@ function nextQueueId(): string {
 		: `${Date.now()}-${++queueIdCounter}`;
 }
 
+function queuedMessagesScore(queue: QueuedMessage[]): number {
+	return queue.reduce(
+		(score, item) => score + 1 + item.text.length + item.displayText.length,
+		0
+	);
+}
+
 export function useAgentChatComposerState(paneId: string) {
 	const [isDragOver, setIsDragOver] = useState(false);
 	const [attachedImages, setAttachedImages] = useState<AttachedImageState[]>(
@@ -73,9 +81,25 @@ export function useAgentChatComposerState(paneId: string) {
 	}, []);
 
 	useEffect(() => {
+		let active = true;
 		const next = loadStoredQueue<QueuedMessage>(paneId);
 		queueRef.current = next;
 		setQueuedMessagesState(next);
+		void loadFileBackedQueue<QueuedMessage>(paneId).then((fileBackedQueue) => {
+			if (!active) return;
+			if (
+				queuedMessagesScore(fileBackedQueue) <=
+				queuedMessagesScore(queueRef.current)
+			) {
+				return;
+			}
+			queueRef.current = fileBackedQueue;
+			setQueuedMessagesState(fileBackedQueue);
+			saveStoredQueue(paneId, fileBackedQueue);
+		});
+		return () => {
+			active = false;
+		};
 	}, [paneId]);
 
 	useEffect(() => {

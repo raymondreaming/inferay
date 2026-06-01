@@ -361,7 +361,7 @@ const Bubble = React.memo(function Bubble({
 		},
 		[msg.content, msg.id, msg.role, paneId]
 	);
-	const handleSaveArtifact = useCallback(() => {
+	const handleSaveArtifact = useCallback(async () => {
 		if (!msg.content.trim()) return;
 		const existing = findSavedArtifactForMessage(paneId, msg.id);
 		if (existing) {
@@ -377,7 +377,7 @@ const Bubble = React.memo(function Bubble({
 		const title =
 			firstLine.length > 64 ? `${firstLine.slice(0, 61).trim()}...` : firstLine;
 		try {
-			const artifact = createDocumentArtifact({
+			const artifact = await createDocumentArtifact({
 				title,
 				subtitle: `${msg.role} message`,
 				content: msg.content,

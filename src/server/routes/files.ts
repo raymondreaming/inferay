@@ -4,6 +4,7 @@ import { mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { basename, extname, join, relative, resolve } from "node:path";
 import { PROJECT_ROOT } from "../../lib/path-utils.ts";
 import { tryRoute } from "../../lib/route-helpers.ts";
+import { userDataPath } from "../../lib/user-data.ts";
 import {
 	isAllowedLocalPath,
 	isWithinDirectory,
@@ -20,7 +21,7 @@ const IMAGE_EXTENSIONS = new Set([
 	".ico",
 ]);
 
-const TMP_DIR = resolve(PROJECT_ROOT, "data/.tmp");
+const TMP_DIR = userDataPath("uploads");
 const MAX_TEMP_UPLOAD_BYTES = 20 * 1024 * 1024;
 const MAX_SERVED_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_REPO_DOC_BYTES = 256 * 1024;

@@ -25,10 +25,10 @@ function installMemoryLocalStorage(options?: { failWrites?: boolean }) {
 }
 
 describe("artifact workspace store", () => {
-	test("loads chat-saved document artifacts into the artifact workspace", () => {
+	test("loads chat-saved document artifacts into the artifact workspace", async () => {
 		installMemoryLocalStorage();
 
-		const saved = createDocumentArtifact({
+		const saved = await createDocumentArtifact({
 			title: "Implementation notes",
 			subtitle: "assistant message",
 			content: "Use the existing workspace store for saved notes.",
@@ -50,15 +50,23 @@ describe("artifact workspace store", () => {
 		);
 	});
 
-	test("does not report a document artifact as saved when storage rejects it", () => {
+	test("does not report a document artifact as saved when storage rejects it", async () => {
 		installMemoryLocalStorage({ failWrites: true });
 
-		expect(() =>
-			createDocumentArtifact({
-				title: "Too large",
-				content: "content",
-			})
-		).toThrow("Failed to save document artifact.");
+		await createDocumentArtifact({
+			title: "Too large",
+			content: "content",
+		}).then(
+			() => {
+				throw new Error("Expected document artifact save to fail.");
+			},
+			(error: unknown) => {
+				expect(error).toBeInstanceOf(Error);
+				expect((error as Error).message).toBe(
+					"Failed to save document artifact."
+				);
+			}
+		);
 		expect(loadDocumentArtifacts()).toEqual([]);
 	});
 });

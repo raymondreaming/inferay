@@ -334,9 +334,37 @@ export function loadStoredQueue<T>(paneId: string): T[] {
 	return Array.isArray(parsed) ? (parsed as T[]) : [];
 }
 
+export async function loadFileBackedQueue<T>(paneId: string): Promise<T[]> {
+	const response = await fetchJsonOr<{ queue?: unknown[] }>(
+		`/api/chat-queues/${encodeURIComponent(paneId)}`,
+		{ queue: [] }
+	);
+	return Array.isArray(response.queue) ? (response.queue as T[]) : [];
+}
+
+export async function saveFileBackedQueue<T>(
+	paneId: string,
+	queue: T[]
+): Promise<void> {
+	if (queue.length === 0) {
+		await fetch(`/api/chat-queues/${encodeURIComponent(paneId)}`, {
+			method: "DELETE",
+		});
+		return;
+	}
+	await sendJson(
+		`/api/chat-queues/${encodeURIComponent(paneId)}`,
+		{ queue },
+		{
+			method: "PUT",
+		}
+	);
+}
+
 export function saveStoredQueue<T>(paneId: string, queue: T[]) {
 	if (queue.length === 0) removePaneValue(CHAT_QUEUE_KEY_PREFIX, paneId);
 	else writePaneJson(CHAT_QUEUE_KEY_PREFIX, paneId, queue);
+	saveFileBackedQueue(paneId, queue).catch(noop);
 	flushPendingClientStorageSync();
 }
 

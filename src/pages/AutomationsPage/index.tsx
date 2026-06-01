@@ -911,11 +911,11 @@ export function AutomationsPage() {
 		setRunState({ ...state });
 	};
 
-	const saveRunArtifact = useCallback(() => {
+	const saveRunArtifact = useCallback(async () => {
 		if (!runState || runState.flowId !== selectedFlow.id) return;
 		const draft = automationRunArtifactDraft(selectedFlow, runState);
 		try {
-			createDocumentArtifact({
+			await createDocumentArtifact({
 				title: draft.title,
 				subtitle: draft.subtitle,
 				content: draft.content,

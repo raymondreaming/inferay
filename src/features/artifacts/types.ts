@@ -36,6 +36,7 @@ export interface DocumentArtifact {
 	title: string;
 	subtitle: string;
 	content: string;
+	contentPath?: string | null;
 	sourcePaneId: string | null;
 	sourceMessageId: string | null;
 	sourceRole: string | null;

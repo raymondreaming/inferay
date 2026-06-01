@@ -406,7 +406,13 @@ export function ImagesPage() {
 				}).catch(() => null)
 			)
 		);
-		for (const artifact of deletable) deleteLocalArtifact(artifact.id);
+		await Promise.all(
+			deletable.map((artifact) =>
+				deleteLocalArtifact(artifact.id).catch((error) => {
+					console.error(error);
+				})
+			)
+		);
 		setHiddenArtifactIds((prev) => {
 			const next = new Set(prev);
 			for (const artifact of selected) next.add(artifact.id);

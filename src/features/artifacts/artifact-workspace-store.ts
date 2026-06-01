@@ -17,6 +17,7 @@ import type {
 export const DOCUMENT_ARTIFACTS_KEY = "inferay-document-artifacts";
 export const DOCUMENT_ARTIFACTS_CHANGED_EVENT =
 	"inferay:document-artifacts-changed";
+const DOCUMENT_ARTIFACTS_API = "/api/document-artifacts";
 const MAX_DOCUMENT_ARTIFACTS = 200;
 const MAX_ARTIFACT_CONTEXT_CHARS = 12_000;
 const IMAGE_EXTENSIONS = new Set([
@@ -154,9 +155,91 @@ function isDocumentArtifact(value: unknown): value is DocumentArtifact {
 		(artifact.sourceRole === null || typeof artifact.sourceRole === "string") &&
 		(artifact.projectPath === null ||
 			typeof artifact.projectPath === "string") &&
+		(artifact.contentPath === undefined ||
+			artifact.contentPath === null ||
+			typeof artifact.contentPath === "string") &&
 		typeof artifact.createdAt === "number" &&
 		typeof artifact.updatedAt === "number"
 	);
+}
+
+function normalizeDocumentArtifacts(value: unknown): DocumentArtifact[] {
+	return Array.isArray(value)
+		? value
+				.filter(isDocumentArtifact)
+				.sort((a, b) => b.updatedAt - a.updatedAt)
+				.slice(0, MAX_DOCUMENT_ARTIFACTS)
+		: [];
+}
+
+let documentArtifactCache: DocumentArtifact[] | null = null;
+let documentArtifactHydrationStarted = false;
+let localStorageRef: Storage | null = null;
+
+function refreshCacheForStorageInstance(): void {
+	const current =
+		typeof localStorage === "undefined" ? null : globalThis.localStorage;
+	if (current === localStorageRef) return;
+	localStorageRef = current;
+	documentArtifactCache = null;
+	documentArtifactHydrationStarted = false;
+}
+
+function readLocalDocumentArtifacts(): DocumentArtifact[] {
+	return normalizeDocumentArtifacts(
+		readStoredJson<unknown>(DOCUMENT_ARTIFACTS_KEY, [])
+	);
+}
+
+function dispatchDocumentArtifactsChanged(): void {
+	if (typeof window === "undefined") return;
+	window.dispatchEvent(new Event(DOCUMENT_ARTIFACTS_CHANGED_EVENT));
+}
+
+function setDocumentArtifactCache(
+	artifacts: readonly DocumentArtifact[]
+): void {
+	documentArtifactCache = normalizeDocumentArtifacts(artifacts);
+}
+
+async function loadServerDocumentArtifacts(): Promise<
+	DocumentArtifact[] | null
+> {
+	if (typeof window === "undefined") return null;
+	try {
+		const response = await fetch(DOCUMENT_ARTIFACTS_API);
+		if (!response.ok) return null;
+		return normalizeDocumentArtifacts(await response.json());
+	} catch {
+		return null;
+	}
+}
+
+async function saveServerDocumentArtifacts(
+	artifacts: readonly DocumentArtifact[]
+): Promise<DocumentArtifact[] | null> {
+	if (typeof window === "undefined") return null;
+	try {
+		const response = await fetch(DOCUMENT_ARTIFACTS_API, {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(artifacts),
+		});
+		if (!response.ok) return null;
+		return normalizeDocumentArtifacts(await response.json());
+	} catch {
+		return null;
+	}
+}
+
+function startDocumentArtifactHydration(): void {
+	if (documentArtifactHydrationStarted || typeof window === "undefined") return;
+	documentArtifactHydrationStarted = true;
+	void loadServerDocumentArtifacts().then((artifacts) => {
+		if (!artifacts) return;
+		setDocumentArtifactCache(artifacts);
+		dispatchDocumentArtifactsChanged();
+	});
 }
 
 function imageArtifact(image: ImageArtifactSource): ArtifactEntry {
@@ -192,30 +275,28 @@ function repoDocArtifact(doc: RepoDocArtifactSource): ArtifactEntry {
 }
 
 export function loadDocumentArtifacts(): DocumentArtifact[] {
-	const stored = readStoredJson<unknown>(DOCUMENT_ARTIFACTS_KEY, []);
-	if (!Array.isArray(stored)) return [];
-	return [...stored]
-		.filter(isDocumentArtifact)
-		.sort((a, b) => b.updatedAt - a.updatedAt)
-		.slice(0, MAX_DOCUMENT_ARTIFACTS);
+	refreshCacheForStorageInstance();
+	startDocumentArtifactHydration();
+	if (documentArtifactCache === null) {
+		documentArtifactCache = readLocalDocumentArtifacts();
+	}
+	return [...documentArtifactCache];
 }
 
-function dispatchDocumentArtifactsChanged(): void {
-	if (typeof window === "undefined") return;
-	window.dispatchEvent(new Event(DOCUMENT_ARTIFACTS_CHANGED_EVENT));
-}
-
-function saveDocumentArtifacts(
+async function saveDocumentArtifacts(
 	artifacts: readonly DocumentArtifact[]
-): boolean {
-	const saved = writeStoredJson(
-		DOCUMENT_ARTIFACTS_KEY,
-		[...artifacts]
-			.sort((a, b) => b.updatedAt - a.updatedAt)
-			.slice(0, MAX_DOCUMENT_ARTIFACTS)
-	);
-	if (saved) dispatchDocumentArtifactsChanged();
-	return saved;
+): Promise<boolean> {
+	const next = normalizeDocumentArtifacts(artifacts);
+	const serverArtifacts = await saveServerDocumentArtifacts(next);
+	if (serverArtifacts) {
+		setDocumentArtifactCache(serverArtifacts);
+		dispatchDocumentArtifactsChanged();
+		return true;
+	}
+	if (!writeStoredJson(DOCUMENT_ARTIFACTS_KEY, next)) return false;
+	setDocumentArtifactCache(next);
+	dispatchDocumentArtifactsChanged();
+	return true;
 }
 
 function documentArtifact(entry: DocumentArtifact): ArtifactEntry {
@@ -227,14 +308,14 @@ function documentArtifact(entry: DocumentArtifact): ArtifactEntry {
 		createdAt: entry.createdAt,
 		updatedAt: entry.updatedAt,
 		size: entry.content.length,
-		path: entry.projectPath ?? undefined,
+		path: entry.contentPath ?? entry.projectPath ?? undefined,
 		content: entry.content,
 		preview: compactPreview(entry.content),
 		deletable: true,
 	};
 }
 
-export function createDocumentArtifact(input: {
+export async function createDocumentArtifact(input: {
 	title: string;
 	subtitle?: string;
 	content: string;
@@ -243,7 +324,7 @@ export function createDocumentArtifact(input: {
 	sourceRole?: string | null;
 	projectPath?: string | null;
 	createdAt?: number;
-}): DocumentArtifact {
+}): Promise<DocumentArtifact> {
 	const now = input.createdAt ?? Date.now();
 	const title = input.title.trim() || "Saved agent note";
 	const artifact: DocumentArtifact = {
@@ -259,6 +340,7 @@ export function createDocumentArtifact(input: {
 		title,
 		subtitle: input.subtitle?.trim() || "Saved from chat",
 		content: input.content.trim(),
+		contentPath: null,
 		sourcePaneId: input.sourcePaneId ?? null,
 		sourceMessageId: input.sourceMessageId ?? null,
 		sourceRole: input.sourceRole ?? null,
@@ -266,17 +348,17 @@ export function createDocumentArtifact(input: {
 		createdAt: now,
 		updatedAt: now,
 	};
-	if (!saveDocumentArtifacts([artifact, ...loadDocumentArtifacts()])) {
+	if (!(await saveDocumentArtifacts([artifact, ...loadDocumentArtifacts()]))) {
 		throw new Error("Failed to save document artifact.");
 	}
 	return artifact;
 }
 
-function deleteDocumentArtifact(id: string): void {
+async function deleteDocumentArtifact(id: string): Promise<void> {
 	if (
-		!saveDocumentArtifacts(
+		!(await saveDocumentArtifacts(
 			loadDocumentArtifacts().filter((artifact) => artifact.id !== id)
-		)
+		))
 	) {
 		throw new Error("Failed to delete document artifact.");
 	}
@@ -325,7 +407,18 @@ export function filterArtifacts(
 export function artifactContextBlock(
 	artifact: ArtifactEntry
 ): Omit<ComposerContextBlock, "id" | "createdAt"> {
-	const content = artifact.content.trim();
+	const fileReference =
+		artifact.id.startsWith("document:") && artifact.path
+			? [
+					`Saved artifact content is available at:`,
+					artifact.path,
+					"",
+					`Use this file path when you need the full artifact content.`,
+					"",
+					`Preview: ${compactPreview(artifact.content, 1000)}`,
+				].join("\n")
+			: null;
+	const content = fileReference ?? artifact.content.trim();
 	const truncated =
 		content.length > MAX_ARTIFACT_CONTEXT_CHARS
 			? `${content.slice(0, MAX_ARTIFACT_CONTEXT_CHARS).trimEnd()}\n\n[Artifact truncated for composer context]`
@@ -370,8 +463,8 @@ export function artifactPromptDraft(artifact: ArtifactEntry) {
 	};
 }
 
-export function deleteLocalArtifact(id: string): void {
+export async function deleteLocalArtifact(id: string): Promise<void> {
 	const [kind, ...rest] = id.split(":");
 	const artifactId = rest.join(":");
-	if (kind === "document") deleteDocumentArtifact(artifactId);
+	if (kind === "document") await deleteDocumentArtifact(artifactId);
 }
