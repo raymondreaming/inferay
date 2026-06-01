@@ -32,7 +32,6 @@ interface AgentChatMessagePaneProps {
 	onDirectoryMultiSelect: (paths: string[]) => void;
 	isAtBottom: boolean;
 	onScrollToBottom: () => void;
-	statusBar?: React.ReactNode;
 }
 
 export function AgentChatMessagePane({
@@ -55,13 +54,11 @@ export function AgentChatMessagePane({
 	onDirectoryMultiSelect,
 	isAtBottom,
 	onScrollToBottom,
-	statusBar,
 }: AgentChatMessagePaneProps) {
 	const messageRegionProps = stylex.props(styles.messageRegion);
 	const scrollAreaProps = stylex.props(styles.scrollArea);
 	const directoryPickerInnerProps = stylex.props(styles.directoryPickerInner);
 	const scrollButtonProps = stylex.props(styles.scrollButton);
-	const statusCenterProps = stylex.props(styles.statusCenter);
 
 	return (
 		<div
@@ -116,17 +113,6 @@ export function AgentChatMessagePane({
 				>
 					<IconArrowDown size={12} {...stylex.props(styles.scrollIcon)} />
 				</button>
-			)}
-			{statusBar && (
-				<div {...stylex.props(styles.statusLayer)}>
-					<div {...stylex.props(styles.statusFade)} />
-					<div
-						{...statusCenterProps}
-						className={`${APP_REGION_NO_DRAG_CLASS} ${statusCenterProps.className ?? ""}`}
-					>
-						{statusBar}
-					</div>
-				</div>
 			)}
 		</div>
 	);
@@ -202,33 +188,5 @@ const styles = stylex.create({
 	},
 	scrollIcon: {
 		color: color.textSoft,
-	},
-	statusLayer: {
-		left: 0,
-		pointerEvents: "none",
-		position: "absolute",
-		right: 0,
-		top: 0,
-		zIndex: 20,
-	},
-	statusFade: {
-		backgroundImage:
-			"linear-gradient(to bottom, rgba(0, 0, 0, 0.42), rgba(0, 0, 0, 0.22) 45%, rgba(0, 0, 0, 0))",
-		height: "4.5rem",
-		left: 0,
-		position: "absolute",
-		right: 0,
-		top: 0,
-	},
-	statusCenter: {
-		alignItems: "center",
-		display: "flex",
-		justifyContent: "center",
-		left: "50%",
-		maxWidth: "calc(100% - 1rem)",
-		pointerEvents: "auto",
-		position: "absolute",
-		top: controlSize._3,
-		transform: "translateX(-50%)",
 	},
 });

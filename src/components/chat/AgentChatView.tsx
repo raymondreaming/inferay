@@ -1763,15 +1763,6 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 						}}
 						isAtBottom={isAtBottom}
 						onScrollToBottom={() => scrollToBottom()}
-						statusBar={
-							<AgentChatStatusBar
-								messages={messages}
-								liveActivities={liveActivities}
-								isLoading={isLoading}
-								status={status}
-								onStop={stopGeneration}
-							/>
-						}
 					/>
 				)}
 
@@ -1790,6 +1781,17 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 								style={{ backgroundImage: effectValues.composerFade }}
 							/>
 						</>
+					)}
+					{!composerOnly && isLoading && (
+						<div {...stylex.props(styles.composerStatusBar)}>
+							<AgentChatStatusBar
+								messages={messages}
+								liveActivities={liveActivities}
+								isLoading={isLoading}
+								status={status}
+								onStop={stopGeneration}
+							/>
+						</div>
 					)}
 					<div {...stylex.props(styles.composerContent)}>
 						<ChatComposer
@@ -1884,6 +1886,15 @@ const styles = stylex.create({
 		right: 0,
 		bottom: "100%",
 		height: "18px",
+	},
+	composerStatusBar: {
+		display: "flex",
+		justifyContent: "flex-start",
+		minWidth: 0,
+		paddingBottom: controlSize._1,
+		paddingInline: controlSize._3,
+		position: "relative",
+		zIndex: 12,
 	},
 	composerContent: {
 		position: "relative",
