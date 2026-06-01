@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { type NEW_PANE_AGENT_KINDS } from "../../features/agents/agents.ts";
 import {
 	createGroupId,
+	createDefaultTerminalState,
 	createPendingAgentChatPane,
 	createTerminalPane,
 	DEFAULT_COLUMNS,
@@ -12,6 +13,7 @@ import {
 	prependPaneToGroup,
 	saveSyncedTerminalState,
 	type TerminalGroupModel,
+	type TerminalSavedState,
 } from "../../features/terminal/terminal-utils.ts";
 import {
 	DEFAULT_TERMINAL_MAIN_VIEW,
@@ -35,7 +37,7 @@ export interface SidebarWorkspacesState {
 }
 
 function loadSidebarWorkspaces(): SidebarWorkspacesState {
-	const state = loadTerminalState();
+	const state = loadTerminalState() ?? createDefaultTerminalState();
 	const mainView = readStoredValue("terminal-main-view");
 	return {
 		groups: state?.groups ?? [],
@@ -45,6 +47,10 @@ function loadSidebarWorkspaces(): SidebarWorkspacesState {
 			: DEFAULT_TERMINAL_MAIN_VIEW,
 		editorZenMode: readStoredValue("terminal-editor-zen") === "true",
 	};
+}
+
+function loadActionTerminalState(): TerminalSavedState {
+	return loadTerminalState() ?? createDefaultTerminalState();
 }
 
 export function useSidebarWorkspaces() {
@@ -59,8 +65,7 @@ export function useSidebarWorkspaces() {
 	const selectWorkspace = useCallback(
 		(groupId: string) => {
 			setWorkspaces((prev) => ({ ...prev, selectedGroupId: groupId as never }));
-			const state = loadTerminalState();
-			if (!state) return;
+			const state = loadActionTerminalState();
 			saveSyncedTerminalState(
 				{ ...state, selectedGroupId: groupId as never },
 				"select-workspace"
@@ -74,8 +79,7 @@ export function useSidebarWorkspaces() {
 
 	const selectPane = useCallback(
 		(groupId: string, paneId: string) => {
-			const state = loadTerminalState();
-			if (!state) return;
+			const state = loadActionTerminalState();
 			const gid = groupId as never;
 			const pid = paneId as never;
 			writeStoredValue("editor-selected-pane", paneId);
@@ -98,8 +102,7 @@ export function useSidebarWorkspaces() {
 	);
 
 	const addWorkspace = useCallback(() => {
-		const state = loadTerminalState();
-		if (!state) return;
+		const state = loadActionTerminalState();
 		const selectedGroup =
 			state.groups.find(hasId.bind(null, state.selectedGroupId)) ??
 			state.groups[0];
@@ -136,8 +139,7 @@ export function useSidebarWorkspaces() {
 
 	const addPaneToSelectedGroup = useCallback(
 		(agentKind: (typeof NEW_PANE_AGENT_KINDS)[number]) => {
-			const state = loadTerminalState();
-			if (!state) return;
+			const state = loadActionTerminalState();
 			const selectedGroupId = state.selectedGroupId ?? state.groups[0]?.id;
 			if (!selectedGroupId) return;
 			const pane = createTerminalPane(agentKind, undefined, true);
@@ -157,8 +159,8 @@ export function useSidebarWorkspaces() {
 
 	const updateSelectedGroupGrid = useCallback(
 		(patch: { columns?: number; rows?: number }) => {
-			const state = loadTerminalState();
-			if (!state?.selectedGroupId) return;
+			const state = loadActionTerminalState();
+			if (!state.selectedGroupId) return;
 			saveSyncedTerminalState(
 				{
 					...state,

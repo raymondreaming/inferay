@@ -43,7 +43,6 @@ import {
 	getThemeById,
 	loadTerminalLayoutMode,
 	loadTerminalState,
-	migrateGroup,
 	saveTerminalState,
 	syncTerminalLayoutMode,
 	type TerminalGroupModel,
@@ -466,7 +465,7 @@ export function TerminalPage() {
 			if (!s) return;
 			groupsDispatch({
 				type: "replaceAll",
-				groups: s.groups.map(migrateGroup),
+				groups: s.groups,
 			});
 			setSelectedGroupId(s.selectedGroupId);
 			setAppearance({

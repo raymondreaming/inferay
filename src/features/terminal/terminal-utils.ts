@@ -378,36 +378,15 @@ export function createDefaultAgentChatGroup(): TerminalGroupModel {
 	};
 }
 
-export function migrateGroup(
-	group: Partial<TerminalGroupModel> & {
-		id: GroupId;
-		name: string;
-		panes: TerminalPaneModel[];
-		selectedPaneId: PaneId | null;
-	}
-): TerminalGroupModel {
-	const panes =
-		group.panes.length > 0 ? group.panes : [createPendingAgentChatPane()];
-	const selectedPaneId = panes.some(hasId.bind(null, group.selectedPaneId))
-		? group.selectedPaneId
-		: (panes[0]?.id ?? null);
+export function createDefaultTerminalState(): TerminalSavedState {
+	const group = createDefaultAgentChatGroup();
 	return {
-		...group,
-		panes: panes.map((pane) => ({
-			...pane,
-			agentKind:
-				pane.agentKind ??
-				(pane.paneType === "codex"
-					? "codex"
-					: pane.isClaude
-						? "claude"
-						: "terminal"),
-			isClaude: pane.agentKind ? pane.agentKind === "claude" : pane.isClaude,
-			paneType: pane.paneType ?? (pane.isClaude ? "claude" : "terminal"),
-		})),
-		selectedPaneId,
-		columns: group.columns ?? DEFAULT_COLUMNS,
-		rows: group.rows ?? DEFAULT_ROWS,
+		groups: [group],
+		selectedGroupId: group.id,
+		themeId: DEFAULT_THEME_ID,
+		fontSize: DEFAULT_FONT_SIZE,
+		fontFamily: DEFAULT_FONT_FAMILY,
+		opacity: DEFAULT_OPACITY,
 	};
 }
 
@@ -434,11 +413,7 @@ export function getPreferredEditorPane(
 }
 
 export function getInitialGroups(): TerminalGroupModel[] {
-	return (
-		loadTerminalState()?.groups.map(migrateGroup) ?? [
-			createDefaultAgentChatGroup(),
-		]
-	);
+	return loadTerminalState()?.groups ?? createDefaultTerminalState().groups;
 }
 
 const BASE_STATUSES = {

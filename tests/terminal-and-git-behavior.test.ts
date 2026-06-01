@@ -3,7 +3,6 @@ import {
 	createDefaultAgentChatGroup,
 	getPaneTitle,
 	getStatusInfo,
-	migrateGroup,
 	prependPaneToGroup,
 	type GroupId,
 	type PaneId,
@@ -33,40 +32,6 @@ const pane = (
 });
 
 describe("terminal state and git change behavior", () => {
-	/*
-	 * This protects saved terminal state migration across app versions. Older
-	 * panes may only have paneType/isClaude fields, and selectedPaneId may point
-	 * at a removed pane; migration must infer the agent kind and choose a valid
-	 * selected pane so restored workspaces open cleanly.
-	 */
-	test("migrates terminal groups with valid selection and inferred agent metadata", () => {
-		const migrated = migrateGroup({
-			id: "group-1" as GroupId,
-			name: "Main",
-			selectedPaneId: "missing" as PaneId,
-			panes: [
-				pane("p1", {
-					agentKind: undefined as unknown as TerminalPaneModel["agentKind"],
-					paneType: "codex",
-				}),
-				pane("p2", {
-					agentKind: undefined as unknown as TerminalPaneModel["agentKind"],
-					isClaude: true,
-					paneType: undefined,
-				}),
-			],
-		});
-
-		expect(migrated.selectedPaneId).toBe("p1" as PaneId);
-		expect(migrated.columns).toBe(3);
-		expect(migrated.rows).toBe(2);
-		expect(migrated.panes.map((item) => item.agentKind)).toEqual([
-			"codex",
-			"claude",
-		]);
-		expect(migrated.panes.map((item) => item.isClaude)).toEqual([false, true]);
-	});
-
 	test("creates the default workspace as a six-pane agent chat grid", () => {
 		const group = createDefaultAgentChatGroup();
 
