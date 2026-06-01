@@ -5,6 +5,8 @@ import { trimMessages } from "../../features/chat/agent-chat-shared.ts";
 import {
 	loadStoredMessages,
 	loadStoredSummary,
+	loadFileBackedMessages,
+	saveFileBackedMessages,
 	saveStoredMessages,
 	saveStoredSummary,
 	upsertSessionLibraryEntry,
@@ -44,6 +46,13 @@ function getLastSessionMessage(messages: ChatMessage[]): string | null {
 	return text.length > 180 ? `${text.slice(0, 177)}...` : text;
 }
 
+function messageStorageScore(messages: ChatMessage[]): number {
+	return messages.reduce(
+		(score, message) => score + 1 + (message.content?.length ?? 0),
+		0
+	);
+}
+
 export function useStoredChatMessages({
 	paneId,
 	agentKind,
@@ -67,6 +76,7 @@ export function useStoredChatMessages({
 	const writeSessionSnapshot = useCallback(
 		(storedMessages: ChatMessage[]) => {
 			saveStoredMessages(paneId, storedMessages);
+			saveFileBackedMessages(paneId, storedMessages);
 			const workspace = getWorkspace();
 			upsertSessionLibraryEntry(paneId, {
 				agentKind,
@@ -81,6 +91,41 @@ export function useStoredChatMessages({
 		},
 		[agentKind, getWorkspace, model, paneId, reasoningLevel]
 	);
+
+	useEffect(() => {
+		let cancelled = false;
+		loadFileBackedMessages<ChatMessage>(paneId)
+			.then((fileMessages) => {
+				if (cancelled) return;
+				if (fileMessages.length === 0) {
+					const currentMessages = prepareMessagesForStorage(
+						messagesRef.current
+					);
+					if (currentMessages.length > 0) {
+						saveFileBackedMessages(paneId, currentMessages);
+					}
+					return;
+				}
+				setMessagesRaw((prev) => {
+					const fileScore = messageStorageScore(fileMessages);
+					const prevScore = messageStorageScore(prev);
+					if (fileScore <= prevScore) {
+						if (prevScore > fileScore) {
+							saveFileBackedMessages(paneId, prepareMessagesForStorage(prev));
+						}
+						return prev;
+					}
+					const storedMessages = prepareMessagesForStorage(fileMessages);
+					messagesRef.current = storedMessages;
+					saveStoredMessages(paneId, storedMessages);
+					return storedMessages;
+				});
+			})
+			.catch(noop);
+		return () => {
+			cancelled = true;
+		};
+	}, [paneId]);
 
 	const flushPendingMessageSave = useCallback(() => {
 		if (saveTimerRef.current) {

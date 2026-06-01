@@ -18,6 +18,7 @@ import {
 	loadStoredMessages,
 	loadStoredSummary,
 } from "../../features/chat/chat-session-store.ts";
+import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
 import {
 	getPaneTitle,
 	loadTerminalState,
@@ -62,7 +63,7 @@ export type ChatVirtualizerControls = {
 
 const APP_REGION_DRAG_CLASS = "electrobun-webkit-app-region-drag";
 const APP_REGION_NO_DRAG_CLASS = "electrobun-webkit-app-region-no-drag";
-const CHAT_SCROLL_DISTANCE_KEY_PREFIX = "chat-scroll-distance:";
+const CHAT_SCROLL_DISTANCE_KEY_PREFIX = "inferay-scroll-distance:";
 
 function dragClassName(className?: string) {
 	return className
@@ -162,7 +163,7 @@ function getRowKey(row: ChatRenderRow | undefined, index: number) {
 
 function loadScrollDistance(paneId: string): number | null {
 	try {
-		const stored = localStorage.getItem(
+		const stored = readStoredValue(
 			`${CHAT_SCROLL_DISTANCE_KEY_PREFIX}${paneId}`
 		);
 		if (stored === null) return null;
@@ -175,7 +176,7 @@ function loadScrollDistance(paneId: string): number | null {
 
 function saveScrollDistance(paneId: string, distance: number): void {
 	try {
-		localStorage.setItem(
+		writeStoredValue(
 			`${CHAT_SCROLL_DISTANCE_KEY_PREFIX}${paneId}`,
 			String(Math.max(0, Math.round(distance)))
 		);
@@ -766,7 +767,7 @@ export const ChatMessageList = React.memo(function ChatMessageList({
 		scrollEndThreshold: 80,
 		overscan: 6,
 		gap: 8,
-		paddingStart: 8,
+		paddingStart: 20,
 		paddingEnd: 32,
 		useFlushSync: false,
 	});

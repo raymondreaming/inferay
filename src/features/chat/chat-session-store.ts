@@ -1,4 +1,5 @@
-import { isString } from "../../lib/data.ts";
+import { isString, noop } from "../../lib/data.ts";
+import { fetchJsonOr, sendJson } from "../../lib/fetch-json.ts";
 import {
 	readStoredJson,
 	readStoredValue,
@@ -114,6 +115,34 @@ function hasAssistantSideHistory(messages: unknown[]): boolean {
 export function loadStoredMessages<T>(paneId: string): T[] {
 	const parsed = readPaneJson<unknown>(STORAGE_KEY_PREFIX, paneId, []);
 	return Array.isArray(parsed) ? (parsed as T[]) : [];
+}
+
+export async function loadFileBackedMessages<T>(paneId: string): Promise<T[]> {
+	const payload = await fetchJsonOr<{ messages?: unknown }>(
+		chatTranscriptUrl(paneId),
+		{ messages: [] }
+	);
+	return Array.isArray(payload.messages) ? (payload.messages as T[]) : [];
+}
+
+export function saveFileBackedMessages<T>(paneId: string, messages: T[]) {
+	try {
+		sendJson(chatTranscriptUrl(paneId), { messages }, { method: "PUT" }).catch(
+			noop
+		);
+	} catch {}
+}
+
+export function clearFileBackedMessages(paneId: string) {
+	try {
+		fetch(chatTranscriptUrl(paneId), {
+			method: "DELETE",
+		}).catch(noop);
+	} catch {}
+}
+
+function chatTranscriptUrl(paneId: string): string {
+	return `/api/chat-transcripts/${encodeURIComponent(paneId)}`;
 }
 
 export function loadStoredChatPaneIds(): string[] {
@@ -394,4 +423,5 @@ export function clearAgentChatMessages(paneId: string) {
 		removePaneValue(prefix, paneId);
 	}
 	removeSessionLibraryEntry(paneId);
+	clearFileBackedMessages(paneId);
 }
