@@ -165,49 +165,56 @@ export const AgentChatStatusBar = React.memo(function AgentChatStatusBar({
 			window.removeEventListener("scroll", updatePosition, true);
 		};
 	}, [showActivityPopover]);
+	const activityButtonProps = stylex.props(styles.activityButton);
+	const stopButtonProps = stylex.props(styles.stopButton);
 	const activityPopoverProps = stylex.props(styles.activityPopover);
 
 	if (!isLoading) return null;
 
 	return (
 		<div {...stylex.props(styles.root)}>
-			{hasActivity ? (
-				<div
-					{...stylex.props(styles.activityWrap)}
-					onMouseEnter={() => setIsHovered(true)}
-					onMouseLeave={() => setIsHovered(false)}
+			<div
+				{...stylex.props(styles.activityWrap)}
+				onMouseEnter={() => setIsHovered(true)}
+				onMouseLeave={() => setIsHovered(false)}
+			>
+				<button
+					ref={activityButtonRef}
+					type="button"
+					aria-expanded={showActivityPopover}
+					aria-label="Show agent activity"
+					onClick={() => setIsHovered(true)}
+					onFocus={() => setIsHovered(true)}
+					onBlur={() => setIsHovered(false)}
+					{...activityButtonProps}
+					className={`${APP_REGION_NO_DRAG_CLASS} ${activityButtonProps.className ?? ""}`}
 				>
-					<button
-						ref={activityButtonRef}
-						type="button"
-						onClick={onStop}
-						{...stylex.props(styles.activityStopButton)}
-						className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.activityStopButton).className ?? ""}`}
-					>
-						{displayToolName && (
-							<span {...stylex.props(styles.activityIcon)}>
-								<ToolStatusIcon toolName={displayToolName} />
-							</span>
-						)}
-						<span {...stylex.props(styles.activitySummary)}>
-							{displaySummary || "Working..."}
+					{displayToolName ? (
+						<span {...stylex.props(styles.activityIcon)}>
+							<ToolStatusIcon toolName={displayToolName} />
 						</span>
-						{activityCount > 1 && (
-							<span {...stylex.props(styles.activityCount)}>
-								+{activityCount - 1}
-							</span>
-						)}
-						<span {...stylex.props(styles.activityDivider)} />
-						<IconStop size={12} {...stylex.props(styles.toolIcon)} />
-						<span {...stylex.props(styles.stopLabel)}>Stop</span>
-					</button>
-				</div>
-			) : (
-				<div {...stylex.props(styles.idleStatus)}>
-					<span {...stylex.props(styles.liveDot)} />
-					<span {...stylex.props(styles.idleText)}>Working...</span>
-				</div>
-			)}
+					) : (
+						<span {...stylex.props(styles.liveDot)} />
+					)}
+					<span {...stylex.props(styles.activitySummary)}>
+						{hasActivity ? displaySummary || "Working..." : "Working..."}
+					</span>
+					{activityCount > 1 && (
+						<span {...stylex.props(styles.activityCount)}>
+							+{activityCount - 1}
+						</span>
+					)}
+				</button>
+			</div>
+			<button
+				type="button"
+				onClick={onStop}
+				{...stopButtonProps}
+				className={`${APP_REGION_NO_DRAG_CLASS} ${stopButtonProps.className ?? ""}`}
+			>
+				<IconStop size={12} {...stylex.props(styles.toolIcon)} />
+				<span {...stylex.props(styles.stopLabel)}>Stop</span>
+			</button>
 			{showActivityPopover &&
 				createPortal(
 					<div
@@ -272,15 +279,17 @@ const styles = stylex.create({
 		justifyContent: "space-between",
 		paddingBlock: controlSize._1,
 		userSelect: "none",
+		width: "100%",
 	},
 	toolIcon: {
 		flexShrink: 0,
 	},
 	activityWrap: {
+		flex: 1,
 		minWidth: 0,
 		position: "relative",
 	},
-	activityStopButton: {
+	activityButton: {
 		alignItems: "center",
 		backgroundColor: {
 			default: color.backgroundRaised,
@@ -297,13 +306,50 @@ const styles = stylex.create({
 		color: color.textSoft,
 		cursor: "pointer",
 		display: "flex",
-		flexShrink: 1,
 		fontSize: font.size_2,
 		fontWeight: font.weight_5,
 		gap: controlSize._1_5,
 		height: controlSize._6,
 		maxWidth: "100%",
 		minWidth: 0,
+		paddingInline: controlSize._2_5,
+		boxShadow: shadow.controlDepth,
+		transitionDuration: motion.durationBase,
+		transitionProperty:
+			"background-color, background-image, border-color, box-shadow, color, transform",
+		transitionTimingFunction: motion.ease,
+		":active": {
+			transform: "scale(0.98)",
+		},
+	},
+	stopButton: {
+		alignItems: "center",
+		backgroundColor: {
+			default: color.backgroundRaised,
+			":hover": color.danger,
+		},
+		backgroundImage: {
+			default: effect.controlDepth,
+			":hover": "none",
+		},
+		borderColor: {
+			default: color.borderSubtle,
+			":hover": color.danger,
+		},
+		borderRadius: radius.md,
+		borderStyle: "solid",
+		borderWidth: 0.5,
+		color: {
+			default: color.textSoft,
+			":hover": color.textMain,
+		},
+		cursor: "pointer",
+		display: "flex",
+		flexShrink: 0,
+		fontSize: font.size_2,
+		fontWeight: font.weight_6,
+		gap: controlSize._1_5,
+		height: controlSize._6,
 		paddingInline: controlSize._2_5,
 		boxShadow: shadow.controlDepth,
 		transitionDuration: motion.durationBase,
@@ -328,12 +374,6 @@ const styles = stylex.create({
 		color: color.textMuted,
 		fontSize: font.size_1,
 		fontVariantNumeric: "tabular-nums",
-	},
-	activityDivider: {
-		backgroundColor: color.border,
-		flexShrink: 0,
-		height: controlSize._3,
-		width: 1,
 	},
 	stopLabel: {
 		flexShrink: 0,

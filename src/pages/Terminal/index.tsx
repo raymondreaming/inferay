@@ -540,8 +540,17 @@ export function TerminalPage() {
 	);
 	useEffect(() => {
 		const handleShellChange = (event: Event) => {
+			const detail = event instanceof CustomEvent ? event.detail : null;
 			const isSharedStorageEvent = isClientStorageTerminalShellChange(event);
-			if (isSharedStorageEvent && pendingSaveTimerRef.current) {
+			const isLocalStateMutation =
+				typeof detail === "object" &&
+				detail !== null &&
+				(detail as { source?: string; reason?: string }).source === "local" &&
+				(detail as { reason?: string }).reason !== "terminal-save";
+			if (
+				(isSharedStorageEvent || isLocalStateMutation) &&
+				pendingSaveTimerRef.current
+			) {
 				clearTimeout(pendingSaveTimerRef.current);
 				pendingSaveTimerRef.current = null;
 				pendingSaveRef.current = false;
@@ -593,7 +602,11 @@ export function TerminalPage() {
 				}
 			}
 			// Skip full restore check if we have a pending save - this prevents undoing local changes
-			if (pendingSaveRef.current && !isSharedStorageEvent) {
+			if (
+				pendingSaveRef.current &&
+				!isSharedStorageEvent &&
+				!isLocalStateMutation
+			) {
 				return;
 			}
 			if (savedState) {

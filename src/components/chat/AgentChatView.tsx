@@ -11,7 +11,6 @@ import {
 } from "react";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
 import {
-	CODEX_REASONING_LEVELS,
 	getAgentDefinition,
 	loadDefaultChatSettings,
 } from "../../features/agents/agents.ts";
@@ -33,29 +32,19 @@ import {
 	clearAgentChatMessages,
 	clearPendingSend,
 	clearStoredCheckpoints,
-	clearStoredLoadingState,
 	clearStoredSessionId,
 	clearStoredWorktreeInfo,
 	loadPendingSend,
 	loadStoredCheckpoints,
 	loadStoredComposerContextBlocks,
 	loadStoredInput,
-	loadStoredLoadingState,
-	loadStoredMessages,
-	loadStoredModel,
-	loadStoredReasoningLevel,
 	loadStoredSessionId,
-	loadStoredSummary,
 	loadStoredWorktreeInfo,
 	saveStoredCheckpoints,
 	saveStoredComposerContextBlocks,
 	saveStoredInput,
-	saveStoredLoadingState,
 	saveStoredMessages,
-	saveStoredModel,
-	saveStoredReasoningLevel,
 	saveStoredSessionId,
-	upsertSessionLibraryEntry,
 } from "../../features/chat/chat-session-store.ts";
 import { getToolBlockInitialContent } from "../../features/chat/chat-stream-events.ts";
 import {
@@ -65,15 +54,8 @@ import {
 	markActiveComposerPane,
 } from "../../features/chat/composer-context.ts";
 import { useGitStatus } from "../../features/git/useGitStatus.ts";
-import { usePrompts } from "../../features/prompts/usePrompts.ts";
-import {
-	type AgentKind,
-	changePaneAgentKind,
-} from "../../features/terminal/terminal-utils.ts";
-import {
-	CLIENT_STORAGE_CHANGED_EVENT,
-	flushPendingClientStorageSync,
-} from "../../lib/client-storage-sync.ts";
+import type { AgentKind } from "../../features/terminal/terminal-utils.ts";
+import { flushPendingClientStorageSync } from "../../lib/client-storage-sync.ts";
 import { hasId, noop } from "../../lib/data.ts";
 import { measureTextareaHeight } from "../../lib/pretext-utils.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
@@ -82,7 +64,6 @@ import { controlSize, effectValues } from "../../tokens.stylex.ts";
 import { AgentChatStatusBar } from "./AgentChatStatusBar.tsx";
 import { AgentChatMessagePane } from "./AgentChatMessagePane.tsx";
 import { ChatComposer } from "./ChatComposer.tsx";
-import type { ChatVirtualizerControls } from "./ChatMessageList.tsx";
 import {
 	clearLiveActivities,
 	extractToolActivities,
@@ -102,7 +83,12 @@ import {
 	patchMessageById,
 } from "./chat-state-utils.ts";
 import { useAgentChatComposerState } from "./useAgentChatComposerState.ts";
+import { useAgentChatCommands } from "./useAgentChatCommands.ts";
 import { useAgentChatMenus } from "./useAgentChatMenus.ts";
+import { useAgentChatModelSettings } from "./useAgentChatModelSettings.ts";
+import { useAgentChatScroll } from "./useAgentChatScroll.ts";
+import { useAgentChatStorageSync } from "./useAgentChatStorageSync.ts";
+import { useAgentChatUiState } from "./useAgentChatUiState.ts";
 import { useSpeechToText } from "./useSpeechToText.ts";
 import {
 	type ActiveWorkspace,
@@ -114,13 +100,6 @@ import {
 } from "./useStoredChatMessages.ts";
 
 const APP_REGION_DRAG_CLASS = "electrobun-webkit-app-region-drag";
-const CHAT_MESSAGES_KEY_PREFIX = "inferay-chat-";
-const CHAT_INPUT_KEY_PREFIX = "inferay-chat-input-";
-const CHAT_LOADING_KEY_PREFIX = "inferay-chat-loading-";
-const CHAT_MODEL_KEY_PREFIX = "inferay-chat-model-";
-const CHAT_REASONING_KEY_PREFIX = "inferay-chat-reasoning-";
-const CHAT_SUMMARY_KEY_PREFIX = "inferay-chat-summary-";
-const CHAT_COMPOSER_CONTEXT_KEY_PREFIX = "inferay-chat-composer-context-";
 
 interface AgentChatViewProps {
 	paneId: string;
@@ -168,21 +147,6 @@ export interface AgentChatHandle {
 	removeAttachedImage: (path: string) => void;
 }
 
-const LOCAL_COMMANDS: SlashCommand[] = [
-	{
-		name: "clear",
-		description: "Clear all messages",
-		action: "local",
-		isLocalCommand: true,
-	},
-	{
-		name: "help",
-		description: "Show available commands",
-		action: "local",
-		isLocalCommand: true,
-	},
-];
-
 const TEXTAREA_MEASURE_CHAR_LIMIT = 6000;
 export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 	function AgentChatView(
@@ -201,25 +165,21 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 		},
 		ref
 	) {
-		const [activeAgentKind, setActiveAgentKind] =
-			useState<AgentKind>(paneAgentKind);
-		const activeAgentKindRef = useRef(activeAgentKind);
-		const activePaneIdRef = useRef(paneId);
-		useEffect(() => {
-			if (
-				activePaneIdRef.current === paneId &&
-				activeAgentKindRef.current === paneAgentKind
-			) {
-				return;
-			}
-			activePaneIdRef.current = paneId;
-			setActiveAgentKind(paneAgentKind);
-			activeAgentKindRef.current = paneAgentKind;
-		}, [paneAgentKind, paneId]);
-		useEffect(() => {
-			activeAgentKindRef.current = activeAgentKind;
-		}, [activeAgentKind]);
-		const agentKind = activeAgentKind;
+		const {
+			agentKind,
+			activeAgentKindRef,
+			agentDefinition,
+			effectiveSelectedModel,
+			selectedModelRef,
+			selectedReasoningLevel,
+			selectedReasoningLevelRef,
+			getDefaultModel,
+			handleAgentKindChange,
+			handleModelChange,
+			handleReasoningLevelChange,
+			setSelectedModel,
+			setSelectedReasoningLevel,
+		} = useAgentChatModelSettings({ paneId, paneAgentKind });
 		const {
 			activeWorkspace,
 			visibleWorkspace,
@@ -238,14 +198,6 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 		const [worktreeInfo, setWorktreeInfo] = useState<WorktreeLaunchInfo | null>(
 			() => loadStoredWorktreeInfo(paneId)
 		);
-		const getDefaultModel = useCallback((kind: AgentKind) => {
-			const definition = getAgentDefinition(kind);
-			const defaults = loadDefaultChatSettings();
-			return kind === defaults.agentKind &&
-				definition.models.some(hasId.bind(null, defaults.model))
-				? defaults.model
-				: definition.defaultModel;
-		}, []);
 		useEffect(() => {
 			const workspaceCwd = activeWorkspace.cwd;
 			if (!worktreeInfo || !workspaceCwd) return;
@@ -257,41 +209,6 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 				clearStoredWorktreeInfo(paneId);
 			}
 		}, [activeWorkspace.cwd, paneId, worktreeInfo]);
-		const [selectedModel, setSelectedModel] = useState(() => {
-			const stored = loadStoredModel(paneId);
-			const definition = getAgentDefinition(agentKind);
-			const defaults = loadDefaultChatSettings();
-			return definition.models.some(hasId.bind(null, stored))
-				? stored!
-				: agentKind === defaults.agentKind &&
-					  definition.models.some(hasId.bind(null, defaults.model))
-					? defaults.model
-					: definition.defaultModel;
-		});
-		const selectedModelRef = useRef(selectedModel);
-		useEffect(() => {
-			selectedModelRef.current = selectedModel;
-		}, [selectedModel]);
-		const agentDefinition = useMemo(
-			() => getAgentDefinition(agentKind),
-			[agentKind]
-		);
-		const effectiveSelectedModel = agentDefinition.models.some(
-			hasId.bind(null, selectedModel)
-		)
-			? selectedModel
-			: getDefaultModel(agentKind);
-		const [selectedReasoningLevel, setSelectedReasoningLevel] = useState(() => {
-			const stored = loadStoredReasoningLevel(paneId);
-			const defaults = loadDefaultChatSettings();
-			return CODEX_REASONING_LEVELS.some(hasId.bind(null, stored))
-				? stored!
-				: defaults.reasoningLevel;
-		});
-		const selectedReasoningLevelRef = useRef(selectedReasoningLevel);
-		useEffect(() => {
-			selectedReasoningLevelRef.current = selectedReasoningLevel;
-		}, [selectedReasoningLevel]);
 		const getActiveWorkspaceSnapshot = useCallback(
 			() => activeWorkspaceRef.current,
 			[]
@@ -356,72 +273,10 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 			}
 		}, [agentKind, paneId]);
 
-		const [chatUiState, setChatUiState] = useState<{
-			isLoading: boolean;
-			status: string;
-			startTime: number | null;
-			expandedTools: Set<string>;
-			liveActivities: ToolActivity[];
-		}>(() => {
-			const storedLoading = loadStoredLoadingState(paneId);
-			return {
-				isLoading: storedLoading?.isLoading ?? false,
-				status: storedLoading?.status ?? "idle",
-				startTime: storedLoading?.startTime ?? null,
-				expandedTools: new Set(),
-				liveActivities: [],
-			};
-		});
-		const chatUiStateRef = useRef(chatUiState);
-		chatUiStateRef.current = chatUiState;
+		const { chatUiState, setChatUiState, setLoadingState, setExpandedTools } =
+			useAgentChatUiState({ paneId, onStatusChange });
 		const { isLoading, status, startTime, expandedTools, liveActivities } =
 			chatUiState;
-		const setLoadingState = useCallback(
-			(
-				v:
-					| { isLoading: boolean; status: string; startTime: number | null }
-					| ((prev: {
-							isLoading: boolean;
-							status: string;
-							startTime: number | null;
-					  }) => {
-							isLoading: boolean;
-							status: string;
-							startTime: number | null;
-					  })
-			) => {
-				const prev = chatUiStateRef.current;
-				const patch = typeof v === "function" ? v(prev) : v;
-				const next = { ...prev, ...patch };
-				if (!next.isLoading) {
-					next.liveActivities = [];
-				}
-				chatUiStateRef.current = next;
-				setChatUiState(next);
-				if (next.isLoading && next.startTime) {
-					saveStoredLoadingState(paneId, {
-						isLoading: next.isLoading,
-						status: next.status,
-						startTime: next.startTime,
-					});
-				} else {
-					clearStoredLoadingState(paneId);
-				}
-				if (prev.status !== next.status) {
-					onStatusChange?.(paneId, next.status);
-				}
-			},
-			[onStatusChange, paneId]
-		);
-		const setExpandedTools = useCallback(
-			(v: Set<string> | ((prev: Set<string>) => Set<string>)) => {
-				setChatUiState((prev) => ({
-					...prev,
-					expandedTools: typeof v === "function" ? v(prev.expandedTools) : v,
-				}));
-			},
-			[]
-		);
 		const [, setCommandMenu] = useState<{
 			show: boolean;
 			selectedIdx: number;
@@ -437,8 +292,6 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 		});
 		const checkpointsRef = useRef(checkpoints);
 		checkpointsRef.current = checkpoints;
-		const scrollRef = useRef<HTMLDivElement>(null);
-		const chatVirtualizerRef = useRef<ChatVirtualizerControls | null>(null);
 		const textareaRef = useRef<HTMLTextAreaElement>(null);
 		const highlightOverlayRef = useRef<HTMLDivElement>(null);
 		const inputContainerRef = useRef<HTMLDivElement>(null);
@@ -446,10 +299,17 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 		const currentToolRef = useRef<string | null>(null);
 		const hasStreamedRef = useRef(false);
 		const containerRef = useRef<HTMLDivElement>(null);
-		const [isAtBottom, setIsAtBottom] = useState(true);
 		const currentBtwRef = useRef<string | null>(null);
-		const autoFollowRef = useRef(true);
-		const programmaticScrollRef = useRef(false);
+		const {
+			scrollRef,
+			chatVirtualizerRef,
+			isAtBottom,
+			autoFollowRef,
+			handleScroll,
+			scrollToBottom,
+			scrollChatByArrow,
+			handleVirtualizerReady,
+		} = useAgentChatScroll(isSelected);
 		const {
 			setIsDragOver,
 			attachedImages,
@@ -474,152 +334,20 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 			handlePaste,
 		} = useAgentChatComposerState(paneId);
 
-		useEffect(
-			() =>
-				listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
-					const detail = (
-						event as CustomEvent<{ key?: string; value?: string | null }>
-					).detail;
-					const key = detail?.key;
-					if (!key) return;
-
-					if (key === `${CHAT_MESSAGES_KEY_PREFIX}${paneId}`) {
-						const storedMessages = loadStoredMessages<ChatMessage>(paneId);
-						setMessagesRaw((prev) => {
-							const next = trimMessages(
-								mergeSyncedMessages(prev, storedMessages)
-							);
-							messagesRef.current = next;
-							return next;
-						});
-						return;
-					}
-
-					if (
-						key === `${CHAT_INPUT_KEY_PREFIX}${paneId}` &&
-						document.activeElement !== textareaRef.current
-					) {
-						setInputRaw(loadStoredInput(paneId));
-						return;
-					}
-
-					if (key === `${CHAT_LOADING_KEY_PREFIX}${paneId}`) {
-						const storedLoading = loadStoredLoadingState(paneId);
-						setLoadingState(
-							storedLoading ?? {
-								isLoading: false,
-								status: "idle",
-								startTime: null,
-							}
-						);
-						return;
-					}
-
-					if (key === `${CHAT_MODEL_KEY_PREFIX}${paneId}`) {
-						const storedModel = loadStoredModel(paneId);
-						if (storedModel) {
-							selectedModelRef.current = storedModel;
-							setSelectedModel(storedModel);
-						}
-						return;
-					}
-
-					if (key === `${CHAT_REASONING_KEY_PREFIX}${paneId}`) {
-						const storedReasoning = loadStoredReasoningLevel(paneId);
-						if (storedReasoning) {
-							selectedReasoningLevelRef.current = storedReasoning;
-							setSelectedReasoningLevel(storedReasoning);
-						}
-						return;
-					}
-
-					if (key === `${CHAT_SUMMARY_KEY_PREFIX}${paneId}`) {
-						summaryRef.current = loadStoredSummary(paneId);
-						return;
-					}
-
-					if (key === `${CHAT_COMPOSER_CONTEXT_KEY_PREFIX}${paneId}`) {
-						setComposerContextBlocks(
-							loadStoredComposerContextBlocks<ComposerContextBlock>(paneId)
-						);
-					}
-				}),
-			[paneId, setLoadingState]
-		);
-
-		const handleScroll = useCallback(() => {
-			const el = scrollRef.current;
-			if (!el) return;
-			const atBottom =
-				chatVirtualizerRef.current?.isAtEnd() ??
-				el.scrollHeight - el.scrollTop - el.clientHeight < 48;
-			setIsAtBottom(atBottom);
-			if (programmaticScrollRef.current) return;
-			autoFollowRef.current = atBottom;
-		}, []);
-
-		const scrollToBottom = useCallback(
-			(behavior: ScrollBehavior = "smooth") => {
-				const el = scrollRef.current;
-				if (!el) return;
-				autoFollowRef.current = true;
-				programmaticScrollRef.current = true;
-				if (chatVirtualizerRef.current) {
-					chatVirtualizerRef.current.scrollToEnd(behavior);
-				} else {
-					el.scrollTo({ top: el.scrollHeight, behavior });
-				}
-				setIsAtBottom(true);
-				window.setTimeout(
-					() => {
-						programmaticScrollRef.current = false;
-					},
-					behavior === "smooth" ? 260 : 0
-				);
-			},
-			[]
-		);
-		const scrollChatByArrow = useCallback((direction: 1 | -1) => {
-			const el = scrollRef.current;
-			if (!el) return;
-			autoFollowRef.current = false;
-			programmaticScrollRef.current = true;
-			const amount = Math.max(56, Math.round(el.clientHeight * 0.18));
-			el.scrollBy({ top: direction * amount, behavior: "auto" });
-			requestAnimationFrame(() => {
-				const atBottom =
-					chatVirtualizerRef.current?.isAtEnd() ??
-					el.scrollHeight - el.scrollTop - el.clientHeight < 48;
-				setIsAtBottom(atBottom);
-				autoFollowRef.current = atBottom;
-				programmaticScrollRef.current = false;
-			});
-		}, []);
-		const handleVirtualizerReady = useCallback(
-			(controls: ChatVirtualizerControls | null) => {
-				chatVirtualizerRef.current = controls;
-				if (controls) setIsAtBottom(controls.isAtEnd());
-			},
-			[]
-		);
-
-		useEffect(() => {
-			if (!isSelected) return;
-			const onKeyDown = (e: KeyboardEvent) => {
-				if (e.key !== "ArrowDown") return;
-				const active = document.activeElement;
-				if (
-					active &&
-					(active.tagName === "TEXTAREA" || active.tagName === "INPUT")
-				)
-					return;
-				if (!isAtBottom) {
-					e.preventDefault();
-					scrollToBottom();
-				}
-			};
-			return listenWindowEvent("keydown", onKeyDown);
-		}, [isSelected, isAtBottom, scrollToBottom]);
+		useAgentChatStorageSync({
+			paneId,
+			textareaRef,
+			messagesRef,
+			summaryRef,
+			selectedModelRef,
+			selectedReasoningLevelRef,
+			setMessagesRaw,
+			setInputRaw,
+			setLoadingState,
+			setSelectedModel,
+			setSelectedReasoningLevel,
+			setComposerContextBlocks,
+		});
 
 		useEffect(() => {
 			requestAnimationFrame(() => textareaRef.current?.focus());
@@ -695,41 +423,8 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 			},
 			[setMessages]
 		);
-		const { prompts: localPrompts, incrementUsage: incrementLocalUsage } =
-			usePrompts();
-		const allCommands = useMemo<SlashCommand[]>(() => {
-			const libraryCommands: SlashCommand[] = localPrompts.map((p) => ({
-				id: p._id,
-				name: p.command,
-				description: p.description,
-				action: "send" as const,
-				promptTemplate: p.promptTemplate,
-				category: p.category,
-				isFromLibrary: true,
-			}));
-			const nativeCommands: SlashCommand[] = getAgentDefinition(
-				agentKind
-			).nativeSlashCommands.map((cmd) => ({
-				name: cmd.name,
-				description: cmd.description,
-				action: "send",
-				isLocalCommand: true,
-			}));
-			const deduped = new Map<string, SlashCommand>();
-			for (const cmd of [
-				...LOCAL_COMMANDS,
-				...libraryCommands,
-				...nativeCommands,
-			]) {
-				const key = cmd.name.toLowerCase();
-				if (!deduped.has(key)) deduped.set(key, cmd);
-			}
-			return [...deduped.values()];
-		}, [agentKind, localPrompts]);
-		const slashCommandNames = useMemo(
-			() => allCommands.map((command) => command.name),
-			[allCommands]
-		);
+		const { allCommands, incrementLocalUsage, slashCommandNames } =
+			useAgentChatCommands(agentKind);
 		const {
 			fileMenu,
 			setFileMenu,
@@ -1602,49 +1297,6 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 			]
 		);
 
-		const handleAgentKindChange = useCallback(
-			(nextAgentKind: AgentKind) => {
-				setActiveAgentKind(nextAgentKind);
-				activeAgentKindRef.current = nextAgentKind;
-				changePaneAgentKind(paneId, nextAgentKind);
-				clearStoredSessionId(paneId);
-				const nextModel = getDefaultModel(nextAgentKind);
-				if (nextModel) {
-					selectedModelRef.current = nextModel;
-					setSelectedModel(nextModel);
-					saveStoredModel(paneId, nextModel);
-				}
-				upsertSessionLibraryEntry(paneId, {
-					agentKind: nextAgentKind,
-					model: nextModel,
-					reasoningLevel:
-						nextAgentKind === "codex"
-							? selectedReasoningLevelRef.current
-							: null,
-				});
-			},
-			[getDefaultModel, paneId]
-		);
-
-		const handleModelChange = useCallback(
-			(model: string) => {
-				selectedModelRef.current = model;
-				setSelectedModel(model);
-				saveStoredModel(paneId, model);
-				clearStoredSessionId(paneId);
-			},
-			[paneId]
-		);
-
-		const handleReasoningLevelChange = useCallback(
-			(reasoningLevel: string) => {
-				selectedReasoningLevelRef.current = reasoningLevel;
-				setSelectedReasoningLevel(reasoningLevel);
-				saveStoredReasoningLevel(paneId, reasoningLevel);
-				clearStoredSessionId(paneId);
-			},
-			[paneId]
-		);
 		const composerKeyboard = useMemo(
 			() => ({
 				onSubmit: sendMessage,

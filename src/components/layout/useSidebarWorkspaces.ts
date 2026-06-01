@@ -119,6 +119,7 @@ export function useSidebarWorkspaces() {
 			columns: selectedGroup?.columns ?? DEFAULT_COLUMNS,
 			rows: selectedGroup?.rows ?? DEFAULT_ROWS,
 		};
+		writeStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY, "chat");
 		saveSyncedTerminalState(
 			{
 				...state,
@@ -147,6 +148,7 @@ export function useSidebarWorkspaces() {
 			const selectedGroupId = state.selectedGroupId ?? state.groups[0]?.id;
 			if (!selectedGroupId) return;
 			const pane = createTerminalPane(agentKind, undefined, true);
+			writeStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY, "chat");
 			saveSyncedTerminalState(
 				{
 					...state,
