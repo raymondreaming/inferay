@@ -34,11 +34,11 @@ import {
 import type { GithubRepo } from "../../features/forge/types.ts";
 import { useAppInfo } from "../../hooks/useAppInfo.ts";
 import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
+import { ONBOARDING_DONE_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { isActive, lacksValue } from "../../lib/data.ts";
 import { fetchJsonOr, sendJsonWithBusy } from "../../lib/fetch-json.ts";
 import { removeStoredValue } from "../../lib/stored-json.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
-import { ONBOARDING_DONE_KEY } from "../OnboardingPage/index.tsx";
 import { TerminalSettingsContent } from "../Terminal/TerminalSettingsPanel.tsx";
 import { ProfileAgentAccountCard } from "./ProfileAgentAccountCard.tsx";
 import { ProfileGithubEmptyState, ProfileRepoRow } from "./ProfileGithub.tsx";
@@ -60,7 +60,7 @@ async function fetchSimulatorProjectFolders(): Promise<string[]> {
 export function ProfilePage() {
 	const navigate = useNavigate();
 	const resetOnboarding = () => {
-		removeStoredValue(ONBOARDING_DONE_KEY);
+		removeStoredValue(ONBOARDING_DONE_STORAGE_KEY);
 		navigate("/onboarding", { replace: true });
 	};
 	const initialAccounts = getCachedForgeAccounts();

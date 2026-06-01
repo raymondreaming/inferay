@@ -20,6 +20,7 @@ import {
 	SIDEBAR_NAV_ROUTES,
 	TERMINAL_MAIN_VIEWS,
 } from "../../lib/app-navigation.tsx";
+import { TERMINAL_LAYOUT_MODE_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { hasRole, noop, toggleBoolean } from "../../lib/data.ts";
 import { fetchJsonOr, postJson } from "../../lib/fetch-json.ts";
 import {
@@ -504,7 +505,7 @@ export function Sidebar() {
 	}, [commandOpen, openShellCommandMenu]);
 
 	const updateLayoutMode = useCallback((mode: "grid" | "rows") => {
-		writeStoredValue("terminal-layout-mode", mode);
+		writeStoredValue(TERMINAL_LAYOUT_MODE_STORAGE_KEY, mode);
 		setLayoutMode(mode);
 		window.dispatchEvent(new Event("terminal-shell-change"));
 	}, []);

@@ -3,6 +3,7 @@ import {
 	loadAppThemeId,
 	mapAppThemeToTerminalTheme,
 } from "../../lib/app-theme.ts";
+import { TERMINAL_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { postJson } from "../../lib/fetch-json.ts";
 import { writeStoredValue } from "../../lib/stored-json.ts";
 import {
@@ -70,7 +71,7 @@ export async function launchQuickAction(
 	}
 	if (profile.prompt) savePendingSend(pane.id, profile.prompt);
 	markQuickActionLaunched(profile.id);
-	writeStoredValue("terminal-main-view", "chat");
+	writeStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY, "chat");
 
 	saveSyncedTerminalState(
 		{

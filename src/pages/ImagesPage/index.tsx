@@ -51,6 +51,7 @@ import {
 	loadAppThemeId,
 	mapAppThemeToTerminalTheme,
 } from "../../lib/app-theme.ts";
+import { TERMINAL_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { fetchJsonOr, postJson } from "../../lib/fetch-json.ts";
 import { formatBytes } from "../../lib/format.ts";
 import { setInputValue } from "../../lib/react-events.ts";
@@ -399,7 +400,7 @@ export function ImagesPage() {
 			const paneId = createArtifactChatPaneId(artifactsToAttach);
 			if (!paneId) return;
 
-			writeStoredValue("terminal-main-view", "chat");
+			writeStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY, "chat");
 			window.dispatchEvent(new Event("terminal-shell-change"));
 			navigate(DEFAULT_APP_ROUTE);
 		},
@@ -411,7 +412,7 @@ export function ImagesPage() {
 		const paneId = createArtifactChatPaneId(selected);
 		if (!paneId) return;
 
-		writeStoredValue("terminal-main-view", "chat");
+		writeStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY, "chat");
 		window.dispatchEvent(new Event("terminal-shell-change"));
 		navigate(DEFAULT_APP_ROUTE);
 	}, [navigate, selected]);

@@ -21,6 +21,10 @@ import {
 	type TerminalMainView,
 } from "../../lib/app-navigation.tsx";
 import { flushPendingClientStorageSync } from "../../lib/client-storage-sync.ts";
+import {
+	EDITOR_SELECTED_PANE_STORAGE_KEY,
+	TERMINAL_MAIN_VIEW_STORAGE_KEY,
+} from "../../lib/client-storage-keys.ts";
 import { hasId, lacksId } from "../../lib/data.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
@@ -38,7 +42,7 @@ export interface SidebarWorkspacesState {
 
 function loadSidebarWorkspaces(): SidebarWorkspacesState {
 	const state = loadTerminalState() ?? createDefaultTerminalState();
-	const mainView = readStoredValue("terminal-main-view");
+	const mainView = readStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY);
 	return {
 		groups: state?.groups ?? [],
 		selectedGroupId: state?.selectedGroupId ?? state?.groups[0]?.id ?? null,
@@ -82,7 +86,7 @@ export function useSidebarWorkspaces() {
 			const state = loadActionTerminalState();
 			const gid = groupId as never;
 			const pid = paneId as never;
-			writeStoredValue("editor-selected-pane", paneId);
+			writeStoredValue(EDITOR_SELECTED_PANE_STORAGE_KEY, paneId);
 			saveSyncedTerminalState(
 				{
 					...state,
@@ -128,7 +132,7 @@ export function useSidebarWorkspaces() {
 
 	const updateMainView = useCallback(
 		(view: TerminalMainView) => {
-			writeStoredValue("terminal-main-view", view);
+			writeStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY, view);
 			flushPendingClientStorageSync();
 			setWorkspaces(loadSidebarWorkspaces);
 			dispatchTerminalShellChange({ source: "local", reason: "main-view" });

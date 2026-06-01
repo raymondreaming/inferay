@@ -1,7 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { filterPrompts } from "../src/features/prompts/prompt-utils.ts";
 import { normalizeEntries } from "../src/server/services/client-storage.ts";
-import { TERMINAL_STATE_STORAGE_KEY } from "../src/lib/client-storage-keys.ts";
+import {
+	CHAT_MESSAGES_STORAGE_KEY_PREFIX,
+	CHAT_QUEUE_KEY_PREFIX,
+	isChatMessagesStorageKey,
+	isChatQueueStorageKey,
+	TERMINAL_LAYOUT_MODE_STORAGE_KEY,
+	TERMINAL_MAIN_VIEW_STORAGE_KEY,
+	TERMINAL_STATE_STORAGE_KEY,
+} from "../src/lib/client-storage-keys.ts";
 
 describe("prompt search and client storage sync filters", () => {
 	/*
@@ -57,18 +65,28 @@ describe("prompt search and client storage sync filters", () => {
 		expect(
 			normalizeEntries({
 				[TERMINAL_STATE_STORAGE_KEY]: '{"groups":[]}',
-				"terminal-layout-mode": "grid",
+				[TERMINAL_LAYOUT_MODE_STORAGE_KEY]: "grid",
 				"unknown-key": "value",
-				"terminal-main-view": 42,
+				[TERMINAL_MAIN_VIEW_STORAGE_KEY]: 42,
 				"inferay-custom-theme": null,
 			})
 		).toEqual({
 			[TERMINAL_STATE_STORAGE_KEY]: '{"groups":[]}',
-			"terminal-layout-mode": "grid",
+			[TERMINAL_LAYOUT_MODE_STORAGE_KEY]: "grid",
 			"inferay-custom-theme": null,
 		});
 
 		expect(normalizeEntries(null)).toEqual({});
 		expect(normalizeEntries(["not", "an", "object"])).toEqual({});
+	});
+
+	test("distinguishes chat message history from other chat pane storage", () => {
+		expect(
+			isChatMessagesStorageKey(`${CHAT_MESSAGES_STORAGE_KEY_PREFIX}pane-1`)
+		).toBe(true);
+		expect(isChatMessagesStorageKey(`${CHAT_QUEUE_KEY_PREFIX}pane-1`)).toBe(
+			false
+		);
+		expect(isChatQueueStorageKey(`${CHAT_QUEUE_KEY_PREFIX}pane-1`)).toBe(true);
 	});
 });

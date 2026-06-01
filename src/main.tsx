@@ -15,12 +15,17 @@ import {
 	CLIENT_STORAGE_CHANGED_EVENT,
 	hydrateStoredValues,
 } from "./lib/client-storage-sync.ts";
+import {
+	APP_CUSTOM_THEME_STORAGE_KEY,
+	APP_THEME_STORAGE_KEY,
+	ONBOARDING_DONE_STORAGE_KEY,
+} from "./lib/client-storage-keys.ts";
 import { getServerOrigin, resolveServerUrl } from "./lib/server-origin.ts";
 import { readStoredBoolean } from "./lib/stored-json.ts";
 import { AutomationsPage } from "./pages/AutomationsPage";
 import { GoalsPage } from "./pages/GoalsPage";
 import { ImagesPage } from "./pages/ImagesPage";
-import { ONBOARDING_DONE_KEY, OnboardingPage } from "./pages/OnboardingPage";
+import { OnboardingPage } from "./pages/OnboardingPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { PromptsPage } from "./pages/PromptsPage";
 import { SessionsPage } from "./pages/SessionsPage";
@@ -67,13 +72,13 @@ if (window.location.origin !== getServerOrigin()) {
 
 await hydrateStoredValues();
 
-const onboardingDone = readStoredBoolean(ONBOARDING_DONE_KEY);
+const onboardingDone = readStoredBoolean(ONBOARDING_DONE_STORAGE_KEY);
 const defaultRoute = onboardingDone ? DEFAULT_APP_ROUTE : "/onboarding";
 
 applyAppTheme(loadAppThemeId());
 window.addEventListener(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
 	const key = (event as CustomEvent<{ key?: string }>).detail?.key;
-	if (key === "inferay-app-theme-id" || key === "inferay-app-custom-theme") {
+	if (key === APP_THEME_STORAGE_KEY || key === APP_CUSTOM_THEME_STORAGE_KEY) {
 		applyAppTheme(loadAppThemeId());
 	}
 });

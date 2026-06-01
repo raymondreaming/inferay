@@ -59,6 +59,7 @@ import {
 	isNonEmptyString,
 	toggleBoolean,
 } from "../../lib/data.ts";
+import { EDITOR_SELECTED_PANE_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import {
 	readStoredValue,
@@ -153,7 +154,7 @@ export function EditorPage({
 }: EditorPageProps = {}) {
 	const [, setTick] = useState(0);
 	const [selectedPaneId, setSelectedPaneId] = useState<string | null>(
-		() => readStoredValue("editor-selected-pane") ?? null
+		() => readStoredValue(EDITOR_SELECTED_PANE_STORAGE_KEY) ?? null
 	);
 	const [selectedFiles, setSelectedFiles] = useState<
 		Record<string, SelectedFile | null>
@@ -251,9 +252,12 @@ export function EditorPage({
 
 	useEffect(() => {
 		if (effectiveSelectedPaneId) {
-			writeStoredValue("editor-selected-pane", effectiveSelectedPaneId);
+			writeStoredValue(
+				EDITOR_SELECTED_PANE_STORAGE_KEY,
+				effectiveSelectedPaneId
+			);
 		} else {
-			removeStoredValue("editor-selected-pane");
+			removeStoredValue(EDITOR_SELECTED_PANE_STORAGE_KEY);
 		}
 	}, [effectiveSelectedPaneId]);
 
@@ -353,7 +357,7 @@ export function EditorPage({
 			setZenMode(loadZenMode());
 			setSessionVersion(incrementNumber);
 			// Re-read selected pane (sidebar may have changed it)
-			const storedPane = readStoredValue("editor-selected-pane");
+			const storedPane = readStoredValue(EDITOR_SELECTED_PANE_STORAGE_KEY);
 			if (storedPane) setSelectedPaneId(storedPane);
 		};
 		return listenWindowEvent("terminal-shell-change", syncEditorShellState);

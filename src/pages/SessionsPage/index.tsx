@@ -64,6 +64,7 @@ import {
 	mapAppThemeToTerminalTheme,
 } from "../../lib/app-theme.ts";
 import { flushPendingClientStorageSync } from "../../lib/client-storage-sync.ts";
+import { TERMINAL_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { hasId } from "../../lib/data.ts";
 import { basename, formatRelativeTime } from "../../lib/format.ts";
 import { setInputValue } from "../../lib/react-events.ts";
@@ -236,7 +237,7 @@ export function SessionsPage() {
 	const openSession = useCallback(
 		(session: StoredChatSession) => {
 			restoreSession(session);
-			writeStoredValue("terminal-main-view", "chat");
+			writeStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY, "chat");
 			flushPendingClientStorageSync();
 			dispatchTerminalShellChange({ source: "local", reason: "open-session" });
 			navigate(DEFAULT_APP_ROUTE);
@@ -248,7 +249,7 @@ export function SessionsPage() {
 			const detail =
 				detailByPaneId.get(session.paneId) ?? loadSessionDetail(session);
 			dispatchComposerContextBlock(sessionContextBlock(detail));
-			writeStoredValue("terminal-main-view", "chat");
+			writeStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY, "chat");
 			flushPendingClientStorageSync();
 			dispatchTerminalShellChange({
 				source: "local",

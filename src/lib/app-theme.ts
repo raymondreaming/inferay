@@ -1,4 +1,8 @@
 import type { ThemeId } from "../features/terminal/terminal-utils.ts";
+import {
+	APP_CUSTOM_THEME_STORAGE_KEY,
+	APP_THEME_STORAGE_KEY,
+} from "./client-storage-keys.ts";
 import { hasId } from "./data.ts";
 import {
 	readStoredJson,
@@ -396,10 +400,6 @@ export const APP_THEMES = THEME_DATA.map(makeTheme) as [
 const DEFAULT_THEME = makeTheme(THEME_DATA[0]);
 const DEFAULT_COLORS: AppThemeColors = DEFAULT_THEME.colors;
 
-const APP_THEME_STORAGE_KEY = "inferay-app-theme-id" as const;
-
-const APP_CUSTOM_THEME_KEY = "inferay-app-custom-theme" as const;
-
 const APP_TO_TERMINAL_THEME: Record<AppThemeId, ThemeId> = {
 	default: "default",
 	midnight: "midnight",
@@ -434,7 +434,7 @@ export function mapAppThemeToTerminalTheme(id: AppThemeId): ThemeId {
 function loadAppCustomTheme(): AppThemeColors {
 	try {
 		const parsed = readStoredJson<Partial<AppThemeColors> | null>(
-			APP_CUSTOM_THEME_KEY,
+			APP_CUSTOM_THEME_STORAGE_KEY,
 			null
 		);
 		if (parsed && typeof parsed.black === "string")

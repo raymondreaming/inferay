@@ -1,4 +1,5 @@
 import { flushPendingClientStorageSync } from "../../lib/client-storage-sync.ts";
+import { TERMINAL_LAYOUT_MODE_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { hasId, noop } from "../../lib/data.ts";
 import { sendJson } from "../../lib/fetch-json.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
@@ -56,7 +57,7 @@ export type ThemeId = (typeof THEME_IDS)[keyof typeof THEME_IDS];
 export type TerminalLayoutMode = "grid" | "rows";
 
 export function loadTerminalLayoutMode(): TerminalLayoutMode {
-	const stored = readStoredValue("terminal-layout-mode");
+	const stored = readStoredValue(TERMINAL_LAYOUT_MODE_STORAGE_KEY);
 	if (stored === "grid" || stored === "rows") return stored;
 	return "rows";
 }

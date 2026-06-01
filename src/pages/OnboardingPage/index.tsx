@@ -20,6 +20,11 @@ import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
 import { resolveServerUrl } from "../../lib/server-origin.ts";
 import { writeStoredValue } from "../../lib/stored-json.ts";
 import {
+	ONBOARDING_DONE_STORAGE_KEY,
+	TERMINAL_LAYOUT_MODE_STORAGE_KEY,
+	TERMINAL_MAIN_VIEW_STORAGE_KEY,
+} from "../../lib/client-storage-keys.ts";
+import {
 	createDefaultAgentChatGroup,
 	DEFAULT_FONT_FAMILY,
 	DEFAULT_FONT_SIZE,
@@ -36,8 +41,6 @@ import {
 } from "../../features/forge/forge-client.ts";
 import type { ForgeAccount, GithubRepo } from "../../features/forge/types.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
-
-export const ONBOARDING_DONE_KEY = "inferay-onboarding-done";
 
 /* ─── Types ─── */
 
@@ -146,10 +149,10 @@ export function OnboardingPage() {
 	};
 
 	const finish = useCallback(() => {
-		writeStoredValue(ONBOARDING_DONE_KEY, "true");
+		writeStoredValue(ONBOARDING_DONE_STORAGE_KEY, "true");
 		// Default to grid layout
-		writeStoredValue("terminal-layout-mode", "grid");
-		writeStoredValue("terminal-main-view", "chat");
+		writeStoredValue(TERMINAL_LAYOUT_MODE_STORAGE_KEY, "grid");
+		writeStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY, "chat");
 		// New users land directly in the multi-agent chat grid.
 		if (!loadTerminalState()) {
 			const group = createDefaultAgentChatGroup();

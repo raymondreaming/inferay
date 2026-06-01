@@ -6,6 +6,7 @@ import {
 	useState,
 } from "react";
 import { CLIENT_STORAGE_CHANGED_EVENT } from "../../lib/client-storage-sync.ts";
+import { MAIN_SIDEBAR_WIDTH_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
 
@@ -14,7 +15,7 @@ const MIN_SIDEBAR_WIDTH = 152;
 const MAX_SIDEBAR_WIDTH = 340;
 
 function loadSidebarWidth() {
-	const stored = Number(readStoredValue("main-sidebar-width"));
+	const stored = Number(readStoredValue(MAIN_SIDEBAR_WIDTH_STORAGE_KEY));
 	return Number.isFinite(stored)
 		? Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, stored))
 		: DEFAULT_SIDEBAR_WIDTH;
@@ -30,7 +31,7 @@ export function useResizableSidebar() {
 		() =>
 			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
 				const key = (event as CustomEvent<{ key?: string }>).detail?.key;
-				if (key === "main-sidebar-width") {
+				if (key === MAIN_SIDEBAR_WIDTH_STORAGE_KEY) {
 					setSidebarWidth(loadSidebarWidth());
 				}
 			}),
@@ -56,7 +57,10 @@ export function useResizableSidebar() {
 			const handleUp = () => {
 				resizeRef.current = null;
 				setResizing(false);
-				writeStoredValue("main-sidebar-width", String(resizeWidthRef.current));
+				writeStoredValue(
+					MAIN_SIDEBAR_WIDTH_STORAGE_KEY,
+					String(resizeWidthRef.current)
+				);
 				window.removeEventListener("mousemove", handleMove);
 				window.removeEventListener("mouseup", handleUp);
 			};

@@ -55,6 +55,10 @@ import {
 	type TerminalMainView,
 } from "../../lib/app-navigation.tsx";
 import {
+	TERMINAL_LAYOUT_MODE_STORAGE_KEY,
+	TERMINAL_MAIN_VIEW_STORAGE_KEY,
+} from "../../lib/client-storage-keys.ts";
+import {
 	loadAppThemeId,
 	mapAppThemeToTerminalTheme,
 } from "../../lib/app-theme.ts";
@@ -430,14 +434,14 @@ export function TerminalPage() {
 	useEffect(wsClient.connect.bind(wsClient), []);
 	const [layoutMode, setLayoutMode] = useState(loadTerminalLayoutMode);
 	const [mainView, setMainView] = useState<TerminalMainView>(() => {
-		const stored = readStoredValue("terminal-main-view");
+		const stored = readStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY);
 		return isTerminalMainView(stored) ? stored : DEFAULT_TERMINAL_MAIN_VIEW;
 	});
 	useEffect(() => {
-		writeStoredValue("terminal-layout-mode", layoutMode);
+		writeStoredValue(TERMINAL_LAYOUT_MODE_STORAGE_KEY, layoutMode);
 	}, [layoutMode]);
 	useEffect(() => {
-		writeStoredValue("terminal-main-view", mainView);
+		writeStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY, mainView);
 	}, [mainView]);
 	const initialState = useMemo(loadTerminalState, []);
 	const initGroups = useMemo(() => getInitialGroups(), []);
@@ -605,7 +609,7 @@ export function TerminalPage() {
 					restoreSavedState(savedState);
 				}
 			}
-			const storedView = readStoredValue("terminal-main-view");
+			const storedView = readStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY);
 			const nextMainView = isTerminalMainView(storedView)
 				? storedView
 				: DEFAULT_TERMINAL_MAIN_VIEW;

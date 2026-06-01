@@ -29,6 +29,7 @@ import {
 	saveAppThemeId,
 } from "../../lib/app-theme.ts";
 import { CLIENT_STORAGE_CHANGED_EVENT } from "../../lib/client-storage-sync.ts";
+import { APP_THEME_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import { listenWindowEvent, setInputValue } from "../../lib/react-events.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
@@ -321,7 +322,7 @@ export const TerminalSettingsContent = memo(function TerminalSettingsContent({
 		() =>
 			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
 				const key = (event as CustomEvent<{ key?: string }>).detail?.key;
-				if (key !== "inferay-app-theme-id") return;
+				if (key !== APP_THEME_STORAGE_KEY) return;
 				const nextAppThemeId = loadAppThemeId();
 				const nextTerminalThemeId = mapAppThemeToTerminalTheme(nextAppThemeId);
 				setAppThemeId(nextAppThemeId);
