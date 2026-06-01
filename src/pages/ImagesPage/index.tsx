@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Markdown } from "../../components/chat/ChatRichContent.tsx";
 import {
@@ -24,6 +24,8 @@ import { buildArtifactPreview } from "../../features/artifacts/artifact-preview.
 import {
 	artifactContextBlock,
 	artifactPromptDraft,
+	DOCUMENT_ARTIFACTS_CHANGED_EVENT,
+	DOCUMENT_ARTIFACTS_KEY,
 	deleteLocalArtifact,
 	filterArtifacts,
 	loadArtifactWorkspace,
@@ -52,9 +54,10 @@ import {
 	mapAppThemeToTerminalTheme,
 } from "../../lib/app-theme.ts";
 import { TERMINAL_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
+import { CLIENT_STORAGE_CHANGED_EVENT } from "../../lib/client-storage-sync.ts";
 import { fetchJsonOr, postJson } from "../../lib/fetch-json.ts";
 import { formatBytes } from "../../lib/format.ts";
-import { setInputValue } from "../../lib/react-events.ts";
+import { listenWindowEvent, setInputValue } from "../../lib/react-events.ts";
 import {
 	readStoredJson,
 	writeStoredJson,
@@ -310,14 +313,37 @@ export function ImagesPage() {
 	const [focusedArtifactId, setFocusedArtifactId] = useState<string | null>(
 		null
 	);
+	const [artifactVersion, setArtifactVersion] = useState(0);
 	const [hiddenArtifactIds, setHiddenArtifactIds] = useState<Set<string>>(
 		() =>
 			new Set(stringArray(readStoredJson<unknown>(HIDDEN_ARTIFACTS_KEY, [])))
 	);
-	const allArtifacts = useMemo(
-		() => loadArtifactWorkspace(files, repoDocs),
-		[files, repoDocs]
-	);
+	useEffect(() => {
+		const refreshArtifacts = () => setArtifactVersion((version) => version + 1);
+		const stopLocal = listenWindowEvent(
+			DOCUMENT_ARTIFACTS_CHANGED_EVENT,
+			refreshArtifacts
+		);
+		const stopSynced = listenWindowEvent(
+			CLIENT_STORAGE_CHANGED_EVENT,
+			(event) => {
+				const key = (event as CustomEvent<{ key?: string }>).detail?.key;
+				if (key === DOCUMENT_ARTIFACTS_KEY) refreshArtifacts();
+			}
+		);
+		const stopStorage = listenWindowEvent("storage", (event) => {
+			if (event.key === DOCUMENT_ARTIFACTS_KEY) refreshArtifacts();
+		});
+		return () => {
+			stopLocal();
+			stopSynced();
+			stopStorage();
+		};
+	}, []);
+	const allArtifacts = useMemo(() => {
+		void artifactVersion;
+		return loadArtifactWorkspace(files, repoDocs);
+	}, [artifactVersion, files, repoDocs]);
 	const artifacts = useMemo(
 		() =>
 			allArtifacts.filter((artifact) => !hiddenArtifactIds.has(artifact.id)),
