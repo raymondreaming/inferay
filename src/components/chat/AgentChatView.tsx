@@ -5,6 +5,7 @@ import {
 	useCallback,
 	useEffect,
 	useImperativeHandle,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -61,6 +62,7 @@ import { measureTextareaHeight } from "../../lib/pretext-utils.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import { wsClient } from "../../lib/websocket.ts";
 import { controlSize, effectValues } from "../../tokens.stylex.ts";
+import { AgentChatHeader } from "./AgentChatHeader.tsx";
 import { AgentChatStatusBar } from "./AgentChatStatusBar.tsx";
 import { AgentChatMessagePane } from "./AgentChatMessagePane.tsx";
 import { ChatComposer } from "./ChatComposer.tsx";
@@ -157,7 +159,14 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 			showInput = true,
 			agentKind: paneAgentKind = loadDefaultChatSettings().agentKind,
 			onStatusChange,
+			hideHeader,
+			onClose,
 			isSelected,
+			draggable,
+			onDragStart,
+			onDragEnd,
+			sessions,
+			onSelectSession,
 			composerOnly = false,
 			composerOnlyOffsetX = 0,
 			onExitComposerOnly,
@@ -245,6 +254,38 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 		const { projects: gitProjects, refetch: refetchGitStatus } =
 			useGitStatus(cwdList);
 		const gitBranch = gitProjects[0]?.branch ?? null;
+		const [composerRepoContext, setComposerRepoContext] = useState<{
+			cwd: string | null;
+			branch: string | null;
+		}>({
+			cwd: visibleWorkspace.cwd,
+			branch: gitBranch,
+		});
+		useEffect(() => {
+			if (!visibleWorkspace.cwd) return;
+			setComposerRepoContext((prev) => ({
+				cwd: visibleWorkspace.cwd,
+				branch:
+					gitBranch ?? (prev.cwd === visibleWorkspace.cwd ? prev.branch : null),
+			}));
+		}, [gitBranch, visibleWorkspace.cwd]);
+		const composerCwd = visibleWorkspace.cwd ?? composerRepoContext.cwd;
+		const composerGitBranch =
+			composerCwd && composerRepoContext.cwd === composerCwd
+				? composerRepoContext.branch
+				: gitBranch;
+		const handleComposerGitBranchChanged = useCallback(
+			(nextBranch?: string) => {
+				if (nextBranch) {
+					setComposerRepoContext((prev) => ({
+						cwd: visibleWorkspace.cwd ?? prev.cwd,
+						branch: nextBranch,
+					}));
+				}
+				void refetchGitStatus();
+			},
+			[refetchGitStatus, visibleWorkspace.cwd]
+		);
 
 		const agentKindOptions = useMemo(
 			() => [
@@ -310,6 +351,29 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 			scrollChatByArrow,
 			handleVirtualizerReady,
 		} = useAgentChatScroll(isSelected);
+		const scrollFollowSignature = useMemo(() => {
+			const last = messages[messages.length - 1];
+			return [
+				messages.length,
+				last?.id ?? "",
+				typeof last?.content === "string" ? last.content.length : 0,
+				last?.isStreaming ? "streaming" : "settled",
+				isLoading ? "loading" : "idle",
+				status,
+			].join(":");
+		}, [isLoading, messages, status]);
+		useLayoutEffect(() => {
+			if (!autoFollowRef.current) return;
+			let raf = 0;
+			let frame = 0;
+			const follow = () => {
+				scrollToBottom("auto");
+				frame += 1;
+				if (frame < 2) raf = requestAnimationFrame(follow);
+			};
+			raf = requestAnimationFrame(follow);
+			return () => cancelAnimationFrame(raf);
+		}, [autoFollowRef, scrollFollowSignature, scrollToBottom]);
 		const {
 			setIsDragOver,
 			attachedImages,
@@ -350,8 +414,10 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 		});
 
 		useEffect(() => {
-			requestAnimationFrame(() => textareaRef.current?.focus());
-		}, []);
+			if (!isSelected) return;
+			const frame = requestAnimationFrame(() => textareaRef.current?.focus());
+			return () => cancelAnimationFrame(frame);
+		}, [isSelected]);
 
 		useEffect(() => {
 			if (isSelected) markActiveComposerPane(paneId);
@@ -729,7 +795,8 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 					setLoadingState((prev) => ({
 						isLoading: msg.isLoading ?? prev.isLoading,
 						status: msg.status ?? prev.status,
-						startTime: prev.startTime ?? Date.now(),
+						startTime:
+							msg.isLoading === false ? null : (prev.startTime ?? Date.now()),
 					}));
 				} else if (msg.type === "chat:activity" && msg.activity) {
 					setChatUiState((prev) => {
@@ -1390,6 +1457,21 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 				onDragLeave={() => setIsDragOver(false)}
 				onDrop={handleDrop}
 			>
+				{!hideHeader && !composerOnly && (
+					<AgentChatHeader
+						paneId={paneId}
+						cwd={composerCwd ?? undefined}
+						gitBranch={composerGitBranch}
+						worktreeInfo={worktreeInfo}
+						draggable={draggable}
+						onDragStart={onDragStart}
+						onDragEnd={onDragEnd}
+						onClose={onClose}
+						sessions={sessions}
+						onSelectSession={onSelectSession}
+						onGitBranchChanged={handleComposerGitBranchChanged}
+					/>
+				)}
 				{!composerOnly && (
 					<AgentChatMessagePane
 						messages={messages}
@@ -1469,9 +1551,6 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 								)
 							}
 							onClearContextBlocks={() => setComposerContextBlocks([])}
-							cwd={visibleWorkspace.cwd}
-							gitBranch={gitBranch}
-							onGitBranchChanged={refetchGitStatus}
 							filePicker={composerFilePicker}
 							commandMenu={composerCommandMenu}
 							handlePaste={handlePaste}
@@ -1498,8 +1577,8 @@ export const AgentChatView = forwardRef<AgentChatHandle, AgentChatViewProps>(
 
 const styles = stylex.create({
 	root: {
-		display: "grid",
-		gridTemplateRows: "minmax(0, 1fr) auto",
+		display: "flex",
+		flexDirection: "column",
 		height: "100%",
 		minHeight: 0,
 		minWidth: 0,
@@ -1519,7 +1598,6 @@ const styles = stylex.create({
 	},
 	composerRegion: {
 		position: "relative",
-		gridRow: "2",
 		flexShrink: 0,
 		minWidth: 0,
 	},

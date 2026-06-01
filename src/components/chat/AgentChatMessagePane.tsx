@@ -121,7 +121,6 @@ export function AgentChatMessagePane({
 const styles = stylex.create({
 	messageRegion: {
 		display: "flex",
-		gridRow: "1",
 		flex: 1,
 		flexDirection: "column",
 		minHeight: 0,

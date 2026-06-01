@@ -972,7 +972,15 @@ export const ChatService = {
 
 	reassignWs(paneId: string, ws: ServerWebSocket<any>) {
 		const session = sessions.get(paneId);
-		if (!session) return;
+		if (!session) {
+			sendTo(ws, {
+				type: "chat:status",
+				paneId,
+				status: "idle",
+				isLoading: false,
+			});
+			return;
+		}
 		clearCleanupTimer(session);
 		session.clients.add(ws);
 		if (session.sessionId)
@@ -995,6 +1003,13 @@ export const ChatService = {
 				paneId,
 				status: session.messageBuffer.streaming ? "responding" : "thinking",
 				isLoading: true,
+			});
+		else
+			sendTo(ws, {
+				type: "chat:status",
+				paneId,
+				status: "idle",
+				isLoading: false,
 			});
 	},
 

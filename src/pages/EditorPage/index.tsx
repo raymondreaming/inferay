@@ -11,6 +11,7 @@ import {
 	type AgentChatHandle,
 	AgentChatView,
 } from "../../components/chat/AgentChatView.tsx";
+import { BranchDropdown } from "../../components/chat/AgentChatHeader.tsx";
 import { DiffViewerBoundary } from "../../components/diff/DiffViewerBoundary.tsx";
 import {
 	ChangeFileSidebar,
@@ -613,6 +614,26 @@ export function EditorPage({
 			sidebar={diffSidebar}
 		/>
 	);
+	const diffToolbar = session ? (
+		<DiffViewerTopBar
+			mainViewMode={mainViewMode}
+			diffViewMode={diffViewMode}
+			cwd={zenMode ? session.cwd : undefined}
+			gitBranch={zenMode ? (project?.branch ?? null) : null}
+			filePath={request?.file}
+			selectedFile={selectedFile}
+			diffStats={selectedDiffStats}
+			sidebarVisible={sidebarVisible}
+			onStageFile={stageFile}
+			onUnstageFile={unstageFile}
+			onToggleSidebar={setSidebarVisible.bind(null, toggleBoolean)}
+			onMainViewModeChange={setMainViewMode}
+			onDiffViewModeChange={setDiffViewMode}
+			onGitBranchChanged={() => void refetchGit()}
+			zenMode={zenMode}
+			onToggleZenMode={() => updateZenMode(!zenMode)}
+		/>
+	) : null;
 
 	return (
 		<div {...stylex.props(styles.root)}>
@@ -644,6 +665,7 @@ export function EditorPage({
 						/>
 					}
 					viewer={viewer}
+					toolbar={diffToolbar}
 					sidebar={diffSidebar}
 				/>
 			) : (
@@ -662,23 +684,7 @@ export function EditorPage({
 					</section>
 
 					<EditorWorkspace
-						toolbar={
-							<DiffViewerTopBar
-								mainViewMode={mainViewMode}
-								diffViewMode={diffViewMode}
-								filePath={request?.file}
-								selectedFile={selectedFile}
-								diffStats={selectedDiffStats}
-								sidebarVisible={sidebarVisible}
-								onStageFile={stageFile}
-								onUnstageFile={unstageFile}
-								onToggleSidebar={setSidebarVisible.bind(null, toggleBoolean)}
-								onMainViewModeChange={setMainViewMode}
-								onDiffViewModeChange={setDiffViewMode}
-								zenMode={zenMode}
-								onToggleZenMode={() => updateZenMode(true)}
-							/>
-						}
+						toolbar={diffToolbar}
 						viewer={viewer}
 						sidebar={detailsSidebar}
 					/>
@@ -833,6 +839,8 @@ function ToolbarButton({
 function DiffViewerTopBar({
 	mainViewMode,
 	diffViewMode,
+	cwd,
+	gitBranch,
 	filePath,
 	selectedFile,
 	diffStats,
@@ -842,11 +850,14 @@ function DiffViewerTopBar({
 	onToggleSidebar,
 	onMainViewModeChange,
 	onDiffViewModeChange,
+	onGitBranchChanged,
 	zenMode,
 	onToggleZenMode,
 }: {
 	mainViewMode: "diff" | "graph";
 	diffViewMode: DiffViewMode;
+	cwd?: string;
+	gitBranch: string | null;
 	filePath?: string;
 	selectedFile: SelectedFile | null;
 	diffStats: ReturnType<typeof summarizeHunkDiff>;
@@ -856,12 +867,38 @@ function DiffViewerTopBar({
 	onToggleSidebar: () => void;
 	onMainViewModeChange: (mode: "diff" | "graph") => void;
 	onDiffViewModeChange: (mode: DiffViewMode) => void;
+	onGitBranchChanged?: () => void;
 	zenMode: boolean;
 	onToggleZenMode: () => void;
 }) {
 	const fileActionTitle = selectedFile?.staged ? "Unstage file" : "Stage file";
+	const dirName = cwd ? cwd.split("/").pop() || cwd : null;
 	return (
 		<div {...stylex.props(styles.topBar)}>
+			{dirName && (
+				<span {...stylex.props(styles.headerTitle)} title={cwd}>
+					{dirName}
+				</span>
+			)}
+			{gitBranch && (
+				<>
+					<span {...stylex.props(styles.headerMuted)}>›</span>
+					{cwd ? (
+						<BranchDropdown
+							cwd={cwd}
+							branch={gitBranch}
+							onBranchChanged={onGitBranchChanged}
+						/>
+					) : (
+						<span {...stylex.props(styles.headerBranch)} title={gitBranch}>
+							{gitBranch}
+						</span>
+					)}
+				</>
+			)}
+			{(dirName || gitBranch) && (
+				<span {...stylex.props(styles.headerDivider)} />
+			)}
 			<div {...stylex.props(styles.segmented)}>
 				<button
 					type="button"
@@ -1072,14 +1109,17 @@ const styles = stylex.create({
 		paddingInline: controlSize._6,
 	},
 	topBar: {
-		display: "flex",
-		height: controlSize._10,
-		flexShrink: 0,
 		alignItems: "center",
-		gap: controlSize._2,
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
+		backgroundColor: color.background,
 		borderBottomColor: color.border,
+		borderBottomStyle: "solid",
+		borderBottomWidth: 1,
+		display: "flex",
+		flexShrink: 0,
+		gap: controlSize._1_5,
+		minHeight: controlSize._8,
+		minWidth: 0,
+		paddingBlock: controlSize._1,
 		paddingInline: controlSize._3,
 	},
 	topBarLabel: {
@@ -1089,6 +1129,33 @@ const styles = stylex.create({
 	},
 	spacer: {
 		flex: 1,
+	},
+	headerTitle: {
+		color: color.textMain,
+		fontSize: font.size_1,
+		fontWeight: font.weight_5,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
+	headerMuted: {
+		color: color.textMuted,
+		fontSize: font.size_1,
+	},
+	headerBranch: {
+		color: color.textMuted,
+		fontSize: font.size_1,
+		fontWeight: font.weight_5,
+		maxWidth: 80,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
+	headerDivider: {
+		backgroundColor: color.border,
+		flexShrink: 0,
+		height: controlSize._4,
+		width: 1,
 	},
 	emptySurface: {
 		display: "flex",

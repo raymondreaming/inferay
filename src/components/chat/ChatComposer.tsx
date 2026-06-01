@@ -16,7 +16,6 @@ import type {
 import { describeComposerContextBlock } from "../../features/chat/composer-context.ts";
 import type { AgentKind } from "../../features/terminal/terminal-utils.ts";
 import { hasId } from "../../lib/data.ts";
-import { fetchJsonOr, postJson } from "../../lib/fetch-json.ts";
 import { stopPropagation } from "../../lib/react-events.ts";
 import {
 	color,
@@ -32,7 +31,6 @@ import { IconButton } from "../ui/IconButton.tsx";
 import {
 	IconAlertTriangle,
 	IconChevronDown,
-	IconGitBranch,
 	IconMic,
 	IconPlus,
 	IconStop,
@@ -128,171 +126,6 @@ function imageContextUrl(block: ComposerContextBlock): string | null {
 	return `/api/file?path=${encodeURIComponent(block.path)}`;
 }
 
-interface GitBranch {
-	name: string;
-	current: boolean;
-}
-
-function ComposerBranchDropdown({
-	cwd,
-	branch,
-	onBranchChanged,
-}: {
-	cwd: string;
-	branch: string;
-	onBranchChanged?: () => void;
-}) {
-	const buttonRef = useRef<HTMLButtonElement>(null);
-	const menuRef = useRef<HTMLDivElement>(null);
-	const [open, setOpen] = useState(false);
-	const [branches, setBranches] = useState<GitBranch[]>([]);
-	const [busyBranch, setBusyBranch] = useState<string | null>(null);
-	const [error, setError] = useState<string | null>(null);
-	const [position, setPosition] = useState({
-		bottom: 0,
-		left: 0,
-		width: 240,
-		maxHeight: 320,
-	});
-	const loadBranches = async () => {
-		const payload = await fetchJsonOr<{ branches?: GitBranch[] }>(
-			`/api/git/branches?cwd=${encodeURIComponent(cwd)}`,
-			{ branches: [] }
-		);
-		setBranches(Array.isArray(payload.branches) ? payload.branches : []);
-	};
-	useEffect(() => {
-		void loadBranches();
-	}, [cwd]);
-	useEffect(() => {
-		if (!open) return;
-		const handlePointerDown = (event: MouseEvent) => {
-			const target = event.target as Node;
-			if (
-				menuRef.current?.contains(target) ||
-				buttonRef.current?.contains(target)
-			) {
-				return;
-			}
-			setOpen(false);
-		};
-		const handleKeyDown = (event: KeyboardEvent) => {
-			if (event.key === "Escape") setOpen(false);
-		};
-		document.addEventListener("mousedown", handlePointerDown);
-		document.addEventListener("keydown", handleKeyDown);
-		return () => {
-			document.removeEventListener("mousedown", handlePointerDown);
-			document.removeEventListener("keydown", handleKeyDown);
-		};
-	}, [open]);
-	const options = branches.length
-		? branches
-		: [{ name: branch, current: true }];
-	const toggle = () => {
-		if (!open && buttonRef.current) {
-			const rect = buttonRef.current.getBoundingClientRect();
-			const width = Math.max(240, rect.width);
-			setPosition({
-				bottom: window.innerHeight - rect.top + 4,
-				left: Math.min(
-					Math.max(8, rect.left),
-					Math.max(8, window.innerWidth - width - 8)
-				),
-				width,
-				maxHeight: Math.max(180, Math.min(320, rect.top - 12)),
-			});
-		}
-		setOpen((next) => !next);
-	};
-	const checkout = async (nextBranch: string) => {
-		if (nextBranch === branch || busyBranch) return;
-		setBusyBranch(nextBranch);
-		setError(null);
-		try {
-			const result = await postJson<{
-				ok: boolean;
-				branch?: string;
-				error?: string;
-			}>("/api/git/branches", { cwd, branch: nextBranch });
-			if (!result.ok) throw new Error(result.error || "Unable to checkout");
-			await loadBranches();
-			onBranchChanged?.();
-			setOpen(false);
-		} catch (err) {
-			setError(err instanceof Error ? err.message : "Unable to checkout");
-		} finally {
-			setBusyBranch(null);
-		}
-	};
-
-	return (
-		<>
-			<button
-				type="button"
-				ref={buttonRef}
-				onClick={toggle}
-				{...stylex.props(styles.providerConfigButton)}
-				title={error ?? branch}
-			>
-				<IconGitBranch size={10} {...stylex.props(styles.accentText)} />
-				<span {...stylex.props(styles.providerConfigLabel)}>
-					{busyBranch ? "Switching..." : branch}
-				</span>
-				<IconChevronDown
-					size={10}
-					{...stylex.props(
-						styles.providerConfigChevron,
-						open && styles.providerConfigChevronOpen
-					)}
-				/>
-			</button>
-			{open &&
-				createPortal(
-					<div
-						ref={menuRef}
-						{...stylex.props(styles.providerConfigMenu)}
-						style={{
-							bottom: position.bottom,
-							left: position.left,
-							width: position.width,
-							maxHeight: position.maxHeight,
-						}}
-					>
-						<div {...stylex.props(styles.providerConfigSection)}>
-							<span {...stylex.props(styles.providerConfigSectionLabel)}>
-								Branch
-							</span>
-							<div {...stylex.props(styles.providerConfigChoiceGrid)}>
-								{options.map((option) => (
-									<button
-										type="button"
-										key={option.name}
-										onClick={() => checkout(option.name)}
-										{...stylex.props(
-											styles.providerConfigChoice,
-											option.name === branch &&
-												styles.providerConfigChoiceActive
-										)}
-									>
-										<IconGitBranch size={11} {...stylex.props(styles.shrink)} />
-										<span>{option.name}</span>
-									</button>
-								))}
-							</div>
-							{error && (
-								<span {...stylex.props(styles.providerConfigError)}>
-									{error}
-								</span>
-							)}
-						</div>
-					</div>,
-					document.body
-				)}
-		</>
-	);
-}
-
 export function ChatComposer({
 	showInput,
 	agentKind,
@@ -323,9 +156,6 @@ export function ChatComposer({
 	contextBlocks,
 	onRemoveContextBlock,
 	onClearContextBlocks,
-	cwd,
-	gitBranch,
-	onGitBranchChanged,
 }: {
 	showInput: boolean;
 	agentKind: AgentKind;
@@ -375,9 +205,6 @@ export function ChatComposer({
 	contextBlocks: ComposerContextBlock[];
 	onRemoveContextBlock: (id: string) => void;
 	onClearContextBlocks: () => void;
-	cwd?: string | null;
-	gitBranch?: string | null;
-	onGitBranchChanged?: () => void;
 }) {
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const agentConfigButtonRef = useRef<HTMLButtonElement>(null);
@@ -421,7 +248,6 @@ export function ChatComposer({
 			})),
 		[agentDefinition.models, agentKind]
 	);
-	const folderLabel = cwd ? cwd.split("/").pop() || cwd : "No folder";
 	const selectedModelLabel =
 		modelOptions.find(hasId.bind(null, model))?.label || model || "No model";
 	const selectedReasoningLabel =
@@ -804,18 +630,6 @@ export function ChatComposer({
 									)}
 								/>
 							</button>
-							{cwd && (
-								<span {...stylex.props(styles.repoPill)} title={cwd}>
-									/{folderLabel}
-								</span>
-							)}
-							{cwd && gitBranch && (
-								<ComposerBranchDropdown
-									cwd={cwd}
-									branch={gitBranch}
-									onBranchChanged={onGitBranchChanged}
-								/>
-							)}
 						</div>
 					</div>
 				</div>
@@ -1354,34 +1168,6 @@ const styles = stylex.create({
 		boxShadow: shadow.composerFrame,
 		transitionProperty: "border-color, box-shadow, background-color",
 		transitionDuration: "150ms",
-	},
-	repoPill: {
-		alignItems: "center",
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.transparent,
-		},
-		backgroundImage: "none",
-		borderColor: color.transparent,
-		borderRadius: 6,
-		borderStyle: "solid",
-		borderWidth: 0,
-		boxShadow: "none",
-		boxSizing: "border-box",
-		color: color.textSoft,
-		display: "inline-flex",
-		flexShrink: 0,
-		fontSize: font.size_2,
-		fontWeight: font.weight_5,
-		height: controlSize._5,
-		lineHeight: 1,
-		maxWidth: "100%",
-		minWidth: 0,
-		paddingBlock: 0,
-		paddingInline: controlSize._1,
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
 	},
 	accentText: {
 		color: "currentColor",

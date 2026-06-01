@@ -31,7 +31,7 @@ interface AgentChatHeaderProps {
 	onClose?: (paneId: string) => void;
 	sessions?: AgentChatSession[];
 	onSelectSession?: (paneId: string) => void;
-	onGitBranchChanged?: () => void;
+	onGitBranchChanged?: (branch?: string) => void;
 }
 
 interface GitBranch {
@@ -46,7 +46,7 @@ export function BranchDropdown({
 }: {
 	cwd: string;
 	branch: string;
-	onBranchChanged?: () => void;
+	onBranchChanged?: (branch?: string) => void;
 }) {
 	const [branches, setBranches] = useState<GitBranch[]>([]);
 	const [busyBranch, setBusyBranch] = useState<string | null>(null);
@@ -84,7 +84,7 @@ export function BranchDropdown({
 				}>("/api/git/branches", { cwd, branch: nextBranch });
 				if (!result.ok) throw new Error(result.error || "Unable to checkout");
 				await loadBranches();
-				onBranchChanged?.();
+				onBranchChanged?.(result.branch ?? nextBranch);
 			} catch (err) {
 				setError(err instanceof Error ? err.message : "Unable to checkout");
 			} finally {
@@ -226,7 +226,6 @@ const styles = stylex.create({
 		display: "flex",
 		flexShrink: 0,
 		gap: controlSize._1_5,
-		gridRow: "1",
 		minHeight: controlSize._8,
 		minWidth: 0,
 		paddingBlock: controlSize._1,
