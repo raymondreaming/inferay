@@ -10,7 +10,8 @@ import {
 	DEFAULT_ROWS,
 	destroySyncedPane,
 	loadTerminalState,
-	prependPaneToGroup,
+	appendPaneToGroup,
+	resolveTerminalGroupId,
 	saveSyncedTerminalState,
 	type TerminalGroupModel,
 	type TerminalSavedState,
@@ -43,9 +44,13 @@ export interface SidebarWorkspacesState {
 function loadSidebarWorkspaces(): SidebarWorkspacesState {
 	const state = loadTerminalState() ?? createDefaultTerminalState();
 	const mainView = readStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY);
+	const selectedGroupId = resolveTerminalGroupId(
+		state.groups,
+		state.selectedGroupId
+	);
 	return {
 		groups: state?.groups ?? [],
-		selectedGroupId: state?.selectedGroupId ?? state?.groups[0]?.id ?? null,
+		selectedGroupId,
 		mainView: isTerminalMainView(mainView)
 			? mainView
 			: DEFAULT_TERMINAL_MAIN_VIEW,
@@ -145,15 +150,19 @@ export function useSidebarWorkspaces() {
 	const addPaneToSelectedGroup = useCallback(
 		(agentKind: (typeof NEW_PANE_AGENT_KINDS)[number]) => {
 			const state = loadActionTerminalState();
-			const selectedGroupId = state.selectedGroupId ?? state.groups[0]?.id;
+			const selectedGroupId = resolveTerminalGroupId(
+				state.groups,
+				state.selectedGroupId
+			);
 			if (!selectedGroupId) return;
 			const pane = createTerminalPane(agentKind, undefined, true);
 			writeStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY, "chat");
 			saveSyncedTerminalState(
 				{
 					...state,
+					selectedGroupId,
 					groups: state.groups.map(
-						prependPaneToGroup.bind(null, selectedGroupId, pane)
+						appendPaneToGroup.bind(null, selectedGroupId, pane)
 					),
 				},
 				"add-pane"

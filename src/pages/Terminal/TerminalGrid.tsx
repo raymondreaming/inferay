@@ -191,6 +191,9 @@ export const TerminalGrid = memo(function TerminalGrid(
 				{panes.map((pane, idx) => (
 					<div
 						key={pane.id}
+						ref={
+							pane.id === props.selectedPaneId ? setSelectedCellNode : undefined
+						}
 						className="electrobun-webkit-app-region-no-drag h-full min-h-0 min-w-0 shrink-0 overflow-hidden border-r border-inferay-gray-border transition-all"
 						style={{ ...cellStyle(pane, idx), width: 400 }}
 						onDragOver={(e) => handleDragOver(e, idx)}

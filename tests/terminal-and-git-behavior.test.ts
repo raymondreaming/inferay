@@ -3,12 +3,17 @@ import {
 	createDefaultAgentChatGroup,
 	getPaneTitle,
 	getStatusInfo,
-	prependPaneToGroup,
+	appendPaneToGroup,
+	resolveTerminalGroupId,
 	type GroupId,
 	type PaneId,
 	type TerminalGroupModel,
 	type TerminalPaneModel,
 } from "../src/features/terminal/terminal-utils.ts";
+import {
+	mergeRemoteTerminalStatePreservingLocalSelection,
+	remoteTerminalStateRemovesLocalShell,
+} from "../src/lib/client-storage-sync.ts";
 import { summarizeHunkDiff } from "../src/features/git/useGitDiff.ts";
 import {
 	isUnstagedTrackedChange,
@@ -49,7 +54,7 @@ describe("terminal state and git change behavior", () => {
 	 * pane, while title generation should prefer the workspace directory name
 	 * over generic agent labels.
 	 */
-	test("prepends panes only to the selected group and derives workspace titles", () => {
+	test("appends panes only to the selected group and derives workspace titles", () => {
 		const nextPane = pane("p2", { cwd: "/Users/test/project-a" });
 		const group: TerminalGroupModel = {
 			id: "group-1" as GroupId,
@@ -60,14 +65,141 @@ describe("terminal state and git change behavior", () => {
 			rows: 1,
 		};
 
-		expect(prependPaneToGroup("group-1", nextPane, group)).toEqual({
+		expect(appendPaneToGroup("group-1", nextPane, group)).toEqual({
 			...group,
-			panes: [nextPane, pane("p1")],
+			panes: [pane("p1"), nextPane],
 			selectedPaneId: "p2" as PaneId,
 		});
-		expect(prependPaneToGroup("other", nextPane, group)).toBe(group);
+		expect(appendPaneToGroup("other", nextPane, group)).toBe(group);
 		expect(getPaneTitle("codex", "/Users/test/project-a")).toBe("project-a");
 		expect(getPaneTitle("claude")).toBe("Claude");
+	});
+
+	test("falls back to an existing group when stored selected group is missing", () => {
+		const group: TerminalGroupModel = {
+			id: "group-1" as GroupId,
+			name: "Main",
+			panes: [pane("p1")],
+			selectedPaneId: "p1" as PaneId,
+			columns: 2,
+			rows: 1,
+		};
+
+		expect(resolveTerminalGroupId([group], null)).toBe(group.id);
+		expect(resolveTerminalGroupId([group], "missing")).toBe(group.id);
+		expect(resolveTerminalGroupId([], "missing")).toBeNull();
+	});
+
+	test("preserves local terminal selection when applying remote shell sync", () => {
+		const remote = {
+			groups: [
+				{
+					id: "group-1",
+					name: "Main",
+					panes: [pane("p1"), pane("p2")],
+					selectedPaneId: "p1",
+					columns: 2,
+					rows: 1,
+				},
+				{
+					id: "group-2",
+					name: "Second",
+					panes: [pane("p3")],
+					selectedPaneId: "p3",
+					columns: 1,
+					rows: 1,
+				},
+			],
+			selectedGroupId: "group-1",
+			themeId: "default",
+			fontSize: 13,
+			fontFamily: "SF Mono",
+			opacity: 1,
+		};
+		const local = {
+			...remote,
+			groups: remote.groups.map((group) =>
+				group.id === "group-1" ? { ...group, selectedPaneId: "p2" } : group
+			),
+			selectedGroupId: "group-2",
+		};
+
+		const merged = JSON.parse(
+			mergeRemoteTerminalStatePreservingLocalSelection(
+				JSON.stringify(remote),
+				JSON.stringify(local)
+			) ?? "null"
+		);
+
+		expect(merged.selectedGroupId).toBe("group-2");
+		expect(merged.groups[0].selectedPaneId).toBe("p2");
+		expect(merged.groups[1].selectedPaneId).toBe("p3");
+	});
+
+	test("allows remote terminal shell removals through sync protection", () => {
+		const remote = {
+			groups: [
+				{
+					id: "group-1",
+					name: "Main",
+					panes: [pane("p1")],
+					selectedPaneId: "p1",
+					columns: 2,
+					rows: 1,
+				},
+			],
+			selectedGroupId: "group-1",
+			themeId: "default",
+			fontSize: 13,
+			fontFamily: "SF Mono",
+			opacity: 1,
+		};
+		const local = {
+			...remote,
+			groups: [
+				{
+					...remote.groups[0]!,
+					panes: [pane("p1"), pane("p2")],
+					selectedPaneId: "p2",
+				},
+			],
+		};
+		const unrelatedDefault = {
+			...remote,
+			groups: [
+				{
+					...remote.groups[0]!,
+					id: "other-group",
+					panes: [pane("other-pane")],
+					selectedPaneId: "other-pane",
+				},
+			],
+			selectedGroupId: "other-group",
+		};
+
+		expect(
+			remoteTerminalStateRemovesLocalShell(
+				JSON.stringify(remote),
+				JSON.stringify(local)
+			)
+		).toBe(true);
+		expect(
+			remoteTerminalStateRemovesLocalShell(
+				JSON.stringify(unrelatedDefault),
+				JSON.stringify(local)
+			)
+		).toBe(false);
+
+		const merged = JSON.parse(
+			mergeRemoteTerminalStatePreservingLocalSelection(
+				JSON.stringify(remote),
+				JSON.stringify(local)
+			) ?? "null"
+		);
+		expect(
+			merged.groups[0].panes.map((item: { id: string }) => item.id)
+		).toEqual(["p1"]);
+		expect(merged.groups[0].selectedPaneId).toBe("p1");
 	});
 
 	/*

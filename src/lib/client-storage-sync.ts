@@ -1,4 +1,9 @@
 import {
+	chatMessagesContainUnseenIds,
+	chatMessagesScore,
+	mergeChatMessageStorageValues,
+} from "./chat-message-storage.ts";
+import {
 	isChatMessagesStorageKey,
 	isChatQueueStorageKey,
 	shouldSyncClientStorageKey,
@@ -13,6 +18,21 @@ type StoredValue = string | null;
 
 interface ClientStoragePayload {
 	entries?: Record<string, StoredValue>;
+}
+
+interface SyncedTerminalPane {
+	id?: unknown;
+}
+
+interface SyncedTerminalGroup {
+	id?: unknown;
+	selectedPaneId?: unknown;
+	panes?: SyncedTerminalPane[];
+}
+
+interface SyncedTerminalState {
+	selectedGroupId?: unknown;
+	groups?: SyncedTerminalGroup[];
 }
 
 let hydrating = false;
@@ -64,27 +84,6 @@ function terminalStateScore(value: string | null): number {
 	}
 }
 
-function chatMessagesScore(value: string | null): number {
-	if (!value) return 0;
-	try {
-		const parsed = JSON.parse(value) as unknown;
-		if (!Array.isArray(parsed)) return 0;
-		return parsed.reduce((score, message) => {
-			if (
-				typeof message !== "object" ||
-				message === null ||
-				typeof (message as { role?: unknown }).role !== "string"
-			) {
-				return score;
-			}
-			const content = (message as { content?: unknown }).content;
-			return score + 1 + (typeof content === "string" ? content.length : 0);
-		}, 0);
-	} catch {
-		return 0;
-	}
-}
-
 function storedArrayScore(value: string | null): number {
 	if (!value) return 0;
 	try {
@@ -103,6 +102,123 @@ function storedArrayScore(value: string | null): number {
 	}
 }
 
+function parseSyncedTerminalState(
+	value: string | null
+): SyncedTerminalState | null {
+	if (!value) return null;
+	try {
+		const parsed = JSON.parse(value) as unknown;
+		if (
+			typeof parsed !== "object" ||
+			parsed === null ||
+			!Array.isArray((parsed as SyncedTerminalState).groups)
+		) {
+			return null;
+		}
+		return parsed as SyncedTerminalState;
+	} catch {
+		return null;
+	}
+}
+
+function hasGroupId(
+	groups: readonly SyncedTerminalGroup[],
+	groupId: unknown
+): boolean {
+	return (
+		typeof groupId === "string" && groups.some((group) => group.id === groupId)
+	);
+}
+
+function hasPaneId(group: SyncedTerminalGroup, paneId: unknown): boolean {
+	return (
+		typeof paneId === "string" &&
+		Array.isArray(group.panes) &&
+		group.panes.some((pane) => pane.id === paneId)
+	);
+}
+
+function collectTerminalShellIds(state: SyncedTerminalState): {
+	groupIds: Set<string>;
+	paneIds: Set<string>;
+} {
+	const groupIds = new Set<string>();
+	const paneIds = new Set<string>();
+	for (const group of state.groups ?? []) {
+		if (typeof group.id === "string") groupIds.add(group.id);
+		for (const pane of group.panes ?? []) {
+			if (typeof pane.id === "string") paneIds.add(pane.id);
+		}
+	}
+	return { groupIds, paneIds };
+}
+
+export function remoteTerminalStateRemovesLocalShell(
+	remoteValue: string | null,
+	localValue: string | null
+): boolean {
+	const remoteState = parseSyncedTerminalState(remoteValue);
+	const localState = parseSyncedTerminalState(localValue);
+	if (!remoteState || !localState) return false;
+
+	const remoteIds = collectTerminalShellIds(remoteState);
+	const localIds = collectTerminalShellIds(localState);
+	const hasSharedShellId =
+		[...localIds.groupIds].some((id) => remoteIds.groupIds.has(id)) ||
+		[...localIds.paneIds].some((id) => remoteIds.paneIds.has(id));
+	if (!hasSharedShellId) return false;
+
+	return (
+		[...localIds.groupIds].some((id) => !remoteIds.groupIds.has(id)) ||
+		[...localIds.paneIds].some((id) => !remoteIds.paneIds.has(id))
+	);
+}
+
+export function mergeRemoteTerminalStatePreservingLocalSelection(
+	remoteValue: string | null,
+	localValue: string | null
+): string | null {
+	const remoteState = parseSyncedTerminalState(remoteValue);
+	const localState = parseSyncedTerminalState(localValue);
+	if (
+		!remoteState ||
+		!localState ||
+		!remoteState.groups ||
+		!localState.groups
+	) {
+		return remoteValue;
+	}
+
+	const localGroupsById = new Map(
+		localState.groups
+			.filter((group) => typeof group.id === "string")
+			.map((group) => [group.id as string, group])
+	);
+	const nextGroups = remoteState.groups.map((remoteGroup) => {
+		if (typeof remoteGroup.id !== "string") return remoteGroup;
+		const localGroup = localGroupsById.get(remoteGroup.id);
+		if (!localGroup || !hasPaneId(remoteGroup, localGroup.selectedPaneId)) {
+			return remoteGroup;
+		}
+		return {
+			...remoteGroup,
+			selectedPaneId: localGroup.selectedPaneId,
+		};
+	});
+	const nextSelectedGroupId = hasGroupId(
+		remoteState.groups,
+		localState.selectedGroupId
+	)
+		? localState.selectedGroupId
+		: remoteState.selectedGroupId;
+
+	return JSON.stringify({
+		...remoteState,
+		groups: nextGroups,
+		selectedGroupId: nextSelectedGroupId,
+	});
+}
+
 function shouldApplyServerValue(
 	key: string,
 	serverValue: StoredValue
@@ -118,18 +234,28 @@ function shouldApplyServerValue(
 		localWriteValues.delete(key);
 		return false;
 	}
+	const isRemoteTerminalRemoval =
+		key === TERMINAL_STATE_STORAGE_KEY &&
+		remoteTerminalStateRemovesLocalShell(serverValue, localValue);
 	const localWriteAt = localWriteTimes.get(key);
 	if (
 		localWriteAt &&
 		Date.now() - localWriteAt < LOCAL_WRITE_PROTECT_MS &&
-		localWriteValues.get(key) === localValue
+		localWriteValues.get(key) === localValue &&
+		!isRemoteTerminalRemoval
 	) {
 		return false;
 	}
 	if (isChatMessagesStorageKey(key)) {
 		const serverScore = chatMessagesScore(serverValue);
 		const localScore = chatMessagesScore(localValue);
-		if (localScore > 0 && localScore > serverScore) return false;
+		if (
+			localScore > 0 &&
+			localScore > serverScore &&
+			!chatMessagesContainUnseenIds(serverValue, localValue)
+		) {
+			return false;
+		}
 	}
 	if (isChatQueueStorageKey(key)) {
 		const serverScore = storedArrayScore(serverValue);
@@ -141,7 +267,9 @@ function shouldApplyServerValue(
 	if (key === TERMINAL_STATE_STORAGE_KEY) {
 		const serverScore = terminalStateScore(serverValue);
 		const localScore = terminalStateScore(localValue);
-		if (serverScore <= 1 && localScore > serverScore) return false;
+		if (serverScore <= 1 && localScore > serverScore) {
+			return isRemoteTerminalRemoval;
+		}
 		return true;
 	}
 	return true;
@@ -252,11 +380,21 @@ function applyServerEntries(entries: Record<string, StoredValue>): string[] {
 		for (const [key, value] of Object.entries(entries)) {
 			if (!shouldSyncClientStorageKey(key)) continue;
 			if (!shouldApplyServerValue(key, value)) continue;
+			const currentValue = localStorage.getItem(key);
+			const nextValue = isChatMessagesStorageKey(key)
+				? mergeChatMessageStorageValues(currentValue, value)
+				: key === TERMINAL_STATE_STORAGE_KEY
+					? mergeRemoteTerminalStatePreservingLocalSelection(
+							value,
+							currentValue
+						)
+					: value;
+			if (nextValue === currentValue) continue;
 			try {
-				if (value === null) localStorage.removeItem(key);
-				else localStorage.setItem(key, value);
+				if (nextValue === null) localStorage.removeItem(key);
+				else localStorage.setItem(key, nextValue);
 				changedKeys.push(key);
-				dispatchStorageChanged(key, value);
+				dispatchStorageChanged(key, nextValue);
 			} catch {}
 		}
 	} finally {

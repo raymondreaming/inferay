@@ -77,7 +77,7 @@ export function listenTerminalLayoutMode(
 	);
 }
 
-export function prependPaneToGroup(
+export function appendPaneToGroup(
 	selectedGroupId: string,
 	pane: TerminalPaneModel,
 	group: TerminalGroupModel
@@ -85,10 +85,19 @@ export function prependPaneToGroup(
 	return group.id === selectedGroupId
 		? {
 				...group,
-				panes: [pane, ...group.panes],
+				panes: [...group.panes, pane],
 				selectedPaneId: pane.id,
 			}
 		: group;
+}
+
+export function resolveTerminalGroupId(
+	groups: readonly TerminalGroupModel[],
+	selectedGroupId: GroupId | string | null | undefined
+): GroupId | null {
+	return (
+		groups.find(hasId.bind(null, selectedGroupId))?.id ?? groups[0]?.id ?? null
+	);
 }
 
 // Compact: [id, name, bg, fg, cursor, separator]

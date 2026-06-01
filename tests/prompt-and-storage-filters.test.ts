@@ -2,6 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { filterPrompts } from "../src/features/prompts/prompt-utils.ts";
 import { normalizeEntries } from "../src/server/services/client-storage.ts";
 import {
+	chatMessagesContainUnseenIds,
+	mergeChatMessageStorageValues,
+} from "../src/lib/chat-message-storage.ts";
+import {
+	CHAT_LOADING_STATE_KEY_PREFIX,
 	CHAT_MESSAGES_STORAGE_KEY_PREFIX,
 	CHAT_QUEUE_KEY_PREFIX,
 	isChatMessagesStorageKey,
@@ -68,6 +73,11 @@ describe("prompt search and client storage sync filters", () => {
 				[TERMINAL_LAYOUT_MODE_STORAGE_KEY]: "grid",
 				"unknown-key": "value",
 				[TERMINAL_MAIN_VIEW_STORAGE_KEY]: 42,
+				[`${CHAT_LOADING_STATE_KEY_PREFIX}pane-1`]: JSON.stringify({
+					isLoading: true,
+					status: "thinking",
+					startTime: Date.now(),
+				}),
 				"inferay-custom-theme": null,
 			})
 		).toEqual({
@@ -88,5 +98,23 @@ describe("prompt search and client storage sync filters", () => {
 			false
 		);
 		expect(isChatQueueStorageKey(`${CHAT_QUEUE_KEY_PREFIX}pane-1`)).toBe(true);
+	});
+
+	test("merges divergent chat message snapshots by id", () => {
+		const local = JSON.stringify([
+			{ id: "m1", role: "user", content: "existing message" },
+			{ id: "m2", role: "assistant", content: "local assistant reply" },
+		]);
+		const incoming = JSON.stringify([
+			{ id: "m1", role: "user", content: "existing message" },
+			{ id: "m3", role: "user", content: "new message from other window" },
+		]);
+
+		expect(chatMessagesContainUnseenIds(incoming, local)).toBe(true);
+		expect(
+			JSON.parse(mergeChatMessageStorageValues(local, incoming) ?? "[]").map(
+				(message: { id: string }) => message.id
+			)
+		).toEqual(["m1", "m2", "m3"]);
 	});
 });

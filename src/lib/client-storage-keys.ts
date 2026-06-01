@@ -69,6 +69,7 @@ const SYNCED_STORAGE_PREFIXES = [
 ];
 
 export function shouldSyncClientStorageKey(key: string): boolean {
+	if (key.startsWith(CHAT_LOADING_STATE_KEY_PREFIX)) return false;
 	return (
 		SYNCED_STORAGE_KEYS.has(key) ||
 		SYNCED_STORAGE_PREFIXES.some((prefix) => key.startsWith(prefix))

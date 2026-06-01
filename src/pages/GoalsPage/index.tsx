@@ -51,7 +51,7 @@ import {
 	DEFAULT_FONT_SIZE,
 	DEFAULT_OPACITY,
 	loadTerminalState,
-	prependPaneToGroup,
+	appendPaneToGroup,
 	saveSyncedTerminalState,
 } from "../../features/terminal/terminal-utils.ts";
 import { usePollingResource } from "../../hooks/usePollingResource.ts";
@@ -197,7 +197,7 @@ export function GoalsPage() {
 			saveSyncedTerminalState(
 				{
 					groups: groups.map(
-						prependPaneToGroup.bind(null, selectedGroupId, pane)
+						appendPaneToGroup.bind(null, selectedGroupId, pane)
 					),
 					selectedGroupId,
 					themeId: existing?.themeId ?? ("default" as const),

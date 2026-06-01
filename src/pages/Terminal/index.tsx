@@ -43,6 +43,7 @@ import {
 	getThemeById,
 	loadTerminalLayoutMode,
 	loadTerminalState,
+	resolveTerminalGroupId,
 	saveTerminalState,
 	syncTerminalLayoutMode,
 	type TerminalGroupModel,
@@ -336,14 +337,14 @@ function groupsReducer(
 			}
 			return state.map((g) => {
 				if (g.id !== action.groupId) return g;
-				return { ...g, panes: [pane, ...g.panes], selectedPaneId: pane.id };
+				return { ...g, panes: [...g.panes, pane], selectedPaneId: pane.id };
 			});
 		}
 		case "addSimulatorPane": {
 			const pane = createSimulatorPane();
 			return state.map((g) => {
 				if (g.id !== action.groupId) return g;
-				return { ...g, panes: [pane, ...g.panes], selectedPaneId: pane.id };
+				return { ...g, panes: [...g.panes, pane], selectedPaneId: pane.id };
 			});
 		}
 		case "removePane": {
@@ -446,8 +447,8 @@ export function TerminalPage() {
 	const initialState = useMemo(loadTerminalState, []);
 	const initGroups = useMemo(() => getInitialGroups(), []);
 	const [groups, groupsDispatch] = useReducer(groupsReducer, initGroups);
-	const [selectedGroupId, setSelectedGroupId] = useState<GroupId | null>(
-		() => initialState?.selectedGroupId ?? initGroups[0]?.id ?? null
+	const [selectedGroupId, setSelectedGroupId] = useState<GroupId | null>(() =>
+		resolveTerminalGroupId(initGroups, initialState?.selectedGroupId)
 	);
 	const [appearance, setAppearance] = useState(() => ({
 		themeId: (initialState?.themeId ??
@@ -460,10 +461,22 @@ export function TerminalPage() {
 	const chatRefs = useRef<Map<string, AgentChatHandle>>(new Map());
 	useAgentSessions();
 	const theme = useMemo(() => getThemeById(themeId), [themeId]);
-	const currentGroup = useMemo(
-		() => groups.find(hasId.bind(null, selectedGroupId)),
+	const effectiveSelectedGroupId = useMemo(
+		() => resolveTerminalGroupId(groups, selectedGroupId),
 		[groups, selectedGroupId]
 	);
+	const currentGroup = useMemo(
+		() => groups.find(hasId.bind(null, effectiveSelectedGroupId)),
+		[effectiveSelectedGroupId, groups]
+	);
+	useEffect(() => {
+		if (
+			effectiveSelectedGroupId &&
+			selectedGroupId !== effectiveSelectedGroupId
+		) {
+			setSelectedGroupId(effectiveSelectedGroupId);
+		}
+	}, [effectiveSelectedGroupId, selectedGroupId]);
 	const restoreSavedState = useCallback(
 		(s: ReturnType<typeof loadTerminalState>) => {
 			if (!s) return;
@@ -487,9 +500,9 @@ export function TerminalPage() {
 	}, []);
 	const withSelectedGroup = useCallback(
 		(fn: (groupId: string) => void) => {
-			if (selectedGroupId) fn(selectedGroupId);
+			if (effectiveSelectedGroupId) fn(effectiveSelectedGroupId);
 		},
-		[selectedGroupId]
+		[effectiveSelectedGroupId]
 	);
 	const latestStateRef = useRef({
 		groups,
