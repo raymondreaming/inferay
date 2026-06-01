@@ -286,17 +286,22 @@ export function SessionsPage() {
 		const messages = loadStoredMessages<ChatMessage>(session.paneId);
 		const checkpoints = loadStoredCheckpoints<CheckpointInfo>(session.paneId);
 		const detail = buildSessionDetailModel(session, messages, checkpoints);
-		const artifact = createDocumentArtifact({
-			title: detail.transcriptArtifact.title,
-			subtitle: detail.transcriptArtifact.subtitle,
-			content: detail.transcriptArtifact.content,
-			sourcePaneId: session.paneId,
-			sourceMessageId: null,
-			sourceRole: "session-transcript",
-			projectPath: session.cwd,
-		});
-		setArtifactVersion((version) => version + 1);
-		setDetailStatus(`Saved "${artifact.title}" to Artifacts.`);
+		try {
+			const artifact = createDocumentArtifact({
+				title: detail.transcriptArtifact.title,
+				subtitle: detail.transcriptArtifact.subtitle,
+				content: detail.transcriptArtifact.content,
+				sourcePaneId: session.paneId,
+				sourceMessageId: null,
+				sourceRole: "session-transcript",
+				projectPath: session.cwd,
+			});
+			setArtifactVersion((version) => version + 1);
+			setDetailStatus(`Saved "${artifact.title}" to Artifacts.`);
+		} catch (error) {
+			console.error(error);
+			setDetailStatus("Could not save artifact.");
+		}
 	}, []);
 
 	return (

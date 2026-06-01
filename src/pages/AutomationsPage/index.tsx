@@ -914,16 +914,21 @@ export function AutomationsPage() {
 	const saveRunArtifact = useCallback(() => {
 		if (!runState || runState.flowId !== selectedFlow.id) return;
 		const draft = automationRunArtifactDraft(selectedFlow, runState);
-		createDocumentArtifact({
-			title: draft.title,
-			subtitle: draft.subtitle,
-			content: draft.content,
-			sourcePaneId: null,
-			sourceMessageId: null,
-			sourceRole: "automation-run",
-			projectPath: draft.projectPath,
-		});
-		setRunArtifactStatus("Saved run artifact.");
+		try {
+			createDocumentArtifact({
+				title: draft.title,
+				subtitle: draft.subtitle,
+				content: draft.content,
+				sourcePaneId: null,
+				sourceMessageId: null,
+				sourceRole: "automation-run",
+				projectPath: draft.projectPath,
+			});
+			setRunArtifactStatus("Saved run artifact.");
+		} catch (error) {
+			console.error(error);
+			setRunArtifactStatus("Could not save run artifact.");
+		}
 	}, [runState, selectedFlow]);
 
 	const updateSelectedNodeBody = (body: string) => {

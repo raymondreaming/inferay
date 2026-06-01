@@ -14,7 +14,9 @@ import type {
 	RepoDocArtifactSource,
 } from "./types.ts";
 
-const DOCUMENT_ARTIFACTS_KEY = "inferay-document-artifacts";
+export const DOCUMENT_ARTIFACTS_KEY = "inferay-document-artifacts";
+export const DOCUMENT_ARTIFACTS_CHANGED_EVENT =
+	"inferay:document-artifacts-changed";
 const MAX_DOCUMENT_ARTIFACTS = 200;
 const MAX_ARTIFACT_CONTEXT_CHARS = 12_000;
 const IMAGE_EXTENSIONS = new Set([
@@ -36,12 +38,6 @@ interface StoredImageMessage {
 function compactPreview(value: string, max = 320): string {
 	const text = value.replace(/\s+/g, " ").trim();
 	return text.length > max ? `${text.slice(0, max - 3)}...` : text;
-}
-
-function safeTimestamp(value: unknown, fallback = Date.now()): number {
-	return typeof value === "number" && Number.isFinite(value) && value > 0
-		? value
-		: fallback;
 }
 
 function stableId(seed: string): string {
@@ -204,13 +200,22 @@ export function loadDocumentArtifacts(): DocumentArtifact[] {
 		.slice(0, MAX_DOCUMENT_ARTIFACTS);
 }
 
-function saveDocumentArtifacts(artifacts: readonly DocumentArtifact[]) {
-	writeStoredJson(
+function dispatchDocumentArtifactsChanged(): void {
+	if (typeof window === "undefined") return;
+	window.dispatchEvent(new Event(DOCUMENT_ARTIFACTS_CHANGED_EVENT));
+}
+
+function saveDocumentArtifacts(
+	artifacts: readonly DocumentArtifact[]
+): boolean {
+	const saved = writeStoredJson(
 		DOCUMENT_ARTIFACTS_KEY,
 		[...artifacts]
 			.sort((a, b) => b.updatedAt - a.updatedAt)
 			.slice(0, MAX_DOCUMENT_ARTIFACTS)
 	);
+	if (saved) dispatchDocumentArtifactsChanged();
+	return saved;
 }
 
 function documentArtifact(entry: DocumentArtifact): ArtifactEntry {
@@ -261,14 +266,20 @@ export function createDocumentArtifact(input: {
 		createdAt: now,
 		updatedAt: now,
 	};
-	saveDocumentArtifacts([artifact, ...loadDocumentArtifacts()]);
+	if (!saveDocumentArtifacts([artifact, ...loadDocumentArtifacts()])) {
+		throw new Error("Failed to save document artifact.");
+	}
 	return artifact;
 }
 
 function deleteDocumentArtifact(id: string): void {
-	saveDocumentArtifacts(
-		loadDocumentArtifacts().filter((artifact) => artifact.id !== id)
-	);
+	if (
+		!saveDocumentArtifacts(
+			loadDocumentArtifacts().filter((artifact) => artifact.id !== id)
+		)
+	) {
+		throw new Error("Failed to delete document artifact.");
+	}
 }
 
 export function loadArtifactWorkspace(

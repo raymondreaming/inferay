@@ -315,6 +315,7 @@ const Bubble = React.memo(function Bubble({
 	const [savedArtifactId, setSavedArtifactId] = useState(
 		() => findSavedArtifactForMessage(paneId, msg.id)?.id ?? null
 	);
+	const [artifactSaveFailed, setArtifactSaveFailed] = useState(false);
 	const savedArtifact = savedArtifactId !== null;
 	const messageActionIconProps = stylex.props(styles.messageActionIcon);
 	const handoverOptions = handoverTargets.map((target) => ({
@@ -335,6 +336,7 @@ const Bubble = React.memo(function Bubble({
 	}, [msg.content]);
 	useEffect(() => {
 		setSavedArtifactId(findSavedArtifactForMessage(paneId, msg.id)?.id ?? null);
+		setArtifactSaveFailed(false);
 	}, [msg.id, paneId]);
 	const handleHandoverMessage = useCallback(
 		(targetPaneId?: string) => {
@@ -364,6 +366,7 @@ const Bubble = React.memo(function Bubble({
 		const existing = findSavedArtifactForMessage(paneId, msg.id);
 		if (existing) {
 			setSavedArtifactId(existing.id);
+			setArtifactSaveFailed(false);
 			return;
 		}
 		const firstLine =
@@ -373,16 +376,23 @@ const Bubble = React.memo(function Bubble({
 				.find(Boolean) ?? "Saved agent note";
 		const title =
 			firstLine.length > 64 ? `${firstLine.slice(0, 61).trim()}...` : firstLine;
-		const artifact = createDocumentArtifact({
-			title,
-			subtitle: `${msg.role} message`,
-			content: msg.content,
-			sourcePaneId: paneId,
-			sourceMessageId: msg.id,
-			sourceRole: msg.role,
-			projectPath: cwd ?? null,
-		});
-		setSavedArtifactId(artifact.id);
+		try {
+			const artifact = createDocumentArtifact({
+				title,
+				subtitle: `${msg.role} message`,
+				content: msg.content,
+				sourcePaneId: paneId,
+				sourceMessageId: msg.id,
+				sourceRole: msg.role,
+				projectPath: cwd ?? null,
+			});
+			setSavedArtifactId(artifact.id);
+			setArtifactSaveFailed(false);
+		} catch (error) {
+			console.error(error);
+			setSavedArtifactId(null);
+			setArtifactSaveFailed(true);
+		}
 	}, [cwd, msg.content, msg.id, msg.role, paneId]);
 	if (msg.role === "user") {
 		const commandMatch = msg.content.match(/^\/([a-zA-Z0-9_-]+)(\s|$)/);
@@ -614,15 +624,29 @@ const Bubble = React.memo(function Bubble({
 						type="button"
 						onClick={handleSaveArtifact}
 						title={
-							savedArtifact ? "Saved as artifact" : "Save message as artifact"
+							artifactSaveFailed
+								? "Could not save artifact"
+								: savedArtifact
+									? "Saved as artifact"
+									: "Save message as artifact"
 						}
 						aria-label={
-							savedArtifact ? "Saved as artifact" : "Save message as artifact"
+							artifactSaveFailed
+								? "Could not save artifact"
+								: savedArtifact
+									? "Saved as artifact"
+									: "Save message as artifact"
 						}
 						{...artifactButtonProps}
 						className={noDragClassName(artifactButtonProps.className)}
 					>
-						{savedArtifact ? (
+						{artifactSaveFailed ? (
+							<IconAlertTriangle
+								size={12}
+								strokeWidth={1.6}
+								{...messageActionIconProps}
+							/>
+						) : savedArtifact ? (
 							<IconCheck
 								size={12}
 								strokeWidth={1.6}
@@ -635,7 +659,13 @@ const Bubble = React.memo(function Bubble({
 								{...messageActionIconProps}
 							/>
 						)}
-						<span>{savedArtifact ? "Saved" : "Artifact"}</span>
+						<span>
+							{artifactSaveFailed
+								? "Failed"
+								: savedArtifact
+									? "Saved"
+									: "Artifact"}
+						</span>
 					</button>
 					{handoverTargets.length > 0 && (
 						<div {...stylex.props(styles.handoverWrap)}>
