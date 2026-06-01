@@ -14,7 +14,6 @@ import { userDataPath } from "../../lib/user-data.ts";
 
 const PROMPTS_FILE = userDataPath("prompts.json");
 const REPO_PROMPTS_FILE = resolve(PROJECT_ROOT, "data/prompts.json");
-const LEGACY_PROMPTS_FILE = resolve(PROJECT_ROOT, "src/data/prompts.json");
 
 export type PromptServiceResult<T> =
 	| { ok: true; value: T }
@@ -22,14 +21,8 @@ export type PromptServiceResult<T> =
 
 async function loadBundledPrompts(): Promise<Prompt[]> {
 	const repoFile = Bun.file(REPO_PROMPTS_FILE);
-	if (await repoFile.exists()) {
-		return JSON.parse(await repoFile.text()) as Prompt[];
-	}
-
-	const legacyFile = Bun.file(LEGACY_PROMPTS_FILE);
-	if (!(await legacyFile.exists())) return [];
-
-	return JSON.parse(await legacyFile.text()) as Prompt[];
+	if (!(await repoFile.exists())) return [];
+	return JSON.parse(await repoFile.text()) as Prompt[];
 }
 
 export async function loadLocalPrompts(): Promise<Prompt[]> {
