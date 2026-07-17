@@ -182,10 +182,6 @@ function ToolTimeline({
 								}
 								{...stylex.props(styles.toolMilestoneToggle)}
 							>
-								<IconChevronDown
-									size={8}
-									{...stylex.props(collapsed && styles.rotateClosed)}
-								/>
 								<span {...stylex.props(styles.toolMilestoneLabel)}>
 									{display.label}
 								</span>
@@ -194,6 +190,13 @@ function ToolTimeline({
 										{display.detail}
 									</span>
 								)}
+								<IconChevronDown
+									size={8}
+									{...stylex.props(
+										styles.toolMilestoneChevron,
+										collapsed && styles.rotateClosed
+									)}
+								/>
 							</button>
 							{!collapsed && tool.content && (
 								<div {...stylex.props(styles.toolOutputWrap)}>
@@ -563,14 +566,17 @@ const Bubble = React.memo(function Bubble({
 					onClick={() => onToggle(msg.id)}
 					{...stylex.props(styles.toolToggle)}
 				>
-					<IconChevronDown
-						size={7}
-						{...stylex.props(collapsed && styles.rotateClosed)}
-					/>
 					<span {...stylex.props(styles.toolName)}>{display.label}</span>
 					{collapsed && display.detail && (
 						<span {...stylex.props(styles.toolSummary)}>{display.detail}</span>
 					)}
+					<IconChevronDown
+						size={7}
+						{...stylex.props(
+							styles.toolMilestoneChevron,
+							collapsed && styles.rotateClosed
+						)}
+					/>
 				</button>
 				{!collapsed && msg.content && (
 					<div {...stylex.props(styles.toolOutputWrap)}>
@@ -1238,16 +1244,10 @@ const styles = stylex.create({
 		whiteSpace: "nowrap",
 	},
 	toolTimeline: {
-		backgroundColor: color.surfaceSubtle,
-		borderColor: color.borderSubtle,
-		borderRadius: radius.md,
-		borderStyle: "solid",
-		borderWidth: 1,
 		boxSizing: "border-box",
+		marginInline: "auto",
+		maxWidth: "34rem",
 		minWidth: 0,
-		overflow: "hidden",
-		paddingBlock: controlSize._1_5,
-		paddingInline: controlSize._2,
 		width: "100%",
 	},
 	toolMilestone: {
@@ -1258,19 +1258,14 @@ const styles = stylex.create({
 	},
 	toolMilestoneNode: {
 		alignSelf: "stretch",
-		backgroundImage:
-			"linear-gradient(var(--color-inferay-gray-border-bold), var(--color-inferay-gray-border-bold))",
-		backgroundPosition: "center 0.75rem",
-		backgroundRepeat: "no-repeat",
-		backgroundSize: "1px 100%",
 		position: "relative",
 		"::before": {
-			backgroundColor: color.backgroundRaised,
+			backgroundColor: color.background,
 			borderColor: color.accentBorder,
 			borderRadius: radius.pill,
 			borderStyle: "solid",
 			borderWidth: 1,
-			boxShadow: "0 0 0 2px var(--color-inferay-dark-gray)",
+			boxShadow: "0 0 0 2px var(--color-inferay-black)",
 			content: '""',
 			height: controlSize._1_5,
 			left: "50%",
@@ -1278,10 +1273,23 @@ const styles = stylex.create({
 			top: "0.55rem",
 			transform: "translateX(-50%)",
 			width: controlSize._1_5,
+			zIndex: 1,
+		},
+		"::after": {
+			backgroundColor: color.borderStrong,
+			bottom: "-0.74rem",
+			content: '""',
+			left: "50%",
+			position: "absolute",
+			top: "0.74rem",
+			transform: "translateX(-50%)",
+			width: 1,
 		},
 	},
 	toolMilestoneNodeLast: {
-		backgroundSize: "1px 0.75rem",
+		"::after": {
+			display: "none",
+		},
 	},
 	toolMilestoneBody: {
 		minWidth: 0,
@@ -1316,11 +1324,14 @@ const styles = stylex.create({
 		color: color.textMuted,
 		fontFamily: font.familyMono,
 		fontSize: font.size_1,
-		marginLeft: "auto",
 		maxWidth: "42%",
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
+	},
+	toolMilestoneChevron: {
+		flexShrink: 0,
+		marginLeft: "auto",
 	},
 	toolOutputWrap: {
 		position: "relative",
