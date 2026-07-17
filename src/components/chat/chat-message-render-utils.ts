@@ -13,7 +13,8 @@ export type RenderChatMessage = Pick<
 
 export type RenderItem =
 	| { type: "message"; message: RenderChatMessage }
-	| { type: "edit-group"; filePath: string; edits: RenderChatMessage[] };
+	| { type: "edit-group"; filePath: string; edits: RenderChatMessage[] }
+	| { type: "tool-group"; tools: RenderChatMessage[] };
 
 type AskUserQuestion = {
 	question: string;
@@ -208,6 +209,166 @@ export function getToolOutputSummary(content: string) {
 	return { type: "text", value: content };
 }
 
+export type ToolDisplayInfo = {
+	label: string;
+	detail?: string;
+};
+
+function commandFromToolContent(content: string): string | null {
+	const parsed = parseToolJson(content);
+	const command = parsed?.command ?? parsed?.cmd;
+	return typeof command === "string" && command.trim() ? command.trim() : null;
+}
+
+function commandDetail(command: string, fallback: string) {
+	const unwrapped = command
+		.replace(/^\s*\/bin\/(?:zsh|bash|sh)\s+-lc\s+/, "")
+		.replace(/^['"]|['"]$/g, "")
+		.trim();
+	return unwrapped.length > 52
+		? `${unwrapped.slice(0, 49)}…`
+		: unwrapped || fallback;
+}
+
+function commandTarget(command: string): string | undefined {
+	const matches = command.match(
+		/(?:^|\s)([^\s'"|;&]+\.(?:ts|tsx|js|jsx|json|md|css|scss|py|rs|go|java|kt|swift|rb|php|sql|ya?ml|toml))(?:\s|$)/g
+	);
+	const candidate = matches?.at(-1)?.trim();
+	return candidate ? fileNameFor(candidate) : undefined;
+}
+
+/** Convert implementation-level tool input into a user-facing milestone. */
+export function getToolDisplayInfo(
+	toolName: string | undefined,
+	content: string
+): ToolDisplayInfo {
+	const normalized = toolName?.trim().toLowerCase() ?? "";
+	const command = commandFromToolContent(content);
+	if (command) {
+		const value = command.toLowerCase();
+		const target = commandTarget(command);
+		const verificationKinds = [
+			/\b(?:npm|bun|pnpm|yarn)\s+(?:run\s+)?(?:test|vitest)\b|\b(?:vitest|jest|pytest)\b/,
+			/\b(?:tsc|typecheck|type-check|mypy|pyright)\b/,
+			/\b(?:eslint|ruff|clippy|golangci-lint|biome\s+(?:check|lint)|npm\s+run\s+lint)\b/,
+			/\b(?:npm|bun|pnpm|yarn)\s+(?:run\s+)?build\b|\b(?:cargo|go)\s+build\b/,
+		].filter((pattern) => pattern.test(value)).length;
+		if (verificationKinds > 1) return { label: "Running verification checks" };
+		if (
+			/\b(?:npm|bun|pnpm|yarn)\s+(?:run\s+)?(?:test|vitest)\b|\bvitest\b/.test(
+				value
+			)
+		)
+			return {
+				label: target ? `Testing ${target}` : "Running JavaScript tests",
+			};
+		if (/\bpytest\b|\bpython(?:3)?\s+-m\s+(?:pytest|unittest)\b/.test(value))
+			return { label: target ? `Testing ${target}` : "Running Python tests" };
+		if (/\bcargo\s+test\b/.test(value)) return { label: "Running Rust tests" };
+		if (/\bgo\s+test\b/.test(value)) return { label: "Running Go tests" };
+		if (/\b(?:tsc|typecheck|type-check)\b/.test(value))
+			return { label: "Type-checking project" };
+		if (/\b(?:mypy|pyright)\b/.test(value))
+			return { label: "Checking Python types" };
+		if (/\b(?:eslint|npm\s+run\s+lint)\b/.test(value))
+			return { label: target ? `Linting ${target}` : "Linting project" };
+		if (/\bbiome\s+(?:check|lint)\b/.test(value))
+			return { label: "Checking code style" };
+		if (/\b(?:ruff|pylint|flake8)\b/.test(value))
+			return { label: "Linting Python code" };
+		if (/\b(?:cargo\s+clippy|golangci-lint)\b/.test(value))
+			return { label: "Analyzing code" };
+		if (/\b(?:npm|bun|pnpm|yarn)\s+(?:run\s+)?build\b/.test(value))
+			return { label: "Building application" };
+		if (/\bcargo\s+(?:build|check)\b/.test(value))
+			return { label: "Checking Rust project" };
+		if (/\bgo\s+build\b/.test(value)) return { label: "Building Go project" };
+		if (/\b(?:prettier|biome\s+format)\b/.test(value))
+			return { label: "Formatting code" };
+		if (/\bgit\s+status\b/.test(value))
+			return { label: "Checking working tree" };
+		if (/\bgit\s+log\b/.test(value))
+			return {
+				label: /(?:^|\s)-(?:1|n\s*1)(?:\s|$)/.test(value)
+					? "Reading latest commit"
+					: "Reading commit history",
+			};
+		if (/\bgit\s+diff\b/.test(value))
+			return {
+				label: /--cached|--staged/.test(value)
+					? target
+						? `Reviewing staged ${target}`
+						: "Reviewing staged changes"
+					: target
+						? `Reviewing changes in ${target}`
+						: "Reviewing working changes",
+			};
+		if (/\bgit\s+show\b/.test(value))
+			return {
+				label: target ? `Reading committed ${target}` : "Inspecting commit",
+			};
+		if (/\bgit\s+(?:branch|rev-parse)\b/.test(value))
+			return { label: "Identifying current revision" };
+		if (/\bgit\s+blame\b/.test(value))
+			return {
+				label: target ? `Tracing ${target} history` : "Tracing line history",
+			};
+		if (/\bgit\s+(?:fetch|pull)\b/.test(value))
+			return { label: "Refreshing remote changes" };
+		if (/\bgit\s+push\b/.test(value)) return { label: "Publishing commits" };
+		if (/\bgit\s+(?:checkout|switch)\b/.test(value))
+			return { label: "Switching branch" };
+		if (/\bgit\s+(?:add|commit)\b/.test(value))
+			return {
+				label: /\bcommit\b/.test(value) ? "Saving changes" : "Staging changes",
+			};
+		if (/\b(?:rg|grep)\b/.test(value))
+			return {
+				label: target ? `Searching ${target}` : "Searching source code",
+			};
+		if (/\bfind\b/.test(value)) return { label: "Discovering files" };
+		if (/\b(?:sed|cat|head|tail|less)\b/.test(value))
+			return { label: target ? `Reading ${target}` : "Reading source excerpt" };
+		if (/\b(?:ls|tree)\b/.test(value))
+			return { label: "Listing project files" };
+		if (/\bpwd\b/.test(value)) return { label: "Checking current location" };
+		if (/\b(?:npm|bun|pnpm|yarn)\s+(?:install|add)\b/.test(value))
+			return { label: "Installing dependencies" };
+		if (/\b(?:docker|docker-compose)\s+(?:build|compose\s+build)\b/.test(value))
+			return { label: "Building containers" };
+		if (/\b(?:docker|docker-compose)\s+(?:run|up|compose\s+up)\b/.test(value))
+			return { label: "Starting containers" };
+		if (
+			/\b(?:prisma|drizzle|rails|alembic)\b.*\b(?:migrate|migration)\b/.test(
+				value
+			)
+		)
+			return { label: "Applying database migration" };
+		if (/\b(?:mkdir|touch)\b/.test(value)) return { label: "Creating files" };
+		if (/\bcp\b/.test(value)) return { label: "Copying files" };
+		if (/\bmv\b/.test(value)) return { label: "Moving files" };
+		if (/\brm\b/.test(value)) return { label: "Removing files" };
+		if (/\b(?:ps|lsof)\b/.test(value))
+			return { label: "Inspecting running processes" };
+		if (/\b(?:kill|pkill)\b/.test(value)) return { label: "Stopping process" };
+		if (/\b(?:curl|wget)\b/.test(value)) return { label: "Fetching data" };
+		return {
+			label: "Running command",
+			detail: commandDetail(command, "command"),
+		};
+	}
+	if (["read", "read_file", "view"].includes(normalized))
+		return { label: "Reading files" };
+	if (["grep", "glob", "search"].includes(normalized))
+		return { label: "Searching code" };
+	if (["web_search", "websearch", "webfetch"].includes(normalized))
+		return { label: "Researching" };
+	if (["patch", "apply_patch", "edit", "write"].includes(normalized))
+		return { label: "Updating code" };
+	return { label: toolName ? `Using ${toolName}` : "Running tool" };
+}
+
 export function getEditFilePath(msg: RenderChatMessage): string | null {
 	if (msg.role !== "tool" || msg.toolName !== "Edit" || !msg.content)
 		return null;
@@ -222,7 +383,48 @@ export function buildRenderItems(messages: RenderChatMessage[]): RenderItem[] {
 	const items: RenderItem[] = [];
 	for (let i = 0; i < messages.length; i++) {
 		const msg = messages[i]!;
+		const previousMessage = messages[i - 1];
+		if (
+			previousMessage &&
+			previousMessage.role === msg.role &&
+			previousMessage.toolName === msg.toolName &&
+			previousMessage.content === msg.content
+		) {
+			continue;
+		}
 		const filePath = getEditFilePath(msg);
+		const isTimelineTool =
+			msg.role === "tool" &&
+			msg.toolName !== "Edit" &&
+			msg.toolName !== "AskUserQuestion";
+		if (isTimelineTool) {
+			const tools = [msg];
+			let j = i + 1;
+			while (j < messages.length) {
+				const next = messages[j]!;
+				if (
+					next.role !== "tool" ||
+					next.toolName === "Edit" ||
+					next.toolName === "AskUserQuestion"
+				)
+					break;
+				const previous = tools.at(-1)!;
+				if (
+					next.toolName !== previous.toolName ||
+					next.content !== previous.content
+				) {
+					tools.push(next);
+				}
+				j++;
+			}
+			items.push(
+				tools.length > 1
+					? { type: "tool-group", tools }
+					: { type: "message", message: msg }
+			);
+			i = j - 1;
+			continue;
+		}
 		if (!filePath) {
 			items.push({ type: "message", message: msg });
 			continue;

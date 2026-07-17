@@ -327,4 +327,37 @@ describe("Claude and Codex inline edit diff parity", () => {
 			messages.map((message) => ({ type: "message", message }))
 		);
 	});
+
+	test("groups consecutive execution milestones and removes duplicate events", () => {
+		const status = {
+			id: "tool-status-1",
+			role: "tool",
+			toolName: "exec",
+			content: JSON.stringify({ cmd: "git status --short" }),
+		} satisfies ChatMessage;
+		const duplicateStatus = { ...status, id: "tool-status-2" };
+		const diff = {
+			id: "tool-diff",
+			role: "tool",
+			toolName: "exec",
+			content: JSON.stringify({ cmd: "git diff --cached --stat" }),
+		} satisfies ChatMessage;
+
+		expect(buildRenderItems([status, duplicateStatus, diff])).toEqual([
+			{ type: "tool-group", tools: [status, diff] },
+		]);
+	});
+
+	test("removes duplicate adjacent assistant commentary", () => {
+		const first = {
+			id: "assistant-1",
+			role: "assistant",
+			content: "I am reviewing the current changes.",
+		} satisfies ChatMessage;
+		const duplicate = { ...first, id: "assistant-2" };
+
+		expect(buildRenderItems([first, duplicate])).toEqual([
+			{ type: "message", message: first },
+		]);
+	});
 });

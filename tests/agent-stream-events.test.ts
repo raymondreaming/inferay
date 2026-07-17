@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { extractToolActivities } from "../src/components/chat/chat-agent-utils.ts";
 import {
+	getToolDisplayInfo,
 	getToolOutputSummary,
 	getToolTrailingOutput,
 } from "../src/components/chat/chat-message-render-utils.ts";
@@ -83,6 +84,33 @@ describe("agent stream event normalization", () => {
 				'{"command":"bun test","cwd":"/tmp/project"}all tests passed\n'
 			)
 		).toBe("all tests passed\n");
+	});
+
+	test("maps shell implementation details to granular user-facing milestones", () => {
+		expect(
+			getToolDisplayInfo(
+				"exec",
+				JSON.stringify({ cmd: "/bin/zsh -lc 'git status --short'" })
+			)
+		).toEqual({ label: "Checking working tree" });
+		expect(
+			getToolDisplayInfo(
+				"exec",
+				JSON.stringify({ cmd: "git diff --cached -- src/app/actions.ts" })
+			)
+		).toEqual({ label: "Reviewing staged actions.ts" });
+		expect(
+			getToolDisplayInfo(
+				"bash",
+				JSON.stringify({ command: "npx tsc --noEmit" })
+			)
+		).toEqual({ label: "Type-checking project" });
+		expect(
+			getToolDisplayInfo(
+				"bash",
+				JSON.stringify({ command: "npm test && npm run lint && npm run build" })
+			)
+		).toEqual({ label: "Running verification checks" });
 	});
 
 	test("uses the current reasoning key and native image arguments", () => {

@@ -43,6 +43,7 @@ import {
 import {
 	buildRenderItems,
 	getEditToolPayload,
+	getToolDisplayInfo,
 	getToolOutputSummary,
 	getToolTrailingOutput,
 	type RenderChatMessage,
@@ -77,6 +78,9 @@ function getRowKey(row: ChatRenderRow | undefined, index: number) {
 	if (row.type === "thinking") return row.key;
 	if (row.type === "edit-group") {
 		return `edit-group:${row.filePath}:${row.edits.map((edit) => edit.id).join(":")}`;
+	}
+	if (row.type === "tool-group") {
+		return `tool-group:${row.tools.map((tool) => tool.id).join(":")}`;
 	}
 	return row.message.id;
 }
@@ -138,21 +142,75 @@ function ToolOutputHighlight({
 	);
 }
 
-function toolActivityLabel(toolName?: string) {
-	const normalized = toolName?.toLowerCase();
-	if (normalized === "exec" || normalized === "bash") return "Ran";
-	if (normalized === "patch" || normalized === "edit") return "Edited";
-	if (normalized === "web_search" || normalized === "websearch")
-		return "Searched";
-	return toolName || "Tool";
-}
-
 function goalStatusLabel(status: GoalSystemMessage["status"]) {
 	if (status === "active") return "Pursuing Goal";
 	if (status === "paused") return "Goal Paused";
 	if (status === "complete") return "Goal Achieved";
 	if (status === "cleared") return "Goal Cleared";
 	return "No Active Goal";
+}
+
+function ToolTimeline({
+	tools,
+	expandedTools,
+	onToggle,
+}: {
+	tools: RenderChatMessage[];
+	expandedTools: Set<string>;
+	onToggle: (id: string) => void;
+}) {
+	return (
+		<div {...stylex.props(styles.toolTimeline)}>
+			{tools.map((tool, index) => {
+				const collapsed = !expandedTools.has(tool.id);
+				const display = getToolDisplayInfo(tool.toolName, tool.content);
+				return (
+					<div key={tool.id} {...stylex.props(styles.toolMilestone)}>
+						<span
+							aria-hidden="true"
+							{...stylex.props(
+								styles.toolMilestoneNode,
+								index === tools.length - 1 && styles.toolMilestoneNodeLast
+							)}
+						/>
+						<div {...stylex.props(styles.toolMilestoneBody)}>
+							<button
+								type="button"
+								onClick={() => onToggle(tool.id)}
+								title={
+									collapsed ? "Show command details" : "Hide command details"
+								}
+								{...stylex.props(styles.toolMilestoneToggle)}
+							>
+								<IconChevronDown
+									size={8}
+									{...stylex.props(collapsed && styles.rotateClosed)}
+								/>
+								<span {...stylex.props(styles.toolMilestoneLabel)}>
+									{display.label}
+								</span>
+								{display.detail && (
+									<span {...stylex.props(styles.toolMilestoneDetail)}>
+										{display.detail}
+									</span>
+								)}
+							</button>
+							{!collapsed && tool.content && (
+								<div {...stylex.props(styles.toolOutputWrap)}>
+									<pre {...stylex.props(styles.toolOutput)}>
+										<ToolOutputHighlight content={tool.content} />
+									</pre>
+									<div {...stylex.props(styles.toolCopyOverlay)}>
+										<CopyButton text={tool.content} />
+									</div>
+								</div>
+							)}
+						</div>
+					</div>
+				);
+			})}
+		</div>
+	);
 }
 
 function GoalSystemCard({ goal }: { goal: GoalSystemMessage }) {
@@ -497,6 +555,7 @@ const Bubble = React.memo(function Bubble({
 				/>
 			);
 		}
+		const display = getToolDisplayInfo(msg.toolName, msg.content);
 		return (
 			<div>
 				<button
@@ -508,13 +567,9 @@ const Bubble = React.memo(function Bubble({
 						size={7}
 						{...stylex.props(collapsed && styles.rotateClosed)}
 					/>
-					<span {...stylex.props(styles.toolName)}>
-						{toolActivityLabel(msg.toolName)}
-					</span>
-					{collapsed && msg.content && (
-						<span {...stylex.props(styles.toolSummary)}>
-							<ToolOutputHighlight content={msg.content} showOutput={false} />
-						</span>
+					<span {...stylex.props(styles.toolName)}>{display.label}</span>
+					{collapsed && display.detail && (
+						<span {...stylex.props(styles.toolSummary)}>{display.detail}</span>
 					)}
 				</button>
 				{!collapsed && msg.content && (
@@ -749,6 +804,23 @@ export const ChatMessageList = React.memo(function ChatMessageList({
 							style={{ transform: `translate3d(0, ${virtualRow.start}px, 0)` }}
 						>
 							<GroupedEditDiff filePath={item.filePath} edits={item.edits} />
+						</div>
+					);
+				}
+				if (item.type === "tool-group") {
+					return (
+						<div
+							key={getRowKey(item, index)}
+							data-index={index}
+							ref={rowVirtualizer.measureElement}
+							{...stylex.props(styles.messageRow)}
+							style={{ transform: `translate3d(0, ${virtualRow.start}px, 0)` }}
+						>
+							<ToolTimeline
+								tools={item.tools}
+								expandedTools={expandedTools}
+								onToggle={toggleTool}
+							/>
 						</div>
 					);
 				}
@@ -1151,6 +1223,8 @@ const styles = stylex.create({
 		gap: controlSize._1,
 		color: color.textMuted,
 		fontSize: font.size_2,
+		maxWidth: "100%",
+		minWidth: 0,
 	},
 	toolName: {
 		fontFamily: font.familyMono,
@@ -1158,7 +1232,92 @@ const styles = stylex.create({
 	},
 	toolSummary: {
 		color: color.textMuted,
-		maxWidth: "min(36rem, 70vw)",
+		minWidth: 0,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
+	toolTimeline: {
+		backgroundColor: color.surfaceSubtle,
+		borderColor: color.borderSubtle,
+		borderRadius: radius.md,
+		borderStyle: "solid",
+		borderWidth: 1,
+		boxSizing: "border-box",
+		minWidth: 0,
+		overflow: "hidden",
+		paddingBlock: controlSize._1_5,
+		paddingInline: controlSize._2,
+		width: "100%",
+	},
+	toolMilestone: {
+		display: "grid",
+		gridTemplateColumns: "0.75rem minmax(0, 1fr)",
+		minWidth: 0,
+		position: "relative",
+	},
+	toolMilestoneNode: {
+		alignSelf: "stretch",
+		backgroundImage:
+			"linear-gradient(var(--color-inferay-gray-border-bold), var(--color-inferay-gray-border-bold))",
+		backgroundPosition: "center 0.75rem",
+		backgroundRepeat: "no-repeat",
+		backgroundSize: "1px 100%",
+		position: "relative",
+		"::before": {
+			backgroundColor: color.backgroundRaised,
+			borderColor: color.accentBorder,
+			borderRadius: radius.pill,
+			borderStyle: "solid",
+			borderWidth: 1,
+			boxShadow: "0 0 0 2px var(--color-inferay-dark-gray)",
+			content: '""',
+			height: controlSize._1_5,
+			left: "50%",
+			position: "absolute",
+			top: "0.55rem",
+			transform: "translateX(-50%)",
+			width: controlSize._1_5,
+		},
+	},
+	toolMilestoneNodeLast: {
+		backgroundSize: "1px 0.75rem",
+	},
+	toolMilestoneBody: {
+		minWidth: 0,
+		paddingBottom: controlSize._1,
+		paddingLeft: controlSize._1_5,
+	},
+	toolMilestoneToggle: {
+		alignItems: "center",
+		borderRadius: radius.sm,
+		color: {
+			default: color.textSoft,
+			":hover": color.textMain,
+		},
+		display: "flex",
+		gap: controlSize._1_5,
+		maxWidth: "100%",
+		minHeight: controlSize._6,
+		minWidth: 0,
+		paddingInline: controlSize._1,
+		textAlign: "left",
+		width: "100%",
+	},
+	toolMilestoneLabel: {
+		fontSize: font.size_2,
+		fontWeight: font.weight_5,
+		minWidth: 0,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
+	toolMilestoneDetail: {
+		color: color.textMuted,
+		fontFamily: font.familyMono,
+		fontSize: font.size_1,
+		marginLeft: "auto",
+		maxWidth: "42%",
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
