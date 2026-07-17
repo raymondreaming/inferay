@@ -22,14 +22,51 @@ type AskUserQuestion = {
 	multiSelect?: boolean;
 };
 
-function parseToolJson(content: string): any {
+function parseToolEnvelope(
+	content: string
+): { parsed: Record<string, any>; end: number } | null {
 	if (!content.trim().startsWith("{")) return null;
 	try {
 		const parsed = JSON.parse(content);
-		return parsed && typeof parsed === "object" ? parsed : null;
-	} catch {
-		return null;
+		return parsed && typeof parsed === "object"
+			? { parsed, end: content.length }
+			: null;
+	} catch {}
+	const start = content.indexOf("{");
+	let depth = 0;
+	let inString = false;
+	let escaped = false;
+	for (let index = start; index < content.length; index++) {
+		const char = content[index];
+		if (inString) {
+			if (escaped) escaped = false;
+			else if (char === "\\") escaped = true;
+			else if (char === '"') inString = false;
+			continue;
+		}
+		if (char === '"') inString = true;
+		else if (char === "{") depth++;
+		else if (char === "}" && --depth === 0) {
+			try {
+				const parsed = JSON.parse(content.slice(start, index + 1));
+				return parsed && typeof parsed === "object"
+					? { parsed, end: index + 1 }
+					: null;
+			} catch {
+				return null;
+			}
+		}
 	}
+	return null;
+}
+
+function parseToolJson(content: string): any {
+	return parseToolEnvelope(content)?.parsed ?? null;
+}
+
+export function getToolTrailingOutput(content: string): string {
+	const envelope = parseToolEnvelope(content);
+	return envelope ? content.slice(envelope.end).trimStart() : "";
 }
 
 export function parseAskUserQuestions(
@@ -185,13 +222,6 @@ export function buildRenderItems(messages: RenderChatMessage[]): RenderItem[] {
 	const items: RenderItem[] = [];
 	for (let i = 0; i < messages.length; i++) {
 		const msg = messages[i]!;
-		if (
-			msg.role === "tool" &&
-			msg.toolName !== "AskUserQuestion" &&
-			msg.toolName !== "Edit"
-		) {
-			continue;
-		}
 		const filePath = getEditFilePath(msg);
 		if (!filePath) {
 			items.push({ type: "message", message: msg });
@@ -202,14 +232,6 @@ export function buildRenderItems(messages: RenderChatMessage[]): RenderItem[] {
 
 		while (j < messages.length) {
 			const nextMsg = messages[j]!;
-			if (
-				nextMsg.role === "tool" &&
-				nextMsg.toolName !== "AskUserQuestion" &&
-				nextMsg.toolName !== "Edit"
-			) {
-				j++;
-				continue;
-			}
 			const nextFilePath = getEditFilePath(nextMsg);
 			if (nextFilePath === filePath) {
 				edits.push(nextMsg);

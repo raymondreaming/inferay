@@ -291,7 +291,7 @@ describe("Claude and Codex inline edit diff parity", () => {
 		]);
 	});
 
-	test("keeps edit grouping across hidden tool output messages", () => {
+	test("keeps completed tool output visible between edit messages", () => {
 		const first = {
 			file_path: "src/example.ts",
 			old_string: "one\n",
@@ -323,12 +323,8 @@ describe("Claude and Codex inline edit diff parity", () => {
 			},
 		];
 
-		expect(buildRenderItems(messages)).toEqual([
-			{
-				type: "edit-group",
-				filePath: "src/example.ts",
-				edits: [messages[0]!, messages[2]!],
-			},
-		]);
+		expect(buildRenderItems(messages)).toEqual(
+			messages.map((message) => ({ type: "message", message }))
+		);
 	});
 });

@@ -44,6 +44,7 @@ import {
 	buildRenderItems,
 	getEditToolPayload,
 	getToolOutputSummary,
+	getToolTrailingOutput,
 	type RenderChatMessage,
 	type RenderItem,
 } from "./chat-message-render-utils.ts";
@@ -80,28 +81,38 @@ function getRowKey(row: ChatRenderRow | undefined, index: number) {
 	return row.message.id;
 }
 
-function ToolOutputHighlight({ content }: { content: string }) {
+function ToolOutputHighlight({
+	content,
+	showOutput = true,
+}: {
+	content: string;
+	showOutput?: boolean;
+}) {
 	const summary = getToolOutputSummary(content);
+	const trailingOutput = showOutput ? getToolTrailingOutput(content) : "";
+	let highlight: React.ReactNode;
 	if (summary.type === "edit" || summary.type === "file-content") {
-		return (
+		highlight = (
 			<>
 				<span {...stylex.props(styles.toolMuted)}>{summary.fileName}</span>
 				{"\n"}
 				<span {...stylex.props(styles.toolAccent)}>{summary.value}</span>
 			</>
 		);
-	}
-	if (summary.type === "command") {
-		return <span {...stylex.props(styles.toolAccent)}>$ {summary.value}</span>;
-	}
-	if (summary.type === "pattern") {
-		return <span {...stylex.props(styles.toolAccent)}>/{summary.value}/</span>;
-	}
-	if (summary.type === "accent") {
-		return <span {...stylex.props(styles.toolAccent)}>{summary.value}</span>;
-	}
-	if (summary.type === "url") {
-		return (
+	} else if (summary.type === "command") {
+		highlight = (
+			<span {...stylex.props(styles.toolAccent)}>$ {summary.value}</span>
+		);
+	} else if (summary.type === "pattern") {
+		highlight = (
+			<span {...stylex.props(styles.toolAccent)}>/{summary.value}/</span>
+		);
+	} else if (summary.type === "accent") {
+		highlight = (
+			<span {...stylex.props(styles.toolAccent)}>{summary.value}</span>
+		);
+	} else if (summary.type === "url") {
+		highlight = (
 			<a
 				href={summary.value}
 				target="_blank"
@@ -111,8 +122,29 @@ function ToolOutputHighlight({ content }: { content: string }) {
 				{summary.value}
 			</a>
 		);
+	} else {
+		highlight = summary.value;
 	}
-	return <>{summary.value}</>;
+	return (
+		<>
+			{highlight}
+			{trailingOutput && (
+				<>
+					{"\n"}
+					{trailingOutput}
+				</>
+			)}
+		</>
+	);
+}
+
+function toolActivityLabel(toolName?: string) {
+	const normalized = toolName?.toLowerCase();
+	if (normalized === "exec" || normalized === "bash") return "Ran";
+	if (normalized === "patch" || normalized === "edit") return "Edited";
+	if (normalized === "web_search" || normalized === "websearch")
+		return "Searched";
+	return toolName || "Tool";
 }
 
 function goalStatusLabel(status: GoalSystemMessage["status"]) {
@@ -476,7 +508,14 @@ const Bubble = React.memo(function Bubble({
 						size={7}
 						{...stylex.props(collapsed && styles.rotateClosed)}
 					/>
-					<span {...stylex.props(styles.toolName)}>{msg.toolName}</span>
+					<span {...stylex.props(styles.toolName)}>
+						{toolActivityLabel(msg.toolName)}
+					</span>
+					{collapsed && msg.content && (
+						<span {...stylex.props(styles.toolSummary)}>
+							<ToolOutputHighlight content={msg.content} showOutput={false} />
+						</span>
+					)}
 				</button>
 				{!collapsed && msg.content && (
 					<div {...stylex.props(styles.toolOutputWrap)}>
@@ -1116,6 +1155,13 @@ const styles = stylex.create({
 	toolName: {
 		fontFamily: font.familyMono,
 		fontSize: font.size_1,
+	},
+	toolSummary: {
+		color: color.textMuted,
+		maxWidth: "min(36rem, 70vw)",
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
 	},
 	toolOutputWrap: {
 		position: "relative",
