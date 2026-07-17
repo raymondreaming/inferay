@@ -176,7 +176,7 @@ const DEFAULT_CHAT_SETTINGS_KEY = "inferay-default-chat-settings";
 const FALLBACK_DEFAULT_CHAT_SETTINGS: DefaultChatSettings = {
 	agentKind: "codex",
 	model: "gpt-5.6-sol",
-	reasoningLevel: "low",
+	reasoningLevel: "medium",
 };
 
 function normalizeDefaultChatSettings(

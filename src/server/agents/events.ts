@@ -71,6 +71,7 @@ export interface AgentRunContext {
 	readonly paneId: string;
 	readonly cwd: string;
 	readonly referencePaths?: readonly string[];
+	readonly images?: readonly string[];
 	readonly model?: string;
 	readonly reasoningLevel?: string;
 	getSessionId(): string | null;

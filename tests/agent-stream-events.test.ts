@@ -1,10 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { extractToolActivities } from "../src/components/chat/chat-agent-utils.ts";
 import {
+	getToolOutputSummary,
+	getToolTrailingOutput,
+} from "../src/components/chat/chat-message-render-utils.ts";
+import {
 	getToolBlockInitialContent,
 	stringifyToolInput,
 } from "../src/features/chat/agent-chat-shared.ts";
 import {
+	buildCodexInvocationArgs,
 	handleCodexEvent,
 	resolveCompletedCodexAssistantMessage,
 } from "../src/server/agents/codex-adapter.ts";
@@ -65,6 +70,47 @@ describe("agent stream event normalization", () => {
 			'{"command":"bun test"}'
 		);
 		expect(stringifyToolInput(null)).toBe("");
+	});
+
+	test("summarizes a completed command even when output follows its JSON input", () => {
+		expect(
+			getToolOutputSummary(
+				'{"command":"bun test","cwd":"/tmp/project"}all tests passed\n'
+			)
+		).toEqual({ type: "command", value: "bun test" });
+		expect(
+			getToolTrailingOutput(
+				'{"command":"bun test","cwd":"/tmp/project"}all tests passed\n'
+			)
+		).toBe("all tests passed\n");
+	});
+
+	test("uses the current reasoning key and native image arguments", () => {
+		const args = buildCodexInvocationArgs(
+			"inspect this screenshot",
+			{
+				paneId: "pane-1",
+				cwd: process.cwd(),
+				images: ["/tmp/first.png", "/tmp/second.png"],
+				model: "gpt-5.6-sol",
+				reasoningLevel: "high",
+				getSessionId: () => null,
+				isCancelled: () => false,
+				updateSessionId: () => {},
+				emitChatEvent: () => {},
+				emitAgentEvent: () => {},
+				emitStatus: () => {},
+				emitActivity: () => {},
+				emitSystemMessage: () => {},
+			},
+			"/tmp/final.txt"
+		);
+
+		expect(args).toContain('model_reasoning_effort="high"');
+		expect(args).not.toContain('reasoning_effort="high"');
+		expect(args.filter((arg) => arg === "--image")).toHaveLength(2);
+		expect(args).toContain("/tmp/first.png");
+		expect(args).toContain("/tmp/second.png");
 	});
 
 	test("does not replay completed Codex agent messages already streamed", () => {

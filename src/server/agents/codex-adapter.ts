@@ -2,7 +2,6 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
-import { getAgentDefinition } from "../../features/agents/agents.ts";
 import {
 	createAgentEnv,
 	resolveAgentBinary,
@@ -144,6 +143,44 @@ function getCodexWorkspaceArgs(ctx: AgentRunContext): string[] {
 		args.push("--add-dir", root);
 	}
 	return args;
+}
+
+export function buildCodexInvocationArgs(
+	prompt: string,
+	ctx: AgentRunContext,
+	outputPath: string
+): string[] {
+	const codexCmd = resolveAgentBinary("codex");
+	const baseArgs = [
+		"--json",
+		"--skip-git-repo-check",
+		"--dangerously-bypass-approvals-and-sandbox",
+		"--output-last-message",
+		outputPath,
+	];
+	if (ctx.model) baseArgs.push("--model", ctx.model);
+	if (ctx.reasoningLevel) {
+		const reasoningEffort =
+			ctx.reasoningLevel === "extra_high" ? "xhigh" : ctx.reasoningLevel;
+		baseArgs.push("-c", `model_reasoning_effort="${reasoningEffort}"`);
+	}
+	for (const imagePath of ctx.images ?? []) {
+		baseArgs.push("--image", imagePath);
+	}
+	const sessionId = ctx.getSessionId();
+	const workspaceArgs = getCodexWorkspaceArgs(ctx);
+	return sessionId
+		? [
+				codexCmd,
+				...workspaceArgs,
+				"exec",
+				"resume",
+				...baseArgs,
+				sessionId,
+				"--",
+				prompt,
+			]
+		: [codexCmd, ...workspaceArgs, "exec", ...baseArgs, "--", prompt];
 }
 
 function isRelativeChild(pathname: string): boolean {
@@ -615,36 +652,7 @@ export const codexAdapter: AgentAdapter<CodexRunState> = {
 
 		return {
 			async run() {
-				const codexCmd = resolveAgentBinary("codex");
-				const baseArgs = [
-					"--json",
-					"--skip-git-repo-check",
-					"--dangerously-bypass-approvals-and-sandbox",
-					"--output-last-message",
-					state.outputPath,
-				];
-				if (ctx.model) {
-					baseArgs.push("--model", ctx.model);
-				}
-				if (ctx.reasoningLevel) {
-					const reasoningEffort =
-						ctx.reasoningLevel === "extra_high" ? "xhigh" : ctx.reasoningLevel;
-					baseArgs.push("-c", `reasoning_effort="${reasoningEffort}"`);
-				}
-				const sessionId = ctx.getSessionId();
-				const workspaceArgs = getCodexWorkspaceArgs(ctx);
-				const args = sessionId
-					? [
-							codexCmd,
-							...workspaceArgs,
-							"exec",
-							"resume",
-							...baseArgs,
-							sessionId,
-							"--",
-							prompt,
-						]
-					: [codexCmd, ...workspaceArgs, "exec", ...baseArgs, "--", prompt];
+				const args = buildCodexInvocationArgs(prompt, ctx, state.outputPath);
 
 				proc = Bun.spawn(args, {
 					stdout: "pipe",

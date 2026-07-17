@@ -41,6 +41,9 @@ const CHAT_EVENTS_DIR = "chat-events";
 const CHAT_QUEUE_DIR = userDataPath("chat-queues");
 const CHAT_TRANSCRIPTS_DIR = "chat-transcripts";
 const CODEX_WORKFLOW_INSTRUCTIONS = `<inferay-workflow-instructions>
+For coding tasks, inspect the relevant repository context before concluding that information is missing. Continue through implementation and proportionate verification unless blocked or the user asked only for analysis.
+During substantial work, provide brief progress updates before tool work and after meaningful findings. Keep updates factual and do not claim checks that were not run.
+Lead the final response with the outcome, then include changed files, verification actually run, and any remaining limitation.
 Do not run formatters with write mode as a routine chat-completion step. In this project, do not run \`bunx biome check --write ...\` unless the user explicitly asks for Biome formatting.
 Do not run \`bun run build:renderer\` at the end of every chat. Run builds/tests only when the user requests verification or when the change genuinely needs that specific check.
 If formatting is needed, prefer the project's intended formatting or commit-hook flow and keep formatting-only churn out of unrelated edits.
@@ -48,6 +51,9 @@ If formatting is needed, prefer the project's intended formatting or commit-hook
 const GOAL_COMPLETE_MARKER = "[[GOAL_COMPLETE]]";
 const GOAL_NEEDS_INPUT_MARKER = "[[GOAL_NEEDS_INPUT]]";
 const GENERATION_STOPPED_MESSAGE = "Generation stopped";
+const FINAL_SUMMARY_RECOVERY_PROMPT = `<inferay-final-summary-recovery>
+The previous turn ended after a tool call without a final user-facing response. Provide the final summary now. Lead with the outcome, then state changed files, verification actually run, and any remaining limitation. Do not run more tools unless required to avoid an inaccurate claim.
+</inferay-final-summary-recovery>`;
 
 let serverMsgId = 0;
 
@@ -884,6 +890,19 @@ function normalizeChatReferencePaths(paths?: string[]): string[] {
 	return normalized;
 }
 
+function normalizeChatImagePaths(paths?: string[]): string[] {
+	if (!Array.isArray(paths)) return [];
+	return Array.from(
+		new Set(
+			paths.flatMap((path) => {
+				if (typeof path !== "string") return [];
+				const resolved = resolveAllowedLocalPath(path.trim());
+				return resolved ? [resolved] : [];
+			})
+		)
+	);
+}
+
 function normalizeChatCwd(cwd?: string): string {
 	return (cwd ? resolveAllowedLocalPath(cwd) : null) ?? process.cwd();
 }
@@ -1035,8 +1054,8 @@ function ensureVisibleTurnCompletion(
 	if (changedFileCount <= 0 && last?.role !== "tool") return;
 	const text =
 		changedFileCount > 0
-			? `Updated ${changedFileCount} file${changedFileCount === 1 ? "" : "s"}.`
-			: "Finished.";
+			? `Updated ${changedFileCount} file${changedFileCount === 1 ? "" : "s"}, but Codex did not provide a final summary.`
+			: "The tool run completed, but Codex did not provide a final summary.";
 	const event = { type: "result" as const, result: text };
 	session.messageBuffer.applyEvent(event);
 	appendChatEvent(paneId, "agent_event", event);
@@ -1131,7 +1150,8 @@ async function runAgent(
 	session: ChatSession,
 	paneId: string,
 	text: string,
-	emitDone = true
+	emitDone = true,
+	images?: readonly string[]
 ) {
 	const adapter = getAgentAdapter(session.agentKind);
 	const prompt =
@@ -1143,6 +1163,7 @@ async function runAgent(
 		paneId,
 		cwd: session.cwd,
 		referencePaths: session.referencePaths,
+		images,
 		model: session.model,
 		reasoningLevel: session.reasoningLevel,
 		getSessionId: () => session.sessionId,
@@ -1200,10 +1221,20 @@ function getLastAssistantMessage(result: Awaited<ReturnType<typeof runAgent>>) {
 async function runAgentTurnWithGoalLoop(
 	session: ChatSession,
 	paneId: string,
-	prompt: string
+	prompt: string,
+	images?: readonly string[]
 ): Promise<void> {
 	const isGoalRun = session.goal?.status === "active";
-	let result = await runAgent(session, paneId, prompt, false);
+	let result = await runAgent(session, paneId, prompt, false, images);
+	const lastMessage = session.messageBuffer.getMessages().at(-1);
+	if (!isGoalRun && !session.cancelled && lastMessage?.role === "tool") {
+		result = await runAgent(
+			session,
+			paneId,
+			FINAL_SUMMARY_RECOVERY_PROMPT,
+			false
+		);
+	}
 	if (isGoalRun && session.goal?.status === "active") {
 		session.goal.turns += 1;
 		let resultStatus = goalResultStatus(getLastAssistantMessage(result));
@@ -1623,6 +1654,7 @@ export const ChatService = {
 		ws,
 	}: SendChatMessageInput) {
 		const nextReferencePaths = normalizeChatReferencePaths(referencePaths);
+		const nextImages = normalizeChatImagePaths(images);
 		const nextCwd = normalizeChatCwd(cwd);
 		const existingSession = chatRuntime.getSession(paneId);
 		const session = await chatRuntime.ensureSession(
@@ -1655,15 +1687,18 @@ export const ChatService = {
 		);
 
 		if (session.currentHandle) {
-			await enqueueChatMessage(session, paneId, text, displayText, images);
+			await enqueueChatMessage(session, paneId, text, displayText, nextImages);
 			return;
 		}
 
-		session.messageBuffer.pushUser(displayText || text, images);
+		session.messageBuffer.pushUser(
+			displayText || text,
+			nextImages.length ? nextImages : undefined
+		);
 		appendChatEvent(paneId, "user_message", {
 			text,
 			displayText: displayText || text,
-			images: images?.length ? images : undefined,
+			images: nextImages.length ? nextImages : undefined,
 		});
 		chatRuntime.persistTranscript(session, paneId);
 		chatRuntime.send(
@@ -1700,7 +1735,7 @@ export const ChatService = {
 		);
 
 		try {
-			await runAgentTurnWithGoalLoop(session, paneId, prompt);
+			await runAgentTurnWithGoalLoop(session, paneId, prompt, nextImages);
 			await finalizeSuccessfulChatTurn(session, paneId, checkpointId, emit);
 		} catch (e) {
 			await finalizeFailedChatTurn(session, paneId, checkpointId, emit, e);
