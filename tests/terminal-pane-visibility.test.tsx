@@ -132,6 +132,20 @@ function setScrollMetrics(
 	});
 }
 
+function setHorizontalScrollMetrics(
+	element: HTMLElement,
+	metrics: { clientWidth: number; scrollWidth: number }
+) {
+	Object.defineProperty(element, "clientWidth", {
+		configurable: true,
+		value: metrics.clientWidth,
+	});
+	Object.defineProperty(element, "scrollWidth", {
+		configurable: true,
+		value: metrics.scrollWidth,
+	});
+}
+
 const testTheme: TerminalTheme = {
 	id: "default",
 	name: "Test",
@@ -443,6 +457,95 @@ test("grid layout owns wheel scrolling until a chat pane is clicked", async () =
 		);
 		expect(firstBoundaryUpWasNotCancelled).toBe(false);
 		expect(grid.scrollTop).toBe(360);
+	} finally {
+		root.unmount();
+	}
+});
+
+test("row layout glides horizontally over inactive chat bodies", async () => {
+	const { root } = setupDom();
+	const { TerminalGrid } =
+		await import("../src/pages/Terminal/TerminalGrid.tsx");
+	const panes = Array.from({ length: 3 }, (_, index) => ({
+		id: `row-chat-pane-${index}` as PaneId,
+		title: `Codex ${index + 1}`,
+		agentKind: "codex" as const,
+		isClaude: false,
+		paneType: "codex" as const,
+		cwd: "/tmp/project",
+	}));
+	const noop = () => {};
+
+	try {
+		root.render(
+			<TerminalGrid
+				panes={panes}
+				selectedPaneId={panes[0]!.id}
+				columns={3}
+				rows={2}
+				layoutMode="rows"
+				theme={testTheme}
+				fontSize={13}
+				fontFamily="SF Mono"
+				onSelectPane={noop}
+				onClosePane={noop}
+				onDirectorySelect={noop}
+				onDirectoryCancel={noop}
+				onChatRef={noop}
+			/>
+		);
+		await tick();
+
+		const row = document.querySelector<HTMLElement>(
+			"[data-terminal-row-scroll-area]"
+		);
+		const chats = document.querySelectorAll<HTMLElement>(
+			'[data-testid="agent-chat"]'
+		);
+		if (!row || !chats[0] || !chats[1]) {
+			throw new Error("Missing row layout test elements");
+		}
+		setHorizontalScrollMetrics(row, { clientWidth: 400, scrollWidth: 1200 });
+
+		const horizontalWasNotCancelled = chats[1].dispatchEvent(
+			new window.WheelEvent("wheel", {
+				bubbles: true,
+				cancelable: true,
+				deltaX: 120,
+			})
+		);
+		expect(horizontalWasNotCancelled).toBe(false);
+		expect(row.scrollLeft).toBe(120);
+
+		const inactiveVerticalWasNotCancelled = chats[1].dispatchEvent(
+			new window.WheelEvent("wheel", {
+				bubbles: true,
+				cancelable: true,
+				deltaY: 120,
+			})
+		);
+		expect(inactiveVerticalWasNotCancelled).toBe(true);
+		expect(row.scrollLeft).toBe(120);
+
+		const activeVerticalWasNotCancelled = chats[0].dispatchEvent(
+			new window.WheelEvent("wheel", {
+				bubbles: true,
+				cancelable: true,
+				deltaY: 120,
+			})
+		);
+		expect(activeVerticalWasNotCancelled).toBe(true);
+		expect(row.scrollLeft).toBe(120);
+
+		const activeHorizontalWasNotCancelled = chats[0].dispatchEvent(
+			new window.WheelEvent("wheel", {
+				bubbles: true,
+				cancelable: true,
+				deltaX: 120,
+			})
+		);
+		expect(activeHorizontalWasNotCancelled).toBe(false);
+		expect(row.scrollLeft).toBe(120);
 	} finally {
 		root.unmount();
 	}

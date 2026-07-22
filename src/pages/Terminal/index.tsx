@@ -291,6 +291,17 @@ function useTerminalPersistence({
 		(event: Event) => {
 			const currentState = latestStateRef.current;
 			const detail = (event as CustomEvent<TerminalShellChangeDetail>).detail;
+			const requestedMainView = detail?.mainView ?? null;
+			if (
+				detail?.source === "view" &&
+				detail.reason === "main-view" &&
+				isTerminalMainView(requestedMainView)
+			) {
+				if (requestedMainView !== mainViewRef.current) {
+					setMainView(requestedMainView);
+				}
+				return;
+			}
 			const saved =
 				normalizeTerminalState(detail?.state) ??
 				(detail?.source === "canonical" ? loadTerminalState() : null);

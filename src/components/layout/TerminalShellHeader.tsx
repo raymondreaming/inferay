@@ -1,18 +1,15 @@
 import * as stylex from "@stylexjs/stylex";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import {
+	startTransition,
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useState,
+} from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
-	loadDefaultChatSettings,
-	type NEW_PANE_AGENT_KINDS,
-} from "../../features/agents/agents.ts";
-import {
-	createTerminalPane,
 	dispatchTerminalShellChange,
-	listenTerminalLayoutMode,
-	loadTerminalLayoutMode,
 	loadTerminalState,
-	mutateCanonicalTerminalState,
-	mutateTerminalWorkspaceState,
 	terminalStateKey,
 } from "../../features/terminal/terminal-utils.ts";
 import {
@@ -31,26 +28,11 @@ import { TERMINAL_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
-import { Button } from "../ui/Button.tsx";
-import { DropdownButton } from "../ui/DropdownButton.tsx";
-import {
-	IconLayoutGrid,
-	IconLayoutRows,
-	IconPlus,
-	IconWorkflow,
-} from "../ui/Icons.tsx";
-
-const GRID_SIZE_OPTIONS = [
-	{ id: "1", label: "1" },
-	{ id: "2", label: "2" },
-	{ id: "3", label: "3" },
-	{ id: "4", label: "4" },
-];
+import { IconWorkflow } from "../ui/Icons.tsx";
 
 const AUTOMATIONS_ROUTE = APP_PAGE_ROUTES.find(
 	(route) => route.id === "automations"
 );
-
 function loadShellState() {
 	const terminalState = loadTerminalState();
 	const mainView = readStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY);
@@ -71,20 +53,40 @@ function ViewTab({
 	icon,
 	label,
 	onClick,
+	trailing = false,
 }: {
 	active: boolean;
 	icon: ReactNode;
 	label: string;
 	onClick: () => void;
+	trailing?: boolean;
 }) {
+	const tabProps = stylex.props(
+		styles.viewTab,
+		trailing ? styles.viewTabTrailing : null,
+		active ? styles.viewTabActive : null
+	);
 	return (
 		<button
 			type="button"
 			onClick={onClick}
-			{...stylex.props(styles.viewTab, active ? styles.viewTabActive : null)}
+			{...tabProps}
+			className={`${APP_REGION_NO_DRAG_CLASS} ${tabProps.className ?? ""}`}
 		>
 			{icon}
 			<span>{label}</span>
+			{active ? (
+				<>
+					<span
+						aria-hidden="true"
+						{...stylex.props(styles.tabShoulder, styles.tabShoulderLeft)}
+					/>
+					<span
+						aria-hidden="true"
+						{...stylex.props(styles.tabShoulder, styles.tabShoulderRight)}
+					/>
+				</>
+			) : null}
 		</button>
 	);
 }
@@ -93,7 +95,15 @@ export function TerminalShellHeader() {
 	const location = useLocation();
 	const navigate = useNavigate();
 	const [shellState, setShellState] = useState(loadShellState);
-	const [layoutMode, setLayoutMode] = useState(loadTerminalLayoutMode);
+	const [pendingNavigationTarget, setPendingNavigationTarget] = useState<
+		string | null
+	>(null);
+	const isTerminalRoute = location.pathname === "/terminal";
+	const resolvedNavigationTarget = isTerminalRoute
+		? `view:${shellState.mainView}`
+		: `route:${location.pathname}`;
+	const activeNavigationTarget =
+		pendingNavigationTarget ?? resolvedNavigationTarget;
 
 	const refreshShellState = useCallback(() => {
 		const next = loadShellState();
@@ -108,10 +118,6 @@ export function TerminalShellHeader() {
 		return listenWindowEvent("terminal-shell-change", refreshShellState);
 	}, [refreshShellState]);
 
-	useEffect(() => {
-		return listenTerminalLayoutMode(setLayoutMode);
-	}, []);
-
 	const updateMainView = useCallback(
 		(view: TerminalMainView) => {
 			if (shellState.mainView !== view) {
@@ -119,297 +125,161 @@ export function TerminalShellHeader() {
 				setShellState((current) =>
 					current.mainView === view ? current : { ...current, mainView: view }
 				);
-				dispatchTerminalShellChange({ source: "view", reason: "main-view" });
+				dispatchTerminalShellChange({
+					source: "view",
+					reason: "main-view",
+					mainView: view,
+				});
 			}
 			if (window.location.hash !== "#/terminal") navigate("/terminal");
 		},
 		[navigate, shellState.mainView]
 	);
 
-	const addPaneToSelectedGroup = useCallback(
-		async (agentKind: (typeof NEW_PANE_AGENT_KINDS)[number]) => {
-			const pane = createTerminalPane(agentKind, undefined, true);
-			await mutateTerminalWorkspaceState(
-				{ type: "addPane", pane },
-				"add-pane",
-				{ createIfMissing: true }
-			);
-			navigate("/terminal");
+	useEffect(() => {
+		setPendingNavigationTarget((current) =>
+			current === resolvedNavigationTarget ? null : current
+		);
+	}, [resolvedNavigationTarget]);
+
+	const activateMainView = useCallback(
+		(view: TerminalMainView) => {
+			const target = `view:${view}`;
+			if (target !== resolvedNavigationTarget) {
+				setPendingNavigationTarget(target);
+			}
+			updateMainView(view);
 		},
-		[navigate]
+		[resolvedNavigationTarget, updateMainView]
 	);
 
-	const selectedGroup =
-		shellState.groups.find(
-			(group) => group.id === shellState.selectedGroupId
-		) ?? null;
-	const isTerminalRoute = location.pathname === "/terminal";
-
-	const updateLayoutMode = useCallback(
-		(mode: "grid" | "rows") => {
-			if (mode === layoutMode) return;
-			writeStoredValue("terminal-layout-mode", mode);
-			setLayoutMode(mode);
-			dispatchTerminalShellChange({ source: "view", reason: "layout-mode" });
+	const activateRoute = useCallback(
+		(path: string) => {
+			const target = `route:${path}`;
+			if (target !== resolvedNavigationTarget) {
+				setPendingNavigationTarget(target);
+			}
+			startTransition(() => navigate(path));
 		},
-		[layoutMode]
-	);
-
-	const updateSelectedGroupGrid = useCallback(
-		async (patch: { columns?: number; rows?: number }) => {
-			setShellState((current) => {
-				let changed = false;
-				const groups = current.groups.map((group) => {
-					if (group.id !== current.selectedGroupId) return group;
-					const columns = patch.columns ?? group.columns;
-					const rows = patch.rows ?? group.rows;
-					if (columns === group.columns && rows === group.rows) return group;
-					changed = true;
-					return { ...group, columns, rows };
-				});
-				return changed ? { ...current, groups } : current;
-			});
-			await mutateCanonicalTerminalState((terminalState) => {
-				if (!terminalState.selectedGroupId) return null;
-				let changed = false;
-				const groups = terminalState.groups.map((group) => {
-					if (group.id !== terminalState.selectedGroupId) return group;
-					const columns = patch.columns ?? group.columns;
-					const rows = patch.rows ?? group.rows;
-					if (columns === group.columns && rows === group.rows) return group;
-					changed = true;
-					return { ...group, columns, rows };
-				});
-				if (!changed) return null;
-				return {
-					...terminalState,
-					groups,
-				};
-			}, "grid-size");
-		},
-		[]
+		[navigate, resolvedNavigationTarget]
 	);
 
 	return (
 		<div
 			className={`${APP_REGION_DRAG_CLASS} ${stylex.props(styles.header).className ?? ""}`}
 		>
-			<div
-				className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.viewTabs).className ?? ""}`}
-			>
-				{TERMINAL_MAIN_VIEWS.map((view) => {
-					const Icon = view.icon;
-					return (
+			<div {...stylex.props(styles.viewTabs)}>
+				<div {...stylex.props(styles.tabGroup)}>
+					{TERMINAL_MAIN_VIEWS.filter((view) => view.id !== "graph").map(
+						(view) => {
+							const Icon = view.icon;
+							return (
+								<ViewTab
+									key={view.id}
+									active={activeNavigationTarget === `view:${view.id}`}
+									icon={<Icon size={12} />}
+									label={view.label}
+									onClick={() => activateMainView(view.id)}
+								/>
+							);
+						}
+					)}
+				</div>
+				<div {...stylex.props(styles.tabGroup, styles.secondaryTabGroup)}>
+					{TERMINAL_MAIN_VIEWS.filter((view) => view.id === "graph").map(
+						(view) => {
+							const Icon = view.icon;
+							return (
+								<ViewTab
+									key={view.id}
+									active={activeNavigationTarget === `view:${view.id}`}
+									icon={<Icon size={12} />}
+									label={view.label}
+									onClick={() => activateMainView(view.id)}
+								/>
+							);
+						}
+					)}
+					{SIDEBAR_NAV_ROUTES.map((route) => {
+						const Icon = route.icon;
+						return (
+							<ViewTab
+								key={route.id}
+								active={activeNavigationTarget === `route:${route.path}`}
+								icon={<Icon size={12} />}
+								label={route.label}
+								onClick={() => activateRoute(route.path)}
+							/>
+						);
+					})}
+					{AUTOMATIONS_ROUTE && (
 						<ViewTab
-							key={view.id}
-							active={isTerminalRoute && shellState.mainView === view.id}
-							icon={<Icon size={12} />}
-							label={view.label}
-							onClick={() => updateMainView(view.id)}
+							active={
+								activeNavigationTarget === `route:${AUTOMATIONS_ROUTE.path}`
+							}
+							icon={<IconWorkflow size={12} />}
+							label={AUTOMATIONS_ROUTE.label}
+							onClick={() => activateRoute(AUTOMATIONS_ROUTE.path)}
+							trailing
 						/>
-					);
-				})}
-				{SIDEBAR_NAV_ROUTES.map((route) => {
-					const Icon = route.icon;
-					return (
-						<ViewTab
-							key={route.id}
-							active={location.pathname === route.path}
-							icon={<Icon size={12} />}
-							label={route.label}
-							onClick={() => navigate(route.path)}
-						/>
-					);
-				})}
-				{AUTOMATIONS_ROUTE && (
-					<ViewTab
-						active={location.pathname === AUTOMATIONS_ROUTE.path}
-						icon={<IconWorkflow size={12} />}
-						label={AUTOMATIONS_ROUTE.label}
-						onClick={() => navigate(AUTOMATIONS_ROUTE.path)}
-					/>
-				)}
+					)}
+				</div>
 			</div>
-			{isTerminalRoute && (
-				<>
-					<div {...stylex.props(styles.spacer)} />
-					<div
-						className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.actions).className ?? ""}`}
-					>
-						{shellState.mainView === "chat" && (
-							<>
-								{layoutMode === "grid" && selectedGroup && (
-									<>
-										<div {...stylex.props(styles.gridControl)}>
-											<span {...stylex.props(styles.gridLabel)}>Col</span>
-											<DropdownButton
-												value={String(selectedGroup.columns)}
-												options={GRID_SIZE_OPTIONS}
-												onChange={(id) =>
-													updateSelectedGroupGrid({ columns: Number(id) })
-												}
-												minWidth={60}
-											/>
-										</div>
-										<div {...stylex.props(styles.gridControl)}>
-											<span {...stylex.props(styles.gridLabel)}>Row</span>
-											<DropdownButton
-												value={String(selectedGroup.rows)}
-												options={GRID_SIZE_OPTIONS}
-												onChange={(id) =>
-													updateSelectedGroupGrid({ rows: Number(id) })
-												}
-												minWidth={60}
-											/>
-										</div>
-									</>
-								)}
-								<div {...stylex.props(styles.segmented)}>
-									<button
-										type="button"
-										onClick={() => updateLayoutMode("grid")}
-										{...stylex.props(
-											styles.segmentButton,
-											layoutMode === "grid"
-												? styles.segmentButtonActive
-												: styles.segmentButtonIdle
-										)}
-										title="Grid layout"
-									>
-										<IconLayoutGrid size={13} />
-									</button>
-									<button
-										type="button"
-										onClick={() => updateLayoutMode("rows")}
-										{...stylex.props(
-											styles.segmentButton,
-											layoutMode === "rows"
-												? styles.segmentButtonActive
-												: styles.segmentButtonIdle
-										)}
-										title="Row layout"
-									>
-										<IconLayoutRows size={13} />
-									</button>
-								</div>
-							</>
-						)}
-						<div {...stylex.props(styles.shrink)}>
-							<Button
-								type="button"
-								onClick={() =>
-									addPaneToSelectedGroup(loadDefaultChatSettings().agentKind)
-								}
-								variant="secondary"
-								size="sm"
-								className={stylex.props(styles.newButton).className}
-							>
-								<span>New</span>
-								<IconPlus size={10} />
-							</Button>
-						</div>
-					</div>
-				</>
-			)}
 		</div>
 	);
 }
 
 const styles = stylex.create({
 	header: {
+		position: "absolute",
+		top: 0,
+		left: 0,
+		right: 0,
+		zIndex: 100,
 		alignItems: "center",
 		backgroundColor: color.background,
-		borderBottomColor: color.border,
-		borderBottomStyle: "solid",
-		borderBottomWidth: 1,
 		display: "flex",
 		flexShrink: 0,
-		gap: controlSize._3,
-		height: controlSize._12,
-		paddingInline: controlSize._3,
+		gap: controlSize._2,
+		height: 36,
+		paddingLeft: controlSize._3,
+		paddingRight: controlSize._3,
 		userSelect: "none",
 	},
 	viewTabs: {
-		alignItems: "center",
+		alignItems: "flex-end",
+		alignSelf: "stretch",
 		display: "flex",
+		flexGrow: 1,
 		flexShrink: 1,
-		gap: controlSize._1,
+		marginLeft: 62,
 		minWidth: 0,
 		overflowX: "auto",
+		paddingLeft: 10,
+		paddingRight: 10,
 		scrollbarWidth: "none",
 		"::-webkit-scrollbar": {
 			display: "none",
 		},
 	},
-	spacer: {
-		flex: 1,
-		minWidth: 0,
-	},
-	actions: {
-		alignItems: "center",
+	tabGroup: {
+		alignItems: "flex-end",
+		alignSelf: "stretch",
 		display: "flex",
 		flexShrink: 0,
-		gap: controlSize._3,
+		gap: 6,
 	},
-	gridControl: {
-		alignItems: "center",
-		display: "flex",
-		flexShrink: 0,
-		gap: "0.375rem",
-	},
-	gridLabel: {
-		color: color.textMuted,
-		fontSize: font.size_1,
-	},
-	segmented: {
-		alignItems: "center",
-		backgroundColor: color.backgroundRaised,
-		borderColor: color.border,
-		borderRadius: 8,
-		borderStyle: "solid",
-		borderWidth: 1,
-		display: "flex",
-		flexShrink: 0,
-		height: controlSize._7,
-		overflow: "hidden",
-	},
-	segmentButton: {
-		alignItems: "center",
-		display: "flex",
-		height: "100%",
-		justifyContent: "center",
-		transitionDuration: "150ms",
-		transitionProperty: "background-color, color",
-		transitionTimingFunction: "ease",
-		width: controlSize._7,
-	},
-	segmentButtonIdle: {
-		color: {
-			default: color.textMuted,
-			":hover": color.textSoft,
-		},
-	},
-	segmentButtonActive: {
-		backgroundColor: color.controlActive,
-		color: color.textMain,
-	},
-	shrink: {
-		flexShrink: 0,
-	},
-	newButton: {
-		backgroundColor: {
-			default: color.controlActive,
-			":hover": color.surfaceControlHover,
-		},
-		backgroundImage: "none",
-		borderColor: color.border,
-		borderWidth: 1,
-		boxShadow: "none",
+	secondaryTabGroup: {
+		marginLeft: "auto",
 	},
 	viewTab: {
+		position: "relative",
 		alignItems: "center",
 		borderColor: "transparent",
-		borderRadius: 8,
+		borderTopLeftRadius: 11,
+		borderTopRightRadius: 11,
+		borderBottomLeftRadius: 11,
+		borderBottomRightRadius: 11,
 		borderStyle: "solid",
 		borderWidth: 1,
 		color: {
@@ -420,19 +290,54 @@ const styles = stylex.create({
 		fontSize: font.size_3,
 		fontWeight: font.weight_5,
 		gap: "0.375rem",
-		height: controlSize._7,
+		height: 30,
 		paddingInline: "0.625rem",
-		transitionDuration: "150ms",
-		transitionProperty: "background-color, border-color, color",
-		transitionTimingFunction: "ease",
+		transitionDuration: "80ms",
+		transitionProperty: "color",
+		transitionTimingFunction: "ease-out",
 		backgroundColor: {
 			default: "transparent",
-			":hover": color.backgroundRaised,
+			":hover": "transparent",
 		},
 	},
+	viewTabTrailing: {
+		marginRight: 2,
+		paddingRight: "0.875rem",
+	},
 	viewTabActive: {
-		backgroundColor: color.controlActive,
-		borderColor: color.border,
+		backgroundColor: {
+			default: color.backgroundRaised,
+			":hover": color.backgroundRaised,
+		},
+		borderColor: "transparent",
+		borderBottomColor: color.backgroundRaised,
+		borderBottomLeftRadius: 0,
+		borderBottomRightRadius: 0,
+		boxShadow: "inset 0 1px 0 rgba(255,255,255,0.045)",
 		color: color.textMain,
+		marginBottom: -1,
+		zIndex: 1,
+	},
+	tabShoulder: {
+		position: "absolute",
+		bottom: 0,
+		width: 10,
+		height: 10,
+		pointerEvents: "none",
+		backgroundColor: color.backgroundRaised,
+	},
+	tabShoulderLeft: {
+		left: -9,
+		WebkitMaskImage:
+			"radial-gradient(circle 10px at 0% 0%, transparent 10px, black 10.5px)",
+		maskImage:
+			"radial-gradient(circle 10px at 0% 0%, transparent 10px, black 10.5px)",
+	},
+	tabShoulderRight: {
+		right: -9,
+		WebkitMaskImage:
+			"radial-gradient(circle 10px at 100% 0%, transparent 10px, black 10.5px)",
+		maskImage:
+			"radial-gradient(circle 10px at 100% 0%, transparent 10px, black 10.5px)",
 	},
 });

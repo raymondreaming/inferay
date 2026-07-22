@@ -23,7 +23,6 @@ import { hydrateStoredValues } from "./lib/client-storage-sync.ts";
 import { getServerOrigin, resolveServerUrl } from "./lib/fetch-json.ts";
 import { readStoredBoolean, writeStoredValue } from "./lib/stored-json.ts";
 import { AutomationsPage } from "./pages/AutomationsPage";
-import { GoalsPage } from "./pages/GoalsPage";
 import { ImagesPage } from "./pages/ImagesPage";
 import { ONBOARDING_DONE_KEY, OnboardingPage } from "./pages/OnboardingPage";
 import { ProfilePage } from "./pages/ProfilePage";
@@ -106,9 +105,19 @@ const styles = stylex.create({
 		minHeight: 0,
 	},
 	mainColumn: {
+		backgroundColor: color.background,
+		borderColor: "rgba(255,255,255,0.16)",
+		borderRadius: 14,
+		borderStyle: "solid",
+		borderWidth: 1,
+		boxShadow:
+			"inset 0 1px 0 rgba(255,255,255,0.06), 0 1px 24px rgba(0,0,0,0.18), 0 24px 60px rgba(0,0,0,0.42)",
 		display: "flex",
 		flex: 1,
 		flexDirection: "column",
+		marginTop: 36,
+		marginRight: 10,
+		marginBottom: 10,
 		minWidth: 0,
 		overflow: "hidden",
 	},
@@ -143,7 +152,6 @@ const shellThemeProps = stylex.props(
 const routeElements = {
 	terminal: <TerminalPage />,
 	prompts: <PromptsPage />,
-	goals: <GoalsPage />,
 	sessions: <SessionsPage />,
 	automations: <AutomationsPage />,
 	images: <ImagesPage />,
@@ -155,14 +163,10 @@ const fallbackRouteElement = <Navigate to={DEFAULT_APP_ROUTE} replace />;
 function AppShell() {
 	return (
 		<div {...shellThemeProps}>
-			<div
-				{...stylex.props(styles.windowSpacer)}
-				className={`inferay-window-spacer ${APP_REGION_DRAG_CLASS} ${stylex.props(styles.windowSpacer).className ?? ""}`}
-			/>
+			<TerminalShellHeader />
 			<div {...stylex.props(styles.appBody)}>
 				<Sidebar />
 				<div {...stylex.props(styles.mainColumn)}>
-					<TerminalShellHeader />
 					<main {...stylex.props(styles.mainContent)}>
 						<Suspense fallback={null}>
 							<Routes>

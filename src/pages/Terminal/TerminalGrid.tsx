@@ -117,6 +117,14 @@ function scrollElementBy(element: HTMLElement, deltaY: number) {
 	);
 }
 
+function canScrollHorizontally(element: HTMLElement, deltaX: number) {
+	if (deltaX < 0) return element.scrollLeft > 0;
+	if (deltaX > 0) {
+		return element.scrollLeft + element.clientWidth < element.scrollWidth - 1;
+	}
+	return false;
+}
+
 export const TerminalGrid = memo(function TerminalGrid(
 	props: TerminalGridProps
 ) {
@@ -238,6 +246,33 @@ export const TerminalGrid = memo(function TerminalGrid(
 		[layoutMode]
 	);
 
+	const handleRowWheelCapture = useCallback(
+		(event: React.WheelEvent<HTMLDivElement>) => {
+			if (layoutMode !== "rows") return;
+			const rowScroller = containerRef.current;
+			if (!rowScroller) return;
+			const target =
+				event.target instanceof Element
+					? event.target.closest<HTMLElement>("[data-terminal-row-pane-id]")
+					: null;
+			const targetPaneId = target?.dataset.terminalRowPaneId ?? null;
+			if (!targetPaneId) return;
+			const isHorizontalGesture =
+				event.shiftKey ||
+				(Math.abs(event.deltaX) > 0 &&
+					Math.abs(event.deltaX) >= Math.abs(event.deltaY));
+			if (!isHorizontalGesture) return;
+			event.preventDefault();
+			event.stopPropagation();
+			if (targetPaneId === props.selectedPaneId) return;
+			const delta = event.shiftKey ? event.deltaY : event.deltaX;
+			if (canScrollHorizontally(rowScroller, delta)) {
+				rowScroller.scrollLeft += delta;
+			}
+		},
+		[layoutMode, props.selectedPaneId]
+	);
+
 	useEffect(() => {
 		if (!active) {
 			clearDragState();
@@ -263,12 +298,19 @@ export const TerminalGrid = memo(function TerminalGrid(
 
 	if (layoutMode === "rows") {
 		return (
-			<div ref={containerRef} {...stylex.props(styles.rowScroller)}>
+			<div
+				ref={containerRef}
+				{...stylex.props(styles.rowScroller)}
+				onWheelCapture={handleRowWheelCapture}
+				data-terminal-row-scroll-area
+			>
 				{panes.map((pane, idx) => (
 					<div
 						key={pane.id}
+						data-terminal-row-pane-id={pane.id}
 						{...stylex.props(styles.rowCell)}
 						style={{ ...cellStyle(idx), width: 400 }}
+						onPointerDownCapture={() => props.onSelectPane(pane.id)}
 						onDragOver={(e) => handleDragOver(e, idx)}
 						onDrop={(e) => handleDrop(e, idx)}
 						onDragLeave={() => setDragOverIndex(null)}
@@ -282,6 +324,7 @@ export const TerminalGrid = memo(function TerminalGrid(
 								handleHeaderDragEnd,
 								pane.cwd ? (chatProjectMap.get(pane.cwd)?.branch ?? null) : null
 							)}
+							interactionEnabled={pane.id === props.selectedPaneId}
 						/>
 					</div>
 				))}

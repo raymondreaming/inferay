@@ -6,7 +6,6 @@ import {
 	IconMessageCircle,
 	IconSimulator,
 	IconSlash,
-	IconTarget,
 } from "../components/ui/Icons.tsx";
 import { hasId } from "./data.ts";
 import { FEATURE_FLAGS } from "./feature-flags.ts";
@@ -14,7 +13,6 @@ import { FEATURE_FLAGS } from "./feature-flags.ts";
 export type AppRouteId =
 	| "terminal"
 	| "prompts"
-	| "goals"
 	| "sessions"
 	| "automations"
 	| "images"
@@ -50,13 +48,6 @@ const ALL_APP_PAGE_ROUTES = [
 		path: "/prompts",
 		sidebar: true,
 		icon: IconSlash,
-	},
-	{
-		id: "goals",
-		label: "Goals",
-		path: "/goals",
-		sidebar: true,
-		icon: IconTarget,
 	},
 	{
 		id: "sessions",

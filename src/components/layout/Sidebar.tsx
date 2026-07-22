@@ -10,13 +10,20 @@ import {
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
-import { isChatAgentKind } from "../../features/agents/agents.ts";
+import {
+	isChatAgentKind,
+	loadDefaultChatSettings,
+} from "../../features/agents/agents.ts";
 import { deriveStoredSummary } from "../../features/chat/chat-session-store.ts";
 import {
 	compactTerminalState,
+	createTerminalPane,
 	dispatchTerminalShellChange,
+	listenTerminalLayoutMode,
 	loadCanonicalTerminalState,
+	loadTerminalLayoutMode,
 	loadTerminalState,
+	mutateCanonicalTerminalState,
 	mutateTerminalWorkspaceState,
 	type TerminalPaneModel,
 	type TerminalShellChangeDetail,
@@ -27,14 +34,9 @@ import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
-	loadAppThemeId,
 } from "../../lib/app-theme.ts";
 import { noop } from "../../lib/data.ts";
-import {
-	fetchJsonOr,
-	resolveServerUrl,
-	sendJson,
-} from "../../lib/fetch-json.ts";
+import { fetchJsonOr, sendJson } from "../../lib/fetch-json.ts";
 import {
 	activateOnEnterOrSpacePreventDefault,
 	listenWindowEvent,
@@ -57,6 +59,10 @@ import {
 import { IconButton } from "../ui/IconButton.tsx";
 import {
 	IconChevronRight,
+	IconLayoutGrid,
+	IconLayoutRows,
+	IconMessageCircle,
+	IconPanelLeft,
 	IconPencil,
 	IconPlus,
 	IconRefreshCw,
@@ -80,7 +86,11 @@ interface SidebarWorkspaceGroup {
 	name: string;
 	panes: TerminalPaneModel[];
 	selectedPaneId?: string | null;
+	columns: number;
+	rows: number;
 }
+
+const GRID_DIMENSIONS = [1, 2, 3, 4] as const;
 
 interface SidebarWorkspaceState {
 	groups: SidebarWorkspaceGroup[];
@@ -112,9 +122,8 @@ async function loadGithubAccount(): Promise<ForgeAccount | null> {
 	return accounts.find((item) => item.active) ?? accounts[0] ?? null;
 }
 
-const logoUrl = resolveServerUrl("/logo.png");
-const DEFAULT_SIDEBAR_WIDTH = 192;
-const MIN_SIDEBAR_WIDTH = 152;
+const DEFAULT_SIDEBAR_WIDTH = 292;
+const MIN_SIDEBAR_WIDTH = 238;
 const MAX_SIDEBAR_WIDTH = 340;
 
 type UpdateStatus = "idle" | "updating" | "error";
@@ -462,23 +471,57 @@ function SidebarProfileButton({
 function SidebarWorkspacesSection({
 	collapsed,
 	workspaces,
+	layoutMode,
 	onAddWorkspace,
+	onAddChat,
+	onUpdateLayoutMode,
+	onUpdateGrid,
 	onSelectWorkspace,
 	onSelectPane,
 	onExpandSidebar,
+	onCollapseSidebar,
 	onRemoveWorkspace,
 	onRenameWorkspace,
 }: {
 	collapsed: boolean;
 	workspaces: SidebarWorkspaceState;
+	layoutMode: "grid" | "rows";
 	onAddWorkspace: () => void;
+	onAddChat: () => void;
+	onUpdateLayoutMode: (mode: "grid" | "rows") => void;
+	onUpdateGrid: (patch: { columns?: number; rows?: number }) => void;
 	onSelectWorkspace: (groupId: string) => void;
 	onSelectPane: (groupId: string, paneId: string) => void;
 	onExpandSidebar: () => void;
+	onCollapseSidebar: () => void;
 	onRemoveWorkspace: (groupId: string) => void;
 	onRenameWorkspace: (groupId: string, name: string) => void;
 }) {
 	const workspaceSectionProps = stylex.props(styles.workspaceSection);
+	const [createMenuOpen, setCreateMenuOpen] = useState(false);
+	const [gridMenuOpen, setGridMenuOpen] = useState(false);
+	const createMenuRef = useRef<HTMLSpanElement>(null);
+	const selectedGroup =
+		workspaces.groups.find(
+			(group) => group.id === workspaces.selectedGroupId
+		) ?? null;
+
+	useEffect(() => {
+		if (!createMenuOpen) return;
+		const closeMenu = (event: MouseEvent) => {
+			if (!createMenuRef.current?.contains(event.target as Node)) {
+				setCreateMenuOpen(false);
+			}
+		};
+		document.addEventListener("mousedown", closeMenu);
+		return () => document.removeEventListener("mousedown", closeMenu);
+	}, [createMenuOpen]);
+
+	const chooseCreateAction = (action: () => void) => {
+		setCreateMenuOpen(false);
+		action();
+	};
+
 	return (
 		<div
 			className={`${APP_REGION_NO_DRAG_CLASS} ${workspaceSectionProps.className ?? ""}`}
@@ -494,31 +537,155 @@ function SidebarWorkspacesSection({
 				{collapsed ? (
 					<IconButton
 						type="button"
-						onClick={onAddWorkspace}
+						onClick={onExpandSidebar}
 						variant="ghost"
 						size="md"
 						className={stylex.props(styles.collapsedAddButton).className}
-						title="Add workspace"
+						title="Expand workspace sidebar"
 					>
-						<IconPlus
+						<IconPanelLeft
 							size={14}
-							className={stylex.props(styles.noShrink).className}
+							className={
+								stylex.props(styles.noShrink, styles.flipHorizontal).className
+							}
 						/>
 					</IconButton>
 				) : (
 					<>
-						<span {...stylex.props(styles.workspaceSectionLabel)}>
-							Workspaces
-						</span>
 						<IconButton
 							type="button"
-							onClick={onAddWorkspace}
+							onClick={onCollapseSidebar}
 							variant="ghost"
-							size="xs"
-							title="New workspace"
+							size="md"
+							className={stylex.props(styles.workspaceHeaderButton).className}
+							title="Collapse workspace sidebar"
 						>
-							<IconPlus size={12} />
+							<IconPanelLeft size={14} />
 						</IconButton>
+						<div {...stylex.props(styles.workspaceLayoutControl)}>
+							<span
+								{...stylex.props(styles.workspaceGridWrap)}
+								onMouseEnter={() => setGridMenuOpen(true)}
+								onMouseLeave={() => setGridMenuOpen(false)}
+							>
+								<button
+									type="button"
+									onClick={() => onUpdateLayoutMode("grid")}
+									{...stylex.props(
+										styles.workspaceLayoutButton,
+										layoutMode === "grid"
+											? styles.workspaceLayoutButtonActive
+											: styles.workspaceLayoutButtonIdle
+									)}
+									aria-label="Grid layout"
+									aria-expanded={gridMenuOpen}
+								>
+									<IconLayoutGrid size={14} />
+								</button>
+								{gridMenuOpen && selectedGroup ? (
+									<span {...stylex.props(styles.workspaceGridMenu)}>
+										<span {...stylex.props(styles.workspaceGridMenuRow)}>
+											<span {...stylex.props(styles.workspaceGridMenuLabel)}>
+												Columns
+											</span>
+											<span {...stylex.props(styles.workspaceGridChoices)}>
+												{GRID_DIMENSIONS.map((value) => (
+													<button
+														key={`columns-${value}`}
+														type="button"
+														onClick={() => {
+															onUpdateLayoutMode("grid");
+															onUpdateGrid({ columns: value });
+														}}
+														{...stylex.props(
+															styles.workspaceGridChoice,
+															selectedGroup.columns === value
+																? styles.workspaceGridChoiceActive
+																: null
+														)}
+													>
+														{value}
+													</button>
+												))}
+											</span>
+										</span>
+										<span {...stylex.props(styles.workspaceGridMenuRow)}>
+											<span {...stylex.props(styles.workspaceGridMenuLabel)}>
+												Rows
+											</span>
+											<span {...stylex.props(styles.workspaceGridChoices)}>
+												{GRID_DIMENSIONS.map((value) => (
+													<button
+														key={`rows-${value}`}
+														type="button"
+														onClick={() => {
+															onUpdateLayoutMode("grid");
+															onUpdateGrid({ rows: value });
+														}}
+														{...stylex.props(
+															styles.workspaceGridChoice,
+															selectedGroup.rows === value
+																? styles.workspaceGridChoiceActive
+																: null
+														)}
+													>
+														{value}
+													</button>
+												))}
+											</span>
+										</span>
+									</span>
+								) : null}
+							</span>
+							<button
+								type="button"
+								onClick={() => onUpdateLayoutMode("rows")}
+								{...stylex.props(
+									styles.workspaceLayoutButton,
+									layoutMode === "rows"
+										? styles.workspaceLayoutButtonActive
+										: styles.workspaceLayoutButtonIdle
+								)}
+								aria-label="Row layout"
+							>
+								<IconLayoutRows size={14} />
+							</button>
+						</div>
+						<span
+							ref={createMenuRef}
+							{...stylex.props(styles.workspaceCreateWrap)}
+						>
+							<button
+								type="button"
+								onClick={() => setCreateMenuOpen((open) => !open)}
+								{...stylex.props(styles.workspaceNewButton)}
+								title="Create"
+								aria-label="Create"
+								aria-expanded={createMenuOpen}
+							>
+								<IconPlus size={13} />
+							</button>
+							{createMenuOpen ? (
+								<span {...stylex.props(styles.workspaceCreateMenu)}>
+									<button
+										type="button"
+										onClick={() => chooseCreateAction(onAddChat)}
+										{...stylex.props(styles.workspaceCreateItem)}
+									>
+										<IconMessageCircle size={12} />
+										<span>New chat</span>
+									</button>
+									<button
+										type="button"
+										onClick={() => chooseCreateAction(onAddWorkspace)}
+										{...stylex.props(styles.workspaceCreateItem)}
+									>
+										<IconPlus size={12} />
+										<span>New workspace</span>
+									</button>
+								</span>
+							) : null}
+						</span>
 					</>
 				)}
 			</div>
@@ -606,20 +773,12 @@ export function Sidebar() {
 		loadSidebarUiState
 	);
 	const { collapsed, sidebarWidth, resizing, updateStatus } = uiState;
+	const [layoutMode, setLayoutMode] = useState(loadTerminalLayoutMode);
 	const { data: githubAccount, refresh: refreshGithubAccount } =
 		useAsyncResource(loadGithubAccount, null, { isEqual: sameForgeAccount });
 	const { data: appInfo } = useAppInfo();
 	const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
 	const resizeWidthRef = useRef(sidebarWidth);
-
-	const isDefault = loadAppThemeId() === "default";
-	const logoImageStyle = useMemo(
-		() => ({
-			filter: "saturate(0.94) contrast(1.04) brightness(0.99)",
-			opacity: isDefault ? 1 : 0.7,
-		}),
-		[isDefault]
-	);
 
 	// Workspace state
 	const loadWorkspaces = useCallback(() => {
@@ -636,6 +795,8 @@ export function Sidebar() {
 	}, []);
 
 	const [workspaces, setWorkspaces] = useState(loadWorkspaces);
+
+	useEffect(() => listenTerminalLayoutMode(setLayoutMode), []);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -741,6 +902,59 @@ export function Sidebar() {
 		navigate("/terminal");
 	}, [navigate]);
 
+	const addChat = useCallback(async () => {
+		const pane = createTerminalPane(
+			loadDefaultChatSettings().agentKind,
+			undefined,
+			true
+		);
+		await mutateTerminalWorkspaceState({ type: "addPane", pane }, "add-pane", {
+			createIfMissing: true,
+		});
+		navigate("/terminal");
+	}, [navigate]);
+
+	const updateLayoutMode = useCallback(
+		(mode: "grid" | "rows") => {
+			if (mode === layoutMode) return;
+			writeStoredValue("terminal-layout-mode", mode);
+			setLayoutMode(mode);
+			dispatchTerminalShellChange({ source: "view", reason: "layout-mode" });
+		},
+		[layoutMode]
+	);
+
+	const updateSelectedGroupGrid = useCallback(
+		async (patch: { columns?: number; rows?: number }) => {
+			setWorkspaces((current) => {
+				let changed = false;
+				const groups = current.groups.map((group) => {
+					if (group.id !== current.selectedGroupId) return group;
+					const columns = patch.columns ?? group.columns;
+					const rows = patch.rows ?? group.rows;
+					if (columns === group.columns && rows === group.rows) return group;
+					changed = true;
+					return { ...group, columns, rows };
+				});
+				return changed ? { ...current, groups } : current;
+			});
+			await mutateCanonicalTerminalState((terminalState) => {
+				if (!terminalState.selectedGroupId) return null;
+				let changed = false;
+				const groups = terminalState.groups.map((group) => {
+					if (group.id !== terminalState.selectedGroupId) return group;
+					const columns = patch.columns ?? group.columns;
+					const rows = patch.rows ?? group.rows;
+					if (columns === group.columns && rows === group.rows) return group;
+					changed = true;
+					return { ...group, columns, rows };
+				});
+				return changed ? { ...terminalState, groups } : null;
+			}, "grid-size");
+		},
+		[]
+	);
+
 	const removeWorkspace = useCallback(async (groupId: string) => {
 		const next = await mutateTerminalWorkspaceState(
 			{ type: "removeWorkspace", groupId },
@@ -772,6 +986,14 @@ export function Sidebar() {
 	useEffect(() => {
 		writeStoredValue("sidebar-collapsed", String(collapsed));
 	}, [collapsed]);
+
+	useEffect(
+		() =>
+			listenWindowEvent("toggle-main-sidebar", () =>
+				dispatchUi({ type: "collapsed", value: !collapsed })
+			),
+		[collapsed]
+	);
 
 	const handleResizeStart = useCallback(
 		(event: ReactMouseEvent<HTMLElement>) => {
@@ -830,8 +1052,6 @@ export function Sidebar() {
 		collapsed ? styles.shellCollapsed : styles.shellOpen,
 		resizing && styles.shellResizing
 	);
-	const logoBarProps = stylex.props(styles.logoBar);
-	const logoButtonProps = stylex.props(styles.logoButton);
 	const resizeHandleProps = stylex.props(styles.resizeHandle);
 
 	return (
@@ -849,34 +1069,22 @@ export function Sidebar() {
 					onMouseDown={handleResizeStart}
 				/>
 			)}
-			<div
-				className={`${APP_REGION_DRAG_CLASS} ${logoBarProps.className ?? ""}`}
-			>
-				<button
-					type="button"
-					onClick={() => dispatchUi({ type: "collapsed", value: !collapsed })}
-					{...logoButtonProps}
-					className={`${APP_REGION_NO_DRAG_CLASS} ${logoButtonProps.className ?? ""}`}
-				>
-					<span {...stylex.props(styles.logoFrame)}>
-						<img
-							src={logoUrl}
-							alt=""
-							{...stylex.props(styles.logo)}
-							style={logoImageStyle}
-						/>
-					</span>
-				</button>
-			</div>
 			<nav {...stylex.props(styles.nav)}>
 				<SidebarWorkspacesSection
 					collapsed={collapsed}
 					workspaces={workspaces}
+					layoutMode={layoutMode}
 					onAddWorkspace={addWorkspace}
+					onAddChat={addChat}
+					onUpdateLayoutMode={updateLayoutMode}
+					onUpdateGrid={updateSelectedGroupGrid}
 					onSelectWorkspace={selectWorkspace}
 					onSelectPane={selectPane}
 					onExpandSidebar={() =>
 						dispatchUi({ type: "collapsed", value: false })
+					}
+					onCollapseSidebar={() =>
+						dispatchUi({ type: "collapsed", value: true })
 					}
 					onRemoveWorkspace={removeWorkspace}
 					onRenameWorkspace={renameWorkspace}
@@ -1153,11 +1361,18 @@ const styles = stylex.create({
 	},
 	shell: {
 		backgroundColor: color.background,
-		borderRightColor: color.border,
-		borderRightStyle: "solid",
-		borderRightWidth: 1,
+		borderColor: "rgba(255,255,255,0.16)",
+		borderRadius: 14,
+		borderStyle: "solid",
+		borderWidth: 1,
+		boxShadow:
+			"inset 0 1px 0 rgba(255,255,255,0.06), 0 1px 24px rgba(0,0,0,0.18), 0 24px 60px rgba(0,0,0,0.42)",
 		display: "flex",
 		flexDirection: "column",
+		marginTop: 36,
+		marginRight: 10,
+		marginBottom: 10,
+		marginLeft: 10,
 		overflow: "hidden",
 		position: "relative",
 		transitionDuration: "200ms",
@@ -1193,40 +1408,6 @@ const styles = stylex.create({
 		transitionProperty: "background-color",
 		transitionDuration: "120ms",
 	},
-	logoBar: {
-		alignItems: "center",
-		borderBottomColor: color.border,
-		borderBottomStyle: "solid",
-		borderBottomWidth: 1,
-		display: "flex",
-		height: controlSize._12,
-		paddingInline: controlSize._3,
-	},
-	logoButton: {
-		alignItems: "center",
-		borderRadius: 6,
-		display: "flex",
-		flexShrink: 0,
-		height: controlSize._7,
-		justifyContent: "center",
-		width: controlSize._7,
-	},
-	logoFrame: {
-		alignItems: "center",
-		borderRadius: 6,
-		display: "flex",
-		height: controlSize._7,
-		justifyContent: "center",
-		overflow: "hidden",
-		position: "relative",
-		width: controlSize._7,
-	},
-	logo: {
-		borderRadius: 6,
-		height: controlSize._7,
-		objectFit: "cover",
-		width: controlSize._7,
-	},
 	nav: {
 		flex: 1,
 		overflowY: "auto",
@@ -1237,6 +1418,8 @@ const styles = stylex.create({
 		paddingTop: controlSize._2,
 	},
 	workspaceSectionHeader: {
+		position: "relative",
+		zIndex: 50,
 		alignItems: "center",
 		display: "flex",
 		marginBlockEnd: controlSize._1,
@@ -1247,18 +1430,174 @@ const styles = stylex.create({
 	},
 	workspaceSectionHeaderOpen: {
 		justifyContent: "space-between",
-		paddingInline: controlSize._2,
+		paddingInline: controlSize._1,
 	},
 	collapsedAddButton: {
 		height: controlSize._8,
 		width: controlSize._8,
 	},
-	workspaceSectionLabel: {
+	workspaceHeaderButton: {
+		height: controlSize._8,
+		width: controlSize._8,
+	},
+	workspaceLayoutControl: {
+		position: "relative",
+		display: "inline-flex",
+		height: controlSize._7,
+		alignItems: "center",
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: 8,
+		backgroundColor: color.backgroundRaised,
+		overflow: "visible",
+	},
+	workspaceGridWrap: {
+		position: "relative",
+		display: "inline-flex",
+		height: "100%",
+	},
+	workspaceLayoutButton: {
+		display: "inline-flex",
+		height: "100%",
+		width: controlSize._7,
+		alignItems: "center",
+		justifyContent: "center",
+		borderRadius: 7,
+	},
+	workspaceLayoutButtonIdle: {
+		color: {
+			default: color.textMuted,
+			":hover": color.textSoft,
+		},
+		backgroundColor: {
+			default: "transparent",
+			":hover": color.controlHover,
+		},
+	},
+	workspaceLayoutButtonActive: {
+		color: color.textMain,
+		backgroundColor: color.controlActive,
+	},
+	workspaceGridMenu: {
+		position: "absolute",
+		top: "calc(100% + 4px)",
+		left: "50%",
+		zIndex: 100,
+		display: "flex",
+		width: 188,
+		flexDirection: "column",
+		gap: controlSize._2,
+		transform: "translateX(calc(-50% + 14px))",
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: 8,
+		backgroundColor: color.backgroundRaised,
+		boxShadow: shadow.popover,
+		padding: controlSize._2,
+		"::before": {
+			content: "",
+			position: "absolute",
+			left: 0,
+			right: 0,
+			top: -5,
+			height: 5,
+		},
+	},
+	workspaceGridMenuRow: {
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "space-between",
+		gap: controlSize._2,
+	},
+	workspaceGridMenuLabel: {
+		color: color.textMuted,
+		fontSize: font.size_1,
+		fontWeight: font.weight_5,
+	},
+	workspaceGridChoices: {
+		display: "flex",
+		gap: controlSize._0_5,
+	},
+	workspaceGridChoice: {
+		display: "inline-flex",
+		height: controlSize._6,
+		width: controlSize._6,
+		alignItems: "center",
+		justifyContent: "center",
+		borderRadius: 6,
+		color: {
+			default: color.textMuted,
+			":hover": color.textMain,
+		},
+		backgroundColor: {
+			default: "transparent",
+			":hover": color.controlHover,
+		},
+		fontSize: font.size_1,
+	},
+	workspaceGridChoiceActive: {
+		color: color.textMain,
+		backgroundColor: color.controlActive,
+	},
+	workspaceCreateWrap: {
+		position: "relative",
+		display: "inline-flex",
+	},
+	workspaceNewButton: {
+		display: "inline-flex",
+		height: controlSize._7,
+		width: controlSize._7,
+		alignItems: "center",
+		justifyContent: "center",
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: 8,
+		backgroundColor: {
+			default: color.backgroundRaised,
+			":hover": color.controlHover,
+		},
+		color: color.textSoft,
+		padding: 0,
+	},
+	workspaceCreateMenu: {
+		position: "absolute",
+		top: "calc(100% + 4px)",
+		right: 0,
+		zIndex: 100,
+		display: "flex",
+		width: 152,
+		flexDirection: "column",
+		gap: controlSize._0_5,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: 8,
+		backgroundColor: color.backgroundRaised,
+		boxShadow: shadow.popover,
+		padding: controlSize._1,
+	},
+	workspaceCreateItem: {
+		display: "flex",
+		height: controlSize._7,
+		width: "100%",
+		alignItems: "center",
+		gap: controlSize._2,
+		borderRadius: 6,
+		paddingInline: controlSize._2,
+		backgroundColor: {
+			default: "transparent",
+			":hover": color.controlHover,
+		},
 		color: color.textSoft,
 		fontSize: font.size_2,
 		fontWeight: font.weight_5,
-		letterSpacing: 0,
-		textTransform: "uppercase",
+		textAlign: "left",
+	},
+	flipHorizontal: {
+		transform: "scaleX(-1)",
 	},
 	footer: {
 		borderTopColor: color.border,

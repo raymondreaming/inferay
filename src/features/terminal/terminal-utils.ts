@@ -396,6 +396,7 @@ export type TerminalStateChangeSource =
 export interface TerminalShellChangeDetail {
 	source: TerminalStateChangeSource;
 	reason?: string;
+	mainView?: "chat" | "editor" | "graph";
 	productHealth?: TerminalViewSwitchHealth;
 	stateKey?: string;
 	state?: TerminalSavedState;
