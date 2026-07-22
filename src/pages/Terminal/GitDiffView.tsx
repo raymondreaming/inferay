@@ -20,7 +20,6 @@ import {
 } from "../../components/ui/Icons.tsx";
 import {
 	buildMergeConflictLines,
-	buildSplitDiffRows,
 	type DiffLine,
 	type HunkDiff,
 	shouldDisableDiffTokenization,
@@ -210,6 +209,25 @@ const diffStyles = stylex.create({
 		overscrollBehavior: "contain",
 		scrollbarGutter: "stable",
 		contain: "layout paint style",
+	},
+	splitPanels: {
+		display: "flex",
+		minWidth: 0,
+		minHeight: 0,
+		flex: 1,
+		overflow: "hidden",
+	},
+	splitPanel: {
+		display: "flex",
+		minWidth: 0,
+		minHeight: 0,
+		flex: 1,
+		overflow: "hidden",
+	},
+	splitPanelLeft: {
+		borderRightWidth: 1,
+		borderRightStyle: "solid",
+		borderRightColor: color.border,
 	},
 	virtualOffsetLayer: {
 		position: "absolute",
@@ -1054,6 +1072,7 @@ const VirtualPanel = memo(function VirtualPanel({
 			<div
 				ref={scrollRef}
 				onScroll={handleScroll}
+				data-diff-scroll-side={side}
 				{...stylex.props(diffStyles.virtualScroller)}
 			>
 				<div
@@ -1133,229 +1152,85 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 	scrollRef: React.RefObject<HTMLDivElement | null>;
 	syntaxTheme: SyntaxHighlightTheme;
 }) {
-	const [viewport, dispatchViewport] = useReducer(
-		diffViewportReducer,
-		INITIAL_DIFF_VIEWPORT_STATE
-	);
-	const { scrollTop, viewHeight } = viewport;
-	const rafRef = useRef<number>(0);
-	const lastAppliedScrollRef = useRef(-1);
+	const leftRef = useRef<HTMLDivElement>(null);
 	const lineCount = Math.max(oldLines.length, newLines.length);
-	const total = lineCount * LINE_H;
-
-	useEffect(() => {
-		const el = scrollRef.current;
-		if (!el) return;
-		dispatchViewport({ type: "measure", height: el.clientHeight });
-		const obs = new ResizeObserver((e) =>
-			dispatchViewport({
-				type: "measure",
-				height:
-					e[0]?.contentRect.height ?? INITIAL_DIFF_VIEWPORT_STATE.viewHeight,
-			})
-		);
-		obs.observe(el);
-		return obs.disconnect.bind(obs);
-	}, [scrollRef]);
-
-	const handleScroll = useCallback(() => {
-		if (!scrollRef.current) return;
-		cancelAnimationFrame(rafRef.current);
-		rafRef.current = requestAnimationFrame(() => {
-			if (!scrollRef.current) return;
-			const next = scrollRef.current.scrollTop;
-			dispatchViewport({ type: "scroll", top: next });
-		});
-	}, [scrollRef]);
-
-	useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
-
-	useEffect(() => {
-		if (externalScrollTop === undefined || externalScrollTop < 0) return;
-		if (externalScrollSource === "left" || externalScrollSource === "right")
-			return;
-		if (externalScrollTop === lastAppliedScrollRef.current) return;
-		lastAppliedScrollRef.current = externalScrollTop;
-		if (!scrollRef.current) return;
-		const maxScrollTop = Math.max(0, lineCount * LINE_H - viewHeight);
-		const nextScrollTop = roundToDevicePixel(
-			Math.min(Math.max(0, externalScrollTop), maxScrollTop)
-		);
-		scrollRef.current.scrollTop = nextScrollTop;
-		dispatchViewport({ type: "scroll", top: nextScrollTop });
-	}, [
-		externalScrollSource,
-		externalScrollTop,
-		lineCount,
-		scrollRef,
-		viewHeight,
-	]);
-
-	const start = Math.max(0, Math.floor(scrollTop / LINE_H) - OVERSCAN);
-	const end = Math.min(
-		lineCount,
-		Math.ceil((scrollTop + viewHeight) / LINE_H) + OVERSCAN
+	const alignedOldLines = useMemo(
+		() =>
+			Array.from(
+				{ length: lineCount },
+				(_, index) =>
+					oldLines[index] ?? {
+						number: null,
+						content: "",
+						type: "spacer" as const,
+					}
+			),
+		[lineCount, oldLines]
 	);
-	const scrollToSplitLine = useCallback(
-		(lineIndex: number) => {
-			if (!scrollRef.current) return;
-			scrollRef.current.scrollTop = Math.max(
-				0,
-				lineIndex * LINE_H - viewHeight / 2
-			);
+	const alignedNewLines = useMemo(
+		() =>
+			Array.from(
+				{ length: lineCount },
+				(_, index) =>
+					newLines[index] ?? {
+						number: null,
+						content: "",
+						type: "spacer" as const,
+					}
+			),
+		[lineCount, newLines]
+	);
+	const syncFromLeft = useCallback(
+		(top: number, left: number) => {
+			const target = scrollRef.current;
+			if (!target) return;
+			if (Math.abs(target.scrollTop - top) > 0.5) target.scrollTop = top;
+			if (Math.abs(target.scrollLeft - left) > 0.5) target.scrollLeft = left;
 		},
-		[scrollRef, viewHeight]
+		[scrollRef]
 	);
-	const visibleRange = useMemo<[number, number]>(
-		() => [start, end],
-		[start, end]
-	);
-	const oldContents = useMemo(() => oldLines.map(contentOf), [oldLines]);
-	const newContents = useMemo(() => newLines.map(contentOf), [newLines]);
-	const oldHighlighter = useShikiHighlighter({
-		filePath: filePath ?? `file.${ext}`,
-		lines: oldContents,
-		visibleRange,
-		theme: syntaxTheme,
-		enabled: !disableTokenize && !!filePath,
-	});
-	const newHighlighter = useShikiHighlighter({
-		filePath: filePath ?? `file.${ext}`,
-		lines: newContents,
-		visibleRange,
-		theme: syntaxTheme,
-		enabled: !disableTokenize && !!filePath,
-	});
-	const minimapSegments = useMemo(
-		() => (lineCount < 3000 ? buildMinimapSegments(newLines) : null),
-		[newLines, lineCount]
-	);
-	const visibleRows = useMemo(
-		() => buildSplitDiffRows(oldLines, newLines, changeLineMap, start, end),
-		[oldLines, newLines, changeLineMap, start, end]
-	);
+	const syncFromRight = useCallback((top: number, left: number) => {
+		const target = leftRef.current;
+		if (!target) return;
+		if (Math.abs(target.scrollTop - top) > 0.5) target.scrollTop = top;
+		if (Math.abs(target.scrollLeft - left) > 0.5) target.scrollLeft = left;
+	}, []);
 
 	return (
-		<div {...stylex.props(diffStyles.virtualRoot)}>
-			<div
-				ref={scrollRef}
-				onScroll={handleScroll}
-				{...stylex.props(diffStyles.virtualScroller)}
-			>
-				<div
-					style={{
-						height: total,
-						minWidth: "100%",
-						position: "relative",
-					}}
-				>
-					<div
-						{...stylex.props(diffStyles.virtualOffsetLayer)}
-						style={{
-							minWidth: "100%",
-							transform: `translate3d(0, ${start * LINE_H}px, 0)`,
-						}}
-					>
-						{visibleRows.map(
-							({ changeIdx, hunkLine, index: rowIndex, newLine, oldLine }) => {
-								const isHighlighted =
-									highlightedChangeIdx !== undefined &&
-									changeIdx === highlightedChangeIdx;
-								if (hunkLine) {
-									return (
-										<div
-											key={rowIndex}
-											style={{
-												height: LINE_H,
-												minHeight: LINE_H,
-												width: "100%",
-											}}
-										>
-											<DiffRow
-												clipContent
-												line={hunkLine}
-												ext={ext}
-												tokens={null}
-												isHighlighted={isHighlighted}
-											/>
-										</div>
-									);
-								}
-								const oldHighlightedTokens =
-									oldHighlighter.getHighlightedLineTokens(rowIndex);
-								const newHighlightedTokens =
-									newHighlighter.getHighlightedLineTokens(rowIndex);
-								return (
-									<div
-										key={rowIndex}
-										style={{
-											display: "flex",
-											height: LINE_H,
-											minHeight: LINE_H,
-											width: "100%",
-										}}
-									>
-										<div
-											style={{
-												borderRight:
-													"1px solid var(--color-inferay-gray-border)",
-												flexBasis: 0,
-												flexGrow: 1,
-												flexShrink: 1,
-												minWidth: 0,
-											}}
-										>
-											<DiffRow
-												clipContent
-												line={oldLine}
-												ext={ext}
-												tokens={
-													oldHighlightedTokens
-														? null
-														: getTokens(oldLine.content, ext, disableTokenize)
-												}
-												highlightedTokens={oldHighlightedTokens}
-												isHighlighted={isHighlighted}
-											/>
-										</div>
-										<div
-											style={{
-												flexBasis: 0,
-												flexGrow: 1,
-												flexShrink: 1,
-												minWidth: 0,
-											}}
-										>
-											<DiffRow
-												clipContent
-												line={newLine}
-												ext={ext}
-												tokens={
-													newHighlightedTokens
-														? null
-														: getTokens(newLine.content, ext, disableTokenize)
-												}
-												highlightedTokens={newHighlightedTokens}
-												isHighlighted={isHighlighted}
-											/>
-										</div>
-									</div>
-								);
-							}
-						)}
-					</div>
-				</div>
-			</div>
-			{minimapSegments && (
-				<DiffMinimap
-					lines={newLines}
-					segments={minimapSegments}
-					scrollTop={scrollTop}
-					viewHeight={viewHeight}
-					totalHeight={total}
-					onScrollTo={scrollToSplitLine}
+		<div {...stylex.props(diffStyles.splitPanels)}>
+			<div {...stylex.props(diffStyles.splitPanel, diffStyles.splitPanelLeft)}>
+				<VirtualPanel
+					lines={alignedOldLines}
+					ext={ext}
+					scrollRef={leftRef}
+					onScroll={syncFromLeft}
+					disableTokenize={disableTokenize}
+					externalScrollTop={externalScrollTop}
+					externalScrollSource={externalScrollSource}
+					side="left"
+					filePath={filePath}
+					highlightedChangeIdx={highlightedChangeIdx}
+					changeLineMap={changeLineMap}
+					syntaxTheme={syntaxTheme}
 				/>
-			)}
+			</div>
+			<div {...stylex.props(diffStyles.splitPanel)}>
+				<VirtualPanel
+					lines={alignedNewLines}
+					ext={ext}
+					scrollRef={scrollRef}
+					onScroll={syncFromRight}
+					disableTokenize={disableTokenize}
+					showMinimap
+					externalScrollTop={externalScrollTop}
+					externalScrollSource={externalScrollSource}
+					side="right"
+					filePath={filePath}
+					highlightedChangeIdx={highlightedChangeIdx}
+					changeLineMap={changeLineMap}
+					syntaxTheme={syntaxTheme}
+				/>
+			</div>
 		</div>
 	);
 });

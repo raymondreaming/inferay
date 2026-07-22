@@ -24,7 +24,6 @@ import {
 } from "../../features/terminal/terminal-utils.ts";
 import { type AppInfo, useAppInfo } from "../../hooks/useAppInfo.ts";
 import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
-import { SIDEBAR_NAV_ROUTES } from "../../lib/app-navigation.tsx";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
@@ -424,47 +423,6 @@ function WorkspaceItem({
 				</div>
 			)}
 		</div>
-	);
-}
-
-function SidebarNavItems({ collapsed }: { collapsed: boolean }) {
-	const navigate = useNavigate();
-	const pathname = useLocation().pathname;
-	const goToRoute = useCallback(
-		(path: string) => {
-			navigate(path);
-		},
-		[navigate]
-	);
-
-	return (
-		<>
-			{SIDEBAR_NAV_ROUTES.map((item) => {
-				const Icon = item.icon;
-				const isActive = pathname === item.path;
-				const itemProps = stylex.props(
-					styles.navItem,
-					isActive ? styles.navItemActive : styles.navItemIdle,
-					collapsed ? styles.navItemCollapsed : styles.navItemOpen
-				);
-				return (
-					<button
-						key={item.path}
-						type="button"
-						onClick={() => goToRoute(item.path)}
-						{...itemProps}
-						className={`${APP_REGION_NO_DRAG_CLASS} ${itemProps.className ?? ""}`}
-						title={collapsed ? item.label : undefined}
-					>
-						<Icon
-							size={14}
-							className={stylex.props(styles.noShrink).className}
-						/>
-						{!collapsed && <span>{item.label}</span>}
-					</button>
-				);
-			})}
-		</>
 	);
 }
 
@@ -911,7 +869,6 @@ export function Sidebar() {
 				</button>
 			</div>
 			<nav {...stylex.props(styles.nav)}>
-				<SidebarNavItems collapsed={collapsed} />
 				<SidebarWorkspacesSection
 					collapsed={collapsed}
 					workspaces={workspaces}
@@ -1274,53 +1231,6 @@ const styles = stylex.create({
 		flex: 1,
 		overflowY: "auto",
 		paddingBlock: "0.375rem",
-	},
-	navItem: {
-		alignItems: "center",
-		appearance: "none",
-		backgroundColor: "transparent",
-		borderRadius: 8,
-		borderStyle: "solid",
-		borderWidth: 1,
-		color: color.textSoft,
-		cursor: "pointer",
-		display: "flex",
-		fontSize: "0.6875rem",
-		fontWeight: font.weight_5,
-		gap: controlSize._2,
-		marginBlockEnd: controlSize._1,
-		marginInline: "0.375rem",
-		paddingInline: controlSize._2,
-		textAlign: "left",
-		transitionDuration: "150ms",
-		transitionProperty: "background-color, border-color, color",
-		transitionTimingFunction: "ease",
-		width: "calc(100% - 0.75rem)",
-	},
-	navItemOpen: {
-		height: controlSize._7,
-	},
-	navItemCollapsed: {
-		height: controlSize._7,
-		marginInline: "0.375rem",
-		paddingInline: controlSize._2,
-		width: controlSize._8,
-	},
-	navItemIdle: {
-		backgroundColor: {
-			default: "transparent",
-			":hover": color.backgroundRaised,
-		},
-		borderColor: "transparent",
-		color: {
-			default: color.textSoft,
-			":hover": color.textMain,
-		},
-	},
-	navItemActive: {
-		backgroundColor: color.controlActive,
-		borderColor: color.border,
-		color: color.textMain,
 	},
 	workspaceSection: {
 		borderTopColor: color.border,

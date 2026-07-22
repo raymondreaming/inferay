@@ -1,8 +1,15 @@
 import * as stylex from "@stylexjs/stylex";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button.tsx";
-import { DropdownButton } from "../../components/ui/DropdownButton.tsx";
-import { IconMessageCircle, IconPlus } from "../../components/ui/Icons.tsx";
+import {
+	DropdownButton,
+	type DropdownOption,
+} from "../../components/ui/DropdownButton.tsx";
+import {
+	IconLayoutGrid,
+	IconMessageCircle,
+	IconPlus,
+} from "../../components/ui/Icons.tsx";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
 import {
 	dispatchTerminalShellChange,
@@ -121,12 +128,12 @@ export function SessionsPage() {
 	const archivedSessions = sessions.filter(
 		(session) => !session.inCurrentWorkspace
 	);
-	const workspaceOptions = useMemo(
+	const workspaceOptions = useMemo<DropdownOption[]>(
 		() =>
 			workspaces.map((workspace) => ({
 				id: workspace.id,
 				label: workspace.name,
-				detail: `${workspace.panes.length} panes`,
+				icon: <IconLayoutGrid size={11} />,
 			})),
 		[workspaces]
 	);
@@ -217,7 +224,7 @@ function SessionGroup({
 }: {
 	title: string;
 	sessions: LocalSessionInfo[];
-	workspaceOptions: Array<{ id: string; label: string; detail: string }>;
+	workspaceOptions: DropdownOption[];
 	onOpen: (session: LocalSessionInfo, targetGroupId?: string) => void;
 }) {
 	if (sessions.length === 0) return null;
@@ -264,6 +271,12 @@ function SessionGroup({
 								icon={<IconPlus size={12} />}
 								minWidth={180}
 								menuPlacement="auto"
+								buttonClassName={
+									stylex.props(styles.gridDropdownButton).className
+								}
+								labelClassName={
+									stylex.props(styles.gridDropdownLabel).className
+								}
 							/>
 						)}
 					</div>
@@ -375,6 +388,25 @@ const styles = stylex.create({
 		flexShrink: 0,
 		width: 180,
 		justifyContent: "flex-end",
+	},
+	gridDropdownButton: {
+		"--dropdown-button-bg-color": "transparent",
+		"--dropdown-button-bg-image": "none",
+		"--dropdown-button-border-color": color.borderSubtle,
+		"--dropdown-button-hover-bg-color": color.surfaceControlHover,
+		"--dropdown-button-hover-bg-image": "none",
+		"--dropdown-button-open-bg-color": color.surfaceInset,
+		"--dropdown-button-open-bg-image": "none",
+		"--dropdown-button-shadow": "none",
+		"--dropdown-button-hover-shadow": "none",
+		"--dropdown-button-open-shadow": "none",
+		height: 28,
+		borderRadius: radius.sm,
+		paddingInline: 10,
+	},
+	gridDropdownLabel: {
+		color: color.textSoft,
+		fontWeight: font.weight_5,
 	},
 	dot: {
 		width: 3,

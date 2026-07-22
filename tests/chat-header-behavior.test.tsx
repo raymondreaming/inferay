@@ -50,6 +50,14 @@ function setupDom() {
 		configurable: true,
 		value: dom.window.SVGElement,
 	});
+	Object.defineProperty(dom.window.HTMLElement.prototype, "attachEvent", {
+		configurable: true,
+		value: () => {},
+	});
+	Object.defineProperty(dom.window.HTMLElement.prototype, "detachEvent", {
+		configurable: true,
+		value: () => {},
+	});
 	Object.defineProperty(dom.window, "innerHeight", {
 		configurable: true,
 		value: 800,
@@ -85,6 +93,45 @@ test("branch dropdown loads branches only when opened", async () => {
 		expect(fetchJsonOr).toHaveBeenCalledTimes(1);
 		const calls = fetchJsonOr.mock.calls as unknown as Array<[string]>;
 		expect(calls[0]?.[0]).toContain("/api/git/branches");
+	} finally {
+		root.unmount();
+	}
+});
+
+test("editor session dropdown shows repository and conversation title", async () => {
+	const { dom, root, rootElement } = setupDom();
+	try {
+		const { AgentChatHeader } =
+			await import("../src/components/chat/AgentChatHeader.tsx");
+		root.render(
+			<AgentChatHeader
+				paneId="pane-1"
+				cwd="/tmp/inferay"
+				gitBranch={null}
+				sessions={Array.from({ length: 7 }, (_, index) => ({
+					paneId: `pane-${index + 1}`,
+					cwd: index === 1 ? "/tmp/trade.rthmn.com" : "/tmp/inferay",
+					agentKind: "codex" as const,
+					paneTitle: "New Chat Session",
+					summary: `Conversation title ${index + 1}`,
+				}))}
+				onSelectSession={() => {}}
+			/>
+		);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+
+		rootElement
+			.querySelector("button")!
+			.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+
+		expect(document.body.textContent).toContain("trade.rthmn.com");
+		expect(document.body.textContent).toContain("Conversation title 2");
+		expect(document.body.textContent).not.toContain("Codex");
+		const scrollBox = Array.from(document.body.querySelectorAll("div")).find(
+			(element) => element.style.maxHeight === "290px"
+		);
+		expect(scrollBox).toBeTruthy();
 	} finally {
 		root.unmount();
 	}

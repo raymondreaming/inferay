@@ -13,6 +13,7 @@ import {
 	buildCodexInvocationArgs,
 	handleCodexEvent,
 	resolveCompletedCodexAssistantMessage,
+	shouldEmitCodexOutputFallback,
 } from "../src/server/agents/codex-adapter.ts";
 
 describe("agent stream event normalization", () => {
@@ -151,6 +152,25 @@ describe("agent stream event normalization", () => {
 		expect(resolveCompletedCodexAssistantMessage("draft", "final")).toEqual({
 			mode: "replace",
 		});
+	});
+
+	test("does not replay output-file text after a trailing tool", () => {
+		expect(
+			shouldEmitCodexOutputFallback({
+				outputText: "Current staged stats: 17 files modified",
+				lastAssistantMessage: "Current staged stats: 17 files modified",
+				hasFinalAssistantMessage: true,
+				lastChatBlockRole: "tool",
+			})
+		).toBe(false);
+		expect(
+			shouldEmitCodexOutputFallback({
+				outputText: "Recovered final summary",
+				lastAssistantMessage: "Earlier progress update",
+				hasFinalAssistantMessage: true,
+				lastChatBlockRole: "tool",
+			})
+		).toBe(true);
 	});
 
 	test("Codex file_change events do not synthesize filesystem edit diffs", () => {

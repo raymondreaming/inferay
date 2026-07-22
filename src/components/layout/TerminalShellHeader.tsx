@@ -19,6 +19,7 @@ import {
 	APP_PAGE_ROUTES,
 	DEFAULT_TERMINAL_MAIN_VIEW,
 	isTerminalMainView,
+	SIDEBAR_NAV_ROUTES,
 	TERMINAL_MAIN_VIEWS,
 	type TerminalMainView,
 } from "../../lib/app-navigation.tsx";
@@ -208,6 +209,18 @@ export function TerminalShellHeader() {
 						/>
 					);
 				})}
+				{SIDEBAR_NAV_ROUTES.map((route) => {
+					const Icon = route.icon;
+					return (
+						<ViewTab
+							key={route.id}
+							active={location.pathname === route.path}
+							icon={<Icon size={12} />}
+							label={route.label}
+							onClick={() => navigate(route.path)}
+						/>
+					);
+				})}
 				{AUTOMATIONS_ROUTE && (
 					<ViewTab
 						active={location.pathname === AUTOMATIONS_ROUTE.path}
@@ -318,8 +331,14 @@ const styles = stylex.create({
 	viewTabs: {
 		alignItems: "center",
 		display: "flex",
-		flexShrink: 0,
+		flexShrink: 1,
 		gap: controlSize._1,
+		minWidth: 0,
+		overflowX: "auto",
+		scrollbarWidth: "none",
+		"::-webkit-scrollbar": {
+			display: "none",
+		},
 	},
 	spacer: {
 		flex: 1,

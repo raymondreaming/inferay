@@ -12,7 +12,6 @@ import {
 	IconExpand,
 	IconGitBranch,
 	IconLayoutGrid,
-	IconPanelLeft,
 	IconPlus,
 	IconSettings,
 	IconX,
@@ -31,6 +30,7 @@ type EditorChatSession = {
 	referencePaths?: string[];
 	pendingCwd?: boolean;
 	messageCount: number;
+	summary: string | null;
 };
 
 export function Placeholder({ label }: { label: string }) {
@@ -187,10 +187,8 @@ export function DiffViewerTopBar({
 	filePath,
 	selectedFile,
 	diffStats,
-	sidebarVisible,
 	onStageFile,
 	onUnstageFile,
-	onToggleSidebar,
 	onMainViewModeChange,
 	onDiffViewModeChange,
 	onGitBranchChanged,
@@ -204,10 +202,8 @@ export function DiffViewerTopBar({
 	filePath?: string;
 	selectedFile: SelectedFile | null;
 	diffStats: ReturnType<typeof summarizeHunkDiff>;
-	sidebarVisible: boolean;
 	onStageFile: (path: string) => void;
 	onUnstageFile: (path: string) => void;
-	onToggleSidebar: () => void;
 	onMainViewModeChange: (mode: "diff" | "graph") => void;
 	onDiffViewModeChange: (mode: DiffViewMode) => void;
 	onGitBranchChanged?: (branch?: string) => void;
@@ -313,14 +309,6 @@ export function DiffViewerTopBar({
 					title="Hunk view"
 					onClick={() => onDiffViewModeChange("hunks")}
 					icon={<IconGitBranch size={11} />}
-				/>
-				<ToolbarButton
-					active={sidebarVisible}
-					title={
-						sidebarVisible ? "Hide changes sidebar" : "Show changes sidebar"
-					}
-					onClick={onToggleSidebar}
-					icon={<IconPanelLeft size={11} />}
 				/>
 				<ToolbarButton
 					active={zenMode}

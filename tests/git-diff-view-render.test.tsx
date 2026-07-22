@@ -98,7 +98,7 @@ async function renderDiff(
 }
 
 describe("GitDiffView custom renderer", () => {
-	test("renders split panes side by side and clips long code rows", async () => {
+	test("renders independently scrollable split panes with synchronized axes", async () => {
 		const { root, rootElement } = setupDom();
 		try {
 			const diff: HunkDiff = {
@@ -116,34 +116,31 @@ describe("GitDiffView custom renderer", () => {
 
 			await renderDiff(root, rootElement, diff);
 
-			const row = Array.from(rootElement.querySelectorAll("div")).find(
-				(node) => {
-					const children = Array.from(node.children);
-					return (
-						children.length === 2 &&
-						children.every(
-							(child) =>
-								child instanceof domWindow().HTMLDivElement &&
-								(child as HTMLElement).style.flexGrow === "1"
-						)
-					);
-				}
-			) as HTMLElement | undefined;
-			expect(row).toBeTruthy();
-
-			const panes = Array.from(row!.children) as HTMLElement[];
-			expect(panes).toHaveLength(2);
-			expect(panes[0]?.style.minWidth).toBe("0px");
-			expect(panes[1]?.style.minWidth).toBe("0px");
-
-			const codeRows = Array.from(
-				row!.querySelectorAll(".diff-row")
-			) as HTMLElement[];
-			expect(codeRows.length).toBeGreaterThanOrEqual(2);
-			expect(codeRows[0]?.style.width).toBe("100%");
+			const left = rootElement.querySelector<HTMLElement>(
+				'[data-diff-scroll-side="left"]'
+			);
+			const right = rootElement.querySelector<HTMLElement>(
+				'[data-diff-scroll-side="right"]'
+			);
+			expect(left).toBeTruthy();
+			expect(right).toBeTruthy();
 			expect(
-				(codeRows[0]!.lastElementChild as HTMLElement | null)?.style.minWidth
-			).toBe("0px");
+				rootElement.querySelectorAll(".diff-row").length
+			).toBeGreaterThanOrEqual(4);
+
+			left!.scrollLeft = 180;
+			left!.scrollTop = 24;
+			left!.dispatchEvent(new window.Event("scroll"));
+			await new Promise((resolve) => setTimeout(resolve, 10));
+			expect(right!.scrollLeft).toBe(180);
+			expect(right!.scrollTop).toBe(24);
+
+			right!.scrollLeft = 72;
+			right!.scrollTop = 48;
+			right!.dispatchEvent(new window.Event("scroll"));
+			await new Promise((resolve) => setTimeout(resolve, 10));
+			expect(left!.scrollLeft).toBe(72);
+			expect(left!.scrollTop).toBe(48);
 		} finally {
 			root.unmount();
 		}

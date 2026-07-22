@@ -33,6 +33,26 @@ export function resolveCompletedCodexAssistantMessage(
 	return { mode: "replace" };
 }
 
+export function shouldEmitCodexOutputFallback({
+	outputText,
+	lastAssistantMessage,
+	hasFinalAssistantMessage,
+	lastChatBlockRole,
+}: {
+	outputText: string;
+	lastAssistantMessage: string;
+	hasFinalAssistantMessage: boolean;
+	lastChatBlockRole: "assistant" | "tool" | null;
+}) {
+	if (!outputText) return false;
+	if (
+		hasFinalAssistantMessage &&
+		outputText.trim() === lastAssistantMessage.trim()
+	)
+		return false;
+	return !hasFinalAssistantMessage || lastChatBlockRole !== "assistant";
+}
+
 interface CodexRunState {
 	outputPath: string;
 	debugLogPath: string;
@@ -718,16 +738,18 @@ export const codexAdapter: AgentAdapter<CodexRunState> = {
 				try {
 					if (await outputFile.exists()) {
 						assistantText = (await outputFile.text()).trim();
-						state.lastAssistantMessage = assistantText;
 					}
 				} finally {
 					await unlink(state.outputPath).catch(noop);
 				}
-				if (
-					assistantText &&
-					(!state.hasFinalAssistantMessage ||
-						state.lastChatBlockRole !== "assistant")
-				) {
+				const shouldEmitOutputFallback = shouldEmitCodexOutputFallback({
+					outputText: assistantText,
+					lastAssistantMessage: state.lastAssistantMessage,
+					hasFinalAssistantMessage: state.hasFinalAssistantMessage,
+					lastChatBlockRole: state.lastChatBlockRole,
+				});
+				if (assistantText) state.lastAssistantMessage = assistantText;
+				if (shouldEmitOutputFallback) {
 					ctx.emitChatEvent({
 						type: "result",
 						result: assistantText,

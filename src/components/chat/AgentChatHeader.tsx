@@ -1,7 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { memo, useCallback, useMemo, useState } from "react";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
-import { getAgentDefinition } from "../../features/agents/agents.ts";
 import type { AgentKind } from "../../features/terminal/terminal-utils.ts";
 import {
 	APP_REGION_DRAG_CLASS,
@@ -15,13 +14,40 @@ import {
 	motion,
 	radius,
 } from "../../tokens.stylex.ts";
-import { DropdownButton } from "../ui/DropdownButton.tsx";
+import { DropdownButton, type DropdownOption } from "../ui/DropdownButton.tsx";
 import { IconGitBranch, IconX } from "../ui/Icons.tsx";
 
 export interface AgentChatSession {
 	paneId: string;
 	cwd?: string;
 	agentKind: AgentKind;
+	paneTitle?: string;
+	summary?: string | null;
+}
+
+function SessionDropdownOption({
+	option,
+	isSelected,
+}: {
+	option: DropdownOption;
+	isSelected: boolean;
+}) {
+	return (
+		<div
+			{...stylex.props(
+				styles.sessionOption,
+				isSelected && styles.sessionOptionSelected
+			)}
+		>
+			<span {...stylex.props(styles.sessionOptionIcon)}>{option.icon}</span>
+			<div {...stylex.props(styles.sessionOptionText)}>
+				<span {...stylex.props(styles.sessionOptionRepo)}>{option.label}</span>
+				<span {...stylex.props(styles.sessionOptionTitle)}>
+					{option.detail}
+				</span>
+			</div>
+		</div>
+	);
 }
 
 interface AgentChatHeaderProps {
@@ -152,7 +178,7 @@ export const AgentChatHeader = memo(function AgentChatHeader({
 							(session.cwd ?? "").split("/").pop() ||
 							session.cwd ||
 							"No directory",
-						detail: getAgentDefinition(session.agentKind).label,
+						detail: session.summary || session.paneTitle || "New chat session",
 						icon: getAgentIcon(session.agentKind, 12),
 					}))
 				: [],
@@ -176,6 +202,9 @@ export const AgentChatHeader = memo(function AgentChatHeader({
 							options={sessionOptions}
 							onChange={onSelectSession}
 							minWidth={220}
+							maxVisibleOptions={6}
+							optionHeight={48}
+							renderOption={SessionDropdownOption}
 							buttonClassName={
 								stylex.props(styles.headerDropdownButton).className
 							}
@@ -313,6 +342,48 @@ const styles = stylex.create({
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
+	},
+	sessionOption: {
+		display: "flex",
+		height: 48,
+		alignItems: "center",
+		gap: controlSize._2,
+		paddingInline: controlSize._3,
+		backgroundColor: {
+			default: "transparent",
+			":hover": color.controlHover,
+		},
+	},
+	sessionOptionSelected: {
+		backgroundColor: color.controlActive,
+	},
+	sessionOptionIcon: {
+		display: "flex",
+		flexShrink: 0,
+		color: color.textSoft,
+	},
+	sessionOptionText: {
+		display: "flex",
+		minWidth: 0,
+		flex: 1,
+		flexDirection: "column",
+		gap: 2,
+		textAlign: "left",
+	},
+	sessionOptionRepo: {
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+		color: color.textMain,
+		fontSize: font.size_2,
+		fontWeight: font.weight_6,
+	},
+	sessionOptionTitle: {
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+		color: color.textMuted,
+		fontSize: font.size_1,
 	},
 	branchError: {
 		color: color.danger,

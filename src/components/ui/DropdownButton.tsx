@@ -41,6 +41,8 @@ interface DropdownButtonProps {
 	buttonClassName?: string;
 	labelClassName?: string;
 	menuPlacement?: "auto" | "top" | "bottom";
+	maxVisibleOptions?: number;
+	optionHeight?: number;
 	onOpen?: () => void;
 }
 
@@ -100,6 +102,8 @@ export function DropdownButton({
 	buttonClassName,
 	labelClassName = "",
 	menuPlacement = "auto",
+	maxVisibleOptions,
+	optionHeight,
 	onOpen,
 }: DropdownButtonProps) {
 	const [open, setOpen] = useState(false);
@@ -163,10 +167,13 @@ export function DropdownButton({
 		const placeAbove =
 			menuPlacement === "top" ||
 			(menuPlacement === "auto" && spaceAbove > spaceBelow);
-		const rowHeight = renderOption ? 34 : 30;
+		const rowHeight = optionHeight ?? (renderOption ? 34 : 30);
 		const searchHeight = options.length > 5 ? 38 : 0;
+		const visibleOptionCount = maxVisibleOptions
+			? Math.min(options.length, maxVisibleOptions)
+			: options.length;
 		const contentHeight = Math.min(
-			options.length * rowHeight + searchHeight + 2,
+			visibleOptionCount * rowHeight + searchHeight + 2,
 			400
 		);
 		const maxH = Math.min(contentHeight, placeAbove ? spaceAbove : spaceBelow);
@@ -181,7 +188,14 @@ export function DropdownButton({
 			maxH,
 			placement: placeAbove ? "top" : "bottom",
 		});
-	}, [menuPlacement, minWidth, options.length, renderOption]);
+	}, [
+		maxVisibleOptions,
+		menuPlacement,
+		minWidth,
+		optionHeight,
+		options.length,
+		renderOption,
+	]);
 	const toggle = () => {
 		if (!open) {
 			onOpen?.();
@@ -495,6 +509,8 @@ const styles = stylex.create({
 	},
 	customOption: {
 		cursor: "pointer",
+		display: "block",
+		width: "100%",
 	},
 	option: {
 		alignItems: "center",

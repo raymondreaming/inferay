@@ -12,6 +12,7 @@ import {
 import type { AgentChatHandle } from "../../components/chat/AgentChatView.tsx";
 import { DiffViewerBoundary } from "../../components/diff/DiffViewerBoundary.tsx";
 import {
+	CollapsedChangeFileSidebar,
 	ChangeFileSidebar,
 	type SelectedFile,
 } from "../../components/git/ChangeFileSidebar.tsx";
@@ -19,6 +20,7 @@ import { CommitGraph } from "../../components/git/CommitGraph.tsx";
 import { isChatAgentKind } from "../../features/agents/agents.ts";
 import {
 	clearAgentChatPaneState,
+	deriveStoredSummary,
 	loadPendingWorkspacePaths,
 } from "../../features/chat/chat-session-store.ts";
 import { useFileWatcher } from "../../features/file-watcher/useFileWatcher.ts";
@@ -45,11 +47,7 @@ import {
 	type TerminalGroupModel,
 	type ThemeId,
 } from "../../features/terminal/terminal-utils.ts";
-import {
-	incrementNumber,
-	isNonEmptyString,
-	toggleBoolean,
-} from "../../lib/data.ts";
+import { incrementNumber, isNonEmptyString } from "../../lib/data.ts";
 import {
 	listenWindowEvent,
 	setupTerminalThemePanelShortcut,
@@ -77,6 +75,7 @@ interface Session {
 	referencePaths?: string[];
 	pendingCwd?: boolean;
 	messageCount: number;
+	summary: string | null;
 }
 
 type StateValue<T> = T | ((current: T) => T);
@@ -166,6 +165,7 @@ function flattenSessions(groups: TerminalGroupModel[]): Session[] {
 					pendingCwd:
 						p.pendingCwd || (!p.cwd && pendingWorkspacePaths.length > 0),
 					messageCount: 0,
+					summary: deriveStoredSummary(p.id),
 				},
 			];
 		})
@@ -182,6 +182,7 @@ function stableSessions(next: Session[]): Session[] {
 				s.cwd ?? "",
 				s.pendingCwd ? "pending" : "ready",
 				s.referencePaths?.join("\u0000") ?? "",
+				s.summary ?? "",
 			].join("\u0001")
 		)
 		.join("\u0002");
@@ -718,41 +719,67 @@ function useEditorPageModel({
 		isCommitting,
 		amendMode,
 		onAmendModeChange: setAmendMode,
+		onCollapse: () => setSidebarVisible(false),
 	};
-	const diffSidebar = sidebarVisible ? (
-		<div {...stylex.props(styles.sidebarShell)} style={{ width: sidebarWidth }}>
-			<button
-				type="button"
-				aria-label="Resize file sidebar"
-				{...stylex.props(styles.sidebarResize)}
-				onMouseDown={handleSidebarDragStart}
-			/>
-			<ChangeFileSidebar
-				{...fileSidebarProps}
-				mainViewMode="diff"
-				selectedCommitHash={null}
-				commitDetailsLoading={false}
-				commitDetails={null}
-			/>
+	const collapsedSidebar = (
+		<CollapsedChangeFileSidebar
+			unstagedCount={modified.length + untracked.length}
+			stagedCount={staged.length}
+			onExpand={() => setSidebarVisible(true)}
+		/>
+	);
+	const diffSidebar = (
+		<div
+			{...stylex.props(styles.sidebarShell)}
+			style={{ width: sidebarVisible ? sidebarWidth : 44 }}
+		>
+			{sidebarVisible ? (
+				<>
+					<button
+						type="button"
+						aria-label="Resize file sidebar"
+						{...stylex.props(styles.sidebarResize)}
+						onMouseDown={handleSidebarDragStart}
+					/>
+					<ChangeFileSidebar
+						{...fileSidebarProps}
+						mainViewMode="diff"
+						selectedCommitHash={null}
+						commitDetailsLoading={false}
+						commitDetails={null}
+					/>
+				</>
+			) : (
+				collapsedSidebar
+			)}
 		</div>
-	) : null;
-	const detailsSidebar = sidebarVisible ? (
-		<div {...stylex.props(styles.sidebarShell)} style={{ width: sidebarWidth }}>
-			<button
-				type="button"
-				aria-label="Resize file sidebar"
-				{...stylex.props(styles.sidebarResize)}
-				onMouseDown={handleSidebarDragStart}
-			/>
-			<ChangeFileSidebar
-				{...fileSidebarProps}
-				mainViewMode={mainViewMode}
-				selectedCommitHash={selectedCommitHash}
-				commitDetailsLoading={commitDetailsLoading}
-				commitDetails={commitDetails}
-			/>
+	);
+	const detailsSidebar = (
+		<div
+			{...stylex.props(styles.sidebarShell)}
+			style={{ width: sidebarVisible ? sidebarWidth : 44 }}
+		>
+			{sidebarVisible ? (
+				<>
+					<button
+						type="button"
+						aria-label="Resize file sidebar"
+						{...stylex.props(styles.sidebarResize)}
+						onMouseDown={handleSidebarDragStart}
+					/>
+					<ChangeFileSidebar
+						{...fileSidebarProps}
+						mainViewMode={mainViewMode}
+						selectedCommitHash={selectedCommitHash}
+						commitDetailsLoading={commitDetailsLoading}
+						commitDetails={commitDetails}
+					/>
+				</>
+			) : (
+				collapsedSidebar
+			)}
 		</div>
-	) : null;
+	);
 	const emptyWorkspace = <EmptyEditorWorkspace sidebar={diffSidebar} />;
 	const diffToolbar = session ? (
 		<DiffViewerTopBar
@@ -763,10 +790,8 @@ function useEditorPageModel({
 			filePath={request?.file}
 			selectedFile={selectedFile}
 			diffStats={selectedDiffStats}
-			sidebarVisible={sidebarVisible}
 			onStageFile={stageFile}
 			onUnstageFile={unstageFile}
-			onToggleSidebar={setSidebarVisible.bind(null, toggleBoolean)}
 			onMainViewModeChange={setMainViewMode}
 			onDiffViewModeChange={setDiffViewMode}
 			onGitBranchChanged={refreshGitBranch}

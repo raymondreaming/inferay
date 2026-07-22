@@ -515,7 +515,7 @@ const styles = stylex.create({
 		borderLeftWidth: 1,
 		borderLeftStyle: "solid",
 		borderLeftColor: color.border,
-		backgroundColor: color.surfaceTranslucent,
+		backgroundColor: color.background,
 	},
 	inspectorHeader: {
 		borderBottomWidth: 1,

@@ -213,12 +213,109 @@ export function ChangeFileSidebar(props: ChangeFileSidebarProps) {
 	);
 }
 
+export function CollapsedChangeFileSidebar({
+	stagedCount,
+	unstagedCount,
+	onExpand,
+}: {
+	stagedCount: number;
+	unstagedCount: number;
+	onExpand: () => void;
+}) {
+	return (
+		<div {...stylex.props(styles.collapsedRoot)}>
+			<button
+				type="button"
+				onClick={onExpand}
+				title="Expand files sidebar"
+				aria-label="Expand files sidebar"
+				{...stylex.props(styles.collapsedToggle)}
+			>
+				<IconPanelLeft size={13} />
+			</button>
+			<div {...stylex.props(styles.collapsedCounts)}>
+				<div
+					{...stylex.props(styles.collapsedCount)}
+					title={`${unstagedCount} unstaged ${unstagedCount === 1 ? "file" : "files"}`}
+				>
+					<span {...stylex.props(styles.unstagedDot)} />
+					<span>{unstagedCount}</span>
+				</div>
+				<div
+					{...stylex.props(styles.collapsedCount)}
+					title={`${stagedCount} staged ${stagedCount === 1 ? "file" : "files"}`}
+				>
+					<span {...stylex.props(styles.stagedDot)} />
+					<span>{stagedCount}</span>
+				</div>
+			</div>
+		</div>
+	);
+}
+
 const styles = stylex.create({
 	root: {
 		display: "flex",
 		flex: 1,
 		flexDirection: "column",
 		minWidth: 0,
+	},
+	collapsedRoot: {
+		display: "flex",
+		width: 43,
+		height: "100%",
+		alignItems: "center",
+		flexDirection: "column",
+		backgroundColor: color.background,
+	},
+	collapsedToggle: {
+		display: "flex",
+		width: "100%",
+		height: controlSize._8,
+		flexShrink: 0,
+		alignItems: "center",
+		justifyContent: "center",
+		borderBottomWidth: 1,
+		borderBottomStyle: "solid",
+		borderBottomColor: color.border,
+		color: {
+			default: color.textMuted,
+			":hover": color.textMain,
+		},
+		backgroundColor: {
+			default: "transparent",
+			":hover": color.controlHover,
+		},
+	},
+	collapsedCounts: {
+		display: "flex",
+		flexDirection: "column",
+		alignItems: "center",
+		gap: controlSize._3,
+		paddingTop: controlSize._3,
+	},
+	collapsedCount: {
+		display: "flex",
+		minWidth: controlSize._6,
+		alignItems: "center",
+		justifyContent: "center",
+		gap: controlSize._1,
+		color: color.textSoft,
+		fontFamily: font.familyDiff,
+		fontSize: font.size_1,
+		fontVariantNumeric: "tabular-nums",
+	},
+	unstagedDot: {
+		width: 5,
+		height: 5,
+		borderRadius: radius.pill,
+		backgroundColor: color.warning,
+	},
+	stagedDot: {
+		width: 5,
+		height: 5,
+		borderRadius: radius.pill,
+		backgroundColor: color.gitAdded,
 	},
 	scrollArea: {
 		flex: 1,
@@ -406,16 +503,11 @@ const styles = stylex.create({
 		fontWeight: font.weight_5,
 	},
 	generateButton: {
-		height: controlSize._6,
+		height: controlSize._5,
 		justifyContent: "center",
-		paddingInline: 0,
+		paddingInline: controlSize._2,
 		fontSize: font.size_2,
 		fontWeight: font.weight_6,
-		width: controlSize._7,
-	},
-	generateMark: {
-		color: color.textSoft,
-		display: "flex",
 	},
 	checkRow: {
 		display: "flex",
@@ -442,8 +534,8 @@ const styles = stylex.create({
 		paddingBottom: controlSize._3,
 	},
 	commitEditor: {
-		backgroundColor: color.backgroundRaised,
-		backgroundImage: effect.controlDepth,
+		backgroundColor:
+			"color-mix(in srgb, var(--color-inferay-dark-gray) 68%, var(--color-inferay-black))",
 		borderColor: {
 			default: color.border,
 			":focus-within": color.borderStrong,
@@ -490,6 +582,7 @@ const styles = stylex.create({
 		flexShrink: 0,
 		justifyContent: "center",
 		marginRight: controlSize._2,
+		transform: "scale(0.82)",
 	},
 	summaryCount: {
 		flexShrink: 0,
@@ -525,11 +618,12 @@ const styles = stylex.create({
 		position: "absolute",
 		right: controlSize._3,
 		top: controlSize._2_5,
+		transform: "scale(0.82)",
 	},
 	commitButton: {
 		backgroundColor: {
-			default: color.backgroundRaised,
-			":hover": color.controlHover,
+			default: color.surfaceControl,
+			":hover": color.surfaceControlHover,
 		},
 		backgroundImage: {
 			default: effect.controlDepth,
@@ -541,16 +635,18 @@ const styles = stylex.create({
 		},
 		borderStyle: "solid",
 		borderWidth: 1,
+		borderRadius: radius.lg,
 		boxShadow: {
-			default: shadow.composerFrame,
-			":hover": shadow.composerFrameFocus,
+			default: shadow.controlDepth,
+			":hover": shadow.controlDepthHover,
 		},
 		color: color.textMain,
 		gap: controlSize._2,
 		fontSize: font.size_3,
 		fontWeight: font.weight_6,
 		justifyContent: "center",
-		minHeight: controlSize._9,
+		height: controlSize._8,
+		minHeight: controlSize._8,
 		width: "100%",
 	},
 	detailsRoot: {
@@ -708,6 +804,11 @@ const styles = stylex.create({
 		paddingInline: controlSize._3,
 		gap: controlSize._2,
 	},
+	groupHeaderSeparated: {
+		borderTopWidth: 1,
+		borderTopStyle: "solid",
+		borderTopColor: color.borderStrong,
+	},
 	groupToggle: {
 		display: "flex",
 		alignItems: "center",
@@ -744,12 +845,17 @@ const styles = stylex.create({
 		paddingInline: controlSize._1_5,
 	},
 	actionAllButton: {
+		display: "flex",
 		height: controlSize._6,
-		justifyContent: "center",
-		paddingInline: 0,
-		fontSize: font.size_2,
-		fontWeight: font.weight_6,
 		width: controlSize._6,
+		alignItems: "center",
+		justifyContent: "center",
+		padding: 0,
+		color: {
+			default: color.textMuted,
+			":hover": color.textMain,
+		},
+		backgroundColor: "transparent",
 	},
 	groupList: {
 		flex: 1,
@@ -803,8 +909,8 @@ const styles = stylex.create({
 		textAlign: "left",
 	},
 	fileRowActive: {
-		borderLeftColor: "var(--color-inferay-accent)",
-		backgroundColor: "rgba(29, 185, 84, 0.08)",
+		borderLeftColor: color.borderStrong,
+		backgroundColor: color.surfaceInset,
 	},
 	fileButton: {
 		minWidth: 0,
@@ -863,15 +969,15 @@ const styles = stylex.create({
 		pointerEvents: "auto",
 		backgroundColor: {
 			default: "rgba(12, 14, 13, 0.92)",
-			":hover": "rgba(29, 185, 84, 0.16)",
+			":hover": color.controlActive,
 		},
 		borderColor: {
 			default: "rgba(255, 255, 255, 0.12)",
-			":hover": "rgba(29, 185, 84, 0.55)",
+			":hover": color.borderStrong,
 		},
 		color: {
 			default: color.textSoft,
-			":hover": "var(--color-inferay-accent)",
+			":hover": color.textMain,
 		},
 	},
 	rowActionSubtle: {
@@ -954,7 +1060,19 @@ function ChangeFileSidebarHeader({
 }) {
 	return (
 		<div {...stylex.props(styles.sidebarHeader)}>
-			<span {...stylex.props(styles.headerLabel)}>Files</span>
+			{onCollapse ? (
+				<button
+					type="button"
+					onClick={onCollapse}
+					title="Collapse files sidebar"
+					aria-label="Collapse files sidebar"
+					{...stylex.props(styles.headerIconButton)}
+				>
+					<IconPanelLeft size={12} />
+				</button>
+			) : (
+				<span {...stylex.props(styles.headerLabel)}>Files</span>
+			)}
 			<span {...stylex.props(styles.spacer)} />
 			<div {...stylex.props(styles.segmented)}>
 				<button
@@ -980,16 +1098,6 @@ function ChangeFileSidebarHeader({
 					Tree
 				</button>
 			</div>
-			{onCollapse && (
-				<button
-					type="button"
-					onClick={onCollapse}
-					title="Hide sidebar"
-					{...stylex.props(styles.headerIconButton)}
-				>
-					<IconPanelLeft size={12} />
-				</button>
-			)}
 		</div>
 	);
 }
@@ -1054,14 +1162,7 @@ function CommitSection({
 					size="sm"
 					className={stylex.props(styles.generateButton).className}
 				>
-					<span {...stylex.props(styles.generateMark)}>
-						<DotMatrixWeave
-							size={15}
-							dotSize={2}
-							gap={1}
-							speed={generating ? 1.35 : 0.35}
-						/>
-					</span>
+					{generating ? "Generating…" : "Generate"}
 				</Button>
 			</div>
 
@@ -1542,7 +1643,12 @@ function FileGroup({
 
 	return (
 		<div {...stylex.props(styles.fileGroup)}>
-			<div {...stylex.props(styles.groupHeader)}>
+			<div
+				{...stylex.props(
+					styles.groupHeader,
+					title === "Staged" && styles.groupHeaderSeparated
+				)}
+			>
 				<button
 					type="button"
 					onClick={() =>
@@ -1568,16 +1674,15 @@ function FileGroup({
 					<span {...stylex.props(styles.countPill)}>{files.length}</span>
 				</button>
 				{onActionAll && !isCollapsed && actionLabel && !isEmpty && (
-					<Button
+					<button
 						type="button"
 						onClick={onActionAll}
 						title={`${actionLabel} all files`}
-						variant="secondary"
-						size="sm"
-						className={stylex.props(styles.actionAllButton).className}
+						aria-label={`${actionLabel} all files`}
+						{...stylex.props(styles.actionAllButton)}
 					>
 						<FileActionIcon actionLabel={actionLabel} />
-					</Button>
+					</button>
 				)}
 			</div>
 			{isEmpty ? (
