@@ -1230,13 +1230,10 @@ const styles = stylex.create({
 	nav: {
 		flex: 1,
 		overflowY: "auto",
-		paddingBlock: "0.375rem",
+		paddingBlock: 0,
 	},
 	workspaceSection: {
-		borderTopColor: color.border,
-		borderTopStyle: "solid",
-		borderTopWidth: 1,
-		marginTop: controlSize._2,
+		marginTop: 0,
 		paddingTop: controlSize._2,
 	},
 	workspaceSectionHeader: {

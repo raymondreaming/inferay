@@ -731,7 +731,7 @@ function useEditorPageModel({
 	const diffSidebar = (
 		<div
 			{...stylex.props(styles.sidebarShell)}
-			style={{ width: sidebarVisible ? sidebarWidth : 44 }}
+			style={{ width: sidebarVisible ? sidebarWidth : 38 }}
 		>
 			{sidebarVisible ? (
 				<>
@@ -757,7 +757,7 @@ function useEditorPageModel({
 	const detailsSidebar = (
 		<div
 			{...stylex.props(styles.sidebarShell)}
-			style={{ width: sidebarVisible ? sidebarWidth : 44 }}
+			style={{ width: sidebarVisible ? sidebarWidth : 38 }}
 		>
 			{sidebarVisible ? (
 				<>
@@ -978,15 +978,20 @@ const styles = stylex.create({
 		display: "flex",
 		flexShrink: 0,
 		flexDirection: "row",
+		position: "relative",
 		borderLeftWidth: 1,
 		borderLeftStyle: "solid",
 		borderLeftColor: color.border,
 		backgroundColor: color.background,
 	},
 	sidebarResize: {
+		position: "absolute",
+		left: -2,
+		top: 0,
+		bottom: 0,
+		zIndex: 30,
 		width: controlSize._1,
 		borderWidth: 0,
-		flexShrink: 0,
 		cursor: "ew-resize",
 		padding: 0,
 		backgroundColor: {

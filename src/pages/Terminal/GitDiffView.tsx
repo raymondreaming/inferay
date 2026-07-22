@@ -198,12 +198,16 @@ function roundToDevicePixel(value: number): number {
 const diffStyles = stylex.create({
 	virtualRoot: {
 		display: "flex",
+		minWidth: 0,
 		minHeight: 0,
 		flex: 1,
+		overflow: "hidden",
+		width: "100%",
 		contain: "layout paint style",
 	},
 	virtualScroller: {
 		flex: 1,
+		minWidth: 0,
 		overflow: "auto",
 		overflowAnchor: "none",
 		overscrollBehavior: "contain",
@@ -601,7 +605,7 @@ const diffStyles = stylex.create({
 		position: "absolute",
 		left: 0,
 		width: GUTTER_W,
-		backgroundColor: color.surfaceInset,
+		backgroundColor: color.background,
 	},
 	gutterRow: {
 		display: "flex",
@@ -609,7 +613,7 @@ const diffStyles = stylex.create({
 		maxHeight: LINE_H,
 		minHeight: LINE_H,
 		overflow: "hidden",
-		backgroundColor: color.surfaceInset,
+		backgroundColor: color.background,
 	},
 	content: {
 		flex: 1,

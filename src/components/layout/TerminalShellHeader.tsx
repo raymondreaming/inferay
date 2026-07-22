@@ -302,6 +302,7 @@ export function TerminalShellHeader() {
 								}
 								variant="secondary"
 								size="sm"
+								className={stylex.props(styles.newButton).className}
 							>
 								<span>New</span>
 								<IconPlus size={10} />
@@ -394,6 +395,16 @@ const styles = stylex.create({
 	},
 	shrink: {
 		flexShrink: 0,
+	},
+	newButton: {
+		backgroundColor: {
+			default: color.controlActive,
+			":hover": color.surfaceControlHover,
+		},
+		backgroundImage: "none",
+		borderColor: color.border,
+		borderWidth: 1,
+		boxShadow: "none",
 	},
 	viewTab: {
 		alignItems: "center",

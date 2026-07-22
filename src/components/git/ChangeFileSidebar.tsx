@@ -14,6 +14,7 @@ import { Button } from "../ui/Button.tsx";
 import { DotMatrixWeave } from "../ui/DotMatrixLoader.tsx";
 import {
 	IconChevronRight,
+	IconCheck,
 	IconFolderFill,
 	IconGitCommit,
 	IconMinus,
@@ -262,7 +263,7 @@ const styles = stylex.create({
 	},
 	collapsedRoot: {
 		display: "flex",
-		width: 43,
+		width: 37,
 		height: "100%",
 		alignItems: "center",
 		flexDirection: "column",
@@ -465,9 +466,6 @@ const styles = stylex.create({
 	},
 	commitSection: {
 		flexShrink: 0,
-		borderTopWidth: 1,
-		borderTopStyle: "solid",
-		borderTopColor: color.border,
 		backgroundColor: color.background,
 	},
 	commitHeader: {
@@ -503,9 +501,16 @@ const styles = stylex.create({
 		fontWeight: font.weight_5,
 	},
 	generateButton: {
+		backgroundColor: {
+			default: color.controlActive,
+			":hover": color.surfaceControlHover,
+		},
+		backgroundImage: "none",
+		borderColor: color.border,
+		boxShadow: "none",
 		height: controlSize._5,
 		justifyContent: "center",
-		paddingInline: controlSize._2,
+		paddingInline: controlSize._3,
 		fontSize: font.size_2,
 		fontWeight: font.weight_6,
 	},
@@ -521,10 +526,28 @@ const styles = stylex.create({
 			":hover": color.surfaceSubtle,
 		},
 	},
+	checkboxInput: {
+		position: "absolute",
+		opacity: 0,
+		pointerEvents: "none",
+	},
 	checkbox: {
+		display: "inline-flex",
 		width: font.size_3,
 		height: font.size_3,
-		accentColor: color.accent,
+		alignItems: "center",
+		justifyContent: "center",
+		borderColor: color.borderStrong,
+		borderRadius: radius.sm,
+		borderStyle: "solid",
+		borderWidth: 1,
+		backgroundColor: color.surfaceInset,
+		color: color.background,
+		flexShrink: 0,
+	},
+	checkboxChecked: {
+		borderColor: color.textMuted,
+		backgroundColor: color.textSoft,
 	},
 	commitForm: {
 		display: "flex",
@@ -622,13 +645,10 @@ const styles = stylex.create({
 	},
 	commitButton: {
 		backgroundColor: {
-			default: color.surfaceControl,
+			default: color.controlActive,
 			":hover": color.surfaceControlHover,
 		},
-		backgroundImage: {
-			default: effect.controlDepth,
-			":hover": effect.controlDepthHover,
-		},
+		backgroundImage: "none",
 		borderColor: {
 			default: color.border,
 			":hover": color.borderStrong,
@@ -636,10 +656,7 @@ const styles = stylex.create({
 		borderStyle: "solid",
 		borderWidth: 1,
 		borderRadius: radius.lg,
-		boxShadow: {
-			default: shadow.controlDepth,
-			":hover": shadow.controlDepthHover,
-		},
+		boxShadow: "none",
 		color: color.textMain,
 		gap: controlSize._2,
 		fontSize: font.size_3,
@@ -807,7 +824,7 @@ const styles = stylex.create({
 	groupHeaderSeparated: {
 		borderTopWidth: 1,
 		borderTopStyle: "solid",
-		borderTopColor: color.borderStrong,
+		borderTopColor: color.border,
 	},
 	groupToggle: {
 		display: "flex",
@@ -1171,8 +1188,17 @@ function CommitSection({
 					type="checkbox"
 					checked={amendMode}
 					onChange={(e) => onAmendModeChange(e.target.checked)}
-					{...stylex.props(styles.checkbox)}
+					{...stylex.props(styles.checkboxInput)}
 				/>
+				<span
+					aria-hidden="true"
+					{...stylex.props(
+						styles.checkbox,
+						amendMode && styles.checkboxChecked
+					)}
+				>
+					{amendMode ? <IconCheck size={9} /> : null}
+				</span>
 				<span {...stylex.props(styles.mutedTextSmall)}>
 					Amend previous commit
 				</span>

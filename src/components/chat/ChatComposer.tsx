@@ -1152,9 +1152,9 @@ const styles = stylex.create({
 	},
 	providerConfigChoiceActive: {
 		backgroundColor: color.controlActive,
-		backgroundImage: effect.controlDepthHover,
-		borderColor: color.borderStrong,
-		boxShadow: shadow.selectedRing,
+		backgroundImage: "none",
+		borderColor: color.border,
+		boxShadow: "none",
 		color: color.textMain,
 	},
 	modalBackdrop: {
