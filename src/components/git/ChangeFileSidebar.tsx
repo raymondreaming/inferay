@@ -557,8 +557,7 @@ const styles = stylex.create({
 		paddingBottom: controlSize._3,
 	},
 	commitEditor: {
-		backgroundColor:
-			"color-mix(in srgb, var(--color-inferay-dark-gray) 68%, var(--color-inferay-black))",
+		backgroundColor: color.backgroundRaised,
 		borderColor: {
 			default: color.border,
 			":focus-within": color.borderStrong,
