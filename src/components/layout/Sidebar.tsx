@@ -35,6 +35,11 @@ import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
 } from "../../lib/app-theme.ts";
+import {
+	DEFAULT_TERMINAL_MAIN_VIEW,
+	isTerminalMainView,
+} from "../../lib/app-navigation.tsx";
+import { TERMINAL_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { noop } from "../../lib/data.ts";
 import { fetchJsonOr, sendJson } from "../../lib/fetch-json.ts";
 import {
@@ -123,7 +128,7 @@ async function loadGithubAccount(): Promise<ForgeAccount | null> {
 }
 
 const DEFAULT_SIDEBAR_WIDTH = 292;
-const MIN_SIDEBAR_WIDTH = 238;
+const MIN_SIDEBAR_WIDTH = 188;
 const MAX_SIDEBAR_WIDTH = 340;
 
 type UpdateStatus = "idle" | "updating" | "error";
@@ -445,10 +450,8 @@ function SidebarProfileButton({
 	githubAccount: ForgeAccount | null;
 }) {
 	const navigate = useNavigate();
-	const isProfileActive = useLocation().pathname === "/profile";
 	const profileButtonProps = stylex.props(
 		styles.profileButton,
-		isProfileActive ? styles.profileButtonActive : styles.profileButtonIdle,
 		collapsed ? styles.profileButtonCollapsed : styles.profileButtonOpen
 	);
 
@@ -460,10 +463,10 @@ function SidebarProfileButton({
 			className={`${APP_REGION_NO_DRAG_CLASS} ${profileButtonProps.className ?? ""}`}
 			title={collapsed ? githubLabel : undefined}
 		>
-			<SidebarAccountAvatar account={githubAccount} />
 			{!collapsed ? (
 				<span {...stylex.props(styles.profileLabel)}>{githubLabel}</span>
 			) : null}
+			<SidebarAccountAvatar account={githubAccount} />
 		</button>
 	);
 }
@@ -479,7 +482,6 @@ function SidebarWorkspacesSection({
 	onSelectWorkspace,
 	onSelectPane,
 	onExpandSidebar,
-	onCollapseSidebar,
 	onRemoveWorkspace,
 	onRenameWorkspace,
 }: {
@@ -493,7 +495,6 @@ function SidebarWorkspacesSection({
 	onSelectWorkspace: (groupId: string) => void;
 	onSelectPane: (groupId: string, paneId: string) => void;
 	onExpandSidebar: () => void;
-	onCollapseSidebar: () => void;
 	onRemoveWorkspace: (groupId: string) => void;
 	onRenameWorkspace: (groupId: string, name: string) => void;
 }) {
@@ -552,16 +553,6 @@ function SidebarWorkspacesSection({
 					</IconButton>
 				) : (
 					<>
-						<IconButton
-							type="button"
-							onClick={onCollapseSidebar}
-							variant="ghost"
-							size="md"
-							className={stylex.props(styles.workspaceHeaderButton).className}
-							title="Collapse workspace sidebar"
-						>
-							<IconPanelLeft size={14} />
-						</IconButton>
 						<div {...stylex.props(styles.workspaceLayoutControl)}>
 							<span
 								{...stylex.props(styles.workspaceGridWrap)}
@@ -766,6 +757,7 @@ function SidebarFooter({
 }
 
 export function Sidebar() {
+	const location = useLocation();
 	const navigate = useNavigate();
 	const [uiState, dispatchUi] = useReducer(
 		sidebarUiReducer,
@@ -779,6 +771,26 @@ export function Sidebar() {
 	const { data: appInfo } = useAppInfo();
 	const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
 	const resizeWidthRef = useRef(sidebarWidth);
+	const [mainView, setMainView] = useState(() => {
+		const stored = readStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY);
+		return isTerminalMainView(stored) ? stored : DEFAULT_TERMINAL_MAIN_VIEW;
+	});
+	const showWorkspaceSidebar =
+		location.pathname === "/terminal" &&
+		(mainView === "chat" || mainView === "editor");
+
+	useEffect(
+		() =>
+			listenWindowEvent("terminal-shell-change", (event) => {
+				const detail = (event as CustomEvent<TerminalShellChangeDetail>).detail;
+				if (detail?.source !== "view" || detail.reason !== "main-view") return;
+				const stored = readStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY);
+				setMainView(
+					isTerminalMainView(stored) ? stored : DEFAULT_TERMINAL_MAIN_VIEW
+				);
+			}),
+		[]
+	);
 
 	// Workspace state
 	const loadWorkspaces = useCallback(() => {
@@ -1049,7 +1061,7 @@ export function Sidebar() {
 	}, []);
 	const shellProps = stylex.props(
 		styles.shell,
-		collapsed ? styles.shellCollapsed : styles.shellOpen,
+		!showWorkspaceSidebar || collapsed ? styles.shellHidden : styles.shellOpen,
 		resizing && styles.shellResizing
 	);
 	const resizeHandleProps = stylex.props(styles.resizeHandle);
@@ -1058,9 +1070,11 @@ export function Sidebar() {
 		<aside
 			{...shellProps}
 			className={`${APP_REGION_DRAG_CLASS} ${shellProps.className ?? ""}`}
-			style={collapsed ? undefined : { width: sidebarWidth }}
+			style={
+				!showWorkspaceSidebar || collapsed ? undefined : { width: sidebarWidth }
+			}
 		>
-			{!collapsed && (
+			{showWorkspaceSidebar && !collapsed && (
 				<button
 					type="button"
 					aria-label="Resize sidebar"
@@ -1069,29 +1083,28 @@ export function Sidebar() {
 					onMouseDown={handleResizeStart}
 				/>
 			)}
-			<nav {...stylex.props(styles.nav)}>
-				<SidebarWorkspacesSection
-					collapsed={collapsed}
-					workspaces={workspaces}
-					layoutMode={layoutMode}
-					onAddWorkspace={addWorkspace}
-					onAddChat={addChat}
-					onUpdateLayoutMode={updateLayoutMode}
-					onUpdateGrid={updateSelectedGroupGrid}
-					onSelectWorkspace={selectWorkspace}
-					onSelectPane={selectPane}
-					onExpandSidebar={() =>
-						dispatchUi({ type: "collapsed", value: false })
-					}
-					onCollapseSidebar={() =>
-						dispatchUi({ type: "collapsed", value: true })
-					}
-					onRemoveWorkspace={removeWorkspace}
-					onRenameWorkspace={renameWorkspace}
-				/>
-			</nav>
+			{showWorkspaceSidebar && !collapsed ? (
+				<nav {...stylex.props(styles.nav)}>
+					<SidebarWorkspacesSection
+						collapsed={collapsed}
+						workspaces={workspaces}
+						layoutMode={layoutMode}
+						onAddWorkspace={addWorkspace}
+						onAddChat={addChat}
+						onUpdateLayoutMode={updateLayoutMode}
+						onUpdateGrid={updateSelectedGroupGrid}
+						onSelectWorkspace={selectWorkspace}
+						onSelectPane={selectPane}
+						onExpandSidebar={() =>
+							dispatchUi({ type: "collapsed", value: false })
+						}
+						onRemoveWorkspace={removeWorkspace}
+						onRenameWorkspace={renameWorkspace}
+					/>
+				</nav>
+			) : null}
 			<SidebarFooter
-				collapsed={collapsed}
+				collapsed={false}
 				updateAvailable={updateAvailable}
 				updateInfo={updateInfo}
 				updateStatus={updateStatus}
@@ -1361,19 +1374,19 @@ const styles = stylex.create({
 	},
 	shell: {
 		backgroundColor: color.background,
-		borderColor: "rgba(255,255,255,0.16)",
-		borderRadius: 14,
+		borderColor: "rgba(255,255,255,0.13)",
+		borderRadius: 17,
+		borderTopLeftRadius: 0,
+		borderBottomLeftRadius: 0,
+		borderLeftColor: "transparent",
 		borderStyle: "solid",
 		borderWidth: 1,
 		boxShadow:
-			"inset 0 1px 0 rgba(255,255,255,0.06), 0 1px 24px rgba(0,0,0,0.18), 0 24px 60px rgba(0,0,0,0.42)",
+			"inset 0 1px 0 rgba(255,255,255,0.055), 0 24px 64px rgba(0,0,0,0.5)",
 		display: "flex",
 		flexDirection: "column",
-		marginTop: 36,
-		marginRight: 10,
-		marginBottom: 10,
-		marginLeft: 10,
-		overflow: "hidden",
+		marginTop: 0,
+		overflow: "visible",
 		position: "relative",
 		transitionDuration: "200ms",
 		transitionProperty: "width",
@@ -1382,6 +1395,12 @@ const styles = stylex.create({
 	},
 	shellCollapsed: {
 		width: controlSize._12,
+	},
+	shellHidden: {
+		backgroundColor: "transparent",
+		borderColor: "transparent",
+		boxShadow: "none",
+		width: 0,
 	},
 	shellOpen: {
 		width: 192,
@@ -1436,10 +1455,6 @@ const styles = stylex.create({
 		height: controlSize._8,
 		width: controlSize._8,
 	},
-	workspaceHeaderButton: {
-		height: controlSize._8,
-		width: controlSize._8,
-	},
 	workspaceLayoutControl: {
 		position: "relative",
 		display: "inline-flex",
@@ -1482,13 +1497,13 @@ const styles = stylex.create({
 	workspaceGridMenu: {
 		position: "absolute",
 		top: "calc(100% + 4px)",
-		left: "50%",
+		left: 0,
 		zIndex: 100,
 		display: "flex",
 		width: 188,
 		flexDirection: "column",
 		gap: controlSize._2,
-		transform: "translateX(calc(-50% + 14px))",
+		transform: "none",
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
@@ -1600,13 +1615,19 @@ const styles = stylex.create({
 		transform: "scaleX(-1)",
 	},
 	footer: {
-		borderTopColor: color.border,
-		borderTopStyle: "solid",
-		borderTopWidth: 1,
+		position: "fixed",
+		top: 6,
+		right: 12,
+		zIndex: 140,
+		alignItems: "center",
+		backgroundColor: "transparent",
+		borderWidth: 0,
 		display: "flex",
-		flexDirection: "column",
+		flexDirection: "row",
 		gap: controlSize._1,
-		padding: "0.375rem",
+		marginLeft: 0,
+		padding: 0,
+		width: "auto",
 	},
 	updateButton: {
 		alignItems: "center",
@@ -1633,9 +1654,9 @@ const styles = stylex.create({
 		opacity: 0.75,
 	},
 	updateButtonOpen: {
-		height: controlSize._7,
+		height: 30,
 		paddingInline: "0.375rem",
-		width: "100%",
+		width: "auto",
 	},
 	updateButtonCollapsed: {
 		height: controlSize._7,
@@ -1663,25 +1684,10 @@ const styles = stylex.create({
 		gap: controlSize._1,
 		textAlign: "left",
 	},
-	profileButtonIdle: {
-		backgroundColor: {
-			default: "transparent",
-			":hover": color.backgroundRaised,
-		},
-		color: {
-			default: color.textSoft,
-			":hover": color.textMain,
-		},
-	},
-	profileButtonActive: {
-		backgroundColor: color.controlActive,
-		borderColor: color.border,
-		color: color.textMain,
-	},
 	profileButtonOpen: {
-		height: controlSize._7,
+		height: 30,
 		paddingInline: "0.375rem",
-		width: "100%",
+		width: "auto",
 	},
 	profileButtonCollapsed: {
 		height: controlSize._7,

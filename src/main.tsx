@@ -89,10 +89,15 @@ if (typeof window !== "undefined") {
 
 const styles = stylex.create({
 	shell: {
-		backgroundColor: color.background,
+		backgroundColor: "#050506",
+		backgroundImage:
+			"radial-gradient(circle at 78% 14%, rgba(88,112,255,0.075), transparent 30%), radial-gradient(circle at 19% 86%, rgba(86,194,171,0.045), transparent 28%), radial-gradient(rgba(255,255,255,0.055) 0.65px, transparent 0.75px)",
+		backgroundPosition: "center, center, 0 0",
+		backgroundSize: "auto, auto, 22px 22px",
 		display: "flex",
 		flexDirection: "column",
 		height: "100vh",
+		overflow: "hidden",
 	},
 	windowSpacer: {
 		backgroundColor: color.background,
@@ -102,22 +107,26 @@ const styles = stylex.create({
 	appBody: {
 		display: "flex",
 		flex: 1,
+		gap: 10,
 		minHeight: 0,
+		paddingTop: 36,
+		paddingRight: 12,
+		paddingBottom: 12,
+		paddingLeft: 53,
 	},
 	mainColumn: {
-		backgroundColor: color.background,
-		borderColor: "rgba(255,255,255,0.16)",
-		borderRadius: 14,
+		position: "relative",
+		backgroundColor: "rgba(3,3,4,0.94)",
+		borderColor: "rgba(255,255,255,0.14)",
+		borderRadius: 17,
 		borderStyle: "solid",
 		borderWidth: 1,
 		boxShadow:
-			"inset 0 1px 0 rgba(255,255,255,0.06), 0 1px 24px rgba(0,0,0,0.18), 0 24px 60px rgba(0,0,0,0.42)",
+			"inset 0 1px 0 rgba(255,255,255,0.055), 0 28px 80px rgba(0,0,0,0.52), 0 0 0 1px rgba(0,0,0,0.42)",
+		backdropFilter: "blur(18px)",
 		display: "flex",
 		flex: 1,
 		flexDirection: "column",
-		marginTop: 36,
-		marginRight: 10,
-		marginBottom: 10,
 		minWidth: 0,
 		overflow: "hidden",
 	},

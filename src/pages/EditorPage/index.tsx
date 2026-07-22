@@ -86,6 +86,7 @@ type EditorUiState = {
 	closedPaneIds: Set<string>;
 	scrollToChange: number;
 	zenMode: boolean;
+	chatPanelWidth: number;
 	sidebarWidth: number;
 	sidebarVisible: boolean;
 	selectedCommitHash: string | null;
@@ -93,6 +94,18 @@ type EditorUiState = {
 	mainViewMode: "diff" | "graph";
 	showSettings: boolean;
 };
+
+const EDITOR_CHAT_WIDTH_STORAGE_KEY = "terminal-editor-chat-width";
+const MIN_EDITOR_CHAT_WIDTH = 280;
+const MAX_EDITOR_CHAT_WIDTH = 720;
+const DEFAULT_EDITOR_CHAT_WIDTH = 400;
+
+function loadEditorChatWidth() {
+	const stored = Number(readStoredValue(EDITOR_CHAT_WIDTH_STORAGE_KEY));
+	return Number.isFinite(stored)
+		? Math.min(MAX_EDITOR_CHAT_WIDTH, Math.max(MIN_EDITOR_CHAT_WIDTH, stored))
+		: DEFAULT_EDITOR_CHAT_WIDTH;
+}
 
 type EditorUiAction<K extends keyof EditorUiState = keyof EditorUiState> = {
 	type: "fieldChanged";
@@ -107,6 +120,7 @@ function getInitialEditorUiState(): EditorUiState {
 		closedPaneIds: new Set(),
 		scrollToChange: 0,
 		zenMode: loadZenMode(),
+		chatPanelWidth: loadEditorChatWidth(),
 		sidebarWidth: 280,
 		sidebarVisible: true,
 		selectedCommitHash: null,
@@ -411,6 +425,7 @@ function useEditorPageModel({
 		closedPaneIds,
 		scrollToChange,
 		zenMode,
+		chatPanelWidth,
 		sidebarWidth,
 		sidebarVisible,
 		selectedCommitHash,
@@ -453,6 +468,10 @@ function useEditorPageModel({
 		(value: StateValue<boolean>) => setEditorUiField("zenMode", value),
 		[setEditorUiField]
 	);
+	const setChatPanelWidth = useCallback(
+		(value: StateValue<number>) => setEditorUiField("chatPanelWidth", value),
+		[setEditorUiField]
+	);
 	const setSidebarWidth = useCallback(
 		(value: StateValue<number>) => setEditorUiField("sidebarWidth", value),
 		[setEditorUiField]
@@ -485,6 +504,12 @@ function useEditorPageModel({
 		startX: number;
 		startWidth: number;
 	} | null>(null);
+	const chatPanelDragRef = useRef<{
+		startX: number;
+		startWidth: number;
+	} | null>(null);
+	const chatPanelWidthRef = useRef(chatPanelWidth);
+	chatPanelWidthRef.current = chatPanelWidth;
 
 	const visibleGroups = useMemo(() => {
 		return getVisibleEditorGroups(groups, selectedGroupId);
@@ -651,6 +676,48 @@ function useEditorPageModel({
 		[setSidebarWidth, sidebarWidth]
 	);
 
+	const handleChatPanelDragStart = useCallback(
+		(event: React.MouseEvent) => {
+			event.preventDefault();
+			chatPanelDragRef.current = {
+				startX: event.clientX,
+				startWidth: chatPanelWidth,
+			};
+
+			const handleMouseMove = (moveEvent: MouseEvent) => {
+				if (!chatPanelDragRef.current) return;
+				const delta = moveEvent.clientX - chatPanelDragRef.current.startX;
+				const availableMaximum = Math.max(
+					MIN_EDITOR_CHAT_WIDTH,
+					Math.min(MAX_EDITOR_CHAT_WIDTH, window.innerWidth - 520)
+				);
+				const nextWidth = Math.min(
+					availableMaximum,
+					Math.max(
+						MIN_EDITOR_CHAT_WIDTH,
+						chatPanelDragRef.current.startWidth + delta
+					)
+				);
+				chatPanelWidthRef.current = nextWidth;
+				setChatPanelWidth(nextWidth);
+			};
+
+			const handleMouseUp = () => {
+				chatPanelDragRef.current = null;
+				writeStoredValue(
+					EDITOR_CHAT_WIDTH_STORAGE_KEY,
+					String(chatPanelWidthRef.current)
+				);
+				document.removeEventListener("mousemove", handleMouseMove);
+				document.removeEventListener("mouseup", handleMouseUp);
+			};
+
+			document.addEventListener("mousemove", handleMouseMove);
+			document.addEventListener("mouseup", handleMouseUp);
+		},
+		[chatPanelWidth, setChatPanelWidth]
+	);
+
 	const viewer =
 		mainViewMode === "diff" ? (
 			diffLoading ? (
@@ -802,6 +869,7 @@ function useEditorPageModel({
 
 	return {
 		chatRef,
+		chatPanelWidth,
 		closePane,
 		detailsSidebar,
 		diffSidebar,
@@ -810,6 +878,7 @@ function useEditorPageModel({
 		exitZenMode,
 		gitBranch: project?.branch ?? null,
 		onDirectoryChange,
+		onChatPanelDragStart: handleChatPanelDragStart,
 		selectEditorPane,
 		session,
 		sessions,
@@ -829,6 +898,7 @@ export function EditorPage(props: EditorPageProps) {
 
 type EditorPageSurfaceProps = {
 	readonly chatRef: RefObject<AgentChatHandle | null>;
+	readonly chatPanelWidth: number;
 	readonly closePane: (paneId: string) => void;
 	readonly detailsSidebar: ReactNode;
 	readonly diffSidebar: ReactNode;
@@ -837,6 +907,7 @@ type EditorPageSurfaceProps = {
 	readonly exitZenMode: () => void;
 	readonly gitBranch: string | null;
 	readonly onDirectoryChange: EditorPageProps["onDirectoryChange"];
+	readonly onChatPanelDragStart: (event: React.MouseEvent) => void;
 	readonly selectEditorPane: (paneId: string) => void;
 	readonly session: Session | null;
 	readonly sessions: Session[];
@@ -851,6 +922,7 @@ type EditorPageSurfaceProps = {
 
 function EditorPageSurface({
 	chatRef,
+	chatPanelWidth,
 	closePane,
 	detailsSidebar,
 	diffSidebar,
@@ -859,6 +931,7 @@ function EditorPageSurface({
 	exitZenMode,
 	gitBranch,
 	onDirectoryChange,
+	onChatPanelDragStart,
 	selectEditorPane,
 	session,
 	sessions,
@@ -901,10 +974,19 @@ function EditorPageSurface({
 	return (
 		<div {...stylex.props(styles.root)}>
 			{!session ? (
-				<div {...stylex.props(styles.pageGrid)}>
+				<div
+					{...stylex.props(styles.pageGrid)}
+					style={{ gridTemplateColumns: `${chatPanelWidth}px minmax(0, 1fr)` }}
+				>
 					<section {...stylex.props(styles.leftPane)}>
 						<InactiveSessionTopBar onOpenSettings={openSettings} />
 						{null}
+						<button
+							type="button"
+							aria-label="Resize editor chat panel"
+							{...stylex.props(styles.chatPanelResize)}
+							onMouseDown={onChatPanelDragStart}
+						/>
 					</section>
 					{emptyWorkspace}
 				</div>
@@ -917,7 +999,10 @@ function EditorPageSurface({
 					sidebar={diffSidebar}
 				/>
 			) : (
-				<div {...stylex.props(styles.pageGrid)}>
+				<div
+					{...stylex.props(styles.pageGrid)}
+					style={{ gridTemplateColumns: `${chatPanelWidth}px minmax(0, 1fr)` }}
+				>
 					<section {...stylex.props(styles.leftPane)}>
 						<EditorAgentChat
 							session={session}
@@ -927,6 +1012,12 @@ function EditorPageSurface({
 							sessions={sessions}
 							onSelectSession={selectEditorPane}
 							onDirectoryChange={onDirectoryChange}
+						/>
+						<button
+							type="button"
+							aria-label="Resize editor chat panel"
+							{...stylex.props(styles.chatPanelResize)}
+							onMouseDown={onChatPanelDragStart}
 						/>
 					</section>
 
@@ -966,6 +1057,7 @@ const styles = stylex.create({
 		},
 	},
 	leftPane: {
+		position: "relative",
 		display: "flex",
 		minWidth: 0,
 		minHeight: 0,
@@ -973,6 +1065,23 @@ const styles = stylex.create({
 		borderRightWidth: 1,
 		borderRightStyle: "solid",
 		borderRightColor: color.border,
+	},
+	chatPanelResize: {
+		position: "absolute",
+		top: 0,
+		right: -3,
+		bottom: 0,
+		zIndex: 40,
+		backgroundColor: {
+			default: "transparent",
+			":hover": color.controlActive,
+		},
+		borderWidth: 0,
+		cursor: "ew-resize",
+		padding: 0,
+		transitionDuration: "120ms",
+		transitionProperty: "background-color",
+		width: 6,
 	},
 	sidebarShell: {
 		display: "flex",

@@ -1,11 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import {
-	startTransition,
-	type ReactNode,
-	useCallback,
-	useEffect,
-	useState,
-} from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
 	dispatchTerminalShellChange,
@@ -26,9 +20,13 @@ import {
 } from "../../lib/app-theme.ts";
 import { TERMINAL_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
-import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
+import {
+	readStoredBoolean,
+	readStoredValue,
+	writeStoredValue,
+} from "../../lib/stored-json.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
-import { IconWorkflow } from "../ui/Icons.tsx";
+import { IconPanelLeft, IconWorkflow } from "../ui/Icons.tsx";
 
 const AUTOMATIONS_ROUTE = APP_PAGE_ROUTES.find(
 	(route) => route.id === "automations"
@@ -53,29 +51,42 @@ function ViewTab({
 	icon,
 	label,
 	onClick,
+	top = false,
 	trailing = false,
 }: {
 	active: boolean;
 	icon: ReactNode;
 	label: string;
 	onClick: () => void;
+	top?: boolean;
 	trailing?: boolean;
 }) {
 	const tabProps = stylex.props(
 		styles.viewTab,
+		top ? styles.viewTabTop : null,
 		trailing ? styles.viewTabTrailing : null,
-		active ? styles.viewTabActive : null
+		active ? styles.viewTabActive : null,
+		active && top ? styles.viewTabTopActive : null
 	);
 	return (
 		<button
 			type="button"
+			aria-label={label}
+			title={label}
 			onClick={onClick}
 			{...tabProps}
 			className={`${APP_REGION_NO_DRAG_CLASS} ${tabProps.className ?? ""}`}
 		>
 			{icon}
-			<span>{label}</span>
-			{active ? (
+			{top ? (
+				<span {...stylex.props(styles.viewTabLabel)}>{label}</span>
+			) : (
+				<span {...stylex.props(styles.viewTabTooltip)}>{label}</span>
+			)}
+			{active && !top ? (
+				<span aria-hidden="true" {...stylex.props(styles.activeSignal)} />
+			) : null}
+			{active && top ? (
 				<>
 					<span
 						aria-hidden="true"
@@ -98,12 +109,19 @@ export function TerminalShellHeader() {
 	const [pendingNavigationTarget, setPendingNavigationTarget] = useState<
 		string | null
 	>(null);
+	const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
+		readStoredBoolean("sidebar-collapsed")
+	);
 	const isTerminalRoute = location.pathname === "/terminal";
 	const resolvedNavigationTarget = isTerminalRoute
 		? `view:${shellState.mainView}`
 		: `route:${location.pathname}`;
 	const activeNavigationTarget =
 		pendingNavigationTarget ?? resolvedNavigationTarget;
+	const workspaceNavigationActive =
+		isTerminalRoute &&
+		(shellState.mainView === "chat" || shellState.mainView === "editor") &&
+		!sidebarCollapsed;
 
 	const refreshShellState = useCallback(() => {
 		const next = loadShellState();
@@ -117,6 +135,14 @@ export function TerminalShellHeader() {
 	useEffect(() => {
 		return listenWindowEvent("terminal-shell-change", refreshShellState);
 	}, [refreshShellState]);
+
+	useEffect(
+		() =>
+			listenWindowEvent("toggle-main-sidebar", () =>
+				setSidebarCollapsed((current) => !current)
+			),
+		[]
+	);
 
 	const updateMainView = useCallback(
 		(view: TerminalMainView) => {
@@ -159,7 +185,7 @@ export function TerminalShellHeader() {
 			if (target !== resolvedNavigationTarget) {
 				setPendingNavigationTarget(target);
 			}
-			startTransition(() => navigate(path));
+			navigate(path);
 		},
 		[navigate, resolvedNavigationTarget]
 	);
@@ -168,23 +194,51 @@ export function TerminalShellHeader() {
 		<div
 			className={`${APP_REGION_DRAG_CLASS} ${stylex.props(styles.header).className ?? ""}`}
 		>
-			<div {...stylex.props(styles.viewTabs)}>
-				<div {...stylex.props(styles.tabGroup)}>
-					{TERMINAL_MAIN_VIEWS.filter((view) => view.id !== "graph").map(
-						(view) => {
-							const Icon = view.icon;
-							return (
-								<ViewTab
-									key={view.id}
-									active={activeNavigationTarget === `view:${view.id}`}
-									icon={<Icon size={12} />}
-									label={view.label}
-									onClick={() => activateMainView(view.id)}
-								/>
-							);
-						}
-					)}
-				</div>
+			<nav aria-label="Primary views" {...stylex.props(styles.topTabs)}>
+				{TERMINAL_MAIN_VIEWS.filter((view) => view.id !== "graph").map(
+					(view) => {
+						const Icon = view.icon;
+						return (
+							<ViewTab
+								key={view.id}
+								active={activeNavigationTarget === `view:${view.id}`}
+								icon={<Icon size={12} />}
+								label={view.label}
+								onClick={() => activateMainView(view.id)}
+								top
+							/>
+						);
+					}
+				)}
+			</nav>
+			<nav
+				aria-label="Application views"
+				{...stylex.props(
+					styles.viewTabs,
+					workspaceNavigationActive && styles.viewTabsAttached
+				)}
+			>
+				<button
+					type="button"
+					aria-label={
+						sidebarCollapsed
+							? "Expand workspace sidebar"
+							: "Collapse workspace sidebar"
+					}
+					title={
+						sidebarCollapsed
+							? "Expand workspace sidebar"
+							: "Collapse workspace sidebar"
+					}
+					{...stylex.props(styles.sidebarToggle)}
+					className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.sidebarToggle).className ?? ""}`}
+					onClick={() =>
+						window.dispatchEvent(new CustomEvent("toggle-main-sidebar"))
+					}
+				>
+					<IconPanelLeft size={14} />
+				</button>
+				<span aria-hidden="true" {...stylex.props(styles.railDivider)} />
 				<div {...stylex.props(styles.tabGroup, styles.secondaryTabGroup)}>
 					{TERMINAL_MAIN_VIEWS.filter((view) => view.id === "graph").map(
 						(view) => {
@@ -224,7 +278,7 @@ export function TerminalShellHeader() {
 						/>
 					)}
 				</div>
-			</div>
+			</nav>
 		</div>
 	);
 }
@@ -235,51 +289,66 @@ const styles = stylex.create({
 		top: 0,
 		left: 0,
 		right: 0,
-		zIndex: 100,
-		alignItems: "center",
-		backgroundColor: color.background,
-		display: "flex",
-		flexShrink: 0,
-		gap: controlSize._2,
-		height: 36,
-		paddingLeft: controlSize._3,
-		paddingRight: controlSize._3,
+		bottom: 0,
+		zIndex: 120,
+		pointerEvents: "none",
 		userSelect: "none",
 	},
-	viewTabs: {
+	topTabs: {
+		position: "absolute",
+		top: 0,
+		left: 0,
+		right: 0,
+		zIndex: 2,
 		alignItems: "flex-end",
-		alignSelf: "stretch",
+		backgroundColor: color.background,
 		display: "flex",
-		flexGrow: 1,
-		flexShrink: 1,
-		marginLeft: 62,
-		minWidth: 0,
-		overflowX: "auto",
-		paddingLeft: 10,
+		gap: 6,
+		height: 36,
+		paddingLeft: 84,
 		paddingRight: 10,
-		scrollbarWidth: "none",
-		"::-webkit-scrollbar": {
-			display: "none",
-		},
+		pointerEvents: "auto",
+	},
+	viewTabs: {
+		position: "absolute",
+		top: 36,
+		left: 12,
+		bottom: 12,
+		alignItems: "center",
+		backgroundColor: color.background,
+		borderColor: "rgba(255,255,255,0.13)",
+		borderRadius: 15,
+		borderStyle: "solid",
+		borderWidth: 1,
+		boxShadow:
+			"inset 0 1px 0 rgba(255,255,255,0.055), 0 18px 50px rgba(0,0,0,0.46)",
+		display: "flex",
+		flexDirection: "column",
+		gap: 5,
+		padding: 5,
+		pointerEvents: "auto",
+		width: 42,
+	},
+	viewTabsAttached: {
+		borderTopRightRadius: 0,
+		borderBottomRightRadius: 0,
+		borderRightColor: "transparent",
 	},
 	tabGroup: {
-		alignItems: "flex-end",
-		alignSelf: "stretch",
+		alignItems: "center",
 		display: "flex",
-		flexShrink: 0,
-		gap: 6,
+		flexDirection: "column",
+		gap: 3,
+		width: "100%",
 	},
 	secondaryTabGroup: {
-		marginLeft: "auto",
+		marginTop: 0,
 	},
 	viewTab: {
 		position: "relative",
 		alignItems: "center",
 		borderColor: "transparent",
-		borderTopLeftRadius: 11,
-		borderTopRightRadius: 11,
-		borderBottomLeftRadius: 11,
-		borderBottomRightRadius: 11,
+		borderRadius: 10,
 		borderStyle: "solid",
 		borderWidth: 1,
 		color: {
@@ -287,24 +356,47 @@ const styles = stylex.create({
 			":hover": color.textMain,
 		},
 		display: "flex",
-		fontSize: font.size_3,
+		fontSize: font.size_2,
 		fontWeight: font.weight_5,
+		justifyContent: "center",
+		height: 32,
+		padding: 0,
+		transitionDuration: "120ms",
+		transitionProperty: "color, background-color, border-color, transform",
+		transitionTimingFunction: "ease-out",
+		width: 32,
+		backgroundColor: {
+			default: "transparent",
+			":hover": "rgba(255,255,255,0.07)",
+		},
+		":hover": {
+			transform: "translateX(1px)",
+		},
+	},
+	viewTabTrailing: {
+		marginTop: 0,
+	},
+	viewTabTop: {
+		borderTopLeftRadius: 11,
+		borderTopRightRadius: 11,
+		borderBottomLeftRadius: 11,
+		borderBottomRightRadius: 11,
+		fontSize: font.size_3,
 		gap: "0.375rem",
 		height: 30,
 		paddingInline: "0.625rem",
 		transitionDuration: "80ms",
 		transitionProperty: "color",
-		transitionTimingFunction: "ease-out",
+		width: "auto",
 		backgroundColor: {
 			default: "transparent",
 			":hover": "transparent",
 		},
+		":hover": {
+			transform: "none",
+		},
 	},
-	viewTabTrailing: {
-		marginRight: 2,
-		paddingRight: "0.875rem",
-	},
-	viewTabActive: {
+	viewTabTopActive: {
 		backgroundColor: {
 			default: color.backgroundRaised,
 			":hover": color.backgroundRaised,
@@ -314,17 +406,62 @@ const styles = stylex.create({
 		borderBottomLeftRadius: 0,
 		borderBottomRightRadius: 0,
 		boxShadow: "inset 0 1px 0 rgba(255,255,255,0.045)",
-		color: color.textMain,
 		marginBottom: -1,
 		zIndex: 1,
+	},
+	viewTabLabel: {
+		display: "inline",
+	},
+	viewTabActive: {
+		backgroundColor: {
+			default: "rgba(255,255,255,0.105)",
+			":hover": "rgba(255,255,255,0.13)",
+		},
+		borderColor: "rgba(255,255,255,0.14)",
+		boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
+		color: color.textMain,
+	},
+	viewTabTooltip: {
+		position: "absolute",
+		left: 42,
+		top: "50%",
+		zIndex: 10,
+		backgroundColor: "rgba(23,23,25,0.96)",
+		borderColor: "rgba(255,255,255,0.12)",
+		borderRadius: 7,
+		borderStyle: "solid",
+		borderWidth: 1,
+		boxShadow: "0 8px 24px rgba(0,0,0,0.38)",
+		color: color.textMain,
+		opacity: {
+			default: 0,
+			":hover": 1,
+		},
+		paddingBlock: 5,
+		paddingInline: 8,
+		pointerEvents: "none",
+		transform: "translateY(-50%) translateX(-4px)",
+		transitionDuration: "100ms",
+		transitionProperty: "opacity, transform",
+		whiteSpace: "nowrap",
+	},
+	activeSignal: {
+		position: "absolute",
+		left: -6,
+		top: "50%",
+		backgroundColor: "rgba(255,255,255,0.8)",
+		borderRadius: 99,
+		height: 10,
+		transform: "translateY(-50%)",
+		width: 2,
 	},
 	tabShoulder: {
 		position: "absolute",
 		bottom: 0,
-		width: 10,
+		backgroundColor: color.backgroundRaised,
 		height: 10,
 		pointerEvents: "none",
-		backgroundColor: color.backgroundRaised,
+		width: 10,
 	},
 	tabShoulderLeft: {
 		left: -9,
@@ -339,5 +476,32 @@ const styles = stylex.create({
 			"radial-gradient(circle 10px at 100% 0%, transparent 10px, black 10.5px)",
 		maskImage:
 			"radial-gradient(circle 10px at 100% 0%, transparent 10px, black 10.5px)",
+	},
+	railDivider: {
+		backgroundColor: "rgba(255,255,255,0.1)",
+		height: 1,
+		marginBlock: 2,
+		width: 20,
+	},
+	sidebarToggle: {
+		alignItems: "center",
+		backgroundColor: {
+			default: "transparent",
+			":hover": "rgba(255,255,255,0.07)",
+		},
+		borderColor: "transparent",
+		borderRadius: 9,
+		borderStyle: "solid",
+		borderWidth: 1,
+		color: {
+			default: color.textSoft,
+			":hover": color.textMain,
+		},
+		display: "flex",
+		height: 32,
+		justifyContent: "center",
+		marginBottom: 5,
+		padding: 0,
+		width: 32,
 	},
 });
