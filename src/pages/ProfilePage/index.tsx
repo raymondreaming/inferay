@@ -994,7 +994,8 @@ const styles = stylex.create({
 		minWidth: 0,
 	},
 	settingsNav: {
-		backgroundColor: color.background,
+		backgroundColor:
+			"color-mix(in srgb, var(--color-inferay-black) 58%, transparent)",
 		borderBottomColor: color.border,
 		borderBottomStyle: {
 			default: "solid",

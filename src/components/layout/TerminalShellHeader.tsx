@@ -18,7 +18,9 @@ import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
 } from "../../lib/app-theme.ts";
+import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
 import { TERMINAL_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
+import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import {
 	readStoredBoolean,
@@ -26,7 +28,39 @@ import {
 	writeStoredValue,
 } from "../../lib/stored-json.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
-import { IconPanelLeft, IconWorkflow } from "../ui/Icons.tsx";
+import { IconPanelLeft, IconUser, IconWorkflow } from "../ui/Icons.tsx";
+
+interface ForgeAccount {
+	provider: "github";
+	host: string;
+	login: string;
+	name: string | null;
+	avatarUrl: string | null;
+	email: string | null;
+	active: boolean;
+}
+
+function sameForgeAccount(a: ForgeAccount | null, b: ForgeAccount | null) {
+	return (
+		a === b ||
+		(!!a &&
+			!!b &&
+			a.host === b.host &&
+			a.login === b.login &&
+			a.name === b.name &&
+			a.avatarUrl === b.avatarUrl &&
+			a.active === b.active)
+	);
+}
+
+async function loadGithubAccount(): Promise<ForgeAccount | null> {
+	const payload = await fetchJsonOr<{ accounts?: ForgeAccount[] }>(
+		"/api/forge/accounts",
+		{}
+	);
+	const accounts = Array.isArray(payload.accounts) ? payload.accounts : [];
+	return accounts.find((item) => item.active) ?? accounts[0] ?? null;
+}
 
 const AUTOMATIONS_ROUTE = APP_PAGE_ROUTES.find(
 	(route) => route.id === "automations"
@@ -112,6 +146,8 @@ export function TerminalShellHeader() {
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
 		readStoredBoolean("sidebar-collapsed")
 	);
+	const { data: githubAccount, refresh: refreshGithubAccount } =
+		useAsyncResource(loadGithubAccount, null, { isEqual: sameForgeAccount });
 	const isTerminalRoute = location.pathname === "/terminal";
 	const resolvedNavigationTarget = isTerminalRoute
 		? `view:${shellState.mainView}`
@@ -142,6 +178,10 @@ export function TerminalShellHeader() {
 				setSidebarCollapsed((current) => !current)
 			),
 		[]
+	);
+	useEffect(
+		() => listenWindowEvent("focus", () => void refreshGithubAccount()),
+		[refreshGithubAccount]
 	);
 
 	const updateMainView = useCallback(
@@ -210,6 +250,32 @@ export function TerminalShellHeader() {
 						);
 					}
 				)}
+				<span {...stylex.props(styles.accountSpacer)} />
+				<button
+					type="button"
+					onClick={() => navigate("/profile")}
+					className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.accountButton).className ?? ""}`}
+					title="Account settings"
+				>
+					<span {...stylex.props(styles.accountLabel)}>
+						{githubAccount?.login || githubAccount?.name || "Account"}
+					</span>
+					{githubAccount?.avatarUrl ? (
+						<img
+							src={githubAccount.avatarUrl}
+							alt=""
+							{...stylex.props(styles.accountAvatar)}
+						/>
+					) : (
+						<span {...stylex.props(styles.accountFallback)}>
+							{githubAccount?.login ? (
+								githubAccount.login.slice(0, 2)
+							) : (
+								<IconUser size={10} />
+							)}
+						</span>
+					)}
+				</button>
 			</nav>
 			<nav
 				aria-label="Application views"
@@ -301,7 +367,9 @@ const styles = stylex.create({
 		right: 0,
 		zIndex: 2,
 		alignItems: "flex-end",
-		backgroundColor: color.background,
+		backdropFilter: "blur(var(--inferay-glass-blur, 4px)) saturate(103%)",
+		backgroundColor:
+			"color-mix(in srgb, var(--color-inferay-black) 24%, transparent)",
 		display: "flex",
 		gap: 6,
 		height: 36,
@@ -309,13 +377,62 @@ const styles = stylex.create({
 		paddingRight: 10,
 		pointerEvents: "auto",
 	},
+	accountSpacer: {
+		flex: 1,
+	},
+	accountButton: {
+		alignItems: "center",
+		backgroundColor: {
+			default: "rgba(3,3,7,0.26)",
+			":hover": "rgba(255,255,255,0.08)",
+		},
+		borderColor: "transparent",
+		borderRadius: 9,
+		borderStyle: "solid",
+		borderWidth: 1,
+		color: color.textSoft,
+		display: "flex",
+		fontSize: font.size_2,
+		fontWeight: font.weight_5,
+		gap: controlSize._1_5,
+		height: 28,
+		marginBottom: 4,
+		paddingInline: controlSize._2,
+	},
+	accountLabel: {
+		maxWidth: 160,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
+	accountAvatar: {
+		borderColor: color.border,
+		borderRadius: 999,
+		borderStyle: "solid",
+		borderWidth: 1,
+		height: controlSize._5,
+		objectFit: "cover",
+		width: controlSize._5,
+	},
+	accountFallback: {
+		alignItems: "center",
+		backgroundColor: color.controlActive,
+		borderRadius: 999,
+		display: "flex",
+		height: controlSize._5,
+		justifyContent: "center",
+		textTransform: "uppercase",
+		width: controlSize._5,
+	},
 	viewTabs: {
 		position: "absolute",
 		top: 36,
 		left: 12,
 		bottom: 12,
 		alignItems: "center",
-		backgroundColor: color.background,
+		backdropFilter: "blur(var(--inferay-glass-blur, 4px)) saturate(104%)",
+		backgroundColor:
+			"color-mix(in srgb, var(--color-inferay-black) 62%, transparent)",
 		borderColor: "rgba(255,255,255,0.13)",
 		borderRadius: 15,
 		borderStyle: "solid",

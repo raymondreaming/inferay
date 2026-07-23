@@ -3,7 +3,6 @@ import {
 	type MouseEvent as ReactMouseEvent,
 	useCallback,
 	useEffect,
-	useMemo,
 	useReducer,
 	useRef,
 	useState,
@@ -30,7 +29,6 @@ import {
 	terminalStateKey,
 } from "../../features/terminal/terminal-utils.ts";
 import { type AppInfo, useAppInfo } from "../../hooks/useAppInfo.ts";
-import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
@@ -41,7 +39,7 @@ import {
 } from "../../lib/app-navigation.tsx";
 import { TERMINAL_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { noop } from "../../lib/data.ts";
-import { fetchJsonOr, sendJson } from "../../lib/fetch-json.ts";
+import { sendJson } from "../../lib/fetch-json.ts";
 import {
 	activateOnEnterOrSpacePreventDefault,
 	listenWindowEvent,
@@ -72,19 +70,8 @@ import {
 	IconPlus,
 	IconRefreshCw,
 	IconTerminal,
-	IconUser,
 	IconX,
 } from "../ui/Icons.tsx";
-
-interface ForgeAccount {
-	provider: "github";
-	host: string;
-	login: string;
-	name: string | null;
-	avatarUrl: string | null;
-	email: string | null;
-	active: boolean;
-}
 
 interface SidebarWorkspaceGroup {
 	id: string;
@@ -101,30 +88,6 @@ interface SidebarWorkspaceState {
 	groups: SidebarWorkspaceGroup[];
 	selectedGroupId: string | null;
 	key: string;
-}
-
-function sameForgeAccount(a: ForgeAccount | null, b: ForgeAccount | null) {
-	return (
-		a === b ||
-		(!!a &&
-			!!b &&
-			a.provider === b.provider &&
-			a.host === b.host &&
-			a.login === b.login &&
-			a.name === b.name &&
-			a.avatarUrl === b.avatarUrl &&
-			a.email === b.email &&
-			a.active === b.active)
-	);
-}
-
-async function loadGithubAccount(): Promise<ForgeAccount | null> {
-	const payload = await fetchJsonOr<{ accounts?: ForgeAccount[] }>(
-		"/api/forge/accounts",
-		{}
-	);
-	const accounts = Array.isArray(payload.accounts) ? payload.accounts : [];
-	return accounts.find((item) => item.active) ?? accounts[0] ?? null;
 }
 
 const DEFAULT_SIDEBAR_WIDTH = 292;
@@ -440,37 +403,6 @@ function WorkspaceItem({
 	);
 }
 
-function SidebarProfileButton({
-	collapsed,
-	githubLabel,
-	githubAccount,
-}: {
-	collapsed: boolean;
-	githubLabel: string;
-	githubAccount: ForgeAccount | null;
-}) {
-	const navigate = useNavigate();
-	const profileButtonProps = stylex.props(
-		styles.profileButton,
-		collapsed ? styles.profileButtonCollapsed : styles.profileButtonOpen
-	);
-
-	return (
-		<button
-			type="button"
-			onClick={() => navigate("/profile")}
-			{...profileButtonProps}
-			className={`${APP_REGION_NO_DRAG_CLASS} ${profileButtonProps.className ?? ""}`}
-			title={collapsed ? githubLabel : undefined}
-		>
-			{!collapsed ? (
-				<span {...stylex.props(styles.profileLabel)}>{githubLabel}</span>
-			) : null}
-			<SidebarAccountAvatar account={githubAccount} />
-		</button>
-	);
-}
-
 function SidebarWorkspacesSection({
 	collapsed,
 	workspaces,
@@ -704,16 +636,12 @@ function SidebarFooter({
 	updateAvailable,
 	updateInfo,
 	updateStatus,
-	githubLabel,
-	githubAccount,
 	onUpdate,
 }: {
 	collapsed: boolean;
 	updateAvailable: boolean;
 	updateInfo: AppInfo["update"];
 	updateStatus: UpdateStatus;
-	githubLabel: string;
-	githubAccount: ForgeAccount | null;
 	onUpdate: () => void;
 }) {
 	const footerProps = stylex.props(styles.footer);
@@ -747,11 +675,6 @@ function SidebarFooter({
 					) : null}
 				</button>
 			) : null}
-			<SidebarProfileButton
-				collapsed={collapsed}
-				githubLabel={githubLabel}
-				githubAccount={githubAccount}
-			/>
 		</div>
 	);
 }
@@ -766,8 +689,6 @@ export function Sidebar() {
 	);
 	const { collapsed, sidebarWidth, resizing, updateStatus } = uiState;
 	const [layoutMode, setLayoutMode] = useState(loadTerminalLayoutMode);
-	const { data: githubAccount, refresh: refreshGithubAccount } =
-		useAsyncResource(loadGithubAccount, null, { isEqual: sameForgeAccount });
 	const { data: appInfo } = useAppInfo();
 	const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
 	const resizeWidthRef = useRef(sidebarWidth);
@@ -1037,12 +958,6 @@ export function Sidebar() {
 		[collapsed, sidebarWidth]
 	);
 
-	useEffect(
-		() => listenWindowEvent("focus", () => void refreshGithubAccount()),
-		[refreshGithubAccount]
-	);
-
-	const githubLabel = githubAccount?.login || githubAccount?.name || "Profile";
 	const updateInfo = appInfo.update;
 	const updateAvailable = updateInfo.available && !!updateInfo.url;
 	const openUpdate = useCallback(() => {
@@ -1108,29 +1023,9 @@ export function Sidebar() {
 				updateAvailable={updateAvailable}
 				updateInfo={updateInfo}
 				updateStatus={updateStatus}
-				githubLabel={githubLabel}
-				githubAccount={githubAccount}
 				onUpdate={openUpdate}
 			/>
 		</aside>
-	);
-}
-
-function SidebarAccountAvatar({ account }: { account: ForgeAccount | null }) {
-	if (account?.avatarUrl) {
-		return (
-			<img
-				src={account.avatarUrl}
-				alt=""
-				{...stylex.props(styles.accountAvatar)}
-			/>
-		);
-	}
-
-	return (
-		<span {...stylex.props(styles.accountFallback)}>
-			{account?.login ? account.login.slice(0, 2) : <IconUser size={10} />}
-		</span>
 	);
 }
 
@@ -1374,7 +1269,9 @@ const styles = stylex.create({
 		paddingBottom: controlSize._1,
 	},
 	shell: {
-		backgroundColor: color.background,
+		backdropFilter: "blur(var(--inferay-glass-blur, 4px)) saturate(104%)",
+		backgroundColor:
+			"color-mix(in srgb, var(--color-inferay-black) 62%, transparent)",
 		borderColor: "rgba(255,255,255,0.13)",
 		borderRadius: 17,
 		borderTopLeftRadius: 0,
@@ -1668,65 +1565,5 @@ const styles = stylex.create({
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
-	},
-	profileButton: {
-		alignItems: "center",
-		appearance: "none",
-		backgroundColor: "transparent",
-		borderColor: "transparent",
-		borderRadius: 8,
-		borderStyle: "solid",
-		borderWidth: 1,
-		color: color.textSoft,
-		cursor: "pointer",
-		display: "flex",
-		fontSize: "0.6875rem",
-		fontWeight: font.weight_5,
-		gap: controlSize._1,
-		textAlign: "left",
-	},
-	profileButtonOpen: {
-		height: 30,
-		paddingInline: "0.375rem",
-		width: "auto",
-	},
-	profileButtonCollapsed: {
-		height: controlSize._7,
-		marginInline: 0,
-		paddingInline: controlSize._1_5,
-		width: controlSize._9,
-	},
-	profileLabel: {
-		minWidth: 0,
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-	},
-	accountAvatar: {
-		borderColor: color.border,
-		borderRadius: 999,
-		borderStyle: "solid",
-		borderWidth: 1,
-		flexShrink: 0,
-		height: controlSize._5,
-		objectFit: "cover",
-		width: controlSize._5,
-	},
-	accountFallback: {
-		alignItems: "center",
-		backgroundColor: color.controlActive,
-		borderColor: color.border,
-		borderRadius: 999,
-		borderStyle: "solid",
-		borderWidth: 1,
-		color: color.textSoft,
-		display: "flex",
-		flexShrink: 0,
-		fontSize: font.size_2,
-		fontWeight: "600",
-		height: controlSize._5,
-		justifyContent: "center",
-		textTransform: "uppercase",
-		width: controlSize._5,
 	},
 });

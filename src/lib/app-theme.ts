@@ -402,6 +402,17 @@ export const APP_THEMES = THEME_DATA.map(makeTheme) as [
 
 const DEFAULT_THEME = makeTheme(THEME_DATA[0]);
 const DEFAULT_COLORS: AppThemeColors = DEFAULT_THEME.colors;
+const DARK_PRODUCT_THEME_IDS = new Set<AppThemeId>([
+	"default",
+	"midnight",
+	"github",
+	"ocean",
+	"rose",
+]);
+
+export function isDarkProductTheme(id: AppThemeId): boolean {
+	return DARK_PRODUCT_THEME_IDS.has(id);
+}
 
 const APP_TO_TERMINAL_THEME: Record<AppThemeId, ThemeId> = {
 	default: "default",
@@ -421,13 +432,22 @@ const APP_TO_TERMINAL_THEME: Record<AppThemeId, ThemeId> = {
 export function loadAppThemeId(): AppThemeId {
 	try {
 		const saved = readStoredValue(APP_THEME_STORAGE_KEY);
-		if (saved && saved in APP_THEME_IDS) return saved as AppThemeId;
+		if (
+			saved &&
+			saved in APP_THEME_IDS &&
+			isDarkProductTheme(saved as AppThemeId)
+		) {
+			return saved as AppThemeId;
+		}
 	} catch {}
 	return "default";
 }
 
 export function saveAppThemeId(id: AppThemeId): void {
-	writeStoredValue(APP_THEME_STORAGE_KEY, id);
+	writeStoredValue(
+		APP_THEME_STORAGE_KEY,
+		isDarkProductTheme(id) ? id : "default"
+	);
 }
 
 export function mapAppThemeToTerminalTheme(id: AppThemeId): ThemeId {
@@ -455,7 +475,8 @@ function getAppThemeById(id: AppThemeId): AppTheme {
 
 export function applyAppTheme(id: AppThemeId): void {
 	const root = document.documentElement;
-	const theme = getAppThemeById(id);
+	const safeId = isDarkProductTheme(id) ? id : "default";
+	const theme = getAppThemeById(safeId);
 	for (const [key, cssVar] of Object.entries(CSS_VAR_MAP)) {
 		const value = theme.colors[key as keyof AppThemeColors];
 		root.style.setProperty(cssVar, value);
@@ -465,9 +486,9 @@ export function applyAppTheme(id: AppThemeId): void {
 		getReadableForeground(theme.colors.accent)
 	);
 	const light =
-		id === "custom"
+		safeId === "custom"
 			? isLightColor(theme.colors.black)
-			: APP_THEMES.find(hasId.bind(null, id))?.light;
+			: APP_THEMES.find(hasId.bind(null, safeId))?.light;
 	const depthTokens = light ? LIGHT_DEPTH_TOKENS : DARK_DEPTH_TOKENS;
 	for (const [key, value] of Object.entries(depthTokens)) {
 		root.style.setProperty(key, value);

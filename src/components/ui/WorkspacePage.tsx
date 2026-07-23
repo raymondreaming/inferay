@@ -99,7 +99,8 @@ export function WorkspaceEmptyState({
 
 const styles = stylex.create({
 	page: {
-		backgroundColor: color.background,
+		backgroundColor:
+			"color-mix(in srgb, var(--color-inferay-black) 64%, transparent)",
 		color: color.textMain,
 		display: "flex",
 		flexDirection: "column",

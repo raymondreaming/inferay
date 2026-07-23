@@ -327,7 +327,8 @@ const styles = stylex.create({
 		minWidth: 0,
 		minHeight: 0,
 		flexDirection: "column",
-		backgroundColor: color.background,
+		backgroundColor:
+			"color-mix(in srgb, var(--color-inferay-black) 62%, transparent)",
 	},
 	splitBody: {
 		display: "flex",
@@ -373,7 +374,8 @@ const styles = stylex.create({
 	},
 	topBar: {
 		alignItems: "center",
-		backgroundColor: color.background,
+		backgroundColor:
+			"color-mix(in srgb, var(--color-inferay-black) 68%, transparent)",
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,

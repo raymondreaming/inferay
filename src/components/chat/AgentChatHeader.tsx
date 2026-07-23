@@ -254,7 +254,8 @@ export const AgentChatHeader = memo(function AgentChatHeader({
 const styles = stylex.create({
 	root: {
 		alignItems: "center",
-		backgroundColor: color.background,
+		backdropFilter: "blur(var(--inferay-glass-blur, 4px)) saturate(103%)",
+		backgroundColor: "rgba(3, 3, 7, 0.58)",
 		borderBottomColor: color.border,
 		borderBottomStyle: "solid",
 		borderBottomWidth: 1,

@@ -17,7 +17,7 @@ import type {
 	TerminalPaneModel,
 	TerminalTheme,
 } from "../../features/terminal/terminal-utils.ts";
-import { color, motion } from "../../tokens.stylex.ts";
+import { motion } from "../../tokens.stylex.ts";
 import { TerminalPaneView } from "./TerminalPaneView.tsx";
 
 const EMPTY_CWD_LIST: string[] = [];
@@ -384,13 +384,15 @@ export const TerminalGrid = memo(function TerminalGrid(
 
 const styles = stylex.create({
 	rowScroller: {
-		backgroundColor: color.background,
+		backgroundColor: "transparent",
 		display: "flex",
 		height: "100%",
 		overflowX: "auto",
 		overscrollBehavior: "none",
 	},
 	rowCell: {
+		backdropFilter: "blur(var(--inferay-glass-blur, 4px)) saturate(102%)",
+		backgroundColor: "rgba(3, 3, 7, 0.48)",
 		borderRightStyle: "solid",
 		borderRightWidth: 1,
 		flexShrink: 0,
@@ -400,7 +402,7 @@ const styles = stylex.create({
 		transitionProperty: "border-color, opacity",
 	},
 	gridScroller: {
-		backgroundColor: color.background,
+		backgroundColor: "transparent",
 		display: "grid",
 		height: "100%",
 		overflowX: "hidden",
@@ -408,6 +410,8 @@ const styles = stylex.create({
 		overscrollBehavior: "contain",
 	},
 	gridCell: {
+		backdropFilter: "blur(var(--inferay-glass-blur, 4px)) saturate(102%)",
+		backgroundColor: "rgba(3, 3, 7, 0.48)",
 		borderBottomStyle: "solid",
 		borderBottomWidth: 1,
 		borderRightStyle: "solid",

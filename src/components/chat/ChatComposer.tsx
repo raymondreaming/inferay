@@ -1165,7 +1165,7 @@ const styles = stylex.create({
 		alignItems: "center",
 		justifyContent: "center",
 		backgroundColor: "rgba(0, 0, 0, 0.6)",
-		backdropFilter: "blur(4px)",
+		backdropFilter: "blur(var(--inferay-glass-blur, 4px))",
 	},
 	modalBackdropButton: {
 		position: "absolute",

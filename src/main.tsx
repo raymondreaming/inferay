@@ -1,9 +1,16 @@
 import * as stylex from "@stylexjs/stylex";
-import { lazy, type ReactElement, Suspense } from "react";
+import {
+	lazy,
+	type CSSProperties,
+	type ReactElement,
+	Suspense,
+	useEffect,
+	useState,
+} from "react";
 import { createRoot } from "react-dom/client";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
-import { Sidebar } from "./components/layout/Sidebar.tsx";
 import { QuickFileOverlay } from "./components/file/QuickFileOverlay.tsx";
+import { Sidebar } from "./components/layout/Sidebar.tsx";
 import { TerminalShellHeader } from "./components/layout/TerminalShellHeader.tsx";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary.tsx";
 import { preloadPrompts } from "./features/prompts/usePrompts.ts";
@@ -14,14 +21,29 @@ import {
 	DEFAULT_TERMINAL_MAIN_VIEW,
 } from "./lib/app-navigation.tsx";
 import {
+	applyAppBackgroundPalette,
+	deriveAppBackgroundPalette,
+	getBuiltInBackgroundPath,
+	loadAppBackgroundSettings,
+	restoreAppTheme,
+} from "./lib/app-background.ts";
+import {
 	APP_REGION_DRAG_CLASS,
 	applyAppTheme,
 	loadAppThemeId,
 } from "./lib/app-theme.ts";
-import { TERMINAL_MAIN_VIEW_STORAGE_KEY } from "./lib/client-storage-keys.ts";
-import { hydrateStoredValues } from "./lib/client-storage-sync.ts";
+import {
+	APP_BACKGROUND_STORAGE_KEY,
+	APP_THEME_STORAGE_KEY,
+	TERMINAL_MAIN_VIEW_STORAGE_KEY,
+} from "./lib/client-storage-keys.ts";
+import {
+	CLIENT_STORAGE_CHANGED_EVENT,
+	hydrateStoredValues,
+} from "./lib/client-storage-sync.ts";
 import { getServerOrigin, resolveServerUrl } from "./lib/fetch-json.ts";
 import { readStoredBoolean, writeStoredValue } from "./lib/stored-json.ts";
+import { listenWindowEvent } from "./lib/react-events.ts";
 import { AutomationsPage } from "./pages/AutomationsPage";
 import { ImagesPage } from "./pages/ImagesPage";
 import { ONBOARDING_DONE_KEY, OnboardingPage } from "./pages/OnboardingPage";
@@ -97,7 +119,25 @@ const styles = stylex.create({
 		display: "flex",
 		flexDirection: "column",
 		height: "100vh",
+		isolation: "isolate",
 		overflow: "hidden",
+		position: "relative",
+	},
+	backgroundLayer: {
+		backgroundPosition: "center",
+		backgroundRepeat: "no-repeat",
+		backgroundSize: "cover",
+		inset: 0,
+		pointerEvents: "none",
+		position: "absolute",
+		transform: "scale(1.025)",
+		zIndex: 0,
+	},
+	backgroundShade: {
+		inset: 0,
+		pointerEvents: "none",
+		position: "absolute",
+		zIndex: 0,
 	},
 	windowSpacer: {
 		backgroundColor: color.background,
@@ -113,17 +153,20 @@ const styles = stylex.create({
 		paddingRight: 12,
 		paddingBottom: 12,
 		paddingLeft: 53,
+		position: "relative",
+		zIndex: 1,
 	},
 	mainColumn: {
 		position: "relative",
-		backgroundColor: "rgba(3,3,4,0.94)",
+		backgroundColor:
+			"color-mix(in srgb, var(--color-inferay-black) 46%, transparent)",
 		borderColor: "rgba(255,255,255,0.14)",
 		borderRadius: 17,
 		borderStyle: "solid",
 		borderWidth: 1,
 		boxShadow:
 			"inset 0 1px 0 rgba(255,255,255,0.055), 0 28px 80px rgba(0,0,0,0.52), 0 0 0 1px rgba(0,0,0,0.42)",
-		backdropFilter: "blur(18px)",
+		backdropFilter: "blur(var(--inferay-glass-blur, 4px)) saturate(104%)",
 		display: "flex",
 		flex: 1,
 		flexDirection: "column",
@@ -170,8 +213,71 @@ const routeElements = {
 const fallbackRouteElement = <Navigate to={DEFAULT_APP_ROUTE} replace />;
 
 function AppShell() {
+	const [background, setBackground] = useState(loadAppBackgroundSettings);
+	useEffect(
+		() =>
+			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
+				const key = (event as CustomEvent<{ key?: string }>).detail?.key;
+				if (
+					key === APP_BACKGROUND_STORAGE_KEY ||
+					key === APP_THEME_STORAGE_KEY
+				) {
+					setBackground(loadAppBackgroundSettings());
+				}
+			}),
+		[]
+	);
+	const builtInPath = getBuiltInBackgroundPath(background.id);
+	const backgroundUrl =
+		background.id === "custom"
+			? `${resolveServerUrl("/api/config/background-image")}?v=${background.customRevision}`
+			: builtInPath
+				? resolveServerUrl(builtInPath)
+				: null;
+	useEffect(() => {
+		let active = true;
+		if (!background.autoTheme) {
+			restoreAppTheme();
+			return;
+		}
+		void deriveAppBackgroundPalette(background.id, backgroundUrl)
+			.then((palette) => {
+				if (active) applyAppBackgroundPalette(palette);
+			})
+			.catch(() => {
+				if (active) restoreAppTheme();
+			});
+		return () => {
+			active = false;
+		};
+	}, [background.autoTheme, background.id, backgroundUrl]);
+
 	return (
-		<div {...shellThemeProps}>
+		<div
+			{...shellThemeProps}
+			style={
+				{
+					"--inferay-glass-blur": `${background.glassBlur}px`,
+				} as CSSProperties
+			}
+		>
+			<div
+				aria-hidden="true"
+				{...stylex.props(styles.backgroundLayer)}
+				style={
+					{
+						backgroundImage: backgroundUrl ? `url("${backgroundUrl}")` : "none",
+						filter: `blur(${background.blur}px)`,
+					} as CSSProperties
+				}
+			/>
+			<div
+				aria-hidden="true"
+				{...stylex.props(styles.backgroundShade)}
+				style={{
+					background: `radial-gradient(ellipse at center, rgba(2, 3, 10, ${Math.min(0.78, background.dim / 100 + 0.08)}) 0%, rgba(2, 3, 10, ${Math.min(0.88, background.dim / 100 + 0.18)}) 100%)`,
+				}}
+			/>
 			<TerminalShellHeader />
 			<div {...stylex.props(styles.appBody)}>
 				<Sidebar />

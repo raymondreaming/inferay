@@ -6,6 +6,7 @@ const MAIN_SIDEBAR_WIDTH_STORAGE_KEY = "main-sidebar-width";
 export const ONBOARDING_DONE_STORAGE_KEY = "inferay-onboarding-done";
 export const APP_THEME_STORAGE_KEY = "inferay-app-theme-id";
 export const APP_CUSTOM_THEME_STORAGE_KEY = "inferay-app-custom-theme";
+export const APP_BACKGROUND_STORAGE_KEY = "inferay-app-background";
 const CHAT_MESSAGES_STORAGE_KEY_PREFIX = "inferay-chat-";
 const CHAT_SESSION_KEY_PREFIX = "inferay-chat-session-";
 const CHAT_INPUT_KEY_PREFIX = "inferay-chat-input-";

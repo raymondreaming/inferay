@@ -475,6 +475,18 @@ const TMP_DIR = resolve(PROJECT_ROOT, "data/.tmp");
 const MAX_TEMP_UPLOAD_BYTES = 20 * 1024 * 1024;
 const MAX_SERVED_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_NATIVE_DIFF_LINES = 2000;
+const BACKGROUND_DIR = userDataPath("backgrounds");
+const CUSTOM_BACKGROUND_FILE = resolve(BACKGROUND_DIR, "custom-background");
+const CUSTOM_BACKGROUND_META_FILE = resolve(
+	BACKGROUND_DIR,
+	"custom-background.json"
+);
+const BACKGROUND_CONTENT_TYPES = new Set([
+	"image/png",
+	"image/jpeg",
+	"image/webp",
+	"image/gif",
+]);
 
 let releaseCheckCache: {
 	key: string;
@@ -1454,6 +1466,50 @@ function configRoutes() {
 					folders: config.search_folders,
 				});
 			},
+		},
+		"/api/config/background-image": {
+			GET: tryRoute(async () => {
+				const file = Bun.file(CUSTOM_BACKGROUND_FILE);
+				if (!(await file.exists())) {
+					return new Response("Not found", { status: 404 });
+				}
+				const meta = await readJson<{ contentType?: string }>(
+					CUSTOM_BACKGROUND_META_FILE,
+					{}
+				);
+				return new Response(file, {
+					headers: {
+						"Content-Type": BACKGROUND_CONTENT_TYPES.has(meta.contentType ?? "")
+							? meta.contentType!
+							: "image/jpeg",
+						"Cache-Control": "no-store",
+					},
+				});
+			}),
+			POST: tryRoute(async (req) => {
+				const formData = await req.formData();
+				const file = formData.get("file");
+				if (!(file instanceof File)) {
+					return badRequest("No background image provided");
+				}
+				if (file.size > MAX_TEMP_UPLOAD_BYTES) {
+					return new Response("Image must be 20 MB or smaller", {
+						status: 413,
+					});
+				}
+				if (!BACKGROUND_CONTENT_TYPES.has(file.type)) {
+					return badRequest("Use a PNG, JPEG, WebP, or GIF image");
+				}
+				await mkdir(BACKGROUND_DIR, { recursive: true });
+				await Bun.write(CUSTOM_BACKGROUND_FILE, file);
+				const revision = Date.now();
+				await atomicWriteJson(CUSTOM_BACKGROUND_META_FILE, {
+					contentType: file.type,
+					name: file.name,
+					revision,
+				});
+				return Response.json({ ok: true, revision });
+			}),
 		},
 		"/api/config/pick-folder": {
 			POST: async () => {

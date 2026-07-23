@@ -675,10 +675,13 @@ async function getNativeGitStatuses(
 	const result = await runNativeCore<
 		{ op: "git_statuses"; cwds: string[] },
 		NativeGitStatusesResponse
-	>({
-		op: "git_statuses",
-		cwds,
-	});
+	>(
+		{
+			op: "git_statuses",
+			cwds,
+		},
+		{ timeoutMs: 1500 }
+	);
 	return result?.projects ?? null;
 }
 
@@ -1279,7 +1282,7 @@ export function gitRoutes() {
 					}
 				}
 				const nativeStatuses = await getNativeGitStatuses(unique);
-				if (nativeStatuses) {
+				if (nativeStatuses?.length === unique.length) {
 					return Response.json(nativeStatuses);
 				}
 				const results = await Promise.all(unique.map((cwd) => getStatus(cwd)));

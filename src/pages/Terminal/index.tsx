@@ -372,7 +372,7 @@ const styles = stylex.create({
 	appRoot: {
 		display: "flex",
 		flexDirection: "column",
-		backgroundColor: color.background,
+		backgroundColor: "transparent",
 	},
 	fullHeight: {
 		height: "100%",

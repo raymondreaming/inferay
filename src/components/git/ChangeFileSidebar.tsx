@@ -43,6 +43,7 @@ interface ChangeFileSidebarProps {
 	onStageAll: () => void;
 	onUnstageAll: () => void;
 	hasProject: boolean;
+	projectLoading?: boolean;
 	selectedCommitHash: string | null;
 	commitDetailsLoading: boolean;
 	commitDetails: {
@@ -87,6 +88,7 @@ export function ChangeFileSidebar(props: ChangeFileSidebarProps) {
 		onStageAll,
 		onUnstageAll,
 		hasProject,
+		projectLoading = false,
 		selectedCommitHash,
 		commitDetailsLoading,
 		commitDetails,
@@ -115,9 +117,16 @@ export function ChangeFileSidebar(props: ChangeFileSidebarProps) {
 				<div {...stylex.props(styles.splitArea)}>
 					{!hasProject ? (
 						<div {...stylex.props(styles.emptyState)}>
-							<p {...stylex.props(styles.emptyText, styles.centerText)}>
-								No repository
-							</p>
+							{projectLoading ? (
+								<div {...stylex.props(styles.loadingState)}>
+									<DotMatrixWeave ariaLabel="Checking repository" />
+									<span>Checking repository…</span>
+								</div>
+							) : (
+								<p {...stylex.props(styles.emptyText, styles.centerText)}>
+									No Git repository
+								</p>
+							)}
 						</div>
 					) : (
 						<>
@@ -334,6 +343,13 @@ const styles = stylex.create({
 		alignItems: "center",
 		justifyContent: "center",
 		paddingBlock: controlSize._6,
+	},
+	loadingState: {
+		alignItems: "center",
+		color: color.textMuted,
+		display: "flex",
+		fontSize: font.size_2,
+		gap: controlSize._2,
 	},
 	emptyStateLarge: {
 		display: "flex",

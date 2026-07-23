@@ -24,13 +24,24 @@ import {
 	APP_THEMES,
 	type AppThemeId,
 	applyAppTheme,
+	isDarkProductTheme,
 	loadAppThemeId,
 	mapAppThemeToTerminalTheme,
 	saveAppThemeId,
 } from "../../lib/app-theme.ts";
+import {
+	APP_BACKGROUNDS,
+	type AppBackgroundId,
+	type AppBackgroundSettings,
+	loadAppBackgroundSettings,
+	saveAppBackgroundSettings,
+} from "../../lib/app-background.ts";
 import { CLIENT_STORAGE_CHANGED_EVENT } from "../../lib/client-storage-sync.ts";
-import { APP_THEME_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
-import { fetchJsonOr } from "../../lib/fetch-json.ts";
+import {
+	APP_BACKGROUND_STORAGE_KEY,
+	APP_THEME_STORAGE_KEY,
+} from "../../lib/client-storage-keys.ts";
+import { fetchJsonOr, resolveServerUrl } from "../../lib/fetch-json.ts";
 import { listenWindowEvent, setInputValue } from "../../lib/react-events.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 
@@ -47,12 +58,8 @@ interface TerminalSettingsPanelProps {
 	onClose: () => void;
 }
 
-const HIDDEN_APP_THEME_IDS = new Set<AppThemeId>([
-	"githubLight",
-	"solarizedLight",
-]);
-const VISIBLE_APP_THEMES = APP_THEMES.filter(
-	(theme) => !HIDDEN_APP_THEME_IDS.has(theme.id)
+const VISIBLE_APP_THEMES = APP_THEMES.filter((theme) =>
+	isDarkProductTheme(theme.id)
 );
 const ENABLE_CUSTOM_THEME_PICKER = false;
 const EMPTY_FOLDERS: string[] = [];
@@ -160,6 +167,244 @@ function ThemeOrb({
 				{theme.name}
 			</span>
 		</button>
+	);
+}
+
+function BackgroundScenePicker() {
+	const [background, setBackground] = useState<AppBackgroundSettings>(
+		loadAppBackgroundSettings
+	);
+	const [uploading, setUploading] = useState(false);
+	const [uploadError, setUploadError] = useState<string | null>(null);
+	const fileInputRef = useRef<HTMLInputElement>(null);
+
+	useEffect(
+		() =>
+			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
+				const key = (event as CustomEvent<{ key?: string }>).detail?.key;
+				if (key === APP_BACKGROUND_STORAGE_KEY) {
+					setBackground(loadAppBackgroundSettings());
+				}
+			}),
+		[]
+	);
+
+	const updateBackground = useCallback(
+		(patch: Partial<AppBackgroundSettings>) => {
+			setBackground((current) => {
+				const next = { ...current, ...patch };
+				saveAppBackgroundSettings(next);
+				return next;
+			});
+		},
+		[]
+	);
+
+	const uploadCustomBackground = useCallback(
+		async (file: File | null) => {
+			if (!file) return;
+			setUploading(true);
+			setUploadError(null);
+			try {
+				const formData = new FormData();
+				formData.append("file", file);
+				const response = await fetch("/api/config/background-image", {
+					method: "POST",
+					body: formData,
+				});
+				if (!response.ok) {
+					throw new Error(
+						(await response.text()) || "Could not import that image"
+					);
+				}
+				const payload = (await response.json()) as { revision?: number };
+				updateBackground({
+					id: "custom",
+					autoTheme: true,
+					customRevision: payload.revision ?? Date.now(),
+				});
+			} catch (error) {
+				setUploadError(
+					error instanceof Error ? error.message : "Could not import that image"
+				);
+			} finally {
+				setUploading(false);
+				if (fileInputRef.current) fileInputRef.current.value = "";
+			}
+		},
+		[updateBackground]
+	);
+
+	const scenes: Array<{
+		id: AppBackgroundId;
+		name: string;
+		path: string | null;
+	}> = [
+		...APP_BACKGROUNDS,
+		{
+			id: "custom",
+			name: "Your image",
+			path:
+				background.customRevision > 0
+					? `/api/config/background-image?v=${background.customRevision}`
+					: null,
+		},
+		{ id: "none", name: "No scene", path: null },
+	];
+
+	return (
+		<div {...stylex.props(styles.section)}>
+			<div {...stylex.props(styles.backgroundHeadingRow)}>
+				<div>
+					<h4 {...stylex.props(styles.sectionHeading)}>Background world</h4>
+					<p {...stylex.props(styles.sectionDescription)}>
+						Choose a built-in scene or bring your own image.
+					</p>
+				</div>
+				<Button
+					type="button"
+					size="sm"
+					variant="secondary"
+					onClick={() => fileInputRef.current?.click()}
+					disabled={uploading}
+				>
+					<IconFolder size={10} />
+					{uploading ? "Importing…" : "Choose image"}
+				</Button>
+				<input
+					ref={fileInputRef}
+					type="file"
+					accept="image/png,image/jpeg,image/webp,image/gif"
+					onChange={(event) =>
+						void uploadCustomBackground(event.currentTarget.files?.[0] ?? null)
+					}
+					{...stylex.props(styles.hiddenFileInput)}
+				/>
+			</div>
+			<div {...stylex.props(styles.backgroundGrid)}>
+				{scenes.map((scene) => {
+					const selected = background.id === scene.id;
+					return (
+						<button
+							key={scene.id}
+							type="button"
+							onClick={() =>
+								scene.id === "custom" && background.customRevision === 0
+									? fileInputRef.current?.click()
+									: updateBackground({
+											id: scene.id,
+											autoTheme: scene.id !== "none",
+										})
+							}
+							{...stylex.props(
+								styles.backgroundCard,
+								selected && styles.backgroundCardSelected
+							)}
+						>
+							<span
+								{...stylex.props(styles.backgroundPreview)}
+								style={{
+									backgroundImage: scene.path
+										? `linear-gradient(rgba(2,3,8,.12), rgba(2,3,8,.32)), url("${resolveServerUrl(scene.path)}")`
+										: scene.id === "none"
+											? "radial-gradient(circle at 35% 30%, #252632, #050506 70%)"
+											: "linear-gradient(135deg, #272938, #0a0b10)",
+								}}
+							/>
+							<span {...stylex.props(styles.backgroundName)}>{scene.name}</span>
+						</button>
+					);
+				})}
+			</div>
+			{uploadError ? (
+				<p {...stylex.props(styles.backgroundError)}>{uploadError}</p>
+			) : null}
+			<div {...stylex.props(styles.backgroundControls)}>
+				<div {...stylex.props(styles.backgroundAutoTheme)}>
+					<span>
+						<strong {...stylex.props(styles.backgroundAutoTitle)}>
+							Interface color source
+						</strong>
+						<small {...stylex.props(styles.backgroundAutoDescription)}>
+							Use your chosen theme or softly match the selected scene.
+						</small>
+					</span>
+					<div {...stylex.props(styles.colorSourceOptions)}>
+						<button
+							type="button"
+							onClick={() => updateBackground({ autoTheme: false })}
+							{...stylex.props(
+								styles.colorSourceButton,
+								!background.autoTheme && styles.colorSourceButtonSelected
+							)}
+						>
+							Theme
+						</button>
+						<button
+							type="button"
+							disabled={background.id === "none"}
+							onClick={() => updateBackground({ autoTheme: true })}
+							{...stylex.props(
+								styles.colorSourceButton,
+								background.autoTheme && styles.colorSourceButtonSelected
+							)}
+						>
+							Scene
+						</button>
+					</div>
+				</div>
+				<label {...stylex.props(styles.backgroundControl)}>
+					<span>Darkness</span>
+					<input
+						type="range"
+						min="0"
+						max="85"
+						value={background.dim}
+						{...stylex.props(styles.backgroundRange)}
+						onChange={(event) =>
+							updateBackground({ dim: Number(event.currentTarget.value) })
+						}
+					/>
+					<span {...stylex.props(styles.backgroundValue)}>
+						{background.dim}%
+					</span>
+				</label>
+				<label {...stylex.props(styles.backgroundControl)}>
+					<span>Image softness</span>
+					<input
+						type="range"
+						min="0"
+						max="20"
+						value={background.blur}
+						{...stylex.props(styles.backgroundRange)}
+						onChange={(event) =>
+							updateBackground({ blur: Number(event.currentTarget.value) })
+						}
+					/>
+					<span {...stylex.props(styles.backgroundValue)}>
+						{background.blur}px
+					</span>
+				</label>
+				<label {...stylex.props(styles.backgroundControl)}>
+					<span>Glass softness</span>
+					<input
+						type="range"
+						min="0"
+						max="16"
+						value={background.glassBlur}
+						{...stylex.props(styles.backgroundRange)}
+						onChange={(event) =>
+							updateBackground({
+								glassBlur: Number(event.currentTarget.value),
+							})
+						}
+					/>
+					<span {...stylex.props(styles.backgroundValue)}>
+						{background.glassBlur}px
+					</span>
+				</label>
+			</div>
+		</div>
 	);
 }
 
@@ -294,6 +539,9 @@ export const TerminalSettingsContent = memo(function TerminalSettingsContent({
 	embedded = false,
 }: TerminalSettingsContentProps) {
 	const [appThemeId, setAppThemeId] = useState<AppThemeId>(loadAppThemeId);
+	const [backgroundAutoTheme, setBackgroundAutoTheme] = useState(
+		() => loadAppBackgroundSettings().autoTheme
+	);
 	const [terminalThemeId, setTerminalThemeId] = useState<ThemeId>(() => {
 		const state = loadTerminalState();
 		return (
@@ -307,6 +555,11 @@ export const TerminalSettingsContent = memo(function TerminalSettingsContent({
 		(id: AppThemeId) => {
 			setAppThemeId(id);
 			saveAppThemeId(id);
+			const background = loadAppBackgroundSettings();
+			if (background.autoTheme) {
+				saveAppBackgroundSettings({ ...background, autoTheme: false });
+			}
+			setBackgroundAutoTheme(false);
 			applyAppTheme(id);
 			const termThemeId = mapAppThemeToTerminalTheme(id);
 			setTerminalThemeId(termThemeId);
@@ -344,11 +597,16 @@ export const TerminalSettingsContent = memo(function TerminalSettingsContent({
 		() =>
 			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
 				const key = (event as CustomEvent<{ key?: string }>).detail?.key;
-				if (key !== APP_THEME_STORAGE_KEY) return;
-				const nextAppThemeId = loadAppThemeId();
-				const nextTerminalThemeId = mapAppThemeToTerminalTheme(nextAppThemeId);
-				setAppThemeId(nextAppThemeId);
-				setTerminalThemeId(nextTerminalThemeId);
+				if (key === APP_BACKGROUND_STORAGE_KEY) {
+					setBackgroundAutoTheme(loadAppBackgroundSettings().autoTheme);
+				}
+				if (key === APP_THEME_STORAGE_KEY) {
+					const nextAppThemeId = loadAppThemeId();
+					const nextTerminalThemeId =
+						mapAppThemeToTerminalTheme(nextAppThemeId);
+					setAppThemeId(nextAppThemeId);
+					setTerminalThemeId(nextTerminalThemeId);
+				}
 			}),
 		[]
 	);
@@ -361,14 +619,15 @@ export const TerminalSettingsContent = memo(function TerminalSettingsContent({
 			<div {...stylex.props(styles.section)}>
 				<h4 {...stylex.props(styles.sectionHeading)}>Theme</h4>
 				<p {...stylex.props(styles.sectionDescription)}>
-					Choose the color system used across Inferay.
+					Choose the color system used across Inferay. Selecting one makes Theme
+					the interface color source.
 				</p>
 				<div {...stylex.props(styles.themeGrid)}>
 					{VISIBLE_APP_THEMES.map((t) => (
 						<ThemeOrb
 							key={t.id}
 							theme={t}
-							selected={appThemeId === t.id}
+							selected={!backgroundAutoTheme && appThemeId === t.id}
 							onClick={() => handleThemeChange(t.id)}
 						/>
 					))}
@@ -383,7 +642,7 @@ export const TerminalSettingsContent = memo(function TerminalSettingsContent({
 									black: custom.bg,
 								},
 							}}
-							selected={isCustom}
+							selected={!backgroundAutoTheme && isCustom}
 							onClick={() => handleThemeChange("custom")}
 							dashed
 						/>
@@ -432,6 +691,8 @@ export const TerminalSettingsContent = memo(function TerminalSettingsContent({
 					</div>
 				</>
 			)}
+			<div {...stylex.props(styles.divider)} />
+			<BackgroundScenePicker />
 			<div {...stylex.props(styles.divider)} />
 			<div {...stylex.props(styles.section)}>
 				<h4 {...stylex.props(styles.sectionHeading)}>Diff appearance</h4>
@@ -595,6 +856,153 @@ const styles = stylex.create({
 	themeOrbLabelSelected: {
 		color: color.textMain,
 		fontWeight: 600,
+	},
+	backgroundHeadingRow: {
+		alignItems: "flex-start",
+		display: "flex",
+		gap: controlSize._3,
+		justifyContent: "space-between",
+	},
+	hiddenFileInput: {
+		display: "none",
+	},
+	backgroundGrid: {
+		display: "grid",
+		gap: controlSize._2,
+		gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+	},
+	backgroundCard: {
+		backgroundColor: "rgba(255,255,255,0.025)",
+		borderColor: color.border,
+		borderRadius: controlSize._2,
+		borderStyle: "solid",
+		borderWidth: 1,
+		color: color.textMuted,
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._1_5,
+		overflow: "hidden",
+		padding: controlSize._1,
+		textAlign: "left",
+		transitionDuration: "150ms",
+		transitionProperty: "border-color, background-color, color, transform",
+		":hover": {
+			backgroundColor: color.surfaceSubtle,
+			borderColor: color.borderStrong,
+			color: color.textMain,
+			transform: "translateY(-1px)",
+		},
+	},
+	backgroundCardSelected: {
+		backgroundColor: color.surfaceSubtle,
+		borderColor: color.accent,
+		color: color.textMain,
+	},
+	backgroundPreview: {
+		backgroundColor: color.background,
+		backgroundPosition: "center",
+		backgroundRepeat: "no-repeat",
+		backgroundSize: "cover",
+		borderRadius: 5,
+		display: "block",
+		height: 64,
+		width: "100%",
+	},
+	backgroundName: {
+		fontSize: font.size_2,
+		fontWeight: font.weight_5,
+		paddingInline: controlSize._1,
+		paddingBottom: controlSize._1,
+	},
+	backgroundError: {
+		color: color.danger,
+		fontSize: font.size_2,
+		lineHeight: 1.4,
+		margin: 0,
+	},
+	backgroundControls: {
+		backgroundColor: "rgba(255,255,255,0.025)",
+		borderColor: color.border,
+		borderRadius: controlSize._2,
+		borderStyle: "solid",
+		borderWidth: 1,
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._2,
+		padding: controlSize._2,
+	},
+	backgroundAutoTheme: {
+		alignItems: "center",
+		borderBottomColor: color.border,
+		borderBottomStyle: "solid",
+		borderBottomWidth: 1,
+		color: color.textSoft,
+		display: "flex",
+		fontSize: font.size_2,
+		gap: controlSize._2,
+		justifyContent: "space-between",
+		paddingBottom: controlSize._2,
+	},
+	backgroundAutoTitle: {
+		display: "block",
+		fontWeight: font.weight_5,
+	},
+	backgroundAutoDescription: {
+		color: color.textMuted,
+		display: "block",
+		fontSize: font.size_1,
+		lineHeight: 1.35,
+		marginTop: 2,
+	},
+	colorSourceOptions: {
+		backgroundColor: color.surfaceInset,
+		borderColor: color.border,
+		borderRadius: controlSize._1_5,
+		borderStyle: "solid",
+		borderWidth: 1,
+		display: "flex",
+		flexShrink: 0,
+		gap: 2,
+		padding: 2,
+	},
+	colorSourceButton: {
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlActive,
+		},
+		borderWidth: 0,
+		borderRadius: controlSize._1,
+		color: color.textMuted,
+		fontSize: font.size_1,
+		fontWeight: font.weight_5,
+		minHeight: controlSize._6,
+		paddingInline: controlSize._2,
+		":disabled": {
+			opacity: 0.35,
+		},
+	},
+	colorSourceButtonSelected: {
+		backgroundColor: color.backgroundRaised,
+		color: color.textMain,
+	},
+	backgroundControl: {
+		alignItems: "center",
+		color: color.textMuted,
+		display: "grid",
+		fontSize: font.size_2,
+		gap: controlSize._2,
+		gridTemplateColumns: "6.5rem 1fr 2.5rem",
+	},
+	backgroundRange: {
+		accentColor: color.accent,
+		margin: 0,
+		width: "100%",
+	},
+	backgroundValue: {
+		color: color.textSoft,
+		fontFamily: font.familyMono,
+		fontSize: font.size_1,
+		textAlign: "right",
 	},
 	divider: {
 		height: 1,

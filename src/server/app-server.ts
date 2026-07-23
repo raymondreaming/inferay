@@ -252,7 +252,23 @@ export async function handleAppHttpRequest(
 			? staticFile(publicDir, "logo.png", "image/png")
 			: url.pathname === "/app-icon.png"
 				? staticFile(publicDir, "app-icon.png", "image/png")
-				: null;
+				: url.pathname === "/background-city-rain.png"
+					? staticFile(publicDir, "background-city-rain.png", "image/png")
+					: url.pathname === "/background-nature-sanctuary.png"
+						? staticFile(
+								publicDir,
+								"background-nature-sanctuary.png",
+								"image/png"
+							)
+						: url.pathname === "/background-orbital-study.png"
+							? staticFile(
+									publicDir,
+									"background-orbital-study.png",
+									"image/png"
+								)
+							: url.pathname === "/inferay-vibespace.png"
+								? staticFile(publicDir, "inferay-vibespace.png", "image/png")
+								: null;
 	if (appInfoHandler) return withCors(await appInfoHandler(), req);
 
 	const routeHandler = routeHandlerFor(corsApiRoutes, url.pathname, req.method);
@@ -315,6 +331,26 @@ export async function startAppServer(port = 4001) {
 		routes: {
 			"/logo.png": staticFile(publicDir, "logo.png", "image/png"),
 			"/app-icon.png": staticFile(publicDir, "app-icon.png", "image/png"),
+			"/background-city-rain.png": staticFile(
+				publicDir,
+				"background-city-rain.png",
+				"image/png"
+			),
+			"/background-nature-sanctuary.png": staticFile(
+				publicDir,
+				"background-nature-sanctuary.png",
+				"image/png"
+			),
+			"/background-orbital-study.png": staticFile(
+				publicDir,
+				"background-orbital-study.png",
+				"image/png"
+			),
+			"/inferay-vibespace.png": staticFile(
+				publicDir,
+				"inferay-vibespace.png",
+				"image/png"
+			),
 			...corsApiRoutes,
 			"/api/restart": {
 				POST: async (req) => {

@@ -541,6 +541,7 @@ function useEditorPageModel({
 		projectMap,
 		refetch: refetchGit,
 		applyOptimistic,
+		loaded: gitStatusLoaded,
 	} = useGitStatus(trackedDirs, { enabled: active && trackedDirs.length > 0 });
 	const sessionIdx = useMemo(
 		() => sessions.findIndex((s) => s.paneId === effectiveSelectedPaneId),
@@ -741,7 +742,13 @@ function useEditorPageModel({
 				</DiffViewerBoundary>
 			) : (
 				<Placeholder
-					label={project ? "Select a changed file" : "No diff available"}
+					label={
+						!gitStatusLoaded
+							? "Checking repository…"
+							: project
+								? "Select a changed file"
+								: "No Git repository"
+					}
 				/>
 			)
 		) : graphLoading ? (
@@ -778,6 +785,7 @@ function useEditorPageModel({
 		onStageAll: stageAll,
 		onUnstageAll: unstageAll,
 		hasProject: !!project,
+		projectLoading: !!session?.cwd && !gitStatusLoaded,
 		files,
 		branch: project?.branch,
 		commitMessage,
@@ -1045,7 +1053,7 @@ const styles = stylex.create({
 		height: "100%",
 		minHeight: 0,
 		flexDirection: "column",
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 	},
 	pageGrid: {
 		display: "grid",
@@ -1091,7 +1099,8 @@ const styles = stylex.create({
 		borderLeftWidth: 1,
 		borderLeftStyle: "solid",
 		borderLeftColor: color.border,
-		backgroundColor: color.background,
+		backgroundColor:
+			"color-mix(in srgb, var(--color-inferay-black) 62%, transparent)",
 	},
 	sidebarResize: {
 		position: "absolute",

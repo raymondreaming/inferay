@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { postJson } from "../../lib/fetch-json.ts";
 import { usePollingResource } from "../../hooks/usePollingResource.ts";
 import type { GitProjectStatus } from "./types.ts";
@@ -43,24 +43,40 @@ function areGitStatusesEqual(
 
 export function useGitStatus(cwds: string[], options?: { enabled?: boolean }) {
 	const enabled = options?.enabled ?? cwds.length > 0;
+	const cwdKey = cwds.join("\u0000");
+	const requestedCwds = useMemo(
+		() => (cwdKey ? cwdKey.split("\u0000") : []),
+		[cwdKey]
+	);
+	const [loadedCwdKey, setLoadedCwdKey] = useState("");
 	const fetcher = useCallback(
-		async () => {
-			if (cwds.length === 0) return [];
-			return postJson<GitProjectStatus[]>("/api/git/statuses", { cwds });
+		async (signal?: AbortSignal) => {
+			if (requestedCwds.length === 0) {
+				setLoadedCwdKey(cwdKey);
+				return [];
+			}
+			const result = await postJson<GitProjectStatus[]>(
+				"/api/git/statuses",
+				{ cwds: requestedCwds },
+				{ signal }
+			);
+			if (!signal?.aborted) setLoadedCwdKey(cwdKey);
+			return result;
 		},
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-		[cwds]
+		[cwdKey, requestedCwds]
 	);
 
 	const {
 		data: projects,
 		setData,
 		refetch,
+		loaded,
 	} = usePollingResource<GitProjectStatus[]>(fetcher, 5000, [], {
-		deferInitialFetch: true,
+		deferInitialFetch: false,
 		enabled,
 		isEqual: areGitStatusesEqual,
 	});
+	const statusLoaded = !enabled || (loaded && loadedCwdKey === cwdKey);
 
 	const projectMap = useMemo(() => {
 		const map = new Map<string, GitProjectStatus>();
@@ -78,5 +94,11 @@ export function useGitStatus(cwds: string[], options?: { enabled?: boolean }) {
 		[setData]
 	);
 
-	return { projects, projectMap, refetch, applyOptimistic };
+	return {
+		projects,
+		projectMap,
+		refetch,
+		applyOptimistic,
+		loaded: statusLoaded,
+	};
 }
