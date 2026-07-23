@@ -607,26 +607,6 @@ async function commit(
 	return { success: true, hash: hashMatch?.[1] };
 }
 
-interface NativeGitFileEntry {
-	status: string;
-	staged: boolean;
-	path: string;
-	originalPath?: string;
-}
-
-interface NativeGitStatusResult {
-	cwd: string;
-	name: string;
-	branch: string;
-	upstream: string | null;
-	ahead: number;
-	behind: number;
-	stagedCount: number;
-	unstagedCount: number;
-	untrackedCount: number;
-	files: NativeGitFileEntry[];
-}
-
 interface NativeGraphCommit {
 	hash: string;
 	message: string;
@@ -657,32 +637,10 @@ interface NativeGraphRow {
 	transitions: NativeGraphTransition[];
 }
 
-interface NativeGitStatusesResponse {
-	op: "git_statuses";
-	projects: NativeGitStatusResult[];
-}
-
 interface NativeGitGraphResponse {
 	op: "git_graph";
 	commits: NativeGraphCommit[];
 	rows: NativeGraphRow[];
-}
-
-async function getNativeGitStatuses(
-	cwds: string[]
-): Promise<NativeGitStatusResult[] | null> {
-	if (!cwds.length) return [];
-	const result = await runNativeCore<
-		{ op: "git_statuses"; cwds: string[] },
-		NativeGitStatusesResponse
-	>(
-		{
-			op: "git_statuses",
-			cwds,
-		},
-		{ timeoutMs: 1500 }
-	);
-	return result?.projects ?? null;
 }
 
 async function getNativeGitGraph(
@@ -1253,11 +1211,6 @@ export function gitRoutes() {
 				const url = new URL(req.url);
 				const cwd = safeCwd(url.searchParams.get("cwd"));
 				if (!cwd) return badRequest("Missing cwd parameter");
-				const nativeProjects = await getNativeGitStatuses([cwd]);
-				const nativeStatus = nativeProjects?.[0] ?? null;
-				if (nativeStatus) {
-					return Response.json(nativeStatus);
-				}
 				const status = await getStatus(cwd);
 				if (!status)
 					return Response.json(
@@ -1280,10 +1233,6 @@ export function gitRoutes() {
 						seen.add(safe);
 						unique.push(safe);
 					}
-				}
-				const nativeStatuses = await getNativeGitStatuses(unique);
-				if (nativeStatuses?.length === unique.length) {
-					return Response.json(nativeStatuses);
 				}
 				const results = await Promise.all(unique.map((cwd) => getStatus(cwd)));
 				return Response.json(results.filter(Boolean) as GitProjectStatus[]);

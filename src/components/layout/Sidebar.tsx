@@ -7,6 +7,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
 import {
@@ -52,13 +53,8 @@ import {
 	readStoredValue,
 	writeStoredValue,
 } from "../../lib/stored-json.ts";
-import {
-	color,
-	controlSize,
-	effect,
-	font,
-	shadow,
-} from "../../tokens.stylex.ts";
+import { color, controlSize, font, shadow } from "../../tokens.stylex.ts";
+import { Button } from "../ui/Button.tsx";
 import { IconButton } from "../ui/IconButton.tsx";
 import {
 	IconChevronRight,
@@ -633,49 +629,68 @@ function SidebarWorkspacesSection({
 
 function SidebarFooter({
 	collapsed,
+	sidebarWidth,
 	updateAvailable,
 	updateInfo,
 	updateStatus,
 	onUpdate,
 }: {
 	collapsed: boolean;
+	sidebarWidth: number;
 	updateAvailable: boolean;
 	updateInfo: AppInfo["update"];
 	updateStatus: UpdateStatus;
 	onUpdate: () => void;
 }) {
-	const footerProps = stylex.props(styles.footer);
-	return (
+	if (!updateAvailable) return null;
+	return createPortal(
 		<div
-			className={`${APP_REGION_NO_DRAG_CLASS} ${footerProps.className ?? ""}`}
+			className={`${APP_REGION_NO_DRAG_CLASS} ${
+				stylex.props(styles.footer, collapsed && styles.footerCollapsed)
+					.className ?? ""
+			}`}
+			style={{
+				left: collapsed ? 17 : 61,
+				width: collapsed ? 32 : Math.max(32, sidebarWidth - 16),
+			}}
 		>
-			{updateAvailable ? (
-				<button
-					type="button"
-					onClick={onUpdate}
-					disabled={updateStatus === "updating"}
-					{...stylex.props(
+			<Button
+				type="button"
+				size="sm"
+				variant="secondary"
+				onClick={onUpdate}
+				disabled={updateStatus === "updating"}
+				title={
+					collapsed
+						? `Update Inferay to ${updateInfo.latestVersion}`
+						: undefined
+				}
+				aria-label={
+					collapsed
+						? `Update Inferay to ${updateInfo.latestVersion}`
+						: undefined
+				}
+				className={
+					stylex.props(
 						styles.updateButton,
 						updateStatus === "updating" && styles.updateButtonBusy,
-						collapsed ? styles.updateButtonCollapsed : styles.updateButtonOpen
-					)}
-					title={
-						collapsed ? `Update to ${updateInfo.latestVersion}` : undefined
-					}
-				>
-					<IconRefreshCw size={12} />
-					{!collapsed ? (
-						<span {...stylex.props(styles.updateLabel)}>
-							{updateStatus === "updating"
-								? "Updating..."
-								: updateStatus === "error"
-									? "Update failed"
-									: `Update to ${updateInfo.latestVersion}`}
-						</span>
-					) : null}
-				</button>
-			) : null}
-		</div>
+						collapsed && styles.updateButtonCollapsed
+					).className
+				}
+			>
+				<IconRefreshCw size={12} />
+				{!collapsed ? (
+					<span {...stylex.props(styles.updateLabel)}>
+						{updateStatus === "updating"
+							? "Updating…"
+							: updateStatus === "error"
+								? "Try update again"
+								: `Update Inferay to ${updateInfo.latestVersion}`}
+					</span>
+				) : null}
+			</Button>
+		</div>,
+		document.body
 	);
 }
 
@@ -982,50 +997,57 @@ export function Sidebar() {
 	const resizeHandleProps = stylex.props(styles.resizeHandle);
 
 	return (
-		<aside
-			{...shellProps}
-			className={`${APP_REGION_DRAG_CLASS} ${shellProps.className ?? ""}`}
-			style={
-				!showWorkspaceSidebar || collapsed ? undefined : { width: sidebarWidth }
-			}
-		>
-			{showWorkspaceSidebar && !collapsed && (
-				<button
-					type="button"
-					aria-label="Resize sidebar"
-					{...resizeHandleProps}
-					className={`${APP_REGION_NO_DRAG_CLASS} ${resizeHandleProps.className ?? ""}`}
-					onMouseDown={handleResizeStart}
-				/>
-			)}
-			{showWorkspaceSidebar && !collapsed ? (
-				<nav {...stylex.props(styles.nav)}>
-					<SidebarWorkspacesSection
-						collapsed={collapsed}
-						workspaces={workspaces}
-						layoutMode={layoutMode}
-						onAddWorkspace={addWorkspace}
-						onAddChat={addChat}
-						onUpdateLayoutMode={updateLayoutMode}
-						onUpdateGrid={updateSelectedGroupGrid}
-						onSelectWorkspace={selectWorkspace}
-						onSelectPane={selectPane}
-						onExpandSidebar={() =>
-							dispatchUi({ type: "collapsed", value: false })
-						}
-						onRemoveWorkspace={removeWorkspace}
-						onRenameWorkspace={renameWorkspace}
+		<>
+			<aside
+				{...shellProps}
+				className={`${APP_REGION_DRAG_CLASS} ${shellProps.className ?? ""}`}
+				style={
+					!showWorkspaceSidebar || collapsed
+						? undefined
+						: { width: sidebarWidth }
+				}
+			>
+				{showWorkspaceSidebar && !collapsed && (
+					<button
+						type="button"
+						aria-label="Resize sidebar"
+						{...resizeHandleProps}
+						className={`${APP_REGION_NO_DRAG_CLASS} ${resizeHandleProps.className ?? ""}`}
+						onMouseDown={handleResizeStart}
 					/>
-				</nav>
+				)}
+				{showWorkspaceSidebar && !collapsed ? (
+					<nav {...stylex.props(styles.nav)}>
+						<SidebarWorkspacesSection
+							collapsed={collapsed}
+							workspaces={workspaces}
+							layoutMode={layoutMode}
+							onAddWorkspace={addWorkspace}
+							onAddChat={addChat}
+							onUpdateLayoutMode={updateLayoutMode}
+							onUpdateGrid={updateSelectedGroupGrid}
+							onSelectWorkspace={selectWorkspace}
+							onSelectPane={selectPane}
+							onExpandSidebar={() =>
+								dispatchUi({ type: "collapsed", value: false })
+							}
+							onRemoveWorkspace={removeWorkspace}
+							onRenameWorkspace={renameWorkspace}
+						/>
+					</nav>
+				) : null}
+			</aside>
+			{showWorkspaceSidebar ? (
+				<SidebarFooter
+					collapsed={collapsed}
+					sidebarWidth={sidebarWidth}
+					updateAvailable={updateAvailable}
+					updateInfo={updateInfo}
+					updateStatus={updateStatus}
+					onUpdate={openUpdate}
+				/>
 			) : null}
-			<SidebarFooter
-				collapsed={false}
-				updateAvailable={updateAvailable}
-				updateInfo={updateInfo}
-				updateStatus={updateStatus}
-				onUpdate={openUpdate}
-			/>
-		</aside>
+		</>
 	);
 }
 
@@ -1513,52 +1535,25 @@ const styles = stylex.create({
 		transform: "scaleX(-1)",
 	},
 	footer: {
-		position: "fixed",
-		top: 6,
-		right: 12,
-		zIndex: 140,
 		alignItems: "center",
-		backgroundColor: "transparent",
-		borderWidth: 0,
+		bottom: 20,
 		display: "flex",
-		flexDirection: "row",
-		gap: controlSize._1,
-		marginLeft: 0,
-		padding: 0,
-		width: "auto",
+		position: "fixed",
+		zIndex: 200,
+	},
+	footerCollapsed: {
+		width: 32,
 	},
 	updateButton: {
-		alignItems: "center",
-		backgroundColor: color.controlActive,
-		backgroundImage: effect.controlDepthHover,
-		borderColor: color.borderStrong,
-		borderRadius: 8,
-		borderStyle: "solid",
-		borderWidth: 1,
-		boxShadow: shadow.controlDepth,
-		color: color.textMain,
-		display: "flex",
-		fontSize: "0.6875rem",
-		fontWeight: font.weight_6,
-		gap: controlSize._1,
-		justifyContent: "center",
-		padding: 0,
-		transitionDuration: "150ms",
-		transitionProperty: "background-color, box-shadow, color",
-		transitionTimingFunction: "ease",
+		borderWidth: 0,
+		width: "100%",
+	},
+	updateButtonCollapsed: {
+		paddingInline: 0,
 	},
 	updateButtonBusy: {
 		cursor: "wait",
 		opacity: 0.75,
-	},
-	updateButtonOpen: {
-		height: 30,
-		paddingInline: "0.375rem",
-		width: "auto",
-	},
-	updateButtonCollapsed: {
-		height: controlSize._7,
-		width: controlSize._9,
 	},
 	updateLabel: {
 		minWidth: 0,

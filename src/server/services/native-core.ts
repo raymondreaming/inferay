@@ -22,8 +22,7 @@ export function resolveNativeCoreBinary(): string | null {
 }
 
 export async function runNativeCore<TRequest, TResponse>(
-	payload: TRequest,
-	options?: { timeoutMs?: number }
+	payload: TRequest
 ): Promise<TResponse | null> {
 	const binary = resolveNativeCoreBinary();
 	if (!binary) return null;
@@ -41,7 +40,7 @@ export async function runNativeCore<TRequest, TResponse>(
 			try {
 				proc.kill();
 			} catch {}
-		}, options?.timeoutMs ?? NATIVE_CORE_TIMEOUT_MS);
+		}, NATIVE_CORE_TIMEOUT_MS);
 
 		const [stdout, stderr, exitCode] = await Promise.all([
 			new Response(proc.stdout).text(),
