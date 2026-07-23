@@ -3,7 +3,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../components/ui/Button.tsx";
 import { DropdownButton } from "../../components/ui/DropdownButton.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
-import { IconX } from "../../components/ui/Icons.tsx";
+import { IconFolder, IconPlus, IconX } from "../../components/ui/Icons.tsx";
 import {
 	type CustomThemeColors,
 	type HexColor,
@@ -38,6 +38,7 @@ interface TerminalSettingsContentProps {
 	themeId?: ThemeId;
 	onThemeChange?: (id: ThemeId) => void;
 	showVersion?: boolean;
+	embedded?: boolean;
 }
 
 interface TerminalSettingsPanelProps {
@@ -114,16 +115,17 @@ function ThemeOrb({
 			)}
 		>
 			<div
-				{...stylex.props(styles.themeOrb, dashed && styles.themeOrbDashed)}
+				{...stylex.props(
+					styles.themeOrb,
+					dashed && styles.themeOrbDashed,
+					selected && styles.themeOrbSelectedRing
+				)}
 				style={{ backgroundColor: black }}
 			>
 				<div
 					{...stylex.props(styles.themeOrbFill)}
 					style={{
 						background: `radial-gradient(circle at 35% 35%, ${darkGray} 0%, ${black} 60%, ${black} 100%)`,
-						boxShadow: selected
-							? `0 0 16px 2px ${accent}50, inset 0 0 8px ${accent}20`
-							: `0 0 10px 1px ${accent}15`,
 					}}
 				/>
 				<div
@@ -223,7 +225,7 @@ function SearchFoldersSection() {
 
 	return (
 		<div {...stylex.props(styles.section)}>
-			<h4 {...stylex.props(styles.sectionHeading)}>SEARCH FOLDERS</h4>
+			<h4 {...stylex.props(styles.sectionHeading)}>Search folders</h4>
 			<p {...stylex.props(styles.sectionDescription)}>
 				Directories to scan when searching for projects. Use ~/path for
 				home-relative paths.
@@ -244,15 +246,6 @@ function SearchFoldersSection() {
 					</div>
 				))}
 			</div>
-			<Button
-				type="button"
-				onClick={browseFolder}
-				variant="secondary"
-				size="sm"
-				className={stylex.props(styles.browseButton).className}
-			>
-				+ Browse Folder
-			</Button>
 			<div {...stylex.props(styles.folderInputRow)}>
 				<input
 					ref={inputRef}
@@ -271,8 +264,23 @@ function SearchFoldersSection() {
 					disabled={!newFolder.trim()}
 					variant="secondary"
 					size="sm"
+					className={stylex.props(styles.folderActionButton).className}
 				>
+					<IconPlus size={10} />
 					Add
+				</Button>
+				<Button
+					type="button"
+					onClick={browseFolder}
+					variant="secondary"
+					size="sm"
+					className={
+						stylex.props(styles.browseButton, styles.folderActionButton)
+							.className
+					}
+				>
+					<IconFolder size={10} />
+					Browse
 				</Button>
 			</div>
 		</div>
@@ -283,6 +291,7 @@ export const TerminalSettingsContent = memo(function TerminalSettingsContent({
 	themeId,
 	onThemeChange,
 	showVersion = true,
+	embedded = false,
 }: TerminalSettingsContentProps) {
 	const [appThemeId, setAppThemeId] = useState<AppThemeId>(loadAppThemeId);
 	const [terminalThemeId, setTerminalThemeId] = useState<ThemeId>(() => {
@@ -346,32 +355,40 @@ export const TerminalSettingsContent = memo(function TerminalSettingsContent({
 	const isCustom = appThemeId === "custom";
 
 	return (
-		<div {...stylex.props(styles.panelBody)}>
-			<div {...stylex.props(styles.themeGrid)}>
-				{VISIBLE_APP_THEMES.map((t) => (
-					<ThemeOrb
-						key={t.id}
-						theme={t}
-						selected={appThemeId === t.id}
-						onClick={() => handleThemeChange(t.id)}
-					/>
-				))}
-				{ENABLE_CUSTOM_THEME_PICKER && (
-					<ThemeOrb
-						theme={{
-							id: "custom",
-							name: "Custom",
-							colors: {
-								accent: custom.cursor,
-								darkGray: custom.bg,
-								black: custom.bg,
-							},
-						}}
-						selected={isCustom}
-						onClick={() => handleThemeChange("custom")}
-						dashed
-					/>
-				)}
+		<div
+			{...stylex.props(styles.panelBody, embedded && styles.panelBodyEmbedded)}
+		>
+			<div {...stylex.props(styles.section)}>
+				<h4 {...stylex.props(styles.sectionHeading)}>Theme</h4>
+				<p {...stylex.props(styles.sectionDescription)}>
+					Choose the color system used across Inferay.
+				</p>
+				<div {...stylex.props(styles.themeGrid)}>
+					{VISIBLE_APP_THEMES.map((t) => (
+						<ThemeOrb
+							key={t.id}
+							theme={t}
+							selected={appThemeId === t.id}
+							onClick={() => handleThemeChange(t.id)}
+						/>
+					))}
+					{ENABLE_CUSTOM_THEME_PICKER && (
+						<ThemeOrb
+							theme={{
+								id: "custom",
+								name: "Custom",
+								colors: {
+									accent: custom.cursor,
+									darkGray: custom.bg,
+									black: custom.bg,
+								},
+							}}
+							selected={isCustom}
+							onClick={() => handleThemeChange("custom")}
+							dashed
+						/>
+					)}
+				</div>
 			</div>
 			{ENABLE_CUSTOM_THEME_PICKER && isCustom && (
 				<>
@@ -417,7 +434,7 @@ export const TerminalSettingsContent = memo(function TerminalSettingsContent({
 			)}
 			<div {...stylex.props(styles.divider)} />
 			<div {...stylex.props(styles.section)}>
-				<h4 {...stylex.props(styles.sectionHeading)}>DIFFS</h4>
+				<h4 {...stylex.props(styles.sectionHeading)}>Diff appearance</h4>
 				<p {...stylex.props(styles.sectionDescription)}>
 					Syntax highlighting used by full file diffs and inline agent edit
 					diffs.
@@ -502,42 +519,58 @@ const styles = stylex.create({
 		paddingInline: controlSize._4,
 		paddingBottom: controlSize._6,
 	},
+	panelBodyEmbedded: {
+		paddingBlock: 0,
+		paddingInline: 0,
+		paddingBottom: 0,
+	},
 	themeGrid: {
-		display: "grid",
-		gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-		gap: "0.625rem",
+		display: "flex",
+		gap: controlSize._2,
+		overflowX: "auto",
+		overscrollBehaviorX: "contain",
+		paddingBottom: controlSize._1,
+		scrollSnapType: "x proximity",
+		scrollbarWidth: "none",
 	},
 	themeOrbButton: {
 		display: "flex",
+		flex: "0 0 4.5rem",
 		flexDirection: "column",
 		alignItems: "center",
 		gap: "0.375rem",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: "transparent",
-		borderRadius: controlSize._3,
-		padding: controlSize._2,
-		transitionProperty: "background-color, border-color",
+		borderWidth: 0,
+		borderRadius: controlSize._2,
+		paddingBlock: controlSize._1,
+		paddingInline: 0,
+		scrollSnapAlign: "start",
+		transitionProperty: "opacity, color",
 		transitionDuration: "150ms",
-		backgroundColor: {
-			default: "transparent",
-			":hover": color.controlHover,
+		backgroundColor: "transparent",
+		opacity: {
+			default: 0.72,
+			":hover": 1,
 		},
 	},
 	themeOrbSelected: {
-		borderColor: color.borderStrong,
-		backgroundColor: "rgba(255, 255, 255, 0.05)",
+		opacity: 1,
 	},
 	themeOrb: {
 		position: "relative",
-		width: controlSize._12,
-		height: controlSize._12,
+		width: controlSize._10,
+		height: controlSize._10,
 		borderRadius: "999px",
 	},
 	themeOrbDashed: {
 		borderWidth: 1,
 		borderStyle: "dashed",
 		borderColor: color.border,
+	},
+	themeOrbSelectedRing: {
+		outlineColor: color.borderStrong,
+		outlineOffset: controlSize._1,
+		outlineStyle: "solid",
+		outlineWidth: 1,
 	},
 	themeOrbFill: {
 		position: "absolute",
@@ -570,21 +603,22 @@ const styles = stylex.create({
 	section: {
 		display: "flex",
 		flexDirection: "column",
+		gap: controlSize._2,
 	},
 	sectionHeading: {
-		marginBottom: controlSize._2,
-		color: color.textSoft,
-		fontSize: font.size_2,
+		margin: 0,
+		color: color.textMain,
+		fontSize: font.size_3,
 		fontWeight: 600,
 	},
 	customHeading: {
 		marginBottom: controlSize._3,
 	},
 	sectionDescription: {
-		marginBottom: controlSize._2,
+		margin: 0,
 		color: color.textMuted,
-		fontSize: font.size_1,
-		lineHeight: 1.45,
+		fontSize: font.size_2,
+		lineHeight: 1.5,
 	},
 	syntaxThemeButton: {
 		height: controlSize._8,
@@ -646,7 +680,6 @@ const styles = stylex.create({
 		flexDirection: "column",
 		gap: controlSize._1,
 		overflowY: "auto",
-		marginBottom: controlSize._2,
 	},
 	folderRow: {
 		display: "flex",
@@ -672,14 +705,17 @@ const styles = stylex.create({
 		fontSize: font.size_2,
 	},
 	browseButton: {
-		width: "100%",
-		marginBottom: "0.375rem",
-		borderStyle: "dashed",
+		flexShrink: 0,
+		fontSize: font.size_2,
+	},
+	folderActionButton: {
+		flexShrink: 0,
 		fontSize: font.size_2,
 	},
 	folderInputRow: {
 		display: "flex",
 		gap: "0.375rem",
+		alignItems: "center",
 	},
 	folderInput: {
 		minWidth: 0,

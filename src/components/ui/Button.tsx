@@ -91,20 +91,17 @@ const styles = stylex.create({
 	},
 	secondary: {
 		backgroundColor: {
-			default: color.surfaceControl,
-			":hover": color.surfaceControlHover,
+			default: color.backgroundRaised,
+			":hover": color.controlActive,
 		},
-		backgroundImage: {
-			default: effect.controlDepth,
-			":hover": effect.controlDepthHover,
+		backgroundImage: "none",
+		borderColor: {
+			default: color.border,
+			":hover": color.borderStrong,
 		},
-		borderColor: color.border,
 		borderStyle: "solid",
 		borderWidth: 1,
-		boxShadow: {
-			default: shadow.controlDepth,
-			":hover": shadow.controlDepthHover,
-		},
+		boxShadow: shadow.none,
 		color: color.textSoft,
 	},
 	ghost: {

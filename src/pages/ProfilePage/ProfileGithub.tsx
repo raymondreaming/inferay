@@ -45,7 +45,7 @@ export function ProfileRepoRow({
 				type="button"
 				onClick={onClone}
 				disabled={cloning}
-				variant="primary"
+				variant="secondary"
 				size="sm"
 			>
 				<IconPlus size={12} />
@@ -66,7 +66,7 @@ export function ProfileGithubEmptyState({
 			title="No GitHub accounts found"
 			description="Connect with the GitHub CLI and Inferay will pick up the account automatically."
 			action={
-				<Button type="button" onClick={onConnect} variant="primary" size="sm">
+				<Button type="button" onClick={onConnect} variant="secondary" size="sm">
 					<IconTerminal size={12} />
 					<span>Run gh auth login</span>
 				</Button>
@@ -89,7 +89,7 @@ const styles = stylex.create({
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
 		paddingBlock: controlSize._3,
-		paddingInline: controlSize._4,
+		paddingInline: 0,
 	},
 	inlineRow: {
 		display: "flex",

@@ -1,15 +1,20 @@
 import * as stylex from "@stylexjs/stylex";
+import type { ReactNode } from "react";
 import { useCallback, useMemo, useReducer, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../../components/ui/Button.tsx";
 import { DropdownButton } from "../../components/ui/DropdownButton.tsx";
 import {
+	IconFolder,
+	IconGitBranch,
 	IconPlus,
 	IconRefreshCw,
+	IconRobot,
+	IconSettings,
 	IconTerminal,
+	IconUser,
 	IconX,
 } from "../../components/ui/Icons.tsx";
-import { Panel, PanelHeader } from "../../components/ui/Surface.tsx";
 import { TextInput } from "../../components/ui/TextInput.tsx";
 import {
 	WorkspaceContent,
@@ -18,7 +23,6 @@ import {
 import type { AgentAccountProviderStatus } from "../../features/agents/agent-account-status.ts";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
 import {
-	type ChatAgentKind,
 	CODEX_REASONING_LEVELS,
 	getAgentDefinition,
 	loadDefaultChatSettings,
@@ -41,7 +45,6 @@ import { fetchJsonOr, sendJsonWithBusy } from "../../lib/fetch-json.ts";
 import { removeStoredValue } from "../../lib/stored-json.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 import { TerminalSettingsContent } from "../Terminal/TerminalSettingsPanel.tsx";
-import { ProfileAgentAccountCard } from "./ProfileAgentAccountCard.tsx";
 import { ProfileGithubEmptyState, ProfileRepoRow } from "./ProfileGithub.tsx";
 import {
 	ProfileAccountAvatar,
@@ -183,6 +186,35 @@ function areAgentAccountStatusesEqual(
 	return true;
 }
 
+function SettingsSection({
+	id,
+	title,
+	description,
+	actions,
+	children,
+}: {
+	id: string;
+	title: string;
+	description: string;
+	actions?: ReactNode;
+	children: ReactNode;
+}) {
+	return (
+		<section id={id} {...stylex.props(styles.settingsSection)}>
+			<div {...stylex.props(styles.sectionIntro)}>
+				<div {...stylex.props(styles.sectionIntroText)}>
+					<h2 {...stylex.props(styles.sectionTitle)}>{title}</h2>
+					<p {...stylex.props(styles.sectionDescription)}>{description}</p>
+				</div>
+				{actions ? (
+					<div {...stylex.props(styles.sectionActions)}>{actions}</div>
+				) : null}
+			</div>
+			{children}
+		</section>
+	);
+}
+
 export function ProfilePage() {
 	const navigate = useNavigate();
 	const resetOnboarding = () => {
@@ -306,6 +338,7 @@ export function ProfilePage() {
 	const [defaultChatSettings, setDefaultChatSettings] = useState(() =>
 		loadDefaultChatSettings()
 	);
+	const [activeSettingsSection, setActiveSettingsSection] = useState("account");
 	const { data: appInfo } = useAppInfo();
 	const defaultAgentDefinition = getAgentDefinition(
 		defaultChatSettings.agentKind
@@ -331,6 +364,12 @@ export function ProfilePage() {
 		saveDefaultChatSettings(normalized);
 		setDefaultChatSettings(loadDefaultChatSettings());
 	};
+	const scrollToSettingsSection = useCallback((id: string) => {
+		setActiveSettingsSection(id);
+		document
+			.getElementById(id)
+			?.scrollIntoView({ behavior: "smooth", block: "start" });
+	}, []);
 
 	const saveSimulatorProjectFolders = async (folders: string[]) => {
 		const uniqueFolders = [...new Set(folders.map((folder) => folder.trim()))]
@@ -502,134 +541,168 @@ export function ProfilePage() {
 
 	return (
 		<WorkspacePage>
-			<WorkspaceContent scroll>
-				<div {...stylex.props(styles.content)}>
-					<section {...stylex.props(styles.profileSummary)}>
-						<div {...stylex.props(styles.accountPreview)}>
-							<ProfileAccountAvatar account={activeAccount} size="md" />
-							<div {...stylex.props(styles.rowText)}>
-								<p {...stylex.props(styles.profileName)}>
-									{activeAccount?.name ||
-										activeAccount?.login ||
-										"GitHub Account"}
-								</p>
-								<p {...stylex.props(styles.profileMeta)}>
-									{activeAccount ? `@${activeAccount.login}` : "Not connected"}
-								</p>
-								<p {...stylex.props(styles.versionMeta)}>
-									inferay {appInfo.version}
-								</p>
-							</div>
-						</div>
-						<div {...stylex.props(styles.profileActionCards)}>
-							{!activeAccount ? (
-								<button
-									type="button"
-									onClick={connectGithub}
-									disabled={connecting}
-									{...stylex.props(styles.profileActionCard)}
-								>
-									<span {...stylex.props(styles.profileActionIcon)}>
-										<IconTerminal size={14} />
-									</span>
-									<span {...stylex.props(styles.profileActionTextGroup)}>
-										<span {...stylex.props(styles.profileActionTitle)}>
-											{connecting ? "Opening..." : "Connect GitHub"}
-										</span>
-										<span {...stylex.props(styles.profileActionText)}>
-											Use your local GitHub CLI login.
-										</span>
-									</span>
-								</button>
-							) : null}
-							{!appInfo.production ? (
-								<button
-									type="button"
-									onClick={resetOnboarding}
-									{...stylex.props(styles.profileActionCard)}
-								>
-									<span {...stylex.props(styles.profileActionIcon)}>
-										<IconRefreshCw size={14} />
-									</span>
-									<span {...stylex.props(styles.profileActionTextGroup)}>
-										<span {...stylex.props(styles.profileActionTitle)}>
-											Replay Onboarding
-										</span>
-										<span {...stylex.props(styles.profileActionText)}>
-											Reset setup and walk through it again.
-										</span>
-									</span>
-								</button>
-							) : null}
-						</div>
-					</section>
+			<div {...stylex.props(styles.settingsLayout)}>
+				<aside {...stylex.props(styles.settingsNav)}>
+					<div {...stylex.props(styles.settingsNavHeader)}>
+						<span {...stylex.props(styles.settingsNavEyebrow)}>Inferay</span>
+						<strong {...stylex.props(styles.settingsNavTitle)}>Settings</strong>
+					</div>
+					<nav aria-label="Profile settings" {...stylex.props(styles.navList)}>
+						<button
+							type="button"
+							onClick={() => scrollToSettingsSection("account")}
+							{...stylex.props(
+								styles.navItem,
+								activeSettingsSection === "account" && styles.navItemActive
+							)}
+						>
+							<IconUser size={13} />
+							<span>Account</span>
+						</button>
+						<button
+							type="button"
+							onClick={() => scrollToSettingsSection("agent-defaults")}
+							{...stylex.props(
+								styles.navItem,
+								activeSettingsSection === "agent-defaults" &&
+									styles.navItemActive
+							)}
+						>
+							<IconRobot size={13} />
+							<span>Agents & Models</span>
+						</button>
+						<button
+							type="button"
+							onClick={() => scrollToSettingsSection("appearance")}
+							{...stylex.props(
+								styles.navItem,
+								activeSettingsSection === "appearance" && styles.navItemActive
+							)}
+						>
+							<IconSettings size={13} />
+							<span>Appearance</span>
+						</button>
+						<button
+							type="button"
+							onClick={() => scrollToSettingsSection("xcode-projects")}
+							{...stylex.props(
+								styles.navItem,
+								activeSettingsSection === "xcode-projects" &&
+									styles.navItemActive
+							)}
+						>
+							<IconFolder size={13} />
+							<span>Xcode projects</span>
+						</button>
+						<button
+							type="button"
+							onClick={() => scrollToSettingsSection("github")}
+							{...stylex.props(
+								styles.navItem,
+								activeSettingsSection === "github" && styles.navItemActive
+							)}
+						>
+							<IconGitBranch size={13} />
+							<span>GitHub</span>
+						</button>
+					</nav>
+					<span {...stylex.props(styles.settingsNavVersion)}>
+						Inferay {appInfo.version}
+					</span>
+				</aside>
 
-					<Panel>
-						<PanelHeader
-							title="Appearance"
-							description="Choose the app theme, diff syntax theme, and project search folders."
-						/>
-						<TerminalSettingsContent showVersion={false} />
-					</Panel>
+				<WorkspaceContent scroll padding="none">
+					<div {...stylex.props(styles.content)}>
+						<header id="account" {...stylex.props(styles.pageHeader)}>
+							<span {...stylex.props(styles.pageEyebrow)}>Settings</span>
+							<h1 {...stylex.props(styles.pageTitle)}>Account</h1>
+							<p {...stylex.props(styles.pageDescription)}>
+								Manage your identity, local agents, and workspace integrations.
+							</p>
+						</header>
 
-					<Panel>
-						<PanelHeader
-							title="New Chat Defaults"
-							description="Choose which agent, model, and reasoning level new panes use when you press New."
-						/>
-						<div {...stylex.props(styles.defaultSettingsGrid)}>
-							<div {...stylex.props(styles.settingField)}>
-								<span {...stylex.props(styles.settingLabel)}>Agent</span>
-								<DropdownButton
-									value={defaultChatSettings.agentKind}
-									options={(["claude", "codex"] as const).map((kind) => ({
-										id: kind,
-										label: getAgentDefinition(kind).label,
-										icon: getAgentIcon(kind, 12),
-									}))}
-									onChange={(id) => {
-										const agentKind = id as ChatAgentKind;
-										updateDefaultChatSettings({
-											agentKind,
-											model: getAgentDefinition(agentKind).defaultModel,
-										});
-									}}
-									fullWidth
-								/>
-							</div>
-							<div {...stylex.props(styles.settingField)}>
-								<span {...stylex.props(styles.settingLabel)}>Model</span>
-								<DropdownButton
-									value={defaultChatSettings.model}
-									options={defaultModelOptions}
-									onChange={(model) => updateDefaultChatSettings({ model })}
-									fullWidth
-								/>
-							</div>
-							{defaultChatSettings.agentKind === "codex" ? (
-								<div {...stylex.props(styles.settingField)}>
-									<span {...stylex.props(styles.settingLabel)}>Reasoning</span>
-									<DropdownButton
-										value={defaultChatSettings.reasoningLevel}
-										options={CODEX_REASONING_LEVELS.map((level) => ({
-											id: level.id,
-											label: level.label,
-											detail: level.detail,
-										}))}
-										onChange={(reasoningLevel) =>
-											updateDefaultChatSettings({ reasoningLevel })
-										}
-										fullWidth
-									/>
+						<section {...stylex.props(styles.accountSection)}>
+							<section {...stylex.props(styles.profileSummary)}>
+								<div {...stylex.props(styles.accountPreview)}>
+									<ProfileAccountAvatar account={activeAccount} size="lg" />
+									<div {...stylex.props(styles.rowText)}>
+										<div {...stylex.props(styles.accountNameRow)}>
+											<p {...stylex.props(styles.profileName)}>
+												{activeAccount?.name ||
+													activeAccount?.login ||
+													"GitHub Account"}
+											</p>
+											<span
+												{...stylex.props(
+													styles.connectionPill,
+													activeAccount
+														? styles.connectionPillActive
+														: styles.connectionPillIdle
+												)}
+											>
+												{activeAccount ? "Connected" : "Not connected"}
+											</span>
+										</div>
+										<p {...stylex.props(styles.profileMeta)}>
+											{activeAccount?.email ||
+												(activeAccount
+													? `@${activeAccount.login}`
+													: "Connect GitHub to add your identity")}
+										</p>
+									</div>
 								</div>
-							) : null}
-						</div>
-					</Panel>
+							</section>
+							<div {...stylex.props(styles.accountDetails)}>
+								<div {...stylex.props(styles.accountDetail)}>
+									<span {...stylex.props(styles.accountDetailLabel)}>
+										GitHub
+									</span>
+									<strong {...stylex.props(styles.accountDetailValue)}>
+										{activeAccount ? `@${activeAccount.login}` : "Disconnected"}
+									</strong>
+								</div>
+								<div {...stylex.props(styles.accountDetail)}>
+									<span {...stylex.props(styles.accountDetailLabel)}>
+										App version
+									</span>
+									<strong {...stylex.props(styles.accountDetailValue)}>
+										{appInfo.version}
+									</strong>
+								</div>
+								<div {...stylex.props(styles.profileActionCards)}>
+									{!activeAccount ? (
+										<Button
+											type="button"
+											onClick={connectGithub}
+											disabled={connecting}
+											variant="secondary"
+											size="sm"
+										>
+											<IconTerminal size={13} />
+											<span>
+												{connecting ? "Opening GitHub…" : "Connect GitHub"}
+											</span>
+										</Button>
+									) : null}
+									{!appInfo.production ? (
+										<Button
+											type="button"
+											onClick={resetOnboarding}
+											variant="secondary"
+											size="sm"
+										>
+											<IconRefreshCw size={13} />
+											<span>Replay onboarding</span>
+										</Button>
+									) : null}
+								</div>
+							</div>
+						</section>
 
-					<Panel>
-						<PanelHeader
-							title="Claude / Codex Accounts"
-							description="Read-only local CLI health, auth hints, and usage visibility. Account switching stays inside the native CLIs."
+						<SettingsSection
+							id="agent-defaults"
+							title="Agents & Models"
+							description="Choose the connected provider, model, and reasoning level used whenever you start a new chat."
 							actions={
 								<Button
 									type="button"
@@ -641,23 +714,105 @@ export function ProfilePage() {
 									<span>Refresh</span>
 								</Button>
 							}
-						/>
-						<div {...stylex.props(styles.agentAccountGrid)}>
-							{agentAccountStatusesLoading &&
-							agentAccountStatuses.length === 0 ? (
-								<div {...stylex.props(styles.agentAccountLoading)}>
-									Checking local agent CLIs…
+						>
+							<div {...stylex.props(styles.agentDefaultsControl)}>
+								<div {...stylex.props(styles.settingField)}>
+									<span {...stylex.props(styles.settingLabel)}>Provider</span>
+									<div {...stylex.props(styles.agentProviderGrid)}>
+										{(["claude", "codex"] as const).map((agentKind) => {
+											const status = agentAccountStatuses.find(
+												(item) => item.kind === agentKind
+											);
+											const connected = status?.health === "ready";
+											return (
+												<button
+													key={agentKind}
+													type="button"
+													onClick={() =>
+														updateDefaultChatSettings({
+															agentKind,
+															model: getAgentDefinition(agentKind).defaultModel,
+														})
+													}
+													disabled={
+														status ? !connected : agentAccountStatusesLoading
+													}
+													{...stylex.props(
+														styles.agentProviderChoice,
+														defaultChatSettings.agentKind === agentKind &&
+															styles.agentProviderChoiceActive
+													)}
+												>
+													<span {...stylex.props(styles.agentProviderIcon)}>
+														{getAgentIcon(agentKind, 14)}
+													</span>
+													<span {...stylex.props(styles.agentProviderText)}>
+														<strong>
+															{getAgentDefinition(agentKind).label}
+														</strong>
+														<span {...stylex.props(styles.agentProviderStatus)}>
+															{agentAccountStatusesLoading && !status
+																? "Checking…"
+																: connected
+																	? "Connected"
+																	: status?.health === "needs-login"
+																		? "Login needed"
+																		: "Not installed"}
+														</span>
+													</span>
+													{defaultChatSettings.agentKind === agentKind ? (
+														<span {...stylex.props(styles.agentDefaultLabel)}>
+															Default
+														</span>
+													) : null}
+												</button>
+											);
+										})}
+									</div>
 								</div>
-							) : (
-								agentAccountStatuses.map((status) => (
-									<ProfileAgentAccountCard key={status.kind} status={status} />
-								))
-							)}
-						</div>
-					</Panel>
+								<div {...stylex.props(styles.defaultSettingsGrid)}>
+									<div {...stylex.props(styles.settingField)}>
+										<span {...stylex.props(styles.settingLabel)}>Model</span>
+										<DropdownButton
+											value={defaultChatSettings.model}
+											options={defaultModelOptions}
+											onChange={(model) => updateDefaultChatSettings({ model })}
+											fullWidth
+										/>
+									</div>
+									{defaultChatSettings.agentKind === "codex" ? (
+										<div {...stylex.props(styles.settingField)}>
+											<span {...stylex.props(styles.settingLabel)}>
+												Reasoning
+											</span>
+											<DropdownButton
+												value={defaultChatSettings.reasoningLevel}
+												options={CODEX_REASONING_LEVELS.map((level) => ({
+													id: level.id,
+													label: level.label,
+													detail: level.detail,
+												}))}
+												onChange={(reasoningLevel) =>
+													updateDefaultChatSettings({ reasoningLevel })
+												}
+												fullWidth
+											/>
+										</div>
+									) : null}
+								</div>
+							</div>
+						</SettingsSection>
 
-					<Panel>
-						<PanelHeader
+						<SettingsSection
+							id="appearance"
+							title="Appearance & Search"
+							description="Choose the app theme, diff syntax theme, and folders Inferay searches for projects."
+						>
+							<TerminalSettingsContent showVersion={false} embedded />
+						</SettingsSection>
+
+						<SettingsSection
+							id="xcode-projects"
 							title="Xcode Projects"
 							description="Configure folders Inferay scans for Xcode and React Native simulator apps."
 							actions={
@@ -676,7 +831,7 @@ export function ProfilePage() {
 										type="button"
 										onClick={() => void addSimulatorProjectFolder()}
 										disabled={simFoldersLoading}
-										variant="primary"
+										variant="secondary"
 										size="sm"
 									>
 										<IconPlus size={12} />
@@ -684,81 +839,55 @@ export function ProfilePage() {
 									</Button>
 								</div>
 							}
-						/>
-						<div {...stylex.props(styles.projectFolderBody)}>
-							{simProjectFolders.length === 0 ? (
-								<div {...stylex.props(styles.projectFolderEmpty)}>
-									Add your iOS app root, Xcode project folder, or React Native
-									repo so Simulators can build and launch it.
-								</div>
-							) : (
-								<div {...stylex.props(styles.projectFolderList)}>
-									{simProjectFolders.map((folder) => (
-										<div
-											key={folder}
-											{...stylex.props(styles.projectFolderRow)}
-										>
-											<div {...stylex.props(styles.projectFolderIcon)}>
-												<IconTerminal size={13} />
-											</div>
-											<span {...stylex.props(styles.projectFolderPath)}>
-												{folder}
-											</span>
-											<button
-												type="button"
-												aria-label={`Remove ${folder}`}
-												onClick={() =>
-													void removeSimulatorProjectFolder(folder)
-												}
-												disabled={simFoldersLoading}
-												{...stylex.props(styles.projectFolderRemove)}
+						>
+							<div {...stylex.props(styles.projectFolderBody)}>
+								{simProjectFolders.length === 0 ? (
+									<div {...stylex.props(styles.projectFolderEmpty)}>
+										Add your iOS app root, Xcode project folder, or React Native
+										repo so Simulators can build and launch it.
+									</div>
+								) : (
+									<div {...stylex.props(styles.projectFolderList)}>
+										{simProjectFolders.map((folder) => (
+											<div
+												key={folder}
+												{...stylex.props(styles.projectFolderRow)}
 											>
-												<IconX size={12} />
-											</button>
-										</div>
-									))}
-								</div>
-							)}
-							{simFoldersStatus ? (
-								<p {...stylex.props(styles.projectFolderStatus)}>
-									{simFoldersStatus}
-								</p>
-							) : null}
-						</div>
-					</Panel>
+												<div {...stylex.props(styles.projectFolderIcon)}>
+													<IconTerminal size={13} />
+												</div>
+												<span {...stylex.props(styles.projectFolderPath)}>
+													{folder}
+												</span>
+												<button
+													type="button"
+													aria-label={`Remove ${folder}`}
+													onClick={() =>
+														void removeSimulatorProjectFolder(folder)
+													}
+													disabled={simFoldersLoading}
+													{...stylex.props(styles.projectFolderRemove)}
+												>
+													<IconX size={12} />
+												</button>
+											</div>
+										))}
+									</div>
+								)}
+								{simFoldersStatus ? (
+									<p {...stylex.props(styles.projectFolderStatus)}>
+										{simFoldersStatus}
+									</p>
+								) : null}
+							</div>
+						</SettingsSection>
 
-					<header {...stylex.props(styles.header)}>
-						<div>
-							<h1 {...stylex.props(styles.title)}>GitHub</h1>
-							<p {...stylex.props(styles.description)}>
-								Inferay uses your local GitHub CLI login for repositories.
-							</p>
-						</div>
-					</header>
-
-					{resourceError ? (
-						<ProfileErrorBanner message={resourceError} />
-					) : null}
-					{cloneStatus ? <ProfileSuccessBanner message={cloneStatus} /> : null}
-
-					{loadState === "loading" || accounts.length === 0 ? (
-						<Panel>
-							{loadState === "loading" ? (
-								<div {...stylex.props(styles.accountLoadingState)}>
-									Checking GitHub CLI account…
-								</div>
-							) : (
-								<ProfileGithubEmptyState onConnect={connectGithub} />
-							)}
-						</Panel>
-					) : null}
-
-					{accounts.length > 0 ? (
-						<Panel>
-							<PanelHeader
-								title="Clone from GitHub"
-								description="Discover repositories from your connected account and add the clone location to Inferay search."
-								actions={
+						<SettingsSection
+							id="github"
+							title="GitHub"
+							description="Discover repositories from your connected account and clone them into an Inferay search folder."
+							actions={
+								accounts.length > 0 ? (
 									<Button
 										type="button"
 										onClick={() => void loadRepos(true)}
@@ -769,65 +898,250 @@ export function ProfilePage() {
 										<IconRefreshCw size={12} />
 										<span>Repos</span>
 									</Button>
-								}
-							/>
-							<div {...stylex.props(styles.cloneControls)}>
-								<TextInput
-									type="text"
-									value={repoQuery}
-									onChange={(event) => setRepoQuery(event.target.value)}
-									placeholder="Search repositories"
-									fullWidth
-									className={stylex.props(styles.flexInput).className}
-								/>
-								<div {...stylex.props(styles.cloneDirControls)}>
-									<TextInput
-										type="text"
-										value={cloneDirectory}
-										onChange={(event) => setCloneDirectory(event.target.value)}
-										fullWidth
-										className={stylex.props(styles.flexInput).className}
-									/>
-									<Button
-										type="button"
-										onClick={() => void pickCloneDirectory()}
-										variant="ghost"
-										size="md"
-										className={stylex.props(styles.noShrink).className}
-									>
-										Browse
-									</Button>
+								) : null
+							}
+						>
+							{resourceError ? (
+								<ProfileErrorBanner message={resourceError} />
+							) : null}
+							{cloneStatus ? (
+								<ProfileSuccessBanner message={cloneStatus} />
+							) : null}
+
+							{loadState === "loading" || accounts.length === 0 ? (
+								<div {...stylex.props(styles.githubState)}>
+									{loadState === "loading" ? (
+										<div {...stylex.props(styles.accountLoadingState)}>
+											Checking GitHub CLI account…
+										</div>
+									) : (
+										<ProfileGithubEmptyState onConnect={connectGithub} />
+									)}
 								</div>
-							</div>
-							<div {...stylex.props(styles.repoList)}>
-								{reposLoading ? (
-									<div {...stylex.props(styles.loadingState)}>
-										Loading repositories…
-									</div>
-								) : filteredRepos.length === 0 ? (
-									<div {...stylex.props(styles.loadingState)}>
-										No repositories found.
-									</div>
-								) : (
-									filteredRepos.map((repo) => (
-										<ProfileRepoRow
-											key={repo.full_name}
-											repo={repo}
-											cloning={cloningRepo === repo.full_name}
-											onClone={() => void cloneRepo(repo)}
+							) : null}
+
+							{accounts.length > 0 ? (
+								<>
+									<div {...stylex.props(styles.cloneControls)}>
+										<TextInput
+											type="text"
+											value={repoQuery}
+											onChange={(event) => setRepoQuery(event.target.value)}
+											placeholder="Search repositories"
+											fullWidth
+											className={stylex.props(styles.flexInput).className}
 										/>
-									))
-								)}
-							</div>
-						</Panel>
-					) : null}
-				</div>
-			</WorkspaceContent>
+										<div {...stylex.props(styles.cloneDirControls)}>
+											<TextInput
+												type="text"
+												value={cloneDirectory}
+												onChange={(event) =>
+													setCloneDirectory(event.target.value)
+												}
+												fullWidth
+												className={stylex.props(styles.flexInput).className}
+											/>
+											<Button
+												type="button"
+												onClick={() => void pickCloneDirectory()}
+												variant="ghost"
+												size="md"
+												className={stylex.props(styles.noShrink).className}
+											>
+												Browse
+											</Button>
+										</div>
+									</div>
+									<div {...stylex.props(styles.repoList)}>
+										{reposLoading ? (
+											<div {...stylex.props(styles.loadingState)}>
+												Loading repositories…
+											</div>
+										) : filteredRepos.length === 0 ? (
+											<div {...stylex.props(styles.loadingState)}>
+												No repositories found.
+											</div>
+										) : (
+											filteredRepos.map((repo) => (
+												<ProfileRepoRow
+													key={repo.full_name}
+													repo={repo}
+													cloning={cloningRepo === repo.full_name}
+													onClone={() => void cloneRepo(repo)}
+												/>
+											))
+										)}
+									</div>
+								</>
+							) : null}
+						</SettingsSection>
+					</div>
+				</WorkspaceContent>
+			</div>
 		</WorkspacePage>
 	);
 }
 
 const styles = stylex.create({
+	settingsLayout: {
+		display: "grid",
+		flex: 1,
+		gridTemplateColumns: {
+			default: "1fr",
+			"@media (min-width: 760px)": "12.5rem minmax(0, 1fr)",
+		},
+		minHeight: 0,
+		minWidth: 0,
+	},
+	settingsNav: {
+		backgroundColor: color.background,
+		borderBottomColor: color.border,
+		borderBottomStyle: {
+			default: "solid",
+			"@media (min-width: 760px)": "none",
+		},
+		borderBottomWidth: {
+			default: 1,
+			"@media (min-width: 760px)": 0,
+		},
+		borderRightColor: color.border,
+		borderRightStyle: {
+			default: "none",
+			"@media (min-width: 760px)": "solid",
+		},
+		borderRightWidth: {
+			default: 0,
+			"@media (min-width: 760px)": 1,
+		},
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._5,
+		minHeight: 0,
+		paddingBlock: controlSize._5,
+		paddingInline: controlSize._4,
+	},
+	settingsNavHeader: {
+		display: {
+			default: "none",
+			"@media (min-width: 760px)": "flex",
+		},
+		flexDirection: "column",
+		gap: controlSize._1,
+		paddingInline: controlSize._2,
+	},
+	settingsNavEyebrow: {
+		color: color.textFaint,
+		fontSize: font.size_0_5,
+		fontWeight: font.weight_6,
+		letterSpacing: "0.12em",
+		textTransform: "uppercase",
+	},
+	settingsNavTitle: {
+		color: color.textMain,
+		fontSize: font.size_5,
+		fontWeight: font.weight_6,
+	},
+	navList: {
+		display: "flex",
+		flexDirection: {
+			default: "row",
+			"@media (min-width: 760px)": "column",
+		},
+		gap: controlSize._1,
+		overflowX: {
+			default: "auto",
+			"@media (min-width: 760px)": "visible",
+		},
+	},
+	navItem: {
+		alignItems: "center",
+		borderRadius: controlSize._1,
+		borderColor: color.transparent,
+		borderStyle: "solid",
+		borderWidth: 1,
+		color: {
+			default: color.textMuted,
+			":hover": color.textMain,
+		},
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlActive,
+		},
+		display: "flex",
+		flexShrink: 0,
+		fontSize: font.size_2,
+		fontWeight: font.weight_5,
+		gap: controlSize._2,
+		minHeight: controlSize._8,
+		paddingInline: controlSize._2,
+		textAlign: "left",
+		textDecoration: "none",
+		transitionDuration: "120ms",
+		transitionProperty: "background-color, color",
+		width: "100%",
+	},
+	navItemActive: {
+		backgroundColor: color.backgroundRaised,
+		borderColor: color.border,
+		color: color.textMain,
+	},
+	settingsNavVersion: {
+		color: color.textFaint,
+		display: {
+			default: "none",
+			"@media (min-width: 760px)": "block",
+		},
+		fontSize: font.size_1,
+		marginTop: "auto",
+		paddingInline: controlSize._2,
+	},
+	settingsSection: {
+		borderTopColor: color.borderSubtle,
+		borderTopStyle: "solid",
+		borderTopWidth: 1,
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._4,
+		paddingBlock: controlSize._6,
+		scrollMarginTop: controlSize._4,
+	},
+	sectionIntro: {
+		alignItems: {
+			default: "flex-start",
+			"@media (min-width: 640px)": "center",
+		},
+		display: "flex",
+		gap: controlSize._4,
+		justifyContent: "space-between",
+	},
+	sectionIntroText: {
+		minWidth: 0,
+	},
+	sectionTitle: {
+		color: color.textMain,
+		fontSize: font.size_4,
+		fontWeight: font.weight_6,
+		margin: 0,
+	},
+	sectionDescription: {
+		color: color.textMuted,
+		fontSize: font.size_2,
+		lineHeight: 1.5,
+		marginBlockEnd: 0,
+		marginBlockStart: controlSize._1,
+		maxWidth: "38rem",
+	},
+	sectionActions: {
+		alignItems: "center",
+		display: "flex",
+		flexShrink: 0,
+		gap: controlSize._2,
+	},
+	accountSection: {
+		borderBottomColor: color.borderSubtle,
+		borderBottomStyle: "solid",
+		borderBottomWidth: 1,
+	},
 	accountPreview: {
 		display: "flex",
 		alignItems: "center",
@@ -844,79 +1158,80 @@ const styles = stylex.create({
 			"@media (min-width: 720px)": "center",
 		},
 		justifyContent: "space-between",
-		gap: controlSize._3,
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
-		borderBottomColor: color.border,
-		paddingBottom: controlSize._4,
+		gap: controlSize._4,
+		paddingBlock: controlSize._4,
 	},
-	profileActionCards: {
+	accountNameRow: {
+		alignItems: "center",
+		display: "flex",
+		flexWrap: "wrap",
+		gap: controlSize._2,
+	},
+	connectionPill: {
+		borderRadius: "999px",
+		fontSize: font.size_1,
+		fontWeight: font.weight_6,
+		paddingBlock: controlSize._0_5,
+		paddingInline: controlSize._2,
+	},
+	connectionPillActive: {
+		backgroundColor: color.successWash,
+		color: color.success,
+	},
+	connectionPillIdle: {
+		backgroundColor: color.surfaceInset,
+		color: color.textMuted,
+	},
+	accountDetails: {
+		alignItems: {
+			default: "stretch",
+			"@media (min-width: 720px)": "center",
+		},
 		display: "grid",
+		gap: controlSize._3,
 		gridTemplateColumns: {
 			default: "1fr",
-			"@media (min-width: 720px)": "repeat(2, minmax(0, 1fr))",
+			"@media (min-width: 720px)": "minmax(0, 1fr) minmax(0, 1fr) auto",
 		},
-		gap: controlSize._2,
-		minWidth: {
-			default: "100%",
-			"@media (min-width: 720px)": "360px",
-		},
+		borderTopColor: color.borderSubtle,
+		borderTopStyle: "solid",
+		borderTopWidth: 1,
+		paddingBlock: controlSize._3,
 	},
-	profileActionCard: {
+	accountDetail: {
 		display: "flex",
-		alignItems: "center",
-		gap: controlSize._3,
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.surfaceSubtle,
-		},
-		paddingBlock: controlSize._2,
-		paddingInline: 0,
-		textAlign: "left",
-		transitionProperty: "background-color, opacity",
-		transitionDuration: "120ms",
-		":disabled": {
-			cursor: "default",
-			opacity: 0.7,
-		},
-	},
-	profileActionIcon: {
-		display: "flex",
-		width: controlSize._7,
-		height: controlSize._7,
-		flexShrink: 0,
-		alignItems: "center",
-		justifyContent: "center",
-		color: color.textSoft,
-	},
-	profileActionTextGroup: {
-		display: "flex",
-		minWidth: 0,
 		flexDirection: "column",
+		gap: controlSize._1,
+		minWidth: 0,
+		paddingBlock: controlSize._1,
 	},
-	profileActionTitle: {
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-		color: color.textMain,
-		fontSize: font.size_3,
+	accountDetailLabel: {
+		color: color.textFaint,
+		fontSize: font.size_0_5,
+		fontWeight: font.weight_6,
+		letterSpacing: "0.06em",
+		textTransform: "uppercase",
+	},
+	accountDetailValue: {
+		color: color.textSoft,
+		fontSize: font.size_2,
 		fontWeight: font.weight_5,
-	},
-	profileActionText: {
-		marginTop: "0.125rem",
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
-		color: color.textMuted,
-		fontSize: font.size_1,
+	},
+	profileActionCards: {
+		display: "flex",
+		flexWrap: "wrap",
+		gap: controlSize._2,
 	},
 	profileName: {
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 		color: color.textMain,
-		fontSize: "0.8125rem",
-		fontWeight: font.weight_5,
+		fontSize: font.size_4,
+		fontWeight: font.weight_6,
 	},
 	profileMeta: {
 		marginTop: "0.125rem",
@@ -926,39 +1241,75 @@ const styles = stylex.create({
 		color: color.textMuted,
 		fontSize: font.size_2,
 	},
-	versionMeta: {
-		marginTop: "0.1875rem",
-		color: color.textMuted,
-		fontSize: font.size_1,
-	},
 	defaultSettingsGrid: {
 		display: "grid",
 		gridTemplateColumns: {
 			default: "1fr",
-			"@media (min-width: 760px)": "repeat(3, minmax(0, 1fr))",
-		},
-		gap: controlSize._3,
-		padding: controlSize._4,
-	},
-	agentAccountGrid: {
-		borderTopWidth: 1,
-		borderTopStyle: "solid",
-		borderTopColor: color.border,
-		display: "grid",
-		gap: controlSize._3,
-		gridTemplateColumns: {
-			default: "1fr",
 			"@media (min-width: 760px)": "repeat(2, minmax(0, 1fr))",
 		},
-		padding: controlSize._4,
+		gap: controlSize._3,
 	},
-	agentAccountLoading: {
-		alignItems: "center",
-		color: color.textMuted,
+	agentDefaultsControl: {
 		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._4,
+	},
+	agentProviderGrid: {
+		display: "grid",
+		gap: controlSize._2,
+		gridTemplateColumns: {
+			default: "1fr",
+			"@media (min-width: 560px)": "repeat(2, minmax(0, 1fr))",
+		},
+	},
+	agentProviderChoice: {
+		alignItems: "center",
+		display: "flex",
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.backgroundRaised,
+		},
+		borderColor: color.transparent,
+		borderRadius: controlSize._2,
+		borderStyle: "solid",
+		borderWidth: 1,
+		color: color.textSoft,
 		fontSize: font.size_2,
+		gap: controlSize._2,
+		minHeight: controlSize._10,
+		paddingBlock: controlSize._2,
+		paddingInline: controlSize._3,
+		textAlign: "left",
+		":disabled": {
+			opacity: 0.45,
+		},
+	},
+	agentProviderChoiceActive: {
+		backgroundColor: color.backgroundRaised,
+		borderColor: color.border,
+		color: color.textMain,
+	},
+	agentProviderIcon: {
+		alignItems: "center",
+		display: "inline-flex",
+		flexShrink: 0,
 		justifyContent: "center",
-		minHeight: "6rem",
+	},
+	agentProviderText: {
+		display: "flex",
+		flex: 1,
+		flexDirection: "column",
+		gap: controlSize._0_5,
+		minWidth: 0,
+	},
+	agentProviderStatus: {
+		color: color.textMuted,
+		fontSize: font.size_1,
+	},
+	agentDefaultLabel: {
+		color: color.textMuted,
+		flexShrink: 0,
+		fontSize: font.size_1,
 	},
 	settingField: {
 		display: "flex",
@@ -979,28 +1330,39 @@ const styles = stylex.create({
 	},
 	content: {
 		display: "flex",
-		maxWidth: "56rem",
+		maxWidth: "52rem",
 		flexDirection: "column",
-		gap: controlSize._4,
+		gap: 0,
 		marginInline: "auto",
-		paddingBlock: controlSize._5,
-		paddingInline: controlSize._6,
+		paddingBlock: controlSize._6,
+		paddingInline: {
+			default: controlSize._4,
+			"@media (min-width: 760px)": controlSize._6,
+		},
 	},
-	header: {
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "space-between",
-		gap: controlSize._3,
+	pageHeader: {
+		scrollMarginTop: controlSize._4,
 	},
-	title: {
+	pageEyebrow: {
+		color: color.textFaint,
+		fontSize: font.size_0_5,
+		fontWeight: font.weight_6,
+		letterSpacing: "0.12em",
+		textTransform: "uppercase",
+	},
+	pageTitle: {
 		color: color.textMain,
-		fontSize: "0.8125rem",
-		fontWeight: font.weight_5,
+		fontSize: "1.125rem",
+		fontWeight: font.weight_6,
+		marginBlockEnd: 0,
+		marginBlockStart: controlSize._2,
 	},
-	description: {
-		marginTop: controlSize._1,
+	pageDescription: {
 		color: color.textMuted,
-		fontSize: font.size_1,
+		fontSize: font.size_3,
+		lineHeight: 1.5,
+		marginBlockEnd: 0,
+		marginBlockStart: controlSize._1,
 	},
 	panelActions: {
 		display: "flex",
@@ -1011,10 +1373,6 @@ const styles = stylex.create({
 		display: "flex",
 		flexDirection: "column",
 		gap: controlSize._2,
-		borderTopWidth: 1,
-		borderTopStyle: "solid",
-		borderTopColor: color.border,
-		padding: controlSize._4,
 	},
 	projectFolderList: {
 		display: "flex",
@@ -1082,7 +1440,7 @@ const styles = stylex.create({
 		color: color.textMuted,
 		fontSize: font.size_2,
 		lineHeight: 1.5,
-		padding: controlSize._4,
+		paddingBlock: controlSize._4,
 		textAlign: "center",
 	},
 	projectFolderStatus: {
@@ -1100,7 +1458,6 @@ const styles = stylex.create({
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
 		paddingBlock: controlSize._3,
-		paddingInline: controlSize._4,
 	},
 	cloneDirControls: {
 		display: "flex",
@@ -1131,5 +1488,8 @@ const styles = stylex.create({
 		justifyContent: "center",
 		color: color.textMuted,
 		fontSize: "0.625rem",
+	},
+	githubState: {
+		minHeight: "7rem",
 	},
 });

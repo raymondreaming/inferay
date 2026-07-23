@@ -644,8 +644,8 @@ const styles = stylex.create({
 	},
 	commitButton: {
 		backgroundColor: {
-			default: color.controlActive,
-			":hover": color.surfaceControlHover,
+			default: color.backgroundRaised,
+			":hover": color.controlActive,
 		},
 		backgroundImage: "none",
 		borderColor: {

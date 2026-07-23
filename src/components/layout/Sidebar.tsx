@@ -1173,8 +1173,8 @@ const styles = stylex.create({
 		},
 	},
 	paneSummarySelected: {
-		backgroundColor: color.accentWash,
-		borderColor: color.accentBorder,
+		backgroundColor: color.backgroundRaised,
+		borderColor: color.border,
 		color: color.textMain,
 	},
 	paneSummaryIcon: {
@@ -1227,6 +1227,7 @@ const styles = stylex.create({
 	},
 	collapsedWorkspaceActive: {
 		backgroundColor: "transparent",
+		borderColor: "transparent",
 		color: color.textSoft,
 	},
 	collapsedWorkspaceButton: {
@@ -1492,7 +1493,7 @@ const styles = stylex.create({
 	},
 	workspaceLayoutButtonActive: {
 		color: color.textMain,
-		backgroundColor: color.controlActive,
+		backgroundColor: color.backgroundRaised,
 	},
 	workspaceGridMenu: {
 		position: "absolute",
@@ -1554,7 +1555,7 @@ const styles = stylex.create({
 	},
 	workspaceGridChoiceActive: {
 		color: color.textMain,
-		backgroundColor: color.controlActive,
+		backgroundColor: color.backgroundRaised,
 	},
 	workspaceCreateWrap: {
 		position: "relative",
