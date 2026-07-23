@@ -250,16 +250,6 @@ export function DiffViewerTopBar({
 				>
 					Diff
 				</button>
-				<button
-					type="button"
-					onClick={() => onMainViewModeChange("graph")}
-					{...stylex.props(
-						styles.segmentButton,
-						mainViewMode === "graph" && styles.segmentButtonActive
-					)}
-				>
-					Graph
-				</button>
 			</div>
 
 			{filePath && (
