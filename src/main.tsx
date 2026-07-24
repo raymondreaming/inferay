@@ -113,9 +113,9 @@ const styles = stylex.create({
 	shell: {
 		backgroundColor: "#050506",
 		backgroundImage:
-			"radial-gradient(circle at 78% 14%, rgba(88,112,255,0.075), transparent 30%), radial-gradient(circle at 19% 86%, rgba(86,194,171,0.045), transparent 28%), radial-gradient(rgba(255,255,255,0.055) 0.65px, transparent 0.75px)",
-		backgroundPosition: "center, center, 0 0",
-		backgroundSize: "auto, auto, 22px 22px",
+			"radial-gradient(rgba(255,255,255,0.055) 0.65px, transparent 0.75px)",
+		backgroundPosition: "0 0",
+		backgroundSize: "22px 22px",
 		display: "flex",
 		flexDirection: "column",
 		height: "100vh",
@@ -274,7 +274,7 @@ function AppShell() {
 				aria-hidden="true"
 				{...stylex.props(styles.backgroundShade)}
 				style={{
-					background: `radial-gradient(ellipse at center, rgba(2, 3, 10, ${Math.min(0.78, background.dim / 100 + 0.08)}) 0%, rgba(2, 3, 10, ${Math.min(0.88, background.dim / 100 + 0.18)}) 100%)`,
+					background: `radial-gradient(ellipse at center, rgba(0, 0, 0, ${Math.min(0.78, background.dim / 100 + 0.08)}) 0%, rgba(0, 0, 0, ${Math.min(0.88, background.dim / 100 + 0.18)}) 100%)`,
 				}}
 			/>
 			<AgentShellHeader />
