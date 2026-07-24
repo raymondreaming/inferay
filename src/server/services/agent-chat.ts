@@ -19,7 +19,7 @@ import {
 import {
 	createAgentEnv,
 	resolveAgentBinary,
-} from "../../features/terminal/terminal-command.ts";
+} from "../../features/agent/agent-command.ts";
 import { readJson, writeJson } from "../../lib/route-helpers.ts";
 import { userDataPath } from "../../lib/user-data.ts";
 import {

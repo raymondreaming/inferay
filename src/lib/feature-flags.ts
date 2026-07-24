@@ -1,7 +1,7 @@
 declare const __INFERAY_FEATURE_FLAGS__: FeatureFlags | undefined;
 
 export type FeatureFlagName =
-	| "terminal"
+	| "agent"
 	| "git"
 	| "prompts"
 	| "automations"
@@ -17,7 +17,7 @@ export type FeatureFlagName =
 export type FeatureFlags = Record<FeatureFlagName, boolean>;
 
 const ENABLED_FEATURE_FLAGS: FeatureFlags = {
-	terminal: true,
+	agent: true,
 	git: true,
 	prompts: true,
 	automations: true,
@@ -49,7 +49,7 @@ const buildFeatureFlags =
 
 const isDevRuntime =
 	typeof process !== "undefined" &&
-	process.env?.TERMINAL_GUI_APP_ROOT !== undefined;
+	process.env?.AGENT_GUI_APP_ROOT !== undefined;
 
 export const FEATURE_FLAGS: FeatureFlags =
 	buildFeatureFlags ??

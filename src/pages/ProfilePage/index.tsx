@@ -11,7 +11,7 @@ import {
 	IconRefreshCw,
 	IconRobot,
 	IconSettings,
-	IconTerminal,
+	IconAgent,
 	IconUser,
 	IconX,
 } from "../../components/ui/Icons.tsx";
@@ -28,7 +28,7 @@ import {
 	loadDefaultChatSettings,
 	saveDefaultChatSettings,
 } from "../../features/agents/agents.ts";
-import { dispatchTerminalShellChange } from "../../features/terminal/terminal-utils.ts";
+import { dispatchAgentShellChange } from "../../features/agent/agent-utils.ts";
 import {
 	fetchForgeAccounts,
 	fetchGithubRepos,
@@ -44,7 +44,7 @@ import { isActive, lacksValue } from "../../lib/data.ts";
 import { fetchJsonOr, sendJsonWithBusy } from "../../lib/fetch-json.ts";
 import { removeStoredValue } from "../../lib/stored-json.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
-import { TerminalSettingsContent } from "../Terminal/TerminalSettingsPanel.tsx";
+import { AgentSettingsContent } from "../Agent/AgentSettingsPanel.tsx";
 import { ProfileGithubEmptyState, ProfileRepoRow } from "./ProfileGithub.tsx";
 import {
 	ProfileAccountAvatar,
@@ -529,7 +529,7 @@ export function ProfilePage() {
 			if (!response.ok) throw new Error(payload.error ?? "Clone failed");
 			invalidateGithubReposCache();
 			setCloneStatus(`Cloned ${repo.full_name} to ${payload.displayPath}`);
-			dispatchTerminalShellChange({ source: "cache", reason: "repo-cloned" });
+			dispatchAgentShellChange({ source: "cache", reason: "repo-cloned" });
 		} catch (err) {
 			setError(
 				err instanceof Error ? err.message : "Unable to clone repository"
@@ -678,7 +678,7 @@ export function ProfilePage() {
 											variant="secondary"
 											size="sm"
 										>
-											<IconTerminal size={13} />
+											<IconAgent size={13} />
 											<span>
 												{connecting ? "Opening GitHub…" : "Connect GitHub"}
 											</span>
@@ -808,7 +808,7 @@ export function ProfilePage() {
 							title="Appearance & Search"
 							description="Choose the app theme, diff syntax theme, and folders Inferay searches for projects."
 						>
-							<TerminalSettingsContent showVersion={false} embedded />
+							<AgentSettingsContent showVersion={false} embedded />
 						</SettingsSection>
 
 						<SettingsSection
@@ -854,7 +854,7 @@ export function ProfilePage() {
 												{...stylex.props(styles.projectFolderRow)}
 											>
 												<div {...stylex.props(styles.projectFolderIcon)}>
-													<IconTerminal size={13} />
+													<IconAgent size={13} />
 												</div>
 												<span {...stylex.props(styles.projectFolderPath)}>
 													{folder}
@@ -994,8 +994,7 @@ const styles = stylex.create({
 		minWidth: 0,
 	},
 	settingsNav: {
-		backgroundColor:
-			"color-mix(in srgb, var(--color-inferay-black) 58%, transparent)",
+		backgroundColor: color.transparent,
 		borderBottomColor: color.border,
 		borderBottomStyle: {
 			default: "solid",

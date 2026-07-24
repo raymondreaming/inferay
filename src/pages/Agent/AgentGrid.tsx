@@ -14,22 +14,22 @@ import { isChatAgentKind } from "../../features/agents/agents.ts";
 import { useGitStatus } from "../../features/git/useGitStatus.ts";
 import type {
 	AgentKind,
-	TerminalPaneModel,
-	TerminalTheme,
-} from "../../features/terminal/terminal-utils.ts";
+	AgentPaneModel,
+	AgentTheme,
+} from "../../features/agent/agent-utils.ts";
 import { motion } from "../../tokens.stylex.ts";
-import { TerminalPaneView } from "./TerminalPaneView.tsx";
+import { AgentPaneView } from "./AgentPaneView.tsx";
 
 const EMPTY_CWD_LIST: string[] = [];
 
-interface TerminalGridProps {
+interface AgentGridProps {
 	active?: boolean;
-	panes: TerminalPaneModel[];
+	panes: AgentPaneModel[];
 	selectedPaneId: string | null;
 	columns: number;
 	rows: number;
 	layoutMode: "grid" | "rows";
-	theme: TerminalTheme;
+	theme: AgentTheme;
 	fontSize: number;
 	fontFamily: string;
 	onSelectPane: (paneId: string) => void;
@@ -48,8 +48,8 @@ interface TerminalGridProps {
 }
 
 const paneViewProps = (
-	p: TerminalGridProps,
-	pane: TerminalPaneModel,
+	p: AgentGridProps,
+	pane: AgentPaneModel,
 	idx: number,
 	onDragStart: (e: React.DragEvent, i: number) => void,
 	onDragEnd: () => void,
@@ -125,9 +125,7 @@ function canScrollHorizontally(element: HTMLElement, deltaX: number) {
 	return false;
 }
 
-export const TerminalGrid = memo(function TerminalGrid(
-	props: TerminalGridProps
-) {
+export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 	const {
 		active = true,
 		panes,
@@ -204,6 +202,7 @@ export const TerminalGrid = memo(function TerminalGrid(
 	}, [clearDragState]);
 
 	const handleDragOver = useCallback((e: React.DragEvent, index: number) => {
+		if (dragIndexRef.current === null) return;
 		e.preventDefault();
 		e.dataTransfer.dropEffect = "move";
 		setDragOverIndex((current) => (current === index ? current : index));
@@ -211,9 +210,10 @@ export const TerminalGrid = memo(function TerminalGrid(
 
 	const handleDrop = useCallback(
 		(e: React.DragEvent, toIndex: number) => {
-			e.preventDefault();
 			const fromIndex = dragIndexRef.current;
-			if (fromIndex !== null && fromIndex !== toIndex && onReorderPanes)
+			if (fromIndex === null) return;
+			e.preventDefault();
+			if (fromIndex !== toIndex && onReorderPanes)
 				onReorderPanes(fromIndex, toIndex);
 			clearDragState();
 		},
@@ -227,10 +227,10 @@ export const TerminalGrid = memo(function TerminalGrid(
 			if (!grid) return;
 			const target =
 				event.target instanceof Element
-					? event.target.closest<HTMLElement>("[data-terminal-grid-pane-id]")
+					? event.target.closest<HTMLElement>("[data-agent-grid-pane-id]")
 					: null;
 			if (!target) return;
-			const targetPaneId = target.dataset.terminalGridPaneId ?? null;
+			const targetPaneId = target.dataset.agentGridPaneId ?? null;
 			const innerScroller = findVerticalScroller(event.target, target);
 			if (
 				targetPaneId === interactionPaneIdRef.current &&
@@ -253,9 +253,9 @@ export const TerminalGrid = memo(function TerminalGrid(
 			if (!rowScroller) return;
 			const target =
 				event.target instanceof Element
-					? event.target.closest<HTMLElement>("[data-terminal-row-pane-id]")
+					? event.target.closest<HTMLElement>("[data-agent-row-pane-id]")
 					: null;
-			const targetPaneId = target?.dataset.terminalRowPaneId ?? null;
+			const targetPaneId = target?.dataset.agentRowPaneId ?? null;
 			if (!targetPaneId) return;
 			const isHorizontalGesture =
 				event.shiftKey ||
@@ -302,20 +302,26 @@ export const TerminalGrid = memo(function TerminalGrid(
 				ref={containerRef}
 				{...stylex.props(styles.rowScroller)}
 				onWheelCapture={handleRowWheelCapture}
-				data-terminal-row-scroll-area
+				data-agent-row-scroll-area
 			>
 				{panes.map((pane, idx) => (
 					<div
 						key={pane.id}
-						data-terminal-row-pane-id={pane.id}
+						data-agent-row-pane-id={pane.id}
 						{...stylex.props(styles.rowCell)}
 						style={{ ...cellStyle(idx), width: 400 }}
-						onPointerDownCapture={() => props.onSelectPane(pane.id)}
+						onPointerDownCapture={(event) => {
+							if (pane.id !== props.selectedPaneId) {
+								event.preventDefault();
+								window.getSelection()?.removeAllRanges();
+							}
+							props.onSelectPane(pane.id);
+						}}
 						onDragOver={(e) => handleDragOver(e, idx)}
 						onDrop={(e) => handleDrop(e, idx)}
 						onDragLeave={() => setDragOverIndex(null)}
 					>
-						<TerminalPaneView
+						<AgentPaneView
 							{...paneViewProps(
 								props,
 								pane,
@@ -341,7 +347,7 @@ export const TerminalGrid = memo(function TerminalGrid(
 		<div
 			ref={containerRef}
 			{...stylex.props(styles.gridScroller)}
-			data-terminal-grid-scroll-area
+			data-agent-grid-scroll-area
 			onWheelCapture={handleGridWheelCapture}
 			style={{
 				gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
@@ -352,9 +358,13 @@ export const TerminalGrid = memo(function TerminalGrid(
 				<div
 					key={pane.id}
 					{...stylex.props(styles.gridCell)}
-					data-terminal-grid-pane-id={pane.id}
+					data-agent-grid-pane-id={pane.id}
 					style={cellStyle(idx)}
-					onPointerDownCapture={() => {
+					onPointerDownCapture={(event) => {
+						if (pane.id !== props.selectedPaneId) {
+							event.preventDefault();
+							window.getSelection()?.removeAllRanges();
+						}
 						interactionPaneIdRef.current = pane.id;
 						setInteractionPaneId(pane.id);
 						props.onSelectPane(pane.id);
@@ -363,7 +373,7 @@ export const TerminalGrid = memo(function TerminalGrid(
 					onDrop={(e) => handleDrop(e, idx)}
 					onDragLeave={() => setDragOverIndex(null)}
 				>
-					<TerminalPaneView
+					<AgentPaneView
 						{...paneViewProps(
 							props,
 							pane,
@@ -391,8 +401,7 @@ const styles = stylex.create({
 		overscrollBehavior: "none",
 	},
 	rowCell: {
-		backdropFilter: "blur(var(--inferay-glass-blur, 4px)) saturate(102%)",
-		backgroundColor: "rgba(3, 3, 7, 0.48)",
+		backgroundColor: "transparent",
 		borderRightStyle: "solid",
 		borderRightWidth: 1,
 		flexShrink: 0,
@@ -410,8 +419,7 @@ const styles = stylex.create({
 		overscrollBehavior: "contain",
 	},
 	gridCell: {
-		backdropFilter: "blur(var(--inferay-glass-blur, 4px)) saturate(102%)",
-		backgroundColor: "rgba(3, 3, 7, 0.48)",
+		backgroundColor: "transparent",
 		borderBottomStyle: "solid",
 		borderBottomWidth: 1,
 		borderRightStyle: "solid",

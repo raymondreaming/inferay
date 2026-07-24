@@ -4,7 +4,7 @@ import {
 	IconExternalLink,
 	IconGitBranch,
 	IconPlus,
-	IconTerminal,
+	IconAgent,
 } from "../../components/ui/Icons.tsx";
 import { WorkspaceEmptyState } from "../../components/ui/WorkspacePage.tsx";
 import type { GithubRepo } from "../../features/forge/types.ts";
@@ -67,7 +67,7 @@ export function ProfileGithubEmptyState({
 			description="Connect with the GitHub CLI and Inferay will pick up the account automatically."
 			action={
 				<Button type="button" onClick={onConnect} variant="secondary" size="sm">
-					<IconTerminal size={12} />
+					<IconAgent size={12} />
 					<span>Run gh auth login</span>
 				</Button>
 			}

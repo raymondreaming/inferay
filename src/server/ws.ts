@@ -1,5 +1,5 @@
 import type { ServerWebSocket } from "bun";
-import { TerminalService } from "./routes/terminal.ts";
+import { AgentService } from "./routes/agent.ts";
 import { ChatService } from "./services/agent-chat.ts";
 import { CheckpointService } from "./services/checkpoint.ts";
 
@@ -43,11 +43,11 @@ export const websocketHandler = {
 				ws.data.subscriptions.delete(msg.runId);
 			}
 
-			// Terminal lifecycle
-			else if (msg.type === "terminal:create") {
-				TerminalService.createPane(
+			// Agent lifecycle
+			else if (msg.type === "agent:create") {
+				AgentService.createPane(
 					msg.paneId,
-					msg.agentKind ?? (msg.isClaude ? "claude" : "terminal"),
+					msg.agentKind ?? (msg.isClaude ? "claude" : "agent"),
 					ws,
 					msg.cols ?? 80,
 					msg.rows ?? 24,
@@ -56,26 +56,26 @@ export const websocketHandler = {
 					if (ws.readyState === 1) {
 						ws.send(
 							JSON.stringify({
-								type: "terminal:created",
+								type: "agent:created",
 								paneId: msg.paneId,
 								...result,
 							})
 						);
 					}
 				});
-			} else if (msg.type === "terminal:input") {
-				TerminalService.write(msg.paneId, msg.data);
-			} else if (msg.type === "terminal:resize") {
-				TerminalService.resize(msg.paneId, msg.cols, msg.rows);
-			} else if (msg.type === "terminal:destroy") {
-				TerminalService.destroyPane(msg.paneId);
+			} else if (msg.type === "agent:input") {
+				AgentService.write(msg.paneId, msg.data);
+			} else if (msg.type === "agent:resize") {
+				AgentService.resize(msg.paneId, msg.cols, msg.rows);
+			} else if (msg.type === "agent:destroy") {
+				AgentService.destroyPane(msg.paneId);
 				ChatService.destroySession(msg.paneId);
-			} else if (msg.type === "terminal:reconnect") {
-				const result = TerminalService.reassignWs(msg.paneId, ws);
+			} else if (msg.type === "agent:reconnect") {
+				const result = AgentService.reassignWs(msg.paneId, ws);
 				ChatService.reassignWs(msg.paneId, ws);
 				ws.send(
 					JSON.stringify({
-						type: "terminal:reconnected",
+						type: "agent:reconnected",
 						paneId: msg.paneId,
 						ok: result.ok,
 						buffer: result.buffer,
@@ -129,7 +129,7 @@ export const websocketHandler = {
 	},
 	close(ws: ServerWebSocket<WSData>) {
 		clients.delete(ws);
-		TerminalService.cleanupWs(ws);
+		AgentService.cleanupWs(ws);
 		ChatService.cleanupWs(ws);
 	},
 };

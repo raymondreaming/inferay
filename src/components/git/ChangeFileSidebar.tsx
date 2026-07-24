@@ -276,7 +276,7 @@ const styles = stylex.create({
 		height: "100%",
 		alignItems: "center",
 		flexDirection: "column",
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 	},
 	collapsedToggle: {
 		display: "flex",
@@ -384,7 +384,7 @@ const styles = stylex.create({
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 		paddingInline: controlSize._3,
 	},
 	headerLabel: {
@@ -455,7 +455,7 @@ const styles = stylex.create({
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 		paddingBlock: controlSize._2,
 		paddingInline: controlSize._3,
 	},
@@ -482,7 +482,7 @@ const styles = stylex.create({
 	},
 	commitSection: {
 		flexShrink: 0,
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 	},
 	commitHeader: {
 		display: "flex",
@@ -832,7 +832,7 @@ const styles = stylex.create({
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 		paddingInline: controlSize._3,
 		gap: controlSize._2,
 	},

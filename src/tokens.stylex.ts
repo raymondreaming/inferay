@@ -8,6 +8,10 @@ export const colorValues = {
 	backgroundOverlay: "rgba(0, 0, 0, 0.6)",
 	surfaceTranslucent:
 		"color-mix(in srgb, var(--color-inferay-dark-gray) 72%, transparent)",
+	surfaceGlass:
+		"color-mix(in srgb, var(--color-inferay-black) 18%, transparent)",
+	surfaceGlassStrong:
+		"color-mix(in srgb, var(--color-inferay-black) 30%, transparent)",
 	surfaceInset:
 		"color-mix(in srgb, var(--color-inferay-gray) 34%, transparent)",
 	surfaceSubtle:
@@ -128,10 +132,6 @@ export const effectValues = {
 		"var(--effect-inferay-control-depth-hover, linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(0, 0, 0, 0.1) 48%, rgba(0, 0, 0, 0.24)))",
 	popoverDepth:
 		"var(--effect-inferay-popover-depth, linear-gradient(180deg, rgba(255, 255, 255, 0.014), rgba(0, 0, 0, 0.08) 42%, rgba(0, 0, 0, 0.22)))",
-	composerBackdrop:
-		"linear-gradient(to bottom, transparent 0%, color-mix(in srgb, var(--color-inferay-black) 90%, transparent) 38%, var(--color-inferay-black) 72%)",
-	composerFade:
-		"linear-gradient(to bottom, transparent 0%, color-mix(in srgb, var(--color-inferay-black) 82%, transparent) 58%, var(--color-inferay-black) 100%)",
 	tokenHighlightBackground:
 		"color-mix(in srgb, var(--color-inferay-accent) 15%, transparent)",
 } as const;

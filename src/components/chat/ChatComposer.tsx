@@ -12,7 +12,7 @@ import type {
 	QueuedMessageInfo,
 	SlashCommand,
 } from "../../features/chat/agent-chat-shared.ts";
-import type { AgentKind } from "../../features/terminal/terminal-utils.ts";
+import type { AgentKind } from "../../features/agent/agent-utils.ts";
 import { hasId } from "../../lib/data.ts";
 import { setInputValue } from "../../lib/react-events.ts";
 import {

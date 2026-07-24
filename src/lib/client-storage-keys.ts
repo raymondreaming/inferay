@@ -1,6 +1,6 @@
-export const TERMINAL_STATE_STORAGE_KEY = "inferay-terminal-state";
-export const TERMINAL_MAIN_VIEW_STORAGE_KEY = "terminal-main-view";
-const TERMINAL_LAYOUT_MODE_STORAGE_KEY = "terminal-layout-mode";
+export const AGENT_STATE_STORAGE_KEY = "inferay-agent-state";
+export const AGENT_MAIN_VIEW_STORAGE_KEY = "agent-main-view";
+const AGENT_LAYOUT_MODE_STORAGE_KEY = "agent-layout-mode";
 const EDITOR_SELECTED_PANE_STORAGE_KEY = "editor-selected-pane";
 const MAIN_SIDEBAR_WIDTH_STORAGE_KEY = "main-sidebar-width";
 export const ONBOARDING_DONE_STORAGE_KEY = "inferay-onboarding-done";
@@ -47,15 +47,15 @@ export function isChatMessageStorageKey(key: string): boolean {
 }
 
 const SYNCED_STORAGE_KEYS = new Set([
-	TERMINAL_STATE_STORAGE_KEY,
+	AGENT_STATE_STORAGE_KEY,
 	"commit-graph-columns-v5",
 	EDITOR_SELECTED_PANE_STORAGE_KEY,
 	"git-watched-dirs",
 	MAIN_SIDEBAR_WIDTH_STORAGE_KEY,
 	"sidebar-collapsed",
-	"terminal-editor-zen",
-	TERMINAL_LAYOUT_MODE_STORAGE_KEY,
-	TERMINAL_MAIN_VIEW_STORAGE_KEY,
+	"agent-editor-zen",
+	AGENT_LAYOUT_MODE_STORAGE_KEY,
+	AGENT_MAIN_VIEW_STORAGE_KEY,
 ]);
 
 const SYNCED_STORAGE_PREFIXES = [
@@ -65,7 +65,7 @@ const SYNCED_STORAGE_PREFIXES = [
 ];
 
 export function shouldSyncClientStorageKey(key: string): boolean {
-	if (key === TERMINAL_STATE_STORAGE_KEY) return false;
+	if (key === AGENT_STATE_STORAGE_KEY) return false;
 	if (isChatMessageStorageKey(key)) return false;
 	if (key.startsWith(CHAT_QUEUE_KEY_PREFIX)) return false;
 	if (key.startsWith(CHAT_LOADING_STATE_KEY_PREFIX)) return false;

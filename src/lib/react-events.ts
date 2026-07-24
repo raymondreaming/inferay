@@ -71,11 +71,11 @@ export function focusRef<T extends { focus(): void }>(ref: {
 	ref.current?.focus();
 }
 
-export function setupTerminalThemePanelShortcut(
+export function setupAgentThemePanelShortcut(
 	setShowSettings: (show: boolean) => void
 ): () => void {
 	return listenWindowEvent(
-		"terminal-open-theme-panel",
+		"agent-open-theme-panel",
 		setShowSettings.bind(null, true)
 	);
 }

@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { noop } from "../lib/data.ts";
 import { PROJECT_ROOT } from "../lib/user-data.ts";
 import { buildApiRoutes, handlePromptRequest } from "./routes/api.ts";
-import { TerminalService } from "./routes/terminal.ts";
+import { AgentService } from "./routes/agent.ts";
 import {
 	isTrustedLocalOrigin,
 	isTrustedLocalRequest,
@@ -28,8 +28,8 @@ const BASE_CORS_HEADERS = {
 };
 
 const g = globalThis as typeof globalThis & {
-	__terminal_gui_server?: ReturnType<typeof Bun.serve>;
-	__terminal_gui_shutdown_handlers_installed?: boolean;
+	__agent_gui_server?: ReturnType<typeof Bun.serve>;
+	__agent_gui_shutdown_handlers_installed?: boolean;
 };
 type AppUpgradeServer = {
 	upgrade: (
@@ -200,17 +200,17 @@ async function serveDistFile(pathname: string): Promise<Response | null> {
 }
 
 export function shutdownAppServices() {
-	TerminalService.destroyAll();
+	AgentService.destroyAll();
 	ChatService.destroyAll();
 	PidTracker.flush().catch(noop);
 }
 
 export function installShutdownHandlers() {
-	if (g.__terminal_gui_shutdown_handlers_installed) {
+	if (g.__agent_gui_shutdown_handlers_installed) {
 		return;
 	}
 
-	g.__terminal_gui_shutdown_handlers_installed = true;
+	g.__agent_gui_shutdown_handlers_installed = true;
 	const cleanShutdown = () => {
 		shutdownAppServices();
 		process.exit(0);
@@ -317,8 +317,8 @@ export async function handleAppHttpRequest(
 }
 
 export async function startAppServer(port = 4001) {
-	if (g.__terminal_gui_server) {
-		return g.__terminal_gui_server;
+	if (g.__agent_gui_server) {
+		return g.__agent_gui_server;
 	}
 
 	const viteBuildPresent = await hasViteBuild();
@@ -374,7 +374,7 @@ export async function startAppServer(port = 4001) {
 		},
 	});
 
-	g.__terminal_gui_server = server;
+	g.__agent_gui_server = server;
 	CheckpointService.load().catch((e) =>
 		console.error("[Checkpoint] Failed to load:", e)
 	);

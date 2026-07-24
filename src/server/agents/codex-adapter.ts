@@ -5,7 +5,7 @@ import { dirname, isAbsolute, relative, resolve } from "node:path";
 import {
 	createAgentEnv,
 	resolveAgentBinary,
-} from "../../features/terminal/terminal-command.ts";
+} from "../../features/agent/agent-command.ts";
 import { noop } from "../../lib/data.ts";
 import { basename } from "../../lib/format.ts";
 import { isWithinDirectory } from "../security.ts";

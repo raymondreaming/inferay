@@ -14,7 +14,7 @@ import type {
 import { compareName, isString, uniqueTrimmedStrings } from "../../lib/data.ts";
 import { resolveAllowedLocalPath } from "../security.ts";
 import { ConfigManager } from "../services/config-manager.ts";
-import { readTerminalState } from "./terminal.ts";
+import { readAgentState } from "./agent.ts";
 
 interface InstalledSimulatorApp {
 	bundleId: string;
@@ -111,7 +111,7 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 async function getWorkspacePaths(): Promise<string[]> {
-	const data = await readTerminalState<{
+	const data = await readAgentState<{
 		groups?: Array<{
 			panes?: Array<{ cwd?: string; referencePaths?: string[] }>;
 		}>;

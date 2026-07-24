@@ -312,7 +312,7 @@ const styles = stylex.create({
 		height: "100%",
 		flexDirection: "column",
 		overflow: "hidden",
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 	},
 	header: {
 		display: "flex",

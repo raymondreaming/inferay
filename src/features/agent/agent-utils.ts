@@ -19,7 +19,7 @@ export type { AgentKind } from "../agents/agents.ts";
 
 export type HexColor = `#${string}`;
 
-export interface TerminalTheme {
+export interface AgentTheme {
 	readonly id: ThemeId;
 	readonly name: string;
 	readonly bg: HexColor;
@@ -47,32 +47,38 @@ const THEME_IDS = {
 } as const;
 
 export type ThemeId = (typeof THEME_IDS)[keyof typeof THEME_IDS];
-export type TerminalLayoutMode = "grid" | "rows";
+export type AgentLayoutMode = "grid" | "rows";
 
-export function loadTerminalLayoutMode(): TerminalLayoutMode {
-	return readStoredValue("terminal-layout-mode") === "grid" ? "grid" : "rows";
+export function loadAgentLayoutMode(): AgentLayoutMode {
+	const stored =
+		readStoredValue("agent-layout-mode") ??
+		readStoredValue("terminal-layout-mode");
+	if (stored && readStoredValue("agent-layout-mode") === null) {
+		writeStoredValue("agent-layout-mode", stored);
+	}
+	return stored === "grid" ? "grid" : "rows";
 }
 
-export function syncTerminalLayoutMode(
-	setLayoutMode: (mode: TerminalLayoutMode) => void
+export function syncAgentLayoutMode(
+	setLayoutMode: (mode: AgentLayoutMode) => void
 ): void {
-	setLayoutMode(loadTerminalLayoutMode());
+	setLayoutMode(loadAgentLayoutMode());
 }
 
-export function listenTerminalLayoutMode(
-	setLayoutMode: (mode: TerminalLayoutMode) => void
+export function listenAgentLayoutMode(
+	setLayoutMode: (mode: AgentLayoutMode) => void
 ): () => void {
 	return listenWindowEvent(
-		"terminal-shell-change",
-		syncTerminalLayoutMode.bind(null, setLayoutMode)
+		"agent-shell-change",
+		syncAgentLayoutMode.bind(null, setLayoutMode)
 	);
 }
 
 export function appendPaneToGroup(
 	selectedGroupId: string,
-	pane: TerminalPaneModel,
-	group: TerminalGroupModel
-): TerminalGroupModel {
+	pane: AgentPaneModel,
+	group: AgentGroupModel
+): AgentGroupModel {
 	if (group.id !== selectedGroupId) return group;
 	const panes =
 		group.panes.length === 1 &&
@@ -83,13 +89,13 @@ export function appendPaneToGroup(
 	return { ...group, panes, selectedPaneId: pane.id };
 }
 
-export type TerminalWorkspaceAction =
+export type AgentWorkspaceAction =
 	| { type: "selectWorkspace"; groupId: string }
 	| { type: "selectPane"; groupId: string; paneId: string }
 	| { type: "addWorkspace" }
 	| { type: "removeWorkspace"; groupId: string }
 	| { type: "renameWorkspace"; groupId: string; name: string }
-	| { type: "addPane"; pane: TerminalPaneModel; groupId?: string }
+	| { type: "addPane"; pane: AgentPaneModel; groupId?: string }
 	| { type: "removePane"; groupId: string; paneId: string }
 	| {
 			type: "directorySelected";
@@ -106,19 +112,19 @@ export type TerminalWorkspaceAction =
 	  }
 	| { type: "ensureChatPane" };
 
-export function reduceTerminalWorkspaceState(
-	state: TerminalSavedState,
-	action: TerminalWorkspaceAction
-): TerminalSavedState | null {
+export function reduceAgentWorkspaceState(
+	state: AgentSavedState,
+	action: AgentWorkspaceAction
+): AgentSavedState | null {
 	switch (action.type) {
 		case "selectWorkspace":
 			if (!state.groups.some(hasId.bind(null, action.groupId))) return state;
-			return compactTerminalState(
+			return compactAgentState(
 				{ ...state, selectedGroupId: action.groupId as GroupId },
 				{ keepSelectedDraft: true }
 			);
 		case "selectPane":
-			return compactTerminalState(
+			return compactAgentState(
 				{
 					...state,
 					selectedGroupId: action.groupId as GroupId,
@@ -131,13 +137,13 @@ export function reduceTerminalWorkspaceState(
 				{ keepSelectedDraft: true }
 			);
 		case "addWorkspace": {
-			const cleanState = compactTerminalState(state, {
+			const cleanState = compactAgentState(state, {
 				keepSelectedDraft: true,
 			});
 			const selectedGroup =
 				cleanState.groups.find(hasId.bind(null, cleanState.selectedGroupId)) ??
 				cleanState.groups[0];
-			const group: TerminalGroupModel = {
+			const group: AgentGroupModel = {
 				id: createGroupId(),
 				name: `Workspace ${cleanState.groups.length + 1}`,
 				panes: [],
@@ -191,13 +197,13 @@ export function reduceTerminalWorkspaceState(
 		case "removePane":
 			return {
 				...state,
-				groups: reduceTerminalGroups(state.groups, action),
+				groups: reduceAgentGroups(state.groups, action),
 			};
 		case "directorySelected":
 		case "setPaneAgentKind":
 			return {
 				...state,
-				groups: reduceTerminalGroups(state.groups, action),
+				groups: reduceAgentGroups(state.groups, action),
 			};
 		case "ensureChatPane": {
 			const selectedGroupId = state.selectedGroupId ?? state.groups[0]?.id;
@@ -262,7 +268,7 @@ const TERM_THEME_DATA: [
 	],
 ];
 
-const TERMINAL_THEMES: readonly TerminalTheme[] = TERM_THEME_DATA.map(
+const AGENT_THEMES: readonly AgentTheme[] = TERM_THEME_DATA.map(
 	([id, name, bg, fg, cursor, separator]) => ({
 		id,
 		name,
@@ -273,7 +279,7 @@ const TERMINAL_THEMES: readonly TerminalTheme[] = TERM_THEME_DATA.map(
 	})
 );
 
-const TERMINAL_FONTS = [
+const AGENT_FONTS = [
 	"SF Mono",
 	"Menlo",
 	"Monaco",
@@ -283,7 +289,7 @@ const TERMINAL_FONTS = [
 	"Source Code Pro",
 ] as const;
 
-export type TerminalFont = (typeof TERMINAL_FONTS)[number];
+export type AgentFont = (typeof AGENT_FONTS)[number];
 
 export type PaneId = string & { readonly __brand: "PaneId" };
 
@@ -299,7 +305,7 @@ export function createGroupId(): GroupId {
 
 export type PaneType = AgentKind;
 
-export interface TerminalPaneModel {
+export interface AgentPaneModel {
 	readonly id: PaneId;
 	title: string;
 	readonly agentKind: AgentKind;
@@ -311,17 +317,17 @@ export interface TerminalPaneModel {
 	summary?: string;
 }
 
-export interface TerminalGroupModel {
+export interface AgentGroupModel {
 	readonly id: GroupId;
 	name: string;
-	panes: TerminalPaneModel[];
+	panes: AgentPaneModel[];
 	selectedPaneId: PaneId | null;
 	columns: number;
 	rows: number;
 }
 
-export interface TerminalSavedState {
-	groups: TerminalGroupModel[];
+export interface AgentSavedState {
+	groups: AgentGroupModel[];
 	selectedGroupId: GroupId | null;
 	themeId: ThemeId;
 	fontSize: number;
@@ -349,7 +355,7 @@ export interface PrimaryProductLoopContext {
 	readonly outcomeSurfaces: readonly ["chat-checkpoints", "editor-git-diff"];
 }
 
-export interface TerminalViewSwitchHealth {
+export interface AgentViewSwitchHealth {
 	readonly type: "view_switch";
 	readonly from: string | null;
 	readonly to: string;
@@ -364,12 +370,12 @@ export interface TerminalViewSwitchHealth {
 export const PRIMARY_PRODUCT_LOOP = [
 	{
 		stage: "workspace",
-		owner: "TerminalGroupModel",
+		owner: "AgentGroupModel",
 		outcome: "select a durable project workspace",
 	},
 	{
 		stage: "pane",
-		owner: "TerminalPaneModel",
+		owner: "AgentPaneModel",
 		outcome: "focus a chat-capable pane inside that workspace",
 	},
 	{
@@ -384,22 +390,19 @@ export const PRIMARY_PRODUCT_LOOP = [
 	},
 ] as const satisfies readonly PrimaryProductLoopStep[];
 
-const TERMINAL_STORAGE_KEY = "inferay-terminal-state" as const;
-const TERMINAL_SHELL_CHANGE_EVENT = "terminal-shell-change" as const;
+const AGENT_STORAGE_KEY = "inferay-agent-state" as const;
+const LEGACY_AGENT_STORAGE_KEY = "inferay-terminal-state" as const;
+const AGENT_SHELL_CHANGE_EVENT = "agent-shell-change" as const;
 
-export type TerminalStateChangeSource =
-	| "canonical"
-	| "local"
-	| "view"
-	| "cache";
+export type AgentStateChangeSource = "canonical" | "local" | "view" | "cache";
 
-export interface TerminalShellChangeDetail {
-	source: TerminalStateChangeSource;
+export interface AgentShellChangeDetail {
+	source: AgentStateChangeSource;
 	reason?: string;
 	mainView?: "chat" | "editor" | "graph";
-	productHealth?: TerminalViewSwitchHealth;
+	productHealth?: AgentViewSwitchHealth;
 	stateKey?: string;
-	state?: TerminalSavedState;
+	state?: AgentSavedState;
 }
 
 const CUSTOM_THEME_KEY = "inferay-custom-theme" as const;
@@ -408,7 +411,7 @@ const DEFAULT_THEME_ID: ThemeId = "default";
 
 export const DEFAULT_FONT_SIZE = 13 as const;
 
-export const DEFAULT_FONT_FAMILY: TerminalFont = "SF Mono";
+export const DEFAULT_FONT_FAMILY: AgentFont = "SF Mono";
 
 export const DEFAULT_OPACITY = 1 as const;
 
@@ -418,7 +421,7 @@ export const DEFAULT_ROWS = 2 as const;
 
 export const DEFAULT_CHAT_AGENT_KIND: ChatAgentKind = "codex";
 
-function isValidTerminalState(value: unknown): value is TerminalSavedState {
+function isValidAgentState(value: unknown): value is AgentSavedState {
 	if (typeof value !== "object" || value === null) return false;
 	const obj = value as Record<string, unknown>;
 	return (
@@ -431,7 +434,7 @@ function isValidTerminalState(value: unknown): value is TerminalSavedState {
 	);
 }
 
-export function terminalStateKey(state: TerminalSavedState): string {
+export function agentStateKey(state: AgentSavedState): string {
 	return JSON.stringify({
 		selectedGroupId: state.selectedGroupId,
 		groups: state.groups.map((group) => ({
@@ -455,8 +458,8 @@ export function terminalStateKey(state: TerminalSavedState): string {
 	});
 }
 
-export function terminalStateScore(
-	state: Pick<TerminalSavedState, "groups"> | null
+export function agentStateScore(
+	state: Pick<AgentSavedState, "groups"> | null
 ): number {
 	if (!state) return 0;
 	return state.groups.reduce((score, group) => {
@@ -472,7 +475,7 @@ export function terminalStateScore(
 }
 
 export function getPrimaryProductLoopContext(
-	state: Pick<TerminalSavedState, "groups" | "selectedGroupId"> | null
+	state: Pick<AgentSavedState, "groups" | "selectedGroupId"> | null
 ): PrimaryProductLoopContext {
 	const workspace =
 		state?.groups.find(hasId.bind(null, state.selectedGroupId)) ??
@@ -497,7 +500,7 @@ export function getPrimaryProductLoopContext(
 	};
 }
 
-export function createTerminalViewSwitchHealth({
+export function createAgentViewSwitchHealth({
 	context,
 	from,
 	previousTimestamp = null,
@@ -509,7 +512,7 @@ export function createTerminalViewSwitchHealth({
 	previousTimestamp?: number | null;
 	timestamp?: number;
 	to: string;
-}): TerminalViewSwitchHealth {
+}): AgentViewSwitchHealth {
 	return {
 		type: "view_switch",
 		from,
@@ -526,12 +529,12 @@ export function createTerminalViewSwitchHealth({
 	};
 }
 
-let _cachedTerminalState: TerminalSavedState | null = null;
-export function cacheTerminalState(state: TerminalSavedState): void {
-	_cachedTerminalState = state;
+let _cachedAgentState: AgentSavedState | null = null;
+export function cacheAgentState(state: AgentSavedState): void {
+	_cachedAgentState = state;
 }
 
-export function createDefaultTerminalState(): TerminalSavedState {
+export function createDefaultAgentState(): AgentSavedState {
 	const group = createDefaultAgentChatGroup();
 	return {
 		groups: [group],
@@ -544,14 +547,14 @@ export function createDefaultTerminalState(): TerminalSavedState {
 }
 
 function chooseSelectedGroupId(
-	groups: TerminalGroupModel[],
+	groups: AgentGroupModel[],
 	selectedGroupId: GroupId | null
 ): GroupId | null {
 	if (groups.some(hasId.bind(null, selectedGroupId))) return selectedGroupId;
-	let bestGroup: TerminalGroupModel | null = null;
+	let bestGroup: AgentGroupModel | null = null;
 	let bestScore = -Infinity;
 	for (const group of groups) {
-		const score = terminalStateScore({ groups: [group] });
+		const score = agentStateScore({ groups: [group] });
 		if (score > bestScore) {
 			bestGroup = group;
 			bestScore = score;
@@ -560,16 +563,16 @@ function chooseSelectedGroupId(
 	return bestGroup?.id ?? null;
 }
 
-export function normalizeTerminalState(
+export function normalizeAgentState(
 	value: unknown,
 	options: { createDefault?: boolean } = {}
-): TerminalSavedState | null {
-	if (!isValidTerminalState(value)) {
-		return options.createDefault ? createDefaultTerminalState() : null;
+): AgentSavedState | null {
+	if (!isValidAgentState(value)) {
+		return options.createDefault ? createDefaultAgentState() : null;
 	}
 	const groups = value.groups.map(migrateGroup);
 	if (groups.length === 0) {
-		return options.createDefault ? createDefaultTerminalState() : null;
+		return options.createDefault ? createDefaultAgentState() : null;
 	}
 	return {
 		...value,
@@ -584,7 +587,7 @@ export function normalizeTerminalState(
 	};
 }
 
-function isEmptyPendingPane(pane: TerminalPaneModel): boolean {
+function isEmptyPendingPane(pane: AgentPaneModel): boolean {
 	return (
 		pane.pendingCwd === true &&
 		!pane.cwd &&
@@ -593,9 +596,9 @@ function isEmptyPendingPane(pane: TerminalPaneModel): boolean {
 }
 
 function shouldKeepEmptyPendingPane(
-	pane: TerminalPaneModel,
-	group: TerminalGroupModel,
-	state: TerminalSavedState,
+	pane: AgentPaneModel,
+	group: AgentGroupModel,
+	state: AgentSavedState,
 	options: { keepSelectedDraft?: boolean }
 ): boolean {
 	return (
@@ -606,14 +609,14 @@ function shouldKeepEmptyPendingPane(
 	);
 }
 
-function hasDurablePane(group: TerminalGroupModel): boolean {
+function hasDurablePane(group: AgentGroupModel): boolean {
 	return group.panes.some((pane) => pane.cwd || pane.pendingCwd === false);
 }
 
-export function compactTerminalState(
-	state: TerminalSavedState,
+export function compactAgentState(
+	state: AgentSavedState,
 	options: { keepSelectedDraft?: boolean } = {}
-): TerminalSavedState {
+): AgentSavedState {
 	let changed = false;
 	const hasDurableGroup = state.groups.some(hasDurablePane);
 	const selectedGroup =
@@ -675,34 +678,37 @@ export function compactTerminalState(
 		: state;
 }
 
-export function loadTerminalState(): TerminalSavedState | null {
-	const parsed = readStoredJson<unknown>(TERMINAL_STORAGE_KEY, null);
-	const state = normalizeTerminalState(parsed);
-	_cachedTerminalState = state;
+export function loadAgentState(): AgentSavedState | null {
+	const current = readStoredJson<unknown>(AGENT_STORAGE_KEY, null);
+	const parsed =
+		current ?? readStoredJson<unknown>(LEGACY_AGENT_STORAGE_KEY, null);
+	const state = normalizeAgentState(parsed);
+	if (state && current === null) writeStoredJson(AGENT_STORAGE_KEY, state);
+	_cachedAgentState = state;
 	return state;
 }
 
-export async function loadCanonicalTerminalState(): Promise<TerminalSavedState | null> {
+export async function loadCanonicalAgentState(): Promise<AgentSavedState | null> {
 	try {
-		const response = await fetch("/api/terminal/state");
-		if (!response.ok) return loadTerminalState();
+		const response = await fetch("/api/agent/state");
+		if (!response.ok) return loadAgentState();
 		const serverState = await response.json();
-		const normalizedBase = normalizeTerminalState(serverState);
+		const normalizedBase = normalizeAgentState(serverState);
 		const normalized = normalizedBase
-			? compactTerminalState(normalizedBase, { keepSelectedDraft: true })
+			? compactAgentState(normalizedBase, { keepSelectedDraft: true })
 			: null;
 		if (normalized) {
-			const previousKey = _cachedTerminalState
-				? terminalStateKey(_cachedTerminalState)
+			const previousKey = _cachedAgentState
+				? agentStateKey(_cachedAgentState)
 				: null;
-			const nextKey = terminalStateKey(normalized);
-			_cachedTerminalState = normalized;
-			writeStoredJson(TERMINAL_STORAGE_KEY, normalized);
-			if (normalizedBase && terminalStateKey(normalizedBase) !== nextKey) {
-				sendJson("/api/terminal/state", normalized).catch(noop);
+			const nextKey = agentStateKey(normalized);
+			_cachedAgentState = normalized;
+			writeStoredJson(AGENT_STORAGE_KEY, normalized);
+			if (normalizedBase && agentStateKey(normalizedBase) !== nextKey) {
+				sendJson("/api/agent/state", normalized).catch(noop);
 			}
 			if (previousKey !== nextKey && typeof window !== "undefined") {
-				dispatchTerminalShellChange({
+				dispatchAgentShellChange({
 					source: "canonical",
 					reason: "canonical-load",
 					state: normalized,
@@ -711,93 +717,91 @@ export async function loadCanonicalTerminalState(): Promise<TerminalSavedState |
 			}
 			return normalized;
 		}
-		_cachedTerminalState = null;
+		_cachedAgentState = null;
 		return null;
 	} catch {
-		return loadTerminalState();
+		return loadAgentState();
 	}
 }
 
-export function dispatchTerminalShellChange(
-	detail: TerminalShellChangeDetail
-): void {
+export function dispatchAgentShellChange(detail: AgentShellChangeDetail): void {
 	window.dispatchEvent(
-		new CustomEvent<TerminalShellChangeDetail>(TERMINAL_SHELL_CHANGE_EVENT, {
+		new CustomEvent<AgentShellChangeDetail>(AGENT_SHELL_CHANGE_EVENT, {
 			detail,
 		})
 	);
 }
 
-export function saveSyncedTerminalState(
-	state: TerminalSavedState,
+export function saveSyncedAgentState(
+	state: AgentSavedState,
 	reason?: string,
-	source: TerminalStateChangeSource = "canonical"
+	source: AgentStateChangeSource = "canonical"
 ): void {
-	const normalized = normalizeTerminalState(state, { createDefault: true });
+	const normalized = normalizeAgentState(state, { createDefault: true });
 	if (!normalized) return;
-	saveLocalTerminalState(normalized, reason, source);
-	sendJson("/api/terminal/state", normalized).catch(noop);
+	saveLocalAgentState(normalized, reason, source);
+	sendJson("/api/agent/state", normalized).catch(noop);
 }
 
-function saveLocalTerminalState(
-	state: TerminalSavedState,
+function saveLocalAgentState(
+	state: AgentSavedState,
 	reason?: string,
-	source: TerminalStateChangeSource = "local"
+	source: AgentStateChangeSource = "local"
 ): void {
-	const normalized = normalizeTerminalState(state, { createDefault: true });
+	const normalized = normalizeAgentState(state, { createDefault: true });
 	if (!normalized) return;
-	_cachedTerminalState = normalized;
-	writeStoredJson(TERMINAL_STORAGE_KEY, normalized);
+	_cachedAgentState = normalized;
+	writeStoredJson(AGENT_STORAGE_KEY, normalized);
 	flushPendingClientStorageSync();
-	dispatchTerminalShellChange({
+	dispatchAgentShellChange({
 		source,
 		reason,
 		state: normalized,
-		stateKey: terminalStateKey(normalized),
+		stateKey: agentStateKey(normalized),
 	});
 }
 
-export async function mutateCanonicalTerminalState(
-	mutate: (state: TerminalSavedState) => TerminalSavedState | null,
+export async function mutateCanonicalAgentState(
+	mutate: (state: AgentSavedState) => AgentSavedState | null,
 	reason?: string,
 	options: { createIfMissing?: boolean } = {}
-): Promise<TerminalSavedState | null> {
+): Promise<AgentSavedState | null> {
 	const state =
-		(await loadCanonicalTerminalState()) ??
-		(options.createIfMissing ? createDefaultTerminalState() : null);
+		(await loadCanonicalAgentState()) ??
+		(options.createIfMissing ? createDefaultAgentState() : null);
 	if (!state) return null;
 	const next = mutate(state);
 	if (!next) return null;
-	saveSyncedTerminalState(next, reason);
-	return normalizeTerminalState(next, { createDefault: true });
+	saveSyncedAgentState(next, reason);
+	return normalizeAgentState(next, { createDefault: true });
 }
 
-export function mutateTerminalWorkspaceState(
+export function mutateAgentWorkspaceState(
 	action:
-		| TerminalWorkspaceAction
-		| ((state: TerminalSavedState) => TerminalWorkspaceAction | null),
+		| AgentWorkspaceAction
+		| ((state: AgentSavedState) => AgentWorkspaceAction | null),
 	reason?: string,
 	options: { createIfMissing?: boolean } = {}
-): Promise<TerminalSavedState | null> {
+): Promise<AgentSavedState | null> {
 	return (async () => {
 		const state =
-			(await loadCanonicalTerminalState()) ??
-			(options.createIfMissing ? createDefaultTerminalState() : null);
+			(await loadCanonicalAgentState()) ??
+			(options.createIfMissing ? createDefaultAgentState() : null);
 		if (!state) return null;
 		const nextAction = typeof action === "function" ? action(state) : action;
 		if (!nextAction) return null;
-		const optimistic = reduceTerminalWorkspaceState(state, nextAction);
-		if (optimistic) saveLocalTerminalState(optimistic, reason);
+		const optimistic = reduceAgentWorkspaceState(state, nextAction);
+		if (optimistic) saveLocalAgentState(optimistic, reason);
 		try {
-			const payload = await postJson<{ state: TerminalSavedState | null }>(
-				"/api/terminal/state/workspace-action",
+			const payload = await postJson<{ state: AgentSavedState | null }>(
+				"/api/agent/state/workspace-action",
 				{ action: nextAction }
 			);
-			const normalized = normalizeTerminalState(payload.state, {
+			const normalized = normalizeAgentState(payload.state, {
 				createDefault: true,
 			});
 			if (!normalized) return optimistic;
-			saveLocalTerminalState(normalized, reason, "canonical");
+			saveLocalAgentState(normalized, reason, "canonical");
 			return normalized;
 		} catch {
 			return optimistic;
@@ -805,14 +809,14 @@ export function mutateTerminalWorkspaceState(
 	})();
 }
 
-export type TerminalGroupsAction =
+export type AgentGroupsAction =
 	| ({
 			type: "addPane";
 			groupId: string;
 			referencePaths?: string[];
 	  } & (
 			| { agentKind: AgentKind; cwd?: string; pendingCwd?: boolean }
-			| { pane: TerminalPaneModel }
+			| { pane: AgentPaneModel }
 	  ))
 	| { type: "removePane"; groupId: string; paneId: string; force?: boolean }
 	| { type: "selectPane"; groupId: string; paneId: string }
@@ -836,18 +840,18 @@ export type TerminalGroupsAction =
 			paneId: string;
 			agentKind: AgentKind;
 	  }
-	| { type: "replaceAll"; groups: TerminalGroupModel[] };
+	| { type: "replaceAll"; groups: AgentGroupModel[] };
 
-export function reduceTerminalGroups(
-	state: TerminalGroupModel[],
-	action: TerminalGroupsAction
-): TerminalGroupModel[] {
+export function reduceAgentGroups(
+	state: AgentGroupModel[],
+	action: AgentGroupsAction
+): AgentGroupModel[] {
 	switch (action.type) {
 		case "addPane": {
 			const pane =
 				"pane" in action
 					? action.pane
-					: createTerminalPane(action.agentKind, action.cwd, action.pendingCwd);
+					: createAgentPane(action.agentKind, action.cwd, action.pendingCwd);
 			if (action.referencePaths) pane.referencePaths = action.referencePaths;
 			return state.map((group) =>
 				group.id === action.groupId
@@ -938,7 +942,7 @@ export function changePaneAgentKind(
 	paneId: string,
 	agentKind: AgentKind
 ): void {
-	void mutateCanonicalTerminalState(
+	void mutateCanonicalAgentState(
 		(state) => ({
 			...state,
 			groups: state.groups.map((g) => ({
@@ -954,12 +958,12 @@ export function changePaneAgentKind(
 	);
 }
 
-export function getPaneTitle(pane: TerminalPaneModel): string;
+export function getPaneTitle(pane: AgentPaneModel): string;
 
 export function getPaneTitle(agentKind: AgentKind, cwd?: string): string;
 
 export function getPaneTitle(
-	paneOrAgentKind: TerminalPaneModel | AgentKind,
+	paneOrAgentKind: AgentPaneModel | AgentKind,
 	cwd?: string
 ): string {
 	const agentKind =
@@ -972,11 +976,11 @@ export function getPaneTitle(
 	return getAgentDefinition(agentKind).paneTitle;
 }
 
-export function createTerminalPane(
+export function createAgentPane(
 	agentKind: AgentKind,
 	cwd?: string,
 	pendingCwd?: boolean
-): TerminalPaneModel {
+): AgentPaneModel {
 	return {
 		id: createPaneId(),
 		title: getPaneTitle(agentKind, cwd),
@@ -990,11 +994,11 @@ export function createTerminalPane(
 
 export function createPendingAgentChatPane(
 	agentKind: ChatAgentKind = loadDefaultChatSettings().agentKind
-): TerminalPaneModel {
-	return createTerminalPane(agentKind, undefined, true);
+): AgentPaneModel {
+	return createAgentPane(agentKind, undefined, true);
 }
 
-export function createDefaultAgentChatGroup(): TerminalGroupModel {
+export function createDefaultAgentChatGroup(): AgentGroupModel {
 	const panes = [createPendingAgentChatPane()];
 	return {
 		id: createGroupId(),
@@ -1007,13 +1011,13 @@ export function createDefaultAgentChatGroup(): TerminalGroupModel {
 }
 
 export function migrateGroup(
-	group: Partial<TerminalGroupModel> & {
+	group: Partial<AgentGroupModel> & {
 		id: GroupId;
 		name: string;
-		panes: TerminalPaneModel[];
+		panes: AgentPaneModel[];
 		selectedPaneId: PaneId | null;
 	}
-): TerminalGroupModel {
+): AgentGroupModel {
 	const panes = group.panes;
 	const selectedPaneId = panes.some(hasId.bind(null, group.selectedPaneId))
 		? group.selectedPaneId
@@ -1028,9 +1032,9 @@ export function migrateGroup(
 					? "codex"
 					: pane.isClaude
 						? "claude"
-						: "terminal"),
+						: "agent"),
 			isClaude: pane.agentKind ? pane.agentKind === "claude" : pane.isClaude,
-			paneType: pane.paneType ?? (pane.isClaude ? "claude" : "terminal"),
+			paneType: pane.paneType ?? (pane.isClaude ? "claude" : "agent"),
 		})),
 		selectedPaneId,
 		columns: group.columns ?? DEFAULT_COLUMNS,
@@ -1038,9 +1042,9 @@ export function migrateGroup(
 	};
 }
 
-export function getInitialGroups(): TerminalGroupModel[] {
+export function getInitialGroups(): AgentGroupModel[] {
 	return (
-		loadTerminalState()?.groups.map(migrateGroup) ?? [
+		loadAgentState()?.groups.map(migrateGroup) ?? [
 			createDefaultAgentChatGroup(),
 		]
 	);
@@ -1061,7 +1065,7 @@ export type StatusIconType =
 	| "message"
 	| "alert"
 	| "wrench"
-	| "terminal";
+	| "agent";
 
 export interface StatusInfo {
 	readonly label: string;
@@ -1149,14 +1153,14 @@ export function saveCustomTheme(colors: CustomThemeColors): void {
 	writeStoredJson(CUSTOM_THEME_KEY, colors);
 }
 
-export function getThemeById(themeId: string): TerminalTheme {
+export function getThemeById(themeId: string): AgentTheme {
 	if (themeId === "custom") {
 		const c = loadCustomTheme();
 		return { id: "custom" as ThemeId, name: "Custom", ...c };
 	}
 	return (
-		TERMINAL_THEMES.find(hasId.bind(null, themeId)) ??
-		TERMINAL_THEMES.find(hasId.bind(null, DEFAULT_THEME_ID)) ??
-		TERMINAL_THEMES[0]!
+		AGENT_THEMES.find(hasId.bind(null, themeId)) ??
+		AGENT_THEMES.find(hasId.bind(null, DEFAULT_THEME_ID)) ??
+		AGENT_THEMES[0]!
 	);
 }

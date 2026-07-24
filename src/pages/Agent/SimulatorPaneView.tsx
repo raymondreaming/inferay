@@ -1493,7 +1493,7 @@ const styles = stylex.create({
 		minHeight: 0,
 		height: "100%",
 		flexDirection: "column",
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 		color: color.textMain,
 	},
 	body: {
@@ -1510,7 +1510,7 @@ const styles = stylex.create({
 		borderRightWidth: 1,
 		borderRightStyle: "solid",
 		borderRightColor: color.border,
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 		padding: controlSize._1_5,
 	},
 	sidebarSwitchCount: {

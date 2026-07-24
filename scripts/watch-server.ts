@@ -81,7 +81,7 @@ async function startApp() {
 		await new Promise((r) => setTimeout(r, 200));
 		child = spawn(ELECTROBUN, ["dev"], {
 			stdio: "inherit",
-			env: { ...process.env, TERMINAL_GUI_APP_ROOT: ROOT },
+			env: { ...process.env, AGENT_GUI_APP_ROOT: ROOT },
 		});
 		child.on("exit", (code) => {
 			if (child?.killed) return;

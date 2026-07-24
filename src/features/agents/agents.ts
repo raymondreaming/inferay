@@ -2,8 +2,8 @@ import { hasId } from "../../lib/data.ts";
 import { readStoredJson, writeStoredJson } from "../../lib/stored-json.ts";
 
 export type ChatAgentKind = "claude" | "codex";
-export type AgentKind = "terminal" | ChatAgentKind;
-export type AgentIconKey = "terminal" | "anthropic" | "openai";
+export type AgentKind = "agent" | ChatAgentKind;
+export type AgentIconKey = "agent" | "anthropic" | "openai";
 
 export interface NativeSlashCommand {
 	readonly name: string;
@@ -36,7 +36,7 @@ export interface AgentDefinition {
 	readonly description: string;
 	readonly iconKey: AgentIconKey;
 	readonly supportsChat: boolean;
-	readonly supportsInteractiveTerminal: boolean;
+	readonly supportsInteractiveAgent: boolean;
 	readonly supportsResume: boolean;
 	readonly nativeSlashCommands: readonly NativeSlashCommand[];
 	readonly models: readonly ModelOption[];
@@ -60,7 +60,7 @@ const CLAUDE_NATIVE_COMMANDS = [
 	{ name: "model", description: "Switch AI model" },
 	{ name: "pr-comments", description: "View PR comments" },
 	{ name: "review", description: "Review code changes" },
-	{ name: "terminal-setup", description: "Setup terminal integration" },
+	{ name: "agent-setup", description: "Setup agent integration" },
 	{ name: "vim", description: "Toggle vim mode" },
 ] as const satisfies readonly NativeSlashCommand[];
 
@@ -111,14 +111,14 @@ const CODEX_NATIVE_COMMANDS = [
 ] as const satisfies readonly NativeSlashCommand[];
 
 const AGENT_DEFINITIONS: Record<AgentKind, AgentDefinition> = {
-	terminal: {
-		kind: "terminal",
-		label: "Terminal",
-		paneTitle: "Terminal",
+	agent: {
+		kind: "agent",
+		label: "Agent",
+		paneTitle: "Agent",
 		description: "Interactive shell session",
-		iconKey: "terminal",
+		iconKey: "agent",
 		supportsChat: false,
-		supportsInteractiveTerminal: true,
+		supportsInteractiveAgent: true,
 		supportsResume: false,
 		nativeSlashCommands: [],
 		models: [],
@@ -131,7 +131,7 @@ const AGENT_DEFINITIONS: Record<AgentKind, AgentDefinition> = {
 		description: "Anthropic Claude Code CLI",
 		iconKey: "anthropic",
 		supportsChat: true,
-		supportsInteractiveTerminal: true,
+		supportsInteractiveAgent: true,
 		supportsResume: true,
 		nativeSlashCommands: CLAUDE_NATIVE_COMMANDS,
 		models: CLAUDE_MODELS,
@@ -144,7 +144,7 @@ const AGENT_DEFINITIONS: Record<AgentKind, AgentDefinition> = {
 		description: "OpenAI Codex CLI",
 		iconKey: "openai",
 		supportsChat: true,
-		supportsInteractiveTerminal: true,
+		supportsInteractiveAgent: true,
 		supportsResume: true,
 		nativeSlashCommands: CODEX_NATIVE_COMMANDS,
 		models: CODEX_MODELS,

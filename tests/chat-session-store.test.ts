@@ -3,7 +3,7 @@ import { JSDOM } from "jsdom";
 
 function installBrowserStorage() {
 	const dom = new JSDOM("<!doctype html><html><body></body></html>", {
-		url: "http://localhost/#/terminal",
+		url: "http://localhost/#/agent",
 	});
 	const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 	const previousDocument = Object.getOwnPropertyDescriptor(

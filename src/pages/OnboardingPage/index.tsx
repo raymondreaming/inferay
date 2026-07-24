@@ -12,7 +12,7 @@ import {
 	IconGitBranch,
 	IconGlobe,
 	IconRefreshCw,
-	IconTerminal,
+	IconAgent,
 	IconUser,
 	IconX,
 } from "../../components/ui/Icons.tsx";
@@ -23,12 +23,12 @@ import {
 } from "../../features/forge/forge-client.ts";
 import type { ForgeAccount, GithubRepo } from "../../features/forge/types.ts";
 import {
-	createDefaultTerminalState,
-	loadCanonicalTerminalState,
-	saveSyncedTerminalState,
-} from "../../features/terminal/terminal-utils.ts";
+	createDefaultAgentState,
+	loadCanonicalAgentState,
+	saveSyncedAgentState,
+} from "../../features/agent/agent-utils.ts";
 import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
-import { TERMINAL_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
+import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { lacksValue } from "../../lib/data.ts";
 import {
 	fetchJsonOr,
@@ -288,17 +288,17 @@ export function OnboardingPage() {
 	const finish = useCallback(async () => {
 		writeStoredValue(ONBOARDING_DONE_KEY, "true");
 		// Default to grid layout
-		writeStoredValue("terminal-layout-mode", "grid");
-		writeStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY, "chat");
+		writeStoredValue("agent-layout-mode", "grid");
+		writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, "chat");
 		// New users land directly in the multi-agent chat grid.
-		if (!(await loadCanonicalTerminalState())) {
-			saveSyncedTerminalState(
-				createDefaultTerminalState(),
+		if (!(await loadCanonicalAgentState())) {
+			saveSyncedAgentState(
+				createDefaultAgentState(),
 				"onboarding-default",
 				"canonical"
 			);
 		}
-		navigate("/terminal", { replace: true });
+		navigate("/agent", { replace: true });
 	}, [navigate]);
 
 	const completeOnboarding = useCallback(() => {
@@ -391,7 +391,7 @@ function IntroStep({
 				</div>
 				<h1 {...stylex.props(styles.heroTitle)}>Welcome to Inferay</h1>
 				<p {...stylex.props(styles.heroText)}>
-					Multi-agent terminal workbench. Connect your GitHub, bring in your
+					Multi-agent agent workbench. Connect your GitHub, bring in your
 					projects, and start building.
 				</p>
 
@@ -511,8 +511,8 @@ function GithubStep({
 									variant="secondary"
 									size="lg"
 								>
-									<IconTerminal size={14} />
-									{connecting ? "Opening terminal..." : "Run gh auth login"}
+									<IconAgent size={14} />
+									{connecting ? "Opening agent..." : "Run gh auth login"}
 								</Button>
 								<Button
 									type="button"

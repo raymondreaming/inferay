@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { SimulatorPaneView } from "../Terminal/SimulatorPaneView.tsx";
+import { SimulatorPaneView } from "../Agent/SimulatorPaneView.tsx";
 
 export function SimulatorsPage() {
 	return (

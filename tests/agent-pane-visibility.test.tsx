@@ -3,10 +3,7 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import * as React from "react";
 import { createRoot } from "react-dom/client";
-import type {
-	PaneId,
-	TerminalTheme,
-} from "../src/features/terminal/terminal-utils.ts";
+import type { PaneId, AgentTheme } from "../src/features/agent/agent-utils.ts";
 
 mock.module("@stylexjs/stylex", () => ({
 	create: <T extends Record<string, unknown>>(styles: T) => styles,
@@ -17,7 +14,7 @@ mock.module("@stylexjs/stylex", () => ({
 }));
 
 const refit = mock(() => {});
-const terminalEnabledStates: boolean[] = [];
+const agentEnabledStates: boolean[] = [];
 const chatHandle = {};
 
 class MockResizeObserver {
@@ -38,9 +35,9 @@ class MockResizeObserver {
 	disconnect() {}
 }
 
-mock.module("../src/hooks/useXtermTerminal.ts", () => ({
-	useXtermTerminal: mock(({ enabled }: { enabled: boolean }) => {
-		terminalEnabledStates.push(enabled);
+mock.module("../src/hooks/useXtermAgent.ts", () => ({
+	useXtermAgent: mock(({ enabled }: { enabled: boolean }) => {
+		agentEnabledStates.push(enabled);
 		return {
 			containerRef: React.createRef<HTMLDivElement>(),
 			termRef: React.createRef<{ focus: () => void }>(),
@@ -74,7 +71,7 @@ mock.module("../src/features/git/useGitStatus.ts", () => ({
 function setupDom() {
 	const dom = new JSDOM('<div id="root"></div>', {
 		pretendToBeVisual: true,
-		url: "http://localhost/#/terminal",
+		url: "http://localhost/#/agent",
 	});
 	Object.defineProperty(globalThis, "window", {
 		configurable: true,
@@ -146,7 +143,7 @@ function setHorizontalScrollMetrics(
 	});
 }
 
-const testTheme: TerminalTheme = {
+const testTheme: AgentTheme = {
 	id: "default",
 	name: "Test",
 	bg: "#000",
@@ -155,24 +152,24 @@ const testTheme: TerminalTheme = {
 	separator: "#333",
 };
 
-test("terminal panes do not keep xterm live while their surface is hidden", async () => {
+test("agent panes do not keep xterm live while their surface is hidden", async () => {
 	refit.mockClear();
-	terminalEnabledStates.length = 0;
+	agentEnabledStates.length = 0;
 	const { root } = setupDom();
-	const { TerminalPaneView } =
-		await import("../src/pages/Terminal/TerminalPaneView.tsx");
+	const { AgentPaneView } =
+		await import("../src/pages/Agent/AgentPaneView.tsx");
 	const pane = {
-		id: "terminal-pane" as PaneId,
-		title: "Terminal",
-		agentKind: "terminal" as const,
+		id: "agent-pane" as PaneId,
+		title: "Agent",
+		agentKind: "agent" as const,
 		isClaude: false,
-		paneType: "terminal" as const,
+		paneType: "agent" as const,
 		cwd: "/tmp/project",
 	};
 
 	try {
 		root.render(
-			<TerminalPaneView
+			<AgentPaneView
 				pane={pane}
 				isSelected
 				isVisible={false}
@@ -185,11 +182,11 @@ test("terminal panes do not keep xterm live while their surface is hidden", asyn
 			/>
 		);
 		await tick();
-		expect(terminalEnabledStates.at(-1)).toBe(false);
+		expect(agentEnabledStates.at(-1)).toBe(false);
 		expect(refit).toHaveBeenCalledTimes(0);
 
 		root.render(
-			<TerminalPaneView
+			<AgentPaneView
 				pane={pane}
 				isSelected
 				isVisible
@@ -202,7 +199,7 @@ test("terminal panes do not keep xterm live while their surface is hidden", asyn
 			/>
 		);
 		await tick();
-		expect(terminalEnabledStates.at(-1)).toBe(true);
+		expect(agentEnabledStates.at(-1)).toBe(true);
 		expect(refit).toHaveBeenCalledTimes(1);
 	} finally {
 		root.unmount();
@@ -211,8 +208,8 @@ test("terminal panes do not keep xterm live while their surface is hidden", asyn
 
 test("chat pane refs stay attached across parent rerenders", async () => {
 	const { root } = setupDom();
-	const { TerminalPaneView } =
-		await import("../src/pages/Terminal/TerminalPaneView.tsx");
+	const { AgentPaneView } =
+		await import("../src/pages/Agent/AgentPaneView.tsx");
 	const pane = {
 		id: "chat-pane" as PaneId,
 		title: "Codex",
@@ -226,7 +223,7 @@ test("chat pane refs stay attached across parent rerenders", async () => {
 
 	try {
 		root.render(
-			<TerminalPaneView
+			<AgentPaneView
 				pane={pane}
 				isSelected
 				isVisible
@@ -245,7 +242,7 @@ test("chat pane refs stay attached across parent rerenders", async () => {
 		expect(calls[0]).toEqual(["chat-pane", chatHandle]);
 
 		root.render(
-			<TerminalPaneView
+			<AgentPaneView
 				pane={pane}
 				isSelected
 				isVisible
@@ -267,8 +264,7 @@ test("chat pane refs stay attached across parent rerenders", async () => {
 
 test("grid layout scrolls vertically when panes exceed visible rows", async () => {
 	const { root } = setupDom();
-	const { TerminalGrid } =
-		await import("../src/pages/Terminal/TerminalGrid.tsx");
+	const { AgentGrid } = await import("../src/pages/Agent/AgentGrid.tsx");
 	const panes = Array.from({ length: 8 }, (_, index) => ({
 		id: `chat-pane-${index}` as PaneId,
 		title: `Codex ${index + 1}`,
@@ -281,7 +277,7 @@ test("grid layout scrolls vertically when panes exceed visible rows", async () =
 
 	try {
 		root.render(
-			<TerminalGrid
+			<AgentGrid
 				panes={panes}
 				selectedPaneId={panes[0]!.id}
 				columns={3}
@@ -302,7 +298,7 @@ test("grid layout scrolls vertically when panes exceed visible rows", async () =
 		expect(
 			document.querySelectorAll('[data-testid="agent-chat"]')
 		).toHaveLength(8);
-		const source = readFileSync("src/pages/Terminal/TerminalGrid.tsx", "utf8");
+		const source = readFileSync("src/pages/Agent/AgentGrid.tsx", "utf8");
 		expect(source).toContain('overflowY: "auto"');
 		expect(source).toContain('overflowX: "hidden"');
 	} finally {
@@ -312,8 +308,7 @@ test("grid layout scrolls vertically when panes exceed visible rows", async () =
 
 test("grid layout owns wheel scrolling until a chat pane is clicked", async () => {
 	const { root } = setupDom();
-	const { TerminalGrid } =
-		await import("../src/pages/Terminal/TerminalGrid.tsx");
+	const { AgentGrid } = await import("../src/pages/Agent/AgentGrid.tsx");
 	const panes = Array.from({ length: 8 }, (_, index) => ({
 		id: `chat-pane-${index}` as PaneId,
 		title: `Codex ${index + 1}`,
@@ -326,7 +321,7 @@ test("grid layout owns wheel scrolling until a chat pane is clicked", async () =
 
 	try {
 		root.render(
-			<TerminalGrid
+			<AgentGrid
 				panes={panes}
 				selectedPaneId={panes[0]!.id}
 				columns={3}
@@ -345,7 +340,7 @@ test("grid layout owns wheel scrolling until a chat pane is clicked", async () =
 		await tick();
 
 		const grid = document.querySelector<HTMLElement>(
-			"[data-terminal-grid-scroll-area]"
+			"[data-agent-grid-scroll-area]"
 		);
 		const firstChat = document.querySelector<HTMLElement>(
 			'[data-testid="agent-chat"]'
@@ -464,8 +459,7 @@ test("grid layout owns wheel scrolling until a chat pane is clicked", async () =
 
 test("row layout glides horizontally over inactive chat bodies", async () => {
 	const { root } = setupDom();
-	const { TerminalGrid } =
-		await import("../src/pages/Terminal/TerminalGrid.tsx");
+	const { AgentGrid } = await import("../src/pages/Agent/AgentGrid.tsx");
 	const panes = Array.from({ length: 3 }, (_, index) => ({
 		id: `row-chat-pane-${index}` as PaneId,
 		title: `Codex ${index + 1}`,
@@ -478,7 +472,7 @@ test("row layout glides horizontally over inactive chat bodies", async () => {
 
 	try {
 		root.render(
-			<TerminalGrid
+			<AgentGrid
 				panes={panes}
 				selectedPaneId={panes[0]!.id}
 				columns={3}
@@ -497,7 +491,7 @@ test("row layout glides horizontally over inactive chat bodies", async () => {
 		await tick();
 
 		const row = document.querySelector<HTMLElement>(
-			"[data-terminal-row-scroll-area]"
+			"[data-agent-row-scroll-area]"
 		);
 		const chats = document.querySelectorAll<HTMLElement>(
 			'[data-testid="agent-chat"]'

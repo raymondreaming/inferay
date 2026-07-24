@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getAgentDefinition } from "../../features/agents/agents.ts";
 import type { SlashCommand } from "../../features/chat/agent-chat-shared.ts";
 import { usePrompts } from "../../features/prompts/usePrompts.ts";
-import type { AgentKind } from "../../features/terminal/terminal-utils.ts";
+import type { AgentKind } from "../../features/agent/agent-utils.ts";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import { findTriggerAtCursor, hideMenuState } from "./chat-agent-utils.ts";
 import { applyInlineCompletion } from "./chat-command-utils.ts";

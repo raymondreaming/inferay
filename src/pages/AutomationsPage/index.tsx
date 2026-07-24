@@ -15,7 +15,7 @@ import {
 	IconGlobe,
 	IconPlus,
 	IconRobot,
-	IconTerminal,
+	IconAgent,
 	IconWorkflow,
 } from "../../components/ui/Icons.tsx";
 import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
@@ -219,7 +219,7 @@ const nodeKinds: Record<string, NodeKindConfig> = {
 	},
 	script: {
 		label: "Script",
-		icon: IconTerminal,
+		icon: IconAgent,
 		inputs: ["in"],
 		outputs: ["out"],
 		tone: "amber",
@@ -249,7 +249,7 @@ const nodeKinds: Record<string, NodeKindConfig> = {
 	},
 	prompt: {
 		label: "Prompt",
-		icon: IconTerminal,
+		icon: IconAgent,
 		inputs: ["in"],
 		outputs: ["out"],
 		tone: "blue",
@@ -279,7 +279,7 @@ const nodeKinds: Record<string, NodeKindConfig> = {
 	},
 	code: {
 		label: "Code",
-		icon: IconTerminal,
+		icon: IconAgent,
 		inputs: ["in"],
 		outputs: ["patch"],
 		tone: "amber",
@@ -1301,7 +1301,7 @@ function AutomationStatusPill({ status }: { status: AutomationStatus }) {
 
 const styles = stylex.create({
 	root: {
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 		color: color.textMain,
 		display: "grid",
 		gridTemplateColumns: "260px minmax(520px, 1fr) 300px",
@@ -1474,7 +1474,7 @@ const styles = stylex.create({
 		paddingInline: controlSize._3,
 	},
 	canvas: {
-		backgroundColor: "#050505",
+		backgroundColor: color.transparent,
 		flex: 1,
 		minHeight: 0,
 		overflow: "auto",

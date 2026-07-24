@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 function setupDom() {
 	const dom = new JSDOM('<div id="root"></div>', {
 		pretendToBeVisual: true,
-		url: "http://localhost/#/terminal",
+		url: "http://localhost/#/agent",
 	});
 	Object.defineProperty(globalThis, "window", {
 		configurable: true,

@@ -26,10 +26,10 @@ import {
 	createAgentEnv,
 	hasAgentCli,
 	resolveAgentBinary,
-} from "../../features/terminal/terminal-command.ts";
+} from "../../features/agent/agent-command.ts";
 import {
 	shouldSyncClientStorageKey,
-	TERMINAL_STATE_STORAGE_KEY,
+	AGENT_STATE_STORAGE_KEY,
 } from "../../lib/client-storage-keys.ts";
 import {
 	hasCommand,
@@ -66,7 +66,7 @@ import {
 } from "../services/native-core.ts";
 import { gitRoutes } from "./git.ts";
 import { simulatorRoutes } from "./simulator.ts";
-import { readTerminalState, terminalRoutes } from "./terminal.ts";
+import { readAgentState, agentRoutes } from "./agent.ts";
 
 const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
@@ -354,7 +354,7 @@ interface AppUpdateInfo {
 	error?: string;
 }
 
-interface TerminalPaneSnapshot {
+interface AgentPaneSnapshot {
 	id?: unknown;
 	title?: unknown;
 	agentKind?: unknown;
@@ -675,11 +675,11 @@ async function listLocalSessions(): Promise<LocalSessionInfo[]> {
 }
 
 async function readPaneMetadata(): Promise<Map<string, LocalSessionInfo>> {
-	const state = await readTerminalState<any | null>(null);
+	const state = await readAgentState<any | null>(null);
 	const metadata = new Map<string, LocalSessionInfo>();
 	for (const group of state?.groups ?? []) {
 		for (const pane of group.panes ?? []) {
-			const value = pane as TerminalPaneSnapshot;
+			const value = pane as AgentPaneSnapshot;
 			if (typeof value.id !== "string") continue;
 			const cwd = typeof value.cwd === "string" ? value.cwd : null;
 			metadata.set(value.id, {
@@ -1809,7 +1809,7 @@ async function getDefaultFileCwd(): Promise<string> {
 }
 
 async function getActiveFileCwds(): Promise<string[]> {
-	const state = await readTerminalState<unknown | null>(null);
+	const state = await readAgentState<unknown | null>(null);
 	if (typeof state !== "object" || state === null) return [PROJECT_ROOT];
 	const groups = (state as { groups?: unknown }).groups;
 	if (!Array.isArray(groups)) return [PROJECT_ROOT];
@@ -2188,7 +2188,7 @@ export function normalizeEntries(value: unknown): Record<string, StoredValue> {
 	}
 	const entries: Record<string, StoredValue> = {};
 	for (const [key, raw] of Object.entries(value)) {
-		if (key === TERMINAL_STATE_STORAGE_KEY) {
+		if (key === AGENT_STATE_STORAGE_KEY) {
 			if (raw === null) entries[key] = null;
 			continue;
 		}
@@ -2203,8 +2203,8 @@ async function loadClientStorageEntries(): Promise<ClientStorageSnapshot> {
 		CLIENT_STORAGE_PATH,
 		{}
 	);
-	if (TERMINAL_STATE_STORAGE_KEY in entries) {
-		delete entries[TERMINAL_STATE_STORAGE_KEY];
+	if (AGENT_STATE_STORAGE_KEY in entries) {
+		delete entries[AGENT_STATE_STORAGE_KEY];
 		await writeJson(CLIENT_STORAGE_PATH, entries);
 	}
 	return entries;
@@ -2218,7 +2218,7 @@ async function applyClientStorageEntries(
 		{}
 	);
 	for (const [key, value] of Object.entries(entries)) {
-		if (key === TERMINAL_STATE_STORAGE_KEY && value !== null) {
+		if (key === AGENT_STATE_STORAGE_KEY && value !== null) {
 			continue;
 		}
 		if (value === null) delete snapshot[key];
@@ -2429,7 +2429,7 @@ export function buildApiRoutes() {
 		...fileRoutes(),
 		...forgeRoutes(),
 		...nativeRoutes(),
-		...terminalRoutes(),
+		...agentRoutes(),
 		...chatEventRoutes(),
 		...chatQueueRoutes(),
 		...clientStorageRoutes(),

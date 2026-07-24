@@ -1,14 +1,11 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { Terminal } from "@xterm/xterm";
+import { Terminal as XtermTerminal } from "@xterm/xterm";
 import { useCallback, useEffect, useRef } from "react";
-import type {
-	AgentKind,
-	TerminalTheme,
-} from "../features/terminal/terminal-utils.ts";
+import type { AgentKind, AgentTheme } from "../features/agent/agent-utils.ts";
 import { wsClient } from "../lib/websocket.ts";
 
-export function useXtermTerminal({
+export function useXtermAgent({
 	enabled,
 	paneId,
 	agentKind,
@@ -23,19 +20,19 @@ export function useXtermTerminal({
 	agentKind: AgentKind;
 	cwd?: string;
 	isClaude?: boolean;
-	theme: Pick<TerminalTheme, "bg" | "fg" | "cursor">;
+	theme: Pick<AgentTheme, "bg" | "fg" | "cursor">;
 	fontSize: number;
 	fontFamily: string;
 }) {
 	const containerRef = useRef<HTMLDivElement>(null);
-	const termRef = useRef<Terminal | null>(null);
+	const termRef = useRef<XtermTerminal | null>(null);
 	const fitRef = useRef<FitAddon | null>(null);
 	const initializedRef = useRef(false);
 
 	useEffect(() => {
 		if (!enabled || !containerRef.current) return;
 		initializedRef.current = false;
-		const term = new Terminal({
+		const term = new XtermTerminal({
 			cursorBlink: true,
 			allowProposedApi: true,
 			scrollback: 1000,
@@ -67,13 +64,13 @@ export function useXtermTerminal({
 				initializedRef.current = true;
 				const dims = fitAddon.proposeDimensions();
 				reconnectCleanup = wsClient.subscribe(paneId, (msg) => {
-					if (msg.type !== "terminal:reconnected") return;
+					if (msg.type !== "agent:reconnected") return;
 					if (msg.ok) {
 						if (typeof msg.buffer === "string" && termRef.current)
 							termRef.current.write(msg.buffer);
 					} else {
 						wsClient.send({
-							type: "terminal:create",
+							type: "agent:create",
 							paneId,
 							agentKind,
 							isClaude,
@@ -86,26 +83,26 @@ export function useXtermTerminal({
 					reconnectCleanup?.();
 					reconnectCleanup = null;
 				});
-				wsClient.send({ type: "terminal:reconnect", paneId });
+				wsClient.send({ type: "agent:reconnect", paneId });
 			}
 			term.focus();
 		});
 
 		const dataDisposable = term.onData((data) => {
-			wsClient.send({ type: "terminal:input", paneId, data });
+			wsClient.send({ type: "agent:input", paneId, data });
 		});
 		const resizeDisposable = term.onResize(({ cols, rows }) => {
-			wsClient.send({ type: "terminal:resize", paneId, cols, rows });
+			wsClient.send({ type: "agent:resize", paneId, cols, rows });
 		});
 		const cleanupMessage = wsClient.subscribe(paneId, (msg) => {
-			if (msg.type === "terminal:output" && typeof msg.data === "string") {
+			if (msg.type === "agent:output" && typeof msg.data === "string") {
 				term.write(msg.data);
-			} else if (msg.type === "terminal:exit") {
+			} else if (msg.type === "agent:exit") {
 				term.write(
 					`\r\n\x1b[90m[Process exited with code ${msg.exitCode ?? "unknown"}]\x1b[0m\r\n`
 				);
 			} else if (
-				msg.type === "terminal:reconnected" &&
+				msg.type === "agent:reconnected" &&
 				msg.ok &&
 				typeof msg.buffer === "string"
 			) {
@@ -113,7 +110,7 @@ export function useXtermTerminal({
 			}
 		});
 		const cleanupReconnect = wsClient.onReconnect(() => {
-			wsClient.send({ type: "terminal:reconnect", paneId });
+			wsClient.send({ type: "agent:reconnect", paneId });
 		});
 		let rafId: number | null = null;
 		let lastWidth = 0;

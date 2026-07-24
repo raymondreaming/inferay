@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { filterPrompts } from "../src/features/prompts/prompt-utils.ts";
-import { TERMINAL_STATE_STORAGE_KEY } from "../src/lib/client-storage-keys.ts";
+import { AGENT_STATE_STORAGE_KEY } from "../src/lib/client-storage-keys.ts";
 import { normalizeEntries } from "../src/server/routes/api.ts";
 
 describe("prompt search and client storage sync filters", () => {
@@ -51,23 +51,23 @@ describe("prompt search and client storage sync filters", () => {
 	test("normalizes client-storage sync entries to allowed keys and values", () => {
 		expect(
 			normalizeEntries({
-				[TERMINAL_STATE_STORAGE_KEY]: '{"groups":[]}',
-				"terminal-layout-mode": "grid",
+				[AGENT_STATE_STORAGE_KEY]: '{"groups":[]}',
+				"agent-layout-mode": "grid",
 				"unknown-key": "value",
-				"terminal-main-view": 42,
+				"agent-main-view": 42,
 				"inferay-custom-theme": null,
 			})
 		).toEqual({
-			"terminal-layout-mode": "grid",
+			"agent-layout-mode": "grid",
 			"inferay-custom-theme": null,
 		});
 
 		expect(
 			normalizeEntries({
-				[TERMINAL_STATE_STORAGE_KEY]: null,
+				[AGENT_STATE_STORAGE_KEY]: null,
 			})
 		).toEqual({
-			[TERMINAL_STATE_STORAGE_KEY]: null,
+			[AGENT_STATE_STORAGE_KEY]: null,
 		});
 
 		expect(normalizeEntries(null)).toEqual({});

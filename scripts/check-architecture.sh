@@ -14,21 +14,21 @@ bunx biome check \
 	src/features/chat/chat-session-store.ts \
 	src/features/file-watcher/useFileWatcher.ts \
 	src/features/git/useGitDiff.ts \
-	src/features/terminal/terminal-utils.ts \
+	src/features/agent/agent-utils.ts \
 	src/hooks/useShikiHighlighter.ts \
 	src/pages/EditorPage/editor-page-view.tsx \
 	src/pages/EditorPage/index.tsx \
-	src/pages/Terminal/GitDiffView.tsx \
-	src/pages/Terminal/TerminalGrid.tsx \
-	src/pages/Terminal/TerminalPaneView.tsx \
-	src/pages/Terminal/index.tsx \
+	src/pages/Agent/GitDiffView.tsx \
+	src/pages/Agent/AgentGrid.tsx \
+	src/pages/Agent/AgentPaneView.tsx \
+	src/pages/Agent/index.tsx \
 	src/server/agents/events.ts \
 	src/server/agents/registry.ts \
 	src/server/app-server.ts \
 	src/server/routes/api.ts \
 	src/server/routes/git.ts \
 	src/server/routes/simulator.ts \
-	src/server/routes/terminal.ts \
+	src/server/routes/agent.ts \
 	src/server/services/agent-chat.ts \
 	src/server/services/checkpoint.ts \
 	src/server/services/native-core.ts \
@@ -48,8 +48,8 @@ bunx biome check \
 	tests/git-diff-view-render.test.tsx \
 	tests/prompts-and-config.test.ts \
 	tests/simulator-service.test.ts \
-	tests/terminal-and-git-behavior.test.ts \
-	tests/terminal-pane-visibility.test.tsx
+	tests/agent-and-git-behavior.test.ts \
+	tests/agent-pane-visibility.test.tsx
 
 echo
 echo "==> TypeScript"
@@ -61,9 +61,9 @@ bun test \
 	tests/agent-chat-view-visibility.test.tsx \
 	tests/agent-inline-diff-parity.test.ts \
 	tests/prompts-and-config.test.ts \
-	tests/terminal-and-git-behavior.test.ts \
+	tests/agent-and-git-behavior.test.ts \
 	tests/simulator-service.test.ts \
-	tests/terminal-pane-visibility.test.tsx \
+	tests/agent-pane-visibility.test.tsx \
 	tests/chat-header-behavior.test.tsx \
 	tests/chat-message-list-memo.test.tsx \
 	tests/chat-behavior.test.ts \

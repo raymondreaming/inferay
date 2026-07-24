@@ -18,8 +18,8 @@ This repository had no `tests/` directory before this audit, so no executable in
   - Protects the shared agent stream contract where tool input included on `content_block_start` becomes tool message content. This specifically covers Codex synthetic `Edit` events that stop without later `input_json_delta` chunks.
 - `agent-inline-diff-parity.test.ts`
   - Protects fake Claude-style streamed edit events and Codex-style immediate edit events against the same inline diff contract. Also covers edit grouping and sequential edit application for the chat diff card path.
-- `terminal-and-git-behavior.test.ts`
-  - Protects terminal group migration, pane append/title behavior, status mapping, and Git change ordering/classification.
+- `agent-and-git-behavior.test.ts`
+  - Protects agent group migration, pane append/title behavior, status mapping, and Git change ordering/classification.
 - `prompt-and-storage-filters.test.ts`
   - Protects prompt search/category/source filtering and renderer-to-backend client-storage sync normalization.
 - `simulator-service.test.ts`
@@ -32,7 +32,7 @@ This repository had no `tests/` directory before this audit, so no executable in
 - Marketing: static Astro/site demo content has no worthwhile internals to test beyond data transforms if they become shared behavior.
 - Social posting: no social posting workflow or service boundary was found in this codebase.
 - Discovery/research: automation templates mention research, but no backend research service boundary was found. Avoid UI/template snapshot tests unless workflow execution logic moves server-side.
-- App identity/path resolution: local path boundary coverage now exists. Terminal state migration and pane title derivation are also covered. `PROJECT_ROOT` and `userDataPath` platform branches are candidates for future extraction if path bugs appear.
+- App identity/path resolution: local path boundary coverage now exists. Agent state migration and pane title derivation are also covered. `PROJECT_ROOT` and `userDataPath` platform branches are candidates for future extraction if path bugs appear.
 - Convex/schema/type alignment: no Convex schema or generated Convex types were found.
 - Filesystem/local config sync: config merge semantics and client-storage sync filtering now have pure coverage. File split behavior between base and local config remains untested because current paths are module constants.
 - Backend routes/script runners: Git input helpers are covered. Automation run and prompt write queues remain candidates, but should be tested through extracted pure helpers or temp-file seams.
@@ -51,7 +51,7 @@ High:
 - Chat command/message behavior in `src/features/chat` and `src/components/chat`: covered. Protects prompt expansion, streaming updates, reconnect merge behavior, and history limits.
 - Agent stream tool input parity in `src/features/chat/agent-chat-shared.ts`: covered. Protects Codex inline diff rendering when complete tool input arrives in the start event.
 - Inline edit diff rendering helpers in `src/components/chat/chat-edit-diff-utils.ts` and `src/components/chat/chat-message-render-utils.ts`: covered. Protects fake Claude and Codex edit streams from producing empty edit cards.
-- Terminal and Git data behavior in `src/features/terminal/terminal-utils.ts` and `src/features/git/git-file-utils.ts`: covered. Protects restored panes, status mapping, and change review ordering.
+- Agent and Git data behavior in `src/features/agent/agent-utils.ts` and `src/features/git/git-file-utils.ts`: covered. Protects restored panes, status mapping, and change review ordering.
 - Client-storage sync normalization in `src/server/routes/api.ts`: covered. Protects persisted local UI state from malformed renderer payloads.
 - Simulator device parsing in `src/server/routes/simulator.ts`: covered. Protects the apps panel from dropping devices when `simctl` omits `isAvailable`.
 

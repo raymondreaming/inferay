@@ -46,7 +46,7 @@ export class DiffViewerBoundary extends Component<
 						</div>
 						<div {...stylex.props(styles.description)}>
 							Select another file, then return to this one. The raw git diff is
-							still available from the terminal.
+							still available from the agent.
 						</div>
 					</div>
 				</div>

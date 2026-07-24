@@ -51,7 +51,7 @@ class TestResizeObserver {
 function setupDom() {
 	const dom = new JSDOM('<div id="root"></div>', {
 		pretendToBeVisual: true,
-		url: "http://localhost/#/terminal",
+		url: "http://localhost/#/agent",
 	});
 	const raf = (callback: FrameRequestCallback) =>
 		setTimeout(() => callback(Date.now()), 0) as unknown as number;

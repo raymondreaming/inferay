@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useRef } from "react";
 import type { AgentChatHandle } from "../../components/chat/AgentChatView.tsx";
 import { AgentChatView } from "../../components/chat/AgentChatView.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
-import { IconTerminal, IconX } from "../../components/ui/Icons.tsx";
+import { IconAgent, IconX } from "../../components/ui/Icons.tsx";
 import {
 	getAgentDefinition,
 	isChatAgentKind,
@@ -12,19 +12,19 @@ import {
 } from "../../features/agents/agents.ts";
 import type {
 	AgentKind,
-	TerminalPaneModel,
-	TerminalTheme,
-} from "../../features/terminal/terminal-utils.ts";
-import { useXtermTerminal } from "../../hooks/useXtermTerminal.ts";
+	AgentPaneModel,
+	AgentTheme,
+} from "../../features/agent/agent-utils.ts";
+import { useXtermAgent } from "../../hooks/useXtermAgent.ts";
 import { APP_REGION_NO_DRAG_CLASS } from "../../lib/app-theme.ts";
 import { focusRef } from "../../lib/react-events.ts";
 import { color, font } from "../../tokens.stylex.ts";
 
-interface TerminalPaneViewProps {
-	pane: TerminalPaneModel;
+interface AgentPaneViewProps {
+	pane: AgentPaneModel;
 	isSelected: boolean;
 	isVisible?: boolean;
-	theme: TerminalTheme;
+	theme: AgentTheme;
 	fontSize: number;
 	fontFamily: string;
 	gitBranch?: string | null;
@@ -46,7 +46,7 @@ interface TerminalPaneViewProps {
 	onSetPaneAgentKind?: (paneId: string, agentKind: AgentKind) => void;
 }
 
-export const TerminalPaneView = memo(function TerminalPaneView({
+export const AgentPaneView = memo(function AgentPaneView({
 	pane,
 	isSelected,
 	isVisible = true,
@@ -66,7 +66,7 @@ export const TerminalPaneView = memo(function TerminalPaneView({
 	onHeaderDragEnd,
 	onAddPane,
 	onSetPaneAgentKind,
-}: TerminalPaneViewProps) {
+}: AgentPaneViewProps) {
 	const chatHandleRef = useRef<AgentChatHandle | null>(null);
 	const viewAgentKind: AgentKind =
 		pane.pendingCwd && !isChatAgentKind(pane.agentKind)
@@ -74,7 +74,7 @@ export const TerminalPaneView = memo(function TerminalPaneView({
 			: pane.agentKind;
 	const isAgentChatPane = isChatAgentKind(viewAgentKind);
 	const paneLabel = getAgentDefinition(viewAgentKind).label;
-	const { containerRef, termRef, refit } = useXtermTerminal({
+	const { containerRef, termRef, refit } = useXtermAgent({
 		enabled: isVisible && !isAgentChatPane && !pane.pendingCwd,
 		paneId: pane.id,
 		agentKind: pane.agentKind,
@@ -111,7 +111,7 @@ export const TerminalPaneView = memo(function TerminalPaneView({
 		},
 		[onClose, pane.id]
 	);
-	const focusTerminal = useCallback(() => {
+	const focusAgent = useCallback(() => {
 		focusRef(termRef);
 	}, [termRef]);
 	const handleDirectoryChange = useCallback(
@@ -154,11 +154,11 @@ export const TerminalPaneView = memo(function TerminalPaneView({
 					>
 						<span
 							{...stylex.props(
-								styles.terminalIcon,
+								styles.agentIcon,
 								isSelected && styles.activeAccent
 							)}
 						>
-							<IconTerminal size={10} />
+							<IconAgent size={10} />
 						</span>
 						<span
 							{...stylex.props(
@@ -206,9 +206,9 @@ export const TerminalPaneView = memo(function TerminalPaneView({
 					overflow: "hidden",
 					padding: 0,
 				}}
-				onPointerDown={focusTerminal}
+				onPointerDown={focusAgent}
 				role="application"
-				aria-label={pane.title || "Terminal"}
+				aria-label={pane.title || "Agent"}
 			/>
 			{isAgentChatPane && (
 				<div
@@ -277,7 +277,7 @@ const styles = stylex.create({
 		padding: 0,
 		textAlign: "left",
 	},
-	terminalIcon: {
+	agentIcon: {
 		color: color.textMuted,
 	},
 	activeAccent: {
@@ -326,6 +326,7 @@ const styles = stylex.create({
 		flex: 1,
 		flexDirection: "column",
 		overflow: "hidden",
+		position: "relative",
 	},
 	agentPaneDisabled: {
 		pointerEvents: "none",

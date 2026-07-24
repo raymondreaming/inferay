@@ -11,14 +11,14 @@ import { createRoot } from "react-dom/client";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { QuickFileOverlay } from "./components/file/QuickFileOverlay.tsx";
 import { Sidebar } from "./components/layout/Sidebar.tsx";
-import { TerminalShellHeader } from "./components/layout/TerminalShellHeader.tsx";
+import { AgentShellHeader } from "./components/layout/AgentShellHeader.tsx";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary.tsx";
 import { preloadPrompts } from "./features/prompts/usePrompts.ts";
 import {
 	APP_PAGE_ROUTES,
 	type AppRouteId,
 	DEFAULT_APP_ROUTE,
-	DEFAULT_TERMINAL_MAIN_VIEW,
+	DEFAULT_AGENT_MAIN_VIEW,
 } from "./lib/app-navigation.tsx";
 import {
 	applyAppBackgroundPalette,
@@ -35,7 +35,7 @@ import {
 import {
 	APP_BACKGROUND_STORAGE_KEY,
 	APP_THEME_STORAGE_KEY,
-	TERMINAL_MAIN_VIEW_STORAGE_KEY,
+	AGENT_MAIN_VIEW_STORAGE_KEY,
 } from "./lib/client-storage-keys.ts";
 import {
 	CLIENT_STORAGE_CHANGED_EVENT,
@@ -62,8 +62,8 @@ import {
 	shadowTheme,
 } from "./tokens.stylex.ts";
 
-const TerminalPage = lazy(() =>
-	import("./pages/Terminal").then((m) => ({ default: m.TerminalPage }))
+const AgentPage = lazy(() =>
+	import("./pages/Agent").then((m) => ({ default: m.AgentPage }))
 );
 
 if (window.location.origin !== getServerOrigin()) {
@@ -93,7 +93,7 @@ if (window.location.origin !== getServerOrigin()) {
 
 await hydrateStoredValues();
 // Main view is a launch target, not a durable workspace choice.
-writeStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY, DEFAULT_TERMINAL_MAIN_VIEW);
+writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, DEFAULT_AGENT_MAIN_VIEW);
 
 const onboardingDone = readStoredBoolean(ONBOARDING_DONE_KEY);
 const defaultRoute = onboardingDone ? DEFAULT_APP_ROUTE : "/onboarding";
@@ -127,10 +127,9 @@ const styles = stylex.create({
 		backgroundPosition: "center",
 		backgroundRepeat: "no-repeat",
 		backgroundSize: "cover",
-		inset: 0,
+		inset: -24,
 		pointerEvents: "none",
 		position: "absolute",
-		transform: "scale(1.025)",
 		zIndex: 0,
 	},
 	backgroundShade: {
@@ -152,7 +151,7 @@ const styles = stylex.create({
 		paddingTop: 36,
 		paddingRight: 12,
 		paddingBottom: 12,
-		paddingLeft: 53,
+		paddingLeft: 12,
 		position: "relative",
 		zIndex: 1,
 	},
@@ -202,7 +201,7 @@ const shellThemeProps = stylex.props(
 	styles.shell
 );
 const routeElements = {
-	terminal: <TerminalPage />,
+	agent: <AgentPage />,
 	prompts: <PromptsPage />,
 	sessions: <SessionsPage />,
 	automations: <AutomationsPage />,
@@ -278,7 +277,7 @@ function AppShell() {
 					background: `radial-gradient(ellipse at center, rgba(2, 3, 10, ${Math.min(0.78, background.dim / 100 + 0.08)}) 0%, rgba(2, 3, 10, ${Math.min(0.88, background.dim / 100 + 0.18)}) 100%)`,
 				}}
 			/>
-			<TerminalShellHeader />
+			<AgentShellHeader />
 			<div {...stylex.props(styles.appBody)}>
 				<Sidebar />
 				<div {...stylex.props(styles.mainColumn)}>

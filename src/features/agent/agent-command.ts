@@ -121,7 +121,7 @@ export async function resolveInteractiveAgentCommand(
 		? process.env.COMSPEC || "cmd.exe"
 		: process.env.SHELL || "/bin/zsh";
 
-	if (kind === "terminal") {
+	if (kind === "agent") {
 		return { ok: true, cmd: isWin ? [userShell] : [userShell, "-i"] };
 	}
 

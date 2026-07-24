@@ -8,9 +8,9 @@ import {
 import { summarizeHunkDiff } from "../src/features/git/useGitDiff.ts";
 import {
 	appendPaneToGroup,
-	compactTerminalState,
+	compactAgentState,
 	createDefaultAgentChatGroup,
-	createTerminalViewSwitchHealth,
+	createAgentViewSwitchHealth,
 	type GroupId,
 	getPaneTitle,
 	getPrimaryProductLoopContext,
@@ -18,46 +18,46 @@ import {
 	migrateGroup,
 	type PaneId,
 	PRIMARY_PRODUCT_LOOP,
-	reduceTerminalGroups,
-	reduceTerminalWorkspaceState,
-	type TerminalGroupModel,
-	type TerminalPaneModel,
-	type TerminalSavedState,
-} from "../src/features/terminal/terminal-utils.ts";
-import { isTerminalMainView } from "../src/lib/app-navigation.tsx";
+	reduceAgentGroups,
+	reduceAgentWorkspaceState,
+	type AgentGroupModel,
+	type AgentPaneModel,
+	type AgentSavedState,
+} from "../src/features/agent/agent-utils.ts";
+import { isAgentMainView } from "../src/lib/app-navigation.tsx";
 import { normalizeNumstatPath } from "../src/server/routes/git.ts";
 
 const pane = (
 	id: string,
-	overrides: Partial<TerminalPaneModel> = {}
-): TerminalPaneModel => ({
+	overrides: Partial<AgentPaneModel> = {}
+): AgentPaneModel => ({
 	id: id as PaneId,
 	title: id,
-	agentKind: "terminal",
+	agentKind: "agent",
 	isClaude: false,
-	paneType: "terminal",
+	paneType: "agent",
 	...overrides,
 });
 
-describe("terminal state and git change behavior", () => {
+describe("agent state and git change behavior", () => {
 	/*
-	 * This protects saved terminal state migration across app versions. Older
+	 * This protects saved agent state migration across app versions. Older
 	 * panes may only have paneType/isClaude fields, and selectedPaneId may point
 	 * at a removed pane; migration must infer the agent kind and choose a valid
 	 * selected pane so restored workspaces open cleanly.
 	 */
-	test("migrates terminal groups with valid selection and inferred agent metadata", () => {
+	test("migrates agent groups with valid selection and inferred agent metadata", () => {
 		const migrated = migrateGroup({
 			id: "group-1" as GroupId,
 			name: "Main",
 			selectedPaneId: "missing" as PaneId,
 			panes: [
 				pane("p1", {
-					agentKind: undefined as unknown as TerminalPaneModel["agentKind"],
+					agentKind: undefined as unknown as AgentPaneModel["agentKind"],
 					paneType: "codex",
 				}),
 				pane("p2", {
-					agentKind: undefined as unknown as TerminalPaneModel["agentKind"],
+					agentKind: undefined as unknown as AgentPaneModel["agentKind"],
 					isClaude: true,
 					paneType: undefined,
 				}),
@@ -87,7 +87,7 @@ describe("terminal state and git change behavior", () => {
 
 	test("defines the primary workspace to checkpoint or diff product loop", () => {
 		const group = createDefaultAgentChatGroup();
-		const selected = reduceTerminalWorkspaceState(
+		const selected = reduceAgentWorkspaceState(
 			{
 				groups: [group],
 				selectedGroupId: group.id,
@@ -120,9 +120,9 @@ describe("terminal state and git change behavior", () => {
 		});
 	});
 
-	test("records terminal view switch product health with workspace context", () => {
+	test("records agent view switch product health with workspace context", () => {
 		const group = createDefaultAgentChatGroup();
-		const selected = reduceTerminalWorkspaceState(
+		const selected = reduceAgentWorkspaceState(
 			{
 				groups: [group],
 				selectedGroupId: group.id,
@@ -140,7 +140,7 @@ describe("terminal state and git change behavior", () => {
 		)!;
 
 		expect(
-			createTerminalViewSwitchHealth({
+			createAgentViewSwitchHealth({
 				context: getPrimaryProductLoopContext(selected),
 				from: "chat",
 				previousTimestamp: 100,
@@ -161,14 +161,14 @@ describe("terminal state and git change behavior", () => {
 	});
 
 	/*
-	 * This protects core terminal tab/group data operations. Adding a pane should
+	 * This protects core agent tab/group data operations. Adding a pane should
 	 * only affect the selected group and should atomically select the newly added
 	 * pane, while title generation should prefer the workspace directory name
 	 * over generic agent labels.
 	 */
 	test("appends panes only to the selected group and derives workspace titles", () => {
 		const nextPane = pane("p2", { cwd: "/Users/test/project-a" });
-		const group: TerminalGroupModel = {
+		const group: AgentGroupModel = {
 			id: "group-1" as GroupId,
 			name: "Main",
 			panes: [pane("p1")],
@@ -201,7 +201,7 @@ describe("terminal state and git change behavior", () => {
 			cwd: "/Users/test/project-a",
 			pendingCwd: false,
 		});
-		const group: TerminalGroupModel = {
+		const group: AgentGroupModel = {
 			id: "group-1" as GroupId,
 			name: "Main",
 			panes: [starter],
@@ -230,7 +230,7 @@ describe("terminal state and git change behavior", () => {
 			title: "Codex",
 			pendingCwd: true,
 		});
-		const group: TerminalGroupModel = {
+		const group: AgentGroupModel = {
 			id: "group-1" as GroupId,
 			name: "Main",
 			panes: [starter],
@@ -248,7 +248,7 @@ describe("terminal state and git change behavior", () => {
 
 	test("creates empty workspaces without a required starter chat", () => {
 		const group = createDefaultAgentChatGroup();
-		const next = reduceTerminalWorkspaceState(
+		const next = reduceAgentWorkspaceState(
 			{
 				groups: [group],
 				selectedGroupId: group.id,
@@ -270,7 +270,7 @@ describe("terminal state and git change behavior", () => {
 
 	test("removes the final pane without recreating a pending chat", () => {
 		const group = createDefaultAgentChatGroup();
-		const cleaned = reduceTerminalGroups([group], {
+		const cleaned = reduceAgentGroups([group], {
 			type: "removePane",
 			groupId: group.id,
 			paneId: group.panes[0]!.id,
@@ -282,7 +282,7 @@ describe("terminal state and git change behavior", () => {
 
 	test("persists directory selection through workspace actions", () => {
 		const group = createDefaultAgentChatGroup();
-		const selected = reduceTerminalWorkspaceState(
+		const selected = reduceAgentWorkspaceState(
 			{
 				groups: [group],
 				selectedGroupId: group.id,
@@ -310,7 +310,7 @@ describe("terminal state and git change behavior", () => {
 
 	test("keeps new workspace panes consistent across selection and reload", () => {
 		const initialGroup = createDefaultAgentChatGroup();
-		const initialState: TerminalSavedState = {
+		const initialState: AgentSavedState = {
 			groups: [initialGroup],
 			selectedGroupId: initialGroup.id,
 			themeId: "default",
@@ -318,7 +318,7 @@ describe("terminal state and git change behavior", () => {
 			fontFamily: "SF Mono",
 			opacity: 1,
 		};
-		const workspaceState = reduceTerminalWorkspaceState(initialState, {
+		const workspaceState = reduceAgentWorkspaceState(initialState, {
 			type: "addWorkspace",
 		})!;
 		const workspace = workspaceState.groups[1]!;
@@ -328,12 +328,12 @@ describe("terminal state and git change behavior", () => {
 			title: "Codex",
 			pendingCwd: true,
 		});
-		const withFirstPane = reduceTerminalWorkspaceState(workspaceState, {
+		const withFirstPane = reduceAgentWorkspaceState(workspaceState, {
 			type: "addPane",
 			groupId: workspace.id,
 			pane: firstPane,
 		})!;
-		const withDirectory = reduceTerminalWorkspaceState(withFirstPane, {
+		const withDirectory = reduceAgentWorkspaceState(withFirstPane, {
 			type: "directorySelected",
 			groupId: workspace.id,
 			paneId: firstPane.id,
@@ -345,7 +345,7 @@ describe("terminal state and git change behavior", () => {
 			title: "Codex",
 			pendingCwd: true,
 		});
-		const withSecondPane = reduceTerminalWorkspaceState(withDirectory, {
+		const withSecondPane = reduceAgentWorkspaceState(withDirectory, {
 			type: "addPane",
 			groupId: workspace.id,
 			pane: secondPane,
@@ -384,7 +384,7 @@ describe("terminal state and git change behavior", () => {
 			title: "Codex",
 			pendingCwd: true,
 		});
-		const restored = compactTerminalState({
+		const restored = compactAgentState({
 			groups: [
 				{
 					id: "default" as GroupId,
@@ -418,7 +418,7 @@ describe("terminal state and git change behavior", () => {
 
 	test("keeps the starter draft workspace when no durable workspace exists", () => {
 		const group = createDefaultAgentChatGroup();
-		const cleaned = compactTerminalState({
+		const cleaned = compactAgentState({
 			groups: [group],
 			selectedGroupId: group.id,
 			themeId: "default",
@@ -447,7 +447,7 @@ describe("terminal state and git change behavior", () => {
 			...second,
 			panes: [...second.panes, extraPane],
 		};
-		const cleaned = compactTerminalState({
+		const cleaned = compactAgentState({
 			groups: [first, dirtySecond],
 			selectedGroupId: second.id,
 			themeId: "default",
@@ -473,7 +473,7 @@ describe("terminal state and git change behavior", () => {
 			title: "Codex",
 			pendingCwd: true,
 		});
-		const cleaned = compactTerminalState(
+		const cleaned = compactAgentState(
 			{
 				groups: [
 					{
@@ -525,7 +525,7 @@ describe("terminal state and git change behavior", () => {
 			title: "Codex",
 			pendingCwd: true,
 		});
-		const selected = reduceTerminalWorkspaceState(
+		const selected = reduceAgentWorkspaceState(
 			{
 				groups: [
 					{
@@ -572,7 +572,7 @@ describe("terminal state and git change behavior", () => {
 			title: "Codex",
 			pendingCwd: true,
 		});
-		const cleaned = compactTerminalState(
+		const cleaned = compactAgentState(
 			{
 				groups: [
 					{
@@ -626,7 +626,7 @@ describe("terminal state and git change behavior", () => {
 			title: "Codex",
 			pendingCwd: true,
 		});
-		const cleaned = compactTerminalState({
+		const cleaned = compactAgentState({
 			groups: [
 				{
 					id: "default" as GroupId,
@@ -662,11 +662,11 @@ describe("terminal state and git change behavior", () => {
 	});
 
 	/*
-	 * This protects status mapping used by terminal and agent surfaces. Tool
+	 * This protects status mapping used by agent and agent surfaces. Tool
 	 * statuses carry the tool name through the UI, active statuses remain marked
 	 * active, and unknown statuses degrade into an inactive readable label.
 	 */
-	test("maps terminal status strings into stable status info", () => {
+	test("maps agent status strings into stable status info", () => {
 		expect(getStatusInfo("tool:apply_patch")).toEqual(
 			expect.objectContaining({
 				label: "Running apply_patch",
@@ -683,10 +683,10 @@ describe("terminal state and git change behavior", () => {
 		);
 	});
 
-	test("accepts editor as a selectable terminal main view", () => {
-		expect(isTerminalMainView("editor")).toBe(true);
-		expect(isTerminalMainView("chat")).toBe(true);
-		expect(isTerminalMainView("missing")).toBe(false);
+	test("accepts editor as a selectable agent main view", () => {
+		expect(isAgentMainView("editor")).toBe(true);
+		expect(isAgentMainView("chat")).toBe(true);
+		expect(isAgentMainView("missing")).toBe(false);
 	});
 
 	/*

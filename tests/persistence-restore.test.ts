@@ -7,9 +7,9 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { JSDOM } from "jsdom";
 import {
-	createTerminalPane,
-	normalizeTerminalState,
-} from "../src/features/terminal/terminal-utils.ts";
+	createAgentPane,
+	normalizeAgentState,
+} from "../src/features/agent/agent-utils.ts";
 
 const SERVER_START_TIMEOUT_MS = 10_000;
 const WS_TIMEOUT_MS = 5_000;
@@ -32,14 +32,14 @@ afterEach(async () => {
 describe("app persistence restore flow", () => {
 	test("normalizes stale selected workspace to the best recoverable group", () => {
 		const realPane = {
-			...createTerminalPane("codex", "/Users/ray/Developer/inferay"),
+			...createAgentPane("codex", "/Users/ray/Developer/inferay"),
 			id: "real-pane" as never,
 		};
 		const stalePane = {
-			...createTerminalPane("codex", undefined, true),
+			...createAgentPane("codex", undefined, true),
 			id: "blank-pane" as never,
 		};
-		const normalized = normalizeTerminalState({
+		const normalized = normalizeAgentState({
 			groups: [
 				{
 					id: "blank-workspace",
@@ -96,12 +96,12 @@ describe("app persistence restore flow", () => {
 		};
 
 		const state = createWorkspaceState();
-		const terminalResponse = await fetch(`${origin}/api/terminal/state`, {
+		const agentResponse = await fetch(`${origin}/api/agent/state`, {
 			method: "POST",
 			headers,
 			body: JSON.stringify(state),
 		});
-		expect(terminalResponse.ok).toBe(true);
+		expect(agentResponse.ok).toBe(true);
 
 		await sendGoalStatusMessages(origin, cookie, state);
 
@@ -127,7 +127,7 @@ describe("app persistence restore flow", () => {
 			headers,
 			body: JSON.stringify({
 				entries: {
-					"inferay-terminal-state": JSON.stringify(staleState),
+					"inferay-agent-state": JSON.stringify(staleState),
 					[`inferay-chat-${state.groups[0]!.panes[0]!.id}`]: "[]",
 				},
 			}),
@@ -141,9 +141,9 @@ describe("app persistence restore flow", () => {
 		const snapshot = (await snapshotResponse.json()) as {
 			entries: Record<string, string>;
 		};
-		expect(snapshot.entries["inferay-terminal-state"]).toBeUndefined();
+		expect(snapshot.entries["inferay-agent-state"]).toBeUndefined();
 
-		const canonicalStateResponse = await fetch(`${origin}/api/terminal/state`, {
+		const canonicalStateResponse = await fetch(`${origin}/api/agent/state`, {
 			headers: { Cookie: cookie, "Sec-Fetch-Site": "same-origin" },
 		});
 		expect(canonicalStateResponse.ok).toBe(true);
@@ -337,7 +337,7 @@ async function hydrateRendererStorageSnapshot(
 ): Promise<any> {
 	const originalFetch = globalThis.fetch;
 	const dom = new JSDOM("<!doctype html><html><body></body></html>", {
-		url: `${origin}/#/terminal`,
+		url: `${origin}/#/agent`,
 	});
 	const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 	const previousDocument = Object.getOwnPropertyDescriptor(
@@ -383,7 +383,7 @@ async function hydrateRendererStorageSnapshot(
 			value: dom.window.Event,
 		});
 		dom.window.localStorage.setItem(
-			"inferay-terminal-state",
+			"inferay-agent-state",
 			JSON.stringify({
 				groups: [
 					{
@@ -428,12 +428,12 @@ async function hydrateRendererStorageSnapshot(
 
 		const { hydrateStoredValues } =
 			await import("../src/lib/client-storage-sync.ts");
-		const { loadTerminalState } =
-			await import("../src/features/terminal/terminal-utils.ts");
+		const { loadAgentState } =
+			await import("../src/features/agent/agent-utils.ts");
 
-		expect(loadTerminalState()?.groups[0]?.panes).toHaveLength(1);
+		expect(loadAgentState()?.groups[0]?.panes).toHaveLength(1);
 		await hydrateStoredValues();
-		return loadTerminalState();
+		return loadAgentState();
 	} finally {
 		globalThis.fetch = originalFetch;
 		if (previousWindow)
@@ -473,10 +473,10 @@ async function renderCompiledAppSnapshot(
 		const mainUrl = ${JSON.stringify(pathToFileURL(mainPath).href)};
 		const originalFetch = globalThis.fetch;
 		const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
-			url: origin + "/#/terminal",
+			url: origin + "/#/agent",
 			pretendToBeVisual: true,
 		});
-		dom.window.localStorage.setItem("inferay-terminal-state", JSON.stringify({
+		dom.window.localStorage.setItem("inferay-agent-state", JSON.stringify({
 			groups: [{
 				id: "workspace-beta",
 				name: "Persistence Beta",
@@ -498,7 +498,7 @@ async function renderCompiledAppSnapshot(
 			fontFamily: "SF Mono",
 			opacity: 1,
 		}));
-		dom.window.localStorage.setItem("terminal-main-view", "editor");
+		dom.window.localStorage.setItem("agent-main-view", "editor");
 		Object.assign(globalThis, {
 			window: dom.window,
 			document: dom.window.document,
@@ -551,7 +551,7 @@ async function renderCompiledAppSnapshot(
 		await import(mainUrl + "?persistence=" + Date.now() + "-" + Math.random());
 		await new Promise((resolve) => setTimeout(resolve, 6000));
 		console.log(JSON.stringify({
-			mainView: dom.window.localStorage.getItem("terminal-main-view"),
+			mainView: dom.window.localStorage.getItem("agent-main-view"),
 			text: dom.window.document.body.textContent ?? "",
 		}));
 		process.exit(0);
@@ -631,7 +631,7 @@ async function readAuthCookie(origin: string): Promise<string> {
 
 function createWorkspaceState() {
 	const pane = (id: string, cwd: string) => ({
-		...createTerminalPane("codex", cwd, false),
+		...createAgentPane("codex", cwd, false),
 		id,
 		referencePaths: [],
 	});

@@ -8,7 +8,7 @@ test("app server serves the compiled renderer and protects local APIs", async ()
 
 	const origin = "http://127.0.0.1:4001";
 
-	const shellResponse = await request(`${origin}/#/terminal`);
+	const shellResponse = await request(`${origin}/#/agent`);
 	expect(shellResponse.ok).toBe(true);
 	expect(shellResponse.headers.get("content-type")).toContain("text/html");
 	const cookie = shellResponse.headers.get("set-cookie")?.split(";")[0];

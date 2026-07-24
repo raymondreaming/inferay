@@ -15,56 +15,56 @@ import { clearAgentChatPaneState } from "../../features/chat/chat-session-store.
 import { useGitStatus } from "../../features/git/useGitStatus.ts";
 import { wsClient } from "../../lib/websocket.ts";
 import { EditorPage } from "../EditorPage/index.tsx";
-import { TerminalGrid } from "./TerminalGrid.tsx";
-import { TerminalSettingsPanel } from "./TerminalSettingsPanel.tsx";
+import { AgentGrid } from "./AgentGrid.tsx";
+import { AgentSettingsPanel } from "./AgentSettingsPanel.tsx";
 
 import "@xterm/xterm/css/xterm.css";
 
 import {
 	type AgentKind,
-	cacheTerminalState,
-	createTerminalPane,
-	createTerminalViewSwitchHealth,
+	cacheAgentState,
+	createAgentPane,
+	createAgentViewSwitchHealth,
 	DEFAULT_FONT_FAMILY,
 	DEFAULT_FONT_SIZE,
 	DEFAULT_OPACITY,
 	DEFAULT_ROWS,
-	dispatchTerminalShellChange,
+	dispatchAgentShellChange,
 	type GroupId,
 	getInitialGroups,
 	getPrimaryProductLoopContext,
 	getThemeById,
-	loadCanonicalTerminalState,
-	loadTerminalLayoutMode,
-	loadTerminalState,
+	loadCanonicalAgentState,
+	loadAgentLayoutMode,
+	loadAgentState,
 	migrateGroup,
-	mutateTerminalWorkspaceState,
-	normalizeTerminalState,
-	reduceTerminalGroups,
-	saveSyncedTerminalState,
-	syncTerminalLayoutMode,
-	type TerminalGroupsAction,
-	type TerminalLayoutMode,
-	type TerminalSavedState,
-	type TerminalShellChangeDetail,
+	mutateAgentWorkspaceState,
+	normalizeAgentState,
+	reduceAgentGroups,
+	saveSyncedAgentState,
+	syncAgentLayoutMode,
+	type AgentGroupsAction,
+	type AgentLayoutMode,
+	type AgentSavedState,
+	type AgentShellChangeDetail,
 	type ThemeId,
-	terminalStateKey,
-	terminalStateScore,
-} from "../../features/terminal/terminal-utils.ts";
+	agentStateKey,
+	agentStateScore,
+} from "../../features/agent/agent-utils.ts";
 import {
-	DEFAULT_TERMINAL_MAIN_VIEW,
-	isTerminalMainView,
-	type TerminalMainView,
+	DEFAULT_AGENT_MAIN_VIEW,
+	isAgentMainView,
+	type AgentMainView,
 } from "../../lib/app-navigation.tsx";
 import {
 	loadAppThemeId,
-	mapAppThemeToTerminalTheme,
+	mapAppThemeToAgentTheme,
 } from "../../lib/app-theme.ts";
-import { TERMINAL_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
+import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { hasId, isNonEmptyString } from "../../lib/data.ts";
 import {
 	listenWindowEvent,
-	setupTerminalThemePanelShortcut,
+	setupAgentThemePanelShortcut,
 } from "../../lib/react-events.ts";
 import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
 import { color, controlSize } from "../../tokens.stylex.ts";
@@ -80,31 +80,29 @@ type MutableRef<T> = {
 	current: T;
 };
 
-type TerminalAppearance = {
+type AgentAppearance = {
 	readonly themeId: ThemeId;
 	readonly fontSize: number;
 	readonly fontFamily: string;
 	readonly opacity: number;
 };
 
-type TerminalPersistenceArgs = TerminalAppearance & {
-	readonly groups: TerminalSavedState["groups"];
-	readonly latestStateRef: MutableRef<TerminalSavedState>;
-	readonly mainView: TerminalMainView;
+type AgentPersistenceArgs = AgentAppearance & {
+	readonly groups: AgentSavedState["groups"];
+	readonly latestStateRef: MutableRef<AgentSavedState>;
+	readonly mainView: AgentMainView;
 	readonly mainViewHealthRef: MutableRef<{
 		timestamp: number | null;
-		view: TerminalMainView;
+		view: AgentMainView;
 	}>;
-	readonly mainViewRef: MutableRef<TerminalMainView>;
-	readonly restoreSavedState: (state: TerminalSavedState | null) => void;
+	readonly mainViewRef: MutableRef<AgentMainView>;
+	readonly restoreSavedState: (state: AgentSavedState | null) => void;
 	readonly selectedGroupId: GroupId | null;
 	readonly setAppearance: (
-		value:
-			| TerminalAppearance
-			| ((previous: TerminalAppearance) => TerminalAppearance)
+		value: AgentAppearance | ((previous: AgentAppearance) => AgentAppearance)
 	) => void;
-	readonly setLayoutMode: (value: TerminalLayoutMode) => void;
-	readonly setMainView: (value: TerminalMainView) => void;
+	readonly setLayoutMode: (value: AgentLayoutMode) => void;
+	readonly setMainView: (value: AgentMainView) => void;
 	readonly setSelectedGroupId: (value: GroupId | null) => void;
 };
 
@@ -132,7 +130,7 @@ function getSelectedPaneCwd(
 	);
 }
 
-function useTerminalPersistence({
+function useAgentPersistence({
 	fontFamily,
 	fontSize,
 	groups,
@@ -148,11 +146,11 @@ function useTerminalPersistence({
 	setMainView,
 	setSelectedGroupId,
 	themeId,
-}: TerminalPersistenceArgs): void {
+}: AgentPersistenceArgs): void {
 	const pendingSaveRef = useRef(false);
 	const startupRestoreCompleteRef = useRef(false);
 	const canonicalShellKeyRef = useRef<string | null>(null);
-	const latestStateKey = terminalStateKey({
+	const latestStateKey = agentStateKey({
 		groups,
 		selectedGroupId,
 		themeId,
@@ -172,13 +170,13 @@ function useTerminalPersistence({
 		const canonicalShellKey = canonicalShellKeyRef.current;
 		if (
 			canonicalShellKey &&
-			terminalStateKey(nextState) !== canonicalShellKey &&
-			terminalStateScore(nextState) < terminalStateScore(latestStateRef.current)
+			agentStateKey(nextState) !== canonicalShellKey &&
+			agentStateScore(nextState) < agentStateScore(latestStateRef.current)
 		) {
 			return;
 		}
 		latestStateRef.current = nextState;
-		cacheTerminalState(latestStateRef.current);
+		cacheAgentState(latestStateRef.current);
 	}, [
 		fontFamily,
 		fontSize,
@@ -196,17 +194,17 @@ function useTerminalPersistence({
 				pendingSaveRef.current = false;
 				return;
 			}
-			const saved = loadTerminalState();
+			const saved = loadAgentState();
 			if (
 				saved &&
-				terminalStateScore(latestStateRef.current) < terminalStateScore(saved)
+				agentStateScore(latestStateRef.current) < agentStateScore(saved)
 			) {
 				pendingSaveRef.current = false;
 				return;
 			}
-			saveSyncedTerminalState(
+			saveSyncedAgentState(
 				latestStateRef.current,
-				"terminal-page-save",
+				"agent-page-save",
 				"canonical"
 			);
 			pendingSaveRef.current = false;
@@ -214,7 +212,7 @@ function useTerminalPersistence({
 		return () => clearTimeout(id);
 	}, [latestStateKey, latestStateRef]);
 	useEffect(() => {
-		writeStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY, mainView);
+		writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, mainView);
 		const previous = mainViewHealthRef.current;
 		const timestamp = Date.now();
 		if (previous.timestamp === null) {
@@ -222,10 +220,10 @@ function useTerminalPersistence({
 			return;
 		}
 		if (previous.view === mainView) return;
-		dispatchTerminalShellChange({
+		dispatchAgentShellChange({
 			source: "view",
 			reason: "main-view-switch",
-			productHealth: createTerminalViewSwitchHealth({
+			productHealth: createAgentViewSwitchHealth({
 				context: getPrimaryProductLoopContext(latestStateRef.current),
 				from: previous.view,
 				previousTimestamp: previous.timestamp,
@@ -238,16 +236,16 @@ function useTerminalPersistence({
 	useEffect(
 		() => () => {
 			if (!startupRestoreCompleteRef.current) return;
-			const saved = loadTerminalState();
+			const saved = loadAgentState();
 			if (
 				saved &&
-				terminalStateScore(latestStateRef.current) < terminalStateScore(saved)
+				agentStateScore(latestStateRef.current) < agentStateScore(saved)
 			) {
 				return;
 			}
-			saveSyncedTerminalState(
+			saveSyncedAgentState(
 				latestStateRef.current,
-				"terminal-page-unmount",
+				"agent-page-unmount",
 				"canonical"
 			);
 		},
@@ -256,23 +254,23 @@ function useTerminalPersistence({
 	useEffect(() => {
 		let cancelled = false;
 		const restoreCanonicalState = async () => {
-			const canonicalState = await loadCanonicalTerminalState();
+			const canonicalState = await loadCanonicalAgentState();
 			if (cancelled) return;
 			if (!canonicalState) {
 				startupRestoreCompleteRef.current = true;
 				return;
 			}
 			const currentState = latestStateRef.current;
-			const canonicalKey = terminalStateKey(canonicalState);
-			const currentKey = terminalStateKey(currentState);
+			const canonicalKey = agentStateKey(canonicalState);
+			const currentKey = agentStateKey(currentState);
 			if (
 				canonicalKey !== currentKey &&
-				terminalStateScore(canonicalState) >= terminalStateScore(currentState)
+				agentStateScore(canonicalState) >= agentStateScore(currentState)
 			) {
 				canonicalShellKeyRef.current = canonicalKey;
 				latestStateRef.current = canonicalState;
 				restoreSavedState(canonicalState);
-				saveSyncedTerminalState(
+				saveSyncedAgentState(
 					canonicalState,
 					"startup-canonical-restore",
 					"canonical"
@@ -290,12 +288,12 @@ function useTerminalPersistence({
 	const handleShellChange = useCallback(
 		(event: Event) => {
 			const currentState = latestStateRef.current;
-			const detail = (event as CustomEvent<TerminalShellChangeDetail>).detail;
+			const detail = (event as CustomEvent<AgentShellChangeDetail>).detail;
 			const requestedMainView = detail?.mainView ?? null;
 			if (
 				detail?.source === "view" &&
 				detail.reason === "main-view" &&
-				isTerminalMainView(requestedMainView)
+				isAgentMainView(requestedMainView)
 			) {
 				if (requestedMainView !== mainViewRef.current) {
 					setMainView(requestedMainView);
@@ -303,8 +301,8 @@ function useTerminalPersistence({
 				return;
 			}
 			const saved =
-				normalizeTerminalState(detail?.state) ??
-				(detail?.source === "canonical" ? loadTerminalState() : null);
+				normalizeAgentState(detail?.state) ??
+				(detail?.source === "canonical" ? loadAgentState() : null);
 			if (saved?.themeId && saved.themeId !== currentState.themeId) {
 				setAppearance((prev) => ({ ...prev, themeId: saved.themeId }));
 			}
@@ -320,8 +318,8 @@ function useTerminalPersistence({
 				};
 			}
 			if (savedState) {
-				const savedShellKey = terminalStateKey(savedState);
-				const currentShellKey = terminalStateKey(latestStateRef.current);
+				const savedShellKey = agentStateKey(savedState);
+				const currentShellKey = agentStateKey(latestStateRef.current);
 				if (savedShellKey !== currentShellKey) {
 					latestStateRef.current = savedState;
 					restoreSavedState(savedState);
@@ -331,14 +329,14 @@ function useTerminalPersistence({
 			if (pendingSaveRef.current) {
 				return;
 			}
-			const storedView = readStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY);
-			const nextMainView = isTerminalMainView(storedView)
+			const storedView = readStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY);
+			const nextMainView = isAgentMainView(storedView)
 				? storedView
-				: DEFAULT_TERMINAL_MAIN_VIEW;
+				: DEFAULT_AGENT_MAIN_VIEW;
 			if (nextMainView !== mainViewRef.current) {
 				setMainView(nextMainView);
 			}
-			syncTerminalLayoutMode(setLayoutMode);
+			syncAgentLayoutMode(setLayoutMode);
 		},
 		[
 			latestStateRef,
@@ -351,7 +349,7 @@ function useTerminalPersistence({
 		]
 	);
 	useEffect(() => {
-		return listenWindowEvent("terminal-shell-change", handleShellChange);
+		return listenWindowEvent("agent-shell-change", handleShellChange);
 	}, [handleShellChange]);
 }
 
@@ -466,27 +464,27 @@ const styles = stylex.create({
 	},
 });
 
-type TerminalViewState = {
-	layoutMode: TerminalLayoutMode;
-	mainView: TerminalMainView;
+type AgentViewState = {
+	layoutMode: AgentLayoutMode;
+	mainView: AgentMainView;
 };
 
-type TerminalViewAction =
-	| { type: "layoutModeChanged"; value: TerminalLayoutMode }
-	| { type: "mainViewChanged"; value: TerminalMainView };
+type AgentViewAction =
+	| { type: "layoutModeChanged"; value: AgentLayoutMode }
+	| { type: "mainViewChanged"; value: AgentMainView };
 
-function getInitialTerminalViewState(): TerminalViewState {
-	const stored = readStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY);
+function getInitialAgentViewState(): AgentViewState {
+	const stored = readStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY);
 	return {
-		layoutMode: loadTerminalLayoutMode(),
-		mainView: isTerminalMainView(stored) ? stored : DEFAULT_TERMINAL_MAIN_VIEW,
+		layoutMode: loadAgentLayoutMode(),
+		mainView: isAgentMainView(stored) ? stored : DEFAULT_AGENT_MAIN_VIEW,
 	};
 }
 
-function terminalViewReducer(
-	state: TerminalViewState,
-	action: TerminalViewAction
-): TerminalViewState {
+function agentViewReducer(
+	state: AgentViewState,
+	action: AgentViewAction
+): AgentViewState {
 	switch (action.type) {
 		case "layoutModeChanged":
 			return { ...state, layoutMode: action.value };
@@ -495,11 +493,11 @@ function terminalViewReducer(
 	}
 }
 
-type TerminalMainSurfaceProps = {
+type AgentMainSurfaceProps = {
 	readonly graphView: ReactNode;
-	readonly groups: TerminalSavedState["groups"];
+	readonly groups: AgentSavedState["groups"];
 	readonly hasCurrentPanes: boolean;
-	readonly mainView: TerminalMainView;
+	readonly mainView: AgentMainView;
 	readonly onDirectoryChange: (
 		paneId: string,
 		path: string | null,
@@ -507,42 +505,42 @@ type TerminalMainSurfaceProps = {
 	) => void;
 	readonly onSelectPane: (paneId: string) => void;
 	readonly selectedGroupId: GroupId | null;
-	readonly setAppearance: TerminalPersistenceArgs["setAppearance"];
+	readonly setAppearance: AgentPersistenceArgs["setAppearance"];
 	readonly setShowSettings: (value: boolean) => void;
 	readonly showSettings: boolean;
-	readonly terminalGrid: ReactNode;
+	readonly agentGrid: ReactNode;
 	readonly themeId: ThemeId;
 };
 
-type TerminalPaneActionsArgs = {
+type AgentPaneActionsArgs = {
 	readonly chatRefs: MutableRef<Map<string, AgentChatHandle> | null>;
 	readonly cleanupPane: (paneId: string) => void;
-	readonly currentGroup: TerminalSavedState["groups"][number] | undefined;
-	readonly dispatchTerminalGroupAction: (
-		action: TerminalGroupsAction,
+	readonly currentGroup: AgentSavedState["groups"][number] | undefined;
+	readonly dispatchAgentGroupAction: (
+		action: AgentGroupsAction,
 		reason?: string
 	) => void;
-	readonly groups: TerminalSavedState["groups"];
+	readonly groups: AgentSavedState["groups"];
 	readonly selectedGroupId: GroupId | null;
 	readonly setGraphSelection: (selection: GraphSelection) => void;
 	readonly withSelectedGroup: (fn: (groupId: string) => void) => void;
 };
 
-function useTerminalPaneActions({
+function useAgentPaneActions({
 	chatRefs,
 	cleanupPane,
 	currentGroup,
-	dispatchTerminalGroupAction,
+	dispatchAgentGroupAction,
 	groups,
 	selectedGroupId,
 	setGraphSelection,
 	withSelectedGroup,
-}: TerminalPaneActionsArgs) {
+}: AgentPaneActionsArgs) {
 	const handleAddPane = useCallback(
 		(agentKind: AgentKind) =>
 			withSelectedGroup((groupId) => {
-				const pane = createTerminalPane(agentKind, undefined, true);
-				dispatchTerminalGroupAction(
+				const pane = createAgentPane(agentKind, undefined, true);
+				dispatchAgentGroupAction(
 					{
 						type: "addPane",
 						groupId,
@@ -551,7 +549,7 @@ function useTerminalPaneActions({
 					"add-pane"
 				);
 			}),
-		[dispatchTerminalGroupAction, withSelectedGroup]
+		[dispatchAgentGroupAction, withSelectedGroup]
 	);
 	const removePane = useCallback(
 		(paneId: string, force?: boolean) => {
@@ -562,7 +560,7 @@ function useTerminalPaneActions({
 					: null);
 			if (!group) return;
 			cleanupPane(paneId);
-			dispatchTerminalGroupAction(
+			dispatchAgentGroupAction(
 				{
 					type: "removePane",
 					groupId: group.id,
@@ -572,24 +570,24 @@ function useTerminalPaneActions({
 				"remove-pane"
 			);
 		},
-		[cleanupPane, dispatchTerminalGroupAction, groups, selectedGroupId]
+		[cleanupPane, dispatchAgentGroupAction, groups, selectedGroupId]
 	);
 	const reorderPanes = useCallback(
 		(fromIndex: number, toIndex: number) =>
 			withSelectedGroup((groupId) =>
-				dispatchTerminalGroupAction({
+				dispatchAgentGroupAction({
 					type: "reorderPanes",
 					groupId,
 					fromIndex,
 					toIndex,
 				})
 			),
-		[dispatchTerminalGroupAction, withSelectedGroup]
+		[dispatchAgentGroupAction, withSelectedGroup]
 	);
 	const handleSetPaneAgentKind = useCallback(
 		(paneId: string, agentKind: AgentKind) =>
 			withSelectedGroup((groupId) =>
-				dispatchTerminalGroupAction(
+				dispatchAgentGroupAction(
 					{
 						type: "setPaneAgentKind",
 						groupId,
@@ -599,7 +597,7 @@ function useTerminalPaneActions({
 					"set-pane-agent-kind"
 				)
 			),
-		[dispatchTerminalGroupAction, withSelectedGroup]
+		[dispatchAgentGroupAction, withSelectedGroup]
 	);
 	const handleDirectorySelected = useCallback(
 		(paneId: string, path: string | null, referencePaths?: string[]) => {
@@ -607,7 +605,7 @@ function useTerminalPaneActions({
 				setGraphSelection({ cwd: path, source: "pane" });
 			}
 			withSelectedGroup((groupId) =>
-				dispatchTerminalGroupAction(
+				dispatchAgentGroupAction(
 					{
 						type: "directorySelected",
 						groupId,
@@ -619,7 +617,7 @@ function useTerminalPaneActions({
 				)
 			);
 		},
-		[dispatchTerminalGroupAction, setGraphSelection, withSelectedGroup]
+		[dispatchAgentGroupAction, setGraphSelection, withSelectedGroup]
 	);
 	const selectPane = useCallback(
 		(paneId: string) => {
@@ -629,7 +627,7 @@ function useTerminalPaneActions({
 				setGraphSelection({ cwd: pane.cwd, source: "pane" });
 			}
 			withSelectedGroup((groupId) =>
-				dispatchTerminalGroupAction(
+				dispatchAgentGroupAction(
 					{ type: "selectPane", groupId, paneId },
 					"select-pane"
 				)
@@ -637,7 +635,7 @@ function useTerminalPaneActions({
 		},
 		[
 			currentGroup,
-			dispatchTerminalGroupAction,
+			dispatchAgentGroupAction,
 			setGraphSelection,
 			withSelectedGroup,
 		]
@@ -665,7 +663,7 @@ function useTerminalPaneActions({
 	};
 }
 
-function TerminalMainSurface({
+function AgentMainSurface({
 	graphView,
 	groups,
 	hasCurrentPanes,
@@ -676,9 +674,9 @@ function TerminalMainSurface({
 	setAppearance,
 	setShowSettings,
 	showSettings,
-	terminalGrid,
+	agentGrid,
 	themeId,
-}: TerminalMainSurfaceProps) {
+}: AgentMainSurfaceProps) {
 	return (
 		<div {...stylex.props(styles.appRoot, styles.fullHeight)}>
 			<div {...stylex.props(styles.appFrame)}>
@@ -698,7 +696,7 @@ function TerminalMainSurface({
 										)}
 										aria-hidden={mainView !== "chat"}
 									>
-										{terminalGrid}
+										{agentGrid}
 									</div>
 									<div
 										{...stylex.props(
@@ -731,7 +729,7 @@ function TerminalMainSurface({
 								</>
 							)}
 							{showSettings && (
-								<TerminalSettingsPanel
+								<AgentSettingsPanel
 									themeId={themeId}
 									onThemeChange={(v: ThemeId) =>
 										setAppearance((prev) => ({ ...prev, themeId: v }))
@@ -747,39 +745,38 @@ function TerminalMainSurface({
 	);
 }
 
-export function TerminalPage() {
+export function AgentPage() {
 	useEffect(() => {
 		return wsClient.connect();
 	}, []);
 	const [viewState, viewDispatch] = useReducer(
-		terminalViewReducer,
+		agentViewReducer,
 		undefined,
-		getInitialTerminalViewState
+		getInitialAgentViewState
 	);
 	const { layoutMode, mainView } = viewState;
 	const setLayoutMode = useCallback(
-		(value: TerminalLayoutMode) =>
+		(value: AgentLayoutMode) =>
 			viewDispatch({ type: "layoutModeChanged", value }),
 		[]
 	);
 	const setMainView = useCallback(
-		(value: TerminalMainView) =>
-			viewDispatch({ type: "mainViewChanged", value }),
+		(value: AgentMainView) => viewDispatch({ type: "mainViewChanged", value }),
 		[]
 	);
 	useEffect(() => {
-		writeStoredValue("terminal-layout-mode", layoutMode);
+		writeStoredValue("agent-layout-mode", layoutMode);
 	}, [layoutMode]);
-	const initialState = useMemo(() => loadTerminalState(), []);
+	const initialState = useMemo(() => loadAgentState(), []);
 	const initGroups = useMemo(() => getInitialGroups(), []);
-	const [groups, groupsDispatch] = useReducer(reduceTerminalGroups, initGroups);
+	const [groups, groupsDispatch] = useReducer(reduceAgentGroups, initGroups);
 	const [selectedGroupId, setSelectedGroupId] = useState<GroupId | null>(
 		() => initialState?.selectedGroupId ?? initGroups[0]?.id ?? null
 	);
 	const [showSettings, setShowSettings] = useState(false);
 	const [appearance, setAppearance] = useState(() => ({
 		themeId: (initialState?.themeId ??
-			mapAppThemeToTerminalTheme(loadAppThemeId())) as ThemeId,
+			mapAppThemeToAgentTheme(loadAppThemeId())) as ThemeId,
 		fontSize: initialState?.fontSize ?? DEFAULT_FONT_SIZE,
 		fontFamily: initialState?.fontFamily ?? DEFAULT_FONT_FAMILY,
 		opacity: initialState?.opacity ?? DEFAULT_OPACITY,
@@ -820,8 +817,8 @@ export function TerminalPage() {
 		? (projectMap.get(activeGraphCwd) ?? null)
 		: null;
 	const restoreSavedState = useCallback(
-		(s: ReturnType<typeof loadTerminalState>) => {
-			const normalized = normalizeTerminalState(s);
+		(s: ReturnType<typeof loadAgentState>) => {
+			const normalized = normalizeAgentState(s);
 			if (!normalized) return;
 			groupsDispatch({
 				type: "replaceAll",
@@ -838,7 +835,7 @@ export function TerminalPage() {
 		[]
 	);
 	const cleanupPane = useCallback((paneId: string) => {
-		wsClient.send({ type: "terminal:destroy", paneId });
+		wsClient.send({ type: "agent:destroy", paneId });
 		chatRefs.current?.delete(paneId);
 		clearAgentChatPaneState(paneId);
 	}, []);
@@ -848,19 +845,19 @@ export function TerminalPage() {
 		},
 		[selectedGroupId]
 	);
-	const dispatchTerminalGroupAction = useCallback(
-		(action: TerminalGroupsAction, reason?: string) => {
+	const dispatchAgentGroupAction = useCallback(
+		(action: AgentGroupsAction, reason?: string) => {
 			groupsDispatch(action);
 			if (!reason) return;
 			switch (action.type) {
 				case "directorySelected":
 				case "selectPane":
 				case "setPaneAgentKind":
-					void mutateTerminalWorkspaceState(action, reason);
+					void mutateAgentWorkspaceState(action, reason);
 					return;
 				case "addPane":
 					if ("pane" in action) {
-						void mutateTerminalWorkspaceState(
+						void mutateAgentWorkspaceState(
 							{
 								type: "addPane",
 								groupId: action.groupId,
@@ -871,7 +868,7 @@ export function TerminalPage() {
 					}
 					return;
 				case "removePane":
-					void mutateTerminalWorkspaceState(
+					void mutateAgentWorkspaceState(
 						{
 							type: "removePane",
 							groupId: action.groupId,
@@ -896,12 +893,12 @@ export function TerminalPage() {
 	mainViewRef.current = mainView;
 	const mainViewHealthRef = useRef<{
 		timestamp: number | null;
-		view: TerminalMainView;
+		view: AgentMainView;
 	}>({
 		timestamp: null,
 		view: mainView,
 	});
-	useTerminalPersistence({
+	useAgentPersistence({
 		fontFamily,
 		fontSize,
 		groups,
@@ -919,7 +916,7 @@ export function TerminalPage() {
 		themeId,
 	});
 	useEffect(() => {
-		return setupTerminalThemePanelShortcut(setShowSettings);
+		return setupAgentThemePanelShortcut(setShowSettings);
 	}, []);
 	const {
 		handleAddPane,
@@ -930,18 +927,18 @@ export function TerminalPage() {
 		removePane,
 		reorderPanes,
 		selectPane,
-	} = useTerminalPaneActions({
+	} = useAgentPaneActions({
 		chatRefs,
 		cleanupPane,
 		currentGroup,
-		dispatchTerminalGroupAction,
+		dispatchAgentGroupAction,
 		groups,
 		selectedGroupId,
 		setGraphSelection,
 		withSelectedGroup,
 	});
-	const terminalGrid = currentGroup ? (
-		<TerminalGrid
+	const agentGrid = currentGroup ? (
+		<AgentGrid
 			active={mainView === "chat"}
 			panes={currentGroup.panes}
 			selectedPaneId={currentGroup.selectedPaneId}
@@ -974,7 +971,7 @@ export function TerminalPage() {
 			/>
 		);
 	return (
-		<TerminalMainSurface
+		<AgentMainSurface
 			graphView={graphView}
 			groups={groups}
 			hasCurrentPanes={hasCurrentPanes}
@@ -985,7 +982,7 @@ export function TerminalPage() {
 			setAppearance={setAppearance}
 			setShowSettings={setShowSettings}
 			showSettings={showSettings}
-			terminalGrid={terminalGrid}
+			agentGrid={agentGrid}
 			themeId={themeId}
 		/>
 	);

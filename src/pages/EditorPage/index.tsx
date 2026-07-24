@@ -43,19 +43,19 @@ import {
 } from "../../features/git/useGitGraph.ts";
 import { useGitStatus } from "../../features/git/useGitStatus.ts";
 import {
-	dispatchTerminalShellChange,
-	type TerminalGroupModel,
+	dispatchAgentShellChange,
+	type AgentGroupModel,
 	type ThemeId,
-} from "../../features/terminal/terminal-utils.ts";
+} from "../../features/agent/agent-utils.ts";
 import { incrementNumber, isNonEmptyString } from "../../lib/data.ts";
 import {
 	listenWindowEvent,
-	setupTerminalThemePanelShortcut,
+	setupAgentThemePanelShortcut,
 } from "../../lib/react-events.ts";
 import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
-import { type DiffViewMode, GitDiffView } from "../Terminal/GitDiffView.tsx";
-import { TerminalSettingsPanel } from "../Terminal/TerminalSettingsPanel.tsx";
+import { type DiffViewMode, GitDiffView } from "../Agent/GitDiffView.tsx";
+import { AgentSettingsPanel } from "../Agent/AgentSettingsPanel.tsx";
 import {
 	DiffViewerTopBar,
 	EditorAgentChat,
@@ -95,7 +95,7 @@ type EditorUiState = {
 	showSettings: boolean;
 };
 
-const EDITOR_CHAT_WIDTH_STORAGE_KEY = "terminal-editor-chat-width";
+const EDITOR_CHAT_WIDTH_STORAGE_KEY = "agent-editor-chat-width";
 const MIN_EDITOR_CHAT_WIDTH = 280;
 const MAX_EDITOR_CHAT_WIDTH = 720;
 const DEFAULT_EDITOR_CHAT_WIDTH = 400;
@@ -158,7 +158,7 @@ function editorUiReducer(
 let cachedKey = "";
 let cachedSessions: Session[] = [];
 
-function flattenSessions(groups: TerminalGroupModel[]): Session[] {
+function flattenSessions(groups: AgentGroupModel[]): Session[] {
 	return groups.flatMap((g) =>
 		g.panes.flatMap((p) => {
 			if (!isChatAgentKind(p.agentKind)) return [];
@@ -207,9 +207,9 @@ function stableSessions(next: Session[]): Session[] {
 }
 
 function getVisibleEditorGroups(
-	groups: TerminalGroupModel[],
+	groups: AgentGroupModel[],
 	selectedGroupId: string | null
-): TerminalGroupModel[] {
+): AgentGroupModel[] {
 	const activeGroup = groups.find((group) => group.id === selectedGroupId);
 	return activeGroup ? [activeGroup] : groups;
 }
@@ -226,12 +226,12 @@ function getTrackedSessionDirs(sessions: Session[]): string[] {
 }
 
 function loadZenMode() {
-	return readStoredValue("terminal-editor-zen") === "true";
+	return readStoredValue("agent-editor-zen") === "true";
 }
 
 interface EditorPageProps {
 	active?: boolean;
-	groups: TerminalGroupModel[];
+	groups: AgentGroupModel[];
 	selectedGroupId: string | null;
 	themeId: ThemeId;
 	onSelectPane: (paneId: string) => void;
@@ -611,8 +611,8 @@ function useEditorPageModel({
 	const updateZenMode = useCallback(
 		(next: boolean) => {
 			setZenMode(next);
-			writeStoredValue("terminal-editor-zen", next ? "true" : "false");
-			dispatchTerminalShellChange({ source: "view", reason: "editor-zen" });
+			writeStoredValue("agent-editor-zen", next ? "true" : "false");
+			dispatchAgentShellChange({ source: "view", reason: "editor-zen" });
 		},
 		[setZenMode]
 	);
@@ -625,7 +625,7 @@ function useEditorPageModel({
 		void refetchGit();
 	}, [refetchGit]);
 	useEffect(() => {
-		return setupTerminalThemePanelShortcut(setShowSettings);
+		return setupAgentThemePanelShortcut(setShowSettings);
 	}, [setShowSettings]);
 
 	const closePane = useCallback(
@@ -1037,7 +1037,7 @@ function EditorPageSurface({
 				</div>
 			)}
 			{showSettings && (
-				<TerminalSettingsPanel
+				<AgentSettingsPanel
 					themeId={themeId}
 					onThemeChange={() => undefined}
 					onClose={setShowSettings.bind(null, false)}
@@ -1099,8 +1099,7 @@ const styles = stylex.create({
 		borderLeftWidth: 1,
 		borderLeftStyle: "solid",
 		borderLeftColor: color.border,
-		backgroundColor:
-			"color-mix(in srgb, var(--color-inferay-black) 62%, transparent)",
+		backgroundColor: color.transparent,
 	},
 	sidebarResize: {
 		position: "absolute",
@@ -1122,7 +1121,7 @@ const styles = stylex.create({
 	sidebarRestore: {
 		alignItems: "center",
 		backgroundColor: {
-			default: color.background,
+			default: color.surfaceGlass,
 			":hover": color.controlActive,
 		},
 		borderLeftColor: color.border,

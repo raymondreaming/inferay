@@ -16,7 +16,7 @@ import {
 	IconPencil,
 	IconSearch,
 	IconStop,
-	IconTerminal,
+	IconAgent,
 	IconWrench,
 } from "../ui/Icons.tsx";
 import { getStatusToolName, normalizeToolName } from "./chat-agent-utils.ts";
@@ -39,7 +39,7 @@ function ToolStatusIcon({ toolName }: { toolName: string }) {
 			return <IconFilePlus size={12} {...stylex.props(styles.toolIcon)} />;
 		case "bash":
 		case "exec":
-			return <IconTerminal size={12} {...stylex.props(styles.toolIcon)} />;
+			return <IconAgent size={12} {...stylex.props(styles.toolIcon)} />;
 		case "grep":
 		case "glob":
 			return <IconSearch size={12} {...stylex.props(styles.toolIcon)} />;

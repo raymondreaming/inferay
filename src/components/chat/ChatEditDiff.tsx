@@ -48,10 +48,13 @@ function EditDiffCard({
 	const [isExpanded, setIsExpanded] = useState(true);
 	const [isScrollActive, setIsScrollActive] = useState(false);
 
-	const removedBg = "rgba(248,81,73,0.08)";
-	const removedBorder = "rgba(248,81,73,0.32)";
-	const addedBg = "rgba(46,160,67,0.08)";
-	const addedBorder = "rgba(46,160,67,0.32)";
+	const removedBg =
+		"color-mix(in srgb, var(--color-git-deleted) 12%, transparent)";
+	const removedBorder =
+		"color-mix(in srgb, var(--color-git-deleted) 42%, transparent)";
+	const addedBg = "color-mix(in srgb, var(--color-git-added) 12%, transparent)";
+	const addedBorder =
+		"color-mix(in srgb, var(--color-git-added) 42%, transparent)";
 	const lineLengths: number[] = [];
 	for (const hunk of hunks) {
 		for (const line of hunk.lines) {
@@ -283,7 +286,7 @@ function HunkSeparator({
 
 const styles = stylex.create({
 	card: {
-		backgroundColor: color.backgroundRaised,
+		backgroundColor: color.transparent,
 		borderColor: color.border,
 		borderRadius: 8,
 		borderStyle: "solid",
@@ -293,7 +296,7 @@ const styles = stylex.create({
 	},
 	header: {
 		alignItems: "center",
-		backgroundColor: color.backgroundRaised,
+		backgroundColor: color.transparent,
 		color: {
 			default: color.textSoft,
 			":hover": color.textMain,
@@ -442,12 +445,14 @@ const styles = stylex.create({
 		whiteSpace: "pre",
 	},
 	inlineRemoved: {
-		backgroundColor: "rgba(248,81,73,0.24)",
+		backgroundColor:
+			"color-mix(in srgb, var(--color-git-deleted) 24%, transparent)",
 		borderRadius: 2,
 		color: color.textMain,
 	},
 	inlineAdded: {
-		backgroundColor: "rgba(46,160,67,0.24)",
+		backgroundColor:
+			"color-mix(in srgb, var(--color-git-added) 24%, transparent)",
 		borderRadius: 2,
 		color: color.textMain,
 	},

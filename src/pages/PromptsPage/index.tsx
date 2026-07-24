@@ -385,7 +385,7 @@ const styles = stylex.create({
 		display: "flex",
 		height: "100%",
 		flexDirection: "column",
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 	},
 	toolbar: {
 		display: "flex",
@@ -396,7 +396,7 @@ const styles = stylex.create({
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 		paddingInline: controlSize._3,
 	},
 	searchWrap: {
@@ -569,7 +569,7 @@ const styles = stylex.create({
 		borderLeftWidth: 1,
 		borderLeftStyle: "solid",
 		borderLeftColor: color.border,
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 	},
 	filterRoot: {
 		position: "relative",

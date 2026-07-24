@@ -16,29 +16,29 @@ import {
 } from "../../features/agents/agents.ts";
 import { deriveStoredSummary } from "../../features/chat/chat-session-store.ts";
 import {
-	compactTerminalState,
-	createTerminalPane,
-	dispatchTerminalShellChange,
-	listenTerminalLayoutMode,
-	loadCanonicalTerminalState,
-	loadTerminalLayoutMode,
-	loadTerminalState,
-	mutateCanonicalTerminalState,
-	mutateTerminalWorkspaceState,
-	type TerminalPaneModel,
-	type TerminalShellChangeDetail,
-	terminalStateKey,
-} from "../../features/terminal/terminal-utils.ts";
+	compactAgentState,
+	createAgentPane,
+	dispatchAgentShellChange,
+	listenAgentLayoutMode,
+	loadCanonicalAgentState,
+	loadAgentLayoutMode,
+	loadAgentState,
+	mutateCanonicalAgentState,
+	mutateAgentWorkspaceState,
+	type AgentPaneModel,
+	type AgentShellChangeDetail,
+	agentStateKey,
+} from "../../features/agent/agent-utils.ts";
 import { type AppInfo, useAppInfo } from "../../hooks/useAppInfo.ts";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
 } from "../../lib/app-theme.ts";
 import {
-	DEFAULT_TERMINAL_MAIN_VIEW,
-	isTerminalMainView,
+	DEFAULT_AGENT_MAIN_VIEW,
+	isAgentMainView,
 } from "../../lib/app-navigation.tsx";
-import { TERMINAL_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
+import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { noop } from "../../lib/data.ts";
 import { sendJson } from "../../lib/fetch-json.ts";
 import {
@@ -65,14 +65,14 @@ import {
 	IconPencil,
 	IconPlus,
 	IconRefreshCw,
-	IconTerminal,
+	IconAgent,
 	IconX,
 } from "../ui/Icons.tsx";
 
 interface SidebarWorkspaceGroup {
 	id: string;
 	name: string;
-	panes: TerminalPaneModel[];
+	panes: AgentPaneModel[];
 	selectedPaneId?: string | null;
 	columns: number;
 	rows: number;
@@ -143,7 +143,7 @@ function sidebarUiReducer(
 
 function deriveSummary(paneId: string): string | null {
 	return deriveStoredSummary(paneId, undefined, () =>
-		dispatchTerminalShellChange({
+		dispatchAgentShellChange({
 			source: "cache",
 			reason: "session-title",
 		})
@@ -155,7 +155,7 @@ function PaneSummaryItem({
 	isActive,
 	onClick,
 }: {
-	pane: TerminalPaneModel;
+	pane: AgentPaneModel;
 	isActive: boolean;
 	onClick: () => void;
 }) {
@@ -181,7 +181,7 @@ function PaneSummaryItem({
 						stylex.props(styles.iconDim).className
 					)
 				) : (
-					<IconTerminal
+					<IconAgent
 						size={12}
 						className={stylex.props(styles.iconDim).className}
 					/>
@@ -212,7 +212,7 @@ function WorkspaceItem({
 	group: {
 		id: string;
 		name: string;
-		panes: TerminalPaneModel[];
+		panes: AgentPaneModel[];
 		selectedPaneId: string | null;
 	};
 	isActive: boolean;
@@ -290,7 +290,7 @@ function WorkspaceItem({
 					{...stylex.props(styles.collapsedWorkspaceButton)}
 					title={group.name}
 				>
-					<IconTerminal
+					<IconAgent
 						size={14}
 						className={stylex.props(styles.noShrink).className}
 					/>
@@ -703,52 +703,50 @@ export function Sidebar() {
 		loadSidebarUiState
 	);
 	const { collapsed, sidebarWidth, resizing, updateStatus } = uiState;
-	const [layoutMode, setLayoutMode] = useState(loadTerminalLayoutMode);
+	const [layoutMode, setLayoutMode] = useState(loadAgentLayoutMode);
 	const { data: appInfo } = useAppInfo();
 	const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
 	const resizeWidthRef = useRef(sidebarWidth);
 	const [mainView, setMainView] = useState(() => {
-		const stored = readStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY);
-		return isTerminalMainView(stored) ? stored : DEFAULT_TERMINAL_MAIN_VIEW;
+		const stored = readStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY);
+		return isAgentMainView(stored) ? stored : DEFAULT_AGENT_MAIN_VIEW;
 	});
 	const showWorkspaceSidebar =
-		location.pathname === "/terminal" &&
+		location.pathname === "/agent" &&
 		(mainView === "chat" || mainView === "editor");
 
 	useEffect(
 		() =>
-			listenWindowEvent("terminal-shell-change", (event) => {
-				const detail = (event as CustomEvent<TerminalShellChangeDetail>).detail;
+			listenWindowEvent("agent-shell-change", (event) => {
+				const detail = (event as CustomEvent<AgentShellChangeDetail>).detail;
 				if (detail?.source !== "view" || detail.reason !== "main-view") return;
-				const stored = readStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY);
-				setMainView(
-					isTerminalMainView(stored) ? stored : DEFAULT_TERMINAL_MAIN_VIEW
-				);
+				const stored = readStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY);
+				setMainView(isAgentMainView(stored) ? stored : DEFAULT_AGENT_MAIN_VIEW);
 			}),
 		[]
 	);
 
 	// Workspace state
 	const loadWorkspaces = useCallback(() => {
-		const state = loadTerminalState();
+		const state = loadAgentState();
 		const cleanState = state
-			? compactTerminalState(state, { keepSelectedDraft: true })
+			? compactAgentState(state, { keepSelectedDraft: true })
 			: null;
 		return {
 			groups: cleanState?.groups ?? [],
 			selectedGroupId:
 				cleanState?.selectedGroupId ?? cleanState?.groups[0]?.id ?? null,
-			key: cleanState ? terminalStateKey(cleanState) : "",
+			key: cleanState ? agentStateKey(cleanState) : "",
 		};
 	}, []);
 
 	const [workspaces, setWorkspaces] = useState(loadWorkspaces);
 
-	useEffect(() => listenTerminalLayoutMode(setLayoutMode), []);
+	useEffect(() => listenAgentLayoutMode(setLayoutMode), []);
 
 	useEffect(() => {
 		let cancelled = false;
-		loadCanonicalTerminalState()
+		loadCanonicalAgentState()
 			.then(() => {
 				if (!cancelled) {
 					const next = loadWorkspaces();
@@ -765,7 +763,7 @@ export function Sidebar() {
 
 	useEffect(() => {
 		const refresh = (event: Event) => {
-			const detail = (event as CustomEvent<TerminalShellChangeDetail>).detail;
+			const detail = (event as CustomEvent<AgentShellChangeDetail>).detail;
 			if (detail?.reason === "session-title") {
 				setWorkspaces((current) => ({ ...current }));
 				return;
@@ -774,7 +772,7 @@ export function Sidebar() {
 			const next = loadWorkspaces();
 			setWorkspaces((current) => (current.key === next.key ? current : next));
 		};
-		return listenWindowEvent("terminal-shell-change", refresh);
+		return listenWindowEvent("agent-shell-change", refresh);
 	}, [loadWorkspaces]);
 
 	const selectWorkspace = useCallback(
@@ -784,7 +782,7 @@ export function Sidebar() {
 					? prev
 					: { ...prev, selectedGroupId: groupId as never }
 			);
-			const next = await mutateTerminalWorkspaceState(
+			const next = await mutateAgentWorkspaceState(
 				{ type: "selectWorkspace", groupId },
 				"select-workspace"
 			);
@@ -792,11 +790,11 @@ export function Sidebar() {
 				setWorkspaces({
 					groups: next.groups,
 					selectedGroupId: next.selectedGroupId,
-					key: terminalStateKey(next),
+					key: agentStateKey(next),
 				});
 			}
-			if (window.location.hash !== "#/terminal") {
-				navigate("/terminal");
+			if (window.location.hash !== "#/agent") {
+				navigate("/agent");
 			}
 		},
 		[navigate]
@@ -816,7 +814,7 @@ export function Sidebar() {
 					? { ...prev, groups, selectedGroupId: groupId as never }
 					: prev;
 			});
-			const next = await mutateTerminalWorkspaceState(
+			const next = await mutateAgentWorkspaceState(
 				{ type: "selectPane", groupId, paneId },
 				"select-pane"
 			);
@@ -824,18 +822,18 @@ export function Sidebar() {
 				setWorkspaces({
 					groups: next.groups,
 					selectedGroupId: next.selectedGroupId,
-					key: terminalStateKey(next),
+					key: agentStateKey(next),
 				});
 			}
-			if (window.location.hash !== "#/terminal") {
-				navigate("/terminal");
+			if (window.location.hash !== "#/agent") {
+				navigate("/agent");
 			}
 		},
 		[navigate]
 	);
 
 	const addWorkspace = useCallback(async () => {
-		const next = await mutateTerminalWorkspaceState(
+		const next = await mutateAgentWorkspaceState(
 			{ type: "addWorkspace" },
 			"add-workspace",
 			{ createIfMissing: true }
@@ -844,30 +842,30 @@ export function Sidebar() {
 			setWorkspaces({
 				groups: next.groups,
 				selectedGroupId: next.selectedGroupId,
-				key: terminalStateKey(next),
+				key: agentStateKey(next),
 			});
 		}
-		navigate("/terminal");
+		navigate("/agent");
 	}, [navigate]);
 
 	const addChat = useCallback(async () => {
-		const pane = createTerminalPane(
+		const pane = createAgentPane(
 			loadDefaultChatSettings().agentKind,
 			undefined,
 			true
 		);
-		await mutateTerminalWorkspaceState({ type: "addPane", pane }, "add-pane", {
+		await mutateAgentWorkspaceState({ type: "addPane", pane }, "add-pane", {
 			createIfMissing: true,
 		});
-		navigate("/terminal");
+		navigate("/agent");
 	}, [navigate]);
 
 	const updateLayoutMode = useCallback(
 		(mode: "grid" | "rows") => {
 			if (mode === layoutMode) return;
-			writeStoredValue("terminal-layout-mode", mode);
+			writeStoredValue("agent-layout-mode", mode);
 			setLayoutMode(mode);
-			dispatchTerminalShellChange({ source: "view", reason: "layout-mode" });
+			dispatchAgentShellChange({ source: "view", reason: "layout-mode" });
 		},
 		[layoutMode]
 	);
@@ -886,25 +884,25 @@ export function Sidebar() {
 				});
 				return changed ? { ...current, groups } : current;
 			});
-			await mutateCanonicalTerminalState((terminalState) => {
-				if (!terminalState.selectedGroupId) return null;
+			await mutateCanonicalAgentState((agentState) => {
+				if (!agentState.selectedGroupId) return null;
 				let changed = false;
-				const groups = terminalState.groups.map((group) => {
-					if (group.id !== terminalState.selectedGroupId) return group;
+				const groups = agentState.groups.map((group) => {
+					if (group.id !== agentState.selectedGroupId) return group;
 					const columns = patch.columns ?? group.columns;
 					const rows = patch.rows ?? group.rows;
 					if (columns === group.columns && rows === group.rows) return group;
 					changed = true;
 					return { ...group, columns, rows };
 				});
-				return changed ? { ...terminalState, groups } : null;
+				return changed ? { ...agentState, groups } : null;
 			}, "grid-size");
 		},
 		[]
 	);
 
 	const removeWorkspace = useCallback(async (groupId: string) => {
-		const next = await mutateTerminalWorkspaceState(
+		const next = await mutateAgentWorkspaceState(
 			{ type: "removeWorkspace", groupId },
 			"remove-workspace"
 		);
@@ -912,13 +910,13 @@ export function Sidebar() {
 			setWorkspaces({
 				groups: next.groups,
 				selectedGroupId: next.selectedGroupId,
-				key: terminalStateKey(next),
+				key: agentStateKey(next),
 			});
 		}
 	}, []);
 
 	const renameWorkspace = useCallback(async (groupId: string, name: string) => {
-		const next = await mutateTerminalWorkspaceState(
+		const next = await mutateAgentWorkspaceState(
 			{ type: "renameWorkspace", groupId, name },
 			"rename-workspace"
 		);
@@ -926,7 +924,7 @@ export function Sidebar() {
 			setWorkspaces({
 				groups: next.groups,
 				selectedGroupId: next.selectedGroupId,
-				key: terminalStateKey(next),
+				key: agentStateKey(next),
 			});
 		}
 	}, []);
@@ -1004,7 +1002,7 @@ export function Sidebar() {
 				style={
 					!showWorkspaceSidebar || collapsed
 						? undefined
-						: { width: sidebarWidth }
+						: { width: sidebarWidth + 41 }
 				}
 			>
 				{showWorkspaceSidebar && !collapsed && (
@@ -1293,14 +1291,12 @@ const styles = stylex.create({
 	shell: {
 		backdropFilter: "blur(var(--inferay-glass-blur, 4px)) saturate(104%)",
 		backgroundColor:
-			"color-mix(in srgb, var(--color-inferay-black) 62%, transparent)",
+			"color-mix(in srgb, var(--color-inferay-black) 46%, transparent)",
 		borderColor: "rgba(255,255,255,0.13)",
 		borderRadius: 17,
-		borderTopLeftRadius: 0,
-		borderBottomLeftRadius: 0,
-		borderLeftColor: "transparent",
 		borderStyle: "solid",
 		borderWidth: 1,
+		boxSizing: "border-box",
 		boxShadow:
 			"inset 0 1px 0 rgba(255,255,255,0.055), 0 24px 64px rgba(0,0,0,0.5)",
 		display: "flex",
@@ -1320,10 +1316,10 @@ const styles = stylex.create({
 		backgroundColor: "transparent",
 		borderColor: "transparent",
 		boxShadow: "none",
-		width: 0,
+		width: 41,
 	},
 	shellOpen: {
-		width: 192,
+		width: 233,
 	},
 	shellResizing: {
 		transitionDuration: "0ms",
@@ -1350,6 +1346,7 @@ const styles = stylex.create({
 	nav: {
 		flex: 1,
 		overflowY: "auto",
+		paddingLeft: 41,
 		paddingBlock: 0,
 	},
 	workspaceSection: {

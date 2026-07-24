@@ -3,7 +3,7 @@ import {
 	CHAT_SESSION_INDEX_STORAGE_KEY,
 	isChatMessageStorageKey,
 	shouldSyncClientStorageKey,
-	TERMINAL_STATE_STORAGE_KEY,
+	AGENT_STATE_STORAGE_KEY,
 } from "./client-storage-keys.ts";
 import { noop } from "./data.ts";
 
@@ -13,7 +13,7 @@ interface ClientStoragePayload {
 	entries?: Record<string, StoredValue>;
 }
 
-interface TerminalStateEntryResult {
+interface AgentStateEntryResult {
 	ok: boolean;
 	value: StoredValue;
 }
@@ -69,9 +69,9 @@ async function fetchStoredEntries(
 	return payload.entries ?? {};
 }
 
-async function fetchTerminalStateEntry(): Promise<TerminalStateEntryResult> {
+async function fetchAgentStateEntry(): Promise<AgentStateEntryResult> {
 	try {
-		const response = await fetch("/api/terminal/state");
+		const response = await fetch("/api/agent/state");
 		if (!response.ok) return { ok: false, value: null };
 		const state = await response.json();
 		return { ok: true, value: state ? JSON.stringify(state) : null };
@@ -88,15 +88,15 @@ function isChatCacheKey(key: string): boolean {
 	);
 }
 
-function collectTerminalResetEntries(
+function collectAgentResetEntries(
 	entries: Record<string, StoredValue>
 ): Record<string, null> {
 	const resetEntries: Record<string, null> = {
-		[TERMINAL_STATE_STORAGE_KEY]: null,
+		[AGENT_STATE_STORAGE_KEY]: null,
 		[CHAT_SESSION_INDEX_STORAGE_KEY]: null,
 	};
 	for (const key of Object.keys(entries)) {
-		if (key === TERMINAL_STATE_STORAGE_KEY || isChatCacheKey(key)) {
+		if (key === AGENT_STATE_STORAGE_KEY || isChatCacheKey(key)) {
 			resetEntries[key] = null;
 		}
 	}
@@ -104,7 +104,7 @@ function collectTerminalResetEntries(
 		const localKeys: string[] = [];
 		for (let i = 0; i < localStorage.length; i++) {
 			const key = localStorage.key(i);
-			if (key === TERMINAL_STATE_STORAGE_KEY || (key && isChatCacheKey(key)))
+			if (key === AGENT_STATE_STORAGE_KEY || (key && isChatCacheKey(key)))
 				localKeys.push(key);
 		}
 		for (const key of localKeys) resetEntries[key] = null;
@@ -168,13 +168,13 @@ export async function hydrateStoredValues(): Promise<void> {
 	} catch {}
 	clearTimeout(timeout);
 
-	const terminalState = await fetchTerminalStateEntry();
+	const agentState = await fetchAgentStateEntry();
 	hydrating = true;
 	try {
-		if (terminalState.ok && terminalState.value) {
-			localStorage.setItem(TERMINAL_STATE_STORAGE_KEY, terminalState.value);
-		} else if (terminalState.ok) {
-			resetEntries = collectTerminalResetEntries(entries);
+		if (agentState.ok && agentState.value) {
+			localStorage.setItem(AGENT_STATE_STORAGE_KEY, agentState.value);
+		} else if (agentState.ok) {
+			resetEntries = collectAgentResetEntries(entries);
 			Object.assign(entries, resetEntries);
 		}
 	} catch {
@@ -185,7 +185,7 @@ export async function hydrateStoredValues(): Promise<void> {
 	hydrating = true;
 	try {
 		for (const [key, value] of Object.entries(entries)) {
-			if (key === TERMINAL_STATE_STORAGE_KEY && value === null) {
+			if (key === AGENT_STATE_STORAGE_KEY && value === null) {
 				try {
 					localStorage.removeItem(key);
 				} catch {}

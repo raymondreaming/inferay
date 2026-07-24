@@ -2,24 +2,24 @@ import * as stylex from "@stylexjs/stylex";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
-	dispatchTerminalShellChange,
-	loadTerminalState,
-	terminalStateKey,
-} from "../../features/terminal/terminal-utils.ts";
+	dispatchAgentShellChange,
+	loadAgentState,
+	agentStateKey,
+} from "../../features/agent/agent-utils.ts";
 import {
 	APP_PAGE_ROUTES,
-	DEFAULT_TERMINAL_MAIN_VIEW,
-	isTerminalMainView,
+	DEFAULT_AGENT_MAIN_VIEW,
+	isAgentMainView,
 	SIDEBAR_NAV_ROUTES,
-	TERMINAL_MAIN_VIEWS,
-	type TerminalMainView,
+	AGENT_MAIN_VIEWS,
+	type AgentMainView,
 } from "../../lib/app-navigation.tsx";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
 } from "../../lib/app-theme.ts";
 import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
-import { TERMINAL_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
+import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import {
@@ -66,17 +66,15 @@ const AUTOMATIONS_ROUTE = APP_PAGE_ROUTES.find(
 	(route) => route.id === "automations"
 );
 function loadShellState() {
-	const terminalState = loadTerminalState();
-	const mainView = readStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY);
+	const agentState = loadAgentState();
+	const mainView = readStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY);
 
 	return {
-		groups: terminalState?.groups ?? [],
+		groups: agentState?.groups ?? [],
 		selectedGroupId:
-			terminalState?.selectedGroupId ?? terminalState?.groups[0]?.id ?? null,
-		mainView: isTerminalMainView(mainView)
-			? mainView
-			: DEFAULT_TERMINAL_MAIN_VIEW,
-		key: terminalState ? terminalStateKey(terminalState) : "",
+			agentState?.selectedGroupId ?? agentState?.groups[0]?.id ?? null,
+		mainView: isAgentMainView(mainView) ? mainView : DEFAULT_AGENT_MAIN_VIEW,
+		key: agentState ? agentStateKey(agentState) : "",
 	};
 }
 
@@ -136,7 +134,7 @@ function ViewTab({
 	);
 }
 
-export function TerminalShellHeader() {
+export function AgentShellHeader() {
 	const location = useLocation();
 	const navigate = useNavigate();
 	const [shellState, setShellState] = useState(loadShellState);
@@ -148,14 +146,14 @@ export function TerminalShellHeader() {
 	);
 	const { data: githubAccount, refresh: refreshGithubAccount } =
 		useAsyncResource(loadGithubAccount, null, { isEqual: sameForgeAccount });
-	const isTerminalRoute = location.pathname === "/terminal";
-	const resolvedNavigationTarget = isTerminalRoute
+	const isAgentRoute = location.pathname === "/agent";
+	const resolvedNavigationTarget = isAgentRoute
 		? `view:${shellState.mainView}`
 		: `route:${location.pathname}`;
 	const activeNavigationTarget =
 		pendingNavigationTarget ?? resolvedNavigationTarget;
 	const workspaceNavigationActive =
-		isTerminalRoute &&
+		isAgentRoute &&
 		(shellState.mainView === "chat" || shellState.mainView === "editor") &&
 		!sidebarCollapsed;
 
@@ -169,7 +167,7 @@ export function TerminalShellHeader() {
 	}, []);
 
 	useEffect(() => {
-		return listenWindowEvent("terminal-shell-change", refreshShellState);
+		return listenWindowEvent("agent-shell-change", refreshShellState);
 	}, [refreshShellState]);
 
 	useEffect(
@@ -185,19 +183,19 @@ export function TerminalShellHeader() {
 	);
 
 	const updateMainView = useCallback(
-		(view: TerminalMainView) => {
+		(view: AgentMainView) => {
 			if (shellState.mainView !== view) {
-				writeStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY, view);
+				writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, view);
 				setShellState((current) =>
 					current.mainView === view ? current : { ...current, mainView: view }
 				);
-				dispatchTerminalShellChange({
+				dispatchAgentShellChange({
 					source: "view",
 					reason: "main-view",
 					mainView: view,
 				});
 			}
-			if (window.location.hash !== "#/terminal") navigate("/terminal");
+			if (window.location.hash !== "#/agent") navigate("/agent");
 		},
 		[navigate, shellState.mainView]
 	);
@@ -209,7 +207,7 @@ export function TerminalShellHeader() {
 	}, [resolvedNavigationTarget]);
 
 	const activateMainView = useCallback(
-		(view: TerminalMainView) => {
+		(view: AgentMainView) => {
 			const target = `view:${view}`;
 			if (target !== resolvedNavigationTarget) {
 				setPendingNavigationTarget(target);
@@ -235,21 +233,19 @@ export function TerminalShellHeader() {
 			className={`${APP_REGION_DRAG_CLASS} ${stylex.props(styles.header).className ?? ""}`}
 		>
 			<nav aria-label="Primary views" {...stylex.props(styles.topTabs)}>
-				{TERMINAL_MAIN_VIEWS.filter((view) => view.id !== "graph").map(
-					(view) => {
-						const Icon = view.icon;
-						return (
-							<ViewTab
-								key={view.id}
-								active={activeNavigationTarget === `view:${view.id}`}
-								icon={<Icon size={12} />}
-								label={view.label}
-								onClick={() => activateMainView(view.id)}
-								top
-							/>
-						);
-					}
-				)}
+				{AGENT_MAIN_VIEWS.filter((view) => view.id !== "graph").map((view) => {
+					const Icon = view.icon;
+					return (
+						<ViewTab
+							key={view.id}
+							active={activeNavigationTarget === `view:${view.id}`}
+							icon={<Icon size={12} />}
+							label={view.label}
+							onClick={() => activateMainView(view.id)}
+							top
+						/>
+					);
+				})}
 				<span {...stylex.props(styles.accountSpacer)} />
 				<button
 					type="button"
@@ -306,7 +302,7 @@ export function TerminalShellHeader() {
 				</button>
 				<span aria-hidden="true" {...stylex.props(styles.railDivider)} />
 				<div {...stylex.props(styles.tabGroup, styles.secondaryTabGroup)}>
-					{TERMINAL_MAIN_VIEWS.filter((view) => view.id === "graph").map(
+					{AGENT_MAIN_VIEWS.filter((view) => view.id === "graph").map(
 						(view) => {
 							const Icon = view.icon;
 							return (
@@ -367,9 +363,7 @@ const styles = stylex.create({
 		right: 0,
 		zIndex: 2,
 		alignItems: "flex-end",
-		backdropFilter: "blur(var(--inferay-glass-blur, 4px)) saturate(103%)",
-		backgroundColor:
-			"color-mix(in srgb, var(--color-inferay-black) 24%, transparent)",
+		backgroundColor: color.transparent,
 		display: "flex",
 		gap: 6,
 		height: 36,
@@ -383,8 +377,8 @@ const styles = stylex.create({
 	accountButton: {
 		alignItems: "center",
 		backgroundColor: {
-			default: "rgba(3,3,7,0.26)",
-			":hover": "rgba(255,255,255,0.08)",
+			default: color.transparent,
+			":hover": "rgba(255,255,255,0.06)",
 		},
 		borderColor: "transparent",
 		borderRadius: 9,
@@ -432,7 +426,7 @@ const styles = stylex.create({
 		alignItems: "center",
 		backdropFilter: "blur(var(--inferay-glass-blur, 4px)) saturate(104%)",
 		backgroundColor:
-			"color-mix(in srgb, var(--color-inferay-black) 62%, transparent)",
+			"color-mix(in srgb, var(--color-inferay-black) 46%, transparent)",
 		borderColor: "rgba(255,255,255,0.13)",
 		borderRadius: 15,
 		borderStyle: "solid",
@@ -447,9 +441,10 @@ const styles = stylex.create({
 		width: 42,
 	},
 	viewTabsAttached: {
-		borderTopRightRadius: 0,
-		borderBottomRightRadius: 0,
-		borderRightColor: "transparent",
+		backdropFilter: "none",
+		backgroundColor: color.transparent,
+		borderColor: color.transparent,
+		boxShadow: "none",
 	},
 	tabGroup: {
 		alignItems: "center",

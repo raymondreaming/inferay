@@ -5,6 +5,7 @@ import {
 	useCallback,
 	useEffect,
 	useImperativeHandle,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -40,13 +41,13 @@ import { useGitStatus } from "../../features/git/useGitStatus.ts";
 import {
 	type AgentKind,
 	changePaneAgentKind,
-	dispatchTerminalShellChange,
-} from "../../features/terminal/terminal-utils.ts";
+	dispatchAgentShellChange,
+} from "../../features/agent/agent-utils.ts";
 import { hasId } from "../../lib/data.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import { wsClient } from "../../lib/websocket.ts";
-import { InlineDirectoryPicker } from "../../pages/Terminal/InlineDirectoryPicker.tsx";
-import { color, controlSize, effectValues } from "../../tokens.stylex.ts";
+import { InlineDirectoryPicker } from "../../pages/Agent/InlineDirectoryPicker.tsx";
+import { color, controlSize } from "../../tokens.stylex.ts";
 import { IconArrowDown } from "../ui/Icons.tsx";
 import { AgentChatHeader, type AgentChatSession } from "./AgentChatHeader.tsx";
 import { AgentChatStatusBar } from "./AgentChatStatusBar.tsx";
@@ -110,7 +111,7 @@ function usePersistentChatMessages(paneId: string) {
 
 	useEffect(() => {
 		messageReadModel.setSummaryChangeCallback(() => {
-			dispatchTerminalShellChange({
+			dispatchAgentShellChange({
 				source: "cache",
 				reason: "session-title",
 			});
@@ -230,19 +231,45 @@ function useChatViewport(
 	isSelected?: boolean,
 	isVisible = true
 ) {
+	type ScrollSnapshot = {
+		atBottom: boolean;
+		fromBottom: number;
+		top: number;
+	};
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const chatVirtualizerRef = useRef<ChatVirtualizerControls | null>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const highlightOverlayRef = useRef<HTMLDivElement>(null);
+	const wasSelectedRef = useRef(isSelected);
+	const activationRestoreFrameRef = useRef(0);
+	const scrollSnapshotRef = useRef<ScrollSnapshot>({
+		atBottom: true,
+		fromBottom: 0,
+		top: 0,
+	});
 	const [isAtBottom, setIsAtBottom] = useState(true);
+	const captureScrollSnapshot = useCallback(() => {
+		const el = scrollRef.current;
+		if (!el) return;
+		const fromBottom = Math.max(
+			0,
+			el.scrollHeight - el.scrollTop - el.clientHeight
+		);
+		scrollSnapshotRef.current = {
+			atBottom: fromBottom < 48,
+			fromBottom,
+			top: el.scrollTop,
+		};
+	}, []);
 	const handleScroll = useCallback(() => {
 		const el = scrollRef.current;
 		if (!el) return;
-		setIsAtBottom(
+		const nextIsAtBottom =
 			chatVirtualizerRef.current?.isAtEnd() ??
-				el.scrollHeight - el.scrollTop - el.clientHeight < 48
-		);
-	}, []);
+			el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+		setIsAtBottom(nextIsAtBottom);
+		if (!isSelected) captureScrollSnapshot();
+	}, [captureScrollSnapshot, isSelected]);
 	const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
 		const el = scrollRef.current;
 		if (!el) return;
@@ -261,10 +288,45 @@ function useChatViewport(
 		},
 		[scrollToBottom]
 	);
-	useEffect(() => {
-		if (!isSelected || !isVisible) return;
-		requestAnimationFrame(() => textareaRef.current?.focus());
-	}, [isSelected, isVisible]);
+	useLayoutEffect(() => {
+		const wasSelected = wasSelectedRef.current;
+		wasSelectedRef.current = isSelected;
+		if (wasSelected && !isSelected) {
+			captureScrollSnapshot();
+			return;
+		}
+		if (wasSelected || !isSelected || !isVisible) return;
+		const el = scrollRef.current;
+		if (!el) return;
+		const snapshot = scrollSnapshotRef.current;
+		let passes = 6;
+		const restoreViewport = () => {
+			const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+			el.scrollTop = snapshot.atBottom
+				? Math.max(0, maxScrollTop - snapshot.fromBottom)
+				: Math.min(snapshot.top, maxScrollTop);
+			setIsAtBottom(snapshot.atBottom);
+			passes -= 1;
+			if (passes > 0) {
+				activationRestoreFrameRef.current =
+					requestAnimationFrame(restoreViewport);
+			} else {
+				activationRestoreFrameRef.current = 0;
+			}
+		};
+		restoreViewport();
+		return () => {
+			if (activationRestoreFrameRef.current) {
+				cancelAnimationFrame(activationRestoreFrameRef.current);
+				activationRestoreFrameRef.current = 0;
+			}
+		};
+	}, [captureScrollSnapshot, isSelected, isVisible]);
+	const cancelActivationRestore = useCallback(() => {
+		if (!activationRestoreFrameRef.current) return;
+		cancelAnimationFrame(activationRestoreFrameRef.current);
+		activationRestoreFrameRef.current = 0;
+	}, []);
 	useEffect(() => {
 		if (!isVisible) return;
 		const ta = textareaRef.current;
@@ -305,6 +367,7 @@ function useChatViewport(
 		handleScroll,
 		highlightOverlayRef,
 		isAtBottom,
+		cancelActivationRestore,
 		scheduleScrollToBottom,
 		scrollRef,
 		scrollToBottom,
@@ -546,7 +609,10 @@ export const AgentChatView = memo(function AgentChatView({
 		chatUiState;
 	const inputContainerRef = useRef<HTMLDivElement>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
+	const imageDragDepthRef = useRef(0);
+	const [isImageDragActive, setIsImageDragActive] = useState(false);
 	const {
+		cancelActivationRestore,
 		chatVirtualizerRef,
 		handleScroll,
 		isAtBottom,
@@ -743,8 +809,35 @@ export const AgentChatView = memo(function AgentChatView({
 						}
 					: undefined
 			}
-			onDragOver={(e) => e.preventDefault()}
-			onDrop={handleDrop}
+			onDragEnter={(event) => {
+				const hasImage = Array.from(event.dataTransfer.items).some(
+					(item) => item.kind === "file" && item.type.startsWith("image/")
+				);
+				if (!hasImage) return;
+				event.preventDefault();
+				event.stopPropagation();
+				imageDragDepthRef.current += 1;
+				setIsImageDragActive(true);
+			}}
+			onDragOver={(event) => {
+				if (!isImageDragActive) return;
+				event.preventDefault();
+				event.stopPropagation();
+				event.dataTransfer.dropEffect = "copy";
+			}}
+			onDragLeave={(event) => {
+				if (!isImageDragActive) return;
+				event.stopPropagation();
+				imageDragDepthRef.current = Math.max(0, imageDragDepthRef.current - 1);
+				if (imageDragDepthRef.current === 0) setIsImageDragActive(false);
+			}}
+			onDrop={(event) => {
+				if (!isImageDragActive) return;
+				event.stopPropagation();
+				imageDragDepthRef.current = 0;
+				setIsImageDragActive(false);
+				void handleDrop(event);
+			}}
 		>
 			{renderVisibleChat && !hideHeader && !composerOnly && (
 				<AgentChatHeader
@@ -765,6 +858,7 @@ export const AgentChatView = memo(function AgentChatView({
 						ref={scrollRef}
 						{...stylex.props(styles.scrollArea)}
 						onScroll={handleScroll}
+						onWheelCapture={cancelActivationRestore}
 					>
 						{messages.length === 0 &&
 							!isLoading &&
@@ -822,17 +916,10 @@ export const AgentChatView = memo(function AgentChatView({
 
 			{renderVisibleChat && (
 				<div {...stylex.props(styles.composerRegion)}>
-					{!composerOnly && (
-						<>
-							<div
-								{...stylex.props(styles.composerBackdrop)}
-								style={{ backgroundImage: effectValues.composerBackdrop }}
-							/>
-							<div
-								{...stylex.props(styles.composerFade)}
-								style={{ backgroundImage: effectValues.composerFade }}
-							/>
-						</>
+					{isImageDragActive && (
+						<div {...stylex.props(styles.imageDropCue)}>
+							Drop image to attach
+						</div>
 					)}
 					<div {...stylex.props(styles.composerContent)}>
 						<AgentChatStatusBar
@@ -970,21 +1057,24 @@ const styles = stylex.create({
 		position: "relative",
 		flexShrink: 0,
 	},
-	composerBackdrop: {
+	imageDropCue: {
 		position: "absolute",
+		left: "50%",
+		bottom: "calc(100% + 8px)",
+		zIndex: 20,
+		transform: "translateX(-50%)",
+		borderWidth: 1,
+		borderStyle: "dashed",
+		borderColor: color.borderStrong,
+		borderRadius: controlSize._2,
+		backgroundColor: color.surfaceGlassStrong,
+		color: color.textSoft,
+		fontSize: "0.625rem",
+		fontWeight: 600,
+		paddingBlock: controlSize._1_5,
+		paddingInline: controlSize._3,
 		pointerEvents: "none",
-		left: 0,
-		right: 0,
-		bottom: 0,
-		top: "-36px",
-	},
-	composerFade: {
-		position: "absolute",
-		pointerEvents: "none",
-		left: 0,
-		right: 0,
-		bottom: "100%",
-		height: "36px",
+		whiteSpace: "nowrap",
 	},
 	composerContent: {
 		position: "relative",

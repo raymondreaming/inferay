@@ -247,7 +247,7 @@ const diffStyles = stylex.create({
 		borderLeftWidth: 1,
 		borderLeftStyle: "solid",
 		borderLeftColor: color.borderSubtle,
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 	},
 	minimapInteractive: {
 		appearance: "none",
@@ -304,7 +304,7 @@ const diffStyles = stylex.create({
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 		paddingInline: controlSize._3,
 	},
 	segmented: {
@@ -354,7 +354,7 @@ const diffStyles = stylex.create({
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 		paddingInline: controlSize._3,
 	},
 	pathDir: {
@@ -420,7 +420,7 @@ const diffStyles = stylex.create({
 		display: "flex",
 		height: "100%",
 		flexDirection: "column",
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 	},
 	shellRelative: {
 		position: "relative",
@@ -430,7 +430,7 @@ const diffStyles = stylex.create({
 		height: "100%",
 		alignItems: "center",
 		justifyContent: "center",
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 	},
 	centerInline: {
 		display: "flex",
@@ -483,7 +483,7 @@ const diffStyles = stylex.create({
 		flex: 1,
 		display: "flex",
 		flexDirection: "column",
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 	},
 	conflictActions: {
 		display: "flex",
@@ -493,7 +493,7 @@ const diffStyles = stylex.create({
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
-		backgroundColor: color.backgroundRaised,
+		backgroundColor: color.surfaceGlassStrong,
 		paddingBlock: controlSize._1_5,
 		paddingInline: controlSize._3,
 	},
@@ -598,14 +598,14 @@ const diffStyles = stylex.create({
 		zIndex: 2,
 		width: GUTTER_W,
 		height: 0,
-		backgroundColor: color.background,
+		backgroundColor: color.surfaceGlassStrong,
 		pointerEvents: "none",
 	},
 	gutterBlock: {
 		position: "absolute",
 		left: 0,
 		width: GUTTER_W,
-		backgroundColor: color.background,
+		backgroundColor: color.surfaceGlassStrong,
 	},
 	gutterRow: {
 		display: "flex",
@@ -613,7 +613,7 @@ const diffStyles = stylex.create({
 		maxHeight: LINE_H,
 		minHeight: LINE_H,
 		overflow: "hidden",
-		backgroundColor: color.background,
+		backgroundColor: color.surfaceGlassStrong,
 	},
 	content: {
 		flex: 1,
@@ -1527,7 +1527,7 @@ export const GitDiffView = memo(function GitDiffView({
 	const oversizedMessage = useMemo(() => {
 		const totalLines = diff.oldLines.length + diff.newLines.length;
 		if (totalLines > MAX_RENDERED_DIFF_LINES) {
-			return `Diff is too large to render safely (${totalLines.toLocaleString()} lines). Use the Editor/terminal to inspect this file in smaller chunks.`;
+			return `Diff is too large to render safely (${totalLines.toLocaleString()} lines). Use the Editor/agent to inspect this file in smaller chunks.`;
 		}
 		let longest = 0;
 		for (const line of diff.oldLines) {

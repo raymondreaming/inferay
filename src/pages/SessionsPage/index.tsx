@@ -12,15 +12,15 @@ import {
 } from "../../components/ui/Icons.tsx";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
 import {
-	dispatchTerminalShellChange,
-	loadCanonicalTerminalState,
-	mutateTerminalWorkspaceState,
+	dispatchAgentShellChange,
+	loadCanonicalAgentState,
+	mutateAgentWorkspaceState,
 	type PaneId,
-	type TerminalShellChangeDetail,
-	type TerminalGroupModel,
-	type TerminalPaneModel,
-} from "../../features/terminal/terminal-utils.ts";
-import { TERMINAL_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
+	type AgentShellChangeDetail,
+	type AgentGroupModel,
+	type AgentPaneModel,
+} from "../../features/agent/agent-utils.ts";
+import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import { basename, formatRelativeTime, trimText } from "../../lib/format.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
@@ -64,8 +64,8 @@ function sameSessions(
 }
 
 function sameWorkspaceOptions(
-	prev: TerminalGroupModel[],
-	next: TerminalGroupModel[]
+	prev: AgentGroupModel[],
+	next: AgentGroupModel[]
 ): boolean {
 	if (prev.length !== next.length) return false;
 	for (let i = 0; i < prev.length; i++) {
@@ -79,21 +79,21 @@ function sameWorkspaceOptions(
 
 export function SessionsPage() {
 	const [sessions, setSessions] = useState<LocalSessionInfo[]>([]);
-	const [workspaces, setWorkspaces] = useState<TerminalGroupModel[]>([]);
+	const [workspaces, setWorkspaces] = useState<AgentGroupModel[]>([]);
 	const [loading, setLoading] = useState(true);
 
 	const refresh = useCallback(async () => {
 		try {
-			const [sessionPayload, terminalState] = await Promise.all([
+			const [sessionPayload, agentState] = await Promise.all([
 				fetchJsonOr<{ sessions?: LocalSessionInfo[] }>("/api/sessions", {
 					sessions: [],
 				}),
-				loadCanonicalTerminalState(),
+				loadCanonicalAgentState(),
 			]);
 			const nextSessions = Array.isArray(sessionPayload.sessions)
 				? sessionPayload.sessions
 				: [];
-			const nextWorkspaces = terminalState?.groups ?? [];
+			const nextWorkspaces = agentState?.groups ?? [];
 			setSessions((current) =>
 				sameSessions(current, nextSessions) ? current : nextSessions
 			);
@@ -108,8 +108,8 @@ export function SessionsPage() {
 	useEffect(() => {
 		void refresh();
 		const id = window.setInterval(() => void refresh(), 2000);
-		const cleanupShell = listenWindowEvent("terminal-shell-change", (event) => {
-			const detail = (event as CustomEvent<TerminalShellChangeDetail>).detail;
+		const cleanupShell = listenWindowEvent("agent-shell-change", (event) => {
+			const detail = (event as CustomEvent<AgentShellChangeDetail>).detail;
 			if (detail?.source === "view" && !detail.stateKey) return;
 			void refresh();
 		});
@@ -140,7 +140,7 @@ export function SessionsPage() {
 
 	const restoreSession = useCallback(
 		async (session: LocalSessionInfo, targetGroupId?: string) => {
-			await mutateTerminalWorkspaceState(
+			await mutateAgentWorkspaceState(
 				(state) => {
 					const existingGroup = state.groups.find((group) =>
 						group.panes.some((pane) => pane.id === session.paneId)
@@ -152,7 +152,7 @@ export function SessionsPage() {
 							paneId: session.paneId,
 						};
 					}
-					const pane: TerminalPaneModel = {
+					const pane: AgentPaneModel = {
 						id: session.paneId as PaneId,
 						title:
 							session.title ||
@@ -172,12 +172,12 @@ export function SessionsPage() {
 				"restore-session",
 				{ createIfMissing: true }
 			);
-			writeStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY, "chat");
-			dispatchTerminalShellChange({
+			writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, "chat");
+			dispatchAgentShellChange({
 				source: "view",
 				reason: "restore-session",
 			});
-			window.location.hash = "#/terminal";
+			window.location.hash = "#/agent";
 		},
 		[]
 	);
@@ -290,7 +290,7 @@ const styles = stylex.create({
 	root: {
 		display: "block",
 		height: "100%",
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 		color: color.textMain,
 	},
 	listPane: {
@@ -307,7 +307,7 @@ const styles = stylex.create({
 		justifyContent: "space-between",
 		gap: 12,
 		padding: "18px 20px 14px",
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,

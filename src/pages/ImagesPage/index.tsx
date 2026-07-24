@@ -9,12 +9,12 @@ import {
 } from "../../components/ui/Icons.tsx";
 import { savePendingSend } from "../../features/chat/chat-session-store.ts";
 import {
-	dispatchTerminalShellChange,
-	mutateTerminalWorkspaceState,
-} from "../../features/terminal/terminal-utils.ts";
+	dispatchAgentShellChange,
+	mutateAgentWorkspaceState,
+} from "../../features/agent/agent-utils.ts";
 import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
 import { DEFAULT_APP_ROUTE } from "../../lib/app-navigation.tsx";
-import { TERMINAL_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
+import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import { formatBytes } from "../../lib/format.ts";
 import { setInputValue } from "../../lib/react-events.ts";
@@ -75,7 +75,7 @@ function buildFileChatMessage(files: FileEntry[]) {
 }
 
 async function ensureChatPaneId(): Promise<string | null> {
-	const next = await mutateTerminalWorkspaceState(
+	const next = await mutateAgentWorkspaceState(
 		{ type: "ensureChatPane" },
 		"image-chat-pane",
 		{ createIfMissing: true }
@@ -161,8 +161,8 @@ export function ImagesPage() {
 
 		const { fullText } = buildFileChatMessage(selected);
 		savePendingSend(paneId, fullText);
-		writeStoredValue(TERMINAL_MAIN_VIEW_STORAGE_KEY, "chat");
-		dispatchTerminalShellChange({ source: "view", reason: "image-start-chat" });
+		writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, "chat");
+		dispatchAgentShellChange({ source: "view", reason: "image-start-chat" });
 		navigate(DEFAULT_APP_ROUTE);
 	}, [navigate, selected]);
 
@@ -301,7 +301,7 @@ export function ImagesPage() {
 
 const styles = stylex.create({
 	root: {
-		backgroundColor: "#000",
+		backgroundColor: color.transparent,
 		color: color.textMain,
 		height: "100%",
 		overflow: "hidden",

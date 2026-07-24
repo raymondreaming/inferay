@@ -8,11 +8,11 @@ import {
 	type CustomThemeColors,
 	type HexColor,
 	loadCustomTheme,
-	loadTerminalState,
-	mutateCanonicalTerminalState,
+	loadAgentState,
+	mutateCanonicalAgentState,
 	saveCustomTheme,
 	type ThemeId,
-} from "../../features/terminal/terminal-utils.ts";
+} from "../../features/agent/agent-utils.ts";
 import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
 import { useAppInfo } from "../../hooks/useAppInfo.ts";
 import {
@@ -26,7 +26,7 @@ import {
 	applyAppTheme,
 	isDarkProductTheme,
 	loadAppThemeId,
-	mapAppThemeToTerminalTheme,
+	mapAppThemeToAgentTheme,
 	saveAppThemeId,
 } from "../../lib/app-theme.ts";
 import {
@@ -45,14 +45,14 @@ import { fetchJsonOr, resolveServerUrl } from "../../lib/fetch-json.ts";
 import { listenWindowEvent, setInputValue } from "../../lib/react-events.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 
-interface TerminalSettingsContentProps {
+interface AgentSettingsContentProps {
 	themeId?: ThemeId;
 	onThemeChange?: (id: ThemeId) => void;
 	showVersion?: boolean;
 	embedded?: boolean;
 }
 
-interface TerminalSettingsPanelProps {
+interface AgentSettingsPanelProps {
 	themeId: ThemeId;
 	onThemeChange: (id: ThemeId) => void;
 	onClose: () => void;
@@ -532,20 +532,20 @@ function SearchFoldersSection() {
 	);
 }
 
-export const TerminalSettingsContent = memo(function TerminalSettingsContent({
+export const AgentSettingsContent = memo(function AgentSettingsContent({
 	themeId,
 	onThemeChange,
 	showVersion = true,
 	embedded = false,
-}: TerminalSettingsContentProps) {
+}: AgentSettingsContentProps) {
 	const [appThemeId, setAppThemeId] = useState<AppThemeId>(loadAppThemeId);
 	const [backgroundAutoTheme, setBackgroundAutoTheme] = useState(
 		() => loadAppBackgroundSettings().autoTheme
 	);
-	const [terminalThemeId, setTerminalThemeId] = useState<ThemeId>(() => {
-		const state = loadTerminalState();
+	const [agentThemeId, setAgentThemeId] = useState<ThemeId>(() => {
+		const state = loadAgentState();
 		return (
-			themeId ?? state?.themeId ?? mapAppThemeToTerminalTheme(loadAppThemeId())
+			themeId ?? state?.themeId ?? mapAppThemeToAgentTheme(loadAppThemeId())
 		);
 	});
 	const [syntaxTheme, setSyntaxTheme] = useSyntaxHighlightTheme();
@@ -561,10 +561,10 @@ export const TerminalSettingsContent = memo(function TerminalSettingsContent({
 			}
 			setBackgroundAutoTheme(false);
 			applyAppTheme(id);
-			const termThemeId = mapAppThemeToTerminalTheme(id);
-			setTerminalThemeId(termThemeId);
+			const termThemeId = mapAppThemeToAgentTheme(id);
+			setAgentThemeId(termThemeId);
 			onThemeChange?.(termThemeId);
-			void mutateCanonicalTerminalState(
+			void mutateCanonicalAgentState(
 				(state) => ({ ...state, themeId: termThemeId }),
 				"theme-change"
 			);
@@ -578,9 +578,9 @@ export const TerminalSettingsContent = memo(function TerminalSettingsContent({
 			setCustom((prev) => {
 				const next = { ...prev, ...patch };
 				saveCustomTheme(next);
-				if (terminalThemeId === "custom") {
+				if (agentThemeId === "custom") {
 					onThemeChange?.("custom");
-					void mutateCanonicalTerminalState(
+					void mutateCanonicalAgentState(
 						(state) => ({ ...state, themeId: "custom" }),
 						"custom-theme"
 					);
@@ -588,10 +588,10 @@ export const TerminalSettingsContent = memo(function TerminalSettingsContent({
 				return next;
 			});
 		},
-		[terminalThemeId, onThemeChange]
+		[agentThemeId, onThemeChange]
 	);
 	useEffect(() => {
-		if (themeId) setTerminalThemeId(themeId);
+		if (themeId) setAgentThemeId(themeId);
 	}, [themeId]);
 	useEffect(
 		() =>
@@ -602,10 +602,9 @@ export const TerminalSettingsContent = memo(function TerminalSettingsContent({
 				}
 				if (key === APP_THEME_STORAGE_KEY) {
 					const nextAppThemeId = loadAppThemeId();
-					const nextTerminalThemeId =
-						mapAppThemeToTerminalTheme(nextAppThemeId);
+					const nextAgentThemeId = mapAppThemeToAgentTheme(nextAppThemeId);
 					setAppThemeId(nextAppThemeId);
-					setTerminalThemeId(nextTerminalThemeId);
+					setAgentThemeId(nextAgentThemeId);
 				}
 			}),
 		[]
@@ -679,10 +678,10 @@ export const TerminalSettingsContent = memo(function TerminalSettingsContent({
 							/>
 						</div>
 						<div
-							{...stylex.props(styles.terminalPreview)}
+							{...stylex.props(styles.agentPreview)}
 							style={{ backgroundColor: custom.bg, color: custom.fg }}
 						>
-							<span style={{ color: custom.cursor }}>$</span> terminal-gui start
+							<span style={{ color: custom.cursor }}>$</span> agent-gui start
 							<br />
 							<span style={{ opacity: 0.6 }}>Loading…</span>
 							<br />
@@ -719,24 +718,21 @@ export const TerminalSettingsContent = memo(function TerminalSettingsContent({
 	);
 });
 
-export const TerminalSettingsPanel = memo(function TerminalSettingsPanel({
+export const AgentSettingsPanel = memo(function AgentSettingsPanel({
 	themeId,
 	onThemeChange,
 	onClose,
-}: TerminalSettingsPanelProps) {
+}: AgentSettingsPanelProps) {
 	return (
 		<div {...stylex.props(styles.overlay)}>
 			<button
 				type="button"
-				aria-label="Close terminal settings"
+				aria-label="Close agent settings"
 				{...stylex.props(styles.backdrop)}
 				onClick={onClose}
 			/>
 			<div {...stylex.props(styles.panel)}>
-				<TerminalSettingsContent
-					themeId={themeId}
-					onThemeChange={onThemeChange}
-				/>
+				<AgentSettingsContent themeId={themeId} onThemeChange={onThemeChange} />
 			</div>
 		</div>
 	);
@@ -1070,7 +1066,7 @@ const styles = stylex.create({
 			"ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
 		fontSize: font.size_1,
 	},
-	terminalPreview: {
+	agentPreview: {
 		marginTop: controlSize._3,
 		borderWidth: 1,
 		borderStyle: "solid",

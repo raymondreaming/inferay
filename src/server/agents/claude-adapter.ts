@@ -2,7 +2,7 @@ import { isChatStreamEvent } from "../../features/chat/agent-chat-shared.ts";
 import {
 	createAgentEnv,
 	resolveAgentBinary,
-} from "../../features/terminal/terminal-command.ts";
+} from "../../features/agent/agent-command.ts";
 import {
 	type AgentAdapter,
 	type AgentEvent,

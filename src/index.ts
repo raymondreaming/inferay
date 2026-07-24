@@ -25,7 +25,7 @@ type WindowControlsRPC = {
 };
 
 const PREFERRED_SERVER_PORT = Number(
-	process.env.TERMINAL_GUI_SERVER_PORT || "4001"
+	process.env.AGENT_GUI_SERVER_PORT || "4001"
 );
 
 ApplicationMenu.setApplicationMenu([
@@ -75,7 +75,7 @@ if (!server) {
 await PidTracker.cleanupOrphans();
 
 const rendererUrl =
-	process.env.TERMINAL_GUI_RENDERER_URL || `http://127.0.0.1:${serverPort}`;
+	process.env.AGENT_GUI_RENDERER_URL || `http://127.0.0.1:${serverPort}`;
 
 let mainWindow: BrowserWindow | null = null;
 

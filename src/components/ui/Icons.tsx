@@ -58,7 +58,7 @@ function svgIcon(
 }
 
 export const {
-	IconTerminal,
+	IconAgent,
 	IconSimulator,
 	IconIPhone,
 	IconIPhonePro,
@@ -108,7 +108,7 @@ export const {
 	IconTarget,
 	IconLoader,
 } = {
-	IconTerminal: icon(["M4 17l6-6-6-6", "M12 19h8"]),
+	IconAgent: icon(["M4 17l6-6-6-6", "M12 19h8"]),
 	IconSimulator: icon([
 		"M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z",
 		"M11 18h2",

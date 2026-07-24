@@ -1,7 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { memo, useCallback, useMemo, useState } from "react";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
-import type { AgentKind } from "../../features/terminal/terminal-utils.ts";
+import type { AgentKind } from "../../features/agent/agent-utils.ts";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
@@ -254,8 +254,7 @@ export const AgentChatHeader = memo(function AgentChatHeader({
 const styles = stylex.create({
 	root: {
 		alignItems: "center",
-		backdropFilter: "blur(var(--inferay-glass-blur, 4px)) saturate(103%)",
-		backgroundColor: "rgba(3, 3, 7, 0.58)",
+		backgroundColor: color.transparent,
 		borderBottomColor: color.border,
 		borderBottomStyle: "solid",
 		borderBottomWidth: 1,

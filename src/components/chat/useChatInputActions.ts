@@ -14,7 +14,7 @@ import {
 	loadPendingSend,
 	loadStoredSessionId,
 } from "../../features/chat/chat-session-store.ts";
-import type { AgentKind } from "../../features/terminal/terminal-utils.ts";
+import type { AgentKind } from "../../features/agent/agent-utils.ts";
 import { serializeCommandSystemMessage } from "../../features/chat/command-system-message.ts";
 import { noop } from "../../lib/data.ts";
 import { wsClient } from "../../lib/websocket.ts";

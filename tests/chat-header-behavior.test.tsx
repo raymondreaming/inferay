@@ -32,7 +32,7 @@ mock.module("../src/lib/fetch-json.ts", () => ({
 function setupDom() {
 	const dom = new JSDOM('<div id="root"></div>', {
 		pretendToBeVisual: true,
-		url: "http://localhost/#/terminal",
+		url: "http://localhost/#/agent",
 	});
 	Object.defineProperty(globalThis, "window", {
 		configurable: true,

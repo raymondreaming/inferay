@@ -18,7 +18,7 @@ import {
 } from "../../components/ui/Icons.tsx";
 import type { summarizeHunkDiff } from "../../features/git/useGitDiff.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
-import type { DiffViewMode } from "../Terminal/GitDiffView.tsx";
+import type { DiffViewMode } from "../Agent/GitDiffView.tsx";
 
 type EditorChatSession = {
 	groupId: string;
@@ -317,8 +317,7 @@ const styles = stylex.create({
 		minWidth: 0,
 		minHeight: 0,
 		flexDirection: "column",
-		backgroundColor:
-			"color-mix(in srgb, var(--color-inferay-black) 62%, transparent)",
+		backgroundColor: color.transparent,
 	},
 	splitBody: {
 		display: "flex",
@@ -364,8 +363,7 @@ const styles = stylex.create({
 	},
 	topBar: {
 		alignItems: "center",
-		backgroundColor:
-			"color-mix(in srgb, var(--color-inferay-black) 68%, transparent)",
+		backgroundColor: color.transparent,
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,

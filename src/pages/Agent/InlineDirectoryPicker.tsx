@@ -77,7 +77,7 @@ export function InlineDirectoryPicker({
 		const data = await fetchJsonOr<{
 			quickPicks?: QuickPick[];
 			home?: string;
-		}>("/api/terminal/directories?quickPicks=true", {});
+		}>("/api/agent/directories?quickPicks=true", {});
 		return {
 			quickPicks: data.quickPicks || [],
 			homePath: data.home || "",
@@ -97,7 +97,7 @@ export function InlineDirectoryPicker({
 		if (!deferredQuery) return [];
 		const data = await fetchJsonOr<{
 			directories?: Array<{ name: string; path: string }>;
-		}>(`/api/terminal/directories?q=${encodeURIComponent(deferredQuery)}`, {});
+		}>(`/api/agent/directories?q=${encodeURIComponent(deferredQuery)}`, {});
 		return (data.directories || []).map((d) => ({
 			name: d.name,
 			path: d.path,

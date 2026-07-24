@@ -1,4 +1,4 @@
-import type { ThemeId } from "../features/terminal/terminal-utils.ts";
+import type { ThemeId } from "../features/agent/agent-utils.ts";
 import {
 	APP_CUSTOM_THEME_STORAGE_KEY,
 	APP_THEME_STORAGE_KEY,
@@ -414,7 +414,7 @@ export function isDarkProductTheme(id: AppThemeId): boolean {
 	return DARK_PRODUCT_THEME_IDS.has(id);
 }
 
-const APP_TO_TERMINAL_THEME: Record<AppThemeId, ThemeId> = {
+const APP_TO_AGENT_THEME: Record<AppThemeId, ThemeId> = {
 	default: "default",
 	midnight: "midnight",
 	nord: "nord",
@@ -450,8 +450,8 @@ export function saveAppThemeId(id: AppThemeId): void {
 	);
 }
 
-export function mapAppThemeToTerminalTheme(id: AppThemeId): ThemeId {
-	return APP_TO_TERMINAL_THEME[id];
+export function mapAppThemeToAgentTheme(id: AppThemeId): ThemeId {
+	return APP_TO_AGENT_THEME[id];
 }
 
 function loadAppCustomTheme(): AppThemeColors {

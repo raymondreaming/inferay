@@ -6,14 +6,14 @@ import type { AgentKind } from "../../features/agents/agents.ts";
 import {
 	createAgentEnv,
 	resolveInteractiveAgentCommand,
-} from "../../features/terminal/terminal-command.ts";
+} from "../../features/agent/agent-command.ts";
 import {
-	createDefaultTerminalState,
-	normalizeTerminalState,
-	reduceTerminalWorkspaceState,
-	type TerminalSavedState,
-	type TerminalWorkspaceAction,
-} from "../../features/terminal/terminal-utils.ts";
+	createDefaultAgentState,
+	normalizeAgentState,
+	reduceAgentWorkspaceState,
+	type AgentSavedState,
+	type AgentWorkspaceAction,
+} from "../../features/agent/agent-utils.ts";
 import {
 	compareName,
 	comparePort,
@@ -35,7 +35,8 @@ import { PidTracker } from "../services/pid-tracker.ts";
 const configManager = new ConfigManager();
 
 const isWin = process.platform === "win32";
-const TERMINAL_STATE_PATH = userDataPath("terminal-state.json");
+const AGENT_STATE_PATH = userDataPath("agent-state.json");
+const LEGACY_AGENT_STATE_PATH = userDataPath("terminal-state.json");
 
 class OutputBuffer {
 	private chunks: string[] = [];
@@ -60,8 +61,8 @@ class OutputBuffer {
 	}
 }
 
-interface TerminalSession {
-	terminal: InstanceType<typeof Bun.Terminal>;
+interface AgentSession {
+	agent: InstanceType<typeof Bun.Terminal>;
 	proc: ReturnType<typeof Bun.spawn>;
 	agentKind: AgentKind;
 	paneId: string;
@@ -71,9 +72,9 @@ interface TerminalSession {
 }
 
 const g = globalThis as any;
-if (!g.__inferay_terminalSessions)
-	g.__inferay_terminalSessions = new Map<string, TerminalSession>();
-const sessions: Map<string, TerminalSession> = g.__inferay_terminalSessions;
+if (!g.__inferay_agentSessions)
+	g.__inferay_agentSessions = new Map<string, AgentSession>();
+const sessions: Map<string, AgentSession> = g.__inferay_agentSessions;
 
 function killProcessTree(pid: number): void {
 	if (isWin) {
@@ -103,41 +104,43 @@ function killProcessTree(pid: number): void {
 	} catch {}
 }
 
-function sendToClient(session: TerminalSession, msg: object) {
+function sendToClient(session: AgentSession, msg: object) {
 	if (session.ws?.readyState === 1) {
 		session.ws.send(JSON.stringify(msg));
 	}
 }
 
-export async function readTerminalState<T>(fallback: T): Promise<T> {
-	return await readJson<T>(TERMINAL_STATE_PATH, fallback);
+export async function readAgentState<T>(fallback: T): Promise<T> {
+	const current = await readJson<T | null>(AGENT_STATE_PATH, null);
+	if (current !== null) return current;
+	return await readJson<T>(LEGACY_AGENT_STATE_PATH, fallback);
 }
 
-async function writeTerminalState(data: unknown): Promise<void> {
-	const current = await readJson<unknown | null>(TERMINAL_STATE_PATH, null);
-	if (isTerminalStateRegression(current, data)) return;
-	return writeJson(TERMINAL_STATE_PATH, data);
+async function writeAgentState(data: unknown): Promise<void> {
+	const current = await readJson<unknown | null>(AGENT_STATE_PATH, null);
+	if (isAgentStateRegression(current, data)) return;
+	return writeJson(AGENT_STATE_PATH, data);
 }
 
-async function applyTerminalWorkspaceAction(
-	action: TerminalWorkspaceAction
-): Promise<TerminalSavedState | null> {
-	const current = normalizeTerminalState(
-		await readJson<unknown | null>(TERMINAL_STATE_PATH, null),
+async function applyAgentWorkspaceAction(
+	action: AgentWorkspaceAction
+): Promise<AgentSavedState | null> {
+	const current = normalizeAgentState(
+		await readJson<unknown | null>(AGENT_STATE_PATH, null),
 		{ createDefault: true }
 	);
-	const next = reduceTerminalWorkspaceState(
-		current ?? createDefaultTerminalState(),
+	const next = reduceAgentWorkspaceState(
+		current ?? createDefaultAgentState(),
 		action
 	);
-	const normalized = normalizeTerminalState(next, { createDefault: true });
+	const normalized = normalizeAgentState(next, { createDefault: true });
 	if (!normalized) return null;
-	await writeJson(TERMINAL_STATE_PATH, normalized);
+	await writeJson(AGENT_STATE_PATH, normalized);
 	return normalized;
 }
 
-function isTerminalStateRegression(current: unknown, next: unknown): boolean {
-	if (terminalStateScore(next) < terminalStateScore(current)) return true;
+function isAgentStateRegression(current: unknown, next: unknown): boolean {
+	if (agentStateScore(next) < agentStateScore(current)) return true;
 	const currentPanes = getPaneMap(current);
 	if (currentPanes.size === 0) return false;
 	for (const [paneId, currentPane] of currentPanes) {
@@ -149,7 +152,7 @@ function isTerminalStateRegression(current: unknown, next: unknown): boolean {
 	return false;
 }
 
-export function terminalStateScore(state: unknown): number {
+export function agentStateScore(state: unknown): number {
 	if (typeof state !== "object" || state === null) return 0;
 	const groups = (state as { groups?: unknown }).groups;
 	if (!Array.isArray(groups)) return 0;
@@ -198,7 +201,7 @@ function getPaneMap(
 	return panesById;
 }
 
-export const TerminalService = {
+export const AgentService = {
 	async createPane(
 		paneId: string,
 		agentKind: AgentKind,
@@ -220,7 +223,7 @@ export const TerminalService = {
 			const outputBuffer = new OutputBuffer();
 			const decoder = new TextDecoder("utf-8");
 
-			const terminal = new Bun.Terminal({
+			const agent = new Bun.Terminal({
 				cols,
 				rows,
 				data(_term, data) {
@@ -229,7 +232,7 @@ export const TerminalService = {
 						const text = session.decoder.decode(data, { stream: true });
 						session.outputBuffer.push(text);
 						sendToClient(session, {
-							type: "terminal:output",
+							type: "agent:output",
 							paneId,
 							data: text,
 						});
@@ -246,13 +249,13 @@ export const TerminalService = {
 				return { ok: false, error: "Invalid working directory" };
 			}
 			const proc = Bun.spawn(resolved.cmd, {
-				terminal,
+				terminal: agent,
 				env: spawnEnv,
 				cwd: spawnCwd,
 			});
 
-			const session: TerminalSession = {
-				terminal,
+			const session: AgentSession = {
+				agent,
 				proc,
 				agentKind,
 				paneId,
@@ -267,8 +270,8 @@ export const TerminalService = {
 				const s = sessions.get(paneId);
 				if (s) {
 					if (s.proc.pid) PidTracker.untrackPid(s.proc.pid);
-					sendToClient(s, { type: "terminal:exit", paneId, exitCode: code });
-					terminal.close();
+					sendToClient(s, { type: "agent:exit", paneId, exitCode: code });
+					agent.close();
 					sessions.delete(paneId);
 				}
 			});
@@ -286,7 +289,7 @@ export const TerminalService = {
 		const session = sessions.get(paneId);
 		if (!session) return { ok: false, error: "Pane not found" };
 		try {
-			session.terminal.write(data);
+			session.agent.write(data);
 			return { ok: true };
 		} catch (e) {
 			return {
@@ -300,7 +303,7 @@ export const TerminalService = {
 		const session = sessions.get(paneId);
 		if (!session) return { ok: false };
 		try {
-			session.terminal.resize(cols, rows);
+			session.agent.resize(cols, rows);
 		} catch {}
 		return { ok: true };
 	},
@@ -313,7 +316,7 @@ export const TerminalService = {
 				killProcessTree(session.proc.pid);
 				PidTracker.untrackPid(session.proc.pid);
 			}
-			session.terminal.close();
+			session.agent.close();
 		} catch {}
 		sessions.delete(paneId);
 		return { ok: true };
@@ -352,7 +355,7 @@ export const TerminalService = {
 				}
 			} catch {}
 			try {
-				session.terminal.close();
+				session.agent.close();
 			} catch {}
 			sessions.delete(paneId);
 		}
@@ -758,36 +761,36 @@ function requirePid(req: Request): Promise<{ pid: number } | Response> {
 	});
 }
 
-export function terminalRoutes() {
+export function agentRoutes() {
 	return {
-		"/api/terminal/state": {
+		"/api/agent/state": {
 			GET: tryRoute(async () => {
-				return Response.json(await readTerminalState<unknown | null>(null));
+				return Response.json(await readAgentState<unknown | null>(null));
 			}),
 			POST: tryRoute(async (req) => {
-				await writeTerminalState(await req.json());
+				await writeAgentState(await req.json());
 				return Response.json({ ok: true });
 			}),
 		},
-		"/api/terminal/state/workspace-action": {
+		"/api/agent/state/workspace-action": {
 			POST: tryRoute(async (req) => {
 				return Response.json({
-					state: await applyTerminalWorkspaceAction((await req.json()).action),
+					state: await applyAgentWorkspaceAction((await req.json()).action),
 				});
 			}),
 		},
-		"/api/terminal/list": {
-			GET: () => Response.json({ sessions: TerminalService.listSessions() }),
+		"/api/agent/list": {
+			GET: () => Response.json({ sessions: AgentService.listSessions() }),
 		},
-		"/api/terminal/agent-sessions": {
+		"/api/agent/agent-sessions": {
 			GET: () => Response.json({ sessions: ChatService.listSessions() }),
 		},
-		"/api/terminal/ports": {
+		"/api/agent/ports": {
 			GET: tryRoute(async () =>
 				Response.json({ ports: await getRunningPorts() })
 			),
 		},
-		"/api/terminal/ports/kill": {
+		"/api/agent/ports/kill": {
 			POST: tryRoute(async (req) => {
 				const parsed = await requirePid(req);
 				if (parsed instanceof Response) return parsed;
@@ -801,12 +804,12 @@ export function terminalRoutes() {
 				return Response.json(await killPort(parsed.pid));
 			}),
 		},
-		"/api/terminal/claude-processes": {
+		"/api/agent/claude-processes": {
 			GET: tryRoute(async () =>
 				Response.json({ processes: await getClaudeProcesses() })
 			),
 		},
-		"/api/terminal/claude-processes/kill": {
+		"/api/agent/claude-processes/kill": {
 			POST: tryRoute(async (req) => {
 				const parsed = await requirePid(req);
 				if (parsed instanceof Response) return parsed;
@@ -820,10 +823,10 @@ export function terminalRoutes() {
 				return Response.json(await killClaudeProcess(parsed.pid));
 			}),
 		},
-		"/api/terminal/claude-processes/kill-all": {
+		"/api/agent/claude-processes/kill-all": {
 			POST: tryRoute(async () => Response.json(await killAllClaudeProcesses())),
 		},
-		"/api/terminal/directories": {
+		"/api/agent/directories": {
 			GET: tryRoute(async (req) => {
 				const url = new URL(req.url);
 				const query = url.searchParams.get("q") || "";
