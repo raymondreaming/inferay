@@ -60,7 +60,7 @@ const panes: Pane[] = [
 			{
 				role: "tool",
 				name: "Read",
-				detail: "src/pages/Terminal/InlineDirectoryPicker.tsx",
+				detail: "src/pages/Agent/InlineDirectoryPicker.tsx",
 			},
 		],
 	},
@@ -316,7 +316,7 @@ function HeaderTab({
 	);
 }
 
-function TerminalShellHeader() {
+function AgentShellHeader() {
 	return (
 		<header className="flex h-12 shrink-0 select-none items-center gap-3 border-b border-inferay-gray-border bg-inferay-black px-3">
 			<div className="flex items-center gap-1">
@@ -373,7 +373,7 @@ function ToolStatus({ status }: { status: Pane["status"] }) {
 					["Bash", "bunx tsc --noEmit --pretty false"],
 				]
 			: [
-					["Read", "src/pages/Terminal/InlineDirectoryPicker.tsx"],
+					["Read", "src/pages/Agent/InlineDirectoryPicker.tsx"],
 					["Read", "src/components/chat/AgentChatStatusBar.tsx"],
 					["Grep", "message composer status bar"],
 				];
@@ -754,7 +754,7 @@ export function ProductFrame() {
 			<div className="flex h-[860px] bg-inferay-black">
 				<Sidebar />
 				<div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-					<TerminalShellHeader />
+					<AgentShellHeader />
 					<ProductGrid />
 				</div>
 			</div>

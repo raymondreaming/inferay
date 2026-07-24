@@ -4,7 +4,7 @@ type IconProps = { className?: string };
 type IconComponent = (props: IconProps) => React.ReactElement;
 
 const iconNodes = {
-	Terminal: (
+	Agent: (
 		<svg
 			width="16"
 			height="16"

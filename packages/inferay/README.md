@@ -1,6 +1,6 @@
 # inferay
 
-A macOS AI workspace for Claude, Codex, terminals, project context, slash
+A macOS AI workspace for Claude, Codex, agent workspaces, project context, slash
 commands, git diffs, and image-aware agent work.
 
 ```sh

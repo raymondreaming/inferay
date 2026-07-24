@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "terminal-gui",
+      "name": "agent-gui",
       "dependencies": {
         "@chenglou/pretext": "^0.0.2",
         "@stylexjs/stylex": "^0.18.3",

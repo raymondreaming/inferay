@@ -5,20 +5,20 @@ function stopPropagation(event: React.MouseEvent) {
 	event.stopPropagation();
 }
 
-type TerminalLine = {
+type AgentLine = {
 	type: "command" | "output" | "error" | "success" | "info";
 	content: string;
 	timestamp?: string;
 };
 
-type TerminalPane = {
+type AgentPane = {
 	id: number;
 	name: string;
-	history: TerminalLine[];
+	history: AgentLine[];
 	cwd: string;
 };
 
-const terminalPanes: TerminalPane[] = [
+const agentPanes: AgentPane[] = [
 	{
 		id: 1,
 		name: "zsh",
@@ -64,17 +64,17 @@ const terminalPanes: TerminalPane[] = [
 	},
 ];
 
-function SingleTerminalPane({
+function SingleAgentPane({
 	pane,
 	isActive,
 	onSelect,
 }: {
-	pane: TerminalPane;
+	pane: AgentPane;
 	isActive: boolean;
 	onSelect?: () => void;
 }) {
 	const [inputValue, setInputValue] = useState("");
-	const getLineColor = (type: TerminalLine["type"]) => {
+	const getLineColor = (type: AgentLine["type"]) => {
 		switch (type) {
 			case "command":
 				return "text-inferay-text";
@@ -145,7 +145,7 @@ function SingleTerminalPane({
 	);
 }
 
-export function TerminalPanel({
+export function AgentPanel({
 	isExpanded,
 	onToggle,
 }: {
@@ -165,10 +165,10 @@ export function TerminalPanel({
 					className="w-full flex items-center gap-2 px-3 py-1 hover:bg-inferay-surface/50 transition-colors"
 				>
 					<span className="text-inferay-text-3">
-						<Icons.Terminal />
+						<Icons.Agent />
 					</span>
 					<span className="text-[9px] font-medium text-inferay-text-2">
-						Terminal
+						Agent
 					</span>
 					<span className="flex-1" />
 					<span className="text-[8px] text-inferay-text-3 tabular-nums">
@@ -192,7 +192,7 @@ export function TerminalPanel({
 			<div className="flex items-center h-7 border-b border-inferay-border bg-inferay-bg shrink-0">
 				{/* Tab bar */}
 				<div className="flex items-center flex-1 min-w-0">
-					{terminalPanes.map((pane, i) => (
+					{agentPanes.map((pane, i) => (
 						<button
 							key={pane.id}
 							onClick={() => setActivePane(i)}
@@ -203,7 +203,7 @@ export function TerminalPanel({
 							}`}
 						>
 							<span className="text-inferay-text-3">
-								<Icons.Terminal />
+								<Icons.Agent />
 							</span>
 							<span className="text-[9px] font-medium">{pane.name}</span>
 							<span className="text-[8px] text-inferay-text-3 font-mono truncate max-w-[70px]">
@@ -211,9 +211,9 @@ export function TerminalPanel({
 							</span>
 						</button>
 					))}
-					{/* New terminal button */}
+					{/* New agent button */}
 					<button
-						aria-label="New terminal"
+						aria-label="New agent"
 						className="flex items-center justify-center w-6 h-full text-inferay-text-3 hover:text-inferay-text-2 hover:bg-inferay-surface/50 transition-colors"
 					>
 						<Icons.Plus />
@@ -250,7 +250,7 @@ export function TerminalPanel({
 					{/* Maximize/Restore */}
 					<button
 						onClick={() => setIsMaximized(!isMaximized)}
-						aria-label={isMaximized ? "Restore terminal" : "Maximize terminal"}
+						aria-label={isMaximized ? "Restore agent" : "Maximize agent"}
 						className="p-1 rounded-md text-inferay-text-3 hover:text-inferay-text-2 hover:bg-inferay-surface/50 transition-colors border border-transparent"
 						title={isMaximized ? "Restore" : "Maximize"}
 					>
@@ -258,7 +258,7 @@ export function TerminalPanel({
 					</button>
 					{/* Clear */}
 					<button
-						aria-label="Clear terminal"
+						aria-label="Clear agent"
 						className="p-1 rounded-md text-inferay-text-3 hover:text-inferay-text-2 hover:bg-inferay-surface/50 transition-colors border border-transparent"
 						title="Clear"
 					>
@@ -267,7 +267,7 @@ export function TerminalPanel({
 					{/* Minimize */}
 					<button
 						onClick={onToggle}
-						aria-label="Minimize terminal"
+						aria-label="Minimize agent"
 						className="p-1 rounded-md text-inferay-text-3 hover:text-inferay-text-2 hover:bg-inferay-surface/50 transition-colors border border-transparent"
 						title="Minimize"
 					>
@@ -287,14 +287,14 @@ export function TerminalPanel({
 				</div>
 			</div>
 
-			{/* Terminal content area */}
+			{/* Agent content area */}
 			<div className="flex-1 flex min-h-0 overflow-hidden">
 				{splitView ? (
 					<>
-						{terminalPanes.map((pane, i) => (
+						{agentPanes.map((pane, i) => (
 							<React.Fragment key={pane.id}>
 								{i > 0 && <div className="w-px bg-inferay-border shrink-0" />}
-								<SingleTerminalPane
+								<SingleAgentPane
 									pane={pane}
 									isActive={activePane === i}
 									onSelect={() => setActivePane(i)}
@@ -303,10 +303,7 @@ export function TerminalPanel({
 						))}
 					</>
 				) : (
-					<SingleTerminalPane
-						pane={terminalPanes[activePane]!}
-						isActive={true}
-					/>
+					<SingleAgentPane pane={agentPanes[activePane]!} isActive={true} />
 				)}
 			</div>
 		</div>

@@ -22,8 +22,8 @@ const repositories: Repository[] = [
 	},
 	{
 		id: "2",
-		name: "terminal-gui",
-		path: "~/projects/terminal-gui",
+		name: "agent-gui",
+		path: "~/projects/agent-gui",
 		branch: "feature/workflows",
 		lastCommit: "5m ago",
 		status: "changes",
@@ -156,8 +156,8 @@ function RepoDetail({ repo }: { repo: Repository }) {
 					</span>
 					<div className="mt-2 space-y-1">
 						<button className="w-full flex items-center gap-2 px-3 py-2 rounded-md border border-inferay-border text-[9px] text-inferay-text-2 hover:bg-inferay-surface transition-colors">
-							<Icons.Terminal className="text-inferay-text-3" />
-							Open in Terminal
+							<Icons.Agent className="text-inferay-text-3" />
+							Open in Agent
 						</button>
 						<button className="w-full flex items-center gap-2 px-3 py-2 rounded-md border border-inferay-border text-[9px] text-inferay-text-2 hover:bg-inferay-surface transition-colors">
 							<Icons.Code className="text-inferay-text-3" />

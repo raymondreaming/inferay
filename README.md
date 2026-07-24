@@ -5,14 +5,14 @@
 <h1 align="center">inferay</h1>
 
 <p align="center">
-  <strong>Run Claude and Codex side by side in a multi-pane terminal.</strong><br/>
+  <strong>Run Claude and Codex side by side in a multi-pane agent workspace.</strong><br/>
   Compare responses. Switch instantly. No lock-in.
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/runtime-Bun-f472b6?style=flat-square" />
   <img src="https://img.shields.io/badge/frontend-React_19-61dafb?style=flat-square" />
-  <img src="https://img.shields.io/badge/terminal-xterm.js-22c55e?style=flat-square" />
+  <img src="https://img.shields.io/badge/agent_shell-xterm.js-22c55e?style=flat-square" />
   <img src="https://img.shields.io/badge/styling-Tailwind_4-38bdf8?style=flat-square" />
   <img src="https://img.shields.io/badge/desktop-Electrobun-8b5cf6?style=flat-square" />
 </p>
@@ -21,7 +21,7 @@
 
 ## What is this?
 
-inferay is a multi-pane terminal with Claude and Codex built in. Run AI agents side by side, compare responses, and switch between them instantly.
+inferay is a multi-pane agent workspace with Claude and Codex built in. Run AI agents side by side, compare responses, and switch between them instantly.
 
 Every pane is a real PTY. Every agent chat is a real conversation.
 
@@ -38,7 +38,7 @@ Every pane is a real PTY. Every agent chat is a real conversation.
 - Connect with your own API keys
 - No middleman. No subscriptions. Direct access.
 
-**Terminal native**
+**Agent native**
 
 - Real PTY sessions alongside AI chat
 - Slash commands (`/review`, `/refactor`, `/debug`, `/test`, etc.)
@@ -108,7 +108,7 @@ the GitHub release, and publishes the npm CLI package.
 
 - **Runtime**: [Bun](https://bun.sh)
 - **Frontend**: React 19, React Router, TanStack Query
-- **Terminal**: xterm.js
+- **Agent workspace**: xterm.js
 - **Styling**: Tailwind CSS v4
 - **Desktop**: Electrobun
 - **Native acceleration**: optional Rust sidecar for diff computation

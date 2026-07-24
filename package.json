@@ -1,5 +1,5 @@
 {
-	"name": "terminal-gui",
+	"name": "agent-gui",
 	"module": "index.ts",
 	"type": "module",
 	"private": true,

@@ -8,8 +8,8 @@ type Workspace = {
 	model: string;
 	layout: {
 		sidebar: boolean;
-		terminal: boolean;
-		splitTerminal: boolean;
+		agent: boolean;
+		splitAgent: boolean;
 	};
 	prompts: string[];
 	isBuiltIn?: boolean;
@@ -22,7 +22,7 @@ const workspaces: Workspace[] = [
 		name: "Code Review",
 		description: "Thorough code analysis with detailed feedback",
 		model: "claude-opus",
-		layout: { sidebar: true, terminal: false, splitTerminal: false },
+		layout: { sidebar: true, agent: false, splitAgent: false },
 		prompts: ["bugs", "security", "simplify"],
 		isBuiltIn: true,
 		lastUsed: "2h ago",
@@ -32,7 +32,7 @@ const workspaces: Workspace[] = [
 		name: "Quick Tasks",
 		description: "Fast responses for simple questions",
 		model: "claude-haiku",
-		layout: { sidebar: false, terminal: true, splitTerminal: false },
+		layout: { sidebar: false, agent: true, splitAgent: false },
 		prompts: ["explain", "types"],
 		isBuiltIn: true,
 		lastUsed: "1d ago",
@@ -40,9 +40,9 @@ const workspaces: Workspace[] = [
 	{
 		id: "3",
 		name: "Debugging",
-		description: "Deep debugging with terminal output",
+		description: "Deep debugging with agent output",
 		model: "claude-sonnet",
-		layout: { sidebar: true, terminal: true, splitTerminal: true },
+		layout: { sidebar: true, agent: true, splitAgent: true },
 		prompts: ["bugs", "explain", "perf"],
 		isBuiltIn: true,
 		lastUsed: "3d ago",
@@ -52,7 +52,7 @@ const workspaces: Workspace[] = [
 		name: "Documentation",
 		description: "Generate docs and comments",
 		model: "claude-opus",
-		layout: { sidebar: true, terminal: false, splitTerminal: false },
+		layout: { sidebar: true, agent: false, splitAgent: false },
 		prompts: ["docs", "explain"],
 		isBuiltIn: true,
 	},
@@ -61,7 +61,7 @@ const workspaces: Workspace[] = [
 		name: "Testing",
 		description: "Write and run tests",
 		model: "claude-sonnet",
-		layout: { sidebar: false, terminal: true, splitTerminal: true },
+		layout: { sidebar: false, agent: true, splitAgent: true },
 		prompts: ["test", "bugs"],
 		isBuiltIn: true,
 	},
@@ -70,7 +70,7 @@ const workspaces: Workspace[] = [
 		name: "Refactoring",
 		description: "Clean up and optimize code",
 		model: "claude-opus",
-		layout: { sidebar: true, terminal: false, splitTerminal: false },
+		layout: { sidebar: true, agent: false, splitAgent: false },
 		prompts: ["simplify", "perf", "types"],
 		isBuiltIn: true,
 	},
@@ -79,7 +79,7 @@ const workspaces: Workspace[] = [
 		name: "Frontend Dev",
 		description: "React/Next.js workflow",
 		model: "claude-sonnet",
-		layout: { sidebar: true, terminal: true, splitTerminal: false },
+		layout: { sidebar: true, agent: true, splitAgent: false },
 		prompts: ["hooks", "types"],
 		isBuiltIn: false,
 		lastUsed: "5h ago",
@@ -89,7 +89,7 @@ const workspaces: Workspace[] = [
 		name: "API Development",
 		description: "Backend work with analysis",
 		model: "claude-opus",
-		layout: { sidebar: true, terminal: true, splitTerminal: true },
+		layout: { sidebar: true, agent: true, splitAgent: true },
 		prompts: ["api-pattern", "security"],
 		isBuiltIn: false,
 		lastUsed: "1w ago",
@@ -109,7 +109,7 @@ type WorkspaceFormState = {
 	description: string;
 	model: string;
 	sidebar: boolean;
-	terminal: boolean;
+	agent: boolean;
 	split: boolean;
 };
 
@@ -118,7 +118,7 @@ type WorkspaceFormAction =
 	| { type: "descriptionChanged"; value: string }
 	| { type: "modelChanged"; value: string }
 	| { type: "sidebarChanged"; value: boolean }
-	| { type: "terminalChanged"; value: boolean }
+	| { type: "agentChanged"; value: boolean }
 	| { type: "splitChanged"; value: boolean };
 
 const initialWorkspaceFormState: WorkspaceFormState = {
@@ -126,7 +126,7 @@ const initialWorkspaceFormState: WorkspaceFormState = {
 	description: "",
 	model: "claude-sonnet",
 	sidebar: true,
-	terminal: false,
+	agent: false,
 	split: false,
 };
 
@@ -143,8 +143,8 @@ function workspaceFormReducer(
 			return { ...state, model: action.value };
 		case "sidebarChanged":
 			return { ...state, sidebar: action.value };
-		case "terminalChanged":
-			return { ...state, terminal: action.value };
+		case "agentChanged":
+			return { ...state, agent: action.value };
 		case "splitChanged":
 			return { ...state, split: action.value };
 	}
@@ -272,18 +272,18 @@ function WorkspaceDetail({
 						</div>
 						<div
 							className={`flex items-center gap-1 px-2 py-1 rounded-md border text-[8px] ${
-								workspace.layout.terminal
+								workspace.layout.agent
 									? "border-inferay-border bg-inferay-surface-2 text-inferay-text"
 									: "border-inferay-border/50 text-inferay-text-3"
 							}`}
 						>
-							<Icons.Terminal />
-							Terminal
+							<Icons.Agent />
+							Agent
 						</div>
-						{workspace.layout.terminal && (
+						{workspace.layout.agent && (
 							<div
 								className={`flex items-center gap-1 px-2 py-1 rounded-md border text-[8px] ${
-									workspace.layout.splitTerminal
+									workspace.layout.splitAgent
 										? "border-inferay-border bg-inferay-surface-2 text-inferay-text"
 										: "border-inferay-border/50 text-inferay-text-3"
 								}`}
@@ -347,7 +347,7 @@ function CreateWorkspacePanel({ onClose }: { onClose: () => void }) {
 		workspaceFormReducer,
 		initialWorkspaceFormState
 	);
-	const { name, description, model, sidebar, terminal, split } = formState;
+	const { name, description, model, sidebar, agent, split } = formState;
 
 	const inputCls =
 		"w-full rounded-md bg-inferay-surface border border-inferay-border px-2 py-1.5 text-[10px] text-inferay-text placeholder:text-inferay-text-3 outline-none focus:border-inferay-accent/50";
@@ -446,18 +446,18 @@ function CreateWorkspacePanel({ onClose }: { onClose: () => void }) {
 						<label className="flex items-center gap-2 text-[9px] text-inferay-text-2 cursor-pointer">
 							<input
 								type="checkbox"
-								checked={terminal}
+								checked={agent}
 								onChange={(e) =>
 									dispatchForm({
-										type: "terminalChanged",
+										type: "agentChanged",
 										value: e.target.checked,
 									})
 								}
 								className="rounded border-inferay-border"
 							/>
-							Show terminal
+							Show agent
 						</label>
-						{terminal && (
+						{agent && (
 							<label className="flex items-center gap-2 text-[9px] text-inferay-text-2 cursor-pointer pl-4">
 								<input
 									type="checkbox"
@@ -470,7 +470,7 @@ function CreateWorkspacePanel({ onClose }: { onClose: () => void }) {
 									}
 									className="rounded border-inferay-border"
 								/>
-								Split terminal
+								Split agent
 							</label>
 						)}
 					</div>

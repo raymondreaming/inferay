@@ -10,7 +10,7 @@ import "../styles/global.css";
 		<meta name="viewport" content="width=device-width" />
 		<meta
 			name="description"
-			content="Inferay is a desktop shell for agent chats, terminals, file context, diffs, and repo workspaces."
+			content="Inferay is a desktop shell for agent chats, command shells, file context, diffs, and repo workspaces."
 		/>
 		<title>inferay</title>
 		<link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -48,7 +48,7 @@ import "../styles/global.css";
 						inferay
 					</h1>
 					<p class="mx-auto mb-8 max-w-lg text-[17px] leading-relaxed text-white/60">
-						Run agent chats, terminals, file context, diffs, and repo workspaces
+						Run agent chats, command shells, file context, diffs, and repo workspaces
 						in one desktop shell.
 					</p>
 
@@ -58,7 +58,7 @@ import "../styles/global.css";
 						>
 							<div class="flex h-9 items-center border-b border-white/10 px-3">
 								<span class="text-[12px] font-medium text-white/55">
-									Terminal
+									Agent
 								</span>
 								<span class="flex-1"></span>
 								<button
@@ -78,7 +78,7 @@ import "../styles/global.css";
 							id="copy-install-feedback"
 							class="mt-3 text-center text-[13px] text-white/40"
 						>
-							Install or launch from your terminal.
+							Install or launch from your command line.
 						</p>
 					</div>
 					<script>
@@ -96,7 +96,7 @@ import "../styles/global.css";
 									await navigator.clipboard.writeText(command);
 									if (feedback) {
 										feedback.textContent =
-											"Copied. Paste it into your terminal.";
+											"Copied. Paste it into your command line.";
 									}
 								} catch {
 									if (feedback) feedback.textContent = command;

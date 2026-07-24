@@ -119,7 +119,7 @@ const nodeTypes: Record<
 	prompt: {
 		label: "Prompt",
 		color: "blue",
-		icon: <Icons.Terminal />,
+		icon: <Icons.Agent />,
 	},
 	research: {
 		label: "Research",
