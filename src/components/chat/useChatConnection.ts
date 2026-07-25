@@ -15,6 +15,7 @@ import {
 	getToolBlockInitialContent,
 	isChatServerMessage,
 	nextId,
+	truncateChatContent,
 	type QueuedMessageInfo,
 	type ToolActivity,
 } from "../../features/chat/agent-chat-shared.ts";
@@ -175,7 +176,7 @@ export function useChatConnection({
 			appendTrimmedMessage.bind(null, {
 				id,
 				role: "assistant",
-				content,
+				content: truncateChatContent(content),
 				isStreaming,
 			})
 		);
@@ -189,7 +190,7 @@ export function useChatConnection({
 			appendTrimmedMessage.bind(null, {
 				id,
 				role: "tool",
-				content,
+				content: truncateChatContent(content),
 				toolName,
 				isStreaming: true,
 			})

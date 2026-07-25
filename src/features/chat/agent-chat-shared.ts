@@ -140,6 +140,9 @@ export function isChatServerMessage(
 
 const CHAT_MESSAGE_RETAIN_LIMIT = 5_000;
 const CHAT_MESSAGE_CHAR_LIMIT = 1_000_000;
+export const CHAT_SINGLE_MESSAGE_CHAR_LIMIT = 256_000;
+const CHAT_TRUNCATION_MARKER =
+	"\n\n[… content truncated to keep Inferay responsive …]\n\n";
 
 let msgId = 0;
 
@@ -147,11 +150,77 @@ export function nextId() {
 	return `c${++msgId}-${Date.now().toString(36)}`;
 }
 
+export function truncateChatContent(
+	content: string,
+	maxChars = CHAT_SINGLE_MESSAGE_CHAR_LIMIT
+): string {
+	if (content.length <= maxChars) return content;
+	if (maxChars <= CHAT_TRUNCATION_MARKER.length) {
+		return content.slice(-Math.max(0, maxChars));
+	}
+	const prefixLength = Math.min(
+		Math.floor(maxChars / 4),
+		maxChars - CHAT_TRUNCATION_MARKER.length
+	);
+	const suffixLength = maxChars - CHAT_TRUNCATION_MARKER.length - prefixLength;
+	if (suffixLength <= 0) {
+		return (content.slice(0, prefixLength) + CHAT_TRUNCATION_MARKER).slice(
+			0,
+			maxChars
+		);
+	}
+	return (
+		content.slice(0, prefixLength) +
+		CHAT_TRUNCATION_MARKER +
+		content.slice(-suffixLength)
+	);
+}
+
+export function appendBoundedChatContent(
+	current: string,
+	delta: string,
+	maxChars = CHAT_SINGLE_MESSAGE_CHAR_LIMIT
+): string {
+	if (!delta) return current;
+	if (current.length + delta.length <= maxChars) return current + delta;
+	if (maxChars <= CHAT_TRUNCATION_MARKER.length) {
+		return delta.length >= maxChars
+			? delta.slice(-Math.max(0, maxChars))
+			: (current.slice(-(maxChars - delta.length)) + delta).slice(-maxChars);
+	}
+	const prefixLength = Math.min(
+		Math.floor(maxChars / 4),
+		maxChars - CHAT_TRUNCATION_MARKER.length
+	);
+	const prefix = current.slice(0, prefixLength);
+	const suffixLength = maxChars - CHAT_TRUNCATION_MARKER.length - prefix.length;
+	if (suffixLength <= 0) {
+		return (prefix + CHAT_TRUNCATION_MARKER).slice(0, maxChars);
+	}
+	const suffix =
+		delta.length >= suffixLength
+			? delta.slice(-suffixLength)
+			: current.slice(-(suffixLength - delta.length)) + delta;
+	return prefix + CHAT_TRUNCATION_MARKER + suffix;
+}
+
 export function trimMessages<T extends { content: string }>(msgs: T[]): T[] {
 	let trimmed =
 		msgs.length > CHAT_MESSAGE_RETAIN_LIMIT
 			? msgs.slice(-CHAT_MESSAGE_RETAIN_LIMIT)
 			: msgs;
+	let normalized: T[] | null = null;
+	for (let index = 0; index < trimmed.length; index++) {
+		const message = trimmed[index]!;
+		const content = truncateChatContent(message.content);
+		if (content === message.content) {
+			if (normalized) normalized.push(message);
+			continue;
+		}
+		normalized ??= trimmed.slice(0, index);
+		normalized.push({ ...message, content });
+	}
+	if (normalized) trimmed = normalized;
 	let totalChars = trimmed.reduce(
 		(sum, message) => sum + message.content.length,
 		0

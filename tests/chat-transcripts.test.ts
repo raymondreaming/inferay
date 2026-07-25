@@ -66,7 +66,7 @@ test("chat transcript writes cache the storage-safe message shape", async () => 
 	}
 });
 
-test("chat restore treats event logs as authority over stale transcript snapshots", async () => {
+test("chat restore prefers bounded transcript snapshots over large event logs", async () => {
 	const paneId = `test-event-log-restore-${crypto.randomUUID()}`;
 	const transcriptPath = userDataPath("chat-transcripts", `${paneId}.json`);
 	const eventPath = userDataPath("chat-events", `${paneId}.jsonl`);
@@ -127,14 +127,9 @@ test("chat restore treats event logs as authority over stale transcript snapshot
 
 		const restored = await ChatService.readRestoredMessages(paneId);
 
-		expect(restored.map((message) => message.role)).toEqual([
-			"user",
-			"assistant",
+		expect(restored).toEqual([
+			{ id: "stale", role: "assistant", content: "stale snapshot" },
 		]);
-		expect(restored[0]?.content).toBe("/status");
-		expect(restored[0]?.images).toEqual(["image.png"]);
-		expect(restored[1]?.content).toBe("fresh event log");
-		expect(restored[1]?.isStreaming).toBe(false);
 	} finally {
 		await Promise.all([
 			rm(transcriptPath, { force: true }),

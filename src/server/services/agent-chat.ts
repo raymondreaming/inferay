@@ -4,6 +4,7 @@ import type { ServerWebSocket } from "bun";
 import type { ChatAgentKind } from "../../features/agents/agents.ts";
 import type {
 	ChatServerMessage,
+	ChatStreamEvent,
 	QueuedMessageInfo,
 } from "../../features/chat/agent-chat-shared.ts";
 import {
@@ -13,8 +14,10 @@ import {
 import {
 	getToolBlockInitialContent,
 	isChatStreamEvent,
+	appendBoundedChatContent,
 	prepareTranscriptForStorage,
 	trimMessages,
+	truncateChatContent,
 } from "../../features/chat/agent-chat-shared.ts";
 import {
 	createAgentEnv,
@@ -40,6 +43,8 @@ const GOAL_MAX_TURNS = 20;
 const CHAT_EVENTS_DIR = "chat-events";
 const CHAT_QUEUE_DIR = userDataPath("chat-queues");
 const CHAT_TRANSCRIPTS_DIR = "chat-transcripts";
+const MAX_CHAT_EVENT_READ_BYTES = 4 * 1024 * 1024;
+const TRANSCRIPT_CACHE_ENTRY_LIMIT = 24;
 const CODEX_WORKFLOW_INSTRUCTIONS = `<inferay-workflow-instructions>
 For coding tasks, inspect the relevant repository context before concluding that information is missing. Continue through implementation and proportionate verification unless blocked or the user asked only for analysis.
 During substantial work, provide brief progress updates before tool work and after meaningful findings. Keep updates factual and do not claim checks that were not run.
@@ -228,7 +233,12 @@ class ChatMessageBuffer {
 		content: string,
 		extra?: Partial<ChatTranscriptMessage>
 	) {
-		this.messages.push({ id: `s${++serverMsgId}`, role, content, ...extra });
+		this.messages.push({
+			id: `s${++serverMsgId}`,
+			role,
+			content: truncateChatContent(content),
+			...extra,
+		});
 		this.revision++;
 		this.trim();
 	}
@@ -273,7 +283,7 @@ class ChatMessageBuffer {
 				if (block.type === "text" && block.text) {
 					if (
 						!this.patchCurrent("currentAssistantIdx", {
-							content: block.text,
+							content: truncateChatContent(block.text),
 							isStreaming: !msg.stop_reason,
 						})
 					)
@@ -282,9 +292,11 @@ class ChatMessageBuffer {
 				} else if (block.type === "tool_use") {
 					this.appendTool(
 						block.name,
-						typeof block.input === "string"
-							? block.input
-							: JSON.stringify(block.input, null, 2)
+						truncateChatContent(
+							typeof block.input === "string"
+								? block.input
+								: JSON.stringify(block.input, null, 2)
+						)
 					);
 				}
 			}
@@ -303,14 +315,19 @@ class ChatMessageBuffer {
 				delta.text &&
 				this.currentAssistantIdx >= 0
 			) {
-				this.messages[this.currentAssistantIdx]!.content += delta.text;
+				const message = this.messages[this.currentAssistantIdx]!;
+				message.content = appendBoundedChatContent(message.content, delta.text);
 				this.revision++;
 			} else if (
 				delta?.type === "input_json_delta" &&
 				delta.partial_json &&
 				this.currentToolIdx >= 0
 			) {
-				this.messages[this.currentToolIdx]!.content += delta.partial_json;
+				const message = this.messages[this.currentToolIdx]!;
+				message.content = appendBoundedChatContent(
+					message.content,
+					delta.partial_json
+				);
 				this.revision++;
 			}
 		} else if (event.type === "content_block_stop") {
@@ -326,7 +343,7 @@ class ChatMessageBuffer {
 			if (assistantIdx >= 0 && assistantIdx < this.messages.length) {
 				this.messages[assistantIdx] = {
 					...this.messages[assistantIdx]!,
-					content: event.result,
+					content: truncateChatContent(event.result),
 					isStreaming: false,
 				};
 				this.revision++;
@@ -336,6 +353,7 @@ class ChatMessageBuffer {
 				this.push("assistant", event.result);
 			}
 		}
+		this.trim();
 	}
 
 	finalize() {
@@ -357,7 +375,7 @@ class ChatMessageBuffer {
 			if (message.role !== "assistant") continue;
 			const nextContent = replacer(message.content);
 			if (nextContent === message.content) continue;
-			message.content = nextContent;
+			message.content = truncateChatContent(nextContent);
 			this.revision++;
 		}
 	}
@@ -467,7 +485,12 @@ async function readChatEvents(
 	await pendingEventWrites.get(paneId)?.catch(() => {});
 	const file = Bun.file(eventPath(paneId));
 	if (!(await file.exists())) return [];
-	const text = await file.text();
+	const start = Math.max(0, file.size - MAX_CHAT_EVENT_READ_BYTES);
+	let text = await file.slice(start).text();
+	if (start > 0) {
+		const firstLineEnd = text.indexOf("\n");
+		text = firstLineEnd >= 0 ? text.slice(firstLineEnd + 1) : "";
+	}
 	const events: ChatEventLogEntry[] = [];
 	for (const line of text.split("\n")) {
 		if (!line.trim()) continue;
@@ -543,9 +566,9 @@ async function readEventLogTranscript(
 async function readAuthoritativeTranscript(
 	paneId: string
 ): Promise<ChatTranscriptMessage[] | null> {
-	const fromEventLog = await readEventLogTranscript(paneId);
-	if (fromEventLog) return fromEventLog;
-	return readChatTranscript(paneId);
+	const snapshot = await readChatTranscript(paneId);
+	if (snapshot) return snapshot;
+	return readEventLogTranscript(paneId);
 }
 
 async function listEventLogPaneIds(): Promise<string[]> {
@@ -554,8 +577,22 @@ async function listEventLogPaneIds(): Promise<string[]> {
 	);
 }
 
-// Transcript snapshots are a fast cache; event replay is the restore authority.
+// Bounded transcript snapshots are the restore authority. Event logs are only a
+// fallback for sessions that never completed a snapshot write.
 const transcriptCache = new Map<string, ChatTranscriptMessage[] | null>();
+
+function setTranscriptCache(
+	paneId: string,
+	messages: ChatTranscriptMessage[] | null
+) {
+	transcriptCache.delete(paneId);
+	transcriptCache.set(paneId, cloneTranscript(messages));
+	while (transcriptCache.size > TRANSCRIPT_CACHE_ENTRY_LIMIT) {
+		const oldestPaneId = transcriptCache.keys().next().value;
+		if (typeof oldestPaneId !== "string") break;
+		transcriptCache.delete(oldestPaneId);
+	}
+}
 
 function cloneTranscript(
 	messages: ChatTranscriptMessage[] | null
@@ -567,14 +604,18 @@ export async function readChatTranscript(
 	paneId: string
 ): Promise<ChatTranscriptMessage[] | null> {
 	if (transcriptCache.has(paneId)) {
-		return cloneTranscript(transcriptCache.get(paneId) ?? null);
+		const cached = transcriptCache.get(paneId) ?? null;
+		setTranscriptCache(paneId, cached);
+		return cloneTranscript(cached);
 	}
 	const transcript = await readJson<unknown>(
 		userDataPath(CHAT_TRANSCRIPTS_DIR, `${paneId}.json`),
 		null
 	);
-	const messages = isChatTranscript(transcript) ? transcript : null;
-	transcriptCache.set(paneId, cloneTranscript(messages));
+	const messages = isChatTranscript(transcript)
+		? trimMessages(transcript)
+		: null;
+	setTranscriptCache(paneId, messages);
 	return cloneTranscript(messages);
 }
 
@@ -582,8 +623,8 @@ export async function writeChatTranscript(
 	paneId: string,
 	messages: ChatTranscriptMessage[]
 ): Promise<void> {
-	const stored = prepareTranscriptForStorage(messages);
-	transcriptCache.set(paneId, cloneTranscript(stored));
+	const stored = prepareTranscriptForStorage(trimMessages(messages));
+	setTranscriptCache(paneId, stored);
 	await writeJson(userDataPath(CHAT_TRANSCRIPTS_DIR, `${paneId}.json`), stored);
 }
 
@@ -1062,6 +1103,110 @@ function ensureVisibleTurnCompletion(
 	emit({ type: "chat:event", paneId, event });
 }
 
+function boundToolInput(input: unknown): unknown {
+	const serialized = typeof input === "string" ? input : JSON.stringify(input);
+	const bounded = truncateChatContent(serialized);
+	return bounded === serialized ? input : bounded;
+}
+
+function boundChatEvent(event: ChatStreamEvent): ChatStreamEvent {
+	if (event.type === "content_block_delta") {
+		const delta = event.delta;
+		if (delta?.type === "text_delta" && delta.text) {
+			return {
+				...event,
+				delta: { ...delta, text: truncateChatContent(delta.text, 64_000) },
+			};
+		}
+		if (delta?.type === "input_json_delta" && delta.partial_json) {
+			return {
+				...event,
+				delta: {
+					...delta,
+					partial_json: truncateChatContent(delta.partial_json, 64_000),
+				},
+			};
+		}
+		return event;
+	}
+	if (event.type === "result") {
+		return event.result
+			? { ...event, result: truncateChatContent(event.result) }
+			: event;
+	}
+	if (event.type === "content_block_start") {
+		const block = event.content_block;
+		if (block?.type === "text" && block.text) {
+			return {
+				...event,
+				content_block: {
+					...block,
+					text: truncateChatContent(block.text),
+				},
+			};
+		}
+		if (block?.type === "tool_use" && block.input !== undefined) {
+			const input = boundToolInput(block.input);
+			if (input === block.input) return event;
+			return {
+				...event,
+				content_block: {
+					...block,
+					input,
+				},
+			};
+		}
+	}
+	if (event.type === "assistant" && event.message?.content) {
+		return {
+			...event,
+			message: {
+				...event.message,
+				content: event.message.content.map((block) =>
+					block.type === "text" && block.text
+						? { ...block, text: truncateChatContent(block.text) }
+						: block.type === "tool_use" && block.input !== undefined
+							? {
+									...block,
+									input: boundToolInput(block.input),
+								}
+							: block
+				),
+			},
+		};
+	}
+	return event;
+}
+
+function prepareChatEventForLog(
+	event: ChatStreamEvent
+): ChatStreamEvent | null {
+	return event.type === "content_block_delta" ? null : event;
+}
+
+function compactAgentEvent(event: AgentEvent): AgentEvent {
+	if (
+		event.type === "text-delta" ||
+		event.type === "thinking-delta" ||
+		event.type === "result"
+	) {
+		return { ...event, text: truncateChatContent(event.text, 16_000) };
+	}
+	if (event.type === "error") {
+		return { ...event, message: truncateChatContent(event.message, 16_000) };
+	}
+	if (event.type === "tool-call-start") {
+		return { ...event, input: undefined };
+	}
+	if (event.type === "tool-call-end") {
+		return { ...event, output: undefined };
+	}
+	if (event.type === "raw") {
+		return { ...event, event: undefined };
+	}
+	return event;
+}
+
 async function runBtwChatMessage(
 	paneId: string,
 	text: string,
@@ -1171,20 +1316,28 @@ async function runAgent(
 		updateSessionId: (nextSessionId) =>
 			chatRuntime.updateSessionId(session, nextSessionId),
 		emitChatEvent: (event) => {
-			appendChatEvent(paneId, "agent_event", event);
-			chatRuntime.send(session, { type: "chat:event", paneId, event });
-			session.messageBuffer.applyEvent(event);
+			const boundedEvent = boundChatEvent(event);
+			const persistedEvent = prepareChatEventForLog(boundedEvent);
+			if (persistedEvent)
+				appendChatEvent(paneId, "agent_event", persistedEvent);
+			chatRuntime.send(session, {
+				type: "chat:event",
+				paneId,
+				event: boundedEvent,
+			});
+			session.messageBuffer.applyEvent(boundedEvent);
 			chatRuntime.scheduleTranscriptPersist(session, paneId);
 		},
 		emitAgentEvent: (event) => {
-			session.agentEvents.push(event);
+			const compactEvent = compactAgentEvent(event);
+			session.agentEvents.push(compactEvent);
 			if (session.agentEvents.length > 500) {
 				session.agentEvents = session.agentEvents.slice(-500);
 			}
 			chatRuntime.send(session, {
 				type: "chat:agent-event",
 				paneId,
-				event,
+				event: compactEvent,
 			});
 		},
 		emitStatus: (status, isLoading = true) =>

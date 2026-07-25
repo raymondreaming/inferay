@@ -447,8 +447,8 @@ function createChatMessageReadModel(paneId: string): ChatMessageReadModel {
 			typeof update === "function"
 				? (update as (prev: ChatMessage[]) => ChatMessage[])(messages)
 				: update;
-		const deduped = compactAdjacentDuplicateTranscriptMessages(
-			dedupeStoredChatMessages(next)
+		const deduped = trimMessages(
+			compactAdjacentDuplicateTranscriptMessages(dedupeStoredChatMessages(next))
 		);
 		if (deduped === messages) return;
 		messages = deduped;
@@ -460,9 +460,14 @@ function createChatMessageReadModel(paneId: string): ChatMessageReadModel {
 		loadStarted = true;
 		const cachedMessages = await loadStoredMessagesAsync<ChatMessage>(paneId);
 		if (cachedMessages.length === 0 || messages.length > 0) return;
-		const nextMessages = compactAdjacentDuplicateTranscriptMessages(
-			dedupeStoredChatMessages(
-				cachedMessages.map((message) => ({ ...message, isStreaming: false }))
+		const nextMessages = trimMessages(
+			compactAdjacentDuplicateTranscriptMessages(
+				dedupeStoredChatMessages(
+					cachedMessages.map((message) => ({
+						...message,
+						isStreaming: false,
+					}))
+				)
 			)
 		);
 		if (nextMessages.length === 0) return;

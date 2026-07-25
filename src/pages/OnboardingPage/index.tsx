@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { useCallback, useEffect, useReducer } from "react";
+import { useCallback, useEffect, useReducer, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../../components/ui/Button.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
@@ -28,6 +28,11 @@ import {
 	saveSyncedAgentState,
 } from "../../features/agent/agent-utils.ts";
 import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
+import {
+	applyAppTheme,
+	loadAppThemeId,
+	saveAppThemeId,
+} from "../../lib/app-theme.ts";
 import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { lacksValue } from "../../lib/data.ts";
 import {
@@ -35,7 +40,7 @@ import {
 	resolveServerUrl,
 	sendJsonWithBusy,
 } from "../../lib/fetch-json.ts";
-import { writeStoredValue } from "../../lib/stored-json.ts";
+import { readStoredBoolean, writeStoredValue } from "../../lib/stored-json.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 
 export const ONBOARDING_DONE_KEY = "inferay-onboarding-done";
@@ -180,6 +185,7 @@ function getStepPhase(current: Step, target: Step): StepPhase {
 
 export function OnboardingPage() {
 	const navigate = useNavigate();
+	const [isFirstRun] = useState(() => !readStoredBoolean(ONBOARDING_DONE_KEY));
 	const [onboardingState, onboardingDispatch] = useReducer(
 		onboardingReducer,
 		initialOnboardingState
@@ -234,6 +240,13 @@ export function OnboardingPage() {
 		setAccounts(await fetchForgeAccounts(true));
 	};
 
+	useEffect(() => {
+		applyAppTheme("default");
+		return () => {
+			if (!isFirstRun) applyAppTheme(loadAppThemeId());
+		};
+	}, [isFirstRun]);
+
 	const connectGithub = async () => {
 		await sendJsonWithBusy(setConnecting, "/api/forge/connect", {
 			provider: "github",
@@ -286,20 +299,24 @@ export function OnboardingPage() {
 	};
 
 	const finish = useCallback(async () => {
+		if (isFirstRun) saveAppThemeId("default");
 		writeStoredValue(ONBOARDING_DONE_KEY, "true");
 		// Default to grid layout
 		writeStoredValue("agent-layout-mode", "grid");
 		writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, "chat");
 		// New users land directly in the multi-agent chat grid.
-		if (!(await loadCanonicalAgentState())) {
+		const canonicalState = await loadCanonicalAgentState();
+		if (!canonicalState || isFirstRun) {
 			saveSyncedAgentState(
-				createDefaultAgentState(),
+				canonicalState
+					? { ...canonicalState, themeId: "default" }
+					: createDefaultAgentState(),
 				"onboarding-default",
 				"canonical"
 			);
 		}
 		navigate("/agent", { replace: true });
-	}, [navigate]);
+	}, [isFirstRun, navigate]);
 
 	const completeOnboarding = useCallback(() => {
 		setStep("complete");
@@ -396,7 +413,7 @@ function IntroStep({
 				</p>
 
 				<div {...stylex.props(styles.primaryActions)}>
-					<Button type="button" onClick={onNext} variant="primary" size="lg">
+					<Button type="button" onClick={onNext} variant="secondary" size="lg">
 						Get started
 						<IconChevronRight size={16} />
 					</Button>
@@ -534,7 +551,7 @@ function GithubStep({
 						<IconArrowLeft size={16} />
 						Back
 					</Button>
-					<Button type="button" onClick={onNext} variant="primary" size="lg">
+					<Button type="button" onClick={onNext} variant="secondary" size="lg">
 						{accounts.length > 0 ? "Continue" : "Skip"}
 						<IconChevronRight size={16} />
 					</Button>
@@ -736,7 +753,7 @@ function ProjectsStep({
 					<Button
 						type="button"
 						onClick={onComplete}
-						variant="primary"
+						variant="secondary"
 						size="lg"
 					>
 						{totalProjects > 0 ? "Let's build" : "Skip & enter"}

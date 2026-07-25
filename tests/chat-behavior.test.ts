@@ -23,11 +23,14 @@ import {
 	windowChatMessagesForRender,
 } from "../src/components/chat/chat-state-utils.ts";
 import {
+	appendBoundedChatContent,
 	appendTrimmedMessage,
+	CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
 	type ChatMessage,
 	prepareTranscriptForStorage,
 	type ToolActivity,
 	trimMessages,
+	truncateChatContent,
 } from "../src/features/chat/agent-chat-shared.ts";
 import {
 	parseGoalSystemMessage,
@@ -85,6 +88,26 @@ describe("chat data behavior", () => {
 		expect(
 			appendTrimmedMessage(message("m600", "next"), trimmed).at(-1)?.id
 		).toBe("m600");
+	});
+
+	test("bounds a single oversized message and streamed appends", () => {
+		const oversized = `${"a".repeat(400_000)}${"z".repeat(400_000)}`;
+		const [trimmed] = trimMessages([message("large", oversized)]);
+
+		expect(trimmed?.content.length).toBe(CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
+		expect(trimmed?.content.startsWith("a")).toBe(true);
+		expect(trimmed?.content.endsWith("z")).toBe(true);
+		expect(trimmed?.content).toContain("content truncated");
+
+		let streamed = "";
+		for (let index = 0; index < 1_000; index++) {
+			streamed = appendBoundedChatContent(streamed, "x".repeat(1_000));
+		}
+		expect(streamed.length).toBe(CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
+		expect(streamed).toContain("content truncated");
+		expect(truncateChatContent("small", CHAT_SINGLE_MESSAGE_CHAR_LIMIT)).toBe(
+			"small"
+		);
 	});
 
 	/*

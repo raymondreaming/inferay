@@ -6,6 +6,10 @@ import {
 	createAgentEnv,
 	resolveAgentBinary,
 } from "../../features/agent/agent-command.ts";
+import {
+	appendBoundedChatContent,
+	truncateChatContent,
+} from "../../features/chat/agent-chat-shared.ts";
 import { noop } from "../../lib/data.ts";
 import { basename } from "../../lib/format.ts";
 import { isWithinDirectory } from "../security.ts";
@@ -344,7 +348,10 @@ export function handleCodexEvent(
 			delta: { type: "text_delta", text: textDelta },
 		});
 		ctx.emitAgentEvent({ type: "text-delta", text: textDelta });
-		state.lastAssistantMessage += textDelta;
+		state.lastAssistantMessage = appendBoundedChatContent(
+			state.lastAssistantMessage,
+			textDelta
+		);
 		state.hasFinalAssistantMessage = true;
 	};
 	const completeAssistantMessage = (text: string) => {
@@ -362,7 +369,7 @@ export function handleCodexEvent(
 		} else {
 			closeAssistant();
 		}
-		state.lastAssistantMessage = text;
+		state.lastAssistantMessage = truncateChatContent(text);
 		state.hasFinalAssistantMessage = true;
 		state.lastChatBlockRole = "assistant";
 	};
@@ -612,7 +619,7 @@ export function handleCodexEvent(
 		state.completedFromEvent = true;
 		const finalText = stringField(data, "last_agent_message");
 		if (finalText) {
-			state.lastAssistantMessage = finalText;
+			state.lastAssistantMessage = truncateChatContent(finalText);
 		}
 		if (finalText && !state.sawAssistantStream) {
 			ctx.emitChatEvent({
@@ -748,7 +755,8 @@ export const codexAdapter: AgentAdapter<CodexRunState> = {
 					hasFinalAssistantMessage: state.hasFinalAssistantMessage,
 					lastChatBlockRole: state.lastChatBlockRole,
 				});
-				if (assistantText) state.lastAssistantMessage = assistantText;
+				if (assistantText)
+					state.lastAssistantMessage = truncateChatContent(assistantText);
 				if (shouldEmitOutputFallback) {
 					ctx.emitChatEvent({
 						type: "result",

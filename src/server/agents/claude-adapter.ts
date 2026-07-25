@@ -1,4 +1,7 @@
-import { isChatStreamEvent } from "../../features/chat/agent-chat-shared.ts";
+import {
+	isChatStreamEvent,
+	truncateChatContent,
+} from "../../features/chat/agent-chat-shared.ts";
 import {
 	createAgentEnv,
 	resolveAgentBinary,
@@ -129,7 +132,9 @@ export const claudeAdapter: AgentAdapter<undefined> = {
 							(event as { type?: unknown }).type === "result" &&
 							typeof (event as { result?: unknown }).result === "string"
 						) {
-							lastAssistantMessage = (event as { result: string }).result;
+							lastAssistantMessage = truncateChatContent(
+								(event as { result: string }).result
+							);
 						}
 						emitClaudeAgentEvent(event, ctx);
 						if (isChatStreamEvent(event)) ctx.emitChatEvent(event);

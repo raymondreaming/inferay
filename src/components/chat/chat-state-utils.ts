@@ -1,8 +1,10 @@
 import {
+	appendBoundedChatContent,
 	type ChatMessage,
 	compactAdjacentDuplicateTranscriptMessages,
 	nextId,
 	trimMessages,
+	truncateChatContent,
 } from "../../features/chat/agent-chat-shared.ts";
 import { hasRole } from "../../lib/data.ts";
 
@@ -231,7 +233,7 @@ export function appendMessageContent(
 	content: string
 ): ChatStateMessage[] {
 	return patchMessageById(messages, id, (message) => ({
-		content: message.content + content,
+		content: appendBoundedChatContent(message.content, content),
 	}));
 }
 
@@ -270,7 +272,7 @@ export function finishBtwMessage(
 ): ChatMessage[] {
 	if (!id) return messages;
 	return patchMessageById(messages, id, {
-		content: answer,
+		content: truncateChatContent(answer),
 		isStreaming: false,
 	}) as ChatMessage[];
 }
@@ -305,13 +307,17 @@ export function applyAssistantResultMessage(
 		const updated = patchMessageById(
 			messages,
 			assistantId,
-			{ content: result, isStreaming: false },
+			{ content: truncateChatContent(result), isStreaming: false },
 			false
 		) as ChatMessage[];
 		if (updated !== messages) return updated;
 		return trimMessages([
 			...messages,
-			{ id: nextId(), role: "assistant", content: result },
+			{
+				id: nextId(),
+				role: "assistant",
+				content: truncateChatContent(result),
+			},
 		]);
 	}
 
@@ -331,7 +337,7 @@ export function applyAssistantResultMessage(
 			const updated = messages.slice();
 			updated[latestAssistantIndex] = {
 				...latestAssistant!,
-				content: result,
+				content: truncateChatContent(result),
 				isStreaming: false,
 			};
 			return trimMessages(updated);
@@ -339,7 +345,11 @@ export function applyAssistantResultMessage(
 	}
 	return trimMessages([
 		...messages,
-		{ id: nextId(), role: "assistant", content: result },
+		{
+			id: nextId(),
+			role: "assistant",
+			content: truncateChatContent(result),
+		},
 	]);
 }
 
