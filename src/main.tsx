@@ -39,6 +39,7 @@ import {
 import { getServerOrigin, resolveServerUrl } from "./lib/fetch-json.ts";
 import { listenWindowEvent } from "./lib/react-events.ts";
 import { readStoredBoolean, writeStoredValue } from "./lib/stored-json.ts";
+import { wsClient } from "./lib/websocket.ts";
 import { AutomationsPage } from "./pages/AutomationsPage";
 import { ImagesPage } from "./pages/ImagesPage";
 import { ONBOARDING_DONE_KEY, OnboardingPage } from "./pages/OnboardingPage";
@@ -208,6 +209,9 @@ const fallbackRouteElement = <Navigate to={DEFAULT_APP_ROUTE} replace />;
 
 function AppShell() {
 	const [background, setBackground] = useState(loadAppBackgroundSettings);
+	useEffect(() => {
+		wsClient.connect();
+	}, []);
 	useEffect(
 		() =>
 			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {

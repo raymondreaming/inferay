@@ -745,9 +745,6 @@ function AgentMainSurface({
 }
 
 export function AgentPage() {
-	useEffect(() => {
-		return wsClient.connect();
-	}, []);
 	const [viewState, viewDispatch] = useReducer(
 		agentViewReducer,
 		undefined,

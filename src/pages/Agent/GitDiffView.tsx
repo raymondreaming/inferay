@@ -31,6 +31,7 @@ import {
 	useSyntaxHighlightTheme,
 } from "../../hooks/useShikiHighlighter.tsx";
 import { contentOf } from "../../lib/data.ts";
+import { indexedValues } from "../../lib/indexed-values.ts";
 import {
 	activateOnEnterOrSpacePreventDefault,
 	listenWindowEvent,
@@ -701,9 +702,9 @@ const DiffRow = memo(function DiffRow({
 			? `${line.content.slice(0, MAX_RENDERED_LINE_CHARS)} ... [line truncated for display]`
 			: line.content;
 	const lineContent = highlightedTokens
-		? highlightedTokens.map((tok, i) => (
+		? indexedValues(highlightedTokens).map(({ index, value: tok }) => (
 				<span
-					key={`${i}-${tok.content}`}
+					key={`${index}-${tok.content}`}
 					style={{ backgroundColor: tok.bgColor, color: tok.color }}
 				>
 					{tok.content}
@@ -1322,9 +1323,9 @@ const DiffMinimap = memo(function DiffMinimap({
 				handleKeyboardJump
 			)}
 		>
-			{segments.map((seg, i) => (
+			{segments.map((seg) => (
 				<div
-					key={i}
+					key={`${seg.type}:${seg.startLine}:${seg.endLine}`}
 					{...stylex.props(
 						diffStyles.minimapSegment,
 						seg.type === "add"

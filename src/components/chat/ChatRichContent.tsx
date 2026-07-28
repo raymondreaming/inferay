@@ -9,6 +9,7 @@ import {
 	useState,
 } from "octane";
 import { noop } from "../../lib/data.ts";
+import { indexedValues } from "../../lib/indexed-values.ts";
 import {
 	color,
 	controlSize,
@@ -240,8 +241,8 @@ export const Markdown = memo(function Markdown({
 
 	return (
 		<div {...stylex.props(styles.markdownRoot)}>
-			{blocks.map((b, i) => {
-				const blockKey = `${b.type}-${i}`;
+			{indexedValues(blocks).map(({ index: blockIndex, value: b }) => {
+				const blockKey = `${b.type}-${blockIndex}`;
 				if (b.type === "code") {
 					return (
 						<CopyablePre
@@ -278,33 +279,35 @@ export const Markdown = memo(function Markdown({
 							<table {...stylex.props(styles.table)}>
 								<thead>
 									<tr>
-										{b.headers.map((h, hi) => (
-											<th key={hi} {...stylex.props(styles.tableHeadCell)}>
+										{indexedValues(b.headers).map(({ index, value: h }) => (
+											<th key={index} {...stylex.props(styles.tableHeadCell)}>
 												{h}
 											</th>
 										))}
 									</tr>
 								</thead>
 								<tbody>
-									{b.rows.map((row, ri) => (
-										<tr key={ri}>
-											{row.map((cell, ci) => (
-												<td
-													key={ci}
-													{...stylex.props(styles.tableCell)}
-													style={{
-														borderBottom:
-															ri < b.rows.length - 1
-																? "1px solid var(--color-inferay-gray-border)"
-																: "none",
-														color: "var(--color-inferay-white)",
-													}}
-												>
-													<Inline text={cell} onMdFileClick={onMdFileClick} />
-												</td>
-											))}
-										</tr>
-									))}
+									{indexedValues(b.rows).map(
+										({ index: rowIndex, value: row }) => (
+											<tr key={rowIndex}>
+												{indexedValues(row).map(({ index, value: cell }) => (
+													<td
+														key={index}
+														{...stylex.props(styles.tableCell)}
+														style={{
+															borderBottom:
+																rowIndex < b.rows.length - 1
+																	? "1px solid var(--color-inferay-gray-border)"
+																	: "none",
+															color: "var(--color-inferay-white)",
+														}}
+													>
+														<Inline text={cell} onMdFileClick={onMdFileClick} />
+													</td>
+												))}
+											</tr>
+										)
+									)}
 								</tbody>
 							</table>
 						</div>
@@ -678,10 +681,10 @@ export function AskUserQuestionCard({
 
 	return (
 		<div {...stylex.props(styles.questionStack)}>
-			{parsed.map((q, qi) => {
-				const qSelections = selections.get(qi) ?? new Set<number>();
+			{indexedValues(parsed).map(({ index: questionIndex, value: q }) => {
+				const qSelections = selections.get(questionIndex) ?? new Set<number>();
 				return (
-					<div key={qi} {...stylex.props(styles.questionCard)}>
+					<div key={questionIndex} {...stylex.props(styles.questionCard)}>
 						<div {...stylex.props(styles.questionHeader)}>
 							<IconHelpCircle size={12} style={{ color: accentColor }} />
 							{q.multiSelect && (
@@ -704,57 +707,67 @@ export function AskUserQuestionCard({
 						</div>
 						{q.options && q.options.length > 0 && (
 							<div {...stylex.props(styles.optionStack)}>
-								{q.options.map((opt, oi) => {
-									const isSelected = qSelections.has(oi);
-									return (
-										<button
-											type="button"
-											key={oi}
-											onClick={() => toggleOption(qi, oi, !!q.multiSelect)}
-											disabled={submitted}
-											{...stylex.props(
-												styles.optionButton,
-												isSelected ? styles.optionSelected : null,
-												submitted && !isSelected ? styles.optionDisabled : null
-											)}
-											style={{
-												borderColor: isSelected
-													? `${accentColor}50`
-													: "var(--color-inferay-gray-border)",
-												cursor: submitted ? "default" : "pointer",
-											}}
-										>
-											<span
-												{...stylex.props(styles.optionMarker)}
+								{indexedValues(q.options).map(
+									({ index: optionIndex, value: opt }) => {
+										const isSelected = qSelections.has(optionIndex);
+										return (
+											<button
+												type="button"
+												key={optionIndex}
+												onClick={() =>
+													toggleOption(
+														questionIndex,
+														optionIndex,
+														!!q.multiSelect
+													)
+												}
+												disabled={submitted}
+												{...stylex.props(
+													styles.optionButton,
+													isSelected ? styles.optionSelected : null,
+													submitted && !isSelected
+														? styles.optionDisabled
+														: null
+												)}
 												style={{
-													backgroundColor: isSelected
-														? accentColor
-														: `${accentColor}20`,
-													color: isSelected ? accentForeground : accentColor,
+													borderColor: isSelected
+														? `${accentColor}50`
+														: "var(--color-inferay-gray-border)",
+													cursor: submitted ? "default" : "pointer",
 												}}
 											>
-												{isSelected ? (
-													<IconCheck size={8} />
-												) : (
-													String.fromCharCode(65 + oi)
-												)}
-											</span>
-											<div {...stylex.props(styles.optionTextWrap)}>
-												<span {...stylex.props(styles.optionLabel)}>
-													{opt.label}
+												<span
+													{...stylex.props(styles.optionMarker)}
+													style={{
+														backgroundColor: isSelected
+															? accentColor
+															: `${accentColor}20`,
+														color: isSelected ? accentForeground : accentColor,
+													}}
+												>
+													{isSelected ? (
+														<IconCheck size={8} />
+													) : (
+														String.fromCharCode(65 + optionIndex)
+													)}
 												</span>
-												{opt.description && (
-													<p
-														{...stylex.props(styles.optionDescription)}
-														style={{ color: fgMuted }}
-													>
-														{opt.description}
-													</p>
-												)}
-											</div>
-										</button>
-									);
-								})}
+												<div {...stylex.props(styles.optionTextWrap)}>
+													<span {...stylex.props(styles.optionLabel)}>
+														{opt.label}
+													</span>
+													{opt.description && (
+														<p
+															{...stylex.props(styles.optionDescription)}
+															style={{ color: fgMuted }}
+														>
+															{opt.description}
+														</p>
+													)}
+												</div>
+											</button>
+										);
+									}
+								)}
 							</div>
 						)}
 					</div>

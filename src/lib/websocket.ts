@@ -13,6 +13,10 @@ interface WSMessage {
 
 type MessageHandler = (data: WSMessage) => void;
 type BinaryMessageHandler = (data: ArrayBuffer) => void;
+export type WebSocketConnectionStatus =
+	| "connecting"
+	| "connected"
+	| "disconnected";
 
 class WebSocketClient {
 	private ws: WebSocket | null = null;
@@ -20,6 +24,8 @@ class WebSocketClient {
 	private globalListeners = new Set<MessageHandler>();
 	private binaryListeners = new Set<BinaryMessageHandler>();
 	private reconnectCallbacks = new Set<() => void>();
+	private connectionListeners = new Set<() => void>();
+	private connectionStatus: WebSocketConnectionStatus = "connecting";
 	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	private pendingMessages: string[] = [];
 	private url: string;
@@ -37,9 +43,11 @@ class WebSocketClient {
 			this.ws?.readyState === WebSocket.CONNECTING
 		)
 			return;
+		this.setConnectionStatus("connecting");
 		this.ws = new WebSocket(this.url);
 		this.ws.binaryType = "arraybuffer";
 		this.ws.onopen = () => {
+			this.setConnectionStatus("connected");
 			if (this.reconnectTimer) {
 				clearTimeout(this.reconnectTimer);
 				this.reconnectTimer = null;
@@ -85,8 +93,14 @@ class WebSocketClient {
 			} catch {}
 		};
 		this.ws.onclose = () => {
+			this.setConnectionStatus("disconnected");
 			this.reconnectTimer = setTimeout(() => this.connect(), 2000);
 		};
+	}
+	private setConnectionStatus(status: WebSocketConnectionStatus) {
+		if (this.connectionStatus === status) return;
+		this.connectionStatus = status;
+		for (const listener of this.connectionListeners) listener();
 	}
 	subscribe(runId: string, handler: MessageHandler) {
 		if (!this.listeners.has(runId)) {
@@ -112,6 +126,15 @@ class WebSocketClient {
 			this.reconnectCallbacks.delete(handler);
 		};
 	}
+	onConnectionChange(handler: () => void) {
+		this.connectionListeners.add(handler);
+		return () => {
+			this.connectionListeners.delete(handler);
+		};
+	}
+	getConnectionStatus(): WebSocketConnectionStatus {
+		return this.connectionStatus;
+	}
 	onBinaryMessage(handler: BinaryMessageHandler) {
 		this.binaryListeners.add(handler);
 		return () => {
@@ -134,7 +157,11 @@ class WebSocketClient {
 		this.pendingMessages.length = 0;
 		this.ws?.close();
 		this.ws = null;
+		this.setConnectionStatus("disconnected");
 	}
 }
 
 export const wsClient = new WebSocketClient();
+export const subscribeWebSocketStatus = (handler: () => void) =>
+	wsClient.onConnectionChange(handler);
+export const getWebSocketStatus = () => wsClient.getConnectionStatus();

@@ -1,5 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useEffect, useRef, useState } from "octane";
+import { indexedValues } from "../../lib/indexed-values.ts";
 import {
 	type MdBlock,
 	type MdInlineToken,
@@ -215,8 +216,8 @@ function ListItemRenderer({ item }: { item: MdListItem }) {
 			<Inline text={item.content} />
 			{item.children.length > 0 && (
 				<ul {...stylex.props(styles.nestedList)}>
-					{item.children.map((child, j) => (
-						<ListItemRenderer key={j} item={child} />
+					{indexedValues(item.children).map(({ index, value: child }) => (
+						<ListItemRenderer key={index} item={child} />
 					))}
 				</ul>
 			)}
@@ -266,8 +267,8 @@ function BlockRenderer({ block }: { block: MdBlock }) {
 			const innerBlocks = parseBlocks(block.content);
 			return (
 				<div {...stylex.props(styles.blockquote)}>
-					{innerBlocks.map((inner, j) => (
-						<BlockRenderer key={j} block={inner} />
+					{indexedValues(innerBlocks).map(({ index, value: inner }) => (
+						<BlockRenderer key={index} block={inner} />
 					))}
 				</div>
 			);
@@ -283,23 +284,27 @@ function BlockRenderer({ block }: { block: MdBlock }) {
 					<table {...stylex.props(styles.table)}>
 						<thead>
 							<tr {...stylex.props(styles.tableHeadRow)}>
-								{block.rows[0]?.map((cell, j) => (
-									<th key={j} {...stylex.props(styles.tableHeadCell)}>
-										<Inline text={cell} />
-									</th>
-								))}
+								{indexedValues(block.rows[0] ?? []).map(
+									({ index, value: cell }) => (
+										<th key={index} {...stylex.props(styles.tableHeadCell)}>
+											<Inline text={cell} />
+										</th>
+									)
+								)}
 							</tr>
 						</thead>
 						<tbody>
-							{block.rows.slice(1).map((row, k) => (
-								<tr key={k} {...stylex.props(styles.tableRow)}>
-									{row.map((cell, j) => (
-										<td key={j} {...stylex.props(styles.tableCell)}>
-											<Inline text={cell} />
-										</td>
-									))}
-								</tr>
-							))}
+							{indexedValues(block.rows.slice(1)).map(
+								({ index: rowIndex, value: row }) => (
+									<tr key={rowIndex} {...stylex.props(styles.tableRow)}>
+										{indexedValues(row).map(({ index, value: cell }) => (
+											<td key={index} {...stylex.props(styles.tableCell)}>
+												<Inline text={cell} />
+											</td>
+										))}
+									</tr>
+								)
+							)}
 						</tbody>
 					</table>
 				</div>

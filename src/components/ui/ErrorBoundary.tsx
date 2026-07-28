@@ -2,26 +2,33 @@ import * as stylex from "@octanejs/stylex";
 import { ErrorBoundary as OctaneErrorBoundary, useEffect } from "octane";
 import { color, font } from "../../tokens.stylex.ts";
 
-function ReconnectingFallback({ reset }: { reset: () => void }) {
+function RecoveryFallback({
+	error,
+	reset,
+}: {
+	error: unknown;
+	reset: () => void;
+}) {
 	useEffect(() => {
+		console.error("[renderer] Recovered from an app render error:", error);
 		const timer = window.setTimeout(reset, 1500);
 		return () => window.clearTimeout(timer);
-	}, [reset]);
+	}, [error, reset]);
 
 	return (
 		<div {...stylex.props(styles.fallback)}>
-			<p {...stylex.props(styles.message)}>Reconnecting…</p>
+			<p {...stylex.props(styles.message)}>Recovering the workspace…</p>
 		</div>
 	);
 }
 
-function renderReconnectingFallback(_error: unknown, reset: () => void) {
-	return <ReconnectingFallback reset={reset} />;
+function renderRecoveryFallback(error: unknown, reset: () => void) {
+	return <RecoveryFallback error={error} reset={reset} />;
 }
 
 export function ErrorBoundary({ children }: { children: unknown }) {
 	return (
-		<OctaneErrorBoundary fallback={renderReconnectingFallback}>
+		<OctaneErrorBoundary fallback={renderRecoveryFallback}>
 			{children}
 		</OctaneErrorBoundary>
 	);

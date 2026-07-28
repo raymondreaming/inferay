@@ -6,6 +6,7 @@ import {
 	useSyntaxHighlightTheme,
 } from "../../hooks/useShikiHighlighter.tsx";
 import { fetchJson, postJson } from "../../lib/fetch-json.ts";
+import { indexedValues } from "../../lib/indexed-values.ts";
 import { listenWindowEvent, setInputValue } from "../../lib/react-events.ts";
 import {
 	color,
@@ -97,15 +98,13 @@ function SyntaxEditor({
 				aria-hidden="true"
 				{...stylex.props(styles.syntaxLayer)}
 			>
-				{lines.map((line, lineIndex) => (
-					<div key={lineIndex} {...stylex.props(styles.syntaxLine)}>
-						<span {...stylex.props(styles.syntaxLineNumber)}>
-							{lineIndex + 1}
-						</span>
+				{indexedValues(lines).map(({ index, value: line }) => (
+					<div key={index} {...stylex.props(styles.syntaxLine)}>
+						<span {...stylex.props(styles.syntaxLineNumber)}>{index + 1}</span>
 						<span
 							{...stylex.props(styles.syntaxCode)}
 							dangerouslySetInnerHTML={{
-								__html: highlighted.get(lineIndex) ?? escapeHtml(line || " "),
+								__html: highlighted.get(index) ?? escapeHtml(line || " "),
 							}}
 						/>
 					</div>

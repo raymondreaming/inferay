@@ -4,6 +4,7 @@ import {
 	useShikiSnippet,
 	useSyntaxHighlightTheme,
 } from "../../hooks/useShikiHighlighter.tsx";
+import { indexedValues } from "../../lib/indexed-values.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 import { IconChevronRight, IconFilePlus } from "../ui/Icons.tsx";
 import {
@@ -118,17 +119,20 @@ function EditDiffCard({
 						{...stylex.props(styles.bodyInner)}
 						style={{ width: contentWidth }}
 					>
-						{hunks.map((hunk, hunkIdx) => {
+						{indexedValues(hunks).map((hunkEntry) => {
+							const hunk = hunkEntry.value;
 							const segmentMap = buildChangedLineSegmentMap(hunk.lines);
 							return (
-								<div key={hunkIdx} {...stylex.props(styles.hunkBlock)}>
+								<div key={hunkEntry.index} {...stylex.props(styles.hunkBlock)}>
 									{hunk.hiddenBefore > 0 && (
 										<HunkSeparator
 											hiddenCount={hunk.hiddenBefore}
 											hunk={hunk}
 										/>
 									)}
-									{hunk.lines.map((line, lineIdx) => {
+									{indexedValues(hunk.lines).map((lineEntry) => {
+										const line = lineEntry.value;
+										const lineIdx = lineEntry.index;
 										const isRemoved = line.type === "removed";
 										const isAdded = line.type === "added";
 										const highlightedHtml = highlighted.get(globalLineIdx);
@@ -138,24 +142,23 @@ function EditDiffCard({
 
 										const lineContent = lineSegments ? (
 											<span {...stylex.props(styles.lineText)}>
-												{lineSegments.map((segment, segmentIdx) => (
+												{indexedValues(lineSegments).map((segmentEntry) => (
 													<span
-														key={segmentIdx}
+														key={segmentEntry.index}
 														{...stylex.props(
-															segment.changed &&
+															segmentEntry.value.changed &&
 																(isRemoved
 																	? styles.inlineRemoved
 																	: styles.inlineAdded)
 														)}
 													>
-														{segment.text || " "}
+														{segmentEntry.value.text || " "}
 													</span>
 												))}
 											</span>
 										) : isReady && highlightedHtml ? (
 											<span
 												{...stylex.props(styles.lineText)}
-												// biome-ignore lint/security/noDangerouslySetInnerHtml: Shiki returns escaped syntax-highlighted HTML.
 												dangerouslySetInnerHTML={{ __html: highlightedHtml }}
 											/>
 										) : (
@@ -166,7 +169,7 @@ function EditDiffCard({
 
 										return (
 											<div
-												key={`${hunkIdx}-${lineIdx}`}
+												key={`${hunkEntry.index}-${lineEntry.index}`}
 												{...stylex.props(
 													styles.diffLine,
 													isRemoved && styles.removedLine,

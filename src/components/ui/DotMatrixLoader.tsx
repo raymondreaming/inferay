@@ -13,6 +13,19 @@ const RIPPLE_RING_5 = [
 	4, 3, 2, 3, 4, 3, 2, 1, 2, 3, 2, 1, 0, 1, 2, 3, 2, 1, 2, 3, 4, 3, 2, 3, 4,
 ] as const;
 
+const SPIRAL_DOTS = SPIRAL_ORDER_5.map((order, id) => ({ id, order }));
+const RIPPLE_DOTS = RIPPLE_RING_5.map((ring, id) => ({ id, ring }));
+const WEAVE_DOTS = Array.from({ length: 25 }, (_, id) => {
+	const row = Math.floor(id / 5);
+	const col = id % 5;
+	return {
+		col,
+		id,
+		peak: col === 1 || col === 3,
+		row,
+	};
+});
+
 const BASE_CYCLE_MS = 2400;
 const RIPPLE_CYCLE_MS = 1500;
 const rippleEcho = stylex.keyframes({
@@ -77,16 +90,16 @@ function DotMatrixLoader({
 			}
 			{...a11yProps}
 		>
-			{SPIRAL_ORDER_5.map((order, i) => (
+			{SPIRAL_DOTS.map((dot) => (
 				<span
-					key={i}
+					key={dot.id}
 					{...stylex.props(styles.spiralDot)}
 					style={
 						{
 							width: `${dotSize}px`,
 							height: `${dotSize}px`,
 							"--dmx-cycle": `${cycleMs}ms`,
-							"--dmx-spiral-order": order,
+							"--dmx-spiral-order": dot.order,
 						} as CSSProperties
 					}
 				/>
@@ -117,17 +130,17 @@ export function DotMatrixRipple({
 			}
 			{...a11yProps}
 		>
-			{RIPPLE_RING_5.map((ring, i) => (
+			{RIPPLE_DOTS.map((dot) => (
 				<span
-					key={i}
+					key={dot.id}
 					{...stylex.props(styles.rippleDot)}
 					style={
 						{
 							width: `${dotSize}px`,
 							height: `${dotSize}px`,
 							"--dmx-cycle": `${cycleMs}ms`,
-							"--dmx-ripple-ring": ring,
-							"--dmx-ripple-parity": ring % 2,
+							"--dmx-ripple-ring": dot.ring,
+							"--dmx-ripple-parity": dot.ring % 2,
 						} as CSSProperties
 					}
 				/>
@@ -169,28 +182,23 @@ export function DotMatrixWeave({
 					} as CSSProperties
 				}
 			>
-				{Array.from({ length: 25 }, (_, index) => {
-					const row = Math.floor(index / 5);
-					const col = index % 5;
-					const peak = col === 1 || col === 3;
-					return (
-						<span
-							key={index}
-							{...stylex.props(
-								styles.weaveDot,
-								peak ? styles.weaveDotPeak : styles.weaveDotBase
-							)}
-							style={
-								{
-									height: dotSize,
-									"--dmx-weave-center-distance": Math.abs(2 - col),
-									"--dmx-weave-row": row,
-									width: dotSize,
-								} as CSSProperties
-							}
-						/>
-					);
-				})}
+				{WEAVE_DOTS.map((dot) => (
+					<span
+						key={dot.id}
+						{...stylex.props(
+							styles.weaveDot,
+							dot.peak ? styles.weaveDotPeak : styles.weaveDotBase
+						)}
+						style={
+							{
+								height: dotSize,
+								"--dmx-weave-center-distance": Math.abs(2 - dot.col),
+								"--dmx-weave-row": dot.row,
+								width: dotSize,
+							} as CSSProperties
+						}
+					/>
+				))}
 			</div>
 		</div>
 	);

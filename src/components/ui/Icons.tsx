@@ -427,9 +427,9 @@ export function CommitGraphLinesLayer({
 					/>
 				);
 			})}
-			{transitions.map((transition, i) => (
+			{transitions.map((transition) => (
 				<path
-					key={i}
+					key={`${transition.color}:${buildConnection(transition)}`}
 					d={buildConnection(transition)}
 					stroke={transition.color}
 					strokeWidth={lineWidth}

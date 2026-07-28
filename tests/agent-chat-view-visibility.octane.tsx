@@ -5,6 +5,7 @@ import { expect, test, vi } from "vitest";
 const mock = Object.assign(vi.fn, {
 	module: (path: string, factory: () => unknown) => vi.doMock(path, factory),
 });
+const sendMock = mock(() => {});
 
 mock.module("@octanejs/stylex", () => ({
 	create: <T extends Record<string, unknown>>(styles: T) => styles,
@@ -22,10 +23,12 @@ mock.module("@octanejs/stylex", () => ({
 }));
 
 mock.module("../src/lib/websocket.ts", () => ({
+	getWebSocketStatus: () => "connected",
+	subscribeWebSocketStatus: () => () => {},
 	wsClient: {
 		onMessage: mock(() => () => {}),
 		onReconnect: mock(() => () => {}),
-		send: mock(() => {}),
+		send: sendMock,
 		subscribe: mock(() => () => {}),
 	},
 }));
@@ -127,6 +130,7 @@ function setupDom() {
 		y: 0,
 		toJSON: () => {},
 	});
+	dom.window.HTMLElement.prototype.scrollTo = () => {};
 	const rootElement = dom.window.document.getElementById("root");
 	if (!rootElement) throw new Error("Missing root element");
 	return { root: createRoot(rootElement), rootElement };
@@ -238,6 +242,59 @@ test("draft typing does not re-render long chat message list", async () => {
 		await tick(50);
 
 		expect(chatMessageListRenderCount).toBe(renderCountAfterMount);
+	} finally {
+		root.unmount();
+		globalThis.fetch = previousFetch;
+	}
+});
+
+test("sending a message keeps the chat pane mounted", async () => {
+	const previousFetch = globalThis.fetch;
+	globalThis.fetch = mock((input: RequestInfo | URL) => {
+		const url = String(input);
+		if (url.includes("/api/prompts")) return Promise.resolve(Response.json([]));
+		if (url.includes("/api/chat-queues/")) {
+			return Promise.resolve(Response.json({ queue: [] }));
+		}
+		return Promise.resolve(Response.json({ ok: true }));
+	}) as unknown as typeof fetch;
+	sendMock.mockClear();
+	const { root, rootElement } = setupDom();
+	try {
+		const { AgentChatView } =
+			await import("../src/components/chat/AgentChatView.tsx");
+		root.render(
+			<AgentChatView
+				paneId="pane-send-render"
+				cwd="/tmp/project"
+				gitBranch="main"
+				agentKind="codex"
+				isVisible
+			/>
+		);
+		await tick(50);
+		const textarea = rootElement.querySelector("textarea");
+		if (!textarea) throw new Error("Missing chat textarea");
+
+		textarea.value = "hello from octane";
+		textarea.dispatchEvent(new window.Event("input", { bubbles: true }));
+		textarea.dispatchEvent(
+			new window.KeyboardEvent("keydown", {
+				bubbles: true,
+				key: "Enter",
+			})
+		);
+		await tick(50);
+
+		expect(rootElement.querySelector("textarea")).not.toBeNull();
+		expect(rootElement.textContent).toContain("hello from octane");
+		expect(sendMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: "chat:send",
+				paneId: "pane-send-render",
+				text: "hello from octane",
+			})
+		);
 	} finally {
 		root.unmount();
 		globalThis.fetch = previousFetch;

@@ -1,6 +1,10 @@
 import * as stylex from "@octanejs/stylex";
-import { memo, useEffect, useState } from "octane";
+import { memo, useEffect, useState, useSyncExternalStore } from "octane";
 import type { ToolActivity } from "../../features/chat/agent-chat-shared.ts";
+import {
+	getWebSocketStatus,
+	subscribeWebSocketStatus,
+} from "../../lib/websocket.ts";
 import {
 	color,
 	controlSize,
@@ -73,6 +77,11 @@ export const AgentChatStatusBar = memo(function AgentChatStatusBar({
 			summary: string;
 		}>
 	>([]);
+	const connectionStatus = useSyncExternalStore(
+		subscribeWebSocketStatus,
+		getWebSocketStatus,
+		getWebSocketStatus
+	);
 	const statusToolName = getStatusToolName(status);
 
 	useEffect(() => {
@@ -95,7 +104,7 @@ export const AgentChatStatusBar = memo(function AgentChatStatusBar({
 		});
 	}, [isLoading, statusToolName]);
 
-	if (!isLoading) return null;
+	if (!isLoading && connectionStatus === "connected") return null;
 	const activityItems =
 		liveActivities.length > 0 ? liveActivities : statusActivities;
 	const latestActivity = activityItems[activityItems.length - 1];
@@ -106,68 +115,87 @@ export const AgentChatStatusBar = memo(function AgentChatStatusBar({
 
 	return (
 		<div {...stylex.props(styles.root)}>
-			<div
-				{...stylex.props(styles.activityWrap)}
-				onMouseEnter={() => setIsHovered(true)}
-				onMouseLeave={() => setIsHovered(false)}
-			>
-				<div {...stylex.props(styles.activityPill)}>
-					{displayToolName && (
-						<span {...stylex.props(styles.activityIcon)}>
-							<ToolStatusIcon toolName={displayToolName} />
-						</span>
-					)}
-					<span {...stylex.props(styles.activitySummary)}>
-						{displaySummary}
+			{connectionStatus !== "connected" && (
+				<div
+					{...stylex.props(styles.connectionPill)}
+					title="Messages stay queued until the app server reconnects"
+				>
+					<span {...stylex.props(styles.connectionDot)} />
+					<span>
+						{connectionStatus === "connecting"
+							? "Connecting…"
+							: "Offline — sends are queued"}
 					</span>
-					{activityCount > 1 && (
-						<span {...stylex.props(styles.activityCount)}>
-							+{activityCount - 1}
+				</div>
+			)}
+			{isLoading && (
+				<div
+					{...stylex.props(styles.activityWrap)}
+					onMouseEnter={() => setIsHovered(true)}
+					onMouseLeave={() => setIsHovered(false)}
+				>
+					<div {...stylex.props(styles.activityPill)}>
+						{displayToolName && (
+							<span {...stylex.props(styles.activityIcon)}>
+								<ToolStatusIcon toolName={displayToolName} />
+							</span>
+						)}
+						<span {...stylex.props(styles.activitySummary)}>
+							{displaySummary}
 						</span>
+						{activityCount > 1 && (
+							<span {...stylex.props(styles.activityCount)}>
+								+{activityCount - 1}
+							</span>
+						)}
+					</div>
+
+					{isHovered && activityCount > 0 && (
+						<div {...stylex.props(styles.activityPopover)}>
+							<div {...stylex.props(styles.popoverHeader)}>
+								<span>Activity</span>
+								<span {...stylex.props(styles.tabularText)}>
+									{activityCount}
+								</span>
+							</div>
+							<div {...stylex.props(styles.popoverList)}>
+								{activityItems.map((activity, idx) => (
+									<div
+										key={activity.id}
+										{...stylex.props(
+											styles.popoverRow,
+											idx < activityItems.length - 1
+												? styles.popoverRowBorder
+												: null
+										)}
+									>
+										<span {...stylex.props(styles.activityIcon)}>
+											<ToolStatusIcon toolName={activity.toolName} />
+										</span>
+										<span {...stylex.props(styles.popoverSummary)}>
+											{activity.summary}
+										</span>
+										{activity.isStreaming && (
+											<span {...stylex.props(styles.liveDot)} />
+										)}
+									</div>
+								))}
+							</div>
+						</div>
 					)}
 				</div>
+			)}
 
-				{isHovered && activityCount > 0 && (
-					<div {...stylex.props(styles.activityPopover)}>
-						<div {...stylex.props(styles.popoverHeader)}>
-							<span>Activity</span>
-							<span {...stylex.props(styles.tabularText)}>{activityCount}</span>
-						</div>
-						<div {...stylex.props(styles.popoverList)}>
-							{activityItems.map((activity, idx) => (
-								<div
-									key={activity.id}
-									{...stylex.props(
-										styles.popoverRow,
-										idx < activityItems.length - 1
-											? styles.popoverRowBorder
-											: null
-									)}
-								>
-									<span {...stylex.props(styles.activityIcon)}>
-										<ToolStatusIcon toolName={activity.toolName} />
-									</span>
-									<span {...stylex.props(styles.popoverSummary)}>
-										{activity.summary}
-									</span>
-									{activity.isStreaming && (
-										<span {...stylex.props(styles.liveDot)} />
-									)}
-								</div>
-							))}
-						</div>
-					</div>
-				)}
-			</div>
-
-			<button
-				type="button"
-				onClick={onStop}
-				{...stylex.props(styles.stopButton)}
-			>
-				<IconStop size={12} {...stylex.props(styles.toolIcon)} />
-				Stop
-			</button>
+			{isLoading && (
+				<button
+					type="button"
+					onClick={onStop}
+					{...stylex.props(styles.stopButton)}
+				>
+					<IconStop size={12} {...stylex.props(styles.toolIcon)} />
+					Stop
+				</button>
+			)}
 		</div>
 	);
 });
@@ -210,6 +238,26 @@ const styles = stylex.create({
 		transitionDuration: motion.durationBase,
 		transitionProperty: "background-color, border-color, color",
 		transitionTimingFunction: motion.ease,
+	},
+	connectionPill: {
+		alignItems: "center",
+		backgroundColor: color.backgroundRaised,
+		borderColor: color.border,
+		borderRadius: radius.md,
+		borderStyle: "solid",
+		borderWidth: 1,
+		color: color.textMuted,
+		display: "flex",
+		fontSize: font.size_2,
+		gap: controlSize._1_5,
+		height: controlSize._6,
+		paddingInline: controlSize._2_5,
+	},
+	connectionDot: {
+		backgroundColor: color.warning,
+		borderRadius: "50%",
+		height: 5,
+		width: 5,
 	},
 	activityIcon: {
 		color: color.textMuted,

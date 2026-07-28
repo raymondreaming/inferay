@@ -2,6 +2,7 @@ import * as stylex from "@octanejs/stylex";
 import { memo, useCallback, useEffect, useRef } from "octane";
 import type { AgentChatHandle } from "../../components/chat/AgentChatView.tsx";
 import { AgentChatView } from "../../components/chat/AgentChatView.tsx";
+import { ChatPaneBoundary } from "../../components/chat/ChatPaneBoundary.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
 import { IconAgent, IconX } from "../../components/ui/Icons.tsx";
 import type {
@@ -218,24 +219,26 @@ export const AgentPaneView = memo(function AgentPaneView({
 						!interactionEnabled && styles.agentPaneDisabled
 					)}
 				>
-					<AgentChatView
-						paneId={pane.id}
-						cwd={pane.cwd}
-						referencePaths={pane.referencePaths}
-						gitBranch={gitBranch}
-						agentKind={viewAgentKind}
-						onStatusChange={onAgentStatusChange}
-						onClose={onClose}
-						isSelected={isSelected}
-						isVisible={isVisible}
-						onDirectoryChange={handleDirectoryChange}
-						onDirectoryCancel={onDirectoryCancel}
-						onAddPane={onAddPane}
-						draggable={paneIndex != null && !!onHeaderDragStart}
-						onDragStart={handlePaneDragStart}
-						onDragEnd={onHeaderDragEnd}
-						ref={handleChatRef}
-					/>
+					<ChatPaneBoundary key={pane.id}>
+						<AgentChatView
+							paneId={pane.id}
+							cwd={pane.cwd}
+							referencePaths={pane.referencePaths}
+							gitBranch={gitBranch}
+							agentKind={viewAgentKind}
+							onStatusChange={onAgentStatusChange}
+							onClose={onClose}
+							isSelected={isSelected}
+							isVisible={isVisible}
+							onDirectoryChange={handleDirectoryChange}
+							onDirectoryCancel={onDirectoryCancel}
+							onAddPane={onAddPane}
+							draggable={paneIndex != null && !!onHeaderDragStart}
+							onDragStart={handlePaneDragStart}
+							onDragEnd={onHeaderDragEnd}
+							ref={handleChatRef}
+						/>
+					</ChatPaneBoundary>
 				</div>
 			)}
 		</div>

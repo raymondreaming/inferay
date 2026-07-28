@@ -72,6 +72,26 @@ export const SYNTAX_HIGHLIGHT_THEMES: {
 const SYNTAX_THEME_STORAGE_KEY = "inferay-syntax-highlight-theme" as const;
 const SYNTAX_THEME_EVENT = "inferay-syntax-highlight-theme-change" as const;
 const EMPTY_HIGHLIGHTS = new Map<number, string>();
+const MAX_CACHED_HIGHLIGHT_LINES = 2_000;
+const HIGHLIGHT_CACHE_RANGE_PADDING = 500;
+
+function pruneHighlightCache<T>(
+	cache: Map<number, T>,
+	visibleStart: number,
+	visibleEnd: number
+) {
+	if (cache.size <= MAX_CACHED_HIGHLIGHT_LINES) return;
+	const keepStart = Math.max(0, visibleStart - HIGHLIGHT_CACHE_RANGE_PADDING);
+	const keepEnd = visibleEnd + HIGHLIGHT_CACHE_RANGE_PADDING;
+	for (const lineIndex of cache.keys()) {
+		if (lineIndex < keepStart || lineIndex > keepEnd) cache.delete(lineIndex);
+	}
+	if (cache.size <= MAX_CACHED_HIGHLIGHT_LINES) return;
+	for (const lineIndex of cache.keys()) {
+		cache.delete(lineIndex);
+		if (cache.size <= MAX_CACHED_HIGHLIGHT_LINES) break;
+	}
+}
 const FALLBACK_TOKEN_COLORS = {
 	keyword: "#c586c0",
 	string: "#ce9178",
@@ -425,6 +445,7 @@ export function useShikiHighlighter({
 				for (const [lineIdx, tokens] of highlighted) {
 					cacheRef.current.set(lineIdx, tokens);
 				}
+				pruneHighlightCache(cacheRef.current, start, end);
 
 				setReadyKey(highlightKey);
 				setHighlightVersion(incrementNumber);
@@ -474,6 +495,7 @@ export function useShikiHighlighter({
 				for (const [lineIdx, tokens] of highlighted) {
 					cacheRef.current.set(lineIdx, tokens);
 				}
+				pruneHighlightCache(cacheRef.current, visibleStart, visibleEnd);
 				setHighlightVersion(incrementNumber);
 			}
 		});
@@ -515,6 +537,7 @@ export function useShikiHighlighter({
 			for (const [lineIdx, tokens] of highlighted) {
 				cacheRef.current.set(lineIdx, tokens);
 			}
+			pruneHighlightCache(cacheRef.current, safeStart, safeEnd);
 			setHighlightVersion(incrementNumber);
 			return true;
 		},

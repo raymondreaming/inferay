@@ -25,6 +25,8 @@ const onReconnect = mock((_callback: () => void) => reconnectCleanup);
 const send = mock(() => {});
 
 mock.module("../src/lib/websocket.ts", () => ({
+	getWebSocketStatus: () => "connected",
+	subscribeWebSocketStatus: () => () => {},
 	wsClient: {
 		onReconnect,
 		send,

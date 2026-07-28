@@ -5,6 +5,7 @@ import {
 	type AgentChatHandle,
 	AgentChatView,
 } from "../../components/chat/AgentChatView.tsx";
+import { ChatPaneBoundary } from "../../components/chat/ChatPaneBoundary.tsx";
 import type { SelectedFile } from "../../components/git/ChangeFileSidebar.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
 import {
@@ -134,22 +135,23 @@ export function EditorAgentChat({
 	onExitComposerOnly?: () => void;
 }) {
 	return (
-		<AgentChatView
-			key={session.paneId}
-			ref={chatRef}
-			paneId={session.paneId}
-			cwd={session.cwd}
-			referencePaths={session.referencePaths}
-			gitBranch={gitBranch}
-			agentKind={session.agentKind}
-			onClose={onClose}
-			sessions={sessions}
-			onSelectSession={onSelectSession}
-			onDirectoryChange={onDirectoryChange}
-			composerOnly={composerOnly}
-			composerOnlyOffsetX={composerOnlyOffsetX}
-			onExitComposerOnly={onExitComposerOnly}
-		/>
+		<ChatPaneBoundary key={session.paneId}>
+			<AgentChatView
+				ref={chatRef}
+				paneId={session.paneId}
+				cwd={session.cwd}
+				referencePaths={session.referencePaths}
+				gitBranch={gitBranch}
+				agentKind={session.agentKind}
+				onClose={onClose}
+				sessions={sessions}
+				onSelectSession={onSelectSession}
+				onDirectoryChange={onDirectoryChange}
+				composerOnly={composerOnly}
+				composerOnlyOffsetX={composerOnlyOffsetX}
+				onExitComposerOnly={onExitComposerOnly}
+			/>
+		</ChatPaneBoundary>
 	);
 }
 
