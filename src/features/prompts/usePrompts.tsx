@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
-import { fetchJson, postJson, sendJson } from "../../lib/fetch-json.ts";
+import { useCallback, useEffect, useState } from "octane";
 import { lacksObjectId } from "../../lib/data.ts";
+import { fetchJson, postJson, sendJson } from "../../lib/fetch-json.ts";
 import type { Prompt } from "./types.ts";
 
 let promptsCache: Prompt[] | null = null;

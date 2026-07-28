@@ -1,5 +1,5 @@
-import { APP_BACKGROUND_STORAGE_KEY } from "./client-storage-keys.ts";
 import { applyAppTheme, loadAppThemeId } from "./app-theme.ts";
+import { APP_BACKGROUND_STORAGE_KEY } from "./client-storage-keys.ts";
 import { readStoredJson, writeStoredJson } from "./stored-json.ts";
 
 export const APP_BACKGROUNDS = [
@@ -110,10 +110,9 @@ function isBackgroundId(value: unknown): value is AppBackgroundId {
 }
 
 export function loadAppBackgroundSettings(): AppBackgroundSettings {
-	const stored = readStoredJson<Partial<AppBackgroundSettings>>(
-		APP_BACKGROUND_STORAGE_KEY,
-		DEFAULT_APP_BACKGROUND_SETTINGS
-	);
+	const stored = readStoredJson<
+		Partial<Omit<AppBackgroundSettings, "version">> & { version?: number }
+	>(APP_BACKGROUND_STORAGE_KEY, DEFAULT_APP_BACKGROUND_SETTINGS);
 	const storedBlur = clamp(
 		stored.blur,
 		0,

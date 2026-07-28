@@ -1,19 +1,18 @@
-import * as stylex from "@stylexjs/stylex";
-import type React from "react";
+import * as stylex from "@octanejs/stylex";
 import {
 	useCallback,
 	useDeferredValue,
 	useEffect,
 	useRef,
 	useState,
-} from "react";
+} from "octane";
 import {
 	IconChevronRight,
 	IconFolder,
 	IconGitBranch,
 	IconX,
 } from "../../components/ui/Icons.tsx";
-import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
+import { useAsyncResource } from "../../hooks/useAsyncResource.tsx";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import { basename } from "../../lib/format.ts";
 import { setInputValue } from "../../lib/react-events.ts";
@@ -109,8 +108,8 @@ export function InlineDirectoryPicker({
 	>(fetchSearchResults, [], { isEqual: areQuickPicksEqual });
 	const [selectedIndexValue, setSelectedIndex] = useState(-1);
 	const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
-	const inputRef = useRef<HTMLInputElement>(null);
-	const containerRef = useRef<HTMLDivElement>(null);
+	const inputRef = useRef<HTMLInputElement | null>(null);
+	const containerRef = useRef<HTMLDivElement | null>(null);
 	const isSearching = query.trim().length > 0;
 	const displayList = (isSearching ? searchResults : pickerData.quickPicks)
 		.filter((p) => !multiSelect || !selectedPaths.includes(p.path))
@@ -156,7 +155,7 @@ export function InlineDirectoryPicker({
 		}
 	};
 
-	const handleKeyDown = (e: React.KeyboardEvent) => {
+	const handleKeyDown = (e: KeyboardEvent) => {
 		if (itemCount === 0) {
 			if (e.key === "Escape") {
 				e.preventDefault();
@@ -318,7 +317,7 @@ export function InlineDirectoryPicker({
 						ref={inputRef}
 						type="text"
 						value={query}
-						onChange={setInputValue.bind(null, setQuery)}
+						onInput={setInputValue.bind(null, setQuery)}
 						onKeyDown={handleKeyDown}
 						placeholder="Search folder..."
 						autoComplete="off"

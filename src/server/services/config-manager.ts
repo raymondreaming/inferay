@@ -1,10 +1,12 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 
-const CONFIG_PATH = resolve(import.meta.dir, "../../scripts/config.yaml");
+const MODULE_DIRECTORY = fileURLToPath(new URL(".", import.meta.url));
+const CONFIG_PATH = resolve(MODULE_DIRECTORY, "../../scripts/config.yaml");
 const LOCAL_CONFIG_PATH = resolve(
-	import.meta.dir,
+	MODULE_DIRECTORY,
 	"../../scripts/config.local.yaml"
 );
 

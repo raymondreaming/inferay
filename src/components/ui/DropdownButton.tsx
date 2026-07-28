@@ -1,7 +1,12 @@
-import * as stylex from "@stylexjs/stylex";
-import type React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import * as stylex from "@octanejs/stylex";
+import {
+	createPortal,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "octane";
 import { hasId } from "../../lib/data.ts";
 import { setInputValue } from "../../lib/react-events.ts";
 import {
@@ -18,22 +23,19 @@ export interface DropdownOption {
 	label: string;
 	detail?: string;
 	status?: string;
-	icon?: React.ReactNode;
+	icon?: unknown;
 }
 
 type DropdownOptionRenderer =
-	| React.ComponentType<{
-			option: DropdownOption;
-			isSelected: boolean;
-	  }>
-	| ((option: DropdownOption, isSelected: boolean) => React.ReactNode);
+	| ((props: { option: DropdownOption; isSelected: boolean }) => unknown)
+	| ((option: DropdownOption, isSelected: boolean) => unknown);
 
 interface DropdownButtonProps {
 	value: string | null;
 	options: DropdownOption[];
 	onChange: (id: string) => void;
 	placeholder?: string;
-	icon?: React.ReactNode;
+	icon?: unknown;
 	emptyLabel?: string;
 	minWidth?: number;
 	fullWidth?: boolean;
@@ -68,10 +70,10 @@ function DropdownCustomOption({
 	onChange: (id: string) => void;
 	setOpen: (v: boolean) => void;
 }) {
-	const OptionContent = renderOption as React.ComponentType<{
+	const OptionContent = renderOption as (props: {
 		option: DropdownOption;
 		isSelected: boolean;
-	}>;
+	}) => unknown;
 	const content =
 		renderOption.length >= 2 ? (
 			Reflect.apply(renderOption, undefined, [opt, isSelected])
@@ -108,9 +110,9 @@ export function DropdownButton({
 }: DropdownButtonProps) {
 	const [open, setOpen] = useState(false);
 	const [search, setSearch] = useState("");
-	const btnRef = useRef<HTMLButtonElement>(null);
-	const menuRef = useRef<HTMLDivElement>(null);
-	const searchRef = useRef<HTMLInputElement>(null);
+	const btnRef = useRef<HTMLButtonElement | null>(null);
+	const menuRef = useRef<HTMLDivElement | null>(null);
+	const searchRef = useRef<HTMLInputElement | null>(null);
 	const eventHandlersRef = useRef({
 		handleDocumentPointerDown: (_event: MouseEvent) => {},
 		handleWindowScroll: (_event: Event) => {},
@@ -231,7 +233,7 @@ export function DropdownButton({
 				ref={searchRef}
 				type="text"
 				value={search}
-				onChange={setInputValue.bind(null, setSearch)}
+				onInput={setInputValue.bind(null, setSearch)}
 				placeholder="Search..."
 				{...stylex.props(styles.searchInput)}
 				onKeyDown={(e) => {

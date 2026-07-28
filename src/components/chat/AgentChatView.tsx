@@ -1,5 +1,4 @@
-import * as stylex from "@stylexjs/stylex";
-import type React from "react";
+import * as stylex from "@octanejs/stylex";
 import {
 	memo,
 	useCallback,
@@ -10,7 +9,13 @@ import {
 	useRef,
 	useState,
 	useSyncExternalStore,
-} from "react";
+} from "octane";
+import type React from "react";
+import {
+	type AgentKind,
+	changePaneAgentKind,
+	dispatchAgentShellChange,
+} from "../../features/agent/agent-utils.ts";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
 import {
 	CODEX_REASONING_LEVELS,
@@ -37,12 +42,7 @@ import {
 	saveStoredModel,
 	saveStoredReasoningLevel,
 } from "../../features/chat/chat-session-store.ts";
-import { useGitStatus } from "../../features/git/useGitStatus.ts";
-import {
-	type AgentKind,
-	changePaneAgentKind,
-	dispatchAgentShellChange,
-} from "../../features/agent/agent-utils.ts";
+import { useGitStatus } from "../../features/git/useGitStatus.tsx";
 import { hasId } from "../../lib/data.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import { wsClient } from "../../lib/websocket.ts";
@@ -61,11 +61,11 @@ import {
 	appendSystemMessage,
 	windowChatMessagesForRender,
 } from "./chat-state-utils.ts";
-import { useAgentChatComposerState } from "./useAgentChatComposerState.ts";
-import { useAgentChatMenus } from "./useAgentChatMenus.ts";
-import { useChatConnection } from "./useChatConnection.ts";
-import { useChatInputActions } from "./useChatInputActions.ts";
-import { useSpeechToText } from "./useSpeechToText.ts";
+import { useAgentChatComposerState } from "./useAgentChatComposerState.tsx";
+import { useAgentChatMenus } from "./useAgentChatMenus.tsx";
+import { useChatConnection } from "./useChatConnection.tsx";
+import { useChatInputActions } from "./useChatInputActions.tsx";
+import { useSpeechToText } from "./useSpeechToText.tsx";
 
 export interface AgentChatHandle {
 	sendMessage: (text: string) => void;
@@ -236,10 +236,10 @@ function useChatViewport(
 		fromBottom: number;
 		top: number;
 	};
-	const scrollRef = useRef<HTMLDivElement>(null);
+	const scrollRef = useRef<HTMLDivElement | null>(null);
 	const chatVirtualizerRef = useRef<ChatVirtualizerControls | null>(null);
-	const textareaRef = useRef<HTMLTextAreaElement>(null);
-	const highlightOverlayRef = useRef<HTMLDivElement>(null);
+	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+	const highlightOverlayRef = useRef<HTMLDivElement | null>(null);
 	const wasSelectedRef = useRef(isSelected);
 	const activationRestoreFrameRef = useRef(0);
 	const scrollSnapshotRef = useRef<ScrollSnapshot>({
@@ -500,7 +500,7 @@ interface AgentChatViewProps {
 	isSelected?: boolean;
 	isVisible?: boolean;
 	draggable?: boolean;
-	onDragStart?: (e: React.DragEvent) => void;
+	onDragStart?: (e: DragEvent) => void;
 	onDragEnd?: () => void;
 	sessions?: AgentChatSession[];
 	onSelectSession?: (paneId: string) => void;
@@ -607,8 +607,8 @@ export const AgentChatView = memo(function AgentChatView({
 		useChatUiState(paneId, onStatusChange);
 	const { isLoading, status, startTime, expandedTools, liveActivities } =
 		chatUiState;
-	const inputContainerRef = useRef<HTMLDivElement>(null);
-	const containerRef = useRef<HTMLDivElement>(null);
+	const inputContainerRef = useRef<HTMLDivElement | null>(null);
+	const containerRef = useRef<HTMLDivElement | null>(null);
 	const imageDragDepthRef = useRef(0);
 	const [isImageDragActive, setIsImageDragActive] = useState(false);
 	const {
@@ -810,7 +810,9 @@ export const AgentChatView = memo(function AgentChatView({
 					: undefined
 			}
 			onDragEnter={(event) => {
-				const hasImage = Array.from(event.dataTransfer.items).some(
+				const transfer = event.dataTransfer;
+				if (!transfer) return;
+				const hasImage = Array.from(transfer.items).some(
 					(item) => item.kind === "file" && item.type.startsWith("image/")
 				);
 				if (!hasImage) return;
@@ -823,7 +825,7 @@ export const AgentChatView = memo(function AgentChatView({
 				if (!isImageDragActive) return;
 				event.preventDefault();
 				event.stopPropagation();
-				event.dataTransfer.dropEffect = "copy";
+				if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
 			}}
 			onDragLeave={(event) => {
 				if (!isImageDragActive) return;

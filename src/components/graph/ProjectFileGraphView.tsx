@@ -1,7 +1,7 @@
-import * as stylex from "@stylexjs/stylex";
-import { useCallback, useMemo, useState } from "react";
+import * as stylex from "@octanejs/stylex";
+import { useCallback, useMemo, useState } from "octane";
 import type { GitProjectStatus } from "../../features/git/types.ts";
-import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
+import { useAsyncResource } from "../../hooks/useAsyncResource.tsx";
 import { hasId, hasPath } from "../../lib/data.ts";
 import {
 	color,

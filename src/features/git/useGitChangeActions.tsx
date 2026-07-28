@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState } from "octane";
 import type { GitProjectStatus } from "./types.ts";
 
 export function useGitChangeActions({

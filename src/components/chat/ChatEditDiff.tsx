@@ -1,9 +1,9 @@
-import * as stylex from "@stylexjs/stylex";
-import { useMemo, useState } from "react";
+import * as stylex from "@octanejs/stylex";
+import { useMemo, useState } from "octane";
 import {
 	useShikiSnippet,
 	useSyntaxHighlightTheme,
-} from "../../hooks/useShikiHighlighter.ts";
+} from "../../hooks/useShikiHighlighter.tsx";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 import { IconChevronRight, IconFilePlus } from "../ui/Icons.tsx";
 import {

@@ -1,5 +1,5 @@
-import * as stylex from "@stylexjs/stylex";
-import React, { useEffect, useState } from "react";
+import * as stylex from "@octanejs/stylex";
+import { memo, useEffect, useState } from "octane";
 import type { ToolActivity } from "../../features/chat/agent-chat-shared.ts";
 import {
 	color,
@@ -10,13 +10,13 @@ import {
 	shadow,
 } from "../../tokens.stylex.ts";
 import {
+	IconAgent,
 	IconEye,
 	IconFilePlus,
 	IconGlobe,
 	IconPencil,
 	IconSearch,
 	IconStop,
-	IconAgent,
 	IconWrench,
 } from "../ui/Icons.tsx";
 import { getStatusToolName, normalizeToolName } from "./chat-agent-utils.ts";
@@ -58,7 +58,7 @@ function statusFallbackLabel(status: string) {
 	return "Running";
 }
 
-export const AgentChatStatusBar = React.memo(function AgentChatStatusBar({
+export const AgentChatStatusBar = memo(function AgentChatStatusBar({
 	liveActivities = [],
 	isLoading,
 	status,

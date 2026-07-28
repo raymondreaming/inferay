@@ -1,7 +1,7 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal as XtermTerminal } from "@xterm/xterm";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "octane";
 import type { AgentKind, AgentTheme } from "../features/agent/agent-utils.ts";
 import { wsClient } from "../lib/websocket.ts";
 
@@ -24,7 +24,7 @@ export function useXtermAgent({
 	fontSize: number;
 	fontFamily: string;
 }) {
-	const containerRef = useRef<HTMLDivElement>(null);
+	const containerRef = useRef<HTMLDivElement | null>(null);
 	const termRef = useRef<XtermTerminal | null>(null);
 	const fitRef = useRef<FitAddon | null>(null);
 	const initializedRef = useRef(false);

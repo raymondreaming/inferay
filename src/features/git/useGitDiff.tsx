@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "octane";
 
 // Single line in a diff view
 export interface DiffLine {

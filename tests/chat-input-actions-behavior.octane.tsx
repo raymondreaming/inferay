@@ -1,9 +1,11 @@
-import { expect, mock, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { useRef, useState } from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot, useRef, useState } from "octane";
+import { expect, test, vi } from "vitest";
 import type { ChatMessage } from "../src/features/chat/agent-chat-shared.ts";
 
+const mock = Object.assign(vi.fn, {
+	module: (path: string, factory: () => unknown) => vi.doMock(path, factory),
+});
 const sendMock = mock(() => {});
 
 mock.module("../src/lib/websocket.ts", () => ({
@@ -49,7 +51,7 @@ test("hidden chat input actions defer pending sends until visible", async () => 
 	const { clearPendingSend, loadPendingSend, savePendingSend } =
 		await import("../src/features/chat/chat-session-store.ts");
 	const { useChatInputActions } =
-		await import("../src/components/chat/useChatInputActions.ts");
+		await import("../src/components/chat/useChatInputActions.tsx");
 	const paneId = "pane-hidden-pending-send";
 	clearPendingSend(paneId);
 	savePendingSend(paneId, "deferred hello");
@@ -131,9 +133,9 @@ test("loading chat sends the live textarea value to the server queue", async () 
 	sendMock.mockClear();
 	const { root, rootElement } = setupDom();
 	const { useChatInputActions } =
-		await import("../src/components/chat/useChatInputActions.ts");
+		await import("../src/components/chat/useChatInputActions.tsx");
 	try {
-		let handleEnter: (event: React.KeyboardEvent) => void = (_event) => {
+		let handleEnter: (event: KeyboardEvent) => void = (_event) => {
 			throw new Error("handleKeyDown was not initialized");
 		};
 		function Harness() {
@@ -185,7 +187,7 @@ test("loading chat sends the live textarea value to the server queue", async () 
 				<textarea
 					ref={textareaRef}
 					value={input}
-					onChange={(event) => setInput(event.currentTarget.value)}
+					onInput={(event) => setInput(event.currentTarget.value)}
 				/>
 			);
 		}
@@ -200,7 +202,7 @@ test("loading chat sends the live textarea value to the server queue", async () 
 			key: "Enter",
 			preventDefault: () => {},
 			shiftKey: false,
-		} as React.KeyboardEvent);
+		} as KeyboardEvent);
 		await tick(20);
 
 		const calls = sendMock.mock.calls as unknown as Array<

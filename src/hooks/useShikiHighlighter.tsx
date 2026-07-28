@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
 import type { BundledLanguage, BundledTheme, Highlighter } from "shiki";
 import { incrementNumber } from "../lib/data.ts";
 
@@ -541,11 +541,11 @@ function unwrapLineSpan(html: string): string {
 
 function escapeHtml(text: string): string {
 	return text
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;")
-		.replace(/'/g, "&#039;");
+		.replaceAll("&", "&amp;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;")
+		.replaceAll('"', "&quot;")
+		.replaceAll("'", "&#039;");
 }
 export function useShikiSnippet(
 	lines: string[],

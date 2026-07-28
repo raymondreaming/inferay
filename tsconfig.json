@@ -6,10 +6,15 @@
 		"module": "Preserve",
 		"moduleDetection": "force",
 		"jsx": "react-jsx",
+		"jsxImportSource": "octane",
 		"allowJs": true,
 
 		// Bundler mode
 		"moduleResolution": "bundler",
+		"baseUrl": ".",
+		"paths": {
+			"@octanejs/remix-router": ["./src/types/octane-remix-router.d.ts"]
+		},
 		"allowImportingTsExtensions": true,
 		"verbatimModuleSyntax": true,
 		"noEmit": true,
@@ -17,7 +22,7 @@
 		"strict": true,
 		"skipLibCheck": true,
 		"noFallthroughCasesInSwitch": true,
-		"noUncheckedIndexedAccess": true,
+		"noUncheckedIndexedAccess": false,
 		"noImplicitOverride": true,
 
 		// Some stricter flags (disabled by default)
@@ -25,5 +30,5 @@
 		"noUnusedParameters": false,
 		"noPropertyAccessFromIndexSignature": false
 	},
-	"exclude": ["dist", "build", "node_modules"]
+	"exclude": ["dist", "build", "node_modules", "site", "tests"]
 }

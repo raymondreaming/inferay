@@ -1,5 +1,5 @@
-import * as stylex from "@stylexjs/stylex";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import * as stylex from "@octanejs/stylex";
+import { useCallback, useEffect, useMemo, useState } from "octane";
 import { Button } from "../../components/ui/Button.tsx";
 import {
 	DropdownButton,
@@ -10,16 +10,16 @@ import {
 	IconMessageCircle,
 	IconPlus,
 } from "../../components/ui/Icons.tsx";
-import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
 import {
+	type AgentGroupModel,
+	type AgentPaneModel,
+	type AgentShellChangeDetail,
 	dispatchAgentShellChange,
 	loadCanonicalAgentState,
 	mutateAgentWorkspaceState,
 	type PaneId,
-	type AgentShellChangeDetail,
-	type AgentGroupModel,
-	type AgentPaneModel,
 } from "../../features/agent/agent-utils.ts";
+import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
 import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import { basename, formatRelativeTime, trimText } from "../../lib/format.ts";

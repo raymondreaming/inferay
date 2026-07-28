@@ -1,12 +1,11 @@
 import {
-	type Dispatch,
-	type SetStateAction,
 	useCallback,
 	useEffect,
 	useMemo,
 	useRef,
 	useSyncExternalStore,
-} from "react";
+} from "octane";
+import type { Dispatch, SetStateAction } from "react";
 import {
 	appendTrimmedMessage,
 	type ChatLoadingState,
@@ -15,9 +14,9 @@ import {
 	getToolBlockInitialContent,
 	isChatServerMessage,
 	nextId,
-	truncateChatContent,
 	type QueuedMessageInfo,
 	type ToolActivity,
+	truncateChatContent,
 } from "../../features/chat/agent-chat-shared.ts";
 import {
 	getChatCheckpointReadModel,

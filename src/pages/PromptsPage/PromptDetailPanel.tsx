@@ -1,6 +1,10 @@
-import * as stylex from "@stylexjs/stylex";
-import { useEffect, useRef } from "react";
+import * as stylex from "@octanejs/stylex";
+import { useEffect, useRef } from "octane";
 import { IconPencil, IconTrash, IconX } from "../../components/ui/Icons.tsx";
+import {
+	PROMPT_CATEGORIES,
+	type Prompt,
+} from "../../features/prompts/types.ts";
 import { measureTextHeight } from "../../lib/pretext-utils.ts";
 import { setInputValue } from "../../lib/react-events.ts";
 import {
@@ -10,10 +14,6 @@ import {
 	radius,
 	shadow,
 } from "../../tokens.stylex.ts";
-import {
-	PROMPT_CATEGORIES,
-	type Prompt,
-} from "../../features/prompts/types.ts";
 
 interface PromptDetailPanelProps {
 	selectedPrompt: Prompt | null;
@@ -46,7 +46,7 @@ function AutoTextarea({
 	onChange: (v: string) => void;
 	placeholder: string;
 }) {
-	const ref = useRef<HTMLTextAreaElement>(null);
+	const ref = useRef<HTMLTextAreaElement | null>(null);
 
 	useEffect(() => {
 		const ta = ref.current;
@@ -64,7 +64,7 @@ function AutoTextarea({
 		<textarea
 			ref={ref}
 			value={value}
-			onChange={setInputValue.bind(null, onChange)}
+			onInput={setInputValue.bind(null, onChange)}
 			placeholder={placeholder}
 			{...stylex.props(styles.templateTextarea)}
 			style={{ minHeight: 100, maxHeight: 300 }}
@@ -103,10 +103,12 @@ export function PromptDetailPanel({
 							<input
 								type="text"
 								value={formCommand}
-								onChange={(e) =>
+								onInput={(e) =>
 									onFormChange(
 										"command",
-										e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "")
+										e.currentTarget.value
+											.toLowerCase()
+											.replace(/[^a-z0-9-]/g, "")
 									)
 								}
 								placeholder="command"
@@ -202,7 +204,7 @@ export function PromptDetailPanel({
 							<input
 								type="text"
 								value={formName}
-								onChange={(e) => onFormChange("name", e.target.value)}
+								onInput={(e) => onFormChange("name", e.currentTarget.value)}
 								placeholder="Prompt name"
 								{...stylex.props(styles.input)}
 							/>
@@ -215,7 +217,9 @@ export function PromptDetailPanel({
 						{isEditMode ? (
 							<select
 								value={formCategory}
-								onChange={(e) => onFormChange("category", e.target.value)}
+								onChange={(e) =>
+									onFormChange("category", e.currentTarget.value)
+								}
 								{...stylex.props(styles.input)}
 							>
 								{PROMPT_CATEGORIES.map((c) => (
@@ -237,7 +241,9 @@ export function PromptDetailPanel({
 					{isEditMode ? (
 						<textarea
 							value={formDescription}
-							onChange={(e) => onFormChange("description", e.target.value)}
+							onInput={(e) =>
+								onFormChange("description", e.currentTarget.value)
+							}
 							rows={2}
 							placeholder="What this prompt does"
 							{...stylex.props(styles.input, styles.descriptionInput)}
@@ -277,7 +283,7 @@ export function PromptDetailPanel({
 						<input
 							type="text"
 							value={formTags}
-							onChange={(e) => onFormChange("tags", e.target.value)}
+							onInput={(e) => onFormChange("tags", e.currentTarget.value)}
 							placeholder="code, review, quality"
 							{...stylex.props(styles.input)}
 						/>

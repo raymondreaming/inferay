@@ -1,7 +1,12 @@
-import { describe, expect, mock, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
+import { JSDOM } from "jsdom";
+import { createRoot } from "octane";
+import { describe, expect, test, vi } from "vitest";
 
-mock.module("@stylexjs/stylex", () => ({
+const mock = Object.assign(vi.fn, {
+	module: (path: string, factory: () => unknown) => vi.doMock(path, factory),
+});
+
+mock.module("@octanejs/stylex", () => ({
 	create: <T extends Record<string, unknown>>(styles: T) => styles,
 	createTheme: (_vars: unknown, values: unknown) => values,
 	defineVars: <T extends Record<string, string>>(values: T) => values,
@@ -16,6 +21,45 @@ mock.module("@stylexjs/stylex", () => ({
 	}),
 }));
 
+async function renderHtml(ui: unknown) {
+	const dom = new JSDOM('<div id="root"></div>', {
+		pretendToBeVisual: true,
+		url: "http://localhost/",
+	});
+	Object.defineProperty(globalThis, "window", {
+		configurable: true,
+		value: dom.window,
+	});
+	Object.defineProperty(globalThis, "document", {
+		configurable: true,
+		value: dom.window.document,
+	});
+	Object.defineProperty(globalThis, "HTMLElement", {
+		configurable: true,
+		value: dom.window.HTMLElement,
+	});
+	Object.defineProperty(globalThis, "Element", {
+		configurable: true,
+		value: dom.window.Element,
+	});
+	Object.defineProperty(globalThis, "Node", {
+		configurable: true,
+		value: dom.window.Node,
+	});
+	Object.defineProperty(globalThis, "SVGElement", {
+		configurable: true,
+		value: dom.window.SVGElement,
+	});
+	const container = dom.window.document.getElementById("root");
+	if (!container) throw new Error("Missing root element");
+	const root = createRoot(container);
+	root.render(ui);
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	const html = container.innerHTML;
+	root.unmount();
+	return html;
+}
+
 describe("chat markdown rendering", () => {
 	test("renders long streaming tails without reparsing inline markdown", async () => {
 		const { Markdown } =
@@ -23,7 +67,7 @@ describe("chat markdown rendering", () => {
 		const tail = Array.from({ length: 90 }, () => "tail **still raw**").join(
 			" "
 		);
-		const html = renderToStaticMarkup(
+		const html = await renderHtml(
 			<Markdown
 				streaming
 				text={`# Done\n\nParagraph with **bold** text.\n\n${tail}`}
@@ -39,7 +83,7 @@ describe("chat markdown rendering", () => {
 	test("renders copy controls for fenced code blocks", async () => {
 		const { Markdown } =
 			await import("../src/components/chat/ChatRichContent.tsx");
-		const html = renderToStaticMarkup(
+		const html = await renderHtml(
 			<Markdown text={"```ts\nconst value = 1;\n```"} />
 		);
 
@@ -51,8 +95,8 @@ describe("chat markdown rendering", () => {
 	test("renders copy controls for raw tool question output", async () => {
 		const { AskUserQuestionCard } =
 			await import("../src/components/chat/ChatRichContent.tsx");
-		const html = renderToStaticMarkup(
-			<AskUserQuestionCard content={"raw tool output"} />
+		const html = await renderHtml(
+			<AskUserQuestionCard content="raw tool output" />
 		);
 
 		expect(html).toContain("<pre");

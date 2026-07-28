@@ -1,14 +1,20 @@
-import * as stylex from "@stylexjs/stylex";
+import * as stylex from "@octanejs/stylex";
 import {
-	type PointerEvent as ReactPointerEvent,
-	type WheelEvent as ReactWheelEvent,
 	useCallback,
 	useEffect,
 	useMemo,
 	useReducer,
 	useRef,
 	useState,
-} from "react";
+} from "octane";
+
+type ReactPointerEvent<T = Element> = globalThis.PointerEvent & {
+	currentTarget: T;
+};
+type ReactWheelEvent<T = Element> = globalThis.WheelEvent & {
+	currentTarget: T;
+};
+
 import { Button } from "../../components/ui/Button.tsx";
 import { DropdownButton } from "../../components/ui/DropdownButton.tsx";
 import {
@@ -26,14 +32,14 @@ import {
 	IconSimulator,
 	IconSwift,
 } from "../../components/ui/Icons.tsx";
-import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
-import { hasId, hasUdid, noop, toggleBoolean } from "../../lib/data.ts";
 import { isBootedSimulatorDevice } from "../../features/simulator/simulator-utils.ts";
 import type {
 	BaguetteStatus,
 	SimulatorDevice,
 	SimulatorProject,
 } from "../../features/simulator/types.ts";
+import { useAsyncResource } from "../../hooks/useAsyncResource.tsx";
+import { hasId, hasUdid, noop, toggleBoolean } from "../../lib/data.ts";
 import {
 	readStoredJson,
 	readStoredValue,
@@ -333,7 +339,7 @@ function BaguetteStream({
 	interactive?: boolean;
 	profile?: StreamProfile;
 }) {
-	const canvasRef = useRef<HTMLCanvasElement>(null);
+	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const wsRef = useRef<WebSocket | null>(null);
 	const frameSizeRef = useRef({ width: 0, height: 0 });
 	const pointerRef = useRef<{
@@ -1060,7 +1066,7 @@ export function SimulatorPaneView() {
 							<input
 								type="search"
 								value={projectSearch}
-								onChange={(event) => setProjectSearch(event.target.value)}
+								onInput={(event) => setProjectSearch(event.currentTarget.value)}
 								placeholder="Search projects"
 								{...stylex.props(styles.projectSearchInput)}
 							/>

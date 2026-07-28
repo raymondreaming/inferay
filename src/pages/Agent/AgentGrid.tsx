@@ -1,5 +1,4 @@
-import * as stylex from "@stylexjs/stylex";
-import type React from "react";
+import * as stylex from "@octanejs/stylex";
 import {
 	memo,
 	useCallback,
@@ -8,15 +7,16 @@ import {
 	useMemo,
 	useRef,
 	useState,
-} from "react";
+} from "octane";
+import type React from "react";
 import type { AgentChatHandle } from "../../components/chat/AgentChatView.tsx";
-import { isChatAgentKind } from "../../features/agents/agents.ts";
-import { useGitStatus } from "../../features/git/useGitStatus.ts";
 import type {
 	AgentKind,
 	AgentPaneModel,
 	AgentTheme,
 } from "../../features/agent/agent-utils.ts";
+import { isChatAgentKind } from "../../features/agents/agents.ts";
+import { useGitStatus } from "../../features/git/useGitStatus.tsx";
 import { motion } from "../../tokens.stylex.ts";
 import { AgentPaneView } from "./AgentPaneView.tsx";
 
@@ -51,7 +51,7 @@ const paneViewProps = (
 	p: AgentGridProps,
 	pane: AgentPaneModel,
 	idx: number,
-	onDragStart: (e: React.DragEvent, i: number) => void,
+	onDragStart: (e: DragEvent, i: number) => void,
 	onDragEnd: () => void,
 	gitBranch: string | null
 ) => ({
@@ -135,7 +135,7 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 		theme,
 		onReorderPanes,
 	} = props;
-	const containerRef = useRef<HTMLDivElement>(null);
+	const containerRef = useRef<HTMLDivElement | null>(null);
 	const [containerHeight, setContainerHeight] = useState(0);
 	const dragIndexRef = useRef<number | null>(null);
 	const clearDragStateRef = useRef<() => void>(() => {});
@@ -188,28 +188,25 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 		return ro.disconnect.bind(ro);
 	}, [active]);
 
-	const handleHeaderDragStart = useCallback(
-		(e: React.DragEvent, index: number) => {
-			dragIndexRef.current = index;
-			setDragIndex(index);
-			e.dataTransfer.effectAllowed = "move";
-		},
-		[]
-	);
+	const handleHeaderDragStart = useCallback((e: DragEvent, index: number) => {
+		dragIndexRef.current = index;
+		setDragIndex(index);
+		if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+	}, []);
 
 	const handleHeaderDragEnd = useCallback(() => {
 		clearDragState();
 	}, [clearDragState]);
 
-	const handleDragOver = useCallback((e: React.DragEvent, index: number) => {
+	const handleDragOver = useCallback((e: DragEvent, index: number) => {
 		if (dragIndexRef.current === null) return;
 		e.preventDefault();
-		e.dataTransfer.dropEffect = "move";
+		if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
 		setDragOverIndex((current) => (current === index ? current : index));
 	}, []);
 
 	const handleDrop = useCallback(
-		(e: React.DragEvent, toIndex: number) => {
+		(e: DragEvent, toIndex: number) => {
 			const fromIndex = dragIndexRef.current;
 			if (fromIndex === null) return;
 			e.preventDefault();
@@ -221,7 +218,7 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 	);
 
 	const handleGridWheelCapture = useCallback(
-		(event: React.WheelEvent<HTMLDivElement>) => {
+		(event: WheelEvent & { currentTarget: HTMLDivElement }) => {
 			if (layoutMode !== "grid" || event.deltaY === 0) return;
 			const grid = containerRef.current;
 			if (!grid) return;
@@ -247,7 +244,7 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 	);
 
 	const handleRowWheelCapture = useCallback(
-		(event: React.WheelEvent<HTMLDivElement>) => {
+		(event: WheelEvent & { currentTarget: HTMLDivElement }) => {
 			if (layoutMode !== "rows") return;
 			const rowScroller = containerRef.current;
 			if (!rowScroller) return;

@@ -1,16 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
-	isUnstagedTrackedChange,
-	isUntrackedChange,
-	orderGitFiles,
-	orderProjectGitFiles,
-} from "../src/features/git/git-file-utils.ts";
-import { summarizeHunkDiff } from "../src/features/git/useGitDiff.ts";
-import {
+	type AgentGroupModel,
+	type AgentPaneModel,
+	type AgentSavedState,
 	appendPaneToGroup,
 	compactAgentState,
-	createDefaultAgentChatGroup,
 	createAgentViewSwitchHealth,
+	createDefaultAgentChatGroup,
 	type GroupId,
 	getPaneTitle,
 	getPrimaryProductLoopContext,
@@ -20,10 +16,14 @@ import {
 	PRIMARY_PRODUCT_LOOP,
 	reduceAgentGroups,
 	reduceAgentWorkspaceState,
-	type AgentGroupModel,
-	type AgentPaneModel,
-	type AgentSavedState,
 } from "../src/features/agent/agent-utils.ts";
+import {
+	isUnstagedTrackedChange,
+	isUntrackedChange,
+	orderGitFiles,
+	orderProjectGitFiles,
+} from "../src/features/git/git-file-utils.ts";
+import { summarizeHunkDiff } from "../src/features/git/useGitDiff.tsx";
 import { isAgentMainView } from "../src/lib/app-navigation.tsx";
 import { normalizeNumstatPath } from "../src/server/routes/git.ts";
 

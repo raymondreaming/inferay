@@ -1,5 +1,5 @@
-import * as stylex from "@stylexjs/stylex";
-import type { InputHTMLAttributes } from "react";
+import * as stylex from "@octanejs/stylex";
+import type { Octane } from "octane/jsx-runtime";
 import {
 	color,
 	controlSize,
@@ -10,7 +10,7 @@ import {
 } from "../../tokens.stylex.ts";
 
 interface TextInputProps extends Omit<
-	InputHTMLAttributes<HTMLInputElement>,
+	Octane.InputHTMLAttributes<HTMLInputElement>,
 	"size"
 > {
 	size?: "sm" | "md";

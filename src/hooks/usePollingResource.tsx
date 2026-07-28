@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "octane";
 
 function isAbortLikeError(error: unknown): boolean {
 	if (error instanceof DOMException) return error.name === "AbortError";

@@ -1,7 +1,6 @@
-import { expect, mock, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { useCallback, useMemo, useRef, useState } from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot, useCallback, useMemo, useRef, useState } from "octane";
+import { expect, test, vi } from "vitest";
 import type {
 	ChatLoadingState,
 	ChatMessage,
@@ -12,6 +11,10 @@ type ChatActivityUiState = {
 	expandedTools: Set<string>;
 	liveActivities: ToolActivity[];
 };
+
+const mock = Object.assign(vi.fn, {
+	module: (path: string, factory: () => unknown) => vi.doMock(path, factory),
+});
 
 const subscribeCleanup = mock(() => {});
 const reconnectCleanup = mock(() => {});
@@ -63,7 +66,7 @@ test("hidden chat views do not own websocket reconnects", async () => {
 	send.mockClear();
 	const { root } = setupDom();
 	const { useChatConnection } =
-		await import("../src/components/chat/useChatConnection.ts");
+		await import("../src/components/chat/useChatConnection.tsx");
 
 	function Harness({ enabled }: { enabled: boolean }) {
 		const [, setUiState] = useState<ChatActivityUiState>({
@@ -119,7 +122,7 @@ test("live turn completion persists sync and reconnects after done", async () =>
 	send.mockClear();
 	const { root } = setupDom();
 	const { useChatConnection } =
-		await import("../src/components/chat/useChatConnection.ts");
+		await import("../src/components/chat/useChatConnection.tsx");
 	let handleMessage: ((message: unknown) => void) | undefined;
 	let latestMessages: ChatMessage[] = [];
 	subscribe.mockImplementationOnce((_paneId, callback) => {
@@ -223,7 +226,7 @@ test("stale streaming sync does not cut local in-flight assistant content", asyn
 	send.mockClear();
 	const { root } = setupDom();
 	const { useChatConnection } =
-		await import("../src/components/chat/useChatConnection.ts");
+		await import("../src/components/chat/useChatConnection.tsx");
 	let handleMessage: ((message: unknown) => void) | undefined;
 	let latestMessages: ChatMessage[] = [];
 	subscribe.mockImplementationOnce((_paneId, callback) => {

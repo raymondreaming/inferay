@@ -1,10 +1,10 @@
-import * as stylex from "@stylexjs/stylex";
+import * as stylex from "@octanejs/stylex";
 import { Button } from "../../components/ui/Button.tsx";
 import {
+	IconAgent,
 	IconExternalLink,
 	IconGitBranch,
 	IconPlus,
-	IconAgent,
 } from "../../components/ui/Icons.tsx";
 import { WorkspaceEmptyState } from "../../components/ui/WorkspacePage.tsx";
 import type { GithubRepo } from "../../features/forge/types.ts";

@@ -1,8 +1,12 @@
-import { expect, mock, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { createRoot } from "react-dom/client";
+import { createRoot } from "octane";
+import { expect, test, vi } from "vitest";
 
 type TestQueueItem = { id: string; text: string; displayText: string };
+
+const mock = Object.assign(vi.fn, {
+	module: (path: string, factory: () => unknown) => vi.doMock(path, factory),
+});
 
 mock.module("../src/lib/websocket.ts", () => ({
 	wsClient: {
@@ -59,7 +63,7 @@ test("queued messages hydrate from file-backed queue and ignore legacy localStor
 			JSON.stringify([{ id: "old", text: "old", displayText: "old" }])
 		);
 		const { useAgentChatComposerState } =
-			await import("../src/components/chat/useAgentChatComposerState.ts");
+			await import("../src/components/chat/useAgentChatComposerState.tsx");
 		function Harness() {
 			const state = useAgentChatComposerState("pane-stale");
 			return (
@@ -93,7 +97,7 @@ test("hidden composer state does not hydrate file-backed queues", async () => {
 	const { root } = setupDom();
 	try {
 		const { useAgentChatComposerState } =
-			await import("../src/components/chat/useAgentChatComposerState.ts");
+			await import("../src/components/chat/useAgentChatComposerState.tsx");
 		function Harness({ enabled }: { enabled: boolean }) {
 			useAgentChatComposerState("pane-hidden-queue", enabled);
 			return <div />;
@@ -131,7 +135,7 @@ test("visible composer keeps newer queue mirror while stale fetch resolves", asy
 	const { root, rootElement } = setupDom();
 	try {
 		const { useAgentChatComposerState } =
-			await import("../src/components/chat/useAgentChatComposerState.ts");
+			await import("../src/components/chat/useAgentChatComposerState.tsx");
 		let replaceQueuedMessages: (messages: TestQueueItem[]) => void = (
 			_messages
 		) => {
@@ -179,7 +183,7 @@ test("legacy queue storage events do not update server-owned queue mirror", asyn
 	const { root, rootElement } = setupDom();
 	try {
 		const { useAgentChatComposerState } =
-			await import("../src/components/chat/useAgentChatComposerState.ts");
+			await import("../src/components/chat/useAgentChatComposerState.tsx");
 		function Harness() {
 			const state = useAgentChatComposerState("pane-stale-preference");
 			return (

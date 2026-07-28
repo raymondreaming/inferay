@@ -1,5 +1,3 @@
-import type React from "react";
-
 export function listenWindowEvent<K extends keyof WindowEventMap | string>(
 	type: K,
 	listener: K extends keyof WindowEventMap
@@ -30,28 +28,18 @@ export function listenDocumentEvent<K extends keyof DocumentEventMap | string>(
 	) as () => void;
 }
 
-export function stopPropagation(event: React.SyntheticEvent): void {
+export function stopPropagation(event: Event): void {
 	event.stopPropagation();
 }
 
-export function stopPropagationAndCall(
-	action: () => void,
-	event: React.SyntheticEvent
-): void {
+export function stopPropagationAndCall(action: () => void, event: Event): void {
 	event.stopPropagation();
 	action();
 }
 
-function activateOnEnterOrSpace(
-	action: () => void,
-	event: React.KeyboardEvent
-): void {
-	if (event.key === "Enter" || event.key === " ") action();
-}
-
 export function activateOnEnterOrSpacePreventDefault(
 	action: () => void,
-	event: React.KeyboardEvent
+	event: KeyboardEvent
 ): void {
 	if (event.key !== "Enter" && event.key !== " ") return;
 	event.preventDefault();
@@ -60,9 +48,11 @@ export function activateOnEnterOrSpacePreventDefault(
 
 export function setInputValue(
 	setValue: (value: string) => void,
-	event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+	event: InputEvent & {
+		currentTarget: HTMLInputElement | HTMLTextAreaElement;
+	}
 ): void {
-	setValue(event.target.value);
+	setValue(event.currentTarget.value);
 }
 
 export function focusRef<T extends { focus(): void }>(ref: {

@@ -1,25 +1,14 @@
-import * as stylex from "@stylexjs/stylex";
-import {
-	lazy,
-	type CSSProperties,
-	type ReactElement,
-	Suspense,
-	useEffect,
-	useState,
-} from "react";
-import { createRoot } from "react-dom/client";
-import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
+import * as stylex from "@octanejs/stylex";
+import "./index.css";
+import "virtual:stylex.css";
+import { HashRouter, Navigate, Route, Routes } from "@octanejs/remix-router";
+import { createRoot, lazy, Suspense, useEffect, useState } from "octane";
+import type { CSSProperties } from "react";
 import { QuickFileOverlay } from "./components/file/QuickFileOverlay.tsx";
-import { Sidebar } from "./components/layout/Sidebar.tsx";
 import { AgentShellHeader } from "./components/layout/AgentShellHeader.tsx";
+import { Sidebar } from "./components/layout/Sidebar.tsx";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary.tsx";
-import { preloadPrompts } from "./features/prompts/usePrompts.ts";
-import {
-	APP_PAGE_ROUTES,
-	type AppRouteId,
-	DEFAULT_APP_ROUTE,
-	DEFAULT_AGENT_MAIN_VIEW,
-} from "./lib/app-navigation.tsx";
+import { preloadPrompts } from "./features/prompts/usePrompts.tsx";
 import {
 	applyAppBackgroundPalette,
 	deriveAppBackgroundPalette,
@@ -28,22 +17,28 @@ import {
 	restoreAppTheme,
 } from "./lib/app-background.ts";
 import {
+	APP_PAGE_ROUTES,
+	type AppRouteId,
+	DEFAULT_AGENT_MAIN_VIEW,
+	DEFAULT_APP_ROUTE,
+} from "./lib/app-navigation.tsx";
+import {
 	APP_REGION_DRAG_CLASS,
 	applyAppTheme,
 	loadAppThemeId,
 } from "./lib/app-theme.ts";
 import {
+	AGENT_MAIN_VIEW_STORAGE_KEY,
 	APP_BACKGROUND_STORAGE_KEY,
 	APP_THEME_STORAGE_KEY,
-	AGENT_MAIN_VIEW_STORAGE_KEY,
 } from "./lib/client-storage-keys.ts";
 import {
 	CLIENT_STORAGE_CHANGED_EVENT,
 	hydrateStoredValues,
 } from "./lib/client-storage-sync.ts";
 import { getServerOrigin, resolveServerUrl } from "./lib/fetch-json.ts";
-import { readStoredBoolean, writeStoredValue } from "./lib/stored-json.ts";
 import { listenWindowEvent } from "./lib/react-events.ts";
+import { readStoredBoolean, writeStoredValue } from "./lib/stored-json.ts";
 import { AutomationsPage } from "./pages/AutomationsPage";
 import { ImagesPage } from "./pages/ImagesPage";
 import { ONBOARDING_DONE_KEY, OnboardingPage } from "./pages/OnboardingPage";
@@ -208,7 +203,7 @@ const routeElements = {
 	images: <ImagesPage />,
 	simulators: <SimulatorsPage />,
 	profile: <ProfilePage />,
-} satisfies Record<AppRouteId, ReactElement>;
+} satisfies Record<AppRouteId, unknown>;
 const fallbackRouteElement = <Navigate to={DEFAULT_APP_ROUTE} replace />;
 
 function AppShell() {

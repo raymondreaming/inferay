@@ -1,18 +1,17 @@
-import * as stylex from "@stylexjs/stylex";
+import * as stylex from "@octanejs/stylex";
 import {
-	type ReactNode,
 	useCallback,
 	useEffect,
 	useMemo,
 	useReducer,
 	useRef,
 	useState,
-} from "react";
+} from "octane";
 import type { AgentChatHandle } from "../../components/chat/AgentChatView.tsx";
 import { ProjectFileGraphView } from "../../components/graph/ProjectFileGraphView.tsx";
 import { IconGitBranch } from "../../components/ui/Icons.tsx";
 import { clearAgentChatPaneState } from "../../features/chat/chat-session-store.ts";
-import { useGitStatus } from "../../features/git/useGitStatus.ts";
+import { useGitStatus } from "../../features/git/useGitStatus.tsx";
 import { wsClient } from "../../lib/websocket.ts";
 import { EditorPage } from "../EditorPage/index.tsx";
 import { AgentGrid } from "./AgentGrid.tsx";
@@ -21,7 +20,13 @@ import { AgentSettingsPanel } from "./AgentSettingsPanel.tsx";
 import "@xterm/xterm/css/xterm.css";
 
 import {
+	type AgentGroupsAction,
 	type AgentKind,
+	type AgentLayoutMode,
+	type AgentSavedState,
+	type AgentShellChangeDetail,
+	agentStateKey,
+	agentStateScore,
 	cacheAgentState,
 	createAgentPane,
 	createAgentViewSwitchHealth,
@@ -34,27 +39,21 @@ import {
 	getInitialGroups,
 	getPrimaryProductLoopContext,
 	getThemeById,
-	loadCanonicalAgentState,
 	loadAgentLayoutMode,
 	loadAgentState,
+	loadCanonicalAgentState,
 	migrateGroup,
 	mutateAgentWorkspaceState,
 	normalizeAgentState,
 	reduceAgentGroups,
 	saveSyncedAgentState,
 	syncAgentLayoutMode,
-	type AgentGroupsAction,
-	type AgentLayoutMode,
-	type AgentSavedState,
-	type AgentShellChangeDetail,
 	type ThemeId,
-	agentStateKey,
-	agentStateScore,
 } from "../../features/agent/agent-utils.ts";
 import {
+	type AgentMainView,
 	DEFAULT_AGENT_MAIN_VIEW,
 	isAgentMainView,
-	type AgentMainView,
 } from "../../lib/app-navigation.tsx";
 import {
 	loadAppThemeId,
@@ -494,7 +493,7 @@ function agentViewReducer(
 }
 
 type AgentMainSurfaceProps = {
-	readonly graphView: ReactNode;
+	readonly graphView: unknown;
 	readonly groups: AgentSavedState["groups"];
 	readonly hasCurrentPanes: boolean;
 	readonly mainView: AgentMainView;
@@ -508,7 +507,7 @@ type AgentMainSurfaceProps = {
 	readonly setAppearance: AgentPersistenceArgs["setAppearance"];
 	readonly setShowSettings: (value: boolean) => void;
 	readonly showSettings: boolean;
-	readonly agentGrid: ReactNode;
+	readonly agentGrid: unknown;
 	readonly themeId: ThemeId;
 };
 

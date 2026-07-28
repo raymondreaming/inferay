@@ -1,5 +1,5 @@
-import * as stylex from "@stylexjs/stylex";
-import type { ButtonHTMLAttributes } from "react";
+import * as stylex from "@octanejs/stylex";
+import type { Octane } from "octane/jsx-runtime";
 import {
 	color,
 	controlSize,
@@ -10,7 +10,7 @@ import {
 	shadow,
 } from "../../tokens.stylex.ts";
 
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+interface ButtonProps extends Octane.ButtonHTMLAttributes<HTMLButtonElement> {
 	variant?: "primary" | "secondary" | "ghost" | "danger";
 	size?: "sm" | "md" | "lg";
 }

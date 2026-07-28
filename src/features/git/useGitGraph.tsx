@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback } from "octane";
 import { useAsyncResource } from "../../hooks/useAsyncResource";
 
 export interface GitCommit {

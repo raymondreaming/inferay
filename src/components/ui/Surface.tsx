@@ -1,9 +1,9 @@
-import * as stylex from "@stylexjs/stylex";
-import type { HTMLAttributes, ReactNode } from "react";
+import * as stylex from "@octanejs/stylex";
+import type { Octane } from "octane/jsx-runtime";
 import { color, controlSize, font, radius } from "../../tokens.stylex.ts";
 
-interface PanelProps extends HTMLAttributes<HTMLElement> {
-	children: ReactNode;
+interface PanelProps extends Octane.HTMLAttributes<HTMLElement> {
+	children: unknown;
 	as?: "section" | "div" | "aside";
 }
 
@@ -27,12 +27,12 @@ export function Panel({
 }
 
 interface PanelHeaderProps extends Omit<
-	HTMLAttributes<HTMLDivElement>,
+	Octane.HTMLAttributes<HTMLDivElement>,
 	"title"
 > {
-	title: ReactNode;
-	description?: ReactNode;
-	actions?: ReactNode;
+	title: unknown;
+	description?: unknown;
+	actions?: unknown;
 }
 
 export function PanelHeader({
@@ -60,10 +60,10 @@ export function PanelHeader({
 	);
 }
 
-interface NoticeProps extends HTMLAttributes<HTMLDivElement> {
+interface NoticeProps extends Octane.HTMLAttributes<HTMLDivElement> {
 	tone?: "warning" | "success" | "info";
-	icon?: ReactNode;
-	children: ReactNode;
+	icon?: unknown;
+	children: unknown;
 }
 
 export function Notice({

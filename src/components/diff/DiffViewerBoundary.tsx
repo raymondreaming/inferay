@@ -1,60 +1,37 @@
-import * as stylex from "@stylexjs/stylex";
-import type React from "react";
-import { Component } from "react";
+import * as stylex from "@octanejs/stylex";
+import { ErrorBoundary } from "octane";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 
 interface DiffViewerBoundaryProps {
-	children: React.ReactNode;
+	children: unknown;
 	resetKey: string;
 }
 
-interface DiffViewerBoundaryState {
-	error: Error | null;
-	resetKey: string;
-}
-
-export class DiffViewerBoundary extends Component<
-	DiffViewerBoundaryProps,
-	DiffViewerBoundaryState
-> {
-	override state: DiffViewerBoundaryState = {
-		error: null,
-		resetKey: this.props.resetKey,
-	};
-
-	static getDerivedStateFromError(error: Error) {
-		return { error };
-	}
-
-	static getDerivedStateFromProps(
-		props: DiffViewerBoundaryProps,
-		state: DiffViewerBoundaryState
-	) {
-		if (props.resetKey !== state.resetKey) {
-			return { error: null, resetKey: props.resetKey };
-		}
-		return null;
-	}
-
-	override render() {
-		if (this.state.error) {
-			return (
-				<div {...stylex.props(styles.fallback)}>
-					<div>
-						<div {...stylex.props(styles.title)}>
-							Diff viewer could not render this file.
-						</div>
-						<div {...stylex.props(styles.description)}>
-							Select another file, then return to this one. The raw git diff is
-							still available from the agent.
-						</div>
-					</div>
+function DiffFallback() {
+	return (
+		<div {...stylex.props(styles.fallback)}>
+			<div>
+				<div {...stylex.props(styles.title)}>
+					Diff viewer could not render this file.
 				</div>
-			);
-		}
+				<div {...stylex.props(styles.description)}>
+					Select another file, then return to this one. The raw git diff is
+					still available from the agent.
+				</div>
+			</div>
+		</div>
+	);
+}
 
-		return this.props.children;
-	}
+export function DiffViewerBoundary({
+	children,
+	resetKey,
+}: DiffViewerBoundaryProps) {
+	return (
+		<ErrorBoundary key={resetKey} fallback={<DiffFallback />}>
+			{children}
+		</ErrorBoundary>
+	);
 }
 
 const styles = stylex.create({

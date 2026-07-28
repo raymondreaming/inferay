@@ -19,17 +19,17 @@ import {
 	sep,
 } from "node:path";
 import { promisify } from "node:util";
-import type { AgentAccountProviderStatus } from "../../features/agents/agent-account-status.ts";
-import type { ChatAgentKind } from "../../features/agents/agents.ts";
-import type { Prompt } from "../../features/prompts/types.ts";
 import {
 	createAgentEnv,
 	hasAgentCli,
 	resolveAgentBinary,
 } from "../../features/agent/agent-command.ts";
+import type { AgentAccountProviderStatus } from "../../features/agents/agent-account-status.ts";
+import type { ChatAgentKind } from "../../features/agents/agents.ts";
+import type { Prompt } from "../../features/prompts/types.ts";
 import {
-	shouldSyncClientStorageKey,
 	AGENT_STATE_STORAGE_KEY,
+	shouldSyncClientStorageKey,
 } from "../../lib/client-storage-keys.ts";
 import {
 	hasCommand,
@@ -64,9 +64,9 @@ import {
 	resolveNativeCoreBinary,
 	runNativeCore,
 } from "../services/native-core.ts";
+import { agentRoutes, readAgentState } from "./agent.ts";
 import { gitRoutes } from "./git.ts";
 import { simulatorRoutes } from "./simulator.ts";
-import { readAgentState, agentRoutes } from "./agent.ts";
 
 const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);

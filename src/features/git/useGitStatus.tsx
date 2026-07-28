@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "octane";
+import { usePollingResource } from "../../hooks/usePollingResource.tsx";
 import { postJson } from "../../lib/fetch-json.ts";
-import { usePollingResource } from "../../hooks/usePollingResource.ts";
 import type { GitProjectStatus } from "./types.ts";
 
 function areGitStatusesEqual(

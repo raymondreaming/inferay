@@ -109,7 +109,9 @@ describe("agent stream event normalization", () => {
 		expect(
 			getToolDisplayInfo(
 				"bash",
-				JSON.stringify({ command: "npm test && npm run lint && npm run build" })
+				JSON.stringify({
+					command: "npm test && npm run lint && npm run build",
+				})
 			)
 		).toEqual({ label: "Running verification checks" });
 	});

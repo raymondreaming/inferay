@@ -1,5 +1,12 @@
-import * as stylex from "@stylexjs/stylex";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import * as stylex from "@octanejs/stylex";
+import {
+	memo,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "octane";
 import { Button } from "../../components/ui/Button.tsx";
 import { DropdownButton } from "../../components/ui/DropdownButton.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
@@ -7,19 +14,26 @@ import { IconFolder, IconPlus, IconX } from "../../components/ui/Icons.tsx";
 import {
 	type CustomThemeColors,
 	type HexColor,
-	loadCustomTheme,
 	loadAgentState,
+	loadCustomTheme,
 	mutateCanonicalAgentState,
 	saveCustomTheme,
 	type ThemeId,
 } from "../../features/agent/agent-utils.ts";
-import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
 import { useAppInfo } from "../../hooks/useAppInfo.ts";
+import { useAsyncResource } from "../../hooks/useAsyncResource.tsx";
 import {
 	SYNTAX_HIGHLIGHT_THEMES,
 	type SyntaxHighlightTheme,
 	useSyntaxHighlightTheme,
-} from "../../hooks/useShikiHighlighter.ts";
+} from "../../hooks/useShikiHighlighter.tsx";
+import {
+	APP_BACKGROUNDS,
+	type AppBackgroundId,
+	type AppBackgroundSettings,
+	loadAppBackgroundSettings,
+	saveAppBackgroundSettings,
+} from "../../lib/app-background.ts";
 import {
 	APP_THEMES,
 	type AppThemeId,
@@ -30,17 +44,10 @@ import {
 	saveAppThemeId,
 } from "../../lib/app-theme.ts";
 import {
-	APP_BACKGROUNDS,
-	type AppBackgroundId,
-	type AppBackgroundSettings,
-	loadAppBackgroundSettings,
-	saveAppBackgroundSettings,
-} from "../../lib/app-background.ts";
-import { CLIENT_STORAGE_CHANGED_EVENT } from "../../lib/client-storage-sync.ts";
-import {
 	APP_BACKGROUND_STORAGE_KEY,
 	APP_THEME_STORAGE_KEY,
 } from "../../lib/client-storage-keys.ts";
+import { CLIENT_STORAGE_CHANGED_EVENT } from "../../lib/client-storage-sync.ts";
 import { fetchJsonOr, resolveServerUrl } from "../../lib/fetch-json.ts";
 import { listenWindowEvent, setInputValue } from "../../lib/react-events.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
@@ -87,7 +94,7 @@ function ColorInput({
 			<input
 				type="color"
 				value={value}
-				onChange={(e) => onChange(e.target.value as HexColor)}
+				onInput={(e) => onChange(e.currentTarget.value as HexColor)}
 				{...stylex.props(styles.colorInput)}
 			/>
 			<span {...stylex.props(styles.mutedText)}>{label}</span>
@@ -176,7 +183,7 @@ function BackgroundScenePicker() {
 	);
 	const [uploading, setUploading] = useState(false);
 	const [uploadError, setUploadError] = useState<string | null>(null);
-	const fileInputRef = useRef<HTMLInputElement>(null);
+	const fileInputRef = useRef<HTMLInputElement | null>(null);
 
 	useEffect(
 		() =>
@@ -361,7 +368,7 @@ function BackgroundScenePicker() {
 						max="85"
 						value={background.dim}
 						{...stylex.props(styles.backgroundRange)}
-						onChange={(event) =>
+						onInput={(event) =>
 							updateBackground({ dim: Number(event.currentTarget.value) })
 						}
 					/>
@@ -377,7 +384,7 @@ function BackgroundScenePicker() {
 						max="20"
 						value={background.blur}
 						{...stylex.props(styles.backgroundRange)}
-						onChange={(event) =>
+						onInput={(event) =>
 							updateBackground({ blur: Number(event.currentTarget.value) })
 						}
 					/>
@@ -393,7 +400,7 @@ function BackgroundScenePicker() {
 						max="16"
 						value={background.glassBlur}
 						{...stylex.props(styles.backgroundRange)}
-						onChange={(event) =>
+						onInput={(event) =>
 							updateBackground({
 								glassBlur: Number(event.currentTarget.value),
 							})
@@ -424,7 +431,7 @@ function SearchFoldersSection() {
 		[loadedFolders]
 	);
 	const [newFolder, setNewFolder] = useState("");
-	const inputRef = useRef<HTMLInputElement>(null);
+	const inputRef = useRef<HTMLInputElement | null>(null);
 
 	const saveFolders = useCallback(
 		async (next: string[]) => {
@@ -496,7 +503,7 @@ function SearchFoldersSection() {
 					ref={inputRef}
 					type="text"
 					value={newFolder}
-					onChange={setInputValue.bind(null, setNewFolder)}
+					onInput={setInputValue.bind(null, setNewFolder)}
 					onKeyDown={(e) => {
 						if (e.key === "Enter") addFolder();
 					}}

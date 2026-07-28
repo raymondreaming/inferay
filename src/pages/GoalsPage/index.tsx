@@ -1,9 +1,9 @@
-import * as stylex from "@stylexjs/stylex";
-import { useCallback, useState } from "react";
+import * as stylex from "@octanejs/stylex";
+import { useCallback, useState } from "octane";
 import { DotMatrixRipple } from "../../components/ui/DotMatrixLoader.tsx";
 import { IconTarget } from "../../components/ui/Icons.tsx";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
-import { usePollingResource } from "../../hooks/usePollingResource.ts";
+import { usePollingResource } from "../../hooks/usePollingResource.tsx";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import { basename, formatElapsedMs } from "../../lib/format.ts";
 import {

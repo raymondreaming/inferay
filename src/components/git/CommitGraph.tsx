@@ -1,5 +1,5 @@
-import * as stylex from "@stylexjs/stylex";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import * as stylex from "@octanejs/stylex";
+import { memo, useCallback, useEffect, useMemo, useState } from "octane";
 import type { GraphNode, GraphRow } from "../../features/git/useGitGraph";
 import { toggleBoolean } from "../../lib/data.ts";
 import { readStoredJson, writeStoredJson } from "../../lib/stored-json.ts";

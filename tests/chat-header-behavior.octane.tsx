@@ -1,8 +1,12 @@
-import { expect, mock, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { createRoot } from "react-dom/client";
+import { createRoot } from "octane";
+import { expect, test, vi } from "vitest";
 
-mock.module("@stylexjs/stylex", () => ({
+const mock = Object.assign(vi.fn, {
+	module: (path: string, factory: () => unknown) => vi.doMock(path, factory),
+});
+
+mock.module("@octanejs/stylex", () => ({
 	create: <T extends Record<string, unknown>>(styles: T) => styles,
 	createTheme: (_vars: unknown, values: unknown) => values,
 	defineVars: <T extends Record<string, string>>(values: T) => values,

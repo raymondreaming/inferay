@@ -1,21 +1,20 @@
-import * as stylex from "@stylexjs/stylex";
-import type React from "react";
-import { memo, useCallback, useEffect, useRef } from "react";
+import * as stylex from "@octanejs/stylex";
+import { memo, useCallback, useEffect, useRef } from "octane";
 import type { AgentChatHandle } from "../../components/chat/AgentChatView.tsx";
 import { AgentChatView } from "../../components/chat/AgentChatView.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
 import { IconAgent, IconX } from "../../components/ui/Icons.tsx";
-import {
-	getAgentDefinition,
-	isChatAgentKind,
-	loadDefaultChatSettings,
-} from "../../features/agents/agents.ts";
 import type {
 	AgentKind,
 	AgentPaneModel,
 	AgentTheme,
 } from "../../features/agent/agent-utils.ts";
-import { useXtermAgent } from "../../hooks/useXtermAgent.ts";
+import {
+	getAgentDefinition,
+	isChatAgentKind,
+	loadDefaultChatSettings,
+} from "../../features/agents/agents.ts";
+import { useXtermAgent } from "../../hooks/useXtermAgent.tsx";
 import { APP_REGION_NO_DRAG_CLASS } from "../../lib/app-theme.ts";
 import { focusRef } from "../../lib/react-events.ts";
 import { color, font } from "../../tokens.stylex.ts";
@@ -40,7 +39,7 @@ interface AgentPaneViewProps {
 	onAgentStatusChange?: (paneId: string, status: string) => void;
 	paneIndex?: number;
 	interactionEnabled?: boolean;
-	onHeaderDragStart?: (e: React.DragEvent, index: number) => void;
+	onHeaderDragStart?: (e: DragEvent, index: number) => void;
 	onHeaderDragEnd?: () => void;
 	onAddPane?: (agentKind: AgentKind) => void;
 	onSetPaneAgentKind?: (paneId: string, agentKind: AgentKind) => void;
@@ -90,13 +89,15 @@ export const AgentPaneView = memo(function AgentPaneView({
 	}, [isAgentChatPane, isSelected, isVisible, refit]);
 
 	const handlePaneDragStart = useCallback(
-		(e: React.DragEvent) => {
+		(e: DragEvent) => {
 			if (paneIndex == null || !onHeaderDragStart) return;
-			e.dataTransfer.setData("text/plain", pane.id);
+			const transfer = e.dataTransfer;
+			if (!transfer) return;
+			transfer.setData("text/plain", pane.id);
 			const img = new Image();
 			img.src =
 				"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
-			e.dataTransfer.setDragImage(img, 0, 0);
+			transfer.setDragImage(img, 0, 0);
 			onHeaderDragStart(e, paneIndex);
 		},
 		[onHeaderDragStart, pane.id, paneIndex]
@@ -105,7 +106,7 @@ export const AgentPaneView = memo(function AgentPaneView({
 		onSelect(pane.id);
 	}, [onSelect, pane.id]);
 	const handleCloseClick = useCallback(
-		(event: React.SyntheticEvent) => {
+		(event: Event) => {
 			event.stopPropagation();
 			onClose(pane.id);
 		},

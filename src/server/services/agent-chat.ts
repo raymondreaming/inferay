@@ -1,6 +1,10 @@
 import { appendFile, mkdir, readdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ServerWebSocket } from "bun";
+import {
+	createAgentEnv,
+	resolveAgentBinary,
+} from "../../features/agent/agent-command.ts";
 import type { ChatAgentKind } from "../../features/agents/agents.ts";
 import type {
 	ChatServerMessage,
@@ -8,21 +12,17 @@ import type {
 	QueuedMessageInfo,
 } from "../../features/chat/agent-chat-shared.ts";
 import {
-	type GoalSystemMessage,
-	serializeGoalSystemMessage,
-} from "../../features/chat/goal-system-message.ts";
-import {
+	appendBoundedChatContent,
 	getToolBlockInitialContent,
 	isChatStreamEvent,
-	appendBoundedChatContent,
 	prepareTranscriptForStorage,
 	trimMessages,
 	truncateChatContent,
 } from "../../features/chat/agent-chat-shared.ts";
 import {
-	createAgentEnv,
-	resolveAgentBinary,
-} from "../../features/agent/agent-command.ts";
+	type GoalSystemMessage,
+	serializeGoalSystemMessage,
+} from "../../features/chat/goal-system-message.ts";
 import { readJson, writeJson } from "../../lib/route-helpers.ts";
 import { userDataPath } from "../../lib/user-data.ts";
 import {

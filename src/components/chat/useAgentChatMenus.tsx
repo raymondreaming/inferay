@@ -1,9 +1,9 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { AgentKind } from "../../features/agent/agent-utils.ts";
 import { getAgentDefinition } from "../../features/agents/agents.ts";
 import type { SlashCommand } from "../../features/chat/agent-chat-shared.ts";
-import { usePrompts } from "../../features/prompts/usePrompts.ts";
-import type { AgentKind } from "../../features/agent/agent-utils.ts";
+import { usePrompts } from "../../features/prompts/usePrompts.tsx";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import { findTriggerAtCursor, hideMenuState } from "./chat-agent-utils.ts";
 import { applyInlineCompletion } from "./chat-command-utils.ts";

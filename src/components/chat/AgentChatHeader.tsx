@@ -1,7 +1,7 @@
-import * as stylex from "@stylexjs/stylex";
-import { memo, useCallback, useMemo, useState } from "react";
-import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
+import * as stylex from "@octanejs/stylex";
+import { memo, useCallback, useMemo, useState } from "octane";
 import type { AgentKind } from "../../features/agent/agent-utils.ts";
+import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
@@ -55,7 +55,7 @@ interface AgentChatHeaderProps {
 	cwd?: string;
 	gitBranch: string | null;
 	draggable?: boolean;
-	onDragStart?: (e: React.DragEvent) => void;
+	onDragStart?: (e: DragEvent) => void;
 	onDragEnd?: () => void;
 	onClose?: (paneId: string) => void;
 	sessions?: AgentChatSession[];

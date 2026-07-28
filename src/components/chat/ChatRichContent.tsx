@@ -1,11 +1,13 @@
-import * as stylex from "@stylexjs/stylex";
-import React, {
+import * as stylex from "@octanejs/stylex";
+import {
+	Fragment,
+	memo,
 	useCallback,
 	useEffect,
 	useMemo,
 	useRef,
 	useState,
-} from "react";
+} from "octane";
 import { noop } from "../../lib/data.ts";
 import {
 	color,
@@ -127,7 +129,7 @@ function splitStreamingMarkdown(text: string): {
 	return { parsedText: "", tailText: text };
 }
 
-const Inline = React.memo(function Inline({
+const Inline = memo(function Inline({
 	text,
 	onMdFileClick,
 }: {
@@ -198,13 +200,13 @@ const Inline = React.memo(function Inline({
 						</a>
 					);
 				}
-				return <React.Fragment key={partKey}>{token.value}</React.Fragment>;
+				return <Fragment key={partKey}>{token.value}</Fragment>;
 			})}
 		</>
 	);
 });
 
-export const Markdown = React.memo(function Markdown({
+export const Markdown = memo(function Markdown({
 	text,
 	onMdFileClick,
 	streaming = false,
@@ -222,7 +224,7 @@ export const Markdown = React.memo(function Markdown({
 	);
 	const blocks = useMemo(() => parseMarkdownBlocks(parsedText), [parsedText]);
 	const handleTableWheel = useCallback(
-		(event: React.WheelEvent<HTMLDivElement>) => {
+		(event: WheelEvent & { currentTarget: HTMLDivElement }) => {
 			if (Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.shiftKey) {
 				return;
 			}

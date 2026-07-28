@@ -1,5 +1,6 @@
 import { mkdir, readdir, unlink } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { atomicWriteJson, readJson } from "../../lib/route-helpers.ts";
 import { isWithinDirectory, resolveAllowedLocalPath } from "../security.ts";
 
@@ -38,8 +39,9 @@ interface CheckpointMeta {
 	reverted: boolean;
 }
 
+const MODULE_DIRECTORY = fileURLToPath(new URL(".", import.meta.url));
 const CHECKPOINTS_PATH = resolve(
-	import.meta.dir,
+	MODULE_DIRECTORY,
 	"../../data/checkpoints.json"
 );
 const MAX_CHECKPOINTS_PER_PANE = 10;

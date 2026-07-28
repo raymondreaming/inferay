@@ -1,15 +1,14 @@
-import * as stylex from "@stylexjs/stylex";
+import * as stylex from "@octanejs/stylex";
 import {
-	type CSSProperties,
 	memo,
-	type ReactNode,
 	useCallback,
 	useEffect,
 	useMemo,
 	useReducer,
 	useRef,
 	useState,
-} from "react";
+} from "octane";
+import type { CSSProperties } from "react";
 import { MarkdownPreview } from "../../components/diff/MarkdownPreview.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
 import {
@@ -24,13 +23,13 @@ import {
 	type HunkDiff,
 	shouldDisableDiffTokenization,
 	summarizeHunkDiff,
-} from "../../features/git/useGitDiff.ts";
+} from "../../features/git/useGitDiff.tsx";
 import {
 	type ShikiLineToken,
 	type SyntaxHighlightTheme,
 	useShikiHighlighter,
 	useSyntaxHighlightTheme,
-} from "../../hooks/useShikiHighlighter.ts";
+} from "../../hooks/useShikiHighlighter.tsx";
 import { contentOf } from "../../lib/data.ts";
 import {
 	activateOnEnterOrSpacePreventDefault,
@@ -1156,7 +1155,7 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 	scrollRef: React.RefObject<HTMLDivElement | null>;
 	syntaxTheme: SyntaxHighlightTheme;
 }) {
-	const leftRef = useRef<HTMLDivElement>(null);
+	const leftRef = useRef<HTMLDivElement | null>(null);
 	const lineCount = Math.max(oldLines.length, newLines.length);
 	const alignedOldLines = useMemo(
 		() =>
@@ -1277,7 +1276,7 @@ const DiffMinimap = memo(function DiffMinimap({
 	totalHeight: number;
 	onScrollTo: (lineIndex: number) => void;
 }) {
-	const containerRef = useRef<HTMLButtonElement>(null);
+	const containerRef = useRef<HTMLButtonElement | null>(null);
 
 	if (totalHeight <= 0 || lines.length === 0) {
 		return (
@@ -1297,7 +1296,7 @@ const DiffMinimap = memo(function DiffMinimap({
 		Math.min(scrollTop / totalHeight, 1 - thumbHeightRatio)
 	);
 
-	const handleClick = (e: React.MouseEvent) => {
+	const handleClick = (e: MouseEvent) => {
 		if (!containerRef.current || lines.length === 0) return;
 		const rect = containerRef.current.getBoundingClientRect();
 		if (rect.height <= 0) return;
@@ -1362,8 +1361,8 @@ export const GitDiffView = memo(function GitDiffView({
 	scrollToChange,
 	syntaxTheme: controlledSyntaxTheme,
 }: GitDiffViewProps) {
-	const containerRef = useRef<HTMLDivElement>(null);
-	const rightRef = useRef<HTMLDivElement>(null);
+	const containerRef = useRef<HTMLDivElement | null>(null);
+	const rightRef = useRef<HTMLDivElement | null>(null);
 	const [internalViewMode, setInternalViewMode] =
 		useState<DiffViewMode>("split");
 	const viewMode = controlledViewMode ?? internalViewMode;
@@ -1846,7 +1845,7 @@ function MergeConflictPanel({
 	filePath: string;
 	syntaxTheme: SyntaxHighlightTheme;
 }) {
-	const scrollRef = useRef<HTMLDivElement>(null);
+	const scrollRef = useRef<HTMLDivElement | null>(null);
 	const lines = useMemo(() => buildMergeConflictLines(content), [content]);
 	return (
 		<div {...stylex.props(diffStyles.conflictBody)}>
@@ -1901,7 +1900,7 @@ function SinglePanel({
 	filePath?: string;
 	syntaxTheme: SyntaxHighlightTheme;
 }) {
-	const scrollRef = useRef<HTMLDivElement>(null);
+	const scrollRef = useRef<HTMLDivElement | null>(null);
 	return (
 		<div {...stylex.props(diffStyles.singlePanel)}>
 			<VirtualPanel
@@ -1955,7 +1954,7 @@ function DiffViewButton({
 }: {
 	active: boolean;
 	title: string;
-	icon: ReactNode;
+	icon: unknown;
 	onClick: () => void;
 }) {
 	return (

@@ -1,11 +1,10 @@
-import * as stylex from "@stylexjs/stylex";
-import { useCallback, useMemo, useState } from "react";
+import * as stylex from "@octanejs/stylex";
+import { useCallback, useMemo, useState } from "octane";
 import type { GitFileEntry } from "../../features/git/types.ts";
 import { postJson } from "../../lib/fetch-json.ts";
 import {
 	color,
 	controlSize,
-	effect,
 	font,
 	radius,
 	shadow,
@@ -13,8 +12,8 @@ import {
 import { Button } from "../ui/Button.tsx";
 import { DotMatrixWeave } from "../ui/DotMatrixLoader.tsx";
 import {
-	IconChevronRight,
 	IconCheck,
+	IconChevronRight,
 	IconFolderFill,
 	IconGitCommit,
 	IconMinus,
@@ -1202,7 +1201,7 @@ function CommitSection({
 				<input
 					type="checkbox"
 					checked={amendMode}
-					onChange={(e) => onAmendModeChange(e.target.checked)}
+					onChange={(e) => onAmendModeChange(e.currentTarget.checked)}
 					{...stylex.props(styles.checkboxInput)}
 				/>
 				<span
@@ -1225,9 +1224,9 @@ function CommitSection({
 						<input
 							type="text"
 							value={summary}
-							onChange={(e) => {
+							onInput={(e) => {
 								const lines = commitMessage.split("\n");
-								lines[0] = e.target.value;
+								lines[0] = e.currentTarget.value;
 								onCommitMessageChange(lines.join("\n"));
 							}}
 							placeholder="Commit summary"
@@ -1267,10 +1266,11 @@ function CommitSection({
 					<div {...stylex.props(styles.descriptionWrap)}>
 						<textarea
 							value={description}
-							onChange={(e) => {
+							onInput={(e) => {
 								const sum = commitMessage.split("\n")[0] || "";
 								onCommitMessageChange(
-									sum + (e.target.value ? `\n${e.target.value}` : "")
+									sum +
+										(e.currentTarget.value ? `\n${e.currentTarget.value}` : "")
 								);
 							}}
 							placeholder="Description"

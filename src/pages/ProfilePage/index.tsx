@@ -1,17 +1,16 @@
-import * as stylex from "@stylexjs/stylex";
-import type { ReactNode } from "react";
-import { useCallback, useMemo, useReducer, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "@octanejs/remix-router";
+import * as stylex from "@octanejs/stylex";
+import { useCallback, useMemo, useReducer, useState } from "octane";
 import { Button } from "../../components/ui/Button.tsx";
 import { DropdownButton } from "../../components/ui/DropdownButton.tsx";
 import {
+	IconAgent,
 	IconFolder,
 	IconGitBranch,
 	IconPlus,
 	IconRefreshCw,
 	IconRobot,
 	IconSettings,
-	IconAgent,
 	IconUser,
 	IconX,
 } from "../../components/ui/Icons.tsx";
@@ -20,6 +19,7 @@ import {
 	WorkspaceContent,
 	WorkspacePage,
 } from "../../components/ui/WorkspacePage.tsx";
+import { dispatchAgentShellChange } from "../../features/agent/agent-utils.ts";
 import type { AgentAccountProviderStatus } from "../../features/agents/agent-account-status.ts";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
 import {
@@ -28,7 +28,6 @@ import {
 	loadDefaultChatSettings,
 	saveDefaultChatSettings,
 } from "../../features/agents/agents.ts";
-import { dispatchAgentShellChange } from "../../features/agent/agent-utils.ts";
 import {
 	fetchForgeAccounts,
 	fetchGithubRepos,
@@ -38,7 +37,7 @@ import {
 } from "../../features/forge/forge-client.ts";
 import type { ForgeAccount, GithubRepo } from "../../features/forge/types.ts";
 import { useAppInfo } from "../../hooks/useAppInfo.ts";
-import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
+import { useAsyncResource } from "../../hooks/useAsyncResource.tsx";
 import { ONBOARDING_DONE_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { isActive, lacksValue } from "../../lib/data.ts";
 import { fetchJsonOr, sendJsonWithBusy } from "../../lib/fetch-json.ts";
@@ -196,8 +195,8 @@ function SettingsSection({
 	id: string;
 	title: string;
 	description: string;
-	actions?: ReactNode;
-	children: ReactNode;
+	actions?: unknown;
+	children: unknown;
 }) {
 	return (
 		<section id={id} {...stylex.props(styles.settingsSection)}>
@@ -926,7 +925,9 @@ export function ProfilePage() {
 										<TextInput
 											type="text"
 											value={repoQuery}
-											onChange={(event) => setRepoQuery(event.target.value)}
+											onInput={(event) =>
+												setRepoQuery(event.currentTarget.value)
+											}
 											placeholder="Search repositories"
 											fullWidth
 											className={stylex.props(styles.flexInput).className}
@@ -935,8 +936,8 @@ export function ProfilePage() {
 											<TextInput
 												type="text"
 												value={cloneDirectory}
-												onChange={(event) =>
-													setCloneDirectory(event.target.value)
+												onInput={(event) =>
+													setCloneDirectory(event.currentTarget.value)
 												}
 												fullWidth
 												className={stylex.props(styles.flexInput).className}

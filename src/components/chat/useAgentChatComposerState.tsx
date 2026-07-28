@@ -1,4 +1,3 @@
-import type React from "react";
 import {
 	useCallback,
 	useEffect,
@@ -6,7 +5,7 @@ import {
 	useRef,
 	useState,
 	useSyncExternalStore,
-} from "react";
+} from "octane";
 import type {
 	AttachedImageInfo,
 	QueuedMessageInfo,
@@ -187,8 +186,9 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 	}, []);
 
 	const handleDrop = useCallback(
-		async (e: React.DragEvent) => {
+		async (e: DragEvent) => {
 			e.preventDefault();
+			if (!e.dataTransfer) return;
 			for (const file of Array.from(e.dataTransfer.files)) {
 				if (file.type.startsWith("image/")) await attachImage(file);
 			}
@@ -197,7 +197,8 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 	);
 
 	const handlePaste = useCallback(
-		async (e: React.ClipboardEvent) => {
+		async (e: ClipboardEvent) => {
+			if (!e.clipboardData) return;
 			for (const item of Array.from(e.clipboardData.items)) {
 				if (item.type.startsWith("image/")) {
 					e.preventDefault();

@@ -1,24 +1,24 @@
-import * as stylex from "@stylexjs/stylex";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "@octanejs/remix-router";
+import * as stylex from "@octanejs/stylex";
+import { useCallback, useEffect, useState } from "octane";
 import {
+	agentStateKey,
 	dispatchAgentShellChange,
 	loadAgentState,
-	agentStateKey,
 } from "../../features/agent/agent-utils.ts";
+import { useAsyncResource } from "../../hooks/useAsyncResource.tsx";
 import {
+	AGENT_MAIN_VIEWS,
+	type AgentMainView,
 	APP_PAGE_ROUTES,
 	DEFAULT_AGENT_MAIN_VIEW,
 	isAgentMainView,
 	SIDEBAR_NAV_ROUTES,
-	AGENT_MAIN_VIEWS,
-	type AgentMainView,
 } from "../../lib/app-navigation.tsx";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
 } from "../../lib/app-theme.ts";
-import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
 import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
@@ -87,7 +87,7 @@ function ViewTab({
 	trailing = false,
 }: {
 	active: boolean;
-	icon: ReactNode;
+	icon: unknown;
 	label: string;
 	onClick: () => void;
 	top?: boolean;

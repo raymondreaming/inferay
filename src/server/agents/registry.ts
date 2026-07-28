@@ -1,9 +1,9 @@
 import type { ChatAgentKind } from "../../features/agents/agents.ts";
 import { getAgentDefinition } from "../../features/agents/agents.ts";
 import { hasId } from "../../lib/data.ts";
-import type { AgentAdapter } from "./events.ts";
 import { claudeAdapter } from "./claude-adapter.ts";
 import { codexAdapter } from "./codex-adapter.ts";
+import type { AgentAdapter } from "./events.ts";
 
 const adapters: Record<ChatAgentKind, AgentAdapter<any>> = {
 	claude: claudeAdapter,

@@ -1,24 +1,28 @@
-import * as stylex from "@stylexjs/stylex";
+import * as stylex from "@octanejs/stylex";
 import {
-	type PointerEvent as ReactPointerEvent,
 	useCallback,
 	useEffect,
 	useEffectEvent,
 	useMemo,
-	useRef,
 	useReducer,
-} from "react";
+	useRef,
+} from "octane";
+
+type ReactPointerEvent<T = Element> = globalThis.PointerEvent & {
+	currentTarget: T;
+};
+
 import {
+	IconAgent,
 	IconClock,
 	IconEye,
 	IconFilePlus,
 	IconGlobe,
 	IconPlus,
 	IconRobot,
-	IconAgent,
 	IconWorkflow,
 } from "../../components/ui/Icons.tsx";
-import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
+import { useAsyncResource } from "../../hooks/useAsyncResource.tsx";
 import { hasId, lacksId } from "../../lib/data.ts";
 import { fetchJsonOr, sendJson } from "../../lib/fetch-json.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
@@ -793,7 +797,7 @@ export function AutomationsPage() {
 	const closeAddMenuEvent = useEffectEvent(() => setShowAddMenu(false));
 
 	useEffect(() => {
-		const handleClick = (e: MouseEvent) => {
+		const handleClick = (_e: MouseEvent) => {
 			if (showAddMenu) closeAddMenuEvent();
 		};
 		if (showAddMenu) {
@@ -875,7 +879,7 @@ export function AutomationsPage() {
 				state.nodeOutputs[node.id] = result;
 				state.completedNodeIds.push(node.id);
 				setRunState({ ...state });
-			} catch (err) {
+			} catch (_err) {
 				state.failedNodeId = node.id;
 				state.isRunning = false;
 				state.activeNodeId = null;
@@ -1248,7 +1252,7 @@ export function AutomationsPage() {
 					<input
 						type="text"
 						value={selectedNode.title}
-						onChange={(e) => updateSelectedNodeTitle(e.target.value)}
+						onInput={(e) => updateSelectedNodeTitle(e.currentTarget.value)}
 						{...stylex.props(styles.detailTitleInput)}
 					/>
 					<span {...stylex.props(styles.detailAutoDesc)}>
@@ -1259,7 +1263,7 @@ export function AutomationsPage() {
 				<div {...stylex.props(styles.detailBody)}>
 					<textarea
 						value={selectedNode.body}
-						onChange={(e) => updateSelectedNodeBody(e.target.value)}
+						onInput={(e) => updateSelectedNodeBody(e.currentTarget.value)}
 						placeholder={selectedNodeConfig.placeholder}
 						{...stylex.props(styles.bodyEditor)}
 					/>

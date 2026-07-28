@@ -1,5 +1,6 @@
-import * as stylex from "@stylexjs/stylex";
-import { type CSSProperties, useEffect, useState } from "react";
+import * as stylex from "@octanejs/stylex";
+import { useEffect, useState } from "octane";
+import type { CSSProperties } from "react";
 import { formatElapsedMs } from "../../lib/format.ts";
 import { color, controlSize, font, radius } from "../../tokens.stylex.ts";
 

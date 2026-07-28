@@ -1,5 +1,5 @@
-import * as stylex from "@stylexjs/stylex";
-import type { ReactNode, RefObject } from "react";
+import * as stylex from "@octanejs/stylex";
+import type { RefObject } from "react";
 import { BranchDropdown } from "../../components/chat/AgentChatHeader.tsx";
 import {
 	type AgentChatHandle,
@@ -16,7 +16,7 @@ import {
 	IconSettings,
 	IconX,
 } from "../../components/ui/Icons.tsx";
-import type { summarizeHunkDiff } from "../../features/git/useGitDiff.ts";
+import type { summarizeHunkDiff } from "../../features/git/useGitDiff.tsx";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 import type { DiffViewMode } from "../Agent/GitDiffView.tsx";
 
@@ -70,10 +70,10 @@ export function EditorWorkspace({
 	sidebar,
 	zen,
 }: {
-	leading?: ReactNode;
-	toolbar?: ReactNode;
-	viewer: ReactNode;
-	sidebar: ReactNode;
+	leading?: unknown;
+	toolbar?: unknown;
+	viewer: unknown;
+	sidebar: unknown;
 	zen?: boolean;
 }) {
 	const body = (
@@ -102,7 +102,7 @@ export function EditorWorkspace({
 
 const emptyWorkspaceViewer = <Placeholder label="No diff available" />;
 
-export function EmptyEditorWorkspace({ sidebar }: { sidebar: ReactNode }) {
+export function EmptyEditorWorkspace({ sidebar }: { sidebar: unknown }) {
 	return <EditorWorkspace viewer={emptyWorkspaceViewer} sidebar={sidebar} />;
 }
 
@@ -161,7 +161,7 @@ function ToolbarButton({
 }: {
 	active: boolean;
 	title: string;
-	icon: ReactNode;
+	icon: unknown;
 	onClick: () => void;
 }) {
 	return (

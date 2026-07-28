@@ -1,6 +1,10 @@
-import { expect, mock, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { createRoot } from "react-dom/client";
+import { createRoot } from "octane";
+import { expect, test, vi } from "vitest";
+
+const mock = Object.assign(vi.fn, {
+	module: (path: string, factory: () => unknown) => vi.doMock(path, factory),
+});
 
 function setupDom() {
 	const dom = new JSDOM('<div id="root"></div>', {
@@ -52,7 +56,7 @@ test("speech recognition starts without a separate getUserMedia probe", async ()
 		value: FakeSpeechRecognition,
 	});
 	const { useSpeechToText } =
-		await import("../src/components/chat/useSpeechToText.ts");
+		await import("../src/components/chat/useSpeechToText.tsx");
 
 	try {
 		function Harness() {
@@ -102,7 +106,7 @@ test("speech recognition stop aborts the recognizer immediately", async () => {
 		value: FakeSpeechRecognition,
 	});
 	const { useSpeechToText } =
-		await import("../src/components/chat/useSpeechToText.ts");
+		await import("../src/components/chat/useSpeechToText.tsx");
 
 	try {
 		function Harness() {
@@ -154,7 +158,7 @@ test("speech recognition aborts when the app window loses focus", async () => {
 		value: FakeSpeechRecognition,
 	});
 	const { useSpeechToText } =
-		await import("../src/components/chat/useSpeechToText.ts");
+		await import("../src/components/chat/useSpeechToText.tsx");
 
 	try {
 		function Harness() {

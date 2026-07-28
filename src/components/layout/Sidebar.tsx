@@ -1,43 +1,41 @@
-import * as stylex from "@stylexjs/stylex";
+import * as stylex from "@octanejs/stylex";
+import { useCallback, useEffect, useReducer, useRef, useState } from "octane";
+
+type ReactMouseEvent<T = Element> = globalThis.MouseEvent & {
+	currentTarget: T;
+};
+
+import { useLocation, useNavigate } from "@octanejs/remix-router";
+import { createPortal } from "octane";
 import {
-	type MouseEvent as ReactMouseEvent,
-	useCallback,
-	useEffect,
-	useReducer,
-	useRef,
-	useState,
-} from "react";
-import { createPortal } from "react-dom";
-import { useLocation, useNavigate } from "react-router-dom";
+	type AgentPaneModel,
+	type AgentShellChangeDetail,
+	agentStateKey,
+	compactAgentState,
+	createAgentPane,
+	dispatchAgentShellChange,
+	listenAgentLayoutMode,
+	loadAgentLayoutMode,
+	loadAgentState,
+	loadCanonicalAgentState,
+	mutateAgentWorkspaceState,
+	mutateCanonicalAgentState,
+} from "../../features/agent/agent-utils.ts";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
 import {
 	isChatAgentKind,
 	loadDefaultChatSettings,
 } from "../../features/agents/agents.ts";
 import { deriveStoredSummary } from "../../features/chat/chat-session-store.ts";
-import {
-	compactAgentState,
-	createAgentPane,
-	dispatchAgentShellChange,
-	listenAgentLayoutMode,
-	loadCanonicalAgentState,
-	loadAgentLayoutMode,
-	loadAgentState,
-	mutateCanonicalAgentState,
-	mutateAgentWorkspaceState,
-	type AgentPaneModel,
-	type AgentShellChangeDetail,
-	agentStateKey,
-} from "../../features/agent/agent-utils.ts";
 import { type AppInfo, useAppInfo } from "../../hooks/useAppInfo.ts";
-import {
-	APP_REGION_DRAG_CLASS,
-	APP_REGION_NO_DRAG_CLASS,
-} from "../../lib/app-theme.ts";
 import {
 	DEFAULT_AGENT_MAIN_VIEW,
 	isAgentMainView,
 } from "../../lib/app-navigation.tsx";
+import {
+	APP_REGION_DRAG_CLASS,
+	APP_REGION_NO_DRAG_CLASS,
+} from "../../lib/app-theme.ts";
 import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { noop } from "../../lib/data.ts";
 import { sendJson } from "../../lib/fetch-json.ts";
@@ -57,6 +55,7 @@ import { color, controlSize, font, shadow } from "../../tokens.stylex.ts";
 import { Button } from "../ui/Button.tsx";
 import { IconButton } from "../ui/IconButton.tsx";
 import {
+	IconAgent,
 	IconChevronRight,
 	IconLayoutGrid,
 	IconLayoutRows,
@@ -65,7 +64,6 @@ import {
 	IconPencil,
 	IconPlus,
 	IconRefreshCw,
-	IconAgent,
 	IconX,
 } from "../ui/Icons.tsx";
 
@@ -229,7 +227,7 @@ function WorkspaceItem({
 	const [editing, setEditing] = useState(false);
 	const [editValue, setEditValue] = useState("");
 	const [hovered, setHovered] = useState(false);
-	const inputRef = useRef<HTMLInputElement>(null);
+	const inputRef = useRef<HTMLInputElement | null>(null);
 	const expanded = collapsedGroupId !== group.id;
 
 	const handleEditInputRef = useCallback((node: HTMLInputElement | null) => {
@@ -336,7 +334,7 @@ function WorkspaceItem({
 						<input
 							ref={handleEditInputRef}
 							value={editValue}
-							onChange={setInputValue.bind(null, setEditValue)}
+							onInput={setInputValue.bind(null, setEditValue)}
 							onBlur={commitRename}
 							onClick={stopPropagation}
 							onKeyDown={(e) => {
@@ -429,7 +427,7 @@ function SidebarWorkspacesSection({
 	const workspaceSectionProps = stylex.props(styles.workspaceSection);
 	const [createMenuOpen, setCreateMenuOpen] = useState(false);
 	const [gridMenuOpen, setGridMenuOpen] = useState(false);
-	const createMenuRef = useRef<HTMLSpanElement>(null);
+	const createMenuRef = useRef<HTMLSpanElement | null>(null);
 	const selectedGroup =
 		workspaces.groups.find(
 			(group) => group.id === workspaces.selectedGroupId

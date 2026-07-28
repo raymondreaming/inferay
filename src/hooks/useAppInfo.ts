@@ -1,5 +1,5 @@
 import { fetchJsonOr } from "../lib/fetch-json.ts";
-import { useAsyncResource } from "./useAsyncResource.ts";
+import { useAsyncResource } from "./useAsyncResource.tsx";
 
 export interface AppInfo {
 	name: string;

@@ -1,6 +1,7 @@
-import * as stylex from "@stylexjs/stylex";
-import { useVirtualizer } from "@tanstack/react-virtual";
-import React, {
+import * as stylex from "@octanejs/stylex";
+import { useVirtualizer } from "@octanejs/tanstack-virtual";
+import {
+	memo,
 	useCallback,
 	useEffect,
 	useImperativeHandle,
@@ -8,7 +9,8 @@ import React, {
 	useMemo,
 	useRef,
 	useState,
-} from "react";
+} from "octane";
+import type React from "react";
 import type { CheckpointInfo } from "../../features/chat/agent-chat-shared.ts";
 import {
 	type CommandSystemMessage,
@@ -94,7 +96,7 @@ function ToolOutputHighlight({
 }) {
 	const summary = getToolOutputSummary(content);
 	const trailingOutput = showOutput ? getToolTrailingOutput(content) : "";
-	let highlight: React.ReactNode;
+	let highlight: unknown;
 	if (summary.type === "edit" || summary.type === "file-content") {
 		highlight = (
 			<>
@@ -384,7 +386,7 @@ function CheckpointMarker({
 	);
 }
 
-const Bubble = React.memo(function Bubble({
+const Bubble = memo(function Bubble({
 	msg,
 	collapsed,
 	onToggle,
@@ -620,7 +622,7 @@ const Bubble = React.memo(function Bubble({
 	);
 });
 
-export const ChatMessageList = React.memo(function ChatMessageList({
+export const ChatMessageList = memo(function ChatMessageList({
 	messages,
 	scrollElementRef,
 	virtualizerControlsRef,

@@ -1,7 +1,14 @@
-import * as stylex from "@stylexjs/stylex";
+import * as stylex from "@octanejs/stylex";
+import {
+	createPortal,
+	memo,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "octane";
 import type React from "react";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import type { AgentKind } from "../../features/agent/agent-utils.ts";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
 import {
 	CODEX_REASONING_LEVELS,
@@ -12,7 +19,6 @@ import type {
 	QueuedMessageInfo,
 	SlashCommand,
 } from "../../features/chat/agent-chat-shared.ts";
-import type { AgentKind } from "../../features/agent/agent-utils.ts";
 import { hasId } from "../../lib/data.ts";
 import { setInputValue } from "../../lib/react-events.ts";
 import {
@@ -43,12 +49,12 @@ import type {
 	FileMenuState,
 	FileSearchResult,
 	SlashMenuState,
-} from "./useAgentChatMenus.ts";
+} from "./useAgentChatMenus.tsx";
 
 type AgentOption = {
 	id: AgentKind;
 	label: string;
-	icon: React.ReactNode;
+	icon: unknown;
 };
 
 const CLOSED_MD_PREVIEW = {
@@ -157,7 +163,7 @@ const QueuedMessageRow = memo(function QueuedMessageRow({
 	saveQueuedMessageEdit: (id: string) => void;
 	removeQueuedMessage: (id: string) => void;
 }) {
-	const editInputRef = useRef<HTMLInputElement>(null);
+	const editInputRef = useRef<HTMLInputElement | null>(null);
 	useEffect(() => {
 		if (isEditing) editInputRef.current?.focus();
 	}, [isEditing]);
@@ -170,7 +176,7 @@ const QueuedMessageRow = memo(function QueuedMessageRow({
 						ref={editInputRef}
 						type="text"
 						value={editingQueueText}
-						onChange={setInputValue.bind(null, setEditingQueueText)}
+						onInput={setInputValue.bind(null, setEditingQueueText)}
 						onKeyDown={(e) => {
 							if (e.key === "Enter") {
 								saveQueuedMessageEdit(message.id);
@@ -315,8 +321,8 @@ export const ChatComposer = memo(function ChatComposer({
 	selectCommand: (idx: number) => void;
 	handleInputForFileMenu: (value: string, cursorPos: number) => void;
 	handleInputForSlashMenu: (value: string, cursorPos: number) => void;
-	handleKeyDown: (e: React.KeyboardEvent) => void;
-	handlePaste: (e: React.ClipboardEvent) => void;
+	handleKeyDown: (e: KeyboardEvent) => void;
+	handlePaste: (e: ClipboardEvent) => void;
 	textareaRef: React.RefObject<HTMLTextAreaElement | null>;
 	highlightOverlayRef: React.RefObject<HTMLDivElement | null>;
 	inputContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -344,9 +350,9 @@ export const ChatComposer = memo(function ChatComposer({
 		onToggleListening: () => void;
 	};
 }) {
-	const fileInputRef = useRef<HTMLInputElement>(null);
-	const agentConfigButtonRef = useRef<HTMLButtonElement>(null);
-	const agentConfigMenuRef = useRef<HTMLDivElement>(null);
+	const fileInputRef = useRef<HTMLInputElement | null>(null);
+	const agentConfigButtonRef = useRef<HTMLButtonElement | null>(null);
+	const agentConfigMenuRef = useRef<HTMLDivElement | null>(null);
 	const [agentConfigOpen, setAgentConfigOpen] = useState(false);
 	const [agentConfigPosition, setAgentConfigPosition] = useState({
 		bottom: 0,
@@ -420,11 +426,11 @@ export const ChatComposer = memo(function ChatComposer({
 				multiple
 				{...stylex.props(styles.hidden)}
 				onChange={async (e) => {
-					const files = Array.from(e.target.files || []).filter((file) =>
+					const files = Array.from(e.currentTarget.files || []).filter((file) =>
 						file.type.startsWith("image/")
 					);
 					await Promise.all(files.map((file) => attachImage(file)));
-					e.target.value = "";
+					e.currentTarget.value = "";
 				}}
 			/>
 
@@ -590,14 +596,14 @@ export const ChatComposer = memo(function ChatComposer({
 								<textarea
 									ref={textareaRef}
 									value={input}
-									onChange={(e) => {
-										const val = e.target.value;
+									onInput={(e) => {
+										const val = e.currentTarget.value;
 										setInput(val);
-										const cursor = e.target.selectionStart ?? val.length;
+										const cursor = e.currentTarget.selectionStart ?? val.length;
 										handleInputForFileMenu(val, cursor);
 										handleInputForSlashMenu(val, cursor);
 										if (highlightOverlayRef.current) {
-											highlightOverlayRef.current.style.transform = `translateY(-${e.target.scrollTop}px)`;
+											highlightOverlayRef.current.style.transform = `translateY(-${e.currentTarget.scrollTop}px)`;
 										}
 									}}
 									onScroll={(e) => {

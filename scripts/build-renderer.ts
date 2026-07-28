@@ -1,78 +1,15 @@
 #!/usr/bin/env bun
 
-import { mkdir, rm } from "node:fs/promises";
-import { createStylexBunPlugin } from "@stylexjs/unplugin/bun";
-import {
-	DEV_FEATURE_FLAGS,
-	PUBLISHED_FEATURE_FLAGS,
-} from "../src/lib/feature-flags.ts";
-
-const distDir = "dist";
-const stylexCssPath = `${distDir}/stylex.css`;
-const featureFlags = process.argv.includes("--dev")
-	? DEV_FEATURE_FLAGS
-	: PUBLISHED_FEATURE_FLAGS;
-
-await rm(distDir, { recursive: true, force: true });
-await mkdir(distDir, { recursive: true });
-
-const cssProc = Bun.spawn(
-	[
-		"bun",
-		"node_modules/@tailwindcss/cli/dist/index.mjs",
-		"-i",
-		"src/index.css",
-		"-o",
-		`${distDir}/index.css`,
+const vite = Bun.spawn({
+	cmd: [
+		"node",
+		"node_modules/vite/bin/vite.js",
+		"build",
+		"--mode",
+		process.argv.includes("--dev") ? "development" : "production",
 	],
-	{
-		stdout: "inherit",
-		stderr: "inherit",
-	}
-);
-
-const jsBuild = await Bun.build({
-	entrypoints: ["src/main.tsx"],
-	outdir: distDir,
-	target: "browser",
-	format: "esm",
-	splitting: true,
-	sourcemap: "external",
-	minify: false,
-	define: {
-		__INFERAY_FEATURE_FLAGS__: JSON.stringify(featureFlags),
-	},
-	plugins: [
-		createStylexBunPlugin({
-			bunDevCssOutput: stylexCssPath,
-			importSources: ["@stylexjs/stylex"],
-			useCSSLayers: true,
-		}),
-	],
+	stdout: "inherit",
+	stderr: "inherit",
 });
 
-if (!jsBuild.success) {
-	for (const log of jsBuild.logs) {
-		console.error(log);
-	}
-	process.exit(1);
-}
-
-const cssExitCode = await cssProc.exited;
-if (cssExitCode !== 0) {
-	process.exit(cssExitCode);
-}
-
-const template = await Bun.file("src/renderer/index.template.html").text();
-const css = await Bun.file(`${distDir}/index.css`).text();
-const stylexCssFile = Bun.file(stylexCssPath);
-const stylexCss = (await stylexCssFile.exists())
-	? await stylexCssFile.text()
-	: "";
-
-await Bun.write(
-	`${distDir}/index.html`,
-	template
-		.replace("__INLINE_APP_CSS__", `${css}\n${stylexCss}`)
-		.replace("./index.js", "./main.js")
-);
+process.exit(await vite.exited);

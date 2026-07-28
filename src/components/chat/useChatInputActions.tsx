@@ -1,5 +1,6 @@
+import { useCallback, useEffect, useRef } from "octane";
 import type React from "react";
-import { useCallback, useEffect, useRef } from "react";
+import type { AgentKind } from "../../features/agent/agent-utils.ts";
 import {
 	appendTrimmedMessage,
 	type ChatLoadingState,
@@ -14,7 +15,6 @@ import {
 	loadPendingSend,
 	loadStoredSessionId,
 } from "../../features/chat/chat-session-store.ts";
-import type { AgentKind } from "../../features/agent/agent-utils.ts";
 import { serializeCommandSystemMessage } from "../../features/chat/command-system-message.ts";
 import { noop } from "../../lib/data.ts";
 import { wsClient } from "../../lib/websocket.ts";
@@ -29,14 +29,14 @@ import type {
 	FileMenuState,
 	FileSearchResult,
 	SlashMenuState,
-} from "./useAgentChatMenus.ts";
+} from "./useAgentChatMenus.tsx";
 
 type MenuState = { show: boolean; selectedIdx: number };
 type AttachedImage = { path: string };
 type ChatWorkspaceOverride = { cwd?: string; referencePaths?: string[] };
 
 function handleMenuKey<S extends MenuState>(
-	e: React.KeyboardEvent,
+	e: KeyboardEvent,
 	count: number,
 	setMenu: React.Dispatch<React.SetStateAction<S>>,
 	selectIdx: number,
@@ -352,7 +352,7 @@ export function useChatInputActions({
 	]);
 
 	const handleKeyDown = useCallback(
-		(e: React.KeyboardEvent) => {
+		(e: KeyboardEvent) => {
 			if (
 				fileMenu.show &&
 				fileResults.length > 0 &&

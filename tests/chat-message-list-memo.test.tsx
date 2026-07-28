@@ -7,6 +7,6 @@ test("chat message list is memoized at the component boundary", async () => {
 		"utf8"
 	);
 
-	expect(source).toContain("export const ChatMessageList = React.memo(");
+	expect(source).toContain("export const ChatMessageList = memo(");
 	expect(source).toContain("getItemKey: getVirtualRowKey");
 });

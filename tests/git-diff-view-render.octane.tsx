@@ -1,9 +1,13 @@
-import { describe, expect, mock, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { createRoot, type Root } from "react-dom/client";
-import type { HunkDiff } from "../src/features/git/useGitDiff.ts";
+import { createRoot, type Root } from "octane";
+import { describe, expect, test, vi } from "vitest";
+import type { HunkDiff } from "../src/features/git/useGitDiff.tsx";
 
-mock.module("@stylexjs/stylex", () => ({
+const mock = Object.assign(vi.fn, {
+	module: (path: string, factory: () => unknown) => vi.doMock(path, factory),
+});
+
+mock.module("@octanejs/stylex", () => ({
 	create: <T extends Record<string, unknown>>(styles: T) => styles,
 	createTheme: (_vars: unknown, values: unknown) => values,
 	defineVars: <T extends Record<string, string>>(values: T) => values,
@@ -215,7 +219,3 @@ describe("GitDiffView custom renderer", () => {
 		}
 	});
 });
-
-function domWindow() {
-	return globalThis.window as Window & typeof globalThis;
-}

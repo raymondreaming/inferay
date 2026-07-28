@@ -3,8 +3,8 @@ import { readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { noop } from "../lib/data.ts";
 import { PROJECT_ROOT } from "../lib/user-data.ts";
-import { buildApiRoutes, handlePromptRequest } from "./routes/api.ts";
 import { AgentService } from "./routes/agent.ts";
+import { buildApiRoutes, handlePromptRequest } from "./routes/api.ts";
 import {
 	isTrustedLocalOrigin,
 	isTrustedLocalRequest,

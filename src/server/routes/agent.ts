@@ -2,18 +2,18 @@ import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import type { ServerWebSocket } from "bun";
-import type { AgentKind } from "../../features/agents/agents.ts";
 import {
 	createAgentEnv,
 	resolveInteractiveAgentCommand,
 } from "../../features/agent/agent-command.ts";
 import {
+	type AgentSavedState,
+	type AgentWorkspaceAction,
 	createDefaultAgentState,
 	normalizeAgentState,
 	reduceAgentWorkspaceState,
-	type AgentSavedState,
-	type AgentWorkspaceAction,
 } from "../../features/agent/agent-utils.ts";
+import type { AgentKind } from "../../features/agents/agents.ts";
 import {
 	compareName,
 	comparePort,

@@ -1,11 +1,15 @@
-import { expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
-import * as React from "react";
-import { createRoot } from "react-dom/client";
-import type { PaneId, AgentTheme } from "../src/features/agent/agent-utils.ts";
+import { createRoot, useImperativeHandle } from "octane";
+import type { Octane } from "octane/jsx-runtime";
+import { expect, test, vi } from "vitest";
+import type { AgentTheme, PaneId } from "../src/features/agent/agent-utils.ts";
 
-mock.module("@stylexjs/stylex", () => ({
+const mock = Object.assign(vi.fn, {
+	module: (path: string, factory: () => unknown) => vi.doMock(path, factory),
+});
+
+mock.module("@octanejs/stylex", () => ({
 	create: <T extends Record<string, unknown>>(styles: T) => styles,
 	createTheme: (_vars: unknown, values: unknown) => values,
 	defineVars: <T extends Record<string, string>>(values: T) => values,
@@ -18,7 +22,11 @@ const agentEnabledStates: boolean[] = [];
 const chatHandle = {};
 
 class MockResizeObserver {
-	constructor(private readonly callback: ResizeObserverCallback) {}
+	private readonly callback: ResizeObserverCallback;
+
+	constructor(callback: ResizeObserverCallback) {
+		this.callback = callback;
+	}
 
 	observe(target: Element) {
 		this.callback(
@@ -35,12 +43,12 @@ class MockResizeObserver {
 	disconnect() {}
 }
 
-mock.module("../src/hooks/useXtermAgent.ts", () => ({
+mock.module("../src/hooks/useXtermAgent.tsx", () => ({
 	useXtermAgent: mock(({ enabled }: { enabled: boolean }) => {
 		agentEnabledStates.push(enabled);
 		return {
-			containerRef: React.createRef<HTMLDivElement>(),
-			termRef: React.createRef<{ focus: () => void }>(),
+			containerRef: { current: null as HTMLDivElement | null },
+			termRef: { current: null as { focus: () => void } | null },
 			refit,
 		};
 	}),
@@ -50,9 +58,9 @@ mock.module("../src/components/chat/AgentChatView.tsx", () => ({
 	AgentChatView: function MockAgentChatView({
 		ref,
 	}: {
-		ref?: React.Ref<unknown>;
+		ref?: Octane.Ref<unknown>;
 	}) {
-		React.useImperativeHandle(ref, () => chatHandle, []);
+		useImperativeHandle(ref, () => chatHandle, []);
 		return (
 			<div data-testid="agent-chat">
 				<div
@@ -64,7 +72,7 @@ mock.module("../src/components/chat/AgentChatView.tsx", () => ({
 	},
 }));
 
-mock.module("../src/features/git/useGitStatus.ts", () => ({
+mock.module("../src/features/git/useGitStatus.tsx", () => ({
 	useGitStatus: () => ({ projectMap: new Map() }),
 }));
 
@@ -88,6 +96,10 @@ function setupDom() {
 	Object.defineProperty(globalThis, "Element", {
 		configurable: true,
 		value: dom.window.Element,
+	});
+	Object.defineProperty(globalThis, "Node", {
+		configurable: true,
+		value: dom.window.Node,
 	});
 	Object.defineProperty(globalThis, "SVGElement", {
 		configurable: true,

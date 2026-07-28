@@ -1,7 +1,8 @@
-import type React from "react";
+import type { Octane } from "octane/jsx-runtime";
+import type { CSSProperties } from "react";
 import { hasId } from "../../lib/data.ts";
 
-type IconProps = React.SVGProps<SVGSVGElement> & { size?: number };
+export type IconProps = Octane.SVGProps<SVGSVGElement> & { size?: number };
 
 function icon(paths: string | string[], viewBox = "0 0 24 24") {
 	const pathList = Array.isArray(paths) ? paths : [paths];
@@ -29,7 +30,7 @@ function icon(paths: string | string[], viewBox = "0 0 24 24") {
 }
 
 function svgIcon(
-	children: React.ReactNode,
+	children: unknown,
 	options: { viewBox?: string; fill?: string; stroke?: string | null } = {}
 ) {
 	return function Icon({ size = 16, ...props }: IconProps) {
@@ -377,7 +378,7 @@ export function CommitGraphLinesLayer({
 	width: number;
 	height: number;
 	className?: string;
-	style?: React.CSSProperties;
+	style?: CSSProperties;
 	railSegments: Array<{
 		key: string;
 		row: number;
@@ -487,5 +488,3 @@ export function ProjectGraphConnectionsLayer({
 		</svg>
 	);
 }
-
-export type { IconProps };

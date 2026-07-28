@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import type { DiffRequest } from "../../features/git/useGitDiff.ts";
+import { useEffect, useRef } from "octane";
+import type { DiffRequest } from "../../features/git/useGitDiff.tsx";
 import { sendJson } from "../../lib/fetch-json.ts";
 import { wsClient } from "../../lib/websocket.ts";
 

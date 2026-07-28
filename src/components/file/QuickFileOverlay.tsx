@@ -1,10 +1,10 @@
-import * as stylex from "@stylexjs/stylex";
+import * as stylex from "@octanejs/stylex";
+import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	useShikiSnippet,
 	useSyntaxHighlightTheme,
-} from "../../hooks/useShikiHighlighter.ts";
+} from "../../hooks/useShikiHighlighter.tsx";
 import { fetchJson, postJson } from "../../lib/fetch-json.ts";
 import { listenWindowEvent, setInputValue } from "../../lib/react-events.ts";
 import {
@@ -58,8 +58,8 @@ function resultDetail(result: FileSearchResult, hasMultipleCwds: boolean) {
 function escapeHtml(text: string) {
 	return text
 		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
+		.replace(/\x3c/g, "&lt;")
+		.replace(/\x3e/g, "&gt;")
 		.replace(/"/g, "&quot;")
 		.replace(/'/g, "&#039;");
 }
@@ -67,22 +67,22 @@ function escapeHtml(text: string) {
 function SyntaxEditor({
 	filePath,
 	value,
-	onChange,
+	onInput,
 	onKeyDown,
 	editorRef,
 }: {
 	filePath: string;
 	value: string;
-	onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
-	onKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+	onInput: (event: InputEvent & { currentTarget: HTMLTextAreaElement }) => void;
+	onKeyDown: (event: KeyboardEvent) => void;
 	editorRef: React.RefObject<HTMLTextAreaElement | null>;
 }) {
-	const highlightRef = useRef<HTMLDivElement>(null);
+	const highlightRef = useRef<HTMLDivElement | null>(null);
 	const [syntaxTheme] = useSyntaxHighlightTheme();
 	const lines = useMemo(() => value.split("\n"), [value]);
 	const { highlighted } = useShikiSnippet(lines, filePath, true, syntaxTheme);
 	const syncScroll = useCallback(
-		(event: React.UIEvent<HTMLTextAreaElement>) => {
+		(event: UIEvent & { currentTarget: HTMLTextAreaElement }) => {
 			if (!highlightRef.current) return;
 			highlightRef.current.scrollTop = event.currentTarget.scrollTop;
 			highlightRef.current.scrollLeft = event.currentTarget.scrollLeft;
@@ -114,7 +114,7 @@ function SyntaxEditor({
 			<textarea
 				ref={editorRef}
 				value={value}
-				onChange={onChange}
+				onInput={onInput}
 				onKeyDown={onKeyDown}
 				onScroll={syncScroll}
 				wrap="off"
@@ -139,8 +139,8 @@ export function QuickFileOverlay() {
 	const [draft, setDraft] = useState("");
 	const [saved, setSaved] = useState(false);
 	const [saving, setSaving] = useState(false);
-	const searchInputRef = useRef<HTMLInputElement>(null);
-	const editorRef = useRef<HTMLTextAreaElement>(null);
+	const searchInputRef = useRef<HTMLInputElement | null>(null);
+	const editorRef = useRef<HTMLTextAreaElement | null>(null);
 	const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	const selected = results[selectedIndex] ?? null;
@@ -262,7 +262,7 @@ export function QuickFileOverlay() {
 	);
 
 	const handleSearchKeyDown = useCallback(
-		(event: React.KeyboardEvent) => {
+		(event: KeyboardEvent) => {
 			if (event.key === "Escape") {
 				event.preventDefault();
 				close();
@@ -283,7 +283,7 @@ export function QuickFileOverlay() {
 	);
 
 	const handleEditorKeyDown = useCallback(
-		(event: React.KeyboardEvent) => {
+		(event: KeyboardEvent) => {
 			if (event.key === "Escape" && !dirty) {
 				event.preventDefault();
 				close();
@@ -354,7 +354,7 @@ export function QuickFileOverlay() {
 								ref={searchInputRef}
 								type="text"
 								value={query}
-								onChange={setInputValue.bind(null, setQuery)}
+								onInput={setInputValue.bind(null, setQuery)}
 								placeholder="Search files"
 								{...stylex.props(styles.searchInput)}
 							/>
@@ -427,7 +427,7 @@ export function QuickFileOverlay() {
 							<SyntaxEditor
 								filePath={activeFile.path}
 								value={draft}
-								onChange={setInputValue.bind(null, setDraft)}
+								onInput={setInputValue.bind(null, setDraft)}
 								onKeyDown={handleEditorKeyDown}
 								editorRef={editorRef}
 							/>

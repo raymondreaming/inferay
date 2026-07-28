@@ -1,5 +1,4 @@
-import * as stylex from "@stylexjs/stylex";
-import type React from "react";
+import * as stylex from "@octanejs/stylex";
 import { colorValues, effectValues } from "../../tokens.stylex.ts";
 
 type TokenRange = {
@@ -46,7 +45,7 @@ function findDecoratedTokenRanges(
 export function renderInputHighlights(
 	text: string,
 	slashCommandNames?: readonly string[]
-): React.ReactNode {
+): unknown {
 	if (!text)
 		return <span {...stylex.props(styles.transparent)}>{"\u00A0"}</span>;
 
@@ -55,7 +54,7 @@ export function renderInputHighlights(
 		return <span {...stylex.props(styles.text)}>{text}</span>;
 	}
 
-	const segments: React.ReactNode[] = [];
+	const segments: unknown[] = [];
 	let lastEnd = 0;
 
 	for (const token of tokens) {
@@ -92,13 +91,13 @@ export function renderInputHighlights(
 export function renderTextPills(
 	text: string,
 	slashCommandNames?: readonly string[]
-): React.ReactNode[] {
+): unknown[] {
 	if (!text) return [];
 
 	const matches = findDecoratedTokenRanges(text, slashCommandNames);
 	if (matches.length === 0) return [text];
 
-	const parts: React.ReactNode[] = [];
+	const parts: unknown[] = [];
 	let lastEnd = 0;
 
 	for (const token of matches) {

@@ -1,18 +1,18 @@
-import * as stylex from "@stylexjs/stylex";
-import { useCallback, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "@octanejs/remix-router";
+import * as stylex from "@octanejs/stylex";
+import { useCallback, useMemo, useState } from "octane";
 import {
 	IconCheck,
 	IconMessageCircle,
 	IconSearch,
 	IconTrash,
 } from "../../components/ui/Icons.tsx";
-import { savePendingSend } from "../../features/chat/chat-session-store.ts";
 import {
 	dispatchAgentShellChange,
 	mutateAgentWorkspaceState,
 } from "../../features/agent/agent-utils.ts";
-import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
+import { savePendingSend } from "../../features/chat/chat-session-store.ts";
+import { useAsyncResource } from "../../hooks/useAsyncResource.tsx";
 import { DEFAULT_APP_ROUTE } from "../../lib/app-navigation.tsx";
 import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
@@ -176,7 +176,7 @@ export function ImagesPage() {
 						<input
 							type="search"
 							value={query}
-							onChange={setInputValue.bind(null, setQuery)}
+							onInput={setInputValue.bind(null, setQuery)}
 							placeholder="Search files"
 							{...stylex.props(styles.searchInput)}
 						/>

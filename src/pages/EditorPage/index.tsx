@@ -1,52 +1,51 @@
-import * as stylex from "@stylexjs/stylex";
+import * as stylex from "@octanejs/stylex";
 import {
-	type ReactNode,
-	type RefObject,
 	useCallback,
 	useEffect,
 	useMemo,
 	useReducer,
 	useRef,
 	useState,
-} from "react";
+} from "octane";
+import type { RefObject } from "react";
 import type { AgentChatHandle } from "../../components/chat/AgentChatView.tsx";
 import { DiffViewerBoundary } from "../../components/diff/DiffViewerBoundary.tsx";
 import {
-	CollapsedChangeFileSidebar,
 	ChangeFileSidebar,
+	CollapsedChangeFileSidebar,
 	type SelectedFile,
 } from "../../components/git/ChangeFileSidebar.tsx";
 import { CommitGraph } from "../../components/git/CommitGraph.tsx";
+import {
+	type AgentGroupModel,
+	dispatchAgentShellChange,
+	type ThemeId,
+} from "../../features/agent/agent-utils.ts";
 import { isChatAgentKind } from "../../features/agents/agents.ts";
 import {
 	clearAgentChatPaneState,
 	deriveStoredSummary,
 	loadPendingWorkspacePaths,
 } from "../../features/chat/chat-session-store.ts";
-import { useFileWatcher } from "../../features/file-watcher/useFileWatcher.ts";
+import { useFileWatcher } from "../../features/file-watcher/useFileWatcher.tsx";
 import {
 	isStagedChange,
 	isUnstagedTrackedChange,
 	isUntrackedChange,
 	orderProjectGitFiles,
 } from "../../features/git/git-file-utils.ts";
-import { useGitChangeActions } from "../../features/git/useGitChangeActions.ts";
+import { useGitChangeActions } from "../../features/git/useGitChangeActions.tsx";
 import {
 	type DiffRequest,
 	type HunkDiff,
 	summarizeHunkDiff,
 	useGitDiff,
-} from "../../features/git/useGitDiff.ts";
+} from "../../features/git/useGitDiff.tsx";
 import {
 	useCommitDetails,
 	useGitGraph,
-} from "../../features/git/useGitGraph.ts";
-import { useGitStatus } from "../../features/git/useGitStatus.ts";
-import {
-	dispatchAgentShellChange,
-	type AgentGroupModel,
-	type ThemeId,
-} from "../../features/agent/agent-utils.ts";
+} from "../../features/git/useGitGraph.tsx";
+import { useGitStatus } from "../../features/git/useGitStatus.tsx";
 import { incrementNumber, isNonEmptyString } from "../../lib/data.ts";
 import {
 	listenWindowEvent,
@@ -54,8 +53,8 @@ import {
 } from "../../lib/react-events.ts";
 import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
-import { type DiffViewMode, GitDiffView } from "../Agent/GitDiffView.tsx";
 import { AgentSettingsPanel } from "../Agent/AgentSettingsPanel.tsx";
+import { type DiffViewMode, GitDiffView } from "../Agent/GitDiffView.tsx";
 import {
 	DiffViewerTopBar,
 	EditorAgentChat,
@@ -499,7 +498,7 @@ function useEditorPageModel({
 		(value: StateValue<boolean>) => setEditorUiField("showSettings", value),
 		[setEditorUiField]
 	);
-	const chatRef = useRef<AgentChatHandle>(null);
+	const chatRef = useRef<AgentChatHandle | null>(null);
 	const sidebarDragRef = useRef<{
 		startX: number;
 		startWidth: number;
@@ -648,7 +647,7 @@ function useEditorPageModel({
 	);
 
 	const handleSidebarDragStart = useCallback(
-		(e: React.MouseEvent) => {
+		(e: MouseEvent) => {
 			e.preventDefault();
 			sidebarDragRef.current = {
 				startX: e.clientX,
@@ -678,7 +677,7 @@ function useEditorPageModel({
 	);
 
 	const handleChatPanelDragStart = useCallback(
-		(event: React.MouseEvent) => {
+		(event: MouseEvent) => {
 			event.preventDefault();
 			chatPanelDragRef.current = {
 				startX: event.clientX,
@@ -908,14 +907,14 @@ type EditorPageSurfaceProps = {
 	readonly chatRef: RefObject<AgentChatHandle | null>;
 	readonly chatPanelWidth: number;
 	readonly closePane: (paneId: string) => void;
-	readonly detailsSidebar: ReactNode;
-	readonly diffSidebar: ReactNode;
-	readonly diffToolbar: ReactNode;
-	readonly emptyWorkspace: ReactNode;
+	readonly detailsSidebar: unknown;
+	readonly diffSidebar: unknown;
+	readonly diffToolbar: unknown;
+	readonly emptyWorkspace: unknown;
 	readonly exitZenMode: () => void;
 	readonly gitBranch: string | null;
 	readonly onDirectoryChange: EditorPageProps["onDirectoryChange"];
-	readonly onChatPanelDragStart: (event: React.MouseEvent) => void;
+	readonly onChatPanelDragStart: (event: MouseEvent) => void;
 	readonly selectEditorPane: (paneId: string) => void;
 	readonly session: Session | null;
 	readonly sessions: Session[];
@@ -924,7 +923,7 @@ type EditorPageSurfaceProps = {
 	readonly sidebarVisible: boolean;
 	readonly sidebarWidth: number;
 	readonly themeId: ThemeId;
-	readonly viewer: ReactNode;
+	readonly viewer: unknown;
 	readonly zenMode: boolean;
 };
 

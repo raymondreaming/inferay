@@ -1,11 +1,17 @@
-import * as stylex from "@stylexjs/stylex";
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import * as stylex from "@octanejs/stylex";
+import { useCallback, useEffect, useReducer, useRef, useState } from "octane";
 import {
 	IconChevronDown,
 	IconPlus,
 	IconSearch,
 } from "../../components/ui/Icons.tsx";
-import { usePrompts } from "../../features/prompts/usePrompts.ts";
+import { filterPrompts } from "../../features/prompts/prompt-utils.ts";
+import {
+	PROMPT_CATEGORIES,
+	type Prompt,
+} from "../../features/prompts/types.ts";
+import { usePrompts } from "../../features/prompts/usePrompts.tsx";
+import { listenDocumentEvent, setInputValue } from "../../lib/react-events.ts";
 import {
 	color,
 	controlSize,
@@ -14,12 +20,6 @@ import {
 	radius,
 	shadow,
 } from "../../tokens.stylex.ts";
-import { filterPrompts } from "../../features/prompts/prompt-utils.ts";
-import {
-	PROMPT_CATEGORIES,
-	type Prompt,
-} from "../../features/prompts/types.ts";
-import { listenDocumentEvent, setInputValue } from "../../lib/react-events.ts";
 import { PromptDetailPanel } from "./PromptDetailPanel.tsx";
 
 interface FormState {
@@ -193,7 +193,7 @@ export function PromptsPage() {
 					<input
 						type="text"
 						value={search}
-						onChange={setInputValue.bind(null, setSearch)}
+						onInput={setInputValue.bind(null, setSearch)}
 						placeholder="Search..."
 						{...stylex.props(styles.searchInput)}
 					/>
@@ -327,7 +327,7 @@ function FilterDropdown({
 	onFilterChange: (v: string) => void;
 }) {
 	const [open, setOpen] = useState(false);
-	const ref = useRef<HTMLDivElement>(null);
+	const ref = useRef<HTMLDivElement | null>(null);
 
 	useEffect(() => {
 		if (!open) return;

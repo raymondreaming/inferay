@@ -1,5 +1,5 @@
-import * as stylex from "@stylexjs/stylex";
-import { memo, useEffect, useRef, useState } from "react";
+import * as stylex from "@octanejs/stylex";
+import { memo, useEffect, useRef, useState } from "octane";
 import {
 	type MdBlock,
 	type MdInlineToken,
@@ -65,7 +65,7 @@ function sanitizeMermaidSvg(svg: string): string {
 }
 
 function MermaidBlock({ code }: { code: string }) {
-	const ref = useRef<HTMLDivElement>(null);
+	const ref = useRef<HTMLDivElement | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {

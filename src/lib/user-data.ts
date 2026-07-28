@@ -1,16 +1,19 @@
 import { existsSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const MODULE_DIRECTORY = fileURLToPath(new URL(".", import.meta.url));
 
 function resolveProjectRoot(): string {
 	if (process.env.AGENT_GUI_APP_ROOT) {
 		return process.env.AGENT_GUI_APP_ROOT;
 	}
-	const bundleRoot = resolve(import.meta.dir, "..");
+	const bundleRoot = resolve(MODULE_DIRECTORY, "..");
 	if (existsSync(resolve(bundleRoot, "views"))) {
 		return bundleRoot;
 	}
-	return resolve(import.meta.dir, "../..");
+	return resolve(MODULE_DIRECTORY, "../..");
 }
 
 const USER_DATA_ROOT = (() => {

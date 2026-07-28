@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { platform, arch, homedir } from "node:os";
+import { arch, homedir, platform } from "node:os";
 import { join, resolve } from "node:path";
 
 export function platformInfo() {
@@ -29,6 +29,7 @@ function devAppCandidates(cwd = process.cwd()) {
 	return [
 		resolve(cwd, "build/dev-macos-arm64/inferay-dev.app"),
 		resolve(cwd, "build/dev-macos-arm64/inferay.app"),
+		resolve(cwd, "build/release-macos-arm64/inferay.app"),
 		resolve(cwd, "build/stable-macos-arm64/inferay.app"),
 		resolve(cwd, "build/macos-arm64/inferay.app"),
 	];

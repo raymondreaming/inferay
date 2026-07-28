@@ -6,7 +6,7 @@ import {
 	type HunkDiff,
 	hasLongPatchLine,
 	shouldDisableDiffTokenization,
-} from "../src/features/git/useGitDiff.ts";
+} from "../src/features/git/useGitDiff.tsx";
 
 function line(type: DiffLine["type"], content: string, number = 1): DiffLine {
 	return {

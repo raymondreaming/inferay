@@ -1,9 +1,10 @@
-import * as stylex from "@stylexjs/stylex";
-import { useCallback, useEffect, useReducer, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "@octanejs/remix-router";
+import * as stylex from "@octanejs/stylex";
+import { useCallback, useEffect, useReducer, useState } from "octane";
 import { Button } from "../../components/ui/Button.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
 import {
+	IconAgent,
 	IconArrowLeft,
 	IconCheck,
 	IconChevronRight,
@@ -12,22 +13,21 @@ import {
 	IconGitBranch,
 	IconGlobe,
 	IconRefreshCw,
-	IconAgent,
 	IconUser,
 	IconX,
 } from "../../components/ui/Icons.tsx";
+import {
+	createDefaultAgentState,
+	loadCanonicalAgentState,
+	saveSyncedAgentState,
+} from "../../features/agent/agent-utils.ts";
 import {
 	fetchForgeAccounts,
 	fetchGithubRepos,
 	invalidateForgeAccountsCache,
 } from "../../features/forge/forge-client.ts";
 import type { ForgeAccount, GithubRepo } from "../../features/forge/types.ts";
-import {
-	createDefaultAgentState,
-	loadCanonicalAgentState,
-	saveSyncedAgentState,
-} from "../../features/agent/agent-utils.ts";
-import { useAsyncResource } from "../../hooks/useAsyncResource.ts";
+import { useAsyncResource } from "../../hooks/useAsyncResource.tsx";
 import {
 	applyAppTheme,
 	loadAppThemeId,

@@ -1,30 +1,30 @@
-import * as stylex from "@stylexjs/stylex";
-import type React from "react";
-import { Component } from "react";
+import * as stylex from "@octanejs/stylex";
+import { ErrorBoundary as OctaneErrorBoundary, useEffect } from "octane";
 import { color, font } from "../../tokens.stylex.ts";
 
-export class ErrorBoundary extends Component<
-	{ children: React.ReactNode },
-	{ hasError: boolean }
-> {
-	override state = { hasError: false };
-	static getDerivedStateFromError() {
-		return { hasError: true };
-	}
-	override componentDidCatch() {
-		// Auto-recover after a short delay
-		setTimeout(() => this.setState({ hasError: false }), 1500);
-	}
-	override render() {
-		if (this.state.hasError) {
-			return (
-				<div {...stylex.props(styles.fallback)}>
-					<p {...stylex.props(styles.message)}>Reconnecting…</p>
-				</div>
-			);
-		}
-		return this.props.children;
-	}
+function ReconnectingFallback({ reset }: { reset: () => void }) {
+	useEffect(() => {
+		const timer = window.setTimeout(reset, 1500);
+		return () => window.clearTimeout(timer);
+	}, [reset]);
+
+	return (
+		<div {...stylex.props(styles.fallback)}>
+			<p {...stylex.props(styles.message)}>Reconnecting…</p>
+		</div>
+	);
+}
+
+function renderReconnectingFallback(_error: unknown, reset: () => void) {
+	return <ReconnectingFallback reset={reset} />;
+}
+
+export function ErrorBoundary({ children }: { children: unknown }) {
+	return (
+		<OctaneErrorBoundary fallback={renderReconnectingFallback}>
+			{children}
+		</OctaneErrorBoundary>
+	);
 }
 
 const styles = stylex.create({

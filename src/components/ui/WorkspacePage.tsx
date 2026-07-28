@@ -1,9 +1,9 @@
-import * as stylex from "@stylexjs/stylex";
-import type { HTMLAttributes, ReactNode } from "react";
+import * as stylex from "@octanejs/stylex";
+import type { Octane } from "octane/jsx-runtime";
 import { color, controlSize, font, radius } from "../../tokens.stylex.ts";
 
-interface WorkspacePageProps extends HTMLAttributes<HTMLDivElement> {
-	children: ReactNode;
+interface WorkspacePageProps extends Octane.HTMLAttributes<HTMLDivElement> {
+	children: unknown;
 }
 
 export function WorkspacePage({
@@ -23,8 +23,8 @@ export function WorkspacePage({
 	);
 }
 
-interface WorkspaceContentProps extends HTMLAttributes<HTMLElement> {
-	children: ReactNode;
+interface WorkspaceContentProps extends Octane.HTMLAttributes<HTMLElement> {
+	children: unknown;
 	padding?: "none" | "sm" | "md";
 	scroll?: boolean;
 }
@@ -59,13 +59,13 @@ export function WorkspaceContent({
 }
 
 interface WorkspaceEmptyStateProps extends Omit<
-	HTMLAttributes<HTMLDivElement>,
+	Octane.HTMLAttributes<HTMLDivElement>,
 	"title"
 > {
-	icon?: ReactNode;
-	title: ReactNode;
-	description?: ReactNode;
-	action?: ReactNode;
+	icon?: unknown;
+	title: unknown;
+	description?: unknown;
+	action?: unknown;
 }
 
 export function WorkspaceEmptyState({

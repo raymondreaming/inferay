@@ -33,13 +33,13 @@ import {
 	truncateChatContent,
 } from "../src/features/chat/agent-chat-shared.ts";
 import {
-	parseGoalSystemMessage,
-	serializeGoalSystemMessage,
-} from "../src/features/chat/goal-system-message.ts";
-import {
 	parseCommandSystemMessage,
 	serializeCommandSystemMessage,
 } from "../src/features/chat/command-system-message.ts";
+import {
+	parseGoalSystemMessage,
+	serializeGoalSystemMessage,
+} from "../src/features/chat/goal-system-message.ts";
 
 function message(
 	id: string,
