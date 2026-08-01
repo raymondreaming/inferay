@@ -1,6 +1,6 @@
 [package]
 name = "inferay-desktop"
-version = "0.1.92"
+version = "0.1.93"
 edition = "2024"
 license = "LicenseRef-Inferay"
 description = "Minimal Rust desktop host for the existing inferay UI"
