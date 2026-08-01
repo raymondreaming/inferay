@@ -9,6 +9,11 @@ description = "Minimal Rust desktop host for the existing inferay UI"
 tao = "=0.36.0"
 wry = "=0.56.0"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "=0.6.4"
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSApplication", "NSMenu", "NSMenuItem", "NSResponder", "std"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSString", "std"] }
+
 [profile.release]
 codegen-units = 1
 lto = "fat"

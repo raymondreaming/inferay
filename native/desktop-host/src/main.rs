@@ -17,6 +17,13 @@ use wry::WebViewBuilder;
 #[cfg(target_os = "macos")]
 use tao::platform::macos::WindowBuilderExtMacOS;
 
+#[cfg(target_os = "macos")]
+use {
+    objc2::{MainThreadMarker, runtime::Sel, sel},
+    objc2_app_kit::{NSApplication, NSMenu, NSMenuItem},
+    objc2_foundation::NSString,
+};
+
 const SERVER_PORT_RANGE: std::ops::RangeInclusive<u16> = 4001..=4010;
 const INITIALIZATION_SCRIPT: &str = r#"
 document.addEventListener('mousedown', (event) => {
@@ -31,6 +38,75 @@ document.addEventListener('mousedown', (event) => {
 });
 window.addEventListener('resize', () => window.ipc.postMessage('sync_fullscreen'));
 "#;
+
+#[cfg(target_os = "macos")]
+fn add_menu_item(
+    menu: &NSMenu,
+    marker: MainThreadMarker,
+    title: &str,
+    action: Option<Sel>,
+    shortcut: &str,
+) {
+    let item = unsafe {
+        NSMenuItem::initWithTitle_action_keyEquivalent(
+            marker.alloc(),
+            &NSString::from_str(title),
+            action,
+            &NSString::from_str(shortcut),
+        )
+    };
+    menu.addItem(&item);
+}
+
+#[cfg(target_os = "macos")]
+fn install_application_menu() {
+    let marker = MainThreadMarker::new().expect("macOS application menu requires the main thread");
+    let main_menu = NSMenu::initWithTitle(marker.alloc(), &NSString::from_str(""));
+
+    let app_menu = NSMenu::initWithTitle(marker.alloc(), &NSString::from_str("Inferay"));
+    add_menu_item(
+        &app_menu,
+        marker,
+        "Quit Inferay",
+        Some(sel!(terminate:)),
+        "q",
+    );
+    let app_menu_item = unsafe {
+        NSMenuItem::initWithTitle_action_keyEquivalent(
+            marker.alloc(),
+            &NSString::from_str("Inferay"),
+            None,
+            &NSString::from_str(""),
+        )
+    };
+    app_menu_item.setSubmenu(Some(&app_menu));
+    main_menu.addItem(&app_menu_item);
+
+    let edit_menu = NSMenu::initWithTitle(marker.alloc(), &NSString::from_str("Edit"));
+    add_menu_item(&edit_menu, marker, "Cut", Some(sel!(cut:)), "x");
+    add_menu_item(&edit_menu, marker, "Copy", Some(sel!(copy:)), "c");
+    add_menu_item(&edit_menu, marker, "Paste", Some(sel!(paste:)), "v");
+    edit_menu.addItem(&NSMenuItem::separatorItem(marker));
+    add_menu_item(
+        &edit_menu,
+        marker,
+        "Select All",
+        Some(sel!(selectAll:)),
+        "a",
+    );
+    let edit_menu_item = unsafe {
+        NSMenuItem::initWithTitle_action_keyEquivalent(
+            marker.alloc(),
+            &NSString::from_str("Edit"),
+            None,
+            &NSString::from_str(""),
+        )
+    };
+    edit_menu_item.setSubmenu(Some(&edit_menu));
+    main_menu.addItem(&edit_menu_item);
+
+    NSApplication::sharedApplication(marker).setMainMenu(Some(&main_menu));
+}
 
 #[derive(Debug)]
 enum UserEvent {
@@ -131,6 +207,10 @@ fn main() -> wry::Result<()> {
     wait_for_server(server_port).expect("inferay services failed to become ready");
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
+
+    #[cfg(target_os = "macos")]
+    install_application_menu();
+
     let window_builder = WindowBuilder::new()
         .with_title("inferay")
         .with_inner_size(LogicalSize::new(1440.0, 920.0))
@@ -150,6 +230,7 @@ fn main() -> wry::Result<()> {
         .with_url(format!("http://127.0.0.1:{server_port}"))
         .with_initialization_script(INITIALIZATION_SCRIPT)
         .with_accept_first_mouse(true)
+        .with_clipboard(true)
         .with_ipc_handler(move |request| {
             let event = match request.body().as_str() {
                 "drag_window" => Some(UserEvent::DragWindow),
