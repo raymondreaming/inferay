@@ -9,9 +9,8 @@ APP_NAME="inferay"
 DMG_NAME="inferay-installer"
 BUILD_DIR="build/rust-macos-arm64"
 OUTPUT_DIR="artifacts"
-CREATE_DMG="./node_modules/.bin/create-dmg"
 
-create_plain_dmg() {
+create_dmg() {
   local dmg_root
   dmg_root="$(mktemp -d "${TMPDIR:-/tmp}/inferay-dmg.XXXXXX")"
 
@@ -36,7 +35,7 @@ rm -rf "${BUILD_DIR}/${APP_NAME}.app"
 # Build the Rust-hosted app first.
 bun run build
 
-echo "Creating polished DMG installer..."
+echo "Creating DMG installer..."
 
 if [ -d "${BUILD_DIR}/${APP_NAME}.app" ]; then
   bun scripts/prepare-release-app.ts "${BUILD_DIR}/${APP_NAME}.app"
@@ -49,24 +48,9 @@ fi
 rm -f "${OUTPUT_DIR}/${DMG_NAME}.dmg"
 rm -f "${OUTPUT_DIR}/stable-macos-arm64-inferay.dmg"
 
-# Create the DMG with create-dmg, then normalize the filename expected by the
-# release script. Fall back to hdiutil when create-dmg's native macos-alias
-# dependency is unavailable.
-if ! "${CREATE_DMG}" \
-  "${BUILD_DIR}/${APP_NAME}.app" \
-  "${OUTPUT_DIR}" \
-  --overwrite \
-  --no-version-in-filename \
-  --dmg-title="${APP_NAME}" \
-  --no-code-sign; then
-  echo "create-dmg failed; creating a plain DMG with hdiutil..."
-  rm -f "${OUTPUT_DIR}/${APP_NAME}.dmg"
-  create_plain_dmg
-fi
-
-if [ -f "${OUTPUT_DIR}/${APP_NAME}.dmg" ]; then
-  mv "${OUTPUT_DIR}/${APP_NAME}.dmg" "${OUTPUT_DIR}/${DMG_NAME}.dmg"
-fi
+# Build directly with Apple's supported disk-image utility. This avoids a
+# native Node dependency and produces the verified artifact used by releases.
+create_dmg
 
 if [ ! -f "${OUTPUT_DIR}/${DMG_NAME}.dmg" ]; then
   echo "Expected DMG not found: ${OUTPUT_DIR}/${DMG_NAME}.dmg"

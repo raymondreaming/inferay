@@ -258,6 +258,7 @@ async function commitAndTag(version: string) {
 		"git",
 		"add",
 		"native/desktop-host/Cargo.toml",
+		"native/desktop-host/Cargo.lock",
 		"native/desktop-host/Info.plist",
 		"packages/inferay/package.json",
 		"packages/inferay/src/cli.js",
