@@ -39,6 +39,7 @@ DerivedData/
 Package.resolved
 native/bin/
 native/diff-engine/target/
+native/desktop-host/target/
 src/data/terminal-state.json
 data/terminal-state.json
 

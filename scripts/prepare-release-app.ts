@@ -174,10 +174,10 @@ async function main() {
 	const versionJson = join(resources, "version.json");
 
 	await assertFile(plist);
-	await assertFile(join(appPath, "Contents", "MacOS", "launcher"));
-	await assertFile(join(resources, "app", "bun", "index.js"));
-	await assertFile(join(resources, "app", "views", "index.html"));
-	await assertFile(join(resources, "app", "views", "main.js"));
+	await assertFile(join(appPath, "Contents", "MacOS", "inferay"));
+	await assertFile(join(appPath, "Contents", "MacOS", "inferay-server"));
+	await assertFile(join(resources, "dist", "index.html"));
+	await assertFile(join(resources, "dist", "main.js"));
 
 	await plistSet(plist, "CFBundleName", APP_NAME);
 	await plistSet(plist, "CFBundleDisplayName", APP_NAME);

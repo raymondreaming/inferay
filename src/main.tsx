@@ -31,6 +31,7 @@ import {
 	AGENT_MAIN_VIEW_STORAGE_KEY,
 	APP_BACKGROUND_STORAGE_KEY,
 	APP_THEME_STORAGE_KEY,
+	ONBOARDING_DONE_STORAGE_KEY,
 } from "./lib/client-storage-keys.ts";
 import {
 	CLIENT_STORAGE_CHANGED_EVENT,
@@ -40,13 +41,6 @@ import { getServerOrigin, resolveServerUrl } from "./lib/fetch-json.ts";
 import { listenWindowEvent } from "./lib/react-events.ts";
 import { readStoredBoolean, writeStoredValue } from "./lib/stored-json.ts";
 import { wsClient } from "./lib/websocket.ts";
-import { AutomationsPage } from "./pages/AutomationsPage";
-import { ImagesPage } from "./pages/ImagesPage";
-import { ONBOARDING_DONE_KEY, OnboardingPage } from "./pages/OnboardingPage";
-import { ProfilePage } from "./pages/ProfilePage";
-import { PromptsPage } from "./pages/PromptsPage";
-import { SessionsPage } from "./pages/SessionsPage";
-import { SimulatorsPage } from "./pages/SimulatorsPage";
 import {
 	color,
 	colorTheme,
@@ -60,6 +54,33 @@ import {
 
 const AgentPage = lazy(() =>
 	import("./pages/Agent").then((m) => ({ default: m.AgentPage }))
+);
+const AutomationsPage = lazy(() =>
+	import("./pages/AutomationsPage").then((m) => ({
+		default: m.AutomationsPage,
+	}))
+);
+const ImagesPage = lazy(() =>
+	import("./pages/ImagesPage").then((m) => ({ default: m.ImagesPage }))
+);
+const OnboardingPage = lazy(() =>
+	import("./pages/OnboardingPage").then((m) => ({
+		default: m.OnboardingPage,
+	}))
+);
+const ProfilePage = lazy(() =>
+	import("./pages/ProfilePage").then((m) => ({ default: m.ProfilePage }))
+);
+const PromptsPage = lazy(() =>
+	import("./pages/PromptsPage").then((m) => ({ default: m.PromptsPage }))
+);
+const SessionsPage = lazy(() =>
+	import("./pages/SessionsPage").then((m) => ({ default: m.SessionsPage }))
+);
+const SimulatorsPage = lazy(() =>
+	import("./pages/SimulatorsPage").then((m) => ({
+		default: m.SimulatorsPage,
+	}))
 );
 
 if (window.location.origin !== getServerOrigin()) {
@@ -91,7 +112,7 @@ await hydrateStoredValues();
 // Main view is a launch target, not a durable workspace choice.
 writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, DEFAULT_AGENT_MAIN_VIEW);
 
-const onboardingDone = readStoredBoolean(ONBOARDING_DONE_KEY);
+const onboardingDone = readStoredBoolean(ONBOARDING_DONE_STORAGE_KEY);
 const defaultRoute = onboardingDone ? DEFAULT_APP_ROUTE : "/onboarding";
 
 applyAppTheme(loadAppThemeId());
@@ -317,12 +338,14 @@ function OnboardingShell() {
 
 root.render(
 	<ErrorBoundary>
-		<HashRouter>
-			<Routes>
-				<Route path="/" element={<Navigate to={defaultRoute} replace />} />
-				<Route path="/onboarding" element={<OnboardingShell />} />
-				<Route path="/*" element={<AppShell />} />
-			</Routes>
-		</HashRouter>
+		<Suspense fallback={null}>
+			<HashRouter>
+				<Routes>
+					<Route path="/" element={<Navigate to={defaultRoute} replace />} />
+					<Route path="/onboarding" element={<OnboardingShell />} />
+					<Route path="/*" element={<AppShell />} />
+				</Routes>
+			</HashRouter>
+		</Suspense>
 	</ErrorBoundary>
 );

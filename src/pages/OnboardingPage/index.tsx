@@ -33,7 +33,10 @@ import {
 	loadAppThemeId,
 	saveAppThemeId,
 } from "../../lib/app-theme.ts";
-import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
+import {
+	AGENT_MAIN_VIEW_STORAGE_KEY,
+	ONBOARDING_DONE_STORAGE_KEY,
+} from "../../lib/client-storage-keys.ts";
 import { lacksValue } from "../../lib/data.ts";
 import {
 	fetchJsonOr,
@@ -43,7 +46,7 @@ import {
 import { readStoredBoolean, writeStoredValue } from "../../lib/stored-json.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 
-export const ONBOARDING_DONE_KEY = "inferay-onboarding-done";
+export const ONBOARDING_DONE_KEY = ONBOARDING_DONE_STORAGE_KEY;
 
 /* ─── Types ─── */
 

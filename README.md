@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/frontend-React_19-61dafb?style=flat-square" />
   <img src="https://img.shields.io/badge/agent_shell-xterm.js-22c55e?style=flat-square" />
   <img src="https://img.shields.io/badge/styling-Tailwind_4-38bdf8?style=flat-square" />
-  <img src="https://img.shields.io/badge/desktop-Electrobun-8b5cf6?style=flat-square" />
+  <img src="https://img.shields.io/badge/desktop-Rust%20%2B%20Wry-f74c00?style=flat-square" />
 </p>
 
 ---
@@ -49,7 +49,7 @@ Every pane is a real PTY. Every agent chat is a real conversation.
 
 - Built on Bun
 - Streaming responses
-- Native macOS app via Electrobun
+- Native macOS host written in Rust with Tao and Wry
 - No Electron bloat
 
 ## Download
@@ -110,7 +110,7 @@ the GitHub release, and publishes the npm CLI package.
 - **Frontend**: React 19, React Router, TanStack Query
 - **Agent workspace**: xterm.js
 - **Styling**: Tailwind CSS v4
-- **Desktop**: Electrobun
+- **Desktop**: Rust, Tao, and Wry
 - **Native acceleration**: optional Rust sidecar for diff computation
 
 ## License

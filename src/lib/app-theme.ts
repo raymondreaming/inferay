@@ -10,6 +10,8 @@ import {
 	writeStoredValue,
 } from "./stored-json.ts";
 
+// Compatibility contract for the existing renderer. The Rust host recognizes
+// these established class names directly, so window dragging remains unchanged.
 export const APP_REGION_DRAG_CLASS = "electrobun-webkit-app-region-drag";
 export const APP_REGION_NO_DRAG_CLASS = "electrobun-webkit-app-region-no-drag";
 

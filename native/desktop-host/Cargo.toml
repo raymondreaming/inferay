@@ -1,0 +1,17 @@
+[package]
+name = "inferay-desktop"
+version = "0.1.90"
+edition = "2024"
+license = "LicenseRef-Inferay"
+description = "Minimal Rust desktop host for the existing inferay UI"
+
+[dependencies]
+tao = "=0.36.0"
+wry = "=0.56.0"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = 3
+panic = "abort"
+strip = true

@@ -18,7 +18,7 @@ import { websocketHandler } from "./ws.ts";
 
 const apiRoutes = buildApiRoutes();
 const publicDir = resolve(PROJECT_ROOT, "public");
-// In bundle the electrobun config copies dist/* → views/*
+// Development serves dist directly; legacy bundles may still provide views.
 const distDir = existsSync(resolve(PROJECT_ROOT, "dist"))
 	? resolve(PROJECT_ROOT, "dist")
 	: resolve(PROJECT_ROOT, "views");

@@ -9,7 +9,8 @@ const ROOT = resolve(import.meta.dir, "..");
 const CLI_DIR = join(ROOT, "packages", "inferay");
 const CLI_PACKAGE_JSON = join(CLI_DIR, "package.json");
 const CLI_SOURCE = join(CLI_DIR, "src", "cli.js");
-const ELECTROBUN_CONFIG = join(ROOT, "electrobun.config.ts");
+const DESKTOP_CARGO_TOML = join(ROOT, "native", "desktop-host", "Cargo.toml");
+const DESKTOP_INFO_PLIST = join(ROOT, "native", "desktop-host", "Info.plist");
 const ARTIFACTS_DIR = join(ROOT, "artifacts");
 const INSTALLER_DMG = join(ARTIFACTS_DIR, "inferay-installer.dmg");
 const PLATFORM_DMG = join(ARTIFACTS_DIR, "inferay-macos-arm64.dmg");
@@ -177,15 +178,32 @@ async function setCliVersion(version: string) {
 }
 
 async function setDesktopVersion(version: string) {
-	const source = await readFile(ELECTROBUN_CONFIG, "utf8");
-	const next = source.replace(
-		/version:\s*"\d+\.\d+\.\d+"/,
-		`version: "${version}"`
+	const cargoSource = await readFile(DESKTOP_CARGO_TOML, "utf8");
+	const nextCargo = cargoSource.replace(
+		/version\s*=\s*"\d+\.\d+\.\d+"/,
+		`version = "${version}"`
 	);
-	if (next === source) {
-		throw new Error("could not update desktop app version");
+	if (nextCargo === cargoSource) {
+		throw new Error("could not update Rust desktop version");
 	}
-	await writeFile(ELECTROBUN_CONFIG, next);
+	await writeFile(DESKTOP_CARGO_TOML, nextCargo);
+
+	const [major, minor, patch] = parseVersion(version);
+	const bundleVersion = String(major * 1_000_000 + minor * 1_000 + patch);
+	const plistSource = await readFile(DESKTOP_INFO_PLIST, "utf8");
+	const nextPlist = plistSource
+		.replace(
+			/(<key>CFBundleShortVersionString<\/key>\s*<string>)[^<]+/,
+			`$1${version}`
+		)
+		.replace(
+			/(<key>CFBundleVersion<\/key>\s*<string>)[^<]+/,
+			`$1${bundleVersion}`
+		);
+	if (nextPlist === plistSource) {
+		throw new Error("could not update desktop Info.plist version");
+	}
+	await writeFile(DESKTOP_INFO_PLIST, nextPlist);
 }
 
 async function assertCleanGit() {
@@ -239,7 +257,8 @@ async function commitAndTag(version: string) {
 	await run([
 		"git",
 		"add",
-		"electrobun.config.ts",
+		"native/desktop-host/Cargo.toml",
+		"native/desktop-host/Info.plist",
 		"packages/inferay/package.json",
 		"packages/inferay/src/cli.js",
 	]);

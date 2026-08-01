@@ -7,8 +7,7 @@ set -e
 
 APP_NAME="inferay"
 DMG_NAME="inferay-installer"
-# Use dev build to avoid Electrobun self-extraction bug (blackboardsh/electrobun#359)
-BUILD_DIR="build/dev-macos-arm64"
+BUILD_DIR="build/rust-macos-arm64"
 OUTPUT_DIR="artifacts"
 CREATE_DMG="./node_modules/.bin/create-dmg"
 
@@ -31,22 +30,18 @@ create_plain_dmg() {
 
 echo "Building inferay..."
 
-# Remove stale distribution bundle before building. Otherwise the DMG can
-# package an older inferay.app if inferay-dev.app is not renamed over it.
+# Remove stale distribution bundle before building.
 rm -rf "${BUILD_DIR}/${APP_NAME}.app"
 
-# Build the app first
+# Build the Rust-hosted app first.
 bun run build
-bash scripts/electrobun.sh build --env=dev
 
 echo "Creating polished DMG installer..."
 
-# Rename dev app bundle for distribution
-if [ -d "${BUILD_DIR}/inferay-dev.app" ]; then
-  mv "${BUILD_DIR}/inferay-dev.app" "${BUILD_DIR}/${APP_NAME}.app"
+if [ -d "${BUILD_DIR}/${APP_NAME}.app" ]; then
   bun scripts/prepare-release-app.ts "${BUILD_DIR}/${APP_NAME}.app"
 else
-  echo "Expected app bundle not found: ${BUILD_DIR}/inferay-dev.app"
+  echo "Expected app bundle not found: ${BUILD_DIR}/${APP_NAME}.app"
   exit 1
 fi
 
