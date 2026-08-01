@@ -1,4 +1,4 @@
-import { useNavigate } from "@octanejs/remix-router";
+import { useNavigate } from "../../lib/hash-router.tsx";
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useEffect, useReducer, useState } from "octane";
 import { Button } from "../../components/ui/Button.tsx";

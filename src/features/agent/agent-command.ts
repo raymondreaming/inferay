@@ -1,7 +1,7 @@
 import { existsSync, readdirSync } from "node:fs";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { isNonEmptyString } from "../../lib/data.ts";
-import type { AgentKind, ChatAgentKind } from "../agents/agents.ts";
+import type { ChatAgentKind } from "../agents/agents.ts";
 
 const isWin = process.platform === "win32";
 const homeDir =
@@ -111,44 +111,4 @@ export async function hasAgentCli(kind: ChatAgentKind): Promise<boolean> {
 		availabilityCache[kind] = false;
 	}
 	return availabilityCache[kind]!;
-}
-
-export async function resolveInteractiveAgentCommand(
-	kind: AgentKind,
-	projectRoot: string
-): Promise<{ ok: true; cmd: string[] } | { ok: false; error: string }> {
-	const userShell = isWin
-		? process.env.COMSPEC || "cmd.exe"
-		: process.env.SHELL || "/bin/zsh";
-
-	if (kind === "agent") {
-		return { ok: true, cmd: isWin ? [userShell] : [userShell, "-i"] };
-	}
-
-	if (kind === "claude") {
-		const available = await hasAgentCli("claude");
-		return {
-			ok: true,
-			cmd: available
-				? [resolveAgentBinary("claude"), "--dangerously-skip-permissions"]
-				: [
-						process.execPath,
-						"run",
-						resolve(projectRoot, "scripts/claude-repl.ts"),
-					],
-		};
-	}
-
-	const available = await hasAgentCli("codex");
-	if (!available) {
-		return { ok: false, error: "Codex CLI not found in PATH" };
-	}
-
-	return {
-		ok: true,
-		cmd: [
-			resolveAgentBinary("codex"),
-			"--dangerously-bypass-approvals-and-sandbox",
-		],
-	};
 }

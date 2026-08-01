@@ -1,11 +1,6 @@
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
-import type { ServerWebSocket } from "bun";
-import {
-	createAgentEnv,
-	resolveInteractiveAgentCommand,
-} from "../../features/agent/agent-command.ts";
 import {
 	type AgentSavedState,
 	type AgentWorkspaceAction,
@@ -13,7 +8,6 @@ import {
 	normalizeAgentState,
 	reduceAgentWorkspaceState,
 } from "../../features/agent/agent-utils.ts";
-import type { AgentKind } from "../../features/agents/agents.ts";
 import {
 	compareName,
 	comparePort,
@@ -30,51 +24,12 @@ import { PROJECT_ROOT, userDataPath } from "../../lib/user-data.ts";
 import { isAllowedLocalPath, resolveAllowedLocalPath } from "../security.ts";
 import { ChatService } from "../services/agent-chat.ts";
 import { ConfigManager } from "../services/config-manager.ts";
-import { PidTracker } from "../services/pid-tracker.ts";
 
 const configManager = new ConfigManager();
 
 const isWin = process.platform === "win32";
 const AGENT_STATE_PATH = userDataPath("agent-state.json");
 const LEGACY_AGENT_STATE_PATH = userDataPath("terminal-state.json");
-
-class OutputBuffer {
-	private chunks: string[] = [];
-	private totalLength = 0;
-	private readonly maxLength: number;
-
-	constructor(maxBytes = 64 * 1024) {
-		this.maxLength = maxBytes;
-	}
-
-	push(data: string) {
-		this.chunks.push(data);
-		this.totalLength += data.length;
-		while (this.totalLength > this.maxLength && this.chunks.length > 1) {
-			const removed = this.chunks.shift()!;
-			this.totalLength -= removed.length;
-		}
-	}
-
-	drain(): string {
-		return this.chunks.join("");
-	}
-}
-
-interface AgentSession {
-	agent: InstanceType<typeof Bun.Terminal>;
-	proc: ReturnType<typeof Bun.spawn>;
-	agentKind: AgentKind;
-	paneId: string;
-	ws: ServerWebSocket<any> | null;
-	outputBuffer: OutputBuffer;
-	decoder: TextDecoder;
-}
-
-const g = globalThis as any;
-if (!g.__inferay_agentSessions)
-	g.__inferay_agentSessions = new Map<string, AgentSession>();
-const sessions: Map<string, AgentSession> = g.__inferay_agentSessions;
 
 function killProcessTree(pid: number): void {
 	if (isWin) {
@@ -102,12 +57,6 @@ function killProcessTree(pid: number): void {
 	try {
 		process.kill(pid, "SIGTERM");
 	} catch {}
-}
-
-function sendToClient(session: AgentSession, msg: object) {
-	if (session.ws?.readyState === 1) {
-		session.ws.send(JSON.stringify(msg));
-	}
 }
 
 export async function readAgentState<T>(fallback: T): Promise<T> {
@@ -200,167 +149,6 @@ function getPaneMap(
 	}
 	return panesById;
 }
-
-export const AgentService = {
-	async createPane(
-		paneId: string,
-		agentKind: AgentKind,
-		ws: ServerWebSocket<any>,
-		cols = 80,
-		rows = 24,
-		cwd?: string
-	): Promise<{ ok: boolean; error?: string }> {
-		if (sessions.has(paneId))
-			return { ok: false, error: "Pane already exists" };
-
-		const resolved = await resolveInteractiveAgentCommand(
-			agentKind,
-			PROJECT_ROOT
-		);
-		if ("error" in resolved) return { ok: false, error: resolved.error };
-
-		try {
-			const outputBuffer = new OutputBuffer();
-			const decoder = new TextDecoder("utf-8");
-
-			const agent = new Bun.Terminal({
-				cols,
-				rows,
-				data(_term, data) {
-					const session = sessions.get(paneId);
-					if (session) {
-						const text = session.decoder.decode(data, { stream: true });
-						session.outputBuffer.push(text);
-						sendToClient(session, {
-							type: "agent:output",
-							paneId,
-							data: text,
-						});
-					}
-				},
-			});
-
-			const spawnEnv =
-				agentKind === "claude"
-					? { ...createAgentEnv("claude"), TERM: "xterm-256color" }
-					: { ...process.env, TERM: "xterm-256color" };
-			const spawnCwd = cwd ? resolveAllowedLocalPath(cwd) : process.cwd();
-			if (!spawnCwd) {
-				return { ok: false, error: "Invalid working directory" };
-			}
-			const proc = Bun.spawn(resolved.cmd, {
-				terminal: agent,
-				env: spawnEnv,
-				cwd: spawnCwd,
-			});
-
-			const session: AgentSession = {
-				agent,
-				proc,
-				agentKind,
-				paneId,
-				ws,
-				outputBuffer,
-				decoder,
-			};
-			sessions.set(paneId, session);
-			if (proc.pid) PidTracker.trackPid(proc.pid);
-
-			proc.exited.then((code) => {
-				const s = sessions.get(paneId);
-				if (s) {
-					if (s.proc.pid) PidTracker.untrackPid(s.proc.pid);
-					sendToClient(s, { type: "agent:exit", paneId, exitCode: code });
-					agent.close();
-					sessions.delete(paneId);
-				}
-			});
-
-			return { ok: true };
-		} catch (e) {
-			return {
-				ok: false,
-				error: e instanceof Error ? e.message : "Failed to spawn process",
-			};
-		}
-	},
-
-	write(paneId: string, data: string): { ok: boolean; error?: string } {
-		const session = sessions.get(paneId);
-		if (!session) return { ok: false, error: "Pane not found" };
-		try {
-			session.agent.write(data);
-			return { ok: true };
-		} catch (e) {
-			return {
-				ok: false,
-				error: e instanceof Error ? e.message : "Failed to write",
-			};
-		}
-	},
-
-	resize(paneId: string, cols: number, rows: number): { ok: boolean } {
-		const session = sessions.get(paneId);
-		if (!session) return { ok: false };
-		try {
-			session.agent.resize(cols, rows);
-		} catch {}
-		return { ok: true };
-	},
-
-	destroyPane(paneId: string): { ok: boolean } {
-		const session = sessions.get(paneId);
-		if (!session) return { ok: true };
-		try {
-			if (session.proc.pid) {
-				killProcessTree(session.proc.pid);
-				PidTracker.untrackPid(session.proc.pid);
-			}
-			session.agent.close();
-		} catch {}
-		sessions.delete(paneId);
-		return { ok: true };
-	},
-
-	cleanupWs(ws: ServerWebSocket<any>) {
-		for (const session of sessions.values())
-			if (session.ws === ws) session.ws = null;
-	},
-
-	reassignWs(
-		paneId: string,
-		ws: ServerWebSocket<any>
-	): { ok: boolean; buffer?: string } {
-		const session = sessions.get(paneId);
-		if (!session) return { ok: false };
-		session.ws = ws;
-		const buffer = session.outputBuffer.drain();
-		return { ok: true, buffer: buffer || undefined };
-	},
-
-	listSessions() {
-		return Array.from(sessions.values()).map((s) => ({
-			paneId: s.paneId,
-			agentKind: s.agentKind,
-		}));
-	},
-
-	destroyAll() {
-		for (const [paneId, session] of sessions) {
-			const { pid } = session.proc;
-			try {
-				if (pid) {
-					killProcessTree(pid);
-					PidTracker.untrackPid(pid);
-				}
-			} catch {}
-			try {
-				session.agent.close();
-			} catch {}
-			sessions.delete(paneId);
-		}
-	},
-};
 
 function isRealFolder(name: string): boolean {
 	const excluded = [".app", ".bundle", ".plugin", ".kext", ".framework"];
@@ -778,9 +566,6 @@ export function agentRoutes() {
 					state: await applyAgentWorkspaceAction((await req.json()).action),
 				});
 			}),
-		},
-		"/api/agent/list": {
-			GET: () => Response.json({ sessions: AgentService.listSessions() }),
 		},
 		"/api/agent/agent-sessions": {
 			GET: () => Response.json({ sessions: ChatService.listSessions() }),

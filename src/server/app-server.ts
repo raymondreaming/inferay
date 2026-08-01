@@ -3,7 +3,6 @@ import { readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { noop } from "../lib/data.ts";
 import { PROJECT_ROOT } from "../lib/user-data.ts";
-import { AgentService } from "./routes/agent.ts";
 import { buildApiRoutes, handlePromptRequest } from "./routes/api.ts";
 import {
 	isTrustedLocalOrigin,
@@ -200,7 +199,6 @@ async function serveDistFile(pathname: string): Promise<Response | null> {
 }
 
 export function shutdownAppServices() {
-	AgentService.destroyAll();
 	ChatService.destroyAll();
 	PidTracker.flush().catch(noop);
 }

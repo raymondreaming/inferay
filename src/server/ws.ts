@@ -1,5 +1,4 @@
 import type { ServerWebSocket } from "bun";
-import { AgentService } from "./routes/agent.ts";
 import { ChatService } from "./services/agent-chat.ts";
 import { CheckpointService } from "./services/checkpoint.ts";
 
@@ -43,44 +42,9 @@ export const websocketHandler = {
 				ws.data.subscriptions.delete(msg.runId);
 			}
 
-			// Agent lifecycle
-			else if (msg.type === "agent:create") {
-				AgentService.createPane(
-					msg.paneId,
-					msg.agentKind ?? (msg.isClaude ? "claude" : "agent"),
-					ws,
-					msg.cols ?? 80,
-					msg.rows ?? 24,
-					msg.cwd
-				).then((result) => {
-					if (ws.readyState === 1) {
-						ws.send(
-							JSON.stringify({
-								type: "agent:created",
-								paneId: msg.paneId,
-								...result,
-							})
-						);
-					}
-				});
-			} else if (msg.type === "agent:input") {
-				AgentService.write(msg.paneId, msg.data);
-			} else if (msg.type === "agent:resize") {
-				AgentService.resize(msg.paneId, msg.cols, msg.rows);
-			} else if (msg.type === "agent:destroy") {
-				AgentService.destroyPane(msg.paneId);
+			// Chat lifecycle
+			else if (msg.type === "chat:destroy") {
 				ChatService.destroySession(msg.paneId);
-			} else if (msg.type === "agent:reconnect") {
-				const result = AgentService.reassignWs(msg.paneId, ws);
-				ChatService.reassignWs(msg.paneId, ws);
-				ws.send(
-					JSON.stringify({
-						type: "agent:reconnected",
-						paneId: msg.paneId,
-						ok: result.ok,
-						buffer: result.buffer,
-					})
-				);
 			}
 
 			// Chat protocol
@@ -129,7 +93,6 @@ export const websocketHandler = {
 	},
 	close(ws: ServerWebSocket<WSData>) {
 		clients.delete(ws);
-		AgentService.cleanupWs(ws);
 		ChatService.cleanupWs(ws);
 	},
 };

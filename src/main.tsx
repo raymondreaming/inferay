@@ -1,10 +1,8 @@
 import * as stylex from "@octanejs/stylex";
 import "./index.css";
 import "virtual:stylex.css";
-import { HashRouter, Navigate, Route, Routes } from "@octanejs/remix-router";
 import { createRoot, lazy, Suspense, useEffect, useState } from "octane";
 import type { CSSProperties } from "react";
-import { QuickFileOverlay } from "./components/file/QuickFileOverlay.tsx";
 import { AgentShellHeader } from "./components/layout/AgentShellHeader.tsx";
 import { Sidebar } from "./components/layout/Sidebar.tsx";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary.tsx";
@@ -38,6 +36,7 @@ import {
 	hydrateStoredValues,
 } from "./lib/client-storage-sync.ts";
 import { getServerOrigin, resolveServerUrl } from "./lib/fetch-json.ts";
+import { Navigate, useLocation } from "./lib/hash-router.tsx";
 import { listenWindowEvent } from "./lib/react-events.ts";
 import { readStoredBoolean, writeStoredValue } from "./lib/stored-json.ts";
 import { wsClient } from "./lib/websocket.ts";
@@ -54,6 +53,11 @@ import {
 
 const AgentPage = lazy(() =>
 	import("./pages/Agent").then((m) => ({ default: m.AgentPage }))
+);
+const QuickFileOverlay = lazy(() =>
+	import("./components/file/QuickFileOverlay.tsx").then((m) => ({
+		default: m.QuickFileOverlay,
+	}))
 );
 const AutomationsPage = lazy(() =>
 	import("./pages/AutomationsPage").then((m) => ({
@@ -228,7 +232,27 @@ const routeElements = {
 } satisfies Record<AppRouteId, unknown>;
 const fallbackRouteElement = <Navigate to={DEFAULT_APP_ROUTE} replace />;
 
+function QuickFileOverlayHost() {
+	const [mounted, setMounted] = useState(false);
+	useEffect(() => {
+		if (mounted) return;
+		return listenWindowEvent("keydown", (event) => {
+			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+				event.preventDefault();
+				setMounted(true);
+			}
+		});
+	}, [mounted]);
+	if (!mounted) return null;
+	return (
+		<Suspense fallback={null}>
+			<QuickFileOverlay initiallyOpen />
+		</Suspense>
+	);
+}
+
 function AppShell() {
+	const location = useLocation();
 	const [background, setBackground] = useState(loadAppBackgroundSettings);
 	useEffect(() => {
 		wsClient.connect();
@@ -253,6 +277,9 @@ function AppShell() {
 			: builtInPath
 				? resolveServerUrl(builtInPath)
 				: null;
+	const activeRoute = APP_PAGE_ROUTES.find(
+		(route) => route.path === location.pathname
+	);
 	useEffect(() => {
 		let active = true;
 		if (!background.autoTheme) {
@@ -303,21 +330,14 @@ function AppShell() {
 				<div {...stylex.props(styles.mainColumn)}>
 					<main {...stylex.props(styles.mainContent)}>
 						<Suspense fallback={null}>
-							<Routes>
-								{APP_PAGE_ROUTES.map((route) => (
-									<Route
-										key={route.id}
-										path={route.path}
-										element={routeElements[route.id]}
-									/>
-								))}
-								<Route path="*" element={fallbackRouteElement} />
-							</Routes>
+							{activeRoute
+								? routeElements[activeRoute.id]
+								: fallbackRouteElement}
 						</Suspense>
 					</main>
 				</div>
 			</div>
-			<QuickFileOverlay />
+			<QuickFileOverlayHost />
 		</div>
 	);
 }
@@ -336,16 +356,19 @@ function OnboardingShell() {
 	);
 }
 
+function AppRouter() {
+	const location = useLocation();
+	if (location.pathname === "/") {
+		return <Navigate to={defaultRoute} replace />;
+	}
+	if (location.pathname === "/onboarding") return <OnboardingShell />;
+	return <AppShell />;
+}
+
 root.render(
 	<ErrorBoundary>
 		<Suspense fallback={null}>
-			<HashRouter>
-				<Routes>
-					<Route path="/" element={<Navigate to={defaultRoute} replace />} />
-					<Route path="/onboarding" element={<OnboardingShell />} />
-					<Route path="/*" element={<AppShell />} />
-				</Routes>
-			</HashRouter>
+			<AppRouter />
 		</Suspense>
 	</ErrorBoundary>
 );

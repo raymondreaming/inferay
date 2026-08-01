@@ -982,12 +982,15 @@ export function createAgentPane(
 	cwd?: string,
 	pendingCwd?: boolean
 ): AgentPaneModel {
+	const chatAgentKind = isChatAgentKind(agentKind)
+		? agentKind
+		: loadDefaultChatSettings().agentKind;
 	return {
 		id: createPaneId(),
-		title: getPaneTitle(agentKind, cwd),
-		agentKind,
-		isClaude: agentKind === "claude",
-		paneType: agentKind,
+		title: getPaneTitle(chatAgentKind, cwd),
+		agentKind: chatAgentKind,
+		isClaude: chatAgentKind === "claude",
+		paneType: chatAgentKind,
 		cwd,
 		pendingCwd,
 	};
@@ -1025,18 +1028,24 @@ export function migrateGroup(
 		: (panes[0]?.id ?? null);
 	return {
 		...group,
-		panes: panes.map((pane) => ({
-			...pane,
-			agentKind:
+		panes: panes.map((pane) => {
+			const inferredAgentKind =
 				pane.agentKind ??
 				(pane.paneType === "codex"
 					? "codex"
 					: pane.isClaude
 						? "claude"
-						: "agent"),
-			isClaude: pane.agentKind ? pane.agentKind === "claude" : pane.isClaude,
-			paneType: pane.paneType ?? (pane.isClaude ? "claude" : "agent"),
-		})),
+						: "agent");
+			const agentKind = isChatAgentKind(inferredAgentKind)
+				? inferredAgentKind
+				: loadDefaultChatSettings().agentKind;
+			return {
+				...pane,
+				agentKind,
+				isClaude: agentKind === "claude",
+				paneType: agentKind,
+			};
+		}),
 		selectedPaneId,
 		columns: group.columns ?? DEFAULT_COLUMNS,
 		rows: group.rows ?? DEFAULT_ROWS,

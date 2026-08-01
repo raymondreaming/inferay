@@ -1,4 +1,4 @@
-import { useLocation, useNavigate } from "@octanejs/remix-router";
+import { useLocation, useNavigate } from "../../lib/hash-router.tsx";
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useEffect, useState } from "octane";
 import {

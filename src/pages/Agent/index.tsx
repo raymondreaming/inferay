@@ -1,5 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import {
+	lazy,
+	Suspense,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -8,16 +10,11 @@ import {
 	useState,
 } from "octane";
 import type { AgentChatHandle } from "../../components/chat/AgentChatView.tsx";
-import { ProjectFileGraphView } from "../../components/graph/ProjectFileGraphView.tsx";
 import { IconGitBranch } from "../../components/ui/Icons.tsx";
 import { clearAgentChatPaneState } from "../../features/chat/chat-session-store.ts";
 import { useGitStatus } from "../../features/git/useGitStatus.tsx";
 import { wsClient } from "../../lib/websocket.ts";
-import { EditorPage } from "../EditorPage/index.tsx";
 import { AgentGrid } from "./AgentGrid.tsx";
-import { AgentSettingsPanel } from "./AgentSettingsPanel.tsx";
-
-import "@xterm/xterm/css/xterm.css";
 
 import {
 	type AgentGroupsAction,
@@ -69,6 +66,22 @@ import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
 import { color, controlSize } from "../../tokens.stylex.ts";
 
 const EMPTY_GRAPH_CWDS: string[] = [];
+
+const ProjectFileGraphView = lazy(() =>
+	import("../../components/graph/ProjectFileGraphView.tsx").then((module) => ({
+		default: module.ProjectFileGraphView,
+	}))
+);
+const EditorPage = lazy(() =>
+	import("../EditorPage/index.tsx").then((module) => ({
+		default: module.EditorPage,
+	}))
+);
+const AgentSettingsPanel = lazy(() =>
+	import("./AgentSettingsPanel.tsx").then((module) => ({
+		default: module.AgentSettingsPanel,
+	}))
+);
 
 type GraphSelection = {
 	readonly cwd: string | null;
@@ -418,6 +431,7 @@ const styles = stylex.create({
 		zIndex: 1,
 	},
 	surfaceLayerHidden: {
+		contentVisibility: "hidden",
 		pointerEvents: "none",
 		visibility: "hidden",
 		zIndex: 0,
@@ -676,6 +690,9 @@ function AgentMainSurface({
 	agentGrid,
 	themeId,
 }: AgentMainSurfaceProps) {
+	const editorMountedRef = useRef(mainView === "editor");
+	if (mainView === "editor") editorMountedRef.current = true;
+
 	return (
 		<div {...stylex.props(styles.appRoot, styles.fullHeight)}>
 			<div {...stylex.props(styles.appFrame)}>
@@ -706,14 +723,18 @@ function AgentMainSurface({
 										)}
 										aria-hidden={mainView !== "editor"}
 									>
-										<EditorPage
-											active={mainView === "editor"}
-											groups={groups}
-											selectedGroupId={selectedGroupId}
-											themeId={themeId}
-											onSelectPane={onSelectPane}
-											onDirectoryChange={onDirectoryChange}
-										/>
+										{editorMountedRef.current && (
+											<Suspense fallback={null}>
+												<EditorPage
+													active={mainView === "editor"}
+													groups={groups}
+													selectedGroupId={selectedGroupId}
+													themeId={themeId}
+													onSelectPane={onSelectPane}
+													onDirectoryChange={onDirectoryChange}
+												/>
+											</Suspense>
+										)}
 									</div>
 									{mainView === "graph" && (
 										<div
@@ -722,19 +743,21 @@ function AgentMainSurface({
 												styles.surfaceLayerVisible
 											)}
 										>
-											{graphView}
+											<Suspense fallback={null}>{graphView}</Suspense>
 										</div>
 									)}
 								</>
 							)}
 							{showSettings && (
-								<AgentSettingsPanel
-									themeId={themeId}
-									onThemeChange={(v: ThemeId) =>
-										setAppearance((prev) => ({ ...prev, themeId: v }))
-									}
-									onClose={setShowSettings.bind(null, false)}
-								/>
+								<Suspense fallback={null}>
+									<AgentSettingsPanel
+										themeId={themeId}
+										onThemeChange={(v: ThemeId) =>
+											setAppearance((prev) => ({ ...prev, themeId: v }))
+										}
+										onClose={setShowSettings.bind(null, false)}
+									/>
+								</Suspense>
 							)}
 						</div>
 					</div>
@@ -831,7 +854,7 @@ export function AgentPage() {
 		[]
 	);
 	const cleanupPane = useCallback((paneId: string) => {
-		wsClient.send({ type: "agent:destroy", paneId });
+		wsClient.send({ type: "chat:destroy", paneId });
 		chatRefs.current?.delete(paneId);
 		clearAgentChatPaneState(paneId);
 	}, []);

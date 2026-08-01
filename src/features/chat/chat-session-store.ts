@@ -1,4 +1,3 @@
-import { createCollection, localStorageCollectionOptions } from "@tanstack/db";
 import { isChatMessageStorageKey } from "../../lib/client-storage-keys.ts";
 import { hasRole, isString, noop } from "../../lib/data.ts";
 import { postJson, sendJson } from "../../lib/fetch-json.ts";
@@ -120,13 +119,6 @@ export interface ChatRunStatusReadModel {
 	) => ChatLoadingState;
 	subscribe: (listener: ChatRunStatusReadModelListener) => () => void;
 }
-
-const preferencesCollection = createCollection(
-	localStorageCollectionOptions<DbPreference, string>({
-		storageKey: PREFERENCES_STORAGE_KEY,
-		getKey: (preference) => preference.id,
-	})
-);
 
 function openChatCacheDb(): Promise<IDBDatabase | null> {
 	if (typeof indexedDB === "undefined") return Promise.resolve(null);
@@ -263,25 +255,41 @@ function removePaneValue(prefix: string, paneId: string) {
 	removeStoredValue(storageKey(prefix, paneId));
 }
 
+function readPreferenceRows(): DbPreference[] {
+	const rows = readStoredJson<unknown>(PREFERENCES_STORAGE_KEY, []);
+	if (!Array.isArray(rows)) return [];
+	return rows.filter(
+		(row): row is DbPreference =>
+			!!row &&
+			typeof row === "object" &&
+			typeof (row as DbPreference).id === "string" &&
+			typeof (row as DbPreference).valueJson === "string" &&
+			typeof (row as DbPreference).updatedAt === "number"
+	);
+}
+
 function loadPreference<T>(id: string, fallback: T): T {
-	const value = preferencesCollection.get(id)?.valueJson;
+	const value = readPreferenceRows().find((row) => row.id === id)?.valueJson;
 	return value ? JSON.parse(value) : fallback;
 }
 
 function savePreference(id: string, value: unknown) {
 	const valueJson = JSON.stringify(value);
-	const existing = preferencesCollection.get(id);
-	if (existing?.valueJson === valueJson) return;
+	const rows = readPreferenceRows();
+	const index = rows.findIndex((row) => row.id === id);
+	if (index >= 0 && rows[index]?.valueJson === valueJson) return;
 	const row = { id, valueJson, updatedAt: Date.now() };
-	if (existing) {
-		preferencesCollection.update(id, (draft) => Object.assign(draft, row));
-	} else {
-		preferencesCollection.insert(row);
-	}
+	if (index >= 0) rows[index] = row;
+	else rows.push(row);
+	writeStoredJson(PREFERENCES_STORAGE_KEY, rows);
 }
 
 function removePreference(id: string) {
-	if (preferencesCollection.get(id)) preferencesCollection.delete(id);
+	const rows = readPreferenceRows();
+	const next = rows.filter((row) => row.id !== id);
+	if (next.length === rows.length) return;
+	if (next.length === 0) removeStoredValue(PREFERENCES_STORAGE_KEY);
+	else writeStoredJson(PREFERENCES_STORAGE_KEY, next);
 }
 
 function listLocalStorageKeys(): string[] {
@@ -299,21 +307,9 @@ function isStaleChatPreferenceId(id: string): boolean {
 }
 
 function cleanupStalePreferenceRows() {
-	const rows = readStoredJson<unknown>(PREFERENCES_STORAGE_KEY, null);
-	if (!Array.isArray(rows)) return;
-	const kept: unknown[] = [];
-	let removed = false;
-	for (const row of rows) {
-		const id =
-			row && typeof row === "object" ? (row as { id?: unknown }).id : undefined;
-		if (typeof id === "string" && isStaleChatPreferenceId(id)) {
-			removePreference(id);
-			removed = true;
-			continue;
-		}
-		kept.push(row);
-	}
-	if (!removed) return;
+	const rows = readPreferenceRows();
+	const kept = rows.filter((row) => !isStaleChatPreferenceId(row.id));
+	if (kept.length === rows.length) return;
 	if (kept.length === 0) removeStoredValue(PREFERENCES_STORAGE_KEY);
 	else writeStoredJson(PREFERENCES_STORAGE_KEY, kept);
 }

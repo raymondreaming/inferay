@@ -5,17 +5,11 @@ import {
 	useShikiSnippet,
 	useSyntaxHighlightTheme,
 } from "../../hooks/useShikiHighlighter.tsx";
-import { fetchJson, postJson } from "../../lib/fetch-json.ts";
+import { fetchJson } from "../../lib/fetch-json.ts";
 import { indexedValues } from "../../lib/indexed-values.ts";
 import { listenWindowEvent, setInputValue } from "../../lib/react-events.ts";
-import {
-	color,
-	controlSize,
-	font,
-	motion,
-	radius,
-} from "../../tokens.stylex.ts";
-import { IconCheck, IconCode, IconSearch, IconX } from "../ui/Icons.tsx";
+import { color, controlSize, font, radius } from "../../tokens.stylex.ts";
+import { IconCode, IconSearch, IconX } from "../ui/Icons.tsx";
 
 type FileSearchResult = {
 	name: string;
@@ -68,13 +62,11 @@ function escapeHtml(text: string) {
 function SyntaxEditor({
 	filePath,
 	value,
-	onInput,
 	onKeyDown,
 	editorRef,
 }: {
 	filePath: string;
 	value: string;
-	onInput: (event: InputEvent & { currentTarget: HTMLTextAreaElement }) => void;
 	onKeyDown: (event: KeyboardEvent) => void;
 	editorRef: React.RefObject<HTMLTextAreaElement | null>;
 }) {
@@ -113,9 +105,9 @@ function SyntaxEditor({
 			<textarea
 				ref={editorRef}
 				value={value}
-				onInput={onInput}
 				onKeyDown={onKeyDown}
 				onScroll={syncScroll}
+				readOnly
 				wrap="off"
 				spellCheck={false}
 				{...stylex.props(styles.editor)}
@@ -124,8 +116,8 @@ function SyntaxEditor({
 	);
 }
 
-export function QuickFileOverlay() {
-	const [open, setOpen] = useState(false);
+export function QuickFileOverlay({ initiallyOpen = false }) {
+	const [open, setOpen] = useState(initiallyOpen);
 	const [query, setQuery] = useState("");
 	const [cwdLabel, setCwdLabel] = useState("");
 	const [results, setResults] = useState<FileSearchResult[]>([]);
@@ -135,28 +127,20 @@ export function QuickFileOverlay() {
 	const [activeFile, setActiveFile] = useState<FileContentResponse | null>(
 		null
 	);
-	const [draft, setDraft] = useState("");
-	const [saved, setSaved] = useState(false);
-	const [saving, setSaving] = useState(false);
 	const searchInputRef = useRef<HTMLInputElement | null>(null);
 	const editorRef = useRef<HTMLTextAreaElement | null>(null);
-	const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	const selected = results[selectedIndex] ?? null;
-	const dirty = activeFile ? draft !== activeFile.content : false;
 
 	const close = useCallback(() => {
 		setOpen(false);
 		setError(null);
 		setActiveFile(null);
-		setDraft("");
-		setSaved(false);
 	}, []);
 
 	const openSearch = useCallback(() => {
 		setOpen(true);
 		setError(null);
-		setSaved(false);
 		setTimeout(() => searchInputRef.current?.focus(), 0);
 	}, []);
 
@@ -215,9 +199,7 @@ export function QuickFileOverlay() {
 			)
 				.then((data) => {
 					setActiveFile(data);
-					setDraft(data.content);
 					setError(null);
-					setSaved(false);
 					setTimeout(() => editorRef.current?.focus(), 0);
 				})
 				.catch((err) => {
@@ -226,38 +208,6 @@ export function QuickFileOverlay() {
 				.finally(() => setLoading(false));
 		},
 		[cwdLabel]
-	);
-
-	const saveFile = useCallback(
-		async (shouldClose = false) => {
-			if (!activeFile || saving) return;
-			setSaving(true);
-			setSaved(false);
-			try {
-				const data = await postJson<FileContentResponse>("/api/files/content", {
-					content: draft,
-					cwd: activeFile.cwd,
-					path: activeFile.path,
-				});
-				setActiveFile({ ...data, content: draft });
-				setSaved(true);
-				if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-				saveTimerRef.current = setTimeout(() => setSaved(false), 1200);
-				if (shouldClose) close();
-			} catch (err) {
-				setError(err instanceof Error ? err.message : "File could not save");
-			} finally {
-				setSaving(false);
-			}
-		},
-		[activeFile, close, draft, saving]
-	);
-
-	useEffect(
-		() => () => {
-			if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-		},
-		[]
 	);
 
 	const handleSearchKeyDown = useCallback(
@@ -283,15 +233,12 @@ export function QuickFileOverlay() {
 
 	const handleEditorKeyDown = useCallback(
 		(event: KeyboardEvent) => {
-			if (event.key === "Escape" && !dirty) {
+			if (event.key === "Escape") {
 				event.preventDefault();
 				close();
-			} else if ((event.metaKey || event.ctrlKey) && event.key === "s") {
-				event.preventDefault();
-				void saveFile(false);
 			}
 		},
-		[close, dirty, saveFile]
+		[close]
 	);
 
 	const fileRows = useMemo(() => {
@@ -338,7 +285,7 @@ export function QuickFileOverlay() {
 		<div
 			{...stylex.props(styles.overlay)}
 			onMouseDown={(event) => {
-				if (event.target === event.currentTarget && !dirty) close();
+				if (event.target === event.currentTarget) close();
 			}}
 		>
 			<section {...stylex.props(styles.workspacePanel)}>
@@ -392,41 +339,20 @@ export function QuickFileOverlay() {
 										{activeFile.path}
 									</span>
 								</div>
-								<span {...stylex.props(styles.saveState)}>
-									{saving ? "Saving" : saved ? "Saved" : dirty ? "Unsaved" : ""}
-								</span>
+								<span {...stylex.props(styles.saveState)}>Read only</span>
 								<button
 									type="button"
 									onClick={() => {
 										setActiveFile(null);
-										setDraft("");
 									}}
 									{...stylex.props(styles.secondaryButton)}
 								>
 									Close
 								</button>
-								<button
-									type="button"
-									onClick={() => void saveFile(true)}
-									disabled={!dirty || saving}
-									{...stylex.props(styles.primaryButton)}
-								>
-									<IconCheck size={12} />
-									Save and close
-								</button>
-								<button
-									type="button"
-									onClick={() => void saveFile(false)}
-									disabled={!dirty || saving}
-									{...stylex.props(styles.primaryButton)}
-								>
-									Save
-								</button>
 							</div>
 							<SyntaxEditor
 								filePath={activeFile.path}
-								value={draft}
-								onInput={setInputValue.bind(null, setDraft)}
+								value={activeFile.content}
 								onKeyDown={handleEditorKeyDown}
 								editorRef={editorRef}
 							/>
@@ -434,7 +360,7 @@ export function QuickFileOverlay() {
 					) : (
 						<div {...stylex.props(styles.emptyEditor)}>
 							<IconCode size={18} />
-							<span>Select a file to preview and edit</span>
+							<span>Select a file to preview</span>
 						</div>
 					)}
 					{error && <div {...stylex.props(styles.errorText)}>{error}</div>}
@@ -684,28 +610,6 @@ const styles = stylex.create({
 		fontSize: font.size_2,
 		paddingBlock: controlSize._1_5,
 		paddingInline: controlSize._3,
-	},
-	primaryButton: {
-		alignItems: "center",
-		backgroundColor: {
-			default: color.textMain,
-			":hover": color.textSoft,
-			":disabled": color.surfaceInset,
-		},
-		borderRadius: radius.sm,
-		color: {
-			default: color.background,
-			":disabled": color.textMuted,
-		},
-		display: "flex",
-		fontSize: font.size_2,
-		fontWeight: font.weight_6,
-		gap: controlSize._1,
-		paddingBlock: controlSize._1_5,
-		paddingInline: controlSize._3,
-		transitionDuration: motion.durationBase,
-		transitionProperty: "background-color, color",
-		transitionTimingFunction: motion.ease,
 	},
 	syntaxEditorWrap: {
 		backgroundColor:

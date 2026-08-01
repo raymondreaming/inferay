@@ -17,8 +17,6 @@ mock.module("@octanejs/stylex", () => ({
 	props: () => ({ className: "" }),
 }));
 
-const refit = mock(() => {});
-const agentEnabledStates: boolean[] = [];
 const chatHandle = {};
 
 class MockResizeObserver {
@@ -42,17 +40,6 @@ class MockResizeObserver {
 
 	disconnect() {}
 }
-
-mock.module("../src/hooks/useXtermAgent.tsx", () => ({
-	useXtermAgent: mock(({ enabled }: { enabled: boolean }) => {
-		agentEnabledStates.push(enabled);
-		return {
-			containerRef: { current: null as HTMLDivElement | null },
-			termRef: { current: null as { focus: () => void } | null },
-			refit,
-		};
-	}),
-}));
 
 mock.module("../src/components/chat/AgentChatView.tsx", () => ({
 	AgentChatView: function MockAgentChatView({
@@ -164,9 +151,7 @@ const testTheme: AgentTheme = {
 	separator: "#333",
 };
 
-test("agent panes do not keep xterm live while their surface is hidden", async () => {
-	refit.mockClear();
-	agentEnabledStates.length = 0;
+test("legacy terminal panes are restored as chats", async () => {
 	const { root } = setupDom();
 	const { AgentPaneView } =
 		await import("../src/pages/Agent/AgentPaneView.tsx");
@@ -184,23 +169,6 @@ test("agent panes do not keep xterm live while their surface is hidden", async (
 			<AgentPaneView
 				pane={pane}
 				isSelected
-				isVisible={false}
-				theme={testTheme}
-				fontSize={13}
-				fontFamily="SF Mono"
-				onSelect={() => {}}
-				onClose={() => {}}
-				chatRef={() => {}}
-			/>
-		);
-		await tick();
-		expect(agentEnabledStates.at(-1)).toBe(false);
-		expect(refit).toHaveBeenCalledTimes(0);
-
-		root.render(
-			<AgentPaneView
-				pane={pane}
-				isSelected
 				isVisible
 				theme={testTheme}
 				fontSize={13}
@@ -211,8 +179,9 @@ test("agent panes do not keep xterm live while their surface is hidden", async (
 			/>
 		);
 		await tick();
-		expect(agentEnabledStates.at(-1)).toBe(true);
-		expect(refit).toHaveBeenCalledTimes(1);
+		expect(
+			document.querySelectorAll('[data-testid="agent-chat"]')
+		).toHaveLength(1);
 	} finally {
 		root.unmount();
 	}

@@ -188,39 +188,3 @@ textarea::placeholder {
 	height: 1px;
 	background: var(--color-inferay-gray-border);
 }
-
-/* Hide XTerm.js scrollbar completely */
-.xterm-viewport,
-.xterm .xterm-viewport,
-.xterm-screen,
-.xterm,
-.xterm-rows,
-.xterm .xterm-scrollable-element,
-.xterm-scrollable-element > .scrollbar,
-.xterm-scrollable-element > .scrollbar > .slider {
-	overflow: hidden !important;
-	overflow-y: hidden !important;
-	overflow-x: hidden !important;
-	scrollbar-width: none !important;
-	-ms-overflow-style: none !important;
-}
-
-.xterm-viewport::-webkit-scrollbar,
-.xterm .xterm-viewport::-webkit-scrollbar,
-.xterm::-webkit-scrollbar,
-.xterm-screen::-webkit-scrollbar,
-.xterm-scrollable-element::-webkit-scrollbar {
-	display: none !important;
-	width: 0 !important;
-	height: 0 !important;
-	background: transparent !important;
-	opacity: 0 !important;
-}
-
-.xterm-viewport::after,
-.xterm .xterm-scrollable-element > .scrollbar,
-.xterm-scrollable-element > .scrollbar > .slider {
-	display: none !important;
-	visibility: hidden !important;
-	opacity: 0 !important;
-}

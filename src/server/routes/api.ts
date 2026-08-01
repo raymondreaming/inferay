@@ -1,13 +1,6 @@
 import { exec, execFile } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
-import {
-	mkdir,
-	readdir,
-	readFile,
-	realpath,
-	stat,
-	writeFile,
-} from "node:fs/promises";
+import { mkdir, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { homedir, hostname, platform, tmpdir } from "node:os";
 import {
 	basename,
@@ -2013,55 +2006,6 @@ function fileRoutes() {
 					path: relative(resolvedCwd, resolvedFile),
 					size: info.size,
 					updatedAt: info.mtimeMs,
-				});
-			}),
-			POST: tryRoute(async (req) => {
-				const body = (await req.json()) as {
-					content?: unknown;
-					cwd?: unknown;
-					path?: unknown;
-				};
-				const cwd =
-					typeof body.cwd === "string" ? body.cwd : await getDefaultFileCwd();
-				const filePath = typeof body.path === "string" ? body.path : "";
-				const content = typeof body.content === "string" ? body.content : null;
-				if (!filePath) {
-					return Response.json({ error: "No path provided" }, { status: 400 });
-				}
-				if (content === null) {
-					return Response.json(
-						{ error: "No content provided" },
-						{ status: 400 }
-					);
-				}
-				if (content.length > 1024 * 1024) {
-					return Response.json({ error: "File too large" }, { status: 413 });
-				}
-
-				const resolvedCwd = resolve(cwd);
-				if (!isAllowedLocalPath(resolvedCwd)) {
-					return Response.json({ error: "Invalid directory" }, { status: 400 });
-				}
-				const resolvedFile = resolve(resolvedCwd, filePath);
-				if (
-					!isAllowedLocalPath(resolvedFile) ||
-					!isWithinDirectory(resolvedFile, resolvedCwd)
-				) {
-					return Response.json({ error: "Access denied" }, { status: 403 });
-				}
-
-				const info = await stat(resolvedFile);
-				if (!info.isFile()) {
-					return Response.json({ error: "Not a file" }, { status: 400 });
-				}
-				await writeFile(resolvedFile, content, "utf8");
-				const updated = await stat(resolvedFile);
-				return Response.json({
-					ok: true,
-					cwd: resolvedCwd,
-					path: relative(resolvedCwd, resolvedFile),
-					size: updated.size,
-					updatedAt: updated.mtimeMs,
 				});
 			}),
 		},

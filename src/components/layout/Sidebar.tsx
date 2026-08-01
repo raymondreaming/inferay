@@ -5,7 +5,7 @@ type ReactMouseEvent<T = Element> = globalThis.MouseEvent & {
 	currentTarget: T;
 };
 
-import { useLocation, useNavigate } from "@octanejs/remix-router";
+import { useLocation, useNavigate } from "../../lib/hash-router.tsx";
 import { createPortal } from "octane";
 import {
 	type AgentPaneModel,

@@ -15,7 +15,6 @@ import type {
 	AgentPaneModel,
 	AgentTheme,
 } from "../../features/agent/agent-utils.ts";
-import { isChatAgentKind } from "../../features/agents/agents.ts";
 import { useGitStatus } from "../../features/git/useGitStatus.tsx";
 import { motion } from "../../tokens.stylex.ts";
 import { AgentPaneView } from "./AgentPaneView.tsx";
@@ -150,12 +149,7 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 		const seen = new Set<string>();
 		const cwds: string[] = [];
 		for (const pane of panes) {
-			if (
-				!pane.cwd ||
-				(!pane.pendingCwd && !isChatAgentKind(pane.agentKind)) ||
-				seen.has(pane.cwd)
-			)
-				continue;
+			if (!pane.cwd || seen.has(pane.cwd)) continue;
 			seen.add(pane.cwd);
 			cwds.push(pane.cwd);
 		}
@@ -401,6 +395,7 @@ const styles = stylex.create({
 		backgroundColor: "transparent",
 		borderRightStyle: "solid",
 		borderRightWidth: 1,
+		contentVisibility: "auto",
 		flexShrink: 0,
 		height: "100%",
 		overflow: "hidden",
@@ -421,6 +416,7 @@ const styles = stylex.create({
 		borderBottomWidth: 1,
 		borderRightStyle: "solid",
 		borderRightWidth: 1,
+		contentVisibility: "auto",
 		overflow: "hidden",
 		transitionDuration: motion.durationBase,
 		transitionProperty: "border-color, opacity",

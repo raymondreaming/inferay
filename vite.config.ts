@@ -39,7 +39,7 @@ export default defineConfig(({ mode }) => ({
 		outDir: "dist",
 		emptyOutDir: true,
 		sourcemap: false,
-		minify: false,
+		minify: mode === "development" ? false : "oxc",
 		rollupOptions: {
 			output: {
 				entryFileNames: "main.js",
