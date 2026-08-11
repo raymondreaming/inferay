@@ -51,6 +51,7 @@ import { color, controlSize } from "../../tokens.stylex.ts";
 import { IconArrowDown } from "../ui/Icons.tsx";
 import { AgentChatHeader, type AgentChatSession } from "./AgentChatHeader.tsx";
 import { AgentChatStatusBar } from "./AgentChatStatusBar.tsx";
+import { AgentContextPanel } from "./AgentContextPanel.tsx";
 import { ChatComposer } from "./ChatComposer.tsx";
 import {
 	ChatMessageList,
@@ -544,6 +545,7 @@ export const AgentChatView = memo(function AgentChatView({
 	ref,
 }: AgentChatViewProps) {
 	const renderVisibleChat = composerOnly || isVisible;
+	const [isContextOpen, setIsContextOpen] = useState(false);
 	const { getToolActivities, messageReadModel, messages, setMessages } =
 		usePersistentChatMessages(paneId);
 	const visibleMessages = useMemo(
@@ -852,9 +854,18 @@ export const AgentChatView = memo(function AgentChatView({
 					onClose={onClose}
 					sessions={sessions}
 					onSelectSession={onSelectSession}
+					onAgentContext={() => setIsContextOpen((open) => !open)}
+					isAgentContextOpen={isContextOpen}
 				/>
 			)}
-			{renderVisibleChat && !composerOnly && (
+			{renderVisibleChat && !composerOnly && isContextOpen && (
+				<AgentContextPanel
+					paneId={paneId}
+					cwd={visibleCwd}
+					onClose={() => setIsContextOpen(false)}
+				/>
+			)}
+			{renderVisibleChat && !composerOnly && !isContextOpen && (
 				<div {...stylex.props(styles.messageRegion)}>
 					<div
 						ref={scrollRef}
@@ -916,7 +927,7 @@ export const AgentChatView = memo(function AgentChatView({
 				</div>
 			)}
 
-			{renderVisibleChat && (
+			{renderVisibleChat && !isContextOpen && (
 				<div {...stylex.props(styles.composerRegion)}>
 					{isImageDragActive && (
 						<div {...stylex.props(styles.imageDropCue)}>
@@ -985,6 +996,7 @@ export const AgentChatView = memo(function AgentChatView({
 const styles = stylex.create({
 	root: {
 		display: "flex",
+		position: "relative",
 		height: "100%",
 		flexDirection: "column",
 		transitionProperty: "box-shadow",

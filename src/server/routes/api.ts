@@ -19,6 +19,7 @@ import {
 } from "../../features/agent/agent-command.ts";
 import type { AgentAccountProviderStatus } from "../../features/agents/agent-account-status.ts";
 import type { ChatAgentKind } from "../../features/agents/agents.ts";
+import type { AgentContextUpdate } from "../../features/agent-context/types.ts";
 import type { Prompt } from "../../features/prompts/types.ts";
 import {
 	AGENT_STATE_STORAGE_KEY,
@@ -51,6 +52,7 @@ import {
 	resolveAllowedLocalPath,
 } from "../security.ts";
 import { ChatService } from "../services/agent-chat.ts";
+import { AgentContextService } from "../services/agent-context.ts";
 import { CheckpointService } from "../services/checkpoint.ts";
 import { ConfigManager } from "../services/config-manager.ts";
 import {
@@ -138,7 +140,7 @@ export function mergePrompts(bundled: Prompt[], local: Prompt[]): Prompt[] {
 	return [...builtIns, ...custom];
 }
 
-async function loadPrompts(): Promise<Prompt[]> {
+export async function loadPrompts(): Promise<Prompt[]> {
 	const [bundled, local] = await Promise.all([
 		loadBundledPrompts(),
 		loadLocalPrompts(),
@@ -298,6 +300,34 @@ export function promptRoutes() {
 					await createPrompt((await req.json()) as Partial<Prompt>)
 				)
 			),
+		},
+	};
+}
+
+function agentContextRoutes() {
+	return {
+		"/api/agent-context": {
+			GET: tryRoute(async (req) => {
+				const url = new URL(req.url);
+				return Response.json(
+					await AgentContextService.resolve(
+						url.searchParams.get("cwd") ?? undefined,
+						url.searchParams.get("paneId") ?? undefined,
+						await loadPrompts()
+					)
+				);
+			}),
+			PUT: tryRoute(async (req) => {
+				const update = (await req.json()) as AgentContextUpdate;
+				if (!update || typeof update.instructions !== "string") {
+					return badRequest("instructions is required");
+				}
+				if (!["global", "project", "chat"].includes(update.scope)) {
+					return badRequest("scope is invalid");
+				}
+				await AgentContextService.update(update);
+				return Response.json({ ok: true });
+			}),
 		},
 	};
 }
@@ -2378,6 +2408,7 @@ export function buildApiRoutes() {
 		...chatQueueRoutes(),
 		...clientStorageRoutes(),
 		...checkpointRoutes(),
+		...agentContextRoutes(),
 		...promptRoutes(),
 		...gitRoutes(),
 		...sessionRoutes(),

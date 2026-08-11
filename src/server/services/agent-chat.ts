@@ -35,6 +35,7 @@ import {
 } from "../agents/events.ts";
 import { getAgentAdapter, resolveAgentModel } from "../agents/registry.ts";
 import { resolveAllowedLocalPath } from "../security.ts";
+import { AgentContextService } from "./agent-context.ts";
 import { CheckpointService } from "./checkpoint.ts";
 
 const DISCONNECTED_SESSION_TTL_MS = 5 * 60 * 1000;
@@ -672,6 +673,7 @@ interface ChatSession {
 	cancelled: boolean;
 	goal: GoalState | null;
 	agentEvents: AgentEvent[];
+	contextHash: string | null;
 }
 
 interface ChatQueueFile {
@@ -751,6 +753,7 @@ const chatRuntime = {
 			cancelled: false,
 			goal: null,
 			agentEvents: [],
+			contextHash: null,
 		};
 		sessions.set(paneId, session);
 		return session;
@@ -1653,6 +1656,40 @@ function createSystemPrefix(
 	return [workspace, prior].filter(Boolean).join("\n\n");
 }
 
+async function createAgentContextPrefix(
+	session: ChatSession,
+	paneId: string,
+	text: string
+) {
+	const context = await AgentContextService.resolveForAgent(
+		session.cwd,
+		paneId,
+		text
+	);
+	const baseBody = [
+		context.effectiveInstructions
+			? `<agent-instructions>\n${context.effectiveInstructions}\n</agent-instructions>`
+			: "",
+		context.skillManifest
+			? `<available-skills>\nThe following Inferay skills are available. When a request clearly matches one, follow that skill's instructions as a first-class workflow. Explicit /skill or $skill references take priority.\n${context.skillManifest}\n</available-skills>`
+			: "",
+	]
+		.filter(Boolean)
+		.join("\n\n");
+	const activatedBody = context.activatedSkills
+		.map(
+			(skill) =>
+				`<activated-skill name="${skill.command}">\n${skill.instructions}\n</activated-skill>`
+		)
+		.join("\n\n");
+	const hash = baseBody ? Bun.hash(baseBody).toString() : "";
+	const shouldIncludeBase = session.contextHash !== hash;
+	if (shouldIncludeBase) session.contextHash = hash;
+	return [shouldIncludeBase ? baseBody : "", activatedBody]
+		.filter(Boolean)
+		.join("\n\n");
+}
+
 async function handleGoalCommand(
 	session: ChatSession,
 	paneId: string,
@@ -1838,11 +1875,15 @@ export const ChatService = {
 			!!cwd || nextReferencePaths.length > 0,
 			agentKindChanged
 		);
-
 		if (session.currentHandle) {
 			await enqueueChatMessage(session, paneId, text, displayText, nextImages);
 			return;
 		}
+		const agentContextPrefix = await createAgentContextPrefix(
+			session,
+			paneId,
+			text
+		);
 
 		session.messageBuffer.pushUser(
 			displayText || text,
@@ -1875,9 +1916,10 @@ export const ChatService = {
 			}
 			prompt = goalPrompt;
 		}
-		if (systemPrefix) {
-			prompt = `${systemPrefix}\n\n${prompt}`;
-		}
+		const instructionPrefix = [systemPrefix, agentContextPrefix]
+			.filter(Boolean)
+			.join("\n\n");
+		if (instructionPrefix) prompt = `${instructionPrefix}\n\n${prompt}`;
 
 		const emit = chatRuntime.send.bind(chatRuntime, session);
 		const checkpointId = await createChatCheckpoint(

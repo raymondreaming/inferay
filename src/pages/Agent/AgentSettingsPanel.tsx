@@ -20,6 +20,7 @@ import {
 	saveCustomTheme,
 	type ThemeId,
 } from "../../features/agent/agent-utils.ts";
+import type { EffectiveAgentContext } from "../../features/agent-context/types.ts";
 import { useAppInfo } from "../../hooks/useAppInfo.ts";
 import { useAsyncResource } from "../../hooks/useAsyncResource.tsx";
 import {
@@ -48,7 +49,12 @@ import {
 	APP_THEME_STORAGE_KEY,
 } from "../../lib/client-storage-keys.ts";
 import { CLIENT_STORAGE_CHANGED_EVENT } from "../../lib/client-storage-sync.ts";
-import { fetchJsonOr, resolveServerUrl } from "../../lib/fetch-json.ts";
+import {
+	fetchJson,
+	fetchJsonOr,
+	postJson,
+	resolveServerUrl,
+} from "../../lib/fetch-json.ts";
 import { listenWindowEvent, setInputValue } from "../../lib/react-events.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 
@@ -100,6 +106,96 @@ function ColorInput({
 			<span {...stylex.props(styles.mutedText)}>{label}</span>
 			<span {...stylex.props(styles.colorValue)}>{value}</span>
 		</label>
+	);
+}
+
+function GlobalAgentInstructionsSection() {
+	const [instructions, setInstructions] = useState("");
+	const [savedInstructions, setSavedInstructions] = useState("");
+	const [isLoading, setIsLoading] = useState(true);
+	const [isSaving, setIsSaving] = useState(false);
+	const [error, setError] = useState("");
+
+	useEffect(() => {
+		void fetchJson<EffectiveAgentContext>(
+			"/api/agent-context?paneId=global-settings"
+		)
+			.then((context) => {
+				setInstructions(context.global.instructions);
+				setSavedInstructions(context.global.instructions);
+				setError("");
+			})
+			.catch((cause) => {
+				setError(
+					cause instanceof Error
+						? cause.message
+						: "Unable to load agent instructions"
+				);
+			})
+			.finally(() => {
+				setIsLoading(false);
+			});
+	}, []);
+
+	const handleSave = async () => {
+		setIsSaving(true);
+		setError("");
+		try {
+			await postJson(
+				"/api/agent-context",
+				{
+					scope: "global",
+					instructions,
+					mode: "inherit",
+					paneId: "global-settings",
+				},
+				{ method: "PUT" }
+			);
+			setSavedInstructions(instructions);
+		} catch (cause) {
+			setError(
+				cause instanceof Error
+					? cause.message
+					: "Unable to save agent instructions"
+			);
+		} finally {
+			setIsSaving(false);
+		}
+	};
+
+	return (
+		<div {...stylex.props(styles.section)}>
+			<div {...stylex.props(styles.agentInstructionsHeading)}>
+				<div>
+					<h4 {...stylex.props(styles.sectionHeading)}>
+						Global agent instructions
+					</h4>
+					<p {...stylex.props(styles.sectionDescription)}>
+						Your default AGENTS.md. Every new chat inherits these instructions.
+					</p>
+				</div>
+			</div>
+			<textarea
+				value={instructions}
+				onInput={(event) => {
+					setInstructions(event.currentTarget.value);
+				}}
+				disabled={isLoading}
+				placeholder="How should agents work with you?"
+				{...stylex.props(styles.agentInstructionsEditor)}
+			/>
+			<div {...stylex.props(styles.agentInstructionsActions)}>
+				<Button
+					variant="primary"
+					size="sm"
+					disabled={isLoading || isSaving || instructions === savedInstructions}
+					onClick={() => void handleSave()}
+				>
+					{isSaving ? "Saving…" : "Save"}
+				</Button>
+			</div>
+			{error ? <p {...stylex.props(styles.backgroundError)}>{error}</p> : null}
+		</div>
 	);
 }
 
@@ -622,6 +718,8 @@ export const AgentSettingsContent = memo(function AgentSettingsContent({
 		<div
 			{...stylex.props(styles.panelBody, embedded && styles.panelBodyEmbedded)}
 		>
+			<GlobalAgentInstructionsSection />
+			<div {...stylex.props(styles.divider)} />
 			<div {...stylex.props(styles.section)}>
 				<h4 {...stylex.props(styles.sectionHeading)}>Theme</h4>
 				<p {...stylex.props(styles.sectionDescription)}>
@@ -1030,6 +1128,31 @@ const styles = stylex.create({
 		color: color.textMuted,
 		fontSize: font.size_2,
 		lineHeight: 1.5,
+	},
+	agentInstructionsHeading: {
+		alignItems: "flex-start",
+		display: "flex",
+		gap: controlSize._3,
+		justifyContent: "space-between",
+	},
+	agentInstructionsEditor: {
+		backgroundColor: color.surfaceInset,
+		borderColor: color.border,
+		borderRadius: controlSize._2,
+		borderStyle: "solid",
+		borderWidth: 1,
+		color: color.textSoft,
+		fontFamily: "var(--font-mono)",
+		fontSize: font.size_2,
+		lineHeight: 1.5,
+		minHeight: 220,
+		outline: "none",
+		padding: controlSize._2_5,
+		resize: "vertical",
+	},
+	agentInstructionsActions: {
+		display: "flex",
+		justifyContent: "flex-end",
 	},
 	syntaxThemeButton: {
 		height: controlSize._8,

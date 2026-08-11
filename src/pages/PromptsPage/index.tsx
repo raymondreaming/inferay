@@ -132,7 +132,7 @@ export function PromptsPage() {
 		) {
 			formDispatch({
 				type: "setError",
-				error: "Name, command, and template are required",
+				error: "Name, command, and instructions are required",
 			});
 			return;
 		}
@@ -202,7 +202,6 @@ export function PromptsPage() {
 				<span {...stylex.props(styles.countText)}>{filtered.length}</span>
 
 				<span {...stylex.props(styles.spacer)} />
-
 				<button
 					type="button"
 					onClick={startCreate}
@@ -219,12 +218,12 @@ export function PromptsPage() {
 						<div {...stylex.props(styles.emptyState)}>
 							<div {...stylex.props(styles.emptyCopy)}>
 								<p {...stylex.props(styles.emptyTitle)}>
-									{search ? "No prompts found" : "No prompts yet"}
+									{search ? "No skills found" : "No skills yet"}
 								</p>
 								<p {...stylex.props(styles.emptyText)}>
 									{search
 										? "Try a different search"
-										: "Create your first prompt"}
+										: "Create your first skill"}
 								</p>
 							</div>
 						</div>
@@ -313,7 +312,7 @@ export function PromptsPage() {
 }
 
 const FILTER_OPTIONS = [
-	{ value: "all", label: "All prompts" },
+	{ value: "all", label: "All skills" },
 	{ value: "builtin", label: "Built-in" },
 	{ value: "custom", label: "Custom" },
 	...PROMPT_CATEGORIES.map((c) => ({ value: c.value, label: c.label })),
@@ -339,7 +338,7 @@ function FilterDropdown({
 	}, [open]);
 
 	const activeLabel =
-		FILTER_OPTIONS.find((o) => o.value === filter)?.label || "All prompts";
+		FILTER_OPTIONS.find((o) => o.value === filter)?.label || "All skills";
 
 	return (
 		<div ref={ref} {...stylex.props(styles.filterRoot)}>

@@ -44,8 +44,8 @@ const ALL_APP_PAGE_ROUTES = [
 	{ id: "agent", label: "Agent", path: "/agent" },
 	{
 		id: "prompts",
-		label: "Prompts",
-		path: "/prompts",
+		label: "Skills",
+		path: "/skills",
 		sidebar: true,
 		icon: IconSlash,
 	},
@@ -97,7 +97,10 @@ const ALL_AGENT_MAIN_VIEWS = [
 ] as const satisfies readonly AgentMainViewRoute[];
 
 export const AGENT_MAIN_VIEWS: readonly AgentMainViewRoute[] =
-	ALL_AGENT_MAIN_VIEWS.filter((view) => FEATURE_FLAGS[view.id]);
+	ALL_AGENT_MAIN_VIEWS.filter(
+		(view) =>
+			view.id === "chat" || view.id === "editor" || FEATURE_FLAGS[view.id]
+	);
 
 export function isAgentMainView(value: string | null): value is AgentMainView {
 	return AGENT_MAIN_VIEWS.some(hasId.bind(null, value));

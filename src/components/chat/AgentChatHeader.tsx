@@ -15,7 +15,7 @@ import {
 	radius,
 } from "../../tokens.stylex.ts";
 import { DropdownButton, type DropdownOption } from "../ui/DropdownButton.tsx";
-import { IconGitBranch, IconX } from "../ui/Icons.tsx";
+import { IconGitBranch, IconSettings, IconX } from "../ui/Icons.tsx";
 
 export interface AgentChatSession {
 	paneId: string;
@@ -61,6 +61,8 @@ interface AgentChatHeaderProps {
 	sessions?: AgentChatSession[];
 	onSelectSession?: (paneId: string) => void;
 	onGitBranchChanged?: (branch?: string) => void;
+	onAgentContext?: () => void;
+	isAgentContextOpen?: boolean;
 }
 
 interface GitBranch {
@@ -162,6 +164,8 @@ export const AgentChatHeader = memo(function AgentChatHeader({
 	sessions,
 	onSelectSession,
 	onGitBranchChanged,
+	onAgentContext,
+	isAgentContextOpen,
 }: AgentChatHeaderProps) {
 	const dirName = cwd ? cwd.split("/").pop() || cwd : null;
 	const hasMultipleSessions = !!(
@@ -185,6 +189,11 @@ export const AgentChatHeader = memo(function AgentChatHeader({
 		[hasMultipleSessions, sessions]
 	);
 	const closeButtonProps = stylex.props(styles.closeButton);
+	const contextButtonProps = stylex.props(
+		styles.contextButton,
+		isAgentContextOpen && styles.contextButtonActive
+	);
+	const projectButtonProps = stylex.props(styles.projectButton);
 	const rootProps = stylex.props(styles.root, draggable && styles.draggable);
 
 	return (
@@ -194,6 +203,20 @@ export const AgentChatHeader = memo(function AgentChatHeader({
 			onDragStart={onDragStart}
 			onDragEnd={onDragEnd}
 		>
+			{onAgentContext && (
+				<button
+					type="button"
+					onClick={(event) => {
+						event.stopPropagation();
+						onAgentContext();
+					}}
+					{...contextButtonProps}
+					className={`${APP_REGION_NO_DRAG_CLASS} ${contextButtonProps.className ?? ""}`}
+					title="Agent Instructions"
+				>
+					<IconSettings size={10} />
+				</button>
+			)}
 			{dirName &&
 				(hasMultipleSessions ? (
 					<span className={APP_REGION_NO_DRAG_CLASS}>
@@ -212,9 +235,18 @@ export const AgentChatHeader = memo(function AgentChatHeader({
 						/>
 					</span>
 				) : (
-					<span {...stylex.props(styles.title)} title={cwd}>
+					<button
+						type="button"
+						onClick={(event) => {
+							event.stopPropagation();
+							onAgentContext?.();
+						}}
+						{...projectButtonProps}
+						className={`${APP_REGION_NO_DRAG_CLASS} ${projectButtonProps.className ?? ""}`}
+						title={cwd}
+					>
 						{dirName}
-					</span>
+					</button>
 				))}
 			{gitBranch && (
 				<>
@@ -273,11 +305,18 @@ const styles = stylex.create({
 			":active": "grabbing",
 		},
 	},
-	title: {
-		color: color.textMain,
+	projectButton: {
+		backgroundColor: color.transparent,
+		borderWidth: 0,
+		color: {
+			default: color.textMain,
+			":hover": color.textSoft,
+		},
+		cursor: "pointer",
 		fontSize: font.size_1,
 		fontWeight: font.weight_5,
 		overflow: "hidden",
+		padding: 0,
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 	},
@@ -412,6 +451,32 @@ const styles = stylex.create({
 		transitionProperty: "background-color, color",
 		transitionTimingFunction: motion.ease,
 		width: controlSize._5,
+	},
+	contextButton: {
+		alignItems: "center",
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlHover,
+		},
+		borderRadius: radius.sm,
+		borderWidth: 0,
+		color: {
+			default: color.textMuted,
+			":hover": color.textMain,
+		},
+		cursor: "pointer",
+		display: "flex",
+		flexShrink: 0,
+		height: controlSize._5,
+		justifyContent: "center",
+		transitionDuration: motion.durationBase,
+		transitionProperty: "background-color, color",
+		transitionTimingFunction: motion.ease,
+		width: controlSize._5,
+	},
+	contextButtonActive: {
+		backgroundColor: color.controlActive,
+		color: color.textMain,
 	},
 	spacer: {
 		flex: 1,

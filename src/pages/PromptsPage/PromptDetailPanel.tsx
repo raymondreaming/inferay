@@ -205,7 +205,7 @@ export function PromptDetailPanel({
 								type="text"
 								value={formName}
 								onInput={(e) => onFormChange("name", e.currentTarget.value)}
-								placeholder="Prompt name"
+								placeholder="Skill name"
 								{...stylex.props(styles.input)}
 							/>
 						) : (
@@ -245,7 +245,7 @@ export function PromptDetailPanel({
 								onFormChange("description", e.currentTarget.value)
 							}
 							rows={2}
-							placeholder="What this prompt does"
+							placeholder="When the agent should use this skill"
 							{...stylex.props(styles.input, styles.descriptionInput)}
 						/>
 					) : (
@@ -257,7 +257,7 @@ export function PromptDetailPanel({
 
 				<div>
 					<span {...stylex.props(styles.label)}>
-						Template
+						Instructions
 						{isEditMode && (
 							<span {...stylex.props(styles.labelHint)}>
 								use {"{args}"} for input
@@ -268,7 +268,7 @@ export function PromptDetailPanel({
 						<AutoTextarea
 							value={formPromptTemplate}
 							onChange={(v) => onFormChange("promptTemplate", v)}
-							placeholder="Enter prompt template..."
+							placeholder="Write the SKILL.md workflow instructions…"
 						/>
 					) : (
 						<div {...stylex.props(styles.templatePreview)}>
