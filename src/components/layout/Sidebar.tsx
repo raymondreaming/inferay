@@ -5,7 +5,6 @@ type ReactMouseEvent<T = Element> = globalThis.MouseEvent & {
 	currentTarget: T;
 };
 
-import { useLocation, useNavigate } from "../../lib/hash-router.tsx";
 import { createPortal } from "octane";
 import {
 	type AgentPaneModel,
@@ -39,6 +38,7 @@ import {
 import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { noop } from "../../lib/data.ts";
 import { sendJson } from "../../lib/fetch-json.ts";
+import { useLocation, useNavigate } from "../../lib/hash-router.tsx";
 import {
 	activateOnEnterOrSpacePreventDefault,
 	listenWindowEvent,
@@ -857,6 +857,19 @@ export function Sidebar() {
 		});
 		navigate("/agent");
 	}, [navigate]);
+
+	useEffect(() => {
+		const stopChat = listenWindowEvent("create-agent-chat", () => {
+			void addChat();
+		});
+		const stopWorkspace = listenWindowEvent("create-agent-workspace", () => {
+			void addWorkspace();
+		});
+		return () => {
+			stopChat();
+			stopWorkspace();
+		};
+	}, [addChat, addWorkspace]);
 
 	const updateLayoutMode = useCallback(
 		(mode: "grid" | "rows") => {

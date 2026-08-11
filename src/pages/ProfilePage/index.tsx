@@ -1,6 +1,5 @@
-import { useNavigate } from "../../lib/hash-router.tsx";
 import * as stylex from "@octanejs/stylex";
-import { useCallback, useMemo, useReducer, useState } from "octane";
+import { useCallback, useMemo, useReducer, useRef, useState } from "octane";
 import { Button } from "../../components/ui/Button.tsx";
 import { DropdownButton } from "../../components/ui/DropdownButton.tsx";
 import {
@@ -41,6 +40,7 @@ import { useAsyncResource } from "../../hooks/useAsyncResource.tsx";
 import { ONBOARDING_DONE_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { isActive, lacksValue } from "../../lib/data.ts";
 import { fetchJsonOr, sendJsonWithBusy } from "../../lib/fetch-json.ts";
+import { useNavigate } from "../../lib/hash-router.tsx";
 import { removeStoredValue } from "../../lib/stored-json.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 import { AgentSettingsContent } from "../Agent/AgentSettingsPanel.tsx";
@@ -338,6 +338,7 @@ export function ProfilePage() {
 		loadDefaultChatSettings()
 	);
 	const [activeSettingsSection, setActiveSettingsSection] = useState("account");
+	const settingsScrollRef = useRef<HTMLElement | null>(null);
 	const { data: appInfo } = useAppInfo();
 	const defaultAgentDefinition = getAgentDefinition(
 		defaultChatSettings.agentKind
@@ -365,9 +366,15 @@ export function ProfilePage() {
 	};
 	const scrollToSettingsSection = useCallback((id: string) => {
 		setActiveSettingsSection(id);
-		document
-			.getElementById(id)
-			?.scrollIntoView({ behavior: "smooth", block: "start" });
+		const scroller = settingsScrollRef.current;
+		const section = document.getElementById(id);
+		if (!scroller || !section) return;
+		const scrollerTop = scroller.getBoundingClientRect().top;
+		const sectionTop = section.getBoundingClientRect().top;
+		scroller.scrollTo({
+			top: scroller.scrollTop + sectionTop - scrollerTop,
+			behavior: "smooth",
+		});
 	}, []);
 
 	const saveSimulatorProjectFolders = async (folders: string[]) => {
@@ -579,7 +586,7 @@ export function ProfilePage() {
 							)}
 						>
 							<IconSettings size={13} />
-							<span>Appearance</span>
+							<span>Agent instructions</span>
 						</button>
 						<button
 							type="button"
@@ -610,7 +617,7 @@ export function ProfilePage() {
 					</span>
 				</aside>
 
-				<WorkspaceContent scroll padding="none">
+				<WorkspaceContent scrollRef={settingsScrollRef} scroll padding="none">
 					<div {...stylex.props(styles.content)}>
 						<header id="account" {...stylex.props(styles.pageHeader)}>
 							<span {...stylex.props(styles.pageEyebrow)}>Settings</span>
@@ -802,13 +809,9 @@ export function ProfilePage() {
 							</div>
 						</SettingsSection>
 
-						<SettingsSection
-							id="appearance"
-							title="Appearance & Search"
-							description="Choose the app theme, diff syntax theme, and folders Inferay searches for projects."
-						>
+						<div id="appearance" {...stylex.props(styles.settingsSection)}>
 							<AgentSettingsContent showVersion={false} embedded />
-						</SettingsSection>
+						</div>
 
 						<SettingsSection
 							id="xcode-projects"

@@ -27,6 +27,7 @@ interface WorkspaceContentProps extends Octane.HTMLAttributes<HTMLElement> {
 	children: unknown;
 	padding?: "none" | "sm" | "md";
 	scroll?: boolean;
+	scrollRef?: { current: HTMLElement | null };
 }
 
 export function WorkspaceContent({
@@ -34,6 +35,7 @@ export function WorkspaceContent({
 	className = "",
 	padding = "md",
 	scroll = false,
+	scrollRef,
 	...props
 }: WorkspaceContentProps) {
 	const paddingStyle =
@@ -49,6 +51,7 @@ export function WorkspaceContent({
 	);
 	return (
 		<main
+			ref={scrollRef}
 			{...contentProps}
 			className={`${contentProps.className ?? ""} ${className}`}
 			{...props}

@@ -1,6 +1,5 @@
-import { useLocation, useNavigate } from "../../lib/hash-router.tsx";
 import * as stylex from "@octanejs/stylex";
-import { useCallback, useEffect, useState } from "octane";
+import { useCallback, useEffect, useRef, useState } from "octane";
 import {
 	agentStateKey,
 	dispatchAgentShellChange,
@@ -21,6 +20,7 @@ import {
 } from "../../lib/app-theme.ts";
 import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
+import { useLocation, useNavigate } from "../../lib/hash-router.tsx";
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import {
 	readStoredBoolean,
@@ -28,7 +28,13 @@ import {
 	writeStoredValue,
 } from "../../lib/stored-json.ts";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
-import { IconPanelLeft, IconUser, IconWorkflow } from "../ui/Icons.tsx";
+import {
+	IconMessageCircle,
+	IconPanelLeft,
+	IconPlus,
+	IconUser,
+	IconWorkflow,
+} from "../ui/Icons.tsx";
 
 interface ForgeAccount {
 	provider: "github";
@@ -144,6 +150,8 @@ export function AgentShellHeader() {
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
 		readStoredBoolean("sidebar-collapsed")
 	);
+	const [createMenuOpen, setCreateMenuOpen] = useState(false);
+	const createMenuRef = useRef<HTMLDivElement | null>(null);
 	const { data: githubAccount, refresh: refreshGithubAccount } =
 		useAsyncResource(loadGithubAccount, null, { isEqual: sameForgeAccount });
 	const isAgentRoute = location.pathname === "/agent";
@@ -177,6 +185,21 @@ export function AgentShellHeader() {
 			),
 		[]
 	);
+	useEffect(() => {
+		if (!createMenuOpen) return;
+		const closeMenu = (event: MouseEvent) => {
+			if (!createMenuRef.current?.contains(event.target as Node)) {
+				setCreateMenuOpen(false);
+			}
+		};
+		document.addEventListener("mousedown", closeMenu);
+		return () => document.removeEventListener("mousedown", closeMenu);
+	}, [createMenuOpen]);
+
+	const createFromRail = (eventName: string) => {
+		setCreateMenuOpen(false);
+		window.dispatchEvent(new CustomEvent(eventName));
+	};
 	useEffect(
 		() => listenWindowEvent("focus", () => void refreshGithubAccount()),
 		[refreshGithubAccount]
@@ -302,6 +325,36 @@ export function AgentShellHeader() {
 				</button>
 				<span aria-hidden="true" {...stylex.props(styles.railDivider)} />
 				<div {...stylex.props(styles.tabGroup, styles.secondaryTabGroup)}>
+					{sidebarCollapsed ? (
+						<div ref={createMenuRef} {...stylex.props(styles.railCreateWrap)}>
+							<ViewTab
+								active={createMenuOpen}
+								icon={<IconPlus size={13} />}
+								label="Create"
+								onClick={() => setCreateMenuOpen((open) => !open)}
+							/>
+							{createMenuOpen ? (
+								<div {...stylex.props(styles.railCreateMenu)}>
+									<button
+										type="button"
+										onClick={() => createFromRail("create-agent-chat")}
+										{...stylex.props(styles.railCreateItem)}
+									>
+										<IconMessageCircle size={12} />
+										<span>New chat</span>
+									</button>
+									<button
+										type="button"
+										onClick={() => createFromRail("create-agent-workspace")}
+										{...stylex.props(styles.railCreateItem)}
+									>
+										<IconPlus size={12} />
+										<span>New workspace</span>
+									</button>
+								</div>
+							) : null}
+						</div>
+					) : null}
 					{AGENT_MAIN_VIEWS.filter((view) => view.id === "graph").map(
 						(view) => {
 							const Icon = view.icon;
@@ -361,7 +414,7 @@ const styles = stylex.create({
 		top: 0,
 		left: 0,
 		right: 0,
-		zIndex: 2,
+		zIndex: 122,
 		alignItems: "flex-end",
 		backgroundColor: color.transparent,
 		display: "flex",
@@ -455,6 +508,43 @@ const styles = stylex.create({
 	},
 	secondaryTabGroup: {
 		marginTop: 0,
+	},
+	railCreateWrap: {
+		position: "relative",
+	},
+	railCreateMenu: {
+		backgroundColor: color.backgroundRaised,
+		borderColor: color.border,
+		borderRadius: 8,
+		borderStyle: "solid",
+		borderWidth: 1,
+		boxShadow: "0 14px 40px rgba(0,0,0,0.48)",
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._0_5,
+		left: "calc(100% + 8px)",
+		padding: controlSize._1,
+		position: "absolute",
+		top: 0,
+		width: 152,
+		zIndex: 140,
+	},
+	railCreateItem: {
+		alignItems: "center",
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlHover,
+		},
+		borderRadius: 6,
+		color: color.textSoft,
+		display: "flex",
+		fontSize: font.size_2,
+		fontWeight: font.weight_5,
+		gap: controlSize._2,
+		height: controlSize._7,
+		paddingInline: controlSize._2,
+		textAlign: "left",
+		width: "100%",
 	},
 	viewTab: {
 		position: "relative",
