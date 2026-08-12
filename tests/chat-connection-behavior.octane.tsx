@@ -339,3 +339,107 @@ test("stale streaming sync does not cut local in-flight assistant content", asyn
 		root.unmount();
 	}
 });
+
+test("active sync between blocks keeps result replay attached to its assistant", async () => {
+	subscribe.mockClear();
+	send.mockClear();
+	const { root } = setupDom();
+	const { useChatConnection } =
+		await import("../src/components/chat/useChatConnection.tsx");
+	let handleMessage: ((message: unknown) => void) | undefined;
+	let latestMessages: ChatMessage[] = [];
+	subscribe.mockImplementationOnce((_paneId, callback) => {
+		handleMessage = callback;
+		return subscribeCleanup;
+	});
+
+	function Harness() {
+		const [, setUiState] = useState<ChatActivityUiState>({
+			expandedTools: new Set(),
+			liveActivities: [],
+		});
+		const messagesRef = useRef<ChatMessage[]>([
+			{ id: "u1", role: "user", content: "prompt" },
+		]);
+		latestMessages = messagesRef.current;
+		const messageReadModel = useMemo(
+			() => ({
+				get: () => messagesRef.current,
+				saveNow: (messages: ChatMessage[]) => messages,
+				set: (
+					update: ChatMessage[] | ((messages: ChatMessage[]) => ChatMessage[])
+				) => {
+					messagesRef.current =
+						typeof update === "function" ? update(messagesRef.current) : update;
+					latestMessages = messagesRef.current;
+				},
+			}),
+			[]
+		);
+		useChatConnection({
+			enabled: true,
+			messageReadModel,
+			paneId: "pane-between-blocks",
+			replaceQueuedMessages: () => {},
+			setChatUiState: setUiState,
+			setRunStatus: () => {},
+		});
+		return null;
+	}
+
+	try {
+		root.render(<Harness />);
+		await tick();
+		handleMessage?.({
+			type: "chat:event",
+			paneId: "pane-between-blocks",
+			event: {
+				type: "content_block_start",
+				content_block: { type: "text", text: "" },
+			},
+		});
+		handleMessage?.({
+			type: "chat:event",
+			paneId: "pane-between-blocks",
+			event: {
+				type: "content_block_delta",
+				delta: { type: "text_delta", text: "same progress" },
+			},
+		});
+		handleMessage?.({
+			type: "chat:event",
+			paneId: "pane-between-blocks",
+			event: { type: "content_block_stop" },
+		});
+		await tick();
+
+		handleMessage?.({
+			type: "chat:sync",
+			paneId: "pane-between-blocks",
+			messages: [
+				{ id: "u1", role: "user", content: "prompt" },
+				{ id: "server-a1", role: "assistant", content: "same progress" },
+			],
+			revision: 4,
+			isStreaming: true,
+		});
+		handleMessage?.({
+			type: "chat:event",
+			paneId: "pane-between-blocks",
+			event: { type: "result", result: "same progress" },
+		});
+		await tick();
+
+		expect(latestMessages).toEqual([
+			{ id: "u1", role: "user", content: "prompt" },
+			{
+				id: "server-a1",
+				role: "assistant",
+				content: "same progress",
+				isStreaming: false,
+			},
+		]);
+	} finally {
+		root.unmount();
+	}
+});

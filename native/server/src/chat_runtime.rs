@@ -448,9 +448,13 @@ impl ChatRuntime {
                         "type":"chat:session", "paneId":pane_id, "sessionId":id
                     })
                 });
-                let streaming = state.message_buffer.streaming();
+                let streaming = state.turn_active;
                 let status = if state.turn_active {
-                    if streaming { "responding" } else { "thinking" }
+                    if state.message_buffer.streaming() {
+                        "responding"
+                    } else {
+                        "thinking"
+                    }
                 } else {
                     "idle"
                 };
@@ -1681,6 +1685,40 @@ mod tests {
             types,
             ["chat:system", "chat:sync", "chat:done", "chat:status"]
         );
+    }
+
+    #[tokio::test]
+    async fn reconnect_reports_an_active_turn_between_stream_blocks() {
+        let root = tempdir().unwrap();
+        let (runtime, _, _) = test_runtime(root.path(), Arc::new(UnusedExecutor));
+        let (existing_sender, _) = broadcast::channel(8);
+        let session = test_session(root.path(), existing_sender, None);
+        {
+            let mut state = session.lock().await;
+            state.message_buffer.apply_event(&json!({
+                "type":"content_block_start",
+                "content_block":{"type":"text","text":"progress"}
+            }));
+            state
+                .message_buffer
+                .apply_event(&json!({"type":"content_block_stop"}));
+            assert!(!state.message_buffer.streaming());
+            assert!(state.turn_active);
+        }
+        runtime.sessions.lock().await.insert("pane".into(), session);
+
+        let (sender, mut receiver) = broadcast::channel(8);
+        runtime.reconnect("pane", 2, sender).await;
+        let sync = receiver.recv().await.unwrap();
+        let queue = receiver.recv().await.unwrap();
+        let status = receiver.recv().await.unwrap();
+
+        assert_eq!(sync["type"], "chat:sync");
+        assert_eq!(sync["isStreaming"], true);
+        assert_eq!(queue["type"], "chat:queue");
+        assert_eq!(status["type"], "chat:status");
+        assert_eq!(status["isLoading"], true);
+        assert_eq!(status["status"], "thinking");
     }
 
     #[tokio::test]

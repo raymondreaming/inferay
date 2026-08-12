@@ -359,6 +359,9 @@ export function useChatConnection({
 				}
 				if (msg.isStreaming) {
 					transcriptRevisionRef.current = syncResult.nextRevision;
+					const latestAssistantId = syncResult.mergedMessages.findLast?.(
+						(message) => message.role === "assistant"
+					)?.id;
 					setRunStatus((prev) => ({
 						isLoading: true,
 						status: "responding",
@@ -366,8 +369,9 @@ export function useChatConnection({
 					}));
 					if (syncResult.streamingAssistantId) {
 						currentAssistantRef.current = syncResult.streamingAssistantId;
-						lastAssistantRef.current = syncResult.streamingAssistantId;
 					}
+					lastAssistantRef.current =
+						syncResult.streamingAssistantId ?? latestAssistantId ?? null;
 					if (syncResult.streamingToolId) {
 						currentToolRef.current = syncResult.streamingToolId;
 					}
