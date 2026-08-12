@@ -39,12 +39,15 @@ const GOAL_COMPLETE_MARKER: &str = "[[GOAL_COMPLETE]]";
 const GOAL_NEEDS_INPUT_MARKER: &str = "[[GOAL_NEEDS_INPUT]]";
 const GENERATION_STOPPED_MESSAGE: &str = "Generation stopped";
 const CODEX_WORKFLOW_INSTRUCTIONS: &str = r#"<inferay-workflow-instructions>
-For coding tasks, inspect the relevant repository context before concluding that information is missing. Continue through implementation and proportionate verification unless blocked or the user asked only for analysis.
-During substantial work, provide brief progress updates before tool work and after meaningful findings. Keep updates factual and do not claim checks that were not run.
-Lead the final response with the outcome, then include changed files, verification actually run, and any remaining limitation.
-Do not run formatters with write mode as a routine chat-completion step. In this project, do not run `bunx biome check --write ...` unless the user explicitly asks for Biome formatting.
-Do not run `bun run build:renderer` at the end of every chat. Run builds/tests only when the user requests verification or when the change genuinely needs that specific check.
-If formatting is needed, prefer the project's intended formatting or commit-hook flow and keep formatting-only churn out of unrelated edits.
+Classify the request by its intended outcome.
+
+For answer, review, diagnosis, or planning requests: inspect the relevant evidence and report the result. Do not modify code unless asked.
+
+For change, build, or fix requests: own the requested outcome end to end. Inspect the relevant code, implement all safe in-scope changes, run targeted verification, review the resulting diff, and resolve failures introduced by the change. Continue while useful in-scope work remains. Do not stop at a plan, a partial implementation, or the first passing check.
+
+Make reasonable reversible assumptions. Ask only when missing information or authority would materially change the result. Do not broaden the scope, redesign adjacent systems, or make destructive or external changes without authorization.
+
+During substantial work, provide concise factual progress updates. In the final response, lead with the outcome and report verification actually run and any remaining limitations.
 </inferay-workflow-instructions>"#;
 const FINAL_SUMMARY_RECOVERY_PROMPT: &str = r#"<inferay-final-summary-recovery>
 The previous turn ended after a tool call without a final user-facing response. Provide the final summary now. Lead with the outcome, then state changed files, verification actually run, and any remaining limitation. Do not run more tools unless required to avoid an inaccurate claim.
@@ -69,7 +72,6 @@ pub trait AgentExecutor: Send + Sync {
 
 #[derive(Clone, Debug)]
 pub struct AgentRunRequest {
-    pub pane_id: String,
     pub agent_kind: String,
     pub prompt: String,
     pub cwd: PathBuf,
@@ -77,6 +79,7 @@ pub struct AgentRunRequest {
     pub images: Vec<PathBuf>,
     pub model: Option<String>,
     pub reasoning_level: Option<String>,
+    pub developer_instructions: Option<String>,
     pub session_id: Option<String>,
 }
 
@@ -208,6 +211,57 @@ impl ChatRuntime {
     ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
         Box::pin(async move {
             let session = self.ensure_session(&input).await;
+            if !already_admitted {
+                let steer_handle = {
+                    let mut state = session.lock().await;
+                    if let (Some(client_id), Some(sender)) =
+                        (input.client_id, input.client_sender.clone())
+                    {
+                        state.clients.insert(client_id, sender);
+                    }
+                    (state.turn_active
+                        && state.agent_kind == "codex"
+                        && input.agent_kind == "codex")
+                        .then(|| state.current_handle.clone())
+                        .flatten()
+                };
+                if let Some(handle) = steer_handle
+                    && handle
+                        .steer_codex(input.text.clone(), input.images.clone())
+                        .await
+                        .is_ok()
+                {
+                    let display = input.display_text.as_deref().unwrap_or(&input.text);
+                    {
+                        let mut state = session.lock().await;
+                        state.message_buffer.push_user(
+                            display,
+                            (!input.images.is_empty()).then(|| paths_to_strings(&input.images)),
+                        );
+                        state.cancelled = false;
+                    }
+                    self.persistence
+                        .append_event(
+                            &input.pane_id,
+                            "user_message",
+                            json!({"text": input.text, "displayText": display, "images": paths_to_strings(&input.images), "steered": true}),
+                        )
+                        .await;
+                    self.persist(&session).await;
+                    self.emit(
+                        &session,
+                        json!({
+                            "type":"chat:steered",
+                            "paneId":input.pane_id,
+                            "text":input.text,
+                            "displayText":display,
+                            "images":paths_to_strings(&input.images)
+                        }),
+                    )
+                    .await;
+                    return;
+                }
+            }
             let system_prefix = {
                 let mut state = session.lock().await;
                 let changed = state.agent_kind != input.agent_kind;
@@ -342,7 +396,9 @@ impl ChatRuntime {
                     .await;
             }
 
-            let outcome = self.run_goal_loop(&session, prompt, input.images).await;
+            let outcome = self
+                .run_goal_loop(&session, prompt, input.images, checkpoint_id.as_deref())
+                .await;
             match outcome {
                 Ok(()) => {
                     self.finalize_success(&session, checkpoint_id.as_deref())
@@ -677,6 +733,7 @@ impl ChatRuntime {
         session: &Arc<Mutex<ChatSession>>,
         prompt: String,
         images: Vec<PathBuf>,
+        checkpoint_id: Option<&str>,
     ) -> Result<(), String> {
         let goal_run = session
             .lock()
@@ -684,7 +741,9 @@ impl ChatRuntime {
             .goal
             .as_ref()
             .is_some_and(|goal| goal.status == GoalStatus::Active);
-        let mut result = self.run_once(session, prompt, images).await?;
+        let mut result = self
+            .run_once(session, prompt, images, checkpoint_id)
+            .await?;
         let last_is_tool = session
             .lock()
             .await
@@ -694,7 +753,12 @@ impl ChatRuntime {
             .is_some_and(|m| m.role == "tool");
         if !goal_run && last_is_tool && !session.lock().await.cancelled {
             result = self
-                .run_once(session, FINAL_SUMMARY_RECOVERY_PROMPT.into(), Vec::new())
+                .run_once(
+                    session,
+                    FINAL_SUMMARY_RECOVERY_PROMPT.into(),
+                    Vec::new(),
+                    checkpoint_id,
+                )
                 .await?;
         }
         if !goal_run {
@@ -727,7 +791,9 @@ impl ChatRuntime {
                 }
             };
             let Some(next) = next else { break };
-            result = self.run_once(session, next, Vec::new()).await?;
+            result = self
+                .run_once(session, next, Vec::new(), checkpoint_id)
+                .await?;
         }
         let message = {
             let mut state = session.lock().await;
@@ -771,6 +837,7 @@ impl ChatRuntime {
         session: &Arc<Mutex<ChatSession>>,
         prompt: String,
         images: Vec<PathBuf>,
+        checkpoint_id: Option<&str>,
     ) -> Result<AgentRunResult, String> {
         let (request, handle) = {
             let mut state = session.lock().await;
@@ -778,18 +845,15 @@ impl ChatRuntime {
             state.current_handle = Some(handle.clone());
             (
                 AgentRunRequest {
-                    pane_id: state.pane_id.clone(),
                     agent_kind: state.agent_kind.clone(),
-                    prompt: if state.agent_kind == "codex" {
-                        format!("{CODEX_WORKFLOW_INSTRUCTIONS}\n\n{prompt}")
-                    } else {
-                        prompt
-                    },
+                    prompt,
                     cwd: state.cwd.clone(),
                     reference_paths: state.reference_paths.clone(),
                     images,
                     model: state.model.clone(),
                     reasoning_level: state.reasoning_level.clone(),
+                    developer_instructions: (state.agent_kind == "codex")
+                        .then(|| CODEX_WORKFLOW_INSTRUCTIONS.to_owned()),
                     session_id: state.session_id.clone(),
                 },
                 handle,
@@ -803,17 +867,18 @@ impl ChatRuntime {
                 result = &mut executed => break result,
                 emission = emission_rx.recv() => {
                     if let Some(emission) = emission {
-                        self.apply_emissions(session, vec![emission]).await;
+                        self.apply_emissions(session, vec![emission], checkpoint_id).await;
                     }
                 }
             }
         };
         while let Ok(emission) = emission_rx.try_recv() {
-            self.apply_emissions(session, vec![emission]).await;
+            self.apply_emissions(session, vec![emission], checkpoint_id)
+                .await;
         }
         session.lock().await.current_handle = None;
         let mut executed = executed?;
-        self.apply_emissions(session, executed.protocol.take_emissions())
+        self.apply_emissions(session, executed.protocol.take_emissions(), checkpoint_id)
             .await;
         Ok(executed.result)
     }
@@ -822,6 +887,7 @@ impl ChatRuntime {
         &self,
         session: &Arc<Mutex<ChatSession>>,
         emissions: Vec<ProtocolEmission>,
+        checkpoint_id: Option<&str>,
     ) {
         let pane_id = session.lock().await.pane_id.clone();
         for emission in emissions {
@@ -842,6 +908,9 @@ impl ChatRuntime {
                     drop(state);
                     self.emit(session, json!({"type":"chat:agent-event", "paneId":pane_id, "event":compact})).await;
                 }
+                ProtocolEmission::FileChange(paths) => {
+                    self.emit_live_file_diffs(session, checkpoint_id, &paths).await;
+                }
                 ProtocolEmission::Status { status, is_loading } => self.emit(session, status_message(&pane_id, &status, is_loading)).await,
                 ProtocolEmission::Activity { tool_name, summary, is_streaming } => self.emit(session, json!({"type":"chat:activity", "paneId":pane_id, "activity":{"toolName":tool_name,"summary":summary,"isStreaming":is_streaming}})).await,
                 ProtocolEmission::System(message) => self.emit_system(session, &message).await,
@@ -852,6 +921,46 @@ impl ChatRuntime {
             }
         }
         self.persist(session).await;
+    }
+
+    async fn emit_live_file_diffs(
+        &self,
+        session: &Arc<Mutex<ChatSession>>,
+        checkpoint_id: Option<&str>,
+        paths: &[PathBuf],
+    ) {
+        let Some(checkpoint_id) = checkpoint_id else {
+            return;
+        };
+        let pane_id = session.lock().await.pane_id.clone();
+        for mut diff in self
+            .checkpoints
+            .preview_inline_diffs(checkpoint_id, paths)
+            .await
+        {
+            if let Some(previous) =
+                latest_edit_content(session.lock().await.message_buffer.messages(), &diff.path)
+            {
+                if previous == diff.new_string {
+                    continue;
+                }
+                diff.old_string = previous;
+            }
+            for event in [
+                json!({"type":"content_block_start","content_block":{"type":"tool_use","name":"Edit","input":{"file_path":diff.path,"old_string":diff.old_string,"new_string":diff.new_string}}}),
+                json!({"type":"content_block_stop"}),
+            ] {
+                session.lock().await.message_buffer.apply_event(&event);
+                self.persistence
+                    .append_event(&pane_id, "agent_event", event.clone())
+                    .await;
+                self.emit(
+                    session,
+                    json!({"type":"chat:event","paneId":pane_id,"event":event}),
+                )
+                .await;
+            }
+        }
     }
 
     async fn finalize_success(
@@ -1448,6 +1557,22 @@ fn existing_edit_paths(messages: &[ChatTranscriptMessage]) -> std::collections::
         })
         .collect()
 }
+fn latest_edit_content(messages: &[ChatTranscriptMessage], path: &str) -> Option<String> {
+    messages.iter().rev().find_map(|message| {
+        if message.role != "tool" || message.tool_name.as_deref() != Some("Edit") {
+            return None;
+        }
+        let value = serde_json::from_str::<Value>(&message.content).ok()?;
+        (value.get("file_path").and_then(Value::as_str) == Some(path))
+            .then(|| {
+                value
+                    .get("new_string")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .flatten()
+    })
+}
 fn collect_paths(value: &Value, output: &mut Vec<String>) {
     match value {
         Value::Object(map) => {
@@ -1643,6 +1768,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn file_change_emission_streams_checkpoint_backed_inline_edit() {
+        let root = tempdir().unwrap();
+        let source = root.path().join("src/main.rs");
+        tokio::fs::create_dir_all(source.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&source, "fn answer() -> u8 { 41 }\n")
+            .await
+            .unwrap();
+        let (runtime, persistence, checkpoints) =
+            test_runtime(root.path(), Arc::new(UnusedExecutor));
+        let checkpoint_id = checkpoints
+            .create_checkpoint("pane".into(), root.path(), "update answer".into())
+            .await
+            .unwrap();
+        tokio::fs::write(&source, "fn answer() -> u8 { 42 }\n")
+            .await
+            .unwrap();
+        let (sender, mut receiver) = broadcast::channel(16);
+        let session = test_session(root.path(), sender, None);
+
+        runtime
+            .apply_emissions(
+                &session,
+                vec![ProtocolEmission::FileChange(vec![source])],
+                Some(&checkpoint_id),
+            )
+            .await;
+
+        let start = receiver.recv().await.unwrap();
+        assert_eq!(start["type"], "chat:event");
+        assert_eq!(start["event"]["content_block"]["name"], "Edit");
+        assert_eq!(
+            start["event"]["content_block"]["input"]["old_string"],
+            "fn answer() -> u8 { 41 }\n"
+        );
+        assert_eq!(
+            start["event"]["content_block"]["input"]["new_string"],
+            "fn answer() -> u8 { 42 }\n"
+        );
+        assert_eq!(
+            receiver.recv().await.unwrap()["event"]["type"],
+            "content_block_stop"
+        );
+        let restored = persistence
+            .read_authoritative_transcript("pane")
+            .await
+            .unwrap();
+        assert_eq!(restored.last().unwrap().tool_name.as_deref(), Some("Edit"));
+    }
+
+    #[tokio::test]
     async fn stop_does_not_admit_a_queued_turn_before_the_owner_unwinds() {
         let root = tempdir().unwrap();
         let executor = Arc::new(CountingExecutor(AtomicUsize::new(0)));
@@ -1799,6 +1976,70 @@ mod tests {
         assert_eq!(state.cwd, original_cwd);
         assert_eq!(state.reference_paths, vec![original_reference]);
         assert_eq!(state.reasoning_level.as_deref(), Some("high"));
+    }
+
+    #[tokio::test]
+    async fn busy_codex_send_steers_active_turn_without_persisting_a_queue_item() {
+        let root = tempdir().unwrap();
+        let (runtime, persistence, _) = test_runtime(root.path(), Arc::new(UnusedExecutor));
+        let (sender, mut receiver) = broadcast::channel(8);
+        let handle = AgentProcessHandle::default();
+        let (control_tx, mut control_rx) = tokio::sync::mpsc::unbounded_channel();
+        handle.set_codex_control(control_tx);
+        let session = test_session(root.path(), sender, Some(handle));
+        runtime
+            .sessions
+            .lock()
+            .await
+            .insert("pane".into(), session.clone());
+
+        let acknowledgement = tokio::spawn(async move {
+            let Some(crate::agent_runner::CodexControl::Steer {
+                text,
+                images,
+                response,
+            }) = control_rx.recv().await
+            else {
+                panic!("expected steer request");
+            };
+            assert_eq!(text, "change direction");
+            assert!(images.is_empty());
+            response.send(Ok(())).unwrap();
+        });
+        runtime
+            .send_message(SendMessageInput {
+                pane_id: "pane".into(),
+                agent_kind: "codex".into(),
+                client_session_id: None,
+                cwd: root.path().into(),
+                cwd_provided: true,
+                model: Some("gpt-5.6-sol".into()),
+                reasoning_level: Some("high".into()),
+                reasoning_level_provided: true,
+                reference_paths: Vec::new(),
+                reference_paths_provided: true,
+                display_text: Some("Change direction".into()),
+                images: Vec::new(),
+                text: "change direction".into(),
+                client_id: None,
+                client_sender: None,
+                include_workspace: true,
+            })
+            .await;
+        acknowledgement.await.unwrap();
+
+        assert!(persistence.read_queue("pane").await.unwrap().is_empty());
+        let steered = receiver.recv().await.unwrap();
+        assert_eq!(steered["type"], "chat:steered");
+        assert_eq!(steered["text"], "change direction");
+        assert_eq!(steered["displayText"], "Change direction");
+        let state = session.lock().await;
+        assert!(state.turn_active);
+        assert_eq!(state.message_buffer.messages().last().unwrap().role, "user");
+        assert_eq!(
+            state.message_buffer.messages().last().unwrap().content,
+            "Change direction"
+        );
     }
 
     #[tokio::test]

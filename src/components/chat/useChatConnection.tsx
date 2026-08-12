@@ -46,7 +46,7 @@ interface ChatMessageMutationModel {
 	get: () => ChatMessage[];
 	saveNow: (messages: ChatMessage[]) => ChatMessage[];
 	set: (
-		update: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])
+		update: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[]),
 	) => void;
 }
 
@@ -84,7 +84,7 @@ export function useChatConnection({
 	replaceQueuedMessages: (messages: QueuedMessageInfo[]) => void;
 	setChatUiState: Dispatch<SetStateAction<ChatActivityUiState>>;
 	setRunStatus: (
-		value: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState)
+		value: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState),
 	) => void;
 }) {
 	const currentAssistantRef = useRef<string | null>(null);
@@ -94,7 +94,7 @@ export function useChatConnection({
 	const hasStreamedRef = useRef(false);
 	const transcriptRevisionRef = useRef<number | null>(null);
 	const pendingContentRef = useRef<Map<string, string>>(
-		undefined as unknown as Map<string, string>
+		undefined as unknown as Map<string, string>,
 	);
 	if (!pendingContentRef.current) {
 		pendingContentRef.current = new Map();
@@ -102,18 +102,18 @@ export function useChatConnection({
 	const flushFrameRef = useRef<number | null>(null);
 	const checkpointReadModel = useMemo(
 		() => getChatCheckpointReadModel(paneId),
-		[paneId]
+		[paneId],
 	);
 	const checkpoints = useSyncExternalStore(
 		checkpointReadModel.subscribe,
 		checkpointReadModel.getSnapshot,
-		checkpointReadModel.getSnapshot
+		checkpointReadModel.getSnapshot,
 	);
 	const applyPendingContent = useCallback(
 		(messages: ChatMessage[], pending: Map<string, string>) => {
 			return applyPendingMessageContent(messages, pending);
 		},
-		[]
+		[],
 	);
 	const flushPendingContent = useCallback(() => {
 		if (flushFrameRef.current !== null) {
@@ -148,7 +148,7 @@ export function useChatConnection({
 				messageReadModel.set((prev) => applyPendingContent(prev, queued));
 			});
 		},
-		[applyPendingContent, messageReadModel]
+		[applyPendingContent, messageReadModel],
 	);
 	const resetStreamState = useCallback(() => {
 		flushPendingContent();
@@ -164,7 +164,7 @@ export function useChatConnection({
 		(checkpointId: string) => {
 			wsClient.send({ type: "checkpoint:revert", paneId, checkpointId });
 		},
-		[paneId]
+		[paneId],
 	);
 	function appendAssistant(content: string, isStreaming: boolean) {
 		const id = nextId();
@@ -177,7 +177,7 @@ export function useChatConnection({
 				role: "assistant",
 				content: truncateChatContent(content),
 				isStreaming,
-			})
+			}),
 		);
 	}
 	function appendTool(toolName: string, content: string) {
@@ -192,7 +192,7 @@ export function useChatConnection({
 				content: truncateChatContent(content),
 				toolName,
 				isStreaming: true,
-			})
+			}),
 		);
 	}
 	function handleChatEvent(event: ChatStreamEvent) {
@@ -213,8 +213,8 @@ export function useChatConnection({
 									content: block.text,
 									isStreaming: !msg.stop_reason,
 								},
-								false
-							)
+								false,
+							),
 						);
 					} else {
 						appendAssistant(block.text, !msg.stop_reason);
@@ -224,7 +224,7 @@ export function useChatConnection({
 						block.name,
 						typeof block.input === "string"
 							? block.input
-							: JSON.stringify(block.input, null, 2)
+							: JSON.stringify(block.input, null, 2),
 					);
 				}
 			}
@@ -274,7 +274,7 @@ export function useChatConnection({
 			const assistantId =
 				currentAssistantRef.current ?? lastAssistantRef.current;
 			messageReadModel.set((prev) =>
-				applyAssistantResultMessage(prev, assistantId, result)
+				applyAssistantResultMessage(prev, assistantId, result),
 			);
 			currentAssistantRef.current = null;
 			lastAssistantRef.current = null;
@@ -306,6 +306,26 @@ export function useChatConnection({
 				setChatUiState(clearCompletedChatUiState.bind(null, ids));
 				resetStreamState();
 				wsClient.send({ type: "chat:reconnect", paneId });
+			} else if (msg.type === "chat:steered") {
+				const content =
+					typeof msg.displayText === "string"
+						? msg.displayText
+						: typeof msg.text === "string"
+							? msg.text
+							: "";
+				if (content) {
+					messageReadModel.set((prev) =>
+						appendTrimmedMessage(
+							{
+								id: nextId(),
+								role: "user",
+								content,
+								images: Array.isArray(msg.images) ? msg.images : undefined,
+							},
+							prev,
+						),
+					);
+				}
 			} else if (msg.type === "chat:user_message") {
 				setChatUiState(clearLiveActivities);
 				setRunStatus((prev) => ({
@@ -360,7 +380,7 @@ export function useChatConnection({
 				if (msg.isStreaming) {
 					transcriptRevisionRef.current = syncResult.nextRevision;
 					const latestAssistantId = syncResult.mergedMessages.findLast?.(
-						(message) => message.role === "assistant"
+						(message) => message.role === "assistant",
 					)?.id;
 					setRunStatus((prev) => ({
 						isLoading: true,
@@ -391,7 +411,7 @@ export function useChatConnection({
 				const btwMessage = createBtwQuestionMessage(msg.question);
 				currentBtwRef.current = btwMessage.id;
 				messageReadModel.set((prev) =>
-					appendBtwQuestionMessage(prev, btwMessage)
+					appendBtwQuestionMessage(prev, btwMessage),
 				);
 			} else if (msg.type === "chat:btw:delta") {
 				const targetId = currentBtwRef.current;
@@ -404,7 +424,7 @@ export function useChatConnection({
 				currentBtwRef.current = null;
 				if (targetId) {
 					messageReadModel.set((prev) =>
-						finishBtwMessage(prev, targetId, msg.answer)
+						finishBtwMessage(prev, targetId, msg.answer),
 					);
 				}
 			} else if (msg.type === "checkpoint:finalized") {
@@ -414,19 +434,19 @@ export function useChatConnection({
 						changedFileCount: msg.changedFileCount,
 						changedFiles: msg.changedFiles,
 					},
-					messageReadModel.get()
+					messageReadModel.get(),
 				);
 			} else if (msg.type === "checkpoint:reverted") {
 				checkpointReadModel.markReverted(msg.checkpointId);
 				messageReadModel.set((prev) =>
 					appendSystemMessage(
 						prev,
-						`Reverted ${msg.restoredFiles?.length ?? 0} file(s) to checkpoint`
-					)
+						`Reverted ${msg.restoredFiles?.length ?? 0} file(s) to checkpoint`,
+					),
 				);
 			} else if (msg.type === "checkpoint:error") {
 				messageReadModel.set((prev) =>
-					appendSystemMessage(prev, `Revert failed: ${msg.error}`)
+					appendSystemMessage(prev, `Revert failed: ${msg.error}`),
 				);
 			}
 		});

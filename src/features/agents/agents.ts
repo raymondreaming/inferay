@@ -24,8 +24,8 @@ export interface ReasoningLevel {
 
 export const CODEX_REASONING_LEVELS: readonly ReasoningLevel[] = [
 	{ id: "low", label: "Low", detail: "Fast responses" },
-	{ id: "medium", label: "Medium", detail: "Balanced (default)" },
-	{ id: "high", label: "High", detail: "Greater depth" },
+	{ id: "medium", label: "Medium", detail: "Balanced" },
+	{ id: "high", label: "High", detail: "Greater depth (default)" },
 	{ id: "xhigh", label: "Extra High", detail: "Maximum reasoning" },
 ] as const;
 
@@ -176,11 +176,11 @@ const DEFAULT_CHAT_SETTINGS_KEY = "inferay-default-chat-settings";
 const FALLBACK_DEFAULT_CHAT_SETTINGS: DefaultChatSettings = {
 	agentKind: "codex",
 	model: "gpt-5.6-sol",
-	reasoningLevel: "medium",
+	reasoningLevel: "high",
 };
 
 function normalizeDefaultChatSettings(
-	settings: Partial<DefaultChatSettings> | null | undefined
+	settings: Partial<DefaultChatSettings> | null | undefined,
 ): DefaultChatSettings {
 	const agentKind: ChatAgentKind =
 		settings?.agentKind === "claude" || settings?.agentKind === "codex"
@@ -195,7 +195,7 @@ function normalizeDefaultChatSettings(
 		? settings!.model!
 		: fallbackModel;
 	const reasoningLevel = CODEX_REASONING_LEVELS.some(
-		hasId.bind(null, settings?.reasoningLevel)
+		hasId.bind(null, settings?.reasoningLevel),
 	)
 		? settings!.reasoningLevel!
 		: FALLBACK_DEFAULT_CHAT_SETTINGS.reasoningLevel;
@@ -206,14 +206,14 @@ export function loadDefaultChatSettings(): DefaultChatSettings {
 	return normalizeDefaultChatSettings(
 		readStoredJson<Partial<DefaultChatSettings> | null>(
 			DEFAULT_CHAT_SETTINGS_KEY,
-			null
-		)
+			null,
+		),
 	);
 }
 
 export function saveDefaultChatSettings(settings: DefaultChatSettings) {
 	writeStoredJson(
 		DEFAULT_CHAT_SETTINGS_KEY,
-		normalizeDefaultChatSettings(settings)
+		normalizeDefaultChatSettings(settings),
 	);
 }

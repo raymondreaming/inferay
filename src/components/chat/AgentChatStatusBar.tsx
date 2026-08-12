@@ -25,6 +25,8 @@ import {
 } from "../ui/Icons.tsx";
 import { getStatusToolName, normalizeToolName } from "./chat-agent-utils.ts";
 
+const MAX_STATUS_ACTIVITIES = 500;
+
 interface AgentChatStatusBarProps {
 	liveActivities?: ToolActivity[];
 	isLoading: boolean;
@@ -80,7 +82,7 @@ export const AgentChatStatusBar = memo(function AgentChatStatusBar({
 	const connectionStatus = useSyncExternalStore(
 		subscribeWebSocketStatus,
 		getWebSocketStatus,
-		getWebSocketStatus
+		getWebSocketStatus,
 	);
 	const statusToolName = getStatusToolName(status);
 
@@ -92,15 +94,18 @@ export const AgentChatStatusBar = memo(function AgentChatStatusBar({
 		if (!statusToolName) return;
 		setStatusActivities((prev) => {
 			if (prev[prev.length - 1]?.toolName === statusToolName) return prev;
+			const lastSequence = Number(
+				prev[prev.length - 1]?.id.match(/-(\d+)$/)?.[1] ?? -1,
+			);
 			return [
 				...prev,
 				{
-					id: `status-${statusToolName}-${prev.length}`,
+					id: `status-${statusToolName}-${lastSequence + 1}`,
 					toolName: statusToolName,
 					isStreaming: true,
 					summary: statusToolName,
 				},
-			].slice(-12);
+			].slice(-MAX_STATUS_ACTIVITIES);
 		});
 	}, [isLoading, statusToolName]);
 
@@ -166,7 +171,7 @@ export const AgentChatStatusBar = memo(function AgentChatStatusBar({
 											styles.popoverRow,
 											idx < activityItems.length - 1
 												? styles.popoverRowBorder
-												: null
+												: null,
 										)}
 									>
 										<span {...stylex.props(styles.activityIcon)}>

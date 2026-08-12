@@ -8,18 +8,17 @@ use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
 
 use inferay_core::agent_protocol::{
-    AgentEvent, AgentProtocolContext, ChatBlockRole, ClaudeProtocolState, CodexInvocationContext,
-    CodexProtocolState, ProtocolEmission, build_claude_invocation_args,
-    build_codex_invocation_args, should_emit_codex_output_fallback, truncate_agent_result,
+    AgentEvent, AgentProtocolContext, ClaudeProtocolState, CodexInvocationContext,
+    CodexProtocolState, ProtocolEmission, build_claude_invocation_args, workspace_roots,
 };
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
+use tokio::sync::{mpsc, oneshot};
 
 const MAX_STREAM_CHARS: usize = 64_000;
 
@@ -34,6 +33,16 @@ pub trait PidTracker: Send + Sync {
 pub struct AgentProcessHandle {
     pid: Arc<AtomicU32>,
     cancelled: Arc<AtomicBool>,
+    codex_control: Arc<Mutex<Option<mpsc::UnboundedSender<CodexControl>>>>,
+}
+
+pub(crate) enum CodexControl {
+    Steer {
+        text: String,
+        images: Vec<PathBuf>,
+        response: oneshot::Sender<Result<(), String>>,
+    },
+    Interrupt,
 }
 
 impl AgentProcessHandle {
@@ -59,8 +68,42 @@ impl AgentProcessHandle {
         });
     }
 
+    /// Appends input to the currently running Codex turn. This is the same
+    /// active-turn steering contract used by Codex's own rich clients; it does
+    /// not create a second turn or wait in Inferay's persisted queue.
+    pub async fn steer_codex(&self, text: String, images: Vec<PathBuf>) -> Result<(), String> {
+        let sender = self
+            .codex_control
+            .lock()
+            .expect("codex control lock")
+            .clone()
+            .ok_or_else(|| "Codex turn is not steerable".to_string())?;
+        let (response, receiver) = oneshot::channel();
+        sender
+            .send(CodexControl::Steer {
+                text,
+                images,
+                response,
+            })
+            .map_err(|_| "Codex turn has already ended".to_string())?;
+        tokio::time::timeout(std::time::Duration::from_secs(5), receiver)
+            .await
+            .map_err(|_| "Codex steering timed out".to_string())?
+            .map_err(|_| "Codex turn ended before steering completed".to_string())?
+    }
+
+    pub fn stop_codex(&self) -> bool {
+        self.cancelled.store(true, Ordering::Release);
+        self.codex_control
+            .lock()
+            .expect("codex control lock")
+            .as_ref()
+            .is_some_and(|sender| sender.send(CodexControl::Interrupt).is_ok())
+    }
+
     pub fn kill(&self, tracker: &dyn PidTracker) {
         self.cancelled.store(true, Ordering::Release);
+        self.clear_codex_control();
         if let Some(pid) = self.pid() {
             tracker.kill_pid_tree(pid);
         }
@@ -68,6 +111,17 @@ impl AgentProcessHandle {
 
     fn set_pid(&self, pid: Option<u32>) {
         self.pid.store(pid.unwrap_or(0), Ordering::Release);
+    }
+
+    pub(crate) fn set_codex_control(&self, sender: mpsc::UnboundedSender<CodexControl>) {
+        *self.codex_control.lock().expect("codex control lock") = Some(sender);
+    }
+
+    fn clear_codex_control(&self) {
+        self.codex_control
+            .lock()
+            .expect("codex control lock")
+            .take();
     }
 }
 
@@ -84,7 +138,6 @@ pub struct CodexRun<'a> {
     pub binary: &'a Path,
     pub prompt: &'a str,
     pub invocation: &'a CodexInvocationContext,
-    pub pane_id: &'a str,
     pub env: &'a HashMap<OsString, OsString>,
 }
 
@@ -160,10 +213,7 @@ pub async fn run_codex(
     state: &mut CodexProtocolState,
     emissions: Option<&tokio::sync::mpsc::UnboundedSender<ProtocolEmission>>,
 ) -> AgentRunResult {
-    let output_path = codex_output_path(run.pane_id);
-    let arguments =
-        build_codex_invocation_args(run.binary, run.prompt, run.invocation, &output_path);
-    let mut child = match spawn_direct(&arguments, &run.invocation.cwd, run.env) {
+    let mut child = match spawn_codex_app_server(run.binary, &run.invocation.cwd, run.env) {
         Ok(child) => child,
         Err(error) => {
             if !handle.is_cancelled() {
@@ -179,28 +229,493 @@ pub async fn run_codex(
         tracker.track_pid(pid);
     }
     let stderr = tokio::spawn(drain_bounded(child.stderr.take().expect("piped stderr")));
+    let mut stdin = child.stdin.take().expect("piped stdin");
     let mut stdout = BufReader::new(child.stdout.take().expect("piped stdout"));
     let mut line = Vec::new();
-    let mut completion_stop_requested = false;
+    let mut request_id = 1_u64;
+    let initialize = json!({
+        "method": "initialize",
+        "id": request_id,
+        "params": {
+            "clientInfo": {
+                "name": "inferay",
+                "title": "Inferay",
+                "version": env!("CARGO_PKG_VERSION")
+            },
+            "capabilities": null
+        }
+    });
+    if let Err(error) = write_rpc(&mut stdin, &initialize).await {
+        emit_error(context, error);
+        return finish_codex_child(
+            child,
+            pid,
+            handle,
+            tracker,
+            stderr,
+            (&mut *context, &mut *state, emissions),
+        )
+        .await;
+    }
+    if let Err(error) = wait_for_rpc_response(
+        &mut stdout,
+        &mut line,
+        request_id,
+        (&mut *context, &mut *state, emissions),
+    )
+    .await
+    {
+        emit_error(context, error);
+        return finish_codex_child(
+            child,
+            pid,
+            handle,
+            tracker,
+            stderr,
+            (&mut *context, &mut *state, emissions),
+        )
+        .await;
+    }
+    if let Err(error) = write_rpc(&mut stdin, &json!({"method":"initialized"})).await {
+        emit_error(context, error);
+        return finish_codex_child(
+            child,
+            pid,
+            handle,
+            tracker,
+            stderr,
+            (&mut *context, &mut *state, emissions),
+        )
+        .await;
+    }
+
+    request_id += 1;
+    let thread_params = codex_thread_params(run.invocation);
+    let (thread_method, mut thread_params) = if let Some(thread_id) = &run.invocation.session_id {
+        let mut params = thread_params;
+        params["threadId"] = json!(thread_id);
+        ("thread/resume", params)
+    } else {
+        ("thread/start", thread_params)
+    };
+    let mut thread_response = request_rpc(
+        &mut stdin,
+        &mut stdout,
+        &mut line,
+        request_id,
+        thread_method,
+        thread_params.take(),
+        (&mut *context, &mut *state, emissions),
+    )
+    .await;
+    if thread_response.is_err() && thread_method == "thread/resume" {
+        request_id += 1;
+        thread_response = request_rpc(
+            &mut stdin,
+            &mut stdout,
+            &mut line,
+            request_id,
+            "thread/start",
+            codex_thread_params(run.invocation),
+            (&mut *context, &mut *state, emissions),
+        )
+        .await;
+    }
+    let thread_response = match thread_response {
+        Ok(response) => response,
+        Err(error) => {
+            emit_error(context, error);
+            return finish_codex_child(
+                child,
+                pid,
+                handle,
+                tracker,
+                stderr,
+                (&mut *context, &mut *state, emissions),
+            )
+            .await;
+        }
+    };
+    let Some(thread_id) = thread_response
+        .pointer("/thread/id")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+    else {
+        emit_error(
+            context,
+            "Codex App Server did not return a thread id".into(),
+        );
+        return finish_codex_child(
+            child,
+            pid,
+            handle,
+            tracker,
+            stderr,
+            (&mut *context, &mut *state, emissions),
+        )
+        .await;
+    };
+    state.handle_event(
+        context,
+        &json!({"type":"thread.started", "thread_id":thread_id}),
+    );
+    flush_emissions(context, emissions);
+
+    request_id += 1;
+    let turn_response = match request_rpc(
+        &mut stdin,
+        &mut stdout,
+        &mut line,
+        request_id,
+        "turn/start",
+        codex_turn_params(&thread_id, run.prompt, run.invocation),
+        (&mut *context, &mut *state, emissions),
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            emit_error(context, error);
+            return finish_codex_child(
+                child,
+                pid,
+                handle,
+                tracker,
+                stderr,
+                (&mut *context, &mut *state, emissions),
+            )
+            .await;
+        }
+    };
+    let Some(turn_id) = turn_response
+        .pointer("/turn/id")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+    else {
+        emit_error(context, "Codex App Server did not return a turn id".into());
+        return finish_codex_child(
+            child,
+            pid,
+            handle,
+            tracker,
+            stderr,
+            (&mut *context, &mut *state, emissions),
+        )
+        .await;
+    };
+    let (control_tx, mut control_rx) = mpsc::unbounded_channel();
+    handle.set_codex_control(control_tx);
+    let mut pending_steers = HashMap::<u64, oneshot::Sender<Result<(), String>>>::new();
+    let mut pending_user_input: Option<(Value, Vec<String>)> = None;
+    let mut completed = false;
     loop {
-        line.clear();
-        match stdout.read_until(b'\n', &mut line).await {
-            Ok(0) => break,
-            Ok(_) => {
-                if let Some(event) = parse_ndjson(&line) {
+        tokio::select! {
+            control = control_rx.recv() => {
+                match control {
+                    Some(CodexControl::Steer { text, images, response }) => {
+                        state.prepare_for_steering(context);
+                        flush_emissions(context, emissions);
+                        if let Some((response_id, question_ids)) = pending_user_input.take() {
+                            let answers = question_ids.into_iter().map(|question_id| {
+                                (question_id, json!({"answers":[text]}))
+                            }).collect::<serde_json::Map<_, _>>();
+                            let result = write_rpc(&mut stdin, &json!({"id":response_id,"result":{"answers":answers}}))
+                                .await
+                                .map_err(|error| error.to_string());
+                            if result.is_ok() {
+                                state.handle_event(context, &json!({"type":"mcp_tool_call_end"}));
+                                flush_emissions(context, emissions);
+                            }
+                            let _ = response.send(result);
+                        } else {
+                            request_id += 1;
+                            let request = json!({
+                                "method":"turn/steer",
+                                "id":request_id,
+                                "params":{
+                                    "threadId":thread_id,
+                                    "expectedTurnId":turn_id,
+                                    "input":codex_user_input(&text, &images)
+                                }
+                            });
+                            match write_rpc(&mut stdin, &request).await {
+                                Ok(()) => { pending_steers.insert(request_id, response); }
+                                Err(error) => { let _ = response.send(Err(error)); }
+                            }
+                        }
+                    }
+                    Some(CodexControl::Interrupt) => {
+                        request_id += 1;
+                        let _ = write_rpc(&mut stdin, &json!({
+                            "method":"turn/interrupt",
+                            "id":request_id,
+                            "params":{"threadId":thread_id,"turnId":turn_id}
+                        })).await;
+                    }
+                    None => {}
+                }
+            }
+            read = read_rpc(&mut stdout, &mut line) => {
+                let Some(message) = read else { break };
+                if let Some(id) = message.get("id").and_then(Value::as_u64)
+                    && let Some(response) = pending_steers.remove(&id)
+                {
+                    let result = rpc_result(message).map(|_| ());
+                    let _ = response.send(result);
+                    continue;
+                }
+                if message.get("method").and_then(Value::as_str) == Some("item/tool/requestUserInput")
+                    && let Some(id) = message.get("id").cloned()
+                {
+                    let questions = message.pointer("/params/questions").and_then(Value::as_array).cloned().unwrap_or_default();
+                    let question_ids = questions.iter().filter_map(|question| question.get("id").and_then(Value::as_str).map(str::to_owned)).collect();
+                    pending_user_input = Some((id, question_ids));
+                    state.handle_event(context, &json!({
+                        "type":"mcp_tool_call_begin",
+                        "invocation":{"tool":"AskUserQuestion","arguments":{"questions":questions}}
+                    }));
+                    flush_emissions(context, emissions);
+                    continue;
+                }
+                let is_completed = message.get("method").and_then(Value::as_str) == Some("turn/completed");
+                if let Some(event) = normalize_app_server_notification(&message) {
                     state.handle_event(context, &event);
                     flush_emissions(context, emissions);
                 }
-                if state.completed_from_event && !completion_stop_requested {
-                    completion_stop_requested = true;
-                    if let Some(pid) = pid {
-                        tracker.kill_pid_tree(pid);
-                    }
+                if is_completed {
+                    completed = true;
+                    break;
                 }
             }
-            Err(_) => break,
         }
     }
+    handle.clear_codex_control();
+    for (_, response) in pending_steers {
+        let _ = response.send(Err("Codex turn ended before steering completed".into()));
+    }
+    state.completed_from_event = completed;
+    finish_codex_child(
+        child,
+        pid,
+        handle,
+        tracker,
+        stderr,
+        (context, state, emissions),
+    )
+    .await
+}
+
+fn codex_thread_params(invocation: &CodexInvocationContext) -> Value {
+    let roots = workspace_roots(&invocation.cwd, &invocation.reference_paths);
+    json!({
+        "cwd": invocation.cwd,
+        "runtimeWorkspaceRoots": roots,
+        "approvalPolicy": "never",
+        "sandbox": "danger-full-access",
+        "model": invocation.model,
+        "developerInstructions": invocation.developer_instructions,
+        "ephemeral": false
+    })
+}
+
+fn codex_turn_params(thread_id: &str, prompt: &str, invocation: &CodexInvocationContext) -> Value {
+    let roots = workspace_roots(&invocation.cwd, &invocation.reference_paths);
+    json!({
+        "threadId": thread_id,
+        "input": codex_user_input(prompt, &invocation.images),
+        "cwd": invocation.cwd,
+        "runtimeWorkspaceRoots": roots,
+        "approvalPolicy": "never",
+        "sandboxPolicy": {"type":"dangerFullAccess"},
+        "model": invocation.model,
+        "effort": invocation.reasoning_level.as_deref().map(normalize_reasoning_effort)
+    })
+}
+
+fn normalize_reasoning_effort(value: &str) -> &str {
+    if value == "extra_high" {
+        "xhigh"
+    } else {
+        value
+    }
+}
+
+fn codex_user_input(text: &str, images: &[PathBuf]) -> Vec<Value> {
+    let mut input = vec![json!({"type":"text", "text":text, "text_elements":[]})];
+    input.extend(
+        images
+            .iter()
+            .map(|path| json!({"type":"localImage", "path":path})),
+    );
+    input
+}
+
+async fn request_rpc(
+    stdin: &mut tokio::process::ChildStdin,
+    stdout: &mut BufReader<tokio::process::ChildStdout>,
+    line: &mut Vec<u8>,
+    id: u64,
+    method: &str,
+    params: Value,
+    protocol: (
+        &mut AgentProtocolContext,
+        &mut CodexProtocolState,
+        Option<&mpsc::UnboundedSender<ProtocolEmission>>,
+    ),
+) -> Result<Value, String> {
+    write_rpc(stdin, &json!({"method":method,"id":id,"params":params})).await?;
+    wait_for_rpc_response(stdout, line, id, protocol).await
+}
+
+async fn wait_for_rpc_response(
+    stdout: &mut BufReader<tokio::process::ChildStdout>,
+    line: &mut Vec<u8>,
+    id: u64,
+    protocol: (
+        &mut AgentProtocolContext,
+        &mut CodexProtocolState,
+        Option<&mpsc::UnboundedSender<ProtocolEmission>>,
+    ),
+) -> Result<Value, String> {
+    let (context, state, emissions) = protocol;
+    loop {
+        let message =
+            tokio::time::timeout(std::time::Duration::from_secs(15), read_rpc(stdout, line))
+                .await
+                .map_err(|_| "Codex App Server response timed out".to_string())?
+                .ok_or_else(|| "Codex App Server closed before replying".to_string())?;
+        if message.get("id").and_then(Value::as_u64) == Some(id) {
+            return rpc_result(message);
+        }
+        if let Some(event) = normalize_app_server_notification(&message) {
+            state.handle_event(context, &event);
+            flush_emissions(context, emissions);
+        }
+    }
+}
+
+fn rpc_result(message: Value) -> Result<Value, String> {
+    if let Some(result) = message.get("result") {
+        return Ok(result.clone());
+    }
+    let error = message
+        .pointer("/error/message")
+        .and_then(Value::as_str)
+        .unwrap_or("Codex App Server request failed");
+    Err(error.to_string())
+}
+
+async fn write_rpc(stdin: &mut tokio::process::ChildStdin, message: &Value) -> Result<(), String> {
+    let mut encoded = serde_json::to_vec(message).map_err(|error| error.to_string())?;
+    encoded.push(b'\n');
+    stdin
+        .write_all(&encoded)
+        .await
+        .map_err(|error| error.to_string())?;
+    stdin.flush().await.map_err(|error| error.to_string())
+}
+
+async fn read_rpc(
+    stdout: &mut BufReader<tokio::process::ChildStdout>,
+    line: &mut Vec<u8>,
+) -> Option<Value> {
+    loop {
+        line.clear();
+        match stdout.read_until(b'\n', line).await {
+            Ok(0) | Err(_) => return None,
+            Ok(_) => {
+                if let Some(message) = parse_ndjson(line) {
+                    return Some(message);
+                }
+            }
+        }
+    }
+}
+
+fn normalize_app_server_notification(message: &Value) -> Option<Value> {
+    let method = message.get("method")?.as_str()?;
+    let params = message.get("params").cloned().unwrap_or(Value::Null);
+    match method {
+        "turn/started" => Some(json!({"type":"turn.started"})),
+        "turn/completed" => {
+            let status = params
+                .pointer("/turn/status")
+                .and_then(Value::as_str)
+                .unwrap_or("completed");
+            let error = params
+                .pointer("/turn/error/message")
+                .and_then(Value::as_str);
+            if status == "failed"
+                && let Some(error) = error
+            {
+                Some(json!({"type":"error","message":error}))
+            } else {
+                Some(json!({"type":"task_complete"}))
+            }
+        }
+        "item/started" | "item/completed" => {
+            let mut item = params.get("item")?.clone();
+            normalize_app_server_item(&mut item);
+            let event_type = if method == "item/started" {
+                "item.started"
+            } else {
+                "item.completed"
+            };
+            Some(json!({"type":event_type,"item":item}))
+        }
+        "item/agentMessage/delta" => Some(json!({
+            "type":"agent_message_delta",
+            "delta":params.get("delta").cloned().unwrap_or(Value::Null)
+        })),
+        "item/commandExecution/outputDelta" => Some(json!({
+            "type":"command_output_delta",
+            "delta":params.get("delta").cloned().unwrap_or(Value::Null)
+        })),
+        "error" => Some(json!({
+            "type":"error",
+            "message":params.pointer("/error/message").or_else(|| params.get("message")).cloned().unwrap_or(Value::Null)
+        })),
+        _ => None,
+    }
+}
+
+fn normalize_app_server_item(item: &mut Value) {
+    let Some(record) = item.as_object_mut() else {
+        return;
+    };
+    let Some(item_type) = record.get("type").and_then(Value::as_str) else {
+        return;
+    };
+    let normalized = match item_type {
+        "agentMessage" => "agent_message",
+        "commandExecution" => "command_execution",
+        "fileChange" => "file_change",
+        other => other,
+    };
+    record.insert("type".into(), json!(normalized));
+    if let Some(output) = record.remove("aggregatedOutput") {
+        record.insert("aggregated_output".into(), output);
+    }
+}
+
+async fn finish_codex_child(
+    mut child: tokio::process::Child,
+    pid: Option<u32>,
+    handle: &AgentProcessHandle,
+    tracker: &dyn PidTracker,
+    stderr: tokio::task::JoinHandle<String>,
+    protocol: (
+        &mut AgentProtocolContext,
+        &mut CodexProtocolState,
+        Option<&mpsc::UnboundedSender<ProtocolEmission>>,
+    ),
+) -> AgentRunResult {
+    let (context, state, emissions) = protocol;
+    handle.clear_codex_control();
+    if let Some(pid) = pid {
+        tracker.kill_pid_tree(pid);
+    }
+    let _ = child.start_kill();
     let exit = child.wait().await;
     if let Some(pid) = pid {
         tracker.untrack_pid(pid);
@@ -209,39 +724,7 @@ pub async fn run_codex(
     let stderr = stderr.await.unwrap_or_default().trim().to_string();
     state.clear_live_diff_state();
     state.finalize_open_block(context);
-
-    let assistant_text = tokio::fs::read_to_string(&output_path)
-        .await
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-    let _ = tokio::fs::remove_file(&output_path).await;
-    let last_role = match state.last_chat_block_role {
-        Some(ChatBlockRole::Assistant) => Some("assistant"),
-        Some(ChatBlockRole::Tool) => Some("tool"),
-        None => None,
-    };
-    let emit_fallback = should_emit_codex_output_fallback(
-        &assistant_text,
-        &state.last_assistant_message,
-        state.has_final_assistant_message,
-        last_role,
-    );
-    if !assistant_text.is_empty() {
-        state.last_assistant_message = truncate_agent_result(&assistant_text);
-    }
-    if emit_fallback {
-        context.emissions.push(ProtocolEmission::Chat(json!({
-            "type": "result", "result": assistant_text
-        })));
-        context
-            .emissions
-            .push(ProtocolEmission::Agent(AgentEvent::Result {
-                text: assistant_text,
-            }));
-        state.has_final_assistant_message = true;
-        state.last_chat_block_role = Some(ChatBlockRole::Assistant);
-    } else if !exit.as_ref().is_ok_and(std::process::ExitStatus::success)
+    if !exit.as_ref().is_ok_and(std::process::ExitStatus::success)
         && !stderr.is_empty()
         && !state.completed_from_event
         && !handle.is_cancelled()
@@ -257,6 +740,23 @@ pub async fn run_codex(
     AgentRunResult {
         last_assistant_message: state.last_assistant_message.clone(),
     }
+}
+
+fn spawn_codex_app_server(
+    binary: &Path,
+    cwd: &Path,
+    env: &HashMap<OsString, OsString>,
+) -> std::io::Result<tokio::process::Child> {
+    Command::new(binary)
+        .args(["app-server", "--listen", "stdio://"])
+        .current_dir(cwd)
+        .env_clear()
+        .envs(env)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
 }
 
 fn spawn_direct(
@@ -386,26 +886,6 @@ fn finish_reason(handle: &AgentProcessHandle, exit_code: Option<i32>, completed:
     }
 }
 
-fn codex_output_path(pane_id: &str) -> PathBuf {
-    let stem = pane_id
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || "._-".contains(character) {
-                character
-            } else {
-                '_'
-            }
-        })
-        .take(80)
-        .collect::<String>();
-    let stem = if stem.is_empty() { "pane" } else { &stem };
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    std::env::temp_dir().join(format!("inferay-codex-{stem}-{millis}.txt"))
-}
-
 #[cfg(unix)]
 fn signal_interrupt(pid: u32) {
     let _ = std::process::Command::new("kill")
@@ -453,11 +933,14 @@ mod tests {
     }
 
     #[test]
-    fn codex_output_names_are_sanitized_like_the_adapter() {
-        let path = codex_output_path("../../pane id");
-        let name = path.file_name().unwrap().to_string_lossy();
-        assert!(name.starts_with("inferay-codex-.._.._pane_id-"));
-        assert!(name.ends_with(".txt"));
+    fn codex_app_server_input_preserves_text_and_local_images() {
+        assert_eq!(
+            codex_user_input("steer now", &[PathBuf::from("/tmp/image.png")]),
+            vec![
+                json!({"type":"text","text":"steer now","text_elements":[]}),
+                json!({"type":"localImage","path":"/tmp/image.png"})
+            ]
+        );
     }
 
     #[test]
@@ -557,7 +1040,7 @@ mod tests {
             Some(&sender),
         );
         tokio::pin!(run);
-        let delta = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        let delta = tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
                 tokio::select! {
                     result = &mut run => panic!("child exited before first delta: {result:?}"),
@@ -577,17 +1060,22 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn codex_runner_tracks_pid_reads_output_file_and_removes_it() {
+    async fn codex_app_server_tracks_pid_and_streams_the_final_message() {
         let (directory, binary) = executable_script(
             r#"
-output=''
-previous=''
-for argument in "$@"; do
-  if [ "$previous" = '--output-last-message' ]; then output="$argument"; fi
-  previous="$argument"
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*) printf '%s\n' '{"id":1,"result":{"userAgent":"test","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}' ;;
+    *'"method":"thread/start"'*) printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}' ;;
+    *'"method":"turn/start"'*)
+      printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+      printf '%s\n' '{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1"}}}'
+      printf '%s\n' '{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"message-1","delta":"file summary"}}'
+      printf '%s\n' '{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"agentMessage","id":"message-1","text":"file summary"}}}'
+      printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed","error":null}}}'
+      ;;
+  esac
 done
-printf 'file summary' > "$output"
-printf '%s\n' '{"type":"turn.started"}'
 "#,
         );
         let environment = test_env();
@@ -597,6 +1085,7 @@ printf '%s\n' '{"type":"turn.started"}'
             images: vec![],
             model: None,
             reasoning_level: None,
+            developer_instructions: None,
             session_id: None,
         };
         let tracker = RecordingTracker::default();
@@ -608,7 +1097,6 @@ printf '%s\n' '{"type":"turn.started"}'
                 binary: &binary,
                 prompt: "hello",
                 invocation: &invocation,
-                pane_id: "pane",
                 env: &environment,
             },
             &handle,
@@ -620,11 +1108,167 @@ printf '%s\n' '{"type":"turn.started"}'
         .await;
         assert_eq!(result.last_assistant_message, "file summary");
         let tracking = tracker.tracked.lock().unwrap();
-        assert_eq!(tracking.len(), 2);
+        assert_eq!(tracking.len(), 3);
         assert_eq!(tracking[0].0, 't');
-        assert_eq!(tracking[1], ('u', tracking[0].1));
+        assert_eq!(tracking[1], ('k', tracking[0].1));
+        assert_eq!(tracking[2], ('u', tracking[0].1));
         assert!(
             matches!(context.emissions.last(), Some(ProtocolEmission::Agent(AgentEvent::Finish { reason: Some(reason) })) if reason == "completed")
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codex_runner_streams_inline_edit_before_child_exit() {
+        let (directory, binary) = executable_script(
+            r#"
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*) printf '%s\n' '{"id":1,"result":{"userAgent":"test","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}' ;;
+    *'"method":"thread/start"'*) printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}' ;;
+    *'"method":"turn/start"'*)
+      printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+      printf '%s\n' '{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"fileChange","id":"change-1","changes":[{"path":"src/main.rs","kind":"update","diff":""}],"status":"inProgress"}}}'
+      printf 'fn answer() -> u8 { 42 }\n' > src/main.rs
+      printf '%s\n' '{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"fileChange","id":"change-1","changes":[{"path":"src/main.rs","kind":"update","diff":""}],"status":"completed"}}}'
+      sleep 2
+      printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed","error":null}}}'
+      ;;
+  esac
+done
+"#,
+        );
+        let source = directory.path().join("src/main.rs");
+        std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+        std::fs::write(&source, "fn answer() -> u8 { 41 }\n").unwrap();
+        let environment = test_env();
+        let invocation = CodexInvocationContext {
+            cwd: directory.path().into(),
+            reference_paths: vec![],
+            images: vec![],
+            model: None,
+            reasoning_level: None,
+            developer_instructions: None,
+            session_id: None,
+        };
+        let tracker = RecordingTracker::default();
+        let handle = AgentProcessHandle::default();
+        let mut context = AgentProtocolContext::new(directory.path());
+        let mut state = CodexProtocolState::default();
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let run = run_codex(
+            CodexRun {
+                binary: &binary,
+                prompt: "edit the answer",
+                invocation: &invocation,
+                env: &environment,
+            },
+            &handle,
+            &tracker,
+            &mut context,
+            &mut state,
+            Some(&sender),
+        );
+        tokio::pin!(run);
+        let changed_paths = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                tokio::select! {
+                    result = &mut run => panic!("child exited before file-change emission: {result:?}"),
+                    emission = receiver.recv() => {
+                        if let Some(ProtocolEmission::FileChange(paths)) = emission
+                        {
+                            break paths;
+                        }
+                    }
+                }
+            }
+        })
+        .await
+        .expect("file change should stream while the child is still running");
+        assert_eq!(changed_paths, vec![source]);
+        run.await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codex_app_server_steers_the_active_turn_instead_of_starting_another() {
+        let (directory, binary) = executable_script(
+            r#"
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*) printf '%s\n' '{"id":1,"result":{"userAgent":"test","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}' ;;
+    *'"method":"thread/start"'*) printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}' ;;
+    *'"method":"turn/start"'*)
+      printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+      printf '%s\n' '{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1"}}}'
+      ;;
+    *'"method":"turn/steer"'*)
+      printf '%s' "$line" > steer-request.json
+      printf '%s\n' '{"id":4,"result":{"turnId":"turn-1"}}'
+      printf '%s\n' '{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"agentMessage","id":"message-1","text":"followed steering"}}}'
+      printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed","error":null}}}'
+      ;;
+  esac
+done
+"#,
+        );
+        let environment = test_env();
+        let invocation = CodexInvocationContext {
+            cwd: directory.path().into(),
+            reference_paths: vec![],
+            images: vec![],
+            model: Some("gpt-5.6-sol".into()),
+            reasoning_level: Some("high".into()),
+            developer_instructions: Some("own the outcome".into()),
+            session_id: None,
+        };
+        let tracker = RecordingTracker::default();
+        let handle = AgentProcessHandle::default();
+        let mut context = AgentProtocolContext::new(directory.path());
+        let mut state = CodexProtocolState::default();
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let run = run_codex(
+            CodexRun {
+                binary: &binary,
+                prompt: "initial request",
+                invocation: &invocation,
+                env: &environment,
+            },
+            &handle,
+            &tracker,
+            &mut context,
+            &mut state,
+            Some(&sender),
+        );
+        tokio::pin!(run);
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                tokio::select! {
+                    result = &mut run => panic!("turn ended before it became steerable: {result:?}"),
+                    emission = receiver.recv() => {
+                        if matches!(emission, Some(ProtocolEmission::Status { ref status, .. }) if status == "thinking") {
+                            break;
+                        }
+                    }
+                }
+            }
+        })
+        .await
+        .expect("turn should start");
+        let steer = handle.steer_codex("change direction".into(), vec![]);
+        tokio::pin!(steer);
+        tokio::select! {
+            result = &mut run => panic!("turn ended before steering was acknowledged: {result:?}"),
+            result = &mut steer => result.expect("steering should be accepted"),
+        }
+        let result = run.await;
+        assert_eq!(result.last_assistant_message, "followed steering");
+        let request: Value = serde_json::from_slice(
+            &std::fs::read(directory.path().join("steer-request.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(request["method"], "turn/steer");
+        assert_eq!(request["params"]["expectedTurnId"], "turn-1");
+        assert_eq!(request["params"]["input"][0]["text"], "change direction");
     }
 }

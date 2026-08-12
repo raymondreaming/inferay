@@ -44,7 +44,7 @@ import {
 function message(
 	id: string,
 	content: string,
-	role: ChatMessage["role"] = "user"
+	role: ChatMessage["role"] = "user",
 ) {
 	return { id, role, content };
 }
@@ -57,18 +57,18 @@ describe("chat data behavior", () => {
 	 */
 	test("keeps long short-message transcripts before the durable row cap", () => {
 		const messages = Array.from({ length: 4_500 }, (_, index) =>
-			message(`short-${index}`, `message ${index}`)
+			message(`short-${index}`, `message ${index}`),
 		);
 
 		expect(trimMessages(messages)).toBe(messages);
 		expect(
-			appendTrimmedMessage(message("short-4500", "next"), messages)
+			appendTrimmedMessage(message("short-4500", "next"), messages),
 		).toHaveLength(4_501);
 	});
 
 	test("trims chat history by message count and total character budget", () => {
 		const shortMessages = Array.from({ length: 5_500 }, (_, index) =>
-			message(`m${index}`, "short")
+			message(`m${index}`, "short"),
 		);
 		const countTrimmed = trimMessages(shortMessages);
 
@@ -77,7 +77,7 @@ describe("chat data behavior", () => {
 		expect(countTrimmed.at(-1)?.id).toBe("m5499");
 
 		const messages = Array.from({ length: 600 }, (_, index) =>
-			message(`m${index}`, `${index}:`.padEnd(2_000, "x"))
+			message(`m${index}`, `${index}:`.padEnd(2_000, "x")),
 		);
 
 		const trimmed = trimMessages(messages);
@@ -86,7 +86,7 @@ describe("chat data behavior", () => {
 		expect(trimmed[0]?.id).toBe("m100");
 		expect(trimmed.at(-1)?.id).toBe("m599");
 		expect(
-			appendTrimmedMessage(message("m600", "next"), trimmed).at(-1)?.id
+			appendTrimmedMessage(message("m600", "next"), trimmed).at(-1)?.id,
 		).toBe("m600");
 	});
 
@@ -106,7 +106,7 @@ describe("chat data behavior", () => {
 		expect(streamed.length).toBe(CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
 		expect(streamed).toContain("content truncated");
 		expect(truncateChatContent("small", CHAT_SINGLE_MESSAGE_CHAR_LIMIT)).toBe(
-			"small"
+			"small",
 		);
 	});
 
@@ -117,12 +117,12 @@ describe("chat data behavior", () => {
 	 */
 	test("windows long chat rendering by recent rows and character budget", () => {
 		const shortMessages = Array.from({ length: 10 }, (_, index) =>
-			message(`short-${index}`, "short")
+			message(`short-${index}`, "short"),
 		);
 		expect(windowChatMessagesForRender(shortMessages)).toBe(shortMessages);
 
 		const largeContentMessages = Array.from({ length: 1_000 }, (_, index) =>
-			message(`large-${index}`, `${index}:`.padEnd(2_000, "x"))
+			message(`large-${index}`, `${index}:`.padEnd(2_000, "x")),
 		);
 		const largeWindow = windowChatMessagesForRender(largeContentMessages);
 		expect(largeWindow).toHaveLength(250);
@@ -130,7 +130,7 @@ describe("chat data behavior", () => {
 		expect(largeWindow.at(-1)?.id).toBe("large-999");
 
 		const tinyContentMessages = Array.from({ length: 1_000 }, (_, index) =>
-			message(`tiny-${index}`, "x")
+			message(`tiny-${index}`, "x"),
 		);
 		const tinyWindow = windowChatMessagesForRender(tinyContentMessages);
 		expect(tinyWindow).toHaveLength(1_000);
@@ -138,7 +138,7 @@ describe("chat data behavior", () => {
 		expect(tinyWindow.at(-1)?.id).toBe("tiny-999");
 
 		const manyTinyMessages = Array.from({ length: 3_000 }, (_, index) =>
-			message(`many-tiny-${index}`, "x")
+			message(`many-tiny-${index}`, "x"),
 		);
 		const manyTinyWindow = windowChatMessagesForRender(manyTinyMessages);
 		expect(manyTinyWindow).toHaveLength(2_000);
@@ -170,7 +170,7 @@ describe("chat data behavior", () => {
 			message("same", "latest"),
 		]);
 		expect(patchMessageById(messages, "missing", { content: "ignored" })).toBe(
-			messages
+			messages,
 		);
 	});
 
@@ -215,7 +215,7 @@ describe("chat data behavior", () => {
 		];
 
 		expect(
-			finishStreamingMessages(messages, { assistantId: "a1", toolId: "t1" })
+			finishStreamingMessages(messages, { assistantId: "a1", toolId: "t1" }),
 		).toEqual([
 			{ id: "u1", role: "user", content: "prompt" },
 			{ id: "a1", role: "assistant", content: "partial", isStreaming: false },
@@ -231,7 +231,7 @@ describe("chat data behavior", () => {
 			finishStreamingMessages(messages, {
 				assistantId: "missing",
 				toolId: null,
-			})
+			}),
 		).toBe(messages);
 	});
 
@@ -258,7 +258,7 @@ describe("chat data behavior", () => {
 			{ id: "t1", role: "tool", toolName: "patch", content: "{}" },
 		];
 		expect(applyAssistantResultMessage(settledBeforeTool, null, "final")).toBe(
-			settledBeforeTool
+			settledBeforeTool,
 		);
 
 		expect(
@@ -269,8 +269,8 @@ describe("chat data behavior", () => {
 					{ id: "t1", role: "tool", toolName: "patch", content: "{}" },
 				],
 				null,
-				"partial response"
-			)
+				"partial response",
+			),
 		).toEqual([
 			{ id: "u1", role: "user", content: "prompt" },
 			{
@@ -285,7 +285,7 @@ describe("chat data behavior", () => {
 		const appended = applyAssistantResultMessage(
 			[{ id: "u1", role: "user", content: "prompt" }],
 			null,
-			"final"
+			"final",
 		);
 		expect(appended.at(-1)).toMatchObject({
 			role: "assistant",
@@ -391,7 +391,7 @@ describe("chat data behavior", () => {
 		};
 		const first = appendLiveToolActivity(
 			{ toolName: "Read", summary: "src/app.ts" },
-			initial
+			initial,
 		);
 		expect(first.liveActivities).toEqual([
 			{
@@ -402,21 +402,25 @@ describe("chat data behavior", () => {
 			},
 		]);
 		expect(
-			appendLiveToolActivity({ toolName: "Read", summary: "src/app.ts" }, first)
+			appendLiveToolActivity(
+				{ toolName: "Read", summary: "src/app.ts" },
+				first,
+			),
 		).toBe(first);
 
 		let cappedState: {
 			expandedTools: Set<string>;
 			liveActivities: ToolActivity[];
 		} = { expandedTools: new Set(), liveActivities: [] };
-		for (let index = 0; index < 13; index++) {
+		for (let index = 0; index < 501; index++) {
 			cappedState = appendLiveToolActivity(
 				{ toolName: "Tool", summary: `step ${index}` },
-				cappedState
+				cappedState,
 			);
 		}
-		expect(cappedState.liveActivities).toHaveLength(12);
+		expect(cappedState.liveActivities).toHaveLength(500);
 		expect(cappedState.liveActivities[0]?.summary).toBe("step 1");
+		expect(cappedState.liveActivities.at(-1)?.id).toBe("Tool-500");
 
 		const completed = clearCompletedChatUiState(new Set(["kept"]), first);
 		expect([...completed.expandedTools]).toEqual(["kept"]);
@@ -513,7 +517,7 @@ describe("chat data behavior", () => {
 					content: "partial answer",
 					isStreaming: true,
 				},
-			])
+			]),
 		).toEqual([
 			{
 				id: "server-1",
@@ -536,13 +540,13 @@ describe("chat data behavior", () => {
 		];
 
 		expect(getCommandDisplayText({ name: "review" }, "src/app.ts")).toBe(
-			"/review src/app.ts"
+			"/review src/app.ts",
 		);
 		expect(getCommandPrompt(commands[0]!, "src/app.ts")).toBe(
-			"Review: src/app.ts"
+			"Review: src/app.ts",
 		);
 		expect(
-			expandInlineCommandPrompts("Please /review and then /fix", commands)
+			expandInlineCommandPrompts("Please /review and then /fix", commands),
 		).toEqual({
 			expandedText: "Please Review: and then Fix the issue",
 			usedCommandIds: ["review-id", "fix-id"],

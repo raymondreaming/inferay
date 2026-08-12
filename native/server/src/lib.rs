@@ -161,6 +161,7 @@ impl chat_runtime::AgentExecutor for DirectAgentExecutor {
                     images: request.images,
                     model: request.model,
                     reasoning_level: request.reasoning_level,
+                    developer_instructions: request.developer_instructions,
                     session_id: request.session_id,
                 };
                 let mut state = CodexProtocolState::default();
@@ -169,7 +170,6 @@ impl chat_runtime::AgentExecutor for DirectAgentExecutor {
                         binary: &binary,
                         prompt: &request.prompt,
                         invocation: &invocation,
-                        pane_id: &request.pane_id,
                         env: &environment,
                     },
                     &handle,
@@ -203,7 +203,9 @@ impl chat_runtime::AgentExecutor for DirectAgentExecutor {
 
     fn stop(&self, agent_kind: &str, handle: &agent_runner::AgentProcessHandle) {
         if agent_kind == "codex" {
-            handle.kill(&self.pid_tracker);
+            if !handle.stop_codex() {
+                handle.kill(&self.pid_tracker);
+            }
         } else {
             handle.stop_claude();
         }

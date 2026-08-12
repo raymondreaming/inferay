@@ -97,6 +97,7 @@ pub struct CodexInvocationContext {
     pub images: Vec<PathBuf>,
     pub model: Option<String>,
     pub reasoning_level: Option<String>,
+    pub developer_instructions: Option<String>,
     pub session_id: Option<String>,
 }
 
@@ -104,6 +105,7 @@ pub struct CodexInvocationContext {
 pub enum ProtocolEmission {
     Chat(Value),
     Agent(AgentEvent),
+    FileChange(Vec<PathBuf>),
     Status {
         status: String,
         is_loading: bool,
@@ -268,6 +270,9 @@ impl CodexProtocolState {
             ("item.updated", "command_execution") => {
                 self.emit_command_output_delta(context, item);
             }
+            ("command_output_delta", _) => {
+                self.tool_delta(context, string_field(data, "delta"));
+            }
             ("item.completed", "command_execution") => {
                 self.emit_command_output_delta(context, item);
                 if let Some(item) = item_record {
@@ -280,6 +285,8 @@ impl CodexProtocolState {
             }
             ("item.started", "file_change") => {
                 let paths = file_change_paths(context, item);
+                self.active_patch_paths = paths.clone();
+                self.snapshot_paths(&paths);
                 let changes = item_record
                     .and_then(|item| nullish_value(item.get("changes"), None))
                     .cloned()
@@ -288,7 +295,20 @@ impl CodexProtocolState {
                 self.emit_tool_status_and_activity(context, "patch", &payload);
                 self.start_tool(context, "patch", payload);
             }
-            ("item.completed", "file_change") => self.close_tool(context),
+            ("item.completed", "file_change") => {
+                self.close_tool(context);
+                let paths = file_change_paths(context, item);
+                let paths = if paths.is_empty() {
+                    self.active_patch_paths.clone()
+                } else {
+                    paths
+                };
+                self.emit_diffs_for_paths(context, &paths);
+                if !paths.is_empty() {
+                    context.emissions.push(ProtocolEmission::FileChange(paths));
+                }
+                self.active_patch_paths.clear();
+            }
             ("item.completed", "agent_message") => {
                 let text = item_record
                     .map(|item| string_field(item, "text"))
@@ -446,6 +466,13 @@ impl CodexProtocolState {
         self.watched_paths.clear();
         self.file_snapshots.clear();
         self.active_patch_paths.clear();
+    }
+
+    /// Ends an in-progress assistant text block before a client appends new
+    /// user input to the active turn. Subsequent model text starts a fresh
+    /// assistant block after the steering message.
+    pub fn prepare_for_steering(&mut self, context: &mut AgentProtocolContext) {
+        self.close_assistant(context);
     }
 
     pub fn finalize_open_block(&mut self, context: &mut AgentProtocolContext) {
@@ -804,6 +831,9 @@ fn file_change_paths(context: &AgentProtocolContext, value: &Value) -> Vec<PathB
     };
     let mut candidates = Vec::new();
     for key in ["changes", "files"] {
+        if let Some(values) = record.get(key).and_then(Value::as_object) {
+            candidates.extend(values.keys().cloned());
+        }
         if let Some(values) = array_field(record, key) {
             for value in values {
                 if let Some(path) = value.as_str() {
@@ -1006,54 +1036,6 @@ pub fn build_claude_invocation_args(
     if let Some(session_id) = session_id {
         arguments.extend(["--resume".into(), session_id.into()]);
     }
-    arguments
-}
-
-pub fn build_codex_invocation_args(
-    binary: &Path,
-    prompt: &str,
-    context: &CodexInvocationContext,
-    output_path: &Path,
-) -> Vec<String> {
-    let mut base_arguments = vec![
-        "--json".into(),
-        "--skip-git-repo-check".into(),
-        "--dangerously-bypass-approvals-and-sandbox".into(),
-        "--output-last-message".into(),
-        output_path.to_string_lossy().into_owned(),
-    ];
-    if let Some(model) = &context.model {
-        base_arguments.extend(["--model".into(), model.clone()]);
-    }
-    if let Some(reasoning_level) = &context.reasoning_level {
-        let reasoning_effort = if reasoning_level == "extra_high" {
-            "xhigh"
-        } else {
-            reasoning_level
-        };
-        base_arguments.extend([
-            "-c".into(),
-            format!("model_reasoning_effort=\"{reasoning_effort}\""),
-        ]);
-    }
-    for image in &context.images {
-        base_arguments.extend(["--image".into(), image.to_string_lossy().into_owned()]);
-    }
-    let mut arguments = vec![binary.to_string_lossy().into_owned()];
-    let roots = workspace_roots(&context.cwd, &context.reference_paths);
-    arguments.extend(["--cd".into(), context.cwd.to_string_lossy().into_owned()]);
-    for root in roots.iter().skip(1) {
-        arguments.extend(["--add-dir".into(), root.to_string_lossy().into_owned()]);
-    }
-    arguments.push("exec".into());
-    if let Some(session_id) = &context.session_id {
-        arguments.push("resume".into());
-        arguments.extend(base_arguments);
-        arguments.push(session_id.clone());
-    } else {
-        arguments.extend(base_arguments);
-    }
-    arguments.extend(["--".into(), prompt.into()]);
     arguments
 }
 
@@ -1272,46 +1254,6 @@ mod tests {
     }
 
     #[test]
-    fn preserves_codex_invocation_order_reasoning_images_and_resume() {
-        let root = TempDir::new().unwrap();
-        let project = root.path().join("project");
-        let reference = root.path().join("reference");
-        let image = root.path().join("shot.png");
-        std::fs::create_dir(&project).unwrap();
-        std::fs::create_dir(&reference).unwrap();
-        std::fs::write(&image, "image").unwrap();
-        let context = CodexInvocationContext {
-            cwd: project.clone(),
-            reference_paths: vec![reference.clone()],
-            images: vec![image.clone()],
-            model: Some("gpt-5.6-sol".into()),
-            reasoning_level: Some("extra_high".into()),
-            session_id: Some("session-1".into()),
-        };
-        let arguments = build_codex_invocation_args(
-            Path::new("/bin/codex"),
-            "continue",
-            &context,
-            Path::new("/tmp/final.txt"),
-        );
-        assert_eq!(arguments[0], "/bin/codex");
-        assert_eq!(
-            arguments[1..5],
-            [
-                "--cd",
-                project.to_str().unwrap(),
-                "--add-dir",
-                reference.to_str().unwrap()
-            ]
-        );
-        assert!(arguments.contains(&"model_reasoning_effort=\"xhigh\"".into()));
-        assert!(arguments.contains(&"--image".into()));
-        assert!(arguments.contains(&image.to_string_lossy().into_owned()));
-        assert_eq!(&arguments[5..7], ["exec", "resume"]);
-        assert_eq!(&arguments[arguments.len() - 2..], ["--", "continue"]);
-    }
-
-    #[test]
     fn matches_codex_completion_and_output_fallback_rules() {
         assert_eq!(
             resolve_completed_codex_assistant_message("done", "done"),
@@ -1340,17 +1282,37 @@ mod tests {
     }
 
     #[test]
-    fn codex_file_change_emits_patch_without_a_synthetic_edit() {
+    fn codex_file_change_streams_patch_then_inline_edit() {
+        let root = TempDir::new().unwrap();
+        let source = root.path().join("src/main.rs");
+        std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+        std::fs::write(&source, "fn answer() -> u8 { 41 }\n").unwrap();
         let mut state = CodexProtocolState::default();
-        let mut context = AgentProtocolContext::new("/workspace");
+        let mut context = AgentProtocolContext::new(root.path());
+        let started = json!({
+            "type": "item.started",
+            "item": {
+                "type": "file_change",
+                "id": "change-1",
+                "changes": [{ "path": "src/main.rs", "kind": "update" }]
+            }
+        });
+        state.handle_event(&mut context, &started);
+
+        std::fs::write(&source, "fn answer() -> u8 { 42 }\n").unwrap();
         state.handle_event(
             &mut context,
             &json!({
-                "type": "item.started",
+                "type": "item.completed",
                 "item": {
                     "type": "file_change",
                     "id": "change-1",
-                    "changes": [{ "path": "src/main.rs", "kind": "update" }]
+                    "changes": {
+                        "src/main.rs": {
+                            "type": "update",
+                            "unified_diff": "@@ -1 +1 @@\n-fn answer() -> u8 { 41 }\n+fn answer() -> u8 { 42 }\n"
+                        }
+                    }
                 }
             }),
         );
@@ -1360,10 +1322,15 @@ mod tests {
             ProtocolEmission::Agent(AgentEvent::ToolCallStart { tool_name, .. })
                 if tool_name == "patch"
         )));
-        assert!(!context.emissions.iter().any(|emission| matches!(
+        assert!(context.emissions.iter().any(|emission| matches!(
             emission,
-            ProtocolEmission::Agent(AgentEvent::ToolCallStart { tool_name, .. })
-                if tool_name == "Edit"
+            ProtocolEmission::Chat(event)
+                if event["content_block"]["name"] == "Edit"
+                    && event["content_block"]["input"]["file_path"] == "src/main.rs"
+                    && event["content_block"]["input"]["old_string"]
+                        == "fn answer() -> u8 { 41 }\n"
+                    && event["content_block"]["input"]["new_string"]
+                        == "fn answer() -> u8 { 42 }\n"
         )));
     }
 

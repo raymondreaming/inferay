@@ -40,7 +40,7 @@ function handleMenuKey<S extends MenuState>(
 	count: number,
 	setMenu: React.Dispatch<React.SetStateAction<S>>,
 	selectIdx: number,
-	onSelect: (idx: number) => void
+	onSelect: (idx: number) => void,
 ) {
 	const delta = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
 	if (delta) {
@@ -122,10 +122,10 @@ export function useChatInputActions({
 	setFileMenu: React.Dispatch<React.SetStateAction<FileMenuState>>;
 	setInput: (value: string) => void;
 	setMessages: (
-		update: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])
+		update: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[]),
 	) => void;
 	setRunStatus: (
-		state: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState)
+		state: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState),
 	) => void;
 	setSlashMenu: React.Dispatch<React.SetStateAction<SlashMenuState>>;
 	showCommands: boolean;
@@ -145,10 +145,10 @@ export function useChatInputActions({
 						content: message.content,
 						images: message.images,
 					},
-				])
+				]),
 			);
 		},
-		[setMessages]
+		[setMessages],
 	);
 
 	const sendToServer = useCallback(
@@ -156,14 +156,16 @@ export function useChatInputActions({
 			text: string,
 			workspaceOverride?: ChatWorkspaceOverride,
 			displayText?: string,
-			images?: string[]
+			images?: string[],
 		) => {
-			onSendStart?.();
-			setRunStatus({
-				isLoading: true,
-				status: "thinking",
-				startTime: Date.now(),
-			});
+			if (!isLoading) {
+				onSendStart?.();
+				setRunStatus({
+					isLoading: true,
+					status: "thinking",
+					startTime: Date.now(),
+				});
+			}
 
 			wsClient.send({
 				type: "chat:send",
@@ -184,12 +186,13 @@ export function useChatInputActions({
 			agentKind,
 			cwd,
 			effectiveSelectedModel,
+			isLoading,
 			onSendStart,
 			paneId,
 			referencePaths,
 			selectedReasoningLevel,
 			setRunStatus,
-		]
+		],
 	);
 
 	const sendUserMessage = useCallback(
@@ -219,7 +222,7 @@ export function useChatInputActions({
 			}
 			sendToServer(trimmed, workspaceOverride, visibleText, images);
 		},
-		[appendLocalMessage, isLoading, sendToServer, setMessages]
+		[appendLocalMessage, isLoading, sendToServer, setMessages],
 	);
 
 	const executeCommand = useCallback(
@@ -234,7 +237,7 @@ export function useChatInputActions({
 								role: "user",
 								content: `/btw ${question}`,
 							})
-						: (prev) => appendSystemMessage(prev, "Usage: /btw <question>")
+						: (prev) => appendSystemMessage(prev, "Usage: /btw <question>"),
 				);
 				if (question)
 					wsClient.send({
@@ -258,8 +261,8 @@ export function useChatInputActions({
 							prev,
 							allCommands
 								.map((command) => `/${command.name} - ${command.description}`)
-								.join("\n")
-						)
+								.join("\n"),
+						),
 					);
 				}
 				return;
@@ -288,7 +291,7 @@ export function useChatInputActions({
 			sendUserMessage,
 			setInput,
 			setMessages,
-		]
+		],
 	);
 
 	const sendMessage = useCallback(() => {
@@ -298,7 +301,7 @@ export function useChatInputActions({
 		cancelSpeechListening();
 		if (text.startsWith("/") && !text.includes(" ")) {
 			const cmd = allCommands.find(
-				(command) => command.name.toLowerCase() === text.slice(1).toLowerCase()
+				(command) => command.name.toLowerCase() === text.slice(1).toLowerCase(),
 			);
 			if (cmd) {
 				executeCommand(cmd);
@@ -309,7 +312,7 @@ export function useChatInputActions({
 		const imagePaths = attachedImages.map((image) => image.path);
 		const { expandedText, usedCommandIds } = expandInlineCommandPrompts(
 			text,
-			allCommands
+			allCommands,
 		);
 		usedCommandIds.forEach((id) => {
 			incrementUsage(id).catch(noop);
@@ -361,7 +364,7 @@ export function useChatInputActions({
 					fileResults.length,
 					setFileMenu,
 					fileMenu.selectedIdx,
-					selectFile
+					selectFile,
 				)
 			)
 				return;
@@ -373,7 +376,7 @@ export function useChatInputActions({
 					filteredCommands.length,
 					setSlashMenu,
 					slashMenu.selectedIdx,
-					selectCommand
+					selectCommand,
 				)
 			)
 				return;
@@ -398,7 +401,7 @@ export function useChatInputActions({
 			setSlashMenu,
 			showCommands,
 			slashMenu.selectedIdx,
-		]
+		],
 	);
 
 	useEffect(() => {
@@ -409,7 +412,7 @@ export function useChatInputActions({
 		clearPendingSend(paneId);
 		setInput("");
 		setMessages((prev) =>
-			trimMessages([...prev, { id: nextId(), role: "user", content: pending }])
+			trimMessages([...prev, { id: nextId(), role: "user", content: pending }]),
 		);
 		sendToServer(pending);
 	}, [enabled, isLoading, paneId, sendToServer, setInput, setMessages]);

@@ -84,12 +84,12 @@ const FileMenuRow = memo(function FileMenuRow({
 			onClick={() => selectFile(index)}
 			onMouseEnter={() =>
 				setFileMenu((prev) =>
-					prev.selectedIdx === index ? prev : { ...prev, selectedIdx: index }
+					prev.selectedIdx === index ? prev : { ...prev, selectedIdx: index },
 				)
 			}
 			{...stylex.props(
 				styles.fileMenuRow,
-				selected && styles.fileMenuRowActive
+				selected && styles.fileMenuRowActive,
 			)}
 		>
 			<span {...stylex.props(styles.fileMenuIcon)}>
@@ -120,7 +120,7 @@ const CommandMenuRow = memo(function CommandMenuRow({
 			onClick={() => selectCommand(index)}
 			onMouseEnter={() =>
 				setSlashMenu((prev) =>
-					prev.selectedIdx === index ? prev : { ...prev, selectedIdx: index }
+					prev.selectedIdx === index ? prev : { ...prev, selectedIdx: index },
 				)
 			}
 			{...stylex.props(styles.commandRow, selected && styles.commandRowActive)}
@@ -129,7 +129,7 @@ const CommandMenuRow = memo(function CommandMenuRow({
 				<span
 					{...stylex.props(
 						styles.commandName,
-						selected && styles.commandNameActive
+						selected && styles.commandNameActive,
 					)}
 				>
 					/{command.name}
@@ -364,7 +364,7 @@ export const ChatComposer = memo(function ChatComposer({
 	const inputHighlights = useMemo(
 		() =>
 			usePlainTextarea ? null : renderInputHighlights(input, slashCommandNames),
-		[input, slashCommandNames, usePlainTextarea]
+		[input, slashCommandNames, usePlainTextarea],
 	);
 	const agentDefinition = getAgentDefinition(agentKind);
 	const modelOptions = useMemo(
@@ -373,7 +373,7 @@ export const ChatComposer = memo(function ChatComposer({
 				...option,
 				icon: getAgentIcon(agentKind, 12),
 			})),
-		[agentDefinition.models, agentKind]
+		[agentDefinition.models, agentKind],
 	);
 	const selectedModelLabel =
 		modelOptions.find(hasId.bind(null, model))?.label || model || "No model";
@@ -409,7 +409,7 @@ export const ChatComposer = memo(function ChatComposer({
 				bottom: window.innerHeight - rect.top + 4,
 				left: Math.min(
 					Math.max(8, rect.left),
-					Math.max(8, window.innerWidth - width - 8)
+					Math.max(8, window.innerWidth - width - 8),
 				),
 				width,
 				maxHeight: Math.min(360, Math.max(220, rect.top - 12)),
@@ -427,7 +427,7 @@ export const ChatComposer = memo(function ChatComposer({
 				{...stylex.props(styles.hidden)}
 				onChange={async (e) => {
 					const files = Array.from(e.currentTarget.files || []).filter((file) =>
-						file.type.startsWith("image/")
+						file.type.startsWith("image/"),
 					);
 					await Promise.all(files.map((file) => attachImage(file)));
 					e.currentTarget.value = "";
@@ -542,7 +542,7 @@ export const ChatComposer = memo(function ChatComposer({
 												voiceInput.isListening && styles.voiceButtonListening,
 												!voiceInput.isListening && voiceInput.error
 													? styles.voiceButtonError
-													: null
+													: null,
 											).className
 										}
 										title={
@@ -615,7 +615,9 @@ export const ChatComposer = memo(function ChatComposer({
 									onPaste={handlePaste}
 									placeholder={
 										isLoading
-											? "Type to queue next message..."
+											? agentKind === "codex"
+												? "Steer the active turn..."
+												: "Type to queue next message..."
 											: "Message… (/ commands, @ files)"
 									}
 									rows={1}
@@ -658,7 +660,7 @@ export const ChatComposer = memo(function ChatComposer({
 									size={10}
 									{...stylex.props(
 										styles.providerConfigChevron,
-										agentConfigOpen && styles.providerConfigChevronOpen
+										agentConfigOpen && styles.providerConfigChevronOpen,
 									)}
 								/>
 							</button>
@@ -692,7 +694,7 @@ export const ChatComposer = memo(function ChatComposer({
 										{...stylex.props(
 											styles.providerConfigChoice,
 											option.id === agentKind &&
-												styles.providerConfigChoiceActive
+												styles.providerConfigChoiceActive,
 										)}
 									>
 										<span {...stylex.props(styles.shrink)}>{option.icon}</span>
@@ -714,7 +716,8 @@ export const ChatComposer = memo(function ChatComposer({
 											onClick={() => onModelChange(option.id)}
 											{...stylex.props(
 												styles.providerConfigChoice,
-												option.id === model && styles.providerConfigChoiceActive
+												option.id === model &&
+													styles.providerConfigChoiceActive,
 											)}
 										>
 											<span>{option.label}</span>
@@ -737,7 +740,7 @@ export const ChatComposer = memo(function ChatComposer({
 											{...stylex.props(
 												styles.providerConfigChoice,
 												option.id === reasoningLevel &&
-													styles.providerConfigChoiceActive
+													styles.providerConfigChoiceActive,
 											)}
 										>
 											<span>{option.label}</span>
@@ -747,7 +750,7 @@ export const ChatComposer = memo(function ChatComposer({
 							</div>
 						)}
 					</div>,
-					document.body
+					document.body,
 				)}
 
 			{mdPreview.show && (

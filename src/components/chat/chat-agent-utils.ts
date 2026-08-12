@@ -6,6 +6,8 @@ import type {
 import { trimText as trimSummary } from "../../lib/format.ts";
 import { getToolOutputSummary } from "./chat-message-render-utils.ts";
 
+const MAX_LIVE_ACTIVITIES = 500;
+
 type ChatToolMessage = Pick<
 	ChatMessage,
 	"id" | "role" | "content" | "toolName" | "isStreaming"
@@ -38,7 +40,7 @@ export function normalizeToolName(toolName: string): string {
 export function findTriggerAtCursor(
 	value: string,
 	cursorPos: number,
-	trigger: "/" | "@"
+	trigger: "/" | "@",
 ): { index: number; query: string } | null {
 	let triggerIdx = -1;
 	for (let i = cursorPos - 1; i >= 0; i--) {
@@ -74,15 +76,16 @@ export function clearLiveActivities<
 
 export function appendLiveToolActivity(
 	activity: IncomingToolActivity,
-	state: ChatActivityUiState
+	state: ChatActivityUiState,
 ): ChatActivityUiState {
+	const last = state.liveActivities[state.liveActivities.length - 1];
+	const lastSequence = Number(last?.id.match(/-(\d+)$/)?.[1] ?? -1);
 	const nextActivity: ToolActivity = {
-		id: `${activity.toolName}-${state.liveActivities.length}`,
+		id: `${activity.toolName}-${lastSequence + 1}`,
 		toolName: activity.toolName,
 		summary: activity.summary,
 		isStreaming: activity.isStreaming ?? true,
 	};
-	const last = state.liveActivities[state.liveActivities.length - 1];
 	if (
 		last &&
 		last.toolName === nextActivity.toolName &&
@@ -92,13 +95,15 @@ export function appendLiveToolActivity(
 	}
 	return {
 		...state,
-		liveActivities: [...state.liveActivities, nextActivity].slice(-12),
+		liveActivities: [...state.liveActivities, nextActivity].slice(
+			-MAX_LIVE_ACTIVITIES,
+		),
 	};
 }
 
 export function clearCompletedChatUiState(
 	messageIds: Set<string>,
-	state: ChatActivityUiState
+	state: ChatActivityUiState,
 ): ChatActivityUiState {
 	const pruned = new Set<string>();
 	for (const id of state.expandedTools) if (messageIds.has(id)) pruned.add(id);
@@ -112,13 +117,13 @@ export function clearCompletedChatUiState(
 
 export function markToolState(
 	toolName: string,
-	state: ChatLoadingState
+	state: ChatLoadingState,
 ): ChatLoadingState {
 	return { ...state, status: `tool:${toolName}` };
 }
 
 export function extractToolActivities(
-	messages: ChatToolMessage[]
+	messages: ChatToolMessage[],
 ): ToolActivity[] {
 	const activities: ToolActivity[] = [];
 	for (const msg of messages) {

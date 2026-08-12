@@ -50,10 +50,12 @@ function tick(ms = 0) {
 test("hidden chat input actions defer pending sends until visible", async () => {
 	sendMock.mockClear();
 	const { root, rootElement } = setupDom();
-	const { clearPendingSend, loadPendingSend, savePendingSend } =
-		await import("../src/features/chat/chat-session-store.ts");
-	const { useChatInputActions } =
-		await import("../src/components/chat/useChatInputActions.tsx");
+	const { clearPendingSend, loadPendingSend, savePendingSend } = await import(
+		"../src/features/chat/chat-session-store.ts"
+	);
+	const { useChatInputActions } = await import(
+		"../src/components/chat/useChatInputActions.tsx"
+	);
 	const paneId = "pane-hidden-pending-send";
 	clearPendingSend(paneId);
 	savePendingSend(paneId, "deferred hello");
@@ -115,7 +117,7 @@ test("hidden chat input actions defer pending sends until visible", async () => 
 		expect(sendMock).toHaveBeenCalledTimes(0);
 		expect(loadPendingSend(paneId)).toBe("deferred hello");
 		expect(rootElement.firstElementChild?.getAttribute("data-messages")).toBe(
-			""
+			"",
 		);
 
 		root.render(<Harness enabled={true} />);
@@ -123,7 +125,7 @@ test("hidden chat input actions defer pending sends until visible", async () => 
 		expect(sendMock).toHaveBeenCalledTimes(1);
 		expect(loadPendingSend(paneId)).toBe("");
 		expect(rootElement.firstElementChild?.getAttribute("data-messages")).toBe(
-			"deferred hello"
+			"deferred hello",
 		);
 	} finally {
 		root.unmount();
@@ -131,12 +133,15 @@ test("hidden chat input actions defer pending sends until visible", async () => 
 	}
 });
 
-test("loading chat sends the live textarea value to the server queue", async () => {
+test("loading Codex chat sends steering input without resetting the active stream", async () => {
 	sendMock.mockClear();
 	const { root, rootElement } = setupDom();
-	const { useChatInputActions } =
-		await import("../src/components/chat/useChatInputActions.tsx");
+	const { useChatInputActions } = await import(
+		"../src/components/chat/useChatInputActions.tsx"
+	);
 	try {
+		const onSendStart = mock(() => {});
+		const setRunStatus = mock(() => {});
 		let handleEnter: (event: KeyboardEvent) => void = (_event) => {
 			throw new Error("handleKeyDown was not initialized");
 		};
@@ -167,13 +172,14 @@ test("loading chat sends the live textarea value to the server queue", async () 
 				input,
 				isLoading: true,
 				paneId: "pane-live-textarea-queue",
+				onSendStart,
 				selectCommand: () => {},
 				selectFile: () => {},
 				selectedReasoningLevel: "medium",
 				setFileMenu: () => {},
 				setInput,
 				setMessages: () => {},
-				setRunStatus: () => {},
+				setRunStatus,
 				setSlashMenu: () => {},
 				showCommands: false,
 				slashMenu: {
@@ -216,6 +222,8 @@ test("loading chat sends the live textarea value to the server queue", async () 
 		expect(payload?.text).toBe("second");
 		expect(payload?.displayText).toBe("second");
 		expect(textarea.value).toBe("");
+		expect(onSendStart).not.toHaveBeenCalled();
+		expect(setRunStatus).not.toHaveBeenCalled();
 	} finally {
 		root.unmount();
 	}

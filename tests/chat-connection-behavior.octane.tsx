@@ -19,7 +19,7 @@ const mock = Object.assign(vi.fn, {
 const subscribeCleanup = mock(() => {});
 const reconnectCleanup = mock(() => {});
 const subscribe = mock(
-	(_paneId: string, _callback: (message: unknown) => void) => subscribeCleanup
+	(_paneId: string, _callback: (message: unknown) => void) => subscribeCleanup,
 );
 const onReconnect = mock((_callback: () => void) => reconnectCleanup);
 const send = mock(() => {});
@@ -67,8 +67,9 @@ test("hidden chat views do not own websocket reconnects", async () => {
 	reconnectCleanup.mockClear();
 	send.mockClear();
 	const { root } = setupDom();
-	const { useChatConnection } =
-		await import("../src/components/chat/useChatConnection.tsx");
+	const { useChatConnection } = await import(
+		"../src/components/chat/useChatConnection.tsx"
+	);
 
 	function Harness({ enabled }: { enabled: boolean }) {
 		const [, setUiState] = useState<ChatActivityUiState>({
@@ -81,7 +82,7 @@ test("hidden chat views do not own websocket reconnects", async () => {
 				saveNow: (messages: ChatMessage[]) => messages,
 				set: () => {},
 			}),
-			[]
+			[],
 		);
 		useChatConnection({
 			enabled,
@@ -123,8 +124,9 @@ test("live turn completion persists sync and reconnects after done", async () =>
 	subscribe.mockClear();
 	send.mockClear();
 	const { root } = setupDom();
-	const { useChatConnection } =
-		await import("../src/components/chat/useChatConnection.tsx");
+	const { useChatConnection } = await import(
+		"../src/components/chat/useChatConnection.tsx"
+	);
 	let handleMessage: ((message: unknown) => void) | undefined;
 	let latestMessages: ChatMessage[] = [];
 	subscribe.mockImplementationOnce((_paneId, callback) => {
@@ -148,17 +150,17 @@ test("live turn completion persists sync and reconnects after done", async () =>
 		latestMessages = messagesRef.current;
 		const saveMessagesNow = useCallback(
 			(messages: ChatMessage[]) => messages,
-			[]
+			[],
 		);
 		const setMessages = useCallback(
 			(
-				update: ChatMessage[] | ((messages: ChatMessage[]) => ChatMessage[])
+				update: ChatMessage[] | ((messages: ChatMessage[]) => ChatMessage[]),
 			) => {
 				messagesRef.current =
 					typeof update === "function" ? update(messagesRef.current) : update;
 				latestMessages = messagesRef.current;
 			},
-			[]
+			[],
 		);
 		const messageReadModel = useMemo(
 			() => ({
@@ -166,15 +168,17 @@ test("live turn completion persists sync and reconnects after done", async () =>
 				saveNow: saveMessagesNow,
 				set: setMessages,
 			}),
-			[saveMessagesNow, setMessages]
+			[saveMessagesNow, setMessages],
 		);
 		const setRunStatus = useCallback(
 			(
-				value: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState)
+				value:
+					| ChatLoadingState
+					| ((prev: ChatLoadingState) => ChatLoadingState),
 			) =>
 				(runStatusRef.current =
 					typeof value === "function" ? value(runStatusRef.current) : value),
-			[]
+			[],
 		);
 		useChatConnection({
 			enabled: true,
@@ -227,8 +231,9 @@ test("stale streaming sync does not cut local in-flight assistant content", asyn
 	subscribe.mockClear();
 	send.mockClear();
 	const { root } = setupDom();
-	const { useChatConnection } =
-		await import("../src/components/chat/useChatConnection.tsx");
+	const { useChatConnection } = await import(
+		"../src/components/chat/useChatConnection.tsx"
+	);
 	let handleMessage: ((message: unknown) => void) | undefined;
 	let latestMessages: ChatMessage[] = [];
 	subscribe.mockImplementationOnce((_paneId, callback) => {
@@ -252,17 +257,17 @@ test("stale streaming sync does not cut local in-flight assistant content", asyn
 		latestMessages = messagesRef.current;
 		const saveMessagesNow = useCallback(
 			(messages: ChatMessage[]) => messages,
-			[]
+			[],
 		);
 		const setMessages = useCallback(
 			(
-				update: ChatMessage[] | ((messages: ChatMessage[]) => ChatMessage[])
+				update: ChatMessage[] | ((messages: ChatMessage[]) => ChatMessage[]),
 			) => {
 				messagesRef.current =
 					typeof update === "function" ? update(messagesRef.current) : update;
 				latestMessages = messagesRef.current;
 			},
-			[]
+			[],
 		);
 		const messageReadModel = useMemo(
 			() => ({
@@ -270,15 +275,17 @@ test("stale streaming sync does not cut local in-flight assistant content", asyn
 				saveNow: saveMessagesNow,
 				set: setMessages,
 			}),
-			[saveMessagesNow, setMessages]
+			[saveMessagesNow, setMessages],
 		);
 		const setRunStatus = useCallback(
 			(
-				value: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState)
+				value:
+					| ChatLoadingState
+					| ((prev: ChatLoadingState) => ChatLoadingState),
 			) =>
 				(runStatusRef.current =
 					typeof value === "function" ? value(runStatusRef.current) : value),
-			[]
+			[],
 		);
 		useChatConnection({
 			enabled: true,
@@ -344,8 +351,9 @@ test("active sync between blocks keeps result replay attached to its assistant",
 	subscribe.mockClear();
 	send.mockClear();
 	const { root } = setupDom();
-	const { useChatConnection } =
-		await import("../src/components/chat/useChatConnection.tsx");
+	const { useChatConnection } = await import(
+		"../src/components/chat/useChatConnection.tsx"
+	);
 	let handleMessage: ((message: unknown) => void) | undefined;
 	let latestMessages: ChatMessage[] = [];
 	subscribe.mockImplementationOnce((_paneId, callback) => {
@@ -367,14 +375,14 @@ test("active sync between blocks keeps result replay attached to its assistant",
 				get: () => messagesRef.current,
 				saveNow: (messages: ChatMessage[]) => messages,
 				set: (
-					update: ChatMessage[] | ((messages: ChatMessage[]) => ChatMessage[])
+					update: ChatMessage[] | ((messages: ChatMessage[]) => ChatMessage[]),
 				) => {
 					messagesRef.current =
 						typeof update === "function" ? update(messagesRef.current) : update;
 					latestMessages = messagesRef.current;
 				},
 			}),
-			[]
+			[],
 		);
 		useChatConnection({
 			enabled: true,
@@ -439,6 +447,87 @@ test("active sync between blocks keeps result replay attached to its assistant",
 				isStreaming: false,
 			},
 		]);
+	} finally {
+		root.unmount();
+	}
+});
+
+test("accepted steering appears immediately without resetting the active assistant", async () => {
+	subscribe.mockClear();
+	const { root } = setupDom();
+	const { useChatConnection } = await import(
+		"../src/components/chat/useChatConnection.tsx"
+	);
+	let handleMessage: ((message: unknown) => void) | undefined;
+	let latestMessages: ChatMessage[] = [];
+	subscribe.mockImplementationOnce((_paneId, callback) => {
+		handleMessage = callback;
+		return subscribeCleanup;
+	});
+
+	function Harness() {
+		const [, setUiState] = useState<ChatActivityUiState>({
+			expandedTools: new Set(),
+			liveActivities: [],
+		});
+		const messagesRef = useRef<ChatMessage[]>([
+			{ id: "u1", role: "user", content: "initial" },
+			{
+				id: "a1",
+				role: "assistant",
+				content: "working",
+				isStreaming: true,
+			},
+		]);
+		latestMessages = messagesRef.current;
+		const messageReadModel = useMemo(
+			() => ({
+				get: () => messagesRef.current,
+				saveNow: (messages: ChatMessage[]) => messages,
+				set: (
+					update: ChatMessage[] | ((messages: ChatMessage[]) => ChatMessage[]),
+				) => {
+					messagesRef.current =
+						typeof update === "function" ? update(messagesRef.current) : update;
+					latestMessages = messagesRef.current;
+				},
+			}),
+			[],
+		);
+		useChatConnection({
+			enabled: true,
+			messageReadModel,
+			paneId: "pane-steer",
+			replaceQueuedMessages: () => {},
+			setChatUiState: setUiState,
+			setRunStatus: () => {},
+		});
+		return null;
+	}
+
+	try {
+		root.render(<Harness />);
+		await tick();
+		handleMessage?.({
+			type: "chat:steered",
+			paneId: "pane-steer",
+			text: "raw steering",
+			displayText: "Change direction",
+			images: ["/tmp/reference.png"],
+		});
+		await tick();
+
+		expect(latestMessages).toHaveLength(3);
+		expect(latestMessages[1]).toMatchObject({
+			id: "a1",
+			content: "working",
+			isStreaming: true,
+		});
+		expect(latestMessages[2]).toMatchObject({
+			role: "user",
+			content: "Change direction",
+			images: ["/tmp/reference.png"],
+		});
 	} finally {
 		root.unmount();
 	}

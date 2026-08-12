@@ -392,6 +392,78 @@ impl CheckpointService {
         diffs
     }
 
+    pub async fn preview_inline_diffs(
+        &self,
+        checkpoint_id: &str,
+        touched_paths: &[PathBuf],
+    ) -> Vec<CheckpointInlineDiff> {
+        let checkpoint = {
+            let store = self.store.lock().await;
+            find_checkpoint(&store, checkpoint_id).cloned()
+        };
+        let Some(checkpoint) = checkpoint else {
+            return Vec::new();
+        };
+        let root = checkpoint
+            .git_root
+            .as_deref()
+            .unwrap_or(checkpoint.cwd.as_path());
+        let mut seen = HashSet::new();
+        let mut diffs = Vec::new();
+        let mut total_chars = 0;
+        for path in touched_paths {
+            let unresolved = if path.is_absolute() {
+                path.clone()
+            } else {
+                checkpoint.cwd.join(path)
+            };
+            let Ok(absolute) = resolve_lexically(&unresolved) else {
+                continue;
+            };
+            let relative = path_relative(root, &absolute);
+            if !is_within_directory(&absolute, root)
+                || relative.as_os_str().is_empty()
+                || is_skipped_path(&relative)
+                || is_binary(&relative)
+            {
+                continue;
+            }
+            let relative = path_to_string(&relative);
+            if !seen.insert(relative.clone()) || diffs.len() >= MAX_INLINE_DIFFS {
+                continue;
+            }
+            let before_ref = if let Some(before) = checkpoint.before_snapshot.get(&relative) {
+                before.clone()
+            } else if let Some(git_root) = checkpoint.git_root.as_ref() {
+                git_snapshot_blob(git_root, checkpoint.head_sha.as_deref(), &relative).await
+            } else {
+                None
+            };
+            let (Some(before_ref), Some(after)) =
+                (before_ref, safe_read_file(&root.join(&relative)).await)
+            else {
+                continue;
+            };
+            let Some(before) = resolve_content(&checkpoint, &before_ref).await else {
+                continue;
+            };
+            if before == after {
+                continue;
+            }
+            let chars = js_string_len(&before) + js_string_len(&after);
+            if chars > MAX_FILE_SIZE as usize || total_chars + chars > MAX_INLINE_DIFF_CHARS {
+                continue;
+            }
+            diffs.push(CheckpointInlineDiff {
+                path: relative,
+                old_string: before,
+                new_string: after,
+            });
+            total_chars += chars;
+        }
+        diffs
+    }
+
     pub async fn save(&self) -> Result<(), String> {
         let _save_guard = self.save_lock.lock().await;
         let value = {
