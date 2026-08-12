@@ -18,8 +18,6 @@ const RELEASE_CHECK_TIMEOUT: Duration = Duration::from_millis(1_500);
 const RELEASE_CHECK_CACHE_TTL_MS: u64 = 15 * 60 * 1_000;
 const RELEASE_CHECK_ERROR_TTL_MS: u64 = 60 * 1_000;
 
-const UPDATE_COMMAND: &str = "if command -v npx >/dev/null 2>&1; then npx --yes inferay update && exit 0; fi; if command -v bunx >/dev/null 2>&1; then bunx inferay update && exit 0; fi; echo 'npx or bunx is required to update Inferay' >&2; exit 127;";
-
 #[derive(Clone)]
 pub(super) struct ReleaseCheckCache {
     key: String,
@@ -379,21 +377,15 @@ async fn open_native_path(path: &Path, reveal: bool) -> Result<bool, String> {
 
 fn update_route(headers: &HeaderMap) -> Response {
     match run_inferay_update() {
-        Ok(log_path) => {
-            tokio::spawn(async {
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                std::process::exit(0);
-            });
-            json_response(
-                StatusCode::OK,
-                json!({
-                    "ok": true,
-                    "logPath": log_path,
-                    "message": "Updating Inferay. The app will close and relaunch.",
-                }),
-                headers,
-            )
-        }
+        Ok(log_path) => json_response(
+            StatusCode::OK,
+            json!({
+                "ok": true,
+                "logPath": log_path,
+                "message": "Updating Inferay. The app will relaunch when installation finishes.",
+            }),
+            headers,
+        ),
         Err(error) => json_response(
             StatusCode::SERVICE_UNAVAILABLE,
             json!({ "ok": false, "error": error }),
@@ -416,9 +408,10 @@ fn run_inferay_update() -> Result<String, String> {
     }
 
     let log_path = std::env::temp_dir().join(format!("inferay-update-{}.log", epoch_millis()));
+    let update_command = create_update_command(std::process::id());
     let command = format!(
         "nohup /bin/zsh -lc {} >{} 2>&1 </dev/null &",
-        shell_quote(UPDATE_COMMAND),
+        shell_quote(&update_command),
         shell_quote(&log_path.to_string_lossy())
     );
     std::process::Command::new("/bin/zsh")
@@ -430,6 +423,15 @@ fn run_inferay_update() -> Result<String, String> {
         .spawn()
         .map_err(|error| error.to_string())?;
     Ok(log_path.to_string_lossy().into_owned())
+}
+
+fn create_update_command(app_pid: u32) -> String {
+    let relaunch = format!(
+        "(kill -TERM {app_pid} 2>/dev/null || true; while kill -0 {app_pid} 2>/dev/null; do sleep 0.1; done; open /Applications/inferay.app)"
+    );
+    format!(
+        "if command -v npx >/dev/null 2>&1; then npx --yes inferay update && {relaunch} && exit 0; fi; if command -v bunx >/dev/null 2>&1; then bunx inferay update && {relaunch} && exit 0; fi; echo 'npx or bunx is required to update Inferay' >&2; exit 127;"
+    )
 }
 
 fn update_environment() -> Vec<(OsString, OsString)> {
@@ -563,7 +565,7 @@ mod tests {
     }
 
     #[test]
-    fn creates_the_same_update_path_and_fallback_command() {
+    fn creates_the_same_update_path_and_safe_relaunch_command() {
         let path = create_inferay_update_path([("HOME", "/Users/ray"), ("PATH", "/usr/bin:/bin")]);
         let entries = path.split(':').collect::<Vec<_>>();
         assert!(entries.contains(&"/Users/ray/.bun/bin"));
@@ -572,14 +574,17 @@ mod tests {
         assert!(entries.contains(&"/opt/homebrew/bin"));
         assert!(entries.contains(&"/usr/local/bin"));
         assert!(entries.contains(&"/usr/bin"));
-        assert!(UPDATE_COMMAND.contains("command -v npx"));
-        assert!(UPDATE_COMMAND.contains("npx --yes inferay update && exit 0"));
-        assert!(UPDATE_COMMAND.contains("command -v bunx"));
-        assert!(UPDATE_COMMAND.contains("bunx inferay update && exit 0"));
-        assert!(
-            UPDATE_COMMAND.find("npx --yes inferay update")
-                < UPDATE_COMMAND.find("bunx inferay update")
-        );
+
+        let command = create_update_command(42);
+        assert!(command.contains("command -v npx"));
+        assert!(command.contains("npx --yes inferay update"));
+        assert!(command.contains("command -v bunx"));
+        assert!(command.contains("bunx inferay update"));
+        assert!(command.contains("kill -TERM 42"));
+        assert!(command.contains("while kill -0 42"));
+        assert!(command.contains("open /Applications/inferay.app"));
+        assert!(command.find("npx --yes inferay update") < command.find("bunx inferay update"));
+        assert!(command.find("npx --yes inferay update") < command.find("kill -TERM 42"));
     }
 
     #[test]
