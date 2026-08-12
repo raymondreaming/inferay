@@ -1,0 +1,16 @@
+[workspace]
+members = [
+    "native/core",
+    "native/desktop-host",
+    "native/diff-engine",
+    "native/server",
+    "native/tooling",
+]
+resolver = "2"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = 3
+panic = "abort"
+strip = true

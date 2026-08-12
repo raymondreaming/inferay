@@ -37,11 +37,13 @@ DerivedData/
 .build/
 .swiftpm/
 Package.resolved
-native/bin/
-native/diff-engine/target/
-native/desktop-host/target/
+target/
+/.test-tmp/
 src/data/terminal-state.json
 data/terminal-state.json
+/data/.tmp/
+scripts/config.yaml
+scripts/config.local.yaml
 
 src/data/checkpoints.json
 

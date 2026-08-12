@@ -1,0 +1,19 @@
+[package]
+name = "inferay-core"
+version = "0.1.0"
+edition = "2024"
+license = "LicenseRef-Inferay"
+description = "UI-independent application core for Inferay"
+
+[dependencies]
+base64 = "0.22.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+serde_yaml_ng = "0.10.0"
+uuid = { version = "1.21.0", features = ["v4"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
