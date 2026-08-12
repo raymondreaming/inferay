@@ -105,6 +105,9 @@ pub struct CodexInvocationContext {
 pub enum ProtocolEmission {
     Chat(Value),
     Agent(AgentEvent),
+    UserInputAcknowledged {
+        text: String,
+    },
     FileChange(Vec<PathBuf>),
     Status {
         status: String,
@@ -422,7 +425,18 @@ impl CodexProtocolState {
             // App Server reports the submitted prompt as a completed item too.
             // It is input, not assistant output, and the chat runtime already
             // owns the canonical user transcript row.
-            ("item.completed", "user_message" | "userMessage") => {}
+            ("item.completed", "user_message" | "userMessage") => {
+                let text = item_record
+                    .map(|item| string_field(item, "text"))
+                    .filter(|text| !text.is_empty())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| extract_text(item));
+                if !text.is_empty() {
+                    context
+                        .emissions
+                        .push(ProtocolEmission::UserInputAcknowledged { text });
+                }
+            }
             ("item.completed", _) if !item.is_null() && !extract_text(item).is_empty() => {
                 let text = extract_text(item);
                 if !self.saw_assistant_stream {
@@ -1286,7 +1300,7 @@ mod tests {
     }
 
     #[test]
-    fn codex_user_items_do_not_echo_as_assistant_results() {
+    fn codex_user_items_acknowledge_input_without_echoing_assistant_results() {
         for item_type in ["userMessage", "user_message"] {
             let mut state = CodexProtocolState::default();
             let mut context = AgentProtocolContext::new("/tmp");
@@ -1297,7 +1311,12 @@ mod tests {
                     "item": { "type": item_type, "text": "do not echo me" }
                 }),
             );
-            assert!(context.emissions.is_empty());
+            assert_eq!(
+                context.emissions,
+                vec![ProtocolEmission::UserInputAcknowledged {
+                    text: "do not echo me".into()
+                }]
+            );
             assert!(state.last_assistant_message.is_empty());
         }
     }

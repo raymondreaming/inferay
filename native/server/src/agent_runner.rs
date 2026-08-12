@@ -1265,6 +1265,7 @@ while IFS= read -r line; do
     *'"method":"turn/steer"'*)
       printf '%s' "$line" > steer-request.json
       printf '%s\n' '{"id":4,"result":{"turnId":"turn-1"}}'
+      printf '%s\n' '{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"userMessage","id":"user-2","text":"change direction"}}}'
       printf '%s\n' '{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"agentMessage","id":"message-1","text":"followed steering"}}}'
       printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed","error":null}}}'
       ;;
@@ -1323,6 +1324,15 @@ done
         }
         let result = run.await;
         assert_eq!(result.last_assistant_message, "followed steering");
+        let mut acknowledged = false;
+        while let Ok(emission) = receiver.try_recv() {
+            acknowledged |= matches!(
+                emission,
+                ProtocolEmission::UserInputAcknowledged { ref text }
+                    if text == "change direction"
+            );
+        }
+        assert!(acknowledged);
         let request: Value = serde_json::from_slice(
             &std::fs::read(directory.path().join("steer-request.json")).unwrap(),
         )

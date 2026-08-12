@@ -130,6 +130,14 @@ struct GoalState {
     started_at: u64,
 }
 
+#[derive(Clone, Debug)]
+struct PendingSteer {
+    id: String,
+    text: String,
+    display_text: String,
+    images: Vec<String>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum GoalStatus {
     Active,
@@ -153,6 +161,7 @@ struct ChatSession {
     goal: Option<GoalState>,
     agent_events: Vec<AgentEvent>,
     context_hash: Option<String>,
+    pending_steers: Vec<PendingSteer>,
 }
 
 #[derive(Clone)]
@@ -228,7 +237,10 @@ impl ChatRuntime {
                 };
                 if let Some(handle) = steer_handle {
                     let message_id = Uuid::new_v4().to_string();
-                    let display = input.display_text.as_deref().unwrap_or(&input.text);
+                    let display = input
+                        .display_text
+                        .clone()
+                        .unwrap_or_else(|| input.text.clone());
                     self.emit(
                         &session,
                         json!({
@@ -251,33 +263,14 @@ impl ChatRuntime {
                     {
                         {
                             let mut state = session.lock().await;
-                            state.message_buffer.push_user_with_id(
-                                message_id.clone(),
-                                display,
-                                (!input.images.is_empty()).then(|| paths_to_strings(&input.images)),
-                            );
+                            state.pending_steers.push(PendingSteer {
+                                id: message_id,
+                                text: input.text,
+                                display_text: display,
+                                images: paths_to_strings(&input.images),
+                            });
                             state.cancelled = false;
                         }
-                        self.persistence
-                            .append_event(
-                                &input.pane_id,
-                                "user_message",
-                                json!({"text": input.text, "displayText": display, "images": paths_to_strings(&input.images), "steered": true}),
-                            )
-                            .await;
-                        self.persist(&session).await;
-                        self.emit(
-                            &session,
-                            json!({
-                                "type":"chat:steered",
-                                "paneId":input.pane_id,
-                                "messageId":message_id,
-                                "text":input.text,
-                                "displayText":display,
-                                "images":paths_to_strings(&input.images)
-                            }),
-                        )
-                        .await;
                         return;
                     }
                     pending_steer_id = Some(message_id);
@@ -757,6 +750,7 @@ impl ChatRuntime {
             goal: None,
             agent_events: Vec::new(),
             context_hash: None,
+            pending_steers: Vec::new(),
         }));
         self.sessions
             .lock()
@@ -930,9 +924,18 @@ impl ChatRuntime {
                 .await;
         }
         session.lock().await.current_handle = None;
-        let mut executed = executed?;
+        let mut executed = match executed {
+            Ok(executed) => executed,
+            Err(error) => {
+                self.flush_pending_steers(session).await;
+                self.persist(session).await;
+                return Err(error);
+            }
+        };
         self.apply_emissions(session, executed.protocol.take_emissions(), checkpoint_id)
             .await;
+        self.flush_pending_steers(session).await;
+        self.persist(session).await;
         Ok(executed.result)
     }
 
@@ -961,6 +964,9 @@ impl ChatRuntime {
                     drop(state);
                     self.emit(session, json!({"type":"chat:agent-event", "paneId":pane_id, "event":compact})).await;
                 }
+                ProtocolEmission::UserInputAcknowledged { text } => {
+                    self.acknowledge_pending_steer(session, &text).await;
+                }
                 ProtocolEmission::FileChange(paths) => {
                     self.emit_live_file_diffs(session, checkpoint_id, &paths).await;
                 }
@@ -974,6 +980,70 @@ impl ChatRuntime {
             }
         }
         self.persist(session).await;
+    }
+
+    async fn acknowledge_pending_steer(
+        &self,
+        session: &Arc<Mutex<ChatSession>>,
+        text: &str,
+    ) -> bool {
+        let pending = {
+            let mut state = session.lock().await;
+            let Some(index) = state
+                .pending_steers
+                .iter()
+                .position(|pending| pending.text == text)
+            else {
+                return false;
+            };
+            state.pending_steers.remove(index)
+        };
+        self.promote_pending_steer(session, pending).await;
+        true
+    }
+
+    async fn flush_pending_steers(&self, session: &Arc<Mutex<ChatSession>>) {
+        let pending = std::mem::take(&mut session.lock().await.pending_steers);
+        for pending in pending {
+            self.promote_pending_steer(session, pending).await;
+        }
+    }
+
+    async fn promote_pending_steer(
+        &self,
+        session: &Arc<Mutex<ChatSession>>,
+        pending: PendingSteer,
+    ) {
+        let pane_id = session.lock().await.pane_id.clone();
+        session.lock().await.message_buffer.push_user_with_id(
+            pending.id.clone(),
+            &pending.display_text,
+            (!pending.images.is_empty()).then(|| pending.images.clone()),
+        );
+        self.persistence
+            .append_event(
+                &pane_id,
+                "user_message",
+                json!({
+                    "text":pending.text,
+                    "displayText":pending.display_text,
+                    "images":pending.images,
+                    "steered":true
+                }),
+            )
+            .await;
+        self.emit(
+            session,
+            json!({
+                "type":"chat:steered",
+                "paneId":pane_id,
+                "messageId":pending.id,
+                "text":pending.text,
+                "displayText":pending.display_text,
+                "images":pending.images
+            }),
+        )
+        .await;
     }
 
     async fn emit_live_file_diffs(
@@ -1841,6 +1911,7 @@ mod tests {
             goal: None,
             agent_events: Vec::new(),
             context_hash: None,
+            pending_steers: Vec::new(),
         }))
     }
 
@@ -2147,6 +2218,18 @@ mod tests {
         assert_eq!(pending["type"], "chat:steer_pending");
         assert_eq!(pending["message"]["displayText"], "Change direction");
         assert_eq!(pending["message"]["transient"], true);
+        assert!(receiver.try_recv().is_err());
+        assert!(session.lock().await.message_buffer.messages().is_empty());
+
+        runtime
+            .apply_emissions(
+                &session,
+                vec![ProtocolEmission::UserInputAcknowledged {
+                    text: "change direction".into(),
+                }],
+                None,
+            )
+            .await;
         let steered = receiver.recv().await.unwrap();
         assert_eq!(steered["type"], "chat:steered");
         assert_eq!(steered["messageId"], pending["message"]["id"]);
@@ -2349,6 +2432,7 @@ mod tests {
                 goal: None,
                 agent_events: Vec::new(),
                 context_hash: None,
+                pending_steers: Vec::new(),
             })),
         );
         let queue = vec![json!({"id":"q", "text":"edited", "displayText":"edited"})];
