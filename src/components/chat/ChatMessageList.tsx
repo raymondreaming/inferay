@@ -68,7 +68,7 @@ type ChatRenderRow =
 // Virtualizer padding is numeric; keep these in px so scroll-to-end accounts
 // for the composer fade instead of hiding the loader under it.
 const CHAT_LIST_TOP_PADDING_PX = 16;
-const CHAT_LIST_BOTTOM_PADDING_PX = 64;
+const CHAT_LIST_BOTTOM_PADDING_PX = 16;
 const CHAT_LIST_INLINE_GUTTER = "clamp(0.75rem, 3vw, 1.25rem)";
 
 function measureVirtualRow(element: HTMLElement) {
@@ -172,7 +172,7 @@ function ToolTimeline({
 							aria-hidden="true"
 							{...stylex.props(
 								styles.toolMilestoneNode,
-								index === tools.length - 1 && styles.toolMilestoneNodeLast
+								index === tools.length - 1 && styles.toolMilestoneNodeLast,
 							)}
 						/>
 						<div {...stylex.props(styles.toolMilestoneBody)}>
@@ -196,7 +196,7 @@ function ToolTimeline({
 									size={8}
 									{...stylex.props(
 										styles.toolMilestoneChevron,
-										collapsed && styles.rotateClosed
+										collapsed && styles.rotateClosed,
 									)}
 								/>
 							</button>
@@ -229,7 +229,7 @@ function GoalSystemCard({ goal }: { goal: GoalSystemMessage }) {
 				styles.goalCard,
 				goal.status === "active" && styles.goalCardActive,
 				goal.status === "paused" && styles.goalCardPaused,
-				goal.status === "complete" && styles.goalCardComplete
+				goal.status === "complete" && styles.goalCardComplete,
 			)}
 		>
 			<span
@@ -237,7 +237,7 @@ function GoalSystemCard({ goal }: { goal: GoalSystemMessage }) {
 					styles.goalIconSlot,
 					goal.status === "active" && styles.goalIconActive,
 					goal.status === "paused" && styles.goalIconPaused,
-					goal.status === "complete" && styles.goalIconComplete
+					goal.status === "complete" && styles.goalIconComplete,
 				)}
 			>
 				{goal.status === "active" ? (
@@ -327,14 +327,14 @@ function CheckpointMarker({
 						size={11}
 						{...stylex.props(
 							styles.checkpointChevron,
-							!expanded && styles.rotateClosed
+							!expanded && styles.rotateClosed,
 						)}
 					/>
 					<IconClock
 						size={11}
 						{...stylex.props(
 							styles.checkpointIcon,
-							checkpoint.reverted && styles.revertedIcon
+							checkpoint.reverted && styles.revertedIcon,
 						)}
 					/>
 					<span {...stylex.props(styles.checkpointTitle)}>
@@ -407,14 +407,14 @@ const Bubble = memo(function Bubble({
 		() => () => {
 			if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
 		},
-		[]
+		[],
 	);
 	const editPayload = useMemo(
 		() =>
 			msg.role === "tool" && msg.toolName === "Edit" && msg.content
 				? getEditToolPayload(msg.content)
 				: null,
-		[msg.content, msg.role, msg.toolName]
+		[msg.content, msg.role, msg.toolName],
 	);
 	const userMessageDisplay = useMemo(() => {
 		if (msg.role !== "user") return null;
@@ -456,7 +456,7 @@ const Bubble = memo(function Bubble({
 		if (
 			commandMatch?.[1] &&
 			slashCommandNames.some(
-				(command) => command.toLowerCase() === commandMatch[1]!.toLowerCase()
+				(command) => command.toLowerCase() === commandMatch[1]!.toLowerCase(),
 			)
 		) {
 			return null;
@@ -472,7 +472,7 @@ const Bubble = memo(function Bubble({
 									key={imgPath}
 									{...stylex.props(
 										styles.userImageFrame,
-										index % 2 === 1 && styles.userImageFrameAlt
+										index % 2 === 1 && styles.userImageFrameAlt,
 									)}
 								>
 									<img
@@ -576,7 +576,7 @@ const Bubble = memo(function Bubble({
 						size={7}
 						{...stylex.props(
 							styles.toolMilestoneChevron,
-							collapsed && styles.rotateClosed
+							collapsed && styles.rotateClosed,
 						)}
 					/>
 				</button>
@@ -610,7 +610,7 @@ const Bubble = memo(function Bubble({
 						aria-label={copied ? "Copied message" : "Copy message"}
 						{...stylex.props(
 							styles.copyMessageButton,
-							copied && styles.copyMessageButtonCopied
+							copied && styles.copyMessageButtonCopied,
 						)}
 					>
 						{copied ? <IconCheck size={11} /> : <IconCopy size={11} />}
@@ -664,7 +664,7 @@ export const ChatMessageList = memo(function ChatMessageList({
 			: `${lastRow?.type ?? "none"}:${renderRows.length}`;
 	const getVirtualRowKey = useCallback(
 		(index: number) => getRowKey(renderRows[index], index),
-		[renderRows]
+		[renderRows],
 	);
 	const rowVirtualizer = useVirtualizer({
 		count: renderRows.length,
@@ -699,16 +699,22 @@ export const ChatMessageList = memo(function ChatMessageList({
 		}
 		return byMessageId;
 	}, [checkpoints]);
+	const pinToBottom = useCallback(
+		(behavior: ScrollBehavior = "auto") => {
+			const element = scrollElementRef.current;
+			if (!element) return;
+			rowVirtualizer.measure();
+			element.scrollTo({ top: element.scrollHeight, behavior });
+		},
+		[rowVirtualizer, scrollElementRef],
+	);
 
 	useImperativeHandle(
 		virtualizerControlsRef,
 		() => ({
 			scrollToEnd: (behavior = "smooth") => {
 				if (renderRows.length === 0) return;
-				rowVirtualizer.scrollToIndex(renderRows.length - 1, {
-					align: "end",
-					behavior,
-				});
+				pinToBottom(behavior);
 			},
 			isAtEnd: () => {
 				const el = scrollElementRef.current;
@@ -721,7 +727,7 @@ export const ChatMessageList = memo(function ChatMessageList({
 				return Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight);
 			},
 		}),
-		[renderRows.length, rowVirtualizer, scrollElementRef]
+		[pinToBottom, renderRows.length, scrollElementRef],
 	);
 
 	useLayoutEffect(() => {
@@ -730,10 +736,9 @@ export const ChatMessageList = memo(function ChatMessageList({
 			didInitialScrollRef.current = true;
 			let raf2 = 0;
 			const raf1 = requestAnimationFrame(() => {
-				rowVirtualizer.measure();
-				rowVirtualizer.scrollToIndex(renderRows.length - 1, { align: "end" });
+				pinToBottom();
 				raf2 = requestAnimationFrame(() => {
-					rowVirtualizer.scrollToIndex(renderRows.length - 1, { align: "end" });
+					pinToBottom();
 				});
 			});
 			return () => {
@@ -753,30 +758,48 @@ export const ChatMessageList = memo(function ChatMessageList({
 			if (distanceFromBottom > 120) return;
 		}
 		const raf = requestAnimationFrame(() => {
-			rowVirtualizer.scrollToIndex(renderRows.length - 1, { align: "end" });
+			pinToBottom();
 		});
 		return () => cancelAnimationFrame(raf);
-	}, [renderRows.length, rowVirtualizer, scrollElementRef]);
+	}, [pinToBottom, renderRows.length, scrollElementRef]);
 
 	useLayoutEffect(() => {
 		if (!stickToBottom || renderRows.length === 0) return;
-		const raf = requestAnimationFrame(() => {
-			rowVirtualizer.scrollToIndex(renderRows.length - 1, { align: "end" });
+		let raf2 = 0;
+		const raf1 = requestAnimationFrame(() => {
+			pinToBottom();
+			raf2 = requestAnimationFrame(() => pinToBottom());
 		});
-		return () => cancelAnimationFrame(raf);
-	}, [lastRowChangeKey, renderRows.length, rowVirtualizer, stickToBottom]);
+		return () => {
+			cancelAnimationFrame(raf1);
+			if (raf2) cancelAnimationFrame(raf2);
+		};
+	}, [
+		lastRowChangeKey,
+		pinToBottom,
+		renderRows.length,
+		stickToBottom,
+		totalSize,
+	]);
 
 	useLayoutEffect(() => {
 		const scrollElement = scrollElementRef.current;
 		if (!scrollElement) return;
 		const maxScrollTop = Math.max(
 			0,
-			scrollElement.scrollHeight - scrollElement.clientHeight
+			scrollElement.scrollHeight - scrollElement.clientHeight,
 		);
 		if (scrollElement.scrollTop > maxScrollTop) {
 			scrollElement.scrollTop = maxScrollTop;
 		}
-	}, [renderRows.length, scrollElementRef, totalSize]);
+		if (stickToBottom) pinToBottom();
+	}, [
+		pinToBottom,
+		renderRows.length,
+		scrollElementRef,
+		stickToBottom,
+		totalSize,
+	]);
 
 	useLayoutEffect(() => {
 		if (renderRows.length > 0) return;
