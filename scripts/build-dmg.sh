@@ -33,12 +33,12 @@ echo "Building inferay..."
 rm -rf "${BUILD_DIR}/${APP_NAME}.app"
 
 # Build the Rust-hosted app first.
-bun run build
+bash scripts/build-rust-app.sh
 
 echo "Creating DMG installer..."
 
 if [ -d "${BUILD_DIR}/${APP_NAME}.app" ]; then
-  bun scripts/prepare-release-app.ts "${BUILD_DIR}/${APP_NAME}.app"
+  cargo run -p inferay-tooling -- prepare-release-app "${BUILD_DIR}/${APP_NAME}.app"
 else
   echo "Expected app bundle not found: ${BUILD_DIR}/${APP_NAME}.app"
   exit 1

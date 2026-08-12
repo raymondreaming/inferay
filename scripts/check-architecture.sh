@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "==> Biome focused architecture files"
-bunx biome check \
-	scripts/build-renderer.ts \
+echo "==> Biome focused architecture lint"
+bunx biome lint \
 	src/components/chat/AgentChatView.tsx \
 	src/components/chat/ChatMessageList.tsx \
 	src/components/chat/useAgentChatComposerState.tsx \
@@ -22,16 +21,6 @@ bunx biome check \
 	src/pages/Agent/AgentGrid.tsx \
 	src/pages/Agent/AgentPaneView.tsx \
 	src/pages/Agent/index.tsx \
-	src/server/agents/events.ts \
-	src/server/agents/registry.ts \
-	src/server/app-server.ts \
-	src/server/routes/api.ts \
-	src/server/routes/git.ts \
-	src/server/routes/simulator.ts \
-	src/server/routes/agent.ts \
-	src/server/services/agent-chat.ts \
-	src/server/services/checkpoint.ts \
-	src/server/services/native-core.ts \
 	tests/agent-chat-view-visibility.octane.tsx \
 	tests/agent-inline-diff-parity.test.ts \
 	tests/agent-stream-events.test.ts \
@@ -39,15 +28,11 @@ bunx biome check \
 	tests/chat-connection-behavior.octane.tsx \
 	tests/chat-header-behavior.octane.tsx \
 	tests/chat-input-actions-behavior.octane.tsx \
-	tests/app-server-smoke.test.ts \
 	tests/chat-message-list-memo.test.tsx \
 	tests/chat-queue-behavior.octane.tsx \
 	tests/chat-session-store.test.ts \
 	tests/chat-sync-reconciler.test.ts \
-	tests/chat-transcripts.test.ts \
 	tests/git-diff-view-render.octane.tsx \
-	tests/prompts-and-config.test.ts \
-	tests/simulator-service.test.ts \
 	tests/agent-and-git-behavior.octane.ts \
 	tests/agent-pane-visibility.octane.tsx
 
@@ -59,11 +44,8 @@ echo
 echo "==> Focused architecture tests"
 bun test \
 	tests/agent-inline-diff-parity.test.ts \
-	tests/prompts-and-config.test.ts \
-	tests/simulator-service.test.ts \
 	tests/chat-message-list-memo.test.tsx \
 	tests/chat-behavior.test.ts \
-	tests/chat-transcripts.test.ts \
 	tests/agent-stream-events.test.ts \
 	tests/chat-session-store.test.ts \
 	tests/chat-sync-reconciler.test.ts
@@ -71,12 +53,20 @@ bun test \
 bun run test:renderer
 
 echo
-echo "==> Renderer build"
-bun scripts/build-renderer.ts
+echo "==> Native Rust format"
+cargo fmt --all -- --check
 
 echo
-echo "==> App server renderer smoke"
-bun test tests/app-server-smoke.test.ts
+echo "==> Native Rust lint"
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+echo
+echo "==> Native Rust tests"
+cargo test --workspace
+
+echo
+echo "==> Renderer build"
+bun run build:renderer
 
 echo
 echo "==> React runtime dependency audit"

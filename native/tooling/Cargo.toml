@@ -1,0 +1,12 @@
+[package]
+name = "inferay-tooling"
+version = "0.1.0"
+edition = "2024"
+license = "LicenseRef-Inferay"
+description = "Rust-native development and release tooling for Inferay"
+
+[dependencies]
+notify = "8.2.0"
+serde_json = "1.0"
+sha2 = "0.10.9"
+tempfile = "3.27.0"

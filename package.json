@@ -1,24 +1,24 @@
 {
 	"name": "agent-gui",
-	"module": "index.ts",
 	"type": "module",
 	"private": true,
 	"scripts": {
 		"prepare": "husky",
-		"dev": "bun run build:renderer && bunx concurrently --kill-others \"bun scripts/watch-renderer.ts --dev\" \"cargo run --manifest-path native/desktop-host/Cargo.toml\"",
-		"build:native": "bash scripts/build-native.sh",
-		"build:renderer": "bun scripts/build-renderer.ts",
+		"dev": "bash scripts/dev-app.sh",
+		"build:native": "cargo build --release -p inferay-desktop",
+		"build:renderer": "node node_modules/vite/bin/vite.js build --mode production",
 		"build": "bash scripts/build-rust-app.sh",
-		"start": "cargo run --release --manifest-path native/desktop-host/Cargo.toml",
+		"start": "bun run build:renderer && cargo run --release -p inferay-desktop",
 		"test": "bun run test:unit && bun run test:renderer",
 		"test:unit": "bun test",
 		"test:renderer": "vitest run --config vitest.config.ts",
-		"release": "bun scripts/release.ts",
-		"release:resume": "bun scripts/release.ts --resume",
+		"release": "cargo run -p inferay-tooling -- release",
+		"release:resume": "cargo run -p inferay-tooling -- release --resume",
 		"format": "bunx biome format --write ./src",
 		"check": "bunx biome check --write ./src",
 		"check:architecture": "bash scripts/check-architecture.sh",
-		"check:rust-host": "cargo check --manifest-path native/desktop-host/Cargo.toml"
+		"check:native": "cargo check -p inferay-desktop",
+		"check:rust-host": "cargo check -p inferay-desktop"
 	},
 	"lint-staged": {
 		"*": "prettier --write --ignore-unknown"
