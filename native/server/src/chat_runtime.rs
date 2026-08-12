@@ -211,6 +211,7 @@ impl ChatRuntime {
     ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
         Box::pin(async move {
             let session = self.ensure_session(&input).await;
+            let mut pending_steer_id = None;
             if !already_admitted {
                 let steer_handle = {
                     let mut state = session.lock().await;
@@ -225,41 +226,61 @@ impl ChatRuntime {
                         .then(|| state.current_handle.clone())
                         .flatten()
                 };
-                if let Some(handle) = steer_handle
-                    && handle
-                        .steer_codex(input.text.clone(), input.images.clone())
-                        .await
-                        .is_ok()
-                {
+                if let Some(handle) = steer_handle {
+                    let message_id = Uuid::new_v4().to_string();
                     let display = input.display_text.as_deref().unwrap_or(&input.text);
-                    {
-                        let mut state = session.lock().await;
-                        state.message_buffer.push_user(
-                            display,
-                            (!input.images.is_empty()).then(|| paths_to_strings(&input.images)),
-                        );
-                        state.cancelled = false;
-                    }
-                    self.persistence
-                        .append_event(
-                            &input.pane_id,
-                            "user_message",
-                            json!({"text": input.text, "displayText": display, "images": paths_to_strings(&input.images), "steered": true}),
-                        )
-                        .await;
-                    self.persist(&session).await;
                     self.emit(
                         &session,
                         json!({
-                            "type":"chat:steered",
+                            "type":"chat:steer_pending",
                             "paneId":input.pane_id,
-                            "text":input.text,
-                            "displayText":display,
-                            "images":paths_to_strings(&input.images)
+                            "message":{
+                                "id":message_id,
+                                "text":input.text,
+                                "displayText":display,
+                                "images":paths_to_strings(&input.images),
+                                "transient":true
+                            }
                         }),
                     )
                     .await;
-                    return;
+                    if handle
+                        .steer_codex(input.text.clone(), input.images.clone())
+                        .await
+                        .is_ok()
+                    {
+                        {
+                            let mut state = session.lock().await;
+                            state.message_buffer.push_user_with_id(
+                                message_id.clone(),
+                                display,
+                                (!input.images.is_empty()).then(|| paths_to_strings(&input.images)),
+                            );
+                            state.cancelled = false;
+                        }
+                        self.persistence
+                            .append_event(
+                                &input.pane_id,
+                                "user_message",
+                                json!({"text": input.text, "displayText": display, "images": paths_to_strings(&input.images), "steered": true}),
+                            )
+                            .await;
+                        self.persist(&session).await;
+                        self.emit(
+                            &session,
+                            json!({
+                                "type":"chat:steered",
+                                "paneId":input.pane_id,
+                                "messageId":message_id,
+                                "text":input.text,
+                                "displayText":display,
+                                "images":paths_to_strings(&input.images)
+                            }),
+                        )
+                        .await;
+                        return;
+                    }
+                    pending_steer_id = Some(message_id);
                 }
             }
             let system_prefix = {
@@ -290,7 +311,9 @@ impl ChatRuntime {
                 let prefix = create_system_prefix(&state, input.include_workspace, changed);
                 if !already_admitted && state.turn_active {
                     let queued = serde_json::to_value(QueuedMessageInfo {
-                        id: Uuid::new_v4().to_string(),
+                        id: pending_steer_id
+                            .take()
+                            .unwrap_or_else(|| Uuid::new_v4().to_string()),
                         text: input.text.clone(),
                         display_text: input
                             .display_text
@@ -337,12 +360,27 @@ impl ChatRuntime {
             )
             .await;
             self.persist(&session).await;
-            self.fanout_except(
-                &session,
-                json!({"type":"chat:user_message", "paneId":input.pane_id, "text":input.text}),
-                input.client_id,
-            )
-            .await;
+            if let Some(message_id) = pending_steer_id {
+                self.emit(
+                    &session,
+                    json!({
+                        "type":"chat:steered",
+                        "paneId":input.pane_id,
+                        "messageId":message_id,
+                        "text":input.text,
+                        "displayText":display,
+                        "images":paths_to_strings(&input.images)
+                    }),
+                )
+                .await;
+            } else {
+                self.fanout_except(
+                    &session,
+                    json!({"type":"chat:user_message", "paneId":input.pane_id, "text":input.text}),
+                    input.client_id,
+                )
+                .await;
+            }
 
             let mut prompt = input.text.clone();
             if input.agent_kind == "codex"
@@ -2105,17 +2143,79 @@ mod tests {
         acknowledgement.await.unwrap();
 
         assert!(persistence.read_queue("pane").await.unwrap().is_empty());
+        let pending = receiver.recv().await.unwrap();
+        assert_eq!(pending["type"], "chat:steer_pending");
+        assert_eq!(pending["message"]["displayText"], "Change direction");
+        assert_eq!(pending["message"]["transient"], true);
         let steered = receiver.recv().await.unwrap();
         assert_eq!(steered["type"], "chat:steered");
+        assert_eq!(steered["messageId"], pending["message"]["id"]);
         assert_eq!(steered["text"], "change direction");
         assert_eq!(steered["displayText"], "Change direction");
         let state = session.lock().await;
         assert!(state.turn_active);
         assert_eq!(state.message_buffer.messages().last().unwrap().role, "user");
         assert_eq!(
+            state.message_buffer.messages().last().unwrap().id.as_str(),
+            steered["messageId"].as_str().unwrap()
+        );
+        assert_eq!(
             state.message_buffer.messages().last().unwrap().content,
             "Change direction"
         );
+    }
+
+    #[tokio::test]
+    async fn rejected_codex_steer_stays_in_the_visible_persisted_queue() {
+        let root = tempdir().unwrap();
+        let (runtime, persistence, _) = test_runtime(root.path(), Arc::new(UnusedExecutor));
+        let (sender, mut receiver) = broadcast::channel(8);
+        let handle = AgentProcessHandle::default();
+        let (control_tx, mut control_rx) = tokio::sync::mpsc::unbounded_channel();
+        handle.set_codex_control(control_tx);
+        let session = test_session(root.path(), sender, Some(handle));
+        runtime.sessions.lock().await.insert("pane".into(), session);
+
+        let rejection = tokio::spawn(async move {
+            let Some(crate::agent_runner::CodexControl::Steer { response, .. }) =
+                control_rx.recv().await
+            else {
+                panic!("expected steer request");
+            };
+            response
+                .send(Err("turn no longer accepts steering".into()))
+                .unwrap();
+        });
+        runtime
+            .send_message(SendMessageInput {
+                pane_id: "pane".into(),
+                agent_kind: "codex".into(),
+                client_session_id: None,
+                cwd: root.path().into(),
+                cwd_provided: true,
+                model: Some("gpt-5.6-sol".into()),
+                reasoning_level: Some("high".into()),
+                reasoning_level_provided: true,
+                reference_paths: Vec::new(),
+                reference_paths_provided: true,
+                display_text: Some("Try this next".into()),
+                images: Vec::new(),
+                text: "try this next".into(),
+                client_id: None,
+                client_sender: None,
+                include_workspace: true,
+            })
+            .await;
+        rejection.await.unwrap();
+
+        let pending = receiver.recv().await.unwrap();
+        assert_eq!(pending["type"], "chat:steer_pending");
+        let queue_event = receiver.recv().await.unwrap();
+        assert_eq!(queue_event["type"], "chat:queue");
+        assert_eq!(queue_event["queue"].as_array().unwrap().len(), 1);
+        assert_eq!(queue_event["queue"][0]["id"], pending["message"]["id"]);
+        let stored = persistence.read_queue("pane").await.unwrap();
+        assert_eq!(Value::Array(stored), queue_event["queue"]);
     }
 
     #[tokio::test]

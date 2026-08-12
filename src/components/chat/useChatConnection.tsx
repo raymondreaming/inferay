@@ -75,6 +75,8 @@ export function useChatConnection({
 	messageReadModel,
 	paneId,
 	replaceQueuedMessages,
+	resolveSteeringMessage,
+	stageSteeringMessage,
 	setChatUiState,
 	setRunStatus,
 }: {
@@ -82,6 +84,8 @@ export function useChatConnection({
 	messageReadModel: ChatMessageMutationModel;
 	paneId: string;
 	replaceQueuedMessages: (messages: QueuedMessageInfo[]) => void;
+	resolveSteeringMessage?: (id: string) => void;
+	stageSteeringMessage?: (message: QueuedMessageInfo) => void;
 	setChatUiState: Dispatch<SetStateAction<ChatActivityUiState>>;
 	setRunStatus: (
 		value: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState),
@@ -306,6 +310,12 @@ export function useChatConnection({
 				setChatUiState(clearCompletedChatUiState.bind(null, ids));
 				resetStreamState();
 				wsClient.send({ type: "chat:reconnect", paneId });
+			} else if (
+				msg.type === "chat:steer_pending" &&
+				msg.message &&
+				typeof msg.message.id === "string"
+			) {
+				stageSteeringMessage?.(msg.message as QueuedMessageInfo);
 			} else if (msg.type === "chat:steered") {
 				const content =
 					typeof msg.displayText === "string"
@@ -314,16 +324,21 @@ export function useChatConnection({
 							? msg.text
 							: "";
 				if (content) {
+					const messageId =
+						typeof msg.messageId === "string" ? msg.messageId : nextId();
+					resolveSteeringMessage?.(messageId);
 					messageReadModel.set((prev) =>
-						appendTrimmedMessage(
-							{
-								id: nextId(),
-								role: "user",
-								content,
-								images: Array.isArray(msg.images) ? msg.images : undefined,
-							},
-							prev,
-						),
+						prev.some((message) => message.id === messageId)
+							? prev
+							: appendTrimmedMessage(
+									{
+										id: messageId,
+										role: "user",
+										content,
+										images: Array.isArray(msg.images) ? msg.images : undefined,
+									},
+									prev,
+								),
 					);
 				}
 			} else if (msg.type === "chat:user_message") {
@@ -469,9 +484,11 @@ export function useChatConnection({
 		flushPendingContent,
 		queueMessageContent,
 		replaceQueuedMessages,
+		resolveSteeringMessage,
 		resetStreamState,
 		setChatUiState,
 		setRunStatus,
+		stageSteeringMessage,
 	]);
 
 	return { checkpoints, clearCheckpoints, resetStreamState, revertCheckpoint };

@@ -216,26 +216,30 @@ const QueuedMessageRow = memo(function QueuedMessageRow({
 						/>
 					)}
 					<span {...stylex.props(styles.queueText)}>{message.displayText}</span>
-					<div {...stylex.props(styles.queueActions)}>
-						<IconButton
-							type="button"
-							onClick={() => startQueuedMessageEdit(message.id, message.text)}
-							variant="ghost"
-							size="xs"
-							title="Edit"
-						>
-							<IconPencil size={11} />
-						</IconButton>
-						<IconButton
-							type="button"
-							onClick={() => removeQueuedMessage(message.id)}
-							variant="danger"
-							size="xs"
-							title="Remove from queue"
-						>
-							<IconTrash size={11} />
-						</IconButton>
-					</div>
+					{message.transient ? (
+						<span {...stylex.props(styles.queueIndex)}>Steering…</span>
+					) : (
+						<div {...stylex.props(styles.queueActions)}>
+							<IconButton
+								type="button"
+								onClick={() => startQueuedMessageEdit(message.id, message.text)}
+								variant="ghost"
+								size="xs"
+								title="Edit"
+							>
+								<IconPencil size={11} />
+							</IconButton>
+							<IconButton
+								type="button"
+								onClick={() => removeQueuedMessage(message.id)}
+								variant="danger"
+								size="xs"
+								title="Remove from queue"
+							>
+								<IconTrash size={11} />
+							</IconButton>
+						</div>
+					)}
 				</>
 			)}
 		</div>

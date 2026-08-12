@@ -88,7 +88,7 @@ export interface AgentChatHandle {
 const EMPTY_CWD_LIST: string[] = [];
 
 function useStableCallback<Args extends unknown[], Return>(
-	callback: (...args: Args) => Return
+	callback: (...args: Args) => Return,
 ): (...args: Args) => Return {
 	const callbackRef = useRef(callback);
 	callbackRef.current = callback;
@@ -98,16 +98,16 @@ function useStableCallback<Args extends unknown[], Return>(
 function usePersistentChatMessages(paneId: string) {
 	const messageReadModel = useMemo(
 		() => getChatMessageReadModel(paneId),
-		[paneId]
+		[paneId],
 	);
 	const messages = useSyncExternalStore(
 		messageReadModel.subscribe,
 		messageReadModel.getSnapshot,
-		messageReadModel.getSnapshot
+		messageReadModel.getSnapshot,
 	);
 	const getToolActivities = useCallback(
 		() => extractToolActivities(messageReadModel.get()),
-		[messageReadModel]
+		[messageReadModel],
 	);
 
 	useEffect(() => {
@@ -150,7 +150,7 @@ function useAgentChatSettings(paneId: string, agentKind: AgentKind) {
 		return definition.models.some(hasId.bind(null, stored))
 			? stored!
 			: agentKind === defaults.agentKind &&
-				  definition.models.some(hasId.bind(null, defaults.model))
+					definition.models.some(hasId.bind(null, defaults.model))
 				? defaults.model
 				: definition.defaultModel;
 	});
@@ -163,10 +163,10 @@ function useAgentChatSettings(paneId: string, agentKind: AgentKind) {
 	});
 	const agentDefinition = useMemo(
 		() => getAgentDefinition(agentKind),
-		[agentKind]
+		[agentKind],
 	);
 	const effectiveSelectedModel = agentDefinition.models.some(
-		hasId.bind(null, selectedModel)
+		hasId.bind(null, selectedModel),
 	)
 		? selectedModel
 		: getDefaultModel(agentKind);
@@ -179,7 +179,7 @@ function useAgentChatSettings(paneId: string, agentKind: AgentKind) {
 			},
 			{ id: "codex" as const, label: "Codex", icon: getAgentIcon("codex", 11) },
 		],
-		[]
+		[],
 	);
 	const prevAgentKindRef = useRef(agentKind);
 
@@ -198,7 +198,7 @@ function useAgentChatSettings(paneId: string, agentKind: AgentKind) {
 			setSelectedModel(nextModel);
 			saveStoredModel(paneId, nextModel);
 		},
-		[getDefaultModel, paneId]
+		[getDefaultModel, paneId],
 	);
 	const handleModelChange = useCallback(
 		(model: string) => {
@@ -206,7 +206,7 @@ function useAgentChatSettings(paneId: string, agentKind: AgentKind) {
 			saveStoredModel(paneId, model);
 			clearStoredSessionId(paneId);
 		},
-		[paneId]
+		[paneId],
 	);
 	const handleReasoningLevelChange = useCallback(
 		(reasoningLevel: string) => {
@@ -214,7 +214,7 @@ function useAgentChatSettings(paneId: string, agentKind: AgentKind) {
 			saveStoredReasoningLevel(paneId, reasoningLevel);
 			clearStoredSessionId(paneId);
 		},
-		[paneId]
+		[paneId],
 	);
 
 	return {
@@ -230,7 +230,7 @@ function useAgentChatSettings(paneId: string, agentKind: AgentKind) {
 function useChatViewport(
 	input: string,
 	isSelected?: boolean,
-	isVisible = true
+	isVisible = true,
 ) {
 	type ScrollSnapshot = {
 		atBottom: boolean;
@@ -254,7 +254,7 @@ function useChatViewport(
 		if (!el) return;
 		const fromBottom = Math.max(
 			0,
-			el.scrollHeight - el.scrollTop - el.clientHeight
+			el.scrollHeight - el.scrollTop - el.clientHeight,
 		);
 		scrollSnapshotRef.current = {
 			atBottom: fromBottom < 48,
@@ -287,7 +287,7 @@ function useChatViewport(
 				requestAnimationFrame(() => scrollToBottom(behavior));
 			});
 		},
-		[scrollToBottom]
+		[scrollToBottom],
 	);
 	useLayoutEffect(() => {
 		const wasSelected = wasSelectedRef.current;
@@ -356,7 +356,7 @@ function useChatViewport(
 				scrollToBottom();
 			}
 		},
-		[isAtBottom, scrollToBottom]
+		[isAtBottom, scrollToBottom],
 	);
 	useEffect(() => {
 		if (!isSelected || !isVisible) return;
@@ -378,16 +378,16 @@ function useChatViewport(
 
 function useChatUiState(
 	paneId: string,
-	onStatusChange?: (paneId: string, status: string) => void
+	onStatusChange?: (paneId: string, status: string) => void,
 ) {
 	const runStatusReadModel = useMemo(
 		() => getChatRunStatusReadModel(paneId),
-		[paneId]
+		[paneId],
 	);
 	const runStatus = useSyncExternalStore(
 		runStatusReadModel.subscribe,
 		runStatusReadModel.getSnapshot,
-		runStatusReadModel.getSnapshot
+		runStatusReadModel.getSnapshot,
 	);
 	const [chatUiControls, setChatUiControls] = useState<
 		Pick<ChatUiState, "expandedTools" | "liveActivities">
@@ -400,17 +400,17 @@ function useChatUiState(
 			...runStatus,
 			...chatUiControls,
 		}),
-		[chatUiControls, runStatus]
+		[chatUiControls, runStatus],
 	);
 	const setRunStatus = useCallback(
 		(
-			value: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState)
+			value: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState),
 		) => {
 			const prev = runStatusReadModel.get();
 			const next = runStatusReadModel.set(value);
 			if (prev.status !== next.status) onStatusChange?.(paneId, next.status);
 		},
-		[onStatusChange, paneId, runStatusReadModel]
+		[onStatusChange, paneId, runStatusReadModel],
 	);
 	const setExpandedTools = useCallback(
 		(value: Set<string> | ((prev: Set<string>) => Set<string>)) => {
@@ -421,7 +421,7 @@ function useChatUiState(
 				return { ...prev, expandedTools };
 			});
 		},
-		[]
+		[],
 	);
 
 	return {
@@ -437,11 +437,11 @@ function usePendingChatWorkspace(
 	cwd: string | undefined,
 	onDirectoryChange:
 		| ((paneId: string, cwd: string, referencePaths?: string[]) => void)
-		| undefined
+		| undefined,
 ) {
 	const pendingWorkspacePathsRef = useRef<string[]>([]);
 	const [pendingWorkspacePaths, setPendingWorkspacePaths] = useState(() =>
-		loadPendingWorkspacePaths(paneId).filter(Boolean)
+		loadPendingWorkspacePaths(paneId).filter(Boolean),
 	);
 	const visibleCwd = cwd ?? pendingWorkspacePaths[0];
 	const cwdList = useMemo(() => (visibleCwd ? [visibleCwd] : []), [visibleCwd]);
@@ -464,7 +464,7 @@ function usePendingChatWorkspace(
 			onDirectoryChange?.(
 				paneId,
 				selectedWorkspace.cwd,
-				selectedWorkspace.referencePaths
+				selectedWorkspace.referencePaths,
 			);
 			clearPendingWorkspacePaths();
 		}
@@ -477,7 +477,7 @@ function usePendingChatWorkspace(
 			setPendingWorkspacePaths(nextPaths);
 			savePendingWorkspacePaths(paneId, nextPaths);
 		},
-		[paneId]
+		[paneId],
 	);
 
 	return {
@@ -512,7 +512,7 @@ interface AgentChatViewProps {
 	onDirectoryChange?: (
 		paneId: string,
 		cwd: string,
-		referencePaths?: string[]
+		referencePaths?: string[],
 	) => void;
 	onDirectoryCancel?: (paneId: string) => void;
 	/** Called when user wants to add a new pane of a specific agent kind */
@@ -550,7 +550,7 @@ export const AgentChatView = memo(function AgentChatView({
 		usePersistentChatMessages(paneId);
 	const visibleMessages = useMemo(
 		() => windowChatMessagesForRender(messages),
-		[messages]
+		[messages],
 	);
 	const {
 		agentKindOptions,
@@ -583,7 +583,7 @@ export const AgentChatView = memo(function AgentChatView({
 			if (inputSaveTimerRef.current) return;
 			inputSaveTimerRef.current = setTimeout(flushInputSave, 250);
 		},
-		[flushInputSave]
+		[flushInputSave],
 	);
 	useEffect(() => () => flushInputSave(), [flushInputSave]);
 	const {
@@ -601,7 +601,7 @@ export const AgentChatView = memo(function AgentChatView({
 		providedGitBranch === undefined && renderVisibleChat;
 	const { projects: gitProjects } = useGitStatus(
 		shouldLoadGitBranch ? cwdList : EMPTY_CWD_LIST,
-		{ enabled: shouldLoadGitBranch && cwdList.length > 0 }
+		{ enabled: shouldLoadGitBranch && cwdList.length > 0 },
 	);
 	const gitBranch = providedGitBranch ?? gitProjects[0]?.branch ?? null;
 
@@ -628,6 +628,8 @@ export const AgentChatView = memo(function AgentChatView({
 		attachedImages,
 		queuedMessages,
 		replaceQueuedMessages,
+		resolveSteeringMessage,
+		stageSteeringMessage,
 		removeQueuedMessage,
 		updateQueuedMessage,
 		editingQueueId,
@@ -676,6 +678,8 @@ export const AgentChatView = memo(function AgentChatView({
 			messageReadModel,
 			paneId,
 			replaceQueuedMessages,
+			resolveSteeringMessage,
+			stageSteeringMessage,
 			setChatUiState,
 			setRunStatus,
 		});
@@ -717,7 +721,7 @@ export const AgentChatView = memo(function AgentChatView({
 		textareaRef,
 	});
 	const handleSendMessage = useStableCallback((text: string) =>
-		sendUserMessage({ text, workspaceOverride: consumePendingWorkspace() })
+		sendUserMessage({ text, workspaceOverride: consumePendingWorkspace() }),
 	);
 	const handleMdFileClickFromMessage = useStableCallback(handleMdFileClick);
 	const revertCheckpointFromMessage = useStableCallback(revertCheckpoint);
@@ -777,7 +781,7 @@ export const AgentChatView = memo(function AgentChatView({
 			stopGeneration,
 			textareaRef,
 			updateQueuedMessage,
-		]
+		],
 	);
 
 	const toggleTool = useCallback(
@@ -788,7 +792,7 @@ export const AgentChatView = memo(function AgentChatView({
 				return next;
 			});
 		},
-		[setExpandedTools]
+		[setExpandedTools],
 	);
 	const voiceInput = useMemo(
 		() => ({
@@ -797,7 +801,7 @@ export const AgentChatView = memo(function AgentChatView({
 			isSupported: isSpeechSupported,
 			onToggleListening: toggleSpeechListening,
 		}),
-		[isSpeechListening, isSpeechSupported, speechError, toggleSpeechListening]
+		[isSpeechListening, isSpeechSupported, speechError, toggleSpeechListening],
 	);
 
 	return (
@@ -815,7 +819,7 @@ export const AgentChatView = memo(function AgentChatView({
 				const transfer = event.dataTransfer;
 				if (!transfer) return;
 				const hasImage = Array.from(transfer.items).some(
-					(item) => item.kind === "file" && item.type.startsWith("image/")
+					(item) => item.kind === "file" && item.type.startsWith("image/"),
 				);
 				if (!hasImage) return;
 				event.preventDefault();

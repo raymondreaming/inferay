@@ -57,6 +57,18 @@ impl ChatMessageBuffer {
         self.push(message);
     }
 
+    pub fn push_user_with_id(
+        &mut self,
+        id: impl Into<String>,
+        text: &str,
+        images: Option<Vec<String>>,
+    ) {
+        let mut message = ChatTranscriptMessage::new("user", text);
+        message.id = id.into();
+        message.images = images.filter(|images| !images.is_empty());
+        self.push(message);
+    }
+
     pub fn push_system(&mut self, text: &str) {
         self.push(ChatTranscriptMessage::new("system", text));
     }

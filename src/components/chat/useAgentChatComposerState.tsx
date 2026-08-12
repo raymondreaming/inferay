@@ -47,7 +47,7 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 	const queuedMessages = useSyncExternalStore(
 		queueReadModel.subscribe,
 		queueReadModel.getSnapshot,
-		queueReadModel.getSnapshot
+		queueReadModel.getSnapshot,
 	);
 	const [editingQueueId, setEditingQueueId] = useState<string | null>(null);
 	const [editingQueueText, setEditingQueueText] = useState("");
@@ -98,36 +98,62 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 
 	const replaceQueuedMessages = useCallback(
 		(messages: QueuedMessageInfo[]) => {
-			queueReadModel.replaceFromServer(messages);
+			const persistedIds = new Set(messages.map((message) => message.id));
+			const pending = queueReadModel
+				.get()
+				.filter(
+					(message) => message.transient && !persistedIds.has(message.id),
+				);
+			queueReadModel.replaceFromServer([...messages, ...pending]);
 		},
-		[queueReadModel]
+		[queueReadModel],
+	);
+
+	const stageSteeringMessage = useCallback(
+		(message: QueuedMessageInfo) => {
+			queueReadModel.replaceFromServer([
+				...queueReadModel.get().filter((item) => item.id !== message.id),
+				{ ...message, transient: true },
+			]);
+		},
+		[queueReadModel],
+	);
+
+	const resolveSteeringMessage = useCallback(
+		(id: string) => {
+			queueReadModel.replaceFromServer(
+				queueReadModel.get().filter((message) => message.id !== id),
+			);
+		},
+		[queueReadModel],
 	);
 
 	const removeQueuedMessage = useCallback(
 		(id: string) => {
 			const queue = queueReadModel.get();
-			if (!queue.some((item) => item.id === id)) return;
+			const existing = queue.find((item) => item.id === id);
+			if (!existing || existing.transient) return;
 			queueReadModel.setLocal(queue.filter(lacksId.bind(null, id)));
 			if (editingQueueId === id) {
 				setEditingQueueId(null);
 				setEditingQueueText("");
 			}
 		},
-		[editingQueueId, queueReadModel]
+		[editingQueueId, queueReadModel],
 	);
 
 	const updateQueuedMessage = useCallback(
 		(id: string, text: string) => {
 			const queue = queueReadModel.get();
 			const existing = queue.find((item) => item.id === id);
-			if (!existing || existing.text === text) return;
+			if (!existing || existing.transient || existing.text === text) return;
 			queueReadModel.setLocal(
 				queue.map((item) =>
-					item.id === id ? { ...item, text, displayText: text } : item
-				)
+					item.id === id ? { ...item, text, displayText: text } : item,
+				),
 			);
 		},
-		[queueReadModel]
+		[queueReadModel],
 	);
 
 	const startQueuedMessageEdit = useCallback((id: string, text: string) => {
@@ -146,7 +172,7 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 			if (trimmed) updateQueuedMessage(id, trimmed);
 			cancelQueuedMessageEdit();
 		},
-		[cancelQueuedMessageEdit, editingQueueText, updateQueuedMessage]
+		[cancelQueuedMessageEdit, editingQueueText, updateQueuedMessage],
 	);
 
 	const attachImage = useCallback(async (file: File) => {
@@ -193,7 +219,7 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 				if (file.type.startsWith("image/")) await attachImage(file);
 			}
 		},
-		[attachImage]
+		[attachImage],
 	);
 
 	const handlePaste = useCallback(
@@ -208,7 +234,7 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 				}
 			}
 		},
-		[attachImage]
+		[attachImage],
 	);
 
 	useEffect(
@@ -217,13 +243,15 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 				URL.revokeObjectURL(img.previewUrl);
 			}
 		},
-		[]
+		[],
 	);
 
 	return {
 		attachedImages,
 		queuedMessages,
 		replaceQueuedMessages,
+		stageSteeringMessage,
+		resolveSteeringMessage,
 		removeQueuedMessage,
 		updateQueuedMessage,
 		editingQueueId,

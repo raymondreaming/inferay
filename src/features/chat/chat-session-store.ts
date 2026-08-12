@@ -72,7 +72,7 @@ export interface ChatMessageReadModel {
 	loadAsync: () => Promise<void>;
 	saveNow: (messages: ChatMessage[]) => ChatMessage[];
 	set: (
-		update: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])
+		update: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[]),
 	) => void;
 	setSummaryChangeCallback: (callback: () => void) => void;
 	subscribe: (listener: ChatMessageReadModelListener) => () => void;
@@ -88,11 +88,11 @@ export interface ChatCheckpointReadModel {
 			changedFiles: CheckpointInfo["changedFiles"];
 			timestamp?: number;
 		},
-		messages: readonly ChatMessage[]
+		messages: readonly ChatMessage[],
 	) => void;
 	markReverted: (checkpointId: string) => void;
 	set: (
-		update: CheckpointInfo[] | ((prev: CheckpointInfo[]) => CheckpointInfo[])
+		update: CheckpointInfo[] | ((prev: CheckpointInfo[]) => CheckpointInfo[]),
 	) => void;
 	subscribe: (listener: ChatCheckpointReadModelListener) => () => void;
 }
@@ -105,7 +105,7 @@ export interface ChatQueueReadModel {
 	setLocal: (
 		update:
 			| QueuedMessageInfo[]
-			| ((prev: QueuedMessageInfo[]) => QueuedMessageInfo[])
+			| ((prev: QueuedMessageInfo[]) => QueuedMessageInfo[]),
 	) => void;
 	subscribe: (listener: ChatQueueReadModelListener) => () => void;
 }
@@ -115,7 +115,7 @@ export interface ChatRunStatusReadModel {
 	get: () => ChatLoadingState;
 	getSnapshot: () => ChatLoadingState;
 	set: (
-		update: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState)
+		update: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState),
 	) => ChatLoadingState;
 	subscribe: (listener: ChatRunStatusReadModelListener) => () => void;
 }
@@ -162,14 +162,14 @@ async function readIndexedChatMessages<T>(paneId: string): Promise<T[]> {
 
 async function writeIndexedChatMessages<T>(
 	paneId: string,
-	messages: T[]
+	messages: T[],
 ): Promise<void> {
 	const db = await openChatCacheDb();
 	if (!db) return;
 	await new Promise<void>((resolve) => {
 		const tx = db.transaction(
 			[CHAT_CONVERSATIONS_STORE, CHAT_MESSAGES_STORE],
-			"readwrite"
+			"readwrite",
 		);
 		tx.objectStore(CHAT_CONVERSATIONS_STORE).put({
 			paneId,
@@ -212,7 +212,7 @@ async function deleteIndexedChatMessages(paneId: string): Promise<void> {
 	await new Promise<void>((resolve) => {
 		const tx = db.transaction(
 			[CHAT_CONVERSATIONS_STORE, CHAT_MESSAGES_STORE],
-			"readwrite"
+			"readwrite",
 		);
 		tx.objectStore(CHAT_CONVERSATIONS_STORE).delete(paneId);
 		const messageStore = tx.objectStore(CHAT_MESSAGES_STORE);
@@ -241,7 +241,7 @@ function writePaneJson<T>(prefix: string, paneId: string, value: T) {
 function readPaneValue(
 	prefix: string,
 	paneId: string,
-	fallback: string | null = null
+	fallback: string | null = null,
 ): string | null {
 	return readStoredValue(storageKey(prefix, paneId), fallback);
 }
@@ -264,7 +264,7 @@ function readPreferenceRows(): DbPreference[] {
 			typeof row === "object" &&
 			typeof (row as DbPreference).id === "string" &&
 			typeof (row as DbPreference).valueJson === "string" &&
-			typeof (row as DbPreference).updatedAt === "number"
+			typeof (row as DbPreference).updatedAt === "number",
 	);
 }
 
@@ -295,7 +295,7 @@ function removePreference(id: string) {
 function listLocalStorageKeys(): string[] {
 	try {
 		return Array.from({ length: localStorage.length }, (_, index) =>
-			localStorage.key(index)
+			localStorage.key(index),
 		).filter(isString);
 	} catch {
 		return [];
@@ -343,7 +343,7 @@ export function saveStoredMessages<T>(paneId: string, messages: T[]) {
 }
 
 function dedupeStoredChatMessages<T extends { id: string }>(
-	messages: T[]
+	messages: T[],
 ): T[] {
 	let hasDuplicate = false;
 	const seen = new Set<string>();
@@ -368,9 +368,9 @@ function prepareChatMessagesForStorage(messages: ChatMessage[]): ChatMessage[] {
 	return prepareTranscriptForStorage(
 		trimMessages(
 			compactAdjacentDuplicateTranscriptMessages(
-				dedupeStoredChatMessages(messages)
-			)
-		)
+				dedupeStoredChatMessages(messages),
+			),
+		),
 	) as ChatMessage[];
 }
 
@@ -380,8 +380,8 @@ function loadInitialChatMessages(paneId: string): ChatMessage[] {
 			loadStoredMessages<ChatMessage>(paneId).map((message) => ({
 				...message,
 				isStreaming: false,
-			}))
-		)
+			})),
+		),
 	);
 }
 
@@ -431,20 +431,22 @@ function createChatMessageReadModel(paneId: string): ChatMessageReadModel {
 		_summary ??= deriveStoredSummary(
 			paneId,
 			nextMessages,
-			summaryChangeCallback
+			summaryChangeCallback,
 		);
 		if (saveTimer) return;
 		saveTimer = setTimeout(flush, MESSAGE_SAVE_INTERVAL_MS);
 	};
 	const set = (
-		update: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])
+		update: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[]),
 	) => {
 		const next =
 			typeof update === "function"
 				? (update as (prev: ChatMessage[]) => ChatMessage[])(messages)
 				: update;
 		const deduped = trimMessages(
-			compactAdjacentDuplicateTranscriptMessages(dedupeStoredChatMessages(next))
+			compactAdjacentDuplicateTranscriptMessages(
+				dedupeStoredChatMessages(next),
+			),
 		);
 		if (deduped === messages) return;
 		messages = deduped;
@@ -462,9 +464,9 @@ function createChatMessageReadModel(paneId: string): ChatMessageReadModel {
 					cachedMessages.map((message) => ({
 						...message,
 						isStreaming: false,
-					}))
-				)
-			)
+					})),
+				),
+			),
 		);
 		if (nextMessages.length === 0) return;
 		messages = nextMessages;
@@ -503,7 +505,7 @@ export function getChatMessageReadModel(paneId: string): ChatMessageReadModel {
 export function loadStoredInput(paneId: string): string {
 	return loadPreference(
 		storageKey(INPUT_KEY_PREFIX, paneId),
-		readPaneValue(INPUT_KEY_PREFIX, paneId, "") ?? ""
+		readPaneValue(INPUT_KEY_PREFIX, paneId, "") ?? "",
 	);
 }
 
@@ -515,7 +517,7 @@ export function saveStoredInput(paneId: string, value: string) {
 export function loadPendingSend(paneId: string): string {
 	return loadPreference(
 		storageKey(PENDING_SEND_KEY_PREFIX, paneId),
-		readPaneValue(PENDING_SEND_KEY_PREFIX, paneId, "") ?? ""
+		readPaneValue(PENDING_SEND_KEY_PREFIX, paneId, "") ?? "",
 	);
 }
 
@@ -532,7 +534,7 @@ export function clearPendingSend(paneId: string) {
 export function loadStoredCheckpoints<T>(paneId: string): T[] {
 	return loadPreference(
 		storageKey(CHECKPOINT_KEY_PREFIX, paneId),
-		readPaneJson(CHECKPOINT_KEY_PREFIX, paneId, [])
+		readPaneJson(CHECKPOINT_KEY_PREFIX, paneId, []),
 	);
 }
 
@@ -542,7 +544,7 @@ export function saveStoredCheckpoints<T>(paneId: string, checkpoints: T[]) {
 }
 
 function createChatCheckpointReadModel(
-	paneId: string
+	paneId: string,
 ): ChatCheckpointReadModel {
 	let checkpoints = loadStoredCheckpoints<CheckpointInfo>(paneId);
 	const listeners = new Set<ChatCheckpointReadModelListener>();
@@ -550,7 +552,7 @@ function createChatCheckpointReadModel(
 		for (const listener of listeners) listener();
 	};
 	const set = (
-		update: CheckpointInfo[] | ((prev: CheckpointInfo[]) => CheckpointInfo[])
+		update: CheckpointInfo[] | ((prev: CheckpointInfo[]) => CheckpointInfo[]),
 	) => {
 		const next = typeof update === "function" ? update(checkpoints) : update;
 		if (next === checkpoints) return;
@@ -566,21 +568,21 @@ function createChatCheckpointReadModel(
 				prev.map((checkpoint) =>
 					checkpoint.id === checkpointId
 						? { ...checkpoint, reverted: true }
-						: checkpoint
-				)
+						: checkpoint,
+				),
 			);
 		},
 		recordFinalized: (event, messages) => {
 			if (event.changedFileCount <= 0) return;
 			const lastMessage =
 				messages.findLast?.(
-					(message) => message.role === "assistant" && !message.isStreaming
+					(message) => message.role === "assistant" && !message.isStreaming,
 				) ?? messages.findLast?.((message) => message.role === "assistant");
 			if (!lastMessage) return;
 			set((prev) => {
 				if (
 					prev.some(
-						(checkpoint) => checkpoint.afterMessageId === lastMessage.id
+						(checkpoint) => checkpoint.afterMessageId === lastMessage.id,
 					)
 				) {
 					return prev;
@@ -609,7 +611,7 @@ function createChatCheckpointReadModel(
 }
 
 export function getChatCheckpointReadModel(
-	paneId: string
+	paneId: string,
 ): ChatCheckpointReadModel {
 	let model = chatCheckpointReadModels.get(paneId);
 	if (!model) {
@@ -622,7 +624,7 @@ export function getChatCheckpointReadModel(
 export function loadStoredSessionId(paneId: string): string | null {
 	return loadPreference(
 		storageKey(SESSION_KEY_PREFIX, paneId),
-		readPaneValue(SESSION_KEY_PREFIX, paneId)
+		readPaneValue(SESSION_KEY_PREFIX, paneId),
 	);
 }
 
@@ -639,7 +641,7 @@ export function clearStoredSessionId(paneId: string) {
 export function loadStoredModel(paneId: string): string | null {
 	return loadPreference(
 		storageKey(MODEL_KEY_PREFIX, paneId),
-		readPaneValue(MODEL_KEY_PREFIX, paneId)
+		readPaneValue(MODEL_KEY_PREFIX, paneId),
 	);
 }
 
@@ -651,13 +653,13 @@ export function saveStoredModel(paneId: string, modelId: string) {
 export function loadStoredReasoningLevel(paneId: string): string | null {
 	return loadPreference(
 		storageKey(REASONING_KEY_PREFIX, paneId),
-		readPaneValue(REASONING_KEY_PREFIX, paneId)
+		readPaneValue(REASONING_KEY_PREFIX, paneId),
 	);
 }
 
 export function saveStoredReasoningLevel(
 	paneId: string,
-	reasoningLevel: string
+	reasoningLevel: string,
 ) {
 	writePaneValue(REASONING_KEY_PREFIX, paneId, reasoningLevel);
 	savePreference(storageKey(REASONING_KEY_PREFIX, paneId), reasoningLevel);
@@ -666,7 +668,7 @@ export function saveStoredReasoningLevel(
 function loadStoredSummary(paneId: string): string | null {
 	return loadPreference(
 		storageKey(SUMMARY_KEY_PREFIX, paneId),
-		readPaneValue(SUMMARY_KEY_PREFIX, paneId)
+		readPaneValue(SUMMARY_KEY_PREFIX, paneId),
 	);
 }
 
@@ -678,7 +680,7 @@ function saveStoredSummary(paneId: string, summary: string) {
 export function deriveStoredSummary(
 	paneId: string,
 	messages: { role: string; content: string }[] = [],
-	onStored?: () => void
+	onStored?: () => void,
 ): string | null {
 	const existing = loadStoredSummary(paneId);
 	if (existing) return existing;
@@ -706,7 +708,7 @@ export function loadPendingWorkspacePaths(paneId: string): string[] {
 	const parsed = readPaneJson<unknown>(
 		PENDING_WORKSPACE_KEY_PREFIX,
 		paneId,
-		[]
+		[],
 	);
 	return Array.isArray(parsed) ? parsed.filter(isString) : [];
 }
@@ -724,11 +726,11 @@ export function loadStoredQueue<T>(paneId: string): T[] {
 }
 
 export async function loadFileBackedQueue<T>(
-	paneId: string
+	paneId: string,
 ): Promise<T[] | null> {
 	try {
 		const response = await fetch(
-			`/api/chat-queues/${encodeURIComponent(paneId)}`
+			`/api/chat-queues/${encodeURIComponent(paneId)}`,
 		);
 		if (!response.ok) return null;
 		const payload = (await response.json()) as { queue?: unknown };
@@ -740,7 +742,7 @@ export async function loadFileBackedQueue<T>(
 
 async function saveFileBackedQueue<T>(
 	paneId: string,
-	queue: T[]
+	queue: T[],
 ): Promise<void> {
 	if (queue.length === 0) {
 		await fetch(`/api/chat-queues/${encodeURIComponent(paneId)}`, {
@@ -751,13 +753,13 @@ async function saveFileBackedQueue<T>(
 	await sendJson(
 		`/api/chat-queues/${encodeURIComponent(paneId)}`,
 		{ queue },
-		{ method: "PUT" }
+		{ method: "PUT" },
 	);
 }
 
 async function flushQueuedFileSave(
 	paneId: string,
-	state: { queue: unknown[]; inFlight: boolean }
+	state: { queue: unknown[]; inFlight: boolean },
 ) {
 	state.inFlight = true;
 	while (pendingQueueFileSaves.get(paneId) === state) {
@@ -794,7 +796,7 @@ export function saveStoredQueue<T>(paneId: string, queue: T[]) {
 
 function areQueuedMessagesEqual(
 	prev: QueuedMessageInfo[],
-	next: QueuedMessageInfo[]
+	next: QueuedMessageInfo[],
 ) {
 	if (prev.length !== next.length) return false;
 	for (let i = 0; i < prev.length; i++) {
@@ -804,6 +806,7 @@ function areQueuedMessagesEqual(
 			a.id !== b.id ||
 			a.text !== b.text ||
 			a.displayText !== b.displayText ||
+			a.transient !== b.transient ||
 			(a.images?.length ?? 0) !== (b.images?.length ?? 0)
 		) {
 			return false;
@@ -827,7 +830,7 @@ function createChatQueueReadModel(paneId: string): ChatQueueReadModel {
 	};
 	const setSnapshot = (
 		next: QueuedMessageInfo[],
-		options: { persist: boolean }
+		options: { persist: boolean },
 	) => {
 		if (areQueuedMessagesEqual(queue, next)) return;
 		revision++;
@@ -838,7 +841,7 @@ function createChatQueueReadModel(paneId: string): ChatQueueReadModel {
 	const setLocal = (
 		update:
 			| QueuedMessageInfo[]
-			| ((prev: QueuedMessageInfo[]) => QueuedMessageInfo[])
+			| ((prev: QueuedMessageInfo[]) => QueuedMessageInfo[]),
 	) => {
 		const next = typeof update === "function" ? update(queue) : update;
 		setSnapshot(next, { persist: true });
@@ -883,7 +886,7 @@ function createChatRunStatusReadModel(): ChatRunStatusReadModel {
 		for (const listener of listeners) listener();
 	};
 	const set = (
-		update: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState)
+		update: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState),
 	) => {
 		const next = typeof update === "function" ? update(runStatus) : update;
 		if (
@@ -912,7 +915,7 @@ function createChatRunStatusReadModel(): ChatRunStatusReadModel {
 }
 
 export function getChatRunStatusReadModel(
-	paneId: string
+	paneId: string,
 ): ChatRunStatusReadModel {
 	let model = chatRunStatusReadModels.get(paneId);
 	if (!model) {

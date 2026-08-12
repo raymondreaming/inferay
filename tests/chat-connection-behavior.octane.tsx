@@ -460,6 +460,8 @@ test("accepted steering appears immediately without resetting the active assista
 	);
 	let handleMessage: ((message: unknown) => void) | undefined;
 	let latestMessages: ChatMessage[] = [];
+	const stagedSteers: string[] = [];
+	const resolvedSteers: string[] = [];
 	subscribe.mockImplementationOnce((_paneId, callback) => {
 		handleMessage = callback;
 		return subscribeCleanup;
@@ -499,6 +501,8 @@ test("accepted steering appears immediately without resetting the active assista
 			messageReadModel,
 			paneId: "pane-steer",
 			replaceQueuedMessages: () => {},
+			stageSteeringMessage: (message) => stagedSteers.push(message.id),
+			resolveSteeringMessage: (id) => resolvedSteers.push(id),
 			setChatUiState: setUiState,
 			setRunStatus: () => {},
 		});
@@ -509,14 +513,35 @@ test("accepted steering appears immediately without resetting the active assista
 		root.render(<Harness />);
 		await tick();
 		handleMessage?.({
+			type: "chat:steer_pending",
+			paneId: "pane-steer",
+			message: {
+				id: "steer-1",
+				text: "raw steering",
+				displayText: "Change direction",
+				transient: true,
+			},
+		});
+		handleMessage?.({
 			type: "chat:steered",
 			paneId: "pane-steer",
+			messageId: "steer-1",
+			text: "raw steering",
+			displayText: "Change direction",
+			images: ["/tmp/reference.png"],
+		});
+		handleMessage?.({
+			type: "chat:steered",
+			paneId: "pane-steer",
+			messageId: "steer-1",
 			text: "raw steering",
 			displayText: "Change direction",
 			images: ["/tmp/reference.png"],
 		});
 		await tick();
 
+		expect(stagedSteers).toEqual(["steer-1"]);
+		expect(resolvedSteers).toEqual(["steer-1", "steer-1"]);
 		expect(latestMessages).toHaveLength(3);
 		expect(latestMessages[1]).toMatchObject({
 			id: "a1",
@@ -524,6 +549,7 @@ test("accepted steering appears immediately without resetting the active assista
 			isStreaming: true,
 		});
 		expect(latestMessages[2]).toMatchObject({
+			id: "steer-1",
 			role: "user",
 			content: "Change direction",
 			images: ["/tmp/reference.png"],

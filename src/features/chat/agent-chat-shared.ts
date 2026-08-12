@@ -3,6 +3,7 @@ export interface QueuedMessageInfo {
 	text: string;
 	displayText: string;
 	images?: string[];
+	transient?: boolean;
 }
 
 export interface AttachedImageInfo {
@@ -127,7 +128,7 @@ export type ChatServerMessage = {
 };
 
 export function isChatServerMessage(
-	value: unknown
+	value: unknown,
 ): value is ChatServerMessage {
 	if (!value || typeof value !== "object") return false;
 	const message = value as Record<string, unknown>;
@@ -152,7 +153,7 @@ export function nextId() {
 
 export function truncateChatContent(
 	content: string,
-	maxChars = CHAT_SINGLE_MESSAGE_CHAR_LIMIT
+	maxChars = CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
 ): string {
 	if (content.length <= maxChars) return content;
 	if (maxChars <= CHAT_TRUNCATION_MARKER.length) {
@@ -160,13 +161,13 @@ export function truncateChatContent(
 	}
 	const prefixLength = Math.min(
 		Math.floor(maxChars / 4),
-		maxChars - CHAT_TRUNCATION_MARKER.length
+		maxChars - CHAT_TRUNCATION_MARKER.length,
 	);
 	const suffixLength = maxChars - CHAT_TRUNCATION_MARKER.length - prefixLength;
 	if (suffixLength <= 0) {
 		return (content.slice(0, prefixLength) + CHAT_TRUNCATION_MARKER).slice(
 			0,
-			maxChars
+			maxChars,
 		);
 	}
 	return (
@@ -179,7 +180,7 @@ export function truncateChatContent(
 export function appendBoundedChatContent(
 	current: string,
 	delta: string,
-	maxChars = CHAT_SINGLE_MESSAGE_CHAR_LIMIT
+	maxChars = CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
 ): string {
 	if (!delta) return current;
 	if (current.length + delta.length <= maxChars) return current + delta;
@@ -190,7 +191,7 @@ export function appendBoundedChatContent(
 	}
 	const prefixLength = Math.min(
 		Math.floor(maxChars / 4),
-		maxChars - CHAT_TRUNCATION_MARKER.length
+		maxChars - CHAT_TRUNCATION_MARKER.length,
 	);
 	const prefix = current.slice(0, prefixLength);
 	const suffixLength = maxChars - CHAT_TRUNCATION_MARKER.length - prefix.length;
@@ -223,7 +224,7 @@ export function trimMessages<T extends { content: string }>(msgs: T[]): T[] {
 	if (normalized) trimmed = normalized;
 	let totalChars = trimmed.reduce(
 		(sum, message) => sum + message.content.length,
-		0
+		0,
 	);
 	while (totalChars > CHAT_MESSAGE_CHAR_LIMIT && trimmed.length > 1) {
 		totalChars -= trimmed[0]?.content.length ?? 0;
@@ -235,13 +236,13 @@ export function trimMessages<T extends { content: string }>(msgs: T[]): T[] {
 
 export function appendTrimmedMessage(
 	msg: ChatMessage,
-	msgs: ChatMessage[]
+	msgs: ChatMessage[],
 ): ChatMessage[] {
 	return trimMessages([...msgs, msg]);
 }
 
 function transcriptDuplicateKey(
-	message: Pick<ChatMessage, "content" | "isStreaming" | "role"> | undefined
+	message: Pick<ChatMessage, "content" | "isStreaming" | "role"> | undefined,
 ) {
 	if (!message?.content || message.isStreaming) return null;
 	if (message.role === "assistant") return `assistant:${message.content}`;
@@ -271,6 +272,6 @@ export function prepareTranscriptForStorage<
 	T extends { isStreaming?: boolean },
 >(messages: T[]): Array<Omit<T, "isStreaming"> & { isStreaming?: boolean }> {
 	return messages.map((message) =>
-		message.isStreaming ? { ...message, isStreaming: false } : message
+		message.isStreaming ? { ...message, isStreaming: false } : message,
 	);
 }
