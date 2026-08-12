@@ -1,5 +1,4 @@
 import * as stylex from "@octanejs/stylex";
-import { useVirtualizer } from "@octanejs/tanstack-virtual";
 import {
 	memo,
 	useCallback,
@@ -70,10 +69,6 @@ type ChatRenderRow =
 const CHAT_LIST_TOP_PADDING_PX = 16;
 const CHAT_LIST_BOTTOM_PADDING_PX = 16;
 const CHAT_LIST_INLINE_GUTTER = "clamp(0.75rem, 3vw, 1.25rem)";
-
-function measureVirtualRow(element: HTMLElement) {
-	return Math.ceil(element.getBoundingClientRect().height);
-}
 
 function getRowKey(row: ChatRenderRow | undefined, index: number) {
 	if (!row) return `row-${index}`;
@@ -662,34 +657,6 @@ export const ChatMessageList = memo(function ChatMessageList({
 		lastRow?.type === "message"
 			? `${lastRow.message.id}:${lastRow.message.content.length}:${lastRow.message.isStreaming ? 1 : 0}`
 			: `${lastRow?.type ?? "none"}:${renderRows.length}`;
-	const getVirtualRowKey = useCallback(
-		(index: number) => getRowKey(renderRows[index], index),
-		[renderRows],
-	);
-	const rowVirtualizer = useVirtualizer({
-		count: renderRows.length,
-		getScrollElement: () => scrollElementRef.current,
-		getItemKey: getVirtualRowKey,
-		estimateSize: () => 148,
-		measureElement: measureVirtualRow,
-		overscan: 8,
-		gap: 8,
-		paddingEnd: CHAT_LIST_BOTTOM_PADDING_PX,
-		paddingStart: CHAT_LIST_TOP_PADDING_PX,
-		useAnimationFrameWithResizeObserver: true,
-	});
-	const totalSize = rowVirtualizer.getTotalSize();
-	const virtualRows = rowVirtualizer.getVirtualItems();
-	const renderedVirtualRows =
-		virtualRows.length > 0 || renderRows.length === 0
-			? virtualRows
-			: [
-					{
-						index: renderRows.length - 1,
-						key: `fallback-${renderRows.length - 1}`,
-						start: Math.max(0, rowVirtualizer.getTotalSize() - 148),
-					},
-				];
 	const checkpointsByMessageId = useMemo(() => {
 		const byMessageId = new Map<string, CheckpointInfo>();
 		for (const checkpoint of checkpoints) {
@@ -703,10 +670,9 @@ export const ChatMessageList = memo(function ChatMessageList({
 		(behavior: ScrollBehavior = "auto") => {
 			const element = scrollElementRef.current;
 			if (!element) return;
-			rowVirtualizer.measure();
 			element.scrollTo({ top: element.scrollHeight, behavior });
 		},
-		[rowVirtualizer, scrollElementRef],
+		[scrollElementRef],
 	);
 
 	useImperativeHandle(
@@ -774,32 +740,7 @@ export const ChatMessageList = memo(function ChatMessageList({
 			cancelAnimationFrame(raf1);
 			if (raf2) cancelAnimationFrame(raf2);
 		};
-	}, [
-		lastRowChangeKey,
-		pinToBottom,
-		renderRows.length,
-		stickToBottom,
-		totalSize,
-	]);
-
-	useLayoutEffect(() => {
-		const scrollElement = scrollElementRef.current;
-		if (!scrollElement) return;
-		const maxScrollTop = Math.max(
-			0,
-			scrollElement.scrollHeight - scrollElement.clientHeight,
-		);
-		if (scrollElement.scrollTop > maxScrollTop) {
-			scrollElement.scrollTop = maxScrollTop;
-		}
-		if (stickToBottom) pinToBottom();
-	}, [
-		pinToBottom,
-		renderRows.length,
-		scrollElementRef,
-		stickToBottom,
-		totalSize,
-	]);
+	}, [lastRowChangeKey, pinToBottom, renderRows.length, stickToBottom]);
 
 	useLayoutEffect(() => {
 		if (renderRows.length > 0) return;
@@ -807,19 +748,13 @@ export const ChatMessageList = memo(function ChatMessageList({
 	}, [renderRows.length]);
 
 	return (
-		<div {...stylex.props(styles.messageList)} style={{ height: totalSize }}>
-			{renderedVirtualRows.map((virtualRow) => {
-				const index = virtualRow.index;
-				const item = renderRows[index];
-				if (!item) return null;
+		<div {...stylex.props(styles.messageList)}>
+			{renderRows.map((item, index) => {
 				if (item.type === "thinking") {
 					return (
 						<div
 							key={getRowKey(item, index)}
-							data-index={index}
-							ref={rowVirtualizer.measureElement}
 							{...stylex.props(styles.messageRow)}
-							style={{ transform: `translate3d(0, ${virtualRow.start}px, 0)` }}
 						>
 							<ThinkingIndicator startTime={item.startTime} />
 						</div>
@@ -829,10 +764,7 @@ export const ChatMessageList = memo(function ChatMessageList({
 					return (
 						<div
 							key={getRowKey(item, index)}
-							data-index={index}
-							ref={rowVirtualizer.measureElement}
 							{...stylex.props(styles.messageRow)}
-							style={{ transform: `translate3d(0, ${virtualRow.start}px, 0)` }}
 						>
 							<GroupedEditDiff filePath={item.filePath} edits={item.edits} />
 						</div>
@@ -842,10 +774,7 @@ export const ChatMessageList = memo(function ChatMessageList({
 					return (
 						<div
 							key={getRowKey(item, index)}
-							data-index={index}
-							ref={rowVirtualizer.measureElement}
 							{...stylex.props(styles.messageRow)}
-							style={{ transform: `translate3d(0, ${virtualRow.start}px, 0)` }}
 						>
 							<ToolTimeline
 								tools={item.tools}
@@ -863,10 +792,7 @@ export const ChatMessageList = memo(function ChatMessageList({
 				return (
 					<div
 						key={getRowKey(item, index)}
-						data-index={index}
-						ref={rowVirtualizer.measureElement}
 						{...stylex.props(styles.messageRow)}
-						style={{ transform: `translate3d(0, ${virtualRow.start}px, 0)` }}
 					>
 						<Bubble
 							msg={msg}
@@ -1431,19 +1357,20 @@ const styles = stylex.create({
 	},
 	messageList: {
 		boxSizing: "border-box",
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._2,
 		minHeight: "100%",
 		minWidth: 0,
+		paddingBottom: CHAT_LIST_BOTTOM_PADDING_PX,
 		paddingInline: CHAT_LIST_INLINE_GUTTER,
-		position: "relative",
+		paddingTop: CHAT_LIST_TOP_PADDING_PX,
 		width: "100%",
 	},
 	messageRow: {
 		boxSizing: "border-box",
-		left: CHAT_LIST_INLINE_GUTTER,
 		minWidth: 0,
-		position: "absolute",
-		right: CHAT_LIST_INLINE_GUTTER,
-		top: 0,
-		willChange: "transform",
+		position: "relative",
+		width: "100%",
 	},
 });

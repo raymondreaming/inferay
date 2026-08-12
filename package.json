@@ -42,7 +42,6 @@
 	"dependencies": {
 		"@chenglou/pretext": "^0.0.2",
 		"@octanejs/stylex": "0.1.16",
-		"@octanejs/tanstack-virtual": "0.1.14",
 		"@octanejs/vite-plugin": "0.1.17",
 		"octane": "0.1.17",
 		"shiki": "^4.0.2",
