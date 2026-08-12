@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/runtime-Bun-f472b6?style=flat-square" />
-  <img src="https://img.shields.io/badge/frontend-React_19-61dafb?style=flat-square" />
+  <img src="https://img.shields.io/badge/backend-Rust-f74c00?style=flat-square" />
+  <img src="https://img.shields.io/badge/frontend-React_19_%2B_Octane-61dafb?style=flat-square" />
   <img src="https://img.shields.io/badge/agent_shell-xterm.js-22c55e?style=flat-square" />
   <img src="https://img.shields.io/badge/styling-Tailwind_4-38bdf8?style=flat-square" />
   <img src="https://img.shields.io/badge/desktop-Rust%20%2B%20Wry-f74c00?style=flat-square" />
@@ -47,7 +47,7 @@ Every pane is a real PTY. Every agent chat is a real conversation.
 
 **Fast**
 
-- Built on Bun
+- Rust-owned local server and agent runtime
 - Streaming responses
 - Native macOS host written in Rust with Tao and Wry
 - No Electron bloat
@@ -65,7 +65,7 @@ bun install
 # Install Rust toolchain
 # https://rustup.rs
 
-# Build the Rust diff sidecar
+# Build the Rust workspace
 bun run build:native
 
 # Build the app and create DMG installer
@@ -106,12 +106,11 @@ the GitHub release, and publishes the npm CLI package.
 
 ## Tech stack
 
-- **Runtime**: [Bun](https://bun.sh)
-- **Frontend**: React 19, React Router, TanStack Query
+- **Application server and agent runtime**: Rust
+- **Frontend**: [Octane](https://github.com/octanejs/octane), TypeScript/TSX, and StyleX
 - **Agent workspace**: xterm.js
 - **Styling**: Tailwind CSS v4
 - **Desktop**: Rust, Tao, and Wry
-- **Native acceleration**: optional Rust sidecar for diff computation
 
 ## License
 

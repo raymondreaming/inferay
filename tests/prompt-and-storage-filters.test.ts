@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { filterPrompts } from "../src/features/prompts/prompt-utils.ts";
-import { AGENT_STATE_STORAGE_KEY } from "../src/lib/client-storage-keys.ts";
-import { normalizeEntries } from "../src/server/routes/api.ts";
 
-describe("prompt search and client storage sync filters", () => {
+describe("prompt search filters", () => {
 	/*
 	 * This protects prompt library filtering across built-in, custom, category,
 	 * and free-text search modes. These filters decide which commands users can
@@ -41,36 +39,5 @@ describe("prompt search and client storage sync filters", () => {
 		]);
 		expect(filterPrompts(prompts, "code", "runtime")).toEqual([debugPrompt]);
 		expect(filterPrompts(prompts, "all", "REVIEW")).toEqual([reviewPrompt]);
-	});
-
-	/*
-	 * This protects the client-storage sync boundary. Only known safe keys and
-	 * string/null values should be accepted from the renderer, because this route
-	 * persists local UI state and should ignore unrelated or malformed payloads.
-	 */
-	test("normalizes client-storage sync entries to allowed keys and values", () => {
-		expect(
-			normalizeEntries({
-				[AGENT_STATE_STORAGE_KEY]: '{"groups":[]}',
-				"agent-layout-mode": "grid",
-				"unknown-key": "value",
-				"agent-main-view": 42,
-				"inferay-custom-theme": null,
-			})
-		).toEqual({
-			"agent-layout-mode": "grid",
-			"inferay-custom-theme": null,
-		});
-
-		expect(
-			normalizeEntries({
-				[AGENT_STATE_STORAGE_KEY]: null,
-			})
-		).toEqual({
-			[AGENT_STATE_STORAGE_KEY]: null,
-		});
-
-		expect(normalizeEntries(null)).toEqual({});
-		expect(normalizeEntries(["not", "an", "object"])).toEqual({});
 	});
 });

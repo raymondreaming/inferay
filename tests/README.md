@@ -4,12 +4,6 @@ This repository had no `tests/` directory before this audit, so no executable in
 
 ## Current Coverage
 
-- `security-and-git-input.test.ts`
-  - Protects local path normalization and traversal rejection in `src/server/security.ts`.
-  - Protects Git route query normalization in `src/server/routes/git.ts`, including cwd/file/staged parsing, hash validation, and limit clamping.
-- `prompts-and-config.test.ts`
-  - Protects prompt merge priority in `src/server/routes/api.ts`, especially bundled built-ins retaining local usage stats by id or command.
-  - Protects config merge semantics in `src/server/services/config-manager.ts`, where nested records merge and arrays/primitives replace.
 - `release-asset-selection.test.ts`
   - Protects release API URL mapping and GitHub asset selection in `packages/inferay/src/releases.js`.
 - `chat-behavior.test.ts`
@@ -21,51 +15,53 @@ This repository had no `tests/` directory before this audit, so no executable in
 - `agent-and-git-behavior.test.ts`
   - Protects agent group migration, pane append/title behavior, status mapping, and Git change ordering/classification.
 - `prompt-and-storage-filters.test.ts`
-  - Protects prompt search/category/source filtering and renderer-to-backend client-storage sync normalization.
-- `simulator-service.test.ts`
-  - Protects simulator device normalization from `simctl list devices -j`, including Xcode/CoreSimulator JSON entries that omit `isAvailable`.
+  - Protects prompt search/category/source filtering. The migrated client-storage normalization and persistence contract is covered directly by `inferay-server` Rust tests.
 
 ## Audit By Feature/Process
 
-- Deploy: release asset selection and release endpoint mapping now have focused coverage. Release orchestration in `scripts/release.ts` remains mostly untested because it shells out to build, signing, GitHub, and system tools.
+- Deploy: release asset selection and endpoint mapping have focused coverage. Rust tooling tests protect release arguments, version changes, deterministic bundle hashing, and command planning; platform signing and publishing still require integration verification.
 - Autobuild: `scripts/watch-*` and build wrappers are not covered. High-value tests would require extracting pure command planning from watcher/process code.
 - Marketing: static Astro/site demo content has no worthwhile internals to test beyond data transforms if they become shared behavior.
 - Social posting: no social posting workflow or service boundary was found in this codebase.
 - Discovery/research: automation templates mention research, but no backend research service boundary was found. Avoid UI/template snapshot tests unless workflow execution logic moves server-side.
-- App identity/path resolution: local path boundary coverage now exists. Agent state migration and pane title derivation are also covered. `PROJECT_ROOT` and `userDataPath` platform branches are candidates for future extraction if path bugs appear.
+- App identity/path resolution: application metadata priority, update-check failure caching, semantic-version comparison, native-path authorization, updater PATH construction, command fallback order, agent state migration, and pane title derivation are covered by Rust tests.
 - Convex/schema/type alignment: no Convex schema or generated Convex types were found.
-- Filesystem/local config sync: config merge semantics and client-storage sync filtering now have pure coverage. File split behavior between base and local config remains untested because current paths are module constants.
-- Backend routes/script runners: Git input helpers are covered. Automation run and prompt write queues remain candidates, but should be tested through extracted pure helpers or temp-file seams.
+- Filesystem/local config sync: file search/content, temporary image lifecycle, agent directory browsing/search/quick picks, config merge and base/local splitting, client-storage filtering, and client-storage atomic persistence now have native Rust route coverage.
+- Backend routes/script runners: Git, prompt CRUD/usage, agent-context persistence, agent state normalization/actions, agent directory/process discovery and guarded termination, agent CLI/account discovery, GitHub account/repository/clone actions, one-shot Claude title/commit/automation execution, automation persistence, the complete simulator service, app identity/update/native-open actions, configuration, and client-storage routes have native Rust coverage.
 - Platform aggregators: installer release asset mapping now has coverage. `platformInfo` and app candidate ordering are medium ROI if extracted to accept platform/env dependencies.
 - Claude/Codex stream parity: initial tool input normalization and inline edit diff parity now have focused coverage, including Codex-style immediate `Edit` tool events and Claude-style streamed edit input. More adapter-level tests should target normalized event output before process spawning.
-- Simulator/apps panel: simulator device parsing now has focused coverage. The UI now surfaces simulator service errors instead of collapsing backend failures into an empty devices state.
+- Simulator/apps panel: folder configuration, workspace-root discovery, Xcode/React Native target scanning, device and installed-app parsing, Baguette lifecycle, simulator actions, and build/install/launch behavior are now Rust-owned. Parser and safe route-boundary behavior have native Rust coverage. The UI surfaces simulator service errors instead of collapsing backend failures into an empty devices state.
+- Agent accounts: Claude/Codex candidate priority, NVM discovery, PATH prepend order, `CLAUDECODE` removal, availability caching, stdout/stderr version fallback, auth-config detection, and all three health summaries have native Rust coverage.
+- Forge: GitHub auth parsing, logged-out detection, clone URL/repository-name rules, JavaScript-compatible limit behavior, AppleScript escaping, and request validation now have native Rust coverage.
+- One-shot agents: title fallback/quote behavior, JavaScript UTF-16 limits, Claude NDJSON output precedence, automation normalization, real fake-CLI execution, and staged Git diff commit-message routing have native Rust coverage.
+- Sessions and Files: Rust tests cover persisted session projection, image listing and deletion, and path safety while the Octane pages remain unchanged.
+- Native chat boundary: Rust tests cover server-owned runtime dispatch, persisted reconnect snapshots, queue ordering, cancellation, checkpoint finalization, and the WebSocket service/client lifecycle.
 
 ## Missing Tests Ranked By ROI
 
 High:
 
-- Prompt merge priority in `src/server/routes/api.ts`: covered. Protects user usage stats and built-in/custom conflict behavior.
-- Local path and Git input normalization in `src/server/security.ts` and `src/server/routes/git.ts`: covered. Protects filesystem and shell-adjacent boundaries.
-- Config merge semantics in `src/server/services/config-manager.ts`: covered. Protects local config sync from silently dropping nested provider keys.
+- Prompt merge priority, CRUD serialization, usage ranking, and built-in/custom conflict behavior: covered by native Rust store and route tests.
+- Local path normalization and traversal rejection: covered in `native/core` and native server route tests.
+- Config merge semantics: covered by the native Rust configuration store and route tests.
 - Release asset mapping in `packages/inferay/src/releases.js`: covered. Protects deploy/install workflows from selecting the wrong artifact.
 - Chat command/message behavior in `src/features/chat` and `src/components/chat`: covered. Protects prompt expansion, streaming updates, reconnect merge behavior, and history limits.
 - Agent stream tool input parity in `src/features/chat/agent-chat-shared.ts`: covered. Protects Codex inline diff rendering when complete tool input arrives in the start event.
 - Inline edit diff rendering helpers in `src/components/chat/chat-edit-diff-utils.ts` and `src/components/chat/chat-message-render-utils.ts`: covered. Protects fake Claude and Codex edit streams from producing empty edit cards.
 - Agent and Git data behavior in `src/features/agent/agent-utils.ts` and `src/features/git/git-file-utils.ts`: covered. Protects restored panes, status mapping, and change review ordering.
-- Client-storage sync normalization in `src/server/routes/api.ts`: covered. Protects persisted local UI state from malformed renderer payloads.
-- Simulator device parsing in `src/server/routes/simulator.ts`: covered. Protects the apps panel from dropping devices when `simctl` omits `isAvailable`.
+- Client-storage sync normalization: covered by native Rust route tests. Protects persisted local UI state from malformed renderer payloads.
+- Simulator device and installed-app parsing in `native/server/src/simulator.rs`: covered. Protects the apps panel from dropping devices when `simctl` omits `isAvailable` and preserves plist/project matching behavior without a Bun implementation.
 
 Medium:
 
-- Config update file split in `ConfigManager.update`: useful, but needs injectable config paths or a temp-backed manager to avoid touching real app config.
-- Prompt create/update/delete write serialization: useful for partial-failure and idempotency, but needs temp-backed prompt paths or extracted store helpers.
+- Native folder chooser UI itself still needs manual platform verification; its path cleanup has native Rust coverage.
 - `platformInfo` and existing app candidate priority in `packages/inferay/src/platform.js`: stable behavior, but current implementation reads live OS and filesystem state.
-- Automation save/load normalization in `src/server/routes/api.ts`: cheap if extracted; current route imports app user-data paths.
-- Release script command planning in `scripts/release.ts`: valuable if deploy failures recur, but requires extracting shell command plans from side-effectful steps.
+- Automation save/load normalization and one-shot execution are covered by native Rust unit and route tests.
+- Rust release command execution against Apple signing, GitHub, and npm remains environment-dependent and should be exercised during release preflight.
 
 Low/Defer:
 
-- UI button/render tests for pages and components: mostly brittle and outside the requested stability surface.
+- Octane UI behavior remains covered by renderer characterization tests; Rust tests own the server-side contracts beneath it.
 - Static marketing copy and demo layout tests: likely to churn and not tied to core product stability.
 - Watcher loops and renderer/native build scripts end to end: too environment-dependent for lightweight unit tests.
 - Convex/schema/social posting tests: no corresponding implementation was found.

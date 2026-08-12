@@ -25,7 +25,6 @@ import {
 } from "../src/features/git/git-file-utils.ts";
 import { summarizeHunkDiff } from "../src/features/git/useGitDiff.tsx";
 import { isAgentMainView } from "../src/lib/app-navigation.tsx";
-import { normalizeNumstatPath } from "../src/server/routes/git.ts";
 
 const pane = (
 	id: string,
@@ -733,12 +732,5 @@ describe("agent state and git change behavior", () => {
 				isNew: false,
 			})
 		).toEqual({ added: 0, removed: 1, hunks: 1, lines: 2 });
-	});
-
-	test("normalizes git numstat rename paths for sidebar diff stats", () => {
-		expect(normalizeNumstatPath("src/old.ts => src/new.ts")).toBe("src/new.ts");
-		expect(normalizeNumstatPath("src/{old => new}/file.ts")).toBe(
-			"src/new/file.ts"
-		);
 	});
 });
