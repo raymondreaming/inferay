@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 
 use inferay_core::agent_protocol::{
     AgentEvent, AgentProtocolContext, ClaudeProtocolState, CodexInvocationContext,
-    CodexProtocolState, ProtocolEmission, build_claude_invocation_args, workspace_roots,
+    CodexProtocolState, ProtocolEmission, build_claude_invocation_args,
 };
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -506,10 +506,8 @@ pub async fn run_codex(
 }
 
 fn codex_thread_params(invocation: &CodexInvocationContext) -> Value {
-    let roots = workspace_roots(&invocation.cwd, &invocation.reference_paths);
     json!({
         "cwd": invocation.cwd,
-        "runtimeWorkspaceRoots": roots,
         "approvalPolicy": "never",
         "sandbox": "danger-full-access",
         "model": invocation.model,
@@ -519,12 +517,10 @@ fn codex_thread_params(invocation: &CodexInvocationContext) -> Value {
 }
 
 fn codex_turn_params(thread_id: &str, prompt: &str, invocation: &CodexInvocationContext) -> Value {
-    let roots = workspace_roots(&invocation.cwd, &invocation.reference_paths);
     json!({
         "threadId": thread_id,
         "input": codex_user_input(prompt, &invocation.images),
         "cwd": invocation.cwd,
-        "runtimeWorkspaceRoots": roots,
         "approvalPolicy": "never",
         "sandboxPolicy": {"type":"dangerFullAccess"},
         "model": invocation.model,
@@ -904,6 +900,26 @@ fn signal_interrupt(pid: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codex_app_server_requests_avoid_experimental_workspace_roots() {
+        let invocation = CodexInvocationContext {
+            cwd: PathBuf::from("/tmp/project"),
+            reference_paths: vec![PathBuf::from("/tmp/reference")],
+            images: vec![],
+            model: Some("gpt-5.6-sol".into()),
+            reasoning_level: Some("high".into()),
+            developer_instructions: None,
+            session_id: None,
+        };
+
+        let thread = codex_thread_params(&invocation);
+        let turn = codex_turn_params("thread-1", "hello", &invocation);
+        assert!(thread.get("runtimeWorkspaceRoots").is_none());
+        assert!(turn.get("runtimeWorkspaceRoots").is_none());
+        assert_eq!(thread["cwd"], "/tmp/project");
+        assert_eq!(turn["cwd"], "/tmp/project");
+    }
 
     #[derive(Default)]
     struct RecordingTracker {
