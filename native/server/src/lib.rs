@@ -186,6 +186,7 @@ impl chat_runtime::AgentExecutor for DirectAgentExecutor {
                     agent_runner::ClaudeRun {
                         binary: &binary,
                         prompt: &request.prompt,
+                        developer_instructions: request.developer_instructions.as_deref(),
                         cwd: &request.cwd,
                         model: request.model.as_deref(),
                         session_id: request.session_id.as_deref(),

@@ -360,9 +360,6 @@ impl ChatRuntime {
                 .filter(|prefix| !prefix.is_empty())
                 .collect::<Vec<_>>()
                 .join("\n\n");
-            if !instruction_prefix.is_empty() {
-                prompt = format!("{instruction_prefix}\n\n{prompt}");
-            }
             let checkpoint_cwd = session.lock().await.cwd.clone();
             let checkpoint_id = match self
                 .checkpoints
@@ -397,7 +394,13 @@ impl ChatRuntime {
             }
 
             let outcome = self
-                .run_goal_loop(&session, prompt, input.images, checkpoint_id.as_deref())
+                .run_goal_loop(
+                    &session,
+                    prompt,
+                    input.images,
+                    checkpoint_id.as_deref(),
+                    (!instruction_prefix.is_empty()).then_some(instruction_prefix.as_str()),
+                )
                 .await;
             match outcome {
                 Ok(()) => {
@@ -734,6 +737,7 @@ impl ChatRuntime {
         prompt: String,
         images: Vec<PathBuf>,
         checkpoint_id: Option<&str>,
+        turn_instructions: Option<&str>,
     ) -> Result<(), String> {
         let goal_run = session
             .lock()
@@ -742,7 +746,7 @@ impl ChatRuntime {
             .as_ref()
             .is_some_and(|goal| goal.status == GoalStatus::Active);
         let mut result = self
-            .run_once(session, prompt, images, checkpoint_id)
+            .run_once(session, prompt, images, checkpoint_id, turn_instructions)
             .await?;
         let last_is_tool = session
             .lock()
@@ -758,6 +762,7 @@ impl ChatRuntime {
                     FINAL_SUMMARY_RECOVERY_PROMPT.into(),
                     Vec::new(),
                     checkpoint_id,
+                    turn_instructions,
                 )
                 .await?;
         }
@@ -792,7 +797,7 @@ impl ChatRuntime {
             };
             let Some(next) = next else { break };
             result = self
-                .run_once(session, next, Vec::new(), checkpoint_id)
+                .run_once(session, next, Vec::new(), checkpoint_id, turn_instructions)
                 .await?;
         }
         let message = {
@@ -838,11 +843,21 @@ impl ChatRuntime {
         prompt: String,
         images: Vec<PathBuf>,
         checkpoint_id: Option<&str>,
+        turn_instructions: Option<&str>,
     ) -> Result<AgentRunResult, String> {
         let (request, handle) = {
             let mut state = session.lock().await;
             let handle = AgentProcessHandle::default();
             state.current_handle = Some(handle.clone());
+            let developer_instructions = [
+                (state.agent_kind == "codex").then_some(CODEX_WORKFLOW_INSTRUCTIONS),
+                turn_instructions,
+            ]
+            .into_iter()
+            .flatten()
+            .filter(|instructions| !instructions.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n");
             (
                 AgentRunRequest {
                     agent_kind: state.agent_kind.clone(),
@@ -852,8 +867,8 @@ impl ChatRuntime {
                     images,
                     model: state.model.clone(),
                     reasoning_level: state.reasoning_level.clone(),
-                    developer_instructions: (state.agent_kind == "codex")
-                        .then(|| CODEX_WORKFLOW_INSTRUCTIONS.to_owned()),
+                    developer_instructions: (!developer_instructions.is_empty())
+                        .then_some(developer_instructions),
                     session_id: state.session_id.clone(),
                 },
                 handle,
@@ -1720,6 +1735,30 @@ mod tests {
         fn kill(&self, _handle: &AgentProcessHandle) {}
     }
 
+    #[derive(Default)]
+    struct RecordingExecutor(std::sync::Mutex<Vec<AgentRunRequest>>);
+
+    impl AgentExecutor for RecordingExecutor {
+        fn run<'a>(
+            &'a self,
+            request: AgentRunRequest,
+            _handle: AgentProcessHandle,
+            _emissions: tokio::sync::mpsc::UnboundedSender<ProtocolEmission>,
+        ) -> AgentFuture<'a> {
+            let protocol = AgentProtocolContext::new(request.cwd.clone());
+            self.0.lock().unwrap().push(request);
+            Box::pin(async move {
+                Ok(ExecutedTurn {
+                    result: AgentRunResult::default(),
+                    protocol,
+                })
+            })
+        }
+
+        fn stop(&self, _agent_kind: &str, _handle: &AgentProcessHandle) {}
+        fn kill(&self, _handle: &AgentProcessHandle) {}
+    }
+
     fn test_runtime(
         root: &Path,
         executor: Arc<dyn AgentExecutor>,
@@ -1765,6 +1804,43 @@ mod tests {
             agent_events: Vec::new(),
             context_hash: None,
         }))
+    }
+
+    #[tokio::test]
+    async fn internal_context_is_sent_as_instructions_not_user_input() {
+        let root = tempdir().unwrap();
+        let executor = Arc::new(RecordingExecutor::default());
+        let (runtime, _, _) = test_runtime(root.path(), executor.clone());
+
+        runtime
+            .send_message(SendMessageInput {
+                pane_id: "pane".into(),
+                agent_kind: "codex".into(),
+                client_session_id: None,
+                cwd: root.path().into(),
+                cwd_provided: true,
+                model: Some("gpt-5.6-sol".into()),
+                reasoning_level: Some("high".into()),
+                reasoning_level_provided: true,
+                reference_paths: Vec::new(),
+                reference_paths_provided: true,
+                display_text: None,
+                images: Vec::new(),
+                text: "hi".into(),
+                client_id: None,
+                client_sender: None,
+                include_workspace: true,
+            })
+            .await;
+
+        let requests = executor.0.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].prompt, "hi");
+        let instructions = requests[0].developer_instructions.as_deref().unwrap();
+        assert!(instructions.contains("<inferay-workflow-instructions>"));
+        assert!(instructions.contains("<workspace-context>"));
+        assert!(instructions.contains(root.path().to_string_lossy().as_ref()));
+        assert!(!requests[0].prompt.contains("workspace-context"));
     }
 
     #[tokio::test]

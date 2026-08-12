@@ -128,6 +128,7 @@ impl AgentProcessHandle {
 pub struct ClaudeRun<'a> {
     pub binary: &'a Path,
     pub prompt: &'a str,
+    pub developer_instructions: Option<&'a str>,
     pub cwd: &'a Path,
     pub model: Option<&'a str>,
     pub session_id: Option<&'a str>,
@@ -152,7 +153,7 @@ pub async fn run_claude(
     context: &mut AgentProtocolContext,
     emissions: Option<&tokio::sync::mpsc::UnboundedSender<ProtocolEmission>>,
 ) -> AgentRunResult {
-    let arguments = build_claude_invocation_args(run.binary, run.prompt, run.model, run.session_id);
+    let arguments = claude_invocation_args(&run);
     let spawn = spawn_direct(&arguments, run.cwd, run.env);
     let mut child = match spawn {
         Ok(child) => child,
@@ -203,6 +204,15 @@ pub async fn run_claude(
     AgentRunResult {
         last_assistant_message: protocol.last_assistant_message,
     }
+}
+
+fn claude_invocation_args(run: &ClaudeRun<'_>) -> Vec<String> {
+    let mut arguments =
+        build_claude_invocation_args(run.binary, run.prompt, run.model, run.session_id);
+    if let Some(instructions) = run.developer_instructions {
+        arguments.extend(["--append-system-prompt".into(), instructions.into()]);
+    }
+    arguments
 }
 
 pub async fn run_codex(
@@ -909,7 +919,7 @@ mod tests {
             images: vec![],
             model: Some("gpt-5.6-sol".into()),
             reasoning_level: Some("high".into()),
-            developer_instructions: None,
+            developer_instructions: Some("internal context".into()),
             session_id: None,
         };
 
@@ -919,6 +929,37 @@ mod tests {
         assert!(turn.get("runtimeWorkspaceRoots").is_none());
         assert_eq!(thread["cwd"], "/tmp/project");
         assert_eq!(turn["cwd"], "/tmp/project");
+        assert_eq!(thread["developerInstructions"], "internal context");
+        assert_eq!(turn["input"][0]["text"], "hello");
+        assert!(
+            !turn["input"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("internal context")
+        );
+    }
+
+    #[test]
+    fn claude_keeps_internal_context_out_of_the_user_prompt() {
+        let environment = HashMap::new();
+        let run = ClaudeRun {
+            binary: Path::new("claude"),
+            prompt: "hello",
+            developer_instructions: Some("internal context"),
+            cwd: Path::new("/tmp/project"),
+            model: None,
+            session_id: None,
+            env: &environment,
+        };
+
+        let arguments = claude_invocation_args(&run);
+        assert_eq!(arguments[2], "hello");
+        let system_prompt = arguments
+            .windows(2)
+            .find(|pair| pair[0] == "--append-system-prompt")
+            .map(|pair| pair[1].as_str());
+        assert_eq!(system_prompt, Some("internal context"));
+        assert!(!arguments[2].contains("internal context"));
     }
 
     #[derive(Default)]
@@ -1014,6 +1055,7 @@ mod tests {
             ClaudeRun {
                 binary: &binary,
                 prompt: "hello",
+                developer_instructions: None,
                 cwd: directory.path(),
                 model: Some("sonnet"),
                 session_id: None,
@@ -1046,6 +1088,7 @@ mod tests {
             ClaudeRun {
                 binary: &binary,
                 prompt: "hello",
+                developer_instructions: None,
                 cwd: directory.path(),
                 model: None,
                 session_id: None,
