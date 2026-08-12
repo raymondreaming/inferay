@@ -419,6 +419,10 @@ impl CodexProtocolState {
                     self.emit_error(context, message);
                 }
             }
+            // App Server reports the submitted prompt as a completed item too.
+            // It is input, not assistant output, and the chat runtime already
+            // owns the canonical user transcript row.
+            ("item.completed", "user_message" | "userMessage") => {}
             ("item.completed", _) if !item.is_null() && !extract_text(item).is_empty() => {
                 let text = extract_text(item);
                 if !self.saw_assistant_stream {
@@ -1279,6 +1283,23 @@ mod tests {
             true,
             Some("tool")
         ));
+    }
+
+    #[test]
+    fn codex_user_items_do_not_echo_as_assistant_results() {
+        for item_type in ["userMessage", "user_message"] {
+            let mut state = CodexProtocolState::default();
+            let mut context = AgentProtocolContext::new("/tmp");
+            state.handle_event(
+                &mut context,
+                &json!({
+                    "type": "item.completed",
+                    "item": { "type": item_type, "text": "do not echo me" }
+                }),
+            );
+            assert!(context.emissions.is_empty());
+            assert!(state.last_assistant_message.is_empty());
+        }
     }
 
     #[test]

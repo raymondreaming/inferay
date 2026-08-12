@@ -647,16 +647,16 @@ export const ChatMessageList = memo(function ChatMessageList({
 	stickToBottom: boolean;
 }) {
 	const didInitialScrollRef = useRef(false);
+	const messageListRef = useRef<HTMLDivElement | null>(null);
 	const renderItems = useMemo(() => buildRenderItems(messages), [messages]);
 	const renderRows = useMemo<ChatRenderRow[]>(() => {
 		if (!isLoading || !startTime) return renderItems;
 		return [...renderItems, { type: "thinking", key: "thinking", startTime }];
 	}, [isLoading, renderItems, startTime]);
-	const lastRow = renderRows.at(-1);
-	const lastRowChangeKey =
-		lastRow?.type === "message"
-			? `${lastRow.message.id}:${lastRow.message.content.length}:${lastRow.message.isStreaming ? 1 : 0}`
-			: `${lastRow?.type ?? "none"}:${renderRows.length}`;
+	const lastMessage = messages.at(-1);
+	const lastRowChangeKey = lastMessage
+		? `${lastMessage.id}:${lastMessage.content.length}:${lastMessage.isStreaming ? 1 : 0}:${renderRows.length}`
+		: `${renderRows.at(-1)?.type ?? "none"}:${renderRows.length}`;
 	const checkpointsByMessageId = useMemo(() => {
 		const byMessageId = new Map<string, CheckpointInfo>();
 		for (const checkpoint of checkpoints) {
@@ -743,12 +743,21 @@ export const ChatMessageList = memo(function ChatMessageList({
 	}, [lastRowChangeKey, pinToBottom, renderRows.length, stickToBottom]);
 
 	useLayoutEffect(() => {
+		const list = messageListRef.current;
+		if (!list || !stickToBottom || typeof ResizeObserver === "undefined")
+			return;
+		const observer = new ResizeObserver(() => pinToBottom());
+		observer.observe(list);
+		return () => observer.disconnect();
+	}, [pinToBottom, stickToBottom]);
+
+	useLayoutEffect(() => {
 		if (renderRows.length > 0) return;
 		didInitialScrollRef.current = false;
 	}, [renderRows.length]);
 
 	return (
-		<div {...stylex.props(styles.messageList)}>
+		<div ref={messageListRef} {...stylex.props(styles.messageList)}>
 			{renderRows.map((item, index) => {
 				if (item.type === "thinking") {
 					return (

@@ -694,6 +694,7 @@ fn normalize_app_server_item(item: &mut Value) {
     };
     let normalized = match item_type {
         "agentMessage" => "agent_message",
+        "userMessage" => "user_message",
         "commandExecution" => "command_execution",
         "fileChange" => "file_change",
         other => other,

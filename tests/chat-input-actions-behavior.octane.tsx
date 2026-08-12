@@ -209,6 +209,7 @@ test("loading Codex chat sends steering input without resetting the active strea
 		handleEnter({
 			key: "Enter",
 			preventDefault: () => {},
+			repeat: false,
 			shiftKey: false,
 		} as KeyboardEvent);
 		await tick(20);
@@ -224,6 +225,16 @@ test("loading Codex chat sends steering input without resetting the active strea
 		expect(textarea.value).toBe("");
 		expect(onSendStart).not.toHaveBeenCalled();
 		expect(setRunStatus).not.toHaveBeenCalled();
+
+		textarea.value = "second";
+		handleEnter({
+			key: "Enter",
+			preventDefault: () => {},
+			repeat: true,
+			shiftKey: false,
+		} as KeyboardEvent);
+		await tick(20);
+		expect(sendMock).toHaveBeenCalledTimes(1);
 	} finally {
 		root.unmount();
 	}

@@ -382,6 +382,7 @@ export function useChatInputActions({
 				return;
 			if (e.key === "Enter" && !e.shiftKey) {
 				e.preventDefault();
+				if (e.repeat) return;
 				sendMessage();
 			} else if (composerOnly && e.key === "Escape") {
 				e.preventDefault();
