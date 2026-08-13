@@ -27,9 +27,11 @@ import {
 	readStoredValue,
 	writeStoredValue,
 } from "../../lib/stored-json.ts";
-import { color, controlSize, font } from "../../tokens.stylex.ts";
+import { color, colorValues, controlSize, font } from "../../tokens.stylex.ts";
+import { LiquidAction } from "../ui/gooey/LiquidAction.tsx";
+import { LiquidCreateMenu } from "../ui/gooey/LiquidCreateMenu.tsx";
+import { LiquidSegmentedRail } from "../ui/gooey/LiquidSegmentedRail.tsx";
 import {
-	IconMessageCircle,
 	IconPanelLeft,
 	IconPlus,
 	IconUser,
@@ -123,18 +125,6 @@ function ViewTab({
 			)}
 			{active && !top ? (
 				<span aria-hidden="true" {...stylex.props(styles.activeSignal)} />
-			) : null}
-			{active && top ? (
-				<>
-					<span
-						aria-hidden="true"
-						{...stylex.props(styles.tabShoulder, styles.tabShoulderLeft)}
-					/>
-					<span
-						aria-hidden="true"
-						{...stylex.props(styles.tabShoulder, styles.tabShoulderRight)}
-					/>
-				</>
 			) : null}
 		</button>
 	);
@@ -250,51 +240,88 @@ export function AgentShellHeader() {
 		},
 		[navigate, resolvedNavigationTarget],
 	);
+	const railCreateOffset = sidebarCollapsed ? 1 : 0;
+	const graphIndex = railCreateOffset;
+	const routeIndex = SIDEBAR_NAV_ROUTES.findIndex(
+		(route) => activeNavigationTarget === `route:${route.path}`,
+	);
+	const railActiveIndex =
+		sidebarCollapsed && createMenuOpen
+			? 0
+			: activeNavigationTarget === "view:graph"
+				? graphIndex
+				: routeIndex >= 0
+					? graphIndex + 1 + routeIndex
+					: AUTOMATIONS_ROUTE &&
+							activeNavigationTarget === `route:${AUTOMATIONS_ROUTE.path}`
+						? graphIndex + 1 + SIDEBAR_NAV_ROUTES.length
+						: -1;
+	const railItemCount =
+		railCreateOffset +
+		1 +
+		SIDEBAR_NAV_ROUTES.length +
+		(AUTOMATIONS_ROUTE ? 1 : 0);
+	const topViews = AGENT_MAIN_VIEWS.filter((view) => view.id !== "graph");
+	const topActiveIndex = topViews.findIndex(
+		(view) => activeNavigationTarget === `view:${view.id}`,
+	);
 
 	return (
 		<div
 			className={`${APP_REGION_DRAG_CLASS} ${stylex.props(styles.header).className ?? ""}`}
 		>
 			<nav aria-label="Primary views" {...stylex.props(styles.topTabs)}>
-				{AGENT_MAIN_VIEWS.filter((view) => view.id !== "graph").map((view) => {
-					const Icon = view.icon;
-					return (
-						<ViewTab
-							key={view.id}
-							active={activeNavigationTarget === `view:${view.id}`}
-							icon={<Icon size={12} />}
-							label={view.label}
-							onClick={() => activateMainView(view.id)}
-							top
-						/>
-					);
-				})}
+				<div {...stylex.props(styles.topViewGroup)}>
+					<LiquidSegmentedRail
+						activeIndex={topActiveIndex}
+						itemCount={topViews.length}
+						fill={colorValues.shellSurface}
+						radius={11}
+						itemSize={70}
+						gap={6}
+					/>
+					{topViews.map((view) => {
+						const Icon = view.icon;
+						return (
+							<ViewTab
+								key={view.id}
+								active={activeNavigationTarget === `view:${view.id}`}
+								icon={<Icon size={12} />}
+								label={view.label}
+								onClick={() => activateMainView(view.id)}
+								top
+							/>
+						);
+					})}
+				</div>
 				<span {...stylex.props(styles.accountSpacer)} />
-				<button
-					type="button"
-					onClick={() => navigate("/profile")}
-					className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.accountButton).className ?? ""}`}
-					title="Account settings"
-				>
-					<span {...stylex.props(styles.accountLabel)}>
-						{githubAccount?.login || githubAccount?.name || "Account"}
-					</span>
-					{githubAccount?.avatarUrl ? (
-						<img
-							src={githubAccount.avatarUrl}
-							alt=""
-							{...stylex.props(styles.accountAvatar)}
-						/>
-					) : (
-						<span {...stylex.props(styles.accountFallback)}>
-							{githubAccount?.login ? (
-								githubAccount.login.slice(0, 2)
-							) : (
-								<IconUser size={10} />
-							)}
+				<LiquidAction fill={colorValues.surfaceGlassStrong}>
+					<button
+						type="button"
+						onClick={() => navigate("/profile")}
+						className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.accountButton).className ?? ""}`}
+						title="Account settings"
+					>
+						<span {...stylex.props(styles.accountLabel)}>
+							{githubAccount?.login || githubAccount?.name || "Account"}
 						</span>
-					)}
-				</button>
+						{githubAccount?.avatarUrl ? (
+							<img
+								src={githubAccount.avatarUrl}
+								alt=""
+								{...stylex.props(styles.accountAvatar)}
+							/>
+						) : (
+							<span {...stylex.props(styles.accountFallback)}>
+								{githubAccount?.login ? (
+									githubAccount.login.slice(0, 2)
+								) : (
+									<IconUser size={10} />
+								)}
+							</span>
+						)}
+					</button>
+				</LiquidAction>
 			</nav>
 			<nav
 				aria-label="Application views"
@@ -325,34 +352,32 @@ export function AgentShellHeader() {
 				</button>
 				<span aria-hidden="true" {...stylex.props(styles.railDivider)} />
 				<div {...stylex.props(styles.tabGroup, styles.secondaryTabGroup)}>
+					<LiquidSegmentedRail
+						activeIndex={railActiveIndex}
+						itemCount={railItemCount}
+						direction="vertical"
+						fill="rgba(255,255,255,0.105)"
+						radius={16}
+						itemSize={32}
+						gap={3}
+					/>
 					{sidebarCollapsed ? (
 						<div ref={createMenuRef} {...stylex.props(styles.railCreateWrap)}>
-							<ViewTab
-								active={createMenuOpen}
-								icon={<IconPlus size={13} />}
-								label="Create"
-								onClick={() => setCreateMenuOpen((open) => !open)}
+							<LiquidCreateMenu
+								open={createMenuOpen}
+								fill={colorValues.backgroundRaised}
+								fullWidth
+								onNewChat={() => createFromRail("create-agent-chat")}
+								onNewWorkspace={() => createFromRail("create-agent-workspace")}
+								trigger={
+									<ViewTab
+										active={createMenuOpen}
+										icon={<IconPlus size={13} />}
+										label="Create"
+										onClick={() => setCreateMenuOpen((open) => !open)}
+									/>
+								}
 							/>
-							{createMenuOpen ? (
-								<div {...stylex.props(styles.railCreateMenu)}>
-									<button
-										type="button"
-										onClick={() => createFromRail("create-agent-chat")}
-										{...stylex.props(styles.railCreateItem)}
-									>
-										<IconMessageCircle size={12} />
-										<span>New chat</span>
-									</button>
-									<button
-										type="button"
-										onClick={() => createFromRail("create-agent-workspace")}
-										{...stylex.props(styles.railCreateItem)}
-									>
-										<IconPlus size={12} />
-										<span>New workspace</span>
-									</button>
-								</div>
-							) : null}
 						</div>
 					) : null}
 					{AGENT_MAIN_VIEWS.filter((view) => view.id === "graph").map(
@@ -423,6 +448,14 @@ const styles = stylex.create({
 		paddingLeft: 84,
 		paddingRight: 10,
 		pointerEvents: "auto",
+	},
+	topViewGroup: {
+		position: "relative",
+		isolation: "isolate",
+		display: "flex",
+		alignItems: "flex-end",
+		gap: 6,
+		height: 30,
 	},
 	accountSpacer: {
 		flex: 1,
@@ -500,6 +533,8 @@ const styles = stylex.create({
 		boxShadow: "none",
 	},
 	tabGroup: {
+		position: "relative",
+		isolation: "isolate",
 		alignItems: "center",
 		display: "flex",
 		flexDirection: "column",
@@ -512,45 +547,12 @@ const styles = stylex.create({
 	railCreateWrap: {
 		position: "relative",
 	},
-	railCreateMenu: {
-		backgroundColor: color.backgroundRaised,
-		borderColor: color.border,
-		borderRadius: 8,
-		borderStyle: "solid",
-		borderWidth: 1,
-		boxShadow: "0 14px 40px rgba(0,0,0,0.48)",
-		display: "flex",
-		flexDirection: "column",
-		gap: controlSize._0_5,
-		left: "calc(100% + 8px)",
-		padding: controlSize._1,
-		position: "absolute",
-		top: 0,
-		width: 152,
-		zIndex: 140,
-	},
-	railCreateItem: {
-		alignItems: "center",
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlHover,
-		},
-		borderRadius: 6,
-		color: color.textSoft,
-		display: "flex",
-		fontSize: font.size_2,
-		fontWeight: font.weight_5,
-		gap: controlSize._2,
-		height: controlSize._7,
-		paddingInline: controlSize._2,
-		textAlign: "left",
-		width: "100%",
-	},
 	viewTab: {
 		position: "relative",
+		zIndex: 1,
 		alignItems: "center",
 		borderColor: "transparent",
-		borderRadius: 10,
+		borderRadius: "50%",
 		borderStyle: "solid",
 		borderWidth: 1,
 		color: {
@@ -589,7 +591,7 @@ const styles = stylex.create({
 		paddingInline: "0.625rem",
 		transitionDuration: "80ms",
 		transitionProperty: "color",
-		width: "auto",
+		width: 70,
 		backgroundColor: {
 			default: "transparent",
 			":hover": "transparent",
@@ -599,15 +601,16 @@ const styles = stylex.create({
 		},
 	},
 	viewTabTopActive: {
+		backdropFilter: "none",
 		backgroundColor: {
-			default: color.shellSurface,
-			":hover": color.shellSurface,
+			default: color.shellFrame,
+			":hover": color.shellFrame,
 		},
-		borderColor: "transparent",
-		borderBottomColor: color.shellSurface,
+		borderColor: color.shellFrame,
+		borderBottomColor: color.shellFrame,
 		borderBottomLeftRadius: 0,
 		borderBottomRightRadius: 0,
-		boxShadow: "inset 0 1px 0 rgba(255,255,255,0.045)",
+		boxShadow: "none",
 		marginBottom: -1,
 		zIndex: 1,
 	},
@@ -616,10 +619,10 @@ const styles = stylex.create({
 	},
 	viewTabActive: {
 		backgroundColor: {
-			default: "rgba(255,255,255,0.105)",
-			":hover": "rgba(255,255,255,0.13)",
+			default: color.transparent,
+			":hover": "rgba(255,255,255,0.06)",
 		},
-		borderColor: "rgba(255,255,255,0.14)",
+		borderColor: color.shellFrame,
 		boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
 		color: color.textMain,
 	},
@@ -657,28 +660,6 @@ const styles = stylex.create({
 		transform: "translateY(-50%)",
 		width: 2,
 	},
-	tabShoulder: {
-		position: "absolute",
-		bottom: 0,
-		backgroundColor: color.shellSurface,
-		height: 10,
-		pointerEvents: "none",
-		width: 10,
-	},
-	tabShoulderLeft: {
-		left: -9,
-		WebkitMaskImage:
-			"radial-gradient(circle 10px at 0% 0%, transparent 10px, black 10.5px)",
-		maskImage:
-			"radial-gradient(circle 10px at 0% 0%, transparent 10px, black 10.5px)",
-	},
-	tabShoulderRight: {
-		right: -9,
-		WebkitMaskImage:
-			"radial-gradient(circle 10px at 100% 0%, transparent 10px, black 10.5px)",
-		maskImage:
-			"radial-gradient(circle 10px at 100% 0%, transparent 10px, black 10.5px)",
-	},
 	railDivider: {
 		backgroundColor: "rgba(255,255,255,0.1)",
 		height: 1,
@@ -692,7 +673,7 @@ const styles = stylex.create({
 			":hover": "rgba(255,255,255,0.07)",
 		},
 		borderColor: "transparent",
-		borderRadius: 9,
+		borderRadius: "50%",
 		borderStyle: "solid",
 		borderWidth: 1,
 		color: {

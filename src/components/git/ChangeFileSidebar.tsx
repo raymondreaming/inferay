@@ -11,6 +11,7 @@ import {
 } from "../../tokens.stylex.ts";
 import { Button } from "../ui/Button.tsx";
 import { DotMatrixWeave } from "../ui/DotMatrixLoader.tsx";
+import { LiquidSegmentedRail } from "../ui/gooey/LiquidSegmentedRail.tsx";
 import {
 	IconCheck,
 	IconChevronRight,
@@ -396,6 +397,8 @@ const styles = stylex.create({
 		flex: 1,
 	},
 	segmented: {
+		position: "relative",
+		isolation: "isolate",
 		display: "flex",
 		height: controlSize._5,
 		alignItems: "center",
@@ -407,6 +410,8 @@ const styles = stylex.create({
 		backgroundColor: color.backgroundRaised,
 	},
 	segmentButton: {
+		position: "relative",
+		zIndex: 1,
 		height: "100%",
 		paddingInline: controlSize._2,
 		color: color.textMuted,
@@ -420,7 +425,7 @@ const styles = stylex.create({
 		},
 	},
 	segmentButtonActive: {
-		backgroundColor: color.controlActive,
+		backgroundColor: color.transparent,
 		color: color.textMain,
 	},
 	headerIconButton: {
@@ -1106,13 +1111,18 @@ function ChangeFileSidebarHeader({
 			)}
 			<span {...stylex.props(styles.spacer)} />
 			<div {...stylex.props(styles.segmented)}>
+				<LiquidSegmentedRail
+					activeIndex={fileViewMode === "path" ? 0 : 1}
+					itemCount={2}
+					radius={6}
+				/>
 				<button
 					type="button"
 					onClick={() => onFileViewModeChange("path")}
 					title="Path view"
 					{...stylex.props(
 						styles.segmentButton,
-						fileViewMode === "path" && styles.segmentButtonActive
+						fileViewMode === "path" && styles.segmentButtonActive,
 					)}
 				>
 					Path
@@ -1123,7 +1133,7 @@ function ChangeFileSidebarHeader({
 					title="Tree view"
 					{...stylex.props(
 						styles.segmentButton,
-						fileViewMode === "tree" && styles.segmentButtonActive
+						fileViewMode === "tree" && styles.segmentButtonActive,
 					)}
 				>
 					Tree
@@ -1162,7 +1172,7 @@ function CommitSection({
 		try {
 			const data = await postJson<{ message?: string }>(
 				"/api/git/generate-commit-message",
-				{ cwd }
+				{ cwd },
 			);
 			if (data.message) onCommitMessageChange(data.message);
 		} catch {
@@ -1208,7 +1218,7 @@ function CommitSection({
 					aria-hidden="true"
 					{...stylex.props(
 						styles.checkbox,
-						amendMode && styles.checkboxChecked
+						amendMode && styles.checkboxChecked,
 					)}
 				>
 					{amendMode ? <IconCheck size={9} /> : null}
@@ -1232,7 +1242,7 @@ function CommitSection({
 							placeholder="Commit summary"
 							{...stylex.props(
 								styles.summaryInput,
-								generating && styles.summaryInputGenerating
+								generating && styles.summaryInputGenerating,
 							)}
 							onKeyDown={(e) => {
 								if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -1256,7 +1266,7 @@ function CommitSection({
 							<span
 								{...stylex.props(
 									styles.summaryCount,
-									summary.length > 72 && styles.warningText
+									summary.length > 72 && styles.warningText,
 								)}
 							>
 								{summary.length}
@@ -1270,13 +1280,13 @@ function CommitSection({
 								const sum = commitMessage.split("\n")[0] || "";
 								onCommitMessageChange(
 									sum +
-										(e.currentTarget.value ? `\n${e.currentTarget.value}` : "")
+										(e.currentTarget.value ? `\n${e.currentTarget.value}` : ""),
 								);
 							}}
 							placeholder="Description"
 							{...stylex.props(
 								styles.descriptionInput,
-								generating && styles.descriptionInputGenerating
+								generating && styles.descriptionInputGenerating,
 							)}
 							rows={4}
 						/>
@@ -1568,14 +1578,14 @@ function TreeNodeRow({
 								size={10}
 								{...stylex.props(
 									styles.chevron,
-									isExpanded && styles.chevronOpen
+									isExpanded && styles.chevronOpen,
 								)}
 							/>
 							<IconFolderFill
 								size={12}
 								{...stylex.props(
 									styles.folderIcon,
-									isExpanded && styles.folderIconOpen
+									isExpanded && styles.folderIconOpen,
 								)}
 							/>
 							<span {...stylex.props(styles.treeName)}>{node.name}</span>
@@ -1587,7 +1597,7 @@ function TreeNodeRow({
 							<span
 								{...stylex.props(
 									styles.treeFileName,
-									active && styles.activeText
+									active && styles.activeText,
 								)}
 							>
 								{node.name}
@@ -1605,7 +1615,7 @@ function TreeNodeRow({
 						}}
 						{...stylex.props(
 							styles.rowAction,
-							hoveredActionPath === file.path && styles.rowActionVisible
+							hoveredActionPath === file.path && styles.rowActionVisible,
 						)}
 						title={`${actionLabel} ${file.path}`}
 					>
@@ -1657,7 +1667,7 @@ function FileGroup({
 }) {
 	const [isCollapsed, setIsCollapsed] = useState(false);
 	const [hoveredActionPath, setHoveredActionPath] = useState<string | null>(
-		null
+		null,
 	);
 	const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
 	const expandedDirs = useMemo(() => {
@@ -1687,7 +1697,7 @@ function FileGroup({
 			<div
 				{...stylex.props(
 					styles.groupHeader,
-					title === "Staged" && styles.groupHeaderSeparated
+					title === "Staged" && styles.groupHeaderSeparated,
 				)}
 			>
 				<button
@@ -1699,7 +1709,7 @@ function FileGroup({
 						styles.groupToggle,
 						isCollapsible && !isEmpty
 							? styles.cursorPointer
-							: styles.cursorDefault
+							: styles.cursorDefault,
 					)}
 				>
 					{isCollapsible && (
@@ -1707,7 +1717,7 @@ function FileGroup({
 							size={10}
 							{...stylex.props(
 								styles.chevron,
-								!isCollapsed && !isEmpty && styles.chevronOpen
+								!isCollapsed && !isEmpty && styles.chevronOpen,
 							)}
 						/>
 					)}
@@ -1743,7 +1753,7 @@ function FileGroup({
 									key={`${f.staged ? "s" : "u"}-${f.path}`}
 									{...stylex.props(
 										styles.pathRow,
-										active && styles.fileRowActive
+										active && styles.fileRowActive,
 									)}
 									onMouseEnter={() => {
 										setHoveredActionPath(f.path);
@@ -1760,7 +1770,7 @@ function FileGroup({
 										<span
 											{...stylex.props(
 												styles.pathFileName,
-												active && styles.activeText
+												active && styles.activeText,
 											)}
 										>
 											{f.path}
@@ -1776,7 +1786,7 @@ function FileGroup({
 											}}
 											{...stylex.props(
 												styles.rowActionSubtle,
-												hoveredActionPath === f.path && styles.rowActionVisible
+												hoveredActionPath === f.path && styles.rowActionVisible,
 											)}
 											title={`${actionLabel} ${f.path}`}
 										>

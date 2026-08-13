@@ -1,12 +1,12 @@
 import * as stylex from "@octanejs/stylex";
 import type { RefObject } from "react";
-import { BranchDropdown } from "../../components/chat/AgentChatHeader.tsx";
 import {
 	type AgentChatHandle,
 	AgentChatView,
 } from "../../components/chat/AgentChatView.tsx";
 import { ChatPaneBoundary } from "../../components/chat/ChatPaneBoundary.tsx";
 import type { SelectedFile } from "../../components/git/ChangeFileSidebar.tsx";
+import { LiquidSegmentedRail } from "../../components/ui/gooey/LiquidSegmentedRail.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
 import {
 	IconCollapse,
@@ -128,7 +128,7 @@ export function EditorAgentChat({
 	onDirectoryChange?: (
 		paneId: string,
 		cwd: string,
-		referencePaths?: string[]
+		referencePaths?: string[],
 	) => void;
 	composerOnly?: boolean;
 	composerOnlyOffsetX?: number;
@@ -173,7 +173,7 @@ function ToolbarButton({
 			title={title}
 			{...stylex.props(
 				styles.toolbarButton,
-				active && styles.toolbarButtonActive
+				active && styles.toolbarButtonActive,
 			)}
 		>
 			{icon}
@@ -185,7 +185,6 @@ export function DiffViewerTopBar({
 	mainViewMode,
 	diffViewMode,
 	cwd,
-	gitBranch,
 	filePath,
 	selectedFile,
 	diffStats,
@@ -193,7 +192,6 @@ export function DiffViewerTopBar({
 	onUnstageFile,
 	onMainViewModeChange,
 	onDiffViewModeChange,
-	onGitBranchChanged,
 	zenMode,
 	onToggleZenMode,
 }: {
@@ -222,32 +220,20 @@ export function DiffViewerTopBar({
 					{dirName}
 				</span>
 			)}
-			{gitBranch && (
-				<>
-					<span {...stylex.props(styles.headerMuted)}>›</span>
-					{cwd ? (
-						<BranchDropdown
-							cwd={cwd}
-							branch={gitBranch}
-							onBranchChanged={onGitBranchChanged}
-						/>
-					) : (
-						<span {...stylex.props(styles.headerBranch)} title={gitBranch}>
-							{gitBranch}
-						</span>
-					)}
-				</>
-			)}
-			{(dirName || gitBranch) && (
-				<span {...stylex.props(styles.headerDivider)} />
-			)}
+			{dirName && <span {...stylex.props(styles.headerDivider)} />}
 			<div {...stylex.props(styles.segmented)}>
+				<LiquidSegmentedRail
+					activeIndex={0}
+					itemCount={1}
+					radius={12}
+					fill="var(--color-inferay-gray)"
+				/>
 				<button
 					type="button"
 					onClick={() => onMainViewModeChange("diff")}
 					{...stylex.props(
 						styles.segmentButton,
-						mainViewMode === "diff" && styles.segmentButtonActive
+						mainViewMode === "diff" && styles.segmentButtonActive,
 					)}
 				>
 					Diff
@@ -290,6 +276,12 @@ export function DiffViewerTopBar({
 			<span {...stylex.props(styles.spacer)} />
 
 			<div {...stylex.props(styles.segmented)}>
+				<LiquidSegmentedRail
+					activeIndex={zenMode ? 2 : diffViewMode === "split" ? 0 : 1}
+					itemCount={3}
+					radius={12}
+					fill="var(--color-inferay-gray)"
+				/>
 				<ToolbarButton
 					active={diffViewMode === "split"}
 					title="Split diff"
@@ -420,6 +412,8 @@ const styles = stylex.create({
 		textAlign: "center",
 	},
 	toolbarButton: {
+		position: "relative",
+		zIndex: 1,
 		display: "flex",
 		height: "100%",
 		width: controlSize._6,
@@ -437,10 +431,12 @@ const styles = stylex.create({
 		},
 	},
 	toolbarButtonActive: {
-		backgroundColor: color.controlActive,
+		backgroundColor: color.transparent,
 		color: color.textMain,
 	},
 	segmented: {
+		position: "relative",
+		isolation: "isolate",
 		display: "flex",
 		height: controlSize._5,
 		alignItems: "center",
@@ -452,6 +448,8 @@ const styles = stylex.create({
 		backgroundColor: color.backgroundRaised,
 	},
 	segmentButton: {
+		position: "relative",
+		zIndex: 1,
 		height: "100%",
 		color: color.textMuted,
 		fontSize: "0.5rem",
@@ -468,7 +466,7 @@ const styles = stylex.create({
 		},
 	},
 	segmentButtonActive: {
-		backgroundColor: color.controlActive,
+		backgroundColor: color.transparent,
 		color: color.textMain,
 	},
 	filePathLabel: {
