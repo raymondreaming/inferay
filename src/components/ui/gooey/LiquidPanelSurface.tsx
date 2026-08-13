@@ -14,7 +14,7 @@ export function LiquidPanelSurface({
 			contrast={20}
 			fill={fill}
 			filterPadding={30}
-			shadow="0px 18px 52px rgba(0,0,0,.24)"
+			shadow="inset 0 1px 0 rgba(255,255,255,.1), 0 18px 52px rgba(0,0,0,.24)"
 			className="inferay-liquid-panel"
 			style={{ display: "flex", width: "100%" }}
 		>

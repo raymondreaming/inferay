@@ -62,6 +62,7 @@ import { color, colorValues, controlSize, font } from "../../tokens.stylex.ts";
 import { Button } from "../ui/Button.tsx";
 import { Liquid } from "../ui/gooey/index.ts";
 import { LiquidCreateMenu } from "../ui/gooey/LiquidCreateMenu.tsx";
+import { LiquidPanel } from "../ui/gooey/LiquidPanel.tsx";
 import { LiquidSegmentedRail } from "../ui/gooey/LiquidSegmentedRail.tsx";
 import { IconButton } from "../ui/IconButton.tsx";
 import {
@@ -543,50 +544,27 @@ function SidebarWorkspacesSection({
 								gap={4}
 							/>
 							<span {...stylex.props(styles.workspaceGridWrap)}>
-								<Liquid
-									blur={6}
-									contrast={18}
-									fill={colorValues.backgroundRaised}
-									filterPadding={30}
-									shadow="inset 0 1px 0 rgba(255,255,255,.12), 0 10px 28px rgba(0,0,0,.34)"
-									className={
-										stylex.props(styles.workspaceGridLiquidStage).className
-									}
+								<button
+									type="button"
+									onClick={() => {
+										onUpdateLayoutMode("grid");
+										setGridMenuOpen((open) => !open);
+									}}
+									{...stylex.props(
+										styles.workspaceLayoutButton,
+										layoutMode === "grid"
+											? styles.workspaceLayoutButtonActive
+											: styles.workspaceLayoutButtonIdle,
+									)}
+									aria-label="Grid layout"
+									aria-expanded={gridMenuOpen}
 								>
-									<Liquid.Item
-										className={
-											stylex.props(styles.workspaceGridLiquidTrigger).className
-										}
-									>
-										<button
-											type="button"
-											onClick={() => {
-												onUpdateLayoutMode("grid");
-												setGridMenuOpen((open) => !open);
-											}}
-											{...stylex.props(
-												styles.workspaceLayoutButton,
-												layoutMode === "grid"
-													? styles.workspaceLayoutButtonActive
-													: styles.workspaceLayoutButtonIdle,
-											)}
-											aria-label="Grid layout"
-											aria-expanded={gridMenuOpen}
-										>
-											<IconLayoutGrid size={14} />
-										</button>
-									</Liquid.Item>
-									{selectedGroup ? (
-										<Liquid.Item
-											className={
-												stylex.props(styles.workspaceGridLiquidPanelItem)
-													.className
-											}
-											y={gridMenuOpen ? 42 : 0}
-											scale={gridMenuOpen ? 1 : 0.01}
-											transition={gridMenuOpen ? "bouncy" : "snappy"}
-										>
-											<span {...stylex.props(styles.workspaceGridMenu)}>
+									<IconLayoutGrid size={14} />
+								</button>
+								{gridMenuOpen && selectedGroup ? (
+									<span {...stylex.props(styles.workspaceGridMenuAnchor)}>
+										<LiquidPanel fill={colorValues.backgroundRaised}>
+											<div {...stylex.props(styles.workspaceGridMenu)}>
 												<span {...stylex.props(styles.workspaceGridMenuRow)}>
 													<span
 														{...stylex.props(styles.workspaceGridMenuLabel)}
@@ -681,14 +659,17 @@ function SidebarWorkspacesSection({
 														))}
 													</span>
 												</span>
-											</span>
-										</Liquid.Item>
-									) : null}
-								</Liquid>
+											</div>
+										</LiquidPanel>
+									</span>
+								) : null}
 							</span>
 							<button
 								type="button"
-								onClick={() => onUpdateLayoutMode("rows")}
+								onClick={() => {
+									onUpdateLayoutMode("rows");
+									setGridMenuOpen(false);
+								}}
 								{...stylex.props(
 									styles.workspaceLayoutButton,
 									layoutMode === "rows"
@@ -1524,32 +1505,27 @@ const styles = stylex.create({
 		width: controlSize._7,
 		flexShrink: 0,
 	},
-	workspaceGridLiquidStage: {
+	workspaceGridMenuAnchor: {
 		position: "absolute",
-		top: 0,
+		top: 42,
 		left: 0,
 		zIndex: 340,
-		display: "block",
+		display: "flex",
 		width: 188,
-		height: 122,
-		pointerEvents: "none",
-	},
-	workspaceGridLiquidTrigger: {
-		position: "relative",
-		zIndex: 2,
-		display: "block",
-		height: controlSize._7,
-		width: controlSize._7,
-		minWidth: controlSize._7,
-		borderRadius: "50%",
 		pointerEvents: "auto",
-	},
-	workspaceGridLiquidPanelItem: {
-		position: "absolute",
-		top: 0,
-		left: 0,
-		transformOrigin: "14px 14px",
-		pointerEvents: "auto",
+		transformOrigin: "top left",
+		animationName: stylex.keyframes({
+			from: {
+				opacity: 0,
+				transform: "translateY(-10px) scale(0.97)",
+			},
+			to: {
+				opacity: 1,
+				transform: "translateY(0) scale(1)",
+			},
+		}),
+		animationDuration: "240ms",
+		animationTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
 	},
 	workspaceLayoutButton: {
 		position: "relative",
@@ -1588,7 +1564,7 @@ const styles = stylex.create({
 		gap: controlSize._2,
 		borderWidth: 0,
 		borderRadius: 8,
-		backgroundColor: color.backgroundRaised,
+		backgroundColor: color.transparent,
 		boxShadow: "none",
 		padding: controlSize._2,
 	},
