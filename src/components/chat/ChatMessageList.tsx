@@ -653,10 +653,6 @@ export const ChatMessageList = memo(function ChatMessageList({
 		if (!isLoading || !startTime) return renderItems;
 		return [...renderItems, { type: "thinking", key: "thinking", startTime }];
 	}, [isLoading, renderItems, startTime]);
-	const lastMessage = messages.at(-1);
-	const lastRowChangeKey = lastMessage
-		? `${lastMessage.id}:${lastMessage.content.length}:${lastMessage.isStreaming ? 1 : 0}:${renderRows.length}`
-		: `${renderRows.at(-1)?.type ?? "none"}:${renderRows.length}`;
 	const checkpointsByMessageId = useMemo(() => {
 		const byMessageId = new Map<string, CheckpointInfo>();
 		for (const checkpoint of checkpoints) {
@@ -670,7 +666,14 @@ export const ChatMessageList = memo(function ChatMessageList({
 		(behavior: ScrollBehavior = "auto") => {
 			const element = scrollElementRef.current;
 			if (!element) return;
-			element.scrollTo({ top: element.scrollHeight, behavior });
+			if (behavior === "smooth") {
+				element.scrollTo({ top: element.scrollHeight, behavior });
+				return;
+			}
+			element.scrollTop = Math.max(
+				0,
+				element.scrollHeight - element.clientHeight,
+			);
 		},
 		[scrollElementRef],
 	);
@@ -730,25 +733,22 @@ export const ChatMessageList = memo(function ChatMessageList({
 	}, [pinToBottom, renderRows.length, scrollElementRef]);
 
 	useLayoutEffect(() => {
-		if (!stickToBottom || renderRows.length === 0) return;
-		let raf2 = 0;
-		const raf1 = requestAnimationFrame(() => {
-			pinToBottom();
-			raf2 = requestAnimationFrame(() => pinToBottom());
-		});
-		return () => {
-			cancelAnimationFrame(raf1);
-			if (raf2) cancelAnimationFrame(raf2);
-		};
-	}, [lastRowChangeKey, pinToBottom, renderRows.length, stickToBottom]);
-
-	useLayoutEffect(() => {
 		const list = messageListRef.current;
 		if (!list || !stickToBottom || typeof ResizeObserver === "undefined")
 			return;
-		const observer = new ResizeObserver(() => pinToBottom());
+		let frame = 0;
+		const observer = new ResizeObserver(() => {
+			if (frame) return;
+			frame = requestAnimationFrame(() => {
+				frame = 0;
+				pinToBottom();
+			});
+		});
 		observer.observe(list);
-		return () => observer.disconnect();
+		return () => {
+			observer.disconnect();
+			if (frame) cancelAnimationFrame(frame);
+		};
 	}, [pinToBottom, stickToBottom]);
 
 	useLayoutEffect(() => {

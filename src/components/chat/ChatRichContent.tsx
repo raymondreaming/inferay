@@ -26,7 +26,7 @@ import {
 import { parseInlineTokens, parseMarkdownBlocks } from "./chat-text.ts";
 
 function findParentScrollContainer(
-	node: HTMLElement | null
+	node: HTMLElement | null,
 ): HTMLElement | null {
 	let current = node?.parentElement ?? null;
 	while (current) {
@@ -53,7 +53,7 @@ export function CopyButton({
 		() => () => {
 			if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
 		},
-		[]
+		[],
 	);
 
 	const handleCopy = useCallback(() => {
@@ -71,7 +71,7 @@ export function CopyButton({
 	}, [text]);
 	const copyButtonProps = stylex.props(
 		styles.copyButton,
-		copied ? styles.copyButtonCopied : null
+		copied ? styles.copyButtonCopied : null,
 	);
 
 	return (
@@ -96,38 +96,6 @@ function CopyablePre({ text, preStyle }: { text: string; preStyle: unknown }) {
 			</div>
 		</div>
 	);
-}
-
-const STREAMING_MARKDOWN_PARSE_THRESHOLD = 1200;
-
-function hasBalancedCodeFences(text: string): boolean {
-	let count = 0;
-	for (const line of text.split("\n")) {
-		if (line.trimStart().startsWith("```")) count++;
-	}
-	return count % 2 === 0;
-}
-
-function splitStreamingMarkdown(text: string): {
-	parsedText: string;
-	tailText: string;
-} {
-	if (text.length < STREAMING_MARKDOWN_PARSE_THRESHOLD) {
-		return { parsedText: text, tailText: "" };
-	}
-	const searchEnd = Math.max(0, text.length - 240);
-	let splitAt = text.lastIndexOf("\n\n", searchEnd);
-	while (splitAt > 0) {
-		const parsedText = text.slice(0, splitAt).trimEnd();
-		if (parsedText && hasBalancedCodeFences(parsedText)) {
-			return {
-				parsedText,
-				tailText: text.slice(splitAt).trimStart(),
-			};
-		}
-		splitAt = text.lastIndexOf("\n\n", splitAt - 1);
-	}
-	return { parsedText: "", tailText: text };
 }
 
 const Inline = memo(function Inline({
@@ -210,20 +178,15 @@ const Inline = memo(function Inline({
 export const Markdown = memo(function Markdown({
 	text,
 	onMdFileClick,
-	streaming = false,
 }: {
 	text: string;
 	onMdFileClick?: (path: string) => void;
 	streaming?: boolean;
 }) {
-	const { parsedText, tailText } = useMemo(
-		() =>
-			streaming
-				? splitStreamingMarkdown(text)
-				: { parsedText: text, tailText: "" },
-		[streaming, text]
-	);
-	const blocks = useMemo(() => parseMarkdownBlocks(parsedText), [parsedText]);
+	// Streaming and completed messages use the same block projection. Switching
+	// from a raw streaming tail to parsed markdown at an arbitrary length caused
+	// paragraphs to change height and made the pinned viewport jump.
+	const blocks = useMemo(() => parseMarkdownBlocks(text), [text]);
 	const handleTableWheel = useCallback(
 		(event: WheelEvent & { currentTarget: HTMLDivElement }) => {
 			if (Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.shiftKey) {
@@ -236,7 +199,7 @@ export const Markdown = memo(function Markdown({
 			parentScroller.scrollTop += event.deltaY;
 			event.preventDefault();
 		},
-		[]
+		[],
 	);
 
 	return (
@@ -306,7 +269,7 @@ export const Markdown = memo(function Markdown({
 													</td>
 												))}
 											</tr>
-										)
+										),
 									)}
 								</tbody>
 							</table>
@@ -319,11 +282,6 @@ export const Markdown = memo(function Markdown({
 					</p>
 				);
 			})}
-			{tailText && (
-				<p {...stylex.props(styles.paragraph, styles.streamingText)}>
-					{tailText}
-				</p>
-			)}
 		</div>
 	);
 });
@@ -485,9 +443,6 @@ const styles = stylex.create({
 		overflowWrap: "break-word",
 		wordBreak: "normal",
 	},
-	streamingText: {
-		whiteSpace: "pre-wrap",
-	},
 	rawToolPre: {
 		backgroundColor: color.backgroundRaised,
 		borderColor: color.border,
@@ -637,7 +592,7 @@ export function AskUserQuestionCard({
 }) {
 	const parsed = useMemo(() => parseAskUserQuestions(content), [content]);
 	const [selections, setSelections] = useState<Map<number, Set<number>>>(
-		new Map()
+		new Map(),
 	);
 	const [submitted, setSubmitted] = useState(false);
 	const accentColor = "var(--color-inferay-accent)";
@@ -661,7 +616,7 @@ export function AskUserQuestionCard({
 				return next;
 			});
 		},
-		[submitted]
+		[submitted],
 	);
 
 	const hasSelections = useMemo(() => {
@@ -718,7 +673,7 @@ export function AskUserQuestionCard({
 													toggleOption(
 														questionIndex,
 														optionIndex,
-														!!q.multiSelect
+														!!q.multiSelect,
 													)
 												}
 												disabled={submitted}
@@ -727,7 +682,7 @@ export function AskUserQuestionCard({
 													isSelected ? styles.optionSelected : null,
 													submitted && !isSelected
 														? styles.optionDisabled
-														: null
+														: null,
 												)}
 												style={{
 													borderColor: isSelected
@@ -766,7 +721,7 @@ export function AskUserQuestionCard({
 												</div>
 											</button>
 										);
-									}
+									},
 								)}
 							</div>
 						)}

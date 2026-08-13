@@ -61,30 +61,28 @@ async function renderHtml(ui: unknown) {
 }
 
 describe("chat markdown rendering", () => {
-	test("renders long streaming tails without reparsing inline markdown", async () => {
-		const { Markdown } =
-			await import("../src/components/chat/ChatRichContent.tsx");
+	test("keeps long streaming and completed markdown structurally stable", async () => {
+		const { Markdown } = await import(
+			"../src/components/chat/ChatRichContent.tsx"
+		);
 		const tail = Array.from({ length: 90 }, () => "tail **still raw**").join(
-			" "
+			" ",
 		);
-		const html = await renderHtml(
-			<Markdown
-				streaming
-				text={`# Done\n\nParagraph with **bold** text.\n\n${tail}`}
-			/>
-		);
+		const text = `# Done\n\nParagraph with **bold** text.\n\n${tail}`;
+		const streamingHtml = await renderHtml(<Markdown streaming text={text} />);
+		const completedHtml = await renderHtml(<Markdown text={text} />);
 
-		expect(html).toContain("Done");
-		expect(html).toContain("<strong");
-		expect(html.match(/<strong/g)?.length).toBe(1);
-		expect(html).toContain("**still raw**");
+		expect(streamingHtml).toContain("Done");
+		expect(streamingHtml.match(/<strong/g)?.length).toBe(91);
+		expect(streamingHtml).toBe(completedHtml);
 	});
 
 	test("renders copy controls for fenced code blocks", async () => {
-		const { Markdown } =
-			await import("../src/components/chat/ChatRichContent.tsx");
+		const { Markdown } = await import(
+			"../src/components/chat/ChatRichContent.tsx"
+		);
 		const html = await renderHtml(
-			<Markdown text={"```ts\nconst value = 1;\n```"} />
+			<Markdown text={"```ts\nconst value = 1;\n```"} />,
 		);
 
 		expect(html).toContain("<pre");
@@ -93,10 +91,11 @@ describe("chat markdown rendering", () => {
 	});
 
 	test("renders copy controls for raw tool question output", async () => {
-		const { AskUserQuestionCard } =
-			await import("../src/components/chat/ChatRichContent.tsx");
+		const { AskUserQuestionCard } = await import(
+			"../src/components/chat/ChatRichContent.tsx"
+		);
 		const html = await renderHtml(
-			<AskUserQuestionCard content="raw tool output" />
+			<AskUserQuestionCard content="raw tool output" />,
 		);
 
 		expect(html).toContain("<pre");
