@@ -11,11 +11,6 @@ import {
 } from "octane";
 import type { AgentChatHandle } from "../../components/chat/AgentChatView.tsx";
 import { IconGitBranch } from "../../components/ui/Icons.tsx";
-import { clearAgentChatPaneState } from "../../features/chat/chat-session-store.ts";
-import { useGitStatus } from "../../features/git/useGitStatus.tsx";
-import { wsClient } from "../../lib/websocket.ts";
-import { AgentGrid } from "./AgentGrid.tsx";
-
 import {
 	type AgentGroupsAction,
 	type AgentKind,
@@ -47,6 +42,8 @@ import {
 	syncAgentLayoutMode,
 	type ThemeId,
 } from "../../features/agent/agent-utils.ts";
+import { clearAgentChatPaneState } from "../../features/chat/chat-session-store.ts";
+import { useGitStatus } from "../../features/git/useGitStatus.tsx";
 import {
 	type AgentMainView,
 	DEFAULT_AGENT_MAIN_VIEW,
@@ -63,24 +60,26 @@ import {
 	setupAgentThemePanelShortcut,
 } from "../../lib/react-events.ts";
 import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
+import { wsClient } from "../../lib/websocket.ts";
 import { color, controlSize } from "../../tokens.stylex.ts";
+import { AgentGrid } from "./AgentGrid.tsx";
 
 const EMPTY_GRAPH_CWDS: string[] = [];
 
 const ProjectFileGraphView = lazy(() =>
 	import("../../components/graph/ProjectFileGraphView.tsx").then((module) => ({
 		default: module.ProjectFileGraphView,
-	}))
+	})),
 );
 const EditorPage = lazy(() =>
 	import("../EditorPage/index.tsx").then((module) => ({
 		default: module.EditorPage,
-	}))
+	})),
 );
 const AgentSettingsPanel = lazy(() =>
 	import("./AgentSettingsPanel.tsx").then((module) => ({
 		default: module.AgentSettingsPanel,
-	}))
+	})),
 );
 
 type GraphSelection = {
@@ -111,7 +110,7 @@ type AgentPersistenceArgs = AgentAppearance & {
 	readonly restoreSavedState: (state: AgentSavedState | null) => void;
 	readonly selectedGroupId: GroupId | null;
 	readonly setAppearance: (
-		value: AgentAppearance | ((previous: AgentAppearance) => AgentAppearance)
+		value: AgentAppearance | ((previous: AgentAppearance) => AgentAppearance),
 	) => void;
 	readonly setLayoutMode: (value: AgentLayoutMode) => void;
 	readonly setMainView: (value: AgentMainView) => void;
@@ -119,7 +118,7 @@ type AgentPersistenceArgs = AgentAppearance & {
 };
 
 function getGraphCwds(
-	panes: readonly { readonly cwd?: string }[] = []
+	panes: readonly { readonly cwd?: string }[] = [],
 ): string[] {
 	const seen = new Set<string>();
 	const cwds: string[] = [];
@@ -135,7 +134,7 @@ function getSelectedPaneCwd(
 	group: {
 		readonly panes: readonly { readonly id: string; readonly cwd?: string }[];
 		readonly selectedPaneId: string | null;
-	} | null
+	} | null,
 ): string | null {
 	return (
 		group?.panes.find((pane) => pane.id === group.selectedPaneId)?.cwd ?? null
@@ -217,7 +216,7 @@ function useAgentPersistence({
 			saveSyncedAgentState(
 				latestStateRef.current,
 				"agent-page-save",
-				"canonical"
+				"canonical",
 			);
 			pendingSaveRef.current = false;
 		}, 100);
@@ -258,10 +257,10 @@ function useAgentPersistence({
 			saveSyncedAgentState(
 				latestStateRef.current,
 				"agent-page-unmount",
-				"canonical"
+				"canonical",
 			);
 		},
-		[latestStateRef]
+		[latestStateRef],
 	);
 	useEffect(() => {
 		let cancelled = false;
@@ -285,7 +284,7 @@ function useAgentPersistence({
 				saveSyncedAgentState(
 					canonicalState,
 					"startup-canonical-restore",
-					"canonical"
+					"canonical",
 				);
 			}
 			startupRestoreCompleteRef.current = true;
@@ -319,7 +318,13 @@ function useAgentPersistence({
 				setAppearance((prev) => ({ ...prev, themeId: saved.themeId }));
 			}
 			const savedState = saved;
+			const isRegressiveSnapshot =
+				savedState &&
+				detail?.reason !== "remove-pane" &&
+				detail?.reason !== "remove-workspace" &&
+				agentStateScore(savedState) < agentStateScore(currentState);
 			if (
+				!isRegressiveSnapshot &&
 				savedState?.selectedGroupId &&
 				savedState.selectedGroupId !== currentState.selectedGroupId
 			) {
@@ -329,7 +334,7 @@ function useAgentPersistence({
 					selectedGroupId: savedState.selectedGroupId,
 				};
 			}
-			if (savedState) {
+			if (savedState && !isRegressiveSnapshot) {
 				const savedShellKey = agentStateKey(savedState);
 				const currentShellKey = agentStateKey(latestStateRef.current);
 				if (savedShellKey !== currentShellKey) {
@@ -358,7 +363,7 @@ function useAgentPersistence({
 			setLayoutMode,
 			setMainView,
 			setSelectedGroupId,
-		]
+		],
 	);
 	useEffect(() => {
 		return listenWindowEvent("agent-shell-change", handleShellChange);
@@ -496,7 +501,7 @@ function getInitialAgentViewState(): AgentViewState {
 
 function agentViewReducer(
 	state: AgentViewState,
-	action: AgentViewAction
+	action: AgentViewAction,
 ): AgentViewState {
 	switch (action.type) {
 		case "layoutModeChanged":
@@ -514,7 +519,7 @@ type AgentMainSurfaceProps = {
 	readonly onDirectoryChange: (
 		paneId: string,
 		path: string | null,
-		referencePaths?: string[]
+		referencePaths?: string[],
 	) => void;
 	readonly onSelectPane: (paneId: string) => void;
 	readonly selectedGroupId: GroupId | null;
@@ -531,7 +536,7 @@ type AgentPaneActionsArgs = {
 	readonly currentGroup: AgentSavedState["groups"][number] | undefined;
 	readonly dispatchAgentGroupAction: (
 		action: AgentGroupsAction,
-		reason?: string
+		reason?: string,
 	) => void;
 	readonly groups: AgentSavedState["groups"];
 	readonly selectedGroupId: GroupId | null;
@@ -559,10 +564,10 @@ function useAgentPaneActions({
 						groupId,
 						pane,
 					},
-					"add-pane"
+					"add-pane",
 				);
 			}),
-		[dispatchAgentGroupAction, withSelectedGroup]
+		[dispatchAgentGroupAction, withSelectedGroup],
 	);
 	const removePane = useCallback(
 		(paneId: string, force?: boolean) => {
@@ -580,10 +585,10 @@ function useAgentPaneActions({
 					paneId,
 					force,
 				},
-				"remove-pane"
+				"remove-pane",
 			);
 		},
-		[cleanupPane, dispatchAgentGroupAction, groups, selectedGroupId]
+		[cleanupPane, dispatchAgentGroupAction, groups, selectedGroupId],
 	);
 	const reorderPanes = useCallback(
 		(fromIndex: number, toIndex: number) =>
@@ -593,9 +598,9 @@ function useAgentPaneActions({
 					groupId,
 					fromIndex,
 					toIndex,
-				})
+				}),
 			),
-		[dispatchAgentGroupAction, withSelectedGroup]
+		[dispatchAgentGroupAction, withSelectedGroup],
 	);
 	const handleSetPaneAgentKind = useCallback(
 		(paneId: string, agentKind: AgentKind) =>
@@ -607,10 +612,10 @@ function useAgentPaneActions({
 						paneId,
 						agentKind,
 					},
-					"set-pane-agent-kind"
-				)
+					"set-pane-agent-kind",
+				),
 			),
-		[dispatchAgentGroupAction, withSelectedGroup]
+		[dispatchAgentGroupAction, withSelectedGroup],
 	);
 	const handleDirectorySelected = useCallback(
 		(paneId: string, path: string | null, referencePaths?: string[]) => {
@@ -626,11 +631,11 @@ function useAgentPaneActions({
 						path,
 						referencePaths,
 					},
-					"directory-selected"
-				)
+					"directory-selected",
+				),
 			);
 		},
-		[dispatchAgentGroupAction, setGraphSelection, withSelectedGroup]
+		[dispatchAgentGroupAction, setGraphSelection, withSelectedGroup],
 	);
 	const selectPane = useCallback(
 		(paneId: string) => {
@@ -642,8 +647,8 @@ function useAgentPaneActions({
 			withSelectedGroup((groupId) =>
 				dispatchAgentGroupAction(
 					{ type: "selectPane", groupId, paneId },
-					"select-pane"
-				)
+					"select-pane",
+				),
 			);
 		},
 		[
@@ -651,18 +656,18 @@ function useAgentPaneActions({
 			dispatchAgentGroupAction,
 			setGraphSelection,
 			withSelectedGroup,
-		]
+		],
 	);
 	const handleChatRef = useCallback(
 		(paneId: string, handle: AgentChatHandle | null) => {
 			if (handle) chatRefs.current?.set(paneId, handle);
 			else chatRefs.current?.delete(paneId);
 		},
-		[chatRefs]
+		[chatRefs],
 	);
 	const handleSelectGraphCwd = useCallback(
 		(cwd: string) => setGraphSelection({ cwd, source: "user" }),
-		[setGraphSelection]
+		[setGraphSelection],
 	);
 	return {
 		handleAddPane,
@@ -708,7 +713,7 @@ function AgentMainSurface({
 											styles.surfaceLayer,
 											mainView === "chat"
 												? styles.surfaceLayerVisible
-												: styles.surfaceLayerHidden
+												: styles.surfaceLayerHidden,
 										)}
 										aria-hidden={mainView !== "chat"}
 									>
@@ -719,7 +724,7 @@ function AgentMainSurface({
 											styles.surfaceLayer,
 											mainView === "editor"
 												? styles.surfaceLayerVisible
-												: styles.surfaceLayerHidden
+												: styles.surfaceLayerHidden,
 										)}
 										aria-hidden={mainView !== "editor"}
 									>
@@ -740,7 +745,7 @@ function AgentMainSurface({
 										<div
 											{...stylex.props(
 												styles.surfaceLayer,
-												styles.surfaceLayerVisible
+												styles.surfaceLayerVisible,
 											)}
 										>
 											<Suspense fallback={null}>{graphView}</Suspense>
@@ -771,17 +776,17 @@ export function AgentPage() {
 	const [viewState, viewDispatch] = useReducer(
 		agentViewReducer,
 		undefined,
-		getInitialAgentViewState
+		getInitialAgentViewState,
 	);
 	const { layoutMode, mainView } = viewState;
 	const setLayoutMode = useCallback(
 		(value: AgentLayoutMode) =>
 			viewDispatch({ type: "layoutModeChanged", value }),
-		[]
+		[],
 	);
 	const setMainView = useCallback(
 		(value: AgentMainView) => viewDispatch({ type: "mainViewChanged", value }),
-		[]
+		[],
 	);
 	useEffect(() => {
 		writeStoredValue("agent-layout-mode", layoutMode);
@@ -790,7 +795,7 @@ export function AgentPage() {
 	const initGroups = useMemo(() => getInitialGroups(), []);
 	const [groups, groupsDispatch] = useReducer(reduceAgentGroups, initGroups);
 	const [selectedGroupId, setSelectedGroupId] = useState<GroupId | null>(
-		() => initialState?.selectedGroupId ?? initGroups[0]?.id ?? null
+		() => initialState?.selectedGroupId ?? initGroups[0]?.id ?? null,
 	);
 	const [showSettings, setShowSettings] = useState(false);
 	const [appearance, setAppearance] = useState(() => ({
@@ -808,11 +813,11 @@ export function AgentPage() {
 	const theme = useMemo(() => getThemeById(themeId), [themeId]);
 	const currentGroup = useMemo(
 		() => groups.find(hasId.bind(null, selectedGroupId)),
-		[groups, selectedGroupId]
+		[groups, selectedGroupId],
 	);
 	const graphCwds = useMemo(
 		() => getGraphCwds(currentGroup?.panes),
-		[currentGroup]
+		[currentGroup],
 	);
 	const selectedPaneCwd = getSelectedPaneCwd(currentGroup ?? null);
 	const [graphSelection, setGraphSelection] = useState<GraphSelection>({
@@ -851,7 +856,7 @@ export function AgentPage() {
 				opacity: normalized.opacity,
 			});
 		},
-		[]
+		[],
 	);
 	const cleanupPane = useCallback((paneId: string) => {
 		wsClient.send({ type: "chat:destroy", paneId });
@@ -862,7 +867,7 @@ export function AgentPage() {
 		(fn: (groupId: string) => void) => {
 			if (selectedGroupId) fn(selectedGroupId);
 		},
-		[selectedGroupId]
+		[selectedGroupId],
 	);
 	const dispatchAgentGroupAction = useCallback(
 		(action: AgentGroupsAction, reason?: string) => {
@@ -882,7 +887,7 @@ export function AgentPage() {
 								groupId: action.groupId,
 								pane: action.pane,
 							},
-							reason
+							reason,
 						);
 					}
 					return;
@@ -893,12 +898,12 @@ export function AgentPage() {
 							groupId: action.groupId,
 							paneId: action.paneId,
 						},
-						reason
+						reason,
 					);
 					return;
 			}
 		},
-		[]
+		[],
 	);
 	const latestStateRef = useRef({
 		groups,

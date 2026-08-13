@@ -36,7 +36,7 @@ interface AgentGridProps {
 	onDirectorySelect: (
 		paneId: string,
 		path: string | null,
-		referencePaths?: string[]
+		referencePaths?: string[],
 	) => void;
 	onDirectoryCancel: (paneId: string) => void;
 	onChatRef: (paneId: string, handle: AgentChatHandle | null) => void;
@@ -52,7 +52,7 @@ const paneViewProps = (
 	idx: number,
 	onDragStart: (e: DragEvent, i: number) => void,
 	onDragEnd: () => void,
-	gitBranch: string | null
+	gitBranch: string | null,
 ) => ({
 	pane,
 	isSelected: p.active !== false && pane.id === p.selectedPaneId,
@@ -92,7 +92,7 @@ function isVerticalScroller(element: HTMLElement) {
 
 function findVerticalScroller(
 	target: EventTarget | null,
-	boundary: HTMLElement
+	boundary: HTMLElement,
 ) {
 	let element = target instanceof HTMLElement ? target : null;
 	while (element && element !== boundary) {
@@ -112,7 +112,7 @@ function scrollElementBy(element: HTMLElement, deltaY: number) {
 			: Number.POSITIVE_INFINITY;
 	element.scrollTop = Math.max(
 		0,
-		Math.min(maxScrollTop, element.scrollTop + deltaY)
+		Math.min(maxScrollTop, element.scrollTop + deltaY),
 	);
 }
 
@@ -141,9 +141,6 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 	const interactionPaneIdRef = useRef<string | null>(null);
 	const [dragIndex, setDragIndex] = useState<number | null>(null);
 	const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-	const [interactionPaneId, setInteractionPaneId] = useState<string | null>(
-		null
-	);
 	const chatStatusCwds = useMemo(() => {
 		if (!active) return EMPTY_CWD_LIST;
 		const seen = new Set<string>();
@@ -175,7 +172,7 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 			if (!entry) return;
 			const nextHeight = entry.contentRect.height;
 			setContainerHeight((current) =>
-				current === nextHeight ? current : nextHeight
+				current === nextHeight ? current : nextHeight,
 			);
 		});
 		ro.observe(el);
@@ -208,7 +205,7 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 				onReorderPanes(fromIndex, toIndex);
 			clearDragState();
 		},
-		[clearDragState, onReorderPanes]
+		[clearDragState, onReorderPanes],
 	);
 
 	const handleGridWheelCapture = useCallback(
@@ -234,7 +231,7 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 			event.stopPropagation();
 			scrollElementBy(grid, event.deltaY);
 		},
-		[layoutMode]
+		[layoutMode],
 	);
 
 	const handleRowWheelCapture = useCallback(
@@ -261,7 +258,7 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 				rowScroller.scrollLeft += delta;
 			}
 		},
-		[layoutMode, props.selectedPaneId]
+		[layoutMode, props.selectedPaneId],
 	);
 
 	useEffect(() => {
@@ -301,9 +298,8 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 						data-agent-row-pane-id={pane.id}
 						{...stylex.props(styles.rowCell)}
 						style={{ ...cellStyle(idx), width: 400 }}
-						onPointerDownCapture={(event) => {
+						onPointerDownCapture={() => {
 							if (pane.id !== props.selectedPaneId) {
-								event.preventDefault();
 								window.getSelection()?.removeAllRanges();
 							}
 							props.onSelectPane(pane.id);
@@ -319,9 +315,10 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 								idx,
 								handleHeaderDragStart,
 								handleHeaderDragEnd,
-								pane.cwd ? (chatProjectMap.get(pane.cwd)?.branch ?? null) : null
+								pane.cwd
+									? (chatProjectMap.get(pane.cwd)?.branch ?? null)
+									: null,
 							)}
-							interactionEnabled={pane.id === props.selectedPaneId}
 						/>
 					</div>
 				))}
@@ -351,13 +348,11 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 					{...stylex.props(styles.gridCell)}
 					data-agent-grid-pane-id={pane.id}
 					style={cellStyle(idx)}
-					onPointerDownCapture={(event) => {
+					onPointerDownCapture={() => {
 						if (pane.id !== props.selectedPaneId) {
-							event.preventDefault();
 							window.getSelection()?.removeAllRanges();
 						}
 						interactionPaneIdRef.current = pane.id;
-						setInteractionPaneId(pane.id);
 						props.onSelectPane(pane.id);
 					}}
 					onDragOver={(e) => handleDragOver(e, idx)}
@@ -371,11 +366,8 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 							idx,
 							handleHeaderDragStart,
 							handleHeaderDragEnd,
-							pane.cwd ? (chatProjectMap.get(pane.cwd)?.branch ?? null) : null
+							pane.cwd ? (chatProjectMap.get(pane.cwd)?.branch ?? null) : null,
 						)}
-						interactionEnabled={
-							layoutMode !== "grid" || pane.id === interactionPaneId
-						}
 					/>
 				</div>
 			))}
@@ -395,7 +387,6 @@ const styles = stylex.create({
 		backgroundColor: "transparent",
 		borderRightStyle: "solid",
 		borderRightWidth: 1,
-		contentVisibility: "auto",
 		flexShrink: 0,
 		height: "100%",
 		overflow: "hidden",
@@ -416,7 +407,6 @@ const styles = stylex.create({
 		borderBottomWidth: 1,
 		borderRightStyle: "solid",
 		borderRightWidth: 1,
-		contentVisibility: "auto",
 		overflow: "hidden",
 		transitionDuration: motion.durationBase,
 		transitionProperty: "border-color, opacity",

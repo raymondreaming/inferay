@@ -26,13 +26,12 @@ interface AgentPaneViewProps {
 	onDirectorySelect?: (
 		paneId: string,
 		path: string | null,
-		referencePaths?: string[]
+		referencePaths?: string[],
 	) => void;
 	onDirectoryCancel?: (paneId: string) => void;
 	chatRef: (paneId: string, handle: AgentChatHandle | null) => void;
 	onAgentStatusChange?: (paneId: string, status: string) => void;
 	paneIndex?: number;
-	interactionEnabled?: boolean;
 	onHeaderDragStart?: (e: DragEvent, index: number) => void;
 	onHeaderDragEnd?: () => void;
 	onAddPane?: (agentKind: AgentKind) => void;
@@ -50,7 +49,6 @@ export const AgentPaneView = memo(function AgentPaneView({
 	chatRef,
 	onAgentStatusChange,
 	paneIndex,
-	interactionEnabled = true,
 	onHeaderDragStart,
 	onHeaderDragEnd,
 	onAddPane,
@@ -72,7 +70,7 @@ export const AgentPaneView = memo(function AgentPaneView({
 			transfer.setDragImage(img, 0, 0);
 			onHeaderDragStart(e, paneIndex);
 		},
-		[onHeaderDragStart, pane.id, paneIndex]
+		[onHeaderDragStart, pane.id, paneIndex],
 	);
 	const handleDirectoryChange = useCallback(
 		(pid: string, cwd: string | null, refs?: string[]) => {
@@ -81,24 +79,19 @@ export const AgentPaneView = memo(function AgentPaneView({
 			}
 			onDirectorySelect?.(pid, cwd, refs);
 		},
-		[onDirectorySelect, onSetPaneAgentKind, pane.agentKind, viewAgentKind]
+		[onDirectorySelect, onSetPaneAgentKind, pane.agentKind, viewAgentKind],
 	);
 	const handleChatRef = useCallback(
 		(handle: AgentChatHandle | null) => {
 			chatHandleRef.current = handle;
 			chatRef(pane.id, handle);
 		},
-		[chatRef, pane.id]
+		[chatRef, pane.id],
 	);
 
 	return (
 		<div {...stylex.props(styles.root)}>
-			<div
-				{...stylex.props(
-					styles.agentPane,
-					!interactionEnabled && styles.agentPaneDisabled
-				)}
-			>
+			<div {...stylex.props(styles.agentPane)}>
 				<ChatPaneBoundary key={pane.id}>
 					<AgentChatView
 						paneId={pane.id}
@@ -140,8 +133,5 @@ const styles = stylex.create({
 		minHeight: 0,
 		overflow: "hidden",
 		position: "relative",
-	},
-	agentPaneDisabled: {
-		pointerEvents: "none",
 	},
 });
