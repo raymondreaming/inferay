@@ -26,7 +26,7 @@ import {
 	motion,
 	radius,
 } from "../../tokens.stylex.ts";
-import { DotMatrixRipple, ThinkingIndicator } from "../ui/DotMatrixLoader.tsx";
+import { DotMatrixRipple } from "../ui/DotMatrixLoader.tsx";
 import {
 	IconAlertTriangle,
 	IconCheck,
@@ -60,9 +60,7 @@ export type ChatVirtualizerControls = {
 	getDistanceFromEnd: () => number;
 };
 
-type ChatRenderRow =
-	| RenderItem
-	| { type: "thinking"; key: string; startTime: number };
+type ChatRenderRow = RenderItem;
 
 // Virtualizer padding is numeric; keep these in px so scroll-to-end accounts
 // for the composer fade instead of hiding the loader under it.
@@ -72,7 +70,6 @@ const CHAT_LIST_INLINE_GUTTER = "clamp(0.75rem, 3vw, 1.25rem)";
 
 function getRowKey(row: ChatRenderRow | undefined, index: number) {
 	if (!row) return `row-${index}`;
-	if (row.type === "thinking") return row.key;
 	if (row.type === "edit-group") {
 		return `edit-group:${row.filePath}:${row.edits.map((edit) => edit.id).join(":")}`;
 	}
@@ -183,7 +180,10 @@ function ToolTimeline({
 									{display.label}
 								</span>
 								{display.detail && (
-									<span {...stylex.props(styles.toolMilestoneDetail)}>
+									<span
+										title={display.detail}
+										{...stylex.props(styles.toolMilestoneDetail)}
+									>
 										{display.detail}
 									</span>
 								)}
@@ -545,7 +545,7 @@ const Bubble = memo(function Bubble({
 				/>
 			);
 		}
-		if (editPayload) {
+		if (editPayload && !msg.isStreaming) {
 			return (
 				<MiniEditDiff
 					oldStr={editPayload.oldString}
@@ -625,8 +625,6 @@ export const ChatMessageList = memo(function ChatMessageList({
 	toggleTool,
 	checkpoints,
 	revertCheckpoint,
-	isLoading,
-	startTime,
 	handleSendMessage,
 	onMdFileClick,
 	slashCommandNames,
@@ -639,8 +637,6 @@ export const ChatMessageList = memo(function ChatMessageList({
 	toggleTool: (id: string) => void;
 	checkpoints: CheckpointInfo[];
 	revertCheckpoint: (id: string) => void;
-	isLoading: boolean;
-	startTime?: number | null;
 	handleSendMessage?: (text: string) => void;
 	onMdFileClick?: (path: string) => void;
 	slashCommandNames: readonly string[];
@@ -649,10 +645,7 @@ export const ChatMessageList = memo(function ChatMessageList({
 	const didInitialScrollRef = useRef(false);
 	const messageListRef = useRef<HTMLDivElement | null>(null);
 	const renderItems = useMemo(() => buildRenderItems(messages), [messages]);
-	const renderRows = useMemo<ChatRenderRow[]>(() => {
-		if (!isLoading || !startTime) return renderItems;
-		return [...renderItems, { type: "thinking", key: "thinking", startTime }];
-	}, [isLoading, renderItems, startTime]);
+	const renderRows: ChatRenderRow[] = renderItems;
 	const checkpointsByMessageId = useMemo(() => {
 		const byMessageId = new Map<string, CheckpointInfo>();
 		for (const checkpoint of checkpoints) {
@@ -759,16 +752,6 @@ export const ChatMessageList = memo(function ChatMessageList({
 	return (
 		<div ref={messageListRef} {...stylex.props(styles.messageList)}>
 			{renderRows.map((item, index) => {
-				if (item.type === "thinking") {
-					return (
-						<div
-							key={getRowKey(item, index)}
-							{...stylex.props(styles.messageRow)}
-						>
-							<ThinkingIndicator startTime={item.startTime} />
-						</div>
-					);
-				}
 				if (item.type === "edit-group") {
 					return (
 						<div

@@ -68,7 +68,10 @@ export function parseInlineTokens(text: string): InlineToken[] {
 	return tokens;
 }
 
-export function parseMarkdownBlocks(text: string): MarkdownBlock[] {
+export function parseMarkdownBlocks(
+	text: string,
+	streaming = false,
+): MarkdownBlock[] {
 	const blocks: MarkdownBlock[] = [];
 	const lines = text.split("\n");
 	let i = 0;
@@ -109,25 +112,34 @@ export function parseMarkdownBlocks(text: string): MarkdownBlock[] {
 			continue;
 		}
 
-		if (line.trim().startsWith("|") && line.trim().endsWith("|")) {
+		const trimmedLine = line.trim();
+		if (
+			trimmedLine.startsWith("|") &&
+			(streaming || trimmedLine.endsWith("|"))
+		) {
 			const tableLines: string[] = [line];
 			i++;
 			while (
 				i < lines.length &&
 				lines[i]?.trim().startsWith("|") &&
-				lines[i]?.trim().endsWith("|")
+				(streaming || lines[i]?.trim().endsWith("|"))
 			) {
 				tableLines.push(lines[i]!);
 				i++;
 			}
-			if (tableLines.length >= 2) {
-				const parseCells = (row: string) =>
-					row
-						.split("|")
-						.slice(1, -1)
-						.map((cell) => cell.trim());
+			if (tableLines.length >= 2 || streaming) {
+				const parseCells = (row: string) => {
+					const cells = row.split("|");
+					if (cells[0]?.trim() === "") cells.shift();
+					if (cells.at(-1)?.trim() === "") cells.pop();
+					return cells.map((cell) => cell.trim());
+				};
 				const headers = parseCells(tableLines[0]!);
-				const startRow = tableLines[1]?.trim().match(/^\|[\s:?-]+\|/) ? 2 : 1;
+				const separatorCells = tableLines[1] ? parseCells(tableLines[1]) : [];
+				const hasSeparator =
+					separatorCells.length > 0 &&
+					separatorCells.every((cell) => /^:?-+:?$/.test(cell));
+				const startRow = hasSeparator ? 2 : 1;
 				const rows = tableLines.slice(startRow).map(parseCells);
 				blocks.push({ type: "table", headers, rows });
 			} else {

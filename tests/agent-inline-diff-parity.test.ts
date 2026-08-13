@@ -11,6 +11,7 @@ import {
 	buildRenderItems,
 	type RenderChatMessage as ChatMessage,
 	getEditFilePath,
+	getToolDisplayInfo,
 } from "../src/components/chat/chat-message-render-utils.ts";
 import { getToolBlockInitialContent } from "../src/features/chat/agent-chat-shared.ts";
 
@@ -87,7 +88,7 @@ describe("Claude and Codex inline edit diff parity", () => {
 
 		const parsed = JSON.parse(message.content);
 		const diff = summarizeHunks(
-			computeDiffHunks(parsed.old_string, parsed.new_string, 1)
+			computeDiffHunks(parsed.old_string, parsed.new_string, 1),
 		);
 		expect(diff.stats).toEqual({ added: 1, removed: 1 });
 		expect(diff.allLines).toEqual([
@@ -95,6 +96,24 @@ describe("Claude and Codex inline edit diff parity", () => {
 			"export const answer = 42;",
 			"",
 		]);
+	});
+
+	test("commits an inline diff only after its edit payload settles", () => {
+		const streamingEdit = {
+			id: "edit-streaming",
+			role: "tool",
+			toolName: "Edit",
+			content: JSON.stringify(editPayload()),
+			isStreaming: true,
+		} satisfies ChatMessage;
+
+		expect(getEditFilePath(streamingEdit)).toBeNull();
+		expect(buildRenderItems([streamingEdit])).toEqual([
+			{ type: "message", message: streamingEdit },
+		]);
+		expect(getEditFilePath({ ...streamingEdit, isStreaming: false })).toBe(
+			"src/example.ts",
+		);
 	});
 
 	/*
@@ -137,18 +156,18 @@ describe("Claude and Codex inline edit diff parity", () => {
 	test("orders replacement hunks as removed block followed by added block", () => {
 		const diff = computeDiffHunks(
 			["const config = {", "\tlineHeight: 19,", "\tfontSize: 12,", "};"].join(
-				"\n"
+				"\n",
 			),
 			["const config = {", "\tlineHeight: 15,", "\tfontSize: 10,", "};"].join(
-				"\n"
+				"\n",
 			),
-			1
+			1,
 		);
 
 		expect(
 			diff.flatMap((hunk) =>
-				hunk.filter((line) => line.type !== "context").map((line) => line.type)
-			)
+				hunk.filter((line) => line.type !== "context").map((line) => line.type),
+			),
 		).toEqual(["removed", "removed", "added", "added"]);
 	});
 
@@ -161,7 +180,7 @@ describe("Claude and Codex inline edit diff parity", () => {
 		const hunks = computeDiffHunkDetails(
 			before.join("\n"),
 			after.join("\n"),
-			1
+			1,
 		);
 
 		expect(hunks).toHaveLength(2);
@@ -173,7 +192,7 @@ describe("Claude and Codex inline edit diff parity", () => {
 				newCount: 3,
 				hiddenBefore: 0,
 				hiddenAfter: 0,
-			})
+			}),
 		);
 		expect(hunks[1]).toEqual(
 			expect.objectContaining({
@@ -183,7 +202,7 @@ describe("Claude and Codex inline edit diff parity", () => {
 				newCount: 3,
 				hiddenBefore: 5,
 				hiddenAfter: 1,
-			})
+			}),
 		);
 
 		const summary = summarizeDiff(before.join("\n"), after.join("\n"), 1);
@@ -194,7 +213,7 @@ describe("Claude and Codex inline edit diff parity", () => {
 	test("marks only changed token spans inside replacement lines", () => {
 		const segments = diffLineTextSegments(
 			"const answer = 41;",
-			"const answer = 42;"
+			"const answer = 42;",
 		);
 
 		expect(segments.oldSegments).toEqual([
@@ -323,9 +342,11 @@ describe("Claude and Codex inline edit diff parity", () => {
 			},
 		];
 
-		expect(buildRenderItems(messages)).toEqual(
-			messages.map((message) => ({ type: "message", message }))
-		);
+		expect(buildRenderItems(messages)).toEqual([
+			{ type: "message", message: messages[0]! },
+			{ type: "tool-group", tools: [messages[1]!] },
+			{ type: "message", message: messages[2]! },
+		]);
 	});
 
 	test("groups consecutive execution milestones and removes duplicate events", () => {
@@ -346,6 +367,25 @@ describe("Claude and Codex inline edit diff parity", () => {
 		expect(buildRenderItems([status, duplicateStatus, diff])).toEqual([
 			{ type: "tool-group", tools: [status, diff] },
 		]);
+	});
+
+	test("renders a lone running command as a roadmap milestone", () => {
+		const command = {
+			id: "tool-command",
+			role: "tool",
+			toolName: "exec",
+			content: JSON.stringify({
+				command: "cargo test --workspace --all-targets --all-features --locked",
+			}),
+			isStreaming: true,
+		} satisfies ChatMessage;
+
+		expect(buildRenderItems([command])).toEqual([
+			{ type: "tool-group", tools: [command] },
+		]);
+		expect(getToolDisplayInfo(command.toolName, command.content)).toEqual({
+			label: "Running Rust tests",
+		});
 	});
 
 	test("removes duplicate adjacent assistant commentary", () => {

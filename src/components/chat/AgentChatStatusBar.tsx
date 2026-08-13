@@ -13,6 +13,7 @@ import {
 	radius,
 	shadow,
 } from "../../tokens.stylex.ts";
+import { ThinkingIndicator } from "../ui/DotMatrixLoader.tsx";
 import {
 	IconAgent,
 	IconEye,
@@ -30,6 +31,7 @@ const MAX_STATUS_ACTIVITIES = 500;
 interface AgentChatStatusBarProps {
 	liveActivities?: ToolActivity[];
 	isLoading: boolean;
+	startTime?: number | null;
 	status: string;
 	onStop: () => void;
 }
@@ -67,6 +69,7 @@ function statusFallbackLabel(status: string) {
 export const AgentChatStatusBar = memo(function AgentChatStatusBar({
 	liveActivities = [],
 	isLoading,
+	startTime,
 	status,
 	onStop,
 }: AgentChatStatusBarProps) {
@@ -140,12 +143,16 @@ export const AgentChatStatusBar = memo(function AgentChatStatusBar({
 					onMouseLeave={() => setIsHovered(false)}
 				>
 					<div {...stylex.props(styles.activityPill)}>
+						{startTime ? <ThinkingIndicator startTime={startTime} /> : null}
 						{displayToolName && (
 							<span {...stylex.props(styles.activityIcon)}>
 								<ToolStatusIcon toolName={displayToolName} />
 							</span>
 						)}
-						<span {...stylex.props(styles.activitySummary)}>
+						<span
+							title={displaySummary}
+							{...stylex.props(styles.activitySummary)}
+						>
 							{displaySummary}
 						</span>
 						{activityCount > 1 && (
@@ -220,29 +227,20 @@ const styles = stylex.create({
 		flexShrink: 0,
 	},
 	activityWrap: {
+		flex: 1,
+		minWidth: 0,
 		position: "relative",
 	},
 	activityPill: {
 		alignItems: "center",
-		backgroundColor: {
-			default: color.backgroundRaised,
-			":hover": color.controlActive,
-		},
-		borderColor: color.border,
-		borderRadius: radius.md,
-		borderStyle: "solid",
-		borderWidth: 1,
 		color: color.textSoft,
 		cursor: "default",
 		display: "flex",
+		minWidth: 0,
 		fontSize: font.size_3,
 		fontWeight: font.weight_5,
 		gap: controlSize._1_5,
 		height: controlSize._6,
-		paddingInline: controlSize._2_5,
-		transitionDuration: motion.durationBase,
-		transitionProperty: "background-color, border-color, color",
-		transitionTimingFunction: motion.ease,
 	},
 	connectionPill: {
 		alignItems: "center",
@@ -269,7 +267,8 @@ const styles = stylex.create({
 		flexShrink: 0,
 	},
 	activitySummary: {
-		maxWidth: 150,
+		flex: 1,
+		minWidth: 0,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",

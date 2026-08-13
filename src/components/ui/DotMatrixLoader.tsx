@@ -187,7 +187,7 @@ export function DotMatrixWeave({
 						key={dot.id}
 						{...stylex.props(
 							styles.weaveDot,
-							dot.peak ? styles.weaveDotPeak : styles.weaveDotBase
+							dot.peak ? styles.weaveDotPeak : styles.weaveDotBase,
 						)}
 						style={
 							{
@@ -256,8 +256,7 @@ const styles = stylex.create({
 		alignItems: "center",
 		display: "flex",
 		gap: controlSize._1_5,
-		marginTop: `calc(${controlSize._1} * -1)`,
-		paddingBlock: controlSize._0_5,
+		flexShrink: 0,
 	},
 	thinkingTime: {
 		color: color.textMuted,

@@ -178,6 +178,7 @@ const Inline = memo(function Inline({
 export const Markdown = memo(function Markdown({
 	text,
 	onMdFileClick,
+	streaming = false,
 }: {
 	text: string;
 	onMdFileClick?: (path: string) => void;
@@ -186,7 +187,10 @@ export const Markdown = memo(function Markdown({
 	// Streaming and completed messages use the same block projection. Switching
 	// from a raw streaming tail to parsed markdown at an arbitrary length caused
 	// paragraphs to change height and made the pinned viewport jump.
-	const blocks = useMemo(() => parseMarkdownBlocks(text), [text]);
+	const blocks = useMemo(
+		() => parseMarkdownBlocks(text, streaming),
+		[streaming, text],
+	);
 	const handleTableWheel = useCallback(
 		(event: WheelEvent & { currentTarget: HTMLDivElement }) => {
 			if (Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.shiftKey) {

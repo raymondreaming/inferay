@@ -42,13 +42,14 @@ test("socket loss renders a non-blocking inline status", async () => {
 	connectionListeners.clear();
 	const { root, rootElement } = setupDom();
 	try {
-		const { AgentChatStatusBar } =
-			await import("../src/components/chat/AgentChatStatusBar.tsx");
+		const { AgentChatStatusBar } = await import(
+			"../src/components/chat/AgentChatStatusBar.tsx"
+		);
 		root.render(
 			<div>
 				<div data-testid="workspace">Workspace remains mounted</div>
 				<AgentChatStatusBar isLoading={false} status="idle" onStop={() => {}} />
-			</div>
+			</div>,
 		);
 		await tick();
 		expect(rootElement.textContent).toContain("Workspace remains mounted");
@@ -64,12 +65,50 @@ test("socket loss renders a non-blocking inline status", async () => {
 	}
 });
 
+test("active status keeps elapsed time and activity in one inline strip", async () => {
+	connectionStatus = "connected";
+	connectionListeners.clear();
+	const { root, rootElement } = setupDom();
+	try {
+		const { AgentChatStatusBar } = await import(
+			"../src/components/chat/AgentChatStatusBar.tsx"
+		);
+		root.render(
+			<AgentChatStatusBar
+				isLoading
+				startTime={Date.now() - 5_000}
+				status="tool:exec"
+				liveActivities={[
+					{
+						id: "exec-1",
+						toolName: "exec",
+						isStreaming: true,
+						summary: "Running command: cargo test --workspace",
+					},
+				]}
+				onStop={() => {}}
+			/>,
+		);
+		await tick();
+		expect(rootElement.textContent).toContain("5s");
+		expect(rootElement.textContent).toContain(
+			"Running command: cargo test --workspace",
+		);
+		expect(
+			rootElement.querySelectorAll('output[aria-live="polite"]'),
+		).toHaveLength(1);
+	} finally {
+		root.unmount();
+	}
+});
+
 test("a chat render failure stays inside its pane boundary", async () => {
 	const { root, rootElement } = setupDom();
 	const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 	try {
-		const { ChatPaneBoundary } =
-			await import("../src/components/chat/ChatPaneBoundary.tsx");
+		const { ChatPaneBoundary } = await import(
+			"../src/components/chat/ChatPaneBoundary.tsx"
+		);
 		function BrokenChat(): never {
 			throw new Error("test chat failure");
 		}
@@ -79,7 +118,7 @@ test("a chat render failure stays inside its pane boundary", async () => {
 				<ChatPaneBoundary>
 					<BrokenChat />
 				</ChatPaneBoundary>
-			</div>
+			</div>,
 		);
 		await tick();
 		expect(rootElement.textContent).toContain("Neighbor pane");

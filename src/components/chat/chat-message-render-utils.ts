@@ -24,7 +24,7 @@ type AskUserQuestion = {
 };
 
 function parseToolEnvelope(
-	content: string
+	content: string,
 ): { parsed: Record<string, any>; end: number } | null {
 	if (!content.trim().startsWith("{")) return null;
 	try {
@@ -71,7 +71,7 @@ export function getToolTrailingOutput(content: string): string {
 }
 
 export function parseAskUserQuestions(
-	content: string
+	content: string,
 ): AskUserQuestion[] | null {
 	const parsed = parseToolJson(content);
 	if (!Array.isArray(parsed?.questions)) return null;
@@ -79,13 +79,13 @@ export function parseAskUserQuestions(
 		(question: unknown): question is AskUserQuestion =>
 			!!question &&
 			typeof question === "object" &&
-			typeof (question as AskUserQuestion).question === "string"
+			typeof (question as AskUserQuestion).question === "string",
 	);
 }
 
 export function formatAskUserAnswer(
 	questions: AskUserQuestion[],
-	selections: Map<number, Set<number>>
+	selections: Map<number, Set<number>>,
 ) {
 	const parts: string[] = [];
 	for (let qi = 0; qi < questions.length; qi++) {
@@ -107,7 +107,7 @@ export function formatAskUserAnswer(
 
 export function hasAskUserSelections(
 	questions: AskUserQuestion[],
-	selections: Map<number, Set<number>>
+	selections: Map<number, Set<number>>,
 ) {
 	return questions.every((_, qi) => !!selections.get(qi)?.size);
 }
@@ -119,7 +119,7 @@ function fileNameFor(path: unknown) {
 
 function firstArraySummary(
 	value: unknown,
-	getPath: (item: unknown) => unknown = (item) => item
+	getPath: (item: unknown) => unknown = (item) => item,
 ) {
 	if (!Array.isArray(value) || value.length === 0) return null;
 	const first = fileNameFor(getPath(value[0]));
@@ -133,7 +133,7 @@ function firstChangeSummary(value: unknown) {
 		firstArraySummary(value, (item: any) =>
 			typeof item === "string"
 				? item
-				: (item?.file_path ?? item?.path ?? item?.file)
+				: (item?.file_path ?? item?.path ?? item?.file),
 		) ?? `${value.length} changes`
 	);
 }
@@ -225,14 +225,12 @@ function commandDetail(command: string, fallback: string) {
 		.replace(/^\s*\/bin\/(?:zsh|bash|sh)\s+-lc\s+/, "")
 		.replace(/^['"]|['"]$/g, "")
 		.trim();
-	return unwrapped.length > 52
-		? `${unwrapped.slice(0, 49)}…`
-		: unwrapped || fallback;
+	return unwrapped || fallback;
 }
 
 function commandTarget(command: string): string | undefined {
 	const matches = command.match(
-		/(?:^|\s)([^\s'"|;&]+\.(?:ts|tsx|js|jsx|json|md|css|scss|py|rs|go|java|kt|swift|rb|php|sql|ya?ml|toml))(?:\s|$)/g
+		/(?:^|\s)([^\s'"|;&]+\.(?:ts|tsx|js|jsx|json|md|css|scss|py|rs|go|java|kt|swift|rb|php|sql|ya?ml|toml))(?:\s|$)/g,
 	);
 	const candidate = matches?.at(-1)?.trim();
 	return candidate ? fileNameFor(candidate) : undefined;
@@ -241,7 +239,7 @@ function commandTarget(command: string): string | undefined {
 /** Convert implementation-level tool input into a user-facing milestone. */
 export function getToolDisplayInfo(
 	toolName: string | undefined,
-	content: string
+	content: string,
 ): ToolDisplayInfo {
 	const normalized = toolName?.trim().toLowerCase() ?? "";
 	const command = commandFromToolContent(content);
@@ -257,7 +255,7 @@ export function getToolDisplayInfo(
 		if (verificationKinds > 1) return { label: "Running verification checks" };
 		if (
 			/\b(?:npm|bun|pnpm|yarn)\s+(?:run\s+)?(?:test|vitest)\b|\bvitest\b/.test(
-				value
+				value,
 			)
 		)
 			return {
@@ -341,7 +339,7 @@ export function getToolDisplayInfo(
 			return { label: "Starting containers" };
 		if (
 			/\b(?:prisma|drizzle|rails|alembic)\b.*\b(?:migrate|migration)\b/.test(
-				value
+				value,
 			)
 		)
 			return { label: "Applying database migration" };
@@ -370,7 +368,12 @@ export function getToolDisplayInfo(
 }
 
 export function getEditFilePath(msg: RenderChatMessage): string | null {
-	if (msg.role !== "tool" || msg.toolName !== "Edit" || !msg.content)
+	if (
+		msg.role !== "tool" ||
+		msg.toolName !== "Edit" ||
+		msg.isStreaming ||
+		!msg.content
+	)
 		return null;
 	const cached = editFilePathCache.get(msg);
 	if (cached?.content === msg.content) return cached.filePath;
@@ -417,11 +420,7 @@ export function buildRenderItems(messages: RenderChatMessage[]): RenderItem[] {
 				}
 				j++;
 			}
-			items.push(
-				tools.length > 1
-					? { type: "tool-group", tools }
-					: { type: "message", message: msg }
-			);
+			items.push({ type: "tool-group", tools });
 			i = j - 1;
 			continue;
 		}
@@ -445,7 +444,7 @@ export function buildRenderItems(messages: RenderChatMessage[]): RenderItem[] {
 		items.push(
 			edits.length > 1
 				? { type: "edit-group", filePath, edits }
-				: { type: "message", message: msg }
+				: { type: "message", message: msg },
 		);
 		i = j - 1;
 	}

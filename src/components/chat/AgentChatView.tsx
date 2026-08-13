@@ -911,8 +911,6 @@ export const AgentChatView = memo(function AgentChatView({
 							toggleTool={toggleTool}
 							checkpoints={checkpoints}
 							revertCheckpoint={revertCheckpointFromMessage}
-							isLoading={isLoading}
-							startTime={startTime}
 							handleSendMessage={handleSendMessage}
 							onMdFileClick={handleMdFileClickFromMessage}
 							slashCommandNames={slashCommandNames}
@@ -942,6 +940,7 @@ export const AgentChatView = memo(function AgentChatView({
 						<AgentChatStatusBar
 							liveActivities={liveActivities}
 							isLoading={isLoading}
+							startTime={startTime}
 							status={status}
 							onStop={stopGeneration}
 						/>

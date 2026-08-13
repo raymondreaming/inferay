@@ -22,6 +22,7 @@ import {
 	patchMessageById,
 	windowChatMessagesForRender,
 } from "../src/components/chat/chat-state-utils.ts";
+import { parseMarkdownBlocks } from "../src/components/chat/chat-text.ts";
 import {
 	appendBoundedChatContent,
 	appendTrimmedMessage,
@@ -50,6 +51,27 @@ function message(
 }
 
 describe("chat data behavior", () => {
+	test("keeps a streaming markdown table in table layout from its first row", () => {
+		expect(parseMarkdownBlocks("| Name | Sta", true)).toEqual([
+			{
+				type: "table",
+				headers: ["Name", "Sta"],
+				rows: [],
+			},
+		]);
+		expect(
+			parseMarkdownBlocks(
+				"| Name | Status |\n| --- | --- |\n| Chat | streaming",
+				true,
+			),
+		).toEqual([
+			{
+				type: "table",
+				headers: ["Name", "Status"],
+				rows: [["Chat", "streaming"]],
+			},
+		]);
+	});
 	/*
 	 * This protects chat history compaction before messages are stored or sent
 	 * back through the app. The behavior keeps the newest context and also trims
