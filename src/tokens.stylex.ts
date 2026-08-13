@@ -6,6 +6,7 @@ export const colorValues = {
 	backgroundRaised: "var(--color-inferay-dark-gray)",
 	backgroundSubtle: "var(--color-inferay-gray)",
 	backgroundOverlay: "rgba(0, 0, 0, 0.6)",
+	shellFrame: "#242426",
 	shellSurface:
 		"color-mix(in srgb, var(--color-inferay-black) 46%, transparent)",
 	surfaceTranslucent:

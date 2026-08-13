@@ -10,6 +10,7 @@ import {
 } from "octane";
 import type { CSSProperties } from "react";
 import { MarkdownPreview } from "../../components/diff/MarkdownPreview.tsx";
+import { LiquidSegmentedRail } from "../../components/ui/gooey/LiquidSegmentedRail.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
 import {
 	IconChevronRight,
@@ -138,7 +139,7 @@ const INITIAL_DIFF_VIEWPORT_STATE: DiffViewportState = {
 
 function diffNavigationReducer(
 	state: DiffNavigationState,
-	action: DiffNavigationAction
+	action: DiffNavigationAction,
 ): DiffNavigationState {
 	switch (action.type) {
 		case "clearHighlight":
@@ -173,7 +174,7 @@ function diffNavigationReducer(
 
 function diffViewportReducer(
 	state: DiffViewportState,
-	action: DiffViewportAction
+	action: DiffViewportAction,
 ): DiffViewportState {
 	switch (action.type) {
 		case "measure": {
@@ -308,6 +309,8 @@ const diffStyles = stylex.create({
 		paddingInline: controlSize._3,
 	},
 	segmented: {
+		position: "relative",
+		isolation: "isolate",
 		display: "flex",
 		height: controlSize._7,
 		alignItems: "center",
@@ -321,6 +324,8 @@ const diffStyles = stylex.create({
 		boxShadow: shadow.controlDepth,
 	},
 	viewButton: {
+		position: "relative",
+		zIndex: 1,
 		display: "flex",
 		height: "100%",
 		width: controlSize._6,
@@ -339,10 +344,9 @@ const diffStyles = stylex.create({
 		},
 	},
 	viewButtonActive: {
-		backgroundColor: color.controlActive,
-		backgroundImage: effect.controlDepthHover,
-		boxShadow:
-			"inset 0 1px 10px rgba(0, 0, 0, 0.26), inset 0 -1px 0 rgba(255, 255, 255, 0.035)",
+		backgroundColor: color.transparent,
+		backgroundImage: "none",
+		boxShadow: shadow.none,
 		color: color.textMain,
 	},
 	header: {
@@ -816,7 +820,7 @@ const tokenCache = new Map<string, Token[]>();
 function getTokens(
 	content: string,
 	ext: string,
-	disable: boolean
+	disable: boolean,
 ): Token[] | null {
 	if (disable || !content) return null;
 	const key = `${ext}:${content}`;
@@ -862,7 +866,7 @@ const VirtualPanel = memo(function VirtualPanel({
 	onScroll?: (
 		scrollTop: number,
 		scrollLeft: number,
-		programmatic?: boolean
+		programmatic?: boolean,
 	) => void;
 	disableTokenize: boolean;
 	showMinimap?: boolean;
@@ -876,7 +880,7 @@ const VirtualPanel = memo(function VirtualPanel({
 }) {
 	const [viewport, dispatchViewport] = useReducer(
 		diffViewportReducer,
-		INITIAL_DIFF_VIEWPORT_STATE
+		INITIAL_DIFF_VIEWPORT_STATE,
 	);
 	const { scrollTop, viewHeight } = viewport;
 	const rafRef = useRef<number>(0);
@@ -892,7 +896,7 @@ const VirtualPanel = memo(function VirtualPanel({
 				type: "measure",
 				height:
 					e[0]?.contentRect.height ?? INITIAL_DIFF_VIEWPORT_STATE.viewHeight,
-			})
+			}),
 		);
 		obs.observe(el);
 		return obs.disconnect.bind(obs);
@@ -930,18 +934,18 @@ const VirtualPanel = memo(function VirtualPanel({
 	}, [lines]);
 	const minContentWidth = Math.min(
 		MAX_PANEL_CONTENT_WIDTH,
-		DIFF_CONFIG.lineNumWidth + DIFF_CONFIG.signWidth + maxLineLength * 9 + 48
+		DIFF_CONFIG.lineNumWidth + DIFF_CONFIG.signWidth + maxLineLength * 9 + 48,
 	);
 
 	const start = Math.max(0, Math.floor(scrollTop / LINE_H) - OVERSCAN);
 	const end = Math.min(
 		lines.length,
-		Math.ceil((scrollTop + viewHeight) / LINE_H) + OVERSCAN
+		Math.ceil((scrollTop + viewHeight) / LINE_H) + OVERSCAN,
 	);
 	const lineContents = useMemo(() => lines.map(contentOf), [lines]);
 	const visibleRange = useMemo<[number, number]>(
 		() => [start, end],
-		[start, end]
+		[start, end],
 	);
 	const {
 		ensureHighlightedRange,
@@ -964,15 +968,15 @@ const VirtualPanel = memo(function VirtualPanel({
 		if (scrollRef.current) {
 			const maxScrollTop = Math.max(0, lines.length * LINE_H - viewHeight);
 			const nextScrollTop = roundToDevicePixel(
-				Math.min(Math.max(0, externalScrollTop), maxScrollTop)
+				Math.min(Math.max(0, externalScrollTop), maxScrollTop),
 			);
 			const nextStart = Math.max(
 				0,
-				Math.floor(nextScrollTop / LINE_H) - OVERSCAN
+				Math.floor(nextScrollTop / LINE_H) - OVERSCAN,
 			);
 			const nextEnd = Math.min(
 				lines.length,
-				Math.ceil((nextScrollTop + viewHeight) / LINE_H) + OVERSCAN
+				Math.ceil((nextScrollTop + viewHeight) / LINE_H) + OVERSCAN,
 			);
 			ensureHighlightedRange(nextStart, nextEnd);
 			scrollRef.current.scrollTop = nextScrollTop;
@@ -994,15 +998,18 @@ const VirtualPanel = memo(function VirtualPanel({
 			if (!scrollRef.current) return;
 			const maxScrollTop = Math.max(0, lines.length * LINE_H - viewHeight);
 			const nextScrollTop = roundToDevicePixel(
-				Math.min(Math.max(0, lineIndex * LINE_H - viewHeight / 2), maxScrollTop)
+				Math.min(
+					Math.max(0, lineIndex * LINE_H - viewHeight / 2),
+					maxScrollTop,
+				),
 			);
 			const nextStart = Math.max(
 				0,
-				Math.floor(nextScrollTop / LINE_H) - OVERSCAN
+				Math.floor(nextScrollTop / LINE_H) - OVERSCAN,
 			);
 			const nextEnd = Math.min(
 				lines.length,
-				Math.ceil((nextScrollTop + viewHeight) / LINE_H) + OVERSCAN
+				Math.ceil((nextScrollTop + viewHeight) / LINE_H) + OVERSCAN,
 			);
 			ensureHighlightedRange(nextStart, nextEnd);
 			scrollRef.current.scrollTop = nextScrollTop;
@@ -1010,7 +1017,7 @@ const VirtualPanel = memo(function VirtualPanel({
 			dispatchViewport({ type: "scroll", top: nextScrollTop });
 			onScroll?.(nextScrollTop, scrollRef.current.scrollLeft, true);
 		},
-		[scrollRef, viewHeight, lines.length, ensureHighlightedRange, onScroll]
+		[scrollRef, viewHeight, lines.length, ensureHighlightedRange, onScroll],
 	);
 
 	const visibleRows = useMemo(() => {
@@ -1112,7 +1119,7 @@ const VirtualPanel = memo(function VirtualPanel({
 									minWidth={minContentWidth}
 									hideGutter
 								/>
-							)
+							),
 						)}
 					</div>
 				</div>
@@ -1167,9 +1174,9 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 						number: null,
 						content: "",
 						type: "spacer" as const,
-					}
+					},
 			),
-		[lineCount, oldLines]
+		[lineCount, oldLines],
 	);
 	const alignedNewLines = useMemo(
 		() =>
@@ -1180,9 +1187,9 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 						number: null,
 						content: "",
 						type: "spacer" as const,
-					}
+					},
 			),
-		[lineCount, newLines]
+		[lineCount, newLines],
 	);
 	const syncFromLeft = useCallback(
 		(top: number, left: number) => {
@@ -1191,7 +1198,7 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 			if (Math.abs(target.scrollTop - top) > 0.5) target.scrollTop = top;
 			if (Math.abs(target.scrollLeft - left) > 0.5) target.scrollLeft = left;
 		},
-		[scrollRef]
+		[scrollRef],
 	);
 	const syncFromRight = useCallback((top: number, left: number) => {
 		const target = leftRef.current;
@@ -1240,7 +1247,7 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 });
 
 function buildMinimapSegments(
-	lines: DiffLine[]
+	lines: DiffLine[],
 ): { type: string; startLine: number; endLine: number }[] {
 	const segments: { type: string; startLine: number; endLine: number }[] = [];
 	let currentType = "";
@@ -1294,7 +1301,7 @@ const DiffMinimap = memo(function DiffMinimap({
 	const thumbHeightRatio = Math.max(0, Math.min(1, viewHeight / totalHeight));
 	const thumbTopRatio = Math.max(
 		0,
-		Math.min(scrollTop / totalHeight, 1 - thumbHeightRatio)
+		Math.min(scrollTop / totalHeight, 1 - thumbHeightRatio),
 	);
 
 	const handleClick = (e: MouseEvent) => {
@@ -1320,7 +1327,7 @@ const DiffMinimap = memo(function DiffMinimap({
 			onClick={handleClick}
 			onKeyDown={activateOnEnterOrSpacePreventDefault.bind(
 				null,
-				handleKeyboardJump
+				handleKeyboardJump,
 			)}
 		>
 			{segments.map((seg) => (
@@ -1330,7 +1337,7 @@ const DiffMinimap = memo(function DiffMinimap({
 						diffStyles.minimapSegment,
 						seg.type === "add"
 							? diffStyles.minimapAdd
-							: diffStyles.minimapDelete
+							: diffStyles.minimapDelete,
 					)}
 					style={{
 						top: `${(seg.startLine / lines.length) * 100}%`,
@@ -1372,7 +1379,7 @@ export const GitDiffView = memo(function GitDiffView({
 	const syntaxTheme = controlledSyntaxTheme ?? storedSyntaxTheme;
 	const [navigationState, dispatchNavigation] = useReducer(
 		diffNavigationReducer,
-		INITIAL_DIFF_NAVIGATION_STATE
+		INITIAL_DIFF_NAVIGATION_STATE,
 	);
 	const { externalScrollSource, externalScrollTop, highlightedChangeIdx } =
 		navigationState;
@@ -1429,7 +1436,7 @@ export const GitDiffView = memo(function GitDiffView({
 				setTimeout(() => dispatchNavigation({ type: "clearHighlight" }), 1500);
 			}, 100);
 		},
-		[changePositions]
+		[changePositions],
 	);
 	const stepChange = useCallback(
 		(dir: 1 | -1) => {
@@ -1447,10 +1454,10 @@ export const GitDiffView = memo(function GitDiffView({
 							return -1;
 						})();
 			scrollToChangeIdx(
-				idx !== -1 ? idx : dir === 1 ? 0 : changePositions.length - 1
+				idx !== -1 ? idx : dir === 1 ? 0 : changePositions.length - 1,
 			);
 		},
-		[changePositions, scrollToChangeIdx]
+		[changePositions, scrollToChangeIdx],
 	);
 	const goToNextChange = useCallback(() => stepChange(1), [stepChange]);
 	const goToPrevChange = useCallback(() => stepChange(-1), [stepChange]);
@@ -1544,7 +1551,7 @@ export const GitDiffView = memo(function GitDiffView({
 
 	const disableTokenize = useMemo(
 		() => shouldDisableDiffTokenization(diff),
-		[diff]
+		[diff],
 	);
 
 	const renderMergeConflict = Boolean(diff.mergeConflictContent);
@@ -1562,7 +1569,7 @@ export const GitDiffView = memo(function GitDiffView({
 						type: "spacer" as const,
 					}))
 				: diff.oldLines,
-		[diff.isNew, diff.newLines, diff.oldLines]
+		[diff.isNew, diff.newLines, diff.oldLines],
 	);
 	if (loading) {
 		return (
@@ -1723,7 +1730,7 @@ export const GitDiffView = memo(function GitDiffView({
 function buildStackedLines(
 	oldLines: DiffLine[],
 	newLines: DiffLine[],
-	onlyChanges: boolean
+	onlyChanges: boolean,
 ): DiffLine[] {
 	const result: DiffLine[] = [];
 	const max = Math.max(oldLines.length, newLines.length);
@@ -1755,7 +1762,7 @@ function buildStackedLines(
 
 function buildInlineHunkLines(
 	oldLines: DiffLine[],
-	newLines: DiffLine[]
+	newLines: DiffLine[],
 ): DiffLine[] {
 	const stacked = buildStackedLines(oldLines, newLines, false);
 	const changedRows: number[] = [];
@@ -1930,6 +1937,11 @@ function DiffViewToolbar({
 	return (
 		<div {...stylex.props(diffStyles.toolbar)}>
 			<div {...stylex.props(diffStyles.segmented)}>
+				<LiquidSegmentedRail
+					activeIndex={viewMode === "split" ? 0 : 1}
+					itemCount={2}
+					radius={8}
+				/>
 				<DiffViewButton
 					active={viewMode === "split"}
 					title="Split diff"
@@ -1965,7 +1977,7 @@ function DiffViewButton({
 			onClick={onClick}
 			{...stylex.props(
 				diffStyles.viewButton,
-				active && diffStyles.viewButtonActive
+				active && diffStyles.viewButtonActive,
 			)}
 		>
 			{icon}

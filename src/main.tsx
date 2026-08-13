@@ -174,7 +174,7 @@ const styles = stylex.create({
 	mainColumn: {
 		position: "relative",
 		backgroundColor: color.shellSurface,
-		borderColor: "rgba(255,255,255,0.14)",
+		borderColor: color.shellFrame,
 		borderRadius: 17,
 		borderStyle: "solid",
 		borderWidth: 1,
