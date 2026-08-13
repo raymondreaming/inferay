@@ -62,14 +62,14 @@ function sameForgeAccount(a: ForgeAccount | null, b: ForgeAccount | null) {
 async function loadGithubAccount(): Promise<ForgeAccount | null> {
 	const payload = await fetchJsonOr<{ accounts?: ForgeAccount[] }>(
 		"/api/forge/accounts",
-		{}
+		{},
 	);
 	const accounts = Array.isArray(payload.accounts) ? payload.accounts : [];
 	return accounts.find((item) => item.active) ?? accounts[0] ?? null;
 }
 
 const AUTOMATIONS_ROUTE = APP_PAGE_ROUTES.find(
-	(route) => route.id === "automations"
+	(route) => route.id === "automations",
 );
 function loadShellState() {
 	const agentState = loadAgentState();
@@ -104,7 +104,7 @@ function ViewTab({
 		top ? styles.viewTabTop : null,
 		trailing ? styles.viewTabTrailing : null,
 		active ? styles.viewTabActive : null,
-		active && top ? styles.viewTabTopActive : null
+		active && top ? styles.viewTabTopActive : null,
 	);
 	return (
 		<button
@@ -148,7 +148,7 @@ export function AgentShellHeader() {
 		string | null
 	>(null);
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
-		readStoredBoolean("sidebar-collapsed")
+		readStoredBoolean("sidebar-collapsed"),
 	);
 	const [createMenuOpen, setCreateMenuOpen] = useState(false);
 	const createMenuRef = useRef<HTMLDivElement | null>(null);
@@ -170,7 +170,7 @@ export function AgentShellHeader() {
 		setShellState((current) =>
 			current.key === next.key && current.mainView === next.mainView
 				? current
-				: next
+				: next,
 		);
 	}, []);
 
@@ -181,9 +181,9 @@ export function AgentShellHeader() {
 	useEffect(
 		() =>
 			listenWindowEvent("toggle-main-sidebar", () =>
-				setSidebarCollapsed((current) => !current)
+				setSidebarCollapsed((current) => !current),
 			),
-		[]
+		[],
 	);
 	useEffect(() => {
 		if (!createMenuOpen) return;
@@ -202,7 +202,7 @@ export function AgentShellHeader() {
 	};
 	useEffect(
 		() => listenWindowEvent("focus", () => void refreshGithubAccount()),
-		[refreshGithubAccount]
+		[refreshGithubAccount],
 	);
 
 	const updateMainView = useCallback(
@@ -210,7 +210,7 @@ export function AgentShellHeader() {
 			if (shellState.mainView !== view) {
 				writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, view);
 				setShellState((current) =>
-					current.mainView === view ? current : { ...current, mainView: view }
+					current.mainView === view ? current : { ...current, mainView: view },
 				);
 				dispatchAgentShellChange({
 					source: "view",
@@ -220,12 +220,12 @@ export function AgentShellHeader() {
 			}
 			if (window.location.hash !== "#/agent") navigate("/agent");
 		},
-		[navigate, shellState.mainView]
+		[navigate, shellState.mainView],
 	);
 
 	useEffect(() => {
 		setPendingNavigationTarget((current) =>
-			current === resolvedNavigationTarget ? null : current
+			current === resolvedNavigationTarget ? null : current,
 		);
 	}, [resolvedNavigationTarget]);
 
@@ -237,7 +237,7 @@ export function AgentShellHeader() {
 			}
 			updateMainView(view);
 		},
-		[resolvedNavigationTarget, updateMainView]
+		[resolvedNavigationTarget, updateMainView],
 	);
 
 	const activateRoute = useCallback(
@@ -248,7 +248,7 @@ export function AgentShellHeader() {
 			}
 			navigate(path);
 		},
-		[navigate, resolvedNavigationTarget]
+		[navigate, resolvedNavigationTarget],
 	);
 
 	return (
@@ -300,7 +300,7 @@ export function AgentShellHeader() {
 				aria-label="Application views"
 				{...stylex.props(
 					styles.viewTabs,
-					workspaceNavigationActive && styles.viewTabsAttached
+					workspaceNavigationActive && styles.viewTabsAttached,
 				)}
 			>
 				<button
@@ -367,7 +367,7 @@ export function AgentShellHeader() {
 									onClick={() => activateMainView(view.id)}
 								/>
 							);
-						}
+						},
 					)}
 					{SIDEBAR_NAV_ROUTES.map((route) => {
 						const Icon = route.icon;
@@ -600,11 +600,11 @@ const styles = stylex.create({
 	},
 	viewTabTopActive: {
 		backgroundColor: {
-			default: color.backgroundRaised,
-			":hover": color.backgroundRaised,
+			default: color.shellSurface,
+			":hover": color.shellSurface,
 		},
 		borderColor: "transparent",
-		borderBottomColor: color.backgroundRaised,
+		borderBottomColor: color.shellSurface,
 		borderBottomLeftRadius: 0,
 		borderBottomRightRadius: 0,
 		boxShadow: "inset 0 1px 0 rgba(255,255,255,0.045)",
@@ -660,7 +660,7 @@ const styles = stylex.create({
 	tabShoulder: {
 		position: "absolute",
 		bottom: 0,
-		backgroundColor: color.backgroundRaised,
+		backgroundColor: color.shellSurface,
 		height: 10,
 		pointerEvents: "none",
 		width: 10,

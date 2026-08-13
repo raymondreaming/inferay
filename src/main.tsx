@@ -52,39 +52,39 @@ import {
 } from "./tokens.stylex.ts";
 
 const AgentPage = lazy(() =>
-	import("./pages/Agent").then((m) => ({ default: m.AgentPage }))
+	import("./pages/Agent").then((m) => ({ default: m.AgentPage })),
 );
 const QuickFileOverlay = lazy(() =>
 	import("./components/file/QuickFileOverlay.tsx").then((m) => ({
 		default: m.QuickFileOverlay,
-	}))
+	})),
 );
 const AutomationsPage = lazy(() =>
 	import("./pages/AutomationsPage").then((m) => ({
 		default: m.AutomationsPage,
-	}))
+	})),
 );
 const ImagesPage = lazy(() =>
-	import("./pages/ImagesPage").then((m) => ({ default: m.ImagesPage }))
+	import("./pages/ImagesPage").then((m) => ({ default: m.ImagesPage })),
 );
 const OnboardingPage = lazy(() =>
 	import("./pages/OnboardingPage").then((m) => ({
 		default: m.OnboardingPage,
-	}))
+	})),
 );
 const ProfilePage = lazy(() =>
-	import("./pages/ProfilePage").then((m) => ({ default: m.ProfilePage }))
+	import("./pages/ProfilePage").then((m) => ({ default: m.ProfilePage })),
 );
 const PromptsPage = lazy(() =>
-	import("./pages/PromptsPage").then((m) => ({ default: m.PromptsPage }))
+	import("./pages/PromptsPage").then((m) => ({ default: m.PromptsPage })),
 );
 const SessionsPage = lazy(() =>
-	import("./pages/SessionsPage").then((m) => ({ default: m.SessionsPage }))
+	import("./pages/SessionsPage").then((m) => ({ default: m.SessionsPage })),
 );
 const SimulatorsPage = lazy(() =>
 	import("./pages/SimulatorsPage").then((m) => ({
 		default: m.SimulatorsPage,
-	}))
+	})),
 );
 
 if (window.location.origin !== getServerOrigin()) {
@@ -96,7 +96,7 @@ if (window.location.origin !== getServerOrigin()) {
 		if (input instanceof URL && input.pathname.startsWith("/")) {
 			return originalFetch(
 				resolveServerUrl(`${input.pathname}${input.search}`),
-				init
+				init,
 			);
 		}
 		if (input instanceof Request) {
@@ -104,7 +104,7 @@ if (window.location.origin !== getServerOrigin()) {
 			if (url.pathname.startsWith("/")) {
 				return originalFetch(
 					new Request(resolveServerUrl(`${url.pathname}${url.search}`), input),
-					init
+					init,
 				);
 			}
 		}
@@ -178,8 +178,7 @@ const styles = stylex.create({
 	},
 	mainColumn: {
 		position: "relative",
-		backgroundColor:
-			"color-mix(in srgb, var(--color-inferay-black) 46%, transparent)",
+		backgroundColor: color.shellSurface,
 		borderColor: "rgba(255,255,255,0.14)",
 		borderRadius: 17,
 		borderStyle: "solid",
@@ -219,7 +218,7 @@ const shellThemeProps = stylex.props(
 	motionTheme,
 	shadowTheme,
 	effectTheme,
-	styles.shell
+	styles.shell,
 );
 const routeElements = {
 	agent: <AgentPage />,
@@ -268,7 +267,7 @@ function AppShell() {
 					setBackground(loadAppBackgroundSettings());
 				}
 			}),
-		[]
+		[],
 	);
 	const builtInPath = getBuiltInBackgroundPath(background.id);
 	const backgroundUrl =
@@ -278,7 +277,7 @@ function AppShell() {
 				? resolveServerUrl(builtInPath)
 				: null;
 	const activeRoute = APP_PAGE_ROUTES.find(
-		(route) => route.path === location.pathname
+		(route) => route.path === location.pathname,
 	);
 	useEffect(() => {
 		let active = true;
@@ -370,5 +369,5 @@ root.render(
 		<Suspense fallback={null}>
 			<AppRouter />
 		</Suspense>
-	</ErrorBoundary>
+	</ErrorBoundary>,
 );

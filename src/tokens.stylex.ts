@@ -6,6 +6,8 @@ export const colorValues = {
 	backgroundRaised: "var(--color-inferay-dark-gray)",
 	backgroundSubtle: "var(--color-inferay-gray)",
 	backgroundOverlay: "rgba(0, 0, 0, 0.6)",
+	shellSurface:
+		"color-mix(in srgb, var(--color-inferay-black) 46%, transparent)",
 	surfaceTranslucent:
 		"color-mix(in srgb, var(--color-inferay-dark-gray) 72%, transparent)",
 	surfaceGlass:
@@ -148,7 +150,7 @@ export const effect = stylex.defineVars(effectValues);
 export const colorTheme = stylex.createTheme(color, colorValues);
 export const controlSizeTheme = stylex.createTheme(
 	controlSize,
-	controlSizeValues
+	controlSizeValues,
 );
 export const fontTheme = stylex.createTheme(font, fontValues);
 export const radiusTheme = stylex.createTheme(radius, radiusValues);
