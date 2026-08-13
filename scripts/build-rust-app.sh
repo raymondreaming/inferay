@@ -25,7 +25,12 @@ mkdir -p "${RESOURCES_DIR}/packages/inferay"
 cp "${ROOT}/packages/inferay/package.json" "${RESOURCES_DIR}/packages/inferay/package.json"
 
 chmod +x "${MACOS_DIR}/inferay"
-codesign --force --sign - "${MACOS_DIR}/inferay"
-codesign --force --sign - --entitlements "${HOST_DIR}/entitlements.plist" "${APP_DIR}"
+SIGN_IDENTITY="${INFERAY_CODESIGN_IDENTITY:-}"
+if [[ -z "${SIGN_IDENTITY}" ]] && command -v security >/dev/null 2>&1; then
+  SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk -F\" '/Apple Development/ { print $2; exit }')"
+fi
+SIGN_IDENTITY="${SIGN_IDENTITY:--}"
+codesign --force --sign "${SIGN_IDENTITY}" "${MACOS_DIR}/inferay"
+codesign --force --sign "${SIGN_IDENTITY}" --entitlements "${HOST_DIR}/entitlements.plist" "${APP_DIR}"
 
 echo "[rust-host] built ${APP_DIR} with the Octane renderer and native Rust server"
