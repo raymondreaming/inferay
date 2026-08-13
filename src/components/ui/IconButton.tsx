@@ -2,28 +2,34 @@ import * as stylex from "@octanejs/stylex";
 import type { Octane } from "octane/jsx-runtime";
 import {
 	color,
+	colorValues,
 	controlSize,
 	effect,
 	motion,
 	radius,
 	shadow,
 } from "../../tokens.stylex.ts";
+import { LiquidAction } from "./gooey/LiquidAction.tsx";
 
-interface IconButtonProps extends Octane.ButtonHTMLAttributes<HTMLButtonElement> {
+interface IconButtonProps
+	extends Octane.ButtonHTMLAttributes<HTMLButtonElement> {
 	variant?: "ghost" | "danger" | "subtle";
 	size?: "xs" | "sm" | "md";
+	/** Defaults to the raised `subtle` treatment only. */
+	liquid?: boolean;
 }
 
 export function IconButton({
 	variant = "ghost",
 	size = "sm",
+	liquid = variant === "subtle",
 	className = "",
 	children,
 	...props
 }: IconButtonProps) {
 	const buttonProps = stylex.props(styles.base, styles[size], styles[variant]);
 
-	return (
+	const button = (
 		<button
 			{...buttonProps}
 			className={`${buttonProps.className ?? ""} ${className}`}
@@ -32,6 +38,10 @@ export function IconButton({
 		>
 			{children}
 		</button>
+	);
+	if (!liquid) return button;
+	return (
+		<LiquidAction fill={colorValues.surfaceControl}>{button}</LiquidAction>
 	);
 }
 

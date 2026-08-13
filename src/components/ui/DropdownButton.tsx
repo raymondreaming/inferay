@@ -11,11 +11,13 @@ import { hasId } from "../../lib/data.ts";
 import { setInputValue } from "../../lib/react-events.ts";
 import {
 	color,
+	colorValues,
 	controlSize,
 	effect,
 	font,
 	shadow,
 } from "../../tokens.stylex.ts";
+import { LiquidPopoverSurface } from "./gooey/LiquidPopoverSurface.tsx";
 import { IconChevronDown } from "./Icons.tsx";
 
 export interface DropdownOption {
@@ -46,12 +48,14 @@ interface DropdownButtonProps {
 	maxVisibleOptions?: number;
 	optionHeight?: number;
 	onOpen?: () => void;
+	/** Visual-only liquid treatment for the trigger. */
+	liquid?: boolean;
 }
 
 function selectDropdownOption(
 	onChange: (id: string) => void,
 	setOpen: (v: boolean) => void,
-	id: string
+	id: string,
 ) {
 	onChange(id);
 	setOpen(false);
@@ -107,8 +111,10 @@ export function DropdownButton({
 	maxVisibleOptions,
 	optionHeight,
 	onOpen,
+	liquid = true,
 }: DropdownButtonProps) {
 	const [open, setOpen] = useState(false);
+	const [menuPresent, setMenuPresent] = useState(false);
 	const [search, setSearch] = useState("");
 	const btnRef = useRef<HTMLButtonElement | null>(null);
 	const menuRef = useRef<HTMLDivElement | null>(null);
@@ -145,6 +151,15 @@ export function DropdownButton({
 		},
 	};
 	useEffect(() => {
+		if (open) {
+			setMenuPresent(true);
+			return;
+		}
+		if (!menuPresent) return;
+		const timeout = window.setTimeout(() => setMenuPresent(false), 220);
+		return () => window.clearTimeout(timeout);
+	}, [menuPresent, open]);
+	useEffect(() => {
 		if (!open) return;
 		const handleDocumentPointerDown = (event: MouseEvent) =>
 			eventHandlersRef.current.handleDocumentPointerDown(event);
@@ -164,8 +179,9 @@ export function DropdownButton({
 	const updateMenuPosition = useCallback(() => {
 		if (!btnRef.current) return;
 		const rect = btnRef.current.getBoundingClientRect();
-		const spaceBelow = window.innerHeight - rect.bottom - 8;
-		const spaceAbove = rect.top - 8;
+		const menuGap = liquid ? 12 : 4;
+		const spaceBelow = window.innerHeight - rect.bottom - menuGap;
+		const spaceAbove = rect.top - menuGap;
 		const placeAbove =
 			menuPlacement === "top" ||
 			(menuPlacement === "auto" && spaceAbove > spaceBelow);
@@ -176,15 +192,15 @@ export function DropdownButton({
 			: options.length;
 		const contentHeight = Math.min(
 			visibleOptionCount * rowHeight + searchHeight + 2,
-			400
+			400,
 		);
 		const maxH = Math.min(contentHeight, placeAbove ? spaceAbove : spaceBelow);
 		setPos({
-			top: placeAbove ? 0 : rect.bottom + 4,
-			bottom: placeAbove ? window.innerHeight - rect.top + 4 : 0,
+			top: placeAbove ? 0 : rect.bottom + menuGap,
+			bottom: placeAbove ? window.innerHeight - rect.top + menuGap : 0,
 			left: Math.min(
 				Math.max(8, rect.left),
-				Math.max(8, window.innerWidth - Math.max(rect.width, minWidth) - 8)
+				Math.max(8, window.innerWidth - Math.max(rect.width, minWidth) - 8),
 			),
 			width: Math.max(rect.width, minWidth),
 			maxH,
@@ -194,6 +210,7 @@ export function DropdownButton({
 		maxVisibleOptions,
 		menuPlacement,
 		minWidth,
+		liquid,
 		optionHeight,
 		options.length,
 		renderOption,
@@ -209,12 +226,12 @@ export function DropdownButton({
 	};
 	const selected = useMemo(
 		() => options.find(hasId.bind(null, value)),
-		[options, value]
+		[options, value],
 	);
 	const buttonProps = stylex.props(
 		styles.button,
 		fullWidth ? styles.fullWidth : null,
-		open ? styles.buttonOpen : styles.buttonClosed
+		open ? styles.buttonOpen : styles.buttonClosed,
 	);
 	const showSearch = options.length > 5;
 	const filtered = useMemo(() => {
@@ -224,7 +241,7 @@ export function DropdownButton({
 			(o) =>
 				o.label.toLowerCase().includes(needle) ||
 				o.detail?.toLowerCase().includes(needle) ||
-				o.status?.toLowerCase().includes(needle)
+				o.status?.toLowerCase().includes(needle),
 		);
 	}, [options, search]);
 	const searchBox = showSearch ? (
@@ -272,11 +289,11 @@ export function DropdownButton({
 								null,
 								onChange,
 								setOpen,
-								opt.id
+								opt.id,
 							)}
 							{...stylex.props(
 								styles.option,
-								opt.id === value ? styles.optionSelected : null
+								opt.id === value ? styles.optionSelected : null,
 							)}
 						>
 							{opt.icon && (
@@ -290,7 +307,7 @@ export function DropdownButton({
 											styles.detailBadge,
 											(opt.detail.includes("★") ||
 												opt.detail.includes("Best")) &&
-												styles.detailBadgeFeatured
+												styles.detailBadgeFeatured,
 										)}
 									>
 										{opt.detail}
@@ -303,79 +320,98 @@ export function DropdownButton({
 								)}
 							</div>
 						</button>
-					)
+					),
 				)
+			)}
+		</div>
+	);
+	const trigger = (
+		<button
+			type="button"
+			ref={btnRef}
+			onClick={toggle}
+			{...(buttonClassName ? {} : buttonProps)}
+			className={
+				buttonClassName
+					? `${buttonProps.className ?? ""} ${buttonClassName}`
+					: buttonProps.className
+			}
+		>
+			{icon}
+			<span
+				{...stylex.props(
+					styles.buttonLabel,
+					fullWidth && styles.buttonLabelFull,
+					selected ? styles.buttonLabelSelected : styles.buttonLabelMuted,
+				)}
+				className={`${
+					stylex.props(
+						styles.buttonLabel,
+						fullWidth && styles.buttonLabelFull,
+						selected ? styles.buttonLabelSelected : styles.buttonLabelMuted,
+					).className ?? ""
+				} ${labelClassName}`}
+			>
+				{selected?.label || placeholder}
+			</span>
+			<IconChevronDown
+				size={10}
+				className={
+					stylex.props(styles.chevron, open && styles.chevronOpen).className
+				}
+			/>
+		</button>
+	);
+	const menu = (
+		<div
+			ref={menuRef}
+			{...stylex.props(styles.menu, liquid && styles.menuLiquid)}
+			className={`${stylex.props(styles.menu, liquid && styles.menuLiquid).className ?? ""} ${
+				liquid
+					? `inferay-liquid-popover-panel inferay-liquid-popover-panel--${pos.placement} ${open ? "inferay-liquid-popover-panel--open" : "inferay-liquid-popover-panel--closing"}`
+					: ""
+			}`}
+			style={{
+				top: pos.placement === "bottom" ? pos.top : undefined,
+				bottom: pos.placement === "top" ? pos.bottom : undefined,
+				left: pos.left,
+				minWidth: pos.width,
+				maxHeight: pos.maxH,
+			}}
+		>
+			{pos.placement === "top" ? (
+				<>
+					{optionsBox}
+					{searchBox && (
+						<div {...stylex.props(styles.topSearchDivider)}>{searchBox}</div>
+					)}
+				</>
+			) : (
+				<>
+					{searchBox}
+					{optionsBox}
+				</>
 			)}
 		</div>
 	);
 	return (
 		<>
-			<button
-				type="button"
-				ref={btnRef}
-				onClick={toggle}
-				{...(buttonClassName ? {} : buttonProps)}
-				className={
-					buttonClassName
-						? `${buttonProps.className ?? ""} ${buttonClassName}`
-						: buttonProps.className
-				}
-			>
-				{icon}
-				<span
-					{...stylex.props(
-						styles.buttonLabel,
-						fullWidth && styles.buttonLabelFull,
-						selected ? styles.buttonLabelSelected : styles.buttonLabelMuted
-					)}
-					className={`${
-						stylex.props(
-							styles.buttonLabel,
-							fullWidth && styles.buttonLabelFull,
-							selected ? styles.buttonLabelSelected : styles.buttonLabelMuted
-						).className ?? ""
-					} ${labelClassName}`}
-				>
-					{selected?.label || placeholder}
-				</span>
-				<IconChevronDown
-					size={10}
-					className={
-						stylex.props(styles.chevron, open && styles.chevronOpen).className
-					}
+			{liquid ? (
+				<LiquidPopoverSurface
+					open={open}
+					present={menuPresent}
+					trigger={trigger}
+					panel={menu}
+					portalTarget={document.body}
+					fill={colorValues.backgroundRaised}
+					fullWidth={fullWidth}
 				/>
-			</button>
-			{open &&
-				createPortal(
-					<div
-						ref={menuRef}
-						{...stylex.props(styles.menu)}
-						style={{
-							top: pos.placement === "bottom" ? pos.top : undefined,
-							bottom: pos.placement === "top" ? pos.bottom : undefined,
-							left: pos.left,
-							minWidth: pos.width,
-							maxHeight: pos.maxH,
-						}}
-					>
-						{pos.placement === "top" ? (
-							<>
-								{optionsBox}
-								{searchBox && (
-									<div {...stylex.props(styles.topSearchDivider)}>
-										{searchBox}
-									</div>
-								)}
-							</>
-						) : (
-							<>
-								{searchBox}
-								{optionsBox}
-							</>
-						)}
-					</div>,
-					document.body
-				)}
+			) : (
+				<>
+					{trigger}
+					{menuPresent && createPortal(menu, document.body)}
+				</>
+			)}
 		</>
 	);
 }
@@ -465,6 +501,13 @@ const styles = stylex.create({
 		position: "fixed",
 		userSelect: "none",
 		zIndex: 320,
+	},
+	menuLiquid: {
+		backdropFilter: "none",
+		backgroundColor: color.transparent,
+		backgroundImage: "none",
+		borderColor: color.transparent,
+		boxShadow: "none",
 	},
 	searchWrap: {
 		borderBottomColor: color.border,

@@ -2,6 +2,7 @@ import * as stylex from "@octanejs/stylex";
 import type { Octane } from "octane/jsx-runtime";
 import {
 	color,
+	colorValues,
 	controlSize,
 	effect,
 	font,
@@ -9,22 +10,29 @@ import {
 	radius,
 	shadow,
 } from "../../tokens.stylex.ts";
+import { LiquidAction } from "./gooey/LiquidAction.tsx";
 
 interface ButtonProps extends Octane.ButtonHTMLAttributes<HTMLButtonElement> {
 	variant?: "primary" | "secondary" | "ghost" | "danger";
 	size?: "sm" | "md" | "lg";
+	/** Visual-only liquid surface. Ghost and rapid controls stay plain by default. */
+	liquid?: boolean;
+	/** Use when the button intentionally fills its container. */
+	liquidFullWidth?: boolean;
 }
 
 export function Button({
 	variant = "secondary",
 	size = "md",
+	liquid = variant !== "ghost",
+	liquidFullWidth = false,
 	className = "",
 	children,
 	...props
 }: ButtonProps) {
 	const buttonProps = stylex.props(styles.base, styles[size], styles[variant]);
 
-	return (
+	const button = (
 		<button
 			{...buttonProps}
 			className={`${buttonProps.className ?? ""} ${className}`}
@@ -33,6 +41,22 @@ export function Button({
 		>
 			{children}
 		</button>
+	);
+	if (!liquid) return button;
+	const fill =
+		variant === "primary"
+			? colorValues.accent
+			: variant === "danger"
+				? colorValues.dangerWash
+				: colorValues.backgroundRaised;
+	return (
+		<LiquidAction
+			fill={fill}
+			fullWidth={liquidFullWidth}
+			intense={variant === "primary"}
+		>
+			{button}
+		</LiquidAction>
 	);
 }
 

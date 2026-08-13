@@ -188,3 +188,274 @@ textarea::placeholder {
 	height: 1px;
 	background: var(--color-inferay-gray-border);
 }
+
+/* Liquid controls ---------------------------------------------------------
+ * The SVG owns only the visual silhouette. The real button remains above it
+ * and continues to own pointer, keyboard, focus, and disabled behavior. */
+.inferay-liquid-action > div > button {
+	background-color: transparent;
+	background-image: none;
+	box-shadow: none;
+	position: relative;
+	z-index: 2;
+}
+
+.inferay-liquid-popover > div > button {
+	background-color: transparent;
+	background-image: none;
+	border-color: transparent;
+	box-shadow: none;
+	position: relative;
+	z-index: 2;
+}
+
+.inferay-liquid-popover-panel.inferay-liquid-popover-panel {
+	border-color: transparent;
+	background: transparent;
+	box-shadow: none;
+	backdrop-filter: none;
+	transform-origin: top left;
+	will-change: opacity, transform;
+}
+
+.inferay-liquid-popover-panel--top {
+	transform-origin: bottom left;
+}
+
+.inferay-liquid-popover-panel--open {
+	animation: inferay-liquid-popover-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.inferay-liquid-popover-panel--closing {
+	animation: inferay-liquid-popover-out 200ms cubic-bezier(0.4, 0, 0.8, 0.2)
+		both;
+	pointer-events: none;
+}
+
+@keyframes inferay-liquid-popover-in {
+	from {
+		opacity: 0;
+		transform: translateY(-3px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes inferay-liquid-popover-out {
+	from {
+		opacity: 1;
+		transform: translateY(0);
+	}
+	to {
+		opacity: 0;
+		transform: translateY(-3px);
+	}
+}
+
+.inferay-liquid-create__slot {
+	display: inline-block;
+	height: 32px;
+	min-width: 32px;
+}
+
+.inferay-liquid-create__stage {
+	display: block;
+	z-index: 340;
+	width: 208px;
+	height: 64px;
+	pointer-events: none;
+}
+
+.inferay-liquid-create__panel-item {
+	position: absolute;
+	top: 0;
+	left: 0;
+	transform-origin: 16px 16px;
+}
+
+.inferay-liquid-create__panel {
+	display: flex;
+	width: 152px;
+	height: 64px;
+	flex-direction: column;
+	gap: 2px;
+	padding: 4px;
+	background: transparent;
+	border: 0;
+	border-radius: 8px;
+	box-shadow: none;
+	pointer-events: auto;
+	transition: opacity 120ms ease;
+}
+
+.inferay-liquid-create__trigger,
+.inferay-liquid-create__trigger > button {
+	height: 32px;
+	width: 32px;
+	min-width: 32px;
+	border-radius: 50%;
+}
+
+.inferay-liquid-create__trigger {
+	position: relative;
+	z-index: 2;
+	pointer-events: auto;
+}
+
+.inferay-liquid-create__trigger > button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0;
+	border: 1px solid var(--color-inferay-gray-border);
+	background: transparent;
+	box-shadow: none;
+	transform: none;
+}
+
+.inferay-liquid-create__trigger > button:hover {
+	background: color-mix(in srgb, var(--color-inferay-gray) 48%, transparent);
+	transform: none;
+}
+
+.inferay-liquid-create__panel[data-open="false"] {
+	opacity: 0;
+	pointer-events: none;
+}
+
+.inferay-liquid-create__panel > button {
+	display: flex;
+	height: 28px;
+	width: 100%;
+	align-items: center;
+	gap: 8px;
+	border-radius: 6px;
+	padding-inline: 8px;
+	background: transparent;
+	color: var(--color-inferay-soft-white);
+	font-size: 12px;
+	font-weight: 500;
+	text-align: left;
+}
+
+.inferay-liquid-create__panel > button:hover {
+	background: var(--color-inferay-gray);
+	color: var(--color-inferay-white);
+}
+
+.inferay-liquid-panel,
+.inferay-liquid-panel > div {
+	display: flex;
+	width: 100%;
+}
+
+.inferay-liquid-panel > div > * {
+	background-color: transparent;
+	box-shadow: none;
+}
+
+.inferay-message-liquid {
+	display: flex;
+	width: 100%;
+}
+
+.inferay-message-liquid > span,
+.inferay-message-liquid > span > div {
+	display: flex;
+	width: 100%;
+}
+
+.inferay-directory-picker-modal {
+	position: relative;
+	box-sizing: border-box;
+	width: auto;
+	max-width: 100%;
+	max-height: min(430px, calc(100vh - 32px));
+	overflow: auto;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	box-shadow: none;
+	transform-origin: bottom center;
+	animation: inferay-directory-picker-in 240ms cubic-bezier(0.22, 1, 0.36, 1)
+		both;
+}
+
+.inferay-directory-picker-liquid,
+.inferay-directory-picker-liquid > span,
+.inferay-directory-picker-liquid > span > div {
+	display: flex;
+	width: 100%;
+}
+
+.inferay-directory-picker-liquid button {
+	transform-origin: center;
+	transition:
+		background-color 120ms ease,
+		color 120ms ease,
+		transform 100ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.inferay-directory-picker-liquid button:active {
+	transform: translateY(1px) scale(0.985);
+}
+
+.inferay-workspace-pane-liquid {
+	display: flex;
+	width: 100%;
+}
+
+.inferay-workspace-pane-liquid__item,
+.inferay-workspace-pane-liquid__item > button {
+	display: flex;
+	width: 100%;
+}
+
+.inferay-workspace-pane-liquid__item > button {
+	background-color: transparent;
+	border-color: transparent;
+	box-shadow: none;
+}
+
+@keyframes inferay-directory-picker-in {
+	from {
+		opacity: 0;
+		transform: translateY(18px) scale(0.97);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+.inferay-liquid-segmented-rail {
+	inset: 0;
+	pointer-events: none;
+	position: absolute;
+	z-index: 0;
+}
+
+.inferay-liquid-segmented-rail__group {
+	height: 100%;
+	width: 100%;
+}
+
+.inferay-liquid-segmented-rail__item {
+	position: absolute;
+	transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.inferay-liquid-segmented-rail__carrier {
+	display: block;
+	height: 100%;
+	width: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.inferay-liquid .inferay-liquid__item,
+	.inferay-liquid-segmented-rail__item {
+		transition-duration: 0ms;
+	}
+}
