@@ -38,6 +38,7 @@ interface InlineDirectoryPickerProps {
 	hideInput?: boolean;
 	onSelectionChange?: (paths: string[]) => void;
 	showStartButton?: boolean;
+	liquidSurface?: boolean;
 }
 
 function areQuickPicksEqual(prev: QuickPick[], next: QuickPick[]) {
@@ -53,7 +54,7 @@ function areQuickPicksEqual(prev: QuickPick[], next: QuickPick[]) {
 
 function arePickerDataEqual(
 	prev: { quickPicks: QuickPick[]; homePath: string },
-	next: { quickPicks: QuickPick[]; homePath: string }
+	next: { quickPicks: QuickPick[]; homePath: string },
 ) {
 	return (
 		prev.homePath === next.homePath &&
@@ -69,6 +70,7 @@ export function InlineDirectoryPicker({
 	hideInput,
 	onSelectionChange,
 	showStartButton = true,
+	liquidSurface = false,
 }: InlineDirectoryPickerProps) {
 	const [query, setQuery] = useState("");
 	const deferredQuery = useDeferredValue(query.trim());
@@ -90,7 +92,7 @@ export function InlineDirectoryPicker({
 		},
 		{
 			isEqual: arePickerDataEqual,
-		}
+		},
 	);
 	const fetchSearchResults = useCallback(async () => {
 		if (!deferredQuery) return [];
@@ -169,7 +171,7 @@ export function InlineDirectoryPicker({
 		} else if (e.key === "ArrowUp") {
 			e.preventDefault();
 			setSelectedIndex((current) =>
-				current < 0 ? itemCount - 1 : (current - 1 + itemCount) % itemCount
+				current < 0 ? itemCount - 1 : (current - 1 + itemCount) % itemCount,
 			);
 		} else if (e.key === "Enter") {
 			e.preventDefault();
@@ -201,13 +203,13 @@ export function InlineDirectoryPicker({
 							onClick={handleItemClick.bind(null, pick.path)}
 							{...stylex.props(
 								styles.resultRow,
-								i === selectedIndex && styles.resultRowActive
+								i === selectedIndex && styles.resultRowActive,
 							)}
 						>
 							<span
 								{...stylex.props(
 									styles.resultIcon,
-									i === selectedIndex && styles.accentText
+									i === selectedIndex && styles.accentText,
 								)}
 							>
 								{pick.isGitRepo ? (
@@ -253,7 +255,12 @@ export function InlineDirectoryPicker({
 
 	return (
 		<div {...stylex.props(styles.root)} ref={containerRef}>
-			<div {...stylex.props(styles.unifiedFrame)}>
+			<div
+				{...stylex.props(
+					styles.unifiedFrame,
+					liquidSurface && styles.unifiedFrameLiquid,
+				)}
+			>
 				{showResults && itemCount > 0 && (
 					<div {...stylex.props(styles.unifiedList)}>
 						{displayList.map((pick, i) => (
@@ -264,13 +271,13 @@ export function InlineDirectoryPicker({
 								onClick={handleItemClick.bind(null, pick.path)}
 								{...stylex.props(
 									styles.resultRowCompact,
-									i === selectedIndex && styles.resultRowActiveAccent
+									i === selectedIndex && styles.resultRowActiveAccent,
 								)}
 							>
 								<span
 									{...stylex.props(
 										styles.resultIcon,
-										i === selectedIndex && styles.accentText
+										i === selectedIndex && styles.accentText,
 									)}
 								>
 									{pick.isGitRepo ? (
@@ -474,7 +481,7 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		borderRadius: "0.25rem",
+		borderRadius: controlSize._2,
 		backgroundColor: color.controlActive,
 		backgroundImage: effect.controlDepth,
 		color: color.textSoft,
@@ -523,7 +530,7 @@ const styles = stylex.create({
 		borderBottomStyle: "solid",
 		borderBottomColor: "rgba(255, 255, 255, 0.06)",
 		paddingBlock: controlSize._2,
-		paddingInline: controlSize._3,
+		paddingInline: controlSize._2,
 	},
 	selectedList: {
 		display: "flex",
@@ -549,13 +556,21 @@ const styles = stylex.create({
 		boxShadow:
 			"inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 24px 54px rgba(0, 0, 0, 0.64)",
 	},
+	unifiedFrameLiquid: {
+		backgroundColor: color.transparent,
+		backgroundImage: "none",
+		borderColor: color.transparent,
+		boxShadow: "none",
+		padding: controlSize._1,
+	},
 	unifiedList: {
 		display: "flex",
 		flexDirection: "column",
+		gap: controlSize._0_5,
 		minWidth: 0,
 		maxHeight: "220px",
 		overflowY: "auto",
-		paddingBlock: 0,
+		paddingBlock: controlSize._0_5,
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: "rgba(255, 255, 255, 0.06)",
@@ -565,10 +580,11 @@ const styles = stylex.create({
 		width: "100%",
 		minWidth: 0,
 		alignItems: "center",
+		borderRadius: controlSize._2,
 		gap: controlSize._2,
 		color: color.textSoft,
-		paddingBlock: "0.1875rem",
-		paddingInline: controlSize._3,
+		paddingBlock: controlSize._1,
+		paddingInline: controlSize._2,
 		textAlign: "left",
 		transitionProperty: "background-color, color",
 		transitionDuration: "120ms",
@@ -586,8 +602,8 @@ const styles = stylex.create({
 		alignItems: "center",
 		gap: controlSize._2,
 		minWidth: 0,
-		paddingBlock: controlSize._1_5,
-		paddingInline: controlSize._3,
+		paddingBlock: controlSize._2,
+		paddingInline: controlSize._2,
 	},
 	inputIcon: {
 		flexShrink: 0,

@@ -31,6 +31,7 @@ import {
 	radius,
 	shadow,
 } from "../../tokens.stylex.ts";
+import { Liquid } from "../ui/gooey/index.ts";
 import { IconButton } from "../ui/IconButton.tsx";
 import {
 	IconAlertTriangle,
@@ -468,208 +469,220 @@ export const ChatComposer = memo(function ChatComposer({
 
 			{showInput && (
 				<div {...stylex.props(styles.inputDock)}>
-					<div {...stylex.props(styles.inputFrame)} ref={inputContainerRef}>
-						{fileMenu.show && fileResults.length > 0 && (
-							<div {...stylex.props(styles.floatingMenu, styles.fileMenu)}>
-								<div {...stylex.props(styles.menuHeader)}>
-									FILES
-									{fileMenu.query ? ` matching "${fileMenu.query}"` : ""}
-								</div>
-								{fileResults.map((file, idx) => (
-									<FileMenuRow
-										key={file.path}
-										file={file}
-										index={idx}
-										selected={idx === fileMenu.selectedIdx}
-										selectFile={selectFile}
-										setFileMenu={setFileMenu}
-									/>
-								))}
-							</div>
-						)}
-						{showCommands && filteredCommands.length > 0 && (
-							<div {...stylex.props(styles.floatingMenu, styles.commandMenu)}>
-								<div {...stylex.props(styles.commandList)}>
-									{filteredCommands.map((command, idx) => (
-										<CommandMenuRow
-											key={command.id || command.name}
-											command={command}
-											index={idx}
-											selected={idx === slashMenu.selectedIdx}
-											selectCommand={selectCommand}
-											setSlashMenu={setSlashMenu}
-										/>
-									))}
-								</div>
-							</div>
-						)}
-						{queuedMessages.length > 0 && (
-							<div {...stylex.props(styles.queueList)}>
-								{queuedMessages.map((qm, idx) => (
-									<QueuedMessageRow
-										key={qm.id}
-										index={idx}
-										message={qm}
-										isEditing={editingQueueId === qm.id}
-										editingQueueText={editingQueueText}
-										setEditingQueueText={setEditingQueueText}
-										startQueuedMessageEdit={startQueuedMessageEdit}
-										cancelQueuedMessageEdit={cancelQueuedMessageEdit}
-										saveQueuedMessageEdit={saveQueuedMessageEdit}
-										removeQueuedMessage={removeQueuedMessage}
-									/>
-								))}
-							</div>
-						)}
-
-						<div {...stylex.props(styles.inputRow)}>
-							<div {...stylex.props(styles.inputActions)}>
-								<IconButton
-									type="button"
-									onClick={() => fileInputRef.current?.click()}
-									variant="ghost"
-									size="md"
-									className={stylex.props(styles.noShrink).className}
-									title="Attach image"
-								>
-									<IconPlus size={16} />
-								</IconButton>
-								{voiceInput && (
-									<IconButton
-										type="button"
-										onClick={voiceInput.onToggleListening}
-										variant="ghost"
-										size="md"
-										className={
-											stylex.props(
-												styles.noShrink,
-												voiceInput.isListening && styles.voiceButtonListening,
-												!voiceInput.isListening && voiceInput.error
-													? styles.voiceButtonError
-													: null,
-											).className
-										}
-										title={
-											voiceInput.error && !voiceInput.isListening
-												? voiceInput.error
-												: voiceInput.isSupported
-													? voiceInput.isListening
-														? "Stop voice input"
-														: "Start voice input"
-													: "Voice input is not supported in this browser"
-										}
-										aria-label={
-											voiceInput.isListening
-												? "Stop voice input"
-												: voiceInput.error
-													? voiceInput.error
-													: "Start voice input"
-										}
-										aria-pressed={voiceInput.isListening}
-										disabled={!voiceInput.isSupported}
-									>
-										{voiceInput.isListening ? (
-											<IconStop size={13} />
-										) : voiceInput.error ? (
-											<IconAlertTriangle size={15} />
-										) : (
-											<IconMic size={16} />
-										)}
-									</IconButton>
-								)}
-							</div>
-
+					<Liquid
+						blur={5}
+						contrast={20}
+						fill={colorValues.backgroundRaised}
+						filterPadding={18}
+						shadow="inset 0 1px 0 rgba(255,255,255,.08), 0 8px 24px rgba(0,0,0,.2)"
+						className="inferay-message-liquid"
+					>
+						<Liquid.Item observe radius={12}>
 							<div
-								{...stylex.props(styles.textAreaWrap)}
-								style={{ maxHeight: "120px" }}
+								{...stylex.props(styles.inputFrame, styles.inputFrameLiquid)}
+								ref={inputContainerRef}
 							>
-								{!usePlainTextarea && (
-									<div
-										ref={highlightOverlayRef}
-										{...stylex.props(styles.highlightOverlay)}
-										style={{
-											lineHeight: "20px",
-											wordBreak: "break-word",
-											overflowWrap: "break-word",
-										}}
-										aria-hidden="true"
-									>
-										{inputHighlights}
+								{fileMenu.show && fileResults.length > 0 && (
+									<div {...stylex.props(styles.floatingMenu, styles.fileMenu)}>
+										<div {...stylex.props(styles.menuHeader)}>
+											FILES
+											{fileMenu.query ? ` matching "${fileMenu.query}"` : ""}
+										</div>
+										{fileResults.map((file, idx) => (
+											<FileMenuRow
+												key={file.path}
+												file={file}
+												index={idx}
+												selected={idx === fileMenu.selectedIdx}
+												selectFile={selectFile}
+												setFileMenu={setFileMenu}
+											/>
+										))}
 									</div>
 								)}
-								<textarea
-									ref={textareaRef}
-									value={input}
-									onInput={(e) => {
-										const val = e.currentTarget.value;
-										setInput(val);
-										const cursor = e.currentTarget.selectionStart ?? val.length;
-										handleInputForFileMenu(val, cursor);
-										handleInputForSlashMenu(val, cursor);
-										if (highlightOverlayRef.current) {
-											highlightOverlayRef.current.style.transform = `translateY(-${e.currentTarget.scrollTop}px)`;
-										}
-									}}
-									onScroll={(e) => {
-										if (highlightOverlayRef.current) {
-											highlightOverlayRef.current.style.transform = `translateY(-${e.currentTarget.scrollTop}px)`;
-										}
-									}}
-									onKeyDown={handleKeyDown}
-									onPaste={handlePaste}
-									placeholder={
-										isLoading
-											? agentKind === "codex"
-												? "Steer the active turn..."
-												: "Type to queue next message..."
-											: "Message… (/ commands, @ files)"
-									}
-									rows={1}
-									aria-label="Message input"
-									spellCheck
-									autoCorrect="on"
-									autoCapitalize="sentences"
-									{...stylex.props(styles.textarea)}
-									style={{
-										minHeight: "20px",
-										color: usePlainTextarea
-											? colorValues.textMain
-											: "transparent",
-										caretColor: colorValues.textMain,
-										WebkitTextFillColor: usePlainTextarea
-											? colorValues.textMain
-											: "transparent",
-										lineHeight: "20px",
-										wordBreak: "break-word",
-										overflowWrap: "break-word",
-									}}
-								/>
+								{showCommands && filteredCommands.length > 0 && (
+									<div
+										{...stylex.props(styles.floatingMenu, styles.commandMenu)}
+									>
+										<div {...stylex.props(styles.commandList)}>
+											{filteredCommands.map((command, idx) => (
+												<CommandMenuRow
+													key={command.id || command.name}
+													command={command}
+													index={idx}
+													selected={idx === slashMenu.selectedIdx}
+													selectCommand={selectCommand}
+													setSlashMenu={setSlashMenu}
+												/>
+											))}
+										</div>
+									</div>
+								)}
+								{queuedMessages.length > 0 && (
+									<div {...stylex.props(styles.queueList)}>
+										{queuedMessages.map((qm, idx) => (
+											<QueuedMessageRow
+												key={qm.id}
+												index={idx}
+												message={qm}
+												isEditing={editingQueueId === qm.id}
+												editingQueueText={editingQueueText}
+												setEditingQueueText={setEditingQueueText}
+												startQueuedMessageEdit={startQueuedMessageEdit}
+												cancelQueuedMessageEdit={cancelQueuedMessageEdit}
+												saveQueuedMessageEdit={saveQueuedMessageEdit}
+												removeQueuedMessage={removeQueuedMessage}
+											/>
+										))}
+									</div>
+								)}
+
+								<div {...stylex.props(styles.inputRow)}>
+									<div {...stylex.props(styles.inputActions)}>
+										<IconButton
+											type="button"
+											onClick={() => fileInputRef.current?.click()}
+											variant="ghost"
+											size="md"
+											className={stylex.props(styles.noShrink).className}
+											title="Attach image"
+										>
+											<IconPlus size={16} />
+										</IconButton>
+										{voiceInput && (
+											<IconButton
+												type="button"
+												onClick={voiceInput.onToggleListening}
+												variant="ghost"
+												size="md"
+												className={
+													stylex.props(
+														styles.noShrink,
+														voiceInput.isListening &&
+															styles.voiceButtonListening,
+														!voiceInput.isListening && voiceInput.error
+															? styles.voiceButtonError
+															: null,
+													).className
+												}
+												title={
+													voiceInput.error && !voiceInput.isListening
+														? voiceInput.error
+														: voiceInput.isSupported
+															? voiceInput.isListening
+																? "Stop voice input"
+																: "Start voice input"
+															: "Voice input is not supported in this browser"
+												}
+												aria-label={
+													voiceInput.isListening
+														? "Stop voice input"
+														: voiceInput.error
+															? voiceInput.error
+															: "Start voice input"
+												}
+												aria-pressed={voiceInput.isListening}
+												disabled={!voiceInput.isSupported}
+											>
+												{voiceInput.isListening ? (
+													<IconStop size={13} />
+												) : voiceInput.error ? (
+													<IconAlertTriangle size={15} />
+												) : (
+													<IconMic size={16} />
+												)}
+											</IconButton>
+										)}
+									</div>
+
+									<div
+										{...stylex.props(styles.textAreaWrap)}
+										style={{ maxHeight: "120px" }}
+									>
+										{!usePlainTextarea && (
+											<div
+												ref={highlightOverlayRef}
+												{...stylex.props(styles.highlightOverlay)}
+												style={{
+													lineHeight: "20px",
+													wordBreak: "break-word",
+													overflowWrap: "break-word",
+												}}
+												aria-hidden="true"
+											>
+												{inputHighlights}
+											</div>
+										)}
+										<textarea
+											ref={textareaRef}
+											value={input}
+											onInput={(e) => {
+												const val = e.currentTarget.value;
+												setInput(val);
+												const cursor =
+													e.currentTarget.selectionStart ?? val.length;
+												handleInputForFileMenu(val, cursor);
+												handleInputForSlashMenu(val, cursor);
+												if (highlightOverlayRef.current) {
+													highlightOverlayRef.current.style.transform = `translateY(-${e.currentTarget.scrollTop}px)`;
+												}
+											}}
+											onScroll={(e) => {
+												if (highlightOverlayRef.current) {
+													highlightOverlayRef.current.style.transform = `translateY(-${e.currentTarget.scrollTop}px)`;
+												}
+											}}
+											onKeyDown={handleKeyDown}
+											onPaste={handlePaste}
+											placeholder="Message… (/ commands, @ files)"
+											rows={1}
+											aria-label="Message input"
+											spellCheck
+											autoCorrect="on"
+											autoCapitalize="sentences"
+											{...stylex.props(styles.textarea)}
+											style={{
+												minHeight: "20px",
+												color: usePlainTextarea
+													? colorValues.textMain
+													: "transparent",
+												caretColor: colorValues.textMain,
+												WebkitTextFillColor: usePlainTextarea
+													? colorValues.textMain
+													: "transparent",
+												lineHeight: "20px",
+												wordBreak: "break-word",
+												overflowWrap: "break-word",
+											}}
+										/>
+									</div>
+								</div>
+								<div {...stylex.props(styles.pickerRow)}>
+									<button
+										type="button"
+										ref={agentConfigButtonRef}
+										onClick={toggleAgentConfig}
+										{...stylex.props(styles.providerConfigButton)}
+										title={`${agentDefinition.label} / ${selectedModelLabel} / ${selectedReasoningLabel}`}
+									>
+										<span {...stylex.props(styles.accentText)}>
+											{getAgentIcon(agentKind, 10)}
+										</span>
+										<span {...stylex.props(styles.providerConfigLabel)}>
+											{agentDefinition.label}
+										</span>
+										<IconChevronDown
+											size={10}
+											{...stylex.props(
+												styles.providerConfigChevron,
+												agentConfigOpen && styles.providerConfigChevronOpen,
+											)}
+										/>
+									</button>
+								</div>
 							</div>
-						</div>
-						<div {...stylex.props(styles.pickerRow)}>
-							<button
-								type="button"
-								ref={agentConfigButtonRef}
-								onClick={toggleAgentConfig}
-								{...stylex.props(styles.providerConfigButton)}
-								title={`${agentDefinition.label} / ${selectedModelLabel} / ${selectedReasoningLabel}`}
-							>
-								<span {...stylex.props(styles.accentText)}>
-									{getAgentIcon(agentKind, 10)}
-								</span>
-								<span {...stylex.props(styles.providerConfigLabel)}>
-									{agentDefinition.label}
-								</span>
-								<IconChevronDown
-									size={10}
-									{...stylex.props(
-										styles.providerConfigChevron,
-										agentConfigOpen && styles.providerConfigChevronOpen,
-									)}
-								/>
-							</button>
-						</div>
-					</div>
+						</Liquid.Item>
+					</Liquid>
 				</div>
 			)}
 
@@ -1266,6 +1279,11 @@ const styles = stylex.create({
 		},
 		transitionProperty: "border-color, box-shadow, background-color",
 		transitionDuration: "150ms",
+	},
+	inputFrameLiquid: {
+		backgroundColor: color.transparent,
+		borderColor: color.transparent,
+		boxShadow: "none",
 	},
 	inputRow: {
 		alignItems: "flex-end",

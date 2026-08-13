@@ -1,12 +1,11 @@
 import * as stylex from "@octanejs/stylex";
-import { memo, useCallback, useMemo, useState } from "octane";
+import { memo, useMemo } from "octane";
 import type { AgentKind } from "../../features/agent/agent-utils.ts";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
 } from "../../lib/app-theme.ts";
-import { fetchJsonOr, postJson } from "../../lib/fetch-json.ts";
 import {
 	color,
 	controlSize,
@@ -15,7 +14,7 @@ import {
 	radius,
 } from "../../tokens.stylex.ts";
 import { DropdownButton, type DropdownOption } from "../ui/DropdownButton.tsx";
-import { IconGitBranch, IconSettings, IconX } from "../ui/Icons.tsx";
+import { IconSettings, IconX } from "../ui/Icons.tsx";
 
 export interface AgentChatSession {
 	paneId: string;
@@ -36,7 +35,7 @@ function SessionDropdownOption({
 		<div
 			{...stylex.props(
 				styles.sessionOption,
-				isSelected && styles.sessionOptionSelected
+				isSelected && styles.sessionOptionSelected,
 			)}
 		>
 			<span {...stylex.props(styles.sessionOptionIcon)}>{option.icon}</span>
@@ -65,105 +64,15 @@ interface AgentChatHeaderProps {
 	isAgentContextOpen?: boolean;
 }
 
-interface GitBranch {
-	name: string;
-	current: boolean;
-}
-
-export const BranchDropdown = memo(function BranchDropdown({
-	cwd,
-	branch,
-	onBranchChanged,
-}: {
-	cwd: string;
-	branch: string;
-	onBranchChanged?: (branch?: string) => void;
-}) {
-	const [branches, setBranches] = useState<GitBranch[]>([]);
-	const [busyBranch, setBusyBranch] = useState<string | null>(null);
-	const [error, setError] = useState<string | null>(null);
-	const [loadedCwd, setLoadedCwd] = useState<string | null>(null);
-	const loadBranches = useCallback(
-		async (force = false) => {
-			if (!force && loadedCwd === cwd) return;
-			const payload = await fetchJsonOr<{ branches?: GitBranch[] }>(
-				`/api/git/branches?cwd=${encodeURIComponent(cwd)}`,
-				{ branches: [] }
-			);
-			setBranches(Array.isArray(payload.branches) ? payload.branches : []);
-			setLoadedCwd(cwd);
-		},
-		[cwd, loadedCwd]
-	);
-	const options = useMemo(() => {
-		const source =
-			loadedCwd === cwd && branches.length
-				? branches
-				: [{ name: branch, current: true }];
-		return source.map((item) => ({
-			id: item.name,
-			label: item.name,
-			icon: <IconGitBranch size={11} />,
-		}));
-	}, [branch, branches, cwd, loadedCwd]);
-	const checkout = useCallback(
-		async (nextBranch: string) => {
-			if (nextBranch === branch || busyBranch) return;
-			setBusyBranch(nextBranch);
-			setError(null);
-			try {
-				const result = await postJson<{
-					ok: boolean;
-					branch?: string;
-					error?: string;
-				}>("/api/git/branches", { cwd, branch: nextBranch });
-				if (!result.ok) throw new Error(result.error || "Unable to checkout");
-				await loadBranches(true);
-				onBranchChanged?.(result.branch ?? nextBranch);
-			} catch (err) {
-				setError(err instanceof Error ? err.message : "Unable to checkout");
-			} finally {
-				setBusyBranch(null);
-			}
-		},
-		[branch, busyBranch, cwd, loadBranches, onBranchChanged]
-	);
-
-	const branchWrapProps = stylex.props(styles.branchWrap);
-
-	return (
-		<span
-			{...branchWrapProps}
-			className={`${APP_REGION_NO_DRAG_CLASS} ${branchWrapProps.className ?? ""}`}
-			title={error ?? branch}
-		>
-			<DropdownButton
-				value={branch}
-				options={options}
-				onChange={checkout}
-				minWidth={180}
-				placeholder={busyBranch ? "Switching..." : branch}
-				icon={<IconGitBranch size={9} />}
-				buttonClassName={stylex.props(styles.headerDropdownButton).className}
-				labelClassName={stylex.props(styles.branchLabel).className}
-				onOpen={() => void loadBranches()}
-			/>
-			{error && <span {...stylex.props(styles.branchError)}>{error}</span>}
-		</span>
-	);
-});
-
 export const AgentChatHeader = memo(function AgentChatHeader({
 	paneId,
 	cwd,
-	gitBranch,
 	draggable,
 	onDragStart,
 	onDragEnd,
 	onClose,
 	sessions,
 	onSelectSession,
-	onGitBranchChanged,
 	onAgentContext,
 	isAgentContextOpen,
 }: AgentChatHeaderProps) {
@@ -186,12 +95,12 @@ export const AgentChatHeader = memo(function AgentChatHeader({
 						icon: getAgentIcon(session.agentKind, 12),
 					}))
 				: [],
-		[hasMultipleSessions, sessions]
+		[hasMultipleSessions, sessions],
 	);
 	const closeButtonProps = stylex.props(styles.closeButton);
 	const contextButtonProps = stylex.props(
 		styles.contextButton,
-		isAgentContextOpen && styles.contextButtonActive
+		isAgentContextOpen && styles.contextButtonActive,
 	);
 	const projectButtonProps = stylex.props(styles.projectButton);
 	const rootProps = stylex.props(styles.root, draggable && styles.draggable);
@@ -248,22 +157,6 @@ export const AgentChatHeader = memo(function AgentChatHeader({
 						{dirName}
 					</button>
 				))}
-			{gitBranch && (
-				<>
-					<span {...stylex.props(styles.mutedText)}>›</span>
-					{cwd ? (
-						<BranchDropdown
-							cwd={cwd}
-							branch={gitBranch}
-							onBranchChanged={onGitBranchChanged}
-						/>
-					) : (
-						<span {...stylex.props(styles.branch)} title={gitBranch}>
-							{gitBranch}
-						</span>
-					)}
-				</>
-			)}
 			<span {...stylex.props(styles.spacer)} />
 			{onClose && (
 				<button

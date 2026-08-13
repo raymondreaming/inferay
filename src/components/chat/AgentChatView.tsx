@@ -47,7 +47,9 @@ import { hasId } from "../../lib/data.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import { wsClient } from "../../lib/websocket.ts";
 import { InlineDirectoryPicker } from "../../pages/Agent/InlineDirectoryPicker.tsx";
-import { color, controlSize } from "../../tokens.stylex.ts";
+import { color, colorValues, controlSize } from "../../tokens.stylex.ts";
+import type { ReactNode } from "../../types/octane-react-compat.ts";
+import { Liquid } from "../ui/gooey/index.ts";
 import { IconArrowDown } from "../ui/Icons.tsx";
 import { AgentChatHeader, type AgentChatSession } from "./AgentChatHeader.tsx";
 import { AgentChatStatusBar } from "./AgentChatStatusBar.tsx";
@@ -86,6 +88,29 @@ export interface AgentChatHandle {
 }
 
 const EMPTY_CWD_LIST: string[] = [];
+
+function DirectoryPickerModal({ children }: { children: ReactNode }) {
+	return (
+		<div
+			className="inferay-directory-picker-modal"
+			role="dialog"
+			aria-label="Choose workspace folders"
+		>
+			<Liquid
+				blur={5}
+				contrast={20}
+				fill={colorValues.backgroundRaised}
+				filterPadding={20}
+				shadow="inset 0 1px 0 rgba(255,255,255,.08), 0 14px 36px rgba(0,0,0,.32)"
+				className="inferay-directory-picker-liquid"
+			>
+				<Liquid.Item observe radius={12}>
+					{children}
+				</Liquid.Item>
+			</Liquid>
+		</div>
+	);
+}
 
 function useStableCallback<Args extends unknown[], Return>(
 	callback: (...args: Args) => Return,
@@ -607,8 +632,7 @@ export const AgentChatView = memo(function AgentChatView({
 
 	const { chatUiState, setChatUiState, setExpandedTools, setRunStatus } =
 		useChatUiState(paneId, onStatusChange);
-	const { isLoading, status, startTime, expandedTools, liveActivities } =
-		chatUiState;
+	const { isLoading, status, startTime, expandedTools } = chatUiState;
 	const inputContainerRef = useRef<HTMLDivElement | null>(null);
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	const imageDragDepthRef = useRef(0);
@@ -880,27 +904,35 @@ export const AgentChatView = memo(function AgentChatView({
 						{messages.length === 0 &&
 							!isLoading &&
 							!cwd &&
+							isSelected !== false &&
 							onDirectoryChange && (
 								<div {...stylex.props(styles.directoryPickerWrap)}>
-									<div {...stylex.props(styles.directoryPickerInner)}>
-										<InlineDirectoryPicker
-											onSelect={(path) => {
-												if (path) onDirectoryChange(paneId, path);
-												else onDirectoryCancel?.(paneId);
-											}}
-											onCancel={onDirectoryCancel?.bind(null, paneId)}
-											multiSelect
-											showStartButton={false}
-											onSelectionChange={(paths) => {
-												savePendingWorkspaceSelection(paths);
-											}}
-											onMultiSelect={(paths) => {
-												if (paths.length > 0) {
-													onDirectoryChange(paneId, paths[0]!, paths.slice(1));
-												}
-											}}
-										/>
-									</div>
+									<DirectoryPickerModal>
+										<div {...stylex.props(styles.directoryPickerInner)}>
+											<InlineDirectoryPicker
+												onSelect={(path) => {
+													if (path) onDirectoryChange(paneId, path);
+													else onDirectoryCancel?.(paneId);
+												}}
+												onCancel={onDirectoryCancel?.bind(null, paneId)}
+												multiSelect
+												showStartButton={false}
+												liquidSurface
+												onSelectionChange={(paths) => {
+													savePendingWorkspaceSelection(paths);
+												}}
+												onMultiSelect={(paths) => {
+													if (paths.length > 0) {
+														onDirectoryChange(
+															paneId,
+															paths[0]!,
+															paths.slice(1),
+														);
+													}
+												}}
+											/>
+										</div>
+									</DirectoryPickerModal>
 								</div>
 							)}
 						<ChatMessageList
@@ -938,10 +970,8 @@ export const AgentChatView = memo(function AgentChatView({
 					)}
 					<div {...stylex.props(styles.composerContent)}>
 						<AgentChatStatusBar
-							liveActivities={liveActivities}
 							isLoading={isLoading}
 							startTime={startTime}
-							status={status}
 							onStop={stopGeneration}
 						/>
 						<ChatComposer
@@ -1038,7 +1068,7 @@ const styles = stylex.create({
 		bottom: 0,
 		pointerEvents: "none",
 		paddingInline: controlSize._3,
-		paddingBottom: controlSize._2,
+		paddingBottom: 14,
 	},
 	directoryPickerInner: {
 		maxWidth: "42rem",
