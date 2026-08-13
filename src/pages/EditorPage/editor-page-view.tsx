@@ -1,4 +1,5 @@
 import * as stylex from "@octanejs/stylex";
+import { useState } from "octane";
 import type { RefObject } from "react";
 import {
 	type AgentChatHandle,
@@ -210,6 +211,9 @@ export function DiffViewerTopBar({
 	zenMode: boolean;
 	onToggleZenMode: () => void;
 }) {
+	const [hoveredToolbarIndex, setHoveredToolbarIndex] = useState<number | null>(
+		null,
+	);
 	const fileActionTitle = selectedFile?.staged ? "Unstage file" : "Stage file";
 	const dirName = cwd ? cwd.split("/").pop() || cwd : null;
 
@@ -275,31 +279,45 @@ export function DiffViewerTopBar({
 			)}
 			<span {...stylex.props(styles.spacer)} />
 
-			<div {...stylex.props(styles.segmented)}>
+			<div
+				{...stylex.props(styles.segmented)}
+				onMouseLeave={() => setHoveredToolbarIndex(null)}
+			>
 				<LiquidSegmentedRail
-					activeIndex={zenMode ? 2 : diffViewMode === "split" ? 0 : 1}
+					activeIndex={
+						hoveredToolbarIndex ??
+						(zenMode ? 2 : diffViewMode === "split" ? 0 : 1)
+					}
 					itemCount={3}
-					radius={12}
+					radius={10}
 					fill="var(--color-inferay-gray)"
 				/>
-				<ToolbarButton
-					active={diffViewMode === "split"}
-					title="Split diff"
-					onClick={() => onDiffViewModeChange("split")}
-					icon={<IconLayoutGrid size={11} />}
-				/>
-				<ToolbarButton
-					active={diffViewMode === "hunks"}
-					title="Hunk view"
-					onClick={() => onDiffViewModeChange("hunks")}
-					icon={<IconGitBranch size={11} />}
-				/>
-				<ToolbarButton
-					active={zenMode}
-					title={zenMode ? "Exit focus mode" : "Focus editor"}
-					onClick={onToggleZenMode}
-					icon={zenMode ? <IconCollapse size={11} /> : <IconExpand size={11} />}
-				/>
+				<span onMouseEnter={() => setHoveredToolbarIndex(0)}>
+					<ToolbarButton
+						active={diffViewMode === "split"}
+						title="Split diff"
+						onClick={() => onDiffViewModeChange("split")}
+						icon={<IconLayoutGrid size={11} />}
+					/>
+				</span>
+				<span onMouseEnter={() => setHoveredToolbarIndex(1)}>
+					<ToolbarButton
+						active={diffViewMode === "hunks"}
+						title="Hunk view"
+						onClick={() => onDiffViewModeChange("hunks")}
+						icon={<IconGitBranch size={11} />}
+					/>
+				</span>
+				<span onMouseEnter={() => setHoveredToolbarIndex(2)}>
+					<ToolbarButton
+						active={zenMode}
+						title={zenMode ? "Exit focus mode" : "Focus editor"}
+						onClick={onToggleZenMode}
+						icon={
+							zenMode ? <IconCollapse size={11} /> : <IconExpand size={11} />
+						}
+					/>
+				</span>
 			</div>
 		</div>
 	);
@@ -420,12 +438,10 @@ const styles = stylex.create({
 		alignItems: "center",
 		justifyContent: "center",
 		color: color.textMuted,
-		transitionProperty: "background-color, color",
+		borderRadius: "50%",
+		transitionProperty: "color",
 		transitionDuration: "120ms",
-		backgroundColor: {
-			default: "transparent",
-			":hover": color.controlHover,
-		},
+		backgroundColor: "transparent",
 		":hover": {
 			color: color.textSoft,
 		},
@@ -440,12 +456,7 @@ const styles = stylex.create({
 		display: "flex",
 		height: controlSize._5,
 		alignItems: "center",
-		overflow: "hidden",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: "0.375rem",
-		backgroundColor: color.backgroundRaised,
+		backgroundColor: color.transparent,
 	},
 	segmentButton: {
 		position: "relative",

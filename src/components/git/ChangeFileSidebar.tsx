@@ -4,6 +4,7 @@ import type { GitFileEntry } from "../../features/git/types.ts";
 import { postJson } from "../../lib/fetch-json.ts";
 import {
 	color,
+	colorValues,
 	controlSize,
 	font,
 	radius,
@@ -11,6 +12,7 @@ import {
 } from "../../tokens.stylex.ts";
 import { Button } from "../ui/Button.tsx";
 import { DotMatrixWeave } from "../ui/DotMatrixLoader.tsx";
+import { LiquidPanel } from "../ui/gooey/LiquidPanel.tsx";
 import { LiquidSegmentedRail } from "../ui/gooey/LiquidSegmentedRail.tsx";
 import {
 	IconCheck,
@@ -402,12 +404,7 @@ const styles = stylex.create({
 		display: "flex",
 		height: controlSize._5,
 		alignItems: "center",
-		overflow: "hidden",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: radius.md,
-		backgroundColor: color.backgroundRaised,
+		backgroundColor: color.transparent,
 	},
 	segmentButton: {
 		position: "relative",
@@ -417,12 +414,10 @@ const styles = stylex.create({
 		color: color.textMuted,
 		fontSize: font.size_2,
 		fontWeight: font.weight_6,
-		transitionProperty: "background-color, color",
+		borderRadius: radius.md,
+		transitionProperty: "color",
 		transitionDuration: "120ms",
-		backgroundColor: {
-			default: "transparent",
-			":hover": color.controlHover,
-		},
+		backgroundColor: color.transparent,
 	},
 	segmentButtonActive: {
 		backgroundColor: color.transparent,
@@ -1094,6 +1089,7 @@ function ChangeFileSidebarHeader({
 	onFileViewModeChange: (mode: "path" | "tree") => void;
 	onCollapse?: () => void;
 }) {
+	const [hoveredViewIndex, setHoveredViewIndex] = useState<number | null>(null);
 	return (
 		<div {...stylex.props(styles.sidebarHeader)}>
 			{onCollapse ? (
@@ -1110,14 +1106,18 @@ function ChangeFileSidebarHeader({
 				<span {...stylex.props(styles.headerLabel)}>Files</span>
 			)}
 			<span {...stylex.props(styles.spacer)} />
-			<div {...stylex.props(styles.segmented)}>
+			<div
+				{...stylex.props(styles.segmented)}
+				onMouseLeave={() => setHoveredViewIndex(null)}
+			>
 				<LiquidSegmentedRail
-					activeIndex={fileViewMode === "path" ? 0 : 1}
+					activeIndex={hoveredViewIndex ?? (fileViewMode === "path" ? 0 : 1)}
 					itemCount={2}
 					radius={6}
 				/>
 				<button
 					type="button"
+					onMouseEnter={() => setHoveredViewIndex(0)}
 					onClick={() => onFileViewModeChange("path")}
 					title="Path view"
 					{...stylex.props(
@@ -1129,6 +1129,7 @@ function ChangeFileSidebarHeader({
 				</button>
 				<button
 					type="button"
+					onMouseEnter={() => setHoveredViewIndex(1)}
 					onClick={() => onFileViewModeChange("tree")}
 					title="Tree view"
 					{...stylex.props(
@@ -1201,6 +1202,7 @@ function CommitSection({
 					title="Generate commit message from staged changes"
 					variant="secondary"
 					size="sm"
+					liquid
 					className={stylex.props(styles.generateButton).className}
 				>
 					{generating ? "Generating…" : "Generate"}
@@ -1229,80 +1231,84 @@ function CommitSection({
 			</label>
 
 			<div {...stylex.props(styles.commitForm)}>
-				<div {...stylex.props(styles.commitEditor)}>
-					<div {...stylex.props(styles.summaryRow)}>
-						<input
-							type="text"
-							value={summary}
-							onInput={(e) => {
-								const lines = commitMessage.split("\n");
-								lines[0] = e.currentTarget.value;
-								onCommitMessageChange(lines.join("\n"));
-							}}
-							placeholder="Commit summary"
-							{...stylex.props(
-								styles.summaryInput,
-								generating && styles.summaryInputGenerating,
-							)}
-							onKeyDown={(e) => {
-								if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-									e.preventDefault();
-									onCommit();
-								}
-							}}
-						/>
-						{generating && (
-							<span {...stylex.props(styles.fieldThinking)}>
-								<DotMatrixWeave
-									size={13}
-									dotSize={1.5}
-									gap={1}
-									speed={1.2}
-									ariaLabel="Generating commit summary"
-								/>
-							</span>
-						)}
-						{summary.length > 0 && (
-							<span
+				<LiquidPanel fill={colorValues.backgroundRaised}>
+					<div {...stylex.props(styles.commitEditor)}>
+						<div {...stylex.props(styles.summaryRow)}>
+							<input
+								type="text"
+								value={summary}
+								onInput={(e) => {
+									const lines = commitMessage.split("\n");
+									lines[0] = e.currentTarget.value;
+									onCommitMessageChange(lines.join("\n"));
+								}}
+								placeholder="Commit summary"
 								{...stylex.props(
-									styles.summaryCount,
-									summary.length > 72 && styles.warningText,
+									styles.summaryInput,
+									generating && styles.summaryInputGenerating,
 								)}
-							>
-								{summary.length}
-							</span>
-						)}
-					</div>
-					<div {...stylex.props(styles.descriptionWrap)}>
-						<textarea
-							value={description}
-							onInput={(e) => {
-								const sum = commitMessage.split("\n")[0] || "";
-								onCommitMessageChange(
-									sum +
-										(e.currentTarget.value ? `\n${e.currentTarget.value}` : ""),
-								);
-							}}
-							placeholder="Description"
-							{...stylex.props(
-								styles.descriptionInput,
-								generating && styles.descriptionInputGenerating,
+								onKeyDown={(e) => {
+									if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+										e.preventDefault();
+										onCommit();
+									}
+								}}
+							/>
+							{generating && (
+								<span {...stylex.props(styles.fieldThinking)}>
+									<DotMatrixWeave
+										size={13}
+										dotSize={1.5}
+										gap={1}
+										speed={1.2}
+										ariaLabel="Generating commit summary"
+									/>
+								</span>
 							)}
-							rows={4}
-						/>
-						{generating && (
-							<span {...stylex.props(styles.descriptionThinking)}>
-								<DotMatrixWeave
-									size={13}
-									dotSize={1.5}
-									gap={1}
-									speed={1.2}
-									ariaLabel="Generating commit description"
-								/>
-							</span>
-						)}
+							{summary.length > 0 && (
+								<span
+									{...stylex.props(
+										styles.summaryCount,
+										summary.length > 72 && styles.warningText,
+									)}
+								>
+									{summary.length}
+								</span>
+							)}
+						</div>
+						<div {...stylex.props(styles.descriptionWrap)}>
+							<textarea
+								value={description}
+								onInput={(e) => {
+									const sum = commitMessage.split("\n")[0] || "";
+									onCommitMessageChange(
+										sum +
+											(e.currentTarget.value
+												? `\n${e.currentTarget.value}`
+												: ""),
+									);
+								}}
+								placeholder="Description"
+								{...stylex.props(
+									styles.descriptionInput,
+									generating && styles.descriptionInputGenerating,
+								)}
+								rows={4}
+							/>
+							{generating && (
+								<span {...stylex.props(styles.descriptionThinking)}>
+									<DotMatrixWeave
+										size={13}
+										dotSize={1.5}
+										gap={1}
+										speed={1.2}
+										ariaLabel="Generating commit description"
+									/>
+								</span>
+							)}
+						</div>
 					</div>
-				</div>
+				</LiquidPanel>
 
 				<Button
 					type="button"
@@ -1310,6 +1316,8 @@ function CommitSection({
 					disabled={!commitMessage.trim() || isCommitting}
 					variant="secondary"
 					size="sm"
+					liquid
+					liquidFullWidth
 					className={stylex.props(styles.commitButton).className}
 				>
 					<IconGitCommit size={12} />
