@@ -58,13 +58,7 @@ import {
 	readStoredValue,
 	writeStoredValue,
 } from "../../lib/stored-json.ts";
-import {
-	color,
-	colorValues,
-	controlSize,
-	font,
-	shadow,
-} from "../../tokens.stylex.ts";
+import { color, colorValues, controlSize, font } from "../../tokens.stylex.ts";
 import { Button } from "../ui/Button.tsx";
 import { Liquid } from "../ui/gooey/index.ts";
 import { LiquidCreateMenu } from "../ui/gooey/LiquidCreateMenu.tsx";
@@ -549,114 +543,148 @@ function SidebarWorkspacesSection({
 								gap={4}
 							/>
 							<span {...stylex.props(styles.workspaceGridWrap)}>
-								<button
-									type="button"
-									onClick={() => {
-										onUpdateLayoutMode("grid");
-										setGridMenuOpen((open) => !open);
-									}}
-									{...stylex.props(
-										styles.workspaceLayoutButton,
-										layoutMode === "grid"
-											? styles.workspaceLayoutButtonActive
-											: styles.workspaceLayoutButtonIdle,
-									)}
-									aria-label="Grid layout"
-									aria-expanded={gridMenuOpen}
+								<Liquid
+									blur={6}
+									contrast={18}
+									fill={colorValues.backgroundRaised}
+									filterPadding={30}
+									shadow="inset 0 1px 0 rgba(255,255,255,.12), 0 10px 28px rgba(0,0,0,.34)"
+									className={
+										stylex.props(styles.workspaceGridLiquidStage).className
+									}
 								>
-									<IconLayoutGrid size={14} />
-								</button>
-								{gridMenuOpen && selectedGroup ? (
-									<span {...stylex.props(styles.workspaceGridMenu)}>
-										<span {...stylex.props(styles.workspaceGridMenuRow)}>
-											<span {...stylex.props(styles.workspaceGridMenuLabel)}>
-												Columns
-											</span>
-											<span
-												{...stylex.props(styles.workspaceGridChoices)}
-												onMouseLeave={() => setHoveredGridDimension(null)}
-											>
-												<LiquidSegmentedRail
-													activeIndex={
-														(hoveredGridDimension?.axis === "columns"
-															? hoveredGridDimension.value
-															: selectedGroup.columns) - 1
-													}
-													itemCount={4}
-													itemSize={24}
-													gap={2}
-													radius={12}
-												/>
-												{GRID_DIMENSIONS.map((value) => (
-													<button
-														key={`columns-${value}`}
-														type="button"
-														onMouseEnter={() =>
-															setHoveredGridDimension({
-																axis: "columns",
-																value,
-															})
-														}
-														onClick={() => {
-															onUpdateLayoutMode("grid");
-															onUpdateGrid({ columns: value });
-														}}
-														{...stylex.props(
-															styles.workspaceGridChoice,
-															selectedGroup.columns === value
-																? styles.workspaceGridChoiceActive
-																: null,
-														)}
+									<Liquid.Item
+										className={
+											stylex.props(styles.workspaceGridLiquidTrigger).className
+										}
+									>
+										<button
+											type="button"
+											onClick={() => {
+												onUpdateLayoutMode("grid");
+												setGridMenuOpen((open) => !open);
+											}}
+											{...stylex.props(
+												styles.workspaceLayoutButton,
+												layoutMode === "grid"
+													? styles.workspaceLayoutButtonActive
+													: styles.workspaceLayoutButtonIdle,
+											)}
+											aria-label="Grid layout"
+											aria-expanded={gridMenuOpen}
+										>
+											<IconLayoutGrid size={14} />
+										</button>
+									</Liquid.Item>
+									{selectedGroup ? (
+										<Liquid.Item
+											className={
+												stylex.props(styles.workspaceGridLiquidPanelItem)
+													.className
+											}
+											y={gridMenuOpen ? 42 : 0}
+											scale={gridMenuOpen ? 1 : 0.01}
+											transition={gridMenuOpen ? "bouncy" : "snappy"}
+										>
+											<span {...stylex.props(styles.workspaceGridMenu)}>
+												<span {...stylex.props(styles.workspaceGridMenuRow)}>
+													<span
+														{...stylex.props(styles.workspaceGridMenuLabel)}
 													>
-														{value}
-													</button>
-												))}
-											</span>
-										</span>
-										<span {...stylex.props(styles.workspaceGridMenuRow)}>
-											<span {...stylex.props(styles.workspaceGridMenuLabel)}>
-												Rows
-											</span>
-											<span
-												{...stylex.props(styles.workspaceGridChoices)}
-												onMouseLeave={() => setHoveredGridDimension(null)}
-											>
-												<LiquidSegmentedRail
-													activeIndex={
-														(hoveredGridDimension?.axis === "rows"
-															? hoveredGridDimension.value
-															: selectedGroup.rows) - 1
-													}
-													itemCount={4}
-													itemSize={24}
-													gap={2}
-													radius={12}
-												/>
-												{GRID_DIMENSIONS.map((value) => (
-													<button
-														key={`rows-${value}`}
-														type="button"
-														onMouseEnter={() =>
-															setHoveredGridDimension({ axis: "rows", value })
-														}
-														onClick={() => {
-															onUpdateLayoutMode("grid");
-															onUpdateGrid({ rows: value });
-														}}
-														{...stylex.props(
-															styles.workspaceGridChoice,
-															selectedGroup.rows === value
-																? styles.workspaceGridChoiceActive
-																: null,
-														)}
+														Columns
+													</span>
+													<span
+														{...stylex.props(styles.workspaceGridChoices)}
+														onMouseLeave={() => setHoveredGridDimension(null)}
 													>
-														{value}
-													</button>
-												))}
+														<LiquidSegmentedRail
+															activeIndex={
+																(hoveredGridDimension?.axis === "columns"
+																	? hoveredGridDimension.value
+																	: selectedGroup.columns) - 1
+															}
+															itemCount={4}
+															itemSize={24}
+															gap={2}
+															radius={12}
+														/>
+														{GRID_DIMENSIONS.map((value) => (
+															<button
+																key={`columns-${value}`}
+																type="button"
+																onMouseEnter={() =>
+																	setHoveredGridDimension({
+																		axis: "columns",
+																		value,
+																	})
+																}
+																onClick={() => {
+																	onUpdateLayoutMode("grid");
+																	onUpdateGrid({ columns: value });
+																}}
+																{...stylex.props(
+																	styles.workspaceGridChoice,
+																	selectedGroup.columns === value
+																		? styles.workspaceGridChoiceActive
+																		: null,
+																)}
+															>
+																{value}
+															</button>
+														))}
+													</span>
+												</span>
+												<span {...stylex.props(styles.workspaceGridMenuRow)}>
+													<span
+														{...stylex.props(styles.workspaceGridMenuLabel)}
+													>
+														Rows
+													</span>
+													<span
+														{...stylex.props(styles.workspaceGridChoices)}
+														onMouseLeave={() => setHoveredGridDimension(null)}
+													>
+														<LiquidSegmentedRail
+															activeIndex={
+																(hoveredGridDimension?.axis === "rows"
+																	? hoveredGridDimension.value
+																	: selectedGroup.rows) - 1
+															}
+															itemCount={4}
+															itemSize={24}
+															gap={2}
+															radius={12}
+														/>
+														{GRID_DIMENSIONS.map((value) => (
+															<button
+																key={`rows-${value}`}
+																type="button"
+																onMouseEnter={() =>
+																	setHoveredGridDimension({
+																		axis: "rows",
+																		value,
+																	})
+																}
+																onClick={() => {
+																	onUpdateLayoutMode("grid");
+																	onUpdateGrid({ rows: value });
+																}}
+																{...stylex.props(
+																	styles.workspaceGridChoice,
+																	selectedGroup.rows === value
+																		? styles.workspaceGridChoiceActive
+																		: null,
+																)}
+															>
+																{value}
+															</button>
+														))}
+													</span>
+												</span>
 											</span>
-										</span>
-									</span>
-								) : null}
+										</Liquid.Item>
+									) : null}
+								</Liquid>
 							</span>
 							<button
 								type="button"
@@ -1493,6 +1521,35 @@ const styles = stylex.create({
 		zIndex: 1,
 		display: "inline-flex",
 		height: "100%",
+		width: controlSize._7,
+		flexShrink: 0,
+	},
+	workspaceGridLiquidStage: {
+		position: "absolute",
+		top: 0,
+		left: 0,
+		zIndex: 340,
+		display: "block",
+		width: 188,
+		height: 122,
+		pointerEvents: "none",
+	},
+	workspaceGridLiquidTrigger: {
+		position: "relative",
+		zIndex: 2,
+		display: "block",
+		height: controlSize._7,
+		width: controlSize._7,
+		minWidth: controlSize._7,
+		borderRadius: "50%",
+		pointerEvents: "auto",
+	},
+	workspaceGridLiquidPanelItem: {
+		position: "absolute",
+		top: 0,
+		left: 0,
+		transformOrigin: "14px 14px",
+		pointerEvents: "auto",
 	},
 	workspaceLayoutButton: {
 		position: "relative",
@@ -1502,6 +1559,9 @@ const styles = stylex.create({
 		width: controlSize._7,
 		alignItems: "center",
 		justifyContent: "center",
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.transparent,
 		borderRadius: "50%",
 	},
 	workspaceLayoutButtonIdle: {
@@ -1517,32 +1577,20 @@ const styles = stylex.create({
 	workspaceLayoutButtonActive: {
 		color: color.textMain,
 		backgroundColor: color.transparent,
+		borderColor: color.border,
+		boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.08)",
 	},
 	workspaceGridMenu: {
-		position: "absolute",
-		top: "calc(100% + 4px)",
-		left: 0,
-		zIndex: 100,
+		boxSizing: "border-box",
 		display: "flex",
 		width: 188,
 		flexDirection: "column",
 		gap: controlSize._2,
-		transform: "none",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
+		borderWidth: 0,
 		borderRadius: 8,
 		backgroundColor: color.backgroundRaised,
-		boxShadow: shadow.popover,
+		boxShadow: "none",
 		padding: controlSize._2,
-		"::before": {
-			content: "",
-			position: "absolute",
-			left: 0,
-			right: 0,
-			top: -5,
-			height: 5,
-		},
 	},
 	workspaceGridMenuRow: {
 		display: "flex",
