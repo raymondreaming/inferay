@@ -81,11 +81,6 @@ const PromptsPage = lazy(() =>
 const SessionsPage = lazy(() =>
 	import("./pages/SessionsPage").then((m) => ({ default: m.SessionsPage })),
 );
-const SimulatorsPage = lazy(() =>
-	import("./pages/SimulatorsPage").then((m) => ({
-		default: m.SimulatorsPage,
-	})),
-);
 
 if (window.location.origin !== getServerOrigin()) {
 	const originalFetch = window.fetch.bind(window);
@@ -226,7 +221,6 @@ const routeElements = {
 	sessions: <SessionsPage />,
 	automations: <AutomationsPage />,
 	images: <ImagesPage />,
-	simulators: <SimulatorsPage />,
 	profile: <ProfilePage />,
 } satisfies Record<AppRouteId, unknown>;
 const fallbackRouteElement = <Navigate to={DEFAULT_APP_ROUTE} replace />;

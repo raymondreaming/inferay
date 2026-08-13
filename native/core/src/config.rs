@@ -39,8 +39,7 @@ impl ConfigManager {
     }
 
     pub fn update(&mut self, updates: Map<String, Value>) -> Result<Map<String, Value>, String> {
-        let local_only_keys =
-            BTreeSet::from(["build_agent", "search_folders", "simulator_project_folders"]);
+        let local_only_keys = BTreeSet::from(["build_agent", "search_folders"]);
         let mut base_updates = Map::new();
         let mut local_updates = Map::new();
         for (key, value) in &updates {

@@ -8,7 +8,6 @@ export type FeatureFlagName =
 	| "goals"
 	| "sessions"
 	| "images"
-	| "simulators"
 	| "profile"
 	| "chat"
 	| "editor"
@@ -24,7 +23,6 @@ const ENABLED_FEATURE_FLAGS: FeatureFlags = {
 	goals: true,
 	sessions: true,
 	images: true,
-	simulators: true,
 	profile: true,
 	chat: true,
 	editor: true,
@@ -38,7 +36,6 @@ export const DEV_FEATURE_FLAGS: FeatureFlags = {
 export const PUBLISHED_FEATURE_FLAGS: FeatureFlags = {
 	...ENABLED_FEATURE_FLAGS,
 	automations: false,
-	simulators: false,
 };
 
 const buildFeatureFlags =

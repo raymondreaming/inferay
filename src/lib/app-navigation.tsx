@@ -4,7 +4,6 @@ import {
 	IconFilePlus,
 	IconGitBranch,
 	IconMessageCircle,
-	IconSimulator,
 	IconSlash,
 } from "../components/ui/Icons.tsx";
 import { hasId } from "./data.ts";
@@ -16,7 +15,6 @@ export type AppRouteId =
 	| "sessions"
 	| "automations"
 	| "images"
-	| "simulators"
 	| "profile";
 
 export type AgentMainView = "chat" | "editor" | "graph";
@@ -68,13 +66,6 @@ const ALL_APP_PAGE_ROUTES = [
 		sidebar: true,
 		icon: IconFilePlus,
 	},
-	{
-		id: "simulators",
-		label: "Simulators",
-		path: "/simulators",
-		sidebar: true,
-		icon: IconSimulator,
-	},
 	{ id: "profile", label: "Profile", path: "/profile" },
 ] as const satisfies readonly AppPageRoute[];
 
@@ -83,11 +74,11 @@ export const APP_PAGE_ROUTES: readonly AppPageRoute[] =
 
 export const SIDEBAR_NAV_ROUTES = APP_PAGE_ROUTES.filter(
 	(
-		route
+		route,
 	): route is AppPageRoute & {
 		sidebar: true;
 		icon: NavigationIcon;
-	} => route.sidebar === true && !!route.icon
+	} => route.sidebar === true && !!route.icon,
 );
 
 const ALL_AGENT_MAIN_VIEWS = [
@@ -99,7 +90,7 @@ const ALL_AGENT_MAIN_VIEWS = [
 export const AGENT_MAIN_VIEWS: readonly AgentMainViewRoute[] =
 	ALL_AGENT_MAIN_VIEWS.filter(
 		(view) =>
-			view.id === "chat" || view.id === "editor" || FEATURE_FLAGS[view.id]
+			view.id === "chat" || view.id === "editor" || FEATURE_FLAGS[view.id],
 	);
 
 export function isAgentMainView(value: string | null): value is AgentMainView {

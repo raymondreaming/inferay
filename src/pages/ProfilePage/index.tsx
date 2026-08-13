@@ -4,14 +4,11 @@ import { Button } from "../../components/ui/Button.tsx";
 import { DropdownButton } from "../../components/ui/DropdownButton.tsx";
 import {
 	IconAgent,
-	IconFolder,
 	IconGitBranch,
-	IconPlus,
 	IconRefreshCw,
 	IconRobot,
 	IconSettings,
 	IconUser,
-	IconX,
 } from "../../components/ui/Icons.tsx";
 import { TextInput } from "../../components/ui/TextInput.tsx";
 import {
@@ -38,7 +35,7 @@ import type { ForgeAccount, GithubRepo } from "../../features/forge/types.ts";
 import { useAppInfo } from "../../hooks/useAppInfo.ts";
 import { useAsyncResource } from "../../hooks/useAsyncResource.tsx";
 import { ONBOARDING_DONE_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
-import { isActive, lacksValue } from "../../lib/data.ts";
+import { isActive } from "../../lib/data.ts";
 import { fetchJsonOr, sendJsonWithBusy } from "../../lib/fetch-json.ts";
 import { useNavigate } from "../../lib/hash-router.tsx";
 import { removeStoredValue } from "../../lib/stored-json.ts";
@@ -61,8 +58,6 @@ type ProfileUiState = {
 	cloneDirectory: string;
 	cloneStatus: string | null;
 	cloningRepo: string | null;
-	simFoldersLoading: boolean;
-	simFoldersStatus: string | null;
 };
 
 type ProfileUiAction<K extends keyof ProfileUiState = keyof ProfileUiState> = {
@@ -78,8 +73,6 @@ const initialProfileUiState: ProfileUiState = {
 	cloneDirectory: "~/Desktop",
 	cloneStatus: null,
 	cloningRepo: null,
-	simFoldersLoading: false,
-	simFoldersStatus: null,
 };
 
 function resolveStateValue<T>(current: T, value: StateValue<T>): T {
@@ -90,13 +83,13 @@ function resolveStateValue<T>(current: T, value: StateValue<T>): T {
 
 function profileUiReducer(
 	state: ProfileUiState,
-	action: ProfileUiAction
+	action: ProfileUiAction,
 ): ProfileUiState {
 	switch (action.type) {
 		case "fieldChanged": {
 			const nextValue = resolveStateValue(
 				state[action.field],
-				action.value
+				action.value,
 			) as ProfileUiState[typeof action.field];
 			if (Object.is(state[action.field], nextValue)) return state;
 			return {
@@ -105,13 +98,6 @@ function profileUiReducer(
 			};
 		}
 	}
-}
-
-async function fetchSimulatorProjectFolders(): Promise<string[]> {
-	const response = await fetch("/api/simulator/project-folders");
-	if (!response.ok) throw new Error(await response.text());
-	const payload = (await response.json()) as { folders?: string[] };
-	return Array.isArray(payload.folders) ? payload.folders : [];
 }
 
 function areStringArraysEqual(prev: string[], next: string[]) {
@@ -163,7 +149,7 @@ function areGithubReposEqual(prev: GithubRepo[], next: GithubRepo[]) {
 
 function areAgentAccountStatusesEqual(
 	prev: AgentAccountProviderStatus[],
-	next: AgentAccountProviderStatus[]
+	next: AgentAccountProviderStatus[],
 ) {
 	if (prev.length !== next.length) return false;
 	for (let i = 0; i < prev.length; i++) {
@@ -235,16 +221,9 @@ export function ProfilePage() {
 			: accounts.length > 0
 				? "ready"
 				: "idle";
-	const {
-		data: simProjectFolders,
-		setData: setSimProjectFolders,
-		error: simProjectFoldersError,
-	} = useAsyncResource(fetchSimulatorProjectFolders, [], {
-		isEqual: areStringArraysEqual,
-	});
 	const fetchRepos = useCallback(
 		async () => (accounts.length > 0 ? fetchGithubRepos() : []),
-		[accounts.length]
+		[accounts.length],
 	);
 	const {
 		data: repos,
@@ -258,11 +237,11 @@ export function ProfilePage() {
 		async () =>
 			fetchJsonOr<{ providers?: AgentAccountProviderStatus[] }>(
 				"/api/agents/account-status",
-				{}
+				{},
 			).then((payload) =>
-				Array.isArray(payload.providers) ? payload.providers : []
+				Array.isArray(payload.providers) ? payload.providers : [],
 			),
-		[]
+		[],
 	);
 	const {
 		data: agentAccountStatuses,
@@ -274,7 +253,7 @@ export function ProfilePage() {
 	});
 	const [profileUiState, profileUiDispatch] = useReducer(
 		profileUiReducer,
-		initialProfileUiState
+		initialProfileUiState,
 	);
 	const {
 		error,
@@ -283,65 +262,53 @@ export function ProfilePage() {
 		cloneDirectory,
 		cloneStatus,
 		cloningRepo,
-		simFoldersLoading,
-		simFoldersStatus,
 	} = profileUiState;
 	const setProfileUiField = useCallback(
 		<K extends keyof ProfileUiState>(
 			field: K,
-			value: StateValue<ProfileUiState[K]>
+			value: StateValue<ProfileUiState[K]>,
 		) =>
 			profileUiDispatch({
 				type: "fieldChanged",
 				field,
 				value,
 			} as ProfileUiAction),
-		[]
+		[],
 	);
 	const setError = useCallback(
 		(value: StateValue<string | null>) => setProfileUiField("error", value),
-		[setProfileUiField]
+		[setProfileUiField],
 	);
 	const setConnecting = useCallback(
 		(value: StateValue<boolean>) => setProfileUiField("connecting", value),
-		[setProfileUiField]
+		[setProfileUiField],
 	);
 	const setRepoQuery = useCallback(
 		(value: StateValue<string>) => setProfileUiField("repoQuery", value),
-		[setProfileUiField]
+		[setProfileUiField],
 	);
 	const setCloneDirectory = useCallback(
 		(value: StateValue<string>) => setProfileUiField("cloneDirectory", value),
-		[setProfileUiField]
+		[setProfileUiField],
 	);
 	const setCloneStatus = useCallback(
 		(value: StateValue<string | null>) =>
 			setProfileUiField("cloneStatus", value),
-		[setProfileUiField]
+		[setProfileUiField],
 	);
 	const setCloningRepo = useCallback(
 		(value: StateValue<string | null>) =>
 			setProfileUiField("cloningRepo", value),
-		[setProfileUiField]
-	);
-	const setSimFoldersLoading = useCallback(
-		(value: StateValue<boolean>) =>
-			setProfileUiField("simFoldersLoading", value),
-		[setProfileUiField]
-	);
-	const setSimFoldersStatus = useCallback(
-		(value: StateValue<string | null>) =>
-			setProfileUiField("simFoldersStatus", value),
-		[setProfileUiField]
+		[setProfileUiField],
 	);
 	const [defaultChatSettings, setDefaultChatSettings] = useState(() =>
-		loadDefaultChatSettings()
+		loadDefaultChatSettings(),
 	);
 	const [activeSettingsSection, setActiveSettingsSection] = useState("account");
 	const settingsScrollRef = useRef<HTMLElement | null>(null);
 	const { data: appInfo } = useAppInfo();
 	const defaultAgentDefinition = getAgentDefinition(
-		defaultChatSettings.agentKind
+		defaultChatSettings.agentKind,
 	);
 	const defaultModelOptions = defaultAgentDefinition.models.map((option) => ({
 		...option,
@@ -349,14 +316,14 @@ export function ProfilePage() {
 	}));
 
 	const updateDefaultChatSettings = (
-		next: Partial<typeof defaultChatSettings>
+		next: Partial<typeof defaultChatSettings>,
 	) => {
 		const merged = loadDefaultChatSettings();
 		const settings = { ...merged, ...next };
 		const normalized = {
 			...settings,
 			model: getAgentDefinition(settings.agentKind).models.some(
-				(option) => option.id === settings.model
+				(option) => option.id === settings.model,
 			)
 				? settings.model
 				: getAgentDefinition(settings.agentKind).defaultModel,
@@ -377,115 +344,21 @@ export function ProfilePage() {
 		});
 	}, []);
 
-	const saveSimulatorProjectFolders = async (folders: string[]) => {
-		const uniqueFolders = [...new Set(folders.map((folder) => folder.trim()))]
-			.filter(Boolean)
-			.sort((a, b) => a.localeCompare(b));
-		const response = await fetch("/api/simulator/project-folders", {
-			method: "PUT",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ folders: uniqueFolders }),
-		});
-		if (!response.ok) throw new Error(await response.text());
-		const payload = (await response.json()) as { folders?: string[] };
-		const nextFolders = Array.isArray(payload.folders)
-			? payload.folders
-			: uniqueFolders;
-		setSimProjectFolders(nextFolders);
-		return nextFolders;
-	};
-
-	const addSimulatorProjectFolder = async () => {
-		setSimFoldersLoading(true);
-		setSimFoldersStatus(null);
-		try {
-			const response = await fetch("/api/simulator/project-folders/pick", {
-				method: "POST",
-			});
-			if (!response.ok) throw new Error(await response.text());
-			const payload = (await response.json()) as { folder?: string | null };
-			if (!payload.folder) return;
-			const nextFolders = await saveSimulatorProjectFolders([
-				...simProjectFolders,
-				payload.folder,
-			]);
-			setSimFoldersStatus(`${nextFolders.length} project folders configured.`);
-			navigate("/simulators");
-		} catch (err) {
-			setError(
-				err instanceof Error ? err.message : "Unable to add project folder"
-			);
-		} finally {
-			setSimFoldersLoading(false);
-		}
-	};
-
-	const autoDetectSimulatorProjectFolders = async () => {
-		setSimFoldersLoading(true);
-		setSimFoldersStatus(null);
-		try {
-			const response = await fetch("/api/simulator/project-folders/detect", {
-				method: "POST",
-			});
-			if (!response.ok) throw new Error(await response.text());
-			const payload = (await response.json()) as { folders?: string[] };
-			const nextFolders = Array.isArray(payload.folders) ? payload.folders : [];
-			setSimProjectFolders(nextFolders);
-			setSimFoldersStatus(
-				nextFolders.length
-					? `${nextFolders.length} project folders configured.`
-					: "No simulator projects were detected."
-			);
-			if (nextFolders.length > 0) {
-				navigate("/simulators");
-			}
-		} catch (err) {
-			setError(
-				err instanceof Error
-					? err.message
-					: "Unable to detect simulator project folders"
-			);
-		} finally {
-			setSimFoldersLoading(false);
-		}
-	};
-
-	const removeSimulatorProjectFolder = async (folder: string) => {
-		setSimFoldersLoading(true);
-		setSimFoldersStatus(null);
-		try {
-			const nextFolders = await saveSimulatorProjectFolders(
-				simProjectFolders.filter(lacksValue.bind(null, folder))
-			);
-			setSimFoldersStatus(`${nextFolders.length} project folders configured.`);
-		} catch (err) {
-			setError(
-				err instanceof Error ? err.message : "Unable to remove project folder"
-			);
-		} finally {
-			setSimFoldersLoading(false);
-		}
-	};
-
 	const loadRepos = useCallback(
 		async (force = false) => {
 			setError(null);
 			if (force) invalidateGithubReposCache();
 			await refreshRepos();
 		},
-		[refreshRepos, setError]
+		[refreshRepos, setError],
 	);
 
 	const resourceError =
-		error ??
-		simProjectFoldersError ??
-		accountsError ??
-		reposError ??
-		agentAccountStatusesError;
+		error ?? accountsError ?? reposError ?? agentAccountStatusesError;
 
 	const activeAccount = useMemo(
 		() => accounts.find(isActive) ?? accounts[0] ?? null,
-		[accounts]
+		[accounts],
 	);
 
 	const filteredRepos = useMemo(() => {
@@ -494,7 +367,7 @@ export function ProfilePage() {
 		return repos.filter(
 			(repo) =>
 				repo.full_name.toLowerCase().includes(query) ||
-				repo.description?.toLowerCase().includes(query)
+				repo.description?.toLowerCase().includes(query),
 		);
 	}, [repoQuery, repos]);
 
@@ -503,14 +376,14 @@ export function ProfilePage() {
 		setConnecting,
 		"/api/forge/connect",
 		{ provider: "github" },
-		undefined
+		undefined,
 	);
 
 	const pickCloneDirectory = async () => {
 		const payload = await fetchJsonOr<{ folder: string | null }>(
 			"/api/config/pick-folder",
 			{ folder: null },
-			{ method: "POST" }
+			{ method: "POST" },
 		);
 		if (payload.folder) setCloneDirectory(payload.folder);
 	};
@@ -538,7 +411,7 @@ export function ProfilePage() {
 			dispatchAgentShellChange({ source: "cache", reason: "repo-cloned" });
 		} catch (err) {
 			setError(
-				err instanceof Error ? err.message : "Unable to clone repository"
+				err instanceof Error ? err.message : "Unable to clone repository",
 			);
 		} finally {
 			setCloningRepo(null);
@@ -559,7 +432,7 @@ export function ProfilePage() {
 							onClick={() => scrollToSettingsSection("account")}
 							{...stylex.props(
 								styles.navItem,
-								activeSettingsSection === "account" && styles.navItemActive
+								activeSettingsSection === "account" && styles.navItemActive,
 							)}
 						>
 							<IconUser size={13} />
@@ -571,7 +444,7 @@ export function ProfilePage() {
 							{...stylex.props(
 								styles.navItem,
 								activeSettingsSection === "agent-defaults" &&
-									styles.navItemActive
+									styles.navItemActive,
 							)}
 						>
 							<IconRobot size={13} />
@@ -582,7 +455,7 @@ export function ProfilePage() {
 							onClick={() => scrollToSettingsSection("appearance")}
 							{...stylex.props(
 								styles.navItem,
-								activeSettingsSection === "appearance" && styles.navItemActive
+								activeSettingsSection === "appearance" && styles.navItemActive,
 							)}
 						>
 							<IconSettings size={13} />
@@ -590,22 +463,10 @@ export function ProfilePage() {
 						</button>
 						<button
 							type="button"
-							onClick={() => scrollToSettingsSection("xcode-projects")}
-							{...stylex.props(
-								styles.navItem,
-								activeSettingsSection === "xcode-projects" &&
-									styles.navItemActive
-							)}
-						>
-							<IconFolder size={13} />
-							<span>Xcode projects</span>
-						</button>
-						<button
-							type="button"
 							onClick={() => scrollToSettingsSection("github")}
 							{...stylex.props(
 								styles.navItem,
-								activeSettingsSection === "github" && styles.navItemActive
+								activeSettingsSection === "github" && styles.navItemActive,
 							)}
 						>
 							<IconGitBranch size={13} />
@@ -643,7 +504,7 @@ export function ProfilePage() {
 													styles.connectionPill,
 													activeAccount
 														? styles.connectionPillActive
-														: styles.connectionPillIdle
+														: styles.connectionPillIdle,
 												)}
 											>
 												{activeAccount ? "Connected" : "Not connected"}
@@ -727,7 +588,7 @@ export function ProfilePage() {
 									<div {...stylex.props(styles.agentProviderGrid)}>
 										{(["claude", "codex"] as const).map((agentKind) => {
 											const status = agentAccountStatuses.find(
-												(item) => item.kind === agentKind
+												(item) => item.kind === agentKind,
 											);
 											const connected = status?.health === "ready";
 											return (
@@ -746,7 +607,7 @@ export function ProfilePage() {
 													{...stylex.props(
 														styles.agentProviderChoice,
 														defaultChatSettings.agentKind === agentKind &&
-															styles.agentProviderChoiceActive
+															styles.agentProviderChoiceActive,
 													)}
 												>
 													<span {...stylex.props(styles.agentProviderIcon)}>
@@ -812,77 +673,6 @@ export function ProfilePage() {
 						<div id="appearance" {...stylex.props(styles.settingsSection)}>
 							<AgentSettingsContent showVersion={false} embedded />
 						</div>
-
-						<SettingsSection
-							id="xcode-projects"
-							title="Xcode Projects"
-							description="Configure folders Inferay scans for Xcode and React Native simulator apps."
-							actions={
-								<div {...stylex.props(styles.panelActions)}>
-									<Button
-										type="button"
-										onClick={() => void autoDetectSimulatorProjectFolders()}
-										disabled={simFoldersLoading}
-										variant="secondary"
-										size="sm"
-									>
-										<IconRefreshCw size={12} />
-										<span>Auto Detect</span>
-									</Button>
-									<Button
-										type="button"
-										onClick={() => void addSimulatorProjectFolder()}
-										disabled={simFoldersLoading}
-										variant="secondary"
-										size="sm"
-									>
-										<IconPlus size={12} />
-										<span>Add Folder</span>
-									</Button>
-								</div>
-							}
-						>
-							<div {...stylex.props(styles.projectFolderBody)}>
-								{simProjectFolders.length === 0 ? (
-									<div {...stylex.props(styles.projectFolderEmpty)}>
-										Add your iOS app root, Xcode project folder, or React Native
-										repo so Simulators can build and launch it.
-									</div>
-								) : (
-									<div {...stylex.props(styles.projectFolderList)}>
-										{simProjectFolders.map((folder) => (
-											<div
-												key={folder}
-												{...stylex.props(styles.projectFolderRow)}
-											>
-												<div {...stylex.props(styles.projectFolderIcon)}>
-													<IconAgent size={13} />
-												</div>
-												<span {...stylex.props(styles.projectFolderPath)}>
-													{folder}
-												</span>
-												<button
-													type="button"
-													aria-label={`Remove ${folder}`}
-													onClick={() =>
-														void removeSimulatorProjectFolder(folder)
-													}
-													disabled={simFoldersLoading}
-													{...stylex.props(styles.projectFolderRemove)}
-												>
-													<IconX size={12} />
-												</button>
-											</div>
-										))}
-									</div>
-								)}
-								{simFoldersStatus ? (
-									<p {...stylex.props(styles.projectFolderStatus)}>
-										{simFoldersStatus}
-									</p>
-								) : null}
-							</div>
-						</SettingsSection>
 
 						<SettingsSection
 							id="github"
@@ -1367,89 +1157,6 @@ const styles = stylex.create({
 		lineHeight: 1.5,
 		marginBlockEnd: 0,
 		marginBlockStart: controlSize._1,
-	},
-	panelActions: {
-		display: "flex",
-		alignItems: "center",
-		gap: controlSize._2,
-	},
-	projectFolderBody: {
-		display: "flex",
-		flexDirection: "column",
-		gap: controlSize._2,
-	},
-	projectFolderList: {
-		display: "flex",
-		flexDirection: "column",
-		gap: controlSize._1,
-	},
-	projectFolderRow: {
-		display: "flex",
-		minHeight: "2.25rem",
-		alignItems: "center",
-		gap: controlSize._2,
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.surfaceSubtle,
-		},
-		paddingBlock: controlSize._1,
-		paddingInline: 0,
-	},
-	projectFolderIcon: {
-		display: "flex",
-		width: controlSize._6,
-		height: controlSize._6,
-		flexShrink: 0,
-		alignItems: "center",
-		justifyContent: "center",
-		color: color.textMuted,
-	},
-	projectFolderPath: {
-		minWidth: 0,
-		flex: 1,
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-		color: color.textMain,
-		fontSize: font.size_2,
-	},
-	projectFolderRemove: {
-		display: "flex",
-		width: controlSize._6,
-		height: controlSize._6,
-		flexShrink: 0,
-		alignItems: "center",
-		justifyContent: "center",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.transparent,
-		borderRadius: controlSize._1,
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlHover,
-		},
-		color: {
-			default: color.textMuted,
-			":hover": color.textSoft,
-		},
-		":disabled": {
-			opacity: 0.45,
-		},
-	},
-	projectFolderEmpty: {
-		display: "flex",
-		minHeight: "5rem",
-		alignItems: "center",
-		justifyContent: "center",
-		color: color.textMuted,
-		fontSize: font.size_2,
-		lineHeight: 1.5,
-		paddingBlock: controlSize._4,
-		textAlign: "center",
-	},
-	projectFolderStatus: {
-		color: color.textMuted,
-		fontSize: font.size_1,
 	},
 	cloneControls: {
 		display: "flex",
