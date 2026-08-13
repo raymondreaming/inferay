@@ -51,11 +51,17 @@ function message(
 }
 
 describe("chat data behavior", () => {
-	test("keeps a streaming markdown table in table layout from its first row", () => {
+	test("waits for a complete header before materializing a streaming table", () => {
 		expect(parseMarkdownBlocks("| Name | Sta", true)).toEqual([
 			{
+				type: "paragraph",
+				content: "| Name | Sta",
+			},
+		]);
+		expect(parseMarkdownBlocks("| Name | Status |", true)).toEqual([
+			{
 				type: "table",
-				headers: ["Name", "Sta"],
+				headers: ["Name", "Status"],
 				rows: [],
 			},
 		]);

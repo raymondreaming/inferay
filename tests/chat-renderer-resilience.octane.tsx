@@ -48,7 +48,7 @@ test("socket loss renders a non-blocking inline status", async () => {
 		root.render(
 			<div>
 				<div data-testid="workspace">Workspace remains mounted</div>
-				<AgentChatStatusBar isLoading={false} status="idle" onStop={() => {}} />
+				<AgentChatStatusBar isLoading={false} onStop={() => {}} />
 			</div>,
 		);
 		await tick();
@@ -65,7 +65,7 @@ test("socket loss renders a non-blocking inline status", async () => {
 	}
 });
 
-test("active status keeps elapsed time and activity in one inline strip", async () => {
+test("active status keeps elapsed time and a compact stop control", async () => {
 	connectionStatus = "connected";
 	connectionListeners.clear();
 	const { root, rootElement } = setupDom();
@@ -77,26 +77,43 @@ test("active status keeps elapsed time and activity in one inline strip", async 
 			<AgentChatStatusBar
 				isLoading
 				startTime={Date.now() - 5_000}
-				status="tool:exec"
-				liveActivities={[
-					{
-						id: "exec-1",
-						toolName: "exec",
-						isStreaming: true,
-						summary: "Running command: cargo test --workspace",
-					},
-				]}
 				onStop={() => {}}
 			/>,
 		);
 		await tick();
 		expect(rootElement.textContent).toContain("5s");
-		expect(rootElement.textContent).toContain(
-			"Running command: cargo test --workspace",
-		);
+		expect(rootElement.textContent).not.toContain("Running command");
+		expect(rootElement.textContent).not.toContain("Stop");
+		expect(
+			rootElement.querySelector('button[aria-label="Stop generation"]'),
+		).not.toBeNull();
 		expect(
 			rootElement.querySelectorAll('output[aria-live="polite"]'),
 		).toHaveLength(1);
+	} finally {
+		root.unmount();
+	}
+});
+
+test("inline edits render only changed rows without hunk metadata", async () => {
+	const { root, rootElement } = setupDom();
+	try {
+		const { MiniEditDiff } = await import(
+			"../src/components/chat/ChatEditDiff.tsx"
+		);
+		root.render(
+			<MiniEditDiff
+				filePath="src/example.ts"
+				oldStr={"const first = 1;\nconst value = 'old';\nconst last = 3;"}
+				newStr={"const first = 1;\nconst value = 'new';\nconst last = 3;"}
+			/>,
+		);
+		await tick();
+		expect(rootElement.textContent).toContain("const value = 'old';");
+		expect(rootElement.textContent).toContain("const value = 'new';");
+		expect(rootElement.textContent).not.toContain("const first = 1;");
+		expect(rootElement.textContent).not.toContain("unchanged lines hidden");
+		expect(rootElement.textContent).not.toContain("hunk");
 	} finally {
 		root.unmount();
 	}

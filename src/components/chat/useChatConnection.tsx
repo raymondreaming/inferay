@@ -55,18 +55,17 @@ type ChatActivityUiState = {
 	liveActivities: ToolActivity[];
 };
 
+// Rendering every protocol fragment makes words repeatedly reflow while the
+// browser is still laying out the previous fragment. A short fixed cadence
+// keeps first-token latency effectively unchanged while presenting coherent
+// text chunks and cutting Markdown/layout work roughly in half.
+const STREAM_RENDER_INTERVAL_MS = 32;
+
 function scheduleFrame(callback: () => void): number {
-	if (typeof window !== "undefined" && window.requestAnimationFrame) {
-		return window.requestAnimationFrame(callback);
-	}
-	return setTimeout(callback, 16) as unknown as number;
+	return setTimeout(callback, STREAM_RENDER_INTERVAL_MS) as unknown as number;
 }
 
 function cancelFrame(id: number) {
-	if (typeof window !== "undefined" && window.cancelAnimationFrame) {
-		window.cancelAnimationFrame(id);
-		return;
-	}
 	clearTimeout(id as unknown as ReturnType<typeof setTimeout>);
 }
 

@@ -421,6 +421,7 @@ const styles = stylex.create({
 	},
 	table: {
 		borderCollapse: "collapse",
+		tableLayout: "fixed",
 		width: "100%",
 	},
 	tableHeadCell: {
@@ -471,6 +472,14 @@ const styles = stylex.create({
 		flexDirection: "column",
 		gap: controlSize._2,
 		paddingBlock: controlSize._1,
+	},
+	questionPending: {
+		alignItems: "center",
+		color: color.textMuted,
+		display: "flex",
+		fontSize: font.size_2,
+		gap: controlSize._2,
+		minHeight: controlSize._6,
 	},
 	questionCard: {
 		backgroundColor: color.backgroundRaised,
@@ -633,6 +642,18 @@ export function AskUserQuestionCard({
 		setSubmitted(true);
 		onSendMessage(formatAskUserAnswer(parsed, selections));
 	}, [onSendMessage, parsed, selections, submitted]);
+
+	if (isStreaming) {
+		return (
+			<div {...stylex.props(styles.questionPending)}>
+				<span
+					{...stylex.props(styles.questionStreamingDot)}
+					style={{ backgroundColor: accentColor }}
+				/>
+				<span>Preparing question</span>
+			</div>
+		);
+	}
 
 	if (!parsed) {
 		return <CopyablePre text={content} preStyle={styles.rawToolPre} />;

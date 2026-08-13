@@ -1,6 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import { ErrorBoundary, useEffect } from "octane";
 import { color, controlSize, font, radius } from "../../tokens.stylex.ts";
+import { Button } from "../ui/Button.tsx";
 
 function ChatPaneRecovery({
 	error,
@@ -20,9 +21,15 @@ function ChatPaneRecovery({
 				<div {...stylex.props(styles.message)}>
 					The rest of your workspace is still available.
 				</div>
-				<button type="button" onClick={reset} {...stylex.props(styles.button)}>
+				<Button
+					type="button"
+					onClick={reset}
+					variant="secondary"
+					size="sm"
+					liquid={false}
+				>
 					Reload pane
-				</button>
+				</Button>
 			</div>
 		</div>
 	);
@@ -70,18 +77,5 @@ const styles = stylex.create({
 	message: {
 		color: color.textMuted,
 		fontSize: font.size_2,
-	},
-	button: {
-		backgroundColor: color.surfaceControl,
-		borderColor: color.border,
-		borderRadius: radius.md,
-		borderStyle: "solid",
-		borderWidth: 1,
-		color: color.textMain,
-		cursor: "pointer",
-		fontSize: font.size_2,
-		marginTop: controlSize._1,
-		paddingBlock: controlSize._1_5,
-		paddingInline: controlSize._3,
 	},
 });

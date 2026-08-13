@@ -57,7 +57,7 @@ function setupDom() {
 }
 
 function tick() {
-	return new Promise((resolve) => setTimeout(resolve, 20));
+	return new Promise((resolve) => setTimeout(resolve, 40));
 }
 
 test("hidden chat views do not own websocket reconnects", async () => {

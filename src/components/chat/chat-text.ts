@@ -115,7 +115,7 @@ export function parseMarkdownBlocks(
 		const trimmedLine = line.trim();
 		if (
 			trimmedLine.startsWith("|") &&
-			(streaming || trimmedLine.endsWith("|"))
+			(trimmedLine.endsWith("|") || (streaming && i < lines.length - 1))
 		) {
 			const tableLines: string[] = [line];
 			i++;
