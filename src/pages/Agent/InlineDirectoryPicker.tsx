@@ -261,6 +261,35 @@ export function InlineDirectoryPicker({
 					liquidSurface && styles.unifiedFrameLiquid,
 				)}
 			>
+				<div {...stylex.props(styles.inputRow)}>
+					<span {...stylex.props(styles.inputIcon)}>
+						<IconFolder size={14} />
+					</span>
+					<input
+						ref={inputRef}
+						type="text"
+						value={query}
+						onInput={setInputValue.bind(null, setQuery)}
+						onKeyDown={handleKeyDown}
+						placeholder="Search folder..."
+						autoComplete="off"
+						autoCorrect="off"
+						autoCapitalize="off"
+						spellCheck={false}
+						{...stylex.props(styles.input)}
+					/>
+					{loading && <div {...stylex.props(styles.spinner)} />}
+					{showStartButton && multiSelect && selectedPaths.length > 0 && (
+						<button
+							type="button"
+							onClick={handleStart}
+							{...stylex.props(styles.startButton)}
+						>
+							Start
+							{selectedPaths.length > 1 ? ` (${selectedPaths.length})` : ""}
+						</button>
+					)}
+				</div>
 				{showResults && itemCount > 0 && (
 					<div {...stylex.props(styles.unifiedList)}>
 						{displayList.map((pick, i) => (
@@ -316,35 +345,6 @@ export function InlineDirectoryPicker({
 						</div>
 					</div>
 				)}
-				<div {...stylex.props(styles.inputRow)}>
-					<span {...stylex.props(styles.inputIcon)}>
-						<IconFolder size={14} />
-					</span>
-					<input
-						ref={inputRef}
-						type="text"
-						value={query}
-						onInput={setInputValue.bind(null, setQuery)}
-						onKeyDown={handleKeyDown}
-						placeholder="Search folder..."
-						autoComplete="off"
-						autoCorrect="off"
-						autoCapitalize="off"
-						spellCheck={false}
-						{...stylex.props(styles.input)}
-					/>
-					{loading && <div {...stylex.props(styles.spinner)} />}
-					{showStartButton && multiSelect && selectedPaths.length > 0 && (
-						<button
-							type="button"
-							onClick={handleStart}
-							{...stylex.props(styles.startButton)}
-						>
-							Start
-							{selectedPaths.length > 1 ? ` (${selectedPaths.length})` : ""}
-						</button>
-					)}
-				</div>
 			</div>
 		</div>
 	);
@@ -454,9 +454,6 @@ const styles = stylex.create({
 		flexWrap: "wrap",
 		gap: controlSize._1,
 		overflow: "hidden",
-		borderTopWidth: 1,
-		borderTopStyle: "solid",
-		borderTopColor: "rgba(255, 255, 255, 0.06)",
 		paddingBlock: controlSize._2,
 		paddingInline: controlSize._3,
 	},
@@ -526,9 +523,7 @@ const styles = stylex.create({
 		animationIterationCount: "infinite",
 	},
 	selectedWrap: {
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
-		borderBottomColor: "rgba(255, 255, 255, 0.06)",
+		borderBlockWidth: 0,
 		paddingBlock: controlSize._2,
 		paddingInline: controlSize._2,
 	},
@@ -570,10 +565,8 @@ const styles = stylex.create({
 		minWidth: 0,
 		maxHeight: "220px",
 		overflowY: "auto",
+		borderBlockWidth: 0,
 		paddingBlock: controlSize._0_5,
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
-		borderBottomColor: "rgba(255, 255, 255, 0.06)",
 	},
 	resultRowCompact: {
 		display: "flex",
@@ -602,6 +595,7 @@ const styles = stylex.create({
 		alignItems: "center",
 		gap: controlSize._2,
 		minWidth: 0,
+		borderBlockWidth: 0,
 		paddingBlock: controlSize._2,
 		paddingInline: controlSize._2,
 	},
@@ -613,6 +607,7 @@ const styles = stylex.create({
 		minWidth: 0,
 		flex: 1,
 		backgroundColor: "transparent",
+		borderWidth: 0,
 		color: color.textMain,
 		fontSize: "0.8125rem",
 		outline: "none",

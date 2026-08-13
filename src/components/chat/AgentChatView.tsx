@@ -571,6 +571,7 @@ export const AgentChatView = memo(function AgentChatView({
 }: AgentChatViewProps) {
 	const renderVisibleChat = composerOnly || isVisible;
 	const [isContextOpen, setIsContextOpen] = useState(false);
+	const [isAgentConfigOpen, setIsAgentConfigOpen] = useState(false);
 	const { getToolActivities, messageReadModel, messages, setMessages } =
 		usePersistentChatMessages(paneId);
 	const visibleMessages = useMemo(
@@ -904,6 +905,7 @@ export const AgentChatView = memo(function AgentChatView({
 						{messages.length === 0 &&
 							!isLoading &&
 							!cwd &&
+							!isAgentConfigOpen &&
 							isSelected !== false &&
 							onDirectoryChange && (
 								<div {...stylex.props(styles.directoryPickerWrap)}>
@@ -983,6 +985,7 @@ export const AgentChatView = memo(function AgentChatView({
 							onAgentKindChange={handleAgentKindChange}
 							onModelChange={handleModelChange}
 							onReasoningLevelChange={handleReasoningLevelChange}
+							onAgentConfigOpenChange={setIsAgentConfigOpen}
 							input={input}
 							setInput={setInput}
 							isLoading={isLoading}

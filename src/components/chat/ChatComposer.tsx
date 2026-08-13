@@ -1,12 +1,5 @@
 import * as stylex from "@octanejs/stylex";
-import {
-	createPortal,
-	memo,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "octane";
+import { memo, useEffect, useMemo, useRef, useState } from "octane";
 import type React from "react";
 import type { AgentKind } from "../../features/agent/agent-utils.ts";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
@@ -25,7 +18,6 @@ import {
 	color,
 	colorValues,
 	controlSize,
-	effect,
 	font,
 	motion,
 	radius,
@@ -256,6 +248,7 @@ export const ChatComposer = memo(function ChatComposer({
 	onAgentKindChange,
 	onModelChange,
 	onReasoningLevelChange,
+	onAgentConfigOpenChange,
 	input,
 	setInput,
 	isLoading,
@@ -300,6 +293,7 @@ export const ChatComposer = memo(function ChatComposer({
 	onAgentKindChange: (agentKind: AgentKind) => void;
 	onModelChange: (model: string) => void;
 	onReasoningLevelChange: (reasoningLevel: string) => void;
+	onAgentConfigOpenChange?: (open: boolean) => void;
 	input: string;
 	setInput: (value: string) => void;
 	isLoading: boolean;
@@ -359,12 +353,13 @@ export const ChatComposer = memo(function ChatComposer({
 	const agentConfigButtonRef = useRef<HTMLButtonElement | null>(null);
 	const agentConfigMenuRef = useRef<HTMLDivElement | null>(null);
 	const [agentConfigOpen, setAgentConfigOpen] = useState(false);
-	const [agentConfigPosition, setAgentConfigPosition] = useState({
-		bottom: 0,
-		left: 0,
-		width: 360,
-		maxHeight: 360,
-	});
+	useEffect(() => {
+		onAgentConfigOpenChange?.(agentConfigOpen);
+	}, [agentConfigOpen, onAgentConfigOpenChange]);
+	useEffect(
+		() => () => onAgentConfigOpenChange?.(false),
+		[onAgentConfigOpenChange],
+	);
 	const usePlainTextarea = input.length > 6000;
 	const inputHighlights = useMemo(
 		() =>
@@ -407,19 +402,6 @@ export const ChatComposer = memo(function ChatComposer({
 		};
 	}, [agentConfigOpen]);
 	const toggleAgentConfig = () => {
-		if (!agentConfigOpen && agentConfigButtonRef.current) {
-			const rect = agentConfigButtonRef.current.getBoundingClientRect();
-			const width = Math.max(340, rect.width);
-			setAgentConfigPosition({
-				bottom: window.innerHeight - rect.top + 4,
-				left: Math.min(
-					Math.max(8, rect.left),
-					Math.max(8, window.innerWidth - width - 8),
-				),
-				width,
-				maxHeight: Math.min(360, Math.max(220, rect.top - 12)),
-			});
-		}
 		setAgentConfigOpen((open) => !open);
 	};
 	return (
@@ -686,89 +668,96 @@ export const ChatComposer = memo(function ChatComposer({
 				</div>
 			)}
 
-			{agentConfigOpen &&
-				createPortal(
-					<div
-						ref={agentConfigMenuRef}
-						{...stylex.props(styles.providerConfigMenu)}
-						style={{
-							bottom: agentConfigPosition.bottom,
-							left: agentConfigPosition.left,
-							width: agentConfigPosition.width,
-							maxHeight: agentConfigPosition.maxHeight,
-						}}
+			{agentConfigOpen && (
+				<div
+					ref={agentConfigMenuRef}
+					{...stylex.props(styles.providerConfigAnchor)}
+				>
+					<Liquid
+						blur={5}
+						contrast={20}
+						fill={colorValues.backgroundRaised}
+						filterPadding={20}
+						shadow="inset 0 1px 0 rgba(255,255,255,.08), 0 14px 36px rgba(0,0,0,.32)"
+						className={stylex.props(styles.providerConfigLiquid).className}
 					>
-						<div {...stylex.props(styles.providerConfigSection)}>
-							<span {...stylex.props(styles.providerConfigSectionLabel)}>
-								Provider
-							</span>
-							<div {...stylex.props(styles.providerConfigChoiceGrid)}>
-								{agentKindOptions.map((option) => (
-									<button
-										type="button"
-										key={option.id}
-										onClick={() => onAgentKindChange(option.id)}
-										{...stylex.props(
-											styles.providerConfigChoice,
-											option.id === agentKind &&
-												styles.providerConfigChoiceActive,
-										)}
-									>
-										<span {...stylex.props(styles.shrink)}>{option.icon}</span>
-										<span>{option.label}</span>
-									</button>
-								))}
-							</div>
-						</div>
-						{agentDefinition.models.length > 0 && (
-							<div {...stylex.props(styles.providerConfigSection)}>
-								<span {...stylex.props(styles.providerConfigSectionLabel)}>
-									Model
-								</span>
-								<div {...stylex.props(styles.providerConfigChoiceGrid)}>
-									{modelOptions.map((option) => (
-										<button
-											type="button"
-											key={option.id}
-											onClick={() => onModelChange(option.id)}
-											{...stylex.props(
-												styles.providerConfigChoice,
-												option.id === model &&
-													styles.providerConfigChoiceActive,
-											)}
-										>
-											<span>{option.label}</span>
-										</button>
-									))}
+						<Liquid.Item observe radius={12}>
+							<div {...stylex.props(styles.providerConfigMenu)}>
+								<div {...stylex.props(styles.providerConfigSection)}>
+									<span {...stylex.props(styles.providerConfigSectionLabel)}>
+										Provider
+									</span>
+									<div {...stylex.props(styles.providerConfigChoiceGrid)}>
+										{agentKindOptions.map((option) => (
+											<button
+												type="button"
+												key={option.id}
+												onClick={() => onAgentKindChange(option.id)}
+												{...stylex.props(
+													styles.providerConfigChoice,
+													option.id === agentKind &&
+														styles.providerConfigChoiceActive,
+												)}
+											>
+												<span {...stylex.props(styles.shrink)}>
+													{option.icon}
+												</span>
+												<span>{option.label}</span>
+											</button>
+										))}
+									</div>
 								</div>
+								{agentDefinition.models.length > 0 && (
+									<div {...stylex.props(styles.providerConfigSection)}>
+										<span {...stylex.props(styles.providerConfigSectionLabel)}>
+											Model
+										</span>
+										<div {...stylex.props(styles.providerConfigChoiceGrid)}>
+											{modelOptions.map((option) => (
+												<button
+													type="button"
+													key={option.id}
+													onClick={() => onModelChange(option.id)}
+													{...stylex.props(
+														styles.providerConfigChoice,
+														option.id === model &&
+															styles.providerConfigChoiceActive,
+													)}
+												>
+													<span>{option.label}</span>
+												</button>
+											))}
+										</div>
+									</div>
+								)}
+								{agentKind === "codex" && (
+									<div {...stylex.props(styles.providerConfigSection)}>
+										<span {...stylex.props(styles.providerConfigSectionLabel)}>
+											Reasoning
+										</span>
+										<div {...stylex.props(styles.providerConfigChoiceGrid)}>
+											{CODEX_REASONING_LEVELS.map((option) => (
+												<button
+													type="button"
+													key={option.id}
+													onClick={() => onReasoningLevelChange(option.id)}
+													{...stylex.props(
+														styles.providerConfigChoice,
+														option.id === reasoningLevel &&
+															styles.providerConfigChoiceActive,
+													)}
+												>
+													<span>{option.label}</span>
+												</button>
+											))}
+										</div>
+									</div>
+								)}
 							</div>
-						)}
-						{agentKind === "codex" && (
-							<div {...stylex.props(styles.providerConfigSection)}>
-								<span {...stylex.props(styles.providerConfigSectionLabel)}>
-									Reasoning
-								</span>
-								<div {...stylex.props(styles.providerConfigChoiceGrid)}>
-									{CODEX_REASONING_LEVELS.map((option) => (
-										<button
-											type="button"
-											key={option.id}
-											onClick={() => onReasoningLevelChange(option.id)}
-											{...stylex.props(
-												styles.providerConfigChoice,
-												option.id === reasoningLevel &&
-													styles.providerConfigChoiceActive,
-											)}
-										>
-											<span>{option.label}</span>
-										</button>
-									))}
-								</div>
-							</div>
-						)}
-					</div>,
-					document.body,
-				)}
+						</Liquid.Item>
+					</Liquid>
+				</div>
+			)}
 
 			{mdPreview.show && (
 				<div {...stylex.props(styles.modalBackdrop)}>
@@ -1115,21 +1104,48 @@ const styles = stylex.create({
 		transform: "rotate(180deg)",
 	},
 	providerConfigMenu: {
-		backgroundColor: color.backgroundRaised,
-		backgroundImage: effect.popoverDepth,
-		borderColor: color.border,
+		backgroundColor: color.transparent,
+		backgroundImage: "none",
 		borderRadius: 10,
-		borderStyle: "solid",
-		borderWidth: 1,
-		boxShadow: shadow.modal,
+		borderWidth: 0,
+		boxShadow: "none",
 		boxSizing: "border-box",
 		display: "flex",
 		flexDirection: "column",
 		gap: controlSize._3,
+		maxHeight: "inherit",
+		maxWidth: "100%",
 		overflowY: "auto",
 		padding: controlSize._3,
-		position: "fixed",
+		width: "100%",
+	},
+	providerConfigAnchor: {
+		position: "absolute",
+		left: controlSize._3,
+		right: controlSize._3,
+		bottom: "calc(100% + 14px)",
 		zIndex: 220,
+		boxSizing: "border-box",
+		maxHeight: "min(430px, calc(100vh - 32px))",
+		pointerEvents: "auto",
+		transformOrigin: "bottom center",
+		animationName: stylex.keyframes({
+			from: {
+				opacity: 0,
+				transform: "translateY(18px) scale(0.97)",
+			},
+			to: {
+				opacity: 1,
+				transform: "translateY(0) scale(1)",
+			},
+		}),
+		animationDuration: "240ms",
+		animationTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
+	},
+	providerConfigLiquid: {
+		display: "flex",
+		width: "100%",
+		maxHeight: "inherit",
 	},
 	providerConfigSection: {
 		display: "flex",
