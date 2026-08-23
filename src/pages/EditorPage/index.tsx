@@ -864,6 +864,7 @@ function useEditorPageModel({
 		isCommitting,
 		amendMode,
 		onAmendModeChange: setAmendMode,
+		showFileActions: true,
 		onCollapse: () => setSidebarVisible(false),
 	};
 	const collapsedSidebar = (

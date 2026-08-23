@@ -1162,28 +1162,19 @@ const styles = stylex.create({
 		height: "1.125rem",
 		alignItems: "center",
 		justifyContent: "center",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: "rgba(255, 255, 255, 0.12)",
-		borderRadius: "999px",
-		backgroundColor: "rgba(12, 14, 13, 0.92)",
+		borderWidth: 0,
+		borderRadius: radius.sm,
+		backgroundColor: color.background,
 		color: color.textSoft,
 		opacity: 0,
 		pointerEvents: "none",
-		transitionProperty: "opacity, color, border-color, background-color",
+		transitionProperty: "opacity, color",
 		transitionDuration: "120ms",
 	},
 	rowActionVisible: {
 		opacity: 1,
 		pointerEvents: "auto",
-		backgroundColor: {
-			default: "rgba(12, 14, 13, 0.92)",
-			":hover": color.controlActive,
-		},
-		borderColor: {
-			default: "rgba(255, 255, 255, 0.12)",
-			":hover": color.borderStrong,
-		},
+		backgroundColor: color.background,
 		color: {
 			default: color.textSoft,
 			":hover": color.textMain,
@@ -1200,11 +1191,12 @@ const styles = stylex.create({
 		height: "1.125rem",
 		alignItems: "center",
 		justifyContent: "center",
-		borderRadius: "999px",
+		borderRadius: radius.sm,
+		backgroundColor: color.background,
 		color: color.textSoft,
 		opacity: 0,
 		pointerEvents: "none",
-		transitionProperty: "opacity, color, background-color",
+		transitionProperty: "opacity, color",
 		transitionDuration: "120ms",
 	},
 	folderIcon: {
@@ -1765,7 +1757,9 @@ function TreeNodeRow({
 							>
 								{node.name}
 							</span>
-							<FileDiffStats file={file} />
+							{hoveredActionPath !== file.path ? (
+								<FileDiffStats file={file} />
+							) : null}
 						</>
 					) : null}
 				</button>
@@ -1942,7 +1936,9 @@ function FileGroup({
 												{f.path.split("/").pop()}
 											</span>
 										</span>
-										<FileDiffStats file={f} />
+										{hoveredActionPath !== f.path ? (
+											<FileDiffStats file={f} />
+										) : null}
 									</button>
 									{onAction && (
 										<button

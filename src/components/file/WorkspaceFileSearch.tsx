@@ -8,7 +8,6 @@ import {
 	font,
 	radius,
 } from "../../tokens.stylex.ts";
-import { DotMatrixWeave } from "../ui/DotMatrixLoader.tsx";
 import { IconSearch } from "../ui/Icons.tsx";
 import { FileTypeIcon } from "./FileTypeIcon.tsx";
 
@@ -165,11 +164,6 @@ export function WorkspaceFileSearch({
 						onKeyDown={handleKeyDown}
 						{...stylex.props(styles.input)}
 					/>
-					{loading ? (
-						<span {...stylex.props(styles.loading)}>
-							<DotMatrixWeave ariaLabel="Searching files" />
-						</span>
-					) : null}
 				</div>
 			)}
 			{open && cwd ? (
@@ -194,11 +188,6 @@ export function WorkspaceFileSearch({
 								placeholder="Search workspace files"
 								{...stylex.props(styles.input)}
 							/>
-							{loading ? (
-								<span {...stylex.props(styles.loading)}>
-									<DotMatrixWeave ariaLabel="Searching files" />
-								</span>
-							) : null}
 						</div>
 					) : null}
 					{results.map((result, index) => (
@@ -280,7 +269,6 @@ const styles = stylex.create({
 		fontSize: font.size_2,
 		"::placeholder": { color: color.textMuted },
 	},
-	loading: { display: "flex", flexShrink: 0, transform: "scale(0.72)" },
 	menu: {
 		position: "absolute",
 		top: "calc(100% + 5px)",
