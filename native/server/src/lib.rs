@@ -60,6 +60,7 @@ pub mod native_directories;
 pub mod native_files;
 pub mod native_git;
 pub mod native_project_files;
+pub mod native_project_map;
 pub mod native_prompts;
 pub mod native_sessions;
 mod one_shot;
@@ -658,6 +659,9 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
         }
         if path == "/api/files/search" && request.method() == Method::GET {
             return search_files(&state, request).await;
+        }
+        if path == "/api/files/map" && request.method() == Method::GET {
+            return project_file_map(&state, request).await;
         }
         if path == "/api/files/content" && request.method() == Method::GET {
             return get_file_content(&state, request).await;
@@ -2186,6 +2190,38 @@ async fn search_files(state: &ServerState, request: Request) -> Response {
         }),
         &request_headers,
     )
+}
+
+async fn project_file_map(state: &ServerState, request: Request) -> Response {
+    let request_headers = request.headers().clone();
+    let cwd = query_value(&request, "cwd")
+        .filter(|cwd| !cwd.is_empty())
+        .unwrap_or_else(|| {
+            state
+                .allowed_paths
+                .project_root()
+                .to_string_lossy()
+                .into_owned()
+        });
+    let cwd = match state.native_project_files.resolve_cwd(&cwd) {
+        Ok(cwd) => cwd,
+        Err(_) => {
+            return json_response(
+                StatusCode::BAD_REQUEST,
+                json!({ "error": "Invalid directory" }),
+                &request_headers,
+            );
+        }
+    };
+    let root = PathBuf::from(cwd);
+    match tokio::task::spawn_blocking(move || native_project_map::build_project_map(&root)).await {
+        Ok(project_map) => json_response(StatusCode::OK, json!(project_map), &request_headers),
+        Err(error) => json_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({ "error": error.to_string() }),
+            &request_headers,
+        ),
+    }
 }
 
 fn file_search_limit(value: Option<&str>) -> usize {
