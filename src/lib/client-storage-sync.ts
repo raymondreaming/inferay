@@ -1,9 +1,10 @@
 import {
+	AGENT_STATE_STORAGE_KEY,
 	CHAT_QUEUE_KEY_PREFIX,
 	CHAT_SESSION_INDEX_STORAGE_KEY,
 	isChatMessageStorageKey,
+	ONBOARDING_DONE_STORAGE_KEY,
 	shouldSyncClientStorageKey,
-	AGENT_STATE_STORAGE_KEY,
 } from "./client-storage-keys.ts";
 import { noop } from "./data.ts";
 
@@ -39,7 +40,7 @@ function readLocalEntries(): Record<string, string> {
 
 function shouldApplyServerValue(
 	key: string,
-	serverValue: StoredValue
+	serverValue: StoredValue,
 ): boolean {
 	let localValue: string | null = null;
 	try {
@@ -61,9 +62,13 @@ async function sendStoragePatch(entries: Record<string, StoredValue>) {
 }
 
 async function fetchStoredEntries(
-	signal: AbortSignal
+	signal: AbortSignal,
+	key?: string,
 ): Promise<Record<string, StoredValue> | null> {
-	const response = await fetch("/api/client-storage", { signal });
+	const url = key
+		? `/api/client-storage?key=${encodeURIComponent(key)}`
+		: "/api/client-storage";
+	const response = await fetch(url, { signal });
 	if (!response.ok) return null;
 	const payload = (await response.json()) as ClientStoragePayload;
 	return payload.entries ?? {};
@@ -89,7 +94,7 @@ function isChatCacheKey(key: string): boolean {
 }
 
 function collectAgentResetEntries(
-	entries: Record<string, StoredValue>
+	entries: Record<string, StoredValue>,
 ): Record<string, null> {
 	const resetEntries: Record<string, null> = {
 		[AGENT_STATE_STORAGE_KEY]: null,
@@ -118,7 +123,7 @@ function sendStorageBeacon(entries: Record<string, StoredValue>): boolean {
 		"/api/client-storage",
 		new Blob([JSON.stringify({ entries })], {
 			type: "application/json",
-		})
+		}),
 	);
 }
 
@@ -138,7 +143,7 @@ export function syncStoredValue(key: string, value: StoredValue): void {
 	if (hydrating || !shouldSyncClientStorageKey(key)) return;
 	pendingSync.set(key, value);
 	window.dispatchEvent(
-		new CustomEvent(CLIENT_STORAGE_CHANGED_EVENT, { detail: { key, value } })
+		new CustomEvent(CLIENT_STORAGE_CHANGED_EVENT, { detail: { key, value } }),
 	);
 	if (syncTimer) return;
 	syncTimer = setTimeout(flushPendingSync, 250);
@@ -154,15 +159,29 @@ async function syncAllStoredValues(): Promise<void> {
 
 export async function hydrateStoredValues(): Promise<void> {
 	if (typeof window === "undefined") return;
-	let entries: Record<string, StoredValue> = {};
+	const entries: Record<string, StoredValue> = {};
 	let hydrated = false;
 	let resetEntries: Record<string, null> | null = null;
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), HYDRATION_TIMEOUT_MS);
 	try {
+		const criticalEntries = await fetchStoredEntries(
+			controller.signal,
+			ONBOARDING_DONE_STORAGE_KEY,
+		);
+		if (criticalEntries) {
+			Object.assign(entries, criticalEntries);
+			hydrated = true;
+			const onboardingValue = criticalEntries[ONBOARDING_DONE_STORAGE_KEY];
+			if (onboardingValue === null) {
+				localStorage.removeItem(ONBOARDING_DONE_STORAGE_KEY);
+			} else if (onboardingValue !== undefined) {
+				localStorage.setItem(ONBOARDING_DONE_STORAGE_KEY, onboardingValue);
+			}
+		}
 		const fetchedEntries = await fetchStoredEntries(controller.signal);
 		if (fetchedEntries) {
-			entries = fetchedEntries;
+			Object.assign(entries, fetchedEntries);
 			hydrated = true;
 		}
 	} catch {}

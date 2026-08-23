@@ -3,8 +3,23 @@ import {
 	createAgentPane,
 	normalizeAgentState,
 } from "../src/features/agent/agent-utils.ts";
+import { shouldSyncClientStorageKey } from "../src/lib/client-storage-keys.ts";
 
 describe("app persistence restore flow", () => {
+	test("syncs the complete workspace layout through native storage", () => {
+		expect(shouldSyncClientStorageKey("agent-workspace-dock:workspace-1")).toBe(
+			true,
+		);
+		expect(
+			shouldSyncClientStorageKey("agent-workspace-panels:workspace-1"),
+		).toBe(true);
+		expect(
+			shouldSyncClientStorageKey(
+				"agent-workspace-files:workspace-file-viewer:workspace-1",
+			),
+		).toBe(true);
+	});
+
 	test("normalizes stale selected workspace to the best recoverable group", () => {
 		const realPane = {
 			...createAgentPane("codex", "/Users/ray/Developer/inferay"),

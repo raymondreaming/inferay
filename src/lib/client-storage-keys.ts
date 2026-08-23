@@ -41,7 +41,7 @@ export function isChatMessageStorageKey(key: string): boolean {
 	return (
 		key.startsWith(CHAT_MESSAGES_STORAGE_KEY_PREFIX) &&
 		!CHAT_NON_MESSAGE_STORAGE_KEY_PREFIXES.some((prefix) =>
-			key.startsWith(prefix)
+			key.startsWith(prefix),
 		)
 	);
 }
@@ -59,6 +59,7 @@ const SYNCED_STORAGE_KEYS = new Set([
 ]);
 
 const SYNCED_STORAGE_PREFIXES = [
+	"agent-workspace-",
 	"git-change-checkpoint:",
 	"inferay-",
 	"inferay.",

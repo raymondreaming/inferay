@@ -31,7 +31,7 @@ export default defineConfig(({ mode }) => ({
 				enabled: true,
 				prerender: { outputPath: "/index.html" },
 			},
-			client: { entry: "./src/client.tsx", base: "/assets" },
+			client: { entry: "client", base: "/assets" },
 			sitemap: { enabled: false },
 			octane: { devtools: mode === "development" },
 		}).map((plugin) =>

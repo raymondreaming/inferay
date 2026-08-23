@@ -2868,7 +2868,12 @@ const SYNCED_STORAGE_KEYS: &[&str] = &[
     "agent-layout-mode",
     "agent-main-view",
 ];
-const SYNCED_STORAGE_PREFIXES: &[&str] = &["git-change-checkpoint:", "inferay-", "inferay."];
+const SYNCED_STORAGE_PREFIXES: &[&str] = &[
+    "agent-workspace-",
+    "git-change-checkpoint:",
+    "inferay-",
+    "inferay.",
+];
 const CHAT_NON_MESSAGE_STORAGE_PREFIXES: &[&str] = &[
     "inferay-chat-session-",
     "inferay-chat-input-",
@@ -2927,6 +2932,7 @@ fn normalize_client_storage_entries(
 
 async fn get_client_storage(state: &ServerState, request: Request) -> Response {
     let request_headers = request.headers().clone();
+    let requested_key = query_value(&request, "key");
     let _write_guard = state.client_storage_write.lock().await;
     let mut entries = read_json_object(&state.client_storage_path).await;
     if entries.remove(AGENT_STATE_STORAGE_KEY).is_some()
@@ -2937,6 +2943,9 @@ async fn get_client_storage(state: &ServerState, request: Request) -> Response {
             json!({ "error": error }),
             &request_headers,
         );
+    }
+    if let Some(key) = requested_key {
+        entries.retain(|entry_key, _| entry_key == &key);
     }
     json_response(
         StatusCode::OK,
@@ -3998,6 +4007,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         let entries = normalize_client_storage_entries(&json!({
             AGENT_STATE_STORAGE_KEY: "{\"groups\":[]}",
             "agent-layout-mode": "grid",
+            "agent-workspace-dock:default": "{\"type\":\"panel\",\"id\":\"pane-1\"}",
             "unknown-key": "value",
             "agent-main-view": 42,
             "inferay-custom-theme": null,
@@ -4008,6 +4018,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             entries,
             json!({
                 "agent-layout-mode": "grid",
+                "agent-workspace-dock:default": "{\"type\":\"panel\",\"id\":\"pane-1\"}",
                 "inferay-custom-theme": null,
             })
             .as_object()
@@ -4040,6 +4051,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
                 "entries": {
                     AGENT_STATE_STORAGE_KEY: "{\"groups\":[]}",
                     "agent-layout-mode": "grid",
+                    "agent-workspace-panels:default": "{\"detachedFilePanels\":[]}",
                     "unknown-key": "ignored",
                     "inferay-custom-theme": "night",
                 }
@@ -4057,9 +4069,23 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             json!({
                 "entries": {
                     "agent-layout-mode": "grid",
+                    "agent-workspace-panels:default": "{\"detachedFilePanels\":[]}",
                     "inferay-custom-theme": "night",
                 }
             })
+        );
+
+        let (status, value) = call_json(
+            &app,
+            Method::GET,
+            "/api/client-storage?key=inferay-custom-theme".into(),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            value,
+            json!({ "entries": { "inferay-custom-theme": "night" } })
         );
 
         let (status, value) = call_json(
@@ -4083,6 +4109,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             persisted,
             json!({
                 "inferay-custom-theme": "night",
+                "agent-workspace-panels:default": "{\"detachedFilePanels\":[]}",
                 "sidebar-collapsed": "true",
             })
         );
