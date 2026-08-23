@@ -20,7 +20,7 @@ bunx biome lint \
 	src/pages/Agent/GitDiffView.tsx \
 	src/pages/Agent/AgentGrid.tsx \
 	src/pages/Agent/AgentPaneView.tsx \
-	src/pages/Agent/index.tsx \
+	src/routes/_app/agent.tsx \
 	tests/agent-chat-view-visibility.octane.tsx \
 	tests/agent-inline-diff-parity.test.ts \
 	tests/agent-stream-events.test.ts \

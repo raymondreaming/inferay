@@ -39,7 +39,7 @@ export function getServerOrigin(): string {
 	}
 
 	const embeddedServerOrigin = new URLSearchParams(window.location.search).get(
-		SERVER_ORIGIN_QUERY_PARAM
+		SERVER_ORIGIN_QUERY_PARAM,
 	);
 	if (embeddedServerOrigin && isAllowedServerOrigin(embeddedServerOrigin)) {
 		return embeddedServerOrigin;
@@ -60,7 +60,7 @@ export function getServerWebSocketUrl(path = "/ws"): string {
 
 export async function fetchJson<T>(
 	input: RequestInfo | URL,
-	init?: RequestInit
+	init?: RequestInit,
 ): Promise<T> {
 	const response = await fetch(input, init);
 	if (!response.ok) {
@@ -72,7 +72,7 @@ export async function fetchJson<T>(
 export async function fetchJsonOr<T>(
 	input: RequestInfo | URL,
 	fallback: T,
-	init?: RequestInit
+	init?: RequestInit,
 ): Promise<T> {
 	const response = await fetch(input, init);
 	if (!response.ok) {
@@ -84,7 +84,7 @@ export async function fetchJsonOr<T>(
 export async function postJson<TResponse>(
 	input: RequestInfo | URL,
 	body?: unknown,
-	init?: RequestInit
+	init?: RequestInit,
 ): Promise<TResponse> {
 	return fetchJson<TResponse>(input, {
 		...init,
@@ -100,7 +100,7 @@ export async function postJson<TResponse>(
 export async function sendJson(
 	input: RequestInfo | URL,
 	body?: unknown,
-	init?: RequestInit
+	init?: RequestInit,
 ): Promise<Response> {
 	return fetch(input, {
 		...init,
@@ -117,7 +117,7 @@ export async function sendJsonWithBusy(
 	setBusy: (busy: boolean) => void,
 	input: RequestInfo | URL,
 	body?: unknown,
-	init?: RequestInit
+	init?: RequestInit,
 ): Promise<Response> {
 	setBusy(true);
 	try {

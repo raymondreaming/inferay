@@ -1,5 +1,5 @@
-import { useNavigate } from "../../lib/hash-router.tsx";
 import * as stylex from "@octanejs/stylex";
+import { createFileRoute, useNavigate } from "@octanejs/tanstack-router";
 import { useCallback, useMemo, useState } from "octane";
 import {
 	IconCheck,
@@ -12,7 +12,7 @@ import {
 	mutateAgentWorkspaceState,
 } from "../../features/agent/agent-utils.ts";
 import { savePendingSend } from "../../features/chat/chat-session-store.ts";
-import { useAsyncResource } from "../../hooks/useAsyncResource.tsx";
+import { useQueryResource } from "../../hooks/useQueryResource.tsx";
 import { DEFAULT_APP_ROUTE } from "../../lib/app-navigation.tsx";
 import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
@@ -20,6 +20,8 @@ import { formatBytes } from "../../lib/format.ts";
 import { setInputValue } from "../../lib/react-events.ts";
 import { writeStoredValue } from "../../lib/stored-json.ts";
 import { color, controlSize, font, radius } from "../../tokens.stylex.ts";
+
+export const Route = createFileRoute("/_app/images")({ component: ImagesPage });
 
 interface FileEntry {
 	name: string;
@@ -39,7 +41,7 @@ function formatAddedDate(timestamp: number): string {
 
 function selectedFiles(
 	files: FileEntry[],
-	selectedPaths: Set<string>
+	selectedPaths: Set<string>,
 ): FileEntry[] {
 	return files.filter((file) => selectedPaths.has(file.path));
 }
@@ -78,7 +80,7 @@ async function ensureChatPaneId(): Promise<string | null> {
 	const next = await mutateAgentWorkspaceState(
 		{ type: "ensureChatPane" },
 		"image-chat-pane",
-		{ createIfMissing: true }
+		{ createIfMissing: true },
 	);
 	const group = next?.groups.find((item) => item.id === next.selectedGroupId);
 	return group?.selectedPaneId ?? null;
@@ -89,20 +91,21 @@ export function ImagesPage() {
 	const fetchImageFiles = useCallback(
 		() =>
 			fetchJsonOr<{ images?: FileEntry[] }>("/api/images", {}).then(
-				(d) => d.images ?? []
+				(d) => d.images ?? [],
 			),
-		[]
+		[],
 	);
 	const {
 		data: files,
 		setData: setFiles,
 		loading,
-	} = useAsyncResource<FileEntry[]>(fetchImageFiles, [], {
+	} = useQueryResource<FileEntry[]>(fetchImageFiles, [], {
+		queryKey: ["files", "images"],
 		isEqual: areImageFilesEqual,
 	});
 	const [query, setQuery] = useState("");
 	const [selectedPaths, setSelectedPaths] = useState<Set<string>>(
-		() => new Set()
+		() => new Set(),
 	);
 
 	const visibleFiles = useMemo(() => {
@@ -113,7 +116,7 @@ export function ImagesPage() {
 
 	const selected = useMemo(
 		() => selectedFiles(files, selectedPaths),
-		[files, selectedPaths]
+		[files, selectedPaths],
 	);
 	const allVisibleSelected =
 		visibleFiles.length > 0 &&
@@ -147,8 +150,8 @@ export function ImagesPage() {
 			paths.map((path) =>
 				fetch(`/api/delete-temp?path=${encodeURIComponent(path)}`, {
 					method: "DELETE",
-				}).catch(() => null)
-			)
+				}).catch(() => null),
+			),
 		);
 		setFiles((prev) => prev.filter((file) => !paths.includes(file.path)));
 		setSelectedPaths(new Set());
@@ -163,7 +166,7 @@ export function ImagesPage() {
 		savePendingSend(paneId, fullText);
 		writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, "chat");
 		dispatchAgentShellChange({ source: "view", reason: "image-start-chat" });
-		navigate(DEFAULT_APP_ROUTE);
+		navigate({ to: DEFAULT_APP_ROUTE });
 	}, [navigate, selected]);
 
 	return (
@@ -192,7 +195,7 @@ export function ImagesPage() {
 							styles.actionButton,
 							selected.length === 0
 								? styles.actionButtonDisabled
-								: styles.actionButtonPrimary
+								: styles.actionButtonPrimary,
 						)}
 					>
 						<IconMessageCircle size={13} />
@@ -206,7 +209,7 @@ export function ImagesPage() {
 							styles.actionButton,
 							selected.length === 0
 								? styles.actionButtonDisabled
-								: styles.actionButtonDanger
+								: styles.actionButtonDanger,
 						)}
 					>
 						<IconTrash size={13} />
@@ -226,7 +229,7 @@ export function ImagesPage() {
 							onClick={toggleAllVisible}
 							{...stylex.props(
 								styles.checkBox,
-								allVisibleSelected && styles.checkBoxChecked
+								allVisibleSelected && styles.checkBoxChecked,
 							)}
 							aria-label="Select all visible files"
 						>
@@ -252,7 +255,7 @@ export function ImagesPage() {
 										key={file.path}
 										{...stylex.props(
 											styles.row,
-											isSelected ? styles.rowSelected : styles.rowIdle
+											isSelected ? styles.rowSelected : styles.rowIdle,
 										)}
 									>
 										<button
@@ -260,7 +263,7 @@ export function ImagesPage() {
 											onClick={() => toggleSelection(file)}
 											{...stylex.props(
 												styles.checkBox,
-												isSelected && styles.checkBoxChecked
+												isSelected && styles.checkBoxChecked,
 											)}
 											aria-label={`Select ${file.name}`}
 										>

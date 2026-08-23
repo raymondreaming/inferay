@@ -1,11 +1,11 @@
 import { useCallback, useMemo, useState } from "octane";
-import { usePollingResource } from "../../hooks/usePollingResource.tsx";
+import { usePollingQuery } from "../../hooks/useQueryResource.tsx";
 import { postJson } from "../../lib/fetch-json.ts";
 import type { GitProjectStatus } from "./types.ts";
 
 function areGitStatusesEqual(
 	prev: GitProjectStatus[],
-	next: GitProjectStatus[]
+	next: GitProjectStatus[],
 ) {
 	if (prev.length !== next.length) return false;
 	for (let i = 0; i < prev.length; i++) {
@@ -46,7 +46,7 @@ export function useGitStatus(cwds: string[], options?: { enabled?: boolean }) {
 	const cwdKey = cwds.join("\u0000");
 	const requestedCwds = useMemo(
 		() => (cwdKey ? cwdKey.split("\u0000") : []),
-		[cwdKey]
+		[cwdKey],
 	);
 	const [loadedCwdKey, setLoadedCwdKey] = useState("");
 	const fetcher = useCallback(
@@ -58,12 +58,12 @@ export function useGitStatus(cwds: string[], options?: { enabled?: boolean }) {
 			const result = await postJson<GitProjectStatus[]>(
 				"/api/git/statuses",
 				{ cwds: requestedCwds },
-				{ signal }
+				{ signal },
 			);
 			if (!signal?.aborted) setLoadedCwdKey(cwdKey);
 			return result;
 		},
-		[cwdKey, requestedCwds]
+		[cwdKey, requestedCwds],
 	);
 
 	const {
@@ -71,8 +71,8 @@ export function useGitStatus(cwds: string[], options?: { enabled?: boolean }) {
 		setData,
 		refetch,
 		loaded,
-	} = usePollingResource<GitProjectStatus[]>(fetcher, 5000, [], {
-		deferInitialFetch: false,
+	} = usePollingQuery<GitProjectStatus[]>(fetcher, 5000, [], {
+		queryKey: ["git", "status", cwdKey],
 		enabled,
 		isEqual: areGitStatusesEqual,
 	});
@@ -91,7 +91,7 @@ export function useGitStatus(cwds: string[], options?: { enabled?: boolean }) {
 		(cwd: string, mutator: (project: GitProjectStatus) => GitProjectStatus) => {
 			setData((prev) => prev.map((p) => (p.cwd === cwd ? mutator(p) : p)));
 		},
-		[setData]
+		[setData],
 	);
 
 	return {

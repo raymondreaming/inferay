@@ -1,5 +1,5 @@
 import { useCallback } from "octane";
-import { useAsyncResource } from "../../hooks/useAsyncResource";
+import { useQueryResource } from "../../hooks/useQueryResource.tsx";
 
 export interface GitCommit {
 	hash: string;
@@ -101,7 +101,7 @@ export function useGitGraph(cwd: string | undefined, limit = 50) {
 		if (!cwd) return null;
 		return (async () => {
 			const res = await fetch(
-				`/api/git/graph?cwd=${encodeURIComponent(cwd)}&limit=${limit}`
+				`/api/git/graph?cwd=${encodeURIComponent(cwd)}&limit=${limit}`,
 			);
 			if (!res.ok) throw new Error("Failed to fetch git graph");
 			const json = await res.json();
@@ -111,10 +111,13 @@ export function useGitGraph(cwd: string | undefined, limit = 50) {
 			};
 		})();
 	}, [cwd, limit]);
-	const { data, loading, error, refresh } = useAsyncResource<GraphData>(
+	const { data, loading, error, refresh } = useQueryResource<GraphData>(
 		fetchGraph,
 		EMPTY_GRAPH,
-		{ isEqual: areGraphDataEqual }
+		{
+			queryKey: ["git", "graph", cwd ?? "", limit],
+			isEqual: areGraphDataEqual,
+		},
 	);
 	return { commits: data.commits, rows: data.rows, loading, error, refresh };
 }
@@ -136,7 +139,7 @@ interface CommitDetails {
 
 function areCommitDetailsEqual(
 	prev: CommitDetails | null,
-	next: CommitDetails | null
+	next: CommitDetails | null,
 ) {
 	if (prev === next) return true;
 	if (!prev || !next) return false;
@@ -166,13 +169,13 @@ function areCommitDetailsEqual(
 
 export function useCommitDetails(
 	cwd: string | undefined,
-	hash: string | undefined
+	hash: string | undefined,
 ) {
 	const fetchCommitDetails = useCallback(() => {
 		if (!cwd || !hash) return null;
 		return (async () => {
 			const res = await fetch(
-				`/api/git/commit-details?cwd=${encodeURIComponent(cwd)}&hash=${encodeURIComponent(hash)}`
+				`/api/git/commit-details?cwd=${encodeURIComponent(cwd)}&hash=${encodeURIComponent(hash)}`,
 			);
 			if (!res.ok) throw new Error("Failed to fetch commit details");
 			const json = await res.json();
@@ -180,7 +183,8 @@ export function useCommitDetails(
 		})();
 	}, [cwd, hash]);
 	const { data, loading, error, refresh } =
-		useAsyncResource<CommitDetails | null>(fetchCommitDetails, null, {
+		useQueryResource<CommitDetails | null>(fetchCommitDetails, null, {
+			queryKey: ["git", "commit", cwd ?? "", hash ?? ""],
 			isEqual: areCommitDetailsEqual,
 		});
 	return { details: data, loading, error, refresh };

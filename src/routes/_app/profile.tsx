@@ -1,4 +1,5 @@
 import * as stylex from "@octanejs/stylex";
+import { createFileRoute, useNavigate } from "@octanejs/tanstack-router";
 import { useCallback, useMemo, useReducer, useRef, useState } from "octane";
 import { Button } from "../../components/ui/Button.tsx";
 import { DropdownButton } from "../../components/ui/DropdownButton.tsx";
@@ -33,20 +34,26 @@ import {
 } from "../../features/forge/forge-client.ts";
 import type { ForgeAccount, GithubRepo } from "../../features/forge/types.ts";
 import { useAppInfo } from "../../hooks/useAppInfo.ts";
-import { useAsyncResource } from "../../hooks/useAsyncResource.tsx";
+import { useQueryResource } from "../../hooks/useQueryResource.tsx";
 import { ONBOARDING_DONE_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { isActive } from "../../lib/data.ts";
 import { fetchJsonOr, sendJsonWithBusy } from "../../lib/fetch-json.ts";
-import { useNavigate } from "../../lib/hash-router.tsx";
 import { removeStoredValue } from "../../lib/stored-json.ts";
-import { color, controlSize, font } from "../../tokens.stylex.ts";
-import { AgentSettingsContent } from "../Agent/AgentSettingsPanel.tsx";
-import { ProfileGithubEmptyState, ProfileRepoRow } from "./ProfileGithub.tsx";
+import { AgentSettingsContent } from "../../pages/Agent/AgentSettingsPanel.tsx";
+import {
+	ProfileGithubEmptyState,
+	ProfileRepoRow,
+} from "../../pages/ProfilePage/ProfileGithub.tsx";
 import {
 	ProfileAccountAvatar,
 	ProfileErrorBanner,
 	ProfileSuccessBanner,
-} from "./ProfileStatus.tsx";
+} from "../../pages/ProfilePage/ProfileStatus.tsx";
+import { color, controlSize, font } from "../../tokens.stylex.ts";
+
+export const Route = createFileRoute("/_app/profile")({
+	component: ProfilePage,
+});
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 type StateValue<T> = T | ((current: T) => T);
@@ -204,14 +211,15 @@ export function ProfilePage() {
 	const navigate = useNavigate();
 	const resetOnboarding = () => {
 		removeStoredValue(ONBOARDING_DONE_STORAGE_KEY);
-		navigate("/onboarding", { replace: true });
+		navigate({ to: "/onboarding", replace: true });
 	};
 	const initialAccounts = getCachedForgeAccounts();
 	const {
 		data: accounts,
 		loading: accountsLoading,
 		error: accountsError,
-	} = useAsyncResource(fetchForgeAccounts, initialAccounts, {
+	} = useQueryResource(fetchForgeAccounts, initialAccounts, {
+		queryKey: ["forge", "accounts"],
 		isEqual: areForgeAccountsEqual,
 	});
 	const loadState: LoadState = accountsLoading
@@ -230,7 +238,8 @@ export function ProfilePage() {
 		loading: reposLoading,
 		error: reposError,
 		refresh: refreshRepos,
-	} = useAsyncResource(fetchRepos, getCachedGithubRepos(), {
+	} = useQueryResource(fetchRepos, getCachedGithubRepos(), {
+		queryKey: ["forge", "repos"],
 		isEqual: areGithubReposEqual,
 	});
 	const fetchAgentAccountStatuses = useCallback(
@@ -248,7 +257,8 @@ export function ProfilePage() {
 		loading: agentAccountStatusesLoading,
 		error: agentAccountStatusesError,
 		refresh: refreshAgentAccountStatuses,
-	} = useAsyncResource(fetchAgentAccountStatuses, [], {
+	} = useQueryResource(fetchAgentAccountStatuses, [], {
+		queryKey: ["agents", "account-status"],
 		isEqual: areAgentAccountStatusesEqual,
 	});
 	const [profileUiState, profileUiDispatch] = useReducer(

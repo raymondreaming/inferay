@@ -1,8 +1,8 @@
-import { useNavigate } from "../../lib/hash-router.tsx";
 import * as stylex from "@octanejs/stylex";
+import { createFileRoute, useNavigate } from "@octanejs/tanstack-router";
 import { useCallback, useEffect, useReducer, useState } from "octane";
-import { Button } from "../../components/ui/Button.tsx";
-import { IconButton } from "../../components/ui/IconButton.tsx";
+import { Button } from "../components/ui/Button.tsx";
+import { IconButton } from "../components/ui/IconButton.tsx";
 import {
 	IconAgent,
 	IconArrowLeft,
@@ -15,36 +15,101 @@ import {
 	IconRefreshCw,
 	IconUser,
 	IconX,
-} from "../../components/ui/Icons.tsx";
+} from "../components/ui/Icons.tsx";
 import {
 	createDefaultAgentState,
 	loadCanonicalAgentState,
 	saveSyncedAgentState,
-} from "../../features/agent/agent-utils.ts";
+} from "../features/agent/agent-utils.ts";
 import {
 	fetchForgeAccounts,
 	fetchGithubRepos,
 	invalidateForgeAccountsCache,
-} from "../../features/forge/forge-client.ts";
-import type { ForgeAccount, GithubRepo } from "../../features/forge/types.ts";
-import { useAsyncResource } from "../../hooks/useAsyncResource.tsx";
+} from "../features/forge/forge-client.ts";
+import type { ForgeAccount, GithubRepo } from "../features/forge/types.ts";
+import { useQueryResource } from "../hooks/useQueryResource.tsx";
 import {
+	DEFAULT_APP_BACKGROUND_SETTINGS,
+	saveAppBackgroundSettings,
+} from "../lib/app-background.ts";
+import { DEFAULT_APP_ROUTE } from "../lib/app-navigation.tsx";
+import {
+	APP_REGION_DRAG_CLASS,
 	applyAppTheme,
 	loadAppThemeId,
 	saveAppThemeId,
-} from "../../lib/app-theme.ts";
+} from "../lib/app-theme.ts";
 import {
 	AGENT_MAIN_VIEW_STORAGE_KEY,
 	ONBOARDING_DONE_STORAGE_KEY,
-} from "../../lib/client-storage-keys.ts";
-import { lacksValue } from "../../lib/data.ts";
+} from "../lib/client-storage-keys.ts";
+import { lacksValue } from "../lib/data.ts";
 import {
 	fetchJsonOr,
 	resolveServerUrl,
 	sendJsonWithBusy,
-} from "../../lib/fetch-json.ts";
-import { readStoredBoolean, writeStoredValue } from "../../lib/stored-json.ts";
-import { color, controlSize, font } from "../../tokens.stylex.ts";
+} from "../lib/fetch-json.ts";
+import { readStoredBoolean, writeStoredValue } from "../lib/stored-json.ts";
+import {
+	color,
+	colorTheme,
+	controlSize,
+	controlSizeTheme,
+	effectTheme,
+	font,
+	fontTheme,
+	motionTheme,
+	radiusTheme,
+	shadowTheme,
+} from "../tokens.stylex.ts";
+
+export const Route = createFileRoute("/onboarding")({
+	component: OnboardingRoute,
+});
+
+const routeStyles = stylex.create({
+	shell: {
+		backgroundColor: "#050506",
+		display: "flex",
+		flexDirection: "column",
+		height: "100vh",
+		overflow: "hidden",
+	},
+	windowSpacer: { flexShrink: 0, height: "1.5rem" },
+	content: { flex: 1, minHeight: 0 },
+});
+
+function OnboardingRoute() {
+	const navigate = useNavigate();
+
+	useEffect(() => {
+		if (!readStoredBoolean(ONBOARDING_DONE_STORAGE_KEY)) return;
+		navigate({ to: DEFAULT_APP_ROUTE, replace: true });
+	}, [navigate]);
+
+	return (
+		<div
+			{...stylex.props(
+				colorTheme,
+				controlSizeTheme,
+				fontTheme,
+				radiusTheme,
+				motionTheme,
+				shadowTheme,
+				effectTheme,
+				routeStyles.shell,
+			)}
+		>
+			<div
+				{...stylex.props(routeStyles.windowSpacer)}
+				className={`${APP_REGION_DRAG_CLASS} ${stylex.props(routeStyles.windowSpacer).className ?? ""}`}
+			/>
+			<div {...stylex.props(routeStyles.content)}>
+				<OnboardingPage />
+			</div>
+		</div>
+	);
+}
 
 export const ONBOARDING_DONE_KEY = ONBOARDING_DONE_STORAGE_KEY;
 
@@ -84,7 +149,7 @@ function resolveStateValue<T>(current: T, value: StateValue<T>): T {
 
 function onboardingReducer(
 	state: OnboardingState,
-	action: OnboardingAction
+	action: OnboardingAction,
 ): OnboardingState {
 	switch (action.type) {
 		case "stepChanged":
@@ -110,7 +175,7 @@ function onboardingReducer(
 		case "isAddingFolderChanged": {
 			const isAddingFolder = resolveStateValue(
 				state.isAddingFolder,
-				action.value
+				action.value,
 			);
 			if (state.isAddingFolder === isAddingFolder) return state;
 			return {
@@ -121,7 +186,7 @@ function onboardingReducer(
 		case "selectedReposChanged": {
 			const selectedRepos = resolveStateValue(
 				state.selectedRepos,
-				action.value
+				action.value,
 			);
 			if (state.selectedRepos === selectedRepos) return state;
 			return {
@@ -191,51 +256,53 @@ export function OnboardingPage() {
 	const [isFirstRun] = useState(() => !readStoredBoolean(ONBOARDING_DONE_KEY));
 	const [onboardingState, onboardingDispatch] = useReducer(
 		onboardingReducer,
-		initialOnboardingState
+		initialOnboardingState,
 	);
 	const { step, connecting, localFolders, isAddingFolder, selectedRepos } =
 		onboardingState;
 	const setStep = useCallback(
 		(value: Step) => onboardingDispatch({ type: "stepChanged", value }),
-		[]
+		[],
 	);
 	const setConnecting = useCallback(
 		(value: StateValue<boolean>) =>
 			onboardingDispatch({ type: "connectingChanged", value }),
-		[]
+		[],
 	);
 	const setLocalFolders = useCallback(
 		(value: StateValue<string[]>) =>
 			onboardingDispatch({ type: "localFoldersChanged", value }),
-		[]
+		[],
 	);
 	const setIsAddingFolder = useCallback(
 		(value: StateValue<boolean>) =>
 			onboardingDispatch({ type: "isAddingFolderChanged", value }),
-		[]
+		[],
 	);
 	const setSelectedRepos = useCallback(
 		(value: StateValue<Set<string>>) =>
 			onboardingDispatch({ type: "selectedReposChanged", value }),
-		[]
+		[],
 	);
 
 	const {
 		data: accounts,
 		setData: setAccounts,
 		loading: accountsLoading,
-	} = useAsyncResource(fetchForgeAccounts, [], {
+	} = useQueryResource(fetchForgeAccounts, [], {
+		queryKey: ["forge", "accounts"],
 		isEqual: areForgeAccountsEqual,
 	});
 	const fetchRepos = useCallback(
 		async () => (accounts.length > 0 ? fetchGithubRepos() : []),
-		[accounts.length]
+		[accounts.length],
 	);
 	const {
 		data: repos,
 		loading: reposLoading,
 		refresh: refreshRepos,
-	} = useAsyncResource(fetchRepos, [], {
+	} = useQueryResource(fetchRepos, [], {
+		queryKey: ["forge", "repos"],
 		isEqual: areGithubReposEqual,
 	});
 	const refreshAccounts = async () => {
@@ -276,7 +343,7 @@ export function OnboardingPage() {
 			const data = await fetchJsonOr<{ folder: string | null }>(
 				"/api/config/pick-folder",
 				{ folder: null },
-				{ method: "POST" }
+				{ method: "POST" },
 			);
 			if (data.folder && !localFolders.includes(data.folder)) {
 				setLocalFolders((prev) => [...prev, data.folder as string]);
@@ -302,7 +369,10 @@ export function OnboardingPage() {
 	};
 
 	const finish = useCallback(async () => {
-		if (isFirstRun) saveAppThemeId("default");
+		if (isFirstRun) {
+			saveAppThemeId("default");
+			saveAppBackgroundSettings(DEFAULT_APP_BACKGROUND_SETTINGS);
+		}
 		writeStoredValue(ONBOARDING_DONE_KEY, "true");
 		// Default to grid layout
 		writeStoredValue("agent-layout-mode", "grid");
@@ -315,10 +385,10 @@ export function OnboardingPage() {
 					? { ...canonicalState, themeId: "default" }
 					: createDefaultAgentState(),
 				"onboarding-default",
-				"canonical"
+				"canonical",
 			);
 		}
-		navigate("/agent", { replace: true });
+		navigate({ to: "/agent", replace: true });
 	}, [isFirstRun, navigate]);
 
 	const completeOnboarding = useCallback(() => {
@@ -335,7 +405,7 @@ export function OnboardingPage() {
 					styles.gridBackdrop,
 					step === "complete"
 						? styles.gridBackdropHidden
-						: styles.gridBackdropVisible
+						: styles.gridBackdropVisible,
 				)}
 			/>
 			{/* Bottom fade */}
@@ -397,7 +467,7 @@ function IntroStep({
 				styles.stepSurfaceStandard,
 				phase === "active" && styles.stepActive,
 				phase === "before" && styles.introBefore,
-				phase === "after" && styles.introAfter
+				phase === "after" && styles.introAfter,
 			)}
 		>
 			<div {...stylex.props(styles.introStack)}>
@@ -464,7 +534,7 @@ function GithubStep({
 				styles.stepSurfaceStandard,
 				phase === "active" && styles.stepActive,
 				phase === "before" && styles.forwardBefore,
-				phase === "after" && styles.forwardAfter
+				phase === "after" && styles.forwardAfter,
 			)}
 		>
 			<div {...stylex.props(styles.stepPanel)}>
@@ -607,7 +677,7 @@ function ProjectsStep({
 				styles.stepSurfaceSlow,
 				phase === "active" && styles.stepActive,
 				phase === "before" && styles.forwardBefore,
-				phase === "after" && styles.projectsAfter
+				phase === "after" && styles.projectsAfter,
 			)}
 		>
 			<div {...stylex.props(styles.projectPanel)}>
@@ -704,13 +774,13 @@ function ProjectsStep({
 										onClick={() => onToggle(repo.full_name)}
 										{...stylex.props(
 											styles.repoRow,
-											isSelected && styles.repoRowSelected
+											isSelected && styles.repoRowSelected,
 										)}
 									>
 										<div
 											{...stylex.props(
 												styles.repoCheck,
-												isSelected && styles.repoCheckSelected
+												isSelected && styles.repoCheckSelected,
 											)}
 										>
 											{isSelected && <IconCheck size={10} />}

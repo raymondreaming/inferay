@@ -12,7 +12,7 @@ import {
 	IconGitBranch,
 	IconX,
 } from "../../components/ui/Icons.tsx";
-import { useAsyncResource } from "../../hooks/useAsyncResource.tsx";
+import { useQueryResource } from "../../hooks/useQueryResource.tsx";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import { basename } from "../../lib/format.ts";
 import { setInputValue } from "../../lib/react-events.ts";
@@ -84,13 +84,14 @@ export function InlineDirectoryPicker({
 			homePath: data.home || "",
 		};
 	}, []);
-	const { data: pickerData } = useAsyncResource(
+	const { data: pickerData } = useQueryResource(
 		fetchPickerData,
 		{
 			quickPicks: [],
 			homePath: "",
 		},
 		{
+			queryKey: ["agent", "directories", "quick"],
 			isEqual: arePickerDataEqual,
 		},
 	);
@@ -105,9 +106,12 @@ export function InlineDirectoryPicker({
 			isGitRepo: false,
 		}));
 	}, [deferredQuery]);
-	const { data: searchResults, loading: searchLoading } = useAsyncResource<
+	const { data: searchResults, loading: searchLoading } = useQueryResource<
 		QuickPick[]
-	>(fetchSearchResults, [], { isEqual: areQuickPicksEqual });
+	>(fetchSearchResults, [], {
+		queryKey: ["agent", "directories", "search", deferredQuery],
+		isEqual: areQuickPicksEqual,
+	});
 	const [selectedIndexValue, setSelectedIndex] = useState(-1);
 	const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
 	const inputRef = useRef<HTMLInputElement | null>(null);

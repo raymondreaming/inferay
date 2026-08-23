@@ -1,4 +1,5 @@
 import * as stylex from "@octanejs/stylex";
+import { createFileRoute } from "@octanejs/tanstack-router";
 import {
 	lazy,
 	Suspense,
@@ -61,8 +62,10 @@ import {
 } from "../../lib/react-events.ts";
 import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
 import { wsClient } from "../../lib/websocket.ts";
+import { AgentGrid } from "../../pages/Agent/AgentGrid.tsx";
 import { color, controlSize } from "../../tokens.stylex.ts";
-import { AgentGrid } from "./AgentGrid.tsx";
+
+export const Route = createFileRoute("/_app/agent")({ component: AgentPage });
 
 const EMPTY_GRAPH_CWDS: string[] = [];
 
@@ -72,12 +75,12 @@ const ProjectFileGraphView = lazy(() =>
 	})),
 );
 const EditorPage = lazy(() =>
-	import("../EditorPage/index.tsx").then((module) => ({
+	import("../../pages/EditorPage/index.tsx").then((module) => ({
 		default: module.EditorPage,
 	})),
 );
 const AgentSettingsPanel = lazy(() =>
-	import("./AgentSettingsPanel.tsx").then((module) => ({
+	import("../../pages/Agent/AgentSettingsPanel.tsx").then((module) => ({
 		default: module.AgentSettingsPanel,
 	})),
 );

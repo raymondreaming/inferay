@@ -3,7 +3,7 @@ import { useCallback, useState } from "octane";
 import { DotMatrixRipple } from "../../components/ui/DotMatrixLoader.tsx";
 import { IconTarget } from "../../components/ui/Icons.tsx";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
-import { usePollingResource } from "../../hooks/usePollingResource.tsx";
+import { usePollingQuery } from "../../hooks/useQueryResource.tsx";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import { basename, formatElapsedMs } from "../../lib/format.ts";
 import {
@@ -81,7 +81,8 @@ export function GoalsPage() {
 		});
 		return Array.isArray(payload.goals) ? payload.goals : [];
 	}, []);
-	const { data: goals, loaded } = usePollingResource(loadGoals, 1500, [], {
+	const { data: goals, loaded } = usePollingQuery(loadGoals, 1500, [], {
+		queryKey: ["goals"],
 		isEqual: areGoalsEqual,
 	});
 
@@ -105,7 +106,7 @@ export function GoalsPage() {
 							onClick={() => setSelectedGoalId(goal.paneId)}
 							{...stylex.props(
 								styles.goalRow,
-								selectedGoal?.paneId === goal.paneId && styles.goalRowSelected
+								selectedGoal?.paneId === goal.paneId && styles.goalRowSelected,
 							)}
 						>
 							<span {...stylex.props(styles.agentIcon)}>
@@ -167,7 +168,7 @@ export function GoalsPage() {
 													<span
 														{...stylex.props(
 															styles.outputDot,
-															styles[activity.state]
+															styles[activity.state],
 														)}
 													/>
 													{index < selectedGoal.activity.length - 1 && (
@@ -217,7 +218,7 @@ function GoalStatus({ goal }: { goal: GoalInfo }) {
 					? styles.statusRunning
 					: goal.status === "active"
 						? styles.statusActive
-						: styles.statusPaused
+						: styles.statusPaused,
 			)}
 		>
 			{goal.isRunning ? (

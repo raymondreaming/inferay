@@ -1,4 +1,5 @@
 import * as stylex from "@octanejs/stylex";
+import { createFileRoute } from "@octanejs/tanstack-router";
 import {
 	useCallback,
 	useEffect,
@@ -22,7 +23,7 @@ import {
 	IconRobot,
 	IconWorkflow,
 } from "../../components/ui/Icons.tsx";
-import { useAsyncResource } from "../../hooks/useAsyncResource.tsx";
+import { useQueryResource } from "../../hooks/useQueryResource.tsx";
 import { hasId, lacksId } from "../../lib/data.ts";
 import { fetchJsonOr, sendJson } from "../../lib/fetch-json.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
@@ -34,6 +35,10 @@ import {
 	radius,
 	shadow,
 } from "../../tokens.stylex.ts";
+
+export const Route = createFileRoute("/_app/automations")({
+	component: AutomationsPage,
+});
 
 type AutomationStatus = "ready" | "scheduled" | "running";
 type NodeKind =
@@ -138,7 +143,7 @@ function getInitialAutomationsState(): AutomationsState {
 
 function automationsReducer(
 	state: AutomationsState,
-	action: AutomationsAction
+	action: AutomationsAction,
 ): AutomationsState {
 	switch (action.type) {
 		case "flowSelected":
@@ -332,7 +337,7 @@ function areAutomationStringArraysEqual(prev: string[], next: string[]) {
 
 function areAutomationNodesEqual(
 	prev: AutomationNode[],
-	next: AutomationNode[]
+	next: AutomationNode[],
 ) {
 	if (prev.length !== next.length) return false;
 	for (let i = 0; i < prev.length; i++) {
@@ -350,7 +355,7 @@ function areAutomationNodesEqual(
 			a.output !== b.output ||
 			!areAutomationStringArraysEqual(
 				a.contextPaths ?? [],
-				b.contextPaths ?? []
+				b.contextPaths ?? [],
 			)
 		) {
 			return false;
@@ -361,7 +366,7 @@ function areAutomationNodesEqual(
 
 function areAutomationEdgesEqual(
 	prev: Array<[string, string]>,
-	next: Array<[string, string]>
+	next: Array<[string, string]>,
 ) {
 	if (prev.length !== next.length) return false;
 	for (let i = 0; i < prev.length; i++) {
@@ -374,7 +379,7 @@ function areAutomationEdgesEqual(
 
 function areAutomationFlowsEqual(
 	prev: AutomationFlow[],
-	next: AutomationFlow[]
+	next: AutomationFlow[],
 ) {
 	if (prev.length !== next.length) return false;
 	for (let i = 0; i < prev.length; i++) {
@@ -502,7 +507,7 @@ type AutomationEdgeLine = {
 
 function buildEdgePath(
 	edge: AutomationEdgeLine,
-	override?: { nodeId: string; x: number; y: number }
+	override?: { nodeId: string; x: number; y: number },
 ) {
 	const x1 =
 		override && edge.fromId === override.nodeId
@@ -554,21 +559,21 @@ export function AutomationsPage() {
 	const fetchAutomationFlows = useCallback(async () => {
 		const payload = await fetchJsonOr<{ flows?: AutomationFlow[] }>(
 			"/api/automations",
-			{ flows: [] }
+			{ flows: [] },
 		);
 		return Array.isArray(payload.flows) && payload.flows.length > 0
 			? payload.flows
 			: defaultFlows;
 	}, []);
-	const { data: flows, setData: setFlows } = useAsyncResource(
+	const { data: flows, setData: setFlows } = useQueryResource(
 		fetchAutomationFlows,
 		defaultFlows,
-		{ isEqual: areAutomationFlowsEqual }
+		{ queryKey: ["automations"], isEqual: areAutomationFlowsEqual },
 	);
 	const [automationsState, automationsDispatch] = useReducer(
 		automationsReducer,
 		undefined,
-		getInitialAutomationsState
+		getInitialAutomationsState,
 	);
 	const {
 		selectedFlowId,
@@ -601,7 +606,7 @@ export function AutomationsPage() {
 	const dragCleanupRef = useRef<(() => void) | null>(null);
 	const dragFrameRef = useRef<number | null>(null);
 	const edgePathRefs = useRef<Map<string, SVGPathElement>>(
-		undefined as unknown as Map<string, SVGPathElement>
+		undefined as unknown as Map<string, SVGPathElement>,
 	);
 	if (!edgePathRefs.current) {
 		edgePathRefs.current = new Map();
@@ -640,11 +645,11 @@ export function AutomationsPage() {
 				void sendJson(
 					"/api/automations",
 					{ flows: flowsRef.current },
-					{ method: "PUT" }
+					{ method: "PUT" },
 				);
 			}, 400);
 		},
-		[setFlows]
+		[setFlows],
 	);
 
 	const persistFlowsNow = useCallback(
@@ -656,20 +661,20 @@ export function AutomationsPage() {
 			await sendJson(
 				"/api/automations",
 				{ flows: nextFlows },
-				{ method: "PUT" }
+				{ method: "PUT" },
 			);
 		},
-		[setFlows]
+		[setFlows],
 	);
 
 	const updateSelectedFlow = useCallback(
 		(updater: (flow: AutomationFlow) => AutomationFlow) => {
 			const nextFlows = flowsRef.current.map((flow) =>
-				flow.id === selectedFlow.id ? updater(flow) : flow
+				flow.id === selectedFlow.id ? updater(flow) : flow,
 			);
 			persistFlows(nextFlows);
 		},
-		[persistFlows, selectedFlow.id]
+		[persistFlows, selectedFlow.id],
 	);
 
 	const edgeLines = useMemo(() => {
@@ -754,7 +759,7 @@ export function AutomationsPage() {
 	const handleDeleteSelectedNode = useCallback(async () => {
 		if (selectedFlow.nodes.length <= 1) return;
 		const selectedIndex = selectedFlow.nodes.findIndex(
-			(node) => node.id === selectedNode.id
+			(node) => node.id === selectedNode.id,
 		);
 		if (selectedIndex === -1) return;
 		const fallbackNode =
@@ -767,7 +772,7 @@ export function AutomationsPage() {
 				...flow,
 				edges: flow.edges.filter(
 					([fromId, toId]) =>
-						fromId !== selectedNode.id && toId !== selectedNode.id
+						fromId !== selectedNode.id && toId !== selectedNode.id,
 				),
 				nodes: flow.nodes.filter(lacksId.bind(null, selectedNode.id)),
 			};
@@ -851,7 +856,7 @@ export function AutomationsPage() {
 							prompt,
 							cwd: selectedFlow.primaryPath.replace(/^~/, ""),
 						},
-						{ method: "POST" }
+						{ method: "POST" },
 					);
 					const data = (await res.json()) as { result?: string };
 					result = data.result ?? "";
@@ -864,7 +869,7 @@ export function AutomationsPage() {
 					const res = await sendJson(
 						"/api/automations/run",
 						{ prompt, cwd: selectedFlow.primaryPath.replace(/^~/, "") },
-						{ method: "POST" }
+						{ method: "POST" },
 					);
 					const data = (await res.json()) as { result?: string };
 					result = data.result ?? "";
@@ -897,7 +902,7 @@ export function AutomationsPage() {
 		updateSelectedFlow((flow) => ({
 			...flow,
 			nodes: flow.nodes.map((node) =>
-				node.id === selectedNode.id ? { ...node, body } : node
+				node.id === selectedNode.id ? { ...node, body } : node,
 			),
 		}));
 	};
@@ -906,7 +911,7 @@ export function AutomationsPage() {
 		updateSelectedFlow((flow) => ({
 			...flow,
 			nodes: flow.nodes.map((node) =>
-				node.id === selectedNode.id ? { ...node, title } : node
+				node.id === selectedNode.id ? { ...node, title } : node,
 			),
 		}));
 	};
@@ -919,10 +924,10 @@ export function AutomationsPage() {
 						nodes: flow.nodes.map((node) =>
 							node.id === nodeId
 								? { ...node, x: Math.max(0, x), y: Math.max(0, y) }
-								: node
+								: node,
 						),
 					}
-				: flow
+				: flow,
 		);
 		flowsRef.current = nextFlows;
 		setFlows(nextFlows);
@@ -931,7 +936,7 @@ export function AutomationsPage() {
 
 	const handleNodePointerDown = (
 		event: ReactPointerEvent<HTMLButtonElement>,
-		node: AutomationNode
+		node: AutomationNode,
 	) => {
 		event.preventDefault();
 		dragCleanupRef.current?.();
@@ -985,7 +990,7 @@ export function AutomationsPage() {
 							nodeId: latestDragState.nodeId,
 							x: latestDragState.currentX,
 							y: latestDragState.currentY,
-						})
+						}),
 					);
 				}
 			});
@@ -1011,14 +1016,14 @@ export function AutomationsPage() {
 			const nextFlows = updateNodePosition(
 				currentDragState.nodeId,
 				currentDragState.currentX,
-				currentDragState.currentY
+				currentDragState.currentY,
 			);
 			dragStateRef.current = null;
 			setDragState(null);
 			void sendJson(
 				"/api/automations",
 				{ flows: nextFlows },
-				{ method: "PUT" }
+				{ method: "PUT" },
 			);
 		};
 
@@ -1059,7 +1064,7 @@ export function AutomationsPage() {
 							onClick={() => selectFlow(flow)}
 							{...stylex.props(
 								styles.flowCard,
-								flow.id === selectedFlow.id && styles.flowCardSelected
+								flow.id === selectedFlow.id && styles.flowCardSelected,
 							)}
 						>
 							<span {...stylex.props(styles.flowTitleRow)}>
@@ -1142,7 +1147,7 @@ export function AutomationsPage() {
 											<span
 												{...stylex.props(
 													styles.addMenuIcon,
-													styles[`menuIcon${config.tone}`]
+													styles[`menuIcon${config.tone}`],
 												)}
 											>
 												<Icon size={13} />
@@ -1205,7 +1210,7 @@ export function AutomationsPage() {
 									dragState?.nodeId === node.id && styles.nodeCardDragging,
 									isRunActive && styles.nodeCardRunning,
 									isRunComplete && styles.nodeCardComplete,
-									isRunFailed && styles.nodeCardFailed
+									isRunFailed && styles.nodeCardFailed,
 								)}
 								style={{ left: node.x, top: node.y }}
 							>
@@ -1213,7 +1218,7 @@ export function AutomationsPage() {
 									<span
 										{...stylex.props(
 											styles.nodeIcon,
-											styles[`nodeIcon${nodeConfig.tone}`]
+											styles[`nodeIcon${nodeConfig.tone}`],
 										)}
 									>
 										<Icon size={13} />

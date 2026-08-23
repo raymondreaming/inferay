@@ -1,5 +1,5 @@
 import { stylex } from "@octanejs/stylex/vite";
-import { octane } from "@octanejs/vite-plugin";
+import { tanstackStart } from "@octanejs/tanstack-start/plugin/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, type Plugin } from "vite";
 import {
@@ -26,26 +26,33 @@ function octaneStylexPlugin(): Plugin {
 
 export default defineConfig(({ mode }) => ({
 	plugins: [
-		...octane().map(stripTransformSourceMaps),
+		...tanstackStart({
+			spa: {
+				enabled: true,
+				prerender: { outputPath: "/index.html" },
+			},
+			client: { entry: "./src/client.tsx", base: "/assets" },
+			sitemap: { enabled: false },
+			octane: { devtools: mode === "development" },
+		}).map((plugin) =>
+			plugin && typeof plugin === "object"
+				? stripTransformSourceMaps(plugin as Plugin)
+				: plugin,
+		),
 		octaneStylexPlugin(),
 		tailwindcss(),
 	],
 	define: {
 		__INFERAY_FEATURE_FLAGS__: JSON.stringify(
-			mode === "development" ? DEV_FEATURE_FLAGS : PUBLISHED_FEATURE_FLAGS
+			mode === "development" ? DEV_FEATURE_FLAGS : PUBLISHED_FEATURE_FLAGS,
 		),
 	},
 	build: {
-		outDir: "dist",
-		emptyOutDir: true,
 		sourcemap: false,
 		minify: mode === "development" ? false : "oxc",
-		rollupOptions: {
-			output: {
-				entryFileNames: "main.js",
-				chunkFileNames: "assets/[name]-[hash].js",
-				assetFileNames: "assets/[name]-[hash][extname]",
-			},
-		},
+	},
+	environments: {
+		client: { build: { outDir: "dist" } },
+		ssr: { build: { outDir: ".tanstack-start/server" } },
 	},
 }));

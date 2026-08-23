@@ -12,17 +12,20 @@
 		// Bundler mode
 		"moduleResolution": "bundler",
 		"paths": {
-			"@octanejs/remix-router": ["./src/types/octane-remix-router.d.ts"]
+			"@octanejs/remix-router": ["./src/types/octane-remix-router.d.ts"],
+			"@tanstack/query-core": [
+				"./node_modules/@tanstack/query-core/src/index.ts"
+			]
 		},
 		"allowImportingTsExtensions": true,
-		"verbatimModuleSyntax": true,
+		"verbatimModuleSyntax": false,
 		"noEmit": true,
 		// Best practices
 		"strict": true,
 		"skipLibCheck": true,
 		"noFallthroughCasesInSwitch": true,
 		"noUncheckedIndexedAccess": false,
-		"noImplicitOverride": true,
+		"noImplicitOverride": false,
 
 		// Some stricter flags (disabled by default)
 		"noUnusedLocals": false,

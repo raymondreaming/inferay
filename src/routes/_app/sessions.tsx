@@ -1,4 +1,5 @@
 import * as stylex from "@octanejs/stylex";
+import { createFileRoute, useNavigate } from "@octanejs/tanstack-router";
 import { useCallback, useEffect, useMemo, useState } from "octane";
 import { Button } from "../../components/ui/Button.tsx";
 import {
@@ -27,6 +28,10 @@ import { listenWindowEvent } from "../../lib/react-events.ts";
 import { writeStoredValue } from "../../lib/stored-json.ts";
 import { color, font, radius } from "../../tokens.stylex.ts";
 
+export const Route = createFileRoute("/_app/sessions")({
+	component: SessionsPage,
+});
+
 interface LocalSessionInfo {
 	paneId: string;
 	title: string;
@@ -41,7 +46,7 @@ interface LocalSessionInfo {
 
 function sameSessions(
 	prev: LocalSessionInfo[],
-	next: LocalSessionInfo[]
+	next: LocalSessionInfo[],
 ): boolean {
 	if (prev.length !== next.length) return false;
 	for (let i = 0; i < prev.length; i++) {
@@ -65,7 +70,7 @@ function sameSessions(
 
 function sameWorkspaceOptions(
 	prev: AgentGroupModel[],
-	next: AgentGroupModel[]
+	next: AgentGroupModel[],
 ): boolean {
 	if (prev.length !== next.length) return false;
 	for (let i = 0; i < prev.length; i++) {
@@ -78,6 +83,7 @@ function sameWorkspaceOptions(
 }
 
 export function SessionsPage() {
+	const navigate = useNavigate();
 	const [sessions, setSessions] = useState<LocalSessionInfo[]>([]);
 	const [workspaces, setWorkspaces] = useState<AgentGroupModel[]>([]);
 	const [loading, setLoading] = useState(true);
@@ -95,10 +101,12 @@ export function SessionsPage() {
 				: [];
 			const nextWorkspaces = agentState?.groups ?? [];
 			setSessions((current) =>
-				sameSessions(current, nextSessions) ? current : nextSessions
+				sameSessions(current, nextSessions) ? current : nextSessions,
 			);
 			setWorkspaces((current) =>
-				sameWorkspaceOptions(current, nextWorkspaces) ? current : nextWorkspaces
+				sameWorkspaceOptions(current, nextWorkspaces)
+					? current
+					: nextWorkspaces,
 			);
 		} finally {
 			setLoading(false);
@@ -123,10 +131,10 @@ export function SessionsPage() {
 	}, [refresh]);
 
 	const activeSessions = sessions.filter(
-		(session) => session.inCurrentWorkspace
+		(session) => session.inCurrentWorkspace,
 	);
 	const archivedSessions = sessions.filter(
-		(session) => !session.inCurrentWorkspace
+		(session) => !session.inCurrentWorkspace,
 	);
 	const workspaceOptions = useMemo<DropdownOption[]>(
 		() =>
@@ -135,7 +143,7 @@ export function SessionsPage() {
 				label: workspace.name,
 				icon: <IconLayoutGrid size={11} />,
 			})),
-		[workspaces]
+		[workspaces],
 	);
 
 	const restoreSession = useCallback(
@@ -143,7 +151,7 @@ export function SessionsPage() {
 			await mutateAgentWorkspaceState(
 				(state) => {
 					const existingGroup = state.groups.find((group) =>
-						group.panes.some((pane) => pane.id === session.paneId)
+						group.panes.some((pane) => pane.id === session.paneId),
 					);
 					if (existingGroup) {
 						return {
@@ -170,16 +178,16 @@ export function SessionsPage() {
 					};
 				},
 				"restore-session",
-				{ createIfMissing: true }
+				{ createIfMissing: true },
 			);
 			writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, "chat");
 			dispatchAgentShellChange({
 				source: "view",
 				reason: "restore-session",
 			});
-			window.location.hash = "#/agent";
+			await navigate({ to: "/agent" });
 		},
-		[]
+		[navigate],
 	);
 
 	return (

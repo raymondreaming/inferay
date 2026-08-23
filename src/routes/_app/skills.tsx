@@ -1,4 +1,5 @@
 import * as stylex from "@octanejs/stylex";
+import { createFileRoute } from "@octanejs/tanstack-router";
 import { useCallback, useEffect, useReducer, useRef, useState } from "octane";
 import {
 	IconChevronDown,
@@ -12,6 +13,7 @@ import {
 } from "../../features/prompts/types.ts";
 import { usePrompts } from "../../features/prompts/usePrompts.tsx";
 import { listenDocumentEvent, setInputValue } from "../../lib/react-events.ts";
+import { PromptDetailPanel } from "../../pages/PromptsPage/PromptDetailPanel.tsx";
 import {
 	color,
 	controlSize,
@@ -20,7 +22,10 @@ import {
 	radius,
 	shadow,
 } from "../../tokens.stylex.ts";
-import { PromptDetailPanel } from "./PromptDetailPanel.tsx";
+
+export const Route = createFileRoute("/_app/skills")({
+	component: PromptsPage,
+});
 
 interface FormState {
 	name: string;
@@ -233,7 +238,7 @@ export function PromptsPage() {
 								styles.promptGrid,
 								selectedPrompt || form.isCreating
 									? styles.promptGridCompact
-									: styles.promptGridWide
+									: styles.promptGridWide,
 							)}
 						>
 							{filtered.map((prompt) => {
@@ -245,7 +250,9 @@ export function PromptsPage() {
 										onClick={() => selectPrompt(prompt)}
 										{...stylex.props(
 											styles.promptCard,
-											isActive ? styles.promptCardActive : styles.promptCardIdle
+											isActive
+												? styles.promptCardActive
+												: styles.promptCardIdle,
 										)}
 									>
 										<div {...stylex.props(styles.cardHeader)}>
@@ -367,7 +374,7 @@ function FilterDropdown({
 								styles.filterOption,
 								filter === opt.value
 									? styles.filterOptionActive
-									: styles.filterOptionIdle
+									: styles.filterOptionIdle,
 							)}
 						>
 							{opt.label}

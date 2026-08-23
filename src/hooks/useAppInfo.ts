@@ -1,5 +1,5 @@
 import { fetchJsonOr } from "../lib/fetch-json.ts";
-import { useAsyncResource } from "./useAsyncResource.tsx";
+import { useQueryResource } from "./useQueryResource.tsx";
 
 export interface AppInfo {
 	name: string;
@@ -53,7 +53,8 @@ function areAppInfoEqual(prev: AppInfo, next: AppInfo) {
 }
 
 export function useAppInfo() {
-	return useAsyncResource<AppInfo>(fetchAppInfo, FALLBACK_APP_INFO, {
+	return useQueryResource<AppInfo>(fetchAppInfo, FALLBACK_APP_INFO, {
+		queryKey: ["app-info"],
 		isEqual: areAppInfoEqual,
 	});
 }

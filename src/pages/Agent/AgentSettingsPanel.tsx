@@ -22,7 +22,7 @@ import {
 } from "../../features/agent/agent-utils.ts";
 import type { EffectiveAgentContext } from "../../features/agent-context/types.ts";
 import { useAppInfo } from "../../hooks/useAppInfo.ts";
-import { useAsyncResource } from "../../hooks/useAsyncResource.tsx";
+import { useQueryResource } from "../../hooks/useQueryResource.tsx";
 import {
 	SYNTAX_HIGHLIGHT_THEMES,
 	type SyntaxHighlightTheme,
@@ -72,7 +72,7 @@ interface AgentSettingsPanelProps {
 }
 
 const VISIBLE_APP_THEMES = APP_THEMES.filter((theme) =>
-	isDarkProductTheme(theme.id)
+	isDarkProductTheme(theme.id),
 );
 const ENABLE_CUSTOM_THEME_PICKER = false;
 const EMPTY_FOLDERS: string[] = [];
@@ -118,7 +118,7 @@ function GlobalAgentInstructionsSection() {
 
 	useEffect(() => {
 		void fetchJson<EffectiveAgentContext>(
-			"/api/agent-context?paneId=global-settings"
+			"/api/agent-context?paneId=global-settings",
 		)
 			.then((context) => {
 				setInstructions(context.global.instructions);
@@ -129,7 +129,7 @@ function GlobalAgentInstructionsSection() {
 				setError(
 					cause instanceof Error
 						? cause.message
-						: "Unable to load agent instructions"
+						: "Unable to load agent instructions",
 				);
 			})
 			.finally(() => {
@@ -149,14 +149,14 @@ function GlobalAgentInstructionsSection() {
 					mode: "inherit",
 					paneId: "global-settings",
 				},
-				{ method: "PUT" }
+				{ method: "PUT" },
 			);
 			setSavedInstructions(instructions);
 		} catch (cause) {
 			setError(
 				cause instanceof Error
 					? cause.message
-					: "Unable to save agent instructions"
+					: "Unable to save agent instructions",
 			);
 		} finally {
 			setIsSaving(false);
@@ -221,14 +221,14 @@ function ThemeOrb({
 			onClick={onClick}
 			{...stylex.props(
 				styles.themeOrbButton,
-				selected && styles.themeOrbSelected
+				selected && styles.themeOrbSelected,
 			)}
 		>
 			<div
 				{...stylex.props(
 					styles.themeOrb,
 					dashed && styles.themeOrbDashed,
-					selected && styles.themeOrbSelectedRing
+					selected && styles.themeOrbSelectedRing,
 				)}
 				style={{ backgroundColor: black }}
 			>
@@ -264,7 +264,7 @@ function ThemeOrb({
 			<span
 				{...stylex.props(
 					styles.themeOrbLabel,
-					selected && styles.themeOrbLabelSelected
+					selected && styles.themeOrbLabelSelected,
 				)}
 			>
 				{theme.name}
@@ -275,7 +275,7 @@ function ThemeOrb({
 
 function BackgroundScenePicker() {
 	const [background, setBackground] = useState<AppBackgroundSettings>(
-		loadAppBackgroundSettings
+		loadAppBackgroundSettings,
 	);
 	const [uploading, setUploading] = useState(false);
 	const [uploadError, setUploadError] = useState<string | null>(null);
@@ -289,7 +289,7 @@ function BackgroundScenePicker() {
 					setBackground(loadAppBackgroundSettings());
 				}
 			}),
-		[]
+		[],
 	);
 
 	const updateBackground = useCallback(
@@ -300,7 +300,7 @@ function BackgroundScenePicker() {
 				return next;
 			});
 		},
-		[]
+		[],
 	);
 
 	const uploadCustomBackground = useCallback(
@@ -317,7 +317,7 @@ function BackgroundScenePicker() {
 				});
 				if (!response.ok) {
 					throw new Error(
-						(await response.text()) || "Could not import that image"
+						(await response.text()) || "Could not import that image",
 					);
 				}
 				const payload = (await response.json()) as { revision?: number };
@@ -328,14 +328,16 @@ function BackgroundScenePicker() {
 				});
 			} catch (error) {
 				setUploadError(
-					error instanceof Error ? error.message : "Could not import that image"
+					error instanceof Error
+						? error.message
+						: "Could not import that image",
 				);
 			} finally {
 				setUploading(false);
 				if (fileInputRef.current) fileInputRef.current.value = "";
 			}
 		},
-		[updateBackground]
+		[updateBackground],
 	);
 
 	const scenes: Array<{
@@ -401,7 +403,7 @@ function BackgroundScenePicker() {
 							}
 							{...stylex.props(
 								styles.backgroundCard,
-								selected && styles.backgroundCardSelected
+								selected && styles.backgroundCardSelected,
 							)}
 						>
 							<span
@@ -438,7 +440,7 @@ function BackgroundScenePicker() {
 							onClick={() => updateBackground({ autoTheme: false })}
 							{...stylex.props(
 								styles.colorSourceButton,
-								!background.autoTheme && styles.colorSourceButtonSelected
+								!background.autoTheme && styles.colorSourceButtonSelected,
 							)}
 						>
 							Theme
@@ -449,7 +451,7 @@ function BackgroundScenePicker() {
 							onClick={() => updateBackground({ autoTheme: true })}
 							{...stylex.props(
 								styles.colorSourceButton,
-								background.autoTheme && styles.colorSourceButtonSelected
+								background.autoTheme && styles.colorSourceButtonSelected,
 							)}
 						>
 							Scene
@@ -515,16 +517,19 @@ function SearchFoldersSection() {
 	const fetchSearchFolders = useCallback(async () => {
 		const data = await fetchJsonOr<{ folders: string[] }>(
 			"/api/config/search-folders",
-			{ folders: [] }
+			{ folders: [] },
 		);
 		return data.folders;
 	}, []);
-	const { data: loadedFolders, setData: setFolders } = useAsyncResource<
+	const { data: loadedFolders, setData: setFolders } = useQueryResource<
 		string[] | null
-	>(fetchSearchFolders, null, { isEqual: areLoadedFoldersEqual });
+	>(fetchSearchFolders, null, {
+		queryKey: ["agent", "search-folders"],
+		isEqual: areLoadedFoldersEqual,
+	});
 	const folders = useMemo(
 		() => loadedFolders ?? EMPTY_FOLDERS,
-		[loadedFolders]
+		[loadedFolders],
 	);
 	const [newFolder, setNewFolder] = useState("");
 	const inputRef = useRef<HTMLInputElement | null>(null);
@@ -538,7 +543,7 @@ function SearchFoldersSection() {
 				body: JSON.stringify({ folders: next }),
 			});
 		},
-		[setFolders]
+		[setFolders],
 	);
 
 	const addFolder = useCallback(() => {
@@ -553,7 +558,7 @@ function SearchFoldersSection() {
 		(idx: number) => {
 			saveFolders(folders.filter((_, i) => i !== idx));
 		},
-		[folders, saveFolders]
+		[folders, saveFolders],
 	);
 
 	const browseFolder = useCallback(async () => {
@@ -561,7 +566,7 @@ function SearchFoldersSection() {
 			const { folder } = await fetchJsonOr<{ folder: string | null }>(
 				"/api/config/pick-folder",
 				{ folder: null },
-				{ method: "POST" }
+				{ method: "POST" },
 			);
 			if (folder && !folders.includes(folder)) {
 				saveFolders([...folders, folder]);
@@ -643,7 +648,7 @@ export const AgentSettingsContent = memo(function AgentSettingsContent({
 }: AgentSettingsContentProps) {
 	const [appThemeId, setAppThemeId] = useState<AppThemeId>(loadAppThemeId);
 	const [backgroundAutoTheme, setBackgroundAutoTheme] = useState(
-		() => loadAppBackgroundSettings().autoTheme
+		() => loadAppBackgroundSettings().autoTheme,
 	);
 	const [agentThemeId, setAgentThemeId] = useState<ThemeId>(() => {
 		const state = loadAgentState();
@@ -669,10 +674,10 @@ export const AgentSettingsContent = memo(function AgentSettingsContent({
 			onThemeChange?.(termThemeId);
 			void mutateCanonicalAgentState(
 				(state) => ({ ...state, themeId: termThemeId }),
-				"theme-change"
+				"theme-change",
 			);
 		},
-		[onThemeChange]
+		[onThemeChange],
 	);
 
 	const [custom, setCustom] = useState<CustomThemeColors>(loadCustomTheme);
@@ -685,13 +690,13 @@ export const AgentSettingsContent = memo(function AgentSettingsContent({
 					onThemeChange?.("custom");
 					void mutateCanonicalAgentState(
 						(state) => ({ ...state, themeId: "custom" }),
-						"custom-theme"
+						"custom-theme",
 					);
 				}
 				return next;
 			});
 		},
-		[agentThemeId, onThemeChange]
+		[agentThemeId, onThemeChange],
 	);
 	useEffect(() => {
 		if (themeId) setAgentThemeId(themeId);
@@ -710,7 +715,7 @@ export const AgentSettingsContent = memo(function AgentSettingsContent({
 					setAgentThemeId(nextAgentThemeId);
 				}
 			}),
-		[]
+		[],
 	);
 	const isCustom = appThemeId === "custom";
 

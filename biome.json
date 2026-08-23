@@ -6,7 +6,12 @@
 		"useIgnoreFile": true
 	},
 	"files": {
-		"includes": ["**", "!**/dist", "!**/index.template.html"]
+		"includes": [
+			"**",
+			"!**/dist",
+			"!**/index.template.html",
+			"!**/routeTree.gen.ts"
+		]
 	},
 	"formatter": {
 		"enabled": true,
