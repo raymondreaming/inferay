@@ -120,8 +120,11 @@ export const AgentPaneView = memo(function AgentPaneView({
 const styles = stylex.create({
 	root: {
 		display: "flex",
+		flex: 1,
 		flexDirection: "column",
 		height: "100%",
+		width: "100%",
+		minWidth: 0,
 		minHeight: 0,
 		overflow: "hidden",
 		position: "relative",
@@ -130,6 +133,8 @@ const styles = stylex.create({
 		display: "flex",
 		flex: 1,
 		flexDirection: "column",
+		width: "100%",
+		minWidth: 0,
 		minHeight: 0,
 		overflow: "hidden",
 		position: "relative",

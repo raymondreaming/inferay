@@ -10,6 +10,7 @@ import {
 } from "octane";
 import type { CSSProperties } from "react";
 import { MarkdownPreview } from "../../components/diff/MarkdownPreview.tsx";
+import { FileTypeIcon } from "../../components/file/FileTypeIcon.tsx";
 import { LiquidSegmentedRail } from "../../components/ui/gooey/LiquidSegmentedRail.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
 import {
@@ -351,7 +352,7 @@ const diffStyles = stylex.create({
 	},
 	header: {
 		display: "flex",
-		height: controlSize._9,
+		height: controlSize._8,
 		flexShrink: 0,
 		alignItems: "center",
 		gap: controlSize._1_5,
@@ -377,8 +378,8 @@ const diffStyles = stylex.create({
 		whiteSpace: "nowrap",
 		color: color.textMain,
 		fontFamily: font.familyDiff,
-		fontSize: font.size_2,
-		fontWeight: 500,
+		fontSize: font.size_1,
+		fontWeight: 400,
 	},
 	stagedPill: {
 		flexShrink: 0,
@@ -738,7 +739,7 @@ const DiffRow = memo(function DiffRow({
 						: undefined,
 					minWidth: minWidth || "100%",
 					paddingLeft: hideGutter ? GUTTER_W : undefined,
-					width: clipContent ? "100%" : minWidth ? "max-content" : "100%",
+					width: "100%",
 					"--hover-bg": hoverBg,
 				} as DiffRowStyle
 			}
@@ -1987,7 +1988,7 @@ function DiffViewButton({
 
 function DiffHeader({
 	filePath,
-	staged,
+	staged: _staged,
 	onClose,
 	stats,
 	totalChanges,
@@ -2002,16 +2003,12 @@ function DiffHeader({
 	onPrevChange?: () => void;
 	onNextChange?: () => void;
 }) {
-	const dir = filePath.includes("/")
-		? filePath.slice(0, filePath.lastIndexOf("/") + 1)
-		: "";
 	const name = filePath.split("/").pop() || filePath;
 
 	return (
 		<div {...stylex.props(diffStyles.header)}>
-			{dir && <span {...stylex.props(diffStyles.pathDir)}>{dir}</span>}
+			<FileTypeIcon path={filePath} size={14} />
 			<span {...stylex.props(diffStyles.pathName)}>{name}</span>
-			{staged && <span {...stylex.props(diffStyles.stagedPill)}>staged</span>}
 
 			{stats && (stats.added > 0 || stats.removed > 0) && (
 				<div {...stylex.props(diffStyles.stats)}>
@@ -2067,7 +2064,7 @@ function DiffHeader({
 				size="xs"
 				title="Close diff"
 			>
-				<IconX size={9} />
+				<IconX size={8} />
 			</IconButton>
 		</div>
 	);

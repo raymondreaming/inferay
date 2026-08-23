@@ -1,11 +1,13 @@
 import * as stylex from "@octanejs/stylex";
+import { useLocation, useNavigate } from "@octanejs/tanstack-router";
 import { useCallback, useEffect, useRef, useState } from "octane";
 import {
 	agentStateKey,
 	dispatchAgentShellChange,
 	loadAgentState,
 } from "../../features/agent/agent-utils.ts";
-import { useAsyncResource } from "../../hooks/useAsyncResource.tsx";
+import { dispatchWorkspaceFileOpen } from "../../features/files/workspace-file-events.ts";
+import { useQueryResource } from "../../hooks/useQueryResource.tsx";
 import {
 	AGENT_MAIN_VIEWS,
 	type AgentMainView,
@@ -20,7 +22,6 @@ import {
 } from "../../lib/app-theme.ts";
 import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
-import { useLocation, useNavigate } from "../../lib/hash-router.tsx";
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import {
 	readStoredBoolean,
@@ -28,6 +29,7 @@ import {
 	writeStoredValue,
 } from "../../lib/stored-json.ts";
 import { color, colorValues, controlSize, font } from "../../tokens.stylex.ts";
+import { WorkspaceFileSearch } from "../file/WorkspaceFileSearch.tsx";
 import { LiquidAction } from "../ui/gooey/LiquidAction.tsx";
 import { LiquidCreateMenu } from "../ui/gooey/LiquidCreateMenu.tsx";
 import { LiquidSegmentedRail } from "../ui/gooey/LiquidSegmentedRail.tsx";
@@ -143,7 +145,10 @@ export function AgentShellHeader() {
 	const [createMenuOpen, setCreateMenuOpen] = useState(false);
 	const createMenuRef = useRef<HTMLDivElement | null>(null);
 	const { data: githubAccount, refresh: refreshGithubAccount } =
-		useAsyncResource(loadGithubAccount, null, { isEqual: sameForgeAccount });
+		useQueryResource(loadGithubAccount, null, {
+			queryKey: ["forge", "active-account"],
+			isEqual: sameForgeAccount,
+		});
 	const isAgentRoute = location.pathname === "/agent";
 	const resolvedNavigationTarget = isAgentRoute
 		? `view:${shellState.mainView}`
@@ -208,9 +213,9 @@ export function AgentShellHeader() {
 					mainView: view,
 				});
 			}
-			if (window.location.hash !== "#/agent") navigate("/agent");
+			if (!isAgentRoute) navigate({ to: "/agent" });
 		},
-		[navigate, shellState.mainView],
+		[isAgentRoute, navigate, shellState.mainView],
 	);
 
 	useEffect(() => {
@@ -236,7 +241,7 @@ export function AgentShellHeader() {
 			if (target !== resolvedNavigationTarget) {
 				setPendingNavigationTarget(target);
 			}
-			navigate(path);
+			navigate({ to: path });
 		},
 		[navigate, resolvedNavigationTarget],
 	);
@@ -265,6 +270,12 @@ export function AgentShellHeader() {
 	const topActiveIndex = topViews.findIndex(
 		(view) => activeNavigationTarget === `view:${view.id}`,
 	);
+	const selectedGroup = shellState.groups.find(
+		(group) => group.id === shellState.selectedGroupId,
+	);
+	const workspaceCwd = selectedGroup?.panes.find(
+		(pane) => pane.id === selectedGroup.selectedPaneId,
+	)?.cwd;
 
 	return (
 		<div
@@ -294,11 +305,27 @@ export function AgentShellHeader() {
 						);
 					})}
 				</div>
+				{isAgentRoute ? (
+					<div
+						{...stylex.props(styles.fileSearch)}
+						className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.fileSearch).className ?? ""}`}
+					>
+						<WorkspaceFileSearch
+							cwd={workspaceCwd}
+							onSelect={(file) =>
+								dispatchWorkspaceFileOpen({
+									cwd: file.cwd ?? workspaceCwd!,
+									path: file.path,
+								})
+							}
+						/>
+					</div>
+				) : null}
 				<span {...stylex.props(styles.accountSpacer)} />
 				<LiquidAction fill={colorValues.surfaceGlassStrong}>
 					<button
 						type="button"
-						onClick={() => navigate("/profile")}
+						onClick={() => navigate({ to: "/profile" })}
 						className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.accountButton).className ?? ""}`}
 						title="Account settings"
 					>
@@ -456,6 +483,11 @@ const styles = stylex.create({
 		alignItems: "flex-end",
 		gap: 6,
 		height: 30,
+	},
+	fileSearch: {
+		display: "flex",
+		alignItems: "flex-end",
+		minWidth: 0,
 	},
 	accountSpacer: {
 		flex: 1,

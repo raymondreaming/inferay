@@ -12,6 +12,7 @@ import {
 } from "octane";
 import type { AgentChatHandle } from "../../components/chat/AgentChatView.tsx";
 import { IconGitBranch } from "../../components/ui/Icons.tsx";
+import { useChatWorkspaceTools } from "../../components/workspace/ChatWorkspaceTools.tsx";
 import {
 	type AgentGroupsAction,
 	type AgentKind,
@@ -444,6 +445,21 @@ const styles = stylex.create({
 		visibility: "hidden",
 		zIndex: 0,
 	},
+	chatWorkspace: {
+		display: "flex",
+		width: "100%",
+		height: "100%",
+		minWidth: 0,
+		minHeight: 0,
+		overflow: "hidden",
+	},
+	chatDock: {
+		display: "flex",
+		minWidth: 0,
+		minHeight: 0,
+		flex: 1,
+		overflow: "hidden",
+	},
 	centerState: {
 		display: "flex",
 		height: "100%",
@@ -515,6 +531,7 @@ function agentViewReducer(
 }
 
 type AgentMainSurfaceProps = {
+	readonly chatSidebar: unknown;
 	readonly graphView: unknown;
 	readonly groups: AgentSavedState["groups"];
 	readonly hasCurrentPanes: boolean;
@@ -685,6 +702,7 @@ function useAgentPaneActions({
 }
 
 function AgentMainSurface({
+	chatSidebar,
 	graphView,
 	groups,
 	hasCurrentPanes,
@@ -720,7 +738,10 @@ function AgentMainSurface({
 										)}
 										aria-hidden={mainView !== "chat"}
 									>
-										{agentGrid}
+										<div {...stylex.props(styles.chatWorkspace)}>
+											<div {...stylex.props(styles.chatDock)}>{agentGrid}</div>
+											{chatSidebar}
+										</div>
 									</div>
 									<div
 										{...stylex.props(
@@ -823,6 +844,15 @@ export function AgentPage() {
 		[currentGroup],
 	);
 	const selectedPaneCwd = getSelectedPaneCwd(currentGroup ?? null);
+	const selectedPane =
+		currentGroup?.panes.find(
+			(pane) => pane.id === currentGroup.selectedPaneId,
+		) ?? null;
+	const chatWorkspace = useChatWorkspaceTools({
+		active: mainView === "chat",
+		cwd: selectedPane?.cwd,
+		workspaceId: currentGroup?.id ?? "default",
+	});
 	const [graphSelection, setGraphSelection] = useState<GraphSelection>({
 		cwd: null,
 		source: "pane",
@@ -964,6 +994,13 @@ export function AgentPage() {
 		setGraphSelection,
 		withSelectedGroup,
 	});
+	const selectChatPane = useCallback(
+		(paneId: string) => {
+			chatWorkspace.focusChatWorkspace();
+			selectPane(paneId);
+		},
+		[chatWorkspace.focusChatWorkspace, selectPane],
+	);
 	const agentGrid = currentGroup ? (
 		<AgentGrid
 			active={mainView === "chat"}
@@ -975,7 +1012,7 @@ export function AgentPage() {
 			theme={theme}
 			fontSize={fontSize}
 			fontFamily={fontFamily}
-			onSelectPane={selectPane}
+			onSelectPane={selectChatPane}
 			onClosePane={removePane}
 			onDirectorySelect={handleDirectorySelected}
 			onDirectoryCancel={removePane}
@@ -983,6 +1020,8 @@ export function AgentPage() {
 			onReorderPanes={reorderPanes}
 			onAddPane={handleAddPane}
 			onSetPaneAgentKind={handleSetPaneAgentKind}
+			workspaceId={currentGroup.id}
+			auxiliaryPanels={chatWorkspace.auxiliaryPanels}
 		/>
 	) : null;
 	const hasCurrentPanes = !!currentGroup && currentGroup.panes.length > 0;
@@ -999,12 +1038,13 @@ export function AgentPage() {
 		);
 	return (
 		<AgentMainSurface
+			chatSidebar={chatWorkspace.sidebar}
 			graphView={graphView}
 			groups={groups}
 			hasCurrentPanes={hasCurrentPanes}
 			mainView={mainView}
 			onDirectoryChange={handleDirectorySelected}
-			onSelectPane={selectPane}
+			onSelectPane={selectChatPane}
 			selectedGroupId={selectedGroupId}
 			setAppearance={setAppearance}
 			setShowSettings={setShowSettings}

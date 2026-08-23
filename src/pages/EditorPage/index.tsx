@@ -16,6 +16,7 @@ import {
 	type SelectedFile,
 } from "../../components/git/ChangeFileSidebar.tsx";
 import { CommitGraph } from "../../components/git/CommitGraph.tsx";
+import { WorkspaceFileViewer } from "../../components/workspace/WorkspaceFileViewer.tsx";
 import {
 	type AgentGroupModel,
 	dispatchAgentShellChange,
@@ -28,6 +29,14 @@ import {
 	loadPendingWorkspacePaths,
 } from "../../features/chat/chat-session-store.ts";
 import { useFileWatcher } from "../../features/file-watcher/useFileWatcher.tsx";
+import {
+	WORKSPACE_FILE_OPEN_EVENT,
+	type WorkspaceFileOpenDetail,
+} from "../../features/files/workspace-file-events.ts";
+import {
+	loadGitFileViewMode,
+	saveGitFileViewMode,
+} from "../../features/git/file-view-preference.ts";
 import {
 	isStagedChange,
 	isUnstagedTrackedChange,
@@ -92,12 +101,20 @@ type EditorUiState = {
 	fileViewMode: "path" | "tree";
 	mainViewMode: "diff" | "graph";
 	showSettings: boolean;
+	fileViewerOpen: boolean;
 };
 
 const EDITOR_CHAT_WIDTH_STORAGE_KEY = "agent-editor-chat-width";
 const MIN_EDITOR_CHAT_WIDTH = 280;
 const MAX_EDITOR_CHAT_WIDTH = 720;
 const DEFAULT_EDITOR_CHAT_WIDTH = 400;
+const WORKSPACE_SIDEBAR_VISIBLE_KEY = "agent-workspace-changes-visible";
+const WORKSPACE_SIDEBAR_WIDTH_KEY = "agent-workspace-changes-width";
+
+function loadWorkspaceSidebarWidth() {
+	const stored = Number(readStoredValue(WORKSPACE_SIDEBAR_WIDTH_KEY));
+	return Number.isFinite(stored) ? Math.min(420, Math.max(230, stored)) : 300;
+}
 
 function loadEditorChatWidth() {
 	const stored = Number(readStoredValue(EDITOR_CHAT_WIDTH_STORAGE_KEY));
@@ -120,12 +137,13 @@ function getInitialEditorUiState(): EditorUiState {
 		scrollToChange: 0,
 		zenMode: loadZenMode(),
 		chatPanelWidth: loadEditorChatWidth(),
-		sidebarWidth: 280,
-		sidebarVisible: true,
+		sidebarWidth: loadWorkspaceSidebarWidth(),
+		sidebarVisible: readStoredValue(WORKSPACE_SIDEBAR_VISIBLE_KEY) !== "false",
 		selectedCommitHash: null,
-		fileViewMode: "tree",
+		fileViewMode: loadGitFileViewMode(),
 		mainViewMode: "diff",
 		showSettings: false,
+		fileViewerOpen: false,
 	};
 }
 
@@ -137,13 +155,13 @@ function resolveStateValue<T>(current: T, value: StateValue<T>): T {
 
 function editorUiReducer(
 	state: EditorUiState,
-	action: EditorUiAction
+	action: EditorUiAction,
 ): EditorUiState {
 	switch (action.type) {
 		case "fieldChanged": {
 			const nextValue = resolveStateValue(
 				state[action.field],
-				action.value
+				action.value,
 			) as EditorUiState[typeof action.field];
 			if (Object.is(state[action.field], nextValue)) return state;
 			return {
@@ -181,7 +199,7 @@ function flattenSessions(groups: AgentGroupModel[]): Session[] {
 					summary: deriveStoredSummary(p.id),
 				},
 			];
-		})
+		}),
 	);
 }
 
@@ -196,7 +214,7 @@ function stableSessions(next: Session[]): Session[] {
 				s.pendingCwd ? "pending" : "ready",
 				s.referencePaths?.join("\u0000") ?? "",
 				s.summary ?? "",
-			].join("\u0001")
+			].join("\u0001"),
 		)
 		.join("\u0002");
 	if (key === cachedKey) return cachedSessions;
@@ -207,7 +225,7 @@ function stableSessions(next: Session[]): Session[] {
 
 function getVisibleEditorGroups(
 	groups: AgentGroupModel[],
-	selectedGroupId: string | null
+	selectedGroupId: string | null,
 ): AgentGroupModel[] {
 	const activeGroup = groups.find((group) => group.id === selectedGroupId);
 	return activeGroup ? [activeGroup] : groups;
@@ -237,7 +255,7 @@ interface EditorPageProps {
 	onDirectoryChange: (
 		paneId: string,
 		cwd: string,
-		referencePaths?: string[]
+		referencePaths?: string[],
 	) => void;
 }
 
@@ -327,7 +345,7 @@ function useEditorDiffController({
 					[session.paneId]: { path, staged },
 				}));
 			},
-			[session?.paneId]
+			[session?.paneId],
 		),
 		onDiffLoaded: useCallback(() => {
 			void refetchGit();
@@ -341,7 +359,7 @@ function useEditorDiffController({
 			const idx = selectedFile
 				? files.findIndex(
 						(f) =>
-							f.path === selectedFile.path && f.staged === selectedFile.staged
+							f.path === selectedFile.path && f.staged === selectedFile.staged,
 					)
 				: -1;
 			const next =
@@ -359,7 +377,7 @@ function useEditorDiffController({
 				staged: file.staged,
 			});
 		},
-		[files, selectFile, selectedFile, session]
+		[files, selectFile, selectedFile, session],
 	);
 
 	const handleKeyDown = useCallback(
@@ -379,7 +397,7 @@ function useEditorDiffController({
 				cycleFile(-1);
 			}
 		},
-		[cycleFile]
+		[cycleFile],
 	);
 
 	useEffect(() => {
@@ -416,7 +434,7 @@ function useEditorPageModel({
 	const [editorUiState, editorUiDispatch] = useReducer(
 		editorUiReducer,
 		undefined,
-		getInitialEditorUiState
+		getInitialEditorUiState,
 	);
 	const {
 		selectedPaneId,
@@ -431,78 +449,108 @@ function useEditorPageModel({
 		fileViewMode,
 		mainViewMode,
 		showSettings,
+		fileViewerOpen,
 	} = editorUiState;
 	const setEditorUiField = useCallback(
 		<K extends keyof EditorUiState>(
 			field: K,
-			value: StateValue<EditorUiState[K]>
+			value: StateValue<EditorUiState[K]>,
 		) =>
 			editorUiDispatch({
 				type: "fieldChanged",
 				field,
 				value,
 			} as EditorUiAction),
-		[]
+		[],
 	);
 	const setSelectedPaneId = useCallback(
 		(value: StateValue<string | null>) =>
 			setEditorUiField("selectedPaneId", value),
-		[setEditorUiField]
+		[setEditorUiField],
 	);
 	const setDiffViewMode = useCallback(
 		(value: StateValue<DiffViewMode>) =>
 			setEditorUiField("diffViewMode", value),
-		[setEditorUiField]
+		[setEditorUiField],
 	);
 	const setClosedPaneIds = useCallback(
 		(value: StateValue<Set<string>>) =>
 			setEditorUiField("closedPaneIds", value),
-		[setEditorUiField]
+		[setEditorUiField],
 	);
 	const setScrollToChange = useCallback(
 		(value: StateValue<number>) => setEditorUiField("scrollToChange", value),
-		[setEditorUiField]
+		[setEditorUiField],
 	);
 	const setZenMode = useCallback(
 		(value: StateValue<boolean>) => setEditorUiField("zenMode", value),
-		[setEditorUiField]
+		[setEditorUiField],
 	);
 	const setChatPanelWidth = useCallback(
 		(value: StateValue<number>) => setEditorUiField("chatPanelWidth", value),
-		[setEditorUiField]
+		[setEditorUiField],
 	);
 	const setSidebarWidth = useCallback(
 		(value: StateValue<number>) => setEditorUiField("sidebarWidth", value),
-		[setEditorUiField]
+		[setEditorUiField],
 	);
 	const setSidebarVisible = useCallback(
-		(value: StateValue<boolean>) => setEditorUiField("sidebarVisible", value),
-		[setEditorUiField]
+		(value: StateValue<boolean>) => {
+			setEditorUiField("sidebarVisible", value);
+			if (typeof value === "boolean") {
+				writeStoredValue(
+					WORKSPACE_SIDEBAR_VISIBLE_KEY,
+					value ? "true" : "false",
+				);
+			}
+		},
+		[setEditorUiField],
 	);
 	const setSelectedCommitHash = useCallback(
 		(value: StateValue<string | null>) =>
 			setEditorUiField("selectedCommitHash", value),
-		[setEditorUiField]
+		[setEditorUiField],
 	);
 	const setFileViewMode = useCallback(
-		(value: StateValue<"path" | "tree">) =>
-			setEditorUiField("fileViewMode", value),
-		[setEditorUiField]
+		(value: "path" | "tree") => {
+			setEditorUiField("fileViewMode", value);
+			saveGitFileViewMode(value);
+		},
+		[setEditorUiField],
 	);
 	const setMainViewMode = useCallback(
 		(value: StateValue<"diff" | "graph">) =>
 			setEditorUiField("mainViewMode", value),
-		[setEditorUiField]
+		[setEditorUiField],
 	);
 	const setShowSettings = useCallback(
 		(value: StateValue<boolean>) => setEditorUiField("showSettings", value),
-		[setEditorUiField]
+		[setEditorUiField],
 	);
+	const setFileViewerOpen = useCallback(
+		(value: StateValue<boolean>) => setEditorUiField("fileViewerOpen", value),
+		[setEditorUiField],
+	);
+	const [fileOpenRequest, setFileOpenRequest] = useState<{
+		readonly path: string;
+		readonly token: number;
+	} | null>(null);
+	useEffect(() => {
+		if (!active) return;
+		return listenWindowEvent(WORKSPACE_FILE_OPEN_EVENT, (event) => {
+			const detail = (event as CustomEvent<WorkspaceFileOpenDetail>).detail;
+			if (!detail?.path) return;
+			setFileOpenRequest({ path: detail.path, token: Date.now() });
+			setFileViewerOpen(true);
+		});
+	}, [active, setFileViewerOpen]);
 	const chatRef = useRef<AgentChatHandle | null>(null);
 	const sidebarDragRef = useRef<{
 		startX: number;
 		startWidth: number;
 	} | null>(null);
+	const sidebarWidthRef = useRef(sidebarWidth);
+	sidebarWidthRef.current = sidebarWidth;
 	const chatPanelDragRef = useRef<{
 		startX: number;
 		startWidth: number;
@@ -516,11 +564,11 @@ function useEditorPageModel({
 	const activeGroupSelectedPaneId = visibleGroups[0]?.selectedPaneId ?? null;
 	const allSessions = useMemo(
 		() => stableSessions(flattenSessions(visibleGroups)),
-		[visibleGroups]
+		[visibleGroups],
 	);
 	const sessions = useMemo(
 		() => allSessions.filter((s) => !closedPaneIds.has(s.paneId)),
-		[allSessions, closedPaneIds]
+		[allSessions, closedPaneIds],
 	);
 	const effectiveSelectedPaneId = useMemo(() => {
 		const activePaneId =
@@ -534,7 +582,7 @@ function useEditorPageModel({
 	}, [activeGroupSelectedPaneId, selectedPaneId, sessions]);
 	const trackedDirs = useMemo(
 		() => getTrackedSessionDirs(sessions),
-		[sessions]
+		[sessions],
 	);
 	const {
 		projectMap,
@@ -544,7 +592,7 @@ function useEditorPageModel({
 	} = useGitStatus(trackedDirs, { enabled: active && trackedDirs.length > 0 });
 	const sessionIdx = useMemo(
 		() => sessions.findIndex((s) => s.paneId === effectiveSelectedPaneId),
-		[effectiveSelectedPaneId, sessions]
+		[effectiveSelectedPaneId, sessions],
 	);
 	const session =
 		sessionIdx >= 0 ? (sessions[sessionIdx] ?? null) : (sessions[0] ?? null);
@@ -572,7 +620,7 @@ function useEditorPageModel({
 				staged: boolean;
 				status: string;
 			}>(project),
-		[project]
+		[project],
 	);
 	const staged = project?.files.filter(isStagedChange) ?? [];
 	const modified = project?.files.filter(isUnstagedTrackedChange) ?? [];
@@ -599,12 +647,12 @@ function useEditorPageModel({
 		loading: graphLoading,
 	} = useGitGraph(
 		active && mainViewMode === "graph" ? session?.cwd : undefined,
-		100
+		100,
 	);
 	const { details: commitDetails, loading: commitDetailsLoading } =
 		useCommitDetails(
 			active && mainViewMode === "graph" ? session?.cwd : undefined,
-			selectedCommitHash ?? undefined
+			selectedCommitHash ?? undefined,
 		);
 
 	const updateZenMode = useCallback(
@@ -613,12 +661,12 @@ function useEditorPageModel({
 			writeStoredValue("agent-editor-zen", next ? "true" : "false");
 			dispatchAgentShellChange({ source: "view", reason: "editor-zen" });
 		},
-		[setZenMode]
+		[setZenMode],
 	);
 	const exitZenMode = useCallback(() => updateZenMode(false), [updateZenMode]);
 	const toggleZenMode = useCallback(
 		() => updateZenMode(!zenMode),
-		[updateZenMode, zenMode]
+		[updateZenMode, zenMode],
 	);
 	const refreshGitBranch = useCallback(() => {
 		void refetchGit();
@@ -626,6 +674,13 @@ function useEditorPageModel({
 	useEffect(() => {
 		return setupAgentThemePanelShortcut(setShowSettings);
 	}, [setShowSettings]);
+	useEffect(() => {
+		if (!active) return;
+		setSidebarVisible(
+			readStoredValue(WORKSPACE_SIDEBAR_VISIBLE_KEY) !== "false",
+		);
+		setSidebarWidth(loadWorkspaceSidebarWidth());
+	}, [active, setSidebarVisible, setSidebarWidth]);
 
 	const closePane = useCallback(
 		(paneId: string) => {
@@ -636,14 +691,14 @@ function useEditorPageModel({
 				setSelectedPaneId(rest[0]?.paneId ?? null);
 			}
 		},
-		[effectiveSelectedPaneId, sessions, setClosedPaneIds, setSelectedPaneId]
+		[effectiveSelectedPaneId, sessions, setClosedPaneIds, setSelectedPaneId],
 	);
 	const selectEditorPane = useCallback(
 		(paneId: string) => {
 			setSelectedPaneId(paneId);
 			onSelectPane?.(paneId);
 		},
-		[onSelectPane, setSelectedPaneId]
+		[onSelectPane, setSelectedPaneId],
 	);
 
 	const handleSidebarDragStart = useCallback(
@@ -659,13 +714,18 @@ function useEditorPageModel({
 				const delta = sidebarDragRef.current.startX - e.clientX;
 				const newWidth = Math.min(
 					400,
-					Math.max(160, sidebarDragRef.current.startWidth + delta)
+					Math.max(160, sidebarDragRef.current.startWidth + delta),
 				);
+				sidebarWidthRef.current = newWidth;
 				setSidebarWidth(newWidth);
 			};
 
 			const handleMouseUp = () => {
 				sidebarDragRef.current = null;
+				writeStoredValue(
+					WORKSPACE_SIDEBAR_WIDTH_KEY,
+					String(sidebarWidthRef.current),
+				);
 				document.removeEventListener("mousemove", handleMouseMove);
 				document.removeEventListener("mouseup", handleMouseUp);
 			};
@@ -673,7 +733,7 @@ function useEditorPageModel({
 			document.addEventListener("mousemove", handleMouseMove);
 			document.addEventListener("mouseup", handleMouseUp);
 		},
-		[setSidebarWidth, sidebarWidth]
+		[setSidebarWidth, sidebarWidth],
 	);
 
 	const handleChatPanelDragStart = useCallback(
@@ -689,14 +749,14 @@ function useEditorPageModel({
 				const delta = moveEvent.clientX - chatPanelDragRef.current.startX;
 				const availableMaximum = Math.max(
 					MIN_EDITOR_CHAT_WIDTH,
-					Math.min(MAX_EDITOR_CHAT_WIDTH, window.innerWidth - 520)
+					Math.min(MAX_EDITOR_CHAT_WIDTH, window.innerWidth - 520),
 				);
 				const nextWidth = Math.min(
 					availableMaximum,
 					Math.max(
 						MIN_EDITOR_CHAT_WIDTH,
-						chatPanelDragRef.current.startWidth + delta
-					)
+						chatPanelDragRef.current.startWidth + delta,
+					),
 				);
 				chatPanelWidthRef.current = nextWidth;
 				setChatPanelWidth(nextWidth);
@@ -706,7 +766,7 @@ function useEditorPageModel({
 				chatPanelDragRef.current = null;
 				writeStoredValue(
 					EDITOR_CHAT_WIDTH_STORAGE_KEY,
-					String(chatPanelWidthRef.current)
+					String(chatPanelWidthRef.current),
 				);
 				document.removeEventListener("mousemove", handleMouseMove);
 				document.removeEventListener("mouseup", handleMouseUp);
@@ -715,10 +775,10 @@ function useEditorPageModel({
 			document.addEventListener("mousemove", handleMouseMove);
 			document.addEventListener("mouseup", handleMouseUp);
 		},
-		[chatPanelWidth, setChatPanelWidth]
+		[chatPanelWidth, setChatPanelWidth],
 	);
 
-	const viewer =
+	const projectViewer =
 		mainViewMode === "diff" ? (
 			diffLoading ? (
 				<Placeholder label="Loading diff…" />
@@ -762,6 +822,17 @@ function useEditorPageModel({
 				wipFiles={files}
 				branch={project?.branch}
 			/>
+		);
+	const viewer =
+		fileViewerOpen && session?.cwd ? (
+			<WorkspaceFileViewer
+				key={session.cwd}
+				cwd={session.cwd}
+				openRequest={fileOpenRequest}
+				onClose={() => setFileViewerOpen(false)}
+			/>
+		) : (
+			projectViewer
 		);
 	const fileSidebarProps = {
 		cwd: session?.cwd,
@@ -855,24 +926,22 @@ function useEditorPageModel({
 		</div>
 	);
 	const emptyWorkspace = <EmptyEditorWorkspace sidebar={diffSidebar} />;
-	const diffToolbar = session ? (
-		<DiffViewerTopBar
-			mainViewMode={mainViewMode}
-			diffViewMode={diffViewMode}
-			cwd={zenMode ? session.cwd : undefined}
-			gitBranch={zenMode ? (project?.branch ?? null) : null}
-			filePath={request?.file}
-			selectedFile={selectedFile}
-			diffStats={selectedDiffStats}
-			onStageFile={stageFile}
-			onUnstageFile={unstageFile}
-			onMainViewModeChange={setMainViewMode}
-			onDiffViewModeChange={setDiffViewMode}
-			onGitBranchChanged={refreshGitBranch}
-			zenMode={zenMode}
-			onToggleZenMode={toggleZenMode}
-		/>
-	) : null;
+	const diffToolbar =
+		session && !fileViewerOpen ? (
+			<DiffViewerTopBar
+				mainViewMode={mainViewMode}
+				diffViewMode={diffViewMode}
+				cwd={zenMode ? session.cwd : undefined}
+				gitBranch={zenMode ? (project?.branch ?? null) : null}
+				filePath={request?.file}
+				diffStats={selectedDiffStats}
+				onMainViewModeChange={setMainViewMode}
+				onDiffViewModeChange={setDiffViewMode}
+				onGitBranchChanged={refreshGitBranch}
+				zenMode={zenMode}
+				onToggleZenMode={toggleZenMode}
+			/>
+		) : null;
 
 	return {
 		chatRef,
@@ -952,7 +1021,7 @@ function EditorPageSurface({
 }: EditorPageSurfaceProps) {
 	const openSettings = useCallback(
 		() => setShowSettings(true),
-		[setShowSettings]
+		[setShowSettings],
 	);
 	const zenLeading = useMemo(
 		() =>
@@ -975,7 +1044,7 @@ function EditorPageSurface({
 			session,
 			sidebarVisible,
 			sidebarWidth,
-		]
+		],
 	);
 
 	return (

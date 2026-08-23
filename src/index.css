@@ -85,6 +85,18 @@
 	}
 }
 
+@keyframes atlas-load {
+	0%,
+	100% {
+		opacity: 0.28;
+		transform: translateY(3px) skewY(-28deg);
+	}
+	50% {
+		opacity: 1;
+		transform: translateY(0) skewY(-28deg);
+	}
+}
+
 html,
 body,
 #root {

@@ -10,14 +10,14 @@ import {
 	radius,
 	shadow,
 } from "../../tokens.stylex.ts";
-import { Button } from "../ui/Button.tsx";
+import { FileTypeIcon } from "../file/FileTypeIcon.tsx";
 import { DotMatrixWeave } from "../ui/DotMatrixLoader.tsx";
-import { LiquidPanel } from "../ui/gooey/LiquidPanel.tsx";
+import { Liquid } from "../ui/gooey/index.ts";
 import { LiquidSegmentedRail } from "../ui/gooey/LiquidSegmentedRail.tsx";
 import {
-	IconCheck,
 	IconChevronRight,
 	IconFolderFill,
+	IconGitBranch,
 	IconGitCommit,
 	IconMinus,
 	IconPanelLeft,
@@ -100,20 +100,41 @@ export function ChangeFileSidebar(props: ChangeFileSidebarProps) {
 		onCommitMessageChange,
 		onCommit,
 		isCommitting,
-		amendMode,
-		onAmendModeChange,
 		cwd,
-		showFileActions = true,
+		showFileActions = false,
 		showCommitSection = true,
 		onCollapse,
 	} = props;
+	const workingFiles = [...modified, ...untracked, ...staged];
+	const additions = workingFiles.reduce(
+		(total, file) => total + (file.additions ?? 0),
+		0,
+	);
+	const deletions = workingFiles.reduce(
+		(total, file) => total + (file.deletions ?? 0),
+		0,
+	);
 	return (
 		<div {...stylex.props(styles.root)}>
 			<ChangeFileSidebarHeader
-				fileViewMode={fileViewMode}
-				onFileViewModeChange={onFileViewModeChange}
 				onCollapse={onCollapse}
+				branch={branch}
+				additions={additions}
+				deletions={deletions}
 			/>
+
+			{hasProject && mainViewMode !== "graph" && showCommitSection && (
+				<CommitSection
+					cwd={cwd}
+					commitMessage={commitMessage}
+					onCommitMessageChange={onCommitMessageChange}
+					onCommit={onCommit}
+					isCommitting={isCommitting}
+					stagedCount={staged.length}
+					fileViewMode={fileViewMode}
+					onFileViewModeChange={onFileViewModeChange}
+				/>
+			)}
 
 			{mainViewMode !== "graph" && (
 				<div {...stylex.props(styles.splitArea)}>
@@ -176,7 +197,7 @@ export function ChangeFileSidebar(props: ChangeFileSidebarProps) {
 										key={`${f.path}:${f.status}`}
 										{...stylex.props(styles.commitFileRow)}
 									>
-										<FileStatusIcon status={f.status} />
+										<FileChangeIcon file={f} />
 										<span {...stylex.props(styles.fileName)}>{f.path}</span>
 									</div>
 								))}
@@ -207,19 +228,6 @@ export function ChangeFileSidebar(props: ChangeFileSidebarProps) {
 						</div>
 					)}
 				</div>
-			)}
-
-			{hasProject && mainViewMode !== "graph" && showCommitSection && (
-				<CommitSection
-					cwd={cwd}
-					commitMessage={commitMessage}
-					onCommitMessageChange={onCommitMessageChange}
-					onCommit={onCommit}
-					isCommitting={isCommitting}
-					amendMode={amendMode}
-					onAmendModeChange={onAmendModeChange}
-					stagedCount={staged.length}
-				/>
 			)}
 		</div>
 	);
@@ -271,6 +279,7 @@ const styles = stylex.create({
 		flex: 1,
 		flexDirection: "column",
 		minWidth: 0,
+		backgroundColor: color.transparent,
 	},
 	collapsedRoot: {
 		display: "flex",
@@ -339,6 +348,7 @@ const styles = stylex.create({
 		flex: 1,
 		minHeight: 0,
 		flexDirection: "column",
+		overflowY: "auto",
 	},
 	emptyState: {
 		display: "flex",
@@ -381,6 +391,7 @@ const styles = stylex.create({
 		zIndex: 20,
 		display: "flex",
 		height: controlSize._8,
+		flexShrink: 0,
 		alignItems: "center",
 		gap: controlSize._2,
 		borderBottomWidth: 1,
@@ -388,12 +399,49 @@ const styles = stylex.create({
 		borderBottomColor: color.border,
 		backgroundColor: color.transparent,
 		paddingInline: controlSize._3,
+		paddingBlock: 0,
 	},
 	headerLabel: {
 		color: color.textSoft,
 		fontSize: font.size_2,
 		fontWeight: font.weight_6,
 		letterSpacing: "0.01em",
+	},
+	headerMeta: {
+		display: "flex",
+		width: "100%",
+		minWidth: 0,
+		alignItems: "center",
+		gap: controlSize._1_5,
+		paddingLeft: controlSize._1,
+		color: color.textMuted,
+		fontFamily: font.familyDiff,
+		fontSize: font.size_1,
+	},
+	branchName: {
+		minWidth: 0,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+		color: color.textMain,
+		fontFamily: font.familyDiff,
+		fontSize: font.size_1,
+	},
+	headerBranch: {
+		display: "flex",
+		minWidth: 0,
+		marginLeft: "auto",
+		alignItems: "center",
+		gap: controlSize._1_5,
+	},
+	changeTotals: {
+		display: "flex",
+		flexShrink: 0,
+		alignItems: "center",
+		gap: controlSize._1_5,
+		fontFamily: font.familyDiff,
+		fontSize: font.size_1,
+		fontVariantNumeric: "tabular-nums",
 	},
 	spacer: {
 		flex: 1,
@@ -426,10 +474,10 @@ const styles = stylex.create({
 	headerIconButton: {
 		alignItems: "center",
 		backgroundColor: {
-			default: color.backgroundRaised,
-			":hover": color.controlActive,
+			default: color.transparent,
+			":hover": color.controlHover,
 		},
-		borderColor: color.border,
+		borderColor: color.transparent,
 		borderRadius: radius.md,
 		borderStyle: "solid",
 		borderWidth: 1,
@@ -482,15 +530,15 @@ const styles = stylex.create({
 	commitSection: {
 		flexShrink: 0,
 		backgroundColor: color.transparent,
+		borderBottomWidth: 1,
+		borderBottomStyle: "solid",
+		borderBottomColor: color.border,
 	},
 	commitHeader: {
 		display: "flex",
 		height: controlSize._9,
 		alignItems: "center",
 		justifyContent: "space-between",
-		borderTopWidth: 1,
-		borderTopStyle: "solid",
-		borderTopColor: color.border,
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
@@ -511,9 +559,13 @@ const styles = stylex.create({
 		color: color.textMuted,
 	},
 	sectionTitle: {
-		color: color.textSoft,
+		color: color.textMain,
 		fontSize: "0.6875rem",
 		fontWeight: font.weight_5,
+	},
+	fileGroupTitle: {
+		color: color.textSoft,
+		fontSize: font.size_2,
 	},
 	generateButton: {
 		backgroundColor: {
@@ -567,17 +619,18 @@ const styles = stylex.create({
 	commitForm: {
 		display: "flex",
 		flexDirection: "column",
-		gap: controlSize._2,
-		paddingInline: controlSize._3,
-		paddingBottom: controlSize._3,
+		gap: controlSize._1_5,
+		paddingInline: controlSize._2,
+		paddingBlock: controlSize._2,
 	},
 	commitEditor: {
+		height: controlSize._7,
 		backgroundColor: color.backgroundRaised,
 		borderColor: {
 			default: color.border,
 			":focus-within": color.borderStrong,
 		},
-		borderRadius: 12,
+		borderRadius: radius.md,
 		borderStyle: "solid",
 		borderWidth: 1,
 		boxShadow: {
@@ -588,22 +641,27 @@ const styles = stylex.create({
 		transitionDuration: "150ms",
 		transitionProperty: "border-color, box-shadow, background-color",
 	},
+	commitEditorLiquid: {
+		backgroundColor: color.transparent,
+		borderColor: color.transparent,
+		borderRadius: radius.md,
+		boxShadow: "none",
+	},
 	summaryRow: {
 		display: "flex",
+		height: "100%",
 		alignItems: "center",
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
-		borderBottomColor: color.borderSubtle,
 	},
 	summaryInput: {
 		minWidth: 0,
+		height: "100%",
 		flex: 1,
 		backgroundColor: "transparent",
 		color: color.textMain,
 		fontSize: font.size_3,
 		fontWeight: font.weight_5,
 		outline: "none",
-		paddingBlock: controlSize._2_5,
+		paddingBlock: 0,
 		paddingInline: controlSize._3,
 		"::placeholder": {
 			color: color.textFaint,
@@ -638,11 +696,17 @@ const styles = stylex.create({
 		color: color.textMain,
 		fontSize: font.size_2,
 		outline: "none",
-		paddingBlock: controlSize._2_5,
+		paddingBlock: controlSize._2,
 		paddingInline: controlSize._3,
 		"::placeholder": {
 			color: color.textFaint,
 		},
+	},
+	fileTypeIcon: {
+		display: "block",
+		width: 17,
+		height: 17,
+		flexShrink: 0,
 	},
 	descriptionWrap: {
 		position: "relative",
@@ -679,6 +743,111 @@ const styles = stylex.create({
 		height: controlSize._8,
 		minHeight: controlSize._8,
 		width: "100%",
+	},
+	compactCheckRow: {
+		display: "flex",
+		width: "fit-content",
+		cursor: "pointer",
+		alignItems: "center",
+		gap: controlSize._1_5,
+		paddingInline: controlSize._1,
+	},
+	commitSplitWrap: {
+		position: "relative",
+	},
+	commitSplitButton: {
+		display: "flex",
+		width: "100%",
+		height: controlSize._7,
+		overflow: "hidden",
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: "#f4f4f2",
+		borderRadius: radius.md,
+		backgroundColor: "#f4f4f2",
+		boxShadow: "inset 0 0 0 1px rgba(0, 0, 0, 0.12)",
+	},
+	commitMainAction: {
+		display: "flex",
+		minWidth: 0,
+		flex: 1,
+		alignItems: "center",
+		justifyContent: "center",
+		gap: controlSize._1_5,
+		backgroundColor: {
+			default: "transparent",
+			":hover": "rgba(0, 0, 0, 0.06)",
+		},
+		color: "#111210",
+		fontSize: font.size_2,
+		fontWeight: font.weight_6,
+		":disabled": {
+			color: "#111210",
+			opacity: 1,
+			WebkitTextFillColor: "#111210",
+		},
+	},
+	commitChevronAction: {
+		display: "flex",
+		width: controlSize._7,
+		flexShrink: 0,
+		alignItems: "center",
+		justifyContent: "center",
+		borderLeftWidth: 1,
+		borderLeftStyle: "solid",
+		borderLeftColor: "rgba(0, 0, 0, 0.14)",
+		backgroundColor: {
+			default: "transparent",
+			":hover": "rgba(0, 0, 0, 0.06)",
+		},
+		color: "#292a27",
+		":disabled": {
+			color: "#292a27",
+			opacity: 1,
+			WebkitTextFillColor: "#292a27",
+		},
+	},
+	chevronDown: {
+		transform: "rotate(90deg)",
+	},
+	commitActionMenu: {
+		position: "absolute",
+		right: 0,
+		top: "calc(100% + 4px)",
+		zIndex: 80,
+		width: 190,
+		padding: controlSize._1,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.borderStrong,
+		borderRadius: radius.md,
+		backgroundColor: color.backgroundRaised,
+		boxShadow: "0 12px 28px rgba(0, 0, 0, 0.42)",
+	},
+	commitGenerateAction: {
+		display: "flex",
+		width: "100%",
+		height: controlSize._7,
+		alignItems: "center",
+		paddingInline: controlSize._2,
+		borderRadius: radius.sm,
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlHover,
+		},
+		color: color.textSoft,
+		fontSize: font.size_2,
+		textAlign: "left",
+	},
+	fileViewToolbar: {
+		display: "flex",
+		height: controlSize._8,
+		alignItems: "center",
+		gap: controlSize._2,
+		borderTopWidth: 1,
+		borderTopStyle: "solid",
+		borderTopColor: color.border,
+		paddingInline: controlSize._3,
 	},
 	detailsRoot: {
 		display: "flex",
@@ -766,51 +935,60 @@ const styles = stylex.create({
 		fontVariantNumeric: "tabular-nums",
 	},
 	addedText: {
-		color: "var(--color-git-added)",
+		color: "#32e875",
 	},
 	deletedText: {
-		color: "var(--color-git-deleted)",
+		color: "#ff5252",
 	},
 	statusIcon: {
-		flexShrink: 0,
 		display: "flex",
 		alignItems: "center",
 		justifyContent: "center",
-		width: "18px",
-		height: "18px",
-		borderRadius: "0.125rem",
-		fontSize: font.size_1,
+		fontSize: 7,
 		fontWeight: 700,
 		lineHeight: 1,
+		filter: "drop-shadow(0 1px 1px rgba(0, 0, 0, 0.95))",
+	},
+	fileChangeIcon: {
+		position: "relative",
+		display: "inline-flex",
+		width: 17,
+		height: 17,
+		flexShrink: 0,
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	fileChangeMark: {
+		position: "absolute",
+		right: -2,
+		top: -2,
+		width: 8,
+		height: 8,
+		pointerEvents: "none",
 	},
 	modified: {
-		color: "#fbbf24",
+		color: "#ffd23f",
 	},
 	addedStatus: {
-		color: "var(--color-git-added)",
-		backgroundColor: "rgba(35, 134, 54, 0.15)",
+		color: "#32e875",
 	},
 	deletedStatus: {
-		color: "var(--color-git-deleted)",
-		backgroundColor: "rgba(248, 81, 73, 0.15)",
+		color: "#ff5252",
 	},
 	renamedStatus: {
-		color: "#60a5fa",
-		backgroundColor: "rgba(96, 165, 250, 0.15)",
+		color: "#74a7ff",
 	},
 	defaultStatus: {
-		color: color.textMuted,
-		backgroundColor: "rgba(255, 255, 255, 0.08)",
+		color: color.textSoft,
 	},
 	fileGroup: {
 		display: "flex",
-		flex: 1,
-		minHeight: 0,
+		flexShrink: 0,
 		flexDirection: "column",
 	},
 	emptyGroupBody: {
-		flex: 1,
-		minHeight: 0,
+		height: controlSize._12,
+		flexShrink: 0,
 		display: "flex",
 		alignItems: "center",
 		justifyContent: "center",
@@ -824,14 +1002,14 @@ const styles = stylex.create({
 		top: 0,
 		zIndex: 10,
 		display: "flex",
-		height: controlSize._9,
+		height: controlSize._8,
 		flexShrink: 0,
 		alignItems: "center",
 		justifyContent: "space-between",
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
-		backgroundColor: color.transparent,
+		backgroundColor: color.background,
 		paddingInline: controlSize._3,
 		gap: controlSize._2,
 	},
@@ -869,7 +1047,7 @@ const styles = stylex.create({
 		justifyContent: "center",
 		borderRadius: radius.pill,
 		backgroundColor: color.surfaceControl,
-		color: color.textSoft,
+		color: color.textMain,
 		fontSize: font.size_1,
 		fontWeight: font.weight_6,
 		fontVariantNumeric: "tabular-nums",
@@ -889,9 +1067,8 @@ const styles = stylex.create({
 		backgroundColor: "transparent",
 	},
 	groupList: {
-		flex: 1,
-		minHeight: 0,
-		overflowY: "auto",
+		flexShrink: 0,
+		backgroundColor: color.transparent,
 	},
 	pathRow: {
 		position: "relative",
@@ -951,11 +1128,20 @@ const styles = stylex.create({
 		textAlign: "left",
 		backgroundColor: "transparent",
 	},
+	fileRowButton: {
+		display: "flex",
+		minWidth: 0,
+		flex: 1,
+		alignItems: "center",
+		gap: controlSize._2,
+		backgroundColor: "transparent",
+		textAlign: "left",
+	},
 	pathFileName: {
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
-		color: color.textSoft,
+		color: color.textMain,
 		fontSize: font.size_2,
 		fontWeight: font.weight_5,
 		lineHeight: 1.3,
@@ -964,14 +1150,6 @@ const styles = stylex.create({
 	},
 	activeText: {
 		color: color.textMain,
-	},
-	pathDir: {
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-		color: color.textMuted,
-		fontSize: font.size_1,
-		lineHeight: 1.3,
 	},
 	rowAction: {
 		position: "absolute",
@@ -1044,7 +1222,7 @@ const styles = stylex.create({
 		whiteSpace: "nowrap",
 		color: color.textSoft,
 		fontSize: font.size_2,
-		fontWeight: font.weight_6,
+		fontWeight: font.weight_5,
 	},
 	treeIndentSpacer: {
 		width: controlSize._2,
@@ -1081,15 +1259,16 @@ function FileActionIcon({
 }
 
 function ChangeFileSidebarHeader({
-	fileViewMode,
-	onFileViewModeChange,
 	onCollapse,
+	branch,
+	additions,
+	deletions,
 }: {
-	fileViewMode: "path" | "tree";
-	onFileViewModeChange: (mode: "path" | "tree") => void;
 	onCollapse?: () => void;
+	branch?: string;
+	additions: number;
+	deletions: number;
 }) {
-	const [hoveredViewIndex, setHoveredViewIndex] = useState<number | null>(null);
 	return (
 		<div {...stylex.props(styles.sidebarHeader)}>
 			{onCollapse ? (
@@ -1102,43 +1281,22 @@ function ChangeFileSidebarHeader({
 				>
 					<IconPanelLeft size={12} />
 				</button>
-			) : (
-				<span {...stylex.props(styles.headerLabel)}>Files</span>
-			)}
-			<span {...stylex.props(styles.spacer)} />
+			) : null}
 			<div
-				{...stylex.props(styles.segmented)}
-				onMouseLeave={() => setHoveredViewIndex(null)}
+				{...stylex.props(styles.changeTotals)}
+				title="Total additions and deletions"
 			>
-				<LiquidSegmentedRail
-					activeIndex={hoveredViewIndex ?? (fileViewMode === "path" ? 0 : 1)}
-					itemCount={2}
-					radius={6}
-				/>
-				<button
-					type="button"
-					onMouseEnter={() => setHoveredViewIndex(0)}
-					onClick={() => onFileViewModeChange("path")}
-					title="Path view"
-					{...stylex.props(
-						styles.segmentButton,
-						fileViewMode === "path" && styles.segmentButtonActive,
-					)}
+				<span {...stylex.props(styles.addedText)}>+{additions}</span>
+				<span {...stylex.props(styles.deletedText)}>-{deletions}</span>
+			</div>
+			<div {...stylex.props(styles.headerBranch)}>
+				<IconGitBranch size={11} {...stylex.props(styles.mutedIcon)} />
+				<span
+					{...stylex.props(styles.branchName)}
+					title={branch ?? "Repository"}
 				>
-					Path
-				</button>
-				<button
-					type="button"
-					onMouseEnter={() => setHoveredViewIndex(1)}
-					onClick={() => onFileViewModeChange("tree")}
-					title="Tree view"
-					{...stylex.props(
-						styles.segmentButton,
-						fileViewMode === "tree" && styles.segmentButtonActive,
-					)}
-				>
-					Tree
-				</button>
+					{branch ?? "Repository"}
+				</span>
 			</div>
 		</div>
 	);
@@ -1150,32 +1308,36 @@ function CommitSection({
 	onCommitMessageChange,
 	onCommit,
 	isCommitting,
-	amendMode,
-	onAmendModeChange,
 	stagedCount,
+	fileViewMode,
+	onFileViewModeChange,
 }: {
 	cwd?: string;
 	commitMessage: string;
 	onCommitMessageChange: (msg: string) => void;
 	onCommit: () => void;
 	isCommitting: boolean;
-	amendMode: boolean;
-	onAmendModeChange: (v: boolean) => void;
 	stagedCount: number;
+	fileViewMode: "path" | "tree";
+	onFileViewModeChange: (mode: "path" | "tree") => void;
 }) {
 	const [generating, setGenerating] = useState(false);
-	const summary = commitMessage.split("\n")[0] || "";
-	const description = commitMessage.split("\n").slice(1).join("\n");
+	const [generationMenuOpen, setGenerationMenuOpen] = useState(false);
+	const [hoveredViewIndex, setHoveredViewIndex] = useState<number | null>(null);
+	const message = commitMessage.replace(/\s+/g, " ");
 
 	const generateMessage = async () => {
 		if (!cwd || !stagedCount || generating) return;
 		setGenerating(true);
 		try {
+			setGenerationMenuOpen(false);
 			const data = await postJson<{ message?: string }>(
 				"/api/git/generate-commit-message",
 				{ cwd },
 			);
-			if (data.message) onCommitMessageChange(data.message);
+			if (data.message) {
+				onCommitMessageChange(data.message.replace(/\s+/g, " ").trim());
+			}
 		} catch {
 			// ignore
 		} finally {
@@ -1185,148 +1347,126 @@ function CommitSection({
 
 	return (
 		<div {...stylex.props(styles.commitSection)}>
-			<div {...stylex.props(styles.commitHeader)}>
-				<div {...stylex.props(styles.inlineGroup)}>
-					<IconGitCommit size={12} {...stylex.props(styles.mutedIcon)} />
-					<span {...stylex.props(styles.sectionTitle)}>Commit</span>
-				</div>
-				<Button
-					type="button"
-					onClick={generateMessage}
-					disabled={!stagedCount || generating || !cwd}
-					aria-label={
-						generating
-							? "Generating commit message"
-							: "Generate commit message from staged changes"
-					}
-					title="Generate commit message from staged changes"
-					variant="secondary"
-					size="sm"
-					liquid
-					className={stylex.props(styles.generateButton).className}
+			<div {...stylex.props(styles.commitForm)}>
+				<Liquid
+					blur={5}
+					contrast={20}
+					fill={colorValues.backgroundRaised}
+					filterPadding={18}
+					shadow="inset 0 1px 0 rgba(255,255,255,.08), 0 8px 24px rgba(0,0,0,.2)"
 				>
-					{generating ? "Generating…" : "Generate"}
-				</Button>
+					<Liquid.Item observe radius={6}>
+						<div
+							{...stylex.props(styles.commitEditor, styles.commitEditorLiquid)}
+						>
+							<div {...stylex.props(styles.summaryRow)}>
+								<input
+									type="text"
+									value={message}
+									onInput={(e) => onCommitMessageChange(e.currentTarget.value)}
+									placeholder="Message"
+									{...stylex.props(
+										styles.summaryInput,
+										generating && styles.summaryInputGenerating,
+									)}
+									onKeyDown={(e) => {
+										if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+											e.preventDefault();
+											onCommit();
+										}
+									}}
+								/>
+								{generating && (
+									<span {...stylex.props(styles.fieldThinking)}>
+										<DotMatrixWeave
+											size={13}
+											dotSize={1.5}
+											gap={1}
+											speed={1.2}
+											ariaLabel="Generating commit summary"
+										/>
+									</span>
+								)}
+							</div>
+						</div>
+					</Liquid.Item>
+				</Liquid>
+				<div {...stylex.props(styles.commitSplitWrap)}>
+					<div {...stylex.props(styles.commitSplitButton)}>
+						<button
+							type="button"
+							onClick={onCommit}
+							disabled={!commitMessage.trim() || isCommitting}
+							{...stylex.props(styles.commitMainAction)}
+						>
+							<IconGitCommit size={12} />
+							{isCommitting
+								? "Committing…"
+								: stagedCount
+									? `Commit ${stagedCount} file${stagedCount !== 1 ? "s" : ""}`
+									: "Commit"}
+						</button>
+						<button
+							type="button"
+							onClick={() => setGenerationMenuOpen((open) => !open)}
+							disabled={!stagedCount || generating || !cwd}
+							aria-label="Commit message actions"
+							aria-expanded={generationMenuOpen}
+							{...stylex.props(styles.commitChevronAction)}
+						>
+							<IconChevronRight
+								size={11}
+								{...stylex.props(styles.chevronDown)}
+							/>
+						</button>
+					</div>
+					{generationMenuOpen ? (
+						<div {...stylex.props(styles.commitActionMenu)}>
+							<button
+								type="button"
+								onClick={generateMessage}
+								{...stylex.props(styles.commitGenerateAction)}
+							>
+								{generating ? "Generating…" : "Generate message"}
+							</button>
+						</div>
+					) : null}
+				</div>
 			</div>
 
-			<label {...stylex.props(styles.checkRow)}>
-				<input
-					type="checkbox"
-					checked={amendMode}
-					onChange={(e) => onAmendModeChange(e.currentTarget.checked)}
-					{...stylex.props(styles.checkboxInput)}
-				/>
-				<span
-					aria-hidden="true"
-					{...stylex.props(
-						styles.checkbox,
-						amendMode && styles.checkboxChecked,
-					)}
+			<div {...stylex.props(styles.fileViewToolbar)}>
+				<div
+					{...stylex.props(styles.segmented)}
+					onMouseLeave={() => setHoveredViewIndex(null)}
 				>
-					{amendMode ? <IconCheck size={9} /> : null}
-				</span>
-				<span {...stylex.props(styles.mutedTextSmall)}>
-					Amend previous commit
-				</span>
-			</label>
-
-			<div {...stylex.props(styles.commitForm)}>
-				<LiquidPanel fill={colorValues.backgroundRaised}>
-					<div {...stylex.props(styles.commitEditor)}>
-						<div {...stylex.props(styles.summaryRow)}>
-							<input
-								type="text"
-								value={summary}
-								onInput={(e) => {
-									const lines = commitMessage.split("\n");
-									lines[0] = e.currentTarget.value;
-									onCommitMessageChange(lines.join("\n"));
-								}}
-								placeholder="Commit summary"
-								{...stylex.props(
-									styles.summaryInput,
-									generating && styles.summaryInputGenerating,
-								)}
-								onKeyDown={(e) => {
-									if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-										e.preventDefault();
-										onCommit();
-									}
-								}}
-							/>
-							{generating && (
-								<span {...stylex.props(styles.fieldThinking)}>
-									<DotMatrixWeave
-										size={13}
-										dotSize={1.5}
-										gap={1}
-										speed={1.2}
-										ariaLabel="Generating commit summary"
-									/>
-								</span>
-							)}
-							{summary.length > 0 && (
-								<span
-									{...stylex.props(
-										styles.summaryCount,
-										summary.length > 72 && styles.warningText,
-									)}
-								>
-									{summary.length}
-								</span>
-							)}
-						</div>
-						<div {...stylex.props(styles.descriptionWrap)}>
-							<textarea
-								value={description}
-								onInput={(e) => {
-									const sum = commitMessage.split("\n")[0] || "";
-									onCommitMessageChange(
-										sum +
-											(e.currentTarget.value
-												? `\n${e.currentTarget.value}`
-												: ""),
-									);
-								}}
-								placeholder="Description"
-								{...stylex.props(
-									styles.descriptionInput,
-									generating && styles.descriptionInputGenerating,
-								)}
-								rows={4}
-							/>
-							{generating && (
-								<span {...stylex.props(styles.descriptionThinking)}>
-									<DotMatrixWeave
-										size={13}
-										dotSize={1.5}
-										gap={1}
-										speed={1.2}
-										ariaLabel="Generating commit description"
-									/>
-								</span>
-							)}
-						</div>
-					</div>
-				</LiquidPanel>
-
-				<Button
-					type="button"
-					onClick={onCommit}
-					disabled={!commitMessage.trim() || isCommitting}
-					variant="secondary"
-					size="sm"
-					liquid
-					liquidFullWidth
-					className={stylex.props(styles.commitButton).className}
-				>
-					<IconGitCommit size={12} />
-					{isCommitting
-						? "Committing…"
-						: stagedCount
-							? `Commit ${stagedCount} file${stagedCount !== 1 ? "s" : ""}`
-							: "Commit"}
-				</Button>
+					<LiquidSegmentedRail
+						activeIndex={hoveredViewIndex ?? (fileViewMode === "path" ? 0 : 1)}
+						itemCount={2}
+						radius={6}
+					/>
+					<button
+						type="button"
+						onMouseEnter={() => setHoveredViewIndex(0)}
+						onClick={() => onFileViewModeChange("path")}
+						{...stylex.props(
+							styles.segmentButton,
+							fileViewMode === "path" && styles.segmentButtonActive,
+						)}
+					>
+						Path
+					</button>
+					<button
+						type="button"
+						onMouseEnter={() => setHoveredViewIndex(1)}
+						onClick={() => onFileViewModeChange("tree")}
+						{...stylex.props(
+							styles.segmentButton,
+							fileViewMode === "tree" && styles.segmentButtonActive,
+						)}
+					>
+						Tree
+					</button>
+				</div>
 			</div>
 		</div>
 	);
@@ -1374,7 +1514,7 @@ function CommitDetailsPanel({
 						key={file.path}
 						{...stylex.props(styles.commitFileRow, styles.cursorPointer)}
 					>
-						<FileStatusIcon status={file.status} />
+						<FileChangeIcon file={file} />
 						<span {...stylex.props(styles.fileName)}>
 							{file.path.split("/").pop()}
 						</span>
@@ -1406,6 +1546,21 @@ function CommitDetailsPanel({
 	);
 }
 
+function FileChangeIcon({
+	file,
+}: {
+	file: { readonly path: string; readonly status: string };
+}) {
+	return (
+		<span {...stylex.props(styles.fileChangeIcon)}>
+			<FileTypeIcon path={file.path} size={15} />
+			<span {...stylex.props(styles.fileChangeMark)}>
+				<FileStatusIcon status={file.status} />
+			</span>
+		</span>
+	);
+}
+
 function FileStatusIcon({ status }: { status: string }) {
 	switch (status) {
 		case "M":
@@ -1423,7 +1578,7 @@ function FileStatusIcon({ status }: { status: string }) {
 					{...stylex.props(styles.statusIcon, styles.addedStatus)}
 					title="Added"
 				>
-					A
+					<IconPlus size={8} />
 				</span>
 			);
 		case "D":
@@ -1432,7 +1587,7 @@ function FileStatusIcon({ status }: { status: string }) {
 					{...stylex.props(styles.statusIcon, styles.deletedStatus)}
 					title="Deleted"
 				>
-					D
+					<IconMinus size={8} />
 				</span>
 			);
 		case "R":
@@ -1447,10 +1602,10 @@ function FileStatusIcon({ status }: { status: string }) {
 		case "?":
 			return (
 				<span
-					{...stylex.props(styles.statusIcon, styles.addedText)}
+					{...stylex.props(styles.statusIcon, styles.addedStatus)}
 					title="Untracked"
 				>
-					<IconPlus size={10} />
+					<IconPlus size={8} />
 				</span>
 			);
 		default:
@@ -1601,7 +1756,7 @@ function TreeNodeRow({
 					) : file ? (
 						<>
 							<span {...stylex.props(styles.treeIndentSpacer)} />
-							<FileStatusIcon status={file.status} />
+							<FileChangeIcon file={file} />
 							<span
 								{...stylex.props(
 									styles.treeFileName,
@@ -1729,7 +1884,9 @@ function FileGroup({
 							)}
 						/>
 					)}
-					<span {...stylex.props(styles.sectionTitle)}>{title} Files</span>
+					<span {...stylex.props(styles.sectionTitle, styles.fileGroupTitle)}>
+						{title} Files
+					</span>
 					<span {...stylex.props(styles.countPill)}>{files.length}</span>
 				</button>
 				{onActionAll && !isCollapsed && actionLabel && !isEmpty && (
@@ -1768,23 +1925,25 @@ function FileGroup({
 									}}
 									onMouseLeave={() => setHoveredActionPath(null)}
 								>
-									<FileStatusIcon status={f.status} />
 									<button
 										type="button"
 										onClick={() => onSelect(f)}
-										{...stylex.props(styles.fileButton)}
+										{...stylex.props(styles.fileRowButton)}
 										title={f.path}
 									>
-										<span
-											{...stylex.props(
-												styles.pathFileName,
-												active && styles.activeText,
-											)}
-										>
-											{f.path}
+										<FileChangeIcon file={f} />
+										<span {...stylex.props(styles.fileButton)}>
+											<span
+												{...stylex.props(
+													styles.pathFileName,
+													active && styles.activeText,
+												)}
+											>
+												{f.path.split("/").pop()}
+											</span>
 										</span>
+										<FileDiffStats file={f} />
 									</button>
-									<FileDiffStats file={f} />
 									{onAction && (
 										<button
 											type="button"

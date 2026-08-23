@@ -1,4 +1,5 @@
 import * as stylex from "@octanejs/stylex";
+import { useLocation, useNavigate } from "@octanejs/tanstack-router";
 import {
 	useCallback,
 	useEffect,
@@ -45,7 +46,6 @@ import {
 import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { noop } from "../../lib/data.ts";
 import { sendJson } from "../../lib/fetch-json.ts";
-import { useLocation, useNavigate } from "../../lib/hash-router.tsx";
 import {
 	activateOnEnterOrSpacePreventDefault,
 	listenWindowEvent,
@@ -466,7 +466,7 @@ function SidebarWorkspacesSection({
 	const [createMenuOpen, setCreateMenuOpen] = useState(false);
 	const [gridMenuOpen, setGridMenuOpen] = useState(false);
 	const [hoveredGridDimension, setHoveredGridDimension] = useState<{
-		axis: "columns" | "rows";
+		axis: "columns";
 		value: number;
 	} | null>(null);
 	const createMenuRef = useRef<HTMLSpanElement | null>(null);
@@ -612,52 +612,8 @@ function SidebarWorkspacesSection({
 														))}
 													</span>
 												</span>
-												<span {...stylex.props(styles.workspaceGridMenuRow)}>
-													<span
-														{...stylex.props(styles.workspaceGridMenuLabel)}
-													>
-														Rows
-													</span>
-													<span
-														{...stylex.props(styles.workspaceGridChoices)}
-														onMouseLeave={() => setHoveredGridDimension(null)}
-													>
-														<LiquidSegmentedRail
-															activeIndex={
-																(hoveredGridDimension?.axis === "rows"
-																	? hoveredGridDimension.value
-																	: selectedGroup.rows) - 1
-															}
-															itemCount={4}
-															itemSize={24}
-															gap={2}
-															radius={12}
-														/>
-														{GRID_DIMENSIONS.map((value) => (
-															<button
-																key={`rows-${value}`}
-																type="button"
-																onMouseEnter={() =>
-																	setHoveredGridDimension({
-																		axis: "rows",
-																		value,
-																	})
-																}
-																onClick={() => {
-																	onUpdateLayoutMode("grid");
-																	onUpdateGrid({ rows: value });
-																}}
-																{...stylex.props(
-																	styles.workspaceGridChoice,
-																	selectedGroup.rows === value
-																		? styles.workspaceGridChoiceActive
-																		: null,
-																)}
-															>
-																{value}
-															</button>
-														))}
-													</span>
+												<span {...stylex.props(styles.workspaceGridMenuHint)}>
+													Drag pane dividers to fine-tune the layout.
 												</span>
 											</div>
 										</LiquidPanel>
@@ -892,11 +848,11 @@ export function Sidebar() {
 					key: agentStateKey(next),
 				});
 			}
-			if (window.location.hash !== "#/agent") {
-				navigate("/agent");
+			if (location.pathname !== "/agent") {
+				navigate({ to: "/agent" });
 			}
 		},
-		[navigate],
+		[location.pathname, navigate],
 	);
 
 	const selectPane = useCallback(
@@ -924,11 +880,11 @@ export function Sidebar() {
 					key: agentStateKey(next),
 				});
 			}
-			if (window.location.hash !== "#/agent") {
-				navigate("/agent");
+			if (location.pathname !== "/agent") {
+				navigate({ to: "/agent" });
 			}
 		},
-		[navigate],
+		[location.pathname, navigate],
 	);
 
 	const addWorkspace = useCallback(async () => {
@@ -944,7 +900,7 @@ export function Sidebar() {
 				key: agentStateKey(next),
 			});
 		}
-		navigate("/agent");
+		navigate({ to: "/agent" });
 	}, [navigate]);
 
 	const addChat = useCallback(async () => {
@@ -956,7 +912,7 @@ export function Sidebar() {
 		await mutateAgentWorkspaceState({ type: "addPane", pane }, "add-pane", {
 			createIfMissing: true,
 		});
-		navigate("/agent");
+		navigate({ to: "/agent" });
 	}, [navigate]);
 
 	useEffect(() => {
@@ -1578,6 +1534,12 @@ const styles = stylex.create({
 		color: color.textMuted,
 		fontSize: font.size_1,
 		fontWeight: font.weight_5,
+	},
+	workspaceGridMenuHint: {
+		color: color.textFaint,
+		fontSize: font.size_1,
+		lineHeight: 1.4,
+		paddingInline: controlSize._1,
 	},
 	workspaceGridChoices: {
 		position: "relative",

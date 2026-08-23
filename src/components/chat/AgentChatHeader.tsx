@@ -15,6 +15,7 @@ import {
 } from "../../tokens.stylex.ts";
 import { DropdownButton, type DropdownOption } from "../ui/DropdownButton.tsx";
 import { IconSettings, IconX } from "../ui/Icons.tsx";
+import { WorkspaceDockHandle } from "../workspace/WorkspaceDockHandle.tsx";
 
 export interface AgentChatSession {
 	paneId: string;
@@ -103,15 +104,15 @@ export const AgentChatHeader = memo(function AgentChatHeader({
 		isAgentContextOpen && styles.contextButtonActive,
 	);
 	const projectButtonProps = stylex.props(styles.projectButton);
-	const rootProps = stylex.props(styles.root, draggable && styles.draggable);
+	const rootProps = stylex.props(styles.root);
 
 	return (
-		<div
-			className={`${APP_REGION_DRAG_CLASS} ${rootProps.className ?? ""}`}
-			draggable={draggable}
-			onDragStart={onDragStart}
-			onDragEnd={onDragEnd}
-		>
+		<div className={`${APP_REGION_DRAG_CLASS} ${rootProps.className ?? ""}`}>
+			<WorkspaceDockHandle
+				draggable={draggable}
+				onDragStart={onDragStart}
+				onDragEnd={onDragEnd}
+			/>
 			{onAgentContext && (
 				<button
 					type="button"
@@ -191,12 +192,6 @@ const styles = stylex.create({
 		paddingBlock: controlSize._1,
 		paddingInline: controlSize._3,
 		userSelect: "none",
-	},
-	draggable: {
-		cursor: {
-			default: "grab",
-			":active": "grabbing",
-		},
 	},
 	projectButton: {
 		backgroundColor: color.transparent,

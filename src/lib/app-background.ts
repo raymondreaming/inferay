@@ -42,11 +42,11 @@ export interface AppBackgroundSettings {
 
 export const DEFAULT_APP_BACKGROUND_SETTINGS: AppBackgroundSettings = {
 	version: 3,
-	id: "city",
+	id: "none",
 	dim: 42,
 	blur: 1,
 	glassBlur: 4,
-	autoTheme: true,
+	autoTheme: false,
 	customRevision: 0,
 };
 
@@ -117,7 +117,7 @@ export function loadAppBackgroundSettings(): AppBackgroundSettings {
 		stored.blur,
 		0,
 		20,
-		DEFAULT_APP_BACKGROUND_SETTINGS.blur
+		DEFAULT_APP_BACKGROUND_SETTINGS.blur,
 	);
 	return {
 		version: 3,
@@ -133,7 +133,7 @@ export function loadAppBackgroundSettings(): AppBackgroundSettings {
 			stored.glassBlur,
 			0,
 			16,
-			DEFAULT_APP_BACKGROUND_SETTINGS.glassBlur
+			DEFAULT_APP_BACKGROUND_SETTINGS.glassBlur,
 		),
 		autoTheme:
 			typeof stored.autoTheme === "boolean"
@@ -144,7 +144,7 @@ export function loadAppBackgroundSettings(): AppBackgroundSettings {
 }
 
 export function saveAppBackgroundSettings(
-	settings: AppBackgroundSettings
+	settings: AppBackgroundSettings,
 ): void {
 	writeStoredJson(APP_BACKGROUND_STORAGE_KEY, settings);
 }
@@ -178,15 +178,15 @@ function foregroundForHex(hex: string) {
 function mixRgb(
 	color: [number, number, number],
 	target: [number, number, number],
-	amount: number
+	amount: number,
 ): [number, number, number] {
 	return color.map(
-		(channel, index) => channel + (target[index]! - channel) * amount
+		(channel, index) => channel + (target[index]! - channel) * amount,
 	) as [number, number, number];
 }
 
 async function deriveCustomPalette(
-	imageUrl: string
+	imageUrl: string,
 ): Promise<BackgroundPalette> {
 	const image = new Image();
 	image.crossOrigin = "anonymous";
@@ -225,7 +225,7 @@ async function deriveCustomPalette(
 			total[1] + sample.color[1],
 			total[2] + sample.color[2],
 		],
-		[0, 0, 0]
+		[0, 0, 0],
 	);
 	const source: [number, number, number] =
 		selected.length > 0
@@ -249,7 +249,7 @@ async function deriveCustomPalette(
 
 export async function deriveAppBackgroundPalette(
 	id: AppBackgroundId,
-	imageUrl: string | null
+	imageUrl: string | null,
 ): Promise<BackgroundPalette | null> {
 	if (id === "none") return null;
 	const builtIn = BUILT_IN_PALETTES[id];
@@ -259,7 +259,7 @@ export async function deriveAppBackgroundPalette(
 }
 
 export function applyAppBackgroundPalette(
-	palette: BackgroundPalette | null
+	palette: BackgroundPalette | null,
 ): void {
 	if (!palette) {
 		applyAppTheme(loadAppThemeId());
@@ -274,7 +274,7 @@ export function applyAppBackgroundPalette(
 	root.style.setProperty("--color-inferay-accent-hover", palette.accentHover);
 	root.style.setProperty(
 		"--color-inferay-accent-foreground",
-		foregroundForHex(palette.accent)
+		foregroundForHex(palette.accent),
 	);
 	root.style.setProperty("--color-inferay-info", palette.accent);
 }

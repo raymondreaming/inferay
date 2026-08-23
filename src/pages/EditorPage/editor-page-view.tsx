@@ -6,7 +6,7 @@ import {
 	AgentChatView,
 } from "../../components/chat/AgentChatView.tsx";
 import { ChatPaneBoundary } from "../../components/chat/ChatPaneBoundary.tsx";
-import type { SelectedFile } from "../../components/git/ChangeFileSidebar.tsx";
+import { FileTypeIcon } from "../../components/file/FileTypeIcon.tsx";
 import { LiquidSegmentedRail } from "../../components/ui/gooey/LiquidSegmentedRail.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
 import {
@@ -14,9 +14,7 @@ import {
 	IconExpand,
 	IconGitBranch,
 	IconLayoutGrid,
-	IconPlus,
 	IconSettings,
-	IconX,
 } from "../../components/ui/Icons.tsx";
 import type { summarizeHunkDiff } from "../../features/git/useGitDiff.tsx";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
@@ -187,10 +185,7 @@ export function DiffViewerTopBar({
 	diffViewMode,
 	cwd,
 	filePath,
-	selectedFile,
 	diffStats,
-	onStageFile,
-	onUnstageFile,
 	onMainViewModeChange,
 	onDiffViewModeChange,
 	zenMode,
@@ -201,10 +196,7 @@ export function DiffViewerTopBar({
 	cwd?: string;
 	gitBranch: string | null;
 	filePath?: string;
-	selectedFile: SelectedFile | null;
 	diffStats: ReturnType<typeof summarizeHunkDiff>;
-	onStageFile: (path: string) => void;
-	onUnstageFile: (path: string) => void;
 	onMainViewModeChange: (mode: "diff" | "graph") => void;
 	onDiffViewModeChange: (mode: DiffViewMode) => void;
 	onGitBranchChanged?: (branch?: string) => void;
@@ -214,8 +206,8 @@ export function DiffViewerTopBar({
 	const [hoveredToolbarIndex, setHoveredToolbarIndex] = useState<number | null>(
 		null,
 	);
-	const fileActionTitle = selectedFile?.staged ? "Unstage file" : "Stage file";
 	const dirName = cwd ? cwd.split("/").pop() || cwd : null;
+	const fileName = filePath?.split("/").pop() ?? filePath;
 
 	return (
 		<div {...stylex.props(styles.topBar)}>
@@ -245,13 +237,13 @@ export function DiffViewerTopBar({
 			</div>
 
 			{filePath && (
-				<span {...stylex.props(styles.filePathLabel)}>{filePath}</span>
+				<span {...stylex.props(styles.fileIdentity)} title={filePath}>
+					<FileTypeIcon path={filePath} size={14} />
+					<span {...stylex.props(styles.filePathLabel)}>{fileName}</span>
+				</span>
 			)}
 			{filePath && mainViewMode === "diff" && (
 				<span {...stylex.props(styles.diffStatsLabel)}>
-					<span>
-						{diffStats.hunks} hunk{diffStats.hunks === 1 ? "" : "s"}
-					</span>
 					{diffStats.added > 0 && (
 						<span {...stylex.props(styles.addedText)}>+{diffStats.added}</span>
 					)}
@@ -261,21 +253,6 @@ export function DiffViewerTopBar({
 						</span>
 					)}
 				</span>
-			)}
-			{filePath && selectedFile && (
-				<IconButton
-					type="button"
-					title={fileActionTitle}
-					onClick={() =>
-						selectedFile.staged
-							? onUnstageFile(selectedFile.path)
-							: onStageFile(selectedFile.path)
-					}
-					variant="subtle"
-					size="xs"
-				>
-					{selectedFile.staged ? <IconX size={10} /> : <IconPlus size={10} />}
-				</IconButton>
 			)}
 			<span {...stylex.props(styles.spacer)} />
 
@@ -488,6 +465,12 @@ const styles = stylex.create({
 		color: color.textMuted,
 		fontFamily: "var(--font-diff)",
 		fontSize: font.size_1,
+	},
+	fileIdentity: {
+		display: "flex",
+		minWidth: 0,
+		alignItems: "center",
+		gap: controlSize._1_5,
 	},
 	diffStatsLabel: {
 		alignItems: "center",
