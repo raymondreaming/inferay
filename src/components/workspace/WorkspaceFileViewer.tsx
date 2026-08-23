@@ -6,6 +6,7 @@ import {
 } from "../../hooks/useShikiHighlighter.tsx";
 import { fetchJson } from "../../lib/fetch-json.ts";
 import { indexedValues } from "../../lib/indexed-values.ts";
+import { readStoredJson, writeStoredJson } from "../../lib/stored-json.ts";
 import { color, controlSize, font, radius } from "../../tokens.stylex.ts";
 import { FileTypeIcon } from "../file/FileTypeIcon.tsx";
 import {
@@ -32,7 +33,38 @@ type FileViewerSession = {
 	readonly openFiles: FileContentResponse[];
 };
 
+type PersistedFileViewerSession = {
+	readonly cwd: string;
+	readonly activePath: string | null;
+	readonly paths: string[];
+};
+
 const fileViewerSessions = new Map<string, FileViewerSession>();
+
+function fileViewerStorageKey(sessionId: string) {
+	return `agent-workspace-files:${sessionId}`;
+}
+
+function readPersistedFileViewerSession(
+	sessionId: string,
+	cwd: string,
+): PersistedFileViewerSession | null {
+	const stored = readStoredJson<PersistedFileViewerSession | null>(
+		fileViewerStorageKey(sessionId),
+		null,
+	);
+	if (!stored || stored.cwd !== cwd || !Array.isArray(stored.paths))
+		return null;
+	return {
+		cwd,
+		activePath:
+			typeof stored.activePath === "string" ? stored.activePath : null,
+		paths: stored.paths.filter(
+			(path, index, paths) =>
+				typeof path === "string" && !!path && paths.indexOf(path) === index,
+		),
+	};
+}
 
 function escapeHtml(text: string) {
 	return text
@@ -86,12 +118,12 @@ export const WorkspaceFileViewer = memo(function WorkspaceFileViewer({
 	readonly initialFile?: FileContentResponse;
 	readonly onClose: () => void;
 	readonly onFileTabDragStart?: (
-		event: DragEvent,
+		event: PointerEvent,
 		file: FileContentResponse,
 		completeMove: () => void,
 	) => void;
 	readonly draggable?: boolean;
-	readonly onDragStart?: (event: DragEvent) => void;
+	readonly onDragStart?: (event: PointerEvent) => void;
 	readonly onDragEnd?: () => void;
 	readonly openRequest?: {
 		readonly path: string;
@@ -101,17 +133,81 @@ export const WorkspaceFileViewer = memo(function WorkspaceFileViewer({
 	const [, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const cachedSession = fileViewerSessions.get(sessionId);
+	const [persistedSession] = useState(() =>
+		cachedSession ? null : readPersistedFileViewerSession(sessionId, cwd),
+	);
+	const pathsToRestore = useMemo(
+		() =>
+			(persistedSession?.paths ?? []).filter(
+				(path) => path !== initialFile?.path,
+			),
+		[initialFile?.path, persistedSession],
+	);
 	const [openFiles, setOpenFiles] = useState<FileContentResponse[]>(
 		cachedSession?.openFiles ?? (initialFile ? [initialFile] : []),
 	);
 	const [activePath, setActivePath] = useState<string | null>(
-		cachedSession?.activePath ?? initialFile?.path ?? null,
+		cachedSession?.activePath ??
+			persistedSession?.activePath ??
+			initialFile?.path ??
+			null,
+	);
+	const [restoringSession, setRestoringSession] = useState(
+		pathsToRestore.length > 0,
 	);
 	const activeFile = openFiles.find((file) => file.path === activePath) ?? null;
 
 	useEffect(() => {
 		fileViewerSessions.set(sessionId, { activePath, openFiles });
-	}, [activePath, openFiles, sessionId]);
+		if (restoringSession) return;
+		writeStoredJson<PersistedFileViewerSession>(
+			fileViewerStorageKey(sessionId),
+			{
+				cwd,
+				activePath,
+				paths: openFiles.map((file) => file.path),
+			},
+		);
+	}, [activePath, cwd, openFiles, restoringSession, sessionId]);
+
+	useEffect(() => {
+		if (pathsToRestore.length === 0) return;
+		let cancelled = false;
+		Promise.all(
+			pathsToRestore.map((path) => {
+				const params = new URLSearchParams({ cwd, path });
+				return fetchJson<FileContentResponse>(
+					`/api/files/content?${params}`,
+				).catch(() => null);
+			}),
+		).then((restoredFiles) => {
+			if (cancelled) return;
+			const available = restoredFiles.filter(
+				(file): file is FileContentResponse => file !== null,
+			);
+			setOpenFiles((current) => {
+				const byPath = new Map(
+					[...current, ...available].map((file) => [file.path, file]),
+				);
+				return (persistedSession?.paths ?? [])
+					.map((path) => byPath.get(path))
+					.filter((file): file is FileContentResponse => !!file);
+			});
+			const availablePaths = new Set([
+				...(initialFile ? [initialFile.path] : []),
+				...available.map((file) => file.path),
+			]);
+			setActivePath((current) =>
+				current && availablePaths.has(current)
+					? current
+					: (available[0]?.path ?? initialFile?.path ?? null),
+			);
+			setRestoringSession(false);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [cwd, initialFile, pathsToRestore, persistedSession?.paths]);
 
 	const openFile = useCallback(
 		(result: WorkspaceFileSearchResult | null) => {
@@ -163,7 +259,7 @@ export const WorkspaceFileViewer = memo(function WorkspaceFileViewer({
 		[activePath, openFiles],
 	);
 	const startFileTabDrag = useCallback(
-		(event: DragEvent, file: FileContentResponse) => {
+		(event: PointerEvent, file: FileContentResponse) => {
 			if (!onFileTabDragStart) return;
 			event.stopPropagation();
 			onFileTabDragStart(event, file, () => {
@@ -187,11 +283,10 @@ export const WorkspaceFileViewer = memo(function WorkspaceFileViewer({
 						? openFiles.map((file) => (
 								<div
 									key={file.path}
-									draggable={!!onFileTabDragStart}
 									data-workspace-dock-drag-source={
 										onFileTabDragStart ? "true" : undefined
 									}
-									onDragStart={(event) => startFileTabDrag(event, file)}
+									onPointerDown={(event) => startFileTabDrag(event, file)}
 									{...stylex.props(
 										styles.fileTab,
 										file.path === activePath && styles.fileTabActive,

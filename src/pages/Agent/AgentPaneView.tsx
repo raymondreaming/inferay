@@ -32,7 +32,7 @@ interface AgentPaneViewProps {
 	chatRef: (paneId: string, handle: AgentChatHandle | null) => void;
 	onAgentStatusChange?: (paneId: string, status: string) => void;
 	paneIndex?: number;
-	onHeaderDragStart?: (e: DragEvent, index: number) => void;
+	onHeaderDragStart?: (e: PointerEvent, index: number) => void;
 	onHeaderDragEnd?: () => void;
 	onAddPane?: (agentKind: AgentKind) => void;
 	onSetPaneAgentKind?: (paneId: string, agentKind: AgentKind) => void;
@@ -59,15 +59,8 @@ export const AgentPaneView = memo(function AgentPaneView({
 		? pane.agentKind
 		: loadDefaultChatSettings().agentKind;
 	const handlePaneDragStart = useCallback(
-		(e: DragEvent) => {
+		(e: PointerEvent) => {
 			if (paneIndex == null || !onHeaderDragStart) return;
-			const transfer = e.dataTransfer;
-			if (!transfer) return;
-			transfer.setData("text/plain", pane.id);
-			const img = new Image();
-			img.src =
-				"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
-			transfer.setDragImage(img, 0, 0);
 			onHeaderDragStart(e, paneIndex);
 		},
 		[onHeaderDragStart, pane.id, paneIndex],

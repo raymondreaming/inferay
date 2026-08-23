@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	constrainDockTreeColumns,
 	createDockTree,
 	dockAxisSpan,
 	dockPanelIds,
@@ -22,6 +23,47 @@ describe("workspace dock model", () => {
 			2,
 		);
 		expect(dockPanelIds(reconciled)).toEqual(["chat-b", "file", "chat-c"]);
+	});
+
+	test("fills the final row before creating a vertically scrolling row", () => {
+		const initial = createDockTree(["chat-a", "chat-b", "chat-c"], 3);
+		const fourth = reconcileDockTree(
+			initial,
+			["chat-a", "chat-b", "chat-c", "chat-d"],
+			3,
+		)!;
+		expect(dockAxisSpan(fourth, "horizontal")).toBe(3);
+		expect(dockAxisSpan(fourth, "vertical")).toBe(2);
+
+		const fifth = reconcileDockTree(
+			fourth,
+			["chat-a", "chat-b", "chat-c", "chat-d", "file"],
+			3,
+		)!;
+		expect(dockAxisSpan(fifth, "horizontal")).toBe(3);
+		expect(dockAxisSpan(fifth, "vertical")).toBe(2);
+		expect(fifth).toMatchObject({
+			type: "split",
+			direction: "vertical",
+			second: { type: "split", direction: "horizontal" },
+		});
+	});
+
+	test("migrates saved layouts that exceed the selected column ceiling", () => {
+		const legacySlices = createDockTree(
+			["chat-a", "chat-b", "chat-c", "chat-d", "file"],
+			5,
+		)!;
+		const migrated = constrainDockTreeColumns(legacySlices, 3);
+		expect(dockPanelIds(migrated)).toEqual([
+			"chat-a",
+			"chat-b",
+			"chat-c",
+			"chat-d",
+			"file",
+		]);
+		expect(dockAxisSpan(migrated, "horizontal")).toBe(3);
+		expect(dockAxisSpan(migrated, "vertical")).toBe(2);
 	});
 
 	test("docks one panel below another while preserving the remaining layout", () => {

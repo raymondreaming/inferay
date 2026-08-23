@@ -531,6 +531,7 @@ function agentViewReducer(
 }
 
 type AgentMainSurfaceProps = {
+	readonly chatDiffPanel: unknown;
 	readonly chatSidebar: unknown;
 	readonly graphView: unknown;
 	readonly groups: AgentSavedState["groups"];
@@ -702,6 +703,7 @@ function useAgentPaneActions({
 }
 
 function AgentMainSurface({
+	chatDiffPanel,
 	chatSidebar,
 	graphView,
 	groups,
@@ -740,6 +742,7 @@ function AgentMainSurface({
 									>
 										<div {...stylex.props(styles.chatWorkspace)}>
 											<div {...stylex.props(styles.chatDock)}>{agentGrid}</div>
+											{chatDiffPanel}
 											{chatSidebar}
 										</div>
 									</div>
@@ -1038,6 +1041,7 @@ export function AgentPage() {
 		);
 	return (
 		<AgentMainSurface
+			chatDiffPanel={chatWorkspace.diffPanel}
 			chatSidebar={chatWorkspace.sidebar}
 			graphView={graphView}
 			groups={groups}

@@ -10,10 +10,12 @@ import {
 import type React from "react";
 import type { AgentChatHandle } from "../../components/chat/AgentChatView.tsx";
 import {
+	constrainDockTreeColumns,
 	createDockTree,
 	type DockEdge,
 	type DockOuterEdge,
 	type DockTree,
+	dockAxisSpan,
 	insertDockPanel,
 	insertDockPanelAtOuterEdge,
 	moveDockPanel,
@@ -28,6 +30,7 @@ import type {
 	AgentTheme,
 } from "../../features/agent/agent-utils.ts";
 import { useGitStatus } from "../../features/git/useGitStatus.tsx";
+import { lockPointerSelection } from "../../lib/pointer-selection-lock.ts";
 import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
 import { color, controlSize, motion } from "../../tokens.stylex.ts";
 import { AgentPaneView } from "./AgentPaneView.tsx";
@@ -35,15 +38,16 @@ import { AgentPaneView } from "./AgentPaneView.tsx";
 const EMPTY_CWD_LIST: string[] = [];
 const EMPTY_AUXILIARY_PANELS: readonly AuxiliaryPanel[] = [];
 const ROOT_DOCK_TARGET_ID = "__workspace-root__";
+const MIN_GRID_ROW_HEIGHT = 340;
 
 type AuxiliaryPanel = {
 	readonly id: string;
 	readonly onSelect?: () => void;
 	readonly render: (drag: {
 		readonly draggable: boolean;
-		readonly onDragStart: (event: DragEvent) => void;
+		readonly onDragStart: (event: PointerEvent) => void;
 		readonly onCreatePanelDragStart: (
-			event: DragEvent,
+			event: PointerEvent,
 			panelId: string,
 			completeDrop: () => void,
 		) => void;
@@ -82,7 +86,7 @@ const paneViewProps = (
 	p: AgentGridProps,
 	pane: AgentPaneModel,
 	idx: number,
-	onDragStart: (e: DragEvent, i: number) => void,
+	onDragStart: (e: PointerEvent, i: number) => void,
 	onDragEnd: () => void,
 	gitBranch: string | null,
 ) => ({
@@ -163,12 +167,14 @@ function canScrollHorizontally(element: HTMLElement, deltaX: number) {
 	return false;
 }
 
-function dockEdgeForPointer(
-	event: DragEvent & { currentTarget: HTMLDivElement },
+function dockEdgeForPoint(
+	clientX: number,
+	clientY: number,
+	element: HTMLElement,
 ): DockEdge {
-	const rect = event.currentTarget.getBoundingClientRect();
-	const x = (event.clientX - rect.left) / Math.max(1, rect.width);
-	const y = (event.clientY - rect.top) / Math.max(1, rect.height);
+	const rect = element.getBoundingClientRect();
+	const x = (clientX - rect.left) / Math.max(1, rect.width);
+	const y = (clientY - rect.top) / Math.max(1, rect.height);
 	const distance = Math.min(x, 1 - x, y, 1 - y);
 	if (distance > 0.28) return "center";
 	if (distance === x) return "left";
@@ -178,7 +184,7 @@ function dockEdgeForPointer(
 }
 
 function outerDockEdgeForPointer(
-	event: Pick<DragEvent, "clientX" | "clientY">,
+	event: { readonly clientX: number; readonly clientY: number },
 	root: HTMLElement,
 ): DockOuterEdge | null {
 	const rect = root.getBoundingClientRect();
@@ -211,6 +217,7 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 		active = true,
 		panes,
 		columns,
+		rows,
 		layoutMode,
 		theme,
 		onReorderPanes,
@@ -251,6 +258,13 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 		() => reconcileDockTree(dockTree, panelIds, columns),
 		[columns, dockTree, panelIds],
 	);
+	const dockVerticalSpan = renderedDockTree
+		? Math.max(1, dockAxisSpan(renderedDockTree, "vertical"))
+		: 1;
+	const dockCanvasMinHeight = `max(${Math.max(
+		100,
+		(dockVerticalSpan / Math.max(1, rows)) * 100,
+	)}%, ${dockVerticalSpan * MIN_GRID_ROW_HEIGHT}px)`;
 	const chatStatusCwds = useMemo(() => {
 		if (!active) return EMPTY_CWD_LIST;
 		const seen = new Set<string>();
@@ -292,118 +306,218 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 		clearDragStateRef.current = clearDragState;
 	}, [clearDragState]);
 
-	const handleHeaderDragStart = useCallback(
-		(e: DragEvent, index: number) => {
-			pendingPanelDropRef.current = null;
-			dragIndexRef.current = index;
-			setDragIndex(index);
-			const paneId = panes[index]?.id ?? null;
-			setDragPanelId(paneId);
-			if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
-		},
-		[panes],
-	);
-	const handleAuxiliaryDragStart = useCallback((event: DragEvent) => {
-		const panelId = (
-			event.currentTarget as HTMLElement | null
-		)?.closest<HTMLElement>("[data-agent-grid-pane-id]")?.dataset
-			.agentGridPaneId;
-		if (!panelId) return;
-		pendingPanelDropRef.current = null;
-		setDragPanelId(panelId);
-		if (event.dataTransfer) {
-			event.dataTransfer.effectAllowed = "move";
-			event.dataTransfer.setData("text/plain", panelId);
-			const image = new Image();
-			image.src =
-				"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
-			event.dataTransfer.setDragImage(image, 0, 0);
-		}
-	}, []);
-	const handleCreatePanelDragStart = useCallback(
-		(event: DragEvent, panelId: string, completeDrop: () => void) => {
-			pendingPanelDropRef.current = { id: panelId, complete: completeDrop };
-			setDragPanelId(panelId);
-			if (event.dataTransfer) {
-				event.dataTransfer.effectAllowed = "move";
-				event.dataTransfer.setData("text/plain", panelId);
-				const image = new Image();
-				image.src =
-					"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
-				event.dataTransfer.setDragImage(image, 0, 0);
+	const commitDockPlacement = useCallback(
+		(
+			sourceId: string,
+			target: { readonly id: string; readonly edge: DockEdge },
+			pendingPanel: {
+				readonly id: string;
+				readonly complete: () => void;
+			} | null,
+		) => {
+			if (!renderedDockTree) return;
+			let nextTree: DockTree;
+			if (target.id === ROOT_DOCK_TARGET_ID && target.edge !== "center") {
+				nextTree = pendingPanel
+					? insertDockPanelAtOuterEdge(
+							renderedDockTree,
+							pendingPanel.id,
+							target.edge,
+						)
+					: moveDockPanelToOuterEdge(renderedDockTree, sourceId, target.edge);
+			} else {
+				nextTree = pendingPanel
+					? insertDockPanel(
+							renderedDockTree,
+							pendingPanel.id,
+							target.id,
+							target.edge,
+						)
+					: moveDockPanel(renderedDockTree, sourceId, target.id, target.edge);
+			}
+			if (layoutMode === "grid") {
+				nextTree = constrainDockTreeColumns(nextTree, columns);
+			}
+			writeStoredValue(dockStorageKey, JSON.stringify(nextTree));
+			setDockTree(nextTree);
+			pendingPanel?.complete();
+			if (!pendingPanel && panes.some((pane) => pane.id === sourceId)) {
+				props.onSelectPane(sourceId);
 			}
 		},
-		[],
+		[
+			columns,
+			dockStorageKey,
+			layoutMode,
+			panes,
+			props.onSelectPane,
+			renderedDockTree,
+		],
+	);
+
+	const beginPointerDock = useCallback(
+		(
+			event: PointerEvent,
+			sourceId: string,
+			sourceIndex: number | null,
+			pendingPanel: {
+				readonly id: string;
+				readonly complete: () => void;
+			} | null = null,
+		) => {
+			if (event.button !== 0) return;
+			event.stopPropagation();
+			const source = event.currentTarget as HTMLElement | null;
+			const pointerId = event.pointerId;
+			const startX = event.clientX;
+			const startY = event.clientY;
+			let activated = false;
+			let releaseSelection: (() => void) | null = null;
+			let target: {
+				readonly id: string;
+				readonly edge: DockEdge;
+				readonly rowIndex?: number;
+			} | null = null;
+			pendingPanelDropRef.current = pendingPanel;
+			try {
+				source?.setPointerCapture(pointerId);
+			} catch {}
+
+			const updateTarget = (moveEvent: PointerEvent) => {
+				if (moveEvent.pointerId !== pointerId) return;
+				if (!activated) {
+					const distance = Math.hypot(
+						moveEvent.clientX - startX,
+						moveEvent.clientY - startY,
+					);
+					if (distance < 3) return;
+					activated = true;
+					releaseSelection = lockPointerSelection();
+					dragIndexRef.current = sourceIndex;
+					setDragIndex(sourceIndex);
+					setDragPanelId(sourceId);
+					window.getSelection()?.removeAllRanges();
+				}
+				moveEvent.preventDefault();
+				const root = containerRef.current;
+				if (!root) return;
+				if (layoutMode !== "rows") {
+					const outerEdge = outerDockEdgeForPointer(moveEvent, root);
+					const canUseOuterEdge = pendingPanel
+						? panelIds.length > 0
+						: panelIds.length > 1;
+					if (outerEdge && canUseOuterEdge) {
+						target = { id: ROOT_DOCK_TARGET_ID, edge: outerEdge };
+						setDockTarget(target);
+						setDragOverIndex(null);
+						return;
+					}
+				}
+				const hit = document.elementFromPoint(
+					moveEvent.clientX,
+					moveEvent.clientY,
+				);
+				const row = hit?.closest<HTMLElement>("[data-agent-row-pane-id]");
+				if (row) {
+					const rowId = row.dataset.agentRowPaneId;
+					const rowIndex = panes.findIndex((pane) => pane.id === rowId);
+					target =
+						rowId && rowIndex >= 0
+							? { id: rowId, edge: "center", rowIndex }
+							: null;
+					setDragOverIndex(target?.rowIndex ?? null);
+					setDockTarget(null);
+					return;
+				}
+				const cell = hit?.closest<HTMLElement>("[data-agent-grid-pane-id]");
+				const targetId = cell?.dataset.agentGridPaneId;
+				if (!cell || !targetId || (!pendingPanel && targetId === sourceId)) {
+					target = null;
+					setDockTarget(null);
+					return;
+				}
+				target = {
+					id: targetId,
+					edge: dockEdgeForPoint(moveEvent.clientX, moveEvent.clientY, cell),
+				};
+				setDockTarget(target);
+			};
+
+			const finish = (finishEvent: PointerEvent, commit: boolean) => {
+				if (finishEvent.pointerId !== pointerId) return;
+				window.removeEventListener("pointermove", updateTarget);
+				window.removeEventListener("pointerup", finishDrop);
+				window.removeEventListener("pointercancel", cancelDrop);
+				try {
+					source?.releasePointerCapture(pointerId);
+				} catch {}
+				releaseSelection?.();
+				if (commit && activated && target) {
+					if (
+						layoutMode === "rows" &&
+						sourceIndex !== null &&
+						target.rowIndex !== undefined
+					) {
+						if (sourceIndex !== target.rowIndex) {
+							onReorderPanes?.(sourceIndex, target.rowIndex);
+						}
+					} else {
+						commitDockPlacement(sourceId, target, pendingPanel);
+					}
+				} else if (!activated && sourceIndex !== null) {
+					props.onSelectPane(sourceId);
+				}
+				clearDragState();
+			};
+			const finishDrop = (finishEvent: PointerEvent) =>
+				finish(finishEvent, true);
+			const cancelDrop = (finishEvent: PointerEvent) =>
+				finish(finishEvent, false);
+			window.addEventListener("pointermove", updateTarget);
+			window.addEventListener("pointerup", finishDrop);
+			window.addEventListener("pointercancel", cancelDrop);
+		},
+		[
+			clearDragState,
+			commitDockPlacement,
+			layoutMode,
+			onReorderPanes,
+			panelIds.length,
+			panes,
+			props.onSelectPane,
+		],
+	);
+
+	const handleHeaderDragStart = useCallback(
+		(event: PointerEvent, index: number) => {
+			const paneId = panes[index]?.id;
+			if (paneId) beginPointerDock(event, paneId, index);
+		},
+		[beginPointerDock, panes],
+	);
+	const handleAuxiliaryDragStart = useCallback(
+		(event: PointerEvent) => {
+			const panelId = (
+				event.currentTarget as HTMLElement | null
+			)?.closest<HTMLElement>("[data-agent-grid-pane-id]")?.dataset
+				.agentGridPaneId;
+			if (panelId) beginPointerDock(event, panelId, null);
+		},
+		[beginPointerDock],
+	);
+	const handleCreatePanelDragStart = useCallback(
+		(event: PointerEvent, panelId: string, completeDrop: () => void) =>
+			beginPointerDock(event, panelId, null, {
+				id: panelId,
+				complete: completeDrop,
+			}),
+		[beginPointerDock],
 	);
 
 	const handleHeaderDragEnd = useCallback(() => {
 		clearDragState();
 	}, [clearDragState]);
 
-	const handleDragOver = useCallback((e: DragEvent, index: number) => {
-		if (dragIndexRef.current === null) return;
-		e.preventDefault();
-		if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-		setDragOverIndex((current) => (current === index ? current : index));
-	}, []);
-
-	const handleDrop = useCallback(
-		(e: DragEvent, toIndex: number) => {
-			const fromIndex = dragIndexRef.current;
-			if (fromIndex === null) return;
-			e.preventDefault();
-			if (fromIndex !== toIndex && onReorderPanes)
-				onReorderPanes(fromIndex, toIndex);
-			clearDragState();
-		},
-		[clearDragState, onReorderPanes],
-	);
-	const handleDockDrop = useCallback(
-		(event: DragEvent, targetId: string) => {
-			if (!dragPanelId || !renderedDockTree) return;
-			event.preventDefault();
-			event.stopPropagation();
-			const pendingPanel = pendingPanelDropRef.current;
-			let nextTree: DockTree;
-			if (
-				dockTarget?.id === ROOT_DOCK_TARGET_ID &&
-				dockTarget.edge !== "center"
-			) {
-				nextTree = pendingPanel
-					? insertDockPanelAtOuterEdge(
-							renderedDockTree,
-							pendingPanel.id,
-							dockTarget.edge,
-						)
-					: moveDockPanelToOuterEdge(
-							renderedDockTree,
-							dragPanelId,
-							dockTarget.edge,
-						);
-			} else {
-				const edge = dockTarget?.id === targetId ? dockTarget.edge : "center";
-				nextTree = pendingPanel
-					? insertDockPanel(renderedDockTree, pendingPanel.id, targetId, edge)
-					: moveDockPanel(renderedDockTree, dragPanelId, targetId, edge);
-			}
-			writeStoredValue(dockStorageKey, JSON.stringify(nextTree));
-			setDockTree(nextTree);
-			pendingPanel?.complete();
-			if (!pendingPanel && panes.some((pane) => pane.id === dragPanelId)) {
-				props.onSelectPane(dragPanelId);
-			}
-			clearDragState();
-		},
-		[
-			clearDragState,
-			dockStorageKey,
-			dockTarget,
-			dragPanelId,
-			panes,
-			props.onSelectPane,
-			renderedDockTree,
-		],
-	);
 	const handleDividerPointerDown = useCallback(
 		(
 			event: PointerEvent & { currentTarget: HTMLButtonElement },
@@ -413,6 +527,7 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 			const splitElement = event.currentTarget.parentElement;
 			if (!splitElement) return;
 			event.preventDefault();
+			const releaseSelection = lockPointerSelection();
 			const pointerId = event.pointerId;
 			event.currentTarget.setPointerCapture?.(pointerId);
 			const resize = (moveEvent: PointerEvent) => {
@@ -426,6 +541,7 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 				);
 			};
 			const finish = () => {
+				releaseSelection();
 				window.removeEventListener("pointermove", resize);
 				window.removeEventListener("pointerup", finish);
 				window.removeEventListener("pointercancel", finish);
@@ -533,9 +649,6 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 							}
 							props.onSelectPane(pane.id);
 						}}
-						onDragOver={(e) => handleDragOver(e, idx)}
-						onDrop={(e) => handleDrop(e, idx)}
-						onDragLeave={() => setDragOverIndex(null)}
 					>
 						<AgentPaneView
 							{...paneViewProps(
@@ -619,46 +732,14 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 						props.onSelectPane(pane.id);
 						return;
 					}
+					interactionPaneIdRef.current = node.id;
 					auxiliaryPanel?.onSelect?.();
 				}}
 				onClickCapture={(event) => {
 					if (!isWorkspaceDockDragSource(event.target)) return;
+					interactionPaneIdRef.current = node.id;
 					if (pane) props.onSelectPane(pane.id);
 					else auxiliaryPanel?.onSelect?.();
-				}}
-				onDragOver={(event) => {
-					if (!dragPanelId) return;
-					const root = containerRef.current;
-					const outerEdge = root ? outerDockEdgeForPointer(event, root) : null;
-					if (outerEdge && panelIds.length > 1) {
-						event.preventDefault();
-						event.stopPropagation();
-						setDockTarget((current) =>
-							current?.id === ROOT_DOCK_TARGET_ID && current.edge === outerEdge
-								? current
-								: { id: ROOT_DOCK_TARGET_ID, edge: outerEdge },
-						);
-						return;
-					}
-					if (dragPanelId === node.id) return;
-					event.preventDefault();
-					event.stopPropagation();
-					const edge = dockEdgeForPointer(event);
-					setDockTarget((current) =>
-						current?.id === node.id && current.edge === edge
-							? current
-							: { id: node.id, edge },
-					);
-				}}
-				onDrop={(event) => handleDockDrop(event, node.id)}
-				onDragLeave={(event) => {
-					if (
-						!event.currentTarget.contains(event.relatedTarget as Node | null)
-					) {
-						setDockTarget((current) =>
-							current?.id === node.id ? null : current,
-						);
-					}
 				}}
 			>
 				{pane ? (
@@ -699,29 +780,13 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 			{...stylex.props(styles.dockRoot)}
 			data-agent-grid-scroll-area
 			onWheelCapture={handleGridWheelCapture}
-			onDragOver={(event) => {
-				if (!dragPanelId || panelIds.length < 2) return;
-				const outerEdge = outerDockEdgeForPointer(event, event.currentTarget);
-				if (!outerEdge) return;
-				event.preventDefault();
-				setDockTarget((current) =>
-					current?.id === ROOT_DOCK_TARGET_ID && current.edge === outerEdge
-						? current
-						: { id: ROOT_DOCK_TARGET_ID, edge: outerEdge },
-				);
-			}}
-			onDrop={(event) => {
-				if (dockTarget?.id !== ROOT_DOCK_TARGET_ID) return;
-				handleDockDrop(event, ROOT_DOCK_TARGET_ID);
-			}}
-			onDragLeave={(event) => {
-				if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
-					return;
-				}
-				setDockTarget(null);
-			}}
 		>
-			{renderedDockTree ? renderDockNode(renderedDockTree) : null}
+			<div
+				{...stylex.props(styles.dockCanvas)}
+				style={{ minHeight: dockCanvasMinHeight }}
+			>
+				{renderedDockTree ? renderDockNode(renderedDockTree) : null}
+			</div>
 			{dockTarget?.id === ROOT_DOCK_TARGET_ID ? (
 				<div
 					aria-hidden="true"
@@ -773,12 +838,22 @@ const styles = stylex.create({
 		transitionProperty: "border-color, opacity",
 	},
 	dockRoot: {
+		position: "relative",
 		display: "flex",
 		width: "100%",
 		height: "100%",
 		minWidth: 0,
 		minHeight: 0,
-		overflow: "hidden",
+		overflowX: "hidden",
+		overflowY: "auto",
+		overscrollBehavior: "contain",
+	},
+	dockCanvas: {
+		display: "flex",
+		width: "100%",
+		height: "100%",
+		minWidth: 0,
+		flexShrink: 0,
 	},
 	dockSplit: {
 		display: "flex",

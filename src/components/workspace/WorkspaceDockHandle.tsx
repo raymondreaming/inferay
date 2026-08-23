@@ -5,30 +5,25 @@ import { color, controlSize, radius } from "../../tokens.stylex.ts";
 export function WorkspaceDockHandle({
 	draggable,
 	onDragStart,
-	onDragEnd,
 }: {
 	readonly draggable?: boolean;
-	readonly onDragStart?: (event: DragEvent) => void;
+	readonly onDragStart?: (event: PointerEvent) => void;
 	readonly onDragEnd?: () => void;
 }) {
 	if (!draggable) return null;
 	const handleProps = stylex.props(styles.handle);
 	return (
-		<button
-			type="button"
-			draggable
+		<span
 			data-workspace-dock-drag-source="true"
-			onDragStart={onDragStart}
-			onDragEnd={onDragEnd}
+			onPointerDown={onDragStart}
 			title="Drag panel to dock"
-			aria-label="Drag panel to dock"
 			{...handleProps}
 			className={`${APP_REGION_NO_DRAG_CLASS} ${handleProps.className ?? ""}`}
 		>
 			{Array.from({ length: 6 }, (_, index) => (
 				<span key={index} {...stylex.props(styles.dot)} />
 			))}
-		</button>
+		</span>
 	);
 }
 
@@ -46,6 +41,8 @@ const styles = stylex.create({
 		borderRadius: radius.sm,
 		borderWidth: 0,
 		padding: 0,
+		touchAction: "none",
+		userSelect: "none",
 		cursor: { default: "grab", ":active": "grabbing" },
 		backgroundColor: { default: "transparent", ":hover": color.surfaceControl },
 	},

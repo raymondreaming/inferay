@@ -20,6 +20,7 @@ import {
 	useGitDiff,
 } from "../../features/git/useGitDiff.tsx";
 import { useGitStatus } from "../../features/git/useGitStatus.tsx";
+import { lockPointerSelection } from "../../lib/pointer-selection-lock.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import {
 	readStoredJson,
@@ -45,9 +46,14 @@ import {
 
 const SIDEBAR_VISIBLE_KEY = "agent-workspace-changes-visible";
 const SIDEBAR_WIDTH_KEY = "agent-workspace-changes-width";
+const DIFF_WIDTH_KEY_PREFIX = "agent-workspace-diff-width:";
 const MIN_SIDEBAR_WIDTH = 230;
 const MAX_SIDEBAR_WIDTH = 420;
 const DEFAULT_SIDEBAR_WIDTH = 300;
+const MIN_DIFF_WIDTH = 320;
+const MAX_DIFF_WIDTH = 820;
+const DEFAULT_DIFF_WIDTH = 560;
+const MIN_WORKSPACE_CANVAS_WIDTH = 360;
 
 function loadSidebarVisible() {
 	return readStoredValue(SIDEBAR_VISIBLE_KEY) !== "false";
@@ -60,11 +66,20 @@ function loadSidebarWidth() {
 		: DEFAULT_SIDEBAR_WIDTH;
 }
 
+function loadDiffWidth(workspaceId: string) {
+	const stored = Number(
+		readStoredValue(`${DIFF_WIDTH_KEY_PREFIX}${workspaceId}`),
+	);
+	return Number.isFinite(stored)
+		? Math.min(MAX_DIFF_WIDTH, Math.max(MIN_DIFF_WIDTH, stored))
+		: DEFAULT_DIFF_WIDTH;
+}
+
 type DragProps = {
 	readonly draggable: boolean;
-	readonly onDragStart: (event: DragEvent) => void;
+	readonly onDragStart: (event: PointerEvent) => void;
 	readonly onCreatePanelDragStart: (
-		event: DragEvent,
+		event: PointerEvent,
 		panelId: string,
 		completeDrop: () => void,
 	) => void;
@@ -207,13 +222,13 @@ function ChatDiffPanel({
 	readonly file: SelectedFile;
 	readonly loading: boolean;
 	readonly onClose: () => void;
-	readonly drag: DragProps;
+	readonly drag?: DragProps;
 }) {
 	const stats = useMemo(() => summarizeHunkDiff(diff), [diff]);
 	return (
 		<section {...stylex.props(styles.viewerPanel)}>
 			<header {...stylex.props(styles.viewerHeader)}>
-				<WorkspaceDockHandle {...drag} />
+				{drag ? <WorkspaceDockHandle {...drag} /> : null}
 				<FileTypeIcon path={file.path} size={14} />
 				<span {...stylex.props(styles.viewerTitle)}>
 					{file.path.split("/").pop() ?? file.path}
@@ -328,9 +343,15 @@ export function useChatWorkspaceTools({
 	const [fileViewMode, setFileViewModeState] = useState(loadGitFileViewMode);
 	const [sidebarVisible, setSidebarVisible] = useState(loadSidebarVisible);
 	const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
+	const [diffWidth, setDiffWidth] = useState(() => loadDiffWidth(workspaceId));
 	const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+	const diffDragRef = useRef<{ startX: number; startWidth: number } | null>(
+		null,
+	);
 	const sidebarWidthRef = useRef(sidebarWidth);
+	const diffWidthRef = useRef(diffWidth);
 	sidebarWidthRef.current = sidebarWidth;
+	diffWidthRef.current = diffWidth;
 	const activeCwd = focusedAuxiliaryPanel?.cwd ?? cwd;
 	const trackedCwds = useMemo(() => {
 		if (!active) return [];
@@ -413,6 +434,9 @@ export function useChatWorkspaceTools({
 		setSidebarWidth(loadSidebarWidth());
 	}, [active]);
 	useEffect(() => {
+		setDiffWidth(loadDiffWidth(workspaceId));
+	}, [workspaceId]);
+	useEffect(() => {
 		if (!active) return;
 		return listenWindowEvent(WORKSPACE_FILE_OPEN_EVENT, (event) => {
 			const detail = (event as CustomEvent<WorkspaceFileOpenDetail>).detail;
@@ -473,6 +497,7 @@ export function useChatWorkspaceTools({
 	const handleResizeStart = useCallback(
 		(event: MouseEvent) => {
 			event.preventDefault();
+			const releaseSelection = lockPointerSelection();
 			dragRef.current = { startX: event.clientX, startWidth: sidebarWidth };
 			const move = (moveEvent: MouseEvent) => {
 				if (!dragRef.current) return;
@@ -489,6 +514,7 @@ export function useChatWorkspaceTools({
 				setSidebarWidth(width);
 			};
 			const end = () => {
+				releaseSelection();
 				writeStoredValue(SIDEBAR_WIDTH_KEY, String(sidebarWidthRef.current));
 				dragRef.current = null;
 				document.removeEventListener("mousemove", move);
@@ -498,6 +524,62 @@ export function useChatWorkspaceTools({
 			document.addEventListener("mouseup", end);
 		},
 		[sidebarWidth],
+	);
+	const handleDiffResizeStart = useCallback(
+		(event: PointerEvent & { currentTarget: HTMLButtonElement }) => {
+			if (event.button !== 0) return;
+			event.preventDefault();
+			event.stopPropagation();
+			const releaseSelection = lockPointerSelection();
+			const workspaceWidth =
+				event.currentTarget.parentElement?.parentElement?.getBoundingClientRect()
+					.width ?? window.innerWidth;
+			const reservedSidebarWidth = sidebarVisible ? sidebarWidth : 38;
+			const availableWidth = Math.max(
+				MIN_DIFF_WIDTH,
+				workspaceWidth - reservedSidebarWidth - MIN_WORKSPACE_CANVAS_WIDTH,
+			);
+			const maximumWidth = Math.min(MAX_DIFF_WIDTH, availableWidth);
+			const pointerId = event.pointerId;
+			diffDragRef.current = {
+				startX: event.clientX,
+				startWidth: diffWidth,
+			};
+			try {
+				event.currentTarget.setPointerCapture(pointerId);
+			} catch {}
+			const move = (moveEvent: PointerEvent) => {
+				if (moveEvent.pointerId !== pointerId || !diffDragRef.current) return;
+				moveEvent.preventDefault();
+				const width = Math.min(
+					maximumWidth,
+					Math.max(
+						MIN_DIFF_WIDTH,
+						diffDragRef.current.startWidth +
+							diffDragRef.current.startX -
+							moveEvent.clientX,
+					),
+				);
+				diffWidthRef.current = width;
+				setDiffWidth(width);
+			};
+			const end = (endEvent: PointerEvent) => {
+				if (endEvent.pointerId !== pointerId) return;
+				releaseSelection();
+				writeStoredValue(
+					`${DIFF_WIDTH_KEY_PREFIX}${workspaceId}`,
+					String(diffWidthRef.current),
+				);
+				diffDragRef.current = null;
+				window.removeEventListener("pointermove", move);
+				window.removeEventListener("pointerup", end);
+				window.removeEventListener("pointercancel", end);
+			};
+			window.addEventListener("pointermove", move);
+			window.addEventListener("pointerup", end);
+			window.addEventListener("pointercancel", end);
+		},
+		[diffWidth, sidebarVisible, sidebarWidth, workspaceId],
 	);
 
 	const auxiliaryPanels = useMemo(() => {
@@ -585,41 +667,44 @@ export function useChatWorkspaceTools({
 				),
 			});
 		}
-		if (diffViewerCwd && selectedFile) {
-			panels.push({
-				id: "workspace-diff-viewer",
-				onSelect: () =>
-					setFocusedAuxiliaryPanel({
-						id: "workspace-diff-viewer",
-						cwd: diffViewerCwd,
-					}),
-				render: (drag: DragProps) => (
-					<ChatDiffPanel
-						diff={diff}
-						file={selectedFile}
-						loading={diffLoading}
-						onClose={closeDiffViewer}
-						drag={drag}
-					/>
-				),
-			});
-		}
 		return panels;
 	}, [
-		closeDiffViewer,
 		closeFileViewer,
 		detachedFilePanels,
-		diff,
-		diffLoading,
-		diffViewerCwd,
 		fileRequest,
 		fileViewerCwd,
 		fileViewerOpen,
-		selectedFile,
 		setDetachedFilePanels,
 		setFocusedAuxiliaryPanel,
 		workspaceId,
 	]);
+
+	const diffPanel =
+		diffViewerCwd && selectedFile ? (
+			<aside
+				{...stylex.props(styles.diffRail)}
+				style={{ width: diffWidth }}
+				onPointerDownCapture={() =>
+					setFocusedAuxiliaryPanel({
+						id: "workspace-diff-viewer",
+						cwd: diffViewerCwd,
+					})
+				}
+			>
+				<button
+					type="button"
+					aria-label="Resize diff panel"
+					onPointerDown={handleDiffResizeStart}
+					{...stylex.props(styles.diffResizeHandle)}
+				/>
+				<ChatDiffPanel
+					diff={diff}
+					file={selectedFile}
+					loading={diffLoading}
+					onClose={closeDiffViewer}
+				/>
+			</aside>
+		) : null;
 
 	const sidebar = (
 		<aside
@@ -665,6 +750,7 @@ export function useChatWorkspaceTools({
 						isCommitting={isCommitting}
 						amendMode={amendMode}
 						onAmendModeChange={setAmendMode}
+						showFileActions
 						onCollapse={() => updateSidebarVisible(false)}
 					/>
 				</>
@@ -678,7 +764,7 @@ export function useChatWorkspaceTools({
 		</aside>
 	);
 
-	return { auxiliaryPanels, focusChatWorkspace, sidebar };
+	return { auxiliaryPanels, diffPanel, focusChatWorkspace, sidebar };
 }
 
 const styles = stylex.create({
@@ -692,6 +778,32 @@ const styles = stylex.create({
 		borderLeftStyle: "solid",
 		borderLeftColor: color.border,
 		backgroundColor: color.transparent,
+	},
+	diffRail: {
+		position: "relative",
+		display: "flex",
+		minWidth: 320,
+		height: "100%",
+		minHeight: 0,
+		flexShrink: 0,
+		borderLeftWidth: 1,
+		borderLeftStyle: "solid",
+		borderLeftColor: color.border,
+		backgroundColor: color.transparent,
+		overflow: "visible",
+	},
+	diffResizeHandle: {
+		position: "absolute",
+		zIndex: 30,
+		top: 0,
+		bottom: 0,
+		left: -4,
+		width: 8,
+		borderWidth: 0,
+		padding: 0,
+		touchAction: "none",
+		backgroundColor: { default: "transparent", ":hover": color.controlActive },
+		cursor: "ew-resize",
 	},
 	resizeHandle: {
 		position: "absolute",
@@ -712,6 +824,7 @@ const styles = stylex.create({
 		minHeight: 0,
 		flexDirection: "column",
 		backgroundColor: color.transparent,
+		overflow: "hidden",
 	},
 	viewerHeader: {
 		display: "flex",

@@ -526,7 +526,7 @@ interface AgentChatViewProps {
 	isSelected?: boolean;
 	isVisible?: boolean;
 	draggable?: boolean;
-	onDragStart?: (e: DragEvent) => void;
+	onDragStart?: (e: PointerEvent) => void;
 	onDragEnd?: () => void;
 	sessions?: AgentChatSession[];
 	onSelectSession?: (paneId: string) => void;

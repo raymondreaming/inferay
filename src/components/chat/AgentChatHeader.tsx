@@ -55,7 +55,7 @@ interface AgentChatHeaderProps {
 	cwd?: string;
 	gitBranch: string | null;
 	draggable?: boolean;
-	onDragStart?: (e: DragEvent) => void;
+	onDragStart?: (e: PointerEvent) => void;
 	onDragEnd?: () => void;
 	onClose?: (paneId: string) => void;
 	sessions?: AgentChatSession[];

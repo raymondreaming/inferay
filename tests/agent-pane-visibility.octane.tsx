@@ -34,7 +34,7 @@ class MockResizeObserver {
 					target,
 				} as ResizeObserverEntry,
 			],
-			this as unknown as ResizeObserver
+			this as unknown as ResizeObserver,
 		);
 	}
 
@@ -44,12 +44,15 @@ class MockResizeObserver {
 mock.module("../src/components/chat/AgentChatView.tsx", () => ({
 	AgentChatView: function MockAgentChatView({
 		ref,
+		onDragStart,
 	}: {
 		ref?: Octane.Ref<unknown>;
+		onDragStart?: (event: PointerEvent) => void;
 	}) {
 		useImperativeHandle(ref, () => chatHandle, []);
 		return (
 			<div data-testid="agent-chat">
+				<span data-testid="agent-dock-handle" onPointerDown={onDragStart} />
 				<div
 					data-testid="agent-chat-scroll"
 					style={{ overflowY: "auto", height: 100 }}
@@ -116,7 +119,7 @@ function tick() {
 
 function setScrollMetrics(
 	element: HTMLElement,
-	metrics: { clientHeight: number; scrollHeight: number }
+	metrics: { clientHeight: number; scrollHeight: number },
 ) {
 	Object.defineProperty(element, "clientHeight", {
 		configurable: true,
@@ -130,7 +133,7 @@ function setScrollMetrics(
 
 function setHorizontalScrollMetrics(
 	element: HTMLElement,
-	metrics: { clientWidth: number; scrollWidth: number }
+	metrics: { clientWidth: number; scrollWidth: number },
 ) {
 	Object.defineProperty(element, "clientWidth", {
 		configurable: true,
@@ -153,8 +156,9 @@ const testTheme: AgentTheme = {
 
 test("legacy terminal panes are restored as chats", async () => {
 	const { root } = setupDom();
-	const { AgentPaneView } =
-		await import("../src/pages/Agent/AgentPaneView.tsx");
+	const { AgentPaneView } = await import(
+		"../src/pages/Agent/AgentPaneView.tsx"
+	);
 	const pane = {
 		id: "agent-pane" as PaneId,
 		title: "Agent",
@@ -176,11 +180,11 @@ test("legacy terminal panes are restored as chats", async () => {
 				onSelect={() => {}}
 				onClose={() => {}}
 				chatRef={() => {}}
-			/>
+			/>,
 		);
 		await tick();
 		expect(
-			document.querySelectorAll('[data-testid="agent-chat"]')
+			document.querySelectorAll('[data-testid="agent-chat"]'),
 		).toHaveLength(1);
 	} finally {
 		root.unmount();
@@ -189,8 +193,9 @@ test("legacy terminal panes are restored as chats", async () => {
 
 test("chat pane refs stay attached across parent rerenders", async () => {
 	const { root } = setupDom();
-	const { AgentPaneView } =
-		await import("../src/pages/Agent/AgentPaneView.tsx");
+	const { AgentPaneView } = await import(
+		"../src/pages/Agent/AgentPaneView.tsx"
+	);
 	const pane = {
 		id: "chat-pane" as PaneId,
 		title: "Codex",
@@ -215,7 +220,7 @@ test("chat pane refs stay attached across parent rerenders", async () => {
 				onSelect={noop}
 				onClose={noop}
 				chatRef={chatRef}
-			/>
+			/>,
 		);
 		await tick();
 		expect(chatRef).toHaveBeenCalledTimes(1);
@@ -234,7 +239,7 @@ test("chat pane refs stay attached across parent rerenders", async () => {
 				onSelect={noop}
 				onClose={noop}
 				chatRef={chatRef}
-			/>
+			/>,
 		);
 		await tick();
 		expect(chatRef).toHaveBeenCalledTimes(1);
@@ -272,16 +277,97 @@ test("grid layout scrolls vertically when panes exceed visible rows", async () =
 				onDirectorySelect={noop}
 				onDirectoryCancel={noop}
 				onChatRef={noop}
-			/>
+			/>,
 		);
 		await tick();
 
 		expect(
-			document.querySelectorAll('[data-testid="agent-chat"]')
+			document.querySelectorAll('[data-testid="agent-chat"]'),
 		).toHaveLength(8);
 		const source = readFileSync("src/pages/Agent/AgentGrid.tsx", "utf8");
 		expect(source).toContain('overflowY: "auto"');
 		expect(source).toContain('overflowX: "hidden"');
+	} finally {
+		root.unmount();
+	}
+});
+
+test("dock handle reorders a row from the first pointer gesture", async () => {
+	const { root } = setupDom();
+	const { AgentGrid } = await import("../src/pages/Agent/AgentGrid.tsx");
+	const panes = Array.from({ length: 2 }, (_, index) => ({
+		id: `drag-pane-${index}` as PaneId,
+		title: `Codex ${index + 1}`,
+		agentKind: "codex" as const,
+		isClaude: false,
+		paneType: "codex" as const,
+		cwd: "/tmp/project",
+	}));
+	const reorder = vi.fn();
+	const noop = () => {};
+
+	try {
+		root.render(
+			<AgentGrid
+				panes={panes}
+				selectedPaneId={panes[0]!.id}
+				columns={2}
+				rows={1}
+				layoutMode="rows"
+				theme={testTheme}
+				fontSize={13}
+				fontFamily="SF Mono"
+				onSelectPane={noop}
+				onClosePane={noop}
+				onDirectorySelect={noop}
+				onDirectoryCancel={noop}
+				onChatRef={noop}
+				onReorderPanes={reorder}
+			/>,
+		);
+		await tick();
+
+		const handles = document.querySelectorAll<HTMLElement>(
+			'[data-testid="agent-dock-handle"]',
+		);
+		const rows = document.querySelectorAll<HTMLElement>(
+			"[data-agent-row-pane-id]",
+		);
+		if (!handles[0] || !rows[1]) throw new Error("Missing dock test elements");
+		Object.defineProperty(document, "elementFromPoint", {
+			configurable: true,
+			value: () => rows[1],
+		});
+
+		handles[0].dispatchEvent(
+			new window.MouseEvent("pointerdown", {
+				bubbles: true,
+				button: 0,
+				clientX: 10,
+				clientY: 10,
+			}),
+		);
+		window.dispatchEvent(
+			new window.MouseEvent("pointermove", {
+				bubbles: true,
+				button: 0,
+				clientX: 30,
+				clientY: 10,
+			}),
+		);
+		expect(document.body.style.userSelect).toBe("none");
+		window.dispatchEvent(
+			new window.MouseEvent("pointerup", {
+				bubbles: true,
+				button: 0,
+				clientX: 30,
+				clientY: 10,
+			}),
+		);
+
+		expect(document.body.style.userSelect).toBe("");
+		expect(reorder).toHaveBeenCalledTimes(1);
+		expect(reorder).toHaveBeenCalledWith(0, 1);
 	} finally {
 		root.unmount();
 	}
@@ -316,24 +402,24 @@ test("grid layout owns wheel scrolling until a chat pane is clicked", async () =
 				onDirectorySelect={noop}
 				onDirectoryCancel={noop}
 				onChatRef={noop}
-			/>
+			/>,
 		);
 		await tick();
 
 		const grid = document.querySelector<HTMLElement>(
-			"[data-agent-grid-scroll-area]"
+			"[data-agent-grid-scroll-area]",
 		);
 		const firstChat = document.querySelector<HTMLElement>(
-			'[data-testid="agent-chat"]'
+			'[data-testid="agent-chat"]',
 		);
 		const secondChat = document.querySelectorAll<HTMLElement>(
-			'[data-testid="agent-chat"]'
+			'[data-testid="agent-chat"]',
 		)[1];
 		const firstChatScroll = document.querySelector<HTMLElement>(
-			'[data-testid="agent-chat-scroll"]'
+			'[data-testid="agent-chat-scroll"]',
 		);
 		const secondChatScroll = document.querySelectorAll<HTMLElement>(
-			'[data-testid="agent-chat-scroll"]'
+			'[data-testid="agent-chat-scroll"]',
 		)[1];
 		if (
 			!grid ||
@@ -356,7 +442,7 @@ test("grid layout owns wheel scrolling until a chat pane is clicked", async () =
 				bubbles: true,
 				cancelable: true,
 				deltaY: 120,
-			})
+			}),
 		);
 		expect(grid.scrollTop).toBe(120);
 
@@ -364,14 +450,14 @@ test("grid layout owns wheel scrolling until a chat pane is clicked", async () =
 			new window.Event("pointerdown", {
 				bubbles: true,
 				cancelable: true,
-			})
+			}),
 		);
 		const firstChatWheelWasNotCancelled = firstChat.dispatchEvent(
 			new window.WheelEvent("wheel", {
 				bubbles: true,
 				cancelable: true,
 				deltaY: 120,
-			})
+			}),
 		);
 		expect(firstChatWheelWasNotCancelled).toBe(true);
 		expect(grid.scrollTop).toBe(120);
@@ -383,7 +469,7 @@ test("grid layout owns wheel scrolling until a chat pane is clicked", async () =
 				bubbles: true,
 				cancelable: true,
 				deltaY: 120,
-			})
+			}),
 		);
 		expect(secondChatWheelWasNotCancelled).toBe(false);
 		expect(grid.scrollTop).toBe(240);
@@ -393,14 +479,14 @@ test("grid layout owns wheel scrolling until a chat pane is clicked", async () =
 			new window.Event("pointerdown", {
 				bubbles: true,
 				cancelable: true,
-			})
+			}),
 		);
 		firstChat.dispatchEvent(
 			new window.WheelEvent("wheel", {
 				bubbles: true,
 				cancelable: true,
 				deltaY: 120,
-			})
+			}),
 		);
 		expect(grid.scrollTop).toBe(360);
 		expect(firstChatScroll.scrollTop).toBe(0);
@@ -409,7 +495,7 @@ test("grid layout owns wheel scrolling until a chat pane is clicked", async () =
 			new window.Event("pointerdown", {
 				bubbles: true,
 				cancelable: true,
-			})
+			}),
 		);
 
 		firstChatScroll.scrollTop = 300;
@@ -418,7 +504,7 @@ test("grid layout owns wheel scrolling until a chat pane is clicked", async () =
 				bubbles: true,
 				cancelable: true,
 				deltaY: 120,
-			})
+			}),
 		);
 		expect(firstBoundaryDownWasNotCancelled).toBe(false);
 		expect(grid.scrollTop).toBe(480);
@@ -429,10 +515,101 @@ test("grid layout owns wheel scrolling until a chat pane is clicked", async () =
 				bubbles: true,
 				cancelable: true,
 				deltaY: -120,
-			})
+			}),
 		);
 		expect(firstBoundaryUpWasNotCancelled).toBe(false);
 		expect(grid.scrollTop).toBe(360);
+	} finally {
+		root.unmount();
+	}
+});
+
+test("file panes scroll internally only after they are activated", async () => {
+	const { root } = setupDom();
+	const { AgentGrid } = await import("../src/pages/Agent/AgentGrid.tsx");
+	const pane = {
+		id: "chat-with-file" as PaneId,
+		title: "Codex",
+		agentKind: "codex" as const,
+		isClaude: false,
+		paneType: "codex" as const,
+		cwd: "/tmp/project",
+	};
+	const selectFile = vi.fn();
+	const noop = () => {};
+
+	try {
+		root.render(
+			<AgentGrid
+				panes={[pane]}
+				selectedPaneId={pane.id}
+				columns={2}
+				rows={1}
+				layoutMode="grid"
+				theme={testTheme}
+				fontSize={13}
+				fontFamily="SF Mono"
+				onSelectPane={noop}
+				onClosePane={noop}
+				onDirectorySelect={noop}
+				onDirectoryCancel={noop}
+				onChatRef={noop}
+				auxiliaryPanels={[
+					{
+						id: "workspace-file",
+						onSelect: selectFile,
+						render: () => (
+							<div data-testid="workspace-file-pane">
+								<div
+									data-testid="workspace-file-scroll"
+									style={{ overflowY: "auto", height: 100 }}
+								/>
+							</div>
+						),
+					},
+				]}
+			/>,
+		);
+		await tick();
+
+		const grid = document.querySelector<HTMLElement>(
+			"[data-agent-grid-scroll-area]",
+		);
+		const filePane = document.querySelector<HTMLElement>(
+			'[data-agent-grid-pane-id="workspace-file"]',
+		);
+		const fileScroll = document.querySelector<HTMLElement>(
+			'[data-testid="workspace-file-scroll"]',
+		);
+		if (!grid || !filePane || !fileScroll) {
+			throw new Error("Missing file pane scroll test elements");
+		}
+		setScrollMetrics(grid, { clientHeight: 600, scrollHeight: 1200 });
+		setScrollMetrics(fileScroll, { clientHeight: 100, scrollHeight: 400 });
+
+		const inactiveWheel = fileScroll.dispatchEvent(
+			new window.WheelEvent("wheel", {
+				bubbles: true,
+				cancelable: true,
+				deltaY: 120,
+			}),
+		);
+		expect(inactiveWheel).toBe(false);
+		expect(grid.scrollTop).toBe(120);
+
+		filePane.dispatchEvent(
+			new window.Event("pointerdown", { bubbles: true, cancelable: true }),
+		);
+		const activeWheel = fileScroll.dispatchEvent(
+			new window.WheelEvent("wheel", {
+				bubbles: true,
+				cancelable: true,
+				deltaY: 120,
+			}),
+		);
+		expect(selectFile).toHaveBeenCalledTimes(1);
+		expect(activeWheel).toBe(true);
+		expect(grid.scrollTop).toBe(120);
 	} finally {
 		root.unmount();
 	}
@@ -467,15 +644,15 @@ test("row layout glides horizontally over inactive chat bodies", async () => {
 				onDirectorySelect={noop}
 				onDirectoryCancel={noop}
 				onChatRef={noop}
-			/>
+			/>,
 		);
 		await tick();
 
 		const row = document.querySelector<HTMLElement>(
-			"[data-agent-row-scroll-area]"
+			"[data-agent-row-scroll-area]",
 		);
 		const chats = document.querySelectorAll<HTMLElement>(
-			'[data-testid="agent-chat"]'
+			'[data-testid="agent-chat"]',
 		);
 		if (!row || !chats[0] || !chats[1]) {
 			throw new Error("Missing row layout test elements");
@@ -487,7 +664,7 @@ test("row layout glides horizontally over inactive chat bodies", async () => {
 				bubbles: true,
 				cancelable: true,
 				deltaX: 120,
-			})
+			}),
 		);
 		expect(horizontalWasNotCancelled).toBe(false);
 		expect(row.scrollLeft).toBe(120);
@@ -497,7 +674,7 @@ test("row layout glides horizontally over inactive chat bodies", async () => {
 				bubbles: true,
 				cancelable: true,
 				deltaY: 120,
-			})
+			}),
 		);
 		expect(inactiveVerticalWasNotCancelled).toBe(true);
 		expect(row.scrollLeft).toBe(120);
@@ -507,7 +684,7 @@ test("row layout glides horizontally over inactive chat bodies", async () => {
 				bubbles: true,
 				cancelable: true,
 				deltaY: 120,
-			})
+			}),
 		);
 		expect(activeVerticalWasNotCancelled).toBe(true);
 		expect(row.scrollLeft).toBe(120);
@@ -517,7 +694,7 @@ test("row layout glides horizontally over inactive chat bodies", async () => {
 				bubbles: true,
 				cancelable: true,
 				deltaX: 120,
-			})
+			}),
 		);
 		expect(activeHorizontalWasNotCancelled).toBe(false);
 		expect(row.scrollLeft).toBe(120);

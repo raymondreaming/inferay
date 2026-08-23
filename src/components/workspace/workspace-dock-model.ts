@@ -90,6 +90,46 @@ export function createDockTree(
 		.reduce<DockTree>((tree, row) => split("vertical", tree, row), rows[0]!);
 }
 
+export function constrainDockTreeColumns(
+	tree: DockTree,
+	columns: number,
+): DockTree {
+	const safeColumns = Math.max(1, columns);
+	if (dockAxisSpan(tree, "horizontal") <= safeColumns) return tree;
+	return createDockTree(dockPanelIds(tree), safeColumns) ?? tree;
+}
+
+function appendDockPanelWithinColumns(
+	tree: DockTree,
+	id: string,
+	columns: number,
+): DockTree {
+	const safeColumns = Math.max(1, columns);
+	const appendToLastRow = (
+		node: DockTree,
+	): { readonly tree: DockTree; readonly appended: boolean } => {
+		if (node.type === "split" && node.direction === "vertical") {
+			const result = appendToLastRow(node.second);
+			return result.appended
+				? { tree: { ...node, second: result.tree }, appended: true }
+				: { tree: node, appended: false };
+		}
+		if (dockAxisSpan(node, "horizontal") >= safeColumns) {
+			return { tree: node, appended: false };
+		}
+		return {
+			tree: split("horizontal", node, panel(id)),
+			appended: true,
+		};
+	};
+
+	const constrained = constrainDockTreeColumns(tree, safeColumns);
+	const result = appendToLastRow(constrained);
+	return result.appended
+		? result.tree
+		: split("vertical", constrained, panel(id));
+}
+
 export function reconcileDockTree(
 	tree: DockTree | null,
 	ids: readonly string[],
@@ -97,10 +137,12 @@ export function reconcileDockTree(
 ): DockTree | null {
 	const allowed = new Set(ids);
 	let next = tree ? pruneDockTree(tree, allowed) : null;
+	if (next) next = constrainDockTreeColumns(next, columns);
 	const present = new Set(dockPanelIds(next));
 	for (const id of ids) {
 		if (present.has(id)) continue;
-		next = next ? split("horizontal", next, panel(id)) : panel(id);
+		next = next ? appendDockPanelWithinColumns(next, id, columns) : panel(id);
+		present.add(id);
 	}
 	return next ?? createDockTree(ids, columns);
 }
