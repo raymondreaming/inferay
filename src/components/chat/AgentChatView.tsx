@@ -1070,7 +1070,7 @@ const styles = stylex.create({
 		right: 0,
 		bottom: 0,
 		pointerEvents: "none",
-		paddingInline: 0,
+		paddingInline: controlSize._3,
 		paddingBottom: 14,
 	},
 	directoryPickerInner: {

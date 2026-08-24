@@ -23,10 +23,10 @@
 	--color-inferay-soft-white: rgba(255, 255, 255, 0.72);
 	--color-inferay-muted-gray: rgba(255, 255, 255, 0.45);
 
-	/* Git status — muted, desaturated tones */
-	--color-git-added: #5a9e80;
+	/* Git status — clear, high-contrast tones for dark surfaces */
+	--color-git-added: #55d68b;
 	--color-git-modified: #8e8e6e;
-	--color-git-deleted: #9e6b6b;
+	--color-git-deleted: #ff6868;
 	--color-git-renamed: #7a8fb5;
 	--color-git-unmerged: #b0896a;
 

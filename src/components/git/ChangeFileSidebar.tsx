@@ -131,6 +131,11 @@ export function ChangeFileSidebar(props: ChangeFileSidebarProps) {
 					onCommit={onCommit}
 					isCommitting={isCommitting}
 					stagedCount={staged.length}
+					files={workingFiles}
+					selectedFile={selectedFile}
+					onSelectFile={onSelectFile}
+					onStageFile={onStageFile}
+					onUnstageFile={onUnstageFile}
 					fileViewMode={fileViewMode}
 					onFileViewModeChange={onFileViewModeChange}
 				/>
@@ -1162,19 +1167,23 @@ const styles = stylex.create({
 		height: "1.125rem",
 		alignItems: "center",
 		justifyContent: "center",
-		borderWidth: 0,
-		borderRadius: radius.sm,
-		backgroundColor: color.background,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: "50%",
+		backgroundColor: {
+			default: color.backgroundRaised,
+			":hover": color.controlHover,
+		},
 		color: color.textSoft,
 		opacity: 0,
 		pointerEvents: "none",
-		transitionProperty: "opacity, color",
+		transitionProperty: "opacity, color, background-color, border-color",
 		transitionDuration: "120ms",
 	},
 	rowActionVisible: {
 		opacity: 1,
 		pointerEvents: "auto",
-		backgroundColor: color.background,
 		color: {
 			default: color.textSoft,
 			":hover": color.textMain,
@@ -1191,12 +1200,18 @@ const styles = stylex.create({
 		height: "1.125rem",
 		alignItems: "center",
 		justifyContent: "center",
-		borderRadius: radius.sm,
-		backgroundColor: color.background,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: "50%",
+		backgroundColor: {
+			default: color.backgroundRaised,
+			":hover": color.controlHover,
+		},
 		color: color.textSoft,
 		opacity: 0,
 		pointerEvents: "none",
-		transitionProperty: "opacity, color",
+		transitionProperty: "opacity, color, background-color, border-color",
 		transitionDuration: "120ms",
 	},
 	folderIcon: {
@@ -1301,6 +1316,11 @@ function CommitSection({
 	onCommit,
 	isCommitting,
 	stagedCount,
+	files,
+	selectedFile,
+	onSelectFile,
+	onStageFile,
+	onUnstageFile,
 	fileViewMode,
 	onFileViewModeChange,
 }: {
@@ -1310,6 +1330,11 @@ function CommitSection({
 	onCommit: () => void;
 	isCommitting: boolean;
 	stagedCount: number;
+	files: GitFileEntry[];
+	selectedFile: SelectedFile | null;
+	onSelectFile: (file: GitFileEntry) => void;
+	onStageFile: (path: string) => void;
+	onUnstageFile: (path: string) => void;
 	fileViewMode: "path" | "tree";
 	onFileViewModeChange: (mode: "path" | "tree") => void;
 }) {
@@ -1317,6 +1342,36 @@ function CommitSection({
 	const [generationMenuOpen, setGenerationMenuOpen] = useState(false);
 	const [hoveredViewIndex, setHoveredViewIndex] = useState<number | null>(null);
 	const message = commitMessage.replace(/\s+/g, " ");
+	const selectAdjacentFile = (direction: -1 | 1) => {
+		if (files.length === 0) return;
+		const currentIndex = selectedFile
+			? files.findIndex(
+					(file) =>
+						file.path === selectedFile.path &&
+						file.staged === selectedFile.staged,
+				)
+			: -1;
+		const nextIndex =
+			currentIndex < 0
+				? direction > 0
+					? 0
+					: files.length - 1
+				: Math.max(0, Math.min(files.length - 1, currentIndex + direction));
+		onSelectFile(files[nextIndex]!);
+	};
+	const toggleSelectedFile = () => {
+		if (!selectedFile) return;
+		const file =
+			files.find(
+				(candidate) =>
+					candidate.path === selectedFile.path &&
+					candidate.staged === selectedFile.staged,
+			) ?? files.find((candidate) => candidate.path === selectedFile.path);
+		if (!file) return;
+		if (file.staged) onUnstageFile(file.path);
+		else onStageFile(file.path);
+		onSelectFile({ ...file, staged: !file.staged });
+	};
 
 	const generateMessage = async () => {
 		if (!cwd || !stagedCount || generating) return;
@@ -1365,6 +1420,15 @@ function CommitSection({
 										if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
 											e.preventDefault();
 											onCommit();
+										} else if (e.key === "ArrowUp") {
+											e.preventDefault();
+											selectAdjacentFile(-1);
+										} else if (e.key === "ArrowDown") {
+											e.preventDefault();
+											selectAdjacentFile(1);
+										} else if (e.key === "Enter" && selectedFile) {
+											e.preventDefault();
+											toggleSelectedFile();
 										}
 									}}
 								/>
@@ -1774,7 +1838,7 @@ function TreeNodeRow({
 							styles.rowAction,
 							hoveredActionPath === file.path && styles.rowActionVisible,
 						)}
-						title={`${actionLabel} ${file.path}`}
+						aria-label={`${actionLabel} ${file.path}`}
 					>
 						<FileActionIcon actionLabel={actionLabel} />
 					</button>
@@ -1951,7 +2015,7 @@ function FileGroup({
 												styles.rowActionSubtle,
 												hoveredActionPath === f.path && styles.rowActionVisible,
 											)}
-											title={`${actionLabel} ${f.path}`}
+											aria-label={`${actionLabel} ${f.path}`}
 										>
 											<FileActionIcon actionLabel={actionLabel} />
 										</button>
