@@ -72,8 +72,10 @@ impl NativeChatHandoff {
     }
 
     pub(crate) async fn workspace_action_with_defaults(&self, mut action: Value) -> Value {
-        if action.get("type").and_then(Value::as_str) == Some("ensureChatPane")
-            && action.get("defaultAgentKind").is_none()
+        if matches!(
+            action.get("type").and_then(Value::as_str),
+            Some("ensureChatPane" | "addWorkspace")
+        ) && action.get("defaultAgentKind").is_none()
             && let Some(object) = action.as_object_mut()
         {
             object.insert(

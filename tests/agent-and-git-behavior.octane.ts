@@ -28,7 +28,7 @@ import { isAgentMainView } from "../src/lib/app-navigation.tsx";
 
 const pane = (
 	id: string,
-	overrides: Partial<AgentPaneModel> = {}
+	overrides: Partial<AgentPaneModel> = {},
 ): AgentPaneModel => ({
 	id: id as PaneId,
 	title: id,
@@ -100,7 +100,7 @@ describe("agent state and git change behavior", () => {
 				groupId: group.id,
 				paneId: group.panes[0]!.id,
 				path: "/Users/ray/Developer/inferay",
-			}
+			},
 		)!;
 		const context = getPrimaryProductLoopContext(selected);
 
@@ -135,7 +135,7 @@ describe("agent state and git change behavior", () => {
 				groupId: group.id,
 				paneId: group.panes[0]!.id,
 				path: "/Users/ray/Developer/inferay",
-			}
+			},
 		)!;
 
 		expect(
@@ -145,7 +145,7 @@ describe("agent state and git change behavior", () => {
 				previousTimestamp: 100,
 				timestamp: 175,
 				to: "editor",
-			})
+			}),
 		).toEqual({
 			type: "view_switch",
 			from: "chat",
@@ -245,7 +245,7 @@ describe("agent state and git change behavior", () => {
 		});
 	});
 
-	test("creates empty workspaces without a required starter chat", () => {
+	test("creates each workspace with a selected starter chat", () => {
 		const group = createDefaultAgentChatGroup();
 		const next = reduceAgentWorkspaceState(
 			{
@@ -256,15 +256,23 @@ describe("agent state and git change behavior", () => {
 				fontFamily: "SF Mono",
 				opacity: 1,
 			},
-			{ type: "addWorkspace" }
+			{ type: "addWorkspace" },
 		);
 
 		expect(next?.groups).toHaveLength(2);
-		expect(next?.groups[1]?.panes).toEqual([]);
-		expect(next?.groups[1]?.selectedPaneId).toBeNull();
+		expect(next?.groups[1]?.panes).toHaveLength(1);
+		expect(next?.groups[1]?.panes[0]).toEqual(
+			expect.objectContaining({
+				agentKind: "codex",
+				pendingCwd: true,
+			}),
+		);
+		expect(next?.groups[1]?.selectedPaneId).toBe(next?.groups[1]?.panes[0]?.id);
 		expect(next?.selectedGroupId).toBe(next?.groups[1]?.id);
-		expect(migrateGroup(next!.groups[1]!).panes).toEqual([]);
-		expect(migrateGroup(next!.groups[1]!).selectedPaneId).toBeNull();
+		expect(migrateGroup(next!.groups[1]!).panes).toHaveLength(1);
+		expect(migrateGroup(next!.groups[1]!).selectedPaneId).toBe(
+			next?.groups[1]?.panes[0]?.id,
+		);
 	});
 
 	test("removes the final pane without recreating a pending chat", () => {
@@ -295,7 +303,7 @@ describe("agent state and git change behavior", () => {
 				groupId: group.id,
 				paneId: group.panes[0]!.id,
 				path: "/Users/ray/Developer/reality-designers.com",
-			}
+			},
 		);
 
 		expect(selected?.groups[0]?.panes[0]).toEqual(
@@ -303,7 +311,7 @@ describe("agent state and git change behavior", () => {
 				cwd: "/Users/ray/Developer/reality-designers.com",
 				pendingCwd: false,
 				title: "reality-designers.com",
-			})
+			}),
 		);
 	});
 
@@ -321,18 +329,12 @@ describe("agent state and git change behavior", () => {
 			type: "addWorkspace",
 		})!;
 		const workspace = workspaceState.groups[1]!;
-		const firstPane = pane("first-pending", {
-			agentKind: "codex",
-			paneType: "codex",
-			title: "Codex",
-			pendingCwd: true,
-		});
-		const withFirstPane = reduceAgentWorkspaceState(workspaceState, {
-			type: "addPane",
-			groupId: workspace.id,
-			pane: firstPane,
-		})!;
-		const withDirectory = reduceAgentWorkspaceState(withFirstPane, {
+		const firstPane = workspace.panes[0]!;
+		expect(firstPane).toEqual(
+			expect.objectContaining({ pendingCwd: true, agentKind: "codex" }),
+		);
+		expect(workspace.selectedPaneId).toBe(firstPane.id);
+		const withDirectory = reduceAgentWorkspaceState(workspaceState, {
 			type: "directorySelected",
 			groupId: workspace.id,
 			paneId: firstPane.id,
@@ -358,14 +360,14 @@ describe("agent state and git change behavior", () => {
 				cwd: "/Users/ray/Developer/reality-designers.com",
 				pendingCwd: false,
 				title: "reality-designers.com",
-			})
+			}),
 		);
 		expect(reloadedGroup.panes[1]).toEqual(
 			expect.objectContaining({
 				id: secondPane.id,
 				pendingCwd: true,
 				title: "Codex",
-			})
+			}),
 		);
 		expect(reloadedGroup.selectedPaneId).toBe(secondPane.id);
 	});
@@ -498,7 +500,7 @@ describe("agent state and git change behavior", () => {
 				fontFamily: "SF Mono",
 				opacity: 1,
 			},
-			{ keepSelectedDraft: true }
+			{ keepSelectedDraft: true },
 		);
 
 		expect(cleaned.groups.map((group) => group.id)).toEqual([
@@ -542,7 +544,7 @@ describe("agent state and git change behavior", () => {
 				fontFamily: "SF Mono",
 				opacity: 1,
 			},
-			{ type: "selectPane", groupId: "default", paneId: realPane.id }
+			{ type: "selectPane", groupId: "default", paneId: realPane.id },
 		)!;
 
 		expect(selected.groups[0]?.panes.map((item) => item.id)).toEqual([
@@ -597,7 +599,7 @@ describe("agent state and git change behavior", () => {
 				fontFamily: "SF Mono",
 				opacity: 1,
 			},
-			{ keepSelectedDraft: true }
+			{ keepSelectedDraft: true },
 		);
 
 		expect(cleaned.groups.map((group) => group.id)).toEqual([
@@ -672,13 +674,13 @@ describe("agent state and git change behavior", () => {
 				toolName: "apply_patch",
 				isActive: true,
 				iconType: "wrench",
-			})
+			}),
 		);
 		expect(getStatusInfo("thinking")).toEqual(
-			expect.objectContaining({ label: "Planning next step", isActive: true })
+			expect.objectContaining({ label: "Planning next step", isActive: true }),
 		);
 		expect(getStatusInfo("queued")).toEqual(
-			expect.objectContaining({ label: "queued", isActive: false })
+			expect.objectContaining({ label: "queued", isActive: false }),
 		);
 	});
 
@@ -730,7 +732,7 @@ describe("agent state and git change behavior", () => {
 				],
 				isBinary: false,
 				isNew: false,
-			})
+			}),
 		).toEqual({ added: 0, removed: 1, hunks: 1, lines: 2 });
 	});
 });

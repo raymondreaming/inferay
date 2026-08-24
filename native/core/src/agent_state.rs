@@ -400,11 +400,18 @@ pub fn reduce_agent_workspace_state(
                 .cloned()
                 .unwrap_or_else(|| json!(DEFAULT_ROWS));
             let group_id = Uuid::new_v4().to_string();
+            let default_agent_kind = action
+                .get("defaultAgentKind")
+                .and_then(Value::as_str)
+                .filter(|kind| matches!(*kind, "claude" | "codex"))
+                .unwrap_or(DEFAULT_CHAT_AGENT_KIND);
+            let starter_pane = create_pending_chat_pane(default_agent_kind);
+            let starter_pane_id = starter_pane.get("id").cloned().unwrap_or(Value::Null);
             let group = json!({
                 "id": group_id,
                 "name": format!("Workspace {}", groups.len() + 1),
-                "panes": [],
-                "selectedPaneId": null,
+                "panes": [starter_pane],
+                "selectedPaneId": starter_pane_id,
                 "columns": columns,
                 "rows": rows,
             });
@@ -1022,6 +1029,23 @@ mod tests {
         )
         .unwrap();
         assert!(removed.is_none());
+    }
+
+    #[test]
+    fn creates_a_workspace_with_a_selected_starter_chat() {
+        let added = reduce_agent_workspace_state(
+            &saved_state(),
+            &json!({ "type": "addWorkspace", "defaultAgentKind": "claude" }),
+        )
+        .unwrap()
+        .unwrap();
+        let workspace = &added["groups"][1];
+        let pane = &workspace["panes"][0];
+
+        assert_eq!(workspace["selectedPaneId"], pane["id"]);
+        assert_eq!(added["selectedGroupId"], workspace["id"]);
+        assert_eq!(pane["agentKind"], "claude");
+        assert_eq!(pane["pendingCwd"], true);
     }
 
     #[test]

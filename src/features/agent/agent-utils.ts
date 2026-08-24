@@ -61,24 +61,24 @@ export function loadAgentLayoutMode(): AgentLayoutMode {
 }
 
 export function syncAgentLayoutMode(
-	setLayoutMode: (mode: AgentLayoutMode) => void
+	setLayoutMode: (mode: AgentLayoutMode) => void,
 ): void {
 	setLayoutMode(loadAgentLayoutMode());
 }
 
 export function listenAgentLayoutMode(
-	setLayoutMode: (mode: AgentLayoutMode) => void
+	setLayoutMode: (mode: AgentLayoutMode) => void,
 ): () => void {
 	return listenWindowEvent(
 		"agent-shell-change",
-		syncAgentLayoutMode.bind(null, setLayoutMode)
+		syncAgentLayoutMode.bind(null, setLayoutMode),
 	);
 }
 
 export function appendPaneToGroup(
 	selectedGroupId: string,
 	pane: AgentPaneModel,
-	group: AgentGroupModel
+	group: AgentGroupModel,
 ): AgentGroupModel {
 	if (group.id !== selectedGroupId) return group;
 	const panes =
@@ -115,14 +115,14 @@ export type AgentWorkspaceAction =
 
 export function reduceAgentWorkspaceState(
 	state: AgentSavedState,
-	action: AgentWorkspaceAction
+	action: AgentWorkspaceAction,
 ): AgentSavedState | null {
 	switch (action.type) {
 		case "selectWorkspace":
 			if (!state.groups.some(hasId.bind(null, action.groupId))) return state;
 			return compactAgentState(
 				{ ...state, selectedGroupId: action.groupId as GroupId },
-				{ keepSelectedDraft: true }
+				{ keepSelectedDraft: true },
 			);
 		case "selectPane":
 			return compactAgentState(
@@ -132,10 +132,10 @@ export function reduceAgentWorkspaceState(
 					groups: state.groups.map((group) =>
 						group.id === action.groupId
 							? { ...group, selectedPaneId: action.paneId as PaneId }
-							: group
+							: group,
 					),
 				},
-				{ keepSelectedDraft: true }
+				{ keepSelectedDraft: true },
 			);
 		case "addWorkspace": {
 			const cleanState = compactAgentState(state, {
@@ -144,11 +144,12 @@ export function reduceAgentWorkspaceState(
 			const selectedGroup =
 				cleanState.groups.find(hasId.bind(null, cleanState.selectedGroupId)) ??
 				cleanState.groups[0];
+			const starterPane = createPendingAgentChatPane();
 			const group: AgentGroupModel = {
 				id: createGroupId(),
 				name: `Workspace ${cleanState.groups.length + 1}`,
-				panes: [],
-				selectedPaneId: null,
+				panes: [starterPane],
+				selectedPaneId: starterPane.id,
 				columns: selectedGroup?.columns ?? DEFAULT_COLUMNS,
 				rows: selectedGroup?.rows ?? DEFAULT_ROWS,
 			};
@@ -161,7 +162,7 @@ export function reduceAgentWorkspaceState(
 		case "removeWorkspace": {
 			if (state.groups.length <= 1) return null;
 			const groups = state.groups.filter(
-				(group) => group.id !== action.groupId
+				(group) => group.id !== action.groupId,
 			);
 			return {
 				...state,
@@ -178,7 +179,7 @@ export function reduceAgentWorkspaceState(
 				groups: state.groups.map((group) =>
 					group.id === action.groupId
 						? { ...group, name: action.name.trim() || group.name }
-						: group
+						: group,
 				),
 			};
 		case "addPane": {
@@ -190,7 +191,7 @@ export function reduceAgentWorkspaceState(
 			return {
 				...state,
 				groups: state.groups.map(
-					appendPaneToGroup.bind(null, selectedGroupId, action.pane)
+					appendPaneToGroup.bind(null, selectedGroupId, action.pane),
 				),
 				selectedGroupId,
 			};
@@ -215,7 +216,7 @@ export function reduceAgentWorkspaceState(
 				group.panes.find(
 					(candidate) =>
 						candidate.id === group.selectedPaneId &&
-						isChatAgentKind(candidate.agentKind)
+						isChatAgentKind(candidate.agentKind),
 				) ??
 				group.panes.find((candidate) => isChatAgentKind(candidate.agentKind));
 			const chatPane = pane ?? createPendingAgentChatPane();
@@ -229,7 +230,7 @@ export function reduceAgentWorkspaceState(
 								panes: pane ? candidate.panes : [chatPane, ...candidate.panes],
 								selectedPaneId: chatPane.id,
 							}
-						: candidate
+						: candidate,
 				),
 			};
 		}
@@ -277,7 +278,7 @@ const AGENT_THEMES: readonly AgentTheme[] = TERM_THEME_DATA.map(
 		fg,
 		cursor,
 		separator,
-	})
+	}),
 );
 
 const AGENT_FONTS = [
@@ -460,7 +461,7 @@ export function agentStateKey(state: AgentSavedState): string {
 }
 
 export function agentStateScore(
-	state: Pick<AgentSavedState, "groups"> | null
+	state: Pick<AgentSavedState, "groups"> | null,
 ): number {
 	if (!state) return 0;
 	return state.groups.reduce((score, group) => {
@@ -476,7 +477,7 @@ export function agentStateScore(
 }
 
 export function getPrimaryProductLoopContext(
-	state: Pick<AgentSavedState, "groups" | "selectedGroupId"> | null
+	state: Pick<AgentSavedState, "groups" | "selectedGroupId"> | null,
 ): PrimaryProductLoopContext {
 	const workspace =
 		state?.groups.find(hasId.bind(null, state.selectedGroupId)) ??
@@ -549,7 +550,7 @@ export function createDefaultAgentState(): AgentSavedState {
 
 function chooseSelectedGroupId(
 	groups: AgentGroupModel[],
-	selectedGroupId: GroupId | null
+	selectedGroupId: GroupId | null,
 ): GroupId | null {
 	if (groups.some(hasId.bind(null, selectedGroupId))) return selectedGroupId;
 	let bestGroup: AgentGroupModel | null = null;
@@ -566,7 +567,7 @@ function chooseSelectedGroupId(
 
 export function normalizeAgentState(
 	value: unknown,
-	options: { createDefault?: boolean } = {}
+	options: { createDefault?: boolean } = {},
 ): AgentSavedState | null {
 	if (!isValidAgentState(value)) {
 		return options.createDefault ? createDefaultAgentState() : null;
@@ -600,7 +601,7 @@ function shouldKeepEmptyPendingPane(
 	pane: AgentPaneModel,
 	group: AgentGroupModel,
 	state: AgentSavedState,
-	options: { keepSelectedDraft?: boolean }
+	options: { keepSelectedDraft?: boolean },
 ): boolean {
 	return (
 		pane.id === group.selectedPaneId ||
@@ -616,7 +617,7 @@ function hasDurablePane(group: AgentGroupModel): boolean {
 
 export function compactAgentState(
 	state: AgentSavedState,
-	options: { keepSelectedDraft?: boolean } = {}
+	options: { keepSelectedDraft?: boolean } = {},
 ): AgentSavedState {
 	let changed = false;
 	const hasDurableGroup = state.groups.some(hasDurablePane);
@@ -656,7 +657,7 @@ export function compactAgentState(
 		const panes = group.panes.filter(
 			(pane) =>
 				shouldKeepEmptyPendingPane(pane, group, state, options) ||
-				!isEmptyPendingPane(pane)
+				!isEmptyPendingPane(pane),
 		);
 		if (panes.length === group.panes.length) return [group];
 		changed = true;
@@ -729,14 +730,14 @@ export function dispatchAgentShellChange(detail: AgentShellChangeDetail): void {
 	window.dispatchEvent(
 		new CustomEvent<AgentShellChangeDetail>(AGENT_SHELL_CHANGE_EVENT, {
 			detail,
-		})
+		}),
 	);
 }
 
 export function saveSyncedAgentState(
 	state: AgentSavedState,
 	reason?: string,
-	source: AgentStateChangeSource = "canonical"
+	source: AgentStateChangeSource = "canonical",
 ): void {
 	const normalized = normalizeAgentState(state, { createDefault: true });
 	if (!normalized) return;
@@ -747,7 +748,7 @@ export function saveSyncedAgentState(
 function saveLocalAgentState(
 	state: AgentSavedState,
 	reason?: string,
-	source: AgentStateChangeSource = "local"
+	source: AgentStateChangeSource = "local",
 ): void {
 	const normalized = normalizeAgentState(state, { createDefault: true });
 	if (!normalized) return;
@@ -765,7 +766,7 @@ function saveLocalAgentState(
 export async function mutateCanonicalAgentState(
 	mutate: (state: AgentSavedState) => AgentSavedState | null,
 	reason?: string,
-	options: { createIfMissing?: boolean } = {}
+	options: { createIfMissing?: boolean } = {},
 ): Promise<AgentSavedState | null> {
 	const state =
 		(await loadCanonicalAgentState()) ??
@@ -782,7 +783,7 @@ export function mutateAgentWorkspaceState(
 		| AgentWorkspaceAction
 		| ((state: AgentSavedState) => AgentWorkspaceAction | null),
 	reason?: string,
-	options: { createIfMissing?: boolean } = {}
+	options: { createIfMissing?: boolean } = {},
 ): Promise<AgentSavedState | null> {
 	return (async () => {
 		const state =
@@ -796,7 +797,7 @@ export function mutateAgentWorkspaceState(
 		try {
 			const payload = await postJson<{ state: AgentSavedState | null }>(
 				"/api/agent/state/workspace-action",
-				{ action: nextAction }
+				{ action: nextAction },
 			);
 			const normalized = normalizeAgentState(payload.state, {
 				createDefault: true,
@@ -845,7 +846,7 @@ export type AgentGroupsAction =
 
 export function reduceAgentGroups(
 	state: AgentGroupModel[],
-	action: AgentGroupsAction
+	action: AgentGroupsAction,
 ): AgentGroupModel[] {
 	switch (action.type) {
 		case "addPane": {
@@ -857,7 +858,7 @@ export function reduceAgentGroups(
 			return state.map((group) =>
 				group.id === action.groupId
 					? { ...group, panes: [...group.panes, pane], selectedPaneId: pane.id }
-					: group
+					: group,
 			);
 		}
 		case "removePane":
@@ -877,7 +878,7 @@ export function reduceAgentGroups(
 			return state.map((group) =>
 				group.id === action.groupId
 					? { ...group, selectedPaneId: action.paneId as PaneId }
-					: group
+					: group,
 			);
 		case "directorySelected":
 			return state.map((group) =>
@@ -893,13 +894,13 @@ export function reduceAgentGroups(
 											referencePaths: action.referencePaths,
 											title: getPaneTitle(
 												pane.agentKind,
-												action.path ?? undefined
+												action.path ?? undefined,
 											),
 										}
-									: pane
+									: pane,
 							),
 						}
-					: group
+					: group,
 			);
 		case "removeGroup":
 			return state.filter(lacksId.bind(null, action.groupId));
@@ -925,10 +926,10 @@ export function reduceAgentGroups(
 											paneType: action.agentKind,
 											title: getPaneTitle(action.agentKind, pane.cwd),
 										}
-									: pane
+									: pane,
 							),
 						}
-					: group
+					: group,
 			);
 		case "replaceAll":
 			return action.groups;
@@ -941,7 +942,7 @@ export function reduceAgentGroups(
  */
 export function changePaneAgentKind(
 	paneId: string,
-	agentKind: AgentKind
+	agentKind: AgentKind,
 ): void {
 	void mutateCanonicalAgentState(
 		(state) => ({
@@ -951,11 +952,11 @@ export function changePaneAgentKind(
 				panes: g.panes.map((p) =>
 					p.id !== paneId
 						? p
-						: { ...p, agentKind, isClaude: agentKind === "claude" }
+						: { ...p, agentKind, isClaude: agentKind === "claude" },
 				),
 			})),
 		}),
-		"agent-kind-change"
+		"agent-kind-change",
 	);
 }
 
@@ -965,7 +966,7 @@ export function getPaneTitle(agentKind: AgentKind, cwd?: string): string;
 
 export function getPaneTitle(
 	paneOrAgentKind: AgentPaneModel | AgentKind,
-	cwd?: string
+	cwd?: string,
 ): string {
 	const agentKind =
 		typeof paneOrAgentKind === "string"
@@ -980,7 +981,7 @@ export function getPaneTitle(
 export function createAgentPane(
 	agentKind: AgentKind,
 	cwd?: string,
-	pendingCwd?: boolean
+	pendingCwd?: boolean,
 ): AgentPaneModel {
 	const chatAgentKind = isChatAgentKind(agentKind)
 		? agentKind
@@ -997,7 +998,7 @@ export function createAgentPane(
 }
 
 export function createPendingAgentChatPane(
-	agentKind: ChatAgentKind = loadDefaultChatSettings().agentKind
+	agentKind: ChatAgentKind = loadDefaultChatSettings().agentKind,
 ): AgentPaneModel {
 	return createAgentPane(agentKind, undefined, true);
 }
@@ -1020,7 +1021,7 @@ export function migrateGroup(
 		name: string;
 		panes: AgentPaneModel[];
 		selectedPaneId: PaneId | null;
-	}
+	},
 ): AgentGroupModel {
 	const panes = group.panes;
 	const selectedPaneId = panes.some(hasId.bind(null, group.selectedPaneId))
@@ -1152,7 +1153,7 @@ export function loadCustomTheme(): CustomThemeColors {
 	try {
 		const parsed = readStoredJson<Partial<CustomThemeColors> | null>(
 			CUSTOM_THEME_KEY,
-			null
+			null,
 		);
 		if (parsed) return { ...DEFAULT_CUSTOM_COLORS, ...parsed };
 	} catch {}
