@@ -116,7 +116,7 @@ export function InlineDirectoryPicker({
 	const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
 	const inputRef = useRef<HTMLInputElement | null>(null);
 	const containerRef = useRef<HTMLDivElement | null>(null);
-	const isSearching = query.trim().length > 0;
+	const isSearching = deferredQuery.length > 0;
 	const displayList = (isSearching ? searchResults : pickerData.quickPicks)
 		.filter((p) => !multiSelect || !selectedPaths.includes(p.path))
 		.slice(0, 5);
@@ -145,6 +145,7 @@ export function InlineDirectoryPicker({
 	};
 
 	const handleItemClick = (path: string) => {
+		setSelectedIndex(-1);
 		if (multiSelect) {
 			togglePath(path);
 			setQuery("");
@@ -273,7 +274,10 @@ export function InlineDirectoryPicker({
 						ref={inputRef}
 						type="text"
 						value={query}
-						onInput={setInputValue.bind(null, setQuery)}
+						onInput={(event) => {
+							setInputValue(setQuery, event);
+							setSelectedIndex(-1);
+						}}
 						onKeyDown={handleKeyDown}
 						placeholder="Search folder..."
 						autoComplete="off"
@@ -301,10 +305,13 @@ export function InlineDirectoryPicker({
 								type="button"
 								key={pick.path}
 								onMouseDown={(e) => e.preventDefault()}
+								onMouseMove={() => setSelectedIndex(i)}
 								onClick={handleItemClick.bind(null, pick.path)}
 								{...stylex.props(
 									styles.resultRowCompact,
-									i === selectedIndex && styles.resultRowActiveAccent,
+									selectedIndexValue >= 0 &&
+										i === selectedIndex &&
+										styles.resultRowActiveAccent,
 								)}
 							>
 								<span
@@ -585,14 +592,8 @@ const styles = stylex.create({
 		textAlign: "left",
 		transitionProperty: "background-color, color",
 		transitionDuration: "120ms",
-		backgroundColor: {
-			default: "transparent",
-			":hover": color.controlHover,
-		},
-		backgroundImage: {
-			default: "none",
-			":hover": effect.controlDepth,
-		},
+		backgroundColor: "transparent",
+		backgroundImage: "none",
 	},
 	inputRow: {
 		display: "flex",

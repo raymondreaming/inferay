@@ -1070,12 +1070,11 @@ const styles = stylex.create({
 		right: 0,
 		bottom: 0,
 		pointerEvents: "none",
-		paddingInline: controlSize._3,
+		paddingInline: 0,
 		paddingBottom: 14,
 	},
 	directoryPickerInner: {
-		maxWidth: "42rem",
-		marginInline: "auto",
+		width: "100%",
 		pointerEvents: "auto",
 	},
 	scrollButton: {
