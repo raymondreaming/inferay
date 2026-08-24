@@ -74,11 +74,25 @@ const SYNTAX_THEME_EVENT = "inferay-syntax-highlight-theme-change" as const;
 const EMPTY_HIGHLIGHTS = new Map<number, string>();
 const MAX_CACHED_HIGHLIGHT_LINES = 2_000;
 const HIGHLIGHT_CACHE_RANGE_PADDING = 500;
+const MAX_SNIPPET_HIGHLIGHT_LINES = 2_000;
+const MAX_SNIPPET_HIGHLIGHT_CHARS = 120_000;
+const MAX_SNIPPET_HIGHLIGHT_LINE_CHARS = 4_000;
+
+export function shouldDisableSnippetHighlighting(lines: string[]): boolean {
+	if (lines.length > MAX_SNIPPET_HIGHLIGHT_LINES) return true;
+	let totalChars = 0;
+	for (const line of lines) {
+		if (line.length > MAX_SNIPPET_HIGHLIGHT_LINE_CHARS) return true;
+		totalChars += line.length;
+		if (totalChars > MAX_SNIPPET_HIGHLIGHT_CHARS) return true;
+	}
+	return false;
+}
 
 function pruneHighlightCache<T>(
 	cache: Map<number, T>,
 	visibleStart: number,
-	visibleEnd: number
+	visibleEnd: number,
 ) {
 	if (cache.size <= MAX_CACHED_HIGHLIGHT_LINES) return;
 	const keepStart = Math.max(0, visibleStart - HIGHLIGHT_CACHE_RANGE_PADDING);
@@ -125,7 +139,7 @@ function readSyntaxTheme(): SyntaxHighlightTheme {
 	if (typeof window === "undefined") return DEFAULT_SYNTAX_HIGHLIGHT_THEME;
 	try {
 		return normalizeSyntaxTheme(
-			window.localStorage.getItem(SYNTAX_THEME_STORAGE_KEY)
+			window.localStorage.getItem(SYNTAX_THEME_STORAGE_KEY),
 		);
 	} catch {
 		return DEFAULT_SYNTAX_HIGHLIGHT_THEME;
@@ -143,7 +157,7 @@ export function useSyntaxHighlightTheme() {
 		};
 		const handleThemeChange = (event: Event) => {
 			setThemeState(
-				normalizeSyntaxTheme((event as CustomEvent<string>).detail ?? null)
+				normalizeSyntaxTheme((event as CustomEvent<string>).detail ?? null),
 			);
 		};
 
@@ -163,7 +177,7 @@ export function useSyntaxHighlightTheme() {
 			window.localStorage.setItem(SYNTAX_THEME_STORAGE_KEY, normalized);
 		} catch {}
 		window.dispatchEvent(
-			new CustomEvent(SYNTAX_THEME_EVENT, { detail: normalized })
+			new CustomEvent(SYNTAX_THEME_EVENT, { detail: normalized }),
 		);
 	}, []);
 
@@ -178,7 +192,7 @@ async function getHighlighter(): Promise<Highlighter> {
 		createHighlighter({
 			themes: ["github-dark-default"],
 			langs: [], // Load languages on demand
-		})
+		}),
 	);
 
 	highlighterInstance = await highlighterPromise;
@@ -201,7 +215,7 @@ function highlightLine(
 	hl: Highlighter,
 	line: string,
 	language: BundledLanguage,
-	theme: BundledTheme
+	theme: BundledTheme,
 ) {
 	try {
 		const html = hl.codeToHtml(line, { lang: language, theme });
@@ -225,7 +239,7 @@ function fallbackHighlightLine(line: string) {
 		.replace(
 			/\b(import|export|const|let|var|function|return|from|type|interface|if|else|for|while|class|extends|new|true|false|null|undefined)\b/g,
 			(match) =>
-				`<span style="color:${FALLBACK_TOKEN_COLORS.keyword}">${match}</span>`
+				`<span style="color:${FALLBACK_TOKEN_COLORS.keyword}">${match}</span>`,
 		)
 		.replace(/(\/\/.*)$/g, (match) => {
 			return `<span style="color:${FALLBACK_TOKEN_COLORS.comment}">${match}</span>`;
@@ -244,7 +258,7 @@ const HIGHLIGHT_CONTEXT_LINES = 200;
 type IdleWindow = Window & {
 	requestIdleCallback?: (
 		callback: () => void,
-		options?: { timeout?: number }
+		options?: { timeout?: number },
 	) => number;
 	cancelIdleCallback?: (handle: number) => void;
 };
@@ -265,7 +279,7 @@ function highlightLineRange(
 	start: number,
 	end: number,
 	language: BundledLanguage,
-	theme: BundledTheme
+	theme: BundledTheme,
 ) {
 	const from = Math.max(0, start - HIGHLIGHT_CONTEXT_LINES);
 	const to = Math.min(lines.length - 1, end);
@@ -287,7 +301,7 @@ function highlightLineRange(
 				lineIdx,
 				rendered != null
 					? rendered || escapeHtml(lines[lineIdx] ?? "")
-					: highlightLine(hl, lines[lineIdx] ?? "", language, theme)
+					: highlightLine(hl, lines[lineIdx] ?? "", language, theme),
 			);
 		}
 		return highlighted;
@@ -296,7 +310,7 @@ function highlightLineRange(
 		for (let lineIdx = start; lineIdx <= to; lineIdx++) {
 			highlighted.set(
 				lineIdx,
-				highlightLine(hl, lines[lineIdx] ?? "", language, theme)
+				highlightLine(hl, lines[lineIdx] ?? "", language, theme),
 			);
 		}
 		return highlighted;
@@ -309,7 +323,7 @@ function highlightLineTokenRange(
 	start: number,
 	end: number,
 	language: BundledLanguage,
-	theme: BundledTheme
+	theme: BundledTheme,
 ) {
 	const from = Math.max(0, start - HIGHLIGHT_CONTEXT_LINES);
 	const to = Math.min(lines.length - 1, end);
@@ -321,7 +335,7 @@ function highlightLineTokenRange(
 			{
 				lang: language,
 				theme,
-			}
+			},
 		);
 		const highlighted = new Map<number, ShikiLineToken[]>();
 
@@ -333,7 +347,7 @@ function highlightLineTokenRange(
 					bgColor: token.bgColor,
 					color: token.color,
 					content: token.content,
-				}))
+				})),
 			);
 		}
 		return highlighted;
@@ -384,7 +398,7 @@ export function useShikiHighlighter({
 	const language = getLanguageFromPath(filePath);
 	const lineContentKey = useMemo(
 		() => (enabled ? createLineContentKey(lines) : String(lines.length)),
-		[enabled, lines]
+		[enabled, lines],
 	);
 	const highlightKey = `${enabled}\0${filePath}\0${language ?? ""}\0${theme}\0${lineContentKey}`;
 	const visibleStart = visibleRange[0];
@@ -392,7 +406,7 @@ export function useShikiHighlighter({
 	const [readyKey, setReadyKey] = useState<string | null>(null);
 	const [, setHighlightVersion] = useState(0); // Force re-render when highlighting completes
 	const cacheRef = useRef<Map<number, ShikiLineToken[]>>(
-		undefined as unknown as Map<number, ShikiLineToken[]>
+		undefined as unknown as Map<number, ShikiLineToken[]>,
 	);
 	if (!cacheRef.current) {
 		cacheRef.current = new Map();
@@ -440,7 +454,7 @@ export function useShikiHighlighter({
 					start,
 					end,
 					resolvedLanguage,
-					theme
+					theme,
 				);
 				for (const [lineIdx, tokens] of highlighted) {
 					cacheRef.current.set(lineIdx, tokens);
@@ -490,7 +504,7 @@ export function useShikiHighlighter({
 					missingStart,
 					missingEnd,
 					lang,
-					theme
+					theme,
 				);
 				for (const [lineIdx, tokens] of highlighted) {
 					cacheRef.current.set(lineIdx, tokens);
@@ -504,7 +518,7 @@ export function useShikiHighlighter({
 	const getHighlightedLineTokens = useCallback(
 		(lineIdx: number): ShikiLineToken[] | undefined =>
 			cacheRef.current.get(lineIdx),
-		[]
+		[],
 	);
 	const ensureHighlightedRange = useCallback(
 		(start: number, end: number) => {
@@ -532,7 +546,7 @@ export function useShikiHighlighter({
 				missingStart,
 				missingEnd,
 				lang,
-				theme
+				theme,
 			);
 			for (const [lineIdx, tokens] of highlighted) {
 				cacheRef.current.set(lineIdx, tokens);
@@ -541,7 +555,7 @@ export function useShikiHighlighter({
 			setHighlightVersion(incrementNumber);
 			return true;
 		},
-		[isReady, theme]
+		[isReady, theme],
 	);
 
 	return {
@@ -574,11 +588,21 @@ export function useShikiSnippet(
 	lines: string[],
 	filePath: string,
 	enabled = true,
-	theme: SyntaxHighlightTheme = DEFAULT_SYNTAX_HIGHLIGHT_THEME
+	theme: SyntaxHighlightTheme = DEFAULT_SYNTAX_HIGHLIGHT_THEME,
 ): { highlighted: Map<number, string>; isReady: boolean } {
 	const language = getLanguageFromPath(filePath);
-	const linesHash = useMemo(() => createLineContentKey(lines), [lines]);
-	const snippetKey = `${enabled}\0${filePath}\0${language ?? ""}\0${theme}\0${linesHash}`;
+	const highlightEnabled = useMemo(
+		() => enabled && !!language && !shouldDisableSnippetHighlighting(lines),
+		[enabled, language, lines],
+	);
+	const linesHash = useMemo(
+		() =>
+			highlightEnabled
+				? createLineContentKey(lines)
+				: `${lines.length}:highlight-disabled`,
+		[highlightEnabled, lines],
+	);
+	const snippetKey = `${highlightEnabled}\0${filePath}\0${language ?? ""}\0${theme}\0${linesHash}`;
 	const [highlightedState, setHighlightedState] = useState<{
 		key: string;
 		highlighted: Map<number, string>;
@@ -586,18 +610,17 @@ export function useShikiSnippet(
 	const linesRef = useRef<string[]>([]);
 
 	const isReady =
-		!enabled ||
-		!language ||
+		!highlightEnabled ||
 		lines.length === 0 ||
 		highlightedState?.key === snippetKey;
 	const fallbackHighlighted = useMemo(
-		() => fallbackHighlightLines(lines),
-		[lines]
+		() => (highlightEnabled ? fallbackHighlightLines(lines) : EMPTY_HIGHLIGHTS),
+		[highlightEnabled, lines],
 	);
 	const highlighted =
 		highlightedState?.key === snippetKey
 			? highlightedState.highlighted
-			: !enabled || !language || lines.length === 0
+			: !highlightEnabled || lines.length === 0
 				? EMPTY_HIGHLIGHTS
 				: fallbackHighlighted;
 
@@ -610,7 +633,7 @@ export function useShikiSnippet(
 		if (!linesChanged && isReady) return;
 		linesRef.current = lines;
 
-		if (!enabled || !language || lines.length === 0) return;
+		if (!highlightEnabled || !language || lines.length === 0) return;
 		const resolvedLanguage = language;
 
 		const controller = new AbortController();
@@ -631,7 +654,7 @@ export function useShikiSnippet(
 					0,
 					lines.length - 1,
 					resolvedLanguage,
-					theme
+					theme,
 				);
 
 				if (!signal.aborted) {
@@ -654,7 +677,7 @@ export function useShikiSnippet(
 		fallbackHighlighted,
 		lines,
 		language,
-		enabled,
+		highlightEnabled,
 		isReady,
 		snippetKey,
 		theme,

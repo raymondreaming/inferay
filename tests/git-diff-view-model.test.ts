@@ -7,6 +7,7 @@ import {
 	hasLongPatchLine,
 	shouldDisableDiffTokenization,
 } from "../src/features/git/useGitDiff.tsx";
+import { shouldDisableSnippetHighlighting } from "../src/hooks/useShikiHighlighter.tsx";
 
 function line(type: DiffLine["type"], content: string, number = 1): DiffLine {
 	return {
@@ -33,7 +34,7 @@ describe("git diff view model", () => {
 			[line("spacer", ""), line("add", "new", 2), line("context", "tail", 3)],
 			new Map([[1, 0]]),
 			0,
-			3
+			3,
 		);
 
 		expect(rows).toEqual([
@@ -65,14 +66,14 @@ describe("git diff view model", () => {
 			[line("spacer", ""), line("add", "new", 1)],
 			undefined,
 			0,
-			2
+			2,
 		);
 
 		expect(rows[0]).toEqual(
 			expect.objectContaining({
 				hunkLine: expect.objectContaining({ content: "@@ -1 +1 @@" }),
 				isChanged: false,
-			})
+			}),
 		);
 		expect(rows[1]?.hunkLine).toBeNull();
 	});
@@ -80,8 +81,8 @@ describe("git diff view model", () => {
 	test("converts merge conflict markers into themed diff rows", () => {
 		expect(
 			buildMergeConflictLines(
-				"before\n<<<<<<< HEAD\ncurrent\n=======\nincoming\n>>>>>>> branch\nafter"
-			)
+				"before\n<<<<<<< HEAD\ncurrent\n=======\nincoming\n>>>>>>> branch\nafter",
+			),
 		).toEqual([
 			line("context", "before"),
 			line("hunk", "Current change: HEAD"),
@@ -97,15 +98,29 @@ describe("git diff view model", () => {
 		expect(hasLongPatchLine(`+${"x".repeat(1001)}`)).toBe(true);
 		expect(
 			shouldDisableDiffTokenization(
-				diff({ newLines: [line("add", "x".repeat(1001))] })
-			)
+				diff({ newLines: [line("add", "x".repeat(1001))] }),
+			),
 		).toBe(true);
 		expect(
 			shouldDisableDiffTokenization(
 				diff({
 					rawPatch: `diff --git a/file.ts b/file.ts\n+${"x".repeat(1001)}`,
-				})
-			)
+				}),
+			),
+		).toBe(true);
+	});
+
+	test("bounds whole-file snippet highlighting for generated stylesheets", () => {
+		expect(shouldDisableSnippetHighlighting([".button { color: red; }"])).toBe(
+			false,
+		);
+		expect(
+			shouldDisableSnippetHighlighting([`.generated{${"x".repeat(4_100)}`]),
+		).toBe(true);
+		expect(
+			shouldDisableSnippetHighlighting(
+				Array.from({ length: 2_001 }, (_, index) => `.rule-${index}{}`),
+			),
 		).toBe(true);
 	});
 });

@@ -496,8 +496,10 @@ fn run_git_timed(args: &[&str], cwd: &str, timeout: Duration) -> Option<String> 
         None => {
             let _ = child.kill();
             let _ = child.wait();
-            let _ = stdout_reader.join();
-            let _ = stderr_reader.join();
+            // A configured external diff/textconv process can inherit these pipes.
+            // Never turn a Git timeout into an unbounded wait for that descendant.
+            drop(stdout_reader);
+            drop(stderr_reader);
             return None;
         }
     };
@@ -514,7 +516,21 @@ const MAX_RENDERED_DIFF_LINES: usize = 12_000;
 const MAX_RENDERED_LINE_CHARS: usize = 8_000;
 
 pub fn is_changed_git_file(cwd: &str, file_path: &str) -> bool {
-    get_git_status(cwd).is_some_and(|status| status.files.iter().any(|file| file.path == file_path))
+    if !is_safe_relative_path(file_path) {
+        return false;
+    }
+    run_git_timed(
+        &[
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+            "--",
+            file_path,
+        ],
+        cwd,
+        Duration::from_secs(2),
+    )
+    .is_some_and(|status| status.lines().any(|line| !line.trim().is_empty()))
 }
 
 pub fn get_git_diff(
@@ -528,12 +544,29 @@ pub fn get_git_diff(
     }
     let result = if staged {
         run_git_timed(
-            &["diff", "--cached", "--", file_path],
+            &[
+                "diff",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--cached",
+                "--",
+                file_path,
+            ],
             cwd,
             Duration::from_secs(5),
         )
     } else {
-        run_git_timed(&["diff", "--", file_path], cwd, Duration::from_secs(5))
+        run_git_timed(
+            &[
+                "diff",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--",
+                file_path,
+            ],
+            cwd,
+            Duration::from_secs(5),
+        )
     };
     if result
         .as_deref()
@@ -587,6 +620,8 @@ fn get_raw_git_patch(cwd: &str, file_path: &str, staged: bool) -> String {
         run_git_timed(
             &[
                 "diff",
+                "--no-ext-diff",
+                "--no-textconv",
                 "--cached",
                 "--binary",
                 "--find-renames",
@@ -598,7 +633,15 @@ fn get_raw_git_patch(cwd: &str, file_path: &str, staged: bool) -> String {
         )
     } else {
         run_git_timed(
-            &["diff", "--binary", "--find-renames", "--", file_path],
+            &[
+                "diff",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--binary",
+                "--find-renames",
+                "--",
+                file_path,
+            ],
             cwd,
             Duration::from_secs(5),
         )
@@ -610,49 +653,63 @@ fn get_raw_git_patch(cwd: &str, file_path: &str, staged: bool) -> String {
     {
         return patch;
     }
-    let full_patch = if staged {
+    let Some(original_path) = renamed_from_path(cwd, file_path, staged) else {
+        return patch;
+    };
+    let rename_patch = if staged {
         run_git_timed(
-            &["diff", "--cached", "--binary", "--find-renames"],
+            &[
+                "diff",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--cached",
+                "--binary",
+                "--find-renames",
+                "--",
+                &original_path,
+                file_path,
+            ],
             cwd,
             Duration::from_secs(5),
         )
     } else {
         run_git_timed(
-            &["diff", "--binary", "--find-renames"],
+            &[
+                "diff",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--binary",
+                "--find-renames",
+                "--",
+                &original_path,
+                file_path,
+            ],
             cwd,
             Duration::from_secs(5),
         )
     }
     .unwrap_or_default();
-    extract_patch_for_path(&full_patch, file_path).unwrap_or(patch)
+    if rename_patch.trim().is_empty() {
+        patch
+    } else {
+        rename_patch
+    }
 }
 
-fn extract_patch_for_path(patch: &str, file_path: &str) -> Option<String> {
-    if patch.trim().is_empty() {
-        return None;
-    }
-    let mut blocks = Vec::<String>::new();
-    let mut current = String::new();
-    for line in patch.split_inclusive('\n') {
-        if line.starts_with("diff --git ") && !current.is_empty() {
-            blocks.push(current.trim_end().to_string());
-            current.clear();
+fn renamed_from_path(cwd: &str, file_path: &str, staged: bool) -> Option<String> {
+    let status = run_git_timed(
+        &["status", "--porcelain=v1", "--untracked-files=no"],
+        cwd,
+        Duration::from_secs(2),
+    )?;
+    status.lines().find_map(|line| {
+        let status = line.as_bytes().get(usize::from(!staged)).copied()?;
+        if status != b'R' && status != b'C' {
+            return None;
         }
-        current.push_str(line);
-    }
-    if !current.is_empty() {
-        blocks.push(current.trim_end().to_string());
-    }
-    for block in blocks {
-        let header = block.lines().next().unwrap_or("");
-        let matches_marker = block.lines().any(|line| {
-            line == format!("rename to {file_path}") || line == format!("+++ b/{file_path}")
-        });
-        if header.ends_with(&format!(" b/{file_path}")) || matches_marker {
-            return Some(format!("{block}\n"));
-        }
-    }
-    None
+        let (original, actual) = line.get(3..)?.split_once(" -> ")?;
+        (actual == file_path).then(|| original.to_string())
+    })
 }
 
 fn create_untracked_patch(file_path: &str, content: &str) -> String {
@@ -718,42 +775,70 @@ fn parse_hunk_range(value: &str) -> Option<(usize, usize)> {
     Some((start.parse().ok()?, count.parse().ok()?))
 }
 
-fn parse_hunk_ranges(diff_text: &str) -> (Vec<DiffRange>, Vec<DiffRange>) {
-    let mut removed = Vec::new();
-    let mut added = Vec::new();
-    for line in diff_text.lines().filter(|line| line.starts_with("@@")) {
-        let Some(rest) = line.strip_prefix("@@ ") else {
-            continue;
-        };
-        let mut parts = rest.split_whitespace();
-        let (Some(old), Some(new)) = (parts.next(), parts.next()) else {
-            continue;
-        };
-        let (Some((old_start, old_count)), Some((new_start, new_count))) =
-            (parse_hunk_range(old), parse_hunk_range(new))
-        else {
-            continue;
-        };
-        if old_count > 0 {
-            removed.push(DiffRange {
-                start: old_start,
-                end: old_start + old_count - 1,
-            });
-        }
-        if new_count > 0 {
-            added.push(DiffRange {
-                start: new_start,
-                end: new_start + new_count - 1,
-            });
-        }
-    }
-    (removed, added)
-}
-
 fn range_contains(ranges: &[DiffRange], line: usize) -> bool {
     ranges
         .iter()
         .any(|range| line >= range.start && line <= range.end)
+}
+
+fn push_changed_line(ranges: &mut Vec<DiffRange>, line: usize) {
+    if let Some(last) = ranges.last_mut() {
+        if line == last.end.saturating_add(1) {
+            last.end = line;
+            return;
+        }
+    }
+    ranges.push(DiffRange {
+        start: line,
+        end: line,
+    });
+}
+
+fn parse_changed_ranges(diff_text: &str) -> (Vec<DiffRange>, Vec<DiffRange>) {
+    let mut removed = Vec::new();
+    let mut added = Vec::new();
+    let mut old_line = 0usize;
+    let mut new_line = 0usize;
+    let mut in_hunk = false;
+
+    for line in diff_text.lines() {
+        if line.starts_with("@@") {
+            let Some(rest) = line.strip_prefix("@@ ") else {
+                in_hunk = false;
+                continue;
+            };
+            let mut parts = rest.split_whitespace();
+            let (Some(old), Some(new)) = (parts.next(), parts.next()) else {
+                in_hunk = false;
+                continue;
+            };
+            let (Some((old_start, _)), Some((new_start, _))) =
+                (parse_hunk_range(old), parse_hunk_range(new))
+            else {
+                in_hunk = false;
+                continue;
+            };
+            old_line = old_start;
+            new_line = new_start;
+            in_hunk = true;
+            continue;
+        }
+        if !in_hunk {
+            continue;
+        }
+        if line.starts_with('-') {
+            push_changed_line(&mut removed, old_line);
+            old_line += 1;
+        } else if line.starts_with('+') {
+            push_changed_line(&mut added, new_line);
+            new_line += 1;
+        } else if line.starts_with(' ') {
+            old_line += 1;
+            new_line += 1;
+        }
+    }
+
+    (removed, added)
 }
 
 pub fn get_git_hunk_diff(
@@ -939,21 +1024,7 @@ pub fn get_git_hunk_diff(
         return result;
     }
 
-    let diff_text = if staged {
-        run_git_timed(
-            &["diff", "--cached", "-U0", "--", file_path],
-            cwd,
-            Duration::from_secs(5),
-        )
-    } else {
-        run_git_timed(
-            &["diff", "-U0", "--", file_path],
-            cwd,
-            Duration::from_secs(5),
-        )
-    }
-    .unwrap_or_default();
-    let (removed_ranges, added_ranges) = parse_hunk_ranges(&diff_text);
+    let (removed_ranges, added_ranges) = parse_changed_ranges(&raw_patch);
     let mut old_lines = Vec::new();
     let mut new_lines = Vec::new();
     let mut old_index = 0usize;
@@ -1093,21 +1164,8 @@ pub fn get_git_file_with_diff(
         };
     }
     let content = String::from_utf8_lossy(&bytes);
-    let diff_text = if staged {
-        run_git_timed(
-            &["diff", "--cached", "-U0", "--", file_path],
-            cwd,
-            Duration::from_secs(5),
-        )
-    } else {
-        run_git_timed(
-            &["diff", "-U0", "--", file_path],
-            cwd,
-            Duration::from_secs(5),
-        )
-    }
-    .unwrap_or_default();
-    let (_, added_ranges) = parse_hunk_ranges(&diff_text);
+    let raw_patch = get_raw_git_patch(cwd, file_path, staged);
+    let (_, added_ranges) = parse_changed_ranges(&raw_patch);
     let lines = content
         .split('\n')
         .enumerate()
@@ -1882,6 +1940,48 @@ mod tests {
 
     fn allowed(repository: &Path) -> AllowedPaths {
         AllowedPaths::new(repository, repository.canonicalize().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn derives_exact_changed_ranges_from_a_context_patch() {
+        let patch = [
+            "diff --git a/app.css b/app.css",
+            "--- a/app.css",
+            "+++ b/app.css",
+            "@@ -10,5 +10,6 @@",
+            " .before {}",
+            "-.old {}",
+            "+.new {}",
+            "+.extra {}",
+            " .after {}",
+        ]
+        .join("\n");
+        let (removed, added) = parse_changed_ranges(&patch);
+
+        assert_eq!(removed.len(), 1);
+        assert_eq!((removed[0].start, removed[0].end), (11, 11));
+        assert_eq!(added.len(), 1);
+        assert_eq!((added[0].start, added[0].end), (11, 12));
+    }
+
+    #[test]
+    fn full_diff_ignores_repository_external_diff_drivers() {
+        let repository = make_repository();
+        std::fs::write(repository.path().join(".gitattributes"), "*.css diff=slow\n").unwrap();
+        std::fs::write(repository.path().join("app.css"), ".old { color: red; }\n").unwrap();
+        git(repository.path(), &["config", "diff.slow.command", "false"]);
+        git(repository.path(), &["add", "."]);
+        git(repository.path(), &["commit", "-m", "initial"]);
+        std::fs::write(repository.path().join("app.css"), ".new { color: blue; }\n").unwrap();
+        let cwd = repository.path().to_string_lossy();
+
+        let diff = get_git_hunk_diff(&allowed(repository.path()), &cwd, "app.css", false);
+
+        assert!(diff
+            .new_lines
+            .iter()
+            .any(|line| line.line_type == GitDiffLineType::Add));
+        assert!(diff.raw_patch.unwrap().contains("+.new { color: blue; }"));
     }
 
     #[test]
