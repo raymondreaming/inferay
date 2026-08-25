@@ -30,19 +30,14 @@
 	--color-git-renamed: #7a8fb5;
 	--color-git-unmerged: #b0896a;
 
-	/* Syntax highlighting — muted, desaturated tones matching theme */
-	--color-syntax-keyword: #c4a7a7; /* soft rose - control flow, keywords */
-	--color-syntax-string: #a7b8a7; /* soft sage - strings, values */
-	--color-syntax-comment: rgba(255, 255, 255, 0.35); /* muted like text-3 */
-	--color-syntax-number: #a7c4c4; /* soft teal - numbers, constants */
-	--color-syntax-punctuation: rgba(
-		255,
-		255,
-		255,
-		0.55
-	); /* subtle but visible */
-	--color-syntax-tag: #b8c4a7; /* soft olive - tags, components */
-	--color-syntax-attr: #b8a7c4; /* soft lavender - attributes, properties */
+	/* Syntax highlighting — high contrast on the near-black code surfaces */
+	--color-syntax-keyword: #ff9492;
+	--color-syntax-string: #b7e1ff;
+	--color-syntax-comment: #a1aab5;
+	--color-syntax-number: #8ce99a;
+	--color-syntax-punctuation: #f0f3f6;
+	--color-syntax-tag: #91e6a7;
+	--color-syntax-attr: #b8d7ff;
 
 	--font-sans:
 		"Geist", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;

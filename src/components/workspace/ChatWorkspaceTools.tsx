@@ -19,6 +19,7 @@ import {
 import type { GitFileEntry } from "../../features/git/types.ts";
 import { useGitChangeActions } from "../../features/git/useGitChangeActions.tsx";
 import {
+	type DiffRequest,
 	summarizeHunkDiff,
 	useGitDiff,
 } from "../../features/git/useGitDiff.tsx";
@@ -281,8 +282,8 @@ function ChatDiffPanel({
 						onClick={(event) => {
 							if (event.detail === 0) onViewModeChange("split");
 						}}
-						title="Split diff"
-						aria-label="Split diff"
+						title="Full file diff"
+						aria-label="Full file diff"
 						{...stylex.props(
 							styles.viewerModeButton,
 							viewMode === "split" && styles.viewerModeButtonActive,
@@ -514,17 +515,17 @@ export function useChatWorkspaceTools({
 		applyOptimistic,
 		refetchStatus: refetch,
 	});
-	const diffRequest = useMemo(
+	const diffRequest = useMemo<DiffRequest | null>(
 		() =>
 			active && diffViewerCwd && selectedFile
 				? {
 						cwd: diffViewerCwd,
 						file: selectedFile.path,
 						staged: selectedFile.staged,
-						view: "review" as const,
+						view: diffViewMode === "split" ? "full" : "review",
 					}
 				: null,
-		[active, diffViewerCwd, selectedFile],
+		[active, diffViewMode, diffViewerCwd, selectedFile],
 	);
 	const { diff, loading: diffLoading } = useGitDiff(diffRequest);
 

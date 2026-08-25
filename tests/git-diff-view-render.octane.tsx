@@ -149,7 +149,7 @@ describe("GitDiffView custom renderer", () => {
 		}
 	});
 
-	test("renders independently scrollable split panes with synchronized axes", async () => {
+	test("uses one vertical scroll owner while keeping horizontal panes independent", async () => {
 		const { root, rootElement } = setupDom();
 		try {
 			const diff: HunkDiff = {
@@ -178,20 +178,29 @@ describe("GitDiffView custom renderer", () => {
 			expect(
 				rootElement.querySelectorAll(".diff-row").length,
 			).toBeGreaterThanOrEqual(4);
-
-			left!.scrollLeft = 180;
-			left!.scrollTop = 24;
-			left!.dispatchEvent(new window.Event("scroll"));
-			await new Promise((resolve) => setTimeout(resolve, 10));
-			expect(right!.scrollLeft).toBe(180);
-			expect(right!.scrollTop).toBe(24);
+			expect(
+				rootElement.querySelector('[data-diff-minimap-change="left:remove"]'),
+			).toBeTruthy();
+			expect(
+				rootElement.querySelector('[data-diff-minimap-change="right:add"]'),
+			).toBeTruthy();
 
 			right!.scrollLeft = 72;
 			right!.scrollTop = 48;
 			right!.dispatchEvent(new window.Event("scroll"));
 			await new Promise((resolve) => setTimeout(resolve, 10));
-			expect(left!.scrollLeft).toBe(72);
 			expect(left!.scrollTop).toBe(48);
+			expect(left!.scrollLeft).toBe(0);
+
+			left!.dispatchEvent(
+				new window.WheelEvent("wheel", {
+					bubbles: true,
+					cancelable: true,
+					deltaY: 30,
+				}),
+			);
+			expect(right!.scrollTop).toBe(78);
+			expect(left!.scrollTop).toBe(78);
 		} finally {
 			root.unmount();
 		}

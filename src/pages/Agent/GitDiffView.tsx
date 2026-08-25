@@ -79,14 +79,12 @@ const DIFF_CONFIG = {
 	lineHeight: 14, // Height of each line in pixels
 	lineNumFontSize: 9, // Line number font size
 	signFontSize: 10, // +/- sign font size
-	contentFontSize: 9, // Code content font size
+	contentFontSize: 10, // Code content font size
 	lineNumWidth: 36, // Line number column width
 	signWidth: 12, // +/- sign column width
-	lineNumColor: "var(--color-inferay-muted-gray)",
-	addLineNumColor:
-		"color-mix(in srgb, var(--color-git-added) 72%, var(--color-inferay-muted-gray))",
-	removeLineNumColor:
-		"color-mix(in srgb, var(--color-git-deleted) 72%, var(--color-inferay-muted-gray))",
+	lineNumColor: "rgba(255, 255, 255, 0.62)",
+	addLineNumColor: "var(--color-git-added)",
+	removeLineNumColor: "var(--color-git-deleted)",
 	addSignColor: "var(--color-git-added)",
 	removeSignColor: "var(--color-git-deleted)",
 	addBg: "color-mix(in srgb, var(--color-git-added) 12%, transparent)",
@@ -262,33 +260,21 @@ const diffStyles = stylex.create({
 	},
 	minimapSegment: {
 		position: "absolute",
-		right: "3px",
-		width: "9px",
-		borderRadius: "2px",
+		width: "6px",
+		borderRadius: 0,
 	},
 	minimapAdd: {
-		backgroundColor: "color-mix(in srgb, var(--color-git-added) 92%, white)",
-		boxShadow:
-			"0 0 0 1px color-mix(in srgb, var(--color-git-added) 70%, white), 0 0 8px color-mix(in srgb, var(--color-git-added) 42%, transparent)",
+		backgroundColor: "var(--color-git-added)",
 	},
 	minimapDelete: {
-		backgroundColor: "color-mix(in srgb, var(--color-git-deleted) 92%, white)",
-		boxShadow:
-			"0 0 0 1px color-mix(in srgb, var(--color-git-deleted) 70%, white), 0 0 8px color-mix(in srgb, var(--color-git-deleted) 42%, transparent)",
+		backgroundColor: "var(--color-git-deleted)",
 	},
 	minimapThumb: {
 		position: "absolute",
 		left: 0,
 		right: 0,
 		pointerEvents: "none",
-		borderTopWidth: 1,
-		borderBottomWidth: 1,
-		borderTopStyle: "solid",
-		borderBottomStyle: "solid",
-		borderTopColor: "rgba(255, 255, 255, 0.2)",
-		borderBottomColor: "rgba(255, 255, 255, 0.2)",
 		backgroundColor: "rgba(255, 255, 255, 0.14)",
-		boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, 0.14)",
 	},
 	singlePanel: {
 		display: "flex",
@@ -623,6 +609,7 @@ const diffStyles = stylex.create({
 	content: {
 		flex: 1,
 		fontFamily: font.familyDiff,
+		fontWeight: 500,
 		lineHeight: `${LINE_H}px`,
 		overflow: "hidden",
 		minWidth: "max-content",
@@ -710,7 +697,10 @@ const DiffRow = memo(function DiffRow({
 		? indexedValues(highlightedTokens).map(({ index, value: tok }) => (
 				<span
 					key={`${index}-${tok.content}`}
-					style={{ backgroundColor: tok.bgColor, color: tok.color }}
+					style={{
+						backgroundColor: tok.bgColor,
+						color: tok.color,
+					}}
 				>
 					{tok.content}
 				</span>
@@ -751,9 +741,7 @@ const DiffRow = memo(function DiffRow({
 				style={{
 					fontSize: DIFF_CONFIG.contentFontSize,
 					minWidth: clipContent ? 0 : undefined,
-					color: highlightedTokens
-						? undefined
-						: "var(--color-inferay-soft-white)",
+					color: highlightedTokens ? undefined : "#f2f4f7",
 				}}
 			>
 				{lineContent}
@@ -853,6 +841,8 @@ const VirtualPanel = memo(function VirtualPanel({
 	onScroll,
 	disableTokenize,
 	showMinimap: _showMinimap = false,
+	minimapOldLines,
+	verticalFollower = false,
 	externalScrollTop,
 	externalScrollSource,
 	side,
@@ -871,6 +861,8 @@ const VirtualPanel = memo(function VirtualPanel({
 	) => void;
 	disableTokenize: boolean;
 	showMinimap?: boolean;
+	minimapOldLines?: DiffLine[];
+	verticalFollower?: boolean;
 	externalScrollTop?: number;
 	externalScrollSource?: DiffScrollSource;
 	side: "left" | "right" | "single";
@@ -905,8 +897,11 @@ const VirtualPanel = memo(function VirtualPanel({
 
 	const handleScroll = useCallback(() => {
 		if (!scrollRef.current) return;
-		cancelAnimationFrame(rafRef.current);
+		const { scrollTop: nextTop, scrollLeft: nextLeft } = scrollRef.current;
+		onScroll?.(nextTop, nextLeft);
+		if (rafRef.current) return;
 		rafRef.current = requestAnimationFrame(() => {
+			rafRef.current = 0;
 			if (!scrollRef.current) return;
 			const { scrollTop: st, scrollLeft: sl } = scrollRef.current;
 			const last = lastScrollRef.current;
@@ -917,7 +912,6 @@ const VirtualPanel = memo(function VirtualPanel({
 				dispatchViewport({ type: "scroll", top: st });
 			}
 			if (leftChanged) last.left = sl;
-			if (topChanged || leftChanged) onScroll?.(st, sl);
 		});
 	}, [scrollRef, onScroll]);
 
@@ -1076,8 +1070,13 @@ const VirtualPanel = memo(function VirtualPanel({
 	const minimapSegments = useMemo(() => {
 		if (!_showMinimap || lines.length === 0 || lines.length >= 3000)
 			return null;
-		return buildMinimapSegments(lines);
-	}, [lines, _showMinimap]);
+		return minimapOldLines
+			? [
+					...buildMinimapSegments(minimapOldLines, "left"),
+					...buildMinimapSegments(lines, "right"),
+				]
+			: buildMinimapSegments(lines, "full");
+	}, [lines, minimapOldLines, _showMinimap]);
 
 	return (
 		<div {...stylex.props(diffStyles.virtualRoot)}>
@@ -1086,6 +1085,7 @@ const VirtualPanel = memo(function VirtualPanel({
 				onScroll={handleScroll}
 				data-diff-scroll-side={side}
 				{...stylex.props(diffStyles.virtualScroller)}
+				style={verticalFollower ? { overflowY: "hidden" } : undefined}
 			>
 				<div
 					style={{
@@ -1165,6 +1165,7 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 	syntaxTheme: SyntaxHighlightTheme;
 }) {
 	const leftRef = useRef<HTMLDivElement | null>(null);
+	const [programmaticJumpTop, setProgrammaticJumpTop] = useState(-1);
 	const lineCount = Math.max(oldLines.length, newLines.length);
 	const alignedOldLines = useMemo(
 		() =>
@@ -1192,21 +1193,50 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 			),
 		[lineCount, newLines],
 	);
-	const syncFromLeft = useCallback(
-		(top: number, left: number) => {
-			const target = scrollRef.current;
+	const syncFromRight = useCallback(
+		(top: number, _left: number, programmatic?: boolean) => {
+			const target = leftRef.current;
 			if (!target) return;
 			if (Math.abs(target.scrollTop - top) > 0.5) target.scrollTop = top;
-			if (Math.abs(target.scrollLeft - left) > 0.5) target.scrollLeft = left;
+			if (programmatic) setProgrammaticJumpTop(top);
 		},
-		[scrollRef],
+		[],
 	);
-	const syncFromRight = useCallback((top: number, left: number) => {
-		const target = leftRef.current;
-		if (!target) return;
-		if (Math.abs(target.scrollTop - top) > 0.5) target.scrollTop = top;
-		if (Math.abs(target.scrollLeft - left) > 0.5) target.scrollLeft = left;
-	}, []);
+	const leftExternalScrollTop =
+		externalScrollTop !== undefined && externalScrollTop >= 0
+			? externalScrollTop
+			: programmaticJumpTop;
+	const leftExternalScrollSource =
+		externalScrollTop !== undefined && externalScrollTop >= 0
+			? externalScrollSource
+			: "right";
+	useEffect(() => {
+		const left = leftRef.current;
+		const right = scrollRef.current;
+		if (!left || !right) return;
+		const scrollTogether = (event: WheelEvent) => {
+			if (event.deltaY === 0) return;
+			event.preventDefault();
+			const unit =
+				event.deltaMode === 1
+					? LINE_H
+					: event.deltaMode === 2
+						? right.clientHeight
+						: 1;
+			if (event.deltaX) {
+				(event.currentTarget as HTMLDivElement).scrollLeft +=
+					event.deltaX * unit;
+			}
+			right.scrollTop += event.deltaY * unit;
+			left.scrollTop = right.scrollTop;
+		};
+		left.addEventListener("wheel", scrollTogether, { passive: false });
+		right.addEventListener("wheel", scrollTogether, { passive: false });
+		return () => {
+			left.removeEventListener("wheel", scrollTogether);
+			right.removeEventListener("wheel", scrollTogether);
+		};
+	}, [scrollRef]);
 
 	return (
 		<div {...stylex.props(diffStyles.splitPanels)}>
@@ -1215,10 +1245,10 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 					lines={alignedOldLines}
 					ext={ext}
 					scrollRef={leftRef}
-					onScroll={syncFromLeft}
+					verticalFollower
 					disableTokenize={disableTokenize}
-					externalScrollTop={externalScrollTop}
-					externalScrollSource={externalScrollSource}
+					externalScrollTop={leftExternalScrollTop}
+					externalScrollSource={leftExternalScrollSource}
 					side="left"
 					filePath={filePath}
 					highlightedChangeIdx={highlightedChangeIdx}
@@ -1234,6 +1264,7 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 					onScroll={syncFromRight}
 					disableTokenize={disableTokenize}
 					showMinimap
+					minimapOldLines={alignedOldLines}
 					externalScrollTop={externalScrollTop}
 					externalScrollSource={externalScrollSource}
 					side="right"
@@ -1247,10 +1278,18 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 	);
 });
 
+type MinimapSegment = {
+	type: "add" | "remove";
+	side: "left" | "right" | "full";
+	startLine: number;
+	endLine: number;
+};
+
 function buildMinimapSegments(
 	lines: DiffLine[],
-): { type: string; startLine: number; endLine: number }[] {
-	const segments: { type: string; startLine: number; endLine: number }[] = [];
+	side: MinimapSegment["side"],
+): MinimapSegment[] {
+	const segments: MinimapSegment[] = [];
 	let currentType = "";
 	let startLine = 0;
 
@@ -1259,13 +1298,23 @@ function buildMinimapSegments(
 		const type = t === "add" || t === "remove" ? t : "";
 		if (type !== currentType) {
 			if (currentType)
-				segments.push({ type: currentType, startLine, endLine: i });
+				segments.push({
+					type: currentType as MinimapSegment["type"],
+					side,
+					startLine,
+					endLine: i,
+				});
 			currentType = type;
 			startLine = i;
 		}
 	}
 	if (currentType && segments.length < 100) {
-		segments.push({ type: currentType, startLine, endLine: lines.length });
+		segments.push({
+			type: currentType as MinimapSegment["type"],
+			side,
+			startLine,
+			endLine: lines.length,
+		});
 	}
 	return segments;
 }
@@ -1279,7 +1328,7 @@ const DiffMinimap = memo(function DiffMinimap({
 	onScrollTo,
 }: {
 	lines: DiffLine[];
-	segments: { type: string; startLine: number; endLine: number }[];
+	segments: MinimapSegment[];
 	scrollTop: number;
 	viewHeight: number;
 	totalHeight: number;
@@ -1333,7 +1382,8 @@ const DiffMinimap = memo(function DiffMinimap({
 		>
 			{segments.map((seg) => (
 				<div
-					key={`${seg.type}:${seg.startLine}:${seg.endLine}`}
+					key={`${seg.side}:${seg.type}:${seg.startLine}:${seg.endLine}`}
+					data-diff-minimap-change={`${seg.side}:${seg.type}`}
 					{...stylex.props(
 						diffStyles.minimapSegment,
 						seg.type === "add"
@@ -1341,8 +1391,11 @@ const DiffMinimap = memo(function DiffMinimap({
 							: diffStyles.minimapDelete,
 					)}
 					style={{
+						left: seg.side === "left" || seg.side === "full" ? 2 : undefined,
+						right: seg.side === "right" || seg.side === "full" ? 2 : undefined,
+						width: seg.side === "full" ? "auto" : undefined,
 						top: `${(seg.startLine / lines.length) * 100}%`,
-						height: `max(3px, ${((seg.endLine - seg.startLine) / lines.length) * 100}%)`,
+						height: `max(2px, ${((seg.endLine - seg.startLine) / lines.length) * 100}%)`,
 					}}
 				/>
 			))}
@@ -1969,7 +2022,7 @@ function DiffViewToolbar({
 				/>
 				<DiffViewButton
 					active={viewMode === "split"}
-					title="Split diff"
+					title="Full file diff"
 					icon={<IconLayoutGrid size={11} />}
 					onClick={() => onChange("split")}
 				/>

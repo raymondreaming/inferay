@@ -46,7 +46,7 @@ const EXTENSION_TO_LANG: Record<string, BundledLanguage> = {
 let highlighterInstance: Highlighter | null = null;
 let highlighterPromise: Promise<Highlighter> | null = null;
 const loadedLanguages = new Set<string>();
-const loadedThemes = new Set<BundledTheme>(["github-dark-default"]);
+const loadedThemes = new Set<BundledTheme>(["github-dark-high-contrast"]);
 
 export type SyntaxHighlightTheme = BundledTheme;
 export interface ShikiLineToken {
@@ -56,13 +56,13 @@ export interface ShikiLineToken {
 }
 
 export const DEFAULT_SYNTAX_HIGHLIGHT_THEME: SyntaxHighlightTheme =
-	"github-dark-default";
+	"github-dark-high-contrast";
 
 export const SYNTAX_HIGHLIGHT_THEMES: {
 	id: SyntaxHighlightTheme;
 	label: string;
 }[] = [
-	{ id: "github-dark-default", label: "GitHub Dark" },
+	{ id: "github-dark-high-contrast", label: "GitHub Dark High Contrast" },
 	{ id: "vitesse-dark", label: "Vitesse Dark" },
 	{ id: "one-dark-pro", label: "One Dark" },
 	{ id: "dracula", label: "Dracula" },
@@ -190,7 +190,7 @@ async function getHighlighter(): Promise<Highlighter> {
 
 	highlighterPromise = import("shiki").then(({ createHighlighter }) =>
 		createHighlighter({
-			themes: ["github-dark-default"],
+			themes: ["github-dark-high-contrast"],
 			langs: [], // Load languages on demand
 		}),
 	);
@@ -391,7 +391,7 @@ export function useShikiHighlighter({
 	filePath,
 	lines,
 	visibleRange,
-	theme = "github-dark-default",
+	theme = DEFAULT_SYNTAX_HIGHLIGHT_THEME,
 	enabled = true,
 }: UseShikiHighlighterOptions): ShikiHighlighterAPI {
 	// Detect language from file path
