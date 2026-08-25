@@ -3,9 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
 import type { GitProjectStatus } from "../../features/git/types.ts";
 import { formatBytes } from "../../lib/format.ts";
 import {
+	breakpoint,
 	color,
 	controlSize,
 	font,
+	layer,
 	motion,
 	radius,
 } from "../../tokens.stylex.ts";
@@ -1111,7 +1113,7 @@ const styles = stylex.create({
 	atlasRoot: {
 		display: "flex",
 		height: "100%",
-		minHeight: 0,
+		minHeight: controlSize._0,
 		flexDirection: "column",
 		backgroundColor: color.background,
 	},
@@ -1156,17 +1158,17 @@ const styles = stylex.create({
 	},
 	atlasBody: {
 		display: "grid",
-		minHeight: 0,
+		minHeight: controlSize._0,
 		flex: 1,
 		gridTemplateColumns: {
 			default: "minmax(0, 1fr) 16rem",
-			"@media (min-width: 860px)": "11rem minmax(0, 1fr) 16rem",
-			"@media (min-width: 1120px)": "13.5rem minmax(0, 1fr) 19rem",
+			[breakpoint.desktop]: "11rem minmax(0, 1fr) 16rem",
+			[breakpoint.canvasWide]: "13.5rem minmax(0, 1fr) 19rem",
 		},
 	},
 	navigator: {
-		display: { default: "none", "@media (min-width: 860px)": "flex" },
-		minHeight: 0,
+		display: { default: "none", [breakpoint.desktop]: "flex" },
+		minHeight: controlSize._0,
 		flexDirection: "column",
 		borderRightWidth: 1,
 		borderRightStyle: "solid",
@@ -1194,7 +1196,7 @@ const styles = stylex.create({
 		lineHeight: 1.45,
 	},
 	navigatorScroll: {
-		minHeight: 0,
+		minHeight: controlSize._0,
 		overflowY: "auto",
 		paddingBlock: controlSize._2,
 	},
@@ -1216,8 +1218,8 @@ const styles = stylex.create({
 		borderWidth: 0,
 		borderLeftWidth: 2,
 		borderLeftStyle: "solid",
-		borderLeftColor: "transparent",
-		backgroundColor: "transparent",
+		borderLeftColor: color.transparent,
+		backgroundColor: color.transparent,
 		paddingBlock: controlSize._2,
 		paddingInline: controlSize._3,
 		textAlign: "left",
@@ -1244,10 +1246,10 @@ const styles = stylex.create({
 	},
 	navText: {
 		display: "flex",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 		flexDirection: "column",
-		gap: 1,
+		gap: controlSize._0_25,
 	},
 	navName: {
 		overflow: "hidden",
@@ -1261,14 +1263,19 @@ const styles = stylex.create({
 		fontFamily: font.familyMono,
 		fontSize: font.size_0_5,
 	},
-	statusDot: { width: 5, height: 5, flexShrink: 0, borderRadius: radius.pill },
+	statusDot: {
+		width: controlSize._1_25,
+		height: controlSize._1_25,
+		flexShrink: 0,
+		borderRadius: radius.pill,
+	},
 	statusAdded: { backgroundColor: color.success },
 	statusModified: { backgroundColor: color.warning },
 	statusNormal: { backgroundColor: color.textMuted },
 	canvas: {
 		position: "relative",
-		minWidth: 0,
-		minHeight: 0,
+		minWidth: controlSize._0,
+		minHeight: controlSize._0,
 		overflow: "hidden",
 		backgroundImage:
 			"radial-gradient(ellipse at 50% 38%, color-mix(in srgb, var(--color-inferay-gray) 28%, transparent), transparent 64%)",
@@ -1287,12 +1294,12 @@ const styles = stylex.create({
 	},
 	sceneTitle: {
 		position: "absolute",
-		zIndex: 5,
+		zIndex: layer.canvasControl,
 		top: controlSize._3,
 		left: controlSize._4,
 		display: "flex",
 		flexDirection: "column",
-		gap: 2,
+		gap: controlSize._0_5,
 		pointerEvents: "none",
 		transform: "translateY(2.35rem)",
 		color: color.textMain,
@@ -1302,7 +1309,7 @@ const styles = stylex.create({
 	},
 	canvasToolbar: {
 		position: "absolute",
-		zIndex: 8,
+		zIndex: layer.canvasOverlay,
 		top: controlSize._3,
 		right: controlSize._3,
 		display: "flex",
@@ -1337,7 +1344,7 @@ const styles = stylex.create({
 	},
 	zoomControls: {
 		position: "absolute",
-		zIndex: 8,
+		zIndex: layer.canvasOverlay,
 		right: controlSize._3,
 		bottom: controlSize._8,
 		display: "flex",
@@ -1420,7 +1427,7 @@ const styles = stylex.create({
 	},
 	inspector: {
 		display: "block",
-		minHeight: 0,
+		minHeight: controlSize._0,
 		overflow: "hidden",
 		borderLeftWidth: 1,
 		borderLeftStyle: "solid",
@@ -1438,7 +1445,7 @@ const styles = stylex.create({
 	backLink: {
 		alignSelf: "flex-start",
 		borderWidth: 0,
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 		color: { default: color.textMuted, ":hover": color.textMain },
 		fontFamily: font.familyMono,
 		fontSize: font.size_0_5,
@@ -1448,7 +1455,7 @@ const styles = stylex.create({
 	inspectorTitle: {
 		marginTop: controlSize._2,
 		color: color.textMain,
-		fontSize: "1.2rem",
+		fontSize: font.sizeDisplay,
 		fontWeight: font.weight_6,
 		letterSpacing: "-0.025em",
 		lineHeight: 1.18,
@@ -1478,7 +1485,7 @@ const styles = stylex.create({
 		fontFamily: font.familyMono,
 		fontSize: font.size_0_5,
 		fontWeight: font.weight_6,
-		paddingBlock: 2,
+		paddingBlock: controlSize._0_5,
 		paddingInline: controlSize._1_5,
 		textTransform: "uppercase",
 	},
@@ -1490,7 +1497,7 @@ const styles = stylex.create({
 		color: color.textSoft,
 		fontFamily: font.familyMono,
 		fontSize: font.size_0_5,
-		paddingBlock: 2,
+		paddingBlock: controlSize._0_5,
 		paddingInline: controlSize._1_5,
 	},
 	metricGrid: {
@@ -1500,7 +1507,7 @@ const styles = stylex.create({
 	},
 	metricCard: {
 		display: "flex",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flexDirection: "column",
 		gap: controlSize._1,
 		borderWidth: 1,
@@ -1579,7 +1586,7 @@ const styles = stylex.create({
 		gridTemplateColumns: "1rem minmax(0, 1fr)",
 		gap: controlSize._2,
 		borderWidth: 0,
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 		color: { default: color.textSoft, ":hover": color.textMain },
 		fontFamily: font.familyMono,
 		fontSize: font.size_1,
@@ -1595,7 +1602,7 @@ const styles = stylex.create({
 		fontSize: font.size_0_5,
 	},
 	languageTrack: {
-		height: 3,
+		height: controlSize._0_75,
 		overflow: "hidden",
 		borderRadius: radius.pill,
 		backgroundColor: color.surfaceControl,
@@ -1617,7 +1624,10 @@ const styles = stylex.create({
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.borderSubtle,
-		backgroundColor: { default: "transparent", ":hover": color.surfaceSubtle },
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.surfaceSubtle,
+		},
 		paddingBlock: controlSize._2,
 		color: color.textSoft,
 		textAlign: "left",

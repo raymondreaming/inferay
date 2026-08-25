@@ -7,6 +7,7 @@ import {
 	useState,
 } from "octane";
 import type { Octane } from "octane/jsx-runtime";
+import { runtimeLayer } from "../../../design-system.ts";
 import type { CSSProperties, Ref } from "../../../types/octane-react-compat.ts";
 import { GooeyContext, type GooeyContextValue } from "./context";
 import { GooFilterPrimitives } from "./filter";
@@ -204,7 +205,7 @@ export function GooeyRoot({
 					// own stacking (e.g. a dragged item raised over its neighbours)
 					// can't slip in front and hide the melt. Scoped: the group is an
 					// isolated stacking context, so this can't escape it.
-					zIndex: 9999,
+					zIndex: runtimeLayer.criticalOverlay,
 				}}
 			>
 				<defs>

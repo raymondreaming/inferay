@@ -1,4 +1,5 @@
 import * as stylex from "@octanejs/stylex";
+import { controlSize, layer } from "../../../tokens.stylex.ts";
 
 /** Shared structural styles for consumers that prefer StyleX composition. */
 export const styles = stylex.create({
@@ -16,9 +17,9 @@ export const styles = stylex.create({
 		width: "100%",
 	},
 	segmentedRailLayer: {
-		inset: 0,
+		inset: controlSize._0,
 		pointerEvents: "none",
 		position: "absolute",
-		zIndex: 0,
+		zIndex: layer.base,
 	},
 });

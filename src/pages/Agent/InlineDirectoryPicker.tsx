@@ -12,6 +12,7 @@ import {
 	IconGitBranch,
 	IconX,
 } from "../../components/ui/Icons.tsx";
+import { iconSize } from "../../design-system.ts";
 import { useQueryResource } from "../../hooks/useQueryResource.tsx";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import { basename } from "../../lib/format.ts";
@@ -21,6 +22,8 @@ import {
 	controlSize,
 	effect,
 	font,
+	motion,
+	radius,
 	shadow,
 } from "../../tokens.stylex.ts";
 
@@ -218,9 +221,9 @@ export function InlineDirectoryPicker({
 								)}
 							>
 								{pick.isGitRepo ? (
-									<IconGitBranch size={13} />
+									<IconGitBranch size={iconSize._2md} />
 								) : (
-									<IconFolder size={13} />
+									<IconFolder size={iconSize._2md} />
 								)}
 							</span>
 							<div {...stylex.props(styles.resultText)}>
@@ -229,7 +232,10 @@ export function InlineDirectoryPicker({
 									{shortenPath(pick.path)}
 								</span>
 							</div>
-							<IconChevronRight size={11} {...stylex.props(styles.chevron)} />
+							<IconChevronRight
+								size={iconSize.compact}
+								{...stylex.props(styles.chevron)}
+							/>
 						</button>
 					))}
 				</div>
@@ -243,7 +249,7 @@ export function InlineDirectoryPicker({
 									onClick={togglePath.bind(null, p)}
 									{...stylex.props(styles.tagRemove)}
 								>
-									<IconX size={8} />
+									<IconX size={iconSize.xs} />
 								</button>
 							</span>
 						))}
@@ -268,7 +274,7 @@ export function InlineDirectoryPicker({
 			>
 				<div {...stylex.props(styles.inputRow)}>
 					<span {...stylex.props(styles.inputIcon)}>
-						<IconFolder size={14} />
+						<IconFolder size={iconSize.lg} />
 					</span>
 					<input
 						ref={inputRef}
@@ -321,9 +327,9 @@ export function InlineDirectoryPicker({
 									)}
 								>
 									{pick.isGitRepo ? (
-										<IconGitBranch size={12} />
+										<IconGitBranch size={iconSize.md} />
 									) : (
-										<IconFolder size={12} />
+										<IconFolder size={iconSize.md} />
 									)}
 								</span>
 								<div {...stylex.props(styles.resultText)}>
@@ -332,7 +338,10 @@ export function InlineDirectoryPicker({
 										{shortenPath(pick.path)}
 									</span>
 								</div>
-								<IconChevronRight size={10} {...stylex.props(styles.chevron)} />
+								<IconChevronRight
+									size={iconSize.sm}
+									{...stylex.props(styles.chevron)}
+								/>
 							</button>
 						))}
 					</div>
@@ -349,7 +358,7 @@ export function InlineDirectoryPicker({
 										onClick={togglePath.bind(null, p)}
 										{...stylex.props(styles.tagRemove)}
 									>
-										<IconX size={8} />
+										<IconX size={iconSize.xs} />
 									</button>
 								</span>
 							))}
@@ -365,7 +374,7 @@ const styles = stylex.create({
 	root: {
 		boxSizing: "border-box",
 		maxWidth: "100%",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflow: "hidden",
 		position: "relative",
 		width: "100%",
@@ -373,14 +382,14 @@ const styles = stylex.create({
 	compactRoot: {
 		boxSizing: "border-box",
 		maxWidth: "100%",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflow: "hidden",
 		width: "100%",
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
 		borderRadius: controlSize._3,
-		backgroundColor: "rgba(28, 28, 30, 0.95)",
+		backgroundColor: color.popoverOpaque,
 		backgroundImage: effect.popoverDepth,
 		boxShadow:
 			"inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 24px 54px rgba(0, 0, 0, 0.64)",
@@ -388,7 +397,7 @@ const styles = stylex.create({
 	compactList: {
 		maxHeight: "210px",
 		overflowY: "auto",
-		paddingBlock: 0,
+		paddingBlock: controlSize._0,
 	},
 	resultRow: {
 		display: "flex",
@@ -400,9 +409,9 @@ const styles = stylex.create({
 		paddingInline: controlSize._3,
 		textAlign: "left",
 		transitionProperty: "background-color, color",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.controlHover,
 		},
 		backgroundImage: {
@@ -428,7 +437,7 @@ const styles = stylex.create({
 		color: color.textSoft,
 	},
 	resultText: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 	},
 	resultName: {
@@ -461,7 +470,7 @@ const styles = stylex.create({
 	},
 	selectedBar: {
 		display: "flex",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flexWrap: "wrap",
 		gap: controlSize._1,
 		overflow: "hidden",
@@ -473,8 +482,8 @@ const styles = stylex.create({
 		maxWidth: "140px",
 		alignItems: "center",
 		gap: controlSize._1,
-		borderRadius: "0.375rem",
-		backgroundColor: "rgba(255, 255, 255, 0.05)",
+		borderRadius: radius.md,
+		backgroundColor: color.surfaceWhite05,
 		backgroundImage: effect.controlDepth,
 		color: color.textSoft,
 		fontSize: font.size_1,
@@ -510,7 +519,7 @@ const styles = stylex.create({
 			":hover": color.textMain,
 		},
 		transitionProperty: "color",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 	},
 	moreCount: {
 		color: color.textMuted,
@@ -522,14 +531,14 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.textMuted,
-		borderTopColor: "transparent",
-		borderRadius: "999px",
+		borderTopColor: color.transparent,
+		borderRadius: radius.pill,
 		animationName: stylex.keyframes({
 			to: {
 				transform: "rotate(360deg)",
 			},
 		}),
-		animationDuration: "800ms",
+		animationDuration: motion.durationLonger,
 		animationTimingFunction: "linear",
 		animationIterationCount: "infinite",
 	},
@@ -550,7 +559,7 @@ const styles = stylex.create({
 		display: "flex",
 		flexDirection: "column",
 		maxWidth: "100%",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		width: "100%",
 		overflow: "hidden",
 		borderWidth: 1,
@@ -573,7 +582,7 @@ const styles = stylex.create({
 		display: "flex",
 		flexDirection: "column",
 		gap: controlSize._0_5,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		maxHeight: "220px",
 		overflowY: "auto",
 		borderBlockWidth: 0,
@@ -582,7 +591,7 @@ const styles = stylex.create({
 	resultRowCompact: {
 		display: "flex",
 		width: "100%",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		alignItems: "center",
 		borderRadius: controlSize._2,
 		gap: controlSize._2,
@@ -591,15 +600,15 @@ const styles = stylex.create({
 		paddingInline: controlSize._2,
 		textAlign: "left",
 		transitionProperty: "background-color, color",
-		transitionDuration: "120ms",
-		backgroundColor: "transparent",
+		transitionDuration: motion.durationFast,
+		backgroundColor: color.transparent,
 		backgroundImage: "none",
 	},
 	inputRow: {
 		display: "flex",
 		alignItems: "center",
 		gap: controlSize._2,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		borderBlockWidth: 0,
 		paddingBlock: controlSize._2,
 		paddingInline: controlSize._2,
@@ -609,12 +618,12 @@ const styles = stylex.create({
 		color: color.textMuted,
 	},
 	input: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 		borderWidth: 0,
 		color: color.textMain,
-		fontSize: "0.8125rem",
+		fontSize: font.size_4,
 		outline: "none",
 		"::placeholder": {
 			color: color.textMuted,
@@ -625,7 +634,7 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		borderRadius: "0.375rem",
+		borderRadius: radius.md,
 		backgroundColor: color.controlActive,
 		backgroundImage: effect.controlDepth,
 		boxShadow: shadow.controlDepth,
@@ -635,7 +644,7 @@ const styles = stylex.create({
 		paddingBlock: "0.125rem",
 		paddingInline: controlSize._2,
 		transitionProperty: "background-color, color",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 		":hover": {
 			backgroundColor: color.controlHover,
 		},

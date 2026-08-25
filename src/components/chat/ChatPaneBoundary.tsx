@@ -52,7 +52,7 @@ const styles = stylex.create({
 		display: "flex",
 		height: "100%",
 		justifyContent: "center",
-		minHeight: 0,
+		minHeight: controlSize._0,
 		padding: controlSize._4,
 	},
 	card: {

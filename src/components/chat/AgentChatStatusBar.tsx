@@ -1,5 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useSyncExternalStore } from "octane";
+import { iconSize } from "../../design-system.ts";
 import {
 	getWebSocketStatus,
 	subscribeWebSocketStatus,
@@ -61,7 +62,7 @@ export const AgentChatStatusBar = memo(function AgentChatStatusBar({
 					aria-label="Stop generation"
 					{...stylex.props(styles.stopButton)}
 				>
-					<IconStop size={12} {...stylex.props(styles.toolIcon)} />
+					<IconStop size={iconSize.md} {...stylex.props(styles.toolIcon)} />
 				</button>
 			)}
 		</div>
@@ -84,7 +85,7 @@ const styles = stylex.create({
 	},
 	activity: {
 		flex: 1,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		alignItems: "center",
 		display: "flex",
 		height: controlSize._6,
@@ -105,9 +106,9 @@ const styles = stylex.create({
 	},
 	connectionDot: {
 		backgroundColor: color.warning,
-		borderRadius: "50%",
-		height: 5,
-		width: 5,
+		borderRadius: radius.circle,
+		height: controlSize._1_25,
+		width: controlSize._1_25,
 	},
 	stopButton: {
 		alignItems: "center",
@@ -130,7 +131,7 @@ const styles = stylex.create({
 		gap: controlSize._1_5,
 		height: controlSize._6,
 		justifyContent: "center",
-		paddingInline: 0,
+		paddingInline: controlSize._0,
 		transitionDuration: motion.durationBase,
 		transitionProperty: "background-color, border-color, color, transform",
 		transitionTimingFunction: motion.ease,

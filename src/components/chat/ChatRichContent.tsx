@@ -8,6 +8,7 @@ import {
 	useRef,
 	useState,
 } from "octane";
+import { iconSize } from "../../design-system.ts";
 import { noop } from "../../lib/data.ts";
 import { indexedValues } from "../../lib/indexed-values.ts";
 import {
@@ -82,7 +83,11 @@ export function CopyButton({
 			className={`${copyButtonProps.className ?? ""} ${className ?? ""}`}
 			title={copied ? "Copied!" : "Copy"}
 		>
-			{copied ? <IconCheck size={10} /> : <IconCopy size={10} />}
+			{copied ? (
+				<IconCheck size={iconSize.sm} />
+			) : (
+				<IconCopy size={iconSize.sm} />
+			)}
 		</button>
 	);
 }
@@ -350,12 +355,12 @@ const styles = stylex.create({
 		flexDirection: "column",
 		gap: controlSize._1,
 		lineHeight: 1.6,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		width: "100%",
 		wordBreak: "normal",
 	},
 	codeWrap: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		position: "relative",
 	},
 	codeBlock: {
@@ -368,7 +373,7 @@ const styles = stylex.create({
 		fontFamily: font.familyMono,
 		fontSize: font.size_2,
 		lineHeight: 1.625,
-		margin: 0,
+		margin: controlSize._0,
 		overflowX: "auto",
 		paddingBlock: controlSize._1_5,
 		paddingInline: controlSize._2,
@@ -390,7 +395,7 @@ const styles = stylex.create({
 		fontSize: font.size_4,
 		fontWeight: font.weight_5,
 		lineHeight: 1.45,
-		margin: 0,
+		margin: controlSize._0,
 	},
 	listItem: {
 		display: "flex",
@@ -405,7 +410,7 @@ const styles = stylex.create({
 		userSelect: "none",
 	},
 	listContent: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflowWrap: "break-word",
 		wordBreak: "normal",
 	},
@@ -444,7 +449,7 @@ const styles = stylex.create({
 	},
 	paragraph: {
 		lineHeight: 1.6,
-		margin: 0,
+		margin: controlSize._0,
 		overflowWrap: "break-word",
 		wordBreak: "normal",
 	},
@@ -520,7 +525,7 @@ const styles = stylex.create({
 		fontSize: font.size_4,
 		fontWeight: font.weight_5,
 		lineHeight: 1.375,
-		margin: 0,
+		margin: controlSize._0,
 	},
 	optionStack: {
 		display: "flex",
@@ -567,7 +572,7 @@ const styles = stylex.create({
 		width: controlSize._4,
 	},
 	optionTextWrap: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 	optionLabel: {
 		fontSize: font.size_4,
@@ -576,7 +581,7 @@ const styles = stylex.create({
 	optionDescription: {
 		fontSize: font.size_1,
 		lineHeight: 1.375,
-		marginBlockEnd: 0,
+		marginBlockEnd: controlSize._0,
 		marginBlockStart: controlSize._0_5,
 	},
 	sendSelectionsButton: {
@@ -666,7 +671,10 @@ export function AskUserQuestionCard({
 				return (
 					<div key={questionIndex} {...stylex.props(styles.questionCard)}>
 						<div {...stylex.props(styles.questionHeader)}>
-							<IconHelpCircle size={12} style={{ color: accentColor }} />
+							<IconHelpCircle
+								size={iconSize.md}
+								style={{ color: accentColor }}
+							/>
 							{q.multiSelect && (
 								<span
 									{...stylex.props(styles.multiSelectLabel)}
@@ -726,7 +734,7 @@ export function AskUserQuestionCard({
 													}}
 												>
 													{isSelected ? (
-														<IconCheck size={8} />
+														<IconCheck size={iconSize.xs} />
 													) : (
 														String.fromCharCode(65 + optionIndex)
 													)}
@@ -766,7 +774,7 @@ export function AskUserQuestionCard({
 						opacity: hasSelections ? 1 : 0.6,
 					}}
 				>
-					<IconSend size={10} />
+					<IconSend size={iconSize.sm} />
 					Send selections
 				</button>
 			)}

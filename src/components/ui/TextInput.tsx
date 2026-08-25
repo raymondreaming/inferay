@@ -9,10 +9,8 @@ import {
 	shadow,
 } from "../../tokens.stylex.ts";
 
-interface TextInputProps extends Omit<
-	Octane.InputHTMLAttributes<HTMLInputElement>,
-	"size"
-> {
+interface TextInputProps
+	extends Omit<Octane.InputHTMLAttributes<HTMLInputElement>, "size"> {
 	size?: "sm" | "md";
 	fullWidth?: boolean;
 }
@@ -26,7 +24,7 @@ export function TextInput({
 	const inputProps = stylex.props(
 		styles.base,
 		styles[size],
-		fullWidth ? styles.fullWidth : null
+		fullWidth ? styles.fullWidth : null,
 	);
 
 	return (
@@ -50,7 +48,7 @@ const styles = stylex.create({
 		borderWidth: 1,
 		boxShadow: shadow.none,
 		color: color.textMain,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		outline: shadow.none,
 		transitionDuration: motion.durationBase,
 		transitionProperty: "border-color, background-color, color",

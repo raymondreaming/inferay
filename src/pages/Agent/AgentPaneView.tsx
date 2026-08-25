@@ -12,6 +12,7 @@ import {
 	isChatAgentKind,
 	loadDefaultChatSettings,
 } from "../../features/agents/agents.ts";
+import { controlSize } from "../../tokens.stylex.ts";
 
 interface AgentPaneViewProps {
 	pane: AgentPaneModel;
@@ -117,8 +118,8 @@ const styles = stylex.create({
 		flexDirection: "column",
 		height: "100%",
 		width: "100%",
-		minWidth: 0,
-		minHeight: 0,
+		minWidth: controlSize._0,
+		minHeight: controlSize._0,
 		overflow: "hidden",
 		position: "relative",
 	},
@@ -127,8 +128,8 @@ const styles = stylex.create({
 		flex: 1,
 		flexDirection: "column",
 		width: "100%",
-		minWidth: 0,
-		minHeight: 0,
+		minWidth: controlSize._0,
+		minHeight: controlSize._0,
 		overflow: "hidden",
 		position: "relative",
 	},

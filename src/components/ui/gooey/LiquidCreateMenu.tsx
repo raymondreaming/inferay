@@ -6,6 +6,7 @@ import {
 	useRef,
 	useState,
 } from "octane";
+import { iconSize } from "../../../design-system.ts";
 import type { ReactNode } from "../../../types/octane-react-compat.ts";
 import { IconLayoutGrid, IconMessageCircle } from "../Icons.tsx";
 import { Liquid } from "./index.ts";
@@ -89,7 +90,7 @@ export function LiquidCreateMenu({
 									tabIndex={open ? 0 : -1}
 									onClick={onNewChat}
 								>
-									<IconMessageCircle size={12} />
+									<IconMessageCircle size={iconSize.md} />
 									<span>New chat</span>
 								</button>
 								<button
@@ -97,7 +98,7 @@ export function LiquidCreateMenu({
 									tabIndex={open ? 0 : -1}
 									onClick={onNewWorkspace}
 								>
-									<IconLayoutGrid size={12} />
+									<IconLayoutGrid size={iconSize.md} />
 									<span>New workspace</span>
 								</button>
 							</div>

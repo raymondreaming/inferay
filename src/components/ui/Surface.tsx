@@ -26,10 +26,8 @@ export function Panel({
 	);
 }
 
-interface PanelHeaderProps extends Omit<
-	Octane.HTMLAttributes<HTMLDivElement>,
-	"title"
-> {
+interface PanelHeaderProps
+	extends Omit<Octane.HTMLAttributes<HTMLDivElement>, "title"> {
 	title: unknown;
 	description?: unknown;
 	actions?: unknown;
@@ -107,18 +105,18 @@ const styles = stylex.create({
 		paddingInline: controlSize._4,
 	},
 	headerText: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 	title: {
 		color: color.textMain,
 		fontSize: font.size_4,
 		fontWeight: font.weight_5,
-		margin: 0,
+		margin: controlSize._0,
 	},
 	description: {
 		color: color.textMuted,
 		fontSize: font.size_1,
-		marginBlockEnd: 0,
+		marginBlockEnd: controlSize._0,
 		marginBlockStart: controlSize._1,
 	},
 	actions: {
@@ -139,26 +137,26 @@ const styles = stylex.create({
 		paddingInline: controlSize._3,
 	},
 	warning: {
-		backgroundColor: "rgba(245, 158, 11, 0.08)",
-		borderColor: "rgba(245, 158, 11, 0.25)",
-		color: "#fde68a",
+		backgroundColor: color.warningWashStrong,
+		borderColor: color.warningBorderSoft,
+		color: color.warningText,
 	},
 	success: {
-		backgroundColor: "rgba(16, 185, 129, 0.1)",
-		borderColor: "rgba(16, 185, 129, 0.25)",
-		color: "#a7f3d0",
+		backgroundColor: color.successWash,
+		borderColor: color.successBorderSoft,
+		color: color.successText,
 	},
 	info: {
-		backgroundColor: "rgba(100, 210, 255, 0.08)",
-		borderColor: "rgba(100, 210, 255, 0.25)",
-		color: "#bae6fd",
+		backgroundColor: color.infoWash,
+		borderColor: color.infoBorder,
+		color: color.infoText,
 	},
 	noticeIcon: {
 		flexShrink: 0,
 		marginTop: "0.125rem",
 	},
 	noticeContent: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflowWrap: "break-word",
 	},
 });

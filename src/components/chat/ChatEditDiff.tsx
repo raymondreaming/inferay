@@ -1,11 +1,18 @@
 import * as stylex from "@octanejs/stylex";
 import { useMemo, useState } from "octane";
+import { iconSize } from "../../design-system.ts";
 import {
 	useShikiSnippet,
 	useSyntaxHighlightTheme,
 } from "../../hooks/useShikiHighlighter.tsx";
 import { indexedValues } from "../../lib/indexed-values.ts";
-import { color, controlSize, font } from "../../tokens.stylex.ts";
+import {
+	color,
+	controlSize,
+	font,
+	motion,
+	radius,
+} from "../../tokens.stylex.ts";
 import { IconChevronRight, IconFilePlus } from "../ui/Icons.tsx";
 import {
 	applyEditsSequentially,
@@ -87,7 +94,7 @@ function EditDiffCard({
 				}}
 			>
 				<IconChevronRight
-					size={10}
+					size={iconSize.sm}
 					{...stylex.props(
 						styles.chevron,
 						isExpanded ? styles.chevronExpanded : null,
@@ -96,7 +103,10 @@ function EditDiffCard({
 				{isStreaming ? (
 					<span {...stylex.props(styles.streamingDot)} />
 				) : (
-					<IconFilePlus size={10} {...stylex.props(styles.headerIcon)} />
+					<IconFilePlus
+						size={iconSize.sm}
+						{...stylex.props(styles.headerIcon)}
+					/>
 				)}
 				<span {...stylex.props(styles.fileName)} title={filePath}>
 					{fileName}
@@ -244,10 +254,10 @@ const styles = stylex.create({
 	card: {
 		backgroundColor: color.transparent,
 		borderColor: color.border,
-		borderRadius: 8,
+		borderRadius: radius.lg,
 		borderStyle: "solid",
 		borderWidth: 1,
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 		overflow: "hidden",
 	},
 	header: {
@@ -258,13 +268,13 @@ const styles = stylex.create({
 			":hover": color.textMain,
 		},
 		display: "flex",
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 		fontWeight: font.weight_5,
 		gap: "0.375rem",
 		paddingBlock: controlSize._1,
 		paddingInline: controlSize._2,
 		textAlign: "left",
-		transitionDuration: "150ms",
+		transitionDuration: motion.durationBase,
 		transitionProperty: "color, opacity",
 		transitionTimingFunction: "ease",
 		width: "100%",
@@ -274,7 +284,7 @@ const styles = stylex.create({
 	},
 	chevron: {
 		opacity: 0.4,
-		transitionDuration: "150ms",
+		transitionDuration: motion.durationBase,
 		transitionProperty: "transform",
 		transitionTimingFunction: "ease",
 	},
@@ -283,7 +293,7 @@ const styles = stylex.create({
 	},
 	streamingDot: {
 		backgroundColor: "currentColor",
-		borderRadius: 999,
+		borderRadius: radius.pill,
 		height: controlSize._2,
 		opacity: 0.5,
 		width: controlSize._2,
@@ -293,7 +303,7 @@ const styles = stylex.create({
 	},
 	fileName: {
 		flex: 1,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		opacity: 0.8,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
@@ -353,13 +363,13 @@ const styles = stylex.create({
 	inlineRemoved: {
 		backgroundColor:
 			"color-mix(in srgb, var(--color-git-deleted) 24%, transparent)",
-		borderRadius: 2,
+		borderRadius: radius.xs,
 		color: color.textMain,
 	},
 	inlineAdded: {
 		backgroundColor:
 			"color-mix(in srgb, var(--color-git-added) 24%, transparent)",
-		borderRadius: 2,
+		borderRadius: radius.xs,
 		color: color.textMain,
 	},
 });

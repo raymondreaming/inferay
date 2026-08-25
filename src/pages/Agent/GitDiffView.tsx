@@ -36,6 +36,7 @@ import {
 	IconLayoutGrid,
 	IconX,
 } from "../../components/ui/Icons.tsx";
+import { iconSize } from "../../design-system.ts";
 import {
 	buildMergeConflictLines,
 	type DiffLine,
@@ -61,6 +62,7 @@ import {
 	controlSize,
 	effect,
 	font,
+	layer,
 	motion,
 	radius,
 	shadow,
@@ -1264,8 +1266,8 @@ function MergeConflictPanel({
 const diffStyles = stylex.create({
 	virtualRoot: {
 		display: "flex",
-		minWidth: 0,
-		minHeight: 0,
+		minWidth: controlSize._0,
+		minHeight: controlSize._0,
 		flex: 1,
 		overflow: "hidden",
 		width: "100%",
@@ -1273,7 +1275,7 @@ const diffStyles = stylex.create({
 	},
 	virtualScroller: {
 		flex: 1,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflow: "auto",
 		overflowAnchor: "none",
 		overscrollBehavior: "contain",
@@ -1282,15 +1284,15 @@ const diffStyles = stylex.create({
 	},
 	splitPanels: {
 		display: "flex",
-		minWidth: 0,
-		minHeight: 0,
+		minWidth: controlSize._0,
+		minHeight: controlSize._0,
 		flex: 1,
 		overflow: "hidden",
 	},
 	splitPanel: {
 		display: "flex",
-		minWidth: 0,
-		minHeight: 0,
+		minWidth: controlSize._0,
+		minHeight: controlSize._0,
 		flex: 1,
 		overflow: "hidden",
 	},
@@ -1301,9 +1303,9 @@ const diffStyles = stylex.create({
 	},
 	virtualOffsetLayer: {
 		position: "absolute",
-		top: 0,
-		left: 0,
-		right: 0,
+		top: controlSize._0,
+		left: controlSize._0,
+		right: controlSize._0,
 		contain: "layout paint style",
 		willChange: "transform",
 	},
@@ -1320,14 +1322,14 @@ const diffStyles = stylex.create({
 		borderTopWidth: 0,
 		borderRightWidth: 0,
 		borderBottomWidth: 0,
-		padding: 0,
+		padding: controlSize._0,
 		position: "relative",
 		cursor: "pointer",
 	},
 	minimapSegment: {
 		position: "absolute",
 		width: "6px",
-		borderRadius: 0,
+		borderRadius: radius.none,
 	},
 	minimapAdd: {
 		backgroundColor: "var(--color-git-added)",
@@ -1337,14 +1339,14 @@ const diffStyles = stylex.create({
 	},
 	minimapThumb: {
 		position: "absolute",
-		left: 0,
-		right: 0,
+		left: controlSize._0,
+		right: controlSize._0,
 		pointerEvents: "none",
-		backgroundColor: "rgba(255, 255, 255, 0.14)",
+		backgroundColor: color.surfaceWhite14,
 	},
 	singlePanel: {
 		display: "flex",
-		minHeight: 0,
+		minHeight: controlSize._0,
 		flex: 1,
 		flexDirection: "column",
 	},
@@ -1378,7 +1380,7 @@ const diffStyles = stylex.create({
 	},
 	viewButton: {
 		position: "relative",
-		zIndex: 1,
+		zIndex: layer.content,
 		display: "flex",
 		height: "100%",
 		width: controlSize._6,
@@ -1415,7 +1417,7 @@ const diffStyles = stylex.create({
 		paddingInline: controlSize._3,
 	},
 	pathDir: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
@@ -1424,14 +1426,14 @@ const diffStyles = stylex.create({
 		fontSize: font.size_2,
 	},
 	pathName: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 		color: color.textMain,
 		fontFamily: font.familyDiff,
 		fontSize: font.size_1,
-		fontWeight: 400,
+		fontWeight: font.weightRegular,
 	},
 	stagedPill: {
 		flexShrink: 0,
@@ -1507,7 +1509,7 @@ const diffStyles = stylex.create({
 				transform: "rotate(360deg)",
 			},
 		}),
-		animationDuration: "800ms",
+		animationDuration: motion.durationLonger,
 		animationTimingFunction: "linear",
 		animationIterationCount: "infinite",
 	},
@@ -1531,12 +1533,12 @@ const diffStyles = stylex.create({
 	},
 	body: {
 		display: "flex",
-		minHeight: 0,
+		minHeight: controlSize._0,
 		flex: 1,
 		overflow: "hidden",
 	},
 	conflictBody: {
-		minHeight: 0,
+		minHeight: controlSize._0,
 		flex: 1,
 		display: "flex",
 		flexDirection: "column",
@@ -1609,13 +1611,13 @@ const diffStyles = stylex.create({
 		paddingInline: controlSize._2,
 	},
 	hunkText: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 	},
 	spacer: {
-		backgroundColor: "rgba(255,255,255,0.02)",
+		backgroundColor: color.surfaceWhite02,
 		backgroundImage:
 			"repeating-linear-gradient(-45deg, transparent, transparent 8px, rgba(255,255,255,0.02) 8px, rgba(255,255,255,0.02) 9px)",
 		height: LINE_H,
@@ -1651,16 +1653,16 @@ const diffStyles = stylex.create({
 	},
 	gutterLayer: {
 		position: "sticky",
-		left: 0,
-		zIndex: 2,
+		left: controlSize._0,
+		zIndex: layer.chrome,
 		width: GUTTER_W,
-		height: 0,
+		height: controlSize._0,
 		backgroundColor: color.surfaceGlassStrong,
 		pointerEvents: "none",
 	},
 	gutterBlock: {
 		position: "absolute",
-		left: 0,
+		left: controlSize._0,
 		width: GUTTER_W,
 		backgroundColor: color.surfaceGlassStrong,
 	},
@@ -1675,7 +1677,7 @@ const diffStyles = stylex.create({
 	content: {
 		flex: 1,
 		fontFamily: font.familyDiff,
-		fontWeight: 500,
+		fontWeight: font.weight_5,
 		lineHeight: `${LINE_H}px`,
 		overflow: "hidden",
 		minWidth: "max-content",
@@ -1739,13 +1741,13 @@ function DiffViewToolbar({
 				<DiffViewButton
 					active={viewMode === "split"}
 					title="Full file diff"
-					icon={<IconLayoutGrid size={11} />}
+					icon={<IconLayoutGrid size={iconSize.compact} />}
 					onClick={() => onChange("split")}
 				/>
 				<DiffViewButton
 					active={viewMode === "hunks"}
 					title="Hunk view"
-					icon={<IconGitBranch size={11} />}
+					icon={<IconGitBranch size={iconSize.compact} />}
 					onClick={() => onChange("hunks")}
 				/>
 			</div>
@@ -1800,7 +1802,7 @@ function DiffHeader({
 
 	return (
 		<div {...stylex.props(diffStyles.header)}>
-			<FileTypeIcon path={filePath} size={14} />
+			<FileTypeIcon path={filePath} size={iconSize.lg} />
 			<span {...stylex.props(diffStyles.pathName)}>{name}</span>
 
 			{stats && (stats.added > 0 || stats.removed > 0) && (
@@ -1831,7 +1833,7 @@ function DiffHeader({
 							title="Previous change (k/p)"
 						>
 							<IconChevronRight
-								size={10}
+								size={iconSize.sm}
 								className={stylex.props(diffStyles.rotateHalfTurn).className}
 							/>
 						</IconButton>
@@ -1845,7 +1847,7 @@ function DiffHeader({
 							size="xs"
 							title="Next change (j/n)"
 						>
-							<IconChevronRight size={10} />
+							<IconChevronRight size={iconSize.sm} />
 						</IconButton>
 					</div>
 				)}
@@ -1857,7 +1859,7 @@ function DiffHeader({
 				size="xs"
 				title="Close diff"
 			>
-				<IconX size={8} />
+				<IconX size={iconSize.xs} />
 			</IconButton>
 		</div>
 	);

@@ -13,6 +13,7 @@ import {
 import type { AgentChatHandle } from "../../components/chat/AgentChatView.tsx";
 import { IconGitBranch } from "../../components/ui/Icons.tsx";
 import { useChatWorkspaceTools } from "../../components/workspace/ChatWorkspaceTools.tsx";
+import { iconSize } from "../../design-system.ts";
 import {
 	type AgentGroupsAction,
 	type AgentKind,
@@ -64,7 +65,7 @@ import {
 import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
 import { wsClient } from "../../lib/websocket.ts";
 import { AgentGrid } from "../../pages/Agent/AgentGrid.tsx";
-import { color, controlSize } from "../../tokens.stylex.ts";
+import { color, controlSize, font, layer } from "../../tokens.stylex.ts";
 
 export const Route = createFileRoute("/_app/agent")({ component: AgentPage });
 
@@ -374,7 +375,7 @@ function GraphEmptyState({ message }: { message: string }) {
 		<div {...stylex.props(styles.centerState, styles.centerPad)}>
 			<div {...stylex.props(styles.centerTextBox)}>
 				<div {...stylex.props(styles.iconBox)}>
-					<IconGitBranch size={18} />
+					<IconGitBranch size={iconSize._2xl} />
 				</div>
 				<p {...stylex.props(styles.centerMessage)}>{message}</p>
 			</div>
@@ -386,7 +387,7 @@ const styles = stylex.create({
 	appRoot: {
 		display: "flex",
 		flexDirection: "column",
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 	},
 	fullHeight: {
 		height: "100%",
@@ -395,69 +396,69 @@ const styles = stylex.create({
 		position: "relative",
 		display: "flex",
 		flex: 1,
-		minHeight: 0,
+		minHeight: controlSize._0,
 		flexDirection: "column",
 		overflow: "hidden",
 	},
 	appColumn: {
 		display: "flex",
 		flex: 1,
-		minHeight: 0,
+		minHeight: controlSize._0,
 		flexDirection: "column",
 		overflow: "hidden",
 	},
 	appBody: {
 		display: "flex",
 		flex: 1,
-		minHeight: 0,
+		minHeight: controlSize._0,
 		overflow: "hidden",
 	},
 	mainPane: {
 		position: "relative",
 		display: "flex",
 		flex: 1,
-		minHeight: 0,
+		minHeight: controlSize._0,
 		flexDirection: "column",
 		overflow: "hidden",
 	},
 	surfaceLayer: {
 		position: "absolute",
-		inset: 0,
+		inset: controlSize._0,
 		display: "flex",
-		minWidth: 0,
-		minHeight: 0,
+		minWidth: controlSize._0,
+		minHeight: controlSize._0,
 		flexDirection: "column",
 		overflow: "hidden",
 	},
 	surfaceLayerVisible: {
 		pointerEvents: "auto",
 		visibility: "visible",
-		zIndex: 1,
+		zIndex: layer.content,
 	},
 	surfaceLayerHidden: {
 		contentVisibility: "hidden",
 		pointerEvents: "none",
 		visibility: "hidden",
-		zIndex: 0,
+		zIndex: layer.base,
 	},
 	chatWorkspace: {
 		display: "flex",
 		width: "100%",
 		height: "100%",
-		minWidth: 0,
-		minHeight: 0,
+		minWidth: controlSize._0,
+		minHeight: controlSize._0,
 		overflow: "hidden",
 	},
 	chatWorkspaceZen: {
 		position: "fixed",
-		zIndex: 1000,
-		inset: 0,
+		zIndex: layer.appModal,
+		inset: controlSize._0,
 		backgroundColor: color.background,
 	},
 	chatDock: {
 		display: "flex",
-		minWidth: 0,
-		minHeight: 0,
+		minWidth: controlSize._0,
+		minHeight: controlSize._0,
 		flex: 1,
 		overflow: "hidden",
 	},
@@ -497,7 +498,7 @@ const styles = stylex.create({
 	},
 	centerMessage: {
 		color: color.textMain,
-		fontSize: "0.875rem",
+		fontSize: font.size_5,
 	},
 	spacer: {
 		flex: 1,

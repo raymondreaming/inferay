@@ -1,5 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useMemo } from "octane";
+import { iconSize } from "../../design-system.ts";
 import type { AgentKind } from "../../features/agent/agent-utils.ts";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
 import {
@@ -124,7 +125,7 @@ export const AgentChatHeader = memo(function AgentChatHeader({
 					className={`${APP_REGION_NO_DRAG_CLASS} ${contextButtonProps.className ?? ""}`}
 					title="Agent Instructions"
 				>
-					<IconSettings size={10} />
+					<IconSettings size={iconSize.sm} />
 				</button>
 			)}
 			{dirName &&
@@ -170,7 +171,7 @@ export const AgentChatHeader = memo(function AgentChatHeader({
 					className={`${APP_REGION_NO_DRAG_CLASS} ${closeButtonProps.className ?? ""}`}
 					title="Close"
 				>
-					<IconX size={8} />
+					<IconX size={iconSize.xs} />
 				</button>
 			)}
 		</div>
@@ -188,7 +189,7 @@ const styles = stylex.create({
 		flexShrink: 0,
 		gap: controlSize._1_5,
 		minHeight: controlSize._8,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		paddingBlock: controlSize._1,
 		paddingInline: controlSize._3,
 		userSelect: "none",
@@ -204,7 +205,7 @@ const styles = stylex.create({
 		fontSize: font.size_1,
 		fontWeight: font.weight_5,
 		overflow: "hidden",
-		padding: 0,
+		padding: controlSize._0,
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 	},
@@ -225,7 +226,7 @@ const styles = stylex.create({
 		alignItems: "center",
 		display: "inline-flex",
 		gap: controlSize._1,
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 	headerDropdownButton: {
 		"--dropdown-button-bg-color": "transparent",
@@ -272,12 +273,12 @@ const styles = stylex.create({
 	},
 	sessionOption: {
 		display: "flex",
-		height: 48,
+		height: controlSize._12,
 		alignItems: "center",
 		gap: controlSize._2,
 		paddingInline: controlSize._3,
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.controlHover,
 		},
 	},
@@ -291,10 +292,10 @@ const styles = stylex.create({
 	},
 	sessionOptionText: {
 		display: "flex",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 		flexDirection: "column",
-		gap: 2,
+		gap: controlSize._0_5,
 		textAlign: "left",
 	},
 	sessionOptionRepo: {
@@ -323,7 +324,7 @@ const styles = stylex.create({
 	closeButton: {
 		alignItems: "center",
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.dangerWash,
 		},
 		borderRadius: radius.sm,
@@ -368,6 +369,6 @@ const styles = stylex.create({
 	},
 	spacer: {
 		flex: 1,
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 });

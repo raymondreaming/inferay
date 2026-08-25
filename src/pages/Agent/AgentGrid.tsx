@@ -32,7 +32,7 @@ import type {
 import { useGitStatus } from "../../features/git/useGitStatus.tsx";
 import { lockPointerSelection } from "../../lib/pointer-selection-lock.ts";
 import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
-import { color, controlSize, motion } from "../../tokens.stylex.ts";
+import { color, controlSize, layer, motion } from "../../tokens.stylex.ts";
 import { AgentPaneView } from "./AgentPaneView.tsx";
 
 const EMPTY_CWD_LIST: string[] = [];
@@ -810,14 +810,14 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 
 const styles = stylex.create({
 	rowScroller: {
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 		display: "flex",
 		height: "100%",
 		overflowX: "auto",
 		overscrollBehavior: "none",
 	},
 	rowCell: {
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 		borderRightStyle: "solid",
 		borderRightWidth: 1,
 		flexShrink: 0,
@@ -827,7 +827,7 @@ const styles = stylex.create({
 		transitionProperty: "border-color, opacity",
 	},
 	gridScroller: {
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 		display: "grid",
 		height: "100%",
 		overflowX: "hidden",
@@ -835,7 +835,7 @@ const styles = stylex.create({
 		overscrollBehavior: "contain",
 	},
 	gridCell: {
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 		borderBottomStyle: "solid",
 		borderBottomWidth: 1,
 		borderRightStyle: "solid",
@@ -849,8 +849,8 @@ const styles = stylex.create({
 		display: "flex",
 		width: "100%",
 		height: "100%",
-		minWidth: 0,
-		minHeight: 0,
+		minWidth: controlSize._0,
+		minHeight: controlSize._0,
 		overflowX: "hidden",
 		overflowY: "auto",
 		overscrollBehavior: "contain",
@@ -859,77 +859,77 @@ const styles = stylex.create({
 		display: "flex",
 		width: "100%",
 		height: "100%",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flexShrink: 0,
 	},
 	dockSplit: {
 		display: "flex",
 		width: "100%",
 		height: "100%",
-		minWidth: 0,
-		minHeight: 0,
+		minWidth: controlSize._0,
+		minHeight: controlSize._0,
 		overflow: "hidden",
 	},
 	dockHorizontal: { flexDirection: "row" },
 	dockVertical: { flexDirection: "column" },
 	dockBranch: {
 		display: "flex",
-		minWidth: 0,
-		minHeight: 0,
+		minWidth: controlSize._0,
+		minHeight: controlSize._0,
 		overflow: "hidden",
 	},
 	dockDivider: {
 		position: "relative",
-		zIndex: 20,
+		zIndex: layer.dropdown,
 		flexShrink: 0,
 		borderWidth: 0,
-		padding: 0,
+		padding: controlSize._0,
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.controlActive,
 		},
 		transitionProperty: "background-color",
 		transitionDuration: motion.durationFast,
 	},
 	dockDividerHorizontal: {
-		width: 5,
+		width: controlSize._1_25,
 		height: "100%",
 		marginInline: -2,
 		cursor: "col-resize",
 		"::before": {
 			content: "",
 			position: "absolute",
-			insetBlock: 0,
-			left: 2,
-			width: 1,
+			insetBlock: controlSize._0,
+			left: controlSize._0_5,
+			width: controlSize._0_25,
 			backgroundColor: "var(--color-inferay-gray-border)",
 		},
 	},
 	dockDividerVertical: {
 		width: "100%",
-		height: 5,
+		height: controlSize._1_25,
 		marginBlock: -2,
 		cursor: "row-resize",
 		"::before": {
 			content: "",
 			position: "absolute",
-			insetInline: 0,
-			top: 2,
-			height: 1,
+			insetInline: controlSize._0,
+			top: controlSize._0_5,
+			height: controlSize._0_25,
 			backgroundColor: "var(--color-inferay-gray-border)",
 		},
 	},
 	dockCell: {
 		position: "relative",
 		display: "flex",
-		minWidth: 0,
-		minHeight: 0,
+		minWidth: controlSize._0,
+		minHeight: controlSize._0,
 		flex: 1,
 		overflow: "hidden",
 	},
 	dropIndicator: {
 		position: "absolute",
-		zIndex: 100,
+		zIndex: layer.workspaceOverlay,
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: "var(--color-inferay-gray-border-bold)",
@@ -938,7 +938,7 @@ const styles = stylex.create({
 		pointerEvents: "none",
 	},
 	rootDropIndicator: {
-		zIndex: 110,
+		zIndex: layer.workspaceDrag,
 	},
 	dropLeft: { insetBlock: controlSize._2, left: controlSize._2, width: "42%" },
 	dropRight: {

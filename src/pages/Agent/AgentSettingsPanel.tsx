@@ -11,6 +11,7 @@ import { Button } from "../../components/ui/Button.tsx";
 import { DropdownButton } from "../../components/ui/DropdownButton.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
 import { IconFolder, IconPlus, IconX } from "../../components/ui/Icons.tsx";
+import { iconSize } from "../../design-system.ts";
 import {
 	type CustomThemeColors,
 	type HexColor,
@@ -56,7 +57,14 @@ import {
 	resolveServerUrl,
 } from "../../lib/fetch-json.ts";
 import { listenWindowEvent, setInputValue } from "../../lib/react-events.ts";
-import { color, controlSize, font } from "../../tokens.stylex.ts";
+import {
+	color,
+	controlSize,
+	font,
+	layer,
+	motion,
+	radius,
+} from "../../tokens.stylex.ts";
 
 interface AgentSettingsContentProps {
 	themeId?: ThemeId;
@@ -373,7 +381,7 @@ function BackgroundScenePicker() {
 					onClick={() => fileInputRef.current?.click()}
 					disabled={uploading}
 				>
-					<IconFolder size={10} />
+					<IconFolder size={iconSize.sm} />
 					{uploading ? "Importing…" : "Choose image"}
 				</Button>
 				<input
@@ -594,7 +602,7 @@ function SearchFoldersSection() {
 							size="xs"
 							title="Remove"
 						>
-							<IconX size={8} />
+							<IconX size={iconSize.xs} />
 						</IconButton>
 					</div>
 				))}
@@ -619,7 +627,7 @@ function SearchFoldersSection() {
 					size="sm"
 					className={stylex.props(styles.folderActionButton).className}
 				>
-					<IconPlus size={10} />
+					<IconPlus size={iconSize.sm} />
 					Add
 				</Button>
 				<Button
@@ -632,7 +640,7 @@ function SearchFoldersSection() {
 							.className
 					}
 				>
-					<IconFolder size={10} />
+					<IconFolder size={iconSize.sm} />
 					Browse
 				</Button>
 			</div>
@@ -851,8 +859,8 @@ export const AgentSettingsPanel = memo(function AgentSettingsPanel({
 const styles = stylex.create({
 	overlay: {
 		position: "fixed",
-		inset: 0,
-		zIndex: 80,
+		inset: controlSize._0,
+		zIndex: layer.panelOverlay,
 		display: "flex",
 		alignItems: "flex-start",
 		justifyContent: "flex-end",
@@ -861,10 +869,10 @@ const styles = stylex.create({
 	},
 	backdrop: {
 		position: "absolute",
-		inset: 0,
+		inset: controlSize._0,
 		borderWidth: 0,
-		padding: 0,
-		backgroundColor: "transparent",
+		padding: controlSize._0,
+		backgroundColor: color.transparent,
 	},
 	panel: {
 		position: "relative",
@@ -887,9 +895,9 @@ const styles = stylex.create({
 		paddingBottom: controlSize._6,
 	},
 	panelBodyEmbedded: {
-		paddingBlock: 0,
-		paddingInline: 0,
-		paddingBottom: 0,
+		paddingBlock: controlSize._0,
+		paddingInline: controlSize._0,
+		paddingBottom: controlSize._0,
 	},
 	themeGrid: {
 		display: "flex",
@@ -909,11 +917,11 @@ const styles = stylex.create({
 		borderWidth: 0,
 		borderRadius: controlSize._2,
 		paddingBlock: controlSize._1,
-		paddingInline: 0,
+		paddingInline: controlSize._0,
 		scrollSnapAlign: "start",
 		transitionProperty: "opacity, color",
-		transitionDuration: "150ms",
-		backgroundColor: "transparent",
+		transitionDuration: motion.durationBase,
+		backgroundColor: color.transparent,
 		opacity: {
 			default: 0.72,
 			":hover": 1,
@@ -926,7 +934,7 @@ const styles = stylex.create({
 		position: "relative",
 		width: controlSize._10,
 		height: controlSize._10,
-		borderRadius: "999px",
+		borderRadius: radius.pill,
 	},
 	themeOrbDashed: {
 		borderWidth: 1,
@@ -941,18 +949,18 @@ const styles = stylex.create({
 	},
 	themeOrbFill: {
 		position: "absolute",
-		inset: 0,
-		borderRadius: "999px",
+		inset: controlSize._0,
+		borderRadius: radius.pill,
 		transitionProperty: "transform",
-		transitionDuration: "150ms",
+		transitionDuration: motion.durationBase,
 	},
 	themeOrbGlow: {
 		position: "absolute",
-		borderRadius: "999px",
+		borderRadius: radius.pill,
 	},
 	themeOrbHighlight: {
 		position: "absolute",
-		borderRadius: "999px",
+		borderRadius: radius.pill,
 	},
 	themeOrbLabel: {
 		color: color.textMuted,
@@ -961,7 +969,7 @@ const styles = stylex.create({
 	},
 	themeOrbLabelSelected: {
 		color: color.textMain,
-		fontWeight: 600,
+		fontWeight: font.weight_6,
 	},
 	backgroundHeadingRow: {
 		alignItems: "flex-start",
@@ -978,7 +986,7 @@ const styles = stylex.create({
 		gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
 	},
 	backgroundCard: {
-		backgroundColor: "rgba(255,255,255,0.025)",
+		backgroundColor: color.surfaceWhite025,
 		borderColor: color.border,
 		borderRadius: controlSize._2,
 		borderStyle: "solid",
@@ -990,7 +998,7 @@ const styles = stylex.create({
 		overflow: "hidden",
 		padding: controlSize._1,
 		textAlign: "left",
-		transitionDuration: "150ms",
+		transitionDuration: motion.durationBase,
 		transitionProperty: "border-color, background-color, color, transform",
 		":hover": {
 			backgroundColor: color.surfaceSubtle,
@@ -1009,9 +1017,9 @@ const styles = stylex.create({
 		backgroundPosition: "center",
 		backgroundRepeat: "no-repeat",
 		backgroundSize: "cover",
-		borderRadius: 5,
+		borderRadius: radius.px5,
 		display: "block",
-		height: 64,
+		height: controlSize._16,
 		width: "100%",
 	},
 	backgroundName: {
@@ -1024,10 +1032,10 @@ const styles = stylex.create({
 		color: color.danger,
 		fontSize: font.size_2,
 		lineHeight: 1.4,
-		margin: 0,
+		margin: controlSize._0,
 	},
 	backgroundControls: {
-		backgroundColor: "rgba(255,255,255,0.025)",
+		backgroundColor: color.surfaceWhite025,
 		borderColor: color.border,
 		borderRadius: controlSize._2,
 		borderStyle: "solid",
@@ -1058,7 +1066,7 @@ const styles = stylex.create({
 		display: "block",
 		fontSize: font.size_1,
 		lineHeight: 1.35,
-		marginTop: 2,
+		marginTop: controlSize._0_5,
 	},
 	colorSourceOptions: {
 		backgroundColor: color.surfaceInset,
@@ -1068,8 +1076,8 @@ const styles = stylex.create({
 		borderWidth: 1,
 		display: "flex",
 		flexShrink: 0,
-		gap: 2,
-		padding: 2,
+		gap: controlSize._0_5,
+		padding: controlSize._0_5,
 	},
 	colorSourceButton: {
 		backgroundColor: {
@@ -1101,7 +1109,7 @@ const styles = stylex.create({
 	},
 	backgroundRange: {
 		accentColor: color.accent,
-		margin: 0,
+		margin: controlSize._0,
 		width: "100%",
 	},
 	backgroundValue: {
@@ -1111,7 +1119,7 @@ const styles = stylex.create({
 		textAlign: "right",
 	},
 	divider: {
-		height: 1,
+		height: controlSize._0_25,
 		backgroundColor: color.border,
 	},
 	section: {
@@ -1120,16 +1128,16 @@ const styles = stylex.create({
 		gap: controlSize._2,
 	},
 	sectionHeading: {
-		margin: 0,
+		margin: controlSize._0,
 		color: color.textMain,
 		fontSize: font.size_3,
-		fontWeight: 600,
+		fontWeight: font.weight_6,
 	},
 	customHeading: {
 		marginBottom: controlSize._3,
 	},
 	sectionDescription: {
-		margin: 0,
+		margin: controlSize._0,
 		color: color.textMuted,
 		fontSize: font.size_2,
 		lineHeight: 1.5,
@@ -1186,9 +1194,9 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		borderRadius: "0.25rem",
-		backgroundColor: "transparent",
-		padding: 0,
+		borderRadius: radius.sm,
+		backgroundColor: color.transparent,
+		padding: controlSize._0,
 	},
 	mutedText: {
 		color: color.textMuted,
@@ -1206,10 +1214,10 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		borderRadius: "0.375rem",
+		borderRadius: radius.md,
 		fontFamily:
 			"ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 		lineHeight: 1.55,
 		padding: controlSize._3,
 	},
@@ -1224,16 +1232,16 @@ const styles = stylex.create({
 		display: "flex",
 		alignItems: "center",
 		gap: "0.375rem",
-		borderRadius: "0.25rem",
+		borderRadius: radius.sm,
 		paddingBlock: "0.125rem",
 		paddingInline: "0.375rem",
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.controlHover,
 		},
 	},
 	folderPath: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
@@ -1257,7 +1265,7 @@ const styles = stylex.create({
 		alignItems: "center",
 	},
 	folderInput: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 		height: controlSize._7,
 		borderWidth: 1,
@@ -1266,7 +1274,7 @@ const styles = stylex.create({
 			default: color.border,
 			":focus": color.borderStrong,
 		},
-		borderRadius: "0.375rem",
+		borderRadius: radius.md,
 		backgroundColor: color.background,
 		color: color.textSoft,
 		fontSize: font.size_2,

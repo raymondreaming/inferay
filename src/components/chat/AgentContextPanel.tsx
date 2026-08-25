@@ -64,7 +64,7 @@ export function AgentContextPanel({
 						onClick={() => setScope(item)}
 						{...stylex.props(
 							styles.scopeButton,
-							scope === item && styles.scopeButtonActive
+							scope === item && styles.scopeButtonActive,
 						)}
 						title={item === "project" ? cwd : undefined}
 					>
@@ -100,7 +100,7 @@ const styles = stylex.create({
 		display: "flex",
 		flex: 1,
 		flexDirection: "column",
-		minHeight: 0,
+		minHeight: controlSize._0,
 		overflow: "hidden",
 		width: "100%",
 	},
@@ -141,7 +141,7 @@ const styles = stylex.create({
 		flex: 1,
 		flexDirection: "column",
 		gap: controlSize._2,
-		minHeight: 0,
+		minHeight: controlSize._0,
 		padding: controlSize._3,
 	},
 	fieldLabel: {

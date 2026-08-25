@@ -1,8 +1,17 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useMemo } from "octane";
+import { iconSize } from "../../design-system.ts";
 import type { GitProjectStatus } from "../../features/git/types.ts";
 import { useQueryResource } from "../../hooks/useQueryResource.tsx";
-import { color, controlSize, font, radius } from "../../tokens.stylex.ts";
+import {
+	breakpoint,
+	color,
+	controlSize,
+	font,
+	layer,
+	motion,
+	radius,
+} from "../../tokens.stylex.ts";
 import { DropdownButton } from "../ui/DropdownButton.tsx";
 import { IconFolder, IconGitBranch } from "../ui/Icons.tsx";
 import { ProjectMapAtlas } from "./ProjectMapAtlas.tsx";
@@ -42,7 +51,7 @@ export function ProjectFileGraphView({
 				id: cwd,
 				label: cwdLabel(cwd),
 				detail: cwd,
-				icon: <IconFolder size={12} />,
+				icon: <IconFolder size={iconSize.md} />,
 			})),
 		[cwds],
 	);
@@ -71,7 +80,7 @@ export function ProjectFileGraphView({
 				/>
 				{project ? (
 					<div {...stylex.props(styles.branchPill)}>
-						<IconGitBranch size={11} />
+						<IconGitBranch size={iconSize.compact} />
 						<span>{project.branch}</span>
 					</div>
 				) : null}
@@ -118,13 +127,13 @@ const styles = stylex.create({
 	root: {
 		position: "relative",
 		height: "100%",
-		minHeight: 0,
+		minHeight: controlSize._0,
 		overflow: "hidden",
 		backgroundColor: color.background,
 	},
 	projectPicker: {
 		position: "absolute",
-		zIndex: 40,
+		zIndex: layer.popover,
 		top: controlSize._3,
 		left: controlSize._3,
 		display: "flex",
@@ -150,7 +159,7 @@ const styles = stylex.create({
 	branchPill: {
 		display: {
 			default: "none",
-			"@media (min-width: 760px)": "flex",
+			[breakpoint.standard]: "flex",
 		},
 		height: controlSize._7,
 		alignItems: "center",
@@ -209,7 +218,7 @@ const styles = stylex.create({
 		backgroundColor: color.accent,
 		transform: "skewY(-28deg)",
 		animationName: "atlas-load",
-		animationDuration: "900ms",
+		animationDuration: motion.durationLongest,
 		animationIterationCount: "infinite",
 		animationTimingFunction: "ease-in-out",
 	},

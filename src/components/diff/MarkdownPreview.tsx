@@ -1,5 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useEffect, useRef, useState } from "octane";
+import { runtimeFont } from "../../design-system.ts";
 import { indexedValues } from "../../lib/indexed-values.ts";
 import {
 	type MdBlock,
@@ -8,7 +9,7 @@ import {
 	parseBlocks,
 	parseInline,
 } from "../../lib/markdown.ts";
-import { color, controlSize, font } from "../../tokens.stylex.ts";
+import { color, controlSize, font, radius } from "../../tokens.stylex.ts";
 
 let mermaidPromise: Promise<unknown> | null = null;
 function loadMermaid(): Promise<unknown> {
@@ -32,8 +33,8 @@ function loadMermaid(): Promise<unknown> {
 					lineColor: "var(--color-inferay-muted-gray)",
 					secondaryColor: "var(--color-inferay-gray)",
 					tertiaryColor: "var(--color-inferay-dark-gray)",
-					fontFamily: '"JetBrains Mono", "SF Mono", Menlo, Consolas, monospace',
-					fontSize: "11px",
+					fontFamily: runtimeFont.familyMono,
+					fontSize: runtimeFont.sizeCompact,
 				},
 			});
 			resolve(m);
@@ -241,7 +242,7 @@ function BlockRenderer({ block }: { block: MdBlock }) {
 						block.level === 3 && styles.heading3,
 						block.level === 4 && styles.heading4,
 						block.level === 5 && styles.heading5,
-						block.level === 6 && styles.heading6
+						block.level === 6 && styles.heading6,
 					)}
 				>
 					<Inline text={block.content} />
@@ -289,7 +290,7 @@ function BlockRenderer({ block }: { block: MdBlock }) {
 										<th key={index} {...stylex.props(styles.tableHeadCell)}>
 											<Inline text={cell} />
 										</th>
-									)
+									),
 								)}
 							</tr>
 						</thead>
@@ -303,7 +304,7 @@ function BlockRenderer({ block }: { block: MdBlock }) {
 											</td>
 										))}
 									</tr>
-								)
+								),
 							)}
 						</tbody>
 					</table>
@@ -365,7 +366,7 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		borderRadius: "0.375rem",
+		borderRadius: radius.md,
 		backgroundColor: color.backgroundRaised,
 		padding: controlSize._3,
 	},
@@ -384,7 +385,7 @@ const styles = stylex.create({
 	image: {
 		display: "inline-block",
 		maxWidth: "100%",
-		borderRadius: "0.375rem",
+		borderRadius: radius.md,
 		marginBlock: controlSize._1,
 	},
 	link: {
@@ -400,7 +401,7 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.accentBorder,
-		borderRadius: "0.25rem",
+		borderRadius: radius.sm,
 		backgroundColor: color.accentWash,
 		color: color.accent,
 		fontFamily: "var(--font-diff)",
@@ -410,11 +411,11 @@ const styles = stylex.create({
 	},
 	strongBold: {
 		color: color.textMain,
-		fontWeight: 700,
+		fontWeight: font.weightBold,
 	},
 	strong: {
 		color: color.textMain,
-		fontWeight: 600,
+		fontWeight: font.weight_6,
 	},
 	italic: {
 		color: color.textSoft,
@@ -426,15 +427,15 @@ const styles = stylex.create({
 	},
 	heading: {
 		color: color.textMain,
-		fontWeight: 600,
+		fontWeight: font.weight_6,
 	},
 	heading1: {
 		marginTop: controlSize._6,
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
-		fontSize: "1.125rem",
-		fontWeight: 700,
+		fontSize: font.size_7,
+		fontWeight: font.weightBold,
 		paddingBottom: controlSize._2,
 	},
 	heading2: {
@@ -442,12 +443,12 @@ const styles = stylex.create({
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
-		fontSize: "0.9375rem",
+		fontSize: font.size_5_5,
 		paddingBottom: "0.375rem",
 	},
 	heading3: {
 		marginTop: controlSize._4,
-		fontSize: "0.8125rem",
+		fontSize: font.size_4,
 	},
 	heading4: {
 		marginTop: controlSize._3,
@@ -455,7 +456,7 @@ const styles = stylex.create({
 	},
 	heading5: {
 		marginTop: controlSize._2,
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 	},
 	heading6: {
 		marginTop: controlSize._2,
@@ -466,7 +467,7 @@ const styles = stylex.create({
 	},
 	listItem: {
 		color: color.textSoft,
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 		lineHeight: 1.6,
 	},
 	checkSlot: {
@@ -482,10 +483,10 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.accentBorder,
-		borderRadius: "0.25rem",
+		borderRadius: radius.sm,
 		backgroundColor: color.accentWash,
 		color: color.accent,
-		fontSize: "0.5rem",
+		fontSize: font.size_0_5,
 	},
 	checkOff: {
 		display: "inline-flex",
@@ -494,7 +495,7 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		borderRadius: "0.25rem",
+		borderRadius: radius.sm,
 	},
 	nestedList: {
 		display: "flex",
@@ -511,9 +512,9 @@ const styles = stylex.create({
 		position: "absolute",
 		top: "0.375rem",
 		right: controlSize._2,
-		color: "rgba(255, 255, 255, 0.4)",
+		color: color.surfaceWhite40,
 		fontFamily: "var(--font-diff)",
-		fontSize: "0.5rem",
+		fontSize: font.size_0_5,
 		letterSpacing: "0.08em",
 		textTransform: "uppercase",
 	},
@@ -522,7 +523,7 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.accentBorder,
-		borderRadius: "0.375rem",
+		borderRadius: radius.md,
 		backgroundColor: color.backgroundRaised,
 		padding: controlSize._3,
 	},
@@ -549,7 +550,7 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.accentBorder,
-		borderRadius: "0.375rem",
+		borderRadius: radius.md,
 	},
 	table: {
 		width: "100%",
@@ -572,7 +573,7 @@ const styles = stylex.create({
 	tableRow: {
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
-		borderBottomColor: "rgba(255, 255, 255, 0.04)",
+		borderBottomColor: color.surfaceWhite04,
 	},
 	tableCell: {
 		color: color.textSoft,
@@ -601,7 +602,7 @@ const styles = stylex.create({
 	},
 	paragraph: {
 		color: color.textSoft,
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 		lineHeight: 1.6,
 	},
 });

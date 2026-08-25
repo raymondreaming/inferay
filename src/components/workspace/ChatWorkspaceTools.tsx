@@ -1,5 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
+import { iconSize } from "../../design-system.ts";
 import {
 	WORKSPACE_FILE_OPEN_EVENT,
 	type WorkspaceFileOpenDetail,
@@ -36,7 +37,14 @@ import {
 	type DiffViewMode,
 	GitDiffView,
 } from "../../pages/Agent/GitDiffView.tsx";
-import { color, controlSize, font } from "../../tokens.stylex.ts";
+import {
+	color,
+	controlSize,
+	font,
+	layer,
+	motion,
+	radius,
+} from "../../tokens.stylex.ts";
 import { DiffViewerBoundary } from "../diff/DiffViewerBoundary.tsx";
 import {
 	ChangeFileSidebar,
@@ -313,7 +321,7 @@ function ChatDiffPanel({
 							viewMode === "split" && styles.viewerModeButtonActive,
 						)}
 					>
-						<IconLayoutGrid size={11} />
+						<IconLayoutGrid size={iconSize.compact} />
 					</button>
 					<button
 						type="button"
@@ -332,7 +340,7 @@ function ChatDiffPanel({
 							viewMode === "hunks" && styles.viewerModeButtonActive,
 						)}
 					>
-						<IconGitBranch size={11} />
+						<IconGitBranch size={iconSize.compact} />
 					</button>
 					<button
 						type="button"
@@ -350,7 +358,11 @@ function ChatDiffPanel({
 							zenMode && styles.viewerModeButtonActive,
 						)}
 					>
-						{zenMode ? <IconCollapse size={11} /> : <IconExpand size={11} />}
+						{zenMode ? (
+							<IconCollapse size={iconSize.compact} />
+						) : (
+							<IconExpand size={iconSize.compact} />
+						)}
 					</button>
 				</div>
 				<button
@@ -365,7 +377,7 @@ function ChatDiffPanel({
 					aria-label="Close change viewer"
 					{...stylex.props(styles.viewerClose)}
 				>
-					<IconX size={8} />
+					<IconX size={iconSize.xs} />
 				</button>
 			</header>
 			<div {...stylex.props(styles.viewerBody)}>
@@ -1025,7 +1037,7 @@ const styles = stylex.create({
 		position: "relative",
 		display: "flex",
 		height: "100%",
-		minHeight: 0,
+		minHeight: controlSize._0,
 		flexShrink: 0,
 		borderLeftWidth: 1,
 		borderLeftStyle: "solid",
@@ -1037,7 +1049,7 @@ const styles = stylex.create({
 		display: "flex",
 		minWidth: 320,
 		height: "100%",
-		minHeight: 0,
+		minHeight: controlSize._0,
 		flexShrink: 0,
 		borderLeftWidth: 1,
 		borderLeftStyle: "solid",
@@ -1046,39 +1058,45 @@ const styles = stylex.create({
 		overflow: "visible",
 	},
 	diffRailZen: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 	},
 	diffResizeHandle: {
 		position: "absolute",
-		zIndex: 30,
-		top: 0,
-		bottom: 0,
+		zIndex: layer.sticky,
+		top: controlSize._0,
+		bottom: controlSize._0,
 		left: -4,
-		width: 8,
+		width: controlSize._2,
 		borderWidth: 0,
-		padding: 0,
+		padding: controlSize._0,
 		touchAction: "none",
-		backgroundColor: { default: "transparent", ":hover": color.controlActive },
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlActive,
+		},
 		cursor: "ew-resize",
 	},
 	resizeHandle: {
 		position: "absolute",
-		zIndex: 30,
-		top: 0,
-		bottom: 0,
+		zIndex: layer.sticky,
+		top: controlSize._0,
+		bottom: controlSize._0,
 		left: -3,
-		width: 6,
+		width: controlSize._1_5,
 		borderWidth: 0,
-		backgroundColor: { default: "transparent", ":hover": color.controlActive },
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlActive,
+		},
 		cursor: "ew-resize",
 	},
 	viewerPanel: {
 		display: "flex",
 		width: "100%",
 		height: "100%",
-		minWidth: 0,
-		minHeight: 0,
+		minWidth: controlSize._0,
+		minHeight: controlSize._0,
 		flexDirection: "column",
 		backgroundColor: color.transparent,
 		overflow: "hidden",
@@ -1095,7 +1113,7 @@ const styles = stylex.create({
 		paddingInline: controlSize._3,
 	},
 	viewerTitle: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 		overflow: "hidden",
 		color: color.textSoft,
@@ -1106,11 +1124,11 @@ const styles = stylex.create({
 	},
 	viewerDirectory: {
 		color: color.textMuted,
-		fontWeight: 400,
+		fontWeight: font.weightRegular,
 	},
 	viewerFileName: {
 		color: color.textMain,
-		fontWeight: 700,
+		fontWeight: font.weightBold,
 	},
 	viewerStats: {
 		display: "flex",
@@ -1131,24 +1149,24 @@ const styles = stylex.create({
 	},
 	viewerModeButton: {
 		position: "relative",
-		zIndex: 1,
+		zIndex: layer.content,
 		display: "flex",
 		width: controlSize._6,
 		height: "100%",
 		alignItems: "center",
 		justifyContent: "center",
-		borderRadius: 4,
+		borderRadius: radius.sm,
 		backgroundColor: color.transparent,
 		color: color.textMuted,
 		transitionProperty: "color",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 	},
 	viewerModeButtonActive: {
 		backgroundColor: color.transparent,
 		color: color.textMain,
 	},
-	viewerAdded: { color: "#32e875" },
-	viewerRemoved: { color: "#ff5252" },
+	viewerAdded: { color: color.diffAdded },
+	viewerRemoved: { color: color.diffRemoved },
 	viewerAction: {
 		display: "flex",
 		height: controlSize._6,
@@ -1171,10 +1189,10 @@ const styles = stylex.create({
 		height: controlSize._5,
 		alignItems: "center",
 		justifyContent: "center",
-		backgroundColor: { default: "transparent", ":hover": color.dangerWash },
+		backgroundColor: { default: color.transparent, ":hover": color.dangerWash },
 		color: { default: color.textMuted, ":hover": color.danger },
 	},
-	viewerBody: { minHeight: 0, flex: 1, overflow: "hidden" },
+	viewerBody: { minHeight: controlSize._0, flex: 1, overflow: "hidden" },
 	viewerEmpty: {
 		display: "flex",
 		height: "100%",

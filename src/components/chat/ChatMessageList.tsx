@@ -10,6 +10,7 @@ import {
 	useState,
 } from "octane";
 import type React from "react";
+import { iconSize } from "../../design-system.ts";
 import type { CheckpointInfo } from "../../features/chat/agent-chat-shared.ts";
 import {
 	type CommandSystemMessage,
@@ -23,6 +24,7 @@ import {
 	color,
 	controlSize,
 	font,
+	layer,
 	motion,
 	radius,
 } from "../../tokens.stylex.ts";
@@ -188,7 +190,7 @@ function ToolTimeline({
 									</span>
 								)}
 								<IconChevronDown
-									size={8}
+									size={iconSize.xs}
 									{...stylex.props(
 										styles.toolMilestoneChevron,
 										collapsed && styles.rotateClosed,
@@ -243,11 +245,11 @@ function GoalSystemCard({ goal }: { goal: GoalSystemMessage }) {
 						ariaLabel="Goal running"
 					/>
 				) : goal.status === "complete" ? (
-					<IconCheck size={12} />
+					<IconCheck size={iconSize.md} />
 				) : goal.status === "paused" ? (
-					<IconAlertTriangle size={12} />
+					<IconAlertTriangle size={iconSize.md} />
 				) : (
-					<IconTarget size={12} />
+					<IconTarget size={iconSize.md} />
 				)}
 			</span>
 			<div {...stylex.props(styles.goalCardBody)}>
@@ -319,14 +321,14 @@ function CheckpointMarker({
 					{...stylex.props(styles.checkpointToggle)}
 				>
 					<IconChevronDown
-						size={11}
+						size={iconSize.compact}
 						{...stylex.props(
 							styles.checkpointChevron,
 							!expanded && styles.rotateClosed,
 						)}
 					/>
 					<IconClock
-						size={11}
+						size={iconSize.compact}
 						{...stylex.props(
 							styles.checkpointIcon,
 							checkpoint.reverted && styles.revertedIcon,
@@ -568,7 +570,7 @@ const Bubble = memo(function Bubble({
 						<span {...stylex.props(styles.toolSummary)}>{display.detail}</span>
 					)}
 					<IconChevronDown
-						size={7}
+						size={iconSize.micro}
 						{...stylex.props(
 							styles.toolMilestoneChevron,
 							collapsed && styles.rotateClosed,
@@ -608,7 +610,11 @@ const Bubble = memo(function Bubble({
 							copied && styles.copyMessageButtonCopied,
 						)}
 					>
-						{copied ? <IconCheck size={11} /> : <IconCopy size={11} />}
+						{copied ? (
+							<IconCheck size={iconSize.compact} />
+						) : (
+							<IconCopy size={iconSize.compact} />
+						)}
 						<span>{copied ? "Copied" : "Copy"}</span>
 					</button>
 				</div>
@@ -863,7 +869,7 @@ const styles = stylex.create({
 		flexShrink: 0,
 		height: controlSize._6,
 		justifyContent: "center",
-		marginTop: 1,
+		marginTop: controlSize._0_25,
 		width: controlSize._6,
 	},
 	goalIconActive: {
@@ -876,14 +882,14 @@ const styles = stylex.create({
 		color: color.success,
 	},
 	goalCardBody: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 	},
 	goalCardHeader: {
 		alignItems: "center",
 		display: "flex",
 		gap: controlSize._2,
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 	goalCardTitle: {
 		color: color.textMain,
@@ -938,7 +944,7 @@ const styles = stylex.create({
 		fontSize: font.size_1,
 		fontWeight: font.weight_5,
 		gap: controlSize._1,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		textAlign: "left",
 		transitionDuration: motion.durationBase,
 		transitionProperty: "opacity",
@@ -952,7 +958,7 @@ const styles = stylex.create({
 		color: color.textMuted,
 		fontSize: font.size_1,
 		fontWeight: font.weight_5,
-		paddingBlock: 0,
+		paddingBlock: controlSize._0,
 		paddingInline: controlSize._1,
 		transitionDuration: motion.durationBase,
 		transitionProperty: "color, opacity",
@@ -969,7 +975,7 @@ const styles = stylex.create({
 		color: color.textMuted,
 		fontSize: font.size_2,
 		fontStyle: "italic",
-		paddingBlock: 1,
+		paddingBlock: controlSize._0_25,
 		paddingInline: controlSize._1_5,
 	},
 	checkpointFiles: {
@@ -1061,12 +1067,12 @@ const styles = stylex.create({
 			width: "2.6rem",
 			height: "0.82rem",
 			borderRadius: radius.xs,
-			backgroundColor: "rgba(244, 221, 181, 0.58)",
+			backgroundColor: color.reviewHighlight,
 			backgroundImage:
 				"linear-gradient(90deg, rgba(255,255,255,0.22), rgba(255,255,255,0))",
 			boxShadow: "0 1px 4px rgba(0, 0, 0, 0.14)",
 			transform: "rotate(4deg)",
-			zIndex: 1,
+			zIndex: layer.content,
 		},
 		"::after": {
 			content: '""',
@@ -1112,7 +1118,7 @@ const styles = stylex.create({
 		color: color.textMuted,
 		fontSize: font.size_2,
 		lineHeight: 1.5,
-		margin: 0,
+		margin: controlSize._0,
 		textAlign: "center",
 	},
 	btwCard: {
@@ -1173,7 +1179,7 @@ const styles = stylex.create({
 		color: color.textMuted,
 		fontSize: font.size_2,
 		maxWidth: "100%",
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 	toolName: {
 		fontFamily: font.familyMono,
@@ -1181,7 +1187,7 @@ const styles = stylex.create({
 	},
 	toolSummary: {
 		color: color.textMuted,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
@@ -1190,13 +1196,13 @@ const styles = stylex.create({
 		boxSizing: "border-box",
 		marginInline: "auto",
 		maxWidth: "34rem",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		width: "100%",
 	},
 	toolMilestone: {
 		display: "grid",
 		gridTemplateColumns: "0.75rem minmax(0, 1fr)",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		position: "relative",
 	},
 	toolMilestoneNode: {
@@ -1216,7 +1222,7 @@ const styles = stylex.create({
 			top: "0.55rem",
 			transform: "translateX(-50%)",
 			width: controlSize._1_5,
-			zIndex: 1,
+			zIndex: layer.content,
 		},
 		"::after": {
 			backgroundColor: color.borderStrong,
@@ -1226,7 +1232,7 @@ const styles = stylex.create({
 			position: "absolute",
 			top: "0.74rem",
 			transform: "translateX(-50%)",
-			width: 1,
+			width: controlSize._0_25,
 		},
 	},
 	toolMilestoneNodeLast: {
@@ -1235,7 +1241,7 @@ const styles = stylex.create({
 		},
 	},
 	toolMilestoneBody: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		paddingBottom: controlSize._1,
 		paddingLeft: controlSize._1_5,
 	},
@@ -1250,7 +1256,7 @@ const styles = stylex.create({
 		gap: controlSize._1_5,
 		maxWidth: "100%",
 		minHeight: controlSize._6,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		paddingInline: controlSize._1,
 		textAlign: "left",
 		width: "100%",
@@ -1258,7 +1264,7 @@ const styles = stylex.create({
 	toolMilestoneLabel: {
 		fontSize: font.size_2,
 		fontWeight: font.weight_5,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
@@ -1290,7 +1296,7 @@ const styles = stylex.create({
 		fontFamily: font.familyMono,
 		fontSize: font.size_1,
 		lineHeight: 1.6,
-		marginBottom: 0,
+		marginBottom: controlSize._0,
 		marginTop: "0.125rem",
 		paddingBlock: controlSize._1,
 		paddingInline: controlSize._2,
@@ -1310,7 +1316,7 @@ const styles = stylex.create({
 	assistantMessage: {
 		position: "relative",
 		width: "100%",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflowWrap: "break-word",
 		color: color.textSoft,
 		fontSize: font.size_3,
@@ -1353,7 +1359,7 @@ const styles = stylex.create({
 		flexDirection: "column",
 		gap: controlSize._2,
 		minHeight: "100%",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		paddingBottom: CHAT_LIST_BOTTOM_PADDING_PX,
 		paddingInline: CHAT_LIST_INLINE_GUTTER,
 		paddingTop: CHAT_LIST_TOP_PADDING_PX,
@@ -1361,7 +1367,7 @@ const styles = stylex.create({
 	},
 	messageRow: {
 		boxSizing: "border-box",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		position: "relative",
 		width: "100%",
 	},

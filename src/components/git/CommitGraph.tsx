@@ -1,9 +1,18 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useCallback, useEffect, useMemo, useState } from "octane";
+import { runtimeColor, runtimeLayer } from "../../design-system.ts";
 import type { GraphNode, GraphRow } from "../../features/git/useGitGraph";
 import { toggleBoolean } from "../../lib/data.ts";
 import { readStoredJson, writeStoredJson } from "../../lib/stored-json.ts";
-import { color, controlSize, font } from "../../tokens.stylex.ts";
+import {
+	color,
+	controlSize,
+	font,
+	layer,
+	motion,
+	palette,
+	radius,
+} from "../../tokens.stylex.ts";
 import {
 	CommitGraphLinesLayer,
 	IconCheck,
@@ -220,7 +229,7 @@ function HeaderRow({
 					{...stylex.props(
 						styles.headerCell,
 						styles.headerCellBorder,
-						styles.headerCellRight
+						styles.headerCellRight,
 					)}
 					style={{ width: SHA_WIDTH }}
 				>
@@ -291,8 +300,8 @@ const WipRow = memo(function WipRow({
 			style={{
 				height: ROW_HEIGHT,
 				backgroundColor: selected
-					? "rgba(249,115,22,0.08)"
-					: "rgba(249,115,22,0.025)",
+					? runtimeColor.commitAccentWash
+					: runtimeColor.commitAccentWashSubtle,
 			}}
 			onClick={handleClick}
 		>
@@ -300,7 +309,11 @@ const WipRow = memo(function WipRow({
 
 			{/* Ref gutter */}
 			<div {...stylex.props(styles.refGutter)} style={{ width: REF_WIDTH }}>
-				<RefBadge label={`WIP ${branch ?? ""}`} color="#f97316" kind="local" />
+				<RefBadge
+					label={`WIP ${branch ?? ""}`}
+					color={runtimeColor.commitAccent}
+					kind="local"
+				/>
 			</div>
 
 			{/* Graph cell: dashed circle node */}
@@ -310,12 +323,12 @@ const WipRow = memo(function WipRow({
 					style={{
 						left: nodeLeft,
 						top: nodeTop,
-						borderColor: "#f97316",
+						borderColor: runtimeColor.commitAccent,
 					}}
 				>
 					<div
 						{...stylex.props(styles.wipNodeInner)}
-						style={{ backgroundColor: "rgba(249,115,22,0.45)" }}
+						style={{ backgroundColor: runtimeColor.commitAccentWashStrong }}
 					/>
 				</div>
 			</div>
@@ -378,7 +391,7 @@ const CommitRow = memo(function CommitRow({
 	const hasRefs = commit.refs.length > 0;
 	const handleClick = useCallback(
 		() => onSelect?.(commit.hash),
-		[commit.hash, onSelect]
+		[commit.hash, onSelect],
 	);
 
 	return (
@@ -611,7 +624,7 @@ export const CommitGraph = memo(function CommitGraph({
 				className={stylex.props(styles.linesLayer).className}
 				width={REF_WIDTH + graphWidth}
 				height={totalHeight}
-				style={{ zIndex: 1 }}
+				style={{ zIndex: runtimeLayer.content }}
 				railSegments={railSegments}
 				transitions={transitions}
 				colX={colX}
@@ -656,7 +669,7 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		borderRadius: "0.375rem",
+		borderRadius: radius.md,
 		backgroundColor: color.background,
 	},
 	emptyRoot: {
@@ -666,13 +679,13 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		borderRadius: "0.375rem",
+		borderRadius: radius.md,
 		backgroundColor: color.background,
 		paddingBlock: controlSize._8,
 	},
 	emptyText: {
 		color: color.textMuted,
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 	},
 	shrink: {
 		flexShrink: 0,
@@ -689,7 +702,7 @@ const styles = stylex.create({
 		alignItems: "center",
 		gap: controlSize._1,
 		overflow: "hidden",
-		borderRadius: "999px",
+		borderRadius: radius.pill,
 		fontSize: font.size_1,
 		fontWeight: font.weight_5,
 		lineHeight: 1,
@@ -706,23 +719,23 @@ const styles = stylex.create({
 	refExtra: {
 		flexShrink: 0,
 		color: color.textMuted,
-		fontSize: "0.5rem",
+		fontSize: font.size_0_5,
 	},
 	header: {
 		position: "sticky",
-		top: 0,
-		zIndex: 10,
+		top: controlSize._0,
+		zIndex: layer.control,
 		display: "flex",
 		height: controlSize._7,
 		alignItems: "center",
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
-		backgroundColor: "rgba(0, 0, 0, 0.95)",
+		backgroundColor: color.backgroundOverlayStrong,
 		backdropFilter: "blur(8px)",
 		color: color.textMuted,
 		fontSize: font.size_1,
-		fontWeight: 600,
+		fontWeight: font.weight_6,
 		letterSpacing: "0.16em",
 		textTransform: "uppercase",
 	},
@@ -739,7 +752,7 @@ const styles = stylex.create({
 		borderLeftColor: color.border,
 	},
 	descriptionHeader: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 		paddingInline: controlSize._3,
 	},
@@ -758,12 +771,12 @@ const styles = stylex.create({
 			default: color.border,
 			":hover": color.borderStrong,
 		},
-		borderRadius: "0.25rem",
+		borderRadius: radius.sm,
 		color: {
 			default: color.textMuted,
 			":hover": color.textSoft,
 		},
-		fontSize: "0.5rem",
+		fontSize: font.size_0_5,
 		letterSpacing: "0.12em",
 		paddingBlock: "0.125rem",
 		paddingInline: "0.375rem",
@@ -773,12 +786,12 @@ const styles = stylex.create({
 		position: "absolute",
 		right: controlSize._2,
 		top: controlSize._8,
-		zIndex: 20,
+		zIndex: layer.dropdown,
 		width: "7rem",
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		borderRadius: "0.375rem",
+		borderRadius: radius.md,
 		backgroundColor: color.backgroundRaised,
 		boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.6)",
 		padding: controlSize._1,
@@ -788,14 +801,14 @@ const styles = stylex.create({
 		width: "100%",
 		alignItems: "center",
 		justifyContent: "space-between",
-		borderRadius: "0.25rem",
+		borderRadius: radius.sm,
 		color: color.textSoft,
 		fontSize: font.size_2,
 		paddingBlock: controlSize._1,
 		paddingInline: controlSize._2,
 		textAlign: "left",
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.controlHover,
 		},
 	},
@@ -804,13 +817,13 @@ const styles = stylex.create({
 	},
 	linesLayer: {
 		position: "absolute",
-		left: 0,
+		left: controlSize._0,
 		top: controlSize._7,
 		pointerEvents: "none",
 	},
 	rowsLayer: {
 		position: "relative",
-		zIndex: 2,
+		zIndex: layer.chrome,
 	},
 	graphRow: {
 		position: "relative",
@@ -821,27 +834,27 @@ const styles = stylex.create({
 		alignItems: "center",
 		color: "inherit",
 		font: "inherit",
-		padding: 0,
+		padding: controlSize._0,
 		textAlign: "left",
 		transitionProperty: "background-color",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 		":hover": {
 			backgroundColor: color.backgroundRaised,
 		},
 	},
 	wipAccentBar: {
 		position: "absolute",
-		left: 0,
-		top: 0,
-		width: 3,
+		left: controlSize._0,
+		top: controlSize._0,
+		width: controlSize._0_75,
 		height: "100%",
-		backgroundColor: "#f97316",
+		backgroundColor: palette.orange,
 	},
 	selectedAccentBar: {
 		position: "absolute",
-		left: 0,
-		top: 0,
-		width: 3,
+		left: controlSize._0,
+		top: controlSize._0,
+		width: controlSize._0_75,
 		height: "100%",
 	},
 	refGutter: {
@@ -867,31 +880,31 @@ const styles = stylex.create({
 		height: AVATAR_SIZE,
 		borderWidth: 2,
 		borderStyle: "dashed",
-		borderRadius: "999px",
+		borderRadius: radius.pill,
 		backgroundColor: "var(--color-inferay-black)",
 		boxShadow: "0 0 6px rgba(249,115,22,0.2)",
-		zIndex: 3,
+		zIndex: layer.overlayContent,
 	},
 	wipNodeInner: {
 		width: controlSize._2,
 		height: controlSize._2,
-		borderRadius: "999px",
+		borderRadius: radius.pill,
 	},
 	messageCell: {
 		display: "flex",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 		alignItems: "center",
 		gap: controlSize._2,
 		paddingInline: controlSize._3,
 	},
 	commitMessage: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 		color: color.textSoft,
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 		lineHeight: 1,
 	},
 	fileCount: {
@@ -917,8 +930,8 @@ const styles = stylex.create({
 		height: controlSize._4,
 		borderWidth: 1,
 		borderStyle: "dashed",
-		borderColor: "rgba(249, 115, 22, 0.7)",
-		borderRadius: "999px",
+		borderColor: palette.orange70,
+		borderRadius: radius.pill,
 	},
 	metaCell: {
 		display: "flex",
@@ -955,15 +968,15 @@ const styles = stylex.create({
 		position: "absolute",
 		width: AVATAR_SIZE,
 		height: AVATAR_SIZE,
-		borderRadius: "999px",
+		borderRadius: radius.pill,
 		backgroundColor: "var(--color-inferay-black)",
-		zIndex: 3,
+		zIndex: layer.overlayContent,
 	},
 	authorAvatar: {
 		width: controlSize._4,
 		height: controlSize._4,
 		flexShrink: 0,
-		borderRadius: "999px",
+		borderRadius: radius.pill,
 	},
 	authorName: {
 		overflow: "hidden",

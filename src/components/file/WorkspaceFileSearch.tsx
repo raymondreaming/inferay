@@ -1,11 +1,13 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useEffect, useRef, useState } from "octane";
+import { iconSize } from "../../design-system.ts";
 import { fetchJson } from "../../lib/fetch-json.ts";
 import {
 	color,
 	controlSize,
 	effect,
 	font,
+	layer,
 	radius,
 } from "../../tokens.stylex.ts";
 import { IconSearch } from "../ui/Icons.tsx";
@@ -147,11 +149,14 @@ export function WorkspaceFileSearch({
 					aria-label="Search workspace files"
 					{...stylex.props(styles.panelTrigger)}
 				>
-					<IconSearch size={11} />
+					<IconSearch size={iconSize.compact} />
 				</button>
 			) : (
 				<div {...stylex.props(styles.inputFrame)}>
-					<IconSearch size={11} {...stylex.props(styles.searchIcon)} />
+					<IconSearch
+						size={iconSize.compact}
+						{...stylex.props(styles.searchIcon)}
+					/>
 					<input
 						type="text"
 						autoComplete="off"
@@ -186,7 +191,10 @@ export function WorkspaceFileSearch({
 				>
 					{placement === "panel" ? (
 						<div {...stylex.props(styles.menuSearch)}>
-							<IconSearch size={12} {...stylex.props(styles.searchIcon)} />
+							<IconSearch
+								size={iconSize.md}
+								{...stylex.props(styles.searchIcon)}
+							/>
 							<input
 								ref={panelInputRef}
 								type="text"
@@ -221,7 +229,7 @@ export function WorkspaceFileSearch({
 								index === selectedIndex && styles.resultActive,
 							)}
 						>
-							<FileTypeIcon path={result.path} size={14} />
+							<FileTypeIcon path={result.path} size={iconSize.lg} />
 							<span {...stylex.props(styles.resultText)}>
 								<strong {...stylex.props(styles.resultName)}>
 									{fileName(result.path)}
@@ -242,8 +250,11 @@ export function WorkspaceFileSearch({
 }
 
 const styles = stylex.create({
-	root: { position: "relative", minWidth: 0 },
-	rootShell: { width: "clamp(190px, 24vw, 330px)", marginBottom: 4 },
+	root: { position: "relative", minWidth: controlSize._0 },
+	rootShell: {
+		width: "clamp(190px, 24vw, 330px)",
+		marginBottom: controlSize._1,
+	},
 	rootPanel: {
 		position: "static",
 		width: controlSize._6,
@@ -280,7 +291,7 @@ const styles = stylex.create({
 		},
 	},
 	input: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 		borderWidth: 0,
 		outline: "none",
@@ -292,7 +303,7 @@ const styles = stylex.create({
 	menu: {
 		position: "absolute",
 		top: "calc(100% + 5px)",
-		zIndex: 300,
+		zIndex: layer.searchPopover,
 		display: "flex",
 		maxHeight: 320,
 		flexDirection: "column",
@@ -307,7 +318,7 @@ const styles = stylex.create({
 		boxShadow: "0 18px 46px rgba(0, 0, 0, 0.64)",
 		padding: controlSize._1,
 	},
-	menuShell: { left: 0, width: "max(100%, 330px)" },
+	menuShell: { left: controlSize._0, width: "max(100%, 330px)" },
 	menuPanel: {
 		left: controlSize._1,
 		right: controlSize._1,
@@ -328,7 +339,7 @@ const styles = stylex.create({
 	result: {
 		display: "flex",
 		width: "100%",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		alignItems: "center",
 		gap: controlSize._2,
 		borderRadius: radius.md,
@@ -348,7 +359,7 @@ const styles = stylex.create({
 	},
 	resultText: {
 		display: "flex",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 		flexDirection: "column",
 	},

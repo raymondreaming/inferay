@@ -7,6 +7,7 @@ import {
 	useRef,
 	useState,
 } from "octane";
+import { iconSize } from "../../design-system.ts";
 import {
 	shouldDisableSnippetHighlighting,
 	useShikiHighlighter,
@@ -402,7 +403,7 @@ export const WorkspaceFileViewer = memo(function WorkspaceFileViewer({
 										}}
 										{...stylex.props(styles.fileTabSelect)}
 									>
-										<FileTypeIcon path={file.path} size={13} />
+										<FileTypeIcon path={file.path} size={iconSize._2md} />
 										<span {...stylex.props(styles.fileTabName)}>
 											{fileName(file.path)}
 										</span>
@@ -421,7 +422,7 @@ export const WorkspaceFileViewer = memo(function WorkspaceFileViewer({
 										}}
 										{...stylex.props(styles.fileTabClose)}
 									>
-										<IconX size={8} />
+										<IconX size={iconSize.xs} />
 									</button>
 								</div>
 							))
@@ -440,7 +441,7 @@ export const WorkspaceFileViewer = memo(function WorkspaceFileViewer({
 					aria-label="Close file viewer"
 					{...stylex.props(styles.iconButton)}
 				>
-					<IconX size={8} />
+					<IconX size={iconSize.xs} />
 				</button>
 			</header>
 
@@ -449,7 +450,7 @@ export const WorkspaceFileViewer = memo(function WorkspaceFileViewer({
 					<SourcePreview file={activeFile} />
 				) : (
 					<div {...stylex.props(styles.emptyState)}>
-						<IconCode size={18} />
+						<IconCode size={iconSize._2xl} />
 						<span>Search above to open a file.</span>
 					</div>
 				)}
@@ -466,8 +467,8 @@ const styles = stylex.create({
 		maxWidth: "100%",
 		height: "100%",
 		flex: 1,
-		minWidth: 0,
-		minHeight: 0,
+		minWidth: controlSize._0,
+		minHeight: controlSize._0,
 		flexDirection: "column",
 		overflow: "hidden",
 		backgroundColor: color.transparent,
@@ -480,14 +481,14 @@ const styles = stylex.create({
 		flexShrink: 0,
 		alignItems: "center",
 		gap: controlSize._1,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		paddingLeft: controlSize._2,
 		paddingRight: controlSize._1,
 	},
 	fileTabs: {
 		display: "flex",
 		width: "auto",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		height: "100%",
 		flex: 1,
 		alignItems: "stretch",
@@ -515,7 +516,7 @@ const styles = stylex.create({
 	},
 	fileTabSelect: {
 		display: "flex",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 		height: "100%",
 		alignItems: "center",
@@ -524,7 +525,7 @@ const styles = stylex.create({
 		color: "inherit",
 	},
 	fileTabName: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
@@ -557,15 +558,15 @@ const styles = stylex.create({
 		alignItems: "center",
 		justifyContent: "center",
 		borderRadius: radius.md,
-		backgroundColor: { default: "transparent", ":hover": color.dangerWash },
+		backgroundColor: { default: color.transparent, ":hover": color.dangerWash },
 		color: { default: color.textMuted, ":hover": color.danger },
 	},
 	body: {
 		position: "relative",
 		display: "flex",
 		width: "100%",
-		minWidth: 0,
-		minHeight: 0,
+		minWidth: controlSize._0,
+		minHeight: controlSize._0,
 		flex: 1,
 		overflow: "hidden",
 	},
@@ -582,19 +583,19 @@ const styles = stylex.create({
 	},
 	sourceScroll: {
 		flex: 1,
-		minWidth: 0,
-		minHeight: 0,
+		minWidth: controlSize._0,
+		minHeight: controlSize._0,
 		overflow: "auto",
 		contain: "layout paint style",
 	},
 	sourceTable: {
 		position: "absolute",
-		top: 0,
-		left: 0,
+		top: controlSize._0,
+		left: controlSize._0,
 		width: "100%",
 		minWidth: "100%",
 		fontFamily: font.familyMono,
-		fontSize: 9,
+		fontSize: font.size_1,
 		lineHeight: "14px",
 	},
 	sourceCanvas: {
@@ -603,16 +604,16 @@ const styles = stylex.create({
 	},
 	sourceLine: {
 		display: "grid",
-		height: 14,
+		height: controlSize._3_5,
 		gridTemplateColumns: "36px minmax(0, 1fr)",
 	},
 	lineNumber: {
 		position: "sticky",
-		left: 0,
+		left: controlSize._0,
 		paddingRight: controlSize._2,
 		backgroundColor: color.surfaceGlass,
 		color: color.textFaint,
-		fontSize: 9,
+		fontSize: font.size_1,
 		textAlign: "right",
 		userSelect: "none",
 	},

@@ -47,7 +47,7 @@ export function WorkspaceContent({
 	const contentProps = stylex.props(
 		styles.content,
 		scroll && styles.contentScroll,
-		paddingStyle
+		paddingStyle,
 	);
 	return (
 		<main
@@ -61,10 +61,8 @@ export function WorkspaceContent({
 	);
 }
 
-interface WorkspaceEmptyStateProps extends Omit<
-	Octane.HTMLAttributes<HTMLDivElement>,
-	"title"
-> {
+interface WorkspaceEmptyStateProps
+	extends Omit<Octane.HTMLAttributes<HTMLDivElement>, "title"> {
 	icon?: unknown;
 	title: unknown;
 	description?: unknown;
@@ -107,21 +105,21 @@ const styles = stylex.create({
 		display: "flex",
 		flexDirection: "column",
 		height: "100%",
-		minHeight: 0,
-		minWidth: 0,
+		minHeight: controlSize._0,
+		minWidth: controlSize._0,
 		overflow: "hidden",
 	},
 	content: {
 		flex: 1,
-		minHeight: 0,
-		minWidth: 0,
+		minHeight: controlSize._0,
+		minWidth: controlSize._0,
 		overflow: "hidden",
 	},
 	contentScroll: {
 		overflowY: "auto",
 	},
 	nonePad: {
-		padding: 0,
+		padding: controlSize._0,
 	},
 	smPad: {
 		padding: controlSize._2,
