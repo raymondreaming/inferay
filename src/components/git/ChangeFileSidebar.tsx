@@ -1,5 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useCallback, useMemo, useState } from "octane";
+import { getFileSelectionAfterToggle } from "../../features/git/git-file-utils.ts";
 import type { GitFileEntry } from "../../features/git/types.ts";
 import { postJson } from "../../lib/fetch-json.ts";
 import {
@@ -161,9 +162,13 @@ export const ChangeFileSidebar = memo(function ChangeFileSidebar(
 			) ??
 			workingFiles.find((candidate) => candidate.path === selectedFile.path);
 		if (!file) return;
+		const nextSelection = getFileSelectionAfterToggle(
+			navigableFiles,
+			selectedFile,
+		);
 		if (file.staged) onUnstageFile(file.path);
 		else onStageFile(file.path);
-		onSelectFile({ ...file, staged: !file.staged });
+		if (nextSelection) onSelectFile(nextSelection);
 	};
 	return (
 		<div

@@ -9,10 +9,12 @@ import {
 	saveGitFileViewMode,
 } from "../../features/git/file-view-preference.ts";
 import {
+	getFileSelectionAfterToggle,
 	isStagedChange,
 	isUnstagedTrackedChange,
 	isUntrackedChange,
 	orderProjectGitFiles,
+	resolveGitFileSelection,
 } from "../../features/git/git-file-utils.ts";
 import type { GitFileEntry } from "../../features/git/types.ts";
 import { useGitChangeActions } from "../../features/git/useGitChangeActions.tsx";
@@ -340,9 +342,7 @@ function ChatDiffPanel({
 				</button>
 			</header>
 			<div {...stylex.props(styles.viewerBody)}>
-				{loading ? (
-					<div {...stylex.props(styles.viewerEmpty)}>Loading change…</div>
-				) : diff ? (
+				{diff ? (
 					<DiffViewerBoundary resetKey={`${file.path}:${file.staged}`}>
 						<GitDiffView
 							diff={diff}
@@ -356,9 +356,9 @@ function ChatDiffPanel({
 							onViewModeChange={onViewModeChange}
 						/>
 					</DiffViewerBoundary>
-				) : (
+				) : !loading ? (
 					<div {...stylex.props(styles.viewerEmpty)}>No diff available</div>
-				)}
+				) : null}
 			</div>
 		</section>
 	);
@@ -530,8 +530,9 @@ export function useChatWorkspaceTools({
 
 	useEffect(() => {
 		if (!selectedFile || !diffViewerProject) return;
-		const current = diffViewerProject.files.find(
-			(file) => file.path === selectedFile.path,
+		const current = resolveGitFileSelection(
+			diffViewerProject.files,
+			selectedFile,
 		);
 		if (!current) {
 			setSelectedFile(null);
@@ -685,18 +686,19 @@ export function useChatWorkspaceTools({
 				target.tagName !== "BUTTON"
 			) {
 				event.preventDefault();
+				const nextSelection = getFileSelectionAfterToggle(
+					keyboardFiles,
+					selectedFile,
+				);
 				if (selectedFile.staged) unstageFile(selectedFile.path);
 				else stageFile(selectedFile.path);
-				const updated = files.find((file) => file.path === selectedFile.path);
-				if (updated) {
-					selectChangedFile({ ...updated, staged: !selectedFile.staged });
-				}
+				if (nextSelection) selectChangedFile(nextSelection);
 			}
 		},
 		[
 			cycleChangedFile,
-			files,
 			focusedAuxiliaryPanel?.id,
+			keyboardFiles,
 			selectChangedFile,
 			selectedFile,
 			stageFile,

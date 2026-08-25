@@ -18,10 +18,12 @@ import {
 	reduceAgentWorkspaceState,
 } from "../src/features/agent/agent-utils.ts";
 import {
+	getFileSelectionAfterToggle,
 	isUnstagedTrackedChange,
 	isUntrackedChange,
 	orderGitFiles,
 	orderProjectGitFiles,
+	resolveGitFileSelection,
 } from "../src/features/git/git-file-utils.ts";
 import { summarizeHunkDiff } from "../src/features/git/useGitDiff.tsx";
 import { isAgentMainView } from "../src/lib/app-navigation.tsx";
@@ -717,6 +719,68 @@ describe("agent state and git change behavior", () => {
 		expect(isUntrackedChange(files[2]!)).toBe(true);
 		expect(isUnstagedTrackedChange(files[1]!)).toBe(true);
 		expect(isUnstagedTrackedChange(files[2]!)).toBe(false);
+	});
+
+	test("selects the next file in the same section after staging or unstaging", () => {
+		const files = [
+			{ path: "a.ts", staged: false, status: "M" },
+			{ path: "b.ts", staged: false, status: "M" },
+			{ path: "c.ts", staged: false, status: "M" },
+			{ path: "d.ts", staged: true, status: "M" },
+			{ path: "e.ts", staged: true, status: "M" },
+		];
+
+		expect(
+			getFileSelectionAfterToggle(files, {
+				path: "b.ts",
+				staged: false,
+			}),
+		).toBe(files[2]);
+		expect(
+			getFileSelectionAfterToggle(files, {
+				path: "c.ts",
+				staged: false,
+			}),
+		).toBe(files[1]);
+		expect(
+			getFileSelectionAfterToggle(files, {
+				path: "d.ts",
+				staged: true,
+			}),
+		).toBe(files[4]);
+
+		expect(
+			getFileSelectionAfterToggle([files[0]!, files[3]!], {
+				path: "a.ts",
+				staged: false,
+			}),
+		).toEqual({ path: "a.ts", staged: true, status: "M" });
+	});
+
+	test("keeps staged and unstaged selections distinct for a partially staged file", () => {
+		const files = [
+			{ path: "shared.ts", staged: true, status: "M" },
+			{ path: "shared.ts", staged: false, status: "M" },
+		];
+
+		expect(
+			resolveGitFileSelection(files, {
+				path: "shared.ts",
+				staged: false,
+			}),
+		).toBe(files[1]);
+		expect(
+			resolveGitFileSelection(files, {
+				path: "shared.ts",
+				staged: true,
+			}),
+		).toBe(files[0]);
+		expect(
+			resolveGitFileSelection([files[0]!], {
+				path: "shared.ts",
+				staged: false,
+			}),
+		).toBe(files[0]);
 	});
 
 	test("summarizes deletion-only diffs as navigable hunks", () => {
