@@ -339,14 +339,18 @@ test("dock handle reorders a row from the first pointer gesture", async () => {
 			value: () => rows[1],
 		});
 
-		handles[0].dispatchEvent(
+		const pointerDownAccepted = handles[0].dispatchEvent(
 			new window.MouseEvent("pointerdown", {
 				bubbles: true,
+				cancelable: true,
 				button: 0,
 				clientX: 10,
 				clientY: 10,
 			}),
 		);
+		expect(pointerDownAccepted).toBe(false);
+		expect(document.body.style.userSelect).toBe("none");
+		expect(document.documentElement.style.userSelect).toBe("none");
 		window.dispatchEvent(
 			new window.MouseEvent("pointermove", {
 				bubbles: true,
@@ -355,7 +359,6 @@ test("dock handle reorders a row from the first pointer gesture", async () => {
 				clientY: 10,
 			}),
 		);
-		expect(document.body.style.userSelect).toBe("none");
 		window.dispatchEvent(
 			new window.MouseEvent("pointerup", {
 				bubbles: true,
@@ -366,6 +369,7 @@ test("dock handle reorders a row from the first pointer gesture", async () => {
 		);
 
 		expect(document.body.style.userSelect).toBe("");
+		expect(document.documentElement.style.userSelect).toBe("");
 		expect(reorder).toHaveBeenCalledTimes(1);
 		expect(reorder).toHaveBeenCalledWith(0, 1);
 	} finally {

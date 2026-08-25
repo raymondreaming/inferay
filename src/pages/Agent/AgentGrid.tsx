@@ -366,13 +366,15 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 			} | null = null,
 		) => {
 			if (event.button !== 0) return;
+			event.preventDefault();
 			event.stopPropagation();
+			const releaseSelection = lockPointerSelection();
 			const source = event.currentTarget as HTMLElement | null;
 			const pointerId = event.pointerId;
 			const startX = event.clientX;
 			const startY = event.clientY;
 			let activated = false;
-			let releaseSelection: (() => void) | null = null;
+			let finished = false;
 			let target: {
 				readonly id: string;
 				readonly edge: DockEdge;
@@ -392,11 +394,9 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 					);
 					if (distance < 3) return;
 					activated = true;
-					releaseSelection = lockPointerSelection();
 					dragIndexRef.current = sourceIndex;
 					setDragIndex(sourceIndex);
 					setDragPanelId(sourceId);
-					window.getSelection()?.removeAllRanges();
 				}
 				moveEvent.preventDefault();
 				const root = containerRef.current;
@@ -443,15 +443,19 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 				setDockTarget(target);
 			};
 
-			const finish = (finishEvent: PointerEvent, commit: boolean) => {
-				if (finishEvent.pointerId !== pointerId) return;
+			const finish = (finishEvent: PointerEvent | null, commit: boolean) => {
+				if (finishEvent && finishEvent.pointerId !== pointerId) return;
+				if (finished) return;
+				finished = true;
 				window.removeEventListener("pointermove", updateTarget);
 				window.removeEventListener("pointerup", finishDrop);
 				window.removeEventListener("pointercancel", cancelDrop);
+				window.removeEventListener("blur", cancelAbandonedDrag);
+				source?.removeEventListener("lostpointercapture", cancelAbandonedDrag);
 				try {
 					source?.releasePointerCapture(pointerId);
 				} catch {}
-				releaseSelection?.();
+				releaseSelection();
 				if (commit && activated && target) {
 					if (
 						layoutMode === "rows" &&
@@ -473,9 +477,12 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 				finish(finishEvent, true);
 			const cancelDrop = (finishEvent: PointerEvent) =>
 				finish(finishEvent, false);
+			const cancelAbandonedDrag = () => finish(null, false);
 			window.addEventListener("pointermove", updateTarget);
 			window.addEventListener("pointerup", finishDrop);
 			window.addEventListener("pointercancel", cancelDrop);
+			window.addEventListener("blur", cancelAbandonedDrag);
+			source?.addEventListener("lostpointercapture", cancelAbandonedDrag);
 		},
 		[
 			clearDragState,
