@@ -1,6 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import { useLocation, useNavigate } from "@octanejs/tanstack-router";
 import { useCallback, useEffect, useRef, useState } from "octane";
+import { iconSize, runtimeColor } from "../../design-system.ts";
 import {
 	agentStateKey,
 	dispatchAgentShellChange,
@@ -28,7 +29,14 @@ import {
 	readStoredValue,
 	writeStoredValue,
 } from "../../lib/stored-json.ts";
-import { color, colorValues, controlSize, font } from "../../tokens.stylex.ts";
+import {
+	color,
+	controlSize,
+	font,
+	layer,
+	motion,
+	radius,
+} from "../../tokens.stylex.ts";
 import { WorkspaceFileSearch } from "../file/WorkspaceFileSearch.tsx";
 import { LiquidAction } from "../ui/gooey/LiquidAction.tsx";
 import { LiquidCreateMenu } from "../ui/gooey/LiquidCreateMenu.tsx";
@@ -304,7 +312,7 @@ export function AgentShellHeader() {
 					</div>
 				) : null}
 				<span {...stylex.props(styles.accountSpacer)} />
-				<LiquidAction fill={colorValues.surfaceGlassStrong}>
+				<LiquidAction fill={runtimeColor.surfaceGlassStrong}>
 					<button
 						type="button"
 						onPointerDown={(event) => {
@@ -331,7 +339,7 @@ export function AgentShellHeader() {
 								{githubAccount?.login ? (
 									githubAccount.login.slice(0, 2)
 								) : (
-									<IconUser size={10} />
+									<IconUser size={iconSize.sm} />
 								)}
 							</span>
 						)}
@@ -368,7 +376,7 @@ export function AgentShellHeader() {
 							window.dispatchEvent(new CustomEvent("toggle-main-sidebar"));
 					}}
 				>
-					<IconPanelLeft size={14} />
+					<IconPanelLeft size={iconSize.lg} />
 				</button>
 				<span aria-hidden="true" {...stylex.props(styles.railDivider)} />
 				<div {...stylex.props(styles.tabGroup, styles.secondaryTabGroup)}>
@@ -385,14 +393,14 @@ export function AgentShellHeader() {
 						<div ref={createMenuRef} {...stylex.props(styles.railCreateWrap)}>
 							<LiquidCreateMenu
 								open={createMenuOpen}
-								fill={colorValues.backgroundRaised}
+								fill={runtimeColor.backgroundRaised}
 								fullWidth
 								onNewChat={() => createFromRail("create-agent-chat")}
 								onNewWorkspace={() => createFromRail("create-agent-workspace")}
 								trigger={
 									<ViewTab
 										active={createMenuOpen}
-										icon={<IconPlus size={13} />}
+										icon={<IconPlus size={iconSize._2md} />}
 										label="Create"
 										onClick={() => setCreateMenuOpen((open) => !open)}
 									/>
@@ -406,7 +414,7 @@ export function AgentShellHeader() {
 							<ViewTab
 								key={view.id}
 								active={activeNavigationTarget === `view:${view.id}`}
-								icon={<Icon size={12} />}
+								icon={<Icon size={iconSize.md} />}
 								label={view.label}
 								onClick={() => activateMainView(view.id)}
 							/>
@@ -418,7 +426,7 @@ export function AgentShellHeader() {
 							<ViewTab
 								key={route.id}
 								active={activeNavigationTarget === `route:${route.path}`}
-								icon={<Icon size={12} />}
+								icon={<Icon size={iconSize.md} />}
 								label={route.label}
 								onClick={() => activateRoute(route.path)}
 							/>
@@ -429,7 +437,7 @@ export function AgentShellHeader() {
 							active={
 								activeNavigationTarget === `route:${AUTOMATIONS_ROUTE.path}`
 							}
-							icon={<IconWorkflow size={12} />}
+							icon={<IconWorkflow size={iconSize.md} />}
 							label={AUTOMATIONS_ROUTE.label}
 							onClick={() => activateRoute(AUTOMATIONS_ROUTE.path)}
 							trailing
@@ -444,27 +452,27 @@ export function AgentShellHeader() {
 const styles = stylex.create({
 	header: {
 		position: "absolute",
-		top: 0,
-		left: 0,
-		right: 0,
-		bottom: 0,
-		zIndex: 120,
+		top: controlSize._0,
+		left: controlSize._0,
+		right: controlSize._0,
+		bottom: controlSize._0,
+		zIndex: layer.titlebar,
 		pointerEvents: "none",
 		userSelect: "none",
 	},
 	topTabs: {
 		position: "absolute",
-		top: 0,
-		left: 0,
-		right: 0,
-		zIndex: 122,
+		top: controlSize._0,
+		left: controlSize._0,
+		right: controlSize._0,
+		zIndex: layer.titlebarMenu,
 		alignItems: "flex-end",
 		backgroundColor: color.transparent,
 		display: "flex",
-		gap: 6,
-		height: 36,
+		gap: controlSize._1_5,
+		height: controlSize._9,
 		paddingLeft: 84,
-		paddingRight: 10,
+		paddingRight: controlSize._2_5,
 		pointerEvents: "auto",
 	},
 	topViewGroup: {
@@ -472,13 +480,13 @@ const styles = stylex.create({
 		isolation: "isolate",
 		display: "flex",
 		alignItems: "flex-end",
-		gap: 6,
+		gap: controlSize._1_5,
 		height: 30,
 	},
 	fileSearch: {
 		display: "flex",
 		alignItems: "flex-end",
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 	accountSpacer: {
 		flex: 1,
@@ -487,10 +495,10 @@ const styles = stylex.create({
 		alignItems: "center",
 		backgroundColor: {
 			default: color.transparent,
-			":hover": "rgba(255,255,255,0.06)",
+			":hover": color.surfaceWhite06,
 		},
-		borderColor: "transparent",
-		borderRadius: 9,
+		borderColor: color.transparent,
+		borderRadius: radius.px9,
 		borderStyle: "solid",
 		borderWidth: 1,
 		color: color.textSoft,
@@ -498,8 +506,8 @@ const styles = stylex.create({
 		fontSize: font.size_2,
 		fontWeight: font.weight_5,
 		gap: controlSize._1_5,
-		height: 28,
-		marginBottom: 4,
+		height: controlSize._7,
+		marginBottom: controlSize._1,
 		paddingInline: controlSize._2,
 	},
 	accountLabel: {
@@ -510,7 +518,7 @@ const styles = stylex.create({
 	},
 	accountAvatar: {
 		borderColor: color.border,
-		borderRadius: 999,
+		borderRadius: radius.pill,
 		borderStyle: "solid",
 		borderWidth: 1,
 		height: controlSize._5,
@@ -520,7 +528,7 @@ const styles = stylex.create({
 	accountFallback: {
 		alignItems: "center",
 		backgroundColor: color.controlActive,
-		borderRadius: 999,
+		borderRadius: radius.pill,
 		display: "flex",
 		height: controlSize._5,
 		justifyContent: "center",
@@ -529,23 +537,23 @@ const styles = stylex.create({
 	},
 	viewTabs: {
 		position: "absolute",
-		top: 36,
-		left: 12,
-		bottom: 12,
+		top: controlSize._9,
+		left: controlSize._3,
+		bottom: controlSize._3,
 		alignItems: "center",
 		backdropFilter: "blur(var(--inferay-glass-blur, 4px)) saturate(104%)",
 		backgroundColor:
 			"color-mix(in srgb, var(--color-inferay-black) 46%, transparent)",
-		borderColor: "rgba(255,255,255,0.13)",
-		borderRadius: 15,
+		borderColor: color.surfaceWhite13,
+		borderRadius: radius.px15,
 		borderStyle: "solid",
 		borderWidth: 1,
 		boxShadow:
 			"inset 0 1px 0 rgba(255,255,255,0.055), 0 18px 50px rgba(0,0,0,0.46)",
 		display: "flex",
 		flexDirection: "column",
-		gap: 5,
-		padding: 5,
+		gap: controlSize._1_25,
+		padding: controlSize._1_25,
 		pointerEvents: "auto",
 		width: 42,
 	},
@@ -561,21 +569,21 @@ const styles = stylex.create({
 		alignItems: "center",
 		display: "flex",
 		flexDirection: "column",
-		gap: 3,
+		gap: controlSize._0_75,
 		width: "100%",
 	},
 	secondaryTabGroup: {
-		marginTop: 0,
+		marginTop: controlSize._0,
 	},
 	railCreateWrap: {
 		position: "relative",
 	},
 	viewTab: {
 		position: "relative",
-		zIndex: 1,
+		zIndex: layer.content,
 		alignItems: "center",
-		borderColor: "transparent",
-		borderRadius: "50%",
+		borderColor: color.transparent,
+		borderRadius: radius.circle,
 		borderStyle: "solid",
 		borderWidth: 1,
 		color: {
@@ -586,14 +594,14 @@ const styles = stylex.create({
 		fontSize: font.size_2,
 		fontWeight: font.weight_5,
 		justifyContent: "center",
-		height: 32,
-		padding: 0,
-		transitionDuration: "120ms",
+		height: controlSize._8,
+		padding: controlSize._0,
+		transitionDuration: motion.durationFast,
 		transitionProperty: "color, background-color, border-color, transform",
 		transitionTimingFunction: "ease-out",
-		width: 32,
+		width: controlSize._8,
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": "rgba(255,255,255,0.07)",
 		},
 		":hover": {
@@ -601,7 +609,7 @@ const styles = stylex.create({
 		},
 	},
 	viewTabTrailing: {
-		marginTop: 0,
+		marginTop: controlSize._0,
 	},
 	viewTabTop: {
 		borderTopLeftRadius: 11,
@@ -612,12 +620,12 @@ const styles = stylex.create({
 		gap: "0.375rem",
 		height: 30,
 		paddingInline: "0.625rem",
-		transitionDuration: "80ms",
+		transitionDuration: motion.durationQuick,
 		transitionProperty: "color",
 		width: 70,
 		backgroundColor: {
-			default: "transparent",
-			":hover": "transparent",
+			default: color.transparent,
+			":hover": color.transparent,
 		},
 		":hover": {
 			transform: "none",
@@ -630,13 +638,13 @@ const styles = stylex.create({
 			":hover": color.shellFrame,
 		},
 		borderColor: color.shellFrame,
-		borderTopColor: "rgba(255, 255, 255, 0.075)",
+		borderTopColor: color.surfaceWhite075,
 		borderBottomColor: color.shellFrame,
 		borderBottomLeftRadius: 0,
 		borderBottomRightRadius: 0,
 		boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.045)",
 		marginBottom: -1,
-		zIndex: 1,
+		zIndex: layer.content,
 	},
 	viewTabLabel: {
 		display: "inline",
@@ -644,7 +652,7 @@ const styles = stylex.create({
 	viewTabActive: {
 		backgroundColor: {
 			default: color.transparent,
-			":hover": "rgba(255,255,255,0.06)",
+			":hover": color.surfaceWhite06,
 		},
 		borderColor: color.shellFrame,
 		boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
@@ -654,10 +662,10 @@ const styles = stylex.create({
 		position: "absolute",
 		left: 42,
 		top: "50%",
-		zIndex: 10,
-		backgroundColor: "rgba(23,23,25,0.96)",
-		borderColor: "rgba(255,255,255,0.12)",
-		borderRadius: 7,
+		zIndex: layer.control,
+		backgroundColor: color.headerPopoverOpaque,
+		borderColor: color.surfaceWhite12,
+		borderRadius: radius.px7,
 		borderStyle: "solid",
 		borderWidth: 1,
 		boxShadow: "0 8px 24px rgba(0,0,0,0.38)",
@@ -666,11 +674,11 @@ const styles = stylex.create({
 			default: 0,
 			":hover": 1,
 		},
-		paddingBlock: 5,
-		paddingInline: 8,
+		paddingBlock: controlSize._1_25,
+		paddingInline: controlSize._2,
 		pointerEvents: "none",
 		transform: "translateY(-50%) translateX(-4px)",
-		transitionDuration: "100ms",
+		transitionDuration: motion.durationSnappy,
 		transitionProperty: "opacity, transform",
 		whiteSpace: "nowrap",
 	},
@@ -678,26 +686,26 @@ const styles = stylex.create({
 		position: "absolute",
 		left: -6,
 		top: "50%",
-		backgroundColor: "rgba(255,255,255,0.8)",
-		borderRadius: 99,
-		height: 10,
+		backgroundColor: color.surfaceWhite80,
+		borderRadius: radius.pill,
+		height: controlSize._2_5,
 		transform: "translateY(-50%)",
-		width: 2,
+		width: controlSize._0_5,
 	},
 	railDivider: {
-		backgroundColor: "rgba(255,255,255,0.1)",
-		height: 1,
-		marginBlock: 2,
-		width: 20,
+		backgroundColor: color.surfaceWhite10,
+		height: controlSize._0_25,
+		marginBlock: controlSize._0_5,
+		width: controlSize._5,
 	},
 	sidebarToggle: {
 		alignItems: "center",
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": "rgba(255,255,255,0.07)",
 		},
-		borderColor: "transparent",
-		borderRadius: "50%",
+		borderColor: color.transparent,
+		borderRadius: radius.circle,
 		borderStyle: "solid",
 		borderWidth: 1,
 		color: {
@@ -705,10 +713,10 @@ const styles = stylex.create({
 			":hover": color.textMain,
 		},
 		display: "flex",
-		height: 32,
+		height: controlSize._8,
 		justifyContent: "center",
-		marginBottom: 5,
-		padding: 0,
-		width: 32,
+		marginBottom: controlSize._1_25,
+		padding: controlSize._0,
+		width: controlSize._8,
 	},
 });

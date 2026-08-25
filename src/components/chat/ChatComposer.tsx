@@ -1,6 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useEffect, useMemo, useRef, useState } from "octane";
 import type React from "react";
+import { iconSize, runtimeColor } from "../../design-system.ts";
 import type { AgentKind } from "../../features/agent/agent-utils.ts";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
 import {
@@ -16,10 +17,11 @@ import { hasId } from "../../lib/data.ts";
 import { setInputValue } from "../../lib/react-events.ts";
 import {
 	color,
-	colorValues,
 	controlSize,
 	font,
+	layer,
 	motion,
+	palette,
 	radius,
 	shadow,
 } from "../../tokens.stylex.ts";
@@ -187,7 +189,7 @@ const QueuedMessageRow = memo(function QueuedMessageRow({
 						className={stylex.props(styles.saveButton).className}
 						title="Save"
 					>
-						<IconCheck size={11} />
+						<IconCheck size={iconSize.compact} />
 					</IconButton>
 					<IconButton
 						type="button"
@@ -196,7 +198,7 @@ const QueuedMessageRow = memo(function QueuedMessageRow({
 						size="xs"
 						title="Cancel"
 					>
-						<IconX size={11} />
+						<IconX size={iconSize.compact} />
 					</IconButton>
 				</div>
 			) : (
@@ -220,7 +222,7 @@ const QueuedMessageRow = memo(function QueuedMessageRow({
 								size="xs"
 								title="Edit"
 							>
-								<IconPencil size={11} />
+								<IconPencil size={iconSize.compact} />
 							</IconButton>
 							<IconButton
 								type="button"
@@ -229,7 +231,7 @@ const QueuedMessageRow = memo(function QueuedMessageRow({
 								size="xs"
 								title="Remove from queue"
 							>
-								<IconTrash size={11} />
+								<IconTrash size={iconSize.compact} />
 							</IconButton>
 						</div>
 					)}
@@ -442,7 +444,7 @@ export const ChatComposer = memo(function ChatComposer({
 								className={stylex.props(styles.attachmentRemove).className}
 								title="Remove image"
 							>
-								<IconX size={10} />
+								<IconX size={iconSize.sm} />
 							</IconButton>
 						</div>
 					))}
@@ -457,7 +459,7 @@ export const ChatComposer = memo(function ChatComposer({
 					<Liquid
 						blur={5}
 						contrast={20}
-						fill={colorValues.backgroundRaised}
+						fill={runtimeColor.backgroundRaised}
 						filterPadding={18}
 						shadow="inset 0 1px 0 rgba(255,255,255,.08), 0 8px 24px rgba(0,0,0,.2)"
 						className="inferay-message-liquid"
@@ -532,7 +534,7 @@ export const ChatComposer = memo(function ChatComposer({
 											className={stylex.props(styles.noShrink).className}
 											title="Attach image"
 										>
-											<IconPlus size={16} />
+											<IconPlus size={iconSize.xl} />
 										</IconButton>
 										{voiceInput && (
 											<IconButton
@@ -570,11 +572,11 @@ export const ChatComposer = memo(function ChatComposer({
 												disabled={!voiceInput.isSupported}
 											>
 												{voiceInput.isListening ? (
-													<IconStop size={13} />
+													<IconStop size={iconSize._2md} />
 												) : voiceInput.error ? (
-													<IconAlertTriangle size={15} />
+													<IconAlertTriangle size={iconSize._2lg} />
 												) : (
-													<IconMic size={16} />
+													<IconMic size={iconSize.xl} />
 												)}
 											</IconButton>
 										)}
@@ -629,11 +631,11 @@ export const ChatComposer = memo(function ChatComposer({
 											style={{
 												minHeight: "20px",
 												color: usePlainTextarea
-													? colorValues.textMain
+													? runtimeColor.textMain
 													: "transparent",
-												caretColor: colorValues.textMain,
+												caretColor: runtimeColor.textMain,
 												WebkitTextFillColor: usePlainTextarea
-													? colorValues.textMain
+													? runtimeColor.textMain
 													: "transparent",
 												lineHeight: "20px",
 												wordBreak: "break-word",
@@ -657,7 +659,7 @@ export const ChatComposer = memo(function ChatComposer({
 											{agentDefinition.label}
 										</span>
 										<IconChevronDown
-											size={10}
+											size={iconSize.sm}
 											{...stylex.props(
 												styles.providerConfigChevron,
 												agentConfigOpen && styles.providerConfigChevronOpen,
@@ -679,7 +681,7 @@ export const ChatComposer = memo(function ChatComposer({
 					<Liquid
 						blur={5}
 						contrast={20}
-						fill={colorValues.backgroundRaised}
+						fill={runtimeColor.backgroundRaised}
 						filterPadding={20}
 						shadow="inset 0 1px 0 rgba(255,255,255,.08), 0 14px 36px rgba(0,0,0,.32)"
 						className={stylex.props(styles.providerConfigLiquid).className}
@@ -779,7 +781,7 @@ export const ChatComposer = memo(function ChatComposer({
 								variant="ghost"
 								size="xs"
 							>
-								<IconX size={14} />
+								<IconX size={iconSize.lg} />
 							</IconButton>
 						</div>
 						<div {...stylex.props(styles.modalBody)}>
@@ -845,9 +847,9 @@ const styles = stylex.create({
 		top: controlSize._1,
 		width: controlSize._5,
 		height: controlSize._5,
-		borderRadius: "999px",
-		backgroundColor: "rgba(0, 0, 0, 0.7)",
-		color: "#ffffff",
+		borderRadius: radius.pill,
+		backgroundColor: color.surfaceBlack70,
+		color: palette.white,
 	},
 	queueList: {
 		borderBottomColor: color.borderSubtle,
@@ -861,13 +863,13 @@ const styles = stylex.create({
 	},
 	queueRow: {
 		alignItems: "flex-start",
-		borderRadius: 8,
+		borderRadius: radius.lg,
 		display: "flex",
 		gap: controlSize._2,
 		paddingBlock: controlSize._1,
 		paddingInline: controlSize._2,
 		transitionProperty: "background-color",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 		":hover": {
 			backgroundColor: color.backgroundRaised,
 		},
@@ -875,7 +877,7 @@ const styles = stylex.create({
 	queueIndex: {
 		alignItems: "center",
 		backgroundColor: color.surfaceSubtle,
-		borderRadius: 999,
+		borderRadius: radius.pill,
 		color: color.textMuted,
 		display: "inline-flex",
 		flexShrink: 0,
@@ -895,10 +897,10 @@ const styles = stylex.create({
 	queueEditInput: {
 		flex: 1,
 		borderWidth: 0,
-		borderRadius: "0.25rem",
-		backgroundColor: "rgba(255, 255, 255, 0.06)",
+		borderRadius: radius.sm,
+		backgroundColor: color.surfaceWhite06,
 		color: color.textMain,
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 		outline: "none",
 		paddingBlock: "0.125rem",
 		paddingInline: controlSize._1,
@@ -910,17 +912,17 @@ const styles = stylex.create({
 		width: controlSize._5,
 		height: controlSize._5,
 		flexShrink: 0,
-		borderRadius: "0.25rem",
+		borderRadius: radius.sm,
 		objectFit: "cover",
 	},
 	queueText: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 		color: color.textMain,
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 	},
 	queueActions: {
 		display: "flex",
@@ -930,10 +932,10 @@ const styles = stylex.create({
 	},
 	floatingMenu: {
 		position: "absolute",
-		left: 0,
-		right: 0,
+		left: controlSize._0,
+		right: controlSize._0,
 		bottom: "100%",
-		zIndex: 9999,
+		zIndex: layer.criticalOverlay,
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
@@ -952,7 +954,7 @@ const styles = stylex.create({
 		borderBottomColor: color.border,
 		color: color.textMuted,
 		fontSize: font.size_1,
-		fontWeight: 600,
+		fontWeight: font.weight_6,
 		letterSpacing: "0.04em",
 		paddingBlock: "0.375rem",
 		paddingInline: controlSize._3,
@@ -966,9 +968,9 @@ const styles = stylex.create({
 		paddingInline: controlSize._3,
 		textAlign: "left",
 		transitionProperty: "background-color",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.controlHover,
 		},
 	},
@@ -978,7 +980,7 @@ const styles = stylex.create({
 	fileMenuIcon: {
 		flexShrink: 0,
 		color: color.textMuted,
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 	},
 	fileMenuName: {
 		overflow: "hidden",
@@ -986,11 +988,11 @@ const styles = stylex.create({
 		whiteSpace: "nowrap",
 		color: color.accent,
 		fontFamily: "var(--font-diff)",
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 		fontWeight: font.weight_5,
 	},
 	fileMenuPath: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 		overflow: "hidden",
 		textAlign: "right",
@@ -1022,7 +1024,7 @@ const styles = stylex.create({
 		transitionDuration: motion.durationFast,
 		transitionTimingFunction: motion.ease,
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.controlHover,
 		},
 	},
@@ -1039,7 +1041,7 @@ const styles = stylex.create({
 		alignItems: "center",
 		display: "flex",
 		gap: controlSize._2,
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 	commandBadge: {
 		backgroundColor: color.accentWash,
@@ -1050,7 +1052,7 @@ const styles = stylex.create({
 		color: color.accent,
 		fontSize: font.size_0_5,
 		fontWeight: font.weight_5,
-		paddingBlock: 1,
+		paddingBlock: controlSize._0_25,
 		paddingInline: controlSize._1,
 		textTransform: "uppercase",
 	},
@@ -1071,7 +1073,7 @@ const styles = stylex.create({
 		},
 		backgroundImage: "none",
 		borderColor: color.transparent,
-		borderRadius: 6,
+		borderRadius: radius.md,
 		borderStyle: "solid",
 		borderWidth: 0,
 		boxShadow: "none",
@@ -1085,14 +1087,14 @@ const styles = stylex.create({
 		height: controlSize._7,
 		lineHeight: 1,
 		maxWidth: "100%",
-		minWidth: 0,
-		paddingBlock: 0,
+		minWidth: controlSize._0,
+		paddingBlock: controlSize._0,
 		paddingInline: controlSize._2,
 		position: "relative",
-		zIndex: 2,
+		zIndex: layer.chrome,
 	},
 	providerConfigLabel: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
@@ -1100,7 +1102,7 @@ const styles = stylex.create({
 	providerConfigChevron: {
 		color: color.textMuted,
 		flexShrink: 0,
-		transitionDuration: "150ms",
+		transitionDuration: motion.durationBase,
 		transitionProperty: "transform",
 	},
 	providerConfigChevronOpen: {
@@ -1109,7 +1111,7 @@ const styles = stylex.create({
 	providerConfigMenu: {
 		backgroundColor: color.transparent,
 		backgroundImage: "none",
-		borderRadius: 10,
+		borderRadius: radius.px10,
 		borderWidth: 0,
 		boxShadow: "none",
 		boxSizing: "border-box",
@@ -1127,7 +1129,7 @@ const styles = stylex.create({
 		left: controlSize._3,
 		right: controlSize._3,
 		bottom: "calc(100% + 14px)",
-		zIndex: 220,
+		zIndex: layer.composerPopover,
 		boxSizing: "border-box",
 		maxHeight: "min(430px, calc(100vh - 32px))",
 		pointerEvents: "auto",
@@ -1142,7 +1144,7 @@ const styles = stylex.create({
 				transform: "translateY(0) scale(1)",
 			},
 		}),
-		animationDuration: "240ms",
+		animationDuration: motion.durationDeliberate,
 		animationTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
 	},
 	providerConfigLiquid: {
@@ -1174,7 +1176,7 @@ const styles = stylex.create({
 		},
 		backgroundImage: "none",
 		borderColor: color.transparent,
-		borderRadius: 8,
+		borderRadius: radius.lg,
 		borderStyle: "solid",
 		borderWidth: 1,
 		boxShadow: "none",
@@ -1204,20 +1206,20 @@ const styles = stylex.create({
 	},
 	modalBackdrop: {
 		position: "absolute",
-		inset: 0,
-		zIndex: 50,
+		inset: controlSize._0,
+		zIndex: layer.modal,
 		display: "flex",
 		alignItems: "center",
 		justifyContent: "center",
-		backgroundColor: "rgba(0, 0, 0, 0.6)",
+		backgroundColor: color.backgroundOverlay,
 		backdropFilter: "blur(var(--inferay-glass-blur, 4px))",
 	},
 	modalBackdropButton: {
 		position: "absolute",
-		inset: 0,
+		inset: controlSize._0,
 		borderWidth: 0,
-		backgroundColor: "transparent",
-		padding: 0,
+		backgroundColor: color.transparent,
+		padding: controlSize._0,
 	},
 	modal: {
 		position: "relative",
@@ -1244,12 +1246,12 @@ const styles = stylex.create({
 		paddingInline: controlSize._3,
 	},
 	modalTitle: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 		color: color.textMain,
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 		fontWeight: font.weight_5,
 	},
 	modalBody: {
@@ -1285,7 +1287,7 @@ const styles = stylex.create({
 			default: color.border,
 			":focus-within": color.border,
 		},
-		borderRadius: 12,
+		borderRadius: radius.xl,
 		borderStyle: "solid",
 		borderWidth: 1,
 		display: "flex",
@@ -1297,7 +1299,7 @@ const styles = stylex.create({
 			":focus-within": "none",
 		},
 		transitionProperty: "border-color, box-shadow, background-color",
-		transitionDuration: "150ms",
+		transitionDuration: motion.durationBase,
 	},
 	inputFrameLiquid: {
 		backgroundColor: color.transparent,
@@ -1331,29 +1333,29 @@ const styles = stylex.create({
 	},
 	textAreaWrap: {
 		flex: 1,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflow: "hidden",
 		position: "relative",
 	},
 	highlightOverlay: {
-		fontSize: "0.8125rem",
-		left: 0,
+		fontSize: font.size_4,
+		left: controlSize._0,
 		overflowWrap: "break-word",
 		paddingRight: controlSize._8,
 		pointerEvents: "none",
 		position: "absolute",
-		right: 0,
-		top: 0,
+		right: controlSize._0,
+		top: controlSize._0,
 		whiteSpace: "pre-wrap",
 		wordBreak: "break-word",
 	},
 	textarea: {
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 		borderWidth: 0,
 		boxShadow: "none",
 		cursor: "text",
 		display: "block",
-		fontSize: "0.8125rem",
+		fontSize: font.size_4,
 		outline: "none",
 		overflowY: "auto",
 		paddingRight: controlSize._8,
@@ -1366,12 +1368,12 @@ const styles = stylex.create({
 		alignItems: "center",
 		display: "flex",
 		gap: "0.375rem",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflowX: "auto",
 		paddingBottom: controlSize._1,
 		paddingInline: controlSize._2,
 		position: "relative",
 		userSelect: "none",
-		zIndex: 1,
+		zIndex: layer.content,
 	},
 });

@@ -1,5 +1,11 @@
 import * as stylex from "@octanejs/stylex";
-import { colorValues, effectValues } from "../../tokens.stylex.ts";
+import {
+	color,
+	controlSize,
+	effect,
+	font,
+	radius,
+} from "../../tokens.stylex.ts";
 
 type TokenRange = {
 	start: number;
@@ -8,7 +14,7 @@ type TokenRange = {
 
 function findDecoratedTokenRanges(
 	text: string,
-	slashCommandNames?: readonly string[]
+	slashCommandNames?: readonly string[],
 ): TokenRange[] {
 	if (!text) return [];
 
@@ -44,7 +50,7 @@ function findDecoratedTokenRanges(
 
 export function renderInputHighlights(
 	text: string,
-	slashCommandNames?: readonly string[]
+	slashCommandNames?: readonly string[],
 ): unknown {
 	if (!text)
 		return <span {...stylex.props(styles.transparent)}>{"\u00A0"}</span>;
@@ -64,7 +70,7 @@ export function renderInputHighlights(
 			segments.push(
 				<span key={`t-${lastEnd}`} {...stylex.props(styles.text)}>
 					{text.slice(lastEnd, token.start)}
-				</span>
+				</span>,
 			);
 		}
 
@@ -72,7 +78,7 @@ export function renderInputHighlights(
 		segments.push(
 			<span key={`h-${token.start}`} {...stylex.props(styles.highlight)}>
 				{tokenText}
-			</span>
+			</span>,
 		);
 		lastEnd = token.end;
 	}
@@ -81,7 +87,7 @@ export function renderInputHighlights(
 		segments.push(
 			<span key={`t-${lastEnd}`} {...stylex.props(styles.text)}>
 				{text.slice(lastEnd)}
-			</span>
+			</span>,
 		);
 	}
 
@@ -90,7 +96,7 @@ export function renderInputHighlights(
 
 export function renderTextPills(
 	text: string,
-	slashCommandNames?: readonly string[]
+	slashCommandNames?: readonly string[],
 ): unknown[] {
 	if (!text) return [];
 
@@ -111,7 +117,7 @@ export function renderTextPills(
 		parts.push(
 			<span key={`${token.start}-${tokenText}`} {...stylex.props(styles.pill)}>
 				{tokenText}
-			</span>
+			</span>,
 		);
 		lastEnd = token.end;
 	}
@@ -125,27 +131,27 @@ export function renderTextPills(
 
 const styles = stylex.create({
 	transparent: {
-		color: "transparent",
+		color: color.transparent,
 	},
 	text: {
-		color: colorValues.textMain,
+		color: color.textMain,
 	},
 	highlight: {
-		backgroundColor: effectValues.tokenHighlightBackground,
-		borderRadius: "0.125rem",
-		color: colorValues.accent,
+		backgroundColor: effect.tokenHighlightBackground,
+		borderRadius: radius.xs,
+		color: color.accent,
 	},
 	pill: {
 		alignItems: "center",
 		alignSelf: "center",
-		backgroundColor: effectValues.tokenHighlightBackground,
-		borderRadius: "999px",
-		color: colorValues.accent,
+		backgroundColor: effect.tokenHighlightBackground,
+		borderRadius: radius.pill,
+		color: color.accent,
 		display: "inline-flex",
-		fontSize: "0.75rem",
-		fontWeight: 500,
-		paddingBlock: "0.125rem",
-		paddingInline: "0.375rem",
+		fontSize: font.size_3,
+		fontWeight: font.weight_5,
+		paddingBlock: controlSize._0_5,
+		paddingInline: controlSize._1_5,
 		verticalAlign: "middle",
 	},
 });

@@ -7,14 +7,17 @@ import {
 	useRef,
 	useState,
 } from "octane";
+import { iconSize, runtimeColor } from "../../design-system.ts";
 import { hasId } from "../../lib/data.ts";
 import { setInputValue } from "../../lib/react-events.ts";
 import {
 	color,
-	colorValues,
 	controlSize,
 	effect,
 	font,
+	layer,
+	motion,
+	radius,
 	shadow,
 } from "../../tokens.stylex.ts";
 import { LiquidPopoverSurface } from "./gooey/LiquidPopoverSurface.tsx";
@@ -355,7 +358,7 @@ export function DropdownButton({
 				{selected?.label || placeholder}
 			</span>
 			<IconChevronDown
-				size={10}
+				size={iconSize.sm}
 				className={
 					stylex.props(styles.chevron, open && styles.chevronOpen).className
 				}
@@ -403,7 +406,7 @@ export function DropdownButton({
 					trigger={trigger}
 					panel={menu}
 					portalTarget={document.body}
-					fill={colorValues.backgroundRaised}
+					fill={runtimeColor.backgroundRaised}
 					fullWidth={fullWidth}
 				/>
 			) : (
@@ -419,7 +422,7 @@ export function DropdownButton({
 const styles = stylex.create({
 	button: {
 		alignItems: "center",
-		borderRadius: 8,
+		borderRadius: radius.lg,
 		borderStyle: "solid",
 		borderWidth: "var(--dropdown-button-border-width, 1px)",
 		display: "flex",
@@ -428,7 +431,7 @@ const styles = stylex.create({
 		height: controlSize._7,
 		paddingInline: controlSize._3,
 		boxShadow: `var(--dropdown-button-shadow, ${shadow.controlDepth})`,
-		transitionDuration: "150ms",
+		transitionDuration: motion.durationBase,
 		transitionProperty:
 			"background-color, background-image, border-color, box-shadow, color",
 		transitionTimingFunction: "ease",
@@ -437,7 +440,7 @@ const styles = stylex.create({
 	buttonLabel: {
 		fontSize: font.size_2,
 		transitionProperty: "color",
-		transitionDuration: "150ms",
+		transitionDuration: motion.durationBase,
 	},
 	buttonLabelFull: {
 		flex: 1,
@@ -455,7 +458,7 @@ const styles = stylex.create({
 	chevron: {
 		color: color.textMuted,
 		flexShrink: 0,
-		transitionDuration: "150ms",
+		transitionDuration: motion.durationBase,
 		transitionProperty: "transform",
 		transitionTimingFunction: "ease",
 	},
@@ -493,14 +496,14 @@ const styles = stylex.create({
 		backgroundColor: color.backgroundRaised,
 		backgroundImage: effect.popoverDepth,
 		borderColor: color.border,
-		borderRadius: 8,
+		borderRadius: radius.lg,
 		borderStyle: "solid",
 		borderWidth: 1,
 		boxShadow: shadow.popover,
 		overflow: "hidden",
 		position: "fixed",
 		userSelect: "none",
-		zIndex: 320,
+		zIndex: layer.dropdownPopover,
 	},
 	menuLiquid: {
 		backdropFilter: "none",
@@ -520,7 +523,7 @@ const styles = stylex.create({
 		backgroundColor: color.surfaceControl,
 		backgroundImage: effect.controlDepth,
 		borderColor: color.border,
-		borderRadius: 6,
+		borderRadius: radius.md,
 		borderStyle: "solid",
 		borderWidth: 1,
 		color: color.textMain,
@@ -560,7 +563,7 @@ const styles = stylex.create({
 	option: {
 		alignItems: "center",
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.controlHover,
 		},
 		backgroundImage: {
@@ -578,7 +581,7 @@ const styles = stylex.create({
 		paddingBlock: controlSize._1,
 		paddingInline: controlSize._2,
 		textAlign: "left",
-		transitionDuration: "150ms",
+		transitionDuration: motion.durationBase,
 		transitionProperty: "background-color, color",
 		transitionTimingFunction: "ease",
 		userSelect: "none",
@@ -589,7 +592,7 @@ const styles = stylex.create({
 		flexShrink: 0,
 	},
 	optionContent: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 	optionLabel: {
 		display: "block",
@@ -599,22 +602,22 @@ const styles = stylex.create({
 		whiteSpace: "nowrap",
 	},
 	detailBadge: {
-		backgroundColor: "rgba(255, 255, 255, 0.06)",
-		borderRadius: 4,
+		backgroundColor: color.surfaceWhite06,
+		borderRadius: radius.sm,
 		color: color.textMuted,
-		fontSize: "0.5rem",
+		fontSize: font.size_0_5,
 		fontWeight: font.weight_5,
 		marginLeft: controlSize._1_5,
 		paddingBlock: "0.125rem",
 		paddingInline: controlSize._1,
 	},
 	detailBadgeFeatured: {
-		backgroundColor: "rgba(255, 255, 255, 0.08)",
+		backgroundColor: color.surfaceWhite08,
 		color: color.textSoft,
 	},
 	optionStatus: {
 		color: color.textMuted,
-		fontSize: "0.5625rem",
+		fontSize: font.size_1,
 		marginLeft: controlSize._1_5,
 	},
 	optionSelected: {

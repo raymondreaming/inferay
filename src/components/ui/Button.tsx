@@ -1,8 +1,8 @@
 import * as stylex from "@octanejs/stylex";
 import type { Octane } from "octane/jsx-runtime";
+import { runtimeColor } from "../../design-system.ts";
 import {
 	color,
-	colorValues,
 	controlSize,
 	effect,
 	font,
@@ -45,10 +45,10 @@ export function Button({
 	if (!liquid) return button;
 	const fill =
 		variant === "primary"
-			? colorValues.accent
+			? runtimeColor.accent
 			: variant === "danger"
-				? colorValues.dangerWash
-				: colorValues.backgroundRaised;
+				? runtimeColor.dangerWash
+				: runtimeColor.backgroundRaised;
 	return (
 		<LiquidAction
 			fill={fill}
@@ -131,7 +131,7 @@ const styles = stylex.create({
 	ghost: {
 		backdropFilter: "blur(8px)",
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.controlActive,
 		},
 		backgroundImage: {

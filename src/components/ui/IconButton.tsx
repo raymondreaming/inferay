@@ -1,8 +1,8 @@
 import * as stylex from "@octanejs/stylex";
 import type { Octane } from "octane/jsx-runtime";
+import { runtimeColor } from "../../design-system.ts";
 import {
 	color,
-	colorValues,
 	controlSize,
 	effect,
 	motion,
@@ -41,7 +41,7 @@ export function IconButton({
 	);
 	if (!liquid) return button;
 	return (
-		<LiquidAction fill={colorValues.surfaceControl}>{button}</LiquidAction>
+		<LiquidAction fill={runtimeColor.surfaceControl}>{button}</LiquidAction>
 	);
 }
 

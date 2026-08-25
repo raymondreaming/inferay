@@ -1,13 +1,15 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useCallback, useMemo, useState } from "octane";
+import { iconSize, runtimeColor } from "../../design-system.ts";
 import { getFileSelectionAfterToggle } from "../../features/git/git-file-utils.ts";
 import type { GitFileEntry } from "../../features/git/types.ts";
 import { postJson } from "../../lib/fetch-json.ts";
 import {
 	color,
-	colorValues,
 	controlSize,
 	font,
+	layer,
+	motion,
 	radius,
 	shadow,
 } from "../../tokens.stylex.ts";
@@ -330,7 +332,7 @@ export const CollapsedChangeFileSidebar = memo(
 					aria-label="Expand files sidebar"
 					{...stylex.props(styles.collapsedToggle)}
 				>
-					<IconPanelLeft size={13} />
+					<IconPanelLeft size={iconSize._2md} />
 				</button>
 				<div {...stylex.props(styles.collapsedCounts)}>
 					<div
@@ -358,7 +360,7 @@ const styles = stylex.create({
 		display: "flex",
 		flex: 1,
 		flexDirection: "column",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		backgroundColor: color.transparent,
 	},
 	collapsedRoot: {
@@ -384,7 +386,7 @@ const styles = stylex.create({
 			":hover": color.textMain,
 		},
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.controlHover,
 		},
 	},
@@ -407,26 +409,26 @@ const styles = stylex.create({
 		fontVariantNumeric: "tabular-nums",
 	},
 	unstagedDot: {
-		width: 5,
-		height: 5,
+		width: controlSize._1_25,
+		height: controlSize._1_25,
 		borderRadius: radius.pill,
 		backgroundColor: color.warning,
 	},
 	stagedDot: {
-		width: 5,
-		height: 5,
+		width: controlSize._1_25,
+		height: controlSize._1_25,
 		borderRadius: radius.pill,
 		backgroundColor: color.gitAdded,
 	},
 	scrollArea: {
 		flex: 1,
-		minHeight: 0,
+		minHeight: controlSize._0,
 		overflowY: "auto",
 	},
 	splitArea: {
 		display: "flex",
 		flex: 1,
-		minHeight: 0,
+		minHeight: controlSize._0,
 		flexDirection: "column",
 		overflowY: "auto",
 	},
@@ -450,7 +452,7 @@ const styles = stylex.create({
 		paddingBlock: controlSize._8,
 	},
 	emptyText: {
-		color: "rgba(255, 255, 255, 0.25)",
+		color: color.surfaceWhite25,
 		fontSize: font.size_2,
 	},
 	centerText: {
@@ -467,8 +469,8 @@ const styles = stylex.create({
 	},
 	sidebarHeader: {
 		position: "sticky",
-		top: 0,
-		zIndex: 20,
+		top: controlSize._0,
+		zIndex: layer.dropdown,
 		display: "flex",
 		height: controlSize._8,
 		flexShrink: 0,
@@ -479,7 +481,7 @@ const styles = stylex.create({
 		borderBottomColor: color.border,
 		backgroundColor: color.transparent,
 		paddingInline: controlSize._3,
-		paddingBlock: 0,
+		paddingBlock: controlSize._0,
 	},
 	headerLabel: {
 		color: color.textSoft,
@@ -490,7 +492,7 @@ const styles = stylex.create({
 	headerMeta: {
 		display: "flex",
 		width: "100%",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		alignItems: "center",
 		gap: controlSize._1_5,
 		paddingLeft: controlSize._1,
@@ -499,7 +501,7 @@ const styles = stylex.create({
 		fontSize: font.size_1,
 	},
 	branchName: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
@@ -509,7 +511,7 @@ const styles = stylex.create({
 	},
 	headerBranch: {
 		display: "flex",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		marginLeft: "auto",
 		alignItems: "center",
 		gap: controlSize._1_5,
@@ -536,7 +538,7 @@ const styles = stylex.create({
 	},
 	segmentButton: {
 		position: "relative",
-		zIndex: 1,
+		zIndex: layer.content,
 		height: "100%",
 		paddingInline: controlSize._2,
 		color: color.textMuted,
@@ -544,7 +546,7 @@ const styles = stylex.create({
 		fontWeight: font.weight_6,
 		borderRadius: radius.md,
 		transitionProperty: "color",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 		backgroundColor: color.transparent,
 	},
 	segmentButtonActive: {
@@ -570,12 +572,12 @@ const styles = stylex.create({
 		justifyContent: "center",
 		width: controlSize._5,
 		transitionProperty: "background-color, border-color, color",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 	},
 	wipHeader: {
 		position: "sticky",
-		top: 0,
-		zIndex: 10,
+		top: controlSize._0,
+		zIndex: layer.control,
 		display: "flex",
 		alignItems: "center",
 		gap: controlSize._2,
@@ -589,14 +591,14 @@ const styles = stylex.create({
 	wipDot: {
 		width: font.size_3,
 		height: font.size_3,
-		borderRadius: "999px",
+		borderRadius: radius.pill,
 		borderWidth: 2,
 		borderStyle: "dashed",
 		borderColor: "var(--color-inferay-accent)",
 	},
 	wipTitle: {
 		color: color.textMain,
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 		fontWeight: font.weight_5,
 	},
 	wipCount: {
@@ -643,7 +645,7 @@ const styles = stylex.create({
 	},
 	sectionTitle: {
 		color: color.textMain,
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 		fontWeight: font.weight_5,
 	},
 	fileGroupTitle: {
@@ -672,7 +674,7 @@ const styles = stylex.create({
 		paddingBlock: controlSize._2,
 		paddingInline: controlSize._3,
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.surfaceSubtle,
 		},
 	},
@@ -722,7 +724,7 @@ const styles = stylex.create({
 			":focus-within": shadow.composerFrameFocus,
 		},
 		overflow: "hidden",
-		transitionDuration: "150ms",
+		transitionDuration: motion.durationBase,
 		transitionProperty: "border-color, box-shadow, background-color",
 	},
 	commitEditorLiquid: {
@@ -737,15 +739,15 @@ const styles = stylex.create({
 		alignItems: "center",
 	},
 	summaryInput: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		height: "100%",
 		flex: 1,
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 		color: color.textMain,
 		fontSize: font.size_3,
 		fontWeight: font.weight_5,
 		outline: "none",
-		paddingBlock: 0,
+		paddingBlock: controlSize._0,
 		paddingInline: controlSize._3,
 		"::placeholder": {
 			color: color.textFaint,
@@ -776,7 +778,7 @@ const styles = stylex.create({
 	descriptionInput: {
 		width: "100%",
 		resize: "none",
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 		color: color.textMain,
 		fontSize: font.size_2,
 		outline: "none",
@@ -846,27 +848,27 @@ const styles = stylex.create({
 		overflow: "hidden",
 		borderWidth: 1,
 		borderStyle: "solid",
-		borderColor: "#f4f4f2",
+		borderColor: color.textWarmWhite,
 		borderRadius: radius.md,
-		backgroundColor: "#f4f4f2",
+		backgroundColor: color.textWarmWhite,
 		boxShadow: "inset 0 0 0 1px rgba(0, 0, 0, 0.12)",
 	},
 	commitMainAction: {
 		display: "flex",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 		alignItems: "center",
 		justifyContent: "center",
 		gap: controlSize._1_5,
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": "rgba(0, 0, 0, 0.06)",
 		},
-		color: "#111210",
+		color: color.textWarmInk,
 		fontSize: font.size_2,
 		fontWeight: font.weight_6,
 		":disabled": {
-			color: "#111210",
+			color: color.textWarmInk,
 			opacity: 1,
 			WebkitTextFillColor: "#111210",
 		},
@@ -879,14 +881,14 @@ const styles = stylex.create({
 		justifyContent: "center",
 		borderLeftWidth: 1,
 		borderLeftStyle: "solid",
-		borderLeftColor: "rgba(0, 0, 0, 0.14)",
+		borderLeftColor: color.surfaceBlack14,
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": "rgba(0, 0, 0, 0.06)",
 		},
-		color: "#292a27",
+		color: color.textWarmInkSoft,
 		":disabled": {
-			color: "#292a27",
+			color: color.textWarmInkSoft,
 			opacity: 1,
 			WebkitTextFillColor: "#292a27",
 		},
@@ -896,9 +898,9 @@ const styles = stylex.create({
 	},
 	commitActionMenu: {
 		position: "absolute",
-		right: 0,
+		right: controlSize._0,
 		top: "calc(100% + 4px)",
-		zIndex: 80,
+		zIndex: layer.panelOverlay,
 		width: 190,
 		padding: controlSize._1,
 		borderWidth: 1,
@@ -953,12 +955,12 @@ const styles = stylex.create({
 		color: "var(--color-inferay-accent)",
 		fontFamily:
 			"ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 		fontWeight: font.weight_5,
 	},
 	commitMessage: {
 		color: color.textMain,
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 		lineHeight: 1.55,
 	},
 	authorText: {
@@ -972,8 +974,8 @@ const styles = stylex.create({
 		justifyContent: "space-between",
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
-		borderBottomColor: "rgba(255, 255, 255, 0.06)",
-		backgroundColor: "rgba(255, 255, 255, 0.02)",
+		borderBottomColor: color.surfaceWhite06,
+		backgroundColor: color.surfaceWhite02,
 		paddingBlock: controlSize._2,
 		paddingInline: controlSize._3,
 	},
@@ -997,12 +999,12 @@ const styles = stylex.create({
 		paddingBlock: "0.375rem",
 		paddingInline: controlSize._3,
 		backgroundColor: {
-			default: "transparent",
-			":hover": "rgba(255, 255, 255, 0.05)",
+			default: color.transparent,
+			":hover": color.surfaceWhite05,
 		},
 	},
 	fileName: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
@@ -1020,17 +1022,17 @@ const styles = stylex.create({
 		fontVariantNumeric: "tabular-nums",
 	},
 	addedText: {
-		color: "#32e875",
+		color: color.diffAdded,
 	},
 	deletedText: {
-		color: "#ff5252",
+		color: color.diffRemoved,
 	},
 	statusIcon: {
 		display: "flex",
 		alignItems: "center",
 		justifyContent: "center",
-		fontSize: 7,
-		fontWeight: 700,
+		fontSize: font.size_0,
+		fontWeight: font.weightBold,
 		lineHeight: 1,
 		filter: "drop-shadow(0 1px 1px rgba(0, 0, 0, 0.95))",
 	},
@@ -1047,21 +1049,21 @@ const styles = stylex.create({
 		position: "absolute",
 		right: -2,
 		top: -2,
-		width: 8,
-		height: 8,
+		width: controlSize._2,
+		height: controlSize._2,
 		pointerEvents: "none",
 	},
 	modified: {
-		color: "#ffd23f",
+		color: color.diffModified,
 	},
 	addedStatus: {
-		color: "#32e875",
+		color: color.diffAdded,
 	},
 	deletedStatus: {
-		color: "#ff5252",
+		color: color.diffRemoved,
 	},
 	renamedStatus: {
-		color: "#74a7ff",
+		color: color.diffRenamed,
 	},
 	defaultStatus: {
 		color: color.textSoft,
@@ -1084,8 +1086,8 @@ const styles = stylex.create({
 	},
 	groupHeader: {
 		position: "sticky",
-		top: 0,
-		zIndex: 10,
+		top: controlSize._0,
+		zIndex: layer.control,
 		display: "flex",
 		height: controlSize._8,
 		flexShrink: 0,
@@ -1107,7 +1109,7 @@ const styles = stylex.create({
 		display: "flex",
 		alignItems: "center",
 		gap: controlSize._2,
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 	},
 	cursorPointer: {
 		cursor: "pointer",
@@ -1119,7 +1121,7 @@ const styles = stylex.create({
 		flexShrink: 0,
 		color: color.textMuted,
 		transitionProperty: "transform",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 	},
 	chevronOpen: {
 		transform: "rotate(90deg)",
@@ -1144,12 +1146,12 @@ const styles = stylex.create({
 		width: controlSize._6,
 		alignItems: "center",
 		justifyContent: "center",
-		padding: 0,
+		padding: controlSize._0,
 		color: {
 			default: color.textMuted,
 			":hover": color.textMain,
 		},
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 	},
 	groupList: {
 		flexShrink: 0,
@@ -1164,13 +1166,13 @@ const styles = stylex.create({
 		gap: controlSize._2,
 		borderLeftWidth: 2,
 		borderLeftStyle: "solid",
-		borderLeftColor: "transparent",
+		borderLeftColor: color.transparent,
 		paddingBlock: controlSize._1,
 		paddingInline: controlSize._3,
 		transitionProperty: "background-color, border-color",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.surfaceSubtle,
 		},
 	},
@@ -1185,24 +1187,24 @@ const styles = stylex.create({
 		gap: controlSize._1,
 		borderLeftWidth: 2,
 		borderLeftStyle: "solid",
-		borderLeftColor: "transparent",
+		borderLeftColor: color.transparent,
 		transitionProperty: "background-color, border-color",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.surfaceSubtle,
 		},
 	},
 	treeNodeButton: {
 		alignItems: "center",
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 		cursor: "pointer",
 		display: "flex",
 		flex: 1,
 		gap: controlSize._1,
 		height: "100%",
-		minWidth: 0,
-		padding: 0,
+		minWidth: controlSize._0,
+		padding: controlSize._0,
 		textAlign: "left",
 	},
 	fileRowActive: {
@@ -1210,20 +1212,20 @@ const styles = stylex.create({
 		backgroundColor: color.surfaceInset,
 	},
 	fileButton: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 		display: "flex",
 		flexDirection: "column",
 		textAlign: "left",
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 	},
 	fileRowButton: {
 		display: "flex",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 		alignItems: "center",
 		gap: controlSize._2,
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 		textAlign: "left",
 	},
 	pathFileName: {
@@ -1235,7 +1237,7 @@ const styles = stylex.create({
 		fontWeight: font.weight_5,
 		lineHeight: 1.3,
 		transitionProperty: "color",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 	},
 	activeText: {
 		color: color.textMain,
@@ -1244,7 +1246,7 @@ const styles = stylex.create({
 		position: "absolute",
 		right: controlSize._2,
 		top: "50%",
-		zIndex: 10,
+		zIndex: layer.control,
 		transform: "translateY(-50%)",
 		display: "flex",
 		width: "1.125rem",
@@ -1254,7 +1256,7 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		borderRadius: "50%",
+		borderRadius: radius.circle,
 		backgroundColor: {
 			default: color.backgroundRaised,
 			":hover": color.controlHover,
@@ -1263,7 +1265,7 @@ const styles = stylex.create({
 		opacity: 0,
 		pointerEvents: "none",
 		transitionProperty: "opacity, color, background-color, border-color",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 	},
 	rowActionVisible: {
 		opacity: 1,
@@ -1277,7 +1279,7 @@ const styles = stylex.create({
 		position: "absolute",
 		right: controlSize._2,
 		top: "50%",
-		zIndex: 10,
+		zIndex: layer.control,
 		transform: "translateY(-50%)",
 		display: "flex",
 		width: "1.125rem",
@@ -1287,7 +1289,7 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		borderRadius: "50%",
+		borderRadius: radius.circle,
 		backgroundColor: {
 			default: color.backgroundRaised,
 			":hover": color.controlHover,
@@ -1296,13 +1298,13 @@ const styles = stylex.create({
 		opacity: 0,
 		pointerEvents: "none",
 		transitionProperty: "opacity, color, background-color, border-color",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 	},
 	folderIcon: {
 		flexShrink: 0,
 		color: color.textMuted,
 		transitionProperty: "color",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 	},
 	folderIconOpen: {
 		color: color.textSoft,
@@ -1320,7 +1322,7 @@ const styles = stylex.create({
 		flexShrink: 0,
 	},
 	treeFileName: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
@@ -1329,7 +1331,7 @@ const styles = stylex.create({
 		fontSize: font.size_2,
 		fontWeight: font.weight_5,
 		transitionProperty: "color",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 	},
 });
 
@@ -1375,7 +1377,7 @@ function ChangeFileSidebarHeader({
 					aria-label="Collapse files sidebar"
 					{...stylex.props(styles.headerIconButton)}
 				>
-					<IconPanelLeft size={12} />
+					<IconPanelLeft size={iconSize.md} />
 				</button>
 			) : null}
 			<div
@@ -1386,7 +1388,10 @@ function ChangeFileSidebarHeader({
 				<span {...stylex.props(styles.deletedText)}>-{deletions}</span>
 			</div>
 			<div {...stylex.props(styles.headerBranch)}>
-				<IconGitBranch size={11} {...stylex.props(styles.mutedIcon)} />
+				<IconGitBranch
+					size={iconSize.compact}
+					{...stylex.props(styles.mutedIcon)}
+				/>
 				<span
 					{...stylex.props(styles.branchName)}
 					title={branch ?? "Repository"}
@@ -1446,7 +1451,7 @@ function CommitSection({
 				<Liquid
 					blur={5}
 					contrast={20}
-					fill={colorValues.backgroundRaised}
+					fill={runtimeColor.backgroundRaised}
 					filterPadding={18}
 					shadow="inset 0 1px 0 rgba(255,255,255,.08), 0 8px 24px rgba(0,0,0,.2)"
 				>
@@ -1475,7 +1480,7 @@ function CommitSection({
 								{generating && (
 									<span {...stylex.props(styles.fieldThinking)}>
 										<DotMatrixWeave
-											size={13}
+											size={iconSize._2md}
 											dotSize={1.5}
 											gap={1}
 											speed={1.2}
@@ -1495,7 +1500,7 @@ function CommitSection({
 							disabled={!commitMessage.trim() || isCommitting}
 							{...stylex.props(styles.commitMainAction)}
 						>
-							<IconGitCommit size={12} />
+							<IconGitCommit size={iconSize.md} />
 							{isCommitting
 								? "Committing…"
 								: stagedCount
@@ -1517,7 +1522,7 @@ function CommitSection({
 							{...stylex.props(styles.commitChevronAction)}
 						>
 							<IconChevronRight
-								size={11}
+								size={iconSize.compact}
 								{...stylex.props(styles.chevronDown)}
 							/>
 						</button>
@@ -1667,7 +1672,7 @@ function FileChangeIcon({
 }) {
 	return (
 		<span {...stylex.props(styles.fileChangeIcon)}>
-			<FileTypeIcon path={file.path} size={15} />
+			<FileTypeIcon path={file.path} size={iconSize._2lg} />
 			<span {...stylex.props(styles.fileChangeMark)}>
 				<FileStatusIcon status={file.status} />
 			</span>
@@ -1683,7 +1688,7 @@ function FileStatusIcon({ status }: { status: string }) {
 					{...stylex.props(styles.statusIcon, styles.modified)}
 					title="Modified"
 				>
-					<IconPencil size={10} />
+					<IconPencil size={iconSize.sm} />
 				</span>
 			);
 		case "A":
@@ -1692,7 +1697,7 @@ function FileStatusIcon({ status }: { status: string }) {
 					{...stylex.props(styles.statusIcon, styles.addedStatus)}
 					title="Added"
 				>
-					<IconPlus size={8} />
+					<IconPlus size={iconSize.xs} />
 				</span>
 			);
 		case "D":
@@ -1701,7 +1706,7 @@ function FileStatusIcon({ status }: { status: string }) {
 					{...stylex.props(styles.statusIcon, styles.deletedStatus)}
 					title="Deleted"
 				>
-					<IconMinus size={8} />
+					<IconMinus size={iconSize.xs} />
 				</span>
 			);
 		case "R":
@@ -1719,7 +1724,7 @@ function FileStatusIcon({ status }: { status: string }) {
 					{...stylex.props(styles.statusIcon, styles.addedStatus)}
 					title="Untracked"
 				>
-					<IconPlus size={8} />
+					<IconPlus size={iconSize.xs} />
 				</span>
 			);
 		default:
@@ -1872,14 +1877,14 @@ function TreeNodeRow({
 					{isDir ? (
 						<>
 							<IconChevronRight
-								size={10}
+								size={iconSize.sm}
 								{...stylex.props(
 									styles.chevron,
 									isExpanded && styles.chevronOpen,
 								)}
 							/>
 							<IconFolderFill
-								size={12}
+								size={iconSize.md}
 								{...stylex.props(
 									styles.folderIcon,
 									isExpanded && styles.folderIconOpen,
@@ -2019,7 +2024,7 @@ function FileGroup({
 				>
 					{isCollapsible && (
 						<IconChevronRight
-							size={10}
+							size={iconSize.sm}
 							{...stylex.props(
 								styles.chevron,
 								!isCollapsed && !isEmpty && styles.chevronOpen,

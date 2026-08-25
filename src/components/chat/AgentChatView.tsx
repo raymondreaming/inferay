@@ -11,6 +11,7 @@ import {
 	useSyncExternalStore,
 } from "octane";
 import type React from "react";
+import { iconSize, runtimeColor } from "../../design-system.ts";
 import {
 	type AgentKind,
 	changePaneAgentKind,
@@ -47,7 +48,14 @@ import { hasId } from "../../lib/data.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import { wsClient } from "../../lib/websocket.ts";
 import { InlineDirectoryPicker } from "../../pages/Agent/InlineDirectoryPicker.tsx";
-import { color, colorValues, controlSize } from "../../tokens.stylex.ts";
+import {
+	color,
+	controlSize,
+	font,
+	layer,
+	motion,
+	radius,
+} from "../../tokens.stylex.ts";
 import type { ReactNode } from "../../types/octane-react-compat.ts";
 import { Liquid } from "../ui/gooey/index.ts";
 import { IconArrowDown } from "../ui/Icons.tsx";
@@ -99,7 +107,7 @@ function DirectoryPickerModal({ children }: { children: ReactNode }) {
 			<Liquid
 				blur={5}
 				contrast={20}
-				fill={colorValues.backgroundRaised}
+				fill={runtimeColor.backgroundRaised}
 				filterPadding={20}
 				shadow="inset 0 1px 0 rgba(255,255,255,.08), 0 14px 36px rgba(0,0,0,.32)"
 				className="inferay-directory-picker-liquid"
@@ -962,7 +970,10 @@ export const AgentChatView = memo(function AgentChatView({
 							}}
 							{...stylex.props(styles.scrollButton)}
 						>
-							<IconArrowDown size={12} {...stylex.props(styles.scrollIcon)} />
+							<IconArrowDown
+								size={iconSize.md}
+								{...stylex.props(styles.scrollIcon)}
+							/>
 						</button>
 					)}
 				</div>
@@ -1041,11 +1052,11 @@ const styles = stylex.create({
 		height: "100%",
 		flexDirection: "column",
 		transitionProperty: "box-shadow",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 	},
 	composerOnlyRoot: {
 		position: "absolute",
-		zIndex: 50,
+		zIndex: layer.modal,
 		left: "50%",
 		bottom: controlSize._6,
 		width: "min(36rem, calc(100% - 2rem))",
@@ -1070,13 +1081,13 @@ const styles = stylex.create({
 	},
 	directoryPickerWrap: {
 		position: "absolute",
-		zIndex: 10,
-		left: 0,
-		right: 0,
-		bottom: 0,
+		zIndex: layer.control,
+		left: controlSize._0,
+		right: controlSize._0,
+		bottom: controlSize._0,
 		pointerEvents: "none",
 		paddingInline: controlSize._3,
-		paddingBottom: 14,
+		paddingBottom: controlSize._3_5,
 	},
 	directoryPickerInner: {
 		width: "100%",
@@ -1084,7 +1095,7 @@ const styles = stylex.create({
 	},
 	scrollButton: {
 		position: "absolute",
-		zIndex: 10,
+		zIndex: layer.control,
 		right: controlSize._2,
 		bottom: controlSize._2,
 		display: "flex",
@@ -1095,14 +1106,14 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		borderRadius: "999px",
+		borderRadius: radius.pill,
 		backgroundColor: {
 			default: color.backgroundRaised,
 			":hover": color.controlHover,
 		},
 		boxShadow: "0 1px 2px rgba(0, 0, 0, 0.24)",
 		transitionProperty: "background-color, opacity",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 	},
 	scrollIcon: {
 		color: color.textSoft,
@@ -1115,7 +1126,7 @@ const styles = stylex.create({
 		position: "absolute",
 		left: "50%",
 		bottom: "calc(100% + 8px)",
-		zIndex: 20,
+		zIndex: layer.dropdown,
 		transform: "translateX(-50%)",
 		borderWidth: 1,
 		borderStyle: "dashed",
@@ -1123,8 +1134,8 @@ const styles = stylex.create({
 		borderRadius: controlSize._2,
 		backgroundColor: color.surfaceGlassStrong,
 		color: color.textSoft,
-		fontSize: "0.625rem",
-		fontWeight: 600,
+		fontSize: font.size_2,
+		fontWeight: font.weight_6,
 		paddingBlock: controlSize._1_5,
 		paddingInline: controlSize._3,
 		pointerEvents: "none",
@@ -1132,6 +1143,6 @@ const styles = stylex.create({
 	},
 	composerContent: {
 		position: "relative",
-		zIndex: 10,
+		zIndex: layer.control,
 	},
 });

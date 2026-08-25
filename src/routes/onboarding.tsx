@@ -16,6 +16,7 @@ import {
 	IconUser,
 	IconX,
 } from "../components/ui/Icons.tsx";
+import { iconSize } from "../design-system.ts";
 import {
 	createDefaultAgentState,
 	loadCanonicalAgentState,
@@ -52,15 +53,12 @@ import {
 import { readStoredBoolean, writeStoredValue } from "../lib/stored-json.ts";
 import {
 	color,
-	colorTheme,
 	controlSize,
-	controlSizeTheme,
-	effectTheme,
 	font,
-	fontTheme,
-	motionTheme,
-	radiusTheme,
-	shadowTheme,
+	layer,
+	motion,
+	palette,
+	radius,
 } from "../tokens.stylex.ts";
 
 export const Route = createFileRoute("/onboarding")({
@@ -69,14 +67,14 @@ export const Route = createFileRoute("/onboarding")({
 
 const routeStyles = stylex.create({
 	shell: {
-		backgroundColor: "#050506",
+		backgroundColor: palette.canvas,
 		display: "flex",
 		flexDirection: "column",
 		height: "100vh",
 		overflow: "hidden",
 	},
 	windowSpacer: { flexShrink: 0, height: "1.5rem" },
-	content: { flex: 1, minHeight: 0 },
+	content: { flex: 1, minHeight: controlSize._0 },
 });
 
 function OnboardingRoute() {
@@ -88,18 +86,7 @@ function OnboardingRoute() {
 	}, [navigate]);
 
 	return (
-		<div
-			{...stylex.props(
-				colorTheme,
-				controlSizeTheme,
-				fontTheme,
-				radiusTheme,
-				motionTheme,
-				shadowTheme,
-				effectTheme,
-				routeStyles.shell,
-			)}
-		>
+		<div {...stylex.props(routeStyles.shell)}>
 			<div
 				{...stylex.props(routeStyles.windowSpacer)}
 				className={`${APP_REGION_DRAG_CLASS} ${stylex.props(routeStyles.windowSpacer).className ?? ""}`}
@@ -488,7 +475,7 @@ function IntroStep({
 				<div {...stylex.props(styles.primaryActions)}>
 					<Button type="button" onClick={onNext} variant="secondary" size="lg">
 						Get started
-						<IconChevronRight size={16} />
+						<IconChevronRight size={iconSize.xl} />
 					</Button>
 				</div>
 				<button
@@ -550,7 +537,10 @@ function GithubStep({
 				<div {...stylex.props(styles.stepContent)}>
 					{loading ? (
 						<div {...stylex.props(styles.loadingState)}>
-							<IconRefreshCw size={15} {...stylex.props(styles.spinIcon)} />
+							<IconRefreshCw
+								size={iconSize._2lg}
+								{...stylex.props(styles.spinIcon)}
+							/>
 							Checking gh auth status…
 						</div>
 					) : accounts.length > 0 ? (
@@ -568,7 +558,10 @@ function GithubStep({
 												{...stylex.props(styles.avatar)}
 											/>
 										) : (
-											<IconUser size={18} {...stylex.props(styles.mutedIcon)} />
+											<IconUser
+												size={iconSize._2xl}
+												{...stylex.props(styles.mutedIcon)}
+											/>
 										)}
 									</div>
 									<div {...stylex.props(styles.rowText)}>
@@ -585,7 +578,7 @@ function GithubStep({
 					) : (
 						<div {...stylex.props(styles.noticeCard)}>
 							<div {...stylex.props(styles.noticeIconBox)}>
-								<IconGitBranch size={20} />
+								<IconGitBranch size={iconSize._3xl} />
 							</div>
 							<p {...stylex.props(styles.noticeTitle)}>
 								No GitHub accounts detected
@@ -601,7 +594,7 @@ function GithubStep({
 									variant="secondary"
 									size="lg"
 								>
-									<IconAgent size={14} />
+									<IconAgent size={iconSize.lg} />
 									{connecting ? "Opening agent..." : "Run gh auth login"}
 								</Button>
 								<Button
@@ -611,7 +604,7 @@ function GithubStep({
 									variant="ghost"
 									size="lg"
 								>
-									<IconRefreshCw size={13} />
+									<IconRefreshCw size={iconSize._2md} />
 									Refresh
 								</Button>
 							</div>
@@ -621,12 +614,12 @@ function GithubStep({
 
 				<div {...stylex.props(styles.primaryActions)}>
 					<Button type="button" onClick={onBack} variant="ghost" size="lg">
-						<IconArrowLeft size={16} />
+						<IconArrowLeft size={iconSize.xl} />
 						Back
 					</Button>
 					<Button type="button" onClick={onNext} variant="secondary" size="lg">
 						{accounts.length > 0 ? "Continue" : "Skip"}
-						<IconChevronRight size={16} />
+						<IconChevronRight size={iconSize.xl} />
 					</Button>
 				</div>
 			</div>
@@ -697,7 +690,7 @@ function ProjectsStep({
 						{...stylex.props(styles.projectActionCard)}
 					>
 						<div {...stylex.props(styles.projectActionIcon)}>
-							<IconFolderOpen size={20} />
+							<IconFolderOpen size={iconSize._3xl} />
 						</div>
 						<div {...stylex.props(styles.projectActionTitle)}>
 							Choose local project
@@ -713,7 +706,7 @@ function ProjectsStep({
 						{...stylex.props(styles.projectActionCard)}
 					>
 						<div {...stylex.props(styles.projectActionIcon)}>
-							<IconGlobe size={20} />
+							<IconGlobe size={iconSize._3xl} />
 						</div>
 						<div {...stylex.props(styles.projectActionTitle)}>
 							Import from GitHub
@@ -742,7 +735,7 @@ function ProjectsStep({
 						{localFolders.map((folder) => (
 							<div key={folder} {...stylex.props(styles.localFolderRow)}>
 								<IconFolder
-									size={14}
+									size={iconSize.lg}
 									{...stylex.props(styles.mutedIcon, styles.shrink)}
 								/>
 								<div {...stylex.props(styles.rowText)}>
@@ -754,14 +747,17 @@ function ProjectsStep({
 									variant="danger"
 									size="xs"
 								>
-									<IconX size={14} />
+									<IconX size={iconSize.lg} />
 								</IconButton>
 							</div>
 						))}
 
 						{hasGithub && reposLoading ? (
 							<div {...stylex.props(styles.loadingState)}>
-								<IconRefreshCw size={13} {...stylex.props(styles.spinIcon)} />
+								<IconRefreshCw
+									size={iconSize._2md}
+									{...stylex.props(styles.spinIcon)}
+								/>
 								Loading repositories…
 							</div>
 						) : hasGithub && repos.length > 0 ? (
@@ -783,7 +779,7 @@ function ProjectsStep({
 												isSelected && styles.repoCheckSelected,
 											)}
 										>
-											{isSelected && <IconCheck size={10} />}
+											{isSelected && <IconCheck size={iconSize.sm} />}
 										</div>
 										<div {...stylex.props(styles.rowText)}>
 											<p {...stylex.props(styles.repoName)}>{repo.full_name}</p>
@@ -820,7 +816,7 @@ function ProjectsStep({
 
 				<div {...stylex.props(styles.primaryActions)}>
 					<Button type="button" onClick={onBack} variant="ghost" size="lg">
-						<IconArrowLeft size={16} />
+						<IconArrowLeft size={iconSize.xl} />
 						Back
 					</Button>
 					<Button
@@ -830,7 +826,7 @@ function ProjectsStep({
 						size="lg"
 					>
 						{totalProjects > 0 ? "Let's build" : "Skip & enter"}
-						<IconChevronRight size={16} />
+						<IconChevronRight size={iconSize.xl} />
 					</Button>
 				</div>
 			</div>
@@ -853,12 +849,12 @@ const styles = stylex.create({
 		backgroundImage:
 			"linear-gradient(to right, var(--color-inferay-white) 1px, transparent 1px), linear-gradient(to bottom, var(--color-inferay-white) 1px, transparent 1px)",
 		backgroundSize: "42px 42px",
-		inset: 0,
+		inset: controlSize._0,
 		maskImage:
 			"radial-gradient(ellipse 82% 68% at 50% 42%, black 15%, transparent 78%)",
 		pointerEvents: "none",
 		position: "absolute",
-		transitionDuration: "700ms",
+		transitionDuration: motion.durationLong,
 		transitionProperty: "opacity",
 		transitionTimingFunction: EASING,
 	},
@@ -872,26 +868,26 @@ const styles = stylex.create({
 		background:
 			"linear-gradient(to top, var(--color-inferay-black), transparent)",
 		position: "absolute",
-		insetInline: 0,
-		bottom: 0,
+		insetInline: controlSize._0,
+		bottom: controlSize._0,
 		height: "50%",
 		pointerEvents: "none",
 	},
 	stepSurface: {
 		alignItems: "center",
 		display: "flex",
-		inset: 0,
+		inset: controlSize._0,
 		justifyContent: "center",
 		position: "absolute",
 		transitionProperty: "filter, opacity, transform",
 		transitionTimingFunction: EASING,
-		zIndex: 10,
+		zIndex: layer.control,
 	},
 	stepSurfaceStandard: {
-		transitionDuration: "700ms",
+		transitionDuration: motion.durationLong,
 	},
 	stepSurfaceSlow: {
-		transitionDuration: "1000ms",
+		transitionDuration: motion.durationSecond,
 	},
 	stepActive: {
 		filter: "blur(0)",
@@ -956,8 +952,8 @@ const styles = stylex.create({
 	},
 	heroTitle: {
 		color: color.textMain,
-		fontSize: "1.75rem",
-		fontWeight: 600,
+		fontSize: font.size_10,
+		fontWeight: font.weight_6,
 		letterSpacing: 0,
 		lineHeight: 1.15,
 	},
@@ -965,7 +961,7 @@ const styles = stylex.create({
 		maxWidth: "28rem",
 		marginTop: controlSize._4,
 		color: color.textMuted,
-		fontSize: "0.8125rem",
+		fontSize: font.size_4,
 		fontWeight: font.weight_5,
 		lineHeight: 1.85,
 	},
@@ -982,9 +978,9 @@ const styles = stylex.create({
 			default: color.textMuted,
 			":hover": color.textSoft,
 		},
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 		transitionProperty: "color",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 	},
 	stepPanel: {
 		display: "flex",
@@ -1005,8 +1001,8 @@ const styles = stylex.create({
 	},
 	stepTitle: {
 		color: color.textMain,
-		fontSize: "1.5rem",
-		fontWeight: 600,
+		fontSize: font.size_9,
+		fontWeight: font.weight_6,
 		letterSpacing: 0,
 	},
 	stepDescription: {
@@ -1039,7 +1035,7 @@ const styles = stylex.create({
 				transform: "rotate(360deg)",
 			},
 		}),
-		animationDuration: "900ms",
+		animationDuration: motion.durationLongest,
 		animationIterationCount: "infinite",
 		animationTimingFunction: "linear",
 	},
@@ -1070,7 +1066,7 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		borderRadius: "999px",
+		borderRadius: radius.pill,
 		backgroundColor: color.controlActive,
 	},
 	avatar: {
@@ -1085,7 +1081,7 @@ const styles = stylex.create({
 		flexShrink: 0,
 	},
 	rowText: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 	},
 	accountName: {
@@ -1093,7 +1089,7 @@ const styles = stylex.create({
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 		color: color.textMain,
-		fontSize: "0.8125rem",
+		fontSize: font.size_4,
 		fontWeight: font.weight_5,
 	},
 	accountMeta: {
@@ -1101,7 +1097,7 @@ const styles = stylex.create({
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 		color: color.textMuted,
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 	},
 	noticeCard: {
 		borderWidth: 1,
@@ -1135,7 +1131,7 @@ const styles = stylex.create({
 	noticeText: {
 		marginTop: controlSize._1,
 		color: color.textMuted,
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 	},
 	noticeActions: {
 		display: "flex",
@@ -1166,7 +1162,7 @@ const styles = stylex.create({
 		padding: controlSize._4,
 		textAlign: "left",
 		transitionProperty: "background-color, opacity",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 		":disabled": {
 			cursor: "default",
 			opacity: 0.7,
@@ -1188,17 +1184,17 @@ const styles = stylex.create({
 	projectActionTitle: {
 		marginTop: controlSize._4,
 		color: color.textMain,
-		fontSize: "0.8125rem",
+		fontSize: font.size_4,
 		fontWeight: font.weight_5,
 	},
 	projectActionText: {
 		marginTop: controlSize._1,
 		color: color.textMuted,
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 		lineHeight: 1.6,
 	},
 	projectListSection: {
-		minHeight: 0,
+		minHeight: controlSize._0,
 		flex: 1,
 		marginTop: controlSize._6,
 	},
@@ -1208,7 +1204,7 @@ const styles = stylex.create({
 		justifyContent: "space-between",
 		marginBottom: controlSize._2,
 		color: color.textMuted,
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 	},
 	projectList: {
 		maxHeight: "240px",
@@ -1242,14 +1238,14 @@ const styles = stylex.create({
 		paddingInline: controlSize._3,
 		textAlign: "left",
 		transitionProperty: "background-color",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 		backgroundColor: {
-			default: "transparent",
-			":hover": "rgba(255, 255, 255, 0.04)",
+			default: color.transparent,
+			":hover": color.surfaceWhite04,
 		},
 	},
 	repoRowSelected: {
-		backgroundColor: "rgba(255, 255, 255, 0.05)",
+		backgroundColor: color.surfaceWhite05,
 	},
 	repoCheck: {
 		display: "flex",
@@ -1261,10 +1257,10 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		borderRadius: "0.25rem",
+		borderRadius: radius.sm,
 		backgroundColor: color.background,
 		transitionProperty: "background-color, border-color, color",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 	},
 	repoCheckSelected: {
 		borderColor: color.textMain,
@@ -1276,7 +1272,7 @@ const styles = stylex.create({
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 		color: color.textMain,
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 		fontWeight: font.weight_5,
 	},
 	repoDescription: {
@@ -1297,7 +1293,7 @@ const styles = stylex.create({
 		fontSize: font.size_2,
 	},
 	privatePill: {
-		borderRadius: "0.25rem",
+		borderRadius: radius.sm,
 		backgroundColor: color.controlActive,
 		color: color.textMuted,
 		fontSize: font.size_1,
@@ -1310,7 +1306,7 @@ const styles = stylex.create({
 		alignItems: "center",
 		justifyContent: "center",
 		color: color.textMuted,
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 		lineHeight: 1.6,
 		textAlign: "center",
 	},

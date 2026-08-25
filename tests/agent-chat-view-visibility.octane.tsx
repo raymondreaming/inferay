@@ -1,6 +1,7 @@
 import { JSDOM } from "jsdom";
 import { createRoot, memo } from "octane";
 import { expect, test, vi } from "vitest";
+import { stylexTestTypes } from "./stylex-test-mock.ts";
 
 const mock = Object.assign(vi.fn, {
 	module: (path: string, factory: () => unknown) => vi.doMock(path, factory),
@@ -10,7 +11,9 @@ const sendMock = mock(() => {});
 mock.module("@octanejs/stylex", () => ({
 	create: <T extends Record<string, unknown>>(styles: T) => styles,
 	createTheme: (_vars: unknown, values: unknown) => values,
+	defineConsts: <T extends Record<string, string>>(values: T) => values,
 	defineVars: <T extends Record<string, string>>(values: T) => values,
+	types: stylexTestTypes,
 	keyframes: () => "test-keyframes",
 	props: (
 		...styles: Array<Record<string, unknown> | false | null | undefined>
@@ -44,7 +47,7 @@ mock.module("../src/components/chat/ChatMessageList.tsx", () => ({
 					{messages.map((message) => message.content).join("|")}
 				</div>
 			);
-		}
+		},
 	),
 }));
 
@@ -152,13 +155,14 @@ test("hidden chat panes do not restore legacy localStorage transcripts", async (
 	}) as unknown as typeof fetch;
 	const { root, rootElement } = setupDom();
 	try {
-		const { AgentChatView } =
-			await import("../src/components/chat/AgentChatView.tsx");
+		const { AgentChatView } = await import(
+			"../src/components/chat/AgentChatView.tsx"
+		);
 		localStorage.setItem(
 			"inferay-chat-pane-deferred-visible-load",
 			JSON.stringify([
 				{ id: "m1", role: "assistant", content: "old transcript" },
-			])
+			]),
 		);
 
 		root.render(
@@ -168,14 +172,14 @@ test("hidden chat panes do not restore legacy localStorage transcripts", async (
 				gitBranch="main"
 				agentKind="codex"
 				isVisible={false}
-			/>
+			/>,
 		);
 		await tick();
 		localStorage.setItem(
 			"inferay-chat-pane-deferred-visible-load",
 			JSON.stringify([
 				{ id: "m1", role: "assistant", content: "new transcript" },
-			])
+			]),
 		);
 
 		root.render(
@@ -185,7 +189,7 @@ test("hidden chat panes do not restore legacy localStorage transcripts", async (
 				gitBranch="main"
 				agentKind="codex"
 				isVisible
-			/>
+			/>,
 		);
 		await tick(50);
 
@@ -210,17 +214,19 @@ test("draft typing does not re-render long chat message list", async () => {
 	chatMessageListRenderCount = 0;
 	const { root, rootElement } = setupDom();
 	try {
-		const { getChatMessageReadModel } =
-			await import("../src/features/chat/chat-session-store.ts");
-		const { AgentChatView } =
-			await import("../src/components/chat/AgentChatView.tsx");
+		const { getChatMessageReadModel } = await import(
+			"../src/features/chat/chat-session-store.ts"
+		);
+		const { AgentChatView } = await import(
+			"../src/components/chat/AgentChatView.tsx"
+		);
 		const paneId = "pane-long-draft-performance";
 		getChatMessageReadModel(paneId).set(
 			Array.from({ length: 1_200 }, (_, index) => ({
 				id: `m${index}`,
 				role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
 				content: `message ${index}`,
-			}))
+			})),
 		);
 
 		root.render(
@@ -230,7 +236,7 @@ test("draft typing does not re-render long chat message list", async () => {
 				gitBranch="main"
 				agentKind="codex"
 				isVisible
-			/>
+			/>,
 		);
 		await tick(50);
 		const renderCountAfterMount = chatMessageListRenderCount;
@@ -261,8 +267,9 @@ test("sending a message keeps the chat pane mounted", async () => {
 	sendMock.mockClear();
 	const { root, rootElement } = setupDom();
 	try {
-		const { AgentChatView } =
-			await import("../src/components/chat/AgentChatView.tsx");
+		const { AgentChatView } = await import(
+			"../src/components/chat/AgentChatView.tsx"
+		);
 		root.render(
 			<AgentChatView
 				paneId="pane-send-render"
@@ -270,7 +277,7 @@ test("sending a message keeps the chat pane mounted", async () => {
 				gitBranch="main"
 				agentKind="codex"
 				isVisible
-			/>
+			/>,
 		);
 		await tick(50);
 		const textarea = rootElement.querySelector("textarea");
@@ -282,7 +289,7 @@ test("sending a message keeps the chat pane mounted", async () => {
 			new window.KeyboardEvent("keydown", {
 				bubbles: true,
 				key: "Enter",
-			})
+			}),
 		);
 		await tick(50);
 
@@ -293,7 +300,7 @@ test("sending a message keeps the chat pane mounted", async () => {
 				type: "chat:send",
 				paneId: "pane-send-render",
 				text: "hello from octane",
-			})
+			}),
 		);
 	} finally {
 		root.unmount();

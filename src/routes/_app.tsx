@@ -21,20 +21,17 @@ import { listenWindowEvent } from "../lib/react-events.ts";
 import { wsClient } from "../lib/websocket.ts";
 import {
 	color,
-	colorTheme,
-	controlSizeTheme,
-	effectTheme,
-	fontTheme,
-	motionTheme,
-	radiusTheme,
-	shadowTheme,
+	controlSize,
+	layer,
+	palette,
+	radius,
 } from "../tokens.stylex.ts";
 
 export const Route = createFileRoute("/_app")({ component: AppLayout });
 
 const styles = stylex.create({
 	shell: {
-		backgroundColor: "#050506",
+		backgroundColor: palette.canvas,
 		backgroundImage:
 			"radial-gradient(rgba(255,255,255,0.055) 0.65px, transparent 0.75px)",
 		backgroundPosition: "0 0",
@@ -53,31 +50,31 @@ const styles = stylex.create({
 		inset: -24,
 		pointerEvents: "none",
 		position: "absolute",
-		zIndex: 0,
+		zIndex: layer.base,
 	},
 	backgroundShade: {
-		inset: 0,
+		inset: controlSize._0,
 		pointerEvents: "none",
 		position: "absolute",
-		zIndex: 0,
+		zIndex: layer.base,
 	},
 	appBody: {
 		display: "flex",
 		flex: 1,
-		gap: 10,
-		minHeight: 0,
-		paddingTop: 36,
-		paddingRight: 12,
-		paddingBottom: 12,
-		paddingLeft: 12,
+		gap: controlSize._2_5,
+		minHeight: controlSize._0,
+		paddingTop: controlSize._9,
+		paddingRight: controlSize._3,
+		paddingBottom: controlSize._3,
+		paddingLeft: controlSize._3,
 		position: "relative",
-		zIndex: 1,
+		zIndex: layer.content,
 	},
 	mainColumn: {
 		position: "relative",
 		backgroundColor: color.shellSurface,
 		borderColor: color.shellFrame,
-		borderRadius: 17,
+		borderRadius: radius.px17,
 		borderStyle: "solid",
 		borderWidth: 1,
 		boxShadow:
@@ -86,22 +83,13 @@ const styles = stylex.create({
 		display: "flex",
 		flex: 1,
 		flexDirection: "column",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflow: "hidden",
 	},
-	mainContent: { flex: 1, minWidth: 0, overflow: "hidden" },
+	mainContent: { flex: 1, minWidth: controlSize._0, overflow: "hidden" },
 });
 
-const shellThemeProps = stylex.props(
-	colorTheme,
-	controlSizeTheme,
-	fontTheme,
-	radiusTheme,
-	motionTheme,
-	shadowTheme,
-	effectTheme,
-	styles.shell,
-);
+const shellThemeProps = stylex.props(styles.shell);
 
 function AppLayout() {
 	const [background, setBackground] = useState(loadAppBackgroundSettings);

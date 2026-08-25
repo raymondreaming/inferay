@@ -1,6 +1,7 @@
 import { JSDOM } from "jsdom";
 import { createRoot } from "octane";
 import { describe, expect, test, vi } from "vitest";
+import { stylexTestTypes } from "./stylex-test-mock.ts";
 
 const mock = Object.assign(vi.fn, {
 	module: (path: string, factory: () => unknown) => vi.doMock(path, factory),
@@ -9,7 +10,9 @@ const mock = Object.assign(vi.fn, {
 mock.module("@octanejs/stylex", () => ({
 	create: <T extends Record<string, unknown>>(styles: T) => styles,
 	createTheme: (_vars: unknown, values: unknown) => values,
+	defineConsts: <T extends Record<string, string>>(values: T) => values,
 	defineVars: <T extends Record<string, string>>(values: T) => values,
+	types: stylexTestTypes,
 	keyframes: () => "test-keyframes",
 	props: (
 		...styles: Array<Record<string, unknown> | false | null | undefined>

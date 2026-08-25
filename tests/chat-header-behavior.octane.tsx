@@ -1,6 +1,7 @@
 import { JSDOM } from "jsdom";
 import { createRoot } from "octane";
 import { expect, test, vi } from "vitest";
+import { stylexTestTypes } from "./stylex-test-mock.ts";
 
 const mock = Object.assign(vi.fn, {
 	module: (path: string, factory: () => unknown) => vi.doMock(path, factory),
@@ -9,7 +10,9 @@ const mock = Object.assign(vi.fn, {
 mock.module("@octanejs/stylex", () => ({
 	create: <T extends Record<string, unknown>>(styles: T) => styles,
 	createTheme: (_vars: unknown, values: unknown) => values,
+	defineConsts: <T extends Record<string, string>>(values: T) => values,
 	defineVars: <T extends Record<string, string>>(values: T) => values,
+	types: stylexTestTypes,
 	keyframes: () => "test-keyframes",
 	props: (
 		...styles: Array<Record<string, unknown> | false | null | undefined>
@@ -80,8 +83,9 @@ test("branch dropdown loads branches only when opened", async () => {
 	fetchJsonOr.mockClear();
 	const { dom, root, rootElement } = setupDom();
 	try {
-		const { BranchDropdown } =
-			await import("../src/components/chat/AgentChatHeader.tsx");
+		const { BranchDropdown } = await import(
+			"../src/components/chat/AgentChatHeader.tsx"
+		);
 		root.render(<BranchDropdown cwd="/tmp/repo" branch="main" />);
 		await new Promise((resolve) => setTimeout(resolve, 20));
 
@@ -90,7 +94,7 @@ test("branch dropdown loads branches only when opened", async () => {
 		const button = rootElement.querySelector("button");
 		expect(button).toBeTruthy();
 		button!.dispatchEvent(
-			new dom.window.MouseEvent("click", { bubbles: true })
+			new dom.window.MouseEvent("click", { bubbles: true }),
 		);
 		await new Promise((resolve) => setTimeout(resolve, 20));
 
@@ -105,8 +109,9 @@ test("branch dropdown loads branches only when opened", async () => {
 test("editor session dropdown shows repository and conversation title", async () => {
 	const { dom, root, rootElement } = setupDom();
 	try {
-		const { AgentChatHeader } =
-			await import("../src/components/chat/AgentChatHeader.tsx");
+		const { AgentChatHeader } = await import(
+			"../src/components/chat/AgentChatHeader.tsx"
+		);
 		root.render(
 			<AgentChatHeader
 				paneId="pane-1"
@@ -120,7 +125,7 @@ test("editor session dropdown shows repository and conversation title", async ()
 					summary: `Conversation title ${index + 1}`,
 				}))}
 				onSelectSession={() => {}}
-			/>
+			/>,
 		);
 		await new Promise((resolve) => setTimeout(resolve, 20));
 
@@ -133,7 +138,7 @@ test("editor session dropdown shows repository and conversation title", async ()
 		expect(document.body.textContent).toContain("Conversation title 2");
 		expect(document.body.textContent).not.toContain("Codex");
 		const scrollBox = Array.from(document.body.querySelectorAll("div")).find(
-			(element) => element.style.maxHeight === "290px"
+			(element) => element.style.maxHeight === "290px",
 		);
 		expect(scrollBox).toBeTruthy();
 	} finally {

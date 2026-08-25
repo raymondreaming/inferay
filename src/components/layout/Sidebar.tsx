@@ -14,6 +14,7 @@ type ReactMouseEvent<T = Element> = globalThis.MouseEvent & {
 };
 
 import { createPortal } from "octane";
+import { iconSize, runtimeColor } from "../../design-system.ts";
 import {
 	type AgentPaneModel,
 	type AgentShellChangeDetail,
@@ -58,7 +59,14 @@ import {
 	readStoredValue,
 	writeStoredValue,
 } from "../../lib/stored-json.ts";
-import { color, colorValues, controlSize, font } from "../../tokens.stylex.ts";
+import {
+	color,
+	controlSize,
+	font,
+	layer,
+	motion,
+	radius,
+} from "../../tokens.stylex.ts";
 import { Button } from "../ui/Button.tsx";
 import { Liquid } from "../ui/gooey/index.ts";
 import { LiquidCreateMenu } from "../ui/gooey/LiquidCreateMenu.tsx";
@@ -190,7 +198,7 @@ function PaneSummaryItem({
 					)
 				) : (
 					<IconAgent
-						size={12}
+						size={iconSize.md}
 						className={stylex.props(styles.iconDim).className}
 					/>
 				)}
@@ -313,7 +321,7 @@ function WorkspaceItem({
 					title={group.name}
 				>
 					<IconAgent
-						size={14}
+						size={iconSize.lg}
 						className={stylex.props(styles.noShrink).className}
 					/>
 				</button>
@@ -329,7 +337,7 @@ function WorkspaceItem({
 						{...stylex.props(styles.collapsedWorkspaceDelete)}
 						title="Delete workspace"
 					>
-						<IconX size={7} />
+						<IconX size={iconSize.micro} />
 					</button>
 				)}
 			</div>
@@ -374,7 +382,7 @@ function WorkspaceItem({
 							onDoubleClick={startEditing}
 						>
 							<IconPencil
-								size={9}
+								size={iconSize._2xs}
 								{...stylex.props(styles.workspaceEditHint)}
 							/>
 							<div {...stylex.props(styles.workspaceName)}>{group.name}</div>
@@ -385,7 +393,7 @@ function WorkspaceItem({
 					{group.panes.length}
 				</span>
 				<IconChevronRight
-					size={10}
+					size={iconSize.sm}
 					className={
 						stylex.props(
 							styles.workspaceChevron,
@@ -400,7 +408,7 @@ function WorkspaceItem({
 						{...stylex.props(styles.workspaceDelete)}
 						title="Delete workspace"
 					>
-						<IconX size={9} />
+						<IconX size={iconSize._2xs} />
 					</button>
 				)}
 			</div>
@@ -409,7 +417,7 @@ function WorkspaceItem({
 				<Liquid
 					blur={4}
 					contrast={20}
-					fill={colorValues.backgroundRaised}
+					fill={runtimeColor.backgroundRaised}
 					filterPadding={18}
 					shadow="inset 0 1px 0 rgba(255,255,255,.07), 0 5px 16px rgba(0,0,0,.2)"
 					className={`inferay-workspace-pane-liquid ${stylex.props(styles.workspacePaneList).className ?? ""}`}
@@ -524,7 +532,7 @@ function SidebarWorkspacesSection({
 						title="Expand workspace sidebar"
 					>
 						<IconPanelLeft
-							size={14}
+							size={iconSize.lg}
 							className={
 								stylex.props(styles.noShrink, styles.flipHorizontal).className
 							}
@@ -559,11 +567,11 @@ function SidebarWorkspacesSection({
 									aria-label="Grid layout"
 									aria-expanded={gridMenuOpen}
 								>
-									<IconLayoutGrid size={14} />
+									<IconLayoutGrid size={iconSize.lg} />
 								</button>
 								{gridMenuOpen && selectedGroup ? (
 									<span {...stylex.props(styles.workspaceGridMenuAnchor)}>
-										<LiquidPanel fill={colorValues.backgroundRaised}>
+										<LiquidPanel fill={runtimeColor.backgroundRaised}>
 											<div {...stylex.props(styles.workspaceGridMenu)}>
 												<span {...stylex.props(styles.workspaceGridMenuRow)}>
 													<span
@@ -634,7 +642,7 @@ function SidebarWorkspacesSection({
 								)}
 								aria-label="Row layout"
 							>
-								<IconLayoutRows size={14} />
+								<IconLayoutRows size={iconSize.lg} />
 							</button>
 						</div>
 						<span
@@ -643,7 +651,7 @@ function SidebarWorkspacesSection({
 						>
 							<LiquidCreateMenu
 								open={createMenuOpen}
-								fill={colorValues.backgroundRaised}
+								fill={runtimeColor.backgroundRaised}
 								onNewChat={() => chooseCreateAction(onAddChat)}
 								onNewWorkspace={() => chooseCreateAction(onAddWorkspace)}
 								trigger={
@@ -655,7 +663,7 @@ function SidebarWorkspacesSection({
 										aria-label="Create"
 										aria-expanded={createMenuOpen}
 									>
-										<IconPlus size={13} />
+										<IconPlus size={iconSize._2md} />
 									</button>
 								}
 							/>
@@ -733,7 +741,7 @@ function SidebarFooter({
 					).className
 				}
 			>
-				<IconRefreshCw size={12} />
+				<IconRefreshCw size={iconSize.md} />
 				{!collapsed ? (
 					<span {...stylex.props(styles.updateLabel)}>
 						{updateStatus === "updating"
@@ -1127,26 +1135,26 @@ const styles = stylex.create({
 		alignItems: "flex-start",
 		borderWidth: 1,
 		borderStyle: "solid",
-		borderColor: "transparent",
-		borderRadius: 6,
+		borderColor: color.transparent,
+		borderRadius: radius.md,
 		display: "flex",
 		gap: controlSize._2,
 		marginBottom: "0.125rem",
 		paddingBlock: "0.375rem",
 		paddingInline: controlSize._2,
 		textAlign: "left",
-		transitionDuration: "150ms",
+		transitionDuration: motion.durationBase,
 		transitionProperty: "background-color, border-color, color",
 		transitionTimingFunction: "ease",
 		width: "100%",
 	},
 	paneSummaryIdle: {
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.accentWash,
 		},
 		borderColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.border,
 		},
 		color: {
@@ -1165,14 +1173,14 @@ const styles = stylex.create({
 	},
 	paneSummaryText: {
 		flex: 1,
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 	paneSummaryFolder: {
 		color: color.textMuted,
 		fontSize: font.size_1,
 		fontWeight: font.weight_5,
 		lineHeight: 1.15,
-		margin: 0,
+		margin: controlSize._0,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
@@ -1181,15 +1189,15 @@ const styles = stylex.create({
 		fontSize: font.size_2,
 		fontWeight: font.weight_5,
 		lineHeight: 1.2,
-		margin: 0,
+		margin: controlSize._0,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 	},
 	collapsedWorkspace: {
 		alignItems: "center",
-		borderColor: "transparent",
-		borderRadius: "50%",
+		borderColor: color.transparent,
+		borderRadius: radius.circle,
 		borderStyle: "solid",
 		borderWidth: 1,
 		color: color.textSoft,
@@ -1198,25 +1206,25 @@ const styles = stylex.create({
 		marginBlockEnd: controlSize._1,
 		marginInline: "0.375rem",
 		position: "relative",
-		transitionDuration: "150ms",
+		transitionDuration: motion.durationBase,
 		transitionProperty: "background-color, color",
 		transitionTimingFunction: "ease",
 		width: controlSize._8,
 	},
 	collapsedWorkspaceIdle: {
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 		color: color.textSoft,
 	},
 	collapsedWorkspaceActive: {
-		backgroundColor: "transparent",
-		borderColor: "transparent",
+		backgroundColor: color.transparent,
+		borderColor: color.transparent,
 		color: color.textSoft,
 	},
 	collapsedWorkspaceButton: {
 		alignItems: "center",
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 		borderWidth: 0,
-		borderRadius: "50%",
+		borderRadius: radius.circle,
 		color: "inherit",
 		display: "flex",
 		height: "100%",
@@ -1229,17 +1237,17 @@ const styles = stylex.create({
 		alignItems: "center",
 		backgroundColor: color.accentWash,
 		borderColor: color.border,
-		borderRadius: 999,
+		borderRadius: radius.pill,
 		borderStyle: "solid",
 		borderWidth: 1,
 		bottom: -4,
 		color: color.textSoft,
 		display: "flex",
-		fontSize: "0.5rem",
+		fontSize: font.size_0_5,
 		fontWeight: font.weight_5,
 		justifyContent: "center",
 		lineHeight: 1,
-		minWidth: 14,
+		minWidth: controlSize._3_5,
 		paddingInline: "0.125rem",
 		position: "absolute",
 		right: -4,
@@ -1248,69 +1256,69 @@ const styles = stylex.create({
 		alignItems: "center",
 		backgroundColor: color.accentWash,
 		borderColor: color.border,
-		borderRadius: 999,
+		borderRadius: radius.pill,
 		borderStyle: "solid",
 		borderWidth: 1,
 		color: color.textSoft,
 		display: "flex",
-		height: 14,
+		height: controlSize._3_5,
 		justifyContent: "center",
 		position: "absolute",
 		right: -4,
 		top: -4,
-		transitionDuration: "150ms",
-		width: 14,
+		transitionDuration: motion.durationBase,
+		width: controlSize._3_5,
 	},
 	workspaceWrap: {
 		marginBottom: controlSize._1,
 		marginInline: "0.375rem",
-		transitionDuration: "150ms",
+		transitionDuration: motion.durationBase,
 		transitionProperty: "background-color, border-color",
 		transitionTimingFunction: "ease",
 	},
 	workspaceHeader: {
 		alignItems: "center",
-		borderRadius: 8,
+		borderRadius: radius.lg,
 		borderStyle: "solid",
 		borderWidth: 1,
 		cursor: "pointer",
 		display: "flex",
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 		fontWeight: font.weight_5,
 		gap: controlSize._2,
 		height: controlSize._8,
 		paddingInline: controlSize._2,
 		textAlign: "left",
-		transitionDuration: "150ms",
+		transitionDuration: motion.durationBase,
 		transitionProperty: "background-color, border-color, color",
 		transitionTimingFunction: "ease",
 	},
 	workspaceHeaderIdle: {
-		backgroundColor: "transparent",
-		borderColor: "transparent",
+		backgroundColor: color.transparent,
+		borderColor: color.transparent,
 		color: color.textSoft,
 	},
 	workspaceHeaderActive: {
-		backgroundColor: "transparent",
-		borderColor: "transparent",
+		backgroundColor: color.transparent,
+		borderColor: color.transparent,
 		color: color.textSoft,
 	},
 	workspaceNameWrap: {
 		flex: 1,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		textAlign: "left",
 	},
 	workspaceInput: {
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 		borderWidth: 0,
 		color: color.textMain,
-		fontSize: "0.6875rem",
+		fontSize: font.size_2_75,
 		outline: "none",
 		width: "100%",
 	},
 	workspaceName: {
 		flex: 1,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
@@ -1319,7 +1327,7 @@ const styles = stylex.create({
 		alignItems: "center",
 		display: "flex",
 		gap: controlSize._1,
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 	workspaceEditHint: {
 		color: color.textSoft,
@@ -1334,7 +1342,7 @@ const styles = stylex.create({
 	},
 	workspaceChevron: {
 		flexShrink: 0,
-		transitionDuration: "150ms",
+		transitionDuration: motion.durationBase,
 		transitionProperty: "transform",
 		transitionTimingFunction: "ease",
 	},
@@ -1342,7 +1350,7 @@ const styles = stylex.create({
 		transform: "rotate(90deg)",
 	},
 	workspaceDelete: {
-		borderRadius: 4,
+		borderRadius: radius.sm,
 		color: color.textSoft,
 		flexShrink: 0,
 		marginLeft: controlSize._1,
@@ -1359,8 +1367,8 @@ const styles = stylex.create({
 		backdropFilter: "blur(var(--inferay-glass-blur, 4px)) saturate(104%)",
 		backgroundColor:
 			"color-mix(in srgb, var(--color-inferay-black) 46%, transparent)",
-		borderColor: "rgba(255,255,255,0.13)",
-		borderRadius: 17,
+		borderColor: color.surfaceWhite13,
+		borderRadius: radius.px17,
 		borderStyle: "solid",
 		borderWidth: 1,
 		boxSizing: "border-box",
@@ -1368,10 +1376,10 @@ const styles = stylex.create({
 			"inset 0 1px 0 rgba(255,255,255,0.055), 0 24px 64px rgba(0,0,0,0.5)",
 		display: "flex",
 		flexDirection: "column",
-		marginTop: 0,
+		marginTop: controlSize._0,
 		overflow: "visible",
 		position: "relative",
-		transitionDuration: "200ms",
+		transitionDuration: motion.durationSlow,
 		transitionProperty: "width",
 		transitionTimingFunction: "ease",
 		userSelect: "none",
@@ -1380,8 +1388,8 @@ const styles = stylex.create({
 		width: controlSize._12,
 	},
 	shellHidden: {
-		backgroundColor: "transparent",
-		borderColor: "transparent",
+		backgroundColor: color.transparent,
+		borderColor: color.transparent,
 		boxShadow: "none",
 		width: 41,
 	},
@@ -1389,40 +1397,40 @@ const styles = stylex.create({
 		width: 233,
 	},
 	shellResizing: {
-		transitionDuration: "0ms",
+		transitionDuration: motion.durationInstant,
 		transitionProperty: "none",
 		userSelect: "none",
 	},
 	resizeHandle: {
 		position: "absolute",
-		top: 0,
+		top: controlSize._0,
 		right: -2,
-		bottom: 0,
-		zIndex: 30,
+		bottom: controlSize._0,
+		zIndex: layer.sticky,
 		width: controlSize._1,
 		borderWidth: 0,
 		cursor: "ew-resize",
-		padding: 0,
+		padding: controlSize._0,
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.controlActive,
 		},
 		transitionProperty: "background-color",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 	},
 	nav: {
 		flex: 1,
 		overflowY: "auto",
 		paddingLeft: 41,
-		paddingBlock: 0,
+		paddingBlock: controlSize._0,
 	},
 	workspaceSection: {
-		marginTop: 0,
+		marginTop: controlSize._0,
 		paddingTop: controlSize._2,
 	},
 	workspaceSectionHeader: {
 		position: "relative",
-		zIndex: 50,
+		zIndex: layer.modal,
 		alignItems: "center",
 		display: "flex",
 		marginBlockEnd: controlSize._1,
@@ -1436,7 +1444,7 @@ const styles = stylex.create({
 		paddingInline: controlSize._1,
 	},
 	collapsedAddButton: {
-		borderRadius: "50%",
+		borderRadius: radius.circle,
 		height: controlSize._8,
 		width: controlSize._8,
 	},
@@ -1448,13 +1456,13 @@ const styles = stylex.create({
 		alignItems: "center",
 		gap: controlSize._1,
 		borderWidth: 0,
-		borderRadius: 0,
+		borderRadius: radius.none,
 		backgroundColor: color.transparent,
 		overflow: "visible",
 	},
 	workspaceGridWrap: {
 		position: "relative",
-		zIndex: 1,
+		zIndex: layer.content,
 		display: "inline-flex",
 		height: "100%",
 		width: controlSize._7,
@@ -1463,8 +1471,8 @@ const styles = stylex.create({
 	workspaceGridMenuAnchor: {
 		position: "absolute",
 		top: 42,
-		left: 0,
-		zIndex: 340,
+		left: controlSize._0,
+		zIndex: layer.sidebarPopover,
 		display: "flex",
 		width: 188,
 		pointerEvents: "auto",
@@ -1479,12 +1487,12 @@ const styles = stylex.create({
 				transform: "translateY(0) scale(1)",
 			},
 		}),
-		animationDuration: "240ms",
+		animationDuration: motion.durationDeliberate,
 		animationTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
 	},
 	workspaceLayoutButton: {
 		position: "relative",
-		zIndex: 1,
+		zIndex: layer.content,
 		display: "inline-flex",
 		height: "100%",
 		width: controlSize._7,
@@ -1493,7 +1501,7 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.transparent,
-		borderRadius: "50%",
+		borderRadius: radius.circle,
 	},
 	workspaceLayoutButtonIdle: {
 		color: {
@@ -1501,7 +1509,7 @@ const styles = stylex.create({
 			":hover": color.textSoft,
 		},
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.controlHover,
 		},
 	},
@@ -1518,7 +1526,7 @@ const styles = stylex.create({
 		flexDirection: "column",
 		gap: controlSize._2,
 		borderWidth: 0,
-		borderRadius: 8,
+		borderRadius: radius.lg,
 		backgroundColor: color.transparent,
 		boxShadow: "none",
 		padding: controlSize._2,
@@ -1548,19 +1556,19 @@ const styles = stylex.create({
 	},
 	workspaceGridChoice: {
 		position: "relative",
-		zIndex: 1,
+		zIndex: layer.content,
 		display: "inline-flex",
 		height: controlSize._6,
 		width: controlSize._6,
 		alignItems: "center",
 		justifyContent: "center",
-		borderRadius: "50%",
+		borderRadius: radius.circle,
 		color: {
 			default: color.textMuted,
 			":hover": color.textMain,
 		},
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.transparent,
 		},
 		fontSize: font.size_1,
@@ -1582,35 +1590,35 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		borderRadius: "50%",
+		borderRadius: radius.circle,
 		backgroundColor: {
 			default: color.backgroundRaised,
 			":hover": color.controlHover,
 		},
 		color: color.textSoft,
-		padding: 0,
+		padding: controlSize._0,
 	},
 	flipHorizontal: {
 		transform: "scaleX(-1)",
 	},
 	footer: {
 		alignItems: "center",
-		bottom: 20,
+		bottom: controlSize._5,
 		display: "flex",
 		position: "fixed",
-		zIndex: 200,
+		zIndex: layer.navigationPopover,
 	},
 	footerCollapsed: {
-		width: 32,
+		width: controlSize._8,
 	},
 	updateButton: {
 		borderWidth: 0,
 		width: "100%",
 	},
 	updateButtonCollapsed: {
-		borderRadius: "50%",
+		borderRadius: radius.circle,
 		height: controlSize._8,
-		paddingInline: 0,
+		paddingInline: controlSize._0,
 		width: controlSize._8,
 	},
 	updateButtonBusy: {
@@ -1618,7 +1626,7 @@ const styles = stylex.create({
 		opacity: 0.75,
 	},
 	updateLabel: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
