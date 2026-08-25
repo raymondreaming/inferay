@@ -1,7 +1,7 @@
 import { JSDOM } from "jsdom";
 import { createRoot, type Root } from "octane";
 import { describe, expect, test, vi } from "vitest";
-import type { HunkDiff } from "../src/features/git/useGitDiff.tsx";
+import { type HunkDiff, useGitDiff } from "../src/features/git/useGitDiff.tsx";
 
 const mock = Object.assign(vi.fn, {
 	module: (path: string, factory: () => unknown) => vi.doMock(path, factory),
@@ -83,7 +83,7 @@ function setupDom() {
 async function renderDiff(
 	root: Root,
 	rootElement: HTMLElement,
-	diff: HunkDiff
+	diff: HunkDiff,
 ) {
 	const { GitDiffView } = await import("../src/pages/Agent/GitDiffView.tsx");
 	root.render(
@@ -95,13 +95,60 @@ async function renderDiff(
 			hideHeader
 			hideToolbar
 			onClose={() => {}}
-		/>
+		/>,
 	);
 	await new Promise((resolve) => setTimeout(resolve, 30));
 	return rootElement;
 }
 
 describe("GitDiffView custom renderer", () => {
+	test("loads one diff when equivalent request objects rerender", async () => {
+		const { root, rootElement } = setupDom();
+		const previousFetch = globalThis.fetch;
+		let fetchCount = 0;
+		globalThis.fetch = vi.fn(async () => {
+			fetchCount++;
+			await new Promise((resolve) => setTimeout(resolve, 15));
+			return {
+				ok: true,
+				json: async () => ({
+					oldLines: [],
+					newLines: [],
+					compactLines: [
+						{ number: 1, content: "const value = 1;", type: "add" },
+					],
+					isBinary: false,
+					isNew: true,
+				}),
+			} as Response;
+		});
+
+		function DiffLoader({ revision }: { revision: number }) {
+			const { diff } = useGitDiff({
+				cwd: "/tmp/inferay-request-identity-test",
+				file: "request-identity.ts",
+				staged: false,
+				view: "review",
+			});
+			return (
+				<div data-revision={revision}>{diff?.compactLines?.[0]?.content}</div>
+			);
+		}
+
+		try {
+			root.render(<DiffLoader revision={0} />);
+			await new Promise((resolve) => setTimeout(resolve, 5));
+			root.render(<DiffLoader revision={1} />);
+			await new Promise((resolve) => setTimeout(resolve, 40));
+
+			expect(fetchCount).toBe(1);
+			expect(rootElement.textContent).toContain("const value = 1;");
+		} finally {
+			root.unmount();
+			globalThis.fetch = previousFetch;
+		}
+	});
+
 	test("renders independently scrollable split panes with synchronized axes", async () => {
 		const { root, rootElement } = setupDom();
 		try {
@@ -121,15 +168,15 @@ describe("GitDiffView custom renderer", () => {
 			await renderDiff(root, rootElement, diff);
 
 			const left = rootElement.querySelector<HTMLElement>(
-				'[data-diff-scroll-side="left"]'
+				'[data-diff-scroll-side="left"]',
 			);
 			const right = rootElement.querySelector<HTMLElement>(
-				'[data-diff-scroll-side="right"]'
+				'[data-diff-scroll-side="right"]',
 			);
 			expect(left).toBeTruthy();
 			expect(right).toBeTruthy();
 			expect(
-				rootElement.querySelectorAll(".diff-row").length
+				rootElement.querySelectorAll(".diff-row").length,
 			).toBeGreaterThanOrEqual(4);
 
 			left!.scrollLeft = 180;
@@ -175,7 +222,7 @@ describe("GitDiffView custom renderer", () => {
 
 			expect(rootElement.textContent).toContain("const value0 = 0;");
 			expect(rootElement.querySelectorAll(".diff-row").length).toBeGreaterThan(
-				0
+				0,
 			);
 		} finally {
 			root.unmount();
@@ -212,8 +259,57 @@ describe("GitDiffView custom renderer", () => {
 			expect(renderedRows).toBeLessThan(250);
 			expect(rootElement.textContent).toContain("const oldValue0 = 0;");
 			expect(rootElement.textContent).not.toContain(
-				"const oldValue3999 = 3999;"
+				"const oldValue3999 = 3999;",
 			);
+		} finally {
+			root.unmount();
+		}
+	});
+
+	test("renders Rust-compacted review rows in split mode", async () => {
+		const { root, rootElement } = setupDom();
+		try {
+			const diff: HunkDiff = {
+				oldLines: [
+					{
+						number: null,
+						content: "... 200 unchanged lines hidden ...",
+						type: "hunk",
+					},
+					{ number: 101, content: "const oldValue = 1;", type: "remove" },
+				],
+				newLines: [
+					{
+						number: null,
+						content: "... 200 unchanged lines hidden ...",
+						type: "hunk",
+					},
+					{ number: 101, content: "const newValue = 2;", type: "add" },
+				],
+				compactLines: [
+					{
+						number: null,
+						content: "... 200 unchanged lines hidden ...",
+						type: "hunk",
+					},
+					{ number: 101, content: "const oldValue = 1;", type: "remove" },
+					{ number: 101, content: "const newValue = 2;", type: "add" },
+				],
+				isBinary: false,
+				isNew: false,
+			};
+
+			await renderDiff(root, rootElement, diff);
+
+			expect(rootElement.textContent).toContain("const oldValue = 1;");
+			expect(rootElement.textContent).toContain("const newValue = 2;");
+			expect(rootElement.textContent).toContain("200 unchanged lines hidden");
+			expect(
+				rootElement.querySelector('[data-diff-scroll-side="left"]'),
+			).toBeTruthy();
+			expect(
+				rootElement.querySelector('[data-diff-scroll-side="right"]'),
+			).toBeTruthy();
 		} finally {
 			root.unmount();
 		}

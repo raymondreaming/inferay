@@ -1399,6 +1399,22 @@ export const GitDiffView = memo(function GitDiffView({
 		let currentChangeIdx = -1;
 		let inChange = false;
 
+		if (viewMode === "hunks" && diff.compactLines) {
+			for (let idx = 0; idx < diff.compactLines.length; idx++) {
+				const line = diff.compactLines[idx];
+				const isChanged = line?.type === "remove" || line?.type === "add";
+				if (isChanged && !inChange) {
+					currentChangeIdx++;
+					positions.push(idx);
+					inChange = true;
+				} else if (!isChanged) {
+					inChange = false;
+				}
+				if (isChanged) lineMap.set(idx, currentChangeIdx);
+			}
+			return { changePositions: positions, changeLineMap: lineMap };
+		}
+
 		const max = Math.max(diff.oldLines.length, diff.newLines.length);
 		for (let idx = 0; idx < max; idx++) {
 			const oldLine = diff.oldLines[idx];
@@ -1417,7 +1433,7 @@ export const GitDiffView = memo(function GitDiffView({
 		}
 
 		return { changePositions: positions, changeLineMap: lineMap };
-	}, [diff.oldLines, diff.newLines]);
+	}, [diff.compactLines, diff.oldLines, diff.newLines, viewMode]);
 
 	const totalChanges = changePositions.length;
 	const scrollToChangeIdx = useCallback(
@@ -1525,30 +1541,37 @@ export const GitDiffView = memo(function GitDiffView({
 	}, [filePath]);
 
 	const statusMessage = useMemo(() => {
+		if (diff.compactLines?.length === 1) {
+			const line = diff.compactLines[0];
+			if (
+				line?.type === "context" &&
+				/too large|cannot read/i.test(line.content)
+			) {
+				return line.content.trim();
+			}
+		}
 		if (diff.oldLines.length !== 0 || diff.newLines.length !== 1) return null;
 		const line = diff.newLines[0];
 		if (!line || line.type !== "context") return null;
 		const text = line.content.trim();
 		return /too large|cannot read/i.test(text) ? text : null;
-	}, [diff.newLines, diff.oldLines.length]);
+	}, [diff.compactLines, diff.newLines, diff.oldLines.length]);
 
 	const oversizedMessage = useMemo(() => {
-		const totalLines = diff.oldLines.length + diff.newLines.length;
+		const lines = diff.compactLines ?? [...diff.oldLines, ...diff.newLines];
+		const totalLines = lines.length;
 		if (totalLines > MAX_RENDERED_DIFF_LINES) {
 			return `Diff is too large to render safely (${totalLines.toLocaleString()} lines). Use the Editor/agent to inspect this file in smaller chunks.`;
 		}
 		let longest = 0;
-		for (const line of diff.oldLines) {
-			if (line.content.length > longest) longest = line.content.length;
-		}
-		for (const line of diff.newLines) {
+		for (const line of lines) {
 			if (line.content.length > longest) longest = line.content.length;
 		}
 		if (longest > MAX_RENDERED_LINE_CHARS * 2) {
 			return `Diff contains a very long line (${longest.toLocaleString()} characters). Rendering is limited to keep the app responsive.`;
 		}
 		return null;
-	}, [diff.newLines, diff.oldLines]);
+	}, [diff.compactLines, diff.newLines, diff.oldLines]);
 
 	const disableTokenize = useMemo(
 		() => shouldDisableDiffTokenization(diff),
@@ -1559,8 +1582,9 @@ export const GitDiffView = memo(function GitDiffView({
 
 	const hunkLines = useMemo(() => {
 		if (oversizedMessage) return [];
+		if (diff.compactLines) return diff.compactLines;
 		return buildInlineHunkLines(diff.oldLines, diff.newLines);
-	}, [diff.oldLines, diff.newLines, oversizedMessage]);
+	}, [diff.compactLines, diff.oldLines, diff.newLines, oversizedMessage]);
 	const splitOldLines = useMemo(
 		() =>
 			diff.isNew
@@ -1604,7 +1628,7 @@ export const GitDiffView = memo(function GitDiffView({
 		);
 	}
 
-	const isMarkdown = ext === "md" || ext === "mdx";
+	const isMarkdown = !diff.compactLines && (ext === "md" || ext === "mdx");
 	const markdownContent = isMarkdown ? buildMarkdownContent(diff.newLines) : "";
 
 	if (renderMergeConflict && !isMarkdown) {

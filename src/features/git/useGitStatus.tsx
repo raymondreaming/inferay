@@ -3,6 +3,8 @@ import { usePollingQuery } from "../../hooks/useQueryResource.tsx";
 import { postJson } from "../../lib/fetch-json.ts";
 import type { GitProjectStatus } from "./types.ts";
 
+const EMPTY_GIT_PROJECTS: GitProjectStatus[] = [];
+
 function areGitStatusesEqual(
 	prev: GitProjectStatus[],
 	next: GitProjectStatus[],
@@ -48,6 +50,7 @@ export function useGitStatus(cwds: string[], options?: { enabled?: boolean }) {
 		() => (cwdKey ? cwdKey.split("\u0000") : []),
 		[cwdKey],
 	);
+	const queryKey = useMemo(() => ["git", "status", cwdKey] as const, [cwdKey]);
 	const [loadedCwdKey, setLoadedCwdKey] = useState("");
 	const fetcher = useCallback(
 		async (signal?: AbortSignal) => {
@@ -71,8 +74,8 @@ export function useGitStatus(cwds: string[], options?: { enabled?: boolean }) {
 		setData,
 		refetch,
 		loaded,
-	} = usePollingQuery<GitProjectStatus[]>(fetcher, 5000, [], {
-		queryKey: ["git", "status", cwdKey],
+	} = usePollingQuery<GitProjectStatus[]>(fetcher, 5000, EMPTY_GIT_PROJECTS, {
+		queryKey,
 		enabled,
 		isEqual: areGitStatusesEqual,
 	});

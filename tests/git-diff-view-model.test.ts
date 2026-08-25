@@ -6,6 +6,7 @@ import {
 	type HunkDiff,
 	hasLongPatchLine,
 	shouldDisableDiffTokenization,
+	summarizeHunkDiff,
 } from "../src/features/git/useGitDiff.tsx";
 import { shouldDisableSnippetHighlighting } from "../src/hooks/useShikiHighlighter.tsx";
 
@@ -122,5 +123,21 @@ describe("git diff view model", () => {
 				Array.from({ length: 2_001 }, (_, index) => `.rule-${index}{}`),
 			),
 		).toBe(true);
+	});
+
+	test("summarizes Rust-compacted review diffs without full-file arrays", () => {
+		expect(
+			summarizeHunkDiff(
+				diff({
+					compactLines: [
+						line("hunk", "... 40 unchanged lines hidden ..."),
+						line("context", "before"),
+						line("remove", "old"),
+						line("add", "new"),
+						line("context", "after", 2),
+					],
+				}),
+			),
+		).toEqual({ added: 1, removed: 1, hunks: 1, lines: 5 });
 	});
 });

@@ -170,6 +170,8 @@ pub struct GitDiffLine {
 pub struct GitHunkDiff {
     pub old_lines: Vec<GitDiffLine>,
     pub new_lines: Vec<GitDiffLine>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compact_lines: Option<Vec<GitDiffLine>>,
     pub is_binary: bool,
     pub is_new: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -533,6 +535,22 @@ pub fn is_changed_git_file(cwd: &str, file_path: &str) -> bool {
     .is_some_and(|status| status.lines().any(|line| !line.trim().is_empty()))
 }
 
+fn is_untracked_git_file(cwd: &str, file_path: &str) -> bool {
+    run_git_timed(
+        &[
+            "--literal-pathspecs",
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+            "--",
+            file_path,
+        ],
+        cwd,
+        Duration::from_secs(2),
+    )
+    .is_some_and(|status| status.lines().any(|line| line.starts_with("?? ")))
+}
+
 pub fn get_git_diff(
     allowed_paths: &AllowedPaths,
     cwd: &str,
@@ -557,13 +575,7 @@ pub fn get_git_diff(
         )
     } else {
         run_git_timed(
-            &[
-                "diff",
-                "--no-ext-diff",
-                "--no-textconv",
-                "--",
-                file_path,
-            ],
+            &["diff", "--no-ext-diff", "--no-textconv", "--", file_path],
             cwd,
             Duration::from_secs(5),
         )
@@ -750,6 +762,7 @@ fn too_large_diff(message: &str, is_new: bool) -> GitHunkDiff {
             content: message.to_string(),
             line_type: GitDiffLineType::Context,
         }],
+        compact_lines: None,
         is_binary: false,
         is_new,
         is_image: None,
@@ -775,10 +788,13 @@ fn parse_hunk_range(value: &str) -> Option<(usize, usize)> {
     Some((start.parse().ok()?, count.parse().ok()?))
 }
 
-fn range_contains(ranges: &[DiffRange], line: usize) -> bool {
+fn ordered_range_contains(ranges: &[DiffRange], cursor: &mut usize, line: usize) -> bool {
+    while ranges.get(*cursor).is_some_and(|range| range.end < line) {
+        *cursor += 1;
+    }
     ranges
-        .iter()
-        .any(|range| line >= range.start && line <= range.end)
+        .get(*cursor)
+        .is_some_and(|range| line >= range.start && line <= range.end)
 }
 
 fn push_changed_line(ranges: &mut Vec<DiffRange>, line: usize) {
@@ -868,6 +884,7 @@ pub fn get_git_hunk_diff(
         return GitHunkDiff {
             old_lines: Vec::new(),
             new_lines: Vec::new(),
+            compact_lines: None,
             is_binary: true,
             is_new: true,
             is_image: Some(true),
@@ -893,6 +910,7 @@ pub fn get_git_hunk_diff(
                         return GitHunkDiff {
                             old_lines: Vec::new(),
                             new_lines: Vec::new(),
+                            compact_lines: None,
                             is_binary: true,
                             is_new: false,
                             is_image: None,
@@ -930,7 +948,14 @@ pub fn get_git_hunk_diff(
         format!(":{file_path}")
     };
     let old_result = run_git_timed(&["show", &reference], cwd, Duration::from_secs(5));
-    let is_new = old_result.is_none();
+    // `git show :path` can return success with an empty result when an untracked
+    // path contains pathspec metacharacters such as `[...path]`. Confirm the
+    // ambiguous empty case with a literal status lookup instead of treating the
+    // file as an unchanged empty index entry.
+    let is_new = old_result.is_none()
+        || (old_result.as_deref().is_some_and(str::is_empty)
+            && raw_patch.is_empty()
+            && is_untracked_git_file(cwd, file_path));
     let old_content = old_result.unwrap_or_default();
 
     if deleted_patch {
@@ -969,6 +994,7 @@ pub fn get_git_hunk_diff(
                     line_type: GitDiffLineType::Spacer,
                 })
                 .collect(),
+            compact_lines: None,
             is_binary: false,
             is_new: false,
             is_image: None,
@@ -995,6 +1021,7 @@ pub fn get_git_hunk_diff(
                     line_type: GitDiffLineType::Add,
                 })
                 .collect(),
+            compact_lines: None,
             is_binary: false,
             is_new: true,
             is_image: None,
@@ -1029,14 +1056,16 @@ pub fn get_git_hunk_diff(
     let mut new_lines = Vec::new();
     let mut old_index = 0usize;
     let mut new_index = 0usize;
+    let mut removed_range_cursor = 0usize;
+    let mut added_range_cursor = 0usize;
 
     while old_index < old_file_lines.len() || new_index < new_file_lines.len() {
         let old_number = old_index + 1;
         let new_number = new_index + 1;
-        let old_removed =
-            old_index < old_file_lines.len() && range_contains(&removed_ranges, old_number);
-        let new_added =
-            new_index < new_file_lines.len() && range_contains(&added_ranges, new_number);
+        let old_removed = old_index < old_file_lines.len()
+            && ordered_range_contains(&removed_ranges, &mut removed_range_cursor, old_number);
+        let new_added = new_index < new_file_lines.len()
+            && ordered_range_contains(&added_ranges, &mut added_range_cursor, new_number);
         if old_removed && new_added {
             old_lines.push(GitDiffLine {
                 number: Some(old_number),
@@ -1117,6 +1146,7 @@ pub fn get_git_hunk_diff(
     GitHunkDiff {
         old_lines,
         new_lines,
+        compact_lines: None,
         is_binary: false,
         is_new: false,
         is_image: None,
@@ -1124,6 +1154,224 @@ pub fn get_git_hunk_diff(
         raw_patch: Some(raw_patch),
         merge_conflict_content,
     }
+}
+
+const REVIEW_CONTEXT_LINES: usize = 4;
+
+fn compact_context_line(hidden_count: usize) -> GitDiffLine {
+    GitDiffLine {
+        number: None,
+        content: format!(
+            "... {hidden_count} unchanged {} hidden ...",
+            if hidden_count == 1 { "line" } else { "lines" }
+        ),
+        line_type: GitDiffLineType::Hunk,
+    }
+}
+
+fn append_review_rows(result: &mut Vec<GitDiffLine>, rows: &[GitDiffLine]) {
+    let mut changed_run = Vec::new();
+    let flush_changed_run = |result: &mut Vec<GitDiffLine>, changed_run: &mut Vec<GitDiffLine>| {
+        if changed_run.is_empty() {
+            return;
+        }
+        result.extend(
+            changed_run
+                .iter()
+                .filter(|line| line.line_type == GitDiffLineType::Remove)
+                .cloned(),
+        );
+        result.extend(
+            changed_run
+                .iter()
+                .filter(|line| line.line_type == GitDiffLineType::Add)
+                .cloned(),
+        );
+        changed_run.clear();
+    };
+
+    for row in rows {
+        if matches!(
+            row.line_type,
+            GitDiffLineType::Add | GitDiffLineType::Remove
+        ) {
+            changed_run.push(row.clone());
+        } else {
+            flush_changed_run(result, &mut changed_run);
+            result.push(row.clone());
+        }
+    }
+    flush_changed_run(result, &mut changed_run);
+}
+
+fn build_review_lines(old_lines: &[GitDiffLine], new_lines: &[GitDiffLine]) -> Vec<GitDiffLine> {
+    let mut stacked = Vec::new();
+    let line_count = old_lines.len().max(new_lines.len());
+    for index in 0..line_count {
+        let old_line = old_lines.get(index);
+        let new_line = new_lines.get(index);
+        if old_line.is_some_and(|line| line.line_type == GitDiffLineType::Context)
+            && new_line.is_some_and(|line| line.line_type == GitDiffLineType::Context)
+        {
+            if let Some(line) = new_line {
+                stacked.push(line.clone());
+            }
+            continue;
+        }
+        if let Some(line) = old_line.filter(|line| line.line_type != GitDiffLineType::Spacer) {
+            stacked.push(line.clone());
+        }
+        if let Some(line) = new_line.filter(|line| line.line_type != GitDiffLineType::Spacer) {
+            stacked.push(line.clone());
+        }
+    }
+
+    let changed_rows = stacked
+        .iter()
+        .enumerate()
+        .filter_map(|(index, line)| {
+            matches!(
+                line.line_type,
+                GitDiffLineType::Add | GitDiffLineType::Remove
+            )
+            .then_some(index)
+        })
+        .collect::<Vec<_>>();
+    if changed_rows.is_empty() {
+        return stacked;
+    }
+
+    let mut ranges = Vec::<DiffRange>::new();
+    for row in changed_rows {
+        let start = row.saturating_sub(REVIEW_CONTEXT_LINES);
+        let end = (row + REVIEW_CONTEXT_LINES).min(stacked.len().saturating_sub(1));
+        let merged = if let Some(previous) = ranges.last_mut() {
+            if start <= previous.end + REVIEW_CONTEXT_LINES + 1 {
+                previous.end = previous.end.max(end);
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if !merged {
+            ranges.push(DiffRange { start, end });
+        }
+    }
+
+    let mut result = Vec::new();
+    for (index, range) in ranges.iter().enumerate() {
+        let previous_end = if index == 0 {
+            None
+        } else {
+            Some(ranges[index - 1].end)
+        };
+        let hidden_count = range
+            .start
+            .saturating_sub(previous_end.map_or(0, |end| end + 1));
+        if hidden_count > 0 {
+            result.push(compact_context_line(hidden_count));
+        }
+        append_review_rows(&mut result, &stacked[range.start..=range.end]);
+    }
+    if let Some(final_range) = ranges.last() {
+        let hidden_count = stacked.len().saturating_sub(final_range.end + 1);
+        if hidden_count > 0 {
+            result.push(compact_context_line(hidden_count));
+        }
+    }
+    result
+}
+
+fn build_review_split_lines(
+    old_lines: &[GitDiffLine],
+    new_lines: &[GitDiffLine],
+) -> (Vec<GitDiffLine>, Vec<GitDiffLine>) {
+    let line_count = old_lines.len().max(new_lines.len());
+    let changed_rows = (0..line_count)
+        .filter(|&index| {
+            old_lines.get(index).is_some_and(|line| {
+                matches!(
+                    line.line_type,
+                    GitDiffLineType::Add | GitDiffLineType::Remove
+                )
+            }) || new_lines.get(index).is_some_and(|line| {
+                matches!(
+                    line.line_type,
+                    GitDiffLineType::Add | GitDiffLineType::Remove
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    if changed_rows.is_empty() {
+        return (old_lines.to_vec(), new_lines.to_vec());
+    }
+
+    let mut ranges = Vec::<DiffRange>::new();
+    for row in changed_rows {
+        let start = row.saturating_sub(REVIEW_CONTEXT_LINES);
+        let end = (row + REVIEW_CONTEXT_LINES).min(line_count.saturating_sub(1));
+        let merged = if let Some(previous) = ranges.last_mut() {
+            if start <= previous.end + REVIEW_CONTEXT_LINES + 1 {
+                previous.end = previous.end.max(end);
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if !merged {
+            ranges.push(DiffRange { start, end });
+        }
+    }
+
+    let spacer = || GitDiffLine {
+        number: None,
+        content: String::new(),
+        line_type: GitDiffLineType::Spacer,
+    };
+    let mut compact_old = Vec::new();
+    let mut compact_new = Vec::new();
+    for (index, range) in ranges.iter().enumerate() {
+        let previous_end = if index == 0 {
+            None
+        } else {
+            Some(ranges[index - 1].end)
+        };
+        let hidden_count = range
+            .start
+            .saturating_sub(previous_end.map_or(0, |end| end + 1));
+        if hidden_count > 0 {
+            let marker = compact_context_line(hidden_count);
+            compact_old.push(marker.clone());
+            compact_new.push(marker);
+        }
+        for row in range.start..=range.end {
+            compact_old.push(old_lines.get(row).cloned().unwrap_or_else(&spacer));
+            compact_new.push(new_lines.get(row).cloned().unwrap_or_else(&spacer));
+        }
+    }
+    if let Some(final_range) = ranges.last() {
+        let hidden_count = line_count.saturating_sub(final_range.end + 1);
+        if hidden_count > 0 {
+            let marker = compact_context_line(hidden_count);
+            compact_old.push(marker.clone());
+            compact_new.push(marker);
+        }
+    }
+    (compact_old, compact_new)
+}
+
+pub fn compact_git_hunk_diff(mut diff: GitHunkDiff) -> GitHunkDiff {
+    if !diff.is_binary && diff.merge_conflict_content.is_none() {
+        diff.compact_lines = Some(build_review_lines(&diff.old_lines, &diff.new_lines));
+        (diff.old_lines, diff.new_lines) =
+            build_review_split_lines(&diff.old_lines, &diff.new_lines);
+        diff.raw_patch = None;
+    }
+    diff
 }
 
 pub fn get_git_file_with_diff(
@@ -1166,6 +1414,7 @@ pub fn get_git_file_with_diff(
     let content = String::from_utf8_lossy(&bytes);
     let raw_patch = get_raw_git_patch(cwd, file_path, staged);
     let (_, added_ranges) = parse_changed_ranges(&raw_patch);
+    let mut added_range_cursor = 0usize;
     let lines = content
         .split('\n')
         .enumerate()
@@ -1174,7 +1423,8 @@ pub fn get_git_file_with_diff(
             GitDiffLine {
                 number: Some(number),
                 content: content.to_string(),
-                line_type: if range_contains(&added_ranges, number) {
+                line_type: if ordered_range_contains(&added_ranges, &mut added_range_cursor, number)
+                {
                     GitDiffLineType::Add
                 } else {
                     GitDiffLineType::Context
@@ -1468,7 +1718,6 @@ fn commit_git_mode(cwd: &str, message: &str, amend: bool) -> GitCommitResult {
 }
 
 pub fn get_git_status(cwd: &str) -> Option<GitStatusResult> {
-    run_git(&["rev-parse", "--git-dir"], cwd)?;
     let raw = run_git(
         &["status", "--porcelain=v1", "-b", "--untracked-files=all"],
         cwd,
@@ -1589,20 +1838,27 @@ pub fn get_git_status(cwd: &str) -> Option<GitStatusResult> {
 }
 
 fn get_working_tree_numstat(cwd: &str) -> HashMap<String, (usize, usize)> {
-    let mut stats = HashMap::new();
-    add_numstat_entries(&mut stats, cwd, false);
-    add_numstat_entries(&mut stats, cwd, true);
-    stats
+    let (mut unstaged, staged) = std::thread::scope(|scope| {
+        let unstaged = scope.spawn(|| get_numstat_entries(cwd, false));
+        let staged = scope.spawn(|| get_numstat_entries(cwd, true));
+        (
+            unstaged.join().unwrap_or_default(),
+            staged.join().unwrap_or_default(),
+        )
+    });
+    unstaged.extend(staged);
+    unstaged
 }
 
-fn add_numstat_entries(stats: &mut HashMap<String, (usize, usize)>, cwd: &str, staged: bool) {
+fn get_numstat_entries(cwd: &str, staged: bool) -> HashMap<String, (usize, usize)> {
+    let mut stats = HashMap::new();
     let args = if staged {
         ["diff", "--cached", "--numstat"].as_slice()
     } else {
         ["diff", "--numstat"].as_slice()
     };
     let Some(result) = run_git(args, cwd) else {
-        return;
+        return stats;
     };
     let prefix = if staged { "staged" } else { "unstaged" };
     for line in result.lines().filter(|line| !line.is_empty()) {
@@ -1618,6 +1874,7 @@ fn add_numstat_entries(stats: &mut HashMap<String, (usize, usize)>, cwd: &str, s
             (additions, deletions),
         );
     }
+    stats
 }
 
 fn parse_numstat_count(value: &str) -> usize {
@@ -1965,9 +2222,84 @@ mod tests {
     }
 
     #[test]
+    fn compact_review_diff_keeps_changes_and_bounds_context() {
+        let mut old_lines = Vec::new();
+        let mut new_lines = Vec::new();
+        for number in 1..=24 {
+            let changed = number == 12;
+            old_lines.push(GitDiffLine {
+                number: Some(number),
+                content: if changed {
+                    "old value".to_string()
+                } else {
+                    format!("line {number}")
+                },
+                line_type: if changed {
+                    GitDiffLineType::Remove
+                } else {
+                    GitDiffLineType::Context
+                },
+            });
+            new_lines.push(GitDiffLine {
+                number: Some(number),
+                content: if changed {
+                    "new value".to_string()
+                } else {
+                    format!("line {number}")
+                },
+                line_type: if changed {
+                    GitDiffLineType::Add
+                } else {
+                    GitDiffLineType::Context
+                },
+            });
+        }
+        let compact = compact_git_hunk_diff(GitHunkDiff {
+            old_lines,
+            new_lines,
+            compact_lines: None,
+            is_binary: false,
+            is_new: false,
+            is_image: None,
+            image_path: None,
+            raw_patch: Some("large patch that the review response does not need".to_string()),
+            merge_conflict_content: None,
+        });
+
+        assert!(compact.old_lines.len() < 12);
+        assert_eq!(compact.old_lines.len(), compact.new_lines.len());
+        assert!(compact
+            .old_lines
+            .iter()
+            .any(|line| line.line_type == GitDiffLineType::Remove));
+        assert!(compact
+            .new_lines
+            .iter()
+            .any(|line| line.line_type == GitDiffLineType::Add));
+        assert!(compact.raw_patch.is_none());
+        let lines = compact.compact_lines.unwrap();
+        assert!(lines.len() < 16);
+        assert_eq!(lines.first().unwrap().line_type, GitDiffLineType::Hunk);
+        let removed = lines
+            .iter()
+            .position(|line| line.line_type == GitDiffLineType::Remove)
+            .unwrap();
+        let added = lines
+            .iter()
+            .position(|line| line.line_type == GitDiffLineType::Add)
+            .unwrap();
+        assert_eq!(added, removed + 1);
+        assert_eq!(lines.last().unwrap().line_type, GitDiffLineType::Hunk);
+    }
+
+    #[test]
     fn full_diff_ignores_repository_external_diff_drivers() {
         let repository = make_repository();
-        std::fs::write(repository.path().join(".gitattributes"), "*.css diff=slow\n").unwrap();
+        std::fs::write(
+            repository.path().join(".gitattributes"),
+            "*.css diff=slow\n",
+        )
+        .unwrap();
         std::fs::write(repository.path().join("app.css"), ".old { color: red; }\n").unwrap();
         git(repository.path(), &["config", "diff.slow.command", "false"]);
         git(repository.path(), &["add", "."]);
@@ -2109,6 +2441,29 @@ mod tests {
         assert!(patch.contains("diff --git a/tracked.ts b/tracked.ts"));
         assert!(patch.contains("--- a/tracked.ts"));
         assert!(patch.contains("+++ b/tracked.ts"));
+        assert!(diff
+            .new_lines
+            .iter()
+            .any(|line| line.line_type == GitDiffLineType::Add));
+    }
+
+    #[test]
+    fn full_diff_treats_untracked_bracket_paths_as_literal_new_files() {
+        let repository = make_repository();
+        let directory = repository.path().join("app/api/[...path]");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("route.ts"), "export const route = true;\n").unwrap();
+        let cwd = repository.path().to_string_lossy();
+
+        let diff = get_git_hunk_diff(
+            &allowed(repository.path()),
+            &cwd,
+            "app/api/[...path]/route.ts",
+            false,
+        );
+
+        assert!(diff.is_new);
+        assert!(diff.raw_patch.unwrap().contains("new file mode"));
         assert!(diff
             .new_lines
             .iter()

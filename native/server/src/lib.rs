@@ -30,10 +30,10 @@ use inferay_core::path_security::{
 };
 use inferay_core::prompts::{PromptError, PromptStore};
 use inferay_native_diff::{
-    GitFileWithDiff, NativeRequest, NativeResponse, checkout_git_branch, commit_git, get_git_blame,
-    get_git_branches, get_git_commit_details, get_git_diff, get_git_file_history,
-    get_git_file_with_diff, get_git_graph, get_git_hunk_diff, get_git_log, get_git_status,
-    is_changed_git_file, stage_git, unstage_git,
+    GitFileWithDiff, NativeRequest, NativeResponse, checkout_git_branch, commit_git,
+    compact_git_hunk_diff, get_git_blame, get_git_branches, get_git_commit_details, get_git_diff,
+    get_git_file_history, get_git_file_with_diff, get_git_graph, get_git_hunk_diff, get_git_log,
+    get_git_status, is_changed_git_file, stage_git, unstage_git,
 };
 use percent_encoding::percent_decode_str;
 use reqwest::Client;
@@ -1805,6 +1805,7 @@ async fn git_diff(state: &ServerState, request: Request) -> Response {
 
 async fn git_full_diff(state: &ServerState, request: Request) -> Response {
     let request_headers = request.headers().clone();
+    let review = query_value(&request, "view").as_deref() == Some("review");
     let Some(params) = git_diff_params(state, &request) else {
         return json_response(
             StatusCode::BAD_REQUEST,
@@ -1814,15 +1815,20 @@ async fn git_full_diff(state: &ServerState, request: Request) -> Response {
     };
     let allowed_paths = state.allowed_paths.clone();
     let task = tokio::task::spawn_blocking(move || {
-        if !is_changed_git_file(&params.cwd, &params.file) {
-            return None;
-        }
-        Some(get_git_hunk_diff(
-            &allowed_paths,
-            &params.cwd,
-            &params.file,
-            params.staged,
-        ))
+        let diff = get_git_hunk_diff(&allowed_paths, &params.cwd, &params.file, params.staged);
+        let changed = diff.is_new
+            || diff
+                .raw_patch
+                .as_deref()
+                .is_some_and(|patch| !patch.trim().is_empty())
+            || diff.merge_conflict_content.is_some();
+        changed.then(|| {
+            if review {
+                compact_git_hunk_diff(diff)
+            } else {
+                diff
+            }
+        })
     });
     match task.await {
         Ok(Some(diff)) => json_response(StatusCode::OK, json!(diff), &request_headers),
@@ -5158,6 +5164,40 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         assert!(value["rawPatch"].as_str().unwrap().contains("diff --git"));
         assert!(
             value["newLines"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|line| line["type"] == "add")
+        );
+
+        let review_diff_uri = query_path(
+            "/api/git/full-diff",
+            &[
+                ("cwd", cwd.as_ref()),
+                ("file", "README.md"),
+                ("staged", "false"),
+                ("view", "review"),
+            ],
+        );
+        let (status, value) = call_json(&app, Method::GET, review_diff_uri, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(value.get("rawPatch").is_none());
+        assert!(
+            value["oldLines"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|line| line["type"] == "remove")
+        );
+        assert!(
+            value["newLines"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|line| line["type"] == "add")
+        );
+        assert!(
+            value["compactLines"]
                 .as_array()
                 .unwrap()
                 .iter()

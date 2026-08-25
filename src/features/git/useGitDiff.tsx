@@ -11,6 +11,7 @@ export interface DiffLine {
 export interface HunkDiff {
 	oldLines: DiffLine[];
 	newLines: DiffLine[];
+	compactLines?: DiffLine[];
 	isBinary: boolean;
 	isNew: boolean;
 	isImage?: boolean;
@@ -24,6 +25,7 @@ export interface DiffRequest {
 	cwd: string;
 	file: string;
 	staged: boolean;
+	view?: "full" | "review";
 }
 
 export interface HunkDiffStats {
@@ -51,7 +53,7 @@ export type SplitDiffRow = {
 
 export function hasLongPatchLine(
 	patch: string,
-	maxChars = MAX_DIFF_TOKENIZE_LINE_CHARS
+	maxChars = MAX_DIFF_TOKENIZE_LINE_CHARS,
 ): boolean {
 	for (const line of patch.split("\n")) {
 		if (line.length > maxChars) return true;
@@ -60,6 +62,9 @@ export function hasLongPatchLine(
 }
 
 export function shouldDisableDiffTokenization(diff: HunkDiff): boolean {
+	for (const line of diff.compactLines ?? []) {
+		if (line.content.length > MAX_DIFF_TOKENIZE_LINE_CHARS) return true;
+	}
 	for (const line of diff.oldLines) {
 		if (line.content.length > MAX_DIFF_TOKENIZE_LINE_CHARS) return true;
 	}
@@ -74,7 +79,7 @@ export function buildSplitDiffRows(
 	newLines: DiffLine[],
 	changeLineMap: Map<number, number> | undefined,
 	start: number,
-	end: number
+	end: number,
 ): SplitDiffRow[] {
 	const rows: SplitDiffRow[] = [];
 	const max = Math.max(oldLines.length, newLines.length);
@@ -170,6 +175,9 @@ function isHunkDiff(value: unknown): value is HunkDiff {
 		Array.isArray(diff.newLines) &&
 		diff.oldLines.every(isDiffLine) &&
 		diff.newLines.every(isDiffLine) &&
+		(diff.compactLines === undefined ||
+			(Array.isArray(diff.compactLines) &&
+				diff.compactLines.every(isDiffLine))) &&
 		typeof diff.isBinary === "boolean" &&
 		typeof diff.isNew === "boolean" &&
 		(diff.rawPatch === undefined || typeof diff.rawPatch === "string") &&
@@ -189,14 +197,15 @@ function safeDiffMessage(content: string): HunkDiff {
 
 function areDiffRequestsEqual(
 	prev: DiffRequest | null,
-	next: DiffRequest | null
+	next: DiffRequest | null,
 ) {
 	if (prev === next) return true;
 	if (!prev || !next) return false;
 	return (
 		prev.cwd === next.cwd &&
 		prev.file === next.file &&
-		prev.staged === next.staged
+		prev.staged === next.staged &&
+		(prev.view ?? "full") === (next.view ?? "full")
 	);
 }
 
@@ -222,6 +231,7 @@ function areHunkDiffsEqual(prev: HunkDiff | null, next: HunkDiff | null) {
 		prev.imagePath === next.imagePath &&
 		prev.rawPatch === next.rawPatch &&
 		prev.mergeConflictContent === next.mergeConflictContent &&
+		areDiffLinesEqual(prev.compactLines ?? [], next.compactLines ?? []) &&
 		areDiffLinesEqual(prev.oldLines, next.oldLines) &&
 		areDiffLinesEqual(prev.newLines, next.newLines)
 	);
@@ -229,6 +239,20 @@ function areHunkDiffsEqual(prev: HunkDiff | null, next: HunkDiff | null) {
 
 export function summarizeHunkDiff(diff: HunkDiff | null): HunkDiffStats {
 	if (!diff) return { added: 0, removed: 0, hunks: 0, lines: 0 };
+	if (diff.compactLines) {
+		let added = 0;
+		let removed = 0;
+		let hunks = 0;
+		let inChange = false;
+		for (const line of diff.compactLines) {
+			const changed = line.type === "add" || line.type === "remove";
+			if (line.type === "add") added++;
+			if (line.type === "remove") removed++;
+			if (changed && !inChange) hunks++;
+			inChange = changed;
+		}
+		return { added, removed, hunks, lines: diff.compactLines.length };
+	}
 	let added = 0;
 	let removed = 0;
 	let hunks = 0;
@@ -258,10 +282,21 @@ export function summarizeHunkDiff(diff: HunkDiff | null): HunkDiffStats {
 // Counter to track and cancel stale requests
 let requestCounter = 0;
 const DIFF_CACHE_TTL_MS = 60_000;
+const MAX_DIFF_CACHE_ENTRIES = 100;
 const diffCache = new Map<string, { diff: HunkDiff; storedAt: number }>();
 
 function diffCacheKey(req: DiffRequest): string {
-	return `${req.cwd}\0${req.file}\0${req.staged ? "staged" : "unstaged"}`;
+	return `${req.cwd}\0${req.file}\0${req.staged ? "staged" : "unstaged"}\0${req.view ?? "full"}`;
+}
+
+function storeCachedDiff(key: string, diff: HunkDiff) {
+	diffCache.delete(key);
+	diffCache.set(key, { diff, storedAt: Date.now() });
+	while (diffCache.size > MAX_DIFF_CACHE_ENTRIES) {
+		const oldest = diffCache.keys().next().value;
+		if (oldest === undefined) break;
+		diffCache.delete(oldest);
+	}
 }
 
 // Hook for loading and managing git diff state
@@ -274,6 +309,9 @@ export function useGitDiff(autoRequest: DiffRequest | null = null) {
 	const [manualRequest, setManualRequest] = useState<DiffRequest | null>(null);
 	const activeId = useRef(0);
 	const activeAbort = useRef<AbortController | null>(null);
+	const autoRequestRef = useRef(autoRequest);
+	autoRequestRef.current = autoRequest;
+	const autoKey = autoRequest ? diffCacheKey(autoRequest) : null;
 
 	const startDiffLoad = useCallback(
 		(req: DiffRequest, trackManual: boolean) => {
@@ -289,7 +327,7 @@ export function useGitDiff(autoRequest: DiffRequest | null = null) {
 			activeId.current = id;
 			if (trackManual) {
 				setManualRequest((current) =>
-					areDiffRequestsEqual(current, req) ? current : req
+					areDiffRequestsEqual(current, req) ? current : req,
 				);
 			}
 			setLoading(!canUseCached);
@@ -298,17 +336,20 @@ export function useGitDiff(autoRequest: DiffRequest | null = null) {
 					current?.key === cacheKey &&
 					areHunkDiffsEqual(current.diff, cached.diff)
 						? current
-						: { key: cacheKey, diff: cached.diff }
+						: { key: cacheKey, diff: cached.diff },
 				);
 			}
 
+			const view = req.view ?? "full";
 			fetch(
-				`/api/git/full-diff?cwd=${encodeURIComponent(req.cwd)}&file=${encodeURIComponent(req.file)}&staged=${req.staged}`,
-				{ signal: controller.signal }
+				`/api/git/full-diff?cwd=${encodeURIComponent(req.cwd)}&file=${encodeURIComponent(req.file)}&staged=${req.staged}&view=${view}`,
+				{ signal: controller.signal },
 			)
 				.then((resp) => {
 					if (activeId.current !== id) return null;
-					if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+					if (!resp.ok) {
+						throw new Error(`Diff request failed (HTTP ${resp.status})`);
+					}
 					return resp.json();
 				})
 				.then((result) => {
@@ -316,25 +357,28 @@ export function useGitDiff(autoRequest: DiffRequest | null = null) {
 					const nextDiff = isHunkDiff(result)
 						? result
 						: safeDiffMessage("Diff response could not be rendered safely");
-					diffCache.set(cacheKey, { diff: nextDiff, storedAt: Date.now() });
+					storeCachedDiff(cacheKey, nextDiff);
 					setDiffState((current) =>
 						current?.key === cacheKey &&
 						areHunkDiffsEqual(current.diff, nextDiff)
 							? current
-							: { key: cacheKey, diff: nextDiff }
+							: { key: cacheKey, diff: nextDiff },
 					);
 					setLoading(false);
 				})
-				.catch(() => {
+				.catch((error: unknown) => {
 					if (activeId.current !== id) return;
-					const nextDiff = safeDiffMessage(
-						"Diff timed out before it could render safely"
-					);
+					const message = controller.signal.aborted
+						? "Diff request exceeded 12 seconds"
+						: error instanceof Error
+							? error.message
+							: "Diff could not be loaded";
+					const nextDiff = safeDiffMessage(message);
 					setDiffState((current) =>
 						current?.key === cacheKey &&
 						areHunkDiffsEqual(current.diff, nextDiff)
 							? current
-							: { key: cacheKey, diff: nextDiff }
+							: { key: cacheKey, diff: nextDiff },
 					);
 					setLoading(false);
 				})
@@ -345,12 +389,12 @@ export function useGitDiff(autoRequest: DiffRequest | null = null) {
 					}
 				});
 		},
-		[]
+		[],
 	);
 
 	const loadDiff = useCallback(
 		(req: DiffRequest) => startDiffLoad(req, true),
-		[startDiffLoad]
+		[startDiffLoad],
 	);
 
 	// Clear current diff state
@@ -364,16 +408,16 @@ export function useGitDiff(autoRequest: DiffRequest | null = null) {
 	}, []);
 
 	useEffect(() => {
-		if (!autoRequest) {
+		const request = autoRequestRef.current;
+		if (!request || !autoKey) {
 			activeId.current = ++requestCounter;
 			activeAbort.current?.abort();
 			activeAbort.current = null;
 			return;
 		}
-		const autoKey = diffCacheKey(autoRequest);
 		if (diffState?.key === autoKey) return;
-		startDiffLoad(autoRequest, false);
-	}, [autoRequest, diffState?.key, startDiffLoad]);
+		startDiffLoad(request, false);
+	}, [autoKey, diffState?.key, startDiffLoad]);
 
 	const visibleRequest = autoRequest ?? manualRequest;
 	const visibleKey = visibleRequest ? diffCacheKey(visibleRequest) : null;
