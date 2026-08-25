@@ -58,6 +58,9 @@ Download the latest release from [inferay.com](https://inferay.com) and drag to 
 
 ## Building from Source
 
+Requires Bun 1.4.0. The repository's `.bun-version` file allows compatible
+version managers to select it automatically.
+
 ```bash
 # Install dependencies
 bun install
