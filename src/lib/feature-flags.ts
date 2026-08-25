@@ -10,7 +10,6 @@ export type FeatureFlagName =
 	| "images"
 	| "profile"
 	| "chat"
-	| "editor"
 	| "graph";
 
 export type FeatureFlags = Record<FeatureFlagName, boolean>;
@@ -25,7 +24,6 @@ const ENABLED_FEATURE_FLAGS: FeatureFlags = {
 	images: true,
 	profile: true,
 	chat: true,
-	editor: true,
 	graph: true,
 };
 

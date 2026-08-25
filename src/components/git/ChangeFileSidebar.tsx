@@ -1,5 +1,5 @@
 import * as stylex from "@octanejs/stylex";
-import { useCallback, useMemo, useState } from "octane";
+import { memo, useCallback, useMemo, useState } from "octane";
 import type { GitFileEntry } from "../../features/git/types.ts";
 import { postJson } from "../../lib/fetch-json.ts";
 import {
@@ -75,7 +75,9 @@ interface ChangeFileSidebarProps {
 
 /* ── Main reusable changes sidebar component ──────────── */
 
-export function ChangeFileSidebar(props: ChangeFileSidebarProps) {
+export const ChangeFileSidebar = memo(function ChangeFileSidebar(
+	props: ChangeFileSidebarProps,
+) {
 	const {
 		fileViewMode,
 		onFileViewModeChange,
@@ -105,7 +107,22 @@ export function ChangeFileSidebar(props: ChangeFileSidebarProps) {
 		showCommitSection = true,
 		onCollapse,
 	} = props;
-	const workingFiles = [...modified, ...untracked, ...staged];
+	const unstagedFiles = useMemo(
+		() => getAlphabeticalFileOrder([...modified, ...untracked]),
+		[modified, untracked],
+	);
+	const stagedFiles = useMemo(() => getAlphabeticalFileOrder(staged), [staged]);
+	const workingFiles = useMemo(
+		() => [...unstagedFiles, ...stagedFiles],
+		[stagedFiles, unstagedFiles],
+	);
+	const navigableFiles = useMemo(
+		() =>
+			fileViewMode === "tree"
+				? [...getTreeFileOrder(unstagedFiles), ...getTreeFileOrder(stagedFiles)]
+				: workingFiles,
+		[fileViewMode, stagedFiles, unstagedFiles, workingFiles],
+	);
 	const additions = workingFiles.reduce(
 		(total, file) => total + (file.additions ?? 0),
 		0,
@@ -114,32 +131,65 @@ export function ChangeFileSidebar(props: ChangeFileSidebarProps) {
 		(total, file) => total + (file.deletions ?? 0),
 		0,
 	);
+	const selectAdjacentFile = (direction: -1 | 1) => {
+		if (navigableFiles.length === 0) return;
+		const currentIndex = selectedFile
+			? navigableFiles.findIndex(
+					(file) =>
+						file.path === selectedFile.path &&
+						file.staged === selectedFile.staged,
+				)
+			: -1;
+		const nextIndex =
+			currentIndex < 0
+				? direction > 0
+					? 0
+					: navigableFiles.length - 1
+				: Math.max(
+						0,
+						Math.min(navigableFiles.length - 1, currentIndex + direction),
+					);
+		onSelectFile(navigableFiles[nextIndex]!);
+	};
+	const toggleSelectedFile = () => {
+		if (!selectedFile) return;
+		const file =
+			workingFiles.find(
+				(candidate) =>
+					candidate.path === selectedFile.path &&
+					candidate.staged === selectedFile.staged,
+			) ??
+			workingFiles.find((candidate) => candidate.path === selectedFile.path);
+		if (!file) return;
+		if (file.staged) onUnstageFile(file.path);
+		else onStageFile(file.path);
+		onSelectFile({ ...file, staged: !file.staged });
+	};
 	return (
-		<div {...stylex.props(styles.root)}>
+		<div
+			{...stylex.props(styles.root)}
+			onKeyDownCapture={(event) => {
+				const target = event.target as HTMLElement;
+				const keyboardContext = target.closest(
+					"[data-git-commit-message], [data-git-file-select]",
+				);
+				if (!keyboardContext || event.metaKey || event.ctrlKey || event.altKey)
+					return;
+				if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+					event.preventDefault();
+					selectAdjacentFile(event.key === "ArrowUp" ? -1 : 1);
+				} else if (event.key === "Enter" && selectedFile) {
+					event.preventDefault();
+					toggleSelectedFile();
+				}
+			}}
+		>
 			<ChangeFileSidebarHeader
 				onCollapse={onCollapse}
 				branch={branch}
 				additions={additions}
 				deletions={deletions}
 			/>
-
-			{hasProject && mainViewMode !== "graph" && showCommitSection && (
-				<CommitSection
-					cwd={cwd}
-					commitMessage={commitMessage}
-					onCommitMessageChange={onCommitMessageChange}
-					onCommit={onCommit}
-					isCommitting={isCommitting}
-					stagedCount={staged.length}
-					files={workingFiles}
-					selectedFile={selectedFile}
-					onSelectFile={onSelectFile}
-					onStageFile={onStageFile}
-					onUnstageFile={onUnstageFile}
-					fileViewMode={fileViewMode}
-					onFileViewModeChange={onFileViewModeChange}
-				/>
-			)}
 
 			{mainViewMode !== "graph" && (
 				<div {...stylex.props(styles.splitArea)}>
@@ -160,7 +210,7 @@ export function ChangeFileSidebar(props: ChangeFileSidebarProps) {
 						<>
 							<FileGroup
 								title="Unstaged"
-								files={[...modified, ...untracked]}
+								files={unstagedFiles}
 								selected={selectedFile}
 								onSelect={onSelectFile}
 								actionLabel={showFileActions ? "Stage" : undefined}
@@ -170,7 +220,7 @@ export function ChangeFileSidebar(props: ChangeFileSidebarProps) {
 							/>
 							<FileGroup
 								title="Staged"
-								files={staged}
+								files={stagedFiles}
 								selected={selectedFile}
 								onSelect={onSelectFile}
 								actionLabel={showFileActions ? "Unstage" : undefined}
@@ -181,6 +231,19 @@ export function ChangeFileSidebar(props: ChangeFileSidebarProps) {
 						</>
 					)}
 				</div>
+			)}
+
+			{hasProject && mainViewMode !== "graph" && showCommitSection && (
+				<CommitSection
+					cwd={cwd}
+					commitMessage={commitMessage}
+					onCommitMessageChange={onCommitMessageChange}
+					onCommit={onCommit}
+					isCommitting={isCommitting}
+					stagedCount={stagedFiles.length}
+					fileViewMode={fileViewMode}
+					onFileViewModeChange={onFileViewModeChange}
+				/>
 			)}
 
 			{mainViewMode === "graph" && (
@@ -236,47 +299,54 @@ export function ChangeFileSidebar(props: ChangeFileSidebarProps) {
 			)}
 		</div>
 	);
-}
+});
 
-export function CollapsedChangeFileSidebar({
-	stagedCount,
-	unstagedCount,
-	onExpand,
-}: {
-	stagedCount: number;
-	unstagedCount: number;
-	onExpand: () => void;
-}) {
-	return (
-		<div {...stylex.props(styles.collapsedRoot)}>
-			<button
-				type="button"
-				onClick={onExpand}
-				title="Expand files sidebar"
-				aria-label="Expand files sidebar"
-				{...stylex.props(styles.collapsedToggle)}
-			>
-				<IconPanelLeft size={13} />
-			</button>
-			<div {...stylex.props(styles.collapsedCounts)}>
-				<div
-					{...stylex.props(styles.collapsedCount)}
-					title={`${unstagedCount} unstaged ${unstagedCount === 1 ? "file" : "files"}`}
+export const CollapsedChangeFileSidebar = memo(
+	function CollapsedChangeFileSidebar({
+		stagedCount,
+		unstagedCount,
+		onExpand,
+	}: {
+		stagedCount: number;
+		unstagedCount: number;
+		onExpand: () => void;
+	}) {
+		return (
+			<div {...stylex.props(styles.collapsedRoot)}>
+				<button
+					type="button"
+					onPointerDown={(event) => {
+						if (event.button === 0 && event.isPrimary) onExpand();
+					}}
+					onClick={(event) => {
+						if (event.detail === 0) onExpand();
+					}}
+					title="Expand files sidebar"
+					aria-label="Expand files sidebar"
+					{...stylex.props(styles.collapsedToggle)}
 				>
-					<span {...stylex.props(styles.unstagedDot)} />
-					<span>{unstagedCount}</span>
-				</div>
-				<div
-					{...stylex.props(styles.collapsedCount)}
-					title={`${stagedCount} staged ${stagedCount === 1 ? "file" : "files"}`}
-				>
-					<span {...stylex.props(styles.stagedDot)} />
-					<span>{stagedCount}</span>
+					<IconPanelLeft size={13} />
+				</button>
+				<div {...stylex.props(styles.collapsedCounts)}>
+					<div
+						{...stylex.props(styles.collapsedCount)}
+						title={`${unstagedCount} unstaged ${unstagedCount === 1 ? "file" : "files"}`}
+					>
+						<span {...stylex.props(styles.unstagedDot)} />
+						<span>{unstagedCount}</span>
+					</div>
+					<div
+						{...stylex.props(styles.collapsedCount)}
+						title={`${stagedCount} staged ${stagedCount === 1 ? "file" : "files"}`}
+					>
+						<span {...stylex.props(styles.stagedDot)} />
+						<span>{stagedCount}</span>
+					</div>
 				</div>
 			</div>
-		</div>
-	);
-}
+		);
+	},
+);
 
 const styles = stylex.create({
 	root: {
@@ -533,11 +603,14 @@ const styles = stylex.create({
 		paddingBlock: controlSize._1,
 	},
 	commitSection: {
+		display: "flex",
 		flexShrink: 0,
+		flexDirection: "column",
 		backgroundColor: color.transparent,
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
-		borderBottomColor: color.border,
+		borderTopWidth: 1,
+		borderTopStyle: "solid",
+		borderTopColor: color.border,
+		boxShadow: "0 -10px 24px rgba(0, 0, 0, 0.16)",
 	},
 	commitHeader: {
 		display: "flex",
@@ -623,6 +696,7 @@ const styles = stylex.create({
 	},
 	commitForm: {
 		display: "flex",
+		order: 2,
 		flexDirection: "column",
 		gap: controlSize._1_5,
 		paddingInline: controlSize._2,
@@ -846,12 +920,13 @@ const styles = stylex.create({
 	},
 	fileViewToolbar: {
 		display: "flex",
+		order: 1,
 		height: controlSize._8,
 		alignItems: "center",
 		gap: controlSize._2,
-		borderTopWidth: 1,
-		borderTopStyle: "solid",
-		borderTopColor: color.border,
+		borderBottomWidth: 1,
+		borderBottomStyle: "solid",
+		borderBottomColor: color.border,
 		paddingInline: controlSize._3,
 	},
 	detailsRoot: {
@@ -1078,6 +1153,8 @@ const styles = stylex.create({
 	pathRow: {
 		position: "relative",
 		display: "flex",
+		contentVisibility: "auto",
+		containIntrinsicSize: `auto ${controlSize._6}`,
 		alignItems: "center",
 		gap: controlSize._2,
 		borderLeftWidth: 2,
@@ -1095,6 +1172,8 @@ const styles = stylex.create({
 	treeRow: {
 		position: "relative",
 		display: "flex",
+		contentVisibility: "auto",
+		containIntrinsicSize: `auto ${controlSize._5}`,
 		height: controlSize._5,
 		cursor: "pointer",
 		alignItems: "center",
@@ -1281,7 +1360,12 @@ function ChangeFileSidebarHeader({
 			{onCollapse ? (
 				<button
 					type="button"
-					onClick={onCollapse}
+					onPointerDown={(event) => {
+						if (event.button === 0 && event.isPrimary) onCollapse();
+					}}
+					onClick={(event) => {
+						if (event.detail === 0) onCollapse();
+					}}
 					title="Collapse files sidebar"
 					aria-label="Collapse files sidebar"
 					{...stylex.props(styles.headerIconButton)}
@@ -1316,11 +1400,6 @@ function CommitSection({
 	onCommit,
 	isCommitting,
 	stagedCount,
-	files,
-	selectedFile,
-	onSelectFile,
-	onStageFile,
-	onUnstageFile,
 	fileViewMode,
 	onFileViewModeChange,
 }: {
@@ -1330,11 +1409,6 @@ function CommitSection({
 	onCommit: () => void;
 	isCommitting: boolean;
 	stagedCount: number;
-	files: GitFileEntry[];
-	selectedFile: SelectedFile | null;
-	onSelectFile: (file: GitFileEntry) => void;
-	onStageFile: (path: string) => void;
-	onUnstageFile: (path: string) => void;
 	fileViewMode: "path" | "tree";
 	onFileViewModeChange: (mode: "path" | "tree") => void;
 }) {
@@ -1342,37 +1416,6 @@ function CommitSection({
 	const [generationMenuOpen, setGenerationMenuOpen] = useState(false);
 	const [hoveredViewIndex, setHoveredViewIndex] = useState<number | null>(null);
 	const message = commitMessage.replace(/\s+/g, " ");
-	const selectAdjacentFile = (direction: -1 | 1) => {
-		if (files.length === 0) return;
-		const currentIndex = selectedFile
-			? files.findIndex(
-					(file) =>
-						file.path === selectedFile.path &&
-						file.staged === selectedFile.staged,
-				)
-			: -1;
-		const nextIndex =
-			currentIndex < 0
-				? direction > 0
-					? 0
-					: files.length - 1
-				: Math.max(0, Math.min(files.length - 1, currentIndex + direction));
-		onSelectFile(files[nextIndex]!);
-	};
-	const toggleSelectedFile = () => {
-		if (!selectedFile) return;
-		const file =
-			files.find(
-				(candidate) =>
-					candidate.path === selectedFile.path &&
-					candidate.staged === selectedFile.staged,
-			) ?? files.find((candidate) => candidate.path === selectedFile.path);
-		if (!file) return;
-		if (file.staged) onUnstageFile(file.path);
-		else onStageFile(file.path);
-		onSelectFile({ ...file, staged: !file.staged });
-	};
-
 	const generateMessage = async () => {
 		if (!cwd || !stagedCount || generating) return;
 		setGenerating(true);
@@ -1412,6 +1455,7 @@ function CommitSection({
 									value={message}
 									onInput={(e) => onCommitMessageChange(e.currentTarget.value)}
 									placeholder="Message"
+									data-git-commit-message
 									{...stylex.props(
 										styles.summaryInput,
 										generating && styles.summaryInputGenerating,
@@ -1420,15 +1464,6 @@ function CommitSection({
 										if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
 											e.preventDefault();
 											onCommit();
-										} else if (e.key === "ArrowUp") {
-											e.preventDefault();
-											selectAdjacentFile(-1);
-										} else if (e.key === "ArrowDown") {
-											e.preventDefault();
-											selectAdjacentFile(1);
-										} else if (e.key === "Enter" && selectedFile) {
-											e.preventDefault();
-											toggleSelectedFile();
 										}
 									}}
 								/>
@@ -1464,7 +1499,13 @@ function CommitSection({
 						</button>
 						<button
 							type="button"
-							onClick={() => setGenerationMenuOpen((open) => !open)}
+							onPointerDown={(event) => {
+								if (event.button === 0 && event.isPrimary)
+									setGenerationMenuOpen((open) => !open);
+							}}
+							onClick={(event) => {
+								if (event.detail === 0) setGenerationMenuOpen((open) => !open);
+							}}
 							disabled={!stagedCount || generating || !cwd}
 							aria-label="Commit message actions"
 							aria-expanded={generationMenuOpen}
@@ -1503,7 +1544,13 @@ function CommitSection({
 					<button
 						type="button"
 						onMouseEnter={() => setHoveredViewIndex(0)}
-						onClick={() => onFileViewModeChange("path")}
+						onPointerDown={(event) => {
+							if (event.button === 0 && event.isPrimary)
+								onFileViewModeChange("path");
+						}}
+						onClick={(event) => {
+							if (event.detail === 0) onFileViewModeChange("path");
+						}}
 						{...stylex.props(
 							styles.segmentButton,
 							fileViewMode === "path" && styles.segmentButtonActive,
@@ -1514,7 +1561,13 @@ function CommitSection({
 					<button
 						type="button"
 						onMouseEnter={() => setHoveredViewIndex(1)}
-						onClick={() => onFileViewModeChange("tree")}
+						onPointerDown={(event) => {
+							if (event.button === 0 && event.isPrimary)
+								onFileViewModeChange("tree");
+						}}
+						onClick={(event) => {
+							if (event.detail === 0) onFileViewModeChange("tree");
+						}}
 						{...stylex.props(
 							styles.segmentButton,
 							fileViewMode === "tree" && styles.segmentButtonActive,
@@ -1686,13 +1739,15 @@ interface TreeNode {
 }
 
 function sortTreeChildren(node: TreeNode): TreeNode[] {
-	return Array.from(node.children.values()).toSorted((a, b) => {
-		const aIsDir = a.children.size > 0 && !a.file;
-		const bIsDir = b.children.size > 0 && !b.file;
-		if (aIsDir && !bIsDir) return -1;
-		if (!aIsDir && bIsDir) return 1;
-		return a.name.localeCompare(b.name);
-	});
+	return Array.from(node.children.values()).toSorted((a, b) =>
+		a.name.localeCompare(b.name),
+	);
+}
+
+export function getAlphabeticalFileOrder(
+	files: readonly GitFileEntry[],
+): GitFileEntry[] {
+	return files.toSorted((a, b) => a.path.localeCompare(b.path));
 }
 
 function buildFileTree(files: GitFileEntry[]): TreeNode {
@@ -1722,6 +1777,18 @@ function buildFileTree(files: GitFileEntry[]): TreeNode {
 	}
 
 	return root;
+}
+
+export function getTreeFileOrder(files: GitFileEntry[]): GitFileEntry[] {
+	const ordered: GitFileEntry[] = [];
+	const visit = (node: TreeNode) => {
+		for (const child of sortTreeChildren(node)) {
+			if (child.file) ordered.push(child.file);
+			else visit(child);
+		}
+	};
+	visit(buildFileTree(files));
+	return ordered;
 }
 
 function getExpandedDirs(files: GitFileEntry[]): Set<string> {
@@ -1788,8 +1855,14 @@ function TreeNodeRow({
 			>
 				<button
 					type="button"
+					data-git-file-select
 					{...stylex.props(styles.treeNodeButton)}
-					onClick={selectTreeNode}
+					onPointerDown={(event) => {
+						if (event.button === 0 && event.isPrimary) selectTreeNode();
+					}}
+					onClick={(event) => {
+						if (event.detail === 0) selectTreeNode();
+					}}
 				>
 					{isDir ? (
 						<>
@@ -1912,6 +1985,9 @@ function FileGroup({
 
 	const tree = useMemo(() => buildFileTree(files), [files]);
 	const isEmpty = files.length === 0;
+	const toggleGroup = () => {
+		if (isCollapsible && !isEmpty) setIsCollapsed(!isCollapsed);
+	};
 
 	return (
 		<div {...stylex.props(styles.fileGroup)}>
@@ -1923,9 +1999,12 @@ function FileGroup({
 			>
 				<button
 					type="button"
-					onClick={() =>
-						isCollapsible && !isEmpty && setIsCollapsed(!isCollapsed)
-					}
+					onPointerDown={(event) => {
+						if (event.button === 0 && event.isPrimary) toggleGroup();
+					}}
+					onClick={(event) => {
+						if (event.detail === 0) toggleGroup();
+					}}
 					{...stylex.props(
 						styles.groupToggle,
 						isCollapsible && !isEmpty
@@ -1985,7 +2064,13 @@ function FileGroup({
 								>
 									<button
 										type="button"
-										onClick={() => onSelect(f)}
+										data-git-file-select
+										onPointerDown={(event) => {
+											if (event.button === 0 && event.isPrimary) onSelect(f);
+										}}
+										onClick={(event) => {
+											if (event.detail === 0) onSelect(f);
+										}}
 										{...stylex.props(styles.fileRowButton)}
 										title={f.path}
 									>

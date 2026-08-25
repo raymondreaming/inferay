@@ -1,6 +1,5 @@
 import type { ComponentType } from "react";
 import {
-	IconCode,
 	IconFilePlus,
 	IconGitBranch,
 	IconMessageCircle,
@@ -17,7 +16,7 @@ export type AppRouteId =
 	| "images"
 	| "profile";
 
-export type AgentMainView = "chat" | "editor" | "graph";
+export type AgentMainView = "chat" | "graph";
 
 type NavigationIcon = ComponentType<{ size?: number; className?: string }>;
 
@@ -83,14 +82,12 @@ export const SIDEBAR_NAV_ROUTES = APP_PAGE_ROUTES.filter(
 
 const ALL_AGENT_MAIN_VIEWS = [
 	{ id: "chat", label: "Chat", icon: IconMessageCircle },
-	{ id: "editor", label: "Editor", icon: IconCode },
 	{ id: "graph", label: "Graph", icon: IconGitBranch },
 ] as const satisfies readonly AgentMainViewRoute[];
 
 export const AGENT_MAIN_VIEWS: readonly AgentMainViewRoute[] =
 	ALL_AGENT_MAIN_VIEWS.filter(
-		(view) =>
-			view.id === "chat" || view.id === "editor" || FEATURE_FLAGS[view.id],
+		(view) => view.id === "chat" || FEATURE_FLAGS[view.id],
 	);
 
 export function isAgentMainView(value: string | null): value is AgentMainView {

@@ -115,7 +115,14 @@ function ViewTab({
 			type="button"
 			aria-label={label}
 			title={label}
-			onClick={onClick}
+			onPointerDown={(event) => {
+				if (event.button === 0 && event.isPrimary) onClick();
+			}}
+			onClick={(event) => {
+				// Pointer activation already ran on press; detail 0 preserves
+				// keyboard and assistive-technology activation.
+				if (event.detail === 0) onClick();
+			}}
 			{...tabProps}
 			className={`${APP_REGION_NO_DRAG_CLASS} ${tabProps.className ?? ""}`}
 		>
@@ -156,9 +163,7 @@ export function AgentShellHeader() {
 	const activeNavigationTarget =
 		pendingNavigationTarget ?? resolvedNavigationTarget;
 	const workspaceNavigationActive =
-		isAgentRoute &&
-		(shellState.mainView === "chat" || shellState.mainView === "editor") &&
-		!sidebarCollapsed;
+		isAgentRoute && shellState.mainView === "chat" && !sidebarCollapsed;
 
 	const refreshShellState = useCallback(() => {
 		const next = loadShellState();
@@ -246,30 +251,30 @@ export function AgentShellHeader() {
 		[navigate, resolvedNavigationTarget],
 	);
 	const railCreateOffset = sidebarCollapsed ? 1 : 0;
-	const graphIndex = railCreateOffset;
+	const mainViewIndex = AGENT_MAIN_VIEWS.findIndex(
+		(view) => activeNavigationTarget === `view:${view.id}`,
+	);
 	const routeIndex = SIDEBAR_NAV_ROUTES.findIndex(
 		(route) => activeNavigationTarget === `route:${route.path}`,
 	);
 	const railActiveIndex =
 		sidebarCollapsed && createMenuOpen
 			? 0
-			: activeNavigationTarget === "view:graph"
-				? graphIndex
+			: mainViewIndex >= 0
+				? railCreateOffset + mainViewIndex
 				: routeIndex >= 0
-					? graphIndex + 1 + routeIndex
+					? railCreateOffset + AGENT_MAIN_VIEWS.length + routeIndex
 					: AUTOMATIONS_ROUTE &&
 							activeNavigationTarget === `route:${AUTOMATIONS_ROUTE.path}`
-						? graphIndex + 1 + SIDEBAR_NAV_ROUTES.length
+						? railCreateOffset +
+							AGENT_MAIN_VIEWS.length +
+							SIDEBAR_NAV_ROUTES.length
 						: -1;
 	const railItemCount =
 		railCreateOffset +
-		1 +
+		AGENT_MAIN_VIEWS.length +
 		SIDEBAR_NAV_ROUTES.length +
 		(AUTOMATIONS_ROUTE ? 1 : 0);
-	const topViews = AGENT_MAIN_VIEWS.filter((view) => view.id !== "graph");
-	const topActiveIndex = topViews.findIndex(
-		(view) => activeNavigationTarget === `view:${view.id}`,
-	);
 	const selectedGroup = shellState.groups.find(
 		(group) => group.id === shellState.selectedGroupId,
 	);
@@ -282,29 +287,6 @@ export function AgentShellHeader() {
 			className={`${APP_REGION_DRAG_CLASS} ${stylex.props(styles.header).className ?? ""}`}
 		>
 			<nav aria-label="Primary views" {...stylex.props(styles.topTabs)}>
-				<div {...stylex.props(styles.topViewGroup)}>
-					<LiquidSegmentedRail
-						activeIndex={topActiveIndex}
-						itemCount={topViews.length}
-						fill={colorValues.shellSurface}
-						radius={11}
-						itemSize={70}
-						gap={6}
-					/>
-					{topViews.map((view) => {
-						const Icon = view.icon;
-						return (
-							<ViewTab
-								key={view.id}
-								active={activeNavigationTarget === `view:${view.id}`}
-								icon={<Icon size={12} />}
-								label={view.label}
-								onClick={() => activateMainView(view.id)}
-								top
-							/>
-						);
-					})}
-				</div>
 				{isAgentRoute ? (
 					<div
 						{...stylex.props(styles.fileSearch)}
@@ -325,7 +307,13 @@ export function AgentShellHeader() {
 				<LiquidAction fill={colorValues.surfaceGlassStrong}>
 					<button
 						type="button"
-						onClick={() => navigate({ to: "/profile" })}
+						onPointerDown={(event) => {
+							if (event.button === 0 && event.isPrimary)
+								navigate({ to: "/profile" });
+						}}
+						onClick={(event) => {
+							if (event.detail === 0) navigate({ to: "/profile" });
+						}}
 						className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.accountButton).className ?? ""}`}
 						title="Account settings"
 					>
@@ -371,9 +359,14 @@ export function AgentShellHeader() {
 					}
 					{...stylex.props(styles.sidebarToggle)}
 					className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.sidebarToggle).className ?? ""}`}
-					onClick={() =>
-						window.dispatchEvent(new CustomEvent("toggle-main-sidebar"))
-					}
+					onPointerDown={(event) => {
+						if (event.button === 0 && event.isPrimary)
+							window.dispatchEvent(new CustomEvent("toggle-main-sidebar"));
+					}}
+					onClick={(event) => {
+						if (event.detail === 0)
+							window.dispatchEvent(new CustomEvent("toggle-main-sidebar"));
+					}}
 				>
 					<IconPanelLeft size={14} />
 				</button>
@@ -407,20 +400,18 @@ export function AgentShellHeader() {
 							/>
 						</div>
 					) : null}
-					{AGENT_MAIN_VIEWS.filter((view) => view.id === "graph").map(
-						(view) => {
-							const Icon = view.icon;
-							return (
-								<ViewTab
-									key={view.id}
-									active={activeNavigationTarget === `view:${view.id}`}
-									icon={<Icon size={12} />}
-									label={view.label}
-									onClick={() => activateMainView(view.id)}
-								/>
-							);
-						},
-					)}
+					{AGENT_MAIN_VIEWS.map((view) => {
+						const Icon = view.icon;
+						return (
+							<ViewTab
+								key={view.id}
+								active={activeNavigationTarget === `view:${view.id}`}
+								icon={<Icon size={12} />}
+								label={view.label}
+								onClick={() => activateMainView(view.id)}
+							/>
+						);
+					})}
 					{SIDEBAR_NAV_ROUTES.map((route) => {
 						const Icon = route.icon;
 						return (

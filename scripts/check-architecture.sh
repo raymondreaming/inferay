@@ -15,8 +15,6 @@ bunx biome lint \
 	src/features/git/useGitDiff.tsx \
 	src/features/agent/agent-utils.ts \
 	src/hooks/useShikiHighlighter.tsx \
-	src/pages/EditorPage/editor-page-view.tsx \
-	src/pages/EditorPage/index.tsx \
 	src/pages/Agent/GitDiffView.tsx \
 	src/pages/Agent/AgentGrid.tsx \
 	src/pages/Agent/AgentPaneView.tsx \

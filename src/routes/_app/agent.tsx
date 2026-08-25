@@ -75,11 +75,6 @@ const ProjectFileGraphView = lazy(() =>
 		default: module.ProjectFileGraphView,
 	})),
 );
-const EditorPage = lazy(() =>
-	import("../../pages/EditorPage/index.tsx").then((module) => ({
-		default: module.EditorPage,
-	})),
-);
 const AgentSettingsPanel = lazy(() =>
 	import("../../pages/Agent/AgentSettingsPanel.tsx").then((module) => ({
 		default: module.AgentSettingsPanel,
@@ -453,12 +448,23 @@ const styles = stylex.create({
 		minHeight: 0,
 		overflow: "hidden",
 	},
+	chatWorkspaceZen: {
+		position: "fixed",
+		zIndex: 1000,
+		inset: 0,
+		backgroundColor: color.background,
+	},
 	chatDock: {
 		display: "flex",
 		minWidth: 0,
 		minHeight: 0,
 		flex: 1,
 		overflow: "hidden",
+	},
+	chatDockZen: {
+		width: 360,
+		maxWidth: "28vw",
+		flex: "0 0 auto",
 	},
 	centerState: {
 		display: "flex",
@@ -533,17 +539,10 @@ function agentViewReducer(
 type AgentMainSurfaceProps = {
 	readonly chatDiffPanel: unknown;
 	readonly chatSidebar: unknown;
+	readonly chatZenMode: boolean;
 	readonly graphView: unknown;
-	readonly groups: AgentSavedState["groups"];
 	readonly hasCurrentPanes: boolean;
 	readonly mainView: AgentMainView;
-	readonly onDirectoryChange: (
-		paneId: string,
-		path: string | null,
-		referencePaths?: string[],
-	) => void;
-	readonly onSelectPane: (paneId: string) => void;
-	readonly selectedGroupId: GroupId | null;
 	readonly setAppearance: AgentPersistenceArgs["setAppearance"];
 	readonly setShowSettings: (value: boolean) => void;
 	readonly showSettings: boolean;
@@ -705,22 +704,16 @@ function useAgentPaneActions({
 function AgentMainSurface({
 	chatDiffPanel,
 	chatSidebar,
+	chatZenMode,
 	graphView,
-	groups,
 	hasCurrentPanes,
 	mainView,
-	onDirectoryChange,
-	onSelectPane,
-	selectedGroupId,
 	setAppearance,
 	setShowSettings,
 	showSettings,
 	agentGrid,
 	themeId,
 }: AgentMainSurfaceProps) {
-	const editorMountedRef = useRef(mainView === "editor");
-	if (mainView === "editor") editorMountedRef.current = true;
-
 	return (
 		<div {...stylex.props(styles.appRoot, styles.fullHeight)}>
 			<div {...stylex.props(styles.appFrame)}>
@@ -740,33 +733,23 @@ function AgentMainSurface({
 										)}
 										aria-hidden={mainView !== "chat"}
 									>
-										<div {...stylex.props(styles.chatWorkspace)}>
-											<div {...stylex.props(styles.chatDock)}>{agentGrid}</div>
+										<div
+											{...stylex.props(
+												styles.chatWorkspace,
+												chatZenMode && styles.chatWorkspaceZen,
+											)}
+										>
+											<div
+												{...stylex.props(
+													styles.chatDock,
+													chatZenMode && styles.chatDockZen,
+												)}
+											>
+												{agentGrid}
+											</div>
 											{chatDiffPanel}
 											{chatSidebar}
 										</div>
-									</div>
-									<div
-										{...stylex.props(
-											styles.surfaceLayer,
-											mainView === "editor"
-												? styles.surfaceLayerVisible
-												: styles.surfaceLayerHidden,
-										)}
-										aria-hidden={mainView !== "editor"}
-									>
-										{editorMountedRef.current && (
-											<Suspense fallback={null}>
-												<EditorPage
-													active={mainView === "editor"}
-													groups={groups}
-													selectedGroupId={selectedGroupId}
-													themeId={themeId}
-													onSelectPane={onSelectPane}
-													onDirectoryChange={onDirectoryChange}
-												/>
-											</Suspense>
-										)}
 									</div>
 									{mainView === "graph" && (
 										<div
@@ -1007,10 +990,14 @@ export function AgentPage() {
 	const agentGrid = currentGroup ? (
 		<AgentGrid
 			active={mainView === "chat"}
-			panes={currentGroup.panes}
+			panes={
+				chatWorkspace.zenMode && selectedPane
+					? [selectedPane]
+					: currentGroup.panes
+			}
 			selectedPaneId={currentGroup.selectedPaneId}
-			columns={currentGroup.columns}
-			rows={currentGroup.rows ?? DEFAULT_ROWS}
+			columns={chatWorkspace.zenMode ? 1 : currentGroup.columns}
+			rows={chatWorkspace.zenMode ? 1 : (currentGroup.rows ?? DEFAULT_ROWS)}
 			layoutMode={layoutMode}
 			theme={theme}
 			fontSize={fontSize}
@@ -1043,13 +1030,10 @@ export function AgentPage() {
 		<AgentMainSurface
 			chatDiffPanel={chatWorkspace.diffPanel}
 			chatSidebar={chatWorkspace.sidebar}
+			chatZenMode={chatWorkspace.zenMode}
 			graphView={graphView}
-			groups={groups}
 			hasCurrentPanes={hasCurrentPanes}
 			mainView={mainView}
-			onDirectoryChange={handleDirectorySelected}
-			onSelectPane={selectChatPane}
-			selectedGroupId={selectedGroupId}
 			setAppearance={setAppearance}
 			setShowSettings={setShowSettings}
 			showSettings={showSettings}

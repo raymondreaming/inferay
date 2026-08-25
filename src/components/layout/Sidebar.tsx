@@ -767,8 +767,7 @@ export function Sidebar() {
 		return isAgentMainView(stored) ? stored : DEFAULT_AGENT_MAIN_VIEW;
 	});
 	const showWorkspaceSidebar =
-		location.pathname === "/agent" &&
-		(mainView === "chat" || mainView === "editor");
+		location.pathname === "/agent" && mainView === "chat";
 
 	useEffect(
 		() =>

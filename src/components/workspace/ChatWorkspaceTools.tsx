@@ -14,6 +14,7 @@ import {
 	isUntrackedChange,
 	orderProjectGitFiles,
 } from "../../features/git/git-file-utils.ts";
+import type { GitFileEntry } from "../../features/git/types.ts";
 import { useGitChangeActions } from "../../features/git/useGitChangeActions.tsx";
 import {
 	summarizeHunkDiff,
@@ -28,16 +29,27 @@ import {
 	writeStoredJson,
 	writeStoredValue,
 } from "../../lib/stored-json.ts";
-import { GitDiffView } from "../../pages/Agent/GitDiffView.tsx";
+import {
+	type DiffViewMode,
+	GitDiffView,
+} from "../../pages/Agent/GitDiffView.tsx";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 import { DiffViewerBoundary } from "../diff/DiffViewerBoundary.tsx";
 import { FileTypeIcon } from "../file/FileTypeIcon.tsx";
 import {
 	ChangeFileSidebar,
 	CollapsedChangeFileSidebar,
+	getAlphabeticalFileOrder,
+	getTreeFileOrder,
 	type SelectedFile,
 } from "../git/ChangeFileSidebar.tsx";
-import { IconX } from "../ui/Icons.tsx";
+import {
+	IconCollapse,
+	IconExpand,
+	IconGitBranch,
+	IconLayoutGrid,
+	IconX,
+} from "../ui/Icons.tsx";
 import { WorkspaceDockHandle } from "./WorkspaceDockHandle.tsx";
 import {
 	type FileContentResponse,
@@ -47,6 +59,7 @@ import {
 const SIDEBAR_VISIBLE_KEY = "agent-workspace-changes-visible";
 const SIDEBAR_WIDTH_KEY = "agent-workspace-changes-width";
 const DIFF_WIDTH_KEY_PREFIX = "agent-workspace-diff-width:";
+const DIFF_VIEW_MODE_KEY = "agent-workspace-diff-view-mode";
 const MIN_SIDEBAR_WIDTH = 230;
 const MAX_SIDEBAR_WIDTH = 420;
 const DEFAULT_SIDEBAR_WIDTH = 300;
@@ -73,6 +86,10 @@ function loadDiffWidth(workspaceId: string) {
 	return Number.isFinite(stored)
 		? Math.min(MAX_DIFF_WIDTH, Math.max(MIN_DIFF_WIDTH, stored))
 		: DEFAULT_DIFF_WIDTH;
+}
+
+function loadDiffViewMode(): DiffViewMode {
+	return readStoredValue(DIFF_VIEW_MODE_KEY) === "split" ? "split" : "hunks";
 }
 
 type DragProps = {
@@ -195,6 +212,7 @@ function useWorkspacePanelSession(workspaceId: string) {
 		(change: (current: WorkspacePanelSession) => WorkspacePanelSession) => {
 			const current = loadWorkspacePanelSession(workspaceId);
 			const next = change(current);
+			if (next === current) return;
 			workspacePanelSessions.set(workspaceId, next);
 			persistWorkspacePanelSession(workspaceId, next);
 			setRevision((revision) => revision + 1);
@@ -216,12 +234,20 @@ function ChatDiffPanel({
 	file,
 	loading,
 	onClose,
+	viewMode,
+	onViewModeChange,
+	zenMode,
+	onToggleZenMode,
 	drag,
 }: {
 	readonly diff: ReturnType<typeof useGitDiff>["diff"];
 	readonly file: SelectedFile;
 	readonly loading: boolean;
 	readonly onClose: () => void;
+	readonly viewMode: DiffViewMode;
+	readonly onViewModeChange: (mode: DiffViewMode) => void;
+	readonly zenMode: boolean;
+	readonly onToggleZenMode: () => void;
 	readonly drag?: DragProps;
 }) {
 	const stats = useMemo(() => summarizeHunkDiff(diff), [diff]);
@@ -243,9 +269,69 @@ function ChatDiffPanel({
 						</span>
 					) : null}
 				</span>
+				<div {...stylex.props(styles.viewerModes)}>
+					<button
+						type="button"
+						onPointerDown={(event) => {
+							if (event.button === 0 && event.isPrimary)
+								onViewModeChange("split");
+						}}
+						onClick={(event) => {
+							if (event.detail === 0) onViewModeChange("split");
+						}}
+						title="Split diff"
+						aria-label="Split diff"
+						{...stylex.props(
+							styles.viewerModeButton,
+							viewMode === "split" && styles.viewerModeButtonActive,
+						)}
+					>
+						<IconLayoutGrid size={11} />
+					</button>
+					<button
+						type="button"
+						onPointerDown={(event) => {
+							if (event.button === 0 && event.isPrimary)
+								onViewModeChange("hunks");
+						}}
+						onClick={(event) => {
+							if (event.detail === 0) onViewModeChange("hunks");
+						}}
+						title="Hunk view"
+						aria-label="Hunk view"
+						{...stylex.props(
+							styles.viewerModeButton,
+							viewMode === "hunks" && styles.viewerModeButtonActive,
+						)}
+					>
+						<IconGitBranch size={11} />
+					</button>
+					<button
+						type="button"
+						onPointerDown={(event) => {
+							if (event.button === 0 && event.isPrimary) onToggleZenMode();
+						}}
+						onClick={(event) => {
+							if (event.detail === 0) onToggleZenMode();
+						}}
+						title={zenMode ? "Exit focus mode" : "Focus workspace"}
+						aria-label={zenMode ? "Exit focus mode" : "Focus workspace"}
+						{...stylex.props(
+							styles.viewerModeButton,
+							zenMode && styles.viewerModeButtonActive,
+						)}
+					>
+						{zenMode ? <IconCollapse size={11} /> : <IconExpand size={11} />}
+					</button>
+				</div>
 				<button
 					type="button"
-					onClick={onClose}
+					onPointerDown={(event) => {
+						if (event.button === 0 && event.isPrimary) onClose();
+					}}
+					onClick={(event) => {
+						if (event.detail === 0) onClose();
+					}}
 					title="Close change viewer"
 					aria-label="Close change viewer"
 					{...stylex.props(styles.viewerClose)}
@@ -266,7 +352,8 @@ function ChatDiffPanel({
 							onClose={onClose}
 							hideHeader
 							hideToolbar
-							viewMode="hunks"
+							viewMode={viewMode}
+							onViewModeChange={onViewModeChange}
 						/>
 					</DiffViewerBoundary>
 				) : (
@@ -308,14 +395,6 @@ export function useChatWorkspaceTools({
 			})),
 		[updatePanelSession],
 	);
-	const setFileViewerOpen = useCallback(
-		(value: StateValue<boolean>) => setPanelField("fileViewerOpen", value),
-		[setPanelField],
-	);
-	const setFileViewerCwd = useCallback(
-		(value: StateValue<string | null>) => setPanelField("fileViewerCwd", value),
-		[setPanelField],
-	);
 	const setDiffViewerCwd = useCallback(
 		(value: StateValue<string | null>) => setPanelField("diffViewerCwd", value),
 		[setPanelField],
@@ -330,11 +409,6 @@ export function useChatWorkspaceTools({
 			setPanelField("detachedFilePanels", value),
 		[setPanelField],
 	);
-	const setFileRequest = useCallback(
-		(value: StateValue<WorkspacePanelSession["fileRequest"]>) =>
-			setPanelField("fileRequest", value),
-		[setPanelField],
-	);
 	const setSelectedFile = useCallback(
 		(value: StateValue<SelectedFile | null>) =>
 			setPanelField("selectedFile", value),
@@ -344,6 +418,24 @@ export function useChatWorkspaceTools({
 	const [sidebarVisible, setSidebarVisible] = useState(loadSidebarVisible);
 	const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
 	const [diffWidth, setDiffWidth] = useState(() => loadDiffWidth(workspaceId));
+	const [diffViewMode, setDiffViewModeState] = useState(loadDiffViewMode);
+	const [zenMode, setZenMode] = useState(false);
+	const setDiffViewMode = useCallback((mode: DiffViewMode) => {
+		setDiffViewModeState(mode);
+		writeStoredValue(DIFF_VIEW_MODE_KEY, mode);
+	}, []);
+	const toggleZenMode = useCallback(
+		() => setZenMode((current) => !current),
+		[],
+	);
+	useEffect(() => {
+		if (!active || !zenMode) return;
+		return listenWindowEvent("keydown", (event) => {
+			if ((event as KeyboardEvent).key !== "Escape") return;
+			(event as KeyboardEvent).preventDefault();
+			setZenMode(false);
+		});
+	}, [active, zenMode]);
 	const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 	const diffDragRef = useRef<{ startX: number; startWidth: number } | null>(
 		null,
@@ -384,10 +476,28 @@ export function useChatWorkspaceTools({
 	const diffViewerProject = diffViewerCwd
 		? (projectMap.get(diffViewerCwd) ?? null)
 		: null;
-	const staged = project?.files.filter(isStagedChange) ?? [];
-	const modified = project?.files.filter(isUnstagedTrackedChange) ?? [];
-	const untracked = project?.files.filter(isUntrackedChange) ?? [];
+	const { staged, modified, untracked } = useMemo(
+		() => ({
+			staged: project?.files.filter(isStagedChange) ?? [],
+			modified: project?.files.filter(isUnstagedTrackedChange) ?? [],
+			untracked: project?.files.filter(isUntrackedChange) ?? [],
+		}),
+		[project],
+	);
 	const files = useMemo(() => orderProjectGitFiles(project), [project]);
+	const keyboardFiles = useMemo(
+		() =>
+			fileViewMode === "tree"
+				? [
+						...getTreeFileOrder([...modified, ...untracked]),
+						...getTreeFileOrder(staged),
+					]
+				: [
+						...getAlphabeticalFileOrder([...modified, ...untracked]),
+						...getAlphabeticalFileOrder(staged),
+					],
+		[fileViewMode, files, modified, staged, untracked],
+	);
 	const {
 		commit,
 		commitMessage,
@@ -404,14 +514,18 @@ export function useChatWorkspaceTools({
 		applyOptimistic,
 		refetchStatus: refetch,
 	});
-	const diffRequest =
-		active && diffViewerCwd && selectedFile
-			? {
-					cwd: diffViewerCwd,
-					file: selectedFile.path,
-					staged: selectedFile.staged,
-				}
-			: null;
+	const diffRequest = useMemo(
+		() =>
+			active && diffViewerCwd && selectedFile
+				? {
+						cwd: diffViewerCwd,
+						file: selectedFile.path,
+						staged: selectedFile.staged,
+						view: "review" as const,
+					}
+				: null,
+		[active, diffViewerCwd, selectedFile],
+	);
 	const { diff, loading: diffLoading } = useGitDiff(diffRequest);
 
 	useEffect(() => {
@@ -441,21 +555,18 @@ export function useChatWorkspaceTools({
 		return listenWindowEvent(WORKSPACE_FILE_OPEN_EVENT, (event) => {
 			const detail = (event as CustomEvent<WorkspaceFileOpenDetail>).detail;
 			if (!detail?.cwd || !detail.path) return;
-			setFileViewerCwd(detail.cwd);
-			setFocusedAuxiliaryPanel({
-				id: "workspace-file-viewer",
-				cwd: detail.cwd,
-			});
-			setFileRequest({ path: detail.path, token: Date.now() });
-			setFileViewerOpen(true);
+			updatePanelSession((current) => ({
+				...current,
+				fileViewerCwd: detail.cwd,
+				focusedAuxiliaryPanel: {
+					id: "workspace-file-viewer",
+					cwd: detail.cwd,
+				},
+				fileRequest: { path: detail.path, token: Date.now() },
+				fileViewerOpen: true,
+			}));
 		});
-	}, [
-		active,
-		setFileRequest,
-		setFileViewerCwd,
-		setFileViewerOpen,
-		setFocusedAuxiliaryPanel,
-	]);
+	}, [active, updatePanelSession]);
 
 	const updateSidebarVisible = useCallback((visible: boolean) => {
 		setSidebarVisible(visible);
@@ -466,38 +577,149 @@ export function useChatWorkspaceTools({
 		saveGitFileViewMode(mode);
 	}, []);
 	const closeFileViewer = useCallback(() => {
-		setFileViewerOpen(false);
-		setFocusedAuxiliaryPanel((current) =>
-			current?.id === "workspace-file-viewer" ? null : current,
-		);
-	}, [setFileViewerOpen, setFocusedAuxiliaryPanel]);
+		updatePanelSession((current) => ({
+			...current,
+			fileViewerOpen: false,
+			focusedAuxiliaryPanel:
+				current.focusedAuxiliaryPanel?.id === "workspace-file-viewer"
+					? null
+					: current.focusedAuxiliaryPanel,
+		}));
+	}, [updatePanelSession]);
 	const closeDiffViewer = useCallback(() => {
-		setSelectedFile(null);
-		setDiffViewerCwd(null);
-		setFocusedAuxiliaryPanel((current) =>
-			current?.id === "workspace-diff-viewer" ? null : current,
-		);
-	}, [setDiffViewerCwd, setFocusedAuxiliaryPanel, setSelectedFile]);
+		updatePanelSession((current) => ({
+			...current,
+			selectedFile: null,
+			diffViewerCwd: null,
+			focusedAuxiliaryPanel:
+				current.focusedAuxiliaryPanel?.id === "workspace-diff-viewer"
+					? null
+					: current.focusedAuxiliaryPanel,
+		}));
+	}, [updatePanelSession]);
 	const selectChangedFile = useCallback(
-		(file: SelectedFile) => {
+		(file: GitFileEntry) => {
 			if (!activeCwd) return;
-			setDiffViewerCwd(activeCwd);
-			setSelectedFile(file);
-			setFocusedAuxiliaryPanel({
-				id: "workspace-diff-viewer",
-				cwd: activeCwd,
-			});
+			updatePanelSession((current) => ({
+				...current,
+				diffViewerCwd: activeCwd,
+				selectedFile: { path: file.path, staged: file.staged },
+				focusedAuxiliaryPanel: {
+					id: "workspace-diff-viewer",
+					cwd: activeCwd,
+				},
+			}));
 		},
-		[activeCwd, setDiffViewerCwd, setFocusedAuxiliaryPanel, setSelectedFile],
+		[activeCwd, updatePanelSession],
 	);
 	const focusChatWorkspace = useCallback(
-		() => setFocusedAuxiliaryPanel(null),
-		[setFocusedAuxiliaryPanel],
+		() =>
+			updatePanelSession((current) =>
+				current.focusedAuxiliaryPanel
+					? { ...current, focusedAuxiliaryPanel: null }
+					: current,
+			),
+		[updatePanelSession],
+	);
+	const focusDiffViewer = useCallback(() => {
+		if (!diffViewerCwd) return;
+		updatePanelSession((current) =>
+			current.focusedAuxiliaryPanel?.id === "workspace-diff-viewer" &&
+			current.focusedAuxiliaryPanel.cwd === diffViewerCwd
+				? current
+				: {
+						...current,
+						focusedAuxiliaryPanel: {
+							id: "workspace-diff-viewer",
+							cwd: diffViewerCwd,
+						},
+					},
+		);
+	}, [diffViewerCwd, updatePanelSession]);
+	const cycleChangedFile = useCallback(
+		(direction: -1 | 1) => {
+			if (!keyboardFiles.length) return;
+			const currentIndex = selectedFile
+				? keyboardFiles.findIndex(
+						(file) =>
+							file.path === selectedFile.path &&
+							file.staged === selectedFile.staged,
+					)
+				: -1;
+			const nextIndex =
+				currentIndex < 0
+					? direction > 0
+						? 0
+						: keyboardFiles.length - 1
+					: Math.max(
+							0,
+							Math.min(keyboardFiles.length - 1, currentIndex + direction),
+						);
+			if (nextIndex === currentIndex) return;
+			selectChangedFile(keyboardFiles[nextIndex]!);
+		},
+		[keyboardFiles, selectChangedFile, selectedFile],
+	);
+	const handleDiffKeyboardNavigation = useCallback(
+		(event: KeyboardEvent) => {
+			if (
+				focusedAuxiliaryPanel?.id !== "workspace-diff-viewer" ||
+				event.metaKey ||
+				event.ctrlKey ||
+				event.altKey
+			)
+				return;
+			const target = event.target as HTMLElement;
+			const isEditable =
+				target.tagName === "INPUT" ||
+				target.tagName === "TEXTAREA" ||
+				target.isContentEditable;
+			if (isEditable) return;
+
+			if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+				event.preventDefault();
+				cycleChangedFile(event.key === "ArrowUp" ? -1 : 1);
+			} else if (
+				event.key === "Enter" &&
+				selectedFile &&
+				target.tagName !== "BUTTON"
+			) {
+				event.preventDefault();
+				if (selectedFile.staged) unstageFile(selectedFile.path);
+				else stageFile(selectedFile.path);
+				const updated = files.find((file) => file.path === selectedFile.path);
+				if (updated) {
+					selectChangedFile({ ...updated, staged: !selectedFile.staged });
+				}
+			}
+		},
+		[
+			cycleChangedFile,
+			files,
+			focusedAuxiliaryPanel?.id,
+			selectChangedFile,
+			selectedFile,
+			stageFile,
+			unstageFile,
+		],
+	);
+	useEffect(() => {
+		if (!active) return;
+		return listenWindowEvent("keydown", handleDiffKeyboardNavigation);
+	}, [active, handleDiffKeyboardNavigation]);
+	const collapseSidebar = useCallback(
+		() => updateSidebarVisible(false),
+		[updateSidebarVisible],
+	);
+	const expandSidebar = useCallback(
+		() => updateSidebarVisible(true),
+		[updateSidebarVisible],
 	);
 	const handleResizeStart = useCallback(
-		(event: MouseEvent) => {
+		(event: MouseEvent & { currentTarget: HTMLButtonElement }) => {
 			event.preventDefault();
 			const releaseSelection = lockPointerSelection();
+			const shell = event.currentTarget.parentElement;
 			dragRef.current = { startX: event.clientX, startWidth: sidebarWidth };
 			const move = (moveEvent: MouseEvent) => {
 				if (!dragRef.current) return;
@@ -511,11 +733,12 @@ export function useChatWorkspaceTools({
 					),
 				);
 				sidebarWidthRef.current = width;
-				setSidebarWidth(width);
+				if (shell) shell.style.width = `${width}px`;
 			};
 			const end = () => {
 				releaseSelection();
 				writeStoredValue(SIDEBAR_WIDTH_KEY, String(sidebarWidthRef.current));
+				setSidebarWidth(sidebarWidthRef.current);
 				dragRef.current = null;
 				document.removeEventListener("mousemove", move);
 				document.removeEventListener("mouseup", end);
@@ -531,6 +754,7 @@ export function useChatWorkspaceTools({
 			event.preventDefault();
 			event.stopPropagation();
 			const releaseSelection = lockPointerSelection();
+			const rail = event.currentTarget.parentElement;
 			const workspaceWidth =
 				event.currentTarget.parentElement?.parentElement?.getBoundingClientRect()
 					.width ?? window.innerWidth;
@@ -561,7 +785,7 @@ export function useChatWorkspaceTools({
 					),
 				);
 				diffWidthRef.current = width;
-				setDiffWidth(width);
+				if (rail) rail.style.width = `${width}px`;
 			};
 			const end = (endEvent: PointerEvent) => {
 				if (endEvent.pointerId !== pointerId) return;
@@ -570,6 +794,7 @@ export function useChatWorkspaceTools({
 					`${DIFF_WIDTH_KEY_PREFIX}${workspaceId}`,
 					String(diffWidthRef.current),
 				);
+				setDiffWidth(diffWidthRef.current);
 				diffDragRef.current = null;
 				window.removeEventListener("pointermove", move);
 				window.removeEventListener("pointerup", end);
@@ -682,14 +907,9 @@ export function useChatWorkspaceTools({
 	const diffPanel =
 		diffViewerCwd && selectedFile ? (
 			<aside
-				{...stylex.props(styles.diffRail)}
-				style={{ width: diffWidth }}
-				onPointerDownCapture={() =>
-					setFocusedAuxiliaryPanel({
-						id: "workspace-diff-viewer",
-						cwd: diffViewerCwd,
-					})
-				}
+				{...stylex.props(styles.diffRail, zenMode && styles.diffRailZen)}
+				style={zenMode ? undefined : { width: diffWidth }}
+				onPointerDownCapture={focusDiffViewer}
 			>
 				<button
 					type="button"
@@ -702,6 +922,10 @@ export function useChatWorkspaceTools({
 					file={selectedFile}
 					loading={diffLoading}
 					onClose={closeDiffViewer}
+					viewMode={diffViewMode}
+					onViewModeChange={setDiffViewMode}
+					zenMode={zenMode}
+					onToggleZenMode={toggleZenMode}
 				/>
 			</aside>
 		) : null;
@@ -751,20 +975,20 @@ export function useChatWorkspaceTools({
 						amendMode={amendMode}
 						onAmendModeChange={setAmendMode}
 						showFileActions
-						onCollapse={() => updateSidebarVisible(false)}
+						onCollapse={collapseSidebar}
 					/>
 				</>
 			) : (
 				<CollapsedChangeFileSidebar
 					unstagedCount={modified.length + untracked.length}
 					stagedCount={staged.length}
-					onExpand={() => updateSidebarVisible(true)}
+					onExpand={expandSidebar}
 				/>
 			)}
 		</aside>
 	);
 
-	return { auxiliaryPanels, diffPanel, focusChatWorkspace, sidebar };
+	return { auxiliaryPanels, diffPanel, focusChatWorkspace, sidebar, zenMode };
 }
 
 const styles = stylex.create({
@@ -791,6 +1015,10 @@ const styles = stylex.create({
 		borderLeftColor: color.border,
 		backgroundColor: color.transparent,
 		overflow: "visible",
+	},
+	diffRailZen: {
+		minWidth: 0,
+		flex: 1,
 	},
 	diffResizeHandle: {
 		position: "absolute",
@@ -855,6 +1083,28 @@ const styles = stylex.create({
 		fontFamily: font.familyDiff,
 		fontSize: font.size_1,
 		fontVariantNumeric: "tabular-nums",
+	},
+	viewerModes: {
+		display: "flex",
+		flexShrink: 0,
+		gap: 2,
+		borderRadius: 6,
+		backgroundColor: color.surfaceControl,
+		padding: 2,
+	},
+	viewerModeButton: {
+		display: "flex",
+		width: controlSize._5,
+		height: controlSize._5,
+		alignItems: "center",
+		justifyContent: "center",
+		borderRadius: 4,
+		backgroundColor: { default: "transparent", ":hover": color.controlHover },
+		color: color.textMuted,
+	},
+	viewerModeButtonActive: {
+		backgroundColor: color.controlActive,
+		color: color.textMain,
 	},
 	viewerAdded: { color: "#32e875" },
 	viewerRemoved: { color: "#ff5252" },

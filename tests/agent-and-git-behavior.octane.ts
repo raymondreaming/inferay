@@ -115,7 +115,7 @@ describe("agent state and git change behavior", () => {
 			paneId: group.panes[0]!.id,
 			chatSessionPaneId: group.panes[0]!.id,
 			workspacePath: "/Users/ray/Developer/inferay",
-			outcomeSurfaces: ["chat-checkpoints", "editor-git-diff"],
+			outcomeSurfaces: ["chat-checkpoints", "chat-git-diff"],
 		});
 	});
 
@@ -684,8 +684,8 @@ describe("agent state and git change behavior", () => {
 		);
 	});
 
-	test("accepts editor as a selectable agent main view", () => {
-		expect(isAgentMainView("editor")).toBe(true);
+	test("accepts only current agent main views", () => {
+		expect(isAgentMainView("editor")).toBe(false);
 		expect(isAgentMainView("chat")).toBe(true);
 		expect(isAgentMainView("missing")).toBe(false);
 	});

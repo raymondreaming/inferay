@@ -354,7 +354,7 @@ export interface PrimaryProductLoopContext {
 	readonly paneId: PaneId | null;
 	readonly chatSessionPaneId: PaneId | null;
 	readonly workspacePath: string | null;
-	readonly outcomeSurfaces: readonly ["chat-checkpoints", "editor-git-diff"];
+	readonly outcomeSurfaces: readonly ["chat-checkpoints", "chat-git-diff"];
 }
 
 export interface AgentViewSwitchHealth {
@@ -401,7 +401,7 @@ export type AgentStateChangeSource = "canonical" | "local" | "view" | "cache";
 export interface AgentShellChangeDetail {
 	source: AgentStateChangeSource;
 	reason?: string;
-	mainView?: "chat" | "editor" | "graph";
+	mainView?: "chat" | "graph";
 	productHealth?: AgentViewSwitchHealth;
 	stateKey?: string;
 	state?: AgentSavedState;
@@ -498,7 +498,7 @@ export function getPrimaryProductLoopContext(
 		paneId: selectedPane?.id ?? null,
 		chatSessionPaneId: chatPane?.id ?? null,
 		workspacePath,
-		outcomeSurfaces: ["chat-checkpoints", "editor-git-diff"],
+		outcomeSurfaces: ["chat-checkpoints", "chat-git-diff"],
 	};
 }
 
