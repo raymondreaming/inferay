@@ -359,6 +359,7 @@ export const WorkspaceFileViewer = memo(function WorkspaceFileViewer({
 	const startFileTabDrag = useCallback(
 		(event: PointerEvent, file: FileContentResponse) => {
 			if (!onFileTabDragStart) return;
+			if ((event.target as HTMLElement).closest("button")) return;
 			event.stopPropagation();
 			onFileTabDragStart(event, file, () => {
 				closeFile(file.path);
@@ -392,7 +393,13 @@ export const WorkspaceFileViewer = memo(function WorkspaceFileViewer({
 								>
 									<button
 										type="button"
-										onClick={() => setActivePath(file.path)}
+										onPointerDown={(event) => {
+											if (event.button === 0 && event.isPrimary)
+												setActivePath(file.path);
+										}}
+										onClick={(event) => {
+											if (event.detail === 0) setActivePath(file.path);
+										}}
 										{...stylex.props(styles.fileTabSelect)}
 									>
 										<FileTypeIcon path={file.path} size={13} />
@@ -403,9 +410,14 @@ export const WorkspaceFileViewer = memo(function WorkspaceFileViewer({
 									<button
 										type="button"
 										aria-label={`Close ${fileName(file.path)}`}
+										onPointerDown={(event) => {
+											event.stopPropagation();
+											if (event.button === 0 && event.isPrimary)
+												closeFile(file.path);
+										}}
 										onClick={(event) => {
 											event.stopPropagation();
-											closeFile(file.path);
+											if (event.detail === 0) closeFile(file.path);
 										}}
 										{...stylex.props(styles.fileTabClose)}
 									>
@@ -418,7 +430,12 @@ export const WorkspaceFileViewer = memo(function WorkspaceFileViewer({
 				<WorkspaceFileSearch cwd={cwd} onSelect={openFile} placement="panel" />
 				<button
 					type="button"
-					onClick={onClose}
+					onPointerDown={(event) => {
+						if (event.button === 0 && event.isPrimary) onClose();
+					}}
+					onClick={(event) => {
+						if (event.detail === 0) onClose();
+					}}
 					title="Close file viewer"
 					aria-label="Close file viewer"
 					{...stylex.props(styles.iconButton)}

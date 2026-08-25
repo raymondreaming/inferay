@@ -450,7 +450,10 @@ export const ChatComposer = memo(function ChatComposer({
 			)}
 
 			{showInput && (
-				<div {...stylex.props(styles.inputDock)}>
+				<div
+					{...stylex.props(styles.inputDock)}
+					className={`${stylex.props(styles.inputDock).className ?? ""} inferay-chat-composer`}
+				>
 					<Liquid
 						blur={5}
 						contrast={20}

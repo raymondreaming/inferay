@@ -954,7 +954,12 @@ export const AgentChatView = memo(function AgentChatView({
 					{!isAtBottom && (
 						<button
 							type="button"
-							onClick={() => scrollToBottom()}
+							onPointerDown={(event) => {
+								if (event.button === 0 && event.isPrimary) scrollToBottom();
+							}}
+							onClick={(event) => {
+								if (event.detail === 0) scrollToBottom();
+							}}
 							{...stylex.props(styles.scrollButton)}
 						>
 							<IconArrowDown size={12} {...stylex.props(styles.scrollIcon)} />

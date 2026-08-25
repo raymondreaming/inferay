@@ -131,7 +131,14 @@ export function WorkspaceFileSearch({
 				<button
 					type="button"
 					disabled={!cwd}
-					onClick={() => {
+					onPointerDown={(event) => {
+						if (event.button !== 0 || !event.isPrimary) return;
+						setSelectedIndex(-1);
+						setOpen((current) => !current);
+						window.setTimeout(() => panelInputRef.current?.focus(), 0);
+					}}
+					onClick={(event) => {
+						if (event.detail !== 0) return;
 						setSelectedIndex(-1);
 						setOpen((current) => !current);
 						window.setTimeout(() => panelInputRef.current?.focus(), 0);
@@ -147,6 +154,10 @@ export function WorkspaceFileSearch({
 					<IconSearch size={11} {...stylex.props(styles.searchIcon)} />
 					<input
 						type="text"
+						autoComplete="off"
+						autoCorrect="off"
+						autoCapitalize="off"
+						spellCheck={false}
 						value={query}
 						disabled={!cwd}
 						placeholder={
@@ -179,6 +190,10 @@ export function WorkspaceFileSearch({
 							<input
 								ref={panelInputRef}
 								type="text"
+								autoComplete="off"
+								autoCorrect="off"
+								autoCapitalize="off"
+								spellCheck={false}
 								value={query}
 								onInput={(event) => {
 									setQuery(event.currentTarget.value);
@@ -195,7 +210,12 @@ export function WorkspaceFileSearch({
 							key={result.path}
 							type="button"
 							onMouseEnter={() => setSelectedIndex(index)}
-							onClick={() => choose(result)}
+							onPointerDown={(event) => {
+								if (event.button === 0 && event.isPrimary) choose(result);
+							}}
+							onClick={(event) => {
+								if (event.detail === 0) choose(result);
+							}}
 							{...stylex.props(
 								styles.result,
 								index === selectedIndex && styles.resultActive,

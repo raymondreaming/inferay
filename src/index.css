@@ -169,6 +169,14 @@ textarea::placeholder {
 	background: transparent;
 }
 
+/* Keep WebKit drag-selection inside the message composer from escaping into
+   its surrounding controls and pane chrome. */
+.inferay-chat-composer,
+.inferay-chat-composer * {
+	-webkit-user-select: none;
+	user-select: none;
+}
+
 .diff-hatch {
 	background-image: repeating-linear-gradient(
 		-45deg,

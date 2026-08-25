@@ -36,6 +36,7 @@ export function useQueryResource<T>(
 		},
 		queryClient,
 	);
+	const refetchQuery = query.refetch;
 
 	const setData = useCallback(
 		(value: SetStateAction<T>) => {
@@ -52,9 +53,9 @@ export function useQueryResource<T>(
 	);
 
 	const refresh = useCallback(async () => {
-		const result = await query.refetch();
+		const result = await refetchQuery();
 		return result.data ?? initialData;
-	}, [initialData, query]);
+	}, [initialData, refetchQuery]);
 
 	return {
 		data: query.data ?? initialData,

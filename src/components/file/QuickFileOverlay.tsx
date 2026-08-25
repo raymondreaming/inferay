@@ -1,5 +1,12 @@
 import * as stylex from "@octanejs/stylex";
-import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
+import {
+	createPortal,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "octane";
 import type React from "react";
 import {
 	useShikiSnippet,
@@ -80,7 +87,7 @@ function SyntaxEditor({
 			highlightRef.current.scrollTop = event.currentTarget.scrollTop;
 			highlightRef.current.scrollLeft = event.currentTarget.scrollLeft;
 		},
-		[]
+		[],
 	);
 
 	return (
@@ -125,7 +132,7 @@ export function QuickFileOverlay({ initiallyOpen = false }) {
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [activeFile, setActiveFile] = useState<FileContentResponse | null>(
-		null
+		null,
 	);
 	const searchInputRef = useRef<HTMLInputElement | null>(null);
 	const editorRef = useRef<HTMLTextAreaElement | null>(null);
@@ -169,7 +176,7 @@ export function QuickFileOverlay({ initiallyOpen = false }) {
 					setCwdLabel(
 						data.cwds && data.cwds.length > 1
 							? `${data.cwds.length} active directories`
-							: data.cwd
+							: data.cwd,
 					);
 					setResults(data.results);
 					setSelectedIndex(0);
@@ -195,7 +202,7 @@ export function QuickFileOverlay({ initiallyOpen = false }) {
 			const fileCwd = file.cwd ?? cwdLabel;
 			setLoading(true);
 			fetchJson<FileContentResponse>(
-				`/api/files/content?cwd=${encodeURIComponent(fileCwd)}&path=${encodeURIComponent(file.path)}`
+				`/api/files/content?cwd=${encodeURIComponent(fileCwd)}&path=${encodeURIComponent(file.path)}`,
 			)
 				.then((data) => {
 					setActiveFile(data);
@@ -207,7 +214,7 @@ export function QuickFileOverlay({ initiallyOpen = false }) {
 				})
 				.finally(() => setLoading(false));
 		},
-		[cwdLabel]
+		[cwdLabel],
 	);
 
 	const handleSearchKeyDown = useCallback(
@@ -218,7 +225,7 @@ export function QuickFileOverlay({ initiallyOpen = false }) {
 			} else if (event.key === "ArrowDown") {
 				event.preventDefault();
 				setSelectedIndex((idx) =>
-					results.length ? Math.min(results.length - 1, idx + 1) : 0
+					results.length ? Math.min(results.length - 1, idx + 1) : 0,
 				);
 			} else if (event.key === "ArrowUp") {
 				event.preventDefault();
@@ -228,7 +235,7 @@ export function QuickFileOverlay({ initiallyOpen = false }) {
 				openFile(selected);
 			}
 		},
-		[close, openFile, results.length, selected]
+		[close, openFile, results.length, selected],
 	);
 
 	const handleEditorKeyDown = useCallback(
@@ -238,12 +245,12 @@ export function QuickFileOverlay({ initiallyOpen = false }) {
 				close();
 			}
 		},
-		[close]
+		[close],
 	);
 
 	const fileRows = useMemo(() => {
 		const cwdCount = new Set(
-			results.map((result) => result.cwd).filter(Boolean)
+			results.map((result) => result.cwd).filter(Boolean),
 		).size;
 		const hasMultipleCwds = cwdCount > 1;
 		return results.map((result, index) => {
@@ -256,13 +263,18 @@ export function QuickFileOverlay({ initiallyOpen = false }) {
 					key={`${result.cwd ?? ""}:${result.path}`}
 					type="button"
 					onMouseEnter={() => setSelectedIndex(index)}
-					onClick={() => openFile(result)}
+					onPointerDown={(event) => {
+						if (event.button === 0 && event.isPrimary) openFile(result);
+					}}
+					onClick={(event) => {
+						if (event.detail === 0) openFile(result);
+					}}
 					disabled={result.isDir}
 					{...stylex.props(
 						styles.resultRow,
 						active && styles.resultRowActive,
 						opened && styles.resultRowOpen,
-						result.isDir && styles.resultRowDisabled
+						result.isDir && styles.resultRowDisabled,
 					)}
 				>
 					<IconCode size={13} {...stylex.props(styles.resultIcon)} />
@@ -281,7 +293,7 @@ export function QuickFileOverlay({ initiallyOpen = false }) {
 
 	if (!open) return null;
 
-	return (
+	return createPortal(
 		<div
 			{...stylex.props(styles.overlay)}
 			onMouseDown={(event) => {
@@ -299,6 +311,10 @@ export function QuickFileOverlay({ initiallyOpen = false }) {
 							<input
 								ref={searchInputRef}
 								type="text"
+								autoComplete="off"
+								autoCorrect="off"
+								autoCapitalize="off"
+								spellCheck={false}
 								value={query}
 								onInput={setInputValue.bind(null, setQuery)}
 								placeholder="Search files"
@@ -308,7 +324,12 @@ export function QuickFileOverlay({ initiallyOpen = false }) {
 						</div>
 						<button
 							type="button"
-							onClick={close}
+							onPointerDown={(event) => {
+								if (event.button === 0 && event.isPrimary) close();
+							}}
+							onClick={(event) => {
+								if (event.detail === 0) close();
+							}}
 							{...stylex.props(styles.iconButton)}
 							title="Close"
 						>
@@ -342,8 +363,12 @@ export function QuickFileOverlay({ initiallyOpen = false }) {
 								<span {...stylex.props(styles.saveState)}>Read only</span>
 								<button
 									type="button"
-									onClick={() => {
-										setActiveFile(null);
+									onPointerDown={(event) => {
+										if (event.button === 0 && event.isPrimary)
+											setActiveFile(null);
+									}}
+									onClick={(event) => {
+										if (event.detail === 0) setActiveFile(null);
 									}}
 									{...stylex.props(styles.secondaryButton)}
 								>
@@ -366,7 +391,8 @@ export function QuickFileOverlay({ initiallyOpen = false }) {
 					{error && <div {...stylex.props(styles.errorText)}>{error}</div>}
 				</div>
 			</section>
-		</div>
+		</div>,
+		document.body,
 	);
 }
 
