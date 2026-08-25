@@ -97,6 +97,7 @@ export const {
 	IconLayoutGrid,
 	IconTarget,
 	IconLoader,
+	IconSparkles,
 } = {
 	IconAgent: icon(["M4 17l6-6-6-6", "M12 19h8"]),
 	IconX: icon("M18 6L6 18M6 6l12 12"),
@@ -222,6 +223,11 @@ export const {
 		"M18 12h4",
 		"M4.93 19.07l2.83-2.83",
 		"M16.24 7.76l2.83-2.83",
+	]),
+	IconSparkles: icon([
+		"M12 3l1.1 3.1L16 7.5l-2.9 1.4L12 12l-1.1-3.1L8 7.5l2.9-1.4L12 3z",
+		"M18.5 13l.7 2 1.8.8-1.8.8-.7 2-.7-2-1.8-.8 1.8-.8.7-2z",
+		"M5.5 14l.8 2.3 2.2 1-2.2 1-.8 2.2-.8-2.2-2.2-1 2.2-1 .8-2.3z",
 	]),
 };
 

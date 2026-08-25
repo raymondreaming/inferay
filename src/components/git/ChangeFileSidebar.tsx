@@ -26,6 +26,7 @@ import {
 	IconPanelLeft,
 	IconPencil,
 	IconPlus,
+	IconSparkles,
 } from "../ui/Icons.tsx";
 
 export interface SelectedFile {
@@ -753,17 +754,26 @@ const styles = stylex.create({
 			color: color.textFaint,
 		},
 	},
-	summaryInputGenerating: {
-		paddingRight: controlSize._2,
-	},
-	fieldThinking: {
+	generateMessageButton: {
 		alignItems: "center",
-		color: color.accent,
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.surfaceWhite06,
+		},
+		borderRadius: radius.md,
+		color: {
+			default: color.textMuted,
+			":hover": color.textMain,
+		},
 		display: "flex",
 		flexShrink: 0,
+		height: controlSize._6,
 		justifyContent: "center",
 		marginRight: controlSize._2,
-		transform: "scale(0.82)",
+		width: controlSize._6,
+		":disabled": {
+			opacity: 0.45,
+		},
 	},
 	summaryCount: {
 		flexShrink: 0,
@@ -838,10 +848,7 @@ const styles = stylex.create({
 		gap: controlSize._1_5,
 		paddingInline: controlSize._1,
 	},
-	commitSplitWrap: {
-		position: "relative",
-	},
-	commitSplitButton: {
+	commitButtonSurface: {
 		display: "flex",
 		width: "100%",
 		height: controlSize._7,
@@ -872,58 +879,6 @@ const styles = stylex.create({
 			opacity: 1,
 			WebkitTextFillColor: "#111210",
 		},
-	},
-	commitChevronAction: {
-		display: "flex",
-		width: controlSize._7,
-		flexShrink: 0,
-		alignItems: "center",
-		justifyContent: "center",
-		borderLeftWidth: 1,
-		borderLeftStyle: "solid",
-		borderLeftColor: color.surfaceBlack14,
-		backgroundColor: {
-			default: color.transparent,
-			":hover": "rgba(0, 0, 0, 0.06)",
-		},
-		color: color.textWarmInkSoft,
-		":disabled": {
-			color: color.textWarmInkSoft,
-			opacity: 1,
-			WebkitTextFillColor: "#292a27",
-		},
-	},
-	chevronDown: {
-		transform: "rotate(90deg)",
-	},
-	commitActionMenu: {
-		position: "absolute",
-		right: controlSize._0,
-		top: "calc(100% + 4px)",
-		zIndex: layer.panelOverlay,
-		width: 190,
-		padding: controlSize._1,
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.borderStrong,
-		borderRadius: radius.md,
-		backgroundColor: color.backgroundRaised,
-		boxShadow: "0 12px 28px rgba(0, 0, 0, 0.42)",
-	},
-	commitGenerateAction: {
-		display: "flex",
-		width: "100%",
-		height: controlSize._7,
-		alignItems: "center",
-		paddingInline: controlSize._2,
-		borderRadius: radius.sm,
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlHover,
-		},
-		color: color.textSoft,
-		fontSize: font.size_2,
-		textAlign: "left",
 	},
 	fileViewToolbar: {
 		display: "flex",
@@ -1423,14 +1378,12 @@ function CommitSection({
 	onFileViewModeChange: (mode: "path" | "tree") => void;
 }) {
 	const [generating, setGenerating] = useState(false);
-	const [generationMenuOpen, setGenerationMenuOpen] = useState(false);
 	const [hoveredViewIndex, setHoveredViewIndex] = useState<number | null>(null);
 	const message = commitMessage.replace(/\s+/g, " ");
 	const generateMessage = async () => {
 		if (!cwd || !stagedCount || generating) return;
 		setGenerating(true);
 		try {
-			setGenerationMenuOpen(false);
 			const data = await postJson<{ message?: string }>(
 				"/api/git/generate-commit-message",
 				{ cwd },
@@ -1466,10 +1419,7 @@ function CommitSection({
 									onInput={(e) => onCommitMessageChange(e.currentTarget.value)}
 									placeholder="Message"
 									data-git-commit-message
-									{...stylex.props(
-										styles.summaryInput,
-										generating && styles.summaryInputGenerating,
-									)}
+									{...stylex.props(styles.summaryInput)}
 									onKeyDown={(e) => {
 										if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
 											e.preventDefault();
@@ -1477,8 +1427,15 @@ function CommitSection({
 										}
 									}}
 								/>
-								{generating && (
-									<span {...stylex.props(styles.fieldThinking)}>
+								<button
+									type="button"
+									onClick={generateMessage}
+									disabled={!stagedCount || generating || !cwd}
+									title="Generate commit message"
+									aria-label="Generate commit message"
+									{...stylex.props(styles.generateMessageButton)}
+								>
+									{generating ? (
 										<DotMatrixWeave
 											size={iconSize._2md}
 											dotSize={1.5}
@@ -1486,58 +1443,28 @@ function CommitSection({
 											speed={1.2}
 											ariaLabel="Generating commit summary"
 										/>
-									</span>
-								)}
+									) : (
+										<IconSparkles size={iconSize.md} />
+									)}
+								</button>
 							</div>
 						</div>
 					</Liquid.Item>
 				</Liquid>
-				<div {...stylex.props(styles.commitSplitWrap)}>
-					<div {...stylex.props(styles.commitSplitButton)}>
-						<button
-							type="button"
-							onClick={onCommit}
-							disabled={!commitMessage.trim() || isCommitting}
-							{...stylex.props(styles.commitMainAction)}
-						>
-							<IconGitCommit size={iconSize.md} />
-							{isCommitting
-								? "Committing…"
-								: stagedCount
-									? `Commit ${stagedCount} file${stagedCount !== 1 ? "s" : ""}`
-									: "Commit"}
-						</button>
-						<button
-							type="button"
-							onPointerDown={(event) => {
-								if (event.button === 0 && event.isPrimary)
-									setGenerationMenuOpen((open) => !open);
-							}}
-							onClick={(event) => {
-								if (event.detail === 0) setGenerationMenuOpen((open) => !open);
-							}}
-							disabled={!stagedCount || generating || !cwd}
-							aria-label="Commit message actions"
-							aria-expanded={generationMenuOpen}
-							{...stylex.props(styles.commitChevronAction)}
-						>
-							<IconChevronRight
-								size={iconSize.compact}
-								{...stylex.props(styles.chevronDown)}
-							/>
-						</button>
-					</div>
-					{generationMenuOpen ? (
-						<div {...stylex.props(styles.commitActionMenu)}>
-							<button
-								type="button"
-								onClick={generateMessage}
-								{...stylex.props(styles.commitGenerateAction)}
-							>
-								{generating ? "Generating…" : "Generate message"}
-							</button>
-						</div>
-					) : null}
+				<div {...stylex.props(styles.commitButtonSurface)}>
+					<button
+						type="button"
+						onClick={onCommit}
+						disabled={!commitMessage.trim() || isCommitting}
+						{...stylex.props(styles.commitMainAction)}
+					>
+						<IconGitCommit size={iconSize.md} />
+						{isCommitting
+							? "Committing…"
+							: stagedCount
+								? `Commit ${stagedCount} file${stagedCount !== 1 ? "s" : ""}`
+								: "Commit"}
+					</button>
 				</div>
 			</div>
 
