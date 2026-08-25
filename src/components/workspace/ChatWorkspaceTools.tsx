@@ -38,7 +38,6 @@ import {
 } from "../../pages/Agent/GitDiffView.tsx";
 import { color, controlSize, font } from "../../tokens.stylex.ts";
 import { DiffViewerBoundary } from "../diff/DiffViewerBoundary.tsx";
-import { FileTypeIcon } from "../file/FileTypeIcon.tsx";
 import {
 	ChangeFileSidebar,
 	CollapsedChangeFileSidebar,
@@ -46,6 +45,7 @@ import {
 	getTreeFileOrder,
 	type SelectedFile,
 } from "../git/ChangeFileSidebar.tsx";
+import { LiquidSegmentedRail } from "../ui/gooey/LiquidSegmentedRail.tsx";
 import {
 	IconCollapse,
 	IconExpand,
@@ -232,6 +232,20 @@ function createDetachedFilePanelId() {
 	return `workspace-file-viewer:${Date.now()}:${detachedFilePanelSequence}`;
 }
 
+function DiffFilePath({ path }: { readonly path: string }) {
+	const separator = path.lastIndexOf("/");
+	const directory = separator >= 0 ? path.slice(0, separator + 1) : "";
+	const fileName = separator >= 0 ? path.slice(separator + 1) : path;
+	return (
+		<span title={path} {...stylex.props(styles.viewerTitle)}>
+			{directory ? (
+				<span {...stylex.props(styles.viewerDirectory)}>{directory}</span>
+			) : null}
+			<strong {...stylex.props(styles.viewerFileName)}>{fileName}</strong>
+		</span>
+	);
+}
+
 function ChatDiffPanel({
 	diff,
 	file,
@@ -254,27 +268,37 @@ function ChatDiffPanel({
 	readonly drag?: DragProps;
 }) {
 	const stats = useMemo(() => summarizeHunkDiff(diff), [diff]);
+	const [hoveredModeIndex, setHoveredModeIndex] = useState<number | null>(null);
+	const activeModeIndex = zenMode ? 2 : viewMode === "split" ? 0 : 1;
 	return (
 		<section {...stylex.props(styles.viewerPanel)}>
 			<header {...stylex.props(styles.viewerHeader)}>
 				{drag ? <WorkspaceDockHandle {...drag} /> : null}
-				<FileTypeIcon path={file.path} size={14} />
-				<span {...stylex.props(styles.viewerTitle)}>
-					{file.path.split("/").pop() ?? file.path}
-				</span>
-				<span {...stylex.props(styles.viewerStats)}>
-					{stats.added > 0 ? (
-						<span {...stylex.props(styles.viewerAdded)}>+{stats.added}</span>
-					) : null}
-					{stats.removed > 0 ? (
-						<span {...stylex.props(styles.viewerRemoved)}>
-							-{stats.removed}
-						</span>
-					) : null}
-				</span>
-				<div {...stylex.props(styles.viewerModes)}>
+				{stats.added > 0 || stats.removed > 0 ? (
+					<span {...stylex.props(styles.viewerStats)}>
+						{stats.added > 0 ? (
+							<span {...stylex.props(styles.viewerAdded)}>+{stats.added}</span>
+						) : null}
+						{stats.removed > 0 ? (
+							<span {...stylex.props(styles.viewerRemoved)}>
+								-{stats.removed}
+							</span>
+						) : null}
+					</span>
+				) : null}
+				<DiffFilePath path={file.path} />
+				<div
+					{...stylex.props(styles.viewerModes)}
+					onMouseLeave={() => setHoveredModeIndex(null)}
+				>
+					<LiquidSegmentedRail
+						activeIndex={hoveredModeIndex ?? activeModeIndex}
+						itemCount={3}
+						radius={4}
+					/>
 					<button
 						type="button"
+						onMouseEnter={() => setHoveredModeIndex(0)}
 						onPointerDown={(event) => {
 							if (event.button === 0 && event.isPrimary)
 								onViewModeChange("split");
@@ -293,6 +317,7 @@ function ChatDiffPanel({
 					</button>
 					<button
 						type="button"
+						onMouseEnter={() => setHoveredModeIndex(1)}
 						onPointerDown={(event) => {
 							if (event.button === 0 && event.isPrimary)
 								onViewModeChange("hunks");
@@ -311,6 +336,7 @@ function ChatDiffPanel({
 					</button>
 					<button
 						type="button"
+						onMouseEnter={() => setHoveredModeIndex(2)}
 						onPointerDown={(event) => {
 							if (event.button === 0 && event.isPrimary) onToggleZenMode();
 						}}
@@ -1072,12 +1098,19 @@ const styles = stylex.create({
 		minWidth: 0,
 		flex: 1,
 		overflow: "hidden",
-		color: color.textMain,
+		color: color.textSoft,
 		fontFamily: font.familyDiff,
 		fontSize: font.size_1,
-		fontWeight: 400,
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
+	},
+	viewerDirectory: {
+		color: color.textMuted,
+		fontWeight: 400,
+	},
+	viewerFileName: {
+		color: color.textMain,
+		fontWeight: 700,
 	},
 	viewerStats: {
 		display: "flex",
@@ -1088,25 +1121,30 @@ const styles = stylex.create({
 		fontVariantNumeric: "tabular-nums",
 	},
 	viewerModes: {
+		position: "relative",
+		isolation: "isolate",
 		display: "flex",
+		height: controlSize._5,
 		flexShrink: 0,
-		gap: 2,
-		borderRadius: 6,
-		backgroundColor: color.surfaceControl,
-		padding: 2,
+		alignItems: "center",
+		backgroundColor: color.transparent,
 	},
 	viewerModeButton: {
+		position: "relative",
+		zIndex: 1,
 		display: "flex",
-		width: controlSize._5,
-		height: controlSize._5,
+		width: controlSize._6,
+		height: "100%",
 		alignItems: "center",
 		justifyContent: "center",
 		borderRadius: 4,
-		backgroundColor: { default: "transparent", ":hover": color.controlHover },
+		backgroundColor: color.transparent,
 		color: color.textMuted,
+		transitionProperty: "color",
+		transitionDuration: "120ms",
 	},
 	viewerModeButtonActive: {
-		backgroundColor: color.controlActive,
+		backgroundColor: color.transparent,
 		color: color.textMain,
 	},
 	viewerAdded: { color: "#32e875" },

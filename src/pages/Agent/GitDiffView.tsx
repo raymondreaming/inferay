@@ -9,7 +9,24 @@ import {
 	useState,
 } from "octane";
 import type { CSSProperties } from "react";
+import {
+	alignDiffLines,
+	buildInlineHunkLines,
+	buildMarkdownContent,
+	buildMinimapSegments,
+	type MinimapSegment,
+} from "../../components/diff/diff-lines.ts";
+import {
+	diffNavigationReducer,
+	diffViewportReducer,
+	INITIAL_DIFF_NAVIGATION_STATE,
+	INITIAL_DIFF_VIEWPORT_STATE,
+} from "../../components/diff/diff-navigation.ts";
 import { MarkdownPreview } from "../../components/diff/MarkdownPreview.tsx";
+import {
+	type DiffScrollSource,
+	useSplitDiffScroll,
+} from "../../components/diff/useSplitDiffScroll.tsx";
 import { FileTypeIcon } from "../../components/file/FileTypeIcon.tsx";
 import { LiquidSegmentedRail } from "../../components/ui/gooey/LiquidSegmentedRail.tsx";
 import { IconButton } from "../../components/ui/IconButton.tsx";
@@ -104,520 +121,11 @@ const OVERSCAN = DIFF_CONFIG.overscan;
 const MAX_RENDERED_DIFF_LINES = 12_000;
 const MAX_RENDERED_LINE_CHARS = 4000;
 const MAX_PANEL_CONTENT_WIDTH = 8000;
-const INLINE_CONTEXT_LINES = 4;
-type DiffScrollSource = "left" | "right" | "all";
 type DiffRowStyle = CSSProperties & { "--hover-bg"?: string };
-interface DiffNavigationState {
-	externalScrollSource: DiffScrollSource;
-	externalScrollTop: number;
-	highlightedChangeIdx: number | undefined;
-}
-interface DiffViewportState {
-	scrollTop: number;
-	viewHeight: number;
-}
-type DiffNavigationAction =
-	| { type: "clearHighlight" }
-	| { type: "clearScroll" }
-	| { type: "jumpToChange"; changeIdx: number; top: number }
-	| { type: "jumpToPosition"; source: DiffScrollSource; top: number }
-	| { type: "reset" };
-type DiffViewportAction =
-	| { type: "measure"; height: number }
-	| { type: "scroll"; top: number };
-
-const INITIAL_DIFF_NAVIGATION_STATE: DiffNavigationState = {
-	externalScrollSource: "all",
-	externalScrollTop: -1,
-	highlightedChangeIdx: undefined,
-};
-const INITIAL_DIFF_VIEWPORT_STATE: DiffViewportState = {
-	scrollTop: 0,
-	viewHeight: 600,
-};
-
-function diffNavigationReducer(
-	state: DiffNavigationState,
-	action: DiffNavigationAction,
-): DiffNavigationState {
-	switch (action.type) {
-		case "clearHighlight":
-			return state.highlightedChangeIdx === undefined
-				? state
-				: { ...state, highlightedChangeIdx: undefined };
-		case "clearScroll":
-			return state.externalScrollTop === -1 &&
-				state.externalScrollSource === "all"
-				? state
-				: { ...state, externalScrollSource: "all", externalScrollTop: -1 };
-		case "jumpToChange":
-			return {
-				externalScrollSource: "all",
-				externalScrollTop: action.top,
-				highlightedChangeIdx: action.changeIdx,
-			};
-		case "jumpToPosition":
-			return {
-				...state,
-				externalScrollSource: action.source,
-				externalScrollTop: action.top,
-			};
-		case "reset":
-			return state.externalScrollSource === "all" &&
-				state.externalScrollTop === -1 &&
-				state.highlightedChangeIdx === undefined
-				? state
-				: INITIAL_DIFF_NAVIGATION_STATE;
-	}
-}
-
-function diffViewportReducer(
-	state: DiffViewportState,
-	action: DiffViewportAction,
-): DiffViewportState {
-	switch (action.type) {
-		case "measure": {
-			const nextHeight =
-				action.height || INITIAL_DIFF_VIEWPORT_STATE.viewHeight;
-			return Math.abs(state.viewHeight - nextHeight) > 0.5
-				? { ...state, viewHeight: nextHeight }
-				: state;
-		}
-		case "scroll":
-			return Math.abs(state.scrollTop - action.top) > 0.5
-				? { ...state, scrollTop: action.top }
-				: state;
-	}
-}
-
 function roundToDevicePixel(value: number): number {
 	const dpr = window.devicePixelRatio ?? 1;
 	return Math.round(value * dpr) / dpr;
 }
-
-const diffStyles = stylex.create({
-	virtualRoot: {
-		display: "flex",
-		minWidth: 0,
-		minHeight: 0,
-		flex: 1,
-		overflow: "hidden",
-		width: "100%",
-		contain: "layout paint style",
-	},
-	virtualScroller: {
-		flex: 1,
-		minWidth: 0,
-		overflow: "auto",
-		overflowAnchor: "none",
-		overscrollBehavior: "contain",
-		scrollbarGutter: "stable",
-		contain: "layout paint style",
-	},
-	splitPanels: {
-		display: "flex",
-		minWidth: 0,
-		minHeight: 0,
-		flex: 1,
-		overflow: "hidden",
-	},
-	splitPanel: {
-		display: "flex",
-		minWidth: 0,
-		minHeight: 0,
-		flex: 1,
-		overflow: "hidden",
-	},
-	splitPanelLeft: {
-		borderRightWidth: 1,
-		borderRightStyle: "solid",
-		borderRightColor: color.border,
-	},
-	virtualOffsetLayer: {
-		position: "absolute",
-		top: 0,
-		left: 0,
-		right: 0,
-		contain: "layout paint style",
-		willChange: "transform",
-	},
-	minimap: {
-		width: "16px",
-		flexShrink: 0,
-		borderLeftWidth: 1,
-		borderLeftStyle: "solid",
-		borderLeftColor: color.borderSubtle,
-		backgroundColor: color.transparent,
-	},
-	minimapInteractive: {
-		appearance: "none",
-		borderTopWidth: 0,
-		borderRightWidth: 0,
-		borderBottomWidth: 0,
-		padding: 0,
-		position: "relative",
-		cursor: "pointer",
-	},
-	minimapSegment: {
-		position: "absolute",
-		width: "6px",
-		borderRadius: 0,
-	},
-	minimapAdd: {
-		backgroundColor: "var(--color-git-added)",
-	},
-	minimapDelete: {
-		backgroundColor: "var(--color-git-deleted)",
-	},
-	minimapThumb: {
-		position: "absolute",
-		left: 0,
-		right: 0,
-		pointerEvents: "none",
-		backgroundColor: "rgba(255, 255, 255, 0.14)",
-	},
-	singlePanel: {
-		display: "flex",
-		minHeight: 0,
-		flex: 1,
-		flexDirection: "column",
-	},
-	toolbar: {
-		display: "flex",
-		height: controlSize._10,
-		flexShrink: 0,
-		alignItems: "center",
-		justifyContent: "flex-end",
-		gap: controlSize._2,
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
-		borderBottomColor: color.border,
-		backgroundColor: color.transparent,
-		paddingInline: controlSize._3,
-	},
-	segmented: {
-		position: "relative",
-		isolation: "isolate",
-		display: "flex",
-		height: controlSize._7,
-		alignItems: "center",
-		overflow: "hidden",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: radius.lg,
-		backgroundColor: color.backgroundRaised,
-		backgroundImage: effect.controlDepth,
-		boxShadow: shadow.controlDepth,
-	},
-	viewButton: {
-		position: "relative",
-		zIndex: 1,
-		display: "flex",
-		height: "100%",
-		width: controlSize._6,
-		alignItems: "center",
-		justifyContent: "center",
-		color: color.textMuted,
-		transitionProperty: "background-color, color",
-		transitionDuration: motion.durationFast,
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.surfaceControl,
-		},
-		backgroundImage: {
-			default: "none",
-			":hover": effect.controlDepth,
-		},
-	},
-	viewButtonActive: {
-		backgroundColor: color.transparent,
-		backgroundImage: "none",
-		boxShadow: shadow.none,
-		color: color.textMain,
-	},
-	header: {
-		display: "flex",
-		height: controlSize._8,
-		flexShrink: 0,
-		alignItems: "center",
-		gap: controlSize._1_5,
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
-		borderBottomColor: color.border,
-		backgroundColor: color.transparent,
-		paddingInline: controlSize._3,
-	},
-	pathDir: {
-		minWidth: 0,
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-		color: color.textMuted,
-		fontFamily: font.familyDiff,
-		fontSize: font.size_2,
-	},
-	pathName: {
-		minWidth: 0,
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-		color: color.textMain,
-		fontFamily: font.familyDiff,
-		fontSize: font.size_1,
-		fontWeight: 400,
-	},
-	stagedPill: {
-		flexShrink: 0,
-		borderRadius: radius.sm,
-		backgroundColor: color.accentWash,
-		color: color.accent,
-		fontSize: font.size_0_5,
-		paddingBlock: controlSize._0_5,
-		paddingInline: controlSize._1,
-	},
-	stats: {
-		display: "flex",
-		alignItems: "center",
-		gap: controlSize._1_5,
-		marginLeft: controlSize._2,
-		fontSize: font.size_1,
-	},
-	addedText: {
-		color: color.gitAdded,
-	},
-	deletedText: {
-		color: color.gitDeleted,
-	},
-	headerSpacer: {
-		flex: 1,
-	},
-	rotateHalfTurn: {
-		transform: "rotate(180deg)",
-	},
-	changeNav: {
-		display: "flex",
-		alignItems: "center",
-		gap: controlSize._0_5,
-		marginRight: controlSize._2,
-	},
-	changeCount: {
-		color: color.textMuted,
-		fontSize: font.size_1,
-		fontVariantNumeric: "tabular-nums",
-		paddingInline: controlSize._1,
-	},
-	shell: {
-		display: "flex",
-		height: "100%",
-		flexDirection: "column",
-		backgroundColor: color.transparent,
-	},
-	shellRelative: {
-		position: "relative",
-	},
-	centerState: {
-		display: "flex",
-		height: "100%",
-		alignItems: "center",
-		justifyContent: "center",
-		backgroundColor: color.transparent,
-	},
-	centerInline: {
-		display: "flex",
-		alignItems: "center",
-		gap: controlSize._2,
-	},
-	spinner: {
-		width: font.size_3,
-		height: font.size_3,
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.textMuted,
-		borderTopColor: color.transparent,
-		borderRadius: radius.pill,
-		animationName: stylex.keyframes({
-			to: {
-				transform: "rotate(360deg)",
-			},
-		}),
-		animationDuration: "800ms",
-		animationTimingFunction: "linear",
-		animationIterationCount: "infinite",
-	},
-	centerText: {
-		color: color.textMuted,
-		fontSize: font.size_4,
-	},
-	centerBody: {
-		display: "flex",
-		flex: 1,
-		alignItems: "center",
-		justifyContent: "center",
-		paddingInline: controlSize._6,
-	},
-	centerMessage: {
-		maxWidth: "24rem",
-		color: color.textMuted,
-		fontSize: font.size_4,
-		lineHeight: 1.55,
-		textAlign: "center",
-	},
-	body: {
-		display: "flex",
-		minHeight: 0,
-		flex: 1,
-		overflow: "hidden",
-	},
-	conflictBody: {
-		minHeight: 0,
-		flex: 1,
-		display: "flex",
-		flexDirection: "column",
-		backgroundColor: color.transparent,
-	},
-	conflictActions: {
-		display: "flex",
-		flexShrink: 0,
-		alignItems: "center",
-		gap: controlSize._1,
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
-		borderBottomColor: color.border,
-		backgroundColor: color.surfaceGlassStrong,
-		paddingBlock: controlSize._1_5,
-		paddingInline: controlSize._3,
-	},
-	conflictActionButton: {
-		height: controlSize._5,
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: radius.sm,
-		backgroundColor: {
-			default: color.background,
-			":hover": color.controlHover,
-		},
-		color: color.textSoft,
-		fontSize: font.size_1,
-		paddingInline: controlSize._2,
-	},
-	imageBody: {
-		display: "flex",
-		flex: 1,
-		alignItems: "center",
-		justifyContent: "center",
-		overflow: "auto",
-		padding: controlSize._4,
-	},
-	image: {
-		maxWidth: "100%",
-		maxHeight: "100%",
-		objectFit: "contain",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: radius.sm,
-	},
-	markdownBody: {
-		flex: 1,
-		overflowY: "auto",
-		padding: controlSize._6,
-	},
-	markdownInner: {
-		maxWidth: "48rem",
-		marginInline: "auto",
-	},
-	hunkSeparator: {
-		alignItems: "center",
-		backgroundColor: color.surfaceSubtle,
-		borderBlockColor: color.borderSubtle,
-		borderBlockStyle: "solid",
-		borderBlockWidth: 1,
-		color: color.textMuted,
-		display: "flex",
-		fontFamily: font.familyDiff,
-		fontSize: font.size_1,
-		height: LINE_H,
-		lineHeight: `${LINE_H}px`,
-		paddingInline: controlSize._2,
-	},
-	hunkText: {
-		minWidth: 0,
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-	},
-	spacer: {
-		backgroundColor: "rgba(255,255,255,0.02)",
-		backgroundImage:
-			"repeating-linear-gradient(-45deg, transparent, transparent 8px, rgba(255,255,255,0.02) 8px, rgba(255,255,255,0.02) 9px)",
-		height: LINE_H,
-	},
-	row: {
-		display: "flex",
-		height: LINE_H,
-		maxHeight: LINE_H,
-		minHeight: LINE_H,
-		position: "relative",
-	},
-	lineNumber: {
-		borderRightColor: color.borderSubtle,
-		borderRightStyle: "solid",
-		borderRightWidth: 1,
-		flexShrink: 0,
-		fontFamily: font.familyDiff,
-		lineHeight: `${LINE_H}px`,
-		overflow: "hidden",
-		paddingRight: controlSize._1_5,
-		textAlign: "right",
-		userSelect: "none",
-		width: DIFF_CONFIG.lineNumWidth,
-	},
-	sign: {
-		flexShrink: 0,
-		fontFamily: font.familyDiff,
-		lineHeight: `${LINE_H}px`,
-		overflow: "hidden",
-		textAlign: "center",
-		userSelect: "none",
-		width: DIFF_CONFIG.signWidth,
-	},
-	gutterLayer: {
-		position: "sticky",
-		left: 0,
-		zIndex: 2,
-		width: GUTTER_W,
-		height: 0,
-		backgroundColor: color.surfaceGlassStrong,
-		pointerEvents: "none",
-	},
-	gutterBlock: {
-		position: "absolute",
-		left: 0,
-		width: GUTTER_W,
-		backgroundColor: color.surfaceGlassStrong,
-	},
-	gutterRow: {
-		display: "flex",
-		height: LINE_H,
-		maxHeight: LINE_H,
-		minHeight: LINE_H,
-		overflow: "hidden",
-		backgroundColor: color.surfaceGlassStrong,
-	},
-	content: {
-		flex: 1,
-		fontFamily: font.familyDiff,
-		fontWeight: 500,
-		lineHeight: `${LINE_H}px`,
-		overflow: "hidden",
-		minWidth: "max-content",
-		paddingLeft: controlSize._2,
-		paddingRight: controlSize._3,
-		whiteSpace: "pre",
-	},
-});
 
 function getDiffRowBg(line: DiffLine, isHighlighted?: boolean) {
 	const isAdd = line.type === "add";
@@ -823,15 +331,6 @@ function getTokens(
 		}
 	}
 	return tokens;
-}
-
-function buildMarkdownContent(lines: DiffLine[]): string {
-	const content: string[] = [];
-	for (const line of lines) {
-		if (line.type === "hunk" || line.type === "spacer") continue;
-		content.push(contentOf(line));
-	}
-	return content.join("\n");
 }
 
 const VirtualPanel = memo(function VirtualPanel({
@@ -1164,79 +663,26 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 	scrollRef: React.RefObject<HTMLDivElement | null>;
 	syntaxTheme: SyntaxHighlightTheme;
 }) {
-	const leftRef = useRef<HTMLDivElement | null>(null);
-	const [programmaticJumpTop, setProgrammaticJumpTop] = useState(-1);
 	const lineCount = Math.max(oldLines.length, newLines.length);
 	const alignedOldLines = useMemo(
-		() =>
-			Array.from(
-				{ length: lineCount },
-				(_, index) =>
-					oldLines[index] ?? {
-						number: null,
-						content: "",
-						type: "spacer" as const,
-					},
-			),
+		() => alignDiffLines(oldLines, lineCount),
 		[lineCount, oldLines],
 	);
 	const alignedNewLines = useMemo(
-		() =>
-			Array.from(
-				{ length: lineCount },
-				(_, index) =>
-					newLines[index] ?? {
-						number: null,
-						content: "",
-						type: "spacer" as const,
-					},
-			),
+		() => alignDiffLines(newLines, lineCount),
 		[lineCount, newLines],
 	);
-	const syncFromRight = useCallback(
-		(top: number, _left: number, programmatic?: boolean) => {
-			const target = leftRef.current;
-			if (!target) return;
-			if (Math.abs(target.scrollTop - top) > 0.5) target.scrollTop = top;
-			if (programmatic) setProgrammaticJumpTop(top);
-		},
-		[],
+	const {
+		followerRef,
+		followerScrollSource,
+		followerScrollTop,
+		syncFromMaster,
+	} = useSplitDiffScroll(
+		scrollRef,
+		LINE_H,
+		externalScrollTop,
+		externalScrollSource,
 	);
-	const leftExternalScrollTop =
-		externalScrollTop !== undefined && externalScrollTop >= 0
-			? externalScrollTop
-			: programmaticJumpTop;
-	const leftExternalScrollSource =
-		externalScrollTop !== undefined && externalScrollTop >= 0
-			? externalScrollSource
-			: "right";
-	useEffect(() => {
-		const left = leftRef.current;
-		const right = scrollRef.current;
-		if (!left || !right) return;
-		const scrollTogether = (event: WheelEvent) => {
-			if (event.deltaY === 0) return;
-			event.preventDefault();
-			const unit =
-				event.deltaMode === 1
-					? LINE_H
-					: event.deltaMode === 2
-						? right.clientHeight
-						: 1;
-			if (event.deltaX) {
-				(event.currentTarget as HTMLDivElement).scrollLeft +=
-					event.deltaX * unit;
-			}
-			right.scrollTop += event.deltaY * unit;
-			left.scrollTop = right.scrollTop;
-		};
-		left.addEventListener("wheel", scrollTogether, { passive: false });
-		right.addEventListener("wheel", scrollTogether, { passive: false });
-		return () => {
-			left.removeEventListener("wheel", scrollTogether);
-			right.removeEventListener("wheel", scrollTogether);
-		};
-	}, [scrollRef]);
 
 	return (
 		<div {...stylex.props(diffStyles.splitPanels)}>
@@ -1244,11 +690,11 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 				<VirtualPanel
 					lines={alignedOldLines}
 					ext={ext}
-					scrollRef={leftRef}
+					scrollRef={followerRef}
 					verticalFollower
 					disableTokenize={disableTokenize}
-					externalScrollTop={leftExternalScrollTop}
-					externalScrollSource={leftExternalScrollSource}
+					externalScrollTop={followerScrollTop}
+					externalScrollSource={followerScrollSource}
 					side="left"
 					filePath={filePath}
 					highlightedChangeIdx={highlightedChangeIdx}
@@ -1261,7 +707,7 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 					lines={alignedNewLines}
 					ext={ext}
 					scrollRef={scrollRef}
-					onScroll={syncFromRight}
+					onScroll={syncFromMaster}
 					disableTokenize={disableTokenize}
 					showMinimap
 					minimapOldLines={alignedOldLines}
@@ -1277,47 +723,6 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 		</div>
 	);
 });
-
-type MinimapSegment = {
-	type: "add" | "remove";
-	side: "left" | "right" | "full";
-	startLine: number;
-	endLine: number;
-};
-
-function buildMinimapSegments(
-	lines: DiffLine[],
-	side: MinimapSegment["side"],
-): MinimapSegment[] {
-	const segments: MinimapSegment[] = [];
-	let currentType = "";
-	let startLine = 0;
-
-	for (let i = 0; i < lines.length && segments.length < 100; i++) {
-		const t = lines[i]?.type;
-		const type = t === "add" || t === "remove" ? t : "";
-		if (type !== currentType) {
-			if (currentType)
-				segments.push({
-					type: currentType as MinimapSegment["type"],
-					side,
-					startLine,
-					endLine: i,
-				});
-			currentType = type;
-			startLine = i;
-		}
-	}
-	if (currentType && segments.length < 100) {
-		segments.push({
-			type: currentType as MinimapSegment["type"],
-			side,
-			startLine,
-			endLine: lines.length,
-		});
-	}
-	return segments;
-}
 
 const DiffMinimap = memo(function DiffMinimap({
 	lines,
@@ -1805,119 +1210,6 @@ export const GitDiffView = memo(function GitDiffView({
 	);
 });
 
-function buildStackedLines(
-	oldLines: DiffLine[],
-	newLines: DiffLine[],
-	onlyChanges: boolean,
-): DiffLine[] {
-	const result: DiffLine[] = [];
-	const max = Math.max(oldLines.length, newLines.length);
-
-	for (let index = 0; index < max; index++) {
-		const oldLine = oldLines[index];
-		const newLine = newLines[index];
-
-		if (oldLine?.type === "hunk" || newLine?.type === "hunk") {
-			result.push({ number: null, content: "", type: "hunk" });
-			continue;
-		}
-
-		if (oldLine?.type === "context" && newLine?.type === "context") {
-			if (!onlyChanges) result.push(newLine);
-			continue;
-		}
-
-		if (oldLine && oldLine.type !== "spacer") {
-			if (!onlyChanges || oldLine.type !== "context") result.push(oldLine);
-		}
-		if (newLine && newLine.type !== "spacer") {
-			if (!onlyChanges || newLine.type !== "context") result.push(newLine);
-		}
-	}
-
-	return result;
-}
-
-function buildInlineHunkLines(
-	oldLines: DiffLine[],
-	newLines: DiffLine[],
-): DiffLine[] {
-	const stacked = buildStackedLines(oldLines, newLines, false);
-	const changedRows: number[] = [];
-
-	for (let i = 0; i < stacked.length; i++) {
-		const type = stacked[i]?.type;
-		if (type === "add" || type === "remove") changedRows.push(i);
-	}
-
-	if (changedRows.length === 0) return stacked;
-
-	const ranges: Array<{ start: number; end: number }> = [];
-	for (const row of changedRows) {
-		const start = Math.max(0, row - INLINE_CONTEXT_LINES);
-		const end = Math.min(stacked.length - 1, row + INLINE_CONTEXT_LINES);
-		const previous = ranges[ranges.length - 1];
-		if (previous && start <= previous.end + INLINE_CONTEXT_LINES + 1) {
-			previous.end = Math.max(previous.end, end);
-		} else {
-			ranges.push({ start, end });
-		}
-	}
-
-	const result: DiffLine[] = [];
-	for (let i = 0; i < ranges.length; i++) {
-		const range = ranges[i]!;
-		const rows = stacked.slice(range.start, range.end + 1);
-		const previousEnd = i === 0 ? -1 : ranges[i - 1]!.end;
-		const hiddenCount = range.start - previousEnd - 1;
-		if (hiddenCount > 0) {
-			result.push(createCollapsedContextLine(hiddenCount));
-		}
-		appendInlineRows(result, rows);
-	}
-
-	const finalRange = ranges[ranges.length - 1];
-	if (finalRange) {
-		const hiddenCount = stacked.length - finalRange.end - 1;
-		if (hiddenCount > 0) {
-			result.push(createCollapsedContextLine(hiddenCount));
-		}
-	}
-
-	return result;
-}
-
-function createCollapsedContextLine(hiddenCount: number): DiffLine {
-	return {
-		number: null,
-		content: `... ${hiddenCount.toLocaleString()} unchanged ${
-			hiddenCount === 1 ? "line" : "lines"
-		} hidden ...`,
-		type: "hunk",
-	};
-}
-
-function appendInlineRows(result: DiffLine[], rows: DiffLine[]) {
-	let changedRun: DiffLine[] = [];
-	const flushChangedRun = () => {
-		if (changedRun.length === 0) return;
-		result.push(...changedRun.filter((line) => line.type === "remove"));
-		result.push(...changedRun.filter((line) => line.type === "add"));
-		changedRun = [];
-	};
-
-	for (const row of rows) {
-		if (row.type === "add" || row.type === "remove") {
-			changedRun.push(row);
-			continue;
-		}
-		flushChangedRun();
-		result.push(row);
-	}
-
-	flushChangedRun();
-}
-
 function MergeConflictPanel({
 	content,
 	disableTokenize,
@@ -1968,6 +1260,430 @@ function MergeConflictPanel({
 		</div>
 	);
 }
+
+const diffStyles = stylex.create({
+	virtualRoot: {
+		display: "flex",
+		minWidth: 0,
+		minHeight: 0,
+		flex: 1,
+		overflow: "hidden",
+		width: "100%",
+		contain: "layout paint style",
+	},
+	virtualScroller: {
+		flex: 1,
+		minWidth: 0,
+		overflow: "auto",
+		overflowAnchor: "none",
+		overscrollBehavior: "contain",
+		scrollbarGutter: "stable",
+		contain: "layout paint style",
+	},
+	splitPanels: {
+		display: "flex",
+		minWidth: 0,
+		minHeight: 0,
+		flex: 1,
+		overflow: "hidden",
+	},
+	splitPanel: {
+		display: "flex",
+		minWidth: 0,
+		minHeight: 0,
+		flex: 1,
+		overflow: "hidden",
+	},
+	splitPanelLeft: {
+		borderRightWidth: 1,
+		borderRightStyle: "solid",
+		borderRightColor: color.border,
+	},
+	virtualOffsetLayer: {
+		position: "absolute",
+		top: 0,
+		left: 0,
+		right: 0,
+		contain: "layout paint style",
+		willChange: "transform",
+	},
+	minimap: {
+		width: "16px",
+		flexShrink: 0,
+		borderLeftWidth: 1,
+		borderLeftStyle: "solid",
+		borderLeftColor: color.borderSubtle,
+		backgroundColor: color.transparent,
+	},
+	minimapInteractive: {
+		appearance: "none",
+		borderTopWidth: 0,
+		borderRightWidth: 0,
+		borderBottomWidth: 0,
+		padding: 0,
+		position: "relative",
+		cursor: "pointer",
+	},
+	minimapSegment: {
+		position: "absolute",
+		width: "6px",
+		borderRadius: 0,
+	},
+	minimapAdd: {
+		backgroundColor: "var(--color-git-added)",
+	},
+	minimapDelete: {
+		backgroundColor: "var(--color-git-deleted)",
+	},
+	minimapThumb: {
+		position: "absolute",
+		left: 0,
+		right: 0,
+		pointerEvents: "none",
+		backgroundColor: "rgba(255, 255, 255, 0.14)",
+	},
+	singlePanel: {
+		display: "flex",
+		minHeight: 0,
+		flex: 1,
+		flexDirection: "column",
+	},
+	toolbar: {
+		display: "flex",
+		height: controlSize._10,
+		flexShrink: 0,
+		alignItems: "center",
+		justifyContent: "flex-end",
+		gap: controlSize._2,
+		borderBottomWidth: 1,
+		borderBottomStyle: "solid",
+		borderBottomColor: color.border,
+		backgroundColor: color.transparent,
+		paddingInline: controlSize._3,
+	},
+	segmented: {
+		position: "relative",
+		isolation: "isolate",
+		display: "flex",
+		height: controlSize._7,
+		alignItems: "center",
+		overflow: "hidden",
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: radius.lg,
+		backgroundColor: color.backgroundRaised,
+		backgroundImage: effect.controlDepth,
+		boxShadow: shadow.controlDepth,
+	},
+	viewButton: {
+		position: "relative",
+		zIndex: 1,
+		display: "flex",
+		height: "100%",
+		width: controlSize._6,
+		alignItems: "center",
+		justifyContent: "center",
+		color: color.textMuted,
+		transitionProperty: "background-color, color",
+		transitionDuration: motion.durationFast,
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.surfaceControl,
+		},
+		backgroundImage: {
+			default: "none",
+			":hover": effect.controlDepth,
+		},
+	},
+	viewButtonActive: {
+		backgroundColor: color.transparent,
+		backgroundImage: "none",
+		boxShadow: shadow.none,
+		color: color.textMain,
+	},
+	header: {
+		display: "flex",
+		height: controlSize._8,
+		flexShrink: 0,
+		alignItems: "center",
+		gap: controlSize._1_5,
+		borderBottomWidth: 1,
+		borderBottomStyle: "solid",
+		borderBottomColor: color.border,
+		backgroundColor: color.transparent,
+		paddingInline: controlSize._3,
+	},
+	pathDir: {
+		minWidth: 0,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+		color: color.textMuted,
+		fontFamily: font.familyDiff,
+		fontSize: font.size_2,
+	},
+	pathName: {
+		minWidth: 0,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+		color: color.textMain,
+		fontFamily: font.familyDiff,
+		fontSize: font.size_1,
+		fontWeight: 400,
+	},
+	stagedPill: {
+		flexShrink: 0,
+		borderRadius: radius.sm,
+		backgroundColor: color.accentWash,
+		color: color.accent,
+		fontSize: font.size_0_5,
+		paddingBlock: controlSize._0_5,
+		paddingInline: controlSize._1,
+	},
+	stats: {
+		display: "flex",
+		alignItems: "center",
+		gap: controlSize._1_5,
+		marginLeft: controlSize._2,
+		fontSize: font.size_1,
+	},
+	addedText: {
+		color: color.gitAdded,
+	},
+	deletedText: {
+		color: color.gitDeleted,
+	},
+	headerSpacer: {
+		flex: 1,
+	},
+	rotateHalfTurn: {
+		transform: "rotate(180deg)",
+	},
+	changeNav: {
+		display: "flex",
+		alignItems: "center",
+		gap: controlSize._0_5,
+		marginRight: controlSize._2,
+	},
+	changeCount: {
+		color: color.textMuted,
+		fontSize: font.size_1,
+		fontVariantNumeric: "tabular-nums",
+		paddingInline: controlSize._1,
+	},
+	shell: {
+		display: "flex",
+		height: "100%",
+		flexDirection: "column",
+		backgroundColor: color.transparent,
+	},
+	shellRelative: {
+		position: "relative",
+	},
+	centerState: {
+		display: "flex",
+		height: "100%",
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: color.transparent,
+	},
+	centerInline: {
+		display: "flex",
+		alignItems: "center",
+		gap: controlSize._2,
+	},
+	spinner: {
+		width: font.size_3,
+		height: font.size_3,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.textMuted,
+		borderTopColor: color.transparent,
+		borderRadius: radius.pill,
+		animationName: stylex.keyframes({
+			to: {
+				transform: "rotate(360deg)",
+			},
+		}),
+		animationDuration: "800ms",
+		animationTimingFunction: "linear",
+		animationIterationCount: "infinite",
+	},
+	centerText: {
+		color: color.textMuted,
+		fontSize: font.size_4,
+	},
+	centerBody: {
+		display: "flex",
+		flex: 1,
+		alignItems: "center",
+		justifyContent: "center",
+		paddingInline: controlSize._6,
+	},
+	centerMessage: {
+		maxWidth: "24rem",
+		color: color.textMuted,
+		fontSize: font.size_4,
+		lineHeight: 1.55,
+		textAlign: "center",
+	},
+	body: {
+		display: "flex",
+		minHeight: 0,
+		flex: 1,
+		overflow: "hidden",
+	},
+	conflictBody: {
+		minHeight: 0,
+		flex: 1,
+		display: "flex",
+		flexDirection: "column",
+		backgroundColor: color.transparent,
+	},
+	conflictActions: {
+		display: "flex",
+		flexShrink: 0,
+		alignItems: "center",
+		gap: controlSize._1,
+		borderBottomWidth: 1,
+		borderBottomStyle: "solid",
+		borderBottomColor: color.border,
+		backgroundColor: color.surfaceGlassStrong,
+		paddingBlock: controlSize._1_5,
+		paddingInline: controlSize._3,
+	},
+	conflictActionButton: {
+		height: controlSize._5,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: radius.sm,
+		backgroundColor: {
+			default: color.background,
+			":hover": color.controlHover,
+		},
+		color: color.textSoft,
+		fontSize: font.size_1,
+		paddingInline: controlSize._2,
+	},
+	imageBody: {
+		display: "flex",
+		flex: 1,
+		alignItems: "center",
+		justifyContent: "center",
+		overflow: "auto",
+		padding: controlSize._4,
+	},
+	image: {
+		maxWidth: "100%",
+		maxHeight: "100%",
+		objectFit: "contain",
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: radius.sm,
+	},
+	markdownBody: {
+		flex: 1,
+		overflowY: "auto",
+		padding: controlSize._6,
+	},
+	markdownInner: {
+		maxWidth: "48rem",
+		marginInline: "auto",
+	},
+	hunkSeparator: {
+		alignItems: "center",
+		backgroundColor: color.surfaceSubtle,
+		borderBlockColor: color.borderSubtle,
+		borderBlockStyle: "solid",
+		borderBlockWidth: 1,
+		color: color.textMuted,
+		display: "flex",
+		fontFamily: font.familyDiff,
+		fontSize: font.size_1,
+		height: LINE_H,
+		lineHeight: `${LINE_H}px`,
+		paddingInline: controlSize._2,
+	},
+	hunkText: {
+		minWidth: 0,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
+	spacer: {
+		backgroundColor: "rgba(255,255,255,0.02)",
+		backgroundImage:
+			"repeating-linear-gradient(-45deg, transparent, transparent 8px, rgba(255,255,255,0.02) 8px, rgba(255,255,255,0.02) 9px)",
+		height: LINE_H,
+	},
+	row: {
+		display: "flex",
+		height: LINE_H,
+		maxHeight: LINE_H,
+		minHeight: LINE_H,
+		position: "relative",
+	},
+	lineNumber: {
+		borderRightColor: color.borderSubtle,
+		borderRightStyle: "solid",
+		borderRightWidth: 1,
+		flexShrink: 0,
+		fontFamily: font.familyDiff,
+		lineHeight: `${LINE_H}px`,
+		overflow: "hidden",
+		paddingRight: controlSize._1_5,
+		textAlign: "right",
+		userSelect: "none",
+		width: DIFF_CONFIG.lineNumWidth,
+	},
+	sign: {
+		flexShrink: 0,
+		fontFamily: font.familyDiff,
+		lineHeight: `${LINE_H}px`,
+		overflow: "hidden",
+		textAlign: "center",
+		userSelect: "none",
+		width: DIFF_CONFIG.signWidth,
+	},
+	gutterLayer: {
+		position: "sticky",
+		left: 0,
+		zIndex: 2,
+		width: GUTTER_W,
+		height: 0,
+		backgroundColor: color.surfaceGlassStrong,
+		pointerEvents: "none",
+	},
+	gutterBlock: {
+		position: "absolute",
+		left: 0,
+		width: GUTTER_W,
+		backgroundColor: color.surfaceGlassStrong,
+	},
+	gutterRow: {
+		display: "flex",
+		height: LINE_H,
+		maxHeight: LINE_H,
+		minHeight: LINE_H,
+		overflow: "hidden",
+		backgroundColor: color.surfaceGlassStrong,
+	},
+	content: {
+		flex: 1,
+		fontFamily: font.familyDiff,
+		fontWeight: 500,
+		lineHeight: `${LINE_H}px`,
+		overflow: "hidden",
+		minWidth: "max-content",
+		paddingLeft: controlSize._2,
+		paddingRight: controlSize._3,
+		whiteSpace: "pre",
+	},
+});
 
 function SinglePanel({
 	lines,
