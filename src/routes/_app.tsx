@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { createFileRoute, Outlet } from "@octanejs/tanstack-router";
-import { lazy, Suspense, useEffect, useState } from "octane";
+import { Suspense, useEffect, useState } from "octane";
 import type { CSSProperties } from "react";
 import { AgentShellHeader } from "../components/layout/AgentShellHeader.tsx";
 import { Sidebar } from "../components/layout/Sidebar.tsx";
@@ -29,12 +29,6 @@ import {
 	radiusTheme,
 	shadowTheme,
 } from "../tokens.stylex.ts";
-
-const QuickFileOverlay = lazy(() =>
-	import("../components/file/QuickFileOverlay.tsx").then((module) => ({
-		default: module.QuickFileOverlay,
-	})),
-);
 
 export const Route = createFileRoute("/_app")({ component: AppLayout });
 
@@ -108,25 +102,6 @@ const shellThemeProps = stylex.props(
 	effectTheme,
 	styles.shell,
 );
-
-function QuickFileOverlayHost() {
-	const [mounted, setMounted] = useState(false);
-	useEffect(() => {
-		if (mounted) return;
-		return listenWindowEvent("keydown", (event) => {
-			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-				event.preventDefault();
-				setMounted(true);
-			}
-		});
-	}, [mounted]);
-	if (!mounted) return null;
-	return (
-		<Suspense fallback={null}>
-			<QuickFileOverlay initiallyOpen />
-		</Suspense>
-	);
-}
 
 function AppLayout() {
 	const [background, setBackground] = useState(loadAppBackgroundSettings);
@@ -207,7 +182,6 @@ function AppLayout() {
 					</main>
 				</div>
 			</div>
-			<QuickFileOverlayHost />
 		</div>
 	);
 }
