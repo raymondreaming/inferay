@@ -16,6 +16,7 @@ import {
 	WorkspaceContent,
 	WorkspacePage,
 } from "../../components/ui/WorkspacePage.tsx";
+import { iconSize } from "../../design-system.ts";
 import { dispatchAgentShellChange } from "../../features/agent/agent-utils.ts";
 import type { AgentAccountProviderStatus } from "../../features/agents/agent-account-status.ts";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
@@ -49,7 +50,14 @@ import {
 	ProfileErrorBanner,
 	ProfileSuccessBanner,
 } from "../../pages/ProfilePage/ProfileStatus.tsx";
-import { color, controlSize, font } from "../../tokens.stylex.ts";
+import {
+	breakpoint,
+	color,
+	controlSize,
+	font,
+	motion,
+	radius,
+} from "../../tokens.stylex.ts";
 
 export const Route = createFileRoute("/_app/profile")({
 	component: ProfilePage,
@@ -445,7 +453,7 @@ export function ProfilePage() {
 								activeSettingsSection === "account" && styles.navItemActive,
 							)}
 						>
-							<IconUser size={13} />
+							<IconUser size={iconSize._2md} />
 							<span>Account</span>
 						</button>
 						<button
@@ -457,7 +465,7 @@ export function ProfilePage() {
 									styles.navItemActive,
 							)}
 						>
-							<IconRobot size={13} />
+							<IconRobot size={iconSize._2md} />
 							<span>Agents & Models</span>
 						</button>
 						<button
@@ -468,7 +476,7 @@ export function ProfilePage() {
 								activeSettingsSection === "appearance" && styles.navItemActive,
 							)}
 						>
-							<IconSettings size={13} />
+							<IconSettings size={iconSize._2md} />
 							<span>Agent instructions</span>
 						</button>
 						<button
@@ -479,7 +487,7 @@ export function ProfilePage() {
 								activeSettingsSection === "github" && styles.navItemActive,
 							)}
 						>
-							<IconGitBranch size={13} />
+							<IconGitBranch size={iconSize._2md} />
 							<span>GitHub</span>
 						</button>
 					</nav>
@@ -555,7 +563,7 @@ export function ProfilePage() {
 											variant="secondary"
 											size="sm"
 										>
-											<IconAgent size={13} />
+											<IconAgent size={iconSize._2md} />
 											<span>
 												{connecting ? "Opening GitHub…" : "Connect GitHub"}
 											</span>
@@ -568,7 +576,7 @@ export function ProfilePage() {
 											variant="secondary"
 											size="sm"
 										>
-											<IconRefreshCw size={13} />
+											<IconRefreshCw size={iconSize._2md} />
 											<span>Replay onboarding</span>
 										</Button>
 									) : null}
@@ -587,7 +595,7 @@ export function ProfilePage() {
 									variant="secondary"
 									size="sm"
 								>
-									<IconRefreshCw size={12} />
+									<IconRefreshCw size={iconSize.md} />
 									<span>Refresh</span>
 								</Button>
 							}
@@ -697,7 +705,7 @@ export function ProfilePage() {
 										size="sm"
 										className={stylex.props(styles.noShrink).className}
 									>
-										<IconRefreshCw size={12} />
+										<IconRefreshCw size={iconSize.md} />
 										<span>Repos</span>
 									</Button>
 								) : null
@@ -792,42 +800,42 @@ const styles = stylex.create({
 		flex: 1,
 		gridTemplateColumns: {
 			default: "1fr",
-			"@media (min-width: 760px)": "12.5rem minmax(0, 1fr)",
+			[breakpoint.standard]: "12.5rem minmax(0, 1fr)",
 		},
-		minHeight: 0,
-		minWidth: 0,
+		minHeight: controlSize._0,
+		minWidth: controlSize._0,
 	},
 	settingsNav: {
 		backgroundColor: color.transparent,
 		borderBottomColor: color.border,
 		borderBottomStyle: {
 			default: "solid",
-			"@media (min-width: 760px)": "none",
+			[breakpoint.standard]: "none",
 		},
 		borderBottomWidth: {
 			default: 1,
-			"@media (min-width: 760px)": 0,
+			[breakpoint.standard]: 0,
 		},
 		borderRightColor: color.border,
 		borderRightStyle: {
 			default: "none",
-			"@media (min-width: 760px)": "solid",
+			[breakpoint.standard]: "solid",
 		},
 		borderRightWidth: {
 			default: 0,
-			"@media (min-width: 760px)": 1,
+			[breakpoint.standard]: 1,
 		},
 		display: "flex",
 		flexDirection: "column",
 		gap: controlSize._5,
-		minHeight: 0,
+		minHeight: controlSize._0,
 		paddingBlock: controlSize._5,
 		paddingInline: controlSize._4,
 	},
 	settingsNavHeader: {
 		display: {
 			default: "none",
-			"@media (min-width: 760px)": "flex",
+			[breakpoint.standard]: "flex",
 		},
 		flexDirection: "column",
 		gap: controlSize._1,
@@ -849,12 +857,12 @@ const styles = stylex.create({
 		display: "flex",
 		flexDirection: {
 			default: "row",
-			"@media (min-width: 760px)": "column",
+			[breakpoint.standard]: "column",
 		},
 		gap: controlSize._1,
 		overflowX: {
 			default: "auto",
-			"@media (min-width: 760px)": "visible",
+			[breakpoint.standard]: "visible",
 		},
 	},
 	navItem: {
@@ -880,7 +888,7 @@ const styles = stylex.create({
 		paddingInline: controlSize._2,
 		textAlign: "left",
 		textDecoration: "none",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 		transitionProperty: "background-color, color",
 		width: "100%",
 	},
@@ -893,7 +901,7 @@ const styles = stylex.create({
 		color: color.textFaint,
 		display: {
 			default: "none",
-			"@media (min-width: 760px)": "block",
+			[breakpoint.standard]: "block",
 		},
 		fontSize: font.size_1,
 		marginTop: "auto",
@@ -912,26 +920,26 @@ const styles = stylex.create({
 	sectionIntro: {
 		alignItems: {
 			default: "flex-start",
-			"@media (min-width: 640px)": "center",
+			[breakpoint.tablet]: "center",
 		},
 		display: "flex",
 		gap: controlSize._4,
 		justifyContent: "space-between",
 	},
 	sectionIntroText: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 	sectionTitle: {
 		color: color.textMain,
 		fontSize: font.size_4,
 		fontWeight: font.weight_6,
-		margin: 0,
+		margin: controlSize._0,
 	},
 	sectionDescription: {
 		color: color.textMuted,
 		fontSize: font.size_2,
 		lineHeight: 1.5,
-		marginBlockEnd: 0,
+		marginBlockEnd: controlSize._0,
 		marginBlockStart: controlSize._1,
 		maxWidth: "38rem",
 	},
@@ -952,14 +960,14 @@ const styles = stylex.create({
 		gap: controlSize._3,
 	},
 	rowText: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 	},
 	profileSummary: {
 		display: "flex",
 		alignItems: {
 			default: "flex-start",
-			"@media (min-width: 720px)": "center",
+			[breakpoint.paneWide]: "center",
 		},
 		justifyContent: "space-between",
 		gap: controlSize._4,
@@ -972,7 +980,7 @@ const styles = stylex.create({
 		gap: controlSize._2,
 	},
 	connectionPill: {
-		borderRadius: "999px",
+		borderRadius: radius.pill,
 		fontSize: font.size_1,
 		fontWeight: font.weight_6,
 		paddingBlock: controlSize._0_5,
@@ -989,13 +997,13 @@ const styles = stylex.create({
 	accountDetails: {
 		alignItems: {
 			default: "stretch",
-			"@media (min-width: 720px)": "center",
+			[breakpoint.paneWide]: "center",
 		},
 		display: "grid",
 		gap: controlSize._3,
 		gridTemplateColumns: {
 			default: "1fr",
-			"@media (min-width: 720px)": "minmax(0, 1fr) minmax(0, 1fr) auto",
+			[breakpoint.paneWide]: "minmax(0, 1fr) minmax(0, 1fr) auto",
 		},
 		borderTopColor: color.borderSubtle,
 		borderTopStyle: "solid",
@@ -1006,7 +1014,7 @@ const styles = stylex.create({
 		display: "flex",
 		flexDirection: "column",
 		gap: controlSize._1,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		paddingBlock: controlSize._1,
 	},
 	accountDetailLabel: {
@@ -1049,7 +1057,7 @@ const styles = stylex.create({
 		display: "grid",
 		gridTemplateColumns: {
 			default: "1fr",
-			"@media (min-width: 760px)": "repeat(2, minmax(0, 1fr))",
+			[breakpoint.standard]: "repeat(2, minmax(0, 1fr))",
 		},
 		gap: controlSize._3,
 	},
@@ -1063,7 +1071,7 @@ const styles = stylex.create({
 		gap: controlSize._2,
 		gridTemplateColumns: {
 			default: "1fr",
-			"@media (min-width: 560px)": "repeat(2, minmax(0, 1fr))",
+			[breakpoint.phoneWide]: "repeat(2, minmax(0, 1fr))",
 		},
 	},
 	agentProviderChoice: {
@@ -1104,7 +1112,7 @@ const styles = stylex.create({
 		flex: 1,
 		flexDirection: "column",
 		gap: controlSize._0_5,
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 	agentProviderStatus: {
 		color: color.textMuted,
@@ -1117,7 +1125,7 @@ const styles = stylex.create({
 	},
 	settingField: {
 		display: "flex",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flexDirection: "column",
 		gap: controlSize._1,
 	},
@@ -1136,12 +1144,12 @@ const styles = stylex.create({
 		display: "flex",
 		maxWidth: "52rem",
 		flexDirection: "column",
-		gap: 0,
+		gap: controlSize._0,
 		marginInline: "auto",
 		paddingBlock: controlSize._6,
 		paddingInline: {
 			default: controlSize._4,
-			"@media (min-width: 760px)": controlSize._6,
+			[breakpoint.standard]: controlSize._6,
 		},
 	},
 	pageHeader: {
@@ -1156,23 +1164,23 @@ const styles = stylex.create({
 	},
 	pageTitle: {
 		color: color.textMain,
-		fontSize: "1.125rem",
+		fontSize: font.size_7,
 		fontWeight: font.weight_6,
-		marginBlockEnd: 0,
+		marginBlockEnd: controlSize._0,
 		marginBlockStart: controlSize._2,
 	},
 	pageDescription: {
 		color: color.textMuted,
 		fontSize: font.size_3,
 		lineHeight: 1.5,
-		marginBlockEnd: 0,
+		marginBlockEnd: controlSize._0,
 		marginBlockStart: controlSize._1,
 	},
 	cloneControls: {
 		display: "flex",
 		flexDirection: {
 			default: "column",
-			"@media (min-width: 768px)": "row",
+			[breakpoint.tabletWide]: "row",
 		},
 		gap: controlSize._2,
 		borderBottomWidth: 1,
@@ -1182,12 +1190,12 @@ const styles = stylex.create({
 	},
 	cloneDirControls: {
 		display: "flex",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		alignItems: "center",
 		gap: controlSize._2,
 		width: {
 			default: "auto",
-			"@media (min-width: 768px)": "320px",
+			[breakpoint.tabletWide]: "320px",
 		},
 	},
 	repoList: {
@@ -1208,7 +1216,7 @@ const styles = stylex.create({
 		alignItems: "center",
 		justifyContent: "center",
 		color: color.textMuted,
-		fontSize: "0.625rem",
+		fontSize: font.size_2,
 	},
 	githubState: {
 		minHeight: "7rem",

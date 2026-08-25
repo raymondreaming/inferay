@@ -1,6 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import { useEffect, useRef } from "octane";
 import { IconPencil, IconTrash, IconX } from "../../components/ui/Icons.tsx";
+import { iconSize } from "../../design-system.ts";
 import {
 	PROMPT_CATEGORIES,
 	type Prompt,
@@ -108,7 +109,7 @@ export function PromptDetailPanel({
 										"command",
 										e.currentTarget.value
 											.toLowerCase()
-											.replace(/[^a-z0-9-]/g, "")
+											.replace(/[^a-z0-9-]/g, ""),
 									)
 								}
 								placeholder="command"
@@ -172,7 +173,7 @@ export function PromptDetailPanel({
 									onClick={onStartEditing}
 									{...stylex.props(styles.iconButton)}
 								>
-									<IconPencil size={12} />
+									<IconPencil size={iconSize.md} />
 								</button>
 							)}
 							{selectedPrompt && !selectedPrompt.isBuiltIn && (
@@ -181,7 +182,7 @@ export function PromptDetailPanel({
 									onClick={onDelete}
 									{...stylex.props(styles.iconButton)}
 								>
-									<IconTrash size={12} />
+									<IconTrash size={iconSize.md} />
 								</button>
 							)}
 						</>
@@ -191,7 +192,7 @@ export function PromptDetailPanel({
 						onClick={onClose}
 						{...stylex.props(styles.iconButton)}
 					>
-						<IconX size={12} />
+						<IconX size={iconSize.md} />
 					</button>
 				</div>
 			</div>
@@ -335,7 +336,7 @@ const styles = stylex.create({
 		display: "flex",
 		alignItems: "center",
 		gap: controlSize._2,
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 	headerActions: {
 		display: "flex",
@@ -435,7 +436,7 @@ const styles = stylex.create({
 	},
 	flexField: {
 		flex: 1,
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 	categoryField: {
 		width: "7rem",
@@ -450,7 +451,7 @@ const styles = stylex.create({
 	labelHint: {
 		marginLeft: controlSize._1,
 		color: color.textMuted,
-		fontWeight: 400,
+		fontWeight: font.weightRegular,
 		opacity: 0.55,
 		textTransform: "none",
 	},

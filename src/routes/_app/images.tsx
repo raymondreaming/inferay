@@ -7,6 +7,7 @@ import {
 	IconSearch,
 	IconTrash,
 } from "../../components/ui/Icons.tsx";
+import { iconSize } from "../../design-system.ts";
 import {
 	dispatchAgentShellChange,
 	mutateAgentWorkspaceState,
@@ -19,7 +20,14 @@ import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import { formatBytes } from "../../lib/format.ts";
 import { setInputValue } from "../../lib/react-events.ts";
 import { writeStoredValue } from "../../lib/stored-json.ts";
-import { color, controlSize, font, radius } from "../../tokens.stylex.ts";
+import {
+	color,
+	controlSize,
+	font,
+	motion,
+	palette,
+	radius,
+} from "../../tokens.stylex.ts";
 
 export const Route = createFileRoute("/_app/images")({ component: ImagesPage });
 
@@ -175,7 +183,10 @@ export function ImagesPage() {
 				<div {...stylex.props(styles.topBar)}>
 					<h1 {...stylex.props(styles.title)}>Files</h1>
 					<label {...stylex.props(styles.searchBox)}>
-						<IconSearch size={12} {...stylex.props(styles.searchIcon)} />
+						<IconSearch
+							size={iconSize.md}
+							{...stylex.props(styles.searchIcon)}
+						/>
 						<input
 							type="search"
 							value={query}
@@ -198,7 +209,7 @@ export function ImagesPage() {
 								: styles.actionButtonPrimary,
 						)}
 					>
-						<IconMessageCircle size={13} />
+						<IconMessageCircle size={iconSize._2md} />
 						<span>Start chat</span>
 					</button>
 					<button
@@ -212,7 +223,7 @@ export function ImagesPage() {
 								: styles.actionButtonDanger,
 						)}
 					>
-						<IconTrash size={13} />
+						<IconTrash size={iconSize._2md} />
 						<span>Delete</span>
 					</button>
 					<div {...stylex.props(styles.selectionLabel)}>
@@ -233,7 +244,7 @@ export function ImagesPage() {
 							)}
 							aria-label="Select all visible files"
 						>
-							{allVisibleSelected ? <IconCheck size={10} /> : null}
+							{allVisibleSelected ? <IconCheck size={iconSize.sm} /> : null}
 						</button>
 						<span>Name</span>
 						<span>Added</span>
@@ -267,7 +278,7 @@ export function ImagesPage() {
 											)}
 											aria-label={`Select ${file.name}`}
 										>
-											{isSelected ? <IconCheck size={10} /> : null}
+											{isSelected ? <IconCheck size={iconSize.sm} /> : null}
 										</button>
 										<button
 											type="button"
@@ -317,7 +328,7 @@ const styles = stylex.create({
 		height: "100%",
 		marginInline: "auto",
 		maxWidth: 760,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		width: "min(760px, calc(100% - 4rem))",
 	},
 	topBar: {
@@ -327,18 +338,18 @@ const styles = stylex.create({
 		justifyContent: "space-between",
 	},
 	title: {
-		color: "#fff",
-		fontSize: "1.5rem",
+		color: palette.white,
+		fontSize: font.size_9,
 		fontWeight: font.weight_6,
 		letterSpacing: 0,
 		lineHeight: 1,
-		margin: 0,
+		margin: controlSize._0,
 	},
 	searchBox: {
 		alignItems: "center",
-		backgroundColor: "rgba(255, 255, 255, 0.12)",
-		borderColor: "rgba(255, 255, 255, 0.18)",
-		borderRadius: 999,
+		backgroundColor: color.surfaceWhite12,
+		borderColor: color.surfaceWhite18,
+		borderRadius: radius.pill,
 		borderStyle: "solid",
 		borderWidth: 1,
 		display: "flex",
@@ -352,14 +363,14 @@ const styles = stylex.create({
 		flexShrink: 0,
 	},
 	searchInput: {
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 		borderWidth: 0,
 		color: color.textMain,
 		flex: 1,
 		fontSize: font.size_2,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		outline: "none",
-		padding: 0,
+		padding: controlSize._0,
 		"::placeholder": {
 			color: color.textMuted,
 		},
@@ -371,31 +382,31 @@ const styles = stylex.create({
 	},
 	actionButton: {
 		alignItems: "center",
-		borderRadius: 999,
+		borderRadius: radius.pill,
 		borderStyle: "solid",
 		borderWidth: 1,
 		display: "inline-flex",
 		fontSize: font.size_2,
 		fontWeight: font.weight_6,
 		gap: controlSize._1_5,
-		height: 32,
+		height: controlSize._8,
 		paddingInline: controlSize._3,
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 		transitionProperty: "background-color, border-color, color",
 	},
 	actionButtonPrimary: {
-		backgroundColor: "#fff",
-		borderColor: "#fff",
-		color: "#000",
+		backgroundColor: palette.white,
+		borderColor: palette.white,
+		color: palette.black,
 	},
 	actionButtonDanger: {
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 		borderColor: color.dangerBorder,
 		color: color.danger,
 	},
 	actionButtonDisabled: {
-		backgroundColor: "rgba(255, 255, 255, 0.08)",
-		borderColor: "rgba(255, 255, 255, 0.1)",
+		backgroundColor: color.surfaceWhite08,
+		borderColor: color.surfaceWhite10,
 		color: color.textMuted,
 		cursor: "not-allowed",
 	},
@@ -409,7 +420,7 @@ const styles = stylex.create({
 		display: "flex",
 		flex: 1,
 		flexDirection: "column",
-		minHeight: 0,
+		minHeight: controlSize._0,
 	},
 	tableHeader: {
 		alignItems: "center",
@@ -418,14 +429,14 @@ const styles = stylex.create({
 		fontSize: font.size_2,
 		fontWeight: font.weight_6,
 		gridTemplateColumns: "2.5rem minmax(0, 1fr) 10rem 8rem",
-		height: 32,
+		height: controlSize._8,
 		paddingInline: controlSize._1,
 	},
 	rows: {
 		display: "flex",
 		flex: 1,
 		flexDirection: "column",
-		minHeight: 0,
+		minHeight: controlSize._0,
 		overflowY: "auto",
 		paddingBottom: controlSize._8,
 		scrollbarWidth: "none",
@@ -435,63 +446,63 @@ const styles = stylex.create({
 	},
 	row: {
 		alignItems: "center",
-		borderBottomColor: "rgba(255, 255, 255, 0.06)",
+		borderBottomColor: color.surfaceWhite06,
 		borderBottomStyle: "solid",
 		borderBottomWidth: 1,
 		display: "grid",
-		gap: 0,
+		gap: controlSize._0,
 		gridTemplateColumns: "2.5rem minmax(0, 1fr) 10rem 8rem",
 		minHeight: 58,
 		paddingInline: controlSize._1,
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 		transitionProperty: "background-color, border-color",
 	},
 	rowIdle: {
 		backgroundColor: {
-			default: "transparent",
-			":hover": "rgba(255, 255, 255, 0.05)",
+			default: color.transparent,
+			":hover": color.surfaceWhite05,
 		},
 	},
 	rowSelected: {
-		backgroundColor: "rgba(255, 255, 255, 0.1)",
+		backgroundColor: color.surfaceWhite10,
 		borderRadius: radius.md,
-		borderBottomColor: "transparent",
+		borderBottomColor: color.transparent,
 	},
 	checkBox: {
 		alignItems: "center",
-		backgroundColor: "rgba(255, 255, 255, 0.08)",
-		borderColor: "rgba(255, 255, 255, 0.22)",
-		borderRadius: 4,
+		backgroundColor: color.surfaceWhite08,
+		borderColor: color.surfaceWhite22,
+		borderRadius: radius.sm,
 		borderStyle: "solid",
 		borderWidth: 1,
-		color: "#000",
+		color: palette.black,
 		display: "flex",
-		height: 16,
+		height: controlSize._4,
 		justifyContent: "center",
 		marginInline: "auto",
-		padding: 0,
-		width: 16,
+		padding: controlSize._0,
+		width: controlSize._4,
 	},
 	checkBoxChecked: {
-		backgroundColor: "#fff",
-		borderColor: "#fff",
+		backgroundColor: palette.white,
+		borderColor: palette.white,
 	},
 	nameCell: {
 		alignItems: "center",
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 		borderWidth: 0,
 		color: color.textMain,
 		display: "flex",
 		gap: controlSize._3,
-		minWidth: 0,
-		padding: 0,
+		minWidth: controlSize._0,
+		padding: controlSize._0,
 		textAlign: "left",
 	},
 	thumbnailFrame: {
 		alignItems: "center",
-		backgroundColor: "rgba(255, 255, 255, 0.1)",
-		borderColor: "rgba(255, 255, 255, 0.18)",
-		borderRadius: 6,
+		backgroundColor: color.surfaceWhite10,
+		borderColor: color.surfaceWhite18,
+		borderRadius: radius.md,
 		borderStyle: "solid",
 		borderWidth: 1,
 		display: "flex",

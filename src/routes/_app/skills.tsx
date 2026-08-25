@@ -6,6 +6,7 @@ import {
 	IconPlus,
 	IconSearch,
 } from "../../components/ui/Icons.tsx";
+import { iconSize } from "../../design-system.ts";
 import { filterPrompts } from "../../features/prompts/prompt-utils.ts";
 import {
 	PROMPT_CATEGORIES,
@@ -18,6 +19,7 @@ import {
 	color,
 	controlSize,
 	font,
+	layer,
 	motion,
 	radius,
 	shadow,
@@ -194,7 +196,7 @@ export function PromptsPage() {
 				<FilterDropdown filter={filter} onFilterChange={setFilter} />
 
 				<div {...stylex.props(styles.searchWrap)}>
-					<IconSearch size={12} {...stylex.props(styles.searchIcon)} />
+					<IconSearch size={iconSize.md} {...stylex.props(styles.searchIcon)} />
 					<input
 						type="text"
 						value={search}
@@ -212,7 +214,7 @@ export function PromptsPage() {
 					onClick={startCreate}
 					{...stylex.props(styles.newButton)}
 				>
-					<IconPlus size={10} />
+					<IconPlus size={iconSize.sm} />
 					New
 				</button>
 			</div>
@@ -356,7 +358,7 @@ function FilterDropdown({
 			>
 				{activeLabel}
 				<IconChevronDown
-					size={8}
+					size={iconSize.xs}
 					{...stylex.props(styles.chevron, open && styles.chevronOpen)}
 				/>
 			</button>
@@ -422,7 +424,7 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		borderRadius: 8,
+		borderRadius: radius.lg,
 		backgroundColor: color.backgroundRaised,
 		color: color.textMain,
 		fontSize: font.size_2,
@@ -463,7 +465,7 @@ const styles = stylex.create({
 	content: {
 		display: "flex",
 		flex: 1,
-		minHeight: 0,
+		minHeight: controlSize._0,
 		overflow: "hidden",
 	},
 	listPane: {
@@ -515,7 +517,7 @@ const styles = stylex.create({
 			":hover": color.borderStrong,
 		},
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.surfaceSubtle,
 		},
 	},
@@ -608,8 +610,8 @@ const styles = stylex.create({
 	},
 	filterMenu: {
 		position: "absolute",
-		zIndex: 50,
-		left: 0,
+		zIndex: layer.modal,
+		left: controlSize._0,
 		top: "100%",
 		minWidth: "160px",
 		marginTop: controlSize._1,
@@ -634,7 +636,7 @@ const styles = stylex.create({
 	},
 	filterOptionIdle: {
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.surfaceSubtle,
 		},
 		color: {
@@ -643,7 +645,7 @@ const styles = stylex.create({
 		},
 	},
 	filterOptionActive: {
-		backgroundColor: "rgba(255, 255, 255, 0.06)",
+		backgroundColor: color.surfaceWhite06,
 		color: color.textMain,
 	},
 });

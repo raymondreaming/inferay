@@ -2,6 +2,7 @@ import * as stylex from "@octanejs/stylex";
 import { useCallback, useState } from "octane";
 import { DotMatrixRipple } from "../../components/ui/DotMatrixLoader.tsx";
 import { IconTarget } from "../../components/ui/Icons.tsx";
+import { iconSize } from "../../design-system.ts";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
 import { usePollingQuery } from "../../hooks/useQueryResource.tsx";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
@@ -129,7 +130,7 @@ export function GoalsPage() {
 					))}
 					{loaded && goals.length === 0 && (
 						<div {...stylex.props(styles.emptyState)}>
-							<IconTarget size={18} />
+							<IconTarget size={iconSize._2xl} />
 							<span>No active goals</span>
 						</div>
 					)}
@@ -245,15 +246,15 @@ const styles = stylex.create({
 		display: "flex",
 		flexDirection: "column",
 		height: "100%",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflow: "hidden",
 	},
 	body: {
 		display: "grid",
 		flex: 1,
 		gridTemplateColumns: "minmax(280px, 0.9fr) minmax(320px, 1.1fr)",
-		minHeight: 0,
-		minWidth: 0,
+		minHeight: controlSize._0,
+		minWidth: controlSize._0,
 	},
 	list: {
 		display: "flex",
@@ -323,7 +324,7 @@ const styles = stylex.create({
 		flex: 1,
 		flexDirection: "column",
 		gap: controlSize._0_5,
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 	goalTitle: {
 		color: color.textMain,
@@ -412,8 +413,8 @@ const styles = stylex.create({
 		borderLeftWidth: 1,
 		display: "flex",
 		flexDirection: "column",
-		minHeight: 0,
-		minWidth: 0,
+		minHeight: controlSize._0,
+		minWidth: controlSize._0,
 		overflow: "hidden",
 	},
 	detailHeader: {
@@ -428,7 +429,7 @@ const styles = stylex.create({
 		paddingInline: controlSize._3,
 	},
 	detailTitleBlock: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 	detailKicker: {
 		color: color.textMuted,
@@ -443,13 +444,13 @@ const styles = stylex.create({
 		fontSize: font.size_4,
 		fontWeight: font.weight_6,
 		lineHeight: 1.35,
-		margin: 0,
+		margin: controlSize._0,
 	},
 	outputSection: {
 		display: "flex",
 		flex: 1,
 		flexDirection: "column",
-		minHeight: 0,
+		minHeight: controlSize._0,
 	},
 	outputHeader: {
 		alignItems: "center",
@@ -519,7 +520,7 @@ const styles = stylex.create({
 		backgroundColor: color.border,
 		flex: 1,
 		marginBlock: controlSize._1,
-		width: 1,
+		width: controlSize._0_25,
 	},
 	outputBody: {
 		backgroundColor: color.surfaceTranslucent,
@@ -527,7 +528,7 @@ const styles = stylex.create({
 		borderRadius: radius.md,
 		borderStyle: "solid",
 		borderWidth: 1,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		paddingBlock: controlSize._2,
 		paddingInline: controlSize._2,
 	},
@@ -549,7 +550,7 @@ const styles = stylex.create({
 		color: color.textSoft,
 		fontSize: font.size_3,
 		lineHeight: 1.45,
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 	outputEmpty: {
 		color: color.textMuted,

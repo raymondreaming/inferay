@@ -5,8 +5,9 @@ import {
 	IconUser,
 } from "../../components/ui/Icons.tsx";
 import { Notice } from "../../components/ui/Surface.tsx";
+import { iconSize } from "../../design-system.ts";
 import type { ForgeAccount } from "../../features/forge/types.ts";
-import { color, font } from "../../tokens.stylex.ts";
+import { color, font, radius } from "../../tokens.stylex.ts";
 
 export function ProfileAccountAvatar({
 	account,
@@ -21,7 +22,7 @@ export function ProfileAccountAvatar({
 		<div
 			{...stylex.props(
 				styles.avatar,
-				size === "lg" ? styles.avatarLg : styles.avatarMd
+				size === "lg" ? styles.avatarLg : styles.avatarMd,
 			)}
 		>
 			{account?.avatarUrl ? (
@@ -33,7 +34,7 @@ export function ProfileAccountAvatar({
 			) : account ? (
 				fallback
 			) : (
-				<IconUser size={18} />
+				<IconUser size={iconSize._2xl} />
 			)}
 		</div>
 	);
@@ -41,7 +42,7 @@ export function ProfileAccountAvatar({
 
 export function ProfileErrorBanner({ message }: { message: string }) {
 	return (
-		<Notice tone="warning" icon={<IconAlertTriangle size={13} />}>
+		<Notice tone="warning" icon={<IconAlertTriangle size={iconSize._2md} />}>
 			{message}
 		</Notice>
 	);
@@ -49,7 +50,7 @@ export function ProfileErrorBanner({ message }: { message: string }) {
 
 export function ProfileSuccessBanner({ message }: { message: string }) {
 	return (
-		<Notice tone="success" icon={<IconCheck size={13} />}>
+		<Notice tone="success" icon={<IconCheck size={iconSize._2md} />}>
 			{message}
 		</Notice>
 	);
@@ -65,10 +66,10 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		borderRadius: "999px",
+		borderRadius: radius.pill,
 		backgroundColor: color.controlActive,
 		color: color.textSoft,
-		fontWeight: 600,
+		fontWeight: font.weight_6,
 	},
 	avatarMd: {
 		width: "2.5rem",
@@ -78,7 +79,7 @@ const styles = stylex.create({
 	avatarLg: {
 		width: "2.5rem",
 		height: "2.5rem",
-		fontSize: "0.8125rem",
+		fontSize: font.size_4,
 	},
 	avatarImage: {
 		width: "100%",

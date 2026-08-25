@@ -11,6 +11,7 @@ import {
 	IconMessageCircle,
 	IconPlus,
 } from "../../components/ui/Icons.tsx";
+import { iconSize } from "../../design-system.ts";
 import {
 	type AgentGroupModel,
 	type AgentPaneModel,
@@ -26,7 +27,13 @@ import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import { basename, formatRelativeTime, trimText } from "../../lib/format.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import { writeStoredValue } from "../../lib/stored-json.ts";
-import { color, font, radius } from "../../tokens.stylex.ts";
+import {
+	color,
+	controlSize,
+	font,
+	layer,
+	radius,
+} from "../../tokens.stylex.ts";
 
 export const Route = createFileRoute("/_app/sessions")({
 	component: SessionsPage,
@@ -141,7 +148,7 @@ export function SessionsPage() {
 			workspaces.map((workspace) => ({
 				id: workspace.id,
 				label: workspace.name,
-				icon: <IconLayoutGrid size={11} />,
+				icon: <IconLayoutGrid size={iconSize.compact} />,
 			})),
 		[workspaces],
 	);
@@ -215,7 +222,7 @@ export function SessionsPage() {
 				/>
 				{!loading && sessions.length === 0 ? (
 					<div {...stylex.props(styles.empty)}>
-						<IconMessageCircle size={18} />
+						<IconMessageCircle size={iconSize._2xl} />
 						<span>No saved sessions</span>
 					</div>
 				) : null}
@@ -267,7 +274,7 @@ function SessionGroup({
 								size="sm"
 								onClick={() => onOpen(session)}
 							>
-								<IconPlus size={12} />
+								<IconPlus size={iconSize.md} />
 								<span>Open in Grid</span>
 							</Button>
 						) : (
@@ -276,7 +283,7 @@ function SessionGroup({
 								options={workspaceOptions}
 								onChange={(groupId) => onOpen(session, groupId)}
 								placeholder="Add to Grid"
-								icon={<IconPlus size={12} />}
+								icon={<IconPlus size={iconSize.md} />}
 								minWidth={180}
 								menuPlacement="auto"
 								buttonClassName={
@@ -302,18 +309,18 @@ const styles = stylex.create({
 		color: color.textMain,
 	},
 	listPane: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflow: "auto",
 		height: "100%",
 	},
 	toolbar: {
 		position: "sticky",
-		top: 0,
-		zIndex: 1,
+		top: controlSize._0,
+		zIndex: layer.content,
 		display: "flex",
 		alignItems: "center",
 		justifyContent: "space-between",
-		gap: 12,
+		gap: controlSize._3,
 		padding: "18px 20px 14px",
 		backgroundColor: color.transparent,
 		borderBottomWidth: 1,
@@ -321,20 +328,20 @@ const styles = stylex.create({
 		borderBottomColor: color.border,
 	},
 	title: {
-		margin: 0,
-		fontSize: 18,
+		margin: controlSize._0,
+		fontSize: font.size_7,
 		fontWeight: font.weight_6,
 		letterSpacing: 0,
 	},
 	subtitle: {
 		margin: "4px 0 0",
-		fontSize: 12,
+		fontSize: font.size_3,
 		color: color.textMuted,
 	},
 	group: { padding: "14px 12px 4px" },
 	groupTitle: {
 		padding: "0 8px 8px",
-		fontSize: 11,
+		fontSize: font.size_2_75,
 		fontWeight: font.weight_6,
 		textTransform: "uppercase",
 		color: color.textMuted,
@@ -344,21 +351,21 @@ const styles = stylex.create({
 		display: "flex",
 		width: "100%",
 		alignItems: "center",
-		gap: 10,
+		gap: controlSize._2_5,
 		padding: "10px 12px",
 		borderWidth: 1,
 		borderStyle: "solid",
-		borderColor: "transparent",
+		borderColor: color.transparent,
 		borderRadius: radius.sm,
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 		color: color.textMain,
 		textAlign: "left",
 		":hover": { backgroundColor: color.surfaceControlHover },
 	},
 	sessionIcon: {
 		display: "flex",
-		width: 22,
-		height: 22,
+		width: controlSize._5_5,
+		height: controlSize._5_5,
 		alignItems: "center",
 		justifyContent: "center",
 		flexShrink: 0,
@@ -366,28 +373,28 @@ const styles = stylex.create({
 	},
 	sessionMain: {
 		display: "flex",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 		flexDirection: "column",
-		gap: 4,
+		gap: controlSize._1,
 	},
 	sessionTitle: {
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
-		fontSize: 13,
+		fontSize: font.size_4,
 		fontWeight: font.weight_6,
 	},
 	sessionMeta: {
 		display: "flex",
 		alignItems: "center",
-		gap: 6,
-		minWidth: 0,
-		fontSize: 11,
+		gap: controlSize._1_5,
+		minWidth: controlSize._0,
+		fontSize: font.size_2_75,
 		color: color.textMuted,
 	},
 	sessionPreview: {
-		fontSize: 12,
+		fontSize: font.size_3,
 		lineHeight: "17px",
 		color: color.textSoft,
 	},
@@ -408,18 +415,18 @@ const styles = stylex.create({
 		"--dropdown-button-shadow": "none",
 		"--dropdown-button-hover-shadow": "none",
 		"--dropdown-button-open-shadow": "none",
-		height: 28,
+		height: controlSize._7,
 		borderRadius: radius.sm,
-		paddingInline: 10,
+		paddingInline: controlSize._2_5,
 	},
 	gridDropdownLabel: {
 		color: color.textSoft,
 		fontWeight: font.weight_5,
 	},
 	dot: {
-		width: 3,
-		height: 3,
-		borderRadius: 99,
+		width: controlSize._0_75,
+		height: controlSize._0_75,
+		borderRadius: radius.pill,
 		backgroundColor: color.textMuted,
 		flexShrink: 0,
 	},
@@ -427,9 +434,9 @@ const styles = stylex.create({
 		display: "flex",
 		alignItems: "center",
 		justifyContent: "center",
-		gap: 8,
-		padding: 32,
+		gap: controlSize._2,
+		padding: controlSize._8,
 		color: color.textMuted,
-		fontSize: 13,
+		fontSize: font.size_4,
 	},
 });

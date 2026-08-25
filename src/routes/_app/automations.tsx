@@ -8,6 +8,7 @@ import {
 	useReducer,
 	useRef,
 } from "octane";
+import { iconSize } from "../../design-system.ts";
 
 type ReactPointerEvent<T = Element> = globalThis.PointerEvent & {
 	currentTarget: T;
@@ -31,7 +32,9 @@ import {
 	color,
 	controlSize,
 	font,
+	layer,
 	motion,
+	palette,
 	radius,
 	shadow,
 } from "../../tokens.stylex.ts";
@@ -1052,7 +1055,7 @@ export function AutomationsPage() {
 						title="New workflow"
 						{...stylex.props(styles.iconAction)}
 					>
-						<IconPlus size={13} />
+						<IconPlus size={iconSize._2md} />
 					</button>
 				</div>
 
@@ -1076,7 +1079,7 @@ export function AutomationsPage() {
 							</span>
 							<span {...stylex.props(styles.flowMeta)}>
 								<span>
-									<IconClock size={11} />
+									<IconClock size={iconSize.compact} />
 									{flow.schedule}
 								</span>
 								<span>{flow.nodes.length} steps</span>
@@ -1089,7 +1092,7 @@ export function AutomationsPage() {
 			<section {...stylex.props(styles.canvasPane)}>
 				<div {...stylex.props(styles.canvasToolbar)}>
 					<div {...stylex.props(styles.toolbarTitle)}>
-						<IconWorkflow size={14} />
+						<IconWorkflow size={iconSize.lg} />
 						<span>{selectedFlow.name}</span>
 					</div>
 					<span {...stylex.props(styles.spacer)} />
@@ -1127,7 +1130,7 @@ export function AutomationsPage() {
 							}}
 							{...stylex.props(styles.addButton)}
 						>
-							<IconPlus size={14} />
+							<IconPlus size={iconSize.lg} />
 						</button>
 						{showAddMenu && (
 							<div
@@ -1150,7 +1153,7 @@ export function AutomationsPage() {
 													styles[`menuIcon${config.tone}`],
 												)}
 											>
-												<Icon size={13} />
+												<Icon size={iconSize._2md} />
 											</span>
 											<span {...stylex.props(styles.addMenuText)}>
 												<span {...stylex.props(styles.addMenuLabel)}>
@@ -1221,7 +1224,7 @@ export function AutomationsPage() {
 											styles[`nodeIcon${nodeConfig.tone}`],
 										)}
 									>
-										<Icon size={13} />
+										<Icon size={iconSize._2md} />
 									</span>
 									<span {...stylex.props(styles.nodeTitle)}>{node.title}</span>
 								</span>
@@ -1315,7 +1318,7 @@ const styles = stylex.create({
 		display: "grid",
 		gridTemplateColumns: "260px minmax(520px, 1fr) 300px",
 		height: "100%",
-		minWidth: 0,
+		minWidth: controlSize._0,
 		overflow: "hidden",
 	},
 	leftPane: {
@@ -1324,7 +1327,7 @@ const styles = stylex.create({
 		borderRightWidth: 1,
 		display: "flex",
 		flexDirection: "column",
-		minHeight: 0,
+		minHeight: controlSize._0,
 		overflow: "hidden",
 	},
 	header: {
@@ -1339,7 +1342,7 @@ const styles = stylex.create({
 	},
 	titleBlock: {
 		flex: 1,
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 	kicker: {
 		color: color.textMuted,
@@ -1353,7 +1356,7 @@ const styles = stylex.create({
 		fontSize: font.size_5,
 		fontWeight: font.weight_6,
 		lineHeight: 1.25,
-		margin: 0,
+		margin: controlSize._0,
 		marginTop: controlSize._0_5,
 	},
 	iconAction: {
@@ -1433,8 +1436,8 @@ const styles = stylex.create({
 	canvasPane: {
 		display: "flex",
 		flexDirection: "column",
-		minHeight: 0,
-		minWidth: 0,
+		minHeight: controlSize._0,
+		minWidth: controlSize._0,
 		overflow: "hidden",
 	},
 	canvasToolbar: {
@@ -1485,7 +1488,7 @@ const styles = stylex.create({
 	canvas: {
 		backgroundColor: color.transparent,
 		flex: 1,
-		minHeight: 0,
+		minHeight: controlSize._0,
 		overflow: "auto",
 		position: "relative",
 	},
@@ -1495,18 +1498,18 @@ const styles = stylex.create({
 		backgroundSize: "32px 32px",
 	},
 	addButtonWrap: {
-		left: 16,
+		left: controlSize._4,
 		position: "absolute",
-		top: 16,
-		zIndex: 5,
+		top: controlSize._4,
+		zIndex: layer.canvasControl,
 	},
 	addButton: {
 		alignItems: "center",
 		backgroundColor: {
-			default: "rgba(255,255,255,0.08)",
+			default: color.surfaceWhite08,
 			":hover": "rgba(255,255,255,0.14)",
 		},
-		borderColor: "rgba(255,255,255,0.15)",
+		borderColor: color.surfaceWhite15,
 		borderRadius: radius.md,
 		borderStyle: "solid",
 		borderWidth: 1,
@@ -1518,8 +1521,8 @@ const styles = stylex.create({
 	},
 	addMenu: {
 		backdropFilter: "blur(16px)",
-		backgroundColor: "rgba(12, 12, 14, 0.95)",
-		borderColor: "rgba(255,255,255,0.1)",
+		backgroundColor: color.automationPopoverOpaque,
+		borderColor: color.surfaceWhite10,
 		borderRadius: radius.lg,
 		borderStyle: "solid",
 		borderWidth: 1,
@@ -1534,8 +1537,8 @@ const styles = stylex.create({
 	addMenuItem: {
 		alignItems: "center",
 		backgroundColor: {
-			default: "transparent",
-			":hover": "rgba(255,255,255,0.06)",
+			default: color.transparent,
+			":hover": color.surfaceWhite06,
 		},
 		borderRadius: radius.md,
 		color: color.textMain,
@@ -1554,19 +1557,19 @@ const styles = stylex.create({
 		justifyContent: "center",
 		width: controlSize._6,
 	},
-	menuIconemerald: { backgroundColor: "rgba(16, 185, 129, 0.8)" },
-	menuIconblue: { backgroundColor: "rgba(59, 130, 246, 0.8)" },
-	menuIconpurple: { backgroundColor: "rgba(168, 85, 247, 0.8)" },
-	menuIconamber: { backgroundColor: "rgba(245, 158, 11, 0.8)" },
-	menuIconcyan: { backgroundColor: "rgba(6, 182, 212, 0.8)" },
-	menuIconpink: { backgroundColor: "rgba(236, 72, 153, 0.8)" },
-	menuIconorange: { backgroundColor: "rgba(249, 115, 22, 0.8)" },
+	menuIconemerald: { backgroundColor: palette.emerald80 },
+	menuIconblue: { backgroundColor: palette.automationBlue80 },
+	menuIconpurple: { backgroundColor: palette.purple80 },
+	menuIconamber: { backgroundColor: palette.amber80 },
+	menuIconcyan: { backgroundColor: palette.cyan80 },
+	menuIconpink: { backgroundColor: palette.pink80 },
+	menuIconorange: { backgroundColor: palette.orange80 },
 	addMenuText: {
 		display: "flex",
 		flex: 1,
 		flexDirection: "column",
-		gap: 2,
-		minWidth: 0,
+		gap: controlSize._0_5,
+		minWidth: controlSize._0,
 	},
 	addMenuLabel: {
 		fontSize: font.size_2,
@@ -1578,10 +1581,10 @@ const styles = stylex.create({
 	},
 	edgeLayer: {
 		height: 520,
-		left: 0,
+		left: controlSize._0,
 		pointerEvents: "none",
 		position: "absolute",
-		top: 0,
+		top: controlSize._0,
 		width: 1400,
 	},
 	edge: {
@@ -1603,7 +1606,7 @@ const styles = stylex.create({
 		display: "flex",
 		flexDirection: "column",
 		minHeight: 78,
-		padding: 0,
+		padding: controlSize._0,
 		position: "absolute",
 		textAlign: "left",
 		touchAction: "none",
@@ -1616,31 +1619,31 @@ const styles = stylex.create({
 	nodeToneemerald: {
 		backgroundColor:
 			"color-mix(in srgb, var(--color-inferay-success) 5%, #050505)",
-		borderColor: "rgba(16, 185, 129, 0.4)",
+		borderColor: palette.emerald40,
 	},
 	nodeToneblue: {
 		backgroundColor: "color-mix(in srgb, #3b82f6 7%, #050505)",
-		borderColor: "rgba(59, 130, 246, 0.4)",
+		borderColor: palette.automationBlue40,
 	},
 	nodeTonepurple: {
 		backgroundColor: "color-mix(in srgb, #a855f7 8%, #050505)",
-		borderColor: "rgba(168, 85, 247, 0.4)",
+		borderColor: palette.purple40,
 	},
 	nodeTonepink: {
 		backgroundColor: "color-mix(in srgb, #ec4899 8%, #050505)",
-		borderColor: "rgba(236, 72, 153, 0.4)",
+		borderColor: palette.pink40,
 	},
 	nodeToneamber: {
 		backgroundColor: "color-mix(in srgb, #f59e0b 7%, #050505)",
-		borderColor: "rgba(245, 158, 11, 0.4)",
+		borderColor: palette.amber40,
 	},
 	nodeToneorange: {
 		backgroundColor: "color-mix(in srgb, #f97316 7%, #050505)",
-		borderColor: "rgba(249, 115, 22, 0.4)",
+		borderColor: palette.orange40,
 	},
 	nodeTonecyan: {
 		backgroundColor: "color-mix(in srgb, #06b6d4 7%, #050505)",
-		borderColor: "rgba(6, 182, 212, 0.4)",
+		borderColor: palette.cyan40,
 	},
 	nodeCardSelected: {
 		borderColor: color.focusRing,
@@ -1650,17 +1653,17 @@ const styles = stylex.create({
 		borderColor: color.textSoft,
 		cursor: "grabbing",
 		willChange: "left, top",
-		zIndex: 2,
+		zIndex: layer.chrome,
 	},
 	nodeCardRunning: {
 		borderColor: color.warningBorder,
 		boxShadow: shadow.focusRing,
 	},
 	nodeCardComplete: {
-		borderColor: "rgba(16, 185, 129, 0.6)",
+		borderColor: palette.emerald60,
 	},
 	nodeCardFailed: {
-		borderColor: "rgba(239, 68, 68, 0.6)",
+		borderColor: palette.danger60,
 	},
 	nodeHeader: {
 		alignItems: "center",
@@ -1669,7 +1672,7 @@ const styles = stylex.create({
 		borderBottomWidth: 1,
 		display: "flex",
 		gap: controlSize._1_5,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		paddingBlock: controlSize._1_5,
 		paddingInline: controlSize._2,
 	},
@@ -1683,13 +1686,13 @@ const styles = stylex.create({
 		justifyContent: "center",
 		width: controlSize._4,
 	},
-	nodeIconemerald: { backgroundColor: "rgba(16, 185, 129, 0.8)" },
-	nodeIconblue: { backgroundColor: "#3b82f6" },
-	nodeIconpurple: { backgroundColor: "#a855f7" },
-	nodeIconpink: { backgroundColor: "#ec4899" },
-	nodeIconamber: { backgroundColor: "#f59e0b" },
-	nodeIconorange: { backgroundColor: "#f97316" },
-	nodeIconcyan: { backgroundColor: "#06b6d4" },
+	nodeIconemerald: { backgroundColor: palette.emerald80 },
+	nodeIconblue: { backgroundColor: palette.automationBlue },
+	nodeIconpurple: { backgroundColor: palette.purple },
+	nodeIconpink: { backgroundColor: palette.pink },
+	nodeIconamber: { backgroundColor: palette.amber },
+	nodeIconorange: { backgroundColor: palette.orange },
+	nodeIconcyan: { backgroundColor: palette.cyan },
 	nodeTitle: {
 		color: color.textMain,
 		fontSize: font.size_1,
@@ -1754,7 +1757,7 @@ const styles = stylex.create({
 		borderLeftWidth: 1,
 		display: "flex",
 		flexDirection: "column",
-		minHeight: 0,
+		minHeight: controlSize._0,
 		overflow: "auto",
 	},
 	detailHeader: {
@@ -1767,9 +1770,9 @@ const styles = stylex.create({
 		padding: controlSize._3,
 	},
 	detailTitleInput: {
-		backgroundColor: "transparent",
+		backgroundColor: color.transparent,
 		borderColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.borderSubtle,
 			":focus": color.focusRing,
 		},

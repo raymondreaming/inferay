@@ -1,7 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import type { AgentAccountProviderStatus } from "../../features/agents/agent-account-status.ts";
 import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
-import { color, controlSize, font } from "../../tokens.stylex.ts";
+import { color, controlSize, font, radius } from "../../tokens.stylex.ts";
 
 export function ProfileAgentAccountCard({
 	status,
@@ -28,7 +28,7 @@ export function ProfileAgentAccountCard({
 							? styles.agentAccountReady
 							: status.health === "needs-login"
 								? styles.agentAccountNeedsLogin
-								: styles.agentAccountMissing
+								: styles.agentAccountMissing,
 					)}
 				>
 					{healthLabel}
@@ -75,7 +75,7 @@ const styles = stylex.create({
 		display: "flex",
 		flexDirection: "column",
 		gap: controlSize._3,
-		minWidth: 0,
+		minWidth: controlSize._0,
 		paddingBlock: controlSize._1,
 	},
 	agentAccountHeader: {
@@ -83,14 +83,14 @@ const styles = stylex.create({
 		display: "flex",
 		gap: controlSize._2,
 		justifyContent: "space-between",
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 	agentAccountIdentity: {
 		alignItems: "center",
 		color: color.textMain,
 		display: "inline-flex",
 		gap: controlSize._2,
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 	agentAccountName: {
 		fontSize: font.size_3,
@@ -100,7 +100,7 @@ const styles = stylex.create({
 		whiteSpace: "nowrap",
 	},
 	agentAccountPill: {
-		borderRadius: 999,
+		borderRadius: radius.pill,
 		borderStyle: "solid",
 		borderWidth: 1,
 		flexShrink: 0,
@@ -138,7 +138,7 @@ const styles = stylex.create({
 		display: "grid",
 		gap: controlSize._2,
 		gridTemplateColumns: "5rem minmax(0, 1fr)",
-		minWidth: 0,
+		minWidth: controlSize._0,
 	},
 	agentAccountFactLabel: {
 		color: color.textMuted,

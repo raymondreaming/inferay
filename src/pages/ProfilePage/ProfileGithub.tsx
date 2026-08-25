@@ -7,8 +7,15 @@ import {
 	IconPlus,
 } from "../../components/ui/Icons.tsx";
 import { WorkspaceEmptyState } from "../../components/ui/WorkspacePage.tsx";
+import { iconSize } from "../../design-system.ts";
 import type { GithubRepo } from "../../features/forge/types.ts";
-import { color, controlSize, font } from "../../tokens.stylex.ts";
+import {
+	color,
+	controlSize,
+	font,
+	motion,
+	radius,
+} from "../../tokens.stylex.ts";
 
 export function ProfileRepoRow({
 	repo,
@@ -39,7 +46,7 @@ export function ProfileRepoRow({
 				{...stylex.props(styles.externalLink)}
 				title="Open on GitHub"
 			>
-				<IconExternalLink size={12} />
+				<IconExternalLink size={iconSize.md} />
 			</a>
 			<Button
 				type="button"
@@ -48,7 +55,7 @@ export function ProfileRepoRow({
 				variant="secondary"
 				size="sm"
 			>
-				<IconPlus size={12} />
+				<IconPlus size={iconSize.md} />
 				<span>{cloning ? "Cloning" : "Clone"}</span>
 			</Button>
 		</div>
@@ -62,12 +69,12 @@ export function ProfileGithubEmptyState({
 }) {
 	return (
 		<WorkspaceEmptyState
-			icon={<IconGitBranch size={16} />}
+			icon={<IconGitBranch size={iconSize.xl} />}
 			title="No GitHub accounts found"
 			description="Connect with the GitHub CLI and Inferay will pick up the account automatically."
 			action={
 				<Button type="button" onClick={onConnect} variant="secondary" size="sm">
-					<IconAgent size={12} />
+					<IconAgent size={iconSize.md} />
 					<span>Run gh auth login</span>
 				</Button>
 			}
@@ -77,7 +84,7 @@ export function ProfileGithubEmptyState({
 
 const styles = stylex.create({
 	rowText: {
-		minWidth: 0,
+		minWidth: controlSize._0,
 		flex: 1,
 	},
 	repoRow: {
@@ -89,7 +96,7 @@ const styles = stylex.create({
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
 		paddingBlock: controlSize._3,
-		paddingInline: 0,
+		paddingInline: controlSize._0,
 	},
 	inlineRow: {
 		display: "flex",
@@ -110,15 +117,15 @@ const styles = stylex.create({
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 		color: color.textMuted,
-		fontSize: "0.5rem",
+		fontSize: font.size_0_5,
 	},
 	privatePill: {
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		borderRadius: "999px",
+		borderRadius: radius.pill,
 		color: color.textMuted,
-		fontSize: "0.4375rem",
+		fontSize: font.size_0,
 		paddingBlock: "0.125rem",
 		paddingInline: "0.375rem",
 	},
@@ -131,16 +138,16 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		borderRadius: "0.375rem",
+		borderRadius: radius.md,
 		color: {
 			default: color.textMuted,
 			":hover": color.textSoft,
 		},
 		backgroundColor: {
-			default: "transparent",
+			default: color.transparent,
 			":hover": color.backgroundRaised,
 		},
 		transitionProperty: "background-color, color",
-		transitionDuration: "120ms",
+		transitionDuration: motion.durationFast,
 	},
 });
