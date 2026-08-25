@@ -957,6 +957,16 @@ pub fn get_git_hunk_diff(
             && raw_patch.is_empty()
             && is_untracked_git_file(cwd, file_path));
     let old_content = old_result.unwrap_or_default();
+    let new_content = if staged {
+        run_git_timed(
+            &["show", &format!(":{file_path}")],
+            cwd,
+            Duration::from_secs(5),
+        )
+        .unwrap_or_default()
+    } else {
+        current_content
+    };
 
     if deleted_patch {
         let lines = content_lines(&old_content);
@@ -1006,13 +1016,13 @@ pub fn get_git_hunk_diff(
 
     if is_new {
         let raw_patch = if raw_patch.is_empty() {
-            create_untracked_patch(file_path, &current_content)
+            create_untracked_patch(file_path, &new_content)
         } else {
             raw_patch
         };
         return GitHunkDiff {
             old_lines: Vec::new(),
-            new_lines: content_lines(&current_content)
+            new_lines: content_lines(&new_content)
                 .iter()
                 .enumerate()
                 .map(|(index, content)| GitDiffLine {
@@ -1032,7 +1042,7 @@ pub fn get_git_hunk_diff(
     }
 
     let old_file_lines = content_lines(&old_content);
-    let new_file_lines = content_lines(&current_content);
+    let new_file_lines = content_lines(&new_content);
     if old_file_lines.len() + new_file_lines.len() > MAX_RENDERED_DIFF_LINES {
         let mut result = too_large_diff("Diff too large to render safely", false);
         result.raw_patch = Some(raw_patch);
@@ -2493,10 +2503,23 @@ mod tests {
         let unstaged_patch = unstaged.raw_patch.unwrap();
         assert!(staged_patch.contains("new file mode"));
         assert!(staged_patch.contains("+export const value = 1;"));
+        assert!(staged.new_lines.iter().any(|line| {
+            line.line_type == GitDiffLineType::Add && line.content == "export const value = 1;"
+        }));
+        assert!(!staged
+            .new_lines
+            .iter()
+            .any(|line| line.content == "export const value = 2;"));
         assert!(unstaged_patch.contains("--- a/added.ts"));
         assert!(unstaged_patch.contains("+++ b/added.ts"));
         assert!(unstaged_patch.contains("-export const value = 1;"));
         assert!(unstaged_patch.contains("+export const value = 2;"));
+        assert!(unstaged.old_lines.iter().any(|line| {
+            line.line_type == GitDiffLineType::Remove && line.content == "export const value = 1;"
+        }));
+        assert!(unstaged.new_lines.iter().any(|line| {
+            line.line_type == GitDiffLineType::Add && line.content == "export const value = 2;"
+        }));
     }
 
     #[test]

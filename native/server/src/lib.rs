@@ -30,10 +30,10 @@ use inferay_core::path_security::{
 };
 use inferay_core::prompts::{PromptError, PromptStore};
 use inferay_native_diff::{
-    GitFileWithDiff, NativeRequest, NativeResponse, checkout_git_branch, commit_git,
-    compact_git_hunk_diff, get_git_blame, get_git_branches, get_git_commit_details, get_git_diff,
-    get_git_file_history, get_git_file_with_diff, get_git_graph, get_git_hunk_diff, get_git_log,
-    get_git_status, is_changed_git_file, stage_git, unstage_git,
+    GitFileWithDiff, NativeRequest, NativeResponse, checkout_git_branch, commit_git, get_git_blame,
+    get_git_branches, get_git_commit_details, get_git_diff, get_git_file_history,
+    get_git_file_with_diff, get_git_graph, get_git_log, get_git_status, is_changed_git_file,
+    stage_git, unstage_git,
 };
 use percent_encoding::percent_decode_str;
 use reqwest::Client;
@@ -1813,28 +1813,20 @@ async fn git_full_diff(state: &ServerState, request: Request) -> Response {
             &request_headers,
         );
     };
-    let allowed_paths = state.allowed_paths.clone();
+    let native_git = state.native_git.clone();
     let task = tokio::task::spawn_blocking(move || {
-        let diff = get_git_hunk_diff(&allowed_paths, &params.cwd, &params.file, params.staged);
-        let changed = diff.is_new
-            || diff
-                .raw_patch
-                .as_deref()
-                .is_some_and(|patch| !patch.trim().is_empty())
-            || diff.merge_conflict_content.is_some();
-        changed.then(|| {
-            if review {
-                compact_git_hunk_diff(diff)
-            } else {
-                diff
-            }
-        })
+        native_git.full_diff(&params.cwd, &params.file, params.staged, review)
     });
     match task.await {
-        Ok(Some(diff)) => json_response(StatusCode::OK, json!(diff), &request_headers),
-        Ok(None) => json_response(
+        Ok(Ok(Some(diff))) => json_response(StatusCode::OK, json!(diff), &request_headers),
+        Ok(Ok(None)) => json_response(
             StatusCode::NOT_FOUND,
             json!({ "error": "File is not changed" }),
+            &request_headers,
+        ),
+        Ok(Err(error)) => json_response(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": error.to_string() }),
             &request_headers,
         ),
         Err(error) => internal_task_error(error, &request_headers),
