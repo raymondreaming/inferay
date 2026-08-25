@@ -456,7 +456,7 @@ const styles = stylex.create({
 		left: controlSize._0,
 		right: controlSize._0,
 		bottom: controlSize._0,
-		zIndex: layer.titlebar,
+		zIndex: layer.searchPopover,
 		pointerEvents: "none",
 		userSelect: "none",
 	},
