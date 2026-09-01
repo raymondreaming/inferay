@@ -983,10 +983,13 @@ export function AgentPage() {
 	});
 	const selectChatPane = useCallback(
 		(paneId: string) => {
-			chatWorkspace.focusChatWorkspace();
+			const paneCwd = currentGroup?.panes.find(
+				(pane) => pane.id === paneId,
+			)?.cwd;
+			chatWorkspace.focusChatWorkspace(paneCwd);
 			selectPane(paneId);
 		},
-		[chatWorkspace.focusChatWorkspace, selectPane],
+		[chatWorkspace.focusChatWorkspace, currentGroup?.panes, selectPane],
 	);
 	const agentGrid = currentGroup ? (
 		<AgentGrid

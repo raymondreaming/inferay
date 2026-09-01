@@ -17,6 +17,31 @@ import {
 	orderProjectGitFiles,
 	resolveGitFileSelection,
 } from "../../features/git/git-file-utils.ts";
+import {
+	DEFAULT_GIT_GRAPH_HISTORY_LIMIT,
+	nextGitGraphHistoryLimit,
+} from "../../features/git/git-graph-presentation.ts";
+import {
+	createInteractiveRebasePlan,
+	type GitInteractiveRebaseCommit,
+	type GitInteractiveRebaseStep,
+	moveInteractiveRebaseStep,
+	updateInteractiveRebaseStep,
+	validateInteractiveRebasePlan,
+} from "../../features/git/git-interactive-rebase.ts";
+import {
+	bindGitGraphRepository,
+	type GitWorkspaceDetachedFilePanel,
+	type GitWorkspacePanelSession,
+	normalizeGitWorkspacePanelSession,
+	openGitCommitFileDiff,
+	openGitComparisonFileDiff,
+	openGitGraph,
+	openGitWorkingTreeFileDiff,
+	reconcileGitGraphSelection,
+	serializeGitWorkspacePanelSession,
+	updateGitGraphSelection,
+} from "../../features/git/git-workspace-session.ts";
 import type { GitFileEntry } from "../../features/git/types.ts";
 import { useGitChangeActions } from "../../features/git/useGitChangeActions.tsx";
 import {
@@ -24,7 +49,14 @@ import {
 	summarizeHunkDiff,
 	useGitDiff,
 } from "../../features/git/useGitDiff.tsx";
+import {
+	type CommitFile,
+	useCommitDetails,
+	useComparisonDetails,
+	useGitGraph,
+} from "../../features/git/useGitGraph.tsx";
 import { useGitStatus } from "../../features/git/useGitStatus.tsx";
+import { postJson } from "../../lib/fetch-json.ts";
 import { lockPointerSelection } from "../../lib/pointer-selection-lock.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import {
@@ -44,6 +76,7 @@ import {
 	layer,
 	motion,
 	radius,
+	shadow,
 } from "../../tokens.stylex.ts";
 import { DiffViewerBoundary } from "../diff/DiffViewerBoundary.tsx";
 import {
@@ -53,6 +86,11 @@ import {
 	getTreeFileOrder,
 	type SelectedFile,
 } from "../git/ChangeFileSidebar.tsx";
+import {
+	CommitGraph,
+	type GitGraphActionRequest,
+	type GraphSelectionIntent,
+} from "../git/CommitGraph.tsx";
 import { LiquidSegmentedRail } from "../ui/gooey/LiquidSegmentedRail.tsx";
 import {
 	IconCollapse,
@@ -114,84 +152,368 @@ type DragProps = {
 	readonly onDragEnd: () => void;
 };
 
-type DetachedFilePanel = {
-	readonly id: string;
-	readonly cwd: string;
-	readonly path: string;
-	readonly initialFile?: FileContentResponse;
+type GitRefOperationResult = {
+	readonly ok: boolean;
+	readonly operation:
+		| "merge"
+		| "rebase"
+		| "interactiveRebase"
+		| "fastForward"
+		| "cherryPick"
+		| "revert";
+	readonly outcome: GitOperationOutcome;
+	readonly currentBranch?: string;
+	readonly head?: string;
+	readonly conflicts: string[];
+	readonly errorKind?: GitOperationErrorKind;
+	readonly error?: string;
 };
 
-type WorkspacePanelSession = {
-	readonly fileViewerOpen: boolean;
-	readonly fileViewerCwd: string | null;
-	readonly diffViewerCwd: string | null;
-	readonly focusedAuxiliaryPanel: {
-		readonly id: string;
-		readonly cwd: string;
-	} | null;
-	readonly detachedFilePanels: DetachedFilePanel[];
-	readonly fileRequest: {
-		readonly path: string;
-		readonly token: number;
-	} | null;
-	readonly selectedFile: SelectedFile | null;
+type GitRefOperationPreflight = {
+	readonly source: string;
+	readonly target: string;
+	readonly validRefs: boolean;
+	readonly cleanWorktree: boolean;
+	readonly sourceInOtherWorktree: boolean;
+	readonly targetInOtherWorktree: boolean;
+	readonly canMerge: boolean;
+	readonly canFastForward: boolean;
+	readonly canRebase: boolean;
+	readonly canInteractiveRebase: boolean;
+	readonly interactiveRebaseCommits: GitInteractiveRebaseCommit[];
+	readonly reasons: string[];
 };
+
+type GitOperationOutcome =
+	| "completed"
+	| "awaitingContinuation"
+	| "conflicted"
+	| "failed";
+
+type GitOperationActivityPhase =
+	| "idle"
+	| "running"
+	| "conflicted"
+	| "awaitingContinuation"
+	| "completed"
+	| "failed";
+
+type GitOperationErrorKind =
+	| "conflict"
+	| "dirtyWorktree"
+	| "authentication"
+	| "nonFastForward"
+	| "network"
+	| "worktreeInUse"
+	| "invalidInput"
+	| "commandFailed"
+	| "io";
+
+type GitGraphActionResult = {
+	readonly ok: boolean;
+	readonly action: GitGraphActionRequest["action"];
+	readonly outcome: GitOperationOutcome;
+	readonly currentBranch?: string;
+	readonly head?: string;
+	readonly conflicts: string[];
+	readonly errorKind?: GitOperationErrorKind;
+	readonly error?: string;
+};
+
+function gitOperationErrorLabel(kind?: GitOperationErrorKind): string {
+	switch (kind) {
+		case "conflict":
+			return "Merge conflict";
+		case "dirtyWorktree":
+			return "Working tree has changes";
+		case "authentication":
+			return "Authentication failed";
+		case "nonFastForward":
+			return "Remote contains newer commits";
+		case "network":
+			return "Network unavailable";
+		case "worktreeInUse":
+			return "Branch is open in another worktree";
+		case "invalidInput":
+			return "Invalid Git action";
+		case "io":
+			return "Git could not be started";
+		default:
+			return "Git command failed";
+	}
+}
+
+function gitGraphEmptyLabel(graph: ReturnType<typeof useGitGraph>): string {
+	switch (graph.state) {
+		case "unborn":
+			return "This branch does not have its first commit yet";
+		case "empty":
+			return "This repository has no commits";
+		case "nonRepository":
+			return "The selected folder is not a Git repository";
+		case "commandFailed":
+			return graph.stateError || "Git history could not be read";
+		default:
+			return "No commits";
+	}
+}
+
+type GraphActionPresentation = {
+	readonly title: string;
+	readonly copy: string;
+	readonly confirm: string;
+	readonly needsName: boolean;
+	readonly nameLabel?: string;
+	readonly messageLabel: string | null;
+	readonly danger: boolean;
+};
+
+function graphActionPresentation(
+	action: GitGraphActionRequest["action"],
+): GraphActionPresentation {
+	switch (action) {
+		case "createBranch":
+			return {
+				title: "Create branch",
+				copy: "Create a new local branch at the selected commit.",
+				confirm: "Create branch",
+				needsName: true,
+				messageLabel: null,
+				danger: false,
+			};
+		case "createTag":
+			return {
+				title: "Create tag",
+				copy: "Create a lightweight tag, or enter a message for an annotated tag.",
+				confirm: "Create tag",
+				needsName: true,
+				messageLabel: "Annotation (optional)",
+				danger: false,
+			};
+		case "cherryPick":
+			return {
+				title: "Cherry-pick commit",
+				copy: "Apply this commit on top of the currently checked-out branch.",
+				confirm: "Cherry-pick",
+				needsName: false,
+				messageLabel: null,
+				danger: false,
+			};
+		case "revert":
+			return {
+				title: "Revert commit",
+				copy: "Create a new commit that reverses the selected commit.",
+				confirm: "Revert commit",
+				needsName: false,
+				messageLabel: null,
+				danger: false,
+			};
+		case "stashPush":
+			return {
+				title: "Stash worktree changes",
+				copy: "Store tracked and untracked changes from the current worktree.",
+				confirm: "Create stash",
+				needsName: false,
+				messageLabel: "Stash message (optional)",
+				danger: false,
+			};
+		case "stashApply":
+			return {
+				title: "Apply stash",
+				copy: "Apply this stash while keeping it in the stash list.",
+				confirm: "Apply stash",
+				needsName: false,
+				messageLabel: null,
+				danger: false,
+			};
+		case "stashPop":
+			return {
+				title: "Pop stash",
+				copy: "Apply this stash and remove it if the apply succeeds.",
+				confirm: "Pop stash",
+				needsName: false,
+				messageLabel: null,
+				danger: true,
+			};
+		case "stashDrop":
+			return {
+				title: "Delete stash",
+				copy: "Permanently remove this stash from the repository.",
+				confirm: "Delete stash",
+				needsName: false,
+				messageLabel: null,
+				danger: true,
+			};
+		case "stashRename":
+			return {
+				title: "Rename stash",
+				copy: "Replace this stash's displayed message while preserving its saved tree.",
+				confirm: "Rename stash",
+				needsName: true,
+				nameLabel: "New stash message",
+				messageLabel: null,
+				danger: false,
+			};
+		case "renameBranch":
+			return {
+				title: "Rename branch",
+				copy: "Rename this local branch. Its commits and working tree are preserved.",
+				confirm: "Rename branch",
+				needsName: true,
+				nameLabel: "New branch name",
+				messageLabel: null,
+				danger: false,
+			};
+		case "deleteBranch":
+			return {
+				title: "Delete local branch",
+				copy: "Delete this local branch only if Git confirms it is merged and not checked out in a worktree.",
+				confirm: "Delete branch",
+				needsName: false,
+				messageLabel: null,
+				danger: true,
+			};
+		case "deleteTag":
+			return {
+				title: "Delete local tag",
+				copy: "Remove this tag from the local repository. Remote tags are unchanged.",
+				confirm: "Delete tag",
+				needsName: false,
+				messageLabel: null,
+				danger: true,
+			};
+		case "setUpstream":
+			return {
+				title: "Set branch upstream",
+				copy: "Set the tracking branch without pushing or changing either branch.",
+				confirm: "Set upstream",
+				needsName: true,
+				nameLabel: "Upstream (for example origin/main)",
+				messageLabel: null,
+				danger: false,
+			};
+		case "pushSetUpstream":
+			return {
+				title: "Push and set upstream",
+				copy: "Push this local branch to the named remote and configure it as the tracking upstream.",
+				confirm: "Push branch",
+				needsName: true,
+				nameLabel: "Remote name",
+				messageLabel: null,
+				danger: false,
+			};
+		case "deleteRemoteBranch":
+			return {
+				title: "Delete remote branch",
+				copy: "Ask the configured remote to permanently delete this branch, then prune its tracking ref.",
+				confirm: "Delete remote branch",
+				needsName: false,
+				messageLabel: null,
+				danger: true,
+			};
+		case "pushTag":
+			return {
+				title: "Push tag",
+				copy: "Publish this tag to the named remote.",
+				confirm: "Push tag",
+				needsName: true,
+				nameLabel: "Remote name",
+				messageLabel: null,
+				danger: false,
+			};
+		case "deleteRemoteTag":
+			return {
+				title: "Delete remote tag",
+				copy: "Permanently remove this tag from the named remote. The local tag is kept.",
+				confirm: "Delete remote tag",
+				needsName: true,
+				nameLabel: "Remote name",
+				messageLabel: null,
+				danger: true,
+			};
+		case "forcePushWithLease":
+			return {
+				title: "Force push with lease",
+				copy: "Rewrite the configured upstream only if it still points to the commit last fetched locally. This can replace remote history.",
+				confirm: "Force push with lease",
+				needsName: false,
+				messageLabel: null,
+				danger: true,
+			};
+		case "resetSoft":
+			return {
+				title: "Soft reset branch",
+				copy: "Move the current branch to this commit while keeping all resulting changes staged.",
+				confirm: "Reset --soft",
+				needsName: false,
+				messageLabel: null,
+				danger: true,
+			};
+		case "resetMixed":
+			return {
+				title: "Mixed reset branch",
+				copy: "Move the current branch to this commit and keep resulting changes unstaged in the worktree.",
+				confirm: "Reset --mixed",
+				needsName: false,
+				messageLabel: null,
+				danger: true,
+			};
+		case "resetHard":
+			return {
+				title: "Hard reset branch",
+				copy: "Move the current branch to this commit and permanently discard tracked index and worktree changes.",
+				confirm: "Reset --hard",
+				needsName: false,
+				messageLabel: null,
+				danger: true,
+			};
+		case "fetch":
+			return {
+				title: "Fetch all remotes",
+				copy: "Update remote-tracking refs and prune deleted remote refs without changing the worktree.",
+				confirm: "Fetch",
+				needsName: false,
+				messageLabel: null,
+				danger: false,
+			};
+		case "pull":
+			return {
+				title: "Pull current branch",
+				copy: "Fetch and integrate the configured upstream using this repository's pull policy.",
+				confirm: "Pull",
+				needsName: false,
+				messageLabel: null,
+				danger: false,
+			};
+		case "push":
+			return {
+				title: "Push current branch",
+				copy: "Push the current branch to its configured upstream. Force push is never used.",
+				confirm: "Push",
+				needsName: false,
+				messageLabel: null,
+				danger: false,
+			};
+	}
+}
+
+type DetachedFilePanel = GitWorkspaceDetachedFilePanel<FileContentResponse>;
+type WorkspacePanelSession = GitWorkspacePanelSession<FileContentResponse>;
 
 type StateValue<T> = T | ((current: T) => T);
 
 const workspacePanelSessions = new Map<string, WorkspacePanelSession>();
 const WORKSPACE_PANEL_SESSION_KEY = "agent-workspace-panels:";
 
-function emptyWorkspacePanelSession(): WorkspacePanelSession {
-	return {
-		fileViewerOpen: false,
-		fileViewerCwd: null,
-		diffViewerCwd: null,
-		focusedAuxiliaryPanel: null,
-		detachedFilePanels: [],
-		fileRequest: null,
-		selectedFile: null,
-	};
-}
-
 function loadWorkspacePanelSession(workspaceId: string): WorkspacePanelSession {
 	const cached = workspacePanelSessions.get(workspaceId);
 	if (cached) return cached;
-	const stored = readStoredJson<Partial<WorkspacePanelSession>>(
+	const stored = readStoredJson<unknown>(
 		`${WORKSPACE_PANEL_SESSION_KEY}${workspaceId}`,
 		{},
 	);
-	const detachedFilePanels = Array.isArray(stored.detachedFilePanels)
-		? stored.detachedFilePanels.filter(
-				(panel): panel is DetachedFilePanel =>
-					typeof panel?.id === "string" &&
-					typeof panel.cwd === "string" &&
-					typeof panel.path === "string",
-			)
-		: [];
-	const session: WorkspacePanelSession = {
-		...emptyWorkspacePanelSession(),
-		fileViewerOpen: stored.fileViewerOpen === true,
-		fileViewerCwd:
-			typeof stored.fileViewerCwd === "string" ? stored.fileViewerCwd : null,
-		diffViewerCwd:
-			typeof stored.diffViewerCwd === "string" ? stored.diffViewerCwd : null,
-		focusedAuxiliaryPanel:
-			stored.focusedAuxiliaryPanel &&
-			typeof stored.focusedAuxiliaryPanel.id === "string" &&
-			typeof stored.focusedAuxiliaryPanel.cwd === "string"
-				? stored.focusedAuxiliaryPanel
-				: null,
-		detachedFilePanels,
-		fileRequest:
-			stored.fileRequest && typeof stored.fileRequest.path === "string"
-				? { path: stored.fileRequest.path, token: Date.now() }
-				: null,
-		selectedFile:
-			stored.selectedFile && typeof stored.selectedFile.path === "string"
-				? stored.selectedFile
-				: null,
-	};
+	const session =
+		normalizeGitWorkspacePanelSession<FileContentResponse>(stored);
 	workspacePanelSessions.set(workspaceId, session);
 	return session;
 }
@@ -200,14 +522,10 @@ function persistWorkspacePanelSession(
 	workspaceId: string,
 	session: WorkspacePanelSession,
 ) {
-	writeStoredJson(`${WORKSPACE_PANEL_SESSION_KEY}${workspaceId}`, {
-		...session,
-		detachedFilePanels: session.detachedFilePanels.map((panel) => ({
-			id: panel.id,
-			cwd: panel.cwd,
-			path: panel.path,
-		})),
-	});
+	writeStoredJson(
+		`${WORKSPACE_PANEL_SESSION_KEY}${workspaceId}`,
+		serializeGitWorkspacePanelSession(session),
+	);
 }
 
 function resolveStateValue<T>(value: StateValue<T>, current: T): T {
@@ -258,6 +576,21 @@ function ChatDiffPanel({
 	diff,
 	file,
 	loading,
+	mainViewMode,
+	onMainViewModeChange,
+	graph,
+	graphLoading,
+	graphError,
+	selectionAnnouncement,
+	repositoryKey,
+	selectedCommitHash,
+	selectedCommitIds,
+	onSelectCommit,
+	onCheckoutRef,
+	onRunRefOperation,
+	onRunGraphAction,
+	onLoadMoreCommits,
+	branch,
 	onClose,
 	viewMode,
 	onViewModeChange,
@@ -266,8 +599,40 @@ function ChatDiffPanel({
 	drag,
 }: {
 	readonly diff: ReturnType<typeof useGitDiff>["diff"];
-	readonly file: SelectedFile;
+	readonly file: SelectedFile | null;
 	readonly loading: boolean;
+	readonly mainViewMode: "diff" | "graph";
+	readonly onMainViewModeChange: (mode: "diff" | "graph") => void;
+	readonly graph: ReturnType<typeof useGitGraph>;
+	readonly graphLoading: boolean;
+	readonly graphError: string | null;
+	readonly selectionAnnouncement: string;
+	readonly repositoryKey?: string;
+	readonly selectedCommitHash: string | null;
+	readonly selectedCommitIds: readonly string[];
+	readonly onSelectCommit: (
+		itemId: string,
+		intent?: GraphSelectionIntent,
+	) => void;
+	readonly onCheckoutRef: (ref: string) => void;
+	readonly onRunRefOperation: (request: {
+		operation:
+			| "merge"
+			| "rebase"
+			| "interactiveRebase"
+			| "fastForward"
+			| "cherryPick"
+			| "revert";
+		action: "start" | "continue" | "skip" | "abort";
+		source?: string;
+		target?: string;
+		steps?: GitInteractiveRebaseStep[];
+	}) => Promise<GitRefOperationResult>;
+	readonly onRunGraphAction: (
+		request: GitGraphActionRequest & { name?: string; message?: string },
+	) => Promise<GitGraphActionResult>;
+	readonly onLoadMoreCommits: () => void;
+	readonly branch?: string;
 	readonly onClose: () => void;
 	readonly viewMode: DiffViewMode;
 	readonly onViewModeChange: (mode: DiffViewMode) => void;
@@ -277,12 +642,198 @@ function ChatDiffPanel({
 }) {
 	const stats = useMemo(() => summarizeHunkDiff(diff), [diff]);
 	const [hoveredModeIndex, setHoveredModeIndex] = useState<number | null>(null);
-	const activeModeIndex = zenMode ? 2 : viewMode === "split" ? 0 : 1;
+	const [pendingRefAction, setPendingRefAction] = useState<{
+		source: string;
+		target: string;
+	} | null>(null);
+	const [refOperationResult, setRefOperationResult] =
+		useState<GitRefOperationResult | null>(null);
+	const [refOperationRunning, setRefOperationRunning] = useState(false);
+	const [refOperationPreflight, setRefOperationPreflight] =
+		useState<GitRefOperationPreflight | null>(null);
+	const [refPreflightRunning, setRefPreflightRunning] = useState(false);
+	const [interactiveRebaseOpen, setInteractiveRebaseOpen] = useState(false);
+	const [interactiveRebasePlan, setInteractiveRebasePlan] = useState<
+		GitInteractiveRebaseStep[]
+	>([]);
+	const [pendingGraphAction, setPendingGraphAction] =
+		useState<GitGraphActionRequest | null>(null);
+	const [graphActionName, setGraphActionName] = useState("");
+	const [graphActionMessage, setGraphActionMessage] = useState("");
+	const [graphActionResult, setGraphActionResult] =
+		useState<GitGraphActionResult | null>(null);
+	const [graphActionRunning, setGraphActionRunning] = useState(false);
+	useEffect(() => {
+		if (!pendingRefAction || !repositoryKey) {
+			setRefOperationPreflight(null);
+			setRefPreflightRunning(false);
+			setInteractiveRebaseOpen(false);
+			setInteractiveRebasePlan([]);
+			return;
+		}
+		let current = true;
+		setRefOperationPreflight(null);
+		setRefPreflightRunning(true);
+		void postJson<GitRefOperationPreflight>(
+			"/api/git/ref-operation-preflight",
+			{
+				cwd: repositoryKey,
+				source: pendingRefAction.source,
+				target: pendingRefAction.target,
+			},
+		)
+			.then((result) => {
+				if (!current) return;
+				setRefOperationPreflight(result);
+				setInteractiveRebasePlan(
+					createInteractiveRebasePlan(result.interactiveRebaseCommits),
+				);
+			})
+			.catch((error) => {
+				if (!current) return;
+				setRefOperationResult({
+					ok: false,
+					operation: "merge",
+					outcome: "failed",
+					conflicts: [],
+					errorKind: "commandFailed",
+					error:
+						error instanceof Error
+							? error.message
+							: "Unable to check branch operations",
+				});
+			})
+			.finally(() => {
+				if (current) setRefPreflightRunning(false);
+			});
+		return () => {
+			current = false;
+		};
+	}, [pendingRefAction, repositoryKey]);
+	const runRefOperation = useCallback(
+		async (
+			operation:
+				| "merge"
+				| "rebase"
+				| "interactiveRebase"
+				| "fastForward"
+				| "cherryPick"
+				| "revert",
+			action: "start" | "continue" | "skip" | "abort" = "start",
+		) => {
+			if (action === "start" && !pendingRefAction) return;
+			setRefOperationRunning(true);
+			const result = await onRunRefOperation({
+				operation,
+				action,
+				source: pendingRefAction?.source,
+				target: pendingRefAction?.target,
+				steps:
+					operation === "interactiveRebase" ? interactiveRebasePlan : undefined,
+			});
+			setRefOperationResult(result);
+			setRefOperationRunning(false);
+			if (result.ok) {
+				setPendingRefAction(null);
+			} else if (result.outcome === "conflicted") {
+				setInteractiveRebaseOpen(false);
+			}
+		},
+		[interactiveRebasePlan, onRunRefOperation, pendingRefAction],
+	);
+	const requestGraphAction = useCallback((request: GitGraphActionRequest) => {
+		setGraphActionName(request.suggestedName ?? "");
+		setGraphActionMessage("");
+		setGraphActionResult(null);
+		setPendingGraphAction(request);
+	}, []);
+	const runGraphAction = useCallback(async () => {
+		if (!pendingGraphAction) return;
+		setGraphActionRunning(true);
+		const result = await onRunGraphAction({
+			...pendingGraphAction,
+			name: graphActionName.trim() || undefined,
+			message: graphActionMessage.trim() || undefined,
+		});
+		setGraphActionRunning(false);
+		setGraphActionResult(result);
+		if (result.ok) setPendingGraphAction(null);
+	}, [
+		graphActionMessage,
+		graphActionName,
+		onRunGraphAction,
+		pendingGraphAction,
+	]);
+	const activeModeIndex = zenMode
+		? 2
+		: mainViewMode === "graph"
+			? -1
+			: viewMode === "split"
+				? 0
+				: 1;
+	const repositoryOperation = graph.operation ?? {
+		kind: "idle" as const,
+		phase: "idle" as const,
+		conflicts: [] as string[],
+	};
+	const pendingGraphActionPresentation = pendingGraphAction
+		? graphActionPresentation(pendingGraphAction.action)
+		: null;
+	const interactiveRebasePlanError = validateInteractiveRebasePlan(
+		interactiveRebasePlan,
+	);
+	const interactiveRebaseCommits = new Map(
+		(refOperationPreflight?.interactiveRebaseCommits ?? []).map((commit) => [
+			commit.hash,
+			commit,
+		]),
+	);
+	const resumableOperation =
+		repositoryOperation.kind === "idle" ? null : repositoryOperation.kind;
+	const operationActivity: {
+		phase: GitOperationActivityPhase;
+		message: string;
+	} =
+		refOperationRunning || graphActionRunning || refPreflightRunning
+			? { phase: "running", message: "Git operation running" }
+			: repositoryOperation.phase === "conflicted"
+				? { phase: "conflicted", message: "Git operation has conflicts" }
+				: repositoryOperation.phase === "awaitingContinuation"
+					? {
+							phase: "awaitingContinuation",
+							message: "Git operation is ready to continue",
+						}
+					: graphActionResult
+						? {
+								phase: graphActionResult.ok ? "completed" : "failed",
+								message: graphActionResult.ok
+									? `Git ${graphActionResult.action} completed`
+									: gitOperationErrorLabel(graphActionResult.errorKind),
+							}
+						: refOperationResult
+							? {
+									phase: refOperationResult.ok ? "completed" : "failed",
+									message: refOperationResult.ok
+										? `Git ${refOperationResult.operation} completed`
+										: gitOperationErrorLabel(refOperationResult.errorKind),
+								}
+							: { phase: "idle", message: "" };
 	return (
 		<section {...stylex.props(styles.viewerPanel)}>
+			<span role="status" aria-live="polite" {...stylex.props(styles.srStatus)}>
+				{selectionAnnouncement}
+			</span>
+			<span
+				role="status"
+				aria-live="polite"
+				data-git-operation-phase={operationActivity.phase}
+				{...stylex.props(styles.srStatus)}
+			>
+				{operationActivity.message}
+			</span>
 			<header {...stylex.props(styles.viewerHeader)}>
 				{drag ? <WorkspaceDockHandle {...drag} /> : null}
-				{stats.added > 0 || stats.removed > 0 ? (
+				{mainViewMode === "diff" && (stats.added > 0 || stats.removed > 0) ? (
 					<span {...stylex.props(styles.viewerStats)}>
 						{stats.added > 0 ? (
 							<span {...stylex.props(styles.viewerAdded)}>+{stats.added}</span>
@@ -294,7 +845,38 @@ function ChatDiffPanel({
 						) : null}
 					</span>
 				) : null}
-				<DiffFilePath path={file.path} />
+				{mainViewMode === "graph" ? (
+					<span {...stylex.props(styles.viewerTitle)}>
+						<strong {...stylex.props(styles.viewerFileName)}>
+							Repository graph
+						</strong>
+						{graphLoading && graph.commits.length > 0 ? (
+							<small aria-live="polite" {...stylex.props(styles.viewerRefresh)}>
+								Refreshing…
+							</small>
+						) : null}
+					</span>
+				) : file ? (
+					<DiffFilePath path={file.path} />
+				) : null}
+				{mainViewMode === "graph" ? (
+					<div {...stylex.props(styles.graphSyncActions)}>
+						{(["fetch", "pull", "push"] as const).map((action) => (
+							<button
+								key={action}
+								type="button"
+								disabled={graphActionRunning}
+								onClick={() =>
+									requestGraphAction({ action, itemId: "repository" })
+								}
+								title={`${action[0]!.toLocaleUpperCase()}${action.slice(1)} repository`}
+								{...stylex.props(styles.graphSyncButton)}
+							>
+								{action}
+							</button>
+						))}
+					</div>
+				) : null}
 				<div
 					{...stylex.props(styles.viewerModes)}
 					onMouseLeave={() => setHoveredModeIndex(null)}
@@ -308,11 +890,16 @@ function ChatDiffPanel({
 						type="button"
 						onMouseEnter={() => setHoveredModeIndex(0)}
 						onPointerDown={(event) => {
-							if (event.button === 0 && event.isPrimary)
+							if (event.button === 0 && event.isPrimary) {
+								onMainViewModeChange("diff");
 								onViewModeChange("split");
+							}
 						}}
 						onClick={(event) => {
-							if (event.detail === 0) onViewModeChange("split");
+							if (event.detail === 0) {
+								onMainViewModeChange("diff");
+								onViewModeChange("split");
+							}
 						}}
 						title="Full file diff"
 						aria-label="Full file diff"
@@ -327,11 +914,16 @@ function ChatDiffPanel({
 						type="button"
 						onMouseEnter={() => setHoveredModeIndex(1)}
 						onPointerDown={(event) => {
-							if (event.button === 0 && event.isPrimary)
+							if (event.button === 0 && event.isPrimary) {
+								onMainViewModeChange("diff");
 								onViewModeChange("hunks");
+							}
 						}}
 						onClick={(event) => {
-							if (event.detail === 0) onViewModeChange("hunks");
+							if (event.detail === 0) {
+								onMainViewModeChange("diff");
+								onViewModeChange("hunks");
+							}
 						}}
 						title="Hunk view"
 						aria-label="Hunk view"
@@ -381,7 +973,48 @@ function ChatDiffPanel({
 				</button>
 			</header>
 			<div {...stylex.props(styles.viewerBody)}>
-				{diff ? (
+				{mainViewMode === "graph" ? (
+					graphLoading && graph.commits.length === 0 ? (
+						<div {...stylex.props(styles.viewerEmpty)}>Loading history…</div>
+					) : graphError && graph.commits.length === 0 ? (
+						<div {...stylex.props(styles.viewerEmpty)}>{graphError}</div>
+					) : graph.commits.length === 0 ? (
+						<div {...stylex.props(styles.viewerEmpty)}>
+							{gitGraphEmptyLabel(graph)}
+						</div>
+					) : (
+						<CommitGraph
+							commits={graph.commits}
+							rows={graph.rows}
+							worktrees={graph.worktrees}
+							selectedHash={selectedCommitHash ?? undefined}
+							selectedIds={selectedCommitIds}
+							onSelect={onSelectCommit}
+							onCheckoutRef={onCheckoutRef}
+							branch={branch}
+							embedded
+							hasMore={graph.hasMore}
+							loadingMore={graph.loading}
+							repositoryKey={repositoryKey}
+							onLoadMore={onLoadMoreCommits}
+							onRefDrop={(source, target) => {
+								setRefOperationResult(null);
+								setInteractiveRebaseOpen(false);
+								setPendingRefAction({ source, target });
+							}}
+							onGraphAction={requestGraphAction}
+							onCompareWithWip={(itemId) => {
+								const wip = graph.commits.find(
+									(item) =>
+										item.itemKind === "worktreeWip" && item.id === "wip",
+								);
+								if (!wip) return;
+								onSelectCommit(wip.id);
+								onSelectCommit(itemId, { additive: true, range: false });
+							}}
+						/>
+					)
+				) : diff && file ? (
 					<DiffViewerBoundary resetKey={`${file.path}:${file.staged}`}>
 						<GitDiffView
 							diff={diff}
@@ -397,6 +1030,445 @@ function ChatDiffPanel({
 					</DiffViewerBoundary>
 				) : !loading ? (
 					<div {...stylex.props(styles.viewerEmpty)}>No diff available</div>
+				) : null}
+				{mainViewMode === "graph" && pendingRefAction ? (
+					<div {...stylex.props(styles.refActionOverlay)}>
+						<div
+							role="dialog"
+							aria-modal="true"
+							aria-label="Choose branch operation"
+							{...stylex.props(styles.refActionDialog)}
+						>
+							<strong {...stylex.props(styles.refActionTitle)}>
+								{interactiveRebaseOpen
+									? "Interactive rebase"
+									: "Move branch history"}
+							</strong>
+							<p {...stylex.props(styles.refActionCopy)}>
+								Source <code>{pendingRefAction.source}</code> → target{" "}
+								<code>{pendingRefAction.target}</code>
+							</p>
+							{interactiveRebaseOpen &&
+							!refOperationResult?.conflicts.length ? (
+								<>
+									<p {...stylex.props(styles.refActionCopy)}>
+										Oldest commit first. Drag rows or use the arrow buttons to
+										reorder, then choose Pick, Reword, Squash, or Drop.
+									</p>
+									<div {...stylex.props(styles.rebasePlan)}>
+										{interactiveRebasePlan.map((step, index) => {
+											const commit = interactiveRebaseCommits.get(step.hash);
+											return (
+												<div
+													key={step.hash}
+													draggable
+													onDragStart={(event) => {
+														event.dataTransfer?.setData(
+															"application/x-inferay-rebase-step",
+															String(index),
+														);
+													}}
+													onDragOver={(event) => event.preventDefault()}
+													onDrop={(event) => {
+														const from = Number(
+															event.dataTransfer?.getData(
+																"application/x-inferay-rebase-step",
+															),
+														);
+														if (Number.isInteger(from)) {
+															setInteractiveRebasePlan((current) =>
+																moveInteractiveRebaseStep(current, from, index),
+															);
+														}
+													}}
+													{...stylex.props(styles.rebasePlanRow)}
+												>
+													<div {...stylex.props(styles.rebasePlanControls)}>
+														<select
+															value={step.action}
+															onChange={(event) =>
+																setInteractiveRebasePlan((current) =>
+																	updateInteractiveRebaseStep(current, index, {
+																		action: event.currentTarget
+																			.value as GitInteractiveRebaseStep["action"],
+																	}),
+																)
+															}
+															aria-label={`Action for ${step.hash.slice(0, 7)}`}
+															{...stylex.props(styles.rebaseActionSelect)}
+														>
+															<option value="pick">Pick</option>
+															<option value="reword">Reword</option>
+															<option value="squash">Squash</option>
+															<option value="drop">Drop</option>
+														</select>
+														<button
+															type="button"
+															disabled={index === 0}
+															onClick={() =>
+																setInteractiveRebasePlan((current) =>
+																	moveInteractiveRebaseStep(
+																		current,
+																		index,
+																		index - 1,
+																	),
+																)
+															}
+															aria-label={`Move ${step.hash.slice(0, 7)} earlier`}
+															{...stylex.props(styles.rebaseMoveButton)}
+														>
+															↑
+														</button>
+														<button
+															type="button"
+															disabled={
+																index === interactiveRebasePlan.length - 1
+															}
+															onClick={() =>
+																setInteractiveRebasePlan((current) =>
+																	moveInteractiveRebaseStep(
+																		current,
+																		index,
+																		index + 1,
+																	),
+																)
+															}
+															aria-label={`Move ${step.hash.slice(0, 7)} later`}
+															{...stylex.props(styles.rebaseMoveButton)}
+														>
+															↓
+														</button>
+														<code {...stylex.props(styles.rebaseSha)}>
+															{step.hash.slice(0, 7)}
+														</code>
+														<span {...stylex.props(styles.rebaseSubject)}>
+															{commit?.message ?? step.message}
+														</span>
+													</div>
+													{step.action === "reword" ? (
+														<input
+															value={step.message ?? ""}
+															onInput={(event) =>
+																setInteractiveRebasePlan((current) =>
+																	updateInteractiveRebaseStep(current, index, {
+																		message: event.currentTarget.value,
+																	}),
+																)
+															}
+															aria-label={`New message for ${step.hash.slice(0, 7)}`}
+															{...stylex.props(styles.graphActionInput)}
+														/>
+													) : null}
+												</div>
+											);
+										})}
+									</div>
+									{interactiveRebasePlanError ? (
+										<p {...stylex.props(styles.refActionError)}>
+											{interactiveRebasePlanError}
+										</p>
+									) : null}
+								</>
+							) : null}
+							{refOperationResult?.error ? (
+								<p {...stylex.props(styles.refActionError)}>
+									<strong>
+										{gitOperationErrorLabel(refOperationResult.errorKind)}:
+									</strong>{" "}
+									{refOperationResult.error}
+								</p>
+							) : null}
+							{refOperationResult?.conflicts.length ? (
+								<p {...stylex.props(styles.refActionCopy)}>
+									Resolve {refOperationResult.conflicts.length} conflicted file
+									{refOperationResult.conflicts.length === 1 ? "" : "s"}, then
+									continue or abort.
+								</p>
+							) : null}
+							{!refOperationResult?.conflicts.length && refPreflightRunning ? (
+								<p {...stylex.props(styles.refActionCopy)}>
+									Checking valid operations…
+								</p>
+							) : null}
+							{!refOperationResult?.conflicts.length &&
+							refOperationPreflight &&
+							!refOperationPreflight.canMerge &&
+							!refOperationPreflight.canRebase ? (
+								<p {...stylex.props(styles.refActionError)}>
+									{refOperationPreflight.reasons.join(". ")}
+								</p>
+							) : null}
+							<div {...stylex.props(styles.refActionButtons)}>
+								{refOperationResult?.conflicts.length ? (
+									<>
+										<button
+											type="button"
+											disabled={refOperationRunning}
+											onClick={() =>
+												runRefOperation(refOperationResult.operation, "abort")
+											}
+											{...stylex.props(styles.refActionSecondary)}
+										>
+											Abort
+										</button>
+										{refOperationResult.operation !== "merge" ? (
+											<button
+												type="button"
+												disabled={refOperationRunning}
+												onClick={() =>
+													runRefOperation(refOperationResult.operation, "skip")
+												}
+												{...stylex.props(styles.refActionSecondary)}
+											>
+												Skip commit
+											</button>
+										) : null}
+										<button
+											type="button"
+											disabled={refOperationRunning}
+											onClick={() =>
+												runRefOperation(
+													refOperationResult.operation,
+													"continue",
+												)
+											}
+											{...stylex.props(styles.refActionPrimary)}
+										>
+											Continue
+										</button>
+									</>
+								) : interactiveRebaseOpen ? (
+									<>
+										<button
+											type="button"
+											disabled={refOperationRunning}
+											onClick={() => setInteractiveRebaseOpen(false)}
+											{...stylex.props(styles.refActionSecondary)}
+										>
+											Back
+										</button>
+										<button
+											type="button"
+											disabled={
+												refOperationRunning || !!interactiveRebasePlanError
+											}
+											onClick={() => runRefOperation("interactiveRebase")}
+											{...stylex.props(styles.refActionPrimary)}
+										>
+											{refOperationRunning
+												? "Rebasing…"
+												: "Start interactive rebase"}
+										</button>
+									</>
+								) : (
+									<>
+										<button
+											type="button"
+											disabled={refOperationRunning}
+											onClick={() => setPendingRefAction(null)}
+											{...stylex.props(styles.refActionSecondary)}
+										>
+											Cancel
+										</button>
+										{refOperationPreflight?.canInteractiveRebase ? (
+											<button
+												type="button"
+												disabled={refOperationRunning}
+												onClick={() => setInteractiveRebaseOpen(true)}
+												{...stylex.props(styles.refActionSecondary)}
+											>
+												Interactive rebase…
+											</button>
+										) : null}
+										{refOperationPreflight?.canRebase ? (
+											<button
+												type="button"
+												disabled={refOperationRunning}
+												onClick={() => runRefOperation("rebase")}
+												{...stylex.props(styles.refActionSecondary)}
+											>
+												Rebase source onto target
+											</button>
+										) : null}
+										{refOperationPreflight?.canFastForward ? (
+											<button
+												type="button"
+												disabled={refOperationRunning}
+												onClick={() => runRefOperation("fastForward")}
+												{...stylex.props(styles.refActionSecondary)}
+											>
+												Fast-forward target
+											</button>
+										) : null}
+										{refOperationPreflight?.canMerge ? (
+											<button
+												type="button"
+												disabled={refOperationRunning}
+												onClick={() => runRefOperation("merge")}
+												{...stylex.props(styles.refActionPrimary)}
+											>
+												Merge source into target
+											</button>
+										) : null}
+									</>
+								)}
+							</div>
+						</div>
+					</div>
+				) : null}
+				{mainViewMode === "graph" &&
+				pendingGraphAction &&
+				pendingGraphActionPresentation ? (
+					<div {...stylex.props(styles.refActionOverlay)}>
+						<div
+							role="dialog"
+							aria-modal="true"
+							aria-label={pendingGraphActionPresentation.title}
+							{...stylex.props(styles.refActionDialog)}
+							onKeyDown={(event) => {
+								if (event.key === "Escape" && !graphActionRunning) {
+									setPendingGraphAction(null);
+								}
+							}}
+						>
+							<strong {...stylex.props(styles.refActionTitle)}>
+								{pendingGraphActionPresentation.title}
+							</strong>
+							<p {...stylex.props(styles.refActionCopy)}>
+								{pendingGraphActionPresentation.copy}
+								{pendingGraphAction.target ? (
+									<>
+										{" "}
+										Target <code>{pendingGraphAction.target}</code>.
+									</>
+								) : null}
+								{pendingGraphAction.targets?.length ? (
+									<>
+										{" "}
+										Apply oldest to newest:{" "}
+										{pendingGraphAction.targets.map((target, index) => (
+											<code key={target}>
+												{index ? " → " : ""}
+												{target.slice(0, 7)}
+											</code>
+										))}
+									</>
+								) : null}
+							</p>
+							{pendingGraphActionPresentation.needsName ? (
+								<label {...stylex.props(styles.graphActionField)}>
+									<span>
+										{pendingGraphActionPresentation.nameLabel ?? "Name"}
+									</span>
+									<input
+										value={graphActionName}
+										onInput={(event) =>
+											setGraphActionName(event.currentTarget.value)
+										}
+										{...stylex.props(styles.graphActionInput)}
+									/>
+								</label>
+							) : null}
+							{pendingGraphActionPresentation.messageLabel ? (
+								<label {...stylex.props(styles.graphActionField)}>
+									<span>{pendingGraphActionPresentation.messageLabel}</span>
+									<textarea
+										rows={2}
+										value={graphActionMessage}
+										onInput={(event) =>
+											setGraphActionMessage(event.currentTarget.value)
+										}
+										{...stylex.props(styles.graphActionInput)}
+									/>
+								</label>
+							) : null}
+							{graphActionResult?.error ? (
+								<p {...stylex.props(styles.refActionError)}>
+									<strong>
+										{gitOperationErrorLabel(graphActionResult.errorKind)}:
+									</strong>{" "}
+									{graphActionResult.error}
+								</p>
+							) : null}
+							<div {...stylex.props(styles.refActionButtons)}>
+								<button
+									type="button"
+									disabled={graphActionRunning}
+									onClick={() => setPendingGraphAction(null)}
+									{...stylex.props(styles.refActionSecondary)}
+								>
+									Cancel
+								</button>
+								<button
+									type="button"
+									disabled={
+										graphActionRunning ||
+										(pendingGraphActionPresentation.needsName &&
+											!graphActionName.trim())
+									}
+									onClick={runGraphAction}
+									{...stylex.props(
+										pendingGraphActionPresentation.danger
+											? styles.graphActionDanger
+											: styles.refActionPrimary,
+									)}
+								>
+									{graphActionRunning
+										? "Working…"
+										: pendingGraphActionPresentation.confirm}
+								</button>
+							</div>
+						</div>
+					</div>
+				) : null}
+				{mainViewMode === "graph" &&
+				repositoryOperation.kind !== "idle" &&
+				!pendingRefAction ? (
+					<div role="status" {...stylex.props(styles.repositoryOperationBar)}>
+						<div {...stylex.props(styles.repositoryOperationCopy)}>
+							<strong>{repositoryOperation.kind} in progress</strong>
+							<span>
+								{repositoryOperation.conflicts.length
+									? `${repositoryOperation.conflicts.length} conflicted ${repositoryOperation.conflicts.length === 1 ? "file" : "files"}`
+									: "Ready to continue"}
+							</span>
+						</div>
+						{resumableOperation ? (
+							<div {...stylex.props(styles.refActionButtons)}>
+								<button
+									type="button"
+									disabled={refOperationRunning}
+									onClick={() => runRefOperation(resumableOperation, "abort")}
+									{...stylex.props(styles.refActionSecondary)}
+								>
+									Abort
+								</button>
+								{resumableOperation !== "merge" ? (
+									<button
+										type="button"
+										disabled={refOperationRunning}
+										onClick={() => runRefOperation(resumableOperation, "skip")}
+										{...stylex.props(styles.refActionSecondary)}
+									>
+										Skip
+									</button>
+								) : null}
+								<button
+									type="button"
+									disabled={
+										refOperationRunning ||
+										repositoryOperation.conflicts.length > 0
+									}
+									onClick={() =>
+										runRefOperation(resumableOperation, "continue")
+									}
+									{...stylex.props(styles.refActionPrimary)}
+								>
+									Continue
+								</button>
+							</div>
+						) : null}
+					</div>
 				) : null}
 			</div>
 		</section>
@@ -422,6 +1494,14 @@ export function useChatWorkspaceTools({
 		detachedFilePanels,
 		fileRequest,
 		selectedFile,
+		selectedFileCommitHash,
+		selectedFileCommitParent,
+		selectedFileComparisonFrom,
+		selectedFileComparisonTo,
+		selectedCommitHash,
+		selectedCommitIds,
+		selectedCommitParent,
+		mainViewMode,
 	} = panelSession;
 	const setPanelField = useCallback(
 		<Key extends keyof WorkspacePanelSession>(
@@ -453,12 +1533,25 @@ export function useChatWorkspaceTools({
 			setPanelField("selectedFile", value),
 		[setPanelField],
 	);
+	const setSelectedCommitParent = useCallback(
+		(value: StateValue<string | null>) =>
+			setPanelField("selectedCommitParent", value),
+		[setPanelField],
+	);
+	const setMainViewMode = useCallback(
+		(value: "diff" | "graph") => setPanelField("mainViewMode", value),
+		[setPanelField],
+	);
 	const [fileViewMode, setFileViewModeState] = useState(loadGitFileViewMode);
 	const [sidebarVisible, setSidebarVisible] = useState(loadSidebarVisible);
 	const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
 	const [diffWidth, setDiffWidth] = useState(() => loadDiffWidth(workspaceId));
 	const [diffViewMode, setDiffViewModeState] = useState(loadDiffViewMode);
 	const [zenMode, setZenMode] = useState(false);
+	const [graphActionError, setGraphActionError] = useState<string | null>(null);
+	const [graphSelectionAnnouncement, setGraphSelectionAnnouncement] =
+		useState("");
+	const [graphLimit, setGraphLimit] = useState(DEFAULT_GIT_GRAPH_HISTORY_LIMIT);
 	const setDiffViewMode = useCallback((mode: DiffViewMode) => {
 		setDiffViewModeState(mode);
 		writeStoredValue(DIFF_VIEW_MODE_KEY, mode);
@@ -524,6 +1617,255 @@ export function useChatWorkspaceTools({
 		[project],
 	);
 	const files = useMemo(() => orderProjectGitFiles(project), [project]);
+	const graphCwd = active && mainViewMode === "graph" ? activeCwd : undefined;
+	const graph = useGitGraph(graphCwd, graphLimit);
+	const graphRevisionsRef = useRef(new Map<string, string>());
+	if (graphCwd && graph.revision) {
+		graphRevisionsRef.current.set(graphCwd, graph.revision);
+	}
+	useEffect(() => setGraphLimit(DEFAULT_GIT_GRAPH_HISTORY_LIMIT), [graphCwd]);
+	const selectedGraphItem = useMemo(
+		() => graph.commits.find((item) => item.id === selectedCommitHash) ?? null,
+		[graph.commits, selectedCommitHash],
+	);
+	const selectedGraphItems = useMemo(
+		() =>
+			selectedCommitIds
+				.map((id) => graph.commits.find((item) => item.id === id))
+				.filter((item): item is NonNullable<typeof item> => !!item),
+		[graph.commits, selectedCommitIds],
+	);
+	const comparisonCommitItems = useMemo(
+		() =>
+			selectedGraphItems
+				.filter((item) => item.itemKind !== "worktreeWip")
+				.sort(
+					(a, b) =>
+						graph.commits.findIndex((item) => item.id === a.id) -
+						graph.commits.findIndex((item) => item.id === b.id),
+				),
+		[graph.commits, selectedGraphItems],
+	);
+	const comparisonWipItems = selectedGraphItems.filter(
+		(item) => item.itemKind === "worktreeWip",
+	);
+	const comparisonWip = comparisonWipItems[0];
+	const comparisonFrom = comparisonCommitItems.at(-1)?.hash;
+	const comparisonTo = comparisonWip
+		? "WORKTREE"
+		: comparisonCommitItems[0]?.hash;
+	const comparisonIsValid =
+		comparisonWipItems.length <= 1 &&
+		comparisonCommitItems.length >= (comparisonWip ? 1 : 2);
+	const comparisonCwd = comparisonWip?.worktreePath ?? graphCwd;
+	const selectedGraphWorktree = useMemo(
+		() =>
+			selectedGraphItem?.itemKind === "worktreeWip"
+				? (graph.worktrees.find(
+						(worktree) => worktree.path === selectedGraphItem.worktreePath,
+					) ?? null)
+				: null,
+		[graph.worktrees, selectedGraphItem],
+	);
+	const selectedLinkedWorktreeStatus =
+		selectedGraphWorktree && !selectedGraphWorktree.isCurrent
+			? selectedGraphWorktree.status
+			: null;
+	const sidebarStaged = selectedLinkedWorktreeStatus
+		? selectedLinkedWorktreeStatus.files.filter(isStagedChange)
+		: staged;
+	const sidebarModified = selectedLinkedWorktreeStatus
+		? selectedLinkedWorktreeStatus.files.filter(isUnstagedTrackedChange)
+		: modified;
+	const sidebarUntracked = selectedLinkedWorktreeStatus
+		? selectedLinkedWorktreeStatus.files.filter(isUntrackedChange)
+		: untracked;
+	const selectedWorkingTreeCwd = selectedGraphWorktree?.path ?? activeCwd;
+	const openSelectedWorktree = useCallback(() => {
+		if (!selectedGraphWorktree || selectedGraphWorktree.isCurrent) return;
+		updatePanelSession((current) => ({
+			...current,
+			diffViewerCwd: selectedGraphWorktree.path,
+			selectedFile: null,
+			selectedFileCommitHash: null,
+			selectedFileCommitParent: null,
+			selectedFileComparisonFrom: null,
+			selectedFileComparisonTo: null,
+			selectedCommitHash: null,
+			selectedCommitIds: [],
+			selectedCommitParent: null,
+			mainViewMode: "graph",
+			focusedAuxiliaryPanel: {
+				id: "workspace-diff-viewer",
+				cwd: selectedGraphWorktree.path,
+			},
+		}));
+	}, [selectedGraphWorktree, updatePanelSession]);
+	const commitDetailsState = useCommitDetails(
+		graphCwd,
+		selectedCommitIds.length <= 1 &&
+			selectedGraphItem &&
+			selectedGraphItem.itemKind !== "worktreeWip"
+			? selectedGraphItem.hash
+			: undefined,
+		selectedCommitParent ?? undefined,
+		graph.revision,
+	);
+	const comparisonDetailsState = useComparisonDetails(
+		comparisonIsValid ? comparisonCwd : undefined,
+		comparisonIsValid ? comparisonFrom : undefined,
+		comparisonIsValid ? comparisonTo : undefined,
+		graph.revision,
+	);
+	const selectGraphCommit = useCallback(
+		(itemId: string | null, intent?: GraphSelectionIntent) => {
+			const orderedItemIds = graph.commits.map((item) => item.id);
+			updatePanelSession((current) =>
+				updateGitGraphSelection(current, itemId, orderedItemIds, intent),
+			);
+		},
+		[graph.commits, updatePanelSession],
+	);
+	const checkoutGraphRef = useCallback(
+		async (branch: string) => {
+			if (!graphCwd) return;
+			setGraphActionError(null);
+			try {
+				const result = await postJson<{
+					ok: boolean;
+					branch?: string;
+					error?: string;
+				}>("/api/git/branches", { cwd: graphCwd, branch });
+				if (!result.ok) throw new Error(result.error ?? "Checkout failed");
+				await Promise.all([graph.refresh(), refetch()]);
+				selectGraphCommit(null);
+			} catch (error) {
+				setGraphActionError(
+					error instanceof Error ? error.message : "Checkout failed",
+				);
+			}
+		},
+		[graph.refresh, graphCwd, refetch, selectGraphCommit],
+	);
+	const runGraphRefOperation = useCallback(
+		async (request: {
+			operation:
+				| "merge"
+				| "rebase"
+				| "interactiveRebase"
+				| "fastForward"
+				| "cherryPick"
+				| "revert";
+			action: "start" | "continue" | "skip" | "abort";
+			source?: string;
+			target?: string;
+			steps?: GitInteractiveRebaseStep[];
+		}): Promise<GitRefOperationResult> => {
+			if (!graphCwd) {
+				return {
+					ok: false,
+					operation: request.operation,
+					outcome: "failed",
+					conflicts: [],
+					errorKind: "invalidInput",
+					error: "No Git repository selected",
+				};
+			}
+			try {
+				const result = await postJson<GitRefOperationResult>(
+					"/api/git/ref-operation",
+					{ cwd: graphCwd, ...request },
+				);
+				await Promise.all([graph.refresh(), refetch()]);
+				if (result.ok) selectGraphCommit(result.head ?? null);
+				return result;
+			} catch (error) {
+				return {
+					ok: false,
+					operation: request.operation,
+					outcome: "failed",
+					conflicts: [],
+					errorKind: "commandFailed",
+					error:
+						error instanceof Error ? error.message : "Git operation failed",
+				};
+			}
+		},
+		[graph.refresh, graphCwd, refetch, selectGraphCommit],
+	);
+	const runGraphActionRequest = useCallback(
+		async (
+			request: GitGraphActionRequest & { name?: string; message?: string },
+		): Promise<GitGraphActionResult> => {
+			if (!graphCwd) {
+				return {
+					ok: false,
+					action: request.action,
+					outcome: "failed",
+					conflicts: [],
+					errorKind: "invalidInput",
+					error: "No Git repository selected",
+				};
+			}
+			try {
+				const result = await postJson<GitGraphActionResult>(
+					"/api/git/graph-action",
+					{
+						cwd: graphCwd,
+						action: request.action,
+						target: request.target,
+						targets: request.targets,
+						name: request.name,
+						message: request.message,
+					},
+				);
+				await Promise.all([graph.refresh(), refetch()]);
+				if (
+					result.ok &&
+					result.head &&
+					[
+						"cherryPick",
+						"revert",
+						"resetSoft",
+						"resetMixed",
+						"resetHard",
+					].includes(request.action)
+				) {
+					selectGraphCommit(result.head);
+				}
+				return result;
+			} catch (error) {
+				return {
+					ok: false,
+					action: request.action,
+					outcome: "failed",
+					conflicts: [],
+					errorKind: "commandFailed",
+					error: error instanceof Error ? error.message : "Git action failed",
+				};
+			}
+		},
+		[graph.refresh, graphCwd, refetch, selectGraphCommit],
+	);
+	useEffect(() => {
+		if (mainViewMode !== "graph" || graph.loading || !graph.commits.length)
+			return;
+		const reconciliation = reconcileGitGraphSelection(
+			panelSession,
+			graph.commits,
+		);
+		if (reconciliation.session === panelSession) return;
+		if (reconciliation.announcement) {
+			setGraphSelectionAnnouncement(reconciliation.announcement);
+		}
+		updatePanelSession(() => reconciliation.session);
+	}, [
+		graph.commits,
+		graph.loading,
+		mainViewMode,
+		panelSession,
+		updatePanelSession,
+	]);
 	const keyboardFiles = useMemo(
 		() =>
 			fileViewMode === "tree"
@@ -558,17 +1900,39 @@ export function useChatWorkspaceTools({
 			active && diffViewerCwd && selectedFile
 				? {
 						cwd: diffViewerCwd,
+						repositoryRevision:
+							graphRevisionsRef.current.get(diffViewerCwd) ?? undefined,
 						file: selectedFile.path,
 						staged: selectedFile.staged,
+						commitHash: selectedFileCommitHash ?? undefined,
+						commitParent: selectedFileCommitParent ?? undefined,
+						comparisonFrom: selectedFileComparisonFrom ?? undefined,
+						comparisonTo: selectedFileComparisonTo ?? undefined,
 						view: diffViewMode === "split" ? "full" : "review",
 					}
 				: null,
-		[active, diffViewMode, diffViewerCwd, selectedFile],
+		[
+			active,
+			diffViewMode,
+			diffViewerCwd,
+			graph.revision,
+			selectedFile,
+			selectedFileCommitHash,
+			selectedFileCommitParent,
+			selectedFileComparisonFrom,
+			selectedFileComparisonTo,
+		],
 	);
 	const { diff, loading: diffLoading } = useGitDiff(diffRequest);
 
 	useEffect(() => {
-		if (!selectedFile || !diffViewerProject) return;
+		if (
+			!selectedFile ||
+			!diffViewerProject ||
+			selectedFileCommitHash ||
+			(selectedFileComparisonFrom && selectedFileComparisonTo)
+		)
+			return;
 		const current = resolveGitFileSelection(
 			diffViewerProject.files,
 			selectedFile,
@@ -581,7 +1945,15 @@ export function useChatWorkspaceTools({
 		if (current.staged !== selectedFile.staged) {
 			setSelectedFile({ path: current.path, staged: current.staged });
 		}
-	}, [diffViewerProject, selectedFile, setDiffViewerCwd, setSelectedFile]);
+	}, [
+		diffViewerProject,
+		selectedFile,
+		selectedFileCommitHash,
+		selectedFileComparisonFrom,
+		selectedFileComparisonTo,
+		setDiffViewerCwd,
+		setSelectedFile,
+	]);
 	useEffect(() => {
 		if (!active) return;
 		setSidebarVisible(loadSidebarVisible());
@@ -630,6 +2002,14 @@ export function useChatWorkspaceTools({
 		updatePanelSession((current) => ({
 			...current,
 			selectedFile: null,
+			selectedFileCommitHash: null,
+			selectedFileCommitParent: null,
+			selectedFileComparisonFrom: null,
+			selectedFileComparisonTo: null,
+			selectedCommitHash: null,
+			selectedCommitIds: [],
+			selectedCommitParent: null,
+			mainViewMode: "diff",
 			diffViewerCwd: null,
 			focusedAuxiliaryPanel:
 				current.focusedAuxiliaryPanel?.id === "workspace-diff-viewer"
@@ -639,25 +2019,69 @@ export function useChatWorkspaceTools({
 	}, [updatePanelSession]);
 	const selectChangedFile = useCallback(
 		(file: GitFileEntry) => {
-			if (!activeCwd) return;
-			updatePanelSession((current) => ({
-				...current,
-				diffViewerCwd: activeCwd,
-				selectedFile: { path: file.path, staged: file.staged },
-				focusedAuxiliaryPanel: {
-					id: "workspace-diff-viewer",
-					cwd: activeCwd,
-				},
-			}));
+			if (!selectedWorkingTreeCwd) return;
+			updatePanelSession((current) =>
+				openGitWorkingTreeFileDiff(current, selectedWorkingTreeCwd, {
+					path: file.path,
+					staged: file.staged,
+				}),
+			);
 		},
-		[activeCwd, updatePanelSession],
+		[selectedWorkingTreeCwd, updatePanelSession],
+	);
+	const selectCommitFile = useCallback(
+		(file: CommitFile) => {
+			if (
+				!activeCwd ||
+				!selectedGraphItem ||
+				selectedGraphItem.itemKind === "worktreeWip"
+			)
+				return;
+			updatePanelSession((current) =>
+				openGitCommitFileDiff(
+					current,
+					activeCwd,
+					file.path,
+					selectedGraphItem.hash,
+					selectedCommitParent,
+				),
+			);
+		},
+		[activeCwd, selectedGraphItem, selectedCommitParent, updatePanelSession],
+	);
+	const selectComparisonFile = useCallback(
+		(file: CommitFile) => {
+			if (!comparisonCwd || !comparisonFrom || !comparisonTo) return;
+			updatePanelSession((current) =>
+				openGitComparisonFileDiff(
+					current,
+					comparisonCwd,
+					file.path,
+					comparisonFrom,
+					comparisonTo,
+				),
+			);
+		},
+		[comparisonCwd, comparisonFrom, comparisonTo, updatePanelSession],
+	);
+	const changeMainViewMode = useCallback(
+		(mode: "diff" | "graph") => {
+			if (mode === "graph" && activeCwd) {
+				updatePanelSession((current) => openGitGraph(current, activeCwd));
+				return;
+			}
+			setMainViewMode(mode);
+		},
+		[activeCwd, setMainViewMode, updatePanelSession],
 	);
 	const focusChatWorkspace = useCallback(
-		() =>
+		(repositoryCwd?: string) =>
 			updatePanelSession((current) =>
-				current.focusedAuxiliaryPanel
-					? { ...current, focusedAuxiliaryPanel: null }
-					: current,
+				repositoryCwd && current.mainViewMode === "graph"
+					? bindGitGraphRepository(current, repositoryCwd)
+					: current.focusedAuxiliaryPanel
+						? { ...current, focusedAuxiliaryPanel: null }
+						: current,
 			),
 		[updatePanelSession],
 	);
@@ -704,6 +2128,7 @@ export function useChatWorkspaceTools({
 		(event: KeyboardEvent) => {
 			if (
 				focusedAuxiliaryPanel?.id !== "workspace-diff-viewer" ||
+				selectedFileCommitHash !== null ||
 				event.metaKey ||
 				event.ctrlKey ||
 				event.altKey
@@ -740,6 +2165,7 @@ export function useChatWorkspaceTools({
 			keyboardFiles,
 			selectChangedFile,
 			selectedFile,
+			selectedFileCommitHash,
 			stageFile,
 			unstageFile,
 		],
@@ -946,7 +2372,7 @@ export function useChatWorkspaceTools({
 	]);
 
 	const diffPanel =
-		diffViewerCwd && selectedFile ? (
+		diffViewerCwd && (selectedFile || mainViewMode === "graph") ? (
 			<aside
 				{...stylex.props(styles.diffRail, zenMode && styles.diffRailZen)}
 				style={zenMode ? undefined : { width: diffWidth }}
@@ -962,6 +2388,21 @@ export function useChatWorkspaceTools({
 					diff={diff}
 					file={selectedFile}
 					loading={diffLoading}
+					mainViewMode={mainViewMode}
+					onMainViewModeChange={changeMainViewMode}
+					graph={graph}
+					graphLoading={graph.loading}
+					graphError={graphActionError ?? graph.error}
+					selectionAnnouncement={graphSelectionAnnouncement}
+					repositoryKey={graphCwd}
+					selectedCommitHash={selectedCommitHash}
+					selectedCommitIds={selectedCommitIds}
+					onSelectCommit={selectGraphCommit}
+					onCheckoutRef={checkoutGraphRef}
+					onRunRefOperation={runGraphRefOperation}
+					onRunGraphAction={runGraphActionRequest}
+					onLoadMoreCommits={() => setGraphLimit(nextGitGraphHistoryLimit)}
+					branch={project?.branch}
 					onClose={closeDiffViewer}
 					viewMode={diffViewMode}
 					onViewModeChange={setDiffViewMode}
@@ -985,13 +2426,13 @@ export function useChatWorkspaceTools({
 						{...stylex.props(styles.resizeHandle)}
 					/>
 					<ChangeFileSidebar
-						cwd={activeCwd}
+						cwd={selectedWorkingTreeCwd}
 						fileViewMode={fileViewMode}
 						onFileViewModeChange={setFileViewMode}
-						mainViewMode="diff"
-						modified={modified}
-						untracked={untracked}
-						staged={staged}
+						mainViewMode={mainViewMode}
+						modified={sidebarModified}
+						untracked={sidebarUntracked}
+						staged={sidebarStaged}
 						selectedFile={
 							focusedAuxiliaryPanel?.id === "workspace-diff-viewer"
 								? selectedFile
@@ -1002,21 +2443,36 @@ export function useChatWorkspaceTools({
 						onUnstageFile={unstageFile}
 						onStageAll={stageAll}
 						onUnstageAll={unstageAll}
-						hasProject={!!project}
+						hasProject={!!project || !!selectedLinkedWorktreeStatus}
 						projectLoading={!!activeCwd && !gitLoaded}
-						selectedCommitHash={null}
-						commitDetailsLoading={false}
-						commitDetails={null}
-						files={files}
-						branch={project?.branch}
+						selectedCommitHash={selectedCommitHash}
+						selectedCommitCount={selectedCommitIds.length}
+						selectedIsWip={selectedGraphItem?.itemKind === "worktreeWip"}
+						selectedWorktreePath={selectedGraphWorktree?.path}
+						onOpenWorktree={
+							selectedGraphWorktree && !selectedGraphWorktree.isCurrent
+								? openSelectedWorktree
+								: undefined
+						}
+						commitDetailsLoading={commitDetailsState.loading}
+						commitDetails={commitDetailsState.details}
+						commitDetailsError={commitDetailsState.error}
+						comparisonDetailsLoading={comparisonDetailsState.loading}
+						comparisonDetails={comparisonDetailsState.details}
+						onCommitParentChange={setSelectedCommitParent}
+						onSelectCommitFile={selectCommitFile}
+						onSelectComparisonFile={selectComparisonFile}
+						branch={selectedGraphWorktree?.branch ?? project?.branch}
 						commitMessage={commitMessage}
 						onCommitMessageChange={setCommitMessage}
 						onCommit={commit}
 						isCommitting={isCommitting}
 						amendMode={amendMode}
 						onAmendModeChange={setAmendMode}
-						showFileActions
+						showFileActions={!selectedLinkedWorktreeStatus}
+						showCommitSection={!selectedLinkedWorktreeStatus}
 						onCollapse={collapseSidebar}
+						onOpenGraph={() => changeMainViewMode("graph")}
 					/>
 				</>
 			) : (
@@ -1024,6 +2480,8 @@ export function useChatWorkspaceTools({
 					unstagedCount={modified.length + untracked.length}
 					stagedCount={staged.length}
 					onExpand={expandSidebar}
+					onOpenGraph={() => changeMainViewMode("graph")}
+					graphActive={mainViewMode === "graph"}
 				/>
 			)}
 		</aside>
@@ -1033,6 +2491,17 @@ export function useChatWorkspaceTools({
 }
 
 const styles = stylex.create({
+	srStatus: {
+		position: "absolute",
+		width: "1px",
+		height: "1px",
+		overflow: "hidden",
+		borderWidth: 0,
+		clip: "rect(0 0 0 0)",
+		margin: "-1px",
+		padding: 0,
+		whiteSpace: "nowrap",
+	},
 	sidebarShell: {
 		position: "relative",
 		display: "flex",
@@ -1130,6 +2599,12 @@ const styles = stylex.create({
 		color: color.textMain,
 		fontWeight: font.weightBold,
 	},
+	viewerRefresh: {
+		marginLeft: controlSize._2,
+		color: color.textMuted,
+		fontSize: font.size_1,
+		fontWeight: font.weightRegular,
+	},
 	viewerStats: {
 		display: "flex",
 		flexShrink: 0,
@@ -1137,6 +2612,30 @@ const styles = stylex.create({
 		fontFamily: font.familyDiff,
 		fontSize: font.size_1,
 		fontVariantNumeric: "tabular-nums",
+	},
+	graphSyncActions: {
+		display: "flex",
+		flexShrink: 0,
+		alignItems: "center",
+		gap: controlSize._0_5,
+	},
+	graphSyncButton: {
+		height: controlSize._5,
+		borderRadius: radius.sm,
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlHover,
+		},
+		color: {
+			default: color.textMuted,
+			":hover": color.textSoft,
+		},
+		fontSize: font.size_1,
+		paddingInline: controlSize._2,
+		textTransform: "capitalize",
+		":disabled": {
+			opacity: 0.45,
+		},
 	},
 	viewerModes: {
 		position: "relative",
@@ -1192,7 +2691,222 @@ const styles = stylex.create({
 		backgroundColor: { default: color.transparent, ":hover": color.dangerWash },
 		color: { default: color.textMuted, ":hover": color.danger },
 	},
-	viewerBody: { minHeight: controlSize._0, flex: 1, overflow: "hidden" },
+	viewerBody: {
+		position: "relative",
+		minHeight: controlSize._0,
+		flex: 1,
+		overflow: "hidden",
+	},
+	refActionOverlay: {
+		position: "absolute",
+		zIndex: layer.dropdown,
+		inset: controlSize._0,
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: color.backgroundOverlay,
+		padding: controlSize._4,
+	},
+	refActionDialog: {
+		display: "flex",
+		width: "min(32rem, 100%)",
+		maxHeight: "calc(100% - 2rem)",
+		flexDirection: "column",
+		gap: controlSize._3,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.borderStrong,
+		borderRadius: radius.md,
+		backgroundColor: color.backgroundRaised,
+		overflow: "hidden",
+		padding: controlSize._4,
+	},
+	refActionTitle: {
+		color: color.textMain,
+		fontSize: font.size_4,
+	},
+	refActionCopy: {
+		color: color.textSoft,
+		fontSize: font.size_2_75,
+		lineHeight: 1.5,
+	},
+	refActionError: {
+		color: color.danger,
+		fontSize: font.size_2,
+		lineHeight: 1.5,
+	},
+	rebasePlan: {
+		display: "flex",
+		minHeight: controlSize._0,
+		flexDirection: "column",
+		gap: controlSize._1,
+		overflowY: "auto",
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: radius.sm,
+		backgroundColor: color.background,
+		padding: controlSize._1,
+	},
+	rebasePlanRow: {
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._1,
+		borderRadius: radius.sm,
+		backgroundColor: color.surfaceWhite02,
+		cursor: "grab",
+		padding: controlSize._1,
+	},
+	rebasePlanControls: {
+		display: "flex",
+		minWidth: controlSize._0,
+		alignItems: "center",
+		gap: controlSize._1,
+	},
+	rebaseActionSelect: {
+		height: controlSize._6,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: radius.sm,
+		backgroundColor: color.surfaceControl,
+		color: color.textSoft,
+		fontSize: font.size_2,
+		paddingInline: controlSize._1,
+	},
+	rebaseMoveButton: {
+		display: "flex",
+		width: controlSize._5,
+		height: controlSize._5,
+		flexShrink: 0,
+		alignItems: "center",
+		justifyContent: "center",
+		borderRadius: radius.sm,
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlHover,
+		},
+		color: color.textMuted,
+		fontSize: font.size_2,
+		":disabled": { opacity: 0.3 },
+	},
+	rebaseSha: {
+		flexShrink: 0,
+		color: color.textMuted,
+		fontFamily: font.familyMono,
+		fontSize: font.size_1,
+	},
+	rebaseSubject: {
+		minWidth: controlSize._0,
+		flex: 1,
+		overflow: "hidden",
+		color: color.textSoft,
+		fontSize: font.size_2,
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
+	graphActionField: {
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._1_5,
+		color: color.textSoft,
+		fontSize: font.size_2,
+	},
+	graphActionInput: {
+		width: "100%",
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: {
+			default: color.border,
+			":focus": color.accentBorder,
+		},
+		borderRadius: radius.sm,
+		outline: "none",
+		resize: "vertical",
+		backgroundColor: color.background,
+		color: color.textMain,
+		fontFamily: font.familyDiff,
+		fontSize: font.size_2_75,
+		paddingBlock: controlSize._2,
+		paddingInline: controlSize._2,
+	},
+	refActionButtons: {
+		display: "flex",
+		flexWrap: "wrap",
+		justifyContent: "flex-end",
+		gap: controlSize._2,
+	},
+	refActionSecondary: {
+		height: controlSize._7,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: radius.sm,
+		backgroundColor: {
+			default: color.surfaceControl,
+			":hover": color.controlHover,
+		},
+		color: color.textSoft,
+		fontSize: font.size_2,
+		paddingInline: controlSize._3,
+	},
+	refActionPrimary: {
+		height: controlSize._7,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.accentBorder,
+		borderRadius: radius.sm,
+		backgroundColor: {
+			default: color.controlActive,
+			":hover": color.accentWash,
+		},
+		color: color.textMain,
+		fontSize: font.size_2,
+		fontWeight: font.weight_6,
+		paddingInline: controlSize._3,
+	},
+	graphActionDanger: {
+		height: controlSize._7,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.danger,
+		borderRadius: radius.sm,
+		backgroundColor: {
+			default: color.dangerWash,
+			":hover": color.dangerWash,
+		},
+		color: color.danger,
+		fontSize: font.size_2,
+		fontWeight: font.weight_6,
+		paddingInline: controlSize._3,
+	},
+	repositoryOperationBar: {
+		position: "absolute",
+		zIndex: layer.dropdown,
+		left: controlSize._3,
+		right: controlSize._3,
+		bottom: controlSize._3,
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "space-between",
+		gap: controlSize._3,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.warning,
+		borderRadius: radius.md,
+		backgroundColor: color.backgroundRaised,
+		boxShadow: shadow.popover,
+		padding: controlSize._3,
+	},
+	repositoryOperationCopy: {
+		display: "flex",
+		minWidth: controlSize._0,
+		flexDirection: "column",
+		gap: controlSize._1,
+		color: color.textSoft,
+		fontSize: font.size_2,
+		textTransform: "capitalize",
+	},
 	viewerEmpty: {
 		display: "flex",
 		height: "100%",

@@ -38,6 +38,20 @@ export const runtimeColor = {
 	textMain: "var(--color-inferay-white)",
 } as const;
 
+/** Stable high-contrast lane palette for SVG/canvas Git topology rendering. */
+export const runtimeGitGraphLaneColors = [
+	"#1c97b5",
+	"#0063f2",
+	"#7f12b7",
+	"#ba18ab",
+	"#d00066",
+	"#c40012",
+	"#ed4e2f",
+	"#f0c13a",
+	"#76d33c",
+	"#36c894",
+] as const;
+
 export const runtimeFont = {
 	familyMono: '"JetBrains Mono", "SF Mono", Menlo, Consolas, monospace',
 	sizeCompact: "11px",

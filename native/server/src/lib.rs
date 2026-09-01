@@ -30,10 +30,14 @@ use inferay_core::path_security::{
 };
 use inferay_core::prompts::{PromptError, PromptStore};
 use inferay_native_diff::{
-    GitFileWithDiff, NativeRequest, NativeResponse, checkout_git_branch, commit_git, get_git_blame,
-    get_git_branches, get_git_commit_details, get_git_diff, get_git_file_history,
-    get_git_file_with_diff, get_git_graph, get_git_log, get_git_status, is_changed_git_file,
-    stage_git, unstage_git,
+    GitFileWithDiff, GitInteractiveRebaseStep, NativeRequest, NativeResponse, checkout_git_branch,
+    commit_git, finish_git_ref_operation, get_git_blame, get_git_branches,
+    get_git_commit_details_for_parent, get_git_commit_hunk_diff_for_parent,
+    get_git_comparison_details, get_git_comparison_hunk_diff, get_git_diff, get_git_file_history,
+    get_git_file_with_diff, get_git_graph_snapshot, get_git_log, get_git_status,
+    get_git_worktree_comparison_details, get_git_worktree_comparison_hunk_diff,
+    is_changed_git_file, perform_git_graph_action_with_targets, perform_git_interactive_rebase,
+    perform_git_ref_operation, preflight_git_ref_operation, stage_git, unstage_git,
 };
 use percent_encoding::percent_decode_str;
 use reqwest::Client;
@@ -232,6 +236,27 @@ struct GitStatusesBody {
 struct GitBranchBody {
     cwd: Option<String>,
     branch: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GitRefOperationBody {
+    cwd: Option<String>,
+    operation: Option<String>,
+    action: Option<String>,
+    source: Option<String>,
+    target: Option<String>,
+    #[serde(default)]
+    steps: Vec<GitInteractiveRebaseStep>,
+}
+
+#[derive(Deserialize)]
+struct GitGraphActionBody {
+    cwd: Option<String>,
+    action: Option<String>,
+    target: Option<String>,
+    targets: Option<Vec<String>>,
+    name: Option<String>,
+    message: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -695,6 +720,15 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
                 return git_checkout_branch(&state, request).await;
             }
         }
+        if path == "/api/git/ref-operation" && request.method() == Method::POST {
+            return git_ref_operation(&state, request).await;
+        }
+        if path == "/api/git/ref-operation-preflight" && request.method() == Method::POST {
+            return git_ref_operation_preflight(&state, request).await;
+        }
+        if path == "/api/git/graph-action" && request.method() == Method::POST {
+            return git_graph_action(&state, request).await;
+        }
         if path == "/api/git/log" && request.method() == Method::GET {
             return git_log(&state, request).await;
         }
@@ -706,6 +740,15 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
         }
         if path == "/api/git/commit-details" && request.method() == Method::GET {
             return git_commit_details(&state, request).await;
+        }
+        if path == "/api/git/commit-diff" && request.method() == Method::GET {
+            return git_commit_diff(&state, request).await;
+        }
+        if path == "/api/git/comparison-details" && request.method() == Method::GET {
+            return git_comparison_details(&state, request).await;
+        }
+        if path == "/api/git/comparison-diff" && request.method() == Method::GET {
+            return git_comparison_diff(&state, request).await;
         }
         if path == "/api/git/stage" && request.method() == Method::POST {
             return git_stage(&state, request).await;
@@ -1492,27 +1535,28 @@ async fn git_statuses(state: &ServerState, request: Request) -> Response {
 
 async fn git_graph(state: &ServerState, request: Request) -> Response {
     let request_headers = request.headers().clone();
-    let cwd = query_value(&request, "cwd")
-        .as_deref()
-        .and_then(|cwd| safe_cwd(state, cwd));
-    let Some(cwd) = cwd else {
+    let requested_cwd = query_value(&request, "cwd");
+    let Some(requested_cwd) = requested_cwd.as_deref() else {
         return json_response(
             StatusCode::BAD_REQUEST,
             json!({ "error": "Missing cwd parameter" }),
             &request_headers,
         );
     };
+    let Some(cwd) = safe_cwd(state, requested_cwd) else {
+        return json_response(
+            StatusCode::FORBIDDEN,
+            json!({ "error": "Access to this repository is not allowed" }),
+            &request_headers,
+        );
+    };
     let limit = query_value(&request, "limit")
         .as_deref()
-        .map(|value| safe_limit(value, 50, 500))
-        .unwrap_or(50);
-    let task = tokio::task::spawn_blocking(move || get_git_graph(&cwd, limit));
+        .map(|value| safe_limit(value, 1000, 100000))
+        .unwrap_or(1000);
+    let task = tokio::task::spawn_blocking(move || get_git_graph_snapshot(&cwd, limit));
     match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
-        Ok(Ok((commits, rows))) => json_response(
-            StatusCode::OK,
-            json!({ "commits": commits, "rows": rows }),
-            &request_headers,
-        ),
+        Ok(Ok(snapshot)) => json_response(StatusCode::OK, json!(snapshot), &request_headers),
         Ok(Err(error)) => json_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             json!({ "error": error.to_string() }),
@@ -1520,7 +1564,7 @@ async fn git_graph(state: &ServerState, request: Request) -> Response {
         ),
         Err(_) => json_response(
             StatusCode::SERVICE_UNAVAILABLE,
-            json!({ "error": "Native Git graph unavailable" }),
+            json!({ "error": "Git history request timed out" }),
             &request_headers,
         ),
     }
@@ -1570,6 +1614,110 @@ async fn git_checkout_branch(state: &ServerState, request: Request) -> Response 
         );
     };
     match tokio::task::spawn_blocking(move || checkout_git_branch(&cwd, &branch)).await {
+        Ok(result) => json_response(StatusCode::OK, json!(result), &request_headers),
+        Err(error) => internal_task_error(error, &request_headers),
+    }
+}
+
+async fn git_ref_operation(state: &ServerState, request: Request) -> Response {
+    let request_headers = request.headers().clone();
+    let body: GitRefOperationBody = match request_json(request, &request_headers).await {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let cwd = body.cwd.as_deref().and_then(|cwd| safe_cwd(state, cwd));
+    let Some(cwd) = cwd else {
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": "Missing cwd parameter" }),
+            &request_headers,
+        );
+    };
+    let operation = body.operation.unwrap_or_default();
+    let action = body.action.unwrap_or_else(|| "start".to_string());
+    let result = if action == "start" {
+        let (Some(source), Some(target)) = (body.source, body.target) else {
+            return json_response(
+                StatusCode::BAD_REQUEST,
+                json!({ "error": "Missing source or target branch" }),
+                &request_headers,
+            );
+        };
+        let steps = body.steps;
+        tokio::task::spawn_blocking(move || {
+            if operation == "interactiveRebase" {
+                perform_git_interactive_rebase(&cwd, &source, &target, &steps)
+            } else {
+                perform_git_ref_operation(&cwd, &operation, &source, &target)
+            }
+        })
+        .await
+    } else {
+        tokio::task::spawn_blocking(move || finish_git_ref_operation(&cwd, &operation, &action))
+            .await
+    };
+    match result {
+        Ok(result) => json_response(StatusCode::OK, json!(result), &request_headers),
+        Err(error) => internal_task_error(error, &request_headers),
+    }
+}
+
+async fn git_ref_operation_preflight(state: &ServerState, request: Request) -> Response {
+    let request_headers = request.headers().clone();
+    let body: GitRefOperationBody = match request_json(request, &request_headers).await {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let cwd = body.cwd.as_deref().and_then(|cwd| safe_cwd(state, cwd));
+    let Some(cwd) = cwd else {
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": "Missing cwd parameter" }),
+            &request_headers,
+        );
+    };
+    let (Some(source), Some(target)) = (body.source, body.target) else {
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": "Missing source or target branch" }),
+            &request_headers,
+        );
+    };
+    match tokio::task::spawn_blocking(move || preflight_git_ref_operation(&cwd, &source, &target))
+        .await
+    {
+        Ok(result) => json_response(StatusCode::OK, json!(result), &request_headers),
+        Err(error) => internal_task_error(error, &request_headers),
+    }
+}
+
+async fn git_graph_action(state: &ServerState, request: Request) -> Response {
+    let request_headers = request.headers().clone();
+    let body: GitGraphActionBody = match request_json(request, &request_headers).await {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let cwd = body.cwd.as_deref().and_then(|cwd| safe_cwd(state, cwd));
+    let Some(cwd) = cwd else {
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": "Missing cwd parameter" }),
+            &request_headers,
+        );
+    };
+    let action = body.action.unwrap_or_default();
+    let result = tokio::task::spawn_blocking(move || {
+        perform_git_graph_action_with_targets(
+            &cwd,
+            &action,
+            body.target.as_deref(),
+            body.targets.as_deref().unwrap_or_default(),
+            body.name.as_deref(),
+            body.message.as_deref(),
+        )
+    })
+    .await;
+    match result {
         Ok(result) => json_response(StatusCode::OK, json!(result), &request_headers),
         Err(error) => internal_task_error(error, &request_headers),
     }
@@ -1651,6 +1799,7 @@ async fn git_commit_details(state: &ServerState, request: Request) -> Response {
         .as_deref()
         .and_then(|cwd| safe_cwd(state, cwd));
     let hash = query_value(&request, "hash").filter(|hash| safe_hash(hash));
+    let parent = query_value(&request, "parent").filter(|hash| safe_hash(hash));
     let (Some(cwd), Some(hash)) = (cwd, hash) else {
         return json_response(
             StatusCode::BAD_REQUEST,
@@ -1658,13 +1807,134 @@ async fn git_commit_details(state: &ServerState, request: Request) -> Response {
             &request_headers,
         );
     };
-    match tokio::task::spawn_blocking(move || get_git_commit_details(&cwd, &hash)).await {
+    match tokio::task::spawn_blocking(move || {
+        get_git_commit_details_for_parent(&cwd, &hash, parent.as_deref())
+    })
+    .await
+    {
         Ok(details) => json_response(
             StatusCode::OK,
             json!({ "details": details }),
             &request_headers,
         ),
         Err(error) => internal_task_error(error, &request_headers),
+    }
+}
+
+async fn git_commit_diff(state: &ServerState, request: Request) -> Response {
+    let request_headers = request.headers().clone();
+    let cwd = query_value(&request, "cwd")
+        .as_deref()
+        .and_then(|cwd| safe_cwd(state, cwd));
+    let hash = query_value(&request, "hash").filter(|hash| safe_hash(hash));
+    let parent = query_value(&request, "parent").filter(|hash| safe_hash(hash));
+    let file = query_value(&request, "file").filter(|file| is_safe_relative_path(file));
+    let review = query_value(&request, "view").as_deref() == Some("review");
+    let (Some(cwd), Some(hash), Some(file)) = (cwd, hash, file) else {
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": "Missing cwd, hash, or file parameter" }),
+            &request_headers,
+        );
+    };
+    let task = tokio::task::spawn_blocking(move || {
+        get_git_commit_hunk_diff_for_parent(&cwd, &hash, parent.as_deref(), &file, review)
+    });
+    match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
+        Ok(Ok(Some(diff))) => json_response(StatusCode::OK, json!(diff), &request_headers),
+        Ok(Ok(None)) => json_response(
+            StatusCode::NOT_FOUND,
+            json!({ "error": "File is not changed in this commit" }),
+            &request_headers,
+        ),
+        Ok(Err(error)) => internal_task_error(error, &request_headers),
+        Err(_) => json_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            json!({ "error": "Commit diff unavailable" }),
+            &request_headers,
+        ),
+    }
+}
+
+async fn git_comparison_details(state: &ServerState, request: Request) -> Response {
+    let request_headers = request.headers().clone();
+    let cwd = query_value(&request, "cwd")
+        .as_deref()
+        .and_then(|cwd| safe_cwd(state, cwd));
+    let from = query_value(&request, "from").filter(|hash| safe_hash(hash));
+    let to = query_value(&request, "to").filter(|value| value == "WORKTREE" || safe_hash(value));
+    let (Some(cwd), Some(from), Some(to)) = (cwd, from, to) else {
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": "Missing cwd, from, or to parameter" }),
+            &request_headers,
+        );
+    };
+    let allowed_paths = state.allowed_paths.clone();
+    let task = tokio::task::spawn_blocking(move || {
+        if to == "WORKTREE" {
+            get_git_worktree_comparison_details(&allowed_paths, &cwd, &from)
+        } else {
+            get_git_comparison_details(&cwd, &from, &to)
+        }
+    });
+    match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
+        Ok(Ok(Some(details))) => json_response(
+            StatusCode::OK,
+            json!({ "details": details }),
+            &request_headers,
+        ),
+        Ok(Ok(None)) => json_response(
+            StatusCode::NOT_FOUND,
+            json!({ "error": "Commits cannot be compared" }),
+            &request_headers,
+        ),
+        Ok(Err(error)) => internal_task_error(error, &request_headers),
+        Err(_) => json_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            json!({ "error": "Comparison unavailable" }),
+            &request_headers,
+        ),
+    }
+}
+
+async fn git_comparison_diff(state: &ServerState, request: Request) -> Response {
+    let request_headers = request.headers().clone();
+    let cwd = query_value(&request, "cwd")
+        .as_deref()
+        .and_then(|cwd| safe_cwd(state, cwd));
+    let from = query_value(&request, "from").filter(|hash| safe_hash(hash));
+    let to = query_value(&request, "to").filter(|value| value == "WORKTREE" || safe_hash(value));
+    let file = query_value(&request, "file").filter(|file| is_safe_relative_path(file));
+    let review = query_value(&request, "view").as_deref() == Some("review");
+    let (Some(cwd), Some(from), Some(to), Some(file)) = (cwd, from, to, file) else {
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": "Missing cwd, from, to, or file parameter" }),
+            &request_headers,
+        );
+    };
+    let allowed_paths = state.allowed_paths.clone();
+    let task = tokio::task::spawn_blocking(move || {
+        if to == "WORKTREE" {
+            get_git_worktree_comparison_hunk_diff(&allowed_paths, &cwd, &from, &file, review)
+        } else {
+            get_git_comparison_hunk_diff(&cwd, &from, &to, &file, review)
+        }
+    });
+    match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
+        Ok(Ok(Some(diff))) => json_response(StatusCode::OK, json!(diff), &request_headers),
+        Ok(Ok(None)) => json_response(
+            StatusCode::NOT_FOUND,
+            json!({ "error": "File is not changed between these commits" }),
+            &request_headers,
+        ),
+        Ok(Err(error)) => internal_task_error(error, &request_headers),
+        Err(_) => json_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            json!({ "error": "Comparison diff unavailable" }),
+            &request_headers,
+        ),
     }
 }
 
@@ -5231,10 +5501,82 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(value["commits"].as_array().unwrap().len(), 1);
-        assert_eq!(value["commits"][0]["message"], "initial");
-        assert_eq!(value["commits"][0]["authorEmail"], "inferay@example.com");
+        let graph_commits = value["commits"].as_array().unwrap();
+        assert_eq!(graph_commits.len(), 2);
+        assert_eq!(graph_commits[0]["itemKind"], "worktreeWip");
+        let initial = graph_commits
+            .iter()
+            .find(|commit| commit["message"] == "initial")
+            .unwrap();
+        assert_eq!(initial["authorEmail"], "inferay@example.com");
         assert_eq!(value["rows"][0]["row"], 0);
+
+        let outside = TempDir::new().unwrap();
+        let outside_cwd = outside.path().to_string_lossy();
+        let forbidden_graph = query_path(
+            "/api/git/graph",
+            &[("cwd", outside_cwd.as_ref()), ("limit", "10")],
+        );
+        let (status, _) = call_json(&app, Method::GET, forbidden_graph, None).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        for endpoint in [
+            "/api/git/ref-operation-preflight",
+            "/api/git/ref-operation",
+            "/api/git/graph-action",
+        ] {
+            let (status, _) = call_json(
+                &app,
+                Method::POST,
+                endpoint.into(),
+                Some(json!({
+                    "cwd": outside_cwd.as_ref(),
+                    "source": "main",
+                    "target": "feature",
+                    "operation": "merge",
+                    "action": "fetch"
+                })),
+            )
+            .await;
+            assert!(status.is_client_error());
+        }
+        for (endpoint, parameters) in [
+            (
+                "/api/git/commit-details",
+                vec![("cwd", outside_cwd.as_ref()), ("hash", "deadbeef")],
+            ),
+            (
+                "/api/git/commit-diff",
+                vec![
+                    ("cwd", outside_cwd.as_ref()),
+                    ("hash", "deadbeef"),
+                    ("file", "README.md"),
+                ],
+            ),
+            (
+                "/api/git/comparison-details",
+                vec![
+                    ("cwd", outside_cwd.as_ref()),
+                    ("from", "deadbeef"),
+                    ("to", "feedface"),
+                ],
+            ),
+            (
+                "/api/git/comparison-diff",
+                vec![
+                    ("cwd", outside_cwd.as_ref()),
+                    ("from", "deadbeef"),
+                    ("to", "feedface"),
+                    ("file", "README.md"),
+                ],
+            ),
+        ] {
+            let uri = query_path(endpoint, &parameters);
+            let (status, _) = call_json(&app, Method::GET, uri, None).await;
+            assert!(
+                status.is_client_error(),
+                "{endpoint} accepted an outside path"
+            );
+        }
 
         run_git(&repository, &["branch", "feature"]);
         let branches_uri = query_path("/api/git/branches", &[("cwd", cwd.as_ref())]);
@@ -5259,7 +5601,8 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(value, json!({ "ok": true, "branch": "feature" }));
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["error_kind"], "dirtyWorktree");
 
         let (status, value) = call_json(
             &app,
@@ -5281,6 +5624,17 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         assert_eq!(status, StatusCode::OK);
         assert_eq!(value["success"], true);
         let commit_hash = value["hash"].as_str().unwrap();
+
+        let (status, value) = call_json(
+            &app,
+            Method::POST,
+            "/api/git/branches".to_string(),
+            Some(json!({ "cwd": cwd.as_ref(), "branch": "feature" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(value, json!({ "ok": true, "branch": "feature" }));
+        run_git(&repository, &["checkout", "main"]);
 
         let log_uri = query_path("/api/git/log", &[("cwd", cwd.as_ref()), ("limit", "10")]);
         let (status, value) = call_json(&app, Method::GET, log_uri, None).await;
@@ -5315,6 +5669,8 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         let (status, value) = call_json(&app, Method::GET, details_uri, None).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(value["details"]["message"], "native route commit");
+        assert_eq!(value["details"]["authorEmail"], "inferay@example.com");
+        assert!(value["details"].get("author_email").is_none());
         assert!(
             value["details"]["files"]
                 .as_array()

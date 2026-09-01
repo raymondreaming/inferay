@@ -1,8 +1,14 @@
 import * as stylex from "@octanejs/stylex";
-import { memo, useCallback, useMemo, useState } from "octane";
+import { memo, useCallback, useEffect, useMemo, useState } from "octane";
 import { iconSize, runtimeColor } from "../../design-system.ts";
+import { resolveGitAuthorAvatar } from "../../features/git/git-avatar.ts";
 import { getFileSelectionAfterToggle } from "../../features/git/git-file-utils.ts";
 import type { GitFileEntry } from "../../features/git/types.ts";
+import type {
+	CommitDetails,
+	CommitFile,
+	ComparisonDetails,
+} from "../../features/git/useGitGraph.tsx";
 import { postJson } from "../../lib/fetch-json.ts";
 import {
 	color,
@@ -10,6 +16,7 @@ import {
 	font,
 	layer,
 	motion,
+	palette,
 	radius,
 	shadow,
 } from "../../tokens.stylex.ts";
@@ -19,6 +26,7 @@ import { Liquid } from "../ui/gooey/index.ts";
 import { LiquidSegmentedRail } from "../ui/gooey/LiquidSegmentedRail.tsx";
 import {
 	IconChevronRight,
+	IconExternalLink,
 	IconFolderFill,
 	IconGitBranch,
 	IconGitCommit,
@@ -51,20 +59,18 @@ interface ChangeFileSidebarProps {
 	hasProject: boolean;
 	projectLoading?: boolean;
 	selectedCommitHash: string | null;
+	selectedCommitCount?: number;
+	selectedIsWip?: boolean;
+	selectedWorktreePath?: string;
+	onOpenWorktree?: () => void;
 	commitDetailsLoading: boolean;
-	commitDetails: {
-		hash: string;
-		message: string;
-		author: string;
-		date: string;
-		files: Array<{
-			path: string;
-			status: string;
-			additions: number;
-			deletions: number;
-		}>;
-	} | null;
-	files: GitFileEntry[];
+	commitDetails: CommitDetails | null;
+	commitDetailsError?: string | null;
+	comparisonDetailsLoading?: boolean;
+	comparisonDetails?: ComparisonDetails | null;
+	onSelectCommitFile?: (file: CommitFile) => void;
+	onSelectComparisonFile?: (file: CommitFile) => void;
+	onCommitParentChange?: (parent: string) => void;
 	branch?: string;
 	commitMessage: string;
 	onCommitMessageChange: (msg: string) => void;
@@ -75,6 +81,7 @@ interface ChangeFileSidebarProps {
 	showFileActions?: boolean;
 	showCommitSection?: boolean;
 	onCollapse?: () => void;
+	onOpenGraph?: () => void;
 }
 
 /* ── Main reusable changes sidebar component ──────────── */
@@ -98,9 +105,18 @@ export const ChangeFileSidebar = memo(function ChangeFileSidebar(
 		hasProject,
 		projectLoading = false,
 		selectedCommitHash,
+		selectedCommitCount = selectedCommitHash ? 1 : 0,
+		selectedIsWip = selectedCommitHash === "wip",
+		selectedWorktreePath,
+		onOpenWorktree,
 		commitDetailsLoading,
 		commitDetails,
-		files,
+		commitDetailsError,
+		comparisonDetailsLoading = false,
+		comparisonDetails,
+		onSelectCommitFile,
+		onSelectComparisonFile,
+		onCommitParentChange,
 		branch,
 		commitMessage,
 		onCommitMessageChange,
@@ -110,6 +126,7 @@ export const ChangeFileSidebar = memo(function ChangeFileSidebar(
 		showFileActions = false,
 		showCommitSection = true,
 		onCollapse,
+		onOpenGraph,
 	} = props;
 	const unstagedFiles = useMemo(
 		() => getAlphabeticalFileOrder([...modified, ...untracked]),
@@ -135,6 +152,28 @@ export const ChangeFileSidebar = memo(function ChangeFileSidebar(
 		(total, file) => total + (file.deletions ?? 0),
 		0,
 	);
+	const showingWorkingTree = mainViewMode !== "graph" || selectedIsWip;
+	const selectedHistoryFiles =
+		selectedCommitCount > 1 ? comparisonDetails?.files : commitDetails?.files;
+	const headerAdditions = showingWorkingTree
+		? additions
+		: (selectedHistoryFiles?.reduce(
+				(total, file) => total + file.additions,
+				0,
+			) ?? 0);
+	const headerDeletions = showingWorkingTree
+		? deletions
+		: (selectedHistoryFiles?.reduce(
+				(total, file) => total + file.deletions,
+				0,
+			) ?? 0);
+	const headerBranch = showingWorkingTree
+		? branch
+		: selectedCommitCount > 1
+			? `${selectedCommitCount} selected`
+			: selectedCommitHash
+				? `commit: ${selectedCommitHash.slice(0, 7)}`
+				: "Repository";
 	const selectAdjacentFile = (direction: -1 | 1) => {
 		if (navigableFiles.length === 0) return;
 		const currentIndex = selectedFile
@@ -194,12 +233,16 @@ export const ChangeFileSidebar = memo(function ChangeFileSidebar(
 		>
 			<ChangeFileSidebarHeader
 				onCollapse={onCollapse}
-				branch={branch}
-				additions={additions}
-				deletions={deletions}
+				onOpenGraph={onOpenGraph}
+				graphActive={mainViewMode === "graph"}
+				branch={headerBranch}
+				additions={headerAdditions}
+				deletions={headerDeletions}
+				worktreePath={selectedWorktreePath}
+				onOpenWorktree={onOpenWorktree}
 			/>
 
-			{mainViewMode !== "graph" && (
+			{showingWorkingTree && (
 				<div {...stylex.props(styles.splitArea)}>
 					{!hasProject ? (
 						<div {...stylex.props(styles.emptyState)}>
@@ -241,7 +284,7 @@ export const ChangeFileSidebar = memo(function ChangeFileSidebar(
 				</div>
 			)}
 
-			{hasProject && mainViewMode !== "graph" && showCommitSection && (
+			{hasProject && showingWorkingTree && showCommitSection && (
 				<CommitSection
 					cwd={cwd}
 					commitMessage={commitMessage}
@@ -254,46 +297,42 @@ export const ChangeFileSidebar = memo(function ChangeFileSidebar(
 				/>
 			)}
 
-			{mainViewMode === "graph" && (
+			{mainViewMode === "graph" && !selectedIsWip && (
 				<div {...stylex.props(styles.scrollArea)}>
-					{selectedCommitHash === "wip" ? (
-						<>
-							<div {...stylex.props(styles.wipHeader)}>
-								<div {...stylex.props(styles.wipDot)} />
-								<span {...stylex.props(styles.wipTitle)}>
-									WIP on {branch ?? "branch"}
-								</span>
-								<span {...stylex.props(styles.wipCount)}>
-									{files.length} files
-								</span>
+					{selectedCommitCount > 1 ? (
+						comparisonDetailsLoading ? (
+							<div {...stylex.props(styles.emptyStateLarge)}>
+								<p {...stylex.props(styles.mutedText)}>Comparing…</p>
 							</div>
-							<div {...stylex.props(styles.listPad)}>
-								{files.map((f) => (
-									<div
-										key={`${f.path}:${f.status}`}
-										{...stylex.props(styles.commitFileRow)}
-									>
-										<FileChangeIcon file={f} />
-										<span {...stylex.props(styles.fileName)}>{f.path}</span>
-									</div>
-								))}
-								{files.length === 0 && (
-									<div {...stylex.props(styles.emptyState)}>
-										<p {...stylex.props(styles.emptyText)}>No changes</p>
-									</div>
-								)}
+						) : comparisonDetails ? (
+							<ComparisonDetailsPanel
+								details={comparisonDetails}
+								selectionCount={selectedCommitCount}
+								onSelectFile={onSelectComparisonFile}
+							/>
+						) : (
+							<div {...stylex.props(styles.emptyStateLarge)}>
+								<p {...stylex.props(styles.mutedText, styles.centerText)}>
+									The selected items cannot be compared
+								</p>
 							</div>
-						</>
+						)
 					) : selectedCommitHash ? (
 						commitDetailsLoading ? (
 							<div {...stylex.props(styles.emptyStateLarge)}>
 								<p {...stylex.props(styles.mutedText)}>Loading…</p>
 							</div>
 						) : commitDetails ? (
-							<CommitDetailsPanel details={commitDetails} />
+							<CommitDetailsPanel
+								details={commitDetails}
+								onSelectFile={onSelectCommitFile}
+								onParentChange={onCommitParentChange}
+							/>
 						) : (
 							<div {...stylex.props(styles.emptyStateLarge)}>
-								<p {...stylex.props(styles.mutedText)}>No details</p>
+								<p {...stylex.props(styles.mutedText, styles.centerText)}>
+									{commitDetailsError || "No details available for this commit"}
+								</p>
 							</div>
 						)
 					) : (
@@ -314,10 +353,14 @@ export const CollapsedChangeFileSidebar = memo(
 		stagedCount,
 		unstagedCount,
 		onExpand,
+		onOpenGraph,
+		graphActive = false,
 	}: {
 		stagedCount: number;
 		unstagedCount: number;
 		onExpand: () => void;
+		onOpenGraph?: () => void;
+		graphActive?: boolean;
 	}) {
 		return (
 			<div {...stylex.props(styles.collapsedRoot)}>
@@ -335,6 +378,20 @@ export const CollapsedChangeFileSidebar = memo(
 				>
 					<IconPanelLeft size={iconSize._2md} />
 				</button>
+				{onOpenGraph ? (
+					<button
+						type="button"
+						onClick={onOpenGraph}
+						title="Repository graph"
+						aria-label="Repository graph"
+						{...stylex.props(
+							styles.collapsedGraphButton,
+							graphActive && styles.headerIconButtonActive,
+						)}
+					>
+						<IconGitCommit size={iconSize.md} />
+					</button>
+				) : null}
 				<div {...stylex.props(styles.collapsedCounts)}>
 					<div
 						{...stylex.props(styles.collapsedCount)}
@@ -397,6 +454,24 @@ const styles = stylex.create({
 		alignItems: "center",
 		gap: controlSize._3,
 		paddingTop: controlSize._3,
+	},
+	collapsedGraphButton: {
+		display: "flex",
+		width: controlSize._6,
+		height: controlSize._6,
+		flexShrink: 0,
+		alignItems: "center",
+		justifyContent: "center",
+		marginTop: controlSize._2,
+		borderRadius: radius.md,
+		color: {
+			default: color.textMuted,
+			":hover": color.textMain,
+		},
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlHover,
+		},
 	},
 	collapsedCount: {
 		display: "flex",
@@ -574,6 +649,11 @@ const styles = stylex.create({
 		width: controlSize._5,
 		transitionProperty: "background-color, border-color, color",
 		transitionDuration: motion.durationFast,
+	},
+	headerIconButtonActive: {
+		backgroundColor: color.controlActive,
+		borderColor: color.borderStrong,
+		color: color.textMain,
 	},
 	wipHeader: {
 		position: "sticky",
@@ -906,21 +986,147 @@ const styles = stylex.create({
 		borderBottomColor: color.border,
 		padding: controlSize._3,
 	},
-	hashText: {
-		color: "var(--color-inferay-accent)",
-		fontFamily:
-			"ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+	detailRefs: {
+		display: "flex",
+		flexWrap: "wrap",
+		gap: controlSize._1,
+	},
+	detailRef: {
+		maxWidth: "100%",
+		overflow: "hidden",
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.accentBorder,
+		borderRadius: radius.pill,
+		backgroundColor: color.accentWash,
+		color: color.textSoft,
+		fontSize: font.size_1,
+		paddingBlock: controlSize._1,
+		paddingInline: controlSize._2,
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+	},
+	providerLink: {
+		display: "flex",
+		width: "fit-content",
+		maxWidth: "100%",
+		alignItems: "center",
+		gap: controlSize._1,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: radius.sm,
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlHover,
+		},
+		color: color.textSoft,
+		fontSize: font.size_1,
+		paddingBlock: controlSize._1,
+		paddingInline: controlSize._2,
+		textDecoration: "none",
+	},
+	detailIdentityGrid: {
+		display: "grid",
+		gridTemplateColumns: "minmax(0, 1fr)",
+		gap: controlSize._3,
+	},
+	detailIdentity: {
+		display: "flex",
+		minWidth: controlSize._0,
+		alignItems: "center",
+		gap: controlSize._2,
+	},
+	detailIdentityCopy: {
+		display: "flex",
+		minWidth: controlSize._0,
+		flexDirection: "column",
+	},
+	detailAvatar: {
+		display: "flex",
+		width: controlSize._8,
+		height: controlSize._8,
+		flexShrink: 0,
+		alignItems: "center",
+		justifyContent: "center",
+		overflow: "hidden",
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.borderStrong,
+		borderRadius: radius.pill,
+		backgroundColor: color.surfaceControl,
+		color: color.textSoft,
+		fontSize: font.size_1,
+		fontWeight: font.weight_6,
+	},
+	detailAvatarImage: {
+		display: "block",
+		width: "100%",
+		height: "100%",
+		objectFit: "cover",
+	},
+	comparisonRange: {
+		display: "flex",
+		alignItems: "center",
+		gap: controlSize._2,
+		color: color.textMain,
+		fontFamily: font.familyMono,
 		fontSize: font.size_2_75,
-		fontWeight: font.weight_5,
+	},
+	detailIdentityLabel: {
+		display: "block",
+		marginBottom: controlSize._1,
+		color: color.textMuted,
+		fontSize: font.size_1,
+		fontWeight: font.weight_6,
+		letterSpacing: "0.08em",
+		textTransform: "uppercase",
 	},
 	commitMessage: {
 		color: color.textMain,
+		fontSize: font.size_4,
+		fontWeight: font.weight_5,
+		lineHeight: 1.4,
+	},
+	commitHash: {
+		display: "block",
+		minWidth: controlSize._0,
+		overflow: "hidden",
+		color: palette.blue,
+		fontFamily: font.familyMono,
 		fontSize: font.size_2_75,
-		lineHeight: 1.55,
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
 	},
 	authorText: {
 		color: color.textSoft,
 		fontSize: font.size_2,
+	},
+	parentChoices: {
+		display: "flex",
+		flexWrap: "wrap",
+		alignItems: "center",
+		gap: controlSize._1,
+	},
+	parentChoice: {
+		height: controlSize._5,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: radius.sm,
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlHover,
+		},
+		color: color.textMuted,
+		fontFamily: font.familyMono,
+		fontSize: font.size_1,
+		paddingInline: controlSize._2,
+	},
+	parentChoiceActive: {
+		borderColor: color.accentBorder,
+		backgroundColor: color.controlActive,
+		color: color.textMain,
 	},
 	detailsSubheader: {
 		flexShrink: 0,
@@ -958,15 +1164,30 @@ const styles = stylex.create({
 			":hover": color.surfaceWhite05,
 		},
 	},
+	commitFileButton: {
+		width: "100%",
+		borderWidth: 0,
+		color: "inherit",
+		font: "inherit",
+		textAlign: "left",
+		cursor: "pointer",
+	},
 	fileName: {
 		minWidth: controlSize._0,
 		flex: 1,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
+		whiteSpace: "normal",
 		color: color.textSoft,
 		fontSize: font.size_2,
 		fontWeight: font.weight_5,
+	},
+	originalPath: {
+		display: "block",
+		marginTop: controlSize._1,
+		color: color.textMuted,
+		fontSize: font.size_1,
+		fontWeight: font.weightRegular,
 	},
 	fileStats: {
 		flexShrink: 0,
@@ -1308,14 +1529,22 @@ function FileActionIcon({
 
 function ChangeFileSidebarHeader({
 	onCollapse,
+	onOpenGraph,
+	graphActive,
 	branch,
 	additions,
 	deletions,
+	worktreePath,
+	onOpenWorktree,
 }: {
 	onCollapse?: () => void;
+	onOpenGraph?: () => void;
+	graphActive: boolean;
 	branch?: string;
 	additions: number;
 	deletions: number;
+	worktreePath?: string;
+	onOpenWorktree?: () => void;
 }) {
 	return (
 		<div {...stylex.props(styles.sidebarHeader)}>
@@ -1335,6 +1564,20 @@ function ChangeFileSidebarHeader({
 					<IconPanelLeft size={iconSize.md} />
 				</button>
 			) : null}
+			{onOpenGraph ? (
+				<button
+					type="button"
+					onClick={onOpenGraph}
+					title="Repository graph"
+					aria-label="Repository graph"
+					{...stylex.props(
+						styles.headerIconButton,
+						graphActive && styles.headerIconButtonActive,
+					)}
+				>
+					<IconGitCommit size={iconSize.compact} />
+				</button>
+			) : null}
 			<div
 				{...stylex.props(styles.changeTotals)}
 				title="Total additions and deletions"
@@ -1342,18 +1585,29 @@ function ChangeFileSidebarHeader({
 				<span {...stylex.props(styles.addedText)}>+{additions}</span>
 				<span {...stylex.props(styles.deletedText)}>-{deletions}</span>
 			</div>
-			<div {...stylex.props(styles.headerBranch)}>
+			<div
+				{...stylex.props(styles.headerBranch)}
+				title={worktreePath ?? branch ?? "Repository"}
+			>
 				<IconGitBranch
 					size={iconSize.compact}
 					{...stylex.props(styles.mutedIcon)}
 				/>
-				<span
-					{...stylex.props(styles.branchName)}
-					title={branch ?? "Repository"}
-				>
+				<span {...stylex.props(styles.branchName)}>
 					{branch ?? "Repository"}
 				</span>
 			</div>
+			{onOpenWorktree ? (
+				<button
+					type="button"
+					onClick={onOpenWorktree}
+					title={`Open linked worktree ${worktreePath ?? ""}`.trim()}
+					aria-label="Open linked worktree"
+					{...stylex.props(styles.headerIconButton)}
+				>
+					<IconExternalLink size={iconSize.compact} />
+				</button>
+			) : null}
 		</div>
 	);
 }
@@ -1520,31 +1774,88 @@ function CommitSection({
 
 function CommitDetailsPanel({
 	details,
+	onSelectFile,
+	onParentChange,
 }: {
-	details: {
-		hash: string;
-		message: string;
-		author: string;
-		date: string;
-		files: Array<{
-			path: string;
-			status: string;
-			additions: number;
-			deletions: number;
-		}>;
-	};
+	details: CommitDetails;
+	onSelectFile?: (file: CommitFile) => void;
+	onParentChange?: (parent: string) => void;
 }) {
 	return (
 		<div {...stylex.props(styles.detailsRoot)}>
 			<div {...stylex.props(styles.detailsHeader)}>
-				<div {...stylex.props(styles.inlineGroupWide)}>
-					<span {...stylex.props(styles.hashText)}>
-						{details.hash.slice(0, 7)}
-					</span>
-					<span {...stylex.props(styles.mutedText)}>{details.date}</span>
-				</div>
+				<code {...stylex.props(styles.commitHash)} title={details.hash}>
+					commit {details.hash}
+				</code>
 				<p {...stylex.props(styles.commitMessage)}>{details.message}</p>
-				<p {...stylex.props(styles.authorText)}>{details.author}</p>
+				{details.body ? (
+					<p {...stylex.props(styles.mutedText)}>{details.body}</p>
+				) : null}
+				{details.refs.length ? (
+					<div {...stylex.props(styles.detailRefs)}>
+						{details.refs.map((ref) => (
+							<span
+								key={ref.fullName}
+								title={ref.fullName}
+								{...stylex.props(styles.detailRef)}
+							>
+								{ref.displayName}
+							</span>
+						))}
+					</div>
+				) : null}
+				<div {...stylex.props(styles.detailIdentityGrid)}>
+					<DetailIdentity
+						label="Author"
+						name={details.author}
+						email={details.authorEmail}
+						date={details.authoredAt}
+					/>
+					{details.committer !== details.author ||
+					details.committedAt !== details.authoredAt ? (
+						<DetailIdentity
+							label="Committer"
+							name={details.committer}
+							email={details.committerEmail}
+							date={details.committedAt}
+						/>
+					) : null}
+				</div>
+				{details.provider ? (
+					<a
+						href={
+							details.provider.pullRequestUrl ?? details.provider.repositoryUrl
+						}
+						target="_blank"
+						rel="noreferrer"
+						{...stylex.props(styles.providerLink)}
+					>
+						<span>GitHub · {details.provider.repository}</span>
+						{details.provider.pullRequestNumber ? (
+							<span>#{details.provider.pullRequestNumber}</span>
+						) : null}
+						<IconExternalLink size={iconSize.compact} />
+					</a>
+				) : null}
+				{details.parents.length ? (
+					<div {...stylex.props(styles.parentChoices)}>
+						<span {...stylex.props(styles.mutedTextSmall)}>Diff parent:</span>
+						{details.parents.map((parent, index) => (
+							<button
+								type="button"
+								key={parent}
+								onClick={() => onParentChange?.(parent)}
+								{...stylex.props(
+									styles.parentChoice,
+									details.diffParent === parent && styles.parentChoiceActive,
+								)}
+								title={parent}
+							>
+								{index + 1}: {parent.slice(0, 7)}
+							</button>
+						))}
+					</div>
+				) : null}
 			</div>
 
 			<div {...stylex.props(styles.detailsSubheader)}>
@@ -1556,15 +1867,28 @@ function CommitDetailsPanel({
 
 			<div {...stylex.props(styles.scrollArea)}>
 				{details.files.map((file) => (
-					<div
+					<button
+						type="button"
 						key={file.path}
-						{...stylex.props(styles.commitFileRow, styles.cursorPointer)}
+						onClick={() => onSelectFile?.(file)}
+						onKeyDown={navigateDetailFile}
+						data-git-file-select
+						{...stylex.props(styles.commitFileRow, styles.commitFileButton)}
+						title={file.path}
 					>
 						<FileChangeIcon file={file} />
 						<span {...stylex.props(styles.fileName)}>
-							{file.path.split("/").pop()}
+							{file.path}
+							{file.originalPath ? (
+								<small {...stylex.props(styles.originalPath)}>
+									from {file.originalPath}
+								</small>
+							) : null}
 						</span>
 						<div {...stylex.props(styles.fileStats)}>
+							{file.binary ? (
+								<span {...stylex.props(styles.mutedTextSmall)}>Binary</span>
+							) : null}
 							{file.additions > 0 && (
 								<span {...stylex.props(styles.addedText)}>
 									+{file.additions}
@@ -1576,7 +1900,7 @@ function CommitDetailsPanel({
 								</span>
 							)}
 						</div>
-					</div>
+					</button>
 				))}
 			</div>
 
@@ -1590,6 +1914,198 @@ function CommitDetailsPanel({
 			</div>
 		</div>
 	);
+}
+
+function detailInitials(name?: string | null) {
+	const words = (typeof name === "string" ? name : "")
+		.trim()
+		.split(/\s+/)
+		.filter(Boolean);
+	return `${words[0]?.[0] ?? "?"}${words.length > 1 ? (words.at(-1)?.[0] ?? "") : ""}`.toLocaleUpperCase();
+}
+
+function formatDetailDate(value?: string | null) {
+	const parsed = new Date(value ?? "");
+	return Number.isNaN(parsed.getTime())
+		? value || "Unknown date"
+		: parsed.toLocaleString();
+}
+
+function DetailIdentity({
+	label,
+	name,
+	email,
+	date,
+}: {
+	label: string;
+	name?: string | null;
+	email?: string | null;
+	date?: string | null;
+}) {
+	const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+	const [avatarFailed, setAvatarFailed] = useState(false);
+	useEffect(() => {
+		let current = true;
+		setAvatarUrl(null);
+		setAvatarFailed(false);
+		void resolveGitAuthorAvatar(email, name).then((url) => {
+			if (current) setAvatarUrl(url);
+		});
+		return () => {
+			current = false;
+		};
+	}, [email, name]);
+	return (
+		<div title={email ?? undefined} {...stylex.props(styles.detailIdentity)}>
+			<span {...stylex.props(styles.detailAvatar)} aria-hidden="true">
+				{avatarUrl && !avatarFailed ? (
+					<img
+						src={avatarUrl}
+						alt=""
+						loading="lazy"
+						referrerPolicy="no-referrer"
+						onError={() => setAvatarFailed(true)}
+						{...stylex.props(styles.detailAvatarImage)}
+					/>
+				) : (
+					detailInitials(name)
+				)}
+			</span>
+			<span {...stylex.props(styles.detailIdentityCopy)}>
+				<span {...stylex.props(styles.detailIdentityLabel)}>{label}</span>
+				<strong {...stylex.props(styles.authorText)}>
+					{name || "Unknown author"}
+				</strong>
+				<span {...stylex.props(styles.mutedTextSmall)}>
+					{formatDetailDate(date)}
+				</span>
+			</span>
+		</div>
+	);
+}
+
+function ComparisonDetailsPanel({
+	details,
+	selectionCount,
+	onSelectFile,
+}: {
+	details: ComparisonDetails;
+	selectionCount: number;
+	onSelectFile?: (file: CommitFile) => void;
+}) {
+	const additions = details.files.reduce(
+		(sum, file) => sum + file.additions,
+		0,
+	);
+	const deletions = details.files.reduce(
+		(sum, file) => sum + file.deletions,
+		0,
+	);
+	return (
+		<div {...stylex.props(styles.detailsRoot)}>
+			<div {...stylex.props(styles.detailsHeader)}>
+				<span {...stylex.props(styles.detailIdentityLabel)}>
+					Comparing {selectionCount} items
+				</span>
+				<div {...stylex.props(styles.comparisonRange)}>
+					<code title={details.fromHash}>{details.fromHash.slice(0, 7)}</code>
+					<span aria-hidden="true">→</span>
+					<code title={details.toHash}>
+						{details.toHash === "WORKTREE" ? "WIP" : details.toHash.slice(0, 7)}
+					</code>
+				</div>
+				{details.mergeBase ? (
+					<span
+						{...stylex.props(styles.mutedTextSmall)}
+						title={details.mergeBase}
+					>
+						Merge base {details.mergeBase.slice(0, 7)}
+					</span>
+				) : null}
+			</div>
+			<div {...stylex.props(styles.detailsSubheader)}>
+				<span {...stylex.props(styles.sectionTitle)}>Files Changed</span>
+				<span {...stylex.props(styles.mutedTextSmall)}>
+					{details.files.length}
+				</span>
+			</div>
+			<div {...stylex.props(styles.scrollArea)}>
+				{details.files.length ? (
+					details.files.map((file) => (
+						<button
+							type="button"
+							key={`${file.originalPath ?? ""}:${file.path}`}
+							onClick={() => onSelectFile?.(file)}
+							onKeyDown={navigateDetailFile}
+							data-git-file-select
+							{...stylex.props(styles.commitFileRow, styles.commitFileButton)}
+							title={file.path}
+						>
+							<FileChangeIcon file={file} />
+							<span {...stylex.props(styles.fileName)}>
+								{file.path}
+								{file.originalPath ? (
+									<small {...stylex.props(styles.originalPath)}>
+										from {file.originalPath}
+									</small>
+								) : null}
+							</span>
+							<div {...stylex.props(styles.fileStats)}>
+								{file.binary ? (
+									<span {...stylex.props(styles.mutedTextSmall)}>Binary</span>
+								) : null}
+								{file.additions > 0 ? (
+									<span {...stylex.props(styles.addedText)}>
+										+{file.additions}
+									</span>
+								) : null}
+								{file.deletions > 0 ? (
+									<span {...stylex.props(styles.deletedText)}>
+										-{file.deletions}
+									</span>
+								) : null}
+							</div>
+						</button>
+					))
+				) : (
+					<div {...stylex.props(styles.emptyStateLarge)}>
+						<p {...stylex.props(styles.mutedText)}>No file differences</p>
+					</div>
+				)}
+			</div>
+			<div {...stylex.props(styles.detailsFooter)}>
+				<span {...stylex.props(styles.addedText)}>+{additions}</span>
+				<span {...stylex.props(styles.deletedText)}>-{deletions}</span>
+			</div>
+		</div>
+	);
+}
+
+function navigateDetailFile(
+	event: KeyboardEvent & { currentTarget: HTMLButtonElement },
+) {
+	if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+	const buttons = Array.from(
+		event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+			"button[data-git-file-select]",
+		) ?? [],
+	);
+	const index = buttons.indexOf(event.currentTarget);
+	if (index < 0) return;
+	const next =
+		buttons[
+			Math.max(
+				0,
+				Math.min(
+					buttons.length - 1,
+					index + (event.key === "ArrowUp" ? -1 : 1),
+				),
+			)
+		];
+	if (!next || next === event.currentTarget) return;
+	event.preventDefault();
+	next.focus();
+	next.click();
 }
 
 function FileChangeIcon({

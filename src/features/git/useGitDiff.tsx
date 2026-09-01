@@ -23,8 +23,13 @@ export interface HunkDiff {
 // Request parameters for loading a diff
 export interface DiffRequest {
 	cwd: string;
+	repositoryRevision?: string;
 	file: string;
 	staged: boolean;
+	commitHash?: string;
+	commitParent?: string;
+	comparisonFrom?: string;
+	comparisonTo?: string;
 	view?: "full" | "review";
 }
 
@@ -203,8 +208,13 @@ function areDiffRequestsEqual(
 	if (!prev || !next) return false;
 	return (
 		prev.cwd === next.cwd &&
+		prev.repositoryRevision === next.repositoryRevision &&
 		prev.file === next.file &&
 		prev.staged === next.staged &&
+		prev.commitHash === next.commitHash &&
+		prev.commitParent === next.commitParent &&
+		prev.comparisonFrom === next.comparisonFrom &&
+		prev.comparisonTo === next.comparisonTo &&
 		(prev.view ?? "full") === (next.view ?? "full")
 	);
 }
@@ -286,7 +296,14 @@ const MAX_DIFF_CACHE_ENTRIES = 100;
 const diffCache = new Map<string, { diff: HunkDiff; storedAt: number }>();
 
 function diffCacheKey(req: DiffRequest): string {
-	return `${req.cwd}\0${req.file}\0${req.staged ? "staged" : "unstaged"}\0${req.view ?? "full"}`;
+	return `${req.cwd}\0${req.repositoryRevision ?? "no-revision"}\0${req.file}\0${req.staged ? "staged" : "unstaged"}\0${req.commitHash ?? "wip"}\0${req.commitParent ?? "default-parent"}\0${req.comparisonFrom ?? "no-comparison"}\0${req.comparisonTo ?? "no-comparison"}\0${req.view ?? "full"}`;
+}
+
+export function discardGitDiffCacheForRepository(cwd: string) {
+	const prefix = `${cwd}\0`;
+	for (const key of diffCache.keys()) {
+		if (key.startsWith(prefix)) diffCache.delete(key);
+	}
 }
 
 function storeCachedDiff(key: string, diff: HunkDiff) {
@@ -312,6 +329,13 @@ export function useGitDiff(autoRequest: DiffRequest | null = null) {
 	const autoRequestRef = useRef(autoRequest);
 	autoRequestRef.current = autoRequest;
 	const autoKey = autoRequest ? diffCacheKey(autoRequest) : null;
+	const autoCwd = autoRequest?.cwd;
+	useEffect(
+		() => () => {
+			if (autoCwd) discardGitDiffCacheForRepository(autoCwd);
+		},
+		[autoCwd],
+	);
 
 	const startDiffLoad = useCallback(
 		(req: DiffRequest, trackManual: boolean) => {
@@ -341,10 +365,13 @@ export function useGitDiff(autoRequest: DiffRequest | null = null) {
 			}
 
 			const view = req.view ?? "full";
-			fetch(
-				`/api/git/full-diff?cwd=${encodeURIComponent(req.cwd)}&file=${encodeURIComponent(req.file)}&staged=${req.staged}&view=${view}`,
-				{ signal: controller.signal },
-			)
+			const endpoint =
+				req.comparisonFrom && req.comparisonTo
+					? `/api/git/comparison-diff?cwd=${encodeURIComponent(req.cwd)}&from=${encodeURIComponent(req.comparisonFrom)}&to=${encodeURIComponent(req.comparisonTo)}&file=${encodeURIComponent(req.file)}&view=${view}`
+					: req.commitHash
+						? `/api/git/commit-diff?cwd=${encodeURIComponent(req.cwd)}&hash=${encodeURIComponent(req.commitHash)}&file=${encodeURIComponent(req.file)}&view=${view}${req.commitParent ? `&parent=${encodeURIComponent(req.commitParent)}` : ""}`
+						: `/api/git/full-diff?cwd=${encodeURIComponent(req.cwd)}&file=${encodeURIComponent(req.file)}&staged=${req.staged}&view=${view}`;
+			fetch(endpoint, { signal: controller.signal })
 				.then((resp) => {
 					if (activeId.current !== id) return null;
 					if (!resp.ok) {

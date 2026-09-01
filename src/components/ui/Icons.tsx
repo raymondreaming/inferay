@@ -315,11 +315,15 @@ export function CommitGraphLinesLayer({
 	style,
 	railSegments,
 	transitions,
+	convergences,
+	truncatedSegments,
 	colX,
 	rowTop,
 	rowBottom,
 	buildConnection,
+	buildConvergence,
 	lineWidth,
+	underlayColor,
 }: {
 	width: number;
 	height: number;
@@ -330,11 +334,25 @@ export function CommitGraphLinesLayer({
 		row: number;
 		column: number;
 		color: string;
+		startsAtNode: boolean;
+		endsAtNode: boolean;
 	}>;
 	transitions: Array<{
 		row: number;
 		fromCol: number;
 		toCol: number;
+		color: string;
+	}>;
+	convergences: Array<{
+		row: number;
+		fromCol: number;
+		toCol: number;
+		color: string;
+	}>;
+	truncatedSegments: Array<{
+		key: string;
+		row: number;
+		column: number;
 		color: string;
 	}>;
 	colX: (column: number) => number;
@@ -346,7 +364,14 @@ export function CommitGraphLinesLayer({
 		toCol: number;
 		color: string;
 	}) => string;
+	buildConvergence: (transition: {
+		row: number;
+		fromCol: number;
+		toCol: number;
+		color: string;
+	}) => string;
 	lineWidth: number;
+	underlayColor: string;
 }) {
 	return (
 		<svg
@@ -359,13 +384,19 @@ export function CommitGraphLinesLayer({
 		>
 			{railSegments.map((segment) => {
 				const x = colX(segment.column);
+				const top = rowTop(segment.row);
+				const bottom = rowBottom(segment.row);
+				const center = (top + bottom) / 2;
 				return (
 					<line
 						key={segment.key}
+						data-graph-rail="true"
+						data-graph-row={segment.row}
+						data-graph-column={segment.column}
 						x1={x}
-						y1={rowTop(segment.row)}
+						y1={segment.startsAtNode ? center : top}
 						x2={x}
-						y2={rowBottom(segment.row)}
+						y2={segment.endsAtNode ? center : bottom}
 						stroke={segment.color}
 						strokeWidth={lineWidth}
 						strokeOpacity={0.98}
@@ -374,16 +405,77 @@ export function CommitGraphLinesLayer({
 				);
 			})}
 			{transitions.map((transition) => (
-				<path
-					key={`${transition.color}:${buildConnection(transition)}`}
-					d={buildConnection(transition)}
-					stroke={transition.color}
-					strokeWidth={lineWidth}
-					strokeOpacity={0.9}
-					strokeLinecap="round"
-					fill="none"
-				/>
+				<g
+					key={`${transition.row}:${transition.fromCol}:${transition.toCol}:${transition.color}`}
+				>
+					<path
+						d={buildConnection(transition)}
+						stroke={underlayColor}
+						strokeWidth={lineWidth + 2}
+						strokeLinecap="round"
+						strokeLinejoin="round"
+						fill="none"
+					/>
+					<path
+						data-graph-transition="true"
+						d={buildConnection(transition)}
+						stroke={transition.color}
+						strokeWidth={lineWidth}
+						strokeOpacity={0.96}
+						strokeLinecap="round"
+						strokeLinejoin="round"
+						fill="none"
+					/>
+				</g>
 			))}
+			{convergences.map((transition) => (
+				<g
+					key={`convergence:${transition.row}:${transition.fromCol}:${transition.toCol}:${transition.color}`}
+				>
+					<path
+						d={buildConvergence(transition)}
+						stroke={underlayColor}
+						strokeWidth={lineWidth + 2}
+						strokeLinecap="round"
+						strokeLinejoin="round"
+						fill="none"
+					/>
+					<path
+						data-graph-convergence="true"
+						d={buildConvergence(transition)}
+						stroke={transition.color}
+						strokeWidth={lineWidth}
+						strokeOpacity={0.98}
+						strokeLinecap="round"
+						strokeLinejoin="round"
+						fill="none"
+					/>
+				</g>
+			))}
+			{truncatedSegments.map((segment) => {
+				const x = colX(segment.column);
+				return (
+					<g key={segment.key}>
+						<line
+							data-graph-truncated="true"
+							x1={x}
+							y1={rowTop(segment.row) + 8}
+							x2={x}
+							y2={rowBottom(segment.row)}
+							stroke={segment.color}
+							strokeWidth={lineWidth}
+							strokeDasharray="2 3"
+							strokeLinecap="round"
+						/>
+						<circle
+							cx={x}
+							cy={rowBottom(segment.row) - 1}
+							r={lineWidth}
+							fill={segment.color}
+						/>
+					</g>
+				);
+			})}
 		</svg>
 	);
 }
