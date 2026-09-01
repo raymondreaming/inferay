@@ -29,13 +29,11 @@ import type {
 	AgentPaneModel,
 	AgentTheme,
 } from "../../features/agent/agent-utils.ts";
-import { useGitStatus } from "../../features/git/useGitStatus.tsx";
 import { lockPointerSelection } from "../../lib/pointer-selection-lock.ts";
 import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
 import { color, controlSize, layer, motion } from "../../tokens.stylex.ts";
 import { AgentPaneView } from "./AgentPaneView.tsx";
 
-const EMPTY_CWD_LIST: string[] = [];
 const EMPTY_AUXILIARY_PANELS: readonly AuxiliaryPanel[] = [];
 const ROOT_DOCK_TARGET_ID = "__workspace-root__";
 const MIN_GRID_ROW_HEIGHT = 340;
@@ -88,7 +86,6 @@ const paneViewProps = (
 	idx: number,
 	onDragStart: (e: PointerEvent, i: number) => void,
 	onDragEnd: () => void,
-	gitBranch: string | null,
 ) => ({
 	pane,
 	isSelected: p.active !== false && pane.id === p.selectedPaneId,
@@ -96,7 +93,6 @@ const paneViewProps = (
 	theme: p.theme,
 	fontSize: p.fontSize,
 	fontFamily: p.fontFamily,
-	gitBranch,
 	onSelect: p.onSelectPane,
 	onClose: p.onClosePane,
 	onDirectorySelect: p.onDirectorySelect,
@@ -265,20 +261,6 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 		100,
 		(dockVerticalSpan / Math.max(1, rows)) * 100,
 	)}%, ${dockVerticalSpan * MIN_GRID_ROW_HEIGHT}px)`;
-	const chatStatusCwds = useMemo(() => {
-		if (!active) return EMPTY_CWD_LIST;
-		const seen = new Set<string>();
-		const cwds: string[] = [];
-		for (const pane of panes) {
-			if (!pane.cwd || seen.has(pane.cwd)) continue;
-			seen.add(pane.cwd);
-			cwds.push(pane.cwd);
-		}
-		return cwds;
-	}, [active, panes]);
-	const { projectMap: chatProjectMap } = useGitStatus(chatStatusCwds, {
-		enabled: active && chatStatusCwds.length > 0,
-	});
 	const clearDragState = useCallback(() => {
 		dragIndexRef.current = null;
 		pendingPanelDropRef.current = null;
@@ -664,9 +646,6 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 								idx,
 								handleHeaderDragStart,
 								handleHeaderDragEnd,
-								pane.cwd
-									? (chatProjectMap.get(pane.cwd)?.branch ?? null)
-									: null,
 							)}
 						/>
 					</div>
@@ -757,7 +736,6 @@ export const AgentGrid = memo(function AgentGrid(props: AgentGridProps) {
 							paneIndex,
 							handleHeaderDragStart,
 							handleHeaderDragEnd,
-							pane.cwd ? (chatProjectMap.get(pane.cwd)?.branch ?? null) : null,
 						)}
 					/>
 				) : auxiliaryPanel ? (

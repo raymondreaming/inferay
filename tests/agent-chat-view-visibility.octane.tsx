@@ -169,7 +169,6 @@ test("hidden chat panes do not restore legacy localStorage transcripts", async (
 			<AgentChatView
 				paneId="pane-deferred-visible-load"
 				cwd="/tmp/project"
-				gitBranch="main"
 				agentKind="codex"
 				isVisible={false}
 			/>,
@@ -186,7 +185,6 @@ test("hidden chat panes do not restore legacy localStorage transcripts", async (
 			<AgentChatView
 				paneId="pane-deferred-visible-load"
 				cwd="/tmp/project"
-				gitBranch="main"
 				agentKind="codex"
 				isVisible
 			/>,
@@ -233,7 +231,6 @@ test("draft typing does not re-render long chat message list", async () => {
 			<AgentChatView
 				paneId={paneId}
 				cwd="/tmp/project"
-				gitBranch="main"
 				agentKind="codex"
 				isVisible
 			/>,
@@ -274,7 +271,6 @@ test("sending a message keeps the chat pane mounted", async () => {
 			<AgentChatView
 				paneId="pane-send-render"
 				cwd="/tmp/project"
-				gitBranch="main"
 				agentKind="codex"
 				isVisible
 			/>,

@@ -21,7 +21,6 @@ interface AgentPaneViewProps {
 	theme: AgentTheme;
 	fontSize: number;
 	fontFamily: string;
-	gitBranch?: string | null;
 	onSelect: (paneId: string) => void;
 	onClose: (paneId: string, force?: boolean) => void;
 	onDirectorySelect?: (
@@ -43,7 +42,6 @@ export const AgentPaneView = memo(function AgentPaneView({
 	pane,
 	isSelected,
 	isVisible = true,
-	gitBranch,
 	onClose,
 	onDirectorySelect,
 	onDirectoryCancel,
@@ -91,7 +89,6 @@ export const AgentPaneView = memo(function AgentPaneView({
 						paneId={pane.id}
 						cwd={pane.cwd}
 						referencePaths={pane.referencePaths}
-						gitBranch={gitBranch}
 						agentKind={viewAgentKind}
 						onStatusChange={onAgentStatusChange}
 						onClose={onClose}

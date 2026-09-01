@@ -24,18 +24,6 @@ mock.module("@octanejs/stylex", () => ({
 	}),
 }));
 
-const fetchJsonOr = mock(async () => ({
-	branches: [
-		{ name: "main", current: true },
-		{ name: "feature", current: false },
-	],
-}));
-
-mock.module("../src/lib/fetch-json.ts", () => ({
-	fetchJsonOr,
-	postJson: mock(async () => ({ ok: true })),
-}));
-
 function setupDom() {
 	const dom = new JSDOM('<div id="root"></div>', {
 		pretendToBeVisual: true,
@@ -79,33 +67,6 @@ function setupDom() {
 	return { dom, root: createRoot(rootElement), rootElement };
 }
 
-test("branch dropdown loads branches only when opened", async () => {
-	fetchJsonOr.mockClear();
-	const { dom, root, rootElement } = setupDom();
-	try {
-		const { BranchDropdown } = await import(
-			"../src/components/chat/AgentChatHeader.tsx"
-		);
-		root.render(<BranchDropdown cwd="/tmp/repo" branch="main" />);
-		await new Promise((resolve) => setTimeout(resolve, 20));
-
-		expect(fetchJsonOr).toHaveBeenCalledTimes(0);
-
-		const button = rootElement.querySelector("button");
-		expect(button).toBeTruthy();
-		button!.dispatchEvent(
-			new dom.window.MouseEvent("click", { bubbles: true }),
-		);
-		await new Promise((resolve) => setTimeout(resolve, 20));
-
-		expect(fetchJsonOr).toHaveBeenCalledTimes(1);
-		const calls = fetchJsonOr.mock.calls as unknown as Array<[string]>;
-		expect(calls[0]?.[0]).toContain("/api/git/branches");
-	} finally {
-		root.unmount();
-	}
-});
-
 test("editor session dropdown shows repository and conversation title", async () => {
 	const { dom, root, rootElement } = setupDom();
 	try {
@@ -116,7 +77,6 @@ test("editor session dropdown shows repository and conversation title", async ()
 			<AgentChatHeader
 				paneId="pane-1"
 				cwd="/tmp/inferay"
-				gitBranch={null}
 				sessions={Array.from({ length: 7 }, (_, index) => ({
 					paneId: `pane-${index + 1}`,
 					cwd: index === 1 ? "/tmp/trade.rthmn.com" : "/tmp/inferay",

@@ -43,7 +43,6 @@ import {
 	saveStoredModel,
 	saveStoredReasoningLevel,
 } from "../../features/chat/chat-session-store.ts";
-import { useGitStatus } from "../../features/git/useGitStatus.tsx";
 import { hasId } from "../../lib/data.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import { wsClient } from "../../lib/websocket.ts";
@@ -94,8 +93,6 @@ export interface AgentChatHandle {
 	attachImageFile: (file: File) => Promise<void>;
 	removeAttachedImage: (path: string) => void;
 }
-
-const EMPTY_CWD_LIST: string[] = [];
 
 function DirectoryPickerModal({ children }: { children: ReactNode }) {
 	return (
@@ -525,7 +522,6 @@ interface AgentChatViewProps {
 	paneId: string;
 	cwd?: string;
 	referencePaths?: string[];
-	gitBranch?: string | null;
 	showInput?: boolean;
 	agentKind?: AgentKind;
 	onStatusChange?: (paneId: string, status: string) => void;
@@ -557,7 +553,6 @@ export const AgentChatView = memo(function AgentChatView({
 	paneId,
 	cwd,
 	referencePaths,
-	gitBranch: providedGitBranch,
 	showInput = true,
 	agentKind = loadDefaultChatSettings().agentKind,
 	onStatusChange,
@@ -594,12 +589,8 @@ export const AgentChatView = memo(function AgentChatView({
 		handleReasoningLevelChange,
 		selectedReasoningLevel,
 	} = useAgentChatSettings(paneId, agentKind);
-	const {
-		consumePendingWorkspace,
-		cwdList,
-		savePendingWorkspaceSelection,
-		visibleCwd,
-	} = usePendingChatWorkspace(paneId, cwd, onDirectoryChange);
+	const { consumePendingWorkspace, savePendingWorkspaceSelection, visibleCwd } =
+		usePendingChatWorkspace(paneId, cwd, onDirectoryChange);
 	const [input, setInputRaw] = useState(() => loadStoredInput(paneId));
 	const pendingInputRef = useRef(input);
 	const inputSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -631,14 +622,6 @@ export const AgentChatView = memo(function AgentChatView({
 		value: input,
 		onChange: setInput,
 	});
-	const shouldLoadGitBranch =
-		providedGitBranch === undefined && renderVisibleChat;
-	const { projects: gitProjects } = useGitStatus(
-		shouldLoadGitBranch ? cwdList : EMPTY_CWD_LIST,
-		{ enabled: shouldLoadGitBranch && cwdList.length > 0 },
-	);
-	const gitBranch = providedGitBranch ?? gitProjects[0]?.branch ?? null;
-
 	const { chatUiState, setChatUiState, setExpandedTools, setRunStatus } =
 		useChatUiState(paneId, onStatusChange);
 	const { isLoading, status, startTime, expandedTools } = chatUiState;
@@ -884,7 +867,6 @@ export const AgentChatView = memo(function AgentChatView({
 				<AgentChatHeader
 					paneId={paneId}
 					cwd={visibleCwd}
-					gitBranch={gitBranch}
 					draggable={draggable}
 					onDragStart={onDragStart}
 					onDragEnd={onDragEnd}

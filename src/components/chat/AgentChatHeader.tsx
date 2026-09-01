@@ -54,14 +54,12 @@ function SessionDropdownOption({
 interface AgentChatHeaderProps {
 	paneId: string;
 	cwd?: string;
-	gitBranch: string | null;
 	draggable?: boolean;
 	onDragStart?: (e: PointerEvent) => void;
 	onDragEnd?: () => void;
 	onClose?: (paneId: string) => void;
 	sessions?: AgentChatSession[];
 	onSelectSession?: (paneId: string) => void;
-	onGitBranchChanged?: (branch?: string) => void;
 	onAgentContext?: () => void;
 	isAgentContextOpen?: boolean;
 }
@@ -213,21 +211,6 @@ const styles = stylex.create({
 		color: color.textMuted,
 		fontSize: font.size_1,
 	},
-	branch: {
-		color: color.textMuted,
-		fontSize: font.size_1,
-		fontWeight: font.weight_5,
-		maxWidth: 80,
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-	},
-	branchWrap: {
-		alignItems: "center",
-		display: "inline-flex",
-		gap: controlSize._1,
-		minWidth: controlSize._0,
-	},
 	headerDropdownButton: {
 		"--dropdown-button-bg-color": "transparent",
 		"--dropdown-button-bg-image": "none",
@@ -256,13 +239,6 @@ const styles = stylex.create({
 		fontWeight: font.weight_5,
 		gap: controlSize._1,
 		paddingInline: controlSize._1_5,
-	},
-	branchLabel: {
-		fontSize: font.size_1,
-		maxWidth: "92px",
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
 	},
 	sessionLabel: {
 		fontSize: font.size_1,
@@ -312,14 +288,6 @@ const styles = stylex.create({
 		whiteSpace: "nowrap",
 		color: color.textMuted,
 		fontSize: font.size_1,
-	},
-	branchError: {
-		color: color.danger,
-		fontSize: font.size_0_5,
-		maxWidth: 96,
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
 	},
 	closeButton: {
 		alignItems: "center",

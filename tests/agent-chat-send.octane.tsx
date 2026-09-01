@@ -91,16 +91,16 @@ test("sending an optimistic message renders the real virtualized list", async ()
 	sendMock.mockClear();
 	const { root, rootElement } = setupDom();
 	try {
-		const { AgentChatView } =
-			await import("../src/components/chat/AgentChatView.tsx");
+		const { AgentChatView } = await import(
+			"../src/components/chat/AgentChatView.tsx"
+		);
 		root.render(
 			<AgentChatView
 				paneId="pane-real-send-render"
 				cwd="/tmp/project"
-				gitBranch="main"
 				agentKind="codex"
 				isVisible
-			/>
+			/>,
 		);
 		await tick(50);
 		const textarea = rootElement.querySelector("textarea");
@@ -112,7 +112,7 @@ test("sending an optimistic message renders the real virtualized list", async ()
 			new window.KeyboardEvent("keydown", {
 				bubbles: true,
 				key: "Enter",
-			})
+			}),
 		);
 		await tick(100);
 
@@ -122,7 +122,7 @@ test("sending an optimistic message renders the real virtualized list", async ()
 				type: "chat:send",
 				paneId: "pane-real-send-render",
 				text: "hello from the real list",
-			})
+			}),
 		);
 	} finally {
 		root.unmount();
