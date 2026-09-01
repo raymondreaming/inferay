@@ -276,7 +276,7 @@ export function OnboardingPage() {
 		data: accounts,
 		setData: setAccounts,
 		loading: accountsLoading,
-	} = useQueryResource(fetchForgeAccounts, [], {
+	} = useQueryResource(() => fetchForgeAccounts(), [], {
 		queryKey: ["forge", "accounts"],
 		isEqual: areForgeAccountsEqual,
 	});

@@ -9,6 +9,7 @@ import { queryClient } from "../lib/query-client.ts";
 
 interface QueryResourceOptions<T> {
 	readonly enabled?: boolean;
+	readonly gcTime?: number;
 	readonly isEqual?: (previous: T, next: T) => boolean;
 	readonly queryKey: QueryKey;
 	readonly refetchInterval?: number;
@@ -16,7 +17,7 @@ interface QueryResourceOptions<T> {
 }
 
 export function useQueryResource<T>(
-	fetcher: () => Promise<T> | null,
+	fetcher: (signal?: AbortSignal) => Promise<T> | null,
 	initialData: T,
 	options: QueryResourceOptions<T>,
 ) {
@@ -24,9 +25,13 @@ export function useQueryResource<T>(
 	const query = useQuery(
 		{
 			queryKey: options.queryKey,
-			queryFn: async () => (await fetcher()) ?? initialData,
+			queryFn: async ({ signal }) => (await fetcher(signal)) ?? initialData,
 			initialData,
+			// Initial data is a render-safe placeholder, not a completed request.
+			// Mark it stale so queries with a positive staleTime still fetch once.
+			initialDataUpdatedAt: 0,
 			enabled: options.enabled ?? true,
+			gcTime: options.gcTime,
 			refetchInterval: options.refetchInterval,
 			staleTime: options.staleTime,
 			structuralSharing: (previous, next) =>
@@ -74,7 +79,7 @@ export function usePollingQuery<T>(
 	initialData: T,
 	options: Omit<QueryResourceOptions<T>, "refetchInterval">,
 ) {
-	return useQueryResource(() => fetcher(), initialData, {
+	return useQueryResource((signal) => fetcher(signal), initialData, {
 		...options,
 		refetchInterval: pollInterval,
 		staleTime: Math.min(pollInterval, options.staleTime ?? pollInterval),

@@ -226,7 +226,7 @@ export function ProfilePage() {
 		data: accounts,
 		loading: accountsLoading,
 		error: accountsError,
-	} = useQueryResource(fetchForgeAccounts, initialAccounts, {
+	} = useQueryResource(() => fetchForgeAccounts(), initialAccounts, {
 		queryKey: ["forge", "accounts"],
 		isEqual: areForgeAccountsEqual,
 	});
