@@ -9,17 +9,19 @@ import {
 	writeStoredValue,
 } from "../../lib/stored-json.ts";
 import {
+	loadAgentState,
+	setPaneProviderSession,
+} from "../agent/agent-utils.ts";
+import {
 	type ChatLoadingState,
 	type ChatMessage,
 	type CheckpointInfo,
 	compactAdjacentDuplicateTranscriptMessages,
-	prepareTranscriptForStorage,
 	type QueuedMessageInfo,
 	trimMessages,
 } from "./agent-chat-shared.ts";
 
 const LEGACY_MESSAGES_KEY_PREFIX = "inferay-chat-";
-const MESSAGE_SAVE_INTERVAL_MS = 2500;
 const SESSION_KEY_PREFIX = "inferay-chat-session-";
 const INPUT_KEY_PREFIX = "inferay-chat-input-";
 const CHECKPOINT_KEY_PREFIX = "inferay-checkpoints-";
@@ -40,8 +42,6 @@ const DEFAULT_CHAT_RUN_STATUS: ChatLoadingState = {
 	startTime: null,
 };
 const CHAT_CACHE_DB = "inferay-chat-cache";
-const CHAT_CONVERSATIONS_STORE = "conversations";
-const CHAT_MESSAGES_STORE = "messages";
 const pendingSummaryRequests = new Set<string>();
 const pendingQueueFileSaves = new Map<
 	string,
@@ -51,8 +51,6 @@ const chatMessageReadModels = new Map<string, ChatMessageReadModel>();
 const chatCheckpointReadModels = new Map<string, ChatCheckpointReadModel>();
 const chatQueueReadModels = new Map<string, ChatQueueReadModel>();
 const chatRunStatusReadModels = new Map<string, ChatRunStatusReadModel>();
-let chatCacheDbPromise: Promise<IDBDatabase | null> | null = null;
-let messageLifecycleFlushRegistered = false;
 
 type DbPreference = {
 	id: string;
@@ -120,110 +118,18 @@ export interface ChatRunStatusReadModel {
 	subscribe: (listener: ChatRunStatusReadModelListener) => () => void;
 }
 
-function openChatCacheDb(): Promise<IDBDatabase | null> {
-	if (typeof indexedDB === "undefined") return Promise.resolve(null);
-	chatCacheDbPromise ??= new Promise((resolve) => {
-		const request = indexedDB.open(CHAT_CACHE_DB, 2);
-		request.onupgradeneeded = () => {
-			const db = request.result;
-			if (!db.objectStoreNames.contains(CHAT_CONVERSATIONS_STORE)) {
-				db.createObjectStore(CHAT_CONVERSATIONS_STORE, { keyPath: "paneId" });
-			}
-			if (!db.objectStoreNames.contains(CHAT_MESSAGES_STORE)) {
-				const messages = db.createObjectStore(CHAT_MESSAGES_STORE, {
-					keyPath: "storageId",
-				});
-				messages.createIndex("paneOrder", ["paneId", "order"]);
-				messages.createIndex("paneId", "paneId");
-			}
-		};
-		request.onsuccess = () => resolve(request.result);
-		request.onerror = () => resolve(null);
-		request.onblocked = () => resolve(null);
-	});
-	return chatCacheDbPromise;
-}
-
-async function readIndexedChatMessages<T>(paneId: string): Promise<T[]> {
-	const db = await openChatCacheDb();
-	if (!db) return [];
-	return new Promise((resolve) => {
-		const tx = db.transaction(CHAT_MESSAGES_STORE, "readonly");
-		const index = tx.objectStore(CHAT_MESSAGES_STORE).index("paneOrder");
-		const range = IDBKeyRange.bound([paneId, -Infinity], [paneId, Infinity]);
-		const request = index.getAll(range);
-		request.onsuccess = () => {
-			const rows = Array.isArray(request.result) ? request.result : [];
-			resolve(rows.map((row) => (row as { message: T }).message));
-		};
-		request.onerror = () => resolve([]);
-	});
-}
-
-async function writeIndexedChatMessages<T>(
-	paneId: string,
-	messages: T[],
-): Promise<void> {
-	const db = await openChatCacheDb();
-	if (!db) return;
-	await new Promise<void>((resolve) => {
-		const tx = db.transaction(
-			[CHAT_CONVERSATIONS_STORE, CHAT_MESSAGES_STORE],
-			"readwrite",
-		);
-		tx.objectStore(CHAT_CONVERSATIONS_STORE).put({
-			paneId,
-			messageCount: messages.length,
-			updatedAt: Date.now(),
-		});
-		const messageStore = tx.objectStore(CHAT_MESSAGES_STORE);
-		const paneIndex = messageStore.index("paneId");
-		const existingRequest = paneIndex.getAllKeys(paneId);
-		existingRequest.onsuccess = () => {
-			const nextIds = new Set<string>();
-			for (let order = 0; order < messages.length; order++) {
-				const message = messages[order] as { id?: unknown };
-				if (typeof message.id !== "string") continue;
-				const storageId = `${paneId}:${message.id}`;
-				nextIds.add(storageId);
-				messageStore.put({
-					storageId,
-					paneId,
-					messageId: message.id,
-					order,
-					message,
-				});
-			}
-			for (const key of existingRequest.result) {
-				if (typeof key === "string" && !nextIds.has(key)) {
-					messageStore.delete(key);
-				}
-			}
-		};
-		tx.oncomplete = () => resolve();
-		tx.onerror = () => resolve();
-		tx.onabort = () => resolve();
-	});
-}
-
 async function deleteIndexedChatMessages(paneId: string): Promise<void> {
-	const db = await openChatCacheDb();
-	if (!db) return;
-	await new Promise<void>((resolve) => {
-		const tx = db.transaction(
-			[CHAT_CONVERSATIONS_STORE, CHAT_MESSAGES_STORE],
-			"readwrite",
-		);
-		tx.objectStore(CHAT_CONVERSATIONS_STORE).delete(paneId);
-		const messageStore = tx.objectStore(CHAT_MESSAGES_STORE);
-		const request = messageStore.index("paneId").getAllKeys(paneId);
-		request.onsuccess = () => {
-			for (const key of request.result) messageStore.delete(key);
-		};
-		tx.oncomplete = () => resolve();
-		tx.onerror = () => resolve();
-		tx.onabort = () => resolve();
-	});
+	void paneId;
+	deleteLegacyChatDatabase();
+}
+
+function deleteLegacyChatDatabase() {
+	if (typeof indexedDB === "undefined") return;
+	try {
+		indexedDB.deleteDatabase(CHAT_CACHE_DB);
+	} catch {
+		// WebKit can deny storage access in private/ephemeral contexts.
+	}
 }
 
 function storageKey(prefix: string, paneId: string): string {
@@ -315,6 +221,7 @@ function cleanupStalePreferenceRows() {
 }
 
 export function cleanupStaleChatClientStorage() {
+	deleteLegacyChatDatabase();
 	for (const staleChatDbKey of STALE_CHAT_DB_STORAGE_KEYS) {
 		removeStoredValue(staleChatDbKey);
 	}
@@ -334,12 +241,13 @@ export function loadStoredMessages<T>(paneId: string): T[] {
 }
 
 export function loadStoredMessagesAsync<T>(paneId: string): Promise<T[]> {
-	return readIndexedChatMessages<T>(paneId);
+	void paneId;
+	return Promise.resolve([]);
 }
 
 export function saveStoredMessages<T>(paneId: string, messages: T[]) {
+	void messages;
 	removePaneValue(LEGACY_MESSAGES_KEY_PREFIX, paneId);
-	void writeIndexedChatMessages(paneId, messages);
 }
 
 function dedupeStoredChatMessages<T extends { id: string }>(
@@ -364,16 +272,6 @@ function dedupeStoredChatMessages<T extends { id: string }>(
 	return [...byId.values()];
 }
 
-function prepareChatMessagesForStorage(messages: ChatMessage[]): ChatMessage[] {
-	return prepareTranscriptForStorage(
-		trimMessages(
-			compactAdjacentDuplicateTranscriptMessages(
-				dedupeStoredChatMessages(messages),
-			),
-		),
-	) as ChatMessage[];
-}
-
 function loadInitialChatMessages(paneId: string): ChatMessage[] {
 	return compactAdjacentDuplicateTranscriptMessages(
 		dedupeStoredChatMessages(
@@ -385,22 +283,10 @@ function loadInitialChatMessages(paneId: string): ChatMessage[] {
 	);
 }
 
-function registerMessageLifecycleFlush() {
-	if (messageLifecycleFlushRegistered || typeof window === "undefined") return;
-	messageLifecycleFlushRegistered = true;
-	const flushAll = () => {
-		for (const model of chatMessageReadModels.values()) model.flush();
-	};
-	window.addEventListener("beforeunload", flushAll);
-	window.addEventListener("pagehide", flushAll);
-}
-
 function createChatMessageReadModel(paneId: string): ChatMessageReadModel {
 	let messages = loadInitialChatMessages(paneId);
 	const listeners = new Set<ChatMessageReadModelListener>();
 	let loadStarted = false;
-	let saveTimer: ReturnType<typeof setTimeout> | null = null;
-	let pendingSave: ChatMessage[] | null = null;
 	let _summary: string | null = null;
 	let summaryChangeCallback = noop;
 
@@ -408,33 +294,16 @@ function createChatMessageReadModel(paneId: string): ChatMessageReadModel {
 		for (const listener of listeners) listener();
 	};
 	const flush = () => {
-		if (saveTimer) {
-			clearTimeout(saveTimer);
-			saveTimer = null;
-		}
-		if (!pendingSave) return;
-		saveStoredMessages(paneId, prepareChatMessagesForStorage(pendingSave));
-		pendingSave = null;
+		// Conversation messages are an in-memory provider projection.
 	};
 	const saveNow = (nextMessages: ChatMessage[]) => {
-		if (saveTimer) {
-			clearTimeout(saveTimer);
-			saveTimer = null;
-		}
-		const storedMessages = prepareChatMessagesForStorage(nextMessages);
-		saveStoredMessages(paneId, storedMessages);
-		pendingSave = null;
-		return storedMessages;
-	};
-	const scheduleSave = (nextMessages: ChatMessage[]) => {
-		pendingSave = nextMessages;
-		_summary ??= deriveStoredSummary(
-			paneId,
-			nextMessages,
-			summaryChangeCallback,
+		return trimMessages(
+			compactAdjacentDuplicateTranscriptMessages(
+				dedupeStoredChatMessages(nextMessages),
+			),
+		).map((message) =>
+			message.isStreaming ? { ...message, isStreaming: false } : message,
 		);
-		if (saveTimer) return;
-		saveTimer = setTimeout(flush, MESSAGE_SAVE_INTERVAL_MS);
 	};
 	const set = (
 		update: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[]),
@@ -450,30 +319,14 @@ function createChatMessageReadModel(paneId: string): ChatMessageReadModel {
 		);
 		if (deduped === messages) return;
 		messages = deduped;
-		scheduleSave(deduped);
+		_summary ??= deriveStoredSummary(paneId, deduped, summaryChangeCallback);
 		notify();
 	};
 	const loadAsync = async () => {
 		if (loadStarted) return;
 		loadStarted = true;
-		const cachedMessages = await loadStoredMessagesAsync<ChatMessage>(paneId);
-		if (cachedMessages.length === 0 || messages.length > 0) return;
-		const nextMessages = trimMessages(
-			compactAdjacentDuplicateTranscriptMessages(
-				dedupeStoredChatMessages(
-					cachedMessages.map((message) => ({
-						...message,
-						isStreaming: false,
-					})),
-				),
-			),
-		);
-		if (nextMessages.length === 0) return;
-		messages = nextMessages;
-		notify();
 	};
 
-	registerMessageLifecycleFlush();
 	return {
 		flush,
 		get: () => messages,
@@ -622,20 +475,25 @@ export function getChatCheckpointReadModel(
 }
 
 export function loadStoredSessionId(paneId: string): string | null {
+	const paneSessionId = loadAgentState()
+		?.groups.flatMap((group) => group.panes)
+		.find((pane) => pane.id === paneId)?.providerSessionId;
 	return loadPreference(
 		storageKey(SESSION_KEY_PREFIX, paneId),
-		readPaneValue(SESSION_KEY_PREFIX, paneId),
+		paneSessionId ?? readPaneValue(SESSION_KEY_PREFIX, paneId),
 	);
 }
 
 export function saveStoredSessionId(paneId: string, sessionId: string) {
 	writePaneValue(SESSION_KEY_PREFIX, paneId, sessionId);
 	savePreference(storageKey(SESSION_KEY_PREFIX, paneId), sessionId);
+	setPaneProviderSession(paneId, sessionId);
 }
 
 export function clearStoredSessionId(paneId: string) {
 	removePaneValue(SESSION_KEY_PREFIX, paneId);
 	removePreference(storageKey(SESSION_KEY_PREFIX, paneId));
+	setPaneProviderSession(paneId, null);
 }
 
 export function loadStoredModel(paneId: string): string | null {

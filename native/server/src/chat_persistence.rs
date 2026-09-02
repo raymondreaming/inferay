@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::{
     fs,
-    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncSeekExt},
     sync::Mutex,
 };
 
@@ -112,6 +112,7 @@ impl TranscriptCache {
 pub struct ChatPersistence {
     user_data_dir: PathBuf,
     event_sequences: Arc<Mutex<HashMap<String, u64>>>,
+    event_cache: Arc<Mutex<HashMap<String, Vec<ChatEventLogEntry>>>>,
     event_writes: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
     queue_writes: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
     transcript_cache: Arc<Mutex<TranscriptCache>>,
@@ -122,6 +123,7 @@ impl ChatPersistence {
         Self {
             user_data_dir,
             event_sequences: Arc::new(Mutex::new(HashMap::new())),
+            event_cache: Arc::new(Mutex::new(HashMap::new())),
             event_writes: Arc::new(Mutex::new(HashMap::new())),
             queue_writes: Arc::new(Mutex::new(HashMap::new())),
             transcript_cache: Arc::new(Mutex::new(TranscriptCache::default())),
@@ -137,6 +139,8 @@ impl ChatPersistence {
             sequences.insert(pane_id.to_string(), next);
             next
         };
+        // Provider sessions own conversation history. Retain only a bounded
+        // in-memory tail for live compatibility; never create a durable log.
         let entry = ChatEventLogEntry {
             pane_id: pane_id.to_string(),
             sequence,
@@ -144,26 +148,12 @@ impl ChatPersistence {
             event_type: event_type.to_string(),
             payload,
         };
-        let path = self.event_path(pane_id);
-        let write_lock = {
-            let mut writes = self.event_writes.lock().await;
-            writes
-                .entry(pane_id.to_string())
-                .or_insert_with(|| Arc::new(Mutex::new(())))
-                .clone()
-        };
-        let _guard = write_lock.lock().await;
-        if let Some(parent) = path.parent()
-            && fs::create_dir_all(parent).await.is_ok()
-            && let Ok(mut file) = fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(path)
-                .await
-            && let Ok(mut encoded) = serde_json::to_vec(&entry)
-        {
-            encoded.push(b'\n');
-            let _ = file.write_all(&encoded).await;
+        let mut cache = self.event_cache.lock().await;
+        let entries = cache.entry(pane_id.to_string()).or_default();
+        entries.push(entry);
+        if entries.len() > 1_000 {
+            let drop_count = entries.len() - 1_000;
+            entries.drain(..drop_count);
         }
         sequence
     }
@@ -178,32 +168,45 @@ impl ChatPersistence {
             let _guard = lock.lock().await;
         }
         let path = self.event_path(pane_id);
-        let Ok(mut file) = fs::File::open(path).await else {
-            return Ok(Vec::new());
-        };
-        let size = file.metadata().await?.len();
-        let start = size.saturating_sub(MAX_CHAT_EVENT_READ_BYTES);
-        file.seek(SeekFrom::Start(start)).await?;
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes).await?;
-        let mut text = String::from_utf8_lossy(&bytes).into_owned();
-        if start > 0 {
-            text = text
-                .find('\n')
-                .map_or_else(String::new, |index| text[index + 1..].to_string());
-        }
         let mut events = Vec::new();
-        for line in text.lines() {
-            if line.trim().is_empty() {
-                continue;
+        if let Ok(mut file) = fs::File::open(path).await {
+            let size = file.metadata().await?.len();
+            let start = size.saturating_sub(MAX_CHAT_EVENT_READ_BYTES);
+            file.seek(SeekFrom::Start(start)).await?;
+            let mut bytes = Vec::new();
+            file.read_to_end(&mut bytes).await?;
+            let mut text = String::from_utf8_lossy(&bytes).into_owned();
+            if start > 0 {
+                text = text
+                    .find('\n')
+                    .map_or_else(String::new, |index| text[index + 1..].to_string());
             }
-            let Ok(entry) = serde_json::from_str::<ChatEventLogEntry>(line) else {
-                continue;
-            };
-            if entry.pane_id == pane_id && entry.sequence > after_sequence && events.len() < limit {
-                events.push(entry);
+            for line in text.lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let Ok(entry) = serde_json::from_str::<ChatEventLogEntry>(line) else {
+                    continue;
+                };
+                if entry.pane_id == pane_id
+                    && entry.sequence > after_sequence
+                    && events.len() < limit
+                {
+                    events.push(entry);
+                }
             }
         }
+        let cached = self.event_cache.lock().await;
+        if let Some(entries) = cached.get(pane_id) {
+            for entry in entries {
+                if entry.sequence > after_sequence && events.len() < limit {
+                    events.push(entry.clone());
+                }
+            }
+        }
+        events.sort_by_key(|entry| entry.sequence);
+        events.dedup_by_key(|entry| entry.sequence);
+        events.truncate(limit);
         Ok(events)
     }
 
@@ -235,7 +238,13 @@ impl ChatPersistence {
             .lock()
             .await
             .set(pane_id, Some(messages.clone()));
-        atomic_write_json(&self.transcript_path(pane_id), &messages).await
+        // This cache supports reconnects while Inferay is running. Existing
+        // transcript files remain readable for migration, but no new snapshots
+        // are written because the provider session is authoritative.
+        if let Some(parent) = self.transcript_path(pane_id).parent() {
+            let _ = fs::create_dir_all(parent).await;
+        }
+        Ok(())
     }
 
     pub async fn read_authoritative_transcript(
@@ -249,15 +258,20 @@ impl ChatPersistence {
     }
 
     pub async fn list_event_pane_ids(&self) -> Vec<String> {
-        let Ok(mut entries) = fs::read_dir(self.user_data_dir.join(CHAT_EVENTS_DIR)).await else {
-            return Vec::new();
-        };
-        let mut pane_ids = Vec::new();
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            let file = entry.file_name();
-            let file = file.to_string_lossy();
-            if let Some(pane_id) = file.strip_suffix(".jsonl") {
-                pane_ids.push(pane_id.to_string());
+        let mut pane_ids = self
+            .event_cache
+            .lock()
+            .await
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        if let Ok(mut entries) = fs::read_dir(self.user_data_dir.join(CHAT_EVENTS_DIR)).await {
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                let file = entry.file_name();
+                let file = file.to_string_lossy();
+                if let Some(pane_id) = file.strip_suffix(".jsonl") {
+                    push_unique(&mut pane_ids, pane_id.to_string());
+                }
             }
         }
         pane_ids
@@ -399,7 +413,14 @@ impl ChatPersistence {
 
     pub async fn list_local_sessions(&self, agent_state_path: &Path) -> Vec<LocalSessionInfo> {
         let metadata = read_pane_metadata(agent_state_path).await;
-        let mut pane_ids = Vec::new();
+        let mut pane_ids = self
+            .transcript_cache
+            .lock()
+            .await
+            .entries
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
         if let Ok(mut entries) = fs::read_dir(self.user_data_dir.join(CHAT_TRANSCRIPTS_DIR)).await {
             while let Ok(Some(entry)) = entries.next_entry().await {
                 let file = entry.file_name().to_string_lossy().into_owned();
@@ -727,10 +748,7 @@ mod tests {
         assert_eq!(second[0].content, "answer");
         assert_eq!(second[0].is_streaming, Some(false));
 
-        let persisted: Vec<ChatTranscriptMessage> =
-            serde_json::from_slice(&fs::read(persistence.transcript_path("pane")).await.unwrap())
-                .unwrap();
-        assert_eq!(persisted[0].is_streaming, Some(false));
+        assert!(!persistence.transcript_path("pane").exists());
     }
 
     #[tokio::test]
@@ -912,7 +930,7 @@ mod tests {
         assert_eq!(known.message_count, 1);
         assert_eq!(known.last_message.as_deref(), Some("complete"));
         assert_eq!(known.last_role.as_deref(), Some("assistant"));
-        assert!(known.updated_at > 0.0);
+        assert_eq!(known.updated_at, 0.0);
         assert!(known.in_current_workspace);
         let archived = sessions
             .iter()

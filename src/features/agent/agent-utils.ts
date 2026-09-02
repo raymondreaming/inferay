@@ -317,6 +317,7 @@ export interface AgentPaneModel {
 	pendingCwd?: boolean;
 	referencePaths?: string[];
 	summary?: string;
+	providerSessionId?: string;
 }
 
 export interface AgentGroupModel {
@@ -451,6 +452,7 @@ export function agentStateKey(state: AgentSavedState): string {
 				cwd: pane.cwd ?? null,
 				pendingCwd: pane.pendingCwd ?? false,
 				title: pane.title,
+				providerSessionId: pane.providerSessionId ?? null,
 			})),
 		})),
 		themeId: state.themeId,
@@ -952,11 +954,36 @@ export function changePaneAgentKind(
 				panes: g.panes.map((p) =>
 					p.id !== paneId
 						? p
-						: { ...p, agentKind, isClaude: agentKind === "claude" },
+						: {
+								...p,
+								agentKind,
+								isClaude: agentKind === "claude",
+								providerSessionId: undefined,
+							},
 				),
 			})),
 		}),
 		"agent-kind-change",
+	);
+}
+
+export function setPaneProviderSession(
+	paneId: string,
+	providerSessionId: string | null,
+): void {
+	void mutateCanonicalAgentState(
+		(state) => ({
+			...state,
+			groups: state.groups.map((group) => ({
+				...group,
+				panes: group.panes.map((pane) =>
+					pane.id === paneId
+						? { ...pane, providerSessionId: providerSessionId ?? undefined }
+						: pane,
+				),
+			})),
+		}),
+		"provider-session",
 	);
 }
 
