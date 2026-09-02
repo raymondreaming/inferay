@@ -527,6 +527,8 @@ impl ChatRuntime {
         pane_id: &str,
         client_id: ClientId,
         sender: broadcast::Sender<Value>,
+        provider: Option<&str>,
+        provider_session_id: Option<&str>,
     ) {
         if let Some(session) = self.session(pane_id).await {
             let (session_message, sync, status) = {
@@ -574,7 +576,25 @@ impl ChatRuntime {
             let _ = sender.send(status);
         } else {
             let snapshot = self.persistence.persisted_reconnect_snapshot(pane_id).await;
-            let _ = sender.send(snapshot.sync);
+            let legacy_messages = snapshot.sync.get("messages").and_then(Value::as_array);
+            let provider_messages = if legacy_messages.is_none_or(Vec::is_empty) {
+                match (provider, provider_session_id) {
+                    (Some(provider), Some(session_id)) => {
+                        crate::provider_history::load_provider_history(provider, session_id).await
+                    }
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            if let Some(messages) = provider_messages {
+                let _ = sender.send(json!({
+                    "type":"chat:sync", "paneId":pane_id,
+                    "messages":messages, "revision":0, "isStreaming":false
+                }));
+            } else {
+                let _ = sender.send(snapshot.sync);
+            }
             let _ = sender.send(snapshot.queue);
             let _ = sender.send(snapshot.status);
         }
@@ -722,11 +742,22 @@ impl ChatRuntime {
             return session;
         }
         let mut buffer = ChatMessageBuffer::default();
-        if let Some(messages) = self
+        let persisted = self
             .persistence
             .read_authoritative_transcript(&input.pane_id)
-            .await
-        {
+            .await;
+        let provider = if persisted.is_none() {
+            match input.client_session_id.as_deref() {
+                Some(session_id) => {
+                    crate::provider_history::load_provider_history(&input.agent_kind, session_id)
+                        .await
+                }
+                None => None,
+            }
+        } else {
+            None
+        };
+        if let Some(messages) = persisted.or(provider) {
             buffer.replace_messages(messages);
         }
         let session = Arc::new(Mutex::new(ChatSession {
@@ -2070,7 +2101,7 @@ mod tests {
         runtime.sessions.lock().await.insert("pane".into(), session);
 
         let (sender, mut receiver) = broadcast::channel(8);
-        runtime.reconnect("pane", 2, sender).await;
+        runtime.reconnect("pane", 2, sender, None, None).await;
         let sync = receiver.recv().await.unwrap();
         let queue = receiver.recv().await.unwrap();
         let status = receiver.recv().await.unwrap();

@@ -690,6 +690,7 @@ export const AgentChatView = memo(function AgentChatView({
 	});
 	const { checkpoints, clearCheckpoints, resetStreamState, revertCheckpoint } =
 		useChatConnection({
+			agentKind,
 			enabled: renderVisibleChat,
 			messageReadModel,
 			paneId,

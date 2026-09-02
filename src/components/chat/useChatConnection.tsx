@@ -6,6 +6,7 @@ import {
 	useSyncExternalStore,
 } from "octane";
 import type { Dispatch, SetStateAction } from "react";
+import type { AgentKind } from "../../features/agents/agents.ts";
 import {
 	appendTrimmedMessage,
 	type ChatLoadingState,
@@ -20,6 +21,7 @@ import {
 } from "../../features/chat/agent-chat-shared.ts";
 import {
 	getChatCheckpointReadModel,
+	loadStoredSessionId,
 	saveStoredSessionId,
 } from "../../features/chat/chat-session-store.ts";
 import { wsClient } from "../../lib/websocket.ts";
@@ -71,6 +73,7 @@ function cancelFrame(id: number) {
 
 export function useChatConnection({
 	enabled = true,
+	agentKind,
 	messageReadModel,
 	paneId,
 	replaceQueuedMessages,
@@ -80,6 +83,7 @@ export function useChatConnection({
 	setRunStatus,
 }: {
 	enabled?: boolean;
+	agentKind: AgentKind;
 	messageReadModel: ChatMessageMutationModel;
 	paneId: string;
 	replaceQueuedMessages: (messages: QueuedMessageInfo[]) => void;
@@ -465,7 +469,12 @@ export function useChatConnection({
 			}
 		});
 		const reconnectChat = () => {
-			wsClient.send({ type: "chat:reconnect", paneId });
+			wsClient.send({
+				type: "chat:reconnect",
+				paneId,
+				agentKind,
+				sessionId: loadStoredSessionId(paneId),
+			});
 		};
 		reconnectChat();
 		const cleanupReconnect = wsClient.onReconnect(reconnectChat);
@@ -478,6 +487,7 @@ export function useChatConnection({
 		checkpointReadModel,
 		clearPendingContent,
 		enabled,
+		agentKind,
 		messageReadModel,
 		paneId,
 		flushPendingContent,

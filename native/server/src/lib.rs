@@ -69,6 +69,7 @@ pub mod native_prompts;
 pub mod native_sessions;
 mod one_shot;
 mod pid_tracker;
+mod provider_history;
 
 const LOCAL_AUTH_COOKIE: &str = "inferay_local_auth";
 const MAX_PROXY_BODY_BYTES: usize = 32 * 1024 * 1024;
@@ -3656,7 +3657,15 @@ async fn handle_native_websocket_message(
             let _ = state.native_chat_service.destroy(pane_id).await;
         }
         "chat:reconnect" if !pane_id.is_empty() => {
-            let _ = state.native_chat_service.reconnect(client, pane_id).await;
+            let _ = state
+                .native_chat_service
+                .reconnect(
+                    client,
+                    pane_id,
+                    message.get("agentKind").and_then(Value::as_str),
+                    message.get("sessionId").and_then(Value::as_str),
+                )
+                .await;
         }
         "chat:stop" if !pane_id.is_empty() => {
             let _ = state.native_chat_service.stop(pane_id).await;

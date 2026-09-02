@@ -119,13 +119,27 @@ impl NativeChatService {
         &self,
         client: &NativeChatClient,
         pane_id: &str,
+        provider: Option<&str>,
+        session_id: Option<&str>,
     ) -> Result<(), NativeChatRuntimeStopped> {
         let runtime = self.runtime.clone();
         let pane_id = pane_id.to_string();
+        let provider = provider.map(str::to_owned);
+        let session_id = session_id.map(str::to_owned);
         let client_id = client.client_id;
         let sender = client.sender.clone();
         self.owner
-            .spawn(async move { runtime.reconnect(&pane_id, client_id, sender).await })
+            .spawn(async move {
+                runtime
+                    .reconnect(
+                        &pane_id,
+                        client_id,
+                        sender,
+                        provider.as_deref(),
+                        session_id.as_deref(),
+                    )
+                    .await
+            })
             .await
             .map_err(|_| NativeChatRuntimeStopped)
     }
