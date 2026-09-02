@@ -29,7 +29,7 @@ use uuid::Uuid;
 
 use crate::{
     agent_runner::{AgentProcessHandle, AgentRunResult},
-    chat_persistence::{ChatEventLogEntry, ChatPersistence, QueuedMessageInfo},
+    chat_persistence::{ChatPersistence, QueuedMessageInfo},
     checkpoint::CheckpointService,
 };
 
@@ -199,9 +199,7 @@ impl ChatRuntime {
         self.send_message_with_admission(input, false)
     }
 
-    /// Publishes a queue already persisted by a compatibility HTTP route.
-    /// Keeping persistence outside this method preserves that route's legacy
-    /// `source: api` event-log semantics.
+    /// Publishes a queue already persisted by the compatibility HTTP route.
     pub async fn broadcast_queue(&self, pane_id: &str, queue: &[Value]) {
         let session = self.sessions.lock().await.get(pane_id).cloned();
         if let Some(session) = session {
@@ -345,14 +343,6 @@ impl ChatRuntime {
                 );
                 state.cancelled = false;
             }
-            self.persistence
-            .append_event(
-                &input.pane_id,
-                "user_message",
-                json!({"text": input.text, "displayText": display, "images": paths_to_strings(&input.images)}),
-            )
-            .await;
-            self.persist(&session).await;
             if let Some(message_id) = pending_steer_id {
                 self.emit(
                     &session,
@@ -398,16 +388,7 @@ impl ChatRuntime {
                 .await
             {
                 Ok(id) => Some(id),
-                Err(error) => {
-                    self.persistence
-                        .append_event(
-                            &input.pane_id,
-                            "checkpoint_failed",
-                            json!({"stage":"create","message":error}),
-                        )
-                        .await;
-                    None
-                }
+                Err(_) => None,
             };
             if let Some(id) = checkpoint_id.as_ref() {
                 self.emit(
@@ -415,13 +396,6 @@ impl ChatRuntime {
                     json!({"type":"checkpoint:created", "paneId":input.pane_id, "checkpointId":id}),
                 )
                 .await;
-                self.persistence
-                    .append_event(
-                        &input.pane_id,
-                        "checkpoint_created",
-                        json!({"checkpointId":id}),
-                    )
-                    .await;
             }
 
             let outcome = self
@@ -491,7 +465,6 @@ impl ChatRuntime {
                     self.executor.kill(&handle);
                 }
             }
-            self.persist(&session).await;
         }
     }
 
@@ -529,6 +502,7 @@ impl ChatRuntime {
         sender: broadcast::Sender<Value>,
         provider: Option<&str>,
         provider_session_id: Option<&str>,
+        cwd: Option<PathBuf>,
     ) {
         if let Some(session) = self.session(pane_id).await {
             let (session_message, sync, status) = {
@@ -576,22 +550,67 @@ impl ChatRuntime {
             let _ = sender.send(status);
         } else {
             let snapshot = self.persistence.persisted_reconnect_snapshot(pane_id).await;
-            let legacy_messages = snapshot.sync.get("messages").and_then(Value::as_array);
-            let provider_messages = if legacy_messages.is_none_or(Vec::is_empty) {
+            let legacy_messages = snapshot
+                .sync
+                .get("messages")
+                .and_then(Value::as_array)
+                .filter(|messages| !messages.is_empty())
+                .and_then(|messages| serde_json::from_value(Value::Array(messages.clone())).ok());
+            let provider_messages = if legacy_messages.is_none() {
                 match (provider, provider_session_id) {
                     (Some(provider), Some(session_id)) => {
-                        crate::provider_history::load_provider_history(provider, session_id).await
+                        crate::provider_history::load_provider_history(
+                            provider,
+                            session_id,
+                            cwd.as_deref(),
+                        )
+                        .await
                     }
                     _ => None,
                 }
             } else {
                 None
             };
-            if let Some(messages) = provider_messages {
-                let _ = sender.send(json!({
-                    "type":"chat:sync", "paneId":pane_id,
-                    "messages":messages, "revision":0, "isStreaming":false
+            let hydrated_messages = legacy_messages.or(provider_messages);
+            if let Some(messages) = hydrated_messages {
+                let mut buffer = ChatMessageBuffer::default();
+                buffer.replace_messages(messages);
+                let session = Arc::new(Mutex::new(ChatSession {
+                    pane_id: pane_id.to_string(),
+                    agent_kind: provider.unwrap_or("claude").to_string(),
+                    model: None,
+                    reasoning_level: None,
+                    session_id: provider_session_id.map(str::to_owned),
+                    clients: [(client_id, sender.clone())].into_iter().collect(),
+                    current_handle: None,
+                    turn_active: false,
+                    cwd: cwd.unwrap_or_default(),
+                    reference_paths: Vec::new(),
+                    message_buffer: buffer,
+                    disconnected_at: None,
+                    cancelled: false,
+                    goal: None,
+                    agent_events: Vec::new(),
+                    context_hash: None,
+                    pending_steers: Vec::new(),
                 }));
+                let sync = {
+                    let state = session.lock().await;
+                    json!({
+                        "type":"chat:sync", "paneId":pane_id,
+                        "messages":state.message_buffer.messages(),
+                        "revision":state.message_buffer.revision(), "isStreaming":false
+                    })
+                };
+                self.sessions
+                    .lock()
+                    .await
+                    .insert(pane_id.to_string(), session);
+                let _ = sender.send(json!({
+                    "type":"chat:session", "paneId":pane_id,
+                    "sessionId":provider_session_id
+                }));
+                let _ = sender.send(sync);
             } else {
                 let _ = sender.send(snapshot.sync);
             }
@@ -658,15 +677,6 @@ impl ChatRuntime {
             }));
         }
         output
-    }
-
-    pub async fn read_events(
-        &self,
-        pane_id: &str,
-        after: u64,
-        limit: usize,
-    ) -> std::io::Result<Vec<ChatEventLogEntry>> {
-        self.persistence.read_events(pane_id, after, limit).await
     }
 
     async fn create_agent_context_prefix(
@@ -744,13 +754,17 @@ impl ChatRuntime {
         let mut buffer = ChatMessageBuffer::default();
         let persisted = self
             .persistence
-            .read_authoritative_transcript(&input.pane_id)
+            .read_legacy_transcript(&input.pane_id)
             .await;
         let provider = if persisted.is_none() {
             match input.client_session_id.as_deref() {
                 Some(session_id) => {
-                    crate::provider_history::load_provider_history(&input.agent_kind, session_id)
-                        .await
+                    crate::provider_history::load_provider_history(
+                        &input.agent_kind,
+                        session_id,
+                        Some(&input.cwd),
+                    )
+                    .await
                 }
                 None => None,
             }
@@ -959,14 +973,12 @@ impl ChatRuntime {
             Ok(executed) => executed,
             Err(error) => {
                 self.flush_pending_steers(session).await;
-                self.persist(session).await;
                 return Err(error);
             }
         };
         self.apply_emissions(session, executed.protocol.take_emissions(), checkpoint_id)
             .await;
         self.flush_pending_steers(session).await;
-        self.persist(session).await;
         Ok(executed.result)
     }
 
@@ -981,9 +993,6 @@ impl ChatRuntime {
             match emission {
                 ProtocolEmission::Chat(event) => {
                     let event = bound_chat_event(event);
-                    if event.get("type").and_then(Value::as_str) != Some("content_block_delta") {
-                        self.persistence.append_event(&pane_id, "agent_event", event.clone()).await;
-                    }
                     session.lock().await.message_buffer.apply_event(&event);
                     self.emit(session, json!({"type":"chat:event", "paneId":pane_id, "event":event})).await;
                 }
@@ -1010,7 +1019,6 @@ impl ChatRuntime {
                 }
             }
         }
-        self.persist(session).await;
     }
 
     async fn acknowledge_pending_steer(
@@ -1051,18 +1059,6 @@ impl ChatRuntime {
             &pending.display_text,
             (!pending.images.is_empty()).then(|| pending.images.clone()),
         );
-        self.persistence
-            .append_event(
-                &pane_id,
-                "user_message",
-                json!({
-                    "text":pending.text,
-                    "displayText":pending.display_text,
-                    "images":pending.images,
-                    "steered":true
-                }),
-            )
-            .await;
         self.emit(
             session,
             json!({
@@ -1105,9 +1101,6 @@ impl ChatRuntime {
                 json!({"type":"content_block_stop"}),
             ] {
                 session.lock().await.message_buffer.apply_event(&event);
-                self.persistence
-                    .append_event(&pane_id, "agent_event", event.clone())
-                    .await;
                 self.emit(
                     session,
                     json!({"type":"chat:event","paneId":pane_id,"event":event}),
@@ -1143,9 +1136,6 @@ impl ChatRuntime {
             };
             let event = json!({"type":"result", "result":text});
             session.lock().await.message_buffer.apply_event(&event);
-            self.persistence
-                .append_event(&pane_id, "agent_event", event.clone())
-                .await;
             self.emit(
                 session,
                 json!({"type":"chat:event", "paneId":pane_id, "event":event}),
@@ -1167,7 +1157,6 @@ impl ChatRuntime {
             match self.checkpoints.finalize_checkpoint(id, &touched).await {
                 Ok(Some(meta)) if meta.changed_file_count > 0 => {
                     self.emit(session, json!({"type":"checkpoint:finalized", "paneId":pane_id, "checkpointId":id, "changedFileCount":meta.changed_file_count, "changedFiles":meta.changed_files})).await;
-                    self.persistence.append_event(&pane_id, "checkpoint_finalized", json!({"checkpointId":id,"changedFileCount":meta.changed_file_count,"changedFiles":meta.changed_files})).await;
                     let existing =
                         existing_edit_paths(session.lock().await.message_buffer.messages());
                     for diff in self.checkpoints.get_inline_diffs(id).await {
@@ -1179,9 +1168,6 @@ impl ChatRuntime {
                             json!({"type":"content_block_stop"}),
                         ] {
                             session.lock().await.message_buffer.apply_event(&event);
-                            self.persistence
-                                .append_event(&pane_id, "agent_event", event.clone())
-                                .await;
                             self.emit(
                                 session,
                                 json!({"type":"chat:event","paneId":pane_id,"event":event}),
@@ -1191,41 +1177,9 @@ impl ChatRuntime {
                     }
                     meta.changed_file_count
                 }
-                Ok(Some(_)) => {
-                    self.persistence
-                        .append_event(&pane_id, "checkpoint_unchanged", json!({"checkpointId":id}))
-                        .await;
-                    0
-                }
-                Ok(None) => {
-                    self.persistence
-                        .append_event(
-                            &pane_id,
-                            "checkpoint_skipped",
-                            json!({"checkpointId":id,"reason":"missing_metadata"}),
-                        )
-                        .await;
-                    0
-                }
-                Err(error) => {
-                    self.persistence
-                        .append_event(
-                            &pane_id,
-                            "checkpoint_failed",
-                            json!({"checkpointId":id,"stage":"finalize","message":error}),
-                        )
-                        .await;
-                    0
-                }
+                Ok(Some(_)) | Ok(None) | Err(_) => 0,
             }
         } else {
-            self.persistence
-                .append_event(
-                    &pane_id,
-                    "checkpoint_skipped",
-                    json!({"reason":"not_created"}),
-                )
-                .await;
             0
         }
     }
@@ -1238,7 +1192,6 @@ impl ChatRuntime {
     ) {
         self.emit_system(session, error).await;
         session.lock().await.message_buffer.finalize();
-        self.persist(session).await;
         let pane_id = session.lock().await.pane_id.clone();
         self.emit(
             session,
@@ -1247,7 +1200,6 @@ impl ChatRuntime {
         .await;
         self.finalize_checkpoint_events(session, checkpoint_id)
             .await;
-        self.persist(session).await;
         self.drain_next_or_release(session).await;
     }
 
@@ -1257,22 +1209,10 @@ impl ChatRuntime {
             state.message_buffer.finalize();
             json!({"type":"chat:sync", "paneId":state.pane_id, "messages":state.message_buffer.messages(), "revision":state.message_buffer.revision(), "isStreaming":false})
         };
-        self.persist(session).await;
         self.emit(session, message).await;
         let pane_id = session.lock().await.pane_id.clone();
         self.emit(session, json!({"type":"chat:done", "paneId":pane_id}))
             .await;
-    }
-
-    async fn persist(&self, session: &Arc<Mutex<ChatSession>>) {
-        let (pane, messages) = {
-            let state = session.lock().await;
-            (
-                state.pane_id.clone(),
-                state.message_buffer.messages().to_vec(),
-            )
-        };
-        let _ = self.persistence.write_transcript(&pane, messages).await;
     }
 
     async fn emit_system(&self, session: &Arc<Mutex<ChatSession>>, message: &str) {
@@ -1281,9 +1221,6 @@ impl ChatRuntime {
             state.message_buffer.push_system(message);
             state.pane_id.clone()
         };
-        self.persistence
-            .append_event(&pane, "system_message", json!({"message":message}))
-            .await;
         self.emit(
             session,
             json!({"type":"chat:system", "paneId":pane, "message":message}),
@@ -1329,9 +1266,6 @@ impl ChatRuntime {
             json!({"type":"chat:queue", "paneId":pane, "queue":queue}),
         )
         .await;
-        self.persistence
-            .append_queue_drained(&pane, &next.id, queue.len())
-            .await;
         let state = session.lock().await;
         let input = SendMessageInput {
             pane_id: pane,
@@ -1368,21 +1302,17 @@ impl ChatRuntime {
         session: &Arc<Mutex<ChatSession>>,
         command: GoalCommand,
     ) -> Option<String> {
-        let (pane, message, prompt) = {
+        let (message, prompt) = {
             let mut state = session.lock().await;
-            let pane = state.pane_id.clone();
             match command {
-                GoalCommand::Start(objective) => { state.goal = Some(GoalState { objective: objective.clone(), status: GoalStatus::Active, turns: 0, started_at: now_millis() }); (pane, json!({"type":"inferay.goal","status":"active","objective":objective,"turns":0,"detail":"Goal started"}), Some(create_goal_prompt(&objective))) }
-                GoalCommand::Pause => { if let Some(goal)=state.goal.as_mut(){goal.status=GoalStatus::Paused;} (pane, goal_message(state.goal.as_ref(), "paused", "Goal paused"), None) }
-                GoalCommand::Resume => { if let Some(goal)=state.goal.as_mut(){goal.status=GoalStatus::Active; let prompt=create_goal_continuation(goal); (pane, goal_message(Some(goal), "active", "Goal resumed"), Some(prompt))} else {(pane,json!({"type":"inferay.goal","status":"empty","detail":"No goal to resume"}),None)} }
-                GoalCommand::Clear => { let old=state.goal.take(); (pane, goal_message(old.as_ref(), "cleared", "Goal cleared"), None) }
-                GoalCommand::Status => (pane, state.goal.as_ref().map_or_else(||json!({"type":"inferay.goal","status":"empty","detail":"No active goal"}), |goal|goal_message(Some(goal), if goal.status==GoalStatus::Active{"active"}else{"paused"}, "")), None),
+                GoalCommand::Start(objective) => { state.goal = Some(GoalState { objective: objective.clone(), status: GoalStatus::Active, turns: 0, started_at: now_millis() }); (json!({"type":"inferay.goal","status":"active","objective":objective,"turns":0,"detail":"Goal started"}), Some(create_goal_prompt(&objective))) }
+                GoalCommand::Pause => { if let Some(goal)=state.goal.as_mut(){goal.status=GoalStatus::Paused;} (goal_message(state.goal.as_ref(), "paused", "Goal paused"), None) }
+                GoalCommand::Resume => { if let Some(goal)=state.goal.as_mut(){goal.status=GoalStatus::Active; let prompt=create_goal_continuation(goal); (goal_message(Some(goal), "active", "Goal resumed"), Some(prompt))} else {(json!({"type":"inferay.goal","status":"empty","detail":"No goal to resume"}),None)} }
+                GoalCommand::Clear => { let old=state.goal.take(); (goal_message(old.as_ref(), "cleared", "Goal cleared"), None) }
+                GoalCommand::Status => (state.goal.as_ref().map_or_else(||json!({"type":"inferay.goal","status":"empty","detail":"No active goal"}), |goal|goal_message(Some(goal), if goal.status==GoalStatus::Active{"active"}else{"paused"}, "")), None),
             }
         };
         self.emit_system(session, &message.to_string()).await;
-        self.persistence
-            .append_event(&pane, "goal_command", message)
-            .await;
         prompt
     }
 
@@ -1993,7 +1923,7 @@ mod tests {
         tokio::fs::write(&source, "fn answer() -> u8 { 41 }\n")
             .await
             .unwrap();
-        let (runtime, persistence, checkpoints) =
+        let (runtime, _persistence, checkpoints) =
             test_runtime(root.path(), Arc::new(UnusedExecutor));
         let checkpoint_id = checkpoints
             .create_checkpoint("pane".into(), root.path(), "update answer".into())
@@ -2028,11 +1958,17 @@ mod tests {
             receiver.recv().await.unwrap()["event"]["type"],
             "content_block_stop"
         );
-        let restored = persistence
-            .read_authoritative_transcript("pane")
-            .await
-            .unwrap();
-        assert_eq!(restored.last().unwrap().tool_name.as_deref(), Some("Edit"));
+        let state = session.lock().await;
+        assert_eq!(
+            state
+                .message_buffer
+                .messages()
+                .last()
+                .unwrap()
+                .tool_name
+                .as_deref(),
+            Some("Edit")
+        );
     }
 
     #[tokio::test]
@@ -2101,7 +2037,7 @@ mod tests {
         runtime.sessions.lock().await.insert("pane".into(), session);
 
         let (sender, mut receiver) = broadcast::channel(8);
-        runtime.reconnect("pane", 2, sender, None, None).await;
+        runtime.reconnect("pane", 2, sender, None, None, None).await;
         let sync = receiver.recv().await.unwrap();
         let queue = receiver.recv().await.unwrap();
         let status = receiver.recv().await.unwrap();
@@ -2421,9 +2357,11 @@ mod tests {
         assert_eq!(messages[4]["event"]["type"], "content_block_stop");
         assert!(!types.contains(&"chat:sync"));
         assert!(!types.contains(&"chat:done"));
-        let restored = runtime.persistence.read_transcript("pane").await.unwrap();
-        assert_eq!(restored.last().unwrap().tool_name.as_deref(), Some("Edit"));
-        assert_eq!(restored.last().unwrap().is_streaming, Some(false));
+        let session = runtime.session("pane").await.unwrap();
+        let state = session.lock().await;
+        let edit = state.message_buffer.messages().last().unwrap();
+        assert_eq!(edit.tool_name.as_deref(), Some("Edit"));
+        assert_eq!(edit.is_streaming, Some(false));
     }
 
     #[tokio::test]

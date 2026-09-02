@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     io::SeekFrom,
     path::{Path, PathBuf},
     sync::Arc,
@@ -7,7 +7,7 @@ use std::{
 };
 
 use inferay_core::chat_protocol::{
-    ChatMessageBuffer, ChatTranscriptMessage, parse_chat_transcript, trim_messages,
+    ChatMessageBuffer, ChatTranscriptMessage, parse_chat_transcript,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -21,7 +21,6 @@ const CHAT_EVENTS_DIR: &str = "chat-events";
 const CHAT_QUEUE_DIR: &str = "chat-queues";
 const CHAT_TRANSCRIPTS_DIR: &str = "chat-transcripts";
 const MAX_CHAT_EVENT_READ_BYTES: u64 = 4 * 1024 * 1024;
-const TRANSCRIPT_CACHE_ENTRY_LIMIT: usize = 24;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChatEventLogEntry {
@@ -78,95 +77,21 @@ struct PaneMetadata {
     cwd: Option<String>,
 }
 
-#[derive(Default)]
-struct TranscriptCache {
-    entries: HashMap<String, Option<Vec<ChatTranscriptMessage>>>,
-    order: VecDeque<String>,
-}
-
-impl TranscriptCache {
-    fn get(&mut self, pane_id: &str) -> Option<Option<Vec<ChatTranscriptMessage>>> {
-        let value = self.entries.get(pane_id)?.clone();
-        self.touch(pane_id, value.clone());
-        Some(value)
-    }
-
-    fn set(&mut self, pane_id: &str, messages: Option<Vec<ChatTranscriptMessage>>) {
-        self.touch(pane_id, messages);
-        while self.entries.len() > TRANSCRIPT_CACHE_ENTRY_LIMIT {
-            let Some(oldest) = self.order.pop_front() else {
-                break;
-            };
-            self.entries.remove(&oldest);
-        }
-    }
-
-    fn touch(&mut self, pane_id: &str, messages: Option<Vec<ChatTranscriptMessage>>) {
-        self.order.retain(|entry| entry != pane_id);
-        self.order.push_back(pane_id.to_string());
-        self.entries.insert(pane_id.to_string(), messages);
-    }
-}
-
 #[derive(Clone)]
 pub struct ChatPersistence {
     user_data_dir: PathBuf,
-    event_sequences: Arc<Mutex<HashMap<String, u64>>>,
-    event_cache: Arc<Mutex<HashMap<String, Vec<ChatEventLogEntry>>>>,
-    event_writes: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
     queue_writes: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
-    transcript_cache: Arc<Mutex<TranscriptCache>>,
 }
 
 impl ChatPersistence {
     pub fn new(user_data_dir: PathBuf) -> Self {
         Self {
             user_data_dir,
-            event_sequences: Arc::new(Mutex::new(HashMap::new())),
-            event_cache: Arc::new(Mutex::new(HashMap::new())),
-            event_writes: Arc::new(Mutex::new(HashMap::new())),
             queue_writes: Arc::new(Mutex::new(HashMap::new())),
-            transcript_cache: Arc::new(Mutex::new(TranscriptCache::default())),
         }
     }
 
-    pub async fn append_event(&self, pane_id: &str, event_type: &str, payload: Value) -> u64 {
-        let timestamp = now_millis();
-        let sequence = {
-            let mut sequences = self.event_sequences.lock().await;
-            let previous = sequences.get(pane_id).copied().unwrap_or_default();
-            let next = (timestamp * 1000).max(previous.saturating_add(1));
-            sequences.insert(pane_id.to_string(), next);
-            next
-        };
-        // Provider sessions own conversation history. Retain only a bounded
-        // in-memory tail for live compatibility; never create a durable log.
-        let entry = ChatEventLogEntry {
-            pane_id: pane_id.to_string(),
-            sequence,
-            timestamp,
-            event_type: event_type.to_string(),
-            payload,
-        };
-        let mut cache = self.event_cache.lock().await;
-        let entries = cache.entry(pane_id.to_string()).or_default();
-        entries.push(entry);
-        if entries.len() > 1_000 {
-            let drop_count = entries.len() - 1_000;
-            entries.drain(..drop_count);
-        }
-        sequence
-    }
-
-    pub async fn read_events(
-        &self,
-        pane_id: &str,
-        after_sequence: u64,
-        limit: usize,
-    ) -> std::io::Result<Vec<ChatEventLogEntry>> {
-        if let Some(lock) = self.event_writes.lock().await.get(pane_id).cloned() {
-            let _guard = lock.lock().await;
-        }
+    async fn read_legacy_events(&self, pane_id: &str) -> std::io::Result<Vec<ChatEventLogEntry>> {
         let path = self.event_path(pane_id);
         let mut events = Vec::new();
         if let Ok(mut file) = fs::File::open(path).await {
@@ -188,83 +113,33 @@ impl ChatPersistence {
                 let Ok(entry) = serde_json::from_str::<ChatEventLogEntry>(line) else {
                     continue;
                 };
-                if entry.pane_id == pane_id
-                    && entry.sequence > after_sequence
-                    && events.len() < limit
-                {
+                if entry.pane_id == pane_id {
                     events.push(entry);
-                }
-            }
-        }
-        let cached = self.event_cache.lock().await;
-        if let Some(entries) = cached.get(pane_id) {
-            for entry in entries {
-                if entry.sequence > after_sequence && events.len() < limit {
-                    events.push(entry.clone());
                 }
             }
         }
         events.sort_by_key(|entry| entry.sequence);
         events.dedup_by_key(|entry| entry.sequence);
-        events.truncate(limit);
         Ok(events)
     }
 
-    pub async fn read_transcript(&self, pane_id: &str) -> Option<Vec<ChatTranscriptMessage>> {
-        if let Some(cached) = self.transcript_cache.lock().await.get(pane_id) {
-            return cached;
-        }
+    async fn read_legacy_snapshot(&self, pane_id: &str) -> Option<Vec<ChatTranscriptMessage>> {
         let value = read_json_value(&self.transcript_path(pane_id)).await;
-        let messages = value.and_then(parse_chat_transcript);
-        self.transcript_cache
-            .lock()
-            .await
-            .set(pane_id, messages.clone());
-        messages
+        value.and_then(parse_chat_transcript)
     }
 
-    pub async fn write_transcript(
-        &self,
-        pane_id: &str,
-        mut messages: Vec<ChatTranscriptMessage>,
-    ) -> std::io::Result<()> {
-        trim_messages(&mut messages);
-        for message in &mut messages {
-            if message.is_streaming == Some(true) {
-                message.is_streaming = Some(false);
-            }
-        }
-        self.transcript_cache
-            .lock()
-            .await
-            .set(pane_id, Some(messages.clone()));
-        // This cache supports reconnects while Inferay is running. Existing
-        // transcript files remain readable for migration, but no new snapshots
-        // are written because the provider session is authoritative.
-        if let Some(parent) = self.transcript_path(pane_id).parent() {
-            let _ = fs::create_dir_all(parent).await;
-        }
-        Ok(())
-    }
-
-    pub async fn read_authoritative_transcript(
+    pub async fn read_legacy_transcript(
         &self,
         pane_id: &str,
     ) -> Option<Vec<ChatTranscriptMessage>> {
-        if let Some(snapshot) = self.read_transcript(pane_id).await {
+        if let Some(snapshot) = self.read_legacy_snapshot(pane_id).await {
             return Some(snapshot);
         }
         self.read_event_log_transcript(pane_id).await
     }
 
     pub async fn list_event_pane_ids(&self) -> Vec<String> {
-        let mut pane_ids = self
-            .event_cache
-            .lock()
-            .await
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
+        let mut pane_ids = Vec::new();
         if let Ok(mut entries) = fs::read_dir(self.user_data_dir.join(CHAT_EVENTS_DIR)).await {
             while let Ok(Some(entry)) = entries.next_entry().await {
                 let file = entry.file_name();
@@ -293,6 +168,7 @@ impl ChatPersistence {
         let write_lock = self.queue_write_lock(pane_id).await;
         let _guard = write_lock.lock().await;
         self.write_queue_file(pane_id, queue).await?;
+        #[cfg(test)]
         self.append_event(
             pane_id,
             "queue_persisted",
@@ -312,14 +188,17 @@ impl ChatPersistence {
         } else {
             self.write_queue_file(pane_id, queue).await?;
         }
-        self.append_event(
-            pane_id,
-            "queue_persisted",
-            queue_event_payload("runtime", queue),
-        )
-        .await;
-        self.append_event(pane_id, "queue_changed", json!({ "queue": queue }))
+        #[cfg(test)]
+        {
+            self.append_event(
+                pane_id,
+                "queue_persisted",
+                queue_event_payload("runtime", queue),
+            )
             .await;
+            self.append_event(pane_id, "queue_changed", json!({ "queue": queue }))
+                .await;
+        }
         Ok(())
     }
 
@@ -351,24 +230,11 @@ impl ChatPersistence {
         Ok(Some((next, queue)))
     }
 
-    pub async fn append_queue_drained(
-        &self,
-        pane_id: &str,
-        message_id: &str,
-        remaining_count: usize,
-    ) -> u64 {
-        self.append_event(
-            pane_id,
-            "queue_drained",
-            json!({ "messageId": message_id, "remainingCount": remaining_count }),
-        )
-        .await
-    }
-
     pub async fn delete_queue(&self, pane_id: &str) -> Result<(), String> {
         let write_lock = self.queue_write_lock(pane_id).await;
         let _guard = write_lock.lock().await;
         self.remove_queue_file(pane_id).await?;
+        #[cfg(test)]
         self.append_event(
             pane_id,
             "queue_persisted",
@@ -395,7 +261,7 @@ impl ChatPersistence {
             .filter_map(|value| serde_json::from_value::<QueuedMessageInfo>(value).ok())
             .collect::<Vec<_>>();
         let messages = self
-            .read_authoritative_transcript(pane_id)
+            .read_legacy_transcript(pane_id)
             .await
             .unwrap_or_default();
         ChatReconnectSnapshot {
@@ -413,14 +279,7 @@ impl ChatPersistence {
 
     pub async fn list_local_sessions(&self, agent_state_path: &Path) -> Vec<LocalSessionInfo> {
         let metadata = read_pane_metadata(agent_state_path).await;
-        let mut pane_ids = self
-            .transcript_cache
-            .lock()
-            .await
-            .entries
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
+        let mut pane_ids = Vec::new();
         if let Ok(mut entries) = fs::read_dir(self.user_data_dir.join(CHAT_TRANSCRIPTS_DIR)).await {
             while let Ok(Some(entry)) = entries.next_entry().await {
                 let file = entry.file_name().to_string_lossy().into_owned();
@@ -434,7 +293,7 @@ impl ChatPersistence {
         }
         let mut sessions = Vec::new();
         for pane_id in pane_ids {
-            let Some(transcript) = self.read_authoritative_transcript(&pane_id).await else {
+            let Some(transcript) = self.read_legacy_transcript(&pane_id).await else {
                 continue;
             };
             if transcript.is_empty() {
@@ -479,7 +338,7 @@ impl ChatPersistence {
     }
 
     async fn read_event_log_transcript(&self, pane_id: &str) -> Option<Vec<ChatTranscriptMessage>> {
-        let events = self.read_events(pane_id, 0, 10_000).await.ok()?;
+        let events = self.read_legacy_events(pane_id).await.ok()?;
         if events.is_empty() {
             return None;
         }
@@ -577,12 +436,81 @@ fn replay_event(buffer: &mut ChatMessageBuffer, entry: &ChatEventLogEntry) -> bo
     }
 }
 
+#[cfg(test)]
 fn queue_event_payload(source: &str, queue: &[Value]) -> Value {
     let message_ids = queue
         .iter()
         .filter_map(|item| item.as_object()?.get("id")?.as_str())
         .collect::<Vec<_>>();
     json!({ "source": source, "count": queue.len(), "messageIds": message_ids })
+}
+
+// Legacy persistence helpers exist only for compatibility fixtures. Production
+// code can read old files but has no interface for creating new ones.
+#[cfg(test)]
+impl ChatPersistence {
+    async fn append_event(&self, pane_id: &str, event_type: &str, payload: Value) -> u64 {
+        let sequence = now_millis() * 1_000;
+        let entry = ChatEventLogEntry {
+            pane_id: pane_id.to_string(),
+            sequence,
+            timestamp: now_millis(),
+            event_type: event_type.to_string(),
+            payload,
+        };
+        let path = self.event_path(pane_id);
+        let mut events = self.read_legacy_events(pane_id).await.unwrap_or_default();
+        events.push(entry);
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent).await;
+        }
+        let encoded = events
+            .iter()
+            .filter_map(|event| serde_json::to_string(event).ok())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let _ = fs::write(path, format!("{encoded}\n")).await;
+        sequence
+    }
+
+    pub(crate) async fn read_events(
+        &self,
+        pane_id: &str,
+        after: u64,
+        limit: usize,
+    ) -> std::io::Result<Vec<ChatEventLogEntry>> {
+        let mut events = self.read_legacy_events(pane_id).await?;
+        events.retain(|event| event.sequence > after);
+        events.truncate(limit);
+        Ok(events)
+    }
+
+    async fn write_transcript(
+        &self,
+        pane_id: &str,
+        mut messages: Vec<ChatTranscriptMessage>,
+    ) -> std::io::Result<()> {
+        for message in &mut messages {
+            if message.is_streaming == Some(true) {
+                message.is_streaming = Some(false);
+            }
+        }
+        atomic_write_json(&self.transcript_path(pane_id), &messages).await
+    }
+
+    pub(crate) async fn read_authoritative_transcript(
+        &self,
+        pane_id: &str,
+    ) -> Option<Vec<ChatTranscriptMessage>> {
+        self.read_legacy_transcript(pane_id).await
+    }
+
+    pub(crate) async fn read_transcript(
+        &self,
+        pane_id: &str,
+    ) -> Option<Vec<ChatTranscriptMessage>> {
+        self.read_legacy_snapshot(pane_id).await
+    }
 }
 
 async fn read_pane_metadata(path: &Path) -> HashMap<String, PaneMetadata> {
@@ -748,7 +676,7 @@ mod tests {
         assert_eq!(second[0].content, "answer");
         assert_eq!(second[0].is_streaming, Some(false));
 
-        assert!(!persistence.transcript_path("pane").exists());
+        assert!(persistence.transcript_path("pane").exists());
     }
 
     #[tokio::test]
@@ -787,7 +715,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn queue_format_filtering_and_persistence_events_match_typescript() {
+    async fn queue_format_filtering_matches_the_runtime_contract() {
         let root = tempdir().unwrap();
         let persistence = ChatPersistence::new(root.path().to_path_buf());
         persistence
@@ -803,10 +731,6 @@ mod tests {
         assert_eq!(persistence.read_queue("pane:1").await.unwrap().len(), 2);
         let snapshot = persistence.persisted_reconnect_snapshot("pane:1").await;
         assert_eq!(snapshot.queue["queue"].as_array().unwrap().len(), 1);
-        let events = persistence.read_events("pane:1", 0, 500).await.unwrap();
-        assert_eq!(events[0].event_type, "queue_persisted");
-        assert_eq!(events[0].payload["count"], 2);
-        assert_eq!(events[0].payload["messageIds"], json!(["q1"]));
         assert!(persistence.read_queue("../bad").await.is_err());
 
         let write_lock = persistence.queue_write_lock("pane:1").await;
@@ -816,14 +740,7 @@ mod tests {
             .await
             .unwrap();
         drop(_guard);
-        persistence.append_queue_drained("pane:1", "q1", 0).await;
         assert!(persistence.read_queue("pane:1").await.unwrap().is_empty());
-        let events = persistence.read_events("pane:1", 0, 500).await.unwrap();
-        assert_eq!(events[1].event_type, "queue_persisted");
-        assert_eq!(events[1].payload["source"], "runtime");
-        assert_eq!(events[2].event_type, "queue_changed");
-        assert_eq!(events[3].event_type, "queue_drained");
-        assert_eq!(events[3].payload["messageId"], "q1");
     }
 
     #[tokio::test]
@@ -930,7 +847,7 @@ mod tests {
         assert_eq!(known.message_count, 1);
         assert_eq!(known.last_message.as_deref(), Some("complete"));
         assert_eq!(known.last_role.as_deref(), Some("assistant"));
-        assert_eq!(known.updated_at, 0.0);
+        assert!(known.updated_at > 0.0);
         assert!(known.in_current_workspace);
         let archived = sessions
             .iter()

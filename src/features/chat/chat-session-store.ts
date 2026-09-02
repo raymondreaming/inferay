@@ -22,7 +22,7 @@ import {
 } from "./agent-chat-shared.ts";
 
 const LEGACY_MESSAGES_KEY_PREFIX = "inferay-chat-";
-const SESSION_KEY_PREFIX = "inferay-chat-session-";
+const LEGACY_SESSION_KEY_PREFIX = "inferay-chat-session-";
 const INPUT_KEY_PREFIX = "inferay-chat-input-";
 const CHECKPOINT_KEY_PREFIX = "inferay-checkpoints-";
 const MODEL_KEY_PREFIX = "inferay-chat-model-";
@@ -51,6 +51,7 @@ const chatMessageReadModels = new Map<string, ChatMessageReadModel>();
 const chatCheckpointReadModels = new Map<string, ChatCheckpointReadModel>();
 const chatQueueReadModels = new Map<string, ChatQueueReadModel>();
 const chatRunStatusReadModels = new Map<string, ChatRunStatusReadModel>();
+const providerSessionIds = new Map<string, string>();
 
 type DbPreference = {
 	id: string;
@@ -64,11 +65,9 @@ type ChatQueueReadModelListener = () => void;
 type ChatRunStatusReadModelListener = () => void;
 
 export interface ChatMessageReadModel {
-	flush: () => void;
 	get: () => ChatMessage[];
 	getSnapshot: () => ChatMessage[];
-	loadAsync: () => Promise<void>;
-	saveNow: (messages: ChatMessage[]) => ChatMessage[];
+	settle: (messages: ChatMessage[]) => ChatMessage[];
 	set: (
 		update: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[]),
 	) => void;
@@ -116,11 +115,6 @@ export interface ChatRunStatusReadModel {
 		update: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState),
 	) => ChatLoadingState;
 	subscribe: (listener: ChatRunStatusReadModelListener) => () => void;
-}
-
-async function deleteIndexedChatMessages(paneId: string): Promise<void> {
-	void paneId;
-	deleteLegacyChatDatabase();
 }
 
 function deleteLegacyChatDatabase() {
@@ -235,21 +229,6 @@ export function cleanupStaleChatClientStorage() {
 
 cleanupStaleChatClientStorage();
 
-export function loadStoredMessages<T>(paneId: string): T[] {
-	removePaneValue(LEGACY_MESSAGES_KEY_PREFIX, paneId);
-	return [];
-}
-
-export function loadStoredMessagesAsync<T>(paneId: string): Promise<T[]> {
-	void paneId;
-	return Promise.resolve([]);
-}
-
-export function saveStoredMessages<T>(paneId: string, messages: T[]) {
-	void messages;
-	removePaneValue(LEGACY_MESSAGES_KEY_PREFIX, paneId);
-}
-
 function dedupeStoredChatMessages<T extends { id: string }>(
 	messages: T[],
 ): T[] {
@@ -272,31 +251,16 @@ function dedupeStoredChatMessages<T extends { id: string }>(
 	return [...byId.values()];
 }
 
-function loadInitialChatMessages(paneId: string): ChatMessage[] {
-	return compactAdjacentDuplicateTranscriptMessages(
-		dedupeStoredChatMessages(
-			loadStoredMessages<ChatMessage>(paneId).map((message) => ({
-				...message,
-				isStreaming: false,
-			})),
-		),
-	);
-}
-
 function createChatMessageReadModel(paneId: string): ChatMessageReadModel {
-	let messages = loadInitialChatMessages(paneId);
+	let messages: ChatMessage[] = [];
 	const listeners = new Set<ChatMessageReadModelListener>();
-	let loadStarted = false;
 	let _summary: string | null = null;
 	let summaryChangeCallback = noop;
 
 	const notify = () => {
 		for (const listener of listeners) listener();
 	};
-	const flush = () => {
-		// Conversation messages are an in-memory provider projection.
-	};
-	const saveNow = (nextMessages: ChatMessage[]) => {
+	const settle = (nextMessages: ChatMessage[]) => {
 		return trimMessages(
 			compactAdjacentDuplicateTranscriptMessages(
 				dedupeStoredChatMessages(nextMessages),
@@ -322,17 +286,10 @@ function createChatMessageReadModel(paneId: string): ChatMessageReadModel {
 		_summary ??= deriveStoredSummary(paneId, deduped, summaryChangeCallback);
 		notify();
 	};
-	const loadAsync = async () => {
-		if (loadStarted) return;
-		loadStarted = true;
-	};
-
 	return {
-		flush,
 		get: () => messages,
 		getSnapshot: () => messages,
-		loadAsync,
-		saveNow,
+		settle,
 		set,
 		setSummaryChangeCallback: (callback) => {
 			summaryChangeCallback = callback;
@@ -474,25 +431,36 @@ export function getChatCheckpointReadModel(
 	return model;
 }
 
-export function loadStoredSessionId(paneId: string): string | null {
+export function getProviderSessionId(paneId: string): string | null {
+	const current = providerSessionIds.get(paneId);
+	if (current) return current;
 	const paneSessionId = loadAgentState()
 		?.groups.flatMap((group) => group.panes)
 		.find((pane) => pane.id === paneId)?.providerSessionId;
-	return loadPreference(
-		storageKey(SESSION_KEY_PREFIX, paneId),
-		paneSessionId ?? readPaneValue(SESSION_KEY_PREFIX, paneId),
+	if (paneSessionId) {
+		providerSessionIds.set(paneId, paneSessionId);
+		return paneSessionId;
+	}
+	const legacy = loadPreference(
+		storageKey(LEGACY_SESSION_KEY_PREFIX, paneId),
+		readPaneValue(LEGACY_SESSION_KEY_PREFIX, paneId),
 	);
+	if (legacy) setProviderSessionId(paneId, legacy);
+	return legacy;
 }
 
-export function saveStoredSessionId(paneId: string, sessionId: string) {
-	writePaneValue(SESSION_KEY_PREFIX, paneId, sessionId);
-	savePreference(storageKey(SESSION_KEY_PREFIX, paneId), sessionId);
+export function setProviderSessionId(paneId: string, sessionId: string) {
+	if (providerSessionIds.get(paneId) === sessionId) return;
+	providerSessionIds.set(paneId, sessionId);
+	removePaneValue(LEGACY_SESSION_KEY_PREFIX, paneId);
+	removePreference(storageKey(LEGACY_SESSION_KEY_PREFIX, paneId));
 	setPaneProviderSession(paneId, sessionId);
 }
 
-export function clearStoredSessionId(paneId: string) {
-	removePaneValue(SESSION_KEY_PREFIX, paneId);
-	removePreference(storageKey(SESSION_KEY_PREFIX, paneId));
+export function clearProviderSessionId(paneId: string) {
+	providerSessionIds.delete(paneId);
+	removePaneValue(LEGACY_SESSION_KEY_PREFIX, paneId);
+	removePreference(storageKey(LEGACY_SESSION_KEY_PREFIX, paneId));
 	setPaneProviderSession(paneId, null);
 }
 
@@ -784,7 +752,7 @@ export function getChatRunStatusReadModel(
 }
 
 export function clearAgentChatPaneState(paneId: string) {
-	chatMessageReadModels.get(paneId)?.flush();
+	providerSessionIds.delete(paneId);
 	chatMessageReadModels.delete(paneId);
 	chatCheckpointReadModels.delete(paneId);
 	chatQueueReadModels.delete(paneId);
@@ -792,7 +760,7 @@ export function clearAgentChatPaneState(paneId: string) {
 	chatRunStatusReadModels.delete(paneId);
 	for (const prefix of [
 		LEGACY_MESSAGES_KEY_PREFIX,
-		SESSION_KEY_PREFIX,
+		LEGACY_SESSION_KEY_PREFIX,
 		INPUT_KEY_PREFIX,
 		CHECKPOINT_KEY_PREFIX,
 		SUMMARY_KEY_PREFIX,
@@ -801,6 +769,6 @@ export function clearAgentChatPaneState(paneId: string) {
 		removePaneValue(prefix, paneId);
 		removePreference(storageKey(prefix, paneId));
 	}
-	void deleteIndexedChatMessages(paneId);
+	deleteLegacyChatDatabase();
 	saveStoredQueue(paneId, []);
 }

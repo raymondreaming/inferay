@@ -121,11 +121,15 @@ impl NativeChatService {
         pane_id: &str,
         provider: Option<&str>,
         session_id: Option<&str>,
+        cwd: Option<&str>,
     ) -> Result<(), NativeChatRuntimeStopped> {
         let runtime = self.runtime.clone();
         let pane_id = pane_id.to_string();
         let provider = provider.map(str::to_owned);
         let session_id = session_id.map(str::to_owned);
+        let cwd = cwd
+            .filter(|path| !path.is_empty())
+            .and_then(|path| self.allowed_paths.resolve_allowed_local_path(path));
         let client_id = client.client_id;
         let sender = client.sender.clone();
         self.owner
@@ -137,6 +141,7 @@ impl NativeChatService {
                         sender,
                         provider.as_deref(),
                         session_id.as_deref(),
+                        cwd,
                     )
                     .await
             })

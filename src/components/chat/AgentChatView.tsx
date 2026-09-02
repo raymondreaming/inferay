@@ -31,7 +31,7 @@ import type {
 	ToolActivity,
 } from "../../features/chat/agent-chat-shared.ts";
 import {
-	clearStoredSessionId,
+	clearProviderSessionId,
 	getChatMessageReadModel,
 	getChatRunStatusReadModel,
 	loadPendingWorkspacePaths,
@@ -151,11 +151,6 @@ function usePersistentChatMessages(paneId: string) {
 			messageReadModel.setSummaryChangeCallback(() => {});
 		};
 	}, [messageReadModel]);
-	useEffect(() => {
-		void messageReadModel.loadAsync();
-		return () => messageReadModel.flush();
-	}, [messageReadModel]);
-
 	return {
 		getToolActivities,
 		messageReadModel,
@@ -216,13 +211,13 @@ function useAgentChatSettings(paneId: string, agentKind: AgentKind) {
 	useEffect(() => {
 		if (prevAgentKindRef.current === agentKind) return;
 		prevAgentKindRef.current = agentKind;
-		clearStoredSessionId(paneId);
+		clearProviderSessionId(paneId);
 	}, [agentKind, paneId]);
 
 	const handleAgentKindChange = useCallback(
 		(nextAgentKind: AgentKind) => {
 			changePaneAgentKind(paneId, nextAgentKind);
-			clearStoredSessionId(paneId);
+			clearProviderSessionId(paneId);
 			const nextModel = getDefaultModel(nextAgentKind);
 			if (!nextModel) return;
 			setSelectedModel(nextModel);
@@ -234,7 +229,7 @@ function useAgentChatSettings(paneId: string, agentKind: AgentKind) {
 		(model: string) => {
 			setSelectedModel(model);
 			saveStoredModel(paneId, model);
-			clearStoredSessionId(paneId);
+			clearProviderSessionId(paneId);
 		},
 		[paneId],
 	);
@@ -242,7 +237,7 @@ function useAgentChatSettings(paneId: string, agentKind: AgentKind) {
 		(reasoningLevel: string) => {
 			setSelectedReasoningLevel(reasoningLevel);
 			saveStoredReasoningLevel(paneId, reasoningLevel);
-			clearStoredSessionId(paneId);
+			clearProviderSessionId(paneId);
 		},
 		[paneId],
 	);
@@ -691,6 +686,7 @@ export const AgentChatView = memo(function AgentChatView({
 	const { checkpoints, clearCheckpoints, resetStreamState, revertCheckpoint } =
 		useChatConnection({
 			agentKind,
+			cwd,
 			enabled: renderVisibleChat,
 			messageReadModel,
 			paneId,

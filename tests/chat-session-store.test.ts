@@ -8,11 +8,11 @@ function installBrowserStorage() {
 	const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 	const previousDocument = Object.getOwnPropertyDescriptor(
 		globalThis,
-		"document"
+		"document",
 	);
 	const previousLocalStorage = Object.getOwnPropertyDescriptor(
 		globalThis,
-		"localStorage"
+		"localStorage",
 	);
 	Object.defineProperty(globalThis, "window", {
 		configurable: true,
@@ -39,17 +39,18 @@ function installBrowserStorage() {
 	};
 }
 
-test("sync chat message storage ignores and clears legacy localStorage blobs", async () => {
+test("chat startup clears legacy localStorage message blobs", async () => {
 	const restoreBrowserStorage = installBrowserStorage();
 	try {
-		const { loadStoredMessages } =
-			await import("../src/features/chat/chat-session-store.ts");
+		const { cleanupStaleChatClientStorage } = await import(
+			"../src/features/chat/chat-session-store.ts"
+		);
 		localStorage.setItem(
 			"inferay-chat-pane-a",
-			JSON.stringify([{ id: "s3", role: "assistant", content: "legacy" }])
+			JSON.stringify([{ id: "s3", role: "assistant", content: "legacy" }]),
 		);
 
-		expect(loadStoredMessages("pane-a")).toEqual([]);
+		cleanupStaleChatClientStorage();
 		expect(localStorage.getItem("inferay-chat-pane-a")).toBeNull();
 	} finally {
 		restoreBrowserStorage();
@@ -80,8 +81,9 @@ test("chat queue file saves serialize the latest queue", async () => {
 		return Promise.resolve(Response.json({ ok: true }));
 	}) as unknown as typeof fetch;
 	try {
-		const { saveStoredQueue } =
-			await import("../src/features/chat/chat-session-store.ts");
+		const { saveStoredQueue } = await import(
+			"../src/features/chat/chat-session-store.ts"
+		);
 
 		saveStoredQueue("pane-save-race", [
 			{ id: "q1", text: "first", displayText: "first" },
@@ -105,8 +107,9 @@ test("chat queue file saves serialize the latest queue", async () => {
 test("chat queue restore ignores legacy local queue and preference rows", async () => {
 	const restoreBrowserStorage = installBrowserStorage();
 	try {
-		const { loadStoredQueue } =
-			await import("../src/features/chat/chat-session-store.ts");
+		const { loadStoredQueue } = await import(
+			"../src/features/chat/chat-session-store.ts"
+		);
 		localStorage.setItem(
 			"inferay-db-preferences",
 			JSON.stringify([
@@ -115,16 +118,16 @@ test("chat queue restore ignores legacy local queue and preference rows", async 
 					valueJson: JSON.stringify([]),
 					updatedAt: Date.now(),
 				},
-			])
+			]),
 		);
 		localStorage.setItem(
 			"inferay-chat-queue-pane-direct-queue",
-			JSON.stringify([{ id: "q1", text: "first", displayText: "first" }])
+			JSON.stringify([{ id: "q1", text: "first", displayText: "first" }]),
 		);
 
 		expect(loadStoredQueue("pane-direct-queue")).toEqual([]);
 		expect(
-			localStorage.getItem("inferay-chat-queue-pane-direct-queue")
+			localStorage.getItem("inferay-chat-queue-pane-direct-queue"),
 		).toBeNull();
 	} finally {
 		restoreBrowserStorage();
@@ -134,15 +137,16 @@ test("chat queue restore ignores legacy local queue and preference rows", async 
 test("stale chat storage cleanup removes legacy transcript queue and db rows", async () => {
 	const restoreBrowserStorage = installBrowserStorage();
 	try {
-		const { cleanupStaleChatClientStorage } =
-			await import("../src/features/chat/chat-session-store.ts");
+		const { cleanupStaleChatClientStorage } = await import(
+			"../src/features/chat/chat-session-store.ts"
+		);
 		localStorage.setItem(
 			"inferay-chat-pane-stale",
-			JSON.stringify([{ id: "m1", role: "assistant", content: "old" }])
+			JSON.stringify([{ id: "m1", role: "assistant", content: "old" }]),
 		);
 		localStorage.setItem(
 			"inferay-chat-queue-pane-stale",
-			JSON.stringify([{ id: "q1", text: "queued", displayText: "queued" }])
+			JSON.stringify([{ id: "q1", text: "queued", displayText: "queued" }]),
 		);
 		localStorage.setItem("inferay-db-conversations", "[]");
 		localStorage.setItem("inferay-db-messages", "[]");
@@ -165,7 +169,7 @@ test("stale chat storage cleanup removes legacy transcript queue and db rows", a
 					valueJson: JSON.stringify("draft"),
 					updatedAt: 3,
 				},
-			])
+			]),
 		);
 
 		cleanupStaleChatClientStorage();
@@ -176,7 +180,7 @@ test("stale chat storage cleanup removes legacy transcript queue and db rows", a
 		expect(localStorage.getItem("inferay-db-messages")).toBeNull();
 		expect(localStorage.getItem("inferay-chat-input-pane-stays")).toBe("draft");
 		const preferences = JSON.parse(
-			localStorage.getItem("inferay-db-preferences") ?? "[]"
+			localStorage.getItem("inferay-db-preferences") ?? "[]",
 		) as Array<{ id: string }>;
 		expect(preferences.map((entry) => entry.id)).toEqual([
 			"inferay-chat-input-pane-stays",
@@ -186,11 +190,12 @@ test("stale chat storage cleanup removes legacy transcript queue and db rows", a
 	}
 });
 
-test("chat message read model publishes updates and stores settled messages", async () => {
+test("chat message read model publishes updates and settles streamed messages", async () => {
 	const restoreBrowserStorage = installBrowserStorage();
 	try {
-		const { getChatMessageReadModel } =
-			await import("../src/features/chat/chat-session-store.ts");
+		const { getChatMessageReadModel } = await import(
+			"../src/features/chat/chat-session-store.ts"
+		);
 		const model = getChatMessageReadModel("pane-read-model");
 		let updateCount = 0;
 		const unsubscribe = model.subscribe(() => {
@@ -210,7 +215,7 @@ test("chat message read model publishes updates and stores settled messages", as
 		expect(model.get().map((message) => message.id)).toEqual(["m1"]);
 		expect(model.getSnapshot()).toBe(model.get());
 
-		const stored = model.saveNow(model.get());
+		const stored = model.settle(model.get());
 		expect(stored).toEqual([
 			{
 				id: "m1",
@@ -223,7 +228,6 @@ test("chat message read model publishes updates and stores settled messages", as
 		unsubscribe();
 		model.set((prev) => [...prev, { id: "m2", role: "user", content: "next" }]);
 		expect(updateCount).toBe(1);
-		model.flush();
 	} finally {
 		restoreBrowserStorage();
 	}
@@ -232,8 +236,9 @@ test("chat message read model publishes updates and stores settled messages", as
 test("chat message read model compacts adjacent duplicate assistant rows", async () => {
 	const restoreBrowserStorage = installBrowserStorage();
 	try {
-		const { getChatMessageReadModel } =
-			await import("../src/features/chat/chat-session-store.ts");
+		const { getChatMessageReadModel } = await import(
+			"../src/features/chat/chat-session-store.ts"
+		);
 		const model = getChatMessageReadModel("pane-duplicate-assistant");
 
 		model.set([
@@ -246,11 +251,10 @@ test("chat message read model compacts adjacent duplicate assistant rows", async
 			{ id: "u1", role: "user", content: "improve this" },
 			{ id: "a1", role: "assistant", content: "same answer" },
 		]);
-		expect(model.saveNow(model.get())).toEqual([
+		expect(model.settle(model.get())).toEqual([
 			{ id: "u1", role: "user", content: "improve this" },
 			{ id: "a1", role: "assistant", content: "same answer" },
 		]);
-		model.flush();
 	} finally {
 		restoreBrowserStorage();
 	}
@@ -259,8 +263,9 @@ test("chat message read model compacts adjacent duplicate assistant rows", async
 test("chat checkpoint read model publishes updates and clears durable rows", async () => {
 	const restoreBrowserStorage = installBrowserStorage();
 	try {
-		const { getChatCheckpointReadModel, loadStoredCheckpoints } =
-			await import("../src/features/chat/chat-session-store.ts");
+		const { getChatCheckpointReadModel, loadStoredCheckpoints } = await import(
+			"../src/features/chat/chat-session-store.ts"
+		);
 		const model = getChatCheckpointReadModel("pane-checkpoint-model");
 		let updateCount = 0;
 		const unsubscribe = model.subscribe(() => {
@@ -300,8 +305,9 @@ test("chat checkpoint read model publishes updates and clears durable rows", asy
 test("chat checkpoint read model derives finalized checkpoints from settled assistant messages", async () => {
 	const restoreBrowserStorage = installBrowserStorage();
 	try {
-		const { getChatCheckpointReadModel } =
-			await import("../src/features/chat/chat-session-store.ts");
+		const { getChatCheckpointReadModel } = await import(
+			"../src/features/chat/chat-session-store.ts"
+		);
 		const model = getChatCheckpointReadModel("pane-checkpoint-finalized");
 		const messages = [
 			{ id: "user-1", role: "user" as const, content: "change file" },
@@ -323,7 +329,7 @@ test("chat checkpoint read model derives finalized checkpoints from settled assi
 				],
 				timestamp: 123,
 			},
-			messages
+			messages,
 		);
 		model.recordFinalized(
 			{
@@ -332,7 +338,7 @@ test("chat checkpoint read model derives finalized checkpoints from settled assi
 				changedFiles: [{ path: "src/c.ts", action: "modified" }],
 				timestamp: 456,
 			},
-			messages
+			messages,
 		);
 
 		expect(model.getSnapshot()).toEqual([
@@ -368,7 +374,7 @@ test("chat queue read model publishes updates and ignores stale async loads", as
 					resolve(
 						Response.json({
 							queue: [{ id: "q1", text: "stale", displayText: "stale" }],
-						})
+						}),
 					);
 			});
 		}
@@ -381,8 +387,9 @@ test("chat queue read model publishes updates and ignores stale async loads", as
 		return Promise.resolve(Response.json({ ok: true }));
 	}) as unknown as typeof fetch;
 	try {
-		const { getChatQueueReadModel } =
-			await import("../src/features/chat/chat-session-store.ts");
+		const { getChatQueueReadModel } = await import(
+			"../src/features/chat/chat-session-store.ts"
+		);
 		const model = getChatQueueReadModel("pane-queue-model");
 		let updateCount = 0;
 		const unsubscribe = model.subscribe(() => {
@@ -422,8 +429,9 @@ test("chat queue read model publishes updates and ignores stale async loads", as
 test("chat run status read model publishes updates and clears to idle", async () => {
 	const restoreBrowserStorage = installBrowserStorage();
 	try {
-		const { getChatRunStatusReadModel } =
-			await import("../src/features/chat/chat-session-store.ts");
+		const { getChatRunStatusReadModel } = await import(
+			"../src/features/chat/chat-session-store.ts"
+		);
 		const model = getChatRunStatusReadModel("pane-run-status-model");
 		let updateCount = 0;
 		const unsubscribe = model.subscribe(() => {
@@ -472,40 +480,34 @@ test("chat clear operations remove durable preference rows", async () => {
 	const restoreBrowserStorage = installBrowserStorage();
 	const previousFetch = globalThis.fetch;
 	globalThis.fetch = mock(() =>
-		Promise.resolve(Response.json({ ok: true }))
+		Promise.resolve(Response.json({ ok: true })),
 	) as unknown as typeof fetch;
 	try {
 		const {
 			clearAgentChatPaneState,
 			clearPendingSend,
-			clearStoredSessionId,
+			clearProviderSessionId,
 			loadPendingSend,
 			loadStoredInput,
-			loadStoredMessages,
-			loadStoredSessionId,
+			getProviderSessionId,
 			savePendingSend,
 			saveStoredInput,
-			saveStoredMessages,
-			saveStoredSessionId,
+			setProviderSessionId,
 		} = await import("../src/features/chat/chat-session-store.ts");
 
 		savePendingSend("pane-clear-pending", "send me");
 		clearPendingSend("pane-clear-pending");
 		expect(loadPendingSend("pane-clear-pending")).toBe("");
 
-		saveStoredSessionId("pane-clear-session", "session-id");
-		clearStoredSessionId("pane-clear-session");
-		expect(loadStoredSessionId("pane-clear-session")).toBeNull();
+		setProviderSessionId("pane-clear-session", "session-id");
+		clearProviderSessionId("pane-clear-session");
+		expect(getProviderSessionId("pane-clear-session")).toBeNull();
 
 		saveStoredInput("pane-clear-all", "draft");
-		saveStoredMessages("pane-clear-all", [
-			{ id: "m1", role: "user", content: "hello" },
-		]);
-		saveStoredSessionId("pane-clear-all", "stale-session");
+		setProviderSessionId("pane-clear-all", "stale-session");
 		clearAgentChatPaneState("pane-clear-all");
 		expect(loadStoredInput("pane-clear-all")).toBe("");
-		expect(loadStoredMessages("pane-clear-all")).toEqual([]);
-		expect(loadStoredSessionId("pane-clear-all")).toBeNull();
+		expect(getProviderSessionId("pane-clear-all")).toBeNull();
 	} finally {
 		globalThis.fetch = previousFetch;
 		restoreBrowserStorage();

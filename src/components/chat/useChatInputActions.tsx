@@ -12,8 +12,9 @@ import {
 import {
 	clearAgentChatPaneState,
 	clearPendingSend,
+	clearProviderSessionId,
+	getProviderSessionId,
 	loadPendingSend,
-	loadStoredSessionId,
 } from "../../features/chat/chat-session-store.ts";
 import { serializeCommandSystemMessage } from "../../features/chat/command-system-message.ts";
 import { noop } from "../../lib/data.ts";
@@ -173,7 +174,7 @@ export function useChatInputActions({
 				text,
 				cwd: workspaceOverride?.cwd ?? cwd,
 				referencePaths: workspaceOverride?.referencePaths ?? referencePaths,
-				sessionId: loadStoredSessionId(paneId),
+				sessionId: getProviderSessionId(paneId),
 				agentKind,
 				model: effectiveSelectedModel,
 				reasoningLevel:
@@ -251,6 +252,8 @@ export function useChatInputActions({
 
 			if (cmd.action === "local") {
 				if (cmd.name === "clear") {
+					wsClient.send({ type: "chat:destroy", paneId });
+					clearProviderSessionId(paneId);
 					setMessages([]);
 					clearAgentChatPaneState(paneId);
 					clearCheckpoints();

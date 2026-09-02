@@ -21,8 +21,8 @@ import {
 } from "../../features/chat/agent-chat-shared.ts";
 import {
 	getChatCheckpointReadModel,
-	loadStoredSessionId,
-	saveStoredSessionId,
+	getProviderSessionId,
+	setProviderSessionId,
 } from "../../features/chat/chat-session-store.ts";
 import { wsClient } from "../../lib/websocket.ts";
 import {
@@ -46,7 +46,7 @@ import {
 
 interface ChatMessageMutationModel {
 	get: () => ChatMessage[];
-	saveNow: (messages: ChatMessage[]) => ChatMessage[];
+	settle: (messages: ChatMessage[]) => ChatMessage[];
 	set: (
 		update: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[]),
 	) => void;
@@ -74,6 +74,7 @@ function cancelFrame(id: number) {
 export function useChatConnection({
 	enabled = true,
 	agentKind,
+	cwd,
 	messageReadModel,
 	paneId,
 	replaceQueuedMessages,
@@ -84,6 +85,7 @@ export function useChatConnection({
 }: {
 	enabled?: boolean;
 	agentKind: AgentKind;
+	cwd?: string;
 	messageReadModel: ChatMessageMutationModel;
 	paneId: string;
 	replaceQueuedMessages: (messages: QueuedMessageInfo[]) => void;
@@ -301,12 +303,12 @@ export function useChatConnection({
 			if (msg.type === "chat:event") {
 				handleChatEventRef.current(msg.event);
 				if (msg.event?.session_id)
-					saveStoredSessionId(paneId, msg.event.session_id);
+					setProviderSessionId(paneId, msg.event.session_id);
 			} else if (msg.type === "chat:session") {
-				if (msg.sessionId) saveStoredSessionId(paneId, msg.sessionId);
+				if (msg.sessionId) setProviderSessionId(paneId, msg.sessionId);
 			} else if (msg.type === "chat:done") {
 				const flushedMessages = flushPendingContent();
-				const updated = messageReadModel.saveNow(flushedMessages);
+				const updated = messageReadModel.settle(flushedMessages);
 				messageReadModel.set(updated);
 				const ids = new Set(updated.map((message) => message.id));
 				setRunStatus({ isLoading: false, status: "idle", startTime: null });
@@ -392,8 +394,6 @@ export function useChatConnection({
 				}
 				if (syncResult.shouldUpdateMessages) {
 					messageReadModel.set(syncResult.mergedMessages);
-					if (syncResult.shouldPersist)
-						messageReadModel.saveNow(syncResult.mergedMessages);
 				}
 				if (msg.isStreaming) {
 					transcriptRevisionRef.current = syncResult.nextRevision;
@@ -473,7 +473,8 @@ export function useChatConnection({
 				type: "chat:reconnect",
 				paneId,
 				agentKind,
-				sessionId: loadStoredSessionId(paneId),
+				cwd,
+				sessionId: getProviderSessionId(paneId),
 			});
 		};
 		reconnectChat();
@@ -488,6 +489,7 @@ export function useChatConnection({
 		clearPendingContent,
 		enabled,
 		agentKind,
+		cwd,
 		messageReadModel,
 		paneId,
 		flushPendingContent,

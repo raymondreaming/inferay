@@ -15,6 +15,7 @@ const HISTORY_TAIL_BYTES: u64 = 4 * 1024 * 1024;
 pub async fn load_provider_history(
     provider: &str,
     session_id: &str,
+    cwd: Option<&Path>,
 ) -> Option<Vec<ChatTranscriptMessage>> {
     if session_id.is_empty() || session_id.contains(['/', '\\']) {
         return None;
@@ -22,7 +23,7 @@ pub async fn load_provider_history(
     let home = std::env::var_os("HOME").map(PathBuf::from)?;
     let path = match provider {
         "codex" => find_session_file(&home.join(".codex/sessions"), session_id).await?,
-        "claude" => find_session_file(&home.join(".claude/projects"), session_id).await?,
+        "claude" => find_claude_session(&home, cwd, session_id).await?,
         _ => return None,
     };
     let text = read_tail_page(&path).await?;
@@ -36,6 +37,24 @@ pub async fn load_provider_history(
     }
     trim_messages(&mut messages);
     (!messages.is_empty()).then_some(messages)
+}
+
+async fn find_claude_session(home: &Path, cwd: Option<&Path>, session_id: &str) -> Option<PathBuf> {
+    if let Some(cwd) = cwd {
+        let project = cwd
+            .to_string_lossy()
+            .chars()
+            .map(|character| if character == '/' { '-' } else { character })
+            .collect::<String>();
+        let direct = home
+            .join(".claude/projects")
+            .join(project)
+            .join(format!("{session_id}.jsonl"));
+        if fs::try_exists(&direct).await.ok()? {
+            return Some(direct);
+        }
+    }
+    find_session_file(&home.join(".claude/projects"), session_id).await
 }
 
 async fn read_tail_page(path: &Path) -> Option<String> {

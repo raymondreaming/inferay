@@ -626,11 +626,6 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
         if path == "/api/agent/claude-processes/kill-all" && request.method() == Method::POST {
             return kill_all_agent_claude_processes(request).await;
         }
-        if let Some(pane_id) = route_parameter(&path, "/api/chat-events/")
-            && request.method() == Method::GET
-        {
-            return get_chat_events(&state, request, &pane_id).await;
-        }
         if let Some(pane_id) = route_parameter(&path, "/api/chat-queues/") {
             if request.method() == Method::GET {
                 return get_chat_queue(&state, request, &pane_id).await;
@@ -831,29 +826,6 @@ fn checkpoint_revert_parameters(path: &str) -> Option<(String, String)> {
         .ok()?
         .into_owned();
     Some((pane_id, checkpoint_id))
-}
-
-async fn get_chat_events(state: &ServerState, request: Request, pane_id: &str) -> Response {
-    let headers = request.headers().clone();
-    let after = query_value(&request, "after")
-        .and_then(|value| value.parse::<f64>().ok())
-        .filter(|value| value.is_finite() && *value > 0.0)
-        .map(|value| value as u64)
-        .unwrap_or_default();
-    let limit = query_value(&request, "limit")
-        .and_then(|value| value.parse::<f64>().ok())
-        .filter(|value| value.is_finite() && *value != 0.0)
-        .map(|value| value as i64)
-        .unwrap_or(500)
-        .clamp(1, 1000) as usize;
-    match state.chat_runtime.read_events(pane_id, after, limit).await {
-        Ok(events) => json_response(StatusCode::OK, json!({ "events": events }), &headers),
-        Err(error) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error.to_string() }),
-            &headers,
-        ),
-    }
 }
 
 async fn get_chat_queue(state: &ServerState, request: Request, pane_id: &str) -> Response {
@@ -3664,6 +3636,7 @@ async fn handle_native_websocket_message(
                     pane_id,
                     message.get("agentKind").and_then(Value::as_str),
                     message.get("sessionId").and_then(Value::as_str),
+                    message.get("cwd").and_then(Value::as_str),
                 )
                 .await;
         }
@@ -5296,16 +5269,6 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             call_json(&app, Method::GET, "/api/chat-queues/pane-1".into(), None).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(value["queue"], queue);
-
-        let (status, value) = call_json(
-            &app,
-            Method::GET,
-            "/api/chat-events/pane-1?after=0&limit=10".into(),
-            None,
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(value["events"][0]["type"], "queue_persisted");
 
         let (status, value) = call_json(&app, Method::GET, "/api/sessions".into(), None).await;
         assert_eq!(status, StatusCode::OK);
