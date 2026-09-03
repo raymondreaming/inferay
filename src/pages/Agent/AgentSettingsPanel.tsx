@@ -14,7 +14,9 @@ import { IconFolder, IconPlus, IconX } from "../../components/ui/Icons.tsx";
 import { iconSize } from "../../design-system.ts";
 import {
 	type CustomThemeColors,
+	dispatchAgentShellChange,
 	type HexColor,
+	loadAgentLayoutMode,
 	loadAgentState,
 	loadCustomTheme,
 	mutateCanonicalAgentState,
@@ -37,6 +39,13 @@ import {
 	saveAppBackgroundSettings,
 } from "../../lib/app-background.ts";
 import {
+	APP_FONTS,
+	type AppFontId,
+	applyAppFont,
+	loadAppFontId,
+	saveAppFontId,
+} from "../../lib/app-font.ts";
+import {
 	APP_THEMES,
 	type AppThemeId,
 	applyAppTheme,
@@ -57,6 +66,7 @@ import {
 	resolveServerUrl,
 } from "../../lib/fetch-json.ts";
 import { listenWindowEvent, setInputValue } from "../../lib/react-events.ts";
+import { writeStoredValue } from "../../lib/stored-json.ts";
 import {
 	color,
 	controlSize,
@@ -84,6 +94,84 @@ const VISIBLE_APP_THEMES = APP_THEMES.filter((theme) =>
 );
 const ENABLE_CUSTOM_THEME_PICKER = false;
 const EMPTY_FOLDERS: string[] = [];
+
+function WorkspaceLayoutSection() {
+	const [mode, setMode] = useState(loadAgentLayoutMode);
+	const selected = loadAgentState()?.groups.find(
+		(group) => group.id === loadAgentState()?.selectedGroupId,
+	);
+	const [columns, setColumns] = useState(selected?.columns ?? 1);
+	const updateMode = (next: "grid" | "rows") => {
+		setMode(next);
+		writeStoredValue("agent-layout-mode", next);
+		dispatchAgentShellChange({ source: "view", reason: "layout-mode" });
+	};
+	const updateColumns = async (next: number) => {
+		setColumns(next);
+		await mutateCanonicalAgentState(
+			(state) => ({
+				...state,
+				groups: state.groups.map((group) =>
+					group.id === state.selectedGroupId
+						? { ...group, columns: next }
+						: group,
+				),
+			}),
+			"grid-size",
+		);
+	};
+	return (
+		<div id="workspace-layout" {...stylex.props(styles.section)}>
+			<h4 {...stylex.props(styles.sectionHeading)}>Workspace layout</h4>
+			<p {...stylex.props(styles.sectionDescription)}>
+				Choose how chat panes are arranged in the selected workspace.
+			</p>
+			<div {...stylex.props(styles.layoutControls)}>
+				<div {...stylex.props(styles.layoutControlGroup)}>
+					<span {...stylex.props(styles.layoutControlLabel)}>Flow</span>
+					<div {...stylex.props(styles.colorSourceOptions)}>
+						{(["grid", "rows"] as const).map((value) => (
+							<button
+								key={value}
+								type="button"
+								onClick={() => updateMode(value)}
+								{...stylex.props(
+									styles.colorSourceButton,
+									mode === value && styles.colorSourceButtonSelected,
+								)}
+							>
+								{value === "grid" ? "Grid" : "Rows"}
+							</button>
+						))}
+					</div>
+				</div>
+				<div {...stylex.props(styles.layoutControlGroup)}>
+					<span {...stylex.props(styles.layoutControlLabel)}>Columns</span>
+					<div {...stylex.props(styles.colorSourceOptions)}>
+						{[1, 2, 3, 4].map((value) => (
+							<button
+								key={value}
+								type="button"
+								onClick={() => {
+									updateMode("grid");
+									void updateColumns(value);
+								}}
+								{...stylex.props(
+									styles.colorSourceButton,
+									mode === "grid" &&
+										columns === value &&
+										styles.colorSourceButtonSelected,
+								)}
+							>
+								{value}
+							</button>
+						))}
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
 
 function areLoadedFoldersEqual(prev: string[] | null, next: string[] | null) {
 	if (prev === next) return true;
@@ -172,7 +260,7 @@ function GlobalAgentInstructionsSection() {
 	};
 
 	return (
-		<div {...stylex.props(styles.section)}>
+		<div id="agent-instructions" {...stylex.props(styles.section)}>
 			<div {...stylex.props(styles.agentInstructionsHeading)}>
 				<div>
 					<h4 {...stylex.props(styles.sectionHeading)}>
@@ -194,8 +282,9 @@ function GlobalAgentInstructionsSection() {
 			/>
 			<div {...stylex.props(styles.agentInstructionsActions)}>
 				<Button
-					variant="primary"
+					variant="secondary"
 					size="sm"
+					liquid={false}
 					disabled={isLoading || isSaving || instructions === savedInstructions}
 					onClick={() => void handleSave()}
 				>
@@ -310,6 +399,14 @@ function BackgroundScenePicker() {
 		},
 		[],
 	);
+	const selectBackgroundMode = useCallback(
+		(mode: AppBackgroundSettings["mode"]) => {
+			saveAppThemeId("default");
+			applyAppTheme("default");
+			updateBackground({ mode, autoTheme: false });
+		},
+		[updateBackground],
+	);
 
 	const uploadCustomBackground = useCallback(
 		async (file: File | null) => {
@@ -331,7 +428,7 @@ function BackgroundScenePicker() {
 				const payload = (await response.json()) as { revision?: number };
 				updateBackground({
 					id: "custom",
-					autoTheme: true,
+					autoTheme: false,
 					customRevision: payload.revision ?? Date.now(),
 				});
 			} catch (error) {
@@ -362,28 +459,30 @@ function BackgroundScenePicker() {
 					? `/api/config/background-image?v=${background.customRevision}`
 					: null,
 		},
-		{ id: "none", name: "No scene", path: null },
 	];
 
 	return (
 		<div {...stylex.props(styles.section)}>
 			<div {...stylex.props(styles.backgroundHeadingRow)}>
 				<div>
-					<h4 {...stylex.props(styles.sectionHeading)}>Background world</h4>
+					<h4 {...stylex.props(styles.sectionHeading)}>Background</h4>
 					<p {...stylex.props(styles.sectionDescription)}>
-						Choose a built-in scene or bring your own image.
+						Choose a clean solid background, a scene, or desktop glass.
 					</p>
 				</div>
-				<Button
-					type="button"
-					size="sm"
-					variant="secondary"
-					onClick={() => fileInputRef.current?.click()}
-					disabled={uploading}
-				>
-					<IconFolder size={iconSize.sm} />
-					{uploading ? "Importing…" : "Choose image"}
-				</Button>
+				{background.mode === "scene" ? (
+					<Button
+						liquid={false}
+						type="button"
+						size="sm"
+						variant="secondary"
+						onClick={() => fileInputRef.current?.click()}
+						disabled={uploading}
+					>
+						<IconFolder size={iconSize.sm} />
+						{uploading ? "Importing…" : "Choose image"}
+					</Button>
+				) : null}
 				<input
 					ref={fileInputRef}
 					type="file"
@@ -394,129 +493,141 @@ function BackgroundScenePicker() {
 					{...stylex.props(styles.hiddenFileInput)}
 				/>
 			</div>
-			<div {...stylex.props(styles.backgroundGrid)}>
-				{scenes.map((scene) => {
-					const selected = background.id === scene.id;
-					return (
-						<button
-							key={scene.id}
-							type="button"
-							onClick={() =>
-								scene.id === "custom" && background.customRevision === 0
-									? fileInputRef.current?.click()
-									: updateBackground({
-											id: scene.id,
-											autoTheme: scene.id !== "none",
-										})
-							}
-							{...stylex.props(
-								styles.backgroundCard,
-								selected && styles.backgroundCardSelected,
-							)}
-						>
-							<span
-								{...stylex.props(styles.backgroundPreview)}
-								style={{
-									backgroundImage: scene.path
-										? `linear-gradient(rgba(2,3,8,.12), rgba(2,3,8,.32)), url("${resolveServerUrl(scene.path)}")`
-										: scene.id === "none"
-											? "radial-gradient(circle at 35% 30%, #252632, #050506 70%)"
-											: "linear-gradient(135deg, #272938, #0a0b10)",
-								}}
-							/>
-							<span {...stylex.props(styles.backgroundName)}>{scene.name}</span>
-						</button>
-					);
-				})}
+			<div {...stylex.props(styles.colorSourceOptions)}>
+				{(["solid", "scene", "glass"] as const).map((mode) => (
+					<button
+						key={mode}
+						type="button"
+						onClick={() => selectBackgroundMode(mode)}
+						{...stylex.props(
+							styles.colorSourceButton,
+							background.mode === mode && styles.colorSourceButtonSelected,
+						)}
+					>
+						{mode === "solid"
+							? "Solid black"
+							: mode === "scene"
+								? "Scene"
+								: "Glass"}
+					</button>
+				))}
 			</div>
-			{uploadError ? (
-				<p {...stylex.props(styles.backgroundError)}>{uploadError}</p>
-			) : null}
-			<div {...stylex.props(styles.backgroundControls)}>
-				<div {...stylex.props(styles.backgroundAutoTheme)}>
-					<span>
-						<strong {...stylex.props(styles.backgroundAutoTitle)}>
-							Interface color source
-						</strong>
-						<small {...stylex.props(styles.backgroundAutoDescription)}>
-							Use your chosen theme or softly match the selected scene.
-						</small>
-					</span>
-					<div {...stylex.props(styles.colorSourceOptions)}>
-						<button
-							type="button"
-							onClick={() => updateBackground({ autoTheme: false })}
-							{...stylex.props(
-								styles.colorSourceButton,
-								!background.autoTheme && styles.colorSourceButtonSelected,
-							)}
-						>
-							Theme
-						</button>
-						<button
-							type="button"
-							disabled={background.id === "none"}
-							onClick={() => updateBackground({ autoTheme: true })}
-							{...stylex.props(
-								styles.colorSourceButton,
-								background.autoTheme && styles.colorSourceButtonSelected,
-							)}
-						>
-							Scene
-						</button>
+			{background.mode === "scene" ? (
+				<>
+					<div {...stylex.props(styles.backgroundGrid)}>
+						{scenes.map((scene) => {
+							const selected = background.id === scene.id;
+							return (
+								<button
+									key={scene.id}
+									type="button"
+									onClick={() =>
+										scene.id === "custom" && background.customRevision === 0
+											? fileInputRef.current?.click()
+											: updateBackground({
+													id: scene.id,
+													autoTheme: false,
+												})
+									}
+									{...stylex.props(
+										styles.backgroundCard,
+										selected && styles.backgroundCardSelected,
+									)}
+								>
+									<span
+										{...stylex.props(styles.backgroundPreview)}
+										style={{
+											backgroundImage: scene.path
+												? `linear-gradient(rgba(2,3,8,.12), rgba(2,3,8,.32)), url("${resolveServerUrl(scene.path)}")`
+												: "linear-gradient(135deg, #272938, #0a0b10)",
+										}}
+									/>
+									<span {...stylex.props(styles.backgroundName)}>
+										{scene.name}
+									</span>
+								</button>
+							);
+						})}
 					</div>
+					{uploadError ? (
+						<p {...stylex.props(styles.backgroundError)}>{uploadError}</p>
+					) : null}
+					<div {...stylex.props(styles.backgroundControls)}>
+						<label {...stylex.props(styles.backgroundControl)}>
+							<span>Darkness</span>
+							<input
+								type="range"
+								min="0"
+								max="85"
+								value={background.dim}
+								{...stylex.props(styles.backgroundRange)}
+								onInput={(event) =>
+									updateBackground({ dim: Number(event.currentTarget.value) })
+								}
+							/>
+							<span {...stylex.props(styles.backgroundValue)}>
+								{background.dim}%
+							</span>
+						</label>
+						<label {...stylex.props(styles.backgroundControl)}>
+							<span>Image softness</span>
+							<input
+								type="range"
+								min="0"
+								max="20"
+								value={background.blur}
+								{...stylex.props(styles.backgroundRange)}
+								onInput={(event) =>
+									updateBackground({ blur: Number(event.currentTarget.value) })
+								}
+							/>
+							<span {...stylex.props(styles.backgroundValue)}>
+								{background.blur}px
+							</span>
+						</label>
+					</div>
+				</>
+			) : null}
+			{background.mode === "glass" ? (
+				<div {...stylex.props(styles.backgroundControls)}>
+					<label {...stylex.props(styles.backgroundControl)}>
+						<span>Window blur</span>
+						<input
+							type="range"
+							min="0"
+							max="40"
+							value={background.glassBlur}
+							{...stylex.props(styles.backgroundRange)}
+							onInput={(event) =>
+								updateBackground({
+									glassBlur: Number(event.currentTarget.value),
+								})
+							}
+						/>
+						<span {...stylex.props(styles.backgroundValue)}>
+							{background.glassBlur}px
+						</span>
+					</label>
+					<label {...stylex.props(styles.backgroundControl)}>
+						<span>Window transparency</span>
+						<input
+							type="range"
+							min="0"
+							max="92"
+							value={100 - background.glassOpacity}
+							{...stylex.props(styles.backgroundRange)}
+							onInput={(event) =>
+								updateBackground({
+									glassOpacity: 100 - Number(event.currentTarget.value),
+								})
+							}
+						/>
+						<span {...stylex.props(styles.backgroundValue)}>
+							{100 - background.glassOpacity}%
+						</span>
+					</label>
 				</div>
-				<label {...stylex.props(styles.backgroundControl)}>
-					<span>Darkness</span>
-					<input
-						type="range"
-						min="0"
-						max="85"
-						value={background.dim}
-						{...stylex.props(styles.backgroundRange)}
-						onInput={(event) =>
-							updateBackground({ dim: Number(event.currentTarget.value) })
-						}
-					/>
-					<span {...stylex.props(styles.backgroundValue)}>
-						{background.dim}%
-					</span>
-				</label>
-				<label {...stylex.props(styles.backgroundControl)}>
-					<span>Image softness</span>
-					<input
-						type="range"
-						min="0"
-						max="20"
-						value={background.blur}
-						{...stylex.props(styles.backgroundRange)}
-						onInput={(event) =>
-							updateBackground({ blur: Number(event.currentTarget.value) })
-						}
-					/>
-					<span {...stylex.props(styles.backgroundValue)}>
-						{background.blur}px
-					</span>
-				</label>
-				<label {...stylex.props(styles.backgroundControl)}>
-					<span>Glass softness</span>
-					<input
-						type="range"
-						min="0"
-						max="16"
-						value={background.glassBlur}
-						{...stylex.props(styles.backgroundRange)}
-						onInput={(event) =>
-							updateBackground({
-								glassBlur: Number(event.currentTarget.value),
-							})
-						}
-					/>
-					<span {...stylex.props(styles.backgroundValue)}>
-						{background.glassBlur}px
-					</span>
-				</label>
-			</div>
+			) : null}
 		</div>
 	);
 }
@@ -620,6 +731,7 @@ function SearchFoldersSection() {
 					{...stylex.props(styles.folderInput)}
 				/>
 				<Button
+					liquid={false}
 					type="button"
 					onClick={addFolder}
 					disabled={!newFolder.trim()}
@@ -631,6 +743,7 @@ function SearchFoldersSection() {
 					Add
 				</Button>
 				<Button
+					liquid={false}
 					type="button"
 					onClick={browseFolder}
 					variant="secondary"
@@ -655,8 +768,8 @@ export const AgentSettingsContent = memo(function AgentSettingsContent({
 	embedded = false,
 }: AgentSettingsContentProps) {
 	const [appThemeId, setAppThemeId] = useState<AppThemeId>(loadAppThemeId);
-	const [backgroundAutoTheme, setBackgroundAutoTheme] = useState(
-		() => loadAppBackgroundSettings().autoTheme,
+	const [backgroundMode, setBackgroundMode] = useState(
+		() => loadAppBackgroundSettings().mode,
 	);
 	const [agentThemeId, setAgentThemeId] = useState<ThemeId>(() => {
 		const state = loadAgentState();
@@ -665,6 +778,7 @@ export const AgentSettingsContent = memo(function AgentSettingsContent({
 		);
 	});
 	const [syntaxTheme, setSyntaxTheme] = useSyntaxHighlightTheme();
+	const [appFontId, setAppFontId] = useState<AppFontId>(loadAppFontId);
 	const { data: appInfo } = useAppInfo();
 
 	const handleThemeChange = useCallback(
@@ -672,10 +786,13 @@ export const AgentSettingsContent = memo(function AgentSettingsContent({
 			setAppThemeId(id);
 			saveAppThemeId(id);
 			const background = loadAppBackgroundSettings();
-			if (background.autoTheme) {
-				saveAppBackgroundSettings({ ...background, autoTheme: false });
-			}
-			setBackgroundAutoTheme(false);
+			saveAppBackgroundSettings({
+				...background,
+				mode: "solid",
+				id: "none",
+				autoTheme: false,
+			});
+			setBackgroundMode("solid");
 			applyAppTheme(id);
 			const termThemeId = mapAppThemeToAgentTheme(id);
 			setAgentThemeId(termThemeId);
@@ -714,7 +831,7 @@ export const AgentSettingsContent = memo(function AgentSettingsContent({
 			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
 				const key = (event as CustomEvent<{ key?: string }>).detail?.key;
 				if (key === APP_BACKGROUND_STORAGE_KEY) {
-					setBackgroundAutoTheme(loadAppBackgroundSettings().autoTheme);
+					setBackgroundMode(loadAppBackgroundSettings().mode);
 				}
 				if (key === APP_THEME_STORAGE_KEY) {
 					const nextAppThemeId = loadAppThemeId();
@@ -733,18 +850,20 @@ export const AgentSettingsContent = memo(function AgentSettingsContent({
 		>
 			<GlobalAgentInstructionsSection />
 			<div {...stylex.props(styles.divider)} />
-			<div {...stylex.props(styles.section)}>
+			<WorkspaceLayoutSection />
+			<div {...stylex.props(styles.divider)} />
+			<div id="appearance" {...stylex.props(styles.section)}>
 				<h4 {...stylex.props(styles.sectionHeading)}>Theme</h4>
 				<p {...stylex.props(styles.sectionDescription)}>
-					Choose the color system used across Inferay. Selecting one makes Theme
-					the interface color source.
+					Choose a theme with a clean black background. Themes and background
+					worlds are mutually exclusive.
 				</p>
 				<div {...stylex.props(styles.themeGrid)}>
 					{VISIBLE_APP_THEMES.map((t) => (
 						<ThemeOrb
 							key={t.id}
 							theme={t}
-							selected={!backgroundAutoTheme && appThemeId === t.id}
+							selected={backgroundMode === "solid" && appThemeId === t.id}
 							onClick={() => handleThemeChange(t.id)}
 						/>
 					))}
@@ -759,7 +878,7 @@ export const AgentSettingsContent = memo(function AgentSettingsContent({
 									black: custom.bg,
 								},
 							}}
-							selected={!backgroundAutoTheme && isCustom}
+							selected={backgroundMode === "solid" && isCustom}
 							onClick={() => handleThemeChange("custom")}
 							dashed
 						/>
@@ -809,6 +928,29 @@ export const AgentSettingsContent = memo(function AgentSettingsContent({
 				</>
 			)}
 			<div {...stylex.props(styles.divider)} />
+			<div {...stylex.props(styles.section)}>
+				<h4 {...stylex.props(styles.sectionHeading)}>Interface font</h4>
+				<p {...stylex.props(styles.sectionDescription)}>
+					Change the typeface throughout Inferay without changing text sizes or
+					spacing.
+				</p>
+				<DropdownButton
+					liquid={false}
+					value={appFontId}
+					options={[...APP_FONTS]}
+					onChange={(id) => {
+						const next = id as AppFontId;
+						setAppFontId(next);
+						saveAppFontId(next);
+						applyAppFont(next);
+					}}
+					placeholder="Interface font"
+					fullWidth
+					buttonClassName={stylex.props(styles.syntaxThemeButton).className}
+					labelClassName={stylex.props(styles.syntaxThemeLabel).className}
+				/>
+			</div>
+			<div {...stylex.props(styles.divider)} />
 			<BackgroundScenePicker />
 			<div {...stylex.props(styles.divider)} />
 			<div {...stylex.props(styles.section)}>
@@ -818,6 +960,7 @@ export const AgentSettingsContent = memo(function AgentSettingsContent({
 					diffs.
 				</p>
 				<DropdownButton
+					liquid={false}
 					value={syntaxTheme}
 					options={SYNTAX_HIGHLIGHT_THEMES}
 					onChange={(id) => setSyntaxTheme(id as SyntaxHighlightTheme)}
@@ -1141,6 +1284,21 @@ const styles = stylex.create({
 		color: color.textMuted,
 		fontSize: font.size_2,
 		lineHeight: 1.5,
+	},
+	layoutControls: {
+		display: "flex",
+		flexWrap: "wrap",
+		gap: controlSize._4,
+	},
+	layoutControlGroup: {
+		alignItems: "center",
+		display: "flex",
+		gap: controlSize._2,
+	},
+	layoutControlLabel: {
+		color: color.textMuted,
+		fontSize: font.size_1,
+		fontWeight: font.weight_5,
 	},
 	agentInstructionsHeading: {
 		alignItems: "flex-start",

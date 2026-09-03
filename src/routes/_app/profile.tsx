@@ -6,6 +6,7 @@ import { DropdownButton } from "../../components/ui/DropdownButton.tsx";
 import {
 	IconAgent,
 	IconGitBranch,
+	IconLayoutGrid,
 	IconRefreshCw,
 	IconRobot,
 	IconSettings,
@@ -465,8 +466,32 @@ export function ProfilePage() {
 									styles.navItemActive,
 							)}
 						>
-							<IconRobot size={iconSize._2md} />
+							<IconLayoutGrid size={iconSize._2md} />
 							<span>Agents & Models</span>
+						</button>
+						<button
+							type="button"
+							onClick={() => scrollToSettingsSection("agent-instructions")}
+							{...stylex.props(
+								styles.navItem,
+								activeSettingsSection === "agent-instructions" &&
+									styles.navItemActive,
+							)}
+						>
+							<IconSettings size={iconSize._2md} />
+							<span>Agent instructions</span>
+						</button>
+						<button
+							type="button"
+							onClick={() => scrollToSettingsSection("workspace-layout")}
+							{...stylex.props(
+								styles.navItem,
+								activeSettingsSection === "workspace-layout" &&
+									styles.navItemActive,
+							)}
+						>
+							<IconRobot size={iconSize._2md} />
+							<span>Workspace</span>
 						</button>
 						<button
 							type="button"
@@ -477,7 +502,7 @@ export function ProfilePage() {
 							)}
 						>
 							<IconSettings size={iconSize._2md} />
-							<span>Agent instructions</span>
+							<span>Appearance</span>
 						</button>
 						<button
 							type="button"
@@ -498,15 +523,23 @@ export function ProfilePage() {
 
 				<WorkspaceContent scrollRef={settingsScrollRef} scroll padding="none">
 					<div {...stylex.props(styles.content)}>
-						<header id="account" {...stylex.props(styles.pageHeader)}>
-							<span {...stylex.props(styles.pageEyebrow)}>Settings</span>
-							<h1 {...stylex.props(styles.pageTitle)}>Account</h1>
+						<header {...stylex.props(styles.pageHeader)}>
+							<span {...stylex.props(styles.pageEyebrow)}>Inferay</span>
+							<h1 {...stylex.props(styles.pageTitle)}>Settings</h1>
 							<p {...stylex.props(styles.pageDescription)}>
-								Manage your identity, local agents, and workspace integrations.
+								Configure your account, agents, workspace, and appearance.
 							</p>
 						</header>
 
-						<section {...stylex.props(styles.accountSection)}>
+						<section id="account" {...stylex.props(styles.accountSection)}>
+							<div {...stylex.props(styles.sectionIntro)}>
+								<div {...stylex.props(styles.sectionIntroText)}>
+									<h2 {...stylex.props(styles.sectionTitle)}>Account</h2>
+									<p {...stylex.props(styles.sectionDescription)}>
+										Your identity and local Inferay installation.
+									</p>
+								</div>
+							</div>
 							<section {...stylex.props(styles.profileSummary)}>
 								<div {...stylex.props(styles.accountPreview)}>
 									<ProfileAccountAvatar account={activeAccount} size="lg" />
@@ -557,6 +590,7 @@ export function ProfilePage() {
 								<div {...stylex.props(styles.profileActionCards)}>
 									{!activeAccount ? (
 										<Button
+											liquid={false}
 											type="button"
 											onClick={connectGithub}
 											disabled={connecting}
@@ -571,6 +605,7 @@ export function ProfilePage() {
 									) : null}
 									{!appInfo.production ? (
 										<Button
+											liquid={false}
 											type="button"
 											onClick={resetOnboarding}
 											variant="secondary"
@@ -590,6 +625,7 @@ export function ProfilePage() {
 							description="Choose the connected provider, model, and reasoning level used whenever you start a new chat."
 							actions={
 								<Button
+									liquid={false}
 									type="button"
 									onClick={() => void refreshAgentAccountStatuses()}
 									variant="secondary"
@@ -659,6 +695,7 @@ export function ProfilePage() {
 									<div {...stylex.props(styles.settingField)}>
 										<span {...stylex.props(styles.settingLabel)}>Model</span>
 										<DropdownButton
+											liquid={false}
 											value={defaultChatSettings.model}
 											options={defaultModelOptions}
 											onChange={(model) => updateDefaultChatSettings({ model })}
@@ -671,6 +708,7 @@ export function ProfilePage() {
 												Reasoning
 											</span>
 											<DropdownButton
+												liquid={false}
 												value={defaultChatSettings.reasoningLevel}
 												options={CODEX_REASONING_LEVELS.map((level) => ({
 													id: level.id,
@@ -688,7 +726,7 @@ export function ProfilePage() {
 							</div>
 						</SettingsSection>
 
-						<div id="appearance" {...stylex.props(styles.settingsSection)}>
+						<div {...stylex.props(styles.settingsSection)}>
 							<AgentSettingsContent showVersion={false} embedded />
 						</div>
 
@@ -699,6 +737,7 @@ export function ProfilePage() {
 							actions={
 								accounts.length > 0 ? (
 									<Button
+										liquid={false}
 										type="button"
 										onClick={() => void loadRepos(true)}
 										variant="secondary"
@@ -754,6 +793,7 @@ export function ProfilePage() {
 												className={stylex.props(styles.flexInput).className}
 											/>
 											<Button
+												liquid={false}
 												type="button"
 												onClick={() => void pickCloneDirectory()}
 												variant="ghost"
@@ -800,13 +840,13 @@ const styles = stylex.create({
 		flex: 1,
 		gridTemplateColumns: {
 			default: "1fr",
-			[breakpoint.standard]: "12.5rem minmax(0, 1fr)",
+			[breakpoint.standard]: "14rem minmax(0, 1fr)",
 		},
 		minHeight: controlSize._0,
 		minWidth: controlSize._0,
 	},
 	settingsNav: {
-		backgroundColor: color.transparent,
+		backgroundColor: color.surfaceWhite01,
 		borderBottomColor: color.border,
 		borderBottomStyle: {
 			default: "solid",
@@ -827,10 +867,10 @@ const styles = stylex.create({
 		},
 		display: "flex",
 		flexDirection: "column",
-		gap: controlSize._5,
+		gap: controlSize._6,
 		minHeight: controlSize._0,
-		paddingBlock: controlSize._5,
-		paddingInline: controlSize._4,
+		paddingBlock: controlSize._6,
+		paddingInline: controlSize._3,
 	},
 	settingsNavHeader: {
 		display: {
@@ -839,7 +879,7 @@ const styles = stylex.create({
 		},
 		flexDirection: "column",
 		gap: controlSize._1,
-		paddingInline: controlSize._2,
+		paddingInline: controlSize._3,
 	},
 	settingsNavEyebrow: {
 		color: color.textFaint,
@@ -850,7 +890,7 @@ const styles = stylex.create({
 	},
 	settingsNavTitle: {
 		color: color.textMain,
-		fontSize: font.size_5,
+		fontSize: font.size_6,
 		fontWeight: font.weight_6,
 	},
 	navList: {
@@ -859,7 +899,7 @@ const styles = stylex.create({
 			default: "row",
 			[breakpoint.standard]: "column",
 		},
-		gap: controlSize._1,
+		gap: controlSize._0_5,
 		overflowX: {
 			default: "auto",
 			[breakpoint.standard]: "visible",
@@ -867,7 +907,7 @@ const styles = stylex.create({
 	},
 	navItem: {
 		alignItems: "center",
-		borderRadius: controlSize._1,
+		borderRadius: radius.md,
 		borderColor: color.transparent,
 		borderStyle: "solid",
 		borderWidth: 1,
@@ -881,11 +921,11 @@ const styles = stylex.create({
 		},
 		display: "flex",
 		flexShrink: 0,
-		fontSize: font.size_2,
+		fontSize: font.size_3,
 		fontWeight: font.weight_5,
 		gap: controlSize._2,
-		minHeight: controlSize._8,
-		paddingInline: controlSize._2,
+		minHeight: controlSize._9,
+		paddingInline: controlSize._3,
 		textAlign: "left",
 		textDecoration: "none",
 		transitionDuration: motion.durationFast,
@@ -893,8 +933,8 @@ const styles = stylex.create({
 		width: "100%",
 	},
 	navItemActive: {
-		backgroundColor: color.backgroundRaised,
-		borderColor: color.border,
+		backgroundColor: color.surfaceWhite06,
+		borderColor: color.borderSubtle,
 		color: color.textMain,
 	},
 	settingsNavVersion: {
@@ -908,14 +948,16 @@ const styles = stylex.create({
 		paddingInline: controlSize._2,
 	},
 	settingsSection: {
-		borderTopColor: color.borderSubtle,
-		borderTopStyle: "solid",
-		borderTopWidth: 1,
+		backgroundColor: color.surfaceWhite025,
+		borderColor: color.borderSubtle,
+		borderRadius: radius.lg,
+		borderStyle: "solid",
+		borderWidth: 1,
 		display: "flex",
 		flexDirection: "column",
-		gap: controlSize._4,
-		paddingBlock: controlSize._6,
-		scrollMarginTop: controlSize._4,
+		gap: controlSize._5,
+		padding: controlSize._5,
+		scrollMarginTop: controlSize._5,
 	},
 	sectionIntro: {
 		alignItems: {
@@ -931,7 +973,7 @@ const styles = stylex.create({
 	},
 	sectionTitle: {
 		color: color.textMain,
-		fontSize: font.size_4,
+		fontSize: font.size_5,
 		fontWeight: font.weight_6,
 		margin: controlSize._0,
 	},
@@ -950,9 +992,16 @@ const styles = stylex.create({
 		gap: controlSize._2,
 	},
 	accountSection: {
-		borderBottomColor: color.borderSubtle,
-		borderBottomStyle: "solid",
-		borderBottomWidth: 1,
+		backgroundColor: color.surfaceWhite025,
+		borderColor: color.borderSubtle,
+		borderRadius: radius.lg,
+		borderStyle: "solid",
+		borderWidth: 1,
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._4,
+		padding: controlSize._5,
+		scrollMarginTop: controlSize._5,
 	},
 	accountPreview: {
 		display: "flex",
@@ -971,7 +1020,7 @@ const styles = stylex.create({
 		},
 		justifyContent: "space-between",
 		gap: controlSize._4,
-		paddingBlock: controlSize._4,
+		paddingBlock: controlSize._1,
 	},
 	accountNameRow: {
 		alignItems: "center",
@@ -1008,7 +1057,7 @@ const styles = stylex.create({
 		borderTopColor: color.borderSubtle,
 		borderTopStyle: "solid",
 		borderTopWidth: 1,
-		paddingBlock: controlSize._3,
+		paddingTop: controlSize._4,
 	},
 	accountDetail: {
 		display: "flex",
@@ -1067,12 +1116,9 @@ const styles = stylex.create({
 		gap: controlSize._4,
 	},
 	agentProviderGrid: {
-		display: "grid",
-		gap: controlSize._2,
-		gridTemplateColumns: {
-			default: "1fr",
-			[breakpoint.phoneWide]: "repeat(2, minmax(0, 1fr))",
-		},
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._1,
 	},
 	agentProviderChoice: {
 		alignItems: "center",
@@ -1082,14 +1128,14 @@ const styles = stylex.create({
 			":hover": color.backgroundRaised,
 		},
 		borderColor: color.transparent,
-		borderRadius: controlSize._2,
+		borderRadius: radius.md,
 		borderStyle: "solid",
 		borderWidth: 1,
 		color: color.textSoft,
 		fontSize: font.size_2,
 		gap: controlSize._2,
-		minHeight: controlSize._10,
-		paddingBlock: controlSize._2,
+		minHeight: controlSize._12,
+		paddingBlock: controlSize._2_5,
 		paddingInline: controlSize._3,
 		textAlign: "left",
 		":disabled": {
@@ -1097,8 +1143,8 @@ const styles = stylex.create({
 		},
 	},
 	agentProviderChoiceActive: {
-		backgroundColor: color.backgroundRaised,
-		borderColor: color.border,
+		backgroundColor: color.surfaceWhite06,
+		borderColor: color.borderSubtle,
 		color: color.textMain,
 	},
 	agentProviderIcon: {
@@ -1142,17 +1188,18 @@ const styles = stylex.create({
 	},
 	content: {
 		display: "flex",
-		maxWidth: "52rem",
+		maxWidth: "58rem",
 		flexDirection: "column",
-		gap: controlSize._0,
+		gap: controlSize._4,
 		marginInline: "auto",
-		paddingBlock: controlSize._6,
+		paddingBlock: controlSize._8,
 		paddingInline: {
 			default: controlSize._4,
-			[breakpoint.standard]: controlSize._6,
+			[breakpoint.standard]: controlSize._8,
 		},
 	},
 	pageHeader: {
+		marginBottom: controlSize._2,
 		scrollMarginTop: controlSize._4,
 	},
 	pageEyebrow: {
@@ -1164,10 +1211,10 @@ const styles = stylex.create({
 	},
 	pageTitle: {
 		color: color.textMain,
-		fontSize: font.size_7,
+		fontSize: font.size_8,
 		fontWeight: font.weight_6,
 		marginBlockEnd: controlSize._0,
-		marginBlockStart: controlSize._2,
+		marginBlockStart: controlSize._1,
 	},
 	pageDescription: {
 		color: color.textMuted,

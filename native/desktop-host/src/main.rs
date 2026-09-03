@@ -187,6 +187,7 @@ fn main() -> wry::Result<()> {
 
     let window_builder = WindowBuilder::new()
         .with_title("inferay")
+        .with_transparent(true)
         .with_inner_size(LogicalSize::new(1440.0, 920.0))
         .with_position(LogicalPosition::new(120.0, 80.0));
 
@@ -199,9 +200,24 @@ fn main() -> wry::Result<()> {
     let window = window_builder
         .build(&event_loop)
         .expect("failed to open window");
+
+    // Install the effect view before Wry adds its transparent WKWebView so the
+    // native blur is the bottom-most, persistent layer in the content view.
+    #[cfg(target_os = "macos")]
+    let _ = window_vibrancy::apply_vibrancy(
+        &window,
+        window_vibrancy::NSVisualEffectMaterial::UnderWindowBackground,
+        Some(window_vibrancy::NSVisualEffectState::Active),
+        None,
+    );
+
+    #[cfg(target_os = "windows")]
+    let _ = window_vibrancy::apply_acrylic(&window, Some((0, 0, 0, 150)));
+
     let proxy = event_loop.create_proxy();
     let webview = WebViewBuilder::new()
         .with_url(renderer_url)
+        .with_transparent(true)
         .with_initialization_script(INITIALIZATION_SCRIPT)
         .with_accept_first_mouse(true)
         .with_clipboard(true)
@@ -217,6 +233,7 @@ fn main() -> wry::Result<()> {
             }
         })
         .build(&window)?;
+
     sync_fullscreen(&window, &webview);
     let mut webview = Some(webview);
 

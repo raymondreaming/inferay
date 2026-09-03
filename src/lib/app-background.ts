@@ -30,22 +30,28 @@ export type AppBackgroundId =
 	| "custom"
 	| "none";
 
+export type AppBackgroundMode = "solid" | "scene" | "glass";
+
 export interface AppBackgroundSettings {
-	version: 3;
+	version: 6;
+	mode: AppBackgroundMode;
 	id: AppBackgroundId;
 	dim: number;
 	blur: number;
 	glassBlur: number;
+	glassOpacity: number;
 	autoTheme: boolean;
 	customRevision: number;
 }
 
 export const DEFAULT_APP_BACKGROUND_SETTINGS: AppBackgroundSettings = {
-	version: 3,
+	version: 6,
+	mode: "solid",
 	id: "none",
 	dim: 42,
 	blur: 1,
-	glassBlur: 4,
+	glassBlur: 24,
+	glassOpacity: 46,
 	autoTheme: false,
 	customRevision: 0,
 };
@@ -109,6 +115,10 @@ function isBackgroundId(value: unknown): value is AppBackgroundId {
 	);
 }
 
+function isBackgroundMode(value: unknown): value is AppBackgroundMode {
+	return value === "solid" || value === "scene" || value === "glass";
+}
+
 export function loadAppBackgroundSettings(): AppBackgroundSettings {
 	const stored = readStoredJson<
 		Partial<Omit<AppBackgroundSettings, "version">> & { version?: number }
@@ -120,7 +130,12 @@ export function loadAppBackgroundSettings(): AppBackgroundSettings {
 		DEFAULT_APP_BACKGROUND_SETTINGS.blur,
 	);
 	return {
-		version: 3,
+		version: 6,
+		mode: isBackgroundMode(stored.mode)
+			? stored.mode
+			: stored.id && stored.id !== "none"
+				? "scene"
+				: "solid",
 		id: isBackgroundId(stored.id)
 			? stored.id
 			: DEFAULT_APP_BACKGROUND_SETTINGS.id,
@@ -130,10 +145,18 @@ export function loadAppBackgroundSettings(): AppBackgroundSettings {
 				? storedBlur
 				: Math.min(1, storedBlur),
 		glassBlur: clamp(
-			stored.glassBlur,
+			stored.version === 6
+				? stored.glassBlur
+				: DEFAULT_APP_BACKGROUND_SETTINGS.glassBlur,
 			0,
-			16,
+			40,
 			DEFAULT_APP_BACKGROUND_SETTINGS.glassBlur,
+		),
+		glassOpacity: clamp(
+			stored.glassOpacity,
+			8,
+			100,
+			DEFAULT_APP_BACKGROUND_SETTINGS.glassOpacity,
 		),
 		autoTheme:
 			typeof stored.autoTheme === "boolean"

@@ -1,5 +1,9 @@
 import * as stylex from "@octanejs/stylex";
-import { createFileRoute, Outlet } from "@octanejs/tanstack-router";
+import {
+	createFileRoute,
+	Outlet,
+	useLocation,
+} from "@octanejs/tanstack-router";
 import { Suspense, useEffect, useState } from "octane";
 import type { CSSProperties } from "react";
 import { AgentShellHeader } from "../components/layout/AgentShellHeader.tsx";
@@ -11,27 +15,24 @@ import {
 	loadAppBackgroundSettings,
 	restoreAppTheme,
 } from "../lib/app-background.ts";
+import { applyAppFont, loadAppFontId } from "../lib/app-font.ts";
 import {
 	APP_BACKGROUND_STORAGE_KEY,
+	APP_FONT_STORAGE_KEY,
 	APP_THEME_STORAGE_KEY,
 } from "../lib/client-storage-keys.ts";
 import { CLIENT_STORAGE_CHANGED_EVENT } from "../lib/client-storage-sync.ts";
 import { resolveServerUrl } from "../lib/fetch-json.ts";
 import { listenWindowEvent } from "../lib/react-events.ts";
+import { readStoredBoolean, readStoredValue } from "../lib/stored-json.ts";
 import { wsClient } from "../lib/websocket.ts";
-import {
-	color,
-	controlSize,
-	layer,
-	palette,
-	radius,
-} from "../tokens.stylex.ts";
+import { color, controlSize, layer, radius } from "../tokens.stylex.ts";
 
 export const Route = createFileRoute("/_app")({ component: AppLayout });
 
 const styles = stylex.create({
 	shell: {
-		backgroundColor: palette.canvas,
+		backgroundColor: "var(--inferay-app-background, #050506)",
 		backgroundImage:
 			"radial-gradient(rgba(255,255,255,0.055) 0.65px, transparent 0.75px)",
 		backgroundPosition: "0 0",
@@ -58,6 +59,12 @@ const styles = stylex.create({
 		position: "absolute",
 		zIndex: layer.base,
 	},
+	glassBackdrop: {
+		inset: controlSize._0,
+		pointerEvents: "none",
+		position: "absolute",
+		zIndex: layer.base,
+	},
 	appBody: {
 		display: "flex",
 		flex: 1,
@@ -66,9 +73,12 @@ const styles = stylex.create({
 		paddingTop: controlSize._9,
 		paddingRight: controlSize._3,
 		paddingBottom: controlSize._3,
-		paddingLeft: controlSize._3,
+		paddingLeft: controlSize._0,
 		position: "relative",
 		zIndex: layer.content,
+	},
+	appBodySidebarOpen: {
+		paddingLeft: controlSize._3,
 	},
 	mainColumn: {
 		position: "relative",
@@ -79,7 +89,8 @@ const styles = stylex.create({
 		borderWidth: 1,
 		boxShadow:
 			"inset 0 1px 0 rgba(255,255,255,0.055), 0 28px 80px rgba(0,0,0,0.52), 0 0 0 1px rgba(0,0,0,0.42)",
-		backdropFilter: "blur(var(--inferay-glass-blur, 4px)) saturate(104%)",
+		backdropFilter:
+			"var(--inferay-panel-backdrop, blur(var(--inferay-glass-blur, 4px)) saturate(104%))",
 		display: "flex",
 		flex: 1,
 		flexDirection: "column",
@@ -92,10 +103,33 @@ const styles = stylex.create({
 const shellThemeProps = stylex.props(styles.shell);
 
 function AppLayout() {
+	const location = useLocation();
 	const [background, setBackground] = useState(loadAppBackgroundSettings);
+	const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
+		readStoredBoolean("sidebar-collapsed"),
+	);
+	const [mainView, setMainView] = useState(
+		() => readStoredValue("agent-main-view") ?? "chat",
+	);
+	const sidebarOpen =
+		location.pathname === "/agent" && mainView === "chat" && !sidebarCollapsed;
 	useEffect(() => {
 		wsClient.connect();
 	}, []);
+	useEffect(
+		() =>
+			listenWindowEvent("toggle-main-sidebar", () =>
+				setSidebarCollapsed((current) => !current),
+			),
+		[],
+	);
+	useEffect(
+		() =>
+			listenWindowEvent("agent-shell-change", () => {
+				setMainView(readStoredValue("agent-main-view") ?? "chat");
+			}),
+		[],
+	);
 	useEffect(
 		() =>
 			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
@@ -106,16 +140,19 @@ function AppLayout() {
 				) {
 					setBackground(loadAppBackgroundSettings());
 				}
+				if (key === APP_FONT_STORAGE_KEY) applyAppFont(loadAppFontId());
 			}),
 		[],
 	);
 	const builtInPath = getBuiltInBackgroundPath(background.id);
 	const backgroundUrl =
-		background.id === "custom"
-			? `${resolveServerUrl("/api/config/background-image")}?v=${background.customRevision}`
-			: builtInPath
-				? resolveServerUrl(builtInPath)
-				: null;
+		background.mode !== "scene"
+			? null
+			: background.id === "custom"
+				? `${resolveServerUrl("/api/config/background-image")}?v=${background.customRevision}`
+				: builtInPath
+					? resolveServerUrl(builtInPath)
+					: null;
 
 	useEffect(() => {
 		let active = true;
@@ -138,8 +175,19 @@ function AppLayout() {
 	return (
 		<div
 			{...shellThemeProps}
+			data-background-mode={background.mode}
 			style={
-				{ "--inferay-glass-blur": `${background.glassBlur}px` } as CSSProperties
+				{
+					"--inferay-app-background":
+						background.mode === "glass" ? "transparent" : "#000000",
+					"--inferay-glass-blur": `${background.glassBlur}px`,
+					"--inferay-glass-surface":
+						background.mode === "glass"
+							? "transparent"
+							: `color-mix(in srgb, var(--color-inferay-black) ${background.glassOpacity}%, transparent)`,
+					"--inferay-panel-backdrop":
+						background.mode === "glass" ? "none" : undefined,
+				} as CSSProperties
 			}
 		>
 			<div
@@ -152,15 +200,35 @@ function AppLayout() {
 					} as CSSProperties
 				}
 			/>
+			{background.mode === "glass" ? (
+				<div
+					aria-hidden="true"
+					data-glass-backdrop="true"
+					{...stylex.props(styles.glassBackdrop)}
+					style={{
+						WebkitBackdropFilter: `blur(${background.glassBlur}px) saturate(115%)`,
+						backdropFilter: `blur(${background.glassBlur}px) saturate(115%)`,
+						backgroundColor: `color-mix(in srgb, #000000 ${background.glassOpacity}%, transparent)`,
+					}}
+				/>
+			) : null}
 			<div
 				aria-hidden="true"
 				{...stylex.props(styles.backgroundShade)}
 				style={{
-					background: `radial-gradient(ellipse at center, rgba(0, 0, 0, ${Math.min(0.78, background.dim / 100 + 0.08)}) 0%, rgba(0, 0, 0, ${Math.min(0.88, background.dim / 100 + 0.18)}) 100%)`,
+					background:
+						background.mode === "scene"
+							? `radial-gradient(ellipse at center, rgba(0, 0, 0, ${Math.min(0.78, background.dim / 100 + 0.08)}) 0%, rgba(0, 0, 0, ${Math.min(0.88, background.dim / 100 + 0.18)}) 100%)`
+							: "none",
 				}}
 			/>
 			<AgentShellHeader />
-			<div {...stylex.props(styles.appBody)}>
+			<div
+				{...stylex.props(
+					styles.appBody,
+					sidebarOpen && styles.appBodySidebarOpen,
+				)}
+			>
 				<Sidebar />
 				<div {...stylex.props(styles.mainColumn)}>
 					<main {...stylex.props(styles.mainContent)}>

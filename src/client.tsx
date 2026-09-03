@@ -1,6 +1,7 @@
 import { hydrateStart, StartClient } from "@octanejs/tanstack-start/client";
 import { hydrateRoot, initializeHydrationEventCapture } from "octane";
 import { preloadPrompts } from "./features/prompts/usePrompts.tsx";
+import { applyAppFont, loadAppFontId } from "./lib/app-font.ts";
 import {
 	DEFAULT_AGENT_MAIN_VIEW,
 	DEFAULT_APP_ROUTE,
@@ -57,6 +58,7 @@ if (
 
 writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, DEFAULT_AGENT_MAIN_VIEW);
 applyAppTheme(loadAppThemeId());
+applyAppFont(loadAppFontId());
 
 const idle =
 	window.requestIdleCallback ??

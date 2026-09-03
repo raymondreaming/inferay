@@ -94,11 +94,23 @@
 
 html,
 body,
-#root {
+#root,
+#__app {
+	background: transparent;
+	font-family: var(--font-sans);
 	height: 100%;
 	margin: 0;
 	overflow: hidden;
 	overscroll-behavior: none;
+}
+
+/* Glass mode is one native desktop surface, never a stack of blurred panels. */
+[data-background-mode="glass"][data-background-mode="glass"]
+	*:not([data-glass-backdrop="true"]) {
+	backdrop-filter: none;
+	background-color: transparent;
+	background-image: none;
+	box-shadow: none;
 }
 
 button,
@@ -473,4 +485,11 @@ textarea::placeholder {
 	.inferay-liquid-segmented-rail__item {
 		transition-duration: 0ms;
 	}
+}
+
+/* A selected interface font is intentionally global, including editors and code. */
+body,
+body * {
+	/* biome-ignore lint/complexity/noImportantStyles: the user-selected font must override component and inline font families */
+	font-family: var(--font-sans) !important;
 }

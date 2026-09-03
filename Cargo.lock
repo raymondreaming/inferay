@@ -1349,6 +1349,7 @@ dependencies = [
  "objc2-app-kit",
  "objc2-foundation",
  "tao",
+ "window-vibrancy",
  "wry",
 ]
 
@@ -1811,6 +1812,7 @@ dependencies = [
  "objc2",
  "objc2-core-foundation",
  "objc2-foundation",
+ "objc2-quartz-core",
 ]
 
 [[package]]
@@ -3658,6 +3660,22 @@ name = "winapi-x86_64-pc-windows-gnu"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
+
+[[package]]
+name = "window-vibrancy"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe6461139557c2245c3b9b34de2092e7af39460bf97ef4723bc5feb0cf66f831"
+dependencies = [
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "objc2-quartz-core",
+ "raw-window-handle",
+ "windows-sys 0.60.2",
+ "windows-version",
+]
 
 [[package]]
 name = "windows"

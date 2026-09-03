@@ -53,7 +53,7 @@ export const color = stylex.defineVars({
 	backgroundOverlayStrong: stylex.types.color("rgba(0, 0, 0, 0.95)"),
 	shellFrame: stylex.types.color("#242426"),
 	shellSurface: stylex.types.color(
-		"color-mix(in srgb, var(--color-inferay-black) 46%, transparent)",
+		"var(--inferay-glass-surface, color-mix(in srgb, var(--color-inferay-black) 46%, transparent))",
 	),
 	surfaceTranslucent: stylex.types.color(
 		"color-mix(in srgb, var(--color-inferay-dark-gray) 72%, transparent)",
@@ -304,7 +304,7 @@ export const layer = stylex.defineConsts({
 	titlebarMenu: "122",
 	navigationPopover: "200",
 	composerPopover: "220",
-	searchPopover: "300",
+	searchPopover: "360",
 	dropdownPopover: "320",
 	sidebarPopover: "340",
 	appModal: "1000",
