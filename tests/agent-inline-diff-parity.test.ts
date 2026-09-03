@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { getToolBlockInitialContent } from "../src/modules/conversation/agent-chat-shared.ts";
+import { getToolBlockInitialContent } from "../src/modules/conversation/model/agent-chat-shared.ts";
 import {
 	applyEditsSequentially,
 	computeDiffHunkDetails,
@@ -7,13 +7,13 @@ import {
 	diffLineTextSegments,
 	summarizeDiff,
 	summarizeHunks,
-} from "../src/modules/conversation/chat-edit-diff-utils.ts";
+} from "../src/modules/conversation/model/chat-edit-diff-utils.ts";
 import {
 	buildRenderItems,
 	type RenderChatMessage as ChatMessage,
 	getEditFilePath,
 	getToolDisplayInfo,
-} from "../src/modules/conversation/chat-message-render-utils.ts";
+} from "../src/modules/conversation/model/chat-message-render-utils.ts";
 
 type FakeStreamEvent =
 	| {

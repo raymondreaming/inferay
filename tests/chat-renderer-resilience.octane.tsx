@@ -43,7 +43,7 @@ test("socket loss renders a non-blocking inline status", async () => {
 	const { root, rootElement } = setupDom();
 	try {
 		const { AgentChatStatusBar } = await import(
-			"../src/modules/conversation/AgentChatStatusBar.tsx"
+			"../src/modules/conversation/components/AgentChatStatusBar.tsx"
 		);
 		root.render(
 			<div>
@@ -71,7 +71,7 @@ test("active status keeps elapsed time and a compact stop control", async () => 
 	const { root, rootElement } = setupDom();
 	try {
 		const { AgentChatStatusBar } = await import(
-			"../src/modules/conversation/AgentChatStatusBar.tsx"
+			"../src/modules/conversation/components/AgentChatStatusBar.tsx"
 		);
 		root.render(
 			<AgentChatStatusBar
@@ -99,7 +99,7 @@ test("inline edits render only changed rows without hunk metadata", async () => 
 	const { root, rootElement } = setupDom();
 	try {
 		const { MiniEditDiff } = await import(
-			"../src/modules/conversation/ChatEditDiff.tsx"
+			"../src/modules/conversation/components/ChatEditDiff.tsx"
 		);
 		root.render(
 			<MiniEditDiff
@@ -124,7 +124,7 @@ test("a chat render failure stays inside its pane boundary", async () => {
 	const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 	try {
 		const { ChatPaneBoundary } = await import(
-			"../src/modules/conversation/ChatPaneBoundary.tsx"
+			"../src/modules/conversation/components/ChatPaneBoundary.tsx"
 		);
 		function BrokenChat(): never {
 			throw new Error("test chat failure");

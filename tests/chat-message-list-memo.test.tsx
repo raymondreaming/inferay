@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 
 test("chat message list is memoized at the component boundary", async () => {
 	const source = readFileSync(
-		"src/modules/conversation/ChatMessageList.tsx",
+		"src/modules/conversation/components/ChatMessageList.tsx",
 		"utf8",
 	);
 

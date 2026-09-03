@@ -6,7 +6,7 @@ import { expect, test, vi } from "vitest";
 import type {
 	AgentTheme,
 	PaneId,
-} from "../src/modules/workspace/workspace-model.ts";
+} from "../src/modules/workspace/model/workspace-model.ts";
 import { stylexTestTypes } from "./stylex-test-mock.ts";
 
 const mock = Object.assign(vi.fn, {
@@ -47,7 +47,7 @@ class MockResizeObserver {
 	disconnect() {}
 }
 
-mock.module("../src/modules/conversation/AgentChatView.tsx", () => ({
+mock.module("../src/modules/conversation/components/AgentChatView.tsx", () => ({
 	AgentChatView: function MockAgentChatView({
 		ref,
 		onDragStart,
@@ -68,7 +68,7 @@ mock.module("../src/modules/conversation/AgentChatView.tsx", () => ({
 	},
 }));
 
-mock.module("../src/modules/repository/useGitStatus.tsx", () => ({
+mock.module("../src/modules/repository/hooks/useGitStatus.tsx", () => ({
 	useGitStatus: () => ({ projectMap: new Map() }),
 }));
 
@@ -162,7 +162,9 @@ const testTheme: AgentTheme = {
 
 test("legacy terminal panes are restored as chats", async () => {
 	const { root } = setupDom();
-	const { PaneView } = await import("../src/modules/workspace/PaneView.tsx");
+	const { PaneView } = await import(
+		"../src/modules/workspace/components/PaneView.tsx"
+	);
 	const pane = {
 		id: "agent-pane" as PaneId,
 		title: "Agent",
@@ -197,7 +199,9 @@ test("legacy terminal panes are restored as chats", async () => {
 
 test("chat pane refs stay attached across parent rerenders", async () => {
 	const { root } = setupDom();
-	const { PaneView } = await import("../src/modules/workspace/PaneView.tsx");
+	const { PaneView } = await import(
+		"../src/modules/workspace/components/PaneView.tsx"
+	);
 	const pane = {
 		id: "chat-pane" as PaneId,
 		title: "Codex",
@@ -251,7 +255,7 @@ test("chat pane refs stay attached across parent rerenders", async () => {
 test("grid layout scrolls vertically when panes exceed visible rows", async () => {
 	const { root } = setupDom();
 	const { WorkspaceCanvas } = await import(
-		"../src/modules/workspace/WorkspaceCanvas.tsx"
+		"../src/modules/workspace/components/WorkspaceCanvas.tsx"
 	);
 	const panes = Array.from({ length: 8 }, (_, index) => ({
 		id: `chat-pane-${index}` as PaneId,
@@ -287,7 +291,7 @@ test("grid layout scrolls vertically when panes exceed visible rows", async () =
 			document.querySelectorAll('[data-testid="agent-chat"]'),
 		).toHaveLength(8);
 		const source = readFileSync(
-			"src/modules/workspace/WorkspaceCanvas.tsx",
+			"src/modules/workspace/components/WorkspaceCanvas.tsx",
 			"utf8",
 		);
 		expect(source).toContain('overflowY: "auto"');
@@ -300,7 +304,7 @@ test("grid layout scrolls vertically when panes exceed visible rows", async () =
 test("dock handle reorders a row from the first pointer gesture", async () => {
 	const { root } = setupDom();
 	const { WorkspaceCanvas } = await import(
-		"../src/modules/workspace/WorkspaceCanvas.tsx"
+		"../src/modules/workspace/components/WorkspaceCanvas.tsx"
 	);
 	const panes = Array.from({ length: 2 }, (_, index) => ({
 		id: `drag-pane-${index}` as PaneId,
@@ -387,7 +391,7 @@ test("dock handle reorders a row from the first pointer gesture", async () => {
 test("grid layout owns wheel scrolling until a chat pane is clicked", async () => {
 	const { root } = setupDom();
 	const { WorkspaceCanvas } = await import(
-		"../src/modules/workspace/WorkspaceCanvas.tsx"
+		"../src/modules/workspace/components/WorkspaceCanvas.tsx"
 	);
 	const panes = Array.from({ length: 8 }, (_, index) => ({
 		id: `chat-pane-${index}` as PaneId,
@@ -540,7 +544,7 @@ test("grid layout owns wheel scrolling until a chat pane is clicked", async () =
 test("file panes scroll internally only after they are activated", async () => {
 	const { root } = setupDom();
 	const { WorkspaceCanvas } = await import(
-		"../src/modules/workspace/WorkspaceCanvas.tsx"
+		"../src/modules/workspace/components/WorkspaceCanvas.tsx"
 	);
 	const pane = {
 		id: "chat-with-file" as PaneId,
@@ -633,7 +637,7 @@ test("file panes scroll internally only after they are activated", async () => {
 test("row layout glides horizontally over inactive chat bodies", async () => {
 	const { root } = setupDom();
 	const { WorkspaceCanvas } = await import(
-		"../src/modules/workspace/WorkspaceCanvas.tsx"
+		"../src/modules/workspace/components/WorkspaceCanvas.tsx"
 	);
 	const panes = Array.from({ length: 3 }, (_, index) => ({
 		id: `row-chat-pane-${index}` as PaneId,

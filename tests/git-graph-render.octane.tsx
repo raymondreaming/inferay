@@ -4,7 +4,7 @@ import { describe, expect, test, vi } from "vitest";
 import type {
 	GraphNode,
 	GraphRow,
-} from "../src/modules/repository/useGitGraph.tsx";
+} from "../src/modules/repository/hooks/useGitGraph.tsx";
 import { stylexTestTypes } from "./stylex-test-mock.ts";
 
 const mock = Object.assign(vi.fn, {
@@ -128,7 +128,7 @@ function setupDom() {
 describe("Git commit graph renderer", () => {
 	test("keeps a 10,000-commit graph virtualized and selects by stable identity", async () => {
 		const { CommitGraph } = await import(
-			"../src/modules/workbench/graph/CommitGraph.tsx"
+			"../src/modules/workbench/graph/components/CommitGraph.tsx"
 		);
 		const commits = Array.from({ length: 10_000 }, (_, index) =>
 			graphCommit(index),
@@ -362,7 +362,7 @@ describe("Git commit graph renderer", () => {
 
 	test("renders concise commit details and opens a historical file", async () => {
 		const { ChangesPanel } = await import(
-			"../src/modules/workbench/changes/ChangesPanel.tsx"
+			"../src/modules/workbench/changes/components/ChangesPanel.tsx"
 		);
 		const { dom, root, rootElement } = setupDom();
 		const onSelectCommitFile = vi.fn();
@@ -410,7 +410,7 @@ describe("Git commit graph renderer", () => {
 						],
 						files: [
 							{
-								path: "src/modules/workbench/graph/CommitGraph.tsx",
+								path: "src/modules/workbench/graph/components/CommitGraph.tsx",
 								status: "M",
 								additions: 18,
 								deletions: 4,
@@ -440,7 +440,7 @@ describe("Git commit graph renderer", () => {
 			expect(rootElement.textContent).not.toContain("Diff parent:");
 			expect(rootElement.textContent).not.toContain("GitHub ·");
 			expect(rootElement.textContent).toContain(
-				"src/modules/workbench/graph/CommitGraph.tsx",
+				"src/modules/workbench/graph/components/CommitGraph.tsx",
 			);
 			rootElement
 				.querySelector('button[aria-label="Repository graph"]')
@@ -457,7 +457,7 @@ describe("Git commit graph renderer", () => {
 
 	test("keeps incomplete historical author metadata inside the details panel", async () => {
 		const { ChangesPanel } = await import(
-			"../src/modules/workbench/changes/ChangesPanel.tsx"
+			"../src/modules/workbench/changes/components/ChangesPanel.tsx"
 		);
 		const { root, rootElement } = setupDom();
 		const hash = "47e2380000000000000000000000000000000000";
@@ -494,7 +494,7 @@ describe("Git commit graph renderer", () => {
 							committedAt: undefined,
 							refs: [],
 							files: [],
-						} as unknown as import("../src/modules/repository/useGitGraph.tsx").CommitDetails
+						} as unknown as import("../src/modules/repository/hooks/useGitGraph.tsx").CommitDetails
 					}
 					branch="main"
 					commitMessage=""
@@ -516,7 +516,7 @@ describe("Git commit graph renderer", () => {
 
 	test("fetches first-selection commit details and normalizes the native wire format", async () => {
 		const { useCommitDetails } = await import(
-			"../src/modules/repository/useGitGraph.tsx"
+			"../src/modules/repository/hooks/useGitGraph.tsx"
 		);
 		const { queryClient } = await import("../src/shared/lib/query-client.ts");
 		const { root, rootElement } = setupDom();
@@ -596,7 +596,7 @@ describe("Git commit graph renderer", () => {
 
 	test("renders the live WIP sidebar hierarchy and actions without duplicate labels", async () => {
 		const { ChangesPanel } = await import(
-			"../src/modules/workbench/changes/ChangesPanel.tsx"
+			"../src/modules/workbench/changes/components/ChangesPanel.tsx"
 		);
 		const { dom, root, rootElement } = setupDom();
 		const onStageAll = vi.fn();
@@ -614,7 +614,7 @@ describe("Git commit graph renderer", () => {
 						{
 							status: "M",
 							staged: false,
-							path: "src/modules/workbench/graph/CommitGraph.tsx",
+							path: "src/modules/workbench/graph/components/CommitGraph.tsx",
 							additions: 12,
 							deletions: 3,
 						},
@@ -692,7 +692,7 @@ describe("Git commit graph renderer", () => {
 
 	test("renders busy, WIP, stash, merge, selected, ghost, and truncated states", async () => {
 		const { CommitGraph } = await import(
-			"../src/modules/workbench/graph/CommitGraph.tsx"
+			"../src/modules/workbench/graph/components/CommitGraph.tsx"
 		);
 		const base = graphCommit(0);
 		const commits: GraphNode[] = [

@@ -1,4 +1,4 @@
 export {
 	Settings,
 	SettingsContent,
-} from "./Settings.tsx";
+} from "./components/Settings.tsx";

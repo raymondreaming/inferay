@@ -45,9 +45,9 @@ High:
 - Config merge semantics: covered by the native Rust configuration store and route tests.
 - Release asset mapping in `packages/inferay/src/releases.js`: covered. Protects deploy/install workflows from selecting the wrong artifact.
 - Chat command/message behavior in `src/modules/conversation`: covered. Protects prompt expansion, streaming updates, reconnect merge behavior, and history limits.
-- Agent stream tool input parity in `src/modules/conversation/agent-chat-shared.ts`: covered. Protects Codex inline diff rendering when complete tool input arrives in the start event.
-- Inline edit diff rendering helpers in `src/modules/conversation/chat-edit-diff-utils.ts` and `src/modules/conversation/chat-message-render-utils.ts`: covered. Protects fake Claude and Codex edit streams from producing empty edit cards.
-- Agent and Git data behavior in `src/modules/workspace/workspace-model.ts` and `src/modules/repository/git-file-utils.ts`: covered. Protects restored panes, status mapping, and change review ordering.
+- Agent stream tool input parity in `src/modules/conversation/model/agent-chat-shared.ts`: covered. Protects Codex inline diff rendering when complete tool input arrives in the start event.
+- Inline edit diff rendering helpers in `src/modules/conversation/model/chat-edit-diff-utils.ts` and `src/modules/conversation/model/chat-message-render-utils.ts`: covered. Protects fake Claude and Codex edit streams from producing empty edit cards.
+- Agent and Git data behavior in `src/modules/workspace/model/workspace-model.ts` and `src/modules/workbench/changes/model/changes-model.ts`: covered. Protects restored panes, status mapping, and change review ordering.
 - Client-storage sync normalization: covered by native Rust route tests. Protects persisted local UI state from malformed renderer payloads.
 
 Medium:

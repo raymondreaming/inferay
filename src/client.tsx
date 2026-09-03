@@ -10,13 +10,13 @@ import {
 	writeStoredValue,
 } from "./adapters/storage/stored-values.ts";
 import { hydrateStoredValues } from "./adapters/storage/sync.ts";
-import { applyAppFont, loadAppFontId } from "./app/font.ts";
+import { applyAppFont, loadAppFontId } from "./app/model/font.ts";
 import {
 	DEFAULT_AGENT_MAIN_VIEW,
 	DEFAULT_APP_ROUTE,
-} from "./app/navigation.tsx";
-import { applyAppTheme, loadAppThemeId } from "./app/theme.ts";
-import { preloadPrompts } from "./modules/prompts/usePrompts.tsx";
+} from "./app/model/navigation.tsx";
+import { applyAppTheme, loadAppThemeId } from "./app/model/theme.ts";
+import { preloadPrompts } from "./modules/prompts/hooks/usePrompts.tsx";
 
 function routeLocalRequestsToDesktopServer() {
 	if (window.location.origin === getServerOrigin()) return;

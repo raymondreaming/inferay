@@ -56,7 +56,7 @@ test("speech recognition starts without a separate getUserMedia probe", async ()
 		value: FakeSpeechRecognition,
 	});
 	const { useSpeechToText } = await import(
-		"../src/modules/conversation/useSpeechToText.tsx"
+		"../src/modules/conversation/hooks/useSpeechToText.tsx"
 	);
 
 	try {
@@ -107,7 +107,7 @@ test("speech recognition stop aborts the recognizer immediately", async () => {
 		value: FakeSpeechRecognition,
 	});
 	const { useSpeechToText } = await import(
-		"../src/modules/conversation/useSpeechToText.tsx"
+		"../src/modules/conversation/hooks/useSpeechToText.tsx"
 	);
 
 	try {
@@ -160,7 +160,7 @@ test("speech recognition aborts when the app window loses focus", async () => {
 		value: FakeSpeechRecognition,
 	});
 	const { useSpeechToText } = await import(
-		"../src/modules/conversation/useSpeechToText.tsx"
+		"../src/modules/conversation/hooks/useSpeechToText.tsx"
 	);
 
 	try {

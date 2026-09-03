@@ -5,7 +5,7 @@ import type {
 	ChatLoadingState,
 	ChatMessage,
 	ToolActivity,
-} from "../src/modules/conversation/agent-chat-shared.ts";
+} from "../src/modules/conversation/model/agent-chat-shared.ts";
 
 type ChatActivityUiState = {
 	expandedTools: Set<string>;
@@ -68,7 +68,7 @@ test("hidden chat views do not own websocket reconnects", async () => {
 	send.mockClear();
 	const { root } = setupDom();
 	const { useChatConnection } = await import(
-		"../src/modules/conversation/useChatConnection.tsx"
+		"../src/modules/conversation/hooks/useChatConnection.tsx"
 	);
 
 	function Harness({ enabled }: { enabled: boolean }) {
@@ -129,7 +129,7 @@ test("live turn completion persists sync and reconnects after done", async () =>
 	send.mockClear();
 	const { root } = setupDom();
 	const { useChatConnection } = await import(
-		"../src/modules/conversation/useChatConnection.tsx"
+		"../src/modules/conversation/hooks/useChatConnection.tsx"
 	);
 	let handleMessage: ((message: unknown) => void) | undefined;
 	let latestMessages: ChatMessage[] = [];
@@ -237,7 +237,7 @@ test("stale streaming sync does not cut local in-flight assistant content", asyn
 	send.mockClear();
 	const { root } = setupDom();
 	const { useChatConnection } = await import(
-		"../src/modules/conversation/useChatConnection.tsx"
+		"../src/modules/conversation/hooks/useChatConnection.tsx"
 	);
 	let handleMessage: ((message: unknown) => void) | undefined;
 	let latestMessages: ChatMessage[] = [];
@@ -358,7 +358,7 @@ test("active sync between blocks keeps result replay attached to its assistant",
 	send.mockClear();
 	const { root } = setupDom();
 	const { useChatConnection } = await import(
-		"../src/modules/conversation/useChatConnection.tsx"
+		"../src/modules/conversation/hooks/useChatConnection.tsx"
 	);
 	let handleMessage: ((message: unknown) => void) | undefined;
 	let latestMessages: ChatMessage[] = [];
@@ -463,7 +463,7 @@ test("accepted steering appears immediately without resetting the active assista
 	subscribe.mockClear();
 	const { root } = setupDom();
 	const { useChatConnection } = await import(
-		"../src/modules/conversation/useChatConnection.tsx"
+		"../src/modules/conversation/hooks/useChatConnection.tsx"
 	);
 	let handleMessage: ((message: unknown) => void) | undefined;
 	let latestMessages: ChatMessage[] = [];

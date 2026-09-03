@@ -11,7 +11,7 @@ import {
 	parseDockTree,
 	reconcileDockTree,
 	resizeDockSplit,
-} from "../src/modules/workbench/workbench-layout.ts";
+} from "../src/modules/workbench/model/workbench-layout.ts";
 
 describe("workspace dock model", () => {
 	test("builds and reconciles layouts without losing panels", () => {

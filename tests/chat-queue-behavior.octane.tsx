@@ -65,7 +65,7 @@ test("queued messages hydrate from file-backed queue and ignore legacy localStor
 			JSON.stringify([{ id: "old", text: "old", displayText: "old" }]),
 		);
 		const { useAgentChatComposerState } = await import(
-			"../src/modules/conversation/useAgentChatComposerState.tsx"
+			"../src/modules/conversation/hooks/useAgentChatComposerState.tsx"
 		);
 		function Harness() {
 			const state = useAgentChatComposerState("pane-stale");
@@ -100,7 +100,7 @@ test("hidden composer state does not hydrate file-backed queues", async () => {
 	const { root } = setupDom();
 	try {
 		const { useAgentChatComposerState } = await import(
-			"../src/modules/conversation/useAgentChatComposerState.tsx"
+			"../src/modules/conversation/hooks/useAgentChatComposerState.tsx"
 		);
 		function Harness({ enabled }: { enabled: boolean }) {
 			useAgentChatComposerState("pane-hidden-queue", enabled);
@@ -139,7 +139,7 @@ test("visible composer keeps newer queue mirror while stale fetch resolves", asy
 	const { root, rootElement } = setupDom();
 	try {
 		const { useAgentChatComposerState } = await import(
-			"../src/modules/conversation/useAgentChatComposerState.tsx"
+			"../src/modules/conversation/hooks/useAgentChatComposerState.tsx"
 		);
 		let replaceQueuedMessages: (messages: TestQueueItem[]) => void = (
 			_messages,
@@ -188,7 +188,7 @@ test("legacy queue storage events do not update server-owned queue mirror", asyn
 	const { root, rootElement } = setupDom();
 	try {
 		const { useAgentChatComposerState } = await import(
-			"../src/modules/conversation/useAgentChatComposerState.tsx"
+			"../src/modules/conversation/hooks/useAgentChatComposerState.tsx"
 		);
 		function Harness() {
 			const state = useAgentChatComposerState("pane-stale-preference");

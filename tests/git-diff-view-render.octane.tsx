@@ -4,7 +4,7 @@ import { describe, expect, test, vi } from "vitest";
 import {
 	type HunkDiff,
 	useGitDiff,
-} from "../src/modules/repository/useGitDiff.tsx";
+} from "../src/modules/repository/hooks/useGitDiff.tsx";
 import { stylexTestTypes } from "./stylex-test-mock.ts";
 
 const mock = Object.assign(vi.fn, {
@@ -92,7 +92,7 @@ async function renderDiff(
 	diff: HunkDiff,
 ) {
 	const { DiffViewer } = await import(
-		"../src/modules/workbench/diff/DiffViewer.tsx"
+		"../src/modules/workbench/diff/components/DiffViewer.tsx"
 	);
 	root.render(
 		<DiffViewer

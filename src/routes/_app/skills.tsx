@@ -2,10 +2,13 @@ import * as stylex from "@octanejs/stylex";
 import { createFileRoute } from "@octanejs/tanstack-router";
 import { useCallback, useEffect, useReducer, useRef, useState } from "octane";
 import { iconSize } from "../../design-system.ts";
-import { PromptDetailPanel } from "../../modules/prompts/PromptDetailPanel.tsx";
-import { filterPrompts } from "../../modules/prompts/prompt-utils.ts";
-import { PROMPT_CATEGORIES, type Prompt } from "../../modules/prompts/types.ts";
-import { usePrompts } from "../../modules/prompts/usePrompts.tsx";
+import { PromptDetailPanel } from "../../modules/prompts/components/PromptDetailPanel.tsx";
+import { usePrompts } from "../../modules/prompts/hooks/usePrompts.tsx";
+import { filterPrompts } from "../../modules/prompts/model/prompt-utils.ts";
+import {
+	PROMPT_CATEGORIES,
+	type Prompt,
+} from "../../modules/prompts/model/types.ts";
 import {
 	listenDocumentEvent,
 	setInputValue,

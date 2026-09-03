@@ -18,15 +18,15 @@ import {
 	readStoredValue,
 } from "../adapters/storage/stored-values.ts";
 import { CLIENT_STORAGE_CHANGED_EVENT } from "../adapters/storage/sync.ts";
-import { AppHeader } from "../app/AppHeader.tsx";
+import { AppHeader } from "../app/components/AppHeader.tsx";
 import {
 	applyAppBackgroundPalette,
 	deriveAppBackgroundPalette,
 	getBuiltInBackgroundPath,
 	loadAppBackgroundSettings,
 	restoreAppTheme,
-} from "../app/background.ts";
-import { applyAppFont, loadAppFontId } from "../app/font.ts";
+} from "../app/model/background.ts";
+import { applyAppFont, loadAppFontId } from "../app/model/font.ts";
 import { WorkspaceSidebar } from "../modules/workspace/index.ts";
 import { listenWindowEvent } from "../shared/lib/react-events.ts";
 import { color, controlSize, layer, radius } from "../tokens.stylex.ts";

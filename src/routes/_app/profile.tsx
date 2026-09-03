@@ -5,36 +5,36 @@ import { fetchJsonOr, sendJsonWithBusy } from "../../adapters/backend/http.ts";
 import { ONBOARDING_DONE_STORAGE_KEY } from "../../adapters/storage/keys.ts";
 import { removeStoredValue } from "../../adapters/storage/stored-values.ts";
 import { iconSize } from "../../design-system.ts";
-import type { AgentAccountProviderStatus } from "../../modules/agents/agent-account-status.ts";
-import { getAgentIcon } from "../../modules/agents/agent-ui.tsx";
+import { getAgentIcon } from "../../modules/agents/components/AgentIcon.tsx";
+import type { AgentAccountProviderStatus } from "../../modules/agents/model/agent-account-status.ts";
 import {
 	CODEX_REASONING_LEVELS,
 	getAgentDefinition,
 	loadDefaultChatSettings,
 	saveDefaultChatSettings,
-} from "../../modules/agents/agents.ts";
+} from "../../modules/agents/model/agents.ts";
 import {
 	ProfileGithubEmptyState,
 	ProfileRepoRow,
-} from "../../modules/profile/ProfileGithub.tsx";
+} from "../../modules/profile/components/ProfileGithub.tsx";
 import {
 	ProfileAccountAvatar,
 	ProfileErrorBanner,
 	ProfileSuccessBanner,
-} from "../../modules/profile/ProfileStatus.tsx";
+} from "../../modules/profile/components/ProfileStatus.tsx";
 import {
 	fetchForgeAccounts,
 	fetchGithubRepos,
 	getCachedForgeAccounts,
 	getCachedGithubRepos,
 	invalidateGithubReposCache,
-} from "../../modules/repository/forge/forge-client.ts";
+} from "../../modules/repository/adapters/forge-client.ts";
 import type {
 	ForgeAccount,
 	GithubRepo,
-} from "../../modules/repository/forge/types.ts";
+} from "../../modules/repository/adapters/types.ts";
 import { SettingsContent } from "../../modules/settings/index.ts";
-import { dispatchAgentShellChange } from "../../modules/workspace/workspace-model.ts";
+import { dispatchAgentShellChange } from "../../modules/workspace/model/workspace-model.ts";
 import { useAppInfo } from "../../shared/hooks/useAppInfo.ts";
 import { useQueryResource } from "../../shared/hooks/useQueryResource.tsx";
 import { isActive } from "../../shared/lib/data.ts";

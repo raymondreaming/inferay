@@ -38,18 +38,21 @@ mock.module("../src/adapters/backend/websocket.ts", () => ({
 
 let chatMessageListRenderCount = 0;
 
-mock.module("../src/modules/conversation/ChatMessageList.tsx", () => ({
-	ChatMessageList: memo(
-		({ messages }: { messages: Array<{ content: string }> }) => {
-			chatMessageListRenderCount++;
-			return (
-				<div data-testid="message-list">
-					{messages.map((message) => message.content).join("|")}
-				</div>
-			);
-		},
-	),
-}));
+mock.module(
+	"../src/modules/conversation/components/ChatMessageList.tsx",
+	() => ({
+		ChatMessageList: memo(
+			({ messages }: { messages: Array<{ content: string }> }) => {
+				chatMessageListRenderCount++;
+				return (
+					<div data-testid="message-list">
+						{messages.map((message) => message.content).join("|")}
+					</div>
+				);
+			},
+		),
+	}),
+);
 
 class TestResizeObserver {
 	observe(): void {}
@@ -156,7 +159,7 @@ test("hidden chat panes do not restore legacy localStorage transcripts", async (
 	const { root, rootElement } = setupDom();
 	try {
 		const { AgentChatView } = await import(
-			"../src/modules/conversation/AgentChatView.tsx"
+			"../src/modules/conversation/components/AgentChatView.tsx"
 		);
 		localStorage.setItem(
 			"inferay-chat-pane-deferred-visible-load",
@@ -213,10 +216,10 @@ test("draft typing does not re-render long chat message list", async () => {
 	const { root, rootElement } = setupDom();
 	try {
 		const { getChatMessageReadModel } = await import(
-			"../src/modules/conversation/chat-session-store.ts"
+			"../src/modules/conversation/model/chat-session-store.ts"
 		);
 		const { AgentChatView } = await import(
-			"../src/modules/conversation/AgentChatView.tsx"
+			"../src/modules/conversation/components/AgentChatView.tsx"
 		);
 		const paneId = "pane-long-draft-performance";
 		getChatMessageReadModel(paneId).set(
@@ -265,7 +268,7 @@ test("sending a message keeps the chat pane mounted", async () => {
 	const { root, rootElement } = setupDom();
 	try {
 		const { AgentChatView } = await import(
-			"../src/modules/conversation/AgentChatView.tsx"
+			"../src/modules/conversation/components/AgentChatView.tsx"
 		);
 		root.render(
 			<AgentChatView

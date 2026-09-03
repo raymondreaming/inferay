@@ -17,29 +17,29 @@ import {
 import {
 	DEFAULT_APP_BACKGROUND_SETTINGS,
 	saveAppBackgroundSettings,
-} from "../app/background.ts";
-import { DEFAULT_APP_ROUTE } from "../app/navigation.tsx";
+} from "../app/model/background.ts";
+import { DEFAULT_APP_ROUTE } from "../app/model/navigation.tsx";
 import {
 	APP_REGION_DRAG_CLASS,
 	applyAppTheme,
 	loadAppThemeId,
 	saveAppThemeId,
-} from "../app/theme.ts";
+} from "../app/model/theme.ts";
 import { iconSize } from "../design-system.ts";
 import {
 	fetchForgeAccounts,
 	fetchGithubRepos,
 	invalidateForgeAccountsCache,
-} from "../modules/repository/forge/forge-client.ts";
+} from "../modules/repository/adapters/forge-client.ts";
 import type {
 	ForgeAccount,
 	GithubRepo,
-} from "../modules/repository/forge/types.ts";
+} from "../modules/repository/adapters/types.ts";
 import {
 	createDefaultAgentState,
 	loadCanonicalAgentState,
 	saveSyncedAgentState,
-} from "../modules/workspace/workspace-model.ts";
+} from "../modules/workspace/model/workspace-model.ts";
 import { useQueryResource } from "../shared/hooks/useQueryResource.tsx";
 import { lacksValue } from "../shared/lib/data.ts";
 import { Button } from "../shared/ui/Button.tsx";

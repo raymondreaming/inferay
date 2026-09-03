@@ -3,7 +3,7 @@ import { shouldSyncClientStorageKey } from "../src/adapters/storage/keys.ts";
 import {
 	createAgentPane,
 	normalizeAgentState,
-} from "../src/modules/workspace/workspace-model.ts";
+} from "../src/modules/workspace/model/workspace-model.ts";
 
 describe("app persistence restore flow", () => {
 	test("syncs the complete workspace layout through native storage", () => {

@@ -92,7 +92,7 @@ test("sending an optimistic message renders the real virtualized list", async ()
 	const { root, rootElement } = setupDom();
 	try {
 		const { AgentChatView } = await import(
-			"../src/modules/conversation/AgentChatView.tsx"
+			"../src/modules/conversation/components/AgentChatView.tsx"
 		);
 		root.render(
 			<AgentChatView

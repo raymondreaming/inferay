@@ -1,9 +1,9 @@
-export { ChangesPanel } from "./changes/ChangesPanel.tsx";
-export { DiffViewer } from "./diff/DiffViewer.tsx";
-export { DocumentViewer } from "./documents/DocumentViewer.tsx";
-export { CommitGraph } from "./graph/CommitGraph.tsx";
-export { useRepositoryWorkbench } from "./Workbench.tsx";
+export { ChangesPanel } from "./changes/components/ChangesPanel.tsx";
+export { DiffViewer } from "./diff/components/DiffViewer.tsx";
+export { DocumentViewer } from "./documents/components/DocumentViewer.tsx";
+export { CommitGraph } from "./graph/components/CommitGraph.tsx";
+export { useRepositoryWorkbench } from "./hooks/useRepositoryWorkbench.tsx";
 export type {
 	GitWorkspaceDetachedFilePanel,
 	GitWorkspacePanelSession,
-} from "./workbench-model.ts";
+} from "./model/workbench-model.ts";

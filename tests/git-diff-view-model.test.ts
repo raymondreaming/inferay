@@ -7,7 +7,7 @@ import {
 	hasLongPatchLine,
 	shouldDisableDiffTokenization,
 	summarizeHunkDiff,
-} from "../src/modules/repository/useGitDiff.tsx";
+} from "../src/modules/repository/hooks/useGitDiff.tsx";
 import { shouldDisableSnippetHighlighting } from "../src/shared/hooks/useShikiHighlighter.tsx";
 
 function line(type: DiffLine["type"], content: string, number = 1): DiffLine {

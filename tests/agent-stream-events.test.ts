@@ -2,13 +2,13 @@ import { describe, expect, test } from "bun:test";
 import {
 	getToolBlockInitialContent,
 	stringifyToolInput,
-} from "../src/modules/conversation/agent-chat-shared.ts";
-import { extractToolActivities } from "../src/modules/conversation/chat-agent-utils.ts";
+} from "../src/modules/conversation/model/agent-chat-shared.ts";
+import { extractToolActivities } from "../src/modules/conversation/model/chat-agent-utils.ts";
 import {
 	getToolDisplayInfo,
 	getToolOutputSummary,
 	getToolTrailingOutput,
-} from "../src/modules/conversation/chat-message-render-utils.ts";
+} from "../src/modules/conversation/model/chat-message-render-utils.ts";
 
 describe("agent stream rendering", () => {
 	test("preserves tool input included on content_block_start", () => {

@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@octanejs/tanstack-router";
 import { useEffect } from "octane";
 import { ONBOARDING_DONE_STORAGE_KEY } from "../adapters/storage/keys.ts";
 import { readStoredBoolean } from "../adapters/storage/stored-values.ts";
-import { DEFAULT_APP_ROUTE } from "../app/navigation.tsx";
+import { DEFAULT_APP_ROUTE } from "../app/model/navigation.tsx";
 
 export const Route = createFileRoute("/")({ component: IndexRoute });
 

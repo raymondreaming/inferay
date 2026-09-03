@@ -1,3 +1,3 @@
-export { Explorer } from "./Explorer.tsx";
-export type { FileSearchResult } from "./FileSearch.tsx";
-export { FileSearch } from "./FileSearch.tsx";
+export { Explorer } from "./components/Explorer.tsx";
+export type { FileSearchResult } from "./components/FileSearch.tsx";
+export { FileSearch } from "./components/FileSearch.tsx";

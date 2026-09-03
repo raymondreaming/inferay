@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveGitAuthorAvatar } from "../src/modules/repository/git-avatar.ts";
+import { resolveGitAuthorAvatar } from "../src/modules/repository/model/git-avatar.ts";
 import {
 	adjacentCommitOnBranch,
 	buildGraphConnectionPath,
@@ -13,13 +13,13 @@ import {
 	nearestContainingBranches,
 	nextGitGraphHistoryLimit,
 	pinnedGraphColumnOrder,
-} from "../src/modules/workbench/graph/model.ts";
+} from "../src/modules/workbench/graph/model/graph-model.ts";
 import {
 	createInteractiveRebasePlan,
 	moveInteractiveRebaseStep,
 	updateInteractiveRebaseStep,
 	validateInteractiveRebasePlan,
-} from "../src/modules/workbench/graph/rebase-model.ts";
+} from "../src/modules/workbench/graph/model/rebase-model.ts";
 
 describe("Git graph presentation model", () => {
 	test("collects only the selected ref's loaded ancestry", () => {

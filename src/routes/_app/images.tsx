@@ -4,13 +4,13 @@ import { useCallback, useMemo, useState } from "octane";
 import { fetchJsonOr } from "../../adapters/backend/http.ts";
 import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../adapters/storage/keys.ts";
 import { writeStoredValue } from "../../adapters/storage/stored-values.ts";
-import { DEFAULT_APP_ROUTE } from "../../app/navigation.tsx";
+import { DEFAULT_APP_ROUTE } from "../../app/model/navigation.tsx";
 import { iconSize } from "../../design-system.ts";
-import { savePendingSend } from "../../modules/conversation/chat-session-store.ts";
+import { savePendingSend } from "../../modules/conversation/model/chat-session-store.ts";
 import {
 	dispatchAgentShellChange,
 	mutateAgentWorkspaceState,
-} from "../../modules/workspace/workspace-model.ts";
+} from "../../modules/workspace/model/workspace-model.ts";
 import { useQueryResource } from "../../shared/hooks/useQueryResource.tsx";
 import { formatBytes } from "../../shared/lib/format.ts";
 import { setInputValue } from "../../shared/lib/react-events.ts";

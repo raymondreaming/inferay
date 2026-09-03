@@ -3,21 +3,21 @@ set -euo pipefail
 
 echo "==> Biome focused architecture lint"
 bunx biome lint \
-	src/modules/conversation/AgentChatView.tsx \
-	src/modules/conversation/ChatMessageList.tsx \
-	src/modules/conversation/useAgentChatComposerState.tsx \
-	src/modules/conversation/useChatConnection.tsx \
-	src/modules/conversation/useChatInputActions.tsx \
-	src/modules/conversation/chat-state-utils.ts \
-	src/modules/conversation/agent-chat-shared.ts \
-	src/modules/conversation/chat-session-store.ts \
-	src/modules/workbench/useFileWatcher.tsx \
-	src/modules/repository/useGitDiff.tsx \
-	src/modules/workspace/workspace-model.ts \
+	src/modules/conversation/components/AgentChatView.tsx \
+	src/modules/conversation/components/ChatMessageList.tsx \
+	src/modules/conversation/hooks/useAgentChatComposerState.tsx \
+	src/modules/conversation/hooks/useChatConnection.tsx \
+	src/modules/conversation/hooks/useChatInputActions.tsx \
+	src/modules/conversation/model/chat-state-utils.ts \
+	src/modules/conversation/model/agent-chat-shared.ts \
+	src/modules/conversation/model/chat-session-store.ts \
+	src/modules/workbench/hooks/useFileWatcher.tsx \
+	src/modules/repository/hooks/useGitDiff.tsx \
+	src/modules/workspace/model/workspace-model.ts \
 	src/shared/hooks/useShikiHighlighter.tsx \
-	src/modules/workbench/diff/DiffViewer.tsx \
-	src/modules/workspace/WorkspaceCanvas.tsx \
-	src/modules/workspace/PaneView.tsx \
+	src/modules/workbench/diff/components/DiffViewer.tsx \
+	src/modules/workspace/components/WorkspaceCanvas.tsx \
+	src/modules/workspace/components/PaneView.tsx \
 	src/routes/_app/agent.tsx \
 	tests/agent-chat-view-visibility.octane.tsx \
 	tests/agent-inline-diff-parity.test.ts \

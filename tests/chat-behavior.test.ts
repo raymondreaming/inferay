@@ -8,17 +8,17 @@ import {
 	type ToolActivity,
 	trimMessages,
 	truncateChatContent,
-} from "../src/modules/conversation/agent-chat-shared.ts";
+} from "../src/modules/conversation/model/agent-chat-shared.ts";
 import {
 	appendLiveToolActivity,
 	clearCompletedChatUiState,
-} from "../src/modules/conversation/chat-agent-utils.ts";
+} from "../src/modules/conversation/model/chat-agent-utils.ts";
 import {
 	applyInlineCompletion,
 	expandInlineCommandPrompts,
 	getCommandDisplayText,
 	getCommandPrompt,
-} from "../src/modules/conversation/chat-command-utils.ts";
+} from "../src/modules/conversation/model/chat-command-utils.ts";
 import {
 	appendBtwQuestionMessage,
 	appendMessageContent,
@@ -31,16 +31,16 @@ import {
 	mergeSyncedMessages,
 	patchMessageById,
 	windowChatMessagesForRender,
-} from "../src/modules/conversation/chat-state-utils.ts";
-import { parseMarkdownBlocks } from "../src/modules/conversation/chat-text.ts";
+} from "../src/modules/conversation/model/chat-state-utils.ts";
+import { parseMarkdownBlocks } from "../src/modules/conversation/model/chat-text.ts";
 import {
 	parseCommandSystemMessage,
 	serializeCommandSystemMessage,
-} from "../src/modules/conversation/command-system-message.ts";
+} from "../src/modules/conversation/model/command-system-message.ts";
 import {
 	parseGoalSystemMessage,
 	serializeGoalSystemMessage,
-} from "../src/modules/conversation/goal-system-message.ts";
+} from "../src/modules/conversation/model/goal-system-message.ts";
 
 function message(
 	id: string,

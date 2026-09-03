@@ -20,10 +20,13 @@ import {
 	type AgentMainView,
 	DEFAULT_AGENT_MAIN_VIEW,
 	isAgentMainView,
-} from "../../app/navigation.tsx";
-import { loadAppThemeId, mapAppThemeToAgentTheme } from "../../app/theme.ts";
-import type { AgentChatHandle } from "../../modules/conversation/AgentChatView.tsx";
-import { clearAgentChatPaneState } from "../../modules/conversation/chat-session-store.ts";
+} from "../../app/model/navigation.tsx";
+import {
+	loadAppThemeId,
+	mapAppThemeToAgentTheme,
+} from "../../app/model/theme.ts";
+import type { AgentChatHandle } from "../../modules/conversation/components/AgentChatView.tsx";
+import { clearAgentChatPaneState } from "../../modules/conversation/model/chat-session-store.ts";
 import { useRepositoryWorkbench } from "../../modules/workbench/index.ts";
 import { WorkspaceCanvas } from "../../modules/workspace/index.ts";
 import {
@@ -56,7 +59,7 @@ import {
 	saveSyncedAgentState,
 	syncAgentLayoutMode,
 	type ThemeId,
-} from "../../modules/workspace/workspace-model.ts";
+} from "../../modules/workspace/model/workspace-model.ts";
 import { hasId } from "../../shared/lib/data.ts";
 import {
 	listenWindowEvent,

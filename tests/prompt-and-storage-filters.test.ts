@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { filterPrompts } from "../src/modules/prompts/prompt-utils.ts";
+import { filterPrompts } from "../src/modules/prompts/model/prompt-utils.ts";
 
 describe("prompt search filters", () => {
 	/*

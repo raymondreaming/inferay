@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { DiffLine } from "../src/modules/repository/useGitDiff.tsx";
+import type { DiffLine } from "../src/modules/repository/hooks/useGitDiff.tsx";
 import {
 	alignDiffLines,
 	buildInlineHunkLines,
 	buildMinimapSegments,
-} from "../src/modules/workbench/diff/diff-lines.ts";
+} from "../src/modules/workbench/diff/model/diff-lines.ts";
 
 describe("diff line model", () => {
 	test("aligns panes without changing existing rows", () => {
