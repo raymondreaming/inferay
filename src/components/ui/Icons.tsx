@@ -84,6 +84,7 @@ export const {
 	IconSend,
 	IconHelpCircle,
 	IconArrowDown,
+	IconArrowUp,
 	IconTag,
 	IconCloud,
 	IconPanelLeft,
@@ -182,6 +183,7 @@ export const {
 		"M12 17h.01",
 	]),
 	IconArrowDown: icon(["M12 2v20", "M5 15l7 7 7-7"]),
+	IconArrowUp: icon(["M12 22V2", "M5 9l7-7 7 7"]),
 	IconTag: icon(["M2 12l10 10 10-10-10-10H2z", "M7 7h.01"]),
 	IconCloud: icon([
 		"M7 18h10a4 4 0 0 0 0-8 5 5 0 0 0-9.7-1.5A3.5 3.5 0 0 0 7 18z",
@@ -323,7 +325,6 @@ export function CommitGraphLinesLayer({
 	buildConnection,
 	buildConvergence,
 	lineWidth,
-	underlayColor,
 }: {
 	width: number;
 	height: number;
@@ -371,7 +372,6 @@ export function CommitGraphLinesLayer({
 		color: string;
 	}) => string;
 	lineWidth: number;
-	underlayColor: string;
 }) {
 	return (
 		<svg
@@ -409,14 +409,6 @@ export function CommitGraphLinesLayer({
 					key={`${transition.row}:${transition.fromCol}:${transition.toCol}:${transition.color}`}
 				>
 					<path
-						d={buildConnection(transition)}
-						stroke={underlayColor}
-						strokeWidth={lineWidth + 2}
-						strokeLinecap="round"
-						strokeLinejoin="round"
-						fill="none"
-					/>
-					<path
 						data-graph-transition="true"
 						d={buildConnection(transition)}
 						stroke={transition.color}
@@ -432,14 +424,6 @@ export function CommitGraphLinesLayer({
 				<g
 					key={`convergence:${transition.row}:${transition.fromCol}:${transition.toCol}:${transition.color}`}
 				>
-					<path
-						d={buildConvergence(transition)}
-						stroke={underlayColor}
-						strokeWidth={lineWidth + 2}
-						strokeLinecap="round"
-						strokeLinejoin="round"
-						fill="none"
-					/>
 					<path
 						data-graph-convergence="true"
 						d={buildConvergence(transition)}

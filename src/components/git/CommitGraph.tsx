@@ -7,7 +7,10 @@ import {
 	useRef,
 	useState,
 } from "octane";
-import { resolveGitAuthorAvatar } from "../../features/git/git-avatar.ts";
+import {
+	resolveGitAuthorAvatar,
+	resolveGitCommitAvatars,
+} from "../../features/git/git-avatar.ts";
 import {
 	adjacentCommitOnBranch,
 	buildGraphConnectionPath,
@@ -36,7 +39,6 @@ import {
 	controlSize,
 	font,
 	layer,
-	motion,
 	palette,
 	radius,
 	shadow,
@@ -226,6 +228,7 @@ function authorInitials(name?: string | null) {
 function AuthorAvatar({
 	name,
 	email,
+	githubAvatar,
 	color,
 	left,
 	top,
@@ -233,6 +236,7 @@ function AuthorAvatar({
 }: {
 	name?: string | null;
 	email?: string | null;
+	githubAvatar?: string | null;
 	color: string;
 	left: number;
 	top: number;
@@ -244,7 +248,9 @@ function AuthorAvatar({
 		let current = true;
 		setUrl(null);
 		setFailed(false);
-		if (!stash) {
+		if (githubAvatar !== undefined) {
+			setUrl(githubAvatar);
+		} else if (!stash) {
 			void resolveGitAuthorAvatar(email, name).then((next) => {
 				if (current) setUrl(next);
 			});
@@ -252,7 +258,7 @@ function AuthorAvatar({
 		return () => {
 			current = false;
 		};
-	}, [email, name, stash]);
+	}, [email, githubAvatar, name, stash]);
 	return (
 		<span
 			aria-hidden="true"
@@ -497,12 +503,11 @@ function RefBadge({
 			onBlur={() => setHovered(false)}
 			{...stylex.props(styles.refBadge, ghost && styles.ghostRefBadge)}
 			style={{
-				border: `1px ${ghost ? "dashed" : "solid"} ${hexToRgba(color, hovered ? 0.4 : ghost ? 0.32 : 0.16)}`,
-				backgroundColor: hexToRgba(
-					color,
-					hovered ? 0.24 : ghost ? 0.055 : 0.14,
-				),
-				color,
+				border: "none",
+				backgroundColor: ghost
+					? hexToRgba(color, hovered ? 0.18 : 0.055)
+					: hexToRgba(color, hovered ? 0.75 : 0.5),
+				color: ghost ? color : palette.white,
 			}}
 		>
 			{kind !== "remoteBranch" ? <RefIcon kind={kind} /> : null}
@@ -680,7 +685,7 @@ function HeaderRow({
 			: columns[column];
 	const labels: Record<ColumnKey, string> = {
 		date: "Commit date / time",
-		refs: "Branch / tag",
+		refs: "Branch",
 		graph: "Graph",
 		message: "Commit message",
 		author: "Author",
@@ -818,6 +823,7 @@ const CommitRow = memo(function CommitRow({
 	order,
 	virtualTop,
 	searchMatch,
+	githubAvatar,
 }: {
 	commit: GraphNode;
 	worktree?: GitWorktree;
@@ -838,6 +844,7 @@ const CommitRow = memo(function CommitRow({
 	order: ColumnKey[];
 	virtualTop: number;
 	searchMatch: boolean;
+	githubAvatar?: string | null;
 }) {
 	const [rowActive, setRowActive] = useState(false);
 	const nodeLeft =
@@ -925,7 +932,6 @@ const CommitRow = memo(function CommitRow({
 			style={{
 				height: ROW_HEIGHT,
 				transform: `translateY(${virtualTop}px)`,
-				backgroundColor: selected ? "rgba(35, 67, 112, 0.55)" : undefined,
 				opacity: searchMatch && historyMatch ? 1 : 0.22,
 			}}
 			onClick={(event) =>
@@ -954,7 +960,7 @@ const CommitRow = memo(function CommitRow({
 					top: nodeTop,
 					height: AVATAR_SIZE,
 					backgroundColor: selected
-						? "transparent"
+						? "rgba(35, 67, 112, 0.55)"
 						: hexToRgba(commit.color, rowActive ? 0.42 : 0.1),
 				}}
 			/>
@@ -1055,6 +1061,7 @@ const CommitRow = memo(function CommitRow({
 									<AuthorAvatar
 										name={commit.author}
 										email={commit.authorEmail}
+										githubAvatar={githubAvatar}
 										color={commit.color}
 										left={nodeLeft}
 										top={nodeTop}
@@ -1182,6 +1189,29 @@ export const CommitGraph = memo(function CommitGraph({
 		() => loadPreferences(repositoryKey).pinnedRefs,
 	);
 	const [isColumnsOpen, setIsColumnsOpen] = useState(false);
+	const [commitAvatars, setCommitAvatars] = useState<
+		Record<string, string | null>
+	>({});
+	const avatarHashes = useMemo(
+		() =>
+			commits
+				.filter((commit) => commit.itemKind === "commit")
+				.slice(0, 100)
+				.map((commit) => commit.hash),
+		[commits],
+	);
+	useEffect(() => {
+		let current = true;
+		if (!repositoryKey || avatarHashes.length === 0) return;
+		void resolveGitCommitAvatars(repositoryKey, avatarHashes).then(
+			(avatars) => {
+				if (current) setCommitAvatars(avatars);
+			},
+		);
+		return () => {
+			current = false;
+		};
+	}, [avatarHashes, repositoryKey]);
 	const scrollerRef = useRef<HTMLDivElement | null>(null);
 	const scrollWriteTimerRef = useRef<number | null>(null);
 	const scrollPositionRef = useRef({ top: 0, left: 0 });
@@ -1681,6 +1711,18 @@ export const CommitGraph = memo(function CommitGraph({
 					onLoadMore();
 				}
 			}}
+			onWheel={(event) => {
+				if (
+					event.target instanceof Element &&
+					event.target.closest('[role="menu"]')
+				)
+					return;
+				if (event.cancelable) event.preventDefault();
+				const scroller = event.currentTarget;
+				scroller.scrollTop += event.deltaY;
+				scroller.scrollLeft += event.deltaX;
+				rememberScroll(scroller.scrollTop, scroller.scrollLeft);
+			}}
 			onKeyDown={navigateRows}
 		>
 			<HeaderRow
@@ -1723,7 +1765,6 @@ export const CommitGraph = memo(function CommitGraph({
 				buildConnection={connectionPath}
 				buildConvergence={convergencePath}
 				lineWidth={LINE_WIDTH}
-				underlayColor={color.background}
 			/>
 
 			{/* Rows layer — avatar nodes sit on top of lines */}
@@ -1765,6 +1806,7 @@ export const CommitGraph = memo(function CommitGraph({
 							order={order}
 							virtualTop={logicalIndex * ROW_HEIGHT}
 							searchMatch={matchingHashes.has(commit.id)}
+							githubAvatar={commitAvatars[commit.hash] ?? undefined}
 						/>
 					);
 				})}
@@ -2006,7 +2048,6 @@ export const CommitGraph = memo(function CommitGraph({
 							setSoloRefs((current) =>
 								current.filter((value) => value !== fullName),
 							);
-							setHoveredRef(null);
 							setRefContextMenu(null);
 						}}
 						{...stylex.props(styles.refContextItem)}
@@ -2514,10 +2555,7 @@ const styles = stylex.create({
 		font: "inherit",
 		padding: controlSize._0,
 		textAlign: "left",
-		transitionProperty: "background-color",
-		transitionDuration: motion.durationFast,
 		":focus-visible": {
-			backgroundColor: color.controlHover,
 			boxShadow: `inset 0 0 0 1px ${color.borderStrong}`,
 		},
 	},
@@ -2542,7 +2580,7 @@ const styles = stylex.create({
 		minWidth: controlSize._1,
 		flex: 1,
 		height: "1px",
-		opacity: 0.32,
+		opacity: 1,
 		marginRight: "-0.5rem",
 	},
 	graphCell: {
@@ -2562,7 +2600,7 @@ const styles = stylex.create({
 		left: controlSize._0,
 		top: "50%",
 		height: "1px",
-		opacity: 0.5,
+		opacity: 1,
 		transform: "translateY(-0.5px)",
 		zIndex: layer.content,
 	},

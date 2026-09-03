@@ -6,6 +6,7 @@ import {
 	type WorkspaceFileOpenDetail,
 } from "../../features/files/workspace-file-events.ts";
 import {
+	GIT_FILE_VIEW_MODE_STORAGE_KEY,
 	loadGitFileViewMode,
 	saveGitFileViewMode,
 } from "../../features/git/file-view-preference.ts";
@@ -56,7 +57,9 @@ import {
 	useGitGraph,
 } from "../../features/git/useGitGraph.tsx";
 import { useGitStatus } from "../../features/git/useGitStatus.tsx";
+import { CLIENT_STORAGE_CHANGED_EVENT } from "../../lib/client-storage-sync.ts";
 import { postJson } from "../../lib/fetch-json.ts";
+import { basename } from "../../lib/format.ts";
 import { lockPointerSelection } from "../../lib/pointer-selection-lock.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
 import {
@@ -93,10 +96,13 @@ import {
 } from "../git/CommitGraph.tsx";
 import { LiquidSegmentedRail } from "../ui/gooey/LiquidSegmentedRail.tsx";
 import {
+	IconArrowDown,
+	IconArrowUp,
 	IconCollapse,
 	IconExpand,
 	IconGitBranch,
 	IconLayoutGrid,
+	IconRefreshCw,
 	IconX,
 } from "../ui/Icons.tsx";
 import { WorkspaceDockHandle } from "./WorkspaceDockHandle.tsx";
@@ -846,117 +852,126 @@ function ChatDiffPanel({
 					</span>
 				) : null}
 				{mainViewMode === "graph" ? (
-					<span {...stylex.props(styles.viewerTitle)}>
-						<strong {...stylex.props(styles.viewerFileName)}>
-							Repository graph
-						</strong>
-						{graphLoading && graph.commits.length > 0 ? (
-							<small aria-live="polite" {...stylex.props(styles.viewerRefresh)}>
-								Refreshing…
-							</small>
-						) : null}
-					</span>
+					repositoryKey ? (
+						<span title={repositoryKey} {...stylex.props(styles.viewerTitle)}>
+							<strong {...stylex.props(styles.viewerFileName)}>
+								{basename(repositoryKey)}
+							</strong>
+						</span>
+					) : null
 				) : file ? (
 					<DiffFilePath path={file.path} />
 				) : null}
 				{mainViewMode === "graph" ? (
 					<div {...stylex.props(styles.graphSyncActions)}>
-						{(["fetch", "pull", "push"] as const).map((action) => (
-							<button
-								key={action}
-								type="button"
-								disabled={graphActionRunning}
-								onClick={() =>
-									requestGraphAction({ action, itemId: "repository" })
-								}
-								title={`${action[0]!.toLocaleUpperCase()}${action.slice(1)} repository`}
-								{...stylex.props(styles.graphSyncButton)}
-							>
-								{action}
-							</button>
-						))}
+						{(["fetch", "pull", "push"] as const).map((action) => {
+							const ActionIcon =
+								action === "fetch"
+									? IconRefreshCw
+									: action === "pull"
+										? IconArrowDown
+										: IconArrowUp;
+							const label = `${action[0]!.toLocaleUpperCase()}${action.slice(1)} repository`;
+							return (
+								<button
+									key={action}
+									type="button"
+									disabled={graphActionRunning}
+									onClick={() =>
+										requestGraphAction({ action, itemId: "repository" })
+									}
+									title={label}
+									aria-label={label}
+									{...stylex.props(styles.graphSyncButton)}
+								>
+									<ActionIcon size={iconSize.compact} />
+								</button>
+							);
+						})}
 					</div>
 				) : null}
-				<div
-					{...stylex.props(styles.viewerModes)}
-					onMouseLeave={() => setHoveredModeIndex(null)}
-				>
-					<LiquidSegmentedRail
-						activeIndex={hoveredModeIndex ?? activeModeIndex}
-						itemCount={3}
-						radius={4}
-					/>
-					<button
-						type="button"
-						onMouseEnter={() => setHoveredModeIndex(0)}
-						onPointerDown={(event) => {
-							if (event.button === 0 && event.isPrimary) {
-								onMainViewModeChange("diff");
-								onViewModeChange("split");
-							}
-						}}
-						onClick={(event) => {
-							if (event.detail === 0) {
-								onMainViewModeChange("diff");
-								onViewModeChange("split");
-							}
-						}}
-						title="Full file diff"
-						aria-label="Full file diff"
-						{...stylex.props(
-							styles.viewerModeButton,
-							viewMode === "split" && styles.viewerModeButtonActive,
-						)}
+				{mainViewMode !== "graph" ? (
+					<div
+						{...stylex.props(styles.viewerModes)}
+						onMouseLeave={() => setHoveredModeIndex(null)}
 					>
-						<IconLayoutGrid size={iconSize.compact} />
-					</button>
-					<button
-						type="button"
-						onMouseEnter={() => setHoveredModeIndex(1)}
-						onPointerDown={(event) => {
-							if (event.button === 0 && event.isPrimary) {
-								onMainViewModeChange("diff");
-								onViewModeChange("hunks");
-							}
-						}}
-						onClick={(event) => {
-							if (event.detail === 0) {
-								onMainViewModeChange("diff");
-								onViewModeChange("hunks");
-							}
-						}}
-						title="Hunk view"
-						aria-label="Hunk view"
-						{...stylex.props(
-							styles.viewerModeButton,
-							viewMode === "hunks" && styles.viewerModeButtonActive,
-						)}
-					>
-						<IconGitBranch size={iconSize.compact} />
-					</button>
-					<button
-						type="button"
-						onMouseEnter={() => setHoveredModeIndex(2)}
-						onPointerDown={(event) => {
-							if (event.button === 0 && event.isPrimary) onToggleZenMode();
-						}}
-						onClick={(event) => {
-							if (event.detail === 0) onToggleZenMode();
-						}}
-						title={zenMode ? "Exit focus mode" : "Focus workspace"}
-						aria-label={zenMode ? "Exit focus mode" : "Focus workspace"}
-						{...stylex.props(
-							styles.viewerModeButton,
-							zenMode && styles.viewerModeButtonActive,
-						)}
-					>
-						{zenMode ? (
-							<IconCollapse size={iconSize.compact} />
-						) : (
-							<IconExpand size={iconSize.compact} />
-						)}
-					</button>
-				</div>
+						<LiquidSegmentedRail
+							activeIndex={hoveredModeIndex ?? activeModeIndex}
+							itemCount={3}
+							radius={4}
+						/>
+						<button
+							type="button"
+							onMouseEnter={() => setHoveredModeIndex(0)}
+							onPointerDown={(event) => {
+								if (event.button === 0 && event.isPrimary) {
+									onMainViewModeChange("diff");
+									onViewModeChange("split");
+								}
+							}}
+							onClick={(event) => {
+								if (event.detail === 0) {
+									onMainViewModeChange("diff");
+									onViewModeChange("split");
+								}
+							}}
+							title="Full file diff"
+							aria-label="Full file diff"
+							{...stylex.props(
+								styles.viewerModeButton,
+								viewMode === "split" && styles.viewerModeButtonActive,
+							)}
+						>
+							<IconLayoutGrid size={iconSize.compact} />
+						</button>
+						<button
+							type="button"
+							onMouseEnter={() => setHoveredModeIndex(1)}
+							onPointerDown={(event) => {
+								if (event.button === 0 && event.isPrimary) {
+									onMainViewModeChange("diff");
+									onViewModeChange("hunks");
+								}
+							}}
+							onClick={(event) => {
+								if (event.detail === 0) {
+									onMainViewModeChange("diff");
+									onViewModeChange("hunks");
+								}
+							}}
+							title="Hunk view"
+							aria-label="Hunk view"
+							{...stylex.props(
+								styles.viewerModeButton,
+								viewMode === "hunks" && styles.viewerModeButtonActive,
+							)}
+						>
+							<IconGitBranch size={iconSize.compact} />
+						</button>
+						<button
+							type="button"
+							onMouseEnter={() => setHoveredModeIndex(2)}
+							onPointerDown={(event) => {
+								if (event.button === 0 && event.isPrimary) onToggleZenMode();
+							}}
+							onClick={(event) => {
+								if (event.detail === 0) onToggleZenMode();
+							}}
+							title={zenMode ? "Exit focus mode" : "Focus workspace"}
+							aria-label={zenMode ? "Exit focus mode" : "Focus workspace"}
+							{...stylex.props(
+								styles.viewerModeButton,
+								zenMode && styles.viewerModeButtonActive,
+							)}
+						>
+							{zenMode ? (
+								<IconCollapse size={iconSize.compact} />
+							) : (
+								<IconExpand size={iconSize.compact} />
+							)}
+						</button>
+					</div>
+				) : null}
 				<button
 					type="button"
 					onPointerDown={(event) => {
@@ -1533,16 +1548,34 @@ export function useChatWorkspaceTools({
 			setPanelField("selectedFile", value),
 		[setPanelField],
 	);
-	const setSelectedCommitParent = useCallback(
-		(value: StateValue<string | null>) =>
-			setPanelField("selectedCommitParent", value),
-		[setPanelField],
-	);
 	const setMainViewMode = useCallback(
 		(value: "diff" | "graph") => setPanelField("mainViewMode", value),
 		[setPanelField],
 	);
 	const [fileViewMode, setFileViewModeState] = useState(loadGitFileViewMode);
+	useEffect(() => {
+		const applyStoredMode = (value: string | null) => {
+			if (value === "path" || value === "tree") setFileViewModeState(value);
+		};
+		const stopLocalSync = listenWindowEvent(
+			CLIENT_STORAGE_CHANGED_EVENT,
+			(event) => {
+				const detail = (
+					event as CustomEvent<{ key?: string; value?: string | null }>
+				).detail;
+				if (detail?.key === GIT_FILE_VIEW_MODE_STORAGE_KEY)
+					applyStoredMode(detail.value ?? null);
+			},
+		);
+		const stopWindowSync = listenWindowEvent("storage", (event) => {
+			if (event.key === GIT_FILE_VIEW_MODE_STORAGE_KEY)
+				applyStoredMode(event.newValue);
+		});
+		return () => {
+			stopLocalSync();
+			stopWindowSync();
+		};
+	}, []);
 	const [sidebarVisible, setSidebarVisible] = useState(loadSidebarVisible);
 	const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
 	const [diffWidth, setDiffWidth] = useState(() => loadDiffWidth(workspaceId));
@@ -2459,7 +2492,6 @@ export function useChatWorkspaceTools({
 						commitDetailsError={commitDetailsState.error}
 						comparisonDetailsLoading={comparisonDetailsState.loading}
 						comparisonDetails={comparisonDetailsState.details}
-						onCommitParentChange={setSelectedCommitParent}
 						onSelectCommitFile={selectCommitFile}
 						onSelectComparisonFile={selectComparisonFile}
 						branch={selectedGraphWorktree?.branch ?? project?.branch}
@@ -2618,9 +2650,14 @@ const styles = stylex.create({
 		flexShrink: 0,
 		alignItems: "center",
 		gap: controlSize._0_5,
+		marginLeft: "auto",
 	},
 	graphSyncButton: {
+		display: "flex",
+		width: controlSize._6,
 		height: controlSize._5,
+		alignItems: "center",
+		justifyContent: "center",
 		borderRadius: radius.sm,
 		backgroundColor: {
 			default: color.transparent,
@@ -2630,9 +2667,6 @@ const styles = stylex.create({
 			default: color.textMuted,
 			":hover": color.textSoft,
 		},
-		fontSize: font.size_1,
-		paddingInline: controlSize._2,
-		textTransform: "capitalize",
 		":disabled": {
 			opacity: 0.45,
 		},

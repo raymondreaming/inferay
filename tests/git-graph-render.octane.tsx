@@ -293,7 +293,7 @@ describe("Git commit graph renderer", () => {
 				.filter((text) =>
 					[
 						"Commit date / time",
-						"Branch / tag",
+						"Branch",
 						"Graph",
 						"Commit message",
 						"SHA",
@@ -302,7 +302,7 @@ describe("Git commit graph renderer", () => {
 			expect(reorderedHeaders.slice(0, 5)).toEqual([
 				"Commit message",
 				"Commit date / time",
-				"Branch / tag",
+				"Branch",
 				"Graph",
 				"SHA",
 			]);
@@ -357,7 +357,7 @@ describe("Git commit graph renderer", () => {
 		}
 	});
 
-	test("renders GitKraken-style commit identity and opens a historical file", async () => {
+	test("renders concise commit details and opens a historical file", async () => {
 		const { ChangeFileSidebar } = await import(
 			"../src/components/git/ChangeFileSidebar.tsx"
 		);
@@ -428,13 +428,14 @@ describe("Git commit graph renderer", () => {
 				/>,
 			);
 			await new Promise((resolve) => setTimeout(resolve, 30));
-			expect(rootElement.textContent).toContain(`commit ${hash}`);
+			expect(rootElement.textContent).not.toContain(`commit ${hash}`);
 			expect(rootElement.textContent).toContain(
 				"Fix dashboard loading performance",
 			);
-			expect(rootElement.textContent).toContain("Author");
+			expect(rootElement.textContent).not.toContain("Author");
 			expect(rootElement.textContent).toContain("Committer");
-			expect(rootElement.textContent).toContain("1: 25debe6");
+			expect(rootElement.textContent).not.toContain("Diff parent:");
+			expect(rootElement.textContent).not.toContain("GitHub ·");
 			expect(rootElement.textContent).toContain(
 				"src/components/git/CommitGraph.tsx",
 			);
@@ -966,11 +967,20 @@ describe("Git commit graph renderer", () => {
 			expect(
 				rootElement.querySelector('[data-graph-truncated="true"]'),
 			).toBeTruthy();
-			expect(
-				rootElement
-					.querySelector('[data-graph-kind="stash"]')
-					?.getAttribute("aria-selected"),
-			).toBe("true");
+			const selectedStash = rootElement.querySelector(
+				'[data-graph-kind="stash"]',
+			);
+			expect(selectedStash?.getAttribute("aria-selected")).toBe("true");
+			const selectedWash = selectedStash?.querySelector(
+				'[data-graph-row-wash="true"]',
+			) as HTMLElement | null;
+			expect(selectedWash?.style.backgroundColor).toBe(
+				"rgba(35, 67, 112, 0.55)",
+			);
+			expect(selectedWash?.style.left).not.toBe("");
+			expect((selectedStash as HTMLElement | null)?.style.backgroundColor).toBe(
+				"",
+			);
 
 			rootElement
 				.querySelector('[data-graph-item="root"]')

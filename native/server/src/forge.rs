@@ -32,6 +32,7 @@ const TOOL_PATHS: [&str; 6] = [
 pub(super) struct ForgeState {
     accounts_cache: tokio::sync::Mutex<Option<AccountsCache>>,
     repos_cache: tokio::sync::Mutex<Option<ReposCache>>,
+    commit_avatar_cache: tokio::sync::Mutex<HashMap<String, Option<String>>>,
 }
 
 struct AccountsCache {
@@ -104,6 +105,7 @@ pub(super) fn is_route(path: &str, method: &Method) -> bool {
         (path, method),
         ("/api/forge/accounts", &Method::GET)
             | ("/api/forge/repos", &Method::GET)
+            | ("/api/forge/commit-avatars", &Method::POST)
             | ("/api/forge/clone", &Method::POST)
             | ("/api/forge/connect", &Method::POST)
     )
@@ -130,6 +132,36 @@ pub(super) async fn handle_request(state: &ServerState, path: &str, request: Req
             );
             let repos = list_github_repos(state, limit).await;
             json_response(StatusCode::OK, json!({ "repos": repos }), &headers)
+        }
+        "/api/forge/commit-avatars" => {
+            let body: Value = match request_json(request, &headers).await {
+                Ok(body) => body,
+                Err(response) => return response,
+            };
+            let cwd = body.get("cwd").and_then(Value::as_str).unwrap_or_default();
+            let hashes = body
+                .get("hashes")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .filter(|hash| {
+                    (7..=64).contains(&hash.len())
+                        && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+                })
+                .take(100)
+                .map(str::to_string)
+                .collect::<Vec<_>>();
+            let Some(cwd) = state
+                .allowed_paths
+                .resolve_allowed_local_path(PathBuf::from(cwd))
+            else {
+                return bad_request("Repository is outside allowed local roots", &headers);
+            };
+            let avatars = resolve_commit_avatars(state, &cwd, &hashes)
+                .await
+                .unwrap_or_default();
+            json_response(StatusCode::OK, json!({ "avatars": avatars }), &headers)
         }
         "/api/forge/clone" => {
             let body: Value = match request_json(request, &headers).await {
@@ -172,6 +204,92 @@ pub(super) async fn handle_request(state: &ServerState, path: &str, request: Req
         }
         _ => unreachable!("forge handler called for an unknown route"),
     }
+}
+
+async fn resolve_commit_avatars(
+    state: &ServerState,
+    cwd: &Path,
+    hashes: &[String],
+) -> Result<HashMap<String, Option<String>>, CommandError> {
+    if hashes.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let remote = run_git(&["remote", "get-url", "origin"], Some(cwd), 5_000).await?;
+    let (host, owner, repository) =
+        parse_github_remote(remote.trim()).ok_or_else(|| CommandError {
+            message: "Origin is not a GitHub repository".into(),
+            stderr: String::new(),
+        })?;
+    let prefix = format!("{host}/{owner}/{repository}:");
+    let mut result = HashMap::new();
+    let mut missing = Vec::new();
+    {
+        let cache = state.forge_state.commit_avatar_cache.lock().await;
+        for hash in hashes {
+            if let Some(avatar) = cache.get(&format!("{prefix}{hash}")) {
+                result.insert(hash.clone(), avatar.clone());
+            } else {
+                missing.push(hash.clone());
+            }
+        }
+    }
+    if missing.is_empty() {
+        return Ok(result);
+    }
+    let selections = missing
+        .iter()
+        .enumerate()
+        .map(|(index, hash)| {
+            format!("c{index}: object(oid: \"{hash}\") {{ ... on Commit {{ author {{ user {{ avatarUrl }} }} }} }}")
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let query = format!(
+        "query {{ repository(owner: \"{owner}\", name: \"{repository}\") {{ {selections} }} }}"
+    );
+    let output = run_gh(
+        &[
+            "api",
+            "graphql",
+            "--hostname",
+            &host,
+            "-f",
+            &format!("query={query}"),
+        ],
+        20_000,
+    )
+    .await?;
+    let value: Value = serde_json::from_str(&output).map_err(parse_error)?;
+    let repository_data = value.pointer("/data/repository");
+    let mut cache = state.forge_state.commit_avatar_cache.lock().await;
+    for (index, hash) in missing.iter().enumerate() {
+        let avatar = repository_data
+            .and_then(|repo| repo.pointer(&format!("/c{index}/author/user/avatarUrl")))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        cache.insert(format!("{prefix}{hash}"), avatar.clone());
+        result.insert(hash.clone(), avatar);
+    }
+    Ok(result)
+}
+
+fn parse_github_remote(remote: &str) -> Option<(String, String, String)> {
+    let normalized = if remote.starts_with("git@") {
+        remote
+            .replacen(':', "/", 1)
+            .replacen("git@", "ssh://git@", 1)
+    } else {
+        remote.to_string()
+    };
+    let url = Url::parse(&normalized).ok()?;
+    let host = url.host_str()?.to_string();
+    if host != "github.com" && !host.ends_with(".ghe.com") {
+        return None;
+    }
+    let mut parts = url.path().trim_matches('/').split('/');
+    let owner = parts.next()?.to_string();
+    let repository = parts.next()?.trim_end_matches(".git").to_string();
+    (!owner.is_empty() && !repository.is_empty()).then_some((host, owner, repository))
 }
 
 async fn request_json_lenient(request: Request) -> Value {

@@ -16,7 +16,6 @@ import {
 	font,
 	layer,
 	motion,
-	palette,
 	radius,
 	shadow,
 } from "../../tokens.stylex.ts";
@@ -70,7 +69,6 @@ interface ChangeFileSidebarProps {
 	comparisonDetails?: ComparisonDetails | null;
 	onSelectCommitFile?: (file: CommitFile) => void;
 	onSelectComparisonFile?: (file: CommitFile) => void;
-	onCommitParentChange?: (parent: string) => void;
 	branch?: string;
 	commitMessage: string;
 	onCommitMessageChange: (msg: string) => void;
@@ -116,7 +114,6 @@ export const ChangeFileSidebar = memo(function ChangeFileSidebar(
 		comparisonDetails,
 		onSelectCommitFile,
 		onSelectComparisonFile,
-		onCommitParentChange,
 		branch,
 		commitMessage,
 		onCommitMessageChange,
@@ -153,20 +150,6 @@ export const ChangeFileSidebar = memo(function ChangeFileSidebar(
 		0,
 	);
 	const showingWorkingTree = mainViewMode !== "graph" || selectedIsWip;
-	const selectedHistoryFiles =
-		selectedCommitCount > 1 ? comparisonDetails?.files : commitDetails?.files;
-	const headerAdditions = showingWorkingTree
-		? additions
-		: (selectedHistoryFiles?.reduce(
-				(total, file) => total + file.additions,
-				0,
-			) ?? 0);
-	const headerDeletions = showingWorkingTree
-		? deletions
-		: (selectedHistoryFiles?.reduce(
-				(total, file) => total + file.deletions,
-				0,
-			) ?? 0);
 	const headerBranch = showingWorkingTree
 		? branch
 		: selectedCommitCount > 1
@@ -236,14 +219,21 @@ export const ChangeFileSidebar = memo(function ChangeFileSidebar(
 				onOpenGraph={onOpenGraph}
 				graphActive={mainViewMode === "graph"}
 				branch={headerBranch}
-				additions={headerAdditions}
-				deletions={headerDeletions}
 				worktreePath={selectedWorktreePath}
 				onOpenWorktree={onOpenWorktree}
 			/>
 
 			{showingWorkingTree && (
 				<div {...stylex.props(styles.splitArea)}>
+					{hasProject ? (
+						<div {...stylex.props(styles.detailsSubheader)}>
+							<FileChangeTotals additions={additions} deletions={deletions} />
+							<FileViewToggle
+								value={fileViewMode}
+								onChange={onFileViewModeChange}
+							/>
+						</div>
+					) : null}
 					{!hasProject ? (
 						<div {...stylex.props(styles.emptyState)}>
 							{projectLoading ? (
@@ -292,8 +282,6 @@ export const ChangeFileSidebar = memo(function ChangeFileSidebar(
 					onCommit={onCommit}
 					isCommitting={isCommitting}
 					stagedCount={stagedFiles.length}
-					fileViewMode={fileViewMode}
-					onFileViewModeChange={onFileViewModeChange}
 				/>
 			)}
 
@@ -309,6 +297,8 @@ export const ChangeFileSidebar = memo(function ChangeFileSidebar(
 								details={comparisonDetails}
 								selectionCount={selectedCommitCount}
 								onSelectFile={onSelectComparisonFile}
+								viewMode={fileViewMode}
+								onViewModeChange={onFileViewModeChange}
 							/>
 						) : (
 							<div {...stylex.props(styles.emptyStateLarge)}>
@@ -326,7 +316,8 @@ export const ChangeFileSidebar = memo(function ChangeFileSidebar(
 							<CommitDetailsPanel
 								details={commitDetails}
 								onSelectFile={onSelectCommitFile}
-								onParentChange={onCommitParentChange}
+								viewMode={fileViewMode}
+								onViewModeChange={onFileViewModeChange}
 							/>
 						) : (
 							<div {...stylex.props(styles.emptyStateLarge)}>
@@ -960,17 +951,6 @@ const styles = stylex.create({
 			WebkitTextFillColor: "#111210",
 		},
 	},
-	fileViewToolbar: {
-		display: "flex",
-		order: 1,
-		height: controlSize._8,
-		alignItems: "center",
-		gap: controlSize._2,
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
-		borderBottomColor: color.border,
-		paddingInline: controlSize._3,
-	},
 	detailsRoot: {
 		display: "flex",
 		height: "100%",
@@ -985,46 +965,6 @@ const styles = stylex.create({
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
 		padding: controlSize._3,
-	},
-	detailRefs: {
-		display: "flex",
-		flexWrap: "wrap",
-		gap: controlSize._1,
-	},
-	detailRef: {
-		maxWidth: "100%",
-		overflow: "hidden",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.accentBorder,
-		borderRadius: radius.pill,
-		backgroundColor: color.accentWash,
-		color: color.textSoft,
-		fontSize: font.size_1,
-		paddingBlock: controlSize._1,
-		paddingInline: controlSize._2,
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-	},
-	providerLink: {
-		display: "flex",
-		width: "fit-content",
-		maxWidth: "100%",
-		alignItems: "center",
-		gap: controlSize._1,
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: radius.sm,
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlHover,
-		},
-		color: color.textSoft,
-		fontSize: font.size_1,
-		paddingBlock: controlSize._1,
-		paddingInline: controlSize._2,
-		textDecoration: "none",
 	},
 	detailIdentityGrid: {
 		display: "grid",
@@ -1084,49 +1024,31 @@ const styles = stylex.create({
 	},
 	commitMessage: {
 		color: color.textMain,
+		display: "-webkit-box",
 		fontSize: font.size_4,
 		fontWeight: font.weight_5,
 		lineHeight: 1.4,
-	},
-	commitHash: {
-		display: "block",
-		minWidth: controlSize._0,
 		overflow: "hidden",
-		color: palette.blue,
-		fontFamily: font.familyMono,
-		fontSize: font.size_2_75,
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
+		WebkitBoxOrient: "vertical",
+		WebkitLineClamp: 2,
+	},
+	commitDescriptionViewport: {
+		flexShrink: 1,
+		lineHeight: 1.4,
+		minHeight: controlSize._0,
+		maxHeight: "8.4em",
+		outline: "none",
+		overflow: "auto",
+	},
+	commitDescription: {
+		color: color.textMain,
+		cursor: "text",
+		fontSize: font.size_2,
+		whiteSpace: "pre-wrap",
 	},
 	authorText: {
 		color: color.textSoft,
 		fontSize: font.size_2,
-	},
-	parentChoices: {
-		display: "flex",
-		flexWrap: "wrap",
-		alignItems: "center",
-		gap: controlSize._1,
-	},
-	parentChoice: {
-		height: controlSize._5,
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: radius.sm,
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlHover,
-		},
-		color: color.textMuted,
-		fontFamily: font.familyMono,
-		fontSize: font.size_1,
-		paddingInline: controlSize._2,
-	},
-	parentChoiceActive: {
-		borderColor: color.accentBorder,
-		backgroundColor: color.controlActive,
-		color: color.textMain,
 	},
 	detailsSubheader: {
 		flexShrink: 0,
@@ -1137,19 +1059,6 @@ const styles = stylex.create({
 		borderBottomStyle: "solid",
 		borderBottomColor: color.surfaceWhite06,
 		backgroundColor: color.surfaceWhite02,
-		paddingBlock: controlSize._2,
-		paddingInline: controlSize._3,
-	},
-	detailsFooter: {
-		flexShrink: 0,
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "center",
-		gap: controlSize._3,
-		borderTopWidth: 1,
-		borderTopStyle: "solid",
-		borderTopColor: color.border,
-		fontSize: font.size_2,
 		paddingBlock: controlSize._2,
 		paddingInline: controlSize._3,
 	},
@@ -1532,8 +1441,6 @@ function ChangeFileSidebarHeader({
 	onOpenGraph,
 	graphActive,
 	branch,
-	additions,
-	deletions,
 	worktreePath,
 	onOpenWorktree,
 }: {
@@ -1541,8 +1448,6 @@ function ChangeFileSidebarHeader({
 	onOpenGraph?: () => void;
 	graphActive: boolean;
 	branch?: string;
-	additions: number;
-	deletions: number;
 	worktreePath?: string;
 	onOpenWorktree?: () => void;
 }) {
@@ -1579,13 +1484,6 @@ function ChangeFileSidebarHeader({
 				</button>
 			) : null}
 			<div
-				{...stylex.props(styles.changeTotals)}
-				title="Total additions and deletions"
-			>
-				<span {...stylex.props(styles.addedText)}>+{additions}</span>
-				<span {...stylex.props(styles.deletedText)}>-{deletions}</span>
-			</div>
-			<div
 				{...stylex.props(styles.headerBranch)}
 				title={worktreePath ?? branch ?? "Repository"}
 			>
@@ -1619,8 +1517,6 @@ function CommitSection({
 	onCommit,
 	isCommitting,
 	stagedCount,
-	fileViewMode,
-	onFileViewModeChange,
 }: {
 	cwd?: string;
 	commitMessage: string;
@@ -1628,11 +1524,8 @@ function CommitSection({
 	onCommit: () => void;
 	isCommitting: boolean;
 	stagedCount: number;
-	fileViewMode: "path" | "tree";
-	onFileViewModeChange: (mode: "path" | "tree") => void;
 }) {
 	const [generating, setGenerating] = useState(false);
-	const [hoveredViewIndex, setHoveredViewIndex] = useState<number | null>(null);
 	const message = commitMessage.replace(/\s+/g, " ");
 	const generateMessage = async () => {
 		if (!cwd || !stagedCount || generating) return;
@@ -1721,53 +1614,6 @@ function CommitSection({
 					</button>
 				</div>
 			</div>
-
-			<div {...stylex.props(styles.fileViewToolbar)}>
-				<div
-					{...stylex.props(styles.segmented)}
-					onMouseLeave={() => setHoveredViewIndex(null)}
-				>
-					<LiquidSegmentedRail
-						activeIndex={hoveredViewIndex ?? (fileViewMode === "path" ? 0 : 1)}
-						itemCount={2}
-						radius={6}
-					/>
-					<button
-						type="button"
-						onMouseEnter={() => setHoveredViewIndex(0)}
-						onPointerDown={(event) => {
-							if (event.button === 0 && event.isPrimary)
-								onFileViewModeChange("path");
-						}}
-						onClick={(event) => {
-							if (event.detail === 0) onFileViewModeChange("path");
-						}}
-						{...stylex.props(
-							styles.segmentButton,
-							fileViewMode === "path" && styles.segmentButtonActive,
-						)}
-					>
-						Path
-					</button>
-					<button
-						type="button"
-						onMouseEnter={() => setHoveredViewIndex(1)}
-						onPointerDown={(event) => {
-							if (event.button === 0 && event.isPrimary)
-								onFileViewModeChange("tree");
-						}}
-						onClick={(event) => {
-							if (event.detail === 0) onFileViewModeChange("tree");
-						}}
-						{...stylex.props(
-							styles.segmentButton,
-							fileViewMode === "tree" && styles.segmentButtonActive,
-						)}
-					>
-						Tree
-					</button>
-				</div>
-			</div>
 		</div>
 	);
 }
@@ -1775,38 +1621,32 @@ function CommitSection({
 function CommitDetailsPanel({
 	details,
 	onSelectFile,
-	onParentChange,
+	viewMode,
+	onViewModeChange,
 }: {
 	details: CommitDetails;
 	onSelectFile?: (file: CommitFile) => void;
-	onParentChange?: (parent: string) => void;
+	viewMode: "path" | "tree";
+	onViewModeChange: (mode: "path" | "tree") => void;
 }) {
 	return (
 		<div {...stylex.props(styles.detailsRoot)}>
 			<div {...stylex.props(styles.detailsHeader)}>
-				<code {...stylex.props(styles.commitHash)} title={details.hash}>
-					commit {details.hash}
-				</code>
-				<p {...stylex.props(styles.commitMessage)}>{details.message}</p>
+				<p title={details.message} {...stylex.props(styles.commitMessage)}>
+					{details.message}
+				</p>
 				{details.body ? (
-					<p {...stylex.props(styles.mutedText)}>{details.body}</p>
-				) : null}
-				{details.refs.length ? (
-					<div {...stylex.props(styles.detailRefs)}>
-						{details.refs.map((ref) => (
-							<span
-								key={ref.fullName}
-								title={ref.fullName}
-								{...stylex.props(styles.detailRef)}
-							>
-								{ref.displayName}
-							</span>
-						))}
+					<div
+						{...stylex.props(styles.commitDescriptionViewport)}
+						style={{ maxHeight: "8.4em", overflow: "auto" }}
+					>
+						<p title={details.body} {...stylex.props(styles.commitDescription)}>
+							{details.body}
+						</p>
 					</div>
 				) : null}
 				<div {...stylex.props(styles.detailIdentityGrid)}>
 					<DetailIdentity
-						label="Author"
 						name={details.author}
 						email={details.authorEmail}
 						date={details.authoredAt}
@@ -1821,96 +1661,28 @@ function CommitDetailsPanel({
 						/>
 					) : null}
 				</div>
-				{details.provider ? (
-					<a
-						href={
-							details.provider.pullRequestUrl ?? details.provider.repositoryUrl
-						}
-						target="_blank"
-						rel="noreferrer"
-						{...stylex.props(styles.providerLink)}
-					>
-						<span>GitHub · {details.provider.repository}</span>
-						{details.provider.pullRequestNumber ? (
-							<span>#{details.provider.pullRequestNumber}</span>
-						) : null}
-						<IconExternalLink size={iconSize.compact} />
-					</a>
-				) : null}
-				{details.parents.length ? (
-					<div {...stylex.props(styles.parentChoices)}>
-						<span {...stylex.props(styles.mutedTextSmall)}>Diff parent:</span>
-						{details.parents.map((parent, index) => (
-							<button
-								type="button"
-								key={parent}
-								onClick={() => onParentChange?.(parent)}
-								{...stylex.props(
-									styles.parentChoice,
-									details.diffParent === parent && styles.parentChoiceActive,
-								)}
-								title={parent}
-							>
-								{index + 1}: {parent.slice(0, 7)}
-							</button>
-						))}
-					</div>
-				) : null}
 			</div>
 
 			<div {...stylex.props(styles.detailsSubheader)}>
-				<span {...stylex.props(styles.sectionTitle)}>Files Changed</span>
-				<span {...stylex.props(styles.mutedTextSmall)}>
-					{details.files.length}
-				</span>
+				<FileChangeTotals
+					additions={details.files.reduce(
+						(sum, file) => sum + file.additions,
+						0,
+					)}
+					deletions={details.files.reduce(
+						(sum, file) => sum + file.deletions,
+						0,
+					)}
+				/>
+				<FileViewToggle value={viewMode} onChange={onViewModeChange} />
 			</div>
 
 			<div {...stylex.props(styles.scrollArea)}>
-				{details.files.map((file) => (
-					<button
-						type="button"
-						key={file.path}
-						onClick={() => onSelectFile?.(file)}
-						onKeyDown={navigateDetailFile}
-						data-git-file-select
-						{...stylex.props(styles.commitFileRow, styles.commitFileButton)}
-						title={file.path}
-					>
-						<FileChangeIcon file={file} />
-						<span {...stylex.props(styles.fileName)}>
-							{file.path}
-							{file.originalPath ? (
-								<small {...stylex.props(styles.originalPath)}>
-									from {file.originalPath}
-								</small>
-							) : null}
-						</span>
-						<div {...stylex.props(styles.fileStats)}>
-							{file.binary ? (
-								<span {...stylex.props(styles.mutedTextSmall)}>Binary</span>
-							) : null}
-							{file.additions > 0 && (
-								<span {...stylex.props(styles.addedText)}>
-									+{file.additions}
-								</span>
-							)}
-							{file.deletions > 0 && (
-								<span {...stylex.props(styles.deletedText)}>
-									-{file.deletions}
-								</span>
-							)}
-						</div>
-					</button>
-				))}
-			</div>
-
-			<div {...stylex.props(styles.detailsFooter)}>
-				<span {...stylex.props(styles.addedText)}>
-					+{details.files.reduce((sum, f) => sum + f.additions, 0)}
-				</span>
-				<span {...stylex.props(styles.deletedText)}>
-					-{details.files.reduce((sum, f) => sum + f.deletions, 0)}
-				</span>
+				<HistoricalFileList
+					files={details.files}
+					viewMode={viewMode}
+					onSelectFile={onSelectFile}
+				/>
 			</div>
 		</div>
 	);
@@ -1937,7 +1709,7 @@ function DetailIdentity({
 	email,
 	date,
 }: {
-	label: string;
+	label?: string;
 	name?: string | null;
 	email?: string | null;
 	date?: string | null;
@@ -1972,7 +1744,9 @@ function DetailIdentity({
 				)}
 			</span>
 			<span {...stylex.props(styles.detailIdentityCopy)}>
-				<span {...stylex.props(styles.detailIdentityLabel)}>{label}</span>
+				{label ? (
+					<span {...stylex.props(styles.detailIdentityLabel)}>{label}</span>
+				) : null}
 				<strong {...stylex.props(styles.authorText)}>
 					{name || "Unknown author"}
 				</strong>
@@ -1988,10 +1762,14 @@ function ComparisonDetailsPanel({
 	details,
 	selectionCount,
 	onSelectFile,
+	viewMode,
+	onViewModeChange,
 }: {
 	details: ComparisonDetails;
 	selectionCount: number;
 	onSelectFile?: (file: CommitFile) => void;
+	viewMode: "path" | "tree";
+	onViewModeChange: (mode: "path" | "tree") => void;
 }) {
 	const additions = details.files.reduce(
 		(sum, file) => sum + file.additions,
@@ -2024,88 +1802,112 @@ function ComparisonDetailsPanel({
 				) : null}
 			</div>
 			<div {...stylex.props(styles.detailsSubheader)}>
-				<span {...stylex.props(styles.sectionTitle)}>Files Changed</span>
-				<span {...stylex.props(styles.mutedTextSmall)}>
-					{details.files.length}
-				</span>
+				<FileChangeTotals additions={additions} deletions={deletions} />
+				<FileViewToggle value={viewMode} onChange={onViewModeChange} />
 			</div>
 			<div {...stylex.props(styles.scrollArea)}>
 				{details.files.length ? (
-					details.files.map((file) => (
-						<button
-							type="button"
-							key={`${file.originalPath ?? ""}:${file.path}`}
-							onClick={() => onSelectFile?.(file)}
-							onKeyDown={navigateDetailFile}
-							data-git-file-select
-							{...stylex.props(styles.commitFileRow, styles.commitFileButton)}
-							title={file.path}
-						>
-							<FileChangeIcon file={file} />
-							<span {...stylex.props(styles.fileName)}>
-								{file.path}
-								{file.originalPath ? (
-									<small {...stylex.props(styles.originalPath)}>
-										from {file.originalPath}
-									</small>
-								) : null}
-							</span>
-							<div {...stylex.props(styles.fileStats)}>
-								{file.binary ? (
-									<span {...stylex.props(styles.mutedTextSmall)}>Binary</span>
-								) : null}
-								{file.additions > 0 ? (
-									<span {...stylex.props(styles.addedText)}>
-										+{file.additions}
-									</span>
-								) : null}
-								{file.deletions > 0 ? (
-									<span {...stylex.props(styles.deletedText)}>
-										-{file.deletions}
-									</span>
-								) : null}
-							</div>
-						</button>
-					))
+					<HistoricalFileList
+						files={details.files}
+						viewMode={viewMode}
+						onSelectFile={onSelectFile}
+					/>
 				) : (
 					<div {...stylex.props(styles.emptyStateLarge)}>
 						<p {...stylex.props(styles.mutedText)}>No file differences</p>
 					</div>
 				)}
 			</div>
-			<div {...stylex.props(styles.detailsFooter)}>
-				<span {...stylex.props(styles.addedText)}>+{additions}</span>
-				<span {...stylex.props(styles.deletedText)}>-{deletions}</span>
-			</div>
 		</div>
 	);
 }
 
-function navigateDetailFile(
-	event: KeyboardEvent & { currentTarget: HTMLButtonElement },
-) {
-	if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-	const buttons = Array.from(
-		event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
-			"button[data-git-file-select]",
-		) ?? [],
+function FileChangeTotals({
+	additions,
+	deletions,
+}: {
+	additions: number;
+	deletions: number;
+}) {
+	return (
+		<div
+			{...stylex.props(styles.changeTotals)}
+			title="Total additions and deletions"
+		>
+			<span {...stylex.props(styles.addedText)}>+{additions}</span>
+			<span {...stylex.props(styles.deletedText)}>-{deletions}</span>
+		</div>
 	);
-	const index = buttons.indexOf(event.currentTarget);
-	if (index < 0) return;
-	const next =
-		buttons[
-			Math.max(
-				0,
-				Math.min(
-					buttons.length - 1,
-					index + (event.key === "ArrowUp" ? -1 : 1),
-				),
-			)
-		];
-	if (!next || next === event.currentTarget) return;
-	event.preventDefault();
-	next.focus();
-	next.click();
+}
+
+function FileViewToggle({
+	value,
+	onChange,
+}: {
+	value: "path" | "tree";
+	onChange: (mode: "path" | "tree") => void;
+}) {
+	const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+	return (
+		<div
+			{...stylex.props(styles.segmented)}
+			onMouseLeave={() => setHoveredIndex(null)}
+		>
+			<LiquidSegmentedRail
+				activeIndex={hoveredIndex ?? (value === "path" ? 0 : 1)}
+				itemCount={2}
+				radius={6}
+			/>
+			{(["path", "tree"] as const).map((mode, index) => (
+				<button
+					type="button"
+					key={mode}
+					onMouseEnter={() => setHoveredIndex(index)}
+					onClick={() => onChange(mode)}
+					{...stylex.props(
+						styles.segmentButton,
+						value === mode && styles.segmentButtonActive,
+					)}
+				>
+					{mode === "path" ? "Path" : "Tree"}
+				</button>
+			))}
+		</div>
+	);
+}
+
+function HistoricalFileList({
+	files,
+	viewMode,
+	onSelectFile,
+}: {
+	files: CommitFile[];
+	viewMode: "path" | "tree";
+	onSelectFile?: (file: CommitFile) => void;
+}) {
+	const entries = useMemo<GitFileEntry[]>(
+		() => files.map((file) => ({ ...file, staged: false })),
+		[files],
+	);
+	return (
+		<FileGroup
+			title="Changed"
+			files={entries}
+			selected={null}
+			onSelect={(entry) => {
+				const file = files.find(
+					(candidate) =>
+						candidate.path === entry.path &&
+						candidate.originalPath === entry.originalPath,
+				);
+				if (file) onSelectFile?.(file);
+			}}
+			isCollapsible={false}
+			showHeader={false}
+			showFullPath
+			viewMode={viewMode}
+		/>
+	);
 }
 
 function FileChangeIcon({
@@ -2400,6 +2202,8 @@ function FileGroup({
 	onAction,
 	onActionAll,
 	isCollapsible = true,
+	showHeader = true,
+	showFullPath = false,
 	viewMode = "path",
 }: {
 	title: string;
@@ -2410,6 +2214,8 @@ function FileGroup({
 	onAction?: (path: string) => void;
 	onActionAll?: () => void;
 	isCollapsible?: boolean;
+	showHeader?: boolean;
+	showFullPath?: boolean;
 	viewMode?: "path" | "tree";
 }) {
 	const [isCollapsed, setIsCollapsed] = useState(false);
@@ -2444,53 +2250,55 @@ function FileGroup({
 
 	return (
 		<div {...stylex.props(styles.fileGroup)}>
-			<div
-				{...stylex.props(
-					styles.groupHeader,
-					title === "Staged" && styles.groupHeaderSeparated,
-				)}
-			>
-				<button
-					type="button"
-					onPointerDown={(event) => {
-						if (event.button === 0 && event.isPrimary) toggleGroup();
-					}}
-					onClick={(event) => {
-						if (event.detail === 0) toggleGroup();
-					}}
+			{showHeader ? (
+				<div
 					{...stylex.props(
-						styles.groupToggle,
-						isCollapsible && !isEmpty
-							? styles.cursorPointer
-							: styles.cursorDefault,
+						styles.groupHeader,
+						title === "Staged" && styles.groupHeaderSeparated,
 					)}
 				>
-					{isCollapsible && (
-						<IconChevronRight
-							size={iconSize.sm}
-							{...stylex.props(
-								styles.chevron,
-								!isCollapsed && !isEmpty && styles.chevronOpen,
-							)}
-						/>
-					)}
-					<span {...stylex.props(styles.sectionTitle, styles.fileGroupTitle)}>
-						{title} Files
-					</span>
-					<span {...stylex.props(styles.countPill)}>{files.length}</span>
-				</button>
-				{onActionAll && !isCollapsed && actionLabel && !isEmpty && (
 					<button
 						type="button"
-						onClick={onActionAll}
-						title={`${actionLabel} all files`}
-						aria-label={`${actionLabel} all files`}
-						{...stylex.props(styles.actionAllButton)}
+						onPointerDown={(event) => {
+							if (event.button === 0 && event.isPrimary) toggleGroup();
+						}}
+						onClick={(event) => {
+							if (event.detail === 0) toggleGroup();
+						}}
+						{...stylex.props(
+							styles.groupToggle,
+							isCollapsible && !isEmpty
+								? styles.cursorPointer
+								: styles.cursorDefault,
+						)}
 					>
-						<FileActionIcon actionLabel={actionLabel} />
+						{isCollapsible && (
+							<IconChevronRight
+								size={iconSize.sm}
+								{...stylex.props(
+									styles.chevron,
+									!isCollapsed && !isEmpty && styles.chevronOpen,
+								)}
+							/>
+						)}
+						<span {...stylex.props(styles.sectionTitle, styles.fileGroupTitle)}>
+							{title} Files
+						</span>
+						<span {...stylex.props(styles.countPill)}>{files.length}</span>
 					</button>
-				)}
-			</div>
+					{onActionAll && !isCollapsed && actionLabel && !isEmpty && (
+						<button
+							type="button"
+							onClick={onActionAll}
+							title={`${actionLabel} all files`}
+							aria-label={`${actionLabel} all files`}
+							{...stylex.props(styles.actionAllButton)}
+						>
+							<FileActionIcon actionLabel={actionLabel} />
+						</button>
+					)}
+				</div>
+			) : null}
 			{isEmpty ? (
 				<div {...stylex.props(styles.emptyGroupBody)}>
 					<span {...stylex.props(styles.emptyGroupText)}>
@@ -2535,7 +2343,7 @@ function FileGroup({
 													active && styles.activeText,
 												)}
 											>
-												{f.path.split("/").pop()}
+												{showFullPath ? f.path : f.path.split("/").pop()}
 											</span>
 										</span>
 										{hoveredActionPath !== f.path ? (

@@ -1,3 +1,4 @@
+import { postJson } from "../../lib/fetch-json.ts";
 import {
 	fetchForgeAccounts,
 	getCachedForgeAccounts,
@@ -84,25 +85,23 @@ export function resolveGitAuthorAvatar(
 		return request;
 	}
 	const request = resolveForgeAvatar(normalized, normalizedName).then(
-		(avatar) => {
-			if (avatar || !normalized) return avatar;
-			if (typeof crypto === "undefined" || !crypto.subtle) return null;
-			return (
-				crypto.subtle
-					.digest("SHA-256", new TextEncoder().encode(normalized))
-					.then((digest) =>
-						Array.from(new Uint8Array(digest), (byte) =>
-							byte.toString(16).padStart(2, "0"),
-						).join(""),
-					)
-					// Preserve real Gravatars and use Gravatar's quiet generic profile for
-					// unresolved identities instead of a noisy high-contrast identicon.
-					.then(
-						(hash) => `https://www.gravatar.com/avatar/${hash}?s=64&d=mp&r=g`,
-					)
-			);
-		},
+		(avatar) => avatar,
 	);
 	avatarUrlCache.set(cacheKey, request);
 	return request;
+}
+
+export async function resolveGitCommitAvatars(
+	cwd: string,
+	hashes: readonly string[],
+): Promise<Record<string, string | null>> {
+	if (!cwd || hashes.length === 0) return {};
+	try {
+		const response = await postJson<{
+			avatars?: Record<string, string | null>;
+		}>("/api/forge/commit-avatars", { cwd, hashes: [...new Set(hashes)] });
+		return response.avatars ?? {};
+	} catch {
+		return {};
+	}
 }
