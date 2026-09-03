@@ -5,7 +5,7 @@ import { defineConfig, type Plugin } from "vite";
 import {
 	DEV_FEATURE_FLAGS,
 	PUBLISHED_FEATURE_FLAGS,
-} from "./src/lib/feature-flags.ts";
+} from "./src/shared/lib/feature-flags.ts";
 
 function stripTransformSourceMaps(plugin: Plugin): Plugin {
 	const transform = plugin.transform;

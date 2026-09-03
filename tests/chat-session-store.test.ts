@@ -43,7 +43,7 @@ test("chat startup clears legacy localStorage message blobs", async () => {
 	const restoreBrowserStorage = installBrowserStorage();
 	try {
 		const { cleanupStaleChatClientStorage } = await import(
-			"../src/features/chat/chat-session-store.ts"
+			"../src/modules/conversation/chat-session-store.ts"
 		);
 		localStorage.setItem(
 			"inferay-chat-pane-a",
@@ -82,7 +82,7 @@ test("chat queue file saves serialize the latest queue", async () => {
 	}) as unknown as typeof fetch;
 	try {
 		const { saveStoredQueue } = await import(
-			"../src/features/chat/chat-session-store.ts"
+			"../src/modules/conversation/chat-session-store.ts"
 		);
 
 		saveStoredQueue("pane-save-race", [
@@ -108,7 +108,7 @@ test("chat queue restore ignores legacy local queue and preference rows", async 
 	const restoreBrowserStorage = installBrowserStorage();
 	try {
 		const { loadStoredQueue } = await import(
-			"../src/features/chat/chat-session-store.ts"
+			"../src/modules/conversation/chat-session-store.ts"
 		);
 		localStorage.setItem(
 			"inferay-db-preferences",
@@ -138,7 +138,7 @@ test("stale chat storage cleanup removes legacy transcript queue and db rows", a
 	const restoreBrowserStorage = installBrowserStorage();
 	try {
 		const { cleanupStaleChatClientStorage } = await import(
-			"../src/features/chat/chat-session-store.ts"
+			"../src/modules/conversation/chat-session-store.ts"
 		);
 		localStorage.setItem(
 			"inferay-chat-pane-stale",
@@ -194,7 +194,7 @@ test("chat message read model publishes updates and settles streamed messages", 
 	const restoreBrowserStorage = installBrowserStorage();
 	try {
 		const { getChatMessageReadModel } = await import(
-			"../src/features/chat/chat-session-store.ts"
+			"../src/modules/conversation/chat-session-store.ts"
 		);
 		const model = getChatMessageReadModel("pane-read-model");
 		let updateCount = 0;
@@ -237,7 +237,7 @@ test("chat message read model compacts adjacent duplicate assistant rows", async
 	const restoreBrowserStorage = installBrowserStorage();
 	try {
 		const { getChatMessageReadModel } = await import(
-			"../src/features/chat/chat-session-store.ts"
+			"../src/modules/conversation/chat-session-store.ts"
 		);
 		const model = getChatMessageReadModel("pane-duplicate-assistant");
 
@@ -264,7 +264,7 @@ test("chat checkpoint read model publishes updates and clears durable rows", asy
 	const restoreBrowserStorage = installBrowserStorage();
 	try {
 		const { getChatCheckpointReadModel, loadStoredCheckpoints } = await import(
-			"../src/features/chat/chat-session-store.ts"
+			"../src/modules/conversation/chat-session-store.ts"
 		);
 		const model = getChatCheckpointReadModel("pane-checkpoint-model");
 		let updateCount = 0;
@@ -306,7 +306,7 @@ test("chat checkpoint read model derives finalized checkpoints from settled assi
 	const restoreBrowserStorage = installBrowserStorage();
 	try {
 		const { getChatCheckpointReadModel } = await import(
-			"../src/features/chat/chat-session-store.ts"
+			"../src/modules/conversation/chat-session-store.ts"
 		);
 		const model = getChatCheckpointReadModel("pane-checkpoint-finalized");
 		const messages = [
@@ -388,7 +388,7 @@ test("chat queue read model publishes updates and ignores stale async loads", as
 	}) as unknown as typeof fetch;
 	try {
 		const { getChatQueueReadModel } = await import(
-			"../src/features/chat/chat-session-store.ts"
+			"../src/modules/conversation/chat-session-store.ts"
 		);
 		const model = getChatQueueReadModel("pane-queue-model");
 		let updateCount = 0;
@@ -430,7 +430,7 @@ test("chat run status read model publishes updates and clears to idle", async ()
 	const restoreBrowserStorage = installBrowserStorage();
 	try {
 		const { getChatRunStatusReadModel } = await import(
-			"../src/features/chat/chat-session-store.ts"
+			"../src/modules/conversation/chat-session-store.ts"
 		);
 		const model = getChatRunStatusReadModel("pane-run-status-model");
 		let updateCount = 0;
@@ -493,7 +493,7 @@ test("chat clear operations remove durable preference rows", async () => {
 			savePendingSend,
 			saveStoredInput,
 			setProviderSessionId,
-		} = await import("../src/features/chat/chat-session-store.ts");
+		} = await import("../src/modules/conversation/chat-session-store.ts");
 
 		savePendingSend("pane-clear-pending", "send me");
 		clearPendingSend("pane-clear-pending");

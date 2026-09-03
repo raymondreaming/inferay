@@ -8,7 +8,7 @@ const mock = Object.assign(vi.fn, {
 	module: (path: string, factory: () => unknown) => vi.doMock(path, factory),
 });
 
-mock.module("../src/lib/websocket.ts", () => ({
+mock.module("../src/adapters/backend/websocket.ts", () => ({
 	getWebSocketStatus: () => "connected",
 	subscribeWebSocketStatus: () => () => {},
 	wsClient: {
@@ -62,10 +62,11 @@ test("queued messages hydrate from file-backed queue and ignore legacy localStor
 	try {
 		localStorage.setItem(
 			"inferay-chat-queue-pane-stale",
-			JSON.stringify([{ id: "old", text: "old", displayText: "old" }])
+			JSON.stringify([{ id: "old", text: "old", displayText: "old" }]),
 		);
-		const { useAgentChatComposerState } =
-			await import("../src/components/chat/useAgentChatComposerState.tsx");
+		const { useAgentChatComposerState } = await import(
+			"../src/modules/conversation/useAgentChatComposerState.tsx"
+		);
 		function Harness() {
 			const state = useAgentChatComposerState("pane-stale");
 			return (
@@ -76,7 +77,7 @@ test("queued messages hydrate from file-backed queue and ignore legacy localStor
 		root.render(<Harness />);
 		await tick(20);
 		expect(rootElement.firstElementChild?.getAttribute("data-queue")).toBe(
-			"first"
+			"first",
 		);
 	} finally {
 		root.unmount();
@@ -98,8 +99,9 @@ test("hidden composer state does not hydrate file-backed queues", async () => {
 
 	const { root } = setupDom();
 	try {
-		const { useAgentChatComposerState } =
-			await import("../src/components/chat/useAgentChatComposerState.tsx");
+		const { useAgentChatComposerState } = await import(
+			"../src/modules/conversation/useAgentChatComposerState.tsx"
+		);
 		function Harness({ enabled }: { enabled: boolean }) {
 			useAgentChatComposerState("pane-hidden-queue", enabled);
 			return <div />;
@@ -136,10 +138,11 @@ test("visible composer keeps newer queue mirror while stale fetch resolves", asy
 
 	const { root, rootElement } = setupDom();
 	try {
-		const { useAgentChatComposerState } =
-			await import("../src/components/chat/useAgentChatComposerState.tsx");
+		const { useAgentChatComposerState } = await import(
+			"../src/modules/conversation/useAgentChatComposerState.tsx"
+		);
 		let replaceQueuedMessages: (messages: TestQueueItem[]) => void = (
-			_messages
+			_messages,
 		) => {
 			throw new Error("replaceQueuedMessages was not initialized");
 		};
@@ -158,13 +161,13 @@ test("visible composer keeps newer queue mirror while stale fetch resolves", asy
 		]);
 		await tick(20);
 		expect(rootElement.firstElementChild?.getAttribute("data-queue")).toBe(
-			"second"
+			"second",
 		);
 
 		resolveQueueFetch();
 		await tick(20);
 		expect(rootElement.firstElementChild?.getAttribute("data-queue")).toBe(
-			"second"
+			"second",
 		);
 	} finally {
 		root.unmount();
@@ -184,8 +187,9 @@ test("legacy queue storage events do not update server-owned queue mirror", asyn
 
 	const { root, rootElement } = setupDom();
 	try {
-		const { useAgentChatComposerState } =
-			await import("../src/components/chat/useAgentChatComposerState.tsx");
+		const { useAgentChatComposerState } = await import(
+			"../src/modules/conversation/useAgentChatComposerState.tsx"
+		);
 		function Harness() {
 			const state = useAgentChatComposerState("pane-stale-preference");
 			return (
@@ -198,7 +202,7 @@ test("legacy queue storage events do not update server-owned queue mirror", asyn
 
 		localStorage.setItem(
 			"inferay-chat-queue-pane-stale-preference",
-			JSON.stringify([{ id: "q1", text: "first", displayText: "first" }])
+			JSON.stringify([{ id: "q1", text: "first", displayText: "first" }]),
 		);
 		window.dispatchEvent(
 			new window.CustomEvent("inferay-client-storage-change", {
@@ -209,7 +213,7 @@ test("legacy queue storage events do not update server-owned queue mirror", asyn
 						{ id: "q2", text: "second", displayText: "second" },
 					]),
 				},
-			})
+			}),
 		);
 		await tick(20);
 		expect(rootElement.firstElementChild?.getAttribute("data-queue")).toBe("");

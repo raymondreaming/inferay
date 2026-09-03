@@ -71,7 +71,7 @@ test("editor session dropdown shows repository and conversation title", async ()
 	const { dom, root, rootElement } = setupDom();
 	try {
 		const { AgentChatHeader } = await import(
-			"../src/components/chat/AgentChatHeader.tsx"
+			"../src/modules/conversation/AgentChatHeader.tsx"
 		);
 		root.render(
 			<AgentChatHeader

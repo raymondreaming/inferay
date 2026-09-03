@@ -1,25 +1,25 @@
 import * as stylex from "@octanejs/stylex";
 import { createFileRoute, useNavigate } from "@octanejs/tanstack-router";
 import { useCallback, useMemo, useState } from "octane";
+import { fetchJsonOr } from "../../adapters/backend/http.ts";
+import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../adapters/storage/keys.ts";
+import { writeStoredValue } from "../../adapters/storage/stored-values.ts";
+import { DEFAULT_APP_ROUTE } from "../../app/navigation.tsx";
+import { iconSize } from "../../design-system.ts";
+import { savePendingSend } from "../../modules/conversation/chat-session-store.ts";
+import {
+	dispatchAgentShellChange,
+	mutateAgentWorkspaceState,
+} from "../../modules/workspace/workspace-model.ts";
+import { useQueryResource } from "../../shared/hooks/useQueryResource.tsx";
+import { formatBytes } from "../../shared/lib/format.ts";
+import { setInputValue } from "../../shared/lib/react-events.ts";
 import {
 	IconCheck,
 	IconMessageCircle,
 	IconSearch,
 	IconTrash,
-} from "../../components/ui/Icons.tsx";
-import { iconSize } from "../../design-system.ts";
-import {
-	dispatchAgentShellChange,
-	mutateAgentWorkspaceState,
-} from "../../features/agent/agent-utils.ts";
-import { savePendingSend } from "../../features/chat/chat-session-store.ts";
-import { useQueryResource } from "../../hooks/useQueryResource.tsx";
-import { DEFAULT_APP_ROUTE } from "../../lib/app-navigation.tsx";
-import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
-import { fetchJsonOr } from "../../lib/fetch-json.ts";
-import { formatBytes } from "../../lib/format.ts";
-import { setInputValue } from "../../lib/react-events.ts";
-import { writeStoredValue } from "../../lib/stored-json.ts";
+} from "../../shared/ui/Icons.tsx";
 import {
 	color,
 	controlSize,

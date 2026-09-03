@@ -1,7 +1,10 @@
 import { JSDOM } from "jsdom";
 import { createRoot, type Root } from "octane";
 import { describe, expect, test, vi } from "vitest";
-import { type HunkDiff, useGitDiff } from "../src/features/git/useGitDiff.tsx";
+import {
+	type HunkDiff,
+	useGitDiff,
+} from "../src/modules/repository/useGitDiff.tsx";
 import { stylexTestTypes } from "./stylex-test-mock.ts";
 
 const mock = Object.assign(vi.fn, {
@@ -88,9 +91,11 @@ async function renderDiff(
 	rootElement: HTMLElement,
 	diff: HunkDiff,
 ) {
-	const { GitDiffView } = await import("../src/pages/Agent/GitDiffView.tsx");
+	const { DiffViewer } = await import(
+		"../src/modules/workbench/diff/DiffViewer.tsx"
+	);
 	root.render(
-		<GitDiffView
+		<DiffViewer
 			diff={diff}
 			filePath="src/very-long.ts"
 			staged={false}
@@ -104,7 +109,7 @@ async function renderDiff(
 	return rootElement;
 }
 
-describe("GitDiffView custom renderer", () => {
+describe("DiffViewer custom renderer", () => {
 	test("loads one diff when equivalent request objects rerender", async () => {
 		const { root, rootElement } = setupDom();
 		const previousFetch = globalThis.fetch;

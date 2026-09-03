@@ -1,20 +1,20 @@
 import * as stylex from "@octanejs/stylex";
 import { createFileRoute } from "@octanejs/tanstack-router";
 import { useCallback, useEffect, useReducer, useRef, useState } from "octane";
+import { iconSize } from "../../design-system.ts";
+import { PromptDetailPanel } from "../../modules/prompts/PromptDetailPanel.tsx";
+import { filterPrompts } from "../../modules/prompts/prompt-utils.ts";
+import { PROMPT_CATEGORIES, type Prompt } from "../../modules/prompts/types.ts";
+import { usePrompts } from "../../modules/prompts/usePrompts.tsx";
+import {
+	listenDocumentEvent,
+	setInputValue,
+} from "../../shared/lib/react-events.ts";
 import {
 	IconChevronDown,
 	IconPlus,
 	IconSearch,
-} from "../../components/ui/Icons.tsx";
-import { iconSize } from "../../design-system.ts";
-import { filterPrompts } from "../../features/prompts/prompt-utils.ts";
-import {
-	PROMPT_CATEGORIES,
-	type Prompt,
-} from "../../features/prompts/types.ts";
-import { usePrompts } from "../../features/prompts/usePrompts.tsx";
-import { listenDocumentEvent, setInputValue } from "../../lib/react-events.ts";
-import { PromptDetailPanel } from "../../pages/PromptsPage/PromptDetailPanel.tsx";
+} from "../../shared/ui/Icons.tsx";
 import {
 	color,
 	controlSize,

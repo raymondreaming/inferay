@@ -14,6 +14,10 @@ type ReactPointerEvent<T = Element> = globalThis.PointerEvent & {
 	currentTarget: T;
 };
 
+import { fetchJsonOr, sendJson } from "../../adapters/backend/http.ts";
+import { useQueryResource } from "../../shared/hooks/useQueryResource.tsx";
+import { hasId, lacksId } from "../../shared/lib/data.ts";
+import { listenWindowEvent } from "../../shared/lib/react-events.ts";
 import {
 	IconAgent,
 	IconClock,
@@ -23,11 +27,7 @@ import {
 	IconPlus,
 	IconRobot,
 	IconWorkflow,
-} from "../../components/ui/Icons.tsx";
-import { useQueryResource } from "../../hooks/useQueryResource.tsx";
-import { hasId, lacksId } from "../../lib/data.ts";
-import { fetchJsonOr, sendJson } from "../../lib/fetch-json.ts";
-import { listenWindowEvent } from "../../lib/react-events.ts";
+} from "../../shared/ui/Icons.tsx";
 import {
 	color,
 	controlSize,

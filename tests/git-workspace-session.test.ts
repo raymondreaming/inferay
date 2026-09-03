@@ -8,7 +8,7 @@ import {
 	reconcileGitGraphSelection,
 	serializeGitWorkspacePanelSession,
 	updateGitGraphSelection,
-} from "../src/features/git/git-workspace-session.ts";
+} from "../src/modules/workbench/workbench-model.ts";
 
 describe("Git workspace panel session", () => {
 	test("normalizes persisted graph state and strips transient file payloads", () => {

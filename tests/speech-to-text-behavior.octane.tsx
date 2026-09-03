@@ -55,8 +55,9 @@ test("speech recognition starts without a separate getUserMedia probe", async ()
 		configurable: true,
 		value: FakeSpeechRecognition,
 	});
-	const { useSpeechToText } =
-		await import("../src/components/chat/useSpeechToText.tsx");
+	const { useSpeechToText } = await import(
+		"../src/modules/conversation/useSpeechToText.tsx"
+	);
 
 	try {
 		function Harness() {
@@ -105,8 +106,9 @@ test("speech recognition stop aborts the recognizer immediately", async () => {
 		configurable: true,
 		value: FakeSpeechRecognition,
 	});
-	const { useSpeechToText } =
-		await import("../src/components/chat/useSpeechToText.tsx");
+	const { useSpeechToText } = await import(
+		"../src/modules/conversation/useSpeechToText.tsx"
+	);
 
 	try {
 		function Harness() {
@@ -157,8 +159,9 @@ test("speech recognition aborts when the app window loses focus", async () => {
 		configurable: true,
 		value: FakeSpeechRecognition,
 	});
-	const { useSpeechToText } =
-		await import("../src/components/chat/useSpeechToText.tsx");
+	const { useSpeechToText } = await import(
+		"../src/modules/conversation/useSpeechToText.tsx"
+	);
 
 	try {
 		function Harness() {

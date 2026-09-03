@@ -1,14 +1,14 @@
 import { JSDOM } from "jsdom";
 import { createRoot, useRef, useState } from "octane";
 import { expect, test, vi } from "vitest";
-import type { ChatMessage } from "../src/features/chat/agent-chat-shared.ts";
+import type { ChatMessage } from "../src/modules/conversation/agent-chat-shared.ts";
 
 const mock = Object.assign(vi.fn, {
 	module: (path: string, factory: () => unknown) => vi.doMock(path, factory),
 });
 const sendMock = mock(() => {});
 
-mock.module("../src/lib/websocket.ts", () => ({
+mock.module("../src/adapters/backend/websocket.ts", () => ({
 	getWebSocketStatus: () => "connected",
 	subscribeWebSocketStatus: () => () => {},
 	wsClient: {
@@ -51,10 +51,10 @@ test("hidden chat input actions defer pending sends until visible", async () => 
 	sendMock.mockClear();
 	const { root, rootElement } = setupDom();
 	const { clearPendingSend, loadPendingSend, savePendingSend } = await import(
-		"../src/features/chat/chat-session-store.ts"
+		"../src/modules/conversation/chat-session-store.ts"
 	);
 	const { useChatInputActions } = await import(
-		"../src/components/chat/useChatInputActions.tsx"
+		"../src/modules/conversation/useChatInputActions.tsx"
 	);
 	const paneId = "pane-hidden-pending-send";
 	clearPendingSend(paneId);
@@ -137,7 +137,7 @@ test("loading Codex chat sends steering input without resetting the active strea
 	sendMock.mockClear();
 	const { root, rootElement } = setupDom();
 	const { useChatInputActions } = await import(
-		"../src/components/chat/useChatInputActions.tsx"
+		"../src/modules/conversation/useChatInputActions.tsx"
 	);
 	try {
 		const onSendStart = mock(() => {});

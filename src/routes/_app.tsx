@@ -6,26 +6,29 @@ import {
 } from "@octanejs/tanstack-router";
 import { Suspense, useEffect, useState } from "octane";
 import type { CSSProperties } from "react";
-import { AgentShellHeader } from "../components/layout/AgentShellHeader.tsx";
-import { Sidebar } from "../components/layout/Sidebar.tsx";
+import { resolveServerUrl } from "../adapters/backend/http.ts";
+import { wsClient } from "../adapters/backend/websocket.ts";
+import {
+	APP_BACKGROUND_STORAGE_KEY,
+	APP_FONT_STORAGE_KEY,
+	APP_THEME_STORAGE_KEY,
+} from "../adapters/storage/keys.ts";
+import {
+	readStoredBoolean,
+	readStoredValue,
+} from "../adapters/storage/stored-values.ts";
+import { CLIENT_STORAGE_CHANGED_EVENT } from "../adapters/storage/sync.ts";
+import { AppHeader } from "../app/AppHeader.tsx";
 import {
 	applyAppBackgroundPalette,
 	deriveAppBackgroundPalette,
 	getBuiltInBackgroundPath,
 	loadAppBackgroundSettings,
 	restoreAppTheme,
-} from "../lib/app-background.ts";
-import { applyAppFont, loadAppFontId } from "../lib/app-font.ts";
-import {
-	APP_BACKGROUND_STORAGE_KEY,
-	APP_FONT_STORAGE_KEY,
-	APP_THEME_STORAGE_KEY,
-} from "../lib/client-storage-keys.ts";
-import { CLIENT_STORAGE_CHANGED_EVENT } from "../lib/client-storage-sync.ts";
-import { resolveServerUrl } from "../lib/fetch-json.ts";
-import { listenWindowEvent } from "../lib/react-events.ts";
-import { readStoredBoolean, readStoredValue } from "../lib/stored-json.ts";
-import { wsClient } from "../lib/websocket.ts";
+} from "../app/background.ts";
+import { applyAppFont, loadAppFontId } from "../app/font.ts";
+import { WorkspaceSidebar } from "../modules/workspace/index.ts";
+import { listenWindowEvent } from "../shared/lib/react-events.ts";
 import { color, controlSize, layer, radius } from "../tokens.stylex.ts";
 
 export const Route = createFileRoute("/_app")({ component: AppLayout });
@@ -222,14 +225,14 @@ function AppLayout() {
 							: "none",
 				}}
 			/>
-			<AgentShellHeader />
+			<AppHeader />
 			<div
 				{...stylex.props(
 					styles.appBody,
 					sidebarOpen && styles.appBodySidebarOpen,
 				)}
 			>
-				<Sidebar />
+				<WorkspaceSidebar />
 				<div {...stylex.props(styles.mainColumn)}>
 					<main {...stylex.props(styles.mainContent)}>
 						<Suspense fallback={null}>

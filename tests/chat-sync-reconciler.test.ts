@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { reconcileChatSync } from "../src/components/chat/chat-state-utils.ts";
-import type { ChatMessage } from "../src/features/chat/agent-chat-shared.ts";
+import type { ChatMessage } from "../src/modules/conversation/agent-chat-shared.ts";
+import { reconcileChatSync } from "../src/modules/conversation/chat-state-utils.ts";
 
 test("chat sync reconciler skips duplicate completed revisions", () => {
 	const currentMessages: ChatMessage[] = [

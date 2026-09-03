@@ -25,7 +25,7 @@ mock.module("@octanejs/stylex", () => ({
 	}),
 }));
 
-mock.module("../src/lib/websocket.ts", () => ({
+mock.module("../src/adapters/backend/websocket.ts", () => ({
 	getWebSocketStatus: () => "connected",
 	subscribeWebSocketStatus: () => () => {},
 	wsClient: {
@@ -38,7 +38,7 @@ mock.module("../src/lib/websocket.ts", () => ({
 
 let chatMessageListRenderCount = 0;
 
-mock.module("../src/components/chat/ChatMessageList.tsx", () => ({
+mock.module("../src/modules/conversation/ChatMessageList.tsx", () => ({
 	ChatMessageList: memo(
 		({ messages }: { messages: Array<{ content: string }> }) => {
 			chatMessageListRenderCount++;
@@ -156,7 +156,7 @@ test("hidden chat panes do not restore legacy localStorage transcripts", async (
 	const { root, rootElement } = setupDom();
 	try {
 		const { AgentChatView } = await import(
-			"../src/components/chat/AgentChatView.tsx"
+			"../src/modules/conversation/AgentChatView.tsx"
 		);
 		localStorage.setItem(
 			"inferay-chat-pane-deferred-visible-load",
@@ -213,10 +213,10 @@ test("draft typing does not re-render long chat message list", async () => {
 	const { root, rootElement } = setupDom();
 	try {
 		const { getChatMessageReadModel } = await import(
-			"../src/features/chat/chat-session-store.ts"
+			"../src/modules/conversation/chat-session-store.ts"
 		);
 		const { AgentChatView } = await import(
-			"../src/components/chat/AgentChatView.tsx"
+			"../src/modules/conversation/AgentChatView.tsx"
 		);
 		const paneId = "pane-long-draft-performance";
 		getChatMessageReadModel(paneId).set(
@@ -265,7 +265,7 @@ test("sending a message keeps the chat pane mounted", async () => {
 	const { root, rootElement } = setupDom();
 	try {
 		const { AgentChatView } = await import(
-			"../src/components/chat/AgentChatView.tsx"
+			"../src/modules/conversation/AgentChatView.tsx"
 		);
 		root.render(
 			<AgentChatView

@@ -5,7 +5,7 @@ import type {
 	ChatLoadingState,
 	ChatMessage,
 	ToolActivity,
-} from "../src/features/chat/agent-chat-shared.ts";
+} from "../src/modules/conversation/agent-chat-shared.ts";
 
 type ChatActivityUiState = {
 	expandedTools: Set<string>;
@@ -24,7 +24,7 @@ const subscribe = mock(
 const onReconnect = mock((_callback: () => void) => reconnectCleanup);
 const send = mock(() => {});
 
-mock.module("../src/lib/websocket.ts", () => ({
+mock.module("../src/adapters/backend/websocket.ts", () => ({
 	getWebSocketStatus: () => "connected",
 	subscribeWebSocketStatus: () => () => {},
 	wsClient: {
@@ -68,7 +68,7 @@ test("hidden chat views do not own websocket reconnects", async () => {
 	send.mockClear();
 	const { root } = setupDom();
 	const { useChatConnection } = await import(
-		"../src/components/chat/useChatConnection.tsx"
+		"../src/modules/conversation/useChatConnection.tsx"
 	);
 
 	function Harness({ enabled }: { enabled: boolean }) {
@@ -79,6 +79,7 @@ test("hidden chat views do not own websocket reconnects", async () => {
 		const messageReadModel = useMemo(
 			() => ({
 				get: () => [],
+				settle: (messages: ChatMessage[]) => messages,
 				saveNow: (messages: ChatMessage[]) => messages,
 				set: () => {},
 			}),
@@ -109,6 +110,9 @@ test("hidden chat views do not own websocket reconnects", async () => {
 		expect(send).toHaveBeenCalledWith({
 			type: "chat:reconnect",
 			paneId: "pane-hidden",
+			agentKind: undefined,
+			cwd: undefined,
+			sessionId: null,
 		});
 
 		root.render(<Harness enabled={false} />);
@@ -125,7 +129,7 @@ test("live turn completion persists sync and reconnects after done", async () =>
 	send.mockClear();
 	const { root } = setupDom();
 	const { useChatConnection } = await import(
-		"../src/components/chat/useChatConnection.tsx"
+		"../src/modules/conversation/useChatConnection.tsx"
 	);
 	let handleMessage: ((message: unknown) => void) | undefined;
 	let latestMessages: ChatMessage[] = [];
@@ -165,6 +169,7 @@ test("live turn completion persists sync and reconnects after done", async () =>
 		const messageReadModel = useMemo(
 			() => ({
 				get: () => messagesRef.current,
+				settle: (messages: ChatMessage[]) => messages,
 				saveNow: saveMessagesNow,
 				set: setMessages,
 			}),
@@ -232,7 +237,7 @@ test("stale streaming sync does not cut local in-flight assistant content", asyn
 	send.mockClear();
 	const { root } = setupDom();
 	const { useChatConnection } = await import(
-		"../src/components/chat/useChatConnection.tsx"
+		"../src/modules/conversation/useChatConnection.tsx"
 	);
 	let handleMessage: ((message: unknown) => void) | undefined;
 	let latestMessages: ChatMessage[] = [];
@@ -272,6 +277,7 @@ test("stale streaming sync does not cut local in-flight assistant content", asyn
 		const messageReadModel = useMemo(
 			() => ({
 				get: () => messagesRef.current,
+				settle: (messages: ChatMessage[]) => messages,
 				saveNow: saveMessagesNow,
 				set: setMessages,
 			}),
@@ -352,7 +358,7 @@ test("active sync between blocks keeps result replay attached to its assistant",
 	send.mockClear();
 	const { root } = setupDom();
 	const { useChatConnection } = await import(
-		"../src/components/chat/useChatConnection.tsx"
+		"../src/modules/conversation/useChatConnection.tsx"
 	);
 	let handleMessage: ((message: unknown) => void) | undefined;
 	let latestMessages: ChatMessage[] = [];
@@ -373,6 +379,7 @@ test("active sync between blocks keeps result replay attached to its assistant",
 		const messageReadModel = useMemo(
 			() => ({
 				get: () => messagesRef.current,
+				settle: (messages: ChatMessage[]) => messages,
 				saveNow: (messages: ChatMessage[]) => messages,
 				set: (
 					update: ChatMessage[] | ((messages: ChatMessage[]) => ChatMessage[]),
@@ -456,7 +463,7 @@ test("accepted steering appears immediately without resetting the active assista
 	subscribe.mockClear();
 	const { root } = setupDom();
 	const { useChatConnection } = await import(
-		"../src/components/chat/useChatConnection.tsx"
+		"../src/modules/conversation/useChatConnection.tsx"
 	);
 	let handleMessage: ((message: unknown) => void) | undefined;
 	let latestMessages: ChatMessage[] = [];
@@ -485,6 +492,7 @@ test("accepted steering appears immediately without resetting the active assista
 		const messageReadModel = useMemo(
 			() => ({
 				get: () => messagesRef.current,
+				settle: (messages: ChatMessage[]) => messages,
 				saveNow: (messages: ChatMessage[]) => messages,
 				set: (
 					update: ChatMessage[] | ((messages: ChatMessage[]) => ChatMessage[]),

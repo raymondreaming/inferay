@@ -9,5 +9,5 @@ globalThis.fetch = vi.fn(
 		new Response(JSON.stringify({}), {
 			headers: { "content-type": "application/json" },
 			status: 200,
-		})
+		}),
 ) as typeof fetch;

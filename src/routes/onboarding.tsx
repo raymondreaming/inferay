@@ -1,8 +1,49 @@
 import * as stylex from "@octanejs/stylex";
 import { createFileRoute, useNavigate } from "@octanejs/tanstack-router";
 import { useCallback, useEffect, useReducer, useState } from "octane";
-import { Button } from "../components/ui/Button.tsx";
-import { IconButton } from "../components/ui/IconButton.tsx";
+import {
+	fetchJsonOr,
+	resolveServerUrl,
+	sendJsonWithBusy,
+} from "../adapters/backend/http.ts";
+import {
+	AGENT_MAIN_VIEW_STORAGE_KEY,
+	ONBOARDING_DONE_STORAGE_KEY,
+} from "../adapters/storage/keys.ts";
+import {
+	readStoredBoolean,
+	writeStoredValue,
+} from "../adapters/storage/stored-values.ts";
+import {
+	DEFAULT_APP_BACKGROUND_SETTINGS,
+	saveAppBackgroundSettings,
+} from "../app/background.ts";
+import { DEFAULT_APP_ROUTE } from "../app/navigation.tsx";
+import {
+	APP_REGION_DRAG_CLASS,
+	applyAppTheme,
+	loadAppThemeId,
+	saveAppThemeId,
+} from "../app/theme.ts";
+import { iconSize } from "../design-system.ts";
+import {
+	fetchForgeAccounts,
+	fetchGithubRepos,
+	invalidateForgeAccountsCache,
+} from "../modules/repository/forge/forge-client.ts";
+import type {
+	ForgeAccount,
+	GithubRepo,
+} from "../modules/repository/forge/types.ts";
+import {
+	createDefaultAgentState,
+	loadCanonicalAgentState,
+	saveSyncedAgentState,
+} from "../modules/workspace/workspace-model.ts";
+import { useQueryResource } from "../shared/hooks/useQueryResource.tsx";
+import { lacksValue } from "../shared/lib/data.ts";
+import { Button } from "../shared/ui/Button.tsx";
+import { IconButton } from "../shared/ui/IconButton.tsx";
 import {
 	IconAgent,
 	IconArrowLeft,
@@ -15,42 +56,7 @@ import {
 	IconRefreshCw,
 	IconUser,
 	IconX,
-} from "../components/ui/Icons.tsx";
-import { iconSize } from "../design-system.ts";
-import {
-	createDefaultAgentState,
-	loadCanonicalAgentState,
-	saveSyncedAgentState,
-} from "../features/agent/agent-utils.ts";
-import {
-	fetchForgeAccounts,
-	fetchGithubRepos,
-	invalidateForgeAccountsCache,
-} from "../features/forge/forge-client.ts";
-import type { ForgeAccount, GithubRepo } from "../features/forge/types.ts";
-import { useQueryResource } from "../hooks/useQueryResource.tsx";
-import {
-	DEFAULT_APP_BACKGROUND_SETTINGS,
-	saveAppBackgroundSettings,
-} from "../lib/app-background.ts";
-import { DEFAULT_APP_ROUTE } from "../lib/app-navigation.tsx";
-import {
-	APP_REGION_DRAG_CLASS,
-	applyAppTheme,
-	loadAppThemeId,
-	saveAppThemeId,
-} from "../lib/app-theme.ts";
-import {
-	AGENT_MAIN_VIEW_STORAGE_KEY,
-	ONBOARDING_DONE_STORAGE_KEY,
-} from "../lib/client-storage-keys.ts";
-import { lacksValue } from "../lib/data.ts";
-import {
-	fetchJsonOr,
-	resolveServerUrl,
-	sendJsonWithBusy,
-} from "../lib/fetch-json.ts";
-import { readStoredBoolean, writeStoredValue } from "../lib/stored-json.ts";
+} from "../shared/ui/Icons.tsx";
 import {
 	color,
 	controlSize,

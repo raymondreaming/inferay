@@ -23,7 +23,7 @@ describe("release metadata mapping", () => {
 		};
 
 		expect(
-			findAsset(release, { os: "macos", cpu: "arm64", target: "macos-arm64" })
+			findAsset(release, { os: "macos", cpu: "arm64", target: "macos-arm64" }),
 		).toEqual({ name: "inferay-macos-arm64.dmg" });
 	});
 
@@ -41,10 +41,10 @@ describe("release metadata mapping", () => {
 
 		try {
 			expect(releaseApiUrl("stable")).toBe(
-				"https://api.github.com/repos/owner/repo/releases/latest"
+				"https://api.github.com/repos/owner/repo/releases/latest",
 			);
 			expect(releaseApiUrl("beta")).toBe(
-				"https://api.github.com/repos/owner/repo/releases/tags/beta"
+				"https://api.github.com/repos/owner/repo/releases/tags/beta",
 			);
 		} finally {
 			if (previousRepo === undefined) {
@@ -66,7 +66,7 @@ describe("release metadata mapping", () => {
 			root,
 			"build",
 			"release-macos-arm64",
-			"inferay.app"
+			"inferay.app",
 		);
 
 		try {

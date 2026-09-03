@@ -3,21 +3,21 @@ set -euo pipefail
 
 echo "==> Biome focused architecture lint"
 bunx biome lint \
-	src/components/chat/AgentChatView.tsx \
-	src/components/chat/ChatMessageList.tsx \
-	src/components/chat/useAgentChatComposerState.tsx \
-	src/components/chat/useChatConnection.tsx \
-	src/components/chat/useChatInputActions.tsx \
-	src/components/chat/chat-state-utils.ts \
-	src/features/chat/agent-chat-shared.ts \
-	src/features/chat/chat-session-store.ts \
-	src/features/file-watcher/useFileWatcher.tsx \
-	src/features/git/useGitDiff.tsx \
-	src/features/agent/agent-utils.ts \
-	src/hooks/useShikiHighlighter.tsx \
-	src/pages/Agent/GitDiffView.tsx \
-	src/pages/Agent/AgentGrid.tsx \
-	src/pages/Agent/AgentPaneView.tsx \
+	src/modules/conversation/AgentChatView.tsx \
+	src/modules/conversation/ChatMessageList.tsx \
+	src/modules/conversation/useAgentChatComposerState.tsx \
+	src/modules/conversation/useChatConnection.tsx \
+	src/modules/conversation/useChatInputActions.tsx \
+	src/modules/conversation/chat-state-utils.ts \
+	src/modules/conversation/agent-chat-shared.ts \
+	src/modules/conversation/chat-session-store.ts \
+	src/modules/workbench/useFileWatcher.tsx \
+	src/modules/repository/useGitDiff.tsx \
+	src/modules/workspace/workspace-model.ts \
+	src/shared/hooks/useShikiHighlighter.tsx \
+	src/modules/workbench/diff/DiffViewer.tsx \
+	src/modules/workspace/WorkspaceCanvas.tsx \
+	src/modules/workspace/PaneView.tsx \
 	src/routes/_app/agent.tsx \
 	tests/agent-chat-view-visibility.octane.tsx \
 	tests/agent-inline-diff-parity.test.ts \
@@ -33,6 +33,17 @@ bunx biome lint \
 	tests/git-diff-view-render.octane.tsx \
 	tests/agent-and-git-behavior.octane.ts \
 	tests/agent-pane-visibility.octane.tsx
+
+echo
+echo "==> Architecture boundaries"
+if find src/components src/features src/pages src/hooks src/lib -type f 2>/dev/null | grep -q .; then
+	echo "Legacy implementation buckets must stay empty" >&2
+	exit 1
+fi
+if rg -n 'src/(components|features|pages|hooks|lib)/' src tests; then
+	echo "Legacy implementation import remains" >&2
+	exit 1
+fi
 
 echo
 echo "==> TypeScript"

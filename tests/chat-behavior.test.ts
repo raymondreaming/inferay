@@ -1,14 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import {
+	appendBoundedChatContent,
+	appendTrimmedMessage,
+	CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
+	type ChatMessage,
+	prepareTranscriptForStorage,
+	type ToolActivity,
+	trimMessages,
+	truncateChatContent,
+} from "../src/modules/conversation/agent-chat-shared.ts";
+import {
 	appendLiveToolActivity,
 	clearCompletedChatUiState,
-} from "../src/components/chat/chat-agent-utils.ts";
+} from "../src/modules/conversation/chat-agent-utils.ts";
 import {
 	applyInlineCompletion,
 	expandInlineCommandPrompts,
 	getCommandDisplayText,
 	getCommandPrompt,
-} from "../src/components/chat/chat-command-utils.ts";
+} from "../src/modules/conversation/chat-command-utils.ts";
 import {
 	appendBtwQuestionMessage,
 	appendMessageContent,
@@ -21,26 +31,16 @@ import {
 	mergeSyncedMessages,
 	patchMessageById,
 	windowChatMessagesForRender,
-} from "../src/components/chat/chat-state-utils.ts";
-import { parseMarkdownBlocks } from "../src/components/chat/chat-text.ts";
-import {
-	appendBoundedChatContent,
-	appendTrimmedMessage,
-	CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
-	type ChatMessage,
-	prepareTranscriptForStorage,
-	type ToolActivity,
-	trimMessages,
-	truncateChatContent,
-} from "../src/features/chat/agent-chat-shared.ts";
+} from "../src/modules/conversation/chat-state-utils.ts";
+import { parseMarkdownBlocks } from "../src/modules/conversation/chat-text.ts";
 import {
 	parseCommandSystemMessage,
 	serializeCommandSystemMessage,
-} from "../src/features/chat/command-system-message.ts";
+} from "../src/modules/conversation/command-system-message.ts";
 import {
 	parseGoalSystemMessage,
 	serializeGoalSystemMessage,
-} from "../src/features/chat/goal-system-message.ts";
+} from "../src/modules/conversation/goal-system-message.ts";
 
 function message(
 	id: string,

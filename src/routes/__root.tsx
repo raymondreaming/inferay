@@ -9,8 +9,8 @@ import {
 	Outlet,
 	Scripts,
 } from "@octanejs/tanstack-router";
-import { ErrorBoundary } from "../components/ui/ErrorBoundary.tsx";
-import { queryClient } from "../lib/query-client.ts";
+import { queryClient } from "../shared/lib/query-client.ts";
+import { ErrorBoundary } from "../shared/ui/ErrorBoundary.tsx";
 import "../index.css";
 import "virtual:stylex.css";
 

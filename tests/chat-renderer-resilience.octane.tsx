@@ -9,7 +9,7 @@ const mock = Object.assign(vi.fn, {
 let connectionStatus = "connected";
 const connectionListeners = new Set<() => void>();
 
-mock.module("../src/lib/websocket.ts", () => ({
+mock.module("../src/adapters/backend/websocket.ts", () => ({
 	getWebSocketStatus: () => connectionStatus,
 	subscribeWebSocketStatus: (listener: () => void) => {
 		connectionListeners.add(listener);
@@ -43,7 +43,7 @@ test("socket loss renders a non-blocking inline status", async () => {
 	const { root, rootElement } = setupDom();
 	try {
 		const { AgentChatStatusBar } = await import(
-			"../src/components/chat/AgentChatStatusBar.tsx"
+			"../src/modules/conversation/AgentChatStatusBar.tsx"
 		);
 		root.render(
 			<div>
@@ -71,7 +71,7 @@ test("active status keeps elapsed time and a compact stop control", async () => 
 	const { root, rootElement } = setupDom();
 	try {
 		const { AgentChatStatusBar } = await import(
-			"../src/components/chat/AgentChatStatusBar.tsx"
+			"../src/modules/conversation/AgentChatStatusBar.tsx"
 		);
 		root.render(
 			<AgentChatStatusBar
@@ -99,7 +99,7 @@ test("inline edits render only changed rows without hunk metadata", async () => 
 	const { root, rootElement } = setupDom();
 	try {
 		const { MiniEditDiff } = await import(
-			"../src/components/chat/ChatEditDiff.tsx"
+			"../src/modules/conversation/ChatEditDiff.tsx"
 		);
 		root.render(
 			<MiniEditDiff
@@ -124,7 +124,7 @@ test("a chat render failure stays inside its pane boundary", async () => {
 	const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 	try {
 		const { ChatPaneBoundary } = await import(
-			"../src/components/chat/ChatPaneBoundary.tsx"
+			"../src/modules/conversation/ChatPaneBoundary.tsx"
 		);
 		function BrokenChat(): never {
 			throw new Error("test chat failure");

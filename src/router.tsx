@@ -1,6 +1,6 @@
 import { createRouter } from "@octanejs/tanstack-router";
-import { queryClient } from "./lib/query-client.ts";
 import { routeTree } from "./routeTree.gen.ts";
+import { queryClient } from "./shared/lib/query-client.ts";
 
 export function getRouter() {
 	return createRouter({

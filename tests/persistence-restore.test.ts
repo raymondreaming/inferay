@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { shouldSyncClientStorageKey } from "../src/adapters/storage/keys.ts";
 import {
 	createAgentPane,
 	normalizeAgentState,
-} from "../src/features/agent/agent-utils.ts";
-import { shouldSyncClientStorageKey } from "../src/lib/client-storage-keys.ts";
+} from "../src/modules/workspace/workspace-model.ts";
 
 describe("app persistence restore flow", () => {
 	test("syncs the complete workspace layout through native storage", () => {

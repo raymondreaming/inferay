@@ -1,4 +1,14 @@
 import { describe, expect, test } from "vitest";
+import { isAgentMainView } from "../src/app/navigation.tsx";
+import { summarizeHunkDiff } from "../src/modules/repository/useGitDiff.tsx";
+import {
+	getFileSelectionAfterToggle,
+	isUnstagedTrackedChange,
+	isUntrackedChange,
+	orderGitFiles,
+	orderProjectGitFiles,
+	resolveGitFileSelection,
+} from "../src/modules/workbench/changes/model.ts";
 import {
 	type AgentGroupModel,
 	type AgentPaneModel,
@@ -16,17 +26,7 @@ import {
 	PRIMARY_PRODUCT_LOOP,
 	reduceAgentGroups,
 	reduceAgentWorkspaceState,
-} from "../src/features/agent/agent-utils.ts";
-import {
-	getFileSelectionAfterToggle,
-	isUnstagedTrackedChange,
-	isUntrackedChange,
-	orderGitFiles,
-	orderProjectGitFiles,
-	resolveGitFileSelection,
-} from "../src/features/git/git-file-utils.ts";
-import { summarizeHunkDiff } from "../src/features/git/useGitDiff.tsx";
-import { isAgentMainView } from "../src/lib/app-navigation.tsx";
+} from "../src/modules/workspace/workspace-model.ts";
 
 const pane = (
 	id: string,

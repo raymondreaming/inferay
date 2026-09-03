@@ -1,8 +1,45 @@
 import * as stylex from "@octanejs/stylex";
 import { createFileRoute, useNavigate } from "@octanejs/tanstack-router";
 import { useCallback, useMemo, useReducer, useRef, useState } from "octane";
-import { Button } from "../../components/ui/Button.tsx";
-import { DropdownButton } from "../../components/ui/DropdownButton.tsx";
+import { fetchJsonOr, sendJsonWithBusy } from "../../adapters/backend/http.ts";
+import { ONBOARDING_DONE_STORAGE_KEY } from "../../adapters/storage/keys.ts";
+import { removeStoredValue } from "../../adapters/storage/stored-values.ts";
+import { iconSize } from "../../design-system.ts";
+import type { AgentAccountProviderStatus } from "../../modules/agents/agent-account-status.ts";
+import { getAgentIcon } from "../../modules/agents/agent-ui.tsx";
+import {
+	CODEX_REASONING_LEVELS,
+	getAgentDefinition,
+	loadDefaultChatSettings,
+	saveDefaultChatSettings,
+} from "../../modules/agents/agents.ts";
+import {
+	ProfileGithubEmptyState,
+	ProfileRepoRow,
+} from "../../modules/profile/ProfileGithub.tsx";
+import {
+	ProfileAccountAvatar,
+	ProfileErrorBanner,
+	ProfileSuccessBanner,
+} from "../../modules/profile/ProfileStatus.tsx";
+import {
+	fetchForgeAccounts,
+	fetchGithubRepos,
+	getCachedForgeAccounts,
+	getCachedGithubRepos,
+	invalidateGithubReposCache,
+} from "../../modules/repository/forge/forge-client.ts";
+import type {
+	ForgeAccount,
+	GithubRepo,
+} from "../../modules/repository/forge/types.ts";
+import { SettingsContent } from "../../modules/settings/index.ts";
+import { dispatchAgentShellChange } from "../../modules/workspace/workspace-model.ts";
+import { useAppInfo } from "../../shared/hooks/useAppInfo.ts";
+import { useQueryResource } from "../../shared/hooks/useQueryResource.tsx";
+import { isActive } from "../../shared/lib/data.ts";
+import { Button } from "../../shared/ui/Button.tsx";
+import { DropdownButton } from "../../shared/ui/DropdownButton.tsx";
 import {
 	IconAgent,
 	IconGitBranch,
@@ -11,46 +48,12 @@ import {
 	IconRobot,
 	IconSettings,
 	IconUser,
-} from "../../components/ui/Icons.tsx";
-import { TextInput } from "../../components/ui/TextInput.tsx";
+} from "../../shared/ui/Icons.tsx";
+import { TextInput } from "../../shared/ui/TextInput.tsx";
 import {
 	WorkspaceContent,
 	WorkspacePage,
-} from "../../components/ui/WorkspacePage.tsx";
-import { iconSize } from "../../design-system.ts";
-import { dispatchAgentShellChange } from "../../features/agent/agent-utils.ts";
-import type { AgentAccountProviderStatus } from "../../features/agents/agent-account-status.ts";
-import { getAgentIcon } from "../../features/agents/agent-ui.tsx";
-import {
-	CODEX_REASONING_LEVELS,
-	getAgentDefinition,
-	loadDefaultChatSettings,
-	saveDefaultChatSettings,
-} from "../../features/agents/agents.ts";
-import {
-	fetchForgeAccounts,
-	fetchGithubRepos,
-	getCachedForgeAccounts,
-	getCachedGithubRepos,
-	invalidateGithubReposCache,
-} from "../../features/forge/forge-client.ts";
-import type { ForgeAccount, GithubRepo } from "../../features/forge/types.ts";
-import { useAppInfo } from "../../hooks/useAppInfo.ts";
-import { useQueryResource } from "../../hooks/useQueryResource.tsx";
-import { ONBOARDING_DONE_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
-import { isActive } from "../../lib/data.ts";
-import { fetchJsonOr, sendJsonWithBusy } from "../../lib/fetch-json.ts";
-import { removeStoredValue } from "../../lib/stored-json.ts";
-import { AgentSettingsContent } from "../../pages/Agent/AgentSettingsPanel.tsx";
-import {
-	ProfileGithubEmptyState,
-	ProfileRepoRow,
-} from "../../pages/ProfilePage/ProfileGithub.tsx";
-import {
-	ProfileAccountAvatar,
-	ProfileErrorBanner,
-	ProfileSuccessBanner,
-} from "../../pages/ProfilePage/ProfileStatus.tsx";
+} from "../../shared/ui/WorkspacePage.tsx";
 import {
 	breakpoint,
 	color,
@@ -727,7 +730,7 @@ export function ProfilePage() {
 						</SettingsSection>
 
 						<div {...stylex.props(styles.settingsSection)}>
-							<AgentSettingsContent showVersion={false} embedded />
+							<SettingsContent showVersion={false} embedded />
 						</div>
 
 						<SettingsSection

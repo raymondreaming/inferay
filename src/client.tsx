@@ -1,19 +1,22 @@
 import { hydrateStart, StartClient } from "@octanejs/tanstack-start/client";
 import { hydrateRoot, initializeHydrationEventCapture } from "octane";
-import { preloadPrompts } from "./features/prompts/usePrompts.tsx";
-import { applyAppFont, loadAppFontId } from "./lib/app-font.ts";
-import {
-	DEFAULT_AGENT_MAIN_VIEW,
-	DEFAULT_APP_ROUTE,
-} from "./lib/app-navigation.tsx";
-import { applyAppTheme, loadAppThemeId } from "./lib/app-theme.ts";
+import { getServerOrigin, resolveServerUrl } from "./adapters/backend/http.ts";
 import {
 	AGENT_MAIN_VIEW_STORAGE_KEY,
 	ONBOARDING_DONE_STORAGE_KEY,
-} from "./lib/client-storage-keys.ts";
-import { hydrateStoredValues } from "./lib/client-storage-sync.ts";
-import { getServerOrigin, resolveServerUrl } from "./lib/fetch-json.ts";
-import { readStoredBoolean, writeStoredValue } from "./lib/stored-json.ts";
+} from "./adapters/storage/keys.ts";
+import {
+	readStoredBoolean,
+	writeStoredValue,
+} from "./adapters/storage/stored-values.ts";
+import { hydrateStoredValues } from "./adapters/storage/sync.ts";
+import { applyAppFont, loadAppFontId } from "./app/font.ts";
+import {
+	DEFAULT_AGENT_MAIN_VIEW,
+	DEFAULT_APP_ROUTE,
+} from "./app/navigation.tsx";
+import { applyAppTheme, loadAppThemeId } from "./app/theme.ts";
+import { preloadPrompts } from "./modules/prompts/usePrompts.tsx";
 
 function routeLocalRequestsToDesktopServer() {
 	if (window.location.origin === getServerOrigin()) return;

@@ -1,7 +1,10 @@
 import { JSDOM } from "jsdom";
 import { createRoot, useState } from "octane";
 import { describe, expect, test, vi } from "vitest";
-import type { GraphNode, GraphRow } from "../src/features/git/useGitGraph.tsx";
+import type {
+	GraphNode,
+	GraphRow,
+} from "../src/modules/repository/useGitGraph.tsx";
 import { stylexTestTypes } from "./stylex-test-mock.ts";
 
 const mock = Object.assign(vi.fn, {
@@ -125,7 +128,7 @@ function setupDom() {
 describe("Git commit graph renderer", () => {
 	test("keeps a 10,000-commit graph virtualized and selects by stable identity", async () => {
 		const { CommitGraph } = await import(
-			"../src/components/git/CommitGraph.tsx"
+			"../src/modules/workbench/graph/CommitGraph.tsx"
 		);
 		const commits = Array.from({ length: 10_000 }, (_, index) =>
 			graphCommit(index),
@@ -358,8 +361,8 @@ describe("Git commit graph renderer", () => {
 	});
 
 	test("renders concise commit details and opens a historical file", async () => {
-		const { ChangeFileSidebar } = await import(
-			"../src/components/git/ChangeFileSidebar.tsx"
+		const { ChangesPanel } = await import(
+			"../src/modules/workbench/changes/ChangesPanel.tsx"
 		);
 		const { dom, root, rootElement } = setupDom();
 		const onSelectCommitFile = vi.fn();
@@ -367,7 +370,7 @@ describe("Git commit graph renderer", () => {
 		const hash = "18ed4a4be8a2c41826f28342e0873e1509c9bb4e";
 		try {
 			root.render(
-				<ChangeFileSidebar
+				<ChangesPanel
 					cwd="/fixture/repository"
 					fileViewMode="path"
 					onFileViewModeChange={() => {}}
@@ -407,7 +410,7 @@ describe("Git commit graph renderer", () => {
 						],
 						files: [
 							{
-								path: "src/components/git/CommitGraph.tsx",
+								path: "src/modules/workbench/graph/CommitGraph.tsx",
 								status: "M",
 								additions: 18,
 								deletions: 4,
@@ -437,7 +440,7 @@ describe("Git commit graph renderer", () => {
 			expect(rootElement.textContent).not.toContain("Diff parent:");
 			expect(rootElement.textContent).not.toContain("GitHub ·");
 			expect(rootElement.textContent).toContain(
-				"src/components/git/CommitGraph.tsx",
+				"src/modules/workbench/graph/CommitGraph.tsx",
 			);
 			rootElement
 				.querySelector('button[aria-label="Repository graph"]')
@@ -453,14 +456,14 @@ describe("Git commit graph renderer", () => {
 	});
 
 	test("keeps incomplete historical author metadata inside the details panel", async () => {
-		const { ChangeFileSidebar } = await import(
-			"../src/components/git/ChangeFileSidebar.tsx"
+		const { ChangesPanel } = await import(
+			"../src/modules/workbench/changes/ChangesPanel.tsx"
 		);
 		const { root, rootElement } = setupDom();
 		const hash = "47e2380000000000000000000000000000000000";
 		try {
 			root.render(
-				<ChangeFileSidebar
+				<ChangesPanel
 					cwd="/fixture/repository"
 					fileViewMode="path"
 					onFileViewModeChange={() => {}}
@@ -491,7 +494,7 @@ describe("Git commit graph renderer", () => {
 							committedAt: undefined,
 							refs: [],
 							files: [],
-						} as unknown as import("../src/features/git/useGitGraph.tsx").CommitDetails
+						} as unknown as import("../src/modules/repository/useGitGraph.tsx").CommitDetails
 					}
 					branch="main"
 					commitMessage=""
@@ -513,9 +516,9 @@ describe("Git commit graph renderer", () => {
 
 	test("fetches first-selection commit details and normalizes the native wire format", async () => {
 		const { useCommitDetails } = await import(
-			"../src/features/git/useGitGraph.tsx"
+			"../src/modules/repository/useGitGraph.tsx"
 		);
-		const { queryClient } = await import("../src/lib/query-client.ts");
+		const { queryClient } = await import("../src/shared/lib/query-client.ts");
 		const { root, rootElement } = setupDom();
 		const hash = "6be80ae0000000000000000000000000000000000";
 		const previousFetch = globalThis.fetch;
@@ -592,8 +595,8 @@ describe("Git commit graph renderer", () => {
 	});
 
 	test("renders the live WIP sidebar hierarchy and actions without duplicate labels", async () => {
-		const { ChangeFileSidebar } = await import(
-			"../src/components/git/ChangeFileSidebar.tsx"
+		const { ChangesPanel } = await import(
+			"../src/modules/workbench/changes/ChangesPanel.tsx"
 		);
 		const { dom, root, rootElement } = setupDom();
 		const onStageAll = vi.fn();
@@ -602,7 +605,7 @@ describe("Git commit graph renderer", () => {
 		const onCommit = vi.fn();
 		try {
 			root.render(
-				<ChangeFileSidebar
+				<ChangesPanel
 					cwd="/fixture/repository"
 					fileViewMode="path"
 					onFileViewModeChange={() => {}}
@@ -611,7 +614,7 @@ describe("Git commit graph renderer", () => {
 						{
 							status: "M",
 							staged: false,
-							path: "src/components/git/CommitGraph.tsx",
+							path: "src/modules/workbench/graph/CommitGraph.tsx",
 							additions: 12,
 							deletions: 3,
 						},
@@ -689,7 +692,7 @@ describe("Git commit graph renderer", () => {
 
 	test("renders busy, WIP, stash, merge, selected, ghost, and truncated states", async () => {
 		const { CommitGraph } = await import(
-			"../src/components/git/CommitGraph.tsx"
+			"../src/modules/workbench/graph/CommitGraph.tsx"
 		);
 		const base = graphCommit(0);
 		const commits: GraphNode[] = [

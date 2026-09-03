@@ -10,10 +10,22 @@ import {
 	useRef,
 	useState,
 } from "octane";
-import type { AgentChatHandle } from "../../components/chat/AgentChatView.tsx";
-import { IconGitBranch } from "../../components/ui/Icons.tsx";
-import { useChatWorkspaceTools } from "../../components/workspace/ChatWorkspaceTools.tsx";
-import { iconSize } from "../../design-system.ts";
+import { wsClient } from "../../adapters/backend/websocket.ts";
+import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../adapters/storage/keys.ts";
+import {
+	readStoredValue,
+	writeStoredValue,
+} from "../../adapters/storage/stored-values.ts";
+import {
+	type AgentMainView,
+	DEFAULT_AGENT_MAIN_VIEW,
+	isAgentMainView,
+} from "../../app/navigation.tsx";
+import { loadAppThemeId, mapAppThemeToAgentTheme } from "../../app/theme.ts";
+import type { AgentChatHandle } from "../../modules/conversation/AgentChatView.tsx";
+import { clearAgentChatPaneState } from "../../modules/conversation/chat-session-store.ts";
+import { useRepositoryWorkbench } from "../../modules/workbench/index.ts";
+import { WorkspaceCanvas } from "../../modules/workspace/index.ts";
 import {
 	type AgentGroupsAction,
 	type AgentKind,
@@ -44,48 +56,21 @@ import {
 	saveSyncedAgentState,
 	syncAgentLayoutMode,
 	type ThemeId,
-} from "../../features/agent/agent-utils.ts";
-import { clearAgentChatPaneState } from "../../features/chat/chat-session-store.ts";
-import { useGitStatus } from "../../features/git/useGitStatus.tsx";
-import {
-	type AgentMainView,
-	DEFAULT_AGENT_MAIN_VIEW,
-	isAgentMainView,
-} from "../../lib/app-navigation.tsx";
-import {
-	loadAppThemeId,
-	mapAppThemeToAgentTheme,
-} from "../../lib/app-theme.ts";
-import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
-import { hasId, isNonEmptyString } from "../../lib/data.ts";
+} from "../../modules/workspace/workspace-model.ts";
+import { hasId } from "../../shared/lib/data.ts";
 import {
 	listenWindowEvent,
 	setupAgentThemePanelShortcut,
-} from "../../lib/react-events.ts";
-import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
-import { wsClient } from "../../lib/websocket.ts";
-import { AgentGrid } from "../../pages/Agent/AgentGrid.tsx";
+} from "../../shared/lib/react-events.ts";
 import { color, controlSize, font, layer } from "../../tokens.stylex.ts";
 
 export const Route = createFileRoute("/_app/agent")({ component: AgentPage });
 
-const EMPTY_GRAPH_CWDS: string[] = [];
-
-const ProjectFileGraphView = lazy(() =>
-	import("../../components/graph/ProjectFileGraphView.tsx").then((module) => ({
-		default: module.ProjectFileGraphView,
+const Settings = lazy(() =>
+	import("../../modules/settings/index.ts").then((module) => ({
+		default: module.Settings,
 	})),
 );
-const AgentSettingsPanel = lazy(() =>
-	import("../../pages/Agent/AgentSettingsPanel.tsx").then((module) => ({
-		default: module.AgentSettingsPanel,
-	})),
-);
-
-type GraphSelection = {
-	readonly cwd: string | null;
-	readonly source: "pane" | "user";
-};
 
 type MutableRef<T> = {
 	current: T;
@@ -116,30 +101,6 @@ type AgentPersistenceArgs = AgentAppearance & {
 	readonly setMainView: (value: AgentMainView) => void;
 	readonly setSelectedGroupId: (value: GroupId | null) => void;
 };
-
-function getGraphCwds(
-	panes: readonly { readonly cwd?: string }[] = [],
-): string[] {
-	const seen = new Set<string>();
-	const cwds: string[] = [];
-	for (const pane of panes) {
-		if (!isNonEmptyString(pane.cwd) || seen.has(pane.cwd)) continue;
-		seen.add(pane.cwd);
-		cwds.push(pane.cwd);
-	}
-	return cwds;
-}
-
-function getSelectedPaneCwd(
-	group: {
-		readonly panes: readonly { readonly id: string; readonly cwd?: string }[];
-		readonly selectedPaneId: string | null;
-	} | null,
-): string | null {
-	return (
-		group?.panes.find((pane) => pane.id === group.selectedPaneId)?.cwd ?? null
-	);
-}
 
 function useAgentPersistence({
 	fontFamily,
@@ -370,19 +331,6 @@ function useAgentPersistence({
 	}, [handleShellChange]);
 }
 
-function GraphEmptyState({ message }: { message: string }) {
-	return (
-		<div {...stylex.props(styles.centerState, styles.centerPad)}>
-			<div {...stylex.props(styles.centerTextBox)}>
-				<div {...stylex.props(styles.iconBox)}>
-					<IconGitBranch size={iconSize._2xl} />
-				</div>
-				<p {...stylex.props(styles.centerMessage)}>{message}</p>
-			</div>
-		</div>
-	);
-}
-
 const styles = stylex.create({
 	appRoot: {
 		display: "flex",
@@ -441,7 +389,7 @@ const styles = stylex.create({
 		visibility: "hidden",
 		zIndex: layer.base,
 	},
-	chatWorkspace: {
+	repositoryWorkbench: {
 		display: "flex",
 		width: "100%",
 		height: "100%",
@@ -541,9 +489,7 @@ type AgentMainSurfaceProps = {
 	readonly chatDiffPanel: unknown;
 	readonly chatSidebar: unknown;
 	readonly chatZenMode: boolean;
-	readonly graphView: unknown;
 	readonly hasCurrentPanes: boolean;
-	readonly mainView: AgentMainView;
 	readonly setAppearance: AgentPersistenceArgs["setAppearance"];
 	readonly setShowSettings: (value: boolean) => void;
 	readonly showSettings: boolean;
@@ -554,25 +500,21 @@ type AgentMainSurfaceProps = {
 type AgentPaneActionsArgs = {
 	readonly chatRefs: MutableRef<Map<string, AgentChatHandle> | null>;
 	readonly cleanupPane: (paneId: string) => void;
-	readonly currentGroup: AgentSavedState["groups"][number] | undefined;
 	readonly dispatchAgentGroupAction: (
 		action: AgentGroupsAction,
 		reason?: string,
 	) => void;
 	readonly groups: AgentSavedState["groups"];
 	readonly selectedGroupId: GroupId | null;
-	readonly setGraphSelection: (selection: GraphSelection) => void;
 	readonly withSelectedGroup: (fn: (groupId: string) => void) => void;
 };
 
 function useAgentPaneActions({
 	chatRefs,
 	cleanupPane,
-	currentGroup,
 	dispatchAgentGroupAction,
 	groups,
 	selectedGroupId,
-	setGraphSelection,
 	withSelectedGroup,
 }: AgentPaneActionsArgs) {
 	const handleAddPane = useCallback(
@@ -640,9 +582,6 @@ function useAgentPaneActions({
 	);
 	const handleDirectorySelected = useCallback(
 		(paneId: string, path: string | null, referencePaths?: string[]) => {
-			if (path) {
-				setGraphSelection({ cwd: path, source: "pane" });
-			}
 			withSelectedGroup((groupId) =>
 				dispatchAgentGroupAction(
 					{
@@ -656,28 +595,17 @@ function useAgentPaneActions({
 				),
 			);
 		},
-		[dispatchAgentGroupAction, setGraphSelection, withSelectedGroup],
+		[dispatchAgentGroupAction, withSelectedGroup],
 	);
 	const selectPane = useCallback(
-		(paneId: string) => {
-			const pane =
-				currentGroup?.panes.find((item) => item.id === paneId) ?? null;
-			if (pane?.cwd) {
-				setGraphSelection({ cwd: pane.cwd, source: "pane" });
-			}
+		(paneId: string) =>
 			withSelectedGroup((groupId) =>
 				dispatchAgentGroupAction(
 					{ type: "selectPane", groupId, paneId },
 					"select-pane",
 				),
-			);
-		},
-		[
-			currentGroup,
-			dispatchAgentGroupAction,
-			setGraphSelection,
-			withSelectedGroup,
-		],
+			),
+		[dispatchAgentGroupAction, withSelectedGroup],
 	);
 	const handleChatRef = useCallback(
 		(paneId: string, handle: AgentChatHandle | null) => {
@@ -686,15 +614,10 @@ function useAgentPaneActions({
 		},
 		[chatRefs],
 	);
-	const handleSelectGraphCwd = useCallback(
-		(cwd: string) => setGraphSelection({ cwd, source: "user" }),
-		[setGraphSelection],
-	);
 	return {
 		handleAddPane,
 		handleChatRef,
 		handleDirectorySelected,
-		handleSelectGraphCwd,
 		handleSetPaneAgentKind,
 		removePane,
 		reorderPanes,
@@ -706,9 +629,7 @@ function AgentMainSurface({
 	chatDiffPanel,
 	chatSidebar,
 	chatZenMode,
-	graphView,
 	hasCurrentPanes,
-	mainView,
 	setAppearance,
 	setShowSettings,
 	showSettings,
@@ -724,49 +645,34 @@ function AgentMainSurface({
 							{!hasCurrentPanes ? (
 								<div {...stylex.props(styles.emptyWorkspace)} />
 							) : (
-								<>
+								<div
+									{...stylex.props(
+										styles.surfaceLayer,
+										styles.surfaceLayerVisible,
+									)}
+								>
 									<div
 										{...stylex.props(
-											styles.surfaceLayer,
-											mainView === "chat"
-												? styles.surfaceLayerVisible
-												: styles.surfaceLayerHidden,
+											styles.repositoryWorkbench,
+											chatZenMode && styles.chatWorkspaceZen,
 										)}
-										aria-hidden={mainView !== "chat"}
 									>
 										<div
 											{...stylex.props(
-												styles.chatWorkspace,
-												chatZenMode && styles.chatWorkspaceZen,
+												styles.chatDock,
+												chatZenMode && styles.chatDockZen,
 											)}
 										>
-											<div
-												{...stylex.props(
-													styles.chatDock,
-													chatZenMode && styles.chatDockZen,
-												)}
-											>
-												{agentGrid}
-											</div>
-											{chatDiffPanel}
-											{chatSidebar}
+											{agentGrid}
 										</div>
+										{chatDiffPanel}
+										{chatSidebar}
 									</div>
-									{mainView === "graph" && (
-										<div
-											{...stylex.props(
-												styles.surfaceLayer,
-												styles.surfaceLayerVisible,
-											)}
-										>
-											<Suspense fallback={null}>{graphView}</Suspense>
-										</div>
-									)}
-								</>
+								</div>
 							)}
 							{showSettings && (
 								<Suspense fallback={null}>
-									<AgentSettingsPanel
+									<Settings
 										themeId={themeId}
 										onThemeChange={(v: ThemeId) =>
 											setAppearance((prev) => ({ ...prev, themeId: v }))
@@ -826,40 +732,15 @@ export function AgentPage() {
 		() => groups.find(hasId.bind(null, selectedGroupId)),
 		[groups, selectedGroupId],
 	);
-	const graphCwds = useMemo(
-		() => getGraphCwds(currentGroup?.panes),
-		[currentGroup],
-	);
-	const selectedPaneCwd = getSelectedPaneCwd(currentGroup ?? null);
 	const selectedPane =
 		currentGroup?.panes.find(
 			(pane) => pane.id === currentGroup.selectedPaneId,
 		) ?? null;
-	const chatWorkspace = useChatWorkspaceTools({
-		active: mainView === "chat",
+	const repositoryWorkbench = useRepositoryWorkbench({
+		active: true,
 		cwd: selectedPane?.cwd,
 		workspaceId: currentGroup?.id ?? "default",
 	});
-	const [graphSelection, setGraphSelection] = useState<GraphSelection>({
-		cwd: null,
-		source: "pane",
-	});
-	const activeGraphCwd = useMemo(() => {
-		if (graphSelection.cwd && graphCwds.includes(graphSelection.cwd)) {
-			return graphSelection.cwd;
-		}
-		if (selectedPaneCwd && graphCwds.includes(selectedPaneCwd)) {
-			return selectedPaneCwd;
-		}
-		return graphCwds[0] ?? null;
-	}, [graphCwds, graphSelection.cwd, selectedPaneCwd]);
-	const graphStatusCwds = mainView === "graph" ? graphCwds : EMPTY_GRAPH_CWDS;
-	const { projectMap } = useGitStatus(graphStatusCwds, {
-		enabled: mainView === "graph" && graphCwds.length > 0,
-	});
-	const activeGraphProject = activeGraphCwd
-		? (projectMap.get(activeGraphCwd) ?? null)
-		: null;
 	const restoreSavedState = useCallback(
 		(s: ReturnType<typeof loadAgentState>) => {
 			const normalized = normalizeAgentState(s);
@@ -966,7 +847,6 @@ export function AgentPage() {
 		handleAddPane,
 		handleChatRef,
 		handleDirectorySelected,
-		handleSelectGraphCwd,
 		handleSetPaneAgentKind,
 		removePane,
 		reorderPanes,
@@ -974,11 +854,9 @@ export function AgentPage() {
 	} = useAgentPaneActions({
 		chatRefs,
 		cleanupPane,
-		currentGroup,
 		dispatchAgentGroupAction,
 		groups,
 		selectedGroupId,
-		setGraphSelection,
 		withSelectedGroup,
 	});
 	const selectChatPane = useCallback(
@@ -986,22 +864,24 @@ export function AgentPage() {
 			const paneCwd = currentGroup?.panes.find(
 				(pane) => pane.id === paneId,
 			)?.cwd;
-			chatWorkspace.focusChatWorkspace(paneCwd);
+			repositoryWorkbench.focusWorkbench(paneCwd);
 			selectPane(paneId);
 		},
-		[chatWorkspace.focusChatWorkspace, currentGroup?.panes, selectPane],
+		[repositoryWorkbench.focusWorkbench, currentGroup?.panes, selectPane],
 	);
 	const agentGrid = currentGroup ? (
-		<AgentGrid
-			active={mainView === "chat"}
+		<WorkspaceCanvas
+			active
 			panes={
-				chatWorkspace.zenMode && selectedPane
+				repositoryWorkbench.zenMode && selectedPane
 					? [selectedPane]
 					: currentGroup.panes
 			}
 			selectedPaneId={currentGroup.selectedPaneId}
-			columns={chatWorkspace.zenMode ? 1 : currentGroup.columns}
-			rows={chatWorkspace.zenMode ? 1 : (currentGroup.rows ?? DEFAULT_ROWS)}
+			columns={repositoryWorkbench.zenMode ? 1 : currentGroup.columns}
+			rows={
+				repositoryWorkbench.zenMode ? 1 : (currentGroup.rows ?? DEFAULT_ROWS)
+			}
 			layoutMode={layoutMode}
 			theme={theme}
 			fontSize={fontSize}
@@ -1015,29 +895,16 @@ export function AgentPage() {
 			onAddPane={handleAddPane}
 			onSetPaneAgentKind={handleSetPaneAgentKind}
 			workspaceId={currentGroup.id}
-			auxiliaryPanels={chatWorkspace.auxiliaryPanels}
+			auxiliaryPanels={repositoryWorkbench.auxiliaryPanels}
 		/>
 	) : null;
 	const hasCurrentPanes = !!currentGroup && currentGroup.panes.length > 0;
-	const graphView =
-		graphCwds.length === 0 ? (
-			<GraphEmptyState message="Open a project directory in one of this group's panes to populate the file graph." />
-		) : (
-			<ProjectFileGraphView
-				cwds={graphCwds}
-				activeCwd={activeGraphCwd}
-				onSelectCwd={handleSelectGraphCwd}
-				project={activeGraphProject}
-			/>
-		);
 	return (
 		<AgentMainSurface
-			chatDiffPanel={chatWorkspace.diffPanel}
-			chatSidebar={chatWorkspace.sidebar}
-			chatZenMode={chatWorkspace.zenMode}
-			graphView={graphView}
+			chatDiffPanel={repositoryWorkbench.diffPanel}
+			chatSidebar={repositoryWorkbench.sidebar}
+			chatZenMode={repositoryWorkbench.zenMode}
 			hasCurrentPanes={hasCurrentPanes}
-			mainView={mainView}
 			setAppearance={setAppearance}
 			setShowSettings={setShowSettings}
 			showSettings={showSettings}

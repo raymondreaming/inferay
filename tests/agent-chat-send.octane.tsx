@@ -7,7 +7,7 @@ const mock = Object.assign(vi.fn, {
 });
 const sendMock = mock(() => {});
 
-mock.module("../src/lib/websocket.ts", () => ({
+mock.module("../src/adapters/backend/websocket.ts", () => ({
 	getWebSocketStatus: () => "connected",
 	subscribeWebSocketStatus: () => () => {},
 	wsClient: {
@@ -92,7 +92,7 @@ test("sending an optimistic message renders the real virtualized list", async ()
 	const { root, rootElement } = setupDom();
 	try {
 		const { AgentChatView } = await import(
-			"../src/components/chat/AgentChatView.tsx"
+			"../src/modules/conversation/AgentChatView.tsx"
 		);
 		root.render(
 			<AgentChatView
