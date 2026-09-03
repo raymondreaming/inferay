@@ -2888,7 +2888,7 @@ pub fn perform_git_interactive_rebase(
                 if step
                     .message
                     .as_deref()
-                    .map_or(true, |message| message.trim().is_empty())
+                    .is_none_or(|message| message.trim().is_empty())
                 {
                     return invalid_ref_operation(
                         cwd,
@@ -3145,26 +3145,25 @@ fn graph_action_result(
     action: &str,
     output: std::io::Result<std::process::Output>,
 ) -> GitGraphActionResult {
-    match ref_operation_result(cwd, action, output) {
-        GitRefOperationResult {
-            ok,
-            outcome,
-            current_branch,
-            head,
-            conflicts,
-            error_kind,
-            error,
-            ..
-        } => GitGraphActionResult {
-            ok,
-            action: action.to_string(),
-            outcome,
-            current_branch,
-            head,
-            conflicts,
-            error_kind,
-            error,
-        },
+    let GitRefOperationResult {
+        ok,
+        outcome,
+        current_branch,
+        head,
+        conflicts,
+        error_kind,
+        error,
+        ..
+    } = ref_operation_result(cwd, action, output);
+    GitGraphActionResult {
+        ok,
+        action: action.to_string(),
+        outcome,
+        current_branch,
+        head,
+        conflicts,
+        error_kind,
+        error,
     }
 }
 

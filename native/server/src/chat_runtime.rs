@@ -382,14 +382,11 @@ impl ChatRuntime {
                 .collect::<Vec<_>>()
                 .join("\n\n");
             let checkpoint_cwd = session.lock().await.cwd.clone();
-            let checkpoint_id = match self
+            let checkpoint_id = self
                 .checkpoints
                 .create_checkpoint(input.pane_id.clone(), &checkpoint_cwd, input.text.clone())
                 .await
-            {
-                Ok(id) => Some(id),
-                Err(_) => None,
-            };
+                .ok();
             if let Some(id) = checkpoint_id.as_ref() {
                 self.emit(
                     &session,
