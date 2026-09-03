@@ -31,6 +31,10 @@ import {
 	validateInteractiveRebasePlan,
 } from "../../features/git/git-interactive-rebase.ts";
 import {
+	OPEN_ACTIVE_GIT_GRAPH_EVENT,
+	TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT,
+} from "../../features/git/git-workspace-events.ts";
+import {
 	bindGitGraphRepository,
 	type GitWorkspaceDetachedFilePanel,
 	type GitWorkspacePanelSession,
@@ -84,7 +88,6 @@ import {
 import { DiffViewerBoundary } from "../diff/DiffViewerBoundary.tsx";
 import {
 	ChangeFileSidebar,
-	CollapsedChangeFileSidebar,
 	getAlphabeticalFileOrder,
 	getTreeFileOrder,
 	type SelectedFile,
@@ -872,6 +875,7 @@ function ChatDiffPanel({
 										? IconArrowDown
 										: IconArrowUp;
 							const label = `${action[0]!.toLocaleUpperCase()}${action.slice(1)} repository`;
+							const actionName = `${action[0]!.toLocaleUpperCase()}${action.slice(1)}`;
 							return (
 								<button
 									key={action}
@@ -885,6 +889,7 @@ function ChatDiffPanel({
 									{...stylex.props(styles.graphSyncButton)}
 								>
 									<ActionIcon size={iconSize.compact} />
+									<span>{actionName}</span>
 								</button>
 							);
 						})}
@@ -1650,7 +1655,10 @@ export function useChatWorkspaceTools({
 		[project],
 	);
 	const files = useMemo(() => orderProjectGitFiles(project), [project]);
-	const graphCwd = active && mainViewMode === "graph" ? activeCwd : undefined;
+	const graphCwd =
+		active && mainViewMode === "graph"
+			? (diffViewerCwd ?? undefined)
+			: undefined;
 	const graph = useGitGraph(graphCwd, graphLimit);
 	const graphRevisionsRef = useRef(new Map<string, string>());
 	if (graphCwd && graph.revision) {
@@ -2013,10 +2021,18 @@ export function useChatWorkspaceTools({
 		});
 	}, [active, updatePanelSession]);
 
-	const updateSidebarVisible = useCallback((visible: boolean) => {
-		setSidebarVisible(visible);
-		writeStoredValue(SIDEBAR_VISIBLE_KEY, visible ? "true" : "false");
-	}, []);
+	useEffect(
+		() =>
+			listenWindowEvent(TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT, () => {
+				if (!active) return;
+				setSidebarVisible((visible) => {
+					const next = !visible;
+					writeStoredValue(SIDEBAR_VISIBLE_KEY, next ? "true" : "false");
+					return next;
+				});
+			}),
+		[active],
+	);
 	const setFileViewMode = useCallback((mode: "path" | "tree") => {
 		setFileViewModeState(mode);
 		saveGitFileViewMode(mode);
@@ -2106,6 +2122,13 @@ export function useChatWorkspaceTools({
 			setMainViewMode(mode);
 		},
 		[activeCwd, setMainViewMode, updatePanelSession],
+	);
+	useEffect(
+		() =>
+			listenWindowEvent(OPEN_ACTIVE_GIT_GRAPH_EVENT, () => {
+				if (active) changeMainViewMode("graph");
+			}),
+		[active, changeMainViewMode],
 	);
 	const focusChatWorkspace = useCallback(
 		(repositoryCwd?: string) =>
@@ -2207,14 +2230,6 @@ export function useChatWorkspaceTools({
 		if (!active) return;
 		return listenWindowEvent("keydown", handleDiffKeyboardNavigation);
 	}, [active, handleDiffKeyboardNavigation]);
-	const collapseSidebar = useCallback(
-		() => updateSidebarVisible(false),
-		[updateSidebarVisible],
-	);
-	const expandSidebar = useCallback(
-		() => updateSidebarVisible(true),
-		[updateSidebarVisible],
-	);
 	const handleResizeStart = useCallback(
 		(event: MouseEvent & { currentTarget: HTMLButtonElement }) => {
 			event.preventDefault();
@@ -2258,7 +2273,7 @@ export function useChatWorkspaceTools({
 			const workspaceWidth =
 				event.currentTarget.parentElement?.parentElement?.getBoundingClientRect()
 					.width ?? window.innerWidth;
-			const reservedSidebarWidth = sidebarVisible ? sidebarWidth : 38;
+			const reservedSidebarWidth = sidebarVisible ? sidebarWidth : 0;
 			const availableWidth = Math.max(
 				MIN_DIFF_WIDTH,
 				workspaceWidth - reservedSidebarWidth - MIN_WORKSPACE_CANVAS_WIDTH,
@@ -2448,7 +2463,7 @@ export function useChatWorkspaceTools({
 	const sidebar = (
 		<aside
 			{...stylex.props(styles.sidebarShell)}
-			style={{ width: sidebarVisible ? sidebarWidth : 38 }}
+			style={{ width: sidebarVisible ? sidebarWidth : 0 }}
 		>
 			{sidebarVisible ? (
 				<>
@@ -2503,19 +2518,9 @@ export function useChatWorkspaceTools({
 						onAmendModeChange={setAmendMode}
 						showFileActions={!selectedLinkedWorktreeStatus}
 						showCommitSection={!selectedLinkedWorktreeStatus}
-						onCollapse={collapseSidebar}
-						onOpenGraph={() => changeMainViewMode("graph")}
 					/>
 				</>
-			) : (
-				<CollapsedChangeFileSidebar
-					unstagedCount={modified.length + untracked.length}
-					stagedCount={staged.length}
-					onExpand={expandSidebar}
-					onOpenGraph={() => changeMainViewMode("graph")}
-					graphActive={mainViewMode === "graph"}
-				/>
-			)}
+			) : null}
 		</aside>
 	);
 
@@ -2654,11 +2659,15 @@ const styles = stylex.create({
 	},
 	graphSyncButton: {
 		display: "flex",
-		width: controlSize._6,
+		width: "auto",
 		height: controlSize._5,
 		alignItems: "center",
 		justifyContent: "center",
+		gap: controlSize._1,
+		paddingInline: controlSize._2,
 		borderRadius: radius.sm,
+		fontSize: font.size_1,
+		fontWeight: font.weight_5,
 		backgroundColor: {
 			default: color.transparent,
 			":hover": color.controlHover,

@@ -693,9 +693,13 @@ function HeaderRow({
 	};
 	const columnWidth = (column: ColumnKey) =>
 		column === "graph" ? graphWidth : widths[column];
+	const visibleOrder = order.filter(visible);
+	const headerWidth =
+		visibleOrder.reduce((total, column) => total + columnWidth(column), 0) +
+		TOOLS_WIDTH;
 	return (
-		<div {...stylex.props(styles.header)}>
-			{order.filter(visible).map((column) => (
+		<div {...stylex.props(styles.header)} style={{ width: headerWidth }}>
+			{visibleOrder.map((column) => (
 				<div
 					key={column}
 					draggable
@@ -1719,8 +1723,11 @@ export const CommitGraph = memo(function CommitGraph({
 					return;
 				if (event.cancelable) event.preventDefault();
 				const scroller = event.currentTarget;
-				scroller.scrollTop += event.deltaY;
-				scroller.scrollLeft += event.deltaX;
+				if (Math.abs(event.deltaY) >= Math.abs(event.deltaX)) {
+					scroller.scrollTop += event.deltaY;
+				} else {
+					scroller.scrollLeft += event.deltaX;
+				}
 				rememberScroll(scroller.scrollTop, scroller.scrollLeft);
 			}}
 			onKeyDown={navigateRows}
@@ -2332,6 +2339,7 @@ const styles = stylex.create({
 		top: controlSize._0,
 		zIndex: layer.control,
 		display: "flex",
+		minWidth: "100%",
 		height: "22px",
 		alignItems: "center",
 		borderBottomWidth: 1,
