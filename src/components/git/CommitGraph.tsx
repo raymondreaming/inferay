@@ -2296,7 +2296,7 @@ const styles = stylex.create({
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
-		backgroundColor: color.backgroundRaised,
+		backgroundColor: color.background,
 		backdropFilter: "blur(8px)",
 		color: color.textMuted,
 		fontSize: font.size_1,
