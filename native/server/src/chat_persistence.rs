@@ -50,33 +50,6 @@ pub struct ChatReconnectSnapshot {
     pub status: Value,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct LocalSessionInfo {
-    #[serde(rename = "paneId")]
-    pub pane_id: String,
-    pub title: String,
-    #[serde(rename = "agentKind")]
-    pub agent_kind: String,
-    pub cwd: Option<String>,
-    #[serde(rename = "messageCount")]
-    pub message_count: usize,
-    #[serde(rename = "lastMessage")]
-    pub last_message: Option<String>,
-    #[serde(rename = "lastRole")]
-    pub last_role: Option<String>,
-    #[serde(rename = "updatedAt")]
-    pub updated_at: f64,
-    #[serde(rename = "inCurrentWorkspace")]
-    pub in_current_workspace: bool,
-}
-
-#[derive(Clone, Debug)]
-struct PaneMetadata {
-    title: String,
-    agent_kind: String,
-    cwd: Option<String>,
-}
-
 #[derive(Clone)]
 pub struct ChatPersistence {
     user_data_dir: PathBuf,
@@ -136,20 +109,6 @@ impl ChatPersistence {
             return Some(snapshot);
         }
         self.read_event_log_transcript(pane_id).await
-    }
-
-    pub async fn list_event_pane_ids(&self) -> Vec<String> {
-        let mut pane_ids = Vec::new();
-        if let Ok(mut entries) = fs::read_dir(self.user_data_dir.join(CHAT_EVENTS_DIR)).await {
-            while let Ok(Some(entry)) = entries.next_entry().await {
-                let file = entry.file_name();
-                let file = file.to_string_lossy();
-                if let Some(pane_id) = file.strip_suffix(".jsonl") {
-                    push_unique(&mut pane_ids, pane_id.to_string());
-                }
-            }
-        }
-        pane_ids
     }
 
     pub async fn read_queue(&self, pane_id: &str) -> Result<Vec<Value>, String> {
@@ -275,66 +234,6 @@ impl ChatPersistence {
                 "status": "idle", "isLoading": false
             }),
         }
-    }
-
-    pub async fn list_local_sessions(&self, agent_state_path: &Path) -> Vec<LocalSessionInfo> {
-        let metadata = read_pane_metadata(agent_state_path).await;
-        let mut pane_ids = Vec::new();
-        if let Ok(mut entries) = fs::read_dir(self.user_data_dir.join(CHAT_TRANSCRIPTS_DIR)).await {
-            while let Ok(Some(entry)) = entries.next_entry().await {
-                let file = entry.file_name().to_string_lossy().into_owned();
-                if let Some(pane_id) = file.strip_suffix(".json") {
-                    push_unique(&mut pane_ids, pane_id.to_string());
-                }
-            }
-        }
-        for pane_id in self.list_event_pane_ids().await {
-            push_unique(&mut pane_ids, pane_id);
-        }
-        let mut sessions = Vec::new();
-        for pane_id in pane_ids {
-            let Some(transcript) = self.read_legacy_transcript(&pane_id).await else {
-                continue;
-            };
-            if transcript.is_empty() {
-                continue;
-            }
-            let pane = metadata.get(&pane_id);
-            let cwd = pane
-                .and_then(|pane| pane.cwd.clone())
-                .or_else(|| infer_cwd_from_messages(&transcript));
-            let title = pane.map_or_else(
-                || {
-                    cwd.as_deref()
-                        .and_then(|cwd| Path::new(cwd).file_name())
-                        .map_or_else(
-                            || "Archived session".to_string(),
-                            |name| name.to_string_lossy().into_owned(),
-                        )
-                },
-                |pane| pane.title.clone(),
-            );
-            let updated_at = file_modified_millis(&self.transcript_path(&pane_id)).await;
-            let last = transcript.last();
-            sessions.push(LocalSessionInfo {
-                pane_id: pane_id.clone(),
-                title,
-                agent_kind: pane
-                    .map_or("codex", |pane| pane.agent_kind.as_str())
-                    .to_string(),
-                cwd,
-                message_count: transcript.len(),
-                last_message: last.and_then(|message| {
-                    let content = message.content.trim();
-                    (!content.is_empty()).then(|| content.to_string())
-                }),
-                last_role: last.map(|message| message.role.clone()),
-                updated_at,
-                in_current_workspace: metadata.contains_key(&pane_id),
-            });
-        }
-        sessions.sort_by(|left, right| right.updated_at.total_cmp(&left.updated_at));
-        sessions
     }
 
     async fn read_event_log_transcript(&self, pane_id: &str) -> Option<Vec<ChatTranscriptMessage>> {
@@ -513,66 +412,6 @@ impl ChatPersistence {
     }
 }
 
-async fn read_pane_metadata(path: &Path) -> HashMap<String, PaneMetadata> {
-    let Some(state) = read_json_value(path).await else {
-        return HashMap::new();
-    };
-    let mut metadata = HashMap::new();
-    let Some(groups) = state.get("groups").and_then(Value::as_array) else {
-        return metadata;
-    };
-    for pane in groups
-        .iter()
-        .filter_map(|group| group.get("panes").and_then(Value::as_array))
-        .flatten()
-    {
-        let Some(id) = pane.get("id").and_then(Value::as_str) else {
-            continue;
-        };
-        let cwd = pane
-            .get("cwd")
-            .and_then(Value::as_str)
-            .map(ToString::to_string);
-        let title = pane
-            .get("title")
-            .and_then(Value::as_str)
-            .map(ToString::to_string)
-            .or_else(|| {
-                cwd.as_deref()?
-                    .pipe(Path::new)
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-            })
-            .unwrap_or_else(|| "Archived session".to_string());
-        metadata.insert(
-            id.to_string(),
-            PaneMetadata {
-                title,
-                agent_kind: if pane.get("agentKind").and_then(Value::as_str) == Some("claude") {
-                    "claude".to_string()
-                } else {
-                    "codex".to_string()
-                },
-                cwd,
-            },
-        );
-    }
-    metadata
-}
-
-fn infer_cwd_from_messages(messages: &[ChatTranscriptMessage]) -> Option<String> {
-    messages.iter().find_map(|message| {
-        if message.role != "tool" {
-            return None;
-        }
-        serde_json::from_str::<Value>(&message.content)
-            .ok()?
-            .get("cwd")?
-            .as_str()
-            .map(ToString::to_string)
-    })
-}
-
 async fn read_json_value(path: &Path) -> Option<Value> {
     serde_json::from_slice(&fs::read(path).await.ok()?).ok()
 }
@@ -585,34 +424,12 @@ async fn atomic_write_json<T: Serialize + ?Sized>(path: &Path, value: &T) -> std
         .map_err(std::io::Error::other)
 }
 
-async fn file_modified_millis(path: &Path) -> f64 {
-    fs::metadata(path)
-        .await
-        .ok()
-        .and_then(|metadata| metadata.modified().ok())
-        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
-        .map_or(0.0, |duration| duration.as_secs_f64() * 1000.0)
-}
-
 fn now_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
 }
-
-fn push_unique(values: &mut Vec<String>, value: String) {
-    if !values.contains(&value) {
-        values.push(value);
-    }
-}
-
-trait Pipe: Sized {
-    fn pipe<T>(self, function: impl FnOnce(Self) -> T) -> T {
-        function(self)
-    }
-}
-impl<T> Pipe for T {}
 
 #[cfg(test)]
 mod tests {
@@ -804,99 +621,5 @@ mod tests {
         let events = persistence.read_events("pane", 0, 500).await.unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].payload["message"], "kept");
-    }
-
-    #[tokio::test]
-    async fn lists_snapshot_and_event_sessions_with_pane_metadata() {
-        let root = tempdir().unwrap();
-        let persistence = ChatPersistence::new(root.path().to_path_buf());
-        persistence
-            .write_transcript(
-                "known",
-                vec![transcript_message("1", "assistant", " complete ")],
-            )
-            .await
-            .unwrap();
-        persistence
-            .append_event(
-                "event-only",
-                "system_message",
-                json!({ "message": "restored" }),
-            )
-            .await;
-        let state_path = root.path().join("agent-state.json");
-        fs::write(
-            &state_path,
-            serde_json::to_vec(&json!({ "groups": [{ "panes": [{
-                "id": "known", "title": "Known", "agentKind": "claude", "cwd": "/tmp/work"
-            }] }] }))
-            .unwrap(),
-        )
-        .await
-        .unwrap();
-        let sessions = persistence.list_local_sessions(&state_path).await;
-        assert_eq!(sessions.len(), 2);
-        assert_eq!(sessions[0].pane_id, "known");
-        let known = sessions
-            .iter()
-            .find(|session| session.pane_id == "known")
-            .unwrap();
-        assert_eq!(known.title, "Known");
-        assert_eq!(known.agent_kind, "claude");
-        assert_eq!(known.cwd.as_deref(), Some("/tmp/work"));
-        assert_eq!(known.message_count, 1);
-        assert_eq!(known.last_message.as_deref(), Some("complete"));
-        assert_eq!(known.last_role.as_deref(), Some("assistant"));
-        assert!(known.updated_at > 0.0);
-        assert!(known.in_current_workspace);
-        let archived = sessions
-            .iter()
-            .find(|session| session.pane_id == "event-only")
-            .unwrap();
-        assert_eq!(archived.title, "Archived session");
-        assert_eq!(archived.agent_kind, "codex");
-        assert_eq!(archived.message_count, 1);
-        assert_eq!(archived.last_message.as_deref(), Some("restored"));
-        assert_eq!(archived.last_role.as_deref(), Some("system"));
-        assert_eq!(archived.updated_at, 0.0);
-        assert!(!archived.in_current_workspace);
-    }
-
-    #[tokio::test]
-    async fn session_listing_deduplicates_sources_infers_cwd_and_skips_empty_or_corrupt_rows() {
-        let root = tempdir().unwrap();
-        let persistence = ChatPersistence::new(root.path().to_path_buf());
-        persistence
-            .write_transcript(
-                "both",
-                vec![transcript_message(
-                    "tool",
-                    "tool",
-                    r#"{"cwd":"/tmp/inferred-project"}"#,
-                )],
-            )
-            .await
-            .unwrap();
-        persistence
-            .append_event("both", "system_message", json!({ "message": "duplicate" }))
-            .await;
-        persistence
-            .write_transcript("empty", Vec::new())
-            .await
-            .unwrap();
-        let corrupt = persistence.transcript_path("corrupt");
-        fs::write(&corrupt, b"not json").await.unwrap();
-
-        let sessions = persistence
-            .list_local_sessions(&root.path().join("missing-agent-state.json"))
-            .await;
-        assert_eq!(sessions.len(), 1);
-        let session = &sessions[0];
-        assert_eq!(session.pane_id, "both");
-        assert_eq!(session.cwd.as_deref(), Some("/tmp/inferred-project"));
-        assert_eq!(session.title, "inferred-project");
-        assert_eq!(session.agent_kind, "codex");
-        assert_eq!(session.message_count, 1);
-        assert_eq!(session.last_role.as_deref(), Some("tool"));
     }
 }

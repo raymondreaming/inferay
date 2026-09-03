@@ -66,7 +66,6 @@ pub mod native_git;
 pub mod native_project_files;
 pub mod native_project_map;
 pub mod native_prompts;
-pub mod native_sessions;
 mod one_shot;
 mod pid_tracker;
 mod provider_history;
@@ -125,7 +124,6 @@ struct ServerState {
     native_git: native_git::NativeGit,
     native_project_files: native_project_files::NativeProjectFiles,
     forge_state: Arc<forge::ForgeState>,
-    native_sessions: native_sessions::NativeSessions,
     native_files: native_files::NativeFiles,
     native_chat_handoff: native_chat::NativeChatHandoff,
     native_chat_service: native_chat_service::NativeChatService,
@@ -437,11 +435,6 @@ fn build_router_with_connection_reset(
         allowed_paths.clone(),
         agent_state_store.clone(),
     );
-    let native_sessions = native_sessions::NativeSessions::with_persistence(
-        config.user_data_dir.clone(),
-        chat_persistence.clone(),
-        agent_state_store.clone(),
-    );
     let native_files = native_files::NativeFiles::from_app_root(&config.app_root);
     let client_storage_write = Arc::new(tokio::sync::Mutex::new(()));
     let native_chat_handoff = native_chat::NativeChatHandoff::with_storage(
@@ -483,7 +476,6 @@ fn build_router_with_connection_reset(
         native_git: native_git.clone(),
         native_project_files: native_project_files.clone(),
         forge_state: Arc::new(forge::ForgeState::default()),
-        native_sessions,
         native_files,
         native_chat_handoff,
         native_chat_service: native_chat_service.clone(),
@@ -641,9 +633,6 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
                 return delete_chat_queue(&state, request, &pane_id).await;
             }
         }
-        if path == "/api/sessions" && request.method() == Method::GET {
-            return list_local_chat_sessions(&state, request).await;
-        }
         if path == "/api/agent/agent-sessions" && request.method() == Method::GET {
             let headers = request.headers().clone();
             let sessions = state.chat_runtime.list_sessions().await;
@@ -684,6 +673,9 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
         }
         if path == "/api/files/search" && request.method() == Method::GET {
             return search_files(&state, request).await;
+        }
+        if path == "/api/files/list" && request.method() == Method::GET {
+            return list_project_files(&state, request).await;
         }
         if path == "/api/files/map" && request.method() == Method::GET {
             return project_file_map(&state, request).await;
@@ -883,12 +875,6 @@ async fn delete_chat_queue(state: &ServerState, request: Request, pane_id: &str)
             &headers,
         ),
     }
-}
-
-async fn list_local_chat_sessions(state: &ServerState, request: Request) -> Response {
-    let headers = request.headers().clone();
-    let sessions = state.native_sessions.snapshot().await.sessions;
-    json_response(StatusCode::OK, json!({ "sessions": sessions }), &headers)
 }
 
 async fn list_checkpoints(state: &ServerState, request: Request, pane_id: &str) -> Response {
@@ -2465,6 +2451,26 @@ async fn project_file_map(state: &ServerState, request: Request) -> Response {
             StatusCode::INTERNAL_SERVER_ERROR,
             json!({ "error": error.to_string() }),
             &request_headers,
+        ),
+    }
+}
+
+async fn list_project_files(state: &ServerState, request: Request) -> Response {
+    let headers = request.headers().clone();
+    let Some(cwd) = query_value(&request, "cwd").filter(|cwd| !cwd.is_empty()) else {
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": "Invalid directory" }),
+            &headers,
+        );
+    };
+    let path = query_value(&request, "path").unwrap_or_default();
+    match state.native_project_files.list(&cwd, &path).await {
+        Ok(entries) => json_response(StatusCode::OK, json!({ "entries": entries }), &headers),
+        Err(error) => json_response(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": error.to_string() }),
+            &headers,
         ),
     }
 }
@@ -5285,31 +5291,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
     async fn serves_chat_persistence_routes_without_the_compatibility_backend() {
         let root = TempDir::new().unwrap();
         let user_data = root.path().join("user-data");
-        std::fs::create_dir_all(user_data.join("chat-transcripts")).unwrap();
-        std::fs::write(
-            user_data.join("chat-transcripts/pane-1.json"),
-            serde_json::to_vec_pretty(&json!([{
-                "id": "saved-1",
-                "role": "user",
-                "content": "persist this",
-                "isStreaming": false
-            }]))
-            .unwrap(),
-        )
-        .unwrap();
-        std::fs::write(
-            user_data.join("agent-state.json"),
-            serde_json::to_vec_pretty(&json!({
-                "groups": [{ "panes": [{
-                    "id": "pane-1",
-                    "title": "Native chat",
-                    "agentKind": "claude",
-                    "cwd": root.path()
-                }] }]
-            }))
-            .unwrap(),
-        )
-        .unwrap();
+        std::fs::create_dir_all(&user_data).unwrap();
         let app = router(test_config(root.path()));
 
         let queue = json!([{
@@ -5330,21 +5312,6 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             call_json(&app, Method::GET, "/api/chat-queues/pane-1".into(), None).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(value["queue"], queue);
-
-        let (status, value) = call_json(&app, Method::GET, "/api/sessions".into(), None).await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(value["sessions"][0]["paneId"], "pane-1");
-        assert_eq!(value["sessions"][0]["title"], "Native chat");
-        assert_eq!(value["sessions"][0]["agentKind"], "claude");
-        assert_eq!(
-            value["sessions"][0]["cwd"],
-            root.path().to_string_lossy().as_ref()
-        );
-        assert_eq!(value["sessions"][0]["messageCount"], 1);
-        assert_eq!(value["sessions"][0]["lastMessage"], "persist this");
-        assert_eq!(value["sessions"][0]["lastRole"], "user");
-        assert!(value["sessions"][0]["updatedAt"].is_number());
-        assert_eq!(value["sessions"][0]["inCurrentWorkspace"], true);
 
         let (status, value) =
             call_json(&app, Method::DELETE, "/api/chat-queues/pane-1".into(), None).await;

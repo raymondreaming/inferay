@@ -16,7 +16,6 @@ import { Route as AppAgentRouteImport } from './routes/_app/agent.tsx'
 import { Route as AppAutomationsRouteImport } from './routes/_app/automations.tsx'
 import { Route as AppImagesRouteImport } from './routes/_app/images.tsx'
 import { Route as AppProfileRouteImport } from './routes/_app/profile.tsx'
-import { Route as AppSessionsRouteImport } from './routes/_app/sessions.tsx'
 import { Route as AppSkillsRouteImport } from './routes/_app/skills.tsx'
 
 const IndexRoute = IndexRouteImport.update({
@@ -53,11 +52,6 @@ const AppProfileRoute = AppProfileRouteImport.update({
   path: '/profile',
   getParentRoute: () => AppRoute,
 } as any)
-const AppSessionsRoute = AppSessionsRouteImport.update({
-  id: '/sessions',
-  path: '/sessions',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppSkillsRoute = AppSkillsRouteImport.update({
   id: '/skills',
   path: '/skills',
@@ -71,7 +65,6 @@ export interface FileRoutesByFullPath {
   '/automations': typeof AppAutomationsRoute
   '/images': typeof AppImagesRoute
   '/profile': typeof AppProfileRoute
-  '/sessions': typeof AppSessionsRoute
   '/skills': typeof AppSkillsRoute
 }
 export interface FileRoutesByTo {
@@ -81,7 +74,6 @@ export interface FileRoutesByTo {
   '/automations': typeof AppAutomationsRoute
   '/images': typeof AppImagesRoute
   '/profile': typeof AppProfileRoute
-  '/sessions': typeof AppSessionsRoute
   '/skills': typeof AppSkillsRoute
 }
 export interface FileRoutesById {
@@ -93,7 +85,6 @@ export interface FileRoutesById {
   '/_app/automations': typeof AppAutomationsRoute
   '/_app/images': typeof AppImagesRoute
   '/_app/profile': typeof AppProfileRoute
-  '/_app/sessions': typeof AppSessionsRoute
   '/_app/skills': typeof AppSkillsRoute
 }
 export interface FileRouteTypes {
@@ -105,7 +96,6 @@ export interface FileRouteTypes {
     | '/automations'
     | '/images'
     | '/profile'
-    | '/sessions'
     | '/skills'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -115,7 +105,6 @@ export interface FileRouteTypes {
     | '/automations'
     | '/images'
     | '/profile'
-    | '/sessions'
     | '/skills'
   id:
     | '__root__'
@@ -126,7 +115,6 @@ export interface FileRouteTypes {
     | '/_app/automations'
     | '/_app/images'
     | '/_app/profile'
-    | '/_app/sessions'
     | '/_app/skills'
   fileRoutesById: FileRoutesById
 }
@@ -187,13 +175,6 @@ declare module '@octanejs/tanstack-router' {
       preLoaderRoute: typeof AppProfileRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/sessions': {
-      id: '/_app/sessions'
-      path: '/sessions'
-      fullPath: '/sessions'
-      preLoaderRoute: typeof AppSessionsRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/_app/skills': {
       id: '/_app/skills'
       path: '/skills'
@@ -209,7 +190,6 @@ interface AppRouteChildren {
   AppAutomationsRoute: typeof AppAutomationsRoute
   AppImagesRoute: typeof AppImagesRoute
   AppProfileRoute: typeof AppProfileRoute
-  AppSessionsRoute: typeof AppSessionsRoute
   AppSkillsRoute: typeof AppSkillsRoute
 }
 
@@ -218,7 +198,6 @@ const AppRouteChildren: AppRouteChildren = {
   AppAutomationsRoute: AppAutomationsRoute,
   AppImagesRoute: AppImagesRoute,
   AppProfileRoute: AppProfileRoute,
-  AppSessionsRoute: AppSessionsRoute,
   AppSkillsRoute: AppSkillsRoute,
 }
 
