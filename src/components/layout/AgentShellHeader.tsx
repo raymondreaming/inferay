@@ -1,16 +1,18 @@
 import * as stylex from "@octanejs/stylex";
 import { useLocation, useNavigate } from "@octanejs/tanstack-router";
-import { useCallback, useEffect, useRef, useState } from "octane";
-import { iconSize, runtimeColor } from "../../design-system.ts";
+import { useCallback, useEffect, useState } from "octane";
+import { iconSize } from "../../design-system.ts";
 import {
 	agentStateKey,
 	dispatchAgentShellChange,
 	loadAgentState,
 } from "../../features/agent/agent-utils.ts";
-import { dispatchWorkspaceFileOpen } from "../../features/files/workspace-file-events.ts";
+import {
+	dispatchOpenActiveGitGraph,
+	dispatchToggleActiveGitSidebar,
+} from "../../features/git/git-workspace-events.ts";
 import { useQueryResource } from "../../hooks/useQueryResource.tsx";
 import {
-	AGENT_MAIN_VIEWS,
 	type AgentMainView,
 	APP_PAGE_ROUTES,
 	DEFAULT_AGENT_MAIN_VIEW,
@@ -24,11 +26,7 @@ import {
 import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../lib/client-storage-keys.ts";
 import { fetchJsonOr } from "../../lib/fetch-json.ts";
 import { listenWindowEvent } from "../../lib/react-events.ts";
-import {
-	readStoredBoolean,
-	readStoredValue,
-	writeStoredValue,
-} from "../../lib/stored-json.ts";
+import { readStoredValue, writeStoredValue } from "../../lib/stored-json.ts";
 import {
 	color,
 	controlSize,
@@ -37,13 +35,10 @@ import {
 	motion,
 	radius,
 } from "../../tokens.stylex.ts";
-import { WorkspaceFileSearch } from "../file/WorkspaceFileSearch.tsx";
-import { LiquidAction } from "../ui/gooey/LiquidAction.tsx";
-import { LiquidCreateMenu } from "../ui/gooey/LiquidCreateMenu.tsx";
-import { LiquidSegmentedRail } from "../ui/gooey/LiquidSegmentedRail.tsx";
 import {
+	IconGitBranch,
+	IconMessageCircle,
 	IconPanelLeft,
-	IconPlus,
 	IconUser,
 	IconWorkflow,
 } from "../ui/Icons.tsx";
@@ -154,11 +149,6 @@ export function AgentShellHeader() {
 	const [pendingNavigationTarget, setPendingNavigationTarget] = useState<
 		string | null
 	>(null);
-	const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
-		readStoredBoolean("sidebar-collapsed"),
-	);
-	const [createMenuOpen, setCreateMenuOpen] = useState(false);
-	const createMenuRef = useRef<HTMLDivElement | null>(null);
 	const { data: githubAccount, refresh: refreshGithubAccount } =
 		useQueryResource(loadGithubAccount, null, {
 			queryKey: ["forge", "active-account"],
@@ -170,8 +160,6 @@ export function AgentShellHeader() {
 		: `route:${location.pathname}`;
 	const activeNavigationTarget =
 		pendingNavigationTarget ?? resolvedNavigationTarget;
-	const workspaceNavigationActive =
-		isAgentRoute && shellState.mainView === "chat" && !sidebarCollapsed;
 
 	const refreshShellState = useCallback(() => {
 		const next = loadShellState();
@@ -185,29 +173,6 @@ export function AgentShellHeader() {
 	useEffect(() => {
 		return listenWindowEvent("agent-shell-change", refreshShellState);
 	}, [refreshShellState]);
-
-	useEffect(
-		() =>
-			listenWindowEvent("toggle-main-sidebar", () =>
-				setSidebarCollapsed((current) => !current),
-			),
-		[],
-	);
-	useEffect(() => {
-		if (!createMenuOpen) return;
-		const closeMenu = (event: MouseEvent) => {
-			if (!createMenuRef.current?.contains(event.target as Node)) {
-				setCreateMenuOpen(false);
-			}
-		};
-		document.addEventListener("mousedown", closeMenu);
-		return () => document.removeEventListener("mousedown", closeMenu);
-	}, [createMenuOpen]);
-
-	const createFromRail = (eventName: string) => {
-		setCreateMenuOpen(false);
-		window.dispatchEvent(new CustomEvent(eventName));
-	};
 	useEffect(
 		() => listenWindowEvent("focus", () => void refreshGithubAccount()),
 		[refreshGithubAccount],
@@ -258,76 +223,33 @@ export function AgentShellHeader() {
 		},
 		[navigate, resolvedNavigationTarget],
 	);
-	const railCreateOffset = sidebarCollapsed ? 1 : 0;
-	const mainViewIndex = AGENT_MAIN_VIEWS.findIndex(
-		(view) => activeNavigationTarget === `view:${view.id}`,
-	);
-	const routeIndex = SIDEBAR_NAV_ROUTES.findIndex(
-		(route) => activeNavigationTarget === `route:${route.path}`,
-	);
-	const railActiveIndex =
-		sidebarCollapsed && createMenuOpen
-			? 0
-			: mainViewIndex >= 0
-				? railCreateOffset + mainViewIndex
-				: routeIndex >= 0
-					? railCreateOffset + AGENT_MAIN_VIEWS.length + routeIndex
-					: AUTOMATIONS_ROUTE &&
-							activeNavigationTarget === `route:${AUTOMATIONS_ROUTE.path}`
-						? railCreateOffset +
-							AGENT_MAIN_VIEWS.length +
-							SIDEBAR_NAV_ROUTES.length
-						: -1;
-	const railItemCount =
-		railCreateOffset +
-		AGENT_MAIN_VIEWS.length +
-		SIDEBAR_NAV_ROUTES.length +
-		(AUTOMATIONS_ROUTE ? 1 : 0);
 	const selectedGroup = shellState.groups.find(
 		(group) => group.id === shellState.selectedGroupId,
 	);
 	const workspaceCwd = selectedGroup?.panes.find(
 		(pane) => pane.id === selectedGroup.selectedPaneId,
 	)?.cwd;
+	const openCommitGraph = useCallback(() => {
+		if (!workspaceCwd) return;
+		activateMainView("chat");
+		requestAnimationFrame(dispatchOpenActiveGitGraph);
+	}, [activateMainView, workspaceCwd]);
 
 	return (
 		<div
 			className={`${APP_REGION_DRAG_CLASS} ${stylex.props(styles.header).className ?? ""}`}
 		>
 			<nav aria-label="Primary views" {...stylex.props(styles.topTabs)}>
-				{isAgentRoute ? (
-					<div
-						{...stylex.props(styles.fileSearch)}
-						className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.fileSearch).className ?? ""}`}
-					>
-						<WorkspaceFileSearch
-							cwd={workspaceCwd}
-							onSelect={(file) =>
-								dispatchWorkspaceFileOpen({
-									cwd: file.cwd ?? workspaceCwd!,
-									path: file.path,
-								})
-							}
-						/>
-					</div>
-				) : null}
-				<span {...stylex.props(styles.accountSpacer)} />
-				<LiquidAction fill={runtimeColor.surfaceGlassStrong}>
+				<div {...stylex.props(styles.workspaceControls)}>
 					<button
 						type="button"
-						onPointerDown={(event) => {
-							if (event.button === 0 && event.isPrimary)
-								navigate({ to: "/profile" });
-						}}
-						onClick={(event) => {
-							if (event.detail === 0) navigate({ to: "/profile" });
-						}}
-						className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.accountButton).className ?? ""}`}
-						title="Account settings"
+						onClick={() => navigate({ to: "/profile" })}
+						{...stylex.props(styles.topAccountButton)}
+						title={
+							githubAccount?.login || githubAccount?.name || "Account settings"
+						}
+						aria-label="Account settings"
 					>
-						<span {...stylex.props(styles.accountLabel)}>
-							{githubAccount?.login || githubAccount?.name || "Account"}
-						</span>
 						{githubAccount?.avatarUrl ? (
 							<img
 								src={githubAccount.avatarUrl}
@@ -344,106 +266,66 @@ export function AgentShellHeader() {
 							</span>
 						)}
 					</button>
-				</LiquidAction>
-			</nav>
-			<nav
-				aria-label="Application views"
-				{...stylex.props(
-					styles.viewTabs,
-					workspaceNavigationActive && styles.viewTabsAttached,
-				)}
-			>
+					<button
+						type="button"
+						onClick={() =>
+							window.dispatchEvent(new CustomEvent("toggle-main-sidebar"))
+						}
+						className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.topBarIconButton, styles.sidebarToggleButton).className ?? ""}`}
+						title="Toggle workspace sidebar"
+						aria-label="Toggle workspace sidebar"
+					>
+						<IconPanelLeft size={13.2} strokeWidth={2} />
+					</button>
+				</div>
+				<span {...stylex.props(styles.accountSpacer)} />
+				<ViewTab
+					active={activeNavigationTarget === "view:chat"}
+					icon={<IconMessageCircle size={iconSize.compact} />}
+					label="Chat"
+					onClick={() => activateMainView("chat")}
+					top
+				/>
+				<ViewTab
+					active={false}
+					icon={<IconGitBranch size={iconSize.compact} />}
+					label="Graph"
+					onClick={openCommitGraph}
+					top
+				/>
+				{SIDEBAR_NAV_ROUTES.map((route) => {
+					const Icon = route.icon;
+					return (
+						<ViewTab
+							key={route.id}
+							active={activeNavigationTarget === `route:${route.path}`}
+							icon={<Icon size={iconSize.compact} />}
+							label={route.label}
+							onClick={() => activateRoute(route.path)}
+							top
+						/>
+					);
+				})}
+				{AUTOMATIONS_ROUTE ? (
+					<ViewTab
+						active={
+							activeNavigationTarget === `route:${AUTOMATIONS_ROUTE.path}`
+						}
+						icon={<IconWorkflow size={iconSize.compact} />}
+						label={AUTOMATIONS_ROUTE.label}
+						onClick={() => activateRoute(AUTOMATIONS_ROUTE.path)}
+						top
+					/>
+				) : null}
 				<button
 					type="button"
-					aria-label={
-						sidebarCollapsed
-							? "Expand workspace sidebar"
-							: "Collapse workspace sidebar"
-					}
-					title={
-						sidebarCollapsed
-							? "Expand workspace sidebar"
-							: "Collapse workspace sidebar"
-					}
-					{...stylex.props(styles.sidebarToggle)}
-					className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.sidebarToggle).className ?? ""}`}
-					onPointerDown={(event) => {
-						if (event.button === 0 && event.isPrimary)
-							window.dispatchEvent(new CustomEvent("toggle-main-sidebar"));
-					}}
-					onClick={(event) => {
-						if (event.detail === 0)
-							window.dispatchEvent(new CustomEvent("toggle-main-sidebar"));
-					}}
+					onClick={dispatchToggleActiveGitSidebar}
+					className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.topBarIconButton, styles.sidebarToggleButton, styles.topBarActionButton, styles.rightSidebarIcon).className ?? ""}`}
+					title="Toggle changes sidebar"
+					aria-label="Toggle changes sidebar"
 				>
-					<IconPanelLeft size={iconSize.lg} />
+					<IconPanelLeft size={13.2} strokeWidth={2} />
 				</button>
-				<span aria-hidden="true" {...stylex.props(styles.railDivider)} />
-				<div {...stylex.props(styles.tabGroup, styles.secondaryTabGroup)}>
-					<LiquidSegmentedRail
-						activeIndex={railActiveIndex}
-						itemCount={railItemCount}
-						direction="vertical"
-						fill="rgba(255,255,255,0.105)"
-						radius={16}
-						itemSize={32}
-						gap={3}
-					/>
-					{sidebarCollapsed ? (
-						<div ref={createMenuRef} {...stylex.props(styles.railCreateWrap)}>
-							<LiquidCreateMenu
-								open={createMenuOpen}
-								fill={runtimeColor.backgroundRaised}
-								fullWidth
-								onNewChat={() => createFromRail("create-agent-chat")}
-								onNewWorkspace={() => createFromRail("create-agent-workspace")}
-								trigger={
-									<ViewTab
-										active={createMenuOpen}
-										icon={<IconPlus size={iconSize._2md} />}
-										label="Create"
-										onClick={() => setCreateMenuOpen((open) => !open)}
-									/>
-								}
-							/>
-						</div>
-					) : null}
-					{AGENT_MAIN_VIEWS.map((view) => {
-						const Icon = view.icon;
-						return (
-							<ViewTab
-								key={view.id}
-								active={activeNavigationTarget === `view:${view.id}`}
-								icon={<Icon size={iconSize.md} />}
-								label={view.label}
-								onClick={() => activateMainView(view.id)}
-							/>
-						);
-					})}
-					{SIDEBAR_NAV_ROUTES.map((route) => {
-						const Icon = route.icon;
-						return (
-							<ViewTab
-								key={route.id}
-								active={activeNavigationTarget === `route:${route.path}`}
-								icon={<Icon size={iconSize.md} />}
-								label={route.label}
-								onClick={() => activateRoute(route.path)}
-							/>
-						);
-					})}
-					{AUTOMATIONS_ROUTE && (
-						<ViewTab
-							active={
-								activeNavigationTarget === `route:${AUTOMATIONS_ROUTE.path}`
-							}
-							icon={<IconWorkflow size={iconSize.md} />}
-							label={AUTOMATIONS_ROUTE.label}
-							onClick={() => activateRoute(AUTOMATIONS_ROUTE.path)}
-							trailing
-						/>
-					)}
-				</div>
 			</nav>
 		</div>
 	);
@@ -483,38 +365,80 @@ const styles = stylex.create({
 		gap: controlSize._1_5,
 		height: 30,
 	},
-	fileSearch: {
+	topCreateWrap: {
+		display: "inline-flex",
+		width: 58,
+		height: 26,
+	},
+	topCreateButton: {
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "center",
+		gap: controlSize._1,
+		color: color.textSoft,
+		fontSize: font.size_1,
+		fontWeight: font.weight_6,
+	},
+	workspaceControls: {
 		display: "flex",
 		alignItems: "flex-end",
-		minWidth: controlSize._0,
+		gap: controlSize._1,
+		marginBottom: controlSize._1,
 	},
-	accountSpacer: {
-		flex: 1,
-	},
-	accountButton: {
+	topAccountButton: {
+		display: "flex",
+		width: controlSize._6,
+		height: controlSize._6,
 		alignItems: "center",
+		justifyContent: "center",
+		borderRadius: radius.circle,
+		backgroundColor: color.transparent,
+	},
+	topBarIconButton: {
+		display: "flex",
+		width: controlSize._6,
+		height: controlSize._6,
+		alignItems: "center",
+		justifyContent: "center",
+		borderRadius: radius.md,
+		color: {
+			default: color.textSoft,
+			":hover": color.textMain,
+		},
 		backgroundColor: {
 			default: color.transparent,
 			":hover": color.surfaceWhite06,
 		},
-		borderColor: color.transparent,
-		borderRadius: radius.px9,
-		borderStyle: "solid",
-		borderWidth: 1,
-		color: color.textSoft,
-		display: "flex",
-		fontSize: font.size_2,
-		fontWeight: font.weight_5,
-		gap: controlSize._1_5,
-		height: controlSize._7,
-		marginBottom: controlSize._1,
-		paddingInline: controlSize._2,
 	},
-	accountLabel: {
-		maxWidth: 160,
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
+	sidebarToggleButton: {
+		color: {
+			default: color.textSoft,
+			":hover": color.textMain,
+		},
+		opacity: 1,
+	},
+	rightSidebarIcon: {
+		transform: "scaleX(-1)",
+	},
+	topBarActionButton: {
+		marginBottom: controlSize._1,
+	},
+	accountSpacer: {
+		flex: 1,
+	},
+	railAccountButton: {
+		display: "flex",
+		width: controlSize._8,
+		height: controlSize._8,
+		marginTop: "auto",
+		flexShrink: 0,
+		alignItems: "center",
+		justifyContent: "center",
+		borderRadius: radius.circle,
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.surfaceWhite06,
+		},
 	},
 	accountAvatar: {
 		borderColor: color.border,
@@ -535,28 +459,6 @@ const styles = stylex.create({
 		textTransform: "uppercase",
 		width: controlSize._5,
 	},
-	viewTabs: {
-		position: "absolute",
-		top: controlSize._9,
-		left: controlSize._3,
-		bottom: controlSize._3,
-		alignItems: "center",
-		backdropFilter: "blur(var(--inferay-glass-blur, 4px)) saturate(104%)",
-		backgroundColor:
-			"color-mix(in srgb, var(--color-inferay-black) 46%, transparent)",
-		borderColor: color.surfaceWhite13,
-		borderRadius: radius.px15,
-		borderStyle: "solid",
-		borderWidth: 1,
-		boxShadow:
-			"inset 0 1px 0 rgba(255,255,255,0.055), 0 18px 50px rgba(0,0,0,0.46)",
-		display: "flex",
-		flexDirection: "column",
-		gap: controlSize._1_25,
-		padding: controlSize._1_25,
-		pointerEvents: "auto",
-		width: 42,
-	},
 	viewTabsAttached: {
 		backdropFilter: "none",
 		backgroundColor: color.transparent,
@@ -574,9 +476,6 @@ const styles = stylex.create({
 	},
 	secondaryTabGroup: {
 		marginTop: controlSize._0,
-	},
-	railCreateWrap: {
-		position: "relative",
 	},
 	viewTab: {
 		position: "relative",
@@ -691,32 +590,5 @@ const styles = stylex.create({
 		height: controlSize._2_5,
 		transform: "translateY(-50%)",
 		width: controlSize._0_5,
-	},
-	railDivider: {
-		backgroundColor: color.surfaceWhite10,
-		height: controlSize._0_25,
-		marginBlock: controlSize._0_5,
-		width: controlSize._5,
-	},
-	sidebarToggle: {
-		alignItems: "center",
-		backgroundColor: {
-			default: color.transparent,
-			":hover": "rgba(255,255,255,0.07)",
-		},
-		borderColor: color.transparent,
-		borderRadius: radius.circle,
-		borderStyle: "solid",
-		borderWidth: 1,
-		color: {
-			default: color.textSoft,
-			":hover": color.textMain,
-		},
-		display: "flex",
-		height: controlSize._8,
-		justifyContent: "center",
-		marginBottom: controlSize._1_25,
-		padding: controlSize._0,
-		width: controlSize._8,
 	},
 });

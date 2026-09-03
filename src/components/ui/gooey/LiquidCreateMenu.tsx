@@ -18,6 +18,10 @@ export interface LiquidCreateMenuProps {
 	onNewChat: () => void;
 	onNewWorkspace: () => void;
 	fullWidth?: boolean;
+	triggerWidth?: number;
+	triggerHeight?: number;
+	triggerRadius?: number;
+	detachedTrigger?: boolean;
 }
 
 /** A portalled, fixed-size stage whose panel emerges from its trigger. */
@@ -28,6 +32,10 @@ export function LiquidCreateMenu({
 	onNewChat,
 	onNewWorkspace,
 	fullWidth = false,
+	triggerWidth = 32,
+	triggerHeight = 32,
+	triggerRadius = 16,
+	detachedTrigger = false,
 }: LiquidCreateMenuProps) {
 	const slotRef = useRef<HTMLSpanElement | null>(null);
 	const [mounted, setMounted] = useState(false);
@@ -56,8 +64,13 @@ export function LiquidCreateMenu({
 			<span
 				ref={slotRef}
 				className="inferay-liquid-create__slot"
-				style={{ width: fullWidth ? "100%" : undefined }}
-			/>
+				style={{
+					width: fullWidth ? "100%" : triggerWidth,
+					height: triggerHeight,
+				}}
+			>
+				{detachedTrigger ? trigger : null}
+			</span>
 			{mounted &&
 				anchor &&
 				createPortal(
@@ -68,15 +81,29 @@ export function LiquidCreateMenu({
 						filterPadding={32}
 						shadow="inset 0 1px 0 rgba(255,255,255,.12), 0 10px 28px rgba(0,0,0,.34)"
 						className="inferay-liquid-create__stage"
-						style={{ position: "fixed", left: anchor.left, top: anchor.top }}
+						style={{
+							position: "fixed",
+							left: anchor.left + (detachedTrigger ? triggerWidth + 8 : 0),
+							top: anchor.top,
+						}}
 						onMouseDown={(event) => event.stopPropagation()}
 					>
-						<Liquid.Item className="inferay-liquid-create__trigger">
-							{trigger}
-						</Liquid.Item>
+						{!detachedTrigger ? (
+							<Liquid.Item
+								className="inferay-liquid-create__trigger"
+								style={{
+									width: triggerWidth,
+									height: triggerHeight,
+									minWidth: triggerWidth,
+									borderRadius: triggerRadius,
+								}}
+							>
+								{trigger}
+							</Liquid.Item>
+						) : null}
 						<Liquid.Item
 							className="inferay-liquid-create__panel-item"
-							x={open ? 48 : 0}
+							x={open ? (detachedTrigger ? 0 : triggerWidth + 16) : 0}
 							scale={open ? 1 : 0.01}
 							transition={open ? "bouncy" : "snappy"}
 						>

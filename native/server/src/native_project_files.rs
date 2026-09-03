@@ -194,6 +194,25 @@ impl NativeProjectFiles {
             .map_err(|error| NativeProjectFilesError::Runtime(error.to_string()))
     }
 
+    pub async fn list(
+        &self,
+        cwd: &str,
+        path: &str,
+    ) -> Result<Vec<ProjectFileEntry>, NativeProjectFilesError> {
+        let cwd = self.cwd(cwd)?;
+        let directory = resolve_lexically(&cwd.join(path))
+            .map_err(|_| NativeProjectFilesError::AccessDenied)?;
+        if !self.allowed_paths.is_allowed_local_path(&directory)
+            || !is_within_directory(&directory, &cwd)
+        {
+            return Err(NativeProjectFilesError::AccessDenied);
+        }
+        self.owner
+            .spawn_blocking(move || list_project_directory(&cwd, &directory))
+            .await
+            .map_err(|error| NativeProjectFilesError::Runtime(error.to_string()))?
+    }
+
     pub async fn read(
         &self,
         cwd: &str,
@@ -253,6 +272,42 @@ fn map_io_error(error: std::io::Error) -> NativeProjectFilesError {
     } else {
         NativeProjectFilesError::Runtime(error.to_string())
     }
+}
+
+fn list_project_directory(
+    cwd: &Path,
+    directory: &Path,
+) -> Result<Vec<ProjectFileEntry>, NativeProjectFilesError> {
+    let mut entries = std::fs::read_dir(directory)
+        .map_err(map_io_error)?
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if matches!(name.as_str(), ".git" | "node_modules" | "target" | "dist") {
+                return None;
+            }
+            let is_dir = entry.file_type().ok()?.is_dir();
+            let path = entry
+                .path()
+                .strip_prefix(cwd)
+                .ok()?
+                .to_string_lossy()
+                .into_owned();
+            Some(ProjectFileEntry {
+                name,
+                path,
+                is_dir,
+                cwd: cwd.to_string_lossy().into_owned(),
+            })
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| {
+        right
+            .is_dir
+            .cmp(&left.is_dir)
+            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+    });
+    Ok(entries)
 }
 
 fn search_files_in_cwd(cwd: &Path, query: &str, limit: usize) -> Vec<ProjectFileEntry> {
@@ -373,6 +428,16 @@ mod tests {
         std::fs::write(project.join("src/main.rs"), "fn main() {}\n").unwrap();
         std::fs::write(root.path().join("outside.txt"), "secret").unwrap();
         let service = NativeProjectFiles::new(AllowedPaths::new(root.path(), root.path()).unwrap());
+
+        let root_entries = service.list(project.to_str().unwrap(), "").await.unwrap();
+        assert_eq!(root_entries.len(), 1);
+        assert_eq!(root_entries[0].path, "src");
+        assert!(root_entries[0].is_dir);
+        let source_entries = service
+            .list(project.to_str().unwrap(), "src")
+            .await
+            .unwrap();
+        assert_eq!(source_entries[0].path, "src/main.rs");
 
         let entries = service
             .search(&project.to_string_lossy(), "MAIN", 50)

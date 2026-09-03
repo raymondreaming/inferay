@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useEffect, useRef, useState } from "octane";
-import { iconSize } from "../../design-system.ts";
+import { iconSize, runtimeColor } from "../../design-system.ts";
 import { fetchJson } from "../../lib/fetch-json.ts";
 import {
 	color,
@@ -10,6 +10,7 @@ import {
 	layer,
 	radius,
 } from "../../tokens.stylex.ts";
+import { Liquid } from "../ui/gooey/index.ts";
 import { IconSearch } from "../ui/Icons.tsx";
 import { FileTypeIcon } from "./FileTypeIcon.tsx";
 
@@ -40,7 +41,7 @@ export function WorkspaceFileSearch({
 }: {
 	readonly cwd?: string | null;
 	readonly onSelect: (file: WorkspaceFileSearchResult) => void;
-	readonly placement?: "shell" | "panel";
+	readonly placement?: "shell" | "panel" | "sidebar";
 }) {
 	const [query, setQuery] = useState("");
 	const [results, setResults] = useState<WorkspaceFileSearchResult[]>([]);
@@ -126,7 +127,13 @@ export function WorkspaceFileSearch({
 			ref={rootRef}
 			{...stylex.props(
 				styles.root,
-				placement === "shell" ? styles.rootShell : styles.rootPanel,
+				placement === "shell"
+					? open
+						? styles.rootShellOpen
+						: styles.rootShellClosed
+					: placement === "sidebar"
+						? styles.rootSidebar
+						: styles.rootPanel,
 			)}
 		>
 			{placement === "panel" ? (
@@ -151,6 +158,21 @@ export function WorkspaceFileSearch({
 				>
 					<IconSearch size={iconSize.compact} />
 				</button>
+			) : placement === "shell" && !open ? (
+				<button
+					type="button"
+					disabled={!cwd}
+					onClick={() => {
+						setSelectedIndex(-1);
+						setOpen(true);
+						window.setTimeout(() => panelInputRef.current?.focus(), 0);
+					}}
+					title="Search workspace files"
+					aria-label="Search workspace files"
+					{...stylex.props(styles.shellTrigger)}
+				>
+					<IconSearch size={iconSize.compact} />
+				</button>
 			) : (
 				<div {...stylex.props(styles.inputFrame)}>
 					<IconSearch
@@ -158,6 +180,7 @@ export function WorkspaceFileSearch({
 						{...stylex.props(styles.searchIcon)}
 					/>
 					<input
+						ref={panelInputRef}
 						type="text"
 						autoComplete="off"
 						autoCorrect="off"
@@ -185,64 +208,81 @@ export function WorkspaceFileSearch({
 			{open && cwd ? (
 				<div
 					{...stylex.props(
-						styles.menu,
-						placement === "panel" ? styles.menuPanel : styles.menuShell,
+						styles.menuAnchor,
+						placement === "panel"
+							? styles.menuPanel
+							: placement === "sidebar"
+								? styles.menuSidebar
+								: styles.menuShell,
 					)}
 				>
-					{placement === "panel" ? (
-						<div {...stylex.props(styles.menuSearch)}>
-							<IconSearch
-								size={iconSize.md}
-								{...stylex.props(styles.searchIcon)}
-							/>
-							<input
-								ref={panelInputRef}
-								type="text"
-								autoComplete="off"
-								autoCorrect="off"
-								autoCapitalize="off"
-								spellCheck={false}
-								value={query}
-								onInput={(event) => {
-									setQuery(event.currentTarget.value);
-									setSelectedIndex(-1);
-								}}
-								onKeyDown={handleKeyDown}
-								placeholder="Search workspace files"
-								{...stylex.props(styles.input)}
-							/>
-						</div>
-					) : null}
-					{results.map((result, index) => (
-						<button
-							key={result.path}
-							type="button"
-							onMouseEnter={() => setSelectedIndex(index)}
-							onPointerDown={(event) => {
-								if (event.button === 0 && event.isPrimary) choose(result);
-							}}
-							onClick={(event) => {
-								if (event.detail === 0) choose(result);
-							}}
-							{...stylex.props(
-								styles.result,
-								index === selectedIndex && styles.resultActive,
-							)}
-						>
-							<FileTypeIcon path={result.path} size={iconSize.lg} />
-							<span {...stylex.props(styles.resultText)}>
-								<strong {...stylex.props(styles.resultName)}>
-									{fileName(result.path)}
-								</strong>
-								<small {...stylex.props(styles.resultPath)}>
-									{fileDirectory(result.path)}
-								</small>
-							</span>
-						</button>
-					))}
-					{!loading && results.length === 0 ? (
-						<span {...stylex.props(styles.empty)}>No matching files</span>
-					) : null}
+					<Liquid
+						blur={6}
+						contrast={18}
+						fill={runtimeColor.backgroundRaised}
+						filterPadding={32}
+						shadow="inset 0 1px 0 rgba(255,255,255,.12), 0 10px 28px rgba(0,0,0,.34)"
+						style={{ display: "flex", width: "100%" }}
+					>
+						<Liquid.Item style={{ width: "100%" }}>
+							<div {...stylex.props(styles.menu)}>
+								{placement === "panel" ? (
+									<div {...stylex.props(styles.menuSearch)}>
+										<IconSearch
+											size={iconSize.md}
+											{...stylex.props(styles.searchIcon)}
+										/>
+										<input
+											ref={panelInputRef}
+											type="text"
+											autoComplete="off"
+											autoCorrect="off"
+											autoCapitalize="off"
+											spellCheck={false}
+											value={query}
+											onInput={(event) => {
+												setQuery(event.currentTarget.value);
+												setSelectedIndex(-1);
+											}}
+											onKeyDown={handleKeyDown}
+											placeholder="Search workspace files"
+											{...stylex.props(styles.input)}
+										/>
+									</div>
+								) : null}
+								{results.map((result, index) => (
+									<button
+										key={result.path}
+										type="button"
+										onMouseEnter={() => setSelectedIndex(index)}
+										onPointerDown={(event) => {
+											if (event.button === 0 && event.isPrimary) choose(result);
+										}}
+										onClick={(event) => {
+											if (event.detail === 0) choose(result);
+										}}
+										{...stylex.props(
+											styles.result,
+											index === selectedIndex && styles.resultActive,
+										)}
+									>
+										<FileTypeIcon path={result.path} size={iconSize.lg} />
+										<span {...stylex.props(styles.resultText)}>
+											<strong {...stylex.props(styles.resultName)}>
+												{fileName(result.path)}
+											</strong>
+											<small {...stylex.props(styles.resultPath)}>
+												{fileDirectory(result.path)}
+											</small>
+										</span>
+									</button>
+								))}
+								{!loading && results.length === 0 ? (
+									<span {...stylex.props(styles.empty)}>No matching files</span>
+								) : null}
+							</div>
+						</Liquid.Item>
+					</Liquid>
 				</div>
 			) : null}
 		</div>
@@ -251,14 +291,20 @@ export function WorkspaceFileSearch({
 
 const styles = stylex.create({
 	root: { position: "relative", minWidth: controlSize._0 },
-	rootShell: {
-		width: "clamp(190px, 24vw, 330px)",
-		marginBottom: controlSize._1,
+	rootShellClosed: {
+		width: controlSize._6,
+	},
+	rootShellOpen: {
+		width: "clamp(160px, 18vw, 240px)",
+		zIndex: layer.searchPopover,
 	},
 	rootPanel: {
 		position: "static",
 		width: controlSize._6,
 		flexShrink: 0,
+	},
+	rootSidebar: {
+		width: "100%",
 	},
 	inputFrame: {
 		display: "flex",
@@ -290,6 +336,22 @@ const styles = stylex.create({
 			":hover": color.textMain,
 		},
 	},
+	shellTrigger: {
+		display: "flex",
+		width: controlSize._6,
+		height: controlSize._6,
+		alignItems: "center",
+		justifyContent: "center",
+		borderRadius: radius.md,
+		color: {
+			default: color.textMuted,
+			":hover": color.textMain,
+		},
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.surfaceWhite06,
+		},
+	},
 	input: {
 		minWidth: controlSize._0,
 		flex: 1,
@@ -300,28 +362,33 @@ const styles = stylex.create({
 		fontSize: font.size_2,
 		"::placeholder": { color: color.textMuted },
 	},
-	menu: {
+	menuAnchor: {
 		position: "absolute",
 		top: "calc(100% + 5px)",
 		zIndex: layer.searchPopover,
+	},
+	menu: {
 		display: "flex",
+		width: "100%",
 		maxHeight: 320,
 		flexDirection: "column",
 		gap: controlSize._0_5,
 		overflowY: "auto",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.borderStrong,
+		borderWidth: 0,
 		borderRadius: radius.lg,
-		backgroundColor: color.backgroundRaised,
-		backgroundImage: effect.popoverDepth,
-		boxShadow: "0 18px 46px rgba(0, 0, 0, 0.64)",
+		backgroundColor: color.transparent,
+		boxShadow: "none",
 		padding: controlSize._1,
 	},
 	menuShell: { left: controlSize._0, width: "max(100%, 330px)" },
 	menuPanel: {
-		left: controlSize._1,
-		right: controlSize._1,
+		left: controlSize._2,
+		right: controlSize._2,
+		width: "auto",
+	},
+	menuSidebar: {
+		left: controlSize._0,
+		right: controlSize._0,
 		width: "auto",
 	},
 	menuSearch: {
