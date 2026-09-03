@@ -7,6 +7,7 @@ import {
 	color,
 	controlSize,
 	font,
+	layer,
 	motion,
 	radius,
 } from "../../tokens.stylex.ts";
@@ -19,6 +20,9 @@ type ExplorerEntry = {
 	readonly name: string;
 	readonly path: string;
 };
+
+const EXPLORER_ROW_HEIGHT = 28;
+const PROJECT_HEADER_HEIGHT = 28;
 
 function Directory({
 	cwd,
@@ -86,12 +90,18 @@ function Entry({ entry, depth }: { entry: ExplorerEntry; depth: number }) {
 		else dispatchWorkspaceFileOpen({ cwd: entry.cwd, path: entry.path });
 	}, [entry]);
 	return (
-		<>
+		<div {...stylex.props(styles.entryGroup)}>
 			<button
 				type="button"
 				onClick={activate}
-				{...stylex.props(styles.row)}
-				style={{ paddingLeft: 8 + depth * 14 }}
+				{...stylex.props(styles.row, entry.isDir && styles.stickyFolderRow)}
+				style={{
+					paddingLeft: 8 + depth * 14,
+					top: entry.isDir
+						? PROJECT_HEADER_HEIGHT + depth * EXPLORER_ROW_HEIGHT
+						: undefined,
+					zIndex: entry.isDir ? 20 - Math.min(depth, 15) : undefined,
+				}}
 			>
 				{entry.isDir ? (
 					<IconChevronRight
@@ -114,7 +124,7 @@ function Entry({ entry, depth }: { entry: ExplorerEntry; depth: number }) {
 			{expanded ? (
 				<Directory cwd={entry.cwd} path={entry.path} depth={depth + 1} />
 			) : null}
-		</>
+		</div>
 	);
 }
 
@@ -130,7 +140,16 @@ export function WorkspaceExplorer({
 			</div>
 		);
 	return (
-		<div {...stylex.props(styles.root)}>
+		<div
+			data-workspace-explorer="true"
+			onWheelCapture={(event) => {
+				if (event.deltaY === 0) return;
+				event.preventDefault();
+				event.stopPropagation();
+				event.currentTarget.scrollTop += event.deltaY;
+			}}
+			{...stylex.props(styles.root)}
+		>
 			{cwds.map((cwd) => (
 				<section key={cwd} {...stylex.props(styles.project)}>
 					<header {...stylex.props(styles.projectName)}>
@@ -150,10 +169,14 @@ const styles = stylex.create({
 		minHeight: controlSize._0,
 		overflowY: "auto",
 		overscrollBehavior: "contain",
-		paddingBlock: controlSize._1,
+		paddingTop: controlSize._0,
+		paddingBottom: controlSize._1,
 	},
 	project: { marginBottom: controlSize._3 },
 	projectName: {
+		position: "sticky",
+		top: controlSize._0,
+		zIndex: layer.sticky,
 		display: "flex",
 		alignItems: "center",
 		gap: controlSize._2,
@@ -161,7 +184,9 @@ const styles = stylex.create({
 		color: color.textMain,
 		fontSize: font.size_2,
 		fontWeight: font.weight_6,
+		backgroundColor: color.background,
 	},
+	entryGroup: { position: "relative" },
 	row: {
 		display: "flex",
 		alignItems: "center",
@@ -176,6 +201,10 @@ const styles = stylex.create({
 			":hover": color.controlHover,
 		},
 		textAlign: "left",
+	},
+	stickyFolderRow: {
+		position: "sticky",
+		backgroundColor: color.background,
 	},
 	chevron: {
 		flexShrink: 0,
