@@ -88,6 +88,7 @@ pub struct ServerConfig {
     pub auth_token: String,
     pub release_api_url: Option<String>,
     pub automation_routes_enabled: bool,
+    pub live_reload: bool,
 }
 
 impl ServerConfig {
@@ -100,6 +101,7 @@ impl ServerConfig {
             auth_token: Uuid::new_v4().to_string(),
             release_api_url: None,
             automation_routes_enabled: std::env::var_os("AGENT_GUI_APP_ROOT").is_some(),
+            live_reload: false,
         }
     }
 }
@@ -137,6 +139,7 @@ struct ServerState {
     auth_token: String,
     client: Client,
     connection_reset: broadcast::Sender<()>,
+    live_reload: bool,
 }
 
 #[derive(Clone)]
@@ -494,6 +497,7 @@ fn build_router_with_connection_reset(
         auth_token: config.auth_token,
         client: Client::new(),
         connection_reset,
+        live_reload: config.live_reload,
     };
     Router::new()
         .route("/ws", any(native_websocket))
@@ -3454,6 +3458,9 @@ async fn serve_renderer_index(
 ) -> Response {
     let index = state.dist_dir.join("index.html");
     if index.is_file() {
+        if state.live_reload && !head_only {
+            return serve_live_reload_index(state, &index, headers).await;
+        }
         return serve_file(
             &index,
             "text/html",
@@ -3484,6 +3491,35 @@ async fn serve_renderer_index(
         } else {
             Body::from(body)
         },
+        "text/html",
+        "no-cache",
+        true,
+        headers,
+        &state.auth_token,
+    )
+}
+
+async fn serve_live_reload_index(
+    state: &ServerState,
+    index: &Path,
+    headers: &HeaderMap,
+) -> Response {
+    let Ok(html) = tokio::fs::read_to_string(index).await else {
+        return text_response(StatusCode::NOT_FOUND, "Not found");
+    };
+    let revision = tokio::fs::metadata(index)
+        .await
+        .ok()
+        .and_then(|metadata| metadata.modified().ok())
+        .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |duration| duration.as_nanos());
+    let reload = format!(
+        r#"<meta name="inferay-build" content="{revision}"><script>(()=>{{const revision="{revision}";setInterval(async()=>{{try{{const html=await fetch("/?inferay-live-reload="+Date.now(),{{cache:"no-store"}}).then(response=>response.text());const next=html.match(/name="inferay-build" content="([^"]+)"/);if(next&&next[1]!==revision)location.reload();}}catch{{}}}},500);}})();</script>"#
+    );
+    let html = html.replacen("</head>", &format!("{reload}</head>"), 1);
+    response_with_headers(
+        StatusCode::OK,
+        Body::from(html),
         "text/html",
         "no-cache",
         true,
@@ -3936,7 +3972,32 @@ mod tests {
             auth_token: "test-token".into(),
             release_api_url: Some("http://127.0.0.1:9/release".into()),
             automation_routes_enabled: false,
+            live_reload: false,
         }
+    }
+
+    #[tokio::test]
+    async fn development_renderer_injects_live_reload_client() {
+        let root = TempDir::new().unwrap();
+        std::fs::create_dir_all(root.path().join("dist")).unwrap();
+        std::fs::create_dir_all(root.path().join("public")).unwrap();
+        std::fs::write(
+            root.path().join("dist/index.html"),
+            "<!doctype html><html><head></head><body></body></html>",
+        )
+        .unwrap();
+        let mut config = test_config(root.path());
+        config.live_reload = true;
+
+        let response = router(config)
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+
+        assert!(html.contains("name=\"inferay-build\""));
+        assert!(html.contains("inferay-live-reload"));
     }
 
     #[tokio::test]

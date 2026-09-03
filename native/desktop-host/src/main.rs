@@ -1,4 +1,7 @@
-use std::{net::Ipv4Addr, path::PathBuf};
+use std::{
+    net::{Ipv4Addr, SocketAddr},
+    path::PathBuf,
+};
 
 use inferay_server::{ServerConfig, ServerHandle};
 use tao::{
@@ -126,9 +129,29 @@ fn bundled_app_root() -> Option<PathBuf> {
 
 fn start_server() -> Result<ServerHandle, String> {
     let app_root = bundled_app_root().unwrap_or_else(project_root);
-    let mut config = ServerConfig::new((Ipv4Addr::LOCALHOST, 0).into(), app_root);
+    let dev_backend_addr = std::env::var("INFERAY_DEV_BACKEND_ADDR").ok();
+    let listen_addr = if let Some(address) = dev_backend_addr {
+        address
+            .parse::<SocketAddr>()
+            .map_err(|error| format!("invalid Inferay development backend address: {error}"))?
+    } else {
+        (Ipv4Addr::LOCALHOST, 0).into()
+    };
+    let mut config = ServerConfig::new(listen_addr, app_root);
+    config.live_reload = std::env::var_os("INFERAY_LIVE_RELOAD").is_some();
     config.automation_routes_enabled = true;
     ServerHandle::start(config)
+}
+
+fn external_server_addr() -> Result<Option<SocketAddr>, String> {
+    std::env::var("INFERAY_EXTERNAL_BACKEND_ADDR")
+        .ok()
+        .map(|address| {
+            address
+                .parse::<SocketAddr>()
+                .map_err(|error| format!("invalid Inferay backend address: {error}"))
+        })
+        .transpose()
 }
 
 fn sync_fullscreen(window: &tao::window::Window, webview: &wry::WebView) {
@@ -143,8 +166,19 @@ fn sync_fullscreen(window: &tao::window::Window, webview: &wry::WebView) {
 }
 
 fn main() -> wry::Result<()> {
-    let mut server = start_server().expect("unable to start inferay Rust services");
-    let server_addr = server.local_addr();
+    let external_addr = external_server_addr().expect("unable to read Inferay backend address");
+    let mut server = if external_addr.is_some() {
+        None
+    } else {
+        Some(start_server().expect("unable to start inferay Rust services"))
+    };
+    let server_addr = external_addr.unwrap_or_else(|| {
+        server
+            .as_ref()
+            .expect("embedded Inferay server must be running")
+            .local_addr()
+    });
+    let renderer_url = format!("http://{server_addr}");
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
 
@@ -167,7 +201,7 @@ fn main() -> wry::Result<()> {
         .expect("failed to open window");
     let proxy = event_loop.create_proxy();
     let webview = WebViewBuilder::new()
-        .with_url(format!("http://{server_addr}"))
+        .with_url(renderer_url)
         .with_initialization_script(INITIALIZATION_SCRIPT)
         .with_accept_first_mouse(true)
         .with_clipboard(true)
@@ -196,7 +230,9 @@ fn main() -> wry::Result<()> {
                 // Release the browser and its upgraded `/ws` connection before
                 // waiting for Axum's graceful shutdown.
                 webview.take();
-                server.shutdown();
+                if let Some(server) = server.as_mut() {
+                    server.shutdown();
+                }
                 *control_flow = ControlFlow::Exit;
             }
             Event::UserEvent(UserEvent::DragWindow) => {
