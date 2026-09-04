@@ -18,6 +18,7 @@ import { CLIENT_STORAGE_CHANGED_EVENT } from "../adapters/storage/sync.ts";
 import { AppHeader } from "../app/components/AppHeader.tsx";
 import {
 	applyAppBackgroundPalette,
+	applyAppBackgroundSurfaces,
 	deriveAppBackgroundPalette,
 	getBuiltInBackgroundPath,
 	loadAppBackgroundSettings,
@@ -25,6 +26,7 @@ import {
 } from "../app/model/background.ts";
 import { applyAppFont, loadAppFontId } from "../app/model/font.ts";
 import { SettingsModalHost } from "../modules/settings/components/SettingsModal.tsx";
+import { RepositoryWorkspaceBar } from "../modules/workspace/components/RepositoryWorkspaceBar.tsx";
 import { WorkspaceSidebar } from "../modules/workspace/index.ts";
 import { listenWindowEvent } from "../shared/lib/react-events.ts";
 import { color, controlSize, layer, radius } from "../tokens.stylex.ts";
@@ -139,6 +141,10 @@ function AppLayout() {
 					: null;
 
 	useEffect(() => {
+		applyAppBackgroundSurfaces(background.mode);
+	}, [background.mode]);
+
+	useEffect(() => {
 		let active = true;
 		if (!background.autoTheme) {
 			restoreAppTheme();
@@ -167,10 +173,6 @@ function AppLayout() {
 							? "transparent"
 							: "var(--color-inferay-black)",
 					"--inferay-glass-blur": `${background.glassBlur}px`,
-					"--inferay-glass-surface":
-						background.mode === "glass"
-							? "transparent"
-							: `color-mix(in srgb, var(--color-inferay-black) ${background.glassOpacity}%, transparent)`,
 					"--inferay-panel-backdrop":
 						background.mode === "glass" ? "none" : undefined,
 				} as CSSProperties
@@ -209,6 +211,7 @@ function AppLayout() {
 				}}
 			/>
 			<AppHeader />
+			<RepositoryWorkspaceBar />
 			<SettingsModalHost />
 			<div
 				{...stylex.props(

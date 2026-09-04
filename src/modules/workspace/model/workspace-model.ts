@@ -248,7 +248,7 @@ const TERM_THEME_DATA: [
 	HexColor,
 ][] = [
 	["default", "Black", "#000000", "#e5e5e5", "#007AFF", "#111111"],
-	["midnight", "Midnight", "#111111", "#e8e8e8", "#5A8CFF", "#242424"],
+	["midnight", "Midnight", "#0d0e0f", "#ededed", "#6e8cff", "#1e1f21"],
 	["dracula", "Dracula", "#282a36", "#f8f8f2", "#f078a0", "#3a3c48"],
 	["monokai", "Monokai", "#272822", "#f8f8f2", "#f8f8f2", "#3a3a35"],
 	["nord", "Nord", "#2e3440", "#d8dee9", "#88c0d0", "#3e4450"],

@@ -88,6 +88,7 @@ export const {
 	IconCloud,
 	IconComputer,
 	IconPanelLeft,
+	IconPanelRight,
 	IconExternalLink,
 	IconArrowLeft,
 	IconMessageCircle,
@@ -192,6 +193,10 @@ export const {
 	IconPanelLeft: icon([
 		"M3 3h18a0 0 0 0 1 0 0v18a0 0 0 0 1 0 0H3a0 0 0 0 1 0 0V3z",
 		"M9 3v18",
+	]),
+	IconPanelRight: icon([
+		"M3 3h18a0 0 0 0 1 0 0v18a0 0 0 0 1 0 0H3a0 0 0 0 1 0 0V3z",
+		"M15 3v18",
 	]),
 	IconExternalLink: icon([
 		"M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6",

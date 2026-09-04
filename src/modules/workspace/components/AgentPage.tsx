@@ -33,6 +33,14 @@ import { clearAgentChatPaneState } from "../../../modules/conversation/model/cha
 import { useRepositoryWorkbench } from "../../../modules/workbench/index.ts";
 import { WorkspaceCanvas } from "../../../modules/workspace/index.ts";
 import {
+	getVisibleRepositoryEntries,
+	projectRepositoryWorkspaces,
+} from "../../../modules/workspace/model/repository-workspaces.ts";
+import {
+	FOCUS_AGENT_CHAT_COMPOSER_EVENT,
+	type FocusAgentChatComposerDetail,
+} from "../../../modules/workspace/model/workspace-events.ts";
+import {
 	type AgentGroupsAction,
 	type AgentKind,
 	type AgentLayoutMode,
@@ -402,7 +410,7 @@ const styles = stylex.create({
 	},
 	chatDock: {
 		display: "flex",
-		minWidth: controlSize._0,
+		minWidth: 250,
 		minHeight: controlSize._0,
 		flex: 1,
 		overflow: "hidden",
@@ -710,6 +718,59 @@ export function AgentPage() {
 	if (chatRefs.current === null) {
 		chatRefs.current = new Map();
 	}
+	const composerFocusFrameRef = useRef(0);
+	const focusChatComposer = useCallback((paneId: string) => {
+		if (composerFocusFrameRef.current) {
+			cancelAnimationFrame(composerFocusFrameRef.current);
+		}
+		let attempts = 0;
+		const focusComposer = () => {
+			const handle = chatRefs.current?.get(paneId);
+			if (handle) {
+				composerFocusFrameRef.current = 0;
+				const activeElement = document.activeElement;
+				const activePaneId =
+					activeElement instanceof Element
+						? activeElement.closest<HTMLElement>("[data-agent-grid-pane-id]")
+								?.dataset.agentGridPaneId
+						: null;
+				const targetControlIsFocused =
+					activePaneId === paneId &&
+					activeElement instanceof Element &&
+					!!activeElement.closest(
+						"button, input, textarea, select, a, [contenteditable='true']",
+					);
+				if (!targetControlIsFocused) {
+					handle.focusInput(true);
+					handle.highlightComposer();
+				}
+				return;
+			}
+			attempts += 1;
+			if (attempts < 12) {
+				composerFocusFrameRef.current = requestAnimationFrame(focusComposer);
+			} else {
+				composerFocusFrameRef.current = 0;
+			}
+		};
+		composerFocusFrameRef.current = requestAnimationFrame(focusComposer);
+	}, []);
+	useEffect(() => {
+		const stopListening = listenWindowEvent(
+			FOCUS_AGENT_CHAT_COMPOSER_EVENT,
+			(event) => {
+				const { paneId } = (event as CustomEvent<FocusAgentChatComposerDetail>)
+					.detail;
+				focusChatComposer(paneId);
+			},
+		);
+		return () => {
+			stopListening();
+			if (composerFocusFrameRef.current) {
+				cancelAnimationFrame(composerFocusFrameRef.current);
+			}
+		};
+	}, [focusChatComposer]);
 	const theme = useMemo(() => getThemeById(themeId), [themeId]);
 	const currentGroup = useMemo(
 		() => groups.find(hasId.bind(null, selectedGroupId)),
@@ -719,10 +780,27 @@ export function AgentPage() {
 		currentGroup?.panes.find(
 			(pane) => pane.id === currentGroup.selectedPaneId,
 		) ?? null;
+	const repositoryProjection = useMemo(
+		() => projectRepositoryWorkspaces(groups, selectedGroupId),
+		[groups, selectedGroupId],
+	);
+	const currentRepositoryPanes = useMemo(
+		() =>
+			currentGroup
+				? getVisibleRepositoryEntries(
+						repositoryProjection,
+						currentGroup.id,
+					).map((entry) => entry.pane)
+				: [],
+		[currentGroup, repositoryProjection],
+	);
 	const repositoryWorkbench = useRepositoryWorkbench({
 		active: true,
 		cwd: selectedPane?.cwd,
-		workspaceId: currentGroup?.id ?? "default",
+		workspaceId:
+			repositoryProjection.activeWorkspace?.cwd ??
+			currentGroup?.id ??
+			"default",
 	});
 	const restoreSavedState = useCallback(
 		(s: ReturnType<typeof loadAgentState>) => {
@@ -858,7 +936,7 @@ export function AgentPage() {
 			panes={
 				repositoryWorkbench.zenMode && selectedPane
 					? [selectedPane]
-					: currentGroup.panes
+					: currentRepositoryPanes
 			}
 			selectedPaneId={currentGroup.selectedPaneId}
 			columns={repositoryWorkbench.zenMode ? 1 : currentGroup.columns}
@@ -870,6 +948,7 @@ export function AgentPage() {
 			fontSize={fontSize}
 			fontFamily={fontFamily}
 			onSelectPane={selectChatPane}
+			onFocusPane={focusChatComposer}
 			onClosePane={removePane}
 			onDirectorySelect={handleDirectorySelected}
 			onDirectoryCancel={removePane}
@@ -881,7 +960,7 @@ export function AgentPage() {
 			auxiliaryPanels={repositoryWorkbench.auxiliaryPanels}
 		/>
 	) : null;
-	const hasCurrentPanes = !!currentGroup && currentGroup.panes.length > 0;
+	const hasCurrentPanes = currentRepositoryPanes.length > 0;
 	return (
 		<AgentMainSurface
 			chatDiffPanel={repositoryWorkbench.diffPanel}

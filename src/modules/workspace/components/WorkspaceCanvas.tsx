@@ -20,6 +20,8 @@ import {
 	type DockOuterEdge,
 	type DockTree,
 	dockAxisSpan,
+	dockPanelIds,
+	getResponsiveGridColumns,
 	insertDockPanel,
 	insertDockPanelAtOuterEdge,
 	moveDockPanel,
@@ -67,6 +69,7 @@ interface WorkspaceCanvasProps {
 	fontSize: number;
 	fontFamily: string;
 	onSelectPane: (paneId: string) => void;
+	onFocusPane?: (paneId: string) => void;
 	onClosePane: (paneId: string, force?: boolean) => void;
 	onDirectorySelect: (
 		paneId: string,
@@ -122,6 +125,18 @@ function isWorkspaceDockDragSource(target: EventTarget | null) {
 		target instanceof Element &&
 		!!target.closest('[data-workspace-dock-drag-source="true"]')
 	);
+}
+
+function shouldFocusPaneComposer(target: EventTarget | null) {
+	if (!(target instanceof Element)) return true;
+	if (
+		target.closest(
+			"button, input, textarea, select, a, [contenteditable='true']",
+		)
+	) {
+		return false;
+	}
+	return window.getSelection()?.isCollapsed !== false;
 }
 
 function isVerticalScroller(element: HTMLElement) {
@@ -235,6 +250,7 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 	const [dragIndex, setDragIndex] = useState<number | null>(null);
 	const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 	const [dragPanelId, setDragPanelId] = useState<string | null>(null);
+	const [availableGridColumns, setAvailableGridColumns] = useState(columns);
 	const [dockTarget, setDockTarget] = useState<{
 		readonly id: string;
 		readonly edge: DockEdge;
@@ -254,10 +270,27 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 		parseDockTree(readStoredValue(dockStorageKey)),
 	);
 	const layoutPresetRef = useRef(`${layoutMode}:${columns}`);
-	const renderedDockTree = useMemo(
+	const canonicalDockTree = useMemo(
 		() => reconcileDockTree(dockTree, panelIds, columns),
 		[columns, dockTree, panelIds],
 	);
+	const effectiveColumns =
+		layoutMode === "grid"
+			? Math.max(1, Math.min(columns, availableGridColumns))
+			: columns;
+	const renderedDockTree = useMemo(() => {
+		if (
+			!canonicalDockTree ||
+			layoutMode !== "grid" ||
+			effectiveColumns >= columns ||
+			dockAxisSpan(canonicalDockTree, "horizontal") <= effectiveColumns
+		) {
+			return canonicalDockTree;
+		}
+		return createDockTree(dockPanelIds(canonicalDockTree), effectiveColumns);
+	}, [canonicalDockTree, columns, effectiveColumns, layoutMode]);
+	const renderedDockTreeRef = useRef(renderedDockTree);
+	renderedDockTreeRef.current = renderedDockTree;
 	const dockVerticalSpan = renderedDockTree
 		? Math.max(1, dockAxisSpan(renderedDockTree, "vertical"))
 		: 1;
@@ -285,9 +318,25 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 		);
 	}, [columns, dockStorageKey, layoutMode, panelIds]);
 	useEffect(() => {
-		if (!renderedDockTree) return;
-		writeStoredValue(dockStorageKey, JSON.stringify(renderedDockTree));
-	}, [dockStorageKey, renderedDockTree]);
+		if (!canonicalDockTree) return;
+		writeStoredValue(dockStorageKey, JSON.stringify(canonicalDockTree));
+	}, [canonicalDockTree, dockStorageKey]);
+	useEffect(() => {
+		const container = containerRef.current;
+		if (!container || layoutMode !== "grid") return;
+		const updateAvailableColumns = (width: number) => {
+			const next = getResponsiveGridColumns(width, columns);
+			setAvailableGridColumns((current) => (current === next ? current : next));
+		};
+		updateAvailableColumns(container.getBoundingClientRect().width);
+		if (typeof ResizeObserver === "undefined") return;
+		const observer = new ResizeObserver((entries) => {
+			const width = entries[0]?.contentRect.width;
+			if (width !== undefined) updateAvailableColumns(width);
+		});
+		observer.observe(container);
+		return () => observer.disconnect();
+	}, [columns, layoutMode]);
 	useEffect(() => {
 		clearDragStateRef.current = clearDragState;
 	}, [clearDragState]);
@@ -322,7 +371,7 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 					: moveDockPanel(renderedDockTree, sourceId, target.id, target.edge);
 			}
 			if (layoutMode === "grid") {
-				nextTree = constrainDockTreeColumns(nextTree, columns);
+				nextTree = constrainDockTreeColumns(nextTree, effectiveColumns);
 			}
 			writeStoredValue(dockStorageKey, JSON.stringify(nextTree));
 			setDockTree(nextTree);
@@ -332,8 +381,8 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 			}
 		},
 		[
-			columns,
 			dockStorageKey,
+			effectiveColumns,
 			layoutMode,
 			panes,
 			props.onSelectPane,
@@ -529,9 +578,10 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 					direction === "horizontal"
 						? (moveEvent.clientX - rect.left) / Math.max(1, rect.width)
 						: (moveEvent.clientY - rect.top) / Math.max(1, rect.height);
-				setDockTree((current) =>
-					current ? resizeDockSplit(current, path, ratio) : current,
-				);
+				setDockTree(() => {
+					const rendered = renderedDockTreeRef.current;
+					return rendered ? resizeDockSplit(rendered, path, ratio) : rendered;
+				});
 			};
 			const finish = () => {
 				releaseSelection();
@@ -637,6 +687,11 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 							}
 							props.onSelectPane(pane.id);
 						}}
+						onClickCapture={(event) => {
+							if (shouldFocusPaneComposer(event.target)) {
+								props.onFocusPane?.(pane.id);
+							}
+						}}
 					>
 						<PaneView
 							{...paneViewProps(
@@ -719,9 +774,13 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 					auxiliaryPanel?.onSelect?.();
 				}}
 				onClickCapture={(event) => {
-					if (!isWorkspaceDockDragSource(event.target)) return;
-					if (pane) props.onSelectPane(pane.id);
-					else auxiliaryPanel?.onSelect?.();
+					if (isWorkspaceDockDragSource(event.target)) {
+						if (pane) props.onSelectPane(pane.id);
+						else auxiliaryPanel?.onSelect?.();
+					}
+					if (pane && shouldFocusPaneComposer(event.target)) {
+						props.onFocusPane?.(pane.id);
+					}
 				}}
 			>
 				{pane ? (

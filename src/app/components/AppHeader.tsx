@@ -15,6 +15,7 @@ import {
 import { iconSize } from "../../design-system.ts";
 import { openSettingsModal } from "../../modules/settings/model/settings-events.ts";
 import { dispatchOpenActiveGitGraph } from "../../modules/workbench/model/workbench-events.ts";
+import { dispatchCreateAgentChat } from "../../modules/workspace/model/workspace-events.ts";
 import {
 	agentStateKey,
 	dispatchAgentShellChange,
@@ -102,11 +103,7 @@ export function AppHeader() {
 	}, [activateMainView, selectedCwd]);
 	const createNewChat = useCallback(() => {
 		activateMainView("chat");
-		requestAnimationFrame(() =>
-			requestAnimationFrame(() =>
-				window.dispatchEvent(new CustomEvent("create-agent-chat")),
-			),
-		);
+		requestAnimationFrame(() => requestAnimationFrame(dispatchCreateAgentChat));
 	}, [activateMainView]);
 
 	const commands = useMemo(
@@ -164,7 +161,7 @@ export function AppHeader() {
 				detail: "Configure Inferay",
 				keywords: "settings preferences configuration",
 				icon: <IconSettings size={iconSize.compact} />,
-				run: openSettingsModal,
+				run: () => openSettingsModal(),
 			},
 		],
 		[activateMainView, activateRoute, createNewChat, openCommitGraph],

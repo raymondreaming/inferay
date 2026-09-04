@@ -1,6 +1,13 @@
 import * as stylex from "@octanejs/stylex";
 import { useLocation, useNavigate } from "@octanejs/tanstack-router";
-import { useCallback, useEffect, useReducer, useRef, useState } from "octane";
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useReducer,
+	useRef,
+	useState,
+} from "octane";
 
 type ReactMouseEvent<T = Element> = globalThis.MouseEvent & {
 	currentTarget: T;
@@ -34,10 +41,11 @@ import {
 } from "../../../modules/repository/adapters/forge-client.ts";
 import { areForgeAccountsEqual } from "../../../modules/repository/model/forge-equality.ts";
 import { openSettingsModal } from "../../../modules/settings/model/settings-events.ts";
+import { dispatchOpenActiveGitGraph } from "../../../modules/workbench/model/workbench-events.ts";
 import {
-	dispatchOpenActiveGitGraph,
-	dispatchToggleActiveGitSidebar,
-} from "../../../modules/workbench/model/workbench-events.ts";
+	CREATE_AGENT_CHAT_EVENT,
+	dispatchFocusAgentChatComposer,
+} from "../../../modules/workspace/model/workspace-events.ts";
 import {
 	type AgentPaneModel,
 	type AgentShellChangeDetail,
@@ -64,12 +72,10 @@ import {
 	IconAgent,
 	IconFolder,
 	IconGitBranch,
-	IconGitCommit,
 	IconLayoutGrid,
 	IconLayoutRows,
 	IconMessageCircle,
 	IconPanelLeft,
-	IconPlus,
 	IconRefreshCw,
 	IconSettings,
 	IconUser,
@@ -84,11 +90,17 @@ import {
 	radius,
 } from "../../../tokens.stylex.ts";
 import {
+	getVisibleRepositoryEntries,
+	projectRepositoryWorkspaces,
+} from "../model/repository-workspaces.ts";
+import {
 	loadSidebarUiState,
 	MAX_SIDEBAR_WIDTH,
 	MIN_SIDEBAR_WIDTH,
 	type SidebarUpdateStatus,
 	sidebarUiReducer,
+	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
+	type WorkspaceSidebarCollapsedDetail,
 } from "../model/sidebar-state.ts";
 
 interface SidebarWorkspaceGroup {
@@ -179,45 +191,33 @@ function SidebarChatList({
 	workspaces: SidebarWorkspaceState;
 	onSelectPane: (groupId: string, paneId: string) => void;
 }) {
-	const repositories = workspaces.groups.reduce(
-		(groups, group) => {
-			for (const pane of group.panes) {
-				const cwd = pane.cwd || "";
-				const current = groups.find((item) => item.cwd === cwd);
-				const entry = { groupId: group.id, pane };
-				if (current) current.entries.push(entry);
-				else groups.push({ cwd, entries: [entry] });
-			}
-			return groups;
-		},
-		[] as Array<{
-			cwd: string;
-			entries: Array<{ groupId: string; pane: AgentPaneModel }>;
-		}>,
+	const repositoryProjection = projectRepositoryWorkspaces(
+		workspaces.groups,
+		workspaces.selectedGroupId,
 	);
+	const entries = getVisibleRepositoryEntries(repositoryProjection);
 
 	return (
 		<div {...stylex.props(styles.workspacePaneList)}>
-			{repositories.map((repository) => (
-				<div key={repository.cwd || "no-repository"}>
-					<div {...stylex.props(styles.repositoryHeading)}>
-						{repository.cwd.split("/").filter(Boolean).pop() || "No repository"}
-					</div>
-					{repository.entries.map(({ groupId, pane }) => (
-						<PaneSummaryItem
-							key={pane.id}
-							pane={pane}
-							isActive={
-								groupId === workspaces.selectedGroupId &&
-								pane.id ===
-									workspaces.groups.find((group) => group.id === groupId)
-										?.selectedPaneId
-							}
-							onClick={() => onSelectPane(groupId, pane.id)}
-						/>
-					))}
+			{entries.length > 0 ? (
+				entries.map(({ groupId, pane }) => (
+					<PaneSummaryItem
+						key={pane.id}
+						pane={pane}
+						isActive={
+							groupId === workspaces.selectedGroupId &&
+							pane.id ===
+								workspaces.groups.find((group) => group.id === groupId)
+									?.selectedPaneId
+						}
+						onClick={() => onSelectPane(groupId, pane.id)}
+					/>
+				))
+			) : (
+				<div {...stylex.props(styles.repositoryEmptyState)}>
+					No chats in this repository yet.
 				</div>
-			))}
+			)}
 		</div>
 	);
 }
@@ -255,16 +255,12 @@ function SidebarWorkspacesSection({
 		workspaces.groups.find(
 			(group) => group.id === workspaces.selectedGroupId,
 		) ?? null;
-	const selectedCwd = selectedGroup?.panes.find(
-		(pane) => pane.id === selectedGroup.selectedPaneId,
-	)?.cwd;
-	const projectCwds = Array.from(
-		new Set(
-			workspaces.groups
-				.flatMap((group) => group.panes.map((pane) => pane.cwd))
-				.filter((cwd): cwd is string => !!cwd),
-		),
+	const repositoryProjection = projectRepositoryWorkspaces(
+		workspaces.groups,
+		workspaces.selectedGroupId,
 	);
+	const selectedCwd = repositoryProjection.activeWorkspace?.cwd;
+	const projectCwds = selectedCwd ? [selectedCwd] : [];
 	const selectSectionMode = (mode: "chats" | "explorer") => {
 		setSectionMode(mode);
 		writeStoredValue("workspace-sidebar-mode", mode);
@@ -284,18 +280,6 @@ function SidebarWorkspacesSection({
 		<div className={workspaceSectionProps.className}>
 			{!collapsed ? (
 				<div {...stylex.props(styles.sidebarToolbar)}>
-					<div {...stylex.props(styles.sidebarTopRow)}>
-						<button
-							type="button"
-							onClick={() =>
-								window.dispatchEvent(new CustomEvent("create-agent-chat"))
-							}
-							{...stylex.props(styles.sidebarCreateButton)}
-						>
-							<span>New</span>
-							<IconPlus size={iconSize.sm} />
-						</button>
-					</div>
 					<div {...stylex.props(styles.sidebarRepositoryActions)}>
 						<button
 							type="button"
@@ -306,16 +290,6 @@ function SidebarWorkspacesSection({
 						>
 							<IconGitBranch size={iconSize.sm} />
 							<span>Graph</span>
-						</button>
-						<button
-							type="button"
-							onClick={dispatchToggleActiveGitSidebar}
-							disabled={!selectedCwd}
-							{...stylex.props(styles.sidebarRepositoryAction)}
-							title="Toggle changes panel"
-						>
-							<IconGitCommit size={iconSize.sm} />
-							<span>Changes</span>
 						</button>
 					</div>
 					<div {...stylex.props(styles.sidebarModeTabs)}>
@@ -533,8 +507,7 @@ export function WorkspaceSidebar() {
 		undefined,
 		loadSidebarUiState,
 	);
-	const { sidebarWidth, resizing, updateStatus } = uiState;
-	const collapsed = false;
+	const { collapsed, sidebarWidth, resizing, updateStatus } = uiState;
 	const [layoutMode, setLayoutMode] = useState(loadAgentLayoutMode);
 	const { data: appInfo } = useAppInfo();
 	const { data: forgeAccounts } = useQueryResource(
@@ -566,7 +539,17 @@ export function WorkspaceSidebar() {
 			}),
 		[],
 	);
-
+	useEffect(
+		() =>
+			listenWindowEvent(WORKSPACE_SIDEBAR_COLLAPSED_EVENT, (event) => {
+				dispatchUi({
+					type: "collapsed",
+					value: (event as CustomEvent<WorkspaceSidebarCollapsedDetail>).detail
+						.collapsed,
+				});
+			}),
+		[],
+	);
 	// Workspace state
 	const loadWorkspaces = useCallback(() => {
 		const state = loadAgentState();
@@ -582,6 +565,14 @@ export function WorkspaceSidebar() {
 	}, []);
 
 	const [workspaces, setWorkspaces] = useState(loadWorkspaces);
+	const repositoryProjection = useMemo(
+		() =>
+			projectRepositoryWorkspaces(
+				workspaces.groups,
+				workspaces.selectedGroupId,
+			),
+		[workspaces.groups, workspaces.selectedGroupId],
+	);
 
 	useEffect(() => listenAgentLayoutMode(setLayoutMode), []);
 
@@ -644,24 +635,28 @@ export function WorkspaceSidebar() {
 			if (location.pathname !== "/agent") {
 				navigate({ to: "/agent" });
 			}
+			requestAnimationFrame(() => {
+				requestAnimationFrame(() => dispatchFocusAgentChatComposer(paneId));
+			});
 		},
 		[location.pathname, navigate],
 	);
 
 	const addChat = useCallback(async () => {
+		const cwd = repositoryProjection.activeWorkspace?.cwd;
 		const pane = createAgentPane(
 			loadDefaultChatSettings().agentKind,
-			undefined,
-			true,
+			cwd,
+			!cwd,
 		);
 		await mutateAgentWorkspaceState({ type: "addPane", pane }, "add-pane", {
 			createIfMissing: true,
 		});
 		navigate({ to: "/agent" });
-	}, [navigate]);
+	}, [navigate, repositoryProjection.activeWorkspace?.cwd]);
 
 	useEffect(() => {
-		const stopChat = listenWindowEvent("create-agent-chat", () => {
+		const stopChat = listenWindowEvent(CREATE_AGENT_CHAT_EVENT, () => {
 			void addChat();
 		});
 		return stopChat;
@@ -802,7 +797,7 @@ export function WorkspaceSidebar() {
 						/>
 						<button
 							type="button"
-							onClick={openSettingsModal}
+							onClick={() => openSettingsModal()}
 							{...stylex.props(styles.sidebarSettings)}
 						>
 							<IconSettings size={iconSize.md} />
@@ -810,7 +805,7 @@ export function WorkspaceSidebar() {
 						</button>
 						<button
 							type="button"
-							onClick={openSettingsModal}
+							onClick={() => openSettingsModal("github")}
 							{...stylex.props(styles.sidebarAccount)}
 							title="Account settings"
 						>
@@ -915,14 +910,12 @@ const styles = stylex.create({
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 	},
-	repositoryHeading: {
-		paddingBlock: controlSize._1,
+	repositoryEmptyState: {
+		color: color.textFaint,
+		fontSize: font.size_2,
+		paddingBlock: controlSize._6,
 		paddingInline: controlSize._2,
-		color: color.textMuted,
-		fontSize: font.size_1,
-		fontWeight: font.weight_6,
-		textTransform: "uppercase",
-		letterSpacing: "0.06em",
+		textAlign: "center",
 	},
 	sidebarModeTabs: {
 		display: "grid",
@@ -937,20 +930,8 @@ const styles = stylex.create({
 		paddingBottom: controlSize._2,
 		paddingInline: controlSize._3,
 	},
-	sidebarTopRow: {
-		position: "relative",
-		zIndex: layer.searchPopover,
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "flex-end",
-		boxSizing: "border-box",
-		minWidth: controlSize._0,
-		width: "100%",
-	},
 	sidebarRepositoryActions: {
-		display: "grid",
-		gridTemplateColumns: "1fr 1fr",
-		gap: controlSize._1,
+		display: "flex",
 	},
 	sidebarRepositoryAction: {
 		alignItems: "center",
@@ -974,22 +955,6 @@ const styles = stylex.create({
 			cursor: "default",
 			opacity: 0.45,
 		},
-	},
-	sidebarCreateButton: {
-		display: "flex",
-		width: 58,
-		height: controlSize._7,
-		alignItems: "center",
-		justifyContent: "center",
-		gap: controlSize._1,
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: radius.px7,
-		backgroundColor: color.backgroundRaised,
-		color: color.textSoft,
-		fontSize: font.size_2,
-		fontWeight: font.weight_6,
 	},
 	sidebarModeTab: {
 		alignItems: "center",

@@ -1,6 +1,19 @@
 export type DockEdge = "center" | "left" | "right" | "top" | "bottom";
 export type DockOuterEdge = Exclude<DockEdge, "center">;
 
+export const MIN_RESPONSIVE_PANE_WIDTH = 250;
+
+export function getResponsiveGridColumns(
+	availableWidth: number,
+	preferredColumns: number,
+): number {
+	const widthColumns = Math.max(
+		1,
+		Math.floor(Math.max(0, availableWidth) / MIN_RESPONSIVE_PANE_WIDTH),
+	);
+	return Math.max(1, Math.min(4, preferredColumns, widthColumns));
+}
+
 export type DockTree =
 	| { readonly type: "panel"; readonly id: string }
 	| {
