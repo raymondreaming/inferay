@@ -38,7 +38,6 @@ import {
 import { useGitStatus } from "../../../modules/repository/hooks/useGitStatus.tsx";
 import type { GitFileEntry } from "../../../modules/repository/model/types.ts";
 import { DiffViewerBoundary } from "../../../modules/workbench/diff/components/DiffViewerBoundary.tsx";
-import { basename } from "../../../shared/lib/format.ts";
 import { lockPointerSelection } from "../../../shared/lib/pointer-selection-lock.ts";
 import { listenWindowEvent } from "../../../shared/lib/react-events.ts";
 import { LiquidSegmentedRail } from "../../../shared/ui/gooey/LiquidSegmentedRail.tsx";
@@ -877,19 +876,6 @@ function ChatDiffPanel({
 							</span>
 						) : null}
 					</span>
-				) : null}
-				{mainViewMode === "graph" ? (
-					repositoryKey ? (
-						<span
-							data-graph-repository-title="true"
-							title={repositoryKey}
-							{...stylex.props(styles.viewerTitle)}
-						>
-							<strong {...stylex.props(styles.viewerFileName)}>
-								{basename(repositoryKey)}
-							</strong>
-						</span>
-					) : null
 				) : null}
 				{mainViewMode === "graph" ? (
 					<div {...stylex.props(styles.graphSyncActions)}>
@@ -2915,19 +2901,6 @@ const styles = stylex.create({
 	},
 	viewerFloatingScrimAboveContent: {
 		zIndex: layer.control,
-	},
-	viewerTitle: {
-		display: "flex",
-		minWidth: controlSize._0,
-		flex: 1,
-		alignItems: "center",
-		gap: controlSize._1,
-		overflow: "hidden",
-		color: color.textSoft,
-		fontFamily: font.familyDiff,
-		fontSize: font.size_1,
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
 	},
 	viewerFloatingFile: {
 		alignItems: "center",
