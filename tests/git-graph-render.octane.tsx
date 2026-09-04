@@ -436,7 +436,7 @@ describe("Git commit graph renderer", () => {
 				"Fix dashboard loading performance",
 			);
 			expect(rootElement.textContent).not.toContain("Author");
-			expect(rootElement.textContent).toContain("Committer");
+			expect(rootElement.textContent).not.toContain("Committer");
 			expect(rootElement.textContent).not.toContain("Diff parent:");
 			expect(rootElement.textContent).not.toContain("GitHub ·");
 			expect(rootElement.textContent).toContain(
@@ -661,7 +661,7 @@ describe("Git commit graph renderer", () => {
 			expect(rootElement.textContent).toMatch(/Staged Files\s*1/);
 			expect(rootElement.textContent).not.toContain("Files Files");
 			expect(rootElement.textContent).toContain("+33-3");
-			expect(rootElement.textContent).toContain("main");
+			expect(rootElement.textContent).not.toContain("main");
 			expect(rootElement.textContent).toContain("Path");
 			expect(rootElement.textContent).toContain("Tree");
 			expect(rootElement.textContent).toContain("Commit 1 file");
