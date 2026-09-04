@@ -248,7 +248,7 @@ describe("agent state and git change behavior", () => {
 	});
 
 	test("creates each workspace with a selected starter chat", () => {
-		const group = createDefaultAgentChatGroup();
+		const group = { ...createDefaultAgentChatGroup(), columns: 3, rows: 3 };
 		const next = reduceAgentWorkspaceState(
 			{
 				groups: [group],
@@ -270,6 +270,8 @@ describe("agent state and git change behavior", () => {
 			}),
 		);
 		expect(next?.groups[1]?.selectedPaneId).toBe(next?.groups[1]?.panes[0]?.id);
+		expect(next?.groups[1]?.columns).toBe(3);
+		expect(next?.groups[1]?.rows).toBe(3);
 		expect(next?.selectedGroupId).toBe(next?.groups[1]?.id);
 		expect(migrateGroup(next!.groups[1]!).panes).toHaveLength(1);
 		expect(migrateGroup(next!.groups[1]!).selectedPaneId).toBe(

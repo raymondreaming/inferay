@@ -93,12 +93,14 @@ import {
 } from "../graph/model/rebase-model.ts";
 import {
 	OPEN_ACTIVE_GIT_GRAPH_EVENT,
+	RESET_ACTIVE_REPOSITORY_WORKBENCH_EVENT,
 	TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT,
 } from "../model/workbench-events.ts";
 import { MIN_RESPONSIVE_PANE_WIDTH } from "../model/workbench-layout.ts";
 import {
 	bindGitGraphRepository,
 	dismissGitWorkspaceViewer,
+	emptyGitWorkspacePanelSession,
 	type GitWorkspaceDetachedFilePanel,
 	type GitWorkspacePanelSession,
 	getGitWorkspaceSidebarContent,
@@ -2130,6 +2132,20 @@ export function useRepositoryWorkbench({
 				});
 			}),
 		[active],
+	);
+	useEffect(
+		() =>
+			listenWindowEvent(RESET_ACTIVE_REPOSITORY_WORKBENCH_EVENT, () => {
+				if (!active) return;
+				saveWorkbenchGraphVisible(false);
+				saveWorkbenchSidebarVisible(false);
+				setSidebarVisible(false);
+				setZenMode(false);
+				updatePanelSession(() =>
+					emptyGitWorkspacePanelSession<FileContentResponse>(),
+				);
+			}),
+		[active, updatePanelSession],
 	);
 	const setFileViewMode = useCallback((mode: "path" | "tree") => {
 		setFileViewModeState(mode);
