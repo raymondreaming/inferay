@@ -15,7 +15,6 @@ import { Route as OnboardingRouteImport } from './routes/onboarding.tsx'
 import { Route as AppAgentRouteImport } from './routes/_app/agent.tsx'
 import { Route as AppAutomationsRouteImport } from './routes/_app/automations.tsx'
 import { Route as AppImagesRouteImport } from './routes/_app/images.tsx'
-import { Route as AppProfileRouteImport } from './routes/_app/profile.tsx'
 import { Route as AppSkillsRouteImport } from './routes/_app/skills.tsx'
 
 const IndexRoute = IndexRouteImport.update({
@@ -47,11 +46,6 @@ const AppImagesRoute = AppImagesRouteImport.update({
   path: '/images',
   getParentRoute: () => AppRoute,
 } as any)
-const AppProfileRoute = AppProfileRouteImport.update({
-  id: '/profile',
-  path: '/profile',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppSkillsRoute = AppSkillsRouteImport.update({
   id: '/skills',
   path: '/skills',
@@ -64,7 +58,6 @@ export interface FileRoutesByFullPath {
   '/agent': typeof AppAgentRoute
   '/automations': typeof AppAutomationsRoute
   '/images': typeof AppImagesRoute
-  '/profile': typeof AppProfileRoute
   '/skills': typeof AppSkillsRoute
 }
 export interface FileRoutesByTo {
@@ -73,7 +66,6 @@ export interface FileRoutesByTo {
   '/agent': typeof AppAgentRoute
   '/automations': typeof AppAutomationsRoute
   '/images': typeof AppImagesRoute
-  '/profile': typeof AppProfileRoute
   '/skills': typeof AppSkillsRoute
 }
 export interface FileRoutesById {
@@ -84,28 +76,14 @@ export interface FileRoutesById {
   '/_app/agent': typeof AppAgentRoute
   '/_app/automations': typeof AppAutomationsRoute
   '/_app/images': typeof AppImagesRoute
-  '/_app/profile': typeof AppProfileRoute
   '/_app/skills': typeof AppSkillsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    | '/'
-    | '/onboarding'
-    | '/agent'
-    | '/automations'
-    | '/images'
-    | '/profile'
-    | '/skills'
+    '/' | '/onboarding' | '/agent' | '/automations' | '/images' | '/skills'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/'
-    | '/onboarding'
-    | '/agent'
-    | '/automations'
-    | '/images'
-    | '/profile'
-    | '/skills'
+  to: '/' | '/onboarding' | '/agent' | '/automations' | '/images' | '/skills'
   id:
     | '__root__'
     | '/'
@@ -114,7 +92,6 @@ export interface FileRouteTypes {
     | '/_app/agent'
     | '/_app/automations'
     | '/_app/images'
-    | '/_app/profile'
     | '/_app/skills'
   fileRoutesById: FileRoutesById
 }
@@ -168,13 +145,6 @@ declare module '@octanejs/tanstack-router' {
       preLoaderRoute: typeof AppImagesRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/profile': {
-      id: '/_app/profile'
-      path: '/profile'
-      fullPath: '/profile'
-      preLoaderRoute: typeof AppProfileRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/_app/skills': {
       id: '/_app/skills'
       path: '/skills'
@@ -189,7 +159,6 @@ interface AppRouteChildren {
   AppAgentRoute: typeof AppAgentRoute
   AppAutomationsRoute: typeof AppAutomationsRoute
   AppImagesRoute: typeof AppImagesRoute
-  AppProfileRoute: typeof AppProfileRoute
   AppSkillsRoute: typeof AppSkillsRoute
 }
 
@@ -197,7 +166,6 @@ const AppRouteChildren: AppRouteChildren = {
   AppAgentRoute: AppAgentRoute,
   AppAutomationsRoute: AppAutomationsRoute,
   AppImagesRoute: AppImagesRoute,
-  AppProfileRoute: AppProfileRoute,
   AppSkillsRoute: AppSkillsRoute,
 }
 

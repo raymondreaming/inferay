@@ -7,7 +7,6 @@ export type FeatureFlagName =
 	| "automations"
 	| "goals"
 	| "images"
-	| "profile"
 	| "chat"
 	| "graph";
 
@@ -20,7 +19,6 @@ const ENABLED_FEATURE_FLAGS: FeatureFlags = {
 	automations: true,
 	goals: true,
 	images: true,
-	profile: true,
 	chat: true,
 	graph: true,
 };

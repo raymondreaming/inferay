@@ -6,12 +6,7 @@ import {
 	IconSlash,
 } from "../../shared/ui/Icons.tsx";
 
-export type AppRouteId =
-	| "agent"
-	| "prompts"
-	| "automations"
-	| "images"
-	| "profile";
+export type AppRouteId = "agent" | "prompts" | "automations" | "images";
 
 export type AgentMainView = "chat" | "graph";
 
@@ -55,7 +50,6 @@ const ALL_APP_PAGE_ROUTES = [
 		sidebar: true,
 		icon: IconFilePlus,
 	},
-	{ id: "profile", label: "Profile", path: "/profile" },
 ] as const satisfies readonly AppPageRoute[];
 
 export const APP_PAGE_ROUTES: readonly AppPageRoute[] =

@@ -13,10 +13,7 @@ import {
 	APP_FONT_STORAGE_KEY,
 	APP_THEME_STORAGE_KEY,
 } from "../adapters/storage/keys.ts";
-import {
-	readStoredBoolean,
-	readStoredValue,
-} from "../adapters/storage/stored-values.ts";
+import { readStoredValue } from "../adapters/storage/stored-values.ts";
 import { CLIENT_STORAGE_CHANGED_EVENT } from "../adapters/storage/sync.ts";
 import { AppHeader } from "../app/components/AppHeader.tsx";
 import {
@@ -27,6 +24,7 @@ import {
 	restoreAppTheme,
 } from "../app/model/background.ts";
 import { applyAppFont, loadAppFontId } from "../app/model/font.ts";
+import { SettingsModalHost } from "../modules/settings/components/SettingsModal.tsx";
 import { WorkspaceSidebar } from "../modules/workspace/index.ts";
 import { listenWindowEvent } from "../shared/lib/react-events.ts";
 import { color, controlSize, layer, radius } from "../tokens.stylex.ts";
@@ -36,10 +34,7 @@ export const Route = createFileRoute("/_app")({ component: AppLayout });
 const styles = stylex.create({
 	shell: {
 		backgroundColor: "var(--inferay-app-background, #050506)",
-		backgroundImage:
-			"radial-gradient(rgba(255,255,255,0.055) 0.65px, transparent 0.75px)",
-		backgroundPosition: "0 0",
-		backgroundSize: "22px 22px",
+		backgroundImage: "none",
 		display: "flex",
 		flexDirection: "column",
 		height: "100vh",
@@ -71,27 +66,24 @@ const styles = stylex.create({
 	appBody: {
 		display: "flex",
 		flex: 1,
-		gap: controlSize._2_5,
+		gap: controlSize._0,
 		minHeight: controlSize._0,
-		paddingTop: controlSize._9,
-		paddingRight: controlSize._3,
-		paddingBottom: controlSize._3,
+		paddingTop: controlSize._0,
+		paddingRight: controlSize._0,
+		paddingBottom: controlSize._0,
 		paddingLeft: controlSize._0,
 		position: "relative",
 		zIndex: layer.content,
 	},
 	appBodySidebarOpen: {
-		paddingLeft: controlSize._3,
+		paddingLeft: controlSize._0,
 	},
 	mainColumn: {
 		position: "relative",
 		backgroundColor: color.shellSurface,
-		borderColor: color.shellFrame,
-		borderRadius: radius.px17,
-		borderStyle: "solid",
-		borderWidth: 1,
-		boxShadow:
-			"inset 0 1px 0 rgba(255,255,255,0.055), 0 28px 80px rgba(0,0,0,0.52), 0 0 0 1px rgba(0,0,0,0.42)",
+		borderRadius: radius.none,
+		borderWidth: controlSize._0,
+		boxShadow: "none",
 		backdropFilter:
 			"var(--inferay-panel-backdrop, blur(var(--inferay-glass-blur, 4px)) saturate(104%))",
 		display: "flex",
@@ -108,24 +100,13 @@ const shellThemeProps = stylex.props(styles.shell);
 function AppLayout() {
 	const location = useLocation();
 	const [background, setBackground] = useState(loadAppBackgroundSettings);
-	const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
-		readStoredBoolean("sidebar-collapsed"),
-	);
 	const [mainView, setMainView] = useState(
 		() => readStoredValue("agent-main-view") ?? "chat",
 	);
-	const sidebarOpen =
-		location.pathname === "/agent" && mainView === "chat" && !sidebarCollapsed;
+	const sidebarOpen = location.pathname === "/agent" && mainView === "chat";
 	useEffect(() => {
 		wsClient.connect();
 	}, []);
-	useEffect(
-		() =>
-			listenWindowEvent("toggle-main-sidebar", () =>
-				setSidebarCollapsed((current) => !current),
-			),
-		[],
-	);
 	useEffect(
 		() =>
 			listenWindowEvent("agent-shell-change", () => {
@@ -182,7 +163,9 @@ function AppLayout() {
 			style={
 				{
 					"--inferay-app-background":
-						background.mode === "glass" ? "transparent" : "#000000",
+						background.mode === "glass"
+							? "transparent"
+							: "var(--color-inferay-black)",
 					"--inferay-glass-blur": `${background.glassBlur}px`,
 					"--inferay-glass-surface":
 						background.mode === "glass"
@@ -226,6 +209,7 @@ function AppLayout() {
 				}}
 			/>
 			<AppHeader />
+			<SettingsModalHost />
 			<div
 				{...stylex.props(
 					styles.appBody,
