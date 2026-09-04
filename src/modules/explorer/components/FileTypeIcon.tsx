@@ -2,7 +2,7 @@ import { DEFAULT_FILE, getIconForFile } from "@yutengjing/vscode-icons";
 import type { CSSProperties } from "react";
 
 const importedIcons = import.meta.glob(
-	"../../../node_modules/@yutengjing/vscode-icons/assets/icons/*.svg",
+	"../../../../node_modules/@yutengjing/vscode-icons/assets/icons/*.svg",
 	{ eager: true, import: "default", query: "?url" },
 ) as Record<string, string>;
 
