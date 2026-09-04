@@ -86,6 +86,7 @@ export interface AgentChatHandle {
 	sendMessageWithImages: (text: string, images?: string[]) => void;
 	getStatus: () => string;
 	focusInput: (atEnd?: boolean) => void;
+	highlightComposer: () => void;
 	getToolActivities: () => ToolActivity[];
 	getQueuedCount: () => number;
 	getQueuedMessages: () => QueuedMessageInfo[];
@@ -628,6 +629,51 @@ export const AgentChatView = memo(function AgentChatView({
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	const imageDragDepthRef = useRef(0);
 	const [isImageDragActive, setIsImageDragActive] = useState(false);
+	const [composerBeamActive, setComposerBeamActive] = useState(false);
+	const composerBeamFrameRef = useRef(0);
+	const composerBeamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+		null,
+	);
+	const highlightComposer = useCallback(() => {
+		if (composerBeamFrameRef.current) {
+			cancelAnimationFrame(composerBeamFrameRef.current);
+		}
+		if (composerBeamTimerRef.current) {
+			clearTimeout(composerBeamTimerRef.current);
+		}
+		setComposerBeamActive(false);
+		composerBeamFrameRef.current = requestAnimationFrame(() => {
+			composerBeamFrameRef.current = 0;
+			setComposerBeamActive(true);
+			composerBeamTimerRef.current = setTimeout(() => {
+				composerBeamTimerRef.current = null;
+				setComposerBeamActive(false);
+			}, 1_800);
+		});
+	}, []);
+	useEffect(() => {
+		if (isSelected !== false) return;
+		if (composerBeamFrameRef.current) {
+			cancelAnimationFrame(composerBeamFrameRef.current);
+			composerBeamFrameRef.current = 0;
+		}
+		if (composerBeamTimerRef.current) {
+			clearTimeout(composerBeamTimerRef.current);
+			composerBeamTimerRef.current = null;
+		}
+		setComposerBeamActive(false);
+	}, [isSelected]);
+	useEffect(
+		() => () => {
+			if (composerBeamFrameRef.current) {
+				cancelAnimationFrame(composerBeamFrameRef.current);
+			}
+			if (composerBeamTimerRef.current) {
+				clearTimeout(composerBeamTimerRef.current);
+			}
+		},
+		[],
+	);
 	const {
 		cancelActivationRestore,
 		chatVirtualizerRef,
@@ -769,6 +815,7 @@ export const AgentChatView = memo(function AgentChatView({
 				ta.focus();
 				if (atEnd) ta.setSelectionRange(ta.value.length, ta.value.length);
 			},
+			highlightComposer,
 			getToolActivities,
 			getQueuedCount: () => queuedMessages.length,
 			getQueuedMessages: () =>
@@ -791,6 +838,7 @@ export const AgentChatView = memo(function AgentChatView({
 			attachedImages,
 			isLoading,
 			getToolActivities,
+			highlightComposer,
 			queuedMessages,
 			removeAttachedImage,
 			removeQueuedMessage,
@@ -975,6 +1023,7 @@ export const AgentChatView = memo(function AgentChatView({
 						/>
 						<ChatComposer
 							showInput={showInput}
+							beamActive={composerBeamActive}
 							agentKind={agentKind}
 							agentKindOptions={agentKindOptions}
 							model={effectiveSelectedModel}

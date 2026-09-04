@@ -15,6 +15,7 @@ import type {
 import type { AgentKind } from "../../../modules/workspace/model/workspace-model.ts";
 import { hasId } from "../../../shared/lib/data.ts";
 import { setInputValue } from "../../../shared/lib/react-events.ts";
+import { BorderBeamOverlay } from "../../../shared/ui/BorderBeamOverlay.tsx";
 import { Liquid } from "../../../shared/ui/gooey/index.ts";
 import { IconButton } from "../../../shared/ui/IconButton.tsx";
 import {
@@ -287,6 +288,7 @@ export const ChatComposer = memo(function ChatComposer({
 	onMdFileClick,
 	voiceInput,
 	workspaceControl,
+	beamActive = false,
 }: {
 	showInput: boolean;
 	agentKind: AgentKind;
@@ -351,11 +353,13 @@ export const ChatComposer = memo(function ChatComposer({
 		onToggleListening: () => void;
 	};
 	workspaceControl?: ReactNode;
+	beamActive?: boolean;
 }) {
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	const agentConfigButtonRef = useRef<HTMLButtonElement | null>(null);
 	const agentConfigMenuRef = useRef<HTMLDivElement | null>(null);
 	const [agentConfigOpen, setAgentConfigOpen] = useState(false);
+	const [messageInputFocused, setMessageInputFocused] = useState(false);
 	useEffect(() => {
 		onAgentConfigOpenChange?.(agentConfigOpen);
 	}, [agentConfigOpen, onAgentConfigOpenChange]);
@@ -470,6 +474,7 @@ export const ChatComposer = memo(function ChatComposer({
 								{...stylex.props(styles.inputFrame, styles.inputFrameLiquid)}
 								ref={inputContainerRef}
 							>
+								<BorderBeamOverlay active={beamActive || messageInputFocused} />
 								{fileMenu.show && fileResults.length > 0 && (
 									<div {...stylex.props(styles.floatingMenu, styles.fileMenu)}>
 										<div {...stylex.props(styles.menuHeader)}>
@@ -604,6 +609,8 @@ export const ChatComposer = memo(function ChatComposer({
 										<textarea
 											ref={textareaRef}
 											value={input}
+											onFocus={() => setMessageInputFocused(true)}
+											onBlur={() => setMessageInputFocused(false)}
 											onInput={(e) => {
 												const val = e.currentTarget.value;
 												setInput(val);
