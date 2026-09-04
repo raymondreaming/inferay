@@ -1,4 +1,4 @@
-import { iconSize } from "../../../design-system.ts";
+import { iconSize } from "../../../design-system/styles.stylex.ts";
 import { IconAlertTriangle, IconCheck } from "../../../shared/ui/Icons.tsx";
 import { Notice } from "../../../shared/ui/Surface.tsx";
 

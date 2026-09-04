@@ -15,17 +15,24 @@ import {
 	writeStoredValue,
 } from "../../../adapters/storage/stored-values.ts";
 import {
-	DEFAULT_APP_BACKGROUND_SETTINGS,
-	saveAppBackgroundSettings,
-} from "../../../app/model/background.ts";
-import { DEFAULT_APP_ROUTE } from "../../../app/model/navigation.tsx";
-import {
 	APP_REGION_DRAG_CLASS,
 	applyAppTheme,
+	DEFAULT_APP_BACKGROUND_SETTINGS,
 	loadAppThemeId,
+	saveAppBackgroundSettings,
 	saveAppThemeId,
-} from "../../../app/model/theme.ts";
-import { iconSize } from "../../../design-system.ts";
+} from "../../../app/model/appearance.ts";
+import { DEFAULT_APP_ROUTE } from "../../../app/model/navigation.tsx";
+import {
+	color,
+	controlSize,
+	font,
+	iconSize,
+	layer,
+	motion,
+	palette,
+	radius,
+} from "../../../design-system/styles.stylex.ts";
 import {
 	fetchForgeAccounts,
 	fetchGithubRepos,
@@ -61,15 +68,6 @@ import {
 	IconUser,
 	IconX,
 } from "../../../shared/ui/Icons.tsx";
-import {
-	color,
-	controlSize,
-	font,
-	layer,
-	motion,
-	palette,
-	radius,
-} from "../../../tokens.stylex.ts";
 import {
 	getStepPhase,
 	initialOnboardingState,

@@ -1,15 +1,15 @@
 import * as stylex from "@octanejs/stylex";
 import { memo } from "octane";
-import { iconSize } from "../../../design-system.ts";
-import { ThinkingIndicator } from "../../../shared/ui/DotMatrixLoader.tsx";
-import { IconStop } from "../../../shared/ui/Icons.tsx";
 import {
 	color,
 	controlSize,
 	font,
+	iconSize,
 	motion,
 	radius,
-} from "../../../tokens.stylex.ts";
+} from "../../../design-system/styles.stylex.ts";
+import { ThinkingIndicator } from "../../../shared/ui/DotMatrixLoader.tsx";
+import { IconStop } from "../../../shared/ui/Icons.tsx";
 
 interface AgentChatStatusBarProps {
 	isLoading: boolean;

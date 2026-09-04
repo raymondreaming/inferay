@@ -4,7 +4,14 @@ import {
 	fetchJsonOr,
 	sendJsonWithBusy,
 } from "../../../adapters/backend/http.ts";
-import { iconSize } from "../../../design-system.ts";
+import {
+	breakpoint,
+	color,
+	controlSize,
+	font,
+	iconSize,
+	radius,
+} from "../../../design-system/styles.stylex.ts";
 import { getAgentIcon } from "../../../modules/agents/components/AgentIcon.tsx";
 import type { AgentAccountProviderStatus } from "../../../modules/agents/model/agent-account-status.ts";
 import {
@@ -33,13 +40,6 @@ import { Button } from "../../../shared/ui/Button.tsx";
 import { DropdownButton } from "../../../shared/ui/DropdownButton.tsx";
 import { IconRefreshCw } from "../../../shared/ui/Icons.tsx";
 import { TextInput } from "../../../shared/ui/TextInput.tsx";
-import {
-	breakpoint,
-	color,
-	controlSize,
-	font,
-	radius,
-} from "../../../tokens.stylex.ts";
 import type { SettingsModalTarget } from "../model/settings-events.ts";
 import {
 	areAgentAccountStatusesEqual,

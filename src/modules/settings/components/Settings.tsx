@@ -21,11 +21,16 @@ import { writeStoredValue } from "../../../adapters/storage/stored-values.ts";
 import { CLIENT_STORAGE_CHANGED_EVENT } from "../../../adapters/storage/sync.ts";
 import {
 	APP_BACKGROUNDS,
+	APP_THEMES,
 	type AppBackgroundId,
 	type AppBackgroundSettings,
+	type AppThemeId,
+	applyAppTheme,
 	loadAppBackgroundSettings,
+	loadAppThemeId,
 	saveAppBackgroundSettings,
-} from "../../../app/model/background.ts";
+	saveAppThemeId,
+} from "../../../app/model/appearance.ts";
 import {
 	APP_FONTS,
 	type AppFontId,
@@ -34,25 +39,20 @@ import {
 	saveAppFontId,
 } from "../../../app/model/font.ts";
 import {
-	APP_THEMES,
-	type AppThemeId,
-	applyAppTheme,
-	isDarkProductTheme,
-	loadAppThemeId,
-	mapAppThemeToAgentTheme,
-	saveAppThemeId,
-} from "../../../app/model/theme.ts";
-import { iconSize } from "../../../design-system.ts";
+	color,
+	controlSize,
+	font,
+	iconSize,
+	layer,
+	motion,
+	radius,
+} from "../../../design-system/styles.stylex.ts";
 import type { EffectiveAgentContext } from "../../../modules/context/model/types.ts";
 import {
-	type CustomThemeColors,
 	dispatchAgentShellChange,
-	type HexColor,
 	loadAgentLayoutMode,
 	loadAgentState,
-	loadCustomTheme,
 	mutateCanonicalAgentState,
-	saveCustomTheme,
 	type ThemeId,
 } from "../../../modules/workspace/model/workspace-model.ts";
 import { useAppInfo } from "../../../shared/hooks/useAppInfo.ts";
@@ -70,14 +70,6 @@ import { Button } from "../../../shared/ui/Button.tsx";
 import { DropdownButton } from "../../../shared/ui/DropdownButton.tsx";
 import { IconButton } from "../../../shared/ui/IconButton.tsx";
 import { IconFolder, IconPlus, IconX } from "../../../shared/ui/Icons.tsx";
-import {
-	color,
-	controlSize,
-	font,
-	layer,
-	motion,
-	radius,
-} from "../../../tokens.stylex.ts";
 
 interface SettingsContentProps {
 	themeId?: ThemeId;
@@ -93,10 +85,6 @@ interface SettingsProps {
 	onClose: () => void;
 }
 
-const VISIBLE_APP_THEMES = APP_THEMES.filter((theme) =>
-	isDarkProductTheme(theme.id),
-);
-const ENABLE_CUSTOM_THEME_PICKER = false;
 const EMPTY_FOLDERS: string[] = [];
 
 function WorkspaceLayoutSection({
@@ -191,29 +179,6 @@ function areLoadedFoldersEqual(prev: string[] | null, next: string[] | null) {
 		if (prev[i] !== next[i]) return false;
 	}
 	return true;
-}
-
-function ColorInput({
-	label,
-	value,
-	onChange,
-}: {
-	label: string;
-	value: string;
-	onChange: (v: HexColor) => void;
-}) {
-	return (
-		<label {...stylex.props(styles.colorRow)}>
-			<input
-				type="color"
-				value={value}
-				onInput={(e) => onChange(e.currentTarget.value as HexColor)}
-				{...stylex.props(styles.colorInput)}
-			/>
-			<span {...stylex.props(styles.mutedText)}>{label}</span>
-			<span {...stylex.props(styles.colorValue)}>{value}</span>
-		</label>
-	);
 }
 
 function GlobalAgentInstructionsSection({
@@ -321,15 +286,16 @@ function ThemeOrb({
 	dashed,
 }: {
 	theme: {
-		id: string;
+		id: AppThemeId;
 		name: string;
-		colors: { accent: string; black: string; darkGray: string };
 	};
 	selected: boolean;
 	onClick: () => void;
 	dashed?: boolean;
 }) {
-	const { accent, black, darkGray } = theme.colors;
+	const black = "var(--color-inferay-black)";
+	const darkGray = "var(--color-inferay-dark-gray)";
+	const accent = "var(--color-inferay-accent)";
 	return (
 		<button
 			type="button"
@@ -340,6 +306,7 @@ function ThemeOrb({
 			)}
 		>
 			<div
+				data-inferay-theme={theme.id}
 				{...stylex.props(
 					styles.themeOrb,
 					dashed && styles.themeOrbDashed,
@@ -360,7 +327,7 @@ function ThemeOrb({
 						left: "20%",
 						width: "30%",
 						height: "24%",
-						background: `radial-gradient(ellipse at center, ${accent}55, transparent 70%)`,
+						background: `radial-gradient(ellipse at center, color-mix(in srgb, ${accent} 33%, transparent), transparent 70%)`,
 						filter: "blur(2px)",
 					}}
 				/>
@@ -784,7 +751,6 @@ function SearchFoldersSection({ contained = false }: { contained?: boolean }) {
 }
 
 export const SettingsContent = memo(function SettingsContent({
-	themeId,
 	onThemeChange,
 	showVersion = true,
 	embedded = false,
@@ -794,12 +760,6 @@ export const SettingsContent = memo(function SettingsContent({
 	const [backgroundMode, setBackgroundMode] = useState(
 		() => loadAppBackgroundSettings().mode,
 	);
-	const [agentThemeId, setAgentThemeId] = useState<ThemeId>(() => {
-		const state = loadAgentState();
-		return (
-			themeId ?? state?.themeId ?? mapAppThemeToAgentTheme(loadAppThemeId())
-		);
-	});
 	const [syntaxTheme, setSyntaxTheme] = useSyntaxHighlightTheme();
 	const [appFontId, setAppFontId] = useState<AppFontId>(loadAppFontId);
 	const { data: appInfo } = useAppInfo();
@@ -817,8 +777,7 @@ export const SettingsContent = memo(function SettingsContent({
 			});
 			setBackgroundMode("solid");
 			applyAppTheme(id);
-			const termThemeId = mapAppThemeToAgentTheme(id);
-			setAgentThemeId(termThemeId);
+			const termThemeId = id;
 			onThemeChange?.(termThemeId);
 			void mutateCanonicalAgentState(
 				(state) => ({ ...state, themeId: termThemeId }),
@@ -828,27 +787,6 @@ export const SettingsContent = memo(function SettingsContent({
 		[onThemeChange],
 	);
 
-	const [custom, setCustom] = useState<CustomThemeColors>(loadCustomTheme);
-	const updateCustom = useCallback(
-		(patch: Partial<CustomThemeColors>) => {
-			setCustom((prev) => {
-				const next = { ...prev, ...patch };
-				saveCustomTheme(next);
-				if (agentThemeId === "custom") {
-					onThemeChange?.("custom");
-					void mutateCanonicalAgentState(
-						(state) => ({ ...state, themeId: "custom" }),
-						"custom-theme",
-					);
-				}
-				return next;
-			});
-		},
-		[agentThemeId, onThemeChange],
-	);
-	useEffect(() => {
-		if (themeId) setAgentThemeId(themeId);
-	}, [themeId]);
 	useEffect(
 		() =>
 			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
@@ -858,14 +796,11 @@ export const SettingsContent = memo(function SettingsContent({
 				}
 				if (key === APP_THEME_STORAGE_KEY) {
 					const nextAppThemeId = loadAppThemeId();
-					const nextAgentThemeId = mapAppThemeToAgentTheme(nextAppThemeId);
 					setAppThemeId(nextAppThemeId);
-					setAgentThemeId(nextAgentThemeId);
 				}
 			}),
 		[],
 	);
-	const isCustom = appThemeId === "custom";
 	const showAgents = section === "all" || section === "agents";
 	const showAppearance = section === "all" || section === "appearance";
 	const showWorkspace = section === "all" || section === "workspace";
@@ -904,7 +839,7 @@ export const SettingsContent = memo(function SettingsContent({
 							A subtle tint for Inferay's solid background.
 						</p>
 						<div {...stylex.props(styles.themeGrid)}>
-							{VISIBLE_APP_THEMES.map((t) => (
+							{APP_THEMES.map((t) => (
 								<ThemeOrb
 									key={t.id}
 									theme={t}
@@ -912,74 +847,8 @@ export const SettingsContent = memo(function SettingsContent({
 									onClick={() => handleThemeChange(t.id)}
 								/>
 							))}
-							{ENABLE_CUSTOM_THEME_PICKER && (
-								<ThemeOrb
-									theme={{
-										id: "custom",
-										name: "Custom",
-										colors: {
-											accent: custom.cursor,
-											darkGray: custom.bg,
-											black: custom.bg,
-										},
-									}}
-									selected={backgroundMode === "solid" && isCustom}
-									onClick={() => handleThemeChange("custom")}
-									dashed
-								/>
-							)}
 						</div>
 					</div>
-					{ENABLE_CUSTOM_THEME_PICKER && isCustom ? (
-						<>
-							{!embedded ? <div {...stylex.props(styles.divider)} /> : null}
-							<div
-								{...stylex.props(
-									styles.section,
-									embedded && styles.sectionContained,
-								)}
-							>
-								<h4
-									{...stylex.props(styles.sectionHeading, styles.customHeading)}
-								>
-									Custom colors
-								</h4>
-								<div {...stylex.props(styles.colorList)}>
-									<ColorInput
-										label="Background"
-										value={custom.bg}
-										onChange={(v) => updateCustom({ bg: v })}
-									/>
-									<ColorInput
-										label="Foreground"
-										value={custom.fg}
-										onChange={(v) => updateCustom({ fg: v })}
-									/>
-									<ColorInput
-										label="Cursor"
-										value={custom.cursor}
-										onChange={(v) => updateCustom({ cursor: v })}
-									/>
-									<ColorInput
-										label="Separator"
-										value={custom.separator}
-										onChange={(v) => updateCustom({ separator: v })}
-									/>
-								</div>
-								<div
-									{...stylex.props(styles.agentPreview)}
-									style={{ backgroundColor: custom.bg, color: custom.fg }}
-								>
-									<span style={{ color: custom.cursor }}>$</span> agent-gui
-									start
-									<br />
-									<span style={{ opacity: 0.6 }}>Loading…</span>
-									<br />
-									<span style={{ color: custom.cursor }}>✓</span> Ready
-								</div>
-							</div>
-						</>
-					) : null}
 					{!embedded ? <div {...stylex.props(styles.divider)} /> : null}
 					<div
 						{...stylex.props(
@@ -1326,9 +1195,6 @@ const styles = stylex.create({
 		fontSize: font.size_3,
 		fontWeight: font.weight_6,
 	},
-	customHeading: {
-		marginBottom: controlSize._3,
-	},
 	sectionDescription: {
 		margin: controlSize._0,
 		color: color.textMuted,
@@ -1388,50 +1254,6 @@ const styles = stylex.create({
 	},
 	syntaxThemeLabel: {
 		fontSize: font.size_2,
-	},
-	colorList: {
-		display: "flex",
-		flexDirection: "column",
-		gap: "0.625rem",
-	},
-	colorRow: {
-		display: "flex",
-		alignItems: "center",
-		gap: controlSize._2,
-	},
-	colorInput: {
-		width: controlSize._7,
-		height: controlSize._7,
-		cursor: "pointer",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: radius.sm,
-		backgroundColor: color.transparent,
-		padding: controlSize._0,
-	},
-	mutedText: {
-		color: color.textMuted,
-		fontSize: font.size_2,
-	},
-	colorValue: {
-		marginLeft: "auto",
-		color: color.textMuted,
-		fontFamily:
-			"ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-		fontSize: font.size_1,
-	},
-	agentPreview: {
-		marginTop: controlSize._3,
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: radius.md,
-		fontFamily:
-			"ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-		fontSize: font.size_2_75,
-		lineHeight: 1.55,
-		padding: controlSize._3,
 	},
 	folderList: {
 		display: "flex",

@@ -20,14 +20,24 @@ import {
 	writeStoredValue,
 } from "../../../adapters/storage/stored-values.ts";
 import {
+	APP_REGION_DRAG_CLASS,
+	APP_REGION_NO_DRAG_CLASS,
+} from "../../../app/model/appearance.ts";
+import {
 	DEFAULT_AGENT_MAIN_VIEW,
 	isAgentMainView,
 } from "../../../app/model/navigation.tsx";
 import {
-	APP_REGION_DRAG_CLASS,
-	APP_REGION_NO_DRAG_CLASS,
-} from "../../../app/model/theme.ts";
-import { iconSize, runtimeColor } from "../../../design-system.ts";
+	color,
+	controlSize,
+	font,
+	iconSize,
+	layer,
+	motion,
+	radius,
+	runtimeColor,
+	selectionAppearance,
+} from "../../../design-system/styles.stylex.ts";
 import { getAgentIcon } from "../../../modules/agents/components/AgentIcon.tsx";
 import {
 	isChatAgentKind,
@@ -88,14 +98,6 @@ import {
 	IconX,
 } from "../../../shared/ui/Icons.tsx";
 import {
-	color,
-	controlSize,
-	font,
-	layer,
-	motion,
-	radius,
-} from "../../../tokens.stylex.ts";
-import {
 	getVisibleRepositoryEntries,
 	projectRepositoryWorkspaces,
 } from "../model/repository-workspaces.ts";
@@ -155,8 +157,7 @@ function PaneSummaryItem({
 				onClick={onClick}
 				{...stylex.props(
 					styles.paneSummary,
-					styles.paneSummaryIdle,
-					isActive && styles.paneSummarySelected,
+					...selectionAppearance("list", isActive),
 				)}
 			>
 				<span {...stylex.props(styles.paneSummaryIcon)}>
@@ -302,9 +303,10 @@ function SidebarWorkspacesSection({
 						<button
 							type="button"
 							onClick={() => selectSectionMode("chats")}
+							aria-pressed={sectionMode === "chats"}
 							{...stylex.props(
 								styles.sidebarModeTab,
-								sectionMode === "chats" && styles.sidebarModeTabActive,
+								...selectionAppearance("sidebar", sectionMode === "chats"),
 							)}
 						>
 							<IconMessageCircle size={iconSize.sm} />
@@ -313,9 +315,10 @@ function SidebarWorkspacesSection({
 						<button
 							type="button"
 							onClick={() => selectSectionMode("explorer")}
+							aria-pressed={sectionMode === "explorer"}
 							{...stylex.props(
 								styles.sidebarModeTab,
-								sectionMode === "explorer" && styles.sidebarModeTabActive,
+								...selectionAppearance("sidebar", sectionMode === "explorer"),
 							)}
 						>
 							<IconFolder size={iconSize.sm} />
@@ -866,8 +869,6 @@ const styles = stylex.create({
 	},
 	paneSummary: {
 		alignItems: "flex-start",
-		borderWidth: 0,
-		borderRadius: radius.md,
 		display: "flex",
 		gap: controlSize._2,
 		marginBottom: "0.125rem",
@@ -875,26 +876,7 @@ const styles = stylex.create({
 		paddingLeft: controlSize._2,
 		paddingRight: controlSize._8,
 		textAlign: "left",
-		transitionDuration: motion.durationBase,
-		transitionProperty: "background-color, border-color, color",
-		transitionTimingFunction: "ease",
 		width: "100%",
-	},
-	paneSummaryIdle: {
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.surfaceSubtle,
-		},
-		borderColor: color.transparent,
-		color: {
-			default: color.textSoft,
-			":hover": color.textMain,
-		},
-	},
-	paneSummarySelected: {
-		backgroundColor: color.surfaceControlHover,
-		borderColor: color.transparent,
-		color: color.textMain,
 	},
 	paneSummaryIcon: {
 		flexShrink: 0,
@@ -985,18 +967,8 @@ const styles = stylex.create({
 		gap: controlSize._1,
 		height: controlSize._7,
 		justifyContent: "center",
-		borderRadius: radius.sm,
-		color: color.textMuted,
 		fontSize: font.size_2,
 		fontWeight: font.weight_5,
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlHover,
-		},
-	},
-	sidebarModeTabActive: {
-		backgroundColor: color.backgroundSubtle,
-		color: color.textMain,
 	},
 	workspacePaneList: {
 		display: "flex",

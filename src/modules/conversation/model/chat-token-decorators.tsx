@@ -5,7 +5,7 @@ import {
 	effect,
 	font,
 	radius,
-} from "../../../tokens.stylex.ts";
+} from "../../../design-system/styles.stylex.ts";
 
 type TokenRange = {
 	start: number;

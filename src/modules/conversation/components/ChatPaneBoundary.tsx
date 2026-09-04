@@ -1,7 +1,12 @@
 import * as stylex from "@octanejs/stylex";
 import { ErrorBoundary, useEffect } from "octane";
+import {
+	color,
+	controlSize,
+	font,
+	radius,
+} from "../../../design-system/styles.stylex.ts";
 import { Button } from "../../../shared/ui/Button.tsx";
-import { color, controlSize, font, radius } from "../../../tokens.stylex.ts";
 
 function ChatPaneRecovery({
 	error,

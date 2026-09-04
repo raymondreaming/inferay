@@ -1,6 +1,5 @@
 import * as stylex from "@octanejs/stylex";
 import { useEffect, useMemo, useRef, useState } from "octane";
-import { IconSearch } from "../../shared/ui/Icons.tsx";
 import {
 	color,
 	controlSize,
@@ -8,8 +7,9 @@ import {
 	layer,
 	radius,
 	shadow,
-} from "../../tokens.stylex.ts";
-import { APP_REGION_NO_DRAG_CLASS } from "../model/theme.ts";
+} from "../../design-system/styles.stylex.ts";
+import { IconSearch } from "../../shared/ui/Icons.tsx";
+import { APP_REGION_NO_DRAG_CLASS } from "../model/appearance.ts";
 
 export interface CommandPaletteItem {
 	id: string;

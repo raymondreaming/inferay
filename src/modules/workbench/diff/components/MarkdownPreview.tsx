@@ -1,6 +1,12 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useEffect, useRef, useState } from "octane";
-import { runtimeFont } from "../../../../design-system.ts";
+import {
+	color,
+	controlSize,
+	font,
+	radius,
+	runtimeFont,
+} from "../../../../design-system/styles.stylex.ts";
 import { indexedValues } from "../../../../shared/lib/indexed-values.ts";
 import {
 	type MdBlock,
@@ -9,7 +15,6 @@ import {
 	parseBlocks,
 	parseInline,
 } from "../../../../shared/lib/markdown.ts";
-import { color, controlSize, font, radius } from "../../../../tokens.stylex.ts";
 
 let mermaidPromise: Promise<unknown> | null = null;
 function loadMermaid(): Promise<unknown> {

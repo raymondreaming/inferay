@@ -1,14 +1,14 @@
 import * as stylex from "@octanejs/stylex";
 import type { Octane } from "octane/jsx-runtime";
-import { runtimeColor } from "../../design-system.ts";
 import {
 	color,
 	controlSize,
 	effect,
 	motion,
 	radius,
+	runtimeColor,
 	shadow,
-} from "../../tokens.stylex.ts";
+} from "../../design-system/styles.stylex.ts";
 import { LiquidAction } from "./gooey/LiquidAction.tsx";
 
 interface IconButtonProps

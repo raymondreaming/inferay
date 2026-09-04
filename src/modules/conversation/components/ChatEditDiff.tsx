@@ -1,19 +1,19 @@
 import * as stylex from "@octanejs/stylex";
 import { useMemo, useState } from "octane";
-import { iconSize } from "../../../design-system.ts";
+import {
+	color,
+	controlSize,
+	font,
+	iconSize,
+	motion,
+	radius,
+} from "../../../design-system/styles.stylex.ts";
 import {
 	useShikiSnippet,
 	useSyntaxHighlightTheme,
 } from "../../../shared/hooks/useShikiHighlighter.tsx";
 import { indexedValues } from "../../../shared/lib/indexed-values.ts";
 import { IconChevronRight, IconFilePlus } from "../../../shared/ui/Icons.tsx";
-import {
-	color,
-	controlSize,
-	font,
-	motion,
-	radius,
-} from "../../../tokens.stylex.ts";
 import {
 	applyEditsSequentially,
 	type DiffHunk,
@@ -159,6 +159,7 @@ function EditDiffCard({
 										) : isReady && highlightedHtml ? (
 											<span
 												{...stylex.props(styles.lineText)}
+												// biome-ignore lint/security/noDangerouslySetInnerHtml: useShikiSnippet returns Shiki-generated markup or HTML-escaped fallback text.
 												dangerouslySetInnerHTML={{ __html: highlightedHtml }}
 											/>
 										) : (

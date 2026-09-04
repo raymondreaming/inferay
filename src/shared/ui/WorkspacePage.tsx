@@ -1,6 +1,11 @@
 import * as stylex from "@octanejs/stylex";
 import type { Octane } from "octane/jsx-runtime";
-import { color, controlSize, font, radius } from "../../tokens.stylex.ts";
+import {
+	color,
+	controlSize,
+	font,
+	radius,
+} from "../../design-system/styles.stylex.ts";
 
 interface WorkspaceEmptyStateProps
 	extends Omit<Octane.HTMLAttributes<HTMLDivElement>, "title"> {

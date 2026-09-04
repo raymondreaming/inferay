@@ -1,9 +1,54 @@
-import { APP_BACKGROUND_STORAGE_KEY } from "../../adapters/storage/keys.ts";
+import {
+	APP_BACKGROUND_STORAGE_KEY,
+	APP_THEME_STORAGE_KEY,
+} from "../../adapters/storage/keys.ts";
 import {
 	readStoredJson,
+	readStoredValue,
 	writeStoredJson,
+	writeStoredValue,
 } from "../../adapters/storage/stored-values.ts";
-import { applyAppTheme, loadAppThemeId } from "./theme.ts";
+export const APP_THEMES = [
+	{ id: "default", name: "Black" },
+	{ id: "midnight", name: "Midnight" },
+] as const;
+
+export type AppThemeId = (typeof APP_THEMES)[number]["id"];
+
+// Native window dragging uses these class names.
+export const APP_REGION_DRAG_CLASS = "electrobun-webkit-app-region-drag";
+export const APP_REGION_NO_DRAG_CLASS = "electrobun-webkit-app-region-no-drag";
+
+// Only custom image palettes write inline colors. Clear them when choosing a theme.
+const CUSTOM_PALETTE_PROPERTIES = [
+	"--color-inferay-black",
+	"--color-inferay-dark-gray",
+	"--color-inferay-gray",
+	"--color-inferay-light-gray",
+	"--color-inferay-accent",
+	"--color-inferay-accent-hover",
+	"--color-inferay-accent-foreground",
+	"--color-inferay-info",
+] as const;
+
+export function loadAppThemeId(): AppThemeId {
+	return readStoredValue(APP_THEME_STORAGE_KEY) === "midnight"
+		? "midnight"
+		: "default";
+}
+
+export function saveAppThemeId(id: AppThemeId): void {
+	writeStoredValue(APP_THEME_STORAGE_KEY, id);
+}
+
+export function applyAppTheme(id: AppThemeId): void {
+	const root = document.documentElement;
+	for (const property of CUSTOM_PALETTE_PROPERTIES) {
+		root.style.removeProperty(property);
+	}
+	delete root.dataset.inferayScene;
+	root.dataset.inferayTheme = id;
+}
 
 export const APP_BACKGROUNDS = [
 	{
@@ -35,65 +80,9 @@ export type AppBackgroundId =
 
 export type AppBackgroundMode = "solid" | "scene" | "glass";
 
-export interface AppBackgroundSurfaces {
-	readonly base: string;
-	readonly raised: string;
-	readonly subtle: string;
-	readonly canvas: string;
-}
-
-const SOLID_BACKGROUND_SURFACES: AppBackgroundSurfaces = {
-	base: "var(--color-inferay-black)",
-	raised: "var(--color-inferay-dark-gray)",
-	subtle: "var(--color-inferay-gray)",
-	canvas: "var(--color-inferay-black)",
-};
-
-const SCENE_BACKGROUND_SURFACES: AppBackgroundSurfaces = {
-	base: "color-mix(in srgb, var(--color-inferay-black) 46%, transparent)",
-	raised: "color-mix(in srgb, var(--color-inferay-dark-gray) 64%, transparent)",
-	subtle: "color-mix(in srgb, var(--color-inferay-gray) 58%, transparent)",
-	canvas: "color-mix(in srgb, var(--color-inferay-black) 38%, transparent)",
-};
-
-const GLASS_BACKGROUND_SURFACES: AppBackgroundSurfaces = {
-	base: "transparent",
-	raised: "color-mix(in srgb, var(--color-inferay-dark-gray) 42%, transparent)",
-	subtle: "color-mix(in srgb, var(--color-inferay-gray) 34%, transparent)",
-	canvas: "transparent",
-};
-
-export function getAppBackgroundSurfaces(
-	mode: AppBackgroundMode,
-): AppBackgroundSurfaces {
-	if (mode === "scene") return SCENE_BACKGROUND_SURFACES;
-	if (mode === "glass") return GLASS_BACKGROUND_SURFACES;
-	return SOLID_BACKGROUND_SURFACES;
-}
-
-const APP_BACKGROUND_SURFACE_PROPERTIES = {
-	base: "--inferay-surface-base",
-	raised: "--inferay-surface-raised",
-	subtle: "--inferay-surface-subtle",
-	canvas: "--inferay-surface-canvas",
-} as const satisfies Record<keyof AppBackgroundSurfaces, string>;
-
-/**
- * Applies the shared surface hierarchy at the same root seam where StyleX's
- * color tokens are registered. Setting these on a descendant app shell leaves
- * the registered tokens stuck on their opaque fallback values.
- */
+/** CSS owns mode-specific surface colors; registered tokens resolve at the root. */
 export function applyAppBackgroundSurfaces(mode: AppBackgroundMode): void {
-	const surfaces = getAppBackgroundSurfaces(mode);
-	const root = document.documentElement;
-	for (const [surface, property] of Object.entries(
-		APP_BACKGROUND_SURFACE_PROPERTIES,
-	)) {
-		root.style.setProperty(
-			property,
-			surfaces[surface as keyof AppBackgroundSurfaces],
-		);
-	}
+	document.documentElement.dataset.inferayBackground = mode;
 }
 
 export interface AppBackgroundSettings {
@@ -128,41 +117,6 @@ interface BackgroundPalette {
 	accent: string;
 	accentHover: string;
 }
-
-const BUILT_IN_PALETTES: Partial<Record<AppBackgroundId, BackgroundPalette>> = {
-	city: {
-		black: "#050506",
-		darkGray: "#1b1c20",
-		gray: "#2b2c31",
-		lightGray: "#3b3d44",
-		accent: "#8299bd",
-		accentHover: "#98acc9",
-	},
-	nature: {
-		black: "#050606",
-		darkGray: "#1b1d1c",
-		gray: "#2b2e2d",
-		lightGray: "#3b3f3d",
-		accent: "#7d9f95",
-		accentHover: "#94b0a8",
-	},
-	orbit: {
-		black: "#060505",
-		darkGray: "#1d1b19",
-		gray: "#2e2b28",
-		lightGray: "#403c37",
-		accent: "#ac916f",
-		accentHover: "#bda687",
-	},
-	signals: {
-		black: "#050506",
-		darkGray: "#1b1b20",
-		gray: "#2b2b32",
-		lightGray: "#3c3c46",
-		accent: "#898eb3",
-		accentHover: "#9fa3c2",
-	},
-};
 
 function clamp(value: unknown, min: number, max: number, fallback: number) {
 	const number = Number(value);
@@ -342,17 +296,19 @@ export async function deriveAppBackgroundPalette(
 	imageUrl: string | null,
 ): Promise<BackgroundPalette | null> {
 	if (id === "none") return null;
-	const builtIn = BUILT_IN_PALETTES[id];
-	if (builtIn) return builtIn;
 	if (id === "custom" && imageUrl) return deriveCustomPalette(imageUrl);
 	return null;
 }
 
 export function applyAppBackgroundPalette(
 	palette: BackgroundPalette | null,
+	id: AppBackgroundId,
 ): void {
+	applyAppTheme(loadAppThemeId());
 	if (!palette) {
-		applyAppTheme(loadAppThemeId());
+		if (APP_BACKGROUNDS.some((background) => background.id === id)) {
+			document.documentElement.dataset.inferayScene = id;
+		}
 		return;
 	}
 	const root = document.documentElement;

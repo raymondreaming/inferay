@@ -58,6 +58,9 @@ Download the latest release from [inferay.com](https://inferay.com) and drag to 
 
 ## Building from Source
 
+UI styling ownership and selection rules are documented in the
+[design system](src/design-system/README.md). Import its implementing files directly.
+
 Requires Bun 1.4.0. The repository's `.bun-version` file allows compatible
 version managers to select it automatically.
 

@@ -23,13 +23,18 @@ import {
 	getBuiltInBackgroundPath,
 	loadAppBackgroundSettings,
 	restoreAppTheme,
-} from "../app/model/background.ts";
+} from "../app/model/appearance.ts";
 import { applyAppFont, loadAppFontId } from "../app/model/font.ts";
+import {
+	color,
+	controlSize,
+	layer,
+	radius,
+} from "../design-system/styles.stylex.ts";
 import { SettingsModalHost } from "../modules/settings/components/SettingsModal.tsx";
 import { RepositoryWorkspaceBar } from "../modules/workspace/components/RepositoryWorkspaceBar.tsx";
 import { WorkspaceSidebar } from "../modules/workspace/index.ts";
 import { listenWindowEvent } from "../shared/lib/react-events.ts";
-import { color, controlSize, layer, radius } from "../tokens.stylex.ts";
 
 export const Route = createFileRoute("/_app")({ component: AppLayout });
 
@@ -152,7 +157,7 @@ function AppLayout() {
 		}
 		void deriveAppBackgroundPalette(background.id, backgroundUrl)
 			.then((palette) => {
-				if (active) applyAppBackgroundPalette(palette);
+				if (active) applyAppBackgroundPalette(palette, background.id);
 			})
 			.catch(() => {
 				if (active) restoreAppTheme();

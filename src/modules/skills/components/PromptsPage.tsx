@@ -1,6 +1,15 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useEffect, useReducer, useRef, useState } from "octane";
-import { iconSize } from "../../../design-system.ts";
+import {
+	color,
+	controlSize,
+	font,
+	iconSize,
+	layer,
+	motion,
+	radius,
+	shadow,
+} from "../../../design-system/styles.stylex.ts";
 import { PromptDetailPanel } from "../../../modules/prompts/components/PromptDetailPanel.tsx";
 import { usePrompts } from "../../../modules/prompts/hooks/usePrompts.tsx";
 import {
@@ -21,15 +30,6 @@ import {
 	IconPlus,
 	IconSearch,
 } from "../../../shared/ui/Icons.tsx";
-import {
-	color,
-	controlSize,
-	font,
-	layer,
-	motion,
-	radius,
-	shadow,
-} from "../../../tokens.stylex.ts";
 
 export function PromptsPage() {
 	const { prompts, createPrompt, updatePrompt, removePrompt } = usePrompts();

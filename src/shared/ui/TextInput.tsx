@@ -7,7 +7,7 @@ import {
 	motion,
 	radius,
 	shadow,
-} from "../../tokens.stylex.ts";
+} from "../../design-system/styles.stylex.ts";
 
 interface TextInputProps
 	extends Omit<Octane.InputHTMLAttributes<HTMLInputElement>, "size"> {

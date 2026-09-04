@@ -1,27 +1,9 @@
 @import "tailwindcss";
 
+/* Appearance values live here. Theme/background models only select data attributes. */
 @theme {
 	/* Custom breakpoints */
 	--breakpoint-xs: 480px;
-
-	--color-inferay-black: #000000;
-	--color-inferay-dark-gray: #1c1c1e;
-	--color-inferay-gray: #2c2c2e;
-	--color-inferay-light-gray: #3a3a3c;
-	--color-inferay-gray-border: rgba(255, 255, 255, 0.08);
-	--color-inferay-gray-border-bold: rgba(255, 255, 255, 0.15);
-
-	--color-inferay-accent: #e5e5e7;
-	--color-inferay-accent-hover: #ffffff;
-	--color-inferay-accent-foreground: #111111;
-	--color-inferay-success: #30d158;
-	--color-inferay-warning: #ff9f0a;
-	--color-inferay-error: #ff453a;
-	--color-inferay-info: #64d2ff;
-
-	--color-inferay-white: #f5f5f7;
-	--color-inferay-soft-white: rgba(255, 255, 255, 0.72);
-	--color-inferay-muted-gray: rgba(255, 255, 255, 0.45);
 
 	/* Git status — clear, high-contrast tones for dark surfaces */
 	--color-git-added: #55d68b;
@@ -45,16 +27,185 @@
 	--font-diff: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
 }
 
-@keyframes atlas-load {
-	0%,
-	100% {
-		opacity: 0.28;
-		transform: translateY(3px) skewY(-28deg);
-	}
-	50% {
-		opacity: 1;
-		transform: translateY(0) skewY(-28deg);
-	}
+:root,
+[data-inferay-theme="default"] {
+	--color-inferay-black: #000000;
+	--color-inferay-dark-gray: #1c1c1e;
+	--color-inferay-gray: #2c2c2e;
+	--color-inferay-light-gray: #3a3a3c;
+	--color-inferay-gray-border: rgba(255, 255, 255, 0.08);
+	--color-inferay-gray-border-bold: rgba(255, 255, 255, 0.15);
+	--color-inferay-accent: #5a8cff;
+	--color-inferay-accent-hover: #7aa3ff;
+	--color-inferay-success: #30d158;
+	--color-inferay-warning: #ff9f0a;
+	--color-inferay-error: #ff453a;
+	--color-inferay-info: #8a8aff;
+	--color-inferay-white: #f5f5f7;
+	--color-inferay-soft-white: rgba(255, 255, 255, 0.55);
+	--color-inferay-muted-gray: rgba(255, 255, 255, 0.3);
+	--color-inferay-accent-foreground: #111111;
+	--inferay-panel-base-weight: 45%;
+}
+
+[data-inferay-theme="midnight"] {
+	--color-inferay-black: #0d0e0f;
+	--color-inferay-dark-gray: #151617;
+	--color-inferay-gray: #1e1f21;
+	--color-inferay-light-gray: #2a2c2f;
+	--color-inferay-gray-border: rgba(255, 255, 255, 0.075);
+	--color-inferay-gray-border-bold: rgba(255, 255, 255, 0.14);
+	--color-inferay-accent: #6e8cff;
+	--color-inferay-accent-hover: #8da2ff;
+	--color-inferay-success: #30d158;
+	--color-inferay-warning: #ff9f0a;
+	--color-inferay-error: #ff453a;
+	--color-inferay-info: #829cff;
+	--color-inferay-white: #ededed;
+	--color-inferay-soft-white: rgba(235, 235, 235, 0.68);
+	--color-inferay-muted-gray: rgba(210, 210, 210, 0.42);
+	--color-inferay-accent-foreground: #111111;
+	--inferay-panel-base-weight: 0%;
+}
+
+/* Resolved at the root so registered StyleX tokens see mode changes. */
+:root {
+	color-scheme: dark;
+	--inferay-surface-base: var(--color-inferay-black);
+	--inferay-surface-raised: var(--color-inferay-dark-gray);
+	--inferay-surface-subtle: var(--color-inferay-gray);
+	--inferay-surface-canvas: var(--color-inferay-black);
+	--inferay-surface-panel: color-mix(
+		in srgb,
+		var(--inferay-surface-base) var(--inferay-panel-base-weight),
+		var(--inferay-surface-subtle)
+	);
+	--inferay-surface-control: color-mix(
+		in srgb,
+		var(--color-inferay-gray) 54%,
+		transparent
+	);
+	--inferay-surface-control-hover: color-mix(
+		in srgb,
+		var(--color-inferay-light-gray) 62%,
+		transparent
+	);
+	--inferay-surface-glass-strong: color-mix(
+		in srgb,
+		var(--color-inferay-dark-gray) 92%,
+		transparent
+	);
+	--effect-inferay-control-depth: linear-gradient(
+		180deg,
+		rgba(255, 255, 255, 0.018),
+		rgba(0, 0, 0, 0.08) 48%,
+		rgba(0, 0, 0, 0.2)
+	);
+	--effect-inferay-control-depth-hover: linear-gradient(
+		180deg,
+		rgba(255, 255, 255, 0.025),
+		rgba(0, 0, 0, 0.1) 48%,
+		rgba(0, 0, 0, 0.24)
+	);
+	--effect-inferay-popover-depth: linear-gradient(
+		180deg,
+		rgba(255, 255, 255, 0.014),
+		rgba(0, 0, 0, 0.08) 42%,
+		rgba(0, 0, 0, 0.22)
+	);
+	--shadow-inferay-control-depth:
+		inset 0 1px 0 rgba(255, 255, 255, 0.045), inset 0 -1px 0 rgba(0, 0, 0, 0.42);
+	--shadow-inferay-control-depth-hover:
+		inset 0 1px 0 rgba(255, 255, 255, 0.055), inset 0 -1px 0 rgba(0, 0, 0, 0.48);
+	--shadow-inferay-composer-frame: 0 18px 42px rgba(0, 0, 0, 0.34);
+	--shadow-inferay-composer-frame-focus: 0 18px 42px rgba(0, 0, 0, 0.34);
+	--shadow-inferay-selected-ring: 0 0 0 1px rgba(255, 255, 255, 0.05);
+	--shadow-inferay-focus-ring: 0 0 0 1px rgba(229, 229, 231, 0.35);
+	--shadow-inferay-popover: 0 10px 15px -3px rgba(0, 0, 0, 0.6);
+	--shadow-inferay-modal: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+}
+
+:root[data-inferay-background="scene"] {
+	--inferay-surface-base: color-mix(
+		in srgb,
+		var(--color-inferay-black) 46%,
+		transparent
+	);
+	--inferay-surface-raised: color-mix(
+		in srgb,
+		var(--color-inferay-dark-gray) 64%,
+		transparent
+	);
+	--inferay-surface-subtle: color-mix(
+		in srgb,
+		var(--color-inferay-gray) 58%,
+		transparent
+	);
+	--inferay-surface-canvas: color-mix(
+		in srgb,
+		var(--color-inferay-black) 38%,
+		transparent
+	);
+}
+
+:root[data-inferay-background="glass"] {
+	--inferay-surface-base: transparent;
+	--inferay-surface-raised: color-mix(
+		in srgb,
+		var(--color-inferay-dark-gray) 42%,
+		transparent
+	);
+	--inferay-surface-subtle: color-mix(
+		in srgb,
+		var(--color-inferay-gray) 34%,
+		transparent
+	);
+	--inferay-surface-canvas: transparent;
+}
+
+/* Scene tints reuse the same semantic surfaces and selection recipes. */
+:root[data-inferay-scene="city"] {
+	--color-inferay-black: #050506;
+	--color-inferay-dark-gray: #1b1c20;
+	--color-inferay-gray: #2b2c31;
+	--color-inferay-light-gray: #3b3d44;
+	--color-inferay-accent: #8299bd;
+	--color-inferay-accent-hover: #98acc9;
+	--color-inferay-info: var(--color-inferay-accent);
+	--color-inferay-accent-foreground: #111111;
+}
+
+:root[data-inferay-scene="nature"] {
+	--color-inferay-black: #050606;
+	--color-inferay-dark-gray: #1b1d1c;
+	--color-inferay-gray: #2b2e2d;
+	--color-inferay-light-gray: #3b3f3d;
+	--color-inferay-accent: #7d9f95;
+	--color-inferay-accent-hover: #94b0a8;
+	--color-inferay-info: var(--color-inferay-accent);
+	--color-inferay-accent-foreground: #111111;
+}
+
+:root[data-inferay-scene="orbit"] {
+	--color-inferay-black: #060505;
+	--color-inferay-dark-gray: #1d1b19;
+	--color-inferay-gray: #2e2b28;
+	--color-inferay-light-gray: #403c37;
+	--color-inferay-accent: #ac916f;
+	--color-inferay-accent-hover: #bda687;
+	--color-inferay-info: var(--color-inferay-accent);
+	--color-inferay-accent-foreground: #111111;
+}
+
+:root[data-inferay-scene="signals"] {
+	--color-inferay-black: #050506;
+	--color-inferay-dark-gray: #1b1b20;
+	--color-inferay-gray: #2b2b32;
+	--color-inferay-light-gray: #3c3c46;
+	--color-inferay-accent: #898eb3;
+	--color-inferay-accent-hover: #9fa3c2;
+	--color-inferay-info: var(--color-inferay-accent);
+	--color-inferay-accent-foreground: #f8f8f8;
 }
 
 html,
@@ -139,19 +290,6 @@ textarea::placeholder {
 /* Diff row hover - uses CSS custom property set inline */
 .diff-row:hover {
 	background-color: var(--hover-bg, inherit) !important;
-}
-
-.inset-separator {
-	position: relative;
-}
-.inset-separator:not(:last-child)::after {
-	content: "";
-	position: absolute;
-	bottom: 0;
-	left: 1rem;
-	right: 0;
-	height: 1px;
-	background: var(--color-inferay-gray-border);
 }
 
 /* Liquid controls ---------------------------------------------------------

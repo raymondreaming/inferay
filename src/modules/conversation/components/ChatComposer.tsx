@@ -1,7 +1,19 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useEffect, useMemo, useRef, useState } from "octane";
 import type React from "react";
-import { iconSize, runtimeColor } from "../../../design-system.ts";
+import {
+	color,
+	controlSize,
+	font,
+	iconSize,
+	layer,
+	motion,
+	palette,
+	radius,
+	runtimeColor,
+	shadow,
+	surfaceStyles,
+} from "../../../design-system/styles.stylex.ts";
 import { getAgentIcon } from "../../../modules/agents/components/AgentIcon.tsx";
 import {
 	CODEX_REASONING_LEVELS,
@@ -29,16 +41,6 @@ import {
 	IconTrash,
 	IconX,
 } from "../../../shared/ui/Icons.tsx";
-import {
-	color,
-	controlSize,
-	font,
-	layer,
-	motion,
-	palette,
-	radius,
-	shadow,
-} from "../../../tokens.stylex.ts";
 import type { ReactNode } from "../../../types/octane-react-compat.ts";
 import type {
 	FileMenuState,
@@ -464,14 +466,14 @@ export const ChatComposer = memo(function ChatComposer({
 					<Liquid
 						blur={5}
 						contrast={20}
-						fill={runtimeColor.backgroundRaised}
+						fill="transparent"
 						filterPadding={18}
-						shadow="inset 0 1px 0 rgba(255,255,255,.08), 0 8px 24px rgba(0,0,0,.2)"
+						shadow="none"
 						className="inferay-message-liquid"
 					>
 						<Liquid.Item observe radius={12}>
 							<div
-								{...stylex.props(styles.inputFrame, styles.inputFrameLiquid)}
+								{...stylex.props(surfaceStyles.panel, styles.inputFrame)}
 								ref={inputContainerRef}
 							>
 								<BorderBeamOverlay active={beamActive || messageInputFocused} />
@@ -691,9 +693,9 @@ export const ChatComposer = memo(function ChatComposer({
 					<Liquid
 						blur={5}
 						contrast={20}
-						fill={runtimeColor.backgroundRaised}
+						fill="transparent"
 						filterPadding={20}
-						shadow="inset 0 1px 0 rgba(255,255,255,.08), 0 14px 36px rgba(0,0,0,.32)"
+						shadow="none"
 						className={stylex.props(styles.providerConfigLiquid).className}
 					>
 						<Liquid.Item observe radius={12}>
@@ -1119,10 +1121,12 @@ const styles = stylex.create({
 		transform: "rotate(180deg)",
 	},
 	providerConfigMenu: {
-		backgroundColor: color.transparent,
+		backgroundColor: color.backgroundSubtle,
 		backgroundImage: "none",
 		borderRadius: radius.px10,
-		borderWidth: 0,
+		borderColor: color.border,
+		borderStyle: "solid",
+		borderWidth: 1,
 		boxShadow: "none",
 		boxSizing: "border-box",
 		display: "flex",
@@ -1292,14 +1296,6 @@ const styles = stylex.create({
 		paddingTop: controlSize._1,
 	},
 	inputFrame: {
-		backgroundColor: color.backgroundRaised,
-		borderColor: {
-			default: color.border,
-			":focus-within": color.border,
-		},
-		borderRadius: radius.xl,
-		borderStyle: "solid",
-		borderWidth: 1,
 		display: "flex",
 		flexDirection: "column",
 		overflow: "visible",
@@ -1310,11 +1306,6 @@ const styles = stylex.create({
 		},
 		transitionProperty: "border-color, box-shadow, background-color",
 		transitionDuration: motion.durationBase,
-	},
-	inputFrameLiquid: {
-		backgroundColor: color.transparent,
-		borderColor: color.transparent,
-		boxShadow: "none",
 	},
 	inputRow: {
 		alignItems: "flex-end",

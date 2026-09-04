@@ -7,19 +7,20 @@ import {
 	useRef,
 	useState,
 } from "octane";
-import { iconSize, runtimeColor } from "../../design-system.ts";
-import { hasId } from "../../shared/lib/data.ts";
-import { setInputValue } from "../../shared/lib/react-events.ts";
 import {
 	color,
 	controlSize,
 	effect,
 	font,
+	iconSize,
 	layer,
 	motion,
 	radius,
+	runtimeColor,
 	shadow,
-} from "../../tokens.stylex.ts";
+} from "../../design-system/styles.stylex.ts";
+import { hasId } from "../../shared/lib/data.ts";
+import { setInputValue } from "../../shared/lib/react-events.ts";
 import { LiquidPopoverSurface } from "./gooey/LiquidPopoverSurface.tsx";
 import { IconChevronDown } from "./Icons.tsx";
 

@@ -15,8 +15,14 @@ import {
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
-} from "../../../../app/model/theme.ts";
-import { iconSize } from "../../../../design-system.ts";
+} from "../../../../app/model/appearance.ts";
+import {
+	color,
+	controlSize,
+	font,
+	iconSize,
+	radius,
+} from "../../../../design-system/styles.stylex.ts";
 import {
 	shouldDisableSnippetHighlighting,
 	useShikiHighlighter,
@@ -24,7 +30,6 @@ import {
 } from "../../../../shared/hooks/useShikiHighlighter.tsx";
 import { indexedValues } from "../../../../shared/lib/indexed-values.ts";
 import { IconCode, IconX } from "../../../../shared/ui/Icons.tsx";
-import { color, controlSize, font, radius } from "../../../../tokens.stylex.ts";
 import { FileTypeIcon } from "../../../explorer/components/FileTypeIcon.tsx";
 import { FileSearch, type FileSearchResult } from "../../../explorer/index.ts";
 import { WorkspaceDockHandle } from "../../components/WorkspaceDockHandle.tsx";

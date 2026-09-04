@@ -1,17 +1,18 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useEffect, useRef, useState } from "octane";
 import { fetchJson } from "../../../adapters/backend/http.ts";
-import { iconSize, runtimeColor } from "../../../design-system.ts";
-import { Liquid } from "../../../shared/ui/gooey/index.ts";
-import { IconSearch } from "../../../shared/ui/Icons.tsx";
 import {
 	color,
 	controlSize,
 	effect,
 	font,
+	iconSize,
 	layer,
 	radius,
-} from "../../../tokens.stylex.ts";
+	runtimeColor,
+} from "../../../design-system/styles.stylex.ts";
+import { Liquid } from "../../../shared/ui/gooey/index.ts";
+import { IconSearch } from "../../../shared/ui/Icons.tsx";
 import { FileTypeIcon } from "./FileTypeIcon.tsx";
 
 export type FileSearchResult = {

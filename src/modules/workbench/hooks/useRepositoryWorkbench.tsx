@@ -8,7 +8,16 @@ import {
 	writeStoredValue,
 } from "../../../adapters/storage/stored-values.ts";
 import { CLIENT_STORAGE_CHANGED_EVENT } from "../../../adapters/storage/sync.ts";
-import { iconSize } from "../../../design-system.ts";
+import {
+	color,
+	controlSize,
+	font,
+	iconSize,
+	layer,
+	motion,
+	radius,
+	shadow,
+} from "../../../design-system/styles.stylex.ts";
 import { FileTypeIcon } from "../../../modules/explorer/components/FileTypeIcon.tsx";
 import {
 	DOCUMENT_OPEN_EVENT,
@@ -42,15 +51,6 @@ import {
 	IconRefreshCw,
 	IconX,
 } from "../../../shared/ui/Icons.tsx";
-import {
-	color,
-	controlSize,
-	font,
-	layer,
-	motion,
-	radius,
-	shadow,
-} from "../../../tokens.stylex.ts";
 import {
 	ChangesPanel,
 	type SelectedFile,
@@ -2898,7 +2898,7 @@ const styles = stylex.create({
 		borderStyle: "solid",
 		borderColor: color.border,
 		borderRadius: radius.xl,
-		backgroundColor: color.backgroundRaised,
+		backgroundColor: color.backgroundPanel,
 		boxShadow: "0 8px 24px rgba(0,0,0,.28)",
 		paddingInline: controlSize._3,
 		transform: "translateX(-50%)",

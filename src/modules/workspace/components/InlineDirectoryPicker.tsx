@@ -7,7 +7,16 @@ import {
 	useState,
 } from "octane";
 import { fetchJsonOr } from "../../../adapters/backend/http.ts";
-import { iconSize } from "../../../design-system.ts";
+import {
+	color,
+	controlSize,
+	effect,
+	font,
+	iconSize,
+	motion,
+	radius,
+	shadow,
+} from "../../../design-system/styles.stylex.ts";
 import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
 import { basename } from "../../../shared/lib/format.ts";
 import { setInputValue } from "../../../shared/lib/react-events.ts";
@@ -17,15 +26,6 @@ import {
 	IconGitBranch,
 	IconX,
 } from "../../../shared/ui/Icons.tsx";
-import {
-	color,
-	controlSize,
-	effect,
-	font,
-	motion,
-	radius,
-	shadow,
-} from "../../../tokens.stylex.ts";
 
 interface QuickPick {
 	name: string;
@@ -41,7 +41,6 @@ interface InlineDirectoryPickerProps {
 	hideInput?: boolean;
 	onSelectionChange?: (paths: string[]) => void;
 	showStartButton?: boolean;
-	liquidSurface?: boolean;
 }
 
 function areQuickPicksEqual(prev: QuickPick[], next: QuickPick[]) {
@@ -73,7 +72,6 @@ export function InlineDirectoryPicker({
 	hideInput,
 	onSelectionChange,
 	showStartButton = true,
-	liquidSurface = false,
 }: InlineDirectoryPickerProps) {
 	const [query, setQuery] = useState("");
 	const deferredQuery = useDeferredValue(query.trim());
@@ -266,12 +264,7 @@ export function InlineDirectoryPicker({
 
 	return (
 		<div {...stylex.props(styles.root)} ref={containerRef}>
-			<div
-				{...stylex.props(
-					styles.unifiedFrame,
-					liquidSurface && styles.unifiedFrameLiquid,
-				)}
-			>
+			<div {...stylex.props(styles.unifiedFrame)}>
 				<div {...stylex.props(styles.inputRow)}>
 					<span {...stylex.props(styles.inputIcon)}>
 						<IconFolder size={iconSize.lg} />
@@ -566,17 +559,9 @@ const styles = stylex.create({
 		borderStyle: "solid",
 		borderColor: color.border,
 		borderRadius: controlSize._3,
-		backgroundColor: color.backgroundRaised,
-		backgroundImage: effect.popoverDepth,
-		boxShadow:
-			"inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 24px 54px rgba(0, 0, 0, 0.64)",
-	},
-	unifiedFrameLiquid: {
-		backgroundColor: color.transparent,
+		backgroundColor: color.backgroundSubtle,
 		backgroundImage: "none",
-		borderColor: color.transparent,
 		boxShadow: "none",
-		padding: controlSize._1,
 	},
 	unifiedList: {
 		display: "flex",

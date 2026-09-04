@@ -1,5 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useCallback, useRef } from "octane";
+import { controlSize } from "../../../design-system/styles.stylex.ts";
 import {
 	isChatAgentKind,
 	loadDefaultChatSettings,
@@ -12,7 +13,6 @@ import type {
 	AgentPaneModel,
 	AgentTheme,
 } from "../../../modules/workspace/model/workspace-model.ts";
-import { controlSize } from "../../../tokens.stylex.ts";
 
 interface PaneViewProps {
 	pane: AgentPaneModel;

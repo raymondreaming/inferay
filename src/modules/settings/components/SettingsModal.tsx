@@ -1,7 +1,16 @@
 import * as stylex from "@octanejs/stylex";
 import { useEffect, useRef, useState } from "octane";
-import { APP_REGION_NO_DRAG_CLASS } from "../../../app/model/theme.ts";
-import { iconSize } from "../../../design-system.ts";
+import { APP_REGION_NO_DRAG_CLASS } from "../../../app/model/appearance.ts";
+import {
+	breakpoint,
+	color,
+	controlSize,
+	font,
+	iconSize,
+	layer,
+	radius,
+	shadow,
+} from "../../../design-system/styles.stylex.ts";
 import { listenWindowEvent } from "../../../shared/lib/react-events.ts";
 import { IconButton } from "../../../shared/ui/IconButton.tsx";
 import {
@@ -12,15 +21,6 @@ import {
 	IconSparkles,
 	IconX,
 } from "../../../shared/ui/Icons.tsx";
-import {
-	breakpoint,
-	color,
-	controlSize,
-	font,
-	layer,
-	radius,
-	shadow,
-} from "../../../tokens.stylex.ts";
 import {
 	OPEN_SETTINGS_MODAL_EVENT,
 	type OpenSettingsModalDetail,

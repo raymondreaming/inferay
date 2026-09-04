@@ -12,7 +12,7 @@ import {
 	isAgentMainView,
 	SIDEBAR_NAV_ROUTES,
 } from "../../app/model/navigation.tsx";
-import { iconSize } from "../../design-system.ts";
+import { iconSize } from "../../design-system/styles.stylex.ts";
 import { openSettingsModal } from "../../modules/settings/model/settings-events.ts";
 import { dispatchOpenActiveGitGraph } from "../../modules/workbench/model/workbench-events.ts";
 import { dispatchCreateAgentChat } from "../../modules/workspace/model/workspace-events.ts";

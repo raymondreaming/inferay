@@ -4,8 +4,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
-} from "../../../app/model/theme.ts";
-import { iconSize } from "../../../design-system.ts";
+} from "../../../app/model/appearance.ts";
+import {
+	color,
+	controlSize,
+	font,
+	iconSize,
+	layer,
+	radius,
+	selectionAppearance,
+} from "../../../design-system/styles.stylex.ts";
 import { noop } from "../../../shared/lib/data.ts";
 import { listenWindowEvent } from "../../../shared/lib/react-events.ts";
 import {
@@ -16,14 +24,6 @@ import {
 	IconPanelRight,
 	IconPlus,
 } from "../../../shared/ui/Icons.tsx";
-import {
-	color,
-	controlSize,
-	font,
-	layer,
-	motion,
-	radius,
-} from "../../../tokens.stylex.ts";
 import { dispatchToggleActiveGitSidebar } from "../../workbench/model/workbench-events.ts";
 import {
 	getRepositoryWorkspaceTarget,
@@ -265,7 +265,10 @@ export function RepositoryWorkspaceBar() {
 								aria-selected={active}
 								title={workspace.cwd}
 								onClick={() => activateWorkspace(workspace)}
-								{...stylex.props(styles.tab, active && styles.tabActive)}
+								{...stylex.props(
+									styles.tab,
+									...selectionAppearance("repository", active),
+								)}
 							>
 								<IconGitBranch size={iconSize.sm} />
 								<span {...stylex.props(styles.tabLabel)}>{workspace.name}</span>
@@ -319,10 +322,7 @@ const styles = stylex.create({
 	panelToggle: {
 		alignItems: "center",
 		alignSelf: "stretch",
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlHover,
-		},
+		backgroundColor: color.transparent,
 		color: {
 			default: color.textMuted,
 			":hover": color.textMain,
@@ -354,10 +354,7 @@ const styles = stylex.create({
 	},
 	newChat: {
 		alignItems: "center",
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlHover,
-		},
+		backgroundColor: color.transparent,
 		borderRightColor: color.border,
 		borderRightStyle: "solid",
 		borderRightWidth: 1,
@@ -421,21 +418,10 @@ const styles = stylex.create({
 	newMenuDescription: {
 		color: color.textFaint,
 		fontSize: font.size_1,
-		fontWeight: font.weight_4,
+		fontWeight: font.weightRegular,
 	},
 	tab: {
 		alignItems: "center",
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlHover,
-		},
-		borderLeftColor: color.border,
-		borderLeftStyle: "solid",
-		borderLeftWidth: 1,
-		color: {
-			default: color.textMuted,
-			":hover": color.textMain,
-		},
 		display: "flex",
 		flexShrink: 0,
 		fontSize: font.size_1,
@@ -444,12 +430,6 @@ const styles = stylex.create({
 		maxWidth: 220,
 		minWidth: 132,
 		paddingInline: controlSize._3,
-		transitionDuration: motion.durationFast,
-		transitionProperty: "background-color, border-color, color",
-	},
-	tabActive: {
-		backgroundColor: color.backgroundRaised,
-		color: color.textMain,
 	},
 	tabLabel: {
 		minWidth: controlSize._0,

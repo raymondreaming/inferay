@@ -1,8 +1,13 @@
 import * as stylex from "@octanejs/stylex";
 import { useEffect, useState } from "octane";
 import type { CSSProperties } from "react";
+import {
+	color,
+	controlSize,
+	font,
+	radius,
+} from "../../design-system/styles.stylex.ts";
 import { formatElapsedMs } from "../../shared/lib/format.ts";
-import { color, controlSize, font, radius } from "../../tokens.stylex.ts";
 
 const SPIRAL_ORDER_5 = [
 	0, 1, 2, 3, 4, 15, 16, 17, 18, 5, 14, 23, 24, 19, 6, 13, 22, 21, 20, 7, 12,

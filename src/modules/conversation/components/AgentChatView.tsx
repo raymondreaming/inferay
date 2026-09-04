@@ -12,7 +12,15 @@ import {
 } from "octane";
 import type React from "react";
 import { wsClient } from "../../../adapters/backend/websocket.ts";
-import { iconSize, runtimeColor } from "../../../design-system.ts";
+import {
+	color,
+	controlSize,
+	font,
+	iconSize,
+	layer,
+	motion,
+	radius,
+} from "../../../design-system/styles.stylex.ts";
 import { getAgentIcon } from "../../../modules/agents/components/AgentIcon.tsx";
 import {
 	CODEX_REASONING_LEVELS,
@@ -50,14 +58,6 @@ import { hasId } from "../../../shared/lib/data.ts";
 import { listenWindowEvent } from "../../../shared/lib/react-events.ts";
 import { Liquid } from "../../../shared/ui/gooey/index.ts";
 import { IconArrowDown } from "../../../shared/ui/Icons.tsx";
-import {
-	color,
-	controlSize,
-	font,
-	layer,
-	motion,
-	radius,
-} from "../../../tokens.stylex.ts";
 import type { ReactNode } from "../../../types/octane-react-compat.ts";
 import { useAgentChatComposerState } from "../hooks/useAgentChatComposerState.tsx";
 import { useAgentChatMenus } from "../hooks/useAgentChatMenus.tsx";
@@ -109,9 +109,9 @@ function DirectoryPickerModal({ children }: { children: ReactNode }) {
 			<Liquid
 				blur={5}
 				contrast={20}
-				fill={runtimeColor.backgroundRaised}
+				fill="transparent"
 				filterPadding={20}
-				shadow="inset 0 1px 0 rgba(255,255,255,.08), 0 14px 36px rgba(0,0,0,.32)"
+				shadow="none"
 				className="inferay-directory-picker-liquid"
 			>
 				<Liquid.Item observe radius={12}>
@@ -956,7 +956,6 @@ export const AgentChatView = memo(function AgentChatView({
 												onCancel={onDirectoryCancel?.bind(null, paneId)}
 												multiSelect
 												showStartButton={false}
-												liquidSurface
 												onSelectionChange={(paths) => {
 													savePendingWorkspaceSelection(paths);
 												}}

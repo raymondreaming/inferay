@@ -1,6 +1,10 @@
 import * as stylex from "@octanejs/stylex";
 import { ErrorBoundary } from "octane";
-import { color, controlSize, font } from "../../../../tokens.stylex.ts";
+import {
+	color,
+	controlSize,
+	font,
+} from "../../../../design-system/styles.stylex.ts";
 
 interface DiffViewerBoundaryProps {
 	children: unknown;

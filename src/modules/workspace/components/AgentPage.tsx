@@ -19,15 +19,17 @@ import {
 	writeStoredValue,
 } from "../../../adapters/storage/stored-values.ts";
 import { CLIENT_STORAGE_CHANGED_EVENT } from "../../../adapters/storage/sync.ts";
+import { loadAppThemeId } from "../../../app/model/appearance.ts";
 import {
 	type AgentMainView,
 	DEFAULT_AGENT_MAIN_VIEW,
 	isAgentMainView,
 } from "../../../app/model/navigation.tsx";
 import {
-	loadAppThemeId,
-	mapAppThemeToAgentTheme,
-} from "../../../app/model/theme.ts";
+	color,
+	controlSize,
+	layer,
+} from "../../../design-system/styles.stylex.ts";
 import type { AgentChatHandle } from "../../../modules/conversation/components/AgentChatView.tsx";
 import { clearAgentChatPaneState } from "../../../modules/conversation/model/chat-session-store.ts";
 import { useRepositoryWorkbench } from "../../../modules/workbench/index.ts";
@@ -78,7 +80,6 @@ import {
 	listenWindowEvent,
 	setupAgentThemePanelShortcut,
 } from "../../../shared/lib/react-events.ts";
-import { color, controlSize, layer } from "../../../tokens.stylex.ts";
 
 const Settings = lazy(() =>
 	import("../../settings/components/Settings.tsx").then((module) => ({
@@ -294,6 +295,7 @@ function useAgentPersistence({
 				savedState &&
 				detail?.reason !== "remove-pane" &&
 				detail?.reason !== "remove-workspace" &&
+				detail?.reason !== "select-repository-workspace" &&
 				agentStateScore(savedState) < agentStateScore(currentState);
 			if (
 				!isRegressiveSnapshot &&
@@ -694,7 +696,7 @@ export function AgentPage() {
 	);
 	const [showSettings, setShowSettings] = useState(false);
 	const [appearance, setAppearance] = useState(() => ({
-		themeId: mapAppThemeToAgentTheme(loadAppThemeId()) as ThemeId,
+		themeId: loadAppThemeId() as ThemeId,
 		fontSize: initialState?.fontSize ?? DEFAULT_FONT_SIZE,
 		fontFamily: initialState?.fontFamily ?? DEFAULT_FONT_FAMILY,
 		opacity: initialState?.opacity ?? DEFAULT_OPACITY,
@@ -705,7 +707,7 @@ export function AgentPage() {
 			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
 				const key = (event as CustomEvent<{ key?: string }>).detail?.key;
 				if (key !== APP_THEME_STORAGE_KEY) return;
-				const nextThemeId = mapAppThemeToAgentTheme(loadAppThemeId());
+				const nextThemeId = loadAppThemeId();
 				setAppearance((current) =>
 					current.themeId === nextThemeId
 						? current
@@ -812,7 +814,7 @@ export function AgentPage() {
 			});
 			setSelectedGroupId(normalized.selectedGroupId);
 			setAppearance({
-				themeId: mapAppThemeToAgentTheme(loadAppThemeId()),
+				themeId: loadAppThemeId(),
 				fontSize: normalized.fontSize,
 				fontFamily: normalized.fontFamily,
 				opacity: normalized.opacity,

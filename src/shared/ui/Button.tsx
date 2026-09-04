@@ -1,6 +1,5 @@
 import * as stylex from "@octanejs/stylex";
 import type { Octane } from "octane/jsx-runtime";
-import { runtimeColor } from "../../design-system.ts";
 import {
 	color,
 	controlSize,
@@ -8,8 +7,9 @@ import {
 	font,
 	motion,
 	radius,
+	runtimeColor,
 	shadow,
-} from "../../tokens.stylex.ts";
+} from "../../design-system/styles.stylex.ts";
 import { LiquidAction } from "./gooey/LiquidAction.tsx";
 
 interface ButtonProps extends Octane.ButtonHTMLAttributes<HTMLButtonElement> {

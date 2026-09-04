@@ -1,17 +1,17 @@
 import * as stylex from "@octanejs/stylex";
 import { useEffect, useRef, useState } from "octane";
-import { iconSize } from "../../../design-system.ts";
-import { useAgentContext } from "../../../modules/context/hooks/useAgentContext.tsx";
-import { IconButton } from "../../../shared/ui/IconButton.tsx";
-import { IconArrowLeft } from "../../../shared/ui/Icons.tsx";
 import {
 	color,
 	controlSize,
 	font,
+	iconSize,
 	motion,
 	radius,
 	shadow,
-} from "../../../tokens.stylex.ts";
+} from "../../../design-system/styles.stylex.ts";
+import { useAgentContext } from "../../../modules/context/hooks/useAgentContext.tsx";
+import { IconButton } from "../../../shared/ui/IconButton.tsx";
+import { IconArrowLeft } from "../../../shared/ui/Icons.tsx";
 
 type Scope = "project" | "chat";
 

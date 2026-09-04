@@ -11,7 +11,7 @@ import {
 } from "@octanejs/tanstack-router";
 import { queryClient } from "../shared/lib/query-client.ts";
 import { ErrorBoundary } from "../shared/ui/ErrorBoundary.tsx";
-import "../index.css";
+import "../design-system/styles.css";
 import "virtual:stylex.css";
 
 interface RouterContext {

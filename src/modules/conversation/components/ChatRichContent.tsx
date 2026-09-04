@@ -8,7 +8,14 @@ import {
 	useRef,
 	useState,
 } from "octane";
-import { iconSize } from "../../../design-system.ts";
+import {
+	color,
+	controlSize,
+	font,
+	iconSize,
+	motion,
+	radius,
+} from "../../../design-system/styles.stylex.ts";
 import { noop } from "../../../shared/lib/data.ts";
 import { indexedValues } from "../../../shared/lib/indexed-values.ts";
 import {
@@ -17,13 +24,6 @@ import {
 	IconHelpCircle,
 	IconSend,
 } from "../../../shared/ui/Icons.tsx";
-import {
-	color,
-	controlSize,
-	font,
-	motion,
-	radius,
-} from "../../../tokens.stylex.ts";
 import {
 	formatAskUserAnswer,
 	hasAskUserSelections,

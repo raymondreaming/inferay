@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { ErrorBoundary as OctaneErrorBoundary, useEffect } from "octane";
-import { color, font } from "../../tokens.stylex.ts";
+import { color, font } from "../../design-system/styles.stylex.ts";
 
 function RecoveryFallback({
 	error,

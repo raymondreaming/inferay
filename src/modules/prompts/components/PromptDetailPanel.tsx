@@ -1,6 +1,13 @@
 import * as stylex from "@octanejs/stylex";
 import { useEffect, useRef } from "octane";
-import { iconSize } from "../../../design-system.ts";
+import {
+	color,
+	controlSize,
+	font,
+	iconSize,
+	radius,
+	shadow,
+} from "../../../design-system/styles.stylex.ts";
 import {
 	PROMPT_CATEGORIES,
 	type Prompt,
@@ -8,13 +15,6 @@ import {
 import { measureTextHeight } from "../../../shared/lib/pretext-utils.ts";
 import { setInputValue } from "../../../shared/lib/react-events.ts";
 import { IconPencil, IconTrash, IconX } from "../../../shared/ui/Icons.tsx";
-import {
-	color,
-	controlSize,
-	font,
-	radius,
-	shadow,
-} from "../../../tokens.stylex.ts";
 
 interface PromptDetailPanelProps {
 	selectedPrompt: Prompt | null;

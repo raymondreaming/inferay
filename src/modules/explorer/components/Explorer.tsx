@@ -1,17 +1,18 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useEffect, useState } from "octane";
 import { fetchJson } from "../../../adapters/backend/http.ts";
-import { iconSize } from "../../../design-system.ts";
-import { dispatchDocumentOpen } from "../../../modules/explorer/model/explorer-events.ts";
-import { IconChevronRight } from "../../../shared/ui/Icons.tsx";
 import {
 	color,
 	controlSize,
 	font,
+	iconSize,
 	layer,
 	motion,
 	radius,
-} from "../../../tokens.stylex.ts";
+	surfaceStyles,
+} from "../../../design-system/styles.stylex.ts";
+import { dispatchDocumentOpen } from "../../../modules/explorer/model/explorer-events.ts";
+import { IconChevronRight } from "../../../shared/ui/Icons.tsx";
 import { FileTypeIcon, FolderTypeIcon } from "./FileTypeIcon.tsx";
 
 type ExplorerEntry = {
@@ -94,7 +95,12 @@ function Entry({ entry, depth }: { entry: ExplorerEntry; depth: number }) {
 			<button
 				type="button"
 				onClick={activate}
-				{...stylex.props(styles.row, entry.isDir && styles.stickyFolderRow)}
+				{...stylex.props(
+					styles.row,
+					surfaceStyles.explorerRow,
+					entry.isDir && styles.stickyFolderRow,
+					entry.isDir && surfaceStyles.stickyExplorerRow,
+				)}
 				style={{
 					paddingLeft: 8 + depth * 14,
 					top: entry.isDir
@@ -152,7 +158,7 @@ export function Explorer({ cwds }: { readonly cwds: readonly string[] }) {
 		>
 			{cwds.map((cwd) => (
 				<section key={cwd} {...stylex.props(styles.project)}>
-					<header {...stylex.props(styles.projectName)}>
+					<header {...stylex.props(surfaceStyles.panel, styles.projectName)}>
 						<FolderTypeIcon path={cwd} open size={iconSize.md} />
 						<span>{cwd.split("/").filter(Boolean).pop() || cwd}</span>
 					</header>
@@ -176,6 +182,8 @@ const styles = stylex.create({
 	},
 	project: { marginBottom: controlSize._1 },
 	projectName: {
+		boxSizing: "border-box",
+		borderRadius: radius.md,
 		position: "sticky",
 		top: controlSize._0,
 		zIndex: layer.sticky,
@@ -187,7 +195,6 @@ const styles = stylex.create({
 		color: color.textMain,
 		fontSize: font.size_2,
 		fontWeight: font.weight_6,
-		backgroundColor: color.background,
 	},
 	entryGroup: { position: "relative" },
 	row: {
@@ -199,15 +206,10 @@ const styles = stylex.create({
 		paddingRight: controlSize._2,
 		borderRadius: radius.sm,
 		color: { default: color.textMain, ":hover": color.textMain },
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlHover,
-		},
 		textAlign: "left",
 	},
 	stickyFolderRow: {
 		position: "sticky",
-		backgroundColor: color.background,
 	},
 	chevron: {
 		flexShrink: 0,

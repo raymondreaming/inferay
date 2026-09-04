@@ -3,7 +3,7 @@ import { BorderBeam } from "border-beam";
 import { useEffect, useRef } from "octane";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { controlSize } from "../../tokens.stylex.ts";
+import { controlSize } from "../../design-system/styles.stylex.ts";
 
 interface BorderBeamOverlayProps {
 	active: boolean;

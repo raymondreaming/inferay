@@ -1,6 +1,10 @@
 import * as stylex from "@octanejs/stylex";
-import { APP_REGION_NO_DRAG_CLASS } from "../../../app/model/theme.ts";
-import { color, controlSize, radius } from "../../../tokens.stylex.ts";
+import { APP_REGION_NO_DRAG_CLASS } from "../../../app/model/appearance.ts";
+import {
+	color,
+	controlSize,
+	radius,
+} from "../../../design-system/styles.stylex.ts";
 
 export function WorkspaceDockHandle({
 	draggable,

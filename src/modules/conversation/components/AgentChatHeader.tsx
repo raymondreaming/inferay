@@ -1,14 +1,19 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useMemo } from "octane";
-import { APP_REGION_NO_DRAG_CLASS } from "../../../app/model/theme.ts";
-import { iconSize } from "../../../design-system.ts";
+import { APP_REGION_NO_DRAG_CLASS } from "../../../app/model/appearance.ts";
+import {
+	color,
+	controlSize,
+	font,
+	iconSize,
+	radius,
+} from "../../../design-system/styles.stylex.ts";
 import type { AgentKind } from "../../../modules/workspace/model/workspace-model.ts";
 import {
 	DropdownButton,
 	type DropdownOption,
 } from "../../../shared/ui/DropdownButton.tsx";
 import { IconFolder } from "../../../shared/ui/Icons.tsx";
-import { color, controlSize, font, radius } from "../../../tokens.stylex.ts";
 
 export interface AgentChatSession {
 	paneId: string;

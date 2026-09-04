@@ -5,7 +5,15 @@ import { fetchJsonOr } from "../../../adapters/backend/http.ts";
 import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../../adapters/storage/keys.ts";
 import { writeStoredValue } from "../../../adapters/storage/stored-values.ts";
 import { DEFAULT_APP_ROUTE } from "../../../app/model/navigation.tsx";
-import { iconSize } from "../../../design-system.ts";
+import {
+	color,
+	controlSize,
+	font,
+	iconSize,
+	motion,
+	palette,
+	radius,
+} from "../../../design-system/styles.stylex.ts";
 import { savePendingSend } from "../../../modules/conversation/model/chat-session-store.ts";
 import {
 	dispatchAgentShellChange,
@@ -20,14 +28,6 @@ import {
 	IconSearch,
 	IconTrash,
 } from "../../../shared/ui/Icons.tsx";
-import {
-	color,
-	controlSize,
-	font,
-	motion,
-	palette,
-	radius,
-} from "../../../tokens.stylex.ts";
 import {
 	areImageFilesEqual,
 	buildImageChatMessage as buildFileChatMessage,

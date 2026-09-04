@@ -7,7 +7,7 @@ import {
 	useState,
 } from "octane";
 import type { Octane } from "octane/jsx-runtime";
-import { runtimeLayer } from "../../../design-system.ts";
+import { runtimeLayer } from "../../../design-system/styles.stylex.ts";
 import type { CSSProperties, Ref } from "../../../types/octane-react-compat.ts";
 import { GooeyContext, type GooeyContextValue } from "./context";
 import { GooFilterPrimitives } from "./filter";

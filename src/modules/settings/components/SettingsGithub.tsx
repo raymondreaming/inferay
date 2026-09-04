@@ -1,5 +1,12 @@
 import * as stylex from "@octanejs/stylex";
-import { iconSize } from "../../../design-system.ts";
+import {
+	color,
+	controlSize,
+	font,
+	iconSize,
+	motion,
+	radius,
+} from "../../../design-system/styles.stylex.ts";
 import type {
 	ForgeAccount,
 	GithubRepo,
@@ -13,13 +20,6 @@ import {
 	IconUser,
 } from "../../../shared/ui/Icons.tsx";
 import { WorkspaceEmptyState } from "../../../shared/ui/WorkspacePage.tsx";
-import {
-	color,
-	controlSize,
-	font,
-	motion,
-	radius,
-} from "../../../tokens.stylex.ts";
 
 export function SettingsGithubAccount({ account }: { account: ForgeAccount }) {
 	const fallback = account.login.slice(0, 2).toLocaleUpperCase();

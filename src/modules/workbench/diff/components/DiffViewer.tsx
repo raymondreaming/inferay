@@ -9,7 +9,17 @@ import {
 	useState,
 } from "octane";
 import type { CSSProperties } from "react";
-import { iconSize } from "../../../../design-system.ts";
+import {
+	color,
+	controlSize,
+	effect,
+	font,
+	iconSize,
+	layer,
+	motion,
+	radius,
+	shadow,
+} from "../../../../design-system/styles.stylex.ts";
 import {
 	buildMergeConflictLines,
 	type DiffLine,
@@ -59,16 +69,6 @@ import {
 	IconLayoutGrid,
 	IconX,
 } from "../../../../shared/ui/Icons.tsx";
-import {
-	color,
-	controlSize,
-	effect,
-	font,
-	layer,
-	motion,
-	radius,
-	shadow,
-} from "../../../../tokens.stylex.ts";
 import { FileTypeIcon } from "../../../explorer/components/FileTypeIcon.tsx";
 
 export type DiffViewMode = "split" | "hunks";

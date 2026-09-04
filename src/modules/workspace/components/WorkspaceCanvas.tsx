@@ -12,6 +12,12 @@ import {
 	readStoredValue,
 	writeStoredValue,
 } from "../../../adapters/storage/stored-values.ts";
+import {
+	color,
+	controlSize,
+	layer,
+	motion,
+} from "../../../design-system/styles.stylex.ts";
 import type { AgentChatHandle } from "../../../modules/conversation/components/AgentChatView.tsx";
 import {
 	constrainDockTreeColumns,
@@ -36,7 +42,6 @@ import type {
 	AgentTheme,
 } from "../../../modules/workspace/model/workspace-model.ts";
 import { lockPointerSelection } from "../../../shared/lib/pointer-selection-lock.ts";
-import { color, controlSize, layer, motion } from "../../../tokens.stylex.ts";
 import { PaneView } from "./PaneView.tsx";
 
 const EMPTY_AUXILIARY_PANELS: readonly AuxiliaryPanel[] = [];

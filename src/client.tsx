@@ -12,14 +12,15 @@ import {
 import { hydrateStoredValues } from "./adapters/storage/sync.ts";
 import {
 	applyAppBackgroundSurfaces,
+	applyAppTheme,
 	loadAppBackgroundSettings,
-} from "./app/model/background.ts";
+	loadAppThemeId,
+} from "./app/model/appearance.ts";
 import { applyAppFont, loadAppFontId } from "./app/model/font.ts";
 import {
 	DEFAULT_AGENT_MAIN_VIEW,
 	DEFAULT_APP_ROUTE,
 } from "./app/model/navigation.tsx";
-import { applyAppTheme, loadAppThemeId } from "./app/model/theme.ts";
 import { preloadPrompts } from "./modules/prompts/hooks/usePrompts.tsx";
 
 function routeLocalRequestsToDesktopServer() {

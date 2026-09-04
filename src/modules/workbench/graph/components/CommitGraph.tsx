@@ -11,6 +11,15 @@ import {
 	readStoredJson,
 	writeStoredJson,
 } from "../../../../adapters/storage/stored-values.ts";
+import {
+	color,
+	controlSize,
+	font,
+	layer,
+	palette,
+	radius,
+	shadow,
+} from "../../../../design-system/styles.stylex.ts";
 import type {
 	GitGraphRef,
 	GitGraphRefKind,
@@ -33,15 +42,6 @@ import {
 	IconSettings,
 	IconTag,
 } from "../../../../shared/ui/Icons.tsx";
-import {
-	color,
-	controlSize,
-	font,
-	layer,
-	palette,
-	radius,
-	shadow,
-} from "../../../../tokens.stylex.ts";
 import {
 	adjacentCommitOnBranch,
 	buildGraphConnectionPath,

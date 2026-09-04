@@ -10,7 +10,15 @@ import {
 	useState,
 } from "octane";
 import type React from "react";
-import { iconSize } from "../../../design-system.ts";
+import {
+	color,
+	controlSize,
+	font,
+	iconSize,
+	layer,
+	motion,
+	radius,
+} from "../../../design-system/styles.stylex.ts";
 import type { CheckpointInfo } from "../../../modules/conversation/model/agent-chat-shared.ts";
 import {
 	type CommandSystemMessage,
@@ -29,14 +37,6 @@ import {
 	IconCopy,
 	IconTarget,
 } from "../../../shared/ui/Icons.tsx";
-import {
-	color,
-	controlSize,
-	font,
-	layer,
-	motion,
-	radius,
-} from "../../../tokens.stylex.ts";
 import {
 	buildRenderItems,
 	getEditToolPayload,

@@ -32,19 +32,6 @@ export interface AgentTheme {
 const THEME_IDS = {
 	default: "default",
 	midnight: "midnight",
-	dracula: "dracula",
-	monokai: "monokai",
-	nord: "nord",
-	solarized: "solarized",
-	github: "github",
-	gruvbox: "gruvbox",
-	tokyo: "tokyo",
-	onedark: "onedark",
-	ocean: "ocean",
-	rose: "rose",
-	githubLight: "githubLight",
-	solarizedLight: "solarizedLight",
-	custom: "custom",
 } as const;
 
 export type ThemeId = (typeof THEME_IDS)[keyof typeof THEME_IDS];
@@ -249,25 +236,6 @@ const TERM_THEME_DATA: [
 ][] = [
 	["default", "Black", "#000000", "#e5e5e5", "#007AFF", "#111111"],
 	["midnight", "Midnight", "#0d0e0f", "#ededed", "#6e8cff", "#1e1f21"],
-	["dracula", "Dracula", "#282a36", "#f8f8f2", "#f078a0", "#3a3c48"],
-	["monokai", "Monokai", "#272822", "#f8f8f2", "#f8f8f2", "#3a3a35"],
-	["nord", "Nord", "#2e3440", "#d8dee9", "#88c0d0", "#3e4450"],
-	["solarized", "Solarized Dark", "#002b36", "#839496", "#268bd2", "#0a3b46"],
-	["github", "GitHub Dark", "#0d1117", "#e3e8ef", "#588cf5", "#1e2228"],
-	["gruvbox", "Gruvbox", "#282828", "#ebdbb2", "#fabd2f", "#3a3a3a"],
-	["tokyo", "Tokyo Night", "#1a1b27", "#a9b1d6", "#7982b4", "#2c2d3a"],
-	["onedark", "One Dark", "#2b303b", "#abb2bf", "#88bffa", "#3c414c"],
-	["ocean", "Ocean", "#0d1b2a", "#edf6f9", "#00b4d8", "#1b2838"],
-	["rose", "Rose Pine", "#191724", "#e0def4", "#c4a7e7", "#26233a"],
-	["githubLight", "GitHub Light", "#ffffff", "#1f2328", "#0969da", "#e1e4e8"],
-	[
-		"solarizedLight",
-		"Solarized Light",
-		"#fdf6e3",
-		"#073642",
-		"#268bd2",
-		"#eee8d5",
-	],
 ];
 
 const AGENT_THEMES: readonly AgentTheme[] = TERM_THEME_DATA.map(
@@ -417,8 +385,6 @@ export interface AgentShellChangeDetail {
 	stateKey?: string;
 	state?: AgentSavedState;
 }
-
-const CUSTOM_THEME_KEY = "inferay-custom-theme" as const;
 
 const DEFAULT_THEME_ID: ThemeId = "default";
 
@@ -1179,40 +1145,7 @@ export function getStatusInfo(status: string): StatusInfo {
 	};
 }
 
-export interface CustomThemeColors {
-	bg: HexColor;
-	fg: HexColor;
-	cursor: HexColor;
-	separator: HexColor;
-}
-
-const DEFAULT_CUSTOM_COLORS: CustomThemeColors = {
-	bg: "#1a1a2e" as HexColor,
-	fg: "#e0e0e0" as HexColor,
-	cursor: "#ff6f61" as HexColor,
-	separator: "#2e2e42" as HexColor,
-};
-
-export function loadCustomTheme(): CustomThemeColors {
-	try {
-		const parsed = readStoredJson<Partial<CustomThemeColors> | null>(
-			CUSTOM_THEME_KEY,
-			null,
-		);
-		if (parsed) return { ...DEFAULT_CUSTOM_COLORS, ...parsed };
-	} catch {}
-	return DEFAULT_CUSTOM_COLORS;
-}
-
-export function saveCustomTheme(colors: CustomThemeColors): void {
-	writeStoredJson(CUSTOM_THEME_KEY, colors);
-}
-
 export function getThemeById(themeId: string): AgentTheme {
-	if (themeId === "custom") {
-		const c = loadCustomTheme();
-		return { id: "custom" as ThemeId, name: "Custom", ...c };
-	}
 	return (
 		AGENT_THEMES.find(hasId.bind(null, themeId)) ??
 		AGENT_THEMES.find(hasId.bind(null, DEFAULT_THEME_ID)) ??

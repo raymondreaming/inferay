@@ -8,7 +8,18 @@ import {
 	useState,
 } from "octane";
 import { postJson } from "../../../../adapters/backend/http.ts";
-import { iconSize, runtimeColor } from "../../../../design-system.ts";
+import {
+	color,
+	controlSize,
+	font,
+	iconSize,
+	layer,
+	motion,
+	radius,
+	runtimeColor,
+	selectionAppearance,
+	shadow,
+} from "../../../../design-system/styles.stylex.ts";
 import type {
 	CommitDetails,
 	CommitFile,
@@ -31,15 +42,6 @@ import {
 	IconPlus,
 	IconSparkles,
 } from "../../../../shared/ui/Icons.tsx";
-import {
-	color,
-	controlSize,
-	font,
-	layer,
-	motion,
-	radius,
-	shadow,
-} from "../../../../tokens.stylex.ts";
 import { FileTypeIcon } from "../../../explorer/components/FileTypeIcon.tsx";
 import {
 	buildFileTree,
@@ -616,21 +618,8 @@ const styles = stylex.create({
 		justifyContent: "center",
 		gap: controlSize._1,
 		paddingInline: controlSize._2,
-		color: {
-			default: color.textMuted,
-			":hover": color.textMain,
-		},
 		fontSize: font.size_2,
 		fontWeight: font.weight_5,
-		borderRadius: radius.sm,
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlHover,
-		},
-	},
-	segmentButtonActive: {
-		backgroundColor: color.backgroundSubtle,
-		color: color.textMain,
 	},
 	headerIconButton: {
 		alignItems: "center",
@@ -1630,7 +1619,7 @@ function FileViewToggle({
 						aria-pressed={value === mode}
 						{...stylex.props(
 							styles.segmentButton,
-							value === mode && styles.segmentButtonActive,
+							...selectionAppearance("view", value === mode),
 						)}
 					>
 						<ModeIcon size={iconSize.sm} />

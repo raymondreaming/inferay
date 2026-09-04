@@ -7,21 +7,13 @@ import {
 	useReducer,
 	useRef,
 } from "octane";
-import { iconSize } from "../../../design-system.ts";
+import { iconSize } from "../../../design-system/styles.stylex.ts";
 
 type ReactPointerEvent<T = Element> = globalThis.PointerEvent & {
 	currentTarget: T;
 };
 
 import { fetchJsonOr, sendJson } from "../../../adapters/backend/http.ts";
-import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
-import { hasId, lacksId } from "../../../shared/lib/data.ts";
-import { listenWindowEvent } from "../../../shared/lib/react-events.ts";
-import {
-	IconClock,
-	IconPlus,
-	IconWorkflow,
-} from "../../../shared/ui/Icons.tsx";
 import {
 	color,
 	controlSize,
@@ -31,7 +23,15 @@ import {
 	palette,
 	radius,
 	shadow,
-} from "../../../tokens.stylex.ts";
+} from "../../../design-system/styles.stylex.ts";
+import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
+import { hasId, lacksId } from "../../../shared/lib/data.ts";
+import { listenWindowEvent } from "../../../shared/lib/react-events.ts";
+import {
+	IconClock,
+	IconPlus,
+	IconWorkflow,
+} from "../../../shared/ui/Icons.tsx";
 import {
 	areAutomationFlowsEqual,
 	createSampleFlow,

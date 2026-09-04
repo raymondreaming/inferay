@@ -1,11 +1,8 @@
 import * as stylex from "@octanejs/stylex";
 
 /**
- * Inferay design tokens.
- *
- * Keep this module limited to named StyleX variable/constant exports. StyleX
- * resolves these imports at build time, so application code should import each
- * group directly from this file rather than through a barrel.
+ * Inferay's typed styling interface: tokens, shared appearances, and runtime values.
+ * Theme colors and surface formulas live in styles.css. Import this file directly.
  */
 
 export const palette = stylex.defineVars({
@@ -45,18 +42,11 @@ export const palette = stylex.defineVars({
 
 export const color = stylex.defineVars({
 	transparent: stylex.types.color("transparent"),
-	background: stylex.types.color(
-		"var(--inferay-surface-base, var(--color-inferay-black))",
-	),
-	backgroundRaised: stylex.types.color(
-		"var(--inferay-surface-raised, var(--color-inferay-dark-gray))",
-	),
-	backgroundSubtle: stylex.types.color(
-		"var(--inferay-surface-subtle, var(--color-inferay-gray))",
-	),
-	backgroundCanvas: stylex.types.color(
-		"var(--inferay-surface-canvas, var(--color-inferay-black))",
-	),
+	background: stylex.types.color("var(--inferay-surface-base)"),
+	backgroundRaised: stylex.types.color("var(--inferay-surface-raised)"),
+	backgroundSubtle: stylex.types.color("var(--inferay-surface-subtle)"),
+	backgroundPanel: stylex.types.color("var(--inferay-surface-panel)"),
+	backgroundCanvas: stylex.types.color("var(--inferay-surface-canvas)"),
 	backgroundOverlay: stylex.types.color("rgba(0, 0, 0, 0.6)"),
 	backgroundOverlayStrong: stylex.types.color("rgba(0, 0, 0, 0.95)"),
 	shellFrame: stylex.types.color("var(--color-inferay-gray-border)"),
@@ -67,20 +57,16 @@ export const color = stylex.defineVars({
 	surfaceGlass: stylex.types.color(
 		"color-mix(in srgb, var(--color-inferay-dark-gray) 78%, transparent)",
 	),
-	surfaceGlassStrong: stylex.types.color(
-		"color-mix(in srgb, var(--color-inferay-dark-gray) 92%, transparent)",
-	),
+	surfaceGlassStrong: stylex.types.color("var(--inferay-surface-glass-strong)"),
 	surfaceInset: stylex.types.color(
 		"color-mix(in srgb, var(--color-inferay-gray) 34%, transparent)",
 	),
 	surfaceSubtle: stylex.types.color(
 		"color-mix(in srgb, var(--color-inferay-gray) 34%, transparent)",
 	),
-	surfaceControl: stylex.types.color(
-		"color-mix(in srgb, var(--color-inferay-gray) 54%, transparent)",
-	),
+	surfaceControl: stylex.types.color("var(--inferay-surface-control)"),
 	surfaceControlHover: stylex.types.color(
-		"color-mix(in srgb, var(--color-inferay-light-gray) 62%, transparent)",
+		"var(--inferay-surface-control-hover)",
 	),
 	surfaceWhite01: stylex.types.color("rgba(255, 255, 255, 0.01)"),
 	surfaceWhite02: stylex.types.color("rgba(255, 255, 255, 0.02)"),
@@ -270,29 +256,20 @@ export const motion = stylex.defineVars({
 
 export const shadow = stylex.defineVars({
 	none: "none",
-	controlDepth:
-		"var(--shadow-inferay-control-depth, inset 0 1px 0 rgba(255, 255, 255, 0.045), inset 0 -1px 0 rgba(0, 0, 0, 0.42))",
-	controlDepthHover:
-		"var(--shadow-inferay-control-depth-hover, inset 0 1px 0 rgba(255, 255, 255, 0.055), inset 0 -1px 0 rgba(0, 0, 0, 0.48))",
-	composerFrame:
-		"var(--shadow-inferay-composer-frame, 0 18px 42px rgba(0, 0, 0, 0.34))",
-	composerFrameFocus:
-		"var(--shadow-inferay-composer-frame-focus, 0 18px 42px rgba(0, 0, 0, 0.34))",
-	selectedRing:
-		"var(--shadow-inferay-selected-ring, 0 0 0 1px rgba(255, 255, 255, 0.05))",
-	focusRing:
-		"var(--shadow-inferay-focus-ring, 0 0 0 1px rgba(229, 229, 231, 0.35))",
-	popover: "var(--shadow-inferay-popover, 0 10px 15px -3px rgba(0, 0, 0, 0.6))",
-	modal: "var(--shadow-inferay-modal, 0 25px 50px -12px rgba(0, 0, 0, 0.7))",
+	controlDepth: "var(--shadow-inferay-control-depth)",
+	controlDepthHover: "var(--shadow-inferay-control-depth-hover)",
+	composerFrame: "var(--shadow-inferay-composer-frame)",
+	composerFrameFocus: "var(--shadow-inferay-composer-frame-focus)",
+	selectedRing: "var(--shadow-inferay-selected-ring)",
+	focusRing: "var(--shadow-inferay-focus-ring)",
+	popover: "var(--shadow-inferay-popover)",
+	modal: "var(--shadow-inferay-modal)",
 });
 
 export const effect = stylex.defineVars({
-	controlDepth:
-		"var(--effect-inferay-control-depth, linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(0, 0, 0, 0.08) 48%, rgba(0, 0, 0, 0.2)))",
-	controlDepthHover:
-		"var(--effect-inferay-control-depth-hover, linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(0, 0, 0, 0.1) 48%, rgba(0, 0, 0, 0.24)))",
-	popoverDepth:
-		"var(--effect-inferay-popover-depth, linear-gradient(180deg, rgba(255, 255, 255, 0.014), rgba(0, 0, 0, 0.08) 42%, rgba(0, 0, 0, 0.22)))",
+	controlDepth: "var(--effect-inferay-control-depth)",
+	controlDepthHover: "var(--effect-inferay-control-depth-hover)",
+	popoverDepth: "var(--effect-inferay-popover-depth)",
 	tokenHighlightBackground:
 		"color-mix(in srgb, var(--color-inferay-accent) 15%, transparent)",
 });
@@ -333,4 +310,146 @@ export const breakpoint = stylex.defineConsts({
 	desktop: "@media (min-width: 860px)",
 	wide: "@media (min-width: 1024px)",
 	canvasWide: "@media (min-width: 1120px)",
+});
+
+export const iconSize = {
+	micro: 7,
+	xs: 8,
+	_2xs: 9,
+	sm: 10,
+	compact: 11,
+	md: 12,
+	_2md: 13,
+	lg: 14,
+	_2lg: 15,
+	xl: 16,
+	_2xl: 18,
+	_3xl: 20,
+} as const;
+
+export const runtimeColor = {
+	accent: "var(--color-inferay-accent)",
+	backgroundSubtle: "var(--inferay-surface-subtle)",
+	backgroundRaised: "var(--inferay-surface-raised)",
+	backgroundPanel: "var(--inferay-surface-panel)",
+	commitAccent: "#f97316",
+	commitAccentWashSubtle: "rgba(249, 115, 22, 0.025)",
+	commitAccentWash: "rgba(249, 115, 22, 0.08)",
+	commitAccentWashStrong: "rgba(249, 115, 22, 0.45)",
+	dangerWash: "rgba(239, 68, 68, 0.15)",
+	surfaceControl: "var(--inferay-surface-control)",
+	surfaceGlassStrong: "var(--inferay-surface-glass-strong)",
+	textMain: "var(--color-inferay-white)",
+} as const;
+
+/** Stable high-contrast lane palette for SVG/canvas Git topology rendering. */
+export const runtimeGitGraphLaneColors = [
+	"#1c97b5",
+	"#0063f2",
+	"#7f12b7",
+	"#ba18ab",
+	"#d00066",
+	"#c40012",
+	"#ed4e2f",
+	"#f0c13a",
+	"#76d33c",
+	"#36c894",
+] as const;
+
+export const runtimeFont = {
+	familyMono: '"JetBrains Mono", "SF Mono", Menlo, Consolas, monospace',
+	sizeCompact: "11px",
+} as const;
+
+export const runtimeLayer = {
+	content: 1,
+	criticalOverlay: 9999,
+} as const;
+
+export const surfaceStyles = stylex.create({
+	panel: {
+		backgroundColor: color.backgroundPanel,
+		borderColor: color.border,
+		borderStyle: "solid",
+		borderWidth: 1,
+		borderRadius: radius.xl,
+	},
+	explorerRow: {
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.backgroundPanel,
+		},
+		boxShadow: {
+			default: "none",
+			":hover": `inset 0 0 0 1px ${color.border}`,
+		},
+		transitionDuration: motion.durationBase,
+		transitionProperty: "background-color, box-shadow",
+	},
+	stickyExplorerRow: {
+		backgroundColor: {
+			default: color.background,
+			":hover": color.backgroundPanel,
+		},
+	},
+});
+
+export type SelectionVariant = "sidebar" | "repository" | "view" | "list";
+
+/** Owns selection appearance. Callers supply layout, labels, and behavior only. */
+export function selectionAppearance(
+	variant: SelectionVariant,
+	selected: boolean,
+) {
+	const bordered = variant === "sidebar" || variant === "list";
+	return [
+		selection.base,
+		selection[variant],
+		bordered && selection.bordered,
+		selected && selection.selected,
+		selected && bordered && selection.selectedBorder,
+	];
+}
+
+const selection = stylex.create({
+	base: {
+		backgroundColor: color.transparent,
+		backgroundImage: "none",
+		borderColor: color.transparent,
+		borderStyle: "solid",
+		borderWidth: 0,
+		boxShadow: "none",
+		boxSizing: "border-box",
+		color: {
+			default: color.textMuted,
+			":hover": color.textMain,
+		},
+		transitionDuration: motion.durationBase,
+		transitionProperty: "background-color, border-color, color",
+		transitionTimingFunction: motion.ease,
+	},
+	sidebar: { borderRadius: radius.md },
+	repository: { borderRadius: radius.none },
+	view: { borderRadius: radius.sm },
+	list: {
+		borderRadius: radius.md,
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.backgroundPanel,
+		},
+		borderColor: {
+			default: color.transparent,
+			":hover": color.border,
+		},
+		color: {
+			default: color.textSoft,
+			":hover": color.textMain,
+		},
+	},
+	bordered: { borderWidth: 1 },
+	selected: {
+		backgroundColor: color.backgroundPanel,
+		color: color.textMain,
+	},
+	selectedBorder: { borderColor: color.border },
 });

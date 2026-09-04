@@ -1,5 +1,5 @@
 import { useCallback } from "octane";
-import { runtimeGitGraphLaneColors } from "../../../design-system.ts";
+import { runtimeGitGraphLaneColors } from "../../../design-system/styles.stylex.ts";
 import { DEFAULT_GIT_GRAPH_HISTORY_LIMIT } from "../../../modules/workbench/graph/model/graph-model.ts";
 import {
 	usePollingQuery,
