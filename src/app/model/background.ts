@@ -35,8 +35,69 @@ export type AppBackgroundId =
 
 export type AppBackgroundMode = "solid" | "scene" | "glass";
 
+export interface AppBackgroundSurfaces {
+	readonly base: string;
+	readonly raised: string;
+	readonly subtle: string;
+	readonly canvas: string;
+}
+
+const SOLID_BACKGROUND_SURFACES: AppBackgroundSurfaces = {
+	base: "var(--color-inferay-black)",
+	raised: "var(--color-inferay-dark-gray)",
+	subtle: "var(--color-inferay-gray)",
+	canvas: "var(--color-inferay-black)",
+};
+
+const SCENE_BACKGROUND_SURFACES: AppBackgroundSurfaces = {
+	base: "color-mix(in srgb, var(--color-inferay-black) 46%, transparent)",
+	raised: "color-mix(in srgb, var(--color-inferay-dark-gray) 64%, transparent)",
+	subtle: "color-mix(in srgb, var(--color-inferay-gray) 58%, transparent)",
+	canvas: "color-mix(in srgb, var(--color-inferay-black) 38%, transparent)",
+};
+
+const GLASS_BACKGROUND_SURFACES: AppBackgroundSurfaces = {
+	base: "transparent",
+	raised: "color-mix(in srgb, var(--color-inferay-dark-gray) 42%, transparent)",
+	subtle: "color-mix(in srgb, var(--color-inferay-gray) 34%, transparent)",
+	canvas: "transparent",
+};
+
+export function getAppBackgroundSurfaces(
+	mode: AppBackgroundMode,
+): AppBackgroundSurfaces {
+	if (mode === "scene") return SCENE_BACKGROUND_SURFACES;
+	if (mode === "glass") return GLASS_BACKGROUND_SURFACES;
+	return SOLID_BACKGROUND_SURFACES;
+}
+
+const APP_BACKGROUND_SURFACE_PROPERTIES = {
+	base: "--inferay-surface-base",
+	raised: "--inferay-surface-raised",
+	subtle: "--inferay-surface-subtle",
+	canvas: "--inferay-surface-canvas",
+} as const satisfies Record<keyof AppBackgroundSurfaces, string>;
+
+/**
+ * Applies the shared surface hierarchy at the same root seam where StyleX's
+ * color tokens are registered. Setting these on a descendant app shell leaves
+ * the registered tokens stuck on their opaque fallback values.
+ */
+export function applyAppBackgroundSurfaces(mode: AppBackgroundMode): void {
+	const surfaces = getAppBackgroundSurfaces(mode);
+	const root = document.documentElement;
+	for (const [surface, property] of Object.entries(
+		APP_BACKGROUND_SURFACE_PROPERTIES,
+	)) {
+		root.style.setProperty(
+			property,
+			surfaces[surface as keyof AppBackgroundSurfaces],
+		);
+	}
+}
+
 export interface AppBackgroundSettings {
-	version: 6;
+	version: 7;
 	mode: AppBackgroundMode;
 	id: AppBackgroundId;
 	dim: number;
@@ -48,13 +109,13 @@ export interface AppBackgroundSettings {
 }
 
 export const DEFAULT_APP_BACKGROUND_SETTINGS: AppBackgroundSettings = {
-	version: 6,
+	version: 7,
 	mode: "solid",
 	id: "none",
 	dim: 42,
 	blur: 1,
-	glassBlur: 24,
-	glassOpacity: 46,
+	glassBlur: 7,
+	glassOpacity: 83,
 	autoTheme: false,
 	customRevision: 0,
 };
@@ -133,7 +194,7 @@ export function loadAppBackgroundSettings(): AppBackgroundSettings {
 		DEFAULT_APP_BACKGROUND_SETTINGS.blur,
 	);
 	return {
-		version: 6,
+		version: 7,
 		mode: isBackgroundMode(stored.mode)
 			? stored.mode
 			: stored.id && stored.id !== "none"
@@ -148,7 +209,7 @@ export function loadAppBackgroundSettings(): AppBackgroundSettings {
 				? storedBlur
 				: Math.min(1, storedBlur),
 		glassBlur: clamp(
-			stored.version === 6
+			stored.version === 7
 				? stored.glassBlur
 				: DEFAULT_APP_BACKGROUND_SETTINGS.glassBlur,
 			0,
@@ -156,7 +217,9 @@ export function loadAppBackgroundSettings(): AppBackgroundSettings {
 			DEFAULT_APP_BACKGROUND_SETTINGS.glassBlur,
 		),
 		glassOpacity: clamp(
-			stored.glassOpacity,
+			stored.version === 7
+				? stored.glassOpacity
+				: DEFAULT_APP_BACKGROUND_SETTINGS.glassOpacity,
 			8,
 			100,
 			DEFAULT_APP_BACKGROUND_SETTINGS.glassOpacity,
@@ -172,6 +235,7 @@ export function loadAppBackgroundSettings(): AppBackgroundSettings {
 export function saveAppBackgroundSettings(
 	settings: AppBackgroundSettings,
 ): void {
+	applyAppBackgroundSurfaces(settings.mode);
 	writeStoredJson(APP_BACKGROUND_STORAGE_KEY, settings);
 }
 

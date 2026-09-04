@@ -21,11 +21,12 @@ import {
 	radius,
 	shadow,
 } from "../../../tokens.stylex.ts";
-import { OPEN_SETTINGS_MODAL_EVENT } from "../model/settings-events.ts";
 import {
-	SettingsModalContent,
-	type SettingsModalSection,
-} from "./SettingsModalContent.tsx";
+	OPEN_SETTINGS_MODAL_EVENT,
+	type OpenSettingsModalDetail,
+	type SettingsModalTarget,
+} from "../model/settings-events.ts";
+import { SettingsModalContent } from "./SettingsModalContent.tsx";
 
 const SETTINGS_SECTIONS = [
 	{
@@ -49,11 +50,11 @@ const SETTINGS_SECTIONS = [
 	{
 		id: "github",
 		label: "GitHub",
-		description: "Repository access and cloning preferences.",
+		description: "Connected accounts, repository access, and cloning.",
 		icon: IconGitBranch,
 	},
 ] as const satisfies ReadonlyArray<{
-	id: Exclude<SettingsModalSection, "all">;
+	id: SettingsModalTarget;
 	label: string;
 	description: string;
 	icon: typeof IconAgent;
@@ -62,7 +63,7 @@ const SETTINGS_SECTIONS = [
 export function SettingsModalHost() {
 	const [open, setOpen] = useState(false);
 	const [activeSection, setActiveSection] =
-		useState<Exclude<SettingsModalSection, "all">>("agents");
+		useState<SettingsModalTarget>("agents");
 	const contentRef = useRef<HTMLDivElement | null>(null);
 	const activePage =
 		SETTINGS_SECTIONS.find((section) => section.id === activeSection) ??
@@ -70,8 +71,14 @@ export function SettingsModalHost() {
 
 	useEffect(
 		() =>
-			listenWindowEvent(OPEN_SETTINGS_MODAL_EVENT, () => {
-				setActiveSection("agents");
+			listenWindowEvent(OPEN_SETTINGS_MODAL_EVENT, (event) => {
+				const requestedSection = (event as CustomEvent<OpenSettingsModalDetail>)
+					.detail?.section;
+				setActiveSection(
+					SETTINGS_SECTIONS.some((section) => section.id === requestedSection)
+						? requestedSection
+						: "agents",
+				);
 				setOpen(true);
 			}),
 		[],
@@ -193,7 +200,7 @@ const styles = stylex.create({
 		zIndex: layer.criticalOverlay,
 	},
 	modal: {
-		backgroundColor: color.backgroundRaised,
+		backgroundColor: color.popoverOpaque,
 		borderColor: color.borderStrong,
 		borderRadius: radius._2xl,
 		borderStyle: "solid",

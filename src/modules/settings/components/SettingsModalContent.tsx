@@ -18,6 +18,7 @@ import {
 	fetchGithubRepos,
 	getCachedForgeAccounts,
 	getCachedGithubRepos,
+	invalidateForgeAccountsCache,
 	invalidateGithubReposCache,
 } from "../../../modules/repository/adapters/forge-client.ts";
 import type { GithubRepo } from "../../../modules/repository/adapters/types.ts";
@@ -39,6 +40,7 @@ import {
 	font,
 	radius,
 } from "../../../tokens.stylex.ts";
+import type { SettingsModalTarget } from "../model/settings-events.ts";
 import {
 	areAgentAccountStatusesEqual,
 	initialSettingsModalUiState,
@@ -49,6 +51,7 @@ import {
 	settingsModalUiReducer,
 } from "../model/settings-modal-state.ts";
 import {
+	SettingsGithubAccount,
 	SettingsGithubEmptyState,
 	SettingsRepoRow,
 } from "./SettingsGithub.tsx";
@@ -86,12 +89,7 @@ function SettingsSection({
 	);
 }
 
-export type SettingsModalSection =
-	| "all"
-	| "agents"
-	| "appearance"
-	| "workspace"
-	| "github";
+export type SettingsModalSection = "all" | SettingsModalTarget;
 
 export function SettingsModalContent({
 	section,
@@ -103,6 +101,7 @@ export function SettingsModalContent({
 		data: accounts,
 		loading: accountsLoading,
 		error: accountsError,
+		refresh: refreshAccounts,
 	} = useQueryResource(() => fetchForgeAccounts(), initialAccounts, {
 		queryKey: ["forge", "accounts"],
 		isEqual: areForgeAccountsEqual,
@@ -150,8 +149,14 @@ export function SettingsModalContent({
 		settingsModalUiReducer,
 		initialSettingsModalUiState,
 	);
-	const { error, repoQuery, cloneDirectory, cloneStatus, cloningRepo } =
-		settingsModalUiState;
+	const {
+		error,
+		connecting,
+		repoQuery,
+		cloneDirectory,
+		cloneStatus,
+		cloningRepo,
+	} = settingsModalUiState;
 	const setSettingsModalUiField = useCallback(
 		<K extends keyof SettingsModalUiState>(
 			field: K,
@@ -228,9 +233,12 @@ export function SettingsModalContent({
 		},
 		[refreshRepos, setError],
 	);
+	const refreshGithubAccounts = useCallback(async () => {
+		invalidateForgeAccountsCache();
+		await refreshAccounts();
+	}, [refreshAccounts]);
 
-	const resourceError =
-		error ?? accountsError ?? reposError ?? agentAccountStatusesError;
+	const githubResourceError = error ?? reposError;
 
 	const filteredRepos = useMemo(() => {
 		const query = repoQuery.trim().toLowerCase();
@@ -311,6 +319,9 @@ export function SettingsModalContent({
 								</Button>
 							}
 						>
+							{agentAccountStatusesError ? (
+								<SettingsErrorBanner message={agentAccountStatusesError} />
+							) : null}
 							<div {...stylex.props(styles.agentDefaultsControl)}>
 								<div {...stylex.props(styles.settingField)}>
 									<span {...stylex.props(styles.settingLabel)}>Provider</span>
@@ -418,103 +429,139 @@ export function SettingsModalContent({
 					) : null}
 
 					{section === "all" || section === "github" ? (
-						<SettingsSection
-							id="github"
-							title="Repositories"
-							description="Find repositories from your connected account and clone them locally."
-							actions={
-								accounts.length > 0 ? (
+						<>
+							<SettingsSection
+								id="github-account"
+								title={accounts.length > 1 ? "Accounts" : "Account"}
+								description="Your GitHub identity, detected from the GitHub CLI."
+								actions={
 									<Button
 										liquid={false}
 										type="button"
-										onClick={() => void loadRepos(true)}
+										onClick={() => void refreshGithubAccounts()}
 										variant="secondary"
 										size="sm"
 										className={stylex.props(styles.noShrink).className}
 									>
 										<IconRefreshCw size={iconSize.md} />
-										<span>Repos</span>
+										<span>Refresh</span>
 									</Button>
-								) : null
-							}
-						>
-							{resourceError ? (
-								<SettingsErrorBanner message={resourceError} />
-							) : null}
-							{cloneStatus ? (
-								<SettingsSuccessBanner message={cloneStatus} />
-							) : null}
+								}
+							>
+								{accountsError ? (
+									<SettingsErrorBanner message={accountsError} />
+								) : null}
+								{loadState === "loading" ? (
+									<div {...stylex.props(styles.accountLoadingState)}>
+										Checking GitHub CLI account…
+									</div>
+								) : accounts.length > 0 ? (
+									<div {...stylex.props(styles.githubAccountList)}>
+										{accounts.map((account) => (
+											<SettingsGithubAccount
+												key={`${account.host}:${account.login}`}
+												account={account}
+											/>
+										))}
+									</div>
+								) : (
+									<SettingsGithubEmptyState
+										onConnect={connectGithub}
+										connecting={connecting}
+									/>
+								)}
+							</SettingsSection>
 
-							{loadState === "loading" || accounts.length === 0 ? (
-								<div {...stylex.props(styles.githubState)}>
-									{loadState === "loading" ? (
-										<div {...stylex.props(styles.accountLoadingState)}>
-											Checking GitHub CLI account…
-										</div>
-									) : (
-										<SettingsGithubEmptyState onConnect={connectGithub} />
-									)}
-								</div>
-							) : null}
+							<SettingsSection
+								id="github"
+								title="Repositories"
+								description="Find repositories from your connected account and clone them locally."
+								actions={
+									accounts.length > 0 ? (
+										<Button
+											liquid={false}
+											type="button"
+											onClick={() => void loadRepos(true)}
+											variant="secondary"
+											size="sm"
+											className={stylex.props(styles.noShrink).className}
+										>
+											<IconRefreshCw size={iconSize.md} />
+											<span>Repos</span>
+										</Button>
+									) : null
+								}
+							>
+								{githubResourceError ? (
+									<SettingsErrorBanner message={githubResourceError} />
+								) : null}
+								{cloneStatus ? (
+									<SettingsSuccessBanner message={cloneStatus} />
+								) : null}
 
-							{accounts.length > 0 ? (
-								<>
-									<div {...stylex.props(styles.cloneControls)}>
-										<TextInput
-											type="text"
-											value={repoQuery}
-											onInput={(event) =>
-												setRepoQuery(event.currentTarget.value)
-											}
-											placeholder="Search repositories"
-											fullWidth
-											className={stylex.props(styles.flexInput).className}
-										/>
-										<div {...stylex.props(styles.cloneDirControls)}>
+								{accounts.length > 0 ? (
+									<>
+										<div {...stylex.props(styles.cloneControls)}>
 											<TextInput
 												type="text"
-												value={cloneDirectory}
+												value={repoQuery}
 												onInput={(event) =>
-													setCloneDirectory(event.currentTarget.value)
+													setRepoQuery(event.currentTarget.value)
 												}
+												placeholder="Search repositories"
 												fullWidth
 												className={stylex.props(styles.flexInput).className}
 											/>
-											<Button
-												liquid={false}
-												type="button"
-												onClick={() => void pickCloneDirectory()}
-												variant="ghost"
-												size="md"
-												className={stylex.props(styles.noShrink).className}
-											>
-												Browse
-											</Button>
-										</div>
-									</div>
-									<div {...stylex.props(styles.repoList)}>
-										{reposLoading ? (
-											<div {...stylex.props(styles.loadingState)}>
-												Loading repositories…
-											</div>
-										) : filteredRepos.length === 0 ? (
-											<div {...stylex.props(styles.loadingState)}>
-												No repositories found.
-											</div>
-										) : (
-											filteredRepos.map((repo) => (
-												<SettingsRepoRow
-													key={repo.full_name}
-													repo={repo}
-													cloning={cloningRepo === repo.full_name}
-													onClone={() => void cloneRepo(repo)}
+											<div {...stylex.props(styles.cloneDirControls)}>
+												<TextInput
+													type="text"
+													value={cloneDirectory}
+													onInput={(event) =>
+														setCloneDirectory(event.currentTarget.value)
+													}
+													fullWidth
+													className={stylex.props(styles.flexInput).className}
 												/>
-											))
-										)}
+												<Button
+													liquid={false}
+													type="button"
+													onClick={() => void pickCloneDirectory()}
+													variant="ghost"
+													size="md"
+													className={stylex.props(styles.noShrink).className}
+												>
+													Browse
+												</Button>
+											</div>
+										</div>
+										<div {...stylex.props(styles.repoList)}>
+											{reposLoading ? (
+												<div {...stylex.props(styles.loadingState)}>
+													Loading repositories…
+												</div>
+											) : filteredRepos.length === 0 ? (
+												<div {...stylex.props(styles.loadingState)}>
+													No repositories found.
+												</div>
+											) : (
+												filteredRepos.map((repo) => (
+													<SettingsRepoRow
+														key={repo.full_name}
+														repo={repo}
+														cloning={cloningRepo === repo.full_name}
+														onClone={() => void cloneRepo(repo)}
+													/>
+												))
+											)}
+										</div>
+									</>
+								) : (
+									<div {...stylex.props(styles.githubRepoUnavailable)}>
+										Connect a GitHub account to browse repositories.
 									</div>
-								</>
-							) : null}
-						</SettingsSection>
+								)}
+							</SettingsSection>
+						</>
 					) : null}
 				</div>
 			</main>
@@ -727,7 +774,17 @@ const styles = stylex.create({
 		color: color.textMuted,
 		fontSize: font.size_2,
 	},
-	githubState: {
-		minHeight: "7rem",
+	githubAccountList: {
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._2,
+	},
+	githubRepoUnavailable: {
+		alignItems: "center",
+		color: color.textMuted,
+		display: "flex",
+		fontSize: font.size_2,
+		height: "5rem",
+		justifyContent: "center",
 	},
 });

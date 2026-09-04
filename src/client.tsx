@@ -10,6 +10,10 @@ import {
 	writeStoredValue,
 } from "./adapters/storage/stored-values.ts";
 import { hydrateStoredValues } from "./adapters/storage/sync.ts";
+import {
+	applyAppBackgroundSurfaces,
+	loadAppBackgroundSettings,
+} from "./app/model/background.ts";
 import { applyAppFont, loadAppFontId } from "./app/model/font.ts";
 import {
 	DEFAULT_AGENT_MAIN_VIEW,
@@ -62,6 +66,7 @@ if (
 writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, DEFAULT_AGENT_MAIN_VIEW);
 applyAppTheme(loadAppThemeId());
 applyAppFont(loadAppFontId());
+applyAppBackgroundSurfaces(loadAppBackgroundSettings().mode);
 
 const idle =
 	window.requestIdleCallback ??

@@ -45,10 +45,18 @@ export const palette = stylex.defineVars({
 
 export const color = stylex.defineVars({
 	transparent: stylex.types.color("transparent"),
-	background: stylex.types.color("var(--color-inferay-black)"),
-	backgroundRaised: stylex.types.color("var(--color-inferay-dark-gray)"),
-	backgroundSubtle: stylex.types.color("var(--color-inferay-gray)"),
-	backgroundCanvas: stylex.types.color("var(--color-inferay-black)"),
+	background: stylex.types.color(
+		"var(--inferay-surface-base, var(--color-inferay-black))",
+	),
+	backgroundRaised: stylex.types.color(
+		"var(--inferay-surface-raised, var(--color-inferay-dark-gray))",
+	),
+	backgroundSubtle: stylex.types.color(
+		"var(--inferay-surface-subtle, var(--color-inferay-gray))",
+	),
+	backgroundCanvas: stylex.types.color(
+		"var(--inferay-surface-canvas, var(--color-inferay-black))",
+	),
 	backgroundOverlay: stylex.types.color("rgba(0, 0, 0, 0.6)"),
 	backgroundOverlayStrong: stylex.types.color("rgba(0, 0, 0, 0.95)"),
 	shellFrame: stylex.types.color("var(--color-inferay-gray-border)"),
