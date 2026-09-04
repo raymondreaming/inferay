@@ -37,7 +37,7 @@ function tick(ms = 20) {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-test("socket loss renders a non-blocking inline status", async () => {
+test("socket loss does not render an obsolete offline queue notice", async () => {
 	connectionStatus = "disconnected";
 	connectionListeners.clear();
 	const { root, rootElement } = setupDom();
@@ -53,13 +53,8 @@ test("socket loss renders a non-blocking inline status", async () => {
 		);
 		await tick();
 		expect(rootElement.textContent).toContain("Workspace remains mounted");
-		expect(rootElement.textContent).toContain("Offline — sends are queued");
-
-		connectionStatus = "connected";
-		for (const listener of connectionListeners) listener();
-		await tick();
 		expect(rootElement.textContent).not.toContain("Offline");
-		expect(rootElement.textContent).toContain("Workspace remains mounted");
+		expect(rootElement.textContent).not.toContain("sends are queued");
 	} finally {
 		root.unmount();
 	}

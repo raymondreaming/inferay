@@ -1,9 +1,5 @@
 import * as stylex from "@octanejs/stylex";
-import { memo, useSyncExternalStore } from "octane";
-import {
-	getWebSocketStatus,
-	subscribeWebSocketStatus,
-} from "../../../adapters/backend/websocket.ts";
+import { memo } from "octane";
 import { iconSize } from "../../../design-system.ts";
 import { ThinkingIndicator } from "../../../shared/ui/DotMatrixLoader.tsx";
 import { IconStop } from "../../../shared/ui/Icons.tsx";
@@ -26,28 +22,10 @@ export const AgentChatStatusBar = memo(function AgentChatStatusBar({
 	startTime,
 	onStop,
 }: AgentChatStatusBarProps) {
-	const connectionStatus = useSyncExternalStore(
-		subscribeWebSocketStatus,
-		getWebSocketStatus,
-		getWebSocketStatus,
-	);
-	if (!isLoading && connectionStatus === "connected") return null;
+	if (!isLoading) return null;
 
 	return (
 		<div {...stylex.props(styles.root)}>
-			{connectionStatus !== "connected" && (
-				<div
-					{...stylex.props(styles.connectionPill)}
-					title="Messages stay queued until the app server reconnects"
-				>
-					<span {...stylex.props(styles.connectionDot)} />
-					<span>
-						{connectionStatus === "connecting"
-							? "Connecting…"
-							: "Offline — sends are queued"}
-					</span>
-				</div>
-			)}
 			{isLoading && (
 				<div {...stylex.props(styles.activity)}>
 					{startTime ? <ThinkingIndicator startTime={startTime} /> : null}
@@ -89,26 +67,6 @@ const styles = stylex.create({
 		alignItems: "center",
 		display: "flex",
 		height: controlSize._6,
-	},
-	connectionPill: {
-		alignItems: "center",
-		backgroundColor: color.backgroundRaised,
-		borderColor: color.border,
-		borderRadius: radius.md,
-		borderStyle: "solid",
-		borderWidth: 1,
-		color: color.textMuted,
-		display: "flex",
-		fontSize: font.size_2,
-		gap: controlSize._1_5,
-		height: controlSize._6,
-		paddingInline: controlSize._2_5,
-	},
-	connectionDot: {
-		backgroundColor: color.warning,
-		borderRadius: radius.circle,
-		height: controlSize._1_25,
-		width: controlSize._1_25,
 	},
 	stopButton: {
 		alignItems: "center",
