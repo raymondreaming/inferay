@@ -29,12 +29,10 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.15",
-		"@octanejs/testing-library": "0.1.41",
 		"@tailwindcss/vite": "4.3.0",
 		"@types/bun": "latest",
 		"@types/jsdom": "^28.0.3",
 		"@types/react": "^19.2.14",
-		"happy-dom": "20.11.0",
 		"husky": "^9.1.7",
 		"jsdom": "^29.1.1",
 		"lint-staged": "^16.4.0",

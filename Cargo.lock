@@ -1392,7 +1392,6 @@ dependencies = [
 name = "inferay-tooling"
 version = "0.1.0"
 dependencies = [
- "notify",
  "serde_json",
  "sha2",
  "tempfile",
