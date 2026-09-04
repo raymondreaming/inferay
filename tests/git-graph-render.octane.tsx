@@ -302,7 +302,7 @@ describe("Git commit graph renderer", () => {
 				rootElement
 					.querySelector('[data-graph-header="true"]')
 					?.hasAttribute("hidden"),
-			).toBe(true);
+			).toBe(false);
 			expect(initialGraphHeader?.style.width).toBe("96px");
 			expect(initialMessageHeader?.previousElementSibling).toBe(
 				initialGraphHeader,

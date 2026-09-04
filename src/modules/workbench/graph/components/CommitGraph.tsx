@@ -714,7 +714,6 @@ function HeaderRow({
 	return (
 		<div
 			data-graph-header="true"
-			hidden
 			{...stylex.props(styles.header)}
 			style={{ width: headerWidth }}
 		>
