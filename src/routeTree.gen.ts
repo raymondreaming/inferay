@@ -8,14 +8,14 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from './routes/__root.tsx'
-import { Route as IndexRouteImport } from './routes/index.tsx'
-import { Route as AppRouteImport } from './routes/_app.tsx'
-import { Route as OnboardingRouteImport } from './routes/onboarding.tsx'
-import { Route as AppAgentRouteImport } from './routes/_app/agent.tsx'
-import { Route as AppAutomationsRouteImport } from './routes/_app/automations.tsx'
-import { Route as AppImagesRouteImport } from './routes/_app/images.tsx'
-import { Route as AppSkillsRouteImport } from './routes/_app/skills.tsx'
+import { Route as rootRouteImport } from './routes/__root'
+import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppRouteImport } from './routes/_app'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
+import { Route as AppAgentRouteImport } from './routes/_app/agent'
+import { Route as AppAutomationsRouteImport } from './routes/_app/automations'
+import { Route as AppImagesRouteImport } from './routes/_app/images'
+import { Route as AppSkillsRouteImport } from './routes/_app/skills'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
