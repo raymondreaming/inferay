@@ -2645,7 +2645,11 @@ export function useRepositoryWorkbench({
 	const diffPanel =
 		diffViewerCwd && (selectedFile || mainViewMode === "graph") ? (
 			<aside
-				{...stylex.props(styles.diffRail, zenMode && styles.diffRailZen)}
+				{...stylex.props(
+					styles.diffRail,
+					mainViewMode === "graph" && styles.graphRail,
+					zenMode && styles.diffRailZen,
+				)}
 				style={
 					zenMode
 						? undefined
@@ -2797,6 +2801,7 @@ const styles = stylex.create({
 	},
 	diffRail: {
 		position: "relative",
+		boxSizing: "border-box",
 		display: "flex",
 		minWidth: controlSize._0,
 		height: "100%",
@@ -2804,6 +2809,11 @@ const styles = stylex.create({
 		flexShrink: 0,
 		backgroundColor: color.transparent,
 		overflow: "visible",
+	},
+	graphRail: {
+		borderLeftWidth: 1,
+		borderLeftStyle: "solid",
+		borderLeftColor: color.border,
 	},
 	diffRailZen: {
 		minWidth: controlSize._0,
