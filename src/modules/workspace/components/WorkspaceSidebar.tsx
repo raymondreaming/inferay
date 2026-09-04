@@ -44,7 +44,10 @@ import { openSettingsModal } from "../../../modules/settings/model/settings-even
 import { dispatchOpenActiveGitGraph } from "../../../modules/workbench/model/workbench-events.ts";
 import {
 	CREATE_AGENT_CHAT_EVENT,
+	type CreateAgentChatDetail,
+	type CreateAgentChatTarget,
 	dispatchFocusAgentChatComposer,
+	resolveCreateAgentChatCwd,
 } from "../../../modules/workspace/model/workspace-events.ts";
 import {
 	type AgentPaneModel,
@@ -642,22 +645,29 @@ export function WorkspaceSidebar() {
 		[location.pathname, navigate],
 	);
 
-	const addChat = useCallback(async () => {
-		const cwd = repositoryProjection.activeWorkspace?.cwd;
-		const pane = createAgentPane(
-			loadDefaultChatSettings().agentKind,
-			cwd,
-			!cwd,
-		);
-		await mutateAgentWorkspaceState({ type: "addPane", pane }, "add-pane", {
-			createIfMissing: true,
-		});
-		navigate({ to: "/agent" });
-	}, [navigate, repositoryProjection.activeWorkspace?.cwd]);
+	const addChat = useCallback(
+		async (target: CreateAgentChatTarget) => {
+			const cwd = resolveCreateAgentChatCwd(
+				target,
+				repositoryProjection.activeWorkspace?.cwd,
+			);
+			const pane = createAgentPane(
+				loadDefaultChatSettings().agentKind,
+				cwd,
+				!cwd,
+			);
+			await mutateAgentWorkspaceState({ type: "addPane", pane }, "add-pane", {
+				createIfMissing: true,
+			});
+			navigate({ to: "/agent" });
+		},
+		[navigate, repositoryProjection.activeWorkspace?.cwd],
+	);
 
 	useEffect(() => {
-		const stopChat = listenWindowEvent(CREATE_AGENT_CHAT_EVENT, () => {
-			void addChat();
+		const stopChat = listenWindowEvent(CREATE_AGENT_CHAT_EVENT, (event) => {
+			const { target } = (event as CustomEvent<CreateAgentChatDetail>).detail;
+			void addChat(target);
 		});
 		return stopChat;
 	}, [addChat]);

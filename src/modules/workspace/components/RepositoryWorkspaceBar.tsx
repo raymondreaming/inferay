@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { useLocation, useNavigate } from "@octanejs/tanstack-router";
-import { useCallback, useEffect, useMemo, useState } from "octane";
+import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
@@ -9,7 +9,9 @@ import { iconSize } from "../../../design-system.ts";
 import { noop } from "../../../shared/lib/data.ts";
 import { listenWindowEvent } from "../../../shared/lib/react-events.ts";
 import {
+	IconFolder,
 	IconGitBranch,
+	IconMessageCircle,
 	IconPanelLeft,
 	IconPanelRight,
 	IconPlus,
@@ -34,7 +36,10 @@ import {
 	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
 	type WorkspaceSidebarCollapsedDetail,
 } from "../model/sidebar-state.ts";
-import { dispatchCreateAgentChat } from "../model/workspace-events.ts";
+import {
+	type CreateAgentChatTarget,
+	dispatchCreateAgentChat,
+} from "../model/workspace-events.ts";
 import {
 	agentStateKey,
 	compactAgentState,
@@ -62,6 +67,8 @@ export function RepositoryWorkspaceBar() {
 	const [state, setState] = useState(loadRepositoryBarState);
 	const [workspaceSidebarCollapsed, setWorkspaceSidebarCollapsedState] =
 		useState(loadSidebarCollapsed);
+	const [newMenuOpen, setNewMenuOpen] = useState(false);
+	const newMenuRef = useRef<HTMLDivElement | null>(null);
 	const projection = useMemo(
 		() => projectRepositoryWorkspaces(state.groups, state.selectedGroupId),
 		[state.groups, state.selectedGroupId],
@@ -93,6 +100,30 @@ export function RepositoryWorkspaceBar() {
 			cancelled = true;
 		};
 	}, [refresh]);
+	useEffect(() => {
+		if (!newMenuOpen) return;
+		const closeOnOutsidePointer = (event: PointerEvent) => {
+			if (
+				event.target instanceof Node &&
+				!newMenuRef.current?.contains(event.target)
+			) {
+				setNewMenuOpen(false);
+			}
+		};
+		const closeOnEscape = (event: KeyboardEvent) => {
+			if (event.key === "Escape") setNewMenuOpen(false);
+		};
+		document.addEventListener("pointerdown", closeOnOutsidePointer);
+		window.addEventListener("keydown", closeOnEscape);
+		return () => {
+			document.removeEventListener("pointerdown", closeOnOutsidePointer);
+			window.removeEventListener("keydown", closeOnEscape);
+		};
+	}, [newMenuOpen]);
+	const createChat = useCallback((target: CreateAgentChatTarget) => {
+		setNewMenuOpen(false);
+		dispatchCreateAgentChat(target);
+	}, []);
 
 	const activateWorkspace = useCallback(
 		(workspace: RepositoryWorkspace) => {
@@ -126,6 +157,7 @@ export function RepositoryWorkspaceBar() {
 	const barProps = stylex.props(styles.bar);
 	const tabsProps = stylex.props(styles.tabs);
 	const newChatProps = stylex.props(styles.newChat);
+	const newMenuRootProps = stylex.props(styles.newMenuRoot);
 	const workspaceSidebarToggleProps = stylex.props(
 		styles.panelToggle,
 		styles.workspaceSidebarToggle,
@@ -159,20 +191,63 @@ export function RepositoryWorkspaceBar() {
 			>
 				<IconPanelLeft size={iconSize.md} />
 			</button>
-			<button
-				type="button"
-				onClick={dispatchCreateAgentChat}
-				title={
-					projection.activeWorkspace
-						? `New chat in ${projection.activeWorkspace.name}`
-						: "New chat"
-				}
-				{...newChatProps}
-				className={`${APP_REGION_NO_DRAG_CLASS} ${newChatProps.className ?? ""}`}
+			<div
+				ref={newMenuRef}
+				{...newMenuRootProps}
+				className={`${APP_REGION_NO_DRAG_CLASS} ${newMenuRootProps.className ?? ""}`}
 			>
-				<span>New</span>
-				<IconPlus size={iconSize.sm} />
-			</button>
+				<button
+					type="button"
+					onClick={() => setNewMenuOpen((open) => !open)}
+					aria-haspopup="menu"
+					aria-expanded={newMenuOpen}
+					title="Create a chat or open a repository"
+					{...newChatProps}
+				>
+					<span>New</span>
+					<IconPlus size={iconSize.sm} />
+				</button>
+				{newMenuOpen ? (
+					<div
+						role="menu"
+						aria-label="Create new"
+						{...stylex.props(styles.newMenu)}
+					>
+						<button
+							type="button"
+							role="menuitem"
+							onClick={() => createChat("active-repository")}
+							{...stylex.props(styles.newMenuItem)}
+						>
+							<IconMessageCircle size={iconSize.md} />
+							<span {...stylex.props(styles.newMenuCopy)}>
+								<strong {...stylex.props(styles.newMenuLabel)}>New chat</strong>
+								<span {...stylex.props(styles.newMenuDescription)}>
+									{projection.activeWorkspace
+										? `In ${projection.activeWorkspace.name}`
+										: "Choose a repository first"}
+								</span>
+							</span>
+						</button>
+						<button
+							type="button"
+							role="menuitem"
+							onClick={() => createChat("new-repository")}
+							{...stylex.props(styles.newMenuItem)}
+						>
+							<IconFolder size={iconSize.md} />
+							<span {...stylex.props(styles.newMenuCopy)}>
+								<strong {...stylex.props(styles.newMenuLabel)}>
+									Open repository
+								</strong>
+								<span {...stylex.props(styles.newMenuDescription)}>
+									Choose another project folder
+								</span>
+							</span>
+						</button>
+					</div>
+				) : null}
+			</div>
 			<div
 				{...tabsProps}
 				className={`${APP_REGION_NO_DRAG_CLASS} ${tabsProps.className ?? ""}`}
@@ -272,6 +347,11 @@ const styles = stylex.create({
 		borderLeftWidth: 1,
 		marginLeft: "auto",
 	},
+	newMenuRoot: {
+		display: "flex",
+		flexShrink: 0,
+		position: "relative",
+	},
 	newChat: {
 		alignItems: "center",
 		backgroundColor: {
@@ -291,6 +371,57 @@ const styles = stylex.create({
 		fontWeight: font.weight_6,
 		gap: controlSize._1,
 		paddingInline: controlSize._3,
+	},
+	newMenu: {
+		backgroundColor: color.popoverOpaque,
+		borderColor: color.borderStrong,
+		borderRadius: radius.lg,
+		borderStyle: "solid",
+		borderWidth: 1,
+		boxShadow: "0 12px 36px rgba(0, 0, 0, 0.42)",
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._0_5,
+		left: controlSize._1,
+		padding: controlSize._1,
+		position: "absolute",
+		top: "calc(100% + 6px)",
+		width: 228,
+		zIndex: layer.dropdownPopover,
+	},
+	newMenuItem: {
+		alignItems: "center",
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlHover,
+			":focus-visible": color.controlHover,
+		},
+		borderRadius: radius.md,
+		color: color.textMuted,
+		display: "flex",
+		gap: controlSize._2_5,
+		minHeight: controlSize._12,
+		outline: "none",
+		paddingBlock: controlSize._2,
+		paddingInline: controlSize._2_5,
+		textAlign: "left",
+		width: "100%",
+	},
+	newMenuCopy: {
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._0_5,
+		minWidth: controlSize._0,
+	},
+	newMenuLabel: {
+		color: color.textMain,
+		fontSize: font.size_2,
+		fontWeight: font.weight_6,
+	},
+	newMenuDescription: {
+		color: color.textFaint,
+		fontSize: font.size_1,
+		fontWeight: font.weight_4,
 	},
 	tab: {
 		alignItems: "center",

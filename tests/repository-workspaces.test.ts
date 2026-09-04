@@ -4,6 +4,7 @@ import {
 	getVisibleRepositoryEntries,
 	projectRepositoryWorkspaces,
 } from "../src/modules/workspace/model/repository-workspaces.ts";
+import { resolveCreateAgentChatCwd } from "../src/modules/workspace/model/workspace-events.ts";
 import type {
 	AgentGroupModel,
 	AgentPaneModel,
@@ -35,6 +36,15 @@ function group(
 }
 
 describe("repository workspace projection", () => {
+	test("only inherits the active repository for a regular new chat", () => {
+		expect(
+			resolveCreateAgentChatCwd("active-repository", "/work/inferay"),
+		).toBe("/work/inferay");
+		expect(resolveCreateAgentChatCwd("new-repository", "/work/inferay")).toBe(
+			undefined,
+		);
+	});
+
 	test("deduplicates repository paths and scopes chats to the selected pane", () => {
 		const groups = [
 			group("layout-a", [pane("a", "/work/inferay"), pane("b")], "a"),
