@@ -1,6 +1,9 @@
 import * as stylex from "@octanejs/stylex";
 import { useEffect, useRef, useState } from "octane";
+import { iconSize } from "../../../design-system.ts";
 import { useAgentContext } from "../../../modules/context/hooks/useAgentContext.tsx";
+import { IconButton } from "../../../shared/ui/IconButton.tsx";
+import { IconArrowLeft } from "../../../shared/ui/Icons.tsx";
 import {
 	color,
 	controlSize,
@@ -57,6 +60,17 @@ export function AgentContextPanel({
 	return (
 		<div {...stylex.props(styles.panel)}>
 			<div {...stylex.props(styles.scopeRow)}>
+				<IconButton
+					type="button"
+					onClick={onClose}
+					variant="ghost"
+					size="sm"
+					title="Back to chat"
+					aria-label="Back to chat"
+				>
+					<IconArrowLeft size={iconSize.md} />
+				</IconButton>
+				<span {...stylex.props(styles.scopeDivider)} />
 				{scopes.map((item) => (
 					<button
 						type="button"
@@ -135,6 +149,13 @@ const styles = stylex.create({
 		backgroundColor: color.surfaceControl,
 		borderColor: color.border,
 		color: color.textMain,
+	},
+	scopeDivider: {
+		alignSelf: "stretch",
+		borderLeftColor: color.borderSubtle,
+		borderLeftStyle: "solid",
+		borderLeftWidth: 1,
+		marginBlock: controlSize._1,
 	},
 	body: {
 		display: "flex",

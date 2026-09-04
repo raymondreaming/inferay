@@ -113,6 +113,12 @@ export function useAgentChatMenus({
 		const deduped = new Map<string, SlashCommand>();
 		for (const command of [
 			{
+				name: "exit",
+				description: "Close this chat pane",
+				action: "local" as const,
+				isLocalCommand: true,
+			},
+			{
 				name: "clear",
 				description: "Clear all messages",
 				action: "local" as const,

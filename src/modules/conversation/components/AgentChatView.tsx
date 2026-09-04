@@ -39,6 +39,7 @@ import {
 	saveStoredModel,
 	saveStoredReasoningLevel,
 } from "../../../modules/conversation/model/chat-session-store.ts";
+import { WorkspaceDockHandle } from "../../../modules/workbench/components/WorkspaceDockHandle.tsx";
 import { InlineDirectoryPicker } from "../../../modules/workspace/components/InlineDirectoryPicker.tsx";
 import {
 	type AgentKind,
@@ -68,7 +69,10 @@ import {
 	appendSystemMessage,
 	windowChatMessagesForRender,
 } from "../model/chat-state-utils.ts";
-import { AgentChatHeader, type AgentChatSession } from "./AgentChatHeader.tsx";
+import {
+	type AgentChatSession,
+	AgentWorkspaceControl,
+} from "./AgentChatHeader.tsx";
 import { AgentChatStatusBar } from "./AgentChatStatusBar.tsx";
 import { AgentContextPanel } from "./AgentContextPanel.tsx";
 import { ChatComposer } from "./ChatComposer.tsx";
@@ -718,6 +722,7 @@ export const AgentChatView = memo(function AgentChatView({
 			resetStreamState();
 			scheduleScrollToBottom("auto");
 		},
+		onExit: onClose ? () => onClose(paneId) : undefined,
 		onExitComposerOnly,
 		paneId,
 		referencePaths,
@@ -860,19 +865,16 @@ export const AgentChatView = memo(function AgentChatView({
 				void handleDrop(event);
 			}}
 		>
-			{renderVisibleChat && !hideHeader && !composerOnly && (
-				<AgentChatHeader
-					paneId={paneId}
-					cwd={visibleCwd}
-					draggable={draggable}
-					onDragStart={onDragStart}
-					onDragEnd={onDragEnd}
-					onClose={onClose}
-					sessions={sessions}
-					onSelectSession={onSelectSession}
-					onAgentContext={() => setIsContextOpen((open) => !open)}
-					isAgentContextOpen={isContextOpen}
-				/>
+			{renderVisibleChat && !hideHeader && !composerOnly && draggable && (
+				<div {...stylex.props(styles.dragReveal)}>
+					<div {...stylex.props(styles.dragRevealSurface)}>
+						<WorkspaceDockHandle
+							draggable
+							onDragStart={onDragStart}
+							onDragEnd={onDragEnd}
+						/>
+					</div>
+				</div>
 			)}
 			{renderVisibleChat && !composerOnly && isContextOpen && (
 				<AgentContextPanel
@@ -1016,6 +1018,18 @@ export const AgentChatView = memo(function AgentChatView({
 							setMdPreview={setMdPreview}
 							onMdFileClick={handleMdFileClick}
 							voiceInput={voiceInput}
+							workspaceControl={
+								!hideHeader && !composerOnly ? (
+									<AgentWorkspaceControl
+										paneId={paneId}
+										cwd={visibleCwd}
+										sessions={sessions}
+										onSelectSession={onSelectSession}
+										onAgentContext={() => setIsContextOpen((open) => !open)}
+										isAgentContextOpen={isContextOpen}
+									/>
+								) : null
+							}
 						/>
 					</div>
 				</div>
@@ -1032,6 +1046,41 @@ const styles = stylex.create({
 		flexDirection: "column",
 		transitionProperty: "box-shadow",
 		transitionDuration: motion.durationFast,
+	},
+	dragReveal: {
+		alignItems: "flex-start",
+		display: "flex",
+		height: controlSize._10,
+		justifyContent: "flex-end",
+		opacity: 0,
+		paddingBlock: controlSize._1,
+		paddingInline: controlSize._1,
+		pointerEvents: "auto",
+		position: "absolute",
+		right: controlSize._0,
+		top: controlSize._0,
+		transitionDuration: motion.durationBase,
+		transitionProperty: "opacity",
+		width: controlSize._12,
+		zIndex: layer.chrome,
+		":hover": {
+			opacity: 1,
+		},
+		":focus-within": {
+			opacity: 1,
+		},
+	},
+	dragRevealSurface: {
+		alignItems: "center",
+		backdropFilter: "blur(14px)",
+		backgroundColor: color.surfaceGlassStrong,
+		borderColor: color.borderSubtle,
+		borderRadius: radius.lg,
+		borderStyle: "solid",
+		borderWidth: 1,
+		display: "flex",
+		justifyContent: "center",
+		padding: controlSize._0_5,
 	},
 	composerOnlyRoot: {
 		position: "absolute",

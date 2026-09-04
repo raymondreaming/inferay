@@ -1,25 +1,14 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useMemo } from "octane";
-import {
-	APP_REGION_DRAG_CLASS,
-	APP_REGION_NO_DRAG_CLASS,
-} from "../../../app/model/theme.ts";
+import { APP_REGION_NO_DRAG_CLASS } from "../../../app/model/theme.ts";
 import { iconSize } from "../../../design-system.ts";
-import { getAgentIcon } from "../../../modules/agents/components/AgentIcon.tsx";
-import { WorkspaceDockHandle } from "../../../modules/workbench/components/WorkspaceDockHandle.tsx";
 import type { AgentKind } from "../../../modules/workspace/model/workspace-model.ts";
 import {
 	DropdownButton,
 	type DropdownOption,
 } from "../../../shared/ui/DropdownButton.tsx";
-import { IconSettings, IconX } from "../../../shared/ui/Icons.tsx";
-import {
-	color,
-	controlSize,
-	font,
-	motion,
-	radius,
-} from "../../../tokens.stylex.ts";
+import { IconFolder } from "../../../shared/ui/Icons.tsx";
+import { color, controlSize, font, radius } from "../../../tokens.stylex.ts";
 
 export interface AgentChatSession {
 	paneId: string;
@@ -54,31 +43,23 @@ function SessionDropdownOption({
 	);
 }
 
-interface AgentChatHeaderProps {
+interface AgentWorkspaceControlProps {
 	paneId: string;
 	cwd?: string;
-	draggable?: boolean;
-	onDragStart?: (e: PointerEvent) => void;
-	onDragEnd?: () => void;
-	onClose?: (paneId: string) => void;
 	sessions?: AgentChatSession[];
 	onSelectSession?: (paneId: string) => void;
 	onAgentContext?: () => void;
 	isAgentContextOpen?: boolean;
 }
 
-export const AgentChatHeader = memo(function AgentChatHeader({
+export const AgentWorkspaceControl = memo(function AgentWorkspaceControl({
 	paneId,
 	cwd,
-	draggable,
-	onDragStart,
-	onDragEnd,
-	onClose,
 	sessions,
 	onSelectSession,
 	onAgentContext,
 	isAgentContextOpen,
-}: AgentChatHeaderProps) {
+}: AgentWorkspaceControlProps) {
 	const dirName = cwd ? cwd.split("/").pop() || cwd : null;
 	const hasMultipleSessions = !!(
 		sessions &&
@@ -95,124 +76,84 @@ export const AgentChatHeader = memo(function AgentChatHeader({
 							session.cwd ||
 							"No directory",
 						detail: session.summary || session.paneTitle || "New chat session",
-						icon: getAgentIcon(session.agentKind, 12),
+						icon: <IconFolder size={iconSize.sm} />,
 					}))
 				: [],
 		[hasMultipleSessions, sessions],
 	);
-	const closeButtonProps = stylex.props(styles.closeButton);
-	const contextButtonProps = stylex.props(
-		styles.contextButton,
-		isAgentContextOpen && styles.contextButtonActive,
+	const projectButtonProps = stylex.props(
+		styles.projectButton,
+		isAgentContextOpen && styles.projectButtonActive,
 	);
-	const projectButtonProps = stylex.props(styles.projectButton);
-	const rootProps = stylex.props(styles.root);
 
 	return (
-		<div className={`${APP_REGION_DRAG_CLASS} ${rootProps.className ?? ""}`}>
-			<WorkspaceDockHandle
-				draggable={draggable}
-				onDragStart={onDragStart}
-				onDragEnd={onDragEnd}
-			/>
-			{onAgentContext && (
+		<>
+			{dirName && hasMultipleSessions ? (
+				<span className={APP_REGION_NO_DRAG_CLASS}>
+					<DropdownButton
+						value={paneId}
+						options={sessionOptions}
+						onChange={onSelectSession}
+						minWidth={220}
+						maxVisibleOptions={6}
+						optionHeight={48}
+						renderOption={SessionDropdownOption}
+						buttonClassName={
+							stylex.props(styles.headerDropdownButton).className
+						}
+						labelClassName={stylex.props(styles.sessionLabel).className}
+					/>
+				</span>
+			) : dirName ? (
 				<button
 					type="button"
 					onClick={(event) => {
 						event.stopPropagation();
-						onAgentContext();
+						onAgentContext?.();
 					}}
-					{...contextButtonProps}
-					className={`${APP_REGION_NO_DRAG_CLASS} ${contextButtonProps.className ?? ""}`}
-					title="Agent Instructions"
+					{...projectButtonProps}
+					className={`${APP_REGION_NO_DRAG_CLASS} ${projectButtonProps.className ?? ""}`}
+					title={cwd}
 				>
-					<IconSettings size={iconSize.sm} />
+					<IconFolder size={iconSize.sm} />
+					<span {...stylex.props(styles.sessionLabel)}>{dirName}</span>
 				</button>
-			)}
-			{dirName &&
-				(hasMultipleSessions ? (
-					<span className={APP_REGION_NO_DRAG_CLASS}>
-						<DropdownButton
-							value={paneId}
-							options={sessionOptions}
-							onChange={onSelectSession}
-							minWidth={220}
-							maxVisibleOptions={6}
-							optionHeight={48}
-							renderOption={SessionDropdownOption}
-							buttonClassName={
-								stylex.props(styles.headerDropdownButton).className
-							}
-							labelClassName={stylex.props(styles.sessionLabel).className}
-						/>
-					</span>
-				) : (
-					<button
-						type="button"
-						onClick={(event) => {
-							event.stopPropagation();
-							onAgentContext?.();
-						}}
-						{...projectButtonProps}
-						className={`${APP_REGION_NO_DRAG_CLASS} ${projectButtonProps.className ?? ""}`}
-						title={cwd}
-					>
-						{dirName}
-					</button>
-				))}
-			<span {...stylex.props(styles.spacer)} />
-			{onClose && (
-				<button
-					type="button"
-					onClick={(e) => {
-						e.stopPropagation();
-						onClose(paneId);
-					}}
-					{...closeButtonProps}
-					className={`${APP_REGION_NO_DRAG_CLASS} ${closeButtonProps.className ?? ""}`}
-					title="Close"
-				>
-					<IconX size={iconSize.xs} />
-				</button>
-			)}
-		</div>
+			) : null}
+		</>
 	);
 });
 
 const styles = stylex.create({
-	root: {
-		alignItems: "center",
-		backgroundColor: color.transparent,
-		borderBottomColor: color.border,
-		borderBottomStyle: "solid",
-		borderBottomWidth: 1,
-		display: "flex",
-		flexShrink: 0,
-		gap: controlSize._1_5,
-		minHeight: controlSize._8,
-		minWidth: controlSize._0,
-		paddingBlock: controlSize._1,
-		paddingInline: controlSize._3,
-		userSelect: "none",
-	},
 	projectButton: {
-		backgroundColor: color.transparent,
+		alignItems: "center",
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlHover,
+		},
+		borderRadius: radius.md,
 		borderWidth: 0,
 		color: {
-			default: color.textMain,
-			":hover": color.textSoft,
+			default: color.textSoft,
+			":hover": color.textMain,
 		},
 		cursor: "pointer",
+		display: "inline-flex",
+		flexShrink: 1,
 		fontSize: font.size_1,
 		fontWeight: font.weight_5,
+		gap: controlSize._1,
+		height: controlSize._7,
+		maxWidth: "min(50%, 12rem)",
+		minWidth: controlSize._0,
 		overflow: "hidden",
-		padding: controlSize._0,
+		paddingBlock: controlSize._0,
+		paddingInline: controlSize._2,
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 	},
-	mutedText: {
-		color: color.textMuted,
-		fontSize: font.size_1,
+	projectButtonActive: {
+		backgroundColor: color.controlActive,
+		color: color.textMain,
 	},
 	headerDropdownButton: {
 		"--dropdown-button-bg-color": "transparent",
@@ -291,55 +232,5 @@ const styles = stylex.create({
 		whiteSpace: "nowrap",
 		color: color.textMuted,
 		fontSize: font.size_1,
-	},
-	closeButton: {
-		alignItems: "center",
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.dangerWash,
-		},
-		borderRadius: radius.sm,
-		color: {
-			default: color.textMuted,
-			":hover": color.danger,
-		},
-		display: "flex",
-		flexShrink: 0,
-		height: controlSize._5,
-		justifyContent: "center",
-		transitionDuration: motion.durationBase,
-		transitionProperty: "background-color, color",
-		transitionTimingFunction: motion.ease,
-		width: controlSize._5,
-	},
-	contextButton: {
-		alignItems: "center",
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlHover,
-		},
-		borderRadius: radius.sm,
-		borderWidth: 0,
-		color: {
-			default: color.textMuted,
-			":hover": color.textMain,
-		},
-		cursor: "pointer",
-		display: "flex",
-		flexShrink: 0,
-		height: controlSize._5,
-		justifyContent: "center",
-		transitionDuration: motion.durationBase,
-		transitionProperty: "background-color, color",
-		transitionTimingFunction: motion.ease,
-		width: controlSize._5,
-	},
-	contextButtonActive: {
-		backgroundColor: color.controlActive,
-		color: color.textMain,
-	},
-	spacer: {
-		flex: 1,
-		minWidth: controlSize._0,
 	},
 });

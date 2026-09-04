@@ -38,6 +38,7 @@ import {
 	radius,
 	shadow,
 } from "../../../tokens.stylex.ts";
+import type { ReactNode } from "../../../types/octane-react-compat.ts";
 import type {
 	FileMenuState,
 	FileSearchResult,
@@ -286,6 +287,7 @@ export const ChatComposer = memo(function ChatComposer({
 	setMdPreview,
 	onMdFileClick,
 	voiceInput,
+	workspaceControl,
 }: {
 	showInput: boolean;
 	agentKind: AgentKind;
@@ -350,6 +352,7 @@ export const ChatComposer = memo(function ChatComposer({
 		isSupported: boolean;
 		onToggleListening: () => void;
 	};
+	workspaceControl?: ReactNode;
 }) {
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	const agentConfigButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -666,6 +669,8 @@ export const ChatComposer = memo(function ChatComposer({
 											)}
 										/>
 									</button>
+									<span {...stylex.props(styles.pickerSpacer)} />
+									{workspaceControl}
 								</div>
 							</div>
 						</Liquid.Item>
@@ -1375,5 +1380,9 @@ const styles = stylex.create({
 		position: "relative",
 		userSelect: "none",
 		zIndex: layer.content,
+	},
+	pickerSpacer: {
+		flex: 1,
+		minWidth: controlSize._2,
 	},
 });

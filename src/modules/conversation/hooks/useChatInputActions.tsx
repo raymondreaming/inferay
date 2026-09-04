@@ -81,6 +81,7 @@ export function useChatInputActions({
 	input,
 	isLoading,
 	onSendStart,
+	onExit,
 	onExitComposerOnly,
 	paneId,
 	referencePaths,
@@ -114,6 +115,7 @@ export function useChatInputActions({
 	input: string;
 	isLoading: boolean;
 	onSendStart?: () => void;
+	onExit?: () => void;
 	onExitComposerOnly?: () => void;
 	paneId: string;
 	referencePaths?: string[];
@@ -251,7 +253,9 @@ export function useChatInputActions({
 			}
 
 			if (cmd.action === "local") {
-				if (cmd.name === "clear") {
+				if (cmd.name === "exit") {
+					onExit?.();
+				} else if (cmd.name === "clear") {
 					wsClient.send({ type: "chat:destroy", paneId });
 					clearProviderSessionId(paneId);
 					setMessages([]);
@@ -290,6 +294,7 @@ export function useChatInputActions({
 			clearCheckpoints,
 			cwd,
 			incrementUsage,
+			onExit,
 			paneId,
 			sendUserMessage,
 			setInput,
