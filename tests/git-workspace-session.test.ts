@@ -68,14 +68,7 @@ describe("Git workspace panel session", () => {
 		expect(diff.selectedFileCommitHash).toBe("commit-b");
 		expect(diff.selectedCommitHash).toBe("commit-b");
 
-		const nextDiff = openGitWorkingTreeFileDiff(diff, "/repo", {
-			path: "src/next.tsx",
-			staged: true,
-		});
-		expect(nextDiff.diffContext).toBe("graphWorkingTree");
-		expect(getGitWorkspaceSidebarContent(nextDiff, false)).toBe("workingTree");
-
-		const graph = dismissGitWorkspaceViewer(nextDiff);
+		const graph = dismissGitWorkspaceViewer(diff);
 		expect(graph.mainViewMode).toBe("graph");
 		expect(graph.diffContext).toBeNull();
 		expect(graph.selectedCommitHash).toBe("commit-b");
@@ -106,7 +99,14 @@ describe("Git workspace panel session", () => {
 		expect(isHistoricalGitWorkspaceDiff(diff)).toBe(false);
 		expect(getGitWorkspaceSidebarContent(diff, false)).toBe("workingTree");
 
-		const graph = dismissGitWorkspaceViewer(diff);
+		const nextDiff = openGitWorkingTreeFileDiff(diff, "/repo", {
+			path: "src/next.tsx",
+			staged: true,
+		});
+		expect(nextDiff.diffContext).toBe("graphWorkingTree");
+		expect(getGitWorkspaceSidebarContent(nextDiff, false)).toBe("workingTree");
+
+		const graph = dismissGitWorkspaceViewer(nextDiff);
 		expect(graph.mainViewMode).toBe("graph");
 		expect(graph.selectedCommitHash).toBe("wip");
 		expect(graph.diffViewerCwd).toBe("/repo");
