@@ -327,7 +327,7 @@ function formatCommitDate(value: string, fallback: string) {
 		hour12: true,
 	})
 		.format(parsed)
-		.replace(",", " @");
+		.replace(",", "");
 }
 
 function preferencesKey(repositoryKey?: string) {
@@ -705,6 +705,7 @@ function HeaderRow({
 			{visibleOrder.map((column) => (
 				<div
 					key={column}
+					title={`Drag to reorder ${labels[column].toLocaleLowerCase()}`}
 					draggable
 					onDragStart={(event) => {
 						event.dataTransfer?.setData(
@@ -2343,18 +2344,11 @@ const styles = stylex.create({
 		zIndex: layer.control,
 		display: "flex",
 		minWidth: "100%",
-		height: "22px",
+		height: controlSize._2,
 		alignItems: "center",
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
-		borderBottomColor: color.border,
-		backgroundColor: color.background,
-		backdropFilter: "blur(8px)",
-		color: color.textMuted,
-		fontSize: font.size_1,
-		fontWeight: font.weight_6,
-		letterSpacing: "0.16em",
-		textTransform: "uppercase",
+		backgroundColor: color.transparent,
+		color: color.transparent,
+		fontSize: controlSize._0,
 	},
 	headerCell: {
 		position: "relative",
@@ -2363,16 +2357,20 @@ const styles = stylex.create({
 		flexShrink: 0,
 		alignItems: "center",
 		overflow: "hidden",
-		paddingInline: controlSize._3,
+		paddingInline: controlSize._0,
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 		boxSizing: "border-box",
 	},
 	draggableHeader: {
 		cursor: "grab",
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.surfaceWhite04,
+		},
 	},
 	headerTools: {
-		display: "flex",
+		display: "none",
 		height: "100%",
 		flexShrink: 0,
 		alignItems: "center",
@@ -2385,9 +2383,7 @@ const styles = stylex.create({
 		justifyContent: "flex-end",
 	},
 	headerCellBorder: {
-		borderLeftWidth: 1,
-		borderLeftStyle: "solid",
-		borderLeftColor: color.border,
+		borderLeftWidth: controlSize._0,
 	},
 	columnResizeHandle: {
 		position: "absolute",
@@ -2395,7 +2391,7 @@ const styles = stylex.create({
 		right: "-3px",
 		bottom: controlSize._0,
 		zIndex: layer.overlayContent,
-		width: "6px",
+		width: controlSize._2,
 		borderWidth: controlSize._0,
 		backgroundColor: {
 			default: color.transparent,

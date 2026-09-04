@@ -12,6 +12,10 @@ import {
 	readStoredJson,
 	writeStoredJson,
 } from "../../../../adapters/storage/stored-values.ts";
+import {
+	APP_REGION_DRAG_CLASS,
+	APP_REGION_NO_DRAG_CLASS,
+} from "../../../../app/model/theme.ts";
 import { iconSize } from "../../../../design-system.ts";
 import {
 	shouldDisableSnippetHighlighting,
@@ -372,13 +376,19 @@ export const DocumentViewer = memo(function DocumentViewer({
 
 	return (
 		<section {...stylex.props(styles.root)}>
-			<header {...stylex.props(styles.header)}>
+			<header
+				{...stylex.props(styles.header)}
+				className={`${APP_REGION_DRAG_CLASS} ${stylex.props(styles.header).className ?? ""}`}
+			>
 				<WorkspaceDockHandle
 					draggable={draggable}
 					onDragStart={onDragStart}
 					onDragEnd={onDragEnd}
 				/>
-				<div {...stylex.props(styles.fileTabs)}>
+				<div
+					{...stylex.props(styles.fileTabs)}
+					className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.fileTabs).className ?? ""}`}
+				>
 					{openFiles.length > 0
 						? openFiles.map((file) => (
 								<div
@@ -611,7 +621,7 @@ const styles = stylex.create({
 		position: "sticky",
 		left: controlSize._0,
 		paddingRight: controlSize._2,
-		backgroundColor: color.surfaceGlass,
+		backgroundColor: color.background,
 		color: color.textFaint,
 		fontSize: font.size_1,
 		textAlign: "right",

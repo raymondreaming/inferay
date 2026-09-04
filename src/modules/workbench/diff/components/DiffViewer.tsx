@@ -122,6 +122,7 @@ const DIFF_CONFIG = {
 
 const LINE_H = DIFF_CONFIG.lineHeight;
 const GUTTER_W = DIFF_CONFIG.lineNumWidth + DIFF_CONFIG.signWidth;
+const SPLIT_RIGHT_INSET = 12;
 const OVERSCAN = DIFF_CONFIG.overscan;
 const MAX_RENDERED_DIFF_LINES = 12_000;
 const MAX_RENDERED_LINE_CHARS = 4000;
@@ -157,6 +158,7 @@ const DiffRow = memo(function DiffRow({
 	isHighlighted,
 	minWidth,
 	hideGutter,
+	gutterOffset = 0,
 }: {
 	clipContent?: boolean;
 	line: DiffLine;
@@ -166,6 +168,7 @@ const DiffRow = memo(function DiffRow({
 	isHighlighted?: boolean;
 	minWidth?: number;
 	hideGutter?: boolean;
+	gutterOffset?: number;
 }) {
 	if (line.type === "hunk") {
 		return (
@@ -173,7 +176,7 @@ const DiffRow = memo(function DiffRow({
 				{...stylex.props(diffStyles.hunkSeparator)}
 				style={{
 					minWidth: minWidth || "100%",
-					paddingLeft: hideGutter ? GUTTER_W + 8 : undefined,
+					paddingLeft: hideGutter ? gutterOffset + 8 : undefined,
 				}}
 			>
 				<span {...stylex.props(diffStyles.hunkText)}>{line.content}</span>
@@ -241,7 +244,7 @@ const DiffRow = memo(function DiffRow({
 						? "inset 2px 0 0 var(--color-inferay-accent)"
 						: undefined,
 					minWidth: minWidth || "100%",
-					paddingLeft: hideGutter ? GUTTER_W : undefined,
+					paddingLeft: hideGutter && gutterOffset ? gutterOffset : undefined,
 					width: "100%",
 					"--hover-bg": hoverBg,
 				} as DiffRowStyle
@@ -344,6 +347,8 @@ const VirtualPanel = memo(function VirtualPanel({
 	scrollRef,
 	onScroll,
 	disableTokenize,
+	gutterLines,
+	showGutter = true,
 	showMinimap: _showMinimap = false,
 	minimapOldLines,
 	verticalFollower = false,
@@ -364,6 +369,8 @@ const VirtualPanel = memo(function VirtualPanel({
 		programmatic?: boolean,
 	) => void;
 	disableTokenize: boolean;
+	gutterLines?: DiffLine[];
+	showGutter?: boolean;
 	showMinimap?: boolean;
 	minimapOldLines?: DiffLine[];
 	verticalFollower?: boolean;
@@ -433,7 +440,7 @@ const VirtualPanel = memo(function VirtualPanel({
 	}, [lines]);
 	const minContentWidth = Math.min(
 		MAX_PANEL_CONTENT_WIDTH,
-		DIFF_CONFIG.lineNumWidth + DIFF_CONFIG.signWidth + maxLineLength * 9 + 48,
+		(showGutter ? GUTTER_W : SPLIT_RIGHT_INSET) + maxLineLength * 9 + 48,
 	);
 
 	const start = Math.max(0, Math.floor(scrollTop / LINE_H) - OVERSCAN);
@@ -605,13 +612,21 @@ const VirtualPanel = memo(function VirtualPanel({
 							minWidth: minContentWidth,
 						}}
 					>
-						<div {...stylex.props(diffStyles.gutterLayer)}>
-							<div {...stylex.props(diffStyles.gutterBlock)} style={{ top: 0 }}>
-								{visibleRows.map(({ line, key }) => (
-									<DiffGutterRow key={key} line={line} />
-								))}
+						{showGutter ? (
+							<div {...stylex.props(diffStyles.gutterLayer)}>
+								<div
+									{...stylex.props(diffStyles.gutterBlock)}
+									style={{ top: 0 }}
+								>
+									{visibleRows.map(({ line, key }) => (
+										<DiffGutterRow
+											key={key}
+											line={gutterLines?.[key] ?? line}
+										/>
+									))}
+								</div>
 							</div>
-						</div>
+						) : null}
 						{visibleRows.map(
 							({ line, tokens, highlightedTokens, key, isHighlighted }) => (
 								<DiffRow
@@ -623,6 +638,7 @@ const VirtualPanel = memo(function VirtualPanel({
 									isHighlighted={isHighlighted}
 									minWidth={minContentWidth}
 									hideGutter
+									gutterOffset={showGutter ? GUTTER_W : SPLIT_RIGHT_INSET}
 								/>
 							),
 						)}
@@ -677,6 +693,15 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 		() => alignDiffLines(newLines, lineCount),
 		[lineCount, newLines],
 	);
+	const combinedGutterLines = useMemo(
+		() =>
+			alignedOldLines.map((line, index) =>
+				line.type === "spacer" && alignedNewLines[index]?.type === "add"
+					? alignedNewLines[index]!
+					: line,
+			),
+		[alignedNewLines, alignedOldLines],
+	);
 	const {
 		followerRef,
 		followerScrollSource,
@@ -698,6 +723,7 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 					scrollRef={followerRef}
 					verticalFollower
 					disableTokenize={disableTokenize}
+					gutterLines={combinedGutterLines}
 					externalScrollTop={followerScrollTop}
 					externalScrollSource={followerScrollSource}
 					side="left"
@@ -714,6 +740,7 @@ const VirtualSplitPanel = memo(function VirtualSplitPanel({
 					scrollRef={scrollRef}
 					onScroll={syncFromMaster}
 					disableTokenize={disableTokenize}
+					showGutter={false}
 					showMinimap
 					minimapOldLines={alignedOldLines}
 					externalScrollTop={externalScrollTop}
@@ -1555,7 +1582,7 @@ const diffStyles = stylex.create({
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
-		backgroundColor: color.surfaceGlassStrong,
+		backgroundColor: color.background,
 		paddingBlock: controlSize._1_5,
 		paddingInline: controlSize._3,
 	},
@@ -1660,14 +1687,14 @@ const diffStyles = stylex.create({
 		zIndex: layer.chrome,
 		width: GUTTER_W,
 		height: controlSize._0,
-		backgroundColor: color.surfaceGlassStrong,
+		backgroundColor: color.background,
 		pointerEvents: "none",
 	},
 	gutterBlock: {
 		position: "absolute",
 		left: controlSize._0,
 		width: GUTTER_W,
-		backgroundColor: color.surfaceGlassStrong,
+		backgroundColor: color.background,
 	},
 	gutterRow: {
 		display: "flex",

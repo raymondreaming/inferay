@@ -16,7 +16,6 @@ import {
 	IconChevronRight,
 	IconExternalLink,
 	IconFolderFill,
-	IconGitBranch,
 	IconGitCommit,
 	IconMinus,
 	IconPanelLeft,
@@ -122,7 +121,6 @@ export const ChangesPanel = memo(function ChangesPanel(
 		comparisonDetails,
 		onSelectCommitFile,
 		onSelectComparisonFile,
-		branch,
 		commitMessage,
 		onCommitMessageChange,
 		onCommit,
@@ -149,22 +147,18 @@ export const ChangesPanel = memo(function ChangesPanel(
 				: workingFiles,
 		[fileViewMode, stagedFiles, unstagedFiles, workingFiles],
 	);
-	const additions = workingFiles.reduce(
+	const showingWorkingTree = mainViewMode !== "graph" || selectedIsWip;
+	const displayedFiles = showingWorkingTree
+		? workingFiles
+		: (comparisonDetails?.files ?? commitDetails?.files ?? []);
+	const additions = displayedFiles.reduce(
 		(total, file) => total + (file.additions ?? 0),
 		0,
 	);
-	const deletions = workingFiles.reduce(
+	const deletions = displayedFiles.reduce(
 		(total, file) => total + (file.deletions ?? 0),
 		0,
 	);
-	const showingWorkingTree = mainViewMode !== "graph" || selectedIsWip;
-	const headerBranch = showingWorkingTree
-		? branch
-		: selectedCommitCount > 1
-			? `${selectedCommitCount} selected`
-			: selectedCommitHash
-				? `commit: ${selectedCommitHash.slice(0, 7)}`
-				: "Repository";
 	const selectAdjacentFile = (direction: -1 | 1) => {
 		if (navigableFiles.length === 0) return;
 		const currentIndex = selectedFile
@@ -226,22 +220,17 @@ export const ChangesPanel = memo(function ChangesPanel(
 				onCollapse={onCollapse}
 				onOpenGraph={onOpenGraph}
 				graphActive={mainViewMode === "graph"}
-				branch={headerBranch}
+				additions={additions}
+				deletions={deletions}
+				fileViewMode={fileViewMode}
+				onFileViewModeChange={onFileViewModeChange}
+				showFileControls={hasProject}
 				worktreePath={selectedWorktreePath}
 				onOpenWorktree={onOpenWorktree}
 			/>
 
 			{showingWorkingTree && (
 				<div {...stylex.props(styles.splitArea)}>
-					{hasProject ? (
-						<div {...stylex.props(styles.detailsSubheader)}>
-							<FileChangeTotals additions={additions} deletions={deletions} />
-							<FileViewToggle
-								value={fileViewMode}
-								onChange={onFileViewModeChange}
-							/>
-						</div>
-					) : null}
 					{!hasProject ? (
 						<div {...stylex.props(styles.emptyState)}>
 							{projectLoading ? (
@@ -266,6 +255,7 @@ export const ChangesPanel = memo(function ChangesPanel(
 								onAction={showFileActions ? onStageFile : undefined}
 								onActionAll={showFileActions ? onStageAll : undefined}
 								viewMode={fileViewMode}
+								splitPane
 							/>
 							<FileGroup
 								title="Staged"
@@ -276,6 +266,7 @@ export const ChangesPanel = memo(function ChangesPanel(
 								onAction={showFileActions ? onUnstageFile : undefined}
 								onActionAll={showFileActions ? onUnstageAll : undefined}
 								viewMode={fileViewMode}
+								splitPane
 							/>
 						</>
 					)}
@@ -306,7 +297,6 @@ export const ChangesPanel = memo(function ChangesPanel(
 								selectionCount={selectedCommitCount}
 								onSelectFile={onSelectComparisonFile}
 								viewMode={fileViewMode}
-								onViewModeChange={onFileViewModeChange}
 							/>
 						) : (
 							<div {...stylex.props(styles.emptyStateLarge)}>
@@ -325,7 +315,6 @@ export const ChangesPanel = memo(function ChangesPanel(
 								details={commitDetails}
 								onSelectFile={onSelectCommitFile}
 								viewMode={fileViewMode}
-								onViewModeChange={onFileViewModeChange}
 							/>
 						) : (
 							<div {...stylex.props(styles.emptyStateLarge)}>
@@ -503,7 +492,7 @@ const styles = stylex.create({
 		flex: 1,
 		minHeight: controlSize._0,
 		flexDirection: "column",
-		overflowY: "auto",
+		overflow: "hidden",
 	},
 	emptyState: {
 		display: "flex",
@@ -552,7 +541,7 @@ const styles = stylex.create({
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
-		backgroundColor: color.transparent,
+		backgroundColor: color.background,
 		paddingInline: controlSize._3,
 		paddingBlock: controlSize._0,
 	},
@@ -572,22 +561,6 @@ const styles = stylex.create({
 		color: color.textMuted,
 		fontFamily: font.familyDiff,
 		fontSize: font.size_1,
-	},
-	branchName: {
-		minWidth: controlSize._0,
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-		color: color.textMain,
-		fontFamily: font.familyDiff,
-		fontSize: font.size_1,
-	},
-	headerBranch: {
-		display: "flex",
-		minWidth: controlSize._0,
-		marginLeft: "auto",
-		alignItems: "center",
-		gap: controlSize._1_5,
 	},
 	changeTotals: {
 		display: "flex",
@@ -967,9 +940,9 @@ const styles = stylex.create({
 		display: "flex",
 		flexDirection: "column",
 		gap: controlSize._2,
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
-		borderBottomColor: color.border,
+		borderTopWidth: 1,
+		borderTopStyle: "solid",
+		borderTopColor: color.border,
 		padding: controlSize._3,
 	},
 	detailIdentityGrid: {
@@ -1055,18 +1028,6 @@ const styles = stylex.create({
 	authorText: {
 		color: color.textSoft,
 		fontSize: font.size_2,
-	},
-	detailsSubheader: {
-		flexShrink: 0,
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "space-between",
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
-		borderBottomColor: color.surfaceWhite06,
-		backgroundColor: color.surfaceWhite02,
-		paddingBlock: controlSize._2,
-		paddingInline: controlSize._3,
 	},
 	commitFileRow: {
 		display: "flex",
@@ -1164,6 +1125,15 @@ const styles = stylex.create({
 		flexShrink: 0,
 		flexDirection: "column",
 	},
+	splitFileGroup: {
+		boxSizing: "border-box",
+		flexGrow: 0,
+		flexShrink: 0,
+		height: "50%",
+		minHeight: "50%",
+		maxHeight: "50%",
+		overflow: "hidden",
+	},
 	emptyGroupBody: {
 		height: controlSize._12,
 		flexShrink: 0,
@@ -1176,9 +1146,6 @@ const styles = stylex.create({
 		fontSize: font.size_2,
 	},
 	groupHeader: {
-		position: "sticky",
-		top: controlSize._0,
-		zIndex: layer.control,
 		display: "flex",
 		height: controlSize._8,
 		flexShrink: 0,
@@ -1187,7 +1154,7 @@ const styles = stylex.create({
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 		paddingInline: controlSize._3,
 		gap: controlSize._2,
 	},
@@ -1247,6 +1214,13 @@ const styles = stylex.create({
 	groupList: {
 		flexShrink: 0,
 		backgroundColor: color.transparent,
+	},
+	splitGroupList: {
+		flexGrow: 1,
+		flexShrink: 1,
+		minHeight: controlSize._0,
+		overflowY: "auto",
+		overscrollBehavior: "contain",
 	},
 	pathRow: {
 		position: "relative",
@@ -1446,14 +1420,22 @@ function ChangesPanelHeader({
 	onCollapse,
 	onOpenGraph,
 	graphActive,
-	branch,
+	additions,
+	deletions,
+	fileViewMode,
+	onFileViewModeChange,
+	showFileControls,
 	worktreePath,
 	onOpenWorktree,
 }: {
 	onCollapse?: () => void;
 	onOpenGraph?: () => void;
 	graphActive: boolean;
-	branch?: string;
+	additions: number;
+	deletions: number;
+	fileViewMode: "path" | "tree";
+	onFileViewModeChange: (mode: "path" | "tree") => void;
+	showFileControls: boolean;
 	worktreePath?: string;
 	onOpenWorktree?: () => void;
 }) {
@@ -1489,18 +1471,16 @@ function ChangesPanelHeader({
 					<IconGitCommit size={iconSize.compact} />
 				</button>
 			) : null}
-			<div
-				{...stylex.props(styles.headerBranch)}
-				title={worktreePath ?? branch ?? "Repository"}
-			>
-				<IconGitBranch
-					size={iconSize.compact}
-					{...stylex.props(styles.mutedIcon)}
-				/>
-				<span {...stylex.props(styles.branchName)}>
-					{branch ?? "Repository"}
-				</span>
-			</div>
+			<span {...stylex.props(styles.spacer)} />
+			{showFileControls ? (
+				<>
+					<FileChangeTotals additions={additions} deletions={deletions} />
+					<FileViewToggle
+						value={fileViewMode}
+						onChange={onFileViewModeChange}
+					/>
+				</>
+			) : null}
 			{onOpenWorktree ? (
 				<button
 					type="button"
@@ -1628,15 +1608,20 @@ function CommitDetailsPanel({
 	details,
 	onSelectFile,
 	viewMode,
-	onViewModeChange,
 }: {
 	details: CommitDetails;
 	onSelectFile?: (file: CommitFile) => void;
 	viewMode: "path" | "tree";
-	onViewModeChange: (mode: "path" | "tree") => void;
 }) {
 	return (
 		<div {...stylex.props(styles.detailsRoot)}>
+			<div {...stylex.props(styles.scrollArea)}>
+				<HistoricalFileList
+					files={details.files}
+					viewMode={viewMode}
+					onSelectFile={onSelectFile}
+				/>
+			</div>
 			<div {...stylex.props(styles.detailsHeader)}>
 				<p title={details.message} {...stylex.props(styles.commitMessage)}>
 					{details.message}
@@ -1657,38 +1642,7 @@ function CommitDetailsPanel({
 						email={details.authorEmail}
 						date={details.authoredAt}
 					/>
-					{details.committer !== details.author ||
-					details.committedAt !== details.authoredAt ? (
-						<DetailIdentity
-							label="Committer"
-							name={details.committer}
-							email={details.committerEmail}
-							date={details.committedAt}
-						/>
-					) : null}
 				</div>
-			</div>
-
-			<div {...stylex.props(styles.detailsSubheader)}>
-				<FileChangeTotals
-					additions={details.files.reduce(
-						(sum, file) => sum + file.additions,
-						0,
-					)}
-					deletions={details.files.reduce(
-						(sum, file) => sum + file.deletions,
-						0,
-					)}
-				/>
-				<FileViewToggle value={viewMode} onChange={onViewModeChange} />
-			</div>
-
-			<div {...stylex.props(styles.scrollArea)}>
-				<HistoricalFileList
-					files={details.files}
-					viewMode={viewMode}
-					onSelectFile={onSelectFile}
-				/>
 			</div>
 		</div>
 	);
@@ -1769,24 +1723,27 @@ function ComparisonDetailsPanel({
 	selectionCount,
 	onSelectFile,
 	viewMode,
-	onViewModeChange,
 }: {
 	details: ComparisonDetails;
 	selectionCount: number;
 	onSelectFile?: (file: CommitFile) => void;
 	viewMode: "path" | "tree";
-	onViewModeChange: (mode: "path" | "tree") => void;
 }) {
-	const additions = details.files.reduce(
-		(sum, file) => sum + file.additions,
-		0,
-	);
-	const deletions = details.files.reduce(
-		(sum, file) => sum + file.deletions,
-		0,
-	);
 	return (
 		<div {...stylex.props(styles.detailsRoot)}>
+			<div {...stylex.props(styles.scrollArea)}>
+				{details.files.length ? (
+					<HistoricalFileList
+						files={details.files}
+						viewMode={viewMode}
+						onSelectFile={onSelectFile}
+					/>
+				) : (
+					<div {...stylex.props(styles.emptyStateLarge)}>
+						<p {...stylex.props(styles.mutedText)}>No file differences</p>
+					</div>
+				)}
+			</div>
 			<div {...stylex.props(styles.detailsHeader)}>
 				<span {...stylex.props(styles.detailIdentityLabel)}>
 					Comparing {selectionCount} items
@@ -1806,23 +1763,6 @@ function ComparisonDetailsPanel({
 						Merge base {details.mergeBase.slice(0, 7)}
 					</span>
 				) : null}
-			</div>
-			<div {...stylex.props(styles.detailsSubheader)}>
-				<FileChangeTotals additions={additions} deletions={deletions} />
-				<FileViewToggle value={viewMode} onChange={onViewModeChange} />
-			</div>
-			<div {...stylex.props(styles.scrollArea)}>
-				{details.files.length ? (
-					<HistoricalFileList
-						files={details.files}
-						viewMode={viewMode}
-						onSelectFile={onSelectFile}
-					/>
-				) : (
-					<div {...stylex.props(styles.emptyStateLarge)}>
-						<p {...stylex.props(styles.mutedText)}>No file differences</p>
-					</div>
-				)}
 			</div>
 		</div>
 	);
@@ -2138,6 +2078,7 @@ function FileGroup({
 	showHeader = true,
 	showFullPath = false,
 	viewMode = "path",
+	splitPane = false,
 }: {
 	title: string;
 	files: GitFileEntry[];
@@ -2150,6 +2091,7 @@ function FileGroup({
 	showHeader?: boolean;
 	showFullPath?: boolean;
 	viewMode?: "path" | "tree";
+	splitPane?: boolean;
 }) {
 	const [isCollapsed, setIsCollapsed] = useState(false);
 	const [hoveredActionPath, setHoveredActionPath] = useState<string | null>(
@@ -2182,7 +2124,9 @@ function FileGroup({
 	};
 
 	return (
-		<div {...stylex.props(styles.fileGroup)}>
+		<div
+			{...stylex.props(styles.fileGroup, splitPane && styles.splitFileGroup)}
+		>
 			{showHeader ? (
 				<div
 					{...stylex.props(
@@ -2239,7 +2183,12 @@ function FileGroup({
 					</span>
 				</div>
 			) : !isCollapsed ? (
-				<div {...stylex.props(styles.groupList)}>
+				<div
+					{...stylex.props(
+						styles.groupList,
+						splitPane && styles.splitGroupList,
+					)}
+				>
 					{viewMode === "path" &&
 						files.map((f) => {
 							const active =

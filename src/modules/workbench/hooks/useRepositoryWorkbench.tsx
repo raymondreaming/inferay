@@ -9,6 +9,7 @@ import {
 } from "../../../adapters/storage/stored-values.ts";
 import { CLIENT_STORAGE_CHANGED_EVENT } from "../../../adapters/storage/sync.ts";
 import { iconSize } from "../../../design-system.ts";
+import { FileTypeIcon } from "../../../modules/explorer/components/FileTypeIcon.tsx";
 import {
 	DOCUMENT_OPEN_EVENT,
 	type DocumentOpenDetail,
@@ -569,14 +570,13 @@ function createDetachedFilePanelId() {
 
 function DiffFilePath({ path }: { readonly path: string }) {
 	const separator = path.lastIndexOf("/");
-	const directory = separator >= 0 ? path.slice(0, separator + 1) : "";
 	const fileName = separator >= 0 ? path.slice(separator + 1) : path;
 	return (
-		<span title={path} {...stylex.props(styles.viewerTitle)}>
-			{directory ? (
-				<span {...stylex.props(styles.viewerDirectory)}>{directory}</span>
-			) : null}
-			<strong {...stylex.props(styles.viewerFileName)}>{fileName}</strong>
+		<span title={path} {...stylex.props(styles.viewerFloatingFile)}>
+			<FileTypeIcon path={path} size={iconSize.md} />
+			<span {...stylex.props(styles.viewerFloatingPath)}>
+				<strong {...stylex.props(styles.viewerFileName)}>{fileName}</strong>
+			</span>
 		</span>
 	);
 }
@@ -840,8 +840,18 @@ function ChatDiffPanel({
 			>
 				{operationActivity.message}
 			</span>
-			<header {...stylex.props(styles.viewerHeader)}>
-				{drag ? <WorkspaceDockHandle {...drag} /> : null}
+			<header
+				{...stylex.props(
+					styles.viewerHeader,
+					mainViewMode !== "graph" && styles.viewerHeaderFloating,
+				)}
+			>
+				{mainViewMode === "graph" && drag ? (
+					<WorkspaceDockHandle {...drag} />
+				) : null}
+				{mainViewMode === "diff" && file ? (
+					<DiffFilePath path={file.path} />
+				) : null}
 				{mainViewMode === "diff" && (stats.added > 0 || stats.removed > 0) ? (
 					<span {...stylex.props(styles.viewerStats)}>
 						{stats.added > 0 ? (
@@ -862,8 +872,6 @@ function ChatDiffPanel({
 							</strong>
 						</span>
 					) : null
-				) : file ? (
-					<DiffFilePath path={file.path} />
 				) : null}
 				{mainViewMode === "graph" ? (
 					<div {...stylex.props(styles.graphSyncActions)}>
@@ -896,86 +904,89 @@ function ChatDiffPanel({
 					</div>
 				) : null}
 				{mainViewMode !== "graph" ? (
-					<div
-						{...stylex.props(styles.viewerModes)}
-						onMouseLeave={() => setHoveredModeIndex(null)}
-					>
-						<LiquidSegmentedRail
-							activeIndex={hoveredModeIndex ?? activeModeIndex}
-							itemCount={3}
-							radius={4}
-						/>
-						<button
-							type="button"
-							onMouseEnter={() => setHoveredModeIndex(0)}
-							onPointerDown={(event) => {
-								if (event.button === 0 && event.isPrimary) {
-									onMainViewModeChange("diff");
-									onViewModeChange("split");
-								}
-							}}
-							onClick={(event) => {
-								if (event.detail === 0) {
-									onMainViewModeChange("diff");
-									onViewModeChange("split");
-								}
-							}}
-							title="Full file diff"
-							aria-label="Full file diff"
-							{...stylex.props(
-								styles.viewerModeButton,
-								viewMode === "split" && styles.viewerModeButtonActive,
-							)}
+					<>
+						<span {...stylex.props(styles.viewerFloatingDivider)} />
+						<div
+							{...stylex.props(styles.viewerModes)}
+							onMouseLeave={() => setHoveredModeIndex(null)}
 						>
-							<IconLayoutGrid size={iconSize.compact} />
-						</button>
-						<button
-							type="button"
-							onMouseEnter={() => setHoveredModeIndex(1)}
-							onPointerDown={(event) => {
-								if (event.button === 0 && event.isPrimary) {
-									onMainViewModeChange("diff");
-									onViewModeChange("hunks");
-								}
-							}}
-							onClick={(event) => {
-								if (event.detail === 0) {
-									onMainViewModeChange("diff");
-									onViewModeChange("hunks");
-								}
-							}}
-							title="Hunk view"
-							aria-label="Hunk view"
-							{...stylex.props(
-								styles.viewerModeButton,
-								viewMode === "hunks" && styles.viewerModeButtonActive,
-							)}
-						>
-							<IconGitBranch size={iconSize.compact} />
-						</button>
-						<button
-							type="button"
-							onMouseEnter={() => setHoveredModeIndex(2)}
-							onPointerDown={(event) => {
-								if (event.button === 0 && event.isPrimary) onToggleZenMode();
-							}}
-							onClick={(event) => {
-								if (event.detail === 0) onToggleZenMode();
-							}}
-							title={zenMode ? "Exit focus mode" : "Focus workspace"}
-							aria-label={zenMode ? "Exit focus mode" : "Focus workspace"}
-							{...stylex.props(
-								styles.viewerModeButton,
-								zenMode && styles.viewerModeButtonActive,
-							)}
-						>
-							{zenMode ? (
-								<IconCollapse size={iconSize.compact} />
-							) : (
-								<IconExpand size={iconSize.compact} />
-							)}
-						</button>
-					</div>
+							<LiquidSegmentedRail
+								activeIndex={hoveredModeIndex ?? activeModeIndex}
+								itemCount={3}
+								radius={4}
+							/>
+							<button
+								type="button"
+								onMouseEnter={() => setHoveredModeIndex(0)}
+								onPointerDown={(event) => {
+									if (event.button === 0 && event.isPrimary) {
+										onMainViewModeChange("diff");
+										onViewModeChange("split");
+									}
+								}}
+								onClick={(event) => {
+									if (event.detail === 0) {
+										onMainViewModeChange("diff");
+										onViewModeChange("split");
+									}
+								}}
+								title="Full file diff"
+								aria-label="Full file diff"
+								{...stylex.props(
+									styles.viewerModeButton,
+									viewMode === "split" && styles.viewerModeButtonActive,
+								)}
+							>
+								<IconLayoutGrid size={iconSize.compact} />
+							</button>
+							<button
+								type="button"
+								onMouseEnter={() => setHoveredModeIndex(1)}
+								onPointerDown={(event) => {
+									if (event.button === 0 && event.isPrimary) {
+										onMainViewModeChange("diff");
+										onViewModeChange("hunks");
+									}
+								}}
+								onClick={(event) => {
+									if (event.detail === 0) {
+										onMainViewModeChange("diff");
+										onViewModeChange("hunks");
+									}
+								}}
+								title="Hunk view"
+								aria-label="Hunk view"
+								{...stylex.props(
+									styles.viewerModeButton,
+									viewMode === "hunks" && styles.viewerModeButtonActive,
+								)}
+							>
+								<IconGitBranch size={iconSize.compact} />
+							</button>
+							<button
+								type="button"
+								onMouseEnter={() => setHoveredModeIndex(2)}
+								onPointerDown={(event) => {
+									if (event.button === 0 && event.isPrimary) onToggleZenMode();
+								}}
+								onClick={(event) => {
+									if (event.detail === 0) onToggleZenMode();
+								}}
+								title={zenMode ? "Exit focus mode" : "Focus workspace"}
+								aria-label={zenMode ? "Exit focus mode" : "Focus workspace"}
+								{...stylex.props(
+									styles.viewerModeButton,
+									zenMode && styles.viewerModeButtonActive,
+								)}
+							>
+								{zenMode ? (
+									<IconCollapse size={iconSize.compact} />
+								) : (
+									<IconExpand size={iconSize.compact} />
+								)}
+							</button>
+						</div>
+					</>
 				) : null}
 				<button
 					type="button"
@@ -2598,6 +2609,7 @@ const styles = stylex.create({
 		cursor: "ew-resize",
 	},
 	viewerPanel: {
+		position: "relative",
 		display: "flex",
 		width: "100%",
 		height: "100%",
@@ -2618,6 +2630,26 @@ const styles = stylex.create({
 		borderBottomColor: color.border,
 		paddingInline: controlSize._3,
 	},
+	viewerHeaderFloating: {
+		position: "absolute",
+		bottom: controlSize._2,
+		left: "50%",
+		zIndex: layer.dropdown,
+		width: "auto",
+		maxWidth: "calc(100% - 1.5rem)",
+		height: controlSize._10,
+		boxSizing: "border-box",
+		gap: controlSize._2,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: radius.xl,
+		backgroundColor: color.backgroundRaised,
+		boxShadow:
+			"inset 0 1px 0 rgba(255,255,255,.08), 0 8px 24px rgba(0,0,0,.28)",
+		paddingInline: controlSize._2,
+		transform: "translateX(-50%)",
+	},
 	viewerTitle: {
 		minWidth: controlSize._0,
 		flex: 1,
@@ -2628,9 +2660,20 @@ const styles = stylex.create({
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 	},
-	viewerDirectory: {
-		color: color.textMuted,
-		fontWeight: font.weightRegular,
+	viewerFloatingFile: {
+		alignItems: "center",
+		display: "flex",
+		flexShrink: 1,
+		gap: controlSize._1_5,
+		minWidth: controlSize._0,
+	},
+	viewerFloatingPath: {
+		minWidth: controlSize._0,
+		overflow: "hidden",
+		fontFamily: font.familyDiff,
+		fontSize: font.size_1,
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
 	},
 	viewerFileName: {
 		color: color.textMain,
@@ -2649,6 +2692,12 @@ const styles = stylex.create({
 		fontFamily: font.familyDiff,
 		fontSize: font.size_1,
 		fontVariantNumeric: "tabular-nums",
+	},
+	viewerFloatingDivider: {
+		backgroundColor: color.border,
+		flexShrink: 0,
+		height: controlSize._5,
+		width: 1,
 	},
 	graphSyncActions: {
 		display: "flex",

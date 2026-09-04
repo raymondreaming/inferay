@@ -33,7 +33,7 @@ function graphCommit(index: number): GraphNode {
 		authorEmail: "graph-author@users.noreply.github.com",
 		committer: "Graph Author",
 		committerEmail: "graph-author@users.noreply.github.com",
-		date: "08/31/2026 @ 12:00 PM",
+		date: "08/31/2026 12:00 PM",
 		authoredAt: "2026-08-31T11:00:00-05:00",
 		committedAt: "2026-08-31T12:00:00-05:00",
 		parents:
@@ -214,7 +214,7 @@ describe("Git commit graph renderer", () => {
 				).some((badge) => badge.textContent === "release"),
 			).toBe(true);
 			expect(rootElement.textContent).toContain("v1.2.3");
-			expect(rootElement.textContent).toContain("08/31/2026 @ 12:00 PM");
+			expect(rootElement.textContent).toContain("08/31/2026 12:00 PM");
 			branchBadge?.dispatchEvent(
 				new dom.window.KeyboardEvent("keydown", {
 					bubbles: true,
