@@ -2375,7 +2375,7 @@ const styles = stylex.create({
 		zIndex: layer.sticky,
 		display: "flex",
 		minWidth: "100%",
-		height: controlSize._7,
+		height: `calc(${controlSize._7} + 4px)`,
 		alignItems: "center",
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",

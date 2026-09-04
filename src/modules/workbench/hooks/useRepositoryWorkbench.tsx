@@ -2950,7 +2950,7 @@ const styles = stylex.create({
 		alignItems: "center",
 		justifyContent: "center",
 		gap: controlSize._0_5,
-		paddingInline: controlSize._2,
+		paddingInline: controlSize._1,
 		borderRadius: radius.sm,
 		fontSize: font.size_1,
 		fontWeight: font.weight_5,
