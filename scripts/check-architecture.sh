@@ -11,7 +11,6 @@ bunx biome lint \
 	src/modules/conversation/model/chat-state-utils.ts \
 	src/modules/conversation/model/agent-chat-shared.ts \
 	src/modules/conversation/model/chat-session-store.ts \
-	src/modules/workbench/hooks/useFileWatcher.tsx \
 	src/modules/repository/hooks/useGitDiff.tsx \
 	src/modules/workspace/model/workspace-model.ts \
 	src/shared/hooks/useShikiHighlighter.tsx \

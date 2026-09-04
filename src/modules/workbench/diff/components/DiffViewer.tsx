@@ -1446,15 +1446,6 @@ const diffStyles = stylex.create({
 		backgroundColor: color.transparent,
 		paddingInline: controlSize._3,
 	},
-	pathDir: {
-		minWidth: controlSize._0,
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-		color: color.textMuted,
-		fontFamily: font.familyDiff,
-		fontSize: font.size_2,
-	},
 	pathName: {
 		minWidth: controlSize._0,
 		overflow: "hidden",
@@ -1464,15 +1455,6 @@ const diffStyles = stylex.create({
 		fontFamily: font.familyDiff,
 		fontSize: font.size_1,
 		fontWeight: font.weightRegular,
-	},
-	stagedPill: {
-		flexShrink: 0,
-		borderRadius: radius.sm,
-		backgroundColor: color.accentWash,
-		color: color.accent,
-		fontSize: font.size_0_5,
-		paddingBlock: controlSize._0_5,
-		paddingInline: controlSize._1,
 	},
 	stats: {
 		display: "flex",

@@ -2,65 +2,6 @@ import * as stylex from "@octanejs/stylex";
 import type { Octane } from "octane/jsx-runtime";
 import { color, controlSize, font, radius } from "../../tokens.stylex.ts";
 
-interface WorkspacePageProps extends Octane.HTMLAttributes<HTMLDivElement> {
-	children: unknown;
-}
-
-export function WorkspacePage({
-	children,
-	className = "",
-	...props
-}: WorkspacePageProps) {
-	const pageProps = stylex.props(styles.page);
-	return (
-		<div
-			{...pageProps}
-			className={`${pageProps.className ?? ""} ${className}`}
-			{...props}
-		>
-			{children}
-		</div>
-	);
-}
-
-interface WorkspaceContentProps extends Octane.HTMLAttributes<HTMLElement> {
-	children: unknown;
-	padding?: "none" | "sm" | "md";
-	scroll?: boolean;
-	scrollRef?: { current: HTMLElement | null };
-}
-
-export function WorkspaceContent({
-	children,
-	className = "",
-	padding = "md",
-	scroll = false,
-	scrollRef,
-	...props
-}: WorkspaceContentProps) {
-	const paddingStyle =
-		padding === "none"
-			? styles.nonePad
-			: padding === "sm"
-				? styles.smPad
-				: styles.mdPad;
-	const contentProps = stylex.props(
-		styles.content,
-		scroll && styles.contentScroll,
-		paddingStyle,
-	);
-	return (
-		<main
-			ref={scrollRef}
-			{...contentProps}
-			className={`${contentProps.className ?? ""} ${className}`}
-			{...props}
-		>
-			{children}
-		</main>
-	);
-}
-
 interface WorkspaceEmptyStateProps
 	extends Omit<Octane.HTMLAttributes<HTMLDivElement>, "title"> {
 	icon?: unknown;
@@ -99,34 +40,6 @@ export function WorkspaceEmptyState({
 }
 
 const styles = stylex.create({
-	page: {
-		backgroundColor: color.transparent,
-		color: color.textMain,
-		display: "flex",
-		flexDirection: "column",
-		height: "100%",
-		minHeight: controlSize._0,
-		minWidth: controlSize._0,
-		overflow: "hidden",
-	},
-	content: {
-		flex: 1,
-		minHeight: controlSize._0,
-		minWidth: controlSize._0,
-		overflow: "hidden",
-	},
-	contentScroll: {
-		overflowY: "auto",
-	},
-	nonePad: {
-		padding: controlSize._0,
-	},
-	smPad: {
-		padding: controlSize._2,
-	},
-	mdPad: {
-		padding: controlSize._3,
-	},
 	emptyState: {
 		alignItems: "center",
 		color: color.textMuted,

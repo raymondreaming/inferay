@@ -254,7 +254,6 @@ export const ChatComposer = memo(function ChatComposer({
 	onAgentConfigOpenChange,
 	input,
 	setInput,
-	isLoading,
 	attachedImages,
 	removeAttachedImage,
 	attachImage,
@@ -300,7 +299,6 @@ export const ChatComposer = memo(function ChatComposer({
 	onAgentConfigOpenChange?: (open: boolean) => void;
 	input: string;
 	setInput: (value: string) => void;
-	isLoading: boolean;
 	attachedImages: AttachedImageInfo[];
 	removeAttachedImage: (path: string) => void;
 	attachImage: (file: File) => Promise<void>;

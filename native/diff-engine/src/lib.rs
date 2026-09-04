@@ -4036,10 +4036,6 @@ pub fn commit_git(cwd: &str, message: &str) -> GitCommitResult {
     commit_git_mode(cwd, message, false)
 }
 
-pub fn amend_git(cwd: &str, message: &str) -> GitCommitResult {
-    commit_git_mode(cwd, message, true)
-}
-
 fn commit_git_mode(cwd: &str, message: &str, amend: bool) -> GitCommitResult {
     if message.trim().is_empty() {
         return GitCommitResult {

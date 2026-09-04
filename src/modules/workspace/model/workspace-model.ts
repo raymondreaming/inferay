@@ -341,7 +341,6 @@ export interface AgentSavedState {
 /** Canonical workspace names for new code; legacy Agent names remain wire-compatible. */
 export type Pane = AgentPaneModel;
 export type WorkspaceGroup = AgentGroupModel;
-export type WorkspaceState = AgentSavedState;
 
 export type PrimaryProductLoopStage =
 	| "workspace"
@@ -432,8 +431,6 @@ export const DEFAULT_OPACITY = 1 as const;
 export const DEFAULT_COLUMNS = 3 as const;
 
 export const DEFAULT_ROWS = 2 as const;
-
-export const DEFAULT_CHAT_AGENT_KIND: ChatAgentKind = "codex";
 
 function isValidAgentState(value: unknown): value is AgentSavedState {
 	if (typeof value !== "object" || value === null) return false;

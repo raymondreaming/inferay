@@ -155,11 +155,6 @@ const AGENT_DEFINITIONS: Record<AgentKind, AgentDefinition> = {
 	},
 } as const;
 
-export const NEW_PANE_AGENT_KINDS = [
-	"claude",
-	"codex",
-] as const satisfies readonly AgentKind[];
-
 export function isChatAgentKind(kind: AgentKind): kind is ChatAgentKind {
 	return kind === "claude" || kind === "codex";
 }

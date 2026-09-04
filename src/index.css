@@ -43,41 +43,6 @@
 		"Geist", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
 	--font-mono: "Geist Mono", "SF Mono", Menlo, Consolas, monospace;
 	--font-diff: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
-
-	--animate-fade-in: fade-in 0.2s ease-out;
-	--animate-slide-up: slide-up 0.25s ease-out;
-	--animate-scale-in: scale-in 0.2s ease-out;
-}
-
-@keyframes fade-in {
-	from {
-		opacity: 0;
-	}
-	to {
-		opacity: 1;
-	}
-}
-
-@keyframes slide-up {
-	from {
-		opacity: 0;
-		transform: translateY(8px);
-	}
-	to {
-		opacity: 1;
-		transform: translateY(0);
-	}
-}
-
-@keyframes scale-in {
-	from {
-		opacity: 0;
-		transform: scale(0.95);
-	}
-	to {
-		opacity: 1;
-		transform: scale(1);
-	}
 }
 
 @keyframes atlas-load {
@@ -131,10 +96,6 @@ select,
 	user-select: none;
 }
 
-html[data-inferay-fullscreen="true"] .inferay-window-spacer {
-	display: none;
-}
-
 input,
 textarea,
 [contenteditable="true"] {
@@ -184,23 +145,9 @@ textarea::placeholder {
 	user-select: none;
 }
 
-.diff-hatch {
-	background-image: repeating-linear-gradient(
-		-45deg,
-		transparent,
-		transparent 4px,
-		rgba(255, 255, 255, 0.03) 4px,
-		rgba(255, 255, 255, 0.03) 5px
-	);
-}
-
 /* Diff row hover - uses CSS custom property set inline */
 .diff-row:hover {
 	background-color: var(--hover-bg, inherit) !important;
-}
-
-.font-diff {
-	font-family: var(--font-diff);
 }
 
 .inset-separator {
@@ -281,97 +228,6 @@ textarea::placeholder {
 	}
 }
 
-.inferay-liquid-create__slot {
-	display: inline-block;
-	height: 32px;
-	min-width: 32px;
-}
-
-.inferay-liquid-create__stage {
-	display: block;
-	z-index: 340;
-	width: 208px;
-	height: 64px;
-	pointer-events: none;
-}
-
-.inferay-liquid-create__panel-item {
-	position: absolute;
-	top: 0;
-	left: 0;
-	transform-origin: 16px 16px;
-}
-
-.inferay-liquid-create__panel {
-	display: flex;
-	width: 152px;
-	height: 64px;
-	flex-direction: column;
-	gap: 2px;
-	padding: 4px;
-	background: transparent;
-	border: 0;
-	border-radius: 8px;
-	box-shadow: none;
-	pointer-events: auto;
-	transition: opacity 120ms ease;
-}
-
-.inferay-liquid-create__trigger,
-.inferay-liquid-create__trigger > button {
-	height: 32px;
-	width: 32px;
-	min-width: 32px;
-	border-radius: 50%;
-}
-
-.inferay-liquid-create__trigger {
-	position: relative;
-	z-index: 2;
-	pointer-events: auto;
-}
-
-.inferay-liquid-create__trigger > button {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	padding: 0;
-	border: 1px solid var(--color-inferay-gray-border);
-	background: transparent;
-	box-shadow: none;
-	transform: none;
-}
-
-.inferay-liquid-create__trigger > button:hover {
-	background: color-mix(in srgb, var(--color-inferay-gray) 48%, transparent);
-	transform: none;
-}
-
-.inferay-liquid-create__panel[data-open="false"] {
-	opacity: 0;
-	pointer-events: none;
-}
-
-.inferay-liquid-create__panel > button {
-	display: flex;
-	height: 28px;
-	width: 100%;
-	align-items: center;
-	gap: 8px;
-	border-radius: 6px;
-	padding-inline: 8px;
-	background: transparent;
-	color: var(--color-inferay-soft-white);
-	font-size: 12px;
-	font-weight: 500;
-	text-align: left;
-}
-
-.inferay-liquid-create__panel > button:hover {
-	background: var(--color-inferay-gray);
-	color: var(--color-inferay-white);
-}
-
 .inferay-liquid-panel,
 .inferay-liquid-panel > div {
 	display: flex;
@@ -429,23 +285,6 @@ textarea::placeholder {
 	transform: translateY(1px) scale(0.985);
 }
 
-.inferay-workspace-pane-liquid {
-	display: flex;
-	width: 100%;
-}
-
-.inferay-workspace-pane-liquid__item,
-.inferay-workspace-pane-liquid__item > button {
-	display: flex;
-	width: 100%;
-}
-
-.inferay-workspace-pane-liquid__item > button {
-	background-color: transparent;
-	border-color: transparent;
-	box-shadow: none;
-}
-
 @keyframes inferay-directory-picker-in {
 	from {
 		opacity: 0;
@@ -481,7 +320,6 @@ textarea::placeholder {
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.inferay-liquid .inferay-liquid__item,
 	.inferay-liquid-segmented-rail__item {
 		transition-duration: 0ms;
 	}

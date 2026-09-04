@@ -70,7 +70,7 @@ import {
 	listenWindowEvent,
 	setupAgentThemePanelShortcut,
 } from "../../../shared/lib/react-events.ts";
-import { color, controlSize, font, layer } from "../../../tokens.stylex.ts";
+import { color, controlSize, layer } from "../../../tokens.stylex.ts";
 
 const Settings = lazy(() =>
 	import("../../settings/components/Settings.tsx").then((module) => ({
@@ -386,12 +386,6 @@ const styles = stylex.create({
 		visibility: "visible",
 		zIndex: layer.content,
 	},
-	surfaceLayerHidden: {
-		contentVisibility: "hidden",
-		pointerEvents: "none",
-		visibility: "hidden",
-		zIndex: layer.base,
-	},
 	repositoryWorkbench: {
 		display: "flex",
 		width: "100%",
@@ -417,42 +411,6 @@ const styles = stylex.create({
 		width: 360,
 		maxWidth: "28vw",
 		flex: "0 0 auto",
-	},
-	centerState: {
-		display: "flex",
-		height: "100%",
-		flex: 1,
-		alignItems: "center",
-		justifyContent: "center",
-	},
-	centerPad: {
-		padding: controlSize._6,
-	},
-	centerTextBox: {
-		maxWidth: "24rem",
-		textAlign: "center",
-	},
-	iconBox: {
-		display: "flex",
-		width: controlSize._12,
-		height: controlSize._12,
-		alignItems: "center",
-		justifyContent: "center",
-		marginInline: "auto",
-		marginBottom: controlSize._4,
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: controlSize._3,
-		backgroundColor: color.backgroundRaised,
-		color: color.textMuted,
-	},
-	centerMessage: {
-		color: color.textMain,
-		fontSize: font.size_5,
-	},
-	spacer: {
-		flex: 1,
 	},
 	emptyWorkspace: {
 		flex: 1,

@@ -985,7 +985,6 @@ export const AgentChatView = memo(function AgentChatView({
 							onAgentConfigOpenChange={setIsAgentConfigOpen}
 							input={input}
 							setInput={setInput}
-							isLoading={isLoading}
 							attachedImages={attachedImages}
 							removeAttachedImage={removeAttachedImage}
 							attachImage={attachImage}

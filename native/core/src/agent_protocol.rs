@@ -473,13 +473,6 @@ impl CodexProtocolState {
         }
     }
 
-    pub fn poll_live_diffs(&mut self, context: &mut AgentProtocolContext) {
-        let paths = self.watched_paths.iter().cloned().collect::<Vec<_>>();
-        for path in paths {
-            self.emit_live_diff_for_path(context, &path, true);
-        }
-    }
-
     pub fn clear_live_diff_state(&mut self) {
         self.watched_paths.clear();
         self.file_snapshots.clear();

@@ -145,7 +145,3 @@ export function extractToolActivities(
 	}
 	return activities;
 }
-
-export function getStatusToolName(status: string): string | null {
-	return status.startsWith("tool:") ? normalizeToolName(status.slice(5)) : null;
-}

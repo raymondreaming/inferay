@@ -1,10 +1,6 @@
 import type { ComponentType } from "react";
 import { FEATURE_FLAGS } from "../../shared/lib/feature-flags.ts";
-import {
-	IconFilePlus,
-	IconMessageCircle,
-	IconSlash,
-} from "../../shared/ui/Icons.tsx";
+import { IconFilePlus, IconSlash } from "../../shared/ui/Icons.tsx";
 
 export type AppRouteId = "agent" | "prompts" | "automations" | "images";
 
@@ -18,12 +14,6 @@ interface AppPageRoute {
 	path: string;
 	sidebar?: boolean;
 	icon?: NavigationIcon;
-}
-
-interface AgentMainViewRoute {
-	id: AgentMainView;
-	label: string;
-	icon: NavigationIcon;
 }
 
 export const DEFAULT_APP_ROUTE = "/agent";
@@ -63,15 +53,6 @@ export const SIDEBAR_NAV_ROUTES = APP_PAGE_ROUTES.filter(
 		icon: NavigationIcon;
 	} => route.sidebar === true && !!route.icon,
 );
-
-const ALL_AGENT_MAIN_VIEWS = [
-	{ id: "chat", label: "Chat", icon: IconMessageCircle },
-] as const satisfies readonly AgentMainViewRoute[];
-
-export const AGENT_MAIN_VIEWS: readonly AgentMainViewRoute[] =
-	ALL_AGENT_MAIN_VIEWS.filter(
-		(view) => view.id === "chat" || FEATURE_FLAGS[view.id],
-	);
 
 export function isAgentMainView(value: string | null): value is AgentMainView {
 	return value === "chat";

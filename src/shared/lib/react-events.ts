@@ -32,11 +32,6 @@ export function stopPropagation(event: Event): void {
 	event.stopPropagation();
 }
 
-export function stopPropagationAndCall(action: () => void, event: Event): void {
-	event.stopPropagation();
-	action();
-}
-
 export function activateOnEnterOrSpacePreventDefault(
 	action: () => void,
 	event: KeyboardEvent,
@@ -53,12 +48,6 @@ export function setInputValue(
 	},
 ): void {
 	setValue(event.currentTarget.value);
-}
-
-export function focusRef<T extends { focus(): void }>(ref: {
-	current: T | null;
-}): void {
-	ref.current?.focus();
 }
 
 export function setupAgentThemePanelShortcut(

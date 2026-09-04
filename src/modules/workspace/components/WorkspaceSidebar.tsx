@@ -1038,9 +1038,6 @@ const styles = stylex.create({
 		transitionTimingFunction: "ease",
 		userSelect: "none",
 	},
-	shellCollapsed: {
-		width: controlSize._12,
-	},
 	shellHidden: {
 		backgroundColor: color.transparent,
 		borderColor: color.transparent,

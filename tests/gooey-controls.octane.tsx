@@ -1,9 +1,8 @@
 import { JSDOM } from "jsdom";
-import { createRoot, useState } from "octane";
+import { createRoot } from "octane";
 import { expect, test, vi } from "vitest";
 import { Button } from "../src/shared/ui/Button.tsx";
 import { DropdownButton } from "../src/shared/ui/DropdownButton.tsx";
-import { LiquidCreateMenu } from "../src/shared/ui/gooey/LiquidCreateMenu.tsx";
 import { LiquidSegmentedRail } from "../src/shared/ui/gooey/LiquidSegmentedRail.tsx";
 
 class TestResizeObserver {
@@ -75,53 +74,6 @@ test("a liquid button keeps its semantic control immediate and clickable", async
 		expect(rootElement.querySelector("svg filter")).not.toBeNull();
 		button?.click();
 		expect(onClick).toHaveBeenCalledTimes(1);
-	} finally {
-		root.unmount();
-	}
-});
-
-test("the shared create panel is portalled to the trigger's right", async () => {
-	const { root, rootElement } = setupDom();
-	const onNewChat = vi.fn();
-	const onNewWorkspace = vi.fn();
-
-	function TestMenu() {
-		const [open, setOpen] = useState(false);
-		return (
-			<LiquidCreateMenu
-				open={open}
-				fill="#222"
-				onNewChat={onNewChat}
-				onNewWorkspace={onNewWorkspace}
-				trigger={
-					<button type="button" onClick={() => setOpen((value) => !value)}>
-						+
-					</button>
-				}
-			/>
-		);
-	}
-
-	try {
-		root.render(<TestMenu />);
-		await tick();
-		const trigger = rootElement.querySelector("button");
-		trigger?.click();
-		await tick();
-		const panel = document.body.querySelector(".inferay-liquid-create__panel");
-		const stage = document.body.querySelector(".inferay-liquid-create__stage");
-		expect(panel).not.toBeNull();
-		expect(panel?.parentElement).not.toBe(rootElement);
-		expect(stage?.getAttribute("style")).toContain("position: fixed");
-		expect(
-			document.body.querySelector(".inferay-liquid-create__trigger"),
-		).not.toBeNull();
-		expect(panel?.textContent).toContain("New chat");
-		expect(panel?.textContent).toContain("New workspace");
-
-		panel?.querySelector("button")?.click();
-		expect(onNewChat).toHaveBeenCalledTimes(1);
-		expect(onNewWorkspace).not.toHaveBeenCalled();
 	} finally {
 		root.unmount();
 	}

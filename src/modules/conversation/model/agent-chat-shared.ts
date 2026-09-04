@@ -60,18 +60,6 @@ export type ChatStreamEvent = (
 	| { type: "result"; result?: string }
 ) & { session_id?: string };
 
-export function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
-	if (!value || typeof value !== "object") return false;
-	const type = (value as { type?: unknown }).type;
-	return (
-		type === "assistant" ||
-		type === "content_block_start" ||
-		type === "content_block_delta" ||
-		type === "content_block_stop" ||
-		type === "result"
-	);
-}
-
 export function stringifyToolInput(input: unknown): string {
 	if (input === undefined || input === null) return "";
 	return typeof input === "string" ? input : JSON.stringify(input, null, 2);

@@ -21,8 +21,6 @@ export const iconSize = {
 	_3xl: 20,
 } as const;
 
-export type IconSize = (typeof iconSize)[keyof typeof iconSize];
-
 export const runtimeColor = {
 	accent: "var(--color-inferay-accent)",
 	backgroundRaised: "var(--color-inferay-dark-gray)",
@@ -60,9 +58,4 @@ export const runtimeFont = {
 export const runtimeLayer = {
 	content: 1,
 	criticalOverlay: 9999,
-} as const;
-
-export const runtimeEffect = {
-	tokenHighlightBackground:
-		"color-mix(in srgb, var(--color-inferay-accent) 15%, transparent)",
 } as const;

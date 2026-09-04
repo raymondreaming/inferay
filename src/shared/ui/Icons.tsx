@@ -1,6 +1,5 @@
 import type { Octane } from "octane/jsx-runtime";
 import type { CSSProperties } from "react";
-import { hasId } from "../../shared/lib/data.ts";
 
 export type IconProps = Octane.SVGProps<SVGSVGElement> & { size?: number };
 
@@ -460,53 +459,6 @@ export function CommitGraphLinesLayer({
 					</g>
 				);
 			})}
-		</svg>
-	);
-}
-
-export function ProjectGraphConnectionsLayer({
-	nodes,
-	hoveredNodeId,
-	selectedNodeId,
-	className,
-}: {
-	nodes: ReadonlyArray<{
-		id: string;
-		x: number;
-		y: number;
-		connections: readonly string[];
-	}>;
-	hoveredNodeId: string | null;
-	selectedNodeId: string | null;
-	className?: string;
-}) {
-	return (
-		<svg aria-hidden="true" className={className}>
-			{nodes.flatMap((node) =>
-				node.connections.map((targetId) => {
-					const target = nodes.find(hasId.bind(null, targetId));
-					if (!target) return null;
-					const active =
-						hoveredNodeId === node.id ||
-						hoveredNodeId === targetId ||
-						selectedNodeId === node.id ||
-						selectedNodeId === targetId;
-					return (
-						<line
-							key={`${node.id}-${targetId}`}
-							x1={node.x + 56}
-							y1={node.y + 16}
-							x2={target.x + 56}
-							y2={target.y + 16}
-							stroke={
-								active ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.1)"
-							}
-							strokeDasharray={active ? "none" : "4 4"}
-							strokeWidth={active ? 1.5 : 1}
-						/>
-					);
-				}),
-			)}
 		</svg>
 	);
 }

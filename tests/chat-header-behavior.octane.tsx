@@ -70,11 +70,11 @@ function setupDom() {
 test("editor session dropdown shows repository and conversation title", async () => {
 	const { dom, root, rootElement } = setupDom();
 	try {
-		const { AgentChatHeader } = await import(
+		const { AgentWorkspaceControl } = await import(
 			"../src/modules/conversation/components/AgentChatHeader.tsx"
 		);
 		root.render(
-			<AgentChatHeader
+			<AgentWorkspaceControl
 				paneId="pane-1"
 				cwd="/tmp/inferay"
 				sessions={Array.from({ length: 7 }, (_, index) => ({
