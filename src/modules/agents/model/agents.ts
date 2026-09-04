@@ -76,6 +76,7 @@ const CLAUDE_MODELS: readonly ModelOption[] = [
 ] as const;
 
 const CODEX_MODELS: readonly ModelOption[] = [
+	{ id: "gpt-6-astra", label: "GPT-6 Astra", detail: "Complex agentic work" },
 	{
 		id: "gpt-5.6-sol",
 		label: "GPT-5.6 Sol",

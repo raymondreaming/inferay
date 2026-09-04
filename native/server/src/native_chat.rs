@@ -13,6 +13,7 @@ const CLAUDE_MODELS: &[&str] = &[
     "claude-haiku-4-5",
 ];
 const CODEX_MODELS: &[&str] = &[
+    "gpt-6-astra",
     "gpt-5.6-sol",
     "gpt-5.6-terra",
     "gpt-5.6-luna",
