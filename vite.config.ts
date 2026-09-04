@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { stylex } from "@octanejs/stylex/vite";
 import { tanstackStart } from "@octanejs/tanstack-start/plugin/vite";
 import tailwindcss from "@tailwindcss/vite";
@@ -20,8 +23,49 @@ function stripTransformSourceMaps(plugin: Plugin): Plugin {
 	return plugin;
 }
 
-function octaneStylexPlugin(): Plugin {
-	return stripTransformSourceMaps(stylex({ useCSSLayers: true }) as Plugin);
+export function octaneStylexPlugin(): Plugin {
+	const plugin = stylex({ useCSSLayers: true }) as Plugin;
+	const configResolved = plugin.configResolved;
+	let sourceDirectory = "";
+	plugin.configResolved = async function (config) {
+		sourceDirectory = join(config.root, "src");
+		if (typeof configResolved === "function") {
+			await configResolved.call(this, config);
+		}
+	};
+	const load = plugin.load;
+	if (typeof load === "function") {
+		plugin.load = async function (id, options) {
+			const result = await load.call(this, id, options);
+			if (
+				id !== "\0virtual:stylex.css" ||
+				typeof result !== "string" ||
+				!result.includes("--stylex-sheet:1")
+			) {
+				return result;
+			}
+			// StyleX injects its final CSS in generateBundle, after Vite hashes
+			// assets. Fingerprint the source in its placeholder so immutable
+			// stylesheet URLs change when rules or cross-file token names change.
+			const hash = createHash("sha256");
+			for (const path of readdirSync(sourceDirectory, {
+				recursive: true,
+				encoding: "utf8",
+			})
+				.filter((path) => /\.(?:tsx?|jsx?|css)$/.test(path))
+				.sort()) {
+				hash.update(path);
+				hash.update("\0");
+				hash.update(readFileSync(join(sourceDirectory, path)));
+				hash.update("\0");
+			}
+			return result.replace(
+				"--stylex-sheet:1",
+				`--stylex-sheet:${hash.digest("hex")}`,
+			);
+		};
+	}
+	return stripTransformSourceMaps(plugin);
 }
 
 export default defineConfig(({ mode }) => ({
