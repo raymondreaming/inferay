@@ -388,7 +388,7 @@ test("dock handle reorders a row from the first pointer gesture", async () => {
 	}
 });
 
-test("grid layout owns wheel scrolling until a chat pane is clicked", async () => {
+test("hovered chat panes own wheel scrolling without activation", async () => {
 	const { root } = setupDom();
 	const { WorkspaceCanvas } = await import(
 		"../src/modules/workspace/components/WorkspaceCanvas.tsx"
@@ -454,21 +454,6 @@ test("grid layout owns wheel scrolling until a chat pane is clicked", async () =
 			scrollHeight: 400,
 		});
 
-		firstChat.dispatchEvent(
-			new window.WheelEvent("wheel", {
-				bubbles: true,
-				cancelable: true,
-				deltaY: 120,
-			}),
-		);
-		expect(grid.scrollTop).toBe(120);
-
-		firstChat.dispatchEvent(
-			new window.Event("pointerdown", {
-				bubbles: true,
-				cancelable: true,
-			}),
-		);
 		const firstChatWheelWasNotCancelled = firstChat.dispatchEvent(
 			new window.WheelEvent("wheel", {
 				bubbles: true,
@@ -477,7 +462,7 @@ test("grid layout owns wheel scrolling until a chat pane is clicked", async () =
 			}),
 		);
 		expect(firstChatWheelWasNotCancelled).toBe(true);
-		expect(grid.scrollTop).toBe(120);
+		expect(grid.scrollTop).toBe(0);
 		expect(firstChatScroll.scrollTop).toBe(0);
 		expect(secondChatScroll.scrollTop).toBe(0);
 
@@ -488,32 +473,9 @@ test("grid layout owns wheel scrolling until a chat pane is clicked", async () =
 				deltaY: 120,
 			}),
 		);
-		expect(secondChatWheelWasNotCancelled).toBe(false);
-		expect(grid.scrollTop).toBe(240);
+		expect(secondChatWheelWasNotCancelled).toBe(true);
+		expect(grid.scrollTop).toBe(0);
 		expect(secondChatScroll.scrollTop).toBe(0);
-
-		secondChat.dispatchEvent(
-			new window.Event("pointerdown", {
-				bubbles: true,
-				cancelable: true,
-			}),
-		);
-		firstChat.dispatchEvent(
-			new window.WheelEvent("wheel", {
-				bubbles: true,
-				cancelable: true,
-				deltaY: 120,
-			}),
-		);
-		expect(grid.scrollTop).toBe(360);
-		expect(firstChatScroll.scrollTop).toBe(0);
-
-		firstChat.dispatchEvent(
-			new window.Event("pointerdown", {
-				bubbles: true,
-				cancelable: true,
-			}),
-		);
 
 		firstChatScroll.scrollTop = 300;
 		const firstBoundaryDownWasNotCancelled = firstChat.dispatchEvent(
@@ -524,7 +486,7 @@ test("grid layout owns wheel scrolling until a chat pane is clicked", async () =
 			}),
 		);
 		expect(firstBoundaryDownWasNotCancelled).toBe(false);
-		expect(grid.scrollTop).toBe(480);
+		expect(grid.scrollTop).toBe(120);
 
 		firstChatScroll.scrollTop = 0;
 		const firstBoundaryUpWasNotCancelled = firstChat.dispatchEvent(
@@ -535,13 +497,13 @@ test("grid layout owns wheel scrolling until a chat pane is clicked", async () =
 			}),
 		);
 		expect(firstBoundaryUpWasNotCancelled).toBe(false);
-		expect(grid.scrollTop).toBe(360);
+		expect(grid.scrollTop).toBe(0);
 	} finally {
 		root.unmount();
 	}
 });
 
-test("file panes scroll internally only after they are activated", async () => {
+test("file panes scroll internally without activation", async () => {
 	const { root } = setupDom();
 	const { WorkspaceCanvas } = await import(
 		"../src/modules/workspace/components/WorkspaceCanvas.tsx"
@@ -606,15 +568,16 @@ test("file panes scroll internally only after they are activated", async () => {
 		setScrollMetrics(grid, { clientHeight: 600, scrollHeight: 1200 });
 		setScrollMetrics(fileScroll, { clientHeight: 100, scrollHeight: 400 });
 
-		const inactiveWheel = fileScroll.dispatchEvent(
+		const hoverWheel = fileScroll.dispatchEvent(
 			new window.WheelEvent("wheel", {
 				bubbles: true,
 				cancelable: true,
 				deltaY: 120,
 			}),
 		);
-		expect(inactiveWheel).toBe(false);
-		expect(grid.scrollTop).toBe(120);
+		expect(hoverWheel).toBe(true);
+		expect(grid.scrollTop).toBe(0);
+		expect(selectFile).not.toHaveBeenCalled();
 
 		filePane.dispatchEvent(
 			new window.Event("pointerdown", { bubbles: true, cancelable: true }),
@@ -628,7 +591,7 @@ test("file panes scroll internally only after they are activated", async () => {
 		);
 		expect(selectFile).toHaveBeenCalledTimes(1);
 		expect(activeWheel).toBe(true);
-		expect(grid.scrollTop).toBe(120);
+		expect(grid.scrollTop).toBe(0);
 	} finally {
 		root.unmount();
 	}
