@@ -48,21 +48,19 @@ export const color = stylex.defineVars({
 	background: stylex.types.color("var(--color-inferay-black)"),
 	backgroundRaised: stylex.types.color("var(--color-inferay-dark-gray)"),
 	backgroundSubtle: stylex.types.color("var(--color-inferay-gray)"),
-	backgroundCanvas: stylex.types.color("#050506"),
+	backgroundCanvas: stylex.types.color("var(--color-inferay-black)"),
 	backgroundOverlay: stylex.types.color("rgba(0, 0, 0, 0.6)"),
 	backgroundOverlayStrong: stylex.types.color("rgba(0, 0, 0, 0.95)"),
-	shellFrame: stylex.types.color("#242426"),
-	shellSurface: stylex.types.color(
-		"var(--inferay-glass-surface, color-mix(in srgb, var(--color-inferay-black) 46%, transparent))",
-	),
+	shellFrame: stylex.types.color("var(--color-inferay-gray-border)"),
+	shellSurface: stylex.types.color("transparent"),
 	surfaceTranslucent: stylex.types.color(
 		"color-mix(in srgb, var(--color-inferay-dark-gray) 72%, transparent)",
 	),
 	surfaceGlass: stylex.types.color(
-		"color-mix(in srgb, var(--color-inferay-black) 18%, transparent)",
+		"color-mix(in srgb, var(--color-inferay-dark-gray) 78%, transparent)",
 	),
 	surfaceGlassStrong: stylex.types.color(
-		"color-mix(in srgb, var(--color-inferay-black) 30%, transparent)",
+		"color-mix(in srgb, var(--color-inferay-dark-gray) 92%, transparent)",
 	),
 	surfaceInset: stylex.types.color(
 		"color-mix(in srgb, var(--color-inferay-gray) 34%, transparent)",
@@ -148,9 +146,15 @@ export const color = stylex.defineVars({
 	infoBorder: stylex.types.color("rgba(100, 210, 255, 0.25)"),
 	infoText: stylex.types.color("#bae6fd"),
 	reviewHighlight: stylex.types.color("rgba(244, 221, 181, 0.58)"),
-	popoverOpaque: stylex.types.color("rgba(28, 28, 30, 0.95)"),
-	headerPopoverOpaque: stylex.types.color("rgba(23, 23, 25, 0.96)"),
-	automationPopoverOpaque: stylex.types.color("rgba(12, 12, 14, 0.95)"),
+	popoverOpaque: stylex.types.color(
+		"color-mix(in srgb, var(--color-inferay-dark-gray) 96%, transparent)",
+	),
+	headerPopoverOpaque: stylex.types.color(
+		"color-mix(in srgb, var(--color-inferay-dark-gray) 98%, transparent)",
+	),
+	automationPopoverOpaque: stylex.types.color(
+		"color-mix(in srgb, var(--color-inferay-dark-gray) 96%, transparent)",
+	),
 	gitAdded: stylex.types.color("var(--color-git-added)"),
 	gitModified: stylex.types.color("var(--color-git-modified)"),
 	gitDeleted: stylex.types.color("var(--color-git-deleted)"),

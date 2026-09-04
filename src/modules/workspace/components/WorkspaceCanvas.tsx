@@ -228,7 +228,6 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	const dragIndexRef = useRef<number | null>(null);
 	const clearDragStateRef = useRef<() => void>(() => {});
-	const interactionPaneIdRef = useRef<string | null>(null);
 	const pendingPanelDropRef = useRef<{
 		readonly id: string;
 		readonly complete: () => void;
@@ -583,13 +582,8 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 					? event.target.closest<HTMLElement>("[data-agent-grid-pane-id]")
 					: null;
 			if (!target) return;
-			const targetPaneId = target.dataset.agentGridPaneId ?? null;
 			const innerScroller = findVerticalScroller(event.target, target);
-			if (
-				targetPaneId === interactionPaneIdRef.current &&
-				innerScroller &&
-				canScrollInDirection(innerScroller, event.deltaY)
-			) {
+			if (innerScroller && canScrollInDirection(innerScroller, event.deltaY)) {
 				return;
 			}
 			event.preventDefault();
@@ -719,16 +713,13 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 						if (pane.id !== props.selectedPaneId) {
 							window.getSelection()?.removeAllRanges();
 						}
-						interactionPaneIdRef.current = pane.id;
 						props.onSelectPane(pane.id);
 						return;
 					}
-					interactionPaneIdRef.current = node.id;
 					auxiliaryPanel?.onSelect?.();
 				}}
 				onClickCapture={(event) => {
 					if (!isWorkspaceDockDragSource(event.target)) return;
-					interactionPaneIdRef.current = node.id;
 					if (pane) props.onSelectPane(pane.id);
 					else auxiliaryPanel?.onSelect?.();
 				}}

@@ -248,7 +248,7 @@ const TERM_THEME_DATA: [
 	HexColor,
 ][] = [
 	["default", "Black", "#000000", "#e5e5e5", "#007AFF", "#111111"],
-	["midnight", "Midnight", "#0c0c0f", "#e8e8ec", "#5A8CFF", "#151518"],
+	["midnight", "Midnight", "#111111", "#e8e8e8", "#5A8CFF", "#242424"],
 	["dracula", "Dracula", "#282a36", "#f8f8f2", "#f078a0", "#3a3c48"],
 	["monokai", "Monokai", "#272822", "#f8f8f2", "#f8f8f2", "#3a3a35"],
 	["nord", "Nord", "#2e3440", "#d8dee9", "#88c0d0", "#3e4450"],
@@ -401,6 +401,12 @@ export const PRIMARY_PRODUCT_LOOP = [
 const AGENT_STORAGE_KEY = "inferay-agent-state" as const;
 const LEGACY_AGENT_STORAGE_KEY = "inferay-terminal-state" as const;
 const AGENT_SHELL_CHANGE_EVENT = "agent-shell-change" as const;
+export const REMOVE_AGENT_PANE_REQUEST_EVENT =
+	"inferay-remove-agent-pane-request" as const;
+
+export interface RemoveAgentPaneRequestDetail {
+	paneId: string;
+}
 
 export type AgentStateChangeSource = "canonical" | "local" | "view" | "cache";
 
@@ -738,6 +744,15 @@ export function dispatchAgentShellChange(detail: AgentShellChangeDetail): void {
 		new CustomEvent<AgentShellChangeDetail>(AGENT_SHELL_CHANGE_EVENT, {
 			detail,
 		}),
+	);
+}
+
+export function dispatchRemoveAgentPaneRequest(paneId: string): void {
+	window.dispatchEvent(
+		new CustomEvent<RemoveAgentPaneRequestDetail>(
+			REMOVE_AGENT_PANE_REQUEST_EVENT,
+			{ detail: { paneId } },
+		),
 	);
 }
 

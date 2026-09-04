@@ -10,11 +10,15 @@ import {
 	useState,
 } from "octane";
 import { wsClient } from "../../../adapters/backend/websocket.ts";
-import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../../adapters/storage/keys.ts";
+import {
+	AGENT_MAIN_VIEW_STORAGE_KEY,
+	APP_THEME_STORAGE_KEY,
+} from "../../../adapters/storage/keys.ts";
 import {
 	readStoredValue,
 	writeStoredValue,
 } from "../../../adapters/storage/stored-values.ts";
+import { CLIENT_STORAGE_CHANGED_EVENT } from "../../../adapters/storage/sync.ts";
 import {
 	type AgentMainView,
 	DEFAULT_AGENT_MAIN_VIEW,
@@ -54,6 +58,8 @@ import {
 	migrateGroup,
 	mutateAgentWorkspaceState,
 	normalizeAgentState,
+	REMOVE_AGENT_PANE_REQUEST_EVENT,
+	type RemoveAgentPaneRequestDetail,
 	reduceAgentGroups,
 	saveSyncedAgentState,
 	syncAgentLayoutMode,
@@ -275,9 +281,6 @@ function useAgentPersistence({
 			const saved =
 				normalizeAgentState(detail?.state) ??
 				(detail?.source === "canonical" ? loadAgentState() : null);
-			if (saved?.themeId && saved.themeId !== currentState.themeId) {
-				setAppearance((prev) => ({ ...prev, themeId: saved.themeId }));
-			}
 			const savedState = saved;
 			const isRegressiveSnapshot =
 				savedState &&
@@ -553,6 +556,15 @@ function useAgentPaneActions({
 		},
 		[cleanupPane, dispatchAgentGroupAction, groups, selectedGroupId],
 	);
+	useEffect(
+		() =>
+			listenWindowEvent(REMOVE_AGENT_PANE_REQUEST_EVENT, (event) => {
+				const paneId = (event as CustomEvent<RemoveAgentPaneRequestDetail>)
+					.detail?.paneId;
+				if (paneId) removePane(paneId);
+			}),
+		[removePane],
+	);
 	const reorderPanes = useCallback(
 		(fromIndex: number, toIndex: number) =>
 			withSelectedGroup((groupId) =>
@@ -716,13 +728,26 @@ export function AgentPage() {
 	);
 	const [showSettings, setShowSettings] = useState(false);
 	const [appearance, setAppearance] = useState(() => ({
-		themeId: (initialState?.themeId ??
-			mapAppThemeToAgentTheme(loadAppThemeId())) as ThemeId,
+		themeId: mapAppThemeToAgentTheme(loadAppThemeId()) as ThemeId,
 		fontSize: initialState?.fontSize ?? DEFAULT_FONT_SIZE,
 		fontFamily: initialState?.fontFamily ?? DEFAULT_FONT_FAMILY,
 		opacity: initialState?.opacity ?? DEFAULT_OPACITY,
 	}));
 	const { themeId, fontSize, fontFamily, opacity } = appearance;
+	useEffect(
+		() =>
+			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
+				const key = (event as CustomEvent<{ key?: string }>).detail?.key;
+				if (key !== APP_THEME_STORAGE_KEY) return;
+				const nextThemeId = mapAppThemeToAgentTheme(loadAppThemeId());
+				setAppearance((current) =>
+					current.themeId === nextThemeId
+						? current
+						: { ...current, themeId: nextThemeId },
+				);
+			}),
+		[],
+	);
 	const chatRefs = useRef<Map<string, AgentChatHandle> | null>(null);
 	if (chatRefs.current === null) {
 		chatRefs.current = new Map();
@@ -751,7 +776,7 @@ export function AgentPage() {
 			});
 			setSelectedGroupId(normalized.selectedGroupId);
 			setAppearance({
-				themeId: normalized.themeId,
+				themeId: mapAppThemeToAgentTheme(loadAppThemeId()),
 				fontSize: normalized.fontSize,
 				fontFamily: normalized.fontFamily,
 				opacity: normalized.opacity,
