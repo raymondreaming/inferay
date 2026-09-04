@@ -18,12 +18,13 @@ import { resolveGitAuthorAvatar } from "../../../../modules/repository/model/git
 import type { GitFileEntry } from "../../../../modules/repository/model/types.ts";
 import { DotMatrixWeave } from "../../../../shared/ui/DotMatrixLoader.tsx";
 import { Liquid } from "../../../../shared/ui/gooey/index.ts";
-import { LiquidSegmentedRail } from "../../../../shared/ui/gooey/LiquidSegmentedRail.tsx";
 import {
 	IconChevronRight,
 	IconExternalLink,
 	IconFolderFill,
+	IconGitBranch,
 	IconGitCommit,
+	IconLayoutRows,
 	IconMinus,
 	IconPanelLeft,
 	IconPencil,
@@ -602,28 +603,33 @@ const styles = stylex.create({
 		flex: 1,
 	},
 	segmented: {
-		position: "relative",
-		isolation: "isolate",
 		display: "flex",
 		height: controlSize._5,
 		alignItems: "center",
+		gap: controlSize._0_5,
 		backgroundColor: color.transparent,
 	},
 	segmentButton: {
-		position: "relative",
-		zIndex: layer.content,
+		display: "flex",
 		height: "100%",
+		alignItems: "center",
+		justifyContent: "center",
+		gap: controlSize._1,
 		paddingInline: controlSize._2,
-		color: color.textMuted,
+		color: {
+			default: color.textMuted,
+			":hover": color.textMain,
+		},
 		fontSize: font.size_2,
-		fontWeight: font.weight_6,
-		borderRadius: radius.md,
-		transitionProperty: "color",
-		transitionDuration: motion.durationFast,
-		backgroundColor: color.transparent,
+		fontWeight: font.weight_5,
+		borderRadius: radius.sm,
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlHover,
+		},
 	},
 	segmentButtonActive: {
-		backgroundColor: color.transparent,
+		backgroundColor: color.backgroundSubtle,
 		color: color.textMain,
 	},
 	headerIconButton: {
@@ -1281,15 +1287,12 @@ function ChangesPanelHeader({
 					<IconGitCommit size={iconSize.compact} />
 				</button>
 			) : null}
+			{showFileControls ? (
+				<FileViewToggle value={fileViewMode} onChange={onFileViewModeChange} />
+			) : null}
 			<span {...stylex.props(styles.spacer)} />
 			{showFileControls ? (
-				<>
-					<FileChangeTotals additions={additions} deletions={deletions} />
-					<FileViewToggle
-						value={fileViewMode}
-						onChange={onFileViewModeChange}
-					/>
-				</>
+				<FileChangeTotals additions={additions} deletions={deletions} />
 			) : null}
 			{onOpenWorktree ? (
 				<button
@@ -1615,31 +1618,26 @@ function FileViewToggle({
 	value: "path" | "tree";
 	onChange: (mode: "path" | "tree") => void;
 }) {
-	const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 	return (
-		<div
-			{...stylex.props(styles.segmented)}
-			onMouseLeave={() => setHoveredIndex(null)}
-		>
-			<LiquidSegmentedRail
-				activeIndex={hoveredIndex ?? (value === "path" ? 0 : 1)}
-				itemCount={2}
-				radius={6}
-			/>
-			{(["path", "tree"] as const).map((mode, index) => (
-				<button
-					type="button"
-					key={mode}
-					onMouseEnter={() => setHoveredIndex(index)}
-					onClick={() => onChange(mode)}
-					{...stylex.props(
-						styles.segmentButton,
-						value === mode && styles.segmentButtonActive,
-					)}
-				>
-					{mode === "path" ? "Path" : "Tree"}
-				</button>
-			))}
+		<div {...stylex.props(styles.segmented)}>
+			{(["path", "tree"] as const).map((mode) => {
+				const ModeIcon = mode === "path" ? IconLayoutRows : IconGitBranch;
+				return (
+					<button
+						type="button"
+						key={mode}
+						onClick={() => onChange(mode)}
+						aria-pressed={value === mode}
+						{...stylex.props(
+							styles.segmentButton,
+							value === mode && styles.segmentButtonActive,
+						)}
+					>
+						<ModeIcon size={iconSize.sm} />
+						{mode === "path" ? "Path" : "Tree"}
+					</button>
+				);
+			})}
 		</div>
 	);
 }

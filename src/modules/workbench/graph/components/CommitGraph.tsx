@@ -143,6 +143,7 @@ interface GraphPreferences {
 // Keep these literals static for StyleX extraction. The presentation module's
 // defaults mirror this AIVRE-Core reference scale for non-renderer callers.
 const ROW_HEIGHT = 23;
+const TOP_PADDING = ROW_HEIGHT;
 const COLUMN_WIDTH = 18;
 const AVATAR_SIZE = 18;
 const GRAPH_PADDING = 18;
@@ -713,6 +714,7 @@ function HeaderRow({
 	return (
 		<div
 			data-graph-header="true"
+			hidden
 			{...stylex.props(styles.header)}
 			style={{ width: headerWidth }}
 		>
@@ -1432,14 +1434,15 @@ export const CommitGraph = memo(function CommitGraph({
 				.map((commit) => commit.id),
 		);
 	}, [commits, normalizedQuery]);
-	const totalHeight = commits.length * ROW_HEIGHT;
+	const graphHeight = commits.length * ROW_HEIGHT;
+	const totalHeight = TOP_PADDING + graphHeight;
 	const selectableItems = useMemo(
 		() => commits.map((commit) => commit.id),
 		[commits],
 	);
 	const { start: visibleStart, end: visibleEnd } = graphVirtualRange(
 		commits.length,
-		scrollTop,
+		Math.max(0, scrollTop - TOP_PADDING),
 		viewportHeight,
 		ROW_HEIGHT,
 		ROW_OVERSCAN,
@@ -1796,10 +1799,11 @@ export const CommitGraph = memo(function CommitGraph({
 			<CommitGraphLinesLayer
 				className={stylex.props(styles.linesLayer).className}
 				width={graphWidth}
-				height={totalHeight}
+				height={graphHeight}
 				style={{
 					zIndex: 0,
 					left: graphLeft,
+					top: TOP_PADDING,
 				}}
 				railSegments={railSegments}
 				transitions={transitions}
@@ -1850,7 +1854,7 @@ export const CommitGraph = memo(function CommitGraph({
 							columns={columns}
 							widths={widths}
 							order={order}
-							virtualTop={logicalIndex * ROW_HEIGHT}
+							virtualTop={TOP_PADDING + logicalIndex * ROW_HEIGHT}
 							searchMatch={matchingHashes.has(commit.id)}
 							githubAvatar={commitAvatars[commit.hash] ?? undefined}
 						/>
@@ -2569,7 +2573,7 @@ const styles = stylex.create({
 	linesLayer: {
 		position: "absolute",
 		left: controlSize._0,
-		top: controlSize._7,
+		top: controlSize._0,
 		pointerEvents: "none",
 	},
 	rowsLayer: {

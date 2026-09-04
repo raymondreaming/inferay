@@ -35,7 +35,6 @@ import { listenWindowEvent } from "../../../shared/lib/react-events.ts";
 import { LiquidSegmentedRail } from "../../../shared/ui/gooey/LiquidSegmentedRail.tsx";
 import {
 	IconArrowDown,
-	IconArrowUp,
 	IconCollapse,
 	IconExpand,
 	IconGitBranch,
@@ -848,11 +847,16 @@ function ChatDiffPanel({
 			>
 				{operationActivity.message}
 			</span>
-			<header
+			<div
+				aria-hidden="true"
+				data-floating-viewer-scrim="true"
 				{...stylex.props(
-					styles.viewerHeader,
-					mainViewMode !== "graph" && styles.viewerHeaderFloating,
+					styles.viewerFloatingScrim,
+					mainViewMode === "graph" && styles.viewerFloatingScrimAboveContent,
 				)}
+			/>
+			<header
+				{...stylex.props(styles.viewerHeader, styles.viewerHeaderFloating)}
 			>
 				{mainViewMode === "graph" && drag ? (
 					<WorkspaceDockHandle {...drag} />
@@ -874,7 +878,11 @@ function ChatDiffPanel({
 				) : null}
 				{mainViewMode === "graph" ? (
 					repositoryKey ? (
-						<span title={repositoryKey} {...stylex.props(styles.viewerTitle)}>
+						<span
+							data-graph-repository-title="true"
+							title={repositoryKey}
+							{...stylex.props(styles.viewerTitle)}
+						>
 							<strong {...stylex.props(styles.viewerFileName)}>
 								{basename(repositoryKey)}
 							</strong>
@@ -885,11 +893,7 @@ function ChatDiffPanel({
 					<div {...stylex.props(styles.graphSyncActions)}>
 						{(["fetch", "pull", "push"] as const).map((action) => {
 							const ActionIcon =
-								action === "fetch"
-									? IconRefreshCw
-									: action === "pull"
-										? IconArrowDown
-										: IconArrowUp;
+								action === "fetch" ? IconRefreshCw : IconArrowDown;
 							const label = `${action[0]!.toLocaleUpperCase()}${action.slice(1)} repository`;
 							const actionName = `${action[0]!.toLocaleUpperCase()}${action.slice(1)}`;
 							return (
@@ -904,7 +908,10 @@ function ChatDiffPanel({
 									aria-label={label}
 									{...stylex.props(styles.graphSyncButton)}
 								>
-									<ActionIcon size={iconSize.compact} />
+									<ActionIcon
+										size={iconSize.compact}
+										{...stylex.props(action === "push" && styles.graphPushIcon)}
+									/>
 									<span>{actionName}</span>
 								</button>
 							);
@@ -996,22 +1003,29 @@ function ChatDiffPanel({
 						</div>
 					</>
 				) : null}
-				<button
-					type="button"
-					onPointerDown={(event) => {
-						if (event.button === 0 && event.isPrimary) onClose();
-					}}
-					onClick={(event) => {
-						if (event.detail === 0) onClose();
-					}}
-					title={closeLabel}
-					aria-label={closeLabel}
-					{...stylex.props(styles.viewerClose)}
-				>
-					<IconX size={iconSize.xs} />
-				</button>
+				{mainViewMode !== "graph" ? (
+					<button
+						type="button"
+						onPointerDown={(event) => {
+							if (event.button === 0 && event.isPrimary) onClose();
+						}}
+						onClick={(event) => {
+							if (event.detail === 0) onClose();
+						}}
+						title={closeLabel}
+						aria-label={closeLabel}
+						{...stylex.props(styles.viewerClose)}
+					>
+						<IconX size={iconSize.xs} />
+					</button>
+				) : null}
 			</header>
-			<div {...stylex.props(styles.viewerBody)}>
+			<div
+				{...stylex.props(
+					styles.viewerBody,
+					mainViewMode !== "graph" && styles.viewerBodyAboveScrim,
+				)}
+			>
 				{mainViewMode === "graph" ? (
 					graphLoading && graph.commits.length === 0 ? (
 						<div {...stylex.props(styles.viewerEmpty)}>Loading history…</div>
@@ -2814,9 +2828,6 @@ const styles = stylex.create({
 		flexShrink: 0,
 		alignItems: "center",
 		gap: controlSize._2,
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
-		borderBottomColor: color.border,
 		paddingInline: controlSize._3,
 	},
 	viewerHeaderFloating: {
@@ -2834,14 +2845,30 @@ const styles = stylex.create({
 		borderColor: color.border,
 		borderRadius: radius.xl,
 		backgroundColor: color.backgroundRaised,
-		boxShadow:
-			"inset 0 1px 0 rgba(255,255,255,.08), 0 8px 24px rgba(0,0,0,.28)",
-		paddingInline: controlSize._2,
+		boxShadow: "0 8px 24px rgba(0,0,0,.28)",
+		paddingInline: controlSize._3,
 		transform: "translateX(-50%)",
 	},
+	viewerFloatingScrim: {
+		position: "absolute",
+		left: controlSize._0,
+		right: controlSize._0,
+		bottom: controlSize._0,
+		zIndex: layer.content,
+		height: 80,
+		pointerEvents: "none",
+		backgroundImage:
+			"linear-gradient(to top, var(--color-inferay-black) 0px, var(--color-inferay-black) 24px, transparent 80px)",
+	},
+	viewerFloatingScrimAboveContent: {
+		zIndex: layer.control,
+	},
 	viewerTitle: {
+		display: "flex",
 		minWidth: controlSize._0,
 		flex: 1,
+		alignItems: "center",
+		gap: controlSize._1,
 		overflow: "hidden",
 		color: color.textSoft,
 		fontFamily: font.familyDiff,
@@ -2891,15 +2918,17 @@ const styles = stylex.create({
 	},
 	graphSyncButton: {
 		display: "flex",
-		width: "auto",
-		height: controlSize._5,
+		minWidth: controlSize._10,
+		height: controlSize._8,
+		flexDirection: "column",
 		alignItems: "center",
 		justifyContent: "center",
-		gap: controlSize._1,
+		gap: controlSize._0_5,
 		paddingInline: controlSize._2,
 		borderRadius: radius.sm,
 		fontSize: font.size_1,
 		fontWeight: font.weight_5,
+		lineHeight: 1,
 		backgroundColor: {
 			default: color.transparent,
 			":hover": color.controlHover,
@@ -2911,6 +2940,9 @@ const styles = stylex.create({
 		":disabled": {
 			opacity: 0.45,
 		},
+	},
+	graphPushIcon: {
+		transform: "rotate(180deg)",
 	},
 	viewerModes: {
 		position: "relative",
@@ -2955,6 +2987,9 @@ const styles = stylex.create({
 		minHeight: controlSize._0,
 		flex: 1,
 		overflow: "hidden",
+	},
+	viewerBodyAboveScrim: {
+		zIndex: layer.chrome,
 	},
 	refActionOverlay: {
 		position: "absolute",

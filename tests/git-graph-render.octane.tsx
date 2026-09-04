@@ -299,8 +299,10 @@ describe("Git commit graph renderer", () => {
 				'[data-graph-column-header="message"]',
 			);
 			expect(
-				rootElement.querySelector('[data-graph-header="true"]'),
-			).toBeTruthy();
+				rootElement
+					.querySelector('[data-graph-header="true"]')
+					?.hasAttribute("hidden"),
+			).toBe(true);
 			expect(initialGraphHeader?.style.width).toBe("96px");
 			expect(initialMessageHeader?.previousElementSibling).toBe(
 				initialGraphHeader,
