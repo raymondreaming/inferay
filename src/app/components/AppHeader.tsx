@@ -14,6 +14,7 @@ import {
 } from "../../app/model/navigation.tsx";
 import { iconSize } from "../../design-system/styles.stylex.ts";
 import { openSettingsModal } from "../../modules/settings/model/settings-events.ts";
+import { openSkills } from "../../modules/skills/model/skill-events.ts";
 import { dispatchOpenActiveGitGraph } from "../../modules/workbench/model/workbench-events.ts";
 import { dispatchCreateAgentChat } from "../../modules/workspace/model/workspace-events.ts";
 import {
@@ -162,6 +163,14 @@ export function AppHeader() {
 				keywords: "settings preferences configuration",
 				icon: <IconSettings size={iconSize.compact} />,
 				run: () => openSettingsModal(),
+			},
+			{
+				id: "skills",
+				icon: <IconSettings size={iconSize.compact} />,
+				label: "Open skills",
+				detail: "Create and edit reusable instructions",
+				keywords: "skills slash commands prompts",
+				run: () => openSkills(),
 			},
 		],
 		[activateMainView, activateRoute, createNewChat, openCommitGraph],

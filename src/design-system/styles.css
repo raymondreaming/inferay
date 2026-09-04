@@ -75,6 +75,16 @@
 	--inferay-surface-raised: var(--color-inferay-dark-gray);
 	--inferay-surface-subtle: var(--color-inferay-gray);
 	--inferay-surface-canvas: var(--color-inferay-black);
+	/* Opaque midpoint between the base and selected-panel tones. */
+	--inferay-surface-modal: color-mix(
+		in srgb,
+		var(--color-inferay-black) 50%,
+		color-mix(
+			in srgb,
+			var(--color-inferay-black) var(--inferay-panel-base-weight),
+			var(--color-inferay-gray)
+		)
+	);
 	--inferay-surface-panel: color-mix(
 		in srgb,
 		var(--inferay-surface-base) var(--inferay-panel-base-weight),

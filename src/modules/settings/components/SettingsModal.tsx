@@ -200,7 +200,7 @@ const styles = stylex.create({
 		zIndex: layer.criticalOverlay,
 	},
 	modal: {
-		backgroundColor: color.popoverOpaque,
+		backgroundColor: color.backgroundModal,
 		borderColor: color.borderStrong,
 		borderRadius: radius._2xl,
 		borderStyle: "solid",

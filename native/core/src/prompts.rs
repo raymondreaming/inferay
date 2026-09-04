@@ -115,6 +115,16 @@ impl PromptStore {
                 message: "Cannot edit built-in prompts".into(),
             });
         }
+        if let Some(expected) = body.get("expectedUpdatedAt")
+            && expected.as_u64() != Some(prompts[index].updated_at)
+        {
+            return Err(PromptError {
+                status: 409,
+                message:
+                    "This skill changed after the proposal. Review a fresh proposal before saving."
+                        .into(),
+            });
+        }
         if let Some(command) = string_value(body, "command")
             && command != prompts[index].command
             && prompts
@@ -146,7 +156,7 @@ impl PromptStore {
         if let Some(value) = string_array(body.get("tags")) {
             current.tags = value;
         }
-        current.updated_at = now;
+        current.updated_at = now.max(current.updated_at.saturating_add(1));
         let updated = current.clone();
         self.save(&prompts).map_err(internal_prompt_error)?;
         Ok(updated)
@@ -291,6 +301,46 @@ fn atomic_write_json(path: &Path, value: impl Serialize) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejects_stale_skill_proposals_without_overwriting_newer_instructions() {
+        let root = tempfile::tempdir().unwrap();
+        let store = PromptStore::new(
+            root.path().join("bundled.json"),
+            root.path().join("local.json"),
+        );
+        let original = store.create(serde_json::json!({"name":"Review", "command":"review", "promptTemplate":"Original"}).as_object().unwrap(), 10).unwrap();
+        store
+            .update(
+                &original.id,
+                serde_json::json!({"promptTemplate":"Newer edit"})
+                    .as_object()
+                    .unwrap(),
+                20,
+            )
+            .unwrap();
+        let stale = store
+            .update(
+                &original.id,
+                serde_json::json!({"expectedUpdatedAt":10, "promptTemplate":"Stale proposal"})
+                    .as_object()
+                    .unwrap(),
+                30,
+            )
+            .unwrap_err();
+        assert_eq!(stale.status, 409);
+        assert_eq!(store.load().unwrap()[0].prompt_template, "Newer edit");
+        let approved = store
+            .update(
+                &original.id,
+                serde_json::json!({"expectedUpdatedAt":20, "promptTemplate":"Approved proposal"})
+                    .as_object()
+                    .unwrap(),
+                30,
+            )
+            .unwrap();
+        assert_eq!(approved.prompt_template, "Approved proposal");
+    }
 
     fn prompt(id: &str, command: &str, built_in: bool, count: i64) -> Prompt {
         Prompt {

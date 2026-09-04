@@ -32,6 +32,7 @@ import {
 	radius,
 } from "../design-system/styles.stylex.ts";
 import { SettingsModalHost } from "../modules/settings/components/SettingsModal.tsx";
+import { SkillsModalHost } from "../modules/skills/components/SkillsModal.tsx";
 import { RepositoryWorkspaceBar } from "../modules/workspace/components/RepositoryWorkspaceBar.tsx";
 import { WorkspaceSidebar } from "../modules/workspace/index.ts";
 import { listenWindowEvent } from "../shared/lib/react-events.ts";
@@ -218,6 +219,7 @@ function AppLayout() {
 			<AppHeader />
 			<RepositoryWorkspaceBar />
 			<SettingsModalHost />
+			<SkillsModalHost />
 			<div
 				{...stylex.props(
 					styles.appBody,

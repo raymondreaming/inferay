@@ -9,6 +9,7 @@ import type { Prompt } from "../model/types.ts";
 
 let promptsCache: Prompt[] | null = null;
 let promptsPromise: Promise<Prompt[]> | null = null;
+const promptListeners = new Set<() => void>();
 
 async function loadPrompts(): Promise<Prompt[]> {
 	if (promptsCache) return promptsCache;
@@ -26,6 +27,7 @@ async function loadPrompts(): Promise<Prompt[]> {
 
 function updatePromptsCache(prompts: Prompt[]) {
 	promptsCache = prompts;
+	for (const listener of promptListeners) listener();
 }
 
 function arePromptsEqual(prev: Prompt[], next: Prompt[]) {
@@ -62,6 +64,17 @@ export function preloadPrompts() {
 
 export function usePrompts(enabled = true) {
 	const [prompts, setPrompts] = useState<Prompt[]>(() => promptsCache ?? []);
+	const [loading, setLoading] = useState(!promptsCache);
+	const [error, setError] = useState("");
+	useEffect(() => {
+		if (!enabled) return;
+		const sync = () => setPrompts(promptsCache ?? []);
+		promptListeners.add(sync);
+		sync();
+		return () => {
+			promptListeners.delete(sync);
+		};
+	}, [enabled]);
 
 	const reload = useCallback(async () => {
 		const data = await loadPrompts();
@@ -72,13 +85,23 @@ export function usePrompts(enabled = true) {
 	useEffect(() => {
 		if (!enabled) return;
 		let cancelled = false;
-		loadPrompts().then((data) => {
-			if (cancelled) return;
-			updatePromptsCache(data);
-			setPrompts((current) =>
-				arePromptsEqual(current, data) ? current : data,
-			);
-		});
+		loadPrompts()
+			.then((data) => {
+				if (cancelled) return;
+				updatePromptsCache(data);
+				setPrompts((current) =>
+					arePromptsEqual(current, data) ? current : data,
+				);
+			})
+			.catch((error) => {
+				if (!cancelled)
+					setError(
+						error instanceof Error ? error.message : "Could not load skills",
+					);
+			})
+			.finally(() => {
+				if (!cancelled) setLoading(false);
+			});
 		return () => {
 			cancelled = true;
 		};
@@ -99,6 +122,7 @@ export function usePrompts(enabled = true) {
 			setPrompts((current) =>
 				arePromptsEqual(current, updated) ? current : updated,
 			);
+			return next;
 		},
 		[],
 	);
@@ -109,7 +133,8 @@ export function usePrompts(enabled = true) {
 				method: "PUT",
 			});
 			if (!response.ok) {
-				throw new Error(`Request failed: ${response.status}`);
+				const failure = await response.json().catch(() => null);
+				throw new Error(failure?.error ?? `Request failed: ${response.status}`);
 			}
 			const next = (await response.json()) as Prompt;
 			const updated = promptsCache?.map((prompt) =>
@@ -119,6 +144,7 @@ export function usePrompts(enabled = true) {
 			setPrompts((current) =>
 				arePromptsEqual(current, updated) ? current : updated,
 			);
+			return next;
 		},
 		[],
 	);
@@ -141,6 +167,8 @@ export function usePrompts(enabled = true) {
 
 	return {
 		prompts,
+		loading,
+		error,
 		createPrompt,
 		updatePrompt,
 		removePrompt,

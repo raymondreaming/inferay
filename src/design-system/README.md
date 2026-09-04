@@ -17,6 +17,7 @@ back to a theme or built-in scene. Settings swatches use the same CSS palettes.
 
 - `color.background`: the page/sidebar.
 - `color.backgroundPanel`: the message box and selected surfaces.
+- `color.backgroundModal`: opaque Settings and Skills dialogs; halfway between the base and selected-panel tones.
 - `color.backgroundRaised`: menus and raised controls.
 - `color.backgroundSubtle`: the palette's secondary surface.
 

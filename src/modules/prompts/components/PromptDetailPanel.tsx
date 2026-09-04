@@ -1,20 +1,19 @@
 import * as stylex from "@octanejs/stylex";
-import { useEffect, useRef } from "octane";
 import {
 	color,
 	controlSize,
 	font,
 	iconSize,
 	radius,
-	shadow,
+	surfaceStyles,
 } from "../../../design-system/styles.stylex.ts";
 import {
-	PROMPT_CATEGORIES,
-	type Prompt,
-} from "../../../modules/prompts/model/types.ts";
-import { measureTextHeight } from "../../../shared/lib/pretext-utils.ts";
-import { setInputValue } from "../../../shared/lib/react-events.ts";
-import { IconPencil, IconTrash, IconX } from "../../../shared/ui/Icons.tsx";
+	IconCheck,
+	IconCode,
+	IconPencil,
+	IconTrash,
+} from "../../../shared/ui/Icons.tsx";
+import { PROMPT_CATEGORIES, type Prompt } from "../model/types.ts";
 
 interface PromptDetailPanelProps {
 	selectedPrompt: Prompt | null;
@@ -33,44 +32,6 @@ interface PromptDetailPanelProps {
 	onCancelEditing: () => void;
 	onSave: (isInlineEdit: boolean) => void;
 	onDelete: () => void;
-	onClose: () => void;
-}
-
-const MONO_FONT = '11px "Geist Mono", "SF Mono", Menlo, Consolas, monospace';
-
-function AutoTextarea({
-	value,
-	onChange,
-	placeholder,
-}: {
-	value: string;
-	onChange: (v: string) => void;
-	placeholder: string;
-}) {
-	const ref = useRef<HTMLTextAreaElement | null>(null);
-
-	useEffect(() => {
-		const ta = ref.current;
-		if (!ta) return;
-		const width = ta.clientWidth - 24;
-		if (width > 0 && value) {
-			const h = measureTextHeight(value, width, MONO_FONT, 18);
-			ta.style.height = `${Math.min(Math.max(h + 24, 100), 300)}px`;
-		} else {
-			ta.style.height = "100px";
-		}
-	}, [value]);
-
-	return (
-		<textarea
-			ref={ref}
-			value={value}
-			onInput={setInputValue.bind(null, onChange)}
-			placeholder={placeholder}
-			{...stylex.props(styles.templateTextarea)}
-			style={{ minHeight: 100, maxHeight: 300 }}
-		/>
-	);
 }
 
 export function PromptDetailPanel({
@@ -90,225 +51,222 @@ export function PromptDetailPanel({
 	onCancelEditing,
 	onSave,
 	onDelete,
-	onClose,
 }: PromptDetailPanelProps) {
-	const isEditMode = isCreatingNew || isEditing;
-
+	const editing = isCreatingNew || isEditing;
+	const instructions = editing
+		? formPromptTemplate
+		: (selectedPrompt?.promptTemplate ?? "");
+	const command = editing ? formCommand : (selectedPrompt?.command ?? "");
 	return (
 		<div {...stylex.props(styles.root)}>
-			<div {...stylex.props(styles.header)}>
-				<div {...stylex.props(styles.headerTitleRow)}>
-					{isEditMode ? (
-						<div {...stylex.props(styles.commandEditor)}>
-							<span {...stylex.props(styles.commandSlash)}>/</span>
+			<div {...stylex.props(styles.toolbar)}>
+				<div {...stylex.props(styles.commandGroup)}>
+					<div {...stylex.props(styles.command)}>
+						<span aria-hidden="true">/</span>
+						{editing ? (
 							<input
-								type="text"
+								aria-label="Skill command"
 								value={formCommand}
-								onInput={(e) =>
+								onInput={(event) =>
 									onFormChange(
 										"command",
-										e.currentTarget.value
+										event.currentTarget.value
 											.toLowerCase()
 											.replace(/[^a-z0-9-]/g, ""),
 									)
 								}
-								placeholder="command"
+								placeholder="skill-command"
+								disabled={isSaving}
 								{...stylex.props(styles.commandInput)}
 							/>
-						</div>
-					) : selectedPrompt ? (
-						<span {...stylex.props(styles.commandText)}>
-							/{selectedPrompt.command}
-						</span>
-					) : null}
-					{selectedPrompt?.isBuiltIn && !isCreatingNew && (
-						<span {...stylex.props(styles.badge)}>built-in</span>
-					)}
-					{isCreatingNew && (
-						<span {...stylex.props(styles.badge, styles.badgeStrong)}>new</span>
-					)}
+						) : (
+							<span>{command}</span>
+						)}
+					</div>
+					<span {...stylex.props(styles.badge)}>
+						{isCreatingNew
+							? "Draft"
+							: selectedPrompt?.isBuiltIn
+								? "Built-in"
+								: "Personal"}
+					</span>
 				</div>
-				<div {...stylex.props(styles.headerActions)}>
-					{isCreatingNew ? (
-						<>
-							<button
-								type="button"
-								onClick={onCancelEditing}
-								{...stylex.props(styles.textButton)}
-							>
-								Cancel
-							</button>
-							<button
-								type="button"
-								onClick={() => onSave(false)}
-								disabled={isSaving}
-								{...stylex.props(styles.textButton, styles.primaryButton)}
-							>
-								{isSaving ? "..." : "Create"}
-							</button>
-						</>
-					) : isEditing ? (
-						<>
-							<button
-								type="button"
-								onClick={onCancelEditing}
-								{...stylex.props(styles.textButton)}
-							>
-								Cancel
-							</button>
-							<button
-								type="button"
-								onClick={() => onSave(true)}
-								disabled={isSaving}
-								{...stylex.props(styles.textButton, styles.primaryButton)}
-							>
-								{isSaving ? "..." : "Save"}
-							</button>
-						</>
-					) : (
-						<>
-							{selectedPrompt && !selectedPrompt.isBuiltIn && (
-								<button
-									type="button"
-									onClick={onStartEditing}
-									{...stylex.props(styles.iconButton)}
-								>
-									<IconPencil size={iconSize.md} />
-								</button>
-							)}
-							{selectedPrompt && !selectedPrompt.isBuiltIn && (
-								<button
-									type="button"
-									onClick={onDelete}
-									{...stylex.props(styles.iconButton)}
-								>
-									<IconTrash size={iconSize.md} />
-								</button>
-							)}
-						</>
-					)}
+				{!editing && selectedPrompt && !selectedPrompt.isBuiltIn && (
 					<button
 						type="button"
-						onClick={onClose}
-						{...stylex.props(styles.iconButton)}
+						onClick={onStartEditing}
+						{...stylex.props(styles.button)}
 					>
-						<IconX size={iconSize.md} />
+						<IconPencil size={iconSize.sm} /> Edit skill
 					</button>
-				</div>
+				)}
 			</div>
-
 			<div {...stylex.props(styles.body)}>
-				<div {...stylex.props(styles.formGrid)}>
-					<div {...stylex.props(styles.flexField)}>
-						<span {...stylex.props(styles.label)}>Name</span>
-						{isEditMode ? (
-							<input
-								type="text"
-								value={formName}
-								onInput={(e) => onFormChange("name", e.currentTarget.value)}
-								placeholder="Skill name"
-								{...stylex.props(styles.input)}
-							/>
-						) : (
-							<p {...stylex.props(styles.readValue)}>{selectedPrompt?.name}</p>
-						)}
-					</div>
-					<div {...stylex.props(styles.categoryField)}>
-						<span {...stylex.props(styles.label)}>Category</span>
-						{isEditMode ? (
-							<select
-								value={formCategory}
-								onChange={(e) =>
-									onFormChange("category", e.currentTarget.value)
-								}
-								{...stylex.props(styles.input)}
-							>
-								{PROMPT_CATEGORIES.map((c) => (
-									<option key={c.value} value={c.value}>
-										{c.label}
-									</option>
-								))}
-							</select>
-						) : (
-							<p {...stylex.props(styles.readValue, styles.readValueSoft)}>
-								{selectedPrompt?.category}
-							</p>
-						)}
-					</div>
-				</div>
-
-				<div>
-					<span {...stylex.props(styles.label)}>Description</span>
-					{isEditMode ? (
-						<textarea
-							value={formDescription}
-							onInput={(e) =>
-								onFormChange("description", e.currentTarget.value)
+				<div {...stylex.props(styles.identity)}>
+					{editing ? (
+						<input
+							aria-label="Skill name"
+							value={formName}
+							disabled={isSaving}
+							onInput={(event) =>
+								onFormChange("name", event.currentTarget.value)
 							}
-							rows={2}
-							placeholder="When the agent should use this skill"
-							{...stylex.props(styles.input, styles.descriptionInput)}
+							placeholder="Give your skill a name"
+							{...stylex.props(styles.title, styles.titleInput)}
 						/>
 					) : (
-						<p {...stylex.props(styles.readDescription)}>
+						<h2 {...stylex.props(styles.title)}>{selectedPrompt?.name}</h2>
+					)}
+					{editing ? (
+						<textarea
+							aria-label="Skill description"
+							value={formDescription}
+							rows={2}
+							disabled={isSaving}
+							onInput={(event) =>
+								onFormChange("description", event.currentTarget.value)
+							}
+							placeholder="When should your agent use this skill?"
+							{...stylex.props(styles.description, styles.descriptionInput)}
+						/>
+					) : (
+						<p {...stylex.props(styles.description)}>
 							{selectedPrompt?.description}
 						</p>
 					)}
 				</div>
-
-				<div>
-					<span {...stylex.props(styles.label)}>
-						Instructions
-						{isEditMode && (
-							<span {...stylex.props(styles.labelHint)}>
-								use {"{args}"} for input
-							</span>
-						)}
-					</span>
-					{isEditMode ? (
-						<AutoTextarea
-							value={formPromptTemplate}
-							onChange={(v) => onFormChange("promptTemplate", v)}
-							placeholder="Write the SKILL.md workflow instructions…"
+				<section
+					aria-label="Workflow instructions"
+					{...stylex.props(styles.document)}
+				>
+					<div {...stylex.props(styles.documentHeader)}>
+						<span {...stylex.props(styles.documentTitle)}>
+							<IconCode size={iconSize.md} /> Instructions
+						</span>
+						<span {...stylex.props(styles.meta)}>Markdown</span>
+					</div>
+					{editing ? (
+						<textarea
+							aria-label="Skill instructions"
+							value={instructions}
+							disabled={isSaving}
+							onInput={(event) =>
+								onFormChange("promptTemplate", event.currentTarget.value)
+							}
+							spellCheck={false}
+							placeholder={
+								"Describe the workflow your agent should follow.\n\nInclude the steps, important constraints, and what a good result looks like."
+							}
+							{...stylex.props(styles.instructions, styles.editor)}
 						/>
 					) : (
-						<div {...stylex.props(styles.templatePreview)}>
-							{selectedPrompt?.promptTemplate}
-						</div>
+						<pre {...stylex.props(styles.instructions)}>{instructions}</pre>
 					)}
-				</div>
-
-				<div>
-					<span {...stylex.props(styles.label)}>Tags</span>
-					{isEditMode ? (
-						<input
-							type="text"
-							value={formTags}
-							onInput={(e) => onFormChange("tags", e.currentTarget.value)}
-							placeholder="code, review, quality"
-							{...stylex.props(styles.input)}
-						/>
-					) : selectedPrompt && selectedPrompt.tags.length > 0 ? (
-						<div {...stylex.props(styles.tagList)}>
-							{selectedPrompt.tags.map((tag) => (
-								<span key={tag} {...stylex.props(styles.tag)}>
-									{tag}
+				</section>
+				<details
+					key={selectedPrompt?._id ?? "new"}
+					{...stylex.props(styles.details)}
+				>
+					<summary {...stylex.props(styles.detailsSummary)}>
+						Category & tags
+					</summary>
+					<div {...stylex.props(styles.fields)}>
+						<div {...stylex.props(styles.field)}>
+							Category
+							{editing ? (
+								<select
+									aria-label="Skill category"
+									value={formCategory}
+									disabled={isSaving}
+									onChange={(event) =>
+										onFormChange("category", event.currentTarget.value)
+									}
+									{...stylex.props(styles.input)}
+								>
+									{PROMPT_CATEGORIES.map((category) => (
+										<option key={category.value} value={category.value}>
+											{category.label}
+										</option>
+									))}
+								</select>
+							) : (
+								<span {...stylex.props(styles.fieldValue)}>
+									{selectedPrompt?.category || "Custom"}
 								</span>
-							))}
+							)}
 						</div>
-					) : (
-						<p {...stylex.props(styles.emptyText)}>No tags</p>
-					)}
-				</div>
-
-				{!isEditMode && selectedPrompt && (
-					<p {...stylex.props(styles.usageText)}>
-						{selectedPrompt.executionCount} uses
+						<div {...stylex.props(styles.field, styles.tagsField)}>
+							Tags
+							{editing ? (
+								<input
+									aria-label="Skill tags"
+									value={formTags}
+									disabled={isSaving}
+									onInput={(event) =>
+										onFormChange("tags", event.currentTarget.value)
+									}
+									placeholder="e.g. writing, review"
+									{...stylex.props(styles.input)}
+								/>
+							) : (
+								<span {...stylex.props(styles.fieldValue)}>
+									{selectedPrompt?.tags.join(" · ") || "No tags"}
+								</span>
+							)}
+						</div>
+					</div>
+				</details>
+				{formError && (
+					<p role="alert" {...stylex.props(styles.error)}>
+						{formError}
 					</p>
 				)}
-
-				{formError && <p {...stylex.props(styles.errorText)}>{formError}</p>}
 			</div>
+			<footer {...stylex.props(styles.footer)}>
+				<div>
+					{selectedPrompt && !selectedPrompt.isBuiltIn && !isCreatingNew && (
+						<button
+							type="button"
+							disabled={isSaving}
+							onClick={onDelete}
+							{...stylex.props(styles.button, styles.deleteButton)}
+						>
+							<IconTrash size={iconSize.sm} /> Delete skill
+						</button>
+					)}
+				</div>
+				<div {...stylex.props(styles.actions)}>
+					{editing ? (
+						<>
+							<button
+								type="button"
+								disabled={isSaving}
+								onClick={onCancelEditing}
+								{...stylex.props(styles.button)}
+							>
+								Cancel
+							</button>
+							<button
+								type="button"
+								disabled={isSaving}
+								onClick={() => onSave(isEditing)}
+								{...stylex.props(
+									surfaceStyles.panel,
+									styles.button,
+									styles.saveButton,
+								)}
+							>
+								<IconCheck size={iconSize.sm} />{" "}
+								{isSaving
+									? "Saving…"
+									: isCreatingNew
+										? "Create skill"
+										: "Save changes"}
+							</button>
+						</>
+					) : null}
+				</div>
+			</footer>
 		</div>
 	);
 }
@@ -316,248 +274,266 @@ export function PromptDetailPanel({
 const styles = stylex.create({
 	root: {
 		display: "flex",
-		height: "100%",
+		flex: 1,
+		minHeight: 0,
 		flexDirection: "column",
 		overflow: "hidden",
-		backgroundColor: color.transparent,
 	},
-	header: {
+	toolbar: {
 		display: "flex",
-		height: controlSize._10,
+		minHeight: "58px",
 		flexShrink: 0,
 		alignItems: "center",
 		justifyContent: "space-between",
+		gap: controlSize._3,
+		paddingInline: controlSize._4,
+		paddingRight: controlSize._14,
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
-		paddingInline: controlSize._4,
 	},
-	headerTitleRow: {
+	commandGroup: {
 		display: "flex",
 		alignItems: "center",
-		gap: controlSize._2,
-		minWidth: controlSize._0,
+		gap: controlSize._3,
+		minWidth: 0,
 	},
-	headerActions: {
+	command: {
 		display: "flex",
 		alignItems: "center",
-		gap: controlSize._1,
-	},
-	commandEditor: {
-		display: "flex",
-		alignItems: "center",
-		gap: controlSize._0_5,
-	},
-	commandSlash: {
-		color: color.textMuted,
+		minWidth: 0,
+		color: color.textSoft,
 		fontFamily: font.familyMono,
 		fontSize: font.size_2,
+		overflowWrap: "anywhere",
 	},
 	commandInput: {
-		width: "6rem",
-		borderWidth: 0,
-		borderRadius: radius.md,
-		backgroundColor: color.backgroundRaised,
+		width: "min(13rem, 24vw)",
+		minWidth: 0,
+		padding: controlSize._1,
+		backgroundColor: color.transparent,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: radius.sm,
 		color: color.textMain,
-		fontFamily: font.familyMono,
-		fontSize: font.size_2,
-		outline: shadow.none,
-		paddingBlock: controlSize._1,
-		paddingInline: controlSize._1_5,
-		":focus": {
-			boxShadow: `inset 0 0 0 1px ${color.textMuted}`,
-		},
-		"::placeholder": {
-			color: color.textMuted,
-		},
-	},
-	commandText: {
-		color: color.textMain,
-		fontFamily: font.familyMono,
-		fontSize: font.size_2,
+		outline: "none",
+		":focus-visible": { boxShadow: `0 1px 0 ${color.textSoft}` },
+		"::placeholder": { color: color.textMuted },
 	},
 	badge: {
-		borderRadius: radius.sm,
-		backgroundColor: color.surfaceSubtle,
-		color: color.textMuted,
-		fontSize: font.size_0,
-		paddingBlock: controlSize._0_5,
-		paddingInline: controlSize._1,
-		opacity: 0.7,
-	},
-	badgeStrong: {
-		backgroundColor: color.surfaceControl,
-		opacity: 1,
-	},
-	textButton: {
-		height: controlSize._6,
-		borderWidth: 0,
-		borderRadius: radius.sm,
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.surfaceSubtle,
-		},
-		color: color.textMuted,
-		fontSize: font.size_2,
-		paddingInline: controlSize._2,
-	},
-	primaryButton: {
-		backgroundColor: {
-			default: color.surfaceControl,
-			":hover": color.surfaceControlHover,
-		},
-		color: color.textMain,
-	},
-	iconButton: {
-		display: "flex",
-		width: controlSize._6,
-		height: controlSize._6,
-		alignItems: "center",
-		justifyContent: "center",
-		borderWidth: 0,
-		borderRadius: radius.sm,
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.surfaceSubtle,
-		},
-		color: color.textMuted,
-	},
-	body: {
-		flex: 1,
-		overflowY: "auto",
-		padding: controlSize._4,
-		display: "flex",
-		flexDirection: "column",
-		gap: controlSize._3,
-	},
-	formGrid: {
-		display: "flex",
-		gap: controlSize._3,
-	},
-	flexField: {
-		flex: 1,
-		minWidth: controlSize._0,
-	},
-	categoryField: {
-		width: "7rem",
-	},
-	label: {
-		color: color.textMuted,
 		fontSize: font.size_1,
-		fontWeight: font.weight_5,
-		letterSpacing: "0.08em",
-		textTransform: "uppercase",
-	},
-	labelHint: {
-		marginLeft: controlSize._1,
-		color: color.textMuted,
-		fontWeight: font.weightRegular,
-		opacity: 0.55,
-		textTransform: "none",
-	},
-	input: {
-		width: "100%",
-		marginTop: controlSize._1,
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: {
-			default: color.border,
-			":focus": color.textMuted,
-		},
-		borderRadius: radius.md,
-		backgroundColor: color.transparent,
-		color: color.textMain,
-		fontSize: font.size_2,
-		outline: "none",
-		paddingBlock: controlSize._1_5,
-		paddingInline: controlSize._2,
-		"::placeholder": {
-			color: color.textMuted,
-		},
-	},
-	descriptionInput: {
-		resize: "none",
-	},
-	templateTextarea: {
-		width: "100%",
-		marginTop: controlSize._1,
-		resize: "none",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: {
-			default: color.border,
-			":focus": color.textMuted,
-		},
-		borderRadius: radius.md,
-		backgroundColor: color.backgroundRaised,
-		color: color.textMain,
-		fontFamily: font.familyMono,
-		fontSize: font.size_2,
-		lineHeight: "18px",
-		outline: "none",
-		padding: controlSize._3,
-		"::placeholder": {
-			color: color.textMuted,
-		},
-	},
-	readValue: {
-		marginTop: controlSize._1,
-		color: color.textMain,
-		fontSize: font.size_2,
-	},
-	readValueSoft: {
 		color: color.textSoft,
-	},
-	readDescription: {
-		marginTop: controlSize._1,
-		color: color.textSoft,
-		fontSize: font.size_2,
-		lineHeight: 1.6,
-	},
-	templatePreview: {
-		maxHeight: "300px",
-		marginTop: controlSize._1,
-		overflowY: "auto",
-		whiteSpace: "pre-wrap",
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
 		borderRadius: radius.md,
-		backgroundColor: color.backgroundRaised,
+		paddingInline: controlSize._1_5,
+		paddingBlock: controlSize._0_5,
+	},
+	body: {
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._5,
+		flex: 1,
+		minHeight: 0,
+		overflowY: "auto",
+		padding: {
+			default: controlSize._6,
+			"@media (max-width: 700px)": controlSize._4,
+		},
+	},
+	identity: {
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._2,
+		flexShrink: 0,
+	},
+	title: {
+		margin: 0,
+		width: "100%",
+		color: color.textMain,
+		fontSize: "20px",
+		lineHeight: 1.3,
+		fontWeight: font.weight_5,
+		letterSpacing: "-0.035em",
+		overflowWrap: "anywhere",
+	},
+	titleInput: {
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: radius.md,
+		backgroundColor: color.transparent,
+		outline: "none",
+		padding: controlSize._2,
+		":focus-visible": { boxShadow: `0 1px 0 ${color.borderStrong}` },
+		"::placeholder": { color: color.textSoft },
+	},
+	description: {
+		margin: 0,
+		color: color.textSoft,
+		fontSize: font.size_3,
+		lineHeight: 1.6,
+		overflowWrap: "anywhere",
+	},
+	descriptionInput: {
+		width: "100%",
+		padding: controlSize._2,
+		resize: "vertical",
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: radius.md,
+		backgroundColor: color.transparent,
+		outline: "none",
+		minHeight: "42px",
+		":focus-visible": { boxShadow: `0 1px 0 ${color.borderStrong}` },
+		"::placeholder": { color: color.textMuted },
+	},
+	document: {
+		display: "flex",
+		flexDirection: "column",
+		flex: "1 0 auto",
+		minHeight: "280px",
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: radius.xl,
+		overflow: "hidden",
+		backgroundColor: color.background,
+	},
+	documentHeader: {
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "space-between",
+		padding: controlSize._3,
+		borderBottomWidth: 1,
+		borderBottomStyle: "solid",
+		borderBottomColor: color.border,
+		backgroundColor: color.surfaceWhite02,
+	},
+	documentTitle: {
+		display: "flex",
+		alignItems: "center",
+		gap: controlSize._2,
+		color: color.textSoft,
+		fontSize: font.size_2,
+		fontWeight: font.weight_5,
+	},
+	meta: {
+		fontSize: font.size_1,
+		color: color.textMuted,
+		fontWeight: font.weightRegular,
+	},
+	instructions: {
+		flex: 1,
+		margin: 0,
+		minHeight: "210px",
+		width: "100%",
+		padding: controlSize._4,
 		color: color.textSoft,
 		fontFamily: font.familyMono,
 		fontSize: font.size_2,
-		lineHeight: "18px",
-		padding: controlSize._3,
+		lineHeight: 1.8,
+		whiteSpace: "pre-wrap",
+		overflowWrap: "anywhere",
 	},
-	tagList: {
-		display: "flex",
-		flexWrap: "wrap",
-		gap: controlSize._1,
-		marginTop: controlSize._1,
+	editor: {
+		resize: "vertical",
+		borderWidth: 0,
+		backgroundColor: color.transparent,
+		color: color.textMain,
+		outline: "none",
+		":focus-visible": { boxShadow: `inset 0 0 0 1px ${color.borderStrong}` },
+		"::placeholder": { color: color.textMuted },
 	},
-	tag: {
-		borderRadius: radius.sm,
-		backgroundColor: color.surfaceSubtle,
-		color: color.textMuted,
-		fontSize: font.size_1,
-		paddingBlock: controlSize._0_5,
-		paddingInline: controlSize._1_5,
+	details: {
+		flexShrink: 0,
+		borderTopWidth: 1,
+		borderTopStyle: "solid",
+		borderTopColor: color.border,
+		paddingTop: controlSize._3,
 	},
-	emptyText: {
-		marginTop: controlSize._1,
-		color: color.textMuted,
-		fontSize: font.size_1,
-		opacity: 0.45,
-	},
-	usageText: {
-		color: color.textMuted,
-		fontSize: font.size_1,
-		fontVariantNumeric: "tabular-nums",
-		opacity: 0.45,
-	},
-	errorText: {
-		color: color.danger,
+	detailsSummary: {
+		cursor: "pointer",
+		color: color.textSoft,
 		fontSize: font.size_2,
 	},
+	fields: {
+		display: "flex",
+		flexWrap: "wrap",
+		gap: controlSize._4,
+		marginTop: controlSize._3,
+	},
+	field: {
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._2,
+		color: color.textSoft,
+		fontSize: font.size_2,
+	},
+	tagsField: { flex: 1, minWidth: "140px" },
+	fieldValue: { color: color.textMain },
+	input: {
+		width: "100%",
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: radius.md,
+		backgroundColor: color.backgroundModal,
+		color: color.textMain,
+		padding: controlSize._2,
+		outline: "none",
+		":focus-visible": { borderColor: color.textSoft },
+	},
+	footer: {
+		display: "flex",
+		minHeight: "64px",
+		flexShrink: 0,
+		alignItems: "center",
+		justifyContent: "space-between",
+		flexWrap: "wrap",
+		gap: controlSize._2,
+		paddingBlock: controlSize._3,
+		paddingInline: controlSize._6,
+		borderTopWidth: 1,
+		borderTopStyle: "solid",
+		borderTopColor: color.border,
+	},
+	actions: { display: "flex", gap: controlSize._2 },
+	button: {
+		display: "inline-flex",
+		alignItems: "center",
+		justifyContent: "center",
+		gap: controlSize._1_5,
+		minHeight: controlSize._8,
+		paddingInline: controlSize._3,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.transparent,
+		borderRadius: radius.lg,
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.surfaceControl,
+		},
+		color: color.textSoft,
+		fontSize: font.size_2,
+		":disabled": { opacity: 0.5 },
+		":focus-visible": { outline: `1px solid ${color.textSoft}` },
+	},
+	saveButton: {
+		backgroundColor: {
+			default: color.backgroundPanel,
+			":hover": color.controlHover,
+		},
+		borderColor: color.borderControl,
+		color: color.textMain,
+		fontWeight: font.weight_5,
+	},
+	deleteButton: {
+		borderColor: color.border,
+		":hover": { color: color.danger },
+	},
+	error: { color: color.danger, fontSize: font.size_2 },
 });

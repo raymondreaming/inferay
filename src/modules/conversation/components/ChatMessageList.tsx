@@ -38,6 +38,15 @@ import {
 	IconTarget,
 } from "../../../shared/ui/Icons.tsx";
 import {
+	SkillProposalCard,
+	SkillReadCard,
+} from "../../skills/components/SkillProposalCard.tsx";
+import {
+	parseSkillProposal,
+	parseSkillRead,
+	splitSkillProposals,
+} from "../../skills/model/skill-proposal.ts";
+import {
 	buildRenderItems,
 	getEditToolPayload,
 	getToolDisplayInfo,
@@ -384,6 +393,7 @@ function CheckpointMarker({
 }
 
 const Bubble = memo(function Bubble({
+	paneId,
 	msg,
 	collapsed,
 	onToggle,
@@ -391,6 +401,7 @@ const Bubble = memo(function Bubble({
 	onMdFileClick,
 	slashCommandNames,
 }: {
+	paneId: string;
 	msg: ChatMessage;
 	collapsed: boolean;
 	onToggle: (id: string) => void;
@@ -492,6 +503,17 @@ const Bubble = memo(function Bubble({
 	}
 
 	if (msg.role === "system") {
+		const skillProposal = parseSkillProposal(msg.content);
+		if (skillProposal)
+			return (
+				<SkillProposalCard
+					proposal={skillProposal}
+					messageId={`${paneId}:${msg.id}:native`}
+					onResult={onSendMessage}
+				/>
+			);
+		const skillRead = parseSkillRead(msg.content);
+		if (skillRead) return <SkillReadCard skill={skillRead} />;
 		const goalMessage = parseGoalSystemMessage(msg.content);
 		if (goalMessage) return <GoalSystemCard goal={goalMessage} />;
 		const commandMessage = parseCommandSystemMessage(msg.content);
@@ -593,11 +615,26 @@ const Bubble = memo(function Bubble({
 
 	return (
 		<div {...stylex.props(styles.assistantMessage)}>
-			<Markdown
-				text={msg.content}
-				onMdFileClick={onMdFileClick}
-				streaming={msg.isStreaming}
-			/>
+			{splitSkillProposals(msg.content, msg.isStreaming).map((part, index) =>
+				"proposal" in part ? (
+					<SkillProposalCard
+						key={`${msg.id}:${part.index}`}
+						messageId={`${paneId}:${msg.id}:${part.index}`}
+						proposal={part.proposal}
+						streaming={msg.isStreaming}
+						onResult={onSendMessage}
+					/>
+				) : "pending" in part ? (
+					<p key={index}>Preparing skill proposal…</p>
+				) : (
+					<Markdown
+						key={index}
+						text={part.text}
+						onMdFileClick={onMdFileClick}
+						streaming={msg.isStreaming}
+					/>
+				),
+			)}
 			{!msg.isStreaming && msg.content.trim() ? (
 				<div {...stylex.props(styles.messageActionRow)}>
 					<button
@@ -624,6 +661,7 @@ const Bubble = memo(function Bubble({
 });
 
 export const ChatMessageList = memo(function ChatMessageList({
+	paneId,
 	messages,
 	scrollElementRef,
 	virtualizerControlsRef,
@@ -636,6 +674,7 @@ export const ChatMessageList = memo(function ChatMessageList({
 	slashCommandNames,
 	stickToBottom,
 }: {
+	paneId: string;
 	messages: ChatMessage[];
 	scrollElementRef: React.RefObject<HTMLDivElement | null>;
 	virtualizerControlsRef?: React.Ref<ChatVirtualizerControls | null>;
@@ -793,6 +832,7 @@ export const ChatMessageList = memo(function ChatMessageList({
 						{...stylex.props(styles.messageRow)}
 					>
 						<Bubble
+							paneId={paneId}
 							msg={msg}
 							collapsed={!expandedTools.has(msg.id)}
 							onToggle={toggleTool}

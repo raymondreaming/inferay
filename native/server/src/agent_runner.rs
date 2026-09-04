@@ -11,6 +11,7 @@ use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::native_prompts::NativePrompts;
 use inferay_core::agent_protocol::{
     AgentEvent, AgentProtocolContext, ClaudeProtocolState, CodexInvocationContext,
     CodexProtocolState, ProtocolEmission, build_claude_invocation_args,
@@ -34,6 +35,7 @@ pub struct AgentProcessHandle {
     pid: Arc<AtomicU32>,
     cancelled: Arc<AtomicBool>,
     codex_control: Arc<Mutex<Option<mpsc::UnboundedSender<CodexControl>>>>,
+    skills: Option<NativePrompts>,
 }
 
 pub(crate) enum CodexControl {
@@ -46,6 +48,13 @@ pub(crate) enum CodexControl {
 }
 
 impl AgentProcessHandle {
+    pub(crate) fn with_skills(skills: NativePrompts) -> Self {
+        Self {
+            skills: Some(skills),
+            ..Self::default()
+        }
+    }
+
     pub fn pid(&self) -> Option<u32> {
         match self.pid.load(Ordering::Acquire) {
             0 => None,
@@ -252,7 +261,7 @@ pub async fn run_codex(
                 "title": "Inferay",
                 "version": env!("CARGO_PKG_VERSION")
             },
-            "capabilities": null
+            "capabilities": {"experimentalApi": true}
         }
     });
     if let Err(error) = write_rpc(&mut stdin, &initialize).await {
@@ -306,7 +315,11 @@ pub async fn run_codex(
         params["threadId"] = json!(thread_id);
         ("thread/resume", params)
     } else {
-        ("thread/start", thread_params)
+        let mut params = thread_params;
+        if handle.skills.is_some() {
+            params["dynamicTools"] = NativePrompts::tool_definitions();
+        }
+        ("thread/start", params)
     };
     let mut thread_response = request_rpc(
         &mut stdin,
@@ -326,7 +339,13 @@ pub async fn run_codex(
             &mut line,
             request_id,
             "thread/start",
-            codex_thread_params(run.invocation),
+            {
+                let mut params = codex_thread_params(run.invocation);
+                if handle.skills.is_some() {
+                    params["dynamicTools"] = NativePrompts::tool_definitions();
+                }
+                params
+            },
             (&mut *context, &mut *state, emissions),
         )
         .await;
@@ -485,6 +504,33 @@ pub async fn run_codex(
                         "invocation":{"tool":"AskUserQuestion","arguments":{"questions":questions}}
                     }));
                     flush_emissions(context, emissions);
+                    continue;
+                }
+                if message.get("method").and_then(Value::as_str) == Some("item/tool/call")
+                    && let Some(id) = message.get("id").cloned()
+                {
+                    let tool = message.pointer("/params/tool").and_then(Value::as_str).unwrap_or("");
+                    let args = message.pointer("/params/arguments").cloned().unwrap_or(Value::Null);
+                    let result = match &handle.skills {
+                        Some(skills) => skills.call_tool(tool, &args).await,
+                        None => Err("Inferay skills are unavailable in this session".into()),
+                    };
+                    let (success, output) = match result {
+                        Ok((output, card)) => {
+                            if let Some(card) = card {
+                                context.emissions.push(ProtocolEmission::System(card.to_string()));
+                                flush_emissions(context, emissions);
+                            }
+                            (true, output.to_string())
+                        }
+                        Err(error) => (false, error),
+                    };
+                    if let Err(error) = write_rpc(&mut stdin, &json!({"id":id,"result":{
+                        "success":success,"contentItems":[{"type":"inputText","text":output}]
+                    }})).await {
+                        emit_error(context, error);
+                        break;
+                    }
                     continue;
                 }
                 let is_completed = message.get("method").and_then(Value::as_str) == Some("turn/completed");
@@ -1116,6 +1162,92 @@ mod tests {
         }).await.expect("first delta should stream while child is still running");
         assert_eq!(delta["delta"]["text"], "first");
         run.await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codex_skill_tool_calls_return_results_and_native_cards_without_writing() {
+        let (directory, binary) = executable_script(
+            r#"
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*) printf '%s\n' '{"id":1,"result":{}}' ;;
+    *'"method":"thread/start"'*)
+      printf '%s' "$line" > thread-request.json
+      printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}' ;;
+    *'"method":"turn/start"'*)
+      printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+      printf '%s\n' '{"id":"skill-call","method":"item/tool/call","params":{"threadId":"thread-1","turnId":"turn-1","callId":"call-1","tool":"inferay_propose_skill","arguments":{"action":"create","name":"Summary","command":"summary","description":"Summarize work","promptTemplate":"Use recorded dates","reason":"Reuse workflow"}}}' ;;
+    *'"id":"skill-call"'*)
+      printf '%s' "$line" > tool-response.json
+      printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}' ;;
+  esac
+done
+"#,
+        );
+        let store_path = directory.path().join("skills.json");
+        let skills = NativePrompts::new(Arc::new(tokio::sync::Mutex::new(
+            inferay_core::prompts::PromptStore::new(
+                directory.path().join("bundled.json"),
+                store_path.clone(),
+            ),
+        )));
+        let handle = AgentProcessHandle::with_skills(skills);
+        let invocation = CodexInvocationContext {
+            cwd: directory.path().into(),
+            reference_paths: vec![],
+            images: vec![],
+            model: None,
+            reasoning_level: None,
+            developer_instructions: None,
+            session_id: None,
+        };
+        let environment = test_env();
+        let tracker = RecordingTracker::default();
+        let mut context = AgentProtocolContext::new(directory.path());
+        let mut state = CodexProtocolState::default();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            run_codex(
+                CodexRun {
+                    binary: &binary,
+                    prompt: "make this a skill",
+                    invocation: &invocation,
+                    env: &environment,
+                },
+                &handle,
+                &tracker,
+                &mut context,
+                &mut state,
+                None,
+            ),
+        )
+        .await
+        .expect("tool request must receive a response");
+        let request: Value = serde_json::from_slice(
+            &std::fs::read(directory.path().join("thread-request.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            request["params"]["dynamicTools"].as_array().unwrap().len(),
+            3
+        );
+        let response: Value = serde_json::from_slice(
+            &std::fs::read(directory.path().join("tool-response.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(response["result"]["success"], true);
+        assert!(
+            response["result"]["contentItems"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("pending_approval")
+        );
+        assert!(context.emissions.iter().any(|event| matches!(event, ProtocolEmission::System(text) if text.contains("inferay.skill-proposal"))));
+        assert!(
+            !store_path.exists(),
+            "agent tools must not persist an unapproved skill"
+        );
     }
 
     #[cfg(unix)]

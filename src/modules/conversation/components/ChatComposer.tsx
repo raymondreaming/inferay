@@ -42,6 +42,7 @@ import {
 	IconX,
 } from "../../../shared/ui/Icons.tsx";
 import type { ReactNode } from "../../../types/octane-react-compat.ts";
+import { openSkills } from "../../skills/model/skill-events.ts";
 import type {
 	FileMenuState,
 	FileSearchResult,
@@ -114,30 +115,42 @@ const CommandMenuRow = memo(function CommandMenuRow({
 	setSlashMenu: React.Dispatch<React.SetStateAction<SlashMenuState>>;
 }) {
 	return (
-		<button
-			type="button"
-			onClick={() => selectCommand(index)}
-			onMouseEnter={() =>
-				setSlashMenu((prev) =>
-					prev.selectedIdx === index ? prev : { ...prev, selectedIdx: index },
-				)
-			}
-			{...stylex.props(styles.commandRow, selected && styles.commandRowActive)}
-		>
-			<span {...stylex.props(styles.commandTitleLine)}>
-				<span
-					{...stylex.props(
-						styles.commandName,
-						selected && styles.commandNameActive,
-					)}
-				>
-					/{command.name}
-				</span>
-				{command.isLocalCommand && (
-					<span {...stylex.props(styles.commandBadge)}>Native</span>
+		<div {...stylex.props(styles.commandRowWrap)}>
+			<button
+				type="button"
+				onClick={() => selectCommand(index)}
+				onMouseEnter={() =>
+					setSlashMenu((prev) =>
+						prev.selectedIdx === index ? prev : { ...prev, selectedIdx: index },
+					)
+				}
+				{...stylex.props(
+					styles.commandRow,
+					selected && styles.commandRowActive,
 				)}
-			</span>
-		</button>
+			>
+				<span {...stylex.props(styles.commandTitleLine)}>
+					<span {...stylex.props(styles.commandName)}>/{command.name}</span>
+					{command.isLocalCommand && (
+						<span {...stylex.props(styles.commandBadge)}>Native</span>
+					)}
+				</span>
+			</button>
+			{command.isFromLibrary && command.id && (
+				<button
+					type="button"
+					title={`Edit /${command.name}`}
+					aria-label={`Edit /${command.name}`}
+					onClick={() => {
+						setSlashMenu((prev) => ({ ...prev, show: false }));
+						openSkills({ mode: "edit", skillId: command.id! });
+					}}
+					{...stylex.props(styles.commandEdit)}
+				>
+					<IconPencil size={iconSize.sm} />
+				</button>
+			)}
+		</div>
 	);
 });
 
@@ -495,7 +508,7 @@ export const ChatComposer = memo(function ChatComposer({
 										))}
 									</div>
 								)}
-								{showCommands && filteredCommands.length > 0 && (
+								{showCommands && (
 									<div
 										{...stylex.props(styles.floatingMenu, styles.commandMenu)}
 									>
@@ -510,6 +523,28 @@ export const ChatComposer = memo(function ChatComposer({
 													setSlashMenu={setSlashMenu}
 												/>
 											))}
+										</div>
+										<div {...stylex.props(styles.commandFooter)}>
+											<button
+												type="button"
+												onClick={() => {
+													setSlashMenu((prev) => ({ ...prev, show: false }));
+													openSkills({ mode: "create" });
+												}}
+												{...stylex.props(styles.menuAction)}
+											>
+												<IconPlus size={iconSize.sm} /> New skill
+											</button>
+											<button
+												type="button"
+												onClick={() => {
+													setSlashMenu((prev) => ({ ...prev, show: false }));
+													openSkills();
+												}}
+												{...stylex.props(styles.menuAction)}
+											>
+												Manage skills
+											</button>
 										</div>
 									</div>
 								)}
@@ -951,7 +986,7 @@ const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		backgroundColor: color.backgroundRaised,
+		backgroundColor: color.backgroundPanel,
 	},
 	fileMenu: {
 		maxHeight: "300px",
@@ -987,7 +1022,7 @@ const styles = stylex.create({
 		},
 	},
 	fileMenuRowActive: {
-		backgroundColor: color.accentWash,
+		backgroundColor: color.controlActive,
 	},
 	fileMenuIcon: {
 		flexShrink: 0,
@@ -998,7 +1033,7 @@ const styles = stylex.create({
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
-		color: color.accent,
+		color: color.textMain,
 		fontFamily: "var(--font-diff)",
 		fontSize: font.size_2_75,
 		fontWeight: font.weight_5,
@@ -1014,7 +1049,7 @@ const styles = stylex.create({
 		fontSize: font.size_1,
 	},
 	commandMenu: {
-		maxHeight: "320px",
+		maxHeight: "360px",
 		overflow: "hidden",
 		marginBottom: controlSize._2,
 		borderRadius: radius.lg,
@@ -1030,7 +1065,8 @@ const styles = stylex.create({
 		flexDirection: "column",
 		gap: "0.125rem",
 		paddingBlock: controlSize._2,
-		paddingInline: controlSize._3,
+		paddingLeft: controlSize._3,
+		paddingRight: controlSize._10,
 		textAlign: "left",
 		transitionProperty: "background-color",
 		transitionDuration: motion.durationFast,
@@ -1041,7 +1077,48 @@ const styles = stylex.create({
 		},
 	},
 	commandRowActive: {
-		backgroundColor: color.accentWash,
+		backgroundColor: color.controlActive,
+	},
+	commandRowWrap: { position: "relative" },
+	commandEdit: {
+		position: "absolute",
+		right: controlSize._2,
+		top: "50%",
+		transform: "translateY(-50%)",
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "center",
+		width: controlSize._6,
+		height: controlSize._6,
+		borderWidth: 0,
+		borderRadius: radius.sm,
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.surfaceControl,
+		},
+		color: color.textMuted,
+	},
+	commandFooter: {
+		display: "flex",
+		justifyContent: "space-between",
+		padding: controlSize._2,
+		borderTopWidth: 1,
+		borderTopStyle: "solid",
+		borderTopColor: color.border,
+	},
+	menuAction: {
+		display: "flex",
+		alignItems: "center",
+		gap: controlSize._1,
+		borderWidth: 0,
+		borderRadius: radius.sm,
+		padding: controlSize._1_5,
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlHover,
+		},
+		color: color.textSoft,
+		fontSize: font.size_1,
 	},
 	commandName: {
 		color: color.textMain,
@@ -1056,20 +1133,17 @@ const styles = stylex.create({
 		minWidth: controlSize._0,
 	},
 	commandBadge: {
-		backgroundColor: color.accentWash,
-		borderColor: color.accentBorder,
+		backgroundColor: color.surfaceControl,
+		borderColor: color.border,
 		borderRadius: radius.pill,
 		borderStyle: "solid",
 		borderWidth: 1,
-		color: color.accent,
+		color: color.textMuted,
 		fontSize: font.size_0_5,
 		fontWeight: font.weight_5,
 		paddingBlock: controlSize._0_25,
 		paddingInline: controlSize._1,
 		textTransform: "uppercase",
-	},
-	commandNameActive: {
-		color: color.accent,
 	},
 	accentText: {
 		color: "currentColor",

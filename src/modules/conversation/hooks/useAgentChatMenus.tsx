@@ -170,8 +170,7 @@ export function useAgentChatMenus({
 	const filteredCommands = slashCommandInfo.filtered;
 	const visibleFileMenu = enabled ? fileMenu : hideMenuState(fileMenu);
 	const visibleSlashMenu = enabled ? slashMenu : hideMenuState(slashMenu);
-	const showCommands =
-		enabled && visibleSlashMenu.show && filteredCommands.length > 0;
+	const showCommands = enabled && visibleSlashMenu.show;
 
 	useEffect(() => {
 		if (!enabled) return;

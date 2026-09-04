@@ -974,6 +974,7 @@ export const AgentChatView = memo(function AgentChatView({
 								</div>
 							)}
 						<ChatMessageList
+							paneId={paneId}
 							messages={visibleMessages}
 							scrollElementRef={scrollRef}
 							virtualizerControlsRef={chatVirtualizerRef}

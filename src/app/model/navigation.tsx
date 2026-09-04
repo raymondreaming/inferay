@@ -1,8 +1,8 @@
 import type { ComponentType } from "react";
 import { FEATURE_FLAGS } from "../../shared/lib/feature-flags.ts";
-import { IconFilePlus, IconSlash } from "../../shared/ui/Icons.tsx";
+import { IconFilePlus } from "../../shared/ui/Icons.tsx";
 
-export type AppRouteId = "agent" | "prompts" | "automations" | "images";
+export type AppRouteId = "agent" | "automations" | "images";
 
 export type AgentMainView = "chat" | "graph";
 
@@ -21,13 +21,6 @@ export const DEFAULT_AGENT_MAIN_VIEW: AgentMainView = "chat";
 
 const ALL_APP_PAGE_ROUTES = [
 	{ id: "agent", label: "Agent", path: "/agent" },
-	{
-		id: "prompts",
-		label: "Skills",
-		path: "/skills",
-		sidebar: true,
-		icon: IconSlash,
-	},
 	{
 		id: "automations",
 		label: "Automations",

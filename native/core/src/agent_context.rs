@@ -102,8 +102,7 @@ impl AgentContextStore {
             .iter()
             .filter(|skill| {
                 let command = skill.command.to_lowercase();
-                let explicit = normalized.contains(&format!("/{command}"))
-                    || normalized.contains(&format!("${command}"));
+                let explicit = normalized.contains(&format!("/{command}"));
                 let trigger_terms = [skill.command.replace('-', " "), skill.name.clone()];
                 let automatic = trigger_terms.into_iter().any(|term| {
                     let term = term.to_lowercase().trim().to_string();
@@ -180,8 +179,8 @@ pub fn create_skill_manifest(skills: &[Prompt]) -> String {
                 &skill.description
             };
             format!(
-                "- {}: {} (invoke with /{} or ${})",
-                skill.command, description, skill.command, skill.command
+                "- {}: {} (invoke with /{})",
+                skill.command, description, skill.command
             )
         })
         .collect::<Vec<_>>()
