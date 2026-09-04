@@ -1004,17 +1004,9 @@ const styles = stylex.create({
 		paddingInline: controlSize._1_5,
 	},
 	actionAllButton: {
-		display: "flex",
-		height: controlSize._6,
-		width: controlSize._6,
-		alignItems: "center",
-		justifyContent: "center",
-		padding: controlSize._0,
-		color: {
-			default: color.textMuted,
-			":hover": color.textMain,
-		},
-		backgroundColor: color.transparent,
+		height: controlSize._5,
+		flexShrink: 0,
+		whiteSpace: "nowrap",
 	},
 	groupList: {
 		flexShrink: 0,
@@ -1996,9 +1988,13 @@ function FileGroup({
 							onClick={onActionAll}
 							title={`${actionLabel} all files`}
 							aria-label={`${actionLabel} all files`}
-							{...stylex.props(styles.actionAllButton)}
+							{...stylex.props(
+								styles.segmentButton,
+								styles.actionAllButton,
+								...selectionAppearance("view", false),
+							)}
 						>
-							<FileActionIcon actionLabel={actionLabel} />
+							{actionLabel} All
 						</button>
 					)}
 				</div>
