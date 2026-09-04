@@ -51,10 +51,7 @@ import {
 } from "../../../modules/repository/adapters/forge-client.ts";
 import { areForgeAccountsEqual } from "../../../modules/repository/model/forge-equality.ts";
 import { openSettingsModal } from "../../../modules/settings/model/settings-events.ts";
-import {
-	dispatchOpenActiveGitGraph,
-	dispatchResetActiveRepositoryWorkbench,
-} from "../../../modules/workbench/model/workbench-events.ts";
+import { dispatchOpenActiveGitGraph } from "../../../modules/workbench/model/workbench-events.ts";
 import {
 	CREATE_AGENT_CHAT_EVENT,
 	type CreateAgentChatDetail,
@@ -654,7 +651,6 @@ export function WorkspaceSidebar() {
 	const addChat = useCallback(
 		async (target: CreateAgentChatTarget) => {
 			if (target === "new-repository") {
-				dispatchResetActiveRepositoryWorkbench();
 				await mutateAgentWorkspaceState(
 					{ type: "addWorkspace" },
 					"open-repository",

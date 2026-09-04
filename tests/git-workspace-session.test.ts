@@ -4,6 +4,7 @@ import {
 	dismissGitWorkspaceViewer,
 	emptyGitWorkspacePanelSession,
 	getGitWorkspaceSidebarContent,
+	initializeGitRepositoryPanels,
 	isGitWorkspaceGraphDrillIn,
 	isHistoricalGitWorkspaceDiff,
 	normalizeGitWorkspacePanelSession,
@@ -16,6 +17,28 @@ import {
 } from "../src/modules/workbench/model/workbench-model.ts";
 
 describe("Git workspace panel session", () => {
+	test("initializes a repository once without overwriting its saved panel choices", () => {
+		const empty = emptyGitWorkspacePanelSession();
+		expect(empty.diffViewerCwd).toBeNull();
+		expect(empty.sidebarVisible).toBe(false);
+		const opened = initializeGitRepositoryPanels(empty, "/repo");
+		expect(opened.mainViewMode).toBe("graph");
+		expect(opened.diffViewerCwd).toBe("/repo");
+		expect(opened.sidebarVisible).toBe(true);
+		expect(opened.focusedAuxiliaryPanel).toBeNull();
+
+		const closed = {
+			...dismissGitWorkspaceViewer(opened),
+			sidebarVisible: false,
+		};
+		const restored = normalizeGitWorkspacePanelSession(
+			serializeGitWorkspacePanelSession(closed),
+		);
+		expect(initializeGitRepositoryPanels(restored, "/repo")).toBe(restored);
+		expect(restored.diffViewerCwd).toBeNull();
+		expect(restored.sidebarVisible).toBe(false);
+	});
+
 	test("normalizes persisted graph state and strips transient file payloads", () => {
 		const restored = normalizeGitWorkspacePanelSession(
 			{

@@ -128,17 +128,14 @@ export function reduceAgentWorkspaceState(
 			const cleanState = compactAgentState(state, {
 				keepSelectedDraft: true,
 			});
-			const selectedGroup =
-				cleanState.groups.find(hasId.bind(null, cleanState.selectedGroupId)) ??
-				cleanState.groups[0];
 			const starterPane = createPendingAgentChatPane();
 			const group: AgentGroupModel = {
 				id: createGroupId(),
 				name: `Workspace ${cleanState.groups.length + 1}`,
 				panes: [starterPane],
 				selectedPaneId: starterPane.id,
-				columns: selectedGroup?.columns ?? DEFAULT_COLUMNS,
-				rows: selectedGroup?.rows ?? DEFAULT_ROWS,
+				columns: DEFAULT_COLUMNS,
+				rows: DEFAULT_ROWS,
 			};
 			return {
 				...cleanState,
@@ -394,9 +391,9 @@ export const DEFAULT_FONT_FAMILY: AgentFont = "SF Mono";
 
 export const DEFAULT_OPACITY = 1 as const;
 
-export const DEFAULT_COLUMNS = 3 as const;
+export const DEFAULT_COLUMNS = 1 as const;
 
-export const DEFAULT_ROWS = 2 as const;
+export const DEFAULT_ROWS = 1 as const;
 
 function isValidAgentState(value: unknown): value is AgentSavedState {
 	if (typeof value !== "object" || value === null) return false;

@@ -17,6 +17,8 @@ export interface GitWorkspaceDetachedFilePanel<InitialFile = unknown> {
 }
 
 export interface GitWorkspacePanelSession<InitialFile = unknown> {
+	readonly repositoryInitialized: boolean;
+	readonly sidebarVisible: boolean;
 	readonly fileViewerOpen: boolean;
 	readonly fileViewerCwd: string | null;
 	readonly diffViewerCwd: string | null;
@@ -55,6 +57,8 @@ export function emptyGitWorkspacePanelSession<
 	InitialFile = unknown,
 >(): GitWorkspacePanelSession<InitialFile> {
 	return {
+		repositoryInitialized: false,
+		sidebarVisible: false,
 		fileViewerOpen: false,
 		fileViewerCwd: null,
 		diffViewerCwd: null,
@@ -117,6 +121,14 @@ export function normalizeGitWorkspacePanelSession<InitialFile = unknown>(
 	const selectedCommitHash = nullableString(stored.selectedCommitHash);
 	const session: GitWorkspacePanelSession<InitialFile> = {
 		...emptyGitWorkspacePanelSession<InitialFile>(),
+		repositoryInitialized:
+			typeof stored.repositoryInitialized === "boolean"
+				? stored.repositoryInitialized
+				: stored.mainViewMode === "graph" || stored.mainViewMode === "diff",
+		sidebarVisible:
+			typeof stored.sidebarVisible === "boolean"
+				? stored.sidebarVisible
+				: stored.mainViewMode === "graph",
 		fileViewerOpen: stored.fileViewerOpen === true,
 		fileViewerCwd: nullableString(stored.fileViewerCwd),
 		diffViewerCwd: nullableString(stored.diffViewerCwd),
@@ -181,6 +193,21 @@ export function openGitGraph<InitialFile>(
 		diffContext: null,
 		mainViewMode: "graph",
 		focusedAuxiliaryPanel: { id: "workspace-diff-viewer", cwd },
+	};
+}
+
+/** Apply first-open defaults only after the directory is confirmed as a Git repository. */
+export function initializeGitRepositoryPanels<InitialFile>(
+	current: GitWorkspacePanelSession<InitialFile>,
+	cwd: string,
+): GitWorkspacePanelSession<InitialFile> {
+	if (current.repositoryInitialized) return current;
+	const next = current.diffViewerCwd ? current : openGitGraph(current, cwd);
+	return {
+		...next,
+		repositoryInitialized: true,
+		sidebarVisible: true,
+		focusedAuxiliaryPanel: current.focusedAuxiliaryPanel,
 	};
 }
 

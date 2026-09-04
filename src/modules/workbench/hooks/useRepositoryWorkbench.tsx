@@ -92,17 +92,16 @@ import {
 } from "../graph/model/rebase-model.ts";
 import {
 	OPEN_ACTIVE_GIT_GRAPH_EVENT,
-	RESET_ACTIVE_REPOSITORY_WORKBENCH_EVENT,
 	TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT,
 } from "../model/workbench-events.ts";
 import { MIN_RESPONSIVE_PANE_WIDTH } from "../model/workbench-layout.ts";
 import {
 	bindGitGraphRepository,
 	dismissGitWorkspaceViewer,
-	emptyGitWorkspacePanelSession,
 	type GitWorkspaceDetachedFilePanel,
 	type GitWorkspacePanelSession,
 	getGitWorkspaceSidebarContent,
+	initializeGitRepositoryPanels,
 	isGitWorkspaceGraphDrillIn,
 	isHistoricalGitWorkspaceDiff,
 	normalizeGitWorkspacePanelSession,
@@ -117,11 +116,7 @@ import {
 import {
 	GIT_FILE_VIEW_MODE_STORAGE_KEY,
 	loadGitFileViewMode,
-	loadWorkbenchGraphVisible,
-	loadWorkbenchSidebarVisible,
 	saveGitFileViewMode,
-	saveWorkbenchGraphVisible,
-	saveWorkbenchSidebarVisible,
 } from "../model/workbench-preferences.ts";
 
 const SIDEBAR_WIDTH_KEY = "agent-workspace-changes-width";
@@ -131,11 +126,11 @@ const MIN_SIDEBAR_WIDTH = 230;
 const MAX_SIDEBAR_WIDTH = 420;
 const DEFAULT_SIDEBAR_WIDTH = 300;
 const MIN_DIFF_WIDTH = 320;
-const DEFAULT_DIFF_WIDTH = 560;
+const DEFAULT_DIFF_WIDTH = 680;
 
 function loadSidebarWidth() {
 	const stored = Number(readStoredValue(SIDEBAR_WIDTH_KEY));
-	return Number.isFinite(stored)
+	return Number.isFinite(stored) && stored > 0
 		? Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, stored))
 		: DEFAULT_SIDEBAR_WIDTH;
 }
@@ -144,7 +139,7 @@ function loadDiffWidth(workspaceId: string) {
 	const stored = Number(
 		readStoredValue(`${DIFF_WIDTH_KEY_PREFIX}${workspaceId}`),
 	);
-	return Number.isFinite(stored)
+	return Number.isFinite(stored) && stored > 0
 		? Math.max(MIN_DIFF_WIDTH, stored)
 		: DEFAULT_DIFF_WIDTH;
 }
@@ -1530,6 +1525,7 @@ export function useRepositoryWorkbench({
 	const [panelSession, updatePanelSession] =
 		useWorkspacePanelSession(workspaceId);
 	const {
+		sidebarVisible,
 		fileViewerOpen,
 		fileViewerCwd,
 		diffViewerCwd,
@@ -1604,9 +1600,6 @@ export function useRepositoryWorkbench({
 			stopWindowSync();
 		};
 	}, []);
-	const [sidebarVisible, setSidebarVisible] = useState(
-		loadWorkbenchSidebarVisible,
-	);
 	const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
 	const [diffWidth, setDiffWidth] = useState(() => loadDiffWidth(workspaceId));
 	const [diffViewMode, setDiffViewModeState] = useState(loadDiffViewMode);
@@ -2074,17 +2067,14 @@ export function useRepositoryWorkbench({
 	]);
 	useEffect(() => {
 		if (!active) return;
-		setSidebarVisible(loadWorkbenchSidebarVisible());
 		setSidebarWidth(loadSidebarWidth());
 	}, [active, workspaceId]);
 	useEffect(() => {
-		if (!active || !cwd || !loadWorkbenchGraphVisible()) return;
+		if (!active || !cwd || !gitLoaded || !projectMap.has(cwd)) return;
 		updatePanelSession((current) =>
-			current.mainViewMode === "graph" && current.diffViewerCwd === cwd
-				? current
-				: openGitGraph(current, cwd),
+			initializeGitRepositoryPanels(current, cwd),
 		);
-	}, [active, cwd, updatePanelSession]);
+	}, [active, cwd, gitLoaded, projectMap, updatePanelSession]);
 	useEffect(() => {
 		setDiffWidth(loadDiffWidth(workspaceId));
 	}, [workspaceId]);
@@ -2110,25 +2100,10 @@ export function useRepositoryWorkbench({
 		() =>
 			listenWindowEvent(TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT, () => {
 				if (!active) return;
-				setSidebarVisible((visible) => {
-					const next = !visible;
-					saveWorkbenchSidebarVisible(next);
-					return next;
-				});
-			}),
-		[active],
-	);
-	useEffect(
-		() =>
-			listenWindowEvent(RESET_ACTIVE_REPOSITORY_WORKBENCH_EVENT, () => {
-				if (!active) return;
-				saveWorkbenchGraphVisible(false);
-				saveWorkbenchSidebarVisible(false);
-				setSidebarVisible(false);
-				setZenMode(false);
-				updatePanelSession(() =>
-					emptyGitWorkspacePanelSession<FileContentResponse>(),
-				);
+				updatePanelSession((current) => ({
+					...current,
+					sidebarVisible: !current.sidebarVisible,
+				}));
 			}),
 		[active, updatePanelSession],
 	);
@@ -2147,11 +2122,8 @@ export function useRepositoryWorkbench({
 		}));
 	}, [updatePanelSession]);
 	const closeDiffViewer = useCallback(() => {
-		if (panelSession.mainViewMode === "graph") {
-			saveWorkbenchGraphVisible(false);
-		}
 		updatePanelSession(dismissGitWorkspaceViewer);
-	}, [panelSession.mainViewMode, updatePanelSession]);
+	}, [updatePanelSession]);
 	const returnsToGraphOnClose = isGitWorkspaceGraphDrillIn(panelSession);
 	const selectChangedFile = useCallback(
 		(file: GitFileEntry) => {
@@ -2284,11 +2256,9 @@ export function useRepositoryWorkbench({
 	const changeMainViewMode = useCallback(
 		(mode: "diff" | "graph") => {
 			if (mode === "graph" && activeCwd) {
-				saveWorkbenchGraphVisible(true);
 				updatePanelSession((current) => openGitGraph(current, activeCwd));
 				return;
 			}
-			saveWorkbenchGraphVisible(false);
 			setMainViewMode(mode);
 		},
 		[activeCwd, setMainViewMode, updatePanelSession],

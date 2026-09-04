@@ -66,8 +66,8 @@ describe("agent state and git change behavior", () => {
 		});
 
 		expect(migrated.selectedPaneId).toBe("p1" as PaneId);
-		expect(migrated.columns).toBe(3);
-		expect(migrated.rows).toBe(2);
+		expect(migrated.columns).toBe(1);
+		expect(migrated.rows).toBe(1);
 		expect(migrated.panes.map((item) => item.agentKind)).toEqual([
 			"codex",
 			"claude",
@@ -78,8 +78,8 @@ describe("agent state and git change behavior", () => {
 	test("creates the default workspace with one pending chat", () => {
 		const group = createDefaultAgentChatGroup();
 
-		expect(group.columns).toBe(3);
-		expect(group.rows).toBe(2);
+		expect(group.columns).toBe(1);
+		expect(group.rows).toBe(1);
 		expect(group.panes).toHaveLength(1);
 		expect(group.selectedPaneId).toBe(group.panes[0]!.id);
 		expect(group.panes.every((item) => item.agentKind === "codex")).toBe(true);
@@ -270,8 +270,10 @@ describe("agent state and git change behavior", () => {
 			}),
 		);
 		expect(next?.groups[1]?.selectedPaneId).toBe(next?.groups[1]?.panes[0]?.id);
-		expect(next?.groups[1]?.columns).toBe(3);
-		expect(next?.groups[1]?.rows).toBe(3);
+		expect(next?.groups[1]?.columns).toBe(1);
+		expect(next?.groups[1]?.rows).toBe(1);
+		expect(next?.groups[0]?.columns).toBe(3);
+		expect(next?.groups[0]?.rows).toBe(3);
 		expect(next?.selectedGroupId).toBe(next?.groups[1]?.id);
 		expect(migrateGroup(next!.groups[1]!).panes).toHaveLength(1);
 		expect(migrateGroup(next!.groups[1]!).selectedPaneId).toBe(
