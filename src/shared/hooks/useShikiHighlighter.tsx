@@ -385,6 +385,7 @@ export interface ShikiHighlighterAPI {
 	getHighlightedLineTokens: (lineIdx: number) => ShikiLineToken[] | undefined;
 	isReady: boolean;
 	language: string | null;
+	revision: number;
 }
 
 export function useShikiHighlighter({
@@ -404,7 +405,7 @@ export function useShikiHighlighter({
 	const visibleStart = visibleRange[0];
 	const visibleEnd = visibleRange[1];
 	const [readyKey, setReadyKey] = useState<string | null>(null);
-	const [, setHighlightVersion] = useState(0); // Force re-render when highlighting completes
+	const [highlightRevision, setHighlightRevision] = useState(0);
 	const cacheRef = useRef<Map<number, ShikiLineToken[]>>(
 		undefined as unknown as Map<number, ShikiLineToken[]>,
 	);
@@ -462,7 +463,7 @@ export function useShikiHighlighter({
 				pruneHighlightCache(cacheRef.current, start, end);
 
 				setReadyKey(highlightKey);
-				setHighlightVersion(incrementNumber);
+				setHighlightRevision(incrementNumber);
 			} catch {
 				setReadyKey(highlightKey); // Continue without highlighting
 			}
@@ -510,7 +511,7 @@ export function useShikiHighlighter({
 					cacheRef.current.set(lineIdx, tokens);
 				}
 				pruneHighlightCache(cacheRef.current, visibleStart, visibleEnd);
-				setHighlightVersion(incrementNumber);
+				setHighlightRevision(incrementNumber);
 			}
 		});
 	}, [isReady, theme, visibleStart, visibleEnd]);
@@ -552,7 +553,7 @@ export function useShikiHighlighter({
 				cacheRef.current.set(lineIdx, tokens);
 			}
 			pruneHighlightCache(cacheRef.current, safeStart, safeEnd);
-			setHighlightVersion(incrementNumber);
+			setHighlightRevision(incrementNumber);
 			return true;
 		},
 		[isReady, theme],
@@ -563,6 +564,7 @@ export function useShikiHighlighter({
 		getHighlightedLineTokens,
 		isReady,
 		language,
+		revision: highlightRevision,
 	};
 }
 

@@ -83,7 +83,7 @@ interface DiffViewerProps {
 	viewMode?: DiffViewMode;
 	onViewModeChange?: (viewMode: DiffViewMode) => void;
 	hideToolbar?: boolean;
-	scrollToChange?: number;
+	startAtFirstChange?: boolean;
 	syntaxTheme?: SyntaxHighlightTheme;
 }
 
@@ -104,7 +104,7 @@ const DIFF_CONFIG = {
 	contentFontSize: 10, // Code content font size
 	lineNumWidth: 36, // Line number column width
 	signWidth: 12, // +/- sign column width
-	lineNumColor: "rgba(255, 255, 255, 0.62)",
+	lineNumColor: "var(--color-inferay-muted-gray)",
 	addLineNumColor: "var(--color-git-added)",
 	removeLineNumColor: "var(--color-git-deleted)",
 	addSignColor: "var(--color-git-added)",
@@ -458,6 +458,7 @@ const VirtualPanel = memo(function VirtualPanel({
 		getHighlightedLineTokens,
 		isReady: shikiReady,
 		language: shikiLanguage,
+		revision: shikiRevision,
 	} = useShikiHighlighter({
 		filePath: filePath ?? `file.${ext}`,
 		lines: lineContents,
@@ -571,6 +572,7 @@ const VirtualPanel = memo(function VirtualPanel({
 		ext,
 		disableTokenize,
 		shikiReady,
+		shikiRevision,
 		shikiLanguage,
 		getHighlightedLineTokens,
 		filePath,
@@ -857,7 +859,7 @@ export const DiffViewer = memo(function DiffViewer({
 	viewMode: controlledViewMode,
 	onViewModeChange,
 	hideToolbar = false,
-	scrollToChange,
+	startAtFirstChange = false,
 	syntaxTheme: controlledSyntaxTheme,
 }: DiffViewerProps) {
 	const containerRef = useRef<HTMLDivElement | null>(null);
@@ -926,6 +928,9 @@ export const DiffViewer = memo(function DiffViewer({
 	}, [diff.compactLines, diff.oldLines, diff.newLines, viewMode]);
 
 	const totalChanges = changePositions.length;
+	const firstChangeLine = changePositions[0];
+	const initialScrollIdentityRef = useRef<string | null>(null);
+	const initialScrollFrameRef = useRef(0);
 	const scrollToChangeIdx = useCallback(
 		(changeIdx: number) => {
 			if (changeIdx < 0 || changeIdx >= changePositions.length) return;
@@ -993,37 +998,35 @@ export const DiffViewer = memo(function DiffViewer({
 	}, [goToNextChange, goToPrevChange]);
 
 	useEffect(() => {
-		if (!scrollToChange) return;
-
-		let lastChangeIdx = -1;
-		for (let i = diff.newLines.length - 1; i >= 0; i--) {
-			if (diff.newLines[i]?.type === "add") {
-				lastChangeIdx = i;
-				break;
+		if (initialScrollFrameRef.current) {
+			cancelAnimationFrame(initialScrollFrameRef.current);
+			initialScrollFrameRef.current = 0;
+		}
+		if (!startAtFirstChange || viewMode !== "split") {
+			initialScrollIdentityRef.current = null;
+			return;
+		}
+		if (firstChangeLine === undefined) return;
+		const scrollIdentity = `${diffIdentity}:first-change`;
+		if (initialScrollIdentityRef.current === scrollIdentity) return;
+		initialScrollIdentityRef.current = scrollIdentity;
+		const scrollTop = Math.max(0, (firstChangeLine - 5) * LINE_H);
+		initialScrollFrameRef.current = requestAnimationFrame(() => {
+			initialScrollFrameRef.current = 0;
+			const scrollers = containerRef.current?.querySelectorAll<HTMLElement>(
+				"[data-diff-scroll-side]",
+			);
+			for (const scroller of scrollers ?? []) {
+				scroller.scrollTop = scrollTop;
+				scroller.dispatchEvent(new window.Event("scroll"));
 			}
-		}
-		if (lastChangeIdx < 0) {
-			for (let i = diff.oldLines.length - 1; i >= 0; i--) {
-				if (diff.oldLines[i]?.type === "remove") {
-					lastChangeIdx = i;
-					break;
-				}
-			}
-		}
-
-		if (lastChangeIdx >= 0) {
-			const scrollPos = Math.max(0, (lastChangeIdx - 10) * LINE_H);
-			dispatchNavigation({
-				type: "jumpToPosition",
-				source: "all",
-				top: scrollPos,
-			});
-			const resetTimer = setTimeout(() => {
-				dispatchNavigation({ type: "clearScroll" });
-			}, 100);
-			return () => clearTimeout(resetTimer);
-		}
-	}, [scrollToChange, diff.newLines, diff.oldLines]);
+		});
+		return () => {
+			if (!initialScrollFrameRef.current) return;
+			cancelAnimationFrame(initialScrollFrameRef.current);
+			initialScrollFrameRef.current = 0;
+		};
+	}, [diffIdentity, firstChangeLine, startAtFirstChange, viewMode]);
 
 	const ext = useMemo(() => {
 		const p = filePath.split(".");
@@ -1684,7 +1687,7 @@ const diffStyles = stylex.create({
 		maxHeight: LINE_H,
 		minHeight: LINE_H,
 		overflow: "hidden",
-		backgroundColor: color.surfaceGlassStrong,
+		backgroundColor: color.background,
 	},
 	content: {
 		flex: 1,

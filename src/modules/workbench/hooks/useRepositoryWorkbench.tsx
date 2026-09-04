@@ -95,6 +95,7 @@ import {
 	OPEN_ACTIVE_GIT_GRAPH_EVENT,
 	TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT,
 } from "../model/workbench-events.ts";
+import { MIN_RESPONSIVE_PANE_WIDTH } from "../model/workbench-layout.ts";
 import {
 	bindGitGraphRepository,
 	dismissGitWorkspaceViewer,
@@ -115,10 +116,13 @@ import {
 import {
 	GIT_FILE_VIEW_MODE_STORAGE_KEY,
 	loadGitFileViewMode,
+	loadWorkbenchGraphVisible,
+	loadWorkbenchSidebarVisible,
 	saveGitFileViewMode,
+	saveWorkbenchGraphVisible,
+	saveWorkbenchSidebarVisible,
 } from "../model/workbench-preferences.ts";
 
-const SIDEBAR_VISIBLE_KEY = "agent-workspace-changes-visible";
 const SIDEBAR_WIDTH_KEY = "agent-workspace-changes-width";
 const DIFF_WIDTH_KEY_PREFIX = "agent-workspace-diff-width:";
 const DIFF_VIEW_MODE_KEY = "agent-workspace-diff-view-mode";
@@ -128,11 +132,6 @@ const DEFAULT_SIDEBAR_WIDTH = 300;
 const MIN_DIFF_WIDTH = 320;
 const MAX_DIFF_WIDTH = 820;
 const DEFAULT_DIFF_WIDTH = 560;
-const MIN_WORKSPACE_CANVAS_WIDTH = 360;
-
-function loadSidebarVisible() {
-	return readStoredValue(SIDEBAR_VISIBLE_KEY) !== "false";
-}
 
 function loadSidebarWidth() {
 	const stored = Number(readStoredValue(SIDEBAR_WIDTH_KEY));
@@ -608,6 +607,7 @@ function ChatDiffPanel({
 	closeLabel,
 	viewMode,
 	onViewModeChange,
+	startAtFirstChange,
 	zenMode,
 	onToggleZenMode,
 	drag,
@@ -652,6 +652,7 @@ function ChatDiffPanel({
 	readonly closeLabel: string;
 	readonly viewMode: DiffViewMode;
 	readonly onViewModeChange: (mode: DiffViewMode) => void;
+	readonly startAtFirstChange: boolean;
 	readonly zenMode: boolean;
 	readonly onToggleZenMode: () => void;
 	readonly drag?: DragProps;
@@ -1080,6 +1081,7 @@ function ChatDiffPanel({
 							hideToolbar
 							viewMode={viewMode}
 							onViewModeChange={onViewModeChange}
+							startAtFirstChange={startAtFirstChange}
 						/>
 					</DiffViewerBoundary>
 				) : !loading ? (
@@ -1615,7 +1617,9 @@ export function useRepositoryWorkbench({
 			stopWindowSync();
 		};
 	}, []);
-	const [sidebarVisible, setSidebarVisible] = useState(loadSidebarVisible);
+	const [sidebarVisible, setSidebarVisible] = useState(
+		loadWorkbenchSidebarVisible,
+	);
 	const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
 	const [diffWidth, setDiffWidth] = useState(() => loadDiffWidth(workspaceId));
 	const [diffViewMode, setDiffViewModeState] = useState(loadDiffViewMode);
@@ -2083,9 +2087,17 @@ export function useRepositoryWorkbench({
 	]);
 	useEffect(() => {
 		if (!active) return;
-		setSidebarVisible(loadSidebarVisible());
+		setSidebarVisible(loadWorkbenchSidebarVisible());
 		setSidebarWidth(loadSidebarWidth());
-	}, [active]);
+	}, [active, workspaceId]);
+	useEffect(() => {
+		if (!active || !cwd || !loadWorkbenchGraphVisible()) return;
+		updatePanelSession((current) =>
+			current.mainViewMode === "graph" && current.diffViewerCwd === cwd
+				? current
+				: openGitGraph(current, cwd),
+		);
+	}, [active, cwd, updatePanelSession]);
 	useEffect(() => {
 		setDiffWidth(loadDiffWidth(workspaceId));
 	}, [workspaceId]);
@@ -2113,7 +2125,7 @@ export function useRepositoryWorkbench({
 				if (!active) return;
 				setSidebarVisible((visible) => {
 					const next = !visible;
-					writeStoredValue(SIDEBAR_VISIBLE_KEY, next ? "true" : "false");
+					saveWorkbenchSidebarVisible(next);
 					return next;
 				});
 			}),
@@ -2134,8 +2146,11 @@ export function useRepositoryWorkbench({
 		}));
 	}, [updatePanelSession]);
 	const closeDiffViewer = useCallback(() => {
+		if (panelSession.mainViewMode === "graph") {
+			saveWorkbenchGraphVisible(false);
+		}
 		updatePanelSession(dismissGitWorkspaceViewer);
-	}, [updatePanelSession]);
+	}, [panelSession.mainViewMode, updatePanelSession]);
 	const returnsToGraphOnClose = isGitWorkspaceGraphDrillIn(panelSession);
 	const selectChangedFile = useCallback(
 		(file: GitFileEntry) => {
@@ -2268,9 +2283,11 @@ export function useRepositoryWorkbench({
 	const changeMainViewMode = useCallback(
 		(mode: "diff" | "graph") => {
 			if (mode === "graph" && activeCwd) {
+				saveWorkbenchGraphVisible(true);
 				updatePanelSession((current) => openGitGraph(current, activeCwd));
 				return;
 			}
+			saveWorkbenchGraphVisible(false);
 			setMainViewMode(mode);
 		},
 		[activeCwd, setMainViewMode, updatePanelSession],
@@ -2285,13 +2302,15 @@ export function useRepositoryWorkbench({
 	const focusWorkbench = useCallback(
 		(repositoryCwd?: string) =>
 			updatePanelSession((current) =>
-				repositoryCwd && current.mainViewMode === "graph"
-					? bindGitGraphRepository(current, repositoryCwd)
-					: current.focusedAuxiliaryPanel
-						? { ...current, focusedAuxiliaryPanel: null }
-						: current,
+				repositoryCwd && repositoryCwd !== cwd
+					? current
+					: repositoryCwd && current.mainViewMode === "graph"
+						? bindGitGraphRepository(current, repositoryCwd)
+						: current.focusedAuxiliaryPanel
+							? { ...current, focusedAuxiliaryPanel: null }
+							: current,
 			),
-		[updatePanelSession],
+		[cwd, updatePanelSession],
 	);
 	const focusDiffViewer = useCallback(() => {
 		if (!diffViewerCwd) return;
@@ -2480,13 +2499,13 @@ export function useRepositoryWorkbench({
 			const reservedSidebarWidth = sidebarVisible ? sidebarWidth : 0;
 			const availableWidth = Math.max(
 				MIN_DIFF_WIDTH,
-				workspaceWidth - reservedSidebarWidth - MIN_WORKSPACE_CANVAS_WIDTH,
+				workspaceWidth - reservedSidebarWidth - MIN_RESPONSIVE_PANE_WIDTH,
 			);
 			const maximumWidth = Math.min(MAX_DIFF_WIDTH, availableWidth);
 			const pointerId = event.pointerId;
 			diffDragRef.current = {
 				startX: event.clientX,
-				startWidth: diffWidth,
+				startWidth: rail?.getBoundingClientRect().width ?? diffWidth,
 			};
 			try {
 				event.currentTarget.setPointerCapture(pointerId);
@@ -2627,7 +2646,14 @@ export function useRepositoryWorkbench({
 		diffViewerCwd && (selectedFile || mainViewMode === "graph") ? (
 			<aside
 				{...stylex.props(styles.diffRail, zenMode && styles.diffRailZen)}
-				style={zenMode ? undefined : { width: diffWidth }}
+				style={
+					zenMode
+						? undefined
+						: {
+								width: diffWidth,
+								maxWidth: `max(0px, calc(100% - ${MIN_RESPONSIVE_PANE_WIDTH + (sidebarVisible ? sidebarWidth : 0)}px))`,
+							}
+				}
 				onPointerDownCapture={focusDiffViewer}
 			>
 				<button
@@ -2664,6 +2690,11 @@ export function useRepositoryWorkbench({
 					}
 					viewMode={diffViewMode}
 					onViewModeChange={setDiffViewMode}
+					startAtFirstChange={
+						!selectedFileCommitHash &&
+						!selectedFileComparisonFrom &&
+						!selectedFileComparisonTo
+					}
 					zenMode={zenMode}
 					onToggleZenMode={toggleZenMode}
 				/>
@@ -2767,13 +2798,10 @@ const styles = stylex.create({
 	diffRail: {
 		position: "relative",
 		display: "flex",
-		minWidth: 320,
+		minWidth: controlSize._0,
 		height: "100%",
 		minHeight: controlSize._0,
 		flexShrink: 0,
-		borderLeftWidth: 1,
-		borderLeftStyle: "solid",
-		borderLeftColor: color.border,
 		backgroundColor: color.transparent,
 		overflow: "visible",
 	},
@@ -2858,7 +2886,7 @@ const styles = stylex.create({
 		height: 80,
 		pointerEvents: "none",
 		backgroundImage:
-			"linear-gradient(to top, var(--color-inferay-black) 0px, var(--color-inferay-black) 24px, transparent 80px)",
+			"linear-gradient(to top, var(--inferay-surface-base, var(--color-inferay-black)) 0px, var(--inferay-surface-base, var(--color-inferay-black)) 24px, transparent 80px)",
 	},
 	viewerFloatingScrimAboveContent: {
 		zIndex: layer.control,

@@ -90,6 +90,7 @@ async function renderDiff(
 	root: Root,
 	rootElement: HTMLElement,
 	diff: HunkDiff,
+	options: { startAtFirstChange?: boolean } = {},
 ) {
 	const { DiffViewer } = await import(
 		"../src/modules/workbench/diff/components/DiffViewer.tsx"
@@ -100,6 +101,7 @@ async function renderDiff(
 			filePath="src/very-long.ts"
 			staged={false}
 			loading={false}
+			startAtFirstChange={options.startAtFirstChange}
 			hideHeader
 			hideToolbar
 			onClose={() => {}}
@@ -156,6 +158,57 @@ describe("DiffViewer custom renderer", () => {
 			globalThis.fetch = previousFetch;
 		}
 	});
+
+	test("opens working-tree split diffs at their first change", async () => {
+		const { root, rootElement } = setupDom();
+		try {
+			const oldLines = Array.from({ length: 100 }, (_, index) => ({
+				number: index + 1,
+				content: `const value${index} = ${index};`,
+				type: index === 70 ? ("remove" as const) : ("context" as const),
+			}));
+			const newLines = oldLines.map((line, index) => ({
+				...line,
+				content: index === 70 ? "const value70 = 71;" : line.content,
+				type: index === 70 ? ("add" as const) : ("context" as const),
+			}));
+			await renderDiff(
+				root,
+				rootElement,
+				{
+					oldLines,
+					newLines,
+					isBinary: false,
+					isNew: false,
+				},
+				{ startAtFirstChange: true },
+			);
+			await new Promise((resolve) => setTimeout(resolve, 30));
+
+			const left = rootElement.querySelector<HTMLElement>(
+				'[data-diff-scroll-side="left"]',
+			);
+			const right = rootElement.querySelector<HTMLElement>(
+				'[data-diff-scroll-side="right"]',
+			);
+			expect(left?.scrollTop).toBeGreaterThan(0);
+			expect(right?.scrollTop).toBe(left?.scrollTop);
+			await vi.waitFor(
+				() => {
+					const changedRow = Array.from(
+						rootElement.querySelectorAll<HTMLElement>(".diff-row"),
+					).find((row) => row.textContent?.includes("const value70 = 71;"));
+					const highlightedTokens = Array.from(
+						changedRow?.querySelectorAll<HTMLElement>("span span") ?? [],
+					).filter((token) => token.style.color);
+					expect(highlightedTokens.length).toBeGreaterThan(1);
+				},
+				{ timeout: 7_000 },
+			);
+		} finally {
+			root.unmount();
+		}
+	}, 10_000);
 
 	test("uses one vertical scroll owner while keeping horizontal panes independent", async () => {
 		const { root, rootElement } = setupDom();
