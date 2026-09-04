@@ -27,6 +27,7 @@ import {
 	type DockTree,
 	dockAxisSpan,
 	dockPanelIds,
+	getGridCanvasWidthPercent,
 	getResponsiveGridColumns,
 	insertDockPanel,
 	insertDockPanelAtOuterEdge,
@@ -296,6 +297,9 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 	}, [canonicalDockTree, columns, effectiveColumns, layoutMode]);
 	const renderedDockTreeRef = useRef(renderedDockTree);
 	renderedDockTreeRef.current = renderedDockTree;
+	const dockHorizontalSpan = renderedDockTree
+		? Math.max(1, dockAxisSpan(renderedDockTree, "horizontal"))
+		: 1;
 	const dockVerticalSpan = renderedDockTree
 		? Math.max(1, dockAxisSpan(renderedDockTree, "vertical"))
 		: 1;
@@ -303,6 +307,14 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 		100,
 		(dockVerticalSpan / Math.max(1, rows)) * 100,
 	)}%, ${dockVerticalSpan * MIN_GRID_ROW_HEIGHT}px)`;
+	const dockCanvasWidth =
+		layoutMode === "grid" && renderedDockTree
+			? `${getGridCanvasWidthPercent(dockHorizontalSpan, effectiveColumns)}%`
+			: "100%";
+	const sparseGrid =
+		layoutMode === "grid" &&
+		!!renderedDockTree &&
+		dockHorizontalSpan < effectiveColumns;
 	const clearDragState = useCallback(() => {
 		dragIndexRef.current = null;
 		pendingPanelDropRef.current = null;
@@ -827,8 +839,11 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 			onWheelCapture={handleGridWheelCapture}
 		>
 			<div
-				{...stylex.props(styles.dockCanvas)}
-				style={{ minHeight: dockCanvasMinHeight }}
+				{...stylex.props(
+					styles.dockCanvas,
+					sparseGrid && styles.dockCanvasSparse,
+				)}
+				style={{ minHeight: dockCanvasMinHeight, width: dockCanvasWidth }}
 			>
 				{renderedDockTree ? renderDockNode(renderedDockTree) : null}
 			</div>
@@ -876,11 +891,17 @@ const styles = stylex.create({
 		overscrollBehavior: "contain",
 	},
 	dockCanvas: {
+		boxSizing: "border-box",
 		display: "flex",
 		width: "100%",
 		height: "100%",
 		minWidth: controlSize._0,
 		flexShrink: 0,
+	},
+	dockCanvasSparse: {
+		borderRightColor: color.border,
+		borderRightStyle: "solid",
+		borderRightWidth: 1,
 	},
 	dockSplit: {
 		display: "flex",

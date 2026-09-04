@@ -4,6 +4,7 @@ import {
 	createDockTree,
 	dockAxisSpan,
 	dockPanelIds,
+	getGridCanvasWidthPercent,
 	getResponsiveGridColumns,
 	insertDockPanel,
 	insertDockPanelAtOuterEdge,
@@ -22,6 +23,13 @@ describe("workspace dock model", () => {
 		expect(getResponsiveGridColumns(500, 4)).toBe(2);
 		expect(getResponsiveGridColumns(750, 4)).toBe(3);
 		expect(getResponsiveGridColumns(1200, 3)).toBe(3);
+	});
+
+	test("keeps sparse grids aligned to their available column tracks", () => {
+		expect(getGridCanvasWidthPercent(1, 3)).toBeCloseTo(100 / 3);
+		expect(getGridCanvasWidthPercent(2, 3)).toBeCloseTo(200 / 3);
+		expect(getGridCanvasWidthPercent(3, 3)).toBe(100);
+		expect(getGridCanvasWidthPercent(1, 1)).toBe(100);
 	});
 
 	test("builds and reconciles layouts without losing panels", () => {

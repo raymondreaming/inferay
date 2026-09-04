@@ -132,7 +132,6 @@ const MIN_SIDEBAR_WIDTH = 230;
 const MAX_SIDEBAR_WIDTH = 420;
 const DEFAULT_SIDEBAR_WIDTH = 300;
 const MIN_DIFF_WIDTH = 320;
-const MAX_DIFF_WIDTH = 820;
 const DEFAULT_DIFF_WIDTH = 560;
 
 function loadSidebarWidth() {
@@ -147,7 +146,7 @@ function loadDiffWidth(workspaceId: string) {
 		readStoredValue(`${DIFF_WIDTH_KEY_PREFIX}${workspaceId}`),
 	);
 	return Number.isFinite(stored)
-		? Math.min(MAX_DIFF_WIDTH, Math.max(MIN_DIFF_WIDTH, stored))
+		? Math.max(MIN_DIFF_WIDTH, stored)
 		: DEFAULT_DIFF_WIDTH;
 }
 
@@ -2517,7 +2516,7 @@ export function useRepositoryWorkbench({
 				MIN_DIFF_WIDTH,
 				workspaceWidth - reservedSidebarWidth - MIN_RESPONSIVE_PANE_WIDTH,
 			);
-			const maximumWidth = Math.min(MAX_DIFF_WIDTH, availableWidth);
+			const maximumWidth = availableWidth;
 			const pointerId = event.pointerId;
 			diffDragRef.current = {
 				startX: event.clientX,

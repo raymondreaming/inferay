@@ -421,6 +421,58 @@ describe("agent state and git change behavior", () => {
 		expect(restored.selectedGroupId).toBe("default" as GroupId);
 	});
 
+	test("discards a provisional repository workspace when switching away", () => {
+		const realPane = pane("real", {
+			agentKind: "codex",
+			paneType: "codex",
+			cwd: "/Users/ray/Developer/inferay",
+			pendingCwd: false,
+		});
+		const draftPane = pane("draft", {
+			agentKind: "codex",
+			paneType: "codex",
+			title: "Codex",
+			pendingCwd: true,
+		});
+		const switched = reduceAgentWorkspaceState(
+			{
+				groups: [
+					{
+						id: "repository" as GroupId,
+						name: "Repository",
+						panes: [realPane],
+						selectedPaneId: realPane.id,
+						columns: 3,
+						rows: 2,
+					},
+					{
+						id: "provisional" as GroupId,
+						name: "Workspace 2",
+						panes: [draftPane],
+						selectedPaneId: draftPane.id,
+						columns: 3,
+						rows: 2,
+					},
+				],
+				selectedGroupId: "provisional" as GroupId,
+				themeId: "default",
+				fontSize: 13,
+				fontFamily: "SF Mono",
+				opacity: 1,
+			},
+			{
+				type: "selectPane",
+				groupId: "repository",
+				paneId: realPane.id,
+			},
+		);
+
+		expect(switched?.groups.map((group) => group.id)).toEqual([
+			"repository" as GroupId,
+		]);
+		expect(switched?.selectedGroupId).toBe("repository" as GroupId);
+	});
+
 	test("keeps the starter draft workspace when no durable workspace exists", () => {
 		const group = createDefaultAgentChatGroup();
 		const cleaned = compactAgentState({

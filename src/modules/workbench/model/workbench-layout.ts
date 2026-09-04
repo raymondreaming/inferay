@@ -14,6 +14,18 @@ export function getResponsiveGridColumns(
 	return Math.max(1, Math.min(4, preferredColumns, widthColumns));
 }
 
+export function getGridCanvasWidthPercent(
+	occupiedColumns: number,
+	availableColumns: number,
+): number {
+	const safeAvailableColumns = Math.max(1, availableColumns);
+	const safeOccupiedColumns = Math.max(
+		1,
+		Math.min(safeAvailableColumns, occupiedColumns),
+	);
+	return (safeOccupiedColumns / safeAvailableColumns) * 100;
+}
+
 export type DockTree =
 	| { readonly type: "panel"; readonly id: string }
 	| {

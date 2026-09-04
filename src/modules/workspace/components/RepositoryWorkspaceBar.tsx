@@ -43,10 +43,10 @@ import {
 import {
 	agentStateKey,
 	compactAgentState,
-	type GroupId,
 	loadAgentState,
 	loadCanonicalAgentState,
-	mutateAgentWorkspaceState,
+	reduceAgentWorkspaceState,
+	saveSyncedAgentState,
 } from "../model/workspace-model.ts";
 
 function loadRepositoryBarState() {
@@ -127,32 +127,37 @@ export function RepositoryWorkspaceBar() {
 
 	const activateWorkspace = useCallback(
 		(workspace: RepositoryWorkspace) => {
+			const currentState = loadAgentState();
+			if (!currentState) return;
+			const currentProjection = projectRepositoryWorkspaces(
+				currentState.groups,
+				currentState.selectedGroupId,
+			);
+			const currentWorkspace = currentProjection.workspaces.find(
+				(candidate) => candidate.cwd === workspace.cwd,
+			);
+			if (!currentWorkspace) return;
 			const target = getRepositoryWorkspaceTarget(
-				workspace,
-				state.groups,
-				state.selectedGroupId,
+				currentWorkspace,
+				currentState.groups,
+				currentState.selectedGroupId,
 			);
 			if (!target) return;
-			setState((current) => ({
-				...current,
-				selectedGroupId: target.groupId as GroupId,
-				groups: current.groups.map((group) =>
-					group.id === target.groupId
-						? { ...group, selectedPaneId: target.pane.id }
-						: group,
-				),
-			}));
-			void mutateAgentWorkspaceState(
-				{
-					type: "selectPane",
-					groupId: target.groupId,
-					paneId: target.pane.id,
-				},
-				"select-repository-workspace",
-			);
+			const nextState = reduceAgentWorkspaceState(currentState, {
+				type: "selectPane",
+				groupId: target.groupId,
+				paneId: target.pane.id,
+			});
+			if (!nextState) return;
+			setState({
+				groups: nextState.groups,
+				selectedGroupId: nextState.selectedGroupId,
+				key: agentStateKey(nextState),
+			});
+			saveSyncedAgentState(nextState, "select-repository-workspace");
 			if (location.pathname !== "/agent") navigate({ to: "/agent" });
 		},
-		[location.pathname, navigate, state.groups, state.selectedGroupId],
+		[location.pathname, navigate],
 	);
 	const barProps = stylex.props(styles.bar);
 	const tabsProps = stylex.props(styles.tabs);
