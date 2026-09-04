@@ -84,6 +84,7 @@ interface SettingsContentProps {
 	onThemeChange?: (id: ThemeId) => void;
 	showVersion?: boolean;
 	embedded?: boolean;
+	section?: "all" | "agents" | "appearance" | "workspace";
 }
 
 interface SettingsProps {
@@ -98,7 +99,11 @@ const VISIBLE_APP_THEMES = APP_THEMES.filter((theme) =>
 const ENABLE_CUSTOM_THEME_PICKER = false;
 const EMPTY_FOLDERS: string[] = [];
 
-function WorkspaceLayoutSection() {
+function WorkspaceLayoutSection({
+	contained = false,
+}: {
+	contained?: boolean;
+}) {
 	const [mode, setMode] = useState(loadAgentLayoutMode);
 	const selected = loadAgentState()?.groups.find(
 		(group) => group.id === loadAgentState()?.selectedGroupId,
@@ -124,7 +129,10 @@ function WorkspaceLayoutSection() {
 		);
 	};
 	return (
-		<div id="workspace-layout" {...stylex.props(styles.section)}>
+		<div
+			id="workspace-layout"
+			{...stylex.props(styles.section, contained && styles.sectionContained)}
+		>
 			<h4 {...stylex.props(styles.sectionHeading)}>Workspace layout</h4>
 			<p {...stylex.props(styles.sectionDescription)}>
 				Choose how chat panes are arranged in the selected workspace.
@@ -208,7 +216,11 @@ function ColorInput({
 	);
 }
 
-function GlobalAgentInstructionsSection() {
+function GlobalAgentInstructionsSection({
+	contained = false,
+}: {
+	contained?: boolean;
+}) {
 	const [instructions, setInstructions] = useState("");
 	const [savedInstructions, setSavedInstructions] = useState("");
 	const [isLoading, setIsLoading] = useState(true);
@@ -263,7 +275,10 @@ function GlobalAgentInstructionsSection() {
 	};
 
 	return (
-		<div id="agent-instructions" {...stylex.props(styles.section)}>
+		<div
+			id="agent-instructions"
+			{...stylex.props(styles.section, contained && styles.sectionContained)}
+		>
 			<div {...stylex.props(styles.agentInstructionsHeading)}>
 				<div>
 					<h4 {...stylex.props(styles.sectionHeading)}>
@@ -373,7 +388,7 @@ function ThemeOrb({
 	);
 }
 
-function BackgroundScenePicker() {
+function BackgroundScenePicker({ contained = false }: { contained?: boolean }) {
 	const [background, setBackground] = useState<AppBackgroundSettings>(
 		loadAppBackgroundSettings,
 	);
@@ -465,7 +480,9 @@ function BackgroundScenePicker() {
 	];
 
 	return (
-		<div {...stylex.props(styles.section)}>
+		<div
+			{...stylex.props(styles.section, contained && styles.sectionContained)}
+		>
 			<div {...stylex.props(styles.backgroundHeadingRow)}>
 				<div>
 					<h4 {...stylex.props(styles.sectionHeading)}>Background</h4>
@@ -635,7 +652,7 @@ function BackgroundScenePicker() {
 	);
 }
 
-function SearchFoldersSection() {
+function SearchFoldersSection({ contained = false }: { contained?: boolean }) {
 	const fetchSearchFolders = useCallback(async () => {
 		const data = await fetchJsonOr<{ folders: string[] }>(
 			"/api/config/search-folders",
@@ -699,7 +716,9 @@ function SearchFoldersSection() {
 	if (!loadedFolders) return null;
 
 	return (
-		<div {...stylex.props(styles.section)}>
+		<div
+			{...stylex.props(styles.section, contained && styles.sectionContained)}
+		>
 			<h4 {...stylex.props(styles.sectionHeading)}>Search folders</h4>
 			<p {...stylex.props(styles.sectionDescription)}>
 				Directories to scan when searching for projects. Use ~/path for
@@ -769,6 +788,7 @@ export const SettingsContent = memo(function SettingsContent({
 	onThemeChange,
 	showVersion = true,
 	embedded = false,
+	section = "all",
 }: SettingsContentProps) {
 	const [appThemeId, setAppThemeId] = useState<AppThemeId>(loadAppThemeId);
 	const [backgroundMode, setBackgroundMode] = useState(
@@ -846,135 +866,174 @@ export const SettingsContent = memo(function SettingsContent({
 		[],
 	);
 	const isCustom = appThemeId === "custom";
+	const showAgents = section === "all" || section === "agents";
+	const showAppearance = section === "all" || section === "appearance";
+	const showWorkspace = section === "all" || section === "workspace";
 
 	return (
 		<div
 			{...stylex.props(styles.panelBody, embedded && styles.panelBodyEmbedded)}
 		>
-			<GlobalAgentInstructionsSection />
-			<div {...stylex.props(styles.divider)} />
-			<WorkspaceLayoutSection />
-			<div {...stylex.props(styles.divider)} />
-			<div id="appearance" {...stylex.props(styles.section)}>
-				<h4 {...stylex.props(styles.sectionHeading)}>Theme</h4>
-				<p {...stylex.props(styles.sectionDescription)}>
-					Choose a theme with a clean black background. Themes and background
-					worlds are mutually exclusive.
-				</p>
-				<div {...stylex.props(styles.themeGrid)}>
-					{VISIBLE_APP_THEMES.map((t) => (
-						<ThemeOrb
-							key={t.id}
-							theme={t}
-							selected={backgroundMode === "solid" && appThemeId === t.id}
-							onClick={() => handleThemeChange(t.id)}
-						/>
-					))}
-					{ENABLE_CUSTOM_THEME_PICKER && (
-						<ThemeOrb
-							theme={{
-								id: "custom",
-								name: "Custom",
-								colors: {
-									accent: custom.cursor,
-									darkGray: custom.bg,
-									black: custom.bg,
-								},
-							}}
-							selected={backgroundMode === "solid" && isCustom}
-							onClick={() => handleThemeChange("custom")}
-							dashed
-						/>
-					)}
-				</div>
-			</div>
-			{ENABLE_CUSTOM_THEME_PICKER && isCustom && (
+			{showAgents ? (
+				<GlobalAgentInstructionsSection contained={embedded} />
+			) : null}
+			{showAgents && showWorkspace && !embedded ? (
+				<div {...stylex.props(styles.divider)} />
+			) : null}
+			{showWorkspace ? (
 				<>
-					<div {...stylex.props(styles.divider)} />
-					<div {...stylex.props(styles.section)}>
-						<h4 {...stylex.props(styles.sectionHeading, styles.customHeading)}>
-							CUSTOM COLORS
-						</h4>
-						<div {...stylex.props(styles.colorList)}>
-							<ColorInput
-								label="Background"
-								value={custom.bg}
-								onChange={(v) => updateCustom({ bg: v })}
-							/>
-							<ColorInput
-								label="Foreground"
-								value={custom.fg}
-								onChange={(v) => updateCustom({ fg: v })}
-							/>
-							<ColorInput
-								label="Cursor"
-								value={custom.cursor}
-								onChange={(v) => updateCustom({ cursor: v })}
-							/>
-							<ColorInput
-								label="Separator"
-								value={custom.separator}
-								onChange={(v) => updateCustom({ separator: v })}
-							/>
-						</div>
-						<div
-							{...stylex.props(styles.agentPreview)}
-							style={{ backgroundColor: custom.bg, color: custom.fg }}
-						>
-							<span style={{ color: custom.cursor }}>$</span> agent-gui start
-							<br />
-							<span style={{ opacity: 0.6 }}>Loading…</span>
-							<br />
-							<span style={{ color: custom.cursor }}>✓</span> Ready
+					<WorkspaceLayoutSection contained={embedded} />
+					{!embedded ? <div {...stylex.props(styles.divider)} /> : null}
+					<SearchFoldersSection contained={embedded} />
+				</>
+			) : null}
+			{showWorkspace && showAppearance && !embedded ? (
+				<div {...stylex.props(styles.divider)} />
+			) : null}
+			{showAppearance ? (
+				<>
+					<div
+						id="appearance"
+						{...stylex.props(
+							styles.section,
+							embedded && styles.sectionContained,
+						)}
+					>
+						<h4 {...stylex.props(styles.sectionHeading)}>Theme</h4>
+						<p {...stylex.props(styles.sectionDescription)}>
+							A subtle tint for Inferay's solid background.
+						</p>
+						<div {...stylex.props(styles.themeGrid)}>
+							{VISIBLE_APP_THEMES.map((t) => (
+								<ThemeOrb
+									key={t.id}
+									theme={t}
+									selected={backgroundMode === "solid" && appThemeId === t.id}
+									onClick={() => handleThemeChange(t.id)}
+								/>
+							))}
+							{ENABLE_CUSTOM_THEME_PICKER && (
+								<ThemeOrb
+									theme={{
+										id: "custom",
+										name: "Custom",
+										colors: {
+											accent: custom.cursor,
+											darkGray: custom.bg,
+											black: custom.bg,
+										},
+									}}
+									selected={backgroundMode === "solid" && isCustom}
+									onClick={() => handleThemeChange("custom")}
+									dashed
+								/>
+							)}
 						</div>
 					</div>
+					{ENABLE_CUSTOM_THEME_PICKER && isCustom ? (
+						<>
+							{!embedded ? <div {...stylex.props(styles.divider)} /> : null}
+							<div
+								{...stylex.props(
+									styles.section,
+									embedded && styles.sectionContained,
+								)}
+							>
+								<h4
+									{...stylex.props(styles.sectionHeading, styles.customHeading)}
+								>
+									Custom colors
+								</h4>
+								<div {...stylex.props(styles.colorList)}>
+									<ColorInput
+										label="Background"
+										value={custom.bg}
+										onChange={(v) => updateCustom({ bg: v })}
+									/>
+									<ColorInput
+										label="Foreground"
+										value={custom.fg}
+										onChange={(v) => updateCustom({ fg: v })}
+									/>
+									<ColorInput
+										label="Cursor"
+										value={custom.cursor}
+										onChange={(v) => updateCustom({ cursor: v })}
+									/>
+									<ColorInput
+										label="Separator"
+										value={custom.separator}
+										onChange={(v) => updateCustom({ separator: v })}
+									/>
+								</div>
+								<div
+									{...stylex.props(styles.agentPreview)}
+									style={{ backgroundColor: custom.bg, color: custom.fg }}
+								>
+									<span style={{ color: custom.cursor }}>$</span> agent-gui
+									start
+									<br />
+									<span style={{ opacity: 0.6 }}>Loading…</span>
+									<br />
+									<span style={{ color: custom.cursor }}>✓</span> Ready
+								</div>
+							</div>
+						</>
+					) : null}
+					{!embedded ? <div {...stylex.props(styles.divider)} /> : null}
+					<div
+						{...stylex.props(
+							styles.section,
+							embedded && styles.sectionContained,
+						)}
+					>
+						<h4 {...stylex.props(styles.sectionHeading)}>Interface font</h4>
+						<p {...stylex.props(styles.sectionDescription)}>
+							Choose the typeface used throughout Inferay.
+						</p>
+						<DropdownButton
+							liquid={false}
+							value={appFontId}
+							options={APP_FONTS.map((option) => ({
+								id: option.id,
+								label: option.label,
+							}))}
+							onChange={(id) => {
+								const next = id as AppFontId;
+								setAppFontId(next);
+								saveAppFontId(next);
+								applyAppFont(next);
+							}}
+							fullWidth
+							buttonClassName={stylex.props(styles.syntaxThemeButton).className}
+						/>
+					</div>
+					{!embedded ? <div {...stylex.props(styles.divider)} /> : null}
+					<BackgroundScenePicker contained={embedded} />
+					{!embedded ? <div {...stylex.props(styles.divider)} /> : null}
+					<div
+						{...stylex.props(
+							styles.section,
+							embedded && styles.sectionContained,
+						)}
+					>
+						<h4 {...stylex.props(styles.sectionHeading)}>Code appearance</h4>
+						<p {...stylex.props(styles.sectionDescription)}>
+							Syntax colors for full file and inline diffs.
+						</p>
+						<DropdownButton
+							liquid={false}
+							value={syntaxTheme}
+							options={SYNTAX_HIGHLIGHT_THEMES}
+							onChange={(id) => setSyntaxTheme(id as SyntaxHighlightTheme)}
+							placeholder="Syntax theme"
+							fullWidth
+							buttonClassName={stylex.props(styles.syntaxThemeButton).className}
+							labelClassName={stylex.props(styles.syntaxThemeLabel).className}
+						/>
+					</div>
 				</>
-			)}
-			<div {...stylex.props(styles.divider)} />
-			<div {...stylex.props(styles.section)}>
-				<h4 {...stylex.props(styles.sectionHeading)}>Interface font</h4>
-				<p {...stylex.props(styles.sectionDescription)}>
-					Change the typeface throughout Inferay without changing text sizes or
-					spacing.
-				</p>
-				<DropdownButton
-					liquid={false}
-					value={appFontId}
-					options={[...APP_FONTS]}
-					onChange={(id) => {
-						const next = id as AppFontId;
-						setAppFontId(next);
-						saveAppFontId(next);
-						applyAppFont(next);
-					}}
-					placeholder="Interface font"
-					fullWidth
-					buttonClassName={stylex.props(styles.syntaxThemeButton).className}
-					labelClassName={stylex.props(styles.syntaxThemeLabel).className}
-				/>
-			</div>
-			<div {...stylex.props(styles.divider)} />
-			<BackgroundScenePicker />
-			<div {...stylex.props(styles.divider)} />
-			<div {...stylex.props(styles.section)}>
-				<h4 {...stylex.props(styles.sectionHeading)}>Diff appearance</h4>
-				<p {...stylex.props(styles.sectionDescription)}>
-					Syntax highlighting used by full file diffs and inline agent edit
-					diffs.
-				</p>
-				<DropdownButton
-					liquid={false}
-					value={syntaxTheme}
-					options={SYNTAX_HIGHLIGHT_THEMES}
-					onChange={(id) => setSyntaxTheme(id as SyntaxHighlightTheme)}
-					placeholder="Syntax theme"
-					fullWidth
-					buttonClassName={stylex.props(styles.syntaxThemeButton).className}
-					labelClassName={stylex.props(styles.syntaxThemeLabel).className}
-				/>
-			</div>
-			<div {...stylex.props(styles.divider)} />
-			<SearchFoldersSection />
+			) : null}
 			{showVersion ? (
 				<p {...stylex.props(styles.versionText)}>inferay {appInfo.version}</p>
 			) : null}
@@ -1041,6 +1100,7 @@ const styles = stylex.create({
 		paddingBottom: controlSize._6,
 	},
 	panelBodyEmbedded: {
+		gap: controlSize._3,
 		paddingBlock: controlSize._0,
 		paddingInline: controlSize._0,
 		paddingBottom: controlSize._0,
@@ -1265,13 +1325,23 @@ const styles = stylex.create({
 		textAlign: "right",
 	},
 	divider: {
-		height: controlSize._0_25,
+		height: 1,
 		backgroundColor: color.border,
 	},
 	section: {
 		display: "flex",
 		flexDirection: "column",
 		gap: controlSize._2,
+		padding: "18px 0",
+	},
+	sectionContained: {
+		backgroundColor: color.surfaceWhite025,
+		borderColor: color.border,
+		borderRadius: radius.xl,
+		borderStyle: "solid",
+		borderWidth: 1,
+		gap: controlSize._3,
+		padding: controlSize._4,
 	},
 	sectionHeading: {
 		margin: controlSize._0,
@@ -1286,7 +1356,7 @@ const styles = stylex.create({
 		margin: controlSize._0,
 		color: color.textMuted,
 		fontSize: font.size_2,
-		lineHeight: 1.5,
+		lineHeight: 1.4,
 	},
 	layoutControls: {
 		display: "flex",
@@ -1310,7 +1380,7 @@ const styles = stylex.create({
 		justifyContent: "space-between",
 	},
 	agentInstructionsEditor: {
-		backgroundColor: color.surfaceInset,
+		backgroundColor: color.transparent,
 		borderColor: color.border,
 		borderRadius: controlSize._2,
 		borderStyle: "solid",
@@ -1319,7 +1389,7 @@ const styles = stylex.create({
 		fontFamily: "var(--font-mono)",
 		fontSize: font.size_2,
 		lineHeight: 1.5,
-		minHeight: 220,
+		minHeight: 132,
 		outline: "none",
 		padding: controlSize._2_5,
 		resize: "vertical",
@@ -1331,9 +1401,13 @@ const styles = stylex.create({
 	syntaxThemeButton: {
 		height: controlSize._8,
 		borderColor: color.border,
-		backgroundColor: color.backgroundRaised,
+		borderRadius: radius.sm,
+		backgroundColor: color.transparent,
+		backgroundImage: "none",
+		boxShadow: "none",
 		color: color.textSoft,
 		fontSize: font.size_2,
+		maxWidth: "24rem",
 	},
 	syntaxThemeLabel: {
 		fontSize: font.size_2,
