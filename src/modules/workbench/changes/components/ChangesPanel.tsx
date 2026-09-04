@@ -327,7 +327,7 @@ export const ChangesPanel = memo(function ChangesPanel(
 			)}
 
 			{!showingWorkingTree && (
-				<div {...stylex.props(styles.scrollArea)}>
+				<div {...stylex.props(styles.splitArea)}>
 					{selectedCommitCount > 1 ? (
 						comparisonDetailsLoading ? (
 							<div {...stylex.props(styles.emptyStateLarge)}>
@@ -786,9 +786,9 @@ const styles = stylex.create({
 		display: "flex",
 		flexDirection: "column",
 		gap: controlSize._2,
-		borderTopWidth: 1,
-		borderTopStyle: "solid",
-		borderTopColor: color.border,
+		borderBottomWidth: 1,
+		borderBottomStyle: "solid",
+		borderBottomColor: color.border,
 		padding: controlSize._3,
 	},
 	detailIdentityGrid: {
@@ -1427,15 +1427,10 @@ function CommitDetailsPanel({
 }) {
 	return (
 		<div {...stylex.props(styles.detailsRoot)}>
-			<div {...stylex.props(styles.scrollArea)}>
-				<HistoricalFileList
-					files={details.files}
-					selectedFile={selectedFile}
-					viewMode={viewMode}
-					onSelectFile={onSelectFile}
-				/>
-			</div>
-			<div {...stylex.props(styles.detailsHeader)}>
+			<div
+				data-commit-details-summary="true"
+				{...stylex.props(styles.detailsHeader)}
+			>
 				<p title={details.message} {...stylex.props(styles.commitMessage)}>
 					{details.message}
 				</p>
@@ -1456,6 +1451,14 @@ function CommitDetailsPanel({
 						date={details.authoredAt}
 					/>
 				</div>
+			</div>
+			<div {...stylex.props(styles.scrollArea)}>
+				<HistoricalFileList
+					files={details.files}
+					selectedFile={selectedFile}
+					viewMode={viewMode}
+					onSelectFile={onSelectFile}
+				/>
 			</div>
 		</div>
 	);
@@ -1546,21 +1549,10 @@ function ComparisonDetailsPanel({
 }) {
 	return (
 		<div {...stylex.props(styles.detailsRoot)}>
-			<div {...stylex.props(styles.scrollArea)}>
-				{details.files.length ? (
-					<HistoricalFileList
-						files={details.files}
-						selectedFile={selectedFile}
-						viewMode={viewMode}
-						onSelectFile={onSelectFile}
-					/>
-				) : (
-					<div {...stylex.props(styles.emptyStateLarge)}>
-						<p {...stylex.props(styles.mutedText)}>No file differences</p>
-					</div>
-				)}
-			</div>
-			<div {...stylex.props(styles.detailsHeader)}>
+			<div
+				data-comparison-details-summary="true"
+				{...stylex.props(styles.detailsHeader)}
+			>
 				<span {...stylex.props(styles.detailIdentityLabel)}>
 					Comparing {selectionCount} items
 				</span>
@@ -1579,6 +1571,20 @@ function ComparisonDetailsPanel({
 						Merge base {details.mergeBase.slice(0, 7)}
 					</span>
 				) : null}
+			</div>
+			<div {...stylex.props(styles.scrollArea)}>
+				{details.files.length ? (
+					<HistoricalFileList
+						files={details.files}
+						selectedFile={selectedFile}
+						viewMode={viewMode}
+						onSelectFile={onSelectFile}
+					/>
+				) : (
+					<div {...stylex.props(styles.emptyStateLarge)}>
+						<p {...stylex.props(styles.mutedText)}>No file differences</p>
+					</div>
+				)}
 			</div>
 		</div>
 	);

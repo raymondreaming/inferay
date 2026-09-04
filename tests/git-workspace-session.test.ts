@@ -77,6 +77,12 @@ describe("Git workspace panel session", () => {
 			id: "workspace-diff-viewer",
 			cwd: "/repo",
 		});
+		const nextCommit = updateGitGraphSelection(graph, "commit-c", [
+			"commit-a",
+			"commit-b",
+			"commit-c",
+		]);
+		expect(nextCommit.selectedFile).toBeNull();
 
 		const closed = dismissGitWorkspaceViewer(graph);
 		expect(closed.diffViewerCwd).toBeNull();

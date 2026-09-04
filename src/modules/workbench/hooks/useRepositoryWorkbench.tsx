@@ -2210,20 +2210,30 @@ export function useRepositoryWorkbench({
 		}
 		if (selectedGraphItem?.itemKind === "worktreeWip") {
 			setPendingGraphFileOpen(null);
-			const firstFile = keyboardFiles[0];
+			const firstFile =
+				keyboardFiles.find(
+					(file) =>
+						file.path === selectedFile?.path &&
+						file.staged === selectedFile.staged,
+				) ?? keyboardFiles[0];
 			if (firstFile) selectChangedFile(firstFile);
 			return;
 		}
 		if (selectedCommitIds.length > 1) {
 			if (comparisonDetailsState.loading) return;
 			setPendingGraphFileOpen(null);
-			const firstFile = comparisonKeyboardFiles[0];
+			const firstFile =
+				comparisonKeyboardFiles.find(
+					(file) => file.path === selectedFile?.path,
+				) ?? comparisonKeyboardFiles[0];
 			if (firstFile) selectComparisonFile(firstFile);
 			return;
 		}
 		if (commitDetailsState.loading) return;
 		setPendingGraphFileOpen(null);
-		const firstFile = commitKeyboardFiles[0];
+		const firstFile =
+			commitKeyboardFiles.find((file) => file.path === selectedFile?.path) ??
+			commitKeyboardFiles[0];
 		if (firstFile) selectCommitFile(firstFile);
 	}, [
 		commitDetailsState.loading,
@@ -2238,6 +2248,7 @@ export function useRepositoryWorkbench({
 		selectComparisonFile,
 		selectedCommitHash,
 		selectedCommitIds.length,
+		selectedFile,
 		selectedGraphItem?.itemKind,
 	]);
 	const changeMainViewMode = useCallback(
@@ -2353,6 +2364,7 @@ export function useRepositoryWorkbench({
 				event.altKey
 			)
 				return;
+			if (panelSession.mainViewMode === "graph") return;
 			const target = event.target as HTMLElement;
 			const isEditable =
 				target.tagName === "INPUT" ||

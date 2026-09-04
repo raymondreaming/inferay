@@ -26,9 +26,8 @@ import { toggleBoolean } from "../../../../shared/lib/data.ts";
 import { lockPointerSelection } from "../../../../shared/lib/pointer-selection-lock.ts";
 import {
 	CommitGraphLinesLayer,
-	IconCheck,
 	IconCloud,
-	IconGitBranch,
+	IconComputer,
 	IconGitCommit,
 	IconSearch,
 	IconSettings,
@@ -153,10 +152,10 @@ const AUTHOR_WIDTH = 136;
 const SHA_WIDTH = 76;
 const DATE_WIDTH = 132;
 const REF_WIDTH = 192;
-const GRAPH_WIDTH = 360;
+const GRAPH_WIDTH = 96;
 const MESSAGE_WIDTH = 340;
 const TOOLS_WIDTH = 32;
-const COLUMN_PREFS_KEY = "commit-graph-columns-v11";
+const COLUMN_PREFS_KEY = "commit-graph-columns-v12";
 const SCROLL_PREFS_KEY = "commit-graph-scroll-v1";
 const DEFAULT_COLUMN_ORDER: ColumnKey[] = [
 	"date",
@@ -167,7 +166,7 @@ const DEFAULT_COLUMN_ORDER: ColumnKey[] = [
 	"sha",
 ];
 const DEFAULT_COLUMNS: ColumnVisibility = {
-	author: false,
+	author: true,
 	sha: true,
 	date: true,
 };
@@ -365,19 +364,39 @@ function loadPreferences(repositoryKey?: string): GraphPreferences {
 /** Small SVG icons for ref badges */
 function RefIcon({ kind }: { kind: GitGraphRefKind }) {
 	const size = 10;
-	if (kind === "head") {
-		return <IconCheck size={size} {...stylex.props(styles.shrink)} />;
-	}
-	if (kind === "tag") {
-		return <IconTag size={size} {...stylex.props(styles.shrink)} />;
-	}
-	if (kind === "remoteBranch") {
-		return <IconCloud size={size} {...stylex.props(styles.shrink)} />;
-	}
-	if (kind === "stash") {
-		return <IconGitCommit size={size} {...stylex.props(styles.shrink)} />;
-	}
-	return <IconGitBranch size={size} {...stylex.props(styles.shrink)} />;
+	const symbol =
+		kind === "tag"
+			? "tag"
+			: kind === "remoteBranch"
+				? "remote"
+				: kind === "stash"
+					? "stash"
+					: "local";
+	const Icon =
+		kind === "tag"
+			? IconTag
+			: kind === "remoteBranch"
+				? IconCloud
+				: kind === "stash"
+					? IconGitCommit
+					: IconComputer;
+	return (
+		<span
+			aria-hidden="true"
+			data-ref-symbol={symbol}
+			{...stylex.props(styles.shrink)}
+		>
+			<Icon size={size} {...stylex.props(styles.refSymbolIcon)} />
+		</span>
+	);
+}
+
+function refKindLabel(kind: GitGraphRefKind): string {
+	if (kind === "head") return "current local branch";
+	if (kind === "localBranch") return "local branch";
+	if (kind === "remoteBranch") return "remote branch";
+	if (kind === "tag") return "tag";
+	return "stash";
 }
 
 function RefBadge({
@@ -389,8 +408,6 @@ function RefBadge({
 	onRefDrop,
 	worktreePath,
 	upstream,
-	ahead,
-	behind,
 	trailingKinds = [],
 	onOpenContextMenu,
 	ghost = false,
@@ -403,8 +420,6 @@ function RefBadge({
 	onRefDrop?: (source: string, target: string) => void;
 	worktreePath?: string;
 	upstream?: string;
-	ahead?: number;
-	behind?: number;
 	trailingKinds?: GitGraphRefKind[];
 	onOpenContextMenu?: (event: MouseEvent) => void;
 	ghost?: boolean;
@@ -415,6 +430,7 @@ function RefBadge({
 			(kind === "head" && fullName.startsWith("refs/heads/"))) &&
 		!!(onCheckout || onRefDrop);
 	const keyboardActionable = interactive || Boolean(onOpenContextMenu);
+	const kindLabel = refKindLabel(kind);
 	return (
 		<span
 			role={keyboardActionable ? "button" : undefined}
@@ -425,14 +441,14 @@ function RefBadge({
 			draggable={interactive}
 			title={
 				ghost
-					? `${label} — nearest containing branch${interactive ? "; double-click to check out" : ""}`
+					? `${label} — nearest containing ${kindLabel}${interactive ? "; double-click to check out" : ""}`
 					: worktreePath
-						? `${label} — checked out at ${worktreePath}`
+						? `${label} — ${kindLabel}; checked out at ${worktreePath}`
 						: upstream
-							? `${label} — tracks ${upstream}${ahead || behind ? ` (${ahead ?? 0} ahead, ${behind ?? 0} behind)` : ""}`
+							? `${label} — ${kindLabel}; tracks ${upstream}`
 							: interactive
-								? `${label} — double-click to check out`
-								: label
+								? `${label} — ${kindLabel}; double-click to check out`
+								: `${label} — ${kindLabel}`
 			}
 			onDoubleClick={(event) => {
 				if (!interactive) return;
@@ -514,9 +530,8 @@ function RefBadge({
 				color: ghost ? color : palette.white,
 			}}
 		>
-			{kind !== "remoteBranch" ? <RefIcon kind={kind} /> : null}
+			<RefIcon kind={kind} />
 			<span {...stylex.props(styles.truncate)}>{label}</span>
-			{kind === "remoteBranch" ? <RefIcon kind={kind} /> : null}
 			{trailingKinds.map((trailingKind, index) => (
 				<span
 					key={`${trailingKind}:${index}`}
@@ -526,10 +541,6 @@ function RefBadge({
 					<RefIcon kind={trailingKind} />
 				</span>
 			))}
-			{ahead ? <span {...stylex.props(styles.refAhead)}>+{ahead}</span> : null}
-			{behind ? (
-				<span {...stylex.props(styles.refBehind)}>−{behind}</span>
-			) : null}
 		</span>
 	);
 }
@@ -587,8 +598,6 @@ function RefBadges({
 			onRefDrop={onRefDrop}
 			worktreePath={ref.worktreePath}
 			upstream={ref.upstream}
-			ahead={ref.ahead}
-			behind={ref.behind}
 			trailingKinds={trailingKinds}
 			onOpenContextMenu={(event) => onOpenContextMenu?.(ref, event)}
 		/>
@@ -688,10 +697,10 @@ function HeaderRow({
 			? true
 			: columns[column];
 	const labels: Record<ColumnKey, string> = {
-		date: "Commit date / time",
+		date: "Date",
 		refs: "Branch",
 		graph: "Graph",
-		message: "Commit message",
+		message: "Message",
 		author: "Author",
 		sha: "SHA",
 	};
@@ -702,10 +711,15 @@ function HeaderRow({
 		visibleOrder.reduce((total, column) => total + columnWidth(column), 0) +
 		TOOLS_WIDTH;
 	return (
-		<div {...stylex.props(styles.header)} style={{ width: headerWidth }}>
+		<div
+			data-graph-header="true"
+			{...stylex.props(styles.header)}
+			style={{ width: headerWidth }}
+		>
 			{visibleOrder.map((column) => (
 				<div
 					key={column}
+					data-graph-column-header={column}
 					title={`Drag to reorder ${labels[column].toLocaleLowerCase()}`}
 					draggable
 					onDragStart={(event) => {
@@ -728,11 +742,7 @@ function HeaderRow({
 						) as ColumnKey;
 						if (source && source !== column) onMoveColumn(source, column);
 					}}
-					{...stylex.props(
-						styles.headerCell,
-						styles.headerCellBorder,
-						styles.draggableHeader,
-					)}
+					{...stylex.props(styles.headerCell, styles.draggableHeader)}
 					style={{ width: columnWidth(column) }}
 				>
 					{labels[column]}
@@ -963,14 +973,16 @@ const CommitRow = memo(function CommitRow({
 				aria-hidden="true"
 				data-graph-row-wash="true"
 				data-graph-row-hovered={rowActive ? "true" : "false"}
+				data-graph-row-selected={selected ? "true" : "false"}
 				{...stylex.props(styles.nodeAnchoredRowWash)}
 				style={{
 					left: nodeAnchoredWashLeft,
 					top: nodeTop,
 					height: AVATAR_SIZE,
-					backgroundColor: selected
-						? "rgba(35, 67, 112, 0.55)"
-						: hexToRgba(commit.color, rowActive ? 0.42 : 0.1),
+					backgroundColor: hexToRgba(
+						commit.color,
+						selected || rowActive ? 0.42 : 0.1,
+					),
 				}}
 			/>
 			{visibleOrder.map((column) => {
@@ -1239,6 +1251,11 @@ export const CommitGraph = memo(function CommitGraph({
 		x: number;
 		y: number;
 	} | null>(null);
+	const hasCommits = commits.length > 0;
+	useEffect(() => {
+		if (!embedded || !hasCommits) return;
+		scrollerRef.current?.focus({ preventScroll: true });
+	}, [embedded, hasCommits, repositoryKey]);
 	const worktreesByPath = useMemo(
 		() => new Map(worktrees.map((worktree) => [worktree.path, worktree])),
 		[worktrees],
@@ -1559,19 +1576,23 @@ export const CommitGraph = memo(function CommitGraph({
 				}
 				return;
 			}
+			if (event.key === "ArrowLeft" || event.key === "ArrowRight") return;
 			const nextIndex =
 				event.key === "Home"
 					? 0
 					: event.key === "End"
 						? selectableItems.length - 1
-						: Math.max(
-								0,
-								Math.min(
-									selectableItems.length - 1,
-									(currentIndex < 0 ? 0 : currentIndex) +
-										(event.key === "ArrowUp" ? -1 : 1),
-								),
-							);
+						: currentIndex < 0
+							? event.key === "ArrowUp"
+								? selectableItems.length - 1
+								: 0
+							: Math.max(
+									0,
+									Math.min(
+										selectableItems.length - 1,
+										currentIndex + (event.key === "ArrowUp" ? -1 : 1),
+									),
+								);
 			const next = selectableItems[nextIndex]!;
 			onSelect?.(next);
 			scrollerRef.current?.scrollTo({
@@ -1712,6 +1733,7 @@ export const CommitGraph = memo(function CommitGraph({
 			{...rootProps}
 			className={`${rootProps.className ?? ""} ${className}`}
 			role="listbox"
+			tabIndex={0}
 			aria-label="Repository commit history"
 			aria-keyshortcuts="ArrowUp ArrowDown ArrowRight Alt+ArrowUp Alt+ArrowDown"
 			onScroll={(event) => {
@@ -2276,6 +2298,9 @@ const styles = stylex.create({
 	shrink: {
 		flexShrink: 0,
 	},
+	refSymbolIcon: {
+		display: "block",
+	},
 	truncate: {
 		overflow: "hidden",
 		textOverflow: "ellipsis",
@@ -2301,19 +2326,9 @@ const styles = stylex.create({
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 	},
-	refAhead: {
-		flexShrink: 0,
-		color: palette.green,
-		fontVariantNumeric: "tabular-nums",
-	},
 	ghostRefBadge: {
 		opacity: 0.72,
 		fontStyle: "italic",
-	},
-	refBehind: {
-		flexShrink: 0,
-		color: palette.red,
-		fontVariantNumeric: "tabular-nums",
 	},
 	refBadges: {
 		position: "relative",
@@ -2354,14 +2369,19 @@ const styles = stylex.create({
 	header: {
 		position: "sticky",
 		top: controlSize._0,
-		zIndex: layer.control,
+		zIndex: layer.sticky,
 		display: "flex",
 		minWidth: "100%",
-		height: controlSize._2,
+		height: controlSize._7,
 		alignItems: "center",
-		backgroundColor: color.transparent,
-		color: color.transparent,
-		fontSize: controlSize._0,
+		borderBottomWidth: 1,
+		borderBottomStyle: "solid",
+		borderBottomColor: color.border,
+		backgroundColor: color.background,
+		boxShadow: "0 1px 0 rgba(0, 0, 0, 0.28)",
+		color: color.textMuted,
+		fontSize: font.size_1,
+		fontWeight: font.weight_6,
 	},
 	headerCell: {
 		position: "relative",
@@ -2370,7 +2390,10 @@ const styles = stylex.create({
 		flexShrink: 0,
 		alignItems: "center",
 		overflow: "hidden",
-		paddingInline: controlSize._0,
+		borderRightWidth: 1,
+		borderRightStyle: "solid",
+		borderRightColor: color.border,
+		paddingInline: controlSize._2,
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 		boxSizing: "border-box",
@@ -2383,7 +2406,7 @@ const styles = stylex.create({
 		},
 	},
 	headerTools: {
-		display: "none",
+		display: "flex",
 		height: "100%",
 		flexShrink: 0,
 		alignItems: "center",
@@ -2391,9 +2414,6 @@ const styles = stylex.create({
 		borderLeftWidth: 1,
 		borderLeftStyle: "solid",
 		borderLeftColor: color.border,
-	},
-	headerCellBorder: {
-		borderLeftWidth: controlSize._0,
 	},
 	columnResizeHandle: {
 		position: "absolute",
@@ -2549,7 +2569,7 @@ const styles = stylex.create({
 	linesLayer: {
 		position: "absolute",
 		left: controlSize._0,
-		top: "22px",
+		top: controlSize._7,
 		pointerEvents: "none",
 	},
 	rowsLayer: {

@@ -87,6 +87,17 @@ function normalizedDiffContext(value: unknown): GitWorkspaceDiffContext | null {
 		: null;
 }
 
+function resolvedDiffContext(
+	current: GitWorkspacePanelSession,
+): GitWorkspaceDiffContext | null {
+	if (current.mainViewMode !== "diff" || !current.selectedFile) return null;
+	if (current.diffContext) return current.diffContext;
+	if (current.selectedFileCommitHash) return "commit";
+	if (current.selectedFileComparisonFrom && current.selectedFileComparisonTo)
+		return "comparison";
+	return current.selectedCommitHash ? "graphWorkingTree" : "workingTree";
+}
+
 export function normalizeGitWorkspacePanelSession<InitialFile = unknown>(
 	value: unknown,
 	now = Date.now(),
@@ -104,7 +115,7 @@ export function normalizeGitWorkspacePanelSession<InitialFile = unknown>(
 			)
 		: [];
 	const selectedCommitHash = nullableString(stored.selectedCommitHash);
-	return {
+	const session: GitWorkspacePanelSession<InitialFile> = {
 		...emptyGitWorkspacePanelSession<InitialFile>(),
 		fileViewerOpen: stored.fileViewerOpen === true,
 		fileViewerCwd: nullableString(stored.fileViewerCwd),
@@ -144,6 +155,7 @@ export function normalizeGitWorkspacePanelSession<InitialFile = unknown>(
 		selectedCommitParent: nullableString(stored.selectedCommitParent),
 		mainViewMode: stored.mainViewMode === "graph" ? "graph" : "diff",
 	};
+	return { ...session, diffContext: resolvedDiffContext(session) };
 }
 
 export function serializeGitWorkspacePanelSession<InitialFile>(
@@ -219,7 +231,7 @@ export function openGitWorkingTreeFileDiff<InitialFile>(
 		selectedFileComparisonTo: null,
 		diffContext:
 			current.mainViewMode === "graph" ||
-			current.diffContext === "graphWorkingTree"
+			resolvedDiffContext(current) === "graphWorkingTree"
 				? "graphWorkingTree"
 				: "workingTree",
 		mainViewMode: "diff",
@@ -301,20 +313,22 @@ export function dismissGitWorkspaceViewer<InitialFile>(
 export function isGitWorkspaceGraphDrillIn(
 	current: GitWorkspacePanelSession,
 ): boolean {
+	const context = resolvedDiffContext(current);
 	return (
 		current.mainViewMode === "diff" &&
-		(current.diffContext === "graphWorkingTree" ||
-			current.diffContext === "commit" ||
-			current.diffContext === "comparison")
+		(context === "graphWorkingTree" ||
+			context === "commit" ||
+			context === "comparison")
 	);
 }
 
 export function isHistoricalGitWorkspaceDiff(
 	current: GitWorkspacePanelSession,
 ): boolean {
+	const context = resolvedDiffContext(current);
 	return (
 		current.mainViewMode === "diff" &&
-		(current.diffContext === "commit" || current.diffContext === "comparison")
+		(context === "commit" || context === "comparison")
 	);
 }
 
@@ -325,8 +339,8 @@ export function getGitWorkspaceSidebarContent(
 	if (current.mainViewMode === "graph") {
 		return selectedGraphItemIsWorkingTree ? "workingTree" : "history";
 	}
-	return current.diffContext === "workingTree" ||
-		current.diffContext === "graphWorkingTree"
+	const context = resolvedDiffContext(current);
+	return context === "workingTree" || context === "graphWorkingTree"
 		? "workingTree"
 		: "history";
 }
@@ -360,11 +374,29 @@ export function updateGitGraphSelection<InitialFile>(
 			? current.selectedCommitIds.filter((id) => id !== itemId)
 			: [...current.selectedCommitIds, itemId];
 	}
+	const nextPrimary = nextIds.includes(itemId)
+		? itemId
+		: (nextIds.at(-1) ?? null);
+	const selectionChanged =
+		nextPrimary !== current.selectedCommitHash ||
+		nextIds.length !== current.selectedCommitIds.length ||
+		nextIds.some((id, index) => id !== current.selectedCommitIds[index]);
 	return {
 		...current,
-		selectedCommitHash: nextIds.includes(itemId)
-			? itemId
-			: (nextIds.at(-1) ?? null),
+		selectedFile: selectionChanged ? null : current.selectedFile,
+		selectedFileCommitHash: selectionChanged
+			? null
+			: current.selectedFileCommitHash,
+		selectedFileCommitParent: selectionChanged
+			? null
+			: current.selectedFileCommitParent,
+		selectedFileComparisonFrom: selectionChanged
+			? null
+			: current.selectedFileComparisonFrom,
+		selectedFileComparisonTo: selectionChanged
+			? null
+			: current.selectedFileComparisonTo,
+		selectedCommitHash: nextPrimary,
 		selectedCommitIds: nextIds,
 		selectedCommitParent: null,
 	};

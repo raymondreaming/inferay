@@ -86,6 +86,7 @@ export const {
 	IconArrowUp,
 	IconTag,
 	IconCloud,
+	IconComputer,
 	IconPanelLeft,
 	IconExternalLink,
 	IconArrowLeft,
@@ -187,6 +188,7 @@ export const {
 	IconCloud: icon([
 		"M7 18h10a4 4 0 0 0 0-8 5 5 0 0 0-9.7-1.5A3.5 3.5 0 0 0 7 18z",
 	]),
+	IconComputer: icon(["M4 4h16v12H4z", "M8 20h8", "M12 16v4"]),
 	IconPanelLeft: icon([
 		"M3 3h18a0 0 0 0 1 0 0v18a0 0 0 0 1 0 0H3a0 0 0 0 1 0 0V3z",
 		"M9 3v18",

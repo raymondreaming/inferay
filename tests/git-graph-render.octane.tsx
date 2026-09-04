@@ -47,6 +47,9 @@ function graphCommit(index: number): GraphNode {
 							kind: "head",
 							target: hash,
 							isHead: true,
+							upstream: "origin/main",
+							ahead: 13,
+							behind: 0,
 						},
 						{
 							fullName: "refs/remotes/origin/main",
@@ -161,7 +164,7 @@ describe("Git commit graph renderer", () => {
 		const onCheckoutRef = vi.fn();
 		const onOpenSelection = vi.fn();
 		function Harness() {
-			const [selected, setSelected] = useState(commits[0]!.id);
+			const [selected, setSelected] = useState<string>();
 			return (
 				<CommitGraph
 					commits={commits}
@@ -181,6 +184,7 @@ describe("Git commit graph renderer", () => {
 			await new Promise((resolve) => setTimeout(resolve, 30));
 			const graph = rootElement.querySelector('[role="listbox"]');
 			expect(graph).toBeTruthy();
+			expect(dom.window.document.activeElement).toBe(graph);
 			expect(
 				rootElement.querySelector('[data-graph-convergence="true"]'),
 			).toBeTruthy();
@@ -202,10 +206,17 @@ describe("Git commit graph renderer", () => {
 			).toBeLessThan(60);
 			expect(rootElement.textContent).toContain("main");
 			expect(rootElement.textContent).toContain("+2");
+			expect(rootElement.textContent).not.toContain("+13");
 			expect(rootElement.textContent).not.toContain("release");
 			const branchBadge = rootElement.querySelector(
 				'[role="button"][title^="main"]',
 			);
+			expect(
+				branchBadge?.querySelector('[data-ref-symbol="local"]'),
+			).toBeTruthy();
+			expect(
+				branchBadge?.querySelector('[data-ref-symbol="remote"]'),
+			).toBeTruthy();
 			(branchBadge as HTMLElement | null)?.focus();
 			await new Promise((resolve) => setTimeout(resolve, 20));
 			expect(rootElement.textContent).toContain("release");
@@ -213,9 +224,18 @@ describe("Git commit graph renderer", () => {
 			expect(
 				Array.from(
 					rootElement.querySelectorAll('[data-ref-kind="remoteBranch"]'),
-				).some((badge) => badge.textContent === "release"),
+				).some(
+					(badge) =>
+						badge.textContent === "release" &&
+						badge.querySelector('[data-ref-symbol="remote"]'),
+				),
 			).toBe(true);
 			expect(rootElement.textContent).toContain("v1.2.3");
+			expect(
+				rootElement.querySelector(
+					'[data-ref-kind="tag"] [data-ref-symbol="tag"]',
+				),
+			).toBeTruthy();
 			expect(rootElement.textContent).toContain("08/31/2026 12:00 PM");
 			branchBadge?.dispatchEvent(
 				new dom.window.KeyboardEvent("keydown", {
@@ -234,9 +254,30 @@ describe("Git commit graph renderer", () => {
 			await new Promise((resolve) => setTimeout(resolve, 20));
 			expect(
 				rootElement
+					.querySelector(`[data-graph-item="${commits[0]!.id}"]`)
+					?.getAttribute("aria-selected"),
+			).toBe("true");
+			graph!.dispatchEvent(
+				new dom.window.KeyboardEvent("keydown", {
+					bubbles: true,
+					key: "ArrowDown",
+				}),
+			);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(
+				rootElement
 					.querySelector(`[data-graph-item="${commits[1]!.id}"]`)
 					?.getAttribute("aria-selected"),
 			).toBe("true");
+			const keyboardSelectedWash = rootElement.querySelector(
+				`[data-graph-item="${commits[1]!.id}"] [data-graph-row-wash="true"]`,
+			) as HTMLElement | null;
+			expect(
+				keyboardSelectedWash?.getAttribute("data-graph-row-selected"),
+			).toBe("true");
+			expect(keyboardSelectedWash?.style.backgroundColor).toBe(
+				"rgba(34, 184, 207, 0.42)",
+			);
 			graph!.dispatchEvent(
 				new dom.window.KeyboardEvent("keydown", {
 					bubbles: true,
@@ -248,8 +289,21 @@ describe("Git commit graph renderer", () => {
 			const resizeDate = rootElement.querySelector(
 				'button[aria-label="Resize date column"]',
 			);
-			const dateHeader = Array.from(rootElement.querySelectorAll("div")).find(
-				(element) => element.textContent === "Commit date / time",
+			const dateHeader = rootElement.querySelector(
+				'[data-graph-column-header="date"]',
+			);
+			const initialGraphHeader = rootElement.querySelector(
+				'[data-graph-column-header="graph"]',
+			) as HTMLElement | null;
+			const initialMessageHeader = rootElement.querySelector(
+				'[data-graph-column-header="message"]',
+			);
+			expect(
+				rootElement.querySelector('[data-graph-header="true"]'),
+			).toBeTruthy();
+			expect(initialGraphHeader?.style.width).toBe("96px");
+			expect(initialMessageHeader?.previousElementSibling).toBe(
+				initialGraphHeader,
 			);
 			resizeDate?.dispatchEvent(
 				new dom.window.MouseEvent("pointerdown", {
@@ -272,9 +326,9 @@ describe("Git commit graph renderer", () => {
 				"182px",
 			);
 
-			const messageHeader = Array.from(
-				rootElement.querySelectorAll("div"),
-			).find((element) => element.textContent === "Commit message");
+			const messageHeader = rootElement.querySelector(
+				'[data-graph-column-header="message"]',
+			);
 			const dragValues = new Map<string, string>();
 			const dataTransfer = {
 				setData(type: string, value: string) {
@@ -303,19 +357,16 @@ describe("Git commit graph renderer", () => {
 			const reorderedHeaders = Array.from(rootElement.querySelectorAll("div"))
 				.map((element) => element.textContent)
 				.filter((text) =>
-					[
-						"Commit date / time",
-						"Branch",
-						"Graph",
-						"Commit message",
-						"SHA",
-					].includes(text ?? ""),
+					["Date", "Branch", "Graph", "Message", "Author", "SHA"].includes(
+						text ?? "",
+					),
 				);
-			expect(reorderedHeaders.slice(0, 5)).toEqual([
-				"Commit message",
-				"Commit date / time",
+			expect(reorderedHeaders.slice(0, 6)).toEqual([
+				"Message",
+				"Date",
 				"Branch",
 				"Graph",
+				"Author",
 				"SHA",
 			]);
 			rootElement
@@ -324,22 +375,22 @@ describe("Git commit graph renderer", () => {
 			await new Promise((resolve) => setTimeout(resolve, 20));
 			const authorToggle = Array.from(
 				rootElement.querySelectorAll("button"),
-			).find((button) => button.textContent?.includes("AuthorOff"));
+			).find((button) => button.textContent?.includes("AuthorOn"));
+			expect(rootElement.textContent).toContain("Graph Author");
 			authorToggle?.dispatchEvent(
 				new dom.window.MouseEvent("click", { bubbles: true }),
 			);
 			await new Promise((resolve) => setTimeout(resolve, 20));
-			expect(rootElement.textContent).toContain("Graph Author");
 			const storedPreferences = JSON.parse(
 				dom.window.localStorage.getItem(
-					"commit-graph-columns-v11:/fixture/repository",
+					"commit-graph-columns-v12:/fixture/repository",
 				) ?? "{}",
 			) as {
 				columns?: { author?: boolean };
 				widths?: { date?: number };
 				order?: string[];
 			};
-			expect(storedPreferences.columns?.author).toBe(true);
+			expect(storedPreferences.columns?.author).toBe(false);
 			expect(storedPreferences.widths?.date).toBe(182);
 			expect(storedPreferences.order?.[0]).toBe("message");
 
@@ -467,6 +518,18 @@ describe("Git commit graph renderer", () => {
 			expect(rootElement.textContent).toContain(
 				"Fix dashboard loading performance",
 			);
+			const detailsSummary = rootElement.querySelector(
+				'[data-commit-details-summary="true"]',
+			);
+			const firstChangedFile = rootElement.querySelector(
+				"[data-git-file-select]",
+			);
+			expect(detailsSummary).toBeTruthy();
+			expect(firstChangedFile).toBeTruthy();
+			expect(
+				(detailsSummary?.compareDocumentPosition(firstChangedFile!) ?? 0) &
+					dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
+			).not.toBe(0);
 			expect(rootElement.textContent).not.toContain("Author");
 			expect(rootElement.textContent).not.toContain("Committer");
 			expect(rootElement.textContent).not.toContain("Diff parent:");
@@ -1033,8 +1096,11 @@ describe("Git commit graph renderer", () => {
 			const selectedWash = selectedStash?.querySelector(
 				'[data-graph-row-wash="true"]',
 			) as HTMLElement | null;
+			expect(selectedWash?.getAttribute("data-graph-row-selected")).toBe(
+				"true",
+			);
 			expect(selectedWash?.style.backgroundColor).toBe(
-				"rgba(35, 67, 112, 0.55)",
+				"rgba(168, 85, 247, 0.42)",
 			);
 			expect(selectedWash?.style.left).not.toBe("");
 			expect((selectedStash as HTMLElement | null)?.style.backgroundColor).toBe(
