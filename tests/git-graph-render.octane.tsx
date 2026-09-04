@@ -159,6 +159,7 @@ describe("Git commit graph renderer", () => {
 		}));
 		const { dom, root, rootElement } = setupDom();
 		const onCheckoutRef = vi.fn();
+		const onOpenSelection = vi.fn();
 		function Harness() {
 			const [selected, setSelected] = useState(commits[0]!.id);
 			return (
@@ -167,6 +168,7 @@ describe("Git commit graph renderer", () => {
 					rows={rows}
 					selectedHash={selected}
 					onSelect={setSelected}
+					onOpenSelection={onOpenSelection}
 					onCheckoutRef={onCheckoutRef}
 					repositoryKey="/fixture/repository"
 					embedded
@@ -235,6 +237,13 @@ describe("Git commit graph renderer", () => {
 					.querySelector(`[data-graph-item="${commits[1]!.id}"]`)
 					?.getAttribute("aria-selected"),
 			).toBe("true");
+			graph!.dispatchEvent(
+				new dom.window.KeyboardEvent("keydown", {
+					bubbles: true,
+					key: "ArrowRight",
+				}),
+			);
+			expect(onOpenSelection).toHaveBeenCalledWith(commits[1]!.id);
 
 			const resizeDate = rootElement.querySelector(
 				'button[aria-label="Resize date column"]',
@@ -360,7 +369,7 @@ describe("Git commit graph renderer", () => {
 		}
 	});
 
-	test("renders concise commit details and opens a historical file", async () => {
+	test("keeps historical commit files in the sidebar while a diff is open", async () => {
 		const { ChangesPanel } = await import(
 			"../src/modules/workbench/changes/components/ChangesPanel.tsx"
 		);
@@ -374,11 +383,27 @@ describe("Git commit graph renderer", () => {
 					cwd="/fixture/repository"
 					fileViewMode="path"
 					onFileViewModeChange={() => {}}
-					mainViewMode="graph"
-					modified={[]}
+					content="history"
+					graphActive={false}
+					modified={[
+						{
+							path: "working-tree-only.ts",
+							status: "M",
+							staged: false,
+						},
+					]}
 					untracked={[]}
-					staged={[]}
-					selectedFile={null}
+					staged={[
+						{
+							path: "staged-working-tree-only.ts",
+							status: "M",
+							staged: true,
+						},
+					]}
+					selectedFile={{
+						path: "src/modules/workbench/graph/components/CommitGraph.tsx",
+						staged: false,
+					}}
 					onSelectFile={() => {}}
 					onStageFile={() => {}}
 					onUnstageFile={() => {}}
@@ -416,6 +441,13 @@ describe("Git commit graph renderer", () => {
 								deletions: 4,
 								binary: false,
 							},
+							{
+								path: "src/modules/workbench/hooks/useRepositoryWorkbench.tsx",
+								status: "M",
+								additions: 12,
+								deletions: 2,
+								binary: false,
+							},
 						],
 					}}
 					onSelectCommitFile={onSelectCommitFile}
@@ -442,6 +474,17 @@ describe("Git commit graph renderer", () => {
 			expect(rootElement.textContent).toContain(
 				"src/modules/workbench/graph/components/CommitGraph.tsx",
 			);
+			expect(rootElement.textContent).toContain(
+				"src/modules/workbench/hooks/useRepositoryWorkbench.tsx",
+			);
+			expect(rootElement.textContent).not.toContain("working-tree-only.ts");
+			expect(rootElement.textContent).not.toContain(
+				"staged-working-tree-only.ts",
+			);
+			expect(rootElement.textContent).not.toContain("Unstaged Files");
+			expect(
+				rootElement.querySelector('[data-git-file-active="true"]')?.textContent,
+			).toContain("CommitGraph.tsx");
 			rootElement
 				.querySelector('button[aria-label="Repository graph"]')
 				?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
@@ -450,6 +493,18 @@ describe("Git commit graph renderer", () => {
 				.querySelector("[data-git-file-select]")
 				?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
 			expect(onSelectCommitFile).toHaveBeenCalledOnce();
+			onSelectCommitFile.mockClear();
+			rootElement.querySelector("[data-git-file-select]")?.dispatchEvent(
+				new dom.window.KeyboardEvent("keydown", {
+					bubbles: true,
+					key: "ArrowDown",
+				}),
+			);
+			expect(onSelectCommitFile).toHaveBeenCalledWith(
+				expect.objectContaining({
+					path: "src/modules/workbench/hooks/useRepositoryWorkbench.tsx",
+				}),
+			);
 		} finally {
 			root.unmount();
 		}
@@ -467,7 +522,8 @@ describe("Git commit graph renderer", () => {
 					cwd="/fixture/repository"
 					fileViewMode="path"
 					onFileViewModeChange={() => {}}
-					mainViewMode="graph"
+					content="history"
+					graphActive
 					modified={[]}
 					untracked={[]}
 					staged={[]}
@@ -594,7 +650,7 @@ describe("Git commit graph renderer", () => {
 		}
 	});
 
-	test("renders the live WIP sidebar hierarchy and actions without duplicate labels", async () => {
+	test("keeps the live WIP sidebar visible while a file diff is open", async () => {
 		const { ChangesPanel } = await import(
 			"../src/modules/workbench/changes/components/ChangesPanel.tsx"
 		);
@@ -609,7 +665,8 @@ describe("Git commit graph renderer", () => {
 					cwd="/fixture/repository"
 					fileViewMode="path"
 					onFileViewModeChange={() => {}}
-					mainViewMode="graph"
+					content="workingTree"
+					graphActive={false}
 					modified={[
 						{
 							status: "M",
@@ -643,7 +700,6 @@ describe("Git commit graph renderer", () => {
 					onUnstageAll={onUnstageAll}
 					hasProject
 					selectedCommitHash="wip"
-					selectedIsWip
 					commitDetailsLoading={false}
 					commitDetails={null}
 					branch="main"

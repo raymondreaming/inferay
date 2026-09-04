@@ -1,10 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import {
 	bindGitGraphRepository,
+	dismissGitWorkspaceViewer,
 	emptyGitWorkspacePanelSession,
+	getGitWorkspaceSidebarContent,
+	isGitWorkspaceGraphDrillIn,
+	isHistoricalGitWorkspaceDiff,
 	normalizeGitWorkspacePanelSession,
 	openGitCommitFileDiff,
 	openGitGraph,
+	openGitWorkingTreeFileDiff,
 	reconcileGitGraphSelection,
 	serializeGitWorkspacePanelSession,
 	updateGitGraphSelection,
@@ -33,6 +38,7 @@ describe("Git workspace panel session", () => {
 			1234,
 		);
 		expect(restored.mainViewMode).toBe("graph");
+		expect(restored.diffContext).toBeNull();
 		expect(restored.selectedCommitIds).toEqual(["commit-a", "commit-b"]);
 		expect(restored.fileRequest).toEqual({ path: "src/app.tsx", token: 1234 });
 		expect(restored.detachedFilePanels).toHaveLength(1);
@@ -55,17 +61,67 @@ describe("Git workspace panel session", () => {
 			"commit-c",
 		);
 		expect(diff.mainViewMode).toBe("diff");
+		expect(diff.diffContext).toBe("commit");
+		expect(isGitWorkspaceGraphDrillIn(diff)).toBe(true);
+		expect(isHistoricalGitWorkspaceDiff(diff)).toBe(true);
+		expect(getGitWorkspaceSidebarContent(diff, false)).toBe("history");
 		expect(diff.selectedFileCommitHash).toBe("commit-b");
 		expect(diff.selectedCommitHash).toBe("commit-b");
 
-		const graph = openGitGraph(diff, "/repo");
+		const nextDiff = openGitWorkingTreeFileDiff(diff, "/repo", {
+			path: "src/next.tsx",
+			staged: true,
+		});
+		expect(nextDiff.diffContext).toBe("graphWorkingTree");
+		expect(getGitWorkspaceSidebarContent(nextDiff, false)).toBe("workingTree");
+
+		const graph = dismissGitWorkspaceViewer(nextDiff);
 		expect(graph.mainViewMode).toBe("graph");
+		expect(graph.diffContext).toBeNull();
 		expect(graph.selectedCommitHash).toBe("commit-b");
 		expect(graph.selectedFile?.path).toBe("src/app.tsx");
 		expect(graph.focusedAuxiliaryPanel).toEqual({
 			id: "workspace-diff-viewer",
 			cwd: "/repo",
 		});
+
+		const closed = dismissGitWorkspaceViewer(graph);
+		expect(closed.diffViewerCwd).toBeNull();
+		expect(closed.selectedCommitHash).toBeNull();
+		expect(closed.selectedFile).toBeNull();
+	});
+
+	test("keeps a graph WIP drill-in in working-tree context and returns to graph", () => {
+		const selectedWip = {
+			...openGitGraph(emptyGitWorkspacePanelSession(), "/repo"),
+			selectedCommitHash: "wip",
+			selectedCommitIds: ["wip"],
+		};
+		const diff = openGitWorkingTreeFileDiff(selectedWip, "/repo", {
+			path: "src/app.tsx",
+			staged: false,
+		});
+		expect(diff.diffContext).toBe("graphWorkingTree");
+		expect(isGitWorkspaceGraphDrillIn(diff)).toBe(true);
+		expect(isHistoricalGitWorkspaceDiff(diff)).toBe(false);
+		expect(getGitWorkspaceSidebarContent(diff, false)).toBe("workingTree");
+
+		const graph = dismissGitWorkspaceViewer(diff);
+		expect(graph.mainViewMode).toBe("graph");
+		expect(graph.selectedCommitHash).toBe("wip");
+		expect(graph.diffViewerCwd).toBe("/repo");
+	});
+
+	test("closes a working-tree diff opened outside the graph", () => {
+		const diff = openGitWorkingTreeFileDiff(
+			emptyGitWorkspacePanelSession(),
+			"/repo",
+			{ path: "src/app.tsx", staged: true },
+		);
+		expect(diff.diffContext).toBe("workingTree");
+		expect(isGitWorkspaceGraphDrillIn(diff)).toBe(false);
+		expect(getGitWorkspaceSidebarContent(diff, false)).toBe("workingTree");
+		expect(dismissGitWorkspaceViewer(diff).diffViewerCwd).toBeNull();
 	});
 
 	test("binds an open graph to a clean chat repository without leaking the previous selection", () => {

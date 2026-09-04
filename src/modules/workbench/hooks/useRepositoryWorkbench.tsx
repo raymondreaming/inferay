@@ -98,8 +98,12 @@ import {
 } from "../model/workbench-events.ts";
 import {
 	bindGitGraphRepository,
+	dismissGitWorkspaceViewer,
 	type GitWorkspaceDetachedFilePanel,
 	type GitWorkspacePanelSession,
+	getGitWorkspaceSidebarContent,
+	isGitWorkspaceGraphDrillIn,
+	isHistoricalGitWorkspaceDiff,
 	normalizeGitWorkspacePanelSession,
 	openGitCommitFileDiff,
 	openGitComparisonFileDiff,
@@ -595,12 +599,14 @@ function ChatDiffPanel({
 	selectedCommitHash,
 	selectedCommitIds,
 	onSelectCommit,
+	onOpenGraphSelection,
 	onCheckoutRef,
 	onRunRefOperation,
 	onRunGraphAction,
 	onLoadMoreCommits,
 	branch,
 	onClose,
+	closeLabel,
 	viewMode,
 	onViewModeChange,
 	zenMode,
@@ -623,6 +629,7 @@ function ChatDiffPanel({
 		itemId: string,
 		intent?: GraphSelectionIntent,
 	) => void;
+	readonly onOpenGraphSelection: (itemId: string) => void;
 	readonly onCheckoutRef: (ref: string) => void;
 	readonly onRunRefOperation: (request: {
 		operation:
@@ -643,6 +650,7 @@ function ChatDiffPanel({
 	readonly onLoadMoreCommits: () => void;
 	readonly branch?: string;
 	readonly onClose: () => void;
+	readonly closeLabel: string;
 	readonly viewMode: DiffViewMode;
 	readonly onViewModeChange: (mode: DiffViewMode) => void;
 	readonly zenMode: boolean;
@@ -996,8 +1004,8 @@ function ChatDiffPanel({
 					onClick={(event) => {
 						if (event.detail === 0) onClose();
 					}}
-					title="Close change viewer"
-					aria-label="Close change viewer"
+					title={closeLabel}
+					aria-label={closeLabel}
 					{...stylex.props(styles.viewerClose)}
 				>
 					<IconX size={iconSize.xs} />
@@ -1021,6 +1029,7 @@ function ChatDiffPanel({
 							selectedHash={selectedCommitHash ?? undefined}
 							selectedIds={selectedCommitIds}
 							onSelect={onSelectCommit}
+							onOpenSelection={onOpenGraphSelection}
 							onCheckoutRef={onCheckoutRef}
 							branch={branch}
 							embedded
@@ -1600,6 +1609,9 @@ export function useRepositoryWorkbench({
 	const [graphActionError, setGraphActionError] = useState<string | null>(null);
 	const [graphSelectionAnnouncement, setGraphSelectionAnnouncement] =
 		useState("");
+	const [pendingGraphFileOpen, setPendingGraphFileOpen] = useState<
+		string | null
+	>(null);
 	const [graphLimit, setGraphLimit] = useState(DEFAULT_GIT_GRAPH_HISTORY_LIMIT);
 	const setDiffViewMode = useCallback((mode: DiffViewMode) => {
 		setDiffViewModeState(mode);
@@ -1743,6 +1755,7 @@ export function useRepositoryWorkbench({
 			selectedFileCommitParent: null,
 			selectedFileComparisonFrom: null,
 			selectedFileComparisonTo: null,
+			diffContext: null,
 			selectedCommitHash: null,
 			selectedCommitIds: [],
 			selectedCommitParent: null,
@@ -1753,21 +1766,57 @@ export function useRepositoryWorkbench({
 			},
 		}));
 	}, [selectedGraphWorktree, updatePanelSession]);
+	const historicalCommitCwd =
+		mainViewMode === "diff" && selectedFileCommitHash
+			? (diffViewerCwd ?? undefined)
+			: graphCwd;
+	const historicalCommitHash =
+		mainViewMode === "diff"
+			? (selectedFileCommitHash ?? undefined)
+			: selectedCommitIds.length <= 1 &&
+					selectedGraphItem &&
+					selectedGraphItem.itemKind !== "worktreeWip"
+				? selectedGraphItem.hash
+				: undefined;
+	const historicalCommitParent =
+		mainViewMode === "diff"
+			? (selectedFileCommitParent ?? undefined)
+			: (selectedCommitParent ?? undefined);
+	const historicalGraphRevision =
+		mainViewMode === "diff" && diffViewerCwd
+			? graphRevisionsRef.current.get(diffViewerCwd)
+			: graph.revision;
 	const commitDetailsState = useCommitDetails(
-		graphCwd,
-		selectedCommitIds.length <= 1 &&
-			selectedGraphItem &&
-			selectedGraphItem.itemKind !== "worktreeWip"
-			? selectedGraphItem.hash
-			: undefined,
-		selectedCommitParent ?? undefined,
-		graph.revision,
+		historicalCommitCwd,
+		historicalCommitHash,
+		historicalCommitParent,
+		historicalGraphRevision,
 	);
+	const historicalComparisonCwd =
+		mainViewMode === "diff" &&
+		selectedFileComparisonFrom &&
+		selectedFileComparisonTo
+			? (diffViewerCwd ?? undefined)
+			: comparisonCwd;
+	const historicalComparisonFrom =
+		mainViewMode === "diff"
+			? (selectedFileComparisonFrom ?? undefined)
+			: comparisonFrom;
+	const historicalComparisonTo =
+		mainViewMode === "diff"
+			? (selectedFileComparisonTo ?? undefined)
+			: comparisonTo;
 	const comparisonDetailsState = useComparisonDetails(
-		comparisonIsValid ? comparisonCwd : undefined,
-		comparisonIsValid ? comparisonFrom : undefined,
-		comparisonIsValid ? comparisonTo : undefined,
-		graph.revision,
+		mainViewMode === "diff" || comparisonIsValid
+			? historicalComparisonCwd
+			: undefined,
+		mainViewMode === "diff" || comparisonIsValid
+			? historicalComparisonFrom
+			: undefined,
+		mainViewMode === "diff" || comparisonIsValid
+			? historicalComparisonTo
+			: undefined,
+		historicalGraphRevision,
 	);
 	const selectGraphCommit = useCallback(
 		(itemId: string | null, intent?: GraphSelectionIntent) => {
@@ -1931,6 +1980,18 @@ export function useRepositoryWorkbench({
 					],
 		[fileViewMode, files, modified, staged, untracked],
 	);
+	const commitKeyboardFiles = useMemo(() => {
+		const commitFiles = commitDetailsState.details?.files ?? [];
+		return fileViewMode === "tree"
+			? getTreeFileOrder(commitFiles)
+			: getAlphabeticalFileOrder(commitFiles);
+	}, [commitDetailsState.details, fileViewMode]);
+	const comparisonKeyboardFiles = useMemo(() => {
+		const comparisonFiles = comparisonDetailsState.details?.files ?? [];
+		return fileViewMode === "tree"
+			? getTreeFileOrder(comparisonFiles)
+			: getAlphabeticalFileOrder(comparisonFiles);
+	}, [comparisonDetailsState.details, fileViewMode]);
 	const {
 		commit,
 		commitMessage,
@@ -2059,24 +2120,9 @@ export function useRepositoryWorkbench({
 		}));
 	}, [updatePanelSession]);
 	const closeDiffViewer = useCallback(() => {
-		updatePanelSession((current) => ({
-			...current,
-			selectedFile: null,
-			selectedFileCommitHash: null,
-			selectedFileCommitParent: null,
-			selectedFileComparisonFrom: null,
-			selectedFileComparisonTo: null,
-			selectedCommitHash: null,
-			selectedCommitIds: [],
-			selectedCommitParent: null,
-			mainViewMode: "diff",
-			diffViewerCwd: null,
-			focusedAuxiliaryPanel:
-				current.focusedAuxiliaryPanel?.id === "workspace-diff-viewer"
-					? null
-					: current.focusedAuxiliaryPanel,
-		}));
+		updatePanelSession(dismissGitWorkspaceViewer);
 	}, [updatePanelSession]);
+	const returnsToGraphOnClose = isGitWorkspaceGraphDrillIn(panelSession);
 	const selectChangedFile = useCallback(
 		(file: GitFileEntry) => {
 			if (!selectedWorkingTreeCwd) return;
@@ -2091,39 +2137,109 @@ export function useRepositoryWorkbench({
 	);
 	const selectCommitFile = useCallback(
 		(file: CommitFile) => {
-			if (
-				!activeCwd ||
-				!selectedGraphItem ||
-				selectedGraphItem.itemKind === "worktreeWip"
-			)
-				return;
+			const commitCwd = selectedFileCommitHash ? diffViewerCwd : activeCwd;
+			const commitHash =
+				selectedFileCommitHash ??
+				(selectedGraphItem?.itemKind !== "worktreeWip"
+					? selectedGraphItem?.hash
+					: undefined);
+			const commitParent = selectedFileCommitHash
+				? selectedFileCommitParent
+				: selectedCommitParent;
+			if (!commitCwd || !commitHash) return;
 			updatePanelSession((current) =>
 				openGitCommitFileDiff(
 					current,
-					activeCwd,
+					commitCwd,
 					file.path,
-					selectedGraphItem.hash,
-					selectedCommitParent,
+					commitHash,
+					commitParent,
 				),
 			);
 		},
-		[activeCwd, selectedGraphItem, selectedCommitParent, updatePanelSession],
+		[
+			activeCwd,
+			diffViewerCwd,
+			selectedCommitParent,
+			selectedFileCommitHash,
+			selectedFileCommitParent,
+			selectedGraphItem,
+			updatePanelSession,
+		],
 	);
 	const selectComparisonFile = useCallback(
 		(file: CommitFile) => {
-			if (!comparisonCwd || !comparisonFrom || !comparisonTo) return;
+			const fileComparisonCwd = selectedFileComparisonFrom
+				? diffViewerCwd
+				: comparisonCwd;
+			const fileComparisonFrom = selectedFileComparisonFrom ?? comparisonFrom;
+			const fileComparisonTo = selectedFileComparisonTo ?? comparisonTo;
+			if (!fileComparisonCwd || !fileComparisonFrom || !fileComparisonTo)
+				return;
 			updatePanelSession((current) =>
 				openGitComparisonFileDiff(
 					current,
-					comparisonCwd,
+					fileComparisonCwd,
 					file.path,
-					comparisonFrom,
-					comparisonTo,
+					fileComparisonFrom,
+					fileComparisonTo,
 				),
 			);
 		},
-		[comparisonCwd, comparisonFrom, comparisonTo, updatePanelSession],
+		[
+			comparisonCwd,
+			comparisonFrom,
+			comparisonTo,
+			diffViewerCwd,
+			selectedFileComparisonFrom,
+			selectedFileComparisonTo,
+			updatePanelSession,
+		],
 	);
+	const openGraphSelection = useCallback((itemId: string) => {
+		setPendingGraphFileOpen(itemId);
+	}, []);
+	useEffect(() => {
+		if (!pendingGraphFileOpen) return;
+		if (
+			mainViewMode !== "graph" ||
+			selectedCommitHash !== pendingGraphFileOpen
+		) {
+			setPendingGraphFileOpen(null);
+			return;
+		}
+		if (selectedGraphItem?.itemKind === "worktreeWip") {
+			setPendingGraphFileOpen(null);
+			const firstFile = keyboardFiles[0];
+			if (firstFile) selectChangedFile(firstFile);
+			return;
+		}
+		if (selectedCommitIds.length > 1) {
+			if (comparisonDetailsState.loading) return;
+			setPendingGraphFileOpen(null);
+			const firstFile = comparisonKeyboardFiles[0];
+			if (firstFile) selectComparisonFile(firstFile);
+			return;
+		}
+		if (commitDetailsState.loading) return;
+		setPendingGraphFileOpen(null);
+		const firstFile = commitKeyboardFiles[0];
+		if (firstFile) selectCommitFile(firstFile);
+	}, [
+		commitDetailsState.loading,
+		commitKeyboardFiles,
+		comparisonKeyboardFiles,
+		comparisonDetailsState.loading,
+		keyboardFiles,
+		mainViewMode,
+		pendingGraphFileOpen,
+		selectChangedFile,
+		selectCommitFile,
+		selectComparisonFile,
+		selectedCommitHash,
+		selectedCommitIds.length,
+		selectedGraphItem?.itemKind,
+	]);
 	const changeMainViewMode = useCallback(
 		(mode: "diff" | "graph") => {
 			if (mode === "graph" && activeCwd) {
@@ -2191,11 +2307,47 @@ export function useRepositoryWorkbench({
 		},
 		[keyboardFiles, selectChangedFile, selectedFile],
 	);
+	const cycleHistoricalFile = useCallback(
+		(direction: -1 | 1) => {
+			const comparisonDiff =
+				selectedFileComparisonFrom !== null &&
+				selectedFileComparisonTo !== null;
+			const historicalFiles = comparisonDiff
+				? comparisonKeyboardFiles
+				: commitKeyboardFiles;
+			if (!historicalFiles.length) return;
+			const currentIndex = selectedFile
+				? historicalFiles.findIndex((file) => file.path === selectedFile.path)
+				: -1;
+			const nextIndex =
+				currentIndex < 0
+					? direction > 0
+						? 0
+						: historicalFiles.length - 1
+					: Math.max(
+							0,
+							Math.min(historicalFiles.length - 1, currentIndex + direction),
+						);
+			if (nextIndex === currentIndex) return;
+			const nextFile = historicalFiles[nextIndex]!;
+			if (comparisonDiff) selectComparisonFile(nextFile);
+			else selectCommitFile(nextFile);
+		},
+		[
+			commitKeyboardFiles,
+			comparisonKeyboardFiles,
+			selectCommitFile,
+			selectComparisonFile,
+			selectedFile,
+			selectedFileComparisonFrom,
+			selectedFileComparisonTo,
+		],
+	);
 	const handleDiffKeyboardNavigation = useCallback(
 		(event: KeyboardEvent) => {
 			if (
 				focusedAuxiliaryPanel?.id !== "workspace-diff-viewer" ||
-				selectedFileCommitHash !== null ||
+				event.defaultPrevented ||
 				event.metaKey ||
 				event.ctrlKey ||
 				event.altKey
@@ -2207,6 +2359,19 @@ export function useRepositoryWorkbench({
 				target.tagName === "TEXTAREA" ||
 				target.isContentEditable;
 			if (isEditable) return;
+			const graphDrillIn = isGitWorkspaceGraphDrillIn(panelSession);
+			if (graphDrillIn && event.key === "ArrowLeft") {
+				event.preventDefault();
+				closeDiffViewer();
+				return;
+			}
+			if (isHistoricalGitWorkspaceDiff(panelSession)) {
+				if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+					event.preventDefault();
+					cycleHistoricalFile(event.key === "ArrowUp" ? -1 : 1);
+				}
+				return;
+			}
 
 			if (event.key === "ArrowUp" || event.key === "ArrowDown") {
 				event.preventDefault();
@@ -2227,12 +2392,14 @@ export function useRepositoryWorkbench({
 			}
 		},
 		[
+			closeDiffViewer,
 			cycleChangedFile,
+			cycleHistoricalFile,
 			focusedAuxiliaryPanel?.id,
 			keyboardFiles,
+			panelSession,
 			selectChangedFile,
 			selectedFile,
-			selectedFileCommitHash,
 			stageFile,
 			unstageFile,
 		],
@@ -2457,12 +2624,18 @@ export function useRepositoryWorkbench({
 					selectedCommitHash={selectedCommitHash}
 					selectedCommitIds={selectedCommitIds}
 					onSelectCommit={selectGraphCommit}
+					onOpenGraphSelection={openGraphSelection}
 					onCheckoutRef={checkoutGraphRef}
 					onRunRefOperation={runGraphRefOperation}
 					onRunGraphAction={runGraphActionRequest}
 					onLoadMoreCommits={() => setGraphLimit(nextGitGraphHistoryLimit)}
 					branch={project?.branch}
 					onClose={closeDiffViewer}
+					closeLabel={
+						returnsToGraphOnClose
+							? "Back to commit graph"
+							: "Close change viewer"
+					}
 					viewMode={diffViewMode}
 					onViewModeChange={setDiffViewMode}
 					zenMode={zenMode}
@@ -2471,6 +2644,10 @@ export function useRepositoryWorkbench({
 			</aside>
 		) : null;
 
+	const sidebarContent = getGitWorkspaceSidebarContent(
+		panelSession,
+		selectedGraphItem?.itemKind === "worktreeWip",
+	);
 	const sidebar = (
 		<aside
 			{...stylex.props(styles.sidebarShell)}
@@ -2488,7 +2665,8 @@ export function useRepositoryWorkbench({
 						cwd={selectedWorkingTreeCwd}
 						fileViewMode={fileViewMode}
 						onFileViewModeChange={setFileViewMode}
-						mainViewMode={mainViewMode}
+						content={sidebarContent}
+						graphActive={mainViewMode === "graph"}
 						modified={sidebarModified}
 						untracked={sidebarUntracked}
 						staged={sidebarStaged}
@@ -2506,7 +2684,6 @@ export function useRepositoryWorkbench({
 						projectLoading={!!activeCwd && !gitLoaded}
 						selectedCommitHash={selectedCommitHash}
 						selectedCommitCount={selectedCommitIds.length}
-						selectedIsWip={selectedGraphItem?.itemKind === "worktreeWip"}
 						selectedWorktreePath={selectedGraphWorktree?.path}
 						onOpenWorktree={
 							selectedGraphWorktree && !selectedGraphWorktree.isCurrent
@@ -2679,12 +2856,6 @@ const styles = stylex.create({
 		color: color.textMain,
 		fontWeight: font.weightBold,
 	},
-	viewerRefresh: {
-		marginLeft: controlSize._2,
-		color: color.textMuted,
-		fontSize: font.size_1,
-		fontWeight: font.weightRegular,
-	},
 	viewerStats: {
 		display: "flex",
 		flexShrink: 0,
@@ -2758,22 +2929,6 @@ const styles = stylex.create({
 	},
 	viewerAdded: { color: color.diffAdded },
 	viewerRemoved: { color: color.diffRemoved },
-	viewerAction: {
-		display: "flex",
-		height: controlSize._6,
-		alignItems: "center",
-		gap: controlSize._1,
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		backgroundColor: {
-			default: color.surfaceControl,
-			":hover": color.surfaceControlHover,
-		},
-		color: color.textSoft,
-		fontSize: font.size_1,
-		paddingInline: controlSize._2,
-	},
 	viewerClose: {
 		display: "flex",
 		width: controlSize._5,

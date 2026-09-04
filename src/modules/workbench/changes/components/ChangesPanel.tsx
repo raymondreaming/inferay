@@ -1,5 +1,12 @@
 import * as stylex from "@octanejs/stylex";
-import { memo, useCallback, useEffect, useMemo, useState } from "octane";
+import {
+	memo,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "octane";
 import { postJson } from "../../../../adapters/backend/http.ts";
 import { iconSize, runtimeColor } from "../../../../design-system.ts";
 import type {
@@ -52,7 +59,8 @@ interface ChangesPanelProps {
 	cwd?: string;
 	fileViewMode: "path" | "tree";
 	onFileViewModeChange: (mode: "path" | "tree") => void;
-	mainViewMode: "diff" | "graph";
+	content: "workingTree" | "history";
+	graphActive: boolean;
 	modified: GitFileEntry[];
 	untracked: GitFileEntry[];
 	staged: GitFileEntry[];
@@ -66,7 +74,6 @@ interface ChangesPanelProps {
 	projectLoading?: boolean;
 	selectedCommitHash: string | null;
 	selectedCommitCount?: number;
-	selectedIsWip?: boolean;
 	selectedWorktreePath?: string;
 	onOpenWorktree?: () => void;
 	commitDetailsLoading: boolean;
@@ -97,7 +104,8 @@ export const ChangesPanel = memo(function ChangesPanel(
 	const {
 		fileViewMode,
 		onFileViewModeChange,
-		mainViewMode,
+		content,
+		graphActive,
 		modified,
 		untracked,
 		staged,
@@ -111,7 +119,6 @@ export const ChangesPanel = memo(function ChangesPanel(
 		projectLoading = false,
 		selectedCommitHash,
 		selectedCommitCount = selectedCommitHash ? 1 : 0,
-		selectedIsWip = selectedCommitHash === "wip",
 		selectedWorktreePath,
 		onOpenWorktree,
 		commitDetailsLoading,
@@ -147,10 +154,17 @@ export const ChangesPanel = memo(function ChangesPanel(
 				: workingFiles,
 		[fileViewMode, stagedFiles, unstagedFiles, workingFiles],
 	);
-	const showingWorkingTree = mainViewMode !== "graph" || selectedIsWip;
-	const displayedFiles = showingWorkingTree
-		? workingFiles
-		: (comparisonDetails?.files ?? commitDetails?.files ?? []);
+	const showingWorkingTree = content === "workingTree";
+	const historicalFiles =
+		comparisonDetails?.files ?? commitDetails?.files ?? [];
+	const navigableHistoricalFiles = useMemo(
+		() =>
+			fileViewMode === "tree"
+				? getTreeFileOrder(historicalFiles)
+				: getAlphabeticalFileOrder(historicalFiles),
+		[fileViewMode, historicalFiles],
+	);
+	const displayedFiles = showingWorkingTree ? workingFiles : historicalFiles;
 	const additions = displayedFiles.reduce(
 		(total, file) => total + (file.additions ?? 0),
 		0,
@@ -160,6 +174,30 @@ export const ChangesPanel = memo(function ChangesPanel(
 		0,
 	);
 	const selectAdjacentFile = (direction: -1 | 1) => {
+		if (!showingWorkingTree) {
+			if (navigableHistoricalFiles.length === 0) return;
+			const currentIndex = selectedFile
+				? navigableHistoricalFiles.findIndex(
+						(file) => file.path === selectedFile.path,
+					)
+				: -1;
+			const nextIndex =
+				currentIndex < 0
+					? direction > 0
+						? 0
+						: navigableHistoricalFiles.length - 1
+					: Math.max(
+							0,
+							Math.min(
+								navigableHistoricalFiles.length - 1,
+								currentIndex + direction,
+							),
+						);
+			const nextFile = navigableHistoricalFiles[nextIndex]!;
+			if (selectedCommitCount > 1) onSelectComparisonFile?.(nextFile);
+			else onSelectCommitFile?.(nextFile);
+			return;
+		}
 		if (navigableFiles.length === 0) return;
 		const currentIndex = selectedFile
 			? navigableFiles.findIndex(
@@ -210,7 +248,11 @@ export const ChangesPanel = memo(function ChangesPanel(
 				if (event.key === "ArrowUp" || event.key === "ArrowDown") {
 					event.preventDefault();
 					selectAdjacentFile(event.key === "ArrowUp" ? -1 : 1);
-				} else if (event.key === "Enter" && selectedFile) {
+				} else if (
+					event.key === "Enter" &&
+					showingWorkingTree &&
+					selectedFile
+				) {
 					event.preventDefault();
 					toggleSelectedFile();
 				}
@@ -219,7 +261,7 @@ export const ChangesPanel = memo(function ChangesPanel(
 			<ChangesPanelHeader
 				onCollapse={onCollapse}
 				onOpenGraph={onOpenGraph}
-				graphActive={mainViewMode === "graph"}
+				graphActive={graphActive}
 				additions={additions}
 				deletions={deletions}
 				fileViewMode={fileViewMode}
@@ -284,7 +326,7 @@ export const ChangesPanel = memo(function ChangesPanel(
 				/>
 			)}
 
-			{mainViewMode === "graph" && !selectedIsWip && (
+			{!showingWorkingTree && (
 				<div {...stylex.props(styles.scrollArea)}>
 					{selectedCommitCount > 1 ? (
 						comparisonDetailsLoading ? (
@@ -295,6 +337,7 @@ export const ChangesPanel = memo(function ChangesPanel(
 							<ComparisonDetailsPanel
 								details={comparisonDetails}
 								selectionCount={selectedCommitCount}
+								selectedFile={selectedFile}
 								onSelectFile={onSelectComparisonFile}
 								viewMode={fileViewMode}
 							/>
@@ -313,6 +356,7 @@ export const ChangesPanel = memo(function ChangesPanel(
 						) : commitDetails ? (
 							<CommitDetailsPanel
 								details={commitDetails}
+								selectedFile={selectedFile}
 								onSelectFile={onSelectCommitFile}
 								viewMode={fileViewMode}
 							/>
@@ -545,23 +589,6 @@ const styles = stylex.create({
 		paddingInline: controlSize._3,
 		paddingBlock: controlSize._0,
 	},
-	headerLabel: {
-		color: color.textSoft,
-		fontSize: font.size_2,
-		fontWeight: font.weight_6,
-		letterSpacing: "0.01em",
-	},
-	headerMeta: {
-		display: "flex",
-		width: "100%",
-		minWidth: controlSize._0,
-		alignItems: "center",
-		gap: controlSize._1_5,
-		paddingLeft: controlSize._1,
-		color: color.textMuted,
-		fontFamily: font.familyDiff,
-		fontSize: font.size_1,
-	},
 	changeTotals: {
 		display: "flex",
 		flexShrink: 0,
@@ -625,41 +652,6 @@ const styles = stylex.create({
 		borderColor: color.borderStrong,
 		color: color.textMain,
 	},
-	wipHeader: {
-		position: "sticky",
-		top: controlSize._0,
-		zIndex: layer.control,
-		display: "flex",
-		alignItems: "center",
-		gap: controlSize._2,
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
-		borderBottomColor: color.border,
-		backgroundColor: color.transparent,
-		paddingBlock: controlSize._2,
-		paddingInline: controlSize._3,
-	},
-	wipDot: {
-		width: font.size_3,
-		height: font.size_3,
-		borderRadius: radius.pill,
-		borderWidth: 2,
-		borderStyle: "dashed",
-		borderColor: "var(--color-inferay-accent)",
-	},
-	wipTitle: {
-		color: color.textMain,
-		fontSize: font.size_2_75,
-		fontWeight: font.weight_5,
-	},
-	wipCount: {
-		marginLeft: "auto",
-		color: color.textMuted,
-		fontSize: font.size_1,
-	},
-	listPad: {
-		paddingBlock: controlSize._1,
-	},
 	commitSection: {
 		display: "flex",
 		flexShrink: 0,
@@ -670,30 +662,6 @@ const styles = stylex.create({
 		borderTopColor: color.border,
 		boxShadow: "0 -10px 24px rgba(0, 0, 0, 0.16)",
 	},
-	commitHeader: {
-		display: "flex",
-		height: controlSize._9,
-		alignItems: "center",
-		justifyContent: "space-between",
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
-		borderBottomColor: color.border,
-		paddingInline: controlSize._3,
-		gap: controlSize._2,
-	},
-	inlineGroup: {
-		display: "flex",
-		alignItems: "center",
-		gap: "0.375rem",
-	},
-	inlineGroupWide: {
-		display: "flex",
-		alignItems: "center",
-		gap: controlSize._2,
-	},
-	mutedIcon: {
-		color: color.textMuted,
-	},
 	sectionTitle: {
 		color: color.textMain,
 		fontSize: font.size_2_75,
@@ -702,55 +670,6 @@ const styles = stylex.create({
 	fileGroupTitle: {
 		color: color.textSoft,
 		fontSize: font.size_2,
-	},
-	generateButton: {
-		backgroundColor: {
-			default: color.controlActive,
-			":hover": color.surfaceControlHover,
-		},
-		backgroundImage: "none",
-		borderColor: color.border,
-		boxShadow: "none",
-		height: controlSize._5,
-		justifyContent: "center",
-		paddingInline: controlSize._3,
-		fontSize: font.size_2,
-		fontWeight: font.weight_6,
-	},
-	checkRow: {
-		display: "flex",
-		cursor: "pointer",
-		alignItems: "center",
-		gap: controlSize._2,
-		paddingBlock: controlSize._2,
-		paddingInline: controlSize._3,
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.surfaceSubtle,
-		},
-	},
-	checkboxInput: {
-		position: "absolute",
-		opacity: 0,
-		pointerEvents: "none",
-	},
-	checkbox: {
-		display: "inline-flex",
-		width: font.size_3,
-		height: font.size_3,
-		alignItems: "center",
-		justifyContent: "center",
-		borderColor: color.borderStrong,
-		borderRadius: radius.sm,
-		borderStyle: "solid",
-		borderWidth: 1,
-		backgroundColor: color.surfaceInset,
-		color: color.background,
-		flexShrink: 0,
-	},
-	checkboxChecked: {
-		borderColor: color.textMuted,
-		backgroundColor: color.textSoft,
 	},
 	commitForm: {
 		display: "flex",
@@ -824,79 +743,6 @@ const styles = stylex.create({
 		":disabled": {
 			opacity: 0.45,
 		},
-	},
-	summaryCount: {
-		flexShrink: 0,
-		paddingRight: controlSize._3,
-		color: color.textMuted,
-		fontSize: font.size_1,
-		fontVariantNumeric: "tabular-nums",
-	},
-	warningText: {
-		color: color.warning,
-	},
-	descriptionInput: {
-		width: "100%",
-		resize: "none",
-		backgroundColor: color.transparent,
-		color: color.textMain,
-		fontSize: font.size_2,
-		outline: "none",
-		paddingBlock: controlSize._2,
-		paddingInline: controlSize._3,
-		"::placeholder": {
-			color: color.textFaint,
-		},
-	},
-	fileTypeIcon: {
-		display: "block",
-		width: 17,
-		height: 17,
-		flexShrink: 0,
-	},
-	descriptionWrap: {
-		position: "relative",
-	},
-	descriptionInputGenerating: {
-		paddingRight: controlSize._8,
-	},
-	descriptionThinking: {
-		color: color.accent,
-		position: "absolute",
-		right: controlSize._3,
-		top: controlSize._2_5,
-		transform: "scale(0.82)",
-	},
-	commitButton: {
-		backgroundColor: {
-			default: color.backgroundRaised,
-			":hover": color.controlActive,
-		},
-		backgroundImage: "none",
-		borderColor: {
-			default: color.border,
-			":hover": color.borderStrong,
-		},
-		borderStyle: "solid",
-		borderWidth: 1,
-		borderRadius: radius.lg,
-		boxShadow: "none",
-		color: color.textMain,
-		gap: controlSize._2,
-		fontSize: font.size_3,
-		fontWeight: font.weight_6,
-		justifyContent: "center",
-		height: controlSize._8,
-		minHeight: controlSize._8,
-		width: "100%",
-	},
-	compactCheckRow: {
-		display: "flex",
-		width: "fit-content",
-		cursor: "pointer",
-		alignItems: "center",
-		gap: controlSize._1_5,
-		paddingInline: controlSize._1,
 	},
 	commitButtonSurface: {
 		display: "flex",
@@ -1028,42 +874,6 @@ const styles = stylex.create({
 	authorText: {
 		color: color.textSoft,
 		fontSize: font.size_2,
-	},
-	commitFileRow: {
-		display: "flex",
-		alignItems: "center",
-		gap: "0.375rem",
-		paddingBlock: "0.375rem",
-		paddingInline: controlSize._3,
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.surfaceWhite05,
-		},
-	},
-	commitFileButton: {
-		width: "100%",
-		borderWidth: 0,
-		color: "inherit",
-		font: "inherit",
-		textAlign: "left",
-		cursor: "pointer",
-	},
-	fileName: {
-		minWidth: controlSize._0,
-		flex: 1,
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "normal",
-		color: color.textSoft,
-		fontSize: font.size_2,
-		fontWeight: font.weight_5,
-	},
-	originalPath: {
-		display: "block",
-		marginTop: controlSize._1,
-		color: color.textMuted,
-		fontSize: font.size_1,
-		fontWeight: font.weightRegular,
 	},
 	fileStats: {
 		flexShrink: 0,
@@ -1606,10 +1416,12 @@ function CommitSection({
 
 function CommitDetailsPanel({
 	details,
+	selectedFile,
 	onSelectFile,
 	viewMode,
 }: {
 	details: CommitDetails;
+	selectedFile: SelectedFile | null;
 	onSelectFile?: (file: CommitFile) => void;
 	viewMode: "path" | "tree";
 }) {
@@ -1618,6 +1430,7 @@ function CommitDetailsPanel({
 			<div {...stylex.props(styles.scrollArea)}>
 				<HistoricalFileList
 					files={details.files}
+					selectedFile={selectedFile}
 					viewMode={viewMode}
 					onSelectFile={onSelectFile}
 				/>
@@ -1721,11 +1534,13 @@ function DetailIdentity({
 function ComparisonDetailsPanel({
 	details,
 	selectionCount,
+	selectedFile,
 	onSelectFile,
 	viewMode,
 }: {
 	details: ComparisonDetails;
 	selectionCount: number;
+	selectedFile: SelectedFile | null;
 	onSelectFile?: (file: CommitFile) => void;
 	viewMode: "path" | "tree";
 }) {
@@ -1735,6 +1550,7 @@ function ComparisonDetailsPanel({
 				{details.files.length ? (
 					<HistoricalFileList
 						files={details.files}
+						selectedFile={selectedFile}
 						viewMode={viewMode}
 						onSelectFile={onSelectFile}
 					/>
@@ -1824,22 +1640,31 @@ function FileViewToggle({
 
 function HistoricalFileList({
 	files,
+	selectedFile,
 	viewMode,
 	onSelectFile,
 }: {
 	files: CommitFile[];
+	selectedFile: SelectedFile | null;
 	viewMode: "path" | "tree";
 	onSelectFile?: (file: CommitFile) => void;
 }) {
+	const orderedFiles = useMemo(
+		() =>
+			viewMode === "tree"
+				? getTreeFileOrder(files)
+				: getAlphabeticalFileOrder(files),
+		[files, viewMode],
+	);
 	const entries = useMemo<GitFileEntry[]>(
-		() => files.map((file) => ({ ...file, staged: false })),
-		[files],
+		() => orderedFiles.map((file) => ({ ...file, staged: false })),
+		[orderedFiles],
 	);
 	return (
 		<FileGroup
 			title="Changed"
 			files={entries}
-			selected={null}
+			selected={selectedFile}
 			onSelect={(entry) => {
 				const file = files.find(
 					(candidate) =>
@@ -1973,6 +1798,7 @@ function TreeNodeRow({
 	return (
 		<>
 			<div
+				data-git-file-active={active ? "true" : undefined}
 				{...stylex.props(styles.treeRow, active && styles.fileRowActive)}
 				style={{ paddingLeft: `${4 + depth * 9}px`, paddingRight: 6 }}
 				onMouseEnter={() => {
@@ -2098,6 +1924,7 @@ function FileGroup({
 		null,
 	);
 	const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
+	const groupRef = useRef<HTMLDivElement | null>(null);
 	const expandedDirs = useMemo(() => {
 		if (viewMode !== "tree") return new Set<string>();
 		const next = getExpandedFileDirectories(files);
@@ -2118,6 +1945,12 @@ function FileGroup({
 	}, []);
 
 	const tree = useMemo(() => buildFileTree(files), [files]);
+	useEffect(() => {
+		if (!selected) return;
+		groupRef.current
+			?.querySelector<HTMLElement>('[data-git-file-active="true"]')
+			?.scrollIntoView?.({ block: "nearest" });
+	}, [selected, viewMode]);
 	const isEmpty = files.length === 0;
 	const toggleGroup = () => {
 		if (isCollapsible && !isEmpty) setIsCollapsed(!isCollapsed);
@@ -2125,6 +1958,7 @@ function FileGroup({
 
 	return (
 		<div
+			ref={groupRef}
 			{...stylex.props(styles.fileGroup, splitPane && styles.splitFileGroup)}
 		>
 			{showHeader ? (
@@ -2196,6 +2030,7 @@ function FileGroup({
 							return (
 								<div
 									key={`${f.staged ? "s" : "u"}-${f.path}`}
+									data-git-file-active={active ? "true" : undefined}
 									{...stylex.props(
 										styles.pathRow,
 										active && styles.fileRowActive,

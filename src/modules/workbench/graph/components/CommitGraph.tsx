@@ -75,6 +75,7 @@ interface CommitGraphProps {
 	repositoryKey?: string;
 	onGraphAction?: (request: GitGraphActionRequest) => void;
 	onCompareWithWip?: (itemId: string) => void;
+	onOpenSelection?: (itemId: string) => void;
 }
 
 export interface GraphSelectionIntent {
@@ -1177,6 +1178,7 @@ export const CommitGraph = memo(function CommitGraph({
 	repositoryKey,
 	onGraphAction,
 	onCompareWithWip,
+	onOpenSelection,
 }: CommitGraphProps) {
 	const [columns, setColumns] = useState<ColumnVisibility>(
 		() => loadPreferences(repositoryKey).columns,
@@ -1530,6 +1532,10 @@ export const CommitGraph = memo(function CommitGraph({
 				}
 				return;
 			}
+			if (event.key === "ArrowRight" && currentIndex >= 0 && onOpenSelection) {
+				onOpenSelection(selectableItems[currentIndex]!);
+				return;
+			}
 			if (
 				(event.key === "ArrowLeft" || event.key === "ArrowRight") &&
 				currentIndex >= 0
@@ -1573,7 +1579,14 @@ export const CommitGraph = memo(function CommitGraph({
 				behavior: "smooth",
 			});
 		},
-		[commits, containingBranches, onSelect, selectableItems, selectedHash],
+		[
+			commits,
+			containingBranches,
+			onOpenSelection,
+			onSelect,
+			selectableItems,
+			selectedHash,
+		],
 	);
 	const startColumnResize = useCallback(
 		(column: keyof ColumnWidths, event: PointerEvent) => {
@@ -1700,7 +1713,7 @@ export const CommitGraph = memo(function CommitGraph({
 			className={`${rootProps.className ?? ""} ${className}`}
 			role="listbox"
 			aria-label="Repository commit history"
-			aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+			aria-keyshortcuts="ArrowUp ArrowDown ArrowRight Alt+ArrowUp Alt+ArrowDown"
 			onScroll={(event) => {
 				rememberScroll(
 					event.currentTarget.scrollTop,
@@ -2379,9 +2392,6 @@ const styles = stylex.create({
 		borderLeftStyle: "solid",
 		borderLeftColor: color.border,
 	},
-	headerCellRight: {
-		justifyContent: "flex-end",
-	},
 	headerCellBorder: {
 		borderLeftWidth: controlSize._0,
 	},
@@ -2437,11 +2447,6 @@ const styles = stylex.create({
 		paddingBlock: controlSize._2,
 		paddingInline: controlSize._2,
 		textAlign: "left",
-	},
-	descriptionHeader: {
-		minWidth: controlSize._0,
-		flex: 1,
-		paddingInline: controlSize._3,
 	},
 	columnsMenuRoot: {
 		position: "relative",
@@ -2672,14 +2677,6 @@ const styles = stylex.create({
 		fontSize: font.size_2,
 		paddingInline: controlSize._3,
 	},
-	wipAvatar: {
-		width: controlSize._4,
-		height: controlSize._4,
-		borderWidth: 1,
-		borderStyle: "dashed",
-		borderColor: palette.orange70,
-		borderRadius: radius.pill,
-	},
 	metaCell: {
 		display: "flex",
 		height: "100%",
@@ -2750,17 +2747,6 @@ const styles = stylex.create({
 		height: "100%",
 		borderRadius: radius.pill,
 		objectFit: "cover",
-	},
-	authorAvatar: {
-		width: controlSize._4,
-		height: controlSize._4,
-		flexShrink: 0,
-		borderRadius: radius.pill,
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "center",
-		fontSize: "7px",
-		fontWeight: font.weight_6,
 	},
 	authorName: {
 		overflow: "hidden",

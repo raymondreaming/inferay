@@ -3,6 +3,12 @@ export interface GitWorkspaceSelectedFile {
 	readonly staged: boolean;
 }
 
+export type GitWorkspaceDiffContext =
+	| "workingTree"
+	| "graphWorkingTree"
+	| "commit"
+	| "comparison";
+
 export interface GitWorkspaceDetachedFilePanel<InitialFile = unknown> {
 	readonly id: string;
 	readonly cwd: string;
@@ -28,6 +34,7 @@ export interface GitWorkspacePanelSession<InitialFile = unknown> {
 	readonly selectedFileCommitParent: string | null;
 	readonly selectedFileComparisonFrom: string | null;
 	readonly selectedFileComparisonTo: string | null;
+	readonly diffContext: GitWorkspaceDiffContext | null;
 	readonly selectedCommitHash: string | null;
 	readonly selectedCommitIds: readonly string[];
 	readonly selectedCommitParent: string | null;
@@ -59,6 +66,7 @@ export function emptyGitWorkspacePanelSession<
 		selectedFileCommitParent: null,
 		selectedFileComparisonFrom: null,
 		selectedFileComparisonTo: null,
+		diffContext: null,
 		selectedCommitHash: null,
 		selectedCommitIds: [],
 		selectedCommitParent: null,
@@ -68,6 +76,15 @@ export function emptyGitWorkspacePanelSession<
 
 function nullableString(value: unknown): string | null {
 	return typeof value === "string" ? value : null;
+}
+
+function normalizedDiffContext(value: unknown): GitWorkspaceDiffContext | null {
+	return value === "workingTree" ||
+		value === "graphWorkingTree" ||
+		value === "commit" ||
+		value === "comparison"
+		? value
+		: null;
 }
 
 export function normalizeGitWorkspacePanelSession<InitialFile = unknown>(
@@ -115,6 +132,7 @@ export function normalizeGitWorkspacePanelSession<InitialFile = unknown>(
 			stored.selectedFileComparisonFrom,
 		),
 		selectedFileComparisonTo: nullableString(stored.selectedFileComparisonTo),
+		diffContext: normalizedDiffContext(stored.diffContext),
 		selectedCommitHash,
 		selectedCommitIds: Array.isArray(stored.selectedCommitIds)
 			? stored.selectedCommitIds.filter(
@@ -148,6 +166,7 @@ export function openGitGraph<InitialFile>(
 	return {
 		...current,
 		diffViewerCwd: cwd,
+		diffContext: null,
 		mainViewMode: "graph",
 		focusedAuxiliaryPanel: { id: "workspace-diff-viewer", cwd },
 	};
@@ -176,6 +195,7 @@ export function bindGitGraphRepository<InitialFile>(
 		selectedFileComparisonTo: repositoryChanged
 			? null
 			: current.selectedFileComparisonTo,
+		diffContext: null,
 		selectedCommitHash: repositoryChanged ? null : current.selectedCommitHash,
 		selectedCommitIds: repositoryChanged ? [] : current.selectedCommitIds,
 		selectedCommitParent: repositoryChanged
@@ -197,6 +217,11 @@ export function openGitWorkingTreeFileDiff<InitialFile>(
 		selectedFileCommitParent: null,
 		selectedFileComparisonFrom: null,
 		selectedFileComparisonTo: null,
+		diffContext:
+			current.mainViewMode === "graph" ||
+			current.diffContext === "graphWorkingTree"
+				? "graphWorkingTree"
+				: "workingTree",
 		mainViewMode: "diff",
 		focusedAuxiliaryPanel: { id: "workspace-diff-viewer", cwd },
 	};
@@ -217,6 +242,7 @@ export function openGitCommitFileDiff<InitialFile>(
 		selectedFileCommitParent: commitParent,
 		selectedFileComparisonFrom: null,
 		selectedFileComparisonTo: null,
+		diffContext: "commit",
 		mainViewMode: "diff",
 		focusedAuxiliaryPanel: { id: "workspace-diff-viewer", cwd },
 	};
@@ -237,9 +263,72 @@ export function openGitComparisonFileDiff<InitialFile>(
 		selectedFileCommitParent: null,
 		selectedFileComparisonFrom: from,
 		selectedFileComparisonTo: to,
+		diffContext: "comparison",
 		mainViewMode: "diff",
 		focusedAuxiliaryPanel: { id: "workspace-diff-viewer", cwd },
 	};
+}
+
+export function dismissGitWorkspaceViewer<InitialFile>(
+	current: GitWorkspacePanelSession<InitialFile>,
+): GitWorkspacePanelSession<InitialFile> {
+	const graphCwd = current.diffViewerCwd;
+	const returnsToGraph =
+		graphCwd !== null && isGitWorkspaceGraphDrillIn(current);
+	if (returnsToGraph) {
+		return openGitGraph(current, graphCwd);
+	}
+	return {
+		...current,
+		selectedFile: null,
+		selectedFileCommitHash: null,
+		selectedFileCommitParent: null,
+		selectedFileComparisonFrom: null,
+		selectedFileComparisonTo: null,
+		diffContext: null,
+		selectedCommitHash: null,
+		selectedCommitIds: [],
+		selectedCommitParent: null,
+		mainViewMode: "diff",
+		diffViewerCwd: null,
+		focusedAuxiliaryPanel:
+			current.focusedAuxiliaryPanel?.id === "workspace-diff-viewer"
+				? null
+				: current.focusedAuxiliaryPanel,
+	};
+}
+
+export function isGitWorkspaceGraphDrillIn(
+	current: GitWorkspacePanelSession,
+): boolean {
+	return (
+		current.mainViewMode === "diff" &&
+		(current.diffContext === "graphWorkingTree" ||
+			current.diffContext === "commit" ||
+			current.diffContext === "comparison")
+	);
+}
+
+export function isHistoricalGitWorkspaceDiff(
+	current: GitWorkspacePanelSession,
+): boolean {
+	return (
+		current.mainViewMode === "diff" &&
+		(current.diffContext === "commit" || current.diffContext === "comparison")
+	);
+}
+
+export function getGitWorkspaceSidebarContent(
+	current: GitWorkspacePanelSession,
+	selectedGraphItemIsWorkingTree: boolean,
+): "workingTree" | "history" {
+	if (current.mainViewMode === "graph") {
+		return selectedGraphItemIsWorkingTree ? "workingTree" : "history";
+	}
+	return current.diffContext === "workingTree" ||
+		current.diffContext === "graphWorkingTree"
+		? "workingTree"
+		: "history";
 }
 
 export function updateGitGraphSelection<InitialFile>(
