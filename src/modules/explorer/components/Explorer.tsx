@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "octane";
 import { fetchJson } from "../../../adapters/backend/http.ts";
 import { iconSize } from "../../../design-system.ts";
 import { dispatchDocumentOpen } from "../../../modules/explorer/model/explorer-events.ts";
-import { IconChevronRight, IconFolder } from "../../../shared/ui/Icons.tsx";
+import { IconChevronRight } from "../../../shared/ui/Icons.tsx";
 import {
 	color,
 	controlSize,
@@ -12,7 +12,7 @@ import {
 	motion,
 	radius,
 } from "../../../tokens.stylex.ts";
-import { FileTypeIcon } from "./FileTypeIcon.tsx";
+import { FileTypeIcon, FolderTypeIcon } from "./FileTypeIcon.tsx";
 
 type ExplorerEntry = {
 	readonly cwd: string;
@@ -21,8 +21,8 @@ type ExplorerEntry = {
 	readonly path: string;
 };
 
-const EXPLORER_ROW_HEIGHT = 28;
-const PROJECT_HEADER_HEIGHT = 28;
+const EXPLORER_ROW_HEIGHT = 24;
+const PROJECT_HEADER_HEIGHT = 26;
 
 function Directory({
 	cwd,
@@ -115,7 +115,11 @@ function Entry({ entry, depth }: { entry: ExplorerEntry; depth: number }) {
 					<span {...stylex.props(styles.spacer)} />
 				)}
 				{entry.isDir ? (
-					<IconFolder size={iconSize.md} />
+					<FolderTypeIcon
+						path={entry.path}
+						open={expanded}
+						size={iconSize.md}
+					/>
 				) : (
 					<FileTypeIcon path={entry.path} size={iconSize.md} />
 				)}
@@ -149,7 +153,7 @@ export function Explorer({ cwds }: { readonly cwds: readonly string[] }) {
 			{cwds.map((cwd) => (
 				<section key={cwd} {...stylex.props(styles.project)}>
 					<header {...stylex.props(styles.projectName)}>
-						<IconFolder size={iconSize.md} />
+						<FolderTypeIcon path={cwd} open size={iconSize.md} />
 						<span>{cwd.split("/").filter(Boolean).pop() || cwd}</span>
 					</header>
 					<Directory cwd={cwd} />
@@ -161,14 +165,16 @@ export function Explorer({ cwds }: { readonly cwds: readonly string[] }) {
 
 const styles = stylex.create({
 	root: {
+		boxSizing: "border-box",
 		flex: 1,
 		minHeight: controlSize._0,
 		overflowY: "auto",
 		overscrollBehavior: "contain",
 		paddingTop: controlSize._0,
 		paddingBottom: controlSize._1,
+		paddingInline: controlSize._3,
 	},
-	project: { marginBottom: controlSize._3 },
+	project: { marginBottom: controlSize._1 },
 	projectName: {
 		position: "sticky",
 		top: controlSize._0,
@@ -176,7 +182,8 @@ const styles = stylex.create({
 		display: "flex",
 		alignItems: "center",
 		gap: controlSize._2,
-		padding: controlSize._2,
+		height: 26,
+		paddingInline: controlSize._2,
 		color: color.textMain,
 		fontSize: font.size_2,
 		fontWeight: font.weight_6,
@@ -186,12 +193,12 @@ const styles = stylex.create({
 	row: {
 		display: "flex",
 		alignItems: "center",
-		gap: controlSize._1_5,
+		gap: controlSize._1,
 		width: "100%",
-		height: controlSize._7,
+		height: controlSize._6,
 		paddingRight: controlSize._2,
 		borderRadius: radius.sm,
-		color: { default: color.textSoft, ":hover": color.textMain },
+		color: { default: color.textMain, ":hover": color.textMain },
 		backgroundColor: {
 			default: color.transparent,
 			":hover": color.controlHover,
@@ -204,6 +211,7 @@ const styles = stylex.create({
 	},
 	chevron: {
 		flexShrink: 0,
+		color: color.textSoft,
 		transitionDuration: motion.durationFast,
 		transitionProperty: "transform",
 	},

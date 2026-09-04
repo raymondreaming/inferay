@@ -304,7 +304,8 @@ const styles = stylex.create({
 		flexShrink: 0,
 	},
 	rootSidebar: {
-		width: "100%",
+		flex: 1,
+		width: "auto",
 	},
 	inputFrame: {
 		display: "flex",

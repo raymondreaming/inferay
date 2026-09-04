@@ -1,4 +1,9 @@
-import { DEFAULT_FILE, getIconForFile } from "@yutengjing/vscode-icons";
+import {
+	DEFAULT_FILE,
+	getIconForFile,
+	getIconForFolder,
+	getIconForOpenFolder,
+} from "@yutengjing/vscode-icons";
 import type { CSSProperties } from "react";
 
 const importedIcons = import.meta.glob(
@@ -17,6 +22,40 @@ export function resolveFileIconUrl(path: string): string {
 	const name = path.split(/[\\/]/).pop() || path;
 	const iconFileName = getIconForFile(name) ?? DEFAULT_FILE;
 	return iconUrls.get(iconFileName) ?? iconUrls.get(DEFAULT_FILE)!;
+}
+
+export function resolveFolderIconUrl(path: string, open = false): string {
+	const name = path.split(/[\\/]/).filter(Boolean).pop() || path;
+	const iconFileName = open
+		? getIconForOpenFolder(name)
+		: getIconForFolder(name);
+	return iconUrls.get(iconFileName) ?? resolveFileIconUrl(path);
+}
+
+export function FolderTypeIcon({
+	path,
+	open = false,
+	size = 15,
+}: {
+	readonly path: string;
+	readonly open?: boolean;
+	readonly size?: number;
+}) {
+	return (
+		<img
+			aria-hidden="true"
+			alt=""
+			draggable={false}
+			src={resolveFolderIconUrl(path, open)}
+			style={{
+				width: size,
+				height: size,
+				flexShrink: 0,
+				opacity: 0.98,
+				filter: "saturate(0.82) brightness(1.08)",
+			}}
+		/>
+	);
 }
 
 export function FileTypeIcon({
@@ -41,8 +80,8 @@ export function FileTypeIcon({
 				width: size,
 				height: size,
 				flexShrink: 0,
-				opacity: 0.82,
-				filter: "saturate(0.58) brightness(0.9)",
+				opacity: 0.96,
+				filter: "saturate(0.76) brightness(1.08)",
 				...style,
 			}}
 		/>
