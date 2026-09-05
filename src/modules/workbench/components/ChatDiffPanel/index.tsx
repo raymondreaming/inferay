@@ -30,220 +30,171 @@ export function gitGraphEmptyLabel(
 export function ChatDiffPanel(
 	props: Parameters<typeof useChatDiffPanelState>[0],
 ) {
-	const {
-		diff,
-		file,
-		loading,
-		mainViewMode,
-		onMainViewModeChange,
-		graph,
-		graphLoading,
-		graphError,
-		selectionAnnouncement,
-		repositoryKey,
-		selectedCommitHash,
-		selectedCommitIds,
-		onSelectCommit,
-		onOpenGraphSelection,
-		onCheckoutRef,
-		onLoadMoreCommits,
-		branch,
-		onClose,
-		closeLabel,
-		viewMode,
-		onViewModeChange,
-		startAtFirstChange,
-		zenMode,
-		onToggleZenMode,
-		drag,
-		stats,
-		hoveredModeIndex,
-		setHoveredModeIndex,
-		pendingRefAction,
-		setPendingRefAction,
-		refOperationResult,
-		setRefOperationResult,
-		refOperationRunning,
-		refOperationPreflight,
-		refPreflightRunning,
-		interactiveRebaseOpen,
-		setInteractiveRebaseOpen,
-		interactiveRebasePlan,
-		setInteractiveRebasePlan,
-		moveRebaseRow,
-		pendingGraphAction,
-		setPendingGraphAction,
-		graphActionName,
-		setGraphActionName,
-		graphActionMessage,
-		setGraphActionMessage,
-		graphActionResult,
-		graphActionRunning,
-		runRefOperation,
-		requestGraphAction,
-		runGraphAction,
-		activeModeIndex,
-		repositoryOperation,
-		pendingGraphActionPresentation,
-		interactiveRebaseCommits,
-		resumableOperation,
-		operationActivity,
-	} = useChatDiffPanelState(props);
+	const view = useChatDiffPanelState(props);
 	return (
 		<section {...stylex.props(styles.viewerPanel)}>
 			<span role="status" aria-live="polite" {...stylex.props(styles.srStatus)}>
-				{selectionAnnouncement}
+				{view.selectionAnnouncement}
 			</span>
 			<span
 				role="status"
 				aria-live="polite"
-				data-git-operation-phase={operationActivity.phase}
+				data-git-operation-phase={view.operationActivity.phase}
 				{...stylex.props(styles.srStatus)}
 			>
-				{operationActivity.message}
+				{view.operationActivity.message}
 			</span>
 			<div
 				aria-hidden="true"
 				data-floating-viewer-scrim="true"
 				{...stylex.props(
 					styles.viewerFloatingScrim,
-					mainViewMode === "graph" && styles.viewerFloatingScrimAboveContent,
+					view.mainViewMode === "graph" &&
+						styles.viewerFloatingScrimAboveContent,
 				)}
 			/>
 			<ViewerHeader
-				mainViewMode={mainViewMode}
-				drag={drag}
-				file={file}
-				stats={stats}
-				graphActionRunning={graphActionRunning}
-				requestGraphAction={requestGraphAction}
-				setHoveredModeIndex={setHoveredModeIndex}
-				hoveredModeIndex={hoveredModeIndex}
-				activeModeIndex={activeModeIndex}
-				onMainViewModeChange={onMainViewModeChange}
-				onViewModeChange={onViewModeChange}
-				viewMode={viewMode}
-				onToggleZenMode={onToggleZenMode}
-				zenMode={zenMode}
-				onClose={onClose}
-				closeLabel={closeLabel}
+				mainViewMode={view.mainViewMode}
+				drag={view.drag}
+				file={view.file}
+				stats={view.stats}
+				graphActionRunning={view.graphActionRunning}
+				requestGraphAction={view.requestGraphAction}
+				setHoveredModeIndex={view.setHoveredModeIndex}
+				hoveredModeIndex={view.hoveredModeIndex}
+				activeModeIndex={view.activeModeIndex}
+				onMainViewModeChange={view.onMainViewModeChange}
+				onViewModeChange={view.onViewModeChange}
+				viewMode={view.viewMode}
+				onToggleZenMode={view.onToggleZenMode}
+				zenMode={view.zenMode}
+				onClose={view.onClose}
+				closeLabel={view.closeLabel}
 			/>
 			<div
 				{...stylex.props(
 					styles.viewerBody,
-					mainViewMode !== "graph" && styles.viewerBodyAboveScrim,
+					view.mainViewMode !== "graph" && styles.viewerBodyAboveScrim,
 				)}
 			>
-				{mainViewMode === "graph" ? (
-					graphLoading && graph.commits.length === 0 && !graph.searchQuery ? (
+				{view.mainViewMode === "graph" ? (
+					view.graphLoading &&
+					view.graph.commits.length === 0 &&
+					!view.graph.searchQuery ? (
 						<div {...stylex.props(styles.viewerEmpty)}>Loading history…</div>
-					) : graphError && graph.commits.length === 0 && !graph.searchQuery ? (
-						<div {...stylex.props(styles.viewerEmpty)}>{graphError}</div>
-					) : graph.commits.length === 0 && !graph.searchQuery ? (
+					) : view.graphError &&
+						view.graph.commits.length === 0 &&
+						!view.graph.searchQuery ? (
+						<div {...stylex.props(styles.viewerEmpty)}>{view.graphError}</div>
+					) : view.graph.commits.length === 0 && !view.graph.searchQuery ? (
 						<div {...stylex.props(styles.viewerEmpty)}>
-							{gitGraphEmptyLabel(graph)}
+							{gitGraphEmptyLabel(view.graph)}
 						</div>
 					) : (
 						<CommitGraph
-							commits={graph.commits}
-							ancestry={graph.ancestry}
-							onSearchChange={graph.setSearchQuery}
-							searchActive={Boolean(graph.searchQuery)}
-							searchQuery={graph.searchQuery}
+							commits={view.graph.commits}
+							ancestry={view.graph.ancestry}
+							onSearchChange={view.graph.setSearchQuery}
+							searchActive={Boolean(view.graph.searchQuery)}
+							searchQuery={view.graph.searchQuery}
 							emptyLabel={
-								graphLoading
+								view.graphLoading
 									? "Searching history…"
-									: (graphError ?? graph.stateError ?? "No matching commits")
+									: (view.graphError ??
+										view.graph.stateError ??
+										"No matching commits")
 							}
-							rows={graph.rows}
-							worktrees={graph.worktrees}
-							selectedHash={selectedCommitHash ?? undefined}
-							selectedIds={selectedCommitIds}
-							onSelect={onSelectCommit}
-							onOpenSelection={onOpenGraphSelection}
-							onCheckoutRef={onCheckoutRef}
-							branch={branch}
+							rows={view.graph.rows}
+							worktrees={view.graph.worktrees}
+							selectedHash={view.selectedCommitHash ?? undefined}
+							selectedIds={view.selectedCommitIds}
+							onSelect={view.onSelectCommit}
+							onOpenSelection={view.onOpenGraphSelection}
+							onCheckoutRef={view.onCheckoutRef}
+							branch={view.branch}
 							embedded
-							hasMore={graph.hasMore}
-							loadingMore={graph.loading}
-							repositoryKey={repositoryKey}
-							onLoadMore={onLoadMoreCommits}
+							hasMore={view.graph.hasMore}
+							loadingMore={view.graph.loading}
+							repositoryKey={view.repositoryKey}
+							onLoadMore={view.onLoadMoreCommits}
 							onRefDrop={(source, target) => {
-								setRefOperationResult(null);
-								setInteractiveRebaseOpen(false);
-								setPendingRefAction({ source, target });
+								view.setRefOperationResult(null);
+								view.setInteractiveRebaseOpen(false);
+								view.setPendingRefAction({ source, target });
 							}}
-							onGraphAction={requestGraphAction}
+							onGraphAction={view.requestGraphAction}
 							onCompareWithWip={(itemId) => {
-								const wip = graph.commits.find(
+								const wip = view.graph.commits.find(
 									(item) =>
 										item.itemKind === "worktreeWip" && item.id === "wip",
 								);
 								if (!wip) return;
-								onSelectCommit(wip.id);
-								onSelectCommit(itemId, { additive: true, range: false });
+								view.onSelectCommit(wip.id);
+								view.onSelectCommit(itemId, { additive: true, range: false });
 							}}
 						/>
 					)
-				) : diff && file ? (
-					<DiffViewerBoundary resetKey={`${file.path}:${file.staged}`}>
+				) : view.diff && view.file ? (
+					<DiffViewerBoundary
+						resetKey={`${view.file.path}:${view.file.staged}`}
+					>
 						<DiffViewer
-							diff={diff}
-							filePath={file.path}
-							staged={file.staged}
+							diff={view.diff}
+							filePath={view.file.path}
+							staged={view.file.staged}
 							loading={false}
-							onClose={onClose}
+							onClose={view.onClose}
 							hideHeader
 							hideToolbar
-							viewMode={viewMode}
-							onViewModeChange={onViewModeChange}
-							startAtFirstChange={startAtFirstChange}
+							viewMode={view.viewMode}
+							onViewModeChange={view.onViewModeChange}
+							startAtFirstChange={view.startAtFirstChange}
 						/>
 					</DiffViewerBoundary>
-				) : !loading ? (
+				) : !view.loading ? (
 					<div {...stylex.props(styles.viewerEmpty)}>No diff available</div>
 				) : null}
-				{mainViewMode === "graph" && pendingRefAction ? (
+				{view.mainViewMode === "graph" && view.pendingRefAction ? (
 					<RefOperationDialog
-						interactiveRebaseOpen={interactiveRebaseOpen}
-						pendingRefAction={pendingRefAction}
-						refOperationResult={refOperationResult}
-						interactiveRebasePlan={interactiveRebasePlan}
-						interactiveRebaseCommits={interactiveRebaseCommits}
-						moveRebaseRow={moveRebaseRow}
-						setInteractiveRebasePlan={setInteractiveRebasePlan}
-						refPreflightRunning={refPreflightRunning}
-						refOperationPreflight={refOperationPreflight}
-						refOperationRunning={refOperationRunning}
-						runRefOperation={runRefOperation}
-						setInteractiveRebaseOpen={setInteractiveRebaseOpen}
-						setPendingRefAction={setPendingRefAction}
+						interactiveRebaseOpen={view.interactiveRebaseOpen}
+						pendingRefAction={view.pendingRefAction}
+						refOperationResult={view.refOperationResult}
+						interactiveRebasePlan={view.interactiveRebasePlan}
+						interactiveRebaseCommits={view.interactiveRebaseCommits}
+						moveRebaseRow={view.moveRebaseRow}
+						setInteractiveRebasePlan={view.setInteractiveRebasePlan}
+						refPreflightRunning={view.refPreflightRunning}
+						refOperationPreflight={view.refOperationPreflight}
+						refOperationRunning={view.refOperationRunning}
+						runRefOperation={view.runRefOperation}
+						setInteractiveRebaseOpen={view.setInteractiveRebaseOpen}
+						setPendingRefAction={view.setPendingRefAction}
 					/>
 				) : null}
-				{mainViewMode === "graph" &&
-				pendingGraphAction &&
-				pendingGraphActionPresentation ? (
+				{view.mainViewMode === "graph" &&
+				view.pendingGraphAction &&
+				view.pendingGraphActionPresentation ? (
 					<GraphActionDialog
-						pendingGraphActionPresentation={pendingGraphActionPresentation}
-						graphActionRunning={graphActionRunning}
-						setPendingGraphAction={setPendingGraphAction}
-						pendingGraphAction={pendingGraphAction}
-						graphActionName={graphActionName}
-						setGraphActionName={setGraphActionName}
-						graphActionMessage={graphActionMessage}
-						setGraphActionMessage={setGraphActionMessage}
-						graphActionResult={graphActionResult}
-						runGraphAction={runGraphAction}
+						pendingGraphActionPresentation={view.pendingGraphActionPresentation}
+						graphActionRunning={view.graphActionRunning}
+						setPendingGraphAction={view.setPendingGraphAction}
+						pendingGraphAction={view.pendingGraphAction}
+						graphActionName={view.graphActionName}
+						setGraphActionName={view.setGraphActionName}
+						graphActionMessage={view.graphActionMessage}
+						setGraphActionMessage={view.setGraphActionMessage}
+						graphActionResult={view.graphActionResult}
+						runGraphAction={view.runGraphAction}
 					/>
 				) : null}
-				{mainViewMode === "graph" &&
-				repositoryOperation.kind !== "idle" &&
-				!pendingRefAction ? (
+				{view.mainViewMode === "graph" &&
+				view.repositoryOperation.kind !== "idle" &&
+				!view.pendingRefAction ? (
 					<RepositoryOperationBar
-						repositoryOperation={repositoryOperation}
-						resumableOperation={resumableOperation}
-						refOperationRunning={refOperationRunning}
-						runRefOperation={runRefOperation}
+						repositoryOperation={view.repositoryOperation}
+						resumableOperation={view.resumableOperation}
+						refOperationRunning={view.refOperationRunning}
+						runRefOperation={view.runRefOperation}
 					/>
 				) : null}
 			</div>

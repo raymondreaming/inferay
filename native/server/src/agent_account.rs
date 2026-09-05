@@ -1,35 +1,14 @@
-use crate::unix_millis as epoch_millis;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
+use super::{ApiResult, ServerState};
 use inferay_core::agent_command::{AgentCommandResolver, AgentKind};
 use serde::Serialize;
 use serde_json::json;
-
-use super::{ApiResult, ServerState};
-
-const CLAUDE_USAGE_SIGNALS: [&str; 2] = [
-    "Claude Code exposes interactive /cost usage details.",
-    "Machine-readable rate-limit reset data is not exposed locally.",
-];
-const CODEX_USAGE_SIGNALS: [&str; 2] = [
-    "Codex CLI account usage is handled by the local CLI.",
-    "Machine-readable usage and rate-limit reset data is not exposed locally.",
-];
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
 struct AgentAccountProviderStatus {
     kind: &'static str,
-    label: &'static str,
-    installed: bool,
-    binary_path: String,
-    version: Option<String>,
-    auth_config_paths: Vec<String>,
-    usage_signals: Vec<&'static str>,
-    checked_at: u64,
     health: &'static str,
-    summary: String,
 }
 
 pub(super) async fn account_status(state: &ServerState) -> ApiResult {
@@ -47,75 +26,23 @@ fn provider_status(
     home: &Path,
     kind: AgentKind,
 ) -> AgentAccountProviderStatus {
-    let installed = resolver.has_agent_cli(kind);
-    let binary_path = resolver
-        .resolve_agent_binary(kind)
-        .to_string_lossy()
-        .into_owned();
-    let auth_config_paths = if installed {
-        existing_auth_paths(home, kind)
-    } else {
-        Vec::new()
-    };
-    build_agent_account_status(
-        kind,
-        installed,
-        binary_path,
-        installed.then(|| resolver.read_cli_version(kind)).flatten(),
-        auth_config_paths,
-        epoch_millis(),
-    )
-}
-
-fn build_agent_account_status(
-    kind: AgentKind,
-    installed: bool,
-    binary_path: String,
-    version: Option<String>,
-    mut auth_config_paths: Vec<String>,
-    checked_at: u64,
-) -> AgentAccountProviderStatus {
-    let (label, usage_signals) = match kind {
-        AgentKind::Claude => ("Claude", CLAUDE_USAGE_SIGNALS.to_vec()),
-        AgentKind::Codex => ("Codex", CODEX_USAGE_SIGNALS.to_vec()),
-    };
-    let (health, summary) = if !installed {
-        auth_config_paths.clear();
-        (
-            "missing-cli",
-            format!("{label} CLI was not found on this machine."),
-        )
-    } else if auth_config_paths.is_empty() {
-        (
-            "needs-login",
-            format!("{label} CLI is installed, but Inferay did not find local auth config."),
-        )
-    } else {
-        (
-            "ready",
-            format!("{label} CLI and local auth config detected."),
-        )
-    };
     AgentAccountProviderStatus {
         kind: kind.as_str(),
-        label,
-        installed,
-        binary_path,
-        version,
-        auth_config_paths,
-        usage_signals,
-        checked_at,
-        health,
-        summary,
+        health: provider_health(resolver.has_agent_cli(kind), home, kind),
     }
 }
 
-fn existing_auth_paths(home: &Path, kind: AgentKind) -> Vec<String> {
-    auth_config_candidates(home, kind)
-        .into_iter()
-        .filter(|path| path.exists())
-        .map(|path| path.to_string_lossy().into_owned())
-        .collect()
+fn provider_health(installed: bool, home: &Path, kind: AgentKind) -> &'static str {
+    if !installed {
+        "missing-cli"
+    } else if auth_config_candidates(home, kind)
+        .iter()
+        .any(|path| path.exists())
+    {
+        "ready"
+    } else {
+        "needs-login"
+    }
 }
 
 fn auth_config_candidates(home: &Path, kind: AgentKind) -> Vec<PathBuf> {
@@ -138,42 +65,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builds_the_three_existing_account_health_states() {
-        let missing = build_agent_account_status(
-            AgentKind::Claude,
-            false,
-            "claude".into(),
-            None,
-            vec!["should-be-cleared".into()],
-            1,
-        );
-        assert_eq!(missing.health, "missing-cli");
-        assert!(missing.auth_config_paths.is_empty());
-        assert_eq!(missing.summary, "Claude CLI was not found on this machine.");
-
-        let needs_login = build_agent_account_status(
-            AgentKind::Codex,
-            true,
-            "codex".into(),
-            Some("codex 1.0".into()),
-            Vec::new(),
-            2,
-        );
-        assert_eq!(needs_login.health, "needs-login");
-        assert_eq!(
-            needs_login.summary,
-            "Codex CLI is installed, but Inferay did not find local auth config."
-        );
-
-        let ready = build_agent_account_status(
-            AgentKind::Claude,
-            true,
-            "claude".into(),
-            Some("claude 1.0".into()),
-            vec!["/tmp/.claude.json".into()],
-            3,
-        );
-        assert_eq!(ready.health, "ready");
-        assert_eq!(ready.summary, "Claude CLI and local auth config detected.");
+    fn preserves_health_states_for_each_supported_auth_location() {
+        for kind in [AgentKind::Claude, AgentKind::Codex] {
+            let root = tempfile::tempdir().unwrap();
+            assert_eq!(provider_health(true, root.path(), kind), "needs-login");
+            for candidate in auth_config_candidates(root.path(), kind) {
+                std::fs::create_dir_all(candidate.parent().unwrap()).unwrap();
+                std::fs::write(&candidate, "{}").unwrap();
+                assert_eq!(provider_health(true, root.path(), kind), "ready");
+                assert_eq!(provider_health(false, root.path(), kind), "missing-cli");
+                std::fs::remove_file(candidate).unwrap();
+            }
+        }
     }
 }

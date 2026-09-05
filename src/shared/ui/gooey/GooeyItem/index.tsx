@@ -14,4 +14,4 @@ export function GooeyItem(props: GooeyItemProps) {
 	);
 }
 
-export type { DissolveOptions, GooeyEffect, GooeyItemProps } from "./shared.ts";
+export type { GooeyEffect, GooeyItemProps } from "./shared.ts";

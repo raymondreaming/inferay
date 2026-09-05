@@ -38,31 +38,27 @@ import {
 } from "./shared.ts";
 import { getGraphLineLayerStyle } from "./styles.ts";
 
-export function useCommitGraphState({
-	ancestry,
-	onSearchChange,
-	emptyLabel = "No matching commits",
-	searchActive = false,
-	searchQuery = "",
-	commits,
-	rows,
-	selectedHash,
-	selectedIds = EMPTY_SELECTED_IDS,
-	onSelect,
-	className = "",
-	worktrees = [],
-	branch,
-	embedded = false,
-	onCheckoutRef,
-	onRefDrop,
-	hasMore = false,
-	onLoadMore,
-	loadingMore = false,
-	repositoryKey,
-	onGraphAction,
-	onCompareWithWip,
-	onOpenSelection,
-}: CommitGraphProps) {
+export function useCommitGraphState(props: CommitGraphProps) {
+	const {
+		ancestry,
+		onSearchChange,
+		emptyLabel = "No matching commits",
+		searchActive = false,
+		searchQuery = "",
+		commits,
+		rows,
+		selectedHash,
+		selectedIds = EMPTY_SELECTED_IDS,
+		onSelect,
+		className = "",
+		worktrees = [],
+		embedded = false,
+		hasMore = false,
+		loadingMore = false,
+		repositoryKey,
+		onOpenSelection,
+	} = props;
+
 	const [columns, setColumns] = useState<ColumnVisibility>(
 		() => loadPreferences(repositoryKey).columns,
 	);
@@ -624,15 +620,7 @@ export function useCommitGraphState({
 	}, [rows, visibleEnd, visibleStart]);
 
 	return {
-		commits,
-		selectedHash,
-		onSelect,
-		branch,
-		onCheckoutRef,
-		onRefDrop,
-		onLoadMore,
-		onGraphAction,
-		onCompareWithWip,
+		...props,
 		emptyLabel,
 		searchActive,
 		selectedIds,

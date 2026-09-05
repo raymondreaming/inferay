@@ -1,6 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import {
 	memo,
+	type OctaneNode,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -20,16 +21,14 @@ import {
 } from "../../model/diff-navigation.ts";
 import { MarkdownPreview } from "../MarkdownPreview/index.tsx";
 import { DiffHeader } from "./DiffHeader.tsx";
+import { DiffPanels } from "./DiffPanels.tsx";
 import { DiffViewToolbar } from "./DiffViewToolbar.tsx";
-import { MergeConflictPanel } from "./MergeConflictPanel.tsx";
-import { SinglePanel } from "./SinglePanel.tsx";
 import {
 	type DiffViewMode,
 	LINE_H,
 	MAX_RENDERED_LINE_CHARS,
 } from "./shared.ts";
 import { diffStyles } from "./styles.ts";
-import { VirtualSplitPanel } from "./VirtualSplitPanel.tsx";
 
 interface DiffViewerProps {
 	diff: HunkDiff;
@@ -87,21 +86,13 @@ export const DiffViewer = memo(function DiffViewer({
 		dispatchNavigation({ type: "reset" });
 	}, [diffIdentity]);
 
-	const { changePositions, changeLineMap } = useMemo(() => {
-		const positions: number[] = [];
-		const lineMap = new Map<number, number>();
-
-		const ranges =
+	const changeRanges = useMemo(() => {
+		const nativeRanges =
 			viewMode === "hunks"
 				? diff.metadata?.inlineChangeRanges
 				: diff.metadata?.splitChangeRanges;
-		if (ranges) {
-			for (const [change, [start, end]] of ranges.entries()) {
-				positions.push(start);
-				for (let row = start; row < end; row++) lineMap.set(row, change);
-			}
-			return { changePositions: positions, changeLineMap: lineMap };
-		}
+		if (nativeRanges) return nativeRanges;
+		const ranges: Array<[number, number]> = [];
 
 		// Compatibility for responses created before native navigation metadata.
 		const inline =
@@ -110,18 +101,19 @@ export const DiffViewer = memo(function DiffViewer({
 				: undefined;
 		const count =
 			inline?.length ?? Math.max(diff.oldLines.length, diff.newLines.length);
-		let inChange = false;
 		for (let row = 0; row < count; row++) {
 			const changed = inline
 				? inline[row]?.type === "remove" || inline[row]?.type === "add"
 				: diff.oldLines[row]?.type === "remove" ||
 					diff.newLines[row]?.type === "add";
-			if (changed && !inChange) positions.push(row);
-			if (changed) lineMap.set(row, positions.length - 1);
-			inChange = changed;
+			if (changed) {
+				const last = ranges.at(-1);
+				if (last?.[1] === row) last[1] = row + 1;
+				else ranges.push([row, row + 1]);
+			}
 		}
 
-		return { changePositions: positions, changeLineMap: lineMap };
+		return ranges;
 	}, [
 		diff.metadata,
 		diff.inlineLines,
@@ -131,6 +123,10 @@ export const DiffViewer = memo(function DiffViewer({
 		viewMode,
 	]);
 
+	const changePositions = useMemo(
+		() => changeRanges.map(([start]) => start),
+		[changeRanges],
+	);
 	const totalChanges = changePositions.length;
 	const firstChangeLine = changePositions[0];
 	const initialScrollIdentityRef = useRef<string | null>(null);
@@ -249,7 +245,7 @@ export const DiffViewer = memo(function DiffViewer({
 		}
 		if (diff.oldLines.length !== 0 || diff.newLines.length !== 1) return null;
 		const line = diff.newLines[0];
-		if (!line || line.type !== "context") return null;
+		if (line?.type !== "context") return null;
 		const text = line.content.trim();
 		return /too large|cannot read/i.test(text) ? text : null;
 	}, [diff.compactLines, diff.newLines, diff.oldLines.length]);
@@ -291,10 +287,6 @@ export const DiffViewer = memo(function DiffViewer({
 
 	const renderMergeConflict = Boolean(diff.mergeConflictContent);
 
-	const hunkLines = useMemo(() => {
-		if (oversizedMessage) return [];
-		return diff.inlineLines ?? diff.compactLines ?? [];
-	}, [diff.inlineLines, diff.compactLines, oversizedMessage]);
 	if (loading) {
 		return (
 			<div {...stylex.props(diffStyles.centerState)}>
@@ -306,159 +298,96 @@ export const DiffViewer = memo(function DiffViewer({
 		);
 	}
 
-	if (diff.isBinary) {
-		return (
-			<div {...stylex.props(diffStyles.shell)}>
-				{!hideHeader && (
-					<DiffHeader filePath={filePath} staged={staged} onClose={onClose} />
-				)}
-				<div {...stylex.props(diffStyles.imageBody)}>
-					{diff.isImage && diff.imagePath ? (
-						<img
-							src={`/api/file?path=${encodeURIComponent(diff.imagePath)}`}
-							alt={filePath}
-							{...stylex.props(diffStyles.image)}
-						/>
-					) : (
-						<span {...stylex.props(diffStyles.centerText)}>Binary file</span>
-					)}
-				</div>
-			</div>
-		);
-	}
-
 	const isMarkdown = !diff.compactLines && (ext === "md" || ext === "mdx");
-	const markdownContent = isMarkdown
-		? diff.newLines
-				.filter((line) => line.type !== "hunk" && line.type !== "spacer")
-				.map((line) => line.content)
-				.join("\n")
-		: "";
-
-	if (renderMergeConflict && !isMarkdown) {
-		return (
-			<div
-				ref={containerRef}
-				{...stylex.props(diffStyles.shell, diffStyles.shellRelative)}
-			>
-				{!hideHeader && (
-					<DiffHeader
-						filePath={filePath}
-						staged={staged}
-						onClose={onClose}
-						stats={stats}
-						totalChanges={totalChanges}
-						onPrevChange={goToPrevChange}
-						onNextChange={goToNextChange}
+	const conflict = renderMergeConflict && !isMarkdown;
+	const message = statusMessage ?? oversizedMessage;
+	const navigable = !diff.isBinary && (conflict || (!message && !isMarkdown));
+	let body: OctaneNode;
+	if (diff.isBinary) {
+		body = (
+			<div {...stylex.props(diffStyles.imageBody)}>
+				{diff.isImage && diff.imagePath ? (
+					<img
+						src={`/api/file?path=${encodeURIComponent(diff.imagePath)}`}
+						alt={filePath}
+						{...stylex.props(diffStyles.image)}
 					/>
+				) : (
+					<span {...stylex.props(diffStyles.centerText)}>Binary file</span>
 				)}
-				<MergeConflictPanel
-					minimapSegments={diff.metadata?.conflictMinimap}
-					lines={diff.conflictLines ?? []}
-					maxLineChars={diff.metadata?.maxConflictLineChars}
-					disableTokenize={disableTokenize}
-					ext={ext}
-					filePath={filePath}
-					syntaxTheme={syntaxTheme}
-				/>
 			</div>
 		);
-	}
-
-	if (statusMessage) {
-		return (
-			<div {...stylex.props(diffStyles.shell)}>
-				{!hideHeader && (
-					<DiffHeader filePath={filePath} staged={staged} onClose={onClose} />
-				)}
-				<div {...stylex.props(diffStyles.centerBody)}>
-					<p {...stylex.props(diffStyles.centerMessage)}>{statusMessage}</p>
+	} else if (!conflict && message) {
+		body = (
+			<div {...stylex.props(diffStyles.centerBody)}>
+				<p {...stylex.props(diffStyles.centerMessage)}>{message}</p>
+			</div>
+		);
+	} else if (isMarkdown) {
+		const content = diff.newLines
+			.filter((line) => line.type !== "hunk" && line.type !== "spacer")
+			.map((line) => line.content)
+			.join("\n");
+		body = (
+			<div {...stylex.props(diffStyles.markdownBody)}>
+				<div {...stylex.props(diffStyles.markdownInner)}>
+					<MarkdownPreview content={content} />
 				</div>
 			</div>
 		);
-	}
-
-	if (oversizedMessage) {
-		return (
-			<div {...stylex.props(diffStyles.shell)}>
-				{!hideHeader && (
-					<DiffHeader filePath={filePath} staged={staged} onClose={onClose} />
+	} else {
+		const mode = conflict ? "conflict" : viewMode;
+		const panels = (
+			<DiffPanels
+				key={`${diffIdentity}:${mode}`}
+				diff={diff}
+				mode={mode}
+				scrollRef={rightRef}
+				ext={ext}
+				filePath={filePath}
+				syntaxTheme={syntaxTheme}
+				disableTokenize={disableTokenize}
+				externalScrollTop={externalScrollTop}
+				externalScrollSource={externalScrollSource}
+				highlightedRange={
+					highlightedChangeIdx === undefined
+						? undefined
+						: changeRanges[highlightedChangeIdx]
+				}
+			/>
+		);
+		body = conflict ? (
+			panels
+		) : (
+			<>
+				{!hideToolbar && (
+					<DiffViewToolbar viewMode={viewMode} onChange={setViewMode} />
 				)}
-				<div {...stylex.props(diffStyles.centerBody)}>
-					<p {...stylex.props(diffStyles.centerMessage)}>{oversizedMessage}</p>
-				</div>
-			</div>
+				<div {...stylex.props(diffStyles.body)}>{panels}</div>
+			</>
 		);
 	}
-
-	if (isMarkdown) {
-		return (
-			<div {...stylex.props(diffStyles.shell)}>
-				{!hideHeader && (
-					<DiffHeader filePath={filePath} staged={staged} onClose={onClose} />
-				)}
-				<div {...stylex.props(diffStyles.markdownBody)}>
-					<div {...stylex.props(diffStyles.markdownInner)}>
-						<MarkdownPreview content={markdownContent} />
-					</div>
-				</div>
-			</div>
-		);
-	}
-
 	return (
 		<div
-			ref={containerRef}
-			{...stylex.props(diffStyles.shell, diffStyles.shellRelative)}
+			ref={navigable ? containerRef : undefined}
+			{...stylex.props(diffStyles.shell, navigable && diffStyles.shellRelative)}
 		>
 			{!hideHeader && (
 				<DiffHeader
 					filePath={filePath}
 					staged={staged}
 					onClose={onClose}
-					stats={stats}
-					totalChanges={totalChanges}
-					onPrevChange={goToPrevChange}
-					onNextChange={goToNextChange}
+					{...(navigable
+						? {
+								stats,
+								totalChanges,
+								onPrevChange: goToPrevChange,
+								onNextChange: goToNextChange,
+							}
+						: {})}
 				/>
 			)}
-			{!hideToolbar && (
-				<DiffViewToolbar viewMode={viewMode} onChange={setViewMode} />
-			)}
-			<div {...stylex.props(diffStyles.body)}>
-				{viewMode === "split" ? (
-					<VirtualSplitPanel
-						minimapSegments={diff.metadata?.splitMinimap}
-						key={`${diffIdentity}:split`}
-						oldLines={diff.isNew ? [] : diff.oldLines}
-						newLines={diff.newLines}
-						maxOldLineChars={diff.isNew ? 0 : diff.metadata?.maxOldLineChars}
-						maxNewLineChars={diff.metadata?.maxNewLineChars}
-						ext={ext}
-						scrollRef={rightRef}
-						disableTokenize={disableTokenize}
-						externalScrollTop={externalScrollTop}
-						externalScrollSource={externalScrollSource}
-						filePath={filePath}
-						highlightedChangeIdx={highlightedChangeIdx}
-						changeLineMap={changeLineMap}
-						syntaxTheme={syntaxTheme}
-					/>
-				) : (
-					<SinglePanel
-						minimapSegments={diff.metadata?.inlineMinimap}
-						key={`${diffIdentity}:single`}
-						lines={hunkLines}
-						maxLineChars={diff.metadata?.maxInlineLineChars}
-						ext={ext}
-						disableTokenize={disableTokenize}
-						externalScrollTop={externalScrollTop}
-						externalScrollSource={externalScrollSource}
-						filePath={filePath}
-						syntaxTheme={syntaxTheme}
-					/>
-				)}
-			</div>
+			{body}
 		</div>
 	);
 });

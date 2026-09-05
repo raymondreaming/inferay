@@ -827,11 +827,9 @@ mod tests {
             }),
         );
         assert!(matches!(&context.emissions[0], ProtocolEmission::Session(id) if id == "s1"));
-        assert!(matches!(
-            &context.emissions[1],
-            ProtocolEmission::Activity { tool_name, .. } if tool_name == "Read"
-        ));
-        assert!(matches!(&context.emissions[2], ProtocolEmission::Chat(_)));
+        assert!(
+            matches!(&context.emissions[1], ProtocolEmission::Chat(event) if event["content_block"]["name"] == "Read")
+        );
     }
 
     #[cfg(unix)]

@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "octane";
+import { useEffect, useMemo, useSyncExternalStore } from "octane";
 import { dispatchAgentShellChange } from "../../../workspace/model/workspace-model.ts";
-import { extractToolActivities } from "../../model/chat-agent-utils.ts";
 import { getChatMessageReadModel } from "../../model/chat-session-store.ts";
 
 export function usePersistentChatMessages(paneId: string) {
@@ -12,10 +11,6 @@ export function usePersistentChatMessages(paneId: string) {
 		messageReadModel.subscribe,
 		messageReadModel.getSnapshot,
 		messageReadModel.getSnapshot,
-	);
-	const getToolActivities = useCallback(
-		() => extractToolActivities(messageReadModel.get()),
-		[messageReadModel],
 	);
 
 	useEffect(() => {
@@ -30,7 +25,6 @@ export function usePersistentChatMessages(paneId: string) {
 		};
 	}, [messageReadModel]);
 	return {
-		getToolActivities,
 		messageReadModel,
 		messages,
 		setMessages: messageReadModel.set,

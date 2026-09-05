@@ -8,7 +8,6 @@ export const Gooey = Liquid;
 export type { GooeyProps, GooeyProps as LiquidProps } from "./Gooey";
 export { GooeyRoot } from "./Gooey";
 export type {
-	DissolveOptions,
 	GooeyEffect,
 	GooeyItemProps,
 } from "./GooeyItem";
@@ -25,5 +24,4 @@ export type { EvolveOptions, MoveOptions } from "./observer";
 export { EVOLVE_DEFAULTS, MOVE_DEFAULTS } from "./observer";
 export type { GooeySurfacePreset } from "./presets";
 export { gooeySurfacePresets } from "./presets";
-export type { SpringConfig, Transition, TransitionPreset } from "./spring";
-export { easingFunction, presets } from "./spring";
+export { easingFunction } from "./spring";

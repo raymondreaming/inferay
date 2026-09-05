@@ -274,128 +274,6 @@ function graphRowFromWire(row: WireGraphRow): GraphRow {
 	};
 }
 
-function areStringArraysEqual(prev: string[], next: string[]) {
-	if (prev.length !== next.length) return false;
-	for (let i = 0; i < prev.length; i++) {
-		if (prev[i] !== next[i]) return false;
-	}
-	return true;
-}
-
-function areGraphRefsEqual(prev: GitGraphRef[], next: GitGraphRef[]) {
-	if (prev.length !== next.length) return false;
-	for (let i = 0; i < prev.length; i++) {
-		const a = prev[i]!;
-		const b = next[i]!;
-		if (
-			a.fullName !== b.fullName ||
-			a.displayName !== b.displayName ||
-			a.kind !== b.kind ||
-			a.target !== b.target ||
-			a.remoteName !== b.remoteName ||
-			a.isHead !== b.isHead ||
-			a.worktreePath !== b.worktreePath ||
-			a.upstream !== b.upstream ||
-			a.ahead !== b.ahead ||
-			a.behind !== b.behind
-		) {
-			return false;
-		}
-	}
-	return true;
-}
-
-function areGraphDataEqual(prev: GraphData, next: GraphData) {
-	if (prev === next) return true;
-	if (prev.revision !== next.revision) return false;
-	if (JSON.stringify(prev.ancestry) !== JSON.stringify(next.ancestry))
-		return false;
-	if (prev.state !== next.state || prev.stateError !== next.stateError)
-		return false;
-	if (!prev.operation || !next.operation) return false;
-	if (
-		prev.operation.kind !== next.operation.kind ||
-		prev.operation.phase !== next.operation.phase ||
-		!areStringArraysEqual(prev.operation.conflicts, next.operation.conflicts)
-	)
-		return false;
-	if (prev.hasMore !== next.hasMore) return false;
-	if (JSON.stringify(prev.worktrees) !== JSON.stringify(next.worktrees))
-		return false;
-	if (JSON.stringify(prev.stashes) !== JSON.stringify(next.stashes))
-		return false;
-	if (prev.commits.length !== next.commits.length) return false;
-	for (let i = 0; i < prev.commits.length; i++) {
-		const a = prev.commits[i]!;
-		const b = next.commits[i]!;
-		if (
-			JSON.stringify(a.navigation) !== JSON.stringify(b.navigation) ||
-			a.id !== b.id ||
-			a.itemKind !== b.itemKind ||
-			a.hash !== b.hash ||
-			a.message !== b.message ||
-			a.body !== b.body ||
-			a.author !== b.author ||
-			a.authorEmail !== b.authorEmail ||
-			a.committer !== b.committer ||
-			a.committerEmail !== b.committerEmail ||
-			a.date !== b.date ||
-			a.authoredAt !== b.authoredAt ||
-			a.committedAt !== b.committedAt ||
-			a.column !== b.column ||
-			a.color !== b.color ||
-			!areStringArraysEqual(a.parents, b.parents) ||
-			!areGraphRefsEqual(a.refs, b.refs) ||
-			a.worktreePath !== b.worktreePath ||
-			a.stashName !== b.stashName
-		) {
-			return false;
-		}
-	}
-	if (prev.rows.length !== next.rows.length) return false;
-	for (let i = 0; i < prev.rows.length; i++) {
-		const a = prev.rows[i]!;
-		const b = next.rows[i]!;
-		if (a.row !== b.row || a.rails.length !== b.rails.length) return false;
-		for (let j = 0; j < a.rails.length; j++) {
-			const railA = a.rails[j]!;
-			const railB = b.rails[j]!;
-			if (
-				railA.column !== railB.column ||
-				railA.color !== railB.color ||
-				railA.startsAtNode !== railB.startsAtNode ||
-				railA.endsAtNode !== railB.endsAtNode
-			)
-				return false;
-		}
-		for (const [left, right] of [
-			[a.transitions, b.transitions],
-			[a.convergences, b.convergences],
-		] as const) {
-			if (left.length !== right.length) return false;
-			for (let j = 0; j < left.length; j++) {
-				const transitionA = left[j]!;
-				const transitionB = right[j]!;
-				if (
-					transitionA.fromColumn !== transitionB.fromColumn ||
-					transitionA.toColumn !== transitionB.toColumn ||
-					transitionA.color !== transitionB.color
-				) {
-					return false;
-				}
-			}
-		}
-		if (a.truncatedEdges.length !== b.truncatedEdges.length) return false;
-		for (let j = 0; j < a.truncatedEdges.length; j++) {
-			const edgeA = a.truncatedEdges[j]!;
-			const edgeB = b.truncatedEdges[j]!;
-			if (edgeA.column !== edgeB.column || edgeA.color !== edgeB.color)
-				return false;
-		}
-	}
-	return true;
-}
-
 export function useGitGraph(
 	cwd: string | undefined,
 	limit = DEFAULT_GIT_GRAPH_HISTORY_LIMIT,
@@ -463,7 +341,6 @@ export function useGitGraph(
 	} = usePollingQuery<GraphData>(fetchGraph, 3000, EMPTY_GRAPH, {
 		queryKey: ["git", "graph", cwd ?? "", limit, searchQuery],
 		enabled: !!cwd,
-		isEqual: areGraphDataEqual,
 	});
 	const updateWorktreeStatus = useCallback(
 		(cwd: string, update: (status: GitProjectStatus) => GitProjectStatus) => {
@@ -620,47 +497,6 @@ function commitDetailsFromWire(value: unknown): CommitDetails | null {
 	};
 }
 
-function areCommitDetailsEqual(
-	prev: CommitDetails | null,
-	next: CommitDetails | null,
-) {
-	if (prev === next) return true;
-	if (!prev || !next) return false;
-	if (
-		prev.hash !== next.hash ||
-		prev.message !== next.message ||
-		prev.author !== next.author ||
-		prev.authorEmail !== next.authorEmail ||
-		prev.authoredAt !== next.authoredAt ||
-		prev.committer !== next.committer ||
-		prev.committerEmail !== next.committerEmail ||
-		prev.committedAt !== next.committedAt ||
-		prev.body !== next.body ||
-		!areStringArraysEqual(prev.parents, next.parents) ||
-		prev.diffParent !== next.diffParent ||
-		!areGraphRefsEqual(prev.refs, next.refs) ||
-		JSON.stringify(prev.provider) !== JSON.stringify(next.provider) ||
-		prev.files.length !== next.files.length
-	) {
-		return false;
-	}
-	for (let i = 0; i < prev.files.length; i++) {
-		const a = prev.files[i]!;
-		const b = next.files[i]!;
-		if (
-			a.path !== b.path ||
-			a.originalPath !== b.originalPath ||
-			a.status !== b.status ||
-			a.additions !== b.additions ||
-			a.deletions !== b.deletions ||
-			a.binary !== b.binary
-		) {
-			return false;
-		}
-	}
-	return true;
-}
-
 export function useCommitDetails(
 	cwd: string | undefined,
 	hash: string | undefined,
@@ -695,7 +531,6 @@ export function useCommitDetails(
 				hash ?? "",
 				parent ?? "",
 			],
-			isEqual: areCommitDetailsEqual,
 			staleTime: 60_000,
 			gcTime: 5 * 60_000,
 		});

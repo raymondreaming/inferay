@@ -1,5 +1,5 @@
 import * as stylex from "@octanejs/stylex";
-import { memo, useCallback, useRef } from "octane";
+import { memo, useCallback } from "octane";
 import {
 	isChatAgentKind,
 	loadDefaultChatSettings,
@@ -30,11 +30,9 @@ interface PaneViewProps {
 	) => void;
 	onDirectoryCancel?: (paneId: string) => void;
 	chatRef: (paneId: string, handle: AgentChatHandle | null) => void;
-	onAgentStatusChange?: (paneId: string, status: string) => void;
 	paneIndex?: number;
 	onHeaderDragStart?: (e: PointerEvent, index: number) => void;
 	onHeaderDragEnd?: () => void;
-	onAddPane?: (agentKind: AgentKind) => void;
 	onSetPaneAgentKind?: (paneId: string, agentKind: AgentKind) => void;
 }
 
@@ -46,14 +44,11 @@ export const PaneView = memo(function PaneView({
 	onDirectorySelect,
 	onDirectoryCancel,
 	chatRef,
-	onAgentStatusChange,
 	paneIndex,
 	onHeaderDragStart,
 	onHeaderDragEnd,
-	onAddPane,
 	onSetPaneAgentKind,
 }: PaneViewProps) {
-	const chatHandleRef = useRef<AgentChatHandle | null>(null);
 	const viewAgentKind = isChatAgentKind(pane.agentKind)
 		? pane.agentKind
 		: loadDefaultChatSettings().agentKind;
@@ -75,7 +70,6 @@ export const PaneView = memo(function PaneView({
 	);
 	const handleChatRef = useCallback(
 		(handle: AgentChatHandle | null) => {
-			chatHandleRef.current = handle;
 			chatRef(pane.id, handle);
 		},
 		[chatRef, pane.id],
@@ -90,13 +84,11 @@ export const PaneView = memo(function PaneView({
 						cwd={pane.cwd}
 						referencePaths={pane.referencePaths}
 						agentKind={viewAgentKind}
-						onStatusChange={onAgentStatusChange}
 						onClose={onClose}
 						isSelected={isSelected}
 						isVisible={isVisible}
 						onDirectoryChange={handleDirectoryChange}
 						onDirectoryCancel={onDirectoryCancel}
-						onAddPane={onAddPane}
 						draggable={paneIndex != null && !!onHeaderDragStart}
 						onDragStart={handlePaneDragStart}
 						onDragEnd={onHeaderDragEnd}

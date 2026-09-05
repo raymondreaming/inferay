@@ -50,7 +50,6 @@ export interface WorkspaceCanvasProps {
 	) => void;
 	onDirectoryCancel: (paneId: string) => void;
 	onChatRef: (paneId: string, handle: AgentChatHandle | null) => void;
-	onAgentStatusChange?: (paneId: string, status: string) => void;
 	onReorderPanes?: (fromIndex: number, toIndex: number) => void;
 	onAddPane?: (agentKind: AgentKind) => void;
 	onSetPaneAgentKind?: (paneId: string, agentKind: AgentKind) => void;
@@ -76,11 +75,9 @@ export const paneViewProps = (
 	onDirectorySelect: p.onDirectorySelect,
 	onDirectoryCancel: p.onDirectoryCancel,
 	chatRef: p.onChatRef,
-	onAgentStatusChange: p.onAgentStatusChange,
 	paneIndex: idx,
 	onHeaderDragStart: onDragStart,
 	onHeaderDragEnd: onDragEnd,
-	onAddPane: p.onAddPane,
 	onSetPaneAgentKind: p.onSetPaneAgentKind,
 });
 

@@ -1,5 +1,4 @@
 import * as stylex from "@octanejs/stylex";
-import type { CSSProperties } from "react";
 import {
 	color,
 	controlSize,
@@ -53,15 +52,7 @@ export const styles = stylex.create({
 		justifyContent: "center",
 		padding: controlSize._0_5,
 	},
-	composerOnlyRoot: {
-		position: "absolute",
-		zIndex: layer.modal,
-		left: "50%",
-		bottom: controlSize._6,
-		width: "min(36rem, calc(100% - 2rem))",
-		height: "auto",
-		transform: "translateX(-50%)",
-	},
+
 	messageRegion: {
 		position: "relative",
 		flex: 1,
@@ -145,9 +136,3 @@ export const styles = stylex.create({
 		zIndex: layer.control,
 	},
 });
-
-export function getAgentChatViewRootStyle(
-	left: CSSProperties["left"],
-): CSSProperties {
-	return { left: left } as CSSProperties;
-}

@@ -1,4 +1,4 @@
-use crate::{utf16_length as javascript_length, utf16_slice as javascript_slice};
+use crate::utf16_length as javascript_length;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -30,19 +30,9 @@ pub struct CodexInvocationContext {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ProtocolEmission {
     Chat(Value),
-    UserInputAcknowledged {
-        text: String,
-    },
+    UserInputAcknowledged { text: String },
     FileChange(Vec<PathBuf>),
-    Status {
-        status: String,
-        is_loading: bool,
-    },
-    Activity {
-        tool_name: String,
-        summary: String,
-        is_streaming: bool,
-    },
+    Status { status: String, is_loading: bool },
     System(String),
     Session(String),
 }
@@ -93,16 +83,6 @@ impl ClaudeProtocolState {
             && let Some(text) = data["result"].as_str()
         {
             self.last_assistant_message = truncate_agent_result(text);
-        }
-        if data["type"] == "content_block_start" && data["content_block"]["type"] == "tool_use" {
-            let block = &data["content_block"];
-            let tool_name = block["name"].as_str().unwrap_or("tool");
-            let input = block.get("input").cloned().unwrap_or_else(|| json!({}));
-            context.emissions.push(ProtocolEmission::Activity {
-                tool_name: tool_name.into(),
-                summary: summarize_tool_input(tool_name, &input),
-                is_streaming: true,
-            });
         }
         if is_chat_stream_event(event) {
             context
@@ -172,8 +152,9 @@ impl CodexProtocolState {
                 let paths = file_change_paths(context, item);
                 self.active_patch_paths = paths.clone();
                 self.snapshot_paths(&paths);
-                let changes = item_record
-                    .and_then(|item| nullish_value(item.get("changes"), None))
+                let changes = item
+                    .get("changes")
+                    .filter(|value| !value.is_null())
                     .cloned()
                     .unwrap_or_else(|| json!(display_paths(&paths)));
                 let payload = json!({ "changes": changes });
@@ -194,11 +175,7 @@ impl CodexProtocolState {
                 self.active_patch_paths.clear();
             }
             ("item/completed", "agentMessage") => {
-                let text = item_record
-                    .map(|item| string_field(item, "text"))
-                    .filter(|text| !text.is_empty())
-                    .map(str::to_string)
-                    .unwrap_or_else(|| extract_text(item));
+                let text = extract_text(item);
                 if !text.is_empty() {
                     self.complete_assistant_message(context, &text);
                 }
@@ -217,20 +194,16 @@ impl CodexProtocolState {
             // It is input, not assistant output, and the chat runtime already
             // owns the canonical user transcript row.
             ("item/completed", "userMessage") => {
-                let text = item_record
-                    .map(|item| string_field(item, "text"))
-                    .filter(|text| !text.is_empty())
-                    .map(str::to_string)
-                    .unwrap_or_else(|| extract_text(item));
+                let text = extract_text(item);
                 if !text.is_empty() {
                     context
                         .emissions
                         .push(ProtocolEmission::UserInputAcknowledged { text });
                 }
             }
-            ("item/completed", _) if !item.is_null() && !extract_text(item).is_empty() => {
+            ("item/completed", _) if !item.is_null() => {
                 let text = extract_text(item);
-                if !self.saw_assistant_stream {
+                if !self.saw_assistant_stream && !text.is_empty() {
                     self.emit_result(context, &text);
                 }
             }
@@ -270,7 +243,7 @@ impl CodexProtocolState {
     }
 
     pub fn begin_tool(&mut self, context: &mut AgentProtocolContext, name: &str, input: Value) {
-        self.emit_tool_status_and_activity(context, name, &input);
+        self.emit_status(context, &format!("tool:{name}"), true);
         self.start_tool(context, name, input);
     }
 
@@ -403,20 +376,6 @@ impl CodexProtocolState {
         });
     }
 
-    fn emit_tool_status_and_activity(
-        &self,
-        context: &mut AgentProtocolContext,
-        tool_name: &str,
-        payload: &Value,
-    ) {
-        self.emit_status(context, &format!("tool:{tool_name}"), true);
-        context.emissions.push(ProtocolEmission::Activity {
-            tool_name: tool_name.into(),
-            summary: summarize_tool_input(tool_name, payload),
-            is_streaming: true,
-        });
-    }
-
     fn emit_command_output_delta(&mut self, context: &mut AgentProtocolContext, item: &Value) {
         let Some(item) = item.as_object() else { return };
         let next_output = string_field(item, "aggregatedOutput");
@@ -455,16 +414,13 @@ impl CodexProtocolState {
     }
 
     fn emit_live_diff_for_path(&mut self, context: &mut AgentProtocolContext, path: &Path) {
-        let before = self.file_snapshots.get(path).cloned().flatten();
+        let before = self.file_snapshots.remove(path).flatten();
         let after = read_snapshot(path);
         if let (Some(before), Some(after)) = (before.as_deref(), after.as_deref())
             && before != after
         {
             self.emit_edit_diff(context, path, before, after);
-            self.file_snapshots
-                .insert(path.to_path_buf(), Some(after.into()));
         }
-        self.file_snapshots.remove(path);
     }
 
     fn emit_edit_diff(
@@ -699,101 +655,8 @@ pub fn resolve_completed_codex_assistant_message(
     }
 }
 
-pub fn summarize_tool_input(tool_name: &str, input: &Value) -> String {
-    let action = tool_action_label(tool_name);
-    let Some(payload) = input.as_object() else {
-        return action;
-    };
-    let command = nullish_value(payload.get("command"), payload.get("cmd"));
-    if let Some(command) = command
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-    {
-        return format!("{action}: {}", trim_summary(command, 64));
-    }
-    if let Some(query) = payload
-        .get("query")
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-    {
-        return format!("{action}: {}", trim_summary(query, 64));
-    }
-    let path = nullish_value(
-        payload.get("path"),
-        nullish_value(payload.get("file"), payload.get("file_path")),
-    );
-    if let Some(path) = path
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-    {
-        return format!("{action}: {}", javascript_basename(path));
-    }
-    let files = nullish_value(payload.get("files"), payload.get("changes"));
-    let Some(files) = files
-        .and_then(Value::as_array)
-        .filter(|files| !files.is_empty())
-    else {
-        return action;
-    };
-    let first_path = match &files[0] {
-        Value::String(path) => Some(path.as_str()),
-        Value::Object(first) => nullish_value(
-            first.get("path"),
-            nullish_value(first.get("file"), first.get("file_path")),
-        )
-        .and_then(Value::as_str),
-        _ => None,
-    };
-    if let Some(first_path) = first_path.filter(|value| !value.is_empty()) {
-        let basename = javascript_basename(first_path);
-        let file_summary = if files.len() == 1 {
-            basename.to_string()
-        } else {
-            format!("{basename} +{}", files.len() - 1)
-        };
-        return format!("{action}: {file_summary}");
-    }
-    format!("{action}: {} changes", files.len())
-}
-
 pub fn truncate_agent_result(value: &str) -> String {
     truncate_chat_content(value, crate::chat_protocol::CHAT_SINGLE_MESSAGE_CHAR_LIMIT)
-}
-
-fn tool_action_label(tool_name: &str) -> String {
-    match tool_name.trim().to_lowercase().as_str() {
-        "exec" | "bash" | "command_execution" => "Running command".into(),
-        "patch" | "apply_patch" | "file_change" => "Applying changes".into(),
-        "web_search" | "websearch" | "webfetch" => "Searching web".into(),
-        "grep" | "glob" => "Searching files".into(),
-        "read" | "read_file" | "view" => "Reading".into(),
-        "edit" => "Editing".into(),
-        "write" => "Writing file".into(),
-        _ => format!("Using {tool_name}"),
-    }
-}
-
-fn trim_summary(value: &str, max: usize) -> String {
-    if javascript_length(value) > max {
-        format!("{}...", javascript_slice(value, 0, max))
-    } else {
-        value.into()
-    }
-}
-
-fn javascript_basename(value: &str) -> &str {
-    value
-        .rsplit('/')
-        .next()
-        .filter(|value| !value.is_empty())
-        .unwrap_or(value)
-}
-
-fn nullish_value<'a>(first: Option<&'a Value>, second: Option<&'a Value>) -> Option<&'a Value> {
-    match first {
-        Some(Value::Null) | None => second,
-        value => value,
-    }
 }
 
 #[cfg(test)]
@@ -803,15 +666,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn claude_tool_calls_keep_the_chat_and_activity_views_in_sync() {
+    fn claude_tool_calls_preserve_transcript_input() {
         let mut context = AgentProtocolContext::new("/tmp");
         ClaudeProtocolState::default().handle_event(&mut context, &json!({
             "type":"content_block_start", "index":2,
             "content_block":{"type":"tool_use", "name":"Edit", "input":{"file_path":"src/app.ts"}}
         }));
-        assert!(context.emissions.iter().any(|event| matches!(event,
-            ProtocolEmission::Activity {tool_name, summary, ..} if tool_name == "Edit" && summary == "Editing: app.ts"
-        )));
         assert!(context.emissions.iter().any(|event| matches!(event,
             ProtocolEmission::Chat(value) if value["content_block"]["input"]["file_path"] == "src/app.ts"
         )));
@@ -940,8 +800,8 @@ mod tests {
 
         assert!(context.emissions.iter().any(|emission| matches!(
             emission,
-            ProtocolEmission::Activity { tool_name, .. }
-                if tool_name == "patch"
+            ProtocolEmission::Status { status, is_loading: true }
+                if status == "tool:patch"
         )));
         assert!(context.emissions.iter().any(|emission| matches!(
             emission,
@@ -953,21 +813,5 @@ mod tests {
                     && event["content_block"]["input"]["new_string"]
                         == "fn answer() -> u8 { 42 }\n"
         )));
-    }
-
-    #[test]
-    fn summarizes_tool_inputs_with_the_existing_priority() {
-        assert_eq!(
-            summarize_tool_input("exec", &json!({ "command": "bun test", "path": "ignored" })),
-            "Running command: bun test"
-        );
-        assert_eq!(
-            summarize_tool_input("patch", &json!({ "changes": ["src/a.ts", "src/b.ts"] })),
-            "Applying changes: a.ts +1"
-        );
-        assert_eq!(
-            summarize_tool_input("custom", &json!({ "files": [1, 2] })),
-            "Using custom: 2 changes"
-        );
     }
 }

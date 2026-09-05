@@ -29,62 +29,12 @@ import { useChatComposerState } from "./useChatComposerState.tsx";
 export const ChatComposer = memo(function ChatComposer(
 	props: Parameters<typeof useChatComposerState>[0],
 ) {
-	const {
-		showInput,
-		input,
-		setInput,
-		attachedImages,
-		removeAttachedImage,
-		attachImage,
-		queuedMessages,
-		editingQueueId,
-		editingQueueText,
-		setEditingQueueText,
-		startQueuedMessageEdit,
-		cancelQueuedMessageEdit,
-		saveQueuedMessageEdit,
-		removeQueuedMessage,
-		fileMenu,
-		setFileMenu,
-		fileResults,
-		selectFile,
-		slashMenu,
-		setSlashMenu,
-		showCommands,
-		filteredCommands,
-		selectCommand,
-		handleInputForFileMenu,
-		handleInputForSlashMenu,
-		handleKeyDown,
-		handlePaste,
-		textareaRef,
-		highlightOverlayRef,
-		inputContainerRef,
-		mdPreview,
-		setMdPreview,
-		onMdFileClick,
-		voiceInput,
-		workspaceControl,
-		beamActive,
-		fileInputRef,
-		agentConfigControlsRef,
-		agentConfigButtonRef,
-		agentConfigMenuRef,
-		activeConfig,
-		setActiveConfig,
-		messageInputFocused,
-		setMessageInputFocused,
-		usePlainTextarea,
-		inputHighlights,
-		selectedModelLabel,
-		configControls,
-		activeControl,
-	} = useChatComposerState(props);
+	const view = useChatComposerState(props);
 	return (
 		<>
 			<input
 				type="file"
-				ref={fileInputRef}
+				ref={view.fileInputRef}
 				accept="image/*"
 				multiple
 				{...stylex.props(styles.hidden)}
@@ -92,19 +42,19 @@ export const ChatComposer = memo(function ChatComposer(
 					const files = Array.from(e.currentTarget.files || []).filter((file) =>
 						file.type.startsWith("image/"),
 					);
-					await Promise.all(files.map((file) => attachImage(file)));
+					await Promise.all(files.map((file) => view.attachImage(file)));
 					e.currentTarget.value = "";
 				}}
 			/>
 
-			{attachedImages.length > 0 && (
+			{view.attachedImages.length > 0 && (
 				<ComposerAttachments
-					attachedImages={attachedImages}
-					removeAttachedImage={removeAttachedImage}
+					attachedImages={view.attachedImages}
+					removeAttachedImage={view.removeAttachedImage}
 				/>
 			)}
 
-			{showInput && (
+			{
 				<div
 					{...stylex.props(styles.inputDock)}
 					className={`${stylex.props(styles.inputDock).className ?? ""} inferay-chat-composer`}
@@ -118,37 +68,36 @@ export const ChatComposer = memo(function ChatComposer(
 						className="inferay-message-liquid"
 					>
 						<Liquid.Item observe radius={12}>
-							<div
-								{...stylex.props(surfaceStyles.panel, styles.inputFrame)}
-								ref={inputContainerRef}
-							>
-								<BorderBeamOverlay active={beamActive || messageInputFocused} />
-								{fileMenu.show && fileResults.length > 0 && (
+							<div {...stylex.props(surfaceStyles.panel, styles.inputFrame)}>
+								<BorderBeamOverlay
+									active={view.beamActive || view.messageInputFocused}
+								/>
+								{view.fileMenu.show && view.fileResults.length > 0 && (
 									<FileMenu
-										fileMenu={fileMenu}
-										fileResults={fileResults}
-										selectFile={selectFile}
-										setFileMenu={setFileMenu}
+										fileMenu={view.fileMenu}
+										fileResults={view.fileResults}
+										selectFile={view.selectFile}
+										setFileMenu={view.setFileMenu}
 									/>
 								)}
-								{showCommands && (
+								{view.showCommands && (
 									<CommandMenu
-										filteredCommands={filteredCommands}
-										slashMenu={slashMenu}
-										selectCommand={selectCommand}
-										setSlashMenu={setSlashMenu}
+										filteredCommands={view.filteredCommands}
+										slashMenu={view.slashMenu}
+										selectCommand={view.selectCommand}
+										setSlashMenu={view.setSlashMenu}
 									/>
 								)}
-								{queuedMessages.length > 0 && (
+								{view.queuedMessages.length > 0 && (
 									<QueuedMessages
-										queuedMessages={queuedMessages}
-										editingQueueId={editingQueueId}
-										editingQueueText={editingQueueText}
-										setEditingQueueText={setEditingQueueText}
-										startQueuedMessageEdit={startQueuedMessageEdit}
-										cancelQueuedMessageEdit={cancelQueuedMessageEdit}
-										saveQueuedMessageEdit={saveQueuedMessageEdit}
-										removeQueuedMessage={removeQueuedMessage}
+										queuedMessages={view.queuedMessages}
+										editingQueueId={view.editingQueueId}
+										editingQueueText={view.editingQueueText}
+										setEditingQueueText={view.setEditingQueueText}
+										startQueuedMessageEdit={view.startQueuedMessageEdit}
+										cancelQueuedMessageEdit={view.cancelQueuedMessageEdit}
+										saveQueuedMessageEdit={view.saveQueuedMessageEdit}
+										removeQueuedMessage={view.removeQueuedMessage}
 									/>
 								)}
 
@@ -156,7 +105,7 @@ export const ChatComposer = memo(function ChatComposer(
 									<div {...stylex.props(styles.inputActions)}>
 										<IconButton
 											type="button"
-											onClick={() => fileInputRef.current?.click()}
+											onClick={() => view.fileInputRef.current?.click()}
 											variant="ghost"
 											size="md"
 											className={stylex.props(styles.noShrink).className}
@@ -164,44 +113,45 @@ export const ChatComposer = memo(function ChatComposer(
 										>
 											<IconPlus size={iconSize.xl} />
 										</IconButton>
-										{voiceInput && (
+										{view.voiceInput && (
 											<IconButton
 												type="button"
-												onClick={voiceInput.onToggleListening}
+												onClick={view.voiceInput.onToggleListening}
 												variant="ghost"
 												size="md"
 												className={
 													stylex.props(
 														styles.noShrink,
-														voiceInput.isListening &&
+														view.voiceInput.isListening &&
 															styles.voiceButtonListening,
-														!voiceInput.isListening && voiceInput.error
+														!view.voiceInput.isListening &&
+															view.voiceInput.error
 															? styles.voiceButtonError
 															: null,
 													).className
 												}
 												title={
-													voiceInput.error && !voiceInput.isListening
-														? voiceInput.error
-														: voiceInput.isSupported
-															? voiceInput.isListening
+													view.voiceInput.error && !view.voiceInput.isListening
+														? view.voiceInput.error
+														: view.voiceInput.isSupported
+															? view.voiceInput.isListening
 																? "Stop voice input"
 																: "Start voice input"
 															: "Voice input is not supported in this browser"
 												}
 												aria-label={
-													voiceInput.isListening
+													view.voiceInput.isListening
 														? "Stop voice input"
-														: voiceInput.error
-															? voiceInput.error
+														: view.voiceInput.error
+															? view.voiceInput.error
 															: "Start voice input"
 												}
-												aria-pressed={voiceInput.isListening}
-												disabled={!voiceInput.isSupported}
+												aria-pressed={view.voiceInput.isListening}
+												disabled={!view.voiceInput.isSupported}
 											>
-												{voiceInput.isListening ? (
+												{view.voiceInput.isListening ? (
 													<IconStop size={iconSize._2md} />
-												) : voiceInput.error ? (
+												) : view.voiceInput.error ? (
 													<IconAlertTriangle size={iconSize._2lg} />
 												) : (
 													<IconMic size={iconSize.xl} />
@@ -214,39 +164,39 @@ export const ChatComposer = memo(function ChatComposer(
 										{...stylex.props(styles.textAreaWrap)}
 										style={inlineStyles.getChatComposerTextAreaWrapStyle()}
 									>
-										{!usePlainTextarea && (
+										{!view.usePlainTextarea && (
 											<div
-												ref={highlightOverlayRef}
+												ref={view.highlightOverlayRef}
 												{...stylex.props(styles.highlightOverlay)}
 												style={inlineStyles.getChatComposerHighlightOverlayStyle()}
 												aria-hidden="true"
 											>
-												{inputHighlights}
+												{view.inputHighlights}
 											</div>
 										)}
 										<textarea
-											ref={textareaRef}
-											value={input}
-											onFocus={() => setMessageInputFocused(true)}
-											onBlur={() => setMessageInputFocused(false)}
+											ref={view.textareaRef}
+											value={view.input}
+											onFocus={() => view.setMessageInputFocused(true)}
+											onBlur={() => view.setMessageInputFocused(false)}
 											onInput={(e) => {
 												const val = e.currentTarget.value;
-												setInput(val);
+												view.setInput(val);
 												const cursor =
 													e.currentTarget.selectionStart ?? val.length;
-												handleInputForFileMenu(val, cursor);
-												handleInputForSlashMenu(val, cursor);
-												if (highlightOverlayRef.current) {
-													highlightOverlayRef.current.style.transform = `translateY(-${e.currentTarget.scrollTop}px)`;
+												view.handleInputForFileMenu(val, cursor);
+												view.handleInputForSlashMenu(val, cursor);
+												if (view.highlightOverlayRef.current) {
+													view.highlightOverlayRef.current.style.transform = `translateY(-${e.currentTarget.scrollTop}px)`;
 												}
 											}}
 											onScroll={(e) => {
-												if (highlightOverlayRef.current) {
-													highlightOverlayRef.current.style.transform = `translateY(-${e.currentTarget.scrollTop}px)`;
+												if (view.highlightOverlayRef.current) {
+													view.highlightOverlayRef.current.style.transform = `translateY(-${e.currentTarget.scrollTop}px)`;
 												}
 											}}
-											onKeyDown={handleKeyDown}
-											onPaste={handlePaste}
+											onKeyDown={view.handleKeyDown}
+											onPaste={view.handlePaste}
 											placeholder="Message… (/ commands, @ files)"
 											rows={1}
 											aria-label="Message input"
@@ -255,10 +205,10 @@ export const ChatComposer = memo(function ChatComposer(
 											autoCapitalize="sentences"
 											{...stylex.props(styles.textarea)}
 											style={inlineStyles.getChatComposerTextareaStyle(
-												usePlainTextarea
+												view.usePlainTextarea
 													? runtimeColor.textMain
 													: "transparent",
-												usePlainTextarea
+												view.usePlainTextarea
 													? runtimeColor.textMain
 													: "transparent",
 											)}
@@ -266,34 +216,34 @@ export const ChatComposer = memo(function ChatComposer(
 									</div>
 								</div>
 								<ComposerControls
-									agentConfigControlsRef={agentConfigControlsRef}
-									configControls={configControls}
-									activeConfig={activeConfig}
-									selectedModelLabel={selectedModelLabel}
-									agentConfigButtonRef={agentConfigButtonRef}
-									setActiveConfig={setActiveConfig}
-									workspaceControl={workspaceControl}
+									agentConfigControlsRef={view.agentConfigControlsRef}
+									configControls={view.configControls}
+									activeConfig={view.activeConfig}
+									selectedModelLabel={view.selectedModelLabel}
+									agentConfigButtonRef={view.agentConfigButtonRef}
+									setActiveConfig={view.setActiveConfig}
+									workspaceControl={view.workspaceControl}
 								/>
 							</div>
 						</Liquid.Item>
 					</Liquid>
 				</div>
-			)}
+			}
 
-			{showInput && activeControl && (
+			{view.activeControl && (
 				<ProviderConfigMenu
-					agentConfigMenuRef={agentConfigMenuRef}
-					activeControl={activeControl}
-					setActiveConfig={setActiveConfig}
-					agentConfigButtonRef={agentConfigButtonRef}
+					agentConfigMenuRef={view.agentConfigMenuRef}
+					activeControl={view.activeControl}
+					setActiveConfig={view.setActiveConfig}
+					agentConfigButtonRef={view.agentConfigButtonRef}
 				/>
 			)}
 
-			{mdPreview.show && (
+			{view.mdPreview.show && (
 				<MarkdownPreviewDialog
-					setMdPreview={setMdPreview}
-					mdPreview={mdPreview}
-					onMdFileClick={onMdFileClick}
+					setMdPreview={view.setMdPreview}
+					mdPreview={view.mdPreview}
+					onMdFileClick={view.onMdFileClick}
 				/>
 			)}
 		</>

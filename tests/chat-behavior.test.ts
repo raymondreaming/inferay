@@ -4,18 +4,13 @@ import {
 	appendTrimmedMessage,
 	CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
 	type ChatMessage,
-	type ToolActivity,
 	trimMessages,
 	truncateChatContent,
 } from "../src/modules/conversation/model/agent-chat-shared.ts";
-import {
-	appendLiveToolActivity,
-	clearCompletedChatUiState,
-} from "../src/modules/conversation/model/chat-agent-utils.ts";
+import { clearCompletedChatUiState } from "../src/modules/conversation/model/chat-agent-utils.ts";
 import {
 	appendBtwQuestionMessage,
 	appendMessageContent,
-	appendSystemMessage,
 	applyPendingMessageContent,
 	createBtwQuestionMessage,
 	finishBtwMessage,
@@ -183,50 +178,13 @@ describe("chat data behavior", () => {
 		expect(finishBtwMessage([btw], null, "ignored")).toEqual([btw]);
 	});
 
-	test("projects live activity ui state without duplicating adjacent updates", () => {
-		const initial: {
-			expandedTools: Set<string>;
-			liveActivities: ToolActivity[];
-		} = {
-			expandedTools: new Set(["kept", "removed"]),
-			liveActivities: [],
-		};
-		const first = appendLiveToolActivity(
-			{ toolName: "Read", summary: "src/app.ts" },
-			initial,
-		);
-		expect(first.liveActivities).toEqual([
-			{
-				id: "Read-0",
-				toolName: "Read",
-				summary: "src/app.ts",
-				isStreaming: true,
-			},
-		]);
-		expect(
-			appendLiveToolActivity(
-				{ toolName: "Read", summary: "src/app.ts" },
-				first,
-			),
-		).toBe(first);
-
-		let cappedState: {
-			expandedTools: Set<string>;
-			liveActivities: ToolActivity[];
-		} = { expandedTools: new Set(), liveActivities: [] };
-		for (let index = 0; index < 501; index++) {
-			cappedState = appendLiveToolActivity(
-				{ toolName: "Tool", summary: `step ${index}` },
-				cappedState,
-			);
-		}
-		expect(cappedState.liveActivities).toHaveLength(500);
-		expect(cappedState.liveActivities[0]?.summary).toBe("step 1");
-		expect(cappedState.liveActivities.at(-1)?.id).toBe("Tool-500");
-
-		const completed = clearCompletedChatUiState(new Set(["kept"]), first);
+	test("prunes expansion state for completed messages", () => {
+		const initial = { expandedTools: new Set(["kept", "removed"]) };
+		const completed = clearCompletedChatUiState(new Set(["kept"]), initial);
 		expect([...completed.expandedTools]).toEqual(["kept"]);
-		expect(completed.liveActivities).toEqual([]);
+		expect(
+			clearCompletedChatUiState(new Set(["kept"]), completed).expandedTools,
+		).toBe(completed.expandedTools);
 	});
 
 	/*

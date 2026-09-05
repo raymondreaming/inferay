@@ -1,15 +1,13 @@
 import { JSDOM } from "jsdom";
-import { createRoot, useCallback, useMemo, useRef, useState } from "octane";
+import { createRoot, useMemo, useState } from "octane";
 import { expect, test, vi } from "vitest";
 import type {
 	ChatLoadingState,
 	ChatMessage,
-	ToolActivity,
 } from "../src/modules/conversation/model/agent-chat-shared.ts";
 
 type ChatActivityUiState = {
 	expandedTools: Set<string>;
-	liveActivities: ToolActivity[];
 };
 
 const mock = Object.assign(vi.fn, {
@@ -72,7 +70,6 @@ test("hidden chat views do not own websocket reconnects", async () => {
 	function Harness({ enabled }: { enabled: boolean }) {
 		const [, setUiState] = useState<ChatActivityUiState>({
 			expandedTools: new Set(),
-			liveActivities: [],
 		});
 		const messageReadModel = useMemo(
 			() => ({
@@ -165,7 +162,6 @@ async function mountNativeChat(paneId: string, initial: ChatMessage[] = []) {
 	function Harness() {
 		const [, setChatUiState] = useState<ChatActivityUiState>({
 			expandedTools: new Set(),
-			liveActivities: [],
 		});
 		useChatConnection({
 			paneId,

@@ -33,10 +33,6 @@ export type AgentPersistenceArgs = AgentAppearance & {
 	readonly groups: AgentSavedState["groups"];
 	readonly latestStateRef: MutableRef<AgentSavedState>;
 	readonly mainView: AgentMainView;
-	readonly mainViewHealthRef: MutableRef<{
-		timestamp: number | null;
-		view: AgentMainView;
-	}>;
 	readonly mainViewRef: MutableRef<AgentMainView>;
 	readonly restoreSavedState: (state: AgentSavedState | null) => void;
 	readonly selectedGroupId: GroupId | null;

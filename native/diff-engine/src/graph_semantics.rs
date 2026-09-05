@@ -199,37 +199,33 @@ fn terms(query: &str) -> Vec<(String, String)> {
 
 fn matches(commit: &crate::GraphCommit, terms: &[(String, String)]) -> bool {
     terms.iter().all(|(field, value)| {
-        let refs: Vec<_> = commit
-            .refs
-            .iter()
-            .flat_map(|r| [r.display_name.as_str(), r.full_name.as_str()])
-            .collect();
-        let candidates: Vec<&str> = match field.as_str() {
-            "author" => vec![&commit.author, &commit.author_email],
-            "committer" => vec![&commit.committer, &commit.committer_email],
-            "message" => vec![&commit.message, &commit.body],
-            "ref" => refs,
-            "sha" => vec![&commit.hash],
-            _ => [
-                &[
-                    commit.hash.as_str(),
-                    &commit.message,
-                    &commit.body,
-                    &commit.author,
-                    &commit.author_email,
-                    &commit.committer,
-                    &commit.committer_email,
-                    &commit.date,
-                    &commit.authored_at,
-                    &commit.committed_at,
-                ][..],
-                refs.as_slice(),
-            ]
-            .concat(),
+        let candidates: &[&str] = match field.as_str() {
+            "author" => &[&commit.author, &commit.author_email],
+            "committer" => &[&commit.committer, &commit.committer_email],
+            "message" => &[&commit.message, &commit.body],
+            "ref" => &[],
+            "sha" => &[&commit.hash],
+            _ => &[
+                &commit.hash,
+                &commit.message,
+                &commit.body,
+                &commit.author,
+                &commit.author_email,
+                &commit.committer,
+                &commit.committer_email,
+                &commit.date,
+                &commit.authored_at,
+                &commit.committed_at,
+            ],
         };
         candidates
             .iter()
             .any(|candidate| candidate.to_lowercase().contains(value))
+            || (matches!(field.as_str(), "" | "ref")
+                && commit.refs.iter().any(|reference| {
+                    reference.display_name.to_lowercase().contains(value)
+                        || reference.full_name.to_lowercase().contains(value)
+                }))
     })
 }
 

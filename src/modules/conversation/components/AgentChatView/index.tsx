@@ -21,11 +21,7 @@ import { useAgentChatMenus } from "../../hooks/useAgentChatMenus.tsx";
 import { useChatConnection } from "../../hooks/useChatConnection.ts";
 import { useChatInputActions } from "../../hooks/useChatInputActions.tsx";
 import { useSpeechToText } from "../../hooks/useSpeechToText.tsx";
-import type {
-	AttachedImageInfo,
-	QueuedMessageInfo,
-	ToolActivity,
-} from "../../model/agent-chat-shared.ts";
+
 import {
 	loadStoredInput,
 	saveStoredInput,
@@ -34,16 +30,12 @@ import {
 	appendSystemMessage,
 	windowChatMessagesForRender,
 } from "../../model/chat-state-utils.ts";
-import {
-	type AgentChatSession,
-	AgentWorkspaceControl,
-} from "../AgentChatHeader/index.tsx";
+import { AgentWorkspaceControl } from "../AgentChatHeader/index.tsx";
 import { AgentChatStatusBar } from "../AgentChatStatusBar/index.tsx";
 import { AgentContextPanel } from "../AgentContextPanel/index.tsx";
 import { ChatComposer } from "../ChatComposer/index.tsx";
 import { ChatMessageList } from "../ChatMessageList/index.tsx";
 import { DirectoryPickerModal } from "./DirectoryPickerModal.tsx";
-import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 import { useAgentChatSettings } from "./useAgentChatSettings.ts";
 import { useChatUiState } from "./useChatUiState.ts";
@@ -53,42 +45,24 @@ import { usePersistentChatMessages } from "./usePersistentChatMessages.ts";
 import { useStableCallback } from "./useStableCallback.ts";
 
 export interface AgentChatHandle {
-	sendMessage: (text: string) => void;
-	sendMessageWithImages: (text: string, images?: string[]) => void;
-	getStatus: () => string;
 	focusInput: (atEnd?: boolean) => void;
 	highlightComposer: () => void;
-	getToolActivities: () => ToolActivity[];
-	getQueuedCount: () => number;
-	getQueuedMessages: () => QueuedMessageInfo[];
-	removeQueuedMessage: (id: string) => void;
-	updateQueuedMessage: (id: string, text: string) => void;
-	stopGeneration: () => void;
-	isLoading: () => boolean;
-	getAttachedImages: () => AttachedImageInfo[];
-	attachImageFile: (file: File) => Promise<void>;
-	removeAttachedImage: (path: string) => void;
 }
 
 export interface AgentChatViewProps {
 	paneId: string;
 	cwd?: string;
 	referencePaths?: string[];
-	showInput?: boolean;
+
 	agentKind?: AgentKind;
-	onStatusChange?: (paneId: string, status: string) => void;
-	hideHeader?: boolean;
+
 	onClose?: (paneId: string) => void;
 	isSelected?: boolean;
 	isVisible?: boolean;
 	draggable?: boolean;
 	onDragStart?: (e: PointerEvent) => void;
 	onDragEnd?: () => void;
-	sessions?: AgentChatSession[];
-	onSelectSession?: (paneId: string) => void;
-	composerOnly?: boolean;
-	composerOnlyOffsetX?: number;
-	onExitComposerOnly?: () => void;
+
 	/** Called when user picks directories from empty state picker */
 	onDirectoryChange?: (
 		paneId: string,
@@ -96,8 +70,7 @@ export interface AgentChatViewProps {
 		referencePaths?: string[],
 	) => void;
 	onDirectoryCancel?: (paneId: string) => void;
-	/** Called when user wants to add a new pane of a specific agent kind */
-	onAddPane?: (agentKind: AgentKind) => void;
+
 	ref?: React.Ref<AgentChatHandle>;
 }
 
@@ -105,29 +78,24 @@ export const AgentChatView = memo(function AgentChatView({
 	paneId,
 	cwd,
 	referencePaths,
-	showInput = true,
+
 	agentKind = loadDefaultChatSettings().agentKind,
-	onStatusChange,
-	hideHeader,
+
 	onClose,
 	isSelected,
 	isVisible = true,
 	draggable,
 	onDragStart,
 	onDragEnd,
-	sessions,
-	onSelectSession,
-	composerOnly = false,
-	composerOnlyOffsetX = 0,
-	onExitComposerOnly,
+
 	onDirectoryChange,
 	onDirectoryCancel,
 	ref,
 }: AgentChatViewProps) {
-	const renderVisibleChat = composerOnly || isVisible;
+	const renderVisibleChat = isVisible;
 	const [isContextOpen, setIsContextOpen] = useState(false);
 	const [isAgentConfigOpen, setIsAgentConfigOpen] = useState(false);
-	const { getToolActivities, messageReadModel, messages, setMessages } =
+	const { messageReadModel, messages, setMessages } =
 		usePersistentChatMessages(paneId);
 	const visibleMessages = useMemo(
 		() => windowChatMessagesForRender(messages),
@@ -171,15 +139,13 @@ export const AgentChatView = memo(function AgentChatView({
 		isSupported: isSpeechSupported,
 		toggleListening: toggleSpeechListening,
 	} = useSpeechToText({
-		enabled: renderVisibleChat && showInput,
+		enabled: renderVisibleChat,
 		value: input,
 		onChange: setInput,
 	});
 	const { chatUiState, setChatUiState, setExpandedTools, setRunStatus } =
-		useChatUiState(paneId, onStatusChange);
-	const { isLoading, status, startTime, expandedTools } = chatUiState;
-	const inputContainerRef = useRef<HTMLDivElement | null>(null);
-	const containerRef = useRef<HTMLDivElement | null>(null);
+		useChatUiState(paneId);
+	const { isLoading, startTime, expandedTools } = chatUiState;
 	const imageDragDepthRef = useRef(0);
 	const [isImageDragActive, setIsImageDragActive] = useState(false);
 	const [composerBeamActive, setComposerBeamActive] = useState(false);
@@ -246,7 +212,6 @@ export const AgentChatView = memo(function AgentChatView({
 		resolveSteeringMessage,
 		stageSteeringMessage,
 		removeQueuedMessage,
-		updateQueuedMessage,
 		editingQueueId,
 		editingQueueText,
 		setEditingQueueText,
@@ -283,8 +248,6 @@ export const AgentChatView = memo(function AgentChatView({
 		input,
 		setInput,
 		textareaRef,
-		inputContainerRef,
-		containerRef,
 	});
 	const { checkpoints, clearCheckpoints, resetStreamState, revertCheckpoint } =
 		useChatConnection({
@@ -306,7 +269,7 @@ export const AgentChatView = memo(function AgentChatView({
 		cancelSpeechListening,
 		clearAttachedImages,
 		clearCheckpoints,
-		composerOnly,
+
 		consumePendingWorkspace,
 		cwd,
 		effectiveSelectedModel,
@@ -320,7 +283,7 @@ export const AgentChatView = memo(function AgentChatView({
 			scheduleScrollToBottom("auto");
 		},
 		onExit: onClose ? () => onClose(paneId) : undefined,
-		onExitComposerOnly,
+
 		paneId,
 		referencePaths,
 		selectCommand,
@@ -349,56 +312,16 @@ export const AgentChatView = memo(function AgentChatView({
 	useImperativeHandle(
 		ref,
 		() => ({
-			sendMessage: (text: string) => {
-				const trimmed = text.trim();
-				if (!trimmed) return;
-				sendUserMessage({ text: trimmed });
-			},
-			sendMessageWithImages: (text: string, images?: string[]) => {
-				const trimmed = text.trim();
-				if (!trimmed) return;
-				sendUserMessage({ images, text: trimmed });
-			},
-			getStatus: () => status,
 			focusInput: (atEnd?: boolean) => {
-				const ta = textareaRef.current;
-				if (!ta) return;
-				ta.focus();
-				if (atEnd) ta.setSelectionRange(ta.value.length, ta.value.length);
+				const input = textareaRef.current;
+				if (!input) return;
+				input.focus();
+				if (atEnd)
+					input.setSelectionRange(input.value.length, input.value.length);
 			},
 			highlightComposer,
-			getToolActivities,
-			getQueuedCount: () => queuedMessages.length,
-			getQueuedMessages: () =>
-				queuedMessages.map((queued) => ({
-					id: queued.id,
-					text: queued.text,
-					displayText: queued.displayText,
-					images: queued.images,
-				})),
-			removeQueuedMessage,
-			updateQueuedMessage,
-			stopGeneration,
-			isLoading: () => isLoading,
-			getAttachedImages: () => [...attachedImages],
-			attachImageFile: attachImage,
-			removeAttachedImage,
 		}),
-		[
-			attachImage,
-			attachedImages,
-			isLoading,
-			getToolActivities,
-			highlightComposer,
-			queuedMessages,
-			removeAttachedImage,
-			removeQueuedMessage,
-			sendUserMessage,
-			status,
-			stopGeneration,
-			textareaRef,
-			updateQueuedMessage,
-		],
+		[textareaRef, highlightComposer],
 	);
 
 	const toggleTool = useCallback(
@@ -423,15 +346,7 @@ export const AgentChatView = memo(function AgentChatView({
 
 	return (
 		<div
-			ref={containerRef}
-			{...stylex.props(styles.root, composerOnly && styles.composerOnlyRoot)}
-			style={
-				composerOnly
-					? inlineStyles.getAgentChatViewRootStyle(
-							`calc(50% + ${composerOnlyOffsetX}px)`,
-						)
-					: undefined
-			}
+			{...stylex.props(styles.root)}
 			onDragEnter={(event) => {
 				const transfer = event.dataTransfer;
 				if (!transfer) return;
@@ -464,7 +379,7 @@ export const AgentChatView = memo(function AgentChatView({
 				void handleDrop(event);
 			}}
 		>
-			{renderVisibleChat && !hideHeader && !composerOnly && draggable && (
+			{renderVisibleChat && draggable && (
 				<div {...stylex.props(styles.dragReveal)}>
 					<div {...stylex.props(styles.dragRevealSurface)}>
 						<WorkspaceDockHandle
@@ -475,14 +390,14 @@ export const AgentChatView = memo(function AgentChatView({
 					</div>
 				</div>
 			)}
-			{renderVisibleChat && !composerOnly && isContextOpen && (
+			{renderVisibleChat && isContextOpen && (
 				<AgentContextPanel
 					paneId={paneId}
 					cwd={visibleCwd}
 					onClose={() => setIsContextOpen(false)}
 				/>
 			)}
-			{renderVisibleChat && !composerOnly && !isContextOpen && (
+			{renderVisibleChat && !isContextOpen && (
 				<div {...stylex.props(styles.messageRegion)}>
 					<div
 						ref={scrollRef}
@@ -575,7 +490,6 @@ export const AgentChatView = memo(function AgentChatView({
 						{configurationError && <div role="alert">{configurationError}</div>}
 						{queueError && <div role="alert">{queueError}</div>}
 						<ChatComposer
-							showInput={showInput}
 							beamActive={composerBeamActive}
 							agentKind={agentKind}
 							agentKindOptions={agentKindOptions}
@@ -614,22 +528,16 @@ export const AgentChatView = memo(function AgentChatView({
 							handlePaste={handlePaste}
 							textareaRef={textareaRef}
 							highlightOverlayRef={highlightOverlayRef}
-							inputContainerRef={inputContainerRef}
 							mdPreview={mdPreview}
 							setMdPreview={setMdPreview}
 							onMdFileClick={handleMdFileClick}
 							voiceInput={voiceInput}
 							workspaceControl={
-								!hideHeader && !composerOnly ? (
-									<AgentWorkspaceControl
-										paneId={paneId}
-										cwd={visibleCwd}
-										sessions={sessions}
-										onSelectSession={onSelectSession}
-										onAgentContext={() => setIsContextOpen((open) => !open)}
-										isAgentContextOpen={isContextOpen}
-									/>
-								) : null
+								<AgentWorkspaceControl
+									cwd={visibleCwd}
+									onAgentContext={() => setIsContextOpen((open) => !open)}
+									isAgentContextOpen={isContextOpen}
+								/>
 							}
 						/>
 					</div>

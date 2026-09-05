@@ -1,8 +1,5 @@
-import * as stylex from "@octanejs/stylex";
-import * as inlineStyles from "./styles.ts";
-
-import { styles } from "./styles.ts";
-
+import { ContextMenu, type ContextMenuEntry } from "./ContextMenu.tsx";
+import type { GitGraphActionRequest } from "./graph-preferences.ts";
 import type { useCommitGraphState } from "./useCommitGraphState.tsx";
 
 type RefContextMenuProps = {
@@ -37,253 +34,84 @@ export function RefContextMenu({
 	pinnedRefs,
 	setHiddenRefs,
 }: RefContextMenuProps) {
+	const ref = refContextMenu.ref;
+	const entries: ContextMenuEntry[] = [];
+	const add = (label: string, run: () => void) => entries.push({ label, run });
+	const action = (
+		label: string,
+		action: GitGraphActionRequest["action"],
+		extra: Partial<GitGraphActionRequest> = {},
+	) =>
+		add(label, () =>
+			onGraphAction?.({
+				action,
+				target: ref.displayName,
+				itemId: ref.target,
+				...extra,
+			}),
+		);
+	const local =
+		(ref.kind === "head" || ref.kind === "localBranch") &&
+		ref.fullName.startsWith("refs/heads/");
+	if (local) {
+		add(`Checkout ${ref.displayName}`, () => onCheckoutRef?.(ref.displayName));
+		if (branch && ref.displayName !== branch)
+			add(`Merge or rebase with ${branch}…`, () =>
+				onRefDrop?.(ref.displayName, branch),
+			);
+		action("Rename branch…", "renameBranch");
+		if (ref.kind === "localBranch") action("Delete branch…", "deleteBranch");
+		action("Set or change upstream…", "setUpstream", {
+			suggestedName: ref.upstream,
+		});
+		if (ref.displayName === branch) {
+			if (ref.upstream) action("Force push with lease…", "forcePushWithLease");
+			else
+				action("Push and set upstream…", "pushSetUpstream", {
+					suggestedName: defaultRemoteName,
+				});
+		}
+	}
+	if (ref.kind === "remoteBranch")
+		action("Delete remote branch…", "deleteRemoteBranch", {
+			target: ref.fullName,
+		});
+	if (ref.kind === "tag") {
+		for (const [label, name] of [
+			["Push tag…", "pushTag"],
+			["Delete remote tag…", "deleteRemoteTag"],
+			["Delete local tag…", "deleteTag"],
+		] as const)
+			action(label, name, { suggestedName: defaultRemoteName });
+	}
+	const toggle = (current: string[]) =>
+		current.includes(ref.fullName)
+			? current.filter((value) => value !== ref.fullName)
+			: [...current, ref.fullName];
+	add(soloRefs.includes(ref.fullName) ? "Stop soloing ref" : "Solo ref", () =>
+		setSoloRefs(toggle),
+	);
+	if (ref.kind !== "stash")
+		add(
+			pinnedRefs.includes(ref.fullName) ? "Unpin lane" : "Pin lane left",
+			() => setPinnedRefs(toggle),
+		);
+	add("Hide ref", () => {
+		setHiddenRefs((current) =>
+			current.includes(ref.fullName) ? current : [...current, ref.fullName],
+		);
+		setSoloRefs((current) => current.filter((value) => value !== ref.fullName));
+	});
+	add("Copy ref name", () => {
+		void navigator.clipboard.writeText(ref.fullName);
+	});
 	return (
-		<div
-			role="menu"
-			aria-label={`Actions for ${refContextMenu.ref.displayName}`}
-			{...stylex.props(styles.refContextMenu)}
-			style={inlineStyles.getCommitGraphRefContextMenuStyle(
-				refContextMenu.x,
-				refContextMenu.y,
-			)}
-			onPointerDown={(event) => event.stopPropagation()}
-		>
-			<div {...stylex.props(styles.refContextTitle)}>
-				{refContextMenu.ref.displayName}
-			</div>
-			{(refContextMenu.ref.kind === "head" ||
-				refContextMenu.ref.kind === "localBranch") &&
-			refContextMenu.ref.fullName.startsWith("refs/heads/") ? (
-				<button
-					type="button"
-					role="menuitem"
-					onClick={() => {
-						onCheckoutRef?.(refContextMenu.ref.displayName);
-						setRefContextMenu(null);
-					}}
-					{...stylex.props(styles.refContextItem)}
-				>
-					Checkout {refContextMenu.ref.displayName}
-				</button>
-			) : null}
-			{branch &&
-			(refContextMenu.ref.kind === "head" ||
-				refContextMenu.ref.kind === "localBranch") &&
-			refContextMenu.ref.fullName.startsWith("refs/heads/") &&
-			refContextMenu.ref.displayName !== branch ? (
-				<button
-					type="button"
-					role="menuitem"
-					onClick={() => {
-						onRefDrop?.(refContextMenu.ref.displayName, branch);
-						setRefContextMenu(null);
-					}}
-					{...stylex.props(styles.refContextItem)}
-				>
-					Merge or rebase with {branch}…
-				</button>
-			) : null}
-			{(refContextMenu.ref.kind === "head" ||
-				refContextMenu.ref.kind === "localBranch") &&
-			refContextMenu.ref.fullName.startsWith("refs/heads/") ? (
-				<>
-					<button
-						type="button"
-						role="menuitem"
-						onClick={() => {
-							onGraphAction?.({
-								action: "renameBranch",
-								target: refContextMenu.ref.displayName,
-								itemId: refContextMenu.ref.target,
-							});
-							setRefContextMenu(null);
-						}}
-						{...stylex.props(styles.refContextItem)}
-					>
-						Rename branch…
-					</button>
-					{refContextMenu.ref.kind === "localBranch" ? (
-						<button
-							type="button"
-							role="menuitem"
-							onClick={() => {
-								onGraphAction?.({
-									action: "deleteBranch",
-									target: refContextMenu.ref.displayName,
-									itemId: refContextMenu.ref.target,
-								});
-								setRefContextMenu(null);
-							}}
-							{...stylex.props(styles.refContextItem)}
-						>
-							Delete branch…
-						</button>
-					) : null}
-					<button
-						type="button"
-						role="menuitem"
-						onClick={() => {
-							onGraphAction?.({
-								action: "setUpstream",
-								target: refContextMenu.ref.displayName,
-								itemId: refContextMenu.ref.target,
-								suggestedName: refContextMenu.ref.upstream,
-							});
-							setRefContextMenu(null);
-						}}
-						{...stylex.props(styles.refContextItem)}
-					>
-						Set or change upstream…
-					</button>
-					{refContextMenu.ref.displayName === branch &&
-					!refContextMenu.ref.upstream ? (
-						<button
-							type="button"
-							role="menuitem"
-							onClick={() => {
-								onGraphAction?.({
-									action: "pushSetUpstream",
-									target: refContextMenu.ref.displayName,
-									itemId: refContextMenu.ref.target,
-									suggestedName: defaultRemoteName,
-								});
-								setRefContextMenu(null);
-							}}
-							{...stylex.props(styles.refContextItem)}
-						>
-							Push and set upstream…
-						</button>
-					) : null}
-					{refContextMenu.ref.displayName === branch &&
-					refContextMenu.ref.upstream ? (
-						<button
-							type="button"
-							role="menuitem"
-							onClick={() => {
-								onGraphAction?.({
-									action: "forcePushWithLease",
-									target: refContextMenu.ref.displayName,
-									itemId: refContextMenu.ref.target,
-								});
-								setRefContextMenu(null);
-							}}
-							{...stylex.props(styles.refContextItem)}
-						>
-							Force push with lease…
-						</button>
-					) : null}
-				</>
-			) : null}
-			{refContextMenu.ref.kind === "remoteBranch" ? (
-				<button
-					type="button"
-					role="menuitem"
-					onClick={() => {
-						onGraphAction?.({
-							action: "deleteRemoteBranch",
-							target: refContextMenu.ref.fullName,
-							itemId: refContextMenu.ref.target,
-						});
-						setRefContextMenu(null);
-					}}
-					{...stylex.props(styles.refContextItem)}
-				>
-					Delete remote branch…
-				</button>
-			) : null}
-			{refContextMenu.ref.kind === "tag"
-				? (["pushTag", "deleteRemoteTag", "deleteTag"] as const).map(
-						(action) => (
-							<button
-								key={action}
-								type="button"
-								role="menuitem"
-								onClick={() => {
-									onGraphAction?.({
-										action,
-										target: refContextMenu.ref.displayName,
-										itemId: refContextMenu.ref.target,
-										suggestedName: defaultRemoteName,
-									});
-									setRefContextMenu(null);
-								}}
-								{...stylex.props(styles.refContextItem)}
-							>
-								{action === "pushTag"
-									? "Push tag…"
-									: action === "deleteRemoteTag"
-										? "Delete remote tag…"
-										: "Delete local tag…"}
-							</button>
-						),
-					)
-				: null}
-			<button
-				type="button"
-				role="menuitem"
-				onClick={() => {
-					const fullName = refContextMenu.ref.fullName;
-					setSoloRefs((current) =>
-						current.includes(fullName)
-							? current.filter((value) => value !== fullName)
-							: [...current, fullName],
-					);
-					setRefContextMenu(null);
-				}}
-				{...stylex.props(styles.refContextItem)}
-			>
-				{soloRefs.includes(refContextMenu.ref.fullName)
-					? "Stop soloing ref"
-					: "Solo ref"}
-			</button>
-			{refContextMenu.ref.kind !== "stash" ? (
-				<button
-					type="button"
-					role="menuitem"
-					onClick={() => {
-						const fullName = refContextMenu.ref.fullName;
-						setPinnedRefs((current) =>
-							current.includes(fullName)
-								? current.filter((value) => value !== fullName)
-								: [...current, fullName],
-						);
-						setRefContextMenu(null);
-					}}
-					{...stylex.props(styles.refContextItem)}
-				>
-					{pinnedRefs.includes(refContextMenu.ref.fullName)
-						? "Unpin lane"
-						: "Pin lane left"}
-				</button>
-			) : null}
-			<button
-				type="button"
-				role="menuitem"
-				onClick={() => {
-					const fullName = refContextMenu.ref.fullName;
-					setHiddenRefs((current) =>
-						current.includes(fullName) ? current : [...current, fullName],
-					);
-					setSoloRefs((current) =>
-						current.filter((value) => value !== fullName),
-					);
-					setRefContextMenu(null);
-				}}
-				{...stylex.props(styles.refContextItem)}
-			>
-				Hide ref
-			</button>
-			<button
-				type="button"
-				role="menuitem"
-				onClick={() => {
-					void navigator.clipboard.writeText(refContextMenu.ref.fullName);
-					setRefContextMenu(null);
-				}}
-				{...stylex.props(styles.refContextItem)}
-			>
-				Copy ref name
-			</button>
-		</div>
+		<ContextMenu
+			x={refContextMenu.x}
+			y={refContextMenu.y}
+			title={ref.displayName}
+			entries={entries}
+			onClose={() => setRefContextMenu(null)}
+		/>
 	);
 }

@@ -1,41 +1,6 @@
-import type {
-	ChatLoadingState,
-	ChatMessage,
-	ToolActivity,
-} from "../../../modules/conversation/model/agent-chat-shared.ts";
-import { trimText as trimSummary } from "../../../shared/lib/format.ts";
-import { getToolOutputSummary } from "./chat-message-render-utils.ts";
+import type { ChatLoadingState } from "./agent-chat-shared.ts";
 
-const MAX_LIVE_ACTIVITIES = 500;
-
-type ChatToolMessage = Pick<
-	ChatMessage,
-	"id" | "role" | "content" | "toolName" | "isStreaming" | "render"
->;
-
-type ChatActivityUiState = {
-	expandedTools: Set<string>;
-	liveActivities: ToolActivity[];
-};
-
-type IncomingToolActivity = {
-	isStreaming?: boolean;
-	summary: string;
-	toolName: string;
-};
-
-export function normalizeToolName(toolName: string): string {
-	const name = toolName.trim().toLowerCase();
-	if (name.startsWith("mcp__")) {
-		const parts = name.split("__").filter(Boolean);
-		return parts[parts.length - 1] || "mcp_tool";
-	}
-	if (name === "exec_command") return "exec";
-	if (name === "websearch") return "web_search";
-	if (name === "read_file" || name === "view") return "read";
-	if (name === "apply_patch") return "patch";
-	return name;
-}
+type ChatActivityUiState = { expandedTools: Set<string> };
 
 export function findTriggerAtCursor(
 	value: string,
@@ -68,39 +33,6 @@ export function markRespondingState<S extends { status: string }>(state: S): S {
 	return { ...state, status: "responding" };
 }
 
-export function clearLiveActivities<
-	S extends { liveActivities: ToolActivity[] },
->(state: S): S {
-	return { ...state, liveActivities: [] };
-}
-
-export function appendLiveToolActivity(
-	activity: IncomingToolActivity,
-	state: ChatActivityUiState,
-): ChatActivityUiState {
-	const last = state.liveActivities[state.liveActivities.length - 1];
-	const lastSequence = Number(last?.id.match(/-(\d+)$/)?.[1] ?? -1);
-	const nextActivity: ToolActivity = {
-		id: `${activity.toolName}-${lastSequence + 1}`,
-		toolName: activity.toolName,
-		summary: activity.summary,
-		isStreaming: activity.isStreaming ?? true,
-	};
-	if (
-		last &&
-		last.toolName === nextActivity.toolName &&
-		last.summary === nextActivity.summary
-	) {
-		return state;
-	}
-	return {
-		...state,
-		liveActivities: [...state.liveActivities, nextActivity].slice(
-			-MAX_LIVE_ACTIVITIES,
-		),
-	};
-}
-
 export function clearCompletedChatUiState(
 	messageIds: Set<string>,
 	state: ChatActivityUiState,
@@ -111,7 +43,6 @@ export function clearCompletedChatUiState(
 		...state,
 		expandedTools:
 			pruned.size === state.expandedTools.size ? state.expandedTools : pruned,
-		liveActivities: [],
 	};
 }
 
@@ -120,31 +51,4 @@ export function markToolState(
 	state: ChatLoadingState,
 ): ChatLoadingState {
 	return { ...state, status: `tool:${toolName}` };
-}
-
-export function extractToolActivities(
-	messages: ChatToolMessage[],
-): ToolActivity[] {
-	const activities: ToolActivity[] = [];
-	for (const msg of messages) {
-		if (msg.role !== "tool" || !msg.toolName) continue;
-		const toolName = normalizeToolName(msg.toolName);
-		const outputSummary = getToolOutputSummary(
-			msg.content,
-			msg.render?.summary,
-		);
-		const summary =
-			outputSummary.type === "edit" || outputSummary.type === "file-content"
-				? outputSummary.fileName
-				: outputSummary.type === "url"
-					? trimSummary(outputSummary.value)
-					: trimSummary(String(outputSummary.value || toolName));
-		activities.push({
-			id: msg.id,
-			toolName,
-			isStreaming: msg.isStreaming ?? false,
-			summary: summary || toolName,
-		});
-	}
-	return activities;
 }

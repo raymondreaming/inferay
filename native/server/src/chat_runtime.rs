@@ -1118,28 +1118,54 @@ impl ChatRuntime {
     ) {
         let pane_id = session.lock().await.pane_id.clone();
         match emission {
-                ProtocolEmission::Chat(event) => self.emit_chat_event(session, event).await,
-                ProtocolEmission::UserInputAcknowledged { text } => {
-                    self.acknowledge_pending_steer(session, &text).await;
-                }
-                ProtocolEmission::FileChange(paths) => {
-                    self.emit_live_file_diffs(session, checkpoint_id, &paths).await;
-                }
-                ProtocolEmission::Status { status, is_loading } => self.emit(session, status_message(&pane_id, &status, is_loading)).await,
-                ProtocolEmission::Activity { tool_name, summary, is_streaming } => self.emit(session, json!({"type":"chat:activity", "paneId":pane_id, "activity":{"toolName":tool_name,"summary":summary,"isStreaming":is_streaming}})).await,
-                ProtocolEmission::System(message) => self.emit_system(session, &message).await,
-                ProtocolEmission::Session(id) => {
-                    let (provider, cwd, model, reasoning) = {
-                        let mut state = session.lock().await;
-                        state.session_id = Some(id.clone());
-                        (state.agent_kind.clone(), state.cwd.clone(), state.model.clone(), state.reasoning_level.clone())
-                    };
-                    if let Err(error) = self.persistence.save_session_reference(&pane_id, &provider, &id, &cwd, (model.as_deref(), reasoning.as_deref())).await {
-                        self.emit_system(session, &format!("Chat session could not be saved: {error}")).await;
-                    }
-                    self.emit(session, json!({"type":"chat:session", "paneId":pane_id, "sessionId":id})).await;
-                }
+            ProtocolEmission::Chat(event) => self.emit_chat_event(session, event).await,
+            ProtocolEmission::UserInputAcknowledged { text } => {
+                self.acknowledge_pending_steer(session, &text).await;
             }
+            ProtocolEmission::FileChange(paths) => {
+                self.emit_live_file_diffs(session, checkpoint_id, &paths)
+                    .await;
+            }
+            ProtocolEmission::Status { status, is_loading } => {
+                self.emit(session, status_message(&pane_id, &status, is_loading))
+                    .await
+            }
+            ProtocolEmission::System(message) => self.emit_system(session, &message).await,
+            ProtocolEmission::Session(id) => {
+                let (provider, cwd, model, reasoning) = {
+                    let mut state = session.lock().await;
+                    state.session_id = Some(id.clone());
+                    (
+                        state.agent_kind.clone(),
+                        state.cwd.clone(),
+                        state.model.clone(),
+                        state.reasoning_level.clone(),
+                    )
+                };
+                if let Err(error) = self
+                    .persistence
+                    .save_session_reference(
+                        &pane_id,
+                        &provider,
+                        &id,
+                        &cwd,
+                        (model.as_deref(), reasoning.as_deref()),
+                    )
+                    .await
+                {
+                    self.emit_system(
+                        session,
+                        &format!("Chat session could not be saved: {error}"),
+                    )
+                    .await;
+                }
+                self.emit(
+                    session,
+                    json!({"type":"chat:session", "paneId":pane_id, "sessionId":id}),
+                )
+                .await;
+            }
+        }
     }
 
     async fn acknowledge_pending_steer(

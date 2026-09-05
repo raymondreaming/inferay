@@ -68,11 +68,6 @@ export function DropdownButton({
 	const btnRef = useRef<HTMLButtonElement | null>(null);
 	const menuRef = useRef<HTMLDivElement | null>(null);
 	const searchRef = useRef<HTMLInputElement | null>(null);
-	const eventHandlersRef = useRef({
-		handleDocumentPointerDown: (_event: MouseEvent) => {},
-		handleWindowScroll: (_event: Event) => {},
-		handleDocumentKeyDown: (_event: KeyboardEvent) => {},
-	});
 	const [pos, setPos] = useState({
 		top: 0,
 		bottom: 0,
@@ -81,24 +76,6 @@ export function DropdownButton({
 		maxH: 300,
 		placement: "bottom" as "top" | "bottom",
 	});
-	eventHandlersRef.current = {
-		handleDocumentPointerDown(event) {
-			if (
-				menuRef.current &&
-				!menuRef.current.contains(event.target as Node) &&
-				!btnRef.current?.contains(event.target as Node)
-			) {
-				setOpen(false);
-			}
-		},
-		handleWindowScroll(event) {
-			if (menuRef.current?.contains(event.target as Node)) return;
-			setOpen(false);
-		},
-		handleDocumentKeyDown(event) {
-			if (event.key === "Escape") setOpen(false);
-		},
-	};
 	useEffect(() => {
 		if (open) {
 			setMenuPresent(true);
@@ -110,12 +87,20 @@ export function DropdownButton({
 	}, [menuPresent, open]);
 	useEffect(() => {
 		if (!open) return;
-		const handleDocumentPointerDown = (event: MouseEvent) =>
-			eventHandlersRef.current.handleDocumentPointerDown(event);
-		const handleWindowScroll = (event: Event) =>
-			eventHandlersRef.current.handleWindowScroll(event);
-		const handleDocumentKeyDown = (event: KeyboardEvent) =>
-			eventHandlersRef.current.handleDocumentKeyDown(event);
+		const handleDocumentPointerDown = (event: MouseEvent) => {
+			if (
+				menuRef.current &&
+				!menuRef.current.contains(event.target as Node) &&
+				!btnRef.current?.contains(event.target as Node)
+			)
+				setOpen(false);
+		};
+		const handleWindowScroll = (event: Event) => {
+			if (!menuRef.current?.contains(event.target as Node)) setOpen(false);
+		};
+		const handleDocumentKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") setOpen(false);
+		};
 		document.addEventListener("mousedown", handleDocumentPointerDown);
 		window.addEventListener("scroll", handleWindowScroll, true);
 		document.addEventListener("keydown", handleDocumentKeyDown);

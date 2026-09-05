@@ -129,6 +129,113 @@ function setupDom() {
 }
 
 describe("Git commit graph renderer", () => {
+	test("context menus preserve branch restrictions and ordered cherry-pick targets", async () => {
+		const { RefContextMenu } = await import(
+			"../src/modules/workbench/graph/components/CommitGraph/RefContextMenu.tsx"
+		);
+		const { RowContextMenu } = await import(
+			"../src/modules/workbench/graph/components/CommitGraph/RowContextMenu.tsx"
+		);
+		const { dom, root, rootElement } = setupDom();
+		const action = vi.fn();
+		const close = vi.fn();
+		const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+		const labels = () =>
+			Array.from(rootElement.querySelectorAll('[role="menuitem"]')).map(
+				(button) => button.textContent,
+			);
+		const click = (label: string) => {
+			const button = Array.from(
+				rootElement.querySelectorAll('[role="menuitem"]'),
+			).find((button) => button.textContent === label);
+			expect(button).toBeTruthy();
+			button!.dispatchEvent(
+				new dom.window.MouseEvent("click", { bubbles: true }),
+			);
+		};
+		const head = graphCommit(0).refs[0]!;
+		const renderRef = (ref: typeof head) =>
+			root.render(
+				<RefContextMenu
+					refContextMenu={{ ref, x: 10, y: 20 }}
+					branch="main"
+					onGraphAction={action}
+					setRefContextMenu={close}
+					defaultRemoteName="origin"
+					soloRefs={[]}
+					pinnedRefs={[]}
+					setSoloRefs={vi.fn()}
+					setHiddenRefs={vi.fn()}
+					setPinnedRefs={vi.fn()}
+				/>,
+			);
+		try {
+			renderRef(head);
+			await settle();
+			expect(labels()).toEqual([
+				"Checkout main",
+				"Rename branch…",
+				"Set or change upstream…",
+				"Force push with lease…",
+				"Solo ref",
+				"Pin lane left",
+				"Hide ref",
+				"Copy ref name",
+			]);
+			click("Force push with lease…");
+			expect(action).toHaveBeenLastCalledWith({
+				action: "forcePushWithLease",
+				target: "main",
+				itemId: head.target,
+			});
+			expect(close).toHaveBeenLastCalledWith(null);
+			renderRef({
+				...head,
+				kind: "localBranch",
+				displayName: "feature",
+				fullName: "refs/heads/feature",
+				upstream: undefined,
+			});
+			await settle();
+			expect(labels().slice(0, 4)).toEqual([
+				"Checkout feature",
+				"Merge or rebase with main…",
+				"Rename branch…",
+				"Delete branch…",
+			]);
+			expect(labels()).not.toContain("Force push with lease…");
+			renderRef(graphCommit(0).refs[1]!);
+			await settle();
+			click("Delete remote branch…");
+			expect(action).toHaveBeenLastCalledWith({
+				action: "deleteRemoteBranch",
+				target: "refs/remotes/origin/main",
+				itemId: head.target,
+			});
+			const commits = [graphCommit(0), graphCommit(1), graphCommit(2)];
+			root.render(
+				<RowContextMenu
+					itemContextMenu={{ item: commits[0]!, x: 10, y: 20 }}
+					selectedIds={[commits[0]!.id, commits[2]!.id]}
+					commits={commits}
+					onGraphAction={action}
+					setItemContextMenu={close}
+				/>,
+			);
+			await settle();
+			click("Cherry-pick 2 commits…");
+			expect(action).toHaveBeenLastCalledWith({
+				action: "cherryPick",
+				target: commits[0]!.hash,
+				itemId: commits[0]!.id,
+				targets: [commits[2]!.hash, commits[0]!.hash],
+			});
+		} finally {
+			root.unmount();
+			dom.window.close();
+		}
+	});
+
 	test("keeps a 10,000-commit graph virtualized and selects by stable identity", async () => {
 		const { CommitGraph } = await import(
 			"../src/modules/workbench/graph/components/CommitGraph/index.tsx"

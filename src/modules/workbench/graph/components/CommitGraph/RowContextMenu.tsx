@@ -1,8 +1,4 @@
-import * as stylex from "@octanejs/stylex";
-import * as inlineStyles from "./styles.ts";
-
-import { styles } from "./styles.ts";
-
+import { ContextMenu, type ContextMenuEntry } from "./ContextMenu.tsx";
 import type { useCommitGraphState } from "./useCommitGraphState.tsx";
 
 type RowContextMenuProps = {
@@ -25,133 +21,89 @@ export function RowContextMenu({
 	commits,
 	onGraphAction,
 }: RowContextMenuProps) {
+	const item = itemContextMenu.item;
+	const entries: ContextMenuEntry[] = [];
+	const multiple = selectedIds.length > 1 && selectedIds.includes(item.id);
+	if (item.itemKind !== "worktreeWip") {
+		if (item.itemKind === "commit" && onCompareWithWip)
+			entries.push({
+				label: "Compare commit with WIP",
+				run: () => onCompareWithWip(item.id),
+			});
+		for (const [label, hash] of [
+			["Copy full SHA", item.hash],
+			["Copy abbreviated SHA", item.hash.slice(0, 7)],
+		] as const)
+			entries.push({
+				label,
+				run: () => {
+					void navigator.clipboard.writeText(hash);
+				},
+			});
+	}
+	const labels = {
+		createBranch: "Create branch here…",
+		createTag: "Create tag here…",
+		cherryPick: multiple
+			? `Cherry-pick ${selectedIds.length} commits…`
+			: "Cherry-pick commit…",
+		revert: "Revert commit…",
+		stashPush: "Stash changes…",
+		stashApply: "Apply stash…",
+		stashPop: "Pop stash…",
+		stashRename: "Rename stash…",
+		stashDrop: "Delete stash…",
+		resetSoft: "Reset branch here (soft)…",
+		resetMixed: "Reset branch here (mixed)…",
+		resetHard: "Reset branch here (hard)…",
+	};
+	const actions: Array<keyof typeof labels> =
+		item.itemKind === "worktreeWip"
+			? item.id === "wip"
+				? ["stashPush"]
+				: []
+			: item.itemKind === "stash"
+				? ["stashApply", "stashPop", "stashRename", "stashDrop"]
+				: [
+						"createBranch",
+						"createTag",
+						"cherryPick",
+						"revert",
+						"resetSoft",
+						"resetMixed",
+						"resetHard",
+					];
+	for (const action of actions)
+		entries.push({
+			label: labels[action],
+			run: () =>
+				onGraphAction?.({
+					action,
+					target: item.itemKind === "stash" ? item.stashName : item.hash,
+					itemId: item.id,
+					targets:
+						action === "cherryPick" && multiple
+							? commits
+									.filter(
+										(commit) =>
+											commit.itemKind === "commit" &&
+											selectedIds.includes(commit.id),
+									)
+									.reverse()
+									.map((commit) => commit.hash)
+							: undefined,
+				}),
+		});
 	return (
-		<div
-			role="menu"
-			aria-label={`Actions for ${itemContextMenu.item.message}`}
-			{...stylex.props(styles.refContextMenu)}
-			style={inlineStyles.getCommitGraphRefContextMenuStyle1(
-				itemContextMenu.x,
-				itemContextMenu.y,
-			)}
-			onPointerDown={(event) => event.stopPropagation()}
-		>
-			<div {...stylex.props(styles.refContextTitle)}>
-				{itemContextMenu.item.itemKind === "worktreeWip"
-					? "Uncommitted changes"
-					: itemContextMenu.item.message}
-			</div>
-			{itemContextMenu.item.itemKind !== "worktreeWip" ? (
-				<>
-					{itemContextMenu.item.itemKind === "commit" && onCompareWithWip ? (
-						<button
-							type="button"
-							role="menuitem"
-							onClick={() => {
-								onCompareWithWip(itemContextMenu.item.id);
-								setItemContextMenu(null);
-							}}
-							{...stylex.props(styles.refContextItem)}
-						>
-							Compare commit with WIP
-						</button>
-					) : null}
-					<button
-						type="button"
-						role="menuitem"
-						onClick={() => {
-							void navigator.clipboard.writeText(itemContextMenu.item.hash);
-							setItemContextMenu(null);
-						}}
-						{...stylex.props(styles.refContextItem)}
-					>
-						Copy full SHA
-					</button>
-					<button
-						type="button"
-						role="menuitem"
-						onClick={() => {
-							void navigator.clipboard.writeText(
-								itemContextMenu.item.hash.slice(0, 7),
-							);
-							setItemContextMenu(null);
-						}}
-						{...stylex.props(styles.refContextItem)}
-					>
-						Copy abbreviated SHA
-					</button>
-				</>
-			) : null}
-			{(itemContextMenu.item.itemKind === "worktreeWip"
-				? itemContextMenu.item.id === "wip"
-					? (["stashPush"] as const)
-					: ([] as const)
-				: itemContextMenu.item.itemKind === "stash"
-					? (["stashApply", "stashPop", "stashRename", "stashDrop"] as const)
-					: ([
-							"createBranch",
-							"createTag",
-							"cherryPick",
-							"revert",
-							"resetSoft",
-							"resetMixed",
-							"resetHard",
-						] as const)
-			).map((action) => {
-				const labels = {
-					createBranch: "Create branch here…",
-					createTag: "Create tag here…",
-					cherryPick:
-						selectedIds.length > 1 &&
-						selectedIds.includes(itemContextMenu.item.id)
-							? `Cherry-pick ${selectedIds.length} commits…`
-							: "Cherry-pick commit…",
-					revert: "Revert commit…",
-					stashPush: "Stash changes…",
-					stashApply: "Apply stash…",
-					stashPop: "Pop stash…",
-					stashRename: "Rename stash…",
-					stashDrop: "Delete stash…",
-					resetSoft: "Reset branch here (soft)…",
-					resetMixed: "Reset branch here (mixed)…",
-					resetHard: "Reset branch here (hard)…",
-				} as const;
-				return (
-					<button
-						key={action}
-						type="button"
-						role="menuitem"
-						onClick={() => {
-							const targets =
-								action === "cherryPick" &&
-								selectedIds.length > 1 &&
-								selectedIds.includes(itemContextMenu.item.id)
-									? commits
-											.filter(
-												(commit) =>
-													commit.itemKind === "commit" &&
-													selectedIds.includes(commit.id),
-											)
-											.reverse()
-											.map((commit) => commit.hash)
-									: undefined;
-							onGraphAction?.({
-								action,
-								target:
-									itemContextMenu.item.itemKind === "stash"
-										? itemContextMenu.item.stashName
-										: itemContextMenu.item.hash,
-								itemId: itemContextMenu.item.id,
-								targets,
-							});
-							setItemContextMenu(null);
-						}}
-						{...stylex.props(styles.refContextItem)}
-					>
-						{labels[action]}
-					</button>
-				);
-			})}
-		</div>
+		<ContextMenu
+			x={itemContextMenu.x}
+			y={itemContextMenu.y}
+			title={
+				item.itemKind === "worktreeWip" ? "Uncommitted changes" : item.message
+			}
+			label={item.message}
+			entries={entries}
+			onClose={() => setItemContextMenu(null)}
+		/>
 	);
 }

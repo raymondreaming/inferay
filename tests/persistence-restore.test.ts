@@ -64,6 +64,12 @@ test("native acknowledgments preserve the latest click across all workspace read
 	const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 	try {
 		await workspace.initializeAgentState();
+		const initialRead = workspace.loadCanonicalAgentState();
+		expect(workspace.loadCanonicalAgentState()).toBe(initialRead);
+		await settle();
+		expect(responses).toHaveLength(1);
+		responses.shift()!(Response.json(state));
+		await initialRead;
 		const first = workspace.mutateAgentWorkspaceState({
 			type: "selectPane",
 			groupId: "g",

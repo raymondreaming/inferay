@@ -18,7 +18,6 @@ import {
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { useAppInfo } from "../../../../shared/hooks/useAppInfo.ts";
 import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
-import { noop } from "../../../../shared/lib/data.ts";
 import { listenWindowEvent } from "../../../../shared/lib/react-events.ts";
 import { IconSettings, IconUser } from "../../../../shared/ui/Icons/index.tsx";
 import { loadDefaultChatSettings } from "../../../agents/model/agents.ts";
@@ -28,6 +27,7 @@ import {
 } from "../../../repository/adapters/forge-client.ts";
 import { openSettingsModal } from "../../../settings/model/settings-events.ts";
 import { projectRepositoryWorkspaces } from "../../model/repository-workspaces.ts";
+import { useWorkspaceState } from "../../model/useWorkspaceState.ts";
 import {
 	CREATE_AGENT_CHAT_EVENT,
 	type CreateAgentChatDetail,
@@ -40,12 +40,9 @@ import {
 } from "../../model/workspace-events.ts";
 import {
 	type AgentShellChangeDetail,
-	agentStateKey,
 	dispatchAgentShellChange,
 	listenAgentLayoutMode,
 	loadAgentLayoutMode,
-	loadAgentState,
-	loadCanonicalAgentState,
 	mutateAgentWorkspaceState,
 } from "../../model/workspace-model.ts";
 import { SidebarFooter } from "./SidebarFooter.tsx";
@@ -115,19 +112,7 @@ export function WorkspaceSidebar() {
 			}),
 		[],
 	);
-	// Workspace state
-	const loadWorkspaces = useCallback(() => {
-		const state = loadAgentState();
-		const cleanState = state;
-		return {
-			groups: cleanState?.groups ?? [],
-			selectedGroupId:
-				cleanState?.selectedGroupId ?? cleanState?.groups[0]?.id ?? null,
-			key: cleanState ? agentStateKey(cleanState) : "",
-		};
-	}, []);
-
-	const [workspaces, setWorkspaces] = useState(loadWorkspaces);
+	const [workspaces, setWorkspaces] = useWorkspaceState();
 	const repositoryProjection = useMemo(
 		() =>
 			projectRepositoryWorkspaces(
@@ -139,62 +124,12 @@ export function WorkspaceSidebar() {
 
 	useEffect(() => listenAgentLayoutMode(setLayoutMode), []);
 
-	useEffect(() => {
-		let cancelled = false;
-		loadCanonicalAgentState()
-			.then(() => {
-				if (!cancelled) {
-					const next = loadWorkspaces();
-					setWorkspaces((current) =>
-						current.key === next.key ? current : next,
-					);
-				}
-			})
-			.catch(noop);
-		return () => {
-			cancelled = true;
-		};
-	}, [loadWorkspaces]);
-
-	useEffect(() => {
-		const refresh = (event: Event) => {
-			const detail = (event as CustomEvent<AgentShellChangeDetail>).detail;
-			if (detail?.reason === "session-title") {
-				setWorkspaces((current) => ({ ...current }));
-				return;
-			}
-			if (detail?.source === "view" && !detail.stateKey) return;
-			const next = loadWorkspaces();
-			setWorkspaces((current) => (current.key === next.key ? current : next));
-		};
-		return listenWindowEvent("agent-shell-change", refresh);
-	}, [loadWorkspaces]);
-
 	const selectPane = useCallback(
 		async (groupId: string, paneId: string) => {
-			setWorkspaces((prev) => {
-				let changed = prev.selectedGroupId !== groupId;
-				const groups = prev.groups.map((group) => {
-					if (group.id !== groupId) return group;
-					if (group.selectedPaneId === paneId) return group;
-					changed = true;
-					return { ...group, selectedPaneId: paneId as never };
-				});
-				return changed
-					? { ...prev, groups, selectedGroupId: groupId as never }
-					: prev;
-			});
-			const next = await mutateAgentWorkspaceState(
+			await mutateAgentWorkspaceState(
 				{ type: "selectPane", groupId, paneId },
 				"select-pane",
 			);
-			if (next) {
-				setWorkspaces({
-					groups: next.groups,
-					selectedGroupId: next.selectedGroupId,
-					key: agentStateKey(next),
-				});
-			}
 			if (location.pathname !== "/agent") {
 				navigate({ to: "/agent" });
 			}

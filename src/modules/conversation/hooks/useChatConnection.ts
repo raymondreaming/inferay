@@ -13,7 +13,6 @@ import {
 	type ChatMessage,
 	isChatServerMessage,
 	type QueuedMessageInfo,
-	type ToolActivity,
 } from "../../../modules/conversation/model/agent-chat-shared.ts";
 import {
 	getChatCheckpointReadModel,
@@ -21,9 +20,7 @@ import {
 	setProviderSessionId,
 } from "../../../modules/conversation/model/chat-session-store.ts";
 import {
-	appendLiveToolActivity,
 	clearCompletedChatUiState,
-	clearLiveActivities,
 	markRespondingState,
 	markToolState,
 } from "../model/chat-agent-utils.ts";
@@ -47,7 +44,6 @@ interface ChatMessageMutationModel {
 
 type ChatActivityUiState = {
 	expandedTools: Set<string>;
-	liveActivities: ToolActivity[];
 };
 
 // Rendering every protocol fragment makes words repeatedly reflow while the
@@ -275,7 +271,6 @@ export function useChatConnection({
 				if (typeof msg.messageId === "string")
 					resolveSteeringMessage?.(msg.messageId);
 			} else if (msg.type === "chat:user_message") {
-				setChatUiState(clearLiveActivities);
 				setRunStatus((prev) => ({
 					isLoading: true,
 					status: "thinking",
@@ -299,8 +294,6 @@ export function useChatConnection({
 					startTime:
 						msg.isLoading === false ? null : (prev.startTime ?? Date.now()),
 				}));
-			} else if (msg.type === "chat:activity" && msg.activity) {
-				setChatUiState(appendLiveToolActivity.bind(null, msg.activity));
 			} else if (msg.type === "chat:sync" && msg.modelVersion === 1) {
 				setRunStatus((prev) => ({
 					isLoading: Boolean(msg.isStreaming),
@@ -308,7 +301,6 @@ export function useChatConnection({
 					startTime: msg.isStreaming ? (prev.startTime ?? Date.now()) : null,
 				}));
 				if (!msg.isStreaming) {
-					setChatUiState(clearLiveActivities);
 					resetStreamState();
 				}
 			} else if (msg.type === "chat:queue" && Array.isArray(msg.queue)) {

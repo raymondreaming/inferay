@@ -194,21 +194,6 @@ impl AgentCommandResolver {
         available
     }
 
-    pub fn read_cli_version(&self, kind: AgentKind) -> Option<String> {
-        let output = Command::new(self.resolve_agent_binary(kind))
-            .arg("--version")
-            .envs(self.create_agent_env(kind))
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        first_nonempty_line(&String::from_utf8_lossy(&output.stdout))
-            .or_else(|| first_nonempty_line(&String::from_utf8_lossy(&output.stderr)))
-    }
-
     fn environment(&self) -> HashMap<OsString, OsString> {
         self.fixed_environment
             .clone()
@@ -239,14 +224,6 @@ fn javascript_dirname(path: &Path) -> PathBuf {
         .filter(|parent| !parent.as_os_str().is_empty())
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("."))
-}
-
-fn first_nonempty_line(value: &str) -> Option<String> {
-    value
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(str::to_string)
 }
 
 #[cfg(test)]
@@ -328,41 +305,5 @@ mod tests {
         assert!(resolver.has_agent_cli(AgentKind::Codex));
         std::fs::remove_file(binary).unwrap();
         assert!(resolver.has_agent_cli(AgentKind::Codex));
-    }
-
-    #[test]
-    fn reads_the_first_nonempty_version_line() {
-        assert_eq!(
-            first_nonempty_line("\n Claude Code 1.2.3 \nother"),
-            Some("Claude Code 1.2.3".into())
-        );
-        assert_eq!(first_nonempty_line("\n \r\n"), None);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn reads_cli_version_from_stderr_when_stdout_is_empty() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let root = TempDir::new().unwrap();
-        let binary = root.path().join("bin/codex");
-        std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
-        std::fs::write(&binary, "#!/bin/sh\nprintf '\\nCodex CLI 2.3.4\\n' >&2\n").unwrap();
-        let mut permissions = std::fs::metadata(&binary).unwrap().permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&binary, permissions).unwrap();
-        let resolver = AgentCommandResolver::with_environment(
-            root.path(),
-            false,
-            [
-                (OsString::from("CODEX_PATH"), binary.as_os_str().to_owned()),
-                (OsString::from("PATH"), OsString::from("/usr/bin:/bin")),
-            ],
-        );
-
-        assert_eq!(
-            resolver.read_cli_version(AgentKind::Codex),
-            Some("Codex CLI 2.3.4".into())
-        );
     }
 }

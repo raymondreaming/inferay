@@ -9,7 +9,6 @@ import {
 	iconSize,
 	selectionAppearance,
 } from "../../../../design-system/styles.stylex.ts";
-import { noop } from "../../../../shared/lib/data.ts";
 import { listenWindowEvent } from "../../../../shared/lib/react-events.ts";
 import {
 	IconFolder,
@@ -25,6 +24,7 @@ import {
 	projectRepositoryWorkspaces,
 	type RepositoryWorkspace,
 } from "../../model/repository-workspaces.ts";
+import { useWorkspaceState } from "../../model/useWorkspaceState.ts";
 import {
 	type CreateAgentChatTarget,
 	dispatchCreateAgentChat,
@@ -34,27 +34,15 @@ import {
 	type WorkspaceSidebarCollapsedDetail,
 } from "../../model/workspace-events.ts";
 import {
-	agentStateKey,
 	loadAgentState,
-	loadCanonicalAgentState,
 	mutateAgentWorkspaceState,
 } from "../../model/workspace-model.ts";
 import { styles } from "./styles.ts";
 
-function loadRepositoryBarState() {
-	const state = loadAgentState();
-	const compact = state;
-	return {
-		groups: compact?.groups ?? [],
-		selectedGroupId: compact?.selectedGroupId ?? null,
-		key: compact ? agentStateKey(compact) : "",
-	};
-}
-
 export function RepositoryWorkspaceBar() {
 	const location = useLocation();
 	const navigate = useNavigate();
-	const [state, setState] = useState(loadRepositoryBarState);
+	const [state] = useWorkspaceState(true, false);
 	const [workspaceSidebarCollapsed, setWorkspaceSidebarCollapsedState] =
 		useState(loadSidebarCollapsed);
 	const [newMenuOpen, setNewMenuOpen] = useState(false);
@@ -63,12 +51,6 @@ export function RepositoryWorkspaceBar() {
 		() => projectRepositoryWorkspaces(state.groups, state.selectedGroupId),
 		[state.groups, state.selectedGroupId],
 	);
-	const refresh = useCallback(() => {
-		const next = loadRepositoryBarState();
-		setState((current) => (current.key === next.key ? current : next));
-	}, []);
-
-	useEffect(() => listenWindowEvent("agent-shell-change", refresh), [refresh]);
 	useEffect(
 		() =>
 			listenWindowEvent(WORKSPACE_SIDEBAR_COLLAPSED_EVENT, (event) => {
@@ -79,17 +61,6 @@ export function RepositoryWorkspaceBar() {
 			}),
 		[],
 	);
-	useEffect(() => {
-		let cancelled = false;
-		loadCanonicalAgentState()
-			.then(() => {
-				if (!cancelled) refresh();
-			})
-			.catch(noop);
-		return () => {
-			cancelled = true;
-		};
-	}, [refresh]);
 	useEffect(() => {
 		if (!newMenuOpen) return;
 		const closeOnOutsidePointer = (event: PointerEvent) => {
@@ -133,15 +104,6 @@ export function RepositoryWorkspaceBar() {
 				currentState.selectedGroupId,
 			);
 			if (!target) return;
-			setState({
-				groups: currentState.groups.map((group) =>
-					group.id === target.groupId
-						? { ...group, selectedPaneId: target.pane.id }
-						: group,
-				),
-				selectedGroupId: target.groupId as typeof currentState.selectedGroupId,
-				key: "selection",
-			});
 			void mutateAgentWorkspaceState(
 				{
 					type: "selectPane",

@@ -3,8 +3,6 @@ import type { ObserveEngine } from "./observer";
 
 export interface GooeyContextValue {
 	portal: SVGGElement | null;
-	/** Portal target inside the melt-overlay svg (above the content layer). */
-	meltPortal: SVGGElement | null;
 	/** The group's liquid fill — default colour of the intruding mix liquid. */
 	fill: string;
 	getGroup: () => HTMLDivElement | null;

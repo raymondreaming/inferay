@@ -10,13 +10,6 @@ import {
 	hideMenuState,
 } from "../model/chat-agent-utils.ts";
 
-interface MenuPosition {
-	top: number;
-	left: number;
-	width: number;
-	maxHeight: number;
-}
-
 function applyInlineCompletion(
 	input: string,
 	cursorPos: number,
@@ -36,7 +29,6 @@ export interface FileMenuState {
 	selectedIdx: number;
 	query: string;
 	atIndex: number;
-	position: MenuPosition | null;
 }
 
 export interface SlashMenuState {
@@ -59,22 +51,6 @@ interface UseAgentChatMenusOptions {
 	input: string;
 	setInput: (value: string) => void;
 	textareaRef: React.RefObject<HTMLTextAreaElement | null>;
-	inputContainerRef: React.RefObject<HTMLDivElement | null>;
-	containerRef: React.RefObject<HTMLDivElement | null>;
-}
-
-function areMenuPositionsEqual(
-	prev: MenuPosition | null,
-	next: MenuPosition | null,
-) {
-	if (prev === next) return true;
-	if (!prev || !next) return false;
-	return (
-		prev.top === next.top &&
-		prev.left === next.left &&
-		prev.width === next.width &&
-		prev.maxHeight === next.maxHeight
-	);
 }
 
 function areFileResultsEqual(
@@ -99,8 +75,6 @@ export function useAgentChatMenus({
 	input,
 	setInput,
 	textareaRef,
-	inputContainerRef,
-	containerRef,
 }: UseAgentChatMenusOptions) {
 	const { skills: localSkills } = useSkills(enabled);
 	const [fileMenu, setFileMenu] = useState<FileMenuState>({
@@ -108,7 +82,6 @@ export function useAgentChatMenus({
 		selectedIdx: 0,
 		query: "",
 		atIndex: -1,
-		position: null,
 	});
 	const [slashMenu, setSlashMenu] = useState<SlashMenuState>({
 		show: false,
@@ -119,9 +92,6 @@ export function useAgentChatMenus({
 	const [fileResults, setFileResults] = useState<FileSearchResult[]>([]);
 	const fileSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const fileSearchRequestRef = useRef(0);
-	const cachedRects = useRef<{ input: DOMRect; container: DOMRect } | null>(
-		null,
-	);
 	const allCommands = useMemo<SlashCommand[]>(() => {
 		const deduped = new Map<string, SlashCommand>();
 		for (const command of [
@@ -185,24 +155,6 @@ export function useAgentChatMenus({
 	const showCommands = enabled && visibleSlashMenu.show;
 
 	useEffect(() => {
-		if (!enabled) return;
-		const inputEl = inputContainerRef.current;
-		const containerEl = containerRef.current;
-		if (!inputEl || !containerEl) return;
-		const update = () => {
-			cachedRects.current = {
-				input: inputEl.getBoundingClientRect(),
-				container: containerEl.getBoundingClientRect(),
-			};
-		};
-		update();
-		const obs = new ResizeObserver(update);
-		obs.observe(inputEl);
-		obs.observe(containerEl);
-		return obs.disconnect.bind(obs);
-	}, [containerRef, enabled, inputContainerRef]);
-
-	useEffect(() => {
 		if (enabled) return;
 		fileSearchRequestRef.current++;
 		if (fileSearchTimerRef.current) {
@@ -214,21 +166,6 @@ export function useAgentChatMenus({
 	useEffect(
 		() => () => {
 			if (fileSearchTimerRef.current) clearTimeout(fileSearchTimerRef.current);
-		},
-		[],
-	);
-
-	const getMenuPosition = useCallback(
-		(maxHeight: number): MenuPosition | null => {
-			const rects = cachedRects.current;
-			if (!rects) return null;
-			const availableHeight = rects.input.top - rects.container.top - 16;
-			return {
-				top: rects.input.top,
-				left: rects.input.left,
-				width: rects.input.width,
-				maxHeight: Math.min(availableHeight * 0.75, maxHeight),
-			};
 		},
 		[],
 	);
@@ -276,15 +213,12 @@ export function useAgentChatMenus({
 				return;
 			}
 
-			const nextPosition = getMenuPosition(300);
 			setFileMenu((prev) => {
-				const position = nextPosition ?? prev.position;
 				if (
 					prev.show &&
 					prev.selectedIdx === 0 &&
 					prev.query === trigger.query &&
-					prev.atIndex === trigger.index &&
-					areMenuPositionsEqual(prev.position, position)
+					prev.atIndex === trigger.index
 				) {
 					return prev;
 				}
@@ -293,7 +227,6 @@ export function useAgentChatMenus({
 					selectedIdx: 0,
 					query: trigger.query,
 					atIndex: trigger.index,
-					position,
 				};
 			});
 
@@ -318,7 +251,7 @@ export function useAgentChatMenus({
 				}
 			}, 150);
 		},
-		[cwd, enabled, getMenuPosition],
+		[cwd, enabled],
 	);
 
 	const selectCommand = useCallback(

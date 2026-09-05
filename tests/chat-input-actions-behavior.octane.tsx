@@ -82,7 +82,6 @@ test.each([
 					cancelSpeechListening: () => {},
 					clearAttachedImages: () => {},
 					clearCheckpoints: () => {},
-					composerOnly: false,
 					consumePendingWorkspace: () => undefined,
 					cwd: "/tmp/project",
 					effectiveSelectedModel: "gpt-5",

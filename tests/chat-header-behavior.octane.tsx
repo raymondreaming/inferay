@@ -67,26 +67,17 @@ function setupDom() {
 	return { dom, root: createRoot(rootElement), rootElement };
 }
 
-test("editor session dropdown shows repository and conversation title", async () => {
+test("workspace control shows the directory and opens its context", async () => {
 	const { dom, root, rootElement } = setupDom();
 	try {
 		const { AgentWorkspaceControl } = await import(
 			"../src/modules/conversation/components/AgentChatHeader/index.tsx"
 		);
+		const openContext = vi.fn();
 		root.render(
-			<AgentWorkspaceControl
-				paneId="pane-1"
-				cwd="/tmp/inferay"
-				sessions={Array.from({ length: 7 }, (_, index) => ({
-					paneId: `pane-${index + 1}`,
-					cwd: index === 1 ? "/tmp/trade.rthmn.com" : "/tmp/inferay",
-					agentKind: "codex" as const,
-					paneTitle: "New Chat Session",
-					summary: `Conversation title ${index + 1}`,
-				}))}
-				onSelectSession={() => {}}
-			/>,
+			<AgentWorkspaceControl cwd="/tmp/inferay" onAgentContext={openContext} />,
 		);
+
 		await new Promise((resolve) => setTimeout(resolve, 20));
 
 		rootElement
@@ -94,13 +85,12 @@ test("editor session dropdown shows repository and conversation title", async ()
 			.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
 		await new Promise((resolve) => setTimeout(resolve, 20));
 
-		expect(document.body.textContent).toContain("trade.rthmn.com");
-		expect(document.body.textContent).toContain("Conversation title 2");
-		expect(document.body.textContent).not.toContain("Codex");
-		const scrollBox = Array.from(document.body.querySelectorAll("div")).find(
-			(element) => element.style.maxHeight === "290px",
-		);
-		expect(scrollBox).toBeTruthy();
+		expect(rootElement.textContent).toContain("inferay");
+		expect(rootElement.querySelector("button")?.title).toBe("/tmp/inferay");
+		expect(openContext).toHaveBeenCalledTimes(1);
+		root.render(<AgentWorkspaceControl />);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(rootElement.querySelector("button")).toBeNull();
 	} finally {
 		root.unmount();
 	}

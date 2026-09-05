@@ -36,10 +36,35 @@ const chatQueueReadModels = new Map<string, ChatQueueReadModel>();
 const chatRunStatusReadModels = new Map<string, ChatRunStatusReadModel>();
 const providerSessionIds = new Map<string, string>();
 
-type ChatMessageReadModelListener = () => void;
-type ChatCheckpointReadModelListener = () => void;
-type ChatQueueReadModelListener = () => void;
-type ChatRunStatusReadModelListener = () => void;
+type ReadModelListener = () => void;
+
+function subscriptions() {
+	const listeners = new Set<ReadModelListener>();
+	return {
+		notify: () => {
+			for (const listener of listeners) listener();
+		},
+		subscribe: (listener: ReadModelListener) => {
+			listeners.add(listener);
+			return () => {
+				listeners.delete(listener);
+			};
+		},
+	};
+}
+
+function cachedModel<T>(
+	models: Map<string, T>,
+	paneId: string,
+	create: (paneId: string) => T,
+): T {
+	let model = models.get(paneId);
+	if (!model) {
+		model = create(paneId);
+		models.set(paneId, model);
+	}
+	return model;
+}
 
 export interface ChatMessageReadModel {
 	get: () => ChatMessage[];
@@ -49,7 +74,7 @@ export interface ChatMessageReadModel {
 		update: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[]),
 	) => void;
 	setSummaryChangeCallback: (callback: () => void) => void;
-	subscribe: (listener: ChatMessageReadModelListener) => () => void;
+	subscribe: (listener: ReadModelListener) => () => void;
 }
 
 export interface ChatCheckpointReadModel {
@@ -68,7 +93,7 @@ export interface ChatCheckpointReadModel {
 	set: (
 		update: CheckpointInfo[] | ((prev: CheckpointInfo[]) => CheckpointInfo[]),
 	) => void;
-	subscribe: (listener: ChatCheckpointReadModelListener) => () => void;
+	subscribe: (listener: ReadModelListener) => () => void;
 }
 
 export interface ChatQueueReadModel {
@@ -81,7 +106,7 @@ export interface ChatQueueReadModel {
 		id: string,
 		text?: string,
 	) => Promise<void>;
-	subscribe: (listener: ChatQueueReadModelListener) => () => void;
+	subscribe: (listener: ReadModelListener) => () => void;
 }
 
 export interface ChatRunStatusReadModel {
@@ -91,7 +116,7 @@ export interface ChatRunStatusReadModel {
 	set: (
 		update: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState),
 	) => ChatLoadingState;
-	subscribe: (listener: ChatRunStatusReadModelListener) => () => void;
+	subscribe: (listener: ReadModelListener) => () => void;
 }
 
 function storageKey(prefix: string, paneId: string): string {
@@ -125,13 +150,10 @@ function removePaneValue(prefix: string, paneId: string) {
 
 function createChatMessageReadModel(paneId: string): ChatMessageReadModel {
 	let messages: ChatMessage[] = [];
-	const listeners = new Set<ChatMessageReadModelListener>();
+	const { notify, subscribe } = subscriptions();
 	let _summary: string | null = null;
 	let summaryChangeCallback = noop;
 
-	const notify = () => {
-		for (const listener of listeners) listener();
-	};
 	const settle = (nextMessages: ChatMessage[]) =>
 		nextMessages.map((message) =>
 			message.isStreaming ? { ...message, isStreaming: false } : message,
@@ -157,22 +179,12 @@ function createChatMessageReadModel(paneId: string): ChatMessageReadModel {
 		setSummaryChangeCallback: (callback) => {
 			summaryChangeCallback = callback;
 		},
-		subscribe: (listener) => {
-			listeners.add(listener);
-			return () => {
-				listeners.delete(listener);
-			};
-		},
+		subscribe,
 	};
 }
 
 export function getChatMessageReadModel(paneId: string): ChatMessageReadModel {
-	let model = chatMessageReadModels.get(paneId);
-	if (!model) {
-		model = createChatMessageReadModel(paneId);
-		chatMessageReadModels.set(paneId, model);
-	}
-	return model;
+	return cachedModel(chatMessageReadModels, paneId, createChatMessageReadModel);
 }
 
 export function loadStoredInput(paneId: string): string {
@@ -195,10 +207,7 @@ function createChatCheckpointReadModel(
 	paneId: string,
 ): ChatCheckpointReadModel {
 	let checkpoints = loadStoredCheckpoints<CheckpointInfo>(paneId);
-	const listeners = new Set<ChatCheckpointReadModelListener>();
-	const notify = () => {
-		for (const listener of listeners) listener();
-	};
+	const { notify, subscribe } = subscriptions();
 	const set = (
 		update: CheckpointInfo[] | ((prev: CheckpointInfo[]) => CheckpointInfo[]),
 	) => {
@@ -249,24 +258,18 @@ function createChatCheckpointReadModel(
 			});
 		},
 		set,
-		subscribe: (listener) => {
-			listeners.add(listener);
-			return () => {
-				listeners.delete(listener);
-			};
-		},
+		subscribe,
 	};
 }
 
 export function getChatCheckpointReadModel(
 	paneId: string,
 ): ChatCheckpointReadModel {
-	let model = chatCheckpointReadModels.get(paneId);
-	if (!model) {
-		model = createChatCheckpointReadModel(paneId);
-		chatCheckpointReadModels.set(paneId, model);
-	}
-	return model;
+	return cachedModel(
+		chatCheckpointReadModels,
+		paneId,
+		createChatCheckpointReadModel,
+	);
 }
 
 export function getProviderSessionId(paneId: string): string | null {
@@ -361,10 +364,6 @@ export function savePendingWorkspacePaths(paneId: string, paths: string[]) {
 	else writePaneJson(PENDING_WORKSPACE_KEY_PREFIX, paneId, paths);
 }
 
-export function loadStoredQueue<T>(paneId: string): T[] {
-	return [];
-}
-
 export async function loadFileBackedQueue<T>(
 	paneId: string,
 ): Promise<T[] | null> {
@@ -407,13 +406,10 @@ function areQueuedMessagesEqual(
 }
 
 function createChatQueueReadModel(paneId: string): ChatQueueReadModel {
-	let queue = loadStoredQueue<QueuedMessageInfo>(paneId);
+	let queue: QueuedMessageInfo[] = [];
 	let revision = 0;
 	let loadStarted = false;
-	const listeners = new Set<ChatQueueReadModelListener>();
-	const notify = () => {
-		for (const listener of listeners) listener();
-	};
+	const { notify, subscribe } = subscriptions();
 	const setSnapshot = (next: QueuedMessageInfo[]) => {
 		if (areQueuedMessagesEqual(queue, next)) return;
 		revision++;
@@ -467,30 +463,17 @@ function createChatQueueReadModel(paneId: string): ChatQueueReadModel {
 			setSnapshot(messages);
 		},
 		mutate,
-		subscribe: (listener) => {
-			listeners.add(listener);
-			return () => {
-				listeners.delete(listener);
-			};
-		},
+		subscribe,
 	};
 }
 
 export function getChatQueueReadModel(paneId: string): ChatQueueReadModel {
-	let model = chatQueueReadModels.get(paneId);
-	if (!model) {
-		model = createChatQueueReadModel(paneId);
-		chatQueueReadModels.set(paneId, model);
-	}
-	return model;
+	return cachedModel(chatQueueReadModels, paneId, createChatQueueReadModel);
 }
 
 function createChatRunStatusReadModel(): ChatRunStatusReadModel {
 	let runStatus = DEFAULT_CHAT_RUN_STATUS;
-	const listeners = new Set<ChatRunStatusReadModelListener>();
-	const notify = () => {
-		for (const listener of listeners) listener();
-	};
+	const { notify, subscribe } = subscriptions();
 	const set = (
 		update: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState),
 	) => {
@@ -511,24 +494,18 @@ function createChatRunStatusReadModel(): ChatRunStatusReadModel {
 		get: () => runStatus,
 		getSnapshot: () => runStatus,
 		set,
-		subscribe: (listener) => {
-			listeners.add(listener);
-			return () => {
-				listeners.delete(listener);
-			};
-		},
+		subscribe,
 	};
 }
 
 export function getChatRunStatusReadModel(
 	paneId: string,
 ): ChatRunStatusReadModel {
-	let model = chatRunStatusReadModels.get(paneId);
-	if (!model) {
-		model = createChatRunStatusReadModel();
-		chatRunStatusReadModels.set(paneId, model);
-	}
-	return model;
+	return cachedModel(
+		chatRunStatusReadModels,
+		paneId,
+		createChatRunStatusReadModel,
+	);
 }
 
 export function clearAgentChatPaneState(paneId: string) {

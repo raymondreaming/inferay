@@ -23,54 +23,7 @@ export type AgentOption = {
 	icon: unknown;
 };
 
-export function useChatComposerState({
-	showInput,
-	agentKind,
-	agentKindOptions,
-	model,
-	reasoningLevel,
-	onAgentKindChange,
-	onModelChange,
-	onReasoningLevelChange,
-	onAgentConfigOpenChange,
-	input,
-	setInput,
-	attachedImages,
-	removeAttachedImage,
-	attachImage,
-	queuedMessages,
-	editingQueueId,
-	editingQueueText,
-	setEditingQueueText,
-	startQueuedMessageEdit,
-	cancelQueuedMessageEdit,
-	saveQueuedMessageEdit,
-	removeQueuedMessage,
-	fileMenu,
-	setFileMenu,
-	fileResults,
-	selectFile,
-	slashMenu,
-	setSlashMenu,
-	showCommands,
-	filteredCommands,
-	slashCommandNames,
-	selectCommand,
-	handleInputForFileMenu,
-	handleInputForSlashMenu,
-	handleKeyDown,
-	handlePaste,
-	textareaRef,
-	highlightOverlayRef,
-	inputContainerRef,
-	mdPreview,
-	setMdPreview,
-	onMdFileClick,
-	voiceInput,
-	workspaceControl,
-	beamActive = false,
-}: {
-	showInput: boolean;
+export function useChatComposerState(props: {
 	agentKind: AgentKind;
 	agentKindOptions: AgentOption[];
 	model: string;
@@ -108,7 +61,6 @@ export function useChatComposerState({
 	handlePaste: (e: ClipboardEvent) => void;
 	textareaRef: React.RefObject<HTMLTextAreaElement | null>;
 	highlightOverlayRef: React.RefObject<HTMLDivElement | null>;
-	inputContainerRef: React.RefObject<HTMLDivElement | null>;
 	mdPreview: {
 		show: boolean;
 		path: string;
@@ -135,6 +87,20 @@ export function useChatComposerState({
 	workspaceControl?: ReactNode;
 	beamActive?: boolean;
 }) {
+	const {
+		agentKind,
+		agentKindOptions,
+		model,
+		reasoningLevel,
+		onAgentKindChange,
+		onModelChange,
+		onReasoningLevelChange,
+		onAgentConfigOpenChange,
+		input,
+		slashCommandNames,
+		beamActive = false,
+	} = props;
+
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	const agentConfigControlsRef = useRef<HTMLDivElement | null>(null);
 	const agentConfigButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -235,41 +201,7 @@ export function useChatComposerState({
 	}, [activeConfig]);
 
 	return {
-		showInput,
-		input,
-		setInput,
-		attachedImages,
-		removeAttachedImage,
-		attachImage,
-		queuedMessages,
-		editingQueueId,
-		editingQueueText,
-		setEditingQueueText,
-		startQueuedMessageEdit,
-		cancelQueuedMessageEdit,
-		saveQueuedMessageEdit,
-		removeQueuedMessage,
-		fileMenu,
-		setFileMenu,
-		fileResults,
-		selectFile,
-		slashMenu,
-		setSlashMenu,
-		showCommands,
-		filteredCommands,
-		selectCommand,
-		handleInputForFileMenu,
-		handleInputForSlashMenu,
-		handleKeyDown,
-		handlePaste,
-		textareaRef,
-		highlightOverlayRef,
-		inputContainerRef,
-		mdPreview,
-		setMdPreview,
-		onMdFileClick,
-		voiceInput,
-		workspaceControl,
+		...props,
 		beamActive,
 		fileInputRef,
 		agentConfigControlsRef,

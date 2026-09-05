@@ -3,7 +3,6 @@ import { readStoredValue } from "../../../adapters/storage/stored-values.ts";
 import {
 	type AgentKind,
 	getAgentDefinition,
-	isChatAgentKind,
 } from "../../../modules/agents/model/agents.ts";
 import { hasId, noop } from "../../../shared/lib/data.ts";
 import { listenWindowEvent } from "../../../shared/lib/react-events.ts";
@@ -171,26 +170,6 @@ export interface AgentSavedState {
 export type Pane = AgentPaneModel;
 export type WorkspaceGroup = AgentGroupModel;
 
-export interface PrimaryProductLoopContext {
-	readonly workspaceId: GroupId | null;
-	readonly paneId: PaneId | null;
-	readonly chatSessionPaneId: PaneId | null;
-	readonly workspacePath: string | null;
-	readonly outcomeSurfaces: readonly ["chat-checkpoints", "chat-git-diff"];
-}
-
-export interface AgentViewSwitchHealth {
-	readonly type: "view_switch";
-	readonly from: string | null;
-	readonly to: string;
-	readonly timestamp: number;
-	readonly elapsedMs: number | null;
-	readonly workspaceId: GroupId | null;
-	readonly paneId: PaneId | null;
-	readonly chatSessionPaneId: PaneId | null;
-	readonly workspacePath: string | null;
-}
-
 const AGENT_SHELL_CHANGE_EVENT = "agent-shell-change" as const;
 export const REMOVE_AGENT_PANE_REQUEST_EVENT =
 	"inferay-remove-agent-pane-request" as const;
@@ -208,7 +187,6 @@ export interface AgentShellChangeDetail {
 	source: AgentStateChangeSource;
 	reason?: string;
 	mainView?: "chat" | "graph";
-	productHealth?: AgentViewSwitchHealth;
 	stateKey?: string;
 	state?: AgentSavedState;
 }
@@ -227,61 +205,6 @@ export const DEFAULT_ROWS = 1 as const;
 
 export function agentStateKey(state: AgentSavedState): string {
 	return JSON.stringify(state);
-}
-
-export function getPrimaryProductLoopContext(
-	state: Pick<AgentSavedState, "groups" | "selectedGroupId"> | null,
-): PrimaryProductLoopContext {
-	const workspace =
-		state?.groups.find(hasId.bind(null, state.selectedGroupId)) ??
-		state?.groups[0] ??
-		null;
-	const selectedPane =
-		workspace?.panes.find(hasId.bind(null, workspace.selectedPaneId)) ??
-		workspace?.panes[0] ??
-		null;
-	const chatPane =
-		selectedPane && isChatAgentKind(selectedPane.agentKind)
-			? selectedPane
-			: (workspace?.panes.find((pane) => isChatAgentKind(pane.agentKind)) ??
-				null);
-	const workspacePath = chatPane?.cwd ?? selectedPane?.cwd ?? null;
-	return {
-		workspaceId: workspace?.id ?? null,
-		paneId: selectedPane?.id ?? null,
-		chatSessionPaneId: chatPane?.id ?? null,
-		workspacePath,
-		outcomeSurfaces: ["chat-checkpoints", "chat-git-diff"],
-	};
-}
-
-export function createAgentViewSwitchHealth({
-	context,
-	from,
-	previousTimestamp = null,
-	timestamp = Date.now(),
-	to,
-}: {
-	context: PrimaryProductLoopContext;
-	from: string | null;
-	previousTimestamp?: number | null;
-	timestamp?: number;
-	to: string;
-}): AgentViewSwitchHealth {
-	return {
-		type: "view_switch",
-		from,
-		to,
-		timestamp,
-		elapsedMs:
-			previousTimestamp === null
-				? null
-				: Math.max(0, timestamp - previousTimestamp),
-		workspaceId: context.workspaceId,
-		paneId: context.paneId,
-		chatSessionPaneId: context.chatSessionPaneId,
-		workspacePath: context.workspacePath,
-	};
 }
 
 let _cachedAgentState: AgentSavedState | null = null;
@@ -344,7 +267,15 @@ export async function initializeAgentState(): Promise<AgentSavedState> {
 	return state;
 }
 
+let pendingWorkspaceRead: {
+	barrier: Promise<unknown>;
+	result: Promise<AgentSavedState | null>;
+} | null = null;
+
 export function loadCanonicalAgentState(): Promise<AgentSavedState | null> {
+	if (pendingWorkspaceRead?.barrier === pendingWorkspaceMutation) {
+		return pendingWorkspaceRead.result;
+	}
 	const read = pendingWorkspaceMutation.then(async () => {
 		try {
 			const response = await fetch("/api/agent/state");
@@ -360,7 +291,13 @@ export function loadCanonicalAgentState(): Promise<AgentSavedState | null> {
 			return _cachedAgentState;
 		}
 	});
-	pendingWorkspaceMutation = read.catch(noop);
+	const barrier = read
+		.finally(() => {
+			if (pendingWorkspaceRead?.result === read) pendingWorkspaceRead = null;
+		})
+		.catch(noop);
+	pendingWorkspaceMutation = barrier;
+	pendingWorkspaceRead = { barrier, result: read };
 	return read;
 }
 

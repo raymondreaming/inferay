@@ -693,13 +693,6 @@ export function getCommitGraphRefContextMenuStyle(
 	return { left: left, top: top } as CSSProperties;
 }
 
-export function getCommitGraphRefContextMenuStyle1(
-	left: CSSProperties["left"],
-	top: CSSProperties["top"],
-): CSSProperties {
-	return { left: left, top: top } as CSSProperties;
-}
-
 export function getGraphLineLayerStyle(
 	left: number,
 	top: number,

@@ -557,17 +557,8 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             ("/api/git/graph", "GET") => {
                 return api_http_response(git_graph(&state, request).await, &request_headers);
             }
-            ("/api/git/commit-diff", "GET") => {
-                return api_http_response(git_commit_diff(&state, request).await, &request_headers);
-            }
-            ("/api/git/comparison-diff", "GET") => {
-                return api_http_response(
-                    git_comparison_diff(&state, request).await,
-                    &request_headers,
-                );
-            }
-            ("/api/git/full-diff", "GET") => {
-                return api_http_response(git_full_diff(&state, request).await, &request_headers);
+            ("/api/git/commit-diff" | "/api/git/comparison-diff" | "/api/git/full-diff", "GET") => {
+                return api_http_response(git_diff(&state, request).await, &request_headers);
             }
             ("/api/generate-title", "POST") => {
                 one_shot::generate_title_route(&state, request).await
@@ -1096,38 +1087,6 @@ async fn git_commit_details(state: &ServerState, request: Request) -> ApiResult 
     }
 }
 
-async fn git_commit_diff(state: &ServerState, request: Request) -> ApiResult<Response> {
-    let request_headers = request.headers().clone();
-    let cwd = query_value(&request, "cwd")
-        .as_deref()
-        .and_then(|cwd| safe_cwd(state, cwd));
-    let hash = query_value(&request, "hash").filter(|hash| safe_hash(hash));
-    let parent = query_value(&request, "parent").filter(|hash| safe_hash(hash));
-    let file = query_value(&request, "file").filter(|file| is_safe_relative_path(file));
-    let review = query_value(&request, "view").as_deref() == Some("review");
-    let (Some(cwd), Some(hash), Some(file)) = (cwd, hash, file) else {
-        return Err(api_error(
-            StatusCode::BAD_REQUEST,
-            "Missing cwd, hash, or file parameter",
-        ));
-    };
-    let started = std::time::Instant::now();
-    let revision = query_value(&request, "revision").unwrap_or_default();
-    let key = format!("commit-diff-v3\0{cwd}\0{hash}\0{parent:?}\0{file}\0{review}\0{revision}");
-    let task = render_jobs::cached(key, std::time::Duration::from_secs(2), move || {
-        get_git_commit_hunk_diff_for_parent(&cwd, &hash, parent.as_deref(), &file, review)
-            .map(render_jobs::diff_bytes)
-    });
-    await_cached_render(
-        task,
-        started,
-        &request_headers,
-        Some("File is not changed in this commit"),
-        "Commit diff unavailable",
-    )
-    .await
-}
-
 async fn git_comparison_details(state: &ServerState, request: Request) -> ApiResult {
     let cwd = query_value(&request, "cwd")
         .as_deref()
@@ -1206,87 +1165,109 @@ async fn git_comparison_details(state: &ServerState, request: Request) -> ApiRes
     }
 }
 
-async fn git_comparison_diff(state: &ServerState, request: Request) -> ApiResult<Response> {
-    let request_headers = request.headers().clone();
-    let cwd = query_value(&request, "cwd")
-        .as_deref()
-        .and_then(|cwd| safe_cwd(state, cwd));
-    let from = query_value(&request, "from").filter(|hash| safe_hash(hash));
-    let to = query_value(&request, "to").filter(|value| value == "WORKTREE" || safe_hash(value));
-    let file = query_value(&request, "file").filter(|file| is_safe_relative_path(file));
-    let review = query_value(&request, "view").as_deref() == Some("review");
-    let (Some(cwd), Some(from), Some(to), Some(file)) = (cwd, from, to, file) else {
-        return Err(api_error(
-            StatusCode::BAD_REQUEST,
-            "Missing cwd, from, to, or file parameter",
-        ));
+async fn git_diff(state: &ServerState, request: Request) -> ApiResult<Response> {
+    let path = request.uri().path();
+    let comparison = path == "/api/git/comparison-diff";
+    let full = path == "/api/git/full-diff";
+    // Decode once, retaining the first occurrence of duplicate parameters.
+    let query = url::form_urlencoded::parse(request.uri().query().unwrap_or_default().as_bytes())
+        .collect::<Vec<_>>();
+    let value = |key: &str| {
+        query
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value.as_ref())
     };
-    let allowed_paths = state.allowed_paths.clone();
-    let started = std::time::Instant::now();
-    let revision = query_value(&request, "revision").unwrap_or_default();
-    let key = format!("comparison-diff-v3\0{cwd}\0{from}\0{to}\0{file}\0{review}\0{revision}");
-    let ttl = if to == "WORKTREE" {
-        std::time::Duration::ZERO
+    let missing = if full {
+        "Missing cwd or file parameter"
+    } else if comparison {
+        "Missing cwd, from, to, or file parameter"
     } else {
-        std::time::Duration::from_secs(2)
+        "Missing cwd, hash, or file parameter"
     };
+    let invalid = || api_error(StatusCode::BAD_REQUEST, missing);
+    let cwd = value("cwd")
+        .and_then(|cwd| safe_cwd(state, cwd))
+        .ok_or_else(invalid)?;
+    let file = value("file")
+        .filter(|file| is_safe_relative_path(file))
+        .ok_or_else(invalid)?
+        .to_owned();
+    let review = value("view") == Some("review");
+    let allowed_paths = state.allowed_paths.clone();
+    if full {
+        let body = native_git::full_diff(
+            allowed_paths,
+            cwd,
+            file,
+            value("staged") == Some("true"),
+            review,
+        )
+        .await?
+        .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "File is not changed"))?;
+        return Ok(json_bytes_response(StatusCode::OK, body, request.headers()));
+    }
+    let from = value(if comparison { "from" } else { "hash" })
+        .filter(|hash| safe_hash(hash))
+        .ok_or_else(invalid)?
+        .to_owned();
+    let to = if comparison {
+        Some(
+            value("to")
+                .filter(|hash| *hash == "WORKTREE" || safe_hash(hash))
+                .ok_or_else(invalid)?
+                .to_owned(),
+        )
+    } else {
+        value("parent")
+            .filter(|hash| safe_hash(hash))
+            .map(str::to_owned)
+    };
+    let worktree = comparison && to.as_deref() == Some("WORKTREE");
+    let started = std::time::Instant::now();
+    let key = format!(
+        "git-diff:{:?}",
+        (
+            &allowed_paths,
+            &cwd,
+            &file,
+            comparison,
+            &from,
+            &to,
+            review,
+            value("revision").unwrap_or_default()
+        )
+    );
+    let ttl = std::time::Duration::from_secs(if worktree { 0 } else { 2 });
     let task = render_jobs::cached(key, ttl, move || {
-        let diff = if to == "WORKTREE" {
+        let diff = if worktree {
             get_git_worktree_comparison_hunk_diff(&allowed_paths, &cwd, &from, &file, review)
+        } else if comparison {
+            get_git_comparison_hunk_diff(&cwd, &from, to.as_deref().unwrap(), &file, review)
         } else {
-            get_git_comparison_hunk_diff(&cwd, &from, &to, &file, review)
+            get_git_commit_hunk_diff_for_parent(&cwd, &from, to.as_deref(), &file, review)
         };
         diff.map(render_jobs::diff_bytes)
     });
+    let (unchanged, unavailable) = if comparison {
+        (
+            "File is not changed between these commits",
+            "Comparison diff unavailable",
+        )
+    } else {
+        (
+            "File is not changed in this commit",
+            "Commit diff unavailable",
+        )
+    };
     await_cached_render(
         task,
         started,
-        &request_headers,
-        Some("File is not changed between these commits"),
-        "Comparison diff unavailable",
+        request.headers(),
+        Some(unchanged),
+        unavailable,
     )
     .await
-}
-
-struct GitDiffParams {
-    cwd: String,
-    file: String,
-    staged: bool,
-}
-
-fn git_diff_params(state: &ServerState, request: &Request) -> Option<GitDiffParams> {
-    let cwd = query_value(request, "cwd")?;
-    let cwd = safe_cwd(state, &cwd)?;
-    let file = query_value(request, "file")?;
-    if !is_safe_relative_path(&file) {
-        return None;
-    }
-    Some(GitDiffParams {
-        cwd,
-        file,
-        staged: query_value(request, "staged").as_deref() == Some("true"),
-    })
-}
-
-async fn git_full_diff(state: &ServerState, request: Request) -> ApiResult<Response> {
-    let request_headers = request.headers().clone();
-    let review = query_value(&request, "view").as_deref() == Some("review");
-    let Some(params) = git_diff_params(state, &request) else {
-        return Err(api_error(
-            StatusCode::BAD_REQUEST,
-            "Missing cwd or file parameter",
-        ));
-    };
-    let body = native_git::full_diff(
-        state.allowed_paths.clone(),
-        params.cwd,
-        params.file,
-        params.staged,
-        review,
-    )
-    .await?
-    .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "File is not changed"))?;
-    Ok(json_bytes_response(StatusCode::OK, body, &request_headers))
 }
 
 fn prompt_path(path: &str) -> Option<(&str, bool)> {
@@ -3428,21 +3409,12 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         let providers = value["providers"].as_array().unwrap();
         assert_eq!(providers.len(), 2);
         assert_eq!(providers[0]["kind"], "claude");
-        assert_eq!(providers[0]["label"], "Claude");
         assert_eq!(providers[1]["kind"], "codex");
-        assert_eq!(providers[1]["label"], "Codex");
         for provider in providers {
-            assert!(provider["installed"].is_boolean());
-            assert!(provider["binaryPath"].is_string());
-            assert!(provider["version"].is_null() || provider["version"].is_string());
-            assert!(provider["authConfigPaths"].is_array());
-            assert_eq!(provider["usageSignals"].as_array().unwrap().len(), 2);
-            assert!(provider["checkedAt"].is_u64());
             assert!(matches!(
                 provider["health"].as_str(),
                 Some("ready" | "needs-login" | "missing-cli")
             ));
-            assert!(provider["summary"].is_string());
         }
     }
 

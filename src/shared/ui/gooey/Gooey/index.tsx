@@ -48,7 +48,6 @@ export function GooeyRoot({
 }: GooeyProps) {
 	const groupRef = useRef<HTMLDivElement | null>(null);
 	const [portal, setPortal] = useState<SVGGElement | null>(null);
-	const [meltPortal, setMeltPortal] = useState<SVGGElement | null>(null);
 	const [size, setSize] = useState({ w: 0, h: 0 });
 
 	const setRefs = useCallback(
@@ -87,12 +86,11 @@ export function GooeyRoot({
 	const ctx = useMemo<GooeyContextValue>(
 		() => ({
 			portal,
-			meltPortal,
 			fill,
 			getGroup: () => groupRef.current,
 			engine,
 		}),
-		[portal, meltPortal, fill, engine],
+		[portal, fill, engine],
 	);
 
 	// The filter raster is the whole performance story on WebKit, which runs
@@ -171,36 +169,6 @@ export function GooeyRoot({
 					filter={`url(#${filterId})`}
 					style={inlineStyles.getGooeyRootGStyle(fill)}
 				/>
-			</svg>
-			{/* Melt overlay: warped-image copies render here, ABOVE the content
-          layer. SVG content so displacement/blur filters work in WebKit. */}
-			<svg
-				aria-hidden="true"
-				focusable="false"
-				data-gooey-overlay=""
-				style={inlineStyles.getGooeyRootSvgStyle1()}
-			>
-				<defs>
-					{/* The melt may only paint where LIQUID exists: the mask re-renders
-              the goo-filtered silhouette (same document, <use> across the two
-              svgs), so the warped copies are clipped to the merged surface —
-              without this the smear bled past the liquid edge onto the page
-              background. Luminance mask: the white silhouette passes, the
-              faint shadow layers (≤6% alpha) are negligible. */}
-					<mask
-						id={`${filterId}-meltmask`}
-						maskUnits="userSpaceOnUse"
-						x={-pad}
-						y={-pad}
-						width={size.w + pad * 2}
-						height={size.h + pad * 2}
-					>
-						<use href={`#${filterId}-sil`} />
-					</mask>
-				</defs>
-				<g mask={`url(#${filterId}-meltmask)`}>
-					<g ref={setMeltPortal} />
-				</g>
 			</svg>
 			<GooeyContext.Provider value={ctx}>{children}</GooeyContext.Provider>
 		</div>

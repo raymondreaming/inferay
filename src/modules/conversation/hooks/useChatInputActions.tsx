@@ -61,7 +61,7 @@ export function useChatInputActions({
 	cancelSpeechListening,
 	clearAttachedImages,
 	clearCheckpoints,
-	composerOnly,
+
 	consumePendingWorkspace,
 	cwd,
 	effectiveSelectedModel,
@@ -72,7 +72,7 @@ export function useChatInputActions({
 	isLoading,
 	onSendStart,
 	onExit,
-	onExitComposerOnly,
+
 	paneId,
 	referencePaths,
 	selectCommand,
@@ -93,7 +93,7 @@ export function useChatInputActions({
 	cancelSpeechListening: () => void;
 	clearAttachedImages: () => void;
 	clearCheckpoints: () => void;
-	composerOnly: boolean;
+
 	consumePendingWorkspace: () => ChatWorkspaceOverride | undefined;
 	cwd?: string;
 	effectiveSelectedModel: string;
@@ -104,7 +104,7 @@ export function useChatInputActions({
 	isLoading: boolean;
 	onSendStart?: () => void;
 	onExit?: () => void;
-	onExitComposerOnly?: () => void;
+
 	paneId: string;
 	referencePaths?: string[];
 	selectCommand: (idx: number) => void;
@@ -413,17 +413,13 @@ export function useChatInputActions({
 				e.preventDefault();
 				if (e.repeat) return;
 				sendMessage();
-			} else if (composerOnly && e.key === "Escape") {
-				e.preventDefault();
-				onExitComposerOnly?.();
 			}
 		},
 		[
-			composerOnly,
 			fileMenu,
 			fileResults.length,
 			filteredCommands.length,
-			onExitComposerOnly,
+
 			selectCommand,
 			selectFile,
 			sendMessage,

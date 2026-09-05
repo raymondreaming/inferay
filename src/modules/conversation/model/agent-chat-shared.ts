@@ -136,16 +136,8 @@ export type ChatLoadingState = {
 	startTime: number | null;
 };
 
-export type ToolActivity = {
-	id: string;
-	toolName: string;
-	isStreaming: boolean;
-	summary: string;
-};
-
 export type ChatUiState = ChatLoadingState & {
 	expandedTools: Set<string>;
-	liveActivities: ToolActivity[];
 };
 
 export interface SlashCommand {

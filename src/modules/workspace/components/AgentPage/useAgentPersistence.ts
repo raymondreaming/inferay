@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "octane";
+import { useCallback, useEffect, useRef } from "octane";
 
 import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../../../adapters/storage/keys.ts";
 import {
@@ -13,9 +13,7 @@ import {
 import { listenWindowEvent } from "../../../../shared/lib/react-events.ts";
 import {
 	type AgentShellChangeDetail,
-	createAgentViewSwitchHealth,
 	dispatchAgentShellChange,
-	getPrimaryProductLoopContext,
 	syncAgentLayoutMode,
 } from "../../model/workspace-model.ts";
 
@@ -29,7 +27,6 @@ export function useAgentPersistence({
 	groups,
 	latestStateRef,
 	mainView,
-	mainViewHealthRef,
 	mainViewRef,
 	opacity,
 	restoreSavedState,
@@ -57,28 +54,14 @@ export function useAgentPersistence({
 		opacity,
 		latestStateRef,
 	]);
+	const previousView = useRef(mainView);
 	useEffect(() => {
 		writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, mainView);
-		const previous = mainViewHealthRef.current;
-		const timestamp = Date.now();
-		if (previous.timestamp === null) {
-			mainViewHealthRef.current = { timestamp, view: mainView };
-			return;
-		}
-		if (previous.view === mainView) return;
-		dispatchAgentShellChange({
-			source: "view",
-			reason: "main-view-switch",
-			productHealth: createAgentViewSwitchHealth({
-				context: getPrimaryProductLoopContext(latestStateRef.current),
-				from: previous.view,
-				previousTimestamp: previous.timestamp,
-				timestamp,
-				to: mainView,
-			}),
-		});
-		mainViewHealthRef.current = { timestamp, view: mainView };
-	}, [latestStateRef, mainView, mainViewHealthRef]);
+		if (previousView.current === mainView) return;
+		previousView.current = mainView;
+		dispatchAgentShellChange({ source: "view", reason: "main-view-switch" });
+	}, [mainView]);
+
 	const handleShellChange = useCallback(
 		(event: Event) => {
 			const detail = (event as CustomEvent<AgentShellChangeDetail>).detail;

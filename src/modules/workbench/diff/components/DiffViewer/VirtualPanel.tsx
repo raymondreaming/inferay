@@ -82,8 +82,7 @@ export const VirtualPanel = memo(function VirtualPanel({
 	externalScrollSource,
 	side,
 	filePath,
-	highlightedChangeIdx,
-	changeLineMap,
+	highlightedRange,
 	syntaxTheme,
 }: {
 	lines: DiffLine[];
@@ -106,8 +105,7 @@ export const VirtualPanel = memo(function VirtualPanel({
 	externalScrollSource?: DiffScrollSource;
 	side: "left" | "right" | "single";
 	filePath?: string;
-	highlightedChangeIdx?: number;
-	changeLineMap?: Map<number, number>;
+	highlightedRange?: readonly [number, number];
 	syntaxTheme: SyntaxHighlightTheme;
 }) {
 	const [viewport, dispatchViewport] = useReducer(
@@ -271,10 +269,10 @@ export const VirtualPanel = memo(function VirtualPanel({
 				type: "spacer",
 			};
 
-			const changeIdx = changeLineMap?.get(i);
 			const isHighlighted =
-				highlightedChangeIdx !== undefined &&
-				changeIdx === highlightedChangeIdx;
+				highlightedRange !== undefined &&
+				i >= highlightedRange[0] &&
+				i < highlightedRange[1];
 			const canUseShiki =
 				shikiReady && !disableTokenize && !!filePath && !!shikiLanguage;
 			const highlightedTokens = canUseShiki
@@ -309,8 +307,7 @@ export const VirtualPanel = memo(function VirtualPanel({
 		shikiLanguage,
 		getHighlightedLineTokens,
 		filePath,
-		changeLineMap,
-		highlightedChangeIdx,
+		highlightedRange,
 	]);
 
 	return (

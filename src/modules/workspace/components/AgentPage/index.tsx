@@ -305,13 +305,6 @@ export function AgentPage() {
 	});
 	const mainViewRef = useRef(mainView);
 	mainViewRef.current = mainView;
-	const mainViewHealthRef = useRef<{
-		timestamp: number | null;
-		view: AgentMainView;
-	}>({
-		timestamp: null,
-		view: mainView,
-	});
 	useAgentPersistence({
 		applySelection,
 		setWorkspaceError,
@@ -320,7 +313,6 @@ export function AgentPage() {
 		groups,
 		latestStateRef,
 		mainView,
-		mainViewHealthRef,
 		mainViewRef,
 		opacity,
 		restoreSavedState,

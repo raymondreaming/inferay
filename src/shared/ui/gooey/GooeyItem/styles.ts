@@ -7,6 +7,7 @@ export function getMirroredItemDivStyle(
 		display: "inline-block",
 		...overrides,
 		willChange: "transform",
+		transform: "translate(0px, 0px)",
 	} as CSSProperties;
 }
 
@@ -23,3 +24,10 @@ export function getObservedItemRectStyle(): CSSProperties {
 		transformOrigin: "center",
 	} as CSSProperties;
 }
+
+export const mirroredBlobStyle: CSSProperties = {
+	transformBox: "fill-box",
+	transformOrigin: "center",
+	willChange: "transform",
+	transform: "translate(0px, 0px)",
+};

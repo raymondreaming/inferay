@@ -1687,7 +1687,7 @@ pub fn preflight_git_checkout(cwd: &str, branch_name: &str) -> GitCheckoutPrefli
         .iter()
         .any(|branch| branch.name == branch_name);
     let already_current = current_git_branch(cwd).as_deref() == Some(branch_name);
-    let status = get_git_status(cwd);
+    let status = git_status(cwd, false);
     let clean_worktree = status
         .as_ref()
         .is_some_and(|status| status.files.is_empty());
@@ -2652,7 +2652,7 @@ pub fn perform_git_graph_action_with_targets(
                     "Commit or stash working changes before pulling",
                 );
             }
-            let Some(status) = get_git_status(cwd) else {
+            let Some(status) = git_status(cwd, false) else {
                 return git_operation_error(cwd, action, "Repository status is unavailable");
             };
             if status.upstream.is_none() {
@@ -2667,7 +2667,7 @@ pub fn perform_git_graph_action_with_targets(
                 .env("GIT_EDITOR", "true");
         }
         "push" => {
-            let Some(status) = get_git_status(cwd) else {
+            let Some(status) = git_status(cwd, false) else {
                 return git_operation_error(cwd, action, "Repository status is unavailable");
             };
             if status.upstream.is_none() {
@@ -2680,7 +2680,7 @@ pub fn perform_git_graph_action_with_targets(
             command.arg("push");
         }
         "forcePushWithLease" => {
-            let Some(status) = get_git_status(cwd) else {
+            let Some(status) = git_status(cwd, false) else {
                 return git_operation_error(cwd, action, "Repository status is unavailable");
             };
             if status.branch != target || status.upstream.is_none() {
@@ -2999,6 +2999,10 @@ fn commit_git_mode(cwd: &str, message: &str, amend: bool) -> GitCommitResult {
 }
 
 pub fn get_git_status(cwd: &str) -> Option<GitStatusResult> {
+    git_status(cwd, true)
+}
+
+fn git_status(cwd: &str, include_stats: bool) -> Option<GitStatusResult> {
     let raw = run_git(
         &["status", "--porcelain=v1", "-b", "--untracked-files=all"],
         cwd,
@@ -3054,34 +3058,19 @@ pub fn get_git_status(cwd: &str) -> Option<GitStatusResult> {
             .unwrap_or_else(|| file_path.clone());
         let original_path = arrow_idx.map(|idx| file_path[..idx].to_string());
 
-        if x != ' ' && x != '?' {
+        for (status, staged) in [(x, true), (y, false)] {
+            if status == ' ' || (status == '?' && (staged || x != '?')) {
+                continue;
+            }
             files.push(GitFileEntry {
-                status: x.to_string(),
-                staged: true,
+                status: status.to_string(),
+                staged,
                 path: actual_path.clone(),
-                original_path: original_path.clone(),
-                additions: None,
-                deletions: None,
-            });
-        }
-
-        if y != ' ' && y != '?' {
-            files.push(GitFileEntry {
-                status: y.to_string(),
-                staged: false,
-                path: actual_path.clone(),
-                original_path: original_path.clone(),
-                additions: None,
-                deletions: None,
-            });
-        }
-
-        if x == '?' && y == '?' {
-            files.push(GitFileEntry {
-                status: String::from("?"),
-                staged: false,
-                path: actual_path,
-                original_path: None,
+                original_path: if status == '?' {
+                    None
+                } else {
+                    original_path.clone()
+                },
                 additions: None,
                 deletions: None,
             });
@@ -3095,7 +3084,11 @@ pub fn get_git_status(cwd: &str) -> Option<GitStatusResult> {
         .count();
     let untracked_count = files.iter().filter(|file| file.status == "?").count();
     let name = cwd.rsplit('/').next().unwrap_or(cwd).to_string();
-    let diff_stats = get_working_tree_numstat(cwd);
+    let diff_stats = get_working_tree_numstat(
+        cwd,
+        include_stats && unstaged_count > 0,
+        include_stats && staged_count > 0,
+    );
     for file in &mut files {
         let prefix = if file.staged { "staged" } else { "unstaged" };
         if let Some((additions, deletions)) = diff_stats.get(&format!("{prefix}:{}", file.path)) {
@@ -3118,7 +3111,17 @@ pub fn get_git_status(cwd: &str) -> Option<GitStatusResult> {
     })
 }
 
-fn get_working_tree_numstat(cwd: &str) -> HashMap<String, (usize, usize)> {
+fn get_working_tree_numstat(
+    cwd: &str,
+    unstaged: bool,
+    staged: bool,
+) -> HashMap<String, (usize, usize)> {
+    match (unstaged, staged) {
+        (false, false) => return HashMap::new(),
+        (true, false) => return get_numstat_entries(cwd, false),
+        (false, true) => return get_numstat_entries(cwd, true),
+        (true, true) => {}
+    }
     let (mut unstaged, staged) = std::thread::scope(|scope| {
         let unstaged = scope.spawn(|| get_numstat_entries(cwd, false));
         let staged = scope.spawn(|| get_numstat_entries(cwd, true));
@@ -5245,6 +5248,34 @@ mod tests {
             .iter()
             .any(|line| line.line_type == GitDiffLineType::Add));
         assert!(diff.raw_patch.unwrap().contains("+.new { color: blue; }"));
+    }
+
+    #[test]
+    fn status_preserves_both_sides_and_untracked_files_without_optional_stats() {
+        let repository = make_repository();
+        let cwd = repository.path().to_str().unwrap();
+        fs::write(repository.path().join("tracked.txt"), "base\n").unwrap();
+        commit_file(repository.path(), ".", "initial");
+        fs::write(repository.path().join("tracked.txt"), "base\nstaged\n").unwrap();
+        git(repository.path(), &["add", "tracked.txt"]);
+        fs::write(
+            repository.path().join("tracked.txt"),
+            "base\nstaged\nunstaged\n",
+        )
+        .unwrap();
+        fs::write(repository.path().join("new.txt"), "new\n").unwrap();
+        let mut full = get_git_status(cwd).unwrap();
+        assert_eq!(
+            (full.staged_count, full.unstaged_count, full.untracked_count),
+            (1, 1, 1)
+        );
+        for file in &mut full.files {
+            assert_eq!(file.additions, (file.status != "?").then_some(1));
+            assert_eq!(file.deletions, (file.status != "?").then_some(0));
+            file.additions = None;
+            file.deletions = None;
+        }
+        assert_eq!(git_status(cwd, false).unwrap(), full);
     }
 
     #[test]

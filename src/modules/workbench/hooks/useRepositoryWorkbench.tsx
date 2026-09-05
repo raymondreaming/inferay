@@ -401,10 +401,6 @@ export function useRepositoryWorkbench({
 		}),
 		[project],
 	);
-	const files = useMemo(
-		() => [...modified, ...untracked, ...staged],
-		[modified, untracked, staged],
-	);
 	const graphRevisionsRef = useRef(new Map<string, string>());
 	if (graphCwd && graph.revision) {
 		graphRevisionsRef.current.set(graphCwd, graph.revision);
@@ -1239,6 +1235,23 @@ export function useRepositoryWorkbench({
 	);
 
 	const auxiliaryPanels = useMemo(() => {
+		const startFileDrag = (
+			drag: DragProps,
+			event: PointerEvent,
+			file: FileContentResponse,
+			completeMove: () => void,
+		) => {
+			const id = createDetachedFilePanelId();
+			drag.onCreatePanelDragStart(event, id, () => {
+				setDetachedFilePanels((current) => [
+					...current,
+					{ id, cwd: file.cwd, path: file.path, initialFile: file },
+				]);
+				setFocusedAuxiliaryPanel({ id, cwd: file.cwd });
+				completeMove();
+			});
+		};
+
 		const panels: Array<{
 			readonly id: string;
 			readonly onSelect?: () => void;
@@ -1259,22 +1272,7 @@ export function useRepositoryWorkbench({
 						sessionId={`workspace-file-viewer:${workspaceId}:${fileViewerCwd}`}
 						openRequest={fileRequest}
 						onClose={closeFileViewer}
-						onFileTabDragStart={(event, file, completeMove) => {
-							const id = createDetachedFilePanelId();
-							drag.onCreatePanelDragStart(event, id, () => {
-								setDetachedFilePanels((current) => [
-									...current,
-									{
-										id,
-										cwd: file.cwd,
-										path: file.path,
-										initialFile: file,
-									},
-								]);
-								setFocusedAuxiliaryPanel({ id, cwd: file.cwd });
-								completeMove();
-							});
-						}}
+						onFileTabDragStart={startFileDrag.bind(null, drag)}
 						{...drag}
 					/>
 				),
@@ -1302,22 +1300,7 @@ export function useRepositoryWorkbench({
 								current?.id === panel.id ? null : current,
 							);
 						}}
-						onFileTabDragStart={(event, file, completeMove) => {
-							const id = createDetachedFilePanelId();
-							drag.onCreatePanelDragStart(event, id, () => {
-								setDetachedFilePanels((current) => [
-									...current,
-									{
-										id,
-										cwd: file.cwd,
-										path: file.path,
-										initialFile: file,
-									},
-								]);
-								setFocusedAuxiliaryPanel({ id, cwd: file.cwd });
-								completeMove();
-							});
-						}}
+						onFileTabDragStart={startFileDrag.bind(null, drag)}
 						{...drag}
 					/>
 				),

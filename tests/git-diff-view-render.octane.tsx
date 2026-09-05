@@ -49,6 +49,10 @@ function setupDom() {
 		configurable: true,
 		value: dom.window.document,
 	});
+	Object.defineProperty(globalThis, "getComputedStyle", {
+		configurable: true,
+		value: dom.window.getComputedStyle.bind(dom.window),
+	});
 	Object.defineProperty(globalThis, "HTMLElement", {
 		configurable: true,
 		value: dom.window.HTMLElement,
@@ -110,6 +114,84 @@ async function renderDiff(
 }
 
 describe("DiffViewer custom renderer", () => {
+	test("switches panel modes and preserves conflict and binary presentation", async () => {
+		const { root, rootElement } = setupDom();
+		const { DiffViewer } = await import(
+			"../src/modules/workbench/diff/components/DiffViewer/index.tsx"
+		);
+		const diff: HunkDiff = {
+			oldLines: [{ number: 1, content: "previous text", type: "remove" }],
+			newLines: [{ number: 1, content: "replacement text", type: "add" }],
+			inlineLines: [
+				{ number: 1, content: "previous text", type: "remove" },
+				{ number: 1, content: "replacement text", type: "add" },
+			],
+			isBinary: false,
+			isNew: false,
+		};
+		const render = async (value: HunkDiff, viewMode: "split" | "hunks") => {
+			root.render(
+				<DiffViewer
+					diff={value}
+					filePath="example.ts"
+					staged={false}
+					loading={false}
+					viewMode={viewMode}
+					onClose={() => {}}
+				/>,
+			);
+			await new Promise((resolve) => setTimeout(resolve, 30));
+		};
+		try {
+			await render(diff, "split");
+			expect(
+				rootElement.querySelectorAll("[data-diff-scroll-side]"),
+			).toHaveLength(2);
+			await render(diff, "hunks");
+			expect(
+				rootElement.querySelectorAll("[data-diff-scroll-side]"),
+			).toHaveLength(1);
+			expect(rootElement.textContent).toContain("previous text");
+			expect(rootElement.textContent).toContain("replacement text");
+			await render(diff, "split");
+			expect(
+				rootElement.querySelectorAll("[data-diff-scroll-side]"),
+			).toHaveLength(2);
+			await render(
+				{
+					...diff,
+					mergeConflictContent: "conflicted file",
+					conflictLines: [
+						{ number: 1, content: "conflict contents", type: "context" },
+					],
+				},
+				"split",
+			);
+			expect(
+				rootElement.querySelectorAll("[data-diff-scroll-side]"),
+			).toHaveLength(1);
+			expect(rootElement.textContent).toContain("conflict contents");
+			expect(rootElement.textContent).toContain("Accept both");
+			expect(rootElement.textContent).not.toContain("replacement text");
+			await render(
+				{
+					...diff,
+					isBinary: true,
+					isImage: true,
+					imagePath: "/repo/image.png",
+				},
+				"split",
+			);
+			expect(
+				rootElement.querySelectorAll("[data-diff-scroll-side]"),
+			).toHaveLength(0);
+			expect(
+				rootElement.querySelector('img[alt="example.ts"]')?.getAttribute("src"),
+			).toBe("/api/file?path=%2Frepo%2Fimage.png");
+		} finally {
+			root.unmount();
+		}
+	});
 	test("virtualizes missing old-file rows without allocating aligned source arrays", async () => {
 		const { root, rootElement } = setupDom();
 		try {

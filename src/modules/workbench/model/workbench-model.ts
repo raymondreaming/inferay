@@ -53,6 +53,14 @@ export interface GitGraphSelectionItem {
 	readonly message: string;
 }
 
+const EMPTY_FILE_SELECTION = {
+	selectedFile: null,
+	selectedFileCommitHash: null,
+	selectedFileCommitParent: null,
+	selectedFileComparisonFrom: null,
+	selectedFileComparisonTo: null,
+};
+
 export function emptyGitWorkspacePanelSession<
 	InitialFile = unknown,
 >(): GitWorkspacePanelSession<InitialFile> {
@@ -65,11 +73,7 @@ export function emptyGitWorkspacePanelSession<
 		focusedAuxiliaryPanel: null,
 		detachedFilePanels: [],
 		fileRequest: null,
-		selectedFile: null,
-		selectedFileCommitHash: null,
-		selectedFileCommitParent: null,
-		selectedFileComparisonFrom: null,
-		selectedFileComparisonTo: null,
+		...EMPTY_FILE_SELECTION,
 		diffContext: null,
 		selectedCommitHash: null,
 		selectedCommitIds: [],
@@ -127,19 +131,7 @@ export function bindGitGraphRepository<InitialFile>(
 		...current,
 		diffViewerCwd: cwd,
 		focusedAuxiliaryPanel: null,
-		selectedFile: repositoryChanged ? null : current.selectedFile,
-		selectedFileCommitHash: repositoryChanged
-			? null
-			: current.selectedFileCommitHash,
-		selectedFileCommitParent: repositoryChanged
-			? null
-			: current.selectedFileCommitParent,
-		selectedFileComparisonFrom: repositoryChanged
-			? null
-			: current.selectedFileComparisonFrom,
-		selectedFileComparisonTo: repositoryChanged
-			? null
-			: current.selectedFileComparisonTo,
+		...(repositoryChanged ? EMPTY_FILE_SELECTION : {}),
 		diffContext: null,
 		selectedCommitHash: repositoryChanged ? null : current.selectedCommitHash,
 		selectedCommitIds: repositoryChanged ? [] : current.selectedCommitIds,
@@ -225,11 +217,7 @@ export function dismissGitWorkspaceViewer<InitialFile>(
 	}
 	return {
 		...current,
-		selectedFile: null,
-		selectedFileCommitHash: null,
-		selectedFileCommitParent: null,
-		selectedFileComparisonFrom: null,
-		selectedFileComparisonTo: null,
+		...EMPTY_FILE_SELECTION,
 		diffContext: null,
 		selectedCommitHash: null,
 		selectedCommitIds: [],
@@ -316,19 +304,7 @@ export function updateGitGraphSelection<InitialFile>(
 		nextIds.some((id, index) => id !== current.selectedCommitIds[index]);
 	return {
 		...current,
-		selectedFile: selectionChanged ? null : current.selectedFile,
-		selectedFileCommitHash: selectionChanged
-			? null
-			: current.selectedFileCommitHash,
-		selectedFileCommitParent: selectionChanged
-			? null
-			: current.selectedFileCommitParent,
-		selectedFileComparisonFrom: selectionChanged
-			? null
-			: current.selectedFileComparisonFrom,
-		selectedFileComparisonTo: selectionChanged
-			? null
-			: current.selectedFileComparisonTo,
+		...(selectionChanged ? EMPTY_FILE_SELECTION : {}),
 		selectedCommitHash: nextPrimary,
 		selectedCommitIds: nextIds,
 		selectedCommitParent: null,

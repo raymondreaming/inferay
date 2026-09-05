@@ -21,35 +21,7 @@ import {
 	graphActionPresentation,
 } from "./operation-model.ts";
 
-export function useChatDiffPanelState({
-	diff,
-	file,
-	loading,
-	mainViewMode,
-	onMainViewModeChange,
-	graph,
-	graphLoading,
-	graphError,
-	selectionAnnouncement,
-	repositoryKey,
-	selectedCommitHash,
-	selectedCommitIds,
-	onSelectCommit,
-	onOpenGraphSelection,
-	onCheckoutRef,
-	onRunRefOperation,
-	onRunGraphAction,
-	onLoadMoreCommits,
-	branch,
-	onClose,
-	closeLabel,
-	viewMode,
-	onViewModeChange,
-	startAtFirstChange,
-	zenMode,
-	onToggleZenMode,
-	drag,
-}: {
+export function useChatDiffPanelState(props: {
 	readonly diff: ReturnType<typeof useGitDiff>["diff"];
 	readonly file: SelectedFile | null;
 	readonly loading: boolean;
@@ -95,6 +67,17 @@ export function useChatDiffPanelState({
 	readonly onToggleZenMode: () => void;
 	readonly drag?: DragProps;
 }) {
+	const {
+		diff,
+		mainViewMode,
+		graph,
+		repositoryKey,
+		onRunRefOperation,
+		onRunGraphAction,
+		viewMode,
+		zenMode,
+	} = props;
+
 	const stats = diff?.metadata?.stats ?? {
 		added: 0,
 		removed: 0,
@@ -289,31 +272,7 @@ export function useChatDiffPanelState({
 							: { phase: "idle", message: "" };
 
 	return {
-		diff,
-		file,
-		loading,
-		mainViewMode,
-		onMainViewModeChange,
-		graph,
-		graphLoading,
-		graphError,
-		selectionAnnouncement,
-		repositoryKey,
-		selectedCommitHash,
-		selectedCommitIds,
-		onSelectCommit,
-		onOpenGraphSelection,
-		onCheckoutRef,
-		onLoadMoreCommits,
-		branch,
-		onClose,
-		closeLabel,
-		viewMode,
-		onViewModeChange,
-		startAtFirstChange,
-		zenMode,
-		onToggleZenMode,
-		drag,
+		...props,
 		stats,
 		hoveredModeIndex,
 		setHoveredModeIndex,
