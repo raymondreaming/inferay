@@ -16,6 +16,7 @@ export interface NativeSlashCommand {
 export interface ModelOption {
 	readonly id: string;
 	readonly label: string;
+	readonly shortLabel?: string;
 	readonly detail?: string;
 }
 
@@ -76,20 +77,28 @@ const CLAUDE_MODELS: readonly ModelOption[] = [
 ] as const;
 
 const CODEX_MODELS: readonly ModelOption[] = [
-	{ id: "gpt-6-astra", label: "GPT-6 Astra", detail: "Complex agentic work" },
+	{
+		id: "gpt-6-astra",
+		label: "GPT-6 Astra",
+		shortLabel: "Astra",
+		detail: "Complex agentic work",
+	},
 	{
 		id: "gpt-5.6-sol",
 		label: "GPT-5.6 Sol",
+		shortLabel: "Sol",
 		detail: "★ Frontier agentic coding",
 	},
 	{
 		id: "gpt-5.6-terra",
 		label: "GPT-5.6 Terra",
+		shortLabel: "Terra",
 		detail: "Balanced everyday work",
 	},
 	{
 		id: "gpt-5.6-luna",
 		label: "GPT-5.6 Luna",
+		shortLabel: "Luna",
 		detail: "Fast & affordable",
 	},
 	{ id: "gpt-5.5", label: "GPT-5.5", detail: "Frontier model" },

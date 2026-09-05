@@ -371,9 +371,11 @@ export const ChatComposer = memo(function ChatComposer({
 	beamActive?: boolean;
 }) {
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
+	const agentConfigControlsRef = useRef<HTMLDivElement | null>(null);
 	const agentConfigButtonRef = useRef<HTMLButtonElement | null>(null);
 	const agentConfigMenuRef = useRef<HTMLDivElement | null>(null);
-	const [agentConfigOpen, setAgentConfigOpen] = useState(false);
+	const [activeConfig, setActiveConfig] = useState<string | null>(null);
+	const agentConfigOpen = activeConfig !== null;
 	const [messageInputFocused, setMessageInputFocused] = useState(false);
 	useEffect(() => {
 		onAgentConfigOpenChange?.(agentConfigOpen);
@@ -389,32 +391,67 @@ export const ChatComposer = memo(function ChatComposer({
 		[input, slashCommandNames, usePlainTextarea],
 	);
 	const agentDefinition = getAgentDefinition(agentKind);
-	const modelOptions = useMemo(
-		() =>
-			agentDefinition.models.map((option) => ({
-				...option,
-				icon: getAgentIcon(agentKind, 12),
-			})),
-		[agentDefinition.models, agentKind],
-	);
-	const selectedModelLabel =
-		modelOptions.find(hasId.bind(null, model))?.label || model || "No model";
+	const selectedModel = agentDefinition.models.find(hasId.bind(null, model));
+	const selectedModelLabel = selectedModel?.label || model || "No model";
 	const selectedReasoningLabel =
 		CODEX_REASONING_LEVELS.find(hasId.bind(null, reasoningLevel))?.label ||
 		reasoningLevel;
+	const configControls = [
+		{
+			id: "provider",
+			title: "Provider",
+			label: agentDefinition.label,
+			value: agentKind,
+			options: agentKindOptions,
+			icon: getAgentIcon(agentKind, 10),
+			onChange: (id: string) => onAgentKindChange(id as AgentKind),
+		},
+		...(agentDefinition.models.length
+			? [
+					{
+						id: "model",
+						title: "Model",
+						label: selectedModel?.shortLabel || selectedModelLabel,
+						value: model,
+						options: agentDefinition.models,
+						icon: null,
+						onChange: onModelChange,
+					},
+				]
+			: []),
+		...(agentKind === "codex"
+			? [
+					{
+						id: "reasoning",
+						title: "Reasoning",
+						label: selectedReasoningLabel,
+						value: reasoningLevel,
+						options: CODEX_REASONING_LEVELS,
+						icon: null,
+						onChange: onReasoningLevelChange,
+					},
+				]
+			: []),
+	];
+	const activeControl = configControls.find(
+		(control) => control.id === activeConfig,
+	);
 	useEffect(() => {
 		if (!agentConfigOpen) return;
 		const handlePointerDown = (event: MouseEvent) => {
 			const target = event.target as Node;
 			if (
 				agentConfigMenuRef.current?.contains(target) ||
-				agentConfigButtonRef.current?.contains(target)
+				agentConfigControlsRef.current?.contains(target)
 			)
 				return;
-			setAgentConfigOpen(false);
+			setActiveConfig(null);
 		};
 		const handleKeyDown = (event: KeyboardEvent) => {
-			if (event.key === "Escape") setAgentConfigOpen(false);
+			if (event.key === "Escape") {
+				setActiveConfig(null);
+				agentConfigButtonRef.current?.focus();
+			}
 		};
 		document.addEventListener("mousedown", handlePointerDown);
 		document.addEventListener("keydown", handleKeyDown);
@@ -423,9 +460,14 @@ export const ChatComposer = memo(function ChatComposer({
 			document.removeEventListener("keydown", handleKeyDown);
 		};
 	}, [agentConfigOpen]);
-	const toggleAgentConfig = () => {
-		setAgentConfigOpen((open) => !open);
-	};
+	useEffect(() => {
+		if (!activeConfig) return;
+		const menu = agentConfigMenuRef.current;
+		(
+			menu?.querySelector<HTMLButtonElement>('[aria-checked="true"]') ??
+			menu?.querySelector<HTMLButtonElement>("button")
+		)?.focus();
+	}, [activeConfig]);
 	return (
 		<>
 			<input
@@ -690,27 +732,49 @@ export const ChatComposer = memo(function ChatComposer({
 									</div>
 								</div>
 								<div {...stylex.props(styles.pickerRow)}>
-									<button
-										type="button"
-										ref={agentConfigButtonRef}
-										onClick={toggleAgentConfig}
-										{...stylex.props(styles.providerConfigButton)}
-										title={`${agentDefinition.label} / ${selectedModelLabel} / ${selectedReasoningLabel}`}
+									<div
+										ref={agentConfigControlsRef}
+										{...stylex.props(styles.configControls)}
 									>
-										<span {...stylex.props(styles.accentText)}>
-											{getAgentIcon(agentKind, 10)}
-										</span>
-										<span {...stylex.props(styles.providerConfigLabel)}>
-											{agentDefinition.label}
-										</span>
-										<IconChevronDown
-											size={iconSize.sm}
-											{...stylex.props(
-												styles.providerConfigChevron,
-												agentConfigOpen && styles.providerConfigChevronOpen,
-											)}
-										/>
-									</button>
+										{configControls.map((control) => (
+											<button
+												key={control.id}
+												type="button"
+												aria-label={`${control.title}: ${control.label}`}
+												aria-haspopup="menu"
+												aria-expanded={activeConfig === control.id}
+												title={
+													control.id === "model"
+														? selectedModelLabel
+														: control.title
+												}
+												onClick={(event) => {
+													agentConfigButtonRef.current = event.currentTarget;
+													setActiveConfig((current) =>
+														current === control.id ? null : control.id,
+													);
+												}}
+												{...stylex.props(
+													styles.providerConfigButton,
+													activeConfig === control.id &&
+														styles.providerConfigChoiceActive,
+												)}
+											>
+												{control.icon}
+												<span {...stylex.props(styles.providerConfigLabel)}>
+													{control.label}
+												</span>
+												<IconChevronDown
+													size={iconSize.sm}
+													{...stylex.props(
+														styles.providerConfigChevron,
+														activeConfig === control.id &&
+															styles.providerConfigChevronOpen,
+													)}
+												/>
+											</button>
+										))}
+									</div>
 									<span {...stylex.props(styles.pickerSpacer)} />
 									{workspaceControl}
 								</div>
@@ -720,94 +784,68 @@ export const ChatComposer = memo(function ChatComposer({
 				</div>
 			)}
 
-			{agentConfigOpen && (
+			{showInput && activeControl && (
 				<div
 					ref={agentConfigMenuRef}
 					{...stylex.props(styles.providerConfigAnchor)}
 				>
-					<Liquid
-						blur={5}
-						contrast={20}
-						fill="transparent"
-						filterPadding={20}
-						shadow="none"
-						className={stylex.props(styles.providerConfigLiquid).className}
+					<div
+						role="menu"
+						aria-label={activeControl.title}
+						{...stylex.props(styles.providerConfigMenu)}
+						onKeyDown={(event) => {
+							const buttons = Array.from(
+								event.currentTarget.querySelectorAll<HTMLButtonElement>(
+									"button",
+								),
+							);
+							const index = buttons.indexOf(
+								document.activeElement as HTMLButtonElement,
+							);
+							const next =
+								event.key === "Home"
+									? 0
+									: event.key === "End"
+										? buttons.length - 1
+										: event.key === "ArrowDown"
+											? (index + 1) % buttons.length
+											: event.key === "ArrowUp"
+												? (index - 1 + buttons.length) % buttons.length
+												: -1;
+							if (next >= 0) {
+								event.preventDefault();
+								buttons[next]?.focus();
+							}
+							if (event.key === "Tab") setActiveConfig(null);
+						}}
 					>
-						<Liquid.Item observe radius={12}>
-							<div {...stylex.props(styles.providerConfigMenu)}>
-								<div {...stylex.props(styles.providerConfigSection)}>
-									<span {...stylex.props(styles.providerConfigSectionLabel)}>
-										Provider
-									</span>
-									<div {...stylex.props(styles.providerConfigChoiceGrid)}>
-										{agentKindOptions.map((option) => (
-											<button
-												type="button"
-												key={option.id}
-												onClick={() => onAgentKindChange(option.id)}
-												{...stylex.props(
-													styles.providerConfigChoice,
-													option.id === agentKind &&
-														styles.providerConfigChoiceActive,
-												)}
-											>
-												<span {...stylex.props(styles.shrink)}>
-													{option.icon}
-												</span>
-												<span>{option.label}</span>
-											</button>
-										))}
-									</div>
-								</div>
-								{agentDefinition.models.length > 0 && (
-									<div {...stylex.props(styles.providerConfigSection)}>
-										<span {...stylex.props(styles.providerConfigSectionLabel)}>
-											Model
-										</span>
-										<div {...stylex.props(styles.providerConfigChoiceGrid)}>
-											{modelOptions.map((option) => (
-												<button
-													type="button"
-													key={option.id}
-													onClick={() => onModelChange(option.id)}
-													{...stylex.props(
-														styles.providerConfigChoice,
-														option.id === model &&
-															styles.providerConfigChoiceActive,
-													)}
-												>
-													<span>{option.label}</span>
-												</button>
-											))}
-										</div>
-									</div>
+						{activeControl.options.map((option) => (
+							<button
+								key={option.id}
+								type="button"
+								role="menuitemradio"
+								aria-checked={option.id === activeControl.value}
+								tabIndex={-1}
+								onClick={() => {
+									activeControl.onChange(option.id);
+									setActiveConfig(null);
+									agentConfigButtonRef.current?.focus();
+								}}
+								{...stylex.props(
+									styles.providerConfigChoice,
+									option.id === activeControl.value &&
+										styles.providerConfigChoiceActive,
 								)}
-								{agentKind === "codex" && (
-									<div {...stylex.props(styles.providerConfigSection)}>
-										<span {...stylex.props(styles.providerConfigSectionLabel)}>
-											Reasoning
-										</span>
-										<div {...stylex.props(styles.providerConfigChoiceGrid)}>
-											{CODEX_REASONING_LEVELS.map((option) => (
-												<button
-													type="button"
-													key={option.id}
-													onClick={() => onReasoningLevelChange(option.id)}
-													{...stylex.props(
-														styles.providerConfigChoice,
-														option.id === reasoningLevel &&
-															styles.providerConfigChoiceActive,
-													)}
-												>
-													<span>{option.label}</span>
-												</button>
-											))}
-										</div>
-									</div>
+							>
+								<span {...stylex.props(styles.providerConfigLabel)}>
+									{option.label}
+								</span>
+								{option.id === activeControl.value && (
+									<IconCheck size={iconSize.sm} />
 								)}
-							</div>
-						</Liquid.Item>
-					</Liquid>
+							</button>
+						))}
+					</div>
 				</div>
 			)}
 
@@ -1158,7 +1196,7 @@ const styles = stylex.create({
 			":hover": color.controlHover,
 		},
 		backgroundImage: "none",
-		borderColor: color.transparent,
+		borderColor: color.border,
 		borderRadius: radius.md,
 		borderStyle: "solid",
 		borderWidth: 0,
@@ -1166,16 +1204,16 @@ const styles = stylex.create({
 		boxSizing: "border-box",
 		color: color.textSoft,
 		display: "inline-flex",
-		flexShrink: 0,
+		flexShrink: 1,
 		fontSize: font.size_2,
 		fontWeight: font.weight_5,
 		gap: controlSize._1,
-		height: controlSize._7,
+		height: controlSize._6,
 		lineHeight: 1,
 		maxWidth: "100%",
 		minWidth: controlSize._0,
 		paddingBlock: controlSize._0,
-		paddingInline: controlSize._2,
+		paddingInline: controlSize._1,
 		position: "relative",
 		zIndex: layer.chrome,
 	},
@@ -1194,79 +1232,53 @@ const styles = stylex.create({
 	providerConfigChevronOpen: {
 		transform: "rotate(180deg)",
 	},
+	configControls: {
+		alignItems: "center",
+		display: "flex",
+		flexShrink: 1,
+		gap: controlSize._0_5,
+		minWidth: controlSize._0,
+	},
+	pickerSpacer: {
+		flex: 1,
+		minWidth: controlSize._0,
+	},
 	providerConfigMenu: {
-		backgroundColor: color.backgroundSubtle,
-		backgroundImage: "none",
+		backgroundColor: color.backgroundPanel,
 		borderRadius: radius.px10,
 		borderColor: color.border,
 		borderStyle: "solid",
 		borderWidth: 1,
-		boxShadow: "none",
 		boxSizing: "border-box",
 		display: "flex",
 		flexDirection: "column",
-		gap: controlSize._3,
-		maxHeight: "inherit",
-		maxWidth: "100%",
+		gap: controlSize._0_5,
+		maxHeight: "min(320px, calc(100vh - 160px))",
 		overflowY: "auto",
-		padding: controlSize._3,
+		padding: controlSize._1,
 		width: "100%",
 	},
 	providerConfigAnchor: {
 		position: "absolute",
 		left: controlSize._3,
-		right: controlSize._3,
-		bottom: "calc(100% + 14px)",
+		bottom: "calc(100% + 6px)",
 		zIndex: layer.composerPopover,
-		boxSizing: "border-box",
-		maxHeight: "min(430px, calc(100vh - 32px))",
+		width: "220px",
+		maxWidth: "calc(100% - 24px)",
 		pointerEvents: "auto",
-		transformOrigin: "bottom center",
-		animationName: stylex.keyframes({
-			from: {
-				opacity: 0,
-				transform: "translateY(18px) scale(0.97)",
-			},
-			to: {
-				opacity: 1,
-				transform: "translateY(0) scale(1)",
-			},
-		}),
-		animationDuration: motion.durationDeliberate,
-		animationTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
-	},
-	providerConfigLiquid: {
-		display: "flex",
-		width: "100%",
-		maxHeight: "inherit",
-	},
-	providerConfigSection: {
-		display: "flex",
-		flexDirection: "column",
-		gap: controlSize._1,
-	},
-	providerConfigSectionLabel: {
-		color: color.textMuted,
-		fontSize: font.size_1,
-		fontWeight: font.weight_6,
-		textTransform: "uppercase",
-	},
-	providerConfigChoiceGrid: {
-		display: "grid",
-		gap: controlSize._1,
-		gridTemplateColumns: "repeat(auto-fit, minmax(8rem, 1fr))",
 	},
 	providerConfigChoice: {
 		alignItems: "center",
+		justifyContent: "space-between",
 		backgroundColor: {
 			default: color.transparent,
-			":hover": color.transparent,
+			":hover": color.controlHover,
 		},
 		backgroundImage: "none",
 		borderColor: color.transparent,
-		borderRadius: radius.lg,
+		borderRadius: radius.md,
 		borderStyle: "solid",
-		borderWidth: 1,
+		borderWidth: 0,
 		boxShadow: "none",
 		color: {
 			default: color.textSoft,
@@ -1444,15 +1456,10 @@ const styles = stylex.create({
 		display: "flex",
 		gap: "0.375rem",
 		minWidth: controlSize._0,
-		overflowX: "auto",
 		paddingBottom: controlSize._1,
 		paddingInline: controlSize._2,
 		position: "relative",
 		userSelect: "none",
 		zIndex: layer.content,
-	},
-	pickerSpacer: {
-		flex: 1,
-		minWidth: controlSize._2,
 	},
 });
