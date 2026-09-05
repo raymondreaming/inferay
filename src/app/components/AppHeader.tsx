@@ -7,7 +7,6 @@ import {
 } from "../../adapters/storage/stored-values.ts";
 import {
 	type AgentMainView,
-	APP_PAGE_ROUTES,
 	DEFAULT_AGENT_MAIN_VIEW,
 	isAgentMainView,
 	SIDEBAR_NAV_ROUTES,
@@ -28,13 +27,8 @@ import {
 	IconMessageCircle,
 	IconPlus,
 	IconSettings,
-	IconWorkflow,
 } from "../../shared/ui/Icons.tsx";
 import { CommandPalette } from "./CommandPalette.tsx";
-
-const AUTOMATIONS_ROUTE = APP_PAGE_ROUTES.find(
-	(route) => route.id === "automations",
-);
 
 function loadShellState() {
 	const agentState = loadAgentState();
@@ -104,7 +98,9 @@ export function AppHeader() {
 	}, [activateMainView, selectedCwd]);
 	const createNewChat = useCallback(() => {
 		activateMainView("chat");
-		requestAnimationFrame(() => requestAnimationFrame(dispatchCreateAgentChat));
+		requestAnimationFrame(() =>
+			requestAnimationFrame(() => dispatchCreateAgentChat()),
+		);
 	}, [activateMainView]);
 
 	const commands = useMemo(
@@ -144,18 +140,7 @@ export function AppHeader() {
 					run: () => activateRoute(route.path),
 				};
 			}),
-			...(AUTOMATIONS_ROUTE
-				? [
-						{
-							id: AUTOMATIONS_ROUTE.id,
-							label: "Open automations",
-							detail: "Manage recurring agent work",
-							keywords: "scheduled tasks workflows",
-							icon: <IconWorkflow size={iconSize.compact} />,
-							run: () => activateRoute(AUTOMATIONS_ROUTE.path),
-						},
-					]
-				: []),
+
 			{
 				id: "settings",
 				label: "Open settings",

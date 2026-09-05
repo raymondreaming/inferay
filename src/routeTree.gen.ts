@@ -13,7 +13,6 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as AppAgentRouteImport } from './routes/_app/agent'
-import { Route as AppAutomationsRouteImport } from './routes/_app/automations'
 import { Route as AppImagesRouteImport } from './routes/_app/images'
 
 const IndexRoute = IndexRouteImport.update({
@@ -35,11 +34,6 @@ const AppAgentRoute = AppAgentRouteImport.update({
   path: '/agent',
   getParentRoute: () => AppRoute,
 } as any)
-const AppAutomationsRoute = AppAutomationsRouteImport.update({
-  id: '/automations',
-  path: '/automations',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppImagesRoute = AppImagesRouteImport.update({
   id: '/images',
   path: '/images',
@@ -50,14 +44,12 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/onboarding': typeof OnboardingRoute
   '/agent': typeof AppAgentRoute
-  '/automations': typeof AppAutomationsRoute
   '/images': typeof AppImagesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/onboarding': typeof OnboardingRoute
   '/agent': typeof AppAgentRoute
-  '/automations': typeof AppAutomationsRoute
   '/images': typeof AppImagesRoute
 }
 export interface FileRoutesById {
@@ -66,22 +58,15 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/onboarding': typeof OnboardingRoute
   '/_app/agent': typeof AppAgentRoute
-  '/_app/automations': typeof AppAutomationsRoute
   '/_app/images': typeof AppImagesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/onboarding' | '/agent' | '/automations' | '/images'
+  fullPaths: '/' | '/onboarding' | '/agent' | '/images'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/onboarding' | '/agent' | '/automations' | '/images'
+  to: '/' | '/onboarding' | '/agent' | '/images'
   id:
-    | '__root__'
-    | '/'
-    | '/_app'
-    | '/onboarding'
-    | '/_app/agent'
-    | '/_app/automations'
-    | '/_app/images'
+    '__root__' | '/' | '/_app' | '/onboarding' | '/_app/agent' | '/_app/images'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -120,13 +105,6 @@ declare module '@octanejs/tanstack-router' {
       preLoaderRoute: typeof AppAgentRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/automations': {
-      id: '/_app/automations'
-      path: '/automations'
-      fullPath: '/automations'
-      preLoaderRoute: typeof AppAutomationsRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/_app/images': {
       id: '/_app/images'
       path: '/images'
@@ -139,13 +117,11 @@ declare module '@octanejs/tanstack-router' {
 
 interface AppRouteChildren {
   AppAgentRoute: typeof AppAgentRoute
-  AppAutomationsRoute: typeof AppAutomationsRoute
   AppImagesRoute: typeof AppImagesRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppAgentRoute: AppAgentRoute,
-  AppAutomationsRoute: AppAutomationsRoute,
   AppImagesRoute: AppImagesRoute,
 }
 

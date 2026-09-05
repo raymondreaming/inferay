@@ -15,7 +15,6 @@ export const palette = stylex.defineVars({
 	yellow: stylex.types.color("#ffd23f"),
 	blue: stylex.types.color("#74a7ff"),
 	emerald: stylex.types.color("#10b981"),
-	automationBlue: stylex.types.color("#3b82f6"),
 	purple: stylex.types.color("#a855f7"),
 	pink: stylex.types.color("#ec4899"),
 	amber: stylex.types.color("#f59e0b"),
@@ -24,8 +23,6 @@ export const palette = stylex.defineVars({
 	emerald80: stylex.types.color("rgba(16, 185, 129, 0.8)"),
 	emerald60: stylex.types.color("rgba(16, 185, 129, 0.6)"),
 	emerald40: stylex.types.color("rgba(16, 185, 129, 0.4)"),
-	automationBlue80: stylex.types.color("rgba(59, 130, 246, 0.8)"),
-	automationBlue40: stylex.types.color("rgba(59, 130, 246, 0.4)"),
 	purple80: stylex.types.color("rgba(168, 85, 247, 0.8)"),
 	purple40: stylex.types.color("rgba(168, 85, 247, 0.4)"),
 	pink80: stylex.types.color("rgba(236, 72, 153, 0.8)"),
@@ -146,9 +143,6 @@ export const color = stylex.defineVars({
 	),
 	headerPopoverOpaque: stylex.types.color(
 		"color-mix(in srgb, var(--color-inferay-dark-gray) 98%, transparent)",
-	),
-	automationPopoverOpaque: stylex.types.color(
-		"color-mix(in srgb, var(--color-inferay-dark-gray) 96%, transparent)",
 	),
 	gitAdded: stylex.types.color("var(--color-git-added)"),
 	gitModified: stylex.types.color("var(--color-git-modified)"),

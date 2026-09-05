@@ -4,7 +4,6 @@ export type FeatureFlagName =
 	| "agent"
 	| "git"
 	| "prompts"
-	| "automations"
 	| "goals"
 	| "images"
 	| "chat"
@@ -16,7 +15,6 @@ const ENABLED_FEATURE_FLAGS: FeatureFlags = {
 	agent: true,
 	git: true,
 	prompts: true,
-	automations: true,
 	goals: true,
 	images: true,
 	chat: true,
@@ -29,7 +27,6 @@ export const DEV_FEATURE_FLAGS: FeatureFlags = {
 
 export const PUBLISHED_FEATURE_FLAGS: FeatureFlags = {
 	...ENABLED_FEATURE_FLAGS,
-	automations: false,
 };
 
 const buildFeatureFlags =
