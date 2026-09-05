@@ -2,134 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
 	buildRenderItems,
 	type RenderChatMessage as ChatMessage,
-	getEditFilePath,
+	getEditToolPayload,
 } from "../src/modules/conversation/model/chat-message-render-utils.ts";
 
-type FakeStreamEvent =
-	| {
-			type: "content_block_start";
-			content_block: {
-				type: "tool_use";
-				name: string;
-				input?: unknown;
-			};
-	  }
-	| {
-			type: "content_block_delta";
-			delta: { type: "input_json_delta"; partial_json: string };
-	  }
-	| { type: "content_block_stop" };
-
-function editPayload() {
-	return {
-		file_path: "src/example.ts",
-		old_string: "export const answer = 41;\n",
-		new_string: "export const answer = 42;\n",
-	};
-}
-
-function toolMessageFromEvents(events: FakeStreamEvent[]): ChatMessage {
-	const message: ChatMessage = {
-		id: "tool-1",
-		role: "tool",
-		toolName: "Edit",
-		content: "",
-		isStreaming: false,
-	};
-
-	for (const event of events) {
-		if (event.type === "content_block_start") {
-			message.toolName = event.content_block.name;
-			message.content = event.content_block.input
-				? JSON.stringify(event.content_block.input, null, 2)
-				: "";
-			message.isStreaming = true;
-		} else if (event.type === "content_block_delta") {
-			message.content += event.delta.partial_json;
-		} else if (event.type === "content_block_stop") {
-			message.isStreaming = false;
-		}
-	}
-
-	return message;
-}
-
-describe("Claude and Codex inline edit diff parity", () => {
-	/*
-	 * This protects the exact Codex regression where a synthetic Edit tool
-	 * arrived as a complete input object on content_block_start and then stopped
-	 * without input_json_delta chunks. The resulting tool message must contain
-	 * parseable edit JSON so the inline diff card has real changed lines.
-	 */
-	test("Codex-style immediate Edit input renders as an inline diff candidate", () => {
-		const message = toolMessageFromEvents([
-			{
-				type: "content_block_start",
-				content_block: {
-					type: "tool_use",
-					name: "Edit",
-					input: editPayload(),
-				},
-			},
-			{ type: "content_block_stop" },
-		]);
-
-		expect(message.content).toBe(JSON.stringify(editPayload(), null, 2));
-		expect(getEditFilePath(message)).toBe("src/example.ts");
-		expect(buildRenderItems([message])).toEqual([{ type: "message", message }]);
-	});
-
-	test("commits an inline diff only after its edit payload settles", () => {
-		const streamingEdit = {
-			id: "edit-streaming",
-			role: "tool",
-			toolName: "Edit",
-			content: JSON.stringify(editPayload()),
-			isStreaming: true,
-		} satisfies ChatMessage;
-
-		expect(getEditFilePath(streamingEdit)).toBeNull();
-		expect(buildRenderItems([streamingEdit])).toEqual([
-			{ type: "message", message: streamingEdit },
-		]);
-		expect(getEditFilePath({ ...streamingEdit, isStreaming: false })).toBe(
-			"src/example.ts",
-		);
-	});
-
-	/*
-	 * This protects parity with Claude-style streams, where the tool starts with
-	 * no input and receives the edit JSON as streamed input_json_delta content.
-	 * Both providers should end with the same parseable Edit message contract.
-	 */
-	test("Claude-style streamed Edit input reaches the same diff contract", () => {
-		const payload = JSON.stringify(editPayload(), null, 2);
-		const message = toolMessageFromEvents([
-			{
-				type: "content_block_start",
-				content_block: { type: "tool_use", name: "Edit" },
-			},
-			{
-				type: "content_block_delta",
-				delta: {
-					type: "input_json_delta",
-					partial_json: payload.slice(0, 30),
-				},
-			},
-			{
-				type: "content_block_delta",
-				delta: {
-					type: "input_json_delta",
-					partial_json: payload.slice(30),
-				},
-			},
-			{ type: "content_block_stop" },
-		]);
-
-		expect(message.content).toBe(payload);
-		expect(getEditFilePath(message)).toBe("src/example.ts");
-	});
-
+describe("native inline edit presentation", () => {
 	/*
 	 * This protects grouped edit rendering. Adjacent edits for the same file should
 	 * collapse into one edit group, and sequential edit application should show
@@ -160,6 +36,22 @@ describe("Claude and Codex inline edit diff parity", () => {
 				content: JSON.stringify(second),
 			},
 		];
+
+		for (const message of messages) {
+			message.render = {
+				version: 1,
+				kind: "edit-group",
+				groupId: "edit-1",
+				hidden: false,
+				filePath: "src/example.ts",
+				toolInput: message.id === "edit-1" ? first : second,
+			};
+		}
+		expect(getEditToolPayload(messages[0].render?.toolInput)).toEqual({
+			filePath: "src/example.ts",
+			oldString: first.old_string,
+			newString: first.new_string,
+		});
 
 		expect(buildRenderItems(messages)).toEqual([
 			{

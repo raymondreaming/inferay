@@ -26,7 +26,7 @@ export function GroupedEditDiff({
 
 		for (const edit of edits) {
 			if (!edit.content) continue;
-			const parsed = getEditToolPayload(edit.content, edit.render?.toolInput);
+			const parsed = getEditToolPayload(edit.render?.toolInput);
 			if (parsed) {
 				parsedEdits.push({
 					old_string: parsed.oldString,

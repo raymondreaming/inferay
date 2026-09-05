@@ -525,11 +525,15 @@ impl ChatMessageBuffer {
                 let Some(message) = self.messages.get_mut(index) else {
                     return;
                 };
-                let next_content = append_bounded_chat_content(
-                    &message.content,
-                    text,
-                    CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
-                );
+                // Claude begins streamed tool input with an empty object. It is
+                // a placeholder, not a JSON prefix for the arriving argument text.
+                let input_prefix = if message.content == "{}" {
+                    ""
+                } else {
+                    &message.content
+                };
+                let next_content =
+                    append_bounded_chat_content(input_prefix, text, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
                 if !next_content.starts_with(&message.content) {
                     self.replaced_content.insert(message.id.clone());
                 }
@@ -1017,6 +1021,47 @@ mod tests {
         buffer.prepare_render_model();
         assert!(buffer.messages().last().unwrap().extra["render"]["toolInput"].is_object());
         assert!(buffer.render_dirty_start.is_none());
+    }
+
+    #[test]
+    fn native_edit_parity_and_saved_questions_do_not_need_browser_json_parsing() {
+        let input =
+            json!({"file_path":"src/example.ts", "old_string":"old }", "new_string":"new {"});
+        for streamed in [false, true] {
+            let mut buffer = ChatMessageBuffer::default();
+            let initial = if streamed { json!({}) } else { input.clone() };
+            buffer.apply_event(&json!({"type":"content_block_start", "content_block":{"type":"tool_use", "name":"Edit", "input":initial}}));
+            if streamed {
+                let text = input.to_string();
+                buffer.apply_event(&json!({"type":"content_block_delta", "delta":{"type":"input_json_delta", "partial_json":&text[..20]}}));
+                buffer.apply_event(&json!({"type":"content_block_delta", "delta":{"type":"input_json_delta", "partial_json":&text[20..]}}));
+            }
+            assert!(buffer.messages()[0].extra["render"]["toolInput"].is_null());
+            buffer.apply_event(&json!({"type":"content_block_stop"}));
+            assert_eq!(
+                buffer.messages()[0].extra["render"]["filePath"],
+                "src/example.ts"
+            );
+            assert_eq!(buffer.messages()[0].extra["render"]["toolInput"], input);
+        }
+        let content = json!({"questions":[{"question":"Choose", "options":[null, {"label":"A"}], "multiSelect":true}]}).to_string();
+        let mut buffer = ChatMessageBuffer::default();
+        buffer.replace_messages(serde_json::from_value(json!([
+            {"id":"question", "role":"tool", "toolName":"AskUserQuestion", "content":content},
+            {"id":"output", "role":"tool", "toolName":"exec", "content":"{\"command\":\"bun test\"}all tests passed\n"}
+        ])).unwrap());
+        assert_eq!(
+            buffer.messages()[0].extra["render"]["questions"][0]["options"],
+            json!([{"label":"A"}])
+        );
+        assert_eq!(
+            buffer.messages()[0].extra["render"]["questions"][0]["multiSelect"],
+            true
+        );
+        assert_eq!(
+            buffer.messages()[1].extra["render"]["trailingOutput"],
+            "all tests passed\n"
+        );
     }
 
     #[test]

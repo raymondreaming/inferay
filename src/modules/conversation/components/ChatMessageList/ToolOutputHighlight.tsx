@@ -1,8 +1,5 @@
 import * as stylex from "@octanejs/stylex";
-import {
-	getToolOutputSummary,
-	getToolTrailingOutput,
-} from "../../model/chat-message-render-utils.ts";
+import { getToolOutputSummary } from "../../model/chat-message-render-utils.ts";
 import type { ChatMessage } from "./shared.ts";
 import { styles } from "./styles.ts";
 
@@ -16,9 +13,7 @@ export function ToolOutputHighlight({
 	render?: ChatMessage["render"];
 }) {
 	const summary = getToolOutputSummary(content, render?.summary);
-	const trailingOutput = showOutput
-		? getToolTrailingOutput(content, render?.trailingOutput)
-		: "";
+	const trailingOutput = showOutput ? (render?.trailingOutput ?? "") : "";
 	let highlight: unknown;
 	if (summary.type === "edit" || summary.type === "file-content") {
 		highlight = (

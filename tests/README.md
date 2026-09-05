@@ -8,10 +8,8 @@ This repository had no `tests/` directory before this audit, so no executable in
   - Protects release API URL mapping and GitHub asset selection in `packages/inferay/src/releases.js`.
 - `chat-behavior.test.ts`
   - Protects chat history trimming, streamed message patching, local/server message merge behavior, slash-command expansion, and inline command completion.
-- `agent-stream-events.test.ts`
-  - Protects the shared agent stream contract where tool input included on `content_block_start` becomes tool message content. This specifically covers Codex synthetic `Edit` events that stop without later `input_json_delta` chunks.
 - `agent-inline-diff-parity.test.ts`
-  - Protects fake Claude-style streamed edit events and Codex-style immediate edit events against the same inline diff contract. Also covers edit grouping and sequential edit application for the chat diff card path.
+  - Protects rendering of prepared native edit groups and tool milestones. Live provider input parity and saved-tool hydration are covered by `inferay-core` tests.
 - `agent-and-git-behavior.test.ts`
   - Protects agent group migration, pane append/title behavior, status mapping, and Git change ordering/classification.
 - `prompt-and-storage-filters.test.ts`

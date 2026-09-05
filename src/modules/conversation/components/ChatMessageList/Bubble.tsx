@@ -62,7 +62,7 @@ export const Bubble = memo(function Bubble({
 	const editPayload = useMemo(
 		() =>
 			msg.role === "tool" && msg.toolName === "Edit" && msg.content
-				? getEditToolPayload(msg.content, msg.render?.toolInput)
+				? getEditToolPayload(msg.render?.toolInput)
 				: null,
 		[msg.content, msg.role, msg.toolName, msg.render],
 	);
@@ -198,7 +198,6 @@ export const Bubble = memo(function Bubble({
 			return (
 				<AskUserQuestionCard
 					nativeQuestions={msg.render?.questions}
-					nativeInput={msg.render?.toolInput}
 					content={msg.content}
 					isStreaming={msg.isStreaming}
 					onSendMessage={onSendMessage}

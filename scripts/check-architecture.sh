@@ -20,7 +20,6 @@ bunx biome lint \
 	src/routes/_app/agent.tsx \
 	tests/agent-chat-view-visibility.octane.tsx \
 	tests/agent-inline-diff-parity.test.ts \
-	tests/agent-stream-events.test.ts \
 	tests/chat-behavior.test.ts \
 	tests/chat-connection-behavior.octane.tsx \
 	tests/chat-header-behavior.octane.tsx \
@@ -57,7 +56,6 @@ bun test \
 	tests/agent-inline-diff-parity.test.ts \
 	tests/chat-message-list-memo.test.tsx \
 	tests/chat-behavior.test.ts \
-	tests/agent-stream-events.test.ts \
 	tests/chat-session-store.test.ts \
 	tests/chat-sync-reconciler.test.ts
 

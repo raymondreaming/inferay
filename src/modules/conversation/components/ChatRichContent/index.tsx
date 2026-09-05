@@ -11,7 +11,6 @@ import type { AskUserQuestion } from "../../model/agent-chat-shared.ts";
 import {
 	formatAskUserAnswer,
 	hasAskUserSelections,
-	parseAskUserQuestions,
 } from "../../model/chat-message-render-utils.ts";
 import { CopyablePre } from "./CopyablePre.tsx";
 import * as inlineStyles from "./styles.ts";
@@ -19,21 +18,16 @@ import { styles } from "./styles.ts";
 
 export function AskUserQuestionCard({
 	content,
-	nativeInput,
 	nativeQuestions,
 	isStreaming,
 	onSendMessage,
 }: {
 	content: string;
-	nativeInput?: Record<string, unknown> | null;
 	nativeQuestions?: AskUserQuestion[] | null;
 	isStreaming?: boolean;
 	onSendMessage?: (text: string) => void;
 }) {
-	const parsed = useMemo(
-		() => parseAskUserQuestions(content, nativeQuestions, nativeInput),
-		[content, nativeQuestions, nativeInput],
-	);
+	const parsed = nativeQuestions ?? null;
 	const [selections, setSelections] = useState<Map<number, Set<number>>>(
 		new Map(),
 	);
