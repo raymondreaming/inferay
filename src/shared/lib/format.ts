@@ -2,10 +2,6 @@ export function basename(value: string): string {
 	return value.split("/").pop() || value;
 }
 
-export function trimText(value: string, max = 40): string {
-	return value.length > max ? `${value.slice(0, max)}...` : value;
-}
-
 export function formatElapsedMs(ms: number): string {
 	const totalSeconds = Math.max(0, Math.floor(ms / 1000));
 	const minutes = Math.floor(totalSeconds / 60);

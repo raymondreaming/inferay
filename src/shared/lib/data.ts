@@ -28,14 +28,6 @@ export function hasId(id: unknown, item: { id: string }): boolean {
 	return item.id === id;
 }
 
-export function lacksId(id: unknown, item: { id: string }): boolean {
-	return item.id !== id;
-}
-
-export function lacksObjectId(id: unknown, item: { _id: string }): boolean {
-	return item._id !== id;
-}
-
 export function hasPath(path: unknown, item: { path: string }): boolean {
 	return item.path === path;
 }
