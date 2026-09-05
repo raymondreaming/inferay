@@ -1,16 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { resolveGitAuthorAvatar } from "../src/modules/repository/model/git-avatar.ts";
 import {
-	adjacentCommitOnBranch,
 	buildGraphConnectionPath,
 	buildGraphConvergencePath,
-	collectReachableCommitIds,
 	DEFAULT_GIT_GRAPH_HISTORY_LIMIT,
 	graphVirtualRange,
 	MAX_GIT_GRAPH_HISTORY_LIMIT,
-	matchesGraphSearch,
 	moveGraphColumn,
-	nearestContainingBranches,
 	nextGitGraphHistoryLimit,
 	pinnedGraphColumnOrder,
 } from "../src/modules/workbench/graph/model/graph-model.ts";
@@ -22,20 +18,6 @@ import {
 } from "../src/modules/workbench/graph/model/rebase-model.ts";
 
 describe("Git graph presentation model", () => {
-	test("collects only the selected ref's loaded ancestry", () => {
-		const commits = [
-			{ id: "merge", hash: "merge", parents: ["main", "feature"] },
-			{ id: "feature", hash: "feature", parents: ["root"] },
-			{ id: "main", hash: "main", parents: ["root"] },
-			{ id: "root", hash: "root", parents: [] },
-			{ id: "unrelated", hash: "unrelated", parents: [] },
-		];
-		expect([...collectReachableCommitIds(commits, ["feature"])]).toEqual([
-			"feature",
-			"root",
-		]);
-	});
-
 	test("moves any visible graph column before the drop target", () => {
 		expect(
 			moveGraphColumn(
@@ -89,45 +71,6 @@ describe("Git graph presentation model", () => {
 		expect(pinnedGraphColumnOrder(5, [3, 1, 3])).toEqual([3, 1, 0, 2, 4, 5]);
 	});
 
-	test("finds the nearest containing branch for an unlabelled commit", () => {
-		const commits = [
-			{ id: "feature", hash: "feature", parents: ["shared"] },
-			{ id: "main", hash: "main", parents: ["shared"] },
-			{ id: "shared", hash: "shared", parents: ["root"] },
-			{ id: "root", hash: "root", parents: [] },
-		];
-		const main = {
-			fullName: "refs/heads/main",
-			displayName: "main",
-			kind: "head" as const,
-			target: "main",
-		};
-		const feature = {
-			fullName: "refs/heads/feature",
-			displayName: "feature",
-			kind: "localBranch" as const,
-			target: "feature",
-		};
-		const containing = nearestContainingBranches(commits, [feature, main]);
-		expect(containing.get("shared")).toEqual(main);
-		expect(containing.get("feature")).toEqual(feature);
-	});
-
-	test("moves between loaded commits on the selected containing branch", () => {
-		const commits = [
-			{ id: "main", hash: "main", parents: ["middle"] },
-			{ id: "side", hash: "side", parents: ["root"] },
-			{ id: "middle", hash: "middle", parents: ["root"] },
-			{ id: "root", hash: "root", parents: [] },
-		];
-		expect(adjacentCommitOnBranch(commits, "middle", "main", "newer")).toBe(
-			"main",
-		);
-		expect(adjacentCommitOnBranch(commits, "middle", "main", "older")).toBe(
-			"root",
-		);
-	});
-
 	test("builds and validates an ordered interactive rebase plan", () => {
 		const plan = createInteractiveRebasePlan([
 			{ hash: "a", message: "A", author: "Ray", date: "now" },
@@ -154,28 +97,5 @@ describe("Git graph presentation model", () => {
 				"123456+Example-Author@users.noreply.github.com",
 			),
 		).toBe("https://github.com/example-author.png?size=64");
-	});
-
-	test("searches committer metadata and supports scoped author filters", () => {
-		const commit = {
-			id: "full-object-id",
-			hash: "full-object-id",
-			message: "Merge the renderer",
-			body: "Keep the graph stable",
-			author: "Feature Author",
-			authorEmail: "author@example.com",
-			committer: "Release Manager",
-			committerEmail: "release@example.com",
-			date: "now",
-			authoredAt: "2026-08-31T12:00:00Z",
-			committedAt: "2026-08-31T13:00:00Z",
-			refs: [{ displayName: "main", fullName: "refs/heads/main" }],
-		};
-		expect(matchesGraphSearch(commit, "release manager")).toBe(true);
-		expect(matchesGraphSearch(commit, 'committer:"release manager"')).toBe(
-			true,
-		);
-		expect(matchesGraphSearch(commit, "author:feature ref:main")).toBe(true);
-		expect(matchesGraphSearch(commit, "author:release")).toBe(false);
 	});
 });

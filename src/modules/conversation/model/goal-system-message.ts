@@ -13,10 +13,6 @@ export type GoalSystemMessage = {
 	detail?: string;
 };
 
-export function serializeGoalSystemMessage(message: GoalSystemMessage): string {
-	return JSON.stringify(message);
-}
-
 export function parseGoalSystemMessage(
 	content: string,
 ): GoalSystemMessage | null {

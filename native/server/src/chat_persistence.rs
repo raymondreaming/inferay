@@ -314,7 +314,14 @@ fn replay_event(buffer: &mut ChatMessageBuffer, entry: &ChatEventLogEntry) -> bo
                         .collect::<Vec<_>>()
                 });
             if !text.is_empty() || images.as_ref().is_some_and(|images| !images.is_empty()) {
-                buffer.push_user(text, images);
+                if let Some(id) = payload
+                    .and_then(|payload| payload.get("messageId"))
+                    .and_then(Value::as_str)
+                {
+                    buffer.push_user_with_id(id, text, images);
+                } else {
+                    buffer.push_user(text, images);
+                }
                 true
             } else {
                 false

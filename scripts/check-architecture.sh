@@ -6,7 +6,7 @@ bunx biome lint \
 	src/modules/conversation/components/AgentChatView.tsx \
 	src/modules/conversation/components/ChatMessageList.tsx \
 	src/modules/conversation/hooks/useAgentChatComposerState.tsx \
-	src/modules/conversation/hooks/useChatConnection.tsx \
+	src/modules/conversation/hooks/useChatConnection.ts \
 	src/modules/conversation/hooks/useChatInputActions.tsx \
 	src/modules/conversation/model/chat-state-utils.ts \
 	src/modules/conversation/model/agent-chat-shared.ts \

@@ -61,7 +61,7 @@ import { IconArrowDown } from "../../../shared/ui/Icons.tsx";
 import type { ReactNode } from "../../../types/octane-react-compat.ts";
 import { useAgentChatComposerState } from "../hooks/useAgentChatComposerState.tsx";
 import { useAgentChatMenus } from "../hooks/useAgentChatMenus.tsx";
-import { useChatConnection } from "../hooks/useChatConnection.tsx";
+import { useChatConnection } from "../hooks/useChatConnection.ts";
 import { useChatInputActions } from "../hooks/useChatInputActions.tsx";
 import { useSpeechToText } from "../hooks/useSpeechToText.tsx";
 import { extractToolActivities } from "../model/chat-agent-utils.ts";

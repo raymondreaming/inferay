@@ -43,20 +43,21 @@ import {
 	IconTag,
 } from "../../../../shared/ui/Icons.tsx";
 import {
-	adjacentCommitOnBranch,
 	buildGraphConnectionPath,
 	buildGraphConvergencePath,
-	collectReachableCommitIds,
 	type GraphColumnKey,
 	type GraphPresentationTransition,
 	graphVirtualRange,
-	matchesGraphSearch,
 	moveGraphColumn,
-	nearestContainingBranches,
 	pinnedGraphColumnOrder,
 } from "../model/graph-model.ts";
 
 interface CommitGraphProps {
+	searchQuery?: string;
+	searchActive?: boolean;
+	emptyLabel?: string;
+	ancestry?: Record<string, Array<[number, number]>>;
+	onSearchChange?: (query: string) => void;
 	commits: GraphNode[];
 	rows: GraphRow[];
 	selectedHash?: string;
@@ -166,6 +167,7 @@ const DEFAULT_COLUMN_ORDER: ColumnKey[] = [
 	"author",
 	"sha",
 ];
+const EMPTY_SELECTED_IDS: readonly string[] = [];
 const DEFAULT_COLUMNS: ColumnVisibility = {
 	author: true,
 	sha: true,
@@ -316,19 +318,19 @@ function MergeNode({
 	);
 }
 
+const commitDateFormatter = new Intl.DateTimeFormat("en-US", {
+	month: "2-digit",
+	day: "2-digit",
+	year: "numeric",
+	hour: "numeric",
+	minute: "2-digit",
+	hour12: true,
+});
+
 function formatCommitDate(value: string, fallback: string) {
 	const parsed = new Date(value);
 	if (Number.isNaN(parsed.getTime())) return fallback;
-	return new Intl.DateTimeFormat("en-US", {
-		month: "2-digit",
-		day: "2-digit",
-		year: "numeric",
-		hour: "numeric",
-		minute: "2-digit",
-		hour12: true,
-	})
-		.format(parsed)
-		.replace(",", "");
+	return commitDateFormatter.format(parsed).replace(",", "");
 }
 
 function preferencesKey(repositoryKey?: string) {
@@ -522,7 +524,11 @@ function RefBadge({
 			onMouseLeave={() => setHovered(false)}
 			onFocus={() => setHovered(true)}
 			onBlur={() => setHovered(false)}
-			{...stylex.props(styles.refBadge, ghost && styles.ghostRefBadge)}
+			{...stylex.props(
+				styles.refBadge,
+				(kind !== "head" || ghost) && styles.dimmedRefBadge,
+				ghost && styles.ghostRefBadge,
+			)}
 			style={{
 				border: "none",
 				backgroundColor: ghost
@@ -572,7 +578,6 @@ function RefBadges({
 	onRefDrop?: (source: string, target: string) => void;
 	onOpenContextMenu?: (ref: GitGraphRef, event: MouseEvent) => void;
 }) {
-	const [expanded, setExpanded] = useState(false);
 	if (!refs.length) return null;
 	const primary = refs[0]!;
 	const primaryLabel = refPresentationLabel(primary);
@@ -604,19 +609,7 @@ function RefBadges({
 		/>
 	);
 	return (
-		<div
-			onMouseEnter={() => refs.length > 1 && setExpanded(true)}
-			onMouseLeave={() => {
-				setExpanded(false);
-			}}
-			onFocus={() => refs.length > 1 && setExpanded(true)}
-			onBlur={(event) => {
-				if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-					setExpanded(false);
-				}
-			}}
-			{...stylex.props(styles.refBadges, expanded && styles.refBadgesOpen)}
-		>
+		<div {...stylex.props(styles.refBadges)}>
 			{renderBadge(
 				primary,
 				companionRefs.map((ref) => ref.kind),
@@ -624,20 +617,11 @@ function RefBadges({
 			{overflowRefs.length ? (
 				<span
 					data-ref-overflow={overflowRefs.length}
-					title={`${overflowRefs.length} more references`}
+					title={overflowRefs.map((ref) => ref.displayName).join(", ")}
 					{...stylex.props(styles.refExtra)}
 				>
 					+{overflowRefs.length}
 				</span>
-			) : null}
-			{expanded && refs.length > 1 ? (
-				<div
-					role="group"
-					aria-label="Commit references"
-					{...stylex.props(styles.refBadgeStack)}
-				>
-					{refs.slice(1).map((ref) => renderBadge(ref))}
-				</div>
 			) : null}
 		</div>
 	);
@@ -769,9 +753,9 @@ function HeaderRow({
 									type="search"
 									value={query}
 									onInput={(event) => onQueryChange(event.currentTarget.value)}
-									placeholder="Search commits"
+									placeholder="Search all branches"
 									aria-label="Search commits"
-									title="Use author:, committer:, message:, ref:, or sha:"
+									title="Search all branches using author:, committer:, message:, ref:, or sha:. Solo filtering resumes when search is cleared."
 									{...stylex.props(styles.searchInput)}
 								/>
 								{query ? (
@@ -844,6 +828,8 @@ const CommitRow = memo(function CommitRow({
 	virtualTop,
 	searchMatch,
 	githubAvatar,
+	rowActive,
+	onRowHover,
 }: {
 	commit: GraphNode;
 	worktree?: GitWorktree;
@@ -865,8 +851,9 @@ const CommitRow = memo(function CommitRow({
 	virtualTop: number;
 	searchMatch: boolean;
 	githubAvatar?: string | null;
+	rowActive: boolean;
+	onRowHover: (itemId: string | null) => void;
 }) {
-	const [rowActive, setRowActive] = useState(false);
 	const nodeLeft =
 		GRAPH_PADDING +
 		displayColumn * COLUMN_WIDTH +
@@ -940,14 +927,8 @@ const CommitRow = memo(function CommitRow({
 			data-history-match={historyMatch ? "true" : "false"}
 			data-search-match={searchMatch ? "true" : "false"}
 			tabIndex={0}
-			onMouseEnter={() => setRowActive(true)}
-			onMouseLeave={() => setRowActive(false)}
-			onFocus={() => setRowActive(true)}
-			onBlur={(event) => {
-				if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-					setRowActive(false);
-				}
-			}}
+			onMouseEnter={() => onRowHover(commit.id)}
+			onMouseLeave={() => onRowHover(null)}
 			{...stylex.props(styles.graphRow, styles.virtualRow)}
 			style={{
 				height: ROW_HEIGHT,
@@ -1174,10 +1155,15 @@ function rowBottom(row: number): number {
 // ── Main component ──────────────────────────────────────────────
 
 export const CommitGraph = memo(function CommitGraph({
+	ancestry,
+	onSearchChange,
+	emptyLabel = "No matching commits",
+	searchActive = false,
+	searchQuery = "",
 	commits,
 	rows,
 	selectedHash,
-	selectedIds = [],
+	selectedIds = EMPTY_SELECTED_IDS,
 	onSelect,
 	className = "",
 	worktrees = [],
@@ -1235,13 +1221,21 @@ export const CommitGraph = memo(function CommitGraph({
 			current = false;
 		};
 	}, [avatarHashes, repositoryKey]);
+	const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+	const [hoveredRow, setHoveredRow] = useState<string | null>(null);
+	const keyboardNavigationRef = useRef(false);
+	const mousePositionRef = useRef<{ x: number; y: number } | null>(null);
+	const handleRowHover = useCallback((itemId: string | null) => {
+		if (!keyboardNavigationRef.current) setHoveredRow(itemId);
+	}, []);
 	const scrollerRef = useRef<HTMLDivElement | null>(null);
+	const scrollFrameRef = useRef<number | null>(null);
 	const scrollWriteTimerRef = useRef<number | null>(null);
 	const scrollPositionRef = useRef({ top: 0, left: 0 });
 	const restoredScrollKeyRef = useRef<string | null>(null);
 	const [scrollTop, setScrollTop] = useState(0);
 	const [viewportHeight, setViewportHeight] = useState(600);
-	const [query, setQuery] = useState("");
+	const [query, setQuery] = useState(searchQuery);
 	const [refContextMenu, setRefContextMenu] = useState<{
 		ref: GitGraphRef;
 		x: number;
@@ -1333,7 +1327,15 @@ export const CommitGraph = memo(function CommitGraph({
 		return refs;
 	}, [commits]);
 	const containingBranches = useMemo(
-		() => nearestContainingBranches(commits, [...repositoryRefs.values()]),
+		() =>
+			new Map(
+				commits.flatMap((commit) => {
+					const ref = repositoryRefs.get(
+						commit.navigation?.containingBranch ?? "",
+					);
+					return ref ? [[commit.id, ref] as const] : [];
+				}),
+			),
 		[commits, repositoryRefs],
 	);
 	const hiddenRefDetails = hiddenRefs
@@ -1344,13 +1346,16 @@ export const CommitGraph = memo(function CommitGraph({
 	)?.remoteName;
 	const hiddenRefNames = useMemo(() => new Set(hiddenRefs), [hiddenRefs]);
 	const pinnedRefNames = useMemo(() => new Set(pinnedRefs), [pinnedRefs]);
-	const activeHistoryTargets = soloRefs
-		.map((fullName) => repositoryRefs.get(fullName)?.target)
-		.filter((target): target is string => Boolean(target));
-	const reachableHistory = useMemo(
-		() => collectReachableCommitIds(commits, activeHistoryTargets),
-		[activeHistoryTargets.join("\n"), commits],
-	);
+	const reachableHistory = useMemo(() => {
+		const reachable = new Set<string>();
+		for (const ref of soloRefs) {
+			for (const [start, end] of ancestry?.[ref] ?? []) {
+				for (let row = start; row <= end && row < commits.length; row++)
+					reachable.add(commits[row]!.id);
+			}
+		}
+		return reachable;
+	}, [ancestry, commits, soloRefs]);
 
 	const maxColumn = useMemo(() => {
 		let max = 0;
@@ -1419,25 +1424,40 @@ export const CommitGraph = memo(function CommitGraph({
 	const graphLeft = visibleColumns
 		.slice(0, visibleColumns.indexOf("graph"))
 		.reduce((total, column) => total + renderedColumnWidth(column), 0);
+	const lineLayerStyle = useMemo(
+		() => ({ zIndex: 0, left: graphLeft, top: TOP_PADDING }),
+		[graphLeft],
+	);
 	const tableWidth =
 		visibleColumns.reduce(
 			(total, column) => total + renderedColumnWidth(column),
 			0,
 		) + TOOLS_WIDTH;
 	const normalizedQuery = query.trim();
-	const matchingHashes = useMemo(() => {
-		if (!normalizedQuery) return new Set(commits.map((commit) => commit.id));
-		return new Set(
-			commits
-				.filter((commit) => matchesGraphSearch(commit, normalizedQuery))
-				.map((commit) => commit.id),
+	const matchingHashes = useMemo(
+		() => new Set(commits.map((commit) => commit.id)),
+		[commits],
+	);
+	useEffect(() => {
+		const timer = window.setTimeout(
+			() => onSearchChange?.(normalizedQuery),
+			200,
 		);
-	}, [commits, normalizedQuery]);
+		return () => window.clearTimeout(timer);
+	}, [normalizedQuery, onSearchChange]);
+	useEffect(() => {
+		setQuery(searchQuery);
+	}, [repositoryKey]);
+
 	const graphHeight = commits.length * ROW_HEIGHT;
 	const totalHeight = TOP_PADDING + graphHeight;
 	const selectableItems = useMemo(
 		() => commits.map((commit) => commit.id),
 		[commits],
+	);
+	const itemIndexes = useMemo(
+		() => new Map(selectableItems.map((id, index) => [id, index])),
+		[selectableItems],
 	);
 	const { start: visibleStart, end: visibleEnd } = graphVirtualRange(
 		commits.length,
@@ -1446,19 +1466,6 @@ export const CommitGraph = memo(function CommitGraph({
 		ROW_HEIGHT,
 		ROW_OVERSCAN,
 	);
-
-	useEffect(() => {
-		if (
-			!normalizedQuery ||
-			matchingHashes.size > 0 ||
-			!hasMore ||
-			loadingMore ||
-			!onLoadMore
-		)
-			return;
-		const timer = window.setTimeout(onLoadMore, 250);
-		return () => window.clearTimeout(timer);
-	}, [hasMore, loadingMore, matchingHashes.size, normalizedQuery, onLoadMore]);
 
 	useEffect(() => {
 		const scroller = scrollerRef.current;
@@ -1478,7 +1485,18 @@ export const CommitGraph = memo(function CommitGraph({
 	const rememberScroll = useCallback(
 		(top: number, left: number) => {
 			scrollPositionRef.current = { top, left };
-			setScrollTop(top);
+			if (scrollFrameRef.current === null) {
+				scrollFrameRef.current = requestAnimationFrame(() => {
+					scrollFrameRef.current = null;
+					const nextTop = scrollPositionRef.current.top;
+					setScrollTop((current) =>
+						Math.floor(current / ROW_HEIGHT) ===
+						Math.floor(nextTop / ROW_HEIGHT)
+							? current
+							: nextTop,
+					);
+				});
+			}
 			if (scrollWriteTimerRef.current !== null) {
 				window.clearTimeout(scrollWriteTimerRef.current);
 			}
@@ -1488,6 +1506,13 @@ export const CommitGraph = memo(function CommitGraph({
 			}, 160);
 		},
 		[repositoryKey],
+	);
+	useEffect(
+		() => () => {
+			if (scrollFrameRef.current !== null)
+				cancelAnimationFrame(scrollFrameRef.current);
+		},
+		[],
 	);
 	const openRefContextMenu = useCallback(
 		(ref: GitGraphRef, event: MouseEvent) => {
@@ -1523,26 +1548,24 @@ export const CommitGraph = memo(function CommitGraph({
 			)
 				return;
 			if (!selectableItems.length) return;
+			keyboardNavigationRef.current = true;
+			setHoveredRow(null);
 			event.preventDefault();
 			const currentIndex = selectedHash
-				? selectableItems.indexOf(selectedHash)
+				? (itemIndexes.get(selectedHash) ?? -1)
 				: -1;
 			if (
 				event.altKey &&
 				(event.key === "ArrowUp" || event.key === "ArrowDown") &&
 				selectedHash
 			) {
-				const branch = containingBranches.get(selectedHash);
-				const next = branch
-					? adjacentCommitOnBranch(
-							commits,
-							selectedHash,
-							branch.target,
-							event.key === "ArrowUp" ? "newer" : "older",
-						)
-					: undefined;
+				const current = commits[currentIndex];
+				const next =
+					event.key === "ArrowUp"
+						? current?.navigation?.branchNewer
+						: current?.navigation?.branchOlder;
 				if (next) {
-					const nextIndex = selectableItems.indexOf(next);
+					const nextIndex = itemIndexes.get(next) ?? -1;
 					onSelect?.(next);
 					scrollerRef.current?.scrollTo({
 						top: Math.max(0, nextIndex * ROW_HEIGHT - ROW_HEIGHT * 2),
@@ -1560,14 +1583,13 @@ export const CommitGraph = memo(function CommitGraph({
 				currentIndex >= 0
 			) {
 				const current = commits[currentIndex];
-				const connected =
+				const connectedId =
 					event.key === "ArrowLeft"
-						? current?.parents[0]
-							? commits.find((commit) => commit.hash === current.parents[0])
-							: undefined
-						: commits.find((commit) =>
-								commit.parents.includes(current?.hash ?? ""),
-							);
+						? current?.navigation?.parent
+						: current?.navigation?.child;
+				const connected = connectedId
+					? commits[itemIndexes.get(connectedId) ?? -1]
+					: undefined;
 				if (connected) {
 					const connectedIndex = commits.indexOf(connected);
 					onSelect?.(connected.id);
@@ -1608,6 +1630,7 @@ export const CommitGraph = memo(function CommitGraph({
 			onOpenSelection,
 			onSelect,
 			selectableItems,
+			itemIndexes,
 			selectedHash,
 		],
 	);
@@ -1771,6 +1794,19 @@ export const CommitGraph = memo(function CommitGraph({
 				}
 				rememberScroll(scroller.scrollTop, scroller.scrollLeft);
 			}}
+			onMouseMove={(event) => {
+				const previous = mousePositionRef.current;
+				mousePositionRef.current = { x: event.clientX, y: event.clientY };
+				if (previous?.x === event.clientX && previous.y === event.clientY)
+					return;
+				keyboardNavigationRef.current = false;
+				const row =
+					event.target instanceof Element
+						? event.target.closest("[data-graph-item]")
+						: null;
+				setHoveredRow(row?.getAttribute("data-graph-item") ?? null);
+			}}
+			onMouseLeave={() => setHoveredRow(null)}
 			onKeyDown={navigateRows}
 		>
 			<HeaderRow
@@ -1794,39 +1830,40 @@ export const CommitGraph = memo(function CommitGraph({
 				matchCount={matchingHashes.size}
 			/>
 
-			{/* SVG lines layer — clipped to ref+graph area */}
-			<CommitGraphLinesLayer
-				className={stylex.props(styles.linesLayer).className}
-				width={graphWidth}
-				height={graphHeight}
-				style={{
-					zIndex: 0,
-					left: graphLeft,
-					top: TOP_PADDING,
-				}}
-				railSegments={railSegments}
-				transitions={transitions}
-				convergences={convergences}
-				truncatedSegments={truncatedSegments}
-				colX={columnX}
-				rowTop={rowTop}
-				rowBottom={rowBottom}
-				buildConnection={connectionPath}
-				buildConvergence={convergencePath}
-				lineWidth={LINE_WIDTH}
-			/>
-
-			{/* Rows layer — avatar nodes sit on top of lines */}
+			{commits.length === 0 ? (
+				<div role="status" style={{ padding: 24 }}>
+					{emptyLabel}
+				</div>
+			) : null}
+			{/* Lines and nodes share the same origin below the header. */}
 			<div
 				{...stylex.props(styles.rowsLayer)}
 				style={{ height: totalHeight, width: tableWidth }}
 			>
+				<CommitGraphLinesLayer
+					className={stylex.props(styles.linesLayer).className}
+					width={graphWidth}
+					height={graphHeight}
+					style={lineLayerStyle}
+					railSegments={railSegments}
+					transitions={transitions}
+					convergences={convergences}
+					truncatedSegments={truncatedSegments}
+					colX={columnX}
+					rowTop={rowTop}
+					rowBottom={rowBottom}
+					buildConnection={connectionPath}
+					buildConvergence={convergencePath}
+					lineWidth={LINE_WIDTH}
+				/>
 				{commits.slice(visibleStart, visibleEnd).map((commit, visibleIndex) => {
 					const logicalIndex = visibleStart + visibleIndex;
 					return (
 						<CommitRow
 							key={commit.id}
 							commit={commit}
+							rowActive={hoveredRow === commit.id}
+							onRowHover={handleRowHover}
 							worktree={
 								commit.worktreePath
 									? worktreesByPath.get(commit.worktreePath)
@@ -1835,7 +1872,7 @@ export const CommitGraph = memo(function CommitGraph({
 							graphWidth={graphWidth}
 							displayColumn={displayGraphColumn(commit.column)}
 							selected={
-								selectedHash === commit.id || selectedIds.includes(commit.id)
+								selectedHash === commit.id || selectedIdSet.has(commit.id)
 							}
 							onSelect={onSelect}
 							onCheckoutRef={onCheckoutRef}
@@ -1846,7 +1883,8 @@ export const CommitGraph = memo(function CommitGraph({
 							hiddenRefNames={hiddenRefNames}
 							pinnedRefNames={pinnedRefNames}
 							historyMatch={
-								activeHistoryTargets.length === 0 ||
+								searchActive ||
+								soloRefs.length === 0 ||
 								reachableHistory.has(commit.id) ||
 								reachableHistory.has(commit.hash)
 							}
@@ -2329,8 +2367,11 @@ const styles = stylex.create({
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 	},
+	dimmedRefBadge: {
+		opacity: 0.5,
+	},
 	ghostRefBadge: {
-		opacity: 0.72,
+		opacity: 0.36,
 		fontStyle: "italic",
 	},
 	refBadges: {
@@ -2342,32 +2383,11 @@ const styles = stylex.create({
 		overflow: "visible",
 		minWidth: controlSize._0,
 	},
-	refBadgesOpen: {
-		zIndex: layer.dropdown,
-	},
 	refExtra: {
 		flexShrink: 0,
 		color: color.textSoft,
 		fontSize: font.size_0_5,
 		fontVariantNumeric: "tabular-nums",
-	},
-	refBadgeStack: {
-		position: "absolute",
-		left: controlSize._0,
-		top: "calc(100% + 2px)",
-		zIndex: layer.dropdown,
-		display: "flex",
-		maxWidth: "13.25rem",
-		alignItems: "flex-start",
-		flexDirection: "column",
-		gap: controlSize._1,
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: radius.md,
-		backgroundColor: color.backgroundRaised,
-		boxShadow: shadow.popover,
-		padding: controlSize._1,
 	},
 	header: {
 		position: "sticky",

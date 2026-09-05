@@ -1,3 +1,4 @@
+import { memo } from "octane";
 import type { Octane } from "octane/jsx-runtime";
 import type { CSSProperties } from "react";
 
@@ -316,7 +317,7 @@ export const {
 	),
 };
 
-export function CommitGraphLinesLayer({
+export const CommitGraphLinesLayer = memo(function CommitGraphLinesLayer({
 	width,
 	height,
 	className,
@@ -468,4 +469,4 @@ export function CommitGraphLinesLayer({
 			})}
 		</svg>
 	);
-}
+});

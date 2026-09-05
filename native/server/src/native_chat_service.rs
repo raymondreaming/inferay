@@ -35,6 +35,7 @@ impl std::error::Error for NativeChatRuntimeStopped {}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct NativeChatSendRequest {
+    pub client_message_id: Option<String>,
     pub pane_id: String,
     pub agent_kind: String,
     pub session_id: Option<String>,
@@ -160,6 +161,7 @@ impl NativeChatService {
         request.images = normalize_paths(&self.allowed_paths, request.images);
         let runtime = self.runtime.clone();
         let input = SendMessageInput {
+            client_message_id: request.client_message_id,
             pane_id: request.pane_id,
             agent_kind: request.agent_kind,
             client_session_id: request.session_id,

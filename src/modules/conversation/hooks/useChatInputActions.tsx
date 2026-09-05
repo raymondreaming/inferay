@@ -139,17 +139,20 @@ export function useChatInputActions({
 
 	const appendLocalMessage = useCallback(
 		(message: Pick<ChatMessage, "role" | "content" | "images">) => {
+			const id = nextId();
 			setMessages((prev) =>
 				trimMessages([
 					...prev,
 					{
-						id: nextId(),
+						id,
+						optimistic: true,
 						role: message.role,
 						content: message.content,
 						images: message.images,
 					},
 				]),
 			);
+			return id;
 		},
 		[setMessages],
 	);
@@ -160,6 +163,7 @@ export function useChatInputActions({
 			workspaceOverride?: ChatWorkspaceOverride,
 			displayText?: string,
 			images?: string[],
+			messageId?: string,
 		) => {
 			if (!isLoading) {
 				onSendStart?.();
@@ -172,6 +176,7 @@ export function useChatInputActions({
 
 			wsClient.send({
 				type: "chat:send",
+				messageId,
 				paneId,
 				text,
 				cwd: workspaceOverride?.cwd ?? cwd,
@@ -219,11 +224,15 @@ export function useChatInputActions({
 				sendToServer(trimmed, workspaceOverride, visibleText, images);
 				return;
 			}
-			appendLocalMessage({ role: "user", content: visibleText, images });
+			const messageId = appendLocalMessage({
+				role: "user",
+				content: visibleText,
+				images,
+			});
 			if (systemMessage) {
 				setMessages((prev) => appendSystemMessage(prev, systemMessage));
 			}
-			sendToServer(trimmed, workspaceOverride, visibleText, images);
+			sendToServer(trimmed, workspaceOverride, visibleText, images, messageId);
 		},
 		[appendLocalMessage, isLoading, sendToServer, setMessages],
 	);
@@ -420,11 +429,9 @@ export function useChatInputActions({
 		pendingSendConsumedRef.current = true;
 		clearPendingSend(paneId);
 		setInput("");
-		setMessages((prev) =>
-			trimMessages([...prev, { id: nextId(), role: "user", content: pending }]),
-		);
-		sendToServer(pending);
-	}, [enabled, isLoading, paneId, sendToServer, setInput, setMessages]);
+		const messageId = appendLocalMessage({ role: "user", content: pending });
+		sendToServer(pending, undefined, pending, undefined, messageId);
+	}, [enabled, isLoading, paneId, sendToServer, setInput, appendLocalMessage]);
 
 	return {
 		handleKeyDown,

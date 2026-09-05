@@ -20,13 +20,10 @@ import {
 	radius,
 	shadow,
 } from "../../../../design-system/styles.stylex.ts";
-import {
-	buildMergeConflictLines,
-	type DiffLine,
-	type HunkDiff,
-	shouldDisableDiffTokenization,
-	summarizeHunkDiff,
-} from "../../../../modules/repository/hooks/useGitDiff.tsx";
+import type {
+	DiffLine,
+	HunkDiff,
+} from "../../../../modules/repository/model/types.ts";
 import { MarkdownPreview } from "../../../../modules/workbench/diff/components/MarkdownPreview.tsx";
 import {
 	type DiffScrollSource,
@@ -34,10 +31,11 @@ import {
 } from "../../../../modules/workbench/diff/hooks/useSplitDiffScroll.tsx";
 import {
 	alignDiffLines,
-	buildInlineHunkLines,
 	buildMarkdownContent,
 	buildMinimapSegments,
 	type MinimapSegment,
+	shouldDisableDiffTokenization,
+	summarizeHunkDiff,
 } from "../../../../modules/workbench/diff/model/diff-lines.ts";
 import {
 	diffNavigationReducer,
@@ -124,7 +122,7 @@ const LINE_H = DIFF_CONFIG.lineHeight;
 const GUTTER_W = DIFF_CONFIG.lineNumWidth + DIFF_CONFIG.signWidth;
 const SPLIT_RIGHT_INSET = 12;
 const OVERSCAN = DIFF_CONFIG.overscan;
-const MAX_RENDERED_DIFF_LINES = 12_000;
+const MAX_RENDERED_DIFF_LINES = 100_000;
 const MAX_RENDERED_LINE_CHARS = 4000;
 const MAX_PANEL_CONTENT_WIDTH = 8000;
 type DiffRowStyle = CSSProperties & { "--hover-bg"?: string };
@@ -1051,14 +1049,20 @@ export const DiffViewer = memo(function DiffViewer({
 	}, [diff.compactLines, diff.newLines, diff.oldLines.length]);
 
 	const oversizedMessage = useMemo(() => {
-		const lines = diff.compactLines ?? [...diff.oldLines, ...diff.newLines];
-		const totalLines = lines.length;
+		// Split panes share row positions; counting both sides rejects ordinary
+		// large files even though only a viewport of rows is mounted.
+		const totalLines =
+			diff.compactLines?.length ??
+			Math.max(diff.oldLines.length, diff.newLines.length);
 		if (totalLines > MAX_RENDERED_DIFF_LINES) {
 			return `Diff is too large to render safely (${totalLines.toLocaleString()} lines). Use the Editor/agent to inspect this file in smaller chunks.`;
 		}
 		let longest = 0;
-		for (const line of lines) {
-			if (line.content.length > longest) longest = line.content.length;
+		for (const lines of diff.compactLines
+			? [diff.compactLines]
+			: [diff.oldLines, diff.newLines]) {
+			for (const line of lines)
+				longest = Math.max(longest, line.content.length);
 		}
 		if (longest > MAX_RENDERED_LINE_CHARS * 2) {
 			return `Diff contains a very long line (${longest.toLocaleString()} characters). Rendering is limited to keep the app responsive.`;
@@ -1075,9 +1079,8 @@ export const DiffViewer = memo(function DiffViewer({
 
 	const hunkLines = useMemo(() => {
 		if (oversizedMessage) return [];
-		if (diff.compactLines) return diff.compactLines;
-		return buildInlineHunkLines(diff.oldLines, diff.newLines);
-	}, [diff.compactLines, diff.oldLines, diff.newLines, oversizedMessage]);
+		return diff.inlineLines ?? diff.compactLines ?? [];
+	}, [diff.inlineLines, diff.compactLines, oversizedMessage]);
 	const splitOldLines = useMemo(
 		() =>
 			diff.isNew
@@ -1142,7 +1145,7 @@ export const DiffViewer = memo(function DiffViewer({
 					/>
 				)}
 				<MergeConflictPanel
-					content={diff.mergeConflictContent ?? ""}
+					lines={diff.conflictLines ?? []}
 					disableTokenize={disableTokenize}
 					ext={ext}
 					filePath={filePath}
@@ -1246,20 +1249,19 @@ export const DiffViewer = memo(function DiffViewer({
 });
 
 function MergeConflictPanel({
-	content,
+	lines,
 	disableTokenize,
 	ext,
 	filePath,
 	syntaxTheme,
 }: {
-	content: string;
+	lines: DiffLine[];
 	disableTokenize: boolean;
 	ext: string;
 	filePath: string;
 	syntaxTheme: SyntaxHighlightTheme;
 }) {
 	const scrollRef = useRef<HTMLDivElement | null>(null);
-	const lines = useMemo(() => buildMergeConflictLines(content), [content]);
 	return (
 		<div {...stylex.props(diffStyles.conflictBody)}>
 			<div {...stylex.props(diffStyles.conflictActions)}>

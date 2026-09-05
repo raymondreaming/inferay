@@ -9,8 +9,6 @@ const mock = Object.assign(vi.fn, {
 });
 
 mock.module("../src/adapters/backend/websocket.ts", () => ({
-	getWebSocketStatus: () => "connected",
-	subscribeWebSocketStatus: () => () => {},
 	wsClient: {
 		onMessage: mock(() => () => {}),
 		send: mock(() => {}),

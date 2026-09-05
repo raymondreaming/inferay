@@ -25,8 +25,6 @@ const onReconnect = mock((_callback: () => void) => reconnectCleanup);
 const send = mock(() => {});
 
 mock.module("../src/adapters/backend/websocket.ts", () => ({
-	getWebSocketStatus: () => "connected",
-	subscribeWebSocketStatus: () => () => {},
 	wsClient: {
 		onReconnect,
 		send,
@@ -68,7 +66,7 @@ test("hidden chat views do not own websocket reconnects", async () => {
 	send.mockClear();
 	const { root } = setupDom();
 	const { useChatConnection } = await import(
-		"../src/modules/conversation/hooks/useChatConnection.tsx"
+		"../src/modules/conversation/hooks/useChatConnection.ts"
 	);
 
 	function Harness({ enabled }: { enabled: boolean }) {
@@ -124,445 +122,319 @@ test("hidden chat views do not own websocket reconnects", async () => {
 	}
 });
 
-test("live turn completion persists sync and reconnects after done", async () => {
+async function mountNativeChat(paneId: string, initial: ChatMessage[] = []) {
 	subscribe.mockClear();
 	send.mockClear();
 	const { root } = setupDom();
 	const { useChatConnection } = await import(
-		"../src/modules/conversation/hooks/useChatConnection.tsx"
+		"../src/modules/conversation/hooks/useChatConnection.ts"
 	);
-	let handleMessage: ((message: unknown) => void) | undefined;
-	let latestMessages: ChatMessage[] = [];
+	let receive: (message: unknown) => void = () => {};
+	let messages = initial;
+	const staged: string[] = [];
+	const resolved: string[] = [];
+	const model = {
+		get: () => messages,
+		settle: (value: ChatMessage[]) => value,
+		set: (
+			update: ChatMessage[] | ((value: ChatMessage[]) => ChatMessage[]),
+		) => {
+			messages = typeof update === "function" ? update(messages) : update;
+		},
+	};
 	subscribe.mockImplementationOnce((_paneId, callback) => {
-		handleMessage = callback;
+		receive = callback;
 		return subscribeCleanup;
 	});
-
+	const replaceQueuedMessages = () => {};
+	let status: ChatLoadingState = {
+		isLoading: false,
+		status: "idle",
+		startTime: null,
+	};
+	const setRunStatus = (
+		update:
+			| ChatLoadingState
+			| ((previous: ChatLoadingState) => ChatLoadingState),
+	) => {
+		status = typeof update === "function" ? update(status) : update;
+	};
+	const stageSteeringMessage = (message: { id: string }) =>
+		staged.push(message.id);
+	const resolveSteeringMessage = (id: string) => resolved.push(id);
 	function Harness() {
-		const [, setUiState] = useState<ChatActivityUiState>({
+		const [, setChatUiState] = useState<ChatActivityUiState>({
 			expandedTools: new Set(),
 			liveActivities: [],
 		});
-		const runStatusRef = useRef<ChatLoadingState>({
-			isLoading: true,
-			startTime: Date.now(),
-			status: "responding",
-		});
-		const messagesRef = useRef<ChatMessage[]>([
-			{ id: "m1", role: "user", content: "first" },
-		]);
-		latestMessages = messagesRef.current;
-		const saveMessagesNow = useCallback(
-			(messages: ChatMessage[]) => messages,
-			[],
-		);
-		const setMessages = useCallback(
-			(
-				update: ChatMessage[] | ((messages: ChatMessage[]) => ChatMessage[]),
-			) => {
-				messagesRef.current =
-					typeof update === "function" ? update(messagesRef.current) : update;
-				latestMessages = messagesRef.current;
-			},
-			[],
-		);
-		const messageReadModel = useMemo(
-			() => ({
-				get: () => messagesRef.current,
-				settle: (messages: ChatMessage[]) => messages,
-				saveNow: saveMessagesNow,
-				set: setMessages,
-			}),
-			[saveMessagesNow, setMessages],
-		);
-		const setRunStatus = useCallback(
-			(
-				value:
-					| ChatLoadingState
-					| ((prev: ChatLoadingState) => ChatLoadingState),
-			) =>
-				(runStatusRef.current =
-					typeof value === "function" ? value(runStatusRef.current) : value),
-			[],
-		);
 		useChatConnection({
-			enabled: true,
-			messageReadModel,
-			paneId: "pane-drain-once",
-			replaceQueuedMessages: () => {},
-			setChatUiState: setUiState,
+			paneId,
+			agentKind: "claude",
+			messageReadModel: model,
+			replaceQueuedMessages,
 			setRunStatus,
+			setChatUiState,
+			stageSteeringMessage,
+			resolveSteeringMessage,
 		});
 		return null;
 	}
+	root.render(<Harness />);
+	await tick();
+	return {
+		root,
+		staged,
+		resolved,
+		get: () => messages,
+		getStatus: () => status,
+		receive: (message: Record<string, unknown>) =>
+			receive({ paneId, modelVersion: 1, ...message }),
+	};
+}
 
+test("native transcript deltas keep stable IDs and finish without a redundant reconnect", async () => {
+	const chat = await mountNativeChat("native-turn", [
+		{ id: "local", role: "user", content: "hello" },
+	]);
 	try {
-		root.render(<Harness />);
-		await tick();
-		handleMessage?.({
+		chat.receive({
 			type: "chat:sync",
-			paneId: "pane-drain-once",
-			messages: [{ id: "m1", role: "user", content: "first" }],
+			revision: 1,
 			isStreaming: true,
+			messages: [{ id: "u1", role: "user", content: "hello" }],
+		});
+		chat.receive({
+			type: "chat:event",
+			event: {
+				type: "content_block_start",
+				content_block: {
+					type: "text",
+					text: "duplicate provider representation",
+				},
+			},
+			transcriptUpdate: {
+				version: 1,
+				baseRevision: 1,
+				revision: 2,
+				reset: false,
+				start: 1,
+				deleteCount: 0,
+				messages: [
+					{
+						message: {
+							id: "a1",
+							role: "assistant",
+							content: "draft",
+							isStreaming: true,
+						},
+					},
+				],
+			},
+		});
+		chat.receive({
+			type: "chat:model",
+			transcriptUpdate: {
+				version: 1,
+				baseRevision: 2,
+				revision: 3,
+				reset: false,
+				start: 1,
+				deleteCount: 1,
+				messages: [
+					{
+						message: { id: "a1", role: "assistant", isStreaming: true },
+						appendContent: " more",
+					},
+				],
+			},
 		});
 		await tick();
-
-		handleMessage?.({
-			type: "chat:sync",
-			paneId: "pane-drain-once",
-			messages: [
-				{ id: "m1", role: "user", content: "first" },
-				{ id: "m2", role: "assistant", content: "done" },
-			],
-			isStreaming: false,
+		expect(chat.get().at(-1)).toMatchObject({
+			id: "a1",
+			content: "draft more",
 		});
-		handleMessage?.({ type: "chat:done", paneId: "pane-drain-once" });
+		chat.receive({
+			type: "chat:done",
+			transcriptUpdate: {
+				version: 1,
+				baseRevision: 1,
+				revision: 2,
+				reset: false,
+				start: 1,
+				deleteCount: 0,
+				messages: [],
+			},
+		});
+		expect(chat.getStatus().status).toBe("responding");
+		chat.receive({
+			type: "chat:model",
+			transcriptUpdate: {
+				version: 1,
+				baseRevision: 3,
+				revision: 4,
+				reset: false,
+				start: 1,
+				deleteCount: 1,
+				messages: [
+					{
+						message: {
+							id: "a1",
+							role: "assistant",
+							content: "final",
+							isStreaming: false,
+						},
+					},
+				],
+			},
+		});
+		chat.receive({ type: "chat:done" });
 		await tick();
-
-		expect(latestMessages).toEqual([
-			{ id: "m1", role: "user", content: "first" },
-			{ id: "m2", role: "assistant", content: "done" },
+		expect(chat.get()).toEqual([
+			{ id: "u1", role: "user", content: "hello" },
+			{ id: "a1", role: "assistant", content: "final", isStreaming: false },
 		]);
-		expect(send).toHaveBeenCalledWith({
-			type: "chat:reconnect",
-			paneId: "pane-drain-once",
-		});
+		expect(send).toHaveBeenCalledTimes(1);
 	} finally {
-		root.unmount();
+		chat.root.unmount();
 	}
 });
 
-test("stale streaming sync does not cut local in-flight assistant content", async () => {
-	subscribe.mockClear();
-	send.mockClear();
-	const { root } = setupDom();
-	const { useChatConnection } = await import(
-		"../src/modules/conversation/hooks/useChatConnection.tsx"
-	);
-	let handleMessage: ((message: unknown) => void) | undefined;
-	let latestMessages: ChatMessage[] = [];
-	subscribe.mockImplementationOnce((_paneId, callback) => {
-		handleMessage = callback;
-		return subscribeCleanup;
-	});
-
-	function Harness() {
-		const [, setUiState] = useState<ChatActivityUiState>({
-			expandedTools: new Set(),
-			liveActivities: [],
-		});
-		const runStatusRef = useRef<ChatLoadingState>({
-			isLoading: true,
-			startTime: Date.now(),
-			status: "responding",
-		});
-		const messagesRef = useRef<ChatMessage[]>([
-			{ id: "u1", role: "user", content: "prompt" },
-		]);
-		latestMessages = messagesRef.current;
-		const saveMessagesNow = useCallback(
-			(messages: ChatMessage[]) => messages,
-			[],
-		);
-		const setMessages = useCallback(
-			(
-				update: ChatMessage[] | ((messages: ChatMessage[]) => ChatMessage[]),
-			) => {
-				messagesRef.current =
-					typeof update === "function" ? update(messagesRef.current) : update;
-				latestMessages = messagesRef.current;
-			},
-			[],
-		);
-		const messageReadModel = useMemo(
-			() => ({
-				get: () => messagesRef.current,
-				settle: (messages: ChatMessage[]) => messages,
-				saveNow: saveMessagesNow,
-				set: setMessages,
-			}),
-			[saveMessagesNow, setMessages],
-		);
-		const setRunStatus = useCallback(
-			(
-				value:
-					| ChatLoadingState
-					| ((prev: ChatLoadingState) => ChatLoadingState),
-			) =>
-				(runStatusRef.current =
-					typeof value === "function" ? value(runStatusRef.current) : value),
-			[],
-		);
-		useChatConnection({
-			enabled: true,
-			messageReadModel,
-			paneId: "pane-stale-stream",
-			replaceQueuedMessages: () => {},
-			setChatUiState: setUiState,
-			setRunStatus,
-		});
-		return null;
-	}
-
+test("revision gaps request one full resync and recover before applying more deltas", async () => {
+	const chat = await mountNativeChat("native-gap");
 	try {
-		root.render(<Harness />);
-		await tick();
-		handleMessage?.({
-			type: "chat:event",
-			paneId: "pane-stale-stream",
-			event: {
-				type: "content_block_start",
-				content_block: { type: "text", text: "newer " },
-			},
-		});
-		handleMessage?.({
-			type: "chat:event",
-			paneId: "pane-stale-stream",
-			event: {
-				type: "content_block_delta",
-				delta: { type: "text_delta", text: "local stream" },
-			},
-		});
-		await tick();
-
-		handleMessage?.({
+		chat.receive({
 			type: "chat:sync",
-			paneId: "pane-stale-stream",
+			revision: 1,
+			isStreaming: true,
 			messages: [
-				{ id: "u1", role: "user", content: "prompt" },
+				{ id: "a1", role: "assistant", content: "old", isStreaming: true },
+			],
+		});
+		const gap = {
+			version: 1,
+			baseRevision: 3,
+			revision: 4,
+			reset: false,
+			start: 0,
+			deleteCount: 1,
+			messages: [
 				{
-					id: "server-a1",
+					message: { id: "a1", role: "assistant", isStreaming: true },
+					appendContent: " skipped",
+				},
+			],
+		};
+		chat.receive({ type: "chat:model", transcriptUpdate: gap });
+		chat.receive({ type: "chat:model", transcriptUpdate: gap });
+		expect(send).toHaveBeenCalledTimes(2);
+		expect(chat.get()[0]?.content).toBe("old");
+		chat.receive({
+			type: "chat:sync",
+			revision: 4,
+			isStreaming: true,
+			messages: [
+				{
+					id: "a1",
 					role: "assistant",
-					content: "older",
+					content: "recovered",
 					isStreaming: true,
 				},
 			],
-			revision: 4,
-			isStreaming: true,
 		});
-		await tick();
-
-		expect(latestMessages).toHaveLength(2);
-		expect(latestMessages.at(-1)).toMatchObject({
-			role: "assistant",
-			content: "newer local stream",
-			isStreaming: true,
-		});
-	} finally {
-		root.unmount();
-	}
-});
-
-test("active sync between blocks keeps result replay attached to its assistant", async () => {
-	subscribe.mockClear();
-	send.mockClear();
-	const { root } = setupDom();
-	const { useChatConnection } = await import(
-		"../src/modules/conversation/hooks/useChatConnection.tsx"
-	);
-	let handleMessage: ((message: unknown) => void) | undefined;
-	let latestMessages: ChatMessage[] = [];
-	subscribe.mockImplementationOnce((_paneId, callback) => {
-		handleMessage = callback;
-		return subscribeCleanup;
-	});
-
-	function Harness() {
-		const [, setUiState] = useState<ChatActivityUiState>({
-			expandedTools: new Set(),
-			liveActivities: [],
-		});
-		const messagesRef = useRef<ChatMessage[]>([
-			{ id: "u1", role: "user", content: "prompt" },
-		]);
-		latestMessages = messagesRef.current;
-		const messageReadModel = useMemo(
-			() => ({
-				get: () => messagesRef.current,
-				settle: (messages: ChatMessage[]) => messages,
-				saveNow: (messages: ChatMessage[]) => messages,
-				set: (
-					update: ChatMessage[] | ((messages: ChatMessage[]) => ChatMessage[]),
-				) => {
-					messagesRef.current =
-						typeof update === "function" ? update(messagesRef.current) : update;
-					latestMessages = messagesRef.current;
-				},
-			}),
-			[],
-		);
-		useChatConnection({
-			enabled: true,
-			messageReadModel,
-			paneId: "pane-between-blocks",
-			replaceQueuedMessages: () => {},
-			setChatUiState: setUiState,
-			setRunStatus: () => {},
-		});
-		return null;
-	}
-
-	try {
-		root.render(<Harness />);
-		await tick();
-		handleMessage?.({
-			type: "chat:event",
-			paneId: "pane-between-blocks",
-			event: {
-				type: "content_block_start",
-				content_block: { type: "text", text: "" },
+		chat.receive({
+			type: "chat:model",
+			transcriptUpdate: {
+				...gap,
+				baseRevision: 4,
+				revision: 5,
+				messages: [
+					{
+						message: { id: "a1", role: "assistant", isStreaming: true },
+						appendContent: "!",
+					},
+				],
 			},
 		});
-		handleMessage?.({
-			type: "chat:event",
-			paneId: "pane-between-blocks",
-			event: {
-				type: "content_block_delta",
-				delta: { type: "text_delta", text: "same progress" },
-			},
-		});
-		handleMessage?.({
-			type: "chat:event",
-			paneId: "pane-between-blocks",
-			event: { type: "content_block_stop" },
-		});
 		await tick();
-
-		handleMessage?.({
+		expect(chat.get()[0]?.content).toBe("recovered!");
+		chat.receive({
 			type: "chat:sync",
-			paneId: "pane-between-blocks",
-			messages: [
-				{ id: "u1", role: "user", content: "prompt" },
-				{ id: "server-a1", role: "assistant", content: "same progress" },
-			],
-			revision: 4,
+			revision: 2,
 			isStreaming: true,
+			messages: [],
 		});
-		handleMessage?.({
-			type: "chat:event",
-			paneId: "pane-between-blocks",
-			event: { type: "result", result: "same progress" },
-		});
-		await tick();
-
-		expect(latestMessages).toEqual([
-			{ id: "u1", role: "user", content: "prompt" },
-			{
-				id: "server-a1",
-				role: "assistant",
-				content: "same progress",
-				isStreaming: false,
+		expect(chat.get()[0]?.content).toBe("recovered!");
+		chat.receive({
+			type: "chat:model",
+			transcriptUpdate: {
+				...gap,
+				epoch: "new-session",
+				revision: 1,
+				reset: true,
 			},
-		]);
+		});
+		expect(send).toHaveBeenCalledTimes(3);
+		chat.receive({
+			type: "chat:sync",
+			epoch: "new-session",
+			revision: 1,
+			isStreaming: false,
+			messages: [{ id: "new", role: "user", content: "fresh session" }],
+		});
+		expect(chat.get()[0]?.content).toBe("fresh session");
+		chat.receive({
+			type: "chat:sync",
+			epoch: "retired-session",
+			revision: 100,
+			isStreaming: false,
+			messages: [],
+		});
+		expect(chat.get()[0]?.content).toBe("fresh session");
+		expect(send).toHaveBeenCalledTimes(4);
 	} finally {
-		root.unmount();
+		chat.root.unmount();
 	}
 });
 
-test("accepted steering appears immediately without resetting the active assistant", async () => {
-	subscribe.mockClear();
-	const { root } = setupDom();
-	const { useChatConnection } = await import(
-		"../src/modules/conversation/hooks/useChatConnection.tsx"
-	);
-	let handleMessage: ((message: unknown) => void) | undefined;
-	let latestMessages: ChatMessage[] = [];
-	const stagedSteers: string[] = [];
-	const resolvedSteers: string[] = [];
-	subscribe.mockImplementationOnce((_paneId, callback) => {
-		handleMessage = callback;
-		return subscribeCleanup;
-	});
-
-	function Harness() {
-		const [, setUiState] = useState<ChatActivityUiState>({
-			expandedTools: new Set(),
-			liveActivities: [],
-		});
-		const messagesRef = useRef<ChatMessage[]>([
-			{ id: "u1", role: "user", content: "initial" },
-			{
-				id: "a1",
-				role: "assistant",
-				content: "working",
-				isStreaming: true,
-			},
-		]);
-		latestMessages = messagesRef.current;
-		const messageReadModel = useMemo(
-			() => ({
-				get: () => messagesRef.current,
-				settle: (messages: ChatMessage[]) => messages,
-				saveNow: (messages: ChatMessage[]) => messages,
-				set: (
-					update: ChatMessage[] | ((messages: ChatMessage[]) => ChatMessage[]),
-				) => {
-					messagesRef.current =
-						typeof update === "function" ? update(messagesRef.current) : update;
-					latestMessages = messagesRef.current;
-				},
-			}),
-			[],
-		);
-		useChatConnection({
-			enabled: true,
-			messageReadModel,
-			paneId: "pane-steer",
-			replaceQueuedMessages: () => {},
-			stageSteeringMessage: (message) => stagedSteers.push(message.id),
-			resolveSteeringMessage: (id) => resolvedSteers.push(id),
-			setChatUiState: setUiState,
-			setRunStatus: () => {},
-		});
-		return null;
-	}
-
+test("native steering resolves pending UI without replacing the streaming assistant", async () => {
+	const chat = await mountNativeChat("native-steer");
 	try {
-		root.render(<Harness />);
-		await tick();
-		handleMessage?.({
+		chat.receive({
+			type: "chat:sync",
+			revision: 1,
+			isStreaming: true,
+			messages: [
+				{ id: "a1", role: "assistant", content: "working", isStreaming: true },
+			],
+		});
+		chat.receive({
 			type: "chat:steer_pending",
-			paneId: "pane-steer",
-			message: {
-				id: "steer-1",
-				text: "raw steering",
-				displayText: "Change direction",
-				transient: true,
+			message: { id: "steer-1", text: "change", displayText: "change" },
+		});
+		chat.receive({
+			type: "chat:steered",
+			messageId: "steer-1",
+			displayText: "change",
+			transcriptUpdate: {
+				version: 1,
+				baseRevision: 1,
+				revision: 2,
+				reset: false,
+				start: 1,
+				deleteCount: 0,
+				messages: [
+					{ message: { id: "steer-1", role: "user", content: "change" } },
+				],
 			},
 		});
-		handleMessage?.({
-			type: "chat:steered",
-			paneId: "pane-steer",
-			messageId: "steer-1",
-			text: "raw steering",
-			displayText: "Change direction",
-			images: ["/tmp/reference.png"],
-		});
-		handleMessage?.({
-			type: "chat:steered",
-			paneId: "pane-steer",
-			messageId: "steer-1",
-			text: "raw steering",
-			displayText: "Change direction",
-			images: ["/tmp/reference.png"],
-		});
 		await tick();
-
-		expect(stagedSteers).toEqual(["steer-1"]);
-		expect(resolvedSteers).toEqual(["steer-1", "steer-1"]);
-		expect(latestMessages).toHaveLength(3);
-		expect(latestMessages[1]).toMatchObject({
-			id: "a1",
-			content: "working",
-			isStreaming: true,
-		});
-		expect(latestMessages[2]).toMatchObject({
-			id: "steer-1",
-			role: "user",
-			content: "Change direction",
-			images: ["/tmp/reference.png"],
-		});
+		expect(chat.staged).toEqual(["steer-1"]);
+		expect(chat.resolved).toEqual(["steer-1"]);
+		expect(chat.get()).toEqual([
+			{ id: "a1", role: "assistant", content: "working", isStreaming: true },
+			{ id: "steer-1", role: "user", content: "change" },
+		]);
 	} finally {
-		root.unmount();
+		chat.root.unmount();
 	}
 });

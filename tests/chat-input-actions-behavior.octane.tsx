@@ -9,8 +9,6 @@ const mock = Object.assign(vi.fn, {
 const sendMock = mock(() => {});
 
 mock.module("../src/adapters/backend/websocket.ts", () => ({
-	getWebSocketStatus: () => "connected",
-	subscribeWebSocketStatus: () => () => {},
 	wsClient: {
 		onMessage: mock(() => () => {}),
 		send: sendMock,
@@ -107,6 +105,8 @@ test("hidden chat input actions defer pending sends until visible", async () => 
 			});
 			return (
 				<div
+					data-message-id={messages.at(-1)?.id}
+					data-optimistic={String(messages.at(-1)?.optimistic ?? false)}
 					data-messages={messages.map((message) => message.content).join("|")}
 				/>
 			);
@@ -123,6 +123,12 @@ test("hidden chat input actions defer pending sends until visible", async () => 
 		root.render(<Harness enabled={true} />);
 		await tick(20);
 		expect(sendMock).toHaveBeenCalledTimes(1);
+		expect(rootElement.firstElementChild?.getAttribute("data-optimistic")).toBe(
+			"true",
+		);
+		expect(sendMock.mock.calls[0]?.[0]).toMatchObject({
+			messageId: rootElement.firstElementChild?.getAttribute("data-message-id"),
+		});
 		expect(loadPendingSend(paneId)).toBe("");
 		expect(rootElement.firstElementChild?.getAttribute("data-messages")).toBe(
 			"deferred hello",

@@ -23,7 +23,6 @@ This repository had no `tests/` directory before this audit, so no executable in
 - Autobuild: `scripts/watch-*` and build wrappers are not covered. High-value tests would require extracting pure command planning from watcher/process code.
 - Marketing: static Astro/site demo content has no worthwhile internals to test beyond data transforms if they become shared behavior.
 - Social posting: no social posting workflow or service boundary was found in this codebase.
-- Discovery/research: automation templates mention research, but no backend research service boundary was found. Avoid UI/template snapshot tests unless workflow execution logic moves server-side.
 - App identity/path resolution: application metadata priority, update-check failure caching, semantic-version comparison, native-path authorization, updater PATH construction, command fallback order, agent state migration, and pane title derivation are covered by Rust tests.
 - Convex/schema/type alignment: no Convex schema or generated Convex types were found.
 - Filesystem/local config sync: file search/content, temporary image lifecycle, agent directory browsing/search/quick picks, config merge and base/local splitting, client-storage filtering, and client-storage atomic persistence now have native Rust route coverage.
@@ -46,7 +45,7 @@ High:
 - Release asset mapping in `packages/inferay/src/releases.js`: covered. Protects deploy/install workflows from selecting the wrong artifact.
 - Chat command/message behavior in `src/modules/conversation`: covered. Protects prompt expansion, streaming updates, reconnect merge behavior, and history limits.
 - Agent stream tool input parity in `src/modules/conversation/model/agent-chat-shared.ts`: covered. Protects Codex inline diff rendering when complete tool input arrives in the start event.
-- Inline edit diff rendering helpers in `src/modules/conversation/model/chat-edit-diff-utils.ts` and `src/modules/conversation/model/chat-message-render-utils.ts`: covered. Protects fake Claude and Codex edit streams from producing empty edit cards.
+- Inline edit diff rendering helpers in `native/diff-engine/src/prepared_diff.rs` and `src/modules/conversation/model/chat-message-render-utils.ts`: covered. Protects fake Claude and Codex edit streams from producing empty edit cards.
 - Agent and Git data behavior in `src/modules/workspace/model/workspace-model.ts` and `src/modules/workbench/changes/model/changes-model.ts`: covered. Protects restored panes, status mapping, and change review ordering.
 - Client-storage sync normalization: covered by native Rust route tests. Protects persisted local UI state from malformed renderer payloads.
 

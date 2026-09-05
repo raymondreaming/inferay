@@ -23,12 +23,8 @@ import {
 	DOCUMENT_OPEN_EVENT,
 	type DocumentOpenDetail,
 } from "../../../modules/explorer/model/explorer-events.ts";
-import { useGitChangeActions } from "../../../modules/repository/hooks/useGitChangeActions.tsx";
-import {
-	type DiffRequest,
-	summarizeHunkDiff,
-	useGitDiff,
-} from "../../../modules/repository/hooks/useGitDiff.tsx";
+import { useGitChangeActions } from "../../../modules/repository/hooks/useGitChangeActions.ts";
+import { useGitDiff } from "../../../modules/repository/hooks/useGitDiff.tsx";
 import {
 	type CommitFile,
 	useCommitDetails,
@@ -50,6 +46,7 @@ import {
 	IconRefreshCw,
 	IconX,
 } from "../../../shared/ui/Icons.tsx";
+import type { DiffRequest } from "../../repository/model/types.ts";
 import {
 	ChangesPanel,
 	type SelectedFile,
@@ -69,6 +66,7 @@ import {
 	DiffViewer,
 	type DiffViewMode,
 } from "../diff/components/DiffViewer.tsx";
+import { summarizeHunkDiff } from "../diff/model/diff-lines.ts";
 import {
 	DocumentViewer,
 	type FileContentResponse,
@@ -1010,17 +1008,26 @@ function ChatDiffPanel({
 				)}
 			>
 				{mainViewMode === "graph" ? (
-					graphLoading && graph.commits.length === 0 ? (
+					graphLoading && graph.commits.length === 0 && !graph.searchQuery ? (
 						<div {...stylex.props(styles.viewerEmpty)}>Loading history…</div>
-					) : graphError && graph.commits.length === 0 ? (
+					) : graphError && graph.commits.length === 0 && !graph.searchQuery ? (
 						<div {...stylex.props(styles.viewerEmpty)}>{graphError}</div>
-					) : graph.commits.length === 0 ? (
+					) : graph.commits.length === 0 && !graph.searchQuery ? (
 						<div {...stylex.props(styles.viewerEmpty)}>
 							{gitGraphEmptyLabel(graph)}
 						</div>
 					) : (
 						<CommitGraph
 							commits={graph.commits}
+							ancestry={graph.ancestry}
+							onSearchChange={graph.setSearchQuery}
+							searchActive={Boolean(graph.searchQuery)}
+							searchQuery={graph.searchQuery}
+							emptyLabel={
+								graphLoading
+									? "Searching history…"
+									: (graphError ?? graph.stateError ?? "No matching commits")
+							}
 							rows={graph.rows}
 							worktrees={graph.worktrees}
 							selectedHash={selectedCommitHash ?? undefined}
@@ -1657,12 +1664,20 @@ export function useRepositoryWorkbench({
 		fileViewerCwd,
 		focusedAuxiliaryPanel?.cwd,
 	]);
+	const graphCwd =
+		active && mainViewMode === "graph"
+			? (diffViewerCwd ?? undefined)
+			: undefined;
+	const graph = useGitGraph(graphCwd, graphLimit);
 	const {
 		projectMap,
 		refetch,
 		applyOptimistic,
 		loaded: gitLoaded,
-	} = useGitStatus(trackedCwds, { enabled: trackedCwds.length > 0 });
+	} = useGitStatus(trackedCwds, {
+		enabled: trackedCwds.length > 0,
+		graph: graphCwd ? graph : undefined,
+	});
 	const project = activeCwd ? (projectMap.get(activeCwd) ?? null) : null;
 	const diffViewerProject = diffViewerCwd
 		? (projectMap.get(diffViewerCwd) ?? null)
@@ -1676,35 +1691,43 @@ export function useRepositoryWorkbench({
 		[project],
 	);
 	const files = useMemo(() => orderProjectGitFiles(project), [project]);
-	const graphCwd =
-		active && mainViewMode === "graph"
-			? (diffViewerCwd ?? undefined)
-			: undefined;
-	const graph = useGitGraph(graphCwd, graphLimit);
 	const graphRevisionsRef = useRef(new Map<string, string>());
 	if (graphCwd && graph.revision) {
 		graphRevisionsRef.current.set(graphCwd, graph.revision);
 	}
 	useEffect(() => setGraphLimit(DEFAULT_GIT_GRAPH_HISTORY_LIMIT), [graphCwd]);
-	const selectedGraphItem = useMemo(
-		() => graph.commits.find((item) => item.id === selectedCommitHash) ?? null,
-		[graph.commits, selectedCommitHash],
-	);
-	const selectedGraphItems = useMemo(
-		() =>
-			selectedCommitIds
-				.map((id) => graph.commits.find((item) => item.id === id))
-				.filter((item): item is NonNullable<typeof item> => !!item),
-		[graph.commits, selectedCommitIds],
-	);
+	const selectedGraphCache = useRef<{
+		cwd: string | undefined;
+		items: Map<string, (typeof graph.commits)[number]>;
+	}>({ cwd: graphCwd, items: new Map() });
+	if (selectedGraphCache.current.cwd !== graphCwd)
+		selectedGraphCache.current = { cwd: graphCwd, items: new Map() };
+	const selectedGraphItems = useMemo(() => {
+		const selected = new Set(selectedCommitIds);
+		if (selectedCommitHash) selected.add(selectedCommitHash);
+		const cached = selectedGraphCache.current.items;
+		for (const id of cached.keys()) if (!selected.has(id)) cached.delete(id);
+		for (const item of graph.commits)
+			if (selected.has(item.id)) cached.set(item.id, item);
+		return selectedCommitIds.flatMap((id) => {
+			const item = cached.get(id);
+			return item ? [item] : [];
+		});
+	}, [graph.commits, graphCwd, selectedCommitHash, selectedCommitIds]);
+	const selectedGraphItem = selectedCommitHash
+		? (selectedGraphCache.current.items.get(selectedCommitHash) ?? null)
+		: null;
+
 	const comparisonCommitItems = useMemo(
 		() =>
 			selectedGraphItems
 				.filter((item) => item.itemKind !== "worktreeWip")
 				.sort(
 					(a, b) =>
-						graph.commits.findIndex((item) => item.id === a.id) -
-						graph.commits.findIndex((item) => item.id === b.id),
+						(a.navigation?.historyOrder ??
+							graph.commits.findIndex((item) => item.id === a.id)) -
+						(b.navigation?.historyOrder ??
+							graph.commits.findIndex((item) => item.id === b.id)),
 				),
 		[graph.commits, selectedGraphItems],
 	);
@@ -1836,7 +1859,7 @@ export function useRepositoryWorkbench({
 					error?: string;
 				}>("/api/git/branches", { cwd: graphCwd, branch });
 				if (!result.ok) throw new Error(result.error ?? "Checkout failed");
-				await Promise.all([graph.refresh(), refetch()]);
+				await refetch();
 				selectGraphCommit(null);
 			} catch (error) {
 				setGraphActionError(
@@ -1844,7 +1867,7 @@ export function useRepositoryWorkbench({
 				);
 			}
 		},
-		[graph.refresh, graphCwd, refetch, selectGraphCommit],
+		[graphCwd, refetch, selectGraphCommit],
 	);
 	const runGraphRefOperation = useCallback(
 		async (request: {
@@ -1875,7 +1898,7 @@ export function useRepositoryWorkbench({
 					"/api/git/ref-operation",
 					{ cwd: graphCwd, ...request },
 				);
-				await Promise.all([graph.refresh(), refetch()]);
+				await refetch();
 				if (result.ok) selectGraphCommit(result.head ?? null);
 				return result;
 			} catch (error) {
@@ -1890,7 +1913,7 @@ export function useRepositoryWorkbench({
 				};
 			}
 		},
-		[graph.refresh, graphCwd, refetch, selectGraphCommit],
+		[graphCwd, refetch, selectGraphCommit],
 	);
 	const runGraphActionRequest = useCallback(
 		async (
@@ -1918,7 +1941,7 @@ export function useRepositoryWorkbench({
 						message: request.message,
 					},
 				);
-				await Promise.all([graph.refresh(), refetch()]);
+				await refetch();
 				if (
 					result.ok &&
 					result.head &&
@@ -1944,7 +1967,7 @@ export function useRepositoryWorkbench({
 				};
 			}
 		},
-		[graph.refresh, graphCwd, refetch, selectGraphCommit],
+		[graphCwd, refetch, selectGraphCommit],
 	);
 	useEffect(() => {
 		if (mainViewMode !== "graph" || graph.loading || !graph.commits.length)

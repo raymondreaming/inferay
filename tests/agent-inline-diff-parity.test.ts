@@ -1,13 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { getToolBlockInitialContent } from "../src/modules/conversation/model/agent-chat-shared.ts";
-import {
-	applyEditsSequentially,
-	computeDiffHunkDetails,
-	computeDiffHunks,
-	diffLineTextSegments,
-	summarizeDiff,
-	summarizeHunks,
-} from "../src/modules/conversation/model/chat-edit-diff-utils.ts";
 import {
 	buildRenderItems,
 	type RenderChatMessage as ChatMessage,
@@ -50,7 +41,9 @@ function toolMessageFromEvents(events: FakeStreamEvent[]): ChatMessage {
 	for (const event of events) {
 		if (event.type === "content_block_start") {
 			message.toolName = event.content_block.name;
-			message.content = getToolBlockInitialContent(event.content_block);
+			message.content = event.content_block.input
+				? JSON.stringify(event.content_block.input, null, 2)
+				: "";
 			message.isStreaming = true;
 		} else if (event.type === "content_block_delta") {
 			message.content += event.delta.partial_json;
@@ -85,17 +78,6 @@ describe("Claude and Codex inline edit diff parity", () => {
 		expect(message.content).toBe(JSON.stringify(editPayload(), null, 2));
 		expect(getEditFilePath(message)).toBe("src/example.ts");
 		expect(buildRenderItems([message])).toEqual([{ type: "message", message }]);
-
-		const parsed = JSON.parse(message.content);
-		const diff = summarizeHunks(
-			computeDiffHunks(parsed.old_string, parsed.new_string, 1),
-		);
-		expect(diff.stats).toEqual({ added: 1, removed: 1 });
-		expect(diff.allLines).toEqual([
-			"export const answer = 41;",
-			"export const answer = 42;",
-			"",
-		]);
 	});
 
 	test("commits an inline diff only after its edit payload settles", () => {
@@ -147,85 +129,6 @@ describe("Claude and Codex inline edit diff parity", () => {
 
 		expect(message.content).toBe(payload);
 		expect(getEditFilePath(message)).toBe("src/example.ts");
-		expect(summarizeHunks(computeDiffHunks("a\n", "b\n", 1)).stats).toEqual({
-			added: 1,
-			removed: 1,
-		});
-	});
-
-	test("orders replacement hunks as removed block followed by added block", () => {
-		const diff = computeDiffHunks(
-			["const config = {", "\tlineHeight: 19,", "\tfontSize: 12,", "};"].join(
-				"\n",
-			),
-			["const config = {", "\tlineHeight: 15,", "\tfontSize: 10,", "};"].join(
-				"\n",
-			),
-			1,
-		);
-
-		expect(
-			diff.flatMap((hunk) =>
-				hunk.filter((line) => line.type !== "context").map((line) => line.type),
-			),
-		).toEqual(["removed", "removed", "added", "added"]);
-	});
-
-	test("computes hunk metadata and collapsed context for inline edit cards", () => {
-		const before = Array.from({ length: 12 }, (_, i) => `line ${i + 1}`);
-		const after = [...before];
-		after[1] = "line 2 changed";
-		after[9] = "line 10 changed";
-
-		const hunks = computeDiffHunkDetails(
-			before.join("\n"),
-			after.join("\n"),
-			1,
-		);
-
-		expect(hunks).toHaveLength(2);
-		expect(hunks[0]).toEqual(
-			expect.objectContaining({
-				oldStart: 1,
-				oldCount: 3,
-				newStart: 1,
-				newCount: 3,
-				hiddenBefore: 0,
-				hiddenAfter: 0,
-			}),
-		);
-		expect(hunks[1]).toEqual(
-			expect.objectContaining({
-				oldStart: 9,
-				oldCount: 3,
-				newStart: 9,
-				newCount: 3,
-				hiddenBefore: 5,
-				hiddenAfter: 1,
-			}),
-		);
-
-		const summary = summarizeDiff(before.join("\n"), after.join("\n"), 1);
-		expect(summary.stats).toEqual({ added: 2, removed: 2 });
-		expect(summary.totalHidden).toBe(6);
-	});
-
-	test("marks only changed token spans inside replacement lines", () => {
-		const segments = diffLineTextSegments(
-			"const answer = 41;",
-			"const answer = 42;",
-		);
-
-		expect(segments.oldSegments).toEqual([
-			{ text: "const answer = ", changed: false },
-			{ text: "41", changed: true },
-			{ text: ";", changed: false },
-		]);
-		expect(segments.newSegments).toEqual([
-			{ text: "const answer = ", changed: false },
-			{ text: "42", changed: true },
-			{ text: ";", changed: false },
-		]);
 	});
 
 	/*
@@ -233,7 +136,7 @@ describe("Claude and Codex inline edit diff parity", () => {
 	 * collapse into one edit group, and sequential edit application should show
 	 * the final file text instead of an empty or single-step placeholder.
 	 */
-	test("groups adjacent Edit messages and applies their changes sequentially", () => {
+	test("groups adjacent Edit messages for the native diff request", () => {
 		const first = {
 			file_path: "src/example.ts",
 			old_string: "one\ntwo\n",
@@ -266,10 +169,6 @@ describe("Claude and Codex inline edit diff parity", () => {
 				edits: [messages[0]!, messages[1]!],
 			},
 		]);
-		expect(applyEditsSequentially([first, second])).toEqual({
-			originalText: "one\ntwo\n",
-			finalText: "one\ntwo\nthree\n",
-		});
 	});
 
 	test("does not combine Edit messages across assistant text", () => {

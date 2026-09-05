@@ -4,7 +4,6 @@ import {
 	appendTrimmedMessage,
 	CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
 	type ChatMessage,
-	prepareTranscriptForStorage,
 	type ToolActivity,
 	trimMessages,
 	truncateChatContent,
@@ -23,11 +22,9 @@ import {
 	appendBtwQuestionMessage,
 	appendMessageContent,
 	appendSystemMessage,
-	applyAssistantResultMessage,
 	applyPendingMessageContent,
 	createBtwQuestionMessage,
 	finishBtwMessage,
-	finishStreamingMessages,
 	mergeSyncedMessages,
 	patchMessageById,
 	windowChatMessagesForRender,
@@ -37,10 +34,7 @@ import {
 	parseCommandSystemMessage,
 	serializeCommandSystemMessage,
 } from "../src/modules/conversation/model/command-system-message.ts";
-import {
-	parseGoalSystemMessage,
-	serializeGoalSystemMessage,
-} from "../src/modules/conversation/model/goal-system-message.ts";
+import { parseGoalSystemMessage } from "../src/modules/conversation/model/goal-system-message.ts";
 
 function message(
 	id: string,
@@ -229,100 +223,8 @@ describe("chat data behavior", () => {
 		expect(finishBtwMessage([btw], null, "ignored")).toEqual([btw]);
 	});
 
-	test("settles streaming assistant and tool rows by explicit stream ids", () => {
-		const messages: ChatMessage[] = [
-			{ id: "u1", role: "user", content: "prompt" },
-			{ id: "a1", role: "assistant", content: "partial", isStreaming: true },
-			{
-				id: "t1",
-				role: "tool",
-				content: '{"path"',
-				toolName: "Read",
-				isStreaming: true,
-			},
-		];
-
-		expect(
-			finishStreamingMessages(messages, { assistantId: "a1", toolId: "t1" }),
-		).toEqual([
-			{ id: "u1", role: "user", content: "prompt" },
-			{ id: "a1", role: "assistant", content: "partial", isStreaming: false },
-			{
-				id: "t1",
-				role: "tool",
-				content: '{"path"',
-				toolName: "Read",
-				isStreaming: false,
-			},
-		]);
-		expect(
-			finishStreamingMessages(messages, {
-				assistantId: "missing",
-				toolId: null,
-			}),
-		).toBe(messages);
-	});
-
-	test("applies final assistant result without duplicating settled output", () => {
-		const streaming: ChatMessage[] = [
-			{ id: "u1", role: "user", content: "prompt" },
-			{ id: "a1", role: "assistant", content: "partial", isStreaming: true },
-		];
-
-		expect(applyAssistantResultMessage(streaming, "a1", "final")).toEqual([
-			{ id: "u1", role: "user", content: "prompt" },
-			{ id: "a1", role: "assistant", content: "final", isStreaming: false },
-		]);
-
-		const settled: ChatMessage[] = [
-			{ id: "u1", role: "user", content: "prompt" },
-			{ id: "a1", role: "assistant", content: "final" },
-		];
-		expect(applyAssistantResultMessage(settled, null, "final")).toBe(settled);
-
-		const settledBeforeTool: ChatMessage[] = [
-			{ id: "u1", role: "user", content: "prompt" },
-			{ id: "a1", role: "assistant", content: "final" },
-			{ id: "t1", role: "tool", toolName: "patch", content: "{}" },
-		];
-		expect(applyAssistantResultMessage(settledBeforeTool, null, "final")).toBe(
-			settledBeforeTool,
-		);
-
-		expect(
-			applyAssistantResultMessage(
-				[
-					{ id: "u1", role: "user", content: "prompt" },
-					{ id: "a1", role: "assistant", content: "partial" },
-					{ id: "t1", role: "tool", toolName: "patch", content: "{}" },
-				],
-				null,
-				"partial response",
-			),
-		).toEqual([
-			{ id: "u1", role: "user", content: "prompt" },
-			{
-				id: "a1",
-				role: "assistant",
-				content: "partial response",
-				isStreaming: false,
-			},
-			{ id: "t1", role: "tool", toolName: "patch", content: "{}" },
-		]);
-
-		const appended = applyAssistantResultMessage(
-			[{ id: "u1", role: "user", content: "prompt" }],
-			null,
-			"final",
-		);
-		expect(appended.at(-1)).toMatchObject({
-			role: "assistant",
-			content: "final",
-		});
-	});
-
 	test("parses structured goal system messages", () => {
-		const structured = serializeGoalSystemMessage({
+		const structured = JSON.stringify({
 			type: "inferay.goal",
 			status: "active",
 			objective: "Ship the feature",
@@ -360,7 +262,7 @@ describe("chat data behavior", () => {
 	});
 
 	test("deduplicates adjacent identical goal system messages", () => {
-		const goalStarted = serializeGoalSystemMessage({
+		const goalStarted = JSON.stringify({
 			type: "inferay.goal",
 			status: "active",
 			objective: "fix all please",
@@ -528,31 +430,6 @@ describe("chat data behavior", () => {
 		expect(mergeSyncedMessages([], serverMessages)).toEqual([
 			message("s1", "newer assistant", "assistant"),
 			message("s2", "user prompt"),
-		]);
-	});
-
-	/*
-	 * This protects durable chat restore. A response can be streaming while the
-	 * app is open, but the transcript saved to disk should reopen as settled
-	 * content instead of making the old chat look like it is still running.
-	 */
-	test("stores durable transcripts without stale streaming state", () => {
-		expect(
-			prepareTranscriptForStorage([
-				{
-					id: "server-1",
-					role: "assistant",
-					content: "partial answer",
-					isStreaming: true,
-				},
-			]),
-		).toEqual([
-			{
-				id: "server-1",
-				role: "assistant",
-				content: "partial answer",
-				isStreaming: false,
-			},
 		]);
 	});
 

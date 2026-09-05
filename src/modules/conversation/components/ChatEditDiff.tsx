@@ -1,5 +1,5 @@
 import * as stylex from "@octanejs/stylex";
-import { useMemo, useState } from "octane";
+import { useEffect, useMemo, useRef, useState } from "octane";
 import {
 	color,
 	controlSize,
@@ -8,6 +8,7 @@ import {
 	motion,
 	radius,
 } from "../../../design-system/styles.stylex.ts";
+import { useNearViewport } from "../../../shared/hooks/useNearViewport.tsx";
 import {
 	useShikiSnippet,
 	useSyntaxHighlightTheme,
@@ -15,17 +16,14 @@ import {
 import { indexedValues } from "../../../shared/lib/indexed-values.ts";
 import { IconChevronRight, IconFilePlus } from "../../../shared/ui/Icons.tsx";
 import {
-	applyEditsSequentially,
 	type DiffHunk,
-	type DiffLine,
-	diffLineTextSegments,
-	type LineTextSegment,
-	summarizeDiff,
-} from "../model/chat-edit-diff-utils.ts";
+	useNativeEditDiff,
+} from "../hooks/useNativeEditDiff.tsx";
 import { getEditToolPayload } from "../model/chat-message-render-utils.ts";
 
 type EditMessage = {
 	content: string;
+	render?: { toolInput?: Record<string, unknown> | null };
 	isStreaming?: boolean;
 };
 
@@ -34,34 +32,27 @@ function EditDiffCard({
 	filePath,
 	hunks,
 	isStreaming,
+	error,
 }: {
 	fileName: string;
 	filePath: string;
 	hunks: DiffHunk[];
 	isStreaming?: boolean;
+	error?: string;
 }) {
-	const changedHunks = useMemo(
-		() =>
-			hunks
-				.map((hunk) => ({
-					...hunk,
-					lines: hunk.lines.filter((line) => line.type !== "context"),
-				}))
-				.filter((hunk) => hunk.lines.length > 0),
-		[hunks],
-	);
+	const changedHunks = hunks;
 	const changedLines = useMemo(
 		() => changedHunks.flatMap((hunk) => hunk.lines.map((line) => line.text)),
 		[changedHunks],
 	);
+	const [isExpanded, setIsExpanded] = useState(true);
 	const [syntaxTheme] = useSyntaxHighlightTheme();
 	const { highlighted, isReady } = useShikiSnippet(
 		changedLines,
 		fileName,
-		!isStreaming,
+		!isStreaming && isExpanded,
 		syntaxTheme,
 	);
-	const [isExpanded, setIsExpanded] = useState(true);
 	const [isScrollActive, setIsScrollActive] = useState(false);
 
 	const removedBg =
@@ -71,15 +62,38 @@ function EditDiffCard({
 	const addedBg = "color-mix(in srgb, var(--color-git-added) 12%, transparent)";
 	const addedBorder =
 		"color-mix(in srgb, var(--color-git-added) 42%, transparent)";
-	const lineLengths: number[] = [];
-	for (const hunk of changedHunks) {
-		for (const line of hunk.lines) {
-			lineLengths.push(line.text.replace(/\t/g, "    ").length);
-		}
-	}
-	const maxLineChars = Math.max(24, ...lineLengths);
+	const maxLineChars = useMemo(() => {
+		let max = 24;
+		for (const line of changedLines)
+			max = Math.max(max, line.replace(/\t/g, "    ").length);
+		return Math.min(max, 8000);
+	}, [changedLines]);
+
 	const contentWidth = `max(100%, ${maxLineChars + 10}ch)`;
-	let globalLineIdx = 0;
+	const [firstVisible, setFirstVisible] = useState(0);
+	const scrollFrame = useRef<number | null>(null);
+	useEffect(
+		() => () => {
+			if (scrollFrame.current !== null)
+				cancelAnimationFrame(scrollFrame.current);
+		},
+		[],
+	);
+	const virtual = changedLines.length > 80;
+	const startLine = virtual
+		? Math.max(0, Math.min(firstVisible, changedLines.length - 1) - 8)
+		: 0;
+	const endLine = virtual
+		? Math.min(changedLines.length, startLine + 40)
+		: changedLines.length;
+	const hunkOffsets = useMemo(() => {
+		let offset = 0;
+		return changedHunks.map((hunk) => {
+			const start = offset;
+			offset += hunk.lines.length;
+			return start;
+		});
+	}, [changedHunks]);
 
 	return (
 		<div {...stylex.props(styles.card)}>
@@ -112,98 +126,122 @@ function EditDiffCard({
 					{fileName}
 				</span>
 			</button>
+			{error && (
+				<div role="status" {...stylex.props(styles.lineText)}>
+					{error}
+				</div>
+			)}
 			{isExpanded && (
 				<div
 					{...stylex.props(
 						styles.body,
 						isScrollActive && styles.bodyScrollActive,
 					)}
+					onScroll={(event) => {
+						if (!virtual || scrollFrame.current !== null) return;
+						const element = event.currentTarget;
+						scrollFrame.current = requestAnimationFrame(() => {
+							scrollFrame.current = null;
+							setFirstVisible(Math.floor(element.scrollTop / 15));
+						});
+					}}
 					onPointerDown={() => setIsScrollActive(true)}
 					onMouseLeave={() => setIsScrollActive(false)}
 				>
 					<div
 						{...stylex.props(styles.bodyInner)}
-						style={{ width: contentWidth }}
+						style={{
+							width: contentWidth,
+							paddingTop: startLine * 15,
+							paddingBottom: (changedLines.length - endLine) * 15,
+						}}
 					>
 						{indexedValues(changedHunks).map((hunkEntry) => {
 							const hunk = hunkEntry.value;
-							const segmentMap = buildChangedLineSegmentMap(hunk.lines);
+							const offset = hunkOffsets[hunkEntry.index]!;
+							if (offset >= endLine || offset + hunk.lines.length <= startLine)
+								return null;
+							const rowStart = Math.max(0, startLine - offset);
+							const rowEnd = Math.min(hunk.lines.length, endLine - offset);
 							return (
 								<div key={hunkEntry.index} {...stylex.props(styles.hunkBlock)}>
-									{indexedValues(hunk.lines).map((lineEntry) => {
-										const line = lineEntry.value;
-										const lineIdx = lineEntry.index;
-										const isRemoved = line.type === "removed";
-										const isAdded = line.type === "added";
-										const highlightedHtml = highlighted.get(globalLineIdx);
-										const lineSegments = segmentMap.get(lineIdx);
+									{indexedValues(hunk.lines.slice(rowStart, rowEnd)).map(
+										(lineEntry) => {
+											const globalLineIdx = offset + rowStart + lineEntry.index;
+											if (globalLineIdx < startLine || globalLineIdx >= endLine)
+												return null;
+											const line = lineEntry.value;
+											const isRemoved = line.type === "removed";
+											const isAdded = line.type === "added";
+											const highlightedHtml = highlighted.get(globalLineIdx);
+											const lineSegments = line.segments;
 
-										globalLineIdx++;
-
-										const lineContent = lineSegments ? (
-											<span {...stylex.props(styles.lineText)}>
-												{indexedValues(lineSegments).map((segmentEntry) => (
-													<span
-														key={segmentEntry.index}
-														{...stylex.props(
-															segmentEntry.value.changed &&
-																(isRemoved
-																	? styles.inlineRemoved
-																	: styles.inlineAdded),
-														)}
-													>
-														{segmentEntry.value.text || " "}
-													</span>
-												))}
-											</span>
-										) : isReady && highlightedHtml ? (
-											<span
-												{...stylex.props(styles.lineText)}
-												// biome-ignore lint/security/noDangerouslySetInnerHtml: useShikiSnippet returns Shiki-generated markup or HTML-escaped fallback text.
-												dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-											/>
-										) : (
-											<span {...stylex.props(styles.lineText)}>
-												{line.text || " "}
-											</span>
-										);
-
-										return (
-											<div
-												key={`${hunkEntry.index}-${lineEntry.index}`}
-												{...stylex.props(
-													styles.diffLine,
-													isRemoved && styles.removedLine,
-													isAdded && styles.addedLine,
-												)}
-												style={{
-													backgroundColor: isRemoved
-														? removedBg
-														: isAdded
-															? addedBg
-															: "transparent",
-													borderLeft: `2px solid ${isRemoved ? removedBorder : isAdded ? addedBorder : "transparent"}`,
-												}}
-											>
+											const lineContent = lineSegments ? (
+												<span {...stylex.props(styles.lineText)}>
+													{indexedValues(lineSegments).map((segmentEntry) => (
+														<span
+															key={segmentEntry.index}
+															{...stylex.props(
+																segmentEntry.value.changed &&
+																	(isRemoved
+																		? styles.inlineRemoved
+																		: styles.inlineAdded),
+															)}
+														>
+															{segmentEntry.value.text || " "}
+														</span>
+													))}
+												</span>
+											) : isReady && highlightedHtml ? (
 												<span
-													{...stylex.props(styles.sign)}
+													{...stylex.props(styles.lineText)}
+													// biome-ignore lint/security/noDangerouslySetInnerHtml: useShikiSnippet returns Shiki-generated markup or HTML-escaped fallback text.
+													dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+												/>
+											) : (
+												<span {...stylex.props(styles.lineText)}>
+													{line.text || " "}
+												</span>
+											);
+
+											return (
+												<div
+													key={globalLineIdx}
+													data-edit-diff-line={globalLineIdx}
+													{...stylex.props(
+														styles.diffLine,
+														isRemoved && styles.removedLine,
+														isAdded && styles.addedLine,
+													)}
 													style={{
-														color: isRemoved
-															? "rgba(248,81,73,0.7)"
+														backgroundColor: isRemoved
+															? removedBg
 															: isAdded
-																? "rgba(46,160,67,0.7)"
-																: "rgba(255,255,255,0.22)",
+																? addedBg
+																: "transparent",
+														borderLeft: `2px solid ${isRemoved ? removedBorder : isAdded ? addedBorder : "transparent"}`,
 													}}
 												>
-													{isRemoved ? "−" : isAdded ? "+" : " "}
-												</span>
-												<span {...stylex.props(styles.lineNumber)}>
-													{isRemoved ? line.oldLineNum : line.newLineNum}
-												</span>
-												{lineContent}
-											</div>
-										);
-									})}
+													<span
+														{...stylex.props(styles.sign)}
+														style={{
+															color: isRemoved
+																? "rgba(248,81,73,0.7)"
+																: isAdded
+																	? "rgba(46,160,67,0.7)"
+																	: "rgba(255,255,255,0.22)",
+														}}
+													>
+														{isRemoved ? "−" : isAdded ? "+" : " "}
+													</span>
+													<span {...stylex.props(styles.lineNumber)}>
+														{isRemoved ? line.oldLineNum : line.newLineNum}
+													</span>
+													{lineContent}
+												</div>
+											);
+										},
+									)}
 								</div>
 							);
 						})}
@@ -212,43 +250,6 @@ function EditDiffCard({
 			)}
 		</div>
 	);
-}
-
-function buildChangedLineSegmentMap(lines: DiffLine[]) {
-	const map = new Map<number, LineTextSegment[]>();
-	let index = 0;
-
-	while (index < lines.length) {
-		if (lines[index]?.type === "context") {
-			index++;
-			continue;
-		}
-
-		const removed: Array<{ line: DiffLine; index: number }> = [];
-		const added: Array<{ line: DiffLine; index: number }> = [];
-		while (lines[index]?.type === "removed") {
-			removed.push({ line: lines[index]!, index });
-			index++;
-		}
-		while (lines[index]?.type === "added") {
-			added.push({ line: lines[index]!, index });
-			index++;
-		}
-
-		const pairCount = Math.min(removed.length, added.length);
-		for (let pairIdx = 0; pairIdx < pairCount; pairIdx++) {
-			const oldLine = removed[pairIdx]!;
-			const newLine = added[pairIdx]!;
-			const segments = diffLineTextSegments(
-				oldLine.line.text,
-				newLine.line.text,
-			);
-			map.set(oldLine.index, segments.oldSegments);
-			map.set(newLine.index, segments.newSegments);
-		}
-	}
-
-	return map;
 }
 
 const styles = stylex.create({
@@ -387,17 +388,23 @@ export function MiniEditDiff({
 	isStreaming?: boolean;
 }) {
 	const fileName = filePath.split("/").pop() || filePath;
-	const { hunks } = useMemo(() => {
-		return summarizeDiff(oldStr, newStr, 0);
-	}, [newStr, oldStr]);
+	const { ref, visible } = useNearViewport();
+	const { hunks, loading, error } = useNativeEditDiff(
+		oldStr,
+		newStr,
+		isStreaming || !visible,
+	);
 
 	return (
-		<EditDiffCard
-			fileName={fileName}
-			filePath={filePath}
-			hunks={hunks}
-			isStreaming={isStreaming}
-		/>
+		<div ref={ref} style={{ minHeight: hunks.length ? undefined : 28 }}>
+			<EditDiffCard
+				fileName={fileName}
+				filePath={filePath}
+				hunks={hunks}
+				error={error}
+				isStreaming={isStreaming || loading || !visible}
+			/>
+		</div>
 	);
 }
 
@@ -409,13 +416,14 @@ export function GroupedEditDiff({
 	edits: EditMessage[];
 }) {
 	const fileName = filePath.split("/").pop() || filePath;
+	const { ref, visible } = useNearViewport();
 	const isStreaming = edits.some((edit) => edit.isStreaming);
-	const { hunks } = useMemo(() => {
+	const parsedEdits = useMemo(() => {
 		const parsedEdits: { old_string: string; new_string: string }[] = [];
 
 		for (const edit of edits) {
 			if (!edit.content) continue;
-			const parsed = getEditToolPayload(edit.content);
+			const parsed = getEditToolPayload(edit.content, edit.render?.toolInput);
 			if (parsed) {
 				parsedEdits.push({
 					old_string: parsed.oldString,
@@ -424,24 +432,31 @@ export function GroupedEditDiff({
 			}
 		}
 
-		const result = applyEditsSequentially(parsedEdits);
-		if (!result) {
-			return {
-				hunks: [],
-			};
-		}
-
-		return summarizeDiff(result.originalText, result.finalText, 0);
+		return parsedEdits;
 	}, [edits]);
+	const { hunks, loading, error } = useNativeEditDiff(
+		"",
+		"",
+		isStreaming || !visible,
+		parsedEdits,
+	);
 
-	if (hunks.length === 0) return null;
-
+	const showCard =
+		hunks.length > 0 || loading || error || isStreaming || !visible;
 	return (
-		<EditDiffCard
-			fileName={fileName}
-			filePath={filePath}
-			hunks={hunks}
-			isStreaming={isStreaming}
-		/>
+		<div
+			ref={ref}
+			style={{ minHeight: showCard && !hunks.length ? 28 : undefined }}
+		>
+			{showCard && (
+				<EditDiffCard
+					fileName={fileName}
+					filePath={filePath}
+					hunks={hunks}
+					error={error}
+					isStreaming={isStreaming || loading || !visible}
+				/>
+			)}
+		</div>
 	);
 }

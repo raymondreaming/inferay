@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { DiffLine } from "../src/modules/repository/hooks/useGitDiff.tsx";
+import type { DiffLine } from "../src/modules/repository/model/types.ts";
 import {
 	alignDiffLines,
-	buildInlineHunkLines,
 	buildMinimapSegments,
 } from "../src/modules/workbench/diff/model/diff-lines.ts";
 
@@ -13,29 +12,6 @@ describe("diff line model", () => {
 			line,
 			{ number: null, content: "", type: "spacer" },
 		]);
-	});
-
-	test("builds compact context and preserves removal-before-addition order", () => {
-		const oldLines = Array.from(
-			{ length: 12 },
-			(_, index): DiffLine => ({
-				number: index + 1,
-				content: index === 6 ? "old" : `line ${index}`,
-				type: index === 6 ? "remove" : "context",
-			}),
-		);
-		const newLines = oldLines.map(
-			(line, index): DiffLine => ({
-				...line,
-				content: index === 6 ? "new" : line.content,
-				type: index === 6 ? "add" : "context",
-			}),
-		);
-		const result = buildInlineHunkLines(oldLines, newLines);
-		expect(result.some((line) => line.type === "hunk")).toBe(true);
-		expect(result.findIndex((line) => line.content === "old")).toBeLessThan(
-			result.findIndex((line) => line.content === "new"),
-		);
 	});
 
 	test("keeps left removals and right additions as separate minimap segments", () => {

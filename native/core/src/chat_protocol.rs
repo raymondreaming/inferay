@@ -1,15 +1,12 @@
-use std::sync::atomic::{AtomicU64, Ordering};
-
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::collections::HashSet;
 
 pub const CHAT_MESSAGE_RETAIN_LIMIT: usize = 5_000;
 pub const CHAT_MESSAGE_CHAR_LIMIT: usize = 1_000_000;
 pub const CHAT_SINGLE_MESSAGE_CHAR_LIMIT: usize = 256_000;
 pub const CHAT_TRUNCATION_MARKER: &str =
     "\n\n[… content truncated to keep Inferay responsive …]\n\n";
-
-static SERVER_MESSAGE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChatTranscriptMessage {
@@ -29,7 +26,7 @@ pub struct ChatTranscriptMessage {
 impl ChatTranscriptMessage {
     fn new(role: &str, content: &str) -> Self {
         Self {
-            id: format!("s{}", SERVER_MESSAGE_ID.fetch_add(1, Ordering::Relaxed) + 1),
+            id: format!("s{}", uuid::Uuid::new_v4()),
             role: role.to_string(),
             content: truncate_chat_content(content, CHAT_SINGLE_MESSAGE_CHAR_LIMIT),
             images: None,
@@ -40,14 +37,50 @@ impl ChatTranscriptMessage {
     }
 }
 
+struct PublishedMessage {
+    id: String,
+    content_bytes: usize,
+}
+
+#[derive(Serialize)]
+struct ChatMessagePatch<'a> {
+    id: &'a str,
+    role: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    images: &'a Option<Vec<String>>,
+    #[serde(rename = "toolName", skip_serializing_if = "Option::is_none")]
+    tool_name: &'a Option<String>,
+    #[serde(rename = "isStreaming", skip_serializing_if = "Option::is_none")]
+    is_streaming: Option<bool>,
+    #[serde(flatten)]
+    extra: &'a Map<String, Value>,
+}
+
+struct ChatEpoch(String);
+impl Default for ChatEpoch {
+    fn default() -> Self {
+        Self(uuid::Uuid::new_v4().to_string())
+    }
+}
+
 #[derive(Default)]
 pub struct ChatMessageBuffer {
+    epoch: ChatEpoch,
     messages: Vec<ChatTranscriptMessage>,
     current_assistant_index: Option<usize>,
     last_assistant_index: Option<usize>,
     current_tool_index: Option<usize>,
     has_streamed: bool,
     revision: u64,
+    dirty_start: Option<usize>,
+    published_revision: u64,
+    published: Vec<PublishedMessage>,
+    replaced_content: HashSet<String>,
+    reset_pending: bool,
+    message_chars: Vec<usize>,
+    total_chars: usize,
 }
 
 impl ChatMessageBuffer {
@@ -101,13 +134,15 @@ impl ChatMessageBuffer {
             _ => unreachable!(),
         }
         self.trim();
+        self.prepare_render_model();
     }
 
     pub fn finalize(&mut self) {
         let mut changed = false;
-        for message in &mut self.messages {
+        for (index, message) in self.messages.iter_mut().enumerate() {
             if message.is_streaming == Some(true) {
                 changed = true;
+                self.dirty_start = Some(self.dirty_start.map_or(index, |start| start.min(index)));
             }
             message.is_streaming = Some(false);
         }
@@ -119,9 +154,12 @@ impl ChatMessageBuffer {
             self.revision += 1;
         }
         self.trim();
+        self.prepare_render_model();
     }
 
     pub fn replace_messages(&mut self, messages: Vec<ChatTranscriptMessage>) {
+        self.dirty_start = Some(0);
+        self.reset_pending = true;
         self.messages = messages
             .into_iter()
             .map(|mut message| {
@@ -135,10 +173,11 @@ impl ChatMessageBuffer {
         self.has_streamed = false;
         self.revision += 1;
         self.trim();
+        self.prepare_render_model();
     }
 
     pub fn replace_in_assistant_messages(&mut self, mut replacer: impl FnMut(&str) -> String) {
-        for message in &mut self.messages {
+        for (index, message) in self.messages.iter_mut().enumerate() {
             if message.role != "assistant" {
                 continue;
             }
@@ -146,9 +185,140 @@ impl ChatMessageBuffer {
             if next == message.content {
                 continue;
             }
+            self.replaced_content.insert(message.id.clone());
             message.content = truncate_chat_content(&next, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
+            self.dirty_start = Some(self.dirty_start.map_or(index, |start| start.min(index)));
             self.revision += 1;
         }
+        self.trim();
+        self.prepare_render_model();
+    }
+
+    /// Semantic descriptors are derived only for the changed suffix. Pixel/layout
+    /// state never enters the transcript or its persisted representation.
+    fn prepare_render_model(&mut self) {
+        let Some(start) = self.dirty_start else {
+            return;
+        };
+        for index in start..self.messages.len() {
+            let message = &self.messages[index];
+            let input = if message.role == "tool" && message.is_streaming != Some(true) {
+                parse_tool_envelope(&message.content)
+            } else {
+                None
+            };
+            let file_path = if message.tool_name.as_deref() == Some("Edit") {
+                input.as_ref().and_then(|(value, _)| {
+                    value.get("old_string")?.as_str()?;
+                    value.get("new_string")?.as_str()?;
+                    value.get("file_path")?.as_str().map(str::to_owned)
+                })
+            } else {
+                None
+            };
+            let kind = if file_path.is_some() {
+                "edit-group"
+            } else if message.role == "tool"
+                && !matches!(
+                    message.tool_name.as_deref(),
+                    Some("Edit" | "AskUserQuestion")
+                )
+            {
+                "tool-group"
+            } else {
+                "message"
+            };
+            let mut group_id = message.id.clone();
+            let mut hidden = false;
+            if let Some(previous) = index
+                .checked_sub(1)
+                .and_then(|index| self.messages.get(index))
+            {
+                hidden = previous.role == message.role
+                    && previous.tool_name == message.tool_name
+                    && previous.content == message.content;
+                if let Some(render) = previous.extra.get("render")
+                    && kind != "message"
+                    && render["kind"] == kind
+                    && render.get("filePath").and_then(Value::as_str) == file_path.as_deref()
+                    && let Some(id) = render["groupId"].as_str()
+                {
+                    group_id = id.to_owned();
+                }
+            }
+            let mut render =
+                serde_json::json!({"version":1,"kind":kind,"groupId":group_id,"hidden":hidden});
+            if let Some(file_path) = file_path {
+                render["filePath"] = Value::String(file_path);
+            }
+            // Null distinguishes native unparseable/unfinished input from a legacy
+            // message that still needs its compatibility reader.
+            render["toolInput"] = Value::Null;
+            if let Some((input, end)) = input {
+                render["toolInput"] = input;
+                render["trailingOutput"] =
+                    Value::String(message.content[end..].trim_start().to_owned());
+            }
+            self.messages[index]
+                .extra
+                .insert("render".to_owned(), render);
+        }
+    }
+
+    /// A revisioned suffix splice. Streaming content uses append deltas rather
+    /// than retransmitting the growing message or the entire transcript.
+    pub fn take_update(&mut self) -> Option<Value> {
+        if self.published_revision == self.revision {
+            return None;
+        }
+        let reset = self.reset_pending || self.published.is_empty();
+        let start = if reset {
+            0
+        } else {
+            self.dirty_start
+                .unwrap_or(self.messages.len())
+                .min(self.published.len())
+        };
+        let mut changes = Vec::with_capacity(self.messages.len().saturating_sub(start));
+        for (index, message) in self.messages.iter().enumerate().skip(start) {
+            let append = if !reset && !self.replaced_content.contains(&message.id) {
+                self.published
+                    .get(index)
+                    .filter(|old| old.id == message.id)
+                    .and_then(|old| message.content.get(old.content_bytes..))
+            } else {
+                None
+            };
+            let patch = ChatMessagePatch {
+                id: &message.id,
+                role: &message.role,
+                content: append.is_none().then_some(message.content.as_str()),
+                images: &message.images,
+                tool_name: &message.tool_name,
+                is_streaming: message.is_streaming,
+                extra: &message.extra,
+            };
+            let mut change = serde_json::json!({"message":patch});
+            if let Some(append) = append {
+                change["appendContent"] = Value::String(append.to_owned());
+            }
+            changes.push(change);
+        }
+        let update = serde_json::json!({"version":1,"epoch":self.epoch(),"baseRevision":self.published_revision,"revision":self.revision,"reset":reset,"start":start,"deleteCount":self.published.len().saturating_sub(start),"messages":changes});
+        self.published.truncate(start);
+        self.published.extend(
+            self.messages[start..]
+                .iter()
+                .map(|message| PublishedMessage {
+                    id: message.id.clone(),
+                    content_bytes: message.content.len(),
+                }),
+        );
+        self.replaced_content.clear();
+        self.published_revision = self.revision;
+        self.dirty_start = None;
+        self.reset_pending = false;
+        Some(update)
     }
 
     pub fn messages(&self) -> &[ChatTranscriptMessage] {
@@ -157,6 +327,10 @@ impl ChatMessageBuffer {
 
     pub fn into_messages(self) -> Vec<ChatTranscriptMessage> {
         self.messages
+    }
+
+    pub fn epoch(&self) -> &str {
+        &self.epoch.0
     }
 
     pub fn revision(&self) -> u64 {
@@ -190,9 +364,12 @@ impl ChatMessageBuffer {
                     if let Some(index) = self.current_assistant_index
                         && let Some(message) = self.messages.get_mut(index)
                     {
+                        self.replaced_content.insert(message.id.clone());
                         message.content =
                             truncate_chat_content(text, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
                         message.is_streaming = Some(is_streaming);
+                        self.dirty_start =
+                            Some(self.dirty_start.map_or(index, |start| start.min(index)));
                         self.revision += 1;
                         self.last_assistant_index = self.current_assistant_index;
                     } else {
@@ -253,11 +430,16 @@ impl ChatMessageBuffer {
                 let Some(message) = self.messages.get_mut(index) else {
                     return;
                 };
-                message.content = append_bounded_chat_content(
+                let next_content = append_bounded_chat_content(
                     &message.content,
                     text,
                     CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
                 );
+                if !next_content.starts_with(&message.content) {
+                    self.replaced_content.insert(message.id.clone());
+                }
+                message.content = next_content;
+                self.dirty_start = Some(self.dirty_start.map_or(index, |start| start.min(index)));
                 self.revision += 1;
             }
             Some("input_json_delta") => {
@@ -273,11 +455,16 @@ impl ChatMessageBuffer {
                 let Some(message) = self.messages.get_mut(index) else {
                     return;
                 };
-                message.content = append_bounded_chat_content(
+                let next_content = append_bounded_chat_content(
                     &message.content,
                     text,
                     CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
                 );
+                if !next_content.starts_with(&message.content) {
+                    self.replaced_content.insert(message.id.clone());
+                }
+                message.content = next_content;
+                self.dirty_start = Some(self.dirty_start.map_or(index, |start| start.min(index)));
                 self.revision += 1;
             }
             _ => {}
@@ -297,8 +484,10 @@ impl ChatMessageBuffer {
             .filter(|index| *index < self.messages.len());
         if let Some(index) = assistant_index {
             let message = &mut self.messages[index];
+            self.replaced_content.insert(message.id.clone());
             message.content = truncate_chat_content(result, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
             message.is_streaming = Some(false);
+            self.dirty_start = Some(self.dirty_start.map_or(index, |start| start.min(index)));
             self.revision += 1;
             self.current_assistant_index = None;
             self.last_assistant_index = None;
@@ -330,28 +519,72 @@ impl ChatMessageBuffer {
             return false;
         };
         message.is_streaming = Some(value);
+        self.dirty_start = Some(self.dirty_start.map_or(index, |start| start.min(index)));
         self.revision += 1;
         true
     }
 
     fn push(&mut self, message: ChatTranscriptMessage) {
+        let index = self.messages.len();
+        self.dirty_start = Some(self.dirty_start.map_or(index, |start| start.min(index)));
         self.messages.push(message);
         self.revision += 1;
         self.trim();
+        self.prepare_render_model();
     }
 
     fn trim(&mut self) {
-        let previous_length = self.messages.len();
-        trim_messages(&mut self.messages);
-        let dropped = previous_length - self.messages.len();
+        let start = self
+            .dirty_start
+            .unwrap_or(self.messages.len())
+            .min(self.message_chars.len());
+        self.total_chars -= self.message_chars[start..].iter().sum::<usize>();
+        self.message_chars.truncate(start);
+        for message in &mut self.messages[start..] {
+            let mut chars = javascript_length(&message.content);
+            if chars > CHAT_SINGLE_MESSAGE_CHAR_LIMIT {
+                message.content =
+                    truncate_chat_content(&message.content, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
+                self.replaced_content.insert(message.id.clone());
+                chars = javascript_length(&message.content);
+            }
+            self.message_chars.push(chars);
+            self.total_chars += chars;
+        }
+        let mut dropped = self
+            .messages
+            .len()
+            .saturating_sub(CHAT_MESSAGE_RETAIN_LIMIT);
+        self.total_chars -= self.message_chars[..dropped].iter().sum::<usize>();
+        while self.total_chars > CHAT_MESSAGE_CHAR_LIMIT && self.messages.len() - dropped > 1 {
+            self.total_chars -= self.message_chars[dropped];
+            dropped += 1;
+        }
         if dropped == 0 {
             return;
         }
+        self.messages.drain(..dropped);
+        self.message_chars.drain(..dropped);
+        self.dirty_start = Some(0);
+        self.reset_pending = true;
         self.revision += 1;
         self.current_assistant_index = adjusted_index(self.current_assistant_index, dropped);
         self.last_assistant_index = adjusted_index(self.last_assistant_index, dropped);
         self.current_tool_index = adjusted_index(self.current_tool_index, dropped);
     }
+}
+
+fn parse_tool_envelope(content: &str) -> Option<(Value, usize)> {
+    let trimmed = content.trim_start();
+    if !trimmed.starts_with('{') {
+        return None;
+    }
+    let prefix = content.len() - trimmed.len();
+    let mut stream = serde_json::Deserializer::from_str(trimmed).into_iter::<Value>();
+    let value = stream.next()?.ok()?;
+    value
+        .is_object()
+        .then(|| (value, prefix + stream.byte_offset()))
 }
 
 pub fn is_valid_chat_transcript(value: &Value) -> bool {
@@ -389,7 +622,10 @@ pub fn trim_messages(messages: &mut Vec<ChatTranscriptMessage>) {
         messages.drain(..messages.len() - CHAT_MESSAGE_RETAIN_LIMIT);
     }
     for message in messages.iter_mut() {
-        message.content = truncate_chat_content(&message.content, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
+        if javascript_length(&message.content) > CHAT_SINGLE_MESSAGE_CHAR_LIMIT {
+            message.content =
+                truncate_chat_content(&message.content, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
+        }
     }
     let mut total_chars = messages
         .iter()
@@ -523,6 +759,104 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn native_updates_append_only_changed_content_and_replace_final_result() {
+        let mut buffer = ChatMessageBuffer::default();
+        buffer.push_user("hello", None);
+        let initial = buffer.take_update().unwrap();
+        assert_eq!(initial["reset"], true);
+        buffer.apply_event(
+            &json!({"type":"content_block_start","content_block":{"type":"text","text":"draft"}}),
+        );
+        let start = buffer.take_update().unwrap();
+        assert_eq!(start["start"], 1);
+        let id = start["messages"][0]["message"]["id"].clone();
+        buffer.apply_event(
+            &json!({"type":"content_block_delta","delta":{"type":"text_delta","text":" 😀"}}),
+        );
+        let delta = buffer.take_update().unwrap();
+        assert_eq!(delta["baseRevision"], start["revision"]);
+        assert_eq!(delta["messages"][0]["appendContent"], " 😀");
+        assert!(delta["messages"][0]["message"].get("content").is_none());
+        buffer.apply_event(&json!({"type":"result","result":"final"}));
+        let result = buffer.take_update().unwrap();
+        assert_eq!(result["messages"][0]["message"]["id"], id);
+        assert_eq!(result["messages"][0]["message"]["content"], "final");
+        assert!(result["messages"][0].get("appendContent").is_none());
+        assert!(buffer.take_update().is_none());
+    }
+
+    #[test]
+    fn native_updates_reset_after_retention_and_replace_truncated_content() {
+        let mut buffer = ChatMessageBuffer::default();
+        buffer.replace_messages(
+            (0..CHAT_MESSAGE_RETAIN_LIMIT)
+                .map(|_| ChatTranscriptMessage::new("user", "small"))
+                .collect(),
+        );
+        buffer.take_update();
+        buffer.push_user("retained", None);
+        let reset = buffer.take_update().unwrap();
+        assert_eq!(reset["reset"], true);
+        assert_eq!(
+            reset["messages"].as_array().unwrap().len(),
+            CHAT_MESSAGE_RETAIN_LIMIT
+        );
+        assert_eq!(
+            buffer.total_chars,
+            buffer
+                .messages()
+                .iter()
+                .map(|message| javascript_length(&message.content))
+                .sum::<usize>()
+        );
+        buffer.apply_event(&json!({"type":"content_block_start","content_block":{"type":"text","text":"x".repeat(CHAT_SINGLE_MESSAGE_CHAR_LIMIT)}}));
+        buffer.take_update();
+        buffer.apply_event(
+            &json!({"type":"content_block_delta","delta":{"type":"text_delta","text":"end"}}),
+        );
+        let replacement = buffer.take_update().unwrap();
+        assert!(replacement["messages"][0].get("appendContent").is_none());
+        assert!(
+            replacement["messages"][0]["message"]["content"]
+                .as_str()
+                .unwrap()
+                .ends_with("end")
+        );
+        assert_eq!(
+            buffer.total_chars,
+            buffer
+                .messages()
+                .iter()
+                .map(|message| javascript_length(&message.content))
+                .sum::<usize>()
+        );
+    }
+
+    #[test]
+    fn native_groups_parse_complete_tool_envelopes_and_restore_legacy_messages() {
+        let messages = vec![
+            json!({"id":"a","role":"tool","toolName":"Edit","content":"{\"file_path\":\"a.rs\",\"old_string\":\"}\",\"new_string\":\"{\"}\noutput"}),
+            json!({"id":"b","role":"tool","toolName":"Edit","content":"{\"file_path\":\"a.rs\",\"old_string\":\"{\",\"new_string\":\"new\"}"}),
+            json!({"id":"c","role":"tool","toolName":"Read","content":"{\"file_path\":\"a.rs\"}"}),
+            json!({"id":"d","role":"tool","toolName":"Read","content":"{\"file_path\":\"a.rs\"}"}),
+        ];
+        let mut buffer = ChatMessageBuffer::default();
+        buffer.replace_messages(serde_json::from_value(json!(messages)).unwrap());
+        assert_eq!(
+            buffer.messages()[0].extra["render"]["trailingOutput"],
+            "output"
+        );
+        assert_eq!(
+            buffer.messages()[0].extra["render"]["toolInput"]["old_string"],
+            "}"
+        );
+        assert_eq!(buffer.messages()[1].extra["render"]["groupId"], "a");
+        assert_eq!(buffer.messages()[2].extra["render"]["kind"], "tool-group");
+        assert_eq!(buffer.messages()[3].extra["render"]["hidden"], true);
+        assert_eq!(buffer.take_update().unwrap()["reset"], true);
+    }
 
     #[test]
     fn applies_streamed_text_and_final_results_like_the_typescript_buffer() {

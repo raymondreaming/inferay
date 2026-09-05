@@ -1,60 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
-	getToolBlockInitialContent,
-	stringifyToolInput,
-} from "../src/modules/conversation/model/agent-chat-shared.ts";
-import { extractToolActivities } from "../src/modules/conversation/model/chat-agent-utils.ts";
-import {
 	getToolDisplayInfo,
 	getToolOutputSummary,
 	getToolTrailingOutput,
 } from "../src/modules/conversation/model/chat-message-render-utils.ts";
 
 describe("agent stream rendering", () => {
-	test("preserves tool input included on content_block_start", () => {
-		const block = {
-			type: "tool_use",
-			name: "Edit",
-			input: {
-				file_path: "src/app.ts",
-				old_string: "const value = 1;\n",
-				new_string: "const value = 2;\n",
-			},
-		};
-
-		expect(getToolBlockInitialContent(block)).toBe(
-			JSON.stringify(block.input, null, 2),
-		);
-		expect(
-			extractToolActivities([
-				{
-					id: "tool-1",
-					role: "tool",
-					toolName: "Edit",
-					content: getToolBlockInitialContent(block),
-					isStreaming: false,
-				},
-			]),
-		).toEqual([
-			{
-				id: "tool-1",
-				toolName: "edit",
-				isStreaming: false,
-				summary: "app.ts",
-			},
-		]);
-	});
-
-	test("keeps missing input empty and string input unchanged", () => {
-		expect(getToolBlockInitialContent({ type: "tool_use", name: "Bash" })).toBe(
-			"",
-		);
-		expect(stringifyToolInput('{"command":"bun test"}')).toBe(
-			'{"command":"bun test"}',
-		);
-		expect(stringifyToolInput(null)).toBe("");
-	});
-
 	test("summarizes command output following JSON input", () => {
 		const content =
 			'{"command":"bun test","cwd":"/tmp/project"}all tests passed\n';

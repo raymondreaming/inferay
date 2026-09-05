@@ -13,6 +13,7 @@ use tokio::sync::broadcast;
 
 const FILE_WATCH_DEBOUNCE_MS: u64 = 300;
 const MAX_CACHED_DIFFS: usize = 48;
+const MAX_CACHED_DIFF_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 struct DiffCacheKey {
@@ -34,17 +35,23 @@ struct DiffFingerprint {
     parent: Option<FileStamp>,
     index: Option<FileStamp>,
     head: Option<FileStamp>,
+    refs: Option<FileStamp>,
+    packed_refs: Option<FileStamp>,
+    config: Option<FileStamp>,
 }
 
 #[derive(Clone)]
 struct CachedDiff {
     fingerprint: DiffFingerprint,
     value: Option<GitHunkDiff>,
+    bytes: usize,
+    stored_at: std::time::Instant,
 }
 
 #[derive(Default)]
 struct DiffCache {
     entries: VecDeque<(DiffCacheKey, CachedDiff)>,
+    bytes: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -110,15 +117,21 @@ impl NativeGit {
             review,
         };
         let fingerprint = diff_fingerprint(&cwd, file);
-        if let Some(cached) = self
-            .diff_cache
-            .lock()
-            .map_err(|_| NativeGitError::Runtime("git diff cache lock poisoned".into()))?
-            .entries
-            .iter()
-            .find(|(candidate, entry)| candidate == &key && entry.fingerprint == fingerprint)
         {
-            return Ok(cached.1.value.clone());
+            let mut cache = self
+                .diff_cache
+                .lock()
+                .map_err(|_| NativeGitError::Runtime("git diff cache lock poisoned".into()))?;
+            if let Some(index) = cache.entries.iter().position(|(candidate, entry)| {
+                candidate == &key
+                    && entry.fingerprint == fingerprint
+                    && entry.stored_at.elapsed() < std::time::Duration::from_secs(2)
+            }) {
+                let cached = cache.entries.remove(index).expect("cache entry");
+                let value = cached.1.value.clone();
+                cache.entries.push_back(cached);
+                return Ok(value);
+            }
         }
 
         let diff = get_git_hunk_diff(&self.allowed_paths, &cwd, file, staged);
@@ -139,16 +152,32 @@ impl NativeGit {
             .diff_cache
             .lock()
             .map_err(|_| NativeGitError::Runtime("git diff cache lock poisoned".into()))?;
-        cache.entries.retain(|(candidate, _)| candidate != &key);
-        cache.entries.push_back((
-            key,
-            CachedDiff {
-                fingerprint,
-                value: value.clone(),
-            },
-        ));
-        while cache.entries.len() > MAX_CACHED_DIFFS {
-            cache.entries.pop_front();
+        if let Some(index) = cache
+            .entries
+            .iter()
+            .position(|(candidate, _)| candidate == &key)
+            && let Some((_, old)) = cache.entries.remove(index)
+        {
+            cache.bytes -= old.bytes;
+        }
+        let bytes = value.as_ref().map(diff_size).unwrap_or(128);
+        // Do not cache a result built across a filesystem change.
+        if bytes <= MAX_CACHED_DIFF_BYTES && fingerprint == diff_fingerprint(&cwd, file) {
+            cache.bytes += bytes;
+            cache.entries.push_back((
+                key,
+                CachedDiff {
+                    fingerprint,
+                    value: value.clone(),
+                    bytes,
+                    stored_at: std::time::Instant::now(),
+                },
+            ));
+        }
+        while cache.entries.len() > MAX_CACHED_DIFFS || cache.bytes > MAX_CACHED_DIFF_BYTES {
+            if let Some((_, old)) = cache.entries.pop_front() {
+                cache.bytes -= old.bytes;
+            }
         }
         Ok(value)
     }
@@ -240,14 +269,57 @@ fn file_stamp(path: PathBuf) -> Option<FileStamp> {
     })
 }
 
+fn diff_size(diff: &GitHunkDiff) -> usize {
+    256 + diff.raw_patch.as_ref().map_or(0, String::len)
+        + diff.merge_conflict_content.as_ref().map_or(0, String::len)
+        + diff
+            .old_lines
+            .iter()
+            .chain(&diff.new_lines)
+            .chain(diff.compact_lines.iter().flatten())
+            .map(|line| std::mem::size_of_val(line) + line.content.len())
+            .sum::<usize>()
+}
+
+fn git_directories(root: &std::path::Path) -> (PathBuf, PathBuf) {
+    let marker = root.join(".git");
+    let git_dir = if marker.is_file() {
+        std::fs::read_to_string(&marker)
+            .ok()
+            .and_then(|text| {
+                text.trim()
+                    .strip_prefix("gitdir: ")
+                    .map(|path| root.join(path))
+            })
+            .unwrap_or(marker)
+    } else {
+        marker
+    };
+    let common = std::fs::read_to_string(git_dir.join("commondir"))
+        .map(|path| git_dir.join(path.trim()))
+        .unwrap_or_else(|_| git_dir.clone());
+    (git_dir, common)
+}
+
 fn diff_fingerprint(cwd: &str, file: &str) -> DiffFingerprint {
     let root = PathBuf::from(cwd);
     let path = root.join(file);
+    let (git_dir, common) = git_directories(&root);
+    let head_ref = std::fs::read_to_string(git_dir.join("HEAD"))
+        .ok()
+        .and_then(|head| {
+            head.trim()
+                .strip_prefix("ref: ")
+                .map(|name| common.join(name))
+        });
     DiffFingerprint {
         file: file_stamp(path.clone()),
         parent: path.parent().map(PathBuf::from).and_then(file_stamp),
-        index: file_stamp(root.join(".git/index")),
-        head: file_stamp(root.join(".git/HEAD")),
+        index: file_stamp(git_dir.join("index")),
+        head: file_stamp(git_dir.join("HEAD")),
+        refs: head_ref.and_then(file_stamp),
+        packed_refs: file_stamp(common.join("packed-refs")),
+        config: file_stamp(common.join("config")),
     }
 }
 

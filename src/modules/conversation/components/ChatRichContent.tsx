@@ -606,14 +606,19 @@ const styles = stylex.create({
 
 export function AskUserQuestionCard({
 	content,
+	nativeInput,
 	isStreaming,
 	onSendMessage,
 }: {
 	content: string;
+	nativeInput?: Record<string, unknown> | null;
 	isStreaming?: boolean;
 	onSendMessage?: (text: string) => void;
 }) {
-	const parsed = useMemo(() => parseAskUserQuestions(content), [content]);
+	const parsed = useMemo(
+		() => parseAskUserQuestions(content, nativeInput),
+		[content, nativeInput],
+	);
 	const [selections, setSelections] = useState<Map<number, Set<number>>>(
 		new Map(),
 	);

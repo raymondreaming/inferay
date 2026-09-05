@@ -9,6 +9,7 @@ export type RenderChatMessage = Pick<
 	| "isStreaming"
 	| "role"
 	| "toolName"
+	| "render"
 >;
 
 export type RenderItem =
@@ -65,15 +66,21 @@ function parseToolJson(content: string): any {
 	return parseToolEnvelope(content)?.parsed ?? null;
 }
 
-export function getToolTrailingOutput(content: string): string {
+export function getToolTrailingOutput(
+	content: string,
+	nativeOutput?: string,
+): string {
+	if (nativeOutput !== undefined) return nativeOutput;
 	const envelope = parseToolEnvelope(content);
 	return envelope ? content.slice(envelope.end).trimStart() : "";
 }
 
 export function parseAskUserQuestions(
 	content: string,
+	nativeInput?: Record<string, unknown> | null,
 ): AskUserQuestion[] | null {
-	const parsed = parseToolJson(content);
+	const parsed =
+		nativeInput === undefined ? parseToolJson(content) : nativeInput;
 	if (!Array.isArray(parsed?.questions)) return null;
 	return parsed.questions.filter(
 		(question: unknown): question is AskUserQuestion =>
@@ -138,12 +145,16 @@ function firstChangeSummary(value: unknown) {
 	);
 }
 
-export function getEditToolPayload(content: string): {
+export function getEditToolPayload(
+	content: string,
+	nativeInput?: Record<string, unknown> | null,
+): {
 	filePath: string;
 	oldString: string;
 	newString: string;
 } | null {
-	const parsed = parseToolJson(content);
+	const parsed =
+		nativeInput === undefined ? parseToolJson(content) : nativeInput;
 	if (
 		typeof parsed?.file_path === "string" &&
 		typeof parsed.old_string === "string" &&
@@ -163,8 +174,12 @@ const editFilePathCache = new WeakMap<
 	{ content: string; filePath: string | null }
 >();
 
-export function getToolOutputSummary(content: string) {
-	const parsed = parseToolJson(content);
+export function getToolOutputSummary(
+	content: string,
+	nativeInput?: Record<string, unknown> | null,
+) {
+	const parsed =
+		nativeInput === undefined ? parseToolJson(content) : nativeInput;
 	const fileName = fileNameFor(parsed?.file_path);
 	if (!parsed) return { type: "text", value: content };
 	if (fileName && parsed.new_string !== undefined) {
@@ -214,8 +229,12 @@ export type ToolDisplayInfo = {
 	detail?: string;
 };
 
-function commandFromToolContent(content: string): string | null {
-	const parsed = parseToolJson(content);
+function commandFromToolContent(
+	content: string,
+	nativeInput?: Record<string, unknown> | null,
+): string | null {
+	const parsed =
+		nativeInput === undefined ? parseToolJson(content) : nativeInput;
 	const command = parsed?.command ?? parsed?.cmd;
 	return typeof command === "string" && command.trim() ? command.trim() : null;
 }
@@ -240,9 +259,10 @@ function commandTarget(command: string): string | undefined {
 export function getToolDisplayInfo(
 	toolName: string | undefined,
 	content: string,
+	nativeInput?: Record<string, unknown> | null,
 ): ToolDisplayInfo {
 	const normalized = toolName?.trim().toLowerCase() ?? "";
-	const command = commandFromToolContent(content);
+	const command = commandFromToolContent(content, nativeInput);
 	if (command) {
 		const value = command.toLowerCase();
 		const target = commandTarget(command);
@@ -368,6 +388,7 @@ export function getToolDisplayInfo(
 }
 
 export function getEditFilePath(msg: RenderChatMessage): string | null {
+	if (msg.render?.version === 1) return msg.render.filePath ?? null;
 	if (
 		msg.role !== "tool" ||
 		msg.toolName !== "Edit" ||
@@ -386,6 +407,33 @@ export function buildRenderItems(messages: RenderChatMessage[]): RenderItem[] {
 	const items: RenderItem[] = [];
 	for (let i = 0; i < messages.length; i++) {
 		const msg = messages[i]!;
+		if (msg.render?.version === 1) {
+			if (msg.render.hidden) continue;
+			const group = [msg];
+			if (msg.render.kind !== "message") {
+				while (
+					i + 1 < messages.length &&
+					messages[i + 1]?.render?.groupId === msg.render.groupId
+				) {
+					const next = messages[++i]!;
+					if (!next.render?.hidden) group.push(next);
+				}
+			}
+			items.push(
+				msg.render.kind === "tool-group"
+					? { type: "tool-group", tools: group }
+					: msg.render.kind === "edit-group" &&
+							group.length > 1 &&
+							msg.render.filePath
+						? {
+								type: "edit-group",
+								filePath: msg.render.filePath,
+								edits: group,
+							}
+						: { type: "message", message: msg },
+			);
+			continue;
+		}
 		const previousMessage = messages[i - 1];
 		if (
 			previousMessage &&

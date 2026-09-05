@@ -26,8 +26,6 @@ mock.module("@octanejs/stylex", () => ({
 }));
 
 mock.module("../src/adapters/backend/websocket.ts", () => ({
-	getWebSocketStatus: () => "connected",
-	subscribeWebSocketStatus: () => () => {},
 	wsClient: {
 		onMessage: mock(() => () => {}),
 		onReconnect: mock(() => () => {}),

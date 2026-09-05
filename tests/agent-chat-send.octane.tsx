@@ -8,8 +8,6 @@ const mock = Object.assign(vi.fn, {
 const sendMock = mock(() => {});
 
 mock.module("../src/adapters/backend/websocket.ts", () => ({
-	getWebSocketStatus: () => "connected",
-	subscribeWebSocketStatus: () => () => {},
 	wsClient: {
 		onMessage: mock(() => () => {}),
 		onReconnect: mock(() => () => {}),
@@ -103,6 +101,38 @@ test("sending an optimistic message renders the real virtualized list", async ()
 			/>,
 		);
 		await tick(50);
+		expect(
+			rootElement.querySelector('button[aria-label="Provider: Codex"]'),
+		).not.toBeNull();
+		rootElement
+			.querySelector<HTMLButtonElement>('button[aria-label^="Model:"]')!
+			.click();
+		await tick();
+		const modelMenu = rootElement.querySelector(
+			'[role="menu"][aria-label="Model"]',
+		)!;
+		Array.from(modelMenu.querySelectorAll<HTMLButtonElement>("button"))
+			.find((button) => button.textContent === "GPT-6 Astra")!
+			.click();
+		await tick();
+		expect(
+			rootElement.querySelector('button[aria-label="Model: Astra"]'),
+		).not.toBeNull();
+		expect(rootElement.querySelector('[role="menu"]')).toBeNull();
+		rootElement
+			.querySelector<HTMLButtonElement>('button[aria-label^="Reasoning:"]')!
+			.click();
+		await tick();
+		const reasoningMenu = rootElement.querySelector(
+			'[role="menu"][aria-label="Reasoning"]',
+		)!;
+		Array.from(reasoningMenu.querySelectorAll<HTMLButtonElement>("button"))
+			.find((button) => button.textContent === "Low")!
+			.click();
+		await tick();
+		expect(
+			rootElement.querySelector('button[aria-label="Reasoning: Low"]'),
+		).not.toBeNull();
 		const textarea = rootElement.querySelector("textarea");
 		if (!textarea) throw new Error("Missing chat textarea");
 
@@ -122,6 +152,8 @@ test("sending an optimistic message renders the real virtualized list", async ()
 				type: "chat:send",
 				paneId: "pane-real-send-render",
 				text: "hello from the real list",
+				model: "gpt-6-astra",
+				reasoningLevel: "low",
 			}),
 		);
 	} finally {

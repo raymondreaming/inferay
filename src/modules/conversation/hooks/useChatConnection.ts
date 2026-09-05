@@ -12,13 +12,10 @@ import {
 	appendTrimmedMessage,
 	type ChatLoadingState,
 	type ChatMessage,
-	type ChatStreamEvent,
-	getToolBlockInitialContent,
 	isChatServerMessage,
 	nextId,
 	type QueuedMessageInfo,
 	type ToolActivity,
-	truncateChatContent,
 } from "../../../modules/conversation/model/agent-chat-shared.ts";
 import {
 	getChatCheckpointReadModel,
@@ -35,12 +32,11 @@ import {
 import {
 	appendBtwQuestionMessage,
 	appendSystemMessage,
-	applyAssistantResultMessage,
+	applyNativeTranscriptUpdate,
 	applyPendingMessageContent,
 	createBtwQuestionMessage,
 	finishBtwMessage,
-	finishStreamingMessages,
-	patchMessageById,
+	mergeNativeTranscript,
 	reconcileChatSync,
 } from "../model/chat-state-utils.ts";
 
@@ -96,11 +92,14 @@ export function useChatConnection({
 		value: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState),
 	) => void;
 }) {
-	const currentAssistantRef = useRef<string | null>(null);
-	const lastAssistantRef = useRef<string | null>(null);
 	const currentBtwRef = useRef<string | null>(null);
-	const currentToolRef = useRef<string | null>(null);
-	const hasStreamedRef = useRef(false);
+	const nativeTranscriptRef = useRef<{
+		messages: ChatMessage[];
+		revision: number;
+		epoch?: string;
+	} | null>(null);
+	const nativeFrameRef = useRef<number | null>(null);
+	const resyncPendingRef = useRef(false);
 	const transcriptRevisionRef = useRef<number | null>(null);
 	const pendingContentRef = useRef<Map<string, string>>(
 		undefined as unknown as Map<string, string>,
@@ -161,10 +160,6 @@ export function useChatConnection({
 	);
 	const resetStreamState = useCallback(() => {
 		flushPendingContent();
-		currentAssistantRef.current = null;
-		lastAssistantRef.current = null;
-		currentToolRef.current = null;
-		hasStreamedRef.current = false;
 	}, [flushPendingContent]);
 	const clearCheckpoints = useCallback(() => {
 		checkpointReadModel.clear();
@@ -175,122 +170,22 @@ export function useChatConnection({
 		},
 		[paneId],
 	);
-	function appendAssistant(content: string, isStreaming: boolean) {
-		const id = nextId();
-		currentAssistantRef.current = id;
-		lastAssistantRef.current = id;
-		setRunStatus(markRespondingState);
-		messageReadModel.set(
-			appendTrimmedMessage.bind(null, {
-				id,
-				role: "assistant",
-				content: truncateChatContent(content),
-				isStreaming,
-			}),
+	const flushNativeTranscript = useCallback(() => {
+		if (nativeFrameRef.current !== null) cancelFrame(nativeFrameRef.current);
+		nativeFrameRef.current = null;
+		const native = nativeTranscriptRef.current;
+		if (!native) return;
+		messageReadModel.set((current) =>
+			mergeNativeTranscript(current, native.messages),
 		);
-	}
-	function appendTool(toolName: string, content: string) {
-		const id = nextId();
-		currentAssistantRef.current = null;
-		currentToolRef.current = id;
-		setRunStatus(markToolState.bind(null, toolName));
-		messageReadModel.set(
-			appendTrimmedMessage.bind(null, {
-				id,
-				role: "tool",
-				content: truncateChatContent(content),
-				toolName,
-				isStreaming: true,
-			}),
-		);
-	}
-	function handleChatEvent(event: ChatStreamEvent) {
-		if (event.type === "assistant") {
-			const msg = event.message;
-			if (!msg?.content || hasStreamedRef.current) return;
-			for (const block of msg.content) {
-				if (block.type === "text" && block.text) {
-					setRunStatus(markRespondingState);
-					if (currentAssistantRef.current) {
-						const targetId = currentAssistantRef.current;
-						lastAssistantRef.current = targetId;
-						messageReadModel.set((prev) =>
-							patchMessageById(
-								prev,
-								targetId,
-								{
-									content: block.text,
-									isStreaming: !msg.stop_reason,
-								},
-								false,
-							),
-						);
-					} else {
-						appendAssistant(block.text, !msg.stop_reason);
-					}
-				} else if (block.type === "tool_use") {
-					appendTool(
-						block.name,
-						typeof block.input === "string"
-							? block.input
-							: JSON.stringify(block.input, null, 2),
-					);
-				}
-			}
-		} else if (event.type === "content_block_start") {
-			hasStreamedRef.current = true;
-			const block = event.content_block;
-			if (block?.type === "text") {
-				appendAssistant(block.text || "", true);
-			} else if (block?.type === "tool_use") {
-				appendTool(block.name, getToolBlockInitialContent(block));
-			}
-		} else if (event.type === "content_block_delta") {
-			const delta = event.delta;
-			if (
-				delta?.type === "text_delta" &&
-				delta.text &&
-				currentAssistantRef.current
-			) {
-				const targetId = currentAssistantRef.current;
-				const text = delta.text;
-				queueMessageContent(targetId, text);
-			} else if (
-				delta?.type === "input_json_delta" &&
-				delta.partial_json &&
-				currentToolRef.current
-			) {
-				const targetId = currentToolRef.current;
-				const partialJson = delta.partial_json;
-				queueMessageContent(targetId, partialJson);
-			}
-		} else if (event.type === "content_block_stop") {
-			flushPendingContent();
-			const assistantId = currentAssistantRef.current;
-			const toolId = currentToolRef.current;
-			messageReadModel.set((prev) => {
-				return finishStreamingMessages(prev, { assistantId, toolId });
-			});
-			currentAssistantRef.current = null;
-			currentToolRef.current = null;
-			// hasStreamedRef stays true for the rest of the turn so that any
-			// trailing `assistant` finalize event (codex emits the full message
-			// after streaming) is ignored instead of appended as a duplicate.
-		} else if (event.type === "result" && event.result) {
-			flushPendingContent();
-			const result = event.result;
-			setRunStatus(markRespondingState);
-			const assistantId =
-				currentAssistantRef.current ?? lastAssistantRef.current;
-			messageReadModel.set((prev) =>
-				applyAssistantResultMessage(prev, assistantId, result),
-			);
-			currentAssistantRef.current = null;
-			lastAssistantRef.current = null;
-		}
-	}
-	const handleChatEventRef = useRef(handleChatEvent);
-	handleChatEventRef.current = handleChatEvent;
+		transcriptRevisionRef.current = native.revision;
+	}, [messageReadModel]);
+	useEffect(
+		() => () => {
+			if (nativeFrameRef.current !== null) cancelFrame(nativeFrameRef.current);
+		},
+		[],
+	);
 
 	useEffect(() => {
 		if (!enabled) {
@@ -300,13 +195,74 @@ export function useChatConnection({
 		const cleanup = wsClient.subscribe(paneId, (rawMessage) => {
 			if (!isChatServerMessage(rawMessage)) return;
 			const msg = rawMessage;
+			if (
+				msg.modelVersion === 1 &&
+				msg.type === "chat:sync" &&
+				Array.isArray(msg.messages) &&
+				typeof msg.revision === "number"
+			) {
+				if (
+					!resyncPendingRef.current &&
+					nativeTranscriptRef.current &&
+					nativeTranscriptRef.current.epoch !== msg.epoch
+				) {
+					resyncPendingRef.current = true;
+					wsClient.send({ type: "chat:reconnect", paneId });
+					return;
+				}
+				if (
+					!resyncPendingRef.current &&
+					nativeTranscriptRef.current &&
+					nativeTranscriptRef.current.epoch === msg.epoch &&
+					msg.revision < nativeTranscriptRef.current.revision
+				)
+					return;
+				clearPendingContent();
+				nativeTranscriptRef.current = {
+					epoch: typeof msg.epoch === "string" ? msg.epoch : undefined,
+					messages: msg.messages,
+					revision: msg.revision,
+				};
+				resyncPendingRef.current = false;
+				flushNativeTranscript();
+			} else if (msg.transcriptUpdate) {
+				const next = applyNativeTranscriptUpdate(
+					nativeTranscriptRef.current,
+					msg.transcriptUpdate,
+				);
+				if (!next) {
+					if (!resyncPendingRef.current) {
+						resyncPendingRef.current = true;
+						wsClient.send({ type: "chat:reconnect", paneId });
+					}
+					return;
+				}
+				if (next === nativeTranscriptRef.current) return;
+				nativeTranscriptRef.current = next;
+				if (nativeFrameRef.current === null)
+					nativeFrameRef.current = scheduleFrame(flushNativeTranscript);
+			}
 			if (msg.type === "chat:event") {
-				handleChatEventRef.current(msg.event);
+				if (
+					msg.event?.type === "content_block_start" &&
+					msg.event.content_block?.type === "tool_use"
+				) {
+					setRunStatus((prev) =>
+						markToolState(msg.event.content_block.name, prev),
+					);
+				} else if (
+					msg.event?.type === "content_block_delta" ||
+					msg.event?.type === "assistant" ||
+					msg.event?.type === "result"
+				) {
+					setRunStatus(markRespondingState);
+				}
 				if (msg.event?.session_id)
 					setProviderSessionId(paneId, msg.event.session_id);
 			} else if (msg.type === "chat:session") {
 				if (msg.sessionId) setProviderSessionId(paneId, msg.sessionId);
 			} else if (msg.type === "chat:done") {
+				flushNativeTranscript();
 				const flushedMessages = flushPendingContent();
 				const updated = messageReadModel.settle(flushedMessages);
 				messageReadModel.set(updated);
@@ -314,7 +270,8 @@ export function useChatConnection({
 				setRunStatus({ isLoading: false, status: "idle", startTime: null });
 				setChatUiState(clearCompletedChatUiState.bind(null, ids));
 				resetStreamState();
-				wsClient.send({ type: "chat:reconnect", paneId });
+				if (msg.modelVersion !== 1)
+					wsClient.send({ type: "chat:reconnect", paneId });
 			} else if (
 				msg.type === "chat:steer_pending" &&
 				msg.message &&
@@ -328,7 +285,9 @@ export function useChatConnection({
 						: typeof msg.text === "string"
 							? msg.text
 							: "";
-				if (content) {
+				if (msg.modelVersion === 1 && typeof msg.messageId === "string")
+					resolveSteeringMessage?.(msg.messageId);
+				if (content && msg.modelVersion !== 1) {
 					const messageId =
 						typeof msg.messageId === "string" ? msg.messageId : nextId();
 					resolveSteeringMessage?.(messageId);
@@ -356,10 +315,14 @@ export function useChatConnection({
 				resetStreamState();
 			} else if (msg.type === "chat:error") {
 				flushPendingContent();
-				messageReadModel.set((prev) => appendSystemMessage(prev, msg.error));
+				if (msg.modelVersion !== 1)
+					messageReadModel.set((prev) => appendSystemMessage(prev, msg.error));
 				setRunStatus({ isLoading: false, status: "error", startTime: null });
 			} else if (msg.type === "chat:system") {
-				messageReadModel.set((prev) => appendSystemMessage(prev, msg.message));
+				if (msg.modelVersion !== 1)
+					messageReadModel.set((prev) =>
+						appendSystemMessage(prev, msg.message),
+					);
 			} else if (msg.type === "chat:status") {
 				setRunStatus((prev) => ({
 					isLoading: msg.isLoading ?? prev.isLoading,
@@ -369,6 +332,16 @@ export function useChatConnection({
 				}));
 			} else if (msg.type === "chat:activity" && msg.activity) {
 				setChatUiState(appendLiveToolActivity.bind(null, msg.activity));
+			} else if (msg.type === "chat:sync" && msg.modelVersion === 1) {
+				setRunStatus((prev) => ({
+					isLoading: Boolean(msg.isStreaming),
+					status: msg.isStreaming ? "responding" : "idle",
+					startTime: msg.isStreaming ? (prev.startTime ?? Date.now()) : null,
+				}));
+				if (!msg.isStreaming) {
+					setChatUiState(clearLiveActivities);
+					resetStreamState();
+				}
 			} else if (msg.type === "chat:sync") {
 				flushPendingContent();
 				const revision = typeof msg.revision === "number" ? msg.revision : null;
@@ -397,22 +370,11 @@ export function useChatConnection({
 				}
 				if (msg.isStreaming) {
 					transcriptRevisionRef.current = syncResult.nextRevision;
-					const latestAssistantId = syncResult.mergedMessages.findLast?.(
-						(message) => message.role === "assistant",
-					)?.id;
 					setRunStatus((prev) => ({
 						isLoading: true,
 						status: "responding",
 						startTime: prev.startTime ?? Date.now(),
 					}));
-					if (syncResult.streamingAssistantId) {
-						currentAssistantRef.current = syncResult.streamingAssistantId;
-					}
-					lastAssistantRef.current =
-						syncResult.streamingAssistantId ?? latestAssistantId ?? null;
-					if (syncResult.streamingToolId) {
-						currentToolRef.current = syncResult.streamingToolId;
-					}
 				} else {
 					transcriptRevisionRef.current = syncResult.nextRevision;
 					setRunStatus({
@@ -469,6 +431,7 @@ export function useChatConnection({
 			}
 		});
 		const reconnectChat = () => {
+			resyncPendingRef.current = true;
 			wsClient.send({
 				type: "chat:reconnect",
 				paneId,
@@ -481,6 +444,8 @@ export function useChatConnection({
 		const cleanupReconnect = wsClient.onReconnect(reconnectChat);
 		return () => {
 			clearPendingContent();
+			if (nativeFrameRef.current !== null) cancelFrame(nativeFrameRef.current);
+			nativeFrameRef.current = null;
 			cleanupReconnect();
 			cleanup();
 		};
@@ -493,6 +458,7 @@ export function useChatConnection({
 		messageReadModel,
 		paneId,
 		flushPendingContent,
+		flushNativeTranscript,
 		queueMessageContent,
 		replaceQueuedMessages,
 		resolveSteeringMessage,

@@ -1,6 +1,7 @@
 import {
 	appendBoundedChatContent,
 	type ChatMessage,
+	type ChatTranscriptUpdate,
 	compactAdjacentDuplicateTranscriptMessages,
 	nextId,
 	trimMessages,
@@ -277,90 +278,121 @@ export function finishBtwMessage(
 	}) as ChatMessage[];
 }
 
-export function finishStreamingMessages(
-	messages: ChatMessage[],
-	streamingIds: {
-		assistantId: string | null;
-		toolId: string | null;
-	},
-): ChatMessage[] {
-	let updated = messages;
-	if (streamingIds.assistantId) {
-		updated = patchMessageById(updated, streamingIds.assistantId, {
-			isStreaming: false,
-		}) as ChatMessage[];
-	}
-	if (streamingIds.toolId) {
-		updated = patchMessageById(updated, streamingIds.toolId, {
-			isStreaming: false,
-		}) as ChatMessage[];
-	}
-	return updated === messages ? messages : trimMessages(updated);
-}
-
-export function applyAssistantResultMessage(
-	messages: ChatMessage[],
-	assistantId: string | null,
-	result: string,
-): ChatMessage[] {
-	if (assistantId) {
-		const updated = patchMessageById(
-			messages,
-			assistantId,
-			{ content: truncateChatContent(result), isStreaming: false },
-			false,
-		) as ChatMessage[];
-		if (updated !== messages) return updated;
-		return trimMessages([
-			...messages,
-			{
-				id: nextId(),
-				role: "assistant",
-				content: truncateChatContent(result),
-			},
-		]);
-	}
-
-	const last = messages[messages.length - 1];
-	if (last?.role === "assistant" && last.content === result) return messages;
-	const latestAssistantIndex = messages.findLastIndex?.(
-		(message) => message.role === "assistant",
-	);
-	if (latestAssistantIndex !== undefined && latestAssistantIndex >= 0) {
-		const latestAssistant = messages[latestAssistantIndex];
-		if (latestAssistant?.content === result) return messages;
-		if (
-			latestAssistant?.isStreaming ||
-			(result.startsWith(latestAssistant?.content ?? "") &&
-				latestAssistantIndex >= messages.length - 3)
-		) {
-			const updated = messages.slice();
-			updated[latestAssistantIndex] = {
-				...latestAssistant!,
-				content: truncateChatContent(result),
-				isStreaming: false,
-			};
-			return trimMessages(updated);
-		}
-	}
-	return trimMessages([
-		...messages,
-		{
-			id: nextId(),
-			role: "assistant",
-			content: truncateChatContent(result),
-		},
-	]);
-}
-
 export function appendSystemMessage(
 	messages: ChatStateMessage[],
 	content: string,
 ): ChatStateMessage[] {
 	const next = [
 		...messages,
-		{ id: nextId(), role: "system" as const, content },
+		{ id: nextId(), role: "system" as const, content, localOnly: true },
 	];
 	const compacted = compactAdjacentDuplicateTranscriptMessages(next);
 	return compacted === next ? trimMessages(next) : messages;
+}
+
+/** Apply native transport changes without interpreting provider events. Null
+ * requests a full resync: never apply a delta against a different revision. */
+export function applyNativeTranscriptUpdate(
+	current: { messages: ChatMessage[]; revision: number; epoch?: string } | null,
+	update: ChatTranscriptUpdate,
+): { messages: ChatMessage[]; revision: number; epoch?: string } | null {
+	if (
+		update.version !== 1 ||
+		!Number.isSafeInteger(update.revision) ||
+		!Number.isSafeInteger(update.start) ||
+		!Number.isSafeInteger(update.deleteCount) ||
+		!Array.isArray(update.messages)
+	)
+		return null;
+	if (current && current.epoch !== update.epoch) return null;
+	if (current && update.revision <= current.revision) return current;
+	if (!update.reset && (!current || current.revision !== update.baseRevision))
+		return null;
+	const before = update.reset ? [] : current!.messages;
+	if (
+		update.start < 0 ||
+		update.start > before.length ||
+		update.deleteCount < 0 ||
+		(!update.reset && update.start + update.deleteCount > before.length)
+	)
+		return null;
+	const inserted: ChatMessage[] = [];
+	for (let index = 0; index < update.messages.length; index++) {
+		const change = update.messages[index];
+		if (
+			!change?.message ||
+			typeof change.message.id !== "string" ||
+			!["user", "assistant", "tool", "system"].includes(change.message.role)
+		)
+			return null;
+		const previous = before[update.start + index];
+		let content = change.message.content;
+		if (change.appendContent !== undefined) {
+			if (
+				typeof change.appendContent !== "string" ||
+				!previous ||
+				previous.id !== change.message.id
+			)
+				return null;
+			content = previous.content + change.appendContent;
+		}
+		if (typeof content !== "string") return null;
+		inserted.push({ ...change.message, content });
+	}
+	return {
+		messages: [
+			...before.slice(0, update.start),
+			...inserted,
+			...before.slice(update.start + update.deleteCount),
+		],
+		revision: update.revision,
+		epoch: update.epoch,
+	};
+}
+
+/** Native messages are authoritative; only unacknowledged local sends survive
+ * a splice/reset. Unlike the legacy reader this never aligns users by index. */
+export function mergeNativeTranscript(
+	local: ChatMessage[],
+	server: ChatMessage[],
+): ChatMessage[] {
+	const localById = new Map(local.map((message) => [message.id, message]));
+	const ids = new Set(server.map((message) => message.id));
+	const merged = server.map((message) => {
+		const pending = localById.get(message.id);
+		return message.role === "user" &&
+			pending &&
+			pending.content.length < message.content.length
+			? { ...message, content: pending.content }
+			: message;
+	});
+	for (let index = 0; index < local.length; index++) {
+		const message = local[index]!;
+		const browserOwned =
+			(message.optimistic && message.role === "user") ||
+			message.localOnly ||
+			message.role === "btw";
+		if (!browserOwned || ids.has(message.id)) continue;
+		if (
+			message.localOnly &&
+			server.some(
+				(candidate) =>
+					candidate.role === message.role &&
+					candidate.content === message.content,
+			)
+		)
+			continue;
+		let insertion = merged.length;
+		for (let anchor = index - 1; anchor >= 0; anchor--) {
+			const position = merged.findIndex(
+				(candidate) => candidate.id === local[anchor]!.id,
+			);
+			if (position >= 0) {
+				insertion = position + 1;
+				break;
+			}
+		}
+		merged.splice(insertion, 0, message);
+	}
+	return merged;
 }

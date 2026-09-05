@@ -276,11 +276,21 @@ function createChatMessageReadModel(paneId: string): ChatMessageReadModel {
 			typeof update === "function"
 				? (update as (prev: ChatMessage[]) => ChatMessage[])(messages)
 				: update;
-		const deduped = trimMessages(
-			compactAdjacentDuplicateTranscriptMessages(
-				dedupeStoredChatMessages(next),
-			),
-		);
+		// Native snapshots already own retention/deduplication. Compatibility
+		// readers still normalize legacy browser transcripts.
+		const deduped = next.every(
+			(message) =>
+				message.render?.version === 1 ||
+				message.optimistic ||
+				message.localOnly ||
+				message.role === "btw",
+		)
+			? next
+			: trimMessages(
+					compactAdjacentDuplicateTranscriptMessages(
+						dedupeStoredChatMessages(next),
+					),
+				);
 		if (deduped === messages) return;
 		messages = deduped;
 		_summary ??= deriveStoredSummary(paneId, deduped, summaryChangeCallback);

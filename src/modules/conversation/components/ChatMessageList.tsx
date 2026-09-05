@@ -71,7 +71,7 @@ export type ChatVirtualizerControls = {
 	getDistanceFromEnd: () => number;
 };
 
-type ChatRenderRow = RenderItem;
+type ChatRenderRow = RenderItem & { continuesAfter?: boolean };
 
 // Virtualizer padding is numeric; keep these in px so scroll-to-end accounts
 // for the composer fade instead of hiding the loader under it.
@@ -82,10 +82,10 @@ const CHAT_LIST_INLINE_GUTTER = "clamp(0.75rem, 3vw, 1.25rem)";
 function getRowKey(row: ChatRenderRow | undefined, index: number) {
 	if (!row) return `row-${index}`;
 	if (row.type === "edit-group") {
-		return `edit-group:${row.filePath}:${row.edits.map((edit) => edit.id).join(":")}`;
+		return `edit-group:${row.edits[0]?.render?.groupId ?? row.edits[0]?.id}`;
 	}
 	if (row.type === "tool-group") {
-		return `tool-group:${row.tools.map((tool) => tool.id).join(":")}`;
+		return `tool-group:${row.tools[0]?.id}`;
 	}
 	return row.message.id;
 }
@@ -93,12 +93,16 @@ function getRowKey(row: ChatRenderRow | undefined, index: number) {
 function ToolOutputHighlight({
 	content,
 	showOutput = true,
+	render,
 }: {
 	content: string;
 	showOutput?: boolean;
+	render?: ChatMessage["render"];
 }) {
-	const summary = getToolOutputSummary(content);
-	const trailingOutput = showOutput ? getToolTrailingOutput(content) : "";
+	const summary = getToolOutputSummary(content, render?.toolInput);
+	const trailingOutput = showOutput
+		? getToolTrailingOutput(content, render?.trailingOutput)
+		: "";
 	let highlight: unknown;
 	if (summary.type === "edit" || summary.type === "file-content") {
 		highlight = (
@@ -159,23 +163,31 @@ function ToolTimeline({
 	tools,
 	expandedTools,
 	onToggle,
+	continuesAfter = false,
 }: {
 	tools: RenderChatMessage[];
 	expandedTools: Set<string>;
 	onToggle: (id: string) => void;
+	continuesAfter?: boolean;
 }) {
 	return (
 		<div {...stylex.props(styles.toolTimeline)}>
 			{tools.map((tool, index) => {
 				const collapsed = !expandedTools.has(tool.id);
-				const display = getToolDisplayInfo(tool.toolName, tool.content);
+				const display = getToolDisplayInfo(
+					tool.toolName,
+					tool.content,
+					tool.render?.toolInput,
+				);
 				return (
 					<div key={tool.id} {...stylex.props(styles.toolMilestone)}>
 						<span
 							aria-hidden="true"
 							{...stylex.props(
 								styles.toolMilestoneNode,
-								index === tools.length - 1 && styles.toolMilestoneNodeLast,
+								index === tools.length - 1 &&
+									!continuesAfter &&
+									styles.toolMilestoneNodeLast,
 							)}
 						/>
 						<div {...stylex.props(styles.toolMilestoneBody)}>
@@ -209,7 +221,10 @@ function ToolTimeline({
 							{!collapsed && tool.content && (
 								<div {...stylex.props(styles.toolOutputWrap)}>
 									<pre {...stylex.props(styles.toolOutput)}>
-										<ToolOutputHighlight content={tool.content} />
+										<ToolOutputHighlight
+											render={tool.render}
+											content={tool.content}
+										/>
 									</pre>
 									<div {...stylex.props(styles.toolCopyOverlay)}>
 										<CopyButton text={tool.content} />
@@ -420,9 +435,9 @@ const Bubble = memo(function Bubble({
 	const editPayload = useMemo(
 		() =>
 			msg.role === "tool" && msg.toolName === "Edit" && msg.content
-				? getEditToolPayload(msg.content)
+				? getEditToolPayload(msg.content, msg.render?.toolInput)
 				: null,
-		[msg.content, msg.role, msg.toolName],
+		[msg.content, msg.role, msg.toolName, msg.render],
 	);
 	const userMessageDisplay = useMemo(() => {
 		if (msg.role !== "user") return null;
@@ -563,6 +578,7 @@ const Bubble = memo(function Bubble({
 		if (msg.toolName === "AskUserQuestion") {
 			return (
 				<AskUserQuestionCard
+					nativeInput={msg.render?.toolInput}
 					content={msg.content}
 					isStreaming={msg.isStreaming}
 					onSendMessage={onSendMessage}
@@ -579,7 +595,11 @@ const Bubble = memo(function Bubble({
 				/>
 			);
 		}
-		const display = getToolDisplayInfo(msg.toolName, msg.content);
+		const display = getToolDisplayInfo(
+			msg.toolName,
+			msg.content,
+			msg.render?.toolInput,
+		);
 		return (
 			<div>
 				<button
@@ -602,7 +622,7 @@ const Bubble = memo(function Bubble({
 				{!collapsed && msg.content && (
 					<div {...stylex.props(styles.toolOutputWrap)}>
 						<pre {...stylex.props(styles.toolOutput)}>
-							<ToolOutputHighlight content={msg.content} />
+							<ToolOutputHighlight render={msg.render} content={msg.content} />
 						</pre>
 						<div {...stylex.props(styles.toolCopyOverlay)}>
 							<CopyButton text={msg.content} />
@@ -690,7 +710,136 @@ export const ChatMessageList = memo(function ChatMessageList({
 	const didInitialScrollRef = useRef(false);
 	const messageListRef = useRef<HTMLDivElement | null>(null);
 	const renderItems = useMemo(() => buildRenderItems(messages), [messages]);
-	const renderRows: ChatRenderRow[] = renderItems;
+	// Timeline groups are semantic units, but each milestone is a measured row
+	// so one long run of tools cannot defeat transcript virtualization.
+	const renderRows = useMemo<ChatRenderRow[]>(
+		() =>
+			renderItems.flatMap<ChatRenderRow>((item) =>
+				item.type === "tool-group"
+					? item.tools.map((tool, index) => ({
+							type: "tool-group" as const,
+							tools: [tool],
+							continuesAfter: index < item.tools.length - 1,
+						}))
+					: [item],
+			),
+		[renderItems],
+	);
+	const measuredHeights = useRef(new Map<string, number>());
+	const [measurementVersion, setMeasurementVersion] = useState(0);
+	const [scrollOffset, setScrollOffset] = useState<number | null>(null);
+	const virtual = renderRows.length > 60;
+	const rowOffsets = useMemo(() => {
+		const offsets = [0];
+		for (let index = 0; index < renderRows.length; index++) {
+			offsets.push(
+				offsets[index]! +
+					(measuredHeights.current.get(getRowKey(renderRows[index]!, index)) ??
+						160),
+			);
+		}
+		return offsets;
+	}, [renderRows, measurementVersion]);
+	let firstVisible = 0;
+	if (virtual) {
+		if (scrollOffset === null)
+			firstVisible = Math.max(0, renderRows.length - 24);
+		else {
+			let low = 0;
+			let high = renderRows.length;
+			while (low < high) {
+				const middle = (low + high) >>> 1;
+				if (rowOffsets[middle + 1]! <= scrollOffset) low = middle + 1;
+				else high = middle;
+			}
+			firstVisible = Math.min(low, renderRows.length - 1);
+		}
+	}
+	const windowStart = virtual ? Math.max(0, firstVisible - 8) : 0;
+	let windowEnd = renderRows.length;
+	if (virtual) {
+		const viewportBottom =
+			(scrollOffset ?? rowOffsets[firstVisible]!) +
+			(scrollElementRef.current?.clientHeight || 800);
+		let low = firstVisible;
+		let high = renderRows.length;
+		while (low < high) {
+			const middle = (low + high) >>> 1;
+			if (rowOffsets[middle]! < viewportBottom) low = middle + 1;
+			else high = middle;
+		}
+		windowEnd = Math.min(
+			renderRows.length,
+			Math.max(windowStart + 48, low + 8),
+		);
+	}
+	useLayoutEffect(() => {
+		const element = scrollElementRef.current;
+		if (!element || !virtual) return;
+		let frame = 0;
+		const update = () => {
+			if (frame) return;
+			frame = requestAnimationFrame(() => {
+				frame = 0;
+				const list = messageListRef.current;
+				if (!list) return;
+				setScrollOffset(
+					Math.max(
+						0,
+						element.getBoundingClientRect().top -
+							list.getBoundingClientRect().top,
+					),
+				);
+			});
+		};
+		element.addEventListener("scroll", update, { passive: true });
+		update();
+		return () => {
+			element.removeEventListener("scroll", update);
+			if (frame) cancelAnimationFrame(frame);
+		};
+	}, [scrollElementRef, virtual]);
+	useLayoutEffect(() => {
+		const list = messageListRef.current;
+		if (!list || typeof ResizeObserver === "undefined") return;
+		const observer = new ResizeObserver((entries) => {
+			let changed = false;
+			let adjustment = 0;
+			for (const entry of entries) {
+				const element = entry.target as HTMLElement;
+				const key = element.dataset.chatRowKey;
+				const index = Number(element.dataset.chatRowIndex);
+				if (!key) continue;
+				const height = element.getBoundingClientRect().height;
+				if (height <= 0) continue;
+				const previous = measuredHeights.current.get(key) ?? 160;
+				if (Math.abs(previous - height) < 0.5) continue;
+				measuredHeights.current.set(key, height);
+				if (index < firstVisible) adjustment += height - previous;
+				changed = true;
+			}
+			if (changed) {
+				if (adjustment && scrollElementRef.current && !stickToBottom)
+					scrollElementRef.current.scrollTop += adjustment;
+				setMeasurementVersion((version) => version + 1);
+			}
+		});
+		for (const row of list.querySelectorAll(":scope > [data-chat-row-key]"))
+			observer.observe(row);
+		return () => observer.disconnect();
+	}, [
+		windowStart,
+		windowEnd,
+		firstVisible,
+		renderRows,
+		scrollElementRef,
+		stickToBottom,
+	]);
+	useEffect(() => {
+		const keys = new Set(renderRows.map(getRowKey));
+		for (const key of measuredHeights.current.keys())
+			if (!keys.has(key)) measuredHeights.current.delete(key);
+	}, [renderRows]);
 	const checkpointsByMessageId = useMemo(() => {
 		const byMessageId = new Map<string, CheckpointInfo>();
 		for (const checkpoint of checkpoints) {
@@ -796,11 +945,20 @@ export const ChatMessageList = memo(function ChatMessageList({
 
 	return (
 		<div ref={messageListRef} {...stylex.props(styles.messageList)}>
-			{renderRows.map((item, index) => {
+			{virtual && (
+				<div
+					aria-hidden="true"
+					style={{ height: rowOffsets[windowStart], flexShrink: 0 }}
+				/>
+			)}
+			{renderRows.slice(windowStart, windowEnd).map((item, windowIndex) => {
+				const index = windowStart + windowIndex;
 				if (item.type === "edit-group") {
 					return (
 						<div
 							key={getRowKey(item, index)}
+							data-chat-row-key={getRowKey(item, index)}
+							data-chat-row-index={index}
 							{...stylex.props(styles.messageRow)}
 						>
 							<GroupedEditDiff filePath={item.filePath} edits={item.edits} />
@@ -811,10 +969,16 @@ export const ChatMessageList = memo(function ChatMessageList({
 					return (
 						<div
 							key={getRowKey(item, index)}
-							{...stylex.props(styles.messageRow)}
+							data-chat-row-key={getRowKey(item, index)}
+							data-chat-row-index={index}
+							{...stylex.props(
+								styles.messageRow,
+								item.continuesAfter && styles.continuingToolRow,
+							)}
 						>
 							<ToolTimeline
 								tools={item.tools}
+								continuesAfter={item.continuesAfter}
 								expandedTools={expandedTools}
 								onToggle={toggleTool}
 							/>
@@ -829,6 +993,8 @@ export const ChatMessageList = memo(function ChatMessageList({
 				return (
 					<div
 						key={getRowKey(item, index)}
+						data-chat-row-key={getRowKey(item, index)}
+						data-chat-row-index={index}
 						{...stylex.props(styles.messageRow)}
 					>
 						<Bubble
@@ -849,6 +1015,15 @@ export const ChatMessageList = memo(function ChatMessageList({
 					</div>
 				);
 			})}
+			{virtual && (
+				<div
+					aria-hidden="true"
+					style={{
+						height: rowOffsets[renderRows.length]! - rowOffsets[windowEnd]!,
+						flexShrink: 0,
+					}}
+				/>
+			)}
 		</div>
 	);
 });
@@ -1397,7 +1572,7 @@ const styles = stylex.create({
 		boxSizing: "border-box",
 		display: "flex",
 		flexDirection: "column",
-		gap: controlSize._2,
+		gap: controlSize._0,
 		minHeight: "100%",
 		minWidth: controlSize._0,
 		paddingBottom: CHAT_LIST_BOTTOM_PADDING_PX,
@@ -1405,8 +1580,11 @@ const styles = stylex.create({
 		paddingTop: CHAT_LIST_TOP_PADDING_PX,
 		width: "100%",
 	},
+	continuingToolRow: { paddingBottom: controlSize._0 },
 	messageRow: {
 		boxSizing: "border-box",
+		flexShrink: 0,
+		paddingBottom: controlSize._2,
 		minWidth: controlSize._0,
 		position: "relative",
 		width: "100%",

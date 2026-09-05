@@ -1,107 +1,89 @@
-import { useCallback, useMemo, useState } from "octane";
+import { useCallback, useMemo } from "octane";
 import { postJson } from "../../../adapters/backend/http.ts";
 import { usePollingQuery } from "../../../shared/hooks/useQueryResource.tsx";
 import type { GitProjectStatus } from "../model/types.ts";
+import type { useGitGraph } from "./useGitGraph.tsx";
 
 const EMPTY_GIT_PROJECTS: GitProjectStatus[] = [];
 
-function areGitStatusesEqual(
-	prev: GitProjectStatus[],
-	next: GitProjectStatus[],
+export function useGitStatus(
+	cwds: string[],
+	options: { enabled: boolean; graph?: ReturnType<typeof useGitGraph> },
 ) {
-	if (prev.length !== next.length) return false;
-	for (let i = 0; i < prev.length; i++) {
-		const a = prev[i]!;
-		const b = next[i]!;
-		if (
-			a.cwd !== b.cwd ||
-			a.name !== b.name ||
-			a.branch !== b.branch ||
-			a.upstream !== b.upstream ||
-			a.ahead !== b.ahead ||
-			a.behind !== b.behind ||
-			a.stagedCount !== b.stagedCount ||
-			a.unstagedCount !== b.unstagedCount ||
-			a.untrackedCount !== b.untrackedCount ||
-			a.files.length !== b.files.length
-		)
-			return false;
-		for (let j = 0; j < a.files.length; j++) {
-			const af = a.files[j]!;
-			const bf = b.files[j]!;
-			if (
-				af.status !== bf.status ||
-				af.staged !== bf.staged ||
-				af.path !== bf.path ||
-				af.originalPath !== bf.originalPath ||
-				af.additions !== bf.additions ||
-				af.deletions !== bf.deletions
-			)
-				return false;
-		}
-	}
-	return true;
-}
-
-export function useGitStatus(cwds: string[], options?: { enabled?: boolean }) {
-	const enabled = options?.enabled ?? cwds.length > 0;
-	const cwdKey = cwds.join("\u0000");
+	const graph = options.graph;
+	const graphProjects = useMemo(
+		() =>
+			graph?.revision && !graph.error && graph.state !== "commandFailed"
+				? graph.worktrees.flatMap((worktree) =>
+						worktree.status ? [worktree.status] : [],
+					)
+				: EMPTY_GIT_PROJECTS,
+		[graph?.revision, graph?.error, graph?.state, graph?.worktrees],
+	);
+	const cwdKey = cwds
+		.filter((cwd) => !graphProjects.some((project) => project.cwd === cwd))
+		.join("\u0000");
 	const requestedCwds = useMemo(
 		() => (cwdKey ? cwdKey.split("\u0000") : []),
 		[cwdKey],
 	);
-	const queryKey = useMemo(() => ["git", "status", cwdKey] as const, [cwdKey]);
-	const [loadedCwdKey, setLoadedCwdKey] = useState("");
 	const fetcher = useCallback(
-		async (signal?: AbortSignal) => {
-			if (requestedCwds.length === 0) {
-				setLoadedCwdKey(cwdKey);
-				return [];
-			}
-			const result = await postJson<GitProjectStatus[]>(
+		(signal?: AbortSignal) =>
+			postJson<GitProjectStatus[]>(
 				"/api/git/statuses",
 				{ cwds: requestedCwds },
 				{ signal },
-			);
-			if (!signal?.aborted) setLoadedCwdKey(cwdKey);
-			return result;
-		},
-		[cwdKey, requestedCwds],
+			),
+		[requestedCwds],
 	);
-
 	const {
-		data: projects,
+		data,
 		setData,
-		refetch,
+		refetch: refreshStatuses,
 		loaded,
-	} = usePollingQuery<GitProjectStatus[]>(fetcher, 5000, EMPTY_GIT_PROJECTS, {
-		queryKey,
-		enabled,
-		isEqual: areGitStatusesEqual,
+	} = usePollingQuery(fetcher, 5000, EMPTY_GIT_PROJECTS, {
+		queryKey: ["git", "status", cwdKey],
+		staleTime: 0,
+		enabled: options.enabled && requestedCwds.length > 0,
 	});
-	const statusLoaded = !enabled || (loaded && loadedCwdKey === cwdKey);
-
-	const projectMap = useMemo(() => {
-		const map = new Map<string, GitProjectStatus>();
-		for (const p of projects) map.set(p.cwd, p);
-		return map;
-	}, [projects]);
-
-	// Apply an optimistic update to a single project's status. Used to make
-	// stage / unstage feel instant — the actual git command runs in the
-	// background and a subsequent refetch reconciles with server truth.
+	const projects = useMemo(
+		() =>
+			[...data, ...graphProjects].filter((project) =>
+				cwds.includes(project.cwd),
+			),
+		[data, graphProjects, cwds],
+	);
+	const projectMap = useMemo(
+		() => new Map(projects.map((project) => [project.cwd, project])),
+		[projects],
+	);
+	const refreshGraph = graph?.refresh;
+	const refetch = useCallback(async () => {
+		await Promise.all([
+			requestedCwds.length > 0 ? refreshStatuses() : undefined,
+			refreshGraph?.(),
+		]);
+	}, [refreshStatuses, refreshGraph, requestedCwds]);
+	const updateGraphStatus = graph?.updateWorktreeStatus;
 	const applyOptimistic = useCallback(
 		(cwd: string, mutator: (project: GitProjectStatus) => GitProjectStatus) => {
-			setData((prev) => prev.map((p) => (p.cwd === cwd ? mutator(p) : p)));
+			if (graphProjects.some((project) => project.cwd === cwd)) {
+				updateGraphStatus?.(cwd, mutator);
+			} else {
+				setData((current) =>
+					current.map((project) =>
+						project.cwd === cwd ? mutator(project) : project,
+					),
+				);
+			}
 		},
-		[setData],
+		[graphProjects, setData, updateGraphStatus],
 	);
-
 	return {
 		projects,
 		projectMap,
 		refetch,
 		applyOptimistic,
-		loaded: statusLoaded,
+		loaded: !options.enabled || requestedCwds.length === 0 || loaded,
 	};
 }

@@ -1,10 +1,8 @@
 import { JSDOM } from "jsdom";
 import { createRoot, type Root } from "octane";
 import { describe, expect, test, vi } from "vitest";
-import {
-	type HunkDiff,
-	useGitDiff,
-} from "../src/modules/repository/hooks/useGitDiff.tsx";
+import { useGitDiff } from "../src/modules/repository/hooks/useGitDiff.tsx";
+import type { HunkDiff } from "../src/modules/repository/model/types.ts";
 import { stylexTestTypes } from "./stylex-test-mock.ts";
 
 const mock = Object.assign(vi.fn, {
@@ -159,6 +157,88 @@ describe("DiffViewer custom renderer", () => {
 		}
 	});
 
+	test("reuses historical diffs across viewer mounts but revalidates WIP", async () => {
+		const { root } = setupDom();
+		const previousFetch = globalThis.fetch;
+		let requests = 0;
+		globalThis.fetch = vi.fn(async () => {
+			requests++;
+			return {
+				ok: true,
+				json: async () => ({
+					oldLines: [],
+					newLines: [],
+					isBinary: false,
+					isNew: false,
+				}),
+			} as Response;
+		});
+		function Loader({
+			historical,
+			revision = "one",
+		}: {
+			historical: boolean;
+			revision?: string;
+		}) {
+			useGitDiff({
+				cwd: "/tmp/diff-cache-lifetime",
+				file: "a.ts",
+				staged: false,
+				commitHash: historical ? "a".repeat(40) : undefined,
+				repositoryRevision: revision,
+			});
+			return null;
+		}
+		try {
+			root.render(<Loader historical />);
+			await new Promise((resolve) => setTimeout(resolve, 25));
+			root.render(null);
+			await new Promise((resolve) => setTimeout(resolve, 10));
+			root.render(<Loader historical />);
+			await new Promise((resolve) => setTimeout(resolve, 25));
+			expect(requests).toBe(1);
+			root.render(<Loader historical revision="two" />);
+			await new Promise((resolve) => setTimeout(resolve, 25));
+			expect(requests).toBe(2);
+			root.render(<Loader historical={false} />);
+			await new Promise((resolve) => setTimeout(resolve, 25));
+			root.render(null);
+			await new Promise((resolve) => setTimeout(resolve, 10));
+			root.render(<Loader historical={false} />);
+			await new Promise((resolve) => setTimeout(resolve, 25));
+			expect(requests).toBe(4);
+		} finally {
+			root.unmount();
+			globalThis.fetch = previousFetch;
+		}
+	});
+
+	test("large split diffs render a bounded window instead of the old size warning", async () => {
+		const { root, rootElement } = setupDom();
+		try {
+			const lines = Array.from({ length: 20000 }, (_, index) => ({
+				number: index + 1,
+				content: `line ${index}`,
+				type: "context" as const,
+			}));
+			await renderDiff(root, rootElement, {
+				oldLines: lines,
+				newLines: lines,
+				isBinary: false,
+				isNew: false,
+			});
+			expect(rootElement.textContent).not.toContain("too large");
+			expect(
+				rootElement.querySelectorAll("[data-diff-scroll-side]").length,
+			).toBe(2);
+			const rows = rootElement.querySelectorAll(".diff-row");
+			expect(rows.length).toBeGreaterThan(0);
+			expect(rows.length).toBeLessThan(200);
+		} finally {
+			root.unmount();
+		}
+	});
+
 	test("opens working-tree split diffs at their first change", async () => {
 		const { root, rootElement } = setupDom();
 		try {
@@ -176,6 +256,12 @@ describe("DiffViewer custom renderer", () => {
 				root,
 				rootElement,
 				{
+					metadata: {
+						stats: { added: 1, removed: 1, hunks: 1, lines: 100 },
+						tokenizationDisabled: false,
+						maxOldLineChars: 25,
+						maxNewLineChars: 25,
+					},
 					oldLines,
 					newLines,
 					isBinary: false,

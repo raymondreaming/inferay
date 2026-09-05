@@ -196,6 +196,20 @@ describe("Git commit graph renderer", () => {
 			);
 			expect(startingRail?.getAttribute("y1")).toBe("11.5");
 			expect(startingRail?.getAttribute("y2")).toBe("23");
+			const linesLayer = startingRail?.closest("svg");
+			const firstGraphRow = rootElement.querySelector<HTMLElement>(
+				`[data-graph-item="${commits[0]!.id}"]`,
+			);
+			// Header height must affect the lines and nodes equally.
+			expect(linesLayer?.parentElement).toBe(firstGraphRow?.parentElement);
+			expect(
+				linesLayer?.parentElement?.previousElementSibling?.getAttribute(
+					"data-graph-header",
+				),
+			).toBe("true");
+			expect(linesLayer?.style.top).toBe("23px");
+			expect(firstGraphRow?.style.transform).toBe("translateY(23px)");
+
 			const endingRail = rootElement.querySelector(
 				'[data-graph-rail="true"][data-graph-row="2"]',
 			);
@@ -219,23 +233,19 @@ describe("Git commit graph renderer", () => {
 			).toBeTruthy();
 			(branchBadge as HTMLElement | null)?.focus();
 			await new Promise((resolve) => setTimeout(resolve, 20));
-			expect(rootElement.textContent).toContain("release");
-			expect(rootElement.textContent).not.toContain("origin/release");
+			branchBadge?.dispatchEvent(
+				new dom.window.MouseEvent("mouseenter", { bubbles: true }),
+			);
+			await new Promise((resolve) => setTimeout(resolve, 20));
 			expect(
-				Array.from(
-					rootElement.querySelectorAll('[data-ref-kind="remoteBranch"]'),
-				).some(
-					(badge) =>
-						badge.textContent === "release" &&
-						badge.querySelector('[data-ref-symbol="remote"]'),
-				),
-			).toBe(true);
-			expect(rootElement.textContent).toContain("v1.2.3");
+				rootElement.querySelector('[aria-label="Commit references"]'),
+			).toBeNull();
+			expect(rootElement.textContent).not.toContain("release");
 			expect(
-				rootElement.querySelector(
-					'[data-ref-kind="tag"] [data-ref-symbol="tag"]',
-				),
-			).toBeTruthy();
+				rootElement
+					.querySelector('[data-ref-overflow="2"]')
+					?.getAttribute("title"),
+			).toBe("origin/release, v1.2.3");
 			expect(rootElement.textContent).toContain("08/31/2026 12:00 PM");
 			branchBadge?.dispatchEvent(
 				new dom.window.KeyboardEvent("keydown", {
@@ -278,6 +288,65 @@ describe("Git commit graph renderer", () => {
 			expect(keyboardSelectedWash?.style.backgroundColor).toBe(
 				"rgba(34, 184, 207, 0.42)",
 			);
+			const hoveredWashes = () =>
+				rootElement.querySelectorAll('[data-graph-row-hovered="true"]');
+			expect(hoveredWashes().length).toBe(0);
+			const firstRow = rootElement.querySelector(
+				`[data-graph-item="${commits[0]!.id}"]`,
+			)!;
+			const thirdRow = rootElement.querySelector(
+				`[data-graph-item="${commits[2]!.id}"]`,
+			)!;
+			// Scrolling beneath a stationary mouse must not restore hover.
+			firstRow.dispatchEvent(
+				new dom.window.MouseEvent("mouseenter", { bubbles: true }),
+			);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(hoveredWashes().length).toBe(0);
+			firstRow.dispatchEvent(
+				new dom.window.MouseEvent("mousemove", {
+					bubbles: true,
+					clientX: 20,
+					clientY: 50,
+				}),
+			);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(hoveredWashes().length).toBe(1);
+			(firstRow as HTMLElement).focus();
+			thirdRow.dispatchEvent(
+				new dom.window.MouseEvent("mousemove", {
+					bubbles: true,
+					clientX: 30,
+					clientY: 100,
+				}),
+			);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(hoveredWashes().length).toBe(1);
+			expect(
+				thirdRow.querySelector('[data-graph-row-hovered="true"]'),
+			).toBeTruthy();
+			graph!.dispatchEvent(
+				new dom.window.KeyboardEvent("keydown", {
+					bubbles: true,
+					key: "ArrowUp",
+				}),
+			);
+			thirdRow.dispatchEvent(
+				new dom.window.MouseEvent("mousemove", {
+					bubbles: true,
+					clientX: 30,
+					clientY: 100,
+				}),
+			);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(hoveredWashes().length).toBe(0);
+			graph!.dispatchEvent(
+				new dom.window.KeyboardEvent("keydown", {
+					bubbles: true,
+					key: "ArrowDown",
+				}),
+			);
+			await new Promise((resolve) => setTimeout(resolve, 20));
 			graph!.dispatchEvent(
 				new dom.window.KeyboardEvent("keydown", {
 					bubbles: true,
@@ -902,6 +971,7 @@ describe("Git commit graph renderer", () => {
 			{
 				...base,
 				id: "root",
+				navigation: { containingBranch: "refs/heads/feature" },
 				hash: "root",
 				message: "Root",
 				parents: ["missing-parent"],
@@ -1019,14 +1089,14 @@ describe("Git commit graph renderer", () => {
 			expect(mainBadge).toBeTruthy();
 			(mainBadge as HTMLElement | null)?.focus();
 			await new Promise((resolve) => setTimeout(resolve, 20));
-			expect(rootElement.querySelector('[data-ref-kind="tag"]')).toBeTruthy();
+			expect(rootElement.querySelector('[data-ref-kind="tag"]')).toBeNull();
 			const featureBadge = rootElement.querySelector(
 				'[data-graph-item="feature-parent"] [data-ref-kind="localBranch"]',
 			);
 			(featureBadge as HTMLElement | null)?.focus();
 			await new Promise((resolve) => setTimeout(resolve, 20));
 			expect(
-				rootElement.querySelector('[data-ref-kind="remoteBranch"]'),
+				featureBadge?.querySelector('[data-ref-symbol="remote"]'),
 			).toBeTruthy();
 			const dragValues = new Map<string, string>();
 			const dataTransfer = {
@@ -1114,6 +1184,179 @@ describe("Git commit graph renderer", () => {
 				?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
 			await new Promise((resolve) => setTimeout(resolve, 20));
 			expect(rootElement.querySelector('[data-ref-ghost="true"]')).toBeTruthy();
+		} finally {
+			root.unmount();
+		}
+	});
+	test("queries repository search separately and keeps native navigation in the result", async () => {
+		const { useGitGraph } = await import(
+			"../src/modules/repository/hooks/useGitGraph.tsx"
+		);
+		const { queryClient } = await import("../src/shared/lib/query-client.ts");
+		const { dom, root, rootElement } = setupDom();
+		const previousFetch = globalThis.fetch;
+		const queries: string[] = [];
+		globalThis.fetch = vi.fn(async (url) => {
+			const query =
+				new URL(String(url), "http://localhost").searchParams.get("query") ??
+				"";
+			queries.push(query);
+			const commit = {
+				...graphCommit(query ? 9000 : 0),
+				colorIndex: 0,
+				navigation: {
+					containingBranch: "refs/heads/main",
+					parent: "parent-id",
+				},
+			};
+			return new Response(
+				JSON.stringify({
+					commits: query === "missing" ? [] : [commit],
+					rows: [],
+					ancestry: { "refs/heads/main": [[0, 0]] },
+					revision: "same-repository-revision",
+					state: "ready",
+					operation: { kind: "idle", phase: "idle", conflicts: [] },
+					hasMore: false,
+					worktrees: [],
+					stashes: [],
+				}),
+				{ headers: { "content-type": "application/json", etag: `"${query}"` } },
+			);
+		});
+		function Harness() {
+			const graph = useGitGraph("/search-contract-fixture", 10);
+			return (
+				<div>
+					<button
+						type="button"
+						onClick={() => graph.setSearchQuery("message:needle")}
+					>
+						Search
+					</button>
+					<button type="button" onClick={() => graph.setSearchQuery("missing")}>
+						Missing
+					</button>
+					<button type="button" onClick={() => graph.setSearchQuery("")}>
+						Clear
+					</button>
+					<output>
+						{`${graph.commits[0]?.message ?? "empty"}:${graph.commits[0]?.navigation?.parent ?? "none"}`}
+					</output>
+				</div>
+			);
+		}
+		try {
+			root.render(<Harness />);
+			await vi.waitFor(() =>
+				expect(rootElement.querySelector("output")?.textContent).toBe(
+					"Commit 0:parent-id",
+				),
+			);
+			rootElement
+				.querySelectorAll("button")[0]
+				?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+			await vi.waitFor(() =>
+				expect(rootElement.querySelector("output")?.textContent).toBe(
+					"Commit 9000:parent-id",
+				),
+			);
+			rootElement
+				.querySelectorAll("button")[1]
+				?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+			await vi.waitFor(() =>
+				expect(rootElement.querySelector("output")?.textContent).toBe(
+					"empty:none",
+				),
+			);
+			rootElement
+				.querySelectorAll("button")[2]
+				?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+			await vi.waitFor(() =>
+				expect(rootElement.querySelector("output")?.textContent).toBe(
+					"Commit 0:parent-id",
+				),
+			);
+			expect(queries).toContain("message:needle");
+			expect(queries).toContain("missing");
+		} finally {
+			root.unmount();
+			queryClient.removeQueries({
+				queryKey: ["git", "graph", "/search-contract-fixture"],
+			});
+			globalThis.fetch = previousFetch;
+		}
+	});
+	test("search results stay visible when a persisted solo tip is outside the matches", async () => {
+		const { CommitGraph } = await import(
+			"../src/modules/workbench/graph/components/CommitGraph.tsx"
+		);
+		const { dom, root, rootElement } = setupDom();
+		const repositoryKey = "/solo-search-fixture";
+		dom.window.localStorage.setItem(
+			`commit-graph-columns-v12:${repositoryKey}`,
+			JSON.stringify({ soloRefs: ["refs/heads/absent-tip"] }),
+		);
+		const commits = [graphCommit(9000)];
+		const rows: GraphRow[] = [
+			{
+				row: 0,
+				rails: [],
+				transitions: [],
+				convergences: [],
+				truncatedEdges: [],
+			},
+		];
+		try {
+			root.render(
+				<CommitGraph
+					commits={commits}
+					rows={rows}
+					ancestry={{}}
+					repositoryKey={repositoryKey}
+					searchActive
+				/>,
+			);
+			await vi.waitFor(() =>
+				expect(
+					rootElement
+						.querySelector("[data-history-match]")
+						?.getAttribute("data-history-match"),
+				).toBe("true"),
+			);
+			rootElement
+				.querySelector('[aria-label="Graph columns and search"]')
+				?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+			await vi.waitFor(() =>
+				expect(
+					rootElement
+						.querySelector('input[type="search"]')
+						?.getAttribute("placeholder"),
+				).toBe("Search all branches"),
+			);
+			root.render(
+				<CommitGraph
+					commits={commits}
+					rows={rows}
+					ancestry={{}}
+					repositoryKey={repositoryKey}
+					searchActive={false}
+				/>,
+			);
+			await vi.waitFor(() =>
+				expect(
+					rootElement
+						.querySelector("[data-history-match]")
+						?.getAttribute("data-history-match"),
+				).toBe("false"),
+			);
+			expect(
+				JSON.parse(
+					dom.window.localStorage.getItem(
+						`commit-graph-columns-v12:${repositoryKey}`,
+					)!,
+				).soloRefs,
+			).toEqual(["refs/heads/absent-tip"]);
 		} finally {
 			root.unmount();
 		}

@@ -1,4 +1,10 @@
+mod prepared_diff;
+pub use prepared_diff::{
+    prepare_conflict_lines, prepare_edit_diff, PreparedEditDiff, SequentialEdit,
+};
+mod graph_semantics;
 use chrono::{Local, TimeZone};
+pub use graph_semantics::{GraphAncestry, GraphNavigation};
 use inferay_core::path_security::{is_safe_relative_path, AllowedPaths};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -428,6 +434,8 @@ pub struct GitGraphRef {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphCommit {
+    #[serde(default)]
+    pub navigation: GraphNavigation,
     /// Stable graph-item identity. Commit items use their object ID; synthetic
     /// worktree items use a repository-local `wip` identity.
     pub id: String,
@@ -498,6 +506,8 @@ pub struct GraphRow {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitGraphSnapshot {
+    #[serde(default)]
+    pub ancestry: GraphAncestry,
     pub commits: Vec<GraphCommit>,
     pub rows: Vec<GraphRow>,
     pub has_more: bool,
@@ -550,42 +560,79 @@ enum DiffOperation {
     Added,
 }
 
+fn diff_operations<T: PartialEq>(
+    old_lines: &[T],
+    new_lines: &[T],
+) -> Vec<(DiffOperation, Option<usize>, Option<usize>)> {
+    // Trim unchanged boundaries before allocating a bounded comparison table.
+    let mut prefix = 0;
+    while prefix < old_lines.len()
+        && prefix < new_lines.len()
+        && old_lines[prefix] == new_lines[prefix]
+    {
+        prefix += 1;
+    }
+    let (mut old_end, mut new_end) = (old_lines.len(), new_lines.len());
+    while old_end > prefix && new_end > prefix && old_lines[old_end - 1] == new_lines[new_end - 1] {
+        old_end -= 1;
+        new_end -= 1;
+    }
+    let (m, n) = (old_end - prefix, new_end - prefix);
+    let mut diff_ops = Vec::with_capacity(old_lines.len() + new_lines.len());
+    for i in 0..prefix {
+        diff_ops.push((DiffOperation::Unchanged, Some(i), Some(i)));
+    }
+    if m == 0 || n == 0 || (m + 1).saturating_mul(n + 1) > 1_000_000 {
+        for i in prefix..old_end {
+            diff_ops.push((DiffOperation::Removed, Some(i), None));
+        }
+        for j in prefix..new_end {
+            diff_ops.push((DiffOperation::Added, None, Some(j)));
+        }
+    } else {
+        let width = n + 1;
+        let mut dp = vec![0u32; (m + 1) * width];
+        for i in 1..=m {
+            for j in 1..=n {
+                dp[i * width + j] = if old_lines[prefix + i - 1] == new_lines[prefix + j - 1] {
+                    dp[(i - 1) * width + j - 1] + 1
+                } else {
+                    dp[(i - 1) * width + j].max(dp[i * width + j - 1])
+                };
+            }
+        }
+        let mut middle = Vec::new();
+        let (mut i, mut j) = (m, n);
+        while i > 0 || j > 0 {
+            if i > 0 && j > 0 && old_lines[prefix + i - 1] == new_lines[prefix + j - 1] {
+                middle.push((
+                    DiffOperation::Unchanged,
+                    Some(prefix + i - 1),
+                    Some(prefix + j - 1),
+                ));
+                i -= 1;
+                j -= 1;
+            } else if j > 0 && (i == 0 || dp[i * width + j - 1] >= dp[(i - 1) * width + j]) {
+                middle.push((DiffOperation::Added, None, Some(prefix + j - 1)));
+                j -= 1;
+            } else {
+                middle.push((DiffOperation::Removed, Some(prefix + i - 1), None));
+                i -= 1;
+            }
+        }
+        diff_ops.extend(middle.into_iter().rev());
+    }
+    for (i, j) in (old_end..old_lines.len()).zip(new_end..new_lines.len()) {
+        diff_ops.push((DiffOperation::Unchanged, Some(i), Some(j)));
+    }
+
+    diff_ops
+}
+
 fn compute_line_diff(old_text: &str, new_text: &str) -> ParsedDiff {
     let old_lines: Vec<&str> = old_text.split('\n').collect();
     let new_lines: Vec<&str> = new_text.split('\n').collect();
-    let m = old_lines.len();
-    let n = new_lines.len();
-    let mut dp = vec![vec![0u16; n + 1]; m + 1];
-
-    for i in 1..=m {
-        for j in 1..=n {
-            dp[i][j] = if old_lines[i - 1] == new_lines[j - 1] {
-                dp[i - 1][j - 1].saturating_add(1)
-            } else {
-                dp[i - 1][j].max(dp[i][j - 1])
-            };
-        }
-    }
-
-    let mut diff_ops: Vec<(DiffOperation, Option<usize>, Option<usize>)> = Vec::new();
-    let mut i = m;
-    let mut j = n;
-
-    while i > 0 || j > 0 {
-        if i > 0 && j > 0 && old_lines[i - 1] == new_lines[j - 1] {
-            diff_ops.push((DiffOperation::Unchanged, Some(i - 1), Some(j - 1)));
-            i -= 1;
-            j -= 1;
-        } else if j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j]) {
-            diff_ops.push((DiffOperation::Added, None, Some(j - 1)));
-            j -= 1;
-        } else {
-            diff_ops.push((DiffOperation::Removed, Some(i - 1), None));
-            i -= 1;
-        }
-    }
-
-    diff_ops.reverse();
+    let diff_ops = diff_operations(&old_lines, &new_lines);
 
     let mut left_lines = Vec::with_capacity(diff_ops.len());
     let mut right_lines = Vec::with_capacity(diff_ops.len());
@@ -740,19 +787,41 @@ fn compute_line_diff(old_text: &str, new_text: &str) -> ParsedDiff {
     }
 }
 
-fn run_git(args: &[&str], cwd: &str) -> Option<String> {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(cwd)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
+thread_local! {
+    static GIT_DEADLINE: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
+}
+
+pub fn with_git_deadline<T>(duration: Duration, work: impl FnOnce() -> T) -> T {
+    struct Restore(Option<std::time::Instant>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            GIT_DEADLINE.with(|deadline| deadline.set(self.0));
+        }
     }
-    String::from_utf8(output.stdout).ok()
+    let previous =
+        GIT_DEADLINE.with(|deadline| deadline.replace(Some(std::time::Instant::now() + duration)));
+    let _restore = Restore(previous);
+    work()
+}
+
+fn remaining_git_time(timeout: Duration) -> Duration {
+    GIT_DEADLINE.with(|deadline| {
+        deadline
+            .get()
+            .map(|end| timeout.min(end.saturating_duration_since(std::time::Instant::now())))
+            .unwrap_or(timeout)
+    })
+}
+
+fn run_git(args: &[&str], cwd: &str) -> Option<String> {
+    run_git_timed(args, cwd, Duration::from_secs(10))
 }
 
 fn run_git_timed(args: &[&str], cwd: &str, timeout: Duration) -> Option<String> {
+    let timeout = remaining_git_time(timeout);
+    if timeout.is_zero() {
+        return None;
+    }
     let mut child = Command::new("git")
         .args(args)
         .current_dir(cwd)
@@ -856,7 +925,15 @@ fn run_git_checked_timed(
     cwd: &str,
     timeout: Duration,
 ) -> Result<String, GitCommandFailure> {
+    let timeout = remaining_git_time(timeout);
     let command = format!("git {}", args.first().copied().unwrap_or("command"));
+    if timeout.is_zero() {
+        return Err(GitCommandFailure {
+            command,
+            kind: GitCommandFailureKind::TimedOut,
+            detail: "request deadline exceeded".into(),
+        });
+    }
     let mut child = Command::new("git")
         .args(args)
         .current_dir(cwd)
@@ -935,7 +1012,9 @@ fn run_git_checked_timed(
 
 const MAX_UNTRACKED_FILE_BYTES: u64 = 500_000;
 const MAX_SIMPLE_UNTRACKED_FILE_BYTES: u64 = 120_000;
-const MAX_RENDERED_DIFF_LINES: usize = 12_000;
+// Bound retained source rows/bytes; the UI mounts only its visible window.
+const MAX_RENDERED_DIFF_LINES: usize = 100_000;
+const MAX_DIFF_TEXT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_RENDERED_LINE_CHARS: usize = 8_000;
 
 pub fn is_changed_git_file(cwd: &str, file_path: &str) -> bool {
@@ -1300,13 +1379,34 @@ fn build_hunk_diff_from_versions(
         };
     }
 
+    if old_content.len().saturating_add(new_content.len()) > MAX_DIFF_TEXT_BYTES {
+        let mut result = too_large_diff(
+            "Diff too large: text exceeds the 8 MiB preview limit",
+            is_new,
+        );
+        result.raw_patch = Some(raw_patch);
+        return result;
+    }
+    if old_content
+        .split('\n')
+        .take(MAX_RENDERED_DIFF_LINES + 1)
+        .count()
+        + new_content
+            .split('\n')
+            .take(MAX_RENDERED_DIFF_LINES + 1)
+            .count()
+        > MAX_RENDERED_DIFF_LINES
+    {
+        let mut result = too_large_diff(
+            "Diff too large: preview exceeds 100,000 source lines",
+            is_new,
+        );
+        result.raw_patch = Some(raw_patch);
+        return result;
+    }
+
     if is_deleted {
         let lines = content_lines(old_content);
-        if lines.len() > MAX_RENDERED_DIFF_LINES {
-            let mut result = too_large_diff("Diff too large to render safely", false);
-            result.raw_patch = Some(raw_patch);
-            return result;
-        }
         return GitHunkDiff {
             old_lines: lines
                 .iter()
@@ -1359,11 +1459,6 @@ fn build_hunk_diff_from_versions(
 
     let old_file_lines = content_lines(old_content);
     let new_file_lines = content_lines(new_content);
-    if old_file_lines.len() + new_file_lines.len() > MAX_RENDERED_DIFF_LINES {
-        let mut result = too_large_diff("Diff too large to render safely", false);
-        result.raw_patch = Some(raw_patch);
-        return result;
-    }
     if old_file_lines
         .iter()
         .chain(new_file_lines.iter())
@@ -1829,13 +1924,34 @@ pub fn get_git_hunk_diff(
         current_content
     };
 
+    if old_content.len().saturating_add(new_content.len()) > MAX_DIFF_TEXT_BYTES {
+        let mut result = too_large_diff(
+            "Diff too large: text exceeds the 8 MiB preview limit",
+            is_new,
+        );
+        result.raw_patch = Some(raw_patch);
+        return result;
+    }
+    if old_content
+        .split('\n')
+        .take(MAX_RENDERED_DIFF_LINES + 1)
+        .count()
+        + new_content
+            .split('\n')
+            .take(MAX_RENDERED_DIFF_LINES + 1)
+            .count()
+        > MAX_RENDERED_DIFF_LINES
+    {
+        let mut result = too_large_diff(
+            "Diff too large: preview exceeds 100,000 source lines",
+            is_new,
+        );
+        result.raw_patch = Some(raw_patch);
+        return result;
+    }
+
     if deleted_patch {
         let lines = content_lines(&old_content);
-        if lines.len() > MAX_RENDERED_DIFF_LINES {
-            let mut result = too_large_diff("Diff too large to render safely", false);
-            result.raw_patch = Some(raw_patch);
-            return result;
-        }
         if lines
             .iter()
             .any(|line| line.encode_utf16().count() > MAX_RENDERED_LINE_CHARS)
@@ -1904,11 +2020,6 @@ pub fn get_git_hunk_diff(
 
     let old_file_lines = content_lines(&old_content);
     let new_file_lines = content_lines(&new_content);
-    if old_file_lines.len() + new_file_lines.len() > MAX_RENDERED_DIFF_LINES {
-        let mut result = too_large_diff("Diff too large to render safely", false);
-        result.raw_patch = Some(raw_patch);
-        return result;
-    }
     if old_file_lines
         .iter()
         .chain(new_file_lines.iter())
@@ -2075,12 +2186,25 @@ fn append_review_rows(result: &mut Vec<GitDiffLine>, rows: &[GitDiffLine]) {
     flush_changed_run(result, &mut changed_run);
 }
 
-fn build_review_lines(old_lines: &[GitDiffLine], new_lines: &[GitDiffLine]) -> Vec<GitDiffLine> {
+pub fn prepare_inline_lines(
+    old_lines: &[GitDiffLine],
+    new_lines: &[GitDiffLine],
+) -> Vec<GitDiffLine> {
     let mut stacked = Vec::new();
     let line_count = old_lines.len().max(new_lines.len());
     for index in 0..line_count {
         let old_line = old_lines.get(index);
         let new_line = new_lines.get(index);
+        if old_line.is_some_and(|line| line.line_type == GitDiffLineType::Hunk)
+            || new_line.is_some_and(|line| line.line_type == GitDiffLineType::Hunk)
+        {
+            stacked.push(GitDiffLine {
+                number: None,
+                content: String::new(),
+                line_type: GitDiffLineType::Hunk,
+            });
+            continue;
+        }
         if old_line.is_some_and(|line| line.line_type == GitDiffLineType::Context)
             && new_line.is_some_and(|line| line.line_type == GitDiffLineType::Context)
         {
@@ -2237,7 +2361,7 @@ fn build_review_split_lines(
 
 pub fn compact_git_hunk_diff(mut diff: GitHunkDiff) -> GitHunkDiff {
     if !diff.is_binary && diff.merge_conflict_content.is_none() {
-        diff.compact_lines = Some(build_review_lines(&diff.old_lines, &diff.new_lines));
+        diff.compact_lines = Some(prepare_inline_lines(&diff.old_lines, &diff.new_lines));
         (diff.old_lines, diff.new_lines) =
             build_review_split_lines(&diff.old_lines, &diff.new_lines);
         diff.raw_patch = None;
@@ -2378,10 +2502,6 @@ pub fn get_git_stashes(cwd: &str) -> Vec<GitStash> {
         .collect()
 }
 
-fn repository_git_path_exists(cwd: &str, name: &str) -> bool {
-    repository_git_path(cwd, name).is_some_and(|path| path.exists())
-}
-
 fn repository_git_path(cwd: &str, name: &str) -> Option<PathBuf> {
     run_git(&["rev-parse", "--git-path", name], cwd).and_then(|value| {
         let path = Path::new(value.trim());
@@ -2396,15 +2516,19 @@ fn repository_git_path(cwd: &str, name: &str) -> Option<PathBuf> {
 }
 
 pub fn get_git_repository_operation_state(cwd: &str) -> GitRepositoryOperationState {
-    let kind = if repository_git_path_exists(cwd, "rebase-merge")
-        || repository_git_path_exists(cwd, "rebase-apply")
-    {
+    let git_dir = run_git(&["rev-parse", "--absolute-git-dir"], cwd);
+    let exists = |name: &str| {
+        git_dir
+            .as_ref()
+            .is_some_and(|dir| Path::new(dir.trim()).join(name).exists())
+    };
+    let kind = if exists("rebase-merge") || exists("rebase-apply") {
         GitRepositoryOperationKind::Rebase
-    } else if repository_git_path_exists(cwd, "MERGE_HEAD") {
+    } else if exists("MERGE_HEAD") {
         GitRepositoryOperationKind::Merge
-    } else if repository_git_path_exists(cwd, "CHERRY_PICK_HEAD") {
+    } else if exists("CHERRY_PICK_HEAD") {
         GitRepositoryOperationKind::CherryPick
-    } else if repository_git_path_exists(cwd, "REVERT_HEAD") {
+    } else if exists("REVERT_HEAD") {
         GitRepositoryOperationKind::Revert
     } else {
         GitRepositoryOperationKind::Idle
@@ -4273,7 +4397,13 @@ fn graph_ref_kind_order(kind: &GitGraphRefKind) -> usize {
 }
 
 fn get_graph_refs(cwd: &str) -> HashMap<String, Vec<GitGraphRef>> {
-    let worktrees = get_git_worktrees(cwd);
+    get_graph_refs_with_worktrees(cwd, &get_git_worktrees(cwd))
+}
+
+fn get_graph_refs_with_worktrees(
+    cwd: &str,
+    worktrees: &[GitWorktree],
+) -> HashMap<String, Vec<GitGraphRef>> {
     let current_head =
         run_git(&["symbolic-ref", "-q", "HEAD"], cwd).map(|value| value.trim().to_string());
     let current_oid =
@@ -4416,36 +4546,46 @@ fn get_graph_log_result(cwd: &str, limit: usize) -> Result<Vec<GitCommit>, GitCo
         Duration::from_secs(10),
     )?;
 
-    let mut refs_by_target = get_graph_refs(cwd);
-    Ok(raw
-        .split('\x1e')
+    Ok(parse_graph_log(&raw, &get_graph_refs(cwd)))
+}
+
+fn parse_graph_record(
+    record: &str,
+    refs_by_target: &HashMap<String, Vec<GitGraphRef>>,
+) -> GitCommit {
+    let mut parts = record.splitn(11, '\x1f');
+    let hash = parts.next().unwrap_or("").to_string();
+    GitCommit {
+        refs: refs_by_target.get(&hash).cloned().unwrap_or_default(),
+        hash,
+        parents: parts
+            .next()
+            .unwrap_or("")
+            .split(' ')
+            .filter(|part| !part.is_empty())
+            .map(|part| part.to_string())
+            .collect(),
+        message: parts.next().unwrap_or("").to_string(),
+        body: parts.next().unwrap_or("").trim().to_string(),
+        author: parts.next().unwrap_or("").to_string(),
+        author_email: parts.next().unwrap_or("").to_string(),
+        committer: parts.next().unwrap_or("").to_string(),
+        committer_email: parts.next().unwrap_or("").to_string(),
+        date: parts.next().unwrap_or("").to_string(),
+        authored_at: parts.next().unwrap_or("").to_string(),
+        committed_at: parts.next().unwrap_or("").to_string(),
+    }
+}
+
+fn parse_graph_log(
+    raw: &str,
+    refs_by_target: &HashMap<String, Vec<GitGraphRef>>,
+) -> Vec<GitCommit> {
+    raw.split('\x1e')
         .map(str::trim)
-        .filter(|record| !record.is_empty())
-        .map(|record| {
-            let mut parts = record.splitn(11, '\x1f');
-            let hash = parts.next().unwrap_or("").to_string();
-            GitCommit {
-                refs: refs_by_target.remove(&hash).unwrap_or_default(),
-                hash,
-                parents: parts
-                    .next()
-                    .unwrap_or("")
-                    .split(' ')
-                    .filter(|part| !part.is_empty())
-                    .map(|part| part.to_string())
-                    .collect(),
-                message: parts.next().unwrap_or("").to_string(),
-                body: parts.next().unwrap_or("").trim().to_string(),
-                author: parts.next().unwrap_or("").to_string(),
-                author_email: parts.next().unwrap_or("").to_string(),
-                committer: parts.next().unwrap_or("").to_string(),
-                committer_email: parts.next().unwrap_or("").to_string(),
-                date: parts.next().unwrap_or("").to_string(),
-                authored_at: parts.next().unwrap_or("").to_string(),
-                committed_at: parts.next().unwrap_or("").to_string(),
-            }
-        })
-        .collect())
+        .filter(|r| !r.is_empty())
+        .map(|r| parse_graph_record(r, refs_by_target))
+        .collect()
 }
 
 fn get_graph_log(cwd: &str, limit: usize) -> Vec<GitCommit> {
@@ -4514,52 +4654,121 @@ fn repository_snapshot_state(cwd: &str) -> (GitRepositorySnapshotState, Option<S
     }
 }
 
+pub struct GitGraphInput {
+    pub worktrees: Vec<GitWorktree>,
+    pub revision: String,
+    pub operation: GitRepositoryOperationState,
+    refs_by_target: HashMap<String, Vec<GitGraphRef>>,
+}
+
+pub fn prepare_git_graph(cwd: &str) -> GitGraphInput {
+    let mut worktrees = get_git_worktrees(cwd);
+    let operation = get_git_repository_operation_state(cwd);
+    let refs_by_target = get_graph_refs_with_worktrees(cwd, &worktrees);
+    let ordered_refs = refs_by_target
+        .iter()
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let mut parts = vec![
+        serde_json::to_string(&ordered_refs).unwrap_or_default(),
+        format!("{operation:?}"),
+    ];
+    for worktree in &mut worktrees {
+        if !worktree.bare && (!worktree.locked || worktree.is_current) {
+            worktree.status = get_git_status(&worktree.path);
+            if let Some(status) = &worktree.status {
+                for file in &status.files {
+                    // Status letters/counts alone do not identify edits to an
+                    // already-modified file. Include its filesystem generation.
+                    let path = std::path::Path::new(&worktree.path).join(&file.path);
+                    parts.push(format!(
+                        "{}:{:?}",
+                        path.display(),
+                        std::fs::metadata(path.clone())
+                            .ok()
+                            .map(|m| (m.len(), m.modified().ok()))
+                    ));
+                }
+            }
+        }
+    }
+    parts.push(serde_json::to_string(&worktrees).unwrap_or_default());
+    GitGraphInput {
+        worktrees,
+        revision: stable_revision_token(&parts),
+        operation,
+        refs_by_target,
+    }
+}
+
 pub fn get_git_graph_snapshot(cwd: &str, limit: usize) -> GitGraphSnapshot {
+    get_git_graph_snapshot_with_input(cwd, limit, prepare_git_graph(cwd))
+}
+
+pub fn get_git_graph_snapshot_with_input(
+    cwd: &str,
+    limit: usize,
+    input: GitGraphInput,
+) -> GitGraphSnapshot {
+    get_git_graph_snapshot_with_query(cwd, limit, input, "")
+}
+
+pub fn get_git_graph_snapshot_with_query(
+    cwd: &str,
+    limit: usize,
+    input: GitGraphInput,
+    query: &str,
+) -> GitGraphSnapshot {
     let (state, state_error) = repository_snapshot_state(cwd);
     if matches!(
         state,
         GitRepositorySnapshotState::NonRepository | GitRepositorySnapshotState::CommandFailed
     ) {
         return GitGraphSnapshot {
+            ancestry: GraphAncestry::default(),
             commits: Vec::new(),
             rows: Vec::new(),
             has_more: false,
             worktrees: Vec::new(),
             stashes: Vec::new(),
             revision: stable_revision_token(&[cwd.to_string()]),
-            operation: get_git_repository_operation_state(cwd),
+            operation: input.operation,
             state,
             state_error,
         };
     }
-    let mut worktrees = get_git_worktrees(cwd);
-    for worktree in &mut worktrees {
-        if !worktree.bare && !worktree.locked {
-            worktree.status = get_git_status(&worktree.path);
-        }
-    }
+    let worktrees = input.worktrees;
     let stashes = get_git_stashes(cwd);
     let requested_history = limit
         .saturating_add(1)
         .saturating_add(stashes.len().saturating_mul(2));
-    let mut semantic_commits = match get_graph_log_result(cwd, requested_history) {
-        Ok(commits) => commits,
-        Err(error) => {
-            let error = error.summary();
-            eprintln!("[git-graph] {error}");
-            return GitGraphSnapshot {
-                commits: Vec::new(),
-                rows: Vec::new(),
-                has_more: false,
-                worktrees,
-                stashes,
-                revision: stable_revision_token(&[cwd.to_string(), error.clone()]),
-                operation: get_git_repository_operation_state(cwd),
-                state: GitRepositorySnapshotState::CommandFailed,
-                state_error: Some(error),
-            };
-        }
-    };
+    let history_matches =
+        match graph_semantics::read_history(cwd, requested_history, query, input.refs_by_target) {
+            Ok(commits) => commits,
+            Err(error) => {
+                let error = error.summary();
+                eprintln!("[git-graph] {error}");
+                return GitGraphSnapshot {
+                    ancestry: GraphAncestry::default(),
+                    commits: Vec::new(),
+                    rows: Vec::new(),
+                    has_more: false,
+                    worktrees,
+                    stashes,
+                    revision: stable_revision_token(&[cwd.to_string(), error.clone()]),
+                    operation: input.operation,
+                    state: GitRepositorySnapshotState::CommandFailed,
+                    state_error: Some(error),
+                };
+            }
+        };
+    let history_order: HashMap<_, _> = history_matches
+        .iter()
+        .map(|(commit, order)| (commit.hash.clone(), *order))
+        .collect();
+    let mut semantic_commits: Vec<_> = history_matches
+        .into_iter()
+        .map(|(commit, _)| commit)
+        .collect();
     collapse_stash_internal_commits(&mut semantic_commits, &stashes);
     let has_more = semantic_commits.len() > limit;
     semantic_commits.truncate(limit);
@@ -4567,7 +4776,7 @@ pub fn get_git_graph_snapshot(cwd: &str, limit: usize) -> GitGraphSnapshot {
     // A worktree's index and working directory are not commits. Insert a
     // synthetic child immediately before its real HEAD so it participates in
     // the same deterministic lane layout without ever masquerading as an OID.
-    for worktree in worktrees.iter().rev() {
+    for worktree in worktrees.iter().rev().filter(|_| query.trim().is_empty()) {
         let has_changes = worktree
             .status
             .as_ref()
@@ -4613,20 +4822,23 @@ pub fn get_git_graph_snapshot(cwd: &str, limit: usize) -> GitGraphSnapshot {
         .map(|stash| (stash.hash.as_str(), stash.name.as_str()))
         .collect::<HashMap<_, _>>();
     for commit in &mut commits {
+        commit.navigation.history_order = history_order.get(&commit.hash).copied();
         if let Some(stash_name) = stash_names.get(commit.hash.as_str()) {
             commit.id = format!("stash:{stash_name}");
             commit.item_kind = GitGraphItemKind::Stash;
             commit.stash_name = Some((*stash_name).to_string());
         }
     }
+    let ancestry = graph_semantics::prepare(&mut commits);
     GitGraphSnapshot {
+        ancestry,
         commits,
         rows,
         has_more,
         worktrees,
         stashes,
-        revision: get_git_repository_revision(cwd),
-        operation: get_git_repository_operation_state(cwd),
+        revision: input.revision,
+        operation: input.operation,
         state,
         state_error,
     }
@@ -4801,6 +5013,7 @@ fn layout_graph(commits: &[GitCommit]) -> (Vec<GraphCommit>, Vec<GraphRow>) {
                 )
             };
         graph_commits.push(GraphCommit {
+            navigation: GraphNavigation::default(),
             id,
             item_kind,
             hash,
@@ -4982,6 +5195,43 @@ mod tests {
             "git command failed: {}",
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    #[test]
+    fn large_tracked_diffs_keep_changed_rows_with_bounded_preview() {
+        let repo = TempDir::new().unwrap();
+        git(repo.path(), &["init", "-q"]);
+        git(repo.path(), &["config", "user.name", "Test"]);
+        git(repo.path(), &["config", "user.email", "test@example.com"]);
+        let before = (0..7000).map(|i| format!("line {i}\n")).collect::<String>();
+        let after = before.replace("line 6500\n", "changed row\n");
+        std::fs::write(repo.path().join("large.txt"), &before).unwrap();
+        git(repo.path(), &["add", "large.txt"]);
+        git(repo.path(), &["commit", "-qm", "initial"]);
+        std::fs::write(repo.path().join("large.txt"), &after).unwrap();
+        let allowed = AllowedPaths::new(repo.path(), repo.path().canonicalize().unwrap()).unwrap();
+        let working =
+            get_git_hunk_diff(&allowed, repo.path().to_str().unwrap(), "large.txt", false);
+        assert_eq!(working.new_lines.len(), content_lines(&after).len());
+        assert_eq!(working.new_lines[6500].line_type, GitDiffLineType::Add);
+        let historical = build_hunk_diff_from_versions(
+            working.raw_patch.unwrap(),
+            &before,
+            &after,
+            false,
+            false,
+            None,
+        );
+        assert_eq!(historical.new_lines[6500].content, "changed row");
+        let oversized = build_hunk_diff_from_versions(
+            String::new(),
+            "",
+            &"x".repeat(MAX_DIFF_TEXT_BYTES + 1),
+            true,
+            false,
+            None,
+        );
+        assert!(oversized.new_lines[0].content.contains("8 MiB"));
     }
 
     fn git_at(repository: &Path, args: &[&str], date: &str) {
@@ -6574,8 +6824,14 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires external measured fixture tests/fixtures/aivre-core-rows.tsv, absent from checkout"]
     fn aivre_core_long_history_matches_measured_gitkraken_columns() {
-        let commits = include_str!("../tests/fixtures/aivre-core-rows.tsv")
+        let fixture = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/aivre-core-rows.tsv"
+        ))
+        .expect("restore the measured GitKraken fixture before running this regression");
+        let commits = fixture
             .lines()
             .skip(1)
             .map(|line| {

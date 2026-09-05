@@ -1,13 +1,18 @@
-import { useCallback } from "octane";
+import { useCallback, useRef, useState } from "octane";
 import { runtimeGitGraphLaneColors } from "../../../design-system/styles.stylex.ts";
 import { DEFAULT_GIT_GRAPH_HISTORY_LIMIT } from "../../../modules/workbench/graph/model/graph-model.ts";
 import {
 	usePollingQuery,
 	useQueryResource,
 } from "../../../shared/hooks/useQueryResource.tsx";
-import type { GitProjectStatus } from "../model/types.ts";
+import type {
+	GitGraphAncestry,
+	GitGraphNavigation,
+	GitProjectStatus,
+} from "../model/types.ts";
 
 export interface GitCommit {
+	navigation?: GitGraphNavigation;
 	id: string;
 	itemKind: GitGraphItemKind;
 	hash: string;
@@ -98,6 +103,7 @@ export interface GitRepositoryOperationState {
 }
 
 export interface GraphData {
+	ancestry: GitGraphAncestry;
 	commits: GraphNode[];
 	rows: GraphRow[];
 	hasMore: boolean;
@@ -117,6 +123,7 @@ export type GitRepositorySnapshotState =
 	| "commandFailed";
 
 const EMPTY_GRAPH: GraphData = {
+	ancestry: {},
 	commits: [],
 	rows: [],
 	hasMore: false,
@@ -205,6 +212,7 @@ function graphNodeFromWire(node: WireGraphNode): GraphNode {
 	const author = wireString(node.author, "Unknown author");
 	const date = wireString(node.date);
 	return {
+		navigation: node.navigation,
 		id: wireString(node.id, hash),
 		itemKind: node.itemKind || "commit",
 		hash,
@@ -297,7 +305,10 @@ function areGraphRefsEqual(prev: GitGraphRef[], next: GitGraphRef[]) {
 }
 
 function areGraphDataEqual(prev: GraphData, next: GraphData) {
+	if (prev === next) return true;
 	if (prev.revision !== next.revision) return false;
+	if (JSON.stringify(prev.ancestry) !== JSON.stringify(next.ancestry))
+		return false;
 	if (prev.state !== next.state || prev.stateError !== next.stateError)
 		return false;
 	if (!prev.operation || !next.operation) return false;
@@ -317,6 +328,7 @@ function areGraphDataEqual(prev: GraphData, next: GraphData) {
 		const a = prev.commits[i]!;
 		const b = next.commits[i]!;
 		if (
+			JSON.stringify(a.navigation) !== JSON.stringify(b.navigation) ||
 			a.id !== b.id ||
 			a.itemKind !== b.itemKind ||
 			a.hash !== b.hash ||
@@ -387,20 +399,39 @@ export function useGitGraph(
 	cwd: string | undefined,
 	limit = DEFAULT_GIT_GRAPH_HISTORY_LIMIT,
 ) {
+	const [search, setSearch] = useState({ cwd, query: "" });
+	const searchQuery = search.cwd === cwd ? search.query : "";
+	const setSearchQuery = useCallback(
+		(query: string) => setSearch({ cwd, query }),
+		[cwd],
+	);
+	const responseRef = useRef<{
+		key: string;
+		etag: string;
+		data: GraphData;
+	} | null>(null);
 	const fetchGraph = useCallback(
 		async (signal?: AbortSignal) => {
 			if (!cwd) return EMPTY_GRAPH;
 			return (async () => {
+				const key = `${cwd}\0${limit}\0${searchQuery}`;
+				const cached =
+					responseRef.current?.key === key ? responseRef.current : null;
 				const res = await fetch(
-					`/api/git/graph?cwd=${encodeURIComponent(cwd)}&limit=${limit}`,
-					{ signal },
+					`/api/git/graph?cwd=${encodeURIComponent(cwd)}&limit=${limit}&query=${encodeURIComponent(searchQuery)}`,
+					{
+						signal,
+						headers: cached ? { "If-None-Match": cached.etag } : undefined,
+					},
 				);
+				if (res.status === 304 && cached) return cached.data;
 				if (!res.ok) {
 					const error = await res.json().catch(() => null);
 					throw new Error(error?.error || "Failed to fetch Git history");
 				}
 				const json = await res.json();
-				return {
+				const data: GraphData = {
+					ancestry: json.ancestry ?? {},
 					commits: ((json.commits || []) as WireGraphNode[]).map(
 						graphNodeFromWire,
 					),
@@ -415,21 +446,41 @@ export function useGitGraph(
 					stateError:
 						typeof json.stateError === "string" ? json.stateError : undefined,
 				};
+				const etag = res.headers?.get("etag");
+				if (etag && !signal?.aborted) responseRef.current = { key, etag, data };
+				return data;
 			})();
 		},
-		[cwd, limit],
+		[cwd, limit, searchQuery],
 	);
 	const {
 		data,
+		setData,
 		loading,
 		error,
 		refetch: refresh,
 	} = usePollingQuery<GraphData>(fetchGraph, 3000, EMPTY_GRAPH, {
-		queryKey: ["git", "graph", cwd ?? "", limit],
+		queryKey: ["git", "graph", cwd ?? "", limit, searchQuery],
 		enabled: !!cwd,
 		isEqual: areGraphDataEqual,
 	});
+	const updateWorktreeStatus = useCallback(
+		(cwd: string, update: (status: GitProjectStatus) => GitProjectStatus) => {
+			setData((current) => ({
+				...current,
+				worktrees: current.worktrees.map((worktree) =>
+					worktree.status?.cwd === cwd
+						? { ...worktree, status: update(worktree.status) }
+						: worktree,
+				),
+			}));
+		},
+		[setData],
+	);
 	return {
+		ancestry: data.ancestry,
+		searchQuery,
+		setSearchQuery,
 		commits: data.commits,
 		rows: data.rows,
 		hasMore: data.hasMore,
@@ -442,6 +493,7 @@ export function useGitGraph(
 		loading,
 		error,
 		refresh,
+		updateWorktreeStatus,
 	};
 }
 

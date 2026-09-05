@@ -34,9 +34,9 @@ use inferay_native_diff::{
     commit_git, finish_git_ref_operation, get_git_blame, get_git_branches,
     get_git_commit_details_for_parent, get_git_commit_hunk_diff_for_parent,
     get_git_comparison_details, get_git_comparison_hunk_diff, get_git_diff, get_git_file_history,
-    get_git_file_with_diff, get_git_graph_snapshot, get_git_log, get_git_status,
-    get_git_worktree_comparison_details, get_git_worktree_comparison_hunk_diff,
-    is_changed_git_file, perform_git_graph_action_with_targets, perform_git_interactive_rebase,
+    get_git_file_with_diff, get_git_log, get_git_status, get_git_worktree_comparison_details,
+    get_git_worktree_comparison_hunk_diff, is_changed_git_file,
+    perform_git_graph_action_with_targets, perform_git_interactive_rebase,
     perform_git_ref_operation, preflight_git_ref_operation, stage_git, unstage_git,
 };
 use percent_encoding::percent_decode_str;
@@ -69,10 +69,11 @@ pub mod native_prompts;
 mod one_shot;
 mod pid_tracker;
 mod provider_history;
+mod render_jobs;
 
 const LOCAL_AUTH_COOKIE: &str = "inferay_local_auth";
 const MAX_PROXY_BODY_BYTES: usize = 32 * 1024 * 1024;
-const MAX_NATIVE_DIFF_LINES: usize = 2_000;
+const MAX_NATIVE_DIFF_LINES: usize = 12_000;
 const CORS_METHODS: &str = "GET,POST,PUT,DELETE,OPTIONS";
 const CORS_HEADERS: &str = "Content-Type,X-Inferay-Auth";
 const MAX_TEMP_UPLOAD_BYTES: usize = 20 * 1024 * 1024;
@@ -226,6 +227,10 @@ impl chat_runtime::AgentExecutor for DirectAgentExecutor {
 struct NativeDiffBody {
     before: Option<String>,
     after: Option<String>,
+    #[serde(default)]
+    prepared: bool,
+    #[serde(default)]
+    edits: Vec<inferay_native_diff::SequentialEdit>,
 }
 
 #[derive(Deserialize)]
@@ -1517,15 +1522,30 @@ async fn git_graph(state: &ServerState, request: Request) -> Response {
         .as_deref()
         .map(|value| safe_limit(value, 1000, 100000))
         .unwrap_or(1000);
-    let task = tokio::task::spawn_blocking(move || get_git_graph_snapshot(&cwd, limit));
-    match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
-        Ok(Ok(snapshot)) => json_response(StatusCode::OK, json!(snapshot), &request_headers),
-        Ok(Err(error)) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error.to_string() }),
+    let query = query_value(&request, "query").unwrap_or_default();
+    if query.len() > 4096 {
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": "Graph search query is too long" }),
             &request_headers,
-        ),
-        Err(_) => json_response(
+        );
+    }
+    let started = std::time::Instant::now();
+    let task = async move {
+        let input_cwd = cwd.clone();
+        let input =
+            render_jobs::run(move || inferay_native_diff::prepare_git_graph(&input_cwd)).await?;
+        let key = format!("graph-v3\0{cwd}\0{limit}\0{}\0{query}", input.revision);
+        render_jobs::cached(key, std::time::Duration::from_secs(30), move || {
+            let snapshot =
+                inferay_native_diff::get_git_graph_snapshot_with_query(&cwd, limit, input, &query);
+            serde_json::to_vec(&snapshot).ok()
+        })
+        .await
+    };
+    match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
+        Ok(Ok((Some(body), hit))) => cached_render_response(body, hit, started, &request_headers),
+        _ => json_response(
             StatusCode::SERVICE_UNAVAILABLE,
             json!({ "error": "Git history request timed out" }),
             &request_headers,
@@ -1792,6 +1812,7 @@ async fn git_commit_diff(state: &ServerState, request: Request) -> Response {
     let hash = query_value(&request, "hash").filter(|hash| safe_hash(hash));
     let parent = query_value(&request, "parent").filter(|hash| safe_hash(hash));
     let file = query_value(&request, "file").filter(|file| is_safe_relative_path(file));
+    let render = query_value(&request, "render").as_deref() == Some("true");
     let review = query_value(&request, "view").as_deref() == Some("review");
     let (Some(cwd), Some(hash), Some(file)) = (cwd, hash, file) else {
         return json_response(
@@ -1800,18 +1821,23 @@ async fn git_commit_diff(state: &ServerState, request: Request) -> Response {
             &request_headers,
         );
     };
-    let task = tokio::task::spawn_blocking(move || {
+    let started = std::time::Instant::now();
+    let revision = query_value(&request, "revision").unwrap_or_default();
+    let key = format!(
+        "commit-diff-v2\0{cwd}\0{hash}\0{parent:?}\0{file}\0{review}\0{render}\0{revision}"
+    );
+    let task = render_jobs::cached(key, std::time::Duration::from_secs(2), move || {
         get_git_commit_hunk_diff_for_parent(&cwd, &hash, parent.as_deref(), &file, review)
+            .map(|diff| render_jobs::diff_bytes(diff, render))
     });
     match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
-        Ok(Ok(Some(diff))) => json_response(StatusCode::OK, json!(diff), &request_headers),
-        Ok(Ok(None)) => json_response(
+        Ok(Ok((Some(body), hit))) => cached_render_response(body, hit, started, &request_headers),
+        Ok(Ok((None, _))) => json_response(
             StatusCode::NOT_FOUND,
             json!({ "error": "File is not changed in this commit" }),
             &request_headers,
         ),
-        Ok(Err(error)) => internal_task_error(error, &request_headers),
-        Err(_) => json_response(
+        _ => json_response(
             StatusCode::SERVICE_UNAVAILABLE,
             json!({ "error": "Commit diff unavailable" }),
             &request_headers,
@@ -1869,6 +1895,7 @@ async fn git_comparison_diff(state: &ServerState, request: Request) -> Response 
     let from = query_value(&request, "from").filter(|hash| safe_hash(hash));
     let to = query_value(&request, "to").filter(|value| value == "WORKTREE" || safe_hash(value));
     let file = query_value(&request, "file").filter(|file| is_safe_relative_path(file));
+    let render = query_value(&request, "render").as_deref() == Some("true");
     let review = query_value(&request, "view").as_deref() == Some("review");
     let (Some(cwd), Some(from), Some(to), Some(file)) = (cwd, from, to, file) else {
         return json_response(
@@ -1878,22 +1905,31 @@ async fn git_comparison_diff(state: &ServerState, request: Request) -> Response 
         );
     };
     let allowed_paths = state.allowed_paths.clone();
-    let task = tokio::task::spawn_blocking(move || {
-        if to == "WORKTREE" {
+    let started = std::time::Instant::now();
+    let revision = query_value(&request, "revision").unwrap_or_default();
+    let key =
+        format!("comparison-diff-v2\0{cwd}\0{from}\0{to}\0{file}\0{review}\0{render}\0{revision}");
+    let ttl = if to == "WORKTREE" {
+        std::time::Duration::ZERO
+    } else {
+        std::time::Duration::from_secs(2)
+    };
+    let task = render_jobs::cached(key, ttl, move || {
+        let diff = if to == "WORKTREE" {
             get_git_worktree_comparison_hunk_diff(&allowed_paths, &cwd, &from, &file, review)
         } else {
             get_git_comparison_hunk_diff(&cwd, &from, &to, &file, review)
-        }
+        };
+        diff.map(|diff| render_jobs::diff_bytes(diff, render))
     });
     match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
-        Ok(Ok(Some(diff))) => json_response(StatusCode::OK, json!(diff), &request_headers),
-        Ok(Ok(None)) => json_response(
+        Ok(Ok((Some(body), hit))) => cached_render_response(body, hit, started, &request_headers),
+        Ok(Ok((None, _))) => json_response(
             StatusCode::NOT_FOUND,
             json!({ "error": "File is not changed between these commits" }),
             &request_headers,
         ),
-        Ok(Err(error)) => internal_task_error(error, &request_headers),
-        Err(_) => json_response(
+        _ => json_response(
             StatusCode::SERVICE_UNAVAILABLE,
             json!({ "error": "Comparison diff unavailable" }),
             &request_headers,
@@ -2038,6 +2074,7 @@ async fn git_diff(state: &ServerState, request: Request) -> Response {
 
 async fn git_full_diff(state: &ServerState, request: Request) -> Response {
     let request_headers = request.headers().clone();
+    let render = query_value(&request, "render").as_deref() == Some("true");
     let review = query_value(&request, "view").as_deref() == Some("review");
     let Some(params) = git_diff_params(state, &request) else {
         return json_response(
@@ -2047,11 +2084,13 @@ async fn git_full_diff(state: &ServerState, request: Request) -> Response {
         );
     };
     let native_git = state.native_git.clone();
-    let task = tokio::task::spawn_blocking(move || {
-        native_git.full_diff(&params.cwd, &params.file, params.staged, review)
+    let task = render_jobs::run(move || {
+        native_git
+            .full_diff(&params.cwd, &params.file, params.staged, review)
+            .map(|value| value.map(|diff| render_jobs::diff_bytes(diff, render)))
     });
     match task.await {
-        Ok(Ok(Some(diff))) => json_response(StatusCode::OK, json!(diff), &request_headers),
+        Ok(Ok(Some(body))) => json_bytes_response(StatusCode::OK, body.into(), &request_headers),
         Ok(Ok(None)) => json_response(
             StatusCode::NOT_FOUND,
             json!({ "error": "File is not changed" }),
@@ -3275,7 +3314,7 @@ async fn request_json<T: for<'de> Deserialize<'de>>(
     })
 }
 
-fn internal_task_error(error: tokio::task::JoinError, headers: &HeaderMap) -> Response {
+fn internal_task_error(error: impl std::fmt::Display, headers: &HeaderMap) -> Response {
     json_response(
         StatusCode::INTERNAL_SERVER_ERROR,
         json!({ "error": error.to_string() }),
@@ -3370,6 +3409,50 @@ async fn native_diff(request: Request) -> Response {
             );
         }
     };
+    if body.prepared {
+        let before = body.before.unwrap_or_default();
+        let after = body.after.unwrap_or_default();
+        let bytes =
+            body.edits
+                .iter()
+                .fold(before.len().saturating_add(after.len()), |total, edit| {
+                    total
+                        .saturating_add(edit.old_string.len())
+                        .saturating_add(edit.new_string.len())
+                });
+        if bytes > 2 * 1024 * 1024 || body.edits.len() > 1024 {
+            return json_response(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                json!({ "error": "Edit diff exceeds the preparation limit" }),
+                &request_headers,
+            );
+        }
+        let task = render_jobs::run(move || {
+            #[derive(Serialize)]
+            struct PreparedResponse {
+                prepared: inferay_native_diff::PreparedEditDiff,
+            }
+            inferay_native_diff::prepare_edit_diff(&before, &after, &body.edits).map(|prepared| {
+                serde_json::to_vec(&PreparedResponse { prepared })
+                    .expect("prepared diff serialization")
+            })
+        });
+        return match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
+            Ok(Ok(Ok(bytes))) => {
+                json_bytes_response(StatusCode::OK, bytes.into(), &request_headers)
+            }
+            Ok(Ok(Err(error))) => json_response(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                json!({ "error": error }),
+                &request_headers,
+            ),
+            _ => json_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                json!({ "error": "Edit diff preparation unavailable" }),
+                &request_headers,
+            ),
+        };
+    }
     let (Some(before), Some(after)) = (body.before, body.after) else {
         return json_response(
             StatusCode::BAD_REQUEST,
@@ -3391,20 +3474,84 @@ async fn native_diff(request: Request) -> Response {
         );
     }
 
-    let NativeResponse::Diff { mut diff } =
-        inferay_native_diff::execute_request(NativeRequest::Diff { before, after })
-    else {
-        unreachable!("diff request must produce a diff response");
-    };
-    diff.computed_at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    json_response(
-        StatusCode::OK,
-        json!({ "ok": true, "diff": diff }),
-        &request_headers,
-    )
+    let task = render_jobs::run(move || {
+        let NativeResponse::Diff { mut diff } =
+            inferay_native_diff::execute_request(NativeRequest::Diff { before, after })
+        else {
+            unreachable!()
+        };
+        diff.computed_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        serde_json::to_vec(&json!({ "ok": true, "diff": diff })).expect("diff serialization")
+    });
+    match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
+        Ok(Ok(body)) => json_bytes_response(StatusCode::OK, body.into(), &request_headers),
+        _ => json_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            json!({ "error": "Native diff unavailable" }),
+            &request_headers,
+        ),
+    }
+}
+
+fn cached_render_response(
+    body: axum::body::Bytes,
+    hit: bool,
+    started: std::time::Instant,
+    headers: &HeaderMap,
+) -> Response {
+    use std::hash::{Hash, Hasher};
+    let mut hash = std::collections::hash_map::DefaultHasher::new();
+    body.hash(&mut hash);
+    let etag = format!("\"{:x}\"", hash.finish());
+    let unchanged =
+        headers.get("if-none-match").and_then(|h| h.to_str().ok()) == Some(etag.as_str());
+    let mut response = json_bytes_response(
+        if unchanged {
+            StatusCode::NOT_MODIFIED
+        } else {
+            StatusCode::OK
+        },
+        if unchanged {
+            axum::body::Bytes::new()
+        } else {
+            body
+        },
+        headers,
+    );
+    response
+        .headers_mut()
+        .insert("etag", HeaderValue::from_str(&etag).unwrap());
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("private, no-cache"));
+    response.headers_mut().insert(
+        "server-timing",
+        HeaderValue::from_str(&format!(
+            "render;dur={:.2}, cache;desc=\"{}\"",
+            started.elapsed().as_secs_f64() * 1000.0,
+            if hit { "hit" } else { "miss" }
+        ))
+        .unwrap(),
+    );
+    response
+}
+
+fn json_bytes_response(
+    status: StatusCode,
+    body: axum::body::Bytes,
+    request_headers: &HeaderMap,
+) -> Response {
+    let mut response = Response::new(Body::from(body));
+    *response.status_mut() = status;
+    response.headers_mut().insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("application/json;charset=utf-8"),
+    );
+    add_cors_headers(response.headers_mut(), request_headers);
+    response
 }
 
 fn json_response(
@@ -3706,6 +3853,10 @@ async fn handle_native_websocket_message(
                 .unwrap_or("claude");
             let input = native_chat_service::NativeChatSendRequest {
                 pane_id: pane_id.into(),
+                client_message_id: message
+                    .get("messageId")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
                 agent_kind: agent_kind.into(),
                 session_id: message
                     .get("sessionId")
@@ -4317,6 +4468,47 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             json!({ "added": 1, "removed": 1, "unchanged": 1 })
         );
         assert!(value["diff"]["computedAt"].as_u64().unwrap() > 0);
+    }
+
+    #[tokio::test]
+    async fn prepares_sequential_edit_spans_without_legacy_diff_payload() {
+        let root = TempDir::new().unwrap();
+        let app = router(test_config(root.path()));
+        let (status, value) = call_json(
+            &app,
+            Method::POST,
+            "/api/native/diff".into(),
+            Some(json!({
+                "prepared": true,
+                "edits": [
+                    { "old_string": "const value = 1;", "new_string": "const value = 2;" },
+                    { "old_string": "2", "new_string": "3" }
+                ]
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(value.get("diff").is_none());
+        let lines = value["prepared"]["hunks"][0]["lines"].as_array().unwrap();
+        assert_eq!(lines[0]["text"], "const value = 1;");
+        assert_eq!(lines[1]["text"], "const value = 3;");
+        assert!(
+            lines[1]["segments"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|span| span["text"] == "3" && span["changed"] == true)
+        );
+        let (status, _) = call_json(
+            &app,
+            Method::POST,
+            "/api/native/diff".into(),
+            Some(json!({
+                "prepared": true, "before": "x".repeat(2 * 1024 * 1024 + 1), "after": ""
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
     }
 
     #[test]
@@ -5489,7 +5681,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             .clone()
             .oneshot(
                 HttpRequest::builder()
-                    .uri(graph_uri)
+                    .uri(&graph_uri)
                     .header(HOST, "127.0.0.1:4001")
                     .header("sec-fetch-site", "same-origin")
                     .header(COOKIE, "inferay_local_auth=test-token")
@@ -5499,6 +5691,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+        let etag = response.headers().get("etag").unwrap().clone();
         let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let graph_commits = value["commits"].as_array().unwrap();
@@ -5510,6 +5703,37 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             .unwrap();
         assert_eq!(initial["authorEmail"], "inferay@example.com");
         assert_eq!(value["rows"][0]["row"], 0);
+
+        let unchanged = app
+            .clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .uri(&graph_uri)
+                    .header(HOST, "127.0.0.1:4001")
+                    .header("sec-fetch-site", "same-origin")
+                    .header(COOKIE, "inferay_local_auth=test-token")
+                    .header("if-none-match", etag)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unchanged.status(), StatusCode::NOT_MODIFIED);
+        assert!(
+            to_bytes(unchanged.into_body(), 64 * 1024)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+
+        let search_uri = query_path(
+            "/api/git/graph",
+            &[("cwd", cwd.as_ref()), ("limit", "10"), ("query", "initial")],
+        );
+        let (status, search) = call_json(&app, Method::GET, search_uri, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(search["commits"].as_array().unwrap().len(), 1);
+        assert_eq!(search["commits"][0]["message"], "initial");
 
         let outside = TempDir::new().unwrap();
         let outside_cwd = outside.path().to_string_lossy();
