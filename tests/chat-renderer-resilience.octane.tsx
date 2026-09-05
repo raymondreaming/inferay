@@ -33,7 +33,7 @@ test("idle status does not render an obsolete offline queue notice", async () =>
 	const { root, rootElement } = setupDom();
 	try {
 		const { AgentChatStatusBar } = await import(
-			"../src/modules/conversation/components/AgentChatStatusBar.tsx"
+			"../src/modules/conversation/components/AgentChatStatusBar/index.tsx"
 		);
 		root.render(
 			<div>
@@ -54,7 +54,7 @@ test("active status keeps elapsed time and a compact stop control", async () => 
 	const { root, rootElement } = setupDom();
 	try {
 		const { AgentChatStatusBar } = await import(
-			"../src/modules/conversation/components/AgentChatStatusBar.tsx"
+			"../src/modules/conversation/components/AgentChatStatusBar/index.tsx"
 		);
 		root.render(
 			<AgentChatStatusBar
@@ -109,7 +109,7 @@ test("inline edits render only changed rows without hunk metadata", async () => 
 	const { root, rootElement } = setupDom();
 	try {
 		const { MiniEditDiff } = await import(
-			"../src/modules/conversation/components/ChatEditDiff.tsx"
+			"../src/modules/conversation/components/ChatEditDiff/index.tsx"
 		);
 		root.render(
 			<MiniEditDiff
@@ -135,7 +135,7 @@ test("a chat render failure stays inside its pane boundary", async () => {
 	const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 	try {
 		const { ChatPaneBoundary } = await import(
-			"../src/modules/conversation/components/ChatPaneBoundary.tsx"
+			"../src/modules/conversation/components/ChatPaneBoundary/index.tsx"
 		);
 		function BrokenChat(): never {
 			throw new Error("test chat failure");
@@ -188,7 +188,7 @@ test("large inline edits mount a bounded window of changed rows", async () => {
 	const { root, rootElement } = setupDom();
 	try {
 		const { MiniEditDiff } = await import(
-			"../src/modules/conversation/components/ChatEditDiff.tsx"
+			"../src/modules/conversation/components/ChatEditDiff/index.tsx"
 		);
 		root.render(
 			<MiniEditDiff
@@ -219,7 +219,7 @@ test("native edit failures stay visible without running a frontend diff", async 
 	const { root, rootElement } = setupDom();
 	try {
 		const { MiniEditDiff } = await import(
-			"../src/modules/conversation/components/ChatEditDiff.tsx"
+			"../src/modules/conversation/components/ChatEditDiff/index.tsx"
 		);
 		root.render(
 			<MiniEditDiff filePath="error.txt" oldStr="a" newStr="b" isStreaming />,
@@ -252,7 +252,7 @@ test("long transcripts mount a measured window and move it when scrolling", asyn
 	});
 	try {
 		const { ChatMessageList } = await import(
-			"../src/modules/conversation/components/ChatMessageList.tsx"
+			"../src/modules/conversation/components/ChatMessageList/index.tsx"
 		);
 		root.render(
 			<ChatMessageList
@@ -354,7 +354,7 @@ test("short tool milestones fill a tall viewport without mounting the whole time
 		});
 	try {
 		const { ChatMessageList } = await import(
-			"../src/modules/conversation/components/ChatMessageList.tsx"
+			"../src/modules/conversation/components/ChatMessageList/index.tsx"
 		);
 		root.render(
 			<ChatMessageList
@@ -444,10 +444,10 @@ test("native Markdown renders nested tokens once per shared input", async () => 
 	const openPath = vi.fn();
 	try {
 		const { Markdown } = await import(
-			"../src/modules/conversation/components/ChatRichContent.tsx"
+			"../src/modules/conversation/components/ChatRichContent/index.tsx"
 		);
 		const { MarkdownPreview } = await import(
-			"../src/modules/workbench/diff/components/MarkdownPreview.tsx"
+			"../src/modules/workbench/diff/components/MarkdownPreview/index.tsx"
 		);
 		root.render(
 			<div>
@@ -485,7 +485,7 @@ test("document Markdown shows raw pending and failed input and rejects stale res
 	const { root, rootElement } = setupDom();
 	try {
 		const { MarkdownPreview } = await import(
-			"../src/modules/workbench/diff/components/MarkdownPreview.tsx"
+			"../src/modules/workbench/diff/components/MarkdownPreview/index.tsx"
 		);
 		root.render(<MarkdownPreview content="**first document**" />);
 		await vi.waitFor(() => expect(pending).toHaveLength(1));
@@ -542,7 +542,7 @@ test("streaming Markdown retains prepared output and bounds in-flight work until
 	const { root, rootElement } = setupDom();
 	try {
 		const { Markdown } = await import(
-			"../src/modules/conversation/components/ChatRichContent.tsx"
+			"../src/modules/conversation/components/ChatRichContent/index.tsx"
 		);
 		root.render(<Markdown text="one" streaming />);
 		await vi.waitFor(() => expect(pending).toHaveLength(1));
@@ -615,10 +615,10 @@ test("tool rows and question controls consume native descriptors", async () => {
 	const send = vi.fn();
 	try {
 		const { ChatMessageList } = await import(
-			"../src/modules/conversation/components/ChatMessageList.tsx"
+			"../src/modules/conversation/components/ChatMessageList/index.tsx"
 		);
 		const { AskUserQuestionCard } = await import(
-			"../src/modules/conversation/components/ChatRichContent.tsx"
+			"../src/modules/conversation/components/ChatRichContent/index.tsx"
 		);
 		root.render(
 			<>

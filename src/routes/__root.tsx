@@ -1,20 +1,13 @@
 import type { QueryClient } from "@octanejs/tanstack-query";
-import { QueryClientProvider } from "@octanejs/tanstack-query";
-import {
-	Body,
-	createRootRouteWithContext,
-	Head,
-	HeadContent,
-	Html,
-	Outlet,
-	Scripts,
-} from "@octanejs/tanstack-router";
-import { queryClient } from "../shared/lib/query-client.ts";
-import { ErrorBoundary } from "../shared/ui/ErrorBoundary.tsx";
+
+import { createRootRouteWithContext } from "@octanejs/tanstack-router";
+
 import "../design-system/styles.css";
 import "virtual:stylex.css";
+import { DocumentShell } from "../app/components/DocumentShell/index.tsx";
+import { RootComponent } from "../app/components/RootComponent/index.tsx";
 
-interface RouterContext {
+export interface RouterContext {
 	queryClient: QueryClient;
 }
 
@@ -50,27 +43,4 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 	shellComponent: DocumentShell,
 	component: RootComponent,
 });
-
-function DocumentShell({ children }: { readonly children?: unknown }) {
-	return (
-		<Html lang="en">
-			<Head>
-				<HeadContent />
-			</Head>
-			<Body>
-				{children}
-				<Scripts />
-			</Body>
-		</Html>
-	);
-}
-
-function RootComponent() {
-	return (
-		<QueryClientProvider client={queryClient}>
-			<ErrorBoundary>
-				<Outlet />
-			</ErrorBoundary>
-		</QueryClientProvider>
-	);
-}
+export { RootComponent } from "../app/components/RootComponent/index.tsx";

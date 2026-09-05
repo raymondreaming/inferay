@@ -57,50 +57,86 @@ test("chat startup clears legacy localStorage message blobs", async () => {
 	}
 });
 
-test("chat queue file saves serialize the latest queue", async () => {
-	const restoreBrowserStorage = installBrowserStorage();
+test("queue mutations serialize commands and preserve snapshots on server failure", async () => {
+	const restore = installBrowserStorage();
 	const previousFetch = globalThis.fetch;
-	const queuedSaves: string[][] = [];
-	let resolveFirstSave: () => void = () => {
-		throw new Error("First queue save was not started");
-	};
-	globalThis.fetch = mock((input: RequestInfo | URL, init?: RequestInit) => {
-		const url = String(input);
-		if (url.includes("/api/chat-queues/") && init?.method === "PUT") {
-			const payload = JSON.parse(String(init.body)) as {
-				queue: Array<{ text: string }>;
-			};
-			queuedSaves.push(payload.queue.map((item) => item.text));
-			if (queuedSaves.length === 1) {
-				return new Promise<Response>((resolve) => {
-					resolveFirstSave = () => resolve(Response.json({ ok: true }));
-				});
-			}
+	const requests: Array<{ action: string; id: string; text?: string }> = [];
+	let resolveFirst!: (response: Response) => void;
+	globalThis.fetch = mock((_input: RequestInfo | URL, init?: RequestInit) => {
+		if (!String(_input).includes("/api/chat-queues/"))
 			return Promise.resolve(Response.json({ ok: true }));
-		}
-		return Promise.resolve(Response.json({ ok: true }));
-	}) as unknown as typeof fetch;
+		expect(init?.method).toBe("PATCH");
+		requests.push(JSON.parse(String(init?.body)));
+		if (requests.length === 1)
+			return new Promise<Response>((resolve) => {
+				resolveFirst = resolve;
+			});
+		return Promise.resolve(
+			Response.json({ error: "disk full" }, { status: 500 }),
+		);
+	}) as typeof fetch;
 	try {
-		const { saveStoredQueue } = await import(
+		const { getChatQueueReadModel } = await import(
 			"../src/modules/conversation/model/chat-session-store.ts"
 		);
-
-		saveStoredQueue("pane-save-race", [
-			{ id: "q1", text: "first", displayText: "first" },
+		const model = getChatQueueReadModel("pane-command-order");
+		model.replaceFromServer([
+			{ id: "q1", text: "original", displayText: "original" },
 		]);
-		saveStoredQueue("pane-save-race", [
-			{ id: "q1", text: "first", displayText: "first" },
-			{ id: "q2", text: "second", displayText: "second" },
-		]);
-		await new Promise((resolve) => setTimeout(resolve, 20));
-
-		expect(queuedSaves).toEqual([["first"]]);
-		resolveFirstSave();
-		await new Promise((resolve) => setTimeout(resolve, 20));
-		expect(queuedSaves).toEqual([["first"], ["first", "second"]]);
+		const first = model.mutate("edit", "q1", "updated");
+		const second = model.mutate("remove", "q1");
+		const failure = second.catch((error) => error);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(requests).toEqual([{ action: "edit", id: "q1", text: "updated" }]);
+		expect(model.getSnapshot()[0]?.text).toBe("original");
+		resolveFirst(
+			Response.json({
+				queue: [{ id: "q1", text: "updated", displayText: "updated" }],
+			}),
+		);
+		await first;
+		expect((await failure).message).toContain(
+			"Could not update queued message",
+		);
+		expect(requests[1]).toEqual({ action: "remove", id: "q1" });
+		expect(model.getSnapshot()[0]?.text).toBe("updated");
 	} finally {
 		globalThis.fetch = previousFetch;
-		restoreBrowserStorage();
+		restore();
+	}
+});
+
+test("queue mutation response cannot replace a newer server snapshot", async () => {
+	const restore = installBrowserStorage();
+	const previousFetch = globalThis.fetch;
+	let finish!: (response: Response) => void;
+	globalThis.fetch = mock(
+		() =>
+			new Promise<Response>((resolve) => {
+				finish = resolve;
+			}),
+	) as typeof fetch;
+	try {
+		const { getChatQueueReadModel } = await import(
+			"../src/modules/conversation/model/chat-session-store.ts"
+		);
+		const model = getChatQueueReadModel("pane-stale-mutation");
+		model.replaceFromServer([
+			{ id: "q1", text: "original", displayText: "original" },
+		]);
+		const pending = model.mutate("edit", "q1", "edited");
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		model.replaceFromServer([]);
+		finish(
+			Response.json({
+				queue: [{ id: "q1", text: "edited", displayText: "edited" }],
+			}),
+		);
+		await pending;
+		expect(model.getSnapshot()).toEqual([]);
+	} finally {
+		globalThis.fetch = previousFetch;
+		restore();
 	}
 });
 
@@ -359,70 +395,43 @@ test("chat checkpoint read model derives finalized checkpoints from settled assi
 	}
 });
 
-test("chat queue read model publishes updates and ignores stale async loads", async () => {
-	const restoreBrowserStorage = installBrowserStorage();
+test("queue mutation invalidates an older startup load before its response arrives", async () => {
+	const restore = installBrowserStorage();
 	const previousFetch = globalThis.fetch;
-	let resolveQueueFetch: () => void = () => {
-		throw new Error("Queue fetch was not started");
-	};
-	const savedQueues: string[][] = [];
-	globalThis.fetch = mock((input: RequestInfo | URL, init?: RequestInit) => {
-		const url = String(input);
-		if (url.includes("/api/chat-queues/") && !init?.method) {
-			return new Promise<Response>((resolve) => {
-				resolveQueueFetch = () =>
-					resolve(
-						Response.json({
-							queue: [{ id: "q1", text: "stale", displayText: "stale" }],
-						}),
-					);
-			});
-		}
-		if (url.includes("/api/chat-queues/") && init?.method === "PUT") {
-			const payload = JSON.parse(String(init.body)) as {
-				queue: Array<{ text: string }>;
-			};
-			savedQueues.push(payload.queue.map((item) => item.text));
-		}
-		return Promise.resolve(Response.json({ ok: true }));
-	}) as unknown as typeof fetch;
+	let finishLoad!: (response: Response) => void;
+	let finishMutation!: (response: Response) => void;
+	globalThis.fetch = mock(
+		(_input: RequestInfo | URL, init?: RequestInit) =>
+			new Promise<Response>((resolve) => {
+				if (init?.method === "PATCH") finishMutation = resolve;
+				else finishLoad = resolve;
+			}),
+	) as typeof fetch;
 	try {
 		const { getChatQueueReadModel } = await import(
 			"../src/modules/conversation/model/chat-session-store.ts"
 		);
-		const model = getChatQueueReadModel("pane-queue-model");
-		let updateCount = 0;
-		const unsubscribe = model.subscribe(() => {
-			updateCount++;
-		});
-
-		const loadPromise = model.loadAsync();
-		await new Promise((resolve) => setTimeout(resolve, 20));
-		model.setLocal([{ id: "q2", text: "newer", displayText: "newer" }]);
-		await new Promise((resolve) => setTimeout(resolve, 20));
-		expect(model.getSnapshot().map((item) => item.text)).toEqual(["newer"]);
-		expect(savedQueues).toEqual([["newer"]]);
-		expect(updateCount).toBe(1);
-
-		resolveQueueFetch();
-		await loadPromise;
-		expect(model.getSnapshot().map((item) => item.text)).toEqual(["newer"]);
-		expect(updateCount).toBe(1);
-
-		model.replaceFromServer([
-			{ id: "q3", text: "server", displayText: "server" },
-		]);
-		await new Promise((resolve) => setTimeout(resolve, 20));
-		expect(model.getSnapshot().map((item) => item.text)).toEqual(["server"]);
-		expect(savedQueues).toEqual([["newer"]]);
-		expect(updateCount).toBe(2);
-
-		unsubscribe();
-		model.setLocal([]);
-		expect(updateCount).toBe(2);
+		const model = getChatQueueReadModel("pane-load-before-command");
+		const loading = model.loadAsync();
+		const mutation = model.mutate("edit", "q1", "newer");
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		finishLoad(
+			Response.json({
+				queue: [{ id: "q1", text: "stale", displayText: "stale" }],
+			}),
+		);
+		await loading;
+		expect(model.getSnapshot()).toEqual([]);
+		finishMutation(
+			Response.json({
+				queue: [{ id: "q1", text: "newer", displayText: "newer" }],
+			}),
+		);
+		await mutation;
+		expect(model.getSnapshot()[0]?.text).toBe("newer");
 	} finally {
 		globalThis.fetch = previousFetch;
-		restoreBrowserStorage();
+		restore();
 	}
 });
 

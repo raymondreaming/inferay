@@ -131,7 +131,7 @@ function setupDom() {
 describe("Git commit graph renderer", () => {
 	test("keeps a 10,000-commit graph virtualized and selects by stable identity", async () => {
 		const { CommitGraph } = await import(
-			"../src/modules/workbench/graph/components/CommitGraph.tsx"
+			"../src/modules/workbench/graph/components/CommitGraph/index.tsx"
 		);
 		const commits = Array.from({ length: 10_000 }, (_, index) =>
 			graphCommit(index),
@@ -493,7 +493,7 @@ describe("Git commit graph renderer", () => {
 
 	test("keeps historical commit files in the sidebar while a diff is open", async () => {
 		const { ChangesPanel } = await import(
-			"../src/modules/workbench/changes/components/ChangesPanel.tsx"
+			"../src/modules/workbench/changes/components/ChangesPanel/index.tsx"
 		);
 		const { dom, root, rootElement } = setupDom();
 		const onSelectCommitFile = vi.fn();
@@ -523,7 +523,7 @@ describe("Git commit graph renderer", () => {
 						},
 					]}
 					selectedFile={{
-						path: "src/modules/workbench/graph/components/CommitGraph.tsx",
+						path: "src/modules/workbench/graph/components/CommitGraph/index.tsx",
 						staged: false,
 					}}
 					onSelectFile={() => {}}
@@ -557,7 +557,7 @@ describe("Git commit graph renderer", () => {
 						],
 						files: [
 							{
-								path: "src/modules/workbench/graph/components/CommitGraph.tsx",
+								path: "src/modules/workbench/graph/components/CommitGraph/index.tsx",
 								status: "M",
 								additions: 18,
 								deletions: 4,
@@ -606,7 +606,7 @@ describe("Git commit graph renderer", () => {
 			expect(rootElement.textContent).not.toContain("Diff parent:");
 			expect(rootElement.textContent).not.toContain("GitHub ·");
 			expect(rootElement.textContent).toContain(
-				"src/modules/workbench/graph/components/CommitGraph.tsx",
+				"src/modules/workbench/graph/components/CommitGraph/index.tsx",
 			);
 			expect(rootElement.textContent).toContain(
 				"src/modules/workbench/hooks/useRepositoryWorkbench.tsx",
@@ -618,7 +618,7 @@ describe("Git commit graph renderer", () => {
 			expect(rootElement.textContent).not.toContain("Unstaged Files");
 			expect(
 				rootElement.querySelector('[data-git-file-active="true"]')?.textContent,
-			).toContain("CommitGraph.tsx");
+			).toContain("CommitGraph/index.tsx");
 			rootElement
 				.querySelector('button[aria-label="Repository graph"]')
 				?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
@@ -646,7 +646,7 @@ describe("Git commit graph renderer", () => {
 
 	test("keeps incomplete historical author metadata inside the details panel", async () => {
 		const { ChangesPanel } = await import(
-			"../src/modules/workbench/changes/components/ChangesPanel.tsx"
+			"../src/modules/workbench/changes/components/ChangesPanel/index.tsx"
 		);
 		const { root, rootElement } = setupDom();
 		const hash = "47e2380000000000000000000000000000000000";
@@ -704,6 +704,86 @@ describe("Git commit graph renderer", () => {
 		}
 	});
 
+	test("gets comparison endpoints and details together and clears them when selection clears", async () => {
+		const { useComparisonDetails } = await import(
+			"../src/modules/repository/hooks/useGitGraph.tsx"
+		);
+		const { queryClient } = await import("../src/shared/lib/query-client.ts");
+		const { root, rootElement } = setupDom();
+		const previousFetch = globalThis.fetch;
+		const selection = [
+			{
+				id: "old",
+				hash: "a".repeat(40),
+				itemKind: "commit" as const,
+				historyOrder: 99,
+			},
+			{
+				id: "wip",
+				hash: "",
+				itemKind: "worktreeWip" as const,
+				worktreePath: "/fixture/linked",
+			},
+		];
+		const fetchDetails = vi.fn(
+			async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+				ok: true,
+				json: async () => ({
+					plan: {
+						cwd: "/fixture/linked",
+						from: "a".repeat(40),
+						to: "WORKTREE",
+					},
+					details: { files: [{ path: "changed.ts" }] },
+				}),
+			}),
+		);
+		globalThis.fetch = fetchDetails as unknown as typeof fetch;
+		function Harness({ selected }: { selected: boolean }) {
+			const state = useComparisonDetails(
+				"/fixture/comparison",
+				undefined,
+				undefined,
+				"comparison-test",
+				selected ? selection : undefined,
+			);
+			return (
+				<div>
+					{state.plan
+						? `${state.plan.cwd}|${state.plan.to}|${state.details?.files[0]?.path}`
+						: "No comparison"}
+				</div>
+			);
+		}
+		try {
+			root.render(<Harness selected />);
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			expect(fetchDetails).toHaveBeenCalledOnce();
+			const request = new URL(
+				String((fetchDetails.mock.calls as unknown[][])[0][0]),
+				"http://localhost",
+			);
+			expect(request.pathname).toBe("/api/git/comparison-details");
+			expect(fetchDetails.mock.calls[0]?.[1]?.method).toBe("POST");
+			expect(
+				JSON.parse(String(fetchDetails.mock.calls[0]?.[1]?.body)).selection,
+			).toEqual(selection);
+			expect(rootElement.textContent).toBe(
+				"/fixture/linked|WORKTREE|changed.ts",
+			);
+			root.render(<Harness selected={false} />);
+			await new Promise((resolve) => setTimeout(resolve, 30));
+			expect(rootElement.textContent).toBe("No comparison");
+			expect(fetchDetails).toHaveBeenCalledOnce();
+		} finally {
+			root.unmount();
+			queryClient.removeQueries({
+				queryKey: ["git", "comparison", "/fixture/comparison"],
+			});
+			globalThis.fetch = previousFetch;
+		}
+	});
+
 	test("fetches first-selection commit details and normalizes the native wire format", async () => {
 		const { useCommitDetails } = await import(
 			"../src/modules/repository/hooks/useGitGraph.tsx"
@@ -712,35 +792,37 @@ describe("Git commit graph renderer", () => {
 		const { root, rootElement } = setupDom();
 		const hash = "6be80ae0000000000000000000000000000000000";
 		const previousFetch = globalThis.fetch;
-		const fetchDetails = vi.fn(async () => ({
-			ok: true,
-			json: async () => ({
-				details: {
-					hash,
-					parents: [],
-					diff_parent: null,
-					message: "Keep the titlebar above search content",
-					body: "",
-					author: "Graph Author",
-					author_email: "graph-author@users.noreply.github.com",
-					authored_at: "2026-08-25T09:57:00-05:00",
-					committer: "Graph Author",
-					committer_email: "graph-author@users.noreply.github.com",
-					committed_at: "2026-08-25T09:57:00-05:00",
-					refs: [],
-					files: [
-						{
-							path: "src/app.tsx",
-							original_path: "src/old-app.tsx",
-							status: "R",
-							additions: 4,
-							deletions: 2,
-							binary: false,
-						},
-					],
-				},
+		const fetchDetails = vi.fn(
+			async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+				ok: true,
+				json: async () => ({
+					details: {
+						hash,
+						parents: [],
+						diff_parent: null,
+						message: "Keep the titlebar above search content",
+						body: "",
+						author: "Graph Author",
+						author_email: "graph-author@users.noreply.github.com",
+						authored_at: "2026-08-25T09:57:00-05:00",
+						committer: "Graph Author",
+						committer_email: "graph-author@users.noreply.github.com",
+						committed_at: "2026-08-25T09:57:00-05:00",
+						refs: [],
+						files: [
+							{
+								path: "src/app.tsx",
+								original_path: "src/old-app.tsx",
+								status: "R",
+								additions: 4,
+								deletions: 2,
+								binary: false,
+							},
+						],
+					},
+				}),
 			}),
-		})) as unknown as typeof fetch;
+		) as unknown as typeof fetch;
 		globalThis.fetch = fetchDetails;
 		function Harness() {
 			const state = useCommitDetails(
@@ -784,9 +866,113 @@ describe("Git commit graph renderer", () => {
 		}
 	});
 
+	test("filters native directory rows during optimistic staging and keeps collapse local", async () => {
+		const { ChangesPanel } = await import(
+			"../src/modules/workbench/changes/components/ChangesPanel/index.tsx"
+		);
+		const { dom, root, rootElement } = setupDom();
+		const a = { path: "src/a.rs", staged: false, status: "M" };
+		const b = { path: "docs/b.md", staged: true, status: "M" };
+		const presentation = {
+			pathOrder: [b.path, a.path],
+			treeOrder: [b.path, a.path],
+			tree: [
+				{
+					name: "docs",
+					path: "docs",
+					fileRange: [0, 1] as const,
+					children: [
+						{
+							name: "b.md",
+							path: b.path,
+							fileRange: [0, 1] as const,
+							children: [],
+						},
+					],
+				},
+				{
+					name: "src",
+					path: "src",
+					fileRange: [1, 2] as const,
+					children: [
+						{
+							name: "a.rs",
+							path: a.path,
+							fileRange: [1, 2] as const,
+							children: [],
+						},
+					],
+				},
+			],
+		};
+		const render = (staged: boolean) =>
+			root.render(
+				<ChangesPanel
+					fileViewMode="tree"
+					onFileViewModeChange={() => {}}
+					filePresentation={presentation}
+					content="workingTree"
+					graphActive={false}
+					modified={staged ? [] : [a]}
+					untracked={[]}
+					staged={staged ? [b, { ...a, staged: true }] : [b]}
+					selectedFile={null}
+					onSelectFile={() => {}}
+					onStageFile={() => {}}
+					onUnstageFile={() => {}}
+					onStageAll={() => {}}
+					onUnstageAll={() => {}}
+					hasProject
+					commitDetailsLoading={false}
+					commitDetails={null}
+					branch="main"
+					commitMessage=""
+					onCommitMessageChange={() => {}}
+					onCommit={() => {}}
+					isCommitting={false}
+					amendMode={false}
+					onAmendModeChange={() => {}}
+					showCommitSection={false}
+				/>,
+			);
+		try {
+			render(false);
+			await new Promise((resolve) => setTimeout(resolve, 30));
+			const fileButtons = () =>
+				Array.from(
+					rootElement.querySelectorAll<HTMLButtonElement>(
+						"[data-git-file-select]",
+					),
+				);
+			expect(
+				fileButtons().filter((button) => button.textContent === "docs"),
+			).toHaveLength(1);
+			const directory = fileButtons().find(
+				(button) => button.textContent === "src",
+			)!;
+			directory.dispatchEvent(
+				new dom.window.MouseEvent("click", { bubbles: true, detail: 0 }),
+			);
+			await new Promise((resolve) => setTimeout(resolve, 10));
+			expect(
+				fileButtons().some((button) => button.textContent?.includes("a.rs")),
+			).toBe(false);
+			render(true);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(
+				fileButtons().filter((button) => button.textContent?.includes("a.rs")),
+			).toHaveLength(1);
+			expect(
+				fileButtons().filter((button) => button.textContent === "src"),
+			).toHaveLength(1);
+		} finally {
+			root.unmount();
+		}
+	});
+
 	test("keeps the live WIP sidebar visible while a file diff is open", async () => {
 		const { ChangesPanel } = await import(
-			"../src/modules/workbench/changes/components/ChangesPanel.tsx"
+			"../src/modules/workbench/changes/components/ChangesPanel/index.tsx"
 		);
 		const { dom, root, rootElement } = setupDom();
 		const onStageAll = vi.fn();
@@ -805,7 +991,7 @@ describe("Git commit graph renderer", () => {
 						{
 							status: "M",
 							staged: false,
-							path: "src/modules/workbench/graph/components/CommitGraph.tsx",
+							path: "src/modules/workbench/graph/components/CommitGraph/index.tsx",
 							additions: 12,
 							deletions: 3,
 						},
@@ -882,7 +1068,7 @@ describe("Git commit graph renderer", () => {
 
 	test("renders busy, WIP, stash, merge, selected, ghost, and truncated states", async () => {
 		const { CommitGraph } = await import(
-			"../src/modules/workbench/graph/components/CommitGraph.tsx"
+			"../src/modules/workbench/graph/components/CommitGraph/index.tsx"
 		);
 		const base = graphCommit(0);
 		const commits: GraphNode[] = [
@@ -1289,7 +1475,7 @@ describe("Git commit graph renderer", () => {
 	});
 	test("search results stay visible when a persisted solo tip is outside the matches", async () => {
 		const { CommitGraph } = await import(
-			"../src/modules/workbench/graph/components/CommitGraph.tsx"
+			"../src/modules/workbench/graph/components/CommitGraph/index.tsx"
 		);
 		const { dom, root, rootElement } = setupDom();
 		const repositoryKey = "/solo-search-fixture";

@@ -13,12 +13,6 @@ import {
 	clearCompletedChatUiState,
 } from "../src/modules/conversation/model/chat-agent-utils.ts";
 import {
-	applyInlineCompletion,
-	expandInlineCommandPrompts,
-	getCommandDisplayText,
-	getCommandPrompt,
-} from "../src/modules/conversation/model/chat-command-utils.ts";
-import {
 	appendBtwQuestionMessage,
 	appendMessageContent,
 	appendSystemMessage,
@@ -29,11 +23,6 @@ import {
 	patchMessageById,
 	windowChatMessagesForRender,
 } from "../src/modules/conversation/model/chat-state-utils.ts";
-import {
-	parseCommandSystemMessage,
-	serializeCommandSystemMessage,
-} from "../src/modules/conversation/model/command-system-message.ts";
-import { parseGoalSystemMessage } from "../src/modules/conversation/model/goal-system-message.ts";
 
 function message(
 	id: string,
@@ -193,44 +182,6 @@ describe("chat data behavior", () => {
 			},
 		]);
 		expect(finishBtwMessage([btw], null, "ignored")).toEqual([btw]);
-	});
-
-	test("parses structured goal system messages", () => {
-		const structured = JSON.stringify({
-			type: "inferay.goal",
-			status: "active",
-			objective: "Ship the feature",
-			turns: 2,
-			detail: "Goal resumed",
-		});
-
-		expect(parseGoalSystemMessage(structured)).toEqual({
-			type: "inferay.goal",
-			status: "active",
-			objective: "Ship the feature",
-			turns: 2,
-			detail: "Goal resumed",
-		});
-		expect(parseGoalSystemMessage("Goal started: Fix checkout")).toBeNull();
-		expect(parseGoalSystemMessage("ordinary system message")).toBeNull();
-	});
-
-	test("parses structured command system messages", () => {
-		const structured = serializeCommandSystemMessage({
-			type: "inferay.command",
-			name: "commit",
-			description: "Commit the current changes",
-			args: "fix picker",
-		});
-
-		expect(parseCommandSystemMessage(structured)).toEqual({
-			type: "inferay.command",
-			name: "commit",
-			description: "Commit the current changes",
-			args: "fix picker",
-		});
-		expect(parseCommandSystemMessage('{"type":"inferay.command"}')).toBeNull();
-		expect(parseCommandSystemMessage("Running /commit...")).toBeNull();
 	});
 
 	test("deduplicates adjacent identical goal system messages", () => {
@@ -403,34 +354,5 @@ describe("chat data behavior", () => {
 			message("s1", "newer assistant", "assistant"),
 			message("s2", "user prompt"),
 		]);
-	});
-
-	/*
-	 * This protects slash-command expansion before prompts are sent to an agent.
-	 * Commands must expand only whole slash tokens, preserve display text for
-	 * explicit command sends, and place inline completions at the intended cursor.
-	 */
-	test("expands slash commands and applies inline completion replacements", () => {
-		const commands = [
-			{ id: "review-id", name: "review", promptTemplate: "Review: {args}" },
-			{ id: "fix-id", name: "fix", promptTemplate: "Fix the issue" },
-		];
-
-		expect(getCommandDisplayText({ name: "review" }, "src/app.ts")).toBe(
-			"/review src/app.ts",
-		);
-		expect(getCommandPrompt(commands[0]!, "src/app.ts")).toBe(
-			"Review: src/app.ts",
-		);
-		expect(
-			expandInlineCommandPrompts("Please /review and then /fix", commands),
-		).toEqual({
-			expandedText: "Please Review: and then Fix the issue",
-			usedCommandIds: ["review-id", "fix-id"],
-		});
-		expect(applyInlineCompletion("run /re now", 7, 4, "/review")).toEqual({
-			nextValue: "run /review now",
-			nextCursor: 11,
-		});
 	});
 });

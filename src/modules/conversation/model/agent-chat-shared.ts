@@ -1,3 +1,8 @@
+import type {
+	SkillProposal,
+	SkillRead,
+} from "../../skills/model/skill-library.ts";
+
 export interface QueuedMessageInfo {
 	id: string;
 	text: string;
@@ -42,6 +47,28 @@ export interface AskUserQuestion {
 	multiSelect?: boolean;
 }
 
+export type CommandSystemMessage = {
+	type: "inferay.command";
+	name: string;
+	description?: string;
+	args?: string;
+};
+
+export type GoalSystemStatus =
+	| "active"
+	| "paused"
+	| "complete"
+	| "cleared"
+	| "empty";
+
+export type GoalSystemMessage = {
+	type: "inferay.goal";
+	status: GoalSystemStatus;
+	objective?: string;
+	turns?: number;
+	detail?: string;
+};
+
 export interface NativeChatRender {
 	version: 1;
 	kind: "message" | "edit-group" | "tool-group";
@@ -53,6 +80,15 @@ export interface NativeChatRender {
 	display?: NativeToolDisplay;
 	summary?: NativeToolSummary | null;
 	questions?: AskUserQuestion[] | null;
+	command?: CommandSystemMessage;
+	goal?: GoalSystemMessage;
+	skillProposal?: SkillProposal;
+	skillRead?: SkillRead;
+	skillParts?: Array<
+		| { start: number; end: number }
+		| { proposal: SkillProposal; index: number }
+		| { pending: true }
+	>;
 }
 
 export interface ChatTranscriptUpdate {
@@ -117,7 +153,6 @@ export interface SlashCommand {
 	name: string;
 	description: string;
 	action: "local" | "send";
-	promptTemplate?: string;
 	category?: string;
 	isLocalCommand?: boolean;
 	isFromLibrary?: boolean;

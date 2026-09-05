@@ -1,0 +1,61 @@
+import * as stylex from "@octanejs/stylex";
+import {
+	color,
+	controlSize,
+	font,
+	motion,
+	radius,
+} from "../../../../design-system/styles.stylex.ts";
+
+export const styles = stylex.create({
+	root: {
+		alignItems: "center",
+		display: "flex",
+		flexShrink: 0,
+		gap: controlSize._2,
+		justifyContent: "space-between",
+		paddingBlock: controlSize._1,
+		paddingInline: controlSize._3,
+		userSelect: "none",
+	},
+	toolIcon: {
+		flexShrink: 0,
+	},
+	activity: {
+		flex: 1,
+		minWidth: controlSize._0,
+		alignItems: "center",
+		display: "flex",
+		height: controlSize._6,
+	},
+	stopButton: {
+		alignItems: "center",
+		backgroundColor: {
+			default: color.backgroundRaised,
+			":hover": color.controlActive,
+		},
+		borderColor: color.border,
+		borderRadius: radius.md,
+		borderStyle: "solid",
+		borderWidth: 1,
+		color: {
+			default: color.textSoft,
+			":hover": color.textMain,
+		},
+		display: "inline-flex",
+		flexShrink: 0,
+		fontSize: font.size_3,
+		fontWeight: font.weight_5,
+		gap: controlSize._1_5,
+		height: controlSize._6,
+		justifyContent: "center",
+		paddingInline: controlSize._0,
+		transitionDuration: motion.durationBase,
+		transitionProperty: "background-color, border-color, color, transform",
+		transitionTimingFunction: motion.ease,
+		":active": {
+			transform: "scale(0.97)",
+		},
+		width: controlSize._6,
+	},
+});

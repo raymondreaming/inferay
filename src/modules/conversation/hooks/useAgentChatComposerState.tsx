@@ -12,7 +12,7 @@ import type {
 	QueuedMessageInfo,
 } from "../../../modules/conversation/model/agent-chat-shared.ts";
 import { getChatQueueReadModel } from "../../../modules/conversation/model/chat-session-store.ts";
-import { hasPath, lacksId } from "../../../shared/lib/data.ts";
+import { hasPath } from "../../../shared/lib/data.ts";
 
 interface MarkdownPreviewState {
 	show: boolean;
@@ -49,6 +49,7 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 		queueReadModel.getSnapshot,
 		queueReadModel.getSnapshot,
 	);
+	const [queueError, setQueueError] = useState<string | null>(null);
 	const [editingQueueId, setEditingQueueId] = useState<string | null>(null);
 	const [editingQueueText, setEditingQueueText] = useState("");
 	const [mdPreview, setMdPreview] = useState<MarkdownPreviewState>({
@@ -133,7 +134,10 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 			const queue = queueReadModel.get();
 			const existing = queue.find((item) => item.id === id);
 			if (!existing || existing.transient) return;
-			queueReadModel.setLocal(queue.filter(lacksId.bind(null, id)));
+			setQueueError(null);
+			void queueReadModel
+				.mutate("remove", id)
+				.catch((error: Error) => setQueueError(error.message));
 			if (editingQueueId === id) {
 				setEditingQueueId(null);
 				setEditingQueueText("");
@@ -147,11 +151,10 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 			const queue = queueReadModel.get();
 			const existing = queue.find((item) => item.id === id);
 			if (!existing || existing.transient || existing.text === text) return;
-			queueReadModel.setLocal(
-				queue.map((item) =>
-					item.id === id ? { ...item, text, displayText: text } : item,
-				),
-			);
+			setQueueError(null);
+			void queueReadModel
+				.mutate("edit", id, text)
+				.catch((error: Error) => setQueueError(error.message));
 		},
 		[queueReadModel],
 	);
@@ -249,6 +252,7 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 	return {
 		attachedImages,
 		queuedMessages,
+		queueError,
 		replaceQueuedMessages,
 		stageSteeringMessage,
 		resolveSteeringMessage,

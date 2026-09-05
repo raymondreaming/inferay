@@ -281,10 +281,17 @@ export function finishBtwMessage(
 export function appendSystemMessage(
 	messages: ChatStateMessage[],
 	content: string,
+	render?: ChatMessage["render"],
 ): ChatStateMessage[] {
 	const next = [
 		...messages,
-		{ id: nextId(), role: "system" as const, content, localOnly: true },
+		{
+			id: nextId(),
+			role: "system" as const,
+			content,
+			localOnly: true,
+			...(render ? { render } : {}),
+		},
 	];
 	const compacted = compactAdjacentDuplicateTranscriptMessages(next);
 	return compacted === next ? trimMessages(next) : messages;

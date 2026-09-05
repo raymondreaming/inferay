@@ -19,6 +19,27 @@ function isDiffLine(value: unknown): value is DiffLine {
 	);
 }
 
+function isChangeRanges(value: unknown, rowCount: number): boolean {
+	if (value === undefined) return true; // Older native responses remain readable.
+	if (!Array.isArray(value)) return false;
+	let previousEnd = -1;
+	return value.every((range) => {
+		if (!Array.isArray(range) || range.length !== 2) return false;
+		const [start, end] = range;
+		if (
+			!Number.isInteger(start) ||
+			!Number.isInteger(end) ||
+			start < 0 ||
+			start <= previousEnd ||
+			end <= start ||
+			end > rowCount
+		)
+			return false;
+		previousEnd = end;
+		return true;
+	});
+}
+
 function isMetadata(
 	value: unknown,
 ): value is NonNullable<HunkDiff["metadata"]> {
@@ -28,6 +49,9 @@ function isMetadata(
 		typeof metadata.tokenizationDisabled === "boolean" &&
 		Number.isFinite(metadata.maxOldLineChars) &&
 		Number.isFinite(metadata.maxNewLineChars) &&
+		[metadata.maxInlineLineChars, metadata.maxConflictLineChars].every(
+			(value) => value === undefined || (Number.isFinite(value) && value >= 0),
+		) &&
 		!!metadata.stats &&
 		[
 			metadata.stats.added,
@@ -56,6 +80,14 @@ function isHunkDiff(value: unknown): value is HunkDiff {
 		(diff.compactLines === undefined ||
 			(Array.isArray(diff.compactLines) &&
 				diff.compactLines.every(isDiffLine))) &&
+		isChangeRanges(
+			diff.metadata?.splitChangeRanges,
+			Math.max(diff.oldLines.length, diff.newLines.length),
+		) &&
+		isChangeRanges(
+			diff.metadata?.inlineChangeRanges,
+			(diff.inlineLines ?? diff.compactLines ?? []).length,
+		) &&
 		typeof diff.isBinary === "boolean" &&
 		typeof diff.isNew === "boolean" &&
 		(diff.rawPatch === undefined || typeof diff.rawPatch === "string") &&

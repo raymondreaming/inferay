@@ -73,7 +73,7 @@ async function renderHtml(
 describe("chat markdown rendering", () => {
 	test("keeps long streaming and completed markdown structurally stable", async () => {
 		const { Markdown } = await import(
-			"../src/modules/conversation/components/ChatRichContent.tsx"
+			"../src/modules/conversation/components/ChatRichContent/index.tsx"
 		);
 		const tail = Array.from({ length: 90 }, () => "tail **still raw**").join(
 			" ",
@@ -128,7 +128,7 @@ describe("chat markdown rendering", () => {
 
 	test("renders copy controls for fenced code blocks", async () => {
 		const { Markdown } = await import(
-			"../src/modules/conversation/components/ChatRichContent.tsx"
+			"../src/modules/conversation/components/ChatRichContent/index.tsx"
 		);
 		const prepared: PreparedMarkdown = {
 			version: 1,
@@ -153,7 +153,7 @@ describe("chat markdown rendering", () => {
 
 	test("renders copy controls for raw tool question output", async () => {
 		const { AskUserQuestionCard } = await import(
-			"../src/modules/conversation/components/ChatRichContent.tsx"
+			"../src/modules/conversation/components/ChatRichContent/index.tsx"
 		);
 		const html = await renderHtml(
 			<AskUserQuestionCard content="raw tool output" />,

@@ -98,6 +98,25 @@ export type AgentWorkspaceAction =
 			paneId: string;
 			agentKind: AgentKind;
 	  }
+	| {
+			type: "reorderPanes";
+			groupId: string;
+			fromIndex: number;
+			toIndex: number;
+	  }
+	| {
+			type: "setGridDimensions";
+			groupId: string;
+			columns?: number;
+			rows?: number;
+	  }
+	| {
+			type: "setPaneProviderSession";
+			paneId: string;
+			providerSessionId: string | null;
+	  }
+	| { type: "changePaneAgentKind"; paneId: string; agentKind: AgentKind }
+	| { type: "setTheme"; themeId: string }
 	| { type: "ensureChatPane" };
 
 export function reduceAgentWorkspaceState(
@@ -105,6 +124,12 @@ export function reduceAgentWorkspaceState(
 	action: AgentWorkspaceAction,
 ): AgentSavedState | null {
 	switch (action.type) {
+		case "reorderPanes":
+		case "setGridDimensions":
+		case "setPaneProviderSession":
+		case "changePaneAgentKind":
+		case "setTheme":
+			return null; // Native-owned mutations; callers retain transient interaction state.
 		case "selectWorkspace":
 			if (!state.groups.some(hasId.bind(null, action.groupId))) return state;
 			return compactAgentState(
@@ -710,20 +735,7 @@ function saveLocalAgentState(
 	});
 }
 
-export async function mutateCanonicalAgentState(
-	mutate: (state: AgentSavedState) => AgentSavedState | null,
-	reason?: string,
-	options: { createIfMissing?: boolean } = {},
-): Promise<AgentSavedState | null> {
-	const state =
-		(await loadCanonicalAgentState()) ??
-		(options.createIfMissing ? createDefaultAgentState() : null);
-	if (!state) return null;
-	const next = mutate(state);
-	if (!next) return null;
-	saveSyncedAgentState(next, reason);
-	return normalizeAgentState(next, { createDefault: true });
-}
+let pendingWorkspaceMutation: Promise<unknown> = Promise.resolve();
 
 export function mutateAgentWorkspaceState(
 	action:
@@ -732,7 +744,7 @@ export function mutateAgentWorkspaceState(
 	reason?: string,
 	options: { createIfMissing?: boolean } = {},
 ): Promise<AgentSavedState | null> {
-	return (async () => {
+	const mutation = pendingWorkspaceMutation.then(async () => {
 		const state =
 			(await loadCanonicalAgentState()) ??
 			(options.createIfMissing ? createDefaultAgentState() : null);
@@ -755,7 +767,9 @@ export function mutateAgentWorkspaceState(
 		} catch {
 			return optimistic;
 		}
-	})();
+	});
+	pendingWorkspaceMutation = mutation.catch(noop);
+	return mutation;
 }
 
 export type AgentGroupsAction =
@@ -884,30 +898,14 @@ export function reduceAgentGroups(
 }
 
 /**
- * Change a pane's agent kind directly via localStorage + event.
- * No prop-drilling needed — call from any component.
+ * Change provider identity through the native workspace owner.
  */
 export function changePaneAgentKind(
 	paneId: string,
 	agentKind: AgentKind,
 ): void {
-	void mutateCanonicalAgentState(
-		(state) => ({
-			...state,
-			groups: state.groups.map((g) => ({
-				...g,
-				panes: g.panes.map((p) =>
-					p.id !== paneId
-						? p
-						: {
-								...p,
-								agentKind,
-								isClaude: agentKind === "claude",
-								providerSessionId: undefined,
-							},
-				),
-			})),
-		}),
+	void mutateAgentWorkspaceState(
+		{ type: "changePaneAgentKind", paneId, agentKind },
 		"agent-kind-change",
 	);
 }
@@ -916,18 +914,8 @@ export function setPaneProviderSession(
 	paneId: string,
 	providerSessionId: string | null,
 ): void {
-	void mutateCanonicalAgentState(
-		(state) => ({
-			...state,
-			groups: state.groups.map((group) => ({
-				...group,
-				panes: group.panes.map((pane) =>
-					pane.id === paneId
-						? { ...pane, providerSessionId: providerSessionId ?? undefined }
-						: pane,
-				),
-			})),
-		}),
+	void mutateAgentWorkspaceState(
+		{ type: "setPaneProviderSession", paneId, providerSessionId },
 		"provider-session",
 	);
 }

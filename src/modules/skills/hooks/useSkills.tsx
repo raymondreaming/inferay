@@ -55,11 +55,6 @@ async function removeSkill(id: string) {
 	);
 }
 
-async function incrementUsage(id: string) {
-	await postJson(`/api/prompts/${id}/usage`, {});
-	await queryClient.invalidateQueries({ queryKey: skillsKey });
-}
-
 export function preloadSkills() {
 	return queryClient.prefetchQuery(skillsQuery);
 }
@@ -73,6 +68,5 @@ export function useSkills(enabled: boolean) {
 		createSkill,
 		updateSkill,
 		removeSkill,
-		incrementUsage,
 	};
 }

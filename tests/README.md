@@ -46,7 +46,7 @@ High:
 - Chat command/message behavior in `src/modules/conversation`: covered. Protects prompt expansion, streaming updates, reconnect merge behavior, and history limits.
 - Agent stream tool input parity in `src/modules/conversation/model/agent-chat-shared.ts`: covered. Protects Codex inline diff rendering when complete tool input arrives in the start event.
 - Inline edit diff rendering helpers in `native/diff-engine/src/prepared_diff.rs` and `src/modules/conversation/model/chat-message-render-utils.ts`: covered. Protects fake Claude and Codex edit streams from producing empty edit cards.
-- Agent and Git data behavior in `src/modules/workspace/model/workspace-model.ts` and `src/modules/workbench/changes/model/changes-model.ts`: covered. Protects restored panes, status mapping, and change review ordering.
+- Agent and Git data behavior in `src/modules/workspace/model/workspace-model.ts` and `native/server/src/git_changes.rs`: covered. Protects restored panes, status mapping, and change review ordering.
 - Client-storage sync normalization: covered by native Rust route tests. Protects persisted local UI state from malformed renderer payloads.
 
 Medium:

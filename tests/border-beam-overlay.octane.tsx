@@ -55,7 +55,7 @@ function setupDom() {
 describe("Border beam overlay", () => {
 	test("mounts the React beam inside an Octane composer overlay", async () => {
 		const { BorderBeamOverlay } = await import(
-			"../src/shared/ui/BorderBeamOverlay.tsx"
+			"../src/shared/ui/BorderBeamOverlay/index.tsx"
 		);
 		const { root, rootElement } = setupDom();
 		try {

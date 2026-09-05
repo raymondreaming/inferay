@@ -82,7 +82,6 @@ test("hidden chat input actions defer pending sends until visible", async () => 
 				},
 				fileResults: [],
 				filteredCommands: [],
-				incrementUsage: () => Promise.resolve(),
 				input: "",
 				isLoading: false,
 				paneId,
@@ -139,109 +138,130 @@ test("hidden chat input actions defer pending sends until visible", async () => 
 	}
 });
 
-test("loading Codex chat sends steering input without resetting the active stream", async () => {
-	sendMock.mockClear();
-	const { root, rootElement } = setupDom();
-	const { useChatInputActions } = await import(
-		"../src/modules/conversation/hooks/useChatInputActions.tsx"
-	);
-	try {
-		const onSendStart = mock(() => {});
-		const setRunStatus = mock(() => {});
-		let handleEnter: (event: KeyboardEvent) => void = (_event) => {
-			throw new Error("handleKeyDown was not initialized");
-		};
-		function Harness() {
-			const [input, setInput] = useState("");
-			const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-			const { handleKeyDown } = useChatInputActions({
-				agentKind: "codex",
-				allCommands: [],
-				attachedImages: [],
-				cancelSpeechListening: () => {},
-				clearAttachedImages: () => {},
-				clearCheckpoints: () => {},
-				composerOnly: false,
-				consumePendingWorkspace: () => undefined,
-				cwd: "/tmp/project",
-				effectiveSelectedModel: "gpt-5",
-				fileMenu: {
-					show: false,
-					selectedIdx: 0,
-					query: "",
-					atIndex: -1,
-					position: null,
-				},
-				fileResults: [],
-				filteredCommands: [],
-				incrementUsage: () => Promise.resolve(),
-				input,
-				isLoading: true,
-				paneId: "pane-live-textarea-queue",
-				onSendStart,
-				selectCommand: () => {},
-				selectFile: () => {},
-				selectedReasoningLevel: "medium",
-				setFileMenu: () => {},
-				setInput,
-				setMessages: () => {},
-				setRunStatus,
-				setSlashMenu: () => {},
-				showCommands: false,
-				slashMenu: {
-					show: false,
-					selectedIdx: 0,
-					query: "",
-					slashIndex: -1,
-				},
-				textareaRef,
-			});
-			handleEnter = handleKeyDown;
-			return (
-				<textarea
-					ref={textareaRef}
-					value={input}
-					onInput={(event) => setInput(event.currentTarget.value)}
-				/>
+test.each([
+	["second", true],
+	["second /review", true],
+	["/review", true],
+	["/review", false],
+] as const)(
+	"loading Codex chat sends %s for native expansion without resetting the active stream",
+	async (text, isLoading) => {
+		sendMock.mockClear();
+		const { root, rootElement } = setupDom();
+		const { useChatInputActions } = await import(
+			"../src/modules/conversation/hooks/useChatInputActions.tsx"
+		);
+		try {
+			const onSendStart = mock(() => {});
+			const setRunStatus = mock(() => {});
+			let handleEnter: (event: KeyboardEvent) => void = (_event) => {
+				throw new Error("handleKeyDown was not initialized");
+			};
+			function Harness() {
+				const [input, setInput] = useState("");
+				const [messages, setMessages] = useState<ChatMessage[]>([]);
+				const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+				const { handleKeyDown } = useChatInputActions({
+					agentKind: "codex",
+					allCommands: [
+						{
+							id: "review-id",
+							name: "review",
+							description: "Review",
+							action: "send",
+						},
+					],
+					attachedImages: [],
+					cancelSpeechListening: () => {},
+					clearAttachedImages: () => {},
+					clearCheckpoints: () => {},
+					composerOnly: false,
+					consumePendingWorkspace: () => undefined,
+					cwd: "/tmp/project",
+					effectiveSelectedModel: "gpt-5",
+					fileMenu: {
+						show: false,
+						selectedIdx: 0,
+						query: "",
+						atIndex: -1,
+						position: null,
+					},
+					fileResults: [],
+					filteredCommands: [],
+					input,
+					isLoading,
+					paneId: "pane-live-textarea-queue",
+					onSendStart,
+					selectCommand: () => {},
+					selectFile: () => {},
+					selectedReasoningLevel: "medium",
+					setFileMenu: () => {},
+					setInput,
+					setMessages,
+					setRunStatus,
+					setSlashMenu: () => {},
+					showCommands: false,
+					slashMenu: {
+						show: false,
+						selectedIdx: 0,
+						query: "",
+						slashIndex: -1,
+					},
+					textareaRef,
+				});
+				handleEnter = handleKeyDown;
+				return (
+					<textarea
+						ref={textareaRef}
+						data-command={messages.at(-1)?.render?.command?.name}
+						value={input}
+						onInput={(event) => setInput(event.currentTarget.value)}
+					/>
+				);
+			}
+
+			root.render(<Harness />);
+			await tick(20);
+			const textarea =
+				rootElement.firstElementChild as HTMLTextAreaElement | null;
+			if (!textarea) throw new Error("Missing textarea");
+			textarea.value = text;
+			handleEnter({
+				key: "Enter",
+				preventDefault: () => {},
+				repeat: false,
+				shiftKey: false,
+			} as KeyboardEvent);
+			await tick(20);
+
+			const calls = sendMock.mock.calls as unknown as Array<
+				[Record<string, unknown>]
+			>;
+			const payload = calls.at(-1)?.[0];
+			expect(payload?.type).toBe("chat:send");
+			expect(payload?.paneId).toBe("pane-live-textarea-queue");
+			expect(payload?.text).toBe(text);
+			expect(payload?.displayText).toBe(text);
+			expect(payload?.expandCommands).toBe(true);
+			expect(payload?.commandId).toBe(
+				text === "/review" ? "review-id" : undefined,
 			);
+			expect(textarea.value).toBe("");
+			expect(onSendStart).toHaveBeenCalledTimes(isLoading ? 0 : 1);
+			expect(setRunStatus).toHaveBeenCalledTimes(isLoading ? 0 : 1);
+			if (!isLoading) expect(textarea.dataset.command).toBe("review");
+
+			textarea.value = text;
+			handleEnter({
+				key: "Enter",
+				preventDefault: () => {},
+				repeat: true,
+				shiftKey: false,
+			} as KeyboardEvent);
+			await tick(20);
+			expect(sendMock).toHaveBeenCalledTimes(1);
+		} finally {
+			root.unmount();
 		}
-
-		root.render(<Harness />);
-		await tick(20);
-		const textarea =
-			rootElement.firstElementChild as HTMLTextAreaElement | null;
-		if (!textarea) throw new Error("Missing textarea");
-		textarea.value = "second";
-		handleEnter({
-			key: "Enter",
-			preventDefault: () => {},
-			repeat: false,
-			shiftKey: false,
-		} as KeyboardEvent);
-		await tick(20);
-
-		const calls = sendMock.mock.calls as unknown as Array<
-			[Record<string, unknown>]
-		>;
-		const payload = calls.at(-1)?.[0];
-		expect(payload?.type).toBe("chat:send");
-		expect(payload?.paneId).toBe("pane-live-textarea-queue");
-		expect(payload?.text).toBe("second");
-		expect(payload?.displayText).toBe("second");
-		expect(textarea.value).toBe("");
-		expect(onSendStart).not.toHaveBeenCalled();
-		expect(setRunStatus).not.toHaveBeenCalled();
-
-		textarea.value = "second";
-		handleEnter({
-			key: "Enter",
-			preventDefault: () => {},
-			repeat: true,
-			shiftKey: false,
-		} as KeyboardEvent);
-		await tick(20);
-		expect(sendMock).toHaveBeenCalledTimes(1);
-	} finally {
-		root.unmount();
-	}
-});
+	},
+);

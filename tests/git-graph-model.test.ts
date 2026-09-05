@@ -10,12 +10,6 @@ import {
 	nextGitGraphHistoryLimit,
 	pinnedGraphColumnOrder,
 } from "../src/modules/workbench/graph/model/graph-model.ts";
-import {
-	createInteractiveRebasePlan,
-	moveInteractiveRebaseStep,
-	updateInteractiveRebaseStep,
-	validateInteractiveRebasePlan,
-} from "../src/modules/workbench/graph/model/rebase-model.ts";
 
 describe("Git graph presentation model", () => {
 	test("moves any visible graph column before the drop target", () => {
@@ -69,26 +63,6 @@ describe("Git graph presentation model", () => {
 
 	test("moves pinned branch lanes left without dropping graph columns", () => {
 		expect(pinnedGraphColumnOrder(5, [3, 1, 3])).toEqual([3, 1, 0, 2, 4, 5]);
-	});
-
-	test("builds and validates an ordered interactive rebase plan", () => {
-		const plan = createInteractiveRebasePlan([
-			{ hash: "a", message: "A", author: "Ray", date: "now" },
-			{ hash: "b", message: "B", author: "Ray", date: "now" },
-			{ hash: "c", message: "C", author: "Ray", date: "now" },
-		]);
-		const reordered = moveInteractiveRebaseStep(plan, 2, 1);
-		expect(reordered.map((step) => step.hash)).toEqual(["a", "c", "b"]);
-		const reworded = updateInteractiveRebaseStep(reordered, 1, {
-			action: "reword",
-			message: "New C",
-		});
-		expect(validateInteractiveRebasePlan(reworded)).toBeNull();
-		expect(
-			validateInteractiveRebasePlan(
-				updateInteractiveRebaseStep(reworded, 0, { action: "squash" }),
-			),
-		).toBe("The first retained commit cannot be squashed");
 	});
 
 	test("uses GitHub profile images for noreply commit identities", async () => {

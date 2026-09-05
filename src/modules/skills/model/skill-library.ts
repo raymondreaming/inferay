@@ -1,3 +1,24 @@
+export interface SkillProposal {
+	type: "inferay.skill-proposal";
+	action: "create" | "update";
+	skillId?: string;
+	expectedUpdatedAt?: number;
+	name: string;
+	command: string;
+	description: string;
+	promptTemplate: string;
+	reason: string;
+}
+
+export interface SkillRead {
+	_id: string;
+	name: string;
+	command: string;
+	description: string;
+	promptTemplate: string;
+	isBuiltIn: boolean;
+}
+
 export interface Skill {
 	_id: string;
 	name: string;

@@ -21,6 +21,7 @@ import {
 	DEFAULT_AGENT_MAIN_VIEW,
 	DEFAULT_APP_ROUTE,
 } from "./app/model/navigation.tsx";
+import { initializeAgentCatalog } from "./modules/agents/model/agents.ts";
 import { preloadSkills } from "./modules/skills/hooks/useSkills.tsx";
 
 function routeLocalRequestsToDesktopServer() {
@@ -52,6 +53,7 @@ function routeLocalRequestsToDesktopServer() {
 
 routeLocalRequestsToDesktopServer();
 await hydrateStoredValues();
+await initializeAgentCatalog();
 
 // The desktop host uses a fresh loopback origin on each launch, so the durable
 // onboarding value is restored from the native store immediately above. Move

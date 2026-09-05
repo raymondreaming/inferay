@@ -78,19 +78,6 @@ export function emptyGitWorkspacePanelSession<
 	};
 }
 
-function nullableString(value: unknown): string | null {
-	return typeof value === "string" ? value : null;
-}
-
-function normalizedDiffContext(value: unknown): GitWorkspaceDiffContext | null {
-	return value === "workingTree" ||
-		value === "graphWorkingTree" ||
-		value === "commit" ||
-		value === "comparison"
-		? value
-		: null;
-}
-
 function resolvedDiffContext(
 	current: GitWorkspacePanelSession,
 ): GitWorkspaceDiffContext | null {
@@ -100,87 +87,6 @@ function resolvedDiffContext(
 	if (current.selectedFileComparisonFrom && current.selectedFileComparisonTo)
 		return "comparison";
 	return current.selectedCommitHash ? "graphWorkingTree" : "workingTree";
-}
-
-export function normalizeGitWorkspacePanelSession<InitialFile = unknown>(
-	value: unknown,
-	now = Date.now(),
-): GitWorkspacePanelSession<InitialFile> {
-	if (!value || typeof value !== "object") {
-		return emptyGitWorkspacePanelSession<InitialFile>();
-	}
-	const stored = value as Partial<GitWorkspacePanelSession<InitialFile>>;
-	const detachedFilePanels = Array.isArray(stored.detachedFilePanels)
-		? stored.detachedFilePanels.filter(
-				(panel): panel is GitWorkspaceDetachedFilePanel<InitialFile> =>
-					typeof panel?.id === "string" &&
-					typeof panel.cwd === "string" &&
-					typeof panel.path === "string",
-			)
-		: [];
-	const selectedCommitHash = nullableString(stored.selectedCommitHash);
-	const session: GitWorkspacePanelSession<InitialFile> = {
-		...emptyGitWorkspacePanelSession<InitialFile>(),
-		repositoryInitialized:
-			typeof stored.repositoryInitialized === "boolean"
-				? stored.repositoryInitialized
-				: stored.mainViewMode === "graph" || stored.mainViewMode === "diff",
-		sidebarVisible:
-			typeof stored.sidebarVisible === "boolean"
-				? stored.sidebarVisible
-				: stored.mainViewMode === "graph",
-		fileViewerOpen: stored.fileViewerOpen === true,
-		fileViewerCwd: nullableString(stored.fileViewerCwd),
-		diffViewerCwd: nullableString(stored.diffViewerCwd),
-		focusedAuxiliaryPanel:
-			stored.focusedAuxiliaryPanel &&
-			typeof stored.focusedAuxiliaryPanel.id === "string" &&
-			typeof stored.focusedAuxiliaryPanel.cwd === "string"
-				? stored.focusedAuxiliaryPanel
-				: null,
-		detachedFilePanels,
-		fileRequest:
-			stored.fileRequest && typeof stored.fileRequest.path === "string"
-				? { path: stored.fileRequest.path, token: now }
-				: null,
-		selectedFile:
-			stored.selectedFile &&
-			typeof stored.selectedFile.path === "string" &&
-			typeof stored.selectedFile.staged === "boolean"
-				? stored.selectedFile
-				: null,
-		selectedFileCommitHash: nullableString(stored.selectedFileCommitHash),
-		selectedFileCommitParent: nullableString(stored.selectedFileCommitParent),
-		selectedFileComparisonFrom: nullableString(
-			stored.selectedFileComparisonFrom,
-		),
-		selectedFileComparisonTo: nullableString(stored.selectedFileComparisonTo),
-		diffContext: normalizedDiffContext(stored.diffContext),
-		selectedCommitHash,
-		selectedCommitIds: Array.isArray(stored.selectedCommitIds)
-			? stored.selectedCommitIds.filter(
-					(value): value is string => typeof value === "string",
-				)
-			: selectedCommitHash
-				? [selectedCommitHash]
-				: [],
-		selectedCommitParent: nullableString(stored.selectedCommitParent),
-		mainViewMode: stored.mainViewMode === "graph" ? "graph" : "diff",
-	};
-	return { ...session, diffContext: resolvedDiffContext(session) };
-}
-
-export function serializeGitWorkspacePanelSession<InitialFile>(
-	session: GitWorkspacePanelSession<InitialFile>,
-): GitWorkspacePanelSession<never> {
-	return {
-		...session,
-		detachedFilePanels: session.detachedFilePanels.map((panel) => ({
-			id: panel.id,
-			cwd: panel.cwd,
-			path: panel.path,
-		})),
-	};
 }
 
 export function openGitGraph<InitialFile>(

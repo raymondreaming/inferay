@@ -1,9 +1,9 @@
 import { JSDOM } from "jsdom";
 import { createRoot } from "octane";
 import { expect, test, vi } from "vitest";
-import { Button } from "../src/shared/ui/Button.tsx";
-import { DropdownButton } from "../src/shared/ui/DropdownButton.tsx";
-import { LiquidSegmentedRail } from "../src/shared/ui/gooey/LiquidSegmentedRail.tsx";
+import { Button } from "../src/shared/ui/Button/index.tsx";
+import { DropdownButton } from "../src/shared/ui/DropdownButton/index.tsx";
+import { LiquidSegmentedRail } from "../src/shared/ui/gooey/LiquidSegmentedRail/index.tsx";
 
 class TestResizeObserver {
 	observe(): void {}

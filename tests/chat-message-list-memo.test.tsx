@@ -2,10 +2,14 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
 test("chat message list is memoized at the component boundary", async () => {
-	const source = readFileSync(
-		"src/modules/conversation/components/ChatMessageList.tsx",
-		"utf8",
-	);
+	const source = ["index.tsx", "styles.ts"]
+		.map((file) =>
+			readFileSync(
+				`src/modules/conversation/components/ChatMessageList/${file}`,
+				"utf8",
+			),
+		)
+		.join("\n");
 
 	expect(source).toContain("export const ChatMessageList = memo(");
 	expect(source).toContain("const CHAT_LIST_BOTTOM_PADDING_PX = 16;");

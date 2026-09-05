@@ -1,0 +1,164 @@
+import { useLocation, useNavigate } from "@octanejs/tanstack-router";
+import { useCallback, useEffect, useMemo, useState } from "octane";
+import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../../adapters/storage/keys.ts";
+import {
+	readStoredValue,
+	writeStoredValue,
+} from "../../../adapters/storage/stored-values.ts";
+import { iconSize } from "../../../design-system/styles.stylex.ts";
+import { openSettingsModal } from "../../../modules/settings/model/settings-events.ts";
+import { openSkills } from "../../../modules/skills/model/skill-events.ts";
+import { dispatchOpenActiveGitGraph } from "../../../modules/workbench/model/workbench-events.ts";
+import { dispatchCreateAgentChat } from "../../../modules/workspace/model/workspace-events.ts";
+import {
+	agentStateKey,
+	dispatchAgentShellChange,
+	loadAgentState,
+} from "../../../modules/workspace/model/workspace-model.ts";
+import { listenWindowEvent } from "../../../shared/lib/react-events.ts";
+import {
+	IconGitBranch,
+	IconMessageCircle,
+	IconPlus,
+	IconSettings,
+} from "../../../shared/ui/Icons/index.tsx";
+import {
+	type AgentMainView,
+	DEFAULT_AGENT_MAIN_VIEW,
+	isAgentMainView,
+	SIDEBAR_NAV_ROUTES,
+} from "../../model/navigation.tsx";
+import { CommandPalette } from "../CommandPalette/index.tsx";
+
+function loadShellState() {
+	const agentState = loadAgentState();
+	const mainView = readStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY);
+	return {
+		groups: agentState?.groups ?? [],
+		selectedGroupId:
+			agentState?.selectedGroupId ?? agentState?.groups[0]?.id ?? null,
+		mainView: isAgentMainView(mainView) ? mainView : DEFAULT_AGENT_MAIN_VIEW,
+		key: agentState ? agentStateKey(agentState) : "",
+	};
+}
+
+export function AppHeader() {
+	const location = useLocation();
+	const navigate = useNavigate();
+	const [shellState, setShellState] = useState(loadShellState);
+	const isAgentRoute = location.pathname === "/agent";
+
+	const refreshShellState = useCallback(() => {
+		const next = loadShellState();
+		setShellState((current) =>
+			current.key === next.key && current.mainView === next.mainView
+				? current
+				: next,
+		);
+	}, []);
+
+	useEffect(
+		() => listenWindowEvent("agent-shell-change", refreshShellState),
+		[refreshShellState],
+	);
+
+	const activateMainView = useCallback(
+		(view: AgentMainView) => {
+			if (shellState.mainView !== view) {
+				writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, view);
+				setShellState((current) =>
+					current.mainView === view ? current : { ...current, mainView: view },
+				);
+				dispatchAgentShellChange({
+					source: "view",
+					reason: "main-view",
+					mainView: view,
+				});
+			}
+			if (!isAgentRoute) navigate({ to: "/agent" });
+		},
+		[isAgentRoute, navigate, shellState.mainView],
+	);
+
+	const activateRoute = useCallback(
+		(path: string) => navigate({ to: path }),
+		[navigate],
+	);
+	const selectedGroup = shellState.groups.find(
+		(group) => group.id === shellState.selectedGroupId,
+	);
+	const selectedCwd = selectedGroup?.panes.find(
+		(pane) => pane.id === selectedGroup.selectedPaneId,
+	)?.cwd;
+	const openCommitGraph = useCallback(() => {
+		if (!selectedCwd) return;
+		activateMainView("chat");
+		requestAnimationFrame(dispatchOpenActiveGitGraph);
+	}, [activateMainView, selectedCwd]);
+	const createNewChat = useCallback(() => {
+		activateMainView("chat");
+		requestAnimationFrame(() =>
+			requestAnimationFrame(() => dispatchCreateAgentChat()),
+		);
+	}, [activateMainView]);
+
+	const commands = useMemo(
+		() => [
+			{
+				id: "new-chat",
+				label: "New chat",
+				detail: "Start a new agent conversation",
+				keywords: "create agent thread",
+				icon: <IconPlus size={iconSize.compact} />,
+				run: createNewChat,
+			},
+			{
+				id: "chat",
+				label: "Open chats",
+				detail: "Return to your agent conversations",
+				keywords: "conversation chats",
+				icon: <IconMessageCircle size={iconSize.compact} />,
+				run: () => activateMainView("chat"),
+			},
+			{
+				id: "graph",
+				label: "Open commit graph",
+				detail: "Inspect the selected repository history",
+				keywords: "git branches history",
+				icon: <IconGitBranch size={iconSize.compact} />,
+				run: openCommitGraph,
+			},
+			...SIDEBAR_NAV_ROUTES.map((route) => {
+				const Icon = route.icon;
+				return {
+					id: route.id,
+					label: `Open ${route.label.toLocaleLowerCase()}`,
+					detail: `Go to the ${route.label} page`,
+					keywords: `navigate ${route.label}`,
+					icon: <Icon size={iconSize.compact} />,
+					run: () => activateRoute(route.path),
+				};
+			}),
+
+			{
+				id: "settings",
+				label: "Open settings",
+				detail: "Configure Inferay",
+				keywords: "settings preferences configuration",
+				icon: <IconSettings size={iconSize.compact} />,
+				run: () => openSettingsModal(),
+			},
+			{
+				id: "skills",
+				icon: <IconSettings size={iconSize.compact} />,
+				label: "Open skills",
+				detail: "Create and edit reusable instructions",
+				keywords: "skills slash commands prompts",
+				run: () => openSkills(),
+			},
+		],
+		[activateMainView, activateRoute, createNewChat, openCommitGraph],
+	);
+
+	return <CommandPalette commands={commands} showTrigger={false} />;
+}

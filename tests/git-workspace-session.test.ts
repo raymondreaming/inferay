@@ -7,12 +7,10 @@ import {
 	initializeGitRepositoryPanels,
 	isGitWorkspaceGraphDrillIn,
 	isHistoricalGitWorkspaceDiff,
-	normalizeGitWorkspacePanelSession,
 	openGitCommitFileDiff,
 	openGitGraph,
 	openGitWorkingTreeFileDiff,
 	reconcileGitGraphSelection,
-	serializeGitWorkspacePanelSession,
 	updateGitGraphSelection,
 } from "../src/modules/workbench/model/workbench-model.ts";
 
@@ -31,43 +29,9 @@ describe("Git workspace panel session", () => {
 			...dismissGitWorkspaceViewer(opened),
 			sidebarVisible: false,
 		};
-		const restored = normalizeGitWorkspacePanelSession(
-			serializeGitWorkspacePanelSession(closed),
-		);
-		expect(initializeGitRepositoryPanels(restored, "/repo")).toBe(restored);
-		expect(restored.diffViewerCwd).toBeNull();
-		expect(restored.sidebarVisible).toBe(false);
-	});
-
-	test("normalizes persisted graph state and strips transient file payloads", () => {
-		const restored = normalizeGitWorkspacePanelSession(
-			{
-				fileViewerOpen: true,
-				fileRequest: { path: "src/app.tsx", token: 1 },
-				selectedFile: { path: "src/app.tsx", staged: false },
-				selectedCommitHash: "commit-b",
-				selectedCommitIds: ["commit-a", 42, "commit-b"],
-				mainViewMode: "graph",
-				detachedFilePanels: [
-					{
-						id: "panel-1",
-						cwd: "/repo",
-						path: "src/app.tsx",
-						initialFile: { content: "transient" },
-					},
-					{ id: 42 },
-				],
-			},
-			1234,
-		);
-		expect(restored.mainViewMode).toBe("graph");
-		expect(restored.diffContext).toBeNull();
-		expect(restored.selectedCommitIds).toEqual(["commit-a", "commit-b"]);
-		expect(restored.fileRequest).toEqual({ path: "src/app.tsx", token: 1234 });
-		expect(restored.detachedFilePanels).toHaveLength(1);
-		expect(
-			serializeGitWorkspacePanelSession(restored).detachedFilePanels,
-		).toEqual([{ id: "panel-1", cwd: "/repo", path: "src/app.tsx" }]);
+		expect(initializeGitRepositoryPanels(closed, "/repo")).toBe(closed);
+		expect(closed.diffViewerCwd).toBeNull();
+		expect(closed.sidebarVisible).toBe(false);
 	});
 
 	test("preserves graph selection while opening and returning from a commit diff", () => {

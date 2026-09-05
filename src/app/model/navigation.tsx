@@ -1,6 +1,6 @@
 import type { ComponentType } from "react";
 import { FEATURE_FLAGS } from "../../shared/lib/feature-flags.ts";
-import { IconFilePlus } from "../../shared/ui/Icons.tsx";
+import { IconFilePlus } from "../../shared/ui/Icons/index.tsx";
 
 export type AppRouteId = "agent" | "images";
 

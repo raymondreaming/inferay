@@ -1,3 +1,16 @@
+export interface GitFileTreeNode {
+	name: string;
+	path: string;
+	children: GitFileTreeNode[];
+	fileRange: readonly [number, number];
+}
+
+export interface GitFilePresentation {
+	pathOrder: string[];
+	treeOrder: string[];
+	tree: GitFileTreeNode[];
+}
+
 export interface GitFileEntry {
 	status: string; // M, A, D, ?, R, C, U
 	staged: boolean;
@@ -8,6 +21,7 @@ export interface GitFileEntry {
 }
 
 export interface GitProjectStatus {
+	filePresentation?: GitFilePresentation;
 	cwd: string;
 	name: string;
 	branch: string;
@@ -56,6 +70,13 @@ export interface HunkDiff {
 		tokenizationDisabled: boolean;
 		maxOldLineChars: number;
 		maxNewLineChars: number;
+		maxInlineLineChars?: number;
+		maxConflictLineChars?: number;
+		splitChangeRanges?: Array<[number, number]>;
+		inlineChangeRanges?: Array<[number, number]>;
+		splitMinimap?: DiffMinimapSegment[];
+		inlineMinimap?: DiffMinimapSegment[];
+		conflictMinimap?: DiffMinimapSegment[];
 	};
 }
 
@@ -78,3 +99,16 @@ export interface HunkDiffStats {
 	hunks: number;
 	lines: number;
 }
+
+export type GitInteractiveRebaseStep = {
+	readonly hash: string;
+	readonly action: "pick" | "reword" | "squash" | "drop";
+	readonly message?: string;
+};
+
+export type DiffMinimapSegment = {
+	type: "add" | "remove";
+	side: "left" | "right" | "full";
+	startLine: number;
+	endLine: number;
+};

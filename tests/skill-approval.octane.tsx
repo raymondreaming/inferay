@@ -1,9 +1,9 @@
 import { JSDOM } from "jsdom";
 import { createRoot } from "octane";
 import { expect, test, vi } from "vitest";
-import { SkillProposalCard } from "../src/modules/skills/components/SkillProposalCard.tsx";
+import { SkillProposalCard } from "../src/modules/skills/components/SkillProposalCard/index.tsx";
 import { useSkills } from "../src/modules/skills/hooks/useSkills.tsx";
-import type { SkillProposal } from "../src/modules/skills/model/skill-proposal.ts";
+import type { SkillProposal } from "../src/modules/skills/model/skill-library.ts";
 import { queryClient } from "../src/shared/lib/query-client.ts";
 
 test("does not write a skill until approval, updates other consumers, and preserves the result on remount", async () => {

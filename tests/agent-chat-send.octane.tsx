@@ -78,8 +78,49 @@ function tick(ms = 20) {
 
 test("sending an optimistic message renders the real virtualized list", async () => {
 	const previousFetch = globalThis.fetch;
-	globalThis.fetch = mock((input: RequestInfo | URL) => {
+	globalThis.fetch = mock((input: RequestInfo | URL, init?: RequestInit) => {
 		const url = String(input);
+		if (url.includes("/api/native/provider-config")) {
+			if (init?.method === "POST") {
+				const input = JSON.parse(String(init.body));
+				return Promise.resolve(
+					Response.json({
+						agentKind: "codex",
+						model: input.model || "gpt-6-astra",
+						reasoningLevel: input.reasoningLevel || "high",
+					}),
+				);
+			}
+			const levels = [
+				{ id: "low", label: "Low", detail: "Fast" },
+				{ id: "high", label: "High", detail: "Deep" },
+			];
+			return Promise.resolve(
+				Response.json({
+					agents: {
+						codex: {
+							kind: "codex",
+							label: "Codex",
+							paneTitle: "Codex",
+							iconKey: "openai",
+							supportsChat: true,
+							supportsResume: true,
+							nativeSlashCommands: [],
+							models: [
+								{
+									id: "gpt-6-astra",
+									label: "GPT-6 Astra",
+									shortLabel: "Astra",
+								},
+							],
+							defaultModel: "gpt-6-astra",
+							reasoningLevels: levels,
+						},
+					},
+					reasoningLevels: levels,
+				}),
+			);
+		}
 		if (url.includes("/api/prompts")) return Promise.resolve(Response.json([]));
 		if (url.includes("/api/chat-queues/")) {
 			return Promise.resolve(Response.json({ queue: [] }));
@@ -89,8 +130,12 @@ test("sending an optimistic message renders the real virtualized list", async ()
 	sendMock.mockClear();
 	const { root, rootElement } = setupDom();
 	try {
+		const { initializeAgentCatalog } = await import(
+			"../src/modules/agents/model/agents.ts"
+		);
+		await initializeAgentCatalog();
 		const { AgentChatView } = await import(
-			"../src/modules/conversation/components/AgentChatView.tsx"
+			"../src/modules/conversation/components/AgentChatView/index.tsx"
 		);
 		root.render(
 			<AgentChatView

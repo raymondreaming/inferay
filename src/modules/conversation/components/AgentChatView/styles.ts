@@ -1,0 +1,153 @@
+import * as stylex from "@octanejs/stylex";
+import type { CSSProperties } from "react";
+import {
+	color,
+	controlSize,
+	font,
+	layer,
+	motion,
+	radius,
+} from "../../../../design-system/styles.stylex.ts";
+
+export const styles = stylex.create({
+	root: {
+		display: "flex",
+		position: "relative",
+		height: "100%",
+		flexDirection: "column",
+		transitionProperty: "box-shadow",
+		transitionDuration: motion.durationFast,
+	},
+	dragReveal: {
+		alignItems: "flex-start",
+		display: "flex",
+		height: controlSize._10,
+		justifyContent: "flex-end",
+		opacity: 0,
+		paddingBlock: controlSize._1,
+		paddingInline: controlSize._1,
+		pointerEvents: "auto",
+		position: "absolute",
+		right: controlSize._0,
+		top: controlSize._0,
+		transitionDuration: motion.durationBase,
+		transitionProperty: "opacity",
+		width: controlSize._12,
+		zIndex: layer.chrome,
+		":hover": {
+			opacity: 1,
+		},
+		":focus-within": {
+			opacity: 1,
+		},
+	},
+	dragRevealSurface: {
+		alignItems: "center",
+		backdropFilter: "blur(14px)",
+		backgroundColor: color.surfaceGlassStrong,
+		borderColor: color.borderSubtle,
+		borderRadius: radius.lg,
+		borderStyle: "solid",
+		borderWidth: 1,
+		display: "flex",
+		justifyContent: "center",
+		padding: controlSize._0_5,
+	},
+	composerOnlyRoot: {
+		position: "absolute",
+		zIndex: layer.modal,
+		left: "50%",
+		bottom: controlSize._6,
+		width: "min(36rem, calc(100% - 2rem))",
+		height: "auto",
+		transform: "translateX(-50%)",
+	},
+	messageRegion: {
+		position: "relative",
+		flex: 1,
+		overflow: "hidden",
+	},
+	scrollArea: {
+		height: "100%",
+		overflowX: "hidden",
+		overflowY: "auto",
+		overflowAnchor: "none",
+		overscrollBehavior: "contain",
+		scrollbarWidth: "none",
+		"::-webkit-scrollbar": {
+			display: "none",
+		},
+	},
+	directoryPickerWrap: {
+		position: "absolute",
+		zIndex: layer.control,
+		left: controlSize._0,
+		right: controlSize._0,
+		bottom: controlSize._0,
+		pointerEvents: "none",
+		paddingInline: controlSize._3,
+		paddingBottom: controlSize._3_5,
+	},
+	directoryPickerInner: {
+		width: "100%",
+		pointerEvents: "auto",
+	},
+	scrollButton: {
+		position: "absolute",
+		zIndex: layer.control,
+		right: controlSize._2,
+		bottom: controlSize._2,
+		display: "flex",
+		width: controlSize._6,
+		height: controlSize._6,
+		alignItems: "center",
+		justifyContent: "center",
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: radius.pill,
+		backgroundColor: {
+			default: color.backgroundRaised,
+			":hover": color.controlHover,
+		},
+		boxShadow: "0 1px 2px rgba(0, 0, 0, 0.24)",
+		transitionProperty: "background-color, opacity",
+		transitionDuration: motion.durationFast,
+	},
+	scrollIcon: {
+		color: color.textSoft,
+	},
+	composerRegion: {
+		position: "relative",
+		flexShrink: 0,
+	},
+	imageDropCue: {
+		position: "absolute",
+		left: "50%",
+		bottom: "calc(100% + 8px)",
+		zIndex: layer.dropdown,
+		transform: "translateX(-50%)",
+		borderWidth: 1,
+		borderStyle: "dashed",
+		borderColor: color.borderStrong,
+		borderRadius: controlSize._2,
+		backgroundColor: color.surfaceGlassStrong,
+		color: color.textSoft,
+		fontSize: font.size_2,
+		fontWeight: font.weight_6,
+		paddingBlock: controlSize._1_5,
+		paddingInline: controlSize._3,
+		pointerEvents: "none",
+		whiteSpace: "nowrap",
+	},
+	composerContent: {
+		position: "relative",
+		zIndex: layer.control,
+	},
+});
+
+export function getAgentChatViewRootStyle(
+	left: CSSProperties["left"],
+): CSSProperties {
+	return { left: left } as CSSProperties;
+}

@@ -91,7 +91,7 @@ async function renderDiff(
 	options: { startAtFirstChange?: boolean } = {},
 ) {
 	const { DiffViewer } = await import(
-		"../src/modules/workbench/diff/components/DiffViewer.tsx"
+		"../src/modules/workbench/diff/components/DiffViewer/index.tsx"
 	);
 	root.render(
 		<DiffViewer
@@ -110,6 +110,41 @@ async function renderDiff(
 }
 
 describe("DiffViewer custom renderer", () => {
+	test("virtualizes missing old-file rows without allocating aligned source arrays", async () => {
+		const { root, rootElement } = setupDom();
+		try {
+			const oldLines: HunkDiff["oldLines"] = [];
+			await renderDiff(root, rootElement, {
+				oldLines,
+				newLines: Array.from({ length: 10000 }, (_, i) => ({
+					number: i + 1,
+					content: `added ${i}`,
+					type: "add" as const,
+				})),
+				isNew: true,
+				isBinary: false,
+			});
+			const left = rootElement.querySelector<HTMLElement>(
+				'[data-diff-scroll-side="left"]',
+			)!;
+			const right = rootElement.querySelector<HTMLElement>(
+				'[data-diff-scroll-side="right"]',
+			)!;
+			// The offset layer contains a gutter layer followed by the visible spacer divs.
+			const spacerCount =
+				left.firstElementChild!.firstElementChild!.children.length - 1;
+			expect(spacerCount).toBeGreaterThan(0);
+			expect(spacerCount).toBe(right.querySelectorAll(".diff-row").length);
+			expect(spacerCount).toBeLessThan(200);
+			expect((left.firstElementChild as HTMLElement).style.height).toBe(
+				(right.firstElementChild as HTMLElement).style.height,
+			);
+			expect(oldLines).toEqual([]);
+		} finally {
+			root.unmount();
+		}
+	});
+
 	test("loads one diff when equivalent request objects rerender", async () => {
 		const { root, rootElement } = setupDom();
 		const previousFetch = globalThis.fetch;
@@ -308,6 +343,16 @@ describe("DiffViewer custom renderer", () => {
 					{ number: 1, content: "const newValue = true;", type: "add" },
 					{ number: 2, content: "y".repeat(400), type: "context" },
 				],
+				metadata: {
+					stats: { added: 1, removed: 1, hunks: 1, lines: 2 },
+					tokenizationDisabled: true,
+					maxOldLineChars: 400,
+					maxNewLineChars: 400,
+					splitMinimap: [
+						{ type: "remove", side: "left", startLine: 0, endLine: 1 },
+						{ type: "add", side: "right", startLine: 0, endLine: 1 },
+					],
+				},
 				isBinary: false,
 				isNew: false,
 			};

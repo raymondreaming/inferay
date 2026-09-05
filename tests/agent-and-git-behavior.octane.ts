@@ -2,13 +2,8 @@ import { describe, expect, test } from "vitest";
 import { isAgentMainView } from "../src/app/model/navigation.tsx";
 import {
 	getFileSelectionAfterToggle,
-	isUnstagedTrackedChange,
-	isUntrackedChange,
-	orderGitFiles,
-	orderProjectGitFiles,
-	resolveGitFileSelection,
-} from "../src/modules/workbench/changes/model/changes-model.ts";
-import { summarizeHunkDiff } from "../src/modules/workbench/diff/model/diff-lines.ts";
+	visibleGitFiles,
+} from "../src/modules/workbench/changes/components/ChangesPanel/index.tsx";
 import {
 	type AgentGroupModel,
 	type AgentPaneModel,
@@ -718,33 +713,16 @@ describe("agent state and git change behavior", () => {
 		expect(isAgentMainView("missing")).toBe(false);
 	});
 
-	/*
-	 * This protects the Git changes ordering used by review and staging flows.
-	 * Unstaged files should stay ahead of staged files, untracked files are
-	 * distinct from tracked modifications, and null project aggregates should
-	 * produce an empty list instead of forcing UI callers to branch.
-	 */
-	test("orders and classifies git files for change review flows", () => {
-		const files = [
-			{ path: "staged.ts", staged: true, status: "M" },
-			{ path: "modified.ts", staged: false, status: "M" },
-			{ path: "new.ts", staged: false, status: "?" },
-		];
-
-		expect(orderGitFiles(files).map((file) => file.path)).toEqual([
-			"modified.ts",
-			"new.ts",
-			"staged.ts",
-		]);
-		expect(orderProjectGitFiles({ files }).map((file) => file.path)).toEqual([
-			"modified.ts",
-			"new.ts",
-			"staged.ts",
-		]);
-		expect(orderProjectGitFiles(null)).toEqual([]);
-		expect(isUntrackedChange(files[2]!)).toBe(true);
-		expect(isUnstagedTrackedChange(files[1]!)).toBe(true);
-		expect(isUnstagedTrackedChange(files[2]!)).toBe(false);
+	test("uses native ordering while preserving optimistic staged file objects", () => {
+		const staged = { path: "src/a.rs", staged: true, status: "M" };
+		const unstaged = { ...staged, staged: false };
+		const layout = {
+			pathOrder: ["src-a.rs", "src/a.rs"],
+			treeOrder: ["src/a.rs", "src-a.rs"],
+			tree: [],
+		};
+		expect(visibleGitFiles([staged], layout, "tree")).toEqual([staged]);
+		expect(visibleGitFiles([unstaged], layout, "path")[0]).toBe(unstaged);
 	});
 
 	test("selects the next file in the same section after staging or unstaging", () => {
@@ -781,54 +759,5 @@ describe("agent state and git change behavior", () => {
 				staged: false,
 			}),
 		).toEqual({ path: "a.ts", staged: true, status: "M" });
-	});
-
-	test("keeps staged and unstaged selections distinct for a partially staged file", () => {
-		const files = [
-			{ path: "shared.ts", staged: true, status: "M" },
-			{ path: "shared.ts", staged: false, status: "M" },
-		];
-
-		expect(
-			resolveGitFileSelection(files, {
-				path: "shared.ts",
-				staged: false,
-			}),
-		).toBe(files[1]);
-		expect(
-			resolveGitFileSelection(files, {
-				path: "shared.ts",
-				staged: true,
-			}),
-		).toBe(files[0]);
-		expect(
-			resolveGitFileSelection([files[0]!], {
-				path: "shared.ts",
-				staged: false,
-			}),
-		).toBe(files[0]);
-	});
-
-	test("summarizes deletion-only diffs as navigable hunks", () => {
-		expect(
-			summarizeHunkDiff({
-				metadata: {
-					stats: { added: 0, removed: 1, hunks: 1, lines: 2 },
-					tokenizationDisabled: false,
-					maxOldLineChars: 9,
-					maxNewLineChars: 4,
-				},
-				oldLines: [
-					{ number: 1, content: "remove me", type: "remove" },
-					{ number: 2, content: "keep", type: "context" },
-				],
-				newLines: [
-					{ number: null, content: "", type: "spacer" },
-					{ number: 1, content: "keep", type: "context" },
-				],
-				isBinary: false,
-				isNew: false,
-			}),
-		).toEqual({ added: 0, removed: 1, hunks: 1, lines: 2 });
 	});
 });

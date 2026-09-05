@@ -5,6 +5,7 @@ import {
 	appendTrimmedMessage,
 	type ChatLoadingState,
 	type ChatMessage,
+	type CommandSystemMessage,
 	nextId,
 	type SlashCommand,
 	trimMessages,
@@ -16,15 +17,8 @@ import {
 	getProviderSessionId,
 	loadPendingSend,
 } from "../../../modules/conversation/model/chat-session-store.ts";
-import { serializeCommandSystemMessage } from "../../../modules/conversation/model/command-system-message.ts";
 import type { AgentKind } from "../../../modules/workspace/model/workspace-model.ts";
-import { noop } from "../../../shared/lib/data.ts";
 import { hideMenuState } from "../model/chat-agent-utils.ts";
-import {
-	expandInlineCommandPrompts,
-	getCommandDisplayText,
-	getCommandPrompt,
-} from "../model/chat-command-utils.ts";
 import { appendSystemMessage } from "../model/chat-state-utils.ts";
 import type {
 	FileMenuState,
@@ -77,7 +71,6 @@ export function useChatInputActions({
 	fileMenu,
 	fileResults,
 	filteredCommands,
-	incrementUsage,
 	input,
 	isLoading,
 	onSendStart,
@@ -111,7 +104,6 @@ export function useChatInputActions({
 	fileMenu: FileMenuState;
 	fileResults: FileSearchResult[];
 	filteredCommands: SlashCommand[];
-	incrementUsage: (id: string) => Promise<unknown>;
 	input: string;
 	isLoading: boolean;
 	onSendStart?: () => void;
@@ -164,6 +156,11 @@ export function useChatInputActions({
 			displayText?: string,
 			images?: string[],
 			messageId?: string,
+			command?: {
+				expandCommands?: boolean;
+				commandId?: string;
+				commandArgs?: string;
+			},
 		) => {
 			if (!isLoading) {
 				onSendStart?.();
@@ -177,6 +174,7 @@ export function useChatInputActions({
 			wsClient.send({
 				type: "chat:send",
 				messageId,
+				...command,
 				paneId,
 				text,
 				cwd: workspaceOverride?.cwd ?? cwd,
@@ -210,18 +208,31 @@ export function useChatInputActions({
 			systemMessage,
 			text,
 			workspaceOverride,
+			command,
 		}: {
 			displayText?: string;
 			images?: string[];
-			systemMessage?: string;
+			systemMessage?: CommandSystemMessage;
 			text: string;
 			workspaceOverride?: ChatWorkspaceOverride;
+			command?: {
+				expandCommands?: boolean;
+				commandId?: string;
+				commandArgs?: string;
+			};
 		}) => {
 			const trimmed = text.trim();
-			if (!trimmed) return;
+			if (!trimmed && !images?.length) return;
 			const visibleText = displayText ?? trimmed;
 			if (isLoading) {
-				sendToServer(trimmed, workspaceOverride, visibleText, images);
+				sendToServer(
+					trimmed,
+					workspaceOverride,
+					visibleText,
+					images,
+					undefined,
+					command,
+				);
 				return;
 			}
 			const messageId = appendLocalMessage({
@@ -230,9 +241,25 @@ export function useChatInputActions({
 				images,
 			});
 			if (systemMessage) {
-				setMessages((prev) => appendSystemMessage(prev, systemMessage));
+				setMessages((prev) =>
+					appendSystemMessage(prev, JSON.stringify(systemMessage), {
+						version: 1,
+						kind: "message",
+						groupId: nextId(),
+						hidden: false,
+						toolInput: null,
+						command: systemMessage,
+					}),
+				);
 			}
-			sendToServer(trimmed, workspaceOverride, visibleText, images, messageId);
+			sendToServer(
+				trimmed,
+				workspaceOverride,
+				visibleText,
+				images,
+				messageId,
+				command,
+			);
 		},
 		[appendLocalMessage, isLoading, sendToServer, setMessages],
 	);
@@ -240,6 +267,7 @@ export function useChatInputActions({
 	const executeCommand = useCallback(
 		(cmd: SlashCommand, args?: string) => {
 			setInput("");
+			if (textareaRef.current) textareaRef.current.value = "";
 			if (cmd.name === "btw") {
 				const question = (args || "").trim();
 				setMessages(
@@ -284,30 +312,31 @@ export function useChatInputActions({
 				return;
 			}
 
-			const prompt = getCommandPrompt(cmd, args);
-			const displayText = getCommandDisplayText(cmd, args);
-			if (cmd.id) incrementUsage(cmd.id).catch(noop);
+			const displayText = `/${cmd.name}${args ? ` ${args}` : ""}`;
 			sendUserMessage({
 				displayText,
-				systemMessage: serializeCommandSystemMessage({
+				systemMessage: {
 					type: "inferay.command",
 					name: cmd.name,
 					description: cmd.description,
 					args: args?.trim() || undefined,
-				}),
-				text: prompt,
+				},
+				text: displayText,
+				command: cmd.id
+					? { expandCommands: true, commandId: cmd.id, commandArgs: args }
+					: undefined,
 			});
 		},
 		[
 			allCommands,
 			clearCheckpoints,
 			cwd,
-			incrementUsage,
 			onExit,
 			paneId,
 			sendUserMessage,
 			setInput,
 			setMessages,
+			textareaRef,
 		],
 	);
 
@@ -327,19 +356,8 @@ export function useChatInputActions({
 		}
 
 		const imagePaths = attachedImages.map((image) => image.path);
-		const { expandedText, usedCommandIds } = expandInlineCommandPrompts(
-			text,
-			allCommands,
-		);
-		usedCommandIds.forEach((id) => {
-			incrementUsage(id).catch(noop);
-		});
 		const displayText =
 			text || `Attached image${attachedImages.length > 1 ? "s" : ""}`;
-		const fullText =
-			imagePaths.length > 0
-				? `${expandedText}${expandedText ? "\n\n" : ""}Here are the images at these paths:\n${imagePaths.join("\n")}`
-				: expandedText;
 
 		setInput("");
 		setSlashMenu(hideMenuState);
@@ -352,7 +370,8 @@ export function useChatInputActions({
 		sendUserMessage({
 			displayText,
 			images: imagePaths.length > 0 ? imagePaths : undefined,
-			text: fullText,
+			text,
+			command: { expandCommands: true },
 			workspaceOverride: consumePendingWorkspace(),
 		});
 	}, [
@@ -362,7 +381,6 @@ export function useChatInputActions({
 		clearAttachedImages,
 		consumePendingWorkspace,
 		executeCommand,
-		incrementUsage,
 		input,
 		sendUserMessage,
 		setFileMenu,

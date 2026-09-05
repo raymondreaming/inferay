@@ -62,7 +62,7 @@ describe("GitHub settings", () => {
 
 	test("renders the connected GitHub identity", async () => {
 		const { SettingsGithubAccount } = await import(
-			"../src/modules/settings/components/SettingsGithub.tsx"
+			"../src/modules/settings/components/SettingsGithub/index.tsx"
 		);
 		const account: ForgeAccount = {
 			provider: "github",

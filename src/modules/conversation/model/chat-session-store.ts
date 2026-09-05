@@ -1,4 +1,4 @@
-import { postJson, sendJson } from "../../../adapters/backend/http.ts";
+import { postJson } from "../../../adapters/backend/http.ts";
 import { isChatMessageStorageKey } from "../../../adapters/storage/keys.ts";
 import {
 	readStoredJson,
@@ -43,10 +43,6 @@ const DEFAULT_CHAT_RUN_STATUS: ChatLoadingState = {
 };
 const CHAT_CACHE_DB = "inferay-chat-cache";
 const pendingSummaryRequests = new Set<string>();
-const pendingQueueFileSaves = new Map<
-	string,
-	{ queue: unknown[]; inFlight: boolean }
->();
 const chatMessageReadModels = new Map<string, ChatMessageReadModel>();
 const chatCheckpointReadModels = new Map<string, ChatCheckpointReadModel>();
 const chatQueueReadModels = new Map<string, ChatQueueReadModel>();
@@ -99,11 +95,11 @@ export interface ChatQueueReadModel {
 	getSnapshot: () => QueuedMessageInfo[];
 	loadAsync: () => Promise<void>;
 	replaceFromServer: (messages: QueuedMessageInfo[]) => void;
-	setLocal: (
-		update:
-			| QueuedMessageInfo[]
-			| ((prev: QueuedMessageInfo[]) => QueuedMessageInfo[]),
-	) => void;
+	mutate: (
+		action: "edit" | "remove",
+		id: string,
+		text?: string,
+	) => Promise<void>;
 	subscribe: (listener: ChatQueueReadModelListener) => () => void;
 }
 
@@ -576,60 +572,6 @@ export async function loadFileBackedQueue<T>(
 	}
 }
 
-async function saveFileBackedQueue<T>(
-	paneId: string,
-	queue: T[],
-): Promise<void> {
-	if (queue.length === 0) {
-		await fetch(`/api/chat-queues/${encodeURIComponent(paneId)}`, {
-			method: "DELETE",
-		});
-		return;
-	}
-	await sendJson(
-		`/api/chat-queues/${encodeURIComponent(paneId)}`,
-		{ queue },
-		{ method: "PUT" },
-	);
-}
-
-async function flushQueuedFileSave(
-	paneId: string,
-	state: { queue: unknown[]; inFlight: boolean },
-) {
-	state.inFlight = true;
-	while (pendingQueueFileSaves.get(paneId) === state) {
-		const queue = state.queue;
-		try {
-			await saveFileBackedQueue(paneId, queue);
-		} catch {
-			pendingQueueFileSaves.delete(paneId);
-			break;
-		}
-		if (state.queue === queue) {
-			pendingQueueFileSaves.delete(paneId);
-			break;
-		}
-	}
-	state.inFlight = false;
-}
-
-function saveLatestFileBackedQueue(paneId: string, queue: unknown[]) {
-	const state = pendingQueueFileSaves.get(paneId) ?? {
-		queue,
-		inFlight: false,
-	};
-	state.queue = queue;
-	pendingQueueFileSaves.set(paneId, state);
-	if (!state.inFlight) void flushQueuedFileSave(paneId, state);
-}
-
-export function saveStoredQueue<T>(paneId: string, queue: T[]) {
-	removePaneValue(QUEUE_KEY_PREFIX, paneId);
-	removePreference(storageKey(QUEUE_KEY_PREFIX, paneId));
-	saveLatestFileBackedQueue(paneId, queue);
-}
-
 function areQueuedMessagesEqual(
 	prev: QueuedMessageInfo[],
 	next: QueuedMessageInfo[],
@@ -664,23 +606,39 @@ function createChatQueueReadModel(paneId: string): ChatQueueReadModel {
 	const notify = () => {
 		for (const listener of listeners) listener();
 	};
-	const setSnapshot = (
-		next: QueuedMessageInfo[],
-		options: { persist: boolean },
-	) => {
+	const setSnapshot = (next: QueuedMessageInfo[]) => {
 		if (areQueuedMessagesEqual(queue, next)) return;
 		revision++;
 		queue = next;
-		if (options.persist) saveStoredQueue(paneId, next);
 		notify();
 	};
-	const setLocal = (
-		update:
-			| QueuedMessageInfo[]
-			| ((prev: QueuedMessageInfo[]) => QueuedMessageInfo[]),
-	) => {
-		const next = typeof update === "function" ? update(queue) : update;
-		setSnapshot(next, { persist: true });
+	let mutationChain = Promise.resolve();
+	const mutate = (action: "edit" | "remove", id: string, text?: string) => {
+		const result = mutationChain
+			.catch(() => undefined)
+			.then(async () => {
+				const before = ++revision;
+				const response = await fetch(
+					`/api/chat-queues/${encodeURIComponent(paneId)}`,
+					{
+						method: "PATCH",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ action, id, text }),
+					},
+				);
+				if (!response.ok)
+					throw new Error("Could not update queued message. Please retry.");
+				const payload = (await response.json()) as {
+					queue: QueuedMessageInfo[];
+				};
+				if (revision === before)
+					setSnapshot([
+						...payload.queue,
+						...queue.filter((item) => item.transient),
+					]);
+			});
+		mutationChain = result;
+		return result;
 	};
 	const loadAsync = async () => {
 		if (loadStarted) return;
@@ -689,14 +647,14 @@ function createChatQueueReadModel(paneId: string): ChatQueueReadModel {
 		const fileBackedQueue =
 			await loadFileBackedQueue<QueuedMessageInfo>(paneId);
 		if (fileBackedQueue === null || revision !== revisionAtLoad) return;
-		setSnapshot(fileBackedQueue, { persist: false });
+		setSnapshot(fileBackedQueue);
 	};
 	return {
 		get: () => queue,
 		getSnapshot: () => queue,
 		loadAsync,
-		replaceFromServer: (messages) => setSnapshot(messages, { persist: false }),
-		setLocal,
+		replaceFromServer: (messages) => setSnapshot(messages),
+		mutate,
 		subscribe: (listener) => {
 			listeners.add(listener);
 			return () => {
@@ -780,5 +738,7 @@ export function clearAgentChatPaneState(paneId: string) {
 		removePreference(storageKey(prefix, paneId));
 	}
 	deleteLegacyChatDatabase();
-	saveStoredQueue(paneId, []);
+	void fetch(`/api/chat-queues/${encodeURIComponent(paneId)}`, {
+		method: "DELETE",
+	}).catch(noop);
 }

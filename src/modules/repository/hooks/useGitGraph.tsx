@@ -6,6 +6,7 @@ import {
 	useQueryResource,
 } from "../../../shared/hooks/useQueryResource.tsx";
 import type {
+	GitFilePresentation,
 	GitGraphAncestry,
 	GitGraphNavigation,
 	GitProjectStatus,
@@ -507,6 +508,7 @@ export interface CommitFile {
 }
 
 export interface CommitDetails {
+	filePresentation?: GitFilePresentation;
 	hash: string;
 	parents: string[];
 	diffParent?: string;
@@ -530,6 +532,7 @@ export interface CommitDetails {
 }
 
 export interface ComparisonDetails {
+	filePresentation?: GitFilePresentation;
 	fromHash: string;
 	toHash: string;
 	mergeBase?: string;
@@ -608,6 +611,7 @@ function commitDetailsFromWire(value: unknown): CommitDetails | null {
 			typeof details.provider.repositoryUrl === "string"
 				? details.provider
 				: undefined,
+		filePresentation: details.filePresentation,
 		files: Array.isArray(details.files)
 			? details.files
 					.map(commitFileFromWire)
@@ -698,39 +702,76 @@ export function useCommitDetails(
 	return { details: data, loading, error, refresh };
 }
 
+export interface ComparisonPlan {
+	cwd: string;
+	from: string;
+	to: string;
+}
+
 export function useComparisonDetails(
 	cwd: string | undefined,
 	fromHash: string | undefined,
 	toHash: string | undefined,
 	repositoryRevision?: string,
+	selection?: Array<{
+		id: string;
+		hash: string;
+		itemKind: GitGraphItemKind;
+		historyOrder?: number;
+		worktreePath?: string;
+	}>,
 ) {
+	const selectionKey = selection ? JSON.stringify(selection) : undefined;
 	const fetchComparison = useCallback(
-		(signal?: AbortSignal) => {
-			if (!cwd || !fromHash || !toHash || fromHash === toHash) return null;
-			return (async () => {
-				const res = await fetch(
-					`/api/git/comparison-details?cwd=${encodeURIComponent(cwd)}&from=${encodeURIComponent(fromHash)}&to=${encodeURIComponent(toHash)}`,
-					{ signal },
-				);
-				if (!res.ok) throw new Error("Failed to compare commits");
-				const json = await res.json();
-				return (json.details || null) as ComparisonDetails | null;
-			})();
+		async (signal?: AbortSignal) => {
+			if (
+				!cwd ||
+				(!selectionKey && (!fromHash || !toHash || fromHash === toHash))
+			)
+				return null;
+			const query = selectionKey
+				? ""
+				: `from=${encodeURIComponent(fromHash!)}&to=${encodeURIComponent(toHash!)}`;
+			const res = await fetch(
+				`/api/git/comparison-details?cwd=${encodeURIComponent(cwd)}&${query}`,
+				selectionKey
+					? {
+							signal,
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: `{"selection":${selectionKey}}`,
+						}
+					: { signal },
+			);
+			if (!res.ok) throw new Error("Failed to compare commits");
+			return (await res.json()) as {
+				details: ComparisonDetails | null;
+				plan: ComparisonPlan | null;
+			};
 		},
-		[cwd, fromHash, toHash],
+		[cwd, fromHash, toHash, selectionKey],
 	);
-	const { data, loading, error, refresh } =
-		useQueryResource<ComparisonDetails | null>(fetchComparison, null, {
-			queryKey: [
-				"git",
-				"comparison",
-				cwd ?? "",
-				repositoryRevision ?? "",
-				fromHash ?? "",
-				toHash ?? "",
-			],
-			staleTime: 60_000,
-			gcTime: 5 * 60_000,
-		});
-	return { details: data, loading, error, refresh };
+	const { data, loading, error, refresh } = useQueryResource<{
+		details: ComparisonDetails | null;
+		plan: ComparisonPlan | null;
+	} | null>(fetchComparison, null, {
+		queryKey: [
+			"git",
+			"comparison",
+			cwd ?? "",
+			repositoryRevision ?? "",
+			fromHash ?? "",
+			toHash ?? "",
+			selectionKey ?? "",
+		],
+		staleTime: 60_000,
+		gcTime: 5 * 60_000,
+	});
+	return {
+		details: data?.details ?? null,
+		plan: data?.plan ?? null,
+		loading,
+		error,
+		refresh,
+	};
 }

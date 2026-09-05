@@ -9,13 +9,26 @@ import {
 	findTriggerAtCursor,
 	hideMenuState,
 } from "../model/chat-agent-utils.ts";
-import { applyInlineCompletion } from "../model/chat-command-utils.ts";
 
 interface MenuPosition {
 	top: number;
 	left: number;
 	width: number;
 	maxHeight: number;
+}
+
+function applyInlineCompletion(
+	input: string,
+	cursorPos: number,
+	triggerIndex: number,
+	replacement: string,
+) {
+	const before = input.slice(0, triggerIndex);
+	const after = input.slice(cursorPos);
+	return {
+		nextValue: `${before}${replacement}${after || " "}`,
+		nextCursor: before.length + replacement.length + (after ? 0 : 1),
+	};
 }
 
 export interface FileMenuState {
@@ -89,7 +102,7 @@ export function useAgentChatMenus({
 	inputContainerRef,
 	containerRef,
 }: UseAgentChatMenusOptions) {
-	const { skills: localSkills, incrementUsage } = useSkills(enabled);
+	const { skills: localSkills } = useSkills(enabled);
 	const [fileMenu, setFileMenu] = useState<FileMenuState>({
 		show: false,
 		selectedIdx: 0,
@@ -135,7 +148,6 @@ export function useAgentChatMenus({
 				name: skill.command,
 				description: skill.description,
 				action: "send" as const,
-				promptTemplate: skill.promptTemplate,
 				category: skill.category,
 				isFromLibrary: true,
 			})),
@@ -364,7 +376,6 @@ export function useAgentChatMenus({
 		setSlashMenu,
 		filteredCommands,
 		showCommands,
-		incrementUsage,
 		slashCommandNames,
 		handleInputForFileMenu,
 		handleInputForSlashMenu,
