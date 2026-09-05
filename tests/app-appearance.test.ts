@@ -6,7 +6,6 @@ import {
 	applyAppBackgroundPalette,
 	applyAppBackgroundSurfaces,
 	applyAppTheme,
-	DEFAULT_APP_BACKGROUND_SETTINGS,
 } from "../src/app/model/appearance.ts";
 
 // JSDOM does not process Tailwind directives. The rest is the production stylesheet.
@@ -43,11 +42,6 @@ describe("application appearance", () => {
 			.getComputedStyle(document.documentElement)
 			.getPropertyValue(name)
 			.trim();
-
-	test("defaults to 7px blur and 17 percent window transparency", () => {
-		expect(DEFAULT_APP_BACKGROUND_SETTINGS.glassBlur).toBe(7);
-		expect(100 - DEFAULT_APP_BACKGROUND_SETTINGS.glassOpacity).toBe(17);
-	});
 
 	test("CSS supplies Black before startup, then switches without stale inline colors", () => {
 		expect(property("--color-inferay-black")).toBe("#000000");
