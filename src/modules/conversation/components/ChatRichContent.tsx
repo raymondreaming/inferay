@@ -16,20 +16,22 @@ import {
 	motion,
 	radius,
 } from "../../../design-system/styles.stylex.ts";
+import { useNativeMarkdown } from "../../../shared/hooks/useNativeMarkdown.tsx";
 import { noop } from "../../../shared/lib/data.ts";
 import { indexedValues } from "../../../shared/lib/indexed-values.ts";
+import type { MdBlock, MdInlineToken } from "../../../shared/lib/markdown.ts";
 import {
 	IconCheck,
 	IconCopy,
 	IconHelpCircle,
 	IconSend,
 } from "../../../shared/ui/Icons.tsx";
+import type { AskUserQuestion } from "../model/agent-chat-shared.ts";
 import {
 	formatAskUserAnswer,
 	hasAskUserSelections,
 	parseAskUserQuestions,
 } from "../model/chat-message-render-utils.ts";
-import { parseInlineTokens, parseMarkdownBlocks } from "../model/chat-text.ts";
 
 function findParentScrollContainer(
 	node: HTMLElement | null,
@@ -109,81 +111,245 @@ function CopyablePre({ text, preStyle }: { text: string; preStyle: unknown }) {
 }
 
 const Inline = memo(function Inline({
-	text,
+	tokens,
 	onMdFileClick,
 }: {
-	text: string;
+	tokens: MdInlineToken[];
 	onMdFileClick?: (path: string) => void;
 }) {
-	const tokens = useMemo(() => parseInlineTokens(text), [text]);
 	return (
 		<>
-			{tokens.map((token, i) => {
-				const partKey = `${i}-${token.type}`;
-				if (token.type === "code") {
-					return (
-						<code key={partKey} {...stylex.props(styles.inlineCode)}>
-							{token.value}
-						</code>
-					);
+			{tokens.map((token, index) => {
+				const children = token.children ? (
+					<Inline
+						key={index}
+						tokens={token.children}
+						onMdFileClick={onMdFileClick}
+					/>
+				) : (
+					token.text
+				);
+				switch (token.type) {
+					case "code":
+						return (
+							<code key={index} {...stylex.props(styles.inlineCode)}>
+								{token.text}
+							</code>
+						);
+					case "bold":
+						return (
+							<strong key={index} {...stylex.props(styles.strong)}>
+								{children}
+							</strong>
+						);
+					case "italic":
+						return (
+							<em key={index} {...stylex.props(styles.em)}>
+								{children}
+							</em>
+						);
+					case "bold-italic":
+						return (
+							<strong key={index} {...stylex.props(styles.strong)}>
+								<em>{children}</em>
+							</strong>
+						);
+					case "strikethrough":
+						return <del key={index}>{children}</del>;
+					case "linebreak":
+						return <br key={index} />;
+					case "image":
+						return (
+							<img
+								key={index}
+								src={token.href}
+								alt={token.alt ?? token.text}
+								style={{ maxWidth: "100%" }}
+							/>
+						);
+					case "markdown_path":
+						if (onMdFileClick)
+							return (
+								<button
+									key={index}
+									type="button"
+									onClick={() => onMdFileClick(token.text)}
+									{...stylex.props(styles.inlinePathButton)}
+								>
+									{token.text}
+								</button>
+							);
+						return <Fragment key={index}>{token.text}</Fragment>;
+					case "link":
+					case "url":
+						return (
+							<a
+								key={index}
+								href={token.href}
+								target="_blank"
+								rel="noopener noreferrer"
+								{...stylex.props(
+									token.type === "url" ? styles.linkUnderlined : styles.link,
+								)}
+							>
+								{children}
+							</a>
+						);
+					default:
+						return <Fragment key={index}>{token.text}</Fragment>;
 				}
-				if (token.type === "bold") {
-					return (
-						<strong key={partKey} {...stylex.props(styles.strong)}>
-							{token.value}
-						</strong>
-					);
-				}
-				if (token.type === "italic") {
-					return (
-						<em key={partKey} {...stylex.props(styles.em)}>
-							{token.value}
-						</em>
-					);
-				}
-				if (token.type === "markdown_link") {
-					return (
-						<a
-							key={partKey}
-							href={token.href}
-							target="_blank"
-							rel="noopener noreferrer"
-							{...stylex.props(styles.link)}
-						>
-							{token.label}
-						</a>
-					);
-				}
-				if (token.type === "markdown_path" && onMdFileClick) {
-					return (
-						<button
-							key={partKey}
-							type="button"
-							onClick={() => onMdFileClick(token.value)}
-							{...stylex.props(styles.inlinePathButton)}
-						>
-							{token.value}
-						</button>
-					);
-				}
-				if (token.type === "url") {
-					return (
-						<a
-							key={partKey}
-							href={token.href}
-							target="_blank"
-							rel="noopener noreferrer"
-							{...stylex.props(styles.linkUnderlined)}
-						>
-							{token.value}
-						</a>
-					);
-				}
-				return <Fragment key={partKey}>{token.value}</Fragment>;
 			})}
 		</>
 	);
 });
+
+function MarkdownBlocks({
+	blocks,
+	onMdFileClick,
+	onTableWheel,
+}: {
+	blocks: MdBlock[];
+	onMdFileClick?: (path: string) => void;
+	onTableWheel: (event: WheelEvent & { currentTarget: HTMLDivElement }) => void;
+}) {
+	return (
+		<>
+			{indexedValues(blocks).map(({ index, value: block }) => {
+				switch (block.type) {
+					case "code":
+					case "mermaid":
+						return (
+							<CopyablePre
+								key={index}
+								text={block.content}
+								preStyle={styles.codeBlock}
+							/>
+						);
+					case "heading":
+						return (
+							<p key={index} {...stylex.props(styles.heading)}>
+								<Inline
+									tokens={block.tokens ?? []}
+									onMdFileClick={onMdFileClick}
+								/>
+							</p>
+						);
+					case "hr":
+						return <hr key={index} />;
+					case "blockquote":
+						return (
+							<blockquote key={index}>
+								<MarkdownBlocks
+									blocks={block.children ?? []}
+									onMdFileClick={onMdFileClick}
+									onTableWheel={onTableWheel}
+								/>
+							</blockquote>
+						);
+					case "ul":
+					case "ol":
+					case "checklist":
+						return (
+							<div key={index}>
+								{indexedValues(block.items ?? []).map(
+									({ index: itemIndex, value: item }) => (
+										<div
+											key={itemIndex}
+											{...stylex.props(styles.listItem)}
+											style={{ paddingLeft: item.indent * 4 }}
+										>
+											<span {...stylex.props(styles.listBullet)}>
+												{item.checked !== undefined
+													? item.checked
+														? "✓"
+														: "□"
+													: block.type === "ol"
+														? (item.bullet ?? `${itemIndex + 1}.`)
+														: (item.bullet ?? "-")}
+											</span>
+											<span {...stylex.props(styles.listContent)}>
+												<Inline
+													tokens={item.tokens}
+													onMdFileClick={onMdFileClick}
+												/>
+											</span>
+										</div>
+									),
+								)}
+							</div>
+						);
+					case "table": {
+						const [headers = [], ...rows] = block.rows ?? [];
+						return (
+							<div
+								key={index}
+								{...stylex.props(styles.tableWrap)}
+								onWheel={onTableWheel}
+							>
+								<table {...stylex.props(styles.table)}>
+									<thead>
+										<tr>
+											{indexedValues(headers).map(
+												({ index: cellIndex, value: cell }) => (
+													<th
+														key={cellIndex}
+														{...stylex.props(styles.tableHeadCell)}
+													>
+														<Inline
+															tokens={cell}
+															onMdFileClick={onMdFileClick}
+														/>
+													</th>
+												),
+											)}
+										</tr>
+									</thead>
+									<tbody>
+										{indexedValues(rows).map(
+											({ index: rowIndex, value: row }) => (
+												<tr key={rowIndex}>
+													{indexedValues(row).map(
+														({ index: cellIndex, value: cell }) => (
+															<td
+																key={cellIndex}
+																{...stylex.props(styles.tableCell)}
+																style={{
+																	borderBottom:
+																		rowIndex < rows.length - 1
+																			? "1px solid var(--color-inferay-gray-border)"
+																			: "none",
+																	color: "var(--color-inferay-white)",
+																}}
+															>
+																<Inline
+																	tokens={cell}
+																	onMdFileClick={onMdFileClick}
+																/>
+															</td>
+														),
+													)}
+												</tr>
+											),
+										)}
+									</tbody>
+								</table>
+							</div>
+						);
+					}
+					default:
+						return (
+							<p key={index} {...stylex.props(styles.paragraph)}>
+								<Inline
+									tokens={block.tokens ?? []}
+									onMdFileClick={onMdFileClick}
+								/>
+							</p>
+						);
+				}
+			})}
+		</>
+	);
+}
 
 export const Markdown = memo(function Markdown({
 	text,
@@ -194,108 +360,35 @@ export const Markdown = memo(function Markdown({
 	onMdFileClick?: (path: string) => void;
 	streaming?: boolean;
 }) {
-	// Streaming and completed messages use the same block projection. Switching
-	// from a raw streaming tail to parsed markdown at an arbitrary length caused
-	// paragraphs to change height and made the pinned viewport jump.
-	const blocks = useMemo(
-		() => parseMarkdownBlocks(text, streaming),
-		[streaming, text],
-	);
+	const { blocks, loading, error } = useNativeMarkdown(text, streaming, true);
 	const handleTableWheel = useCallback(
 		(event: WheelEvent & { currentTarget: HTMLDivElement }) => {
-			if (Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.shiftKey) {
+			if (Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.shiftKey)
 				return;
-			}
-
 			const parentScroller = findParentScrollContainer(event.currentTarget);
 			if (!parentScroller) return;
-
 			parentScroller.scrollTop += event.deltaY;
 			event.preventDefault();
 		},
 		[],
 	);
-
 	return (
 		<div {...stylex.props(styles.markdownRoot)}>
-			{indexedValues(blocks).map(({ index: blockIndex, value: b }) => {
-				const blockKey = `${b.type}-${blockIndex}`;
-				if (b.type === "code") {
-					return (
-						<CopyablePre
-							key={blockKey}
-							text={b.content}
-							preStyle={styles.codeBlock}
-						/>
-					);
-				}
-				if (b.type === "heading") {
-					return (
-						<p key={blockKey} {...stylex.props(styles.heading)}>
-							{b.content}
-						</p>
-					);
-				}
-				if (b.type === "list-item") {
-					return (
-						<div key={blockKey} {...stylex.props(styles.listItem)}>
-							<span {...stylex.props(styles.listBullet)}>{b.bullet}</span>
-							<span {...stylex.props(styles.listContent)}>
-								<Inline text={b.content} onMdFileClick={onMdFileClick} />
-							</span>
-						</div>
-					);
-				}
-				if (b.type === "table") {
-					return (
-						<div
-							key={blockKey}
-							{...stylex.props(styles.tableWrap)}
-							onWheel={handleTableWheel}
-						>
-							<table {...stylex.props(styles.table)}>
-								<thead>
-									<tr>
-										{indexedValues(b.headers).map(({ index, value: h }) => (
-											<th key={index} {...stylex.props(styles.tableHeadCell)}>
-												{h}
-											</th>
-										))}
-									</tr>
-								</thead>
-								<tbody>
-									{indexedValues(b.rows).map(
-										({ index: rowIndex, value: row }) => (
-											<tr key={rowIndex}>
-												{indexedValues(row).map(({ index, value: cell }) => (
-													<td
-														key={index}
-														{...stylex.props(styles.tableCell)}
-														style={{
-															borderBottom:
-																rowIndex < b.rows.length - 1
-																	? "1px solid var(--color-inferay-gray-border)"
-																	: "none",
-															color: "var(--color-inferay-white)",
-														}}
-													>
-														<Inline text={cell} onMdFileClick={onMdFileClick} />
-													</td>
-												))}
-											</tr>
-										),
-									)}
-								</tbody>
-							</table>
-						</div>
-					);
-				}
-				return (
-					<p key={blockKey} {...stylex.props(styles.paragraph)}>
-						<Inline text={b.content} onMdFileClick={onMdFileClick} />
-					</p>
-				);
-			})}
+			{loading || error ? (
+				<p
+					{...stylex.props(styles.paragraph)}
+					style={{ whiteSpace: "pre-wrap" }}
+				>
+					{text}
+				</p>
+			) : (
+				<MarkdownBlocks
+					blocks={blocks}
+					onMdFileClick={onMdFileClick}
+					onTableWheel={handleTableWheel}
+				/>
+			)}
+			{error && <span role="status">Formatting unavailable: {error}</span>}
 		</div>
 	);
 });
@@ -607,17 +700,19 @@ const styles = stylex.create({
 export function AskUserQuestionCard({
 	content,
 	nativeInput,
+	nativeQuestions,
 	isStreaming,
 	onSendMessage,
 }: {
 	content: string;
 	nativeInput?: Record<string, unknown> | null;
+	nativeQuestions?: AskUserQuestion[] | null;
 	isStreaming?: boolean;
 	onSendMessage?: (text: string) => void;
 }) {
 	const parsed = useMemo(
-		() => parseAskUserQuestions(content, nativeInput),
-		[content, nativeInput],
+		() => parseAskUserQuestions(content, nativeQuestions, nativeInput),
+		[content, nativeQuestions, nativeInput],
 	);
 	const [selections, setSelections] = useState<Map<number, Set<number>>>(
 		new Map(),

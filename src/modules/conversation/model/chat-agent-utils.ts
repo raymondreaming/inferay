@@ -10,7 +10,7 @@ const MAX_LIVE_ACTIVITIES = 500;
 
 type ChatToolMessage = Pick<
 	ChatMessage,
-	"id" | "role" | "content" | "toolName" | "isStreaming"
+	"id" | "role" | "content" | "toolName" | "isStreaming" | "render"
 >;
 
 type ChatActivityUiState = {
@@ -129,7 +129,10 @@ export function extractToolActivities(
 	for (const msg of messages) {
 		if (msg.role !== "tool" || !msg.toolName) continue;
 		const toolName = normalizeToolName(msg.toolName);
-		const outputSummary = getToolOutputSummary(msg.content);
+		const outputSummary = getToolOutputSummary(
+			msg.content,
+			msg.render?.summary,
+		);
 		const summary =
 			outputSummary.type === "edit" || outputSummary.type === "file-content"
 				? outputSummary.fileName

@@ -75,6 +75,7 @@ pub struct ChatMessageBuffer {
     has_streamed: bool,
     revision: u64,
     dirty_start: Option<usize>,
+    render_dirty_start: Option<usize>,
     published_revision: u64,
     published: Vec<PublishedMessage>,
     replaced_content: HashSet<String>,
@@ -141,8 +142,13 @@ impl ChatMessageBuffer {
         let mut changed = false;
         for (index, message) in self.messages.iter_mut().enumerate() {
             if message.is_streaming == Some(true) {
+                message.extra.remove("render");
                 changed = true;
                 self.dirty_start = Some(self.dirty_start.map_or(index, |start| start.min(index)));
+                self.render_dirty_start = Some(
+                    self.render_dirty_start
+                        .map_or(index, |start| start.min(index)),
+                );
             }
             message.is_streaming = Some(false);
         }
@@ -159,11 +165,13 @@ impl ChatMessageBuffer {
 
     pub fn replace_messages(&mut self, messages: Vec<ChatTranscriptMessage>) {
         self.dirty_start = Some(0);
+        self.render_dirty_start = Some(0);
         self.reset_pending = true;
         self.messages = messages
             .into_iter()
             .map(|mut message| {
                 message.is_streaming = Some(false);
+                message.extra.remove("render");
                 message
             })
             .collect();
@@ -188,6 +196,10 @@ impl ChatMessageBuffer {
             self.replaced_content.insert(message.id.clone());
             message.content = truncate_chat_content(&next, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
             self.dirty_start = Some(self.dirty_start.map_or(index, |start| start.min(index)));
+            self.render_dirty_start = Some(
+                self.render_dirty_start
+                    .map_or(index, |start| start.min(index)),
+            );
             self.revision += 1;
         }
         self.trim();
@@ -197,25 +209,56 @@ impl ChatMessageBuffer {
     /// Semantic descriptors are derived only for the changed suffix. Pixel/layout
     /// state never enters the transcript or its persisted representation.
     fn prepare_render_model(&mut self) {
-        let Some(start) = self.dirty_start else {
+        let Some(start) = self.render_dirty_start.take() else {
             return;
         };
         for index in start..self.messages.len() {
+            let cached = self.messages[index].extra.remove("render");
             let message = &self.messages[index];
-            let input = if message.role == "tool" && message.is_streaming != Some(true) {
-                parse_tool_envelope(&message.content)
+            let mut render = if message.role == "tool"
+                && cached.as_ref().is_some_and(|r| r.get("display").is_some())
+            {
+                cached.unwrap()
             } else {
-                None
+                let mut render = serde_json::json!({"version":1,"toolInput":null});
+                if message.role == "tool" {
+                    let input = parse_tool_envelope(&message.content);
+                    let value = input.as_ref().map_or(&Value::Null, |(value, _)| value);
+                    render["display"] = serde_json::to_value(crate::tool_presentation::display(
+                        message.tool_name.as_deref(),
+                        value,
+                    ))
+                    .expect("tool display serialization");
+                    render["summary"] =
+                        serde_json::to_value(crate::tool_presentation::summary(value))
+                            .expect("tool summary serialization");
+                    render["questions"] =
+                        serde_json::to_value(if message.is_streaming == Some(true) {
+                            None
+                        } else {
+                            crate::tool_presentation::questions(value)
+                        })
+                        .expect("question serialization");
+                    // Complete commands can be described while executing. Editing and
+                    // input consumers still wait for the authoritative settled input.
+                    if message.is_streaming != Some(true)
+                        && let Some((input, end)) = input
+                    {
+                        if message.tool_name.as_deref() == Some("Edit")
+                            && input.get("old_string").is_some_and(Value::is_string)
+                            && input.get("new_string").is_some_and(Value::is_string)
+                            && let Some(path) = input.get("file_path").and_then(Value::as_str)
+                        {
+                            render["filePath"] = Value::String(path.to_owned());
+                        }
+                        render["toolInput"] = input;
+                        render["trailingOutput"] =
+                            Value::String(message.content[end..].trim_start().to_owned());
+                    }
+                }
+                render
             };
-            let file_path = if message.tool_name.as_deref() == Some("Edit") {
-                input.as_ref().and_then(|(value, _)| {
-                    value.get("old_string")?.as_str()?;
-                    value.get("new_string")?.as_str()?;
-                    value.get("file_path")?.as_str().map(str::to_owned)
-                })
-            } else {
-                None
-            };
+            let file_path = render.get("filePath").and_then(Value::as_str);
             let kind = if file_path.is_some() {
                 "edit-group"
             } else if message.role == "tool"
@@ -240,25 +283,15 @@ impl ChatMessageBuffer {
                 if let Some(render) = previous.extra.get("render")
                     && kind != "message"
                     && render["kind"] == kind
-                    && render.get("filePath").and_then(Value::as_str) == file_path.as_deref()
+                    && render.get("filePath").and_then(Value::as_str) == file_path
                     && let Some(id) = render["groupId"].as_str()
                 {
                     group_id = id.to_owned();
                 }
             }
-            let mut render =
-                serde_json::json!({"version":1,"kind":kind,"groupId":group_id,"hidden":hidden});
-            if let Some(file_path) = file_path {
-                render["filePath"] = Value::String(file_path);
-            }
-            // Null distinguishes native unparseable/unfinished input from a legacy
-            // message that still needs its compatibility reader.
-            render["toolInput"] = Value::Null;
-            if let Some((input, end)) = input {
-                render["toolInput"] = input;
-                render["trailingOutput"] =
-                    Value::String(message.content[end..].trim_start().to_owned());
-            }
+            render["kind"] = Value::String(kind.into());
+            render["groupId"] = Value::String(group_id);
+            render["hidden"] = Value::Bool(hidden);
             self.messages[index]
                 .extra
                 .insert("render".to_owned(), render);
@@ -370,6 +403,10 @@ impl ChatMessageBuffer {
                         message.is_streaming = Some(is_streaming);
                         self.dirty_start =
                             Some(self.dirty_start.map_or(index, |start| start.min(index)));
+                        self.render_dirty_start = Some(
+                            self.render_dirty_start
+                                .map_or(index, |start| start.min(index)),
+                        );
                         self.revision += 1;
                         self.last_assistant_index = self.current_assistant_index;
                     } else {
@@ -439,7 +476,12 @@ impl ChatMessageBuffer {
                     self.replaced_content.insert(message.id.clone());
                 }
                 message.content = next_content;
+                message.extra.remove("render");
                 self.dirty_start = Some(self.dirty_start.map_or(index, |start| start.min(index)));
+                self.render_dirty_start = Some(
+                    self.render_dirty_start
+                        .map_or(index, |start| start.min(index)),
+                );
                 self.revision += 1;
             }
             Some("input_json_delta") => {
@@ -464,7 +506,12 @@ impl ChatMessageBuffer {
                     self.replaced_content.insert(message.id.clone());
                 }
                 message.content = next_content;
+                message.extra.remove("render");
                 self.dirty_start = Some(self.dirty_start.map_or(index, |start| start.min(index)));
+                self.render_dirty_start = Some(
+                    self.render_dirty_start
+                        .map_or(index, |start| start.min(index)),
+                );
                 self.revision += 1;
             }
             _ => {}
@@ -488,6 +535,10 @@ impl ChatMessageBuffer {
             message.content = truncate_chat_content(result, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
             message.is_streaming = Some(false);
             self.dirty_start = Some(self.dirty_start.map_or(index, |start| start.min(index)));
+            self.render_dirty_start = Some(
+                self.render_dirty_start
+                    .map_or(index, |start| start.min(index)),
+            );
             self.revision += 1;
             self.current_assistant_index = None;
             self.last_assistant_index = None;
@@ -518,8 +569,15 @@ impl ChatMessageBuffer {
         let Some(message) = self.messages.get_mut(index) else {
             return false;
         };
+        if message.is_streaming != Some(value) {
+            message.extra.remove("render");
+        }
         message.is_streaming = Some(value);
         self.dirty_start = Some(self.dirty_start.map_or(index, |start| start.min(index)));
+        self.render_dirty_start = Some(
+            self.render_dirty_start
+                .map_or(index, |start| start.min(index)),
+        );
         self.revision += 1;
         true
     }
@@ -527,6 +585,10 @@ impl ChatMessageBuffer {
     fn push(&mut self, message: ChatTranscriptMessage) {
         let index = self.messages.len();
         self.dirty_start = Some(self.dirty_start.map_or(index, |start| start.min(index)));
+        self.render_dirty_start = Some(
+            self.render_dirty_start
+                .map_or(index, |start| start.min(index)),
+        );
         self.messages.push(message);
         self.revision += 1;
         self.trim();
@@ -546,6 +608,7 @@ impl ChatMessageBuffer {
                 message.content =
                     truncate_chat_content(&message.content, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
                 self.replaced_content.insert(message.id.clone());
+                message.extra.remove("render");
                 chars = javascript_length(&message.content);
             }
             self.message_chars.push(chars);
@@ -566,6 +629,7 @@ impl ChatMessageBuffer {
         self.messages.drain(..dropped);
         self.message_chars.drain(..dropped);
         self.dirty_start = Some(0);
+        self.render_dirty_start = Some(0);
         self.reset_pending = true;
         self.revision += 1;
         self.current_assistant_index = adjusted_index(self.current_assistant_index, dropped);
@@ -832,6 +896,31 @@ mod tests {
                 .map(|message| javascript_length(&message.content))
                 .sum::<usize>()
         );
+    }
+
+    #[test]
+    fn tool_presentation_preserves_incremental_output_and_streamed_commands() {
+        let mut buffer = ChatMessageBuffer::default();
+        buffer.append_tool("exec", &"raw output ".repeat(9_000));
+        buffer.take_update();
+        buffer.apply_event(&json!({"type":"content_block_delta","delta":{"type":"input_json_delta","partial_json":"tail"}}));
+        let update = buffer.take_update().unwrap();
+        assert_eq!(update["messages"][0]["appendContent"], "tail");
+        assert!(update["messages"][0]["message"].get("content").is_none());
+        assert!(update["messages"][0]["message"]["render"]["summary"].is_null());
+        assert!(serde_json::to_vec(&update).unwrap().len() < 1_000);
+        buffer.append_tool(
+            "exec",
+            r#"{"command":"cargo test --workspace --all-targets --all-features --locked"}"#,
+        );
+        let render = &buffer.messages().last().unwrap().extra["render"];
+        assert_eq!(render["display"]["label"], "Running Rust tests");
+        assert!(render["toolInput"].is_null());
+        assert!(render["questions"].is_null());
+        buffer.patch_streaming(buffer.current_tool_index, false);
+        buffer.prepare_render_model();
+        assert!(buffer.messages().last().unwrap().extra["render"]["toolInput"].is_object());
+        assert!(buffer.render_dirty_start.is_none());
     }
 
     #[test]

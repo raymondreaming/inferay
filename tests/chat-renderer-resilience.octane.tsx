@@ -399,3 +399,287 @@ test("short tool milestones fill a tall viewport without mounting the whole time
 		});
 	}
 });
+
+test("native Markdown renders nested tokens once per shared input", async () => {
+	const { queryClient } = await import("../src/shared/lib/query-client.ts");
+	queryClient.clear();
+	const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+		Response.json({
+			version: 1,
+			blocks: [
+				{
+					type: "blockquote",
+					content: "",
+					children: [
+						{
+							type: "paragraph",
+							content: "",
+							tokens: [
+								{
+									type: "bold",
+									text: "nested",
+									children: [{ type: "italic", text: "nested" }],
+								},
+							],
+						},
+					],
+				},
+				{
+					type: "table",
+					content: "",
+					rows: [
+						[[{ type: "text", text: "Header" }]],
+						[[{ type: "code", text: "Cell" }]],
+					],
+				},
+				{
+					type: "paragraph",
+					content: "",
+					tokens: [{ type: "markdown_path", text: "docs/guide.md" }],
+				},
+			],
+		}),
+	);
+	const { root, rootElement } = setupDom();
+	const openPath = vi.fn();
+	try {
+		const { Markdown } = await import(
+			"../src/modules/conversation/components/ChatRichContent.tsx"
+		);
+		const { MarkdownPreview } = await import(
+			"../src/modules/workbench/diff/components/MarkdownPreview.tsx"
+		);
+		root.render(
+			<div>
+				<Markdown text="shared-input" onMdFileClick={openPath} />
+				<Markdown text="shared-input" />
+				<MarkdownPreview content="shared-input" />
+			</div>,
+		);
+		await vi.waitFor(() =>
+			expect(rootElement.querySelectorAll("table")).toHaveLength(3),
+		);
+		expect(rootElement.querySelectorAll("strong em")).toHaveLength(3);
+		expect(rootElement.querySelectorAll("td code")).toHaveLength(3);
+		const pathButton = Array.from(rootElement.querySelectorAll("button")).find(
+			(button) => button.textContent === "docs/guide.md",
+		);
+		pathButton?.click();
+		expect(openPath).toHaveBeenCalledWith("docs/guide.md");
+		// Chat and document interpretation differ, but identical chat readers share work.
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	} finally {
+		root.unmount();
+		queryClient.clear();
+		fetchMock.mockRestore();
+	}
+});
+
+test("document Markdown shows raw pending and failed input and rejects stale results", async () => {
+	const { queryClient } = await import("../src/shared/lib/query-client.ts");
+	queryClient.clear();
+	const pending: Array<(response: Response) => void> = [];
+	const fetchMock = vi
+		.spyOn(globalThis, "fetch")
+		.mockImplementation(() => new Promise((resolve) => pending.push(resolve)));
+	const { root, rootElement } = setupDom();
+	try {
+		const { MarkdownPreview } = await import(
+			"../src/modules/workbench/diff/components/MarkdownPreview.tsx"
+		);
+		root.render(<MarkdownPreview content="**first document**" />);
+		await vi.waitFor(() => expect(pending).toHaveLength(1));
+		expect(rootElement.textContent).toContain("**first document**");
+		expect(rootElement.querySelector("strong")).toBeNull();
+		root.render(<MarkdownPreview content="**second document**" />);
+		await vi.waitFor(() => expect(pending).toHaveLength(2));
+		pending[0]!(
+			Response.json({
+				version: 1,
+				blocks: [
+					{
+						type: "paragraph",
+						content: "",
+						tokens: [{ type: "bold", text: "stale prepared document" }],
+					},
+				],
+			}),
+		);
+		await tick();
+		expect(rootElement.textContent).toContain("**second document**");
+		expect(rootElement.textContent).not.toContain("stale prepared document");
+		pending[1]!(
+			Response.json({ error: "Preview size limit" }, { status: 422 }),
+		);
+		await vi.waitFor(() =>
+			expect(rootElement.textContent).toContain(
+				"Markdown preview unavailable.",
+			),
+		);
+		expect(rootElement.textContent).toContain("**second document**");
+		expect(rootElement.querySelector("strong")).toBeNull();
+	} finally {
+		root.unmount();
+		queryClient.clear();
+		fetchMock.mockRestore();
+	}
+});
+
+test("streaming Markdown retains prepared output and bounds in-flight work until finalization", async () => {
+	const { queryClient } = await import("../src/shared/lib/query-client.ts");
+	queryClient.clear();
+	const pending: Array<(response: Response) => void> = [];
+	const fetchMock = vi
+		.spyOn(globalThis, "fetch")
+		.mockImplementation(() => new Promise((resolve) => pending.push(resolve)));
+	const prepared = (text: string) =>
+		Response.json({
+			version: 1,
+			blocks: [
+				{ type: "paragraph", content: "", tokens: [{ type: "bold", text }] },
+			],
+		});
+	const { root, rootElement } = setupDom();
+	try {
+		const { Markdown } = await import(
+			"../src/modules/conversation/components/ChatRichContent.tsx"
+		);
+		root.render(<Markdown text="one" streaming />);
+		await vi.waitFor(() => expect(pending).toHaveLength(1));
+		pending[0]!(prepared("prepared one"));
+		await vi.waitFor(() =>
+			expect(rootElement.querySelector("strong")?.textContent).toBe(
+				"prepared one",
+			),
+		);
+		root.render(<Markdown text="one two" streaming />);
+		await vi.waitFor(() => expect(pending).toHaveLength(2));
+		expect(rootElement.querySelector("strong")?.textContent).toBe(
+			"prepared one",
+		);
+		root.render(<Markdown text="one two three" streaming />);
+		await tick(140);
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(rootElement.querySelector("strong")?.textContent).toBe(
+			"prepared one",
+		);
+		pending[1]!(prepared("prepared two"));
+		await vi.waitFor(() =>
+			expect(rootElement.querySelector("strong")?.textContent).toBe(
+				"prepared two",
+			),
+		);
+		root.render(<Markdown text="one two three final" />);
+		await tick(20);
+		expect(fetchMock).toHaveBeenCalledTimes(3);
+		expect(
+			JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body)),
+		).toMatchObject({ text: "one two three final", streaming: false });
+		pending[2]!(prepared("prepared final"));
+		await vi.waitFor(() =>
+			expect(rootElement.querySelector("strong")?.textContent).toBe(
+				"prepared final",
+			),
+		);
+		root.render(
+			<Markdown key="unchanged-final" text="unchanged final text" streaming />,
+		);
+		await vi.waitFor(() => expect(pending).toHaveLength(4));
+		pending[3]!(prepared("prepared streaming ending"));
+		await vi.waitFor(() =>
+			expect(rootElement.querySelector("strong")?.textContent).toBe(
+				"prepared streaming ending",
+			),
+		);
+		root.render(<Markdown key="unchanged-final" text="unchanged final text" />);
+		await vi.waitFor(() => expect(pending).toHaveLength(5));
+		expect(rootElement.querySelector("strong")?.textContent).toBe(
+			"prepared streaming ending",
+		);
+		expect(rootElement.textContent).not.toContain("unchanged final text");
+		pending[4]!(prepared("prepared completed ending"));
+		await vi.waitFor(() =>
+			expect(rootElement.querySelector("strong")?.textContent).toBe(
+				"prepared completed ending",
+			),
+		);
+	} finally {
+		root.unmount();
+		queryClient.clear();
+		fetchMock.mockRestore();
+	}
+});
+
+test("tool rows and question controls consume native descriptors", async () => {
+	const { root, rootElement } = setupDom();
+	const send = vi.fn();
+	try {
+		const { ChatMessageList } = await import(
+			"../src/modules/conversation/components/ChatMessageList.tsx"
+		);
+		const { AskUserQuestionCard } = await import(
+			"../src/modules/conversation/components/ChatRichContent.tsx"
+		);
+		root.render(
+			<>
+				<ChatMessageList
+					paneId="native-tool-descriptors"
+					scrollElementRef={{ current: rootElement }}
+					stickToBottom={false}
+					messages={[
+						{
+							id: "native-tool",
+							role: "tool",
+							toolName: "exec",
+							content: '{"command":"legacy command should not be interpreted"}',
+							render: {
+								version: 1,
+								kind: "tool-group",
+								groupId: "native-tool",
+								hidden: false,
+								toolInput: null,
+								trailingOutput: "passed",
+								display: { label: "Running Rust tests" },
+								summary: { type: "command", value: "cargo test" },
+							},
+						},
+					]}
+					expandedTools={new Set(["native-tool"])}
+					toggleTool={() => {}}
+					checkpoints={[]}
+					revertCheckpoint={() => {}}
+					slashCommandNames={[]}
+				/>
+				<AskUserQuestionCard
+					content="unparsed legacy question"
+					nativeQuestions={[
+						{
+							question: "Choose a test target",
+							header: "Target",
+							options: [{ label: "Workspace" }],
+						},
+					]}
+					onSendMessage={send}
+				/>
+			</>,
+		);
+		await tick();
+		expect(rootElement.textContent).toContain("Running Rust tests");
+		expect(rootElement.textContent).toContain("cargo test");
+		expect(rootElement.textContent).not.toContain(
+			"legacy command should not be interpreted",
+		);
+		expect(rootElement.textContent).toContain("Choose a test target");
+		const buttons = Array.from(rootElement.querySelectorAll("button"));
+		buttons
+			.find((button) => button.textContent?.includes("Workspace"))!
+			.click();
+		await tick();
+		rootElement.querySelectorAll("button").forEach((button) => {
+			if (button.textContent?.includes("Send selections")) button.click();
+		});
+		expect(send).toHaveBeenCalledWith("**Target**: Workspace");
+	} finally {
+		root.unmount();
+	}
+});

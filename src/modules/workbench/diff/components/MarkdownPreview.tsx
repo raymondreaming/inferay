@@ -7,13 +7,12 @@ import {
 	radius,
 	runtimeFont,
 } from "../../../../design-system/styles.stylex.ts";
+import { useNativeMarkdown } from "../../../../shared/hooks/useNativeMarkdown.tsx";
 import { indexedValues } from "../../../../shared/lib/indexed-values.ts";
-import {
-	type MdBlock,
-	type MdInlineToken,
-	type MdListItem,
-	parseBlocks,
-	parseInline,
+import type {
+	MdBlock,
+	MdInlineToken,
+	MdListItem,
 } from "../../../../shared/lib/markdown.ts";
 
 let mermaidPromise: Promise<unknown> | null = null;
@@ -76,6 +75,8 @@ function MermaidBlock({ code }: { code: string }) {
 	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {
+		setError(null);
+		if (ref.current) ref.current.replaceChildren();
 		const controller = new AbortController();
 		const { signal } = controller;
 		const id = `mermaid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -112,8 +113,8 @@ function MermaidBlock({ code }: { code: string }) {
 function InlineTokens({ tokens }: { tokens: MdInlineToken[] }) {
 	return (
 		<>
-			{tokens.map((tok) => (
-				<InlineToken key={JSON.stringify(tok)} token={tok} />
+			{tokens.map((tok, index) => (
+				<InlineToken key={index} token={tok} />
 			))}
 		</>
 	);
@@ -202,11 +203,6 @@ function InlineToken({ token }: { token: MdInlineToken }) {
 	}
 }
 
-function Inline({ text }: { text: string }) {
-	const tokens = parseInline(text);
-	return <InlineTokens tokens={tokens} />;
-}
-
 function ListItemRenderer({ item }: { item: MdListItem }) {
 	return (
 		<li {...stylex.props(styles.listItem)}>
@@ -219,7 +215,7 @@ function ListItemRenderer({ item }: { item: MdListItem }) {
 					)}
 				</span>
 			)}
-			<Inline text={item.content} />
+			<InlineTokens tokens={item.tokens} />
 			{item.children.length > 0 && (
 				<ul {...stylex.props(styles.nestedList)}>
 					{indexedValues(item.children).map(({ index, value: child }) => (
@@ -250,7 +246,7 @@ function BlockRenderer({ block }: { block: MdBlock }) {
 						block.level === 6 && styles.heading6,
 					)}
 				>
-					<Inline text={block.content} />
+					<InlineTokens tokens={block.tokens ?? []} />
 				</div>
 			);
 
@@ -270,7 +266,7 @@ function BlockRenderer({ block }: { block: MdBlock }) {
 			);
 
 		case "blockquote": {
-			const innerBlocks = parseBlocks(block.content);
+			const innerBlocks = block.children ?? [];
 			return (
 				<div {...stylex.props(styles.blockquote)}>
 					{indexedValues(innerBlocks).map(({ index, value: inner }) => (
@@ -293,7 +289,7 @@ function BlockRenderer({ block }: { block: MdBlock }) {
 								{indexedValues(block.rows[0] ?? []).map(
 									({ index, value: cell }) => (
 										<th key={index} {...stylex.props(styles.tableHeadCell)}>
-											<Inline text={cell} />
+											<InlineTokens tokens={cell} />
 										</th>
 									),
 								)}
@@ -305,7 +301,7 @@ function BlockRenderer({ block }: { block: MdBlock }) {
 									<tr key={rowIndex} {...stylex.props(styles.tableRow)}>
 										{indexedValues(row).map(({ index, value: cell }) => (
 											<td key={index} {...stylex.props(styles.tableCell)}>
-												<Inline text={cell} />
+												<InlineTokens tokens={cell} />
 											</td>
 										))}
 									</tr>
@@ -340,7 +336,7 @@ function BlockRenderer({ block }: { block: MdBlock }) {
 		case "paragraph":
 			return (
 				<p {...stylex.props(styles.paragraph)}>
-					<Inline text={block.content} />
+					<InlineTokens tokens={block.tokens ?? []} />
 				</p>
 			);
 	}
@@ -351,12 +347,23 @@ export const MarkdownPreview = memo(function MarkdownPreview({
 }: {
 	content: string;
 }) {
-	const blocks = parseBlocks(content);
+	const { blocks, loading, error } = useNativeMarkdown(content);
 	return (
 		<div {...stylex.props(styles.root)}>
-			{blocks.map((block) => (
-				<BlockRenderer key={JSON.stringify(block)} block={block} />
-			))}
+			{loading || error ? (
+				<>
+					{error && (
+						<p role="status" {...stylex.props(styles.errorPre)}>
+							Markdown preview unavailable.
+						</p>
+					)}
+					<pre {...stylex.props(styles.plainText)}>{content}</pre>
+				</>
+			) : (
+				blocks.map((block, index) => (
+					<BlockRenderer key={index} block={block} />
+				))
+			)}
 		</div>
 	);
 });
@@ -366,6 +373,13 @@ const styles = stylex.create({
 		display: "flex",
 		flexDirection: "column",
 		gap: controlSize._3,
+	},
+	plainText: {
+		whiteSpace: "pre-wrap",
+		overflowWrap: "anywhere",
+		color: color.textSoft,
+		fontFamily: "var(--font-diff)",
+		fontSize: font.size_2,
 	},
 	mermaidBox: {
 		borderWidth: 1,

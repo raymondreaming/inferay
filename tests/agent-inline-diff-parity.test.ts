@@ -3,7 +3,6 @@ import {
 	buildRenderItems,
 	type RenderChatMessage as ChatMessage,
 	getEditFilePath,
-	getToolDisplayInfo,
 } from "../src/modules/conversation/model/chat-message-render-utils.ts";
 
 type FakeStreamEvent =
@@ -282,9 +281,6 @@ describe("Claude and Codex inline edit diff parity", () => {
 		expect(buildRenderItems([command])).toEqual([
 			{ type: "tool-group", tools: [command] },
 		]);
-		expect(getToolDisplayInfo(command.toolName, command.content)).toEqual({
-			label: "Running Rust tests",
-		});
 	});
 
 	test("removes duplicate adjacent assistant commentary", () => {

@@ -7,3 +7,5 @@ pub mod chat_protocol;
 pub mod config;
 pub mod path_security;
 pub mod prompts;
+
+mod tool_presentation;

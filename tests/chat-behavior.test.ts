@@ -29,7 +29,6 @@ import {
 	patchMessageById,
 	windowChatMessagesForRender,
 } from "../src/modules/conversation/model/chat-state-utils.ts";
-import { parseMarkdownBlocks } from "../src/modules/conversation/model/chat-text.ts";
 import {
 	parseCommandSystemMessage,
 	serializeCommandSystemMessage,
@@ -45,33 +44,6 @@ function message(
 }
 
 describe("chat data behavior", () => {
-	test("waits for a complete header before materializing a streaming table", () => {
-		expect(parseMarkdownBlocks("| Name | Sta", true)).toEqual([
-			{
-				type: "paragraph",
-				content: "| Name | Sta",
-			},
-		]);
-		expect(parseMarkdownBlocks("| Name | Status |", true)).toEqual([
-			{
-				type: "table",
-				headers: ["Name", "Status"],
-				rows: [],
-			},
-		]);
-		expect(
-			parseMarkdownBlocks(
-				"| Name | Status |\n| --- | --- |\n| Chat | streaming",
-				true,
-			),
-		).toEqual([
-			{
-				type: "table",
-				headers: ["Name", "Status"],
-				rows: [["Chat", "streaming"]],
-			},
-		]);
-	});
 	/*
 	 * This protects chat history compaction before messages are stored or sent
 	 * back through the app. The behavior keeps the newest context and also trims

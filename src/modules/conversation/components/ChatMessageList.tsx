@@ -99,7 +99,7 @@ function ToolOutputHighlight({
 	showOutput?: boolean;
 	render?: ChatMessage["render"];
 }) {
-	const summary = getToolOutputSummary(content, render?.toolInput);
+	const summary = getToolOutputSummary(content, render?.summary);
 	const trailingOutput = showOutput
 		? getToolTrailingOutput(content, render?.trailingOutput)
 		: "";
@@ -174,11 +174,7 @@ function ToolTimeline({
 		<div {...stylex.props(styles.toolTimeline)}>
 			{tools.map((tool, index) => {
 				const collapsed = !expandedTools.has(tool.id);
-				const display = getToolDisplayInfo(
-					tool.toolName,
-					tool.content,
-					tool.render?.toolInput,
-				);
+				const display = getToolDisplayInfo(tool.toolName, tool.render?.display);
 				return (
 					<div key={tool.id} {...stylex.props(styles.toolMilestone)}>
 						<span
@@ -578,6 +574,7 @@ const Bubble = memo(function Bubble({
 		if (msg.toolName === "AskUserQuestion") {
 			return (
 				<AskUserQuestionCard
+					nativeQuestions={msg.render?.questions}
 					nativeInput={msg.render?.toolInput}
 					content={msg.content}
 					isStreaming={msg.isStreaming}
@@ -595,11 +592,7 @@ const Bubble = memo(function Bubble({
 				/>
 			);
 		}
-		const display = getToolDisplayInfo(
-			msg.toolName,
-			msg.content,
-			msg.render?.toolInput,
-		);
+		const display = getToolDisplayInfo(msg.toolName, msg.render?.display);
 		return (
 			<div>
 				<button

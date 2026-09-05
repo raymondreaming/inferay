@@ -24,6 +24,24 @@ export type ChatMessagePart =
 			error?: string;
 	  };
 
+export interface NativeToolDisplay {
+	label: string;
+	detail?: string;
+}
+
+export interface NativeToolSummary {
+	type: string;
+	value: string;
+	fileName?: string;
+}
+
+export interface AskUserQuestion {
+	question: string;
+	header?: string;
+	options?: Array<{ label: string; description?: string }>;
+	multiSelect?: boolean;
+}
+
 export interface NativeChatRender {
 	version: 1;
 	kind: "message" | "edit-group" | "tool-group";
@@ -32,6 +50,9 @@ export interface NativeChatRender {
 	filePath?: string;
 	toolInput: Record<string, unknown> | null;
 	trailingOutput?: string;
+	display?: NativeToolDisplay;
+	summary?: NativeToolSummary | null;
+	questions?: AskUserQuestion[] | null;
 }
 
 export interface ChatTranscriptUpdate {

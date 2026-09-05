@@ -56,6 +56,7 @@ mod chat_persistence;
 mod chat_runtime;
 pub mod checkpoint;
 mod forge;
+mod markdown;
 pub mod native_agent_context;
 mod native_app;
 pub mod native_chat;
@@ -517,6 +518,9 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             *response.status_mut() = StatusCode::NO_CONTENT;
             add_cors_headers(response.headers_mut(), &request_headers);
             return response;
+        }
+        if path == "/api/native/markdown" && request.method() == Method::POST {
+            return native_markdown(request).await;
         }
         if path == "/api/native/diff" && request.method() == Method::POST {
             return native_diff(request).await;
@@ -3387,6 +3391,74 @@ fn default_user_data_directory() -> PathBuf {
         .join("inferay")
 }
 
+async fn native_markdown(request: Request) -> Response {
+    const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
+    const MAX_LINES: usize = 50_000;
+    #[derive(Deserialize)]
+    struct Input {
+        text: String,
+        #[serde(default)]
+        streaming: bool,
+        #[serde(default)]
+        chat: bool,
+    }
+    let headers = request.headers().clone();
+    // A JSON escape can expand one input byte into six wire bytes.
+    let bytes = match to_bytes(request.into_body(), MAX_TEXT_BYTES * 6 + 1024).await {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return json_response(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                json!({"error": "Markdown request exceeds the payload limit"}),
+                &headers,
+            );
+        }
+    };
+    let input: Input = match serde_json::from_slice(&bytes) {
+        Ok(input) => input,
+        Err(_) => {
+            return json_response(
+                StatusCode::BAD_REQUEST,
+                json!({"error": "Expected text and optional streaming/chat booleans"}),
+                &headers,
+            );
+        }
+    };
+    if input.text.len() > MAX_TEXT_BYTES
+        || input.text.split('\n').take(MAX_LINES + 1).count() > MAX_LINES
+    {
+        return json_response(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            json!({"error": "Markdown exceeds the 2 MiB or 50,000 line preparation limit"}),
+            &headers,
+        );
+    }
+    // Store exact source identity, including parser version and both dialect options.
+    // The shared cache accounts for the key bytes as well as the response bytes.
+    let key = format!(
+        "markdown:1:{}:{}:{}",
+        input.streaming, input.chat, input.text
+    );
+    let job = render_jobs::cached(key, std::time::Duration::from_secs(300), move || {
+        serde_json::to_vec(&markdown::prepare(&input.text, input.streaming, input.chat)).ok()
+    });
+    match tokio::time::timeout(std::time::Duration::from_secs(10), job).await {
+        Ok(Ok((Some(body), hit))) => {
+            let mut response = json_bytes_response(StatusCode::OK, body, &headers);
+            response.headers_mut().insert(
+                "x-render-cache",
+                HeaderValue::from_static(if hit { "hit" } else { "miss" }),
+            );
+            response
+        }
+        _ => json_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            json!({"error": "Markdown preparation unavailable"}),
+            &headers,
+        ),
+    }
+}
+
 async fn native_diff(request: Request) -> Response {
     let request_headers = request.headers().clone();
     let body = match to_bytes(request.into_body(), MAX_PROXY_BODY_BYTES).await {
@@ -4438,6 +4510,81 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             value,
             json!({ "message": "Port one-shot services to Rust" })
         );
+    }
+
+    #[tokio::test]
+    async fn native_markdown_validates_and_reuses_prepared_responses() {
+        let root = TempDir::new().unwrap();
+        let app = router(test_config(root.path()));
+        let text = format!("# Native markdown {}", uuid::Uuid::new_v4());
+        for (streaming, chat, expected_cache) in [
+            (false, false, "miss"),
+            (false, false, "hit"),
+            (true, false, "miss"),
+            (false, true, "miss"),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    HttpRequest::builder()
+                        .method(Method::POST)
+                        .uri("/api/native/markdown")
+                        .header(HOST, "127.0.0.1:4001")
+                        .header("sec-fetch-site", "same-origin")
+                        .header(COOKIE, "inferay_local_auth=test-token")
+                        .body(Body::from(
+                            json!({"text": text, "streaming": streaming, "chat": chat}).to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()["x-render-cache"], expected_cache);
+            let bytes = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+            let actual: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(actual["version"], 1);
+            assert_eq!(
+                actual,
+                serde_json::to_value(markdown::prepare(&text, streaming, chat)).unwrap()
+            );
+        }
+        for payload in [
+            json!({}),
+            json!({"text": 1}),
+            json!({"text": "ok", "chat": "true"}),
+        ] {
+            let (status, _) = call_json(
+                &app,
+                Method::POST,
+                "/api/native/markdown".into(),
+                Some(payload),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+        }
+        for text in ["x".repeat(2 * 1024 * 1024 + 1), "\n".repeat(50_000)] {
+            let (status, _) = call_json(
+                &app,
+                Method::POST,
+                "/api/native/markdown".into(),
+                Some(json!({"text": text})),
+            )
+            .await;
+            assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+        }
+        let response = app
+            .oneshot(
+                HttpRequest::builder()
+                    .method(Method::POST)
+                    .uri("/api/native/markdown")
+                    .header(HOST, "127.0.0.1:4001")
+                    .body(Body::from(json!({"text": "hello"}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
