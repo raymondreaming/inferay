@@ -79,6 +79,67 @@ pub struct GitFileChangeEvent {
     pub event_type: String,
 }
 
+/// Selection facts from the revisioned native graph, including off-page selections.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComparisonSelection {
+    pub id: String,
+    pub hash: String,
+    pub item_kind: String,
+    pub history_order: Option<usize>,
+    pub worktree_path: Option<String>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComparisonPlan {
+    pub cwd: String,
+    pub from: String,
+    pub to: String,
+}
+
+pub fn plan_comparison(cwd: &str, items: &[ComparisonSelection]) -> Option<ComparisonPlan> {
+    let mut seen = std::collections::HashSet::new();
+    let mut commits = Vec::new();
+    let mut worktree = None;
+    for item in items {
+        if !seen.insert(&item.id) {
+            continue;
+        }
+        match item.item_kind.as_str() {
+            "worktreeWip" => {
+                if worktree.is_some() {
+                    return None;
+                }
+                worktree = Some(item.worktree_path.as_deref()?);
+            }
+            "commit" | "stash" => {
+                let order = item.history_order?;
+                commits.push((order, item.hash.as_str()));
+            }
+            _ => return None,
+        }
+    }
+    if commits.len() < if worktree.is_some() { 1 } else { 2 } {
+        return None;
+    }
+    commits.sort_by_key(|(order, _)| *order);
+    let from = commits.last()?.1;
+    let to = if worktree.is_some() {
+        "WORKTREE"
+    } else {
+        commits.first()?.1
+    };
+    if from == to {
+        return None;
+    }
+    Some(ComparisonPlan {
+        cwd: worktree.unwrap_or(cwd).into(),
+        from: from.into(),
+        to: to.into(),
+    })
+}
+
 #[derive(Clone)]
 pub struct NativeGit {
     allowed_paths: AllowedPaths,
@@ -349,6 +410,39 @@ mod tests {
     use super::*;
     use std::path::Path;
     use std::process::Command;
+
+    #[test]
+    fn comparison_plan_orders_native_history_and_rejects_ambiguous_worktrees() {
+        let item = |id: &str, order: usize| ComparisonSelection {
+            id: id.into(),
+            hash: id.into(),
+            item_kind: "commit".into(),
+            history_order: Some(order),
+            worktree_path: None,
+        };
+        let wip = |id: &str| ComparisonSelection {
+            id: id.into(),
+            hash: String::new(),
+            item_kind: "worktreeWip".into(),
+            history_order: None,
+            worktree_path: Some("/repo/linked".into()),
+        };
+        let plan = plan_comparison(
+            "/repo",
+            &[item("older", 900), item("newer", 2), item("older", 900)],
+        )
+        .unwrap();
+        assert_eq!(plan.from, "older");
+        assert_eq!(plan.to, "newer");
+        let plan = plan_comparison("/repo", &[wip("wip"), item("older", 900)]).unwrap();
+        assert_eq!(plan.cwd, "/repo/linked");
+        assert_eq!(plan.to, "WORKTREE");
+        assert!(plan_comparison("/repo", &[wip("a"), wip("b"), item("older", 900)]).is_none());
+        assert!(plan_comparison("/repo", &[item("same", 1), item("same", 1)]).is_none());
+        let mut missing = item("missing", 0);
+        missing.history_order = None;
+        assert!(plan_comparison("/repo", &[missing, item("older", 900)]).is_none());
+    }
 
     fn git(repository: &Path, args: &[&str]) {
         let output = Command::new("git")

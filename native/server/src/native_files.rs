@@ -63,6 +63,36 @@ impl NativeFiles {
         Self::new(app_root.join("data/.tmp"))
     }
 
+    pub async fn prepare_chat_message(&self, paths: &[String]) -> Result<String, NativeFilesError> {
+        let files = self.list().await?;
+        let mut selected = Vec::new();
+        for path in paths {
+            let file = files
+                .iter()
+                .find(|file| &file.path == path)
+                .ok_or(NativeFilesError::AccessDenied)?;
+            if !selected.contains(&file) {
+                selected.push(file);
+            }
+        }
+        if selected.is_empty() {
+            return Err(NativeFilesError::AccessDenied);
+        }
+        let title = if selected.len() == 1 {
+            format!("Attached {}", selected[0].name)
+        } else {
+            format!("Attached {} files", selected.len())
+        };
+        Ok(format!(
+            "{title}\n\nHere are the images at these paths:\n{}",
+            selected
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
+        ))
+    }
+
     pub async fn list(&self) -> Result<Vec<NativeFileEntry>, NativeFilesError> {
         tokio::fs::create_dir_all(&self.temp_dir).await?;
         let mut directory = tokio::fs::read_dir(&self.temp_dir).await?;
@@ -214,6 +244,29 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[tokio::test]
+    async fn prepares_image_chat_from_existing_files_only() {
+        let root = tempdir().unwrap();
+        let service = NativeFiles::new(root.path().into());
+        let image = root.path().join("100-photo.png");
+        fs::write(&image, b"image").unwrap();
+        let path = image.to_string_lossy().into_owned();
+        assert_eq!(
+            service
+                .prepare_chat_message(&[path.clone(), path.clone()])
+                .await
+                .unwrap(),
+            format!("Attached photo.png\n\nHere are the images at these paths:\n{path}")
+        );
+        assert!(service.prepare_chat_message(&[]).await.is_err());
+        assert!(
+            service
+                .prepare_chat_message(&["/missing.png".into()])
+                .await
+                .is_err()
+        );
+    }
 
     #[tokio::test]
     async fn lists_images_with_existing_name_timestamp_size_and_order_contract() {

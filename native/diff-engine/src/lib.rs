@@ -230,6 +230,7 @@ pub struct GitRefOperationPreflight {
     pub can_rebase: bool,
     pub can_interactive_rebase: bool,
     pub interactive_rebase_commits: Vec<GitCommitSummary>,
+    pub interactive_rebase_plan: Vec<GitInteractiveRebaseStep>,
     pub reasons: Vec<String>,
 }
 
@@ -2933,6 +2934,14 @@ pub fn preflight_git_ref_operation(
         can_fast_forward,
         can_rebase,
         can_interactive_rebase,
+        interactive_rebase_plan: interactive_rebase_commits
+            .iter()
+            .map(|commit| GitInteractiveRebaseStep {
+                hash: commit.hash.clone(),
+                action: "pick".into(),
+                message: Some(commit.message.clone()),
+            })
+            .collect(),
         interactive_rebase_commits,
         reasons,
     }
@@ -6003,6 +6012,45 @@ mod tests {
                 .collect::<Vec<_>>(),
             commits.iter().map(String::as_str).collect::<Vec<_>>()
         );
+
+        assert_eq!(preflight.interactive_rebase_plan.len(), commits.len());
+        for (step, commit) in preflight
+            .interactive_rebase_plan
+            .iter()
+            .zip(&preflight.interactive_rebase_commits)
+        {
+            assert_eq!(step.hash, commit.hash);
+            assert_eq!(step.action, "pick");
+            assert_eq!(step.message.as_deref(), Some(commit.message.as_str()));
+        }
+        let mut invalid = preflight.interactive_rebase_plan.clone();
+        invalid[0].action = "drop".into();
+        invalid[1].action = "squash".into();
+        let result = perform_git_interactive_rebase(cwd, "feature", &target, &invalid);
+        assert!(!result.ok);
+        assert_eq!(
+            result.error.as_deref(),
+            Some("The first retained commit cannot be squashed")
+        );
+        invalid = preflight.interactive_rebase_plan.clone();
+        invalid[0].action = "reword".into();
+        invalid[0].message = Some("  ".into());
+        let result = perform_git_interactive_rebase(cwd, "feature", &target, &invalid);
+        assert!(!result.ok);
+        assert!(result
+            .error
+            .unwrap()
+            .contains("replacement message is required"));
+        invalid[0] = invalid[1].clone();
+        let result = perform_git_interactive_rebase(cwd, "feature", &target, &invalid);
+        assert!(!result.ok);
+        assert!(result.error.unwrap().contains("exactly once"));
+        assert_eq!(
+            run_git(&["rev-parse", "HEAD"], cwd).unwrap(),
+            advanced_target
+        );
+        assert_eq!(current_git_branch(cwd).as_deref(), Some(target.as_str()));
+        assert!(!interactive_rebase_state_dir(cwd).unwrap().exists());
 
         let plan = vec![
             GitInteractiveRebaseStep {

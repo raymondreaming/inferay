@@ -101,6 +101,9 @@ pub struct ExecutedTurn {
 
 #[derive(Clone, Debug)]
 pub struct SendMessageInput {
+    pub expand_commands: bool,
+    pub command_id: Option<String>,
+    pub command_args: Option<String>,
     pub client_message_id: Option<String>,
     pub pane_id: String,
     pub agent_kind: String,
@@ -228,7 +231,47 @@ impl ChatRuntime {
         already_admitted: bool,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
         Box::pin(async move {
+            let mut input = input;
+            let resolved = inferay_core::provider_config::resolve(
+                &json!({"agentKind":input.agent_kind,"model":input.model,"reasoningLevel":input.reasoning_level}),
+            );
+            input.agent_kind = resolved["agentKind"].as_str().unwrap().to_owned();
+            input.model = resolved["model"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned);
+            if input.reasoning_level_provided {
+                input.reasoning_level = (input.agent_kind == "codex")
+                    .then(|| resolved["reasoningLevel"].as_str().unwrap().to_owned());
+            }
             let session = self.ensure_session(&input).await;
+            if input.expand_commands {
+                match crate::native_prompts::NativePrompts::new(self.prompts.clone())
+                    .expand_chat_commands(
+                        &input.text,
+                        input.command_id.as_deref(),
+                        input.command_args.as_deref(),
+                    )
+                    .await
+                {
+                    Ok(text) => input.text = text,
+                    Err(error) => {
+                        self.emit(&session, json!({"type":"chat:error", "paneId":input.pane_id, "error":format!("Command expansion failed: {error}")})).await;
+                        return;
+                    }
+                }
+                if !input.images.is_empty() {
+                    if !input.text.is_empty() {
+                        input.text.push_str("\n\n");
+                    }
+                    input.text.push_str("Here are the images at these paths:\n");
+                    input
+                        .text
+                        .push_str(&paths_to_strings(&input.images).join("\n"));
+                }
+                input.expand_commands = false;
+            }
+
             let mut pending_steer_id = None;
             if !already_admitted {
                 let steer_handle = {
@@ -240,9 +283,21 @@ impl ChatRuntime {
                     }
                     (state.turn_active
                         && state.agent_kind == "codex"
-                        && input.agent_kind == "codex")
-                        .then(|| state.current_handle.clone())
-                        .flatten()
+                        && input.agent_kind == "codex"
+                        && !inferay_core::provider_config::requires_new_session(
+                            &state.agent_kind,
+                            state.model.as_deref(),
+                            state.reasoning_level.as_deref(),
+                            &input.agent_kind,
+                            input.model.as_deref(),
+                            if input.reasoning_level_provided {
+                                input.reasoning_level.as_deref()
+                            } else {
+                                state.reasoning_level.as_deref()
+                            },
+                        ))
+                    .then(|| state.current_handle.clone())
+                    .flatten()
                 };
                 if let Some(handle) = steer_handle {
                     let message_id = Uuid::new_v4().to_string();
@@ -287,7 +342,18 @@ impl ChatRuntime {
             }
             let system_prefix = {
                 let mut state = session.lock().await;
-                let changed = state.agent_kind != input.agent_kind;
+                let changed = inferay_core::provider_config::requires_new_session(
+                    &state.agent_kind,
+                    state.model.as_deref(),
+                    state.reasoning_level.as_deref(),
+                    &input.agent_kind,
+                    input.model.as_deref(),
+                    if input.reasoning_level_provided {
+                        input.reasoning_level.as_deref()
+                    } else {
+                        state.reasoning_level.as_deref()
+                    },
+                );
                 if changed {
                     state.session_id = None;
                 }
@@ -301,9 +367,6 @@ impl ChatRuntime {
                 }
                 if input.reference_paths_provided {
                     state.reference_paths.clone_from(&input.reference_paths);
-                }
-                if state.session_id.is_none() {
-                    state.session_id.clone_from(&input.client_session_id);
                 }
                 if let (Some(client_id), Some(sender)) =
                     (input.client_id, input.client_sender.clone())
@@ -607,8 +670,10 @@ impl ChatRuntime {
                 let session = Arc::new(Mutex::new(ChatSession {
                     pane_id: pane_id.to_string(),
                     agent_kind: provider.unwrap_or("claude").to_string(),
-                    model: None,
-                    reasoning_level: None,
+                    model: saved_reference.as_ref().and_then(|r| r.model.clone()),
+                    reasoning_level: saved_reference
+                        .as_ref()
+                        .and_then(|r| r.reasoning_level.clone()),
                     session_id: provider_session_id.map(str::to_owned),
                     clients: [(client_id, sender.clone())].into_iter().collect(),
                     current_handle: None,
@@ -795,9 +860,10 @@ impl ChatRuntime {
             .persistence
             .read_session_reference(&input.pane_id)
             .await;
+        let saved_reference = saved_reference.filter(|r| r.provider == input.agent_kind);
         let session_id = saved_reference
-            .filter(|r| r.provider == input.agent_kind)
-            .map(|r| r.session_id)
+            .as_ref()
+            .map(|r| r.session_id.clone())
             .or_else(|| input.client_session_id.clone());
         let persisted = self
             .persistence
@@ -824,8 +890,14 @@ impl ChatRuntime {
         let session = Arc::new(Mutex::new(ChatSession {
             pane_id: input.pane_id.clone(),
             agent_kind: input.agent_kind.clone(),
-            model: input.model.clone(),
-            reasoning_level: input.reasoning_level.clone(),
+            model: saved_reference
+                .as_ref()
+                .and_then(|r| r.model.clone())
+                .or_else(|| input.model.clone()),
+            reasoning_level: saved_reference
+                .as_ref()
+                .and_then(|r| r.reasoning_level.clone())
+                .or_else(|| input.reasoning_level.clone()),
             session_id,
             clients: input
                 .client_id
@@ -1063,12 +1135,12 @@ impl ChatRuntime {
                 ProtocolEmission::Activity { tool_name, summary, is_streaming } => self.emit(session, json!({"type":"chat:activity", "paneId":pane_id, "activity":{"toolName":tool_name,"summary":summary,"isStreaming":is_streaming}})).await,
                 ProtocolEmission::System(message) => self.emit_system(session, &message).await,
                 ProtocolEmission::Session(id) => {
-                    let (provider, cwd) = {
+                    let (provider, cwd, model, reasoning) = {
                         let mut state = session.lock().await;
                         state.session_id = Some(id.clone());
-                        (state.agent_kind.clone(), state.cwd.clone())
+                        (state.agent_kind.clone(), state.cwd.clone(), state.model.clone(), state.reasoning_level.clone())
                     };
-                    if let Err(error) = self.persistence.save_session_reference(&pane_id, &provider, &id, &cwd).await {
+                    if let Err(error) = self.persistence.save_session_reference(&pane_id, &provider, &id, &cwd, (model.as_deref(), reasoning.as_deref())).await {
                         self.emit_system(session, &format!("Chat session could not be saved: {error}")).await;
                     }
                     self.emit(session, json!({"type":"chat:session", "paneId":pane_id, "sessionId":id})).await;
@@ -1406,6 +1478,9 @@ impl ChatRuntime {
         .await;
         let state = session.lock().await;
         let input = SendMessageInput {
+            expand_commands: false,
+            command_id: None,
+            command_args: None,
             client_message_id: None,
             pane_id: pane,
             agent_kind: state.agent_kind.clone(),
@@ -2082,8 +2157,12 @@ mod tests {
         let executor = Arc::new(RecordingExecutor::default());
         let (runtime, _, _) = test_runtime(root.path(), executor.clone());
 
+        runtime.prompts.lock().await.create(json!({"name":"Review", "command":"review", "description":"Review", "promptTemplate":"Review actual"}).as_object().unwrap(), 1).unwrap();
         runtime
             .send_message(SendMessageInput {
+                expand_commands: true,
+                command_id: None,
+                command_args: None,
                 client_message_id: None,
                 pane_id: "pane".into(),
                 agent_kind: "codex".into(),
@@ -2097,7 +2176,7 @@ mod tests {
                 reference_paths_provided: true,
                 display_text: None,
                 images: Vec::new(),
-                text: "hi".into(),
+                text: "hi /review".into(),
                 client_id: None,
                 client_sender: None,
                 include_workspace: true,
@@ -2106,7 +2185,7 @@ mod tests {
 
         let requests = executor.0.lock().unwrap();
         assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].prompt, "hi");
+        assert_eq!(requests[0].prompt, "hi Review actual");
         let instructions = requests[0].developer_instructions.as_deref().unwrap();
         assert!(instructions.contains("<inferay-workflow-instructions>"));
         assert!(instructions.contains("<workspace-context>"));
@@ -2206,6 +2285,11 @@ mod tests {
         let (runtime, _, _) = test_runtime(root.path(), Arc::new(UnusedExecutor));
         let (sender, mut receiver) = broadcast::channel(32);
         let session = test_session(root.path(), sender, None);
+        {
+            let mut state = session.lock().await;
+            state.model = Some("gpt-6-astra".into());
+            state.reasoning_level = Some("high".into());
+        }
         session
             .lock()
             .await
@@ -2273,6 +2357,8 @@ mod tests {
         let session = restarted.session("pane").await.unwrap();
         let state = session.lock().await;
         assert_eq!(state.session_id.as_deref(), Some("durable-provider-id"));
+        assert_eq!(state.model.as_deref(), Some("gpt-6-astra"));
+        assert_eq!(state.reasoning_level.as_deref(), Some("high"));
         assert_eq!(state.agent_kind, "codex");
         assert_eq!(state.cwd, root.path());
     }
@@ -2411,6 +2497,9 @@ mod tests {
 
         runtime
             .send_message(SendMessageInput {
+                expand_commands: false,
+                command_id: None,
+                command_args: None,
                 client_message_id: None,
                 pane_id: "pane".into(),
                 agent_kind: "codex".into(),
@@ -2467,6 +2556,9 @@ mod tests {
         });
         runtime
             .send_message(SendMessageInput {
+                expand_commands: false,
+                command_id: None,
+                command_args: None,
                 client_message_id: None,
                 pane_id: "pane".into(),
                 agent_kind: "codex".into(),
@@ -2546,6 +2638,9 @@ mod tests {
         });
         runtime
             .send_message(SendMessageInput {
+                expand_commands: false,
+                command_id: None,
+                command_args: None,
                 client_message_id: None,
                 pane_id: "pane".into(),
                 agent_kind: "codex".into(),

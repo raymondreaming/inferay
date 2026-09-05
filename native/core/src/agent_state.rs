@@ -532,6 +532,56 @@ pub fn reduce_agent_workspace_state(
             }
             Ok(Some(next))
         }
+        "setTheme" => {
+            let theme = action
+                .get("themeId")
+                .and_then(Value::as_str)
+                .filter(|theme| THEME_IDS.contains(theme))
+                .ok_or_else(|| "unknown themeId".to_string())?;
+            next_object_mut(&mut next)?.insert("themeId".into(), json!(theme));
+            Ok(Some(next))
+        }
+        "changePaneAgentKind" | "setPaneProviderSession" => {
+            let pane_id = action
+                .get("paneId")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "paneId must be a string".to_string())?;
+            let agent_kind = if action_type == "changePaneAgentKind" {
+                Some(
+                    action
+                        .get("agentKind")
+                        .and_then(Value::as_str)
+                        .filter(|kind| matches!(*kind, "agent" | "claude" | "codex"))
+                        .ok_or_else(|| "unknown agentKind".to_string())?,
+                )
+            } else {
+                None
+            };
+            let session_id = action.get("providerSessionId");
+            if agent_kind.is_none() && !matches!(session_id, Some(Value::Null | Value::String(_))) {
+                return Err("providerSessionId must be a string or null".into());
+            }
+            for group in state_groups_mut(&mut next)? {
+                for pane in group_panes_mut(group)? {
+                    if pane.get("id").and_then(Value::as_str) != Some(pane_id) {
+                        continue;
+                    }
+                    let object = next_object_mut(pane)?;
+                    if let Some(kind) = agent_kind {
+                        object.insert("agentKind".into(), json!(kind));
+                        object.insert("isClaude".into(), json!(kind == "claude"));
+                        object.remove("providerSessionId");
+                    } else {
+                        set_optional_property(
+                            object,
+                            "providerSessionId",
+                            session_id.filter(|value| !value.is_null()),
+                        );
+                    }
+                }
+            }
+            Ok(Some(next))
+        }
         "ensureChatPane" => reduce_ensure_chat_pane(&mut next, action),
         _ => Ok(None),
     }
@@ -951,6 +1001,46 @@ mod tests {
         assert_eq!(normalized["themeId"], "default");
         assert_eq!(normalized["fontFamily"], "SF Mono");
         assert_eq!(normalized["futureField"], true);
+    }
+
+    #[test]
+    fn pane_actions_preserve_unrelated_state_and_reset_provider_identity() {
+        let state = saved_state();
+        let next = reduce_agent_workspace_state(&state, &json!({
+            "type": "setPaneProviderSession", "paneId": "pane-1", "providerSessionId": "session-1"
+        })).unwrap().unwrap();
+        assert_eq!(
+            next["groups"][0]["panes"][0]["providerSessionId"],
+            "session-1"
+        );
+        let next = reduce_agent_workspace_state(
+            &next,
+            &json!({
+                "type": "changePaneAgentKind", "paneId": "pane-1", "agentKind": "claude"
+            }),
+        )
+        .unwrap()
+        .unwrap();
+        let pane = &next["groups"][0]["panes"][0];
+        assert_eq!(pane["agentKind"], "claude");
+        assert_eq!(pane["extra"], "preserved");
+        assert!(pane.get("providerSessionId").is_none());
+        assert_eq!(next["themeId"], state["themeId"]);
+        assert!(
+            reduce_agent_workspace_state(
+                &next,
+                &json!({
+                    "type": "setPaneProviderSession", "paneId": "pane-1", "providerSessionId": 42
+                })
+            )
+            .is_err()
+        );
+        let themed =
+            reduce_agent_workspace_state(&next, &json!({"type": "setTheme", "themeId": "nord"}))
+                .unwrap()
+                .unwrap();
+        assert_eq!(themed["themeId"], "nord");
+        assert_eq!(themed["groups"], next["groups"]);
     }
 
     #[test]

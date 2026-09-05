@@ -298,9 +298,187 @@ fn atomic_write_json(path: &Path, value: impl Serialize) -> Result<(), String> {
     crate::atomic_write::overwrite(path, &bytes)
 }
 
+/// Presentation validation for saved and live skill cards. Applying a proposal
+/// still requires the native store's independent revision/approval validation.
+pub fn chat_skill_proposal(value: &Value) -> Option<Value> {
+    if value["type"] != "inferay.skill-proposal"
+        || !matches!(value["action"].as_str(), Some("create" | "update"))
+    {
+        return None;
+    }
+    let fields = ["name", "command", "description", "promptTemplate", "reason"];
+    for field in fields {
+        let text = value[field].as_str()?;
+        if text.trim().is_empty() || text.encode_utf16().count() > 50_000 {
+            return None;
+        }
+    }
+    let command = value["command"].as_str()?;
+    if !command
+        .as_bytes()
+        .first()
+        .is_some_and(u8::is_ascii_lowercase)
+        || !command
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+    {
+        return None;
+    }
+    let mut result = Map::new();
+    for field in ["type", "action"].into_iter().chain(fields) {
+        result.insert(field.into(), value[field].clone());
+    }
+    if value["action"] == "update" {
+        if value["skillId"].as_str()?.is_empty()
+            || value["expectedUpdatedAt"].as_u64()? > 9_007_199_254_740_991
+        {
+            return None;
+        }
+        result.insert("skillId".into(), value["skillId"].clone());
+        result.insert(
+            "expectedUpdatedAt".into(),
+            value["expectedUpdatedAt"].clone(),
+        );
+    }
+    Some(Value::Object(result))
+}
+
+pub fn chat_skill_read(value: &Value) -> Option<Value> {
+    let skill = &value["skill"];
+    if value["type"] != "inferay.skill-read"
+        || !skill["isBuiltIn"].is_boolean()
+        || ["_id", "name", "command", "description", "promptTemplate"]
+            .iter()
+            .any(|key| !skill[key].is_string())
+    {
+        return None;
+    }
+    Some(skill.clone())
+}
+
+/// Text spans use JavaScript UTF-16 coordinates without duplicating message text.
+pub fn chat_skill_parts(content: &str, streaming: bool) -> Option<Value> {
+    if !content.contains("```inferay-skill") {
+        return None;
+    }
+    let mut parts = Vec::new();
+    let mut cursor = 0;
+    let mut cursor_utf16 = 0;
+    let mut lines = content.split_inclusive('\n').scan(0, |offset, line| {
+        let start = *offset;
+        *offset += line.len();
+        Some((start, line))
+    });
+    while let Some((start, line)) = lines.next() {
+        if !line.ends_with('\n')
+            || !line
+                .strip_prefix("```inferay-skill")
+                .is_some_and(|rest| rest.trim().is_empty())
+        {
+            continue;
+        }
+        let body_start = start + line.len();
+        let mut closing = None;
+        for (end, line) in lines.by_ref() {
+            if line
+                .strip_suffix('\n')
+                .unwrap_or(line)
+                .trim_end_matches([' ', '\t'])
+                == "```"
+            {
+                closing = Some((end, end + line.len()));
+                break;
+            }
+        }
+        let Some((body_end, block_end)) = closing else {
+            break;
+        };
+        let proposal = serde_json::from_str::<Value>(&content[body_start..body_end])
+            .ok()
+            .and_then(|value| chat_skill_proposal(&value));
+        if let Some(proposal) = proposal {
+            let start_utf16 = cursor_utf16 + content[cursor..start].encode_utf16().count();
+            if start > cursor {
+                parts.push(serde_json::json!({"start":cursor_utf16, "end":start_utf16}));
+            }
+            parts.push(serde_json::json!({"proposal":proposal, "index":start_utf16}));
+            cursor_utf16 = start_utf16 + content[start..block_end].encode_utf16().count();
+            cursor = block_end;
+        }
+    }
+    let rest = &content[cursor..];
+    let partial = if streaming {
+        let mut offset = 0;
+        rest.split_inclusive('\n').find_map(|line| {
+            let start = offset;
+            offset += line.len();
+            line.strip_prefix("```inferay-skill")
+                .filter(|suffix| suffix.is_empty() || suffix.starts_with(char::is_whitespace))
+                .map(|_| start)
+        })
+    } else {
+        None
+    };
+    if let Some(partial) = partial {
+        if partial > 0 {
+            parts.push(serde_json::json!({"start":cursor_utf16, "end":cursor_utf16 + rest[..partial].encode_utf16().count()}));
+        }
+        parts.push(serde_json::json!({"pending":true}));
+    } else if !rest.is_empty() {
+        parts.push(serde_json::json!({"start":cursor_utf16, "end":cursor_utf16 + rest.encode_utf16().count()}));
+    }
+    Some(Value::Array(parts))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chat_cards_validate_and_restore_old_transcripts_with_unicode_offsets() {
+        let proposal = serde_json::json!({"type":"inferay.skill-proposal", "action":"create", "name":"Review", "command":"review-code", "description":"Review changes", "promptTemplate":"Inspect the diff", "reason":"Reuse it"});
+        assert_eq!(chat_skill_proposal(&proposal), Some(proposal.clone()));
+        for patch in [
+            serde_json::json!({"action":"update"}),
+            serde_json::json!({"action":"delete"}),
+            serde_json::json!({"command":"../file"}),
+            serde_json::json!({"promptTemplate":""}),
+        ] {
+            let mut invalid = proposal.clone();
+            invalid
+                .as_object_mut()
+                .unwrap()
+                .extend(patch.as_object().unwrap().clone());
+            assert!(chat_skill_proposal(&invalid).is_none());
+        }
+        let block = format!("```inferay-skill\n{proposal}\n```");
+        let content = format!("😀\n{block}");
+        let parts = chat_skill_parts(&content, false).unwrap();
+        assert_eq!(parts[0], serde_json::json!({"start":0,"end":3}));
+        assert_eq!(parts[1], serde_json::json!({"proposal":proposal,"index":3}));
+        assert_eq!(
+            chat_skill_parts("```inferay-skill\n{", true),
+            Some(serde_json::json!([{"pending":true}]))
+        );
+        let read = serde_json::json!({"type":"inferay.skill-read", "skill":{"_id":"id", "name":"Review", "command":"review", "description":"desc", "promptTemplate":"body", "isBuiltIn":false}});
+        let messages = serde_json::from_value(serde_json::json!([
+            {"id":"old-assistant", "role":"assistant", "content":content},
+            {"id":"old-system", "role":"system", "content":proposal.to_string()},
+            {"id":"old-read", "role":"system", "content":read.to_string()}
+        ]))
+        .unwrap();
+        let mut buffer = crate::chat_protocol::ChatMessageBuffer::default();
+        buffer.replace_messages(messages);
+        assert_eq!(buffer.messages()[0].extra["render"]["skillParts"], parts);
+        assert_eq!(
+            buffer.messages()[1].extra["render"]["skillProposal"],
+            proposal
+        );
+        assert_eq!(
+            buffer.messages()[2].extra["render"]["skillRead"],
+            read["skill"]
+        );
+    }
 
     #[test]
     fn rejects_stale_skill_proposals_without_overwriting_newer_instructions() {

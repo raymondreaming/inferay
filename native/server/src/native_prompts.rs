@@ -41,6 +41,29 @@ impl NativePrompts {
         self.store.lock().await.list_by_usage()
     }
 
+    /// Expansion happens once at chat admission. Queued and legacy sends carry
+    /// prepared text without the expansion flag, so replay never expands again.
+    pub(crate) async fn expand_chat_commands(
+        &self,
+        text: &str,
+        command_id: Option<&str>,
+        args: Option<&str>,
+    ) -> Result<String, String> {
+        let store = self.store.lock().await;
+        let skills = store.list_by_usage()?;
+        let (expanded, used) = expand_commands(text, &skills, command_id, args);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        for id in used {
+            store
+                .increment_usage(&id, now)
+                .map_err(|error| error.message)?;
+        }
+        Ok(expanded)
+    }
+
     /// Agent tools read the same store as the editor. Proposals never write it.
     pub(crate) fn tool_definitions() -> Value {
         json!([
@@ -278,6 +301,74 @@ fn unix_millis() -> u64 {
         .as_millis() as u64
 }
 
+fn expand_commands(
+    text: &str,
+    skills: &[Prompt],
+    command_id: Option<&str>,
+    args: Option<&str>,
+) -> (String, Vec<String>) {
+    let expand = |skill: &Prompt, token: &str, args: &str| {
+        if skill.prompt_template.is_empty() {
+            token.trim().to_owned()
+        } else {
+            skill
+                .prompt_template
+                .replacen("{args}", args, 1)
+                .trim()
+                .to_owned()
+        }
+    };
+    if let Some(id) = command_id {
+        return skills
+            .iter()
+            .find(|skill| skill.id == id)
+            .map(|skill| {
+                (
+                    expand(skill, text, args.unwrap_or("")),
+                    vec![skill.id.clone()],
+                )
+            })
+            .unwrap_or_else(|| (text.to_owned(), Vec::new()));
+    }
+    static TOKENS: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let tokens = TOKENS.get_or_init(|| regex::Regex::new(r"/[a-zA-Z][a-zA-Z0-9_-]*").unwrap());
+    let mut output = String::with_capacity(text.len());
+    let mut used = Vec::new();
+    let mut offset = 0;
+    for token in tokens.find_iter(text) {
+        if text[..token.start()]
+            .chars()
+            .next_back()
+            .is_some_and(|c| !c.is_whitespace())
+            || text[token.end()..]
+                .chars()
+                .next()
+                .is_some_and(|c| !c.is_whitespace())
+        {
+            continue;
+        }
+        // Local UI commands shadow library commands of the same name.
+        let name = &token.as_str()[1..];
+        if ["exit", "clear", "help"]
+            .iter()
+            .any(|local| name.eq_ignore_ascii_case(local))
+        {
+            continue;
+        }
+        if let Some(skill) = skills
+            .iter()
+            .find(|skill| skill.command.eq_ignore_ascii_case(name))
+        {
+            output.push_str(&text[offset..token.start()]);
+            output.push_str(&expand(skill, token.as_str(), ""));
+            used.push(skill.id.clone());
+            offset = token.end();
+        }
+    }
+    output.push_str(&text[offset..]);
+    (output, used)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -310,6 +401,39 @@ mod tests {
         .unwrap();
         let store = PromptStore::new(bundled, root.path().join("local.json"));
         (root, NativePrompts::new(Arc::new(Mutex::new(store))))
+    }
+
+    #[tokio::test]
+    async fn chat_commands_expand_original_tokens_once_and_persist_usage() {
+        let (_root, service) = service();
+        let skill = service.store.lock().await.create(json!({"name":"Inspect", "command":"inspect", "description":"Review", "promptTemplate":"Review: {args} /inspect"}).as_object().unwrap(), 2).unwrap();
+        let explicit = service
+            .expand_chat_commands("/inspect src/app.ts", Some(&skill.id), Some("src/app.ts"))
+            .await
+            .unwrap();
+        assert_eq!(explicit, "Review: src/app.ts /inspect");
+        let inline = service
+            .expand_chat_commands(
+                "Please /INSPECT then /inspect /inspect.txt path/inspect",
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            inline,
+            "Please Review:  /inspect then Review:  /inspect /inspect.txt path/inspect"
+        );
+        let skills = service.list().await.unwrap();
+        assert_eq!(skills[0].execution_count, 3);
+        assert!(skills[0].last_used.is_some());
+        assert_eq!(
+            service
+                .expand_chat_commands("/missing", Some("removed"), None)
+                .await
+                .unwrap(),
+            "/missing"
+        );
     }
 
     #[tokio::test]

@@ -1,3 +1,5 @@
+mod git_changes;
+mod workspace_panels;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
@@ -519,6 +521,39 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             add_cors_headers(response.headers_mut(), &request_headers);
             return response;
         }
+        if path == "/api/native/provider-config" {
+            if request.method() == Method::GET {
+                return json_response(
+                    StatusCode::OK,
+                    inferay_core::provider_config::catalog().clone(),
+                    &request_headers,
+                );
+            }
+            if request.method() == Method::POST {
+                let bytes = match to_bytes(request.into_body(), 64 * 1024).await {
+                    Ok(bytes) => bytes,
+                    Err(_) => {
+                        return json_response(
+                            StatusCode::BAD_REQUEST,
+                            json!({"error":"Invalid provider configuration"}),
+                            &request_headers,
+                        );
+                    }
+                };
+                return match serde_json::from_slice::<Value>(&bytes) {
+                    Ok(input) => json_response(
+                        StatusCode::OK,
+                        inferay_core::provider_config::resolve(&input),
+                        &request_headers,
+                    ),
+                    Err(_) => json_response(
+                        StatusCode::BAD_REQUEST,
+                        json!({"error":"Invalid provider configuration"}),
+                        &request_headers,
+                    ),
+                };
+            }
+        }
         if path == "/api/native/markdown" && request.method() == Method::POST {
             return native_markdown(request).await;
         }
@@ -602,6 +637,9 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
                 return update_agent_context(&state, request).await;
             }
         }
+        if path == "/api/workspace/panels" && request.method() == Method::POST {
+            return workspace_panels::handle(&state, request).await;
+        }
         if path == "/api/agent/state" {
             if request.method() == Method::GET {
                 return get_agent_state(&state, request).await;
@@ -634,6 +672,9 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
         if let Some(pane_id) = route_parameter(&path, "/api/chat-queues/") {
             if request.method() == Method::GET {
                 return get_chat_queue(&state, request, &pane_id).await;
+            }
+            if request.method() == Method::PATCH {
+                return patch_chat_queue(&state, request, &pane_id).await;
             }
             if request.method() == Method::PUT {
                 return put_chat_queue(&state, request, &pane_id).await;
@@ -695,6 +736,29 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
         if path == "/api/upload-temp" && request.method() == Method::POST {
             return upload_temp_file(&state, request).await;
         }
+        if path == "/api/images/chat-message" && request.method() == Method::POST {
+            let headers = request.headers().clone();
+            #[derive(Deserialize)]
+            struct ImageSelection {
+                paths: Vec<String>,
+            }
+            let selection: ImageSelection = match request_json(request, &headers).await {
+                Ok(selection) => selection,
+                Err(response) => return response,
+            };
+            return match state
+                .native_files
+                .prepare_chat_message(&selection.paths)
+                .await
+            {
+                Ok(text) => json_response(StatusCode::OK, json!({"text":text}), &headers),
+                Err(error) => json_response(
+                    StatusCode::BAD_REQUEST,
+                    json!({"error":error.to_string()}),
+                    &headers,
+                ),
+            };
+        }
         if path == "/api/images" && request.method() == Method::GET {
             return list_temp_images(&state, request).await;
         }
@@ -745,7 +809,9 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
         if path == "/api/git/commit-diff" && request.method() == Method::GET {
             return git_commit_diff(&state, request).await;
         }
-        if path == "/api/git/comparison-details" && request.method() == Method::GET {
+        if path == "/api/git/comparison-details"
+            && matches!(*request.method(), Method::GET | Method::POST)
+        {
             return git_comparison_details(&state, request).await;
         }
         if path == "/api/git/comparison-diff" && request.method() == Method::GET {
@@ -840,6 +906,64 @@ async fn get_chat_queue(state: &ServerState, request: Request, pane_id: &str) ->
         Err(error) => json_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             json!({ "error": error }),
+            &headers,
+        ),
+    }
+}
+
+async fn patch_chat_queue(state: &ServerState, request: Request, pane_id: &str) -> Response {
+    let headers = request.headers().clone();
+    let body: Value = match request_json(request, &headers).await {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let Some(id) = body
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+    else {
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            json!({"error":"Expected queued message ID"}),
+            &headers,
+        );
+    };
+    let text = match body.get("action").and_then(Value::as_str) {
+        Some("remove") => None,
+        Some("edit") => match body
+            .get("text")
+            .and_then(Value::as_str)
+            .filter(|text| !text.trim().is_empty())
+        {
+            Some(text) => Some(text),
+            None => {
+                return json_response(
+                    StatusCode::BAD_REQUEST,
+                    json!({"error":"Expected nonempty message text"}),
+                    &headers,
+                );
+            }
+        },
+        _ => {
+            return json_response(
+                StatusCode::BAD_REQUEST,
+                json!({"error":"Unknown queue action"}),
+                &headers,
+            );
+        }
+    };
+    match state
+        .chat_persistence
+        .mutate_queue_item(pane_id, id, text)
+        .await
+    {
+        Ok(queue) => {
+            state.chat_runtime.broadcast_queue(pane_id, &queue).await;
+            json_response(StatusCode::OK, json!({"queue":queue}), &headers)
+        }
+        Err(error) => json_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({"error":error}),
             &headers,
         ),
     }
@@ -1494,9 +1618,11 @@ async fn git_statuses(state: &ServerState, request: Request) -> Response {
             unique.push(cwd);
         }
     }
-    let tasks = unique
-        .into_iter()
-        .map(|cwd| tokio::task::spawn_blocking(move || get_git_status(&cwd)));
+    let tasks = unique.into_iter().map(|cwd| {
+        tokio::task::spawn_blocking(move || {
+            get_git_status(&cwd).map(|status| git_changes::prepare(json!(status)))
+        })
+    });
     let statuses = join_all(tasks)
         .await
         .into_iter()
@@ -1543,7 +1669,7 @@ async fn git_graph(state: &ServerState, request: Request) -> Response {
         render_jobs::cached(key, std::time::Duration::from_secs(30), move || {
             let snapshot =
                 inferay_native_diff::get_git_graph_snapshot_with_query(&cwd, limit, input, &query);
-            serde_json::to_vec(&snapshot).ok()
+            serde_json::to_vec(&git_changes::prepare(json!(snapshot))).ok()
         })
         .await
     };
@@ -1795,15 +1921,13 @@ async fn git_commit_details(state: &ServerState, request: Request) -> Response {
         );
     };
     match tokio::task::spawn_blocking(move || {
-        get_git_commit_details_for_parent(&cwd, &hash, parent.as_deref())
+        git_changes::prepare(
+            json!({ "details": get_git_commit_details_for_parent(&cwd, &hash, parent.as_deref()) }),
+        )
     })
     .await
     {
-        Ok(details) => json_response(
-            StatusCode::OK,
-            json!({ "details": details }),
-            &request_headers,
-        ),
+        Ok(details) => json_response(StatusCode::OK, details, &request_headers),
         Err(error) => internal_task_error(error, &request_headers),
     }
 }
@@ -1854,27 +1978,81 @@ async fn git_comparison_details(state: &ServerState, request: Request) -> Respon
     let cwd = query_value(&request, "cwd")
         .as_deref()
         .and_then(|cwd| safe_cwd(state, cwd));
-    let from = query_value(&request, "from").filter(|hash| safe_hash(hash));
-    let to = query_value(&request, "to").filter(|value| value == "WORKTREE" || safe_hash(value));
-    let (Some(cwd), Some(from), Some(to)) = (cwd, from, to) else {
+    if cwd.is_none() {
         return json_response(
             StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing cwd, from, or to parameter" }),
+            json!({"error":"Invalid comparison directory"}),
+            &request_headers,
+        );
+    }
+    let explicit_from = query_value(&request, "from").unwrap_or_default();
+    let explicit_to = query_value(&request, "to").unwrap_or_default();
+    let selection = if request.method() == Method::POST {
+        let body: Value = match request_json(request, &request_headers).await {
+            Ok(body) => body,
+            Err(response) => return response,
+        };
+        Some(body.get("selection").unwrap_or(&Value::Null).to_string())
+    } else {
+        query_value(&request, "selection")
+    };
+    let plan = if let Some(selection) = selection {
+        let items = serde_json::from_str::<Vec<native_git::ComparisonSelection>>(&selection);
+        match (cwd.as_deref(), items) {
+            (Some(cwd), Ok(items)) if items.len() <= 1000 => {
+                native_git::plan_comparison(cwd, &items)
+            }
+            _ => {
+                return json_response(
+                    StatusCode::BAD_REQUEST,
+                    json!({"error":"Invalid comparison selection"}),
+                    &request_headers,
+                );
+            }
+        }
+    } else {
+        cwd.map(|cwd| native_git::ComparisonPlan {
+            cwd,
+            from: explicit_from,
+            to: explicit_to,
+        })
+    };
+    let Some(plan) = plan else {
+        return json_response(
+            StatusCode::OK,
+            json!({"details":null, "plan":null}),
             &request_headers,
         );
     };
+    let Some(cwd) = safe_cwd(state, &plan.cwd) else {
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            json!({"error":"Invalid comparison directory"}),
+            &request_headers,
+        );
+    };
+    if !safe_hash(&plan.from) || (plan.to != "WORKTREE" && !safe_hash(&plan.to)) {
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            json!({"error":"Invalid comparison revisions"}),
+            &request_headers,
+        );
+    }
+    let from = plan.from.clone();
+    let to = plan.to.clone();
     let allowed_paths = state.allowed_paths.clone();
     let task = tokio::task::spawn_blocking(move || {
-        if to == "WORKTREE" {
+        let details = if to == "WORKTREE" {
             get_git_worktree_comparison_details(&allowed_paths, &cwd, &from)
         } else {
             get_git_comparison_details(&cwd, &from, &to)
-        }
+        };
+        details.map(|details| git_changes::prepare(json!(details)))
     });
     match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
         Ok(Ok(Some(details))) => json_response(
             StatusCode::OK,
-            json!({ "details": details }),
+            json!({ "details": details, "plan": plan }),
             &request_headers,
         ),
         Ok(Ok(None)) => json_response(
@@ -3924,6 +4102,18 @@ async fn handle_native_websocket_message(
                 .and_then(Value::as_str)
                 .unwrap_or("claude");
             let input = native_chat_service::NativeChatSendRequest {
+                expand_commands: message
+                    .get("expandCommands")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                command_id: message
+                    .get("commandId")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                command_args: message
+                    .get("commandArgs")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
                 pane_id: pane_id.into(),
                 client_message_id: message
                     .get("messageId")
@@ -5065,6 +5255,49 @@ printf '{"type":"result","result":"%s"}\n' "$result"
     }
 
     #[tokio::test]
+    async fn workspace_panels_import_once_and_merge_independent_updates() {
+        let root = TempDir::new().unwrap();
+        let app = router(test_config(root.path()));
+        let route = "/api/workspace/panels";
+        let (status, initial) = call_json(
+            &app,
+            Method::POST,
+            route.into(),
+            Some(json!({
+                "workspaceId":"/repo", "legacy":{"mainViewMode":"graph", "selectedCommitHash":"abc"}
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(initial["session"]["selectedCommitIds"], json!(["abc"]));
+        let (first, second) = tokio::join!(
+            call_json(
+                &app,
+                Method::POST,
+                route.into(),
+                Some(json!({"workspaceId":"/repo", "patch":{"sidebarVisible":false}}))
+            ),
+            call_json(
+                &app,
+                Method::POST,
+                route.into(),
+                Some(json!({"workspaceId":"/repo", "patch":{"fileViewerCwd":"/repo"}}))
+            )
+        );
+        assert_eq!(first.0, StatusCode::OK);
+        assert_eq!(second.0, StatusCode::OK);
+        drop(app);
+        let restarted = router(test_config(root.path()));
+        let (status, restored) = call_json(&restarted, Method::POST, route.into(), Some(json!({
+            "workspaceId":"/repo", "legacy":{"selectedCommitHash":"stale", "sidebarVisible":true}
+        }))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(restored["session"]["sidebarVisible"], false);
+        assert_eq!(restored["session"]["fileViewerCwd"], "/repo");
+        assert_eq!(restored["session"]["selectedCommitHash"], "abc");
+    }
+
+    #[tokio::test]
     async fn persists_and_mutates_agent_state_without_the_compatibility_backend() {
         let root = TempDir::new().unwrap();
         let config = test_config(root.path());
@@ -5652,6 +5885,42 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         assert_eq!(status, StatusCode::OK);
         assert_eq!(value["queue"], queue);
 
+        let (status, value) = call_json(
+            &app,
+            Method::PATCH,
+            "/api/chat-queues/pane-1".into(),
+            Some(json!({"action":"edit","id":"queued-1","text":" updated "})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(value["queue"][0]["text"], "updated");
+        let (status, _) = call_json(
+            &app,
+            Method::PATCH,
+            "/api/chat-queues/pane-1".into(),
+            Some(json!({"action":"edit","id":"queued-1","text":" "})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let (status, value) = call_json(
+            &app,
+            Method::PATCH,
+            "/api/chat-queues/pane-1".into(),
+            Some(json!({"action":"remove","id":"queued-1"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(value["queue"], json!([]));
+        let (status, value) = call_json(
+            &app,
+            Method::PATCH,
+            "/api/chat-queues/pane-1".into(),
+            Some(json!({"action":"edit","id":"queued-1","text":"too late"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(value["queue"], json!([]));
+
         let (status, value) =
             call_json(&app, Method::DELETE, "/api/chat-queues/pane-1".into(), None).await;
         assert_eq!(status, StatusCode::OK);
@@ -5724,6 +5993,10 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(value.as_array().unwrap().len(), 1);
+        assert_eq!(
+            value[0]["filePresentation"]["pathOrder"],
+            json!(["README.md", "untracked.txt"])
+        );
         let files = value[0]["files"].as_array().unwrap();
         let readme = files
             .iter()

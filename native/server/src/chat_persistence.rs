@@ -61,6 +61,10 @@ pub struct ChatSessionReference {
     pub provider: String,
     pub session_id: String,
     pub cwd: PathBuf,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub reasoning_level: Option<String>,
 }
 
 #[derive(Clone)]
@@ -148,6 +152,7 @@ impl ChatPersistence {
         provider: &str,
         session_id: &str,
         cwd: &Path,
+        configuration: (Option<&str>, Option<&str>),
     ) -> Result<(), String> {
         self.journal_path(pane_id)?;
         if provider.trim().is_empty() || session_id.trim().is_empty() {
@@ -166,6 +171,8 @@ impl ChatPersistence {
             provider: provider.into(),
             session_id: session_id.into(),
             cwd: cwd.into(),
+            model: configuration.0.map(str::to_owned),
+            reasoning_level: configuration.1.map(str::to_owned),
         };
         let bytes = serde_json::to_vec(&value).map_err(|e| e.to_string())?;
         durable_replace(&path, &bytes)
@@ -439,6 +446,36 @@ impl ChatPersistence {
         let mut queue = self.read_queue(pane_id).await.unwrap_or_default();
         queue.push(message);
         self.save_runtime_queue_unlocked(pane_id, &queue).await?;
+        Ok(queue)
+    }
+
+    /// Mutate only a queued item under the same lock used by enqueue and drain.
+    /// A late edit never recreates an item already consumed by the runtime.
+    pub async fn mutate_queue_item(
+        &self,
+        pane_id: &str,
+        id: &str,
+        text: Option<&str>,
+    ) -> Result<Vec<Value>, String> {
+        let write_lock = self.queue_write_lock(pane_id).await;
+        let _guard = write_lock.lock().await;
+        let mut queue = self.read_queue(pane_id).await?;
+        if let Some(index) = queue
+            .iter()
+            .position(|item| item.get("id").and_then(Value::as_str) == Some(id))
+        {
+            if let Some(text) = text {
+                let text = text.trim();
+                if text.is_empty() {
+                    return Err("Queued message cannot be empty".into());
+                }
+                queue[index]["text"] = json!(text);
+                queue[index]["displayText"] = json!(text);
+            } else {
+                queue.remove(index);
+            }
+            self.save_runtime_queue_unlocked(pane_id, &queue).await?;
+        }
         Ok(queue)
     }
 
@@ -818,7 +855,9 @@ fn queue_event_payload(source: &str, queue: &[Value]) -> Value {
 #[cfg(test)]
 impl ChatPersistence {
     async fn append_event(&self, pane_id: &str, event_type: &str, payload: Value) -> u64 {
-        let sequence = now_millis() * 1_000;
+        let mut events = self.read_legacy_events(pane_id).await.unwrap_or_default();
+        let sequence =
+            (now_millis() * 1_000).max(events.last().map_or(0, |event| event.sequence + 1));
         let entry = ChatEventLogEntry {
             pane_id: pane_id.to_string(),
             sequence,
@@ -827,7 +866,6 @@ impl ChatPersistence {
             payload,
         };
         let path = self.event_path(pane_id);
-        let mut events = self.read_legacy_events(pane_id).await.unwrap_or_default();
         events.push(entry);
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent).await;
@@ -1144,12 +1182,28 @@ mod tests {
         );
     }
 
+    #[test]
+    fn older_provider_references_remain_readable() {
+        let reference: ChatSessionReference = serde_json::from_value(
+            json!({"provider":"codex","sessionId":"old-session","cwd":"/tmp"}),
+        )
+        .unwrap();
+        assert_eq!(reference.model, None);
+        assert_eq!(reference.reasoning_level, None);
+    }
+
     #[tokio::test]
     async fn provider_reference_is_durable_and_validates_pane_ids() {
         let root = tempdir().unwrap();
         let persistence = ChatPersistence::new(root.path().into());
         persistence
-            .save_session_reference("pane", "codex", "provider-session", root.path())
+            .save_session_reference(
+                "pane",
+                "codex",
+                "provider-session",
+                root.path(),
+                (Some("gpt-6-astra"), Some("high")),
+            )
             .await
             .unwrap();
         let restarted = ChatPersistence::new(root.path().into());
@@ -1158,12 +1212,14 @@ mod tests {
             ChatSessionReference {
                 provider: "codex".into(),
                 session_id: "provider-session".into(),
-                cwd: root.path().into()
+                cwd: root.path().into(),
+                model: Some("gpt-6-astra".into()),
+                reasoning_level: Some("high".into()),
             }
         );
         assert!(
             persistence
-                .save_session_reference("../bad", "codex", "session", root.path())
+                .save_session_reference("../bad", "codex", "session", root.path(), (None, None))
                 .await
                 .is_err()
         );
@@ -1288,6 +1344,63 @@ mod tests {
             .unwrap();
         drop(_guard);
         assert!(persistence.read_queue("pane:1").await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn edits_and_removals_share_enqueue_and_drain_serialization() {
+        let root = tempdir().unwrap();
+        let persistence = ChatPersistence::new(root.path().into());
+        persistence
+            .enqueue_runtime(
+                "pane",
+                json!({"id":"q1","text":"first","displayText":"first"}),
+            )
+            .await
+            .unwrap();
+        persistence.enqueue_runtime("pane", json!({"id":"q2","text":"second","displayText":"second","images":["/tmp/image.png"]})).await.unwrap();
+        let (edited, enqueued, drained) = tokio::join!(
+            persistence.mutate_queue_item("pane", "q2", Some("  edited  ")),
+            persistence.enqueue_runtime(
+                "pane",
+                json!({"id":"q3","text":"third","displayText":"third"})
+            ),
+            persistence.shift_runtime("pane"),
+        );
+        edited.unwrap();
+        enqueued.unwrap();
+        assert_eq!(drained.unwrap().unwrap().0["id"], "q1");
+        let queue = persistence.read_queue("pane").await.unwrap();
+        assert_eq!(queue.len(), 2);
+        assert_eq!(queue[0]["text"], "edited");
+        assert_eq!(queue[0]["displayText"], "edited");
+        assert_eq!(queue[0]["images"], json!(["/tmp/image.png"]));
+        assert_eq!(queue[1]["id"], "q3");
+        // An edit from a stale renderer never resurrects an admitted message.
+        persistence
+            .mutate_queue_item("pane", "q1", Some("too late"))
+            .await
+            .unwrap();
+        assert_eq!(persistence.read_queue("pane").await.unwrap(), queue);
+        assert!(
+            persistence
+                .mutate_queue_item("pane", "q2", Some("  "))
+                .await
+                .is_err()
+        );
+        assert_eq!(persistence.read_queue("pane").await.unwrap(), queue);
+        let remaining = persistence
+            .mutate_queue_item("pane", "q2", None)
+            .await
+            .unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0]["id"], "q3");
+        assert_eq!(
+            ChatPersistence::new(root.path().into())
+                .read_queue("pane")
+                .await
+                .unwrap(),
+            remaining
+        );
     }
 
     #[tokio::test]

@@ -221,6 +221,34 @@ impl ChatMessageBuffer {
                 cached.unwrap()
             } else {
                 let mut render = serde_json::json!({"version":1,"toolInput":null});
+                if message.role == "system" {
+                    if let Ok(value) = serde_json::from_str::<Value>(&message.content) {
+                        prepare_system_card(&value, &mut render);
+                        if let Some(proposal) = crate::prompts::chat_skill_proposal(&value) {
+                            render["skillProposal"] = proposal;
+                        }
+                        if let Some(skill) = crate::prompts::chat_skill_read(&value) {
+                            render["skillRead"] = skill;
+                        }
+                    }
+                    if let Some(name) = message
+                        .content
+                        .strip_prefix("Running /")
+                        .and_then(|rest| rest.strip_suffix("..."))
+                        && !name.is_empty()
+                        && !name.contains(['\n', '\r'])
+                    {
+                        render["command"] =
+                            serde_json::json!({"type":"inferay.command", "name":name});
+                    }
+                } else if message.role == "assistant"
+                    && let Some(parts) = crate::prompts::chat_skill_parts(
+                        &message.content,
+                        message.is_streaming == Some(true),
+                    )
+                {
+                    render["skillParts"] = parts;
+                }
                 if message.role == "tool" {
                     let input = parse_tool_envelope(&message.content);
                     let value = input.as_ref().map_or(&Value::Null, |(value, _)| value);
@@ -818,11 +846,79 @@ pub fn javascript_slice(value: &str, start: usize, end: usize) -> String {
     String::from_utf16_lossy(&units[start.min(units.len())..end.min(units.len())])
 }
 
+fn prepare_system_card(value: &Value, render: &mut Value) {
+    let (key, fields) = match value["type"].as_str() {
+        Some("inferay.command")
+            if value["name"]
+                .as_str()
+                .is_some_and(|name| !name.trim().is_empty()) =>
+        {
+            ("command", &["name", "description", "args"][..])
+        }
+        Some("inferay.goal")
+            if matches!(
+                value["status"].as_str(),
+                Some("active" | "paused" | "complete" | "cleared" | "empty")
+            ) =>
+        {
+            ("goal", &["status", "objective", "detail"][..])
+        }
+        _ => return,
+    };
+    let mut card = serde_json::Map::new();
+    card.insert("type".into(), value["type"].clone());
+    for field in fields {
+        if value[field].is_string() {
+            card.insert((*field).into(), value[field].clone());
+        }
+    }
+    if key == "goal" && value["turns"].is_number() {
+        card.insert("turns".into(), value["turns"].clone());
+    }
+    render[key] = Value::Object(card);
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn restored_system_messages_prepare_command_and_every_goal_status() {
+        let mut buffer = ChatMessageBuffer::default();
+        let mut messages = vec![
+            json!({"id":"command", "role":"system", "content":json!({"type":"inferay.command", "name":"commit", "description":"Commit changes", "args":"fix picker"}).to_string()}),
+            json!({"id":"legacy", "role":"system", "content":"Running /review..."}),
+            json!({"id":"invalid", "role":"system", "content":json!({"type":"inferay.command", "name":" "}).to_string()}),
+            json!({"id":"invalid-goal", "role":"system", "content":json!({"type":"inferay.goal", "status":"bogus"}).to_string()}),
+        ];
+        for status in ["active", "paused", "complete", "cleared", "empty"] {
+            messages.push(json!({"id":status, "role":"system", "content":json!({"type":"inferay.goal", "status":status, "objective":"Ship feature", "turns":2, "detail":"Progress"}).to_string()}));
+        }
+        buffer.replace_messages(serde_json::from_value(Value::Array(messages)).unwrap());
+        assert_eq!(
+            buffer.messages()[0].extra["render"]["command"]["args"],
+            "fix picker"
+        );
+        assert_eq!(
+            buffer.messages()[1].extra["render"]["command"]["name"],
+            "review"
+        );
+        assert!(
+            buffer.messages()[2].extra["render"]
+                .get("command")
+                .is_none()
+        );
+        assert!(buffer.messages()[3].extra["render"].get("goal").is_none());
+        for (message, status) in buffer.messages()[4..]
+            .iter()
+            .zip(["active", "paused", "complete", "cleared", "empty"])
+        {
+            assert_eq!(message.extra["render"]["goal"]["status"], status);
+            assert_eq!(message.extra["render"]["goal"]["turns"], 2);
+        }
+    }
 
     #[test]
     fn native_updates_append_only_changed_content_and_replace_final_result() {

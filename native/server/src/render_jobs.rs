@@ -119,6 +119,76 @@ pub async fn cached(
     .await
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MinimapSegment {
+    r#type: &'static str,
+    side: &'static str,
+    start_line: usize,
+    end_line: usize,
+}
+
+fn minimap_segments(
+    lines: &[inferay_native_diff::GitDiffLine],
+    side: &'static str,
+    row_count: usize,
+) -> Vec<MinimapSegment> {
+    use inferay_native_diff::GitDiffLineType;
+    if row_count == 0 || row_count >= 3000 {
+        return Vec::new();
+    }
+    let mut segments = Vec::new();
+    let mut current = None;
+    let mut start = 0;
+    for index in 0..=lines.len() {
+        let next = lines.get(index).and_then(|line| match line.line_type {
+            GitDiffLineType::Add => Some("add"),
+            GitDiffLineType::Remove => Some("remove"),
+            _ => None,
+        });
+        if next == current {
+            continue;
+        }
+        if let Some(kind) = current {
+            segments.push(MinimapSegment {
+                r#type: kind,
+                side,
+                start_line: start,
+                end_line: index,
+            });
+            if segments.len() == 100 {
+                break;
+            }
+        }
+        current = next;
+        start = index;
+    }
+    segments
+}
+
+fn max_line_chars(lines: &[inferay_native_diff::GitDiffLine]) -> usize {
+    lines
+        .iter()
+        .map(|line| line.content.encode_utf16().count())
+        .max()
+        .unwrap_or(0)
+}
+
+// Half-open row ranges, in the coordinate system of the displayed view.
+fn change_ranges(changed: impl Iterator<Item = bool>) -> Vec<[usize; 2]> {
+    let mut ranges: Vec<[usize; 2]> = Vec::new();
+    for (index, changed) in changed.enumerate() {
+        if changed {
+            if let Some(last) = ranges.last_mut().filter(|last| last[1] == index) {
+                last[1] = index + 1;
+            } else {
+                ranges.push([index, index + 1]);
+            }
+        }
+    }
+    ranges
+}
+
 /// The UI gets prepared summary data without duplicating the raw patch text.
 /// Callers that need a patch keep the original endpoint contract.
 pub fn diff_bytes(mut diff: inferay_native_diff::GitHunkDiff, render: bool) -> Vec<u8> {
@@ -140,6 +210,13 @@ pub fn diff_bytes(mut diff: inferay_native_diff::GitHunkDiff, render: bool) -> V
         tokenization_disabled: bool,
         max_old_line_chars: usize,
         max_new_line_chars: usize,
+        max_inline_line_chars: usize,
+        max_conflict_line_chars: usize,
+        split_change_ranges: Vec<[usize; 2]>,
+        inline_change_ranges: Vec<[usize; 2]>,
+        split_minimap: Vec<MinimapSegment>,
+        inline_minimap: Vec<MinimapSegment>,
+        conflict_minimap: Vec<MinimapSegment>,
     }
     #[derive(serde::Serialize)]
     struct Payload {
@@ -151,18 +228,8 @@ pub fn diff_bytes(mut diff: inferay_native_diff::GitHunkDiff, render: bool) -> V
         #[serde(rename = "conflictLines", skip_serializing_if = "Option::is_none")]
         conflict_lines: Option<Vec<inferay_native_diff::GitDiffLine>>,
     }
-    let old_max = diff
-        .old_lines
-        .iter()
-        .map(|line| line.content.encode_utf16().count())
-        .max()
-        .unwrap_or(0);
-    let new_max = diff
-        .new_lines
-        .iter()
-        .map(|line| line.content.encode_utf16().count())
-        .max()
-        .unwrap_or(0);
+    let old_max = max_line_chars(&diff.old_lines);
+    let new_max = max_line_chars(&diff.new_lines);
     let mut stats = Stats {
         added: 0,
         removed: 0,
@@ -211,6 +278,38 @@ pub fn diff_bytes(mut diff: inferay_native_diff::GitHunkDiff, render: bool) -> V
         .merge_conflict_content
         .as_deref()
         .map(inferay_native_diff::prepare_conflict_lines);
+    let max_inline_line_chars = max_line_chars(&inline_lines);
+    let max_conflict_line_chars = conflict_lines.as_deref().map(max_line_chars).unwrap_or(0);
+    let split_change_ranges = change_ranges(
+        (0..diff.old_lines.len().max(diff.new_lines.len())).map(|index| {
+            diff.old_lines
+                .get(index)
+                .is_some_and(|line| line.line_type == GitDiffLineType::Remove)
+                || diff
+                    .new_lines
+                    .get(index)
+                    .is_some_and(|line| line.line_type == GitDiffLineType::Add)
+        }),
+    );
+    let inline_change_ranges = change_ranges(inline_lines.iter().map(|line| {
+        matches!(
+            line.line_type,
+            GitDiffLineType::Add | GitDiffLineType::Remove
+        )
+    }));
+    let split_rows = diff.old_lines.len().max(diff.new_lines.len());
+    let mut split_minimap = if diff.is_new {
+        Vec::new()
+    } else {
+        minimap_segments(&diff.old_lines, "left", split_rows)
+    };
+    split_minimap.extend(minimap_segments(&diff.new_lines, "right", split_rows));
+    let inline_minimap = minimap_segments(&inline_lines, "full", inline_lines.len());
+    let conflict_minimap = conflict_lines
+        .as_ref()
+        .map(|lines| minimap_segments(lines, "full", lines.len()))
+        .unwrap_or_default();
+    disabled |= max_inline_line_chars.max(max_conflict_line_chars) > 1000;
     diff.raw_patch = None;
     serde_json::to_vec(&Payload {
         diff,
@@ -221,6 +320,13 @@ pub fn diff_bytes(mut diff: inferay_native_diff::GitHunkDiff, render: bool) -> V
             tokenization_disabled: disabled,
             max_old_line_chars: old_max,
             max_new_line_chars: new_max,
+            max_inline_line_chars,
+            max_conflict_line_chars,
+            split_change_ranges,
+            inline_change_ranges,
+            split_minimap,
+            inline_minimap,
+            conflict_minimap,
         },
     })
     .expect("render diff serialization")
@@ -229,6 +335,19 @@ pub fn diff_bytes(mut diff: inferay_native_diff::GitHunkDiff, render: bool) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn minimap_runs_are_bounded_and_exclusive() {
+        let lines: Vec<inferay_native_diff::GitDiffLine> = (0..2999).map(|index| serde_json::from_value(serde_json::json!({"number":index+1,"content":"x","type":if index % 2 == 0 {"add"} else {"context"}})).unwrap()).collect();
+        let segments = minimap_segments(&lines, "right", lines.len());
+        assert_eq!(segments.len(), 100);
+        assert_eq!(segments[0].start_line, 0);
+        assert_eq!(segments[0].end_line, 1);
+        assert_eq!(segments[99].start_line, 198);
+        assert_eq!(segments[99].end_line, 199);
+        assert!(minimap_segments(&lines, "left", 3000).is_empty());
+        assert!(serde_json::to_vec(&segments).unwrap().len() < 8000);
+    }
+
     #[test]
     fn native_render_contract_prepares_inline_rows_and_summary() {
         let diff: inferay_native_diff::GitHunkDiff = serde_json::from_value(serde_json::json!({
@@ -245,6 +364,20 @@ mod tests {
             serde_json::json!({"added": 1, "removed": 1, "hunks": 1, "lines": 1})
         );
         assert_eq!(rendered["metadata"]["tokenizationDisabled"], true);
+        assert_eq!(
+            rendered["metadata"]["splitMinimap"],
+            serde_json::json!([
+                {"type":"remove","side":"left","startLine":0,"endLine":1},
+                {"type":"add","side":"right","startLine":0,"endLine":1}
+            ])
+        );
+        assert_eq!(
+            rendered["metadata"]["inlineMinimap"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
         assert_eq!(rendered["inlineLines"][0]["type"], "remove");
         assert_eq!(rendered["inlineLines"][1]["type"], "add");
         assert!(rendered.get("rawPatch").is_none());
@@ -252,6 +385,39 @@ mod tests {
             serde_json::from_slice(&super::diff_bytes(diff, false)).unwrap();
         assert!(legacy.get("rawPatch").is_some());
         assert!(legacy.get("inlineLines").is_none());
+    }
+
+    #[test]
+    fn render_dimensions_and_navigation_use_each_views_rows() {
+        let diff = serde_json::from_value(serde_json::json!({
+            "oldLines": [
+                {"number": 1, "content": "😀", "type": "remove"},
+                {"number": 2, "content": "context", "type": "context"},
+                {"number": 3, "content": "gone", "type": "remove"}
+            ],
+            "newLines": [
+                {"number": 1, "content": "added", "type": "add"},
+                {"number": 2, "content": "context", "type": "context"},
+                {"number": null, "content": "", "type": "spacer"}
+            ],
+            "isBinary": false, "isNew": false,
+            "mergeConflictContent": "😀😀😀😀😀"
+        }))
+        .unwrap();
+        let rendered: serde_json::Value = serde_json::from_slice(&diff_bytes(diff, true)).unwrap();
+        let metadata = &rendered["metadata"];
+        assert_eq!(
+            metadata["splitChangeRanges"],
+            serde_json::json!([[0, 1], [2, 3]])
+        );
+        assert_eq!(
+            metadata["inlineChangeRanges"],
+            serde_json::json!([[0, 2], [3, 4]])
+        );
+        assert_eq!(metadata["maxOldLineChars"], 7);
+        assert_eq!(metadata["maxInlineLineChars"], 7);
+        assert_eq!(metadata["maxConflictLineChars"], 10);
+        assert!(change_ranges([false, false].into_iter()).is_empty());
     }
 
     #[tokio::test]
