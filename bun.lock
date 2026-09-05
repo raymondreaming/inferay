@@ -21,6 +21,8 @@
         "yaml": "^2.9.0",
       },
       "devDependencies": {
+        "@babel/parser": "7.29.8",
+        "@babel/types": "7.29.8",
         "@biomejs/biome": "^2.5.12",
         "@tailwindcss/vite": "4.3.0",
         "@types/bun": "latest",

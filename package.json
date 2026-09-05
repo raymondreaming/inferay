@@ -20,6 +20,7 @@
 		"release:resume": "cargo run -p inferay-tooling -- release --resume",
 		"format": "bunx biome format --write ./src",
 		"check": "bunx biome check --write ./src",
+		"code": "bun scripts/count-code.ts",
 		"check:components": "bun scripts/check-component-structure.ts",
 		"check:architecture": "bash scripts/check-architecture.sh",
 		"check:native": "cargo check -p inferay-desktop",
@@ -29,6 +30,8 @@
 		"*.{js,jsx,ts,tsx,json,css}": "biome check --write --no-errors-on-unmatched"
 	},
 	"devDependencies": {
+		"@babel/parser": "7.29.8",
+		"@babel/types": "7.29.8",
 		"@biomejs/biome": "^2.5.12",
 		"@tailwindcss/vite": "4.3.0",
 		"@types/bun": "latest",
