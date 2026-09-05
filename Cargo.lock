@@ -1392,9 +1392,11 @@ dependencies = [
 name = "inferay-tooling"
 version = "0.1.0"
 dependencies = [
+ "regex",
  "serde_json",
  "sha2",
  "tempfile",
+ "walkdir",
 ]
 
 [[package]]

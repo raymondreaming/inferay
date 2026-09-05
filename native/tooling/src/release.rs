@@ -1,3 +1,4 @@
+use regex::Regex;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::env;
@@ -157,26 +158,28 @@ fn prompt_line(question: &str) -> Result<String, String> {
     Ok(answer.trim().to_owned())
 }
 
-fn parse_version(version: &str) -> Result<(u64, u64, u64), String> {
-    let components = version.split('.').collect::<Vec<_>>();
-    if components.len() != 3
-        || components.iter().any(|component| {
-            component.is_empty() || !component.bytes().all(|byte| byte.is_ascii_digit())
+fn parse_version(version: &str) -> Result<[u64; 3], String> {
+    version
+        .split('.')
+        .map(|part| {
+            part.parse::<u64>()
+                .ok()
+                .filter(|_| part.bytes().all(|byte| byte.is_ascii_digit()))
         })
-    {
-        return Err(format!("invalid version: {version}"));
-    }
-    Ok((
-        components[0]
-            .parse::<u64>()
-            .map_err(|_| format!("invalid version: {version}"))?,
-        components[1]
-            .parse::<u64>()
-            .map_err(|_| format!("invalid version: {version}"))?,
-        components[2]
-            .parse::<u64>()
-            .map_err(|_| format!("invalid version: {version}"))?,
-    ))
+        .collect::<Option<Vec<_>>>()
+        .and_then(|parts| parts.try_into().ok())
+        .ok_or_else(|| format!("invalid version: {version}"))
+}
+
+pub(crate) fn bundle_version(version: &str) -> Result<String, String> {
+    let invalid = || format!("invalid package version: {version}");
+    let [major, minor, patch] = parse_version(version).map_err(|_| invalid())?;
+    major
+        .checked_mul(1_000_000)
+        .and_then(|value| value.checked_add(minor.checked_mul(1_000)?))
+        .and_then(|value| value.checked_add(patch))
+        .map(|value| value.to_string())
+        .ok_or_else(invalid)
 }
 
 fn bump_version(current: &str, requested: &str) -> Result<String, String> {
@@ -193,7 +196,7 @@ fn bump_version(current: &str, requested: &str) -> Result<String, String> {
             "expected patch, minor, major, new, or x.y.z; got {requested}"
         ));
     }
-    let (major, minor, patch) = parse_version(current)?;
+    let [major, minor, patch] = parse_version(current)?;
     Ok(match bump {
         "major" => format!("{}.0.0", major + 1),
         "minor" => format!("{major}.{}.0", minor + 1),
@@ -201,7 +204,7 @@ fn bump_version(current: &str, requested: &str) -> Result<String, String> {
     })
 }
 
-fn read_package_version(path: &Path) -> Result<String, String> {
+pub(crate) fn read_package_version(path: &Path) -> Result<String, String> {
     let package: Value =
         serde_json::from_str(&fs::read_to_string(path).map_err(|error| error.to_string())?)
             .map_err(|error| error.to_string())?;
@@ -212,129 +215,49 @@ fn read_package_version(path: &Path) -> Result<String, String> {
         .ok_or_else(|| "packages/inferay/package.json is missing version".to_owned())
 }
 
-fn replace_cli_version(source: &str, version: &str) -> Result<Option<String>, String> {
-    const PREFIX: &str = "const VERSION = \"";
-    if let Some(start) = source.find(PREFIX) {
-        let value_start = start + PREFIX.len();
-        if let Some(end) = source[value_start..].find("\";") {
-            let end = value_start + end;
-            if parse_version(&source[value_start..end]).is_ok() {
-                let mut next = source.to_owned();
-                next.replace_range(value_start..end, version);
-                return Ok(Some(next));
-            }
-        }
-    }
-    if source.contains("version: VERSION") {
-        Ok(None)
-    } else {
-        Err("could not update CLI VERSION constant".to_owned())
-    }
-}
-
-fn set_cli_version(package_json: &Path, cli_source: &Path, version: &str) -> Result<(), String> {
+fn set_package_version(package_json: &Path, version: &str) -> Result<(), String> {
     let package_source = fs::read_to_string(package_json).map_err(|error| error.to_string())?;
     let _: Value = serde_json::from_str(&package_source).map_err(|error| error.to_string())?;
     let next_package = replace_json_string_field(&package_source, "version", version)
         .ok_or_else(|| "packages/inferay/package.json is missing version".to_owned())?;
     fs::write(package_json, next_package).map_err(|error| error.to_string())?;
 
-    let source = fs::read_to_string(cli_source).map_err(|error| error.to_string())?;
-    if let Some(next) = replace_cli_version(&source, version)? {
-        fs::write(cli_source, next).map_err(|error| error.to_string())?;
-    }
     Ok(())
 }
 
+fn replace_capture(source: &str, pattern: &str, value: &str) -> Option<String> {
+    let expression = Regex::new(pattern).ok()?;
+    let field = expression.captures(source)?.get(1)?;
+    let mut next = source.to_owned();
+    next.replace_range(field.range(), value);
+    Some(next)
+}
+
 fn replace_json_string_field(source: &str, field: &str, value: &str) -> Option<String> {
-    let marker = format!("\"{field}\"");
-    let field_start = source.find(&marker)?;
-    let mut cursor = field_start + marker.len();
-    while source
-        .as_bytes()
-        .get(cursor)
-        .is_some_and(u8::is_ascii_whitespace)
-    {
-        cursor += 1;
-    }
-    if source.as_bytes().get(cursor) != Some(&b':') {
-        return None;
-    }
-    cursor += 1;
-    while source
-        .as_bytes()
-        .get(cursor)
-        .is_some_and(u8::is_ascii_whitespace)
-    {
-        cursor += 1;
-    }
-    if source.as_bytes().get(cursor) != Some(&b'"') {
-        return None;
-    }
-    let value_start = cursor;
-    cursor += 1;
-    let bytes = source.as_bytes();
-    let mut escaped = false;
-    while let Some(byte) = bytes.get(cursor) {
-        if *byte == b'"' && !escaped {
-            let encoded = serde_json::to_string(value).ok()?;
-            let mut next = source.to_owned();
-            next.replace_range(value_start..=cursor, &encoded);
-            return Some(next);
-        }
-        escaped = *byte == b'\\' && !escaped;
-        if *byte != b'\\' {
-            escaped = false;
-        }
-        cursor += 1;
-    }
-    None
+    replace_capture(
+        source,
+        &format!(r#""{}"\s*:\s*("(?:\\.|[^"\\])*")"#, regex::escape(field)),
+        &serde_json::to_string(value).ok()?,
+    )
 }
 
 fn replace_assignment_version(source: &str, version: &str) -> Option<String> {
-    let start = source.find("version")?;
-    let mut cursor = start + "version".len();
-    while source
-        .as_bytes()
-        .get(cursor)
-        .is_some_and(u8::is_ascii_whitespace)
-    {
-        cursor += 1;
-    }
-    if source.as_bytes().get(cursor) != Some(&b'=') {
-        return None;
-    }
-    cursor += 1;
-    while source
-        .as_bytes()
-        .get(cursor)
-        .is_some_and(u8::is_ascii_whitespace)
-    {
-        cursor += 1;
-    }
-    if source.as_bytes().get(cursor) != Some(&b'"') {
-        return None;
-    }
-    let value_start = cursor + 1;
-    let value_end = value_start + source[value_start..].find('"')?;
-    if parse_version(&source[value_start..value_end]).is_err() {
-        return None;
-    }
-    let mut next = source.to_owned();
-    next.replace_range(start..=value_end, &format!("version = \"{version}\""));
-    Some(next)
+    replace_capture(
+        source,
+        r#"(?m)^\s*version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)""#,
+        version,
+    )
 }
 
 fn replace_plist_value(source: &str, key: &str, value: &str) -> Option<String> {
-    let marker = format!("<key>{key}</key>");
-    let key_start = source.find(&marker)?;
-    let tail = &source[key_start + marker.len()..];
-    let string_offset = tail.find("<string>")? + "<string>".len();
-    let value_start = key_start + marker.len() + string_offset;
-    let value_end = value_start + source[value_start..].find('<')?;
-    let mut next = source.to_owned();
-    next.replace_range(value_start..value_end, value);
-    Some(next)
+    replace_capture(
+        source,
+        &format!(
+            r"<key>{}</key>\s*<string>([^<]*)</string>",
+            regex::escape(key)
+        ),
+        value,
+    )
 }
 
 fn set_native_app_version(
@@ -348,10 +271,7 @@ fn set_native_app_version(
     if next_cargo == cargo {
         return Err("could not update Rust native app version".to_owned());
     }
-    fs::write(cargo_toml, next_cargo).map_err(|error| error.to_string())?;
-
-    let (major, minor, patch) = parse_version(version)?;
-    let bundle_version = (major * 1_000_000 + minor * 1_000 + patch).to_string();
+    let bundle_version = bundle_version(version)?;
     let plist = fs::read_to_string(info_plist).map_err(|error| error.to_string())?;
     let short_version = replace_plist_value(&plist, "CFBundleShortVersionString", version)
         .unwrap_or_else(|| plist.clone());
@@ -360,6 +280,7 @@ fn set_native_app_version(
     if next_plist == plist {
         return Err("could not update native app Info.plist version".to_owned());
     }
+    fs::write(cargo_toml, next_cargo).map_err(|error| error.to_string())?;
     fs::write(info_plist, next_plist).map_err(|error| error.to_string())?;
     Ok(())
 }
@@ -368,7 +289,6 @@ struct Paths {
     root: PathBuf,
     cli_dir: PathBuf,
     package_json: PathBuf,
-    cli_source: PathBuf,
     native_app_cargo_toml: PathBuf,
     native_app_info_plist: PathBuf,
     artifacts_dir: PathBuf,
@@ -383,7 +303,6 @@ impl Paths {
         let artifacts_dir = root.join("artifacts");
         Self {
             package_json: cli_dir.join("package.json"),
-            cli_source: cli_dir.join("src/cli.js"),
             native_app_cargo_toml: root.join("native/desktop-host/Cargo.toml"),
             native_app_info_plist: root.join("native/desktop-host/Info.plist"),
             installer_dmg: artifacts_dir.join("inferay-installer.dmg"),
@@ -491,7 +410,6 @@ fn commit_and_tag(paths: &Paths, version: &str) -> Result<(), String> {
             "Cargo.lock",
             "native/desktop-host/Info.plist",
             "packages/inferay/package.json",
-            "packages/inferay/src/cli.js",
         ]),
         None,
         false,
@@ -644,7 +562,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let next = bump_version(&current, &options.bump_or_version)?;
     let tag = format!("v{next}");
     println!("Preparing {tag}");
-    set_cli_version(&paths.package_json, &paths.cli_source, &next)?;
+    set_package_version(&paths.package_json, &next)?;
     set_native_app_version(
         &paths.native_app_cargo_toml,
         &paths.native_app_info_plist,
@@ -717,13 +635,7 @@ mod tests {
     }
 
     #[test]
-    fn replaces_cli_and_native_app_version_text() {
-        assert_eq!(
-            replace_cli_version("const VERSION = \"1.2.3\";\n", "2.0.0")
-                .unwrap()
-                .unwrap(),
-            "const VERSION = \"2.0.0\";\n"
-        );
+    fn replaces_native_app_version_text() {
         assert_eq!(
             replace_assignment_version("[package]\nversion = \"1.2.3\"\n", "2.0.0").unwrap(),
             "[package]\nversion = \"2.0.0\"\n"
@@ -737,6 +649,35 @@ mod tests {
             .unwrap(),
             "<key>CFBundleVersion</key>\n<string>2000000</string>"
         );
+    }
+
+    #[test]
+    fn updates_current_manifests_and_validates_before_writing_native_versions() {
+        let root = tempfile::tempdir().unwrap();
+        let cargo = root.path().join("Cargo.toml");
+        let plist = root.path().join("Info.plist");
+        let package = root.path().join("package.json");
+        fs::write(&cargo, include_str!("../../desktop-host/Cargo.toml")).unwrap();
+        fs::write(&plist, include_str!("../../desktop-host/Info.plist")).unwrap();
+        fs::write(
+            &package,
+            include_str!("../../../packages/inferay/package.json"),
+        )
+        .unwrap();
+        set_package_version(&package, "2.3.4").unwrap();
+        set_native_app_version(&cargo, &plist, "2.3.4").unwrap();
+        assert_eq!(read_package_version(&package).unwrap(), "2.3.4");
+        let saved_cargo = fs::read_to_string(&cargo).unwrap();
+        let saved_plist = fs::read_to_string(&plist).unwrap();
+        assert!(saved_cargo.contains("version = \"2.3.4\""));
+        assert!(saved_plist.contains("<string>2.3.4</string>"));
+        assert!(saved_plist.contains("<string>2003004</string>"));
+        assert!(set_native_app_version(&cargo, &plist, "18446744073709551615.0.0").is_err());
+        assert_eq!(fs::read_to_string(&cargo).unwrap(), saved_cargo);
+        assert_eq!(fs::read_to_string(&plist).unwrap(), saved_plist);
+        fs::write(&plist, "<plist/>").unwrap();
+        assert!(set_native_app_version(&cargo, &plist, "3.0.0").is_err());
+        assert_eq!(fs::read_to_string(&cargo).unwrap(), saved_cargo);
     }
 
     #[test]
