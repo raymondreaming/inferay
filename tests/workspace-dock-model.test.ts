@@ -17,11 +17,11 @@ import {
 
 describe("workspace dock model", () => {
 	test("caps the preferred grid by the live canvas width", () => {
-		expect(getResponsiveGridColumns(249, 4)).toBe(1);
+		expect(getResponsiveGridColumns(299, 4)).toBe(1);
 		expect(getResponsiveGridColumns(400, 4)).toBe(1);
-		expect(getResponsiveGridColumns(499, 4)).toBe(1);
-		expect(getResponsiveGridColumns(500, 4)).toBe(2);
-		expect(getResponsiveGridColumns(750, 4)).toBe(3);
+		expect(getResponsiveGridColumns(599, 4)).toBe(1);
+		expect(getResponsiveGridColumns(600, 4)).toBe(2);
+		expect(getResponsiveGridColumns(900, 4)).toBe(3);
 		expect(getResponsiveGridColumns(1200, 3)).toBe(3);
 	});
 

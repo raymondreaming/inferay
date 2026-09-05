@@ -412,7 +412,7 @@ const styles = stylex.create({
 	},
 	chatDock: {
 		display: "flex",
-		minWidth: 250,
+		minWidth: 300,
 		minHeight: controlSize._0,
 		flex: 1,
 		overflow: "hidden",

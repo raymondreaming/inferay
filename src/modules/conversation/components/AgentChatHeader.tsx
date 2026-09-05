@@ -148,7 +148,7 @@ const styles = stylex.create({
 		fontWeight: font.weight_5,
 		gap: controlSize._1,
 		height: controlSize._7,
-		maxWidth: "min(50%, 12rem)",
+		maxWidth: "12rem",
 		minWidth: controlSize._0,
 		overflow: "hidden",
 		paddingBlock: controlSize._0,

@@ -775,8 +775,11 @@ export const ChatComposer = memo(function ChatComposer({
 											</button>
 										))}
 									</div>
-									<span {...stylex.props(styles.pickerSpacer)} />
-									{workspaceControl}
+									{workspaceControl && (
+										<div {...stylex.props(styles.workspaceControl)}>
+											{workspaceControl}
+										</div>
+									)}
 								</div>
 							</div>
 						</Liquid.Item>
@@ -1235,13 +1238,17 @@ const styles = stylex.create({
 	configControls: {
 		alignItems: "center",
 		display: "flex",
-		flexShrink: 1,
-		gap: controlSize._0_5,
+		flexShrink: 0,
+		maxWidth: "100%",
+		gap: controlSize._1,
 		minWidth: controlSize._0,
 	},
-	pickerSpacer: {
-		flex: 1,
+	workspaceControl: {
+		display: "flex",
+		justifyContent: "flex-end",
+		marginLeft: "auto",
 		minWidth: controlSize._0,
+		maxWidth: "100%",
 	},
 	providerConfigMenu: {
 		backgroundColor: color.backgroundPanel,
@@ -1454,6 +1461,7 @@ const styles = stylex.create({
 	pickerRow: {
 		alignItems: "center",
 		display: "flex",
+		flexWrap: "wrap",
 		gap: "0.375rem",
 		minWidth: controlSize._0,
 		paddingBottom: controlSize._1,

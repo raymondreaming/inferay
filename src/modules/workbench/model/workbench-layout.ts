@@ -1,7 +1,7 @@
 export type DockEdge = "center" | "left" | "right" | "top" | "bottom";
 export type DockOuterEdge = Exclude<DockEdge, "center">;
 
-export const MIN_RESPONSIVE_PANE_WIDTH = 250;
+export const MIN_RESPONSIVE_PANE_WIDTH = 300;
 
 export function getResponsiveGridColumns(
 	availableWidth: number,
