@@ -721,6 +721,46 @@ impl ChatRuntime {
         }
     }
 
+    pub async fn run_side_question(
+        &self,
+        pane_id: &str,
+        text: &str,
+        cwd: PathBuf,
+        client_id: ClientId,
+        sender: broadcast::Sender<Value>,
+        resolver: &inferay_core::agent_command::AgentCommandResolver,
+    ) {
+        let session = self
+            .ensure_session(&SendMessageInput {
+                pane_id: pane_id.into(),
+                cwd: cwd.clone(),
+                client_id: Some(client_id),
+                client_sender: Some(sender.clone()),
+                ..Default::default()
+            })
+            .await;
+        session.lock().await.clients.insert(client_id, sender);
+        let id = format!("btw-{}", Uuid::new_v4());
+        let (events, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let run =
+            crate::one_shot::run_btw_chat_message(pane_id, text, &cwd, resolver, move |event| {
+                let _ = events.send(event);
+            });
+        let publish = async {
+            while let Some(event) = receiver.recv().await {
+                let mut state = session.lock().await;
+                if state.cancelled {
+                    continue;
+                }
+                state.message_buffer.apply_btw_event(&id, &event);
+                drop(state);
+                self.emit(&session, json!({"type":"chat:model", "paneId":pane_id}))
+                    .await;
+            }
+        };
+        tokio::join!(run, publish);
+    }
+
     pub async fn reconnect(
         &self,
         pane_id: &str,
@@ -1837,6 +1877,58 @@ mod tests {
             ))),
         );
         (runtime, persistence, checkpoints)
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn side_questions_use_persisted_transcript_transport_and_reconnect() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempdir().unwrap();
+        let bin = root.path().join(".local/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let executable = bin.join("claude");
+        std::fs::write(
+            &executable,
+            r#"#!/bin/sh
+printf '%s\n' '{"type":"content_block_delta","delta":{"type":"text_delta","text":"answer"}}'
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let resolver = inferay_core::agent_command::AgentCommandResolver::new(root.path());
+        let (runtime, persistence, _) =
+            test_runtime(root.path(), Arc::new(TestExecutor::default()));
+        let (sender, mut receiver) = broadcast::channel(32);
+        runtime
+            .run_side_question(
+                "pane",
+                "why?",
+                root.path().into(),
+                1,
+                sender.clone(),
+                &resolver,
+            )
+            .await;
+        let mut events = Vec::new();
+        while let Ok(event) = receiver.try_recv() {
+            events.push(event);
+        }
+        assert_eq!(events.len(), 3);
+        assert!(events.iter().all(|event| event["type"] == "chat:model" && event["transcriptUpdate"].is_object()));
+        let saved = persistence.read_transcript("pane").await.unwrap();
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].role, "btw");
+        assert_eq!(saved[0].content, "answer");
+        assert_eq!(saved[0].extra["btwQuestion"], "why?");
+        assert_eq!(saved[0].is_streaming, Some(false));
+        let (restarted, _, _) = test_runtime(root.path(), Arc::new(TestExecutor::default()));
+        restarted
+            .reconnect("pane", 1, sender, None, None, None)
+            .await;
+        let sync = receiver.recv().await.unwrap();
+        assert_eq!(sync["type"], "chat:sync");
+        assert_eq!(sync["messages"][0]["id"], saved[0].id);
+        assert_eq!(sync["messages"][0]["content"], "answer");
     }
 
     fn test_session(

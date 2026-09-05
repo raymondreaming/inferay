@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-	appendBoundedChatContent,
 	appendTrimmedMessage,
 	CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
 	type ChatMessage,
@@ -8,15 +7,7 @@ import {
 	truncateChatContent,
 } from "../src/modules/conversation/model/agent-chat-shared.ts";
 import { clearCompletedChatUiState } from "../src/modules/conversation/model/chat-agent-utils.ts";
-import {
-	appendBtwQuestionMessage,
-	appendMessageContent,
-	applyPendingMessageContent,
-	createBtwQuestionMessage,
-	finishBtwMessage,
-	patchMessageById,
-	windowChatMessagesForRender,
-} from "../src/modules/conversation/model/chat-state-utils.ts";
+import { windowChatMessagesForRender } from "../src/modules/conversation/model/chat-state-utils.ts";
 
 function message(
 	id: string,
@@ -67,7 +58,7 @@ describe("chat data behavior", () => {
 		).toBe("m600");
 	});
 
-	test("bounds a single oversized message and streamed appends", () => {
+	test("bounds a single oversized message", () => {
 		const oversized = `${"a".repeat(400_000)}${"z".repeat(400_000)}`;
 		const [trimmed] = trimMessages([message("large", oversized)]);
 
@@ -76,12 +67,6 @@ describe("chat data behavior", () => {
 		expect(trimmed?.content.endsWith("z")).toBe(true);
 		expect(trimmed?.content).toContain("content truncated");
 
-		let streamed = "";
-		for (let index = 0; index < 1_000; index++) {
-			streamed = appendBoundedChatContent(streamed, "x".repeat(1_000));
-		}
-		expect(streamed.length).toBe(CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
-		expect(streamed).toContain("content truncated");
 		expect(truncateChatContent("small", CHAT_SINGLE_MESSAGE_CHAR_LIMIT)).toBe(
 			"small",
 		);
@@ -121,61 +106,6 @@ describe("chat data behavior", () => {
 		expect(manyTinyWindow).toHaveLength(2_000);
 		expect(manyTinyWindow[0]?.id).toBe("many-tiny-1000");
 		expect(manyTinyWindow.at(-1)?.id).toBe("many-tiny-2999");
-	});
-
-	/*
-	 * This protects streamed message updates. Patching from the end updates the
-	 * latest duplicate id, append operations preserve immutable arrays, and a
-	 * missing id returns the original reference so React consumers avoid needless
-	 * state churn.
-	 */
-	test("patches and appends chat message content predictably", () => {
-		const messages = [
-			message("same", "first"),
-			message("other", "middle", "assistant"),
-			message("same", "latest"),
-		];
-
-		expect(patchMessageById(messages, "same", { content: "patched" })).toEqual([
-			message("same", "first"),
-			message("other", "middle", "assistant"),
-			message("same", "patched"),
-		]);
-		expect(appendMessageContent(messages, "other", " response")).toEqual([
-			message("same", "first"),
-			message("other", "middle response", "assistant"),
-			message("same", "latest"),
-		]);
-		expect(patchMessageById(messages, "missing", { content: "ignored" })).toBe(
-			messages,
-		);
-	});
-
-	test("applies pending stream content and btw rows through chat state reducers", () => {
-		const messages: ChatMessage[] = [
-			{ id: "a1", role: "assistant", content: "hello" },
-			{ id: "t1", role: "tool", content: "{" },
-		];
-		const pending = new Map([
-			["a1", " world"],
-			["t1", '"path"}'],
-		]);
-
-		expect(applyPendingMessageContent(messages, pending)).toEqual([
-			{ id: "a1", role: "assistant", content: "hello world" },
-			{ id: "t1", role: "tool", content: '{"path"}' },
-		]);
-
-		const btw = createBtwQuestionMessage("Use the new file?");
-		expect(appendBtwQuestionMessage(messages, btw).at(-1)).toEqual(btw);
-		expect(finishBtwMessage([btw], btw.id, "yes")).toEqual([
-			{
-				...btw,
-				content: "yes",
-				isStreaming: false,
-			},
-		]);
-		expect(finishBtwMessage([btw], null, "ignored")).toEqual([btw]);
 	});
 
 	test("prunes expansion state for completed messages", () => {

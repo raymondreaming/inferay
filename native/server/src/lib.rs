@@ -540,7 +540,9 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
 
             ("/api/files/search", "GET") => search_files(&state, request).await,
             ("/api/files/list", "GET") => list_project_files(&state, request).await,
-            ("/api/files/content", "GET") => get_file_content(&state, request).await,
+            ("/api/files/content" | "/api/files/preview", "GET") => {
+                get_file_content(&state, request).await
+            }
             ("/api/upload-temp", "POST") => upload_temp_file(&state, request).await,
             ("/api/images/chat-message", "POST") => {
                 prepare_image_chat_message(&state, request).await
@@ -1423,21 +1425,34 @@ async fn list_project_files(state: &ServerState, request: Request) -> ApiResult 
 }
 
 async fn get_file_content(state: &ServerState, request: Request) -> ApiResult {
-    let cwd = match query_value(&request, "cwd").filter(|cwd| !cwd.is_empty()) {
-        Some(cwd) => cwd,
-        None => state
-            .native_project_files
-            .active_cwds()
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .next()
-            .unwrap_or_else(|| project_root_cwd(state)),
-    };
     let path = required(
         query_value(&request, "path").filter(|path| !path.is_empty()),
         "No path provided",
     )?;
+    let cwd = if request.uri().path() == "/api/files/preview" {
+        let requested = Path::new(&path);
+        if requested.is_absolute() {
+            requested
+                .parent()
+                .ok_or(ApiError(StatusCode::FORBIDDEN, "Access denied".into()))?
+                .to_string_lossy()
+                .into_owned()
+        } else {
+            project_root_cwd(state)
+        }
+    } else {
+        match query_value(&request, "cwd").filter(|cwd| !cwd.is_empty()) {
+            Some(cwd) => cwd,
+            None => state
+                .native_project_files
+                .active_cwds()
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| project_root_cwd(state)),
+        }
+    };
     Ok(json!(state.native_project_files.read(&cwd, &path).await?))
 }
 
@@ -2358,11 +2373,11 @@ async fn handle_native_websocket_message(
             let text = text.to_string();
             let resolver = state.agent_command_resolver.clone();
             let sender = sender.clone();
+            let runtime = state.chat_runtime.clone();
             tokio::spawn(async move {
-                one_shot::run_btw_chat_message(&pane_id, &text, &cwd, &resolver, |message| {
-                    let _ = sender.send(message);
-                })
-                .await;
+                runtime
+                    .run_side_question(&pane_id, &text, cwd, client_id, sender, &resolver)
+                    .await;
             });
         }
         "checkpoint:revert" if !pane_id.is_empty() => {
@@ -2385,48 +2400,7 @@ async fn handle_native_websocket_message(
             }
             let _ = sender.send(response);
         }
-        "file:read" => {
-            let response = match message.get("path").and_then(Value::as_str) {
-                Some(path) => websocket_file_read_response(state, path).await,
-                None => json!({
-                    "type": "file:error",
-                    "path": "",
-                    "error": "No path provided",
-                }),
-            };
-            let _ = sender.send(response);
-        }
-        "subscribe" | "unsubscribe" => {}
         _ => {}
-    }
-}
-
-async fn websocket_file_read_response(state: &ServerState, path: &str) -> Value {
-    let requested = PathBuf::from(path);
-    let (cwd, relative) = if requested.is_absolute() {
-        let Some(parent) = requested.parent() else {
-            return json!({"type":"file:error", "path":path, "error":"Access denied"});
-        };
-        (
-            parent.to_string_lossy().into_owned(),
-            requested
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default(),
-        )
-    } else {
-        (
-            state
-                .allowed_paths
-                .project_root()
-                .to_string_lossy()
-                .into_owned(),
-            path.to_owned(),
-        )
-    };
-    match state.native_project_files.read(&cwd, &relative).await {
-        Ok(file) => json!({"type":"file:content", "path":path, "content":file.content}),
-        Err(error) => json!({"type":"file:error", "path":path, "error":error.to_string()}),
     }
 }
 
@@ -3481,6 +3455,27 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(denied, json!({ "error": "Access denied" }));
 
+        let preview_uri = query_path(
+            "/api/files/preview",
+            &[(
+                "path",
+                repository.join("README.md").to_string_lossy().as_ref(),
+            )],
+        );
+        assert_eq!(get_json(&app, preview_uri).await["content"], "repository\n");
+        let relative_preview =
+            query_path("/api/files/preview", &[("path", "repository/README.md")]);
+        assert_eq!(
+            get_json(&app, relative_preview).await["content"],
+            "repository\n"
+        );
+        let denied_preview = query_path(
+            "/api/files/preview",
+            &[("path", "/outside-inferay/secret.md")],
+        );
+        let (status, _) = call_json(&app, Method::GET, denied_preview, None).await;
+        assert_ne!(status, StatusCode::OK);
+
         let boundary = "inferay-upload-boundary";
         let image = b"temporary-png";
         let mut multipart = format!(
@@ -4051,40 +4046,6 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             reconnect_types.push(value["type"].as_str().unwrap().to_string());
         }
         assert_eq!(reconnect_types, ["chat:sync", "chat:queue", "chat:status"]);
-
-        let preview_path = root_path.join("preview.md");
-        std::fs::write(&preview_path, "# Native preview\n").unwrap();
-        socket
-            .send(TungsteniteMessage::Text(
-                json!({"type":"file:read","path":preview_path})
-                    .to_string()
-                    .into(),
-            ))
-            .await
-            .unwrap();
-        let TungsteniteMessage::Text(message) = socket.next().await.unwrap().unwrap() else {
-            panic!("expected file content text message");
-        };
-        let value: Value = serde_json::from_str(&message).unwrap();
-        assert_eq!(value["type"], "file:content");
-        assert_eq!(value["path"], preview_path.to_string_lossy().as_ref());
-        assert_eq!(value["content"], "# Native preview\n");
-
-        socket
-            .send(TungsteniteMessage::Text(
-                json!({"type":"file:read","path":"/outside-inferay/secret.md"})
-                    .to_string()
-                    .into(),
-            ))
-            .await
-            .unwrap();
-        let TungsteniteMessage::Text(message) = socket.next().await.unwrap().unwrap() else {
-            panic!("expected file error text message");
-        };
-        let value: Value = serde_json::from_str(&message).unwrap();
-        assert_eq!(value["type"], "file:error");
-        assert_eq!(value["path"], "/outside-inferay/secret.md");
-        assert_eq!(value["error"], "Invalid directory");
 
         socket.close(None).await.unwrap();
 

@@ -304,46 +304,6 @@ test("chat checkpoint read model derives finalized checkpoints from settled assi
 	}
 });
 
-test("queue mutation invalidates an older startup load before its response arrives", async () => {
-	const restore = installBrowserStorage();
-	const previousFetch = globalThis.fetch;
-	let finishLoad!: (response: Response) => void;
-	let finishMutation!: (response: Response) => void;
-	globalThis.fetch = mock(
-		(_input: RequestInfo | URL, init?: RequestInit) =>
-			new Promise<Response>((resolve) => {
-				if (init?.method === "PATCH") finishMutation = resolve;
-				else finishLoad = resolve;
-			}),
-	) as typeof fetch;
-	try {
-		const { getChatQueueReadModel } = await import(
-			"../src/modules/conversation/model/chat-session-store.ts"
-		);
-		const model = getChatQueueReadModel("pane-load-before-command");
-		const loading = model.loadAsync();
-		const mutation = model.mutate("edit", "q1", "newer");
-		await new Promise((resolve) => setTimeout(resolve, 0));
-		finishLoad(
-			Response.json({
-				queue: [{ id: "q1", text: "stale", displayText: "stale" }],
-			}),
-		);
-		await loading;
-		expect(model.getSnapshot()).toEqual([]);
-		finishMutation(
-			Response.json({
-				queue: [{ id: "q1", text: "newer", displayText: "newer" }],
-			}),
-		);
-		await mutation;
-		expect(model.getSnapshot()[0]?.text).toBe("newer");
-	} finally {
-		globalThis.fetch = previousFetch;
-		restore();
-	}
-});
-
 test("chat run status read model publishes updates and clears to idle", async () => {
 	const restoreBrowserStorage = installBrowserStorage();
 	try {

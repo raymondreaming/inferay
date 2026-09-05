@@ -30,10 +30,6 @@ const DEFAULT_CHAT_RUN_STATUS: ChatLoadingState = {
 	startTime: null,
 };
 const pendingSummaryRequests = new Set<string>();
-const chatMessageReadModels = new Map<string, ChatMessageReadModel>();
-const chatCheckpointReadModels = new Map<string, ChatCheckpointReadModel>();
-const chatQueueReadModels = new Map<string, ChatQueueReadModel>();
-const chatRunStatusReadModels = new Map<string, ChatRunStatusReadModel>();
 const providerSessionIds = new Map<string, string>();
 
 type ReadModelListener = () => void;
@@ -53,142 +49,72 @@ function subscriptions() {
 	};
 }
 
-function cachedModel<T>(
-	models: Map<string, T>,
-	paneId: string,
-	create: (paneId: string) => T,
-): T {
-	let model = models.get(paneId);
-	if (!model) {
-		model = create(paneId);
-		models.set(paneId, model);
-	}
-	return model;
+function perPane<T>(create: (paneId: string) => T) {
+	const models = new Map<string, T>();
+	const get = (paneId: string): T => {
+		if (!models.has(paneId)) models.set(paneId, create(paneId));
+		return models.get(paneId)!;
+	};
+	return Object.assign(get, {
+		delete: (paneId: string) => models.delete(paneId),
+		peek: (paneId: string) => models.get(paneId),
+	});
 }
 
-export interface ChatMessageReadModel {
-	get: () => ChatMessage[];
-	getSnapshot: () => ChatMessage[];
-	settle: (messages: ChatMessage[]) => ChatMessage[];
-	set: (
-		update: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[]),
-	) => void;
-	setSummaryChangeCallback: (callback: () => void) => void;
-	subscribe: (listener: ReadModelListener) => () => void;
-}
-
-export interface ChatCheckpointReadModel {
-	clear: () => void;
-	getSnapshot: () => CheckpointInfo[];
-	recordFinalized: (
-		event: {
-			checkpointId: string;
-			changedFileCount: number;
-			changedFiles: CheckpointInfo["changedFiles"];
-			timestamp?: number;
+function snapshot<T>(
+	initial: T,
+	changed?: (value: T) => void,
+	equal = Object.is,
+) {
+	let value = initial;
+	const events = subscriptions();
+	const get = () => value;
+	return {
+		get,
+		getSnapshot: get,
+		subscribe: events.subscribe,
+		set(update: T | ((previous: T) => T)) {
+			const next =
+				typeof update === "function"
+					? (update as (previous: T) => T)(value)
+					: update;
+			if (!equal(value, next)) {
+				value = next;
+				changed?.(next);
+				events.notify();
+			}
+			return value;
 		},
-		messages: readonly ChatMessage[],
-	) => void;
-	markReverted: (checkpointId: string) => void;
-	set: (
-		update: CheckpointInfo[] | ((prev: CheckpointInfo[]) => CheckpointInfo[]),
-	) => void;
-	subscribe: (listener: ReadModelListener) => () => void;
-}
-
-export interface ChatQueueReadModel {
-	get: () => QueuedMessageInfo[];
-	getSnapshot: () => QueuedMessageInfo[];
-	loadAsync: () => Promise<void>;
-	replaceFromServer: (messages: QueuedMessageInfo[]) => void;
-	mutate: (
-		action: "edit" | "remove",
-		id: string,
-		text?: string,
-	) => Promise<void>;
-	subscribe: (listener: ReadModelListener) => () => void;
-}
-
-export interface ChatRunStatusReadModel {
-	clear: () => ChatLoadingState;
-	get: () => ChatLoadingState;
-	getSnapshot: () => ChatLoadingState;
-	set: (
-		update: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState),
-	) => ChatLoadingState;
-	subscribe: (listener: ReadModelListener) => () => void;
-}
-
-function storageKey(prefix: string, paneId: string): string {
-	return prefix + paneId;
-}
-
-function readPaneJson<T>(prefix: string, paneId: string, fallback: T): T {
-	return readStoredJson(storageKey(prefix, paneId), fallback);
-}
-
-function writePaneJson<T>(prefix: string, paneId: string, value: T) {
-	writeStoredJson(storageKey(prefix, paneId), value);
-}
-
-function readPaneValue(
-	prefix: string,
-	paneId: string,
-	fallback: string | null = null,
-): string | null {
-	return readStoredValue(storageKey(prefix, paneId), fallback);
+	};
 }
 
 function writePaneValue(prefix: string, paneId: string, value: string | null) {
-	if (value) writeStoredValue(storageKey(prefix, paneId), value);
-	else removePaneValue(prefix, paneId);
+	if (value) writeStoredValue(prefix + paneId, value);
+	else removeStoredValue(prefix + paneId);
 }
 
-function removePaneValue(prefix: string, paneId: string) {
-	removeStoredValue(storageKey(prefix, paneId));
-}
-
-function createChatMessageReadModel(paneId: string): ChatMessageReadModel {
-	let messages: ChatMessage[] = [];
-	const { notify, subscribe } = subscriptions();
+function createChatMessageReadModel(paneId: string) {
 	let _summary: string | null = null;
 	let summaryChangeCallback = noop;
-
-	const settle = (nextMessages: ChatMessage[]) =>
-		nextMessages.map((message) =>
-			message.isStreaming ? { ...message, isStreaming: false } : message,
-		);
-	const set = (
-		update: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[]),
-	) => {
-		const next =
-			typeof update === "function"
-				? (update as (prev: ChatMessage[]) => ChatMessage[])(messages)
-				: update;
-		// Native snapshots own retention and deduplication; local events are already bounded at creation.
-		if (next === messages) return;
-		messages = next;
-		_summary ??= deriveStoredSummary(paneId, next, summaryChangeCallback);
-		notify();
-	};
 	return {
-		get: () => messages,
-		getSnapshot: () => messages,
-		settle,
-		set,
-		setSummaryChangeCallback: (callback) => {
+		...snapshot<ChatMessage[]>([], (next) => {
+			// Native snapshots own retention and deduplication.
+			_summary ??= deriveStoredSummary(paneId, next, summaryChangeCallback);
+		}),
+		settle: (messages: ChatMessage[]) =>
+			messages.map((message) =>
+				message.isStreaming ? { ...message, isStreaming: false } : message,
+			),
+		setSummaryChangeCallback: (callback: () => void) => {
 			summaryChangeCallback = callback;
 		},
-		subscribe,
 	};
 }
 
-export function getChatMessageReadModel(paneId: string): ChatMessageReadModel {
-	return cachedModel(chatMessageReadModels, paneId, createChatMessageReadModel);
-}
+export const getChatMessageReadModel = perPane(createChatMessageReadModel);
 
 export function loadStoredInput(paneId: string): string {
-	return readPaneValue(INPUT_KEY_PREFIX, paneId, "") ?? "";
+	return readStoredValue(INPUT_KEY_PREFIX + paneId, "") ?? "";
 }
 
 export function saveStoredInput(paneId: string, value: string) {
@@ -196,31 +122,23 @@ export function saveStoredInput(paneId: string, value: string) {
 }
 
 export function loadStoredCheckpoints<T>(paneId: string): T[] {
-	return readPaneJson(CHECKPOINT_KEY_PREFIX, paneId, []);
+	return readStoredJson(CHECKPOINT_KEY_PREFIX + paneId, []);
 }
 
 export function saveStoredCheckpoints<T>(paneId: string, checkpoints: T[]) {
-	writePaneJson(CHECKPOINT_KEY_PREFIX, paneId, checkpoints);
+	writeStoredJson(CHECKPOINT_KEY_PREFIX + paneId, checkpoints);
 }
 
-function createChatCheckpointReadModel(
-	paneId: string,
-): ChatCheckpointReadModel {
-	let checkpoints = loadStoredCheckpoints<CheckpointInfo>(paneId);
-	const { notify, subscribe } = subscriptions();
-	const set = (
-		update: CheckpointInfo[] | ((prev: CheckpointInfo[]) => CheckpointInfo[]),
-	) => {
-		const next = typeof update === "function" ? update(checkpoints) : update;
-		if (next === checkpoints) return;
-		checkpoints = next;
-		saveStoredCheckpoints(paneId, next);
-		notify();
-	};
+function createChatCheckpointReadModel(paneId: string) {
+	const model = snapshot(
+		loadStoredCheckpoints<CheckpointInfo>(paneId),
+		(next) => saveStoredCheckpoints(paneId, next),
+	);
+	const { set } = model;
 	return {
 		clear: () => set([]),
-		getSnapshot: () => checkpoints,
-		markReverted: (checkpointId) => {
+		...model,
+		markReverted: (checkpointId: string) => {
 			set((prev) =>
 				prev.map((checkpoint) =>
 					checkpoint.id === checkpointId
@@ -229,7 +147,15 @@ function createChatCheckpointReadModel(
 				),
 			);
 		},
-		recordFinalized: (event, messages) => {
+		recordFinalized: (
+			event: {
+				checkpointId: string;
+				changedFileCount: number;
+				changedFiles: CheckpointInfo["changedFiles"];
+				timestamp?: number;
+			},
+			messages: readonly ChatMessage[],
+		) => {
 			if (event.changedFileCount <= 0) return;
 			const lastMessage =
 				messages.findLast?.(
@@ -257,20 +183,12 @@ function createChatCheckpointReadModel(
 				];
 			});
 		},
-		set,
-		subscribe,
 	};
 }
 
-export function getChatCheckpointReadModel(
-	paneId: string,
-): ChatCheckpointReadModel {
-	return cachedModel(
-		chatCheckpointReadModels,
-		paneId,
-		createChatCheckpointReadModel,
-	);
-}
+export const getChatCheckpointReadModel = perPane(
+	createChatCheckpointReadModel,
+);
 
 export function getProviderSessionId(paneId: string): string | null {
 	const current = providerSessionIds.get(paneId);
@@ -297,7 +215,7 @@ export function clearProviderSessionId(paneId: string) {
 }
 
 export function loadStoredModel(paneId: string): string | null {
-	return readPaneValue(MODEL_KEY_PREFIX, paneId);
+	return readStoredValue(MODEL_KEY_PREFIX + paneId);
 }
 
 export function saveStoredModel(paneId: string, modelId: string) {
@@ -305,7 +223,7 @@ export function saveStoredModel(paneId: string, modelId: string) {
 }
 
 export function loadStoredReasoningLevel(paneId: string): string | null {
-	return readPaneValue(REASONING_KEY_PREFIX, paneId);
+	return readStoredValue(REASONING_KEY_PREFIX + paneId);
 }
 
 export function saveStoredReasoningLevel(
@@ -316,7 +234,7 @@ export function saveStoredReasoningLevel(
 }
 
 function loadStoredSummary(paneId: string): string | null {
-	return readPaneValue(SUMMARY_KEY_PREFIX, paneId);
+	return readStoredValue(SUMMARY_KEY_PREFIX + paneId);
 }
 
 function saveStoredSummary(paneId: string, summary: string) {
@@ -351,32 +269,17 @@ export function deriveStoredSummary(
 }
 
 export function loadPendingWorkspacePaths(paneId: string): string[] {
-	const parsed = readPaneJson<unknown>(
-		PENDING_WORKSPACE_KEY_PREFIX,
-		paneId,
+	const parsed = readStoredJson<unknown>(
+		PENDING_WORKSPACE_KEY_PREFIX + paneId,
 		[],
 	);
 	return Array.isArray(parsed) ? parsed.filter(isString) : [];
 }
 
 export function savePendingWorkspacePaths(paneId: string, paths: string[]) {
-	if (paths.length === 0) removePaneValue(PENDING_WORKSPACE_KEY_PREFIX, paneId);
-	else writePaneJson(PENDING_WORKSPACE_KEY_PREFIX, paneId, paths);
-}
-
-export async function loadFileBackedQueue<T>(
-	paneId: string,
-): Promise<T[] | null> {
-	try {
-		const response = await fetch(
-			`/api/chat-queues/${encodeURIComponent(paneId)}`,
-		);
-		if (!response.ok) return null;
-		const payload = (await response.json()) as { queue?: unknown };
-		return Array.isArray(payload.queue) ? (payload.queue as T[]) : null;
-	} catch {
-		return null;
-	}
+	if (paths.length === 0)
+		removeStoredValue(PENDING_WORKSPACE_KEY_PREFIX + paneId);
+	else writeStoredJson(PENDING_WORKSPACE_KEY_PREFIX + paneId, paths);
 }
 
 function areQueuedMessagesEqual(
@@ -405,10 +308,9 @@ function areQueuedMessagesEqual(
 	return true;
 }
 
-function createChatQueueReadModel(paneId: string): ChatQueueReadModel {
+function createChatQueueReadModel(paneId: string) {
 	let queue: QueuedMessageInfo[] = [];
 	let revision = 0;
-	let loadStarted = false;
 	const { notify, subscribe } = subscriptions();
 	const setSnapshot = (next: QueuedMessageInfo[]) => {
 		if (areQueuedMessagesEqual(queue, next)) return;
@@ -444,20 +346,10 @@ function createChatQueueReadModel(paneId: string): ChatQueueReadModel {
 		mutationChain = result;
 		return result;
 	};
-	const loadAsync = async () => {
-		if (loadStarted) return;
-		loadStarted = true;
-		const revisionAtLoad = revision;
-		const fileBackedQueue =
-			await loadFileBackedQueue<QueuedMessageInfo>(paneId);
-		if (fileBackedQueue === null || revision !== revisionAtLoad) return;
-		setSnapshot(fileBackedQueue);
-	};
 	return {
 		get: () => queue,
 		getSnapshot: () => queue,
-		loadAsync,
-		replaceFromServer: (messages) => {
+		replaceFromServer: (messages: QueuedMessageInfo[]) => {
 			// Even unchanged authoritative content supersedes an older HTTP response.
 			revision++;
 			setSnapshot(messages);
@@ -467,61 +359,36 @@ function createChatQueueReadModel(paneId: string): ChatQueueReadModel {
 	};
 }
 
-export function getChatQueueReadModel(paneId: string): ChatQueueReadModel {
-	return cachedModel(chatQueueReadModels, paneId, createChatQueueReadModel);
-}
+export const getChatQueueReadModel = perPane(createChatQueueReadModel);
 
-function createChatRunStatusReadModel(): ChatRunStatusReadModel {
-	let runStatus = DEFAULT_CHAT_RUN_STATUS;
-	const { notify, subscribe } = subscriptions();
-	const set = (
-		update: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState),
-	) => {
-		const next = typeof update === "function" ? update(runStatus) : update;
-		if (
-			runStatus.isLoading === next.isLoading &&
-			runStatus.status === next.status &&
-			runStatus.startTime === next.startTime
-		) {
-			return runStatus;
-		}
-		runStatus = next;
-		notify();
-		return runStatus;
-	};
-	return {
-		clear: () => set(DEFAULT_CHAT_RUN_STATUS),
-		get: () => runStatus,
-		getSnapshot: () => runStatus,
-		set,
-		subscribe,
-	};
-}
-
-export function getChatRunStatusReadModel(
-	paneId: string,
-): ChatRunStatusReadModel {
-	return cachedModel(
-		chatRunStatusReadModels,
-		paneId,
-		createChatRunStatusReadModel,
+function createChatRunStatusReadModel() {
+	const model = snapshot(
+		DEFAULT_CHAT_RUN_STATUS,
+		undefined,
+		(previous: ChatLoadingState, next: ChatLoadingState) =>
+			previous.isLoading === next.isLoading &&
+			previous.status === next.status &&
+			previous.startTime === next.startTime,
 	);
+	return { ...model, clear: () => model.set(DEFAULT_CHAT_RUN_STATUS) };
 }
+
+export const getChatRunStatusReadModel = perPane(createChatRunStatusReadModel);
 
 export function clearAgentChatPaneState(paneId: string) {
 	providerSessionIds.delete(paneId);
-	chatMessageReadModels.delete(paneId);
-	chatCheckpointReadModels.delete(paneId);
-	chatQueueReadModels.delete(paneId);
-	chatRunStatusReadModels.get(paneId)?.clear();
-	chatRunStatusReadModels.delete(paneId);
+	getChatMessageReadModel.delete(paneId);
+	getChatCheckpointReadModel.delete(paneId);
+	getChatQueueReadModel.delete(paneId);
+	getChatRunStatusReadModel.peek(paneId)?.clear();
+	getChatRunStatusReadModel.delete(paneId);
 	for (const prefix of [
 		INPUT_KEY_PREFIX,
 		CHECKPOINT_KEY_PREFIX,
 		SUMMARY_KEY_PREFIX,
 		PENDING_WORKSPACE_KEY_PREFIX,
 	]) {
-		removePaneValue(prefix, paneId);
+		removeStoredValue(prefix + paneId);
 	}
 	void fetch(`/api/chat-queues/${encodeURIComponent(paneId)}`, {
 		method: "DELETE",

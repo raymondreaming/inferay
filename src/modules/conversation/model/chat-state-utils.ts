@@ -1,11 +1,9 @@
 import {
-	appendBoundedChatContent,
 	type ChatMessage,
 	type ChatTranscriptUpdate,
 	compactAdjacentDuplicateTranscriptMessages,
 	nextId,
 	trimMessages,
-	truncateChatContent,
 } from "../../../modules/conversation/model/agent-chat-shared.ts";
 
 type ChatStateMessage = Pick<
@@ -38,79 +36,6 @@ export function windowChatMessagesForRender<T extends { content: string }>(
 		start--;
 	}
 	return start <= 0 ? messages : messages.slice(start);
-}
-
-export function patchMessageById(
-	messages: ChatStateMessage[],
-	id: string,
-	patch:
-		| Partial<ChatStateMessage>
-		| ((message: ChatStateMessage) => Partial<ChatStateMessage>),
-	searchFromEnd = true,
-): ChatStateMessage[] {
-	const updated = messages.slice();
-	const start = searchFromEnd ? updated.length - 1 : 0;
-	const end = searchFromEnd ? -1 : updated.length;
-	const step = searchFromEnd ? -1 : 1;
-
-	for (let i = start; i !== end; i += step) {
-		if (updated[i]?.id !== id) continue;
-		const nextPatch = typeof patch === "function" ? patch(updated[i]!) : patch;
-		updated[i] = { ...updated[i]!, ...nextPatch };
-		return updated;
-	}
-
-	return messages;
-}
-
-export function appendMessageContent(
-	messages: ChatStateMessage[],
-	id: string,
-	content: string,
-): ChatStateMessage[] {
-	return patchMessageById(messages, id, (message) => ({
-		content: appendBoundedChatContent(message.content, content),
-	}));
-}
-
-export function applyPendingMessageContent(
-	messages: ChatMessage[],
-	pending: Map<string, string>,
-): ChatMessage[] {
-	let next = messages;
-	for (const [targetId, content] of pending) {
-		next = appendMessageContent(next, targetId, content) as ChatMessage[];
-	}
-	return next;
-}
-
-export function createBtwQuestionMessage(question: string): ChatMessage {
-	return {
-		id: nextId(),
-		role: "btw",
-		content: "",
-		isStreaming: true,
-		btwQuestion: question,
-	};
-}
-
-export function appendBtwQuestionMessage(
-	messages: ChatMessage[],
-	message: ChatMessage,
-): ChatMessage[] {
-	return trimMessages([...messages, message]);
-}
-
-export function finishBtwMessage(
-	messages: ChatMessage[],
-	id: string | null,
-	answer: string,
-): ChatMessage[] {
-	if (!id) return messages;
-	return patchMessageById(messages, id, {
-		content: truncateChatContent(answer),
-		isStreaming: false,
-	}) as ChatMessage[];
 }
 
 export function appendSystemMessage(
@@ -164,7 +89,9 @@ export function applyNativeTranscriptUpdate(
 		if (
 			!change?.message ||
 			typeof change.message.id !== "string" ||
-			!["user", "assistant", "tool", "system"].includes(change.message.role)
+			!["user", "assistant", "tool", "system", "btw"].includes(
+				change.message.role,
+			)
 		)
 			return null;
 		const previous = before[update.start + index];

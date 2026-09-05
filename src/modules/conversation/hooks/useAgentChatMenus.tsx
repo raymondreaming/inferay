@@ -54,18 +54,42 @@ interface UseAgentChatMenusOptions {
 }
 
 function areFileResultsEqual(
-	prev: FileSearchResult[],
+	previous: FileSearchResult[],
 	next: FileSearchResult[],
 ) {
-	if (prev.length !== next.length) return false;
-	for (let i = 0; i < prev.length; i++) {
-		const a = prev[i]!;
-		const b = next[i]!;
-		if (a.name !== b.name || a.path !== b.path || a.isDir !== b.isDir) {
-			return false;
-		}
-	}
-	return true;
+	return (
+		previous.length === next.length &&
+		previous.every((file, index) => {
+			const other = next[index]!;
+			return (
+				file.name === other.name &&
+				file.path === other.path &&
+				file.isDir === other.isDir
+			);
+		})
+	);
+}
+
+function showCompletion<Key extends "atIndex" | "slashIndex">(
+	previous: { show: boolean; selectedIdx: number; query: string } & Record<
+		Key,
+		number
+	>,
+	key: Key,
+	trigger: { index: number; query: string },
+) {
+	return previous.show &&
+		previous.selectedIdx === 0 &&
+		previous.query === trigger.query &&
+		previous[key] === trigger.index
+		? previous
+		: {
+				...previous,
+				show: true,
+				selectedIdx: 0,
+				query: trigger.query,
+				[key]: trigger.index,
+			};
 }
 
 export function useAgentChatMenus({
@@ -138,18 +162,16 @@ export function useAgentChatMenus({
 		[allCommands],
 	);
 
-	const slashCommandInfo = useMemo(() => {
+	const filteredCommands = useMemo(() => {
 		if (!slashMenu.show || slashMenu.slashIndex === -1) {
-			return { filtered: [] as SlashCommand[] };
+			return [] as SlashCommand[];
 		}
 		const query = slashMenu.query.toLowerCase();
-		const filtered = allCommands.filter((cmd) =>
+		return allCommands.filter((cmd) =>
 			cmd.name.toLowerCase().startsWith(query),
 		);
-		return { filtered };
 	}, [allCommands, slashMenu.query, slashMenu.show, slashMenu.slashIndex]);
 
-	const filteredCommands = slashCommandInfo.filtered;
 	const visibleFileMenu = enabled ? fileMenu : hideMenuState(fileMenu);
 	const visibleSlashMenu = enabled ? slashMenu : hideMenuState(slashMenu);
 	const showCommands = enabled && visibleSlashMenu.show;
@@ -179,22 +201,9 @@ export function useAgentChatMenus({
 				return;
 			}
 
-			setSlashMenu((prev) => {
-				if (
-					prev.show &&
-					prev.selectedIdx === 0 &&
-					prev.query === trigger.query &&
-					prev.slashIndex === trigger.index
-				) {
-					return prev;
-				}
-				return {
-					show: true,
-					selectedIdx: 0,
-					query: trigger.query,
-					slashIndex: trigger.index,
-				};
-			});
+			setSlashMenu((previous) =>
+				showCompletion(previous, "slashIndex", trigger),
+			);
 		},
 		[enabled],
 	);
@@ -213,22 +222,7 @@ export function useAgentChatMenus({
 				return;
 			}
 
-			setFileMenu((prev) => {
-				if (
-					prev.show &&
-					prev.selectedIdx === 0 &&
-					prev.query === trigger.query &&
-					prev.atIndex === trigger.index
-				) {
-					return prev;
-				}
-				return {
-					show: true,
-					selectedIdx: 0,
-					query: trigger.query,
-					atIndex: trigger.index,
-				};
-			});
+			setFileMenu((previous) => showCompletion(previous, "atIndex", trigger));
 
 			if (fileSearchTimerRef.current) clearTimeout(fileSearchTimerRef.current);
 			const requestId = ++fileSearchRequestRef.current;
@@ -254,19 +248,17 @@ export function useAgentChatMenus({
 		[cwd, enabled],
 	);
 
-	const selectCommand = useCallback(
-		(idx: number) => {
-			const cmd = filteredCommands[idx];
-			if (!cmd) return;
-			const cursorPos = textareaRef.current?.selectionStart ?? input.length;
+	const complete = useCallback(
+		(index: number, replacement: string, hide: () => void) => {
+			const cursor = textareaRef.current?.selectionStart ?? input.length;
 			const { nextValue, nextCursor } = applyInlineCompletion(
 				input,
-				cursorPos,
-				slashMenu.slashIndex,
-				`/${cmd.name}`,
+				cursor,
+				index,
+				replacement,
 			);
 			setInput(nextValue);
-			setSlashMenu(hideMenuState);
+			hide();
 			requestAnimationFrame(() => {
 				const textarea = textareaRef.current;
 				if (!textarea) return;
@@ -274,30 +266,27 @@ export function useAgentChatMenus({
 				textarea.setSelectionRange(nextCursor, nextCursor);
 			});
 		},
-		[filteredCommands, input, setInput, slashMenu.slashIndex, textareaRef],
+		[input, setInput, textareaRef],
 	);
-
-	const selectFile = useCallback(
-		(idx: number) => {
-			const file = fileResults[idx];
-			if (!file) return;
-			const cursorPos = textareaRef.current?.selectionStart ?? input.length;
-			const { nextValue, nextCursor } = applyInlineCompletion(
-				input,
-				cursorPos,
-				fileMenu.atIndex,
-				`@${file.path}`,
-			);
-			setInput(nextValue);
-			setFileMenu(hideMenuState);
-			requestAnimationFrame(() => {
-				const textarea = textareaRef.current;
-				if (!textarea) return;
-				textarea.focus();
-				textarea.setSelectionRange(nextCursor, nextCursor);
-			});
+	const selectCommand = useCallback(
+		(index: number) => {
+			const command = filteredCommands[index];
+			if (command)
+				complete(slashMenu.slashIndex, `/${command.name}`, () =>
+					setSlashMenu(hideMenuState),
+				);
 		},
-		[fileMenu.atIndex, fileResults, input, setInput, textareaRef],
+		[complete, filteredCommands, slashMenu.slashIndex],
+	);
+	const selectFile = useCallback(
+		(index: number) => {
+			const file = fileResults[index];
+			if (file)
+				complete(fileMenu.atIndex, `@${file.path}`, () =>
+					setFileMenu(hideMenuState),
+				);
+		},
+		[complete, fileResults, fileMenu.atIndex],
 	);
 
 	return {

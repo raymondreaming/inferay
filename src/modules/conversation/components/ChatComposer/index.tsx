@@ -47,12 +47,7 @@ export const ChatComposer = memo(function ChatComposer(
 				}}
 			/>
 
-			{view.attachedImages.length > 0 && (
-				<ComposerAttachments
-					attachedImages={view.attachedImages}
-					removeAttachedImage={view.removeAttachedImage}
-				/>
-			)}
+			{view.attachedImages.length > 0 && <ComposerAttachments {...view} />}
 
 			{
 				<div
@@ -73,33 +68,10 @@ export const ChatComposer = memo(function ChatComposer(
 									active={view.beamActive || view.messageInputFocused}
 								/>
 								{view.fileMenu.show && view.fileResults.length > 0 && (
-									<FileMenu
-										fileMenu={view.fileMenu}
-										fileResults={view.fileResults}
-										selectFile={view.selectFile}
-										setFileMenu={view.setFileMenu}
-									/>
+									<FileMenu {...view} />
 								)}
-								{view.showCommands && (
-									<CommandMenu
-										filteredCommands={view.filteredCommands}
-										slashMenu={view.slashMenu}
-										selectCommand={view.selectCommand}
-										setSlashMenu={view.setSlashMenu}
-									/>
-								)}
-								{view.queuedMessages.length > 0 && (
-									<QueuedMessages
-										queuedMessages={view.queuedMessages}
-										editingQueueId={view.editingQueueId}
-										editingQueueText={view.editingQueueText}
-										setEditingQueueText={view.setEditingQueueText}
-										startQueuedMessageEdit={view.startQueuedMessageEdit}
-										cancelQueuedMessageEdit={view.cancelQueuedMessageEdit}
-										saveQueuedMessageEdit={view.saveQueuedMessageEdit}
-										removeQueuedMessage={view.removeQueuedMessage}
-									/>
-								)}
+								{view.showCommands && <CommandMenu {...view} />}
+								{view.queuedMessages.length > 0 && <QueuedMessages {...view} />}
 
 								<div {...stylex.props(styles.inputRow)}>
 									<div {...stylex.props(styles.inputActions)}>
@@ -215,15 +187,7 @@ export const ChatComposer = memo(function ChatComposer(
 										/>
 									</div>
 								</div>
-								<ComposerControls
-									agentConfigControlsRef={view.agentConfigControlsRef}
-									configControls={view.configControls}
-									activeConfig={view.activeConfig}
-									selectedModelLabel={view.selectedModelLabel}
-									agentConfigButtonRef={view.agentConfigButtonRef}
-									setActiveConfig={view.setActiveConfig}
-									workspaceControl={view.workspaceControl}
-								/>
+								<ComposerControls {...view} />
 							</div>
 						</Liquid.Item>
 					</Liquid>
@@ -231,21 +195,10 @@ export const ChatComposer = memo(function ChatComposer(
 			}
 
 			{view.activeControl && (
-				<ProviderConfigMenu
-					agentConfigMenuRef={view.agentConfigMenuRef}
-					activeControl={view.activeControl}
-					setActiveConfig={view.setActiveConfig}
-					agentConfigButtonRef={view.agentConfigButtonRef}
-				/>
+				<ProviderConfigMenu {...view} activeControl={view.activeControl} />
 			)}
 
-			{view.mdPreview.show && (
-				<MarkdownPreviewDialog
-					setMdPreview={view.setMdPreview}
-					mdPreview={view.mdPreview}
-					onMdFileClick={view.onMdFileClick}
-				/>
-			)}
+			{view.mdPreview.show && <MarkdownPreviewDialog {...view} />}
 		</>
 	);
 });

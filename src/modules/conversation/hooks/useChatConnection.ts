@@ -25,12 +25,8 @@ import {
 	markToolState,
 } from "../model/chat-agent-utils.ts";
 import {
-	appendBtwQuestionMessage,
 	appendSystemMessage,
 	applyNativeTranscriptUpdate,
-	applyPendingMessageContent,
-	createBtwQuestionMessage,
-	finishBtwMessage,
 	mergeNativeTranscript,
 } from "../model/chat-state-utils.ts";
 
@@ -85,7 +81,6 @@ export function useChatConnection({
 		value: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState),
 	) => void;
 }) {
-	const currentBtwRef = useRef<string | null>(null);
 	const nativeTranscriptRef = useRef<{
 		messages: ChatMessage[];
 		revision: number;
@@ -93,13 +88,6 @@ export function useChatConnection({
 	} | null>(null);
 	const nativeFrameRef = useRef<number | null>(null);
 	const resyncPendingRef = useRef(false);
-	const pendingContentRef = useRef<Map<string, string>>(
-		undefined as unknown as Map<string, string>,
-	);
-	if (!pendingContentRef.current) {
-		pendingContentRef.current = new Map();
-	}
-	const flushFrameRef = useRef<number | null>(null);
 	const checkpointReadModel = useMemo(
 		() => getChatCheckpointReadModel(paneId),
 		[paneId],
@@ -109,53 +97,6 @@ export function useChatConnection({
 		checkpointReadModel.getSnapshot,
 		checkpointReadModel.getSnapshot,
 	);
-	const applyPendingContent = useCallback(
-		(messages: ChatMessage[], pending: Map<string, string>) => {
-			return applyPendingMessageContent(messages, pending);
-		},
-		[],
-	);
-	const flushPendingContent = useCallback(() => {
-		if (flushFrameRef.current !== null) {
-			cancelFrame(flushFrameRef.current);
-			flushFrameRef.current = null;
-		}
-		const pending = pendingContentRef.current;
-		if (pending.size === 0) return messageReadModel.get();
-		pendingContentRef.current = new Map();
-		const next = applyPendingContent(messageReadModel.get(), pending);
-		messageReadModel.set(next);
-		return next;
-	}, [applyPendingContent, messageReadModel]);
-	const clearPendingContent = useCallback(() => {
-		if (flushFrameRef.current !== null) {
-			cancelFrame(flushFrameRef.current);
-			flushFrameRef.current = null;
-		}
-		pendingContentRef.current = new Map();
-	}, []);
-	const queueMessageContent = useCallback(
-		(targetId: string, content: string) => {
-			if (!content) return;
-			const pending = pendingContentRef.current;
-			pending.set(targetId, (pending.get(targetId) ?? "") + content);
-			if (flushFrameRef.current !== null) return;
-			flushFrameRef.current = scheduleFrame(() => {
-				flushFrameRef.current = null;
-				const queued = pendingContentRef.current;
-				if (queued.size === 0) return;
-				pendingContentRef.current = new Map();
-				messageReadModel.set((prev) => applyPendingContent(prev, queued));
-			});
-		},
-		[applyPendingContent, messageReadModel],
-	);
-	const resetStreamState = useCallback(() => {
-		flushPendingContent();
-	}, [flushPendingContent]);
-	const clearCheckpoints = useCallback(() => {
-		checkpointReadModel.clear();
-	}, [checkpointReadModel]);
 	const revertCheckpoint = useCallback(
 		(checkpointId: string) => {
 			wsClient.send({ type: "checkpoint:revert", paneId, checkpointId });
@@ -179,10 +120,7 @@ export function useChatConnection({
 	);
 
 	useEffect(() => {
-		if (!enabled) {
-			clearPendingContent();
-			return;
-		}
+		if (!enabled) return;
 		const cleanup = wsClient.subscribe(paneId, (rawMessage) => {
 			if (!isChatServerMessage(rawMessage)) return;
 			const msg = rawMessage;
@@ -208,7 +146,6 @@ export function useChatConnection({
 					msg.revision < nativeTranscriptRef.current.revision
 				)
 					return;
-				clearPendingContent();
 				nativeTranscriptRef.current = {
 					epoch: typeof msg.epoch === "string" ? msg.epoch : undefined,
 					messages: msg.messages,
@@ -254,13 +191,11 @@ export function useChatConnection({
 				if (msg.sessionId) setProviderSessionId(paneId, msg.sessionId);
 			} else if (msg.type === "chat:done") {
 				flushNativeTranscript();
-				const flushedMessages = flushPendingContent();
-				const updated = messageReadModel.settle(flushedMessages);
+				const updated = messageReadModel.settle(messageReadModel.get());
 				messageReadModel.set(updated);
 				const ids = new Set(updated.map((message) => message.id));
 				setRunStatus({ isLoading: false, status: "idle", startTime: null });
 				setChatUiState(clearCompletedChatUiState.bind(null, ids));
-				resetStreamState();
 			} else if (
 				msg.type === "chat:steer_pending" &&
 				msg.message &&
@@ -276,9 +211,7 @@ export function useChatConnection({
 					status: "thinking",
 					startTime: prev.startTime ?? Date.now(),
 				}));
-				resetStreamState();
 			} else if (msg.type === "chat:error") {
-				flushPendingContent();
 				if (msg.modelVersion !== 1)
 					messageReadModel.set((prev) => appendSystemMessage(prev, msg.error));
 				setRunStatus({ isLoading: false, status: "error", startTime: null });
@@ -301,30 +234,9 @@ export function useChatConnection({
 					startTime: msg.isStreaming ? (prev.startTime ?? Date.now()) : null,
 				}));
 				if (!msg.isStreaming) {
-					resetStreamState();
 				}
 			} else if (msg.type === "chat:queue" && Array.isArray(msg.queue)) {
 				replaceQueuedMessages(msg.queue);
-			} else if (msg.type === "chat:btw:start") {
-				const btwMessage = createBtwQuestionMessage(msg.question);
-				currentBtwRef.current = btwMessage.id;
-				messageReadModel.set((prev) =>
-					appendBtwQuestionMessage(prev, btwMessage),
-				);
-			} else if (msg.type === "chat:btw:delta") {
-				const targetId = currentBtwRef.current;
-				if (targetId) {
-					queueMessageContent(targetId, msg.text);
-				}
-			} else if (msg.type === "chat:btw:done") {
-				flushPendingContent();
-				const targetId = currentBtwRef.current;
-				currentBtwRef.current = null;
-				if (targetId) {
-					messageReadModel.set((prev) =>
-						finishBtwMessage(prev, targetId, msg.answer),
-					);
-				}
 			} else if (msg.type === "checkpoint:finalized") {
 				checkpointReadModel.recordFinalized(
 					{
@@ -361,7 +273,6 @@ export function useChatConnection({
 		reconnectChat();
 		const cleanupReconnect = wsClient.onReconnect(reconnectChat);
 		return () => {
-			clearPendingContent();
 			if (nativeFrameRef.current !== null) cancelFrame(nativeFrameRef.current);
 			nativeFrameRef.current = null;
 			cleanupReconnect();
@@ -369,22 +280,22 @@ export function useChatConnection({
 		};
 	}, [
 		checkpointReadModel,
-		clearPendingContent,
 		enabled,
 		agentKind,
 		cwd,
 		messageReadModel,
 		paneId,
-		flushPendingContent,
 		flushNativeTranscript,
-		queueMessageContent,
 		replaceQueuedMessages,
 		resolveSteeringMessage,
-		resetStreamState,
 		setChatUiState,
 		setRunStatus,
 		stageSteeringMessage,
 	]);
 
-	return { checkpoints, clearCheckpoints, resetStreamState, revertCheckpoint };
+	return {
+		checkpoints,
+		clearCheckpoints: checkpointReadModel.clear,
+		revertCheckpoint,
+	};
 }

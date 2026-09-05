@@ -249,8 +249,8 @@ export const AgentChatView = memo(function AgentChatView({
 		setInput,
 		textareaRef,
 	});
-	const { checkpoints, clearCheckpoints, resetStreamState, revertCheckpoint } =
-		useChatConnection({
+	const { checkpoints, clearCheckpoints, revertCheckpoint } = useChatConnection(
+		{
 			agentKind,
 			cwd,
 			enabled: renderVisibleChat,
@@ -261,7 +261,8 @@ export const AgentChatView = memo(function AgentChatView({
 			stageSteeringMessage,
 			setChatUiState,
 			setRunStatus,
-		});
+		},
+	);
 	const { handleKeyDown, sendUserMessage } = useChatInputActions({
 		agentKind,
 		allCommands,
@@ -279,7 +280,6 @@ export const AgentChatView = memo(function AgentChatView({
 		input,
 		isLoading,
 		onSendStart: () => {
-			resetStreamState();
 			scheduleScrollToBottom("auto");
 		},
 		onExit: onClose ? () => onClose(paneId) : undefined,

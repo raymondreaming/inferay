@@ -108,6 +108,47 @@ impl ChatMessageBuffer {
         self.push(ChatTranscriptMessage::new("system", text));
     }
 
+    /// Side questions share transcript transport and retention, but never alter
+    /// the main provider's assistant/tool cursors.
+    pub fn apply_btw_event(&mut self, id: &str, event: &Value) {
+        match event["type"].as_str() {
+            Some("chat:btw:start") => {
+                let mut message = ChatTranscriptMessage::new("btw", "");
+                message.id = id.into();
+                message.is_streaming = Some(true);
+                message
+                    .extra
+                    .insert("btwQuestion".into(), event["question"].clone());
+                self.push(message);
+            }
+            Some(kind @ ("chat:btw:delta" | "chat:btw:done")) => {
+                let Some(index) = self.messages.iter().position(|message| message.id == id) else {
+                    return;
+                };
+                let message = &mut self.messages[index];
+                let done = kind == "chat:btw:done";
+                message.content = if done {
+                    truncate_chat_content(
+                        event["answer"].as_str().unwrap_or_default(),
+                        CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
+                    )
+                } else {
+                    append_bounded_chat_content(
+                        &message.content,
+                        event["text"].as_str().unwrap_or_default(),
+                        CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
+                    )
+                };
+                message.is_streaming = Some(!done);
+                message.extra.remove("render");
+                self.mark_changed(index);
+                self.trim();
+                self.prepare_render_model();
+            }
+            _ => {}
+        }
+    }
+
     pub fn apply_event(&mut self, event: &Value) {
         let Some(event_type) = event.get("type").and_then(Value::as_str) else {
             return;
@@ -754,6 +795,39 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn side_questions_preserve_main_stream_cursors_and_bound_content() {
+        let mut buffer = ChatMessageBuffer::default();
+        buffer.apply_event(&serde_json::json!({"type":"content_block_start", "content_block":{"type":"text", "text":"main"}}));
+        buffer.apply_btw_event(
+            "side",
+            &serde_json::json!({"type":"chat:btw:start", "question":"why?"}),
+        );
+        buffer.take_update();
+        buffer.apply_btw_event(
+            "side",
+            &serde_json::json!({"type":"chat:btw:delta", "text":"x".repeat(400_000)}),
+        );
+        assert_eq!(
+            javascript_length(&buffer.messages()[1].content),
+            CHAT_SINGLE_MESSAGE_CHAR_LIMIT
+        );
+        buffer.apply_event(&serde_json::json!({"type":"content_block_delta", "delta":{"type":"text_delta", "text":" answer"}}));
+        buffer.apply_btw_event(
+            "side",
+            &serde_json::json!({"type":"chat:btw:done", "answer":"side answer"}),
+        );
+        assert_eq!(buffer.messages()[0].content, "main answer");
+        assert_eq!(buffer.messages()[1].content, "side answer");
+        assert_eq!(buffer.messages()[1].is_streaming, Some(false));
+        let revision = buffer.revision();
+        buffer.apply_btw_event(
+            "missing",
+            &serde_json::json!({"type":"chat:btw:delta", "text":"ignored"}),
+        );
+        assert_eq!(buffer.revision(), revision);
+    }
 
     #[test]
     fn restored_system_messages_prepare_command_and_every_goal_status() {

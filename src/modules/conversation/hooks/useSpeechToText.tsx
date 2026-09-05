@@ -77,40 +77,6 @@ function formatSpeechError(event: BrowserSpeechRecognitionErrorEvent) {
 	}
 }
 
-function cleanupSpeechRecognition({
-	shouldApplyResultsRef,
-	ignoreAbortErrorRef,
-	recognitionRef,
-}: {
-	shouldApplyResultsRef: { current: boolean };
-	ignoreAbortErrorRef: { current: boolean };
-	recognitionRef: { current: BrowserSpeechRecognition | null };
-}) {
-	shouldApplyResultsRef.current = false;
-	ignoreAbortErrorRef.current = true;
-	recognitionRef.current?.abort();
-	recognitionRef.current = null;
-}
-
-function releaseSpeechRecognition({
-	shouldApplyResultsRef,
-	ignoreAbortErrorRef,
-	recognitionRef,
-	setIsListening,
-}: {
-	shouldApplyResultsRef: { current: boolean };
-	ignoreAbortErrorRef: { current: boolean };
-	recognitionRef: { current: BrowserSpeechRecognition | null };
-	setIsListening: (value: boolean) => void;
-}) {
-	cleanupSpeechRecognition({
-		shouldApplyResultsRef,
-		ignoreAbortErrorRef,
-		recognitionRef,
-	});
-	setIsListening(false);
-}
-
 export function useSpeechToText({
 	enabled = true,
 	value,
@@ -131,6 +97,14 @@ export function useSpeechToText({
 	const shouldApplyResultsRef = useRef(false);
 	const ignoreAbortErrorRef = useRef(false);
 
+	const release = useCallback(() => {
+		shouldApplyResultsRef.current = false;
+		ignoreAbortErrorRef.current = true;
+		recognitionRef.current?.abort();
+		recognitionRef.current = null;
+		setIsListening(false);
+	}, []);
+
 	useEffect(() => {
 		if (!enabled) return;
 		valueRef.current = value;
@@ -138,21 +112,11 @@ export function useSpeechToText({
 
 	useEffect(() => {
 		if (!enabled) {
-			releaseSpeechRecognition({
-				shouldApplyResultsRef,
-				ignoreAbortErrorRef,
-				recognitionRef,
-				setIsListening,
-			});
+			release();
 			return;
 		}
 		return () => {
-			releaseSpeechRecognition({
-				shouldApplyResultsRef,
-				ignoreAbortErrorRef,
-				recognitionRef,
-				setIsListening,
-			});
+			release();
 		};
 	}, [enabled]);
 
@@ -160,12 +124,7 @@ export function useSpeechToText({
 		if (!enabled || typeof window === "undefined") return;
 		const releaseIfListening = () => {
 			if (!recognitionRef.current) return;
-			releaseSpeechRecognition({
-				shouldApplyResultsRef,
-				ignoreAbortErrorRef,
-				recognitionRef,
-				setIsListening,
-			});
+			release();
 		};
 		const releaseWhenHidden = () => {
 			if (document.visibilityState === "hidden") releaseIfListening();
@@ -245,37 +204,19 @@ export function useSpeechToText({
 		}
 	}, [applyTranscript, enabled]);
 
-	const stopListening = useCallback(() => {
-		releaseSpeechRecognition({
-			shouldApplyResultsRef,
-			ignoreAbortErrorRef,
-			recognitionRef,
-			setIsListening,
-		});
-	}, []);
-
-	const cancelListening = useCallback(() => {
-		releaseSpeechRecognition({
-			shouldApplyResultsRef,
-			ignoreAbortErrorRef,
-			recognitionRef,
-			setIsListening,
-		});
-	}, []);
-
 	const toggleListening = useCallback(() => {
-		if (isListening) stopListening();
+		if (isListening) release();
 		else startListening();
-	}, [isListening, startListening, stopListening]);
+	}, [isListening, startListening, release]);
 	const visibleIsListening = enabled && isListening;
 	const visibleIsSupported = enabled && isSupported;
 
 	return {
-		cancelListening,
+		cancelListening: release,
 		error,
 		isListening: visibleIsListening,
 		isSupported: visibleIsSupported,
-		stopListening,
+		stopListening: release,
 		toggleListening,
 	};
 }

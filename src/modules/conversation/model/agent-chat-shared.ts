@@ -206,61 +206,31 @@ export function truncateChatContent(
 	);
 }
 
-export function appendBoundedChatContent(
-	current: string,
-	delta: string,
-	maxChars = CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
-): string {
-	if (!delta) return current;
-	if (current.length + delta.length <= maxChars) return current + delta;
-	if (maxChars <= CHAT_TRUNCATION_MARKER.length) {
-		return delta.length >= maxChars
-			? delta.slice(-Math.max(0, maxChars))
-			: (current.slice(-(maxChars - delta.length)) + delta).slice(-maxChars);
-	}
-	const prefixLength = Math.min(
-		Math.floor(maxChars / 4),
-		maxChars - CHAT_TRUNCATION_MARKER.length,
-	);
-	const prefix = current.slice(0, prefixLength);
-	const suffixLength = maxChars - CHAT_TRUNCATION_MARKER.length - prefix.length;
-	if (suffixLength <= 0) {
-		return (prefix + CHAT_TRUNCATION_MARKER).slice(0, maxChars);
-	}
-	const suffix =
-		delta.length >= suffixLength
-			? delta.slice(-suffixLength)
-			: current.slice(-(suffixLength - delta.length)) + delta;
-	return prefix + CHAT_TRUNCATION_MARKER + suffix;
-}
-
 export function trimMessages<T extends { content: string }>(msgs: T[]): T[] {
-	let trimmed =
-		msgs.length > CHAT_MESSAGE_RETAIN_LIMIT
-			? msgs.slice(-CHAT_MESSAGE_RETAIN_LIMIT)
-			: msgs;
-	let normalized: T[] | null = null;
-	for (let index = 0; index < trimmed.length; index++) {
-		const message = trimmed[index]!;
+	const retained: T[] = [];
+	let totalChars = 0;
+	let changed = false;
+	for (
+		let index = msgs.length - 1;
+		index >= Math.max(0, msgs.length - CHAT_MESSAGE_RETAIN_LIMIT);
+		index--
+	) {
+		const message = msgs[index]!;
 		const content = truncateChatContent(message.content);
-		if (content === message.content) {
-			if (normalized) normalized.push(message);
-			continue;
-		}
-		normalized ??= trimmed.slice(0, index);
-		normalized.push({ ...message, content });
+		if (
+			retained.length &&
+			totalChars + content.length > CHAT_MESSAGE_CHAR_LIMIT
+		)
+			break;
+		totalChars += content.length;
+		changed ||= content !== message.content;
+		retained.push(
+			content === message.content ? message : { ...message, content },
+		);
 	}
-	if (normalized) trimmed = normalized;
-	let totalChars = trimmed.reduce(
-		(sum, message) => sum + message.content.length,
-		0,
-	);
-	while (totalChars > CHAT_MESSAGE_CHAR_LIMIT && trimmed.length > 1) {
-		totalChars -= trimmed[0]?.content.length ?? 0;
-		trimmed = trimmed.slice(1);
-	}
-
-	return trimmed;
+	return !changed && retained.length === msgs.length
+		? msgs
+		: retained.reverse();
 }
 
 export function appendTrimmedMessage(

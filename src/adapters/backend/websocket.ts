@@ -1,39 +1,20 @@
-import type { ChatTranscriptUpdate } from "../../modules/conversation/model/agent-chat-shared.ts";
 import { getServerWebSocketUrl } from "./http.ts";
 
 interface WSMessage {
 	type: string;
-	runId?: string;
 	paneId?: string;
-	modelVersion?: 1;
-	transcriptUpdate?: ChatTranscriptUpdate;
-	data?: string;
-	exitCode?: number;
-	ok?: boolean;
-	error?: string;
 	[key: string]: unknown;
 }
 
 type MessageHandler = (data: WSMessage) => void;
-type BinaryMessageHandler = (data: ArrayBuffer) => void;
 
 class WebSocketClient {
 	private ws: WebSocket | null = null;
 	private listeners = new Map<string, Set<MessageHandler>>();
-	private globalListeners = new Set<MessageHandler>();
-	private binaryListeners = new Set<BinaryMessageHandler>();
 	private reconnectCallbacks = new Set<() => void>();
 	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	private pendingMessages: string[] = [];
-	private url: string;
-	constructor(host?: string) {
-		if (host) {
-			const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-			this.url = `${protocol}//${host}/ws`;
-			return;
-		}
-		this.url = getServerWebSocketUrl("/ws");
-	}
+	private url = getServerWebSocketUrl("/ws");
 	connect() {
 		if (
 			this.ws?.readyState === WebSocket.OPEN ||
@@ -41,7 +22,6 @@ class WebSocketClient {
 		)
 			return;
 		this.ws = new WebSocket(this.url);
-		this.ws.binaryType = "arraybuffer";
 		this.ws.onopen = () => {
 			if (this.reconnectTimer) {
 				clearTimeout(this.reconnectTimer);
@@ -59,32 +39,14 @@ class WebSocketClient {
 			}
 		};
 		this.ws.onmessage = (event) => {
-			// Handle binary messages
-			if (event.data instanceof ArrayBuffer) {
-				for (const handler of this.binaryListeners) {
-					try {
-						handler(event.data);
-					} catch {}
-				}
-				return;
-			}
-			// Handle JSON messages
 			try {
 				const msg: WSMessage = JSON.parse(event.data);
-				if (msg.runId) {
-					const runListeners = this.listeners.get(msg.runId);
-					if (runListeners) {
-						for (const handler of runListeners) handler(msg);
-					}
-				}
 				if (msg.paneId) {
 					const paneListeners = this.listeners.get(msg.paneId);
 					if (paneListeners) {
 						for (const handler of paneListeners) handler(msg);
 					}
 				}
-				// Always fan out to global listeners
-				for (const handler of this.globalListeners) handler(msg);
 			} catch {}
 		};
 		this.ws.onclose = () => {
@@ -103,22 +65,10 @@ class WebSocketClient {
 			}
 		};
 	}
-	onMessage(handler: MessageHandler) {
-		this.globalListeners.add(handler);
-		return () => {
-			this.globalListeners.delete(handler);
-		};
-	}
 	onReconnect(handler: () => void) {
 		this.reconnectCallbacks.add(handler);
 		return () => {
 			this.reconnectCallbacks.delete(handler);
-		};
-	}
-	onBinaryMessage(handler: BinaryMessageHandler) {
-		this.binaryListeners.add(handler);
-		return () => {
-			this.binaryListeners.delete(handler);
 		};
 	}
 	send(data: unknown) {
@@ -128,15 +78,6 @@ class WebSocketClient {
 		} else {
 			this.pendingMessages.push(json);
 		}
-	}
-	isConnected(): boolean {
-		return this.ws?.readyState === WebSocket.OPEN;
-	}
-	disconnect() {
-		if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-		this.pendingMessages.length = 0;
-		this.ws?.close();
-		this.ws = null;
 	}
 }
 

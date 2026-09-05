@@ -6,7 +6,7 @@ import {
 	useState,
 	useSyncExternalStore,
 } from "octane";
-import { wsClient } from "../../../adapters/backend/websocket.ts";
+import { fetchJson } from "../../../adapters/backend/http.ts";
 import type {
 	AttachedImageInfo,
 	QueuedMessageInfo,
@@ -20,23 +20,6 @@ interface MarkdownPreviewState {
 	content: string | null;
 	loading: boolean;
 	error: string | null;
-}
-
-type FilePreviewMessage =
-	| { type: "file:content"; content: string }
-	| { type: "file:error"; error?: string };
-
-function isFilePreviewMessage(msg: unknown): msg is FilePreviewMessage {
-	if (!msg || typeof msg !== "object") return false;
-	const type = (msg as { type?: unknown }).type;
-	if (type === "file:content") {
-		return typeof (msg as { content?: unknown }).content === "string";
-	}
-	return (
-		type === "file:error" &&
-		((msg as { error?: unknown }).error === undefined ||
-			typeof (msg as { error?: unknown }).error === "string")
-	);
 }
 
 export function useAgentChatComposerState(paneId: string, enabled = true) {
@@ -68,34 +51,27 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 			loading: true,
 			error: null,
 		});
-		wsClient.send({ type: "file:read", path: filePath });
 	}, []);
 
 	useEffect(() => {
-		if (!enabled) return;
-		void queueReadModel.loadAsync();
-	}, [enabled, queueReadModel]);
-
-	useEffect(() => {
 		if (!enabled || !mdPreview.loading) return;
-		const handleMessage = (msg: unknown) => {
-			if (!isFilePreviewMessage(msg)) return;
-			if (msg.type === "file:content") {
-				setMdPreview((prev) => ({
-					...prev,
-					content: msg.content,
-					loading: false,
-				}));
-			} else if (msg.type === "file:error") {
-				setMdPreview((prev) => ({
-					...prev,
-					error: msg.error || "Failed to read file",
-					loading: false,
-				}));
-			}
+		const controller = new AbortController();
+		const finish = (patch: Partial<MarkdownPreviewState>) => {
+			if (!controller.signal.aborted)
+				setMdPreview((previous) => ({ ...previous, ...patch, loading: false }));
 		};
-		return wsClient.onMessage(handleMessage);
-	}, [enabled, mdPreview.loading]);
+		void fetchJson<{ content: string }>(
+			`/api/files/preview?${new URLSearchParams({ path: mdPreview.path })}`,
+			{ signal: controller.signal },
+		)
+			.then(({ content }) => finish({ content }))
+			.catch((error) =>
+				finish({
+					error: error instanceof Error ? error.message : "Failed to read file",
+				}),
+			);
+		return () => controller.abort();
+	}, [enabled, mdPreview.loading, mdPreview.path]);
 
 	const replaceQueuedMessages = useCallback(
 		(messages: QueuedMessageInfo[]) => {
