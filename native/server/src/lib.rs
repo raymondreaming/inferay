@@ -6498,6 +6498,10 @@ printf '{"type":"result","result":"%s"}\n' "$result"
                 panic!("expected reconnect text message");
             };
             let value: Value = serde_json::from_str(&message).unwrap();
+            if value["type"] == "chat:sync" {
+                assert_eq!(value["modelVersion"], 1);
+                assert!(value["epoch"].is_string());
+            }
             reconnect_types.push(value["type"].as_str().unwrap().to_string());
         }
         assert_eq!(reconnect_types, ["chat:sync", "chat:queue", "chat:status"]);

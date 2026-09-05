@@ -7,7 +7,6 @@ import {
 	trimMessages,
 	truncateChatContent,
 } from "../../../modules/conversation/model/agent-chat-shared.ts";
-import { hasRole } from "../../../shared/lib/data.ts";
 
 type ChatStateMessage = Pick<
 	ChatMessage,
@@ -17,25 +16,6 @@ type ChatStateMessage = Pick<
 const CHAT_RENDER_CHAR_WINDOW = 500_000;
 const CHAT_RENDER_MIN_MESSAGES = 30;
 const CHAT_RENDER_MAX_MESSAGES = 2_000;
-
-export interface ChatSyncReconcileInput {
-	currentMessages: ChatMessage[];
-	isStreaming: boolean;
-	previousRevision: number | null;
-	revision: number | null;
-	serverMessages: ChatMessage[];
-}
-
-export interface ChatSyncReconcileResult {
-	mergedMessages: ChatMessage[];
-	nextRevision: number | null;
-	serverMessages: ChatMessage[];
-	shouldPersist: boolean;
-	shouldSkip: boolean;
-	shouldUpdateMessages: boolean;
-	streamingAssistantId: string | null;
-	streamingToolId: string | null;
-}
 
 export function windowChatMessagesForRender<T extends { content: string }>(
 	messages: T[],
@@ -58,151 +38,6 @@ export function windowChatMessagesForRender<T extends { content: string }>(
 		start--;
 	}
 	return start <= 0 ? messages : messages.slice(start);
-}
-
-function dedupeChatMessagesById<T extends { id: string }>(messages: T[]): T[] {
-	let hasDuplicate = false;
-	const seen = new Set<string>();
-	for (const message of messages) {
-		if (seen.has(message.id)) {
-			hasDuplicate = true;
-			break;
-		}
-		seen.add(message.id);
-	}
-	if (!hasDuplicate) return messages;
-
-	const byId = new Map<string, T>();
-	for (const message of messages) {
-		if (byId.has(message.id)) byId.delete(message.id);
-		byId.set(message.id, message);
-	}
-	return [...byId.values()];
-}
-
-export function mergeSyncedMessages(
-	localMessages: ChatMessage[],
-	serverMessages: ChatMessage[],
-): ChatMessage[] {
-	const localUserMsgs = localMessages.filter(hasRole.bind(null, "user"));
-	const uniqueServerMessages = dedupeChatMessagesById(serverMessages);
-	const serverUserMsgs = uniqueServerMessages.filter(
-		hasRole.bind(null, "user"),
-	);
-	const displayTextMap = new Map<number, string>();
-
-	for (let i = 0; i < serverUserMsgs.length && i < localUserMsgs.length; i++) {
-		if (localUserMsgs[i]!.content.length < serverUserMsgs[i]!.content.length) {
-			displayTextMap.set(i, localUserMsgs[i]!.content);
-		}
-	}
-
-	let userIdx = 0;
-	const mergedMessages = uniqueServerMessages.map((message) => {
-		if (message.role !== "user") return message;
-		const displayText = displayTextMap.get(userIdx);
-		userIdx++;
-		return displayText ? { ...message, content: displayText } : message;
-	});
-	const serverIds = new Set(uniqueServerMessages.map((message) => message.id));
-	for (const localUserMessage of localUserMsgs.slice(serverUserMsgs.length)) {
-		if (serverIds.has(localUserMessage.id)) continue;
-		const localIndex = localMessages.findIndex(
-			(message) => message.id === localUserMessage.id,
-		);
-		const mergedIndexById = new Map(
-			mergedMessages.map((message, index) => [message.id, index]),
-		);
-		let insertIndex = mergedMessages.length;
-		for (let i = localIndex - 1; i >= 0; i--) {
-			const anchorIndex = mergedIndexById.get(localMessages[i]!.id);
-			if (anchorIndex === undefined) continue;
-			insertIndex = anchorIndex + 1;
-			break;
-		}
-		mergedMessages.splice(insertIndex, 0, localUserMessage);
-	}
-	return compactAdjacentDuplicateTranscriptMessages(mergedMessages);
-}
-
-function isMessagePrefix<T extends { id: string }>(
-	candidateMessages: T[],
-	messages: T[],
-): boolean {
-	if (candidateMessages.length >= messages.length) return false;
-	return candidateMessages.every(
-		(message, index) => message.id === messages[index]?.id,
-	);
-}
-
-export function reconcileChatSync({
-	currentMessages,
-	isStreaming,
-	previousRevision,
-	revision,
-	serverMessages: rawServerMessages,
-}: ChatSyncReconcileInput): ChatSyncReconcileResult {
-	if (revision !== null && previousRevision === revision && !isStreaming) {
-		return {
-			mergedMessages: currentMessages,
-			nextRevision: previousRevision,
-			serverMessages: [],
-			shouldPersist: false,
-			shouldSkip: true,
-			shouldUpdateMessages: false,
-			streamingAssistantId: null,
-			streamingToolId: null,
-		};
-	}
-
-	const serverMessages = dedupeChatMessagesById(rawServerMessages);
-	if (!isStreaming && isMessagePrefix(serverMessages, currentMessages)) {
-		return {
-			mergedMessages: currentMessages,
-			nextRevision: revision ?? previousRevision,
-			serverMessages,
-			shouldPersist: false,
-			shouldSkip: true,
-			shouldUpdateMessages: false,
-			streamingAssistantId: null,
-			streamingToolId: null,
-		};
-	}
-
-	const localStreamingAssistantId =
-		currentMessages.findLast?.(
-			(message) => message.isStreaming && message.role === "assistant",
-		)?.id ?? null;
-	const localStreamingToolId =
-		currentMessages.findLast?.(
-			(message) => message.isStreaming && message.role === "tool",
-		)?.id ?? null;
-	const hasLocalStreamingRow =
-		!!localStreamingAssistantId || !!localStreamingToolId;
-	const shouldUpdateMessages =
-		!isStreaming || (serverMessages.length > 0 && !hasLocalStreamingRow);
-	const mergedMessages = shouldUpdateMessages
-		? trimMessages(mergeSyncedMessages(currentMessages, serverMessages))
-		: currentMessages;
-	const streamingAssistantId =
-		mergedMessages.findLast?.(
-			(message) => message.isStreaming && message.role === "assistant",
-		)?.id ?? null;
-	const streamingToolId =
-		mergedMessages.findLast?.(
-			(message) => message.isStreaming && message.role === "tool",
-		)?.id ?? null;
-
-	return {
-		mergedMessages,
-		nextRevision: revision ?? previousRevision,
-		serverMessages,
-		shouldPersist: shouldUpdateMessages && !isStreaming,
-		shouldSkip: false,
-		shouldUpdateMessages,
-		streamingAssistantId,
-		streamingToolId,
-	};
 }
 
 export function patchMessageById(
@@ -363,16 +198,8 @@ export function mergeNativeTranscript(
 	local: ChatMessage[],
 	server: ChatMessage[],
 ): ChatMessage[] {
-	const localById = new Map(local.map((message) => [message.id, message]));
 	const ids = new Set(server.map((message) => message.id));
-	const merged = server.map((message) => {
-		const pending = localById.get(message.id);
-		return message.role === "user" &&
-			pending &&
-			pending.content.length < message.content.length
-			? { ...message, content: pending.content }
-			: message;
-	});
+	const merged = [...server];
 	for (let index = 0; index < local.length; index++) {
 		const message = local[index]!;
 		const browserOwned =

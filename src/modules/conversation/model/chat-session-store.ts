@@ -12,13 +12,11 @@ import {
 	loadAgentState,
 	setPaneProviderSession,
 } from "../../workspace/model/workspace-model.ts";
-import {
-	type ChatLoadingState,
-	type ChatMessage,
-	type CheckpointInfo,
-	compactAdjacentDuplicateTranscriptMessages,
-	type QueuedMessageInfo,
-	trimMessages,
+import type {
+	ChatLoadingState,
+	ChatMessage,
+	CheckpointInfo,
+	QueuedMessageInfo,
 } from "./agent-chat-shared.ts";
 
 const LEGACY_MESSAGES_KEY_PREFIX = "inferay-chat-";
@@ -225,28 +223,6 @@ export function cleanupStaleChatClientStorage() {
 
 cleanupStaleChatClientStorage();
 
-function dedupeStoredChatMessages<T extends { id: string }>(
-	messages: T[],
-): T[] {
-	let hasDuplicate = false;
-	const seen = new Set<string>();
-	for (const message of messages) {
-		if (seen.has(message.id)) {
-			hasDuplicate = true;
-			break;
-		}
-		seen.add(message.id);
-	}
-	if (!hasDuplicate) return messages;
-
-	const byId = new Map<string, T>();
-	for (const message of messages) {
-		if (byId.has(message.id)) byId.delete(message.id);
-		byId.set(message.id, message);
-	}
-	return [...byId.values()];
-}
-
 function createChatMessageReadModel(paneId: string): ChatMessageReadModel {
 	let messages: ChatMessage[] = [];
 	const listeners = new Set<ChatMessageReadModelListener>();
@@ -256,15 +232,10 @@ function createChatMessageReadModel(paneId: string): ChatMessageReadModel {
 	const notify = () => {
 		for (const listener of listeners) listener();
 	};
-	const settle = (nextMessages: ChatMessage[]) => {
-		return trimMessages(
-			compactAdjacentDuplicateTranscriptMessages(
-				dedupeStoredChatMessages(nextMessages),
-			),
-		).map((message) =>
+	const settle = (nextMessages: ChatMessage[]) =>
+		nextMessages.map((message) =>
 			message.isStreaming ? { ...message, isStreaming: false } : message,
 		);
-	};
 	const set = (
 		update: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[]),
 	) => {
@@ -272,24 +243,10 @@ function createChatMessageReadModel(paneId: string): ChatMessageReadModel {
 			typeof update === "function"
 				? (update as (prev: ChatMessage[]) => ChatMessage[])(messages)
 				: update;
-		// Native snapshots already own retention/deduplication. Compatibility
-		// readers still normalize legacy browser transcripts.
-		const deduped = next.every(
-			(message) =>
-				message.render?.version === 1 ||
-				message.optimistic ||
-				message.localOnly ||
-				message.role === "btw",
-		)
-			? next
-			: trimMessages(
-					compactAdjacentDuplicateTranscriptMessages(
-						dedupeStoredChatMessages(next),
-					),
-				);
-		if (deduped === messages) return;
-		messages = deduped;
-		_summary ??= deriveStoredSummary(paneId, deduped, summaryChangeCallback);
+		// Native snapshots own retention and deduplication; local events are already bounded at creation.
+		if (next === messages) return;
+		messages = next;
+		_summary ??= deriveStoredSummary(paneId, next, summaryChangeCallback);
 		notify();
 	};
 	return {

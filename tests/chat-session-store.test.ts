@@ -269,33 +269,6 @@ test("chat message read model publishes updates and settles streamed messages", 
 	}
 });
 
-test("chat message read model compacts adjacent duplicate assistant rows", async () => {
-	const restoreBrowserStorage = installBrowserStorage();
-	try {
-		const { getChatMessageReadModel } = await import(
-			"../src/modules/conversation/model/chat-session-store.ts"
-		);
-		const model = getChatMessageReadModel("pane-duplicate-assistant");
-
-		model.set([
-			{ id: "u1", role: "user", content: "improve this" },
-			{ id: "a1", role: "assistant", content: "same answer" },
-			{ id: "a2", role: "assistant", content: "same answer" },
-		]);
-
-		expect(model.get()).toEqual([
-			{ id: "u1", role: "user", content: "improve this" },
-			{ id: "a1", role: "assistant", content: "same answer" },
-		]);
-		expect(model.settle(model.get())).toEqual([
-			{ id: "u1", role: "user", content: "improve this" },
-			{ id: "a1", role: "assistant", content: "same answer" },
-		]);
-	} finally {
-		restoreBrowserStorage();
-	}
-});
-
 test("chat checkpoint read model publishes updates and clears durable rows", async () => {
 	const restoreBrowserStorage = installBrowserStorage();
 	try {

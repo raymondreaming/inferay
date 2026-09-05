@@ -19,7 +19,6 @@ import {
 	applyPendingMessageContent,
 	createBtwQuestionMessage,
 	finishBtwMessage,
-	mergeSyncedMessages,
 	patchMessageById,
 	windowChatMessagesForRender,
 } from "../src/modules/conversation/model/chat-state-utils.ts";
@@ -184,56 +183,6 @@ describe("chat data behavior", () => {
 		expect(finishBtwMessage([btw], null, "ignored")).toEqual([btw]);
 	});
 
-	test("deduplicates adjacent identical goal system messages", () => {
-		const goalStarted = JSON.stringify({
-			type: "inferay.goal",
-			status: "active",
-			objective: "fix all please",
-			turns: 0,
-			detail: "Goal started",
-		});
-		const serverMessages: ChatMessage[] = [
-			{ id: "server-goal", role: "system", content: goalStarted },
-			{ id: "server-goal-duplicate", role: "system", content: goalStarted },
-		];
-		const localMessages: ChatMessage[] = [
-			{ id: "local-goal", role: "system", content: goalStarted },
-		];
-
-		expect(appendSystemMessage(localMessages, goalStarted)).toBe(localMessages);
-		expect(mergeSyncedMessages(localMessages, serverMessages)).toEqual([
-			{ id: "server-goal", role: "system", content: goalStarted },
-		]);
-	});
-
-	test("deduplicates adjacent identical settled assistant messages", () => {
-		const localMessages: ChatMessage[] = [
-			{ id: "u1", role: "user", content: "please keep making it better" },
-		];
-		const serverMessages: ChatMessage[] = [
-			{ id: "u1", role: "user", content: "please keep making it better" },
-			{
-				id: "a1",
-				role: "assistant",
-				content: "I'll remove the narrow regression test coverage.",
-			},
-			{
-				id: "a2",
-				role: "assistant",
-				content: "I'll remove the narrow regression test coverage.",
-			},
-		];
-
-		expect(mergeSyncedMessages(localMessages, serverMessages)).toEqual([
-			{ id: "u1", role: "user", content: "please keep making it better" },
-			{
-				id: "a1",
-				role: "assistant",
-				content: "I'll remove the narrow regression test coverage.",
-			},
-		]);
-	});
-
 	test("projects live activity ui state without duplicating adjacent updates", () => {
 		const initial: {
 			expandedTools: Set<string>;
@@ -286,73 +235,4 @@ describe("chat data behavior", () => {
 	 * often contain the shorter display text the user typed; the merge keeps the
 	 * readable local text only where it is a shorter counterpart.
 	 */
-	test("preserves shorter local user display text when merging synced messages", () => {
-		const localMessages = [
-			message("local-1", "/review src/app.ts"),
-			message("local-2", "plain local message"),
-		];
-		const serverMessages = [
-			message("server-1", "Review this code carefully: src/app.ts"),
-			message("server-a", "assistant reply", "assistant"),
-			message("server-2", "plain local message"),
-		];
-
-		expect(mergeSyncedMessages(localMessages, serverMessages)).toEqual([
-			message("server-1", "/review src/app.ts"),
-			message("server-a", "assistant reply", "assistant"),
-			message("server-2", "plain local message"),
-		]);
-	});
-
-	test("preserves optimistic queued user messages missing from a stale sync", () => {
-		const localMessages = [
-			message("server-1", "first"),
-			message("server-a", "assistant reply", "assistant"),
-			message("local-queued", "queued follow-up"),
-		];
-		const serverMessages = [
-			message("server-1", "first"),
-			message("server-a", "assistant reply", "assistant"),
-		];
-
-		expect(mergeSyncedMessages(localMessages, serverMessages)).toEqual([
-			message("server-1", "first"),
-			message("server-a", "assistant reply", "assistant"),
-			message("local-queued", "queued follow-up"),
-		]);
-	});
-
-	test("keeps optimistic user message before server assistant response", () => {
-		const localMessages = [
-			message("server-1", "first"),
-			message("server-a", "assistant reply", "assistant"),
-			message("local-follow-up", "follow-up prompt"),
-		];
-		const serverMessages = [
-			message("server-1", "first"),
-			message("server-a", "assistant reply", "assistant"),
-			message("server-new-a", "follow-up answer", "assistant"),
-		];
-
-		expect(mergeSyncedMessages(localMessages, serverMessages)).toEqual([
-			message("server-1", "first"),
-			message("server-a", "assistant reply", "assistant"),
-			message("local-follow-up", "follow-up prompt"),
-			message("server-new-a", "follow-up answer", "assistant"),
-		]);
-	});
-
-	test("deduplicates repeated server message ids during sync", () => {
-		const serverMessages = [
-			message("s1", "older assistant", "assistant"),
-			message("s2", "user prompt"),
-			message("s1", "newer assistant", "assistant"),
-			message("s2", "user prompt"),
-		];
-
-		expect(mergeSyncedMessages([], serverMessages)).toEqual([
-			message("s1", "newer assistant", "assistant"),
-			message("s2", "user prompt"),
-		]);
-	});
 });

@@ -528,10 +528,12 @@ impl ChatPersistence {
             .read_legacy_transcript(pane_id)
             .await
             .unwrap_or_default();
+        let mut buffer = ChatMessageBuffer::default();
+        buffer.replace_messages(messages);
         ChatReconnectSnapshot {
             sync: json!({
-                "type": "chat:sync", "paneId": pane_id, "messages": messages,
-                "revision": 0, "isStreaming": false
+                "type": "chat:sync", "paneId": pane_id, "messages": buffer.messages(),
+                "modelVersion": 1, "epoch": buffer.epoch(), "revision": buffer.revision(), "isStreaming": false
             }),
             queue: json!({ "type": "chat:queue", "paneId": pane_id, "queue": queue }),
             status: json!({
@@ -1180,6 +1182,23 @@ mod tests {
                 .content,
             "kept after eviction"
         );
+    }
+
+    #[tokio::test]
+    async fn empty_reconnect_uses_native_revisioned_contract() {
+        let root = tempdir().unwrap();
+        let snapshot = ChatPersistence::new(root.path().into())
+            .persisted_reconnect_snapshot("new-pane")
+            .await;
+        assert_eq!(snapshot.sync["modelVersion"], 1);
+        assert!(
+            snapshot.sync["epoch"]
+                .as_str()
+                .is_some_and(|epoch| !epoch.is_empty())
+        );
+        assert!(snapshot.sync["revision"].is_u64());
+        assert_eq!(snapshot.sync["messages"], json!([]));
+        assert_eq!(snapshot.sync["isStreaming"], false);
     }
 
     #[test]

@@ -9,11 +9,9 @@ import type { Dispatch, SetStateAction } from "react";
 import { wsClient } from "../../../adapters/backend/websocket.ts";
 import type { AgentKind } from "../../../modules/agents/model/agents.ts";
 import {
-	appendTrimmedMessage,
 	type ChatLoadingState,
 	type ChatMessage,
 	isChatServerMessage,
-	nextId,
 	type QueuedMessageInfo,
 	type ToolActivity,
 } from "../../../modules/conversation/model/agent-chat-shared.ts";
@@ -37,7 +35,6 @@ import {
 	createBtwQuestionMessage,
 	finishBtwMessage,
 	mergeNativeTranscript,
-	reconcileChatSync,
 } from "../model/chat-state-utils.ts";
 
 interface ChatMessageMutationModel {
@@ -100,7 +97,6 @@ export function useChatConnection({
 	} | null>(null);
 	const nativeFrameRef = useRef<number | null>(null);
 	const resyncPendingRef = useRef(false);
-	const transcriptRevisionRef = useRef<number | null>(null);
 	const pendingContentRef = useRef<Map<string, string>>(
 		undefined as unknown as Map<string, string>,
 	);
@@ -178,7 +174,6 @@ export function useChatConnection({
 		messageReadModel.set((current) =>
 			mergeNativeTranscript(current, native.messages),
 		);
-		transcriptRevisionRef.current = native.revision;
 	}, [messageReadModel]);
 	useEffect(
 		() => () => {
@@ -270,8 +265,6 @@ export function useChatConnection({
 				setRunStatus({ isLoading: false, status: "idle", startTime: null });
 				setChatUiState(clearCompletedChatUiState.bind(null, ids));
 				resetStreamState();
-				if (msg.modelVersion !== 1)
-					wsClient.send({ type: "chat:reconnect", paneId });
 			} else if (
 				msg.type === "chat:steer_pending" &&
 				msg.message &&
@@ -279,32 +272,8 @@ export function useChatConnection({
 			) {
 				stageSteeringMessage?.(msg.message as QueuedMessageInfo);
 			} else if (msg.type === "chat:steered") {
-				const content =
-					typeof msg.displayText === "string"
-						? msg.displayText
-						: typeof msg.text === "string"
-							? msg.text
-							: "";
-				if (msg.modelVersion === 1 && typeof msg.messageId === "string")
+				if (typeof msg.messageId === "string")
 					resolveSteeringMessage?.(msg.messageId);
-				if (content && msg.modelVersion !== 1) {
-					const messageId =
-						typeof msg.messageId === "string" ? msg.messageId : nextId();
-					resolveSteeringMessage?.(messageId);
-					messageReadModel.set((prev) =>
-						prev.some((message) => message.id === messageId)
-							? prev
-							: appendTrimmedMessage(
-									{
-										id: messageId,
-										role: "user",
-										content,
-										images: Array.isArray(msg.images) ? msg.images : undefined,
-									},
-									prev,
-								),
-					);
-				}
 			} else if (msg.type === "chat:user_message") {
 				setChatUiState(clearLiveActivities);
 				setRunStatus((prev) => ({
@@ -339,49 +308,6 @@ export function useChatConnection({
 					startTime: msg.isStreaming ? (prev.startTime ?? Date.now()) : null,
 				}));
 				if (!msg.isStreaming) {
-					setChatUiState(clearLiveActivities);
-					resetStreamState();
-				}
-			} else if (msg.type === "chat:sync") {
-				flushPendingContent();
-				const revision = typeof msg.revision === "number" ? msg.revision : null;
-				const serverMessagesInput: ChatMessage[] = Array.isArray(msg.messages)
-					? msg.messages
-					: [];
-				const syncResult = reconcileChatSync({
-					currentMessages: messageReadModel.get(),
-					isStreaming: Boolean(msg.isStreaming),
-					previousRevision: transcriptRevisionRef.current,
-					revision,
-					serverMessages: serverMessagesInput,
-				});
-				if (syncResult.shouldSkip) {
-					setRunStatus({
-						isLoading: false,
-						status: "idle",
-						startTime: null,
-					});
-					setChatUiState(clearLiveActivities);
-					resetStreamState();
-					return;
-				}
-				if (syncResult.shouldUpdateMessages) {
-					messageReadModel.set(syncResult.mergedMessages);
-				}
-				if (msg.isStreaming) {
-					transcriptRevisionRef.current = syncResult.nextRevision;
-					setRunStatus((prev) => ({
-						isLoading: true,
-						status: "responding",
-						startTime: prev.startTime ?? Date.now(),
-					}));
-				} else {
-					transcriptRevisionRef.current = syncResult.nextRevision;
-					setRunStatus({
-						isLoading: false,
-						status: "idle",
-						startTime: null,
-					});
 					setChatUiState(clearLiveActivities);
 					resetStreamState();
 				}
