@@ -53,11 +53,11 @@ function routeLocalRequestsToDesktopServer() {
 }
 
 routeLocalRequestsToDesktopServer();
-await hydrateStoredValues();
-await initializeAgentCatalog();
 let restoreStartupContent: (() => void) | undefined;
 while (true) {
 	try {
+		await hydrateStoredValues();
+		await initializeAgentCatalog();
 		await initializeAgentState();
 		restoreStartupContent?.();
 		break;
@@ -70,7 +70,7 @@ while (true) {
 		const notice = document.createElement("div");
 		notice.setAttribute("role", "alert");
 		notice.textContent =
-			"Saved workspaces could not be loaded. Your saved data has not been replaced. ";
+			"Saved application state could not be loaded. Your saved data has not been replaced. ";
 		const retry = document.createElement("button");
 		retry.textContent = "Retry";
 		notice.append(retry);

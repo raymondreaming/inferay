@@ -146,6 +146,125 @@ impl ChatPersistence {
         self.read_event_log_transcript(pane_id).await
     }
 
+    async fn handoffs(
+        &self,
+        pane_id: &str,
+    ) -> Result<(PathBuf, serde_json::Map<String, Value>), String> {
+        self.journal_path(pane_id)?;
+        let path = self
+            .user_data_dir
+            .join("chat-handoffs")
+            .join(format!("{pane_id}.json"));
+        let entries = match fs::read(&path).await {
+            Ok(bytes) => serde_json::from_slice::<serde_json::Map<String, Value>>(&bytes)
+                .map_err(|e| e.to_string())?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => serde_json::Map::new(),
+            Err(error) => return Err(error.to_string()),
+        };
+        Ok((path, entries))
+    }
+
+    async fn write_handoffs(
+        path: &Path,
+        entries: &serde_json::Map<String, Value>,
+    ) -> Result<(), String> {
+        let bytes = serde_json::to_vec(entries).map_err(|e| e.to_string())?;
+        if bytes.len() > 4 * 1024 * 1024 {
+            return Err("Image chat handoff storage is full; start a new chat".into());
+        }
+        fs::create_dir_all(path.parent().ok_or("Invalid handoff path")?)
+            .await
+            .map_err(|e| e.to_string())?;
+        durable_replace(path, &bytes)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    /// Durable receipt is the retry identity; the caller must reuse its ID after an uncertain response.
+    pub async fn receive_handoff(
+        &self,
+        pane_id: &str,
+        request_id: &str,
+        request: Value,
+    ) -> Result<Value, String> {
+        if !request_id.starts_with(&format!("{}:{pane_id}:", pane_id.len()))
+            || request_id.is_empty()
+            || request_id.len() > 128
+            || !request_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-_:".contains(&b))
+        {
+            return Err("Invalid image chat request ID".into());
+        }
+        let lock = self.transcript_write_lock(pane_id).await;
+        let _guard = lock.lock().await;
+        let (path, mut entries) = self.handoffs(pane_id).await?;
+        if let Some(receipt) = entries.get(request_id) {
+            if receipt["request"] != request {
+                return Err("Request ID was already used for a different handoff".into());
+            }
+            return Ok(receipt.clone());
+        }
+        if entries
+            .values()
+            .any(|receipt| matches!(receipt["status"].as_str(), Some("pending" | "accepted")))
+        {
+            return Err(
+                "Another image chat handoff is pending; wait for it before starting another".into(),
+            );
+        }
+        if entries.len() >= 256 {
+            return Err("Image chat receipt limit reached; start a new chat".into());
+        }
+        let receipt = json!({"requestId":request_id,"status":"pending","request":request});
+        entries.insert(request_id.into(), receipt.clone());
+        Self::write_handoffs(&path, &entries).await?;
+        Ok(receipt)
+    }
+
+    pub async fn handoff_receipts(&self, pane_id: &str) -> Result<Vec<Value>, String> {
+        let lock = self.transcript_write_lock(pane_id).await;
+        let _guard = lock.lock().await;
+        Ok(self.handoffs(pane_id).await?.1.into_values().collect())
+    }
+
+    /// Claim before provider or queue side effects. A crash after this point must not auto-reexecute.
+    pub async fn claim_handoff(
+        &self,
+        pane_id: &str,
+        request_id: &str,
+    ) -> Result<Option<Value>, String> {
+        let lock = self.transcript_write_lock(pane_id).await;
+        let _guard = lock.lock().await;
+        let (path, mut entries) = self.handoffs(pane_id).await?;
+        let Some(receipt) = entries.get_mut(request_id) else {
+            return Ok(None);
+        };
+        if receipt["status"] != "pending" {
+            return Ok(None);
+        }
+        receipt["status"] = json!("accepted");
+        let request = receipt["request"].clone();
+        Self::write_handoffs(&path, &entries).await?;
+        Ok(Some(request))
+    }
+
+    pub async fn mark_handoff(
+        &self,
+        pane_id: &str,
+        request_id: &str,
+        status: &str,
+    ) -> Result<(), String> {
+        let lock = self.transcript_write_lock(pane_id).await;
+        let _guard = lock.lock().await;
+        let (path, mut entries) = self.handoffs(pane_id).await?;
+        if let Some(receipt) = entries.get_mut(request_id) {
+            receipt["status"] = json!(status);
+            Self::write_handoffs(&path, &entries).await?;
+        }
+        Ok(())
+    }
+
     pub async fn save_session_reference(
         &self,
         pane_id: &str,
@@ -944,6 +1063,56 @@ fn now_millis() -> u64 {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn handoff_receipts_survive_restart_and_claim_only_once() {
+        let root = tempdir().unwrap();
+        let persistence = ChatPersistence::new(root.path().into());
+        let request = json!({"text":"image request","agentKind":"codex"});
+        let receipt = persistence
+            .receive_handoff("pane", "4:pane:one", request.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            persistence
+                .receive_handoff("pane", "4:pane:one", request.clone())
+                .await
+                .unwrap(),
+            receipt
+        );
+        assert!(
+            persistence
+                .receive_handoff("pane", "4:pane:one", json!({"text":"different"}))
+                .await
+                .is_err()
+        );
+        assert!(
+            persistence
+                .receive_handoff("other", "4:pane:one", request.clone())
+                .await
+                .is_err()
+        );
+        drop(persistence);
+        let persistence = ChatPersistence::new(root.path().into());
+        assert_eq!(
+            persistence
+                .claim_handoff("pane", "4:pane:one")
+                .await
+                .unwrap(),
+            Some(request)
+        );
+        assert!(
+            persistence
+                .claim_handoff("pane", "4:pane:one")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            persistence.handoff_receipts("pane").await.unwrap()[0]["status"],
+            "accepted"
+        );
+    }
 
     fn transcript_message(id: &str, role: &str, content: &str) -> ChatTranscriptMessage {
         serde_json::from_value(json!({ "id": id, "role": role, "content": content })).unwrap()

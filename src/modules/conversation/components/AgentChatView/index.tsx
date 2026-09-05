@@ -310,7 +310,6 @@ export const AgentChatView = memo(function AgentChatView({
 		consumePendingWorkspace,
 		cwd,
 		effectiveSelectedModel,
-		enabled: renderVisibleChat,
 		fileMenu,
 		fileResults,
 		filteredCommands,

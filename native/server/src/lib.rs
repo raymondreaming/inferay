@@ -742,8 +742,11 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
         if path == "/api/images/chat-message" && request.method() == Method::POST {
             let headers = request.headers().clone();
             #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
             struct ImageSelection {
                 paths: Vec<String>,
+                pane_id: Option<String>,
+                request_id: Option<String>,
             }
             let selection: ImageSelection = match request_json(request, &headers).await {
                 Ok(selection) => selection,
@@ -754,7 +757,31 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
                 .prepare_chat_message(&selection.paths)
                 .await
             {
-                Ok(text) => json_response(StatusCode::OK, json!({"text":text}), &headers),
+                Ok(text) => {
+                    if let Some(pane_id) = selection.pane_id {
+                        let Some(request_id) = selection.request_id else {
+                            return json_response(
+                                StatusCode::BAD_REQUEST,
+                                json!({"error":"Expected requestId"}),
+                                &headers,
+                            );
+                        };
+                        match receive_image_handoff(&state, &pane_id, &request_id, text).await {
+                            Ok(receipt) => json_response(
+                                StatusCode::OK,
+                                json!({"requestId":receipt["requestId"],"status":receipt["status"]}),
+                                &headers,
+                            ),
+                            Err(error) => json_response(
+                                StatusCode::BAD_REQUEST,
+                                json!({"error":error}),
+                                &headers,
+                            ),
+                        }
+                    } else {
+                        json_response(StatusCode::OK, json!({"text":text}), &headers)
+                    }
+                }
                 Err(error) => json_response(
                     StatusCode::BAD_REQUEST,
                     json!({"error":error.to_string()}),
@@ -1050,6 +1077,103 @@ async fn checkpoint_detail(state: &ServerState, request: Request, checkpoint_id:
             json!({ "error": "Not found" }),
             &headers,
         ),
+    }
+}
+
+async fn receive_image_handoff(
+    state: &ServerState,
+    pane_id: &str,
+    request_id: &str,
+    text: String,
+) -> Result<Value, String> {
+    let _admission = state.chat_runtime.handoff_admission_guard().await;
+    if text.len() > 256 * 1024 {
+        return Err("Image chat request is too large".into());
+    }
+    if let Some(receipt) = state
+        .chat_persistence
+        .handoff_receipts(pane_id)
+        .await?
+        .into_iter()
+        .find(|receipt| receipt["requestId"] == request_id)
+    {
+        if receipt["request"]["text"] != text {
+            return Err("Request ID was already used for a different image selection".into());
+        }
+        return Ok(receipt);
+    }
+    let workspace = state
+        .agent_state_store
+        .lock()
+        .map_err(|e| e.to_string())?
+        .read()?;
+    let pane = workspace["groups"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|group| group["panes"].as_array().into_iter().flatten())
+        .find(|pane| pane["id"] == pane_id)
+        .ok_or("Chat pane was not found")?;
+    let kind = pane["agentKind"]
+        .as_str()
+        .filter(|kind| matches!(*kind, "claude" | "codex"))
+        .ok_or("Selected pane does not support chat")?;
+    let entries = {
+        let _guard = state.client_storage_write.lock().await;
+        read_client_storage(&state.client_storage_path).await?
+    };
+    let defaults = entries
+        .get("inferay-default-chat-settings")
+        .and_then(Value::as_str)
+        .and_then(|value| serde_json::from_str::<Value>(value).ok())
+        .unwrap_or(Value::Null);
+    let config = inferay_core::provider_config::resolve(
+        &json!({"agentKind":kind,"model":entries.get(&format!("inferay-chat-model-{pane_id}")),"reasoningLevel":entries.get(&format!("inferay-chat-reasoning-{pane_id}")),"defaults":defaults}),
+    );
+    let request = json!({"text":text,"agentKind":kind,"cwd":normalize_chat_cwd(state, pane.get("cwd")),"referencePaths":normalize_chat_paths(state,pane.get("referencePaths")),"model":config["model"],"reasoningLevel":config["reasoningLevel"]});
+    state
+        .chat_persistence
+        .receive_handoff(pane_id, request_id, request)
+        .await
+}
+
+async fn migrate_legacy_image_handoff(state: &ServerState, pane_id: &str) {
+    let key = format!("inferay-chat-pending-send-{pane_id}");
+    let text = {
+        let _guard = state.client_storage_write.lock().await;
+        let entries = read_json_object(&state.client_storage_path).await;
+        entries
+            .get(&key)
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| {
+                if entries.contains_key("inferay.preferences-migrated-v1") {
+                    return None;
+                }
+                entries
+                    .get("inferay-db-preferences")
+                    .and_then(Value::as_str)
+                    .and_then(|value| serde_json::from_str::<Vec<Value>>(value).ok())
+                    .and_then(|rows| rows.into_iter().find(|row| row["id"] == key))
+                    .and_then(|row| {
+                        row["valueJson"]
+                            .as_str()
+                            .and_then(|value| serde_json::from_str::<String>(value).ok())
+                    })
+            })
+    };
+    if let Some(text) = text.filter(|text| !text.trim().is_empty()) {
+        // Stable legacy ID prevents repeated imports; retain the original disk value as a migration reader.
+        if let Err(error) = receive_image_handoff(
+            state,
+            pane_id,
+            &format!("{}:{pane_id}:legacy", pane_id.len()),
+            text,
+        )
+        .await
+        {
+            eprintln!("Could not import legacy image chat handoff for {pane_id}: {error}");
+        }
     }
 }
 
@@ -3438,11 +3562,105 @@ fn normalize_client_storage_entries(
         .collect()
 }
 
+const LEGACY_CHAT_PREFERENCES: &str = "inferay-db-preferences";
+const CHAT_PREFERENCES_MIGRATED: &str = "inferay.preferences-migrated-v1";
+
+fn is_chat_preference_key(key: &str) -> bool {
+    [
+        "inferay-chat-session-",
+        "inferay-chat-input-",
+        "inferay-checkpoints-",
+        "inferay-chat-model-",
+        "inferay-chat-reasoning-",
+        "inferay-chat-pending-send-",
+        "inferay-chat-summary-",
+        "inferay-chat-pending-workspace-",
+    ]
+    .iter()
+    .any(|prefix| key.starts_with(prefix))
+}
+
+fn migrate_chat_preferences(
+    snapshot: &mut serde_json::Map<String, Value>,
+    browser: &Value,
+) -> Result<(), String> {
+    if snapshot.get(CHAT_PREFERENCES_MIGRATED) == Some(&json!("1")) {
+        return Ok(());
+    }
+    let native_rows = snapshot
+        .get(LEGACY_CHAT_PREFERENCES)
+        .and_then(Value::as_str);
+    let source = native_rows.or_else(|| browser.as_str());
+    let native_wins = native_rows.is_some();
+    let mut imported = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    if let Some(source) = source {
+        let rows: Vec<Value> = serde_json::from_str(source)
+            .map_err(|error| format!("Invalid saved chat preferences: {error}"))?;
+        for row in rows {
+            let Some(key) = row.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            if !is_chat_preference_key(key) {
+                continue;
+            }
+            let Some(raw) = row.get("valueJson").and_then(Value::as_str) else {
+                continue;
+            };
+            if !seen.insert(key.to_owned()) {
+                continue;
+            }
+            let value: Value = serde_json::from_str(raw)
+                .map_err(|error| format!("Invalid saved preference {key}: {error}"))?;
+            let value = match value {
+                Value::String(_) | Value::Null => value,
+                value => Value::String(value.to_string()),
+            };
+            if native_wins || !snapshot.contains_key(key) {
+                imported.push((key.to_owned(), value));
+            }
+        }
+    }
+    // Preserve the original source on disk; the marker prevents stale imports resurrecting deletions.
+    if !snapshot.contains_key(LEGACY_CHAT_PREFERENCES) && browser.is_string() {
+        snapshot.insert(LEGACY_CHAT_PREFERENCES.into(), browser.clone());
+    }
+    snapshot.extend(imported);
+    snapshot.insert(CHAT_PREFERENCES_MIGRATED.into(), json!("1"));
+    Ok(())
+}
+
+fn client_storage_view(
+    mut entries: serde_json::Map<String, Value>,
+) -> serde_json::Map<String, Value> {
+    if entries.get(CHAT_PREFERENCES_MIGRATED) == Some(&json!("1")) {
+        entries.insert(LEGACY_CHAT_PREFERENCES.into(), Value::Null);
+    }
+    entries
+}
+
+async fn read_client_storage(path: &Path) -> Result<serde_json::Map<String, Value>, String> {
+    match tokio::fs::read(path).await {
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(|error| error.to_string()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(serde_json::Map::new()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
 async fn get_client_storage(state: &ServerState, request: Request) -> Response {
     let request_headers = request.headers().clone();
     let requested_key = query_value(&request, "key");
     let _write_guard = state.client_storage_write.lock().await;
-    let mut entries = read_json_object(&state.client_storage_path).await;
+    let mut entries = match read_client_storage(&state.client_storage_path).await {
+        Ok(entries) => entries,
+        Err(error) => {
+            return json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error":error}),
+                &request_headers,
+            );
+        }
+    };
     if entries.remove(AGENT_STATE_STORAGE_KEY).is_some()
         && let Err(error) = write_json_object(&state.client_storage_path, &entries).await
     {
@@ -3452,6 +3670,7 @@ async fn get_client_storage(state: &ServerState, request: Request) -> Response {
             &request_headers,
         );
     }
+    let mut entries = client_storage_view(entries);
     if let Some(key) = requested_key {
         entries.retain(|entry_key, _| entry_key == &key);
     }
@@ -3471,25 +3690,60 @@ async fn update_client_storage(state: &ServerState, request: Request) -> Respons
     let entries =
         normalize_client_storage_entries(body.get("entries").unwrap_or(&serde_json::Value::Null));
     let _write_guard = state.client_storage_write.lock().await;
-    let mut snapshot = read_json_object(&state.client_storage_path).await;
+    let mut snapshot = match read_client_storage(&state.client_storage_path).await {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            return json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({"error":error}),
+                &request_headers,
+            );
+        }
+    };
+    let migrate = body.get("migrateChatPreferences").and_then(Value::as_bool) == Some(true);
+    let mut changed = migrate && snapshot.get(CHAT_PREFERENCES_MIGRATED) != Some(&json!("1"));
+    if migrate
+        && let Err(error) = migrate_chat_preferences(
+            &mut snapshot,
+            body.get("legacyPreferences").unwrap_or(&Value::Null),
+        )
+    {
+        return json_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({"error":error}),
+            &request_headers,
+        );
+    }
     for (key, value) in entries {
+        if key == CHAT_PREFERENCES_MIGRATED
+            || (key == LEGACY_CHAT_PREFERENCES
+                && snapshot.get(CHAT_PREFERENCES_MIGRATED) == Some(&json!("1")))
+        {
+            continue;
+        }
         if key == AGENT_STATE_STORAGE_KEY && !value.is_null() {
             continue;
         }
-        if value.is_null() {
-            snapshot.remove(&key);
-        } else {
+        if value.is_null() && !is_chat_preference_key(&key) {
+            changed |= snapshot.remove(&key).is_some();
+        } else if snapshot.get(&key) != Some(&value) {
             snapshot.insert(key, value);
+            changed = true;
         }
     }
-    if let Err(error) = write_json_object(&state.client_storage_path, &snapshot).await {
+    if changed && let Err(error) = write_json_object(&state.client_storage_path, &snapshot).await {
         return json_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             json!({ "error": error }),
             &request_headers,
         );
     }
-    json_response(StatusCode::OK, json!({ "ok": true }), &request_headers)
+    let payload = if migrate {
+        json!({"entries": client_storage_view(snapshot)})
+    } else {
+        json!({"ok":true})
+    };
+    json_response(StatusCode::OK, payload, &request_headers)
 }
 
 async fn read_json_object(path: &Path) -> serde_json::Map<String, serde_json::Value> {
@@ -4104,6 +4358,30 @@ async fn handle_native_websocket_message(
             let _ = state.native_chat_service.destroy(pane_id).await;
         }
         "chat:reconnect" if !pane_id.is_empty() => {
+            let workspace = state
+                .agent_state_store
+                .lock()
+                .expect("agent state lock poisoned")
+                .read();
+            let workspace = match workspace {
+                Ok(workspace) => workspace,
+                Err(error) => {
+                    client.send_value(json!({"type":"chat:error","paneId":pane_id,"error":format!("Could not restore saved workspace: {error}")}));
+                    return;
+                }
+            };
+            let pane_exists = workspace["groups"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .flat_map(|group| group["panes"].as_array().into_iter().flatten())
+                .any(|pane| pane["id"] == pane_id);
+            if pane_exists {
+                migrate_legacy_image_handoff(state, pane_id).await;
+            } else if let Err(error) = state.chat_runtime.cancel_handoffs(pane_id).await {
+                client.send_value(json!({"type":"chat:error","paneId":pane_id,"error":format!("Could not cancel removed chat handoff: {error}")}));
+                return;
+            }
             let _ = state
                 .native_chat_service
                 .reconnect(
@@ -4916,6 +5194,75 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         );
         assert!(normalize_client_storage_entries(&serde_json::Value::Null).is_empty());
         assert!(normalize_client_storage_entries(&json!(["not", "an", "object"])).is_empty());
+    }
+
+    #[tokio::test]
+    async fn chat_preference_import_is_acknowledged_once_and_preserves_failed_sources() {
+        let root = TempDir::new().unwrap();
+        let config = test_config(root.path());
+        let path = config.user_data_dir.join("client-storage.json");
+        let app = router(config);
+        let legacy = json!([
+            {"id":"inferay-chat-input-pane", "valueJson":"\"draft\"", "updatedAt":1},
+            {"id":"inferay-chat-model-pane", "valueJson":"\"gpt-6-astra\"", "updatedAt":1},
+            {"id":"inferay-chat-input-pane", "valueJson":"\"stale duplicate\"", "updatedAt":2},
+            {"id":"inferay-chat-pane", "valueJson":"[]", "updatedAt":1}
+        ])
+        .to_string();
+        let (status, imported) = call_json(
+            &app,
+            Method::POST,
+            "/api/client-storage".into(),
+            Some(json!({
+                "migrateChatPreferences":true, "legacyPreferences":legacy
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(imported["entries"]["inferay-chat-input-pane"], "draft");
+        assert_eq!(
+            imported["entries"]["inferay-chat-model-pane"],
+            "gpt-6-astra"
+        );
+        assert!(imported["entries"].get("inferay-chat-pane").is_none());
+        assert!(imported["entries"][LEGACY_CHAT_PREFERENCES].is_null());
+        let (status, _) = call_json(
+            &app,
+            Method::PUT,
+            "/api/client-storage".into(),
+            Some(json!({
+                "entries":{"inferay-chat-input-pane":null}
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, retry) = call_json(
+            &app,
+            Method::POST,
+            "/api/client-storage".into(),
+            Some(json!({
+                "migrateChatPreferences":true, "legacyPreferences":legacy
+            })),
+        )
+        .await;
+        assert_eq!(
+            retry["entries"].get("inferay-chat-input-pane"),
+            Some(&Value::Null)
+        );
+        let stored: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(stored[LEGACY_CHAT_PREFERENCES], legacy);
+        std::fs::write(&path, b"{broken").unwrap();
+        let (status, _) = call_json(
+            &app,
+            Method::POST,
+            "/api/client-storage".into(),
+            Some(json!({
+                "migrateChatPreferences":true, "legacyPreferences":legacy
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(std::fs::read(&path).unwrap(), b"{broken");
     }
 
     #[tokio::test]

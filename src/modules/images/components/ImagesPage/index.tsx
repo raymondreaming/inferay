@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { useNavigate } from "@octanejs/tanstack-router";
-import { useCallback, useMemo, useState } from "octane";
+import { useCallback, useMemo, useRef, useState } from "octane";
 import { fetchJsonOr, postJson } from "../../../../adapters/backend/http.ts";
 import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../../../adapters/storage/keys.ts";
 import { writeStoredValue } from "../../../../adapters/storage/stored-values.ts";
@@ -15,7 +15,6 @@ import {
 	IconSearch,
 	IconTrash,
 } from "../../../../shared/ui/Icons/index.tsx";
-import { savePendingSend } from "../../../conversation/model/chat-session-store.ts";
 import {
 	dispatchAgentShellChange,
 	mutateAgentWorkspaceState,
@@ -61,6 +60,13 @@ export function ImagesPage() {
 		queryKey: ["files", "images"],
 	});
 	const [error, setError] = useState<string | null>(null);
+	const handoffAttempt = useRef<{
+		key: string;
+		requestId: string;
+		paneId: string;
+	} | null>(null);
+	const [startingChat, setStartingChat] = useState(false);
+	const startingChatRef = useRef(false);
 	const [query, setQuery] = useState("");
 	const [selectedPaths, setSelectedPaths] = useState<Set<string>>(
 		() => new Set(),
@@ -116,21 +122,43 @@ export function ImagesPage() {
 	}, [selected, setFiles]);
 
 	const startChat = useCallback(async () => {
-		if (selected.length === 0) return;
+		if (selected.length === 0 || startingChatRef.current) return;
+		startingChatRef.current = true;
 		setError(null);
+		setStartingChat(true);
 		try {
-			const { text } = await postJson<{ text: string }>(
+			const paths = selected.map((file) => file.path);
+			const key = JSON.stringify(paths);
+			if (!handoffAttempt.current || handoffAttempt.current.key !== key) {
+				await postJson("/api/images/chat-message", { paths });
+				const paneId = await ensureChatPaneId();
+				if (!paneId) throw new Error("Could not open a chat");
+				handoffAttempt.current = {
+					key,
+					paneId,
+					requestId: `${new TextEncoder().encode(paneId).length}:${paneId}:${crypto.randomUUID()}`,
+				};
+			}
+			const receipt = await postJson<{ requestId: string; status: string }>(
 				"/api/images/chat-message",
-				{ paths: selected.map((file) => file.path) },
+				{
+					paths,
+					paneId: handoffAttempt.current.paneId,
+					requestId: handoffAttempt.current.requestId,
+				},
 			);
-			const paneId = await ensureChatPaneId();
-			if (!paneId) throw new Error("Could not open a chat");
-			savePendingSend(paneId, text);
+			if (receipt.status === "interrupted" || receipt.status === "cancelled")
+				throw new Error(
+					"This request was accepted before an interruption. Review the chat before resending.",
+				);
 			writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, "chat");
 			dispatchAgentShellChange({ source: "view", reason: "image-start-chat" });
 			navigate({ to: DEFAULT_APP_ROUTE });
 		} catch (error) {
 			setError(error instanceof Error ? error.message : String(error));
+		} finally {
+			setStartingChat(false);
+			startingChatRef.current = false;
 		}
 	}, [navigate, selected]);
 
@@ -159,7 +187,7 @@ export function ImagesPage() {
 					<button
 						type="button"
 						onClick={startChat}
-						disabled={selected.length === 0}
+						disabled={selected.length === 0 || startingChat}
 						{...stylex.props(
 							styles.actionButton,
 							selected.length === 0

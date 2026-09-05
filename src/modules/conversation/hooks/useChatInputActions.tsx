@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "octane";
+import { useCallback } from "octane";
 import type React from "react";
 import { wsClient } from "../../../adapters/backend/websocket.ts";
 import {
@@ -12,10 +12,8 @@ import {
 } from "../../../modules/conversation/model/agent-chat-shared.ts";
 import {
 	clearAgentChatPaneState,
-	clearPendingSend,
 	clearProviderSessionId,
 	getProviderSessionId,
-	loadPendingSend,
 } from "../../../modules/conversation/model/chat-session-store.ts";
 import type { AgentKind } from "../../../modules/workspace/model/workspace-model.ts";
 import { hideMenuState } from "../model/chat-agent-utils.ts";
@@ -67,7 +65,6 @@ export function useChatInputActions({
 	consumePendingWorkspace,
 	cwd,
 	effectiveSelectedModel,
-	enabled = true,
 	fileMenu,
 	fileResults,
 	filteredCommands,
@@ -100,7 +97,6 @@ export function useChatInputActions({
 	consumePendingWorkspace: () => ChatWorkspaceOverride | undefined;
 	cwd?: string;
 	effectiveSelectedModel: string;
-	enabled?: boolean;
 	fileMenu: FileMenuState;
 	fileResults: FileSearchResult[];
 	filteredCommands: SlashCommand[];
@@ -127,8 +123,6 @@ export function useChatInputActions({
 	slashMenu: SlashMenuState;
 	textareaRef: React.RefObject<HTMLTextAreaElement | null>;
 }) {
-	const pendingSendConsumedRef = useRef(false);
-
 	const appendLocalMessage = useCallback(
 		(message: Pick<ChatMessage, "role" | "content" | "images">) => {
 			const id = nextId();
@@ -439,17 +433,6 @@ export function useChatInputActions({
 			slashMenu.selectedIdx,
 		],
 	);
-
-	useEffect(() => {
-		if (!enabled || pendingSendConsumedRef.current || isLoading) return;
-		const pending = loadPendingSend(paneId).trim();
-		if (!pending) return;
-		pendingSendConsumedRef.current = true;
-		clearPendingSend(paneId);
-		setInput("");
-		const messageId = appendLocalMessage({ role: "user", content: pending });
-		sendToServer(pending, undefined, pending, undefined, messageId);
-	}, [enabled, isLoading, paneId, sendToServer, setInput, appendLocalMessage]);
 
 	return {
 		handleKeyDown,

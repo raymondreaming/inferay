@@ -183,6 +183,7 @@ pub struct ChatRuntime {
     sessions: Arc<Mutex<HashMap<String, Arc<Mutex<ChatSession>>>>>,
     persistence: ChatPersistence,
     queue_publication: Arc<Mutex<()>>,
+    handoffs_inflight: Arc<Mutex<HashMap<String, tokio::task::AbortHandle>>>,
     checkpoints: CheckpointService,
     executor: Arc<dyn AgentExecutor>,
     agent_context: Arc<Mutex<AgentContextStore>>,
@@ -200,6 +201,7 @@ impl ChatRuntime {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             queue_publication: Arc::new(Mutex::new(())),
+            handoffs_inflight: Arc::new(Mutex::new(HashMap::new())),
             persistence,
             checkpoints,
             executor,
@@ -238,6 +240,147 @@ impl ChatRuntime {
             let _ = sender.send(message);
         } else if let Some(session) = self.session(pane_id).await {
             self.emit(&session, message).await;
+        }
+    }
+
+    fn handoff_input(
+        pane_id: &str,
+        request_id: &str,
+        request: &Value,
+        client_id: ClientId,
+        sender: broadcast::Sender<Value>,
+    ) -> Option<SendMessageInput> {
+        Some(SendMessageInput {
+            expand_commands: false,
+            command_id: None,
+            command_args: None,
+            client_message_id: Some(request_id.into()),
+            pane_id: pane_id.into(),
+            agent_kind: request["agentKind"].as_str()?.into(),
+            client_session_id: None,
+            cwd: PathBuf::from(request["cwd"].as_str()?),
+            cwd_provided: true,
+            model: request["model"].as_str().map(str::to_owned),
+            reasoning_level: request["reasoningLevel"].as_str().map(str::to_owned),
+            reasoning_level_provided: true,
+            reference_paths: request["referencePaths"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(PathBuf::from)
+                .collect(),
+            reference_paths_provided: true,
+            display_text: None,
+            images: Vec::new(),
+            text: request["text"].as_str()?.into(),
+            client_id: Some(client_id),
+            client_sender: Some(sender),
+            include_workspace: true,
+        })
+    }
+
+    async fn resume_handoffs(
+        &self,
+        pane_id: &str,
+        client_id: ClientId,
+        sender: &broadcast::Sender<Value>,
+    ) {
+        let mut inflight = self.handoffs_inflight.lock().await;
+        let receipts = match self.persistence.handoff_receipts(pane_id).await {
+            Ok(receipts) => receipts,
+            Err(error) => {
+                let _ = sender.send(json!({"type":"chat:system","paneId":pane_id,"message":format!("Image chat handoff could not be restored: {error}")}));
+                return;
+            }
+        };
+        for receipt in receipts {
+            let Some(id) = receipt["requestId"].as_str() else {
+                continue;
+            };
+            let key = format!("{pane_id}/{id}");
+            if inflight.contains_key(&key) {
+                continue;
+            }
+            if receipt["status"] == "accepted" {
+                if self
+                    .persistence
+                    .read_queue(pane_id)
+                    .await
+                    .unwrap_or_default()
+                    .iter()
+                    .any(|item| item["id"] == id)
+                {
+                    let _ = self
+                        .persistence
+                        .mark_handoff(pane_id, id, "dispatched")
+                        .await;
+                    continue;
+                }
+                if let Some(input) =
+                    Self::handoff_input(pane_id, id, &receipt["request"], client_id, sender.clone())
+                {
+                    let session = self.ensure_session(&input).await;
+                    self.emit_system(&session, "An image chat request was accepted before the app stopped, but its dispatch was interrupted. Review this chat and resend if needed; it was not automatically run again.").await;
+                    let _ = self
+                        .persistence
+                        .mark_handoff(pane_id, id, "interrupted")
+                        .await;
+                    let _ = sender.send(json!({"type":"chat:handoff","paneId":pane_id,"requestId":id,"status":"interrupted"}));
+                }
+                continue;
+            }
+            if receipt["status"] != "pending" {
+                continue;
+            }
+            let Some(input) =
+                Self::handoff_input(pane_id, id, &receipt["request"], client_id, sender.clone())
+            else {
+                continue;
+            };
+            match self.persistence.claim_handoff(pane_id, id).await {
+                Ok(Some(_)) => {}
+                Ok(None) => continue,
+                Err(error) => {
+                    let _ = sender.send(json!({"type":"chat:system","paneId":pane_id,"message":format!("Image chat request could not be accepted: {error}")}));
+                    continue;
+                }
+            }
+            // Register the session before dispatch, so cancellation can always stop its handle.
+            self.ensure_session(&input).await;
+            let _ = sender.send(
+                json!({"type":"chat:handoff","paneId":pane_id,"requestId":id,"status":"accepted"}),
+            );
+            let runtime = self.clone();
+            let id = id.to_owned();
+            let pane = pane_id.to_owned();
+            let task_key = key.clone();
+            let task = tokio::spawn(async move {
+                runtime.send_message(input).await;
+                let snapshot = runtime
+                    .persistence
+                    .persisted_reconnect_snapshot(&pane)
+                    .await;
+                let received = snapshot.sync["messages"]
+                    .as_array()
+                    .is_some_and(|messages| messages.iter().any(|message| message["id"] == id))
+                    || snapshot.queue["queue"]
+                        .as_array()
+                        .is_some_and(|queue| queue.iter().any(|item| item["id"] == id));
+                let status = if received {
+                    "dispatched"
+                } else {
+                    "interrupted"
+                };
+                if !received && let Some(session) = runtime.session(&pane).await {
+                    runtime.emit_system(&session, "Image chat dispatch was not confirmed. Review this chat and retry if needed.").await;
+                }
+                if let Err(error) = runtime.persistence.mark_handoff(&pane, &id, status).await {
+                    eprintln!("Failed to finalize image chat receipt for {pane}: {error}");
+                }
+                runtime.handoffs_inflight.lock().await.remove(&task_key);
+            });
+            inflight.insert(key, task.abort_handle());
         }
     }
 
@@ -394,6 +537,7 @@ impl ChatRuntime {
                     let queued = serde_json::to_value(QueuedMessageInfo {
                         id: pending_steer_id
                             .take()
+                            .or_else(|| input.client_message_id.clone())
                             .unwrap_or_else(|| Uuid::new_v4().to_string()),
                         text: input.text.clone(),
                         display_text: input
@@ -403,11 +547,19 @@ impl ChatRuntime {
                         images: (!input.images.is_empty()).then(|| paths_to_strings(&input.images)),
                     })
                     .expect("queue serialization");
-                    let _ = self
+                    if let Err(error) = self
                         .persistence
                         .enqueue_runtime(&input.pane_id, queued)
                         .await
-                        .unwrap_or_default();
+                    {
+                        drop(state);
+                        self.emit_system(
+                            &session,
+                            &format!("Message could not be queued: {error}"),
+                        )
+                        .await;
+                        return;
+                    }
                     drop(state);
                     self.broadcast_queue(&input.pane_id).await;
                     return;
@@ -544,7 +696,39 @@ impl ChatRuntime {
             .await;
     }
 
+    pub async fn handoff_admission_guard(
+        &self,
+    ) -> tokio::sync::MutexGuard<'_, HashMap<String, tokio::task::AbortHandle>> {
+        self.handoffs_inflight.lock().await
+    }
+
+    pub async fn cancel_handoffs(&self, pane_id: &str) -> Result<(), String> {
+        let mut inflight = self.handoffs_inflight.lock().await;
+        let prefix = format!("{pane_id}/");
+        inflight.retain(|key, task| {
+            if key.starts_with(&prefix) {
+                task.abort();
+                false
+            } else {
+                true
+            }
+        });
+        for receipt in self.persistence.handoff_receipts(pane_id).await? {
+            if matches!(receipt["status"].as_str(), Some("pending" | "accepted"))
+                && let Some(id) = receipt["requestId"].as_str()
+            {
+                self.persistence
+                    .mark_handoff(pane_id, id, "cancelled")
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn destroy_session(&self, pane_id: &str) {
+        if let Err(error) = self.cancel_handoffs(pane_id).await {
+            eprintln!("Could not cancel image chat handoff for {pane_id}: {error}");
+        }
         if let Some(session) = self.sessions.lock().await.remove(pane_id) {
             {
                 let mut state = session.lock().await;
@@ -715,6 +899,7 @@ impl ChatRuntime {
             self.publish_queue(pane_id, Some(&sender)).await;
             let _ = sender.send(snapshot.status);
         }
+        self.resume_handoffs(pane_id, client_id, &sender).await;
     }
 
     pub async fn list_sessions(&self) -> Vec<AgentSessionInfo> {
@@ -2088,6 +2273,114 @@ mod tests {
             context_hash: None,
             pending_steers: Vec::new(),
         }))
+    }
+
+    async fn wait_handoff(persistence: &ChatPersistence, status: &str) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if persistence.handoff_receipts("pane").await.unwrap()[0]["status"] == status {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn pending_handoff_restarts_once_and_cancelled_handoff_never_runs() {
+        let root = tempfile::tempdir().unwrap();
+        let executor = Arc::new(RecordingExecutor::default());
+        let (runtime, persistence, _) = test_runtime(root.path(), executor.clone());
+        let request = json!({"text":"explain image","agentKind":"codex","cwd":root.path()});
+        persistence
+            .receive_handoff("pane", "4:pane:one", request.clone())
+            .await
+            .unwrap();
+        drop(runtime);
+        let (runtime, _, _) = test_runtime(root.path(), executor.clone());
+        let (sender, _) = broadcast::channel(64);
+        runtime.resume_handoffs("pane", 1, &sender).await;
+        wait_handoff(&persistence, "dispatched").await;
+        runtime.resume_handoffs("pane", 1, &sender).await;
+        assert_eq!(executor.0.lock().unwrap().len(), 1);
+        persistence
+            .receive_handoff("pane", "4:pane:two", request)
+            .await
+            .unwrap();
+        runtime.cancel_handoffs("pane").await.unwrap();
+        runtime.resume_handoffs("pane", 1, &sender).await;
+        assert_eq!(executor.0.lock().unwrap().len(), 1);
+        assert!(
+            persistence
+                .handoff_receipts("pane")
+                .await
+                .unwrap()
+                .iter()
+                .any(|item| item["status"] == "cancelled")
+        );
+    }
+
+    #[tokio::test]
+    async fn accepted_handoff_after_restart_is_interrupted_without_replay() {
+        let root = tempfile::tempdir().unwrap();
+        let (runtime, persistence, _) = test_runtime(root.path(), Arc::new(UnusedExecutor));
+        persistence
+            .receive_handoff(
+                "pane",
+                "4:pane:one",
+                json!({"text":"image","agentKind":"codex","cwd":root.path()}),
+            )
+            .await
+            .unwrap();
+        persistence
+            .claim_handoff("pane", "4:pane:one")
+            .await
+            .unwrap();
+        let (sender, _) = broadcast::channel(64);
+        runtime.resume_handoffs("pane", 1, &sender).await;
+        wait_handoff(&persistence, "interrupted").await;
+    }
+
+    #[tokio::test]
+    async fn busy_handoff_is_queued_once_and_failed_queue_is_interrupted() {
+        for fail_write in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let (runtime, persistence, _) = test_runtime(root.path(), Arc::new(UnusedExecutor));
+            let (sender, _) = broadcast::channel(64);
+            runtime.sessions.lock().await.insert(
+                "pane".into(),
+                test_session(root.path(), sender.clone(), None),
+            );
+            persistence
+                .receive_handoff(
+                    "pane",
+                    "4:pane:one",
+                    json!({"text":"image","agentKind":"codex","cwd":root.path()}),
+                )
+                .await
+                .unwrap();
+            if fail_write {
+                std::fs::write(root.path().join("data/chat-queues"), "not a directory").unwrap();
+            }
+            runtime.resume_handoffs("pane", 1, &sender).await;
+            wait_handoff(
+                &persistence,
+                if fail_write {
+                    "interrupted"
+                } else {
+                    "dispatched"
+                },
+            )
+            .await;
+            runtime.resume_handoffs("pane", 1, &sender).await;
+            if !fail_write {
+                let queue = persistence.read_queue("pane").await.unwrap();
+                assert_eq!(queue.len(), 1);
+                assert_eq!(queue[0]["id"], "4:pane:one");
+            }
+        }
     }
 
     #[tokio::test]

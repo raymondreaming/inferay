@@ -210,7 +210,7 @@ test("chat queue restore ignores legacy local queue and preference rows", async 
 	}
 });
 
-test("stale chat storage cleanup removes legacy transcript queue and db rows", async () => {
+test("stale chat cleanup preserves preference imports for native acknowledgment", async () => {
 	const restoreBrowserStorage = installBrowserStorage();
 	try {
 		const { cleanupStaleChatClientStorage } = await import(
@@ -259,6 +259,8 @@ test("stale chat storage cleanup removes legacy transcript queue and db rows", a
 			localStorage.getItem("inferay-db-preferences") ?? "[]",
 		) as Array<{ id: string }>;
 		expect(preferences.map((entry) => entry.id)).toEqual([
+			"inferay-chat-pane-stale",
+			"inferay-chat-queue-pane-stale",
 			"inferay-chat-input-pane-stays",
 		]);
 	} finally {
@@ -507,19 +509,12 @@ test("chat clear operations remove durable preference rows", async () => {
 	try {
 		const {
 			clearAgentChatPaneState,
-			clearPendingSend,
 			clearProviderSessionId,
-			loadPendingSend,
 			loadStoredInput,
 			getProviderSessionId,
-			savePendingSend,
 			saveStoredInput,
 			setProviderSessionId,
 		} = await import("../src/modules/conversation/model/chat-session-store.ts");
-
-		savePendingSend("pane-clear-pending", "send me");
-		clearPendingSend("pane-clear-pending");
-		expect(loadPendingSend("pane-clear-pending")).toBe("");
 
 		setProviderSessionId("pane-clear-session", "session-id");
 		clearProviderSessionId("pane-clear-session");
@@ -533,5 +528,53 @@ test("chat clear operations remove durable preference rows", async () => {
 	} finally {
 		globalThis.fetch = previousFetch;
 		restoreBrowserStorage();
+	}
+});
+
+test("preference hydration preserves browser-only workspace imports and retries safely", async () => {
+	const restore = installBrowserStorage();
+	const previousFetch = globalThis.fetch;
+	try {
+		const { hydrateStoredValues } = await import(
+			"../src/adapters/storage/sync.ts"
+		);
+		const workspace = '{"groups":[{"id":"browser-only"}]}';
+		const legacy = '[{"id":"inferay-chat-input-pane","valueJson":"draft"}]';
+		localStorage.setItem("inferay-agent-state", workspace);
+		localStorage.setItem("inferay-db-preferences", legacy);
+		localStorage.setItem("inferay-chat-model-deleted", "stale model");
+		globalThis.fetch = mock(() =>
+			Promise.resolve(
+				Response.json({ error: "disk failure" }, { status: 500 }),
+			),
+		) as typeof fetch;
+		await expect(hydrateStoredValues()).rejects.toThrow();
+		expect(localStorage.getItem("inferay-agent-state")).toBe(workspace);
+		expect(localStorage.getItem("inferay-db-preferences")).toBe(legacy);
+		globalThis.fetch = mock((_url, init) => {
+			const body = JSON.parse(String(init?.body));
+			if (body.migrateChatPreferences) {
+				expect(body.legacyPreferences).toBe(legacy);
+				return Promise.resolve(
+					Response.json({
+						entries: {
+							"inferay-db-preferences": null,
+							"inferay-chat-input-pane": "draft",
+							"inferay-chat-model-deleted": null,
+							"inferay-agent-state": null,
+						},
+					}),
+				);
+			}
+			return Promise.resolve(Response.json({ ok: true }));
+		}) as typeof fetch;
+		await hydrateStoredValues();
+		expect(localStorage.getItem("inferay-agent-state")).toBe(workspace);
+		expect(localStorage.getItem("inferay-db-preferences")).toBeNull();
+		expect(localStorage.getItem("inferay-chat-input-pane")).toBe("draft");
+		expect(localStorage.getItem("inferay-chat-model-deleted")).toBeNull();
+	} finally {
+		globalThis.fetch = previousFetch;
+		restore();
 	}
 });

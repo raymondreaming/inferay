@@ -25,11 +25,9 @@ const INPUT_KEY_PREFIX = "inferay-chat-input-";
 const CHECKPOINT_KEY_PREFIX = "inferay-checkpoints-";
 const MODEL_KEY_PREFIX = "inferay-chat-model-";
 const REASONING_KEY_PREFIX = "inferay-chat-reasoning-";
-const PENDING_SEND_KEY_PREFIX = "inferay-chat-pending-send-";
 const SUMMARY_KEY_PREFIX = "inferay-chat-summary-";
 const PENDING_WORKSPACE_KEY_PREFIX = "inferay-chat-pending-workspace-";
 const QUEUE_KEY_PREFIX = "inferay-chat-queue-";
-const PREFERENCES_STORAGE_KEY = "inferay-db-preferences";
 const STALE_CHAT_DB_STORAGE_KEYS = [
 	"inferay-db-conversations",
 	"inferay-db-messages",
@@ -46,12 +44,6 @@ const chatCheckpointReadModels = new Map<string, ChatCheckpointReadModel>();
 const chatQueueReadModels = new Map<string, ChatQueueReadModel>();
 const chatRunStatusReadModels = new Map<string, ChatRunStatusReadModel>();
 const providerSessionIds = new Map<string, string>();
-
-type DbPreference = {
-	id: string;
-	valueJson: string;
-	updatedAt: number;
-};
 
 type ChatMessageReadModelListener = () => void;
 type ChatCheckpointReadModelListener = () => void;
@@ -149,43 +141,6 @@ function removePaneValue(prefix: string, paneId: string) {
 	removeStoredValue(storageKey(prefix, paneId));
 }
 
-function readPreferenceRows(): DbPreference[] {
-	const rows = readStoredJson<unknown>(PREFERENCES_STORAGE_KEY, []);
-	if (!Array.isArray(rows)) return [];
-	return rows.filter(
-		(row): row is DbPreference =>
-			!!row &&
-			typeof row === "object" &&
-			typeof (row as DbPreference).id === "string" &&
-			typeof (row as DbPreference).valueJson === "string" &&
-			typeof (row as DbPreference).updatedAt === "number",
-	);
-}
-
-function loadPreference<T>(id: string, fallback: T): T {
-	const value = readPreferenceRows().find((row) => row.id === id)?.valueJson;
-	return value ? JSON.parse(value) : fallback;
-}
-
-function savePreference(id: string, value: unknown) {
-	const valueJson = JSON.stringify(value);
-	const rows = readPreferenceRows();
-	const index = rows.findIndex((row) => row.id === id);
-	if (index >= 0 && rows[index]?.valueJson === valueJson) return;
-	const row = { id, valueJson, updatedAt: Date.now() };
-	if (index >= 0) rows[index] = row;
-	else rows.push(row);
-	writeStoredJson(PREFERENCES_STORAGE_KEY, rows);
-}
-
-function removePreference(id: string) {
-	const rows = readPreferenceRows();
-	const next = rows.filter((row) => row.id !== id);
-	if (next.length === rows.length) return;
-	if (next.length === 0) removeStoredValue(PREFERENCES_STORAGE_KEY);
-	else writeStoredJson(PREFERENCES_STORAGE_KEY, next);
-}
-
 function listLocalStorageKeys(): string[] {
 	try {
 		return Array.from({ length: localStorage.length }, (_, index) =>
@@ -194,18 +149,6 @@ function listLocalStorageKeys(): string[] {
 	} catch {
 		return [];
 	}
-}
-
-function isStaleChatPreferenceId(id: string): boolean {
-	return isChatMessageStorageKey(id) || id.startsWith(QUEUE_KEY_PREFIX);
-}
-
-function cleanupStalePreferenceRows() {
-	const rows = readPreferenceRows();
-	const kept = rows.filter((row) => !isStaleChatPreferenceId(row.id));
-	if (kept.length === rows.length) return;
-	if (kept.length === 0) removeStoredValue(PREFERENCES_STORAGE_KEY);
-	else writeStoredJson(PREFERENCES_STORAGE_KEY, kept);
 }
 
 export function cleanupStaleChatClientStorage() {
@@ -218,7 +161,6 @@ export function cleanupStaleChatClientStorage() {
 			removeStoredValue(key);
 		}
 	}
-	cleanupStalePreferenceRows();
 }
 
 cleanupStaleChatClientStorage();
@@ -276,44 +218,19 @@ export function getChatMessageReadModel(paneId: string): ChatMessageReadModel {
 }
 
 export function loadStoredInput(paneId: string): string {
-	return loadPreference(
-		storageKey(INPUT_KEY_PREFIX, paneId),
-		readPaneValue(INPUT_KEY_PREFIX, paneId, "") ?? "",
-	);
+	return readPaneValue(INPUT_KEY_PREFIX, paneId, "") ?? "";
 }
 
 export function saveStoredInput(paneId: string, value: string) {
 	writePaneValue(INPUT_KEY_PREFIX, paneId, value);
-	savePreference(storageKey(INPUT_KEY_PREFIX, paneId), value);
-}
-
-export function loadPendingSend(paneId: string): string {
-	return loadPreference(
-		storageKey(PENDING_SEND_KEY_PREFIX, paneId),
-		readPaneValue(PENDING_SEND_KEY_PREFIX, paneId, "") ?? "",
-	);
-}
-
-export function savePendingSend(paneId: string, value: string) {
-	writePaneValue(PENDING_SEND_KEY_PREFIX, paneId, value);
-	savePreference(storageKey(PENDING_SEND_KEY_PREFIX, paneId), value);
-}
-
-export function clearPendingSend(paneId: string) {
-	removePaneValue(PENDING_SEND_KEY_PREFIX, paneId);
-	removePreference(storageKey(PENDING_SEND_KEY_PREFIX, paneId));
 }
 
 export function loadStoredCheckpoints<T>(paneId: string): T[] {
-	return loadPreference(
-		storageKey(CHECKPOINT_KEY_PREFIX, paneId),
-		readPaneJson(CHECKPOINT_KEY_PREFIX, paneId, []),
-	);
+	return readPaneJson(CHECKPOINT_KEY_PREFIX, paneId, []);
 }
 
 export function saveStoredCheckpoints<T>(paneId: string, checkpoints: T[]) {
 	writePaneJson(CHECKPOINT_KEY_PREFIX, paneId, checkpoints);
-	savePreference(storageKey(CHECKPOINT_KEY_PREFIX, paneId), checkpoints);
 }
 
 function createChatCheckpointReadModel(
@@ -404,10 +321,7 @@ export function getProviderSessionId(paneId: string): string | null {
 		providerSessionIds.set(paneId, paneSessionId);
 		return paneSessionId;
 	}
-	const legacy = loadPreference(
-		storageKey(LEGACY_SESSION_KEY_PREFIX, paneId),
-		readPaneValue(LEGACY_SESSION_KEY_PREFIX, paneId),
-	);
+	const legacy = readPaneValue(LEGACY_SESSION_KEY_PREFIX, paneId);
 	if (legacy) setProviderSessionId(paneId, legacy);
 	return legacy;
 }
@@ -416,34 +330,25 @@ export function setProviderSessionId(paneId: string, sessionId: string) {
 	if (providerSessionIds.get(paneId) === sessionId) return;
 	providerSessionIds.set(paneId, sessionId);
 	removePaneValue(LEGACY_SESSION_KEY_PREFIX, paneId);
-	removePreference(storageKey(LEGACY_SESSION_KEY_PREFIX, paneId));
 	setPaneProviderSession(paneId, sessionId);
 }
 
 export function clearProviderSessionId(paneId: string) {
 	providerSessionIds.delete(paneId);
 	removePaneValue(LEGACY_SESSION_KEY_PREFIX, paneId);
-	removePreference(storageKey(LEGACY_SESSION_KEY_PREFIX, paneId));
 	setPaneProviderSession(paneId, null);
 }
 
 export function loadStoredModel(paneId: string): string | null {
-	return loadPreference(
-		storageKey(MODEL_KEY_PREFIX, paneId),
-		readPaneValue(MODEL_KEY_PREFIX, paneId),
-	);
+	return readPaneValue(MODEL_KEY_PREFIX, paneId);
 }
 
 export function saveStoredModel(paneId: string, modelId: string) {
 	writePaneValue(MODEL_KEY_PREFIX, paneId, modelId);
-	savePreference(storageKey(MODEL_KEY_PREFIX, paneId), modelId);
 }
 
 export function loadStoredReasoningLevel(paneId: string): string | null {
-	return loadPreference(
-		storageKey(REASONING_KEY_PREFIX, paneId),
-		readPaneValue(REASONING_KEY_PREFIX, paneId),
-	);
+	return readPaneValue(REASONING_KEY_PREFIX, paneId);
 }
 
 export function saveStoredReasoningLevel(
@@ -451,19 +356,14 @@ export function saveStoredReasoningLevel(
 	reasoningLevel: string,
 ) {
 	writePaneValue(REASONING_KEY_PREFIX, paneId, reasoningLevel);
-	savePreference(storageKey(REASONING_KEY_PREFIX, paneId), reasoningLevel);
 }
 
 function loadStoredSummary(paneId: string): string | null {
-	return loadPreference(
-		storageKey(SUMMARY_KEY_PREFIX, paneId),
-		readPaneValue(SUMMARY_KEY_PREFIX, paneId),
-	);
+	return readPaneValue(SUMMARY_KEY_PREFIX, paneId);
 }
 
 function saveStoredSummary(paneId: string, summary: string) {
 	writePaneValue(SUMMARY_KEY_PREFIX, paneId, summary);
-	savePreference(storageKey(SUMMARY_KEY_PREFIX, paneId), summary);
 }
 
 export function deriveStoredSummary(
@@ -505,12 +405,10 @@ export function loadPendingWorkspacePaths(paneId: string): string[] {
 export function savePendingWorkspacePaths(paneId: string, paths: string[]) {
 	if (paths.length === 0) removePaneValue(PENDING_WORKSPACE_KEY_PREFIX, paneId);
 	else writePaneJson(PENDING_WORKSPACE_KEY_PREFIX, paneId, paths);
-	savePreference(storageKey(PENDING_WORKSPACE_KEY_PREFIX, paneId), paths);
 }
 
 export function loadStoredQueue<T>(paneId: string): T[] {
 	removePaneValue(QUEUE_KEY_PREFIX, paneId);
-	removePreference(storageKey(QUEUE_KEY_PREFIX, paneId));
 	return [];
 }
 
@@ -696,7 +594,6 @@ export function clearAgentChatPaneState(paneId: string) {
 		PENDING_WORKSPACE_KEY_PREFIX,
 	]) {
 		removePaneValue(prefix, paneId);
-		removePreference(storageKey(prefix, paneId));
 	}
 	deleteLegacyChatDatabase();
 	void fetch(`/api/chat-queues/${encodeURIComponent(paneId)}`, {
