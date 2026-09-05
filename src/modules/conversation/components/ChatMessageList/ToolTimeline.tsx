@@ -4,11 +4,10 @@ import { IconChevronDown } from "../../../../shared/ui/Icons/index.tsx";
 import {
 	getToolDisplayInfo,
 	type RenderChatMessage,
-} from "../../model/chat-message-render-utils.ts";
+} from "../../model/agent-chat-shared.ts";
 import { CopyButton } from "../ChatRichContent/index.tsx";
 import { styles } from "./styles.ts";
 import { ToolOutputHighlight } from "./ToolOutputHighlight.tsx";
-
 export function ToolTimeline({
 	tools,
 	expandedTools,

@@ -2,7 +2,7 @@ import * as stylex from "@octanejs/stylex";
 import { useEffect, useState } from "octane";
 import { fetchJson, postJson } from "../../../../adapters/backend/http.ts";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
-import type { EffectiveAgentContext } from "../../../context/model/types.ts";
+import type { EffectiveAgentContext } from "../../../skills/model/skill-library.ts";
 import { styles } from "./styles.ts";
 
 export function GlobalAgentInstructionsSection({

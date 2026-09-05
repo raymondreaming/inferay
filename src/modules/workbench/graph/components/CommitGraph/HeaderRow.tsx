@@ -3,17 +3,16 @@ import {
 	IconSearch,
 	IconSettings,
 } from "../../../../../shared/ui/Icons/index.tsx";
-import type { GitGraphRef } from "../../../../repository/hooks/useGitGraph";
-import { ColumnResizeHandle } from "./ColumnResizeHandle.tsx";
+import type { GitGraphRef } from "../../../../repository/hooks/useGitGraph.tsx";
 import {
 	type ColumnKey,
 	type ColumnVisibility,
 	type ColumnWidths,
 	TOOLS_WIDTH,
-} from "./shared.ts";
+} from "../../model/graph-model.ts";
+import { ColumnResizeHandle } from "./ColumnResizeHandle.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
-
 export function HeaderRow({
 	graphWidth,
 	columns,

@@ -1,5 +1,8 @@
-import type { ReactElement } from "../../../../types/octane-react-compat.ts";
-import type { ShadowLayer } from "../shadow";
+import type { ReactElement, ShadowLayer } from "../observer.ts";
+
+/** Alpha-binarize matrix used before spread dilation: the goo alpha has a soft
+ *  fringe past the opaque edge — dilating it directly pushes a spread ring a
+ *  pixel out and the fringe reads as a second hairline. */
 
 /** Alpha-binarize matrix used before spread dilation: the goo alpha has a soft
  *  fringe past the opaque edge — dilating it directly pushes a spread ring a

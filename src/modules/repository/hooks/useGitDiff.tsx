@@ -1,7 +1,7 @@
 import { useQuery } from "@octanejs/tanstack-query";
 import { useMemo } from "octane";
-import { ByteCache } from "../../../shared/lib/byte-cache.ts";
-import { queryClient } from "../../../shared/lib/query-client.ts";
+import { queryClient } from "../../../shared/lib/data.ts";
+import { ByteCache } from "../../../shared/lib/highlight-engine.ts";
 
 import type { DiffLine, DiffRequest, HunkDiff } from "../model/types.ts";
 

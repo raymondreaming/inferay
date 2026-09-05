@@ -1,8 +1,10 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useEffect, useRef, useState } from "octane";
 import { resolveServerUrl } from "../../../../adapters/backend/http.ts";
-import { APP_BACKGROUND_STORAGE_KEY } from "../../../../adapters/storage/keys.ts";
-import { CLIENT_STORAGE_CHANGED_EVENT } from "../../../../adapters/storage/sync.ts";
+import {
+	APP_BACKGROUND_STORAGE_KEY,
+	CLIENT_STORAGE_CHANGED_EVENT,
+} from "../../../../adapters/storage/stored-values.ts";
 import {
 	APP_BACKGROUNDS,
 	type AppBackgroundId,
@@ -13,7 +15,7 @@ import {
 	saveAppThemeId,
 } from "../../../../app/model/appearance.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { listenWindowEvent } from "../../../../shared/lib/react-events.ts";
+import { listenWindowEvent } from "../../../../shared/lib/data.ts";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
 import { IconFolder } from "../../../../shared/ui/Icons/index.tsx";
 import * as inlineStyles from "./styles.ts";

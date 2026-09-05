@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { resolveFileIconUrl } from "./shared.ts";
+import { resolveFileIconUrl } from "../../model/explorer-events.ts";
 import * as inlineStyles from "./styles.ts";
 
 export function FileTypeIcon({
@@ -25,5 +25,5 @@ export function FileTypeIcon({
 	);
 }
 
+export { resolveFileIconUrl } from "../../model/explorer-events.ts";
 export { FolderTypeIcon, resolveFolderIconUrl } from "./FolderTypeIcon.tsx";
-export { resolveFileIconUrl } from "./shared.ts";

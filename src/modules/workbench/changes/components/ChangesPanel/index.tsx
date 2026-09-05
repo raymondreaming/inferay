@@ -10,12 +10,15 @@ import type {
 	GitFileEntry,
 	GitFilePresentation,
 } from "../../../../repository/model/types.ts";
+import {
+	type SelectedFile,
+	visibleGitFiles,
+} from "../../../model/workbench-model.ts";
 import { ChangesPanelHeader } from "./ChangesPanelHeader.tsx";
 import { CommitDetailsPanel } from "./CommitDetailsPanel.tsx";
 import { CommitSection } from "./CommitSection.tsx";
 import { ComparisonDetailsPanel } from "./ComparisonDetailsPanel.tsx";
 import { FileGroup } from "./FileGroup.tsx";
-import { type SelectedFile, visibleGitFiles } from "./shared.ts";
 import { styles } from "./styles.ts";
 
 export function getFileSelectionAfterToggle<T extends SelectedFile>(
@@ -365,6 +368,6 @@ export const ChangesPanel = memo(function ChangesPanel(
 	);
 });
 
+export type { SelectedFile } from "../../../model/workbench-model.ts";
+export { visibleGitFiles } from "../../../model/workbench-model.ts";
 export { CollapsedChangesPanel } from "./CollapsedChangesPanel.tsx";
-export type { SelectedFile } from "./shared.ts";
-export { visibleGitFiles } from "./shared.ts";

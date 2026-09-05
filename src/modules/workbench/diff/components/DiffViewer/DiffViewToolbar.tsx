@@ -5,8 +5,8 @@ import {
 	IconGitBranch,
 	IconLayoutGrid,
 } from "../../../../../shared/ui/Icons/index.tsx";
+import type { DiffViewMode } from "../../../model/workbench-model.ts";
 import { DiffViewButton } from "./DiffViewButton.tsx";
-import type { DiffViewMode } from "./shared.ts";
 import { diffStyles } from "./styles.ts";
 
 export function DiffViewToolbar({

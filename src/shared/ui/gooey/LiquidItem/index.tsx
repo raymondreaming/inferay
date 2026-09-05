@@ -1,15 +1,18 @@
-import type {
-	CSSProperties,
-	ReactNode,
-} from "../../../../types/octane-react-compat.ts";
-import { GooeyItem } from "../GooeyItem";
-import type { CornerRadii } from "../geometry";
+import { GooeyItem } from "../GooeyItem/index.tsx";
+import type { CornerRadii, CSSProperties, ReactNode } from "../observer.ts";
 import {
 	EVOLVE_DEFAULTS,
 	type EvolveOptions,
 	MOVE_DEFAULTS,
 	type MoveOptions,
-} from "../observer";
+} from "../observer.ts";
+
+/** The two public liquid behaviors:
+ *  - 'morph' (default): pieces merge gooily, change shape like jelly, and can
+ *    animate menus, avatar groups, and morphing
+ *    panels.
+ *  - 'move': the surface trails a moving element as liquid rubber with a
+ *    droplet tail — sliders, tab indicators, dragged things. */
 
 /** The two public liquid behaviors:
  *  - 'morph' (default): pieces merge gooily, change shape like jelly, and can
@@ -19,7 +22,6 @@ import {
  *    droplet tail — sliders, tab indicators, dragged things. */
 
 export type LiquidEffect = "morph" | "move";
-
 export interface MorphTuning {
 	/** Liquid shape-change physics: the surface springs behind size changes,
 	 *  travels as a droplet and settles like jelly. Off by default — plain
@@ -45,7 +47,6 @@ export interface MorphTuning {
 		bridgeGrow?: number;
 	};
 }
-
 export interface MoveTuning {
 	/** How tightly the liquid chases the element. 0 = heavy syrup lag,
 	 *  1 = near-instant. Default 0.5. */
@@ -59,7 +60,6 @@ export interface MoveTuning {
 	/** Full escape hatch: raw spring values, merged over the mapped values. */
 	advanced?: MoveOptions;
 }
-
 export interface LiquidItemProps {
 	/** 'morph' (default) or 'move'. */
 	effect?: LiquidEffect;
@@ -77,11 +77,9 @@ export interface LiquidItemProps {
 	style?: CSSProperties;
 	children?: ReactNode;
 }
-
 function zeta(bounce: number): number {
 	return Math.max(0.12, 1 - 1.1 * Math.min(1, Math.max(0, bounce)));
 }
-
 function mapMorphSprings(t: MorphTuning | undefined): EvolveOptions {
 	const s = Math.max(0.25, t?.speed ?? 1);
 	// Damping scales with ζ(bounce)/ζ(0.5) so (speed 1, bounce 0.5) reproduces
@@ -102,7 +100,6 @@ function mapMorphSprings(t: MorphTuning | undefined): EvolveOptions {
 		contentBlur: t?.contentBlur ?? EVOLVE_DEFAULTS.contentBlur,
 	};
 }
-
 function mapMove(t: MoveTuning | undefined): MoveOptions {
 	const p = Math.min(1, Math.max(0, t?.springiness ?? 0.5));
 	// Exponential feel curve centred on the default: 0 → ~120, 0.5 → 380,
@@ -121,20 +118,19 @@ function mapMove(t: MoveTuning | undefined): MoveOptions {
 		...t?.advanced,
 	};
 }
-
 export function LiquidItem(props: LiquidItemProps) {
 	const { effect = "morph", morph, move, observe, ...rest } = props;
-
 	if (effect === "move") {
 		return <GooeyItem {...rest} observe effect="move" move={mapMove(move)} />;
 	}
-
 	const adv = morph?.advanced;
 	const shape = !!morph?.shape;
 	const evolve = shape
-		? { ...mapMorphSprings(morph), ...adv?.evolve }
+		? {
+				...mapMorphSprings(morph),
+				...adv?.evolve,
+			}
 		: undefined;
-
 	return (
 		<GooeyItem
 			{...rest}

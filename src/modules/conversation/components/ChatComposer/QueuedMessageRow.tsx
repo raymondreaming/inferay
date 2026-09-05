@@ -1,7 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useEffect, useRef } from "octane";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { setInputValue } from "../../../../shared/lib/react-events.ts";
+import { setInputValue } from "../../../../shared/lib/data.ts";
 import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
 import {
 	IconCheck,

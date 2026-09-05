@@ -1,9 +1,9 @@
 import { useEffect, useState } from "octane";
-import { listenWindowEvent } from "../../../../shared/lib/react-events.ts";
+import { listenWindowEvent } from "../../../../shared/lib/data.ts";
 import {
 	OPEN_SKILLS_EVENT,
 	type SkillsTarget,
-} from "../../model/skill-events.ts";
+} from "../../model/skill-library.ts";
 import { SkillsDialog } from "./SkillsDialog.tsx";
 
 export function SkillsModalHost() {

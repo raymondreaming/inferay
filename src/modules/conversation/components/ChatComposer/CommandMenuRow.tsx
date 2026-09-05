@@ -3,7 +3,7 @@ import { memo } from "octane";
 import type React from "react";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { IconPencil } from "../../../../shared/ui/Icons/index.tsx";
-import { openSkills } from "../../../skills/model/skill-events.ts";
+import { openSkills } from "../../../skills/model/skill-library.ts";
 import type { SlashMenuState } from "../../hooks/useAgentChatMenus.tsx";
 import type { SlashCommand } from "../../model/agent-chat-shared.ts";
 import { styles } from "./styles.ts";

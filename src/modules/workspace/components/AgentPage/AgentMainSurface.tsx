@@ -1,7 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import { Suspense } from "octane";
 import type { ThemeId } from "../../model/workspace-model.ts";
-import { Settings } from "./shared.ts";
+import { Settings } from "../../model/workspace-model.ts";
 import { styles } from "./styles.ts";
 
 type AgentMainSurfaceProps = {

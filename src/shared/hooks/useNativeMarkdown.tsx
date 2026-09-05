@@ -1,8 +1,10 @@
 import { useQuery } from "@octanejs/tanstack-query";
 import { useEffect, useRef, useState } from "octane";
 import { sendJson } from "../../adapters/backend/http.ts";
-import type { PreparedMarkdown } from "../lib/markdown.ts";
-import { queryClient } from "../lib/query-client.ts";
+import type { PreparedMarkdown } from "../lib/data.ts";
+import { queryClient } from "../lib/data.ts";
+
+/** Query lifecycle only: native code owns all Markdown interpretation. */
 
 /** Query lifecycle only: native code owns all Markdown interpretation. */
 export function useNativeMarkdown(

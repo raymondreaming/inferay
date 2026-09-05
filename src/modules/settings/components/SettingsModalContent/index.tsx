@@ -11,12 +11,13 @@ import { DropdownButton } from "../../../../shared/ui/DropdownButton/index.tsx";
 import { IconRefreshCw } from "../../../../shared/ui/Icons/index.tsx";
 import { TextInput } from "../../../../shared/ui/TextInput/index.tsx";
 import { getAgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
-import type { AgentAccountProviderStatus } from "../../../agents/model/agent-account-status.ts";
+import type { AgentAccountProviderStatus } from "../../../agents/model/agents.ts";
 import {
 	getAgentDefinition,
 	loadDefaultChatSettings,
 	saveDefaultChatSettings,
 } from "../../../agents/model/agents.ts";
+import type { GithubRepo } from "../../../repository/model/types.ts";
 import {
 	fetchForgeAccounts,
 	fetchGithubRepos,
@@ -24,10 +25,9 @@ import {
 	getCachedGithubRepos,
 	invalidateForgeAccountsCache,
 	invalidateGithubReposCache,
-} from "../../../repository/adapters/forge-client.ts";
-import type { GithubRepo } from "../../../repository/adapters/types.ts";
+} from "../../../repository/model/types.ts";
+import type { SettingsModalTarget } from "../../../skills/model/skill-library.ts";
 import { dispatchAgentShellChange } from "../../../workspace/model/workspace-model.ts";
-import type { SettingsModalTarget } from "../../model/settings-events.ts";
 import { SettingsContent } from "../Settings/index.tsx";
 import {
 	SettingsGithubAccount,
@@ -40,9 +40,7 @@ import {
 } from "../SettingsStatus/index.tsx";
 import { SettingsSection } from "./SettingsSection.tsx";
 import { styles } from "./styles.ts";
-
 export type SettingsModalSection = "all" | SettingsModalTarget;
-
 export function SettingsModalContent({
 	section,
 }: {
@@ -78,10 +76,9 @@ export function SettingsModalContent({
 	});
 	const fetchAgentAccountStatuses = useCallback(
 		async () =>
-			fetchJsonOr<{ providers?: AgentAccountProviderStatus[] }>(
-				"/api/agents/account-status",
-				{},
-			).then((payload) =>
+			fetchJsonOr<{
+				providers?: AgentAccountProviderStatus[];
+			}>("/api/agents/account-status", {}).then((payload) =>
 				Array.isArray(payload.providers) ? payload.providers : [],
 			),
 		[],
@@ -110,7 +107,6 @@ export function SettingsModalContent({
 		...option,
 		icon: getAgentIcon(defaultChatSettings.agentKind, 12),
 	}));
-
 	const updateDefaultChatSettings = async (
 		next: Partial<typeof defaultChatSettings>,
 	) => {
@@ -136,9 +132,7 @@ export function SettingsModalContent({
 		invalidateForgeAccountsCache();
 		await refreshAccounts();
 	}, [refreshAccounts]);
-
 	const githubResourceError = error ?? reposError;
-
 	const filteredRepos = useMemo(() => {
 		const query = repoQuery.trim().toLowerCase();
 		if (!query) return repos;
@@ -148,24 +142,29 @@ export function SettingsModalContent({
 				repo.description?.toLowerCase().includes(query),
 		);
 	}, [repoQuery, repos]);
-
 	const connectGithub = sendJsonWithBusy.bind(
 		null,
 		setConnecting,
 		"/api/forge/connect",
-		{ provider: "github" },
+		{
+			provider: "github",
+		},
 		undefined,
 	);
-
 	const pickCloneDirectory = async () => {
-		const payload = await fetchJsonOr<{ folder: string | null }>(
+		const payload = await fetchJsonOr<{
+			folder: string | null;
+		}>(
 			"/api/config/pick-folder",
-			{ folder: null },
-			{ method: "POST" },
+			{
+				folder: null,
+			},
+			{
+				method: "POST",
+			},
 		);
 		if (payload.folder) setCloneDirectory(payload.folder);
 	};
-
 	const cloneRepo = async (repo: GithubRepo) => {
 		setCloningRepo(repo.full_name);
 		setCloneStatus(null);
@@ -173,7 +172,9 @@ export function SettingsModalContent({
 		try {
 			const response = await fetch("/api/forge/clone", {
 				method: "POST",
-				headers: { "content-type": "application/json" },
+				headers: {
+					"content-type": "application/json",
+				},
 				body: JSON.stringify({
 					gitUrl: repo.html_url,
 					cloneDirectory,
@@ -186,7 +187,10 @@ export function SettingsModalContent({
 			if (!response.ok) throw new Error(payload.error ?? "Clone failed");
 			invalidateGithubReposCache();
 			setCloneStatus(`Cloned ${repo.full_name} to ${payload.displayPath}`);
-			dispatchAgentShellChange({ source: "cache", reason: "repo-cloned" });
+			dispatchAgentShellChange({
+				source: "cache",
+				reason: "repo-cloned",
+			});
 		} catch (err) {
 			setError(
 				err instanceof Error ? err.message : "Unable to clone repository",
@@ -195,7 +199,6 @@ export function SettingsModalContent({
 			setCloningRepo(null);
 		}
 	};
-
 	return (
 		<div {...stylex.props(styles.settingsLayout)}>
 			<main {...stylex.props(styles.modalScroller)}>
@@ -283,7 +286,11 @@ export function SettingsModalContent({
 											liquid={false}
 											value={defaultChatSettings.model}
 											options={defaultModelOptions}
-											onChange={(model) => updateDefaultChatSettings({ model })}
+											onChange={(model) =>
+												updateDefaultChatSettings({
+													model,
+												})
+											}
 											fullWidth
 											buttonClassName={
 												stylex.props(styles.settingsDropdown).className
@@ -306,7 +313,9 @@ export function SettingsModalContent({
 													}),
 												)}
 												onChange={(reasoningLevel) =>
-													updateDefaultChatSettings({ reasoningLevel })
+													updateDefaultChatSettings({
+														reasoningLevel,
+													})
 												}
 												fullWidth
 												buttonClassName={

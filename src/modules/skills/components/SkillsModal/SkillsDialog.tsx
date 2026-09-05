@@ -5,7 +5,7 @@ import {
 	iconSize,
 	surfaceStyles,
 } from "../../../../design-system/styles.stylex.ts";
-import { setInputValue } from "../../../../shared/lib/react-events.ts";
+import { setInputValue } from "../../../../shared/lib/data.ts";
 import {
 	IconCopy,
 	IconPlus,
@@ -13,7 +13,7 @@ import {
 	IconX,
 } from "../../../../shared/ui/Icons/index.tsx";
 import { useSkills } from "../../hooks/useSkills.tsx";
-import type { SkillsTarget } from "../../model/skill-events.ts";
+import type { SkillsTarget } from "../../model/skill-library.ts";
 import {
 	filterSkills,
 	skillFormReducer as formReducer,

@@ -2,11 +2,11 @@ import * as stylex from "@octanejs/stylex";
 import { memo, useRef } from "octane";
 import type { SyntaxHighlightTheme } from "../../../../../shared/hooks/useShikiHighlighter.tsx";
 import type { HunkDiff } from "../../../../repository/model/types.ts";
+import { type DiffViewMode, LINE_H } from "../../../model/workbench-model.ts";
 import {
 	type DiffScrollSource,
 	useSplitDiffScroll,
 } from "../../hooks/useSplitDiffScroll.tsx";
-import { type DiffViewMode, LINE_H } from "./shared.ts";
 import { diffStyles } from "./styles.ts";
 import { VirtualPanel } from "./VirtualPanel.tsx";
 

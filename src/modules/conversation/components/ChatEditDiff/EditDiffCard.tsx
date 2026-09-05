@@ -5,7 +5,7 @@ import {
 	useShikiSnippet,
 	useSyntaxHighlightTheme,
 } from "../../../../shared/hooks/useShikiHighlighter.tsx";
-import { indexedValues } from "../../../../shared/lib/indexed-values.ts";
+import { indexedValues } from "../../../../shared/lib/data.ts";
 import {
 	IconChevronRight,
 	IconFilePlus,

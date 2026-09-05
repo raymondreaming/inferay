@@ -17,8 +17,8 @@ import {
 } from "../../../../explorer/components/FileSearch/index.tsx";
 import { FileTypeIcon } from "../../../../explorer/components/FileTypeIcon/index.tsx";
 import { WorkspaceDockHandle } from "../../../components/WorkspaceDockHandle/index.tsx";
+import type { FileContentResponse } from "../../../model/workbench-model.ts";
 import { SourcePreview } from "./SourcePreview.tsx";
-import type { FileContentResponse } from "./shared.ts";
 import { styles } from "./styles.ts";
 
 function fileName(path: string) {
@@ -328,4 +328,4 @@ export const DocumentViewer = memo(function DocumentViewer({
 	);
 });
 
-export type { FileContentResponse } from "./shared.ts";
+export type { FileContentResponse } from "../../../model/workbench-model.ts";

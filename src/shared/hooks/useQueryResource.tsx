@@ -5,7 +5,7 @@ import {
 } from "@octanejs/tanstack-query";
 import { useCallback } from "octane";
 import type { SetStateAction } from "react";
-import { queryClient } from "../lib/query-client.ts";
+import { queryClient } from "../lib/data.ts";
 
 interface QueryResourceOptions<T> {
 	readonly enabled?: boolean;

@@ -5,8 +5,8 @@ import {
 	useShikiHighlighter,
 	useSyntaxHighlightTheme,
 } from "../../../../../shared/hooks/useShikiHighlighter.tsx";
-import { indexedValues } from "../../../../../shared/lib/indexed-values.ts";
-import type { FileContentResponse } from "./shared.ts";
+import { indexedValues } from "../../../../../shared/lib/data.ts";
+import type { FileContentResponse } from "../../../model/workbench-model.ts";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 

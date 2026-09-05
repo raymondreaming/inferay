@@ -1,7 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { IconPlus } from "../../../../shared/ui/Icons/index.tsx";
-import { openSkills } from "../../../skills/model/skill-events.ts";
+import { openSkills } from "../../../skills/model/skill-library.ts";
 import { CommandMenuRow } from "./CommandMenuRow.tsx";
 
 import { styles } from "./styles.ts";

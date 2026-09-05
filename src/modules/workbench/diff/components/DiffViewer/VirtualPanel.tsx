@@ -12,24 +12,26 @@ import {
 	type SyntaxHighlightTheme,
 	useShikiHighlighter,
 } from "../../../../../shared/hooks/useShikiHighlighter.tsx";
-import { contentOf } from "../../../../../shared/lib/data.ts";
 import {
+	contentOf,
 	type Token,
 	tokenizeLine,
-} from "../../../../../shared/lib/syntax-tokens.ts";
+} from "../../../../../shared/lib/data.ts";
 import type {
 	DiffLine,
 	DiffMinimapSegment as MinimapSegment,
 } from "../../../../repository/model/types.ts";
-import type { DiffScrollSource } from "../../hooks/useSplitDiffScroll.tsx";
 import {
+	DIFF_CONFIG,
 	diffViewportReducer,
+	GUTTER_W,
 	INITIAL_DIFF_VIEWPORT_STATE,
-} from "../../model/diff-navigation.ts";
+	LINE_H,
+} from "../../../model/workbench-model.ts";
+import type { DiffScrollSource } from "../../hooks/useSplitDiffScroll.tsx";
 import { DiffGutterRow } from "./DiffGutterRow.tsx";
 import { DiffMinimap } from "./DiffMinimap.tsx";
 import { DiffRow } from "./DiffRow.tsx";
-import { DIFF_CONFIG, GUTTER_W, LINE_H } from "./shared.ts";
 import * as inlineStyles from "./styles.ts";
 import { diffStyles } from "./styles.ts";
 

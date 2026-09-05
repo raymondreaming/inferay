@@ -5,11 +5,12 @@ import {
 	fetchJsonOr,
 	sendJsonWithBusy,
 } from "../../../../adapters/backend/http.ts";
-import { ONBOARDING_DONE_STORAGE_KEY } from "../../../../adapters/storage/keys.ts";
 import {
+	ONBOARDING_DONE_STORAGE_KEY,
 	readStoredBoolean,
 	writeStoredValue,
 } from "../../../../adapters/storage/stored-values.ts";
+import type { Step } from "../../../../app/model/appearance.ts";
 import {
 	applyAppTheme,
 	DEFAULT_APP_BACKGROUND_SETTINGS,
@@ -23,7 +24,7 @@ import {
 	fetchForgeAccounts,
 	fetchGithubRepos,
 	invalidateForgeAccountsCache,
-} from "../../../repository/adapters/forge-client.ts";
+} from "../../../repository/model/types.ts";
 import {
 	loadCanonicalAgentState,
 	mutateAgentWorkspaceState,
@@ -31,11 +32,8 @@ import {
 import { GithubStep } from "./GithubStep.tsx";
 import { IntroStep } from "./IntroStep.tsx";
 import { ProjectsStep } from "./ProjectsStep.tsx";
-import type { Step } from "./shared.ts";
 import { styles } from "./styles.ts";
-
 export const ONBOARDING_DONE_KEY = ONBOARDING_DONE_STORAGE_KEY;
-
 export function OnboardingPage() {
 	const navigate = useNavigate();
 	const [isFirstRun] = useState(() => !readStoredBoolean(ONBOARDING_DONE_KEY));
@@ -46,7 +44,6 @@ export function OnboardingPage() {
 	const [selectedRepos, setSelectedRepos] = useState<Set<string>>(
 		() => new Set(),
 	);
-
 	const {
 		data: accounts,
 		setData: setAccounts,
@@ -69,14 +66,12 @@ export function OnboardingPage() {
 		invalidateForgeAccountsCache();
 		setAccounts(await fetchForgeAccounts(true));
 	};
-
 	useEffect(() => {
 		applyAppTheme("default");
 		return () => {
 			if (!isFirstRun) applyAppTheme(loadAppThemeId());
 		};
 	}, [isFirstRun]);
-
 	const connectGithub = async () => {
 		await sendJsonWithBusy(setConnecting, "/api/forge/connect", {
 			provider: "github",
@@ -84,7 +79,6 @@ export function OnboardingPage() {
 		invalidateForgeAccountsCache();
 		setAccounts(await fetchForgeAccounts(true));
 	};
-
 	useEffect(() => {
 		if (step !== "github" || accounts.length > 0 || connecting) return;
 		const id = window.setInterval(() => {
@@ -95,15 +89,20 @@ export function OnboardingPage() {
 		}, 3000);
 		return () => window.clearInterval(id);
 	}, [accounts.length, connecting, setAccounts, step]);
-
 	const pickFolder = async () => {
 		if (isAddingFolder) return;
 		setIsAddingFolder(true);
 		try {
-			const data = await fetchJsonOr<{ folder: string | null }>(
+			const data = await fetchJsonOr<{
+				folder: string | null;
+			}>(
 				"/api/config/pick-folder",
-				{ folder: null },
-				{ method: "POST" },
+				{
+					folder: null,
+				},
+				{
+					method: "POST",
+				},
 			);
 			if (data.folder && !localFolders.includes(data.folder)) {
 				setLocalFolders((prev) => [...prev, data.folder as string]);
@@ -114,11 +113,9 @@ export function OnboardingPage() {
 			setIsAddingFolder(false);
 		}
 	};
-
 	const removeFolder = (folder: string) => {
 		setLocalFolders((prev) => prev.filter(lacksValue.bind(null, folder)));
 	};
-
 	const toggleRepo = (fullName: string) => {
 		setSelectedRepos((prev) => {
 			const next = new Set(prev);
@@ -127,7 +124,6 @@ export function OnboardingPage() {
 			return next;
 		});
 	};
-
 	const finish = useCallback(async () => {
 		if (isFirstRun) {
 			saveAppThemeId("default");
@@ -140,18 +136,24 @@ export function OnboardingPage() {
 		const canonicalState = await loadCanonicalAgentState();
 		if (!canonicalState || isFirstRun)
 			await mutateAgentWorkspaceState(
-				{ type: "setTheme", themeId: "default" },
+				{
+					type: "setTheme",
+					themeId: "default",
+				},
 				"onboarding-default",
-				{ createIfMissing: true },
+				{
+					createIfMissing: true,
+				},
 			);
-		navigate({ to: "/agent", replace: true });
+		navigate({
+			to: "/agent",
+			replace: true,
+		});
 	}, [isFirstRun, navigate]);
-
 	const completeOnboarding = useCallback(() => {
 		setStep("complete");
 		window.setTimeout(finish, 600);
 	}, [finish, setStep]);
-
 	return (
 		<main {...stylex.props(styles.root)}>
 			{/* Grid background — like Helmor */}

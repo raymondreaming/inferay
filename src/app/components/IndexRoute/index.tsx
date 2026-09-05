@@ -1,7 +1,9 @@
 import { useNavigate } from "@octanejs/tanstack-router";
 import { useEffect } from "octane";
-import { ONBOARDING_DONE_STORAGE_KEY } from "../../../adapters/storage/keys.ts";
-import { readStoredBoolean } from "../../../adapters/storage/stored-values.ts";
+import {
+	ONBOARDING_DONE_STORAGE_KEY,
+	readStoredBoolean,
+} from "../../../adapters/storage/stored-values.ts";
 import { DEFAULT_APP_ROUTE } from "../../model/navigation.tsx";
 
 export function IndexRoute() {

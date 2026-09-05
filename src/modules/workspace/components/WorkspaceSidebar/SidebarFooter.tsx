@@ -1,8 +1,8 @@
 import * as stylex from "@octanejs/stylex";
+import type { AppInfo } from "../../../../app/model/appearance.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import type { AppInfo } from "../../../../shared/hooks/useAppInfo.ts";
 import { IconRefreshCw } from "../../../../shared/ui/Icons/index.tsx";
-import type { SidebarUpdateStatus } from "./shared.ts";
+import type { SidebarUpdateStatus } from "../../model/workspace-model.ts";
 import { styles } from "./styles.ts";
 
 export function SidebarFooter({

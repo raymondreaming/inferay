@@ -1,16 +1,19 @@
 import { hydrateStart, StartClient } from "@octanejs/tanstack-start/client";
 import { hydrateRoot, initializeHydrationEventCapture } from "octane";
 import { getServerOrigin, resolveServerUrl } from "./adapters/backend/http.ts";
-import { ONBOARDING_DONE_STORAGE_KEY } from "./adapters/storage/keys.ts";
-import { readStoredBoolean } from "./adapters/storage/stored-values.ts";
-import { hydrateStoredValues } from "./adapters/storage/sync.ts";
+import {
+	hydrateStoredValues,
+	ONBOARDING_DONE_STORAGE_KEY,
+	readStoredBoolean,
+} from "./adapters/storage/stored-values.ts";
 import {
 	applyAppBackgroundSurfaces,
+	applyAppFont,
 	applyAppTheme,
 	loadAppBackgroundSettings,
+	loadAppFontId,
 	loadAppThemeId,
 } from "./app/model/appearance.ts";
-import { applyAppFont, loadAppFontId } from "./app/model/font.ts";
 import { DEFAULT_APP_ROUTE } from "./app/model/navigation.tsx";
 import { initializeAgentCatalog } from "./modules/agents/model/agents.ts";
 import { preloadSkills } from "./modules/skills/hooks/useSkills.tsx";

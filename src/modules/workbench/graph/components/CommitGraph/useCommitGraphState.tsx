@@ -3,45 +3,40 @@ import {
 	readStoredJson,
 	writeStoredJson,
 } from "../../../../../adapters/storage/stored-values.ts";
-import { lockPointerSelection } from "../../../../../shared/lib/pointer-selection-lock.ts";
+import { lockPointerSelection } from "../../../../../shared/lib/data.ts";
 import type {
 	GitGraphRef,
 	GraphNode,
-} from "../../../../repository/hooks/useGitGraph";
-import { resolveGitCommitAvatars } from "../../../../repository/model/git-avatar.ts";
-import {
-	buildGraphConnectionPath,
-	buildGraphConvergencePath,
-	graphVirtualRange,
-	moveGraphColumn,
-	pinnedGraphColumnOrder,
-} from "../../model/graph-model.ts";
+} from "../../../../repository/hooks/useGitGraph.tsx";
+import { resolveGitCommitAvatars } from "../../../../repository/model/types.ts";
 import type {
 	CommitGraphProps,
 	GraphPreferences,
 	RowTransition,
-} from "./graph-preferences.ts";
+} from "../../model/graph-model.ts";
 import {
-	EMPTY_SELECTED_IDS,
-	loadPreferences,
-	MAX_COLUMN_WIDTH,
-	MIN_COLUMN_WIDTHS,
-	preferencesKey,
-	ROW_OVERSCAN,
-	scrollPreferencesKey,
-	TOP_PADDING,
-} from "./graph-preferences.ts";
-import {
+	buildGraphConnectionPath,
+	buildGraphConvergencePath,
 	COLUMN_WIDTH,
 	type ColumnKey,
 	type ColumnVisibility,
 	type ColumnWidths,
+	EMPTY_SELECTED_IDS,
 	GRAPH_PADDING,
+	graphVirtualRange,
+	loadPreferences,
+	MAX_COLUMN_WIDTH,
+	MIN_COLUMN_WIDTHS,
+	moveGraphColumn,
+	pinnedGraphColumnOrder,
+	preferencesKey,
 	ROW_HEIGHT,
+	ROW_OVERSCAN,
+	scrollPreferencesKey,
 	TOOLS_WIDTH,
-} from "./shared.ts";
+	TOP_PADDING,
+} from "../../model/graph-model.ts";
 import { getGraphLineLayerStyle } from "./styles.ts";
-
 export function useCommitGraphState(props: CommitGraphProps) {
 	const {
 		ancestry,
@@ -62,7 +57,6 @@ export function useCommitGraphState(props: CommitGraphProps) {
 		repositoryKey,
 		onOpenSelection,
 	} = props;
-
 	const [preferences, setPreferences] = useState(() => ({
 		repositoryKey,
 		value: loadPreferences(repositoryKey),
@@ -131,14 +125,20 @@ export function useCommitGraphState(props: CommitGraphProps) {
 	const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 	const [hoveredRow, setHoveredRow] = useState<string | null>(null);
 	const keyboardNavigationRef = useRef(false);
-	const mousePositionRef = useRef<{ x: number; y: number } | null>(null);
+	const mousePositionRef = useRef<{
+		x: number;
+		y: number;
+	} | null>(null);
 	const handleRowHover = useCallback((itemId: string | null) => {
 		if (!keyboardNavigationRef.current) setHoveredRow(itemId);
 	}, []);
 	const scrollerRef = useRef<HTMLDivElement | null>(null);
 	const scrollFrameRef = useRef<number | null>(null);
 	const scrollWriteTimerRef = useRef<number | null>(null);
-	const scrollPositionRef = useRef({ top: 0, left: 0 });
+	const scrollPositionRef = useRef({
+		top: 0,
+		left: 0,
+	});
 	const restoredScrollKeyRef = useRef<string | null>(null);
 	const [scrollTop, setScrollTop] = useState(0);
 	const [viewportHeight, setViewportHeight] = useState(600);
@@ -156,13 +156,14 @@ export function useCommitGraphState(props: CommitGraphProps) {
 	const hasCommits = commits.length > 0;
 	useEffect(() => {
 		if (!embedded || !hasCommits) return;
-		scrollerRef.current?.focus({ preventScroll: true });
+		scrollerRef.current?.focus({
+			preventScroll: true,
+		});
 	}, [embedded, hasCommits, repositoryKey]);
 	const worktreesByPath = useMemo(
 		() => new Map(worktrees.map((worktree) => [worktree.path, worktree])),
 		[worktrees],
 	);
-
 	useEffect(() => {
 		setPreferences((current) =>
 			current.repositoryKey === repositoryKey
@@ -176,13 +177,19 @@ export function useCommitGraphState(props: CommitGraphProps) {
 	useEffect(() => {
 		const key = scrollPreferencesKey(repositoryKey);
 		if (restoredScrollKeyRef.current === key || commits.length === 0) return;
-		const position = readStoredJson<{ top?: number; left?: number }>(key, {});
+		const position = readStoredJson<{
+			top?: number;
+			left?: number;
+		}>(key, {});
 		const scroller = scrollerRef.current;
 		if (!scroller) return;
 		restoredScrollKeyRef.current = key;
 		const top = typeof position.top === "number" ? position.top : 0;
 		const left = typeof position.left === "number" ? position.left : 0;
-		scrollPositionRef.current = { top, left };
+		scrollPositionRef.current = {
+			top,
+			left,
+		};
 		scroller.scrollTop = top;
 		scroller.scrollLeft = left;
 		setScrollTop(top);
@@ -215,12 +222,10 @@ export function useCommitGraphState(props: CommitGraphProps) {
 			window.removeEventListener("keydown", closeOnEscape);
 		};
 	}, [itemContextMenu, refContextMenu]);
-
 	useEffect(() => {
 		if (preferences.repositoryKey === repositoryKey)
 			writeStoredJson(preferencesKey(repositoryKey), preferences.value);
 	}, [preferences, repositoryKey]);
-
 	const repositoryRefs = useMemo(() => {
 		const refs = new Map<string, GitGraphRef>();
 		for (const commit of commits) {
@@ -258,7 +263,6 @@ export function useCommitGraphState(props: CommitGraphProps) {
 		}
 		return reachable;
 	}, [ancestry, commits, soloRefs]);
-
 	const maxColumn = useMemo(() => {
 		let max = 0;
 		for (const c of commits) if (c.column > max) max = c.column;
@@ -285,7 +289,6 @@ export function useCommitGraphState(props: CommitGraphProps) {
 		(column: number) => graphColumnPositions.get(column) ?? column,
 		[graphColumnPositions],
 	);
-
 	const graphWidth = Math.max(
 		widths.graph,
 		(maxColumn + 1) * COLUMN_WIDTH + GRAPH_PADDING * 2,
@@ -350,7 +353,6 @@ export function useCommitGraphState(props: CommitGraphProps) {
 	useEffect(() => {
 		setQuery(searchQuery);
 	}, [repositoryKey]);
-
 	const graphHeight = commits.length * ROW_HEIGHT;
 	const totalHeight = TOP_PADDING + graphHeight;
 	const selectableItems = useMemo(
@@ -368,7 +370,6 @@ export function useCommitGraphState(props: CommitGraphProps) {
 		ROW_HEIGHT,
 		ROW_OVERSCAN,
 	);
-
 	useEffect(() => {
 		const scroller = scrollerRef.current;
 		if (!scroller) return;
@@ -378,15 +379,20 @@ export function useCommitGraphState(props: CommitGraphProps) {
 		observer.observe(scroller);
 		return () => observer.disconnect();
 	}, []);
-
 	const toggleColumn = (key: keyof ColumnVisibility) =>
-		setColumns((cur) => ({ ...cur, [key]: !cur[key] }));
+		setColumns((cur) => ({
+			...cur,
+			[key]: !cur[key],
+		}));
 	const moveColumn = useCallback((source: ColumnKey, target: ColumnKey) => {
 		setOrder((current) => moveGraphColumn(current, source, target));
 	}, []);
 	const rememberScroll = useCallback(
 		(top: number, left: number) => {
-			scrollPositionRef.current = { top, left };
+			scrollPositionRef.current = {
+				top,
+				left,
+			};
 			if (scrollFrameRef.current === null) {
 				scrollFrameRef.current = requestAnimationFrame(() => {
 					scrollFrameRef.current = null;
@@ -403,7 +409,10 @@ export function useCommitGraphState(props: CommitGraphProps) {
 				window.clearTimeout(scrollWriteTimerRef.current);
 			}
 			scrollWriteTimerRef.current = window.setTimeout(() => {
-				writeStoredJson(scrollPreferencesKey(repositoryKey), { top, left });
+				writeStoredJson(scrollPreferencesKey(repositoryKey), {
+					top,
+					left,
+				});
 				scrollWriteTimerRef.current = null;
 			}, 160);
 		},
@@ -559,12 +568,15 @@ export function useCommitGraphState(props: CommitGraphProps) {
 				window.removeEventListener("pointercancel", stop);
 			};
 			window.addEventListener("pointermove", move);
-			window.addEventListener("pointerup", stop, { once: true });
-			window.addEventListener("pointercancel", stop, { once: true });
+			window.addEventListener("pointerup", stop, {
+				once: true,
+			});
+			window.addEventListener("pointercancel", stop, {
+				once: true,
+			});
 		},
 		[widths],
 	);
-
 	const railSegments = useMemo(() => {
 		const segments: Array<{
 			key: string;
@@ -604,7 +616,6 @@ export function useCommitGraphState(props: CommitGraphProps) {
 		}
 		return result;
 	}, [rows, visibleEnd, visibleStart]);
-
 	const transitions = useMemo(() => {
 		const result: RowTransition[] = [];
 		for (const row of rows.slice(visibleStart, visibleEnd)) {
@@ -640,7 +651,6 @@ export function useCommitGraphState(props: CommitGraphProps) {
 		}
 		return segments;
 	}, [rows, visibleEnd, visibleStart]);
-
 	return {
 		...props,
 		emptyLabel,
@@ -711,7 +721,7 @@ export type {
 	GitGraphActionRequest,
 	GraphPreferences,
 	RowTransition,
-} from "./graph-preferences.ts";
+} from "../../model/graph-model.ts";
 export {
 	AUTHOR_WIDTH,
 	COLUMN_PREFS_KEY,
@@ -733,4 +743,4 @@ export {
 	SHA_WIDTH,
 	scrollPreferencesKey,
 	TOP_PADDING,
-} from "./graph-preferences.ts";
+} from "../../model/graph-model.ts";

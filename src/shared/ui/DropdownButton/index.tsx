@@ -11,16 +11,16 @@ import {
 	iconSize,
 	runtimeColor,
 } from "../../../design-system/styles.stylex.ts";
-import { hasId } from "../../lib/data.ts";
-import { setInputValue } from "../../lib/react-events.ts";
-import { LiquidPopoverSurface } from "../gooey/LiquidPopoverSurface/index.tsx";
-import { IconChevronDown } from "../Icons/index.tsx";
-import { DropdownCustomOption } from "./DropdownCustomOption.tsx";
 import {
 	type DropdownOption,
 	type DropdownOptionRenderer,
+	hasId,
 	selectDropdownOption,
-} from "./shared.ts";
+	setInputValue,
+} from "../../lib/data.ts";
+import { LiquidPopoverSurface } from "../gooey/LiquidPopoverSurface/index.tsx";
+import { IconChevronDown } from "../Icons/index.tsx";
+import { DropdownCustomOption } from "./DropdownCustomOption.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
@@ -352,4 +352,4 @@ export function DropdownButton({
 	);
 }
 
-export type { DropdownOption } from "./shared.ts";
+export type { DropdownOption } from "../../lib/data.ts";

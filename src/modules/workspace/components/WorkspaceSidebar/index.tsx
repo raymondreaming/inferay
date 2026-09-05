@@ -9,39 +9,37 @@ import {
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
+	useAppInfo,
 } from "../../../../app/model/appearance.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { useAppInfo } from "../../../../shared/hooks/useAppInfo.ts";
 import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
-import { listenWindowEvent } from "../../../../shared/lib/react-events.ts";
+import { listenWindowEvent } from "../../../../shared/lib/data.ts";
 import { IconSettings, IconUser } from "../../../../shared/ui/Icons/index.tsx";
 import { loadDefaultChatSettings } from "../../../agents/model/agents.ts";
 import {
 	fetchForgeAccounts,
 	getCachedForgeAccounts,
-} from "../../../repository/adapters/forge-client.ts";
-import { openSettingsModal } from "../../../settings/model/settings-events.ts";
-import { projectRepositoryWorkspaces } from "../../model/repository-workspaces.ts";
-import { useWorkspaceState } from "../../model/useWorkspaceState.ts";
+} from "../../../repository/model/types.ts";
+import { openSettingsModal } from "../../../skills/model/skill-library.ts";
+import type { SidebarUpdateStatus } from "../../model/workspace-model.ts";
 import {
 	CREATE_AGENT_CHAT_EVENT,
 	type CreateAgentChatDetail,
 	type CreateAgentChatTarget,
-	dispatchFocusAgentChatComposer,
-	loadSidebarCollapsed,
-	resolveCreateAgentChatCwd,
-	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
-	type WorkspaceSidebarCollapsedDetail,
-} from "../../model/workspace-events.ts";
-import {
 	dispatchAgentShellChange,
+	dispatchFocusAgentChatComposer,
 	listenAgentLayoutMode,
 	loadAgentLayoutMode,
+	loadSidebarCollapsed,
 	mutateAgentWorkspaceState,
+	projectRepositoryWorkspaces,
+	resolveCreateAgentChatCwd,
+	useWorkspaceState,
+	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
+	type WorkspaceSidebarCollapsedDetail,
 } from "../../model/workspace-model.ts";
 import { SidebarFooter } from "./SidebarFooter.tsx";
 import { SidebarWorkspacesSection } from "./SidebarWorkspacesSection.tsx";
-import type { SidebarUpdateStatus } from "./shared.ts";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 

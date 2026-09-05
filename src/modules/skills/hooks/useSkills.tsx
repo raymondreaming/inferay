@@ -4,7 +4,7 @@ import {
 	postJson,
 	sendJson,
 } from "../../../adapters/backend/http.ts";
-import { queryClient } from "../../../shared/lib/query-client.ts";
+import { queryClient } from "../../../shared/lib/data.ts";
 import type { Skill } from "../model/skill-library.ts";
 
 const skillsKey = ["skills"] as const;

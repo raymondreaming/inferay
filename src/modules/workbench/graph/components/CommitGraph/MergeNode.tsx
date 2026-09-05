@@ -1,5 +1,5 @@
 import * as stylex from "@octanejs/stylex";
-import { AVATAR_SIZE, hexToRgba } from "./shared.ts";
+import { AVATAR_SIZE, hexToRgba } from "../../model/graph-model.ts";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 

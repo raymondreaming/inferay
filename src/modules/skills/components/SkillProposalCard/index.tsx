@@ -6,8 +6,8 @@ import {
 } from "../../../../adapters/storage/stored-values.ts";
 import { surfaceStyles } from "../../../../design-system/styles.stylex.ts";
 import { useSkills } from "../../hooks/useSkills.tsx";
-import { openSkills } from "../../model/skill-events.ts";
 import type { SkillProposal } from "../../model/skill-library.ts";
+import { openSkills } from "../../model/skill-library.ts";
 import { styles } from "./styles.ts";
 
 type Outcome = { status: "saved"; skillId: string } | { status: "rejected" };

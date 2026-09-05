@@ -1,5 +1,5 @@
 import { createPortal, useRef, useState } from "octane";
-import type { CSSProperties } from "../../../../types/octane-react-compat.ts";
+import type { CSSProperties, Internal } from "../observer.ts";
 import {
 	type BlobBox,
 	type CornerRadii,
@@ -7,9 +7,8 @@ import {
 	normalizeRadius,
 	offsetTo,
 	roundedRectPath,
-} from "../geometry";
-import { useIsoLayoutEffect } from "../hooks";
-import type { Internal } from "./shared.ts";
+	useIsoLayoutEffect,
+} from "../observer.ts";
 import * as inlineStyles from "./styles.ts";
 
 function sameBox(a: BlobBox | null, b: BlobBox): boolean {
@@ -22,7 +21,6 @@ function sameBox(a: BlobBox | null, b: BlobBox): boolean {
 		a.r.every((v, i) => v === b.r[i])
 	);
 }
-
 export function MirroredItem({
 	radius,
 	className,
@@ -44,7 +42,13 @@ export function MirroredItem({
 			const target = (el.firstElementChild as HTMLElement | null) ?? el;
 			const r: CornerRadii =
 				radius != null ? normalizeRadius(radius) : measureRadius(target, w, h);
-			const next: BlobBox = { x: base.x, y: base.y, w, h, r };
+			const next: BlobBox = {
+				x: base.x,
+				y: base.y,
+				w,
+				h,
+				r,
+			};
 			setBox((prev) => (sameBox(prev, next) ? prev : next));
 		};
 		measure();
@@ -54,7 +58,6 @@ export function MirroredItem({
 		return () => ro.disconnect();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ctx, radiusKey]);
-
 	return (
 		<>
 			<div
@@ -73,7 +76,6 @@ export function MirroredItem({
 		</>
 	);
 }
-
 function renderBlob(box: BlobBox, style: CSSProperties) {
 	const [tl, tr, br, bl] = box.r;
 	const uniform = tl === tr && tr === br && br === bl;

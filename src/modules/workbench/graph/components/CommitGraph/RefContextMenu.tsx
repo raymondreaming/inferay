@@ -1,5 +1,5 @@
+import type { GitGraphActionRequest } from "../../model/graph-model.ts";
 import { ContextMenu, type ContextMenuEntry } from "./ContextMenu.tsx";
-import type { GitGraphActionRequest } from "./graph-preferences.ts";
 import type { useCommitGraphState } from "./useCommitGraphState.tsx";
 
 type RefContextMenuProps = {

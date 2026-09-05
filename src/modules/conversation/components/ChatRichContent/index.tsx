@@ -1,7 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useMemo, useState } from "octane";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { indexedValues } from "../../../../shared/lib/indexed-values.ts";
+import { indexedValues } from "../../../../shared/lib/data.ts";
 import {
 	IconCheck,
 	IconHelpCircle,
@@ -11,7 +11,7 @@ import type { AskUserQuestion } from "../../model/agent-chat-shared.ts";
 import {
 	formatAskUserAnswer,
 	hasAskUserSelections,
-} from "../../model/chat-message-render-utils.ts";
+} from "../../model/agent-chat-shared.ts";
 import { CopyablePre } from "./CopyablePre.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";

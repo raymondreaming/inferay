@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { Fragment, memo } from "octane";
-import type { MdInlineToken } from "../../../../shared/lib/markdown.ts";
+import type { MdInlineToken } from "../../../../shared/lib/data.ts";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 

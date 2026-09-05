@@ -7,12 +7,12 @@ import {
 	useSyncExternalStore,
 } from "octane";
 import { fetchJson } from "../../../adapters/backend/http.ts";
+import { hasPath } from "../../../shared/lib/data.ts";
 import type {
 	AttachedImageInfo,
 	QueuedMessageInfo,
-} from "../../../modules/conversation/model/agent-chat-shared.ts";
-import { getChatQueueReadModel } from "../../../modules/conversation/model/chat-session-store.ts";
-import { hasPath } from "../../../shared/lib/data.ts";
+} from "../model/agent-chat-shared.ts";
+import { getChatQueueReadModel } from "../model/chat-session-store.ts";
 
 interface MarkdownPreviewState {
 	show: boolean;

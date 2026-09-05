@@ -1,5 +1,4 @@
-import type { ReactElement } from "../../../../types/octane-react-compat.ts";
-import type { ShadowLayer } from "../shadow";
+import type { ReactElement, ShadowLayer } from "../observer.ts";
 import { InsetPass } from "./InsetPass.tsx";
 import { ShadowPass } from "./ShadowPass.tsx";
 

@@ -5,9 +5,8 @@ import {
 	IconExternalLink,
 	IconPlus,
 } from "../../../../shared/ui/Icons/index.tsx";
-import type { GithubRepo } from "../../../repository/adapters/types.ts";
+import type { GithubRepo } from "../../../repository/model/types.ts";
 import { styles } from "./styles.ts";
-
 export function SettingsRepoRow({
 	repo,
 	cloning,

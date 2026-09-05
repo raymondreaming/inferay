@@ -17,10 +17,11 @@ import {
 	SkillProposalCard,
 	SkillReadCard,
 } from "../../../skills/components/SkillProposalCard/index.tsx";
+import type { ChatMessage } from "../../model/agent-chat-shared.ts";
 import {
 	getEditToolPayload,
 	getToolDisplayInfo,
-} from "../../model/chat-message-render-utils.ts";
+} from "../../model/agent-chat-shared.ts";
 import { MiniEditDiff } from "../ChatEditDiff/index.tsx";
 import {
 	AskUserQuestionCard,
@@ -30,7 +31,6 @@ import {
 import { renderTextPills } from "../ChatTokenDecorators/index.tsx";
 import { CommandSystemCard } from "./CommandSystemCard.tsx";
 import { GoalSystemCard } from "./GoalSystemCard.tsx";
-import type { ChatMessage } from "./shared.ts";
 import { styles } from "./styles.ts";
 import { ToolOutputHighlight } from "./ToolOutputHighlight.tsx";
 

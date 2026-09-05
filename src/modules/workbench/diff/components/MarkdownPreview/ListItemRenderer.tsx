@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
-import { indexedValues } from "../../../../../shared/lib/indexed-values.ts";
-import type { MdListItem } from "../../../../../shared/lib/markdown.ts";
+import type { MdListItem } from "../../../../../shared/lib/data.ts";
+import { indexedValues } from "../../../../../shared/lib/data.ts";
 import { InlineTokens } from "./InlineTokens.tsx";
 import { styles } from "./styles.ts";
 

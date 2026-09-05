@@ -1,18 +1,21 @@
 import {
 	APP_BACKGROUND_STORAGE_KEY,
 	APP_THEME_STORAGE_KEY,
-} from "../../adapters/storage/keys.ts";
-import {
 	readStoredJson,
 	readStoredValue,
 	writeStoredJson,
 	writeStoredValue,
 } from "../../adapters/storage/stored-values.ts";
 export const APP_THEMES = [
-	{ id: "default", name: "Black" },
-	{ id: "midnight", name: "Midnight" },
+	{
+		id: "default",
+		name: "Black",
+	},
+	{
+		id: "midnight",
+		name: "Midnight",
+	},
 ] as const;
-
 export type AppThemeId = (typeof APP_THEMES)[number]["id"];
 
 // Native window dragging uses these class names.
@@ -30,17 +33,14 @@ const CUSTOM_PALETTE_PROPERTIES = [
 	"--color-inferay-accent-foreground",
 	"--color-inferay-info",
 ] as const;
-
 export function loadAppThemeId(): AppThemeId {
 	return readStoredValue(APP_THEME_STORAGE_KEY) === "midnight"
 		? "midnight"
 		: "default";
 }
-
 export function saveAppThemeId(id: AppThemeId): void {
 	writeStoredValue(APP_THEME_STORAGE_KEY, id);
 }
-
 export function applyAppTheme(id: AppThemeId): void {
 	const root = document.documentElement;
 	for (const property of CUSTOM_PALETTE_PROPERTIES) {
@@ -49,7 +49,6 @@ export function applyAppTheme(id: AppThemeId): void {
 	delete root.dataset.inferayScene;
 	root.dataset.inferayTheme = id;
 }
-
 export const APP_BACKGROUNDS = [
 	{
 		id: "city",
@@ -72,19 +71,16 @@ export const APP_BACKGROUNDS = [
 		path: "/inferay-vibespace.png",
 	},
 ] as const;
-
 export type AppBackgroundId =
 	| (typeof APP_BACKGROUNDS)[number]["id"]
 	| "custom"
 	| "none";
-
 export type AppBackgroundMode = "solid" | "scene" | "glass";
 
 /** CSS owns mode-specific surface colors; registered tokens resolve at the root. */
 export function applyAppBackgroundSurfaces(mode: AppBackgroundMode): void {
 	document.documentElement.dataset.inferayBackground = mode;
 }
-
 export interface AppBackgroundSettings {
 	version: 7;
 	mode: AppBackgroundMode;
@@ -96,7 +92,6 @@ export interface AppBackgroundSettings {
 	autoTheme: boolean;
 	customRevision: number;
 }
-
 export const DEFAULT_APP_BACKGROUND_SETTINGS: AppBackgroundSettings = {
 	version: 7,
 	mode: "solid",
@@ -108,7 +103,6 @@ export const DEFAULT_APP_BACKGROUND_SETTINGS: AppBackgroundSettings = {
 	autoTheme: false,
 	customRevision: 0,
 };
-
 interface BackgroundPalette {
 	black: string;
 	darkGray: string;
@@ -117,14 +111,12 @@ interface BackgroundPalette {
 	accent: string;
 	accentHover: string;
 }
-
 function clamp(value: unknown, min: number, max: number, fallback: number) {
 	const number = Number(value);
 	return Number.isFinite(number)
 		? Math.min(max, Math.max(min, number))
 		: fallback;
 }
-
 function isBackgroundId(value: unknown): value is AppBackgroundId {
 	return (
 		value === "custom" ||
@@ -132,11 +124,9 @@ function isBackgroundId(value: unknown): value is AppBackgroundId {
 		APP_BACKGROUNDS.some((background) => background.id === value)
 	);
 }
-
 function isBackgroundMode(value: unknown): value is AppBackgroundMode {
 	return value === "solid" || value === "scene" || value === "glass";
 }
-
 export function loadAppBackgroundSettings(): AppBackgroundSettings {
 	const stored = readStoredJson<
 		Partial<Omit<AppBackgroundSettings, "version">> & { version?: number }
@@ -185,30 +175,25 @@ export function loadAppBackgroundSettings(): AppBackgroundSettings {
 		customRevision: clamp(stored.customRevision, 0, Number.MAX_SAFE_INTEGER, 0),
 	};
 }
-
 export function saveAppBackgroundSettings(
 	settings: AppBackgroundSettings,
 ): void {
 	applyAppBackgroundSurfaces(settings.mode);
 	writeStoredJson(APP_BACKGROUND_STORAGE_KEY, settings);
 }
-
 export function getBuiltInBackgroundPath(id: AppBackgroundId): string | null {
 	return (
 		APP_BACKGROUNDS.find((background) => background.id === id)?.path ?? null
 	);
 }
-
 function channelToHex(value: number) {
 	return Math.round(Math.min(255, Math.max(0, value)))
 		.toString(16)
 		.padStart(2, "0");
 }
-
 function rgbToHex(red: number, green: number, blue: number) {
 	return `#${channelToHex(red)}${channelToHex(green)}${channelToHex(blue)}`;
 }
-
 function foregroundForHex(hex: string) {
 	const value = Number.parseInt(hex.slice(1), 16);
 	const red = (value >> 16) & 255;
@@ -218,7 +203,6 @@ function foregroundForHex(hex: string) {
 		? "#111111"
 		: "#f8f8f8";
 }
-
 function mixRgb(
 	color: [number, number, number],
 	target: [number, number, number],
@@ -228,7 +212,6 @@ function mixRgb(
 		(channel, index) => channel + (target[index]! - channel) * amount,
 	) as [number, number, number];
 }
-
 async function deriveCustomPalette(
 	imageUrl: string,
 ): Promise<BackgroundPalette> {
@@ -239,7 +222,9 @@ async function deriveCustomPalette(
 	const canvas = document.createElement("canvas");
 	canvas.width = 48;
 	canvas.height = 48;
-	const context = canvas.getContext("2d", { willReadFrequently: true });
+	const context = canvas.getContext("2d", {
+		willReadFrequently: true,
+	});
 	if (!context) throw new Error("Canvas unavailable");
 	context.drawImage(image, 0, 0, canvas.width, canvas.height);
 	const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
@@ -290,7 +275,6 @@ async function deriveCustomPalette(
 		accentHover: rgbToHex(...mixRgb(mutedAccent, [255, 255, 255], 0.14)),
 	};
 }
-
 export async function deriveAppBackgroundPalette(
 	id: AppBackgroundId,
 	imageUrl: string | null,
@@ -299,7 +283,6 @@ export async function deriveAppBackgroundPalette(
 	if (id === "custom" && imageUrl) return deriveCustomPalette(imageUrl);
 	return null;
 }
-
 export function applyAppBackgroundPalette(
 	palette: BackgroundPalette | null,
 	id: AppBackgroundId,
@@ -324,7 +307,119 @@ export function applyAppBackgroundPalette(
 	);
 	root.style.setProperty("--color-inferay-info", palette.accent);
 }
-
 export function restoreAppTheme(): void {
 	applyAppTheme(loadAppThemeId());
+}
+
+import { APP_FONT_STORAGE_KEY } from "../../adapters/storage/stored-values.ts";
+export const APP_FONTS = [
+	{
+		id: "geist",
+		label: "Geist",
+		family: '"Geist", sans-serif',
+	},
+	{
+		id: "inter",
+		label: "Inter",
+		family: '"Inter", sans-serif',
+	},
+	{
+		id: "manrope",
+		label: "Manrope",
+		family: '"Manrope", sans-serif',
+	},
+	{
+		id: "ibm-plex-sans",
+		label: "IBM Plex Sans",
+		family: '"IBM Plex Sans", sans-serif',
+	},
+	{
+		id: "system",
+		label: "System",
+		family: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+	},
+] as const;
+export type AppFontId = (typeof APP_FONTS)[number]["id"];
+export const DEFAULT_APP_FONT_ID: AppFontId = "geist";
+export function isAppFontId(value: unknown): value is AppFontId {
+	return APP_FONTS.some((font) => font.id === value);
+}
+export function loadAppFontId(): AppFontId {
+	const stored = readStoredValue(APP_FONT_STORAGE_KEY);
+	return isAppFontId(stored) ? stored : DEFAULT_APP_FONT_ID;
+}
+export function applyAppFont(id: AppFontId): void {
+	const selected = APP_FONTS.find((font) => font.id === id) ?? APP_FONTS[0];
+	const root = document.documentElement;
+	root.style.setProperty("--font-sans", selected.family);
+	root.style.setProperty("--font-mono", selected.family);
+	root.style.setProperty("--font-diff", selected.family);
+}
+export function saveAppFontId(id: AppFontId): void {
+	writeStoredValue(APP_FONT_STORAGE_KEY, id);
+}
+export type Step = "intro" | "github" | "projects" | "complete";
+export function getStepPhase(current: Step, target: Step) {
+	const order: Step[] = ["intro", "github", "projects", "complete"];
+	return current === target
+		? "active"
+		: order.indexOf(current) < order.indexOf(target)
+			? "before"
+			: "after";
+}
+
+import { fetchJsonOr } from "../../adapters/backend/http.ts";
+import { useQueryResource } from "../../shared/hooks/useQueryResource.tsx";
+export interface AppInfo {
+	name: string;
+	version: string;
+	hash?: string;
+	channel: string;
+	identifier?: string;
+	production: boolean;
+	update: {
+		available: boolean;
+		currentVersion: string;
+		latestVersion: string | null;
+		url: string | null;
+		checkedAt: number;
+		error?: string;
+	};
+}
+export const FALLBACK_APP_INFO: AppInfo = {
+	name: "inferay",
+	version: "dev",
+	channel: "dev",
+	production: false,
+	update: {
+		available: false,
+		currentVersion: "dev",
+		latestVersion: null,
+		url: null,
+		checkedAt: 0,
+	},
+};
+function fetchAppInfo() {
+	return fetchJsonOr("/api/app-info", FALLBACK_APP_INFO);
+}
+function areAppInfoEqual(prev: AppInfo, next: AppInfo) {
+	return (
+		prev.name === next.name &&
+		prev.version === next.version &&
+		prev.hash === next.hash &&
+		prev.channel === next.channel &&
+		prev.identifier === next.identifier &&
+		prev.production === next.production &&
+		prev.update.available === next.update.available &&
+		prev.update.currentVersion === next.update.currentVersion &&
+		prev.update.latestVersion === next.update.latestVersion &&
+		prev.update.url === next.update.url &&
+		prev.update.error === next.update.error
+	);
+}
+export function useAppInfo() {
+	return useQueryResource<AppInfo>(fetchAppInfo, FALLBACK_APP_INFO, {
+		queryKey: ["app-info"],
+		isEqual: areAppInfoEqual,
+	});
 }

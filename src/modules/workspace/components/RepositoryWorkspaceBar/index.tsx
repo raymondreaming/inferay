@@ -9,7 +9,7 @@ import {
 	iconSize,
 	selectionAppearance,
 } from "../../../../design-system/styles.stylex.ts";
-import { listenWindowEvent } from "../../../../shared/lib/react-events.ts";
+import { listenWindowEvent } from "../../../../shared/lib/data.ts";
 import {
 	IconFolder,
 	IconGitBranch,
@@ -18,27 +18,22 @@ import {
 	IconPanelRight,
 	IconPlus,
 } from "../../../../shared/ui/Icons/index.tsx";
-import { dispatchToggleActiveGitSidebar } from "../../../workbench/model/workbench-events.ts";
-import {
-	getRepositoryWorkspaceTarget,
-	projectRepositoryWorkspaces,
-	type RepositoryWorkspace,
-} from "../../model/repository-workspaces.ts";
-import { useWorkspaceState } from "../../model/useWorkspaceState.ts";
+import { dispatchToggleActiveGitSidebar } from "../../../workbench/model/workbench-model.ts";
 import {
 	type CreateAgentChatTarget,
 	dispatchCreateAgentChat,
+	getRepositoryWorkspaceTarget,
+	loadAgentState,
 	loadSidebarCollapsed,
+	mutateAgentWorkspaceState,
+	projectRepositoryWorkspaces,
+	type RepositoryWorkspace,
 	setWorkspaceSidebarCollapsed,
+	useWorkspaceState,
 	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
 	type WorkspaceSidebarCollapsedDetail,
-} from "../../model/workspace-events.ts";
-import {
-	loadAgentState,
-	mutateAgentWorkspaceState,
 } from "../../model/workspace-model.ts";
 import { styles } from "./styles.ts";
-
 export function RepositoryWorkspaceBar() {
 	const location = useLocation();
 	const navigate = useNavigate();
@@ -85,7 +80,6 @@ export function RepositoryWorkspaceBar() {
 		setNewMenuOpen(false);
 		dispatchCreateAgentChat(target);
 	}, []);
-
 	const activateWorkspace = useCallback(
 		(workspace: RepositoryWorkspace) => {
 			const currentState = loadAgentState();
@@ -112,7 +106,10 @@ export function RepositoryWorkspaceBar() {
 				},
 				"select-repository-workspace",
 			);
-			if (location.pathname !== "/agent") navigate({ to: "/agent" });
+			if (location.pathname !== "/agent")
+				navigate({
+					to: "/agent",
+				});
 		},
 		[location.pathname, navigate],
 	);
@@ -128,7 +125,6 @@ export function RepositoryWorkspaceBar() {
 		styles.panelToggle,
 		styles.changesSidebarToggle,
 	);
-
 	return (
 		<header
 			{...barProps}

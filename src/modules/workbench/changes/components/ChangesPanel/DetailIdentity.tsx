@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { useEffect, useState } from "octane";
-import { resolveGitAuthorAvatar } from "../../../../repository/model/git-avatar.ts";
+import { resolveGitAuthorAvatar } from "../../../../repository/model/types.ts";
 import { styles } from "./styles.ts";
 
 function detailInitials(name?: string | null) {

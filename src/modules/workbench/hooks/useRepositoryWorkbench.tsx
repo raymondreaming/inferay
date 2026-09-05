@@ -2,28 +2,32 @@ import { useQuery } from "@octanejs/tanstack-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
 import { postJson } from "../../../adapters/backend/http.ts";
 import {
+	CLIENT_STORAGE_CHANGED_EVENT,
 	readStoredValue,
 	writeStoredValue,
 } from "../../../adapters/storage/stored-values.ts";
-import { CLIENT_STORAGE_CHANGED_EVENT } from "../../../adapters/storage/sync.ts";
+import {
+	listenWindowEvent,
+	lockPointerSelection,
+	queryClient,
+} from "../../../shared/lib/data.ts";
 import {
 	DOCUMENT_OPEN_EVENT,
 	type DocumentOpenDetail,
-} from "../../../modules/explorer/model/explorer-events.ts";
-import { useGitChangeActions } from "../../../modules/repository/hooks/useGitChangeActions.ts";
-import { useGitDiff } from "../../../modules/repository/hooks/useGitDiff.tsx";
+} from "../../explorer/model/explorer-events.ts";
+import { useGitDiff } from "../../repository/hooks/useGitDiff.tsx";
 import {
 	type CommitFile,
 	useCommitDetails,
 	useComparisonDetails,
 	useGitGraph,
-} from "../../../modules/repository/hooks/useGitGraph.tsx";
-import { useGitStatus } from "../../../modules/repository/hooks/useGitStatus.tsx";
-import type { GitFileEntry } from "../../../modules/repository/model/types.ts";
-import { lockPointerSelection } from "../../../shared/lib/pointer-selection-lock.ts";
-import { queryClient } from "../../../shared/lib/query-client.ts";
-import { listenWindowEvent } from "../../../shared/lib/react-events.ts";
-import type { DiffRequest } from "../../repository/model/types.ts";
+} from "../../repository/hooks/useGitGraph.tsx";
+import { useGitStatus } from "../../repository/hooks/useGitStatus.tsx";
+import type {
+	DiffRequest,
+	GitFileEntry,
+} from "../../repository/model/types.ts";
+import { useGitChangeActions } from "../../repository/model/types.ts";
 import {
 	ChangesPanel,
 	getFileSelectionAfterToggle,
@@ -31,10 +35,6 @@ import {
 } from "../changes/components/ChangesPanel/index.tsx";
 import type { DragProps } from "../components/ChatDiffPanel/index.tsx";
 import { ChatDiffPanel } from "../components/ChatDiffPanel/index.tsx";
-import type {
-	GitOperationResult,
-	GitRefOperationRequest,
-} from "../components/ChatDiffPanel/operation-model.ts";
 import {
 	WorkbenchDiffRail,
 	WorkbenchSidebar,
@@ -52,33 +52,33 @@ import {
 	DEFAULT_GIT_GRAPH_HISTORY_LIMIT,
 	nextGitGraphHistoryLimit,
 } from "../graph/model/graph-model.ts";
-import {
-	OPEN_ACTIVE_GIT_GRAPH_EVENT,
-	TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT,
-} from "../model/workbench-events.ts";
-import { MIN_RESPONSIVE_PANE_WIDTH } from "../model/workbench-layout.ts";
+import type {
+	GitOperationResult,
+	GitRefOperationRequest,
+} from "../model/workbench-model.ts";
 import {
 	bindGitGraphRepository,
 	dismissGitWorkspaceViewer,
 	emptyGitWorkspacePanelSession,
+	GIT_FILE_VIEW_MODE_STORAGE_KEY,
 	type GitWorkspaceDetachedFilePanel,
 	type GitWorkspacePanelSession,
 	getGitWorkspaceSidebarContent,
 	initializeGitRepositoryPanels,
 	isGitWorkspaceGraphDrillIn,
 	isHistoricalGitWorkspaceDiff,
+	loadGitFileViewMode,
+	MIN_RESPONSIVE_PANE_WIDTH,
+	OPEN_ACTIVE_GIT_GRAPH_EVENT,
 	openGitCommitFileDiff,
 	openGitComparisonFileDiff,
 	openGitGraph,
 	openGitWorkingTreeFileDiff,
 	reconcileGitGraphSelection,
+	saveGitFileViewMode,
+	TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT,
 	updateGitGraphSelection,
 } from "../model/workbench-model.ts";
-import {
-	GIT_FILE_VIEW_MODE_STORAGE_KEY,
-	loadGitFileViewMode,
-	saveGitFileViewMode,
-} from "../model/workbench-preferences.ts";
 
 export const SIDEBAR_WIDTH_KEY = "agent-workspace-changes-width";
 

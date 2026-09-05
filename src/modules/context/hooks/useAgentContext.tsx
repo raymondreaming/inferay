@@ -4,7 +4,7 @@ import type {
 	AgentContextMode,
 	AgentContextUpdate,
 	EffectiveAgentContext,
-} from "../model/types.ts";
+} from "../../skills/model/skill-library.ts";
 
 const EMPTY = {
 	instructions: "",

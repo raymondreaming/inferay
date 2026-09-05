@@ -4,11 +4,7 @@ import type {
 	GitGraphRef,
 	GitWorktree,
 	GraphNode,
-} from "../../../../repository/hooks/useGitGraph";
-import { AuthorAvatar } from "./AuthorAvatar.tsx";
-import { MergeNode } from "./MergeNode.tsx";
-import { RefBadge } from "./RefBadge.tsx";
-import { RefBadges } from "./RefBadges.tsx";
+} from "../../../../repository/hooks/useGitGraph.tsx";
 import {
 	AVATAR_SIZE,
 	COLUMN_WIDTH,
@@ -21,7 +17,11 @@ import {
 	ROW_HEIGHT,
 	refPresentationLabel,
 	TOOLS_WIDTH,
-} from "./shared.ts";
+} from "../../model/graph-model.ts";
+import { AuthorAvatar } from "./AuthorAvatar.tsx";
+import { MergeNode } from "./MergeNode.tsx";
+import { RefBadge } from "./RefBadge.tsx";
+import { RefBadges } from "./RefBadges.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
@@ -33,13 +33,11 @@ const commitDateFormatter = new Intl.DateTimeFormat("en-US", {
 	minute: "2-digit",
 	hour12: true,
 });
-
 function formatCommitDate(value: string, fallback: string) {
 	const parsed = new Date(value);
 	if (Number.isNaN(parsed.getTime())) return fallback;
 	return commitDateFormatter.format(parsed).replace(",", "");
 }
-
 export const CommitRow = memo(function CommitRow({
 	commit,
 	worktree,
@@ -144,7 +142,6 @@ export const CommitRow = memo(function CommitRow({
 			0,
 		);
 	const nodeAnchoredWashLeft = graphStart + nodeCenter;
-
 	return (
 		<div
 			role="option"

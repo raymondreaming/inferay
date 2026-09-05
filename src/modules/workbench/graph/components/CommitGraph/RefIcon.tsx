@@ -5,7 +5,7 @@ import {
 	IconGitCommit,
 	IconTag,
 } from "../../../../../shared/ui/Icons/index.tsx";
-import type { GitGraphRefKind } from "../../../../repository/hooks/useGitGraph";
+import type { GitGraphRefKind } from "../../../../repository/hooks/useGitGraph.tsx";
 import { styles } from "./styles.ts";
 
 export function RefIcon({ kind }: { kind: GitGraphRefKind }) {

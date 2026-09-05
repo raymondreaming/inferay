@@ -1,6 +1,6 @@
 import { useQuery } from "@octanejs/tanstack-query";
 import { sendJson } from "../../../adapters/backend/http.ts";
-import { queryClient } from "../../../shared/lib/query-client.ts";
+import { queryClient } from "../../../shared/lib/data.ts";
 
 export type LineTextSegment = { text: string; changed: boolean };
 export type DiffLine = {

@@ -1,14 +1,12 @@
-import type { ReactNode } from "../../../../types/octane-react-compat.ts";
 import { Liquid } from "../index.ts";
+import type { ReactNode } from "../observer.ts";
 import * as inlineStyles from "./styles.ts";
-
 export interface LiquidActionSurfaceProps {
 	children?: ReactNode;
 	fill: string;
 	fullWidth?: boolean;
 	intense?: boolean;
 }
-
 export function LiquidActionSurface({
 	children,
 	fill,
@@ -29,7 +27,12 @@ export function LiquidActionSurface({
 		>
 			<Liquid.Item
 				effect="move"
-				move={{ springiness: 0.62, wobble: 0.3, stretch: 0.28, trail: 0.4 }}
+				move={{
+					springiness: 0.62,
+					wobble: 0.3,
+					stretch: 0.28,
+					trail: 0.4,
+				}}
 			>
 				{children}
 			</Liquid.Item>

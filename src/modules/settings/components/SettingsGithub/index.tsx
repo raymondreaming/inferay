@@ -4,9 +4,8 @@ import {
 	IconExternalLink,
 	IconUser,
 } from "../../../../shared/ui/Icons/index.tsx";
-import type { ForgeAccount } from "../../../repository/adapters/types.ts";
+import type { ForgeAccount } from "../../../repository/model/types.ts";
 import { styles } from "./styles.ts";
-
 export function SettingsGithubAccount({ account }: { account: ForgeAccount }) {
 	const fallback = account.login.slice(0, 2).toLocaleUpperCase();
 	return (
@@ -60,6 +59,5 @@ export function SettingsGithubAccount({ account }: { account: ForgeAccount }) {
 		</div>
 	);
 }
-
 export { SettingsGithubEmptyState } from "./SettingsGithubEmptyState.tsx";
 export { SettingsRepoRow } from "./SettingsRepoRow.tsx";

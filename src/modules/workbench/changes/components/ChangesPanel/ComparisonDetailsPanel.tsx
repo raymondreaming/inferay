@@ -3,8 +3,8 @@ import type {
 	CommitFile,
 	ComparisonDetails,
 } from "../../../../repository/hooks/useGitGraph.tsx";
+import type { SelectedFile } from "../../../model/workbench-model.ts";
 import { HistoricalFileList } from "./HistoricalFileList.tsx";
-import type { SelectedFile } from "./shared.ts";
 import { styles } from "./styles.ts";
 
 export function ComparisonDetailsPanel({

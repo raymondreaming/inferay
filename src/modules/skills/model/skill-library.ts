@@ -1,3 +1,66 @@
+export type AgentContextMode = "inherit" | "replace";
+export interface AgentContextLayer {
+	instructions: string;
+	mode: AgentContextMode;
+	updatedAt: number;
+}
+export interface EffectiveAgentContext {
+	global: AgentContextLayer;
+	project: AgentContextLayer | null;
+	chat: AgentContextLayer | null;
+	effectiveInstructions: string;
+	scope: "global" | "project" | "chat";
+	skillCount: number;
+	skillManifest: string;
+	activatedSkills: Array<{
+		name: string;
+		command: string;
+		instructions: string;
+	}>;
+}
+export interface AgentContextUpdate {
+	scope: "global" | "project" | "chat";
+	cwd?: string;
+	paneId?: string;
+	instructions: string;
+	mode?: AgentContextMode;
+}
+export const OPEN_SETTINGS_MODAL_EVENT = "inferay-open-settings-modal";
+export type SettingsModalTarget =
+	| "agents"
+	| "appearance"
+	| "workspace"
+	| "github";
+export interface OpenSettingsModalDetail {
+	readonly section: SettingsModalTarget;
+}
+export function openSettingsModal(
+	section: SettingsModalTarget = "agents",
+): void {
+	window.dispatchEvent(
+		new CustomEvent<OpenSettingsModalDetail>(OPEN_SETTINGS_MODAL_EVENT, {
+			detail: {
+				section,
+			},
+		}),
+	);
+}
+export const OPEN_SKILLS_EVENT = "inferay-open-skills";
+export type SkillsTarget =
+	| { mode: "browse" }
+	| { mode: "create" }
+	| { mode: "edit"; skillId: string };
+export function openSkills(
+	target: SkillsTarget = {
+		mode: "browse",
+	},
+): void {
+	window.dispatchEvent(
+		new CustomEvent(OPEN_SKILLS_EVENT, {
+			detail: target,
+		}),
+	);
+}
 export interface SkillProposal {
 	type: "inferay.skill-proposal";
 	action: "create" | "update";
@@ -9,7 +72,6 @@ export interface SkillProposal {
 	promptTemplate: string;
 	reason: string;
 }
-
 export interface SkillRead {
 	_id: string;
 	name: string;
@@ -18,7 +80,6 @@ export interface SkillRead {
 	promptTemplate: string;
 	isBuiltIn: boolean;
 }
-
 export interface Skill {
 	_id: string;
 	name: string;
@@ -33,22 +94,56 @@ export interface Skill {
 	createdAt: number;
 	updatedAt: number;
 }
-
 export const SKILL_CATEGORIES = [
-	{ value: "code", label: "Code" },
-	{ value: "refactoring", label: "Refactoring" },
-	{ value: "security", label: "Security" },
-	{ value: "performance", label: "Performance" },
-	{ value: "planning", label: "Planning" },
-	{ value: "testing", label: "Testing" },
-	{ value: "debugging", label: "Debugging" },
-	{ value: "documentation", label: "Documentation" },
-	{ value: "git", label: "Git" },
-	{ value: "learning", label: "Learning" },
-	{ value: "conversation", label: "Conversation" },
-	{ value: "custom", label: "Custom" },
+	{
+		value: "code",
+		label: "Code",
+	},
+	{
+		value: "refactoring",
+		label: "Refactoring",
+	},
+	{
+		value: "security",
+		label: "Security",
+	},
+	{
+		value: "performance",
+		label: "Performance",
+	},
+	{
+		value: "planning",
+		label: "Planning",
+	},
+	{
+		value: "testing",
+		label: "Testing",
+	},
+	{
+		value: "debugging",
+		label: "Debugging",
+	},
+	{
+		value: "documentation",
+		label: "Documentation",
+	},
+	{
+		value: "git",
+		label: "Git",
+	},
+	{
+		value: "learning",
+		label: "Learning",
+	},
+	{
+		value: "conversation",
+		label: "Conversation",
+	},
+	{
+		value: "custom",
+		label: "Custom",
+	},
 ] as const;
-
 export interface SkillFormState {
 	name: string;
 	command: string;
@@ -61,7 +156,6 @@ export interface SkillFormState {
 	isEditing: boolean;
 	isCreating: boolean;
 }
-
 export type SkillFormAction =
 	| { type: "reset" }
 	| { type: "setField"; field: string; value: string }
@@ -73,7 +167,6 @@ export type SkillFormAction =
 	| { type: "cancelEdit" }
 	| { type: "finishEdit" }
 	| { type: "finishCreate" };
-
 export const INITIAL_SKILL_FORM: SkillFormState = {
 	name: "",
 	command: "",
@@ -86,7 +179,6 @@ export const INITIAL_SKILL_FORM: SkillFormState = {
 	isEditing: false,
 	isCreating: false,
 };
-
 export function skillFormReducer(
 	state: SkillFormState,
 	action: SkillFormAction,
@@ -97,13 +189,26 @@ export function skillFormReducer(
 		case "finishCreate":
 			return INITIAL_SKILL_FORM;
 		case "setField":
-			return { ...state, [action.field]: action.value };
+			return {
+				...state,
+				[action.field]: action.value,
+			};
 		case "setError":
-			return { ...state, error: action.error };
+			return {
+				...state,
+				error: action.error,
+			};
 		case "startSaving":
-			return { ...state, isSaving: true, error: "" };
+			return {
+				...state,
+				isSaving: true,
+				error: "",
+			};
 		case "stopSaving":
-			return { ...state, isSaving: false };
+			return {
+				...state,
+				isSaving: false,
+			};
 		case "startEdit":
 			return {
 				...state,
@@ -117,12 +222,17 @@ export function skillFormReducer(
 				error: "",
 			};
 		case "startCreate":
-			return { ...INITIAL_SKILL_FORM, isCreating: true };
+			return {
+				...INITIAL_SKILL_FORM,
+				isCreating: true,
+			};
 		case "finishEdit":
-			return { ...state, isEditing: false };
+			return {
+				...state,
+				isEditing: false,
+			};
 	}
 }
-
 interface FilterableSkill {
 	name: string;
 	command: string;
@@ -130,7 +240,6 @@ interface FilterableSkill {
 	category?: string;
 	isBuiltIn?: boolean;
 }
-
 export function filterSkills<T extends FilterableSkill>(
 	skills: readonly T[],
 	filter: string,

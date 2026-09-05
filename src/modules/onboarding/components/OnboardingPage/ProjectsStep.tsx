@@ -1,4 +1,5 @@
 import * as stylex from "@octanejs/stylex";
+import { getStepPhase, type Step } from "../../../../app/model/appearance.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
 import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
@@ -12,10 +13,8 @@ import {
 	IconRefreshCw,
 	IconX,
 } from "../../../../shared/ui/Icons/index.tsx";
-import type { GithubRepo } from "../../../repository/adapters/types.ts";
-import { getStepPhase, type Step } from "./shared.ts";
+import type { GithubRepo } from "../../../repository/model/types.ts";
 import { styles } from "./styles.ts";
-
 export function ProjectsStep({
 	step,
 	repos,
@@ -46,9 +45,7 @@ export function ProjectsStep({
 	onComplete: () => void;
 }) {
 	const totalProjects = selected.size + localFolders.length;
-
 	const phase = getStepPhase(step, "projects");
-
 	return (
 		<section
 			aria-hidden={step !== "projects"}

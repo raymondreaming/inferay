@@ -5,8 +5,7 @@ import { fetchJsonOr, postJson } from "../../../../adapters/backend/http.ts";
 import { DEFAULT_APP_ROUTE } from "../../../../app/model/navigation.tsx";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
-import { formatBytes } from "../../../../shared/lib/format.ts";
-import { setInputValue } from "../../../../shared/lib/react-events.ts";
+import { formatBytes, setInputValue } from "../../../../shared/lib/data.ts";
 import {
 	IconCheck,
 	IconMessageCircle,

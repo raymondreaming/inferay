@@ -4,8 +4,11 @@ import type {
 	GitFileEntry,
 	GitFilePresentation,
 } from "../../../../repository/model/types.ts";
+import {
+	type SelectedFile,
+	visibleGitFiles,
+} from "../../../model/workbench-model.ts";
 import { FileGroup } from "./FileGroup.tsx";
-import { type SelectedFile, visibleGitFiles } from "./shared.ts";
 
 export function HistoricalFileList({
 	files,

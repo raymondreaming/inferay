@@ -2,11 +2,15 @@ import * as stylex from "@octanejs/stylex";
 import { memo } from "octane";
 import type { CSSProperties } from "react";
 import type { ShikiLineToken } from "../../../../../shared/hooks/useShikiHighlighter.tsx";
-import { indexedValues } from "../../../../../shared/lib/indexed-values.ts";
-import type { Token } from "../../../../../shared/lib/syntax-tokens.ts";
+import type { Token } from "../../../../../shared/lib/data.ts";
+import { indexedValues } from "../../../../../shared/lib/data.ts";
 import type { DiffLine } from "../../../../repository/model/types.ts";
+import {
+	DIFF_CONFIG,
+	LINE_H,
+	MAX_RENDERED_LINE_CHARS,
+} from "../../../model/workbench-model.ts";
 import { DiffGutterCells } from "./DiffGutterCells.tsx";
-import { DIFF_CONFIG, LINE_H, MAX_RENDERED_LINE_CHARS } from "./shared.ts";
 import * as inlineStyles from "./styles.ts";
 import { diffStyles } from "./styles.ts";
 

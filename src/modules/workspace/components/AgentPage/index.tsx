@@ -1,41 +1,38 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
-import { wsClient } from "../../../../adapters/backend/websocket.ts";
-import { APP_THEME_STORAGE_KEY } from "../../../../adapters/storage/keys.ts";
-import { writeStoredValue } from "../../../../adapters/storage/stored-values.ts";
-import { CLIENT_STORAGE_CHANGED_EVENT } from "../../../../adapters/storage/sync.ts";
-import { loadAppThemeId } from "../../../../app/model/appearance.ts";
-import { hasId } from "../../../../shared/lib/data.ts";
+import { wsClient } from "../../../../adapters/backend/http.ts";
 import {
+	APP_THEME_STORAGE_KEY,
+	CLIENT_STORAGE_CHANGED_EVENT,
+	writeStoredValue,
+} from "../../../../adapters/storage/stored-values.ts";
+import { loadAppThemeId } from "../../../../app/model/appearance.ts";
+import {
+	hasId,
 	listenWindowEvent,
 	setupAgentThemePanelShortcut,
-} from "../../../../shared/lib/react-events.ts";
+} from "../../../../shared/lib/data.ts";
 import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
 import { clearAgentChatPaneState } from "../../../conversation/model/chat-session-store.ts";
 import { useRepositoryWorkbench } from "../../../workbench/hooks/useRepositoryWorkbench.tsx";
-import {
-	getVisibleRepositoryEntries,
-	projectRepositoryWorkspaces,
-} from "../../model/repository-workspaces.ts";
-import { useWorkspaceState } from "../../model/useWorkspaceState.ts";
-import {
-	FOCUS_AGENT_CHAT_COMPOSER_EVENT,
-	type FocusAgentChatComposerDetail,
-} from "../../model/workspace-events.ts";
+import type { MutableRef } from "../../model/workspace-model.ts";
 import {
 	type AgentGroupsAction,
 	type AgentSavedState,
 	DEFAULT_ROWS,
+	FOCUS_AGENT_CHAT_COMPOSER_EVENT,
+	type FocusAgentChatComposerDetail,
 	type GroupId,
 	getThemeById,
+	getVisibleRepositoryEntries,
 	listenAgentLayoutMode,
 	loadAgentLayoutMode,
 	mutateAgentWorkspaceState,
+	projectRepositoryWorkspaces,
+	useAgentPaneActions,
+	useWorkspaceState,
 } from "../../model/workspace-model.ts";
 import { WorkspaceCanvas } from "../WorkspaceCanvas/index.tsx";
 import { AgentMainSurface } from "./AgentMainSurface.tsx";
-import type { MutableRef } from "./shared.ts";
-import { useAgentPaneActions } from "./useAgentPaneActions.ts";
-
 export type AgentPaneActionsArgs = {
 	readonly chatRefs: MutableRef<Map<string, AgentChatHandle> | null>;
 	readonly cleanupPane: (paneId: string) => void;
@@ -46,7 +43,6 @@ export type AgentPaneActionsArgs = {
 	readonly groups: AgentSavedState["groups"];
 	readonly selectedGroupId: GroupId | null;
 };
-
 export function AgentPage() {
 	const [layoutMode, setLayoutMode] = useState(loadAgentLayoutMode);
 	useEffect(() => listenAgentLayoutMode(setLayoutMode), []);
@@ -63,7 +59,11 @@ export function AgentPage() {
 	useEffect(
 		() =>
 			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
-				const key = (event as CustomEvent<{ key?: string }>).detail?.key;
+				const key = (
+					event as CustomEvent<{
+						key?: string;
+					}>
+				).detail?.key;
 				if (key !== APP_THEME_STORAGE_KEY) return;
 				setThemeId(loadAppThemeId());
 			}),
@@ -158,7 +158,10 @@ export function AgentPage() {
 			"default",
 	});
 	const cleanupPane = useCallback((paneId: string) => {
-		wsClient.send({ type: "chat:destroy", paneId });
+		wsClient.send({
+			type: "chat:destroy",
+			paneId,
+		});
 		chatRefs.current?.delete(paneId);
 		clearAgentChatPaneState(paneId);
 	}, []);
@@ -172,7 +175,10 @@ export function AgentPage() {
 						const panes = [...group.panes];
 						const [pane] = panes.splice(action.fromIndex, 1);
 						if (pane) panes.splice(action.toIndex, 0, pane);
-						return { ...group, panes };
+						return {
+							...group,
+							panes,
+						};
 					}),
 				}));
 			}
@@ -180,7 +186,6 @@ export function AgentPage() {
 		},
 		[],
 	);
-
 	useEffect(() => {
 		return setupAgentThemePanelShortcut(setShowSettings);
 	}, []);
@@ -255,4 +260,4 @@ export function AgentPage() {
 		</>
 	);
 }
-export { useAgentPaneActions } from "./useAgentPaneActions.ts";
+export { useAgentPaneActions } from "../../model/workspace-model.ts";

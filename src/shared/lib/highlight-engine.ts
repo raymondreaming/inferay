@@ -1,12 +1,97 @@
+/** Access-ordered cache with both entry and retained-byte limits. */
+export class ByteCache<T> {
+	private entries = new Map<string, { value: T; bytes: number }>();
+	private bytes = 0;
+	constructor(
+		private maxBytes: number,
+		private maxEntries: number,
+	) {}
+	get(key: string): T | undefined {
+		const entry = this.entries.get(key);
+		if (!entry) return undefined;
+		this.entries.delete(key);
+		this.entries.set(key, entry);
+		return entry.value;
+	}
+	set(key: string, value: T, bytes: number) {
+		this.delete(key);
+		if (!Number.isFinite(bytes) || bytes < 0 || bytes > this.maxBytes) return;
+		this.entries.set(key, {
+			value,
+			bytes,
+		});
+		this.bytes += bytes;
+		while (this.bytes > this.maxBytes || this.entries.size > this.maxEntries) {
+			const first = this.entries.keys().next().value;
+			if (first === undefined) break;
+			this.delete(first);
+		}
+	}
+	delete(key: string) {
+		const entry = this.entries.get(key);
+		if (!entry) return;
+		this.bytes -= entry.bytes;
+		this.entries.delete(key);
+	}
+	keys() {
+		return this.entries.keys();
+	}
+	get size() {
+		return this.entries.size;
+	}
+	get retainedBytes() {
+		return this.bytes;
+	}
+}
+// Explicit imports keep unsupported grammars and themes out of the renderer build.
+export const syntaxLanguages = {
+	bash: () => import("@shikijs/langs/bash"),
+	c: () => import("@shikijs/langs/c"),
+	cpp: () => import("@shikijs/langs/cpp"),
+	css: () => import("@shikijs/langs/css"),
+	dart: () => import("@shikijs/langs/dart"),
+	go: () => import("@shikijs/langs/go"),
+	graphql: () => import("@shikijs/langs/graphql"),
+	html: () => import("@shikijs/langs/html"),
+	java: () => import("@shikijs/langs/java"),
+	javascript: () => import("@shikijs/langs/javascript"),
+	json: () => import("@shikijs/langs/json"),
+	jsx: () => import("@shikijs/langs/jsx"),
+	kotlin: () => import("@shikijs/langs/kotlin"),
+	lua: () => import("@shikijs/langs/lua"),
+	markdown: () => import("@shikijs/langs/markdown"),
+	php: () => import("@shikijs/langs/php"),
+	python: () => import("@shikijs/langs/python"),
+	r: () => import("@shikijs/langs/r"),
+	ruby: () => import("@shikijs/langs/ruby"),
+	rust: () => import("@shikijs/langs/rust"),
+	scala: () => import("@shikijs/langs/scala"),
+	scss: () => import("@shikijs/langs/scss"),
+	sql: () => import("@shikijs/langs/sql"),
+	svelte: () => import("@shikijs/langs/svelte"),
+	swift: () => import("@shikijs/langs/swift"),
+	toml: () => import("@shikijs/langs/toml"),
+	tsx: () => import("@shikijs/langs/tsx"),
+	typescript: () => import("@shikijs/langs/typescript"),
+	vue: () => import("@shikijs/langs/vue"),
+	yaml: () => import("@shikijs/langs/yaml"),
+	zig: () => import("@shikijs/langs/zig"),
+};
+export const syntaxThemes = {
+	"github-dark-high-contrast": () =>
+		import("@shikijs/themes/github-dark-high-contrast"),
+	"vitesse-dark": () => import("@shikijs/themes/vitesse-dark"),
+	"one-dark-pro": () => import("@shikijs/themes/one-dark-pro"),
+	dracula: () => import("@shikijs/themes/dracula"),
+	"slack-dark": () => import("@shikijs/themes/slack-dark"),
+};
+
 import type {
 	BundledLanguage,
 	BundledTheme,
 	GrammarState,
 	HighlighterCore,
 } from "shiki";
-import { ByteCache } from "./byte-cache.ts";
-import { syntaxLanguages, syntaxThemes } from "./highlight-bundle.ts";
-
 export interface HighlightToken {
 	content: string;
 	color?: string;
@@ -73,7 +158,12 @@ export function registerHighlightDocument(
 	if (documents.get(key)) return;
 	documents.set(
 		key,
-		{ lines, language, theme, states: new Map() },
+		{
+			lines,
+			language,
+			theme,
+			states: new Map(),
+		},
 		lines.reduce((size, line) => size + line.length * 2 + 64, 0) +
 			Math.ceil(lines.length / BLOCK_LINES) * 4096,
 	);

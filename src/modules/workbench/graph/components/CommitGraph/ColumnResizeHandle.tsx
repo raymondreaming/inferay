@@ -1,7 +1,6 @@
 import * as stylex from "@octanejs/stylex";
-import type { ColumnWidths } from "./shared.ts";
+import type { ColumnWidths } from "../../model/graph-model.ts";
 import { styles } from "./styles.ts";
-
 export function ColumnResizeHandle({
 	column,
 	onResizeStart,

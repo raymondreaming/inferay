@@ -8,7 +8,6 @@ import {
 	mutateAgentWorkspaceState,
 } from "../../../workspace/model/workspace-model.ts";
 import { styles } from "./styles.ts";
-
 export function WorkspaceLayoutSection({
 	contained = false,
 }: {
@@ -22,7 +21,10 @@ export function WorkspaceLayoutSection({
 	const updateMode = (next: "grid" | "rows") => {
 		setMode(next);
 		writeStoredValue("agent-layout-mode", next);
-		dispatchAgentShellChange({ source: "view", reason: "layout-mode" });
+		dispatchAgentShellChange({
+			source: "view",
+			reason: "layout-mode",
+		});
 	};
 	const updateColumns = async (next: number) => {
 		setColumns(next);

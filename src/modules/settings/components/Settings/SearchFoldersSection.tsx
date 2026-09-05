@@ -3,7 +3,7 @@ import { useCallback, useMemo, useRef, useState } from "octane";
 import { fetchJsonOr } from "../../../../adapters/backend/http.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
-import { setInputValue } from "../../../../shared/lib/react-events.ts";
+import { setInputValue } from "../../../../shared/lib/data.ts";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
 import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
 import {

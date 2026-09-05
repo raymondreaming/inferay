@@ -1,7 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import { memo } from "octane";
 import type { DiffLine } from "../../../../repository/model/types.ts";
-import { DIFF_CONFIG } from "./shared.ts";
+import { DIFF_CONFIG } from "../../../model/workbench-model.ts";
 import * as inlineStyles from "./styles.ts";
 import { diffStyles } from "./styles.ts";
 

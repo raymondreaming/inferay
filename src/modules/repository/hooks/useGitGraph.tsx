@@ -1,17 +1,16 @@
 import { useCallback, useRef, useState } from "octane";
 import { runtimeGitGraphLaneColors } from "../../../design-system/styles.stylex.ts";
-import { DEFAULT_GIT_GRAPH_HISTORY_LIMIT } from "../../../modules/workbench/graph/model/graph-model.ts";
 import {
 	usePollingQuery,
 	useQueryResource,
 } from "../../../shared/hooks/useQueryResource.tsx";
+import { DEFAULT_GIT_GRAPH_HISTORY_LIMIT } from "../../workbench/graph/model/graph-model.ts";
 import type {
 	GitFilePresentation,
 	GitGraphAncestry,
 	GitGraphNavigation,
 	GitProjectStatus,
 } from "../model/types.ts";
-
 export interface GitCommit {
 	navigation?: GitGraphNavigation;
 	id: string;
@@ -31,16 +30,13 @@ export interface GitCommit {
 	worktreePath?: string;
 	stashName?: string;
 }
-
 export type GitGraphItemKind = "commit" | "worktreeWip" | "stash";
-
 export type GitGraphRefKind =
 	| "head"
 	| "localBranch"
 	| "remoteBranch"
 	| "tag"
 	| "stash";
-
 export interface GitGraphRef {
 	fullName: string;
 	displayName: string;
@@ -53,25 +49,21 @@ export interface GitGraphRef {
 	ahead?: number;
 	behind?: number;
 }
-
 export interface GraphNode extends GitCommit {
 	column: number;
 	color: string;
 }
-
 export interface GraphRail {
 	column: number;
 	color: string;
 	startsAtNode?: boolean;
 	endsAtNode?: boolean;
 }
-
 export interface GraphTransition {
 	fromColumn: number;
 	toColumn: number;
 	color: string;
 }
-
 export interface GraphRow {
 	row: number;
 	rails: GraphRail[];
@@ -79,7 +71,6 @@ export interface GraphRow {
 	convergences: GraphTransition[];
 	truncatedEdges: GraphRail[];
 }
-
 export interface GitWorktree {
 	path: string;
 	head: string;
@@ -89,20 +80,17 @@ export interface GitWorktree {
 	locked: boolean;
 	status?: GitProjectStatus;
 }
-
 export interface GitStash {
 	name: string;
 	hash: string;
 	message: string;
 	date: string;
 }
-
 export interface GitRepositoryOperationState {
 	kind: "idle" | "merge" | "rebase" | "cherryPick" | "revert";
 	phase: "idle" | "awaitingContinuation" | "conflicted";
 	conflicts: string[];
 }
-
 export interface GraphData {
 	ancestry: GitGraphAncestry;
 	commits: GraphNode[];
@@ -115,14 +103,12 @@ export interface GraphData {
 	state: GitRepositorySnapshotState;
 	stateError?: string;
 }
-
 export type GitRepositorySnapshotState =
 	| "ready"
 	| "unborn"
 	| "empty"
 	| "nonRepository"
 	| "commandFailed";
-
 const EMPTY_GRAPH: GraphData = {
 	ancestry: {},
 	commits: [],
@@ -131,16 +117,21 @@ const EMPTY_GRAPH: GraphData = {
 	worktrees: [],
 	stashes: [],
 	revision: "",
-	operation: { kind: "idle", phase: "idle", conflicts: [] },
+	operation: {
+		kind: "idle",
+		phase: "idle",
+		conflicts: [],
+	},
 	state: "empty",
 };
-
 type WireGraphNode = Omit<GraphNode, "color" | "id" | "itemKind"> & {
 	id?: string;
 	itemKind?: GitGraphItemKind;
 	colorIndex: number;
 };
-type WireColor<T> = Omit<T, "color"> & { colorIndex: number };
+type WireColor<T> = Omit<T, "color"> & {
+	colorIndex: number;
+};
 type WireGraphRow = {
 	row: number;
 	rails: WireColor<GraphRail>[];
@@ -148,17 +139,14 @@ type WireGraphRow = {
 	convergences?: WireColor<GraphTransition>[];
 	truncatedEdges?: WireColor<GraphRail>[];
 };
-
 function laneColor(index: number): string {
 	return runtimeGitGraphLaneColors[
 		Math.abs(index) % runtimeGitGraphLaneColors.length
 	]!;
 }
-
 function wireString(value: unknown, fallback = ""): string {
 	return typeof value === "string" ? value : fallback;
 }
-
 function graphRefFromWire(value: unknown): GitGraphRef | null {
 	if (!value || typeof value !== "object") return null;
 	const ref = value as Partial<GitGraphRef>;
@@ -190,7 +178,6 @@ function graphRefFromWire(value: unknown): GitGraphRef | null {
 		behind: typeof ref.behind === "number" ? ref.behind : undefined,
 	};
 }
-
 function graphNodeFromWire(node: WireGraphNode): GraphNode {
 	const hash = wireString(node.hash);
 	const author = wireString(node.author, "Unknown author");
@@ -228,7 +215,6 @@ function graphNodeFromWire(node: WireGraphNode): GraphNode {
 		stashName: wireString(node.stashName) || undefined,
 	};
 }
-
 function graphTransitionFromWire(
 	value: WireColor<GraphTransition>,
 ): GraphTransition {
@@ -255,15 +241,21 @@ function graphRowFromWire(row: WireGraphRow): GraphRow {
 		truncatedEdges: (row.truncatedEdges || []).map(graphRailFromWire),
 	};
 }
-
 export function useGitGraph(
 	cwd: string | undefined,
 	limit = DEFAULT_GIT_GRAPH_HISTORY_LIMIT,
 ) {
-	const [search, setSearch] = useState({ cwd, query: "" });
+	const [search, setSearch] = useState({
+		cwd,
+		query: "",
+	});
 	const searchQuery = search.cwd === cwd ? search.query : "";
 	const setSearchQuery = useCallback(
-		(query: string) => setSearch({ cwd, query }),
+		(query: string) =>
+			setSearch({
+				cwd,
+				query,
+			}),
 		[cwd],
 	);
 	const responseRef = useRef<{
@@ -282,7 +274,11 @@ export function useGitGraph(
 					`/api/git/graph?cwd=${encodeURIComponent(cwd)}&limit=${limit}&query=${encodeURIComponent(searchQuery)}`,
 					{
 						signal,
-						headers: cached ? { "If-None-Match": cached.etag } : undefined,
+						headers: cached
+							? {
+									"If-None-Match": cached.etag,
+								}
+							: undefined,
 					},
 				);
 				if (res.status === 304 && cached) return cached.data;
@@ -308,7 +304,12 @@ export function useGitGraph(
 						typeof json.stateError === "string" ? json.stateError : undefined,
 				};
 				const etag = res.headers?.get("etag");
-				if (etag && !signal?.aborted) responseRef.current = { key, etag, data };
+				if (etag && !signal?.aborted)
+					responseRef.current = {
+						key,
+						etag,
+						data,
+					};
 				return data;
 			})();
 		},
@@ -330,7 +331,10 @@ export function useGitGraph(
 				...current,
 				worktrees: current.worktrees.map((worktree) =>
 					worktree.status?.cwd === cwd
-						? { ...worktree, status: update(worktree.status) }
+						? {
+								...worktree,
+								status: update(worktree.status),
+							}
 						: worktree,
 				),
 			}));
@@ -347,7 +351,6 @@ export function useGitGraph(
 		updateWorktreeStatus,
 	};
 }
-
 export interface CommitFile {
 	path: string;
 	originalPath?: string;
@@ -356,7 +359,6 @@ export interface CommitFile {
 	deletions: number;
 	binary: boolean;
 }
-
 export interface CommitDetails {
 	filePresentation?: GitFilePresentation;
 	hash: string;
@@ -380,7 +382,6 @@ export interface CommitDetails {
 	};
 	files: CommitFile[];
 }
-
 export interface ComparisonDetails {
 	filePresentation?: GitFilePresentation;
 	fromHash: string;
@@ -388,7 +389,6 @@ export interface ComparisonDetails {
 	mergeBase?: string;
 	files: CommitFile[];
 }
-
 export function useCommitDetails(
 	cwd: string | undefined,
 	hash: string | undefined,
@@ -404,7 +404,9 @@ export function useCommitDetails(
 					: "";
 				const res = await fetch(
 					`/api/git/commit-details?cwd=${encodeURIComponent(cwd)}&hash=${encodeURIComponent(hash)}${parentQuery}`,
-					{ signal },
+					{
+						signal,
+					},
 				);
 				if (!res.ok) throw new Error("Failed to fetch commit details");
 				const json = await res.json();
@@ -427,15 +429,18 @@ export function useCommitDetails(
 			staleTime: 60_000,
 			gcTime: 5 * 60_000,
 		});
-	return { details: data, loading, error, refresh };
+	return {
+		details: data,
+		loading,
+		error,
+		refresh,
+	};
 }
-
 export interface ComparisonPlan {
 	cwd: string;
 	from: string;
 	to: string;
 }
-
 export function useComparisonDetails(
 	cwd: string | undefined,
 	fromHash: string | undefined,
@@ -466,10 +471,14 @@ export function useComparisonDetails(
 					? {
 							signal,
 							method: "POST",
-							headers: { "Content-Type": "application/json" },
+							headers: {
+								"Content-Type": "application/json",
+							},
 							body: `{"selection":${selectionKey}}`,
 						}
-					: { signal },
+					: {
+							signal,
+						},
 			);
 			if (!res.ok) throw new Error("Failed to compare commits");
 			return (await res.json()) as {

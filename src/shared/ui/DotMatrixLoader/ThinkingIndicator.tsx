@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { useEffect, useState } from "octane";
-import { formatElapsedMs } from "../../lib/format.ts";
+import { formatElapsedMs } from "../../lib/data.ts";
 import { DotMatrixRipple } from "./DotMatrixRipple.tsx";
 import { styles } from "./styles.ts";
 

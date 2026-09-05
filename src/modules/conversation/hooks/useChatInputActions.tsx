@@ -1,33 +1,40 @@
 import { useCallback } from "octane";
 import type React from "react";
-import { wsClient } from "../../../adapters/backend/websocket.ts";
+import { wsClient } from "../../../adapters/backend/http.ts";
+import type { WorkspaceModelAgentKind as AgentKind } from "../../workspace/model/workspace-model.ts";
 import {
+	appendSystemMessage,
 	appendTrimmedMessage,
 	type ChatLoadingState,
-	type ChatMessage,
+	type AgentChatSharedChatMessage as ChatMessage,
 	type CommandSystemMessage,
+	hideMenuState,
 	nextId,
 	type SlashCommand,
 	trimMessages,
-} from "../../../modules/conversation/model/agent-chat-shared.ts";
+} from "../model/agent-chat-shared.ts";
 import {
 	clearAgentChatPaneState,
 	clearProviderSessionId,
 	getProviderSessionId,
-} from "../../../modules/conversation/model/chat-session-store.ts";
-import type { AgentKind } from "../../../modules/workspace/model/workspace-model.ts";
-import { hideMenuState } from "../model/chat-agent-utils.ts";
-import { appendSystemMessage } from "../model/chat-state-utils.ts";
+} from "../model/chat-session-store.ts";
 import type {
 	FileMenuState,
 	FileSearchResult,
 	SlashMenuState,
 } from "./useAgentChatMenus.tsx";
 
-type MenuState = { show: boolean; selectedIdx: number };
-type AttachedImage = { path: string };
-type ChatWorkspaceOverride = { cwd?: string; referencePaths?: string[] };
-
+type MenuState = {
+	show: boolean;
+	selectedIdx: number;
+};
+type AttachedImage = {
+	path: string;
+};
+type ChatWorkspaceOverride = {
+	cwd?: string;
+	referencePaths?: string[];
+};
 function handleMenuKey<S extends MenuState>(
 	e: KeyboardEvent,
 	count: number,
@@ -53,7 +60,6 @@ function handleMenuKey<S extends MenuState>(
 	e.preventDefault();
 	return true;
 }
-
 export function useChatInputActions({
 	agentKind,
 	allCommands,
@@ -61,7 +67,6 @@ export function useChatInputActions({
 	cancelSpeechListening,
 	clearAttachedImages,
 	clearCheckpoints,
-
 	consumePendingWorkspace,
 	cwd,
 	effectiveSelectedModel,
@@ -72,7 +77,6 @@ export function useChatInputActions({
 	isLoading,
 	onSendStart,
 	onExit,
-
 	paneId,
 	referencePaths,
 	selectCommand,
@@ -93,7 +97,6 @@ export function useChatInputActions({
 	cancelSpeechListening: () => void;
 	clearAttachedImages: () => void;
 	clearCheckpoints: () => void;
-
 	consumePendingWorkspace: () => ChatWorkspaceOverride | undefined;
 	cwd?: string;
 	effectiveSelectedModel: string;
@@ -104,7 +107,6 @@ export function useChatInputActions({
 	isLoading: boolean;
 	onSendStart?: () => void;
 	onExit?: () => void;
-
 	paneId: string;
 	referencePaths?: string[];
 	selectCommand: (idx: number) => void;
@@ -142,7 +144,6 @@ export function useChatInputActions({
 		},
 		[setMessages],
 	);
-
 	const sendToServer = useCallback(
 		(
 			text: string,
@@ -164,7 +165,6 @@ export function useChatInputActions({
 					startTime: Date.now(),
 				});
 			}
-
 			wsClient.send({
 				type: "chat:send",
 				messageId,
@@ -194,7 +194,6 @@ export function useChatInputActions({
 			setRunStatus,
 		],
 	);
-
 	const sendUserMessage = useCallback(
 		({
 			displayText,
@@ -257,7 +256,6 @@ export function useChatInputActions({
 		},
 		[appendLocalMessage, isLoading, sendToServer, setMessages],
 	);
-
 	const executeCommand = useCallback(
 		(cmd: SlashCommand, args?: string) => {
 			setInput("");
@@ -282,12 +280,14 @@ export function useChatInputActions({
 					});
 				return;
 			}
-
 			if (cmd.action === "local") {
 				if (cmd.name === "exit") {
 					onExit?.();
 				} else if (cmd.name === "clear") {
-					wsClient.send({ type: "chat:destroy", paneId });
+					wsClient.send({
+						type: "chat:destroy",
+						paneId,
+					});
 					clearProviderSessionId(paneId);
 					setMessages([]);
 					clearAgentChatPaneState(paneId);
@@ -305,7 +305,6 @@ export function useChatInputActions({
 				}
 				return;
 			}
-
 			const displayText = `/${cmd.name}${args ? ` ${args}` : ""}`;
 			sendUserMessage({
 				displayText,
@@ -317,7 +316,11 @@ export function useChatInputActions({
 				},
 				text: displayText,
 				command: cmd.id
-					? { expandCommands: true, commandId: cmd.id, commandArgs: args }
+					? {
+							expandCommands: true,
+							commandId: cmd.id,
+							commandArgs: args,
+						}
 					: undefined,
 			});
 		},
@@ -333,7 +336,6 @@ export function useChatInputActions({
 			textareaRef,
 		],
 	);
-
 	const sendMessage = useCallback(() => {
 		const rawInput = textareaRef.current?.value ?? input;
 		const text = rawInput.trim();
@@ -348,11 +350,9 @@ export function useChatInputActions({
 				return;
 			}
 		}
-
 		const imagePaths = attachedImages.map((image) => image.path);
 		const displayText =
 			text || `Attached image${attachedImages.length > 1 ? "s" : ""}`;
-
 		setInput("");
 		setSlashMenu(hideMenuState);
 		setFileMenu(hideMenuState);
@@ -365,7 +365,9 @@ export function useChatInputActions({
 			displayText,
 			images: imagePaths.length > 0 ? imagePaths : undefined,
 			text,
-			command: { expandCommands: true },
+			command: {
+				expandCommands: true,
+			},
 			workspaceOverride: consumePendingWorkspace(),
 		});
 	}, [
@@ -382,7 +384,6 @@ export function useChatInputActions({
 		setSlashMenu,
 		textareaRef,
 	]);
-
 	const handleKeyDown = useCallback(
 		(e: KeyboardEvent) => {
 			if (
@@ -419,7 +420,6 @@ export function useChatInputActions({
 			fileMenu,
 			fileResults.length,
 			filteredCommands.length,
-
 			selectCommand,
 			selectFile,
 			sendMessage,
@@ -429,7 +429,6 @@ export function useChatInputActions({
 			slashMenu.selectedIdx,
 		],
 	);
-
 	return {
 		handleKeyDown,
 		sendUserMessage,

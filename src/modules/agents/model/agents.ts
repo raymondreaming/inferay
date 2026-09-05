@@ -1,31 +1,32 @@
+export type AgentAccountHealth = "ready" | "needs-login" | "missing-cli";
+export interface AgentAccountProviderStatus {
+	kind: ChatAgentKind;
+	health: AgentAccountHealth;
+}
+
 import { fetchJson, postJson } from "../../../adapters/backend/http.ts";
 import {
 	readStoredJson,
 	writeStoredJson,
 } from "../../../adapters/storage/stored-values.ts";
-
 export type ChatAgentKind = "claude" | "codex";
 export type AgentKind = "agent" | ChatAgentKind;
 export type AgentIconKey = "agent" | "anthropic" | "openai";
-
 export interface NativeSlashCommand {
 	readonly name: string;
 	readonly description: string;
 }
-
 export interface ModelOption {
 	readonly id: string;
 	readonly label: string;
 	readonly shortLabel?: string;
 	readonly detail?: string;
 }
-
 export interface ReasoningLevel {
 	readonly id: string;
 	readonly label: string;
 	readonly detail: string;
 }
-
 export interface AgentDefinition {
 	readonly kind: AgentKind;
 	readonly label: string;
@@ -40,7 +41,6 @@ export interface AgentDefinition {
 	readonly defaultModel: string;
 	readonly reasoningLevels: readonly ReasoningLevel[];
 }
-
 let catalog: Record<AgentKind, AgentDefinition> | undefined;
 
 /** Loaded before client hydration; the server owns model/capability data. */
@@ -54,7 +54,6 @@ export async function initializeAgentCatalog() {
 	});
 	writeStoredJson(DEFAULT_CHAT_SETTINGS_KEY, defaults);
 }
-
 export function resolveChatSettings(input: {
 	agentKind?: AgentKind;
 	model?: string | null;
@@ -63,11 +62,9 @@ export function resolveChatSettings(input: {
 }) {
 	return postJson<DefaultChatSettings>("/api/native/provider-config", input);
 }
-
 export function isChatAgentKind(kind: AgentKind): kind is ChatAgentKind {
 	return kind === "claude" || kind === "codex";
 }
-
 export function getAgentDefinition(kind: AgentKind): AgentDefinition {
 	// Prerendering has no native connection; only neutral presentation is needed.
 	return (
@@ -90,15 +87,12 @@ export function getAgentDefinition(kind: AgentKind): AgentDefinition {
 		}
 	);
 }
-
 export interface DefaultChatSettings {
 	readonly agentKind: ChatAgentKind;
 	readonly model: string;
 	readonly reasoningLevel: string;
 }
-
 const DEFAULT_CHAT_SETTINGS_KEY = "inferay-default-chat-settings";
-
 export function loadDefaultChatSettings(): DefaultChatSettings {
 	return readStoredJson<DefaultChatSettings>(DEFAULT_CHAT_SETTINGS_KEY, {
 		agentKind: "codex",
@@ -106,7 +100,6 @@ export function loadDefaultChatSettings(): DefaultChatSettings {
 		reasoningLevel: "",
 	});
 }
-
 export async function saveDefaultChatSettings(settings: DefaultChatSettings) {
 	const normalized = await resolveChatSettings(settings);
 	writeStoredJson(DEFAULT_CHAT_SETTINGS_KEY, normalized);

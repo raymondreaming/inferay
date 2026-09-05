@@ -10,15 +10,17 @@ import {
 	useState,
 } from "octane";
 import type React from "react";
-import type { CheckpointInfo } from "../../model/agent-chat-shared.ts";
+import type {
+	ChatMessage,
+	CheckpointInfo,
+} from "../../model/agent-chat-shared.ts";
 import {
 	buildRenderItems,
 	type RenderItem,
-} from "../../model/chat-message-render-utils.ts";
+} from "../../model/agent-chat-shared.ts";
 import { GroupedEditDiff } from "../ChatEditDiff/index.tsx";
 import { Bubble } from "./Bubble.tsx";
 import { CheckpointMarker } from "./CheckpointMarker.tsx";
-import type { ChatMessage } from "./shared.ts";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 import { ToolTimeline } from "./ToolTimeline.tsx";

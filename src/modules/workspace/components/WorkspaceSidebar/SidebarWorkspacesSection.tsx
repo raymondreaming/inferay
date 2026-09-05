@@ -21,10 +21,10 @@ import {
 	IconPanelLeft,
 } from "../../../../shared/ui/Icons/index.tsx";
 import { Explorer } from "../../../explorer/components/Explorer/index.tsx";
-import { dispatchOpenActiveGitGraph } from "../../../workbench/model/workbench-events.ts";
-import { projectRepositoryWorkspaces } from "../../model/repository-workspaces.ts";
+import { dispatchOpenActiveGitGraph } from "../../../workbench/model/workbench-model.ts";
+import type { SidebarWorkspaceState } from "../../model/workspace-model.ts";
+import { projectRepositoryWorkspaces } from "../../model/workspace-model.ts";
 import { SidebarChatList } from "./SidebarChatList.tsx";
-import type { SidebarWorkspaceState } from "./shared.ts";
 import { styles } from "./styles.ts";
 
 const GRID_DIMENSIONS = [1, 2, 3, 4] as const;

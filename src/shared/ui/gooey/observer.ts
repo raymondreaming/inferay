@@ -1,6 +1,195 @@
-import { measureRadius } from "./geometry";
-import { easingFunction } from "./spring";
+export type GooeyEffect = "morph" | "evolve" | "move";
+export interface GooeyItemProps {
+	/** Liquid behavior of this piece:
+	 *  - 'morph' (default): merges gooily with touching neighbours.
+	 *  - 'evolve': the surface springs behind size/shape changes and settles
+	 *    like jelly.
+	 *  - 'move': the surface lags a moving element and stretches with velocity —
+	 *    liquid rubber (great for dragged things).
+	 *  Combine with an array. Anything beyond 'morph' runs on the measurement
+	 *  engine, so it implies observe mode. */
+	effect?: GooeyEffect | GooeyEffect[];
+	/** Tuning for effect="evolve": springs for mass / size / corner radius,
+	 *  content cross-blur, and droplet roundness. See EvolveOptions. */
+	evolve?: EvolveOptions;
+	/** Tuning for effect="move": trail spring, velocity stretch, tail size. */
+	move?: MoveOptions;
+	/** Observe mode: you animate the child however you like (Framer Motion, GSAP,
+	 *  CSS); the blob follows its rendered rect. */
+	observe?: boolean;
+	/** Override the measured border-radius for the blob (px). */
+	radius?: number | CornerRadii;
+	/** Observe mode: shrink the blob by this many px on every side, so an opaque
+	 *  element (e.g. a round photo) fully covers its own liquid — white then
+	 *  only appears as the merge bridge. */
+	blobInset?: number;
+	/** Observe mode: px the blob swells back out (beyond blobInset) as the item
+	 *  nears a neighbour — the element visibly grows a liquid coat that necks
+	 *  into the other surface. */
+	bridgeGrow?: number;
+	className?: string;
+	style?: CSSProperties;
+	children?: ReactNode;
+}
+export function toEffects(
+	effect: GooeyEffect | GooeyEffect[] | undefined,
+): GooeyEffect[] {
+	return Array.isArray(effect) ? effect : effect ? [effect] : [];
+}
+export type Internal = GooeyItemProps & { ctx: GooeyContextValue };
 
+import { lazy } from "octane";
+export const LazyLiquidPanelSurface = lazy(() =>
+	import("./LiquidPanelSurface/index.tsx").then((module) => ({
+		default: module.LiquidPanelSurface,
+	})),
+);
+
+import { createContext, useContext } from "octane";
+export interface GooeyContextValue {
+	portal: SVGGElement | null;
+	/** The group's liquid fill — default colour of the intruding mix liquid. */
+	fill: string;
+	getGroup: () => HTMLDivElement | null;
+	engine: ObserveEngine;
+}
+export const GooeyContext = createContext<GooeyContextValue | null>(null);
+export function useGooeyContext(): GooeyContextValue {
+	const ctx = useContext(GooeyContext);
+	if (!ctx)
+		throw new Error("<Gooey.Item> must be rendered inside a <Gooey> group.");
+	return ctx;
+}
+export type CornerRadii = [number, number, number, number];
+export interface BlobBox {
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+	r: CornerRadii;
+}
+
+/** Transform-free position of `el` relative to `ancestor` via the offsetParent
+ *  chain — the blob mirrors motion separately, so its base box must ignore the
+ *  transform currently applied to the wrapper. */
+export function offsetTo(
+	el: HTMLElement,
+	ancestor: HTMLElement,
+): { x: number; y: number } {
+	let x = 0;
+	let y = 0;
+	let node: HTMLElement | null = el;
+	while (node && node !== ancestor && ancestor.contains(node)) {
+		x += node.offsetLeft;
+		y += node.offsetTop;
+		node = node.offsetParent as HTMLElement | null;
+	}
+	return {
+		x,
+		y,
+	};
+}
+export function measureRadius(el: Element, w: number, h: number): CornerRadii {
+	const cs = getComputedStyle(el);
+	const parse = (v: string): number => {
+		const first = v.split(" ")[0];
+		if (first.endsWith("%"))
+			return ((parseFloat(first) || 0) / 100) * Math.min(w, h);
+		return parseFloat(first) || 0;
+	};
+	return [
+		parse(cs.borderTopLeftRadius),
+		parse(cs.borderTopRightRadius),
+		parse(cs.borderBottomRightRadius),
+		parse(cs.borderBottomLeftRadius),
+	];
+}
+export function normalizeRadius(r: number | CornerRadii): CornerRadii {
+	return typeof r === "number" ? [r, r, r, r] : r;
+}
+
+/** Rounded-rect path with per-corner radii, CSS-style overlap clamping. */
+export function roundedRectPath(
+	x: number,
+	y: number,
+	w: number,
+	h: number,
+	radii: CornerRadii,
+): string {
+	let [tl, tr, br, bl] = radii.map((v) => Math.max(0, v)) as CornerRadii;
+	const f = Math.min(
+		1,
+		w / Math.max(1e-6, tl + tr),
+		w / Math.max(1e-6, bl + br),
+		h / Math.max(1e-6, tl + bl),
+		h / Math.max(1e-6, tr + br),
+	);
+	tl *= f;
+	tr *= f;
+	br *= f;
+	bl *= f;
+	return (
+		`M ${x + tl} ${y} ` +
+		`H ${x + w - tr} A ${tr} ${tr} 0 0 1 ${x + w} ${y + tr} ` +
+		`V ${y + h - br} A ${br} ${br} 0 0 1 ${x + w - br} ${y + h} ` +
+		`H ${x + bl} A ${bl} ${bl} 0 0 1 ${x} ${y + h - bl} ` +
+		`V ${y + tl} A ${tl} ${tl} 0 0 1 ${x + tl} ${y} Z`
+	);
+}
+
+import { useEffect, useLayoutEffect } from "octane";
+export const useIsoLayoutEffect =
+	typeof window !== "undefined" ? useLayoutEffect : useEffect;
+/** Evaluate timing curves used by the observed liquid shape animation. */
+const evalCache = new Map<string, (t: number) => number>();
+export function easingFunction(spec: string): (t: number) => number {
+	let fn = evalCache.get(spec);
+	if (fn) return fn;
+	const lin = /^linear\(([^)]+)\)$/.exec(spec.trim());
+	const bez = /^cubic-bezier\(([^)]+)\)$/.exec(spec.trim());
+	if (lin) {
+		// Numeric sample lists use evenly spaced stops.
+		const values = lin[1].split(",").map(Number);
+		fn = (t: number) => {
+			if (t <= 0) return values[0];
+			if (t >= 1) return values[values.length - 1];
+			const f = t * (values.length - 1);
+			const i = Math.floor(f);
+			return values[i] + (values[i + 1] - values[i]) * (f - i);
+		};
+	} else if (bez) {
+		const [x1, y1, x2, y2] = bez[1].split(",").map(Number);
+		fn = (t: number) => {
+			if (t <= 0) return 0;
+			if (t >= 1) return 1;
+			let lo = 0;
+			let hi = 1;
+			for (let i = 0; i < 24; i++) {
+				const mid = (lo + hi) / 2;
+				const xm =
+					3 * mid * (1 - mid) * (1 - mid) * x1 +
+					3 * mid * mid * (1 - mid) * x2 +
+					mid ** 3;
+				if (xm < t) lo = mid;
+				else hi = mid;
+			}
+			const u = (lo + hi) / 2;
+			return 3 * u * (1 - u) * (1 - u) * y1 + 3 * u * u * (1 - u) * y2 + u ** 3;
+		};
+	} else if (spec === "ease") {
+		fn = easingFunction("cubic-bezier(0.25, 0.1, 0.25, 1)");
+	} else if (spec === "ease-in") {
+		fn = easingFunction("cubic-bezier(0.42, 0, 1, 1)");
+	} else if (spec === "ease-out") {
+		fn = easingFunction("cubic-bezier(0, 0, 0.58, 1)");
+	} else if (spec === "ease-in-out") {
+		fn = easingFunction("cubic-bezier(0.42, 0, 0.58, 1)");
+	} else {
+		fn = (t: number) => Math.min(1, Math.max(0, t));
+	}
+	evalCache.set(spec, fn);
+	return fn;
+}
 export interface EvolveOptions {
 	/** Spring driving the liquid mass's centre. Default 320 / 17. */
 	massStiffness?: number;
@@ -35,7 +224,6 @@ export interface EvolveOptions {
 	 *  Default 32. */
 	travel?: number;
 }
-
 export const EVOLVE_DEFAULTS: Required<EvolveOptions> = {
 	massStiffness: 320,
 	massDamping: 17,
@@ -57,7 +245,6 @@ function easingFn(spec: string): (t: number) => number {
 	const curve = /cubic-bezier\(([^)]+)\)/.exec(spec)?.[0];
 	return easingFunction(curve ?? (spec === "ease-in-out" ? spec : "linear"));
 }
-
 export interface MoveOptions {
 	/** Spring pulling the liquid surface after the element. Lower stiffness /
 	 *  damping = a laggier, more rubbery trail. Default 380 / 18. */
@@ -69,14 +256,12 @@ export interface MoveOptions {
 	 *  Default 0.46. */
 	tail?: number;
 }
-
 export const MOVE_DEFAULTS: Required<MoveOptions> = {
 	stiffness: 380,
 	damping: 18,
 	stretch: 0.18,
 	tail: 0.46,
 };
-
 export interface ItemDynamics {
 	/** Liquid surface springs behind size/shape changes and settles like jelly. */
 	evolve: boolean;
@@ -87,7 +272,6 @@ export interface ItemDynamics {
 	/** Resolved move tuning; falls back to MOVE_DEFAULTS. */
 	moveOpts?: Required<MoveOptions>;
 }
-
 export interface ObservedTarget {
 	target: HTMLElement;
 	blob: SVGRectElement;
@@ -102,7 +286,6 @@ export interface ObservedTarget {
 	bridgeGrow?: number;
 	dynamics?: ItemDynamics;
 }
-
 interface Frame {
 	x: number;
 	y: number;
@@ -139,7 +322,6 @@ interface Sim {
 	vh: number;
 	vr: number;
 }
-
 interface Item extends ObservedTarget {
 	baseW: number;
 	baseH: number;
@@ -231,14 +413,11 @@ function springSteps(
 	}
 	return [p, v];
 }
-
 const SVG_NS = "http://www.w3.org/2000/svg";
-
 function smoothstep(t: number): number {
 	const c = Math.min(1, Math.max(0, t));
 	return c * c * (3 - 2 * c);
 }
-
 function svg<K extends keyof SVGElementTagNameMap>(
 	tag: K,
 	attrs: Record<string, string>,
@@ -256,7 +435,6 @@ function svg<K extends keyof SVGElementTagNameMap>(
 export class ObserveEngine {
 	/** Goo blur of the owning group; used to derive the bridge-growth range. */
 	gooBlur = 6;
-
 	private items = new Set<Item>();
 	private awake = false;
 	private clean = 0;
@@ -265,9 +443,7 @@ export class ObserveEngine {
 	private mo: MutationObserver | null = null;
 	private interval: ReturnType<typeof setInterval> | null = null;
 	private removeListeners: Array<() => void> = [];
-
 	constructor(private getGroup: () => HTMLElement | null) {}
-
 	add(t: ObservedTarget): () => void {
 		const item: Item = {
 			...t,
@@ -309,7 +485,11 @@ export class ObserveEngine {
 		this.items.add(item);
 		if (t.dynamics?.move) {
 			// Painted before (below) the main blob; the goo merge does the rest.
-			const tail = svg("circle", { cx: "0", cy: "0", r: "0" });
+			const tail = svg("circle", {
+				cx: "0",
+				cy: "0",
+				r: "0",
+			});
 			t.blob.parentNode?.insertBefore(tail, t.blob);
 			item.tailEl = tail;
 		}
@@ -323,14 +503,12 @@ export class ObserveEngine {
 			item.tailEl?.remove();
 		};
 	}
-
 	wake = (): void => {
 		this.clean = 0;
 		if (this.awake || this.items.size === 0) return;
 		this.awake = true;
 		this.raf = requestAnimationFrame(this.loop);
 	};
-
 	dispose(): void {
 		cancelAnimationFrame(this.raf);
 		this.mo?.disconnect();
@@ -346,7 +524,6 @@ export class ObserveEngine {
 		this.awake = false;
 		this.sourcesReady = false;
 	}
-
 	private resolveRadius(t: ObservedTarget): number {
 		if (t.radius != null) return t.radius;
 		return measureRadius(
@@ -355,9 +532,7 @@ export class ObserveEngine {
 			t.target.offsetHeight,
 		)[0];
 	}
-
 	private lastNow = 0;
-
 	private loop = (now: number): void => {
 		if (this.items.size === 0) {
 			this.awake = false;
@@ -380,7 +555,6 @@ export class ObserveEngine {
 		}
 		this.raf = requestAnimationFrame(this.loop);
 	};
-
 	private measureAll(dt = 1 / 60): boolean {
 		const group = this.getGroup();
 		if (!group || this.items.size === 0) return false;
@@ -439,7 +613,6 @@ export class ObserveEngine {
 		else item.biSmooth += (bi - item.biSmooth) * Math.min(1, dt * 18);
 		return item.biSmooth;
 	}
-
 	private writeBlob(item: Item, dt: number): boolean {
 		const f = item.frame!;
 		const dyn = item.dynamics;
@@ -548,7 +721,10 @@ export class ObserveEngine {
 			const rawVy = item.tPrev ? (tcy - item.tPrev.cy) / dt : 0;
 			item.tvx = item.tvx * 0.7 + rawVx * 0.3;
 			item.tvy = item.tvy * 0.7 + rawVy * 0.3;
-			item.tPrev = { cx: tcx, cy: tcy };
+			item.tPrev = {
+				cx: tcx,
+				cy: tcy,
+			};
 			// Lead direction: the target's own velocity while it is moving, else
 			// whatever distance the droplet still has to cover.
 			const remX = tcx - s.cx;
@@ -739,7 +915,10 @@ export class ObserveEngine {
 			) {
 				item.morphActive = false;
 			}
-			item.lastTargetSize = { w: f.w, h: f.h };
+			item.lastTargetSize = {
+				w: f.w,
+				h: f.h,
+			};
 			const cornerTotal = cornerTotalOf(eo);
 			let target01 = 0;
 			if (
@@ -825,7 +1004,6 @@ export class ObserveEngine {
 			!cornerActive;
 		return !settled;
 	}
-
 	private ensureSources(): void {
 		if (this.sourcesReady) return;
 		const group = this.getGroup();
@@ -854,7 +1032,10 @@ export class ObserveEngine {
 				group.removeEventListener(type, wake, true),
 			);
 		}
-		window.addEventListener("scroll", wake, { capture: true, passive: true });
+		window.addEventListener("scroll", wake, {
+			capture: true,
+			passive: true,
+		});
 		this.removeListeners.push(() =>
 			window.removeEventListener("scroll", wake, true),
 		);
@@ -865,3 +1046,104 @@ export class ObserveEngine {
 		}, 300);
 	}
 }
+
+import type { GooeyProps } from "./Gooey/index.tsx";
+export type GooeySurfacePreset = Pick<
+	GooeyProps,
+	"blur" | "contrast" | "fill" | "shadow" | "filterPadding"
+>;
+
+/** Inferay-ready surfaces. They only describe the liquid layer; layout and
+ * interactive content remain owned by the consuming component. */
+export const gooeySurfacePresets = {
+	chrome: {
+		blur: 6,
+		contrast: 18,
+		fill: "var(--color-inferay-dark-gray)",
+		shadow:
+			"inset 0 1px 0 rgba(255,255,255,.32), 0 1px 2px rgba(0,0,0,.08), 0 10px 30px rgba(0,0,0,.08)",
+		filterPadding: 24,
+	},
+	control: {
+		blur: 5,
+		contrast: 20,
+		fill: "var(--color-inferay-dark-gray)",
+		shadow: "inset 0 1px 0 rgba(255,255,255,.28), 0 2px 8px rgba(0,0,0,.10)",
+		filterPadding: 18,
+	},
+	soft: {
+		blur: 10,
+		contrast: 16,
+		fill: "var(--color-inferay-gray)",
+		shadow: "0 12px 38px rgba(0,0,0,.10)",
+		filterPadding: 34,
+	},
+} satisfies Record<string, GooeySurfacePreset>;
+/** `box-shadow`-syntax parser. Layers become SVG filter passes built from the
+ *  merged liquid silhouette, so one shadow hugs the goo through every state. */
+
+export interface ShadowLayer {
+	x: number;
+	y: number;
+	blur: number;
+	spread: number;
+	color: string;
+	/** Inner shadow/highlight: painted INSIDE the liquid edge, following the
+	 *  merged silhouette exactly like the outer passes. */
+	inset: boolean;
+}
+function splitTop(s: string, sep: "," | " "): string[] {
+	const parts: string[] = [];
+	let depth = 0;
+	let cur = "";
+	for (const ch of s) {
+		if (ch === "(") depth++;
+		else if (ch === ")") depth--;
+		if (depth === 0 && (sep === "," ? ch === "," : /\s/.test(ch))) {
+			if (cur.trim()) parts.push(cur.trim());
+			cur = "";
+		} else {
+			cur += ch;
+		}
+	}
+	if (cur.trim()) parts.push(cur.trim());
+	return parts;
+}
+const LENGTH = /^[+-]?(\d+\.?\d*|\.\d+)(px)?$/;
+export function parseShadow(input?: string | null): ShadowLayer[] {
+	if (!input || input.trim() === "" || input.trim() === "none") return [];
+	const out: ShadowLayer[] = [];
+	for (const layer of splitTop(input, ",")) {
+		const tokens = splitTop(layer, " ");
+		if (tokens.length === 0) continue;
+		const inset = tokens.includes("inset");
+		const nums: number[] = [];
+		const colorParts: string[] = [];
+		for (const tok of tokens) {
+			if (tok === "inset") continue;
+			if (nums.length < 4 && LENGTH.test(tok)) nums.push(parseFloat(tok));
+			else colorParts.push(tok);
+		}
+		const [x = 0, y = 0, blur = 0, spread = 0] = nums;
+		out.push({
+			x,
+			y,
+			blur,
+			spread,
+			color: colorParts.join(" ") || "rgba(0, 0, 0, 0.35)",
+			inset,
+		});
+	}
+	return out;
+}
+
+import type { OctaneNode } from "octane";
+import type { Octane, OctaneElement } from "octane/jsx-runtime";
+import type * as ReactTypes from "react";
+
+/** Type-only aliases used by the vendored Gooey source. Runtime behavior is
+ * entirely Octane-native. */
+export type ReactNode = OctaneNode;
+export type ReactElement<P = any> = OctaneElement<P>;
+export type CSSProperties = ReactTypes.CSSProperties;
+export type Ref<T> = Octane.Ref<T>;

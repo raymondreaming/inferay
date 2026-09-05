@@ -11,7 +11,7 @@ import {
 	readStoredValue,
 	writeStoredValue,
 } from "../../../../adapters/storage/stored-values.ts";
-import { lockPointerSelection } from "../../../../shared/lib/pointer-selection-lock.ts";
+import { lockPointerSelection } from "../../../../shared/lib/data.ts";
 
 import {
 	constrainDockTreeColumns,
@@ -29,9 +29,8 @@ import {
 	parseDockTree,
 	reconcileDockTree,
 	resizeDockSplit,
-} from "../../../workbench/model/workbench-layout.ts";
-import { PaneView } from "../PaneView/index.tsx";
-import type { WorkspaceCanvasProps } from "./canvas-model.ts";
+} from "../../../workbench/model/workbench-model.ts";
+import type { WorkspaceCanvasProps } from "../../model/workspace-model.ts";
 import {
 	canScrollHorizontally,
 	canScrollInDirection,
@@ -45,7 +44,8 @@ import {
 	ROOT_DOCK_TARGET_ID,
 	scrollElementBy,
 	shouldFocusPaneComposer,
-} from "./canvas-model.ts";
+} from "../../model/workspace-model.ts";
+import { PaneView } from "../PaneView/index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 

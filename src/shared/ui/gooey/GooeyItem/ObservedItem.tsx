@@ -1,8 +1,12 @@
 import { createPortal, useRef } from "octane";
-import { normalizeRadius } from "../geometry";
-import { useIsoLayoutEffect } from "../hooks";
-import { EVOLVE_DEFAULTS, MOVE_DEFAULTS } from "../observer";
-import { type Internal, toEffects } from "./shared.ts";
+import {
+	EVOLVE_DEFAULTS,
+	type Internal,
+	MOVE_DEFAULTS,
+	normalizeRadius,
+	toEffects,
+	useIsoLayoutEffect,
+} from "../observer.ts";
 import * as inlineStyles from "./styles.ts";
 
 export function ObservedItem({

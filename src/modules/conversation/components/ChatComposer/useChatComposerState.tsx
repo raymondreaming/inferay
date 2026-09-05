@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "octane";
 import type React from "react";
 import { hasId } from "../../../../shared/lib/data.ts";
-import type { ReactNode } from "../../../../types/octane-react-compat.ts";
+import type { ReactNode } from "../../../../shared/ui/gooey/observer.ts";
 import { getAgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
 import { getAgentDefinition } from "../../../agents/model/agents.ts";
-import type { AgentKind } from "../../../workspace/model/workspace-model.ts";
+import type { WorkspaceModelAgentKind as AgentKind } from "../../../workspace/model/workspace-model.ts";
 import type {
 	FileMenuState,
 	FileSearchResult,
@@ -16,13 +16,11 @@ import type {
 	SlashCommand,
 } from "../../model/agent-chat-shared.ts";
 import { renderInputHighlights } from "../ChatTokenDecorators/index.tsx";
-
 export type AgentOption = {
 	id: AgentKind;
 	label: string;
 	icon: unknown;
 };
-
 export function useChatComposerState(props: {
 	agentKind: AgentKind;
 	agentKindOptions: AgentOption[];
@@ -100,7 +98,6 @@ export function useChatComposerState(props: {
 		slashCommandNames,
 		beamActive = false,
 	} = props;
-
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	const agentConfigControlsRef = useRef<HTMLDivElement | null>(null);
 	const agentConfigButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -199,7 +196,6 @@ export function useChatComposerState(props: {
 			menu?.querySelector<HTMLButtonElement>("button")
 		)?.focus();
 	}, [activeConfig]);
-
 	return {
 		...props,
 		beamActive,

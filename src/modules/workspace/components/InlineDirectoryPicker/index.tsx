@@ -9,8 +9,7 @@ import {
 import { fetchJsonOr } from "../../../../adapters/backend/http.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
-import { basename } from "../../../../shared/lib/format.ts";
-import { setInputValue } from "../../../../shared/lib/react-events.ts";
+import { basename, setInputValue } from "../../../../shared/lib/data.ts";
 import {
 	IconChevronRight,
 	IconFolder,

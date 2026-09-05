@@ -7,7 +7,10 @@ import {
 import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
 import { AgentChatView } from "../../../conversation/components/AgentChatView/index.tsx";
 import { ChatPaneBoundary } from "../../../conversation/components/ChatPaneBoundary/index.tsx";
-import type { AgentKind, AgentPaneModel } from "../../model/workspace-model.ts";
+import type {
+	WorkspaceModelAgentKind as AgentKind,
+	AgentPaneModel,
+} from "../../model/workspace-model.ts";
 import { styles } from "./styles.ts";
 
 interface PaneViewProps {
@@ -27,7 +30,6 @@ interface PaneViewProps {
 	onHeaderDragEnd?: () => void;
 	onSetPaneAgentKind?: (paneId: string, agentKind: AgentKind) => void;
 }
-
 export const PaneView = memo(function PaneView({
 	pane,
 	isSelected,
@@ -66,7 +68,6 @@ export const PaneView = memo(function PaneView({
 		},
 		[chatRef, pane.id],
 	);
-
 	return (
 		<div {...stylex.props(styles.root)}>
 			<div {...stylex.props(styles.agentPane)}>

@@ -16,11 +16,11 @@ import type {
 	GitRefOperationPreflight,
 	GitRefOperationRequest,
 	GitRefOperationResult,
-} from "./operation-model.ts";
+} from "../../model/workbench-model.ts";
 import {
 	gitOperationErrorLabel,
 	graphActionPresentation,
-} from "./operation-model.ts";
+} from "../../model/workbench-model.ts";
 
 export function useChatDiffPanelState(props: {
 	readonly diff: ReturnType<typeof useGitDiff>["diff"];
@@ -296,8 +296,8 @@ export type {
 	GitRefOperationRequest,
 	GitRefOperationResult,
 	GraphActionPresentation,
-} from "./operation-model.ts";
+} from "../../model/workbench-model.ts";
 export {
 	gitOperationErrorLabel,
 	graphActionPresentation,
-} from "./operation-model.ts";
+} from "../../model/workbench-model.ts";

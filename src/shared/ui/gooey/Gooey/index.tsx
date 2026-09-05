@@ -7,17 +7,16 @@ import {
 	useState,
 } from "octane";
 import type { Octane } from "octane/jsx-runtime";
-import type {
-	CSSProperties,
-	Ref,
-} from "../../../../types/octane-react-compat.ts";
-import { GooeyContext, type GooeyContextValue } from "../context";
-import { GooFilterPrimitives } from "../filter";
-import { useIsoLayoutEffect } from "../hooks";
-import { ObserveEngine } from "../observer";
-import { parseShadow } from "../shadow";
+import { GooFilterPrimitives } from "../filter/index.tsx";
+import type { CSSProperties, Ref } from "../observer.ts";
+import {
+	GooeyContext,
+	type GooeyContextValue,
+	ObserveEngine,
+	parseShadow,
+	useIsoLayoutEffect,
+} from "../observer.ts";
 import * as inlineStyles from "./styles.ts";
-
 export interface GooeyProps extends Octane.HTMLAttributes<HTMLDivElement> {
 	ref?: Ref<HTMLDivElement>;
 	style?: CSSProperties;
@@ -33,7 +32,6 @@ export interface GooeyProps extends Octane.HTMLAttributes<HTMLDivElement> {
 	/** Extra filter-region slack in px for blobs travelling outside the group box. Default 24. */
 	filterPadding?: number;
 }
-
 export function GooeyRoot({
 	blur = 6,
 	contrast = 18,
@@ -48,20 +46,25 @@ export function GooeyRoot({
 }: GooeyProps) {
 	const groupRef = useRef<HTMLDivElement | null>(null);
 	const [portal, setPortal] = useState<SVGGElement | null>(null);
-	const [size, setSize] = useState({ w: 0, h: 0 });
-
+	const [size, setSize] = useState({
+		w: 0,
+		h: 0,
+	});
 	const setRefs = useCallback(
 		(node: HTMLDivElement | null) => {
 			groupRef.current = node;
 			if (typeof fwd === "function") fwd(node);
-			else if (fwd) (fwd as { current: HTMLDivElement | null }).current = node;
+			else if (fwd)
+				(
+					fwd as {
+						current: HTMLDivElement | null;
+					}
+				).current = node;
 		},
 		[fwd],
 	);
-
 	const filterId = `gooey-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
 	const shadows = useMemo(() => parseShadow(shadow), [shadow]);
-
 	useIsoLayoutEffect(() => {
 		const el = groupRef.current;
 		if (!el) return;
@@ -69,20 +72,21 @@ export function GooeyRoot({
 			setSize((prev) =>
 				prev.w === el.offsetWidth && prev.h === el.offsetHeight
 					? prev
-					: { w: el.offsetWidth, h: el.offsetHeight },
+					: {
+							w: el.offsetWidth,
+							h: el.offsetHeight,
+						},
 			);
 		measure();
 		const ro = new ResizeObserver(measure);
 		ro.observe(el);
 		return () => ro.disconnect();
 	}, []);
-
 	const engine = useMemo(() => new ObserveEngine(() => groupRef.current), []);
 	useEffect(() => () => engine.dispose(), [engine]);
 	useEffect(() => {
 		engine.gooBlur = blur;
 	}, [engine, blur]);
-
 	const ctx = useMemo<GooeyContextValue>(
 		() => ({
 			portal,
@@ -130,7 +134,6 @@ export function GooeyRoot({
 		0,
 	);
 	const pad = Math.ceil(blur * 3 + shadowExtent + filterPadding);
-
 	return (
 		<div
 			{...rest}

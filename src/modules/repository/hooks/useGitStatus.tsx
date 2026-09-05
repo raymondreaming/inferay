@@ -5,10 +5,12 @@ import type { GitProjectStatus } from "../model/types.ts";
 import type { useGitGraph } from "./useGitGraph.tsx";
 
 const EMPTY_GIT_PROJECTS: GitProjectStatus[] = [];
-
 export function useGitStatus(
 	cwds: string[],
-	options: { enabled: boolean; graph?: ReturnType<typeof useGitGraph> },
+	options: {
+		enabled: boolean;
+		graph?: ReturnType<typeof useGitGraph>;
+	},
 ) {
 	const graph = options.graph;
 	const graphProjects = useMemo(
@@ -31,8 +33,12 @@ export function useGitStatus(
 		(signal?: AbortSignal) =>
 			postJson<GitProjectStatus[]>(
 				"/api/git/statuses",
-				{ cwds: requestedCwds },
-				{ signal },
+				{
+					cwds: requestedCwds,
+				},
+				{
+					signal,
+				},
 			),
 		[requestedCwds],
 	);

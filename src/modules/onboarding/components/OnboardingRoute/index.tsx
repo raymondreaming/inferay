@@ -1,8 +1,10 @@
 import * as stylex from "@octanejs/stylex";
 import { useNavigate } from "@octanejs/tanstack-router";
 import { useEffect } from "octane";
-import { ONBOARDING_DONE_STORAGE_KEY } from "../../../../adapters/storage/keys.ts";
-import { readStoredBoolean } from "../../../../adapters/storage/stored-values.ts";
+import {
+	ONBOARDING_DONE_STORAGE_KEY,
+	readStoredBoolean,
+} from "../../../../adapters/storage/stored-values.ts";
 import { APP_REGION_DRAG_CLASS } from "../../../../app/model/appearance.ts";
 import { DEFAULT_APP_ROUTE } from "../../../../app/model/navigation.tsx";
 import { OnboardingPage } from "../OnboardingPage/index.tsx";

@@ -1,8 +1,8 @@
 import * as stylex from "@octanejs/stylex";
 import { useEffect, useState } from "octane";
 import { IconGitCommit } from "../../../../../shared/ui/Icons/index.tsx";
-import { resolveGitAuthorAvatar } from "../../../../repository/model/git-avatar.ts";
-import { hexToRgba } from "./shared.ts";
+import { resolveGitAuthorAvatar } from "../../../../repository/model/types.ts";
+import { hexToRgba } from "../../model/graph-model.ts";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 

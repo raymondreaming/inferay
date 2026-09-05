@@ -36,7 +36,10 @@ function getWorker() {
 			worker = undefined;
 			registered.clear();
 			for (const [id, resolve] of [...pending])
-				resolve({ id, error: "Highlight worker failed" });
+				resolve({
+					id,
+					error: "Highlight worker failed",
+				});
 		};
 	} catch {
 		workerFailed = true;
@@ -69,7 +72,10 @@ export async function requestHighlight(
 			resolve(rows);
 		};
 		const cancel = () => {
-			target.postMessage({ type: "cancel", id } satisfies HighlightRequest);
+			target.postMessage({
+				type: "cancel",
+				id,
+			} satisfies HighlightRequest);
 			finish([]);
 		};
 		const timeout = setTimeout(cancel, 15000);
@@ -98,7 +104,9 @@ export async function requestHighlight(
 			}
 			finish(data.rows ?? []);
 		});
-		signal.addEventListener("abort", cancel, { once: true });
+		signal.addEventListener("abort", cancel, {
+			once: true,
+		});
 		send();
 	});
 }

@@ -9,27 +9,32 @@ import {
 	useState,
 } from "octane";
 import type React from "react";
-import { wsClient } from "../../../../adapters/backend/websocket.ts";
+import { wsClient } from "../../../../adapters/backend/http.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { IconArrowDown } from "../../../../shared/ui/Icons/index.tsx";
 import { loadDefaultChatSettings } from "../../../agents/model/agents.ts";
 import { WorkspaceDockHandle } from "../../../workbench/components/WorkspaceDockHandle/index.tsx";
 import { InlineDirectoryPicker } from "../../../workspace/components/InlineDirectoryPicker/index.tsx";
-import type { AgentKind } from "../../../workspace/model/workspace-model.ts";
+import type { WorkspaceModelAgentKind as AgentKind } from "../../../workspace/model/workspace-model.ts";
 import { useAgentChatComposerState } from "../../hooks/useAgentChatComposerState.tsx";
 import { useAgentChatMenus } from "../../hooks/useAgentChatMenus.tsx";
-import { useChatConnection } from "../../hooks/useChatConnection.ts";
 import { useChatInputActions } from "../../hooks/useChatInputActions.tsx";
 import { useSpeechToText } from "../../hooks/useSpeechToText.tsx";
-
-import {
-	loadStoredInput,
-	saveStoredInput,
-} from "../../model/chat-session-store.ts";
 import {
 	appendSystemMessage,
 	windowChatMessagesForRender,
-} from "../../model/chat-state-utils.ts";
+} from "../../model/agent-chat-shared.ts";
+import {
+	loadStoredInput,
+	saveStoredInput,
+	useAgentChatSettings,
+	useChatConnection,
+	useChatUiState,
+	useChatViewport,
+	usePendingChatWorkspace,
+	usePersistentChatMessages,
+	useStableCallback,
+} from "../../model/chat-session-store.ts";
 import { AgentWorkspaceControl } from "../AgentChatHeader/index.tsx";
 import { AgentChatStatusBar } from "../AgentChatStatusBar/index.tsx";
 import { AgentContextPanel } from "../AgentContextPanel/index.tsx";
@@ -37,12 +42,6 @@ import { ChatComposer } from "../ChatComposer/index.tsx";
 import { ChatMessageList } from "../ChatMessageList/index.tsx";
 import { DirectoryPickerModal } from "./DirectoryPickerModal.tsx";
 import { styles } from "./styles.ts";
-import { useAgentChatSettings } from "./useAgentChatSettings.ts";
-import { useChatUiState } from "./useChatUiState.ts";
-import { useChatViewport } from "./useChatViewport.ts";
-import { usePendingChatWorkspace } from "./usePendingChatWorkspace.ts";
-import { usePersistentChatMessages } from "./usePersistentChatMessages.ts";
-import { useStableCallback } from "./useStableCallback.ts";
 
 export interface AgentChatHandle {
 	focusInput: (atEnd?: boolean) => void;
@@ -547,9 +546,10 @@ export const AgentChatView = memo(function AgentChatView({
 	);
 });
 
-export { useAgentChatSettings } from "./useAgentChatSettings.ts";
-export { useChatUiState } from "./useChatUiState.ts";
-
-export { useChatViewport } from "./useChatViewport.ts";
-export { usePendingChatWorkspace } from "./usePendingChatWorkspace.ts";
-export { usePersistentChatMessages } from "./usePersistentChatMessages.ts";
+export {
+	useAgentChatSettings,
+	useChatUiState,
+	useChatViewport,
+	usePendingChatWorkspace,
+	usePersistentChatMessages,
+} from "../../model/chat-session-store.ts";

@@ -3,31 +3,29 @@ import { memo, useCallback, useEffect, useState } from "octane";
 import {
 	APP_BACKGROUND_STORAGE_KEY,
 	APP_THEME_STORAGE_KEY,
-} from "../../../../adapters/storage/keys.ts";
-import { CLIENT_STORAGE_CHANGED_EVENT } from "../../../../adapters/storage/sync.ts";
-import {
-	APP_THEMES,
-	type AppThemeId,
-	applyAppTheme,
-	loadAppBackgroundSettings,
-	loadAppThemeId,
-	saveAppBackgroundSettings,
-	saveAppThemeId,
-} from "../../../../app/model/appearance.ts";
+	CLIENT_STORAGE_CHANGED_EVENT,
+} from "../../../../adapters/storage/stored-values.ts";
 import {
 	APP_FONTS,
+	APP_THEMES,
 	type AppFontId,
+	type AppThemeId,
 	applyAppFont,
+	applyAppTheme,
+	loadAppBackgroundSettings,
 	loadAppFontId,
+	loadAppThemeId,
+	saveAppBackgroundSettings,
 	saveAppFontId,
-} from "../../../../app/model/font.ts";
-import { useAppInfo } from "../../../../shared/hooks/useAppInfo.ts";
+	saveAppThemeId,
+	useAppInfo,
+} from "../../../../app/model/appearance.ts";
 import {
 	SYNTAX_HIGHLIGHT_THEMES,
 	type SyntaxHighlightTheme,
 	useSyntaxHighlightTheme,
 } from "../../../../shared/hooks/useShikiHighlighter.tsx";
-import { listenWindowEvent } from "../../../../shared/lib/react-events.ts";
+import { listenWindowEvent } from "../../../../shared/lib/data.ts";
 import { DropdownButton } from "../../../../shared/ui/DropdownButton/index.tsx";
 import {
 	mutateAgentWorkspaceState,

@@ -2,7 +2,7 @@ import * as stylex from "@octanejs/stylex";
 import { useEffect, useRef, useState } from "octane";
 import { APP_REGION_NO_DRAG_CLASS } from "../../../../app/model/appearance.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { listenWindowEvent } from "../../../../shared/lib/react-events.ts";
+import { listenWindowEvent } from "../../../../shared/lib/data.ts";
 import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
 import {
 	IconAgent,
@@ -16,7 +16,7 @@ import {
 	OPEN_SETTINGS_MODAL_EVENT,
 	type OpenSettingsModalDetail,
 	type SettingsModalTarget,
-} from "../../model/settings-events.ts";
+} from "../../../skills/model/skill-library.ts";
 import { SettingsModalContent } from "../SettingsModalContent/index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";

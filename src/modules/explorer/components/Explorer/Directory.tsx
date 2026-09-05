@@ -6,9 +6,9 @@ import {
 	surfaceStyles,
 } from "../../../../design-system/styles.stylex.ts";
 import { IconChevronRight } from "../../../../shared/ui/Icons/index.tsx";
+import type { ExplorerEntry } from "../../model/explorer-events.ts";
 import { dispatchDocumentOpen } from "../../model/explorer-events.ts";
 import { FileTypeIcon, FolderTypeIcon } from "../FileTypeIcon/index.tsx";
-import type { ExplorerEntry } from "./shared.ts";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 export function Directory({

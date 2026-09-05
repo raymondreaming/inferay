@@ -9,10 +9,10 @@ import type {
 	GitFileEntry,
 	GitFilePresentation,
 } from "../../../../repository/model/types.ts";
+import type { SelectedFile } from "../../../model/workbench-model.ts";
 import { FileActionIcon } from "./FileActionIcon.tsx";
 import { FileChangeIcon } from "./FileChangeIcon.tsx";
 import { FileDiffStats } from "./FileDiffStats.tsx";
-import type { SelectedFile } from "./shared.ts";
 import { styles } from "./styles.ts";
 import { TreeNodeRow } from "./TreeNodeRow.tsx";
 

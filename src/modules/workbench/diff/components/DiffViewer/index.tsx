@@ -13,21 +13,19 @@ import {
 	type SyntaxHighlightTheme,
 	useSyntaxHighlightTheme,
 } from "../../../../../shared/hooks/useShikiHighlighter.tsx";
-import { listenWindowEvent } from "../../../../../shared/lib/react-events.ts";
+import { listenWindowEvent } from "../../../../../shared/lib/data.ts";
 import type { HunkDiff } from "../../../../repository/model/types.ts";
 import {
+	type DiffViewMode,
 	diffNavigationReducer,
 	INITIAL_DIFF_NAVIGATION_STATE,
-} from "../../model/diff-navigation.ts";
+	LINE_H,
+	MAX_RENDERED_LINE_CHARS,
+} from "../../../model/workbench-model.ts";
 import { MarkdownPreview } from "../MarkdownPreview/index.tsx";
 import { DiffHeader } from "./DiffHeader.tsx";
 import { DiffPanels } from "./DiffPanels.tsx";
 import { DiffViewToolbar } from "./DiffViewToolbar.tsx";
-import {
-	type DiffViewMode,
-	LINE_H,
-	MAX_RENDERED_LINE_CHARS,
-} from "./shared.ts";
 import { diffStyles } from "./styles.ts";
 
 interface DiffViewerProps {
@@ -392,4 +390,4 @@ export const DiffViewer = memo(function DiffViewer({
 	);
 });
 
-export type { DiffViewMode } from "./shared.ts";
+export type { DiffViewMode } from "../../../model/workbench-model.ts";

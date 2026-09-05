@@ -1,8 +1,7 @@
 import { createPortal } from "octane";
-import type { ReactNode } from "../../../../types/octane-react-compat.ts";
 import { Liquid } from "../index.ts";
+import type { ReactNode } from "../observer.ts";
 import * as inlineStyles from "./styles.ts";
-
 export interface LiquidPopoverSurfaceProps {
 	open: boolean;
 	present?: boolean;
@@ -13,7 +12,6 @@ export interface LiquidPopoverSurfaceProps {
 	fullWidth?: boolean;
 	panelRadius?: number;
 }
-
 export function LiquidPopoverSurface({
 	open,
 	present = open,

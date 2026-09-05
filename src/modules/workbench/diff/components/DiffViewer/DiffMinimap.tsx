@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useRef } from "octane";
-import { activateOnEnterOrSpacePreventDefault } from "../../../../../shared/lib/react-events.ts";
+import { activateOnEnterOrSpacePreventDefault } from "../../../../../shared/lib/data.ts";
 import type { DiffMinimapSegment as MinimapSegment } from "../../../../repository/model/types.ts";
 import * as inlineStyles from "./styles.ts";
 import { diffStyles } from "./styles.ts";

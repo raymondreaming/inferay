@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
 import type React from "react";
 import { fetchJsonOr } from "../../../adapters/backend/http.ts";
-import { getAgentDefinition } from "../../../modules/agents/model/agents.ts";
-import type { SlashCommand } from "../../../modules/conversation/model/agent-chat-shared.ts";
-import { useSkills } from "../../../modules/skills/hooks/useSkills.tsx";
-import type { AgentKind } from "../../../modules/workspace/model/workspace-model.ts";
+import { getAgentDefinition } from "../../agents/model/agents.ts";
+import { useSkills } from "../../skills/hooks/useSkills.tsx";
+import type { WorkspaceModelAgentKind as AgentKind } from "../../workspace/model/workspace-model.ts";
+import type { SlashCommand } from "../model/agent-chat-shared.ts";
 import {
 	findTriggerAtCursor,
 	hideMenuState,
-} from "../model/chat-agent-utils.ts";
+} from "../model/agent-chat-shared.ts";
 
 function applyInlineCompletion(
 	input: string,

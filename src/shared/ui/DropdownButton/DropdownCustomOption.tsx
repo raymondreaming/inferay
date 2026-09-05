@@ -3,7 +3,7 @@ import {
 	type DropdownOption,
 	type DropdownOptionRenderer,
 	selectDropdownOption,
-} from "./shared.ts";
+} from "../../lib/data.ts";
 import { styles } from "./styles.ts";
 
 export function DropdownCustomOption({

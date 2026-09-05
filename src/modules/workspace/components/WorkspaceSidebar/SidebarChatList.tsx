@@ -1,10 +1,10 @@
 import * as stylex from "@octanejs/stylex";
+import type { SidebarWorkspaceState } from "../../model/workspace-model.ts";
 import {
 	getVisibleRepositoryEntries,
 	projectRepositoryWorkspaces,
-} from "../../model/repository-workspaces.ts";
+} from "../../model/workspace-model.ts";
 import { PaneSummaryItem } from "./PaneSummaryItem.tsx";
-import type { SidebarWorkspaceState } from "./shared.ts";
 import { styles } from "./styles.ts";
 
 export function SidebarChatList({

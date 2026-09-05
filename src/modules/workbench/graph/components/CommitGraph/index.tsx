@@ -2,30 +2,25 @@ import * as stylex from "@octanejs/stylex";
 import { memo } from "octane";
 import { toggleBoolean } from "../../../../../shared/lib/data.ts";
 import { CommitGraphLinesLayer } from "../../../../../shared/ui/Icons/index.tsx";
+import { ROW_HEIGHT } from "../../model/graph-model.ts";
 import { CommitRow } from "./CommitRow.tsx";
 import { HeaderRow } from "./HeaderRow.tsx";
 import { RefContextMenu } from "./RefContextMenu.tsx";
 import { RowContextMenu } from "./RowContextMenu.tsx";
-import { ROW_HEIGHT } from "./shared.ts";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 import { TOP_PADDING, useCommitGraphState } from "./useCommitGraphState.tsx";
-
 export const LINE_WIDTH = 2;
-
 export function rowTop(row: number): number {
 	return row * ROW_HEIGHT;
 }
-
 export function rowBottom(row: number): number {
 	return (row + 1) * ROW_HEIGHT;
 }
-
 export const CommitGraph = memo(function CommitGraph(
 	props: Parameters<typeof useCommitGraphState>[0],
 ) {
 	const view = useCommitGraphState(props);
-
 	if (!view.commits.length) {
 		const emptyProps = stylex.props(styles.emptyRoot);
 		return (
@@ -37,7 +32,6 @@ export const CommitGraph = memo(function CommitGraph(
 			</div>
 		);
 	}
-
 	const rootProps = stylex.props(
 		styles.root,
 		view.embedded && styles.embeddedRoot,
@@ -86,7 +80,10 @@ export const CommitGraph = memo(function CommitGraph(
 			}}
 			onMouseMove={(event) => {
 				const previous = view.mousePositionRef.current;
-				view.mousePositionRef.current = { x: event.clientX, y: event.clientY };
+				view.mousePositionRef.current = {
+					x: event.clientX,
+					y: event.clientY,
+				};
 				if (previous?.x === event.clientX && previous.y === event.clientY)
 					return;
 				view.keyboardNavigationRef.current = false;
@@ -213,6 +210,5 @@ export const CommitGraph = memo(function CommitGraph(
 		</div>
 	);
 });
-
-export type { GraphSelectionIntent } from "./shared.ts";
+export type { GraphSelectionIntent } from "../../model/graph-model.ts";
 export type { GitGraphActionRequest } from "./useCommitGraphState.tsx";

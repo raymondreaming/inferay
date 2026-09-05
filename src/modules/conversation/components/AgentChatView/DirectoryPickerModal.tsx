@@ -1,6 +1,5 @@
 import { Liquid } from "../../../../shared/ui/gooey/index.ts";
-import type { ReactNode } from "../../../../types/octane-react-compat.ts";
-
+import type { ReactNode } from "../../../../shared/ui/gooey/observer.ts";
 export function DirectoryPickerModal({ children }: { children: ReactNode }) {
 	return (
 		<div

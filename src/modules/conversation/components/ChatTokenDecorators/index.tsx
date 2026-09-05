@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
+import { findDecoratedTokenRanges } from "../../model/agent-chat-shared.ts";
 import { styles } from "./styles.ts";
-import { findDecoratedTokenRanges } from "./token-ranges.ts";
 
 export function renderInputHighlights(
 	text: string,
@@ -83,6 +83,6 @@ export function renderTextPills(
 	return parts;
 }
 
+export type { TokenRange } from "../../model/agent-chat-shared.ts";
+export { findDecoratedTokenRanges } from "../../model/agent-chat-shared.ts";
 export { styles } from "./styles.ts";
-export type { TokenRange } from "./token-ranges.ts";
-export { findDecoratedTokenRanges } from "./token-ranges.ts";

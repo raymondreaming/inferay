@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
-import { indexedValues } from "../../../../shared/lib/indexed-values.ts";
-import type { MdBlock } from "../../../../shared/lib/markdown.ts";
+import type { MdBlock } from "../../../../shared/lib/data.ts";
+import { indexedValues } from "../../../../shared/lib/data.ts";
 import { CopyablePre } from "./CopyablePre.tsx";
 import { Inline } from "./Inline.tsx";
 import * as inlineStyles from "./styles.ts";

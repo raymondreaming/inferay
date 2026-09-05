@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
-import { getToolOutputSummary } from "../../model/chat-message-render-utils.ts";
-import type { ChatMessage } from "./shared.ts";
+import type { ChatMessage } from "../../model/agent-chat-shared.ts";
+import { getToolOutputSummary } from "../../model/agent-chat-shared.ts";
 import { styles } from "./styles.ts";
 
 export function ToolOutputHighlight({

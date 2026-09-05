@@ -22,7 +22,6 @@ function deriveSummary(paneId: string): string | null {
 		}),
 	);
 }
-
 export function PaneSummaryItem({
 	pane,
 	isActive,
@@ -35,7 +34,6 @@ export function PaneSummaryItem({
 	const isChat = isChatAgentKind(pane.agentKind);
 	const summary = isChat ? deriveSummary(pane.id) : null;
 	const primaryLabel = isChat ? (summary ?? pane.title) : pane.title;
-
 	return (
 		<div {...stylex.props(styles.paneSummaryCard)}>
 			<button

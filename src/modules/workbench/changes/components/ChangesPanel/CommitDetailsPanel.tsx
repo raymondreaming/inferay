@@ -3,9 +3,9 @@ import type {
 	CommitDetails,
 	CommitFile,
 } from "../../../../repository/hooks/useGitGraph.tsx";
+import type { SelectedFile } from "../../../model/workbench-model.ts";
 import { DetailIdentity } from "./DetailIdentity.tsx";
 import { HistoricalFileList } from "./HistoricalFileList.tsx";
-import type { SelectedFile } from "./shared.ts";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 

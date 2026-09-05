@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import type { CSSProperties } from "react";
-import type { DotMatrixLoaderProps } from "./shared.ts";
+import type { DotMatrixLoaderProps } from "../../lib/data.ts";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 

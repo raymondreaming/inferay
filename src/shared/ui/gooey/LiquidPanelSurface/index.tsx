@@ -1,7 +1,6 @@
-import type { ReactNode } from "../../../../types/octane-react-compat.ts";
 import { Liquid } from "../index.ts";
+import type { ReactNode } from "../observer.ts";
 import * as inlineStyles from "./styles.ts";
-
 export function LiquidPanelSurface({
 	children,
 	fill,
@@ -20,7 +19,12 @@ export function LiquidPanelSurface({
 			style={inlineStyles.getLiquidPanelSurfaceLiquidStyle()}
 		>
 			<Liquid.Item
-				morph={{ shape: true, speed: 1.35, bounce: 0.18, contentBlur: 0 }}
+				morph={{
+					shape: true,
+					speed: 1.35,
+					bounce: 0.18,
+					contentBlur: 0,
+				}}
 			>
 				{children}
 			</Liquid.Item>

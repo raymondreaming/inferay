@@ -1,7 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import { surfaceStyles } from "../../../../design-system/styles.stylex.ts";
-import { openSkills } from "../../model/skill-events.ts";
 import type { SkillRead } from "../../model/skill-library.ts";
+import { openSkills } from "../../model/skill-library.ts";
 import { styles } from "./styles.ts";
 
 export function SkillReadCard({ skill }: { skill: SkillRead }) {

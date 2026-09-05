@@ -1,7 +1,6 @@
 import { Suspense, useEffect, useState } from "octane";
-import type { ReactNode } from "../../../../types/octane-react-compat.ts";
-import { LazyLiquidPanelSurface } from "./shared.ts";
-
+import type { ReactNode } from "../observer.ts";
+import { LazyLiquidPanelSurface } from "../observer.ts";
 export function LiquidPanel({
 	children,
 	fill,

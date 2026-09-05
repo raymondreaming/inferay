@@ -2,9 +2,9 @@ import * as stylex from "@octanejs/stylex";
 import type {
 	GitGraphRef,
 	GitGraphRefKind,
-} from "../../../../repository/hooks/useGitGraph";
+} from "../../../../repository/hooks/useGitGraph.tsx";
+import { refPresentationLabel } from "../../model/graph-model.ts";
 import { RefBadge } from "./RefBadge.tsx";
-import { refPresentationLabel } from "./shared.ts";
 import { styles } from "./styles.ts";
 
 export function RefBadges({

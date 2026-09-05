@@ -2,7 +2,7 @@ import {
 	getIconForFolder,
 	getIconForOpenFolder,
 } from "@yutengjing/vscode-icons";
-import { iconUrls, resolveFileIconUrl } from "./shared.ts";
+import { iconUrls, resolveFileIconUrl } from "../../model/explorer-events.ts";
 import * as inlineStyles from "./styles.ts";
 
 export function resolveFolderIconUrl(path: string, open = false): string {

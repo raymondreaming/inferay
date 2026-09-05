@@ -30,7 +30,10 @@ self.onmessage = async ({ data }: MessageEvent<HighlightRequest>) => {
 			controller.signal,
 		);
 		if (!controller.signal.aborted)
-			self.postMessage({ id: data.id, rows } satisfies HighlightResponse);
+			self.postMessage({
+				id: data.id,
+				rows,
+			} satisfies HighlightResponse);
 	} catch (error) {
 		if (!controller.signal.aborted)
 			self.postMessage({

@@ -2,28 +2,28 @@ import * as stylex from "@octanejs/stylex";
 import { Outlet, useLocation } from "@octanejs/tanstack-router";
 import { Suspense, useEffect, useState } from "octane";
 import type { CSSProperties } from "react";
-import { resolveServerUrl } from "../../../adapters/backend/http.ts";
-import { wsClient } from "../../../adapters/backend/websocket.ts";
+import { resolveServerUrl, wsClient } from "../../../adapters/backend/http.ts";
 import {
 	APP_BACKGROUND_STORAGE_KEY,
 	APP_FONT_STORAGE_KEY,
 	APP_THEME_STORAGE_KEY,
-} from "../../../adapters/storage/keys.ts";
-import { CLIENT_STORAGE_CHANGED_EVENT } from "../../../adapters/storage/sync.ts";
+	CLIENT_STORAGE_CHANGED_EVENT,
+} from "../../../adapters/storage/stored-values.ts";
 import { SettingsModalHost } from "../../../modules/settings/components/SettingsModal/index.tsx";
 import { SkillsModalHost } from "../../../modules/skills/components/SkillsModal/index.tsx";
 import { RepositoryWorkspaceBar } from "../../../modules/workspace/components/RepositoryWorkspaceBar/index.tsx";
 import { WorkspaceSidebar } from "../../../modules/workspace/components/WorkspaceSidebar/index.tsx";
-import { listenWindowEvent } from "../../../shared/lib/react-events.ts";
+import { listenWindowEvent } from "../../../shared/lib/data.ts";
 import {
 	applyAppBackgroundPalette,
 	applyAppBackgroundSurfaces,
+	applyAppFont,
 	deriveAppBackgroundPalette,
 	getBuiltInBackgroundPath,
 	loadAppBackgroundSettings,
+	loadAppFontId,
 	restoreAppTheme,
 } from "../../model/appearance.ts";
-import { applyAppFont, loadAppFontId } from "../../model/font.ts";
 import { AppHeader } from "../AppHeader/index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { shellThemeProps, styles } from "./styles.ts";
