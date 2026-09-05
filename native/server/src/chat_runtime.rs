@@ -522,6 +522,17 @@ impl ChatRuntime {
         provider_session_id: Option<&str>,
         cwd: Option<PathBuf>,
     ) {
+        let saved_reference = self
+            .persistence
+            .read_session_reference(pane_id)
+            .await
+            .filter(|r| provider.is_none_or(|p| p == r.provider));
+        let provider = provider.or_else(|| saved_reference.as_ref().map(|r| r.provider.as_str()));
+        let provider_session_id = saved_reference
+            .as_ref()
+            .map(|r| r.session_id.as_str())
+            .or(provider_session_id);
+        let cwd = cwd.or_else(|| saved_reference.as_ref().map(|r| r.cwd.clone()));
         if let Some(session) = self.session(pane_id).await {
             let (session_message, sync, status) = {
                 let mut state = session.lock().await;
@@ -780,12 +791,20 @@ impl ChatRuntime {
             return session;
         }
         let mut buffer = ChatMessageBuffer::default();
+        let saved_reference = self
+            .persistence
+            .read_session_reference(&input.pane_id)
+            .await;
+        let session_id = saved_reference
+            .filter(|r| r.provider == input.agent_kind)
+            .map(|r| r.session_id)
+            .or_else(|| input.client_session_id.clone());
         let persisted = self
             .persistence
             .read_legacy_transcript(&input.pane_id)
             .await;
         let provider = if persisted.is_none() {
-            match input.client_session_id.as_deref() {
+            match session_id.as_deref() {
                 Some(session_id) => {
                     crate::provider_history::load_provider_history(
                         &input.agent_kind,
@@ -807,7 +826,7 @@ impl ChatRuntime {
             agent_kind: input.agent_kind.clone(),
             model: input.model.clone(),
             reasoning_level: input.reasoning_level.clone(),
-            session_id: input.client_session_id.clone(),
+            session_id,
             clients: input
                 .client_id
                 .zip(input.client_sender.clone())
@@ -1044,7 +1063,14 @@ impl ChatRuntime {
                 ProtocolEmission::Activity { tool_name, summary, is_streaming } => self.emit(session, json!({"type":"chat:activity", "paneId":pane_id, "activity":{"toolName":tool_name,"summary":summary,"isStreaming":is_streaming}})).await,
                 ProtocolEmission::System(message) => self.emit_system(session, &message).await,
                 ProtocolEmission::Session(id) => {
-                    session.lock().await.session_id = Some(id.clone());
+                    let (provider, cwd) = {
+                        let mut state = session.lock().await;
+                        state.session_id = Some(id.clone());
+                        (state.agent_kind.clone(), state.cwd.clone())
+                    };
+                    if let Err(error) = self.persistence.save_session_reference(&pane_id, &provider, &id, &cwd).await {
+                        self.emit_system(session, &format!("Chat session could not be saved: {error}")).await;
+                    }
                     self.emit(session, json!({"type":"chat:session", "paneId":pane_id, "sessionId":id})).await;
                 }
             }
@@ -1258,6 +1284,38 @@ impl ChatRuntime {
         .await;
     }
 
+    async fn persist_before_publish(
+        &self,
+        session: &Arc<Mutex<ChatSession>>,
+        message: &Value,
+    ) -> Option<Value> {
+        let pane = message.get("paneId")?.as_str()?;
+        let update = message.get("transcriptUpdate")?;
+        if self.persistence.persist_update(pane, update).await.is_ok() {
+            return None;
+        }
+        // A previous failed write may have left the journal behind the published
+        // revision. Repair from authoritative memory instead of rejecting every
+        // subsequent delta forever. Corrupt journals still fail safely.
+        let reset = {
+            let state = session.lock().await;
+            json!({"version":1,"epoch":state.message_buffer.epoch(),
+                "baseRevision":0,"revision":state.message_buffer.revision(),
+                "reset":true,"start":0,"deleteCount":0,
+                "messages":state.message_buffer.messages().iter()
+                    .map(|message| json!({"message":message})).collect::<Vec<_>>()})
+        };
+        self.persistence
+            .persist_update(pane, &reset)
+            .await
+            .err()
+            .map(|error| {
+                eprintln!("Chat persistence failed for {pane}: {error}");
+                json!({"type":"chat:system", "paneId":pane,
+                "message":format!("Chat could not be saved: {error}")})
+            })
+    }
+
     async fn emit(&self, session: &Arc<Mutex<ChatSession>>, mut message: Value) {
         let senders = {
             let mut state = session.lock().await;
@@ -1281,10 +1339,14 @@ impl ChatRuntime {
             }
             state.clients.values().cloned().collect::<Vec<_>>()
         };
-        // Serialize/clone outside the session lock, so a slow fanout never
-        // blocks provider ingestion or another client's reconnect.
+        // Save each incremental update before publication, including while streaming.
+        // Closing the app does not depend on a browser unload handler or a final event.
+        let persistence_error = self.persist_before_publish(session, &message).await;
         for sender in senders {
             let _ = sender.send(message.clone());
+            if let Some(error) = &persistence_error {
+                let _ = sender.send(error.clone());
+            }
         }
     }
 
@@ -1310,7 +1372,11 @@ impl ChatRuntime {
                 update,
             )
         };
+        let persistence_error = self.persist_before_publish(session, &message).await;
         for (id, sender) in senders {
+            if let Some(error) = &persistence_error {
+                let _ = sender.send(error.clone());
+            }
             if Some(id) != exclude {
                 let _ = sender.send(message.clone());
             } else if let Some(update) = &update {
@@ -2104,6 +2170,111 @@ mod tests {
                 .as_deref(),
             Some("Edit")
         );
+    }
+
+    #[tokio::test]
+    async fn repairs_missing_persistence_revision_from_native_memory() {
+        let root = tempdir().unwrap();
+        let (runtime, persistence, _) = test_runtime(root.path(), Arc::new(UnusedExecutor));
+        let (sender, _) = broadcast::channel(16);
+        let session = test_session(root.path(), sender, None);
+        {
+            let mut state = session.lock().await;
+            state.message_buffer.push_user("first", None);
+            // Simulate an update whose disk write failed before the next event.
+            state.message_buffer.take_update();
+            state.message_buffer.push_user("second", None);
+        }
+        runtime
+            .emit(&session, json!({"type":"chat:model","paneId":"pane"}))
+            .await;
+        drop(persistence);
+        let fresh = ChatPersistence::new(root.path().join("data"));
+        let messages = fresh.read_legacy_transcript("pane").await.unwrap();
+        assert_eq!(
+            messages
+                .iter()
+                .map(|m| m.content.as_str())
+                .collect::<Vec<_>>(),
+            ["first", "second"]
+        );
+    }
+
+    #[tokio::test]
+    async fn process_restart_restores_published_chat_and_provider_reference() {
+        let root = tempdir().unwrap();
+        let (runtime, _, _) = test_runtime(root.path(), Arc::new(UnusedExecutor));
+        let (sender, mut receiver) = broadcast::channel(32);
+        let session = test_session(root.path(), sender, None);
+        session
+            .lock()
+            .await
+            .message_buffer
+            .push_user("Keep this question", None);
+        runtime
+            .fanout_except(
+                &session,
+                json!({"type":"chat:user_message","paneId":"pane"}),
+                Some(1),
+            )
+            .await;
+        receiver.recv().await.unwrap();
+        runtime
+            .apply_emissions(
+                &session,
+                vec![ProtocolEmission::Session("durable-provider-id".into())],
+                None,
+            )
+            .await;
+        session.lock().await.message_buffer.apply_event(&json!({
+            "type":"content_block_start", "content_block":{"type":"text","text":""}
+        }));
+        session.lock().await.message_buffer.apply_event(&json!({
+            "type":"content_block_delta", "delta":{"type":"text_delta","text":"Partial answer"}
+        }));
+        runtime
+            .emit(&session, json!({"type":"chat:model","paneId":"pane"}))
+            .await;
+        session.lock().await.message_buffer.apply_event(&json!({
+            "type":"content_block_start", "content_block":{
+                "type":"tool_use", "name":"Read", "input":{"file_path":"src/main.rs"}
+            }
+        }));
+        runtime
+            .emit(&session, json!({"type":"chat:model","paneId":"pane"}))
+            .await;
+        // Drop without finalizing: closing during an active response must keep
+        // the exact published text, without relying on browser state or provider logs.
+        drop(session);
+        drop(runtime);
+        let (restarted, _, _) = test_runtime(root.path(), Arc::new(UnusedExecutor));
+        let (sender, mut receiver) = broadcast::channel(16);
+        restarted
+            .reconnect("pane", 2, sender, None, None, None)
+            .await;
+        let mut restored = None;
+        while let Ok(event) = receiver.try_recv() {
+            if event["type"] == "chat:sync" {
+                restored = Some(event);
+            }
+        }
+        let restored = restored.expect("restarted transcript");
+        let messages = restored["messages"].as_array().unwrap();
+        assert_eq!(messages[0]["content"], "Keep this question");
+        assert_eq!(messages[1]["content"], "Partial answer");
+        assert_eq!(messages[2]["toolName"], "Read");
+        assert!(
+            messages[2]["content"]
+                .as_str()
+                .unwrap()
+                .contains("src/main.rs")
+        );
+        assert!(!messages.iter().any(|m| m["isStreaming"] == true));
+        let session = restarted.session("pane").await.unwrap();
+        let state = session.lock().await;
+        assert_eq!(state.session_id.as_deref(), Some("durable-provider-id"));
+        assert_eq!(state.agent_kind, "codex");
+        assert_eq!(state.cwd, root.path());
     }
 
     #[tokio::test]
