@@ -3,8 +3,8 @@ set -euo pipefail
 
 echo "==> Biome focused architecture lint"
 bunx biome lint \
-	src/modules/conversation/components/AgentChatView.tsx \
-	src/modules/conversation/components/ChatMessageList.tsx \
+	src/modules/conversation/components/AgentChatView/index.tsx \
+	src/modules/conversation/components/ChatMessageList/index.tsx \
 	src/modules/conversation/hooks/useAgentChatComposerState.tsx \
 	src/modules/conversation/hooks/useChatConnection.ts \
 	src/modules/conversation/hooks/useChatInputActions.tsx \
@@ -14,9 +14,9 @@ bunx biome lint \
 	src/modules/repository/hooks/useGitDiff.tsx \
 	src/modules/workspace/model/workspace-model.ts \
 	src/shared/hooks/useShikiHighlighter.tsx \
-	src/modules/workbench/diff/components/DiffViewer.tsx \
-	src/modules/workspace/components/WorkspaceCanvas.tsx \
-	src/modules/workspace/components/PaneView.tsx \
+	src/modules/workbench/diff/components/DiffViewer/index.tsx \
+	src/modules/workspace/components/WorkspaceCanvas/index.tsx \
+	src/modules/workspace/components/PaneView/index.tsx \
 	src/routes/_app/agent.tsx \
 	tests/agent-chat-view-visibility.octane.tsx \
 	tests/agent-inline-diff-parity.test.ts \
@@ -34,6 +34,9 @@ bunx biome lint \
 	tests/agent-pane-visibility.octane.tsx
 
 echo
+echo "==> Component folder structure"
+bun run check:components
+
 echo "==> Architecture boundaries"
 if find src/components src/features src/pages src/hooks src/lib -type f 2>/dev/null | grep -q .; then
 	echo "Legacy implementation buckets must stay empty" >&2

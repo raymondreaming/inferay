@@ -20,6 +20,7 @@
 		"release:resume": "cargo run -p inferay-tooling -- release --resume",
 		"format": "bunx biome format --write ./src",
 		"check": "bunx biome check --write ./src",
+		"check:components": "bun scripts/check-component-structure.ts",
 		"check:architecture": "bash scripts/check-architecture.sh",
 		"check:native": "cargo check -p inferay-desktop",
 		"check:rust-host": "cargo check -p inferay-desktop"
