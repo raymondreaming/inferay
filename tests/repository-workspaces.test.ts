@@ -15,7 +15,7 @@ function pane(id: string, cwd?: string): AgentPaneModel {
 		id: id as AgentPaneModel["id"],
 		title: id,
 		agentKind: "codex",
-		isClaude: false,
+
 		cwd,
 	};
 }

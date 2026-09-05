@@ -3,7 +3,6 @@ pub use prepared_diff::{
     prepare_conflict_lines, prepare_edit_diff, PreparedEditDiff, SequentialEdit,
 };
 mod graph_semantics;
-use chrono::{Local, TimeZone};
 pub use graph_semantics::{GraphAncestry, GraphNavigation};
 use inferay_core::path_security::{is_safe_relative_path, AllowedPaths};
 use serde::{Deserialize, Serialize};
@@ -18,53 +17,6 @@ use wait_timeout::ChildExt;
 // Keep color identities distinct through GitKraken's full ten-lane palette
 // before cycling. The renderer owns the actual color values.
 const GRAPH_LANE_COUNT: usize = 10;
-
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum DiffLineType {
-    Unchanged,
-    Added,
-    Removed,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiffLine {
-    #[serde(rename = "type")]
-    pub line_type: DiffLineType,
-    pub content: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub old_line_num: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub new_line_num: Option<usize>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiffHunk {
-    pub old_start: usize,
-    pub old_count: usize,
-    pub new_start: usize,
-    pub new_count: usize,
-    pub lines: Vec<DiffLine>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-pub struct DiffStats {
-    pub added: usize,
-    pub removed: usize,
-    pub unchanged: usize,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ParsedDiff {
-    pub hunks: Vec<DiffHunk>,
-    pub old_lines: Vec<DiffLine>,
-    pub new_lines: Vec<DiffLine>,
-    pub stats: DiffStats,
-    pub computed_at: u64,
-}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -201,7 +153,7 @@ pub struct GitCheckoutPreflight {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GitRefOperationResult {
+pub struct GitOperationResult {
     pub ok: bool,
     pub operation: String,
     pub outcome: GitOperationOutcome,
@@ -244,38 +196,11 @@ pub struct GitInteractiveRebaseStep {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GitGraphActionResult {
-    pub ok: bool,
-    pub action: String,
-    pub outcome: GitOperationOutcome,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub current_branch: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub head: Option<String>,
-    pub conflicts: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_kind: Option<GitOperationErrorKind>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct GitCommitSummary {
     pub hash: String,
     pub message: String,
     pub author: String,
     pub date: String,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GitBlameLine {
-    pub hash: String,
-    pub author: String,
-    pub date: String,
-    pub line_num: usize,
-    pub content: String,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -359,7 +284,7 @@ pub struct GitDiffLine {
     pub line_type: GitDiffLineType,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GitHunkDiff {
     pub old_lines: Vec<GitDiffLine>,
@@ -376,30 +301,6 @@ pub struct GitHunkDiff {
     pub raw_patch: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub merge_conflict_content: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum GitFileWithDiff {
-    Image { image_path: String },
-    Text { lines: Vec<GitDiffLine> },
-    Error { error: &'static str },
-    AccessDenied,
-}
-
-#[derive(Clone)]
-struct GitCommit {
-    hash: String,
-    message: String,
-    body: String,
-    author: String,
-    author_email: String,
-    committer: String,
-    committer_email: String,
-    date: String,
-    authored_at: String,
-    committed_at: String,
-    parents: Vec<String>,
-    refs: Vec<GitGraphRef>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -432,7 +333,7 @@ pub struct GitGraphRef {
     pub behind: Option<usize>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphCommit {
     #[serde(default)]
@@ -461,9 +362,10 @@ pub struct GraphCommit {
     pub color_index: usize,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum GitGraphItemKind {
+    #[default]
     Commit,
     WorktreeWip,
     Stash,
@@ -529,29 +431,6 @@ pub enum GitRepositorySnapshotState {
     Empty,
     NonRepository,
     CommandFailed,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(tag = "op", rename_all = "snake_case")]
-pub enum NativeRequest {
-    Diff { before: String, after: String },
-    GitStatuses { cwds: Vec<String> },
-    GitGraph { cwd: String, limit: usize },
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(tag = "op", rename_all = "snake_case")]
-pub enum NativeResponse {
-    Diff {
-        diff: ParsedDiff,
-    },
-    GitStatuses {
-        projects: Vec<GitStatusResult>,
-    },
-    GitGraph {
-        commits: Vec<GraphCommit>,
-        rows: Vec<GraphRow>,
-    },
 }
 
 #[derive(Clone, Copy)]
@@ -630,164 +509,6 @@ fn diff_operations<T: PartialEq>(
     diff_ops
 }
 
-fn compute_line_diff(old_text: &str, new_text: &str) -> ParsedDiff {
-    let old_lines: Vec<&str> = old_text.split('\n').collect();
-    let new_lines: Vec<&str> = new_text.split('\n').collect();
-    let diff_ops = diff_operations(&old_lines, &new_lines);
-
-    let mut left_lines = Vec::with_capacity(diff_ops.len());
-    let mut right_lines = Vec::with_capacity(diff_ops.len());
-    let mut hunks = Vec::new();
-    let mut stats = DiffStats {
-        added: 0,
-        removed: 0,
-        unchanged: 0,
-    };
-    let mut old_line_num = 1usize;
-    let mut new_line_num = 1usize;
-    let mut current_hunk: Option<DiffHunk> = None;
-    let mut unchanged_count = 0usize;
-    let context_lines = 3usize;
-
-    for (op, old_idx, new_idx) in diff_ops {
-        match op {
-            DiffOperation::Unchanged => {
-                let line = DiffLine {
-                    line_type: DiffLineType::Unchanged,
-                    content: old_lines[old_idx.expect("missing old index")].to_string(),
-                    old_line_num: Some(old_line_num),
-                    new_line_num: Some(new_line_num),
-                };
-                old_line_num += 1;
-                new_line_num += 1;
-
-                left_lines.push(line.clone());
-                right_lines.push(line.clone());
-                stats.unchanged += 1;
-
-                if let Some(hunk) = current_hunk.as_mut() {
-                    unchanged_count += 1;
-                    hunk.lines.push(line);
-                    if unchanged_count > context_lines * 2 {
-                        if let Some(mut complete_hunk) = current_hunk.take() {
-                            complete_hunk.old_count = complete_hunk
-                                .lines
-                                .iter()
-                                .filter(|line| !matches!(line.line_type, DiffLineType::Added))
-                                .count();
-                            complete_hunk.new_count = complete_hunk
-                                .lines
-                                .iter()
-                                .filter(|line| !matches!(line.line_type, DiffLineType::Removed))
-                                .count();
-                            hunks.push(complete_hunk);
-                        }
-                        unchanged_count = 0;
-                    }
-                }
-            }
-            DiffOperation::Removed => {
-                let left_line = DiffLine {
-                    line_type: DiffLineType::Removed,
-                    content: old_lines[old_idx.expect("missing old index")].to_string(),
-                    old_line_num: Some(old_line_num),
-                    new_line_num: None,
-                };
-                old_line_num += 1;
-
-                left_lines.push(left_line.clone());
-                right_lines.push(DiffLine {
-                    line_type: DiffLineType::Removed,
-                    content: String::new(),
-                    old_line_num: None,
-                    new_line_num: None,
-                });
-                stats.removed += 1;
-                unchanged_count = 0;
-
-                if current_hunk.is_none() {
-                    let context_start = left_lines.len().saturating_sub(1 + context_lines);
-                    let mut lines = Vec::new();
-                    for line in left_lines[context_start..left_lines.len().saturating_sub(1)]
-                        .iter()
-                        .filter(|line| matches!(line.line_type, DiffLineType::Unchanged))
-                    {
-                        lines.push(line.clone());
-                    }
-                    current_hunk = Some(DiffHunk {
-                        old_start: left_line.old_line_num.unwrap_or(old_line_num),
-                        old_count: 0,
-                        new_start: new_line_num,
-                        new_count: 0,
-                        lines,
-                    });
-                }
-
-                if let Some(hunk) = current_hunk.as_mut() {
-                    hunk.lines.push(left_line);
-                }
-            }
-            DiffOperation::Added => {
-                let right_line = DiffLine {
-                    line_type: DiffLineType::Added,
-                    content: new_lines[new_idx.expect("missing new index")].to_string(),
-                    old_line_num: None,
-                    new_line_num: Some(new_line_num),
-                };
-                new_line_num += 1;
-
-                left_lines.push(DiffLine {
-                    line_type: DiffLineType::Added,
-                    content: String::new(),
-                    old_line_num: None,
-                    new_line_num: None,
-                });
-                right_lines.push(right_line.clone());
-                stats.added += 1;
-                unchanged_count = 0;
-
-                if current_hunk.is_none() {
-                    current_hunk = Some(DiffHunk {
-                        old_start: old_line_num,
-                        old_count: 0,
-                        new_start: right_line.new_line_num.unwrap_or(new_line_num),
-                        new_count: 0,
-                        lines: Vec::new(),
-                    });
-                }
-
-                if let Some(hunk) = current_hunk.as_mut() {
-                    hunk.lines.push(right_line);
-                }
-            }
-        }
-    }
-
-    if let Some(mut hunk) = current_hunk {
-        if !hunk.lines.is_empty() {
-            hunk.old_count = hunk
-                .lines
-                .iter()
-                .filter(|line| !matches!(line.line_type, DiffLineType::Added))
-                .count();
-            hunk.new_count = hunk
-                .lines
-                .iter()
-                .filter(|line| !matches!(line.line_type, DiffLineType::Removed))
-                .count();
-            hunks.push(hunk);
-        }
-    }
-
-    ParsedDiff {
-        hunks,
-        old_lines: left_lines,
-        new_lines: right_lines,
-        stats,
-        computed_at: 0,
-    }
-}
-
 thread_local! {
     static GIT_DEADLINE: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
 }
@@ -816,49 +537,6 @@ fn remaining_git_time(timeout: Duration) -> Duration {
 
 fn run_git(args: &[&str], cwd: &str) -> Option<String> {
     run_git_timed(args, cwd, Duration::from_secs(10))
-}
-
-fn run_git_timed(args: &[&str], cwd: &str, timeout: Duration) -> Option<String> {
-    let timeout = remaining_git_time(timeout);
-    if timeout.is_zero() {
-        return None;
-    }
-    let mut child = Command::new("git")
-        .args(args)
-        .current_dir(cwd)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .ok()?;
-    let mut stdout = child.stdout.take()?;
-    let mut stderr = child.stderr.take()?;
-    let stdout_reader = std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = stdout.read_to_end(&mut bytes);
-        bytes
-    });
-    let stderr_reader = std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = stderr.read_to_end(&mut bytes);
-        bytes
-    });
-    let status = match child.wait_timeout(timeout).ok()? {
-        Some(status) => status,
-        None => {
-            let _ = child.kill();
-            let _ = child.wait();
-            // A configured external diff/textconv process can inherit these pipes.
-            // Never turn a Git timeout into an unbounded wait for that descendant.
-            drop(stdout_reader);
-            drop(stderr_reader);
-            return None;
-        }
-    };
-    let stdout = stdout_reader.join().ok()?;
-    let _ = stderr_reader.join();
-    status
-        .success()
-        .then(|| String::from_utf8_lossy(&stdout).into_owned())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -921,11 +599,17 @@ fn sanitized_git_error(stderr: &[u8]) -> String {
     }
 }
 
-fn run_git_checked_timed(
+fn run_git_timed(args: &[&str], cwd: &str, timeout: Duration) -> Option<String> {
+    run_git_bytes(args, cwd, timeout)
+        .ok()
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+}
+
+fn run_git_bytes(
     args: &[&str],
     cwd: &str,
     timeout: Duration,
-) -> Result<String, GitCommandFailure> {
+) -> Result<Vec<u8>, GitCommandFailure> {
     let timeout = remaining_git_time(timeout);
     let command = format!("git {}", args.first().copied().unwrap_or("command"));
     if timeout.is_zero() {
@@ -1004,37 +688,14 @@ fn run_git_checked_timed(
             detail: sanitized_git_error(&stderr),
         });
     }
-    String::from_utf8(stdout).map_err(|error| GitCommandFailure {
-        command,
-        kind: GitCommandFailureKind::InvalidOutput,
-        detail: error.to_string(),
-    })
+    Ok(stdout)
 }
 
 const MAX_UNTRACKED_FILE_BYTES: u64 = 500_000;
-const MAX_SIMPLE_UNTRACKED_FILE_BYTES: u64 = 120_000;
 // Bound retained source rows/bytes; the UI mounts only its visible window.
 const MAX_RENDERED_DIFF_LINES: usize = 100_000;
 const MAX_DIFF_TEXT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_RENDERED_LINE_CHARS: usize = 8_000;
-
-pub fn is_changed_git_file(cwd: &str, file_path: &str) -> bool {
-    if !is_safe_relative_path(file_path) {
-        return false;
-    }
-    run_git_timed(
-        &[
-            "status",
-            "--porcelain=v1",
-            "--untracked-files=all",
-            "--",
-            file_path,
-        ],
-        cwd,
-        Duration::from_secs(2),
-    )
-    .is_some_and(|status| status.lines().any(|line| !line.trim().is_empty()))
-}
 
 fn is_untracked_git_file(cwd: &str, file_path: &str) -> bool {
     run_git_timed(
@@ -1052,156 +713,22 @@ fn is_untracked_git_file(cwd: &str, file_path: &str) -> bool {
     .is_some_and(|status| status.lines().any(|line| line.starts_with("?? ")))
 }
 
-pub fn get_git_diff(
-    allowed_paths: &AllowedPaths,
-    cwd: &str,
-    file_path: &str,
-    staged: bool,
-) -> String {
-    if !is_safe_relative_path(file_path) || run_git(&["rev-parse", "--git-dir"], cwd).is_none() {
-        return String::new();
-    }
-    let result = if staged {
-        run_git_timed(
-            &[
-                "diff",
-                "--no-ext-diff",
-                "--no-textconv",
-                "--cached",
-                "--",
-                file_path,
-            ],
-            cwd,
-            Duration::from_secs(5),
-        )
-    } else {
-        run_git_timed(
-            &["diff", "--no-ext-diff", "--no-textconv", "--", file_path],
-            cwd,
-            Duration::from_secs(5),
-        )
-    };
-    if result
-        .as_deref()
-        .is_some_and(|value| !value.trim().is_empty())
-    {
-        return result.unwrap_or_default();
-    }
-
-    let status = run_git_timed(
-        &["status", "--porcelain", "--", file_path],
-        cwd,
-        Duration::from_secs(5),
-    );
-    if !status
-        .as_deref()
-        .is_some_and(|status| status.lines().any(|line| line.starts_with("?? ")))
-    {
-        return String::new();
-    }
-    let Some(path) = allowed_paths.resolve_allowed_child_path(cwd, file_path) else {
-        return String::new();
-    };
-    let Some(path) = allowed_paths.resolve_real_allowed_local_path(path) else {
-        return String::new();
-    };
-    let Ok(metadata) = std::fs::metadata(&path) else {
-        return String::new();
-    };
-    if metadata.len() > MAX_SIMPLE_UNTRACKED_FILE_BYTES {
-        return String::new();
-    }
-    let Ok(bytes) = std::fs::read(path) else {
-        return String::new();
-    };
-    if bytes.contains(&0) {
-        return String::new();
-    }
-    let content = String::from_utf8_lossy(&bytes);
-    let lines: Vec<&str> = content.split('\n').collect();
-    let mut output = vec![
-        "--- /dev/null".to_string(),
-        format!("+++ b/{file_path}"),
-        format!("@@ -0,0 +1,{} @@", lines.len()),
-    ];
-    output.extend(lines.into_iter().map(|line| format!("+{line}")));
-    output.join("\n")
-}
-
 fn get_raw_git_patch(cwd: &str, file_path: &str, staged: bool) -> String {
-    let patch = if staged {
-        run_git_timed(
-            &[
-                "diff",
-                "--no-ext-diff",
-                "--no-textconv",
-                "--cached",
-                "--binary",
-                "--find-renames",
-                "--",
-                file_path,
-            ],
-            cwd,
-            Duration::from_secs(5),
-        )
-    } else {
-        run_git_timed(
-            &[
-                "diff",
-                "--no-ext-diff",
-                "--no-textconv",
-                "--binary",
-                "--find-renames",
-                "--",
-                file_path,
-            ],
-            cwd,
-            Duration::from_secs(5),
-        )
+    let mut args = vec!["diff", "--no-ext-diff", "--no-textconv"];
+    if staged {
+        args.push("--cached");
     }
-    .unwrap_or_default();
-    if !patch
-        .lines()
-        .any(|line| line == "new file mode 100644" || line.starts_with("new file mode "))
-    {
+    args.extend(["--binary", "--find-renames", "--", file_path]);
+    let patch = run_git_timed(&args, cwd, Duration::from_secs(5)).unwrap_or_default();
+    if !patch.lines().any(|line| line.starts_with("new file mode ")) {
         return patch;
     }
     let Some(original_path) = renamed_from_path(cwd, file_path, staged) else {
         return patch;
     };
-    let rename_patch = if staged {
-        run_git_timed(
-            &[
-                "diff",
-                "--no-ext-diff",
-                "--no-textconv",
-                "--cached",
-                "--binary",
-                "--find-renames",
-                "--",
-                &original_path,
-                file_path,
-            ],
-            cwd,
-            Duration::from_secs(5),
-        )
-    } else {
-        run_git_timed(
-            &[
-                "diff",
-                "--no-ext-diff",
-                "--no-textconv",
-                "--binary",
-                "--find-renames",
-                "--",
-                &original_path,
-                file_path,
-            ],
-            cwd,
-            Duration::from_secs(5),
-        )
-    }
-    .unwrap_or_default();
+    args.pop();
+    args.extend([&original_path, file_path]);
+    let rename_patch = run_git_timed(&args, cwd, Duration::from_secs(5)).unwrap_or_default();
     if rename_patch.trim().is_empty() {
         patch
     } else {
@@ -1257,19 +784,13 @@ fn is_image_file(file_path: &str) -> bool {
 
 fn too_large_diff(message: &str, is_new: bool) -> GitHunkDiff {
     GitHunkDiff {
-        old_lines: Vec::new(),
         new_lines: vec![GitDiffLine {
             number: Some(1),
             content: message.to_string(),
             line_type: GitDiffLineType::Context,
         }],
-        compact_lines: None,
-        is_binary: false,
         is_new,
-        is_image: None,
-        image_path: None,
-        raw_patch: None,
-        merge_conflict_content: None,
+        ..Default::default()
     }
 }
 
@@ -1368,15 +889,10 @@ fn build_hunk_diff_from_versions(
 ) -> GitHunkDiff {
     if raw_patch.contains("GIT binary patch") || raw_patch.contains("Binary files ") {
         return GitHunkDiff {
-            old_lines: Vec::new(),
-            new_lines: Vec::new(),
-            compact_lines: None,
             is_binary: true,
             is_new,
-            is_image: None,
-            image_path: None,
             raw_patch: Some(raw_patch),
-            merge_conflict_content: None,
+            ..Default::default()
         };
     }
 
@@ -1406,6 +922,21 @@ fn build_hunk_diff_from_versions(
         return result;
     }
 
+    let old_file_lines = content_lines(old_content);
+    let new_file_lines = content_lines(new_content);
+    if old_file_lines
+        .iter()
+        .chain(new_file_lines.iter())
+        .any(|line| line.encode_utf16().count() > MAX_RENDERED_LINE_CHARS)
+    {
+        let mut result = too_large_diff(
+            "Diff contains a very long line and cannot render safely",
+            false,
+        );
+        result.raw_patch = Some(raw_patch);
+        return result;
+    }
+
     if is_deleted {
         let lines = content_lines(old_content);
         return GitHunkDiff {
@@ -1426,19 +957,13 @@ fn build_hunk_diff_from_versions(
                     line_type: GitDiffLineType::Spacer,
                 })
                 .collect(),
-            compact_lines: None,
-            is_binary: false,
-            is_new: false,
-            is_image: None,
-            image_path: None,
             raw_patch: Some(raw_patch),
-            merge_conflict_content: None,
+            ..Default::default()
         };
     }
 
     if is_new {
         return GitHunkDiff {
-            old_lines: Vec::new(),
             new_lines: content_lines(new_content)
                 .iter()
                 .enumerate()
@@ -1448,29 +973,11 @@ fn build_hunk_diff_from_versions(
                     line_type: GitDiffLineType::Add,
                 })
                 .collect(),
-            compact_lines: None,
-            is_binary: false,
             is_new: true,
-            is_image: None,
-            image_path: None,
             raw_patch: Some(raw_patch),
             merge_conflict_content,
+            ..Default::default()
         };
-    }
-
-    let old_file_lines = content_lines(old_content);
-    let new_file_lines = content_lines(new_content);
-    if old_file_lines
-        .iter()
-        .chain(new_file_lines.iter())
-        .any(|line| line.encode_utf16().count() > MAX_RENDERED_LINE_CHARS)
-    {
-        let mut result = too_large_diff(
-            "Diff contains a very long line and cannot render safely",
-            false,
-        );
-        result.raw_patch = Some(raw_patch);
-        return result;
     }
 
     let (removed_ranges, added_ranges) = parse_changed_ranges(&raw_patch);
@@ -1488,93 +995,49 @@ fn build_hunk_diff_from_versions(
             && ordered_range_contains(&removed_ranges, &mut removed_range_cursor, old_number);
         let new_added = new_index < new_file_lines.len()
             && ordered_range_contains(&added_ranges, &mut added_range_cursor, new_number);
-        if old_removed && new_added {
-            old_lines.push(GitDiffLine {
-                number: Some(old_number),
-                content: old_file_lines[old_index].to_string(),
-                line_type: GitDiffLineType::Remove,
-            });
-            new_lines.push(GitDiffLine {
-                number: Some(new_number),
-                content: new_file_lines[new_index].to_string(),
-                line_type: GitDiffLineType::Add,
-            });
-            old_index += 1;
-            new_index += 1;
-        } else if old_removed {
-            old_lines.push(GitDiffLine {
-                number: Some(old_number),
-                content: old_file_lines[old_index].to_string(),
-                line_type: GitDiffLineType::Remove,
-            });
-            new_lines.push(GitDiffLine {
-                number: None,
-                content: String::new(),
-                line_type: GitDiffLineType::Spacer,
-            });
-            old_index += 1;
-        } else if new_added {
-            old_lines.push(GitDiffLine {
-                number: None,
-                content: String::new(),
-                line_type: GitDiffLineType::Spacer,
-            });
-            new_lines.push(GitDiffLine {
-                number: Some(new_number),
-                content: new_file_lines[new_index].to_string(),
-                line_type: GitDiffLineType::Add,
-            });
-            new_index += 1;
-        } else if old_index < old_file_lines.len() && new_index < new_file_lines.len() {
-            old_lines.push(GitDiffLine {
-                number: Some(old_number),
-                content: old_file_lines[old_index].to_string(),
-                line_type: GitDiffLineType::Context,
-            });
-            new_lines.push(GitDiffLine {
-                number: Some(new_number),
-                content: new_file_lines[new_index].to_string(),
-                line_type: GitDiffLineType::Context,
-            });
-            old_index += 1;
-            new_index += 1;
-        } else if old_index < old_file_lines.len() {
-            old_lines.push(GitDiffLine {
-                number: Some(old_number),
-                content: old_file_lines[old_index].to_string(),
-                line_type: GitDiffLineType::Remove,
-            });
-            new_lines.push(GitDiffLine {
-                number: None,
-                content: String::new(),
-                line_type: GitDiffLineType::Spacer,
-            });
-            old_index += 1;
-        } else {
-            old_lines.push(GitDiffLine {
-                number: None,
-                content: String::new(),
-                line_type: GitDiffLineType::Spacer,
-            });
-            new_lines.push(GitDiffLine {
-                number: Some(new_number),
-                content: new_file_lines[new_index].to_string(),
-                line_type: GitDiffLineType::Add,
-            });
-            new_index += 1;
-        }
+        let removed = old_removed || new_index == new_file_lines.len();
+        let added = new_added || old_index == old_file_lines.len();
+        let take_old = old_index < old_file_lines.len() && (removed || !added);
+        let take_new = new_index < new_file_lines.len() && (added || !removed);
+        let line = |source: &[&str], index: usize, take: bool, changed, change_type| GitDiffLine {
+            number: take.then_some(index + 1),
+            content: if take {
+                source[index].to_owned()
+            } else {
+                String::new()
+            },
+            line_type: if !take {
+                GitDiffLineType::Spacer
+            } else if changed {
+                change_type
+            } else {
+                GitDiffLineType::Context
+            },
+        };
+        old_lines.push(line(
+            &old_file_lines,
+            old_index,
+            take_old,
+            removed,
+            GitDiffLineType::Remove,
+        ));
+        new_lines.push(line(
+            &new_file_lines,
+            new_index,
+            take_new,
+            added,
+            GitDiffLineType::Add,
+        ));
+        old_index += usize::from(take_old);
+        new_index += usize::from(take_new);
     }
 
     GitHunkDiff {
         old_lines,
         new_lines,
-        compact_lines: None,
-        is_binary: false,
-        is_new: false,
-        is_image: None,
-        image_path: None,
         raw_patch: Some(raw_patch),
         merge_conflict_content,
+        ..Default::default()
     }
 }
 
@@ -1738,15 +1201,12 @@ pub fn get_git_worktree_comparison_hunk_diff(
     };
     if new_bytes.contains(&0) || is_image_file(file_path) {
         return Some(GitHunkDiff {
-            old_lines: Vec::new(),
-            new_lines: Vec::new(),
-            compact_lines: None,
             is_binary: true,
             is_new: untracked,
             is_image: Some(is_image_file(file_path)),
             image_path: (!deleted).then(|| full_path.to_string_lossy().into_owned()),
             raw_patch: Some(raw_patch),
-            merge_conflict_content: None,
+            ..Default::default()
         });
     }
     let new_content = String::from_utf8_lossy(&new_bytes).into_owned();
@@ -1780,15 +1240,6 @@ pub fn get_git_worktree_comparison_hunk_diff(
     } else {
         diff
     })
-}
-
-pub fn get_git_commit_hunk_diff(
-    cwd: &str,
-    hash: &str,
-    file_path: &str,
-    review: bool,
-) -> Option<GitHunkDiff> {
-    get_git_commit_hunk_diff_for_parent(cwd, hash, None, file_path, review)
 }
 
 pub fn get_git_commit_hunk_diff_for_parent(
@@ -1839,15 +1290,12 @@ pub fn get_git_hunk_diff(
 
     if is_image_file(file_path) {
         return GitHunkDiff {
-            old_lines: Vec::new(),
-            new_lines: Vec::new(),
-            compact_lines: None,
             is_binary: true,
             is_new: true,
             is_image: Some(true),
             image_path: Some(full_path_text),
             raw_patch: Some(raw_patch),
-            merge_conflict_content: None,
+            ..Default::default()
         };
     }
 
@@ -1865,15 +1313,9 @@ pub fn get_git_hunk_diff(
                 Ok(bytes) => {
                     if bytes.contains(&0) {
                         return GitHunkDiff {
-                            old_lines: Vec::new(),
-                            new_lines: Vec::new(),
-                            compact_lines: None,
                             is_binary: true,
-                            is_new: false,
-                            is_image: None,
-                            image_path: None,
                             raw_patch: Some(raw_patch),
-                            merge_conflict_content: None,
+                            ..Default::default()
                         };
                     }
                     current_content = String::from_utf8_lossy(&bytes).into_owned();
@@ -1925,218 +1367,19 @@ pub fn get_git_hunk_diff(
         current_content
     };
 
-    if old_content.len().saturating_add(new_content.len()) > MAX_DIFF_TEXT_BYTES {
-        let mut result = too_large_diff(
-            "Diff too large: text exceeds the 8 MiB preview limit",
-            is_new,
-        );
-        result.raw_patch = Some(raw_patch);
-        return result;
-    }
-    if old_content
-        .split('\n')
-        .take(MAX_RENDERED_DIFF_LINES + 1)
-        .count()
-        + new_content
-            .split('\n')
-            .take(MAX_RENDERED_DIFF_LINES + 1)
-            .count()
-        > MAX_RENDERED_DIFF_LINES
-    {
-        let mut result = too_large_diff(
-            "Diff too large: preview exceeds 100,000 source lines",
-            is_new,
-        );
-        result.raw_patch = Some(raw_patch);
-        return result;
-    }
-
-    if deleted_patch {
-        let lines = content_lines(&old_content);
-        if lines
-            .iter()
-            .any(|line| line.encode_utf16().count() > MAX_RENDERED_LINE_CHARS)
-        {
-            let mut result = too_large_diff(
-                "Diff contains a very long line and cannot render safely",
-                false,
-            );
-            result.raw_patch = Some(raw_patch);
-            return result;
-        }
-        return GitHunkDiff {
-            old_lines: lines
-                .iter()
-                .enumerate()
-                .map(|(index, content)| GitDiffLine {
-                    number: Some(index + 1),
-                    content: (*content).to_string(),
-                    line_type: GitDiffLineType::Remove,
-                })
-                .collect(),
-            new_lines: lines
-                .iter()
-                .map(|_| GitDiffLine {
-                    number: None,
-                    content: String::new(),
-                    line_type: GitDiffLineType::Spacer,
-                })
-                .collect(),
-            compact_lines: None,
-            is_binary: false,
-            is_new: false,
-            is_image: None,
-            image_path: None,
-            raw_patch: Some(raw_patch),
-            merge_conflict_content: None,
-        };
-    }
-
-    if is_new {
-        let raw_patch = if raw_patch.is_empty() {
-            create_untracked_patch(file_path, &new_content)
-        } else {
-            raw_patch
-        };
-        return GitHunkDiff {
-            old_lines: Vec::new(),
-            new_lines: content_lines(&new_content)
-                .iter()
-                .enumerate()
-                .map(|(index, content)| GitDiffLine {
-                    number: Some(index + 1),
-                    content: (*content).to_string(),
-                    line_type: GitDiffLineType::Add,
-                })
-                .collect(),
-            compact_lines: None,
-            is_binary: false,
-            is_new: true,
-            is_image: None,
-            image_path: None,
-            raw_patch: Some(raw_patch),
-            merge_conflict_content,
-        };
-    }
-
-    let old_file_lines = content_lines(&old_content);
-    let new_file_lines = content_lines(&new_content);
-    if old_file_lines
-        .iter()
-        .chain(new_file_lines.iter())
-        .any(|line| line.encode_utf16().count() > MAX_RENDERED_LINE_CHARS)
-    {
-        let mut result = too_large_diff(
-            "Diff contains a very long line and cannot render safely",
-            false,
-        );
-        result.raw_patch = Some(raw_patch);
-        return result;
-    }
-
-    let (removed_ranges, added_ranges) = parse_changed_ranges(&raw_patch);
-    let mut old_lines = Vec::new();
-    let mut new_lines = Vec::new();
-    let mut old_index = 0usize;
-    let mut new_index = 0usize;
-    let mut removed_range_cursor = 0usize;
-    let mut added_range_cursor = 0usize;
-
-    while old_index < old_file_lines.len() || new_index < new_file_lines.len() {
-        let old_number = old_index + 1;
-        let new_number = new_index + 1;
-        let old_removed = old_index < old_file_lines.len()
-            && ordered_range_contains(&removed_ranges, &mut removed_range_cursor, old_number);
-        let new_added = new_index < new_file_lines.len()
-            && ordered_range_contains(&added_ranges, &mut added_range_cursor, new_number);
-        if old_removed && new_added {
-            old_lines.push(GitDiffLine {
-                number: Some(old_number),
-                content: old_file_lines[old_index].to_string(),
-                line_type: GitDiffLineType::Remove,
-            });
-            new_lines.push(GitDiffLine {
-                number: Some(new_number),
-                content: new_file_lines[new_index].to_string(),
-                line_type: GitDiffLineType::Add,
-            });
-            old_index += 1;
-            new_index += 1;
-        } else if old_removed {
-            old_lines.push(GitDiffLine {
-                number: Some(old_number),
-                content: old_file_lines[old_index].to_string(),
-                line_type: GitDiffLineType::Remove,
-            });
-            new_lines.push(GitDiffLine {
-                number: None,
-                content: String::new(),
-                line_type: GitDiffLineType::Spacer,
-            });
-            old_index += 1;
-        } else if new_added {
-            old_lines.push(GitDiffLine {
-                number: None,
-                content: String::new(),
-                line_type: GitDiffLineType::Spacer,
-            });
-            new_lines.push(GitDiffLine {
-                number: Some(new_number),
-                content: new_file_lines[new_index].to_string(),
-                line_type: GitDiffLineType::Add,
-            });
-            new_index += 1;
-        } else if old_index < old_file_lines.len() && new_index < new_file_lines.len() {
-            old_lines.push(GitDiffLine {
-                number: Some(old_number),
-                content: old_file_lines[old_index].to_string(),
-                line_type: GitDiffLineType::Context,
-            });
-            new_lines.push(GitDiffLine {
-                number: Some(new_number),
-                content: new_file_lines[new_index].to_string(),
-                line_type: GitDiffLineType::Context,
-            });
-            old_index += 1;
-            new_index += 1;
-        } else if old_index < old_file_lines.len() {
-            old_lines.push(GitDiffLine {
-                number: Some(old_number),
-                content: old_file_lines[old_index].to_string(),
-                line_type: GitDiffLineType::Remove,
-            });
-            new_lines.push(GitDiffLine {
-                number: None,
-                content: String::new(),
-                line_type: GitDiffLineType::Spacer,
-            });
-            old_index += 1;
-        } else {
-            old_lines.push(GitDiffLine {
-                number: None,
-                content: String::new(),
-                line_type: GitDiffLineType::Spacer,
-            });
-            new_lines.push(GitDiffLine {
-                number: Some(new_number),
-                content: new_file_lines[new_index].to_string(),
-                line_type: GitDiffLineType::Add,
-            });
-            new_index += 1;
-        }
-    }
-
-    GitHunkDiff {
-        old_lines,
-        new_lines,
-        compact_lines: None,
-        is_binary: false,
-        is_new: false,
-        is_image: None,
-        image_path: None,
-        raw_patch: Some(raw_patch),
+    let raw_patch = if is_new && raw_patch.is_empty() {
+        create_untracked_patch(file_path, &new_content)
+    } else {
+        raw_patch
+    };
+    build_hunk_diff_from_versions(
+        raw_patch,
+        &old_content,
+        &new_content,
+        is_new,
+        deleted_patch,
         merge_conflict_content,
-    }
+    )
 }
 
 const REVIEW_CONTEXT_LINES: usize = 4;
@@ -2152,39 +1395,63 @@ fn compact_context_line(hidden_count: usize) -> GitDiffLine {
     }
 }
 
-fn append_review_rows(result: &mut Vec<GitDiffLine>, rows: &[GitDiffLine]) {
-    let mut changed_run = Vec::new();
-    let flush_changed_run = |result: &mut Vec<GitDiffLine>, changed_run: &mut Vec<GitDiffLine>| {
-        if changed_run.is_empty() {
-            return;
-        }
-        result.extend(
-            changed_run
-                .iter()
-                .filter(|line| line.line_type == GitDiffLineType::Remove)
-                .cloned(),
-        );
-        result.extend(
-            changed_run
-                .iter()
-                .filter(|line| line.line_type == GitDiffLineType::Add)
-                .cloned(),
-        );
-        changed_run.clear();
-    };
+fn is_changed(line: &GitDiffLine) -> bool {
+    matches!(
+        line.line_type,
+        GitDiffLineType::Add | GitDiffLineType::Remove
+    )
+}
 
-    for row in rows {
-        if matches!(
-            row.line_type,
-            GitDiffLineType::Add | GitDiffLineType::Remove
-        ) {
-            changed_run.push(row.clone());
+fn append_review_rows(result: &mut Vec<GitDiffLine>, rows: &[GitDiffLine]) {
+    for run in rows.chunk_by(|a, b| is_changed(a) == is_changed(b)) {
+        if is_changed(&run[0]) {
+            for kind in [GitDiffLineType::Remove, GitDiffLineType::Add] {
+                result.extend(run.iter().filter(|line| line.line_type == kind).cloned());
+            }
         } else {
-            flush_changed_run(result, &mut changed_run);
-            result.push(row.clone());
+            result.extend_from_slice(run);
         }
     }
-    flush_changed_run(result, &mut changed_run);
+}
+
+enum ReviewSection {
+    Hidden(usize),
+    Visible(std::ops::Range<usize>),
+}
+
+fn review_sections(
+    line_count: usize,
+    changed_rows: impl Iterator<Item = usize>,
+) -> Option<Vec<ReviewSection>> {
+    let mut ranges = Vec::<std::ops::Range<usize>>::new();
+    for row in changed_rows {
+        let start = row.saturating_sub(REVIEW_CONTEXT_LINES);
+        let end = (row + REVIEW_CONTEXT_LINES + 1).min(line_count);
+        if let Some(previous) = ranges
+            .last_mut()
+            .filter(|previous| start <= previous.end + REVIEW_CONTEXT_LINES)
+        {
+            previous.end = previous.end.max(end);
+        } else {
+            ranges.push(start..end);
+        }
+    }
+    if ranges.is_empty() {
+        return None;
+    }
+    let mut sections = Vec::new();
+    let mut cursor = 0;
+    for range in ranges {
+        if range.start > cursor {
+            sections.push(ReviewSection::Hidden(range.start - cursor));
+        }
+        cursor = range.end;
+        sections.push(ReviewSection::Visible(range));
+    }
+    if cursor < line_count {
+        sections.push(ReviewSection::Hidden(line_count - cursor));
+    }
+    Some(sections)
 }
 
 pub fn prepare_inline_lines(
@@ -2225,56 +1492,15 @@ pub fn prepare_inline_lines(
     let changed_rows = stacked
         .iter()
         .enumerate()
-        .filter_map(|(index, line)| {
-            matches!(
-                line.line_type,
-                GitDiffLineType::Add | GitDiffLineType::Remove
-            )
-            .then_some(index)
-        })
-        .collect::<Vec<_>>();
-    if changed_rows.is_empty() {
+        .filter_map(|(index, line)| is_changed(line).then_some(index));
+    let Some(sections) = review_sections(stacked.len(), changed_rows) else {
         return stacked;
-    }
-
-    let mut ranges = Vec::<DiffRange>::new();
-    for row in changed_rows {
-        let start = row.saturating_sub(REVIEW_CONTEXT_LINES);
-        let end = (row + REVIEW_CONTEXT_LINES).min(stacked.len().saturating_sub(1));
-        let merged = if let Some(previous) = ranges.last_mut() {
-            if start <= previous.end + REVIEW_CONTEXT_LINES + 1 {
-                previous.end = previous.end.max(end);
-                true
-            } else {
-                false
-            }
-        } else {
-            false
-        };
-        if !merged {
-            ranges.push(DiffRange { start, end });
-        }
-    }
-
+    };
     let mut result = Vec::new();
-    for (index, range) in ranges.iter().enumerate() {
-        let previous_end = if index == 0 {
-            None
-        } else {
-            Some(ranges[index - 1].end)
-        };
-        let hidden_count = range
-            .start
-            .saturating_sub(previous_end.map_or(0, |end| end + 1));
-        if hidden_count > 0 {
-            result.push(compact_context_line(hidden_count));
-        }
-        append_review_rows(&mut result, &stacked[range.start..=range.end]);
-    }
-    if let Some(final_range) = ranges.last() {
-        let hidden_count = stacked.len().saturating_sub(final_range.end + 1);
-        if hidden_count > 0 {
-            result.push(compact_context_line(hidden_count));
+    for section in sections {
+        match section {
+            ReviewSection::Hidden(count) => result.push(compact_context_line(count)),
+            ReviewSection::Visible(range) => append_review_rows(&mut result, &stacked[range]),
         }
     }
     result
@@ -2285,43 +1511,12 @@ fn build_review_split_lines(
     new_lines: &[GitDiffLine],
 ) -> (Vec<GitDiffLine>, Vec<GitDiffLine>) {
     let line_count = old_lines.len().max(new_lines.len());
-    let changed_rows = (0..line_count)
-        .filter(|&index| {
-            old_lines.get(index).is_some_and(|line| {
-                matches!(
-                    line.line_type,
-                    GitDiffLineType::Add | GitDiffLineType::Remove
-                )
-            }) || new_lines.get(index).is_some_and(|line| {
-                matches!(
-                    line.line_type,
-                    GitDiffLineType::Add | GitDiffLineType::Remove
-                )
-            })
-        })
-        .collect::<Vec<_>>();
-    if changed_rows.is_empty() {
+    let changed_rows = (0..line_count).filter(|&index| {
+        old_lines.get(index).is_some_and(is_changed) || new_lines.get(index).is_some_and(is_changed)
+    });
+    let Some(sections) = review_sections(line_count, changed_rows) else {
         return (old_lines.to_vec(), new_lines.to_vec());
-    }
-
-    let mut ranges = Vec::<DiffRange>::new();
-    for row in changed_rows {
-        let start = row.saturating_sub(REVIEW_CONTEXT_LINES);
-        let end = (row + REVIEW_CONTEXT_LINES).min(line_count.saturating_sub(1));
-        let merged = if let Some(previous) = ranges.last_mut() {
-            if start <= previous.end + REVIEW_CONTEXT_LINES + 1 {
-                previous.end = previous.end.max(end);
-                true
-            } else {
-                false
-            }
-        } else {
-            false
-        };
-        if !merged {
-            ranges.push(DiffRange { start, end });
-        }
-    }
+    };
 
     let spacer = || GitDiffLine {
         number: None,
@@ -2330,31 +1525,19 @@ fn build_review_split_lines(
     };
     let mut compact_old = Vec::new();
     let mut compact_new = Vec::new();
-    for (index, range) in ranges.iter().enumerate() {
-        let previous_end = if index == 0 {
-            None
-        } else {
-            Some(ranges[index - 1].end)
-        };
-        let hidden_count = range
-            .start
-            .saturating_sub(previous_end.map_or(0, |end| end + 1));
-        if hidden_count > 0 {
-            let marker = compact_context_line(hidden_count);
-            compact_old.push(marker.clone());
-            compact_new.push(marker);
-        }
-        for row in range.start..=range.end {
-            compact_old.push(old_lines.get(row).cloned().unwrap_or_else(&spacer));
-            compact_new.push(new_lines.get(row).cloned().unwrap_or_else(&spacer));
-        }
-    }
-    if let Some(final_range) = ranges.last() {
-        let hidden_count = line_count.saturating_sub(final_range.end + 1);
-        if hidden_count > 0 {
-            let marker = compact_context_line(hidden_count);
-            compact_old.push(marker.clone());
-            compact_new.push(marker);
+    for section in sections {
+        match section {
+            ReviewSection::Hidden(count) => {
+                let marker = compact_context_line(count);
+                compact_old.push(marker.clone());
+                compact_new.push(marker);
+            }
+            ReviewSection::Visible(range) => {
+                for row in range {
+                    compact_old.push(old_lines.get(row).cloned().unwrap_or_else(&spacer));
+                    compact_new.push(new_lines.get(row).cloned().unwrap_or_else(&spacer));
+                }
+            }
         }
     }
     (compact_old, compact_new)
@@ -2368,67 +1551,6 @@ pub fn compact_git_hunk_diff(mut diff: GitHunkDiff) -> GitHunkDiff {
         diff.raw_patch = None;
     }
     diff
-}
-
-pub fn get_git_file_with_diff(
-    allowed_paths: &AllowedPaths,
-    cwd: &str,
-    file_path: &str,
-    staged: bool,
-) -> GitFileWithDiff {
-    let Some(path) = allowed_paths.resolve_allowed_child_path(cwd, file_path) else {
-        return GitFileWithDiff::AccessDenied;
-    };
-    let Some(path) = allowed_paths.resolve_real_allowed_local_path(path) else {
-        return GitFileWithDiff::AccessDenied;
-    };
-    if is_image_file(file_path) {
-        return GitFileWithDiff::Image {
-            image_path: path.to_string_lossy().into_owned(),
-        };
-    }
-    let Ok(metadata) = std::fs::metadata(&path) else {
-        return GitFileWithDiff::Error {
-            error: "Cannot read file",
-        };
-    };
-    if metadata.len() > MAX_UNTRACKED_FILE_BYTES {
-        return GitFileWithDiff::Error {
-            error: "File too large",
-        };
-    }
-    let Ok(bytes) = std::fs::read(path) else {
-        return GitFileWithDiff::Error {
-            error: "Cannot read file",
-        };
-    };
-    if bytes.contains(&0) {
-        return GitFileWithDiff::Error {
-            error: "Binary file",
-        };
-    }
-    let content = String::from_utf8_lossy(&bytes);
-    let raw_patch = get_raw_git_patch(cwd, file_path, staged);
-    let (_, added_ranges) = parse_changed_ranges(&raw_patch);
-    let mut added_range_cursor = 0usize;
-    let lines = content
-        .split('\n')
-        .enumerate()
-        .map(|(index, content)| {
-            let number = index + 1;
-            GitDiffLine {
-                number: Some(number),
-                content: content.to_string(),
-                line_type: if ordered_range_contains(&added_ranges, &mut added_range_cursor, number)
-                {
-                    GitDiffLineType::Add
-                } else {
-                    GitDiffLineType::Context
-                },
-            }
-        })
-        .collect();
-    GitFileWithDiff::Text { lines }
 }
 
 pub fn get_git_branches(cwd: &str) -> Vec<GitBranch> {
@@ -2558,24 +1680,6 @@ fn stable_revision_token(parts: &[String]) -> String {
         }
     }
     format!("{hash:016x}")
-}
-
-pub fn get_git_repository_revision(cwd: &str) -> String {
-    let parts = [
-        run_git(&["rev-parse", "--verify", "HEAD"], cwd).unwrap_or_default(),
-        run_git(
-            &[
-                "for-each-ref",
-                "--format=%(refname)%09%(objectname)%09%(*objectname)",
-            ],
-            cwd,
-        )
-        .unwrap_or_default(),
-        run_git(&["status", "--porcelain=v2", "--branch", "-z"], cwd).unwrap_or_default(),
-        run_git(&["worktree", "list", "--porcelain"], cwd).unwrap_or_default(),
-        format!("{:?}", get_git_repository_operation_state(cwd)),
-    ];
-    stable_revision_token(&parts)
 }
 
 pub fn preflight_git_checkout(cwd: &str, branch_name: &str) -> GitCheckoutPreflight {
@@ -2761,12 +1865,11 @@ fn ref_operation_result(
     cwd: &str,
     operation: &str,
     output: std::io::Result<std::process::Output>,
-) -> GitRefOperationResult {
-    let current_branch = current_git_branch(cwd);
+) -> GitOperationResult {
     match output {
         Ok(output) if output.status.success() => {
             let repository_operation = get_git_repository_operation_state(cwd);
-            GitRefOperationResult {
+            GitOperationResult {
                 ok: true,
                 operation: operation.to_string(),
                 outcome: if repository_operation.kind == GitRepositoryOperationKind::Idle {
@@ -2774,7 +1877,7 @@ fn ref_operation_result(
                 } else {
                     GitOperationOutcome::AwaitingContinuation
                 },
-                current_branch,
+                current_branch: current_git_branch(cwd),
                 head: current_git_head(cwd),
                 conflicts: repository_operation.conflicts,
                 error_kind: None,
@@ -2782,38 +1885,17 @@ fn ref_operation_result(
             }
         }
         Ok(output) => {
-            let conflicts = git_conflicts(cwd);
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
             let error = if stderr.is_empty() {
                 format!("Git {operation} failed")
             } else {
                 stderr
             };
-            GitRefOperationResult {
-                ok: false,
-                operation: operation.to_string(),
-                outcome: if conflicts.is_empty() {
-                    GitOperationOutcome::Failed
-                } else {
-                    GitOperationOutcome::Conflicted
-                },
-                current_branch,
-                head: current_git_head(cwd),
-                error_kind: Some(classify_git_operation_error(&error, &conflicts)),
-                conflicts,
-                error: Some(error),
-            }
+            git_operation_error(cwd, operation, error)
         }
-        Err(error) => GitRefOperationResult {
-            ok: false,
-            operation: operation.to_string(),
-            outcome: GitOperationOutcome::Failed,
-            current_branch,
-            head: current_git_head(cwd),
-            conflicts: Vec::new(),
-            error_kind: Some(GitOperationErrorKind::Io),
-            error: Some(error.to_string()),
-        },
+        Err(error) => {
+            ref_operation_failure(cwd, operation, GitOperationErrorKind::Io, error.to_string())
+        }
     }
 }
 
@@ -2961,16 +2043,28 @@ fn cleanup_interactive_rebase_state(cwd: &str) {
     }
 }
 
-fn invalid_ref_operation(cwd: &str, operation: &str, error: String) -> GitRefOperationResult {
-    GitRefOperationResult {
+fn ref_operation_failure(
+    cwd: &str,
+    operation: &str,
+    kind: GitOperationErrorKind,
+    error: String,
+) -> GitOperationResult {
+    GitOperationResult {
         ok: false,
-        operation: operation.to_string(),
+        operation: operation.into(),
         outcome: GitOperationOutcome::Failed,
         current_branch: current_git_branch(cwd),
         head: current_git_head(cwd),
-        conflicts: git_conflicts(cwd),
-        error_kind: Some(GitOperationErrorKind::InvalidInput),
+        conflicts: Vec::new(),
+        error_kind: Some(kind),
         error: Some(error),
+    }
+}
+
+fn invalid_ref_operation(cwd: &str, operation: &str, error: String) -> GitOperationResult {
+    GitOperationResult {
+        conflicts: git_conflicts(cwd),
+        ..ref_operation_failure(cwd, operation, GitOperationErrorKind::InvalidInput, error)
     }
 }
 
@@ -2979,7 +2073,7 @@ pub fn perform_git_interactive_rebase(
     source: &str,
     target: &str,
     steps: &[GitInteractiveRebaseStep],
-) -> GitRefOperationResult {
+) -> GitOperationResult {
     const OPERATION: &str = "interactiveRebase";
     let preflight = preflight_git_ref_operation(cwd, source, target);
     if !preflight.can_interactive_rebase {
@@ -3057,83 +2151,76 @@ pub fn perform_git_interactive_rebase(
         );
     };
     cleanup_interactive_rebase_state(cwd);
-    if let Err(error) = fs::create_dir_all(&state_dir) {
-        return invalid_ref_operation(cwd, OPERATION, error.to_string());
-    }
-
-    let todo_path = state_dir.join("todo");
-    let editor_path = state_dir.join("sequence-editor.sh");
-    let mut todo = String::new();
-    for (index, step) in steps.iter().enumerate() {
-        let subject = messages
-            .get(step.hash.as_str())
-            .copied()
-            .unwrap_or_default()
-            .replace(['\r', '\n'], " ");
-        match step.action.as_str() {
-            "reword" => {
-                let message_path = state_dir.join(format!("message-{index}"));
-                if let Err(error) = fs::write(
-                    &message_path,
-                    format!("{}\n", step.message.as_deref().unwrap_or_default().trim()),
-                ) {
-                    cleanup_interactive_rebase_state(cwd);
-                    return invalid_ref_operation(cwd, OPERATION, error.to_string());
+    let prepare = || -> Result<Command, String> {
+        fs::create_dir_all(&state_dir).map_err(|error| error.to_string())?;
+        let todo_path = state_dir.join("todo");
+        let editor_path = state_dir.join("sequence-editor.sh");
+        let mut todo = String::new();
+        for (index, step) in steps.iter().enumerate() {
+            let subject = messages
+                .get(step.hash.as_str())
+                .copied()
+                .unwrap_or_default()
+                .replace(['\r', '\n'], " ");
+            match step.action.as_str() {
+                "reword" => {
+                    let message_path = state_dir.join(format!("message-{index}"));
+                    fs::write(
+                        &message_path,
+                        format!("{}\n", step.message.as_deref().unwrap_or_default().trim()),
+                    )
+                    .map_err(|error| error.to_string())?;
+                    todo.push_str(&format!("pick {} {}\n", step.hash, subject));
+                    todo.push_str(&format!(
+                        "exec git -c commit.gpgSign=false commit --amend --no-verify -F {}\n",
+                        shell_single_quote(&message_path.to_string_lossy())
+                    ));
                 }
-                todo.push_str(&format!("pick {} {}\n", step.hash, subject));
-                todo.push_str(&format!(
-                    "exec git -c commit.gpgSign=false commit --amend --no-verify -F {}\n",
-                    shell_single_quote(&message_path.to_string_lossy())
-                ));
+                action => todo.push_str(&format!("{action} {} {}\n", step.hash, subject)),
             }
-            action => todo.push_str(&format!("{action} {} {}\n", step.hash, subject)),
         }
-    }
-    if let Err(error) = fs::write(&todo_path, todo).and_then(|_| {
-        fs::write(
-            &editor_path,
-            "#!/bin/sh\ncp \"$INFERAY_REBASE_TODO\" \"$1\"\n",
-        )
-    }) {
-        cleanup_interactive_rebase_state(cwd);
-        return invalid_ref_operation(cwd, OPERATION, error.to_string());
-    }
-
-    let checkout = checkout_git_branch(cwd, source);
-    if !checkout.ok {
-        cleanup_interactive_rebase_state(cwd);
-        return invalid_ref_operation(
-            cwd,
-            OPERATION,
-            checkout
+        fs::write(&todo_path, todo)
+            .and_then(|_| {
+                fs::write(
+                    &editor_path,
+                    "#!/bin/sh\ncp \"$INFERAY_REBASE_TODO\" \"$1\"\n",
+                )
+            })
+            .map_err(|error| error.to_string())?;
+        let checkout = checkout_git_branch(cwd, source);
+        if !checkout.ok {
+            return Err(checkout
                 .error
-                .unwrap_or_else(|| format!("Unable to check out {source}")),
-        );
-    }
-    let Some(merge_base) = run_git(&["merge-base", source, target], cwd) else {
-        cleanup_interactive_rebase_state(cwd);
-        return invalid_ref_operation(
-            cwd,
-            OPERATION,
-            "The branches do not share a common ancestor".to_string(),
-        );
+                .unwrap_or_else(|| format!("Unable to check out {source}")));
+        }
+        let merge_base = run_git(&["merge-base", source, target], cwd)
+            .ok_or("The branches do not share a common ancestor")?;
+        let mut command = Command::new("git");
+        command
+            .args([
+                "rebase",
+                "--interactive",
+                "--onto",
+                target,
+                merge_base.trim(),
+                source,
+            ])
+            .current_dir(cwd)
+            .env(
+                "GIT_SEQUENCE_EDITOR",
+                format!("sh {}", shell_single_quote(&editor_path.to_string_lossy())),
+            )
+            .env("INFERAY_REBASE_TODO", &todo_path)
+            .env("GIT_EDITOR", "true");
+        Ok(command)
     };
-    let sequence_editor = format!("sh {}", shell_single_quote(&editor_path.to_string_lossy()));
-    let output = Command::new("git")
-        .args([
-            "rebase",
-            "--interactive",
-            "--onto",
-            target,
-            merge_base.trim(),
-            source,
-        ])
-        .current_dir(cwd)
-        .env("GIT_SEQUENCE_EDITOR", sequence_editor)
-        .env("INFERAY_REBASE_TODO", &todo_path)
-        .env("GIT_EDITOR", "true")
-        .output();
-    let result = ref_operation_result(cwd, OPERATION, output);
+    let result = match prepare() {
+        Ok(mut command) => ref_operation_result(cwd, OPERATION, command.output()),
+        Err(error) => {
+            cleanup_interactive_rebase_state(cwd);
+            return invalid_ref_operation(cwd, OPERATION, error);
+        }
+    };
     if get_git_repository_operation_state(cwd).kind == GitRepositoryOperationKind::Idle {
         cleanup_interactive_rebase_state(cwd);
     }
@@ -3145,59 +2232,45 @@ pub fn perform_git_ref_operation(
     operation: &str,
     source: &str,
     target: &str,
-) -> GitRefOperationResult {
+) -> GitOperationResult {
     let branches = get_git_branches(cwd);
     if source == target
         || !branches.iter().any(|branch| branch.name == source)
         || !branches.iter().any(|branch| branch.name == target)
     {
-        return GitRefOperationResult {
-            ok: false,
-            operation: operation.to_string(),
-            outcome: GitOperationOutcome::Failed,
-            current_branch: current_git_branch(cwd),
-            head: current_git_head(cwd),
-            conflicts: Vec::new(),
-            error_kind: Some(GitOperationErrorKind::InvalidInput),
-            error: Some("Source and target must be different local branches".to_string()),
-        };
+        return ref_operation_failure(
+            cwd,
+            operation,
+            GitOperationErrorKind::InvalidInput,
+            "Source and target must be different local branches".to_string(),
+        );
     }
     if !run_git(&["status", "--porcelain"], cwd).is_some_and(|value| value.trim().is_empty()) {
-        return GitRefOperationResult {
-            ok: false,
-            operation: operation.to_string(),
-            outcome: GitOperationOutcome::Failed,
-            current_branch: current_git_branch(cwd),
-            head: current_git_head(cwd),
-            conflicts: Vec::new(),
-            error_kind: Some(GitOperationErrorKind::DirtyWorktree),
-            error: Some(
-                "Commit or stash working changes before changing branch history".to_string(),
-            ),
-        };
+        return ref_operation_failure(
+            cwd,
+            operation,
+            GitOperationErrorKind::DirtyWorktree,
+            "Commit or stash working changes before changing branch history".to_string(),
+        );
     }
 
     let checkout = match operation {
         "merge" | "fastForward" => checkout_git_branch(cwd, target),
         "rebase" => checkout_git_branch(cwd, source),
         _ => {
-            return GitRefOperationResult {
-                ok: false,
-                operation: operation.to_string(),
-                outcome: GitOperationOutcome::Failed,
-                current_branch: current_git_branch(cwd),
-                head: current_git_head(cwd),
-                conflicts: Vec::new(),
-                error_kind: Some(GitOperationErrorKind::InvalidInput),
-                error: Some("Unsupported ref operation".to_string()),
-            };
+            return ref_operation_failure(
+                cwd,
+                operation,
+                GitOperationErrorKind::InvalidInput,
+                "Unsupported ref operation".to_string(),
+            );
         }
     };
     if !checkout.ok {
         let error = checkout
             .error
             .unwrap_or_else(|| "Unable to check out the requested branch".to_string());
-        return GitRefOperationResult {
+        return GitOperationResult {
             ok: false,
             operation: operation.to_string(),
             outcome: GitOperationOutcome::Failed,
@@ -3209,27 +2282,24 @@ pub fn perform_git_ref_operation(
         };
     }
 
-    let output = if operation == "merge" {
-        Command::new("git")
-            .args(["merge", "--no-edit", source])
-            .current_dir(cwd)
-            .output()
-    } else if operation == "fastForward" {
-        Command::new("git")
-            .args(["merge", "--ff-only", source])
-            .current_dir(cwd)
-            .output()
-    } else {
-        Command::new("git")
-            .args(["rebase", target])
-            .current_dir(cwd)
-            .env("GIT_EDITOR", "true")
-            .output()
-    };
+    let mut command = Command::new("git");
+    command.current_dir(cwd);
+    match operation {
+        "merge" => {
+            command.args(["merge", "--no-edit", source]);
+        }
+        "fastForward" => {
+            command.args(["merge", "--ff-only", source]);
+        }
+        _ => {
+            command.args(["rebase", target]).env("GIT_EDITOR", "true");
+        }
+    }
+    let output = command.output();
     ref_operation_result(cwd, operation, output)
 }
 
-pub fn finish_git_ref_operation(cwd: &str, operation: &str, action: &str) -> GitRefOperationResult {
+pub fn finish_git_ref_operation(cwd: &str, operation: &str, action: &str) -> GitOperationResult {
     let args: &[&str] = match (operation, action) {
         ("merge", "continue") => &["merge", "--continue"],
         ("merge", "abort") => &["merge", "--abort"],
@@ -3246,15 +2316,14 @@ pub fn finish_git_ref_operation(cwd: &str, operation: &str, action: &str) -> Git
         ("revert", "skip") => &["revert", "--skip"],
         ("revert", "abort") => &["revert", "--abort"],
         _ => {
-            return GitRefOperationResult {
-                ok: false,
-                operation: operation.to_string(),
-                outcome: GitOperationOutcome::Failed,
-                current_branch: current_git_branch(cwd),
-                head: current_git_head(cwd),
+            return GitOperationResult {
                 conflicts: git_conflicts(cwd),
-                error_kind: Some(GitOperationErrorKind::InvalidInput),
-                error: Some("Unsupported conflict action".to_string()),
+                ..ref_operation_failure(
+                    cwd,
+                    operation,
+                    GitOperationErrorKind::InvalidInput,
+                    "Unsupported conflict action".to_string(),
+                )
             };
         }
     };
@@ -3273,39 +2342,12 @@ pub fn finish_git_ref_operation(cwd: &str, operation: &str, action: &str) -> Git
     result
 }
 
-fn graph_action_result(
-    cwd: &str,
-    action: &str,
-    output: std::io::Result<std::process::Output>,
-) -> GitGraphActionResult {
-    let GitRefOperationResult {
-        ok,
-        outcome,
-        current_branch,
-        head,
-        conflicts,
-        error_kind,
-        error,
-        ..
-    } = ref_operation_result(cwd, action, output);
-    GitGraphActionResult {
-        ok,
-        action: action.to_string(),
-        outcome,
-        current_branch,
-        head,
-        conflicts,
-        error_kind,
-        error,
-    }
-}
-
-fn graph_action_error(cwd: &str, action: &str, error: impl Into<String>) -> GitGraphActionResult {
+fn git_operation_error(cwd: &str, action: &str, error: impl Into<String>) -> GitOperationResult {
     let error = error.into();
     let conflicts = git_conflicts(cwd);
-    GitGraphActionResult {
+    GitOperationResult {
         ok: false,
-        action: action.to_string(),
+        operation: action.to_string(),
         outcome: if conflicts.is_empty() {
             GitOperationOutcome::Failed
         } else {
@@ -3378,13 +2420,14 @@ fn split_remote_tracking_ref(cwd: &str, full_name: &str) -> Option<(String, Stri
     })
 }
 
-pub fn perform_git_graph_action(
+#[cfg(test)]
+fn perform_git_graph_action(
     cwd: &str,
     action: &str,
     target: Option<&str>,
     name: Option<&str>,
     message: Option<&str>,
-) -> GitGraphActionResult {
+) -> GitOperationResult {
     perform_git_graph_action_with_targets(cwd, action, target, &[], name, message)
 }
 
@@ -3395,40 +2438,37 @@ pub fn perform_git_graph_action_with_targets(
     targets: &[String],
     name: Option<&str>,
     message: Option<&str>,
-) -> GitGraphActionResult {
+) -> GitOperationResult {
     let target = target.unwrap_or_default();
     let name = name.unwrap_or_default().trim();
     let operation = get_git_repository_operation_state(cwd);
     if operation.kind != GitRepositoryOperationKind::Idle {
-        return graph_action_error(
+        return git_operation_error(
             cwd,
             action,
             "Finish or abort the current Git operation before starting another",
         );
     }
 
-    let output = match action {
+    let mut command = Command::new("git");
+    command.current_dir(cwd);
+    match action {
         "createBranch" => {
             if !valid_commit_target(cwd, target) || !valid_ref_name(cwd, "branch", name) {
-                return graph_action_error(cwd, action, "Invalid branch name or commit");
+                return git_operation_error(cwd, action, "Invalid branch name or commit");
             }
-            Command::new("git")
-                .args(["branch", name, target])
-                .current_dir(cwd)
-                .output()
+            command.args(["branch", name, target]);
         }
         "createTag" => {
             if !valid_commit_target(cwd, target) || !valid_ref_name(cwd, "tag", name) {
-                return graph_action_error(cwd, action, "Invalid tag name or commit");
+                return git_operation_error(cwd, action, "Invalid tag name or commit");
             }
-            let mut command = Command::new("git");
-            command.current_dir(cwd).arg("tag");
+            command.arg("tag");
             if let Some(annotation) = message.filter(|value| !value.trim().is_empty()) {
                 command.args(["-a", name, "-m", annotation, target]);
             } else {
                 command.args([name, target]);
             }
-            command.output()
         }
         "renameBranch" => {
             if !get_git_branches(cwd)
@@ -3436,39 +2476,34 @@ pub fn perform_git_graph_action_with_targets(
                 .any(|branch| branch.name == target)
                 || !valid_ref_name(cwd, "branch", name)
             {
-                return graph_action_error(cwd, action, "Invalid local branch or new name");
+                return git_operation_error(cwd, action, "Invalid local branch or new name");
             }
-            Command::new("git")
-                .args(["branch", "-m", target, name])
-                .current_dir(cwd)
-                .output()
+            command.args(["branch", "-m", target, name]);
         }
         "deleteBranch" => {
             if !get_git_branches(cwd)
                 .iter()
                 .any(|branch| branch.name == target)
             {
-                return graph_action_error(cwd, action, "Local branch not found");
+                return git_operation_error(cwd, action, "Local branch not found");
             }
             if current_git_branch(cwd).as_deref() == Some(target) {
-                return graph_action_error(cwd, action, "The checked-out branch cannot be deleted");
+                return git_operation_error(
+                    cwd,
+                    action,
+                    "The checked-out branch cannot be deleted",
+                );
             }
-            Command::new("git")
-                .args(["branch", "-d", target])
-                .current_dir(cwd)
-                .output()
+            command.args(["branch", "-d", target]);
         }
         "deleteTag" => {
             let full_name = format!("refs/tags/{target}");
             if target.is_empty()
                 || run_git(&["show-ref", "--verify", "--quiet", &full_name], cwd).is_none()
             {
-                return graph_action_error(cwd, action, "Local tag not found");
+                return git_operation_error(cwd, action, "Local tag not found");
             }
-            Command::new("git")
-                .args(["tag", "-d", target])
-                .current_dir(cwd)
-                .output()
+            command.args(["tag", "-d", target]);
         }
         "setUpstream" => {
             if !get_git_branches(cwd)
@@ -3478,12 +2513,9 @@ pub fn perform_git_graph_action_with_targets(
                 || name.starts_with('-')
                 || !valid_commit_target(cwd, name)
             {
-                return graph_action_error(cwd, action, "Invalid local branch or upstream");
+                return git_operation_error(cwd, action, "Invalid local branch or upstream");
             }
-            Command::new("git")
-                .args(["branch", &format!("--set-upstream-to={name}"), target])
-                .current_dir(cwd)
-                .output()
+            command.args(["branch", &format!("--set-upstream-to={name}"), target]);
         }
         "pushSetUpstream" => {
             if !get_git_branches(cwd)
@@ -3491,21 +2523,15 @@ pub fn perform_git_graph_action_with_targets(
                 .any(|branch| branch.name == target)
                 || !valid_remote(cwd, name)
             {
-                return graph_action_error(cwd, action, "Invalid local branch or remote");
+                return git_operation_error(cwd, action, "Invalid local branch or remote");
             }
-            Command::new("git")
-                .args(["push", "--set-upstream", name, target])
-                .current_dir(cwd)
-                .output()
+            command.args(["push", "--set-upstream", name, target]);
         }
         "deleteRemoteBranch" => {
             let Some((remote, branch)) = split_remote_tracking_ref(cwd, target) else {
-                return graph_action_error(cwd, action, "Remote-tracking branch not found");
+                return git_operation_error(cwd, action, "Remote-tracking branch not found");
             };
-            Command::new("git")
-                .args(["push", &remote, "--delete", &branch])
-                .current_dir(cwd)
-                .output()
+            command.args(["push", &remote, "--delete", &branch]);
         }
         "pushTag" | "deleteRemoteTag" => {
             let full_name = format!("refs/tags/{target}");
@@ -3514,17 +2540,14 @@ pub fn perform_git_graph_action_with_targets(
                 || !valid_remote(cwd, name)
                 || run_git(&["show-ref", "--verify", "--quiet", &full_name], cwd).is_none()
             {
-                return graph_action_error(cwd, action, "Invalid local tag or remote");
+                return git_operation_error(cwd, action, "Invalid local tag or remote");
             }
             let refspec = if action == "deleteRemoteTag" {
                 format!(":refs/tags/{target}")
             } else {
                 format!("refs/tags/{target}:refs/tags/{target}")
             };
-            Command::new("git")
-                .args(["push", name, &refspec])
-                .current_dir(cwd)
-                .output()
+            command.args(["push", name, &refspec]);
         }
         "cherryPick" | "revert" => {
             let ordered_targets = if action == "cherryPick" && !targets.is_empty() {
@@ -3537,84 +2560,73 @@ pub fn perform_git_graph_action_with_targets(
                     .iter()
                     .any(|candidate| !valid_commit_target(cwd, candidate))
             {
-                return graph_action_error(cwd, action, "Commit not found");
+                return git_operation_error(cwd, action, "Commit not found");
             }
             if !run_git(&["status", "--porcelain"], cwd)
                 .is_some_and(|value| value.trim().is_empty())
             {
-                return graph_action_error(
+                return git_operation_error(
                     cwd,
                     action,
                     "Commit or stash working changes before changing history",
                 );
             }
-            let mut command = Command::new("git");
-            command.current_dir(cwd).env("GIT_EDITOR", "true");
+            command.env("GIT_EDITOR", "true");
             if action == "cherryPick" {
                 command.args(["cherry-pick", "--no-edit"]);
                 command.args(&ordered_targets);
             } else {
                 command.args(["revert", "--no-edit", target]);
             }
-            command.output()
         }
         "stashPush" => {
             let stash_message = message
                 .filter(|value| !value.trim().is_empty())
                 .unwrap_or("WIP from Inferay");
-            Command::new("git")
-                .args(["stash", "push", "--include-untracked", "-m", stash_message])
-                .current_dir(cwd)
-                .output()
+            command.args(["stash", "push", "--include-untracked", "-m", stash_message]);
         }
         "stashApply" | "stashPop" | "stashDrop" => {
             if !get_git_stashes(cwd)
                 .iter()
                 .any(|stash| stash.name == target)
             {
-                return graph_action_error(cwd, action, "Stash not found");
+                return git_operation_error(cwd, action, "Stash not found");
             }
             let subcommand = match action {
                 "stashApply" => "apply",
                 "stashPop" => "pop",
                 _ => "drop",
             };
-            Command::new("git")
-                .args(["stash", subcommand, target])
-                .current_dir(cwd)
-                .output()
+            command.args(["stash", subcommand, target]);
         }
         "stashRename" => {
             if name.is_empty() {
-                return graph_action_error(cwd, action, "A new stash message is required");
+                return git_operation_error(cwd, action, "A new stash message is required");
             }
             if !get_git_stashes(cwd)
                 .iter()
                 .any(|stash| stash.name == target)
             {
-                return graph_action_error(cwd, action, "Stash not found");
+                return git_operation_error(cwd, action, "Stash not found");
             }
             let Some(hash) = run_git(&["rev-parse", target], cwd)
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty())
             else {
-                return graph_action_error(cwd, action, "Unable to resolve stash");
+                return git_operation_error(cwd, action, "Unable to resolve stash");
             };
             let drop = Command::new("git")
                 .args(["stash", "drop", target])
                 .current_dir(cwd)
                 .output();
             if !drop.as_ref().is_ok_and(|output| output.status.success()) {
-                return graph_action_result(cwd, action, drop);
+                return ref_operation_result(cwd, action, drop);
             }
-            Command::new("git")
-                .args(["stash", "store", "-m", name, &hash])
-                .current_dir(cwd)
-                .output()
+            command.args(["stash", "store", "-m", name, &hash]);
         }
         "resetSoft" | "resetMixed" | "resetHard" => {
             if !valid_commit_target(cwd, target) || current_git_branch(cwd).is_none() {
-                return graph_action_error(
+                return git_operation_error(
                     cwd,
                     action,
                     "A commit and checked-out branch are required",
@@ -3625,176 +2637,64 @@ pub fn perform_git_graph_action_with_targets(
                 "resetMixed" => "--mixed",
                 _ => "--hard",
             };
-            Command::new("git")
-                .args(["reset", mode, target])
-                .current_dir(cwd)
-                .output()
+            command.args(["reset", mode, target]);
         }
-        "fetch" => Command::new("git")
-            .args(["fetch", "--all", "--prune"])
-            .current_dir(cwd)
-            .output(),
+        "fetch" => {
+            command.args(["fetch", "--all", "--prune"]);
+        }
         "pull" => {
             if !run_git(&["status", "--porcelain"], cwd)
                 .is_some_and(|value| value.trim().is_empty())
             {
-                return graph_action_error(
+                return git_operation_error(
                     cwd,
                     action,
                     "Commit or stash working changes before pulling",
                 );
             }
             let Some(status) = get_git_status(cwd) else {
-                return graph_action_error(cwd, action, "Repository status is unavailable");
+                return git_operation_error(cwd, action, "Repository status is unavailable");
             };
             if status.upstream.is_none() {
-                return graph_action_error(
+                return git_operation_error(
                     cwd,
                     action,
                     "The current branch has no configured upstream",
                 );
             }
-            Command::new("git")
+            command
                 .args(["pull", "--no-edit"])
-                .current_dir(cwd)
-                .env("GIT_EDITOR", "true")
-                .output()
+                .env("GIT_EDITOR", "true");
         }
         "push" => {
             let Some(status) = get_git_status(cwd) else {
-                return graph_action_error(cwd, action, "Repository status is unavailable");
+                return git_operation_error(cwd, action, "Repository status is unavailable");
             };
             if status.upstream.is_none() {
-                return graph_action_error(
+                return git_operation_error(
                     cwd,
                     action,
                     "The current branch has no configured upstream",
                 );
             }
-            Command::new("git").arg("push").current_dir(cwd).output()
+            command.arg("push");
         }
         "forcePushWithLease" => {
             let Some(status) = get_git_status(cwd) else {
-                return graph_action_error(cwd, action, "Repository status is unavailable");
+                return git_operation_error(cwd, action, "Repository status is unavailable");
             };
             if status.branch != target || status.upstream.is_none() {
-                return graph_action_error(
+                return git_operation_error(
                     cwd,
                     action,
                     "The checked-out branch and a configured upstream are required",
                 );
             }
-            Command::new("git")
-                .args(["push", "--force-with-lease"])
-                .current_dir(cwd)
-                .output()
+            command.args(["push", "--force-with-lease"]);
         }
-        _ => return graph_action_error(cwd, action, "Unsupported graph action"),
+        _ => return git_operation_error(cwd, action, "Unsupported graph action"),
     };
-    graph_action_result(cwd, action, output)
-}
-
-fn parse_commit_summary_log(result: Option<String>) -> Vec<GitCommitSummary> {
-    let Some(result) = result else {
-        return Vec::new();
-    };
-    result
-        .lines()
-        .filter(|line| !line.is_empty())
-        .map(|line| {
-            let mut parts = line.split('|');
-            GitCommitSummary {
-                hash: parts.next().unwrap_or("").to_string(),
-                message: parts.next().unwrap_or("").to_string(),
-                author: parts.next().unwrap_or("").to_string(),
-                date: parts.next().unwrap_or("").to_string(),
-            }
-        })
-        .collect()
-}
-
-pub fn get_git_log(cwd: &str, limit: usize) -> Vec<GitCommitSummary> {
-    let limit = format!("--max-count={limit}");
-    parse_commit_summary_log(run_git(&["log", &limit, "--format=%h|%s|%an|%ar"], cwd))
-}
-
-pub fn get_git_blame(cwd: &str, file_path: &str) -> Vec<GitBlameLine> {
-    let Some(result) = run_git(&["blame", "--porcelain", "--", file_path], cwd) else {
-        return Vec::new();
-    };
-    let raw_lines: Vec<&str> = result.split('\n').collect();
-    let mut lines = Vec::new();
-    let mut commits = HashMap::<String, (String, String)>::new();
-    let mut index = 0usize;
-
-    while index < raw_lines.len() {
-        let header_parts: Vec<&str> = raw_lines[index].split_whitespace().collect();
-        let valid_header = header_parts.len() >= 3
-            && header_parts[0].len() == 40
-            && header_parts[0].bytes().all(|byte| byte.is_ascii_hexdigit())
-            && header_parts[1].parse::<usize>().is_ok()
-            && header_parts[2].parse::<usize>().is_ok();
-        if !valid_header {
-            index += 1;
-            continue;
-        }
-
-        let hash = header_parts[0].to_string();
-        let line_num = header_parts[2].parse::<usize>().unwrap_or(0);
-        index += 1;
-        if !commits.contains_key(&hash) {
-            let mut author = String::new();
-            let mut date = String::new();
-            while index < raw_lines.len() && !raw_lines[index].starts_with('\t') {
-                let line = raw_lines[index];
-                if let Some(value) = line.strip_prefix("author ") {
-                    author = value.to_string();
-                } else if let Some(value) = line.strip_prefix("author-time ") {
-                    if let Ok(timestamp) = value.parse::<i64>() {
-                        if let Some(local) = Local.timestamp_opt(timestamp, 0).single() {
-                            date = local.format("%b %-d, %Y").to_string();
-                        }
-                    }
-                }
-                index += 1;
-            }
-            commits.insert(hash.clone(), (author, date));
-        } else {
-            while index < raw_lines.len() && !raw_lines[index].starts_with('\t') {
-                index += 1;
-            }
-        }
-        let content = raw_lines
-            .get(index)
-            .and_then(|line| line.strip_prefix('\t'))
-            .unwrap_or("")
-            .to_string();
-        index += 1;
-        let (author, date) = commits.get(&hash).cloned().unwrap_or_default();
-        lines.push(GitBlameLine {
-            hash: hash.chars().take(7).collect(),
-            author,
-            date,
-            line_num,
-            content,
-        });
-    }
-    lines
-}
-
-pub fn get_git_file_history(cwd: &str, file_path: &str, limit: usize) -> Vec<GitCommitSummary> {
-    let limit = format!("--max-count={limit}");
-    parse_commit_summary_log(run_git(
-        &[
-            "log",
-            &limit,
-            "--format=%h|%s|%an|%ar",
-            "--follow",
-            "--",
-            file_path,
-        ],
-        cwd,
-    ))
+    ref_operation_result(cwd, action, command.output())
 }
 
 fn github_repository_from_remote(remote_url: &str) -> Option<(String, String)> {
@@ -3852,8 +2752,55 @@ fn get_commit_provider_metadata(cwd: &str, subject: &str) -> Option<GitCommitPro
     })
 }
 
-pub fn get_git_commit_details(cwd: &str, hash: &str) -> Option<GitCommitDetails> {
-    get_git_commit_details_for_parent(cwd, hash, None)
+/// Read one change-list format for root commits, revision pairs, and worktrees.
+fn git_change_files(cwd: &str, from: Option<&str>, to: Option<&str>) -> Vec<GitCommitFile> {
+    let read = |format| {
+        let mut args = if from.is_some() {
+            vec!["diff"]
+        } else {
+            vec!["diff-tree", "--root", "--no-commit-id", "-r"]
+        };
+        args.extend(["--find-renames", format]);
+        args.extend(from);
+        args.extend(to);
+        run_git(&args, cwd).unwrap_or_default()
+    };
+    let stats: HashMap<_, _> = read("--numstat")
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split('\t');
+            let (added, removed, path) = (fields.next()?, fields.next()?, fields.next()?);
+            Some((
+                normalize_numstat_path(path),
+                (
+                    parse_numstat_count(added),
+                    parse_numstat_count(removed),
+                    added == "-" || removed == "-",
+                ),
+            ))
+        })
+        .collect();
+    read("--name-status")
+        .lines()
+        .filter_map(|line| {
+            let fields: Vec<_> = line.split('\t').collect();
+            if fields.len() < 2 {
+                return None;
+            }
+            let path = fields.last()?.to_string();
+            let status = fields[0].chars().next()?.to_string();
+            let original_path = matches!(status.as_str(), "R" | "C").then(|| fields[1].to_owned());
+            let (additions, deletions, binary) = stats.get(&path).copied().unwrap_or_default();
+            Some(GitCommitFile {
+                path,
+                original_path,
+                status,
+                additions,
+                deletions,
+                binary,
+            })
+        })
+        .collect()
 }
 
 pub fn get_git_commit_details_for_parent(
@@ -3897,70 +2844,7 @@ pub fn get_git_commit_details_for_parent(
     let message = info_parts.next().unwrap_or("").to_string();
     let body = info_parts.next().unwrap_or("").trim().to_string();
 
-    let mut stats = HashMap::<String, (usize, usize, bool)>::new();
-    let numstat_args = if let Some(parent) = diff_parent.as_deref() {
-        vec!["diff", "--find-renames", "--numstat", parent, hash]
-    } else {
-        vec![
-            "diff-tree",
-            "--root",
-            "--no-commit-id",
-            "-r",
-            "--find-renames",
-            "--numstat",
-            hash,
-        ]
-    };
-    if let Some(result) = run_git(&numstat_args, cwd) {
-        for line in result.lines().filter(|line| !line.is_empty()) {
-            let parts: Vec<&str> = line.split('\t').collect();
-            if parts.len() >= 3 {
-                stats.insert(
-                    normalize_numstat_path(parts[2]),
-                    (
-                        parse_numstat_count(parts[0]),
-                        parse_numstat_count(parts[1]),
-                        parts[0] == "-" || parts[1] == "-",
-                    ),
-                );
-            }
-        }
-    }
-
-    let mut files = Vec::new();
-    let name_status_args = if let Some(parent) = diff_parent.as_deref() {
-        vec!["diff", "--find-renames", "--name-status", parent, hash]
-    } else {
-        vec![
-            "diff-tree",
-            "--root",
-            "--no-commit-id",
-            "-r",
-            "--find-renames",
-            "--name-status",
-            hash,
-        ]
-    };
-    if let Some(result) = run_git(&name_status_args, cwd) {
-        for line in result.lines().filter(|line| !line.is_empty()) {
-            let parts: Vec<&str> = line.split('\t').collect();
-            if parts.len() >= 2 {
-                let path = parts[parts.len() - 1].to_string();
-                let status = parts[0].chars().next().unwrap_or('\0').to_string();
-                let original_path = (status == "R" || status == "C")
-                    .then(|| parts.get(1).copied().unwrap_or_default().to_string());
-                let (additions, deletions, binary) = stats.get(&path).copied().unwrap_or_default();
-                files.push(GitCommitFile {
-                    path,
-                    original_path,
-                    status,
-                    additions,
-                    deletions,
-                    binary,
-                });
-            }
-        }
-    }
+    let files = git_change_files(cwd, diff_parent.as_deref(), Some(hash));
 
     let provider = get_commit_provider_metadata(cwd, &message);
     Some(GitCommitDetails {
@@ -4001,57 +2885,7 @@ pub fn get_git_comparison_details(
     let merge_base = run_git(&["merge-base", &from_hash, &to_hash], cwd)
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    let mut stats = HashMap::<String, (usize, usize, bool)>::new();
-    if let Some(result) = run_git(
-        &["diff", "--find-renames", "--numstat", &from_hash, &to_hash],
-        cwd,
-    ) {
-        for line in result.lines().filter(|line| !line.is_empty()) {
-            let parts = line.split('\t').collect::<Vec<_>>();
-            if parts.len() < 3 {
-                continue;
-            }
-            stats.insert(
-                normalize_numstat_path(parts[2]),
-                (
-                    parse_numstat_count(parts[0]),
-                    parse_numstat_count(parts[1]),
-                    parts[0] == "-" || parts[1] == "-",
-                ),
-            );
-        }
-    }
-    let mut files = Vec::new();
-    if let Some(result) = run_git(
-        &[
-            "diff",
-            "--find-renames",
-            "--name-status",
-            &from_hash,
-            &to_hash,
-        ],
-        cwd,
-    ) {
-        for line in result.lines().filter(|line| !line.is_empty()) {
-            let parts = line.split('\t').collect::<Vec<_>>();
-            if parts.len() < 2 {
-                continue;
-            }
-            let path = parts[parts.len() - 1].to_string();
-            let status = parts[0].chars().next().unwrap_or('\0').to_string();
-            let original_path = (status == "R" || status == "C")
-                .then(|| parts.get(1).copied().unwrap_or_default().to_string());
-            let (additions, deletions, binary) = stats.get(&path).copied().unwrap_or_default();
-            files.push(GitCommitFile {
-                path,
-                original_path,
-                status,
-                additions,
-                deletions,
-                binary,
-            });
-        }
-    }
+    let files = git_change_files(cwd, Some(&from_hash), Some(&to_hash));
     Some(GitComparisonDetails {
         from_hash,
         to_hash,
@@ -4071,50 +2905,8 @@ pub fn get_git_worktree_comparison_details(
     let from_hash = run_git(&["rev-parse", &format!("{from_hash}^{{commit}}")], cwd)?
         .trim()
         .to_string();
-    let mut stats = HashMap::<String, (usize, usize, bool)>::new();
-    if let Some(result) = run_git(&["diff", "--find-renames", "--numstat", &from_hash], cwd) {
-        for line in result.lines().filter(|line| !line.is_empty()) {
-            let parts = line.split('\t').collect::<Vec<_>>();
-            if parts.len() < 3 {
-                continue;
-            }
-            stats.insert(
-                normalize_numstat_path(parts[2]),
-                (
-                    parse_numstat_count(parts[0]),
-                    parse_numstat_count(parts[1]),
-                    parts[0] == "-" || parts[1] == "-",
-                ),
-            );
-        }
-    }
-    let mut files = Vec::new();
-    let mut seen = HashSet::new();
-    if let Some(result) = run_git(
-        &["diff", "--find-renames", "--name-status", &from_hash],
-        cwd,
-    ) {
-        for line in result.lines().filter(|line| !line.is_empty()) {
-            let parts = line.split('\t').collect::<Vec<_>>();
-            if parts.len() < 2 {
-                continue;
-            }
-            let path = parts[parts.len() - 1].to_string();
-            let status = parts[0].chars().next().unwrap_or('\0').to_string();
-            let original_path = (status == "R" || status == "C")
-                .then(|| parts.get(1).copied().unwrap_or_default().to_string());
-            let (additions, deletions, binary) = stats.get(&path).copied().unwrap_or_default();
-            seen.insert(path.clone());
-            files.push(GitCommitFile {
-                path,
-                original_path,
-                status,
-                additions,
-                deletions,
-                binary,
-            });
-        }
-    }
+    let mut files = git_change_files(cwd, Some(&from_hash), None);
+    let mut seen: HashSet<String> = files.iter().map(|file| file.path.clone()).collect();
     if let Some(status) = get_git_status(cwd) {
         for entry in status
             .files
@@ -4538,33 +3330,13 @@ fn get_graph_refs_with_worktrees(
     refs_by_target
 }
 
-fn get_graph_log_result(cwd: &str, limit: usize) -> Result<Vec<GitCommit>, GitCommandFailure> {
-    let limit_arg = format!("--max-count={}", limit);
-    let raw = run_git_checked_timed(
-        &[
-            "log",
-            &limit_arg,
-            // GitKraken's Commit Date / Time column uses the committer clock.
-            // Date order keeps that clock aligned with the visible rows while
-            // retaining Git's parent-after-child topological constraint.
-            "--date-order",
-            "--format=%H%x1f%P%x1f%s%x1f%b%x1f%aN%x1f%aE%x1f%cN%x1f%cE%x1f%cr%x1f%aI%x1f%cI%x1e",
-            "--all",
-        ],
-        cwd,
-        Duration::from_secs(10),
-    )?;
-
-    Ok(parse_graph_log(&raw, &get_graph_refs(cwd)))
-}
-
 fn parse_graph_record(
     record: &str,
     refs_by_target: &HashMap<String, Vec<GitGraphRef>>,
-) -> GitCommit {
+) -> GraphCommit {
     let mut parts = record.splitn(11, '\x1f');
     let hash = parts.next().unwrap_or("").to_string();
-    GitCommit {
+    GraphCommit {
         refs: refs_by_target.get(&hash).cloned().unwrap_or_default(),
         hash,
         parents: parts
@@ -4583,29 +3355,15 @@ fn parse_graph_record(
         date: parts.next().unwrap_or("").to_string(),
         authored_at: parts.next().unwrap_or("").to_string(),
         committed_at: parts.next().unwrap_or("").to_string(),
+        ..Default::default()
     }
-}
-
-fn parse_graph_log(
-    raw: &str,
-    refs_by_target: &HashMap<String, Vec<GitGraphRef>>,
-) -> Vec<GitCommit> {
-    raw.split('\x1e')
-        .map(str::trim)
-        .filter(|r| !r.is_empty())
-        .map(|r| parse_graph_record(r, refs_by_target))
-        .collect()
-}
-
-fn get_graph_log(cwd: &str, limit: usize) -> Vec<GitCommit> {
-    get_graph_log_result(cwd, limit).unwrap_or_default()
 }
 
 /// A stash commit is a presentation item; its second and optional third
 /// parents are implementation commits for the index and untracked files.
 /// Keep the base parent so the stash remains attached to history, but do not
 /// expose those plumbing commits as ordinary rows.
-fn collapse_stash_internal_commits(commits: &mut Vec<GitCommit>, stashes: &[GitStash]) {
+fn collapse_stash_internal_commits(commits: &mut Vec<GraphCommit>, stashes: &[GitStash]) {
     let stash_hashes = stashes
         .iter()
         .map(|stash| stash.hash.as_str())
@@ -4619,10 +3377,6 @@ fn collapse_stash_internal_commits(commits: &mut Vec<GitCommit>, stashes: &[GitS
         commit.parents.truncate(1);
     }
     commits.retain(|commit| !internal_hashes.contains(&commit.hash));
-}
-
-pub fn get_git_graph(cwd: &str, limit: usize) -> (Vec<GraphCommit>, Vec<GraphRow>) {
-    layout_graph(&get_graph_log(cwd, limit))
 }
 
 fn repository_snapshot_state(cwd: &str) -> (GitRepositorySnapshotState, Option<String>) {
@@ -4804,28 +3558,28 @@ pub fn get_git_graph_snapshot_with_query(
         };
         semantic_commits.insert(
             head_index,
-            GitCommit {
+            GraphCommit {
                 hash: identity,
                 message: "Uncommitted changes".to_string(),
-                body: String::new(),
+
                 author: "Workspace".to_string(),
-                author_email: String::new(),
+
                 committer: "Workspace".to_string(),
-                committer_email: String::new(),
+
                 date: "Now".to_string(),
-                authored_at: String::new(),
-                committed_at: String::new(),
+
                 parents: (!worktree.head.is_empty()
                     && !worktree.head.bytes().all(|byte| byte == b'0'))
                 .then(|| worktree.head.clone())
                 .into_iter()
                 .collect(),
-                refs: Vec::new(),
+
+                ..Default::default()
             },
         );
     }
 
-    let (mut commits, rows) = layout_graph(&semantic_commits);
+    let (mut commits, rows) = layout_graph(semantic_commits);
     let stash_names = stashes
         .iter()
         .map(|stash| (stash.hash.as_str(), stash.name.as_str()))
@@ -4894,7 +3648,7 @@ impl GraphLaneAllocator {
             .map(|reservation| reservation.column)
     }
 
-    fn assign_column(&mut self, commit: &GitCommit) -> usize {
+    fn assign_column(&mut self, commit: &GraphCommit) -> usize {
         // GitKraken reserves one preferred column per future commit. Other
         // children may still carry duplicate edges to the same hash, but only
         // the reservation decides where that commit's node will eventually be
@@ -4960,7 +3714,7 @@ fn graph_lane_color(column: usize) -> usize {
     column % GRAPH_LANE_COUNT
 }
 
-fn layout_graph(commits: &[GitCommit]) -> (Vec<GraphCommit>, Vec<GraphRow>) {
+fn layout_graph(mut commits: Vec<GraphCommit>) -> (Vec<GraphCommit>, Vec<GraphRow>) {
     // A lane is one pending child -> parent edge, not one target commit. Two
     // children can therefore carry separate lanes to the same parent. Keeping
     // those edges distinct until the parent's row is the key behavior behind
@@ -4971,10 +3725,9 @@ fn layout_graph(commits: &[GitCommit]) -> (Vec<GraphCommit>, Vec<GraphRow>) {
     // stable holes can be reused by later tips without moving unresolved rails.
     let mut active_lanes: Vec<Option<ActiveLane>> = Vec::new();
     let mut lane_allocator = GraphLaneAllocator::default();
-    let mut graph_commits = Vec::with_capacity(commits.len());
     let mut graph_rows = Vec::with_capacity(commits.len());
 
-    for (row_index, commit) in commits.iter().enumerate() {
+    for (row_index, commit) in commits.iter_mut().enumerate() {
         let incoming_columns = active_lanes
             .iter()
             .enumerate()
@@ -5021,27 +3774,6 @@ fn layout_graph(commits: &[GitCommit]) -> (Vec<GraphCommit>, Vec<GraphRow>) {
                     None,
                 )
             };
-        graph_commits.push(GraphCommit {
-            navigation: GraphNavigation::default(),
-            id,
-            item_kind,
-            hash,
-            message: commit.message.clone(),
-            body: commit.body.clone(),
-            author: commit.author.clone(),
-            author_email: commit.author_email.clone(),
-            committer: commit.committer.clone(),
-            committer_email: commit.committer_email.clone(),
-            date: commit.date.clone(),
-            authored_at: commit.authored_at.clone(),
-            committed_at: commit.committed_at.clone(),
-            parents: commit.parents.clone(),
-            refs: commit.refs.clone(),
-            worktree_path,
-            stash_name: None,
-            column: commit_column,
-            color_index: commit_color,
-        });
 
         let mut next_lanes = active_lanes.clone();
         for column in &incoming_columns {
@@ -5142,6 +3874,14 @@ fn layout_graph(commits: &[GitCommit]) -> (Vec<GraphCommit>, Vec<GraphRow>) {
             truncated_edges: Vec::new(),
         });
 
+        commit.navigation = GraphNavigation::default();
+        commit.id = id;
+        commit.item_kind = item_kind;
+        commit.hash = hash;
+        commit.worktree_path = worktree_path;
+        commit.stash_name = None;
+        commit.column = commit_column;
+        commit.color_index = commit_color;
         active_lanes = next_lanes;
     }
 
@@ -5160,38 +3900,22 @@ fn layout_graph(commits: &[GitCommit]) -> (Vec<GraphCommit>, Vec<GraphRow>) {
             .collect();
     }
 
-    (graph_commits, graph_rows)
-}
-
-pub fn execute_request(request: NativeRequest) -> NativeResponse {
-    match request {
-        NativeRequest::Diff { before, after } => NativeResponse::Diff {
-            diff: compute_line_diff(&before, &after),
-        },
-        NativeRequest::GitStatuses { cwds } => NativeResponse::GitStatuses {
-            projects: cwds.iter().filter_map(|cwd| get_git_status(cwd)).collect(),
-        },
-        NativeRequest::GitGraph { cwd, limit } => {
-            let (commits, rows) = get_git_graph(&cwd, limit);
-            NativeResponse::GitGraph { commits, rows }
-        }
-    }
-}
-
-pub fn handle_json_request(input: &str) -> Result<String, String> {
-    let request =
-        serde_json::from_str(input).map_err(|error| format!("invalid request: {error}"))?;
-    let response = execute_request(request);
-
-    serde_json::to_string(&response)
-        .map_err(|error| format!("failed to serialize response: {error}"))
+    (commits, graph_rows)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{json, Value};
+    use serde_json::json;
     use tempfile::TempDir;
+
+    fn history(cwd: &str, limit: usize) -> Vec<GraphCommit> {
+        graph_semantics::read_history(cwd, limit, "", get_graph_refs(cwd))
+            .unwrap()
+            .into_iter()
+            .map(|(commit, _)| commit)
+            .collect()
+    }
 
     fn git(repository: &Path, args: &[&str]) {
         let output = Command::new("git")
@@ -5206,12 +3930,14 @@ mod tests {
         );
     }
 
+    fn commit_file(repository: &Path, path: &str, message: &str) {
+        git(repository, &["add", path]);
+        git(repository, &["commit", "-m", message]);
+    }
+
     #[test]
     fn large_tracked_diffs_keep_changed_rows_with_bounded_preview() {
-        let repo = TempDir::new().unwrap();
-        git(repo.path(), &["init", "-q"]);
-        git(repo.path(), &["config", "user.name", "Test"]);
-        git(repo.path(), &["config", "user.email", "test@example.com"]);
+        let repo = make_repository();
         let before = (0..7000).map(|i| format!("line {i}\n")).collect::<String>();
         let after = before.replace("line 6500\n", "changed row\n");
         std::fs::write(repo.path().join("large.txt"), &before).unwrap();
@@ -5285,11 +4011,11 @@ mod tests {
         AllowedPaths::new(repository, repository.canonicalize().unwrap()).unwrap()
     }
 
-    fn graph_fixture_commit(hash: &str, parents: &[&str]) -> GitCommit {
-        GitCommit {
+    fn graph_fixture_commit(hash: &str, parents: &[&str]) -> GraphCommit {
+        GraphCommit {
             hash: hash.to_string(),
             message: hash.to_string(),
-            body: String::new(),
+
             author: "Test User".to_string(),
             author_email: "test@example.com".to_string(),
             committer: "Test User".to_string(),
@@ -5298,7 +4024,8 @@ mod tests {
             authored_at: "2026-01-01T00:00:00Z".to_string(),
             committed_at: "2026-01-01T00:00:00Z".to_string(),
             parents: parents.iter().map(|parent| (*parent).to_string()).collect(),
-            refs: Vec::new(),
+
+            ..Default::default()
         }
     }
 
@@ -5318,9 +4045,10 @@ mod tests {
             .trim()
             .to_string();
 
-        let root_diff = get_git_commit_hunk_diff(
+        let root_diff = get_git_commit_hunk_diff_for_parent(
             repository.path().to_str().unwrap(),
             &root_hash,
+            None,
             "history.txt",
             false,
         )
@@ -5329,15 +4057,18 @@ mod tests {
         assert!(root_diff.new_lines.len() >= 2);
 
         std::fs::write(&file, "one\nchanged\nthree\n").unwrap();
-        git(repository.path(), &["add", "history.txt"]);
-        git(repository.path(), &["commit", "-m", "change history"]);
+        commit_file(repository.path(), "history.txt", "change history");
         let changed_hash = run_git(&["rev-parse", "HEAD"], repository.path().to_str().unwrap())
             .unwrap()
             .trim()
             .to_string();
 
-        let details =
-            get_git_commit_details(repository.path().to_str().unwrap(), &changed_hash).unwrap();
+        let details = get_git_commit_details_for_parent(
+            repository.path().to_str().unwrap(),
+            &changed_hash,
+            None,
+        )
+        .unwrap();
         assert_eq!(details.hash, changed_hash);
         assert_eq!(details.parents, vec![root_hash.clone()]);
         assert_eq!(details.author, "Test User");
@@ -5347,9 +4078,10 @@ mod tests {
         assert!(details.files[0].additions > 0);
         assert!(details.files[0].deletions > 0);
 
-        let changed_diff = get_git_commit_hunk_diff(
+        let changed_diff = get_git_commit_hunk_diff_for_parent(
             repository.path().to_str().unwrap(),
             &changed_hash,
+            None,
             "history.txt",
             false,
         )
@@ -5429,7 +4161,7 @@ mod tests {
         git(repository.path(), &["checkout", "--", "history.txt"]);
         std::fs::remove_file(untracked).unwrap();
 
-        let graph = get_graph_log(repository.path().to_str().unwrap(), 10);
+        let graph = history(repository.path().to_str().unwrap(), 10);
         assert!(graph.iter().all(|commit| commit.hash.len() >= 40));
         assert!(graph.iter().all(|commit| !commit.authored_at.is_empty()));
         assert!(graph.iter().all(|commit| !commit.committer.is_empty()));
@@ -5459,7 +4191,7 @@ mod tests {
         let worktrees = get_git_worktrees(cwd);
         assert_eq!(worktrees.len(), 1);
         assert!(worktrees[0].is_current);
-        let graph_with_stash = get_graph_log(cwd, 20);
+        let graph_with_stash = history(cwd, 20);
         assert!(graph_with_stash
             .iter()
             .any(|commit| commit.refs.iter().any(|git_ref| {
@@ -5490,37 +4222,25 @@ mod tests {
         let repository = make_repository();
         let cwd = repository.path().to_str().unwrap();
         std::fs::write(repository.path().join("base.txt"), "base\n").unwrap();
-        git(repository.path(), &["add", "."]);
-        git(repository.path(), &["commit", "-m", "base"]);
+        commit_file(repository.path(), ".", "base");
         let main_branch = current_git_branch(cwd).unwrap();
 
         git(repository.path(), &["checkout", "-b", "feature"]);
         std::fs::write(repository.path().join("feature.txt"), "feature\n").unwrap();
-        git(repository.path(), &["add", "."]);
-        git(repository.path(), &["commit", "-m", "feature"]);
-        let feature_hash = run_git(&["rev-parse", "HEAD"], cwd)
-            .unwrap()
-            .trim()
-            .to_string();
+        commit_file(repository.path(), ".", "feature");
+        let feature_hash = current_git_head(cwd).unwrap();
 
         git(repository.path(), &["checkout", &main_branch]);
         std::fs::write(repository.path().join("main.txt"), "main\n").unwrap();
-        git(repository.path(), &["add", "."]);
-        git(repository.path(), &["commit", "-m", "main"]);
-        let main_hash = run_git(&["rev-parse", "HEAD"], cwd)
-            .unwrap()
-            .trim()
-            .to_string();
+        commit_file(repository.path(), ".", "main");
+        let main_hash = current_git_head(cwd).unwrap();
         git(
             repository.path(),
             &["merge", "--no-ff", "feature", "-m", "merge feature"],
         );
-        let merge_hash = run_git(&["rev-parse", "HEAD"], cwd)
-            .unwrap()
-            .trim()
-            .to_string();
+        let merge_hash = current_git_head(cwd).unwrap();
 
-        let default_details = get_git_commit_details(cwd, &merge_hash).unwrap();
+        let default_details = get_git_commit_details_for_parent(cwd, &merge_hash, None).unwrap();
         assert_eq!(
             default_details.parents,
             vec![main_hash.clone(), feature_hash.clone()]
@@ -5575,12 +4295,8 @@ mod tests {
         let repository = make_repository();
         let cwd = repository.path().to_str().unwrap();
         std::fs::write(repository.path().join("tracked.txt"), "tracked\n").unwrap();
-        git(repository.path(), &["add", "."]);
-        git(repository.path(), &["commit", "-m", "initial"]);
-        let hash = run_git(&["rev-parse", "HEAD"], cwd)
-            .unwrap()
-            .trim()
-            .to_string();
+        commit_file(repository.path(), ".", "initial");
+        let hash = current_git_head(cwd).unwrap();
         let branch = current_git_branch(cwd).unwrap();
         git(repository.path(), &["tag", "-a", "v1.0", "-m", "release"]);
 
@@ -5595,7 +4311,7 @@ mod tests {
             &["push", "-u", "team", &format!("{branch}:{branch}")],
         );
 
-        let graph = get_graph_log(cwd, 10);
+        let graph = history(cwd, 10);
         let refs = &graph
             .iter()
             .find(|commit| commit.hash == hash)
@@ -5617,9 +4333,8 @@ mod tests {
         }));
 
         std::fs::write(repository.path().join("ahead.txt"), "ahead\n").unwrap();
-        git(repository.path(), &["add", "."]);
-        git(repository.path(), &["commit", "-m", "local ahead"]);
-        let ahead_graph = get_graph_log(cwd, 10);
+        commit_file(repository.path(), ".", "local ahead");
+        let ahead_graph = history(cwd, 10);
         assert!(ahead_graph
             .iter()
             .flat_map(|commit| &commit.refs)
@@ -5630,7 +4345,7 @@ mod tests {
             }));
 
         git(repository.path(), &["checkout", "--detach", &hash]);
-        let detached = get_graph_log(cwd, 10);
+        let detached = history(cwd, 10);
         let detached_refs = &detached
             .iter()
             .find(|commit| commit.hash == hash)
@@ -5719,10 +4434,7 @@ mod tests {
         assert_eq!(shallow_snapshot.state, GitRepositorySnapshotState::Ready);
         assert_eq!(shallow_snapshot.commits.len(), 1);
 
-        let head = run_git(&["rev-parse", "HEAD"], cwd)
-            .unwrap()
-            .trim()
-            .to_string();
+        let head = current_git_head(cwd).unwrap();
         let parent = run_git(&["rev-parse", "HEAD~1"], cwd)
             .unwrap()
             .trim()
@@ -5755,7 +4467,7 @@ mod tests {
     #[test]
     fn checked_git_commands_classify_timeouts_and_redact_url_credentials() {
         let repository = make_repository();
-        let failure = run_git_checked_timed(
+        let failure = run_git_bytes(
             &["-c", "alias.inferay-wait=!sleep 1", "inferay-wait"],
             repository.path().to_str().unwrap(),
             Duration::from_millis(10),
@@ -5774,8 +4486,7 @@ mod tests {
         let repository = make_repository();
         let cwd = repository.path().to_str().unwrap();
         std::fs::write(repository.path().join("tracked.txt"), "base\n").unwrap();
-        git(repository.path(), &["add", "."]);
-        git(repository.path(), &["commit", "-m", "base"]);
+        commit_file(repository.path(), ".", "base");
 
         let linked_root = TempDir::new().unwrap();
         let linked_path = linked_root.path().join("feature-worktree");
@@ -5835,8 +4546,7 @@ mod tests {
         let repository = make_repository();
         let cwd = repository.path().to_str().unwrap();
         std::fs::write(repository.path().join("tracked.txt"), "base\n").unwrap();
-        git(repository.path(), &["add", "."]);
-        git(repository.path(), &["commit", "-m", "base"]);
+        commit_file(repository.path(), ".", "base");
         let main = current_git_branch(cwd).unwrap();
         git(repository.path(), &["branch", "feature"]);
 
@@ -5899,19 +4609,16 @@ mod tests {
         let repository = make_repository();
         let cwd = repository.path().to_str().unwrap();
         std::fs::write(repository.path().join("conflict.txt"), "base\n").unwrap();
-        git(repository.path(), &["add", "conflict.txt"]);
-        git(repository.path(), &["commit", "-m", "base"]);
+        commit_file(repository.path(), "conflict.txt", "base");
         let target = current_git_branch(cwd).unwrap();
 
         git(repository.path(), &["checkout", "-b", "feature"]);
         std::fs::write(repository.path().join("conflict.txt"), "feature\n").unwrap();
-        git(repository.path(), &["add", "conflict.txt"]);
-        git(repository.path(), &["commit", "-m", "feature change"]);
+        commit_file(repository.path(), "conflict.txt", "feature change");
         git(repository.path(), &["checkout", &target]);
         std::fs::write(repository.path().join("conflict.txt"), "target\n").unwrap();
-        git(repository.path(), &["add", "conflict.txt"]);
-        git(repository.path(), &["commit", "-m", "target change"]);
-        let revision_before = get_git_repository_revision(cwd);
+        commit_file(repository.path(), "conflict.txt", "target change");
+        let revision_before = prepare_git_graph(cwd).revision;
 
         let result = perform_git_ref_operation(cwd, "merge", "feature", &target);
         assert!(!result.ok);
@@ -5921,7 +4628,7 @@ mod tests {
         assert_eq!(operation.kind, GitRepositoryOperationKind::Merge);
         assert_eq!(operation.phase, GitRepositoryOperationPhase::Conflicted);
         assert_eq!(operation.conflicts, vec!["conflict.txt"]);
-        assert_ne!(get_git_repository_revision(cwd), revision_before);
+        assert_ne!(prepare_git_graph(cwd).revision, revision_before);
 
         let aborted = finish_git_ref_operation(cwd, "merge", "abort");
         assert!(aborted.ok, "{:?}", aborted.error);
@@ -5938,13 +4645,11 @@ mod tests {
         let repository = make_repository();
         let cwd = repository.path().to_str().unwrap();
         std::fs::write(repository.path().join("base.txt"), "base\n").unwrap();
-        git(repository.path(), &["add", "."]);
-        git(repository.path(), &["commit", "-m", "base"]);
+        commit_file(repository.path(), ".", "base");
         let target = current_git_branch(cwd).unwrap();
         git(repository.path(), &["checkout", "-b", "feature"]);
         std::fs::write(repository.path().join("feature.txt"), "feature\n").unwrap();
-        git(repository.path(), &["add", "."]);
-        git(repository.path(), &["commit", "-m", "feature"]);
+        commit_file(repository.path(), ".", "feature");
         let feature_head = run_git(&["rev-parse", "HEAD"], cwd).unwrap();
 
         let preflight = preflight_git_ref_operation(cwd, "feature", &target);
@@ -5974,8 +4679,7 @@ mod tests {
         let repository = make_repository();
         let cwd = repository.path().to_str().unwrap();
         std::fs::write(repository.path().join("base.txt"), "base\n").unwrap();
-        git(repository.path(), &["add", "."]);
-        git(repository.path(), &["commit", "-m", "base"]);
+        commit_file(repository.path(), ".", "base");
         let target = current_git_branch(cwd).unwrap();
 
         git(repository.path(), &["checkout", "-b", "feature"]);
@@ -5987,18 +4691,12 @@ mod tests {
                 repository.path(),
                 &["commit", "-m", &format!("feature {name}")],
             );
-            commits.push(
-                run_git(&["rev-parse", "HEAD"], cwd)
-                    .unwrap()
-                    .trim()
-                    .to_string(),
-            );
+            commits.push(current_git_head(cwd).unwrap());
         }
         let original_target = run_git(&["rev-parse", &target], cwd).unwrap();
         git(repository.path(), &["checkout", &target]);
         std::fs::write(repository.path().join("target.txt"), "target\n").unwrap();
-        git(repository.path(), &["add", "."]);
-        git(repository.path(), &["commit", "-m", "target advance"]);
+        commit_file(repository.path(), ".", "target advance");
         let advanced_target = run_git(&["rev-parse", &target], cwd).unwrap();
         assert_ne!(original_target.trim(), advanced_target.trim());
 
@@ -6052,6 +4750,38 @@ mod tests {
         assert_eq!(current_git_branch(cwd).as_deref(), Some(target.as_str()));
         assert!(!interactive_rebase_state_dir(cwd).unwrap().exists());
 
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let hooks = tempfile::tempdir().unwrap();
+            let hook = hooks.path().join("post-checkout");
+            fs::write(
+                &hook,
+                "#!/bin/sh\necho 'checkout hook failed' >&2\nexit 1\n",
+            )
+            .unwrap();
+            fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+            git(
+                repository.path(),
+                &["config", "core.hooksPath", hooks.path().to_str().unwrap()],
+            );
+            let result = perform_git_interactive_rebase(
+                cwd,
+                "feature",
+                &target,
+                &preflight.interactive_rebase_plan,
+            );
+            git(repository.path(), &["config", "--unset", "core.hooksPath"]);
+            assert!(!result.ok);
+            assert!(result.error.unwrap().contains("checkout hook failed"));
+            assert!(!interactive_rebase_state_dir(cwd).unwrap().exists());
+            assert_eq!(
+                get_git_repository_operation_state(cwd).kind,
+                GitRepositoryOperationKind::Idle
+            );
+            git(repository.path(), &["checkout", &target]);
+        }
+
         let plan = vec![
             GitInteractiveRebaseStep {
                 hash: commits[1].clone(),
@@ -6099,29 +4829,17 @@ mod tests {
         let repository = make_repository();
         let cwd = repository.path().to_str().unwrap();
         std::fs::write(repository.path().join("base.txt"), "base\n").unwrap();
-        git(repository.path(), &["add", "."]);
-        git(repository.path(), &["commit", "-m", "base"]);
+        commit_file(repository.path(), ".", "base");
         let main = current_git_branch(cwd).unwrap();
-        let base_hash = run_git(&["rev-parse", "HEAD"], cwd)
-            .unwrap()
-            .trim()
-            .to_string();
+        let base_hash = current_git_head(cwd).unwrap();
 
         git(repository.path(), &["checkout", "-b", "feature"]);
         std::fs::write(repository.path().join("feature.txt"), "feature\n").unwrap();
-        git(repository.path(), &["add", "."]);
-        git(repository.path(), &["commit", "-m", "feature"]);
-        let feature_hash = run_git(&["rev-parse", "HEAD"], cwd)
-            .unwrap()
-            .trim()
-            .to_string();
+        commit_file(repository.path(), ".", "feature");
+        let feature_hash = current_git_head(cwd).unwrap();
         std::fs::write(repository.path().join("feature-2.txt"), "feature 2\n").unwrap();
-        git(repository.path(), &["add", "."]);
-        git(repository.path(), &["commit", "-m", "feature two"]);
-        let feature_two_hash = run_git(&["rev-parse", "HEAD"], cwd)
-            .unwrap()
-            .trim()
-            .to_string();
+        commit_file(repository.path(), ".", "feature two");
+        let feature_two_hash = current_git_head(cwd).unwrap();
         git(repository.path(), &["checkout", &main]);
 
         let branch = perform_git_graph_action(
@@ -6293,8 +5011,7 @@ mod tests {
         let repository = make_repository();
         let cwd = repository.path().to_str().unwrap();
         std::fs::write(repository.path().join("base.txt"), "base\n").unwrap();
-        git(repository.path(), &["add", "."]);
-        git(repository.path(), &["commit", "-m", "base"]);
+        commit_file(repository.path(), ".", "base");
         let branch = current_git_branch(cwd).unwrap();
         let remote = TempDir::new().unwrap();
         git(remote.path(), &["init", "--bare", "-q"]);
@@ -6317,8 +5034,7 @@ mod tests {
         );
 
         std::fs::write(repository.path().join("next.txt"), "next\n").unwrap();
-        git(repository.path(), &["add", "."]);
-        git(repository.path(), &["commit", "-m", "next"]);
+        commit_file(repository.path(), ".", "next");
         let force = perform_git_graph_action(cwd, "forcePushWithLease", Some(&branch), None, None);
         assert!(force.ok, "{:?}", force.error);
 
@@ -6341,8 +5057,7 @@ mod tests {
         let repository = make_repository();
         let cwd = repository.path().to_str().unwrap();
         std::fs::write(repository.path().join("base.txt"), "base\n").unwrap();
-        git(repository.path(), &["add", "."]);
-        git(repository.path(), &["commit", "-m", "base"]);
+        commit_file(repository.path(), ".", "base");
         let branch = current_git_branch(cwd).unwrap();
 
         let remote = TempDir::new().unwrap();
@@ -6380,10 +5095,10 @@ mod tests {
             .trim()
             .to_string();
 
-        let before_fetch = get_git_repository_revision(cwd);
+        let before_fetch = prepare_git_graph(cwd).revision;
         let fetch = perform_git_graph_action(cwd, "fetch", None, None, None);
         assert!(fetch.ok, "{:?}", fetch.error);
-        assert_ne!(get_git_repository_revision(cwd), before_fetch);
+        assert_ne!(prepare_git_graph(cwd).revision, before_fetch);
         let fetched_status = get_git_status(cwd).unwrap();
         assert_eq!(fetched_status.ahead, 0);
         assert_eq!(fetched_status.behind, 1);
@@ -6404,8 +5119,7 @@ mod tests {
         assert_eq!((pulled_status.ahead, pulled_status.behind), (0, 0));
 
         std::fs::write(repository.path().join("local.txt"), "local change\n").unwrap();
-        git(repository.path(), &["add", "."]);
-        git(repository.path(), &["commit", "-m", "local change"]);
+        commit_file(repository.path(), ".", "local change");
         assert_eq!(get_git_status(cwd).unwrap().ahead, 1);
         let local_head = current_git_head(cwd).unwrap();
         let push = perform_git_graph_action(cwd, "push", None, None, None);
@@ -6480,13 +5194,8 @@ mod tests {
         let compact = compact_git_hunk_diff(GitHunkDiff {
             old_lines,
             new_lines,
-            compact_lines: None,
-            is_binary: false,
-            is_new: false,
-            is_image: None,
-            image_path: None,
             raw_patch: Some("large patch that the review response does not need".to_string()),
-            merge_conflict_content: None,
+            ..Default::default()
         });
 
         assert!(compact.old_lines.len() < 12);
@@ -6525,8 +5234,7 @@ mod tests {
         .unwrap();
         std::fs::write(repository.path().join("app.css"), ".old { color: red; }\n").unwrap();
         git(repository.path(), &["config", "diff.slow.command", "false"]);
-        git(repository.path(), &["add", "."]);
-        git(repository.path(), &["commit", "-m", "initial"]);
+        commit_file(repository.path(), ".", "initial");
         std::fs::write(repository.path().join("app.css"), ".new { color: blue; }\n").unwrap();
         let cwd = repository.path().to_string_lossy();
 
@@ -6540,55 +5248,10 @@ mod tests {
     }
 
     #[test]
-    fn preserves_diff_wire_contract() {
-        let response = handle_json_request(
-            &json!({
-                "op": "diff",
-                "before": "alpha\nbeta",
-                "after": "alpha\ngamma"
-            })
-            .to_string(),
-        )
-        .expect("diff request should succeed");
-
-        let value: Value = serde_json::from_str(&response).expect("response should be JSON");
-        assert_eq!(value["op"], "diff");
-        assert_eq!(
-            value["diff"]["stats"],
-            json!({
-                "added": 1,
-                "removed": 1,
-                "unchanged": 1
-            })
-        );
-        assert_eq!(value["diff"]["computedAt"], 0);
-        assert_eq!(value["diff"]["oldLines"][1]["type"], "removed");
-        assert_eq!(value["diff"]["oldLines"][1]["content"], "beta");
-        assert_eq!(value["diff"]["newLines"][1]["type"], "removed");
-        assert_eq!(value["diff"]["newLines"][1]["content"], "");
-        assert_eq!(value["diff"]["newLines"][2]["type"], "added");
-        assert_eq!(value["diff"]["newLines"][2]["content"], "gamma");
-    }
-
-    #[test]
-    fn rejects_unknown_operations_with_the_existing_error_prefix() {
-        let error =
-            handle_json_request(r#"{"op":"unknown"}"#).expect_err("unknown operation should fail");
-        assert!(error.starts_with("invalid request:"));
-    }
-
-    #[test]
     fn skips_directories_that_are_not_git_repositories() {
         let directory = TempDir::new().unwrap();
         let cwd = directory.path().to_string_lossy().into_owned();
-        let response = execute_request(NativeRequest::GitStatuses {
-            cwds: vec![cwd.clone()],
-        });
-
-        match response {
-            NativeResponse::GitStatuses { projects } => assert!(projects.is_empty()),
-            _ => panic!("expected git statuses response"),
-        }
+        assert!(get_git_status(&cwd).is_none());
         assert_eq!(
             get_git_graph_snapshot(&cwd, 10).state,
             GitRepositorySnapshotState::NonRepository
@@ -6638,7 +5301,7 @@ mod tests {
         );
         let authored_later = run_git(&["rev-parse", "HEAD"], cwd).unwrap();
 
-        let commits = get_graph_log_result(cwd, 10).unwrap();
+        let commits = history(cwd, 10);
         assert_eq!(commits[0].hash, committed_later.trim());
         assert_eq!(commits[1].hash, authored_later.trim());
         assert_eq!(commits[2].hash, base.trim());
@@ -6708,7 +5371,7 @@ mod tests {
         );
         let merge = run_git(&["rev-parse", "HEAD"], cwd).unwrap();
 
-        let commits = get_graph_log_result(cwd, 20).unwrap();
+        let commits = history(cwd, 20);
         let position = |hash: &str| {
             commits
                 .iter()
@@ -6724,7 +5387,7 @@ mod tests {
         assert!(independent_row < develop_row);
         assert!(develop_row < feature_row);
 
-        let (graph_commits, rows) = layout_graph(&commits);
+        let (graph_commits, rows) = layout_graph(commits.to_vec());
         let feature_column = graph_commits[feature_row].column;
         assert_eq!(
             graph_commits
@@ -6747,79 +5410,6 @@ mod tests {
     }
 
     #[test]
-    fn graph_layout_is_deterministic_for_a_branch_and_merge() {
-        let commits = vec![
-            GitCommit {
-                hash: "merge".into(),
-                message: "merge branch".into(),
-                body: String::new(),
-                author: "Ray".into(),
-                author_email: "ray@example.com".into(),
-                committer: "Ray".into(),
-                committer_email: "ray@example.com".into(),
-                date: "now".into(),
-                authored_at: "2026-01-01T00:00:00Z".into(),
-                committed_at: "2026-01-01T00:00:00Z".into(),
-                parents: vec!["main".into(), "branch".into()],
-                refs: vec![],
-            },
-            GitCommit {
-                hash: "branch".into(),
-                message: "branch work".into(),
-                body: String::new(),
-                author: "Ray".into(),
-                author_email: "ray@example.com".into(),
-                committer: "Ray".into(),
-                committer_email: "ray@example.com".into(),
-                date: "earlier".into(),
-                authored_at: "2026-01-01T00:00:00Z".into(),
-                committed_at: "2026-01-01T00:00:00Z".into(),
-                parents: vec!["base".into()],
-                refs: vec![],
-            },
-            GitCommit {
-                hash: "main".into(),
-                message: "main work".into(),
-                body: String::new(),
-                author: "Ray".into(),
-                author_email: "ray@example.com".into(),
-                committer: "Ray".into(),
-                committer_email: "ray@example.com".into(),
-                date: "earlier".into(),
-                authored_at: "2026-01-01T00:00:00Z".into(),
-                committed_at: "2026-01-01T00:00:00Z".into(),
-                parents: vec!["base".into()],
-                refs: vec![],
-            },
-            GitCommit {
-                hash: "base".into(),
-                message: "base".into(),
-                body: String::new(),
-                author: "Ray".into(),
-                author_email: "ray@example.com".into(),
-                committer: "Ray".into(),
-                committer_email: "ray@example.com".into(),
-                date: "old".into(),
-                authored_at: "2026-01-01T00:00:00Z".into(),
-                committed_at: "2026-01-01T00:00:00Z".into(),
-                parents: vec![],
-                refs: vec![],
-            },
-        ];
-
-        let (graph_commits, rows) = layout_graph(&commits);
-        assert_eq!(graph_commits.len(), commits.len());
-        assert_eq!(rows.len(), commits.len());
-        assert_eq!(graph_commits[0].column, 0);
-        assert_eq!(graph_commits[1].column, 1);
-        assert_eq!(graph_commits[2].column, 0);
-        assert!(rows[0]
-            .transitions
-            .iter()
-            .any(|transition| transition.from_column == 0 && transition.to_column == 1));
-    }
-
-    #[test]
     fn aivre_core_reference_keeps_duplicate_first_parent_edges_until_convergence() {
         // The first eleven rows from the saved AIVRE-Core GitKraken capture.
         // Both 8f6b3e and 8b26a1 target 8f3bc0. GitKraken keeps those as two
@@ -6839,7 +5429,7 @@ mod tests {
             graph_fixture_commit("4500c5", &["47e238"]),
         ];
 
-        let (graph, rows) = layout_graph(&commits);
+        let (graph, rows) = layout_graph(commits.to_vec());
         assert_eq!(
             graph.iter().map(|commit| commit.column).collect::<Vec<_>>(),
             vec![0, 1, 3, 4, 0, 3, 1, 1, 3, 1, 1]
@@ -6872,72 +5462,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires external measured fixture tests/fixtures/aivre-core-rows.tsv, absent from checkout"]
-    fn aivre_core_long_history_matches_measured_gitkraken_columns() {
-        let fixture = std::fs::read_to_string(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/tests/fixtures/aivre-core-rows.tsv"
-        ))
-        .expect("restore the measured GitKraken fixture before running this regression");
-        let commits = fixture
-            .lines()
-            .skip(1)
-            .map(|line| {
-                let (hash, parents) = line.split_once('\t').unwrap_or((line, ""));
-                let parents = parents
-                    .split(',')
-                    .filter(|parent| !parent.is_empty())
-                    .collect::<Vec<_>>();
-                graph_fixture_commit(hash, &parents)
-            })
-            .collect::<Vec<_>>();
-        let (graph, _) = layout_graph(&commits);
-
-        let expected = [
-            (0, "8f6b3e", 0),
-            (1, "8b26a1", 1),
-            (2, "319a47", 3),
-            (3, "06e4dd", 4),
-            (4, "8f3bc0", 0),
-            (5, "762020", 3),
-            (6, "49c246", 1),
-            (7, "5ea8bc", 1),
-            (8, "74a3dc", 3),
-            (9, "5ee35b", 1),
-            (10, "4500c5", 1),
-            (34, "73946e", 4),
-            (51, "ffe16d", 0),
-            (57, "128425", 0),
-            (75, "7f3b05", 10),
-            (80, "64617d", 1),
-            (126, "967906", 3),
-        ];
-        for (row, hash_prefix, column) in expected {
-            assert!(graph[row].hash.starts_with(hash_prefix));
-            assert_eq!(
-                graph[row].column, column,
-                "AIVRE-Core row {row} ({hash_prefix}) diverged from GitKraken"
-            );
-        }
-    }
-
-    #[test]
     fn graph_layout_handles_octopus_unrelated_roots_and_truncated_history() {
-        let commit = |hash: &str, parents: &[&str]| GitCommit {
-            hash: hash.to_string(),
-            message: hash.to_string(),
-            body: String::new(),
-            author: "Test User".to_string(),
-            author_email: "test@example.com".to_string(),
-            committer: "Test User".to_string(),
-            committer_email: "test@example.com".to_string(),
-            date: "now".to_string(),
-            authored_at: "2026-01-01T00:00:00Z".to_string(),
-            committed_at: "2026-01-01T00:00:00Z".to_string(),
-            parents: parents.iter().map(|parent| (*parent).to_string()).collect(),
-            refs: Vec::new(),
-        };
-        let commits = vec![
+        let commit = graph_fixture_commit;
+        let commits = [
             commit("octopus", &["main", "feature-a", "feature-b"]),
             commit("feature-b", &["base"]),
             commit("feature-a", &["base"]),
@@ -6945,8 +5472,8 @@ mod tests {
             commit("base", &[]),
             commit("unrelated", &[]),
         ];
-        let first = layout_graph(&commits);
-        let second = layout_graph(&commits);
+        let first = layout_graph(commits.to_vec());
+        let second = layout_graph(commits.to_vec());
         assert_eq!(first, second);
         assert_eq!(first.0[0].column, 0);
         assert!(first.1[0]
@@ -6959,7 +5486,7 @@ mod tests {
             .any(|transition| transition.to_column == 2));
         assert!(first.1.last().unwrap().truncated_edges.is_empty());
 
-        let (_, truncated_rows) = layout_graph(&[
+        let (_, truncated_rows) = layout_graph(vec![
             commit("tip", &["middle"]),
             commit("middle", &["outside-page"]),
         ]);
@@ -6968,53 +5495,19 @@ mod tests {
     }
 
     #[test]
-    fn graph_layout_is_byte_stable_for_nested_and_criss_cross_merges() {
-        let commit = |hash: &str, parents: &[&str]| GitCommit {
-            hash: hash.to_string(),
-            message: hash.to_string(),
-            body: String::new(),
-            author: "Test User".to_string(),
-            author_email: "test@example.com".to_string(),
-            committer: "Test User".to_string(),
-            committer_email: "test@example.com".to_string(),
-            date: "now".to_string(),
-            authored_at: "2026-01-01T00:00:00Z".to_string(),
-            committed_at: "2026-01-01T00:00:00Z".to_string(),
-            parents: parents.iter().map(|parent| (*parent).to_string()).collect(),
-            refs: Vec::new(),
-        };
-        let commits = vec![
-            commit("tip", &["left-merge", "right-merge"]),
-            commit("left-merge", &["left", "right-base"]),
-            commit("right-merge", &["right", "left-base"]),
-            commit("left", &["left-base"]),
-            commit("right", &["right-base"]),
-            commit("left-base", &["root"]),
-            commit("right-base", &["root"]),
-            commit("root", &[]),
-        ];
-        let first = serde_json::to_vec(&layout_graph(&commits)).unwrap();
-        let second = serde_json::to_vec(&layout_graph(&commits)).unwrap();
-        assert_eq!(first, second);
-        let (_, rows) = layout_graph(&commits);
-        assert_eq!(rows[0].transitions.len(), 1);
-        assert!(rows.iter().any(|row| !row.transitions.is_empty()));
-    }
-
-    #[test]
     fn appending_an_older_page_preserves_existing_lane_geometry() {
-        let partial = vec![
+        let partial = [
             graph_fixture_commit("tip", &["middle"]),
             graph_fixture_commit("middle", &["root"]),
         ];
-        let full = vec![
+        let full = [
             graph_fixture_commit("tip", &["middle"]),
             graph_fixture_commit("middle", &["root"]),
             graph_fixture_commit("root", &["older"]),
             graph_fixture_commit("older", &[]),
         ];
-        let (partial_commits, partial_rows) = layout_graph(&partial);
-        let (full_commits, full_rows) = layout_graph(&full);
+        let (partial_commits, partial_rows) = layout_graph(partial.to_vec());
+        let (full_commits, full_rows) = layout_graph(full.to_vec());
         assert_eq!(partial_commits, full_commits[..partial_commits.len()]);
         for (partial_row, full_row) in partial_rows.iter().zip(&full_rows) {
             assert_eq!(partial_row.row, full_row.row);
@@ -7028,10 +5521,10 @@ mod tests {
     #[test]
     fn graph_layout_handles_ten_thousand_linear_commits_with_bounded_lanes() {
         let commits = (0..10_000)
-            .map(|index| GitCommit {
+            .map(|index| GraphCommit {
                 hash: format!("commit-{index}"),
                 message: format!("commit {index}"),
-                body: String::new(),
+
                 author: "Test User".to_string(),
                 author_email: "test@example.com".to_string(),
                 committer: "Test User".to_string(),
@@ -7043,11 +5536,12 @@ mod tests {
                     .then(|| format!("commit-{}", index + 1))
                     .into_iter()
                     .collect(),
-                refs: Vec::new(),
+
+                ..Default::default()
             })
             .collect::<Vec<_>>();
         let started = std::time::Instant::now();
-        let (graph_commits, rows) = layout_graph(&commits);
+        let (graph_commits, rows) = layout_graph(commits.to_vec());
         assert_eq!(graph_commits.len(), 10_000);
         assert_eq!(rows.len(), 10_000);
         assert!(graph_commits.iter().all(|commit| commit.column == 0));
@@ -7208,7 +5702,14 @@ mod tests {
             ),
         ]);
         for (name, commits) in fixtures {
-            let (graph, rows) = layout_graph(&commits);
+            let (graph, rows) = layout_graph(commits.to_vec());
+            assert_eq!(graph.len(), commits.len(), "missing graph node for {name}");
+            assert_eq!(rows.len(), commits.len(), "missing graph row for {name}");
+            assert_eq!(
+                serde_json::to_vec(&(&graph, &rows)).unwrap(),
+                serde_json::to_vec(&layout_graph(commits.to_vec())).unwrap(),
+                "nondeterministic geometry for {name}",
+            );
             let signature = json!({
                 "columns": graph.iter().map(|commit| commit.column).collect::<Vec<_>>(),
                 "transitions": rows.iter().map(|row| row.transitions.iter().map(|edge| (edge.from_column, edge.to_column)).collect::<Vec<_>>()).collect::<Vec<_>>(),
@@ -7227,8 +5728,7 @@ mod tests {
             "export const value = 1;\n",
         )
         .unwrap();
-        git(repository.path(), &["add", "tracked.ts"]);
-        git(repository.path(), &["commit", "-m", "initial"]);
+        commit_file(repository.path(), "tracked.ts", "initial");
         std::fs::write(
             repository.path().join("tracked.ts"),
             "export const value = 2;\n",
@@ -7325,8 +5825,7 @@ mod tests {
             "export const renamed = true;\n",
         )
         .unwrap();
-        git(repository.path(), &["add", "."]);
-        git(repository.path(), &["commit", "-m", "initial"]);
+        commit_file(repository.path(), ".", "initial");
         std::fs::remove_file(repository.path().join("deleted.ts")).unwrap();
         git(repository.path(), &["mv", "old-name.ts", "new-name.ts"]);
         let cwd = repository.path().to_string_lossy();
@@ -7358,8 +5857,7 @@ mod tests {
             format!("{}\n", "a".repeat(9_001)),
         )
         .unwrap();
-        git(repository.path(), &["add", "."]);
-        git(repository.path(), &["commit", "-m", "initial"]);
+        commit_file(repository.path(), ".", "initial");
         std::fs::write(repository.path().join("image.png"), [137, 80, 78, 71, 1]).unwrap();
         std::fs::write(
             repository.path().join("long.ts"),
@@ -7404,27 +5902,5 @@ mod tests {
             .raw_patch
             .unwrap()
             .contains("diff --git a/conflict.ts b/conflict.ts"));
-    }
-
-    #[test]
-    fn simple_and_file_with_diff_preserve_existing_contracts() {
-        let repository = make_repository();
-        std::fs::write(repository.path().join("tracked.ts"), "one\ntwo\n").unwrap();
-        git(repository.path(), &["add", "tracked.ts"]);
-        git(repository.path(), &["commit", "-m", "initial"]);
-        std::fs::write(repository.path().join("tracked.ts"), "one\nchanged\n").unwrap();
-        let cwd = repository.path().to_string_lossy();
-        let roots = allowed(repository.path());
-
-        let diff = get_git_diff(&roots, &cwd, "tracked.ts", false);
-        assert!(diff.contains("-two"));
-        assert!(diff.contains("+changed"));
-        let GitFileWithDiff::Text { lines } =
-            get_git_file_with_diff(&roots, &cwd, "tracked.ts", false)
-        else {
-            panic!("expected text file response");
-        };
-        assert_eq!(lines[1].line_type, GitDiffLineType::Add);
-        assert_eq!(lines[1].content, "changed");
     }
 }

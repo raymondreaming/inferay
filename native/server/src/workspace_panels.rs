@@ -3,40 +3,21 @@ use super::*;
 use serde_json::Value;
 
 const KEY: &str = "native-workspace-panels:";
-const LEGACY_KEY: &str = "agent-workspace-panels:";
 
-pub(super) async fn handle(state: &ServerState, request: Request) -> Response {
-    let headers = request.headers().clone();
-    let body: Value = match request_json(request, &headers).await {
-        Ok(body) => body,
-        Err(response) => return response,
-    };
-    let Some(workspace_id) = body
-        .get("workspaceId")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-    else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({"error":"workspaceId is required"}),
-            &headers,
-        );
-    };
+pub(super) async fn handle(state: &ServerState, request: Request) -> ApiResult {
+    let body: Value = api_body(request).await?;
+    let workspace_id = required(
+        body["workspaceId"].as_str().filter(|id| !id.is_empty()),
+        "workspaceId is required",
+    )?;
     let _guard = state.client_storage_write.lock().await;
-    let mut entries = read_json_object(&state.client_storage_path).await;
+    let mut entries = read_client_storage(&state.client_storage_path).await?;
     let key = format!("{KEY}{workspace_id}");
     let stored = entries
         .get(&key)
-        .or_else(|| entries.get(&format!("{LEGACY_KEY}{workspace_id}")))
         .and_then(Value::as_str)
         .and_then(|text| serde_json::from_str::<Value>(text).ok());
-    let mut current = normalize(
-        stored
-            .as_ref()
-            .or_else(|| body.get("legacy"))
-            .unwrap_or(&Value::Null),
-        false,
-    );
+    let mut current = normalize(stored.as_ref().unwrap_or(&Value::Null), false);
     if let Some(patch) = body.get("patch").and_then(Value::as_object) {
         current
             .as_object_mut()
@@ -45,18 +26,8 @@ pub(super) async fn handle(state: &ServerState, request: Request) -> Response {
     }
     let durable = normalize(&current, false);
     entries.insert(key, Value::String(durable.to_string()));
-    if let Err(error) = write_json_object(&state.client_storage_path, &entries).await {
-        return json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({"error":error}),
-            &headers,
-        );
-    }
-    json_response(
-        StatusCode::OK,
-        json!({"session":normalize(&durable, true)}),
-        &headers,
-    )
+    write_json_object(&state.client_storage_path, &entries).await?;
+    Ok(json!({"session":normalize(&durable, true)}))
 }
 
 fn normalize(value: &Value, restore: bool) -> Value {
@@ -107,10 +78,7 @@ fn normalize(value: &Value, restore: bool) -> Value {
     }
     if value["fileRequest"]["path"].is_string() {
         let token = if restore {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64
+            unix_millis()
         } else {
             value["fileRequest"]["token"].as_u64().unwrap_or(0)
         };
@@ -144,7 +112,7 @@ fn normalize(value: &Value, restore: bool) -> Value {
 mod tests {
     use super::*;
     #[test]
-    fn restores_legacy_selection_and_excludes_transient_content() {
+    fn restores_selection_and_excludes_transient_content() {
         let session = normalize(
             &json!({
                 "mainViewMode":"diff", "selectedFile":{"path":"a.rs", "staged":false},

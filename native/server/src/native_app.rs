@@ -1,17 +1,17 @@
+use crate::unix_millis as epoch_millis;
 use std::collections::HashSet;
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::process::Stdio;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
-use axum::extract::Request;
-use axum::http::{HeaderMap, Method, StatusCode};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use regex::Regex;
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::{ServerState, json_response, request_json};
+use super::{ServerState, json_response};
 
 const DEFAULT_RELEASE_REPO: &str = "raymondreaming/inferay";
 const RELEASE_CHECK_TIMEOUT: Duration = Duration::from_millis(1_500);
@@ -38,7 +38,7 @@ struct AppUpdateInfo {
 }
 
 #[derive(Debug, Serialize)]
-struct AppInfo {
+pub(super) struct AppInfo {
     name: String,
     version: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -50,84 +50,46 @@ struct AppInfo {
     update: AppUpdateInfo,
 }
 
-pub(super) fn is_route(path: &str, method: &Method) -> bool {
-    matches!(
-        (path, method),
-        ("/api/app-info", &Method::GET)
-            | ("/api/native/open-path", &Method::POST)
-            | ("/api/native/update", &Method::POST)
-    )
-}
-
-pub(super) async fn handle_request(state: &ServerState, path: &str, request: Request) -> Response {
-    let headers = request.headers().clone();
-    match path {
-        "/api/app-info" => {
-            let info = load_app_info(state).await;
-            json_response(StatusCode::OK, json!(info), &headers)
-        }
-        "/api/native/open-path" => open_path_route(state, request, &headers).await,
-        "/api/native/update" => update_route(&headers),
-        _ => unreachable!("native application handler called for an unknown route"),
-    }
-}
-
-async fn load_app_info(state: &ServerState) -> AppInfo {
-    let app_root = state.allowed_paths.project_root();
-    let version_candidates = [
-        app_root.join("version.json"),
-        app_root.parent().unwrap_or(app_root).join("version.json"),
-    ];
-    let mut version_info = None;
-    for path in version_candidates {
-        version_info = read_app_info_json(&path).await;
-        if version_info.is_some() {
+pub(super) async fn load_app_info(state: &ServerState) -> AppInfo {
+    let root = state.allowed_paths.project_root();
+    let mut metadata = None;
+    for path in [
+        root.join("version.json"),
+        root.parent().unwrap_or(root).join("version.json"),
+    ] {
+        metadata = read_app_info_json(&path).await;
+        if metadata.is_some() {
             break;
         }
     }
-
-    if let Some(version_info) = version_info {
-        let version = value_or_default(version_info.get("version"), "dev");
-        let channel = value_or_default(version_info.get("channel"), "stable");
-        let name = value_or_default(version_info.get("name"), "inferay");
-        let hash = version_info
-            .get("hash")
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        let identifier = version_info
-            .get("identifier")
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        let production = identifier.as_deref() == Some("com.inferay.app");
-        let update = load_update_info(state, &version, &channel).await;
-        return AppInfo {
-            name,
-            version,
-            hash,
-            channel,
-            identifier,
-            production,
-            update,
-        };
-    }
-
-    let package = read_app_info_json(&app_root.join("packages/inferay/package.json")).await;
-    let version = package
-        .as_ref()
-        .and_then(|value| value.get("version"))
-        .and_then(Value::as_str)
-        .unwrap_or("dev")
-        .to_string();
-    let channel = "stable".to_string();
+    let metadata = match metadata {
+        Some(value) => value,
+        None => {
+            let package = read_app_info_json(&root.join("packages/inferay/package.json"))
+                .await
+                .unwrap_or(Value::Null);
+            json!({"version":package["version"]})
+        }
+    };
+    let text = |key: &str, fallback: &str| {
+        metadata[key]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(fallback)
+            .to_owned()
+    };
+    let version = text("version", "dev");
+    let channel = text("channel", "stable");
+    let identifier = metadata["identifier"].as_str().map(str::to_owned);
     let update = load_update_info(state, &version, &channel).await;
     AppInfo {
-        name: "inferay".into(),
+        name: text("name", "inferay"),
         version,
-        hash: None,
         channel,
-        identifier: None,
-        production: false,
         update,
+        production: identifier.as_deref() == Some("com.inferay.app"),
+        hash: metadata["hash"].as_str().map(str::to_owned),
+        identifier,
     }
 }
 
@@ -135,41 +97,6 @@ async fn read_app_info_json(path: &Path) -> Option<Value> {
     let bytes = tokio::fs::read(path).await.ok()?;
     let value = serde_json::from_slice::<Value>(&bytes).ok()?;
     value.is_object().then_some(value)
-}
-
-fn value_or_default(value: Option<&Value>, fallback: &str) -> String {
-    value
-        .filter(|value| javascript_truthy(value))
-        .map(javascript_string)
-        .unwrap_or_else(|| fallback.to_string())
-}
-
-fn javascript_truthy(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::Bool(value) => *value,
-        Value::Number(value) => value.as_f64().is_some_and(|value| value != 0.0),
-        Value::String(value) => !value.is_empty(),
-        Value::Array(_) | Value::Object(_) => true,
-    }
-}
-
-fn javascript_string(value: &Value) -> String {
-    match value {
-        Value::Null => "null".into(),
-        Value::Bool(value) => value.to_string(),
-        Value::Number(value) => value.to_string(),
-        Value::String(value) => value.clone(),
-        Value::Array(values) => values
-            .iter()
-            .map(|value| match value {
-                Value::Null => String::new(),
-                _ => javascript_string(value),
-            })
-            .collect::<Vec<_>>()
-            .join(","),
-        Value::Object(_) => "[object Object]".into(),
-    }
 }
 
 async fn load_update_info(
@@ -300,82 +227,7 @@ fn is_newer_version(candidate: &str, current: &str) -> bool {
     candidate > current
 }
 
-async fn open_path_route(state: &ServerState, request: Request, headers: &HeaderMap) -> Response {
-    let body: Value = match request_json(request, headers).await {
-        Ok(body) => body,
-        Err(response) => return response,
-    };
-    let Some(path) = body.get("path").and_then(Value::as_str) else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing path" }),
-            headers,
-        );
-    };
-    if path.trim().is_empty() {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing path" }),
-            headers,
-        );
-    }
-    let Some(path) = state.allowed_paths.resolve_allowed_local_path(path) else {
-        return json_response(
-            StatusCode::FORBIDDEN,
-            json!({ "error": "Access denied" }),
-            headers,
-        );
-    };
-    let reveal = body.get("reveal").is_some_and(javascript_truthy);
-    match open_native_path(&path, reveal).await {
-        Ok(ok) => json_response(StatusCode::OK, json!({ "ok": ok }), headers),
-        Err(error) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error }),
-            headers,
-        ),
-    }
-}
-
-async fn open_native_path(path: &Path, reveal: bool) -> Result<bool, String> {
-    let path = path.to_string_lossy().into_owned();
-    #[cfg(target_os = "macos")]
-    let (program, args) = if reveal {
-        ("open", vec!["-R".to_string(), path])
-    } else {
-        ("open", vec![path])
-    };
-
-    #[cfg(target_os = "windows")]
-    let (program, args) = if reveal {
-        ("explorer.exe", vec![format!("/select,{path}")])
-    } else {
-        ("explorer.exe", vec![path])
-    };
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let (program, args) = if reveal {
-        let parent = Path::new(&path)
-            .parent()
-            .map(|parent| parent.to_string_lossy().into_owned())
-            .filter(|parent| !parent.is_empty())
-            .unwrap_or(path);
-        ("xdg-open", vec![parent])
-    } else {
-        ("xdg-open", vec![path])
-    };
-
-    let status = tokio::process::Command::new(program)
-        .args(args)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .await
-        .map_err(|error| error.to_string())?;
-    Ok(status.success())
-}
-
-fn update_route(headers: &HeaderMap) -> Response {
+pub(super) fn update_route(headers: &HeaderMap) -> Response {
     match run_inferay_update() {
         Ok(log_path) => json_response(
             StatusCode::OK,
@@ -542,13 +394,6 @@ fn unique_strings(values: impl IntoIterator<Item = String>) -> Vec<String> {
 
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
-}
-
-fn epoch_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
 }
 
 #[cfg(test)]

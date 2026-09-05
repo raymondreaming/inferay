@@ -1,43 +1,11 @@
-use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    io::SeekFrom,
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
-
-use inferay_core::chat_protocol::{
-    ChatMessageBuffer, ChatTranscriptMessage, parse_chat_transcript,
-};
+use inferay_core::chat_protocol::ChatTranscriptMessage;
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::{
-    fs,
-    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
-    sync::Mutex,
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
 };
-
-const CHAT_EVENTS_DIR: &str = "chat-events";
-const CHAT_QUEUE_DIR: &str = "chat-queues";
-const CHAT_TRANSCRIPTS_DIR: &str = "chat-transcripts";
-const CHAT_UPDATE_JOURNALS_DIR: &str = "chat-transcript-updates";
-const MAX_JOURNAL_RECORD_BYTES: usize = 32 * 1024 * 1024;
-const COMPACT_JOURNAL_BYTES: u64 = 8 * 1024 * 1024;
-const COMPACT_JOURNAL_RECORDS: usize = 512;
-
-const MAX_CHAT_EVENT_READ_BYTES: u64 = 4 * 1024 * 1024;
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ChatEventLogEntry {
-    #[serde(rename = "paneId")]
-    pub pane_id: String,
-    pub sequence: u64,
-    pub timestamp: u64,
-    #[serde(rename = "type")]
-    pub event_type: String,
-    pub payload: Value,
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct QueuedMessageInfo {
     pub id: String,
@@ -46,13 +14,6 @@ pub struct QueuedMessageInfo {
     pub display_text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<String>>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct ChatReconnectSnapshot {
-    pub sync: Value,
-    pub queue: Value,
-    pub status: Value,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -69,118 +30,155 @@ pub struct ChatSessionReference {
 
 #[derive(Clone)]
 pub struct ChatPersistence {
-    user_data_dir: PathBuf,
-    queue_writes: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
-    transcript_writes: Arc<Mutex<JournalCache>>,
+    path: PathBuf,
+    connection: Arc<tokio::sync::Mutex<Option<Connection>>>,
 }
+
+type StoreResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+const MAX_UPDATE_BYTES: usize = 32 * 1024 * 1024;
 
 impl ChatPersistence {
     pub fn new(user_data_dir: PathBuf) -> Self {
         Self {
-            user_data_dir,
-            queue_writes: Arc::new(Mutex::new(HashMap::new())),
-            transcript_writes: Arc::new(Mutex::new(JournalCache::default())),
+            path: user_data_dir.join("chat.sqlite3"),
+            connection: Arc::default(),
         }
     }
 
-    async fn read_legacy_events(&self, pane_id: &str) -> std::io::Result<Vec<ChatEventLogEntry>> {
-        let path = self.event_path(pane_id);
-        let mut events = Vec::new();
-        if let Ok(mut file) = fs::File::open(path).await {
-            let size = file.metadata().await?.len();
-            let start = size.saturating_sub(MAX_CHAT_EVENT_READ_BYTES);
-            file.seek(SeekFrom::Start(start)).await?;
-            let mut bytes = Vec::new();
-            file.read_to_end(&mut bytes).await?;
-            let mut text = String::from_utf8_lossy(&bytes).into_owned();
-            if start > 0 {
-                text = text
-                    .find('\n')
-                    .map_or_else(String::new, |index| text[index + 1..].to_string());
-            }
-            for line in text.lines() {
-                if line.trim().is_empty() {
-                    continue;
-                }
-                let Ok(entry) = serde_json::from_str::<ChatEventLogEntry>(line) else {
-                    continue;
-                };
-                if entry.pane_id == pane_id {
-                    events.push(entry);
-                }
-            }
-        }
-        events.sort_by_key(|entry| entry.sequence);
-        events.dedup_by_key(|entry| entry.sequence);
-        Ok(events)
-    }
-
-    async fn read_legacy_snapshot(&self, pane_id: &str) -> Option<Vec<ChatTranscriptMessage>> {
-        let value = read_json_value(&self.transcript_path(pane_id)).await;
-        value.and_then(parse_chat_transcript)
-    }
-
-    pub async fn read_legacy_transcript(
+    // SQLite owns synchronization and recovery; no operation blocks the async runtime.
+    async fn transaction<T: Send + 'static>(
         &self,
         pane_id: &str,
-    ) -> Option<Vec<ChatTranscriptMessage>> {
-        if self.journal_path(pane_id).is_err() {
-            return None;
+        operation: impl FnOnce(&Connection, &str) -> StoreResult<T> + Send + 'static,
+    ) -> Result<T, String> {
+        if pane_id.is_empty()
+            || !pane_id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'))
+        {
+            return Err("Invalid pane id".into());
         }
-        let lock = self.transcript_write_lock(pane_id).await;
-        let mut state = lock.lock().await;
-        match self.load_journal(pane_id, &mut state).await {
-            Ok(()) if state.records > 0 => {
-                let mut messages = state.messages.clone();
-                for message in &mut messages {
-                    message.is_streaming = Some(false);
+        let path = self.path.clone();
+        let pane_id = pane_id.to_owned();
+        let mut guard = self.connection.clone().lock_owned().await;
+        tokio::task::spawn_blocking(move || -> StoreResult<T> {
+            if guard.is_none() {
+                std::fs::create_dir_all(path.parent().ok_or("Invalid chat database path")?)?;
+                let connection = Connection::open(&path)?;
+                connection.busy_timeout(std::time::Duration::from_secs(5))?;
+                let started = std::time::Instant::now();
+                loop {
+                    // SQLite can bypass the busy handler during lock upgrades.
+                    // Only these idempotent setup statements may be replayed.
+                    let initialized = connection.execute_batch(
+                    "PRAGMA journal_mode=WAL;
+                     PRAGMA synchronous=FULL;
+                     PRAGMA fullfsync=ON;
+                     PRAGMA cache_size=-2048;
+                     PRAGMA wal_autocheckpoint=256;
+                     CREATE TABLE IF NOT EXISTS documents (
+                         pane TEXT NOT NULL, kind TEXT NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)),
+                         PRIMARY KEY(pane, kind));
+                     CREATE TABLE IF NOT EXISTS transcripts (
+                         pane TEXT PRIMARY KEY NOT NULL, epoch TEXT NOT NULL, revision TEXT NOT NULL);
+                     CREATE TABLE IF NOT EXISTS retired_epochs (
+                         pane TEXT NOT NULL, epoch TEXT NOT NULL, PRIMARY KEY(pane, epoch));
+                     CREATE TABLE IF NOT EXISTS transcript_messages (
+                         pane TEXT NOT NULL, position INTEGER NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)),
+                         PRIMARY KEY(pane, position));"
+                    );
+                    match initialized {
+                        Ok(()) => break,
+                        Err(error) if error.sqlite_error_code() == Some(rusqlite::ErrorCode::DatabaseBusy)
+                            && started.elapsed() < std::time::Duration::from_secs(5) => {
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                        }
+                        Err(error) => return Err(format!("Chat database initialization failed: {error}").into()),
+                    }
                 }
-                return Some(messages);
+                *guard = Some(connection);
             }
-            Err(error) => eprintln!("Failed to restore chat journal for {pane_id}: {error}"),
-            _ => {}
-        }
-        if let Some(snapshot) = self.read_legacy_snapshot(pane_id).await {
-            return Some(snapshot);
-        }
-        self.read_event_log_transcript(pane_id).await
+            let transaction = guard.as_mut().unwrap().transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let result = operation(&transaction, &pane_id)?;
+            transaction.commit()?;
+            Ok(result)
+        }).await.map_err(|error| error.to_string())?.map_err(|error| error.to_string())
     }
 
-    async fn handoffs(
+    async fn edit_document<D, T>(
         &self,
         pane_id: &str,
-    ) -> Result<(PathBuf, serde_json::Map<String, Value>), String> {
-        self.journal_path(pane_id)?;
-        let path = self
-            .user_data_dir
-            .join("chat-handoffs")
-            .join(format!("{pane_id}.json"));
-        let entries = match fs::read(&path).await {
-            Ok(bytes) => serde_json::from_slice::<serde_json::Map<String, Value>>(&bytes)
-                .map_err(|e| e.to_string())?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => serde_json::Map::new(),
-            Err(error) => return Err(error.to_string()),
-        };
-        Ok((path, entries))
+        kind: &'static str,
+        edit: impl FnOnce(&mut D) -> StoreResult<T> + Send + 'static,
+    ) -> Result<T, String>
+    where
+        D: Serialize + serde::de::DeserializeOwned + Default,
+        T: Send + 'static,
+    {
+        self.transaction(pane_id, move |connection, pane| {
+            let mut document: D = read_document(connection, pane, kind)?;
+            let result = edit(&mut document)?;
+            write_document(connection, pane, kind, &document)?;
+            Ok(result)
+        })
+        .await
     }
 
-    async fn write_handoffs(
-        path: &Path,
-        entries: &serde_json::Map<String, Value>,
-    ) -> Result<(), String> {
-        let bytes = serde_json::to_vec(entries).map_err(|e| e.to_string())?;
-        if bytes.len() > 4 * 1024 * 1024 {
-            return Err("Image chat handoff storage is full; start a new chat".into());
+    pub async fn read_transcript(&self, pane_id: &str) -> Option<Vec<ChatTranscriptMessage>> {
+        let result = self
+            .transaction(pane_id, |connection, pane| {
+                let exists: bool = connection.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM transcripts WHERE pane=?1)",
+                    [pane],
+                    |row| row.get(0),
+                )?;
+                if !exists {
+                    return Ok(None);
+                }
+                let mut statement = connection.prepare(
+                    "SELECT body FROM transcript_messages WHERE pane=?1 ORDER BY position",
+                )?;
+                let messages = statement
+                    .query_map([pane], |row| row.get::<_, String>(0))?
+                    .map(|body| {
+                        let mut message: ChatTranscriptMessage = serde_json::from_str(&body?)?;
+                        message.is_streaming = Some(false);
+                        Ok(message)
+                    })
+                    .collect::<StoreResult<Vec<_>>>()?;
+                Ok(Some(messages))
+            })
+            .await;
+        match result {
+            Ok(messages) => messages,
+            Err(error) => {
+                eprintln!("Failed to restore chat for {pane_id}: {error}");
+                None
+            }
         }
-        fs::create_dir_all(path.parent().ok_or("Invalid handoff path")?)
-            .await
-            .map_err(|e| e.to_string())?;
-        durable_replace(path, &bytes)
-            .await
-            .map_err(|e| e.to_string())
     }
 
-    /// Durable receipt is the retry identity; the caller must reuse its ID after an uncertain response.
+    /// Persist only changed message rows, atomically with their epoch and revision.
+    pub async fn persist_update(&self, pane_id: &str, update: &Value) -> Result<(), String> {
+        let encoded = serde_json::to_vec(update).map_err(|error| error.to_string())?;
+        if encoded.len() > MAX_UPDATE_BYTES {
+            return Err("Chat update exceeds safety limit".into());
+        }
+        self.transaction(pane_id, move |connection, pane| {
+            apply_update(connection, pane, &serde_json::from_slice(&encoded)?)
+        })
+        .await
+    }
+
+    pub async fn contains_message(&self, pane_id: &str, id: &str) -> bool {
+        let id = id.to_owned();
+        self.transaction(pane_id, move |connection, pane| {
+            let queue: Vec<Value> = read_document(connection, pane, "queue")?;
+            if queue.iter().any(|item| item["id"] == id) { return Ok(true); }
+            Ok(connection.query_row("SELECT EXISTS(SELECT 1 FROM transcript_messages WHERE pane=?1 AND json_extract(body,'$.id')=?2)", [pane, &id], |row| row.get(0))?)
+        }).await.unwrap_or(false)
+    }
+
     pub async fn receive_handoff(
         &self,
         pane_id: &str,
@@ -188,7 +186,6 @@ impl ChatPersistence {
         request: Value,
     ) -> Result<Value, String> {
         if !request_id.starts_with(&format!("{}:{pane_id}:", pane_id.len()))
-            || request_id.is_empty()
             || request_id.len() > 128
             || !request_id
                 .bytes()
@@ -196,57 +193,53 @@ impl ChatPersistence {
         {
             return Err("Invalid image chat request ID".into());
         }
-        let lock = self.transcript_write_lock(pane_id).await;
-        let _guard = lock.lock().await;
-        let (path, mut entries) = self.handoffs(pane_id).await?;
-        if let Some(receipt) = entries.get(request_id) {
-            if receipt["request"] != request {
-                return Err("Request ID was already used for a different handoff".into());
+        let request_id = request_id.to_owned();
+        self.edit_document(pane_id, "handoffs", move |entries: &mut serde_json::Map<String, Value>| {
+            if let Some(receipt) = entries.get(&request_id) {
+                if receipt["request"] != request { return Err("Request ID was already used for a different handoff".into()); }
+                return Ok(receipt.clone());
             }
-            return Ok(receipt.clone());
-        }
-        if entries
-            .values()
-            .any(|receipt| matches!(receipt["status"].as_str(), Some("pending" | "accepted")))
-        {
-            return Err(
-                "Another image chat handoff is pending; wait for it before starting another".into(),
-            );
-        }
-        if entries.len() >= 256 {
-            return Err("Image chat receipt limit reached; start a new chat".into());
-        }
-        let receipt = json!({"requestId":request_id,"status":"pending","request":request});
-        entries.insert(request_id.into(), receipt.clone());
-        Self::write_handoffs(&path, &entries).await?;
-        Ok(receipt)
+            if entries.values().any(|receipt| matches!(receipt["status"].as_str(), Some("pending" | "accepted"))) {
+                return Err("Another image chat handoff is pending; wait for it before starting another".into());
+            }
+            if entries.len() >= 256 { return Err("Image chat receipt limit reached; start a new chat".into()); }
+            let receipt = json!({"requestId":request_id,"status":"pending","request":request});
+            entries.insert(request_id, receipt.clone());
+            Ok(receipt)
+        }).await
     }
 
     pub async fn handoff_receipts(&self, pane_id: &str) -> Result<Vec<Value>, String> {
-        let lock = self.transcript_write_lock(pane_id).await;
-        let _guard = lock.lock().await;
-        Ok(self.handoffs(pane_id).await?.1.into_values().collect())
+        self.transaction(pane_id, |connection, pane| {
+            let entries: serde_json::Map<String, Value> =
+                read_document(connection, pane, "handoffs")?;
+            Ok(entries.into_values().collect())
+        })
+        .await
     }
 
-    /// Claim before provider or queue side effects. A crash after this point must not auto-reexecute.
+    /// Commit the claim before any provider side effect; accepted work is never replayed after a crash.
     pub async fn claim_handoff(
         &self,
         pane_id: &str,
         request_id: &str,
     ) -> Result<Option<Value>, String> {
-        let lock = self.transcript_write_lock(pane_id).await;
-        let _guard = lock.lock().await;
-        let (path, mut entries) = self.handoffs(pane_id).await?;
-        let Some(receipt) = entries.get_mut(request_id) else {
-            return Ok(None);
-        };
-        if receipt["status"] != "pending" {
-            return Ok(None);
-        }
-        receipt["status"] = json!("accepted");
-        let request = receipt["request"].clone();
-        Self::write_handoffs(&path, &entries).await?;
-        Ok(Some(request))
+        let request_id = request_id.to_owned();
+        self.edit_document(
+            pane_id,
+            "handoffs",
+            move |entries: &mut serde_json::Map<String, Value>| {
+                let Some(receipt) = entries
+                    .get_mut(&request_id)
+                    .filter(|receipt| receipt["status"] == "pending")
+                else {
+                    return Ok(None);
+                };
+                receipt["status"] = json!("accepted");
+                Ok(Some(receipt["request"].clone()))
+            },
+        )
+        .await
     }
 
     pub async fn mark_handoff(
@@ -255,14 +248,18 @@ impl ChatPersistence {
         request_id: &str,
         status: &str,
     ) -> Result<(), String> {
-        let lock = self.transcript_write_lock(pane_id).await;
-        let _guard = lock.lock().await;
-        let (path, mut entries) = self.handoffs(pane_id).await?;
-        if let Some(receipt) = entries.get_mut(request_id) {
-            receipt["status"] = json!(status);
-            Self::write_handoffs(&path, &entries).await?;
-        }
-        Ok(())
+        let (request_id, status) = (request_id.to_owned(), status.to_owned());
+        self.edit_document(
+            pane_id,
+            "handoffs",
+            move |entries: &mut serde_json::Map<String, Value>| {
+                if let Some(receipt) = entries.get_mut(&request_id) {
+                    receipt["status"] = json!(status);
+                }
+                Ok(())
+            },
+        )
+        .await
     }
 
     pub async fn save_session_reference(
@@ -273,286 +270,39 @@ impl ChatPersistence {
         cwd: &Path,
         configuration: (Option<&str>, Option<&str>),
     ) -> Result<(), String> {
-        self.journal_path(pane_id)?;
         if provider.trim().is_empty() || session_id.trim().is_empty() {
             return Err("Missing provider session reference".into());
         }
-        let lock = self.transcript_write_lock(pane_id).await;
-        let _guard = lock.lock().await;
-        let path = self
-            .user_data_dir
-            .join("chat-sessions")
-            .join(format!("{pane_id}.json"));
-        fs::create_dir_all(path.parent().ok_or("Invalid session path")?)
-            .await
-            .map_err(|e| e.to_string())?;
-        let value = ChatSessionReference {
+        let reference = ChatSessionReference {
             provider: provider.into(),
             session_id: session_id.into(),
             cwd: cwd.into(),
             model: configuration.0.map(str::to_owned),
             reasoning_level: configuration.1.map(str::to_owned),
         };
-        let bytes = serde_json::to_vec(&value).map_err(|e| e.to_string())?;
-        durable_replace(&path, &bytes)
-            .await
-            .map_err(|e| e.to_string())
+        self.transaction(pane_id, move |connection, pane| {
+            write_document(connection, pane, "session", &reference)
+        })
+        .await
     }
 
     pub async fn read_session_reference(&self, pane_id: &str) -> Option<ChatSessionReference> {
-        self.journal_path(pane_id).ok()?;
-        let path = self
-            .user_data_dir
-            .join("chat-sessions")
-            .join(format!("{pane_id}.json"));
-        let value: ChatSessionReference =
-            serde_json::from_value(read_json_value(&path).await?).ok()?;
-        (!value.provider.trim().is_empty() && !value.session_id.trim().is_empty()).then_some(value)
-    }
-
-    async fn transcript_write_lock(&self, pane_id: &str) -> Arc<Mutex<JournalState>> {
-        let mut cache = self.transcript_writes.lock().await;
-        if let Some(index) = cache.order.iter().position(|key| key == pane_id) {
-            cache.order.remove(index);
-        }
-        cache.order.push_back(pane_id.into());
-        let existing = cache.entries.get(pane_id).cloned();
-        let limit = if existing.is_some() { 16 } else { 15 };
-        while cache.entries.len() > limit {
-            let Some(index) = cache.order.iter().position(|key| {
-                cache
-                    .entries
-                    .get(key)
-                    .is_some_and(|entry| Arc::strong_count(entry) == 1)
-            }) else {
-                break;
-            };
-            if let Some(key) = cache.order.remove(index) {
-                cache.entries.remove(&key);
-            }
-        }
-        if let Some(state) = existing {
-            return state;
-        }
-        let state = Arc::new(Mutex::new(JournalState::default()));
-        cache.entries.insert(pane_id.into(), state.clone());
-        state
-    }
-
-    fn journal_path(&self, pane_id: &str) -> Result<PathBuf, String> {
-        if pane_id.is_empty()
-            || !pane_id
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'))
-        {
-            return Err("Invalid pane id".into());
-        }
-        Ok(self
-            .user_data_dir
-            .join(CHAT_UPDATE_JOURNALS_DIR)
-            .join(format!("{pane_id}.jsonl")))
-    }
-
-    async fn load_journal(&self, pane_id: &str, state: &mut JournalState) -> Result<(), String> {
-        if state.loaded {
-            return Ok(());
-        }
-        let path = self.journal_path(pane_id)?;
-        let mut restored = JournalState::default();
-        match fs::File::open(&path).await {
-            Ok(mut file) => {
-                let mut pending = Vec::new();
-                let mut chunk = vec![0_u8; 64 * 1024];
-                loop {
-                    let count = file.read(&mut chunk).await.map_err(|e| e.to_string())?;
-                    if count == 0 {
-                        break;
-                    }
-                    let mut start = 0;
-                    for (index, byte) in chunk[..count].iter().enumerate() {
-                        if *byte != b'\n' {
-                            continue;
-                        }
-                        pending.extend_from_slice(&chunk[start..index]);
-                        if pending.len() > MAX_JOURNAL_RECORD_BYTES {
-                            return Err("Chat journal record exceeds safety limit".into());
-                        }
-                        let update: Value = serde_json::from_slice(&pending)
-                            .map_err(|e| format!("Invalid complete chat journal record: {e}"))?;
-                        if let Some(change) = restored.prepare(&update)? {
-                            restored.apply(change);
-                        }
-                        if let Some(retired) = update.get("retiredEpochs") {
-                            for epoch in retired
-                                .as_array()
-                                .ok_or("Invalid retired transcript epochs")?
-                            {
-                                restored.retired_epochs.insert(
-                                    epoch
-                                        .as_str()
-                                        .ok_or("Invalid retired transcript epoch")?
-                                        .into(),
-                                );
-                            }
-                        }
-                        restored.bytes += pending.len() as u64 + 1;
-                        if restored.records == 0 {
-                            restored.checkpoint_bytes = restored.bytes;
-                        }
-                        restored.records += 1;
-                        pending.clear();
-                        start = index + 1;
-                    }
-                    pending.extend_from_slice(&chunk[start..count]);
-                    if pending.len() > MAX_JOURNAL_RECORD_BYTES {
-                        return Err("Chat journal record exceeds safety limit".into());
-                    }
-                }
-                // Only an unterminated final record can be discarded. The next
-                // write truncates this interrupted tail before appending a record.
-                restored.partial_tail = !pending.is_empty();
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.to_string()),
-        }
-        if restored.records == 0 {
-            restored.messages = match self.read_legacy_snapshot(pane_id).await {
-                Some(messages) => messages,
-                None => self
-                    .read_event_log_transcript(pane_id)
-                    .await
-                    .unwrap_or_default(),
-            };
-        }
-        restored.loaded = true;
-        *state = restored;
-        Ok(())
-    }
-
-    /// Durably commit the same suffix update that is about to reach clients.
-    /// Token updates append only their delta; bounded journal compaction writes
-    /// a complete reset checkpoint occasionally, never once per token.
-    pub async fn persist_update(&self, pane_id: &str, update: &Value) -> Result<(), String> {
-        let path = self.journal_path(pane_id)?;
-        let lock = self.transcript_write_lock(pane_id).await;
-        let mut state = lock.lock().await;
-        self.load_journal(pane_id, &mut state).await?;
-        let Some(change) = state.prepare(update)? else {
-            return Ok(());
-        };
-        let mut encoded = serde_json::to_vec(update).map_err(|e| e.to_string())?;
-        if encoded.len() > MAX_JOURNAL_RECORD_BYTES {
-            return Err("Chat journal record exceeds safety limit".into());
-        }
-        encoded.push(b'\n');
-        let parent = path.parent().ok_or("Invalid journal path")?;
-        fs::create_dir_all(parent)
-            .await
-            .map_err(|e| e.to_string())?;
-        let result = async {
-            let mut file = fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .write(true)
-                .open(&path)
-                .await?;
-            if state.partial_tail {
-                file.set_len(state.bytes).await?;
-            }
-            file.write_all(&encoded).await?;
-            file.sync_all().await?;
-            if state.records == 0 {
-                sync_directory(parent).await?;
-                if let Some(grandparent) = parent.parent() {
-                    sync_directory(grandparent).await?;
-                }
-            }
-            Ok::<_, std::io::Error>(())
-        }
-        .await;
-        if let Err(error) = result {
-            state.loaded = false;
-            return Err(error.to_string());
-        }
-        state.apply(change);
-        state.bytes += encoded.len() as u64;
-        if state.records == 0 {
-            state.checkpoint_bytes = state.bytes;
-        }
-        state.records += 1;
-        state.partial_tail = false;
-        if state.bytes.saturating_sub(state.checkpoint_bytes) >= COMPACT_JOURNAL_BYTES
-            || state.records >= COMPACT_JOURNAL_RECORDS
-        {
-            let checkpoint = json!({"version":1,"epoch":state.epoch,"retiredEpochs":state.retired_epochs,"baseRevision":0,"revision":state.revision,"reset":true,"start":0,"deleteCount":0,"messages":state.messages.iter().map(|message| json!({"message":message})).collect::<Vec<_>>()});
-            let mut bytes = serde_json::to_vec(&checkpoint).map_err(|e| e.to_string())?;
-            if bytes.len() <= MAX_JOURNAL_RECORD_BYTES {
-                bytes.push(b'\n');
-                // Failure leaves the already durable append authoritative.
-                match durable_replace(&path, &bytes).await {
-                    Ok(()) => {
-                        state.bytes = bytes.len() as u64;
-                        state.checkpoint_bytes = state.bytes;
-                        state.records = 1;
-                    }
-                    Err(error) => {
-                        state.loaded = false;
-                        eprintln!("Could not compact chat journal for {pane_id}: {error}");
-                    }
-                }
-            }
-        }
-        Ok(())
+        self.transaction(pane_id, |connection, pane| {
+            read_document::<Option<ChatSessionReference>>(connection, pane, "session")
+        })
+        .await
+        .ok()
+        .flatten()
+        .filter(|reference| {
+            !reference.provider.trim().is_empty() && !reference.session_id.trim().is_empty()
+        })
     }
 
     pub async fn read_queue(&self, pane_id: &str) -> Result<Vec<Value>, String> {
-        let path = self.queue_path(pane_id)?;
-        let Some(value) = read_json_value(&path).await else {
-            return Ok(Vec::new());
-        };
-        Ok(value
-            .get("queue")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default())
-    }
-
-    pub async fn save_queue(&self, pane_id: &str, queue: &[Value]) -> Result<(), String> {
-        let write_lock = self.queue_write_lock(pane_id).await;
-        let _guard = write_lock.lock().await;
-        self.write_queue_file(pane_id, queue).await?;
-        #[cfg(test)]
-        self.append_event(
-            pane_id,
-            "queue_persisted",
-            queue_event_payload("api", queue),
-        )
-        .await;
-        Ok(())
-    }
-
-    async fn save_runtime_queue_unlocked(
-        &self,
-        pane_id: &str,
-        queue: &[Value],
-    ) -> Result<(), String> {
-        if queue.is_empty() {
-            self.remove_queue_file(pane_id).await?;
-        } else {
-            self.write_queue_file(pane_id, queue).await?;
-        }
-        #[cfg(test)]
-        {
-            self.append_event(
-                pane_id,
-                "queue_persisted",
-                queue_event_payload("runtime", queue),
-            )
-            .await;
-            self.append_event(pane_id, "queue_changed", json!({ "queue": queue }))
-                .await;
-        }
-        Ok(())
+        self.transaction(pane_id, |connection, pane| {
+            read_document(connection, pane, "queue")
+        })
+        .await
     }
 
     pub async fn enqueue_runtime(
@@ -560,508 +310,244 @@ impl ChatPersistence {
         pane_id: &str,
         message: Value,
     ) -> Result<Vec<Value>, String> {
-        let write_lock = self.queue_write_lock(pane_id).await;
-        let _guard = write_lock.lock().await;
-        let mut queue = self.read_queue(pane_id).await.unwrap_or_default();
-        queue.push(message);
-        self.save_runtime_queue_unlocked(pane_id, &queue).await?;
-        Ok(queue)
+        self.edit_document(pane_id, "queue", move |queue: &mut Vec<Value>| {
+            queue.push(message);
+            Ok(queue.clone())
+        })
+        .await
     }
 
-    /// Mutate only a queued item under the same lock used by enqueue and drain.
-    /// A late edit never recreates an item already consumed by the runtime.
+    /// Queue edits, enqueue, and drain commit through the same transaction boundary.
     pub async fn mutate_queue_item(
         &self,
         pane_id: &str,
         id: &str,
         text: Option<&str>,
     ) -> Result<Vec<Value>, String> {
-        let write_lock = self.queue_write_lock(pane_id).await;
-        let _guard = write_lock.lock().await;
-        let mut queue = self.read_queue(pane_id).await?;
-        if let Some(index) = queue
-            .iter()
-            .position(|item| item.get("id").and_then(Value::as_str) == Some(id))
-        {
-            if let Some(text) = text {
-                let text = text.trim();
-                if text.is_empty() {
-                    return Err("Queued message cannot be empty".into());
+        let (id, text) = (id.to_owned(), text.map(str::to_owned));
+        self.edit_document(pane_id, "queue", move |queue: &mut Vec<Value>| {
+            if let Some(index) = queue.iter().position(|item| item["id"] == id) {
+                if let Some(text) = text {
+                    let text = text.trim();
+                    if text.is_empty() {
+                        return Err("Queued message cannot be empty".into());
+                    }
+                    queue[index]["text"] = json!(text);
+                    queue[index]["displayText"] = json!(text);
+                } else {
+                    queue.remove(index);
                 }
-                queue[index]["text"] = json!(text);
-                queue[index]["displayText"] = json!(text);
-            } else {
-                queue.remove(index);
             }
-            self.save_runtime_queue_unlocked(pane_id, &queue).await?;
-        }
-        Ok(queue)
+            Ok(queue.clone())
+        })
+        .await
     }
 
     pub async fn shift_runtime(
         &self,
         pane_id: &str,
     ) -> Result<Option<(Value, Vec<Value>)>, String> {
-        let write_lock = self.queue_write_lock(pane_id).await;
-        let _guard = write_lock.lock().await;
-        let mut queue = self.read_queue(pane_id).await.unwrap_or_default();
-        if queue.is_empty() {
-            return Ok(None);
-        }
-        let next = queue.remove(0);
-        self.save_runtime_queue_unlocked(pane_id, &queue).await?;
-        Ok(Some((next, queue)))
+        self.edit_document(pane_id, "queue", |queue: &mut Vec<Value>| {
+            if queue.is_empty() {
+                return Ok(None);
+            }
+            Ok(Some((queue.remove(0), queue.clone())))
+        })
+        .await
     }
 
     pub async fn delete_queue(&self, pane_id: &str) -> Result<(), String> {
-        let write_lock = self.queue_write_lock(pane_id).await;
-        let _guard = write_lock.lock().await;
-        self.remove_queue_file(pane_id).await?;
-        #[cfg(test)]
-        self.append_event(
-            pane_id,
-            "queue_persisted",
-            json!({ "source": "api", "count": 0, "messageIds": [] }),
-        )
-        .await;
-        Ok(())
-    }
-
-    async fn queue_write_lock(&self, pane_id: &str) -> Arc<Mutex<()>> {
-        let mut writes = self.queue_writes.lock().await;
-        writes
-            .entry(pane_id.to_string())
-            .or_insert_with(|| Arc::new(Mutex::new(())))
-            .clone()
-    }
-
-    pub async fn persisted_reconnect_snapshot(&self, pane_id: &str) -> ChatReconnectSnapshot {
-        let queue = self
-            .read_queue(pane_id)
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|value| serde_json::from_value::<QueuedMessageInfo>(value).ok())
-            .collect::<Vec<_>>();
-        let messages = self
-            .read_legacy_transcript(pane_id)
-            .await
-            .unwrap_or_default();
-        let mut buffer = ChatMessageBuffer::default();
-        buffer.replace_messages(messages);
-        ChatReconnectSnapshot {
-            sync: json!({
-                "type": "chat:sync", "paneId": pane_id, "messages": buffer.messages(),
-                "modelVersion": 1, "epoch": buffer.epoch(), "revision": buffer.revision(), "isStreaming": false
-            }),
-            queue: json!({ "type": "chat:queue", "paneId": pane_id, "queue": queue }),
-            status: json!({
-                "type": "chat:status", "paneId": pane_id,
-                "status": "idle", "isLoading": false
-            }),
-        }
-    }
-
-    async fn read_event_log_transcript(&self, pane_id: &str) -> Option<Vec<ChatTranscriptMessage>> {
-        let events = self.read_legacy_events(pane_id).await.ok()?;
-        if events.is_empty() {
-            return None;
-        }
-        let mut buffer = ChatMessageBuffer::default();
-        let mut has_transcript_event = false;
-        for event in events {
-            has_transcript_event = replay_event(&mut buffer, &event) || has_transcript_event;
-        }
-        if !has_transcript_event {
-            return None;
-        }
-        buffer.finalize();
-        Some(buffer.into_messages())
-    }
-
-    fn event_path(&self, pane_id: &str) -> PathBuf {
-        self.user_data_dir
-            .join(CHAT_EVENTS_DIR)
-            .join(format!("{pane_id}.jsonl"))
-    }
-
-    fn transcript_path(&self, pane_id: &str) -> PathBuf {
-        self.user_data_dir
-            .join(CHAT_TRANSCRIPTS_DIR)
-            .join(format!("{pane_id}.json"))
-    }
-
-    fn queue_path(&self, pane_id: &str) -> Result<PathBuf, String> {
-        if !pane_id.chars().all(|character| {
-            character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | ':' | '-')
-        }) {
-            return Err("Invalid pane id".to_string());
-        }
-        Ok(self
-            .user_data_dir
-            .join(CHAT_QUEUE_DIR)
-            .join(format!("{pane_id}.json")))
-    }
-
-    async fn write_queue_file(&self, pane_id: &str, queue: &[Value]) -> Result<(), String> {
-        atomic_write_json(
-            &self.queue_path(pane_id)?,
-            &json!({ "queue": queue, "updatedAt": now_millis() }),
-        )
-        .await
-        .map_err(|error| error.to_string())
-    }
-
-    async fn remove_queue_file(&self, pane_id: &str) -> Result<(), String> {
-        match fs::remove_file(self.queue_path(pane_id)?).await {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error.to_string()),
-        }
-    }
-}
-
-#[derive(Default)]
-struct JournalCache {
-    entries: HashMap<String, Arc<Mutex<JournalState>>>,
-    order: VecDeque<String>,
-}
-
-#[derive(Default)]
-struct JournalState {
-    loaded: bool,
-    epoch: Option<String>,
-    revision: u64,
-    messages: Vec<ChatTranscriptMessage>,
-    bytes: u64,
-    checkpoint_bytes: u64,
-    retired_epochs: HashSet<String>,
-    records: usize,
-    partial_tail: bool,
-}
-struct JournalChange {
-    epoch: String,
-    revision: u64,
-    start: usize,
-    delete: usize,
-    messages: Vec<ChatTranscriptMessage>,
-}
-impl JournalState {
-    fn prepare(&self, update: &Value) -> Result<Option<JournalChange>, String> {
-        let integer = |key: &str| {
-            update
-                .get(key)
-                .and_then(Value::as_u64)
-                .ok_or_else(|| format!("Invalid transcript {key}"))
-        };
-        if integer("version")? != 1 {
-            return Err("Unsupported transcript version".into());
-        }
-        let epoch = update
-            .get("epoch")
-            .and_then(Value::as_str)
-            .filter(|e| !e.is_empty())
-            .ok_or("Missing transcript epoch")?;
-        if self.retired_epochs.contains(epoch) {
-            return Err("Transcript update belongs to a retired epoch".into());
-        }
-        let revision = integer("revision")?;
-        let base = integer("baseRevision")?;
-        let reset = update
-            .get("reset")
-            .and_then(Value::as_bool)
-            .ok_or("Invalid transcript reset")?;
-        let changes = update
-            .get("messages")
-            .and_then(Value::as_array)
-            .ok_or("Invalid transcript messages")?;
-        if reset && changes.is_empty() && !self.messages.is_empty() {
-            return Ok(None);
-        }
-        if self.epoch.as_deref() == Some(epoch) && revision <= self.revision {
-            return Ok(None);
-        }
-        if !reset && (self.epoch.as_deref() != Some(epoch) || base != self.revision) {
-            return Err("Transcript update has an epoch or revision gap".into());
-        }
-        if revision <= base {
-            return Err("Transcript revision did not advance".into());
-        }
-        let raw_start =
-            usize::try_from(integer("start")?).map_err(|_| "Transcript start is too large")?;
-        let raw_delete = usize::try_from(integer("deleteCount")?)
-            .map_err(|_| "Transcript delete count is too large")?;
-        let (start, delete) = if reset {
-            if raw_start != 0 {
-                return Err("Transcript reset must start at zero".into());
-            }
-            (0, self.messages.len())
-        } else {
-            (raw_start, raw_delete)
-        };
-        if start > self.messages.len() || delete > self.messages.len() - start {
-            return Err("Transcript splice is outside retained messages".into());
-        }
-        let mut messages = Vec::with_capacity(changes.len());
-        for (offset, change) in changes.iter().enumerate() {
-            let mut message = change
-                .get("message")
-                .and_then(Value::as_object)
-                .cloned()
-                .ok_or("Invalid transcript message")?;
-            let id = message
-                .get("id")
-                .and_then(Value::as_str)
-                .filter(|id| !id.is_empty())
-                .ok_or("Missing transcript message id")?;
-            let previous = if reset {
-                None
-            } else {
-                self.messages.get(start + offset).filter(|old| old.id == id)
-            };
-            let content = if let Some(append) = change.get("appendContent") {
-                if message.contains_key("content") {
-                    return Err("Transcript patch includes both content and appendContent".into());
-                }
-                let append = append
-                    .as_str()
-                    .ok_or("Invalid appended transcript content")?;
-                let previous = previous.ok_or("Transcript append has no matching prior message")?;
-                let mut content = previous.content.clone();
-                content.push_str(append);
-                content
-            } else if let Some(content) = message.get("content") {
-                content
-                    .as_str()
-                    .ok_or("Invalid transcript content")?
-                    .to_owned()
-            } else {
-                previous
-                    .ok_or("Transcript message has no content")?
-                    .content
-                    .clone()
-            };
-            message.insert("content".into(), Value::String(content));
-            messages.push(
-                serde_json::from_value(Value::Object(message))
-                    .map_err(|_| "Invalid transcript message fields".to_string())?,
-            );
-        }
-        Ok(Some(JournalChange {
-            epoch: epoch.into(),
-            revision,
-            start,
-            delete,
-            messages,
-        }))
-    }
-    fn apply(&mut self, change: JournalChange) {
-        self.messages
-            .splice(change.start..change.start + change.delete, change.messages);
-        if self
-            .epoch
-            .as_ref()
-            .is_some_and(|epoch| epoch != &change.epoch)
-        {
-            self.retired_epochs.insert(self.epoch.take().unwrap());
-        }
-        self.epoch = Some(change.epoch);
-        self.revision = change.revision;
-    }
-}
-async fn sync_directory(path: &Path) -> std::io::Result<()> {
-    #[cfg(unix)]
-    {
-        let path = path.to_owned();
-        tokio::task::spawn_blocking(move || std::fs::File::open(path)?.sync_all())
-            .await
-            .map_err(std::io::Error::other)??;
-    }
-    #[cfg(not(unix))]
-    let _ = path;
-    Ok(())
-}
-async fn durable_replace(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let temporary = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
-    let result = async {
-        let mut file = fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&temporary)
-            .await?;
-        file.write_all(bytes).await?;
-        file.sync_all().await?;
-        drop(file);
-        let source = temporary.clone();
-        let destination = path.to_owned();
-        tokio::task::spawn_blocking(move || {
-            inferay_core::atomic_write::replace(&source, &destination)
+        self.transaction(pane_id, |connection, pane| {
+            connection.execute(
+                "DELETE FROM documents WHERE pane=?1 AND kind='queue'",
+                [pane],
+            )?;
+            Ok(())
         })
         .await
-        .map_err(std::io::Error::other)??;
-        let parent = path
-            .parent()
-            .ok_or_else(|| std::io::Error::other("Invalid journal path"))?;
-        sync_directory(parent).await?;
-        if let Some(grandparent) = parent.parent() {
-            sync_directory(grandparent).await?;
-        }
-        Ok(())
-    }
-    .await;
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary).await;
-    }
-    result
-}
-
-fn replay_event(buffer: &mut ChatMessageBuffer, entry: &ChatEventLogEntry) -> bool {
-    let payload = entry.payload.as_object();
-    match entry.event_type.as_str() {
-        "user_message" => {
-            let text = payload
-                .and_then(|payload| payload.get("displayText").and_then(Value::as_str))
-                .or_else(|| payload.and_then(|payload| payload.get("text").and_then(Value::as_str)))
-                .unwrap_or_default();
-            let images = payload
-                .and_then(|payload| payload.get("images"))
-                .and_then(Value::as_array)
-                .map(|images| {
-                    images
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()
-                });
-            if !text.is_empty() || images.as_ref().is_some_and(|images| !images.is_empty()) {
-                if let Some(id) = payload
-                    .and_then(|payload| payload.get("messageId"))
-                    .and_then(Value::as_str)
-                {
-                    buffer.push_user_with_id(id, text, images);
-                } else {
-                    buffer.push_user(text, images);
-                }
-                true
-            } else {
-                false
-            }
-        }
-        "system_message" => payload
-            .and_then(|payload| payload.get("message").and_then(Value::as_str))
-            .is_some_and(|message| {
-                buffer.push_system(message);
-                true
-            }),
-        "agent_event" => {
-            let revision = buffer.revision();
-            buffer.apply_event(&entry.payload);
-            buffer.revision() != revision
-        }
-        _ => false,
     }
 }
 
-#[cfg(test)]
-fn queue_event_payload(source: &str, queue: &[Value]) -> Value {
-    let message_ids = queue
-        .iter()
-        .filter_map(|item| item.as_object()?.get("id")?.as_str())
-        .collect::<Vec<_>>();
-    json!({ "source": source, "count": queue.len(), "messageIds": message_ids })
+fn read_document<T: serde::de::DeserializeOwned + Default>(
+    connection: &Connection,
+    pane: &str,
+    kind: &str,
+) -> StoreResult<T> {
+    let body: Option<String> = connection
+        .query_row(
+            "SELECT body FROM documents WHERE pane=?1 AND kind=?2",
+            [pane, kind],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(body
+        .map(|body| serde_json::from_str(&body))
+        .transpose()?
+        .unwrap_or_default())
 }
 
-// Legacy persistence helpers exist only for compatibility fixtures. Production
-// code can read old files but has no interface for creating new ones.
-#[cfg(test)]
-impl ChatPersistence {
-    async fn append_event(&self, pane_id: &str, event_type: &str, payload: Value) -> u64 {
-        let mut events = self.read_legacy_events(pane_id).await.unwrap_or_default();
-        let sequence =
-            (now_millis() * 1_000).max(events.last().map_or(0, |event| event.sequence + 1));
-        let entry = ChatEventLogEntry {
-            pane_id: pane_id.to_string(),
-            sequence,
-            timestamp: now_millis(),
-            event_type: event_type.to_string(),
-            payload,
+fn write_document(
+    connection: &Connection,
+    pane: &str,
+    kind: &str,
+    value: &impl Serialize,
+) -> StoreResult<()> {
+    let body = serde_json::to_string(value)?;
+    if kind == "handoffs" && body.len() > 4 * 1024 * 1024 {
+        return Err("Image chat handoff storage is full; start a new chat".into());
+    }
+    connection.execute("INSERT INTO documents(pane,kind,body) VALUES(?1,?2,?3) ON CONFLICT(pane,kind) DO UPDATE SET body=excluded.body", [pane, kind, &body])?;
+    Ok(())
+}
+
+fn apply_update(connection: &Connection, pane: &str, update: &Value) -> StoreResult<()> {
+    let integer = |key: &str| {
+        update[key]
+            .as_u64()
+            .ok_or_else(|| format!("Invalid transcript {key}"))
+    };
+    if integer("version")? != 1 {
+        return Err("Unsupported transcript version".into());
+    }
+    let epoch = update["epoch"]
+        .as_str()
+        .filter(|epoch| !epoch.is_empty())
+        .ok_or("Missing transcript epoch")?;
+    let retired: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM retired_epochs WHERE pane=?1 AND epoch=?2)",
+        [pane, epoch],
+        |row| row.get(0),
+    )?;
+    if retired {
+        return Err("Transcript update belongs to a retired epoch".into());
+    }
+    let revision = integer("revision")?;
+    let base = integer("baseRevision")?;
+    let reset = update["reset"]
+        .as_bool()
+        .ok_or("Invalid transcript reset")?;
+    let changes = update["messages"]
+        .as_array()
+        .ok_or("Invalid transcript messages")?;
+    let prior: Option<(String, String)> = connection
+        .query_row(
+            "SELECT epoch,revision FROM transcripts WHERE pane=?1",
+            [pane],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let prior_revision = prior
+        .as_ref()
+        .map(|(_, revision)| revision.parse::<u64>())
+        .transpose()?
+        .unwrap_or(0);
+    let prior_epoch = prior.as_ref().map(|(epoch, _)| epoch.as_str());
+    let count: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM transcript_messages WHERE pane=?1",
+        [pane],
+        |row| row.get(0),
+    )?;
+    if reset && changes.is_empty() && count > 0
+        || prior_epoch == Some(epoch) && revision <= prior_revision
+    {
+        return Ok(());
+    }
+    if !reset && (prior_epoch != Some(epoch) || base != prior_revision) {
+        return Err("Transcript update has an epoch or revision gap".into());
+    }
+    if revision <= base {
+        return Err("Transcript revision did not advance".into());
+    }
+    let start = i64::try_from(integer("start")?)?;
+    let delete = if reset {
+        if start != 0 {
+            return Err("Transcript reset must start at zero".into());
+        }
+        integer("deleteCount")?;
+        count
+    } else {
+        i64::try_from(integer("deleteCount")?)?
+    };
+    if start > count || delete > count - start {
+        return Err("Transcript splice is outside retained messages".into());
+    }
+    let mut messages = Vec::with_capacity(changes.len());
+    for (offset, change) in changes.iter().enumerate() {
+        let mut message = change["message"]
+            .as_object()
+            .cloned()
+            .ok_or("Invalid transcript message")?;
+        let id = message
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .ok_or("Missing transcript message id")?;
+        let previous: Option<String> = if reset {
+            None
+        } else {
+            connection.query_row("SELECT body FROM transcript_messages WHERE pane=?1 AND position=?2 AND json_extract(body,'$.id')=?3", params![pane, start + i64::try_from(offset)?, id], |row| row.get(0)).optional()?
         };
-        let path = self.event_path(pane_id);
-        events.push(entry);
-        if let Some(parent) = path.parent() {
-            let _ = fs::create_dir_all(parent).await;
-        }
-        let encoded = events
-            .iter()
-            .filter_map(|event| serde_json::to_string(event).ok())
-            .collect::<Vec<_>>()
-            .join("\n");
-        let _ = fs::write(path, format!("{encoded}\n")).await;
-        sequence
-    }
-
-    pub(crate) async fn read_events(
-        &self,
-        pane_id: &str,
-        after: u64,
-        limit: usize,
-    ) -> std::io::Result<Vec<ChatEventLogEntry>> {
-        let mut events = self.read_legacy_events(pane_id).await?;
-        events.retain(|event| event.sequence > after);
-        events.truncate(limit);
-        Ok(events)
-    }
-
-    async fn write_transcript(
-        &self,
-        pane_id: &str,
-        mut messages: Vec<ChatTranscriptMessage>,
-    ) -> std::io::Result<()> {
-        for message in &mut messages {
-            if message.is_streaming == Some(true) {
-                message.is_streaming = Some(false);
+        let previous = previous
+            .map(|body| serde_json::from_str::<ChatTranscriptMessage>(&body))
+            .transpose()?;
+        let content = if let Some(append) = change.get("appendContent") {
+            if message.contains_key("content") {
+                return Err("Transcript patch includes both content and appendContent".into());
             }
-        }
-        atomic_write_json(&self.transcript_path(pane_id), &messages).await
+            let append = append
+                .as_str()
+                .ok_or("Invalid appended transcript content")?;
+            let mut content = previous
+                .ok_or("Transcript append has no matching prior message")?
+                .content;
+            content.push_str(append);
+            content
+        } else if let Some(content) = message.get("content") {
+            content
+                .as_str()
+                .ok_or("Invalid transcript content")?
+                .to_owned()
+        } else {
+            previous.ok_or("Transcript message has no content")?.content
+        };
+        message.insert("content".into(), Value::String(content));
+        let message: ChatTranscriptMessage = serde_json::from_value(Value::Object(message))?;
+        messages.push(serde_json::to_string(&message)?);
     }
-
-    pub(crate) async fn read_authoritative_transcript(
-        &self,
-        pane_id: &str,
-    ) -> Option<Vec<ChatTranscriptMessage>> {
-        self.read_legacy_transcript(pane_id).await
+    connection.execute(
+        "DELETE FROM transcript_messages WHERE pane=?1 AND position>=?2 AND position<?3",
+        params![pane, start, start + delete],
+    )?;
+    let shift = i64::try_from(messages.len())? - delete;
+    if shift != 0 {
+        // Move the suffix out of the positive index range before shifting to avoid key collisions.
+        connection.execute(
+            "UPDATE transcript_messages SET position=-position-1 WHERE pane=?1 AND position>=?2",
+            params![pane, start + delete],
+        )?;
+        connection.execute(
+            "UPDATE transcript_messages SET position=-position-1+?2 WHERE pane=?1 AND position<0",
+            params![pane, shift],
+        )?;
     }
-
-    pub(crate) async fn read_transcript(
-        &self,
-        pane_id: &str,
-    ) -> Option<Vec<ChatTranscriptMessage>> {
-        self.read_legacy_snapshot(pane_id).await
+    let mut insert = connection
+        .prepare("INSERT INTO transcript_messages(pane,position,body) VALUES(?1,?2,?3)")?;
+    for (offset, body) in messages.iter().enumerate() {
+        insert.execute(params![pane, start + i64::try_from(offset)?, body])?;
     }
+    if let Some(old_epoch) = prior_epoch.filter(|old| *old != epoch) {
+        connection.execute(
+            "INSERT INTO retired_epochs(pane,epoch) VALUES(?1,?2)",
+            [pane, old_epoch],
+        )?;
+    }
+    connection.execute("INSERT INTO transcripts(pane,epoch,revision) VALUES(?1,?2,?3) ON CONFLICT(pane) DO UPDATE SET epoch=excluded.epoch,revision=excluded.revision", [pane, epoch, &revision.to_string()])?;
+    Ok(())
 }
-
-async fn read_json_value(path: &Path) -> Option<Value> {
-    serde_json::from_slice(&fs::read(path).await.ok()?).ok()
-}
-
-async fn atomic_write_json<T: Serialize + ?Sized>(path: &Path, value: &T) -> std::io::Result<()> {
-    let encoded = serde_json::to_string_pretty(value)
-        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
-    crate::atomic_write::overwrite(path, encoded.as_bytes())
-        .await
-        .map_err(std::io::Error::other)
-}
-
-fn now_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use inferay_core::chat_protocol::ChatMessageBuffer;
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -1156,7 +642,7 @@ mod tests {
             .unwrap();
         drop(persistence);
         let restarted = ChatPersistence::new(root.path().into());
-        let messages = restarted.read_legacy_transcript("pane").await.unwrap();
+        let messages = restarted.read_transcript("pane").await.unwrap();
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].id, "user-1");
         assert_eq!(messages[0].content, "Please explain");
@@ -1165,7 +651,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn journal_rejects_gaps_and_retired_epochs_without_losing_history() {
+    async fn transactions_reject_gaps_and_retired_epochs_without_losing_history() {
         let root = tempdir().unwrap();
         let persistence = ChatPersistence::new(root.path().into());
         let first = reset_update(
@@ -1205,14 +691,14 @@ mod tests {
         assert!(persistence.persist_update("pane", &first).await.is_err());
         let restarted = ChatPersistence::new(root.path().into());
         assert_eq!(
-            restarted.read_legacy_transcript("pane").await.unwrap()[0].content,
+            restarted.read_transcript("pane").await.unwrap()[0].content,
             "one two"
         );
         assert!(restarted.persist_update("pane", &first).await.is_err());
     }
 
     #[tokio::test]
-    async fn interrupted_tail_recovers_but_complete_corruption_is_not_skipped() {
+    async fn failed_splice_rolls_back_and_corrupt_database_is_not_replaced() {
         let root = tempdir().unwrap();
         let persistence = ChatPersistence::new(root.path().into());
         persistence
@@ -1226,99 +712,133 @@ mod tests {
             )
             .await
             .unwrap();
-        let path = persistence.journal_path("pane").unwrap();
-        fs::OpenOptions::new()
-            .append(true)
-            .open(&path)
-            .await
-            .unwrap()
-            .write_all(b"{\"version\":")
-            .await
-            .unwrap();
-        let restarted = ChatPersistence::new(root.path().into());
+        let database = Connection::open(&persistence.path).unwrap();
+        database.execute_batch("CREATE TRIGGER fail_revision BEFORE UPDATE ON transcripts WHEN NEW.epoch='other' BEGIN SELECT RAISE(FAIL,'injected write failure'); END;").unwrap();
+        let failed = reset_update(
+            "other",
+            2,
+            vec![
+                transcript_message("a", "assistant", "replaced"),
+                transcript_message("b", "user", "new"),
+            ],
+        );
+        assert!(
+            persistence
+                .persist_update("pane", &failed)
+                .await
+                .unwrap_err()
+                .contains("injected write failure")
+        );
         assert_eq!(
-            restarted.read_legacy_transcript("pane").await.unwrap()[0].content,
+            persistence.read_transcript("pane").await.unwrap()[0].content,
             "safe"
         );
-        restarted
+        persistence
             .persist_update("pane", &append_update("epoch", 1, " tail"))
             .await
             .unwrap();
         assert_eq!(
             ChatPersistence::new(root.path().into())
-                .read_legacy_transcript("pane")
+                .read_transcript("pane")
                 .await
                 .unwrap()[0]
                 .content,
             "safe tail"
         );
-        fs::OpenOptions::new()
-            .append(true)
-            .open(&path)
-            .await
-            .unwrap()
-            .write_all(b"invalid complete record\n")
-            .await
-            .unwrap();
-        let before = fs::read(&path).await.unwrap();
+        let path = persistence.path.clone();
+        drop(database);
+        drop(persistence);
+        std::fs::write(&path, "corrupt database").unwrap();
         assert!(
             ChatPersistence::new(root.path().into())
-                .persist_update("pane", &append_update("epoch", 2, "no"))
+                .persist_update("pane", &failed)
                 .await
                 .is_err()
         );
-        assert_eq!(fs::read(&path).await.unwrap(), before);
+        assert_eq!(std::fs::read(&path).unwrap(), b"corrupt database");
     }
 
     #[tokio::test]
-    async fn empty_resets_preserve_legacy_snapshot_and_compaction_retains_reset() {
+    async fn splices_grow_shrink_and_clear_without_reordering_survivors() {
         let root = tempdir().unwrap();
         let persistence = ChatPersistence::new(root.path().into());
-        let messages = vec![transcript_message("a", "assistant", "legacy")];
         persistence
-            .write_transcript("pane", messages.clone())
+            .persist_update(
+                "pane",
+                &reset_update(
+                    "epoch",
+                    1,
+                    ["a", "b", "c"]
+                        .into_iter()
+                        .map(|id| transcript_message(id, "user", id))
+                        .collect(),
+                ),
+            )
             .await
             .unwrap();
-        persistence
-            .persist_update("pane", &reset_update("epoch", 1, vec![]))
-            .await
-            .unwrap();
-        assert!(!persistence.journal_path("pane").unwrap().exists());
-        assert_eq!(
-            persistence.read_legacy_transcript("pane").await.unwrap()[0].content,
-            "legacy"
-        );
-        persistence
-            .persist_update("pane", &reset_update("epoch", 1, messages))
-            .await
-            .unwrap();
-        let lock = persistence.transcript_write_lock("pane").await;
-        lock.lock().await.records = COMPACT_JOURNAL_RECORDS - 1;
-        persistence
-            .persist_update("pane", &append_update("epoch", 1, " modern"))
-            .await
-            .unwrap();
-        let journal = fs::read_to_string(persistence.journal_path("pane").unwrap())
-            .await
-            .unwrap();
-        assert_eq!(journal.lines().count(), 1);
-        assert_eq!(
-            serde_json::from_str::<Value>(&journal).unwrap()["reset"],
-            true
-        );
-        let restarted = ChatPersistence::new(root.path().into());
-        assert_eq!(
-            restarted.read_legacy_transcript("pane").await.unwrap()[0].content,
-            "legacy modern"
-        );
-        assert_eq!(
-            restarted.read_legacy_snapshot("pane").await.unwrap()[0].content,
-            "legacy"
-        );
+        for (revision, start, delete, inserted, expected) in [
+            (2, 1, 0, vec!["x", "y"], vec!["a", "x", "y", "b", "c"]),
+            (3, 1, 3, vec!["z"], vec!["a", "z", "c"]),
+            (4, 0, 1, vec![], vec!["z", "c"]),
+            (5, 0, 2, vec![], vec![]),
+        ] {
+            let messages: Vec<_> = inserted
+                .into_iter()
+                .map(|id| json!({"message":transcript_message(id, "user", id)}))
+                .collect();
+            persistence.persist_update("pane", &json!({"version":1,"epoch":"epoch","baseRevision":revision-1,"revision":revision,"reset":false,"start":start,"deleteCount":delete,"messages":messages})).await.unwrap();
+            let messages = ChatPersistence::new(root.path().into())
+                .read_transcript("pane")
+                .await
+                .unwrap();
+            assert_eq!(
+                messages
+                    .iter()
+                    .map(|message| message.content.as_str())
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
     }
 
     #[tokio::test]
-    async fn idle_journal_cache_is_bounded_and_evicted_history_reloads() {
+    async fn streaming_updates_do_not_rewrite_unchanged_message_rows() {
+        let root = tempdir().unwrap();
+        let persistence = ChatPersistence::new(root.path().into());
+        persistence
+            .persist_update(
+                "pane",
+                &reset_update(
+                    "epoch",
+                    1,
+                    vec![
+                        transcript_message("a", "assistant", "stream"),
+                        transcript_message("b", "user", "unchanged"),
+                    ],
+                ),
+            )
+            .await
+            .unwrap();
+        let database = Connection::open(&persistence.path).unwrap();
+        database.execute_batch("CREATE TRIGGER preserve_delete BEFORE DELETE ON transcript_messages WHEN OLD.position=1 BEGIN SELECT RAISE(FAIL,'rewrote unchanged message'); END;
+            CREATE TRIGGER preserve_update BEFORE UPDATE ON transcript_messages WHEN OLD.position=1 BEGIN SELECT RAISE(FAIL,'rewrote unchanged message'); END;").unwrap();
+        for revision in 1..33 {
+            persistence
+                .persist_update("pane", &append_update("epoch", revision, "."))
+                .await
+                .unwrap();
+        }
+        let messages = ChatPersistence::new(root.path().into())
+            .read_transcript("pane")
+            .await
+            .unwrap();
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].content, format!("stream{}", ".".repeat(32)));
+        assert_eq!(messages[1].content, "unchanged");
+    }
+
+    #[tokio::test]
+    async fn multiple_panes_share_a_bounded_cache_and_restore() {
         let root = tempdir().unwrap();
         let persistence = ChatPersistence::new(root.path().into());
         for index in 0..20 {
@@ -1334,50 +854,31 @@ mod tests {
                 .await
                 .unwrap();
         }
-        assert!(persistence.transcript_writes.lock().await.entries.len() <= 16);
         assert_eq!(
-            persistence.read_legacy_transcript("pane-0").await.unwrap()[0].content,
+            persistence
+                .transaction("pane-0", |connection, _| Ok(connection.query_row(
+                    "SELECT journal_mode,synchronous,fullfsync,cache_size FROM pragma_journal_mode(),pragma_synchronous(),pragma_fullfsync(),pragma_cache_size()",
+                    [], |row| Ok((row.get::<_,String>(0)?,row.get::<_,i64>(1)?,row.get::<_,i64>(2)?,row.get::<_,i64>(3)?)))?))
+                .await
+                .unwrap(),
+            ("wal".into(), 2, 1, -2048)
+        );
+        assert_eq!(
+            persistence.read_transcript("pane-0").await.unwrap()[0].content,
             "kept"
         );
         persistence
-            .persist_update("pane-0", &append_update("epoch", 1, " after eviction"))
+            .persist_update("pane-0", &append_update("epoch", 1, " after restart"))
             .await
             .unwrap();
         assert_eq!(
             ChatPersistence::new(root.path().into())
-                .read_legacy_transcript("pane-0")
+                .read_transcript("pane-0")
                 .await
                 .unwrap()[0]
                 .content,
-            "kept after eviction"
+            "kept after restart"
         );
-    }
-
-    #[tokio::test]
-    async fn empty_reconnect_uses_native_revisioned_contract() {
-        let root = tempdir().unwrap();
-        let snapshot = ChatPersistence::new(root.path().into())
-            .persisted_reconnect_snapshot("new-pane")
-            .await;
-        assert_eq!(snapshot.sync["modelVersion"], 1);
-        assert!(
-            snapshot.sync["epoch"]
-                .as_str()
-                .is_some_and(|epoch| !epoch.is_empty())
-        );
-        assert!(snapshot.sync["revision"].is_u64());
-        assert_eq!(snapshot.sync["messages"], json!([]));
-        assert_eq!(snapshot.sync["isStreaming"], false);
-    }
-
-    #[test]
-    fn older_provider_references_remain_readable() {
-        let reference: ChatSessionReference = serde_json::from_value(
-            json!({"provider":"codex","sessionId":"old-session","cwd":"/tmp"}),
-        )
-        .unwrap();
-        assert_eq!(reference.model, None);
-        assert_eq!(reference.reasoning_level, None);
     }
 
     #[tokio::test]
@@ -1412,66 +913,11 @@ mod tests {
                 .is_err()
         );
         assert!(persistence.persist_update("", &Value::Null).await.is_err());
+        assert!(persistence.read_queue("../bad").await.is_err());
     }
 
     #[tokio::test]
-    async fn snapshot_is_authoritative_and_events_are_only_the_fallback() {
-        let root = tempdir().unwrap();
-        let persistence = ChatPersistence::new(root.path().to_path_buf());
-        persistence
-            .append_event("pane", "user_message", json!({ "text": "event" }))
-            .await;
-        persistence
-            .write_transcript("pane", vec![transcript_message("1", "user", "snapshot")])
-            .await
-            .unwrap();
-        let transcript = persistence
-            .read_authoritative_transcript("pane")
-            .await
-            .unwrap();
-        assert_eq!(transcript[0].content, "snapshot");
-
-        let fallback = persistence
-            .read_authoritative_transcript("events-only")
-            .await;
-        assert!(fallback.is_none());
-        persistence
-            .append_event(
-                "events-only",
-                "user_message",
-                json!({ "displayText": "shown", "text": "hidden" }),
-            )
-            .await;
-        let fallback = persistence
-            .read_authoritative_transcript("events-only")
-            .await
-            .unwrap();
-        assert_eq!(fallback[0].content, "shown");
-    }
-
-    #[tokio::test]
-    async fn cached_transcript_reads_are_independent_and_writes_end_streaming() {
-        let root = tempdir().unwrap();
-        let persistence = ChatPersistence::new(root.path().to_path_buf());
-        let mut message = transcript_message("1", "assistant", "answer");
-        message.is_streaming = Some(true);
-        persistence
-            .write_transcript("pane", vec![message])
-            .await
-            .unwrap();
-
-        let mut first = persistence.read_transcript("pane").await.unwrap();
-        assert_eq!(first[0].is_streaming, Some(false));
-        first[0].content = "mutated by caller".into();
-        let second = persistence.read_transcript("pane").await.unwrap();
-        assert_eq!(second[0].content, "answer");
-        assert_eq!(second[0].is_streaming, Some(false));
-
-        assert!(persistence.transcript_path("pane").exists());
-    }
-
-    #[tokio::test]
-    async fn reconnect_preserves_large_transcripts_and_queued_images() {
+    async fn restart_preserves_large_transcripts_and_queued_images() {
         let root = tempdir().unwrap();
         let persistence = ChatPersistence::new(root.path().to_path_buf());
         let messages = (0..1_200)
@@ -1480,58 +926,29 @@ mod tests {
             })
             .collect();
         persistence
-            .write_transcript("pane", messages)
+            .persist_update("pane", &reset_update("epoch", 1, messages))
             .await
             .unwrap();
         persistence
-            .save_queue(
+            .enqueue_runtime(
                 "pane",
-                &[json!({
+                json!({
                     "id": "queued-1", "text": "inspect", "displayText": "Inspect",
                     "images": ["data:image/png;base64,abc", "/tmp/shot.png"]
-                })],
+                }),
             )
             .await
             .unwrap();
 
-        let snapshot = persistence.persisted_reconnect_snapshot("pane").await;
-        let synced = snapshot.sync["messages"].as_array().unwrap();
+        let restarted = ChatPersistence::new(root.path().into());
+        let synced = restarted.read_transcript("pane").await.unwrap();
         assert_eq!(synced.len(), 1_200);
-        assert_eq!(synced.first().unwrap()["content"], "message-0");
-        assert_eq!(synced.last().unwrap()["content"], "message-1199");
+        assert_eq!(synced.first().unwrap().content, "message-0");
+        assert_eq!(synced.last().unwrap().content, "message-1199");
         assert_eq!(
-            snapshot.queue["queue"][0]["images"],
+            restarted.read_queue("pane").await.unwrap()[0]["images"],
             json!(["data:image/png;base64,abc", "/tmp/shot.png"])
         );
-    }
-
-    #[tokio::test]
-    async fn queue_format_filtering_matches_the_runtime_contract() {
-        let root = tempdir().unwrap();
-        let persistence = ChatPersistence::new(root.path().to_path_buf());
-        persistence
-            .save_queue(
-                "pane:1",
-                &[
-                    json!({ "id": "q1", "text": "one", "displayText": "One" }),
-                    json!({ "id": 2, "text": "invalid", "displayText": "invalid" }),
-                ],
-            )
-            .await
-            .unwrap();
-        assert_eq!(persistence.read_queue("pane:1").await.unwrap().len(), 2);
-        let snapshot = persistence.persisted_reconnect_snapshot("pane:1").await;
-        assert_eq!(snapshot.queue["queue"].as_array().unwrap().len(), 1);
-        assert!(persistence.read_queue("../bad").await.is_err());
-
-        let write_lock = persistence.queue_write_lock("pane:1").await;
-        let _guard = write_lock.lock().await;
-        persistence
-            .save_runtime_queue_unlocked("pane:1", &[])
-            .await
-            .unwrap();
-        drop(_guard);
-        assert!(persistence.read_queue("pane:1").await.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -1596,9 +1013,16 @@ mod tests {
         let root = tempdir().unwrap();
         let persistence = ChatPersistence::new(root.path().to_path_buf());
         let mut tasks = Vec::new();
+        let start = Arc::new(tokio::sync::Barrier::new(40));
         for index in 0..40 {
-            let persistence = persistence.clone();
+            let persistence = if index % 2 == 0 {
+                persistence.clone()
+            } else {
+                ChatPersistence::new(root.path().into())
+            };
+            let start = start.clone();
             tasks.push(tokio::spawn(async move {
+                start.wait().await;
                 persistence
                     .enqueue_runtime(
                         "pane",
@@ -1633,24 +1057,5 @@ mod tests {
         shifted.dedup();
         assert_eq!(shifted.len(), 40);
         assert!(persistence.read_queue("pane").await.unwrap().is_empty());
-    }
-
-    #[tokio::test]
-    async fn reads_only_complete_lines_from_the_four_megabyte_event_tail() {
-        let root = tempdir().unwrap();
-        let persistence = ChatPersistence::new(root.path().to_path_buf());
-        let path = persistence.event_path("pane");
-        fs::create_dir_all(path.parent().unwrap()).await.unwrap();
-        let padding = "x".repeat(MAX_CHAT_EVENT_READ_BYTES as usize);
-        let entry = json!({
-            "paneId": "pane", "sequence": 2, "timestamp": 1,
-            "type": "system_message", "payload": { "message": "kept" }
-        });
-        fs::write(&path, format!("{padding}\n{entry}\n"))
-            .await
-            .unwrap();
-        let events = persistence.read_events("pane", 0, 500).await.unwrap();
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].payload["message"], "kept");
     }
 }

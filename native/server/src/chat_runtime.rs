@@ -4,25 +4,20 @@
 //! sessions, queues, transcript/event persistence, checkpoint lifecycle and
 //! client fanout. Agent execution is injected as a Rust future so the server
 //! can call `agent_runner::{run_claude, run_codex}` without Node/Bun or IPC.
+use crate::unix_millis as now_millis;
+use inferay_core::utf16_slice as javascript_slice;
 
 use std::{
-    collections::HashMap,
-    future::Future,
-    path::PathBuf,
-    pin::Pin,
-    sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::Arc, time::Duration,
 };
 
 use inferay_core::{
     agent_context::AgentContextStore,
-    agent_protocol::{AgentEvent, AgentProtocolContext, ProtocolEmission},
-    chat_protocol::{
-        ChatMessageBuffer, ChatTranscriptMessage, javascript_slice, truncate_chat_content,
-    },
+    agent_protocol::ProtocolEmission,
+    chat_protocol::{ChatMessageBuffer, ChatTranscriptMessage},
     prompts::PromptStore,
 };
-use serde::Serialize;
+use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, broadcast};
 use uuid::Uuid;
@@ -64,7 +59,8 @@ The previous turn ended after a tool call without a final user-facing response. 
 </inferay-final-summary-recovery>"#;
 
 pub type ClientId = u64;
-pub type AgentFuture<'a> = Pin<Box<dyn Future<Output = Result<ExecutedTurn, String>> + Send + 'a>>;
+pub type AgentFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<AgentRunResult, String>> + Send + 'a>>;
 
 /// The production implementation calls the Rust agent runner functions
 /// directly. This trait exists for provider selection and deterministic tests;
@@ -93,47 +89,43 @@ pub struct AgentRunRequest {
     pub session_id: Option<String>,
 }
 
-#[derive(Debug)]
-pub struct ExecutedTurn {
-    pub result: AgentRunResult,
-    pub protocol: AgentProtocolContext,
-}
-
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SendMessageInput {
+    #[serde(default)]
     pub expand_commands: bool,
     pub command_id: Option<String>,
     pub command_args: Option<String>,
+    #[serde(rename = "messageId")]
     pub client_message_id: Option<String>,
+    #[serde(default)]
     pub pane_id: String,
+    #[serde(default)]
     pub agent_kind: String,
+    #[serde(rename = "sessionId")]
     pub client_session_id: Option<String>,
+    #[serde(default)]
     pub cwd: PathBuf,
+    #[serde(skip)]
     pub cwd_provided: bool,
     pub model: Option<String>,
     pub reasoning_level: Option<String>,
+    #[serde(skip)]
     pub reasoning_level_provided: bool,
+    #[serde(default)]
     pub reference_paths: Vec<PathBuf>,
+    #[serde(skip)]
     pub reference_paths_provided: bool,
     pub display_text: Option<String>,
+    #[serde(default)]
     pub images: Vec<PathBuf>,
     pub text: String,
+    #[serde(skip)]
     pub client_id: Option<ClientId>,
+    #[serde(skip)]
     pub client_sender: Option<broadcast::Sender<Value>>,
+    #[serde(skip)]
     pub include_workspace: bool,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentSessionInfo {
-    pub pane_id: String,
-    pub agent_kind: String,
-    pub cwd: PathBuf,
-    pub reference_paths: Vec<PathBuf>,
-    pub session_id: Option<String>,
-    pub is_running: bool,
-    pub client_count: usize,
-    pub message_count: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -173,9 +165,26 @@ struct ChatSession {
     disconnected_at: Option<u64>,
     cancelled: bool,
     goal: Option<GoalState>,
-    agent_events: Vec<AgentEvent>,
+
     context_hash: Option<String>,
     pending_steers: Vec<PendingSteer>,
+}
+
+impl ChatSession {
+    fn requires_new_session(&self, input: &SendMessageInput) -> bool {
+        inferay_core::provider_config::requires_new_session(
+            &self.agent_kind,
+            self.model.as_deref(),
+            self.reasoning_level.as_deref(),
+            &input.agent_kind,
+            input.model.as_deref(),
+            if input.reasoning_level_provided {
+                input.reasoning_level.as_deref()
+            } else {
+                self.reasoning_level.as_deref()
+            },
+        )
+    }
 }
 
 #[derive(Clone)]
@@ -208,13 +217,6 @@ impl ChatRuntime {
             agent_context,
             prompts,
         }
-    }
-
-    pub fn send_message(
-        &self,
-        input: SendMessageInput,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        self.send_message_with_admission(input, false)
     }
 
     /// Publication owns the read as well as the send: delayed publishers cannot replay an older snapshot.
@@ -250,33 +252,18 @@ impl ChatRuntime {
         client_id: ClientId,
         sender: broadcast::Sender<Value>,
     ) -> Option<SendMessageInput> {
+        request["agentKind"].as_str()?;
+        request["cwd"].as_str()?;
         Some(SendMessageInput {
-            expand_commands: false,
-            command_id: None,
-            command_args: None,
             client_message_id: Some(request_id.into()),
             pane_id: pane_id.into(),
-            agent_kind: request["agentKind"].as_str()?.into(),
-            client_session_id: None,
-            cwd: PathBuf::from(request["cwd"].as_str()?),
             cwd_provided: true,
-            model: request["model"].as_str().map(str::to_owned),
-            reasoning_level: request["reasoningLevel"].as_str().map(str::to_owned),
             reasoning_level_provided: true,
-            reference_paths: request["referencePaths"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .map(PathBuf::from)
-                .collect(),
             reference_paths_provided: true,
-            display_text: None,
-            images: Vec::new(),
-            text: request["text"].as_str()?.into(),
             client_id: Some(client_id),
             client_sender: Some(sender),
             include_workspace: true,
+            ..SendMessageInput::deserialize(request).ok()?
         })
     }
 
@@ -357,16 +344,7 @@ impl ChatRuntime {
             let task_key = key.clone();
             let task = tokio::spawn(async move {
                 runtime.send_message(input).await;
-                let snapshot = runtime
-                    .persistence
-                    .persisted_reconnect_snapshot(&pane)
-                    .await;
-                let received = snapshot.sync["messages"]
-                    .as_array()
-                    .is_some_and(|messages| messages.iter().any(|message| message["id"] == id))
-                    || snapshot.queue["queue"]
-                        .as_array()
-                        .is_some_and(|queue| queue.iter().any(|item| item["id"] == id));
+                let received = runtime.persistence.contains_message(&pane, &id).await;
                 let status = if received {
                     "dispatched"
                 } else {
@@ -384,13 +362,9 @@ impl ChatRuntime {
         }
     }
 
-    fn send_message_with_admission(
-        &self,
-        input: SendMessageInput,
-        already_admitted: bool,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        Box::pin(async move {
-            let mut input = input;
+    pub async fn send_message(&self, mut input: SendMessageInput) {
+        let mut already_admitted = false;
+        loop {
             let resolved = inferay_core::provider_config::resolve(
                 &json!({"agentKind":input.agent_kind,"model":input.model,"reasoningLevel":input.reasoning_level}),
             );
@@ -443,18 +417,7 @@ impl ChatRuntime {
                     (state.turn_active
                         && state.agent_kind == "codex"
                         && input.agent_kind == "codex"
-                        && !inferay_core::provider_config::requires_new_session(
-                            &state.agent_kind,
-                            state.model.as_deref(),
-                            state.reasoning_level.as_deref(),
-                            &input.agent_kind,
-                            input.model.as_deref(),
-                            if input.reasoning_level_provided {
-                                input.reasoning_level.as_deref()
-                            } else {
-                                state.reasoning_level.as_deref()
-                            },
-                        ))
+                        && !state.requires_new_session(&input))
                     .then(|| state.current_handle.clone())
                     .flatten()
                 };
@@ -501,18 +464,7 @@ impl ChatRuntime {
             }
             let system_prefix = {
                 let mut state = session.lock().await;
-                let changed = inferay_core::provider_config::requires_new_session(
-                    &state.agent_kind,
-                    state.model.as_deref(),
-                    state.reasoning_level.as_deref(),
-                    &input.agent_kind,
-                    input.model.as_deref(),
-                    if input.reasoning_level_provided {
-                        input.reasoning_level.as_deref()
-                    } else {
-                        state.reasoning_level.as_deref()
-                    },
-                );
+                let changed = state.requires_new_session(&input);
                 if changed {
                     state.session_id = None;
                 }
@@ -568,6 +520,7 @@ impl ChatRuntime {
                 prefix
             };
 
+            already_admitted = true;
             let agent_context_prefix = self
                 .create_agent_context_prefix(&session, &input.text)
                 .await;
@@ -613,56 +566,52 @@ impl ChatRuntime {
                 .await;
             }
 
-            let mut prompt = input.text.clone();
-            if input.agent_kind == "codex"
-                && let Some(command) = parse_goal_command(&prompt)
+            let prompt = if input.agent_kind == "codex"
+                && let Some(command) = parse_goal_command(&input.text)
             {
-                let Some(next) = self.handle_goal_command(&session, command).await else {
-                    self.finalize_turn(&session).await;
-                    self.drain_next_or_release(&session).await;
-                    return;
-                };
-                prompt = next;
-            }
-            let instruction_prefix = [system_prefix, agent_context_prefix]
-                .into_iter()
-                .filter(|prefix| !prefix.is_empty())
-                .collect::<Vec<_>>()
-                .join("\n\n");
-            let checkpoint_cwd = session.lock().await.cwd.clone();
-            let checkpoint_id = self
-                .checkpoints
-                .create_checkpoint(input.pane_id.clone(), &checkpoint_cwd, input.text.clone())
-                .await
-                .ok();
-            if let Some(id) = checkpoint_id.as_ref() {
-                self.emit(
+                self.handle_goal_command(&session, command).await
+            } else {
+                Some(input.text.clone())
+            };
+            if let Some(prompt) = prompt {
+                let instruction_prefix = [system_prefix, agent_context_prefix]
+                    .into_iter()
+                    .filter(|prefix| !prefix.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
+                let checkpoint_cwd = session.lock().await.cwd.clone();
+                let checkpoint_id = self
+                    .checkpoints
+                    .create_checkpoint(input.pane_id.clone(), &checkpoint_cwd, input.text.clone())
+                    .await
+                    .ok();
+                if let Some(id) = checkpoint_id.as_ref() {
+                    self.emit(
                     &session,
                     json!({"type":"checkpoint:created", "paneId":input.pane_id, "checkpointId":id}),
                 )
                 .await;
-            }
+                }
 
-            let outcome = self
-                .run_goal_loop(
-                    &session,
-                    prompt,
-                    input.images,
-                    checkpoint_id.as_deref(),
-                    (!instruction_prefix.is_empty()).then_some(instruction_prefix.as_str()),
-                )
-                .await;
-            match outcome {
-                Ok(()) => {
-                    self.finalize_success(&session, checkpoint_id.as_deref())
-                        .await
-                }
-                Err(error) => {
-                    self.finalize_failure(&session, checkpoint_id.as_deref(), &error)
-                        .await
-                }
+                let outcome = self
+                    .run_goal_loop(
+                        &session,
+                        prompt,
+                        input.images,
+                        checkpoint_id.as_deref(),
+                        (!instruction_prefix.is_empty()).then_some(instruction_prefix.as_str()),
+                    )
+                    .await;
+                self.finalize_run(&session, checkpoint_id.as_deref(), outcome)
+                    .await;
+            } else {
+                self.finalize_turn(&session).await;
             }
-        })
+            let Some(next) = self.next_queued_message(&session).await else {
+                break;
+            };
+            input = next;
+        }
     }
 
     pub async fn stop_generation(&self, pane_id: &str) {
@@ -781,185 +730,49 @@ impl ChatRuntime {
         provider_session_id: Option<&str>,
         cwd: Option<PathBuf>,
     ) {
-        let saved_reference = self
-            .persistence
-            .read_session_reference(pane_id)
-            .await
-            .filter(|r| provider.is_none_or(|p| p == r.provider));
-        let provider = provider.or_else(|| saved_reference.as_ref().map(|r| r.provider.as_str()));
-        let provider_session_id = saved_reference
-            .as_ref()
-            .map(|r| r.session_id.as_str())
-            .or(provider_session_id);
-        let cwd = cwd.or_else(|| saved_reference.as_ref().map(|r| r.cwd.clone()));
-        if let Some(session) = self.session(pane_id).await {
-            let (session_message, sync, status) = {
-                let mut state = session.lock().await;
-                state.clients.insert(client_id, sender.clone());
-                state.disconnected_at = None;
-                let session_message = state.session_id.as_ref().map(|id| {
-                    json!({
-                        "type":"chat:session", "paneId":pane_id, "sessionId":id
-                    })
-                });
-                let streaming = state.turn_active;
-                let status = if state.turn_active {
-                    if state.message_buffer.streaming() {
-                        "responding"
-                    } else {
-                        "thinking"
-                    }
-                } else {
-                    "idle"
-                };
-                (
-                    session_message,
-                    json!({
-                        "type":"chat:sync", "modelVersion":1, "paneId":pane_id,
-                        "messages":state.message_buffer.messages(),
-                        "epoch":state.message_buffer.epoch(), "revision":state.message_buffer.revision(), "isStreaming":streaming
-                    }),
-                    status_message(pane_id, status, state.turn_active),
-                )
-            };
-            if let Some(message) = session_message {
-                let _ = sender.send(message);
-            }
-            let _ = sender.send(sync);
-            self.publish_queue(pane_id, Some(&sender)).await;
-            let _ = sender.send(status);
-        } else {
-            let snapshot = self.persistence.persisted_reconnect_snapshot(pane_id).await;
-            let legacy_messages = snapshot
-                .sync
-                .get("messages")
-                .and_then(Value::as_array)
-                .filter(|messages| !messages.is_empty())
-                .and_then(|messages| serde_json::from_value(Value::Array(messages.clone())).ok());
-            let provider_messages = if legacy_messages.is_none() {
-                match (provider, provider_session_id) {
-                    (Some(provider), Some(session_id)) => {
-                        crate::provider_history::load_provider_history(
-                            provider,
-                            session_id,
-                            cwd.as_deref(),
-                        )
-                        .await
-                    }
-                    _ => None,
-                }
+        let session = self
+            .ensure_session(&SendMessageInput {
+                pane_id: pane_id.into(),
+                agent_kind: provider.unwrap_or_default().into(),
+                client_session_id: provider_session_id.map(str::to_owned),
+                cwd_provided: cwd.is_some(),
+                cwd: cwd.unwrap_or_default(),
+                ..Default::default()
+            })
+            .await;
+        let (session_message, sync, status) = {
+            let mut state = session.lock().await;
+            state.clients.insert(client_id, sender.clone());
+            state.disconnected_at = None;
+            let session_message = state
+                .session_id
+                .as_ref()
+                .map(|id| json!({"type":"chat:session", "paneId":pane_id, "sessionId":id}));
+            let status = if !state.turn_active {
+                "idle"
+            } else if state.message_buffer.streaming() {
+                "responding"
             } else {
-                None
+                "thinking"
             };
-            let hydrated_messages = legacy_messages.or(provider_messages);
-            if let Some(messages) = hydrated_messages {
-                let mut buffer = ChatMessageBuffer::default();
-                buffer.replace_messages(messages);
-                let session = Arc::new(Mutex::new(ChatSession {
-                    pane_id: pane_id.to_string(),
-                    agent_kind: provider.unwrap_or("claude").to_string(),
-                    model: saved_reference.as_ref().and_then(|r| r.model.clone()),
-                    reasoning_level: saved_reference
-                        .as_ref()
-                        .and_then(|r| r.reasoning_level.clone()),
-                    session_id: provider_session_id.map(str::to_owned),
-                    clients: [(client_id, sender.clone())].into_iter().collect(),
-                    current_handle: None,
-                    turn_active: false,
-                    cwd: cwd.unwrap_or_default(),
-                    reference_paths: Vec::new(),
-                    message_buffer: buffer,
-                    disconnected_at: None,
-                    cancelled: false,
-                    goal: None,
-                    agent_events: Vec::new(),
-                    context_hash: None,
-                    pending_steers: Vec::new(),
-                }));
-                let sync = {
-                    let state = session.lock().await;
-                    json!({
-                        "type":"chat:sync", "modelVersion":1, "paneId":pane_id,
-                        "messages":state.message_buffer.messages(),
-                        "epoch":state.message_buffer.epoch(), "revision":state.message_buffer.revision(), "isStreaming":false
-                    })
-                };
-                self.sessions
-                    .lock()
-                    .await
-                    .insert(pane_id.to_string(), session);
-                let _ = sender.send(json!({
-                    "type":"chat:session", "paneId":pane_id,
-                    "sessionId":provider_session_id
-                }));
-                let _ = sender.send(sync);
-            } else {
-                let _ = sender.send(snapshot.sync);
-            }
-            self.publish_queue(pane_id, Some(&sender)).await;
-            let _ = sender.send(snapshot.status);
+            (
+                session_message,
+                json!({
+                    "type":"chat:sync", "modelVersion":1, "paneId":pane_id,
+                    "messages":state.message_buffer.messages(),
+                    "epoch":state.message_buffer.epoch(), "revision":state.message_buffer.revision(),
+                    "isStreaming":state.turn_active
+                }),
+                status_message(pane_id, status, state.turn_active),
+            )
+        };
+        if let Some(message) = session_message {
+            let _ = sender.send(message);
         }
+        let _ = sender.send(sync);
+        self.publish_queue(pane_id, Some(&sender)).await;
+        let _ = sender.send(status);
         self.resume_handoffs(pane_id, client_id, &sender).await;
-    }
-
-    pub async fn list_sessions(&self) -> Vec<AgentSessionInfo> {
-        let sessions = self
-            .sessions
-            .lock()
-            .await
-            .values()
-            .cloned()
-            .collect::<Vec<_>>();
-        let mut output = Vec::new();
-        for session in sessions {
-            let state = session.lock().await;
-            if state.turn_active || !state.clients.is_empty() {
-                output.push(AgentSessionInfo {
-                    pane_id: state.pane_id.clone(),
-                    agent_kind: state.agent_kind.clone(),
-                    cwd: state.cwd.clone(),
-                    reference_paths: state.reference_paths.clone(),
-                    session_id: state.session_id.clone(),
-                    is_running: state.turn_active,
-                    client_count: state.clients.len(),
-                    message_count: state.message_buffer.messages().len(),
-                });
-            }
-        }
-        output
-    }
-
-    pub async fn list_goals(&self) -> Vec<Value> {
-        let now = now_millis();
-        let sessions = self
-            .sessions
-            .lock()
-            .await
-            .values()
-            .cloned()
-            .collect::<Vec<_>>();
-        let mut output = Vec::new();
-        for session in sessions {
-            let state = session.lock().await;
-            let Some(goal) = state.goal.as_ref() else {
-                continue;
-            };
-            output.push(json!({
-                "paneId": state.pane_id,
-                "agentKind": state.agent_kind,
-                "cwd": state.cwd,
-                "sessionId": state.session_id,
-                "isRunning": state.turn_active,
-                "clientCount": state.clients.len(),
-                "objective": goal.objective,
-                "status": if goal.status == GoalStatus::Active { "active" } else { "paused" },
-                "turns": goal.turns,
-                "startedAt": goal.started_at,
-                "elapsedMs": now.saturating_sub(goal.started_at),
-                "activity": goal_activity(&state),
-            }));
-        }
-        output
     }
 
     async fn create_agent_context_prefix(
@@ -1049,22 +862,36 @@ impl ChatRuntime {
             .persistence
             .read_session_reference(&input.pane_id)
             .await;
-        let saved_reference = saved_reference.filter(|r| r.provider == input.agent_kind);
+        let saved_reference = saved_reference
+            .filter(|r| input.agent_kind.is_empty() || r.provider == input.agent_kind);
+        let agent_kind = if input.agent_kind.is_empty() {
+            saved_reference
+                .as_ref()
+                .map(|r| r.provider.as_str())
+                .unwrap_or("claude")
+        } else {
+            &input.agent_kind
+        };
+        let cwd = if input.cwd_provided {
+            input.cwd.clone()
+        } else {
+            saved_reference
+                .as_ref()
+                .map(|r| r.cwd.clone())
+                .unwrap_or_else(|| input.cwd.clone())
+        };
         let session_id = saved_reference
             .as_ref()
             .map(|r| r.session_id.clone())
             .or_else(|| input.client_session_id.clone());
-        let persisted = self
-            .persistence
-            .read_legacy_transcript(&input.pane_id)
-            .await;
+        let persisted = self.persistence.read_transcript(&input.pane_id).await;
         let provider = if persisted.is_none() {
             match session_id.as_deref() {
                 Some(session_id) => {
                     crate::provider_history::load_provider_history(
-                        &input.agent_kind,
+                        agent_kind,
                         session_id,
-                        Some(&input.cwd),
+                        Some(&cwd),
                     )
                     .await
                 }
@@ -1078,7 +905,7 @@ impl ChatRuntime {
         }
         let session = Arc::new(Mutex::new(ChatSession {
             pane_id: input.pane_id.clone(),
-            agent_kind: input.agent_kind.clone(),
+            agent_kind: agent_kind.into(),
             model: saved_reference
                 .as_ref()
                 .and_then(|r| r.model.clone())
@@ -1095,21 +922,24 @@ impl ChatRuntime {
                 .collect(),
             current_handle: None,
             turn_active: false,
-            cwd: input.cwd.clone(),
+            cwd,
             reference_paths: input.reference_paths.clone(),
             message_buffer: buffer,
             disconnected_at: None,
             cancelled: false,
             goal: None,
-            agent_events: Vec::new(),
+
             context_hash: None,
             pending_steers: Vec::new(),
         }));
+        // Restoration can overlap across connections. Publish only one owner;
+        // callers register their own clients after acquiring that shared owner.
         self.sessions
             .lock()
             .await
-            .insert(input.pane_id.clone(), session.clone());
-        session
+            .entry(input.pane_id.clone())
+            .or_insert(session)
+            .clone()
     }
 
     async fn session(&self, pane_id: &str) -> Option<Arc<Mutex<ChatSession>>> {
@@ -1267,53 +1097,28 @@ impl ChatRuntime {
         let executed = loop {
             tokio::select! {
                 result = &mut executed => break result,
-                emission = emission_rx.recv() => {
-                    if let Some(emission) = emission {
-                        self.apply_emissions(session, vec![emission], checkpoint_id).await;
-                    }
+                Some(emission) = emission_rx.recv() => {
+                    self.apply_emission(session, emission, checkpoint_id).await;
                 }
             }
         };
         while let Ok(emission) = emission_rx.try_recv() {
-            self.apply_emissions(session, vec![emission], checkpoint_id)
-                .await;
+            self.apply_emission(session, emission, checkpoint_id).await;
         }
         session.lock().await.current_handle = None;
-        let mut executed = match executed {
-            Ok(executed) => executed,
-            Err(error) => {
-                self.flush_pending_steers(session).await;
-                return Err(error);
-            }
-        };
-        self.apply_emissions(session, executed.protocol.take_emissions(), checkpoint_id)
-            .await;
         self.flush_pending_steers(session).await;
-        Ok(executed.result)
+        executed
     }
 
-    async fn apply_emissions(
+    async fn apply_emission(
         &self,
         session: &Arc<Mutex<ChatSession>>,
-        emissions: Vec<ProtocolEmission>,
+        emission: ProtocolEmission,
         checkpoint_id: Option<&str>,
     ) {
         let pane_id = session.lock().await.pane_id.clone();
-        for emission in emissions {
-            match emission {
-                ProtocolEmission::Chat(event) => {
-                    let event = bound_chat_event(event);
-                    session.lock().await.message_buffer.apply_event(&event);
-                    self.emit(session, json!({"type":"chat:event", "paneId":pane_id, "event":event})).await;
-                }
-                ProtocolEmission::Agent(event) => {
-                    let compact = compact_agent_event(event);
-                    let mut state = session.lock().await;
-                    state.agent_events.push(compact.clone());
-                    if state.agent_events.len() > 500 { let drop = state.agent_events.len() - 500; state.agent_events.drain(..drop); }
-                    drop(state);
-                    self.emit(session, json!({"type":"chat:agent-event", "paneId":pane_id, "event":compact})).await;
-                }
+        match emission {
+                ProtocolEmission::Chat(event) => self.emit_chat_event(session, event).await,
                 ProtocolEmission::UserInputAcknowledged { text } => {
                     self.acknowledge_pending_steer(session, &text).await;
                 }
@@ -1335,7 +1140,6 @@ impl ChatRuntime {
                     self.emit(session, json!({"type":"chat:session", "paneId":pane_id, "sessionId":id})).await;
                 }
             }
-        }
     }
 
     async fn acknowledge_pending_steer(
@@ -1399,7 +1203,6 @@ impl ChatRuntime {
         let Some(checkpoint_id) = checkpoint_id else {
             return;
         };
-        let pane_id = session.lock().await.pane_id.clone();
         for mut diff in self
             .checkpoints
             .preview_inline_diffs(checkpoint_id, paths)
@@ -1413,29 +1216,66 @@ impl ChatRuntime {
                 }
                 diff.old_string = previous;
             }
-            for event in [
-                json!({"type":"content_block_start","content_block":{"type":"tool_use","name":"Edit","input":{"file_path":diff.path,"old_string":diff.old_string,"new_string":diff.new_string}}}),
-                json!({"type":"content_block_stop"}),
-            ] {
-                session.lock().await.message_buffer.apply_event(&event);
-                self.emit(
-                    session,
-                    json!({"type":"chat:event","paneId":pane_id,"event":event}),
-                )
-                .await;
-            }
+            self.emit_inline_edit(session, diff).await;
         }
     }
 
-    async fn finalize_success(
+    async fn emit_chat_event(&self, session: &Arc<Mutex<ChatSession>>, event: Value) {
+        let pane_id = {
+            let mut state = session.lock().await;
+            state.message_buffer.apply_event(&event);
+            state.pane_id.clone()
+        };
+        // Content is already bounded and published in transcriptUpdate. The UI
+        // uses these provider event fields only for status and session identity.
+        let metadata = json!({"type":event["type"], "session_id":event["session_id"],
+            "content_block":{"type":event["content_block"]["type"],"name":event["content_block"]["name"]}});
+        self.emit(
+            session,
+            json!({"type":"chat:event","paneId":pane_id,"event":metadata}),
+        )
+        .await;
+    }
+
+    async fn emit_inline_edit(
+        &self,
+        session: &Arc<Mutex<ChatSession>>,
+        diff: crate::checkpoint::CheckpointInlineDiff,
+    ) {
+        for event in [
+            json!({"type":"content_block_start","content_block":{"type":"tool_use","name":"Edit","input":{"file_path":diff.path,"old_string":diff.old_string,"new_string":diff.new_string}}}),
+            json!({"type":"content_block_stop"}),
+        ] {
+            self.emit_chat_event(session, event).await;
+        }
+    }
+
+    async fn finalize_run(
         &self,
         session: &Arc<Mutex<ChatSession>>,
         checkpoint_id: Option<&str>,
+        outcome: Result<(), String>,
     ) {
+        let error = outcome.err();
+        if let Some(error) = &error {
+            self.emit_system(session, error).await;
+            let pane_id = {
+                let mut state = session.lock().await;
+                state.message_buffer.finalize();
+                state.pane_id.clone()
+            };
+            self.emit(
+                session,
+                json!({"type":"chat:error", "paneId":pane_id, "error":error}),
+            )
+            .await;
+        }
         let changed = self
             .finalize_checkpoint_events(session, checkpoint_id)
             .await;
-        let pane_id = session.lock().await.pane_id.clone();
+        if error.is_some() {
+            return;
+        }
         let needs_summary = {
             let state = session.lock().await;
             let last = state.message_buffer.messages().last();
@@ -1452,15 +1292,9 @@ impl ChatRuntime {
                 "The tool run completed, but Codex did not provide a final summary.".into()
             };
             let event = json!({"type":"result", "result":text});
-            session.lock().await.message_buffer.apply_event(&event);
-            self.emit(
-                session,
-                json!({"type":"chat:event", "paneId":pane_id, "event":event}),
-            )
-            .await;
+            self.emit_chat_event(session, event).await;
         }
         self.finalize_turn(session).await;
-        self.drain_next_or_release(session).await;
     }
 
     async fn finalize_checkpoint_events(
@@ -1480,17 +1314,7 @@ impl ChatRuntime {
                         if existing.contains(&diff.path) {
                             continue;
                         }
-                        for event in [
-                            json!({"type":"content_block_start","content_block":{"type":"tool_use","name":"Edit","input":{"file_path":diff.path,"old_string":diff.old_string,"new_string":diff.new_string}}}),
-                            json!({"type":"content_block_stop"}),
-                        ] {
-                            session.lock().await.message_buffer.apply_event(&event);
-                            self.emit(
-                                session,
-                                json!({"type":"chat:event","paneId":pane_id,"event":event}),
-                            )
-                            .await;
-                        }
+                        self.emit_inline_edit(session, diff).await;
                     }
                     meta.changed_file_count
                 }
@@ -1499,25 +1323,6 @@ impl ChatRuntime {
         } else {
             0
         }
-    }
-
-    async fn finalize_failure(
-        &self,
-        session: &Arc<Mutex<ChatSession>>,
-        checkpoint_id: Option<&str>,
-        error: &str,
-    ) {
-        self.emit_system(session, error).await;
-        session.lock().await.message_buffer.finalize();
-        let pane_id = session.lock().await.pane_id.clone();
-        self.emit(
-            session,
-            json!({"type":"chat:error", "paneId":pane_id, "error":error}),
-        )
-        .await;
-        self.finalize_checkpoint_events(session, checkpoint_id)
-            .await;
-        self.drain_next_or_release(session).await;
     }
 
     async fn finalize_turn(&self, session: &Arc<Mutex<ChatSession>>) {
@@ -1555,9 +1360,9 @@ impl ChatRuntime {
         if self.persistence.persist_update(pane, update).await.is_ok() {
             return None;
         }
-        // A previous failed write may have left the journal behind the published
+        // A previous failed write may have left storage behind the published
         // revision. Repair from authoritative memory instead of rejecting every
-        // subsequent delta forever. Corrupt journals still fail safely.
+        // subsequent delta forever. Database failures still surface.
         let reset = {
             let state = session.lock().await;
             json!({"version":1,"epoch":state.message_buffer.epoch(),
@@ -1577,8 +1382,17 @@ impl ChatRuntime {
             })
     }
 
-    async fn emit(&self, session: &Arc<Mutex<ChatSession>>, mut message: Value) {
-        let senders = {
+    async fn emit(&self, session: &Arc<Mutex<ChatSession>>, message: Value) {
+        self.fanout_except(session, message, None).await;
+    }
+
+    async fn fanout_except(
+        &self,
+        session: &Arc<Mutex<ChatSession>>,
+        mut message: Value,
+        exclude: Option<ClientId>,
+    ) {
+        let (senders, update) = {
             let mut state = session.lock().await;
             if matches!(
                 message["type"].as_str(),
@@ -1595,31 +1409,6 @@ impl ChatRuntime {
             ) {
                 message["modelVersion"] = json!(1);
             }
-            if let Some(update) = state.message_buffer.take_update() {
-                message["transcriptUpdate"] = update;
-            }
-            state.clients.values().cloned().collect::<Vec<_>>()
-        };
-        // Save each incremental update before publication, including while streaming.
-        // Closing the app does not depend on a browser unload handler or a final event.
-        let persistence_error = self.persist_before_publish(session, &message).await;
-        for sender in senders {
-            let _ = sender.send(message.clone());
-            if let Some(error) = &persistence_error {
-                let _ = sender.send(error.clone());
-            }
-        }
-    }
-
-    async fn fanout_except(
-        &self,
-        session: &Arc<Mutex<ChatSession>>,
-        mut message: Value,
-        exclude: Option<ClientId>,
-    ) {
-        let (senders, update) = {
-            let mut state = session.lock().await;
-            message["modelVersion"] = json!(1);
             let update = state.message_buffer.take_update();
             if let Some(update) = &update {
                 message["transcriptUpdate"] = update.clone();
@@ -1635,25 +1424,28 @@ impl ChatRuntime {
         };
         let persistence_error = self.persist_before_publish(session, &message).await;
         for (id, sender) in senders {
-            if let Some(error) = &persistence_error {
-                let _ = sender.send(error.clone());
-            }
             if Some(id) != exclude {
                 let _ = sender.send(message.clone());
             } else if let Some(update) = &update {
                 let _ = sender.send(json!({"type":"chat:model","paneId":message["paneId"],"modelVersion":1,"transcriptUpdate":update}));
             }
+            if let Some(error) = &persistence_error {
+                let _ = sender.send(error.clone());
+            }
         }
     }
 
-    async fn drain_next_or_release(&self, session: &Arc<Mutex<ChatSession>>) {
+    async fn next_queued_message(
+        &self,
+        session: &Arc<Mutex<ChatSession>>,
+    ) -> Option<SendMessageInput> {
         let pane = session.lock().await.pane_id.clone();
         let next = loop {
             let mut state = session.lock().await;
             let shifted = self.persistence.shift_runtime(&pane).await.unwrap_or(None);
             let Some((next, _)) = shifted else {
                 state.turn_active = false;
-                return;
+                return None;
             };
             drop(state);
             if let Ok(next) = serde_json::from_value::<QueuedMessageInfo>(next) {
@@ -1662,11 +1454,7 @@ impl ChatRuntime {
         };
         self.broadcast_queue(&pane).await;
         let state = session.lock().await;
-        let input = SendMessageInput {
-            expand_commands: false,
-            command_id: None,
-            command_args: None,
-            client_message_id: None,
+        Some(SendMessageInput {
             pane_id: pane,
             agent_kind: state.agent_kind.clone(),
             client_session_id: state.session_id.clone(),
@@ -1685,15 +1473,11 @@ impl ChatRuntime {
                 .map(PathBuf::from)
                 .collect(),
             text: next.text,
-            client_id: None,
-            client_sender: None,
+
             include_workspace: true,
-        };
-        drop(state);
-        // Box the recursive queue drain so the async state machine remains
-        // finite-sized. The TypeScript runtime fire-and-forgot this call; the
-        // Rust owner keeps it in the same task, preserving queue order.
-        self.send_message_with_admission(input, true).await;
+
+            ..Default::default()
+        })
     }
 
     async fn handle_goal_command(
@@ -1882,127 +1666,6 @@ fn create_system_prefix(
 fn status_message(pane: &str, status: &str, is_loading: bool) -> Value {
     json!({"type":"chat:status","paneId":pane,"status":status,"isLoading":is_loading})
 }
-fn now_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
-fn bound_chat_event(mut event: Value) -> Value {
-    if let Some(delta) = event.get_mut("delta").and_then(Value::as_object_mut) {
-        for key in ["text", "partial_json"] {
-            if let Some(text) = delta.get(key).and_then(Value::as_str) {
-                delta.insert(
-                    key.into(),
-                    Value::String(truncate_chat_content(text, 64_000)),
-                );
-            }
-        }
-    }
-    if let Some(result) = event
-        .get("result")
-        .and_then(Value::as_str)
-        .map(|s| truncate_chat_content(s, 256_000))
-    {
-        event["result"] = Value::String(result);
-    }
-    if let Some(block) = event
-        .get_mut("content_block")
-        .and_then(Value::as_object_mut)
-    {
-        bound_content_block(block);
-    }
-    if let Some(content) = event
-        .get_mut("message")
-        .and_then(Value::as_object_mut)
-        .and_then(|message| message.get_mut("content"))
-        .and_then(Value::as_array_mut)
-    {
-        for block in content {
-            if let Some(block) = block.as_object_mut() {
-                bound_content_block(block);
-            }
-        }
-    }
-    event
-}
-
-fn bound_content_block(block: &mut serde_json::Map<String, Value>) {
-    match block.get("type").and_then(Value::as_str) {
-        Some("text") => {
-            if let Some(text) = block
-                .get("text")
-                .and_then(Value::as_str)
-                .map(|text| truncate_chat_content(text, 256_000))
-            {
-                block.insert("text".into(), Value::String(text));
-            }
-        }
-        Some("tool_use") => {
-            let Some(input) = block.get("input") else {
-                return;
-            };
-            let serialized = input
-                .as_str()
-                .map(ToOwned::to_owned)
-                .unwrap_or_else(|| serde_json::to_string(input).unwrap_or_default());
-            let bounded = truncate_chat_content(&serialized, 256_000);
-            if bounded != serialized {
-                block.insert("input".into(), Value::String(bounded));
-            }
-        }
-        _ => {}
-    }
-}
-fn compact_agent_event(event: AgentEvent) -> AgentEvent {
-    match event {
-        AgentEvent::TextDelta { text, message_id } => AgentEvent::TextDelta {
-            text: truncate_chat_content(&text, 16_000),
-            message_id,
-        },
-        AgentEvent::ThinkingDelta { text, message_id } => AgentEvent::ThinkingDelta {
-            text: truncate_chat_content(&text, 16_000),
-            message_id,
-        },
-        AgentEvent::Result { text } => AgentEvent::Result {
-            text: truncate_chat_content(&text, 16_000),
-        },
-        AgentEvent::Error { message } => AgentEvent::Error {
-            message: truncate_chat_content(&message, 16_000),
-        },
-        AgentEvent::ToolCallStart {
-            tool_call_id,
-            tool_name,
-            summary,
-            ..
-        } => AgentEvent::ToolCallStart {
-            tool_call_id,
-            tool_name,
-            input: None,
-            summary,
-        },
-        AgentEvent::ToolCallEnd {
-            tool_call_id,
-            error,
-            ..
-        } => AgentEvent::ToolCallEnd {
-            tool_call_id,
-            output: None,
-            error,
-        },
-        AgentEvent::Raw {
-            provider,
-            event_type,
-            ..
-        } => AgentEvent::Raw {
-            provider,
-            event_type,
-            event: None,
-        },
-        event => event,
-    }
-}
 fn edited_paths(messages: &[ChatTranscriptMessage]) -> Vec<String> {
     let mut paths = Vec::new();
     let start = messages
@@ -2081,150 +1744,51 @@ fn collect_paths(value: &Value, output: &mut Vec<String>) {
     }
 }
 
-fn goal_activity(session: &ChatSession) -> Vec<Value> {
-    let mut activity = Vec::new();
-    for (index, event) in session.agent_events.iter().enumerate() {
-        let item = match event {
-            AgentEvent::Status { status, label } => Some(json!({
-                "id": format!("status-{index}"), "type": "status",
-                "label": label.as_deref().unwrap_or(status), "detail": null,
-                "state": if status == "error" { "error" } else if status == "idle" { "complete" } else { "running" }
-            })),
-            AgentEvent::ToolCallStart {
-                tool_call_id,
-                tool_name,
-                summary,
-                ..
-            } => Some(json!({
-                "id": tool_call_id, "type": "tool", "label": tool_name,
-                "detail": summary, "state": "running"
-            })),
-            AgentEvent::ToolCallEnd {
-                tool_call_id,
-                error,
-                ..
-            } => Some(json!({
-                "id": format!("{tool_call_id}-end"), "type": "tool",
-                "label": if error.is_some() { "Tool failed" } else { "Tool finished" },
-                "detail": error, "state": if error.is_some() { "error" } else { "complete" }
-            })),
-            AgentEvent::Result { text } => Some(json!({
-                "id": format!("result-{index}"), "type": "result", "label": "Result",
-                "detail": first_useful_line(text, 140), "state": "complete"
-            })),
-            AgentEvent::Error { message } => Some(json!({
-                "id": format!("error-{index}"), "type": "error", "label": "Error",
-                "detail": message, "state": "error"
-            })),
-            _ => None,
-        };
-        if let Some(item) = item {
-            activity.push(item);
-            if activity.len() > 30 {
-                activity.remove(0);
-            }
-        }
-    }
-    if let Some(message) = session
-        .message_buffer
-        .messages()
-        .iter()
-        .rev()
-        .find(|message| message.role == "system" && !message.content.trim().is_empty())
-    {
-        activity.push(json!({
-            "id": format!("system-{}", activity.len()), "type": "system", "label": "System",
-            "detail": first_useful_line(&message.content, 140),
-            "state": if session.goal.as_ref().is_some_and(|goal| goal.status == GoalStatus::Paused) { "paused" } else { "complete" }
-        }));
-        if activity.len() > 30 {
-            activity.remove(0);
-        }
-    }
-    activity
-}
-
-fn first_useful_line(text: &str, max: usize) -> String {
-    let line = text
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .unwrap_or("");
-    let units = line.encode_utf16().collect::<Vec<_>>();
-    if units.len() > max {
-        format!(
-            "{}...",
-            String::from_utf16_lossy(&units[..max.saturating_sub(3)])
-        )
-    } else {
-        line.into()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use inferay_core::path_security::AllowedPaths;
     use std::path::Path;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use tempfile::tempdir;
 
-    struct UnusedExecutor;
-
-    impl AgentExecutor for UnusedExecutor {
-        fn run<'a>(
-            &'a self,
-            _request: AgentRunRequest,
-            _handle: AgentProcessHandle,
-            _emissions: tokio::sync::mpsc::UnboundedSender<ProtocolEmission>,
-        ) -> AgentFuture<'a> {
-            Box::pin(async { Err("executor must not run in queue replacement test".into()) })
-        }
-
-        fn stop(&self, _agent_kind: &str, _handle: &AgentProcessHandle) {}
-
-        fn kill(&self, _handle: &AgentProcessHandle) {}
-    }
-
-    struct CountingExecutor(AtomicUsize);
-
-    impl AgentExecutor for CountingExecutor {
-        fn run<'a>(
-            &'a self,
-            _request: AgentRunRequest,
-            _handle: AgentProcessHandle,
-            _emissions: tokio::sync::mpsc::UnboundedSender<ProtocolEmission>,
-        ) -> AgentFuture<'a> {
-            self.0.fetch_add(1, Ordering::SeqCst);
-            Box::pin(async { Err("test failure".into()) })
-        }
-
-        fn stop(&self, _agent_kind: &str, _handle: &AgentProcessHandle) {}
-        fn kill(&self, _handle: &AgentProcessHandle) {}
-    }
-
     #[derive(Default)]
-    struct RecordingExecutor(std::sync::Mutex<Vec<AgentRunRequest>>);
+    struct TestExecutor {
+        requests: std::sync::Mutex<Vec<AgentRunRequest>>,
+        outcome: Option<Result<AgentRunResult, String>>,
+        final_event: Option<Value>,
+    }
 
-    impl AgentExecutor for RecordingExecutor {
+    impl TestExecutor {
+        fn succeeding() -> Self {
+            Self {
+                outcome: Some(Ok(AgentRunResult::default())),
+                ..Self::default()
+            }
+        }
+    }
+
+    impl AgentExecutor for TestExecutor {
         fn run<'a>(
             &'a self,
             request: AgentRunRequest,
             _handle: AgentProcessHandle,
-            _emissions: tokio::sync::mpsc::UnboundedSender<ProtocolEmission>,
+            emissions: tokio::sync::mpsc::UnboundedSender<ProtocolEmission>,
         ) -> AgentFuture<'a> {
-            let protocol = AgentProtocolContext::new(request.cwd.clone());
-            self.0.lock().unwrap().push(request);
+            self.requests.lock().unwrap().push(request);
             Box::pin(async move {
-                Ok(ExecutedTurn {
-                    result: AgentRunResult::default(),
-                    protocol,
-                })
+                if let Some(event) = &self.final_event {
+                    emissions
+                        .send(ProtocolEmission::Chat(event.clone()))
+                        .unwrap();
+                }
+                self.outcome
+                    .clone()
+                    .expect("test did not admit agent execution")
             })
         }
 
-        fn stop(&self, _agent_kind: &str, _handle: &AgentProcessHandle) {}
-        fn kill(&self, _handle: &AgentProcessHandle) {}
+        fn stop(&self, _: &str, _: &AgentProcessHandle) {}
+        fn kill(&self, _: &AgentProcessHandle) {}
     }
 
     fn test_runtime(
@@ -2269,7 +1833,7 @@ mod tests {
             disconnected_at: None,
             cancelled: false,
             goal: None,
-            agent_events: Vec::new(),
+
             context_hash: None,
             pending_steers: Vec::new(),
         }))
@@ -2288,10 +1852,39 @@ mod tests {
         .unwrap();
     }
 
+    #[test]
+    fn chat_request_decoding_keeps_runtime_admission_fields_private() {
+        let input = SendMessageInput::deserialize(&json!({
+            "type":"chat:send", "paneId":"pane", "text":"hello", "agentKind":"codex",
+            "messageId":"client-message", "sessionId":null, "model":null,
+            "cwd":"/workspace", "referencePaths":[], "images":["/image.png"],
+            "clientId":99, "clientSender":{}, "cwdProvided":true,
+            "referencePathsProvided":true, "reasoningLevelProvided":true, "includeWorkspace":true
+        }))
+        .unwrap();
+        assert_eq!(input.client_message_id.as_deref(), Some("client-message"));
+        assert_eq!(input.images, [PathBuf::from("/image.png")]);
+        assert!(input.client_id.is_none() && input.client_sender.is_none());
+        assert!(!input.cwd_provided && !input.reference_paths_provided);
+        assert!(!input.reasoning_level_provided && !input.include_workspace);
+        for invalid in [
+            json!({}),
+            json!({"text":false}),
+            json!({"text":"hello", "model":42}),
+            json!({"text":"hello", "referencePaths":false}),
+            json!({"text":"hello", "images":[42]}),
+        ] {
+            assert!(
+                SendMessageInput::deserialize(&invalid).is_err(),
+                "{invalid}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn pending_handoff_restarts_once_and_cancelled_handoff_never_runs() {
         let root = tempfile::tempdir().unwrap();
-        let executor = Arc::new(RecordingExecutor::default());
+        let executor = Arc::new(TestExecutor::succeeding());
         let (runtime, persistence, _) = test_runtime(root.path(), executor.clone());
         let request = json!({"text":"explain image","agentKind":"codex","cwd":root.path()});
         persistence
@@ -2304,14 +1897,14 @@ mod tests {
         runtime.resume_handoffs("pane", 1, &sender).await;
         wait_handoff(&persistence, "dispatched").await;
         runtime.resume_handoffs("pane", 1, &sender).await;
-        assert_eq!(executor.0.lock().unwrap().len(), 1);
+        assert_eq!(executor.requests.lock().unwrap().len(), 1);
         persistence
             .receive_handoff("pane", "4:pane:two", request)
             .await
             .unwrap();
         runtime.cancel_handoffs("pane").await.unwrap();
         runtime.resume_handoffs("pane", 1, &sender).await;
-        assert_eq!(executor.0.lock().unwrap().len(), 1);
+        assert_eq!(executor.requests.lock().unwrap().len(), 1);
         assert!(
             persistence
                 .handoff_receipts("pane")
@@ -2325,7 +1918,8 @@ mod tests {
     #[tokio::test]
     async fn accepted_handoff_after_restart_is_interrupted_without_replay() {
         let root = tempfile::tempdir().unwrap();
-        let (runtime, persistence, _) = test_runtime(root.path(), Arc::new(UnusedExecutor));
+        let (runtime, persistence, _) =
+            test_runtime(root.path(), Arc::new(TestExecutor::default()));
         persistence
             .receive_handoff(
                 "pane",
@@ -2347,7 +1941,8 @@ mod tests {
     async fn busy_handoff_is_queued_once_and_failed_queue_is_interrupted() {
         for fail_write in [false, true] {
             let root = tempfile::tempdir().unwrap();
-            let (runtime, persistence, _) = test_runtime(root.path(), Arc::new(UnusedExecutor));
+            let (runtime, persistence, _) =
+                test_runtime(root.path(), Arc::new(TestExecutor::default()));
             let (sender, _) = broadcast::channel(64);
             runtime.sessions.lock().await.insert(
                 "pane".into(),
@@ -2362,7 +1957,8 @@ mod tests {
                 .await
                 .unwrap();
             if fail_write {
-                std::fs::write(root.path().join("data/chat-queues"), "not a directory").unwrap();
+                rusqlite::Connection::open(root.path().join("data/chat.sqlite3")).unwrap()
+                    .execute_batch("CREATE TRIGGER fail_queue BEFORE INSERT ON documents WHEN NEW.kind='queue' BEGIN SELECT RAISE(FAIL,'injected queue failure'); END;").unwrap();
             }
             runtime.resume_handoffs("pane", 1, &sender).await;
             wait_handoff(
@@ -2386,7 +1982,8 @@ mod tests {
     #[tokio::test]
     async fn delayed_queue_publishers_and_reconnect_read_current_durable_state() {
         let root = tempdir().unwrap();
-        let (runtime, persistence, _) = test_runtime(root.path(), Arc::new(UnusedExecutor));
+        let (runtime, persistence, _) =
+            test_runtime(root.path(), Arc::new(TestExecutor::default()));
         let (sender, mut receiver) = broadcast::channel(16);
         let session = test_session(root.path(), sender.clone(), None);
         runtime.sessions.lock().await.insert("pane".into(), session);
@@ -2424,7 +2021,7 @@ mod tests {
     #[tokio::test]
     async fn skill_context_includes_only_activated_instructions_and_refreshes_revisions() {
         let root = tempdir().unwrap();
-        let (runtime, _, _) = test_runtime(root.path(), Arc::new(RecordingExecutor::default()));
+        let (runtime, _, _) = test_runtime(root.path(), Arc::new(TestExecutor::succeeding()));
         let skill = runtime.prompts.lock().await.create(
             json!({"name":"Summarize Work","command":"summarize-work","description":"Work logs",
                 "promptTemplate":"Use recorded dates only."}).as_object().unwrap(), 10,
@@ -2483,38 +2080,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn completed_execution_drains_its_final_emission_before_returning() {
+        let root = tempdir().unwrap();
+        let executor = TestExecutor {
+            outcome: Some(Ok(AgentRunResult {
+                last_assistant_message: "Final channel answer".into(),
+            })),
+            final_event: Some(json!({"type":"result", "result":"Final channel answer"})),
+            ..TestExecutor::default()
+        };
+        let (runtime, persistence, _) = test_runtime(root.path(), Arc::new(executor));
+        let (sender, mut receiver) = broadcast::channel(16);
+        let session = test_session(root.path(), sender, None);
+        let result = runtime
+            .run_once(&session, "answer".into(), Vec::new(), None, None)
+            .await
+            .unwrap();
+        assert_eq!(result.last_assistant_message, "Final channel answer");
+        assert_eq!(receiver.recv().await.unwrap()["type"], "chat:event");
+        assert_eq!(
+            persistence
+                .read_transcript("pane")
+                .await
+                .unwrap()
+                .last()
+                .unwrap()
+                .content,
+            "Final channel answer"
+        );
+        assert!(session.lock().await.current_handle.is_none());
+    }
+
+    #[tokio::test]
     async fn internal_context_is_sent_as_instructions_not_user_input() {
         let root = tempdir().unwrap();
-        let executor = Arc::new(RecordingExecutor::default());
+        let executor = Arc::new(TestExecutor::succeeding());
         let (runtime, _, _) = test_runtime(root.path(), executor.clone());
 
         runtime.prompts.lock().await.create(json!({"name":"Review", "command":"review", "description":"Review", "promptTemplate":"Review actual"}).as_object().unwrap(), 1).unwrap();
         runtime
             .send_message(SendMessageInput {
                 expand_commands: true,
-                command_id: None,
-                command_args: None,
-                client_message_id: None,
+
                 pane_id: "pane".into(),
                 agent_kind: "codex".into(),
-                client_session_id: None,
+
                 cwd: root.path().into(),
                 cwd_provided: true,
                 model: Some("gpt-5.6-sol".into()),
                 reasoning_level: Some("high".into()),
                 reasoning_level_provided: true,
-                reference_paths: Vec::new(),
+
                 reference_paths_provided: true,
-                display_text: None,
-                images: Vec::new(),
+
                 text: "hi /review".into(),
-                client_id: None,
-                client_sender: None,
+
                 include_workspace: true,
+
+                ..Default::default()
             })
             .await;
 
-        let requests = executor.0.lock().unwrap();
+        let requests = executor.requests.lock().unwrap();
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].prompt, "hi Review actual");
         let instructions = requests[0].developer_instructions.as_deref().unwrap();
@@ -2535,7 +2162,7 @@ mod tests {
             .await
             .unwrap();
         let (runtime, _persistence, checkpoints) =
-            test_runtime(root.path(), Arc::new(UnusedExecutor));
+            test_runtime(root.path(), Arc::new(TestExecutor::default()));
         let checkpoint_id = checkpoints
             .create_checkpoint("pane".into(), root.path(), "update answer".into())
             .await
@@ -2547,9 +2174,9 @@ mod tests {
         let session = test_session(root.path(), sender, None);
 
         runtime
-            .apply_emissions(
+            .apply_emission(
                 &session,
-                vec![ProtocolEmission::FileChange(vec![source])],
+                ProtocolEmission::FileChange(vec![source]),
                 Some(&checkpoint_id),
             )
             .await;
@@ -2557,14 +2184,14 @@ mod tests {
         let start = receiver.recv().await.unwrap();
         assert_eq!(start["type"], "chat:event");
         assert_eq!(start["event"]["content_block"]["name"], "Edit");
-        assert_eq!(
-            start["event"]["content_block"]["input"]["old_string"],
-            "fn answer() -> u8 { 41 }\n"
-        );
-        assert_eq!(
-            start["event"]["content_block"]["input"]["new_string"],
-            "fn answer() -> u8 { 42 }\n"
-        );
+        let edit: Value = serde_json::from_str(
+            start["transcriptUpdate"]["messages"][0]["message"]["content"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(edit["old_string"], "fn answer() -> u8 { 41 }\n");
+        assert_eq!(edit["new_string"], "fn answer() -> u8 { 42 }\n");
         assert_eq!(
             receiver.recv().await.unwrap()["event"]["type"],
             "content_block_stop"
@@ -2585,7 +2212,8 @@ mod tests {
     #[tokio::test]
     async fn repairs_missing_persistence_revision_from_native_memory() {
         let root = tempdir().unwrap();
-        let (runtime, persistence, _) = test_runtime(root.path(), Arc::new(UnusedExecutor));
+        let (runtime, persistence, _) =
+            test_runtime(root.path(), Arc::new(TestExecutor::default()));
         let (sender, _) = broadcast::channel(16);
         let session = test_session(root.path(), sender, None);
         {
@@ -2600,7 +2228,7 @@ mod tests {
             .await;
         drop(persistence);
         let fresh = ChatPersistence::new(root.path().join("data"));
-        let messages = fresh.read_legacy_transcript("pane").await.unwrap();
+        let messages = fresh.read_transcript("pane").await.unwrap();
         assert_eq!(
             messages
                 .iter()
@@ -2611,9 +2239,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn concurrent_reconnects_share_history_and_receive_later_queue_updates() {
+        let root = tempdir().unwrap();
+        let (runtime, persistence, _) =
+            test_runtime(root.path(), Arc::new(TestExecutor::default()));
+        let (first, mut first_events) = broadcast::channel(16);
+        let (second, mut second_events) = broadcast::channel(16);
+        tokio::join!(
+            runtime.reconnect(
+                "pane",
+                1,
+                first,
+                Some("codex"),
+                None,
+                Some(root.path().into())
+            ),
+            runtime.reconnect(
+                "pane",
+                2,
+                second,
+                Some("codex"),
+                None,
+                Some(root.path().into())
+            ),
+        );
+        let first_sync = first_events.recv().await.unwrap();
+        let second_sync = second_events.recv().await.unwrap();
+        assert_eq!(first_sync, second_sync);
+        assert_eq!(first_sync["type"], "chat:sync");
+        assert_eq!(first_sync["modelVersion"], 1);
+        assert!(!first_sync["epoch"].as_str().unwrap().is_empty());
+        assert!(first_sync["revision"].is_u64());
+        assert_eq!(first_sync["messages"], json!([]));
+        assert_eq!(first_sync["isStreaming"], false);
+        for events in [&mut first_events, &mut second_events] {
+            assert_eq!(events.recv().await.unwrap()["type"], "chat:queue");
+            assert_eq!(events.recv().await.unwrap()["status"], "idle");
+        }
+        persistence
+            .enqueue_runtime(
+                "pane",
+                json!({"id":"q", "text":"next", "displayText":"Next"}),
+            )
+            .await
+            .unwrap();
+        runtime.broadcast_queue("pane").await;
+        for events in [&mut first_events, &mut second_events] {
+            let event = events.recv().await.unwrap();
+            assert_eq!(event["type"], "chat:queue");
+            assert_eq!(event["queue"][0]["id"], "q");
+        }
+    }
+
+    #[tokio::test]
     async fn process_restart_restores_published_chat_and_provider_reference() {
         let root = tempdir().unwrap();
-        let (runtime, _, _) = test_runtime(root.path(), Arc::new(UnusedExecutor));
+        let (runtime, _, _) = test_runtime(root.path(), Arc::new(TestExecutor::default()));
         let (sender, mut receiver) = broadcast::channel(32);
         let session = test_session(root.path(), sender, None);
         {
@@ -2635,9 +2316,9 @@ mod tests {
             .await;
         receiver.recv().await.unwrap();
         runtime
-            .apply_emissions(
+            .apply_emission(
                 &session,
-                vec![ProtocolEmission::Session("durable-provider-id".into())],
+                ProtocolEmission::Session("durable-provider-id".into()),
                 None,
             )
             .await;
@@ -2662,7 +2343,7 @@ mod tests {
         // the exact published text, without relying on browser state or provider logs.
         drop(session);
         drop(runtime);
-        let (restarted, _, _) = test_runtime(root.path(), Arc::new(UnusedExecutor));
+        let (restarted, _, _) = test_runtime(root.path(), Arc::new(TestExecutor::default()));
         let (sender, mut receiver) = broadcast::channel(16);
         restarted
             .reconnect("pane", 2, sender, None, None, None)
@@ -2697,15 +2378,18 @@ mod tests {
     #[tokio::test]
     async fn stop_does_not_admit_a_queued_turn_before_the_owner_unwinds() {
         let root = tempdir().unwrap();
-        let executor = Arc::new(CountingExecutor(AtomicUsize::new(0)));
+        let executor = Arc::new(TestExecutor {
+            outcome: Some(Err("test failure".into())),
+            ..TestExecutor::default()
+        });
         let (runtime, persistence, _) = test_runtime(root.path(), executor.clone());
         let (sender, mut receiver) = broadcast::channel(16);
         let session = test_session(root.path(), sender, Some(AgentProcessHandle::default()));
         runtime.sessions.lock().await.insert("pane".into(), session);
         persistence
-            .save_queue(
+            .enqueue_runtime(
                 "pane",
-                &[json!({"id":"q1","text":"next","displayText":"next"})],
+                json!({"id":"q1","text":"next","displayText":"next"}),
             )
             .await
             .unwrap();
@@ -2713,26 +2397,17 @@ mod tests {
         runtime.stop_generation("pane").await;
         tokio::task::yield_now().await;
 
-        assert_eq!(executor.0.load(Ordering::SeqCst), 0);
+        assert_eq!(executor.requests.lock().unwrap().len(), 0);
         assert_eq!(persistence.read_queue("pane").await.unwrap().len(), 1);
-        let types = [
-            receiver.recv().await.unwrap()["type"]
-                .as_str()
-                .unwrap()
-                .to_string(),
-            receiver.recv().await.unwrap()["type"]
-                .as_str()
-                .unwrap()
-                .to_string(),
-            receiver.recv().await.unwrap()["type"]
-                .as_str()
-                .unwrap()
-                .to_string(),
-            receiver.recv().await.unwrap()["type"]
-                .as_str()
-                .unwrap()
-                .to_string(),
-        ];
+        let mut types = Vec::new();
+        for _ in 0..4 {
+            types.push(
+                receiver.recv().await.unwrap()["type"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+            );
+        }
         assert_eq!(
             types,
             ["chat:system", "chat:model", "chat:done", "chat:status"]
@@ -2742,7 +2417,7 @@ mod tests {
     #[tokio::test]
     async fn reconnect_reports_an_active_turn_between_stream_blocks() {
         let root = tempdir().unwrap();
-        let (runtime, _, _) = test_runtime(root.path(), Arc::new(UnusedExecutor));
+        let (runtime, _, _) = test_runtime(root.path(), Arc::new(TestExecutor::default()));
         let (existing_sender, _) = broadcast::channel(8);
         let session = test_session(root.path(), existing_sender, None);
         {
@@ -2776,8 +2451,11 @@ mod tests {
     #[tokio::test]
     async fn drain_broadcasts_remainder_before_starting_the_next_turn() {
         let root = tempdir().unwrap();
-        let executor = Arc::new(CountingExecutor(AtomicUsize::new(0)));
-        let (runtime, persistence, _) = test_runtime(root.path(), executor);
+        let executor = Arc::new(TestExecutor {
+            outcome: Some(Err("test failure".into())),
+            ..TestExecutor::default()
+        });
+        let (runtime, persistence, _) = test_runtime(root.path(), executor.clone());
         let (sender, mut receiver) = broadcast::channel(32);
         let session = test_session(root.path(), sender, None);
         runtime
@@ -2785,20 +2463,41 @@ mod tests {
             .lock()
             .await
             .insert("pane".into(), session.clone());
-        persistence
-            .save_queue(
-                "pane",
-                &[
-                    json!({"id":"q1","text":"first","displayText":"first"}),
-                    json!({"id":"q2","text":"second","displayText":"second"}),
-                ],
-            )
-            .await
-            .unwrap();
+        for message in [
+            json!({"id":"q1","text":"first","displayText":"first"}),
+            json!({"id":"q2","text":"second","displayText":"second"}),
+        ] {
+            persistence.enqueue_runtime("pane", message).await.unwrap();
+        }
 
-        runtime.drain_next_or_release(&session).await;
-
-        let first = receiver.recv().await.unwrap();
+        session.lock().await.turn_active = false;
+        runtime
+            .send_message(SendMessageInput {
+                pane_id: "pane".into(),
+                text: "initial".into(),
+                agent_kind: "codex".into(),
+                cwd: root.path().into(),
+                ..Default::default()
+            })
+            .await;
+        assert_eq!(
+            executor
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|request| request.prompt.as_str())
+                .collect::<Vec<_>>(),
+            ["initial", "first", "second"]
+        );
+        assert!(!session.lock().await.turn_active);
+        assert!(persistence.read_queue("pane").await.unwrap().is_empty());
+        let first = loop {
+            let message = receiver.recv().await.unwrap();
+            if message["type"] == "chat:queue" {
+                break message;
+            }
+        };
         assert_eq!(
             first,
             json!({"type":"chat:queue","paneId":"pane","queue":[{"id":"q2","text":"second","displayText":"second"}]})
@@ -2809,7 +2508,7 @@ mod tests {
     #[tokio::test]
     async fn omitted_send_fields_preserve_live_session_context() {
         let root = tempdir().unwrap();
-        let (runtime, _, _) = test_runtime(root.path(), Arc::new(UnusedExecutor));
+        let (runtime, _, _) = test_runtime(root.path(), Arc::new(TestExecutor::default()));
         let (sender, _) = broadcast::channel(8);
         let session = test_session(root.path(), sender, Some(AgentProcessHandle::default()));
         let original_cwd = root.path().join("workspace");
@@ -2827,28 +2526,13 @@ mod tests {
             .insert("pane".into(), session.clone());
 
         runtime
-            .send_message(SendMessageInput {
-                expand_commands: false,
-                command_id: None,
-                command_args: None,
-                client_message_id: None,
-                pane_id: "pane".into(),
-                agent_kind: "codex".into(),
-                client_session_id: None,
-                cwd: root.path().join("fallback-that-must-not-replace"),
-                cwd_provided: false,
-                model: Some("gpt-5.6-sol".into()),
-                reasoning_level: None,
-                reasoning_level_provided: false,
-                reference_paths: Vec::new(),
-                reference_paths_provided: false,
-                display_text: None,
-                images: Vec::new(),
-                text: "queued".into(),
-                client_id: None,
-                client_sender: None,
-                include_workspace: false,
-            })
+            .send_message(
+                SendMessageInput::deserialize(&json!({
+                    "paneId":"pane", "agentKind":"codex", "text":"queued", "model":"gpt-5.6-sol",
+                    "cwd":root.path().join("fallback-that-must-not-replace")
+                }))
+                .unwrap(),
+            )
             .await;
 
         let state = session.lock().await;
@@ -2860,7 +2544,8 @@ mod tests {
     #[tokio::test]
     async fn busy_codex_send_steers_active_turn_without_persisting_a_queue_item() {
         let root = tempdir().unwrap();
-        let (runtime, persistence, _) = test_runtime(root.path(), Arc::new(UnusedExecutor));
+        let (runtime, persistence, _) =
+            test_runtime(root.path(), Arc::new(TestExecutor::default()));
         let (sender, mut receiver) = broadcast::channel(8);
         let handle = AgentProcessHandle::default();
         let (control_tx, mut control_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -2887,26 +2572,23 @@ mod tests {
         });
         runtime
             .send_message(SendMessageInput {
-                expand_commands: false,
-                command_id: None,
-                command_args: None,
-                client_message_id: None,
                 pane_id: "pane".into(),
                 agent_kind: "codex".into(),
-                client_session_id: None,
+
                 cwd: root.path().into(),
                 cwd_provided: true,
                 model: Some("gpt-5.6-sol".into()),
                 reasoning_level: Some("high".into()),
                 reasoning_level_provided: true,
-                reference_paths: Vec::new(),
+
                 reference_paths_provided: true,
                 display_text: Some("Change direction".into()),
-                images: Vec::new(),
+
                 text: "change direction".into(),
-                client_id: None,
-                client_sender: None,
+
                 include_workspace: true,
+
+                ..Default::default()
             })
             .await;
         acknowledgement.await.unwrap();
@@ -2920,11 +2602,11 @@ mod tests {
         assert!(session.lock().await.message_buffer.messages().is_empty());
 
         runtime
-            .apply_emissions(
+            .apply_emission(
                 &session,
-                vec![ProtocolEmission::UserInputAcknowledged {
+                ProtocolEmission::UserInputAcknowledged {
                     text: "change direction".into(),
-                }],
+                },
                 None,
             )
             .await;
@@ -2949,7 +2631,8 @@ mod tests {
     #[tokio::test]
     async fn rejected_codex_steer_stays_in_the_visible_persisted_queue() {
         let root = tempdir().unwrap();
-        let (runtime, persistence, _) = test_runtime(root.path(), Arc::new(UnusedExecutor));
+        let (runtime, persistence, _) =
+            test_runtime(root.path(), Arc::new(TestExecutor::default()));
         let (sender, mut receiver) = broadcast::channel(8);
         let handle = AgentProcessHandle::default();
         let (control_tx, mut control_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -2969,26 +2652,23 @@ mod tests {
         });
         runtime
             .send_message(SendMessageInput {
-                expand_commands: false,
-                command_id: None,
-                command_args: None,
-                client_message_id: None,
                 pane_id: "pane".into(),
                 agent_kind: "codex".into(),
-                client_session_id: None,
+
                 cwd: root.path().into(),
                 cwd_provided: true,
                 model: Some("gpt-5.6-sol".into()),
                 reasoning_level: Some("high".into()),
                 reasoning_level_provided: true,
-                reference_paths: Vec::new(),
+
                 reference_paths_provided: true,
                 display_text: Some("Try this next".into()),
-                images: Vec::new(),
+
                 text: "try this next".into(),
-                client_id: None,
-                client_sender: None,
+
                 include_workspace: true,
+
+                ..Default::default()
             })
             .await;
         rejection.await.unwrap();
@@ -3012,35 +2692,14 @@ mod tests {
             vec!["config", "user.email", "test@example.com"],
             vec!["config", "user.name", "Test"],
         ] {
-            assert!(
-                std::process::Command::new("git")
-                    .args(arguments)
-                    .current_dir(&root_path)
-                    .status()
-                    .unwrap()
-                    .success()
-            );
+            crate::tests::run_git(&root_path, &arguments);
         }
         std::fs::write(root_path.join("tracked.txt"), "before\n").unwrap();
-        assert!(
-            std::process::Command::new("git")
-                .args(["add", "tracked.txt"])
-                .current_dir(&root_path)
-                .status()
-                .unwrap()
-                .success()
-        );
-        assert!(
-            std::process::Command::new("git")
-                .args(["commit", "-m", "initial"])
-                .current_dir(&root_path)
-                .status()
-                .unwrap()
-                .success()
-        );
+        crate::tests::run_git(&root_path, &["add", "tracked.txt"]);
+        crate::tests::run_git(&root_path, &["commit", "-m", "initial"]);
 
         let (runtime, _persistence, checkpoints) =
-            test_runtime(&root_path, Arc::new(UnusedExecutor));
+            test_runtime(&root_path, Arc::new(TestExecutor::default()));
         let (sender, mut receiver) = broadcast::channel(32);
         let session = test_session(&root_path, sender, None);
         {
@@ -3066,7 +2725,7 @@ mod tests {
         std::fs::write(root_path.join("tracked.txt"), "after\n").unwrap();
 
         runtime
-            .finalize_failure(&session, Some(&checkpoint_id), "agent failed")
+            .finalize_run(&session, Some(&checkpoint_id), Err("agent failed".into()))
             .await;
 
         let mut messages = Vec::new();
@@ -3100,56 +2759,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn compatibility_queue_broadcast_keeps_api_persistence_semantics() {
+    async fn queue_broadcast_reflects_persisted_edits() {
         let root = tempdir().unwrap();
-        let persistence = ChatPersistence::new(root.path().join("data"));
-        let allowed = AllowedPaths::new(root.path(), root.path()).unwrap();
-        let runtime = ChatRuntime::new(
-            persistence.clone(),
-            CheckpointService::new(allowed, root.path().join("checkpoints.json")),
-            Arc::new(UnusedExecutor),
-            Arc::new(Mutex::new(AgentContextStore::new(
-                root.path().join("agent-context.json"),
-            ))),
-            Arc::new(Mutex::new(PromptStore::new(
-                root.path().join("bundled-prompts.json"),
-                root.path().join("prompts.json"),
-            ))),
-        );
+        let (runtime, persistence, _) =
+            test_runtime(root.path(), Arc::new(TestExecutor::default()));
         let (sender, mut receiver) = broadcast::channel(4);
-        runtime.sessions.lock().await.insert(
-            "pane".into(),
-            Arc::new(Mutex::new(ChatSession {
-                pane_id: "pane".into(),
-                agent_kind: "codex".into(),
-                model: None,
-                reasoning_level: None,
-                session_id: Some("live-session".into()),
-                clients: HashMap::from([(1, sender)]),
-                current_handle: None,
-                turn_active: true,
-                cwd: root.path().into(),
-                reference_paths: Vec::new(),
-                message_buffer: ChatMessageBuffer::default(),
-                disconnected_at: None,
-                cancelled: false,
-                goal: None,
-                agent_events: Vec::new(),
-                context_hash: None,
-                pending_steers: Vec::new(),
-            })),
-        );
+        runtime
+            .sessions
+            .lock()
+            .await
+            .insert("pane".into(), test_session(root.path(), sender, None));
+        persistence
+            .enqueue_runtime(
+                "pane",
+                json!({"id":2,"text":"invalid","displayText":"invalid"}),
+            )
+            .await
+            .unwrap();
         let queue = vec![json!({"id":"q", "text":"edited", "displayText":"edited"})];
-        persistence.save_queue("pane", &queue).await.unwrap();
+        persistence
+            .enqueue_runtime("pane", queue[0].clone())
+            .await
+            .unwrap();
         runtime.broadcast_queue("pane").await;
         let event = receiver.recv().await.unwrap();
         assert_eq!(
             event,
             json!({"type":"chat:queue", "paneId":"pane", "queue":queue})
         );
-        let events = persistence.read_events("pane", 0, 10).await.unwrap();
-        assert_eq!(events.last().unwrap().event_type, "queue_persisted");
-        assert_eq!(events.last().unwrap().payload["source"], "api");
 
         persistence.delete_queue("pane").await.unwrap();
         runtime.broadcast_queue("pane").await;
@@ -3159,9 +2796,6 @@ mod tests {
             json!({"type":"chat:queue", "paneId":"pane", "queue":[]})
         );
         assert!(persistence.read_queue("pane").await.unwrap().is_empty());
-        let events = persistence.read_events("pane", 0, 10).await.unwrap();
-        assert_eq!(events.last().unwrap().payload["source"], "api");
-        assert_eq!(events.last().unwrap().payload["count"], 0);
     }
 
     #[test]
@@ -3184,21 +2818,36 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn bounds_nested_chat_event_content_like_the_previous_server() {
-        let oversized = "x".repeat(300_000);
-        let bounded = bound_chat_event(json!({
-            "type": "assistant",
-            "message": {
-                "content": [
-                    { "type": "text", "text": oversized },
-                    { "type": "tool_use", "input": { "value": "y".repeat(300_000) } }
-                ]
-            }
-        }));
-        let content = bounded["message"]["content"].as_array().unwrap();
-        assert!(content[0]["text"].as_str().unwrap().encode_utf16().count() <= 256_000);
-        assert!(content[1]["input"].is_string());
-        assert!(content[1]["input"].as_str().unwrap().encode_utf16().count() <= 256_000);
+    #[tokio::test]
+    async fn publishes_bounded_content_once_with_provider_status_metadata() {
+        let root = tempdir().unwrap();
+        let (runtime, persistence, _) =
+            test_runtime(root.path(), Arc::new(TestExecutor::default()));
+        let (sender, mut events) = broadcast::channel(4);
+        let session = test_session(root.path(), sender, None);
+        runtime
+            .emit_chat_event(
+                &session,
+                json!({"type":"assistant", "session_id":"provider-session",
+            "message":{"content":[{"type":"text","text":"x".repeat(300_000)},
+                {"type":"tool_use","name":"Read","input":{"value":"y".repeat(300_000)}}]}}),
+            )
+            .await;
+        let event = events.recv().await.unwrap();
+        assert_eq!(event["event"]["session_id"], "provider-session");
+        assert!(event["event"].to_string().len() < 256);
+        let messages = event["transcriptUpdate"]["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 2);
+        for update in messages {
+            assert!(
+                update["message"]["content"]
+                    .as_str()
+                    .unwrap()
+                    .encode_utf16()
+                    .count()
+                    <= 256_000
+            );
+        }
+        assert_eq!(persistence.read_transcript("pane").await.unwrap().len(), 2);
     }
 }

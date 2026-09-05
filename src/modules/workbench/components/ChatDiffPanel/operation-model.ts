@@ -13,15 +13,9 @@ export type DragProps = {
 	readonly onDragEnd: () => void;
 };
 
-export type GitRefOperationResult = {
+type GitOperationResult<Operation extends string> = {
 	readonly ok: boolean;
-	readonly operation:
-		| "merge"
-		| "rebase"
-		| "interactiveRebase"
-		| "fastForward"
-		| "cherryPick"
-		| "revert";
+	readonly operation: Operation;
 	readonly outcome: GitOperationOutcome;
 	readonly currentBranch?: string;
 	readonly head?: string;
@@ -29,6 +23,15 @@ export type GitRefOperationResult = {
 	readonly errorKind?: GitOperationErrorKind;
 	readonly error?: string;
 };
+
+export type GitRefOperationResult = GitOperationResult<
+	| "merge"
+	| "rebase"
+	| "interactiveRebase"
+	| "fastForward"
+	| "cherryPick"
+	| "revert"
+>;
 
 export type GitRefOperationPreflight = {
 	readonly source: string;
@@ -76,16 +79,9 @@ export type GitOperationErrorKind =
 	| "commandFailed"
 	| "io";
 
-export type GitGraphActionResult = {
-	readonly ok: boolean;
-	readonly action: GitGraphActionRequest["action"];
-	readonly outcome: GitOperationOutcome;
-	readonly currentBranch?: string;
-	readonly head?: string;
-	readonly conflicts: string[];
-	readonly errorKind?: GitOperationErrorKind;
-	readonly error?: string;
-};
+export type GitGraphActionResult = GitOperationResult<
+	GitGraphActionRequest["action"]
+>;
 
 export function gitOperationErrorLabel(kind?: GitOperationErrorKind): string {
 	switch (kind) {

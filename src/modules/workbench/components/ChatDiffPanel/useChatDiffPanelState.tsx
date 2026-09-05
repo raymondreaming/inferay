@@ -276,7 +276,7 @@ export function useChatDiffPanelState({
 						? {
 								phase: graphActionResult.ok ? "completed" : "failed",
 								message: graphActionResult.ok
-									? `Git ${graphActionResult.action} completed`
+									? `Git ${graphActionResult.operation} completed`
 									: gitOperationErrorLabel(graphActionResult.errorKind),
 							}
 						: refOperationResult

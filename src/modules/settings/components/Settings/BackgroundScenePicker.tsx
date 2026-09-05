@@ -74,9 +74,8 @@ export function BackgroundScenePicker({
 					body: formData,
 				});
 				if (!response.ok) {
-					throw new Error(
-						(await response.text()) || "Could not import that image",
-					);
+					const failure = await response.json().catch(() => null);
+					throw new Error(failure?.error || "Could not import that image");
 				}
 				const payload = (await response.json()) as { revision?: number };
 				updateBackground({

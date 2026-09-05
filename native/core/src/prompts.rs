@@ -193,7 +193,8 @@ impl PromptStore {
     }
 
     fn save(&self, prompts: &[Prompt]) -> Result<(), String> {
-        atomic_write_json(&self.local_path, prompts)
+        let bytes = serde_json::to_vec_pretty(prompts).map_err(|error| error.to_string())?;
+        crate::atomic_write::overwrite(&self.local_path, &bytes)
     }
 }
 
@@ -287,15 +288,6 @@ fn internal_prompt_error(message: String) -> PromptError {
         status: 500,
         message,
     }
-}
-
-fn atomic_write_json(path: &Path, value: impl Serialize) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| "prompt path has no parent directory".to_string())?;
-    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    let bytes = serde_json::to_vec_pretty(&value).map_err(|error| error.to_string())?;
-    crate::atomic_write::overwrite(path, &bytes)
 }
 
 /// Presentation validation for saved and live skill cards. Applying a proposal

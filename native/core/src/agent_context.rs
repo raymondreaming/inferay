@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use serde::Serialize;
-use serde_json::{Map, Value, json};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 
 use crate::prompts::Prompt;
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentContextLayer {
     pub instructions: String,
@@ -41,7 +41,7 @@ pub struct AgentContextStore {
     path: PathBuf,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 struct AgentContextFile {
     global: AgentContextLayer,
     projects: BTreeMap<String, AgentContextLayer>,
@@ -152,20 +152,15 @@ impl AgentContextStore {
             }
             _ => return Err("scope is invalid".into()),
         }
-        atomic_write_context(&self.path, &stored)
+        let bytes = serde_json::to_vec_pretty(&stored).map_err(|error| error.to_string())?;
+        crate::atomic_write::overwrite(&self.path, &bytes)
     }
 
     fn load(&self) -> AgentContextFile {
-        let value = std::fs::read(&self.path)
+        std::fs::read(&self.path)
             .ok()
-            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-            .unwrap_or_else(|| json!({}));
-        let object = value.as_object();
-        AgentContextFile {
-            global: normalize_layer(object.and_then(|value| value.get("global"))),
-            projects: normalize_layer_map(object.and_then(|value| value.get("projects"))),
-            chats: normalize_layer_map(object.and_then(|value| value.get("chats"))),
-        }
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default()
     }
 }
 
@@ -187,11 +182,13 @@ pub fn create_skill_manifest(skills: &[Prompt]) -> String {
         .join("\n")
 }
 
-fn empty_layer() -> AgentContextLayer {
-    AgentContextLayer {
-        instructions: String::new(),
-        mode: "inherit".into(),
-        updated_at: 0,
+impl Default for AgentContextLayer {
+    fn default() -> Self {
+        Self {
+            instructions: String::new(),
+            mode: "inherit".into(),
+            updated_at: 0,
+        }
     }
 }
 
@@ -201,38 +198,6 @@ fn normalize_mode(value: Option<&str>) -> String {
     } else {
         "inherit".into()
     }
-}
-
-fn normalize_layer(value: Option<&Value>) -> AgentContextLayer {
-    let Some(value) = value.and_then(Value::as_object) else {
-        return empty_layer();
-    };
-    AgentContextLayer {
-        instructions: value
-            .get("instructions")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string(),
-        mode: normalize_mode(value.get("mode").and_then(Value::as_str)),
-        updated_at: value
-            .get("updatedAt")
-            .and_then(Value::as_f64)
-            .filter(|value| value.is_finite() && *value >= 0.0)
-            .map(|value| value as u64)
-            .unwrap_or(0),
-    }
-}
-
-fn normalize_layer_map(value: Option<&Value>) -> BTreeMap<String, AgentContextLayer> {
-    value
-        .and_then(Value::as_object)
-        .map(|entries| {
-            entries
-                .iter()
-                .map(|(key, value)| (key.clone(), normalize_layer(Some(value))))
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 fn project_key(cwd: Option<&str>) -> Option<String> {
@@ -268,60 +233,54 @@ fn compose_layers(
     parts.join("\n\n")
 }
 
-fn atomic_write_context(path: &Path, context: &AgentContextFile) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| "agent context path has no parent directory".to_string())?;
-    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    let mut projects = Map::new();
-    for (key, value) in &context.projects {
-        projects.insert(
-            key.clone(),
-            serde_json::to_value(value).map_err(|error| error.to_string())?,
-        );
-    }
-    let mut chats = Map::new();
-    for (key, value) in &context.chats {
-        chats.insert(
-            key.clone(),
-            serde_json::to_value(value).map_err(|error| error.to_string())?,
-        );
-    }
-    let value = json!({
-        "global": context.global,
-        "projects": projects,
-        "chats": chats,
-    });
-    let bytes = serde_json::to_vec_pretty(&value).map_err(|error| error.to_string())?;
-    crate::atomic_write::overwrite(path, &bytes)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn composes_inherited_and_replacement_layers() {
-        let global = AgentContextLayer {
-            instructions: " global ".into(),
-            mode: "inherit".into(),
-            updated_at: 1,
-        };
-        let project = AgentContextLayer {
-            instructions: "project".into(),
-            mode: "inherit".into(),
-            updated_at: 2,
-        };
-        let chat = AgentContextLayer {
-            instructions: "chat".into(),
-            mode: "replace".into(),
-            updated_at: 3,
-        };
+    fn persists_scopes_and_removes_empty_overrides() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("nested/context.json");
+        let store = AgentContextStore::new(path.clone());
         assert_eq!(
-            compose_layers(&global, Some(&project), None),
-            "global\n\nproject"
+            store.resolve(None, None, &[]).global,
+            AgentContextLayer::default()
         );
-        assert_eq!(compose_layers(&global, Some(&project), Some(&chat)), "chat");
+        for (scope, instructions, mode) in [
+            ("global", " global ", "inherit"),
+            ("project", "project", "inherit"),
+            ("chat", "chat", "replace"),
+            ("chat", "", "inherit"),
+            ("project", "", "inherit"),
+        ] {
+            store
+                .update(
+                    AgentContextUpdate {
+                        scope: scope.into(),
+                        cwd: Some("/repo".into()),
+                        pane_id: Some("pane".into()),
+                        instructions: instructions.into(),
+                        mode: Some(mode.into()),
+                    },
+                    123,
+                )
+                .unwrap();
+            let context =
+                AgentContextStore::new(path.clone()).resolve(Some("/repo"), Some("pane"), &[]);
+            let expected = match (scope, instructions) {
+                ("chat", "chat") => "chat",
+                ("project", "project") | ("chat", "") => "global\n\nproject",
+                _ => "global",
+            };
+            assert_eq!(context.effective_instructions, expected);
+            assert_eq!(context.global.updated_at, 123);
+            if instructions.is_empty() {
+                assert!(context.chat.is_none());
+                if scope == "project" {
+                    assert!(context.project.is_none());
+                }
+            }
+        }
     }
 
     #[test]

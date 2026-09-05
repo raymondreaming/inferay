@@ -45,7 +45,8 @@ impl RuntimePidTracker {
         self.write_pids().await;
     }
 
-    pub async fn flush(&self) {
+    #[cfg(test)]
+    async fn flush(&self) {
         self.save_pending.store(false, Ordering::Release);
         self.write_pids().await;
     }

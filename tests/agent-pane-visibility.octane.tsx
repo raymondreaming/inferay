@@ -172,8 +172,7 @@ test("legacy terminal panes are restored as chats", async () => {
 		id: "agent-pane" as PaneId,
 		title: "Agent",
 		agentKind: "agent" as const,
-		isClaude: false,
-		paneType: "agent" as const,
+
 		cwd: "/tmp/project",
 	};
 
@@ -209,8 +208,7 @@ test("chat pane refs stay attached across parent rerenders", async () => {
 		id: "chat-pane" as PaneId,
 		title: "Codex",
 		agentKind: "codex" as const,
-		isClaude: false,
-		paneType: "codex" as const,
+
 		cwd: "/tmp/project",
 	};
 	const chatRef = mock(() => {});
@@ -264,8 +262,7 @@ test("grid layout scrolls vertically when panes exceed visible rows", async () =
 		id: `chat-pane-${index}` as PaneId,
 		title: `Codex ${index + 1}`,
 		agentKind: "codex" as const,
-		isClaude: false,
-		paneType: "codex" as const,
+
 		cwd: "/tmp/project",
 	}));
 	const noop = () => {};
@@ -313,8 +310,7 @@ test("dock handle reorders a row from the first pointer gesture", async () => {
 		id: `drag-pane-${index}` as PaneId,
 		title: `Codex ${index + 1}`,
 		agentKind: "codex" as const,
-		isClaude: false,
-		paneType: "codex" as const,
+
 		cwd: "/tmp/project",
 	}));
 	const reorder = vi.fn();
@@ -400,8 +396,7 @@ test("hovered chat panes own wheel scrolling without activation", async () => {
 		id: `chat-pane-${index}` as PaneId,
 		title: `Codex ${index + 1}`,
 		agentKind: "codex" as const,
-		isClaude: false,
-		paneType: "codex" as const,
+
 		cwd: "/tmp/project",
 	}));
 	const noop = () => {};
@@ -515,8 +510,7 @@ test("file panes scroll internally without activation", async () => {
 		id: "chat-with-file" as PaneId,
 		title: "Codex",
 		agentKind: "codex" as const,
-		isClaude: false,
-		paneType: "codex" as const,
+
 		cwd: "/tmp/project",
 	};
 	const selectFile = vi.fn();
@@ -609,8 +603,7 @@ test("row layout glides horizontally over inactive chat bodies", async () => {
 		id: `row-chat-pane-${index}` as PaneId,
 		title: `Codex ${index + 1}`,
 		agentKind: "codex" as const,
-		isClaude: false,
-		paneType: "codex" as const,
+
 		cwd: "/tmp/project",
 	}));
 	const noop = () => {};

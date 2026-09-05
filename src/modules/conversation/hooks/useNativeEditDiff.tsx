@@ -34,7 +34,7 @@ export function useNativeEditDiff(
 			queryFn: async ({ signal }: { signal: AbortSignal }) => {
 				const response = await sendJson(
 					"/api/native/diff",
-					{ before, after, edits, prepared: true },
+					{ before, after, edits },
 					{ signal: AbortSignal.any([signal, AbortSignal.timeout(12000)]) },
 				);
 				if (!response.ok) {

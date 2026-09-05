@@ -1,5 +1,4 @@
 import { postJson } from "../../../adapters/backend/http.ts";
-import { isChatMessageStorageKey } from "../../../adapters/storage/keys.ts";
 import {
 	readStoredJson,
 	readStoredValue,
@@ -19,25 +18,17 @@ import type {
 	QueuedMessageInfo,
 } from "./agent-chat-shared.ts";
 
-const LEGACY_MESSAGES_KEY_PREFIX = "inferay-chat-";
-const LEGACY_SESSION_KEY_PREFIX = "inferay-chat-session-";
 const INPUT_KEY_PREFIX = "inferay-chat-input-";
 const CHECKPOINT_KEY_PREFIX = "inferay-checkpoints-";
 const MODEL_KEY_PREFIX = "inferay-chat-model-";
 const REASONING_KEY_PREFIX = "inferay-chat-reasoning-";
 const SUMMARY_KEY_PREFIX = "inferay-chat-summary-";
 const PENDING_WORKSPACE_KEY_PREFIX = "inferay-chat-pending-workspace-";
-const QUEUE_KEY_PREFIX = "inferay-chat-queue-";
-const STALE_CHAT_DB_STORAGE_KEYS = [
-	"inferay-db-conversations",
-	"inferay-db-messages",
-] as const;
 const DEFAULT_CHAT_RUN_STATUS: ChatLoadingState = {
 	isLoading: false,
 	status: "idle",
 	startTime: null,
 };
-const CHAT_CACHE_DB = "inferay-chat-cache";
 const pendingSummaryRequests = new Set<string>();
 const chatMessageReadModels = new Map<string, ChatMessageReadModel>();
 const chatCheckpointReadModels = new Map<string, ChatCheckpointReadModel>();
@@ -103,15 +94,6 @@ export interface ChatRunStatusReadModel {
 	subscribe: (listener: ChatRunStatusReadModelListener) => () => void;
 }
 
-function deleteLegacyChatDatabase() {
-	if (typeof indexedDB === "undefined") return;
-	try {
-		indexedDB.deleteDatabase(CHAT_CACHE_DB);
-	} catch {
-		// WebKit can deny storage access in private/ephemeral contexts.
-	}
-}
-
 function storageKey(prefix: string, paneId: string): string {
 	return prefix + paneId;
 }
@@ -140,30 +122,6 @@ function writePaneValue(prefix: string, paneId: string, value: string | null) {
 function removePaneValue(prefix: string, paneId: string) {
 	removeStoredValue(storageKey(prefix, paneId));
 }
-
-function listLocalStorageKeys(): string[] {
-	try {
-		return Array.from({ length: localStorage.length }, (_, index) =>
-			localStorage.key(index),
-		).filter(isString);
-	} catch {
-		return [];
-	}
-}
-
-export function cleanupStaleChatClientStorage() {
-	deleteLegacyChatDatabase();
-	for (const staleChatDbKey of STALE_CHAT_DB_STORAGE_KEYS) {
-		removeStoredValue(staleChatDbKey);
-	}
-	for (const key of listLocalStorageKeys()) {
-		if (isChatMessageStorageKey(key) || key.startsWith(QUEUE_KEY_PREFIX)) {
-			removeStoredValue(key);
-		}
-	}
-}
-
-cleanupStaleChatClientStorage();
 
 function createChatMessageReadModel(paneId: string): ChatMessageReadModel {
 	let messages: ChatMessage[] = [];
@@ -321,21 +279,17 @@ export function getProviderSessionId(paneId: string): string | null {
 		providerSessionIds.set(paneId, paneSessionId);
 		return paneSessionId;
 	}
-	const legacy = readPaneValue(LEGACY_SESSION_KEY_PREFIX, paneId);
-	if (legacy) setProviderSessionId(paneId, legacy);
-	return legacy;
+	return null;
 }
 
 export function setProviderSessionId(paneId: string, sessionId: string) {
 	if (providerSessionIds.get(paneId) === sessionId) return;
 	providerSessionIds.set(paneId, sessionId);
-	removePaneValue(LEGACY_SESSION_KEY_PREFIX, paneId);
 	setPaneProviderSession(paneId, sessionId);
 }
 
 export function clearProviderSessionId(paneId: string) {
 	providerSessionIds.delete(paneId);
-	removePaneValue(LEGACY_SESSION_KEY_PREFIX, paneId);
 	setPaneProviderSession(paneId, null);
 }
 
@@ -408,7 +362,6 @@ export function savePendingWorkspacePaths(paneId: string, paths: string[]) {
 }
 
 export function loadStoredQueue<T>(paneId: string): T[] {
-	removePaneValue(QUEUE_KEY_PREFIX, paneId);
 	return [];
 }
 
@@ -586,8 +539,6 @@ export function clearAgentChatPaneState(paneId: string) {
 	chatRunStatusReadModels.get(paneId)?.clear();
 	chatRunStatusReadModels.delete(paneId);
 	for (const prefix of [
-		LEGACY_MESSAGES_KEY_PREFIX,
-		LEGACY_SESSION_KEY_PREFIX,
 		INPUT_KEY_PREFIX,
 		CHECKPOINT_KEY_PREFIX,
 		SUMMARY_KEY_PREFIX,
@@ -595,7 +546,6 @@ export function clearAgentChatPaneState(paneId: string) {
 	]) {
 		removePaneValue(prefix, paneId);
 	}
-	deleteLegacyChatDatabase();
 	void fetch(`/api/chat-queues/${encodeURIComponent(paneId)}`, {
 		method: "DELETE",
 	}).catch(noop);

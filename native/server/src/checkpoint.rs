@@ -1,3 +1,5 @@
+use crate::unix_millis as now_millis;
+use inferay_core::utf16_length as js_string_len;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -5,11 +7,11 @@ use std::sync::Arc;
 
 use inferay_core::path_security::{AllowedPaths, is_within_directory, resolve_lexically};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, MutexGuard, OnceCell};
 use uuid::Uuid;
+use walkdir::WalkDir;
 
 const MAX_CHECKPOINTS_PER_PANE: usize = 10;
 const MAX_TOTAL_CHECKPOINTS: usize = 50;
@@ -58,6 +60,33 @@ struct Checkpoint {
     reverted: bool,
 }
 
+impl Checkpoint {
+    fn root(&self) -> &Path {
+        self.git_root.as_deref().unwrap_or(&self.cwd)
+    }
+
+    fn relative_path(&self, path: &Path) -> Result<Option<String>, String> {
+        let absolute =
+            resolve_lexically(&self.cwd.join(path)).map_err(|error| error.to_string())?;
+        let relative = path_relative(self.root(), &absolute);
+        Ok((is_within_directory(&absolute, self.root())
+            && !relative.as_os_str().is_empty()
+            && !is_skipped_path(&relative)
+            && !is_binary(&relative))
+        .then(|| path_to_string(&relative)))
+    }
+
+    async fn before(&self, path: &str) -> Option<String> {
+        if let Some(before) = self.before_snapshot.get(path) {
+            before.clone()
+        } else if let Some(git_root) = &self.git_root {
+            git_snapshot_blob(git_root, self.head_sha.as_deref(), path).await
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CheckpointInlineDiff {
@@ -101,18 +130,11 @@ pub struct RevertResult {
     pub error: Option<String>,
 }
 
-#[derive(Default)]
-struct CheckpointStore {
-    by_pane: HashMap<String, Vec<Checkpoint>>,
-    pane_by_id: HashMap<String, String>,
-    pane_order: Vec<String>,
-}
-
 #[derive(Clone)]
 pub struct CheckpointService {
     allowed_paths: AllowedPaths,
     checkpoints_path: PathBuf,
-    store: Arc<Mutex<CheckpointStore>>,
+    store: Arc<OnceCell<Mutex<Vec<Checkpoint>>>>,
     save_lock: Arc<Mutex<()>>,
 }
 
@@ -121,9 +143,26 @@ impl CheckpointService {
         Self {
             allowed_paths,
             checkpoints_path,
-            store: Arc::new(Mutex::new(CheckpointStore::default())),
+            store: Arc::new(OnceCell::new()),
             save_lock: Arc::new(Mutex::new(())),
         }
+    }
+
+    async fn checkpoints(&self) -> MutexGuard<'_, Vec<Checkpoint>> {
+        self.store
+            .get_or_init(|| async {
+                let checkpoints = match tokio::fs::read(&self.checkpoints_path).await {
+                    Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|error| {
+                        eprintln!("[Checkpoint] Failed to load: {error}");
+                        Vec::new()
+                    }),
+                    Err(_) => Vec::new(),
+                };
+                Mutex::new(checkpoints)
+            })
+            .await
+            .lock()
+            .await
     }
 
     pub async fn create_checkpoint(
@@ -165,24 +204,11 @@ impl CheckpointService {
             reverted: false,
         };
 
-        let mut store = self.store.lock().await;
-        if !store.by_pane.contains_key(&pane_id) {
-            store.pane_order.push(pane_id.clone());
-        }
-        store
-            .by_pane
-            .entry(pane_id.clone())
-            .or_default()
-            .push(checkpoint);
-        store.pane_by_id.insert(id.clone(), pane_id.clone());
-        let mut removed_ids = Vec::new();
-        if let Some(list) = store.by_pane.get_mut(&pane_id) {
-            while list.len() > MAX_CHECKPOINTS_PER_PANE {
-                removed_ids.push(list.remove(0).id);
-            }
-        }
-        for removed_id in removed_ids {
-            store.pane_by_id.remove(&removed_id);
+        let mut store = self.checkpoints().await;
+        store.push(checkpoint);
+        while store.iter().filter(|cp| cp.pane_id == pane_id).count() > MAX_CHECKPOINTS_PER_PANE {
+            let index = store.iter().position(|cp| cp.pane_id == pane_id).unwrap();
+            store.remove(index);
         }
         Ok(id)
     }
@@ -193,49 +219,27 @@ impl CheckpointService {
         touched_paths: &[String],
     ) -> Result<Option<CheckpointMeta>, String> {
         let checkpoint = {
-            let store = self.store.lock().await;
-            find_checkpoint(&store, checkpoint_id).cloned()
+            let store = self.checkpoints().await;
+            store.iter().find(|cp| cp.id == checkpoint_id).cloned()
         };
         let Some(mut checkpoint) = checkpoint else {
             return Ok(None);
         };
 
-        let root = checkpoint
-            .git_root
-            .as_deref()
-            .unwrap_or(checkpoint.cwd.as_path());
+        let root = checkpoint.root();
         let mut seen = HashSet::new();
         let mut paths = Vec::new();
         for path in touched_paths {
-            let candidate = Path::new(path);
-            let unresolved = if candidate.is_absolute() {
-                candidate.to_path_buf()
-            } else {
-                checkpoint.cwd.join(candidate)
-            };
-            let absolute = resolve_lexically(&unresolved).map_err(|error| error.to_string())?;
-            let relative = path_relative(root, &absolute);
-            if is_within_directory(&absolute, root)
-                && !relative.as_os_str().is_empty()
-                && !is_skipped_path(&relative)
-                && !is_binary(&relative)
+            if let Some(relative) = checkpoint.relative_path(Path::new(path))?
+                && seen.insert(relative.clone())
             {
-                let relative = path_to_string(&relative);
-                if seen.insert(relative.clone()) {
-                    paths.push(relative);
-                }
+                paths.push(relative);
             }
         }
 
         let mut changed_files = Vec::new();
         for path in paths {
-            let before = if let Some(before) = checkpoint.before_snapshot.get(&path) {
-                before.clone()
-            } else if let Some(git_root) = checkpoint.git_root.as_ref() {
-                git_snapshot_blob(git_root, checkpoint.head_sha.as_deref(), &path).await
-            } else {
-                None
-            };
+            let before = checkpoint.before(&path).await;
             let after_content = safe_read_file(&root.join(&path)).await;
             let after = if checkpoint.git_root.is_some() {
                 match after_content {
@@ -257,8 +261,8 @@ impl CheckpointService {
         checkpoint.changed_files = changed_files;
         let meta = to_meta(&checkpoint);
         {
-            let mut store = self.store.lock().await;
-            if let Some(current) = find_checkpoint_mut(&mut store, checkpoint_id) {
+            let mut store = self.checkpoints().await;
+            if let Some(current) = store.iter_mut().find(|cp| cp.id == checkpoint_id) {
                 current.changed_files = checkpoint.changed_files;
             }
         }
@@ -273,8 +277,8 @@ impl CheckpointService {
 
     pub async fn revert_to_checkpoint(&self, checkpoint_id: &str, pane_id: &str) -> RevertResult {
         let checkpoint = {
-            let store = self.store.lock().await;
-            find_checkpoint(&store, checkpoint_id).cloned()
+            let store = self.checkpoints().await;
+            store.iter().find(|cp| cp.id == checkpoint_id).cloned()
         };
         let Some(checkpoint) = checkpoint.filter(|checkpoint| checkpoint.pane_id == pane_id) else {
             return revert_error("Checkpoint not found", Vec::new());
@@ -283,10 +287,7 @@ impl CheckpointService {
             return revert_ok(Vec::new());
         }
 
-        let root = checkpoint
-            .git_root
-            .as_deref()
-            .unwrap_or(checkpoint.cwd.as_path());
+        let root = checkpoint.root();
         let mut restored_files = Vec::new();
         for file in &checkpoint.changed_files {
             let full_path = root.join(&file.relative_path);
@@ -321,8 +322,8 @@ impl CheckpointService {
         }
 
         {
-            let mut store = self.store.lock().await;
-            if let Some(current) = find_checkpoint_mut(&mut store, checkpoint_id) {
+            let mut store = self.checkpoints().await;
+            if let Some(current) = store.iter_mut().find(|cp| cp.id == checkpoint_id) {
                 current.reverted = true;
             }
         }
@@ -336,24 +337,18 @@ impl CheckpointService {
     }
 
     pub async fn list_checkpoints(&self, pane_id: &str) -> Vec<CheckpointMeta> {
-        self.store
-            .lock()
+        self.checkpoints()
             .await
-            .by_pane
-            .get(pane_id)
-            .map(|list| list.iter().map(to_meta).collect())
-            .unwrap_or_default()
-    }
-
-    pub async fn get_checkpoint_meta(&self, checkpoint_id: &str) -> Option<CheckpointMeta> {
-        let store = self.store.lock().await;
-        find_checkpoint(&store, checkpoint_id).map(to_meta)
+            .iter()
+            .filter(|cp| cp.pane_id == pane_id)
+            .map(to_meta)
+            .collect()
     }
 
     pub async fn get_inline_diffs(&self, checkpoint_id: &str) -> Vec<CheckpointInlineDiff> {
         let checkpoint = {
-            let store = self.store.lock().await;
-            find_checkpoint(&store, checkpoint_id).cloned()
+            let store = self.checkpoints().await;
+            store.iter().find(|cp| cp.id == checkpoint_id).cloned()
         };
         let Some(checkpoint) = checkpoint else {
             return Vec::new();
@@ -398,47 +393,24 @@ impl CheckpointService {
         touched_paths: &[PathBuf],
     ) -> Vec<CheckpointInlineDiff> {
         let checkpoint = {
-            let store = self.store.lock().await;
-            find_checkpoint(&store, checkpoint_id).cloned()
+            let store = self.checkpoints().await;
+            store.iter().find(|cp| cp.id == checkpoint_id).cloned()
         };
         let Some(checkpoint) = checkpoint else {
             return Vec::new();
         };
-        let root = checkpoint
-            .git_root
-            .as_deref()
-            .unwrap_or(checkpoint.cwd.as_path());
+        let root = checkpoint.root();
         let mut seen = HashSet::new();
         let mut diffs = Vec::new();
         let mut total_chars = 0;
         for path in touched_paths {
-            let unresolved = if path.is_absolute() {
-                path.clone()
-            } else {
-                checkpoint.cwd.join(path)
-            };
-            let Ok(absolute) = resolve_lexically(&unresolved) else {
+            let Some(relative) = checkpoint.relative_path(path).ok().flatten() else {
                 continue;
             };
-            let relative = path_relative(root, &absolute);
-            if !is_within_directory(&absolute, root)
-                || relative.as_os_str().is_empty()
-                || is_skipped_path(&relative)
-                || is_binary(&relative)
-            {
-                continue;
-            }
-            let relative = path_to_string(&relative);
             if !seen.insert(relative.clone()) || diffs.len() >= MAX_INLINE_DIFFS {
                 continue;
             }
-            let before_ref = if let Some(before) = checkpoint.before_snapshot.get(&relative) {
-                before.clone()
-            } else if let Some(git_root) = checkpoint.git_root.as_ref() {
-                git_snapshot_blob(git_root, checkpoint.head_sha.as_deref(), &relative).await
-            } else {
-                None
-            };
+            let before_ref = checkpoint.before(&relative).await;
             let (Some(before_ref), Some(after)) =
                 (before_ref, safe_read_file(&root.join(&relative)).await)
             else {
@@ -467,104 +439,14 @@ impl CheckpointService {
     pub async fn save(&self) -> Result<(), String> {
         let _save_guard = self.save_lock.lock().await;
         let value = {
-            let mut store = self.store.lock().await;
-            while store.by_pane.values().map(Vec::len).sum::<usize>() > MAX_TOTAL_CHECKPOINTS {
-                let mut oldest_time = u64::MAX;
-                let mut oldest_pane = None;
-                for pane in &store.pane_order {
-                    let Some(oldest) = store.by_pane.get(pane).and_then(|list| list.first()) else {
-                        continue;
-                    };
-                    if oldest.timestamp < oldest_time {
-                        oldest_time = oldest.timestamp;
-                        oldest_pane = Some(pane.clone());
-                    }
-                }
-                let Some(oldest_pane) = oldest_pane else {
-                    break;
-                };
-                let list = store.by_pane.get_mut(&oldest_pane).expect("pane exists");
-                let removed = list.remove(0);
-                let empty = list.is_empty();
-                store.pane_by_id.remove(&removed.id);
-                if empty {
-                    store.by_pane.remove(&oldest_pane);
-                    store.pane_order.retain(|pane| pane != &oldest_pane);
-                }
-            }
-            serde_json::to_value(&store.by_pane).map_err(|error| error.to_string())?
+            let mut store = self.checkpoints().await;
+            store.sort_by_key(|cp| cp.timestamp);
+            let excess = store.len().saturating_sub(MAX_TOTAL_CHECKPOINTS);
+            store.drain(..excess);
+            serde_json::to_vec(&*store).map_err(|error| error.to_string())?
         };
-        atomic_write_json(&self.checkpoints_path, &value).await
+        crate::atomic_write::overwrite(&self.checkpoints_path, &value).await
     }
-
-    pub async fn load(&self) {
-        let bytes = match tokio::fs::read(&self.checkpoints_path).await {
-            Ok(bytes) => bytes,
-            Err(_) => return,
-        };
-        let raw: Value = match serde_json::from_slice(&bytes) {
-            Ok(raw) => raw,
-            Err(_) => return,
-        };
-        let result = async {
-            let Some(panes) = raw.as_object() else {
-                return Ok::<_, Box<dyn std::error::Error + Send + Sync>>(());
-            };
-            let mut store = self.store.lock().await;
-            for (pane_id, list) in panes {
-                let Some(list) = list.as_array() else {
-                    continue;
-                };
-                let mut valid = Vec::new();
-                for raw_checkpoint in list {
-                    if has_legacy_content_before(raw_checkpoint) {
-                        continue;
-                    }
-                    let mut value = raw_checkpoint.clone();
-                    let Some(object) = value.as_object_mut() else {
-                        continue;
-                    };
-                    object.entry("headSha").or_insert(Value::Null);
-                    object
-                        .entry("beforeSnapshot")
-                        .or_insert_with(|| Value::Object(Map::new()));
-                    if let Ok(checkpoint) = serde_json::from_value::<Checkpoint>(value) {
-                        valid.push(checkpoint);
-                    }
-                }
-                if !valid.is_empty() {
-                    for checkpoint in &valid {
-                        store
-                            .pane_by_id
-                            .insert(checkpoint.id.clone(), checkpoint.pane_id.clone());
-                    }
-                    if !store.by_pane.contains_key(pane_id) {
-                        store.pane_order.push(pane_id.clone());
-                    }
-                    store.by_pane.insert(pane_id.clone(), valid);
-                }
-            }
-            Ok(())
-        }
-        .await;
-        if let Err(error) = result {
-            eprintln!("[Checkpoint] Failed to load: {error}");
-        }
-    }
-}
-
-fn find_checkpoint<'a>(store: &'a CheckpointStore, id: &str) -> Option<&'a Checkpoint> {
-    let pane = store.pane_by_id.get(id)?;
-    store.by_pane.get(pane)?.iter().find(|cp| cp.id == id)
-}
-
-fn find_checkpoint_mut<'a>(store: &'a mut CheckpointStore, id: &str) -> Option<&'a mut Checkpoint> {
-    let pane = store.pane_by_id.get(id)?.clone();
-    store
-        .by_pane
-        .get_mut(&pane)?
-        .iter_mut()
-        .find(|cp| cp.id == id)
 }
 
 fn to_meta(checkpoint: &Checkpoint) -> CheckpointMeta {
@@ -618,12 +500,11 @@ async fn capture_git_snapshot(
     if !relative_string.is_empty() {
         args.extend(["--", &relative_string]);
     }
-    let output = run_git(&args, git_root, false).await;
-    if output.code != 0 {
-        return Err("Unable to capture Git working tree state".to_owned());
-    }
+    let output = run_git(&args, git_root, None)
+        .await
+        .map_err(|_| "Unable to capture Git working tree state".to_owned())?;
     let mut snapshot = HashMap::new();
-    for (status, path) in parse_porcelain(&output.stdout) {
+    for (status, path) in parse_porcelain(&output) {
         if is_binary(Path::new(&path)) || is_skipped_path(Path::new(&path)) {
             continue;
         }
@@ -642,48 +523,33 @@ async fn capture_git_snapshot(
 }
 
 async fn capture_file_snapshot(cwd: &Path) -> Result<HashMap<String, Option<String>>, String> {
-    let mut files = Vec::new();
-    walk_dir(cwd, cwd, &mut files).await?;
+    let root = cwd.to_owned();
+    let files = tokio::task::spawn_blocking(move || {
+        if !root.is_dir() {
+            return Err("Checkpoint directory is unavailable".to_owned());
+        }
+        WalkDir::new(root)
+            .min_depth(1)
+            .into_iter()
+            .filter_entry(|entry| !SKIP_DIRS.iter().any(|name| entry.file_name() == *name))
+            .filter_map(|entry| match entry {
+                Ok(entry) if entry.file_type().is_file() && !is_binary(entry.path()) => {
+                    Some(Ok(entry.into_path()))
+                }
+                Ok(_) => None,
+                Err(error) => Some(Err(error.to_string())),
+            })
+            .collect::<Result<Vec<_>, String>>()
+    })
+    .await
+    .map_err(|error| error.to_string())??;
     let mut snapshot = HashMap::new();
-    for relative in files {
-        if let Some(content) = safe_read_file(&cwd.join(&relative)).await {
-            snapshot.insert(path_to_string(&relative), Some(content));
+    for path in files {
+        if let Some(content) = safe_read_file(&path).await {
+            snapshot.insert(path_to_string(&path_relative(cwd, &path)), Some(content));
         }
     }
     Ok(snapshot)
-}
-
-fn walk_dir<'a>(
-    dir: &'a Path,
-    base: &'a Path,
-    files: &'a mut Vec<PathBuf>,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>> {
-    Box::pin(async move {
-        let mut entries = tokio::fs::read_dir(dir)
-            .await
-            .map_err(|error| error.to_string())?;
-        while let Some(entry) = entries
-            .next_entry()
-            .await
-            .map_err(|error| error.to_string())?
-        {
-            let name = entry.file_name();
-            if SKIP_DIRS.iter().any(|skip| name == *skip) {
-                continue;
-            }
-            let file_type = entry.file_type().await.map_err(|error| error.to_string())?;
-            let full_path = entry.path();
-            if file_type.is_dir() {
-                walk_dir(&full_path, base, files).await?;
-            } else if file_type.is_file()
-                && !is_binary(&full_path)
-                && let Ok(relative) = full_path.strip_prefix(base)
-            {
-                files.push(relative.to_path_buf());
-            }
-        }
-        Ok(())
-    })
 }
 
 async fn safe_read_file(path: &Path) -> Option<String> {
@@ -699,13 +565,15 @@ async fn safe_read_file(path: &Path) -> Option<String> {
 }
 
 async fn get_git_root(cwd: &Path) -> Option<PathBuf> {
-    let result = run_git(&["rev-parse", "--show-toplevel"], cwd, true).await;
-    (result.code == 0 && !result.stdout.is_empty()).then(|| PathBuf::from(result.stdout))
+    let output = run_git(&["rev-parse", "--show-toplevel"], cwd, None)
+        .await
+        .ok()?;
+    (!output.trim().is_empty()).then(|| PathBuf::from(output.trim()))
 }
 
 async fn get_head_sha(git_root: &Path) -> Option<String> {
-    let result = run_git(&["rev-parse", "HEAD"], git_root, true).await;
-    (result.code == 0 && !result.stdout.is_empty()).then_some(result.stdout)
+    let output = run_git(&["rev-parse", "HEAD"], git_root, None).await.ok()?;
+    (!output.trim().is_empty()).then(|| output.trim().to_owned())
 }
 
 async fn git_snapshot_blob(
@@ -714,26 +582,46 @@ async fn git_snapshot_blob(
     relative_path: &str,
 ) -> Option<String> {
     let spec = format!("{}:{relative_path}", commit_sha.unwrap_or("HEAD"));
-    let result = run_git(&["show", &spec], git_root, false).await;
-    if result.code == 0 {
-        store_blob(git_root, &result.stdout).await.ok()
-    } else {
-        None
-    }
+    let content = run_git(&["show", &spec], git_root, None).await.ok()?;
+    store_blob(git_root, &content).await.ok()
 }
 
 async fn store_blob(git_root: &Path, content: &str) -> Result<String, String> {
+    run_git(&["hash-object", "-w", "--stdin"], git_root, Some(content))
+        .await
+        .map(|output| output.trim().to_owned())
+}
+
+async fn resolve_content(checkpoint: &Checkpoint, blob_or_content: &str) -> Option<String> {
+    if let Some(git_root) = &checkpoint.git_root {
+        run_git(&["cat-file", "-p", blob_or_content], git_root, None)
+            .await
+            .ok()
+    } else {
+        Some(blob_or_content.to_owned())
+    }
+}
+
+async fn run_git(args: &[&str], cwd: &Path, input: Option<&str>) -> Result<String, String> {
     let mut child = Command::new("git")
-        .args(["hash-object", "-w", "--stdin"])
-        .current_dir(git_root)
-        .stdin(Stdio::piped())
+        .args(args)
+        .current_dir(cwd)
+        .kill_on_drop(true)
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| error.to_string())?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(content.as_bytes())
+    if let Some(input) = input {
+        child
+            .stdin
+            .take()
+            .expect("piped stdin")
+            .write_all(input.as_bytes())
             .await
             .map_err(|error| error.to_string())?;
     }
@@ -741,48 +629,13 @@ async fn store_blob(git_root: &Path, content: &str) -> Result<String, String> {
         .wait_with_output()
         .await
         .map_err(|error| error.to_string())?;
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
-}
-
-async fn resolve_content(checkpoint: &Checkpoint, blob_or_content: &str) -> Option<String> {
-    if let Some(git_root) = checkpoint.git_root.as_ref() {
-        let result = run_git(&["cat-file", "-p", blob_or_content], git_root, false).await;
-        (result.code == 0).then_some(result.stdout)
-    } else {
-        Some(blob_or_content.to_owned())
+    if !output.status.success() {
+        return Err(format!(
+            "Git command failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
     }
-}
-
-struct GitOutput {
-    code: i32,
-    stdout: String,
-}
-
-async fn run_git(args: &[&str], cwd: &Path, trim_stdout: bool) -> GitOutput {
-    let result = Command::new("git")
-        .args(args)
-        .current_dir(cwd)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .await;
-    match result {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-            GitOutput {
-                code: output.status.code().unwrap_or(1),
-                stdout: if trim_stdout {
-                    stdout.trim().to_owned()
-                } else {
-                    stdout
-                },
-            }
-        }
-        Err(_) => GitOutput {
-            code: 1,
-            stdout: String::new(),
-        },
-    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 fn is_binary(path: &Path) -> bool {
@@ -809,29 +662,6 @@ fn path_to_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn now_millis() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
-fn js_string_len(value: &str) -> usize {
-    value.encode_utf16().count()
-}
-
-fn has_legacy_content_before(value: &Value) -> bool {
-    value
-        .get("changedFiles")
-        .and_then(Value::as_array)
-        .is_some_and(|files| {
-            files.iter().any(|file| {
-                file.as_object()
-                    .is_some_and(|object| object.contains_key("contentBefore"))
-            })
-        })
-}
-
 fn revert_ok(restored_files: Vec<String>) -> RevertResult {
     RevertResult {
         ok: true,
@@ -846,11 +676,6 @@ fn revert_error(error: impl Into<String>, restored_files: Vec<String>) -> Revert
         restored_files,
         error: Some(error.into()),
     }
-}
-
-async fn atomic_write_json(path: &Path, value: &Value) -> Result<(), String> {
-    let bytes = serde_json::to_vec(value).map_err(|error| error.to_string())?;
-    crate::atomic_write::overwrite(path, &bytes).await
 }
 
 #[cfg(test)]
@@ -880,27 +705,17 @@ mod tests {
     #[tokio::test]
     async fn non_git_checkpoint_records_and_reverts_created_modified_and_deleted_files() {
         let root = TempDir::new().unwrap();
-        tokio::fs::write(root.path().join("modified.txt"), "before")
-            .await
-            .unwrap();
-        tokio::fs::write(root.path().join("deleted.txt"), "deleted")
-            .await
-            .unwrap();
+        std::fs::write(root.path().join("modified.txt"), "before").unwrap();
+        std::fs::write(root.path().join("deleted.txt"), "deleted").unwrap();
         let service = service(&root);
         let id = service
             .create_checkpoint("pane".into(), root.path(), "message".into())
             .await
             .unwrap();
 
-        tokio::fs::write(root.path().join("modified.txt"), "after")
-            .await
-            .unwrap();
-        tokio::fs::remove_file(root.path().join("deleted.txt"))
-            .await
-            .unwrap();
-        tokio::fs::write(root.path().join("created.txt"), "created")
-            .await
-            .unwrap();
+        std::fs::write(root.path().join("modified.txt"), "after").unwrap();
+        std::fs::remove_file(root.path().join("deleted.txt")).unwrap();
+        std::fs::write(root.path().join("created.txt"), "created").unwrap();
         let meta = service
             .finalize_checkpoint(
                 &id,
@@ -915,18 +730,20 @@ mod tests {
             .unwrap();
         assert_eq!(meta.changed_file_count, 3);
 
+        service.save().await.unwrap();
+        let service = CheckpointService::new(
+            AllowedPaths::new(root.path(), root.path()).unwrap(),
+            root.path().join("checkpoints.json"),
+        );
+        assert_eq!(service.list_checkpoints("pane").await.len(), 1);
         let result = service.revert_to_checkpoint(&id, "pane").await;
         assert!(result.ok);
         assert_eq!(
-            tokio::fs::read_to_string(root.path().join("modified.txt"))
-                .await
-                .unwrap(),
+            std::fs::read_to_string(root.path().join("modified.txt")).unwrap(),
             "before"
         );
         assert_eq!(
-            tokio::fs::read_to_string(root.path().join("deleted.txt"))
-                .await
-                .unwrap(),
+            std::fs::read_to_string(root.path().join("deleted.txt")).unwrap(),
             "deleted"
         );
         assert!(!root.path().join("created.txt").exists());
@@ -936,19 +753,16 @@ mod tests {
     async fn git_checkpoint_uses_blobs_and_restores_the_original_content() {
         let root = TempDir::new().unwrap();
         let git_root = root.path().canonicalize().unwrap();
-        run_git(&["init"], &git_root, true).await;
-        run_git(
-            &["config", "user.email", "test@example.com"],
-            &git_root,
-            true,
-        )
-        .await;
-        run_git(&["config", "user.name", "Test"], &git_root, true).await;
-        tokio::fs::write(git_root.join("tracked.txt"), "committed\n")
-            .await
-            .unwrap();
-        run_git(&["add", "tracked.txt"], &git_root, true).await;
-        run_git(&["commit", "-m", "initial"], &git_root, true).await;
+        for args in [
+            vec!["init"],
+            vec!["config", "user.email", "test@example.com"],
+            vec!["config", "user.name", "Test"],
+        ] {
+            crate::tests::run_git(&git_root, &args);
+        }
+        std::fs::write(git_root.join("tracked.txt"), "committed\n").unwrap();
+        crate::tests::run_git(&git_root, &["add", "tracked.txt"]);
+        crate::tests::run_git(&git_root, &["commit", "-m", "initial"]);
 
         let service = CheckpointService::new(
             AllowedPaths::new(&git_root, &git_root).unwrap(),
@@ -958,9 +772,7 @@ mod tests {
             .create_checkpoint("pane".into(), &git_root, "message".into())
             .await
             .unwrap();
-        tokio::fs::write(git_root.join("tracked.txt"), "changed\n")
-            .await
-            .unwrap();
+        std::fs::write(git_root.join("tracked.txt"), "changed\n").unwrap();
         let meta = service
             .finalize_checkpoint(&id, &["tracked.txt".into()])
             .await
@@ -974,34 +786,78 @@ mod tests {
 
         assert!(service.revert_to_checkpoint(&id, "pane").await.ok);
         assert_eq!(
-            tokio::fs::read_to_string(git_root.join("tracked.txt"))
-                .await
-                .unwrap(),
+            std::fs::read_to_string(git_root.join("tracked.txt")).unwrap(),
             "committed\n"
+        );
+
+        let id = service
+            .create_checkpoint("pane".into(), &git_root, "failed write".into())
+            .await
+            .unwrap();
+        let content = "snapshot whose object cannot be written";
+        let hash = run_git(&["hash-object", "--stdin"], &git_root, Some(content))
+            .await
+            .unwrap();
+        let prefix = git_root.join(".git/objects").join(&hash[..2]);
+        if prefix.is_dir() {
+            std::fs::remove_dir_all(&prefix).unwrap();
+        }
+        std::fs::write(prefix, "blocked object directory").unwrap();
+        std::fs::write(git_root.join("tracked.txt"), content).unwrap();
+        assert!(
+            service
+                .finalize_checkpoint(&id, &["tracked.txt".into()])
+                .await
+                .is_err()
         );
     }
 
     #[tokio::test]
     async fn finalize_only_records_explicitly_touched_paths() {
         let root = TempDir::new().unwrap();
-        tokio::fs::write(root.path().join("touched.txt"), "before")
-            .await
+        std::fs::write(root.path().join("touched.txt"), "before").unwrap();
+        std::fs::write(root.path().join("unrelated.txt"), "before").unwrap();
+        for file in [
+            "node_modules/ignored.txt",
+            ".cache/ignored.txt",
+            "deep/picture.PNG",
+            "build",
+        ] {
+            let path = root.path().join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "ignored").unwrap();
+        }
+        std::fs::File::create(root.path().join("large.txt"))
+            .unwrap()
+            .set_len(MAX_FILE_SIZE + 1)
             .unwrap();
-        tokio::fs::write(root.path().join("unrelated.txt"), "before")
-            .await
-            .unwrap();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(root.path(), root.path().join("deep/loop")).unwrap();
+            std::os::unix::fs::symlink("touched.txt", root.path().join("alias.txt")).unwrap();
+        }
+        let captured = capture_file_snapshot(root.path()).await.unwrap();
+        assert_eq!(captured.len(), 2);
+        assert_eq!(captured["touched.txt"].as_deref(), Some("before"));
+        assert_eq!(captured["unrelated.txt"].as_deref(), Some("before"));
+        assert!(
+            capture_file_snapshot(&root.path().join("touched.txt"))
+                .await
+                .is_err()
+        );
+        assert!(
+            capture_file_snapshot(&root.path().join("missing"))
+                .await
+                .is_err()
+        );
         let service = service(&root);
         let id = service
             .create_checkpoint("pane".into(), root.path(), "message".into())
             .await
             .unwrap();
 
-        tokio::fs::write(root.path().join("touched.txt"), "after")
-            .await
-            .unwrap();
-        tokio::fs::write(root.path().join("unrelated.txt"), "also after")
-            .await
-            .unwrap();
+        std::fs::write(root.path().join("touched.txt"), "after").unwrap();
+        std::fs::write(root.path().join("unrelated.txt"), "also after").unwrap();
         let meta = service
             .finalize_checkpoint(&id, &["touched.txt".into()])
             .await
@@ -1031,8 +887,8 @@ mod tests {
         }
         service.save().await.unwrap();
         let total: usize = {
-            let store = service.store.lock().await;
-            store.by_pane.values().map(Vec::len).sum()
+            let store = service.checkpoints().await;
+            store.len()
         };
         assert_eq!(total, MAX_TOTAL_CHECKPOINTS);
 
@@ -1047,36 +903,6 @@ mod tests {
                 .unwrap();
         }
         assert_eq!(service.list_checkpoints("limited").await.len(), 10);
-    }
-
-    #[tokio::test]
-    async fn load_skips_legacy_content_snapshots_and_defaults_missing_fields() {
-        let root = TempDir::new().unwrap();
-        let path = root.path().join("checkpoints.json");
-        let raw = serde_json::json!({
-            "pane": [
-                {
-                    "id": "legacy", "paneId": "pane", "cwd": root.path(),
-                    "gitRoot": null, "timestamp": 1, "userMessage": "old",
-                    "changedFiles": [{"relativePath": "a", "contentBefore": "x"}],
-                    "reverted": false
-                },
-                {
-                    "id": "valid", "paneId": "pane", "cwd": root.path(),
-                    "gitRoot": null, "timestamp": 2, "userMessage": "new",
-                    "changedFiles": [], "reverted": false
-                }
-            ]
-        });
-        tokio::fs::write(&path, serde_json::to_vec(&raw).unwrap())
-            .await
-            .unwrap();
-        let service =
-            CheckpointService::new(AllowedPaths::new(root.path(), root.path()).unwrap(), path);
-        service.load().await;
-        let listed = service.list_checkpoints("pane").await;
-        assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0].id, "valid");
     }
 
     #[test]

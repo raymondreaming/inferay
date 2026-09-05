@@ -179,7 +179,7 @@ export function useGitDiff(request: DiffRequest | null = null) {
 							? `/api/git/commit-diff?cwd=${encodeURIComponent(req.cwd)}&hash=${encodeURIComponent(req.commitHash)}&file=${encodeURIComponent(req.file)}&view=${view}${req.commitParent ? `&parent=${encodeURIComponent(req.commitParent)}` : ""}`
 							: `/api/git/full-diff?cwd=${encodeURIComponent(req.cwd)}&file=${encodeURIComponent(req.file)}&staged=${req.staged}&view=${view}`;
 				const response = await fetch(
-					`${endpoint}&render=true&revision=${encodeURIComponent(req.repositoryRevision ?? "")}`,
+					`${endpoint}&revision=${encodeURIComponent(req.repositoryRevision ?? "")}`,
 					{
 						signal: AbortSignal.any([signal, AbortSignal.timeout(12000)]),
 					},

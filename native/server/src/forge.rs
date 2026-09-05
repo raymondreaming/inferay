@@ -1,12 +1,11 @@
+use crate::unix_millis as epoch_millis;
 use std::collections::HashMap;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use axum::extract::Request;
-use axum::http::{HeaderMap, Method, StatusCode};
-use axum::response::Response;
 use futures_util::future::join_all;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -14,7 +13,9 @@ use serde_json::{Value, json};
 use tokio::process::Command;
 use url::Url;
 
-use super::{MAX_PROXY_BODY_BYTES, ServerState, json_response, request_json, resolve_lexically};
+use super::{
+    ApiResult, ServerState, api_body, query_value, required, resolve_lexically, safe_limit,
+};
 
 const ACCOUNTS_CACHE_TTL_MS: u64 = 30_000;
 const REPOS_CACHE_TTL_MS: u64 = 120_000;
@@ -41,7 +42,7 @@ struct AccountsCache {
 }
 
 struct ReposCache {
-    limit: f64,
+    limit: usize,
     value: Vec<GithubRepo>,
     cached_at: u64,
 }
@@ -58,34 +59,37 @@ struct ForgeAccount {
     active: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 struct GithubRepo {
     name: String,
+    #[serde(rename(deserialize = "nameWithOwner"))]
     full_name: String,
     description: Option<String>,
+    #[serde(rename(deserialize = "url"))]
     html_url: String,
+    #[serde(
+        default,
+        rename(deserialize = "primaryLanguage"),
+        deserialize_with = "primary_language"
+    )]
     language: Option<String>,
+    #[serde(rename(deserialize = "stargazerCount"))]
     stargazers_count: f64,
+    #[serde(rename(deserialize = "updatedAt"))]
     updated_at: String,
+    #[serde(rename(deserialize = "isPrivate"))]
     private: bool,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RawGithubRepo {
-    name: String,
-    name_with_owner: String,
-    description: Option<String>,
-    url: String,
-    primary_language: Option<RawPrimaryLanguage>,
-    stargazer_count: f64,
-    updated_at: String,
-    is_private: bool,
-}
-
-#[derive(Deserialize)]
-struct RawPrimaryLanguage {
-    name: Option<String>,
+fn primary_language<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    #[derive(Deserialize)]
+    struct Language {
+        name: Option<String>,
+    }
+    Option::<Language>::deserialize(deserializer)
+        .map(|language| language.and_then(|language| language.name))
 }
 
 #[derive(Debug)]
@@ -100,48 +104,29 @@ impl std::fmt::Display for CommandError {
     }
 }
 
-pub(super) fn is_route(path: &str, method: &Method) -> bool {
-    matches!(
-        (path, method),
-        ("/api/forge/accounts", &Method::GET)
-            | ("/api/forge/repos", &Method::GET)
-            | ("/api/forge/commit-avatars", &Method::POST)
-            | ("/api/forge/clone", &Method::POST)
-            | ("/api/forge/connect", &Method::POST)
-    )
-}
-
-pub(super) async fn handle_request(state: &ServerState, path: &str, request: Request) -> Response {
-    let headers = request.headers().clone();
+pub(super) async fn handle_request(state: &ServerState, path: &str, request: Request) -> ApiResult {
     match path {
         "/api/forge/accounts" => {
             if query_has_key(&request, "refresh") {
                 *state.forge_state.accounts_cache.lock().await = None;
             }
-            match list_github_accounts(state).await {
-                Ok(accounts) => {
-                    json_response(StatusCode::OK, json!({ "accounts": accounts }), &headers)
-                }
-                Err(error) => route_error(error.to_string(), &headers),
-            }
+            let accounts = list_github_accounts(state)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(json!({"accounts":accounts}))
         }
         "/api/forge/repos" => {
-            let limit = javascript_minimum(
-                query_value(&request, "limit").map_or(30.0, |value| javascript_number(&value)),
-                100.0,
+            let limit = safe_limit(
+                query_value(&request, "limit").as_deref().unwrap_or("30"),
+                30,
+                100,
             );
-            let repos = list_github_repos(state, limit).await;
-            json_response(StatusCode::OK, json!({ "repos": repos }), &headers)
+            Ok(json!({"repos":list_github_repos(state, limit).await}))
         }
         "/api/forge/commit-avatars" => {
-            let body: Value = match request_json(request, &headers).await {
-                Ok(body) => body,
-                Err(response) => return response,
-            };
-            let cwd = body.get("cwd").and_then(Value::as_str).unwrap_or_default();
-            let hashes = body
-                .get("hashes")
-                .and_then(Value::as_array)
+            let body: Value = api_body(request).await?;
+            let hashes = body["hashes"]
+                .as_array()
                 .into_iter()
                 .flatten()
                 .filter_map(Value::as_str)
@@ -150,57 +135,47 @@ pub(super) async fn handle_request(state: &ServerState, path: &str, request: Req
                         && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
                 })
                 .take(100)
-                .map(str::to_string)
+                .map(str::to_owned)
                 .collect::<Vec<_>>();
-            let Some(cwd) = state
-                .allowed_paths
-                .resolve_allowed_local_path(PathBuf::from(cwd))
-            else {
-                return bad_request("Repository is outside allowed local roots", &headers);
-            };
+            let cwd = required(
+                state
+                    .allowed_paths
+                    .resolve_allowed_local_path(body["cwd"].as_str().unwrap_or_default()),
+                "Repository is outside allowed local roots",
+            )?;
             let avatars = resolve_commit_avatars(state, &cwd, &hashes)
                 .await
                 .unwrap_or_default();
-            json_response(StatusCode::OK, json!({ "avatars": avatars }), &headers)
+            Ok(json!({"avatars":avatars}))
         }
         "/api/forge/clone" => {
-            let body: Value = match request_json(request, &headers).await {
-                Ok(body) => body,
-                Err(response) => return response,
-            };
-            let Some(git_url) = body.get("gitUrl").and_then(Value::as_str) else {
-                return bad_request("Missing Git URL", &headers);
-            };
-            if git_url.trim().is_empty() {
-                return bad_request("Missing Git URL", &headers);
-            }
-            let Some(clone_directory) = body.get("cloneDirectory").and_then(Value::as_str) else {
-                return bad_request("Missing clone location", &headers);
-            };
-            if clone_directory.trim().is_empty() {
-                return bad_request("Missing clone location", &headers);
-            }
-            match clone_repository(state, git_url, clone_directory).await {
-                Ok((path, display_path)) => json_response(
-                    StatusCode::OK,
-                    json!({ "ok": true, "path": path, "displayPath": display_path }),
-                    &headers,
-                ),
-                Err(error) => route_error(error, &headers),
-            }
+            let body: Value = api_body(request).await?;
+            let git_url = required(
+                body["gitUrl"].as_str().filter(|s| !s.trim().is_empty()),
+                "Missing Git URL",
+            )?;
+            let directory = required(
+                body["cloneDirectory"]
+                    .as_str()
+                    .filter(|s| !s.trim().is_empty()),
+                "Missing clone location",
+            )?;
+            let (path, display_path) = clone_repository(state, git_url, directory).await?;
+            Ok(json!({"ok":true, "path":path, "displayPath":display_path}))
         }
         "/api/forge/connect" => {
-            let body = request_json_lenient(request).await;
-            if let Some(provider) = body.get("provider")
-                && javascript_truthy(provider)
-                && provider.as_str() != Some("github")
+            let body: Value = api_body(request).await?;
+            if body
+                .get("provider")
+                .is_some_and(|value| !value.is_null() && value != "github")
             {
-                return bad_request("Only GitHub connect is supported right now", &headers);
+                return Err(super::api_error(
+                    super::StatusCode::BAD_REQUEST,
+                    "Only GitHub connect is supported right now",
+                ));
             }
-            match open_github_login(state).await {
-                Ok(ok) => json_response(StatusCode::OK, json!({ "ok": ok }), &headers),
-                Err(error) => route_error(error.to_string(), &headers),
-            }
+            let ok = open_github_login(state).await.map_err(|e| e.to_string())?;
+            Ok(json!({"ok":ok}))
         }
         _ => unreachable!("forge handler called for an unknown route"),
     }
@@ -292,13 +267,6 @@ fn parse_github_remote(remote: &str) -> Option<(String, String, String)> {
     (!owner.is_empty() && !repository.is_empty()).then_some((host, owner, repository))
 }
 
-async fn request_json_lenient(request: Request) -> Value {
-    let Ok(bytes) = axum::body::to_bytes(request.into_body(), MAX_PROXY_BODY_BYTES).await else {
-        return json!({});
-    };
-    serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({}))
-}
-
 async fn list_github_accounts(state: &ServerState) -> Result<Vec<ForgeAccount>, CommandError> {
     let now = epoch_millis();
     if let Some(cache) = state.forge_state.accounts_cache.lock().await.as_ref()
@@ -319,26 +287,8 @@ async fn list_github_accounts(state: &ServerState) -> Result<Vec<ForgeAccount>, 
         }
         Err(error) => return Err(error),
     };
-    let entries = parse_auth_entries(&output).map_err(parse_error)?;
-    let profiles = join_all(
-        entries
-            .iter()
-            .map(|entry| fetch_github_profile(entry.host.clone(), entry.login.clone())),
-    )
-    .await;
-    let mut accounts = entries
-        .into_iter()
-        .zip(profiles)
-        .map(|(entry, profile)| ForgeAccount {
-            provider: "github",
-            host: entry.host,
-            login: entry.login,
-            name: profile.name,
-            avatar_url: profile.avatar_url,
-            email: profile.email,
-            active: entry.active,
-        })
-        .collect::<Vec<_>>();
+    let mut accounts = parse_auth_entries(&output).map_err(parse_error)?;
+    join_all(accounts.iter_mut().map(fetch_github_profile)).await;
     accounts.sort_by(|left, right| {
         locale_compare(&left.host, &right.host)
             .then_with(|| right.active.cmp(&left.active))
@@ -351,14 +301,7 @@ async fn list_github_accounts(state: &ServerState) -> Result<Vec<ForgeAccount>, 
     Ok(accounts)
 }
 
-#[derive(Debug, PartialEq, Eq)]
-struct AuthEntry {
-    host: String,
-    login: String,
-    active: bool,
-}
-
-fn parse_auth_entries(output: &str) -> Result<Vec<AuthEntry>, String> {
+fn parse_auth_entries(output: &str) -> Result<Vec<ForgeAccount>, String> {
     let value: Value = serde_json::from_str(output).map_err(|error| error.to_string())?;
     let Some(hosts) = value.get("hosts").and_then(Value::as_object) else {
         return Ok(Vec::new());
@@ -380,30 +323,27 @@ fn parse_auth_entries(output: &str) -> Result<Vec<AuthEntry>, String> {
             if login.is_empty() {
                 continue;
             }
-            entries.push(AuthEntry {
+            entries.push(ForgeAccount {
+                provider: "github",
+                name: None,
+                avatar_url: None,
+                email: None,
                 host: host.clone(),
                 login: login.to_string(),
-                active: account.get("active").is_some_and(javascript_truthy),
+                active: account["active"].as_bool().unwrap_or(false),
             });
         }
     }
     Ok(entries)
 }
 
-#[derive(Default)]
-struct GithubProfile {
-    name: Option<String>,
-    avatar_url: Option<String>,
-    email: Option<String>,
-}
-
-async fn fetch_github_profile(host: String, login: String) -> GithubProfile {
-    let endpoint = format!("/users/{login}");
+async fn fetch_github_profile(account: &mut ForgeAccount) {
+    let endpoint = format!("/users/{}", account.login);
     let Ok(output) = run_gh(
         &[
             "api",
             "--hostname",
-            &host,
+            &account.host,
             "-H",
             "Accept: application/vnd.github+json",
             &endpoint,
@@ -412,28 +352,26 @@ async fn fetch_github_profile(host: String, login: String) -> GithubProfile {
     )
     .await
     else {
-        return GithubProfile::default();
+        return;
     };
     let Ok(value) = serde_json::from_str::<Value>(&output) else {
-        return GithubProfile::default();
+        return;
     };
-    GithubProfile {
-        name: trimmed_optional_string(value.get("name")),
-        avatar_url: value
-            .get("avatar_url")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        email: trimmed_optional_string(value.get("email")),
-    }
+    account.name = trimmed_optional_string(value.get("name"));
+    account.avatar_url = value
+        .get("avatar_url")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    account.email = trimmed_optional_string(value.get("email"));
 }
 
-async fn list_github_repos(state: &ServerState, limit: f64) -> Vec<GithubRepo> {
+async fn list_github_repos(state: &ServerState, limit: usize) -> Vec<GithubRepo> {
     let now = epoch_millis();
     if let Some(cache) = state.forge_state.repos_cache.lock().await.as_ref()
         && cache.limit >= limit
         && now.saturating_sub(cache.cached_at) < REPOS_CACHE_TTL_MS
     {
-        return javascript_slice(&cache.value, limit);
+        return cache.value.iter().take(limit).cloned().collect();
     }
 
     let result = async {
@@ -451,25 +389,11 @@ async fn list_github_repos(state: &ServerState, limit: f64) -> Vec<GithubRepo> {
             "name,description,url,primaryLanguage,stargazerCount,updatedAt,isPrivate,nameWithOwner"
                 .into(),
             "--limit".into(),
-            javascript_number_string(limit),
+            limit.to_string(),
         ]);
         let references = arguments.iter().map(String::as_str).collect::<Vec<_>>();
         let output = run_gh(&references, 20_000).await?;
-        let raw = serde_json::from_str::<Vec<RawGithubRepo>>(&output).map_err(parse_error)?;
-        Ok::<_, CommandError>(
-            raw.into_iter()
-                .map(|repo| GithubRepo {
-                    name: repo.name,
-                    full_name: repo.name_with_owner,
-                    description: repo.description,
-                    html_url: repo.url,
-                    language: repo.primary_language.and_then(|language| language.name),
-                    stargazers_count: repo.stargazer_count,
-                    updated_at: repo.updated_at,
-                    private: repo.is_private,
-                })
-                .collect::<Vec<_>>(),
-        )
+        serde_json::from_str::<Vec<GithubRepo>>(&output).map_err(parse_error)
     }
     .await;
     let Ok(repos) = result else {
@@ -500,14 +424,7 @@ async fn open_github_login(state: &ServerState) -> Result<bool, CommandError> {
             "end tell".to_string(),
         ]
         .join("\n");
-        run_command(
-            Path::new("osascript"),
-            &["-e", &script],
-            None,
-            10_000,
-            tool_environment(),
-        )
-        .await?;
+        run_command(Path::new("osascript"), &["-e", &script], None, 10_000).await?;
         Ok(true)
     }
 
@@ -526,7 +443,7 @@ async fn open_github_login(state: &ServerState) -> Result<bool, CommandError> {
             .stderr(Stdio::null())
             .status()
             .await
-            .map_err(io_error)?;
+            .map_err(parse_error)?;
         Ok(status.success())
     }
 }
@@ -584,15 +501,8 @@ async fn clone_repository(
 }
 
 async fn add_search_folder(state: &ServerState, folder: &Path) -> Result<(), String> {
-    let config = state.config_manager.lock().await.load();
-    let current = config
-        .get("search_folders")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(str::to_string)
-        .collect::<Vec<_>>();
+    let manager = state.config_manager.lock().await;
+    let current = manager.search_folders()?;
     let folder_text = folder.to_string_lossy().into_owned();
     let shown = display_path(state.allowed_paths.home_directory(), folder);
     if current.contains(&shown) || current.contains(&folder_text) {
@@ -600,12 +510,7 @@ async fn add_search_folder(state: &ServerState, folder: &Path) -> Result<(), Str
     }
     let mut next = current;
     next.push(shown);
-    state.config_manager.lock().await.update(
-        json!({ "search_folders": next })
-            .as_object()
-            .expect("search folder update is an object")
-            .clone(),
-    )?;
+    manager.set_search_folders(next)?;
     Ok(())
 }
 
@@ -655,14 +560,7 @@ fn quote_apple_script(value: &str) -> String {
 }
 
 async fn run_gh(arguments: &[&str], timeout_ms: u64) -> Result<String, CommandError> {
-    run_command(
-        &resolve_gh_binary(),
-        arguments,
-        None,
-        timeout_ms,
-        tool_environment(),
-    )
-    .await
+    run_command(&resolve_gh_binary(), arguments, None, timeout_ms).await
 }
 
 async fn run_git(
@@ -670,14 +568,7 @@ async fn run_git(
     cwd: Option<&Path>,
     timeout_ms: u64,
 ) -> Result<String, CommandError> {
-    run_command(
-        Path::new("git"),
-        arguments,
-        cwd,
-        timeout_ms,
-        tool_environment(),
-    )
-    .await
+    run_command(Path::new("git"), arguments, cwd, timeout_ms).await
 }
 
 async fn run_command(
@@ -685,12 +576,11 @@ async fn run_command(
     arguments: &[&str],
     cwd: Option<&Path>,
     timeout_ms: u64,
-    environment: HashMap<OsString, OsString>,
 ) -> Result<String, CommandError> {
     let mut command = Command::new(program);
     command
         .args(arguments)
-        .envs(environment)
+        .env("PATH", tool_path())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -704,7 +594,7 @@ async fn run_command(
             message: format!("{} timed out", program.to_string_lossy()),
             stderr: String::new(),
         })?
-        .map_err(io_error)?;
+        .map_err(parse_error)?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     if output.stdout.len() > COMMAND_MAX_BUFFER || output.stderr.len() > COMMAND_MAX_BUFFER {
@@ -734,99 +624,24 @@ fn resolve_gh_binary() -> PathBuf {
     TOOL_PATHS
         .into_iter()
         .map(|directory| Path::new(directory).join("gh"))
-        .chain([
-            PathBuf::from("/opt/homebrew/bin/gh"),
-            PathBuf::from("/usr/local/bin/gh"),
-        ])
         .find(|candidate| candidate.exists())
         .unwrap_or_else(|| PathBuf::from("gh"))
 }
 
-fn tool_environment() -> HashMap<OsString, OsString> {
-    let mut environment = std::env::vars_os().collect::<HashMap<_, _>>();
-    let existing_path = environment
-        .get(OsStr::new("PATH"))
-        .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let mut entries = TOOL_PATHS
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>();
-    if !existing_path.is_empty() {
-        entries.push(existing_path);
-    }
-    environment.insert(OsString::from("PATH"), OsString::from(entries.join(":")));
-    environment
-}
-
-fn javascript_number(value: &str) -> f64 {
-    let value = value.trim();
-    if value.is_empty() {
-        0.0
-    } else if value == "Infinity" || value == "+Infinity" {
-        f64::INFINITY
-    } else if value == "-Infinity" {
-        f64::NEG_INFINITY
-    } else {
-        value.parse().unwrap_or(f64::NAN)
-    }
-}
-
-fn javascript_number_string(value: f64) -> String {
-    if value.is_nan() {
-        "NaN".into()
-    } else if value == f64::INFINITY {
-        "Infinity".into()
-    } else if value == f64::NEG_INFINITY {
-        "-Infinity".into()
-    } else if value == 0.0 {
-        "0".into()
-    } else {
-        value.to_string()
-    }
-}
-
-fn javascript_minimum(left: f64, right: f64) -> f64 {
-    if left.is_nan() || right.is_nan() {
-        f64::NAN
-    } else {
-        left.min(right)
-    }
-}
-
-fn javascript_slice(values: &[GithubRepo], end: f64) -> Vec<GithubRepo> {
-    let end = if end.is_nan() {
-        0
-    } else if end == f64::INFINITY {
-        values.len()
-    } else if end == f64::NEG_INFINITY {
-        0
-    } else if end < 0.0 {
-        values.len().saturating_sub(end.abs().trunc() as usize)
-    } else {
-        (end.trunc() as usize).min(values.len())
-    };
-    values[..end].to_vec()
-}
-
-fn javascript_truthy(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::Bool(value) => *value,
-        Value::Number(value) => value.as_f64().is_some_and(|value| value != 0.0),
-        Value::String(value) => !value.is_empty(),
-        Value::Array(_) | Value::Object(_) => true,
-    }
+fn tool_path() -> OsString {
+    let existing = std::env::var_os("PATH").unwrap_or_default();
+    std::env::join_paths(
+        TOOL_PATHS
+            .iter()
+            .map(PathBuf::from)
+            .chain(std::env::split_paths(&existing)),
+    )
+    .unwrap_or(existing)
 }
 
 fn query_has_key(request: &Request, key: &str) -> bool {
     url::form_urlencoded::parse(request.uri().query().unwrap_or_default().as_bytes())
         .any(|(name, _)| name == key)
-}
-
-fn query_value(request: &Request, key: &str) -> Option<String> {
-    url::form_urlencoded::parse(request.uri().query()?.as_bytes())
-        .find_map(|(name, value)| (name == key).then(|| value.into_owned()))
 }
 
 fn trimmed_optional_string(value: Option<&Value>) -> Option<String> {
@@ -857,36 +672,6 @@ fn parse_error(error: impl ToString) -> CommandError {
     }
 }
 
-fn io_error(error: std::io::Error) -> CommandError {
-    CommandError {
-        message: error.to_string(),
-        stderr: String::new(),
-    }
-}
-
-fn bad_request(message: &str, headers: &HeaderMap) -> Response {
-    json_response(
-        StatusCode::BAD_REQUEST,
-        json!({ "error": message }),
-        headers,
-    )
-}
-
-fn route_error(message: String, headers: &HeaderMap) -> Response {
-    json_response(
-        StatusCode::INTERNAL_SERVER_ERROR,
-        json!({ "error": message }),
-        headers,
-    )
-}
-
-fn epoch_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -902,27 +687,61 @@ mod tests {
                         { "state": "success", "login": "", "active": false }
                     ],
                     "company.ghe.com": [
-                        { "state": "success", "login": "team", "active": 1 }
+                        { "state": "success", "login": "team", "active": true }
                     ]
                 }
             }"#,
         )
         .unwrap();
         assert_eq!(
-            entries,
-            vec![
-                AuthEntry {
-                    host: "github.com".into(),
-                    login: "ray".into(),
-                    active: true,
-                },
-                AuthEntry {
-                    host: "company.ghe.com".into(),
-                    login: "team".into(),
-                    active: true,
-                },
+            entries
+                .iter()
+                .map(|account| (
+                    account.host.as_str(),
+                    account.login.as_str(),
+                    account.active
+                ))
+                .collect::<Vec<_>>(),
+            [
+                ("github.com", "ray", true),
+                ("company.ghe.com", "team", true)
             ]
         );
+        assert!(entries.iter().all(|account| account.provider == "github"
+            && account.name.is_none()
+            && account.email.is_none()
+            && account.avatar_url.is_none()));
+    }
+
+    #[test]
+    fn github_repositories_deserialize_cli_fields_and_serialize_renderer_fields() {
+        let mut input = json!({
+            "name":"inferay", "nameWithOwner":"owner/inferay", "description":null,
+            "url":"https://github.com/owner/inferay", "stargazerCount":12,
+            "updatedAt":"2026-09-05T00:00:00Z", "isPrivate":true
+        });
+        for language in [
+            None,
+            Some(Value::Null),
+            Some(json!({})),
+            Some(json!({"name":"Rust"})),
+        ] {
+            if let Some(language) = &language {
+                input["primaryLanguage"] = language.clone();
+            }
+            let repo: GithubRepo = serde_json::from_value(input.clone()).unwrap();
+            assert_eq!(
+                serde_json::to_value(repo).unwrap(),
+                json!({
+                    "name":"inferay", "full_name":"owner/inferay", "description":null,
+                    "html_url":"https://github.com/owner/inferay", "stargazers_count":12.0,
+                    "updated_at":"2026-09-05T00:00:00Z", "private":true,
+                    "language":language.as_ref().and_then(|value| value.get("name"))
+                })
+            );
+        }
+        input["primaryLanguage"] = json!({"name":42});
+        assert!(serde_json::from_value::<GithubRepo>(input).is_err());
     }
 
     #[test]
@@ -951,35 +770,6 @@ mod tests {
             infer_repo_name("https://github.com/owner/repository.git"),
             "repository"
         );
-    }
-
-    #[test]
-    fn matches_javascript_limit_conversion_and_cached_slice_behavior() {
-        assert_eq!(javascript_number(""), 0.0);
-        assert!(javascript_number("invalid").is_nan());
-        assert_eq!(
-            javascript_minimum(javascript_number("Infinity"), 100.0),
-            100.0
-        );
-        assert!(javascript_minimum(javascript_number("invalid"), 100.0).is_nan());
-        assert_eq!(javascript_number_string(f64::NAN), "NaN");
-        assert_eq!(javascript_number_string(f64::NEG_INFINITY), "-Infinity");
-
-        let repos = (0..4)
-            .map(|index| GithubRepo {
-                name: index.to_string(),
-                full_name: index.to_string(),
-                description: None,
-                html_url: String::new(),
-                language: None,
-                stargazers_count: 0.0,
-                updated_at: String::new(),
-                private: false,
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(javascript_slice(&repos, 2.9).len(), 2);
-        assert_eq!(javascript_slice(&repos, -1.0).len(), 3);
-        assert!(javascript_slice(&repos, f64::NAN).is_empty());
     }
 
     #[test]

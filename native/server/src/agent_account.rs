@@ -1,15 +1,12 @@
+use crate::unix_millis as epoch_millis;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use axum::extract::Request;
-use axum::http::StatusCode;
-use axum::response::Response;
 use inferay_core::agent_command::{AgentCommandResolver, AgentKind};
 use serde::Serialize;
 use serde_json::json;
 
-use super::{ServerState, json_response};
+use super::{ApiResult, ServerState};
 
 const CLAUDE_USAGE_SIGNALS: [&str; 2] = [
     "Claude Code exposes interactive /cost usage details.",
@@ -35,31 +32,14 @@ struct AgentAccountProviderStatus {
     summary: String,
 }
 
-pub(super) async fn account_status(state: &ServerState, request: Request) -> Response {
-    let headers = request.headers().clone();
-    let claude_resolver = Arc::clone(&state.agent_command_resolver);
-    let codex_resolver = Arc::clone(&state.agent_command_resolver);
-    let claude_home = state.allowed_paths.home_directory().to_path_buf();
-    let codex_home = claude_home.clone();
-    let claude = tokio::task::spawn_blocking(move || {
-        provider_status(&claude_resolver, &claude_home, AgentKind::Claude)
-    });
-    let codex = tokio::task::spawn_blocking(move || {
-        provider_status(&codex_resolver, &codex_home, AgentKind::Codex)
+pub(super) async fn account_status(state: &ServerState) -> ApiResult {
+    let [claude, codex] = [AgentKind::Claude, AgentKind::Codex].map(|kind| {
+        let resolver = Arc::clone(&state.agent_command_resolver);
+        let home = state.allowed_paths.home_directory().to_path_buf();
+        tokio::task::spawn_blocking(move || provider_status(&resolver, &home, kind))
     });
     let (claude, codex) = tokio::join!(claude, codex);
-    match (claude, codex) {
-        (Ok(claude), Ok(codex)) => json_response(
-            StatusCode::OK,
-            json!({ "providers": [claude, codex] }),
-            &headers,
-        ),
-        (Err(error), _) | (_, Err(error)) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error.to_string() }),
-            &headers,
-        ),
-    }
+    Ok(json!({"providers": [claude?, codex?]}))
 }
 
 fn provider_status(
@@ -151,13 +131,6 @@ fn auth_config_candidates(home: &Path, kind: AgentKind) -> Vec<PathBuf> {
             home.join(".config/codex"),
         ],
     }
-}
-
-fn epoch_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
 }
 
 #[cfg(test)]

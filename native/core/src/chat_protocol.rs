@@ -1,3 +1,4 @@
+use crate::{utf16_length as javascript_length, utf16_slice as javascript_slice};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashSet;
@@ -139,16 +140,11 @@ impl ChatMessageBuffer {
     }
 
     pub fn finalize(&mut self) {
-        let mut changed = false;
+        let mut first_changed = None;
         for (index, message) in self.messages.iter_mut().enumerate() {
             if message.is_streaming == Some(true) {
                 message.extra.remove("render");
-                changed = true;
-                self.dirty_start = Some(self.dirty_start.map_or(index, |start| start.min(index)));
-                self.render_dirty_start = Some(
-                    self.render_dirty_start
-                        .map_or(index, |start| start.min(index)),
-                );
+                first_changed.get_or_insert(index);
             }
             message.is_streaming = Some(false);
         }
@@ -156,16 +152,15 @@ impl ChatMessageBuffer {
         self.last_assistant_index = None;
         self.current_tool_index = None;
         self.has_streamed = false;
-        if changed {
-            self.revision += 1;
+        if let Some(index) = first_changed {
+            self.mark_changed(index);
         }
         self.trim();
         self.prepare_render_model();
     }
 
     pub fn replace_messages(&mut self, messages: Vec<ChatTranscriptMessage>) {
-        self.dirty_start = Some(0);
-        self.render_dirty_start = Some(0);
+        self.mark_changed(0);
         self.reset_pending = true;
         self.messages = messages
             .into_iter()
@@ -179,13 +174,13 @@ impl ChatMessageBuffer {
         self.last_assistant_index = None;
         self.current_tool_index = None;
         self.has_streamed = false;
-        self.revision += 1;
         self.trim();
         self.prepare_render_model();
     }
 
     pub fn replace_in_assistant_messages(&mut self, mut replacer: impl FnMut(&str) -> String) {
-        for (index, message) in self.messages.iter_mut().enumerate() {
+        for index in 0..self.messages.len() {
+            let message = &mut self.messages[index];
             if message.role != "assistant" {
                 continue;
             }
@@ -195,12 +190,7 @@ impl ChatMessageBuffer {
             }
             self.replaced_content.insert(message.id.clone());
             message.content = truncate_chat_content(&next, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
-            self.dirty_start = Some(self.dirty_start.map_or(index, |start| start.min(index)));
-            self.render_dirty_start = Some(
-                self.render_dirty_start
-                    .map_or(index, |start| start.min(index)),
-            );
-            self.revision += 1;
+            self.mark_changed(index);
         }
         self.trim();
         self.prepare_render_model();
@@ -386,10 +376,6 @@ impl ChatMessageBuffer {
         &self.messages
     }
 
-    pub fn into_messages(self) -> Vec<ChatTranscriptMessage> {
-        self.messages
-    }
-
     pub fn epoch(&self) -> &str {
         &self.epoch.0
     }
@@ -429,13 +415,7 @@ impl ChatMessageBuffer {
                         message.content =
                             truncate_chat_content(text, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
                         message.is_streaming = Some(is_streaming);
-                        self.dirty_start =
-                            Some(self.dirty_start.map_or(index, |start| start.min(index)));
-                        self.render_dirty_start = Some(
-                            self.render_dirty_start
-                                .map_or(index, |start| start.min(index)),
-                        );
-                        self.revision += 1;
+                        self.mark_changed(index);
                         self.last_assistant_index = self.current_assistant_index;
                     } else {
                         self.append_assistant(text, is_streaming);
@@ -481,73 +461,31 @@ impl ChatMessageBuffer {
         let Some(delta) = event.get("delta") else {
             return;
         };
-        match delta.get("type").and_then(Value::as_str) {
-            Some("text_delta") => {
-                let Some(text) = delta.get("text").and_then(Value::as_str) else {
-                    return;
-                };
-                if text.is_empty() {
-                    return;
-                }
-                let Some(index) = self.current_assistant_index else {
-                    return;
-                };
-                let Some(message) = self.messages.get_mut(index) else {
-                    return;
-                };
-                let next_content = append_bounded_chat_content(
-                    &message.content,
-                    text,
-                    CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
-                );
-                if !next_content.starts_with(&message.content) {
-                    self.replaced_content.insert(message.id.clone());
-                }
-                message.content = next_content;
-                message.extra.remove("render");
-                self.dirty_start = Some(self.dirty_start.map_or(index, |start| start.min(index)));
-                self.render_dirty_start = Some(
-                    self.render_dirty_start
-                        .map_or(index, |start| start.min(index)),
-                );
-                self.revision += 1;
-            }
-            Some("input_json_delta") => {
-                let Some(text) = delta.get("partial_json").and_then(Value::as_str) else {
-                    return;
-                };
-                if text.is_empty() {
-                    return;
-                }
-                let Some(index) = self.current_tool_index else {
-                    return;
-                };
-                let Some(message) = self.messages.get_mut(index) else {
-                    return;
-                };
-                // Claude begins streamed tool input with an empty object. It is
-                // a placeholder, not a JSON prefix for the arriving argument text.
-                let input_prefix = if message.content == "{}" {
-                    ""
-                } else {
-                    &message.content
-                };
-                let next_content =
-                    append_bounded_chat_content(input_prefix, text, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
-                if !next_content.starts_with(&message.content) {
-                    self.replaced_content.insert(message.id.clone());
-                }
-                message.content = next_content;
-                message.extra.remove("render");
-                self.dirty_start = Some(self.dirty_start.map_or(index, |start| start.min(index)));
-                self.render_dirty_start = Some(
-                    self.render_dirty_start
-                        .map_or(index, |start| start.min(index)),
-                );
-                self.revision += 1;
-            }
-            _ => {}
+        let (index, field, tool_input) = match delta["type"].as_str() {
+            Some("text_delta") => (self.current_assistant_index, "text", false),
+            Some("input_json_delta") => (self.current_tool_index, "partial_json", true),
+            _ => return,
+        };
+        let Some(text) = delta[field].as_str().filter(|text| !text.is_empty()) else {
+            return;
+        };
+        let Some(index) = index else { return };
+        let Some(message) = self.messages.get_mut(index) else {
+            return;
+        };
+        // Claude's initial empty object is a placeholder for streamed tool input.
+        let prefix = if tool_input && message.content == "{}" {
+            ""
+        } else {
+            &message.content
+        };
+        let next = append_bounded_chat_content(prefix, text, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
+        if !next.starts_with(&message.content) {
+            self.replaced_content.insert(message.id.clone());
         }
+        message.content = next;
+        message.extra.remove("render");
+        self.mark_changed(index);
     }
 
     fn apply_result(&mut self, event: &Value) {
@@ -566,12 +504,7 @@ impl ChatMessageBuffer {
             self.replaced_content.insert(message.id.clone());
             message.content = truncate_chat_content(result, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
             message.is_streaming = Some(false);
-            self.dirty_start = Some(self.dirty_start.map_or(index, |start| start.min(index)));
-            self.render_dirty_start = Some(
-                self.render_dirty_start
-                    .map_or(index, |start| start.min(index)),
-            );
-            self.revision += 1;
+            self.mark_changed(index);
             self.current_assistant_index = None;
             self.last_assistant_index = None;
         } else {
@@ -596,33 +529,30 @@ impl ChatMessageBuffer {
         self.push(message);
     }
 
-    fn patch_streaming(&mut self, index: Option<usize>, value: bool) -> bool {
-        let Some(index) = index else { return false };
+    fn patch_streaming(&mut self, index: Option<usize>, value: bool) {
+        let Some(index) = index else { return };
         let Some(message) = self.messages.get_mut(index) else {
-            return false;
+            return;
         };
         if message.is_streaming != Some(value) {
             message.extra.remove("render");
         }
         message.is_streaming = Some(value);
+        self.mark_changed(index);
+    }
+
+    fn mark_changed(&mut self, index: usize) {
         self.dirty_start = Some(self.dirty_start.map_or(index, |start| start.min(index)));
         self.render_dirty_start = Some(
             self.render_dirty_start
                 .map_or(index, |start| start.min(index)),
         );
         self.revision += 1;
-        true
     }
 
     fn push(&mut self, message: ChatTranscriptMessage) {
-        let index = self.messages.len();
-        self.dirty_start = Some(self.dirty_start.map_or(index, |start| start.min(index)));
-        self.render_dirty_start = Some(
-            self.render_dirty_start
-                .map_or(index, |start| start.min(index)),
-        );
+        self.mark_changed(self.messages.len());
         self.messages.push(message);
-        self.revision += 1;
         self.trim();
         self.prepare_render_model();
     }
@@ -660,10 +590,8 @@ impl ChatMessageBuffer {
         }
         self.messages.drain(..dropped);
         self.message_chars.drain(..dropped);
-        self.dirty_start = Some(0);
-        self.render_dirty_start = Some(0);
+        self.mark_changed(0);
         self.reset_pending = true;
-        self.revision += 1;
         self.current_assistant_index = adjusted_index(self.current_assistant_index, dropped);
         self.last_assistant_index = adjusted_index(self.last_assistant_index, dropped);
         self.current_tool_index = adjusted_index(self.current_tool_index, dropped);
@@ -681,36 +609,6 @@ fn parse_tool_envelope(content: &str) -> Option<(Value, usize)> {
     value
         .is_object()
         .then(|| (value, prefix + stream.byte_offset()))
-}
-
-pub fn is_valid_chat_transcript(value: &Value) -> bool {
-    value.as_array().is_some_and(|messages| {
-        messages.iter().all(|message| {
-            let Some(message) = message.as_object() else {
-                return false;
-            };
-            message.get("id").is_some_and(Value::is_string)
-                && message
-                    .get("role")
-                    .and_then(Value::as_str)
-                    .is_some_and(|role| matches!(role, "user" | "assistant" | "tool" | "system"))
-                && message.get("content").is_some_and(Value::is_string)
-                && message.get("images").is_none_or(|images| {
-                    images
-                        .as_array()
-                        .is_some_and(|images| images.iter().all(Value::is_string))
-                })
-        })
-    })
-}
-
-pub fn parse_chat_transcript(value: Value) -> Option<Vec<ChatTranscriptMessage>> {
-    if !is_valid_chat_transcript(&value) {
-        return None;
-    }
-    let mut messages = serde_json::from_value::<Vec<ChatTranscriptMessage>>(value).ok()?;
-    trim_messages(&mut messages);
-    Some(messages)
 }
 
 pub fn trim_messages(messages: &mut Vec<ChatTranscriptMessage>) {
@@ -738,39 +636,17 @@ pub fn trim_messages(messages: &mut Vec<ChatTranscriptMessage>) {
 }
 
 pub fn truncate_chat_content(content: &str, max_chars: usize) -> String {
-    let length = javascript_length(content);
-    if length <= max_chars {
-        return content.to_string();
-    }
-    let marker_length = javascript_length(CHAT_TRUNCATION_MARKER);
-    if max_chars <= marker_length {
-        return javascript_slice(content, length.saturating_sub(max_chars), length);
-    }
-    let prefix_length = (max_chars / 4).min(max_chars - marker_length);
-    let suffix_length = max_chars - marker_length - prefix_length;
-    if suffix_length == 0 {
-        return javascript_slice(
-            &format!(
-                "{}{}",
-                javascript_slice(content, 0, prefix_length),
-                CHAT_TRUNCATION_MARKER
-            ),
-            0,
-            max_chars,
-        );
-    }
-    format!(
-        "{}{}{}",
-        javascript_slice(content, 0, prefix_length),
-        CHAT_TRUNCATION_MARKER,
-        javascript_slice(content, length - suffix_length, length)
-    )
+    bounded_chat_content(content, "", max_chars)
 }
 
 pub fn append_bounded_chat_content(current: &str, delta: &str, max_chars: usize) -> String {
     if delta.is_empty() {
         return current.to_string();
     }
+    bounded_chat_content(current, delta, max_chars)
+}
+
+fn bounded_chat_content(current: &str, delta: &str, max_chars: usize) -> String {
     let current_length = javascript_length(current);
     let delta_length = javascript_length(delta);
     if current_length + delta_length <= max_chars {
@@ -839,15 +715,6 @@ fn javascript_truthy(value: &Value) -> bool {
         Value::String(value) => !value.is_empty(),
         Value::Array(_) | Value::Object(_) => true,
     }
-}
-
-pub fn javascript_length(value: &str) -> usize {
-    value.encode_utf16().count()
-}
-
-pub fn javascript_slice(value: &str, start: usize, end: usize) -> String {
-    let units = value.encode_utf16().collect::<Vec<_>>();
-    String::from_utf16_lossy(&units[start.min(units.len())..end.min(units.len())])
 }
 
 fn prepare_system_card(value: &Value, render: &mut Value) {
@@ -1174,14 +1041,6 @@ mod tests {
 
     #[test]
     fn validates_and_trims_persisted_transcripts() {
-        assert!(is_valid_chat_transcript(&json!([
-            { "id": "1", "role": "user", "content": "hello" },
-            { "id": "2", "role": "assistant", "content": "world", "images": [] }
-        ])));
-        assert!(!is_valid_chat_transcript(&json!([
-            { "id": "1", "role": "btw", "content": "invalid persisted role" }
-        ])));
-
         let messages = (0..5_010)
             .map(|index| ChatTranscriptMessage::new("assistant", &index.to_string()))
             .collect::<Vec<_>>();

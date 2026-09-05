@@ -15,7 +15,6 @@ async fn main() {
         .to_path_buf();
     let mut config = ServerConfig::new(listen_addr, app_root);
     config.live_reload = true;
-    config.automation_routes_enabled = true;
 
     let mut server = ServerHandle::start(config).expect("unable to start Inferay services");
     println!("[inferay-dev] backend: http://{}", server.local_addr());

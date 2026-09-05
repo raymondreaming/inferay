@@ -1,8 +1,5 @@
 import { postJson } from "../../../adapters/backend/http.ts";
-import {
-	readStoredValue,
-	writeStoredValue,
-} from "../../../adapters/storage/stored-values.ts";
+import { readStoredValue } from "../../../adapters/storage/stored-values.ts";
 import {
 	type AgentKind,
 	getAgentDefinition,
@@ -33,12 +30,7 @@ export type ThemeId = (typeof THEME_IDS)[keyof typeof THEME_IDS];
 export type AgentLayoutMode = "grid" | "rows";
 
 export function loadAgentLayoutMode(): AgentLayoutMode {
-	const stored =
-		readStoredValue("agent-layout-mode") ??
-		readStoredValue("terminal-layout-mode");
-	if (stored && readStoredValue("agent-layout-mode") === null) {
-		writeStoredValue("agent-layout-mode", stored);
-	}
+	const stored = readStoredValue("agent-layout-mode");
 	return stored === "grid" ? "grid" : "rows";
 }
 
@@ -146,14 +138,10 @@ export type PaneId = string & { readonly __brand: "PaneId" };
 
 export type GroupId = string & { readonly __brand: "GroupId" };
 
-export type PaneType = AgentKind;
-
 export interface AgentPaneModel {
 	readonly id: PaneId;
 	title: string;
 	readonly agentKind: AgentKind;
-	readonly isClaude: boolean;
-	readonly paneType?: PaneType;
 	cwd?: string;
 	pendingCwd?: boolean;
 	referencePaths?: string[];
@@ -203,8 +191,6 @@ export interface AgentViewSwitchHealth {
 	readonly workspacePath: string | null;
 }
 
-const AGENT_STORAGE_KEY = "inferay-agent-state" as const;
-const LEGACY_AGENT_STORAGE_KEY = "inferay-terminal-state" as const;
 const AGENT_SHELL_CHANGE_EVENT = "agent-shell-change" as const;
 export const REMOVE_AGENT_PANE_REQUEST_EVENT =
 	"inferay-remove-agent-pane-request" as const;
@@ -352,11 +338,7 @@ function acceptAgentState(
 export async function initializeAgentState(): Promise<AgentSavedState> {
 	const { state } = await postJson<{ state: AgentSavedState }>(
 		"/api/agent/state/initialize",
-		{
-			legacy:
-				readStoredValue(AGENT_STORAGE_KEY) ??
-				readStoredValue(LEGACY_AGENT_STORAGE_KEY),
-		},
+		{},
 	);
 	acceptAgentState(state, "initialize");
 	return state;

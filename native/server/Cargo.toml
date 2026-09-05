@@ -8,19 +8,19 @@ description = "Rust HTTP and WebSocket server for Inferay"
 [dependencies]
 axum = { version = "0.8.9", features = ["multipart", "ws"] }
 futures-util = "0.3.32"
-hostname = "0.4.2"
 inferay-core = { path = "../core" }
 inferay-native-diff = { path = "../diff-engine" }
-notify = "8.2.0"
 percent-encoding = "2.3.2"
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls"] }
 regex = "1.12.2"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.49.0", features = ["fs", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-tungstenite = "0.29.0"
 url = "2.5.8"
 uuid = { version = "1.21.0", features = ["v4"] }
+walkdir = "2.5.0"
 
 [dev-dependencies]
 tempfile = "3.27.0"

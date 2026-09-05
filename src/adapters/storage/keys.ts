@@ -50,7 +50,6 @@ const SYNCED_STORAGE_KEYS = new Set([
 	AGENT_STATE_STORAGE_KEY,
 	"commit-graph-columns-v5",
 	EDITOR_SELECTED_PANE_STORAGE_KEY,
-	"git-watched-dirs",
 	MAIN_SIDEBAR_WIDTH_STORAGE_KEY,
 	"sidebar-collapsed",
 	"agent-editor-zen",

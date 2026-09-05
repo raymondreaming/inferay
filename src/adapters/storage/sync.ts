@@ -94,15 +94,8 @@ export async function hydrateStoredValues(): Promise<void> {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), HYDRATION_TIMEOUT_MS);
 	try {
-		// Import and read share the native storage lock; no second preference table is maintained in JS.
 		const response = await fetch("/api/client-storage", {
-			method: "POST",
 			signal: controller.signal,
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				migrateChatPreferences: true,
-				legacyPreferences: localStorage.getItem("inferay-db-preferences"),
-			}),
 		});
 		if (!response.ok) throw new Error("Could not load saved preferences");
 		const payload = (await response.json()) as ClientStoragePayload;

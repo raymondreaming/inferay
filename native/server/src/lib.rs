@@ -1,9 +1,9 @@
+use native_files::{image_content_type, is_image_extension};
 mod git_changes;
 mod workspace_panels;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
-#[cfg(test)]
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -32,12 +32,10 @@ use inferay_core::path_security::{
 };
 use inferay_core::prompts::{PromptError, PromptStore};
 use inferay_native_diff::{
-    GitFileWithDiff, GitInteractiveRebaseStep, NativeRequest, NativeResponse, checkout_git_branch,
-    commit_git, finish_git_ref_operation, get_git_blame, get_git_branches,
-    get_git_commit_details_for_parent, get_git_commit_hunk_diff_for_parent,
-    get_git_comparison_details, get_git_comparison_hunk_diff, get_git_diff, get_git_file_history,
-    get_git_file_with_diff, get_git_log, get_git_status, get_git_worktree_comparison_details,
-    get_git_worktree_comparison_hunk_diff, is_changed_git_file,
+    GitInteractiveRebaseStep, checkout_git_branch, commit_git, finish_git_ref_operation,
+    get_git_branches, get_git_commit_details_for_parent, get_git_commit_hunk_diff_for_parent,
+    get_git_comparison_details, get_git_comparison_hunk_diff, get_git_status,
+    get_git_worktree_comparison_details, get_git_worktree_comparison_hunk_diff,
     perform_git_graph_action_with_targets, perform_git_interactive_rebase,
     perform_git_ref_operation, preflight_git_ref_operation, stage_git, unstage_git,
 };
@@ -52,22 +50,16 @@ use uuid::Uuid;
 mod agent_account;
 mod agent_runner;
 mod atomic_write;
-pub mod automation_service;
-pub mod btw;
-mod chat_persistence;
+pub mod chat_persistence;
 mod chat_runtime;
 pub mod checkpoint;
 mod forge;
 mod markdown;
-pub mod native_agent_context;
 mod native_app;
-pub mod native_chat;
-pub mod native_chat_service;
 pub mod native_directories;
 pub mod native_files;
 pub mod native_git;
 pub mod native_project_files;
-pub mod native_project_map;
 pub mod native_prompts;
 mod one_shot;
 mod pid_tracker;
@@ -76,7 +68,6 @@ mod render_jobs;
 
 const LOCAL_AUTH_COOKIE: &str = "inferay_local_auth";
 const MAX_PROXY_BODY_BYTES: usize = 32 * 1024 * 1024;
-const MAX_NATIVE_DIFF_LINES: usize = 12_000;
 const CORS_METHODS: &str = "GET,POST,PUT,DELETE,OPTIONS";
 const CORS_HEADERS: &str = "Content-Type,X-Inferay-Auth";
 const MAX_TEMP_UPLOAD_BYTES: usize = 20 * 1024 * 1024;
@@ -90,7 +81,6 @@ pub struct ServerConfig {
     pub user_data_dir: PathBuf,
     pub auth_token: String,
     pub release_api_url: Option<String>,
-    pub automation_routes_enabled: bool,
     pub live_reload: bool,
 }
 
@@ -103,7 +93,6 @@ impl ServerConfig {
             user_data_dir: default_user_data_directory(),
             auth_token: Uuid::new_v4().to_string(),
             release_api_url: None,
-            automation_routes_enabled: std::env::var_os("AGENT_GUI_APP_ROOT").is_some(),
             live_reload: false,
         }
     }
@@ -117,24 +106,19 @@ struct ServerState {
     agent_command_resolver: Arc<AgentCommandResolver>,
     agent_state_store: Arc<Mutex<AgentStateStore>>,
     background_dir: PathBuf,
-    automation_service: automation_service::AutomationService,
-    automation_routes_enabled: bool,
     client_storage_path: PathBuf,
     client_storage_write: Arc<tokio::sync::Mutex<()>>,
     chat_persistence: chat_persistence::ChatPersistence,
     chat_runtime: chat_runtime::ChatRuntime,
     checkpoint_service: checkpoint::CheckpointService,
     config_manager: Arc<tokio::sync::Mutex<ConfigManager>>,
-    native_git: native_git::NativeGit,
     native_project_files: native_project_files::NativeProjectFiles,
     forge_state: Arc<forge::ForgeState>,
     native_files: native_files::NativeFiles,
-    native_chat_handoff: native_chat::NativeChatHandoff,
-    native_chat_service: native_chat_service::NativeChatService,
+    next_client_id: Arc<AtomicU64>,
     native_directories: native_directories::NativeAgentDirectories,
-    native_agent_context: native_agent_context::NativeAgentContext,
+    agent_context_store: Arc<tokio::sync::Mutex<AgentContextStore>>,
     native_prompts: native_prompts::NativePrompts,
-    pid_tracker: pid_tracker::RuntimePidTracker,
     release_api_url: Option<String>,
     release_check_cache: Arc<tokio::sync::Mutex<Option<native_app::ReleaseCheckCache>>>,
     temp_dir: PathBuf,
@@ -146,8 +130,8 @@ struct ServerState {
 
 #[derive(Clone)]
 struct DirectAgentExecutor {
-    resolver: Arc<AgentCommandResolver>,
     pid_tracker: pid_tracker::RuntimePidTracker,
+    resolver: Arc<AgentCommandResolver>,
 }
 
 impl chat_runtime::AgentExecutor for DirectAgentExecutor {
@@ -207,7 +191,7 @@ impl chat_runtime::AgentExecutor for DirectAgentExecutor {
                 )
                 .await
             };
-            Ok(chat_runtime::ExecutedTurn { result, protocol })
+            Ok(result)
         })
     }
 
@@ -230,8 +214,6 @@ impl chat_runtime::AgentExecutor for DirectAgentExecutor {
 struct NativeDiffBody {
     before: Option<String>,
     after: Option<String>,
-    #[serde(default)]
-    prepared: bool,
     #[serde(default)]
     edits: Vec<inferay_native_diff::SequentialEdit>,
 }
@@ -279,11 +261,6 @@ struct GitFileBody {
 struct GitCommitBody {
     cwd: Option<String>,
     message: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct GitWatchBody {
-    cwd: Option<String>,
 }
 
 pub struct ServerHandle {
@@ -395,24 +372,16 @@ fn build_router_with_connection_reset(
     };
     let allowed_paths = AllowedPaths::new(&config.app_root, &config.home_directory)
         .expect("server path roots must resolve");
-    let scripts_dir = config.app_root.join("scripts");
     let bundled_prompts = config.app_root.join("data/prompts.json");
     let agent_state_path = config.user_data_dir.join("agent-state.json");
-    let legacy_agent_state_path = config.user_data_dir.join("terminal-state.json");
     let checkpoints_path = config.user_data_dir.join("checkpoints.json");
     let checkpoint_service =
         checkpoint::CheckpointService::new(allowed_paths.clone(), checkpoints_path);
-    let checkpoint_loader = checkpoint_service.clone();
-    tokio::spawn(async move { checkpoint_loader.load().await });
     let pid_tracker =
         pid_tracker::RuntimePidTracker::new(config.user_data_dir.join("runtime-pids.json"));
     let orphan_cleaner = pid_tracker.clone();
     tokio::spawn(async move { orphan_cleaner.cleanup_orphans().await });
     let agent_command_resolver = Arc::new(AgentCommandResolver::new(config.home_directory.clone()));
-    let automation_service = automation_service::AutomationService::new(
-        config.user_data_dir.join("automations.json"),
-        agent_command_resolver.clone(),
-    );
     let agent_context_store = Arc::new(tokio::sync::Mutex::new(AgentContextStore::new(
         config.user_data_dir.join("agent-context.json"),
     )));
@@ -421,34 +390,21 @@ fn build_router_with_connection_reset(
         config.user_data_dir.join("prompts.json"),
     )));
     let native_prompts = native_prompts::NativePrompts::new(prompt_store.clone());
-    let native_agent_context = native_agent_context::NativeAgentContext::new(
-        agent_context_store.clone(),
-        prompt_store.clone(),
-    );
     let config_manager = Arc::new(tokio::sync::Mutex::new(ConfigManager::new(
-        scripts_dir.join("config.yaml"),
-        scripts_dir.join("config.local.yaml"),
+        config.user_data_dir.join("settings.json"),
     )));
     let native_directories = native_directories::NativeAgentDirectories::with_config_manager(
         allowed_paths.clone(),
         config_manager.clone(),
     );
-    let native_git = native_git::NativeGit::new(allowed_paths.clone());
     let chat_persistence = chat_persistence::ChatPersistence::new(config.user_data_dir.clone());
-    let agent_state_store = Arc::new(Mutex::new(AgentStateStore::new(
-        agent_state_path.clone(),
-        legacy_agent_state_path.clone(),
-    )));
-    let native_project_files = native_project_files::NativeProjectFiles::with_agent_state(
+    let agent_state_store = Arc::new(Mutex::new(AgentStateStore::new(agent_state_path.clone())));
+    let native_project_files = native_project_files::NativeProjectFiles::new(
         allowed_paths.clone(),
         agent_state_store.clone(),
     );
     let native_files = native_files::NativeFiles::from_app_root(&config.app_root);
     let client_storage_write = Arc::new(tokio::sync::Mutex::new(()));
-    let native_chat_handoff = native_chat::NativeChatHandoff::with_storage(
-        config.user_data_dir.clone(),
-        client_storage_write.clone(),
-    );
     let chat_runtime = chat_runtime::ChatRuntime::new(
         chat_persistence.clone(),
         checkpoint_service.clone(),
@@ -459,13 +415,6 @@ fn build_router_with_connection_reset(
         agent_context_store.clone(),
         prompt_store.clone(),
     );
-    let native_chat_service = native_chat_service::NativeChatService::new(
-        chat_runtime.clone(),
-        tokio::runtime::Handle::current(),
-        Arc::new(AtomicU64::new(1)),
-        allowed_paths.clone(),
-        checkpoint_service.clone(),
-    );
     let state = ServerState {
         dist_dir,
         public_dir: config.app_root.join("public"),
@@ -473,24 +422,19 @@ fn build_router_with_connection_reset(
         agent_command_resolver,
         agent_state_store,
         background_dir: config.user_data_dir.join("backgrounds"),
-        automation_service,
-        automation_routes_enabled: config.automation_routes_enabled,
         client_storage_path: config.user_data_dir.join("client-storage.json"),
         client_storage_write,
         chat_persistence,
         chat_runtime,
         checkpoint_service,
         config_manager,
-        native_git: native_git.clone(),
         native_project_files: native_project_files.clone(),
         forge_state: Arc::new(forge::ForgeState::default()),
         native_files,
-        native_chat_handoff,
-        native_chat_service: native_chat_service.clone(),
+        next_client_id: Arc::new(AtomicU64::new(1)),
         native_directories,
-        native_agent_context,
+        agent_context_store,
         native_prompts,
-        pid_tracker,
         release_api_url: config.release_api_url,
         release_check_cache: Arc::new(tokio::sync::Mutex::new(None)),
         temp_dir: config.app_root.join("data/.tmp"),
@@ -510,7 +454,6 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
     let path = request.uri().path().to_string();
     let request_headers = request.headers().clone();
     let head_only = request.method() == Method::HEAD;
-
     if path.starts_with("/api/") || path == "/api" {
         if !is_trusted_local_request(request.headers(), &state.auth_token) {
             return text_response(StatusCode::FORBIDDEN, "Forbidden");
@@ -521,359 +464,123 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             add_cors_headers(response.headers_mut(), &request_headers);
             return response;
         }
-        if path == "/api/native/provider-config" {
-            if request.method() == Method::GET {
-                return json_response(
-                    StatusCode::OK,
-                    inferay_core::provider_config::catalog().clone(),
+        let result = match (path.as_str(), request.method().as_str()) {
+            ("/api/client-storage", "GET") => get_client_storage(&state, request).await,
+            ("/api/client-storage", "POST" | "PUT") => update_client_storage(&state, request).await,
+            ("/api/config/search-folders", "GET") => get_search_folders(&state, request).await,
+            ("/api/prompts", "GET") => list_prompts(&state, request).await,
+            ("/api/prompts", "POST") => create_prompt(&state, request).await,
+            ("/api/agent-context", "GET") => get_agent_context(&state, request).await,
+            ("/api/agent-context", "PUT") => update_agent_context(&state, request).await,
+            ("/api/agent/state/initialize", "POST") => {
+                initialize_agent_state(&state, request).await
+            }
+            ("/api/agent/state", "GET") => get_agent_state(&state, request).await,
+            ("/api/agent/state/workspace-action", "POST") => {
+                apply_agent_workspace_action(&state, request).await
+            }
+            ("/api/agent/directories", "GET") => get_agent_directories(&state, request).await,
+            ("/api/forge/accounts", "GET") => forge::handle_request(&state, &path, request).await,
+            ("/api/forge/repos", "GET") => forge::handle_request(&state, &path, request).await,
+            ("/api/forge/commit-avatars", "POST") => {
+                forge::handle_request(&state, &path, request).await
+            }
+            ("/api/forge/clone", "POST") => forge::handle_request(&state, &path, request).await,
+            ("/api/forge/connect", "POST") => forge::handle_request(&state, &path, request).await,
+            ("/api/git/status", "GET") => git_status(&state, request).await,
+            ("/api/git/statuses", "POST") => git_statuses(&state, request).await,
+            ("/api/git/branches", "GET") => git_branches(&state, request).await,
+            ("/api/git/branches", "POST") => git_checkout_branch(&state, request).await,
+            ("/api/git/ref-operation", "POST") => git_ref_operation(&state, request).await,
+            ("/api/git/ref-operation-preflight", "POST") => {
+                git_ref_operation_preflight(&state, request).await
+            }
+            ("/api/git/graph-action", "POST") => git_graph_action(&state, request).await,
+            ("/api/git/commit-details", "GET") => git_commit_details(&state, request).await,
+            ("/api/git/comparison-details", "GET" | "POST") => {
+                git_comparison_details(&state, request).await
+            }
+            ("/api/git/stage", "POST") => git_stage_change(&state, request, true).await,
+            ("/api/git/unstage", "POST") => git_stage_change(&state, request, false).await,
+            ("/api/git/commit", "POST") => git_commit(&state, request).await,
+
+            ("/api/native/provider-config", "GET") => {
+                Ok(inferay_core::provider_config::catalog().clone())
+            }
+            ("/api/native/provider-config", "POST") => to_bytes(request.into_body(), 64 * 1024)
+                .await
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                .map(|input| inferay_core::provider_config::resolve(&input))
+                .ok_or_else(|| {
+                    api_error(StatusCode::BAD_REQUEST, "Invalid provider configuration")
+                }),
+            ("/api/native/markdown", "POST") => {
+                return api_http_response(native_markdown(request).await, &request_headers);
+            }
+            ("/api/native/diff", "POST") => {
+                return api_http_response(native_diff(request).await, &request_headers);
+            }
+            ("/api/config/search-folders", "PUT") => update_search_folders(&state, request).await,
+            ("/api/config/background-image", "GET") => {
+                return api_http_response(
+                    get_background_image(&state, request).await,
                     &request_headers,
                 );
             }
-            if request.method() == Method::POST {
-                let bytes = match to_bytes(request.into_body(), 64 * 1024).await {
-                    Ok(bytes) => bytes,
-                    Err(_) => {
-                        return json_response(
-                            StatusCode::BAD_REQUEST,
-                            json!({"error":"Invalid provider configuration"}),
-                            &request_headers,
-                        );
-                    }
-                };
-                return match serde_json::from_slice::<Value>(&bytes) {
-                    Ok(input) => json_response(
-                        StatusCode::OK,
-                        inferay_core::provider_config::resolve(&input),
-                        &request_headers,
-                    ),
-                    Err(_) => json_response(
-                        StatusCode::BAD_REQUEST,
-                        json!({"error":"Invalid provider configuration"}),
-                        &request_headers,
-                    ),
-                };
+            ("/api/config/background-image", "POST") => {
+                update_background_image(&state, request).await
             }
-        }
-        if path == "/api/native/markdown" && request.method() == Method::POST {
-            return native_markdown(request).await;
-        }
-        if path == "/api/native/diff" && request.method() == Method::POST {
-            return native_diff(request).await;
-        }
-        if path == "/api/client-storage" {
-            if request.method() == Method::GET {
-                return get_client_storage(&state, request).await;
+            ("/api/config/pick-folder", "POST") => {
+                Ok(json!({"folder": selected_folder_path().await}))
             }
-            if request.method() == Method::POST || request.method() == Method::PUT {
-                return update_client_storage(&state, request).await;
-            }
-        }
-        if path == "/api/config" {
-            if request.method() == Method::GET {
-                return get_config(&state, request).await;
-            }
-            if request.method() == Method::PUT {
-                return update_config(&state, request).await;
-            }
-        }
-        if path == "/api/config/search-folders" {
-            if request.method() == Method::GET {
-                return get_search_folders(&state, request).await;
-            }
-            if request.method() == Method::PUT {
-                return update_search_folders(&state, request).await;
-            }
-        }
-        if path == "/api/config/background-image" {
-            if request.method() == Method::GET {
-                return get_background_image(&state, request).await;
-            }
-            if request.method() == Method::POST {
-                return update_background_image(&state, request).await;
-            }
-        }
-        if path == "/api/config/pick-folder" && request.method() == Method::POST {
-            return pick_config_folder(request).await;
-        }
-        if path == "/api/machine-id" && request.method() == Method::GET {
-            return get_machine_id(&state, request).await;
-        }
-        if path == "/api/agents/account-status" && request.method() == Method::GET {
-            return agent_account::account_status(&state, request).await;
-        }
-        if forge::is_route(&path, request.method()) {
-            return forge::handle_request(&state, &path, request).await;
-        }
-        if native_app::is_route(&path, request.method()) {
-            return native_app::handle_request(&state, &path, request).await;
-        }
-        if one_shot::is_route(&state, &path, request.method()) {
-            return one_shot::handle_request(&state, &path, request).await;
-        }
-        if path == "/api/prompts" {
-            if request.method() == Method::GET {
-                return list_prompts(&state, request).await;
-            }
-            if request.method() == Method::POST {
-                return create_prompt(&state, request).await;
-            }
-        }
-        if let Some((id, usage)) = prompt_path(&path) {
-            if usage && request.method() == Method::POST {
-                return increment_prompt_usage(&state, request, id).await;
-            }
-            if !usage && request.method() == Method::PUT {
-                return update_prompt(&state, request, id).await;
-            }
-            if !usage && request.method() == Method::DELETE {
-                return delete_prompt(&state, request, id).await;
-            }
-        }
-        if path == "/api/agent-context" {
-            if request.method() == Method::GET {
-                return get_agent_context(&state, request).await;
-            }
-            if request.method() == Method::PUT {
-                return update_agent_context(&state, request).await;
-            }
-        }
-        if path == "/api/workspace/panels" && request.method() == Method::POST {
-            return workspace_panels::handle(&state, request).await;
-        }
-        if path == "/api/agent/state/initialize" && request.method() == Method::POST {
-            return initialize_agent_state(&state, request).await;
-        }
-        if path == "/api/agent/state" {
-            if request.method() == Method::GET {
-                return get_agent_state(&state, request).await;
-            }
-            if request.method() == Method::POST {
-                return update_agent_state(&state, request).await;
-            }
-        }
-        if path == "/api/agent/state/workspace-action" && request.method() == Method::POST {
-            return apply_agent_workspace_action(&state, request).await;
-        }
-        if path == "/api/agent/directories" && request.method() == Method::GET {
-            return get_agent_directories(&state, request).await;
-        }
-        if path == "/api/agent/ports" && request.method() == Method::GET {
-            return get_agent_ports(request).await;
-        }
-        if path == "/api/agent/ports/kill" && request.method() == Method::POST {
-            return kill_agent_port(request).await;
-        }
-        if path == "/api/agent/claude-processes" && request.method() == Method::GET {
-            return get_agent_claude_processes(request).await;
-        }
-        if path == "/api/agent/claude-processes/kill" && request.method() == Method::POST {
-            return kill_agent_claude_process(request).await;
-        }
-        if path == "/api/agent/claude-processes/kill-all" && request.method() == Method::POST {
-            return kill_all_agent_claude_processes(request).await;
-        }
-        if let Some(pane_id) = route_parameter(&path, "/api/chat-queues/") {
-            if request.method() == Method::GET {
-                return get_chat_queue(&state, request, &pane_id).await;
-            }
-            if request.method() == Method::PATCH {
-                return patch_chat_queue(&state, request, &pane_id).await;
-            }
-            if request.method() == Method::PUT {
-                return put_chat_queue(&state, request, &pane_id).await;
-            }
-            if request.method() == Method::DELETE {
-                return delete_chat_queue(&state, request, &pane_id).await;
-            }
-        }
-        if path == "/api/agent/agent-sessions" && request.method() == Method::GET {
-            let headers = request.headers().clone();
-            let sessions = state.chat_runtime.list_sessions().await;
-            return json_response(StatusCode::OK, json!({ "sessions": sessions }), &headers);
-        }
-        if path == "/api/goals" && request.method() == Method::GET {
-            let headers = request.headers().clone();
-            let goals = state.chat_runtime.list_goals().await;
-            return json_response(StatusCode::OK, json!({ "goals": goals }), &headers);
-        }
-        if path == "/api/restart" && request.method() == Method::POST {
-            let headers = request.headers().clone();
-            for session in state.chat_runtime.list_sessions().await {
-                let _ = state.native_chat_service.destroy(&session.pane_id).await;
-            }
-            state.pid_tracker.flush().await;
-            let _ = state.connection_reset.send(());
-            return json_response(
-                StatusCode::OK,
-                json!({ "ok": true, "message": "Restarting services..." }),
-                &headers,
-            );
-        }
-        if let Some(pane_id) = route_parameter(&path, "/api/checkpoints/")
-            && request.method() == Method::GET
-        {
-            return list_checkpoints(&state, request, &pane_id).await;
-        }
-        if let Some((pane_id, checkpoint_id)) = checkpoint_revert_parameters(&path)
-            && request.method() == Method::POST
-        {
-            return revert_checkpoint(&state, request, &pane_id, &checkpoint_id).await;
-        }
-        if let Some(checkpoint_id) = route_parameter(&path, "/api/checkpoints/detail/")
-            && request.method() == Method::GET
-        {
-            return checkpoint_detail(&state, request, &checkpoint_id).await;
-        }
-        if path == "/api/files/search" && request.method() == Method::GET {
-            return search_files(&state, request).await;
-        }
-        if path == "/api/files/list" && request.method() == Method::GET {
-            return list_project_files(&state, request).await;
-        }
-        if path == "/api/files/map" && request.method() == Method::GET {
-            return project_file_map(&state, request).await;
-        }
-        if path == "/api/files/content" && request.method() == Method::GET {
-            return get_file_content(&state, request).await;
-        }
-        if path == "/api/upload-temp" && request.method() == Method::POST {
-            return upload_temp_file(&state, request).await;
-        }
-        if path == "/api/images/chat-message" && request.method() == Method::POST {
-            let headers = request.headers().clone();
-            #[derive(Deserialize)]
-            #[serde(rename_all = "camelCase")]
-            struct ImageSelection {
-                paths: Vec<String>,
-                pane_id: Option<String>,
-                request_id: Option<String>,
-            }
-            let selection: ImageSelection = match request_json(request, &headers).await {
-                Ok(selection) => selection,
-                Err(response) => return response,
-            };
-            return match state
-                .native_files
-                .prepare_chat_message(&selection.paths)
-                .await
-            {
-                Ok(text) => {
-                    if let Some(pane_id) = selection.pane_id {
-                        let Some(request_id) = selection.request_id else {
-                            return json_response(
-                                StatusCode::BAD_REQUEST,
-                                json!({"error":"Expected requestId"}),
-                                &headers,
-                            );
-                        };
-                        match receive_image_handoff(&state, &pane_id, &request_id, text).await {
-                            Ok(receipt) => json_response(
-                                StatusCode::OK,
-                                json!({"requestId":receipt["requestId"],"status":receipt["status"]}),
-                                &headers,
-                            ),
-                            Err(error) => json_response(
-                                StatusCode::BAD_REQUEST,
-                                json!({"error":error}),
-                                &headers,
-                            ),
-                        }
-                    } else {
-                        json_response(StatusCode::OK, json!({"text":text}), &headers)
-                    }
-                }
-                Err(error) => json_response(
-                    StatusCode::BAD_REQUEST,
-                    json!({"error":error.to_string()}),
-                    &headers,
-                ),
-            };
-        }
-        if path == "/api/images" && request.method() == Method::GET {
-            return list_temp_images(&state, request).await;
-        }
-        if path == "/api/delete-temp" && request.method() == Method::DELETE {
-            return delete_temp_file(&state, request).await;
-        }
-        if path == "/api/file" && request.method() == Method::GET {
-            return serve_local_image(&state, request).await;
-        }
-        if path == "/api/git/status" && request.method() == Method::GET {
-            return git_status(&state, request).await;
-        }
-        if path == "/api/git/statuses" && request.method() == Method::POST {
-            return git_statuses(&state, request).await;
-        }
-        if path == "/api/git/graph" && request.method() == Method::GET {
-            return git_graph(&state, request).await;
-        }
-        if path == "/api/git/branches" {
-            if request.method() == Method::GET {
-                return git_branches(&state, request).await;
-            }
-            if request.method() == Method::POST {
-                return git_checkout_branch(&state, request).await;
-            }
-        }
-        if path == "/api/git/ref-operation" && request.method() == Method::POST {
-            return git_ref_operation(&state, request).await;
-        }
-        if path == "/api/git/ref-operation-preflight" && request.method() == Method::POST {
-            return git_ref_operation_preflight(&state, request).await;
-        }
-        if path == "/api/git/graph-action" && request.method() == Method::POST {
-            return git_graph_action(&state, request).await;
-        }
-        if path == "/api/git/log" && request.method() == Method::GET {
-            return git_log(&state, request).await;
-        }
-        if path == "/api/git/blame" && request.method() == Method::GET {
-            return git_blame(&state, request).await;
-        }
-        if path == "/api/git/file-history" && request.method() == Method::GET {
-            return git_file_history(&state, request).await;
-        }
-        if path == "/api/git/commit-details" && request.method() == Method::GET {
-            return git_commit_details(&state, request).await;
-        }
-        if path == "/api/git/commit-diff" && request.method() == Method::GET {
-            return git_commit_diff(&state, request).await;
-        }
-        if path == "/api/git/comparison-details"
-            && matches!(*request.method(), Method::GET | Method::POST)
-        {
-            return git_comparison_details(&state, request).await;
-        }
-        if path == "/api/git/comparison-diff" && request.method() == Method::GET {
-            return git_comparison_diff(&state, request).await;
-        }
-        if path == "/api/git/stage" && request.method() == Method::POST {
-            return git_stage(&state, request).await;
-        }
-        if path == "/api/git/unstage" && request.method() == Method::POST {
-            return git_unstage(&state, request).await;
-        }
-        if path == "/api/git/commit" && request.method() == Method::POST {
-            return git_commit(&state, request).await;
-        }
-        if path == "/api/git/diff" && request.method() == Method::GET {
-            return git_diff(&state, request).await;
-        }
-        if path == "/api/git/full-diff" && request.method() == Method::GET {
-            return git_full_diff(&state, request).await;
-        }
-        if path == "/api/git/file-with-diff" && request.method() == Method::GET {
-            return git_file_with_diff(&state, request).await;
-        }
-        if path == "/api/git/watch" && request.method() == Method::POST {
-            return git_watch(&state, request, true).await;
-        }
-        if path == "/api/git/unwatch" && request.method() == Method::POST {
-            return git_watch(&state, request, false).await;
-        }
-        return text_response(StatusCode::NOT_FOUND, "Not found");
-    }
 
+            ("/api/agents/account-status", "GET") => agent_account::account_status(&state).await,
+            ("/api/workspace/panels", "POST") => workspace_panels::handle(&state, request).await,
+
+            ("/api/files/search", "GET") => search_files(&state, request).await,
+            ("/api/files/list", "GET") => list_project_files(&state, request).await,
+            ("/api/files/content", "GET") => get_file_content(&state, request).await,
+            ("/api/upload-temp", "POST") => upload_temp_file(&state, request).await,
+            ("/api/images/chat-message", "POST") => {
+                prepare_image_chat_message(&state, request).await
+            }
+
+            ("/api/images", "GET") => list_temp_images(&state, request).await,
+            ("/api/delete-temp", "DELETE") => delete_temp_file(&state, request).await,
+            ("/api/file", "GET") => {
+                return api_http_response(
+                    serve_local_image(&state, request).await,
+                    &request_headers,
+                );
+            }
+            ("/api/git/graph", "GET") => {
+                return api_http_response(git_graph(&state, request).await, &request_headers);
+            }
+            ("/api/git/commit-diff", "GET") => {
+                return api_http_response(git_commit_diff(&state, request).await, &request_headers);
+            }
+            ("/api/git/comparison-diff", "GET") => {
+                return api_http_response(
+                    git_comparison_diff(&state, request).await,
+                    &request_headers,
+                );
+            }
+            ("/api/git/full-diff", "GET") => {
+                return api_http_response(git_full_diff(&state, request).await, &request_headers);
+            }
+            ("/api/generate-title", "POST") => {
+                one_shot::generate_title_route(&state, request).await
+            }
+            ("/api/git/generate-commit-message", "POST") => {
+                one_shot::generate_commit_message_route(&state, request).await
+            }
+            ("/api/app-info", "GET") => Ok(json!(native_app::load_app_info(&state).await)),
+            ("/api/native/update", "POST") => return native_app::update_route(&request_headers),
+            _ => dynamic_json_route(&state, &path, request).await,
+        };
+        return api_response(result, &request_headers);
+    }
     if let Some(filename) = public_asset(&path) {
         return serve_file(
             &state.public_dir.join(filename),
@@ -886,20 +593,35 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
         )
         .await;
     }
-
     if request.method() != Method::GET && request.method() != Method::HEAD {
         return text_response(StatusCode::NOT_FOUND, "Not found");
     }
-
     if let Some(response) = serve_dist_path(&state, &path, &request_headers, head_only).await {
         return response;
     }
-
     if !path.starts_with("/api/") {
         return serve_renderer_index(&state, &request_headers, head_only).await;
     }
-
     text_response(StatusCode::NOT_FOUND, "Not found")
+}
+async fn dynamic_json_route(state: &ServerState, path: &str, request: Request) -> ApiResult {
+    if let Some((id, usage)) = prompt_path(path) {
+        return match (request.method().as_str(), usage) {
+            ("POST", true) => increment_prompt_usage(state, request, id).await,
+            ("PUT", false) => update_prompt(state, request, id).await,
+            ("DELETE", false) => delete_prompt(state, request, id).await,
+            _ => Err(api_error(StatusCode::NOT_FOUND, "Not found")),
+        };
+    }
+    if let Some(pane_id) = route_parameter(path, "/api/chat-queues/") {
+        return match request.method().as_str() {
+            "GET" => get_chat_queue(state, request, &pane_id).await,
+            "PATCH" => patch_chat_queue(state, request, &pane_id).await,
+            "DELETE" => delete_chat_queue(state, request, &pane_id).await,
+            _ => Err(api_error(StatusCode::NOT_FOUND, "Not found")),
+        };
+    }
+    Err(api_error(StatusCode::NOT_FOUND, "Not found"))
 }
 
 fn route_parameter(path: &str, prefix: &str) -> Option<String> {
@@ -913,170 +635,60 @@ fn route_parameter(path: &str, prefix: &str) -> Option<String> {
         .map(|value| value.into_owned())
 }
 
-fn checkpoint_revert_parameters(path: &str) -> Option<(String, String)> {
-    let suffix = path.strip_prefix("/api/checkpoints/revert/")?;
-    let mut parameters = suffix.split('/');
-    let pane_id = parameters.next()?;
-    let checkpoint_id = parameters.next()?;
-    if pane_id.is_empty() || checkpoint_id.is_empty() || parameters.next().is_some() {
-        return None;
-    }
-    let pane_id = percent_decode_str(pane_id).decode_utf8().ok()?.into_owned();
-    let checkpoint_id = percent_decode_str(checkpoint_id)
-        .decode_utf8()
-        .ok()?
-        .into_owned();
-    Some((pane_id, checkpoint_id))
+async fn get_chat_queue(state: &ServerState, _request: Request, pane_id: &str) -> ApiResult {
+    Ok(json!({"queue": state.chat_persistence.read_queue(pane_id).await?}))
 }
 
-async fn get_chat_queue(state: &ServerState, request: Request, pane_id: &str) -> Response {
-    let headers = request.headers().clone();
-    match state.chat_persistence.read_queue(pane_id).await {
-        Ok(queue) => json_response(StatusCode::OK, json!({ "queue": queue }), &headers),
-        Err(error) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error }),
-            &headers,
-        ),
-    }
-}
-
-async fn patch_chat_queue(state: &ServerState, request: Request, pane_id: &str) -> Response {
-    let headers = request.headers().clone();
-    let body: Value = match request_json(request, &headers).await {
-        Ok(body) => body,
-        Err(response) => return response,
-    };
-    let Some(id) = body
-        .get("id")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-    else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({"error":"Expected queued message ID"}),
-            &headers,
-        );
-    };
-    let text = match body.get("action").and_then(Value::as_str) {
+async fn patch_chat_queue(state: &ServerState, request: Request, pane_id: &str) -> ApiResult {
+    let body: Value = api_body(request).await?;
+    let id = required(
+        body["id"].as_str().filter(|id| !id.is_empty()),
+        "Expected queued message ID",
+    )?;
+    let text = match body["action"].as_str() {
         Some("remove") => None,
-        Some("edit") => match body
-            .get("text")
-            .and_then(Value::as_str)
-            .filter(|text| !text.trim().is_empty())
-        {
-            Some(text) => Some(text),
-            None => {
-                return json_response(
-                    StatusCode::BAD_REQUEST,
-                    json!({"error":"Expected nonempty message text"}),
-                    &headers,
-                );
-            }
-        },
-        _ => {
-            return json_response(
-                StatusCode::BAD_REQUEST,
-                json!({"error":"Unknown queue action"}),
-                &headers,
-            );
-        }
+        Some("edit") => Some(required(
+            body["text"].as_str().filter(|text| !text.trim().is_empty()),
+            "Expected nonempty message text",
+        )?),
+        _ => return Err(api_error(StatusCode::BAD_REQUEST, "Unknown queue action")),
     };
-    match state
+    let queue = state
         .chat_persistence
         .mutate_queue_item(pane_id, id, text)
+        .await?;
+    state.chat_runtime.broadcast_queue(pane_id).await;
+    Ok(json!({"queue":queue}))
+}
+
+async fn delete_chat_queue(state: &ServerState, _request: Request, pane_id: &str) -> ApiResult {
+    state.chat_persistence.delete_queue(pane_id).await?;
+    state.chat_runtime.broadcast_queue(pane_id).await;
+    Ok(json!({"ok":true}))
+}
+
+async fn prepare_image_chat_message(state: &ServerState, request: Request) -> ApiResult {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ImageSelection {
+        paths: Vec<String>,
+        pane_id: Option<String>,
+        request_id: Option<String>,
+    }
+    let selection: ImageSelection = api_body(request).await?;
+    let text = state
+        .native_files
+        .prepare_chat_message(&selection.paths)
         .await
-    {
-        Ok(queue) => {
-            state.chat_runtime.broadcast_queue(pane_id).await;
-            json_response(StatusCode::OK, json!({"queue":queue}), &headers)
-        }
-        Err(error) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({"error":error}),
-            &headers,
-        ),
-    }
-}
-
-async fn put_chat_queue(state: &ServerState, request: Request, pane_id: &str) -> Response {
-    let headers = request.headers().clone();
-    let body: Value = match request_json(request, &headers).await {
-        Ok(body) => body,
-        Err(response) => return response,
-    };
-    let Some(queue) = body.get("queue").and_then(Value::as_array) else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Expected queue array" }),
-            &headers,
-        );
-    };
-    match state.chat_persistence.save_queue(pane_id, queue).await {
-        Ok(()) => {
-            state.chat_runtime.broadcast_queue(pane_id).await;
-            json_response(StatusCode::OK, json!({ "ok": true }), &headers)
-        }
-        Err(error) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error }),
-            &headers,
-        ),
-    }
-}
-
-async fn delete_chat_queue(state: &ServerState, request: Request, pane_id: &str) -> Response {
-    let headers = request.headers().clone();
-    match state.chat_persistence.delete_queue(pane_id).await {
-        Ok(()) => {
-            state.chat_runtime.broadcast_queue(pane_id).await;
-            json_response(StatusCode::OK, json!({ "ok": true }), &headers)
-        }
-        Err(error) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error }),
-            &headers,
-        ),
-    }
-}
-
-async fn list_checkpoints(state: &ServerState, request: Request, pane_id: &str) -> Response {
-    let headers = request.headers().clone();
-    let checkpoints = state.checkpoint_service.list_checkpoints(pane_id).await;
-    json_response(
-        StatusCode::OK,
-        json!({ "checkpoints": checkpoints }),
-        &headers,
-    )
-}
-
-async fn revert_checkpoint(
-    state: &ServerState,
-    request: Request,
-    pane_id: &str,
-    checkpoint_id: &str,
-) -> Response {
-    let headers = request.headers().clone();
-    let result = state
-        .checkpoint_service
-        .revert_to_checkpoint(checkpoint_id, pane_id)
-        .await;
-    json_response(StatusCode::OK, json!(result), &headers)
-}
-
-async fn checkpoint_detail(state: &ServerState, request: Request, checkpoint_id: &str) -> Response {
-    let headers = request.headers().clone();
-    match state
-        .checkpoint_service
-        .get_checkpoint_meta(checkpoint_id)
-        .await
-    {
-        Some(checkpoint) => json_response(StatusCode::OK, json!(checkpoint), &headers),
-        None => json_response(
-            StatusCode::NOT_FOUND,
-            json!({ "error": "Not found" }),
-            &headers,
-        ),
+        .map_err(|error| api_error(StatusCode::BAD_REQUEST, error))?;
+    if let Some(pane_id) = selection.pane_id {
+        let request_id = required(selection.request_id, "Expected requestId")?;
+        let receipt = receive_image_handoff(state, &pane_id, &request_id, text)
+            .await
+            .map_err(|error| api_error(StatusCode::BAD_REQUEST, error))?;
+        Ok(json!({"requestId":receipt["requestId"], "status":receipt["status"]}))
+    } else {
+        Ok(json!({"text":text}))
     }
 }
 
@@ -1102,22 +714,16 @@ async fn receive_image_handoff(
         }
         return Ok(receipt);
     }
-    let workspace = state
+    let pane = state
         .agent_state_store
         .lock()
         .map_err(|e| e.to_string())?
-        .read()?;
-    let pane = workspace["groups"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .flat_map(|group| group["panes"].as_array().into_iter().flatten())
-        .find(|pane| pane["id"] == pane_id)
+        .pane(pane_id)?
         .ok_or("Chat pane was not found")?;
-    let kind = pane["agentKind"]
-        .as_str()
-        .filter(|kind| matches!(*kind, "claude" | "codex"))
-        .ok_or("Selected pane does not support chat")?;
+    let kind = pane.agent_kind.as_str();
+    if !matches!(kind, "claude" | "codex") {
+        return Err("Selected pane does not support chat".into());
+    }
     let entries = {
         let _guard = state.client_storage_write.lock().await;
         read_client_storage(&state.client_storage_path).await?
@@ -1130,683 +736,307 @@ async fn receive_image_handoff(
     let config = inferay_core::provider_config::resolve(
         &json!({"agentKind":kind,"model":entries.get(&format!("inferay-chat-model-{pane_id}")),"reasoningLevel":entries.get(&format!("inferay-chat-reasoning-{pane_id}")),"defaults":defaults}),
     );
-    let request = json!({"text":text,"agentKind":kind,"cwd":normalize_chat_cwd(state, pane.get("cwd")),"referencePaths":normalize_chat_paths(state,pane.get("referencePaths")),"model":config["model"],"reasoningLevel":config["reasoningLevel"]});
+    let request = json!({"text":text,"agentKind":kind,"cwd":normalize_chat_cwd(state, pane.cwd.as_deref().map(Path::new)),"referencePaths":normalize_chat_paths(state, &pane.reference_paths),"model":config["model"],"reasoningLevel":config["reasoningLevel"]});
     state
         .chat_persistence
         .receive_handoff(pane_id, request_id, request)
         .await
 }
 
-async fn migrate_legacy_image_handoff(state: &ServerState, pane_id: &str) {
-    let key = format!("inferay-chat-pending-send-{pane_id}");
-    let text = {
-        let _guard = state.client_storage_write.lock().await;
-        let entries = read_json_object(&state.client_storage_path).await;
-        entries
-            .get(&key)
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .or_else(|| {
-                if entries.contains_key("inferay.preferences-migrated-v1") {
-                    return None;
-                }
-                entries
-                    .get("inferay-db-preferences")
-                    .and_then(Value::as_str)
-                    .and_then(|value| serde_json::from_str::<Vec<Value>>(value).ok())
-                    .and_then(|rows| rows.into_iter().find(|row| row["id"] == key))
-                    .and_then(|row| {
-                        row["valueJson"]
-                            .as_str()
-                            .and_then(|value| serde_json::from_str::<String>(value).ok())
-                    })
-            })
-    };
-    if let Some(text) = text.filter(|text| !text.trim().is_empty()) {
-        // Stable legacy ID prevents repeated imports; retain the original disk value as a migration reader.
-        if let Err(error) = receive_image_handoff(
-            state,
-            pane_id,
-            &format!("{}:{pane_id}:legacy", pane_id.len()),
-            text,
-        )
-        .await
-        {
-            eprintln!("Could not import legacy image chat handoff for {pane_id}: {error}");
-        }
+async fn default_chat_kind(state: &ServerState) -> &'static str {
+    let _guard = state.client_storage_write.lock().await;
+    let entries = read_json_object(&state.client_storage_path).await;
+    let defaults = entries
+        .get("inferay-default-chat-settings")
+        .and_then(Value::as_str)
+        .and_then(|value| serde_json::from_str::<Value>(value).ok())
+        .unwrap_or(Value::Null);
+    if defaults["agentKind"] == "claude" {
+        "claude"
+    } else {
+        "codex"
     }
 }
 
-async fn initialize_agent_state(state: &ServerState, request: Request) -> Response {
-    let headers = request.headers().clone();
-    let body: Value = match request_json(request, &headers).await {
-        Ok(body) => body,
-        Err(response) => return response,
-    };
-    let defaults = state
-        .native_chat_handoff
-        .workspace_action_with_defaults(json!({"type":"ensureChatPane"}))
-        .await;
-    let kind = defaults["defaultAgentKind"].as_str().unwrap_or("codex");
-    match state
-        .agent_state_store
-        .lock()
-        .expect("agent state lock poisoned")
-        .initialize(body.get("legacy").unwrap_or(&Value::Null), kind)
-    {
-        Ok(value) => json_response(StatusCode::OK, json!({"state":value}), &headers),
-        Err(error) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({"error":error}),
-            &headers,
-        ),
-    }
-}
-
-async fn get_agent_state(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
+async fn initialize_agent_state(state: &ServerState, _request: Request) -> ApiResult {
+    let kind = default_chat_kind(state).await;
     let value = state
         .agent_state_store
         .lock()
         .expect("agent state lock poisoned")
-        .read();
-    match value {
-        Ok(value) => json_response(StatusCode::OK, value, &request_headers),
-        Err(error) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({"error":error}),
-            &request_headers,
-        ),
-    }
+        .initialize(kind)?;
+    Ok(json!({"state":value}))
 }
 
-async fn update_agent_state(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let body: serde_json::Value = match request_json(request, &request_headers).await {
-        Ok(body) => body,
-        Err(response) => return response,
-    };
-    match state
+async fn get_agent_state(state: &ServerState, _request: Request) -> ApiResult {
+    state
         .agent_state_store
         .lock()
         .expect("agent state lock poisoned")
-        .write_guarded(body)
-    {
-        Ok(_) => json_response(StatusCode::OK, json!({ "ok": true }), &request_headers),
-        Err(error) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error }),
-            &request_headers,
-        ),
-    }
+        .read()
+        .map_err(Into::into)
 }
 
-async fn apply_agent_workspace_action(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let body: serde_json::Value = match request_json(request, &request_headers).await {
-        Ok(body) => body,
-        Err(response) => return response,
-    };
-    let action = state
-        .native_chat_handoff
-        .workspace_action_with_defaults(body.get("action").cloned().unwrap_or(Value::Null))
-        .await;
-    match state
+async fn apply_agent_workspace_action(state: &ServerState, request: Request) -> ApiResult {
+    let body: serde_json::Value = api_body(request).await?;
+    let mut action = body.get("action").cloned().unwrap_or(Value::Null);
+    if let Some(object) = action.as_object_mut() {
+        object
+            .entry("defaultAgentKind")
+            .or_insert(json!(default_chat_kind(state).await));
+    }
+    ((state
         .agent_state_store
         .lock()
         .expect("agent state lock poisoned")
-        .apply_workspace_action(&action)
-    {
-        Ok(value) => json_response(StatusCode::OK, json!({ "state": value }), &request_headers),
-        Err(error) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error }),
-            &request_headers,
-        ),
-    }
+        .apply_workspace_action(&action))
+    .map(|value| json!({ "state": value })))
+    .map(|value| json!(value))
+    .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error))
 }
 
-async fn get_agent_directories(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
+async fn get_agent_directories(state: &ServerState, request: Request) -> ApiResult {
     let query = query_value(&request, "q").unwrap_or_default();
     let requested_path = query_value(&request, "path");
 
     if let Some(path) = requested_path.filter(|path| !path.is_empty()) {
-        return match state.native_directories.browse(path) {
-            Ok(listing) => json_response(StatusCode::OK, json!(listing), &request_headers),
-            Err(error) => json_response(
-                StatusCode::FORBIDDEN,
-                json!({ "error": error.to_string() }),
-                &request_headers,
-            ),
-        };
+        return (state.native_directories.browse(path))
+            .map(|value| json!(value))
+            .map_err(|error| api_error(StatusCode::FORBIDDEN, error));
     }
 
     if !query.is_empty() {
         let listing = state.native_directories.search(&query).await;
-        return json_response(StatusCode::OK, json!(listing), &request_headers);
+        return Ok(json!(listing));
     }
 
     if query_value(&request, "quickPicks").as_deref() == Some("true") {
         let quick_picks = state.native_directories.quick_picks().await;
-        return json_response(StatusCode::OK, json!(quick_picks), &request_headers);
+        return Ok(json!(quick_picks));
     }
 
-    json_response(
-        StatusCode::OK,
-        json!(state.native_directories.home()),
-        &request_headers,
-    )
+    Ok(json!(state.native_directories.home()))
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
-struct RunningPort {
-    port: u16,
-    pid: i64,
-    command: String,
-    name: String,
-}
+#[derive(Debug)]
+struct ApiError(StatusCode, String);
+type ApiResult<T = Value> = Result<T, ApiError>;
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
-struct ClaudeProcess {
-    pid: i64,
-    ppid: i64,
-    cpu: f64,
-    mem: f64,
-    rss: i64,
-    cwd: String,
-    command: String,
-    elapsed: String,
+fn api_error(status: StatusCode, message: impl ToString) -> ApiError {
+    ApiError(status, message.to_string())
 }
-
-async fn get_agent_ports(request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let ports = running_ports().await;
-    json_response(StatusCode::OK, json!({ "ports": ports }), &request_headers)
-}
-
-async fn kill_agent_port(request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let pid = match request_pid(request, &request_headers).await {
-        Ok(pid) => pid,
-        Err(response) => return response,
-    };
-    if !running_ports().await.iter().any(|port| port.pid == pid) {
-        return json_response(
-            StatusCode::FORBIDDEN,
-            json!({ "error": "PID is not a listed port" }),
-            &request_headers,
-        );
-    }
-    match kill_port_process(pid).await {
-        Ok(()) => json_response(StatusCode::OK, json!({ "ok": true }), &request_headers),
-        Err(error) => json_response(
-            StatusCode::OK,
-            json!({ "ok": false, "error": error }),
-            &request_headers,
-        ),
+impl From<tokio::task::JoinError> for ApiError {
+    fn from(error: tokio::task::JoinError) -> Self {
+        api_error(StatusCode::INTERNAL_SERVER_ERROR, error)
     }
 }
-
-async fn get_agent_claude_processes(request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let processes = claude_processes().await;
-    json_response(
-        StatusCode::OK,
-        json!({ "processes": processes }),
-        &request_headers,
-    )
+fn api_response(result: ApiResult, headers: &HeaderMap) -> Response {
+    match result {
+        Ok(value) => json_response(StatusCode::OK, value, headers),
+        Err(ApiError(status, message)) => json_response(status, json!({"error":message}), headers),
+    }
 }
-
-async fn kill_agent_claude_process(request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let pid = match request_pid(request, &request_headers).await {
-        Ok(pid) => pid,
-        Err(response) => return response,
-    };
-    if !claude_processes()
+fn api_http_response(result: ApiResult<Response>, headers: &HeaderMap) -> Response {
+    result.unwrap_or_else(|error| api_response(Err(error), headers))
+}
+impl From<native_files::NativeFilesError> for ApiError {
+    fn from(error: native_files::NativeFilesError) -> Self {
+        use native_files::NativeFilesError::*;
+        let status = match error {
+            AccessDenied => StatusCode::FORBIDDEN,
+            FileTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+            UnsupportedFileType => StatusCode::BAD_REQUEST,
+            Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        api_error(status, error)
+    }
+}
+impl From<native_project_files::NativeProjectFilesError> for ApiError {
+    fn from(error: native_project_files::NativeProjectFilesError) -> Self {
+        use native_project_files::NativeProjectFilesError::*;
+        let status = match error {
+            AccessDenied => StatusCode::FORBIDDEN,
+            NotFound => StatusCode::NOT_FOUND,
+            FileTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+            Runtime(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            _ => StatusCode::BAD_REQUEST,
+        };
+        api_error(status, error)
+    }
+}
+impl From<std::io::Error> for ApiError {
+    fn from(error: std::io::Error) -> Self {
+        api_error(StatusCode::INTERNAL_SERVER_ERROR, error)
+    }
+}
+impl From<String> for ApiError {
+    fn from(error: String) -> Self {
+        api_error(StatusCode::INTERNAL_SERVER_ERROR, error)
+    }
+}
+impl From<PromptError> for ApiError {
+    fn from(error: PromptError) -> Self {
+        api_error(
+            StatusCode::from_u16(error.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+            error.message,
+        )
+    }
+}
+async fn api_body<T: for<'de> Deserialize<'de>>(request: Request) -> Result<T, ApiError> {
+    let bytes = to_bytes(request.into_body(), MAX_PROXY_BODY_BYTES)
         .await
-        .iter()
-        .any(|process| process.pid == pid)
-    {
-        return json_response(
+        .map_err(|_| api_error(StatusCode::PAYLOAD_TOO_LARGE, "Payload too large"))?;
+    serde_json::from_slice(&bytes).map_err(|e| api_error(StatusCode::BAD_REQUEST, e))
+}
+fn required<T>(value: Option<T>, message: &str) -> Result<T, ApiError> {
+    value.ok_or_else(|| api_error(StatusCode::BAD_REQUEST, message))
+}
+fn request_cwd(state: &ServerState, value: Option<&str>) -> Result<String, ApiError> {
+    let cwd = required(value.filter(|cwd| !cwd.is_empty()), "Missing cwd parameter")?;
+    safe_cwd(state, cwd).ok_or_else(|| {
+        api_error(
             StatusCode::FORBIDDEN,
-            json!({ "error": "PID is not a listed Claude process" }),
-            &request_headers,
-        );
-    }
-    match kill_claude_process_tree(pid).await {
-        Ok(()) => json_response(StatusCode::OK, json!({ "ok": true }), &request_headers),
-        Err(error) => json_response(
-            StatusCode::OK,
-            json!({ "ok": false, "error": error }),
-            &request_headers,
-        ),
-    }
-}
-
-async fn kill_all_agent_claude_processes(request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    kill_all_claude_processes().await;
-    json_response(
-        StatusCode::OK,
-        json!({ "ok": true, "killed": 0 }),
-        &request_headers,
-    )
-}
-
-async fn request_pid(request: Request, request_headers: &HeaderMap) -> Result<i64, Response> {
-    let body: Value = request_json(request, request_headers).await?;
-    let Some(pid) = body.get("pid").and_then(json_safe_positive_integer) else {
-        return Err(json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Invalid pid" }),
-            request_headers,
-        ));
-    };
-    Ok(pid)
-}
-
-fn json_safe_positive_integer(value: &Value) -> Option<i64> {
-    const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
-    let value = value.as_f64()?;
-    (value.is_finite()
-        && value.fract() == 0.0
-        && value > 0.0
-        && value <= MAX_SAFE_INTEGER
-        && value <= i64::MAX as f64)
-        .then_some(value as i64)
-}
-
-async fn running_ports() -> Vec<RunningPort> {
-    #[cfg(target_os = "windows")]
-    {
-        let output = tokio::process::Command::new("netstat")
-            .arg("-ano")
-            .output()
-            .await;
-        return output
-            .ok()
-            .map(|output| parse_windows_running_ports(&String::from_utf8_lossy(&output.stdout)))
-            .unwrap_or_default();
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let output = tokio::process::Command::new("/usr/sbin/lsof")
-            .args(["-i", "-P", "-n", "-sTCP:LISTEN"])
-            .output()
-            .await;
-        output
-            .ok()
-            .map(|output| parse_unix_running_ports(&String::from_utf8_lossy(&output.stdout)))
-            .unwrap_or_default()
-    }
-}
-
-fn is_dev_port(port: u16) -> bool {
-    (3000..=4000).contains(&port)
-}
-
-fn parse_unix_running_ports(output: &str) -> Vec<RunningPort> {
-    const DEV_COMMANDS: &[&str] = &[
-        "node", "bun", "deno", "ruby", "rails", "go", "cargo", "java", "gradle", "php", "artisan",
-        "nginx", "caddy",
-    ];
-    const EXCLUDED_COMMANDS: &[&str] = &[
-        "rapportd",
-        "airportd",
-        "configd",
-        "mDNSResponder",
-        "ControlCe",
-        "ControlCenter",
-    ];
-    let mut ports = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for line in output.trim().lines().skip(1) {
-        let parts = line.split_whitespace().collect::<Vec<_>>();
-        if parts.len() < 9 {
-            continue;
-        }
-        let command = parts[0];
-        let Ok(pid) = parts[1].parse::<i64>() else {
-            continue;
-        };
-        let Some(port) = final_port(parts[8]) else {
-            continue;
-        };
-        if seen.contains(&port) || EXCLUDED_COMMANDS.contains(&command) {
-            continue;
-        }
-        if !is_dev_port(port) && !DEV_COMMANDS.contains(&command) {
-            continue;
-        }
-        seen.insert(port);
-        let name = match command {
-            "node" => "node server",
-            "bun" => "bun server",
-            "ruby" => "Ruby server",
-            "nginx" => "nginx",
-            _ => command,
-        };
-        ports.push(RunningPort {
-            port,
-            pid,
-            command: command.into(),
-            name: name.into(),
-        });
-    }
-    ports.sort_by_key(|port| port.port);
-    ports
-}
-
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-fn parse_windows_running_ports(output: &str) -> Vec<RunningPort> {
-    let mut ports = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for line in output.trim().lines() {
-        if !line.contains("LISTENING") {
-            continue;
-        }
-        let parts = line.split_whitespace().collect::<Vec<_>>();
-        if parts.len() < 5 {
-            continue;
-        }
-        let Some(port) = final_port(parts[1]) else {
-            continue;
-        };
-        let Ok(pid) = parts[4].parse::<i64>() else {
-            continue;
-        };
-        if !is_dev_port(port) || !seen.insert(port) {
-            continue;
-        }
-        ports.push(RunningPort {
-            port,
-            pid,
-            command: "unknown".into(),
-            name: format!("port {port}"),
-        });
-    }
-    ports.sort_by_key(|port| port.port);
-    ports
-}
-
-fn final_port(value: &str) -> Option<u16> {
-    value.rsplit_once(':')?.1.parse().ok()
-}
-
-async fn kill_port_process(pid: i64) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    let output = tokio::process::Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/F"])
-        .output()
-        .await;
-
-    #[cfg(not(target_os = "windows"))]
-    let output = tokio::process::Command::new("kill")
-        .args(["-9", &pid.to_string()])
-        .output()
-        .await;
-
-    command_succeeded(output)
-}
-
-async fn claude_processes() -> Vec<ClaudeProcess> {
-    #[cfg(target_os = "windows")]
-    {
-        Vec::new()
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let Ok(output) = tokio::process::Command::new("ps")
-            .args(["-eo", "pid,ppid,pcpu,pmem,rss,etime,comm,args"])
-            .output()
-            .await
-        else {
-            return Vec::new();
-        };
-        let mut processes = parse_claude_processes(
-            &String::from_utf8_lossy(&output.stdout),
-            std::process::id() as i64,
-        );
-        for process in &mut processes {
-            process.cwd = process_cwd(process.pid).await;
-        }
-        aggregate_claude_processes(processes)
-    }
-}
-
-fn parse_claude_processes(output: &str, own_pid: i64) -> Vec<ClaudeProcess> {
-    let mut processes = Vec::new();
-    for line in output.trim().lines().skip(1) {
-        let parts = line.split_whitespace().collect::<Vec<_>>();
-        if parts.len() < 8 || parts[6] != "claude" {
-            continue;
-        }
-        let Ok(pid) = parts[0].parse::<i64>() else {
-            continue;
-        };
-        if pid == own_pid {
-            continue;
-        }
-        processes.push(ClaudeProcess {
-            pid,
-            ppid: parts[1].parse().unwrap_or(0),
-            cpu: parts[2].parse().unwrap_or(0.0),
-            mem: parts[3].parse().unwrap_or(0.0),
-            rss: parts[4].parse().unwrap_or(0),
-            cwd: String::new(),
-            command: parts[7..].join(" "),
-            elapsed: parts[5].into(),
-        });
-    }
-    processes
-}
-
-fn aggregate_claude_processes(processes: Vec<ClaudeProcess>) -> Vec<ClaudeProcess> {
-    let claude_pids = processes
-        .iter()
-        .map(|process| process.pid)
-        .collect::<std::collections::HashSet<_>>();
-    processes
-        .iter()
-        .filter(|parent| !claude_pids.contains(&parent.ppid))
-        .map(|parent| {
-            let children = processes
-                .iter()
-                .filter(|process| process.ppid == parent.pid);
-            let mut aggregated = parent.clone();
-            for child in children {
-                aggregated.cpu += child.cpu;
-                aggregated.mem += child.mem;
-                aggregated.rss += child.rss;
-            }
-            aggregated.cpu = (aggregated.cpu * 10.0).round() / 10.0;
-            aggregated.mem = (aggregated.mem * 10.0).round() / 10.0;
-            aggregated
-        })
-        .collect()
-}
-
-async fn process_cwd(pid: i64) -> String {
-    let output = tokio::process::Command::new("/usr/sbin/lsof")
-        .args(["-p", &pid.to_string(), "-Fn"])
-        .output()
-        .await;
-    output
-        .ok()
-        .and_then(|output| {
-            String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .find_map(|line| line.strip_prefix("n/").map(|path| format!("/{path}")))
-        })
-        .unwrap_or_default()
-}
-
-async fn kill_claude_process_tree(pid: i64) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        return command_succeeded(
-            tokio::process::Command::new("taskkill")
-                .args(["/PID", &pid.to_string(), "/T", "/F"])
-                .output()
-                .await,
-        );
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        tokio::task::spawn_blocking(move || terminate_process_tree(pid))
-            .await
-            .map_err(|error| error.to_string())?;
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        if std::process::Command::new("kill")
-            .args(["-0", &pid.to_string()])
-            .status()
-            .is_ok_and(|status| status.success())
-        {
-            let _ = std::process::Command::new("kill")
-                .args(["-9", &pid.to_string()])
-                .status();
-        }
-        Ok(())
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn terminate_process_tree(pid: i64) {
-    if let Ok(output) = std::process::Command::new("pgrep")
-        .args(["-P", &pid.to_string()])
-        .output()
-    {
-        for child in String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .filter_map(|pid| pid.trim().parse().ok())
-        {
-            terminate_process_tree(child);
-        }
-    }
-    let _ = std::process::Command::new("kill")
-        .args(["-TERM", &pid.to_string()])
-        .status();
-}
-
-async fn kill_all_claude_processes() {
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = tokio::process::Command::new("pkill")
-            .args(["-9", "-f", "^claude"])
-            .output()
-            .await;
-        let _ = tokio::process::Command::new("killall")
-            .args(["-9", "claude"])
-            .output()
-            .await;
-    }
-}
-
-fn command_succeeded(output: std::io::Result<std::process::Output>) -> Result<(), String> {
-    let output = output.map_err(|error| error.to_string())?;
-    if output.status.success() {
-        return Ok(());
-    }
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    Err(if stderr.is_empty() {
-        format!("process exited with {}", output.status)
-    } else {
-        stderr
+            "Access to this repository is not allowed",
+        )
     })
 }
 
-async fn git_status(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let cwd = query_value(&request, "cwd")
-        .as_deref()
-        .and_then(|cwd| safe_cwd(state, cwd));
-    let Some(cwd) = cwd else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing cwd parameter" }),
-            &request_headers,
-        );
-    };
-
-    match tokio::task::spawn_blocking(move || get_git_status(&cwd)).await {
-        Ok(Some(status)) => json_response(StatusCode::OK, json!(status), &request_headers),
-        Ok(None) => json_response(
-            StatusCode::NOT_FOUND,
-            json!({ "error": "Not a git repository" }),
-            &request_headers,
-        ),
-        Err(error) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error.to_string() }),
-            &request_headers,
-        ),
-    }
+async fn git_status(state: &ServerState, request: Request) -> ApiResult {
+    let cwd = request_cwd(state, query_value(&request, "cwd").as_deref())
+        .map_err(|ApiError(_, message)| api_error(StatusCode::BAD_REQUEST, message))?;
+    let status = tokio::task::spawn_blocking(move || get_git_status(&cwd))
+        .await?
+        .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "Not a git repository"))?;
+    Ok(json!(status))
 }
-
-async fn git_statuses(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let bytes = match to_bytes(request.into_body(), MAX_PROXY_BODY_BYTES).await {
-        Ok(bytes) => bytes,
-        Err(_) => {
-            return json_response(
-                StatusCode::PAYLOAD_TOO_LARGE,
-                json!({ "error": "Payload too large" }),
-                &request_headers,
-            );
-        }
-    };
-    let body: GitStatusesBody = match serde_json::from_slice(&bytes) {
-        Ok(body) => body,
-        Err(error) => {
-            return json_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                json!({ "error": error.to_string() }),
-                &request_headers,
-            );
-        }
-    };
-    let mut unique = Vec::new();
-    for cwd in body.cwds.unwrap_or_default() {
-        if let Some(cwd) = safe_cwd(state, &cwd)
-            && !unique.contains(&cwd)
-        {
-            unique.push(cwd);
-        }
-    }
-    let tasks = unique.into_iter().map(|cwd| {
-        tokio::task::spawn_blocking(move || {
-            get_git_status(&cwd).map(|status| git_changes::prepare(json!(status)))
-        })
-    });
-    let statuses = join_all(tasks)
-        .await
+async fn git_statuses(state: &ServerState, request: Request) -> ApiResult {
+    let body: GitStatusesBody = api_body(request).await?;
+    let mut seen = std::collections::HashSet::new();
+    let tasks = body
+        .cwds
+        .unwrap_or_default()
         .into_iter()
-        .filter_map(|result| result.ok().flatten())
-        .collect::<Vec<_>>();
-    json_response(StatusCode::OK, json!(statuses), &request_headers)
+        .filter_map(|cwd| safe_cwd(state, &cwd))
+        .filter(|cwd| seen.insert(cwd.clone()))
+        .map(|cwd| {
+            tokio::task::spawn_blocking(move || {
+                get_git_status(&cwd).map(|status| git_changes::prepare(json!(status)))
+            })
+        });
+    Ok(json!(
+        join_all(tasks)
+            .await
+            .into_iter()
+            .filter_map(|result| result.ok().flatten())
+            .collect::<Vec<_>>()
+    ))
 }
-
-async fn git_graph(state: &ServerState, request: Request) -> Response {
+async fn git_branches(state: &ServerState, request: Request) -> ApiResult {
+    let cwd = request_cwd(state, query_value(&request, "cwd").as_deref())?;
+    Ok(json!({"branches":tokio::task::spawn_blocking(move || get_git_branches(&cwd)).await?}))
+}
+async fn git_checkout_branch(state: &ServerState, request: Request) -> ApiResult {
+    let body: GitBranchBody = api_body(request).await?;
+    let cwd = request_cwd(state, body.cwd.as_deref())?;
+    let branch = required(
+        body.branch.filter(|s| !s.is_empty()),
+        "Missing branch parameter",
+    )?;
+    Ok(json!(
+        tokio::task::spawn_blocking(move || checkout_git_branch(&cwd, &branch)).await?
+    ))
+}
+async fn git_ref_operation(state: &ServerState, request: Request) -> ApiResult {
+    let body: GitRefOperationBody = api_body(request).await?;
+    let cwd = request_cwd(state, body.cwd.as_deref())?;
+    let operation = body.operation.unwrap_or_default();
+    let action = body.action.unwrap_or_else(|| "start".into());
+    let result = if action == "start" {
+        let source = required(body.source, "Missing source branch")?;
+        let target = required(body.target, "Missing target branch")?;
+        tokio::task::spawn_blocking(move || {
+            if operation == "interactiveRebase" {
+                perform_git_interactive_rebase(&cwd, &source, &target, &body.steps)
+            } else {
+                perform_git_ref_operation(&cwd, &operation, &source, &target)
+            }
+        })
+        .await?
+    } else {
+        tokio::task::spawn_blocking(move || finish_git_ref_operation(&cwd, &operation, &action))
+            .await?
+    };
+    Ok(json!(result))
+}
+async fn git_ref_operation_preflight(state: &ServerState, request: Request) -> ApiResult {
+    let body: GitRefOperationBody = api_body(request).await?;
+    let cwd = request_cwd(state, body.cwd.as_deref())?;
+    let source = required(body.source, "Missing source branch")?;
+    let target = required(body.target, "Missing target branch")?;
+    Ok(json!(
+        tokio::task::spawn_blocking(move || preflight_git_ref_operation(&cwd, &source, &target))
+            .await?
+    ))
+}
+async fn git_graph_action(state: &ServerState, request: Request) -> ApiResult {
+    let body: GitGraphActionBody = api_body(request).await?;
+    let cwd = request_cwd(state, body.cwd.as_deref())?;
+    Ok(json!(
+        tokio::task::spawn_blocking(move || perform_git_graph_action_with_targets(
+            &cwd,
+            body.action.as_deref().unwrap_or_default(),
+            body.target.as_deref(),
+            body.targets.as_deref().unwrap_or_default(),
+            body.name.as_deref(),
+            body.message.as_deref(),
+        ))
+        .await?
+    ))
+}
+async fn git_stage_change(state: &ServerState, request: Request, stage: bool) -> ApiResult {
+    let body: GitFileBody = api_body(request).await?;
+    let cwd = request_cwd(state, body.cwd.as_deref())?;
+    let file = body.file.filter(|file| !file.is_empty());
+    if file
+        .as_deref()
+        .is_some_and(|file| !is_safe_relative_path(file))
+    {
+        return Err(api_error(StatusCode::BAD_REQUEST, "Invalid file parameter"));
+    }
+    let success = tokio::task::spawn_blocking(move || {
+        if stage {
+            stage_git(&cwd, file.as_deref())
+        } else {
+            unstage_git(&cwd, file.as_deref())
+        }
+    })
+    .await?;
+    Ok(json!({"success":success}))
+}
+async fn git_commit(state: &ServerState, request: Request) -> ApiResult {
+    let body: GitCommitBody = api_body(request).await?;
+    let cwd = request_cwd(state, body.cwd.as_deref())?;
+    let message = required(
+        body.message.filter(|s| !s.is_empty()),
+        "Missing message parameter",
+    )?;
+    let task = tokio::task::spawn_blocking(move || commit_git(&cwd, &message));
+    match tokio::time::timeout(std::time::Duration::from_secs(30), task).await {
+        Ok(result) => Ok(json!(result?)),
+        Err(_) => Ok(json!({"success":false,"error":"Commit failed"})),
+    }
+}
+async fn git_graph(state: &ServerState, request: Request) -> ApiResult<Response> {
     let request_headers = request.headers().clone();
     let requested_cwd = query_value(&request, "cwd");
     let Some(requested_cwd) = requested_cwd.as_deref() else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing cwd parameter" }),
-            &request_headers,
-        );
+        return Err(api_error(StatusCode::BAD_REQUEST, "Missing cwd parameter"));
     };
     let Some(cwd) = safe_cwd(state, requested_cwd) else {
-        return json_response(
+        return Err(api_error(
             StatusCode::FORBIDDEN,
-            json!({ "error": "Access to this repository is not allowed" }),
-            &request_headers,
-        );
+            "Access to this repository is not allowed",
+        ));
     };
     let limit = query_value(&request, "limit")
         .as_deref()
@@ -1814,11 +1044,10 @@ async fn git_graph(state: &ServerState, request: Request) -> Response {
         .unwrap_or(1000);
     let query = query_value(&request, "query").unwrap_or_default();
     if query.len() > 4096 {
-        return json_response(
+        return Err(api_error(
             StatusCode::BAD_REQUEST,
-            json!({ "error": "Graph search query is too long" }),
-            &request_headers,
-        );
+            "Graph search query is too long",
+        ));
     }
     let started = std::time::Instant::now();
     let task = async move {
@@ -1833,252 +1062,27 @@ async fn git_graph(state: &ServerState, request: Request) -> Response {
         })
         .await
     };
-    match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
-        Ok(Ok((Some(body), hit))) => cached_render_response(body, hit, started, &request_headers),
-        _ => json_response(
-            StatusCode::SERVICE_UNAVAILABLE,
-            json!({ "error": "Git history request timed out" }),
-            &request_headers,
-        ),
-    }
+    await_cached_render(
+        task,
+        started,
+        &request_headers,
+        None,
+        "Git history request timed out",
+    )
+    .await
 }
 
-async fn git_branches(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let cwd = query_value(&request, "cwd")
-        .as_deref()
-        .and_then(|cwd| safe_cwd(state, cwd));
-    let Some(cwd) = cwd else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing cwd parameter" }),
-            &request_headers,
-        );
-    };
-    match tokio::task::spawn_blocking(move || get_git_branches(&cwd)).await {
-        Ok(branches) => json_response(
-            StatusCode::OK,
-            json!({ "branches": branches }),
-            &request_headers,
-        ),
-        Err(error) => internal_task_error(error, &request_headers),
-    }
-}
-
-async fn git_checkout_branch(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let body: GitBranchBody = match request_json(request, &request_headers).await {
-        Ok(body) => body,
-        Err(response) => return response,
-    };
-    let cwd = body.cwd.as_deref().and_then(|cwd| safe_cwd(state, cwd));
-    let Some(cwd) = cwd else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing cwd parameter" }),
-            &request_headers,
-        );
-    };
-    let Some(branch) = body.branch.filter(|branch| !branch.is_empty()) else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing branch parameter" }),
-            &request_headers,
-        );
-    };
-    match tokio::task::spawn_blocking(move || checkout_git_branch(&cwd, &branch)).await {
-        Ok(result) => json_response(StatusCode::OK, json!(result), &request_headers),
-        Err(error) => internal_task_error(error, &request_headers),
-    }
-}
-
-async fn git_ref_operation(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let body: GitRefOperationBody = match request_json(request, &request_headers).await {
-        Ok(body) => body,
-        Err(response) => return response,
-    };
-    let cwd = body.cwd.as_deref().and_then(|cwd| safe_cwd(state, cwd));
-    let Some(cwd) = cwd else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing cwd parameter" }),
-            &request_headers,
-        );
-    };
-    let operation = body.operation.unwrap_or_default();
-    let action = body.action.unwrap_or_else(|| "start".to_string());
-    let result = if action == "start" {
-        let (Some(source), Some(target)) = (body.source, body.target) else {
-            return json_response(
-                StatusCode::BAD_REQUEST,
-                json!({ "error": "Missing source or target branch" }),
-                &request_headers,
-            );
-        };
-        let steps = body.steps;
-        tokio::task::spawn_blocking(move || {
-            if operation == "interactiveRebase" {
-                perform_git_interactive_rebase(&cwd, &source, &target, &steps)
-            } else {
-                perform_git_ref_operation(&cwd, &operation, &source, &target)
-            }
-        })
-        .await
-    } else {
-        tokio::task::spawn_blocking(move || finish_git_ref_operation(&cwd, &operation, &action))
-            .await
-    };
-    match result {
-        Ok(result) => json_response(StatusCode::OK, json!(result), &request_headers),
-        Err(error) => internal_task_error(error, &request_headers),
-    }
-}
-
-async fn git_ref_operation_preflight(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let body: GitRefOperationBody = match request_json(request, &request_headers).await {
-        Ok(body) => body,
-        Err(response) => return response,
-    };
-    let cwd = body.cwd.as_deref().and_then(|cwd| safe_cwd(state, cwd));
-    let Some(cwd) = cwd else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing cwd parameter" }),
-            &request_headers,
-        );
-    };
-    let (Some(source), Some(target)) = (body.source, body.target) else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing source or target branch" }),
-            &request_headers,
-        );
-    };
-    match tokio::task::spawn_blocking(move || preflight_git_ref_operation(&cwd, &source, &target))
-        .await
-    {
-        Ok(result) => json_response(StatusCode::OK, json!(result), &request_headers),
-        Err(error) => internal_task_error(error, &request_headers),
-    }
-}
-
-async fn git_graph_action(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let body: GitGraphActionBody = match request_json(request, &request_headers).await {
-        Ok(body) => body,
-        Err(response) => return response,
-    };
-    let cwd = body.cwd.as_deref().and_then(|cwd| safe_cwd(state, cwd));
-    let Some(cwd) = cwd else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing cwd parameter" }),
-            &request_headers,
-        );
-    };
-    let action = body.action.unwrap_or_default();
-    let result = tokio::task::spawn_blocking(move || {
-        perform_git_graph_action_with_targets(
-            &cwd,
-            &action,
-            body.target.as_deref(),
-            body.targets.as_deref().unwrap_or_default(),
-            body.name.as_deref(),
-            body.message.as_deref(),
-        )
-    })
-    .await;
-    match result {
-        Ok(result) => json_response(StatusCode::OK, json!(result), &request_headers),
-        Err(error) => internal_task_error(error, &request_headers),
-    }
-}
-
-async fn git_log(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let cwd = query_value(&request, "cwd")
-        .as_deref()
-        .and_then(|cwd| safe_cwd(state, cwd));
-    let Some(cwd) = cwd else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing cwd parameter" }),
-            &request_headers,
-        );
-    };
-    let limit = query_value(&request, "limit")
-        .as_deref()
-        .map(|value| safe_limit(value, 20, 200))
-        .unwrap_or(20);
-    match tokio::task::spawn_blocking(move || get_git_log(&cwd, limit)).await {
-        Ok(log) => json_response(StatusCode::OK, json!({ "log": log }), &request_headers),
-        Err(error) => internal_task_error(error, &request_headers),
-    }
-}
-
-async fn git_blame(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let cwd = query_value(&request, "cwd")
-        .as_deref()
-        .and_then(|cwd| safe_cwd(state, cwd));
-    let file = query_value(&request, "file").filter(|file| is_safe_relative_path(file));
-    let (Some(cwd), Some(file)) = (cwd, file) else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing cwd or file parameter" }),
-            &request_headers,
-        );
-    };
-    let task = tokio::task::spawn_blocking(move || get_git_blame(&cwd, &file));
-    match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
-        Ok(Ok(blame)) => json_response(StatusCode::OK, json!({ "blame": blame }), &request_headers),
-        Ok(Err(error)) => internal_task_error(error, &request_headers),
-        Err(_) => json_response(StatusCode::OK, json!({ "blame": [] }), &request_headers),
-    }
-}
-
-async fn git_file_history(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let cwd = query_value(&request, "cwd")
-        .as_deref()
-        .and_then(|cwd| safe_cwd(state, cwd));
-    let file = query_value(&request, "file").filter(|file| is_safe_relative_path(file));
-    let (Some(cwd), Some(file)) = (cwd, file) else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing cwd or file parameter" }),
-            &request_headers,
-        );
-    };
-    let limit = query_value(&request, "limit")
-        .as_deref()
-        .map(|value| safe_limit(value, 20, 200))
-        .unwrap_or(20);
-    match tokio::task::spawn_blocking(move || get_git_file_history(&cwd, &file, limit)).await {
-        Ok(history) => json_response(
-            StatusCode::OK,
-            json!({ "history": history }),
-            &request_headers,
-        ),
-        Err(error) => internal_task_error(error, &request_headers),
-    }
-}
-
-async fn git_commit_details(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
+async fn git_commit_details(state: &ServerState, request: Request) -> ApiResult {
     let cwd = query_value(&request, "cwd")
         .as_deref()
         .and_then(|cwd| safe_cwd(state, cwd));
     let hash = query_value(&request, "hash").filter(|hash| safe_hash(hash));
     let parent = query_value(&request, "parent").filter(|hash| safe_hash(hash));
     let (Some(cwd), Some(hash)) = (cwd, hash) else {
-        return json_response(
+        return Err(api_error(
             StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing cwd or hash parameter" }),
-            &request_headers,
-        );
+            "Missing cwd or hash parameter",
+        ));
     };
     match tokio::task::spawn_blocking(move || {
         git_changes::prepare(
@@ -2087,12 +1091,12 @@ async fn git_commit_details(state: &ServerState, request: Request) -> Response {
     })
     .await
     {
-        Ok(details) => json_response(StatusCode::OK, details, &request_headers),
-        Err(error) => internal_task_error(error, &request_headers),
+        Ok(details) => Ok(details),
+        Err(error) => Err(api_error(StatusCode::INTERNAL_SERVER_ERROR, error)),
     }
 }
 
-async fn git_commit_diff(state: &ServerState, request: Request) -> Response {
+async fn git_commit_diff(state: &ServerState, request: Request) -> ApiResult<Response> {
     let request_headers = request.headers().clone();
     let cwd = query_value(&request, "cwd")
         .as_deref()
@@ -2100,58 +1104,44 @@ async fn git_commit_diff(state: &ServerState, request: Request) -> Response {
     let hash = query_value(&request, "hash").filter(|hash| safe_hash(hash));
     let parent = query_value(&request, "parent").filter(|hash| safe_hash(hash));
     let file = query_value(&request, "file").filter(|file| is_safe_relative_path(file));
-    let render = query_value(&request, "render").as_deref() == Some("true");
     let review = query_value(&request, "view").as_deref() == Some("review");
     let (Some(cwd), Some(hash), Some(file)) = (cwd, hash, file) else {
-        return json_response(
+        return Err(api_error(
             StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing cwd, hash, or file parameter" }),
-            &request_headers,
-        );
+            "Missing cwd, hash, or file parameter",
+        ));
     };
     let started = std::time::Instant::now();
     let revision = query_value(&request, "revision").unwrap_or_default();
-    let key = format!(
-        "commit-diff-v2\0{cwd}\0{hash}\0{parent:?}\0{file}\0{review}\0{render}\0{revision}"
-    );
+    let key = format!("commit-diff-v3\0{cwd}\0{hash}\0{parent:?}\0{file}\0{review}\0{revision}");
     let task = render_jobs::cached(key, std::time::Duration::from_secs(2), move || {
         get_git_commit_hunk_diff_for_parent(&cwd, &hash, parent.as_deref(), &file, review)
-            .map(|diff| render_jobs::diff_bytes(diff, render))
+            .map(render_jobs::diff_bytes)
     });
-    match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
-        Ok(Ok((Some(body), hit))) => cached_render_response(body, hit, started, &request_headers),
-        Ok(Ok((None, _))) => json_response(
-            StatusCode::NOT_FOUND,
-            json!({ "error": "File is not changed in this commit" }),
-            &request_headers,
-        ),
-        _ => json_response(
-            StatusCode::SERVICE_UNAVAILABLE,
-            json!({ "error": "Commit diff unavailable" }),
-            &request_headers,
-        ),
-    }
+    await_cached_render(
+        task,
+        started,
+        &request_headers,
+        Some("File is not changed in this commit"),
+        "Commit diff unavailable",
+    )
+    .await
 }
 
-async fn git_comparison_details(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
+async fn git_comparison_details(state: &ServerState, request: Request) -> ApiResult {
     let cwd = query_value(&request, "cwd")
         .as_deref()
         .and_then(|cwd| safe_cwd(state, cwd));
     if cwd.is_none() {
-        return json_response(
+        return Err(api_error(
             StatusCode::BAD_REQUEST,
-            json!({"error":"Invalid comparison directory"}),
-            &request_headers,
-        );
+            "Invalid comparison directory",
+        ));
     }
     let explicit_from = query_value(&request, "from").unwrap_or_default();
     let explicit_to = query_value(&request, "to").unwrap_or_default();
     let selection = if request.method() == Method::POST {
-        let body: Value = match request_json(request, &request_headers).await {
-            Ok(body) => body,
-            Err(response) => return response,
-        };
+        let body: Value = api_body(request).await?;
         Some(body.get("selection").unwrap_or(&Value::Null).to_string())
     } else {
         query_value(&request, "selection")
@@ -2163,11 +1153,10 @@ async fn git_comparison_details(state: &ServerState, request: Request) -> Respon
                 native_git::plan_comparison(cwd, &items)
             }
             _ => {
-                return json_response(
+                return Err(api_error(
                     StatusCode::BAD_REQUEST,
-                    json!({"error":"Invalid comparison selection"}),
-                    &request_headers,
-                );
+                    "Invalid comparison selection",
+                ));
             }
         }
     } else {
@@ -2178,25 +1167,19 @@ async fn git_comparison_details(state: &ServerState, request: Request) -> Respon
         })
     };
     let Some(plan) = plan else {
-        return json_response(
-            StatusCode::OK,
-            json!({"details":null, "plan":null}),
-            &request_headers,
-        );
+        return Ok(json!({"details":null, "plan":null}));
     };
     let Some(cwd) = safe_cwd(state, &plan.cwd) else {
-        return json_response(
+        return Err(api_error(
             StatusCode::BAD_REQUEST,
-            json!({"error":"Invalid comparison directory"}),
-            &request_headers,
-        );
+            "Invalid comparison directory",
+        ));
     };
     if !safe_hash(&plan.from) || (plan.to != "WORKTREE" && !safe_hash(&plan.to)) {
-        return json_response(
+        return Err(api_error(
             StatusCode::BAD_REQUEST,
-            json!({"error":"Invalid comparison revisions"}),
-            &request_headers,
-        );
+            "Invalid comparison revisions",
+        ));
     }
     let from = plan.from.clone();
     let to = plan.to.clone();
@@ -2210,26 +1193,20 @@ async fn git_comparison_details(state: &ServerState, request: Request) -> Respon
         details.map(|details| git_changes::prepare(json!(details)))
     });
     match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
-        Ok(Ok(Some(details))) => json_response(
-            StatusCode::OK,
-            json!({ "details": details, "plan": plan }),
-            &request_headers,
-        ),
-        Ok(Ok(None)) => json_response(
+        Ok(Ok(Some(details))) => Ok(json!({ "details": details, "plan": plan })),
+        Ok(Ok(None)) => Err(api_error(
             StatusCode::NOT_FOUND,
-            json!({ "error": "Commits cannot be compared" }),
-            &request_headers,
-        ),
-        Ok(Err(error)) => internal_task_error(error, &request_headers),
-        Err(_) => json_response(
+            "Commits cannot be compared",
+        )),
+        Ok(Err(error)) => Err(api_error(StatusCode::INTERNAL_SERVER_ERROR, error)),
+        Err(_) => Err(api_error(
             StatusCode::SERVICE_UNAVAILABLE,
-            json!({ "error": "Comparison unavailable" }),
-            &request_headers,
-        ),
+            "Comparison unavailable",
+        )),
     }
 }
 
-async fn git_comparison_diff(state: &ServerState, request: Request) -> Response {
+async fn git_comparison_diff(state: &ServerState, request: Request) -> ApiResult<Response> {
     let request_headers = request.headers().clone();
     let cwd = query_value(&request, "cwd")
         .as_deref()
@@ -2237,20 +1214,17 @@ async fn git_comparison_diff(state: &ServerState, request: Request) -> Response 
     let from = query_value(&request, "from").filter(|hash| safe_hash(hash));
     let to = query_value(&request, "to").filter(|value| value == "WORKTREE" || safe_hash(value));
     let file = query_value(&request, "file").filter(|file| is_safe_relative_path(file));
-    let render = query_value(&request, "render").as_deref() == Some("true");
     let review = query_value(&request, "view").as_deref() == Some("review");
     let (Some(cwd), Some(from), Some(to), Some(file)) = (cwd, from, to, file) else {
-        return json_response(
+        return Err(api_error(
             StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing cwd, from, to, or file parameter" }),
-            &request_headers,
-        );
+            "Missing cwd, from, to, or file parameter",
+        ));
     };
     let allowed_paths = state.allowed_paths.clone();
     let started = std::time::Instant::now();
     let revision = query_value(&request, "revision").unwrap_or_default();
-    let key =
-        format!("comparison-diff-v2\0{cwd}\0{from}\0{to}\0{file}\0{review}\0{render}\0{revision}");
+    let key = format!("comparison-diff-v3\0{cwd}\0{from}\0{to}\0{file}\0{review}\0{revision}");
     let ttl = if to == "WORKTREE" {
         std::time::Duration::ZERO
     } else {
@@ -2262,104 +1236,16 @@ async fn git_comparison_diff(state: &ServerState, request: Request) -> Response 
         } else {
             get_git_comparison_hunk_diff(&cwd, &from, &to, &file, review)
         };
-        diff.map(|diff| render_jobs::diff_bytes(diff, render))
+        diff.map(render_jobs::diff_bytes)
     });
-    match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
-        Ok(Ok((Some(body), hit))) => cached_render_response(body, hit, started, &request_headers),
-        Ok(Ok((None, _))) => json_response(
-            StatusCode::NOT_FOUND,
-            json!({ "error": "File is not changed between these commits" }),
-            &request_headers,
-        ),
-        _ => json_response(
-            StatusCode::SERVICE_UNAVAILABLE,
-            json!({ "error": "Comparison diff unavailable" }),
-            &request_headers,
-        ),
-    }
-}
-
-async fn git_stage(state: &ServerState, request: Request) -> Response {
-    git_stage_change(state, request, true).await
-}
-
-async fn git_unstage(state: &ServerState, request: Request) -> Response {
-    git_stage_change(state, request, false).await
-}
-
-async fn git_stage_change(state: &ServerState, request: Request, stage: bool) -> Response {
-    let request_headers = request.headers().clone();
-    let body: GitFileBody = match request_json(request, &request_headers).await {
-        Ok(body) => body,
-        Err(response) => return response,
-    };
-    let cwd = body.cwd.as_deref().and_then(|cwd| safe_cwd(state, cwd));
-    let Some(cwd) = cwd else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing cwd parameter" }),
-            &request_headers,
-        );
-    };
-    let file = body.file.filter(|file| !file.is_empty());
-    if file
-        .as_deref()
-        .is_some_and(|file| !is_safe_relative_path(file))
-    {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Invalid file parameter" }),
-            &request_headers,
-        );
-    }
-    let task = tokio::task::spawn_blocking(move || {
-        if stage {
-            stage_git(&cwd, file.as_deref())
-        } else {
-            unstage_git(&cwd, file.as_deref())
-        }
-    });
-    match task.await {
-        Ok(success) => json_response(
-            StatusCode::OK,
-            json!({ "success": success }),
-            &request_headers,
-        ),
-        Err(error) => internal_task_error(error, &request_headers),
-    }
-}
-
-async fn git_commit(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let body: GitCommitBody = match request_json(request, &request_headers).await {
-        Ok(body) => body,
-        Err(response) => return response,
-    };
-    let cwd = body.cwd.as_deref().and_then(|cwd| safe_cwd(state, cwd));
-    let Some(cwd) = cwd else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing cwd parameter" }),
-            &request_headers,
-        );
-    };
-    let Some(message) = body.message.filter(|message| !message.is_empty()) else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing message parameter" }),
-            &request_headers,
-        );
-    };
-    let task = tokio::task::spawn_blocking(move || commit_git(&cwd, &message));
-    match tokio::time::timeout(std::time::Duration::from_secs(30), task).await {
-        Ok(Ok(result)) => json_response(StatusCode::OK, json!(result), &request_headers),
-        Ok(Err(error)) => internal_task_error(error, &request_headers),
-        Err(_) => json_response(
-            StatusCode::OK,
-            json!({ "success": false, "error": "Commit failed" }),
-            &request_headers,
-        ),
-    }
+    await_cached_render(
+        task,
+        started,
+        &request_headers,
+        Some("File is not changed between these commits"),
+        "Comparison diff unavailable",
+    )
+    .await
 }
 
 struct GitDiffParams {
@@ -2382,144 +1268,25 @@ fn git_diff_params(state: &ServerState, request: &Request) -> Option<GitDiffPara
     })
 }
 
-async fn git_diff(state: &ServerState, request: Request) -> Response {
+async fn git_full_diff(state: &ServerState, request: Request) -> ApiResult<Response> {
     let request_headers = request.headers().clone();
-    let Some(params) = git_diff_params(state, &request) else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing cwd or file parameter" }),
-            &request_headers,
-        );
-    };
-    let allowed_paths = state.allowed_paths.clone();
-    let task = tokio::task::spawn_blocking(move || {
-        if !is_changed_git_file(&params.cwd, &params.file) {
-            return None;
-        }
-        Some(get_git_diff(
-            &allowed_paths,
-            &params.cwd,
-            &params.file,
-            params.staged,
-        ))
-    });
-    match task.await {
-        Ok(Some(diff)) => json_response(StatusCode::OK, json!({ "diff": diff }), &request_headers),
-        Ok(None) => json_response(
-            StatusCode::NOT_FOUND,
-            json!({ "error": "File is not changed" }),
-            &request_headers,
-        ),
-        Err(error) => internal_task_error(error, &request_headers),
-    }
-}
-
-async fn git_full_diff(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let render = query_value(&request, "render").as_deref() == Some("true");
     let review = query_value(&request, "view").as_deref() == Some("review");
     let Some(params) = git_diff_params(state, &request) else {
-        return json_response(
+        return Err(api_error(
             StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing cwd or file parameter" }),
-            &request_headers,
-        );
+            "Missing cwd or file parameter",
+        ));
     };
-    let native_git = state.native_git.clone();
-    let task = render_jobs::run(move || {
-        native_git
-            .full_diff(&params.cwd, &params.file, params.staged, review)
-            .map(|value| value.map(|diff| render_jobs::diff_bytes(diff, render)))
-    });
-    match task.await {
-        Ok(Ok(Some(body))) => json_bytes_response(StatusCode::OK, body.into(), &request_headers),
-        Ok(Ok(None)) => json_response(
-            StatusCode::NOT_FOUND,
-            json!({ "error": "File is not changed" }),
-            &request_headers,
-        ),
-        Ok(Err(error)) => json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": error.to_string() }),
-            &request_headers,
-        ),
-        Err(error) => internal_task_error(error, &request_headers),
-    }
-}
-
-async fn git_file_with_diff(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let Some(params) = git_diff_params(state, &request) else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing cwd or file parameter" }),
-            &request_headers,
-        );
-    };
-    let allowed_paths = state.allowed_paths.clone();
-    let task = tokio::task::spawn_blocking(move || {
-        if !is_changed_git_file(&params.cwd, &params.file) {
-            return None;
-        }
-        Some(get_git_file_with_diff(
-            &allowed_paths,
-            &params.cwd,
-            &params.file,
-            params.staged,
-        ))
-    });
-    match task.await {
-        Ok(None) => json_response(
-            StatusCode::NOT_FOUND,
-            json!({ "error": "File is not changed" }),
-            &request_headers,
-        ),
-        Ok(Some(GitFileWithDiff::Image { image_path })) => json_response(
-            StatusCode::OK,
-            json!({ "isImage": true, "imagePath": image_path, "lines": [] }),
-            &request_headers,
-        ),
-        Ok(Some(GitFileWithDiff::Text { lines })) => {
-            json_response(StatusCode::OK, json!({ "lines": lines }), &request_headers)
-        }
-        Ok(Some(GitFileWithDiff::Error { error })) => json_response(
-            StatusCode::OK,
-            json!({ "error": error, "lines": [] }),
-            &request_headers,
-        ),
-        Ok(Some(GitFileWithDiff::AccessDenied)) => json_response(
-            StatusCode::FORBIDDEN,
-            json!({ "error": "Path is outside allowed local roots" }),
-            &request_headers,
-        ),
-        Err(error) => internal_task_error(error, &request_headers),
-    }
-}
-
-async fn git_watch(state: &ServerState, request: Request, watch: bool) -> Response {
-    let request_headers = request.headers().clone();
-    let body: GitWatchBody = match request_json(request, &request_headers).await {
-        Ok(body) => body,
-        Err(response) => return response,
-    };
-    let cwd = body.cwd.as_deref().and_then(|cwd| safe_cwd(state, cwd));
-    let Some(cwd) = cwd else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing cwd parameter" }),
-            &request_headers,
-        );
-    };
-
-    let result = if watch {
-        state.native_git.watch(&cwd)
-    } else {
-        state.native_git.unwatch(&cwd)
-    };
-    if let Err(error) = result {
-        eprintln!("[FileWatcher] Failed to update watch for {cwd}: {error}");
-    }
-    json_response(StatusCode::OK, json!({ "ok": true }), &request_headers)
+    let body = native_git::full_diff(
+        state.allowed_paths.clone(),
+        params.cwd,
+        params.file,
+        params.staged,
+        review,
+    )
+    .await?
+    .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "File is not changed"))?;
+    Ok(json_bytes_response(StatusCode::OK, body, &request_headers))
 }
 
 fn prompt_path(path: &str) -> Option<(&str, bool)> {
@@ -2533,191 +1300,74 @@ fn prompt_path(path: &str) -> Option<(&str, bool)> {
     }
 }
 
-async fn list_prompts(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    match state.native_prompts.list().await {
-        Ok(prompts) => json_response(
-            StatusCode::OK,
-            serde_json::to_value(prompts).expect("prompts must serialize"),
-            &request_headers,
-        ),
-        Err(error) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error }),
-            &request_headers,
-        ),
-    }
+async fn list_prompts(state: &ServerState, _request: Request) -> ApiResult {
+    Ok(json!(state.native_prompts.list().await?))
 }
 
-async fn create_prompt(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let body: serde_json::Value = match request_json(request, &request_headers).await {
-        Ok(body) => body,
-        Err(response) => return response,
-    };
-    let Some(body) = body.as_object() else {
-        return json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": "Prompt body must be an object" }),
-            &request_headers,
-        );
-    };
-    match state
-        .native_prompts
-        .create_json(body.clone(), unix_millis())
-        .await
-    {
-        Ok(prompt) => json_response(
-            StatusCode::OK,
-            serde_json::to_value(prompt).expect("prompt must serialize"),
-            &request_headers,
-        ),
-        Err(error) => prompt_error_response(error, &request_headers),
-    }
+async fn create_prompt(state: &ServerState, request: Request) -> ApiResult {
+    let body: serde_json::Map<String, Value> = api_body(request).await?;
+    Ok(json!(
+        state
+            .native_prompts
+            .create_json(body, unix_millis())
+            .await?
+    ))
 }
 
-async fn update_prompt(state: &ServerState, request: Request, id: &str) -> Response {
-    let request_headers = request.headers().clone();
-    let body: serde_json::Value = match request_json(request, &request_headers).await {
-        Ok(body) => body,
-        Err(response) => return response,
-    };
-    let Some(body) = body.as_object() else {
-        return json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": "Prompt body must be an object" }),
-            &request_headers,
-        );
-    };
-    match state
-        .native_prompts
-        .update_json(id, body.clone(), unix_millis())
-        .await
-    {
-        Ok(prompt) => json_response(
-            StatusCode::OK,
-            serde_json::to_value(prompt).expect("prompt must serialize"),
-            &request_headers,
-        ),
-        Err(error) => prompt_error_response(error, &request_headers),
-    }
+async fn update_prompt(state: &ServerState, request: Request, id: &str) -> ApiResult {
+    let body: serde_json::Map<String, Value> = api_body(request).await?;
+    Ok(json!(
+        state
+            .native_prompts
+            .update_json(id, body, unix_millis())
+            .await?
+    ))
 }
 
-async fn delete_prompt(state: &ServerState, request: Request, id: &str) -> Response {
-    let request_headers = request.headers().clone();
-    match state.native_prompts.delete(id).await {
-        Ok(()) => json_response(StatusCode::OK, json!({ "ok": true }), &request_headers),
-        Err(error) => prompt_error_response(error, &request_headers),
-    }
+async fn delete_prompt(state: &ServerState, _request: Request, id: &str) -> ApiResult {
+    state.native_prompts.delete(id).await?;
+    Ok(json!({"ok":true}))
 }
 
-async fn increment_prompt_usage(state: &ServerState, request: Request, id: &str) -> Response {
-    let request_headers = request.headers().clone();
-    match state
+async fn increment_prompt_usage(state: &ServerState, _request: Request, id: &str) -> ApiResult {
+    state
         .native_prompts
         .increment_usage_at(id, unix_millis())
-        .await
-    {
-        Ok(()) => json_response(StatusCode::OK, json!({ "ok": true }), &request_headers),
-        Err(error) => prompt_error_response(error, &request_headers),
-    }
+        .await?;
+    Ok(json!({"ok":true}))
 }
 
-fn prompt_error_response(error: PromptError, request_headers: &HeaderMap) -> Response {
-    json_response(
-        StatusCode::from_u16(error.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
-        json!({ "error": error.message }),
-        request_headers,
-    )
-}
-
-async fn get_agent_context(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
+async fn get_agent_context(state: &ServerState, request: Request) -> ApiResult {
     let cwd = query_value(&request, "cwd");
     let pane_id = query_value(&request, "paneId");
-    let query = native_agent_context::NativeAgentContextQuery { cwd, pane_id };
-    let context = match state.native_agent_context.load(&query).await {
-        Ok(context) => context,
-        Err(error) => {
-            return json_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                json!({ "error": error }),
-                &request_headers,
-            );
-        }
-    };
-    json_response(
-        StatusCode::OK,
-        serde_json::to_value(context).expect("agent context must serialize"),
-        &request_headers,
-    )
+    let skills = state.native_prompts.list().await?;
+    Ok(json!(state.agent_context_store.lock().await.resolve(
+        cwd.as_deref(),
+        pane_id.as_deref(),
+        &skills
+    )))
 }
 
-async fn update_agent_context(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let body: serde_json::Value = match request_json(request, &request_headers).await {
-        Ok(body) => body,
-        Err(response) => return response,
-    };
-    let Some(body) = body.as_object() else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "instructions is required" }),
-            &request_headers,
-        );
-    };
-    let Some(instructions) = body.get("instructions").and_then(serde_json::Value::as_str) else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "instructions is required" }),
-            &request_headers,
-        );
-    };
-    let Some(scope) = body.get("scope").and_then(serde_json::Value::as_str) else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "scope is invalid" }),
-            &request_headers,
-        );
-    };
-    if !matches!(scope, "global" | "project" | "chat") {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "scope is invalid" }),
-            &request_headers,
-        );
-    }
-    let cwd = body
-        .get("cwd")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_owned);
-    let pane_id = body
-        .get("paneId")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_owned);
-    let mode = body
-        .get("mode")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_owned);
-    match state
-        .native_agent_context
-        .update_raw(
-            scope.into(),
-            cwd,
-            pane_id,
-            instructions.into(),
-            mode,
-            unix_millis(),
-        )
-        .await
-    {
-        Ok(()) => json_response(StatusCode::OK, json!({ "ok": true }), &request_headers),
-        Err(error) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error }),
-            &request_headers,
-        ),
-    }
+async fn update_agent_context(state: &ServerState, request: Request) -> ApiResult {
+    let body: Value = api_body(request).await?;
+    let instructions = required(body["instructions"].as_str(), "instructions is required")?;
+    let scope = required(
+        body["scope"]
+            .as_str()
+            .filter(|scope| matches!(*scope, "global" | "project" | "chat")),
+        "scope is invalid",
+    )?;
+    state.agent_context_store.lock().await.update(
+        inferay_core::agent_context::AgentContextUpdate {
+            scope: scope.into(),
+            instructions: instructions.into(),
+            cwd: body["cwd"].as_str().map(str::to_owned),
+            pane_id: body["paneId"].as_str().map(str::to_owned),
+            mode: body["mode"].as_str().map(str::to_owned),
+        },
+        unix_millis(),
+    )?;
+    Ok(json!({"ok":true}))
 }
 
 fn unix_millis() -> u64 {
@@ -2727,377 +1377,153 @@ fn unix_millis() -> u64 {
         .as_millis() as u64
 }
 
-async fn search_files(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let explicit_cwd = query_value(&request, "cwd");
-    let search_cwds = if let Some(cwd) = explicit_cwd.filter(|cwd| !cwd.is_empty()) {
-        vec![cwd]
-    } else {
-        match state.native_project_files.active_cwds().await {
-            Ok(cwds) => cwds,
-            Err(_) => vec![
-                state
-                    .allowed_paths
-                    .project_root()
-                    .to_string_lossy()
-                    .into_owned(),
-            ],
-        }
+async fn search_files(state: &ServerState, request: Request) -> ApiResult {
+    let cwds = match query_value(&request, "cwd").filter(|cwd| !cwd.is_empty()) {
+        Some(cwd) => vec![cwd],
+        None => state
+            .native_project_files
+            .active_cwds()
+            .await
+            .unwrap_or_else(|_| vec![project_root_cwd(state)]),
     };
-    let search_cwds = search_cwds
+    let invalid_directory = |_| api_error(StatusCode::BAD_REQUEST, "Invalid directory");
+    let cwds = cwds
         .iter()
         .map(|cwd| state.native_project_files.resolve_cwd(cwd))
-        .collect::<Result<Vec<_>, _>>();
-    let Ok(search_cwds) = search_cwds else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Invalid directory" }),
-            &request_headers,
-        );
-    };
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(invalid_directory)?;
     let query = query_value(&request, "q")
         .unwrap_or_default()
         .to_lowercase();
-    let limit = file_search_limit(query_value(&request, "limit").as_deref());
-    let searches = search_cwds
+    let limit = safe_limit(
+        query_value(&request, "limit").as_deref().unwrap_or("20"),
+        20,
+        50,
+    );
+    let searches = cwds
         .iter()
         .map(|cwd| state.native_project_files.search(cwd, &query, limit));
-    let per_cwd_results = join_all(searches).await;
-    if per_cwd_results.iter().any(Result::is_err) {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Invalid directory" }),
-            &request_headers,
-        );
-    }
-    let per_cwd_results = per_cwd_results
+    let per_cwd = join_all(searches)
+        .await
         .into_iter()
-        .filter_map(Result::ok)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(invalid_directory)?;
+    // Round-robin across repositories so one large repository cannot hide the others.
+    let rows = per_cwd.iter().map(Vec::len).max().unwrap_or(0);
+    let results = (0..rows)
+        .flat_map(|row| per_cwd.iter().filter_map(move |entries| entries.get(row)))
+        .take(limit)
         .collect::<Vec<_>>();
-    let mut results = Vec::new();
-    let mut index = 0;
-    while results.len() < limit {
-        let mut added = false;
-        for cwd_results in &per_cwd_results {
-            if let Some(result) = cwd_results.get(index) {
-                results.push(result.clone());
-                added = true;
-                if results.len() >= limit {
-                    break;
-                }
-            }
-        }
-        if !added {
-            break;
-        }
-        index += 1;
-    }
-    let cwd_strings = search_cwds;
-    json_response(
-        StatusCode::OK,
-        json!({
-            "cwd": cwd_strings.first().cloned().unwrap_or_else(|| state.allowed_paths.project_root().to_string_lossy().into_owned()),
-            "cwds": cwd_strings,
-            "results": results,
-        }),
-        &request_headers,
+    Ok(
+        json!({"cwd":cwds.first().cloned().unwrap_or_else(|| project_root_cwd(state)), "cwds":cwds, "results":results}),
     )
 }
 
-async fn project_file_map(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let cwd = query_value(&request, "cwd")
-        .filter(|cwd| !cwd.is_empty())
-        .unwrap_or_else(|| {
-            state
-                .allowed_paths
-                .project_root()
-                .to_string_lossy()
-                .into_owned()
-        });
-    let cwd = match state.native_project_files.resolve_cwd(&cwd) {
-        Ok(cwd) => cwd,
-        Err(_) => {
-            return json_response(
-                StatusCode::BAD_REQUEST,
-                json!({ "error": "Invalid directory" }),
-                &request_headers,
-            );
-        }
-    };
-    let root = PathBuf::from(cwd);
-    match tokio::task::spawn_blocking(move || native_project_map::build_project_map(&root)).await {
-        Ok(project_map) => json_response(StatusCode::OK, json!(project_map), &request_headers),
-        Err(error) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error.to_string() }),
-            &request_headers,
-        ),
-    }
+fn project_root_cwd(state: &ServerState) -> String {
+    state
+        .allowed_paths
+        .project_root()
+        .to_string_lossy()
+        .into_owned()
 }
 
-async fn list_project_files(state: &ServerState, request: Request) -> Response {
-    let headers = request.headers().clone();
-    let Some(cwd) = query_value(&request, "cwd").filter(|cwd| !cwd.is_empty()) else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Invalid directory" }),
-            &headers,
-        );
-    };
+async fn list_project_files(state: &ServerState, request: Request) -> ApiResult {
+    let cwd = required(
+        query_value(&request, "cwd").filter(|cwd| !cwd.is_empty()),
+        "Invalid directory",
+    )?;
     let path = query_value(&request, "path").unwrap_or_default();
-    match state.native_project_files.list(&cwd, &path).await {
-        Ok(entries) => json_response(StatusCode::OK, json!({ "entries": entries }), &headers),
-        Err(error) => json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": error.to_string() }),
-            &headers,
-        ),
-    }
+    let entries = state
+        .native_project_files
+        .list(&cwd, &path)
+        .await
+        .map_err(|error| api_error(StatusCode::BAD_REQUEST, error))?;
+    Ok(json!({"entries":entries}))
 }
 
-fn file_search_limit(value: Option<&str>) -> usize {
-    let raw = value.filter(|value| !value.is_empty()).unwrap_or("20");
-    let parsed = raw
-        .parse::<f64>()
-        .ok()
-        .filter(|value| !value.is_nan() && *value != 0.0);
-    let limited = parsed.unwrap_or(20.0).min(50.0);
-    if limited.is_nan() || limited <= 0.0 {
-        0
-    } else {
-        limited.ceil() as usize
-    }
-}
-
-async fn get_file_content(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let cwd = match query_value(&request, "cwd") {
-        Some(cwd) if !cwd.is_empty() => cwd,
-        _ => state
+async fn get_file_content(state: &ServerState, request: Request) -> ApiResult {
+    let cwd = match query_value(&request, "cwd").filter(|cwd| !cwd.is_empty()) {
+        Some(cwd) => cwd,
+        None => state
             .native_project_files
             .active_cwds()
             .await
             .unwrap_or_default()
             .into_iter()
             .next()
-            .unwrap_or_else(|| {
-                state
-                    .allowed_paths
-                    .project_root()
-                    .to_string_lossy()
-                    .into_owned()
-            }),
+            .unwrap_or_else(|| project_root_cwd(state)),
     };
-    let Some(file_path) = query_value(&request, "path").filter(|path| !path.is_empty()) else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "No path provided" }),
-            &request_headers,
-        );
-    };
-    match state.native_project_files.read(&cwd, &file_path).await {
-        Ok(content) => json_response(StatusCode::OK, json!(content), &request_headers),
-        Err(native_project_files::NativeProjectFilesError::InvalidDirectory) => json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Invalid directory" }),
-            &request_headers,
-        ),
-        Err(native_project_files::NativeProjectFilesError::MissingPath) => json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "No path provided" }),
-            &request_headers,
-        ),
-        Err(native_project_files::NativeProjectFilesError::AccessDenied) => json_response(
-            StatusCode::FORBIDDEN,
-            json!({ "error": "Access denied" }),
-            &request_headers,
-        ),
-        Err(native_project_files::NativeProjectFilesError::NotFile) => json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Not a file" }),
-            &request_headers,
-        ),
-        Err(native_project_files::NativeProjectFilesError::FileTooLarge) => json_response(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            json!({ "error": "File too large" }),
-            &request_headers,
-        ),
-        Err(native_project_files::NativeProjectFilesError::NotFound) => {
-            text_response(StatusCode::NOT_FOUND, "Not found")
-        }
-        Err(native_project_files::NativeProjectFilesError::Runtime(error)) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error }),
-            &request_headers,
-        ),
-    }
+    let path = required(
+        query_value(&request, "path").filter(|path| !path.is_empty()),
+        "No path provided",
+    )?;
+    Ok(json!(state.native_project_files.read(&cwd, &path).await?))
 }
 
-fn is_image_extension(path: &str) -> bool {
-    native_files::is_image_extension(path)
-}
-
-async fn upload_temp_file(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let mut multipart = match Multipart::from_request(request, &()).await {
-        Ok(multipart) => multipart,
-        Err(error) => {
-            return json_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                json!({ "error": error.to_string() }),
-                &request_headers,
-            );
-        }
-    };
-    let mut upload = None;
-    loop {
-        let field = match multipart.next_field().await {
-            Ok(Some(field)) => field,
-            Ok(None) => break,
-            Err(error) => {
-                return json_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    json!({ "error": error.to_string() }),
-                    &request_headers,
-                );
-            }
-        };
+async fn uploaded_file(
+    request: Request,
+    missing: &str,
+) -> Result<(String, String, axum::body::Bytes), ApiError> {
+    let mut multipart = Multipart::from_request(request, &())
+        .await
+        .map_err(|error| error.to_string())?;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|error| error.to_string())?
+    {
         if field.name() != Some("file") || field.file_name().is_none() {
             continue;
         }
-        let name = field.file_name().unwrap_or_default().to_string();
-        let bytes = match field.bytes().await {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                return json_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    json!({ "error": error.to_string() }),
-                    &request_headers,
-                );
-            }
-        };
-        upload = Some((name, bytes));
-        break;
+        let name = field.file_name().unwrap().to_owned();
+        let content_type = field.content_type().unwrap_or_default().to_owned();
+        let bytes = field.bytes().await.map_err(|error| error.to_string())?;
+        return Ok((name, content_type, bytes));
     }
-    let Some((name, bytes)) = upload else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "No file provided" }),
-            &request_headers,
-        );
-    };
-    match state.native_files.store_image(&name, &bytes).await {
-        Ok(file) => json_response(
-            StatusCode::OK,
-            json!({ "path": file.path }),
-            &request_headers,
-        ),
-        Err(native_files::NativeFilesError::FileTooLarge) => json_response(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            json!({ "error": "File too large" }),
-            &request_headers,
-        ),
-        Err(native_files::NativeFilesError::UnsupportedFileType) => json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Unsupported file type" }),
-            &request_headers,
-        ),
-        Err(error) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error.to_string() }),
-            &request_headers,
-        ),
-    }
+    Err(api_error(StatusCode::BAD_REQUEST, missing))
 }
 
-async fn list_temp_images(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    match state.native_files.list().await {
-        Ok(images) => json_response(
-            StatusCode::OK,
-            json!({ "images": images }),
-            &request_headers,
-        ),
-        Err(native_files::NativeFilesError::Io(error)) => file_route_error(error, &request_headers),
-        Err(error) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error.to_string() }),
-            &request_headers,
-        ),
-    }
+async fn upload_temp_file(state: &ServerState, request: Request) -> ApiResult {
+    let (name, _, bytes) = uploaded_file(request, "No file provided").await?;
+    let file = state.native_files.store_image(&name, &bytes).await?;
+    Ok(json!({"path":file.path}))
 }
 
-async fn delete_temp_file(state: &ServerState, request: Request) -> Response {
+async fn list_temp_images(state: &ServerState, _request: Request) -> ApiResult {
+    Ok(json!({"images":state.native_files.list().await?}))
+}
+
+async fn delete_temp_file(state: &ServerState, request: Request) -> ApiResult {
+    let path = required(
+        query_value(&request, "path").filter(|path| !path.is_empty()),
+        "No path provided",
+    )?;
+    state.native_files.delete(Path::new(&path)).await?;
+    Ok(json!({"ok":true}))
+}
+
+async fn serve_local_image(state: &ServerState, request: Request) -> ApiResult<Response> {
     let request_headers = request.headers().clone();
     let Some(path) = query_value(&request, "path").filter(|path| !path.is_empty()) else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "No path provided" }),
-            &request_headers,
-        );
-    };
-    match state.native_files.delete(Path::new(&path)).await {
-        Ok(()) => json_response(StatusCode::OK, json!({ "ok": true }), &request_headers),
-        Err(native_files::NativeFilesError::AccessDenied) => json_response(
-            StatusCode::FORBIDDEN,
-            json!({ "error": "Access denied" }),
-            &request_headers,
-        ),
-        Err(native_files::NativeFilesError::Io(error)) => file_route_error(error, &request_headers),
-        Err(error) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error.to_string() }),
-            &request_headers,
-        ),
-    }
-}
-
-async fn serve_local_image(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let Some(path) = query_value(&request, "path").filter(|path| !path.is_empty()) else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "No path provided" }),
-            &request_headers,
-        );
+        return Err(api_error(StatusCode::BAD_REQUEST, "No path provided"));
     };
     let Some(path) = resolve_serveable_image_path(state, &path).await else {
-        return json_response(
-            StatusCode::FORBIDDEN,
-            json!({ "error": "Access denied" }),
-            &request_headers,
-        );
+        return Err(api_error(StatusCode::FORBIDDEN, "Access denied"));
     };
     if !is_image_extension(&path.to_string_lossy()) {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Unsupported file type" }),
-            &request_headers,
-        );
+        return Err(api_error(StatusCode::BAD_REQUEST, "Unsupported file type"));
     }
     let metadata = match tokio::fs::metadata(&path).await {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return json_response(
-                StatusCode::NOT_FOUND,
-                json!({ "error": "File not found" }),
-                &request_headers,
-            );
+            return Err(api_error(StatusCode::NOT_FOUND, "File not found"));
         }
-        Err(error) => return file_route_error(error, &request_headers),
+        Err(error) => return Err(error.into()),
     };
     if metadata.len() > MAX_SERVED_FILE_BYTES {
-        return json_response(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            json!({ "error": "File too large" }),
-            &request_headers,
-        );
+        return Err(api_error(StatusCode::PAYLOAD_TOO_LARGE, "File too large"));
     }
-    let bytes = match tokio::fs::read(&path).await {
-        Ok(bytes) => bytes,
-        Err(error) => return file_route_error(error, &request_headers),
-    };
+    let bytes = tokio::fs::read(&path).await?;
     let mut response = Response::new(Body::from(bytes));
     response.headers_mut().insert(
         CONTENT_TYPE,
@@ -3107,133 +1533,33 @@ async fn serve_local_image(state: &ServerState, request: Request) -> Response {
         .headers_mut()
         .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     add_cors_headers(response.headers_mut(), &request_headers);
-    response
+    Ok(response)
 }
 
 async fn resolve_serveable_image_path(state: &ServerState, path: &str) -> Option<PathBuf> {
     let resolved = resolve_lexically(Path::new(path)).ok()?;
     let real = tokio::fs::canonicalize(resolved).await.ok()?;
     (is_within_directory(&real, state.allowed_paths.project_root())
-        || is_allowed_inferay_temp_path(state, &real))
+        || is_within_directory(&real, &state.temp_dir))
     .then_some(real)
 }
 
-fn is_allowed_inferay_temp_path(state: &ServerState, path: &Path) -> bool {
-    if is_within_directory(path, &state.temp_dir) {
-        return true;
+async fn get_search_folders(state: &ServerState, _request: Request) -> ApiResult {
+    Ok(json!({ "folders": state.config_manager.lock().await.search_folders()? }))
+}
+
+async fn update_search_folders(state: &ServerState, request: Request) -> ApiResult {
+    #[derive(Deserialize)]
+    struct Input {
+        folders: Vec<String>,
     }
-    let marker = format!(
-        "{}{}",
-        std::path::MAIN_SEPARATOR,
-        ["Contents", "Resources", "app", "data", ".tmp"].join(std::path::MAIN_SEPARATOR_STR)
-    );
-    path.to_string_lossy().contains(&marker)
-}
-
-fn image_content_type(path: &Path) -> &'static str {
-    match path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-    {
-        Some("png") => "image/png",
-        Some("jpg" | "jpeg") => "image/jpeg",
-        Some("gif") => "image/gif",
-        Some("webp") => "image/webp",
-        Some("bmp") => "image/bmp",
-        Some("ico") => "image/x-icon",
-        _ => "application/octet-stream",
-    }
-}
-
-fn file_route_error(error: impl std::fmt::Display, request_headers: &HeaderMap) -> Response {
-    json_response(
-        StatusCode::INTERNAL_SERVER_ERROR,
-        json!({ "error": error.to_string() }),
-        request_headers,
-    )
-}
-
-async fn get_config(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let config = state.config_manager.lock().await.load();
-    json_response(
-        StatusCode::OK,
-        serde_json::Value::Object(config),
-        &request_headers,
-    )
-}
-
-async fn update_config(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let body: serde_json::Value = match request_json(request, &request_headers).await {
-        Ok(body) => body,
-        Err(response) => return response,
-    };
-    let Some(updates) = body.as_object().cloned() else {
-        return json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": "Config updates must be an object" }),
-            &request_headers,
-        );
-    };
-    match state.config_manager.lock().await.update(updates) {
-        Ok(config) => json_response(
-            StatusCode::OK,
-            serde_json::Value::Object(config),
-            &request_headers,
-        ),
-        Err(error) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error }),
-            &request_headers,
-        ),
-    }
-}
-
-async fn get_search_folders(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let config = state.config_manager.lock().await.load();
-    let folders = config
-        .get("search_folders")
-        .and_then(serde_json::Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    json_response(
-        StatusCode::OK,
-        json!({ "folders": folders }),
-        &request_headers,
-    )
-}
-
-async fn update_search_folders(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let body: serde_json::Value = match request_json(request, &request_headers).await {
-        Ok(body) => body,
-        Err(response) => return response,
-    };
-    let Some(folders) = body.get("folders").and_then(serde_json::Value::as_array) else {
-        let mut response = text_response(StatusCode::BAD_REQUEST, "folders must be an array");
-        add_cors_headers(response.headers_mut(), &request_headers);
-        return response;
-    };
-    let updates = json!({ "search_folders": folders })
-        .as_object()
-        .expect("search folder update must be an object")
-        .clone();
-    match state.config_manager.lock().await.update(updates) {
-        Ok(config) => json_response(
-            StatusCode::OK,
-            json!({ "folders": config.get("search_folders").cloned().unwrap_or(serde_json::Value::Null) }),
-            &request_headers,
-        ),
-        Err(error) => json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error }),
-            &request_headers,
-        ),
-    }
+    let body: Input = api_body(request).await?;
+    state
+        .config_manager
+        .lock()
+        .await
+        .set_search_folders(body.folders.clone())?;
+    Ok(json!({ "folders": body.folders }))
 }
 
 fn is_background_content_type(content_type: &str) -> bool {
@@ -3243,7 +1569,7 @@ fn is_background_content_type(content_type: &str) -> bool {
     )
 }
 
-async fn get_background_image(state: &ServerState, request: Request) -> Response {
+async fn get_background_image(state: &ServerState, request: Request) -> ApiResult<Response> {
     let request_headers = request.headers().clone();
     let file_path = state.background_dir.join("custom-background");
     let bytes = match tokio::fs::read(&file_path).await {
@@ -3251,15 +1577,9 @@ async fn get_background_image(state: &ServerState, request: Request) -> Response
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             let mut response = text_response(StatusCode::NOT_FOUND, "Not found");
             add_cors_headers(response.headers_mut(), &request_headers);
-            return response;
+            return Ok(response);
         }
-        Err(error) => {
-            return json_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                json!({ "error": error.to_string() }),
-                &request_headers,
-            );
-        }
+        Err(error) => return Err(error.into()),
     };
     let metadata = read_json_object(&state.background_dir.join("custom-background.json")).await;
     let content_type = metadata
@@ -3276,129 +1596,35 @@ async fn get_background_image(state: &ServerState, request: Request) -> Response
         .headers_mut()
         .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     add_cors_headers(response.headers_mut(), &request_headers);
-    response
+    Ok(response)
 }
 
-async fn update_background_image(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let mut multipart = match Multipart::from_request(request, &()).await {
-        Ok(multipart) => multipart,
-        Err(error) => {
-            return json_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                json!({ "error": error.to_string() }),
-                &request_headers,
-            );
-        }
-    };
-    let mut upload = None;
-    loop {
-        let field = match multipart.next_field().await {
-            Ok(Some(field)) => field,
-            Ok(None) => break,
-            Err(error) => {
-                return json_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    json!({ "error": error.to_string() }),
-                    &request_headers,
-                );
-            }
-        };
-        if field.name() != Some("file") || field.file_name().is_none() {
-            continue;
-        }
-        let name = field.file_name().unwrap_or_default().to_string();
-        let content_type = field.content_type().unwrap_or_default().to_string();
-        let bytes = match field.bytes().await {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                return json_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    json!({ "error": error.to_string() }),
-                    &request_headers,
-                );
-            }
-        };
-        upload = Some((name, content_type, bytes));
-        break;
-    }
-    let Some((name, content_type, bytes)) = upload else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "No background image provided" }),
-            &request_headers,
-        );
-    };
+async fn update_background_image(state: &ServerState, request: Request) -> ApiResult {
+    let (name, content_type, bytes) =
+        uploaded_file(request, "No background image provided").await?;
     if bytes.len() > MAX_TEMP_UPLOAD_BYTES {
-        let mut response = text_response(
+        return Err(api_error(
             StatusCode::PAYLOAD_TOO_LARGE,
             "Image must be 20 MB or smaller",
-        );
-        add_cors_headers(response.headers_mut(), &request_headers);
-        return response;
+        ));
     }
     if !is_background_content_type(&content_type) {
-        return json_response(
+        return Err(api_error(
             StatusCode::BAD_REQUEST,
-            json!({ "error": "Use a PNG, JPEG, WebP, or GIF image" }),
-            &request_headers,
-        );
+            "Use a PNG, JPEG, WebP, or GIF image",
+        ));
     }
-    if let Err(error) = tokio::fs::create_dir_all(&state.background_dir).await {
-        return json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error.to_string() }),
-            &request_headers,
-        );
-    }
-    if let Err(error) =
-        tokio::fs::write(state.background_dir.join("custom-background"), &bytes).await
-    {
-        return json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error.to_string() }),
-            &request_headers,
-        );
-    }
-    let revision = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    let metadata = json!({
-        "contentType": content_type,
-        "name": name,
-        "revision": revision,
-    })
-    .as_object()
-    .expect("background metadata must be an object")
-    .clone();
-    if let Err(error) = write_json_object(
+    tokio::fs::create_dir_all(&state.background_dir).await?;
+    tokio::fs::write(state.background_dir.join("custom-background"), &bytes).await?;
+    let revision = unix_millis();
+    write_json_object(
         &state.background_dir.join("custom-background.json"),
-        &metadata,
+        json!({"contentType":content_type,"name":name,"revision":revision})
+            .as_object()
+            .unwrap(),
     )
-    .await
-    {
-        return json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error }),
-            &request_headers,
-        );
-    }
-    json_response(
-        StatusCode::OK,
-        json!({ "ok": true, "revision": revision }),
-        &request_headers,
-    )
-}
-
-async fn pick_config_folder(request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let folder = selected_folder_path().await;
-    json_response(
-        StatusCode::OK,
-        json!({ "folder": folder }),
-        &request_headers,
-    )
+    .await?;
+    Ok(json!({"ok":true,"revision":revision}))
 }
 
 async fn selected_folder_path() -> Option<String> {
@@ -3453,40 +1679,6 @@ fn display_folder_path(folder: &str) -> String {
         .map(|relative| format!("~/{relative}"))
         .unwrap_or_else(|| folder.to_string());
     display.trim_end_matches('/').to_string()
-}
-
-async fn get_machine_id(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let config = state.config_manager.lock().await.load();
-    let configured = config.get("machine_id").filter(|value| js_truthy(value));
-    let machine_id = configured.cloned().unwrap_or_else(|| {
-        std::env::var("MACHINE_ID")
-            .ok()
-            .filter(|value| !value.is_empty())
-            .or_else(|| {
-                hostname::get()
-                    .ok()
-                    .map(|value| value.to_string_lossy().into_owned())
-                    .filter(|value| !value.is_empty())
-            })
-            .map(serde_json::Value::String)
-            .unwrap_or_else(|| serde_json::Value::String("unknown".into()))
-    });
-    json_response(
-        StatusCode::OK,
-        json!({ "machineId": machine_id }),
-        &request_headers,
-    )
-}
-
-fn js_truthy(value: &serde_json::Value) -> bool {
-    match value {
-        serde_json::Value::Null => false,
-        serde_json::Value::Bool(value) => *value,
-        serde_json::Value::Number(value) => value.as_f64().is_some_and(|value| value != 0.0),
-        serde_json::Value::String(value) => !value.is_empty(),
-        serde_json::Value::Array(_) | serde_json::Value::Object(_) => true,
-    }
 }
 
 const AGENT_STATE_STORAGE_KEY: &str = "inferay-agent-state";
@@ -3550,20 +1742,12 @@ fn normalize_client_storage_entries(
     };
     raw_entries
         .iter()
-        .filter_map(|(key, value)| {
-            if key == AGENT_STATE_STORAGE_KEY {
-                return value
-                    .is_null()
-                    .then(|| (key.clone(), serde_json::Value::Null));
-            }
-            (should_sync_client_storage_key(key) && (value.is_string() || value.is_null()))
-                .then(|| (key.clone(), value.clone()))
+        .filter(|(key, value)| {
+            should_sync_client_storage_key(key) && (value.is_string() || value.is_null())
         })
+        .map(|(key, value)| (key.clone(), value.clone()))
         .collect()
 }
-
-const LEGACY_CHAT_PREFERENCES: &str = "inferay-db-preferences";
-const CHAT_PREFERENCES_MIGRATED: &str = "inferay.preferences-migrated-v1";
 
 fn is_chat_preference_key(key: &str) -> bool {
     [
@@ -3580,65 +1764,6 @@ fn is_chat_preference_key(key: &str) -> bool {
     .any(|prefix| key.starts_with(prefix))
 }
 
-fn migrate_chat_preferences(
-    snapshot: &mut serde_json::Map<String, Value>,
-    browser: &Value,
-) -> Result<(), String> {
-    if snapshot.get(CHAT_PREFERENCES_MIGRATED) == Some(&json!("1")) {
-        return Ok(());
-    }
-    let native_rows = snapshot
-        .get(LEGACY_CHAT_PREFERENCES)
-        .and_then(Value::as_str);
-    let source = native_rows.or_else(|| browser.as_str());
-    let native_wins = native_rows.is_some();
-    let mut imported = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    if let Some(source) = source {
-        let rows: Vec<Value> = serde_json::from_str(source)
-            .map_err(|error| format!("Invalid saved chat preferences: {error}"))?;
-        for row in rows {
-            let Some(key) = row.get("id").and_then(Value::as_str) else {
-                continue;
-            };
-            if !is_chat_preference_key(key) {
-                continue;
-            }
-            let Some(raw) = row.get("valueJson").and_then(Value::as_str) else {
-                continue;
-            };
-            if !seen.insert(key.to_owned()) {
-                continue;
-            }
-            let value: Value = serde_json::from_str(raw)
-                .map_err(|error| format!("Invalid saved preference {key}: {error}"))?;
-            let value = match value {
-                Value::String(_) | Value::Null => value,
-                value => Value::String(value.to_string()),
-            };
-            if native_wins || !snapshot.contains_key(key) {
-                imported.push((key.to_owned(), value));
-            }
-        }
-    }
-    // Preserve the original source on disk; the marker prevents stale imports resurrecting deletions.
-    if !snapshot.contains_key(LEGACY_CHAT_PREFERENCES) && browser.is_string() {
-        snapshot.insert(LEGACY_CHAT_PREFERENCES.into(), browser.clone());
-    }
-    snapshot.extend(imported);
-    snapshot.insert(CHAT_PREFERENCES_MIGRATED.into(), json!("1"));
-    Ok(())
-}
-
-fn client_storage_view(
-    mut entries: serde_json::Map<String, Value>,
-) -> serde_json::Map<String, Value> {
-    if entries.get(CHAT_PREFERENCES_MIGRATED) == Some(&json!("1")) {
-        entries.insert(LEGACY_CHAT_PREFERENCES.into(), Value::Null);
-    }
-    entries
-}
-
 async fn read_client_storage(path: &Path) -> Result<serde_json::Map<String, Value>, String> {
     match tokio::fs::read(path).await {
         Ok(bytes) => serde_json::from_slice(&bytes).map_err(|error| error.to_string()),
@@ -3647,83 +1772,23 @@ async fn read_client_storage(path: &Path) -> Result<serde_json::Map<String, Valu
     }
 }
 
-async fn get_client_storage(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
+async fn get_client_storage(state: &ServerState, request: Request) -> ApiResult {
     let requested_key = query_value(&request, "key");
-    let _write_guard = state.client_storage_write.lock().await;
-    let mut entries = match read_client_storage(&state.client_storage_path).await {
-        Ok(entries) => entries,
-        Err(error) => {
-            return json_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                json!({"error":error}),
-                &request_headers,
-            );
-        }
-    };
-    if entries.remove(AGENT_STATE_STORAGE_KEY).is_some()
-        && let Err(error) = write_json_object(&state.client_storage_path, &entries).await
-    {
-        return json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error }),
-            &request_headers,
-        );
-    }
-    let mut entries = client_storage_view(entries);
+    let _guard = state.client_storage_write.lock().await;
+    let mut entries = read_client_storage(&state.client_storage_path).await?;
     if let Some(key) = requested_key {
         entries.retain(|entry_key, _| entry_key == &key);
     }
-    json_response(
-        StatusCode::OK,
-        json!({ "entries": entries }),
-        &request_headers,
-    )
+    Ok(json!({"entries":entries}))
 }
 
-async fn update_client_storage(state: &ServerState, request: Request) -> Response {
-    let request_headers = request.headers().clone();
-    let body: serde_json::Value = match request_json(request, &request_headers).await {
-        Ok(body) => body,
-        Err(response) => return response,
-    };
-    let entries =
-        normalize_client_storage_entries(body.get("entries").unwrap_or(&serde_json::Value::Null));
-    let _write_guard = state.client_storage_write.lock().await;
-    let mut snapshot = match read_client_storage(&state.client_storage_path).await {
-        Ok(snapshot) => snapshot,
-        Err(error) => {
-            return json_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                json!({"error":error}),
-                &request_headers,
-            );
-        }
-    };
-    let migrate = body.get("migrateChatPreferences").and_then(Value::as_bool) == Some(true);
-    let mut changed = migrate && snapshot.get(CHAT_PREFERENCES_MIGRATED) != Some(&json!("1"));
-    if migrate
-        && let Err(error) = migrate_chat_preferences(
-            &mut snapshot,
-            body.get("legacyPreferences").unwrap_or(&Value::Null),
-        )
-    {
-        return json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({"error":error}),
-            &request_headers,
-        );
-    }
+async fn update_client_storage(state: &ServerState, request: Request) -> ApiResult {
+    let body: Value = api_body(request).await?;
+    let entries = normalize_client_storage_entries(&body["entries"]);
+    let _guard = state.client_storage_write.lock().await;
+    let mut snapshot = read_client_storage(&state.client_storage_path).await?;
+    let mut changed = false;
     for (key, value) in entries {
-        if key == CHAT_PREFERENCES_MIGRATED
-            || (key == LEGACY_CHAT_PREFERENCES
-                && snapshot.get(CHAT_PREFERENCES_MIGRATED) == Some(&json!("1")))
-        {
-            continue;
-        }
-        if key == AGENT_STATE_STORAGE_KEY && !value.is_null() {
-            continue;
-        }
         if value.is_null() && !is_chat_preference_key(&key) {
             changed |= snapshot.remove(&key).is_some();
         } else if snapshot.get(&key) != Some(&value) {
@@ -3731,19 +1796,10 @@ async fn update_client_storage(state: &ServerState, request: Request) -> Respons
             changed = true;
         }
     }
-    if changed && let Err(error) = write_json_object(&state.client_storage_path, &snapshot).await {
-        return json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error }),
-            &request_headers,
-        );
+    if changed {
+        write_json_object(&state.client_storage_path, &snapshot).await?;
     }
-    let payload = if migrate {
-        json!({"entries": client_storage_view(snapshot)})
-    } else {
-        json!({"ok":true})
-    };
-    json_response(StatusCode::OK, payload, &request_headers)
+    Ok(json!({"ok":true}))
 }
 
 async fn read_json_object(path: &Path) -> serde_json::Map<String, serde_json::Value> {
@@ -3762,36 +1818,6 @@ async fn write_json_object(
 ) -> Result<(), String> {
     let bytes = serde_json::to_vec_pretty(entries).map_err(|error| error.to_string())?;
     atomic_write::overwrite(path, &bytes).await
-}
-
-async fn request_json<T: for<'de> Deserialize<'de>>(
-    request: Request,
-    request_headers: &HeaderMap,
-) -> Result<T, Response> {
-    let bytes = to_bytes(request.into_body(), MAX_PROXY_BODY_BYTES)
-        .await
-        .map_err(|_| {
-            json_response(
-                StatusCode::PAYLOAD_TOO_LARGE,
-                json!({ "error": "Payload too large" }),
-                request_headers,
-            )
-        })?;
-    serde_json::from_slice(&bytes).map_err(|error| {
-        json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": error.to_string() }),
-            request_headers,
-        )
-    })
-}
-
-fn internal_task_error(error: impl std::fmt::Display, headers: &HeaderMap) -> Response {
-    json_response(
-        StatusCode::INTERNAL_SERVER_ERROR,
-        json!({ "error": error.to_string() }),
-        headers,
-    )
 }
 
 fn query_value(request: &Request, key: &str) -> Option<String> {
@@ -3859,7 +1885,7 @@ fn default_user_data_directory() -> PathBuf {
         .join("inferay")
 }
 
-async fn native_markdown(request: Request) -> Response {
+async fn native_markdown(request: Request) -> ApiResult<Response> {
     const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
     const MAX_LINES: usize = 50_000;
     #[derive(Deserialize)]
@@ -3875,31 +1901,28 @@ async fn native_markdown(request: Request) -> Response {
     let bytes = match to_bytes(request.into_body(), MAX_TEXT_BYTES * 6 + 1024).await {
         Ok(bytes) => bytes,
         Err(_) => {
-            return json_response(
+            return Err(api_error(
                 StatusCode::PAYLOAD_TOO_LARGE,
-                json!({"error": "Markdown request exceeds the payload limit"}),
-                &headers,
-            );
+                "Markdown request exceeds the payload limit",
+            ));
         }
     };
     let input: Input = match serde_json::from_slice(&bytes) {
         Ok(input) => input,
         Err(_) => {
-            return json_response(
+            return Err(api_error(
                 StatusCode::BAD_REQUEST,
-                json!({"error": "Expected text and optional streaming/chat booleans"}),
-                &headers,
-            );
+                "Expected text and optional streaming/chat booleans",
+            ));
         }
     };
     if input.text.len() > MAX_TEXT_BYTES
         || input.text.split('\n').take(MAX_LINES + 1).count() > MAX_LINES
     {
-        return json_response(
+        return Err(api_error(
             StatusCode::PAYLOAD_TOO_LARGE,
-            json!({"error": "Markdown exceeds the 2 MiB or 50,000 line preparation limit"}),
-            &headers,
-        );
+            "Markdown exceeds the 2 MiB or 50,000 line preparation limit",
+        ));
     }
     // Store exact source identity, including parser version and both dialect options.
     // The shared cache accounts for the key bytes as well as the response bytes.
@@ -3917,122 +1940,70 @@ async fn native_markdown(request: Request) -> Response {
                 "x-render-cache",
                 HeaderValue::from_static(if hit { "hit" } else { "miss" }),
             );
-            response
+            Ok(response)
         }
-        _ => json_response(
+        _ => Err(api_error(
             StatusCode::SERVICE_UNAVAILABLE,
-            json!({"error": "Markdown preparation unavailable"}),
-            &headers,
-        ),
+            "Markdown preparation unavailable",
+        )),
     }
 }
 
-async fn native_diff(request: Request) -> Response {
+async fn native_diff(request: Request) -> ApiResult<Response> {
     let request_headers = request.headers().clone();
-    let body = match to_bytes(request.into_body(), MAX_PROXY_BODY_BYTES).await {
-        Ok(body) => body,
-        Err(_) => {
-            return json_response(
-                StatusCode::PAYLOAD_TOO_LARGE,
-                json!({ "error": "Payload too large" }),
-                &request_headers,
-            );
-        }
-    };
-    let body: NativeDiffBody = match serde_json::from_slice(&body) {
-        Ok(body) => body,
-        Err(error) => {
-            return json_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                json!({ "error": error.to_string() }),
-                &request_headers,
-            );
-        }
-    };
-    if body.prepared {
-        let before = body.before.unwrap_or_default();
-        let after = body.after.unwrap_or_default();
-        let bytes =
-            body.edits
-                .iter()
-                .fold(before.len().saturating_add(after.len()), |total, edit| {
-                    total
-                        .saturating_add(edit.old_string.len())
-                        .saturating_add(edit.new_string.len())
-                });
-        if bytes > 2 * 1024 * 1024 || body.edits.len() > 1024 {
-            return json_response(
-                StatusCode::PAYLOAD_TOO_LARGE,
-                json!({ "error": "Edit diff exceeds the preparation limit" }),
-                &request_headers,
-            );
-        }
-        let task = render_jobs::run(move || {
-            #[derive(Serialize)]
-            struct PreparedResponse {
-                prepared: inferay_native_diff::PreparedEditDiff,
-            }
-            inferay_native_diff::prepare_edit_diff(&before, &after, &body.edits).map(|prepared| {
-                serde_json::to_vec(&PreparedResponse { prepared })
-                    .expect("prepared diff serialization")
-            })
+    let body: NativeDiffBody = api_body(request).await?;
+    let before = body.before.unwrap_or_default();
+    let after = body.after.unwrap_or_default();
+    let bytes = body
+        .edits
+        .iter()
+        .fold(before.len().saturating_add(after.len()), |total, edit| {
+            total
+                .saturating_add(edit.old_string.len())
+                .saturating_add(edit.new_string.len())
         });
-        return match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
-            Ok(Ok(Ok(bytes))) => {
-                json_bytes_response(StatusCode::OK, bytes.into(), &request_headers)
-            }
-            Ok(Ok(Err(error))) => json_response(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                json!({ "error": error }),
-                &request_headers,
-            ),
-            _ => json_response(
-                StatusCode::SERVICE_UNAVAILABLE,
-                json!({ "error": "Edit diff preparation unavailable" }),
-                &request_headers,
-            ),
-        };
+    if bytes > 2 * 1024 * 1024 || body.edits.len() > 1024 {
+        return Err(api_error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "Edit diff exceeds the preparation limit",
+        ));
     }
-    let (Some(before), Some(after)) = (body.before, body.after) else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            json!({ "error": "Missing before/after diff payload" }),
-            &request_headers,
-        );
-    };
-    if before.split('\n').take(MAX_NATIVE_DIFF_LINES + 1).count() > MAX_NATIVE_DIFF_LINES
-        || after.split('\n').take(MAX_NATIVE_DIFF_LINES + 1).count() > MAX_NATIVE_DIFF_LINES
-    {
-        return json_response(
-            StatusCode::SERVICE_UNAVAILABLE,
-            json!({
-                "ok": false,
-                "error": "Native diff unavailable",
-                "available": true,
-            }),
-            &request_headers,
-        );
-    }
-
     let task = render_jobs::run(move || {
-        let NativeResponse::Diff { mut diff } =
-            inferay_native_diff::execute_request(NativeRequest::Diff { before, after })
-        else {
-            unreachable!()
-        };
-        diff.computed_at = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        serde_json::to_vec(&json!({ "ok": true, "diff": diff })).expect("diff serialization")
+        #[derive(Serialize)]
+        struct PreparedResponse {
+            prepared: inferay_native_diff::PreparedEditDiff,
+        }
+        inferay_native_diff::prepare_edit_diff(&before, &after, &body.edits).map(|prepared| {
+            serde_json::to_vec(&PreparedResponse { prepared }).expect("prepared diff serialization")
+        })
     });
     match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
-        Ok(Ok(body)) => json_bytes_response(StatusCode::OK, body.into(), &request_headers),
-        _ => json_response(
-            StatusCode::SERVICE_UNAVAILABLE,
-            json!({ "error": "Native diff unavailable" }),
+        Ok(Ok(Ok(bytes))) => Ok(json_bytes_response(
+            StatusCode::OK,
+            bytes.into(),
             &request_headers,
-        ),
+        )),
+        Ok(Ok(Err(error))) => Err(api_error(StatusCode::UNPROCESSABLE_ENTITY, error)),
+        _ => Err(api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Edit diff preparation unavailable",
+        )),
+    }
+}
+
+async fn await_cached_render(
+    task: impl std::future::Future<Output = Result<(Option<axum::body::Bytes>, bool), String>>,
+    started: std::time::Instant,
+    headers: &HeaderMap,
+    not_found: Option<&str>,
+    unavailable: &str,
+) -> ApiResult<Response> {
+    match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
+        Ok(Ok((Some(body), hit))) => Ok(cached_render_response(body, hit, started, headers)),
+        Ok(Ok((None, _))) if not_found.is_some() => {
+            Err(api_error(StatusCode::NOT_FOUND, not_found.unwrap()))
+        }
+        _ => Err(api_error(StatusCode::SERVICE_UNAVAILABLE, unavailable)),
     }
 }
 
@@ -4100,14 +2071,7 @@ fn json_response(
     request_headers: &HeaderMap,
 ) -> Response {
     let body = serde_json::to_vec(&value).expect("JSON value serialization cannot fail");
-    let mut response = Response::new(Body::from(body));
-    *response.status_mut() = status;
-    response.headers_mut().insert(
-        CONTENT_TYPE,
-        HeaderValue::from_static("application/json;charset=utf-8"),
-    );
-    add_cors_headers(response.headers_mut(), request_headers);
-    response
+    json_bytes_response(status, body.into(), request_headers)
 }
 
 async fn serve_dist_path(
@@ -4290,9 +2254,8 @@ async fn native_websocket(
 }
 
 async fn serve_native_websocket(state: ServerState, socket: WebSocket) {
-    let mut connection = state.native_chat_service.connect();
-    let client = connection.client();
-    let mut local_events = state.native_git.subscribe();
+    let client_id = state.next_client_id.fetch_add(1, Ordering::Relaxed);
+    let (sender, mut outgoing) = broadcast::channel(512);
     let mut connection_reset = state.connection_reset.subscribe();
     let (mut sink, mut stream) = socket.split();
     loop {
@@ -4301,12 +2264,12 @@ async fn serve_native_websocket(state: ServerState, socket: WebSocket) {
             incoming = stream.next() => match incoming {
                 Some(Ok(AxumMessage::Text(text))) => {
                     if let Ok(message) = serde_json::from_str::<Value>(&text) {
-                        handle_native_websocket_message(&state, &client, message).await;
+                        handle_native_websocket_message(&state, client_id, &sender, message).await;
                     }
                 }
                 Some(Ok(AxumMessage::Binary(bytes))) => {
                     if let Ok(message) = serde_json::from_slice::<Value>(&bytes) {
-                        handle_native_websocket_message(&state, &client, message).await;
+                        handle_native_websocket_message(&state, client_id, &sender, message).await;
                     }
                 }
                 Some(Ok(AxumMessage::Ping(bytes))) => {
@@ -4315,35 +2278,24 @@ async fn serve_native_websocket(state: ServerState, socket: WebSocket) {
                 Some(Ok(AxumMessage::Pong(_))) => {}
                 Some(Ok(AxumMessage::Close(_))) | Some(Err(_)) | None => break,
             },
-            outgoing = connection.recv_value() => match outgoing {
+            message = outgoing.recv() => match message {
                 Ok(message) => {
                     if sink.send(AxumMessage::Text(message.to_string().into())).await.is_err() { break; }
                 }
                 Err(broadcast::error::RecvError::Lagged(_)) => continue,
                 Err(broadcast::error::RecvError::Closed) => break,
             },
-            event = local_events.recv() => match event {
-                Ok(event) => {
-                    let message = json!({
-                        "type": "file:changed",
-                        "cwd": event.cwd,
-                        "file": event.file,
-                        "eventType": event.event_type,
-                    });
-                    if sink.send(AxumMessage::Text(message.to_string().into())).await.is_err() { break; }
-                }
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(broadcast::error::RecvError::Closed) => break,
-            },
+
         }
     }
-    let _ = state.native_chat_service.detach(client).await;
+    state.chat_runtime.detach_client(client_id).await;
     let _ = sink.close().await;
 }
 
 async fn handle_native_websocket_message(
     state: &ServerState,
-    client: &native_chat_service::NativeChatClient,
+    client_id: chat_runtime::ClientId,
+    sender: &broadcast::Sender<Value>,
     message: Value,
 ) {
     let Some(message_type) = message.get("type").and_then(Value::as_str) else {
@@ -4355,123 +2307,78 @@ async fn handle_native_websocket_message(
         .unwrap_or_default();
     match message_type {
         "chat:destroy" if !pane_id.is_empty() => {
-            let _ = state.native_chat_service.destroy(pane_id).await;
+            state.chat_runtime.destroy_session(pane_id).await;
         }
         "chat:reconnect" if !pane_id.is_empty() => {
-            let workspace = state
+            let pane = state
                 .agent_state_store
                 .lock()
                 .expect("agent state lock poisoned")
-                .read();
-            let workspace = match workspace {
-                Ok(workspace) => workspace,
+                .pane(pane_id);
+            let pane_exists = match pane {
+                Ok(pane) => pane.is_some(),
                 Err(error) => {
-                    client.send_value(json!({"type":"chat:error","paneId":pane_id,"error":format!("Could not restore saved workspace: {error}")}));
+                    let _ = sender.send(json!({"type":"chat:error","paneId":pane_id,"error":format!("Could not restore saved workspace: {error}")}));
                     return;
                 }
             };
-            let pane_exists = workspace["groups"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .flat_map(|group| group["panes"].as_array().into_iter().flatten())
-                .any(|pane| pane["id"] == pane_id);
-            if pane_exists {
-                migrate_legacy_image_handoff(state, pane_id).await;
-            } else if let Err(error) = state.chat_runtime.cancel_handoffs(pane_id).await {
-                client.send_value(json!({"type":"chat:error","paneId":pane_id,"error":format!("Could not cancel removed chat handoff: {error}")}));
+            if !pane_exists && let Err(error) = state.chat_runtime.cancel_handoffs(pane_id).await {
+                let _ = sender.send(json!({"type":"chat:error","paneId":pane_id,"error":format!("Could not cancel removed chat handoff: {error}")}));
                 return;
             }
-            let _ = state
-                .native_chat_service
+            state
+                .chat_runtime
                 .reconnect(
-                    client,
                     pane_id,
+                    client_id,
+                    sender.clone(),
                     message.get("agentKind").and_then(Value::as_str),
                     message.get("sessionId").and_then(Value::as_str),
-                    message.get("cwd").and_then(Value::as_str),
+                    message
+                        .get("cwd")
+                        .and_then(Value::as_str)
+                        .filter(|path| !path.is_empty())
+                        .and_then(|path| state.allowed_paths.resolve_allowed_local_path(path)),
                 )
                 .await;
         }
         "chat:stop" if !pane_id.is_empty() => {
-            let _ = state.native_chat_service.stop(pane_id).await;
+            state.chat_runtime.stop_generation(pane_id).await;
         }
         "chat:send" if !pane_id.is_empty() => {
-            let Some(text) = message.get("text").and_then(Value::as_str) else {
-                return;
+            let mut input = match chat_runtime::SendMessageInput::deserialize(&message) {
+                Ok(input) => input,
+                Err(error) => {
+                    let _ = sender.send(json!({"type":"chat:error","paneId":pane_id,"error":format!("Invalid chat request: {error}")}));
+                    return;
+                }
             };
-            let cwd_provided = message
-                .get("cwd")
-                .and_then(Value::as_str)
-                .is_some_and(|cwd| !cwd.is_empty());
-            let reference_paths_provided = message.get("referencePaths").is_some_and(|value| {
-                !matches!(value, Value::Null | Value::Bool(false))
-                    && !value.as_str().is_some_and(str::is_empty)
-            });
-            let reasoning_level_provided = message.get("reasoningLevel").is_some();
-            let reference_paths = normalize_chat_paths(state, message.get("referencePaths"));
-            let include_workspace = cwd_provided || !reference_paths.is_empty();
-            let agent_kind = message
-                .get("agentKind")
-                .and_then(Value::as_str)
-                .unwrap_or("claude");
-            let input = native_chat_service::NativeChatSendRequest {
-                expand_commands: message
-                    .get("expandCommands")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-                command_id: message
-                    .get("commandId")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned),
-                command_args: message
-                    .get("commandArgs")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned),
-                pane_id: pane_id.into(),
-                client_message_id: message
-                    .get("messageId")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned),
-                agent_kind: agent_kind.into(),
-                session_id: message
-                    .get("sessionId")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned),
-                cwd: normalize_chat_cwd(state, message.get("cwd")),
-                cwd_provided,
-                model: resolve_agent_model(
-                    agent_kind,
-                    message.get("model").and_then(Value::as_str),
-                ),
-                reasoning_level: message
-                    .get("reasoningLevel")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned),
-                reasoning_level_provided,
-                reference_paths,
-                reference_paths_provided,
-                display_text: message
-                    .get("displayText")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned),
-                images: normalize_chat_paths(state, message.get("images")),
-                text: text.into(),
-                include_workspace,
-            };
-            state.native_chat_service.send(client, input);
+            if message.get("agentKind").is_none() {
+                input.agent_kind = "claude".into();
+            }
+            input.cwd_provided = !input.cwd.as_os_str().is_empty();
+            input.reasoning_level_provided = message.get("reasoningLevel").is_some();
+            input.reference_paths_provided = message.get("referencePaths").is_some();
+            input.cwd = normalize_chat_cwd(state, Some(&input.cwd));
+            input.reference_paths = normalize_chat_paths(state, &input.reference_paths);
+            input.images = normalize_chat_paths(state, &input.images);
+            input.include_workspace = input.cwd_provided || !input.reference_paths.is_empty();
+            input.client_id = Some(client_id);
+            input.client_sender = Some(sender.clone());
+            let runtime = state.chat_runtime.clone();
+            tokio::spawn(async move { runtime.send_message(input).await });
         }
         "chat:btw" if !pane_id.is_empty() => {
             let Some(text) = message.get("text").and_then(Value::as_str) else {
                 return;
             };
-            let cwd = normalize_chat_cwd(state, message.get("cwd"));
+            let cwd = normalize_chat_cwd(state, message["cwd"].as_str().map(Path::new));
             let pane_id = pane_id.to_string();
             let text = text.to_string();
             let resolver = state.agent_command_resolver.clone();
-            let sender = client.value_sender();
+            let sender = sender.clone();
             tokio::spawn(async move {
-                btw::run_btw_chat_message(&pane_id, &text, &cwd, &resolver, |message| {
+                one_shot::run_btw_chat_message(&pane_id, &text, &cwd, &resolver, |message| {
                     let _ = sender.send(message);
                 })
                 .await;
@@ -4495,7 +2402,7 @@ async fn handle_native_websocket_message(
             } else {
                 response["error"] = json!(result.error);
             }
-            client.send_value(response);
+            let _ = sender.send(response);
         }
         "file:read" => {
             let response = match message.get("path").and_then(Value::as_str) {
@@ -4506,7 +2413,7 @@ async fn handle_native_websocket_message(
                     "error": "No path provided",
                 }),
             };
-            client.send_value(response);
+            let _ = sender.send(response);
         }
         "subscribe" | "unsubscribe" => {}
         _ => {}
@@ -4542,30 +2449,23 @@ async fn websocket_file_read_response(state: &ServerState, path: &str) -> Value 
     }
 }
 
-fn normalize_chat_cwd(state: &ServerState, value: Option<&Value>) -> PathBuf {
+fn normalize_chat_cwd(state: &ServerState, value: Option<&Path>) -> PathBuf {
     value
-        .and_then(Value::as_str)
         .and_then(|path| state.allowed_paths.resolve_allowed_local_path(path))
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| state.allowed_paths.project_root().to_path_buf())
 }
 
-fn normalize_chat_paths(state: &ServerState, value: Option<&Value>) -> Vec<PathBuf> {
+fn normalize_chat_paths(state: &ServerState, paths: &[impl AsRef<Path>]) -> Vec<PathBuf> {
     let mut seen = std::collections::HashSet::new();
-    value
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
+    paths
+        .iter()
+        .filter_map(|path| path.as_ref().to_str())
         .map(str::trim)
         .filter(|path| !path.is_empty())
         .filter_map(|path| state.allowed_paths.resolve_allowed_local_path(path))
         .filter(|path| seen.insert(path.clone()))
         .collect()
-}
-
-fn resolve_agent_model(agent_kind: &str, requested: Option<&str>) -> Option<String> {
-    native_chat::resolve_agent_model(agent_kind, requested)
 }
 
 fn is_trusted_local_request(headers: &HeaderMap, auth_token: &str) -> bool {
@@ -4704,7 +2604,6 @@ mod tests {
             user_data_dir: root.join("user-data"),
             auth_token: "test-token".into(),
             release_api_url: Some("http://127.0.0.1:9/release".into()),
-            automation_routes_enabled: false,
             live_reload: false,
         }
     }
@@ -4826,101 +2725,51 @@ mod tests {
     async fn validates_forge_requests_without_the_compatibility_backend() {
         let root = TempDir::new().unwrap();
         let app = router(test_config(root.path()));
-
-        let (status, value) = call_json(
-            &app,
-            Method::POST,
-            "/api/forge/clone".into(),
-            Some(json!({})),
-        )
-        .await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(value, json!({ "error": "Missing Git URL" }));
-
-        let (status, value) = call_json(
-            &app,
-            Method::POST,
-            "/api/forge/clone".into(),
-            Some(json!({ "gitUrl": "https://github.com/inferay/example.git" })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(value, json!({ "error": "Missing clone location" }));
-
-        let (status, value) = call_json(
-            &app,
-            Method::POST,
-            "/api/forge/clone".into(),
-            Some(json!({
-                "gitUrl": "https://gitlab.com/inferay/example.git",
-                "cloneDirectory": root.path(),
-            })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-        assert_eq!(
-            value,
-            json!({ "error": "Only GitHub clone URLs are supported" })
-        );
-
-        let (status, value) = call_json(
-            &app,
-            Method::POST,
-            "/api/forge/connect".into(),
-            Some(json!({ "provider": "gitlab" })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(
-            value,
-            json!({ "error": "Only GitHub connect is supported right now" })
-        );
+        for (route, body, status, message) in [
+            (
+                "clone",
+                json!({}),
+                StatusCode::BAD_REQUEST,
+                "Missing Git URL",
+            ),
+            (
+                "clone",
+                json!({"gitUrl":"https://github.com/inferay/example.git"}),
+                StatusCode::BAD_REQUEST,
+                "Missing clone location",
+            ),
+            (
+                "clone",
+                json!({"gitUrl":"https://gitlab.com/inferay/example.git", "cloneDirectory":root.path()}),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Only GitHub clone URLs are supported",
+            ),
+            (
+                "connect",
+                json!({"provider":"gitlab"}),
+                StatusCode::BAD_REQUEST,
+                "Only GitHub connect is supported right now",
+            ),
+        ] {
+            let actual = call_json(
+                &app,
+                Method::POST,
+                format!("/api/forge/{route}"),
+                Some(body),
+            )
+            .await;
+            assert_eq!(
+                actual,
+                (status, json!({"error":message})),
+                "{route}: {message}"
+            );
+        }
     }
 
     #[tokio::test]
-    async fn persists_automations_and_validates_one_shot_routes_without_bun() {
+    async fn validates_one_shot_requests() {
         let root = TempDir::new().unwrap();
-        let mut config = test_config(root.path());
-        config.automation_routes_enabled = true;
-        let automations_path = config.user_data_dir.join("automations.json");
-        let app = router(config);
-
-        let (status, value) = call_json(
-            &app,
-            Method::PUT,
-            "/api/automations".into(),
-            Some(json!({
-                "flows": [{ "id": "flow-1", "nodes": [{ "prompt": "research" }] }],
-                "ignored": true,
-            })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(
-            value,
-            json!({ "flows": [{ "id": "flow-1", "nodes": [{ "prompt": "research" }] }] })
-        );
-        let persisted: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(&automations_path).unwrap()).unwrap();
-        assert_eq!(persisted, value);
-
-        let (status, value) = call_json(&app, Method::GET, "/api/automations".into(), None).await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(
-            value,
-            json!({ "flows": [{ "id": "flow-1", "nodes": [{ "prompt": "research" }] }] })
-        );
-
-        let (status, value) = call_json(
-            &app,
-            Method::POST,
-            "/api/automations/run".into(),
-            Some(json!({})),
-        )
-        .await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(value, json!({ "error": "prompt is required" }));
-
+        let app = router(test_config(root.path()));
         let (status, value) = call_json(
             &app,
             Method::POST,
@@ -4978,38 +2827,22 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         std::fs::write(root.path().join("staged.txt"), "staged\n").unwrap();
         run_git(root.path(), &["add", "staged.txt"]);
 
-        let mut config = test_config(root.path());
-        config.automation_routes_enabled = true;
-        let app = router(config);
+        let app = router(test_config(root.path()));
 
-        let (status, value) = call_json(
+        let value = post_json(
             &app,
-            Method::POST,
             "/api/generate-title".into(),
-            Some(json!({ "message": "Move server behavior" })),
+            json!({ "message": "Move server behavior" }),
         )
         .await;
-        assert_eq!(status, StatusCode::OK);
         assert_eq!(value, json!({ "title": "Generated Rust Title" }));
 
-        let (status, value) = call_json(
+        let value = post_json(
             &app,
-            Method::POST,
-            "/api/automations/run".into(),
-            Some(json!({ "prompt": "research the repository", "cwd": root.path() })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(value, json!({ "result": "automation result" }));
-
-        let (status, value) = call_json(
-            &app,
-            Method::POST,
             "/api/git/generate-commit-message".into(),
-            Some(json!({ "cwd": root.path() })),
+            json!({ "cwd": root.path() }),
         )
         .await;
-        assert_eq!(status, StatusCode::OK);
         assert_eq!(
             value,
             json!({ "message": "Port one-shot services to Rust" })
@@ -5027,22 +2860,14 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             (true, false, "miss"),
             (false, true, "miss"),
         ] {
-            let response = app
-                .clone()
-                .oneshot(
-                    HttpRequest::builder()
-                        .method(Method::POST)
-                        .uri("/api/native/markdown")
-                        .header(HOST, "127.0.0.1:4001")
-                        .header("sec-fetch-site", "same-origin")
-                        .header(COOKIE, "inferay_local_auth=test-token")
-                        .body(Body::from(
-                            json!({"text": text, "streaming": streaming, "chat": chat}).to_string(),
-                        ))
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
+            let response = call_http(
+                &app,
+                HttpRequest::builder()
+                    .method(Method::POST)
+                    .uri("/api/native/markdown"),
+                Body::from(json!({"text": text, "streaming": streaming, "chat": chat}).to_string()),
+            )
+            .await;
             assert_eq!(response.status(), StatusCode::OK);
             assert_eq!(response.headers()["x-render-cache"], expected_cache);
             let bytes = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
@@ -5092,53 +2917,20 @@ printf '{"type":"result","result":"%s"}\n' "$result"
     }
 
     #[tokio::test]
-    async fn serves_native_diff_without_the_compatibility_backend() {
-        let root = TempDir::new().unwrap();
-        let response = router(test_config(root.path()))
-            .oneshot(
-                HttpRequest::builder()
-                    .method(Method::POST)
-                    .uri("/api/native/diff")
-                    .header(HOST, "127.0.0.1:4001")
-                    .header("sec-fetch-site", "same-origin")
-                    .header(COOKIE, "inferay_local_auth=test-token")
-                    .body(Body::from(
-                        json!({ "before": "alpha\nbeta", "after": "alpha\ngamma" }).to_string(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
-        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(value["ok"], true);
-        assert_eq!(
-            value["diff"]["stats"],
-            json!({ "added": 1, "removed": 1, "unchanged": 1 })
-        );
-        assert!(value["diff"]["computedAt"].as_u64().unwrap() > 0);
-    }
-
-    #[tokio::test]
     async fn prepares_sequential_edit_spans_without_legacy_diff_payload() {
         let root = TempDir::new().unwrap();
         let app = router(test_config(root.path()));
-        let (status, value) = call_json(
+        let value = post_json(
             &app,
-            Method::POST,
             "/api/native/diff".into(),
-            Some(json!({
-                "prepared": true,
+            json!({
                 "edits": [
                     { "old_string": "const value = 1;", "new_string": "const value = 2;" },
                     { "old_string": "2", "new_string": "3" }
                 ]
-            })),
+            }),
         )
         .await;
-        assert_eq!(status, StatusCode::OK);
         assert!(value.get("diff").is_none());
         let lines = value["prepared"]["hunks"][0]["lines"].as_array().unwrap();
         assert_eq!(lines[0]["text"], "const value = 1;");
@@ -5155,7 +2947,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             Method::POST,
             "/api/native/diff".into(),
             Some(json!({
-                "prepared": true, "before": "x".repeat(2 * 1024 * 1024 + 1), "after": ""
+                "before": "x".repeat(2 * 1024 * 1024 + 1), "after": ""
             })),
         )
         .await;
@@ -5163,7 +2955,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
     }
 
     #[test]
-    fn normalizes_client_storage_like_the_previous_bun_route() {
+    fn accepts_only_syncable_preference_values() {
         let entries = normalize_client_storage_entries(&json!({
             AGENT_STATE_STORAGE_KEY: "{\"groups\":[]}",
             "agent-layout-mode": "grid",
@@ -5185,84 +2977,11 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             .unwrap()
             .clone()
         );
-        assert_eq!(
-            normalize_client_storage_entries(&json!({ AGENT_STATE_STORAGE_KEY: null })),
-            json!({ AGENT_STATE_STORAGE_KEY: null })
-                .as_object()
-                .unwrap()
-                .clone()
+        assert!(
+            normalize_client_storage_entries(&json!({ AGENT_STATE_STORAGE_KEY: null })).is_empty()
         );
         assert!(normalize_client_storage_entries(&serde_json::Value::Null).is_empty());
         assert!(normalize_client_storage_entries(&json!(["not", "an", "object"])).is_empty());
-    }
-
-    #[tokio::test]
-    async fn chat_preference_import_is_acknowledged_once_and_preserves_failed_sources() {
-        let root = TempDir::new().unwrap();
-        let config = test_config(root.path());
-        let path = config.user_data_dir.join("client-storage.json");
-        let app = router(config);
-        let legacy = json!([
-            {"id":"inferay-chat-input-pane", "valueJson":"\"draft\"", "updatedAt":1},
-            {"id":"inferay-chat-model-pane", "valueJson":"\"gpt-6-astra\"", "updatedAt":1},
-            {"id":"inferay-chat-input-pane", "valueJson":"\"stale duplicate\"", "updatedAt":2},
-            {"id":"inferay-chat-pane", "valueJson":"[]", "updatedAt":1}
-        ])
-        .to_string();
-        let (status, imported) = call_json(
-            &app,
-            Method::POST,
-            "/api/client-storage".into(),
-            Some(json!({
-                "migrateChatPreferences":true, "legacyPreferences":legacy
-            })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(imported["entries"]["inferay-chat-input-pane"], "draft");
-        assert_eq!(
-            imported["entries"]["inferay-chat-model-pane"],
-            "gpt-6-astra"
-        );
-        assert!(imported["entries"].get("inferay-chat-pane").is_none());
-        assert!(imported["entries"][LEGACY_CHAT_PREFERENCES].is_null());
-        let (status, _) = call_json(
-            &app,
-            Method::PUT,
-            "/api/client-storage".into(),
-            Some(json!({
-                "entries":{"inferay-chat-input-pane":null}
-            })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        let (_, retry) = call_json(
-            &app,
-            Method::POST,
-            "/api/client-storage".into(),
-            Some(json!({
-                "migrateChatPreferences":true, "legacyPreferences":legacy
-            })),
-        )
-        .await;
-        assert_eq!(
-            retry["entries"].get("inferay-chat-input-pane"),
-            Some(&Value::Null)
-        );
-        let stored: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(stored[LEGACY_CHAT_PREFERENCES], legacy);
-        std::fs::write(&path, b"{broken").unwrap();
-        let (status, _) = call_json(
-            &app,
-            Method::POST,
-            "/api/client-storage".into(),
-            Some(json!({
-                "migrateChatPreferences":true, "legacyPreferences":legacy
-            })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-        assert_eq!(std::fs::read(&path).unwrap(), b"{broken");
     }
 
     #[tokio::test]
@@ -5272,11 +2991,10 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         let storage_path = config.user_data_dir.join("client-storage.json");
         let app = router(config);
 
-        let (status, value) = call_json(
+        let value = post_json(
             &app,
-            Method::POST,
             "/api/client-storage".into(),
-            Some(json!({
+            json!({
                 "entries": {
                     AGENT_STATE_STORAGE_KEY: "{\"groups\":[]}",
                     "agent-layout-mode": "grid",
@@ -5284,15 +3002,12 @@ printf '{"type":"result","result":"%s"}\n' "$result"
                     "unknown-key": "ignored",
                     "inferay-custom-theme": "night",
                 }
-            })),
+            }),
         )
         .await;
-        assert_eq!(status, StatusCode::OK);
         assert_eq!(value, json!({ "ok": true }));
 
-        let (status, value) =
-            call_json(&app, Method::GET, "/api/client-storage".into(), None).await;
-        assert_eq!(status, StatusCode::OK);
+        let value = get_json(&app, "/api/client-storage".into()).await;
         assert_eq!(
             value,
             json!({
@@ -5304,14 +3019,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             })
         );
 
-        let (status, value) = call_json(
-            &app,
-            Method::GET,
-            "/api/client-storage?key=inferay-custom-theme".into(),
-            None,
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
+        let value = get_json(&app, "/api/client-storage?key=inferay-custom-theme".into()).await;
         assert_eq!(
             value,
             json!({ "entries": { "inferay-custom-theme": "night" } })
@@ -5345,30 +3053,9 @@ printf '{"type":"result","result":"%s"}\n' "$result"
     }
 
     #[tokio::test]
-    async fn serves_config_and_background_routes_without_the_compatibility_backend() {
+    async fn persists_search_folders_and_serves_background_images() {
         let root = TempDir::new().unwrap();
         let app = router(test_config(root.path()));
-
-        let (status, config) = call_json(&app, Method::GET, "/api/config".into(), None).await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(config["openai"]["model"], "gpt-5.6-sol");
-        assert_eq!(config["build_agent"], "claude");
-
-        let (status, config) = call_json(
-            &app,
-            Method::PUT,
-            "/api/config".into(),
-            Some(json!({
-                "openai": { "api_key": "secret" },
-                "build_agent": "codex",
-                "machine_id": "configured-machine",
-            })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(config["openai"]["api_key"], "secret");
-        assert_eq!(config["openai"]["model"], "gpt-5.6-sol");
-        assert_eq!(config["build_agent"], "codex");
 
         let (status, value) = call_json(
             &app,
@@ -5380,14 +3067,8 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         assert_eq!(status, StatusCode::OK);
         assert_eq!(value, json!({ "folders": ["~/Code", "~/Work"] }));
 
-        let (status, value) =
-            call_json(&app, Method::GET, "/api/config/search-folders".into(), None).await;
-        assert_eq!(status, StatusCode::OK);
+        let value = get_json(&app, "/api/config/search-folders".into()).await;
         assert_eq!(value, json!({ "folders": ["~/Code", "~/Work"] }));
-
-        let (status, value) = call_json(&app, Method::GET, "/api/machine-id".into(), None).await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(value, json!({ "machineId": "configured-machine" }));
 
         let boundary = "inferay-test-boundary";
         let image = b"test-png-bytes";
@@ -5397,42 +3078,30 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         .into_bytes();
         multipart.extend_from_slice(image);
         multipart.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
-        let response = app
-            .clone()
-            .oneshot(
-                HttpRequest::builder()
-                    .method(Method::POST)
-                    .uri("/api/config/background-image")
-                    .header(HOST, "127.0.0.1:4001")
-                    .header("sec-fetch-site", "same-origin")
-                    .header(COOKIE, "inferay_local_auth=test-token")
-                    .header(
-                        CONTENT_TYPE,
-                        format!("multipart/form-data; boundary={boundary}"),
-                    )
-                    .body(Body::from(multipart))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let response = call_http(
+            &app,
+            HttpRequest::builder()
+                .method(Method::POST)
+                .uri("/api/config/background-image")
+                .header(
+                    CONTENT_TYPE,
+                    format!("multipart/form-data; boundary={boundary}"),
+                ),
+            Body::from(multipart),
+        )
+        .await;
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(value["ok"], true);
         assert!(value["revision"].as_u64().unwrap() > 0);
 
-        let response = app
-            .oneshot(
-                HttpRequest::builder()
-                    .uri("/api/config/background-image")
-                    .header(HOST, "127.0.0.1:4001")
-                    .header("sec-fetch-site", "same-origin")
-                    .header(COOKIE, "inferay_local_auth=test-token")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let response = call_http(
+            &app,
+            HttpRequest::builder().uri("/api/config/background-image"),
+            Body::empty(),
+        )
+        .await;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()[CONTENT_TYPE], "image/png");
         assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
@@ -5466,25 +3135,22 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         .unwrap();
         let app = router(test_config(root.path()));
 
-        let (status, prompts) = call_json(&app, Method::GET, "/api/prompts".into(), None).await;
-        assert_eq!(status, StatusCode::OK);
+        let prompts = get_json(&app, "/api/prompts".into()).await;
         assert_eq!(prompts.as_array().unwrap().len(), 1);
         assert_eq!(prompts[0]["_id"], "builtin-review");
 
-        let (status, created) = call_json(
+        let created = post_json(
             &app,
-            Method::POST,
             "/api/prompts".into(),
-            Some(json!({
+            json!({
                 "name": "Explain",
                 "description": "Explain code",
                 "command": "explain",
                 "promptTemplate": "Explain {args}",
                 "tags": ["learning"],
-            })),
+            }),
         )
         .await;
-        assert_eq!(status, StatusCode::OK);
         assert_eq!(created["isBuiltIn"], false);
         assert_eq!(created["category"], "custom");
         let id = created["_id"].as_str().unwrap();
@@ -5503,14 +3169,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         assert_eq!(updated["name"], "Explain Carefully");
         assert_eq!(updated["tags"], json!(["learning", "code"]));
 
-        let (status, value) = call_json(
-            &app,
-            Method::POST,
-            format!("/api/prompts/{id}/usage"),
-            Some(json!({})),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
+        let value = post_json(&app, format!("/api/prompts/{id}/usage"), json!({})).await;
         assert_eq!(value, json!({ "ok": true }));
 
         let cwd = root.path().to_string_lossy();
@@ -5544,8 +3203,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             "/api/agent-context",
             &[("cwd", cwd.as_ref()), ("paneId", "pane-1")],
         );
-        let (status, context) = call_json(&app, Method::GET, context_uri, None).await;
-        assert_eq!(status, StatusCode::OK);
+        let context = get_json(&app, context_uri).await;
         assert_eq!(context["scope"], "project");
         assert_eq!(
             context["effectiveInstructions"],
@@ -5581,48 +3239,27 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         std::fs::create_dir_all(search_root.join("AlphaProject/.git")).unwrap();
         std::fs::create_dir_all(search_root.join("nested/BetaProject")).unwrap();
         std::fs::create_dir_all(search_root.join("Hidden.app")).unwrap();
-        std::fs::create_dir_all(root.path().join("scripts")).unwrap();
-        std::fs::write(
-            root.path().join("scripts/config.local.yaml"),
-            format!(
-                "search_folders:\n  - {}\n",
-                serde_json::to_string(&search_root.to_string_lossy()).unwrap()
-            ),
-        )
-        .unwrap();
+        ConfigManager::new(root.path().join("user-data/settings.json"))
+            .set_search_folders(vec![search_root.to_string_lossy().into_owned()])
+            .unwrap();
         let app = router(test_config(root.path()));
 
         let browse_uri = query_path(
             "/api/agent/directories",
             &[("path", search_root.to_string_lossy().as_ref())],
         );
-        let (status, value) = call_json(&app, Method::GET, browse_uri, None).await;
-        assert_eq!(status, StatusCode::OK);
+        let value = get_json(&app, browse_uri).await;
         assert_eq!(value["directories"].as_array().unwrap().len(), 2);
         assert_eq!(value["directories"][0]["name"], "AlphaProject");
         assert_eq!(value["directories"][1]["name"], "nested");
         assert_eq!(value["parent"], root.path().to_string_lossy().as_ref());
 
-        let (status, value) = call_json(
-            &app,
-            Method::GET,
-            "/api/agent/directories?q=beta".into(),
-            None,
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
+        let value = get_json(&app, "/api/agent/directories?q=beta".into()).await;
         assert_eq!(value["directories"].as_array().unwrap().len(), 1);
         assert_eq!(value["directories"][0]["name"], "BetaProject");
         assert_eq!(value["parent"], serde_json::Value::Null);
 
-        let (status, value) = call_json(
-            &app,
-            Method::GET,
-            "/api/agent/directories?quickPicks=true".into(),
-            None,
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
+        let value = get_json(&app, "/api/agent/directories?quickPicks=true".into()).await;
         assert_eq!(value["quickPicks"].as_array().unwrap().len(), 1);
         assert_eq!(value["quickPicks"][0]["name"], "AlphaProject");
         assert_eq!(value["quickPicks"][0]["isGitRepo"], true);
@@ -5638,20 +3275,13 @@ printf '{"type":"result","result":"%s"}\n' "$result"
     }
 
     #[tokio::test]
-    async fn workspace_panels_import_once_and_merge_independent_updates() {
+    async fn workspace_panels_merge_independent_updates() {
         let root = TempDir::new().unwrap();
         let app = router(test_config(root.path()));
         let route = "/api/workspace/panels";
-        let (status, initial) = call_json(
-            &app,
-            Method::POST,
-            route.into(),
-            Some(json!({
-                "workspaceId":"/repo", "legacy":{"mainViewMode":"graph", "selectedCommitHash":"abc"}
-            })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
+        let initial = post_json(&app, route.into(), json!({
+                "workspaceId":"/repo", "patch":{"mainViewMode":"graph", "selectedCommitHash":"abc", "selectedCommitIds":["abc"]}
+            })).await;
         assert_eq!(initial["session"]["selectedCommitIds"], json!(["abc"]));
         let (first, second) = tokio::join!(
             call_json(
@@ -5671,263 +3301,39 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         assert_eq!(second.0, StatusCode::OK);
         drop(app);
         let restarted = router(test_config(root.path()));
-        let (status, restored) = call_json(&restarted, Method::POST, route.into(), Some(json!({
-            "workspaceId":"/repo", "legacy":{"selectedCommitHash":"stale", "sidebarVisible":true}
-        }))).await;
-        assert_eq!(status, StatusCode::OK);
+        let restored = post_json(
+            &restarted,
+            route.into(),
+            json!({
+                "workspaceId":"/repo"
+            }),
+        )
+        .await;
         assert_eq!(restored["session"]["sidebarVisible"], false);
         assert_eq!(restored["session"]["fileViewerCwd"], "/repo");
         assert_eq!(restored["session"]["selectedCommitHash"], "abc");
     }
 
     #[tokio::test]
-    async fn persists_and_mutates_agent_state_without_the_compatibility_backend() {
-        let root = TempDir::new().unwrap();
-        let config = test_config(root.path());
-        std::fs::create_dir_all(&config.user_data_dir).unwrap();
-        let legacy_state = json!({
-            "groups": [{
-                "id": "legacy-group",
-                "name": "Legacy",
-                "panes": [{
-                    "id": "legacy-pane",
-                    "title": "legacy",
-                    "agentKind": "codex",
-                    "cwd": "/tmp/legacy",
-                    "pendingCwd": false,
-                }],
-                "selectedPaneId": "legacy-pane",
-                "columns": 3,
-                "rows": 2,
-            }],
-            "selectedGroupId": "legacy-group",
-            "themeId": "default",
-            "fontSize": 13,
-            "fontFamily": "SF Mono",
-            "opacity": 1,
-        });
-        std::fs::write(
-            config.user_data_dir.join("terminal-state.json"),
-            serde_json::to_vec(&legacy_state).unwrap(),
-        )
-        .unwrap();
-        let state_path = config.user_data_dir.join("agent-state.json");
-        let app = router(config);
-
-        let (status, value) = call_json(&app, Method::GET, "/api/agent/state".into(), None).await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(value["selectedGroupId"], "legacy-group");
-
-        let current = json!({
-            "groups": [{
-                "id": "group-1",
-                "name": "Current",
-                "panes": [
-                    {
-                        "id": "pane-1",
-                        "title": "one",
-                        "agentKind": "codex",
-                        "cwd": "/tmp/one",
-                        "pendingCwd": false,
-                    },
-                    {
-                        "id": "pane-2",
-                        "title": "two",
-                        "agentKind": "claude",
-                        "cwd": "/tmp/two",
-                        "pendingCwd": false,
-                    }
-                ],
-                "selectedPaneId": "pane-1",
-                "columns": 3,
-                "rows": 2,
-            }],
-            "selectedGroupId": "group-1",
-            "themeId": "default",
-            "fontSize": 13,
-            "fontFamily": "SF Mono",
-            "opacity": 1,
-        });
-        let (status, value) = call_json(
-            &app,
-            Method::POST,
-            "/api/agent/state".into(),
-            Some(current.clone()),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(value, json!({ "ok": true }));
-
-        let mut regressed = current.clone();
-        regressed["groups"][0]["panes"] = json!([current["groups"][0]["panes"][0].clone()]);
-        let (status, value) = call_json(
-            &app,
-            Method::POST,
-            "/api/agent/state".into(),
-            Some(regressed),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(value, json!({ "ok": true }));
-        let persisted: Value =
-            serde_json::from_slice(&std::fs::read(&state_path).unwrap()).unwrap();
-        assert_eq!(persisted["groups"][0]["panes"].as_array().unwrap().len(), 2);
-
-        let (status, value) = call_json(
-            &app,
-            Method::POST,
-            "/api/agent/state/workspace-action".into(),
-            Some(json!({
-                "action": {
-                    "type": "directorySelected",
-                    "groupId": "group-1",
-                    "paneId": "pane-1",
-                    "path": "/tmp/renamed",
-                }
-            })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(
-            value["state"]["groups"][0]["panes"][0]["cwd"],
-            "/tmp/renamed"
-        );
-        assert_eq!(value["state"]["groups"][0]["panes"][0]["title"], "renamed");
-        assert_eq!(value["state"]["groups"][0]["panes"][0]["pendingCwd"], false);
-
-        let (status, value) = call_json(
-            &app,
-            Method::POST,
-            "/api/agent/state/workspace-action".into(),
-            Some(json!({
-                "action": {
-                    "type": "removeWorkspace",
-                    "groupId": "group-1",
-                }
-            })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(value["state"]["groups"].as_array().unwrap().len(), 1);
-        // Removing the last workspace is a no-op, preserving its chats and directory.
-        assert_eq!(value["state"]["groups"][0]["name"], "Current");
-        assert_eq!(
-            value["state"]["groups"][0]["panes"][0]["cwd"],
-            "/tmp/renamed"
-        );
-        assert_eq!(
-            value["state"]["groups"][0]["panes"]
-                .as_array()
-                .unwrap()
-                .len(),
-            2
-        );
-        assert_eq!(
-            value["state"]["groups"][0]["panes"][0]["agentKind"],
-            "codex"
-        );
-    }
-
-    #[test]
-    fn parses_development_ports_and_claude_processes_like_the_bun_route() {
-        let ports = parse_unix_running_ports(
-            "COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME\n\
-             node 101 ray 1u IPv4 dev 0t0 TCP *:3000 (LISTEN)\n\
-             python 102 ray 1u IPv4 dev 0t0 TCP 127.0.0.1:3500 (LISTEN)\n\
-             python 103 ray 1u IPv4 dev 0t0 TCP *:8000 (LISTEN)\n\
-             cargo 104 ray 1u IPv4 dev 0t0 TCP *:9000 (LISTEN)\n\
-             rapportd 105 ray 1u IPv4 dev 0t0 TCP *:3333 (LISTEN)\n\
-             bun 106 ray 1u IPv4 dev 0t0 TCP *:3000 (LISTEN)\n",
-        );
-        assert_eq!(ports.len(), 3);
-        assert_eq!(ports[0].port, 3000);
-        assert_eq!(ports[0].name, "node server");
-        assert_eq!(ports[1].port, 3500);
-        assert_eq!(ports[1].name, "python");
-        assert_eq!(ports[2].port, 9000);
-        assert_eq!(ports[2].command, "cargo");
-
-        let windows = parse_windows_running_ports(
-            "TCP 0.0.0.0:3001 0.0.0.0:0 LISTENING 201\n\
-             TCP 0.0.0.0:5000 0.0.0.0:0 LISTENING 202\n",
-        );
-        assert_eq!(windows.len(), 1);
-        assert_eq!(windows[0].port, 3001);
-        assert_eq!(windows[0].pid, 201);
-        assert_eq!(windows[0].name, "port 3001");
-
-        let parsed = parse_claude_processes(
-            "PID PPID %CPU %MEM RSS ELAPSED COMMAND COMMAND\n\
-             10 1 1.25 2.04 100 00:10 claude claude --resume parent\n\
-             11 10 0.26 0.07 50 00:05 claude claude child\n\
-             12 11 8.0 9.0 500 00:01 claude claude grandchild\n\
-             20 1 0.04 0.04 25 00:02 claude claude second\n\
-             99 1 100 100 1000 00:01 claude claude own\n\
-             30 1 1.0 1.0 10 00:01 node node server\n",
-            99,
-        );
-        let aggregated = aggregate_claude_processes(parsed);
-        assert_eq!(aggregated.len(), 2);
-        assert_eq!(aggregated[0].pid, 10);
-        assert_eq!(aggregated[0].cpu, 1.5);
-        assert_eq!(aggregated[0].mem, 2.1);
-        assert_eq!(aggregated[0].rss, 150);
-        assert_eq!(aggregated[0].command, "claude --resume parent");
-        assert_eq!(aggregated[1].pid, 20);
-    }
-
-    #[tokio::test]
-    async fn process_kill_routes_reject_unlisted_and_invalid_pids() {
+    async fn workspace_actions_persist_through_the_http_interface() {
         let root = TempDir::new().unwrap();
         let app = router(test_config(root.path()));
-
-        let (status, ports) = call_json(&app, Method::GET, "/api/agent/ports".into(), None).await;
-        assert_eq!(status, StatusCode::OK);
-        assert!(ports["ports"].is_array());
-
-        let (status, value) = call_json(
+        let initial = post_json(&app, "/api/agent/state/initialize".into(), json!({})).await;
+        let group = &initial["state"]["selectedGroupId"];
+        let next = post_json(
             &app,
-            Method::POST,
-            "/api/agent/ports/kill".into(),
-            Some(json!({ "pid": 9_007_199_254_740_991_u64 })),
+            "/api/agent/state/workspace-action".into(),
+            json!({"action":{"type":"renameWorkspace","groupId":group,"name":"Project"}}),
         )
         .await;
-        assert_eq!(status, StatusCode::FORBIDDEN);
-        assert_eq!(value["error"], "PID is not a listed port");
-
-        let (status, value) = call_json(
-            &app,
-            Method::POST,
-            "/api/agent/ports/kill".into(),
-            Some(json!({ "pid": 1.5 })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(value["error"], "Invalid pid");
-
-        let (status, processes) = call_json(
-            &app,
-            Method::GET,
-            "/api/agent/claude-processes".into(),
-            None,
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        assert!(processes["processes"].is_array());
-
-        let (status, value) = call_json(
-            &app,
-            Method::POST,
-            "/api/agent/claude-processes/kill".into(),
-            Some(json!({ "pid": 9_007_199_254_740_991_u64 })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::FORBIDDEN);
-        assert_eq!(value["error"], "PID is not a listed Claude process");
+        let restarted = router(test_config(root.path()));
+        let saved = get_json(&restarted, "/api/agent/state".into()).await;
+        assert_eq!(saved, next["state"]);
+        assert_eq!(saved["groups"][0]["name"], "Project");
     }
 
     #[tokio::test]
-    async fn serves_app_identity_and_validates_native_paths_without_bun() {
+    async fn serves_app_identity_and_caches_release_check_failures() {
         let root = TempDir::new().unwrap();
         std::fs::write(
             root.path().join("version.json"),
@@ -5943,8 +3349,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         .unwrap();
         let app = router(test_config(root.path()));
 
-        let (status, first) = call_json(&app, Method::GET, "/api/app-info".into(), None).await;
-        assert_eq!(status, StatusCode::OK);
+        let first = get_json(&app, "/api/app-info".into()).await;
         assert_eq!(first["name"], "inferay");
         assert_eq!(first["version"], "1.2.3");
         assert_eq!(first["hash"], "release-hash");
@@ -5958,33 +3363,11 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         assert!(first["update"]["checkedAt"].is_u64());
         assert!(first["update"]["error"].is_string());
 
-        let (status, second) = call_json(&app, Method::GET, "/api/app-info".into(), None).await;
-        assert_eq!(status, StatusCode::OK);
+        let second = get_json(&app, "/api/app-info".into()).await;
         assert_eq!(
             second["update"]["checkedAt"], first["update"]["checkedAt"],
             "failed release checks retain the existing 60-second cache contract"
         );
-
-        let (status, value) = call_json(
-            &app,
-            Method::POST,
-            "/api/native/open-path".into(),
-            Some(json!({})),
-        )
-        .await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(value, json!({ "error": "Missing path" }));
-
-        let outside = root.path().parent().unwrap().join("outside-file");
-        let (status, value) = call_json(
-            &app,
-            Method::POST,
-            "/api/native/open-path".into(),
-            Some(json!({ "path": outside, "reveal": true })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::FORBIDDEN);
-        assert_eq!(value, json!({ "error": "Access denied" }));
     }
 
     #[tokio::test]
@@ -6018,8 +3401,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         config.release_api_url = Some(format!("http://{release_address}/release"));
         let app = router(config);
 
-        let (status, first) = call_json(&app, Method::GET, "/api/app-info".into(), None).await;
-        assert_eq!(status, StatusCode::OK);
+        let first = get_json(&app, "/api/app-info".into()).await;
         assert_eq!(first["version"], "1.2.3");
         assert_eq!(first["production"], false);
         assert_eq!(first["update"]["available"], true);
@@ -6030,8 +3412,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         );
         assert!(first["update"].get("error").is_none());
 
-        let (status, second) = call_json(&app, Method::GET, "/api/app-info".into(), None).await;
-        assert_eq!(status, StatusCode::OK);
+        let second = get_json(&app, "/api/app-info".into()).await;
         assert_eq!(second["update"], first["update"]);
         assert_eq!(request_count.load(Ordering::SeqCst), 1);
 
@@ -6043,9 +3424,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         let root = TempDir::new().unwrap();
         let app = router(test_config(root.path()));
 
-        let (status, value) =
-            call_json(&app, Method::GET, "/api/agents/account-status".into(), None).await;
-        assert_eq!(status, StatusCode::OK);
+        let value = get_json(&app, "/api/agents/account-status".into()).await;
         let providers = value["providers"].as_array().unwrap();
         assert_eq!(providers.len(), 2);
         assert_eq!(providers[0]["kind"], "claude");
@@ -6085,11 +3464,11 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             config.user_data_dir.join("agent-state.json"),
             json!({
                 "groups": [{
-                    "id": "group-1", "name":"Main",
+                    "id": "group-1", "name":"Main", "columns":1, "rows":1,
                     "selectedPaneId": "pane-2",
                     "panes": [
-                        { "id": "pane-1", "cwd": root_path },
-                        { "id": "pane-2", "cwd": repository },
+                        { "id": "pane-1", "title":"Root", "agentKind":"codex", "cwd": root_path },
+                        { "id": "pane-2", "title":"Repo", "agentKind":"codex", "cwd": repository },
                     ],
                 }],
                 "selectedGroupId": "group-1",
@@ -6101,8 +3480,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         let app = router(config);
 
         let search_uri = query_path("/api/files/search", &[("q", "main"), ("limit", "20")]);
-        let (status, search) = call_json(&app, Method::GET, search_uri, None).await;
-        assert_eq!(status, StatusCode::OK);
+        let search = get_json(&app, search_uri).await;
         assert_eq!(search["cwd"], repository.to_string_lossy().as_ref());
         assert_eq!(search["cwds"][0], repository.to_string_lossy().as_ref());
         assert_eq!(search["results"][0]["path"], "src/main.ts");
@@ -6115,8 +3493,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
                 ("path", "src/main.ts"),
             ],
         );
-        let (status, content) = call_json(&app, Method::GET, content_uri, None).await;
-        assert_eq!(status, StatusCode::OK);
+        let content = get_json(&app, content_uri).await;
         assert_eq!(content["content"], "export const value = 1;\n");
         assert_eq!(content["path"], "src/main.ts");
         assert_eq!(content["size"], 24);
@@ -6140,50 +3517,31 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         .into_bytes();
         multipart.extend_from_slice(image);
         multipart.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
-        let response = app
-            .clone()
-            .oneshot(
-                HttpRequest::builder()
-                    .method(Method::POST)
-                    .uri("/api/upload-temp")
-                    .header(HOST, "127.0.0.1:4001")
-                    .header("sec-fetch-site", "same-origin")
-                    .header(COOKIE, "inferay_local_auth=test-token")
-                    .header(
-                        CONTENT_TYPE,
-                        format!("multipart/form-data; boundary={boundary}"),
-                    )
-                    .body(Body::from(multipart))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let response = call_http(
+            &app,
+            HttpRequest::builder()
+                .method(Method::POST)
+                .uri("/api/upload-temp")
+                .header(
+                    CONTENT_TYPE,
+                    format!("multipart/form-data; boundary={boundary}"),
+                ),
+            Body::from(multipart),
+        )
+        .await;
         assert_eq!(response.status(), StatusCode::OK);
         let bytes = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
         let uploaded: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         let uploaded_path = uploaded["path"].as_str().unwrap();
         assert!(uploaded_path.ends_with("-a_weird.png"));
 
-        let (status, listed) = call_json(&app, Method::GET, "/api/images".into(), None).await;
-        assert_eq!(status, StatusCode::OK);
+        let listed = get_json(&app, "/api/images".into()).await;
         assert_eq!(listed["images"][0]["name"], "a_weird.png");
         assert_eq!(listed["images"][0]["path"], uploaded_path);
         assert_eq!(listed["images"][0]["size"], image.len());
 
         let file_uri = query_path("/api/file", &[("path", uploaded_path)]);
-        let response = app
-            .clone()
-            .oneshot(
-                HttpRequest::builder()
-                    .uri(file_uri)
-                    .header(HOST, "127.0.0.1:4001")
-                    .header("sec-fetch-site", "same-origin")
-                    .header(COOKIE, "inferay_local_auth=test-token")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let response = call_http(&app, HttpRequest::builder().uri(file_uri), Body::empty()).await;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()[CONTENT_TYPE], "image/png");
         assert_eq!(
@@ -6208,7 +3566,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         assert_eq!(display_folder_path("/opt/projects/"), "/opt/projects");
     }
 
-    fn run_git(repository: &Path, args: &[&str]) {
+    pub(crate) fn run_git(repository: &Path, args: &[&str]) {
         let output = std::process::Command::new("git")
             .args(args)
             .current_dir(repository)
@@ -6229,26 +3587,48 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         format!("{path}?{}", serializer.finish())
     }
 
+    async fn get_json(app: &Router, uri: String) -> Value {
+        let (status, body) = call_json(app, Method::GET, uri, None).await;
+        assert_eq!(status, StatusCode::OK);
+        body
+    }
+
+    async fn post_json(app: &Router, uri: String, body: Value) -> Value {
+        let (status, body) = call_json(app, Method::POST, uri, Some(body)).await;
+        assert_eq!(status, StatusCode::OK);
+        body
+    }
+
+    async fn call_http(
+        app: &Router,
+        request: axum::http::request::Builder,
+        body: Body,
+    ) -> Response {
+        app.clone()
+            .oneshot(
+                request
+                    .header(HOST, "127.0.0.1:4001")
+                    .header("sec-fetch-site", "same-origin")
+                    .header(COOKIE, "inferay_local_auth=test-token")
+                    .body(body)
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+    }
+
     async fn call_json(
         app: &Router,
         method: Method,
         uri: String,
         body: Option<serde_json::Value>,
     ) -> (StatusCode, serde_json::Value) {
-        let response = app
-            .clone()
-            .oneshot(
-                HttpRequest::builder()
-                    .method(method)
-                    .uri(uri)
-                    .header(HOST, "127.0.0.1:4001")
-                    .header("sec-fetch-site", "same-origin")
-                    .header(COOKIE, "inferay_local_auth=test-token")
-                    .body(body.map_or_else(Body::empty, |value| Body::from(value.to_string())))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let response = call_http(
+            app,
+            HttpRequest::builder().method(method).uri(uri),
+            body.map_or_else(Body::empty, |value| Body::from(value.to_string())),
+        )
+        .await;
         let status = response.status();
         let body = to_bytes(response.into_body(), 256 * 1024).await.unwrap();
         let value = serde_json::from_slice(&body).unwrap();
@@ -6267,18 +3647,11 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             "text": "continue",
             "displayText": "continue"
         }]);
-        let (status, value) = call_json(
-            &app,
-            Method::PUT,
-            "/api/chat-queues/pane-1".into(),
-            Some(json!({ "queue": queue })),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(value, json!({ "ok": true }));
-        let (status, value) =
-            call_json(&app, Method::GET, "/api/chat-queues/pane-1".into(), None).await;
-        assert_eq!(status, StatusCode::OK);
+        chat_persistence::ChatPersistence::new(user_data.clone())
+            .enqueue_runtime("pane-1", queue[0].clone())
+            .await
+            .unwrap();
+        let value = get_json(&app, "/api/chat-queues/pane-1".into()).await;
         assert_eq!(value["queue"], queue);
 
         let (status, value) = call_json(
@@ -6321,20 +3694,6 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             call_json(&app, Method::DELETE, "/api/chat-queues/pane-1".into(), None).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(value, json!({ "ok": true }));
-
-        let (status, value) =
-            call_json(&app, Method::GET, "/api/checkpoints/pane-1".into(), None).await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(value, json!({ "checkpoints": [] }));
-        let (status, value) = call_json(
-            &app,
-            Method::GET,
-            "/api/checkpoints/detail/missing".into(),
-            None,
-        )
-        .await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
-        assert_eq!(value, json!({ "error": "Not found" }));
     }
 
     #[tokio::test]
@@ -6369,22 +3728,14 @@ printf '{"type":"result","result":"%s"}\n' "$result"
 
         let cwd = repository.to_string_lossy();
         let app = router(test_config(&root_path));
-        let response = app
-            .clone()
-            .oneshot(
-                HttpRequest::builder()
-                    .method(Method::POST)
-                    .uri("/api/git/statuses")
-                    .header(HOST, "127.0.0.1:4001")
-                    .header("sec-fetch-site", "same-origin")
-                    .header(COOKIE, "inferay_local_auth=test-token")
-                    .body(Body::from(
-                        json!({ "cwds": [cwd.as_ref(), cwd.as_ref()] }).to_string(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let response = call_http(
+            &app,
+            HttpRequest::builder()
+                .method(Method::POST)
+                .uri("/api/git/statuses"),
+            Body::from(json!({ "cwds": [cwd.as_ref(), cwd.as_ref()] }).to_string()),
+        )
+        .await;
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
@@ -6409,18 +3760,6 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         assert_eq!(untracked["status"], "?");
         assert!(untracked.get("additions").is_none());
 
-        let diff_uri = query_path(
-            "/api/git/diff",
-            &[
-                ("cwd", cwd.as_ref()),
-                ("file", "README.md"),
-                ("staged", "false"),
-            ],
-        );
-        let (status, value) = call_json(&app, Method::GET, diff_uri, None).await;
-        assert_eq!(status, StatusCode::OK);
-        assert!(value["diff"].as_str().unwrap().contains("+changed"));
-
         let full_diff_uri = query_path(
             "/api/git/full-diff",
             &[
@@ -6429,9 +3768,9 @@ printf '{"type":"result","result":"%s"}\n' "$result"
                 ("staged", "false"),
             ],
         );
-        let (status, value) = call_json(&app, Method::GET, full_diff_uri, None).await;
-        assert_eq!(status, StatusCode::OK);
-        assert!(value["rawPatch"].as_str().unwrap().contains("diff --git"));
+        let value = get_json(&app, full_diff_uri).await;
+        assert!(value.get("rawPatch").is_none());
+        assert_eq!(value["metadata"]["stats"]["added"], 2);
         assert!(
             value["newLines"]
                 .as_array()
@@ -6449,9 +3788,10 @@ printf '{"type":"result","result":"%s"}\n' "$result"
                 ("view", "review"),
             ],
         );
-        let (status, value) = call_json(&app, Method::GET, review_diff_uri, None).await;
-        assert_eq!(status, StatusCode::OK);
+        let value = get_json(&app, review_diff_uri).await;
         assert!(value.get("rawPatch").is_none());
+        assert!(value.get("inlineLines").is_none());
+        assert_eq!(value["metadata"]["stats"]["removed"], 1);
         assert!(
             value["oldLines"]
                 .as_array()
@@ -6474,38 +3814,8 @@ printf '{"type":"result","result":"%s"}\n' "$result"
                 .any(|line| line["type"] == "add")
         );
 
-        let file_diff_uri = query_path(
-            "/api/git/file-with-diff",
-            &[
-                ("cwd", cwd.as_ref()),
-                ("file", "README.md"),
-                ("staged", "false"),
-            ],
-        );
-        let (status, value) = call_json(&app, Method::GET, file_diff_uri, None).await;
-        assert_eq!(status, StatusCode::OK);
-        assert!(
-            value["lines"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|line| line["type"] == "add" && line["content"] == "changed")
-        );
-
         let graph_uri = query_path("/api/git/graph", &[("cwd", cwd.as_ref()), ("limit", "10")]);
-        let response = app
-            .clone()
-            .oneshot(
-                HttpRequest::builder()
-                    .uri(&graph_uri)
-                    .header(HOST, "127.0.0.1:4001")
-                    .header("sec-fetch-site", "same-origin")
-                    .header(COOKIE, "inferay_local_auth=test-token")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let response = call_http(&app, HttpRequest::builder().uri(&graph_uri), Body::empty()).await;
         assert_eq!(response.status(), StatusCode::OK);
         let etag = response.headers().get("etag").unwrap().clone();
         let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
@@ -6520,20 +3830,14 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         assert_eq!(initial["authorEmail"], "inferay@example.com");
         assert_eq!(value["rows"][0]["row"], 0);
 
-        let unchanged = app
-            .clone()
-            .oneshot(
-                HttpRequest::builder()
-                    .uri(&graph_uri)
-                    .header(HOST, "127.0.0.1:4001")
-                    .header("sec-fetch-site", "same-origin")
-                    .header(COOKIE, "inferay_local_auth=test-token")
-                    .header("if-none-match", etag)
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let unchanged = call_http(
+            &app,
+            HttpRequest::builder()
+                .uri(&graph_uri)
+                .header("if-none-match", etag),
+            Body::empty(),
+        )
+        .await;
         assert_eq!(unchanged.status(), StatusCode::NOT_MODIFIED);
         assert!(
             to_bytes(unchanged.into_body(), 64 * 1024)
@@ -6546,8 +3850,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             "/api/git/graph",
             &[("cwd", cwd.as_ref()), ("limit", "10"), ("query", "initial")],
         );
-        let (status, search) = call_json(&app, Method::GET, search_uri, None).await;
-        assert_eq!(status, StatusCode::OK);
+        let search = get_json(&app, search_uri).await;
         assert_eq!(search["commits"].as_array().unwrap().len(), 1);
         assert_eq!(search["commits"][0]["message"], "initial");
 
@@ -6620,8 +3923,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
 
         run_git(&repository, &["branch", "feature"]);
         let branches_uri = query_path("/api/git/branches", &[("cwd", cwd.as_ref())]);
-        let (status, value) = call_json(&app, Method::GET, branches_uri, None).await;
-        assert_eq!(status, StatusCode::OK);
+        let value = get_json(&app, branches_uri).await;
         assert_eq!(value["branches"].as_array().unwrap().len(), 2);
         assert_eq!(
             value["branches"]
@@ -6633,81 +3935,46 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             1
         );
 
-        let (status, value) = call_json(
+        let value = post_json(
             &app,
-            Method::POST,
             "/api/git/branches".to_string(),
-            Some(json!({ "cwd": cwd.as_ref(), "branch": "feature" })),
+            json!({ "cwd": cwd.as_ref(), "branch": "feature" }),
         )
         .await;
-        assert_eq!(status, StatusCode::OK);
         assert_eq!(value["ok"], false);
         assert_eq!(value["error_kind"], "dirtyWorktree");
 
-        let (status, value) = call_json(
+        let value = post_json(
             &app,
-            Method::POST,
             "/api/git/stage".to_string(),
-            Some(json!({ "cwd": cwd.as_ref() })),
+            json!({ "cwd": cwd.as_ref() }),
         )
         .await;
-        assert_eq!(status, StatusCode::OK);
         assert_eq!(value, json!({ "success": true }));
 
-        let (status, value) = call_json(
+        let value = post_json(
             &app,
-            Method::POST,
             "/api/git/commit".to_string(),
-            Some(json!({ "cwd": cwd.as_ref(), "message": "native route commit" })),
+            json!({ "cwd": cwd.as_ref(), "message": "native route commit" }),
         )
         .await;
-        assert_eq!(status, StatusCode::OK);
         assert_eq!(value["success"], true);
         let commit_hash = value["hash"].as_str().unwrap();
 
-        let (status, value) = call_json(
+        let value = post_json(
             &app,
-            Method::POST,
             "/api/git/branches".to_string(),
-            Some(json!({ "cwd": cwd.as_ref(), "branch": "feature" })),
+            json!({ "cwd": cwd.as_ref(), "branch": "feature" }),
         )
         .await;
-        assert_eq!(status, StatusCode::OK);
         assert_eq!(value, json!({ "ok": true, "branch": "feature" }));
         run_git(&repository, &["checkout", "main"]);
-
-        let log_uri = query_path("/api/git/log", &[("cwd", cwd.as_ref()), ("limit", "10")]);
-        let (status, value) = call_json(&app, Method::GET, log_uri, None).await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(value["log"][0]["message"], "native route commit");
-
-        let history_uri = query_path(
-            "/api/git/file-history",
-            &[
-                ("cwd", cwd.as_ref()),
-                ("file", "README.md"),
-                ("limit", "10"),
-            ],
-        );
-        let (status, value) = call_json(&app, Method::GET, history_uri, None).await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(value["history"].as_array().unwrap().len(), 2);
-
-        let blame_uri = query_path(
-            "/api/git/blame",
-            &[("cwd", cwd.as_ref()), ("file", "README.md")],
-        );
-        let (status, value) = call_json(&app, Method::GET, blame_uri, None).await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(value["blame"][1]["author"], "Inferay Test");
-        assert_eq!(value["blame"][1]["content"], "changed");
 
         let details_uri = query_path(
             "/api/git/commit-details",
             &[("cwd", cwd.as_ref()), ("hash", commit_hash)],
         );
-        let (status, value) = call_json(&app, Method::GET, details_uri, None).await;
-        assert_eq!(status, StatusCode::OK);
+        let value = get_json(&app, details_uri).await;
         assert_eq!(value["details"]["message"], "native route commit");
         assert_eq!(value["details"]["authorEmail"], "inferay@example.com");
         assert!(value["details"].get("author_email").is_none());
@@ -6721,29 +3988,32 @@ printf '{"type":"result","result":"%s"}\n' "$result"
 
         std::fs::write(repository.join("README.md"), "unstaged again\n").unwrap();
         run_git(&repository, &["add", "README.md"]);
-        let (status, value) = call_json(
+        let value = post_json(
             &app,
-            Method::POST,
             "/api/git/unstage".to_string(),
-            Some(json!({ "cwd": cwd.as_ref(), "file": "README.md" })),
+            json!({ "cwd": cwd.as_ref(), "file": "README.md" }),
         )
         .await;
-        assert_eq!(status, StatusCode::OK);
         assert_eq!(value, json!({ "success": true }));
 
-        let invalid_uri = query_path("/api/git/status", &[("cwd", "/outside-inferay")]);
-        let response = app
-            .oneshot(
-                HttpRequest::builder()
-                    .uri(invalid_uri)
-                    .header(HOST, "127.0.0.1:4001")
-                    .header("sec-fetch-site", "same-origin")
-                    .header(COOKIE, "inferay_local_auth=test-token")
-                    .body(Body::empty())
-                    .unwrap(),
+        for (action, ok) in [("createBranch", true), ("unknown", false)] {
+            let value = post_json(
+                &app,
+                "/api/git/graph-action".into(),
+                json!({
+                    "cwd":cwd.as_ref(), "action":action, "target":commit_hash, "name":"from-graph"
+                }),
             )
-            .await
-            .unwrap();
+            .await;
+            assert_eq!(value["ok"], ok);
+            assert_eq!(value["operation"], action);
+            assert_eq!(value["outcome"], if ok { "completed" } else { "failed" });
+            assert!(value.get("action").is_none());
+        }
+
+        let invalid_uri = query_path("/api/git/status", &[("cwd", "/outside-inferay")]);
+        let response =
+            call_http(&app, HttpRequest::builder().uri(invalid_uri), Body::empty()).await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
@@ -6760,49 +4030,6 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         assert!(is_trusted_local_origin(Some("http://[::1]:4001")));
         assert!(!is_trusted_local_origin(Some("null")));
         assert!(!is_trusted_local_origin(Some("https://example.com")));
-    }
-
-    #[test]
-    fn filters_watched_files_like_the_previous_bun_server() {
-        for filename in [
-            "src/main.ts",
-            "src/view.tsx",
-            "src/tool.js",
-            "src/component.jsx",
-            "src/styles.css",
-            "index.html",
-            "README.md",
-        ] {
-            assert!(
-                native_git::should_broadcast_file_change(filename),
-                "{filename}"
-            );
-        }
-        for filename in [
-            ".env.ts",
-            "node_modules/pkg/index.ts",
-            ".git/hooks/test.ts",
-            "data/session.ts",
-            "src/config.json",
-            "src/main.rs",
-        ] {
-            assert!(
-                !native_git::should_broadcast_file_change(filename),
-                "{filename}"
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn embedded_restart_resets_services_without_terminating_the_host() {
-        let root = TempDir::new().unwrap();
-        let app = router(test_config(root.path()));
-        let (status, body) = call_json(&app, Method::POST, "/api/restart".into(), None).await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["ok"], true);
-
-        let (status, _) = call_json(&app, Method::GET, "/api/app-info".into(), None).await;
-        assert_eq!(status, StatusCode::OK);
     }
 
     #[tokio::test]
@@ -6887,48 +4114,6 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         assert_eq!(value["path"], "/outside-inferay/secret.md");
         assert_eq!(value["error"], "Invalid directory");
 
-        let watch_response = Client::new()
-            .post(format!("http://{}/api/git/watch", server.local_addr()))
-            .header("sec-fetch-site", "none")
-            .header(COOKIE, "inferay_local_auth=test-token")
-            .header(CONTENT_TYPE, "application/json")
-            .body(json!({ "cwd": root_path }).to_string())
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(watch_response.status(), StatusCode::OK);
-
-        std::fs::create_dir(root_path.join("src")).unwrap();
-        std::fs::write(root_path.join("src/watched.ts"), "export {}\n").unwrap();
-        let event = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            loop {
-                if let Some(Ok(TungsteniteMessage::Text(message))) = socket.next().await {
-                    let value: serde_json::Value = serde_json::from_str(&message).unwrap();
-                    if value["type"] == "file:changed" {
-                        break value;
-                    }
-                }
-            }
-        })
-        .await
-        .expect("timed out waiting for a Rust file watcher event");
-        assert_eq!(event["cwd"], root_path.to_string_lossy().as_ref());
-        assert_eq!(event["file"], "src/watched.ts");
-        assert!(matches!(
-            event["eventType"].as_str(),
-            Some("rename" | "change")
-        ));
-
-        let unwatch_response = Client::new()
-            .post(format!("http://{}/api/git/unwatch", server.local_addr()))
-            .header("sec-fetch-site", "none")
-            .header(COOKIE, "inferay_local_auth=test-token")
-            .header(CONTENT_TYPE, "application/json")
-            .body(json!({ "cwd": root_path }).to_string())
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(unwatch_response.status(), StatusCode::OK);
         socket.close(None).await.unwrap();
 
         server.shutdown();

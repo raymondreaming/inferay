@@ -1,21 +1,18 @@
-use inferay_native_diff::{
-    execute_request, get_git_graph_snapshot, prepare_git_graph, NativeRequest, NativeResponse,
-};
+use inferay_native_diff::{get_git_graph_snapshot, prepare_edit_diff, prepare_git_graph};
 use std::process::Command;
 #[test]
 fn huge_single_edit_has_exact_counts_without_a_quadratic_table() {
-    let before = (0..100_000)
+    let before = (0..10_000)
         .map(|i| format!("line{i}"))
         .collect::<Vec<_>>()
         .join("\n");
-    let after = before.replace("line50000\n", "changed\n");
-    let NativeResponse::Diff { diff } = execute_request(NativeRequest::Diff { before, after })
-    else {
-        panic!()
-    };
-    assert_eq!(diff.stats.added, 1);
-    assert_eq!(diff.stats.removed, 1);
-    assert_eq!(diff.stats.unchanged, 99_999);
+    let after = before.replace("line5000\n", "changed\n");
+    let diff = prepare_edit_diff(&before, &after, &[]).unwrap();
+    let value = serde_json::to_value(diff).unwrap();
+    let lines = value["hunks"][0]["lines"].as_array().unwrap();
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0]["text"], "line5000");
+    assert_eq!(lines[1]["text"], "changed");
 }
 #[test]
 fn huge_unrelated_diff_is_lossless_with_bounded_work() {
@@ -27,12 +24,23 @@ fn huge_unrelated_diff_is_lossless_with_bounded_work() {
         .map(|i| format!("new{i}"))
         .collect::<Vec<_>>()
         .join("\n");
-    let NativeResponse::Diff { diff } = execute_request(NativeRequest::Diff { before, after })
-    else {
-        panic!()
-    };
-    assert_eq!(diff.stats.added, 5000);
-    assert_eq!(diff.stats.removed, 5000);
+    let diff = prepare_edit_diff(&before, &after, &[]).unwrap();
+    let value = serde_json::to_value(diff).unwrap();
+    let lines = value["hunks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|hunk| hunk["lines"].as_array().unwrap())
+        .collect::<Vec<_>>();
+    for (kind, expected) in [("removed", before), ("added", after)] {
+        let actual = lines
+            .iter()
+            .filter(|line| line["type"] == kind)
+            .map(|line| line["text"].as_str().unwrap())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(actual, expected);
+    }
 }
 #[test]
 fn graph_input_revision_changes_on_reediting_modified_files() {

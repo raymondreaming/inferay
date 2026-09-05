@@ -197,7 +197,7 @@ fn terms(query: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-fn matches(commit: &crate::GitCommit, terms: &[(String, String)]) -> bool {
+fn matches(commit: &crate::GraphCommit, terms: &[(String, String)]) -> bool {
     terms.iter().all(|(field, value)| {
         let refs: Vec<_> = commit
             .refs
@@ -241,7 +241,7 @@ pub(crate) fn read_history(
     limit: usize,
     query: &str,
     refs: HashMap<String, Vec<crate::GitGraphRef>>,
-) -> Result<Vec<(crate::GitCommit, usize)>, crate::GitCommandFailure> {
+) -> Result<Vec<(crate::GraphCommit, usize)>, crate::GitCommandFailure> {
     use std::io::{BufRead, BufReader, Read};
     use std::process::{Command, Stdio};
     use std::time::Duration;
@@ -348,7 +348,7 @@ pub(crate) fn read_history(
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn commit(hash: &str, parents: &[&str]) -> crate::GitCommit {
+    fn commit(hash: &str, parents: &[&str]) -> crate::GraphCommit {
         crate::parse_graph_record(&format!("{hash}\x1f{}\x1fA message\x1fMultiline body\x1fFeature Author\x1ffeature@example.com\x1fRelease Manager\x1frelease@example.com\x1ftoday\x1f2026-09-04\x1f2026-09-04", parents.join(" ")), &HashMap::new())
     }
     fn branch(name: &str, target: &str, head: bool) -> crate::GitGraphRef {
@@ -380,7 +380,7 @@ mod tests {
         ];
         history[0].refs.push(branch("feature", "feature", false));
         history[1].refs.push(branch("main", "main", true));
-        let (mut graph, _) = crate::layout_graph(&history);
+        let (mut graph, _) = crate::layout_graph(history);
         let ancestry = prepare(&mut graph);
         assert_eq!(ancestry["refs/heads/feature"], vec![[0, 0], [2, 3]]);
         assert_eq!(ancestry["refs/heads/main"], vec![[1, 3]]);
@@ -411,7 +411,7 @@ mod tests {
                 )
             })
             .collect();
-        let (mut graph, _) = crate::layout_graph(&history);
+        let (mut graph, _) = crate::layout_graph(history);
         for (i, node) in graph.iter_mut().enumerate().take(128) {
             node.refs
                 .push(branch(&format!("b{i:03}"), &i.to_string(), i == 0));
@@ -429,8 +429,10 @@ mod tests {
     }
     #[test]
     fn synthetic_worktree_hash_never_becomes_its_own_parent() {
-        let (mut graph, _) =
-            crate::layout_graph(&[commit("inferay-wip-current:/repo", &["unloaded-head"])]);
+        let (mut graph, _) = crate::layout_graph(vec![commit(
+            "inferay-wip-current:/repo",
+            &["unloaded-head"],
+        )]);
         prepare(&mut graph);
         assert_eq!(graph[0].navigation.parent, None);
         assert_eq!(graph[0].navigation.child, None);

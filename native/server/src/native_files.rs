@@ -1,6 +1,7 @@
+use crate::unix_millis as now_millis;
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 use inferay_core::path_security::{is_within_directory, resolve_lexically};
 use serde::Serialize;
@@ -14,12 +15,6 @@ pub struct NativeFileEntry {
     pub path: String,
     pub timestamp: Option<f64>,
     pub size: u64,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NativeImage {
-    pub bytes: Vec<u8>,
-    pub content_type: &'static str,
 }
 
 #[derive(Debug)]
@@ -140,20 +135,6 @@ impl NativeFiles {
         Ok(())
     }
 
-    pub async fn read_image(&self, path: &Path) -> Result<NativeImage, NativeFilesError> {
-        let path = self.allowed_path(path)?;
-        if !is_image_extension(&path.to_string_lossy()) {
-            return Err(NativeFilesError::UnsupportedFileType);
-        }
-        if tokio::fs::metadata(&path).await?.len() > MAX_IMAGE_BYTES {
-            return Err(NativeFilesError::FileTooLarge);
-        }
-        Ok(NativeImage {
-            bytes: tokio::fs::read(&path).await?,
-            content_type: image_content_type(&path),
-        })
-    }
-
     pub async fn store_image(
         &self,
         name: &str,
@@ -187,13 +168,6 @@ impl NativeFiles {
     }
 }
 
-fn now_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
 pub(crate) fn safe_upload_name(name: &str) -> String {
     name.encode_utf16()
         .map(|unit| {
@@ -220,7 +194,7 @@ pub(crate) fn is_image_extension(path: &str) -> bool {
     )
 }
 
-fn image_content_type(path: &Path) -> &'static str {
+pub(crate) fn image_content_type(path: &Path) -> &'static str {
     match path
         .extension()
         .and_then(|extension| extension.to_str())
@@ -286,7 +260,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reads_and_deletes_only_images_inside_the_temp_directory() {
+    async fn deletes_only_files_inside_the_temp_directory() {
         let root = tempdir().unwrap();
         let service = NativeFiles::new(root.path().join("data/.tmp"));
         fs::create_dir_all(&service.temp_dir).unwrap();
@@ -295,13 +269,6 @@ mod tests {
         let outside = root.path().join("outside.png");
         fs::write(&outside, b"outside").unwrap();
 
-        let loaded = service.read_image(&image).await.unwrap();
-        assert_eq!(loaded.bytes, b"image");
-        assert_eq!(loaded.content_type, "image/webp");
-        assert!(matches!(
-            service.read_image(&outside).await,
-            Err(NativeFilesError::AccessDenied)
-        ));
         assert!(matches!(
             service.delete(&outside).await,
             Err(NativeFilesError::AccessDenied)

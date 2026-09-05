@@ -7,23 +7,11 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use inferay_core::config::ConfigManager;
+use inferay_core::config::{ConfigManager, DEFAULT_SEARCH_FOLDERS};
 use inferay_core::path_security::{AllowedPaths, resolve_lexically};
 use serde::Serialize;
 use tokio::sync::Mutex;
-
-const DEFAULT_SEARCH_FOLDERS: [&str; 10] = [
-    "Desktop",
-    "Documents",
-    "Projects",
-    "Developer",
-    "Code",
-    "Work",
-    "Sites",
-    "repos",
-    "src",
-    "dev",
-];
+use walkdir::WalkDir;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct AgentDirectory {
@@ -67,44 +55,27 @@ impl std::fmt::Display for NativeAgentDirectoriesError {
 
 impl std::error::Error for NativeAgentDirectoriesError {}
 
-/// Owns the filesystem boundary and a snapshot of `search_folders`.
-///
-/// `ConfigManager` remains private to the server adapter. Wiring should load
-/// its `search_folders` array and pass the strings here whenever configuration
-/// is refreshed.
+/// Directory discovery reads the shared settings store on each request.
 #[derive(Clone, Debug)]
 pub struct NativeAgentDirectories {
     allowed_paths: AllowedPaths,
-    search_folders: SearchFolders,
-}
-
-#[derive(Clone, Debug)]
-enum SearchFolders {
-    Snapshot(Vec<String>),
-    Config(Arc<Mutex<ConfigManager>>),
+    search_folders: Arc<Mutex<ConfigManager>>,
 }
 
 impl NativeAgentDirectories {
-    pub fn new(allowed_paths: AllowedPaths, configured_search_folders: Vec<String>) -> Self {
-        Self {
-            allowed_paths,
-            search_folders: SearchFolders::Snapshot(configured_search_folders),
-        }
-    }
-
     pub fn with_config_manager(
         allowed_paths: AllowedPaths,
         config_manager: Arc<Mutex<ConfigManager>>,
     ) -> Self {
         Self {
             allowed_paths,
-            search_folders: SearchFolders::Config(config_manager),
+            search_folders: config_manager,
         }
     }
 
     pub fn home(&self) -> AgentDirectoryListing {
         AgentDirectoryListing {
-            directories: list_agent_directories(self.allowed_paths.home_directory()),
+            directories: agent_directories(self.allowed_paths.home_directory(), 1).collect(),
             parent: None,
             home: Some(self.home_path()),
         }
@@ -142,7 +113,7 @@ impl NativeAgentDirectories {
                 .then(|| parent.to_string_lossy().into_owned())
         });
         Ok(AgentDirectoryListing {
-            directories: list_agent_directories(&path),
+            directories: agent_directories(&path, 1).collect(),
             parent,
             home: None,
         })
@@ -156,20 +127,12 @@ impl NativeAgentDirectories {
     }
 
     async fn configured_search_paths(&self) -> Vec<PathBuf> {
-        let configured_search_folders = match &self.search_folders {
-            SearchFolders::Snapshot(folders) => folders.clone(),
-            SearchFolders::Config(manager) => manager
-                .lock()
-                .await
-                .load()
-                .get("search_folders")
-                .and_then(serde_json::Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(serde_json::Value::as_str)
-                .map(str::to_owned)
-                .collect(),
-        };
+        let configured_search_folders = self
+            .search_folders
+            .lock()
+            .await
+            .search_folders()
+            .unwrap_or_default();
         if configured_search_folders.is_empty() {
             return default_agent_search_paths(self.allowed_paths.home_directory());
         }
@@ -191,8 +154,8 @@ impl NativeAgentDirectories {
 
 fn default_agent_search_paths(home: &Path) -> Vec<PathBuf> {
     DEFAULT_SEARCH_FOLDERS
-        .into_iter()
-        .map(|folder| home.join(folder))
+        .iter()
+        .map(|folder| home.join(folder.trim_start_matches("~/")))
         .collect()
 }
 
@@ -203,28 +166,21 @@ fn is_real_agent_folder(name: &str) -> bool {
         .any(|extension| lower.ends_with(extension))
 }
 
-fn list_agent_directories(base_path: &Path) -> Vec<AgentDirectory> {
-    let Ok(entries) = std::fs::read_dir(base_path) else {
-        return Vec::new();
-    };
-    let mut directories = entries
-        .flatten()
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if name.starts_with('.')
-                || !is_real_agent_folder(&name)
-                || !entry.file_type().is_ok_and(|kind| kind.is_dir())
-            {
-                return None;
-            }
-            Some(AgentDirectory {
-                name,
-                path: entry.path().to_string_lossy().into_owned(),
-            })
+fn agent_directories(base: &Path, depth: usize) -> impl Iterator<Item = AgentDirectory> {
+    WalkDir::new(base)
+        .min_depth(1)
+        .max_depth(depth)
+        .sort_by_key(|entry| entry.file_name().to_string_lossy().into_owned())
+        .into_iter()
+        .filter_entry(|entry| {
+            let name = entry.file_name().to_string_lossy();
+            entry.file_type().is_dir() && !name.starts_with('.') && is_real_agent_folder(&name)
         })
-        .collect::<Vec<_>>();
-    directories.sort_by(|left, right| left.name.cmp(&right.name));
-    directories
+        .filter_map(Result::ok)
+        .map(|entry| AgentDirectory {
+            name: entry.file_name().to_string_lossy().into_owned(),
+            path: entry.path().to_string_lossy().into_owned(),
+        })
 }
 
 fn search_agent_directories(
@@ -244,14 +200,16 @@ fn search_agent_directories(
             continue;
         }
         let depth = if search_path == home { 1 } else { 3 };
-        scan_matches(
-            &search_path,
-            depth,
-            &lower_query,
-            &mut exact,
-            &mut prefix,
-            &mut contains,
-        );
+        for directory in agent_directories(&search_path, depth) {
+            let name = directory.name.to_lowercase();
+            if name == lower_query {
+                exact.push(directory);
+            } else if name.starts_with(&lower_query) {
+                prefix.push(directory);
+            } else if name.contains(&lower_query) {
+                contains.push(directory);
+            }
+        }
     }
     let mut seen = HashSet::new();
     exact
@@ -261,37 +219,6 @@ fn search_agent_directories(
         .filter(|entry| seen.insert(entry.path.clone()))
         .take(20)
         .collect()
-}
-
-fn scan_matches(
-    base: &Path,
-    depth: usize,
-    query: &str,
-    exact: &mut Vec<AgentDirectory>,
-    prefix: &mut Vec<AgentDirectory>,
-    contains: &mut Vec<AgentDirectory>,
-) {
-    if depth == 0 {
-        return;
-    }
-    for directory in list_agent_directories(base) {
-        let name = directory.name.to_lowercase();
-        if name == query {
-            exact.push(directory.clone());
-        } else if name.starts_with(query) {
-            prefix.push(directory.clone());
-        } else if name.contains(query) {
-            contains.push(directory.clone());
-        }
-        scan_matches(
-            Path::new(&directory.path),
-            depth - 1,
-            query,
-            exact,
-            prefix,
-            contains,
-        );
-    }
 }
 
 struct QuickPickWithMtime {
@@ -317,32 +244,30 @@ fn find_agent_quick_picks(configured_paths: Vec<PathBuf>) -> Vec<AgentQuickPick>
 }
 
 fn scan_quick_picks(directory: &Path, depth: usize, results: &mut Vec<QuickPickWithMtime>) {
-    if depth == 0 {
-        return;
-    }
-    let Ok(entries) = std::fs::read_dir(directory) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with('.') || !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-            continue;
-        }
+    let mut entries = WalkDir::new(directory)
+        .min_depth(1)
+        .max_depth(depth)
+        .into_iter()
+        .filter_entry(|entry| {
+            entry.file_type().is_dir() && !entry.file_name().to_string_lossy().starts_with('.')
+        });
+    while let Some(entry) = entries.next() {
+        let Ok(entry) = entry else { continue };
         let path = entry.path();
         if path.join(".git").is_dir() {
             results.push(QuickPickWithMtime {
                 entry: AgentQuickPick {
-                    name,
+                    name: entry.file_name().to_string_lossy().into_owned(),
                     path: path.to_string_lossy().into_owned(),
                     is_git_repo: true,
                 },
                 mtime: entry
                     .metadata()
-                    .and_then(|metadata| metadata.modified())
+                    .ok()
+                    .and_then(|metadata| metadata.modified().ok())
                     .unwrap_or(UNIX_EPOCH),
             });
-        } else {
-            scan_quick_picks(&path, depth - 1, results);
+            entries.skip_current_dir();
         }
     }
 }
@@ -354,9 +279,13 @@ mod tests {
     use tempfile::TempDir;
 
     fn service(root: &TempDir, search: &Path) -> NativeAgentDirectories {
-        NativeAgentDirectories::new(
+        let config = ConfigManager::new(root.path().join("settings.json"));
+        config
+            .set_search_folders(vec![search.to_string_lossy().into_owned()])
+            .unwrap();
+        NativeAgentDirectories::with_config_manager(
             AllowedPaths::new(root.path(), root.path()).unwrap(),
-            vec![search.to_string_lossy().into_owned()],
+            Arc::new(Mutex::new(config)),
         )
     }
 
@@ -367,6 +296,14 @@ mod tests {
         std::fs::create_dir_all(search.join("AlphaProject/.git")).unwrap();
         std::fs::create_dir_all(search.join("nested/BetaProject")).unwrap();
         std::fs::create_dir_all(search.join("Hidden.app")).unwrap();
+        for hidden_repository in [
+            "AlphaProject/nested/NestedRepo/.git",
+            ".hidden/.git",
+            "nested/deep/too-deep/Repo/.git",
+        ] {
+            std::fs::create_dir_all(search.join(hidden_repository)).unwrap();
+        }
+
         let service = service(&root, &search);
 
         let browse = service.browse(&search).unwrap();
@@ -403,10 +340,7 @@ mod tests {
     async fn expands_tilde_configured_folder() {
         let root = TempDir::new().unwrap();
         std::fs::create_dir_all(root.path().join("Code/Repo/.git")).unwrap();
-        let service = NativeAgentDirectories::new(
-            AllowedPaths::new(root.path(), root.path()).unwrap(),
-            vec!["~/Code".into()],
-        );
+        let service = service(&root, Path::new("~/Code"));
         assert_eq!(service.quick_picks().await.quick_picks[0].name, "Repo");
     }
 

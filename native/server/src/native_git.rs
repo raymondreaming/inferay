@@ -1,27 +1,13 @@
-//! Typed, transport-free Git service shared by Axum and native callers.
+//! Git comparison admission and fingerprinted full-diff response preparation.
 
-use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 
+use crate::render_jobs;
+use axum::body::Bytes;
 use inferay_core::path_security::AllowedPaths;
-use inferay_native_diff::{GitHunkDiff, compact_git_hunk_diff, get_git_hunk_diff};
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use inferay_native_diff::{compact_git_hunk_diff, get_git_hunk_diff};
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
-
-const FILE_WATCH_DEBOUNCE_MS: u64 = 300;
-const MAX_CACHED_DIFFS: usize = 48;
-const MAX_CACHED_DIFF_BYTES: usize = 32 * 1024 * 1024;
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-struct DiffCacheKey {
-    cwd: String,
-    file: String,
-    staged: bool,
-    review: bool,
-}
+use std::time::Duration;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct FileStamp {
@@ -38,45 +24,6 @@ struct DiffFingerprint {
     refs: Option<FileStamp>,
     packed_refs: Option<FileStamp>,
     config: Option<FileStamp>,
-}
-
-#[derive(Clone)]
-struct CachedDiff {
-    fingerprint: DiffFingerprint,
-    value: Option<GitHunkDiff>,
-    bytes: usize,
-    stored_at: std::time::Instant,
-}
-
-#[derive(Default)]
-struct DiffCache {
-    entries: VecDeque<(DiffCacheKey, CachedDiff)>,
-    bytes: usize,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum NativeGitError {
-    InvalidDirectory,
-    Runtime(String),
-}
-
-impl std::fmt::Display for NativeGitError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidDirectory => formatter.write_str("Missing cwd parameter"),
-            Self::Runtime(error) => formatter.write_str(error),
-        }
-    }
-}
-
-impl std::error::Error for NativeGitError {}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GitFileChangeEvent {
-    pub cwd: String,
-    pub file: String,
-    pub event_type: String,
 }
 
 /// Selection facts from the revisioned native graph, including off-page selections.
@@ -140,180 +87,44 @@ pub fn plan_comparison(cwd: &str, items: &[ComparisonSelection]) -> Option<Compa
     })
 }
 
-#[derive(Clone)]
-pub struct NativeGit {
+pub async fn full_diff(
     allowed_paths: AllowedPaths,
-    watchers: Arc<Mutex<HashMap<String, RecommendedWatcher>>>,
-    events: broadcast::Sender<GitFileChangeEvent>,
-    diff_cache: Arc<Mutex<DiffCache>>,
-}
-
-impl NativeGit {
-    pub fn new(allowed_paths: AllowedPaths) -> Self {
-        let (events, _) = broadcast::channel(64);
-        Self {
-            allowed_paths,
-            watchers: Arc::new(Mutex::new(HashMap::new())),
-            events,
-            diff_cache: Arc::new(Mutex::new(DiffCache::default())),
-        }
-    }
-
-    pub fn subscribe(&self) -> broadcast::Receiver<GitFileChangeEvent> {
-        self.events.subscribe()
-    }
-
-    pub fn full_diff(
-        &self,
-        cwd: &str,
-        file: &str,
-        staged: bool,
-        review: bool,
-    ) -> Result<Option<GitHunkDiff>, NativeGitError> {
-        let cwd = self.cwd(cwd)?;
-        let key = DiffCacheKey {
-            cwd: cwd.clone(),
-            file: file.into(),
-            staged,
-            review,
-        };
-        let fingerprint = diff_fingerprint(&cwd, file);
-        {
-            let mut cache = self
-                .diff_cache
-                .lock()
-                .map_err(|_| NativeGitError::Runtime("git diff cache lock poisoned".into()))?;
-            if let Some(index) = cache.entries.iter().position(|(candidate, entry)| {
-                candidate == &key
-                    && entry.fingerprint == fingerprint
-                    && entry.stored_at.elapsed() < std::time::Duration::from_secs(2)
-            }) {
-                let cached = cache.entries.remove(index).expect("cache entry");
-                let value = cached.1.value.clone();
-                cache.entries.push_back(cached);
-                return Ok(value);
-            }
-        }
-
-        let diff = get_git_hunk_diff(&self.allowed_paths, &cwd, file, staged);
-        let changed = diff.is_new
-            || diff
-                .raw_patch
-                .as_deref()
-                .is_some_and(|patch| !patch.trim().is_empty())
-            || diff.merge_conflict_content.is_some();
-        let value = changed.then(|| {
-            if review {
-                compact_git_hunk_diff(diff)
-            } else {
-                diff
-            }
-        });
-        let mut cache = self
-            .diff_cache
-            .lock()
-            .map_err(|_| NativeGitError::Runtime("git diff cache lock poisoned".into()))?;
-        if let Some(index) = cache
-            .entries
-            .iter()
-            .position(|(candidate, _)| candidate == &key)
-            && let Some((_, old)) = cache.entries.remove(index)
-        {
-            cache.bytes -= old.bytes;
-        }
-        let bytes = value.as_ref().map(diff_size).unwrap_or(128);
-        // Do not cache a result built across a filesystem change.
-        if bytes <= MAX_CACHED_DIFF_BYTES && fingerprint == diff_fingerprint(&cwd, file) {
-            cache.bytes += bytes;
-            cache.entries.push_back((
-                key,
-                CachedDiff {
-                    fingerprint,
-                    value: value.clone(),
-                    bytes,
-                    stored_at: std::time::Instant::now(),
-                },
-            ));
-        }
-        while cache.entries.len() > MAX_CACHED_DIFFS || cache.bytes > MAX_CACHED_DIFF_BYTES {
-            if let Some((_, old)) = cache.entries.pop_front() {
-                cache.bytes -= old.bytes;
-            }
-        }
-        Ok(value)
-    }
-
-    fn cwd(&self, value: &str) -> Result<String, NativeGitError> {
-        if value.trim().is_empty() {
-            return Err(NativeGitError::InvalidDirectory);
-        }
-        self.allowed_paths
-            .resolve_allowed_local_path(value)
-            .map(|path| path.to_string_lossy().into_owned())
-            .ok_or(NativeGitError::InvalidDirectory)
-    }
-
-    pub fn watch(&self, cwd: &str) -> Result<(), NativeGitError> {
-        let cwd = self.cwd(cwd)?;
-        let mut watchers = self
-            .watchers
-            .lock()
-            .map_err(|_| NativeGitError::Runtime("git watcher lock poisoned".into()))?;
-        if watchers.contains_key(&cwd) {
-            return Ok(());
-        }
-        let event_root = PathBuf::from(&cwd);
-        let event_cwd = cwd.clone();
-        let sender = self.events.clone();
-        let last_event = Arc::new(AtomicU64::new(0));
-        let event_clock = last_event.clone();
-        let mut watcher =
-            notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
-                let Ok(event) = result else { return };
-                let event_type = match event.kind {
-                    EventKind::Create(_)
-                    | EventKind::Remove(_)
-                    | EventKind::Modify(notify::event::ModifyKind::Name(_)) => "rename",
-                    EventKind::Modify(_) => "change",
-                    _ => return,
-                };
-                for path in event.paths {
-                    let Ok(relative) = path.strip_prefix(&event_root) else {
-                        continue;
-                    };
-                    let filename = relative.to_string_lossy();
-                    if !should_broadcast_file_change(&filename) {
-                        continue;
-                    }
-                    let now = unix_millis();
-                    let previous = event_clock.load(Ordering::Relaxed);
-                    if now.saturating_sub(previous) < FILE_WATCH_DEBOUNCE_MS {
-                        continue;
-                    }
-                    event_clock.store(now, Ordering::Relaxed);
-                    let _ = sender.send(GitFileChangeEvent {
-                        cwd: event_cwd.clone(),
-                        file: filename.into_owned(),
-                        event_type: event_type.into(),
-                    });
-                }
+    cwd: String,
+    file: String,
+    staged: bool,
+    review: bool,
+) -> Result<Option<Bytes>, String> {
+    let (root, path) = (cwd.clone(), file.clone());
+    let fingerprint = render_jobs::run(move || diff_fingerprint(&root, &path)).await?;
+    // Include the allowed roots because response caches are shared across server instances.
+    let key = format!(
+        "full-diff:{:?}",
+        (&allowed_paths, &cwd, &file, staged, review, fingerprint)
+    );
+    let (root, path) = (cwd.clone(), file.clone());
+    render_jobs::cached_if(
+        key,
+        Duration::from_secs(2),
+        move || {
+            let diff = get_git_hunk_diff(&allowed_paths, &cwd, &file, staged);
+            let changed = diff.is_new
+                || diff
+                    .raw_patch
+                    .as_deref()
+                    .is_some_and(|patch| !patch.trim().is_empty())
+                || diff.merge_conflict_content.is_some();
+            changed.then(|| {
+                render_jobs::diff_bytes(if review {
+                    compact_git_hunk_diff(diff)
+                } else {
+                    diff
+                })
             })
-            .map_err(|error| NativeGitError::Runtime(error.to_string()))?;
-        watcher
-            .watch(PathBuf::from(&cwd).as_path(), RecursiveMode::Recursive)
-            .map_err(|error| NativeGitError::Runtime(error.to_string()))?;
-        watchers.insert(cwd, watcher);
-        Ok(())
-    }
-
-    pub fn unwatch(&self, cwd: &str) -> Result<(), NativeGitError> {
-        let cwd = self.cwd(cwd)?;
-        self.watchers
-            .lock()
-            .map_err(|_| NativeGitError::Runtime("git watcher lock poisoned".into()))?
-            .remove(&cwd);
-        Ok(())
-    }
+        },
+        move || fingerprint == diff_fingerprint(&root, &path),
+    )
+    .await
+    .map(|(body, _)| body)
 }
 
 fn file_stamp(path: PathBuf) -> Option<FileStamp> {
@@ -328,18 +139,6 @@ fn file_stamp(path: PathBuf) -> Option<FileStamp> {
         len: metadata.len(),
         modified_nanos,
     })
-}
-
-fn diff_size(diff: &GitHunkDiff) -> usize {
-    256 + diff.raw_patch.as_ref().map_or(0, String::len)
-        + diff.merge_conflict_content.as_ref().map_or(0, String::len)
-        + diff
-            .old_lines
-            .iter()
-            .chain(&diff.new_lines)
-            .chain(diff.compact_lines.iter().flatten())
-            .map(|line| std::mem::size_of_val(line) + line.content.len())
-            .sum::<usize>()
 }
 
 fn git_directories(root: &std::path::Path) -> (PathBuf, PathBuf) {
@@ -384,32 +183,10 @@ fn diff_fingerprint(cwd: &str, file: &str) -> DiffFingerprint {
     }
 }
 
-fn unix_millis() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
-pub(crate) fn should_broadcast_file_change(filename: &str) -> bool {
-    if filename.starts_with('.')
-        || filename.contains("node_modules")
-        || filename.contains(".git")
-        || filename.starts_with("data/")
-        || filename.ends_with(".json")
-    {
-        return false;
-    }
-    [".ts", ".tsx", ".js", ".jsx", ".css", ".html", ".md"]
-        .iter()
-        .any(|extension| filename.ends_with(extension))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
-    use std::process::Command;
+    use crate::tests::run_git as git;
 
     #[test]
     fn comparison_plan_orders_native_history_and_rejects_ambiguous_worktrees() {
@@ -444,21 +221,8 @@ mod tests {
         assert!(plan_comparison("/repo", &[missing, item("older", 900)]).is_none());
     }
 
-    fn git(repository: &Path, args: &[&str]) {
-        let output = Command::new("git")
-            .args(args)
-            .current_dir(repository)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    #[test]
-    fn full_diff_cache_reuses_and_invalidates_by_repository_fingerprint() {
+    #[tokio::test]
+    async fn full_diff_cache_reuses_and_invalidates_by_repository_fingerprint() {
         let repository = tempfile::tempdir().unwrap();
         git(repository.path(), &["init", "-q"]);
         git(
@@ -482,27 +246,54 @@ mod tests {
         let allowed =
             AllowedPaths::new(repository.path(), repository.path().canonicalize().unwrap())
                 .unwrap();
-        let native_git = NativeGit::new(allowed);
         let cwd = repository.path().to_string_lossy();
-        let first = native_git.full_diff(&cwd, "app.ts", false, true).unwrap();
-        let second = native_git.full_diff(&cwd, "app.ts", false, true).unwrap();
+        let fetch = || {
+            full_diff(
+                allowed.clone(),
+                cwd.to_string(),
+                "app.ts".into(),
+                false,
+                true,
+            )
+        };
+        let first = fetch().await.unwrap().unwrap();
+        let second = fetch().await.unwrap().unwrap();
         assert_eq!(first, second);
-        assert_eq!(native_git.diff_cache.lock().unwrap().entries.len(), 1);
+        assert_eq!(
+            first.as_ptr(),
+            second.as_ptr(),
+            "cache hits share prepared response bytes"
+        );
+
+        let broader = AllowedPaths::new(
+            repository.path(),
+            repository.path().canonicalize().unwrap().parent().unwrap(),
+        )
+        .unwrap();
+        let scoped = full_diff(broader, cwd.to_string(), "app.ts".into(), false, true)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(first, scoped);
+        assert_ne!(
+            first.as_ptr(),
+            scoped.as_ptr(),
+            "different allowed roots cannot share a cached response"
+        );
 
         std::fs::write(
             repository.path().join("app.ts"),
             "export const value = 333;\n",
         )
         .unwrap();
-        let refreshed = native_git.full_diff(&cwd, "app.ts", false, true).unwrap();
+        let refreshed = fetch().await.unwrap().unwrap();
         assert_ne!(second, refreshed);
-        assert!(
-            refreshed
+        let diff: serde_json::Value = serde_json::from_slice(&refreshed).unwrap();
+        assert!(diff["compactLines"].as_array().unwrap().iter().any(|line| {
+            line["content"]
+                .as_str()
                 .unwrap()
-                .compact_lines
-                .unwrap()
-                .iter()
-                .any(|line| { line.content.contains("export const value = 333;") })
-        );
+                .contains("export const value = 333;")
+        }));
     }
 }

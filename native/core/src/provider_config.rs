@@ -2,213 +2,107 @@
 use serde_json::{Value, json};
 use std::sync::LazyLock;
 
+fn models(rows: &[(&str, &str, &str, Option<&str>)]) -> Vec<Value> {
+    rows.iter()
+        .map(|(id, label, detail, short_label)| {
+            let mut model = json!({"id":id, "label":label, "detail":detail});
+            if let Some(label) = short_label {
+                model["shortLabel"] = json!(label);
+            }
+            model
+        })
+        .collect()
+}
+
+fn commands(rows: &[(&str, &str)]) -> Vec<Value> {
+    rows.iter()
+        .map(|(name, description)| json!({"name":name, "description":description}))
+        .collect()
+}
+
 pub fn catalog() -> &'static Value {
     static CATALOG: LazyLock<Value> = LazyLock::new(|| {
         let mut value = json!({
-            "agents": {
-                "agent": {
-                    "kind": "agent",
-                    "label": "Agent",
-                    "paneTitle": "Agent",
-                    "description": "Interactive shell session",
-                    "iconKey": "agent",
-                    "supportsChat": false,
-                    "supportsInteractiveAgent": true,
-                    "supportsResume": false,
-                    "nativeSlashCommands": [],
-                    "models": [],
-                    "defaultModel": ""
-                },
-                "claude": {
-                    "kind": "claude",
-                    "label": "Claude",
-                    "paneTitle": "Claude",
-                    "description": "Anthropic Claude Code CLI",
-                    "iconKey": "anthropic",
-                    "supportsChat": true,
-                    "supportsInteractiveAgent": true,
-                    "supportsResume": true,
-                    "nativeSlashCommands": [
-                        {
-                            "name": "btw",
-                            "description": "Ask a side question without adding to conversation"
+                    "agents": {
+                        "agent": {
+                            "kind": "agent",
+                            "label": "Agent",
+                            "paneTitle": "Agent",
+                            "description": "Interactive shell session",
+                            "iconKey": "agent",
+                            "supportsChat": false,
+                            "supportsInteractiveAgent": true,
+                            "supportsResume": false,
+                            "nativeSlashCommands": [],
+                            "models": [],
+                            "defaultModel": ""
                         },
-                        {
-                            "name": "bug",
-                            "description": "Report bugs or issues"
+                        "claude": {
+                            "kind": "claude",
+                            "label": "Claude",
+                            "paneTitle": "Claude",
+                            "description": "Anthropic Claude Code CLI",
+                            "iconKey": "anthropic",
+                            "supportsChat": true,
+                            "supportsInteractiveAgent": true,
+                            "supportsResume": true,
+                            "nativeSlashCommands": commands(&[
+        ("btw", "Ask a side question without adding to conversation"),
+        ("bug", "Report bugs or issues"),
+        ("compact", "Compact conversation history"),
+        ("config", "Open config panel"),
+        ("cost", "Show token usage and costs"),
+        ("doctor", "Check Claude Code health"),
+        ("init", "Initialize project with CLAUDE.md"),
+        ("login", "Switch accounts or login"),
+        ("logout", "Logout from current account"),
+        ("memory", "Edit CLAUDE.md memory file"),
+        ("model", "Switch AI model"),
+        ("pr-comments", "View PR comments"),
+        ("review", "Review code changes"),
+        ("agent-setup", "Setup agent integration"),
+        ("vim", "Toggle vim mode")
+        ]),
+                            "models": models(&[
+        ("claude-fable-5", "Fable 5", "Hardest tasks", None),
+        ("claude-opus-4-7", "Opus 4.7", "★ Most capable", None),
+        ("claude-opus-4-6", "Opus 4.6", "Previous Opus", None),
+        ("claude-sonnet-4-6", "Sonnet 4.6", "Best value", None),
+        ("claude-haiku-4-5", "Haiku 4.5", "Fastest", None)
+        ]),
+                            "defaultModel": "claude-opus-4-7"
                         },
-                        {
-                            "name": "compact",
-                            "description": "Compact conversation history"
-                        },
-                        {
-                            "name": "config",
-                            "description": "Open config panel"
-                        },
-                        {
-                            "name": "cost",
-                            "description": "Show token usage and costs"
-                        },
-                        {
-                            "name": "doctor",
-                            "description": "Check Claude Code health"
-                        },
-                        {
-                            "name": "init",
-                            "description": "Initialize project with CLAUDE.md"
-                        },
-                        {
-                            "name": "login",
-                            "description": "Switch accounts or login"
-                        },
-                        {
-                            "name": "logout",
-                            "description": "Logout from current account"
-                        },
-                        {
-                            "name": "memory",
-                            "description": "Edit CLAUDE.md memory file"
-                        },
-                        {
-                            "name": "model",
-                            "description": "Switch AI model"
-                        },
-                        {
-                            "name": "pr-comments",
-                            "description": "View PR comments"
-                        },
-                        {
-                            "name": "review",
-                            "description": "Review code changes"
-                        },
-                        {
-                            "name": "agent-setup",
-                            "description": "Setup agent integration"
-                        },
-                        {
-                            "name": "vim",
-                            "description": "Toggle vim mode"
+                        "codex": {
+                            "kind": "codex",
+                            "label": "Codex",
+                            "paneTitle": "Codex",
+                            "description": "OpenAI Codex CLI",
+                            "iconKey": "openai",
+                            "supportsChat": true,
+                            "supportsInteractiveAgent": true,
+                            "supportsResume": true,
+                            "nativeSlashCommands": commands(&[
+        ("goal", "Start, pause, resume, clear, or inspect a Codex objective")
+        ]),
+                            "models": models(&[
+        ("gpt-6-astra", "GPT-6 Astra", "Complex agentic work", Some("Astra")),
+        ("gpt-5.6-sol", "GPT-5.6 Sol", "★ Frontier agentic coding", Some("Sol")),
+        ("gpt-5.6-terra", "GPT-5.6 Terra", "Balanced everyday work", Some("Terra")),
+        ("gpt-5.6-luna", "GPT-5.6 Luna", "Fast & affordable", Some("Luna")),
+        ("gpt-5.5", "GPT-5.5", "Frontier model", None),
+        ("gpt-5.4", "GPT-5.4", "Everyday coding", None),
+        ("gpt-5.2-codex", "GPT-5.2 Codex", "★ Frontier agentic", None),
+        ("gpt-5.1-codex-max", "GPT-5.1 Codex Max", "Deep reasoning", None),
+        ("gpt-5.4-mini", "GPT-5.4 Mini", "Fast & cheap", None),
+        ("gpt-5.3-codex", "GPT-5.3 Codex", "Coding-optimized", None),
+        ("gpt-5.3-codex-spark", "GPT-5.3 Spark", "Ultra-fast", None),
+        ("gpt-5.2", "GPT-5.2", "Long-running agents", None),
+        ("gpt-5.1-codex-mini", "GPT-5.1 Codex Mini", "Cheapest", None)
+        ]),
+                            "defaultModel": "gpt-5.6-sol"
                         }
-                    ],
-                    "models": [
-                        {
-                            "id": "claude-fable-5",
-                            "label": "Fable 5",
-                            "detail": "Hardest tasks"
-                        },
-                        {
-                            "id": "claude-opus-4-7",
-                            "label": "Opus 4.7",
-                            "detail": "★ Most capable"
-                        },
-                        {
-                            "id": "claude-opus-4-6",
-                            "label": "Opus 4.6",
-                            "detail": "Previous Opus"
-                        },
-                        {
-                            "id": "claude-sonnet-4-6",
-                            "label": "Sonnet 4.6",
-                            "detail": "Best value"
-                        },
-                        {
-                            "id": "claude-haiku-4-5",
-                            "label": "Haiku 4.5",
-                            "detail": "Fastest"
-                        }
-                    ],
-                    "defaultModel": "claude-opus-4-7"
-                },
-                "codex": {
-                    "kind": "codex",
-                    "label": "Codex",
-                    "paneTitle": "Codex",
-                    "description": "OpenAI Codex CLI",
-                    "iconKey": "openai",
-                    "supportsChat": true,
-                    "supportsInteractiveAgent": true,
-                    "supportsResume": true,
-                    "nativeSlashCommands": [
-                        {
-                            "name": "goal",
-                            "description": "Start, pause, resume, clear, or inspect a Codex objective"
-                        }
-                    ],
-                    "models": [
-                        {
-                            "id": "gpt-6-astra",
-                            "label": "GPT-6 Astra",
-                            "shortLabel": "Astra",
-                            "detail": "Complex agentic work"
-                        },
-                        {
-                            "id": "gpt-5.6-sol",
-                            "label": "GPT-5.6 Sol",
-                            "shortLabel": "Sol",
-                            "detail": "★ Frontier agentic coding"
-                        },
-                        {
-                            "id": "gpt-5.6-terra",
-                            "label": "GPT-5.6 Terra",
-                            "shortLabel": "Terra",
-                            "detail": "Balanced everyday work"
-                        },
-                        {
-                            "id": "gpt-5.6-luna",
-                            "label": "GPT-5.6 Luna",
-                            "shortLabel": "Luna",
-                            "detail": "Fast & affordable"
-                        },
-                        {
-                            "id": "gpt-5.5",
-                            "label": "GPT-5.5",
-                            "detail": "Frontier model"
-                        },
-                        {
-                            "id": "gpt-5.4",
-                            "label": "GPT-5.4",
-                            "detail": "Everyday coding"
-                        },
-                        {
-                            "id": "gpt-5.2-codex",
-                            "label": "GPT-5.2 Codex",
-                            "detail": "★ Frontier agentic"
-                        },
-                        {
-                            "id": "gpt-5.1-codex-max",
-                            "label": "GPT-5.1 Codex Max",
-                            "detail": "Deep reasoning"
-                        },
-                        {
-                            "id": "gpt-5.4-mini",
-                            "label": "GPT-5.4 Mini",
-                            "detail": "Fast & cheap"
-                        },
-                        {
-                            "id": "gpt-5.3-codex",
-                            "label": "GPT-5.3 Codex",
-                            "detail": "Coding-optimized"
-                        },
-                        {
-                            "id": "gpt-5.3-codex-spark",
-                            "label": "GPT-5.3 Spark",
-                            "detail": "Ultra-fast"
-                        },
-                        {
-                            "id": "gpt-5.2",
-                            "label": "GPT-5.2",
-                            "detail": "Long-running agents"
-                        },
-                        {
-                            "id": "gpt-5.1-codex-mini",
-                            "label": "GPT-5.1 Codex Mini",
-                            "detail": "Cheapest"
-                        }
-                    ],
-                    "defaultModel": "gpt-5.6-sol"
-                }
-            }
-        });
+                    }
+                });
         let levels = json!([
             {
                 "id": "low",

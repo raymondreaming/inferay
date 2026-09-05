@@ -13,8 +13,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::native_prompts::NativePrompts;
 use inferay_core::agent_protocol::{
-    AgentEvent, AgentProtocolContext, ClaudeProtocolState, CodexInvocationContext,
-    CodexProtocolState, ProtocolEmission, build_claude_invocation_args,
+    AgentProtocolContext, ClaudeProtocolState, CodexInvocationContext, CodexProtocolState,
+    ProtocolEmission, build_claude_invocation_args,
 };
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -201,14 +201,12 @@ pub async fn run_claude(
     let exit = child.wait().await;
     handle.set_pid(None);
     let stderr = stderr.await.unwrap_or_default().trim().to_string();
-    let exit_code = exit.as_ref().ok().and_then(std::process::ExitStatus::code);
     if !exit.as_ref().is_ok_and(std::process::ExitStatus::success)
         && !stderr.is_empty()
         && !handle.is_cancelled()
     {
         emit_error(context, stderr);
     }
-    emit_finish(context, finish_reason(handle, exit_code, false));
     flush_emissions(context, emissions);
     AgentRunResult {
         last_assistant_message: protocol.last_assistant_message,
@@ -248,308 +246,183 @@ pub async fn run_codex(
         tracker.track_pid(pid);
     }
     let stderr = tokio::spawn(drain_bounded(child.stderr.take().expect("piped stderr")));
-    let mut stdin = child.stdin.take().expect("piped stdin");
-    let mut stdout = BufReader::new(child.stdout.take().expect("piped stdout"));
-    let mut line = Vec::new();
-    let mut request_id = 1_u64;
-    let initialize = json!({
-        "method": "initialize",
-        "id": request_id,
-        "params": {
-            "clientInfo": {
-                "name": "inferay",
-                "title": "Inferay",
-                "version": env!("CARGO_PKG_VERSION")
-            },
-            "capabilities": {"experimentalApi": true}
-        }
-    });
-    if let Err(error) = write_rpc(&mut stdin, &initialize).await {
-        emit_error(context, error);
-        return finish_codex_child(
-            child,
-            pid,
-            handle,
-            tracker,
-            stderr,
+    let mut rpc = CodexConnection {
+        stdin: child.stdin.take().expect("piped stdin"),
+        stdout: BufReader::new(child.stdout.take().expect("piped stdout")).lines(),
+        request_id: 0,
+    };
+    let startup = async {
+        rpc.request(
+            "initialize",
+            json!({
+                "clientInfo": {
+                    "name": "inferay", "title": "Inferay", "version": env!("CARGO_PKG_VERSION")
+                },
+                "capabilities": {"experimentalApi": true}
+            }),
             (&mut *context, &mut *state, emissions),
         )
-        .await;
-    }
-    if let Err(error) = wait_for_rpc_response(
-        &mut stdout,
-        &mut line,
-        request_id,
-        (&mut *context, &mut *state, emissions),
-    )
-    .await
-    {
-        emit_error(context, error);
-        return finish_codex_child(
-            child,
-            pid,
-            handle,
-            tracker,
-            stderr,
-            (&mut *context, &mut *state, emissions),
-        )
-        .await;
-    }
-    if let Err(error) = write_rpc(&mut stdin, &json!({"method":"initialized"})).await {
-        emit_error(context, error);
-        return finish_codex_child(
-            child,
-            pid,
-            handle,
-            tracker,
-            stderr,
-            (&mut *context, &mut *state, emissions),
-        )
-        .await;
-    }
-
-    request_id += 1;
-    let thread_params = codex_thread_params(run.invocation);
-    let (thread_method, mut thread_params) = if let Some(thread_id) = &run.invocation.session_id {
-        let mut params = thread_params;
-        params["threadId"] = json!(thread_id);
-        ("thread/resume", params)
-    } else {
-        let mut params = thread_params;
+        .await?;
+        rpc.write(&json!({"method":"initialized"})).await?;
+        let mut start_params = codex_thread_params(run.invocation);
         if handle.skills.is_some() {
-            params["dynamicTools"] = NativePrompts::tool_definitions();
+            start_params["dynamicTools"] = NativePrompts::tool_definitions();
         }
-        ("thread/start", params)
-    };
-    let mut thread_response = request_rpc(
-        &mut stdin,
-        &mut stdout,
-        &mut line,
-        request_id,
-        thread_method,
-        thread_params.take(),
-        (&mut *context, &mut *state, emissions),
-    )
-    .await;
-    if thread_response.is_err() && thread_method == "thread/resume" {
-        request_id += 1;
-        thread_response = request_rpc(
-            &mut stdin,
-            &mut stdout,
-            &mut line,
-            request_id,
-            "thread/start",
-            {
-                let mut params = codex_thread_params(run.invocation);
-                if handle.skills.is_some() {
-                    params["dynamicTools"] = NativePrompts::tool_definitions();
-                }
-                params
-            },
-            (&mut *context, &mut *state, emissions),
-        )
-        .await;
-    }
-    let thread_response = match thread_response {
-        Ok(response) => response,
-        Err(error) => {
-            emit_error(context, error);
-            return finish_codex_child(
-                child,
-                pid,
-                handle,
-                tracker,
-                stderr,
+        let thread_response = if let Some(thread_id) = &run.invocation.session_id {
+            let mut params = codex_thread_params(run.invocation);
+            params["threadId"] = json!(thread_id);
+            rpc.request(
+                "thread/resume",
+                params,
                 (&mut *context, &mut *state, emissions),
             )
-            .await;
-        }
-    };
-    let Some(thread_id) = thread_response
-        .pointer("/thread/id")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-    else {
-        emit_error(
-            context,
-            "Codex App Server did not return a thread id".into(),
-        );
-        return finish_codex_child(
-            child,
-            pid,
-            handle,
-            tracker,
-            stderr,
-            (&mut *context, &mut *state, emissions),
-        )
-        .await;
-    };
-    state.handle_event(
-        context,
-        &json!({"type":"thread.started", "thread_id":thread_id}),
-    );
-    flush_emissions(context, emissions);
-
-    request_id += 1;
-    let turn_response = match request_rpc(
-        &mut stdin,
-        &mut stdout,
-        &mut line,
-        request_id,
-        "turn/start",
-        codex_turn_params(&thread_id, run.prompt, run.invocation),
-        (&mut *context, &mut *state, emissions),
-    )
-    .await
-    {
-        Ok(response) => response,
-        Err(error) => {
-            emit_error(context, error);
-            return finish_codex_child(
-                child,
-                pid,
-                handle,
-                tracker,
-                stderr,
-                (&mut *context, &mut *state, emissions),
-            )
-            .await;
-        }
-    };
-    let Some(turn_id) = turn_response
-        .pointer("/turn/id")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-    else {
-        emit_error(context, "Codex App Server did not return a turn id".into());
-        return finish_codex_child(
-            child,
-            pid,
-            handle,
-            tracker,
-            stderr,
-            (&mut *context, &mut *state, emissions),
-        )
-        .await;
-    };
-    let (control_tx, mut control_rx) = mpsc::unbounded_channel();
-    handle.set_codex_control(control_tx);
-    let mut pending_steers = HashMap::<u64, oneshot::Sender<Result<(), String>>>::new();
-    let mut pending_user_input: Option<(Value, Vec<String>)> = None;
-    let mut completed = false;
-    loop {
-        tokio::select! {
-            control = control_rx.recv() => {
-                match control {
-                    Some(CodexControl::Steer { text, images, response }) => {
-                        state.prepare_for_steering(context);
-                        flush_emissions(context, emissions);
-                        if let Some((response_id, question_ids)) = pending_user_input.take() {
-                            let answers = question_ids.into_iter().map(|question_id| {
-                                (question_id, json!({"answers":[text]}))
-                            }).collect::<serde_json::Map<_, _>>();
-                            let result = write_rpc(&mut stdin, &json!({"id":response_id,"result":{"answers":answers}}))
-                                .await
-                                .map_err(|error| error.to_string());
-                            if result.is_ok() {
-                                state.handle_event(context, &json!({"type":"mcp_tool_call_end"}));
-                                flush_emissions(context, emissions);
-                            }
-                            let _ = response.send(result);
-                        } else {
-                            request_id += 1;
-                            let request = json!({
-                                "method":"turn/steer",
-                                "id":request_id,
-                                "params":{
-                                    "threadId":thread_id,
-                                    "expectedTurnId":turn_id,
-                                    "input":codex_user_input(&text, &images)
-                                }
-                            });
-                            match write_rpc(&mut stdin, &request).await {
-                                Ok(()) => { pending_steers.insert(request_id, response); }
-                                Err(error) => { let _ = response.send(Err(error)); }
-                            }
-                        }
-                    }
-                    Some(CodexControl::Interrupt) => {
-                        request_id += 1;
-                        let _ = write_rpc(&mut stdin, &json!({
-                            "method":"turn/interrupt",
-                            "id":request_id,
-                            "params":{"threadId":thread_id,"turnId":turn_id}
-                        })).await;
-                    }
-                    None => {}
-                }
+            .await
+            .ok()
+        } else {
+            None
+        };
+        let thread_response = match thread_response {
+            Some(response) => response,
+            None => {
+                rpc.request(
+                    "thread/start",
+                    start_params,
+                    (&mut *context, &mut *state, emissions),
+                )
+                .await?
             }
-            read = read_rpc(&mut stdout, &mut line) => {
-                let Some(message) = read else { break };
-                if let Some(id) = message.get("id").and_then(Value::as_u64)
-                    && let Some(response) = pending_steers.remove(&id)
-                {
-                    let result = rpc_result(message).map(|_| ());
-                    let _ = response.send(result);
-                    continue;
-                }
-                if message.get("method").and_then(Value::as_str) == Some("item/tool/requestUserInput")
-                    && let Some(id) = message.get("id").cloned()
-                {
-                    let questions = message.pointer("/params/questions").and_then(Value::as_array).cloned().unwrap_or_default();
-                    let question_ids = questions.iter().filter_map(|question| question.get("id").and_then(Value::as_str).map(str::to_owned)).collect();
-                    pending_user_input = Some((id, question_ids));
-                    state.handle_event(context, &json!({
-                        "type":"mcp_tool_call_begin",
-                        "invocation":{"tool":"AskUserQuestion","arguments":{"questions":questions}}
-                    }));
-                    flush_emissions(context, emissions);
-                    continue;
-                }
-                if message.get("method").and_then(Value::as_str) == Some("item/tool/call")
-                    && let Some(id) = message.get("id").cloned()
-                {
-                    let tool = message.pointer("/params/tool").and_then(Value::as_str).unwrap_or("");
-                    let args = message.pointer("/params/arguments").cloned().unwrap_or(Value::Null);
-                    let result = match &handle.skills {
-                        Some(skills) => skills.call_tool(tool, &args).await,
-                        None => Err("Inferay skills are unavailable in this session".into()),
-                    };
-                    let (success, output) = match result {
-                        Ok((output, card)) => {
-                            if let Some(card) = card {
-                                context.emissions.push(ProtocolEmission::System(card.to_string()));
-                                flush_emissions(context, emissions);
+        };
+        let thread_id = thread_response
+            .pointer("/thread/id")
+            .and_then(Value::as_str)
+            .ok_or("Codex App Server did not return a thread id")?
+            .to_owned();
+        state.set_session(context, thread_id.clone());
+        flush_emissions(context, emissions);
+        let turn_response = rpc
+            .request(
+                "turn/start",
+                codex_turn_params(&thread_id, run.prompt, run.invocation),
+                (&mut *context, &mut *state, emissions),
+            )
+            .await?;
+        let turn_id = turn_response
+            .pointer("/turn/id")
+            .and_then(Value::as_str)
+            .ok_or("Codex App Server did not return a turn id")?
+            .to_owned();
+        Ok::<_, String>((thread_id, turn_id))
+    }
+    .await;
+    if let Ok((thread_id, turn_id)) = &startup {
+        let (control_tx, mut control_rx) = mpsc::unbounded_channel();
+        handle.set_codex_control(control_tx);
+        let mut pending_steers = HashMap::<u64, oneshot::Sender<Result<(), String>>>::new();
+        let mut pending_user_input: Option<(Value, Vec<String>)> = None;
+        let mut completed = false;
+        loop {
+            tokio::select! {
+                control = control_rx.recv() => {
+                    match control {
+                        Some(CodexControl::Steer { text, images, response }) => {
+                            state.prepare_for_steering(context);
+                            flush_emissions(context, emissions);
+                            if let Some((response_id, question_ids)) = pending_user_input.take() {
+                                let answers = question_ids.into_iter().map(|question_id| {
+                                    (question_id, json!({"answers":[text]}))
+                                }).collect::<serde_json::Map<_, _>>();
+                                let result = rpc.write(&json!({"id":response_id,"result":{"answers":answers}}))
+                                    .await
+                                    .map_err(|error| error.to_string());
+                                if result.is_ok() {
+                                    state.close_tool(context);
+                                    flush_emissions(context, emissions);
+                                }
+                                let _ = response.send(result);
+                            } else {
+                                match rpc.send("turn/steer", json!({
+                                        "threadId":thread_id,
+                                        "expectedTurnId":turn_id,
+                                        "input":codex_user_input(&text, &images)
+                                })).await {
+                                    Ok(id) => { pending_steers.insert(id, response); }
+                                    Err(error) => { let _ = response.send(Err(error)); }
+                                }
                             }
-                            (true, output.to_string())
                         }
-                        Err(error) => (false, error),
-                    };
-                    if let Err(error) = write_rpc(&mut stdin, &json!({"id":id,"result":{
-                        "success":success,"contentItems":[{"type":"inputText","text":output}]
-                    }})).await {
-                        emit_error(context, error);
+                        Some(CodexControl::Interrupt) => {
+                            let _ = rpc.send("turn/interrupt", json!({"threadId":thread_id,"turnId":turn_id})).await;
+                        }
+                        None => {}
+                    }
+                }
+                read = rpc.read() => {
+                    let Some(message) = read else { break };
+                    if let Some(id) = message.get("id").and_then(Value::as_u64)
+                        && let Some(response) = pending_steers.remove(&id)
+                    {
+                        let result = rpc_result(message).map(|_| ());
+                        let _ = response.send(result);
+                        continue;
+                    }
+                    if message.get("method").and_then(Value::as_str) == Some("item/tool/requestUserInput")
+                        && let Some(id) = message.get("id").cloned()
+                    {
+                        let questions = message.pointer("/params/questions").and_then(Value::as_array).cloned().unwrap_or_default();
+                        let question_ids = questions.iter().filter_map(|question| question.get("id").and_then(Value::as_str).map(str::to_owned)).collect();
+                        pending_user_input = Some((id, question_ids));
+                        state.begin_tool(context, "AskUserQuestion", json!({"questions":questions}));
+                        flush_emissions(context, emissions);
+                        continue;
+                    }
+                    if message.get("method").and_then(Value::as_str) == Some("item/tool/call")
+                        && let Some(id) = message.get("id").cloned()
+                    {
+                        let tool = message.pointer("/params/tool").and_then(Value::as_str).unwrap_or("");
+                        let args = message.pointer("/params/arguments").cloned().unwrap_or(Value::Null);
+                        let result = match &handle.skills {
+                            Some(skills) => skills.call_tool(tool, &args).await,
+                            None => Err("Inferay skills are unavailable in this session".into()),
+                        };
+                        let (success, output) = match result {
+                            Ok((output, card)) => {
+                                if let Some(card) = card {
+                                    context.emissions.push(ProtocolEmission::System(card.to_string()));
+                                    flush_emissions(context, emissions);
+                                }
+                                (true, output.to_string())
+                            }
+                            Err(error) => (false, error),
+                        };
+                        if let Err(error) = rpc.write(&json!({"id":id,"result":{
+                            "success":success,"contentItems":[{"type":"inputText","text":output}]
+                        }})).await {
+                            emit_error(context, error);
+                            break;
+                        }
+                        continue;
+                    }
+                    let is_completed = message.get("method").and_then(Value::as_str) == Some("turn/completed");
+                    if let Some(method) = message["method"].as_str() {
+                        state.handle_notification(context, method, &message["params"]);
+                        flush_emissions(context, emissions);
+                    }
+                    if is_completed {
+                        completed = true;
                         break;
                     }
-                    continue;
-                }
-                let is_completed = message.get("method").and_then(Value::as_str) == Some("turn/completed");
-                if let Some(event) = normalize_app_server_notification(&message) {
-                    state.handle_event(context, &event);
-                    flush_emissions(context, emissions);
-                }
-                if is_completed {
-                    completed = true;
-                    break;
                 }
             }
         }
+        handle.clear_codex_control();
+        for (_, response) in pending_steers {
+            let _ = response.send(Err("Codex turn ended before steering completed".into()));
+        }
+        state.completed_from_event = completed;
+    } else if let Err(error) = startup {
+        emit_error(context, error);
     }
-    handle.clear_codex_control();
-    for (_, response) in pending_steers {
-        let _ = response.send(Err("Codex turn ended before steering completed".into()));
-    }
-    state.completed_from_event = completed;
+
     finish_codex_child(
         child,
         pid,
@@ -602,46 +475,63 @@ fn codex_user_input(text: &str, images: &[PathBuf]) -> Vec<Value> {
     input
 }
 
-async fn request_rpc(
-    stdin: &mut tokio::process::ChildStdin,
-    stdout: &mut BufReader<tokio::process::ChildStdout>,
-    line: &mut Vec<u8>,
-    id: u64,
-    method: &str,
-    params: Value,
-    protocol: (
-        &mut AgentProtocolContext,
-        &mut CodexProtocolState,
-        Option<&mpsc::UnboundedSender<ProtocolEmission>>,
-    ),
-) -> Result<Value, String> {
-    write_rpc(stdin, &json!({"method":method,"id":id,"params":params})).await?;
-    wait_for_rpc_response(stdout, line, id, protocol).await
+struct CodexConnection {
+    stdin: tokio::process::ChildStdin,
+    stdout: tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
+    request_id: u64,
 }
 
-async fn wait_for_rpc_response(
-    stdout: &mut BufReader<tokio::process::ChildStdout>,
-    line: &mut Vec<u8>,
-    id: u64,
-    protocol: (
-        &mut AgentProtocolContext,
-        &mut CodexProtocolState,
-        Option<&mpsc::UnboundedSender<ProtocolEmission>>,
-    ),
-) -> Result<Value, String> {
-    let (context, state, emissions) = protocol;
-    loop {
-        let message =
-            tokio::time::timeout(std::time::Duration::from_secs(15), read_rpc(stdout, line))
+impl CodexConnection {
+    async fn write(&mut self, message: &Value) -> Result<(), String> {
+        let mut encoded = serde_json::to_vec(message).map_err(|error| error.to_string())?;
+        encoded.push(b'\n');
+        self.stdin
+            .write_all(&encoded)
+            .await
+            .map_err(|error| error.to_string())?;
+        self.stdin.flush().await.map_err(|error| error.to_string())
+    }
+
+    async fn send(&mut self, method: &str, params: Value) -> Result<u64, String> {
+        self.request_id += 1;
+        self.write(&json!({"method":method,"id":self.request_id,"params":params}))
+            .await?;
+        Ok(self.request_id)
+    }
+
+    async fn read(&mut self) -> Option<Value> {
+        while let Some(line) = self.stdout.next_line().await.ok()? {
+            if let Ok(message) = serde_json::from_str(&line) {
+                return Some(message);
+            }
+        }
+        None
+    }
+
+    async fn request(
+        &mut self,
+        method: &str,
+        params: Value,
+        protocol: (
+            &mut AgentProtocolContext,
+            &mut CodexProtocolState,
+            Option<&mpsc::UnboundedSender<ProtocolEmission>>,
+        ),
+    ) -> Result<Value, String> {
+        let id = self.send(method, params).await?;
+        let (context, state, emissions) = protocol;
+        loop {
+            let message = tokio::time::timeout(std::time::Duration::from_secs(15), self.read())
                 .await
                 .map_err(|_| "Codex App Server response timed out".to_string())?
                 .ok_or_else(|| "Codex App Server closed before replying".to_string())?;
-        if message.get("id").and_then(Value::as_u64) == Some(id) {
-            return rpc_result(message);
-        }
-        if let Some(event) = normalize_app_server_notification(&message) {
-            state.handle_event(context, &event);
-            flush_emissions(context, emissions);
+            if message.get("id").and_then(Value::as_u64) == Some(id) {
+                return rpc_result(message);
+            }
+            if let Some(method) = message["method"].as_str() {
+                state.handle_notification(context, method, &message["params"]);
+                flush_emissions(context, emissions);
+            }
         }
     }
 }
@@ -655,100 +545,6 @@ fn rpc_result(message: Value) -> Result<Value, String> {
         .and_then(Value::as_str)
         .unwrap_or("Codex App Server request failed");
     Err(error.to_string())
-}
-
-async fn write_rpc(stdin: &mut tokio::process::ChildStdin, message: &Value) -> Result<(), String> {
-    let mut encoded = serde_json::to_vec(message).map_err(|error| error.to_string())?;
-    encoded.push(b'\n');
-    stdin
-        .write_all(&encoded)
-        .await
-        .map_err(|error| error.to_string())?;
-    stdin.flush().await.map_err(|error| error.to_string())
-}
-
-async fn read_rpc(
-    stdout: &mut BufReader<tokio::process::ChildStdout>,
-    line: &mut Vec<u8>,
-) -> Option<Value> {
-    loop {
-        line.clear();
-        match stdout.read_until(b'\n', line).await {
-            Ok(0) | Err(_) => return None,
-            Ok(_) => {
-                if let Some(message) = parse_ndjson(line) {
-                    return Some(message);
-                }
-            }
-        }
-    }
-}
-
-fn normalize_app_server_notification(message: &Value) -> Option<Value> {
-    let method = message.get("method")?.as_str()?;
-    let params = message.get("params").cloned().unwrap_or(Value::Null);
-    match method {
-        "turn/started" => Some(json!({"type":"turn.started"})),
-        "turn/completed" => {
-            let status = params
-                .pointer("/turn/status")
-                .and_then(Value::as_str)
-                .unwrap_or("completed");
-            let error = params
-                .pointer("/turn/error/message")
-                .and_then(Value::as_str);
-            if status == "failed"
-                && let Some(error) = error
-            {
-                Some(json!({"type":"error","message":error}))
-            } else {
-                Some(json!({"type":"task_complete"}))
-            }
-        }
-        "item/started" | "item/completed" => {
-            let mut item = params.get("item")?.clone();
-            normalize_app_server_item(&mut item);
-            let event_type = if method == "item/started" {
-                "item.started"
-            } else {
-                "item.completed"
-            };
-            Some(json!({"type":event_type,"item":item}))
-        }
-        "item/agentMessage/delta" => Some(json!({
-            "type":"agent_message_delta",
-            "delta":params.get("delta").cloned().unwrap_or(Value::Null)
-        })),
-        "item/commandExecution/outputDelta" => Some(json!({
-            "type":"command_output_delta",
-            "delta":params.get("delta").cloned().unwrap_or(Value::Null)
-        })),
-        "error" => Some(json!({
-            "type":"error",
-            "message":params.pointer("/error/message").or_else(|| params.get("message")).cloned().unwrap_or(Value::Null)
-        })),
-        _ => None,
-    }
-}
-
-fn normalize_app_server_item(item: &mut Value) {
-    let Some(record) = item.as_object_mut() else {
-        return;
-    };
-    let Some(item_type) = record.get("type").and_then(Value::as_str) else {
-        return;
-    };
-    let normalized = match item_type {
-        "agentMessage" => "agent_message",
-        "userMessage" => "user_message",
-        "commandExecution" => "command_execution",
-        "fileChange" => "file_change",
-        other => other,
-    };
-    record.insert("type".into(), json!(normalized));
-    if let Some(output) = record.remove("aggregatedOutput") {
-        record.insert("aggregated_output".into(), output);
-    }
 }
 
 async fn finish_codex_child(
@@ -784,11 +580,6 @@ async fn finish_codex_child(
     {
         emit_error(context, stderr);
     }
-    let exit_code = exit.as_ref().ok().and_then(std::process::ExitStatus::code);
-    emit_finish(
-        context,
-        finish_reason(handle, exit_code, state.completed_from_event),
-    );
     flush_emissions(context, emissions);
     AgentRunResult {
         last_assistant_message: state.last_assistant_message.clone(),
@@ -812,8 +603,8 @@ fn spawn_codex_app_server(
         .spawn()
 }
 
-fn spawn_direct(
-    arguments: &[String],
+pub(crate) fn spawn_direct(
+    arguments: &[impl AsRef<OsStr>],
     cwd: &Path,
     env: &HashMap<OsString, OsString>,
 ) -> std::io::Result<tokio::process::Child> {
@@ -884,7 +675,7 @@ fn decode_utf8_stream(pending: &mut Vec<u8>, output: &mut String, end: bool) {
     }
 }
 
-fn tail_javascript_chars(value: &str, max_units: usize) -> String {
+pub(crate) fn tail_javascript_chars(value: &str, max_units: usize) -> String {
     let units = value.encode_utf16().collect::<Vec<_>>();
     if units.len() <= max_units {
         return value.into();
@@ -903,20 +694,7 @@ fn parse_ndjson(line: &[u8]) -> Option<Value> {
 }
 
 fn emit_error(context: &mut AgentProtocolContext, message: String) {
-    context
-        .emissions
-        .push(ProtocolEmission::Agent(AgentEvent::Error {
-            message: message.clone(),
-        }));
     context.emissions.push(ProtocolEmission::System(message));
-}
-
-fn emit_finish(context: &mut AgentProtocolContext, reason: String) {
-    context
-        .emissions
-        .push(ProtocolEmission::Agent(AgentEvent::Finish {
-            reason: Some(reason),
-        }));
 }
 
 fn flush_emissions(
@@ -926,16 +704,6 @@ fn flush_emissions(
     let Some(sender) = sender else { return };
     for emission in context.take_emissions() {
         let _ = sender.send(emission);
-    }
-}
-
-fn finish_reason(handle: &AgentProcessHandle, exit_code: Option<i32>, completed: bool) -> String {
-    if handle.is_cancelled() {
-        "cancelled".into()
-    } else if exit_code == Some(0) || completed {
-        "completed".into()
-    } else {
-        format!("exit:{}", exit_code.unwrap_or(-1))
     }
 }
 
@@ -1061,17 +829,9 @@ mod tests {
         assert!(matches!(&context.emissions[0], ProtocolEmission::Session(id) if id == "s1"));
         assert!(matches!(
             &context.emissions[1],
-            ProtocolEmission::Agent(AgentEvent::Session { .. })
-        ));
-        assert!(matches!(
-            &context.emissions[2],
-            ProtocolEmission::Agent(AgentEvent::ToolCallStart { .. })
-        ));
-        assert!(matches!(
-            &context.emissions[3],
             ProtocolEmission::Activity { tool_name, .. } if tool_name == "Read"
         ));
-        assert!(matches!(&context.emissions[4], ProtocolEmission::Chat(_)));
+        assert!(matches!(&context.emissions[2], ProtocolEmission::Chat(_)));
     }
 
     #[cfg(unix)]
@@ -1087,6 +847,64 @@ mod tests {
     #[cfg(unix)]
     fn test_env() -> HashMap<OsString, OsString> {
         std::env::vars_os().collect()
+    }
+
+    #[cfg(unix)]
+    struct CodexFixture {
+        directory: tempfile::TempDir,
+        binary: PathBuf,
+        environment: HashMap<OsString, OsString>,
+        invocation: CodexInvocationContext,
+        tracker: RecordingTracker,
+        handle: AgentProcessHandle,
+        context: AgentProtocolContext,
+        state: CodexProtocolState,
+    }
+
+    #[cfg(unix)]
+    impl CodexFixture {
+        fn new(script: &str) -> Self {
+            let (directory, binary) = executable_script(script);
+            Self {
+                invocation: CodexInvocationContext {
+                    cwd: directory.path().into(),
+                    reference_paths: vec![],
+                    images: vec![],
+                    model: None,
+                    reasoning_level: None,
+                    developer_instructions: None,
+                    session_id: None,
+                },
+                context: AgentProtocolContext::new(directory.path()),
+                directory,
+                binary,
+                environment: test_env(),
+                tracker: RecordingTracker::default(),
+                handle: AgentProcessHandle::default(),
+                state: CodexProtocolState::default(),
+            }
+        }
+
+        async fn run(
+            &mut self,
+            prompt: &str,
+            emissions: Option<&mpsc::UnboundedSender<ProtocolEmission>>,
+        ) -> AgentRunResult {
+            run_codex(
+                CodexRun {
+                    binary: &self.binary,
+                    prompt,
+                    invocation: &self.invocation,
+                    env: &self.environment,
+                },
+                &self.handle,
+                &self.tracker,
+                &mut self.context,
+                &mut self.state,
+                emissions,
+            )
+            .await
+        }
     }
 
     #[cfg(unix)]
@@ -1114,9 +932,6 @@ mod tests {
         )
         .await;
         assert_eq!(result.last_assistant_message, "finished");
-        assert!(
-            matches!(context.emissions.last(), Some(ProtocolEmission::Agent(AgentEvent::Finish { reason: Some(reason) })) if reason == "completed")
-        );
         assert_eq!(context.session_id.as_deref(), Some("claude-session"));
         assert_eq!(handle.pid(), None);
     }
@@ -1167,7 +982,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn codex_skill_tool_calls_return_results_and_native_cards_without_writing() {
-        let (directory, binary) = executable_script(
+        let mut fixture = CodexFixture::new(
             r#"
 while IFS= read -r line; do
   case "$line" in
@@ -1185,47 +1000,23 @@ while IFS= read -r line; do
 done
 "#,
         );
-        let store_path = directory.path().join("skills.json");
+        let store_path = fixture.directory.path().join("skills.json");
         let skills = NativePrompts::new(Arc::new(tokio::sync::Mutex::new(
             inferay_core::prompts::PromptStore::new(
-                directory.path().join("bundled.json"),
+                fixture.directory.path().join("bundled.json"),
                 store_path.clone(),
             ),
         )));
-        let handle = AgentProcessHandle::with_skills(skills);
-        let invocation = CodexInvocationContext {
-            cwd: directory.path().into(),
-            reference_paths: vec![],
-            images: vec![],
-            model: None,
-            reasoning_level: None,
-            developer_instructions: None,
-            session_id: None,
-        };
-        let environment = test_env();
-        let tracker = RecordingTracker::default();
-        let mut context = AgentProtocolContext::new(directory.path());
-        let mut state = CodexProtocolState::default();
+        fixture.handle = AgentProcessHandle::with_skills(skills);
+
         tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            run_codex(
-                CodexRun {
-                    binary: &binary,
-                    prompt: "make this a skill",
-                    invocation: &invocation,
-                    env: &environment,
-                },
-                &handle,
-                &tracker,
-                &mut context,
-                &mut state,
-                None,
-            ),
+            fixture.run("make this a skill", None),
         )
         .await
         .expect("tool request must receive a response");
         let request: Value = serde_json::from_slice(
-            &std::fs::read(directory.path().join("thread-request.json")).unwrap(),
+            &std::fs::read(fixture.directory.path().join("thread-request.json")).unwrap(),
         )
         .unwrap();
         assert_eq!(
@@ -1233,7 +1024,7 @@ done
             3
         );
         let response: Value = serde_json::from_slice(
-            &std::fs::read(directory.path().join("tool-response.json")).unwrap(),
+            &std::fs::read(fixture.directory.path().join("tool-response.json")).unwrap(),
         )
         .unwrap();
         assert_eq!(response["result"]["success"], true);
@@ -1243,7 +1034,7 @@ done
                 .unwrap()
                 .contains("pending_approval")
         );
-        assert!(context.emissions.iter().any(|event| matches!(event, ProtocolEmission::System(text) if text.contains("inferay.skill-proposal"))));
+        assert!(fixture.context.emissions.iter().any(|event| matches!(event, ProtocolEmission::System(text) if text.contains("inferay.skill-proposal"))));
         assert!(
             !store_path.exists(),
             "agent tools must not persist an unapproved skill"
@@ -1253,14 +1044,33 @@ done
     #[cfg(unix)]
     #[tokio::test]
     async fn codex_app_server_tracks_pid_and_streams_the_final_message() {
-        let (directory, binary) = executable_script(
-            r#"
+        for (failure, expected_error) in [
+            ("none", None),
+            ("resume", None),
+            ("resume-fallback", None),
+            ("initialize", Some("startup rejected")),
+            (
+                "thread",
+                Some("Codex App Server did not return a thread id"),
+            ),
+            ("turn", Some("Codex App Server did not return a turn id")),
+        ] {
+            let mut fixture = CodexFixture::new(
+                r#"
+id=0
 while IFS= read -r line; do
+  case "$line" in *'"id":'*) id=$((id + 1)) ;; esac
+  case "$FAILURE:$line" in
+    resume-fallback:*'"method":"thread/resume"'*) printf '{"id":%s,"error":{"message":"resume rejected"}}\n' "$id"; continue ;;
+    initialize:*'"method":"initialize"'*) printf '{"id":%s,"error":{"message":"startup rejected"}}\n' "$id"; continue ;;
+    thread:*'"method":"thread/start"'*) printf '{"id":%s,"result":{}}\n' "$id"; continue ;;
+    turn:*'"method":"turn/start"'*) printf '{"id":%s,"result":{}}\n' "$id"; continue ;;
+  esac
   case "$line" in
-    *'"method":"initialize"'*) printf '%s\n' '{"id":1,"result":{"userAgent":"test","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}' ;;
-    *'"method":"thread/start"'*) printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}' ;;
+    *'"method":"initialize"'*) printf '{"id":%s,"result":{"userAgent":"test","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}\n' "$id" ;;
+    *'"method":"thread/start"'*|*'"method":"thread/resume"'*) printf '{"id":%s,"result":{"thread":{"id":"thread-1"}}}\n' "$id" ;;
     *'"method":"turn/start"'*)
-      printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+      printf '{"id":%s,"result":{"turn":{"id":"turn-1"}}}\n' "$id"
       printf '%s\n' '{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1"}}}'
       printf '%s\n' '{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"message-1","delta":"file summary"}}'
       printf '%s\n' '{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"agentMessage","id":"message-1","text":"file summary"}}}'
@@ -1269,50 +1079,37 @@ while IFS= read -r line; do
   esac
 done
 "#,
-        );
-        let environment = test_env();
-        let invocation = CodexInvocationContext {
-            cwd: directory.path().into(),
-            reference_paths: vec![],
-            images: vec![],
-            model: None,
-            reasoning_level: None,
-            developer_instructions: None,
-            session_id: None,
-        };
-        let tracker = RecordingTracker::default();
-        let handle = AgentProcessHandle::default();
-        let mut context = AgentProtocolContext::new(directory.path());
-        let mut state = CodexProtocolState::default();
-        let result = run_codex(
-            CodexRun {
-                binary: &binary,
-                prompt: "hello",
-                invocation: &invocation,
-                env: &environment,
-            },
-            &handle,
-            &tracker,
-            &mut context,
-            &mut state,
-            None,
-        )
-        .await;
-        assert_eq!(result.last_assistant_message, "file summary");
-        let tracking = tracker.tracked.lock().unwrap();
-        assert_eq!(tracking.len(), 3);
-        assert_eq!(tracking[0].0, 't');
-        assert_eq!(tracking[1], ('k', tracking[0].1));
-        assert_eq!(tracking[2], ('u', tracking[0].1));
-        assert!(
-            matches!(context.emissions.last(), Some(ProtocolEmission::Agent(AgentEvent::Finish { reason: Some(reason) })) if reason == "completed")
-        );
+            );
+
+            fixture.environment.insert("FAILURE".into(), failure.into());
+
+            fixture.invocation.session_id = failure
+                .starts_with("resume")
+                .then(|| "previous-thread".into());
+            let result = fixture.run("hello", None).await;
+            if let Some(expected) = expected_error {
+                assert!(result.last_assistant_message.is_empty());
+                assert!(
+                    fixture.context.emissions.iter().any(|event| matches!(event,
+                ProtocolEmission::System(message) if message == expected)),
+                    "{failure}"
+                );
+            } else {
+                assert_eq!(result.last_assistant_message, "file summary", "{failure}");
+            }
+            assert!(fixture.handle.pid().is_none());
+            let tracking = fixture.tracker.tracked.lock().unwrap();
+            assert_eq!(tracking.len(), 3);
+            assert_eq!(tracking[0].0, 't');
+            assert_eq!(tracking[1], ('k', tracking[0].1));
+            assert_eq!(tracking[2], ('u', tracking[0].1));
+        }
     }
 
     #[cfg(unix)]
     #[tokio::test]
     async fn codex_runner_streams_inline_edit_before_child_exit() {
-        let (directory, binary) = executable_script(
+        let mut fixture = CodexFixture::new(
             r#"
 while IFS= read -r line; do
   case "$line" in
@@ -1330,37 +1127,12 @@ while IFS= read -r line; do
 done
 "#,
         );
-        let source = directory.path().join("src/main.rs");
+        let source = fixture.directory.path().join("src/main.rs");
         std::fs::create_dir_all(source.parent().unwrap()).unwrap();
         std::fs::write(&source, "fn answer() -> u8 { 41 }\n").unwrap();
-        let environment = test_env();
-        let invocation = CodexInvocationContext {
-            cwd: directory.path().into(),
-            reference_paths: vec![],
-            images: vec![],
-            model: None,
-            reasoning_level: None,
-            developer_instructions: None,
-            session_id: None,
-        };
-        let tracker = RecordingTracker::default();
-        let handle = AgentProcessHandle::default();
-        let mut context = AgentProtocolContext::new(directory.path());
-        let mut state = CodexProtocolState::default();
+
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        let run = run_codex(
-            CodexRun {
-                binary: &binary,
-                prompt: "edit the answer",
-                invocation: &invocation,
-                env: &environment,
-            },
-            &handle,
-            &tracker,
-            &mut context,
-            &mut state,
-            Some(&sender),
-        );
+        let run = fixture.run("edit the answer", Some(&sender));
         tokio::pin!(run);
         let changed_paths = tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
@@ -1384,7 +1156,7 @@ done
     #[cfg(unix)]
     #[tokio::test]
     async fn codex_app_server_steers_the_active_turn_instead_of_starting_another() {
-        let (directory, binary) = executable_script(
+        let mut fixture = CodexFixture::new(
             r#"
 while IFS= read -r line; do
   case "$line" in
@@ -1393,8 +1165,10 @@ while IFS= read -r line; do
     *'"method":"turn/start"'*)
       printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
       printf '%s\n' '{"method":"turn/started","params":{"threadId":"thread-1","turn":{"id":"turn-1"}}}'
+      printf '%s' '{"method":"item/agentMessage/delta","params":{'
       ;;
     *'"method":"turn/steer"'*)
+      printf '%s\n' '"threadId":"thread-1","turnId":"turn-1","itemId":"partial","delta":"before steering"}}'
       printf '%s' "$line" > steer-request.json
       printf '%s\n' '{"id":4,"result":{"turnId":"turn-1"}}'
       printf '%s\n' '{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"userMessage","id":"user-2","text":"change direction"}}}'
@@ -1405,34 +1179,14 @@ while IFS= read -r line; do
 done
 "#,
         );
-        let environment = test_env();
-        let invocation = CodexInvocationContext {
-            cwd: directory.path().into(),
-            reference_paths: vec![],
-            images: vec![],
-            model: Some("gpt-5.6-sol".into()),
-            reasoning_level: Some("high".into()),
-            developer_instructions: Some("own the outcome".into()),
-            session_id: None,
-        };
-        let tracker = RecordingTracker::default();
-        let handle = AgentProcessHandle::default();
-        let mut context = AgentProtocolContext::new(directory.path());
-        let mut state = CodexProtocolState::default();
+
+        fixture.invocation.model = Some("gpt-5.6-sol".into());
+        fixture.invocation.reasoning_level = Some("high".into());
+        fixture.invocation.developer_instructions = Some("own the outcome".into());
+        let handle = fixture.handle.clone();
+        let request_path = fixture.directory.path().join("steer-request.json");
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        let run = run_codex(
-            CodexRun {
-                binary: &binary,
-                prompt: "initial request",
-                invocation: &invocation,
-                env: &environment,
-            },
-            &handle,
-            &tracker,
-            &mut context,
-            &mut state,
-            Some(&sender),
-        );
+        let run = fixture.run("initial request", Some(&sender));
         tokio::pin!(run);
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
@@ -1448,6 +1202,12 @@ done
         })
         .await
         .expect("turn should start");
+        // Let the runner consume the partial line before steering interrupts its read.
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), &mut run)
+                .await
+                .is_err()
+        );
         let steer = handle.steer_codex("change direction".into(), vec![]);
         tokio::pin!(steer);
         tokio::select! {
@@ -1457,7 +1217,10 @@ done
         let result = run.await;
         assert_eq!(result.last_assistant_message, "followed steering");
         let mut acknowledged = false;
+        let mut partial_delivered = false;
         while let Ok(emission) = receiver.try_recv() {
+            partial_delivered |= matches!(&emission, ProtocolEmission::Chat(event)
+                if event["delta"]["text"] == "before steering");
             acknowledged |= matches!(
                 emission,
                 ProtocolEmission::UserInputAcknowledged { ref text }
@@ -1465,10 +1228,11 @@ done
             );
         }
         assert!(acknowledged);
-        let request: Value = serde_json::from_slice(
-            &std::fs::read(directory.path().join("steer-request.json")).unwrap(),
-        )
-        .unwrap();
+        assert!(
+            partial_delivered,
+            "steering must not discard the partial JSON line"
+        );
+        let request: Value = serde_json::from_slice(&std::fs::read(request_path).unwrap()).unwrap();
         assert_eq!(request["method"], "turn/steer");
         assert_eq!(request["params"]["expectedTurnId"], "turn-1");
         assert_eq!(request["params"]["input"][0]["text"], "change direction");

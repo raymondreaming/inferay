@@ -1,5 +1,5 @@
 //! Native interpretation of tool input; browser components only render the result.
-use crate::chat_protocol::{javascript_length, javascript_slice};
+use crate::{utf16_length as javascript_length, utf16_slice as javascript_slice};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -249,156 +249,111 @@ pub fn display(tool_name: Option<&str>, input: &Value) -> ToolDisplayInfo {
         {
             return label("Running verification checks");
         }
-        let file = target(command);
-        let with_target = |prefix: &str, fallback: &str| {
-            label(
-                file.as_ref()
-                    .map_or_else(|| fallback.into(), |file| format!("{prefix}{file}")),
-            )
-        };
-        if js_test {
-            return with_target("Testing ", "Running JavaScript tests");
-        }
-        if has("pytest")
-            || ["python", "python3"]
+        let presentation = match () {
+            _ if js_test => ("Running JavaScript tests", "Testing {}"),
+            _ if has("pytest")
+                || ["python", "python3"]
+                    .iter()
+                    .any(|p| seq(&[p, "-m", "pytest"]) || seq(&[p, "-m", "unittest"])) =>
+            {
+                ("Running Python tests", "Testing {}")
+            }
+            _ if seq(&["cargo", "test"]) => ("Running Rust tests", ""),
+            _ if seq(&["go", "test"]) => ("Running Go tests", ""),
+            _ if ["tsc", "typecheck", "type-check"].iter().any(|w| has(w)) => {
+                ("Type-checking project", "")
+            }
+            _ if has("mypy") || has("pyright") => ("Checking Python types", ""),
+            _ if has("eslint") || seq(&["npm", "run", "lint"]) => ("Linting project", "Linting {}"),
+            _ if seq(&["biome", "check"]) || seq(&["biome", "lint"]) => ("Checking code style", ""),
+            _ if ["ruff", "pylint", "flake8"].iter().any(|w| has(w)) => ("Linting Python code", ""),
+            _ if seq(&["cargo", "clippy"]) || has("golangci-lint") => ("Analyzing code", ""),
+            _ if package("build") => ("Building application", ""),
+            _ if seq(&["cargo", "build"]) || seq(&["cargo", "check"]) => {
+                ("Checking Rust project", "")
+            }
+            _ if seq(&["go", "build"]) => ("Building Go project", ""),
+            _ if has("prettier") || seq(&["biome", "format"]) => ("Formatting code", ""),
+            _ if seq(&["git", "status"]) => ("Checking working tree", ""),
+            _ if seq(&["git", "log"]) => (
+                if has("-1") || seq(&["-n", "1"]) {
+                    "Reading latest commit"
+                } else {
+                    "Reading commit history"
+                },
+                "",
+            ),
+            _ if seq(&["git", "diff"]) => {
+                if has("--cached") || has("--staged") {
+                    ("Reviewing staged changes", "Reviewing staged {}")
+                } else {
+                    ("Reviewing working changes", "Reviewing changes in {}")
+                }
+            }
+            _ if seq(&["git", "show"]) => ("Inspecting commit", "Reading committed {}"),
+            _ if seq(&["git", "branch"]) || seq(&["git", "rev-parse"]) => {
+                ("Identifying current revision", "")
+            }
+            _ if seq(&["git", "blame"]) => ("Tracing line history", "Tracing {} history"),
+            _ if seq(&["git", "fetch"]) || seq(&["git", "pull"]) => {
+                ("Refreshing remote changes", "")
+            }
+            _ if seq(&["git", "push"]) => ("Publishing commits", ""),
+            _ if seq(&["git", "checkout"]) || seq(&["git", "switch"]) => ("Switching branch", ""),
+            _ if seq(&["git", "add"]) || seq(&["git", "commit"]) => (
+                if has("commit") {
+                    "Saving changes"
+                } else {
+                    "Staging changes"
+                },
+                "",
+            ),
+            _ if has("rg") || has("grep") => ("Searching source code", "Searching {}"),
+            _ if has("find") => ("Discovering files", ""),
+            _ if ["sed", "cat", "head", "tail", "less"]
                 .iter()
-                .any(|p| seq(&[p, "-m", "pytest"]) || seq(&[p, "-m", "unittest"]))
-        {
-            return with_target("Testing ", "Running Python tests");
-        }
-        if seq(&["cargo", "test"]) {
-            return label("Running Rust tests");
-        }
-        if seq(&["go", "test"]) {
-            return label("Running Go tests");
-        }
-        if ["tsc", "typecheck", "type-check"].iter().any(|w| has(w)) {
-            return label("Type-checking project");
-        }
-        if has("mypy") || has("pyright") {
-            return label("Checking Python types");
-        }
-        if has("eslint") || seq(&["npm", "run", "lint"]) {
-            return with_target("Linting ", "Linting project");
-        }
-        if seq(&["biome", "check"]) || seq(&["biome", "lint"]) {
-            return label("Checking code style");
-        }
-        if ["ruff", "pylint", "flake8"].iter().any(|w| has(w)) {
-            return label("Linting Python code");
-        }
-        if seq(&["cargo", "clippy"]) || has("golangci-lint") {
-            return label("Analyzing code");
-        }
-        if package("build") {
-            return label("Building application");
-        }
-        if seq(&["cargo", "build"]) || seq(&["cargo", "check"]) {
-            return label("Checking Rust project");
-        }
-        if seq(&["go", "build"]) {
-            return label("Building Go project");
-        }
-        if has("prettier") || seq(&["biome", "format"]) {
-            return label("Formatting code");
-        }
-        if seq(&["git", "status"]) {
-            return label("Checking working tree");
-        }
-        if seq(&["git", "log"]) {
-            return label(if has("-1") || seq(&["-n", "1"]) {
-                "Reading latest commit"
-            } else {
-                "Reading commit history"
-            });
-        }
-        if seq(&["git", "diff"]) {
-            return if has("--cached") || has("--staged") {
-                with_target("Reviewing staged ", "Reviewing staged changes")
-            } else {
-                with_target("Reviewing changes in ", "Reviewing working changes")
-            };
-        }
-        if seq(&["git", "show"]) {
-            return with_target("Reading committed ", "Inspecting commit");
-        }
-        if seq(&["git", "branch"]) || seq(&["git", "rev-parse"]) {
-            return label("Identifying current revision");
-        }
-        if seq(&["git", "blame"]) {
-            return label(file.as_ref().map_or_else(
-                || "Tracing line history".into(),
-                |f| format!("Tracing {f} history"),
-            ));
-        }
-        for (commands, text) in [
-            (&["fetch", "pull"][..], "Refreshing remote changes"),
-            (&["push"][..], "Publishing commits"),
-            (&["checkout", "switch"][..], "Switching branch"),
-        ] {
-            if commands.iter().any(|c| seq(&["git", c])) {
-                return label(text);
+                .any(|w| has(w)) =>
+            {
+                ("Reading source excerpt", "Reading {}")
             }
-        }
-        if seq(&["git", "add"]) || seq(&["git", "commit"]) {
-            return label(if has("commit") {
-                "Saving changes"
-            } else {
-                "Staging changes"
-            });
-        }
-        if has("rg") || has("grep") {
-            return with_target("Searching ", "Searching source code");
-        }
-        if has("find") {
-            return label("Discovering files");
-        }
-        if ["sed", "cat", "head", "tail", "less"]
-            .iter()
-            .any(|w| has(w))
-        {
-            return with_target("Reading ", "Reading source excerpt");
-        }
-        if has("ls") || has("tree") {
-            return label("Listing project files");
-        }
-        if has("pwd") {
-            return label("Checking current location");
-        }
-        if package("install") || package("add") {
-            return label("Installing dependencies");
-        }
-        if ["docker", "docker-compose"]
-            .iter()
-            .any(|c| seq(&[c, "build"]) || seq(&[c, "compose", "build"]))
-        {
-            return label("Building containers");
-        }
-        if ["docker", "docker-compose"]
-            .iter()
-            .any(|c| ["run", "up"].iter().any(|a| seq(&[c, a])) || seq(&[c, "compose", "up"]))
-        {
-            return label("Starting containers");
-        }
-        if ["prisma", "drizzle", "rails", "alembic"]
-            .iter()
-            .any(|w| has(w))
-            && (has("migrate") || has("migration"))
-        {
-            return label("Applying database migration");
-        }
-        for (commands, text) in [
-            (&["mkdir", "touch"][..], "Creating files"),
-            (&["cp"][..], "Copying files"),
-            (&["mv"][..], "Moving files"),
-            (&["rm"][..], "Removing files"),
-            (&["ps", "lsof"][..], "Inspecting running processes"),
-            (&["kill", "pkill"][..], "Stopping process"),
-            (&["curl", "wget"][..], "Fetching data"),
-        ] {
-            if commands.iter().any(|w| has(w)) {
-                return label(text);
+            _ if has("ls") || has("tree") => ("Listing project files", ""),
+            _ if has("pwd") => ("Checking current location", ""),
+            _ if package("install") || package("add") => ("Installing dependencies", ""),
+            _ if ["docker", "docker-compose"]
+                .iter()
+                .any(|c| seq(&[c, "build"]) || seq(&[c, "compose", "build"])) =>
+            {
+                ("Building containers", "")
             }
+            _ if ["docker", "docker-compose"].iter().any(|c| {
+                ["run", "up"].iter().any(|a| seq(&[c, a])) || seq(&[c, "compose", "up"])
+            }) =>
+            {
+                ("Starting containers", "")
+            }
+            _ if ["prisma", "drizzle", "rails", "alembic"]
+                .iter()
+                .any(|w| has(w))
+                && (has("migrate") || has("migration")) =>
+            {
+                ("Applying database migration", "")
+            }
+            _ if has("mkdir") || has("touch") => ("Creating files", ""),
+            _ if has("cp") => ("Copying files", ""),
+            _ if has("mv") => ("Moving files", ""),
+            _ if has("rm") => ("Removing files", ""),
+            _ if has("ps") || has("lsof") => ("Inspecting running processes", ""),
+            _ if has("kill") || has("pkill") => ("Stopping process", ""),
+            _ if has("curl") || has("wget") => ("Fetching data", ""),
+            _ => ("", ""),
+        };
+        let (fallback, template) = presentation;
+        if !fallback.is_empty() {
+            return label(
+                target(command)
+                    .filter(|_| !template.is_empty())
+                    .map_or_else(|| fallback.into(), |file| template.replace("{}", &file)),
+            );
         }
         let detail = ["/bin/zsh -lc ", "/bin/bash -lc ", "/bin/sh -lc "]
             .iter()

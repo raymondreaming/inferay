@@ -2,7 +2,6 @@ import { useQuery } from "@octanejs/tanstack-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
 import { postJson } from "../../../adapters/backend/http.ts";
 import {
-	readStoredJson,
 	readStoredValue,
 	writeStoredValue,
 } from "../../../adapters/storage/stored-values.ts";
@@ -154,10 +153,6 @@ export function useWorkspacePanelSession(workspaceId: string) {
 					"/api/workspace/panels",
 					{
 						workspaceId,
-						legacy: readStoredJson<unknown>(
-							`${WORKSPACE_PANEL_SESSION_KEY}${workspaceId}`,
-							null,
-						),
 					},
 				);
 				return session;
@@ -621,7 +616,7 @@ export function useRepositoryWorkbench({
 			if (!graphCwd) {
 				return {
 					ok: false,
-					action: request.action,
+					operation: request.action,
 					outcome: "failed",
 					conflicts: [],
 					errorKind: "invalidInput",
@@ -658,7 +653,7 @@ export function useRepositoryWorkbench({
 			} catch (error) {
 				return {
 					ok: false,
-					action: request.action,
+					operation: request.action,
 					outcome: "failed",
 					conflicts: [],
 					errorKind: "commandFailed",

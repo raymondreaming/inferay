@@ -1,87 +1,13 @@
+use crate::{utf16_length as javascript_length, utf16_slice as javascript_slice};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use base64::Engine;
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::chat_protocol::{
-    CHAT_SINGLE_MESSAGE_CHAR_LIMIT, append_bounded_chat_content, javascript_length,
-    truncate_chat_content,
+    CHAT_SINGLE_MESSAGE_CHAR_LIMIT, append_bounded_chat_content, truncate_chat_content,
 };
 use crate::path_security::{is_within_directory, resolve_lexically};
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum AgentEvent {
-    #[serde(rename = "session")]
-    Session {
-        #[serde(rename = "providerSessionId")]
-        provider_session_id: String,
-    },
-    #[serde(rename = "status")]
-    Status {
-        status: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        label: Option<String>,
-    },
-    #[serde(rename = "text-delta")]
-    TextDelta {
-        text: String,
-        #[serde(rename = "messageId", skip_serializing_if = "Option::is_none")]
-        message_id: Option<String>,
-    },
-    #[serde(rename = "thinking-delta")]
-    ThinkingDelta {
-        text: String,
-        #[serde(rename = "messageId", skip_serializing_if = "Option::is_none")]
-        message_id: Option<String>,
-    },
-    #[serde(rename = "tool-call-start")]
-    ToolCallStart {
-        #[serde(rename = "toolCallId")]
-        tool_call_id: String,
-        #[serde(rename = "toolName")]
-        tool_name: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        input: Option<Value>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        summary: Option<String>,
-    },
-    #[serde(rename = "tool-call-delta")]
-    ToolCallDelta {
-        #[serde(rename = "toolCallId")]
-        tool_call_id: String,
-        delta: String,
-    },
-    #[serde(rename = "tool-call-end")]
-    ToolCallEnd {
-        #[serde(rename = "toolCallId")]
-        tool_call_id: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        output: Option<Value>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        error: Option<String>,
-    },
-    #[serde(rename = "result")]
-    Result { text: String },
-    #[serde(rename = "error")]
-    Error { message: String },
-    #[serde(rename = "finish")]
-    Finish {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        reason: Option<String>,
-    },
-    #[serde(rename = "raw")]
-    Raw {
-        provider: String,
-        #[serde(rename = "eventType", skip_serializing_if = "Option::is_none")]
-        event_type: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        event: Option<Value>,
-    },
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CompletedAssistantMessage {
@@ -104,7 +30,6 @@ pub struct CodexInvocationContext {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ProtocolEmission {
     Chat(Value),
-    Agent(AgentEvent),
     UserInputAcknowledged {
         text: String,
     },
@@ -145,12 +70,6 @@ impl AgentProtocolContext {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ChatBlockRole {
-    Assistant,
-    Tool,
-}
-
 #[derive(Debug, Default)]
 pub struct ClaudeProtocolState {
     pub last_assistant_message: String,
@@ -165,35 +84,25 @@ impl ClaudeProtocolState {
             context
                 .emissions
                 .push(ProtocolEmission::Session(session_id.into()));
-            context
-                .emissions
-                .push(ProtocolEmission::Agent(AgentEvent::Session {
-                    provider_session_id: session_id.into(),
-                }));
         }
-        if let Some(normalized) = normalize_claude_event(event) {
-            if let AgentEvent::Result { text } = &normalized {
-                self.last_assistant_message = truncate_agent_result(text);
-            }
-            let activity = match &normalized {
-                AgentEvent::ToolCallStart {
-                    tool_name, summary, ..
-                } => Some((
-                    tool_name.clone(),
-                    summary
-                        .clone()
-                        .unwrap_or_else(|| summarize_tool_input(tool_name, &json!({}))),
-                )),
-                _ => None,
-            };
-            context.emissions.push(ProtocolEmission::Agent(normalized));
-            if let Some((tool_name, summary)) = activity {
-                context.emissions.push(ProtocolEmission::Activity {
-                    tool_name,
-                    summary,
-                    is_streaming: true,
-                });
-            }
+        let data = event
+            .get("event")
+            .filter(|_| event["type"] == "stream_event")
+            .unwrap_or(event);
+        if data["type"] == "result"
+            && let Some(text) = data["result"].as_str()
+        {
+            self.last_assistant_message = truncate_agent_result(text);
+        }
+        if data["type"] == "content_block_start" && data["content_block"]["type"] == "tool_use" {
+            let block = &data["content_block"];
+            let tool_name = block["name"].as_str().unwrap_or("tool");
+            let input = block.get("input").cloned().unwrap_or_else(|| json!({}));
+            context.emissions.push(ProtocolEmission::Activity {
+                tool_name: tool_name.into(),
+                summary: summarize_tool_input(tool_name, &input),
+                is_streaming: true,
+            });
         }
         if is_chat_stream_event(event) {
             context
@@ -208,75 +117,48 @@ pub struct CodexProtocolState {
     pub assistant_open: bool,
     pub tool_open: bool,
     pub saw_assistant_stream: bool,
-    pub has_final_assistant_message: bool,
     pub completed_from_event: bool,
     pub last_assistant_message: String,
-    pub last_chat_block_role: Option<ChatBlockRole>,
-    pub current_tool_id: Option<String>,
     file_snapshots: HashMap<PathBuf, Option<String>>,
-    watched_paths: HashSet<PathBuf>,
     active_patch_paths: Vec<PathBuf>,
     command_outputs: HashMap<String, String>,
 }
 
 impl CodexProtocolState {
-    pub fn handle_event(&mut self, context: &mut AgentProtocolContext, event: &Value) {
-        let event = unwrap_codex_event(event);
-        let Some(data) = event.as_object() else {
-            return;
-        };
-        let event_type = string_field(data, "type");
-        let event_text = extract_text(event);
-        let item = data.get("item").unwrap_or(&Value::Null);
+    pub fn handle_notification(
+        &mut self,
+        context: &mut AgentProtocolContext,
+        method: &str,
+        params: &Value,
+    ) {
+        let item = params.get("item").unwrap_or(&Value::Null);
         let item_record = item.as_object();
         let item_type = item_record.map_or("", |item| string_field(item, "type"));
 
-        match (event_type, item_type) {
-            ("thread.started", _) if !string_field(data, "thread_id").is_empty() => {
-                let thread_id = string_field(data, "thread_id").to_string();
-                context.session_id = Some(thread_id.clone());
-                context
-                    .emissions
-                    .push(ProtocolEmission::Session(thread_id.clone()));
-                context
-                    .emissions
-                    .push(ProtocolEmission::Agent(AgentEvent::Session {
-                        provider_session_id: thread_id,
-                    }));
-            }
-            ("turn.started", _) => {
+        match (method, item_type) {
+            ("turn/started", _) => {
                 self.emit_status(context, "thinking", true);
-                context
-                    .emissions
-                    .push(ProtocolEmission::Agent(AgentEvent::Status {
-                        status: "thinking".into(),
-                        label: None,
-                    }));
             }
-            ("item.started", "command_execution") => {
+            ("item/started", "commandExecution") => {
                 let payload = json!({
                     "command": item_record.map_or("", |item| string_field(item, "command")),
                     "cwd": context.cwd,
                 });
-                self.emit_tool_status_and_activity(context, "exec", &payload);
                 if let Some(item) = item_record {
                     let item_id = string_field(item, "id");
                     if !item_id.is_empty() {
                         self.command_outputs.insert(
                             item_id.into(),
-                            string_field(item, "aggregated_output").into(),
+                            string_field(item, "aggregatedOutput").into(),
                         );
                     }
                 }
-                self.start_tool(context, "exec", payload);
+                self.begin_tool(context, "exec", payload);
             }
-            ("item.updated", "command_execution") => {
-                self.emit_command_output_delta(context, item);
+            ("item/commandExecution/outputDelta", _) => {
+                self.tool_delta(context, params["delta"].as_str().unwrap_or(""));
             }
-            ("command_output_delta", _) => {
-                self.tool_delta(context, string_field(data, "delta"));
-            }
-            ("item.completed", "command_execution") => {
+            ("item/completed", "commandExecution") => {
                 self.emit_command_output_delta(context, item);
                 if let Some(item) = item_record {
                     let item_id = string_field(item, "id");
@@ -286,7 +168,7 @@ impl CodexProtocolState {
                 }
                 self.close_tool(context);
             }
-            ("item.started", "file_change") => {
+            ("item/started", "fileChange") => {
                 let paths = file_change_paths(context, item);
                 self.active_patch_paths = paths.clone();
                 self.snapshot_paths(&paths);
@@ -295,10 +177,9 @@ impl CodexProtocolState {
                     .cloned()
                     .unwrap_or_else(|| json!(display_paths(&paths)));
                 let payload = json!({ "changes": changes });
-                self.emit_tool_status_and_activity(context, "patch", &payload);
-                self.start_tool(context, "patch", payload);
+                self.begin_tool(context, "patch", payload);
             }
-            ("item.completed", "file_change") => {
+            ("item/completed", "fileChange") => {
                 self.close_tool(context);
                 let paths = file_change_paths(context, item);
                 let paths = if paths.is_empty() {
@@ -312,7 +193,7 @@ impl CodexProtocolState {
                 }
                 self.active_patch_paths.clear();
             }
-            ("item.completed", "agent_message") => {
+            ("item/completed", "agentMessage") => {
                 let text = item_record
                     .map(|item| string_field(item, "text"))
                     .filter(|text| !text.is_empty())
@@ -322,101 +203,11 @@ impl CodexProtocolState {
                     self.complete_assistant_message(context, &text);
                 }
             }
-            ("agent_message_delta", _) => {
-                self.assistant_delta(context, &first_string(data, &["delta", "text", "content"]));
+            ("item/agentMessage/delta", _) => {
+                self.assistant_delta(context, params["delta"].as_str().unwrap_or(""));
                 self.emit_status(context, "responding", true);
-                context
-                    .emissions
-                    .push(ProtocolEmission::Agent(AgentEvent::Status {
-                        status: "responding".into(),
-                        label: None,
-                    }));
             }
-            ("agent_message", _) => {
-                let content = first_string(data, &["message", "content", "text"]);
-                if !content.is_empty() {
-                    self.assistant_delta(context, &content);
-                }
-            }
-            ("exec_command_begin", _) => {
-                let cwd = {
-                    let cwd = string_field(data, "cwd");
-                    if cwd.is_empty() {
-                        context.cwd.to_string_lossy().into_owned()
-                    } else {
-                        cwd.into()
-                    }
-                };
-                let payload = json!({
-                    "command": first_string(data, &["parsed_cmd", "command", "cmd"]),
-                    "cwd": cwd,
-                });
-                self.emit_tool_status_and_activity(context, "exec", &payload);
-                self.start_tool(context, "exec", payload);
-            }
-            ("exec_command_output_delta", _) => {
-                let encoded = string_field(data, "chunk");
-                let decoded = base64::engine::general_purpose::STANDARD
-                    .decode(encoded)
-                    .ok()
-                    .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-                    .unwrap_or_default();
-                self.tool_delta(context, &decoded);
-            }
-            ("exec_command_end", _) => self.close_tool(context),
-            ("patch_apply_begin", _) => {
-                let paths = file_change_paths(context, event);
-                self.active_patch_paths = paths.clone();
-                self.snapshot_paths(&paths);
-                let changes = array_field(data, "changes")
-                    .filter(|values| !values.is_empty())
-                    .or_else(|| array_field(data, "files").filter(|values| !values.is_empty()))
-                    .cloned()
-                    .unwrap_or_else(|| paths.iter().map(|path| json!(path)).collect());
-                let payload = json!({ "changes": changes });
-                self.emit_tool_status_and_activity(context, "patch", &payload);
-                self.start_tool(context, "patch", payload);
-            }
-            ("patch_apply_end", _) => {
-                self.close_tool(context);
-                let paths = file_change_paths(context, event);
-                let paths = if paths.is_empty() {
-                    self.active_patch_paths.clone()
-                } else {
-                    paths
-                };
-                self.emit_diffs_for_paths(context, &paths);
-                self.active_patch_paths.clear();
-            }
-            ("web_search_begin", _) => {
-                let payload = json!({ "query": string_field(data, "query") });
-                self.emit_tool_status_and_activity(context, "web_search", &payload);
-                self.start_tool(context, "web_search", payload);
-            }
-            ("web_search_end", _) => {
-                self.tool_delta(context, string_field(data, "query"));
-                self.close_tool(context);
-            }
-            ("mcp_tool_call_begin", _) => {
-                let invocation = data.get("invocation").and_then(Value::as_object);
-                let tool_name = invocation
-                    .map(|invocation| first_string(invocation, &["tool"]))
-                    .filter(|tool| !tool.is_empty())
-                    .or_else(|| {
-                        let tool = string_field(data, "tool");
-                        (!tool.is_empty()).then(|| tool.into())
-                    })
-                    .unwrap_or_else(|| "mcp_tool".into());
-                let payload = invocation
-                    .and_then(|invocation| invocation.get("arguments"))
-                    .or_else(|| data.get("arguments"))
-                    .cloned()
-                    .unwrap_or_else(|| json!({}));
-                self.emit_tool_status_and_activity(context, &tool_name, &payload);
-                self.start_tool(context, &tool_name, payload);
-            }
-            ("mcp_tool_call_end", _) => self.close_tool(context),
-            ("item.completed", "error") => {
+            ("item/completed", "error") => {
                 let message = item_record.map_or("", |item| string_field(item, "message"));
                 if !message.is_empty() {
                     self.emit_error(context, message);
@@ -425,7 +216,7 @@ impl CodexProtocolState {
             // App Server reports the submitted prompt as a completed item too.
             // It is input, not assistant output, and the chat runtime already
             // owns the canonical user transcript row.
-            ("item.completed", "user_message" | "userMessage") => {
+            ("item/completed", "userMessage") => {
                 let text = item_record
                     .map(|item| string_field(item, "text"))
                     .filter(|text| !text.is_empty())
@@ -437,44 +228,53 @@ impl CodexProtocolState {
                         .push(ProtocolEmission::UserInputAcknowledged { text });
                 }
             }
-            ("item.completed", _) if !item.is_null() && !extract_text(item).is_empty() => {
+            ("item/completed", _) if !item.is_null() && !extract_text(item).is_empty() => {
                 let text = extract_text(item);
                 if !self.saw_assistant_stream {
                     self.emit_result(context, &text);
-                    self.has_final_assistant_message = true;
                 }
             }
-            ("error", _) if !string_field(data, "message").is_empty() => {
-                self.emit_error(context, string_field(data, "message"));
-            }
-            ("task_complete", _) => {
-                self.completed_from_event = true;
-                let final_text = string_field(data, "last_agent_message");
-                if !final_text.is_empty() {
-                    self.last_assistant_message =
-                        truncate_chat_content(final_text, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
-                }
-                if !final_text.is_empty() && !self.saw_assistant_stream {
-                    self.emit_result(context, final_text);
-                    self.has_final_assistant_message = true;
+            ("error", _) => {
+                if let Some(message) = params
+                    .pointer("/error/message")
+                    .or_else(|| params.get("message"))
+                    .and_then(Value::as_str)
+                    .filter(|message| !message.is_empty())
+                {
+                    self.emit_error(context, message);
                 }
             }
-            _ if is_generic_assistant_event(event_type, &event_text) => {
-                self.assistant_delta(context, &event_text);
-                self.emit_status(context, "responding", true);
-                context
-                    .emissions
-                    .push(ProtocolEmission::Agent(AgentEvent::Status {
-                        status: "responding".into(),
-                        label: None,
-                    }));
+            ("turn/completed", _) => {
+                if params.pointer("/turn/status").and_then(Value::as_str) == Some("failed")
+                    && let Some(message) = params
+                        .pointer("/turn/error/message")
+                        .and_then(Value::as_str)
+                {
+                    if !message.is_empty() {
+                        self.emit_error(context, message);
+                    }
+                } else {
+                    self.completed_from_event = true;
+                }
             }
             _ => {}
         }
     }
 
+    pub fn set_session(&mut self, context: &mut AgentProtocolContext, thread_id: String) {
+        if thread_id.is_empty() {
+            return;
+        }
+        context.session_id = Some(thread_id.clone());
+        context.emissions.push(ProtocolEmission::Session(thread_id));
+    }
+
+    pub fn begin_tool(&mut self, context: &mut AgentProtocolContext, name: &str, input: Value) {
+        self.emit_tool_status_and_activity(context, name, &input);
+        self.start_tool(context, name, input);
+    }
+
     pub fn clear_live_diff_state(&mut self) {
-        self.watched_paths.clear();
         self.file_snapshots.clear();
         self.active_patch_paths.clear();
     }
@@ -490,40 +290,21 @@ impl CodexProtocolState {
         if !(self.tool_open || self.assistant_open) {
             return;
         }
-        if let Some(tool_call_id) = self.current_tool_id.take() {
-            context
-                .emissions
-                .push(ProtocolEmission::Agent(AgentEvent::ToolCallEnd {
-                    tool_call_id,
-                    output: None,
-                    error: None,
-                }));
-        }
         context.emissions.push(ProtocolEmission::Chat(
             json!({ "type": "content_block_stop" }),
         ));
         self.tool_open = false;
         self.assistant_open = false;
-        self.watched_paths.clear();
         self.file_snapshots.clear();
     }
 
-    fn close_tool(&mut self, context: &mut AgentProtocolContext) {
+    pub fn close_tool(&mut self, context: &mut AgentProtocolContext) {
         if !self.tool_open {
             return;
         }
         context.emissions.push(ProtocolEmission::Chat(
             json!({ "type": "content_block_stop" }),
         ));
-        if let Some(tool_call_id) = self.current_tool_id.take() {
-            context
-                .emissions
-                .push(ProtocolEmission::Agent(AgentEvent::ToolCallEnd {
-                    tool_call_id,
-                    output: None,
-                    error: None,
-                }));
-        }
         self.tool_open = false;
     }
 
@@ -548,32 +329,17 @@ impl CodexProtocolState {
         })));
         self.assistant_open = true;
         self.saw_assistant_stream = true;
-        self.last_chat_block_role = Some(ChatBlockRole::Assistant);
     }
 
     fn start_tool(&mut self, context: &mut AgentProtocolContext, name: &str, input: Value) {
         self.close_assistant(context);
         self.close_tool(context);
-        let tool_call_id = format!(
-            "{name}:{}:{}",
-            epoch_millis(),
-            &uuid::Uuid::new_v4().simple().to_string()[..6]
-        );
         context.emissions.push(ProtocolEmission::Chat(json!({
             "type": "content_block_start",
             "content_block": { "type": "tool_use", "name": name, "input": input }
         })));
-        context
-            .emissions
-            .push(ProtocolEmission::Agent(AgentEvent::ToolCallStart {
-                tool_call_id: tool_call_id.clone(),
-                tool_name: name.into(),
-                input: Some(input.clone()),
-                summary: Some(summarize_tool_input(name, &input)),
-            }));
+
         self.tool_open = true;
-        self.current_tool_id = Some(tool_call_id);
-        self.last_chat_block_role = Some(ChatBlockRole::Tool);
     }
 
     fn tool_delta(&mut self, context: &mut AgentProtocolContext, delta: &str) {
@@ -584,14 +350,6 @@ impl CodexProtocolState {
             "type": "content_block_delta",
             "delta": { "type": "input_json_delta", "partial_json": delta }
         })));
-        if let Some(tool_call_id) = &self.current_tool_id {
-            context
-                .emissions
-                .push(ProtocolEmission::Agent(AgentEvent::ToolCallDelta {
-                    tool_call_id: tool_call_id.clone(),
-                    delta: delta.into(),
-                }));
-        }
     }
 
     fn assistant_delta(&mut self, context: &mut AgentProtocolContext, delta: &str) {
@@ -603,18 +361,12 @@ impl CodexProtocolState {
             "type": "content_block_delta",
             "delta": { "type": "text_delta", "text": delta }
         })));
-        context
-            .emissions
-            .push(ProtocolEmission::Agent(AgentEvent::TextDelta {
-                text: delta.into(),
-                message_id: None,
-            }));
+
         self.last_assistant_message = append_bounded_chat_content(
             &self.last_assistant_message,
             delta,
             CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
         );
-        self.has_final_assistant_message = true;
     }
 
     fn complete_assistant_message(&mut self, context: &mut AgentProtocolContext, text: &str) {
@@ -630,27 +382,15 @@ impl CodexProtocolState {
             CompletedAssistantMessage::Skip => self.close_assistant(context),
         }
         self.last_assistant_message = truncate_chat_content(text, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
-        self.has_final_assistant_message = true;
-        self.last_chat_block_role = Some(ChatBlockRole::Assistant);
     }
 
     fn emit_result(&self, context: &mut AgentProtocolContext, text: &str) {
         context.emissions.push(ProtocolEmission::Chat(
             json!({ "type": "result", "result": text }),
         ));
-        context
-            .emissions
-            .push(ProtocolEmission::Agent(AgentEvent::Result {
-                text: text.into(),
-            }));
     }
 
     fn emit_error(&self, context: &mut AgentProtocolContext, message: &str) {
-        context
-            .emissions
-            .push(ProtocolEmission::Agent(AgentEvent::Error {
-                message: message.into(),
-            }));
         context
             .emissions
             .push(ProtocolEmission::System(message.into()));
@@ -679,7 +419,7 @@ impl CodexProtocolState {
 
     fn emit_command_output_delta(&mut self, context: &mut AgentProtocolContext, item: &Value) {
         let Some(item) = item.as_object() else { return };
-        let next_output = string_field(item, "aggregated_output");
+        let next_output = string_field(item, "aggregatedOutput");
         if next_output.is_empty() {
             return;
         }
@@ -702,7 +442,6 @@ impl CodexProtocolState {
         for path in paths {
             self.file_snapshots
                 .insert(path.clone(), read_snapshot(path));
-            self.watched_paths.insert(path.clone());
         }
     }
 
@@ -710,17 +449,12 @@ impl CodexProtocolState {
         let mut unique = HashSet::new();
         for path in paths {
             if unique.insert(path.clone()) {
-                self.emit_live_diff_for_path(context, path, false);
+                self.emit_live_diff_for_path(context, path);
             }
         }
     }
 
-    fn emit_live_diff_for_path(
-        &mut self,
-        context: &mut AgentProtocolContext,
-        path: &Path,
-        keep_watching: bool,
-    ) {
+    fn emit_live_diff_for_path(&mut self, context: &mut AgentProtocolContext, path: &Path) {
         let before = self.file_snapshots.get(path).cloned().flatten();
         let after = read_snapshot(path);
         if let (Some(before), Some(after)) = (before.as_deref(), after.as_deref())
@@ -730,10 +464,7 @@ impl CodexProtocolState {
             self.file_snapshots
                 .insert(path.to_path_buf(), Some(after.into()));
         }
-        if !keep_watching {
-            self.watched_paths.remove(path);
-            self.file_snapshots.remove(path);
-        }
+        self.file_snapshots.remove(path);
     }
 
     fn emit_edit_diff(
@@ -753,21 +484,6 @@ impl CodexProtocolState {
         });
         self.start_tool(context, "Edit", input);
         self.close_tool(context);
-    }
-}
-
-fn unwrap_codex_event(event: &Value) -> &Value {
-    if event.get("type").and_then(Value::as_str) == Some("event_msg")
-        && event
-            .get("payload")
-            .and_then(Value::as_object)
-            .and_then(|payload| payload.get("type"))
-            .and_then(Value::as_str)
-            .is_some()
-    {
-        event.get("payload").unwrap_or(event)
-    } else {
-        event
     }
 }
 
@@ -902,114 +618,6 @@ fn read_snapshot(path: &Path) -> Option<String> {
         .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
 }
 
-fn is_generic_assistant_event(event_type: &str, text: &str) -> bool {
-    !text.is_empty()
-        && ["message", "assistant", "output_text", "text_delta"]
-            .iter()
-            .any(|part| event_type.contains(part))
-        && ![
-            "error",
-            "tool",
-            "exec_command",
-            "patch",
-            "web_search",
-            "mcp",
-        ]
-        .iter()
-        .any(|part| event_type.contains(part))
-}
-
-fn epoch_millis() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-}
-
-pub fn normalize_claude_event(event: &Value) -> Option<AgentEvent> {
-    let data = event.as_object()?;
-    let event_type = data.get("type").and_then(Value::as_str)?;
-    if event_type == "content_block_start" {
-        let block = data.get("content_block")?.as_object()?;
-        match block.get("type").and_then(Value::as_str) {
-            Some("text") => {
-                let text = block.get("text").and_then(Value::as_str)?;
-                if !text.is_empty() {
-                    return Some(AgentEvent::TextDelta {
-                        text: text.to_string(),
-                        message_id: None,
-                    });
-                }
-            }
-            Some("tool_use") => {
-                let tool_name =
-                    javascript_string(block.get("name").unwrap_or(&Value::String("tool".into())));
-                let input = block.get("input").cloned().unwrap_or_else(|| json!({}));
-                let tool_call_id = data
-                    .get("index")
-                    .or_else(|| block.get("id"))
-                    .map(javascript_string)
-                    .unwrap_or_else(|| format!("{tool_name}:latest"));
-                return Some(AgentEvent::ToolCallStart {
-                    tool_call_id,
-                    tool_name: tool_name.clone(),
-                    input: Some(input.clone()),
-                    summary: Some(summarize_tool_input(&tool_name, &input)),
-                });
-            }
-            _ => {}
-        }
-    }
-    if event_type == "content_block_delta" {
-        let delta = data.get("delta")?.as_object()?;
-        match delta.get("type").and_then(Value::as_str) {
-            Some("text_delta") => {
-                return Some(AgentEvent::TextDelta {
-                    text: delta.get("text").and_then(Value::as_str)?.to_string(),
-                    message_id: None,
-                });
-            }
-            Some("thinking_delta") => {
-                return Some(AgentEvent::ThinkingDelta {
-                    text: delta.get("thinking").and_then(Value::as_str)?.to_string(),
-                    message_id: None,
-                });
-            }
-            Some("input_json_delta") => {
-                return Some(AgentEvent::ToolCallDelta {
-                    tool_call_id: data
-                        .get("index")
-                        .map(javascript_string)
-                        .unwrap_or_else(|| "latest".into()),
-                    delta: delta
-                        .get("partial_json")
-                        .and_then(Value::as_str)?
-                        .to_string(),
-                });
-            }
-            _ => {}
-        }
-    }
-    if event_type == "result" {
-        return Some(AgentEvent::Result {
-            text: data.get("result").and_then(Value::as_str)?.to_string(),
-        });
-    }
-    if event_type == "error" {
-        return Some(AgentEvent::Error {
-            message: data.get("message").and_then(Value::as_str)?.to_string(),
-        });
-    }
-    if event_type == "system" && data.get("subtype").and_then(Value::as_str) == Some("init") {
-        return Some(AgentEvent::Raw {
-            provider: "claude".into(),
-            event_type: Some("system".into()),
-            event: Some(event.clone()),
-        });
-    }
-    None
-}
-
 pub fn is_chat_stream_event(value: &Value) -> bool {
     value
         .get("type")
@@ -1089,21 +697,6 @@ pub fn resolve_completed_codex_assistant_message(
     } else {
         CompletedAssistantMessage::Replace
     }
-}
-
-pub fn should_emit_codex_output_fallback(
-    output_text: &str,
-    last_assistant_message: &str,
-    has_final_assistant_message: bool,
-    last_chat_block_role: Option<&str>,
-) -> bool {
-    if output_text.is_empty() {
-        return false;
-    }
-    if has_final_assistant_message && output_text.trim() == last_assistant_message.trim() {
-        return false;
-    }
-    !has_final_assistant_message || last_chat_block_role != Some("assistant")
 }
 
 pub fn summarize_tool_input(tool_name: &str, input: &Value) -> String {
@@ -1203,26 +796,6 @@ fn nullish_value<'a>(first: Option<&'a Value>, second: Option<&'a Value>) -> Opt
     }
 }
 
-fn javascript_string(value: &Value) -> String {
-    match value {
-        Value::Null => "null".into(),
-        Value::Bool(value) => value.to_string(),
-        Value::Number(value) => value.to_string(),
-        Value::String(value) => value.clone(),
-        Value::Array(values) => values
-            .iter()
-            .map(javascript_string)
-            .collect::<Vec<_>>()
-            .join(","),
-        Value::Object(_) => "[object Object]".into(),
-    }
-}
-
-fn javascript_slice(value: &str, start: usize, end: usize) -> String {
-    let units = value.encode_utf16().collect::<Vec<_>>();
-    String::from_utf16_lossy(&units[start.min(units.len())..end.min(units.len())])
-}
-
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;
@@ -1230,42 +803,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn normalizes_claude_text_tools_thinking_results_and_init_events() {
-        assert_eq!(
-            normalize_claude_event(&json!({
-                "type": "content_block_start",
-                "index": 2,
-                "content_block": {
-                    "type": "tool_use",
-                    "name": "Edit",
-                    "input": { "file_path": "src/app.ts" }
-                }
-            })),
-            Some(AgentEvent::ToolCallStart {
-                tool_call_id: "2".into(),
-                tool_name: "Edit".into(),
-                input: Some(json!({ "file_path": "src/app.ts" })),
-                summary: Some("Editing: app.ts".into()),
-            })
-        );
-        assert_eq!(
-            normalize_claude_event(&json!({
-                "type": "content_block_delta",
-                "delta": { "type": "thinking_delta", "thinking": "hmm" }
-            })),
-            Some(AgentEvent::ThinkingDelta {
-                text: "hmm".into(),
-                message_id: None
-            })
-        );
-        assert!(matches!(
-            normalize_claude_event(&json!({ "type": "system", "subtype": "init" })),
-            Some(AgentEvent::Raw { provider, .. }) if provider == "claude"
-        ));
+    fn claude_tool_calls_keep_the_chat_and_activity_views_in_sync() {
+        let mut context = AgentProtocolContext::new("/tmp");
+        ClaudeProtocolState::default().handle_event(&mut context, &json!({
+            "type":"content_block_start", "index":2,
+            "content_block":{"type":"tool_use", "name":"Edit", "input":{"file_path":"src/app.ts"}}
+        }));
+        assert!(context.emissions.iter().any(|event| matches!(event,
+            ProtocolEmission::Activity {tool_name, summary, ..} if tool_name == "Edit" && summary == "Editing: app.ts"
+        )));
+        assert!(context.emissions.iter().any(|event| matches!(event,
+            ProtocolEmission::Chat(value) if value["content_block"]["input"]["file_path"] == "src/app.ts"
+        )));
     }
 
     #[test]
-    fn matches_codex_completion_and_output_fallback_rules() {
+    fn reconciles_codex_completion() {
         assert_eq!(
             resolve_completed_codex_assistant_message("done", "done"),
             CompletedAssistantMessage::Skip
@@ -1278,32 +831,68 @@ mod tests {
             resolve_completed_codex_assistant_message("draft", "final"),
             CompletedAssistantMessage::Replace
         );
-        assert!(!should_emit_codex_output_fallback(
-            "same",
-            " same ",
-            true,
-            Some("tool")
-        ));
-        assert!(should_emit_codex_output_fallback(
-            "recovered",
-            "earlier",
-            true,
-            Some("tool")
-        ));
+    }
+
+    #[test]
+    fn codex_notifications_preserve_completion_and_error_contracts() {
+        for (method, params, completed, message) in [
+            ("turn/completed", Value::Null, true, None),
+            (
+                "turn/completed",
+                json!({"turn":{"status":"completed"}}),
+                true,
+                None,
+            ),
+            (
+                "turn/completed",
+                json!({"turn":{"status":"failed","error":{"message":"failed turn"}}}),
+                false,
+                Some("failed turn"),
+            ),
+            (
+                "turn/completed",
+                json!({"turn":{"status":"failed"}}),
+                true,
+                None,
+            ),
+            (
+                "error",
+                json!({"error":{"message":"provider error"}}),
+                false,
+                Some("provider error"),
+            ),
+            (
+                "error",
+                json!({"message":"direct error"}),
+                false,
+                Some("direct error"),
+            ),
+        ] {
+            let mut state = CodexProtocolState::default();
+            let mut context = AgentProtocolContext::new("/tmp");
+            state.handle_notification(&mut context, method, &params);
+            assert_eq!(state.completed_from_event, completed, "{method}: {params}");
+            assert_eq!(
+                context.emissions,
+                message
+                    .map(|message| ProtocolEmission::System(message.into()))
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            );
+        }
     }
 
     #[test]
     fn codex_user_items_acknowledge_input_without_echoing_assistant_results() {
-        for item_type in ["userMessage", "user_message"] {
+        for content in [
+            json!({"text":"do not echo me"}),
+            json!({"content":[{"text":"do not echo me"}]}),
+        ] {
             let mut state = CodexProtocolState::default();
             let mut context = AgentProtocolContext::new("/tmp");
-            state.handle_event(
-                &mut context,
-                &json!({
-                    "type": "item.completed",
-                    "item": { "type": item_type, "text": "do not echo me" }
-                }),
-            );
+            let mut item = content;
+            item["type"] = json!("userMessage");
+            state.handle_notification(&mut context, "item/completed", &json!({"item":item}));
             assert_eq!(
                 context.emissions,
                 vec![ProtocolEmission::UserInputAcknowledged {
@@ -1323,22 +912,21 @@ mod tests {
         let mut state = CodexProtocolState::default();
         let mut context = AgentProtocolContext::new(root.path());
         let started = json!({
-            "type": "item.started",
             "item": {
-                "type": "file_change",
+                "type": "fileChange",
                 "id": "change-1",
                 "changes": [{ "path": "src/main.rs", "kind": "update" }]
             }
         });
-        state.handle_event(&mut context, &started);
+        state.handle_notification(&mut context, "item/started", &started);
 
         std::fs::write(&source, "fn answer() -> u8 { 42 }\n").unwrap();
-        state.handle_event(
+        state.handle_notification(
             &mut context,
+            "item/completed",
             &json!({
-                "type": "item.completed",
                 "item": {
-                    "type": "file_change",
+                    "type": "fileChange",
                     "id": "change-1",
                     "changes": {
                         "src/main.rs": {
@@ -1352,7 +940,7 @@ mod tests {
 
         assert!(context.emissions.iter().any(|emission| matches!(
             emission,
-            ProtocolEmission::Agent(AgentEvent::ToolCallStart { tool_name, .. })
+            ProtocolEmission::Activity { tool_name, .. }
                 if tool_name == "patch"
         )));
         assert!(context.emissions.iter().any(|emission| matches!(

@@ -142,7 +142,6 @@ fn start_server() -> Result<ServerHandle, String> {
     };
     let mut config = ServerConfig::new(listen_addr, app_root);
     config.live_reload = std::env::var_os("INFERAY_LIVE_RELOAD").is_some();
-    config.automation_routes_enabled = true;
     ServerHandle::start(config)
 }
 

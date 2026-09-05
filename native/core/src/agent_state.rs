@@ -1,1333 +1,587 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-
-use serde_json::{Map, Value, json};
+//! The workspace file has one schema and one writer: validated workspace actions.
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+#[cfg(test)]
+use serde_json::json;
+use std::{collections::HashSet, path::PathBuf};
 use uuid::Uuid;
-
-const DEFAULT_THEME_ID: &str = "default";
-const DEFAULT_FONT_SIZE: u64 = 13;
-const DEFAULT_FONT_FAMILY: &str = "SF Mono";
-const DEFAULT_OPACITY: u64 = 1;
-const DEFAULT_COLUMNS: u64 = 1;
-const DEFAULT_ROWS: u64 = 1;
-const DEFAULT_CHAT_AGENT_KIND: &str = "codex";
-const THEME_IDS: &[&str] = &[
-    "default",
-    "midnight",
-    "dracula",
-    "monokai",
-    "nord",
-    "solarized",
-    "github",
-    "gruvbox",
-    "tokyo",
-    "onedark",
-    "ocean",
-    "rose",
-    "githubLight",
-    "solarizedLight",
-    "custom",
-];
 
 #[derive(Debug)]
 pub struct AgentStateStore {
-    current_path: PathBuf,
-    legacy_path: PathBuf,
+    path: PathBuf,
 }
 
 impl AgentStateStore {
-    pub fn new(current_path: PathBuf, legacy_path: PathBuf) -> Self {
-        Self {
-            current_path,
-            legacy_path,
+    pub fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+
+    fn load(&self) -> Result<Option<Workspace>, String> {
+        match std::fs::read(&self.path) {
+            Ok(bytes) => {
+                let mut state: Workspace =
+                    serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+                state.validate()?;
+                Ok(Some(state))
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.to_string()),
         }
     }
 
     pub fn read(&self) -> Result<Value, String> {
-        let value = match read_json(&self.current_path)?.filter(|value| !value.is_null()) {
-            Some(value) => Some(value),
-            None => read_json(&self.legacy_path)?.filter(|value| !value.is_null()),
-        };
-        match value {
-            Some(value) => canonical_agent_state(&value, false)?
-                .ok_or_else(|| "Saved workspace state is invalid".into()),
-            None => Ok(Value::Null),
-        }
+        serde_json::to_value(self.load()?).map_err(|e| e.to_string())
     }
 
-    /// Import only when the canonical file is absent. Acknowledgement follows
-    /// a successful atomic write; malformed saved data must never be replaced.
-    pub fn initialize(
-        &self,
-        browser_state: &Value,
-        default_agent_kind: &str,
-    ) -> Result<Value, String> {
-        let current = read_json(&self.current_path)?.filter(|value| !value.is_null());
-        let candidate = match current {
-            Some(value) => Some(value),
-            None => read_json(&self.legacy_path)?
-                .filter(|value| !value.is_null())
-                .or_else(|| (!browser_state.is_null()).then(|| browser_state.clone())),
-        };
-        let next = match candidate {
-            Some(value) => {
-                let value = if let Some(text) = value.as_str() {
-                    serde_json::from_str(text)
-                        .map_err(|error| format!("Invalid saved workspace JSON: {error}"))?
-                } else {
-                    value
-                };
-                canonical_agent_state(&value, false)?.ok_or_else(|| {
-                    "Saved workspace state is invalid; original data was preserved".to_string()
-                })?
-            }
-            None => create_default_agent_state_with_chat_kind(default_agent_kind),
-        };
-        write_json_atomic(&self.current_path, &next)?;
-        Ok(next)
+    pub fn pane(&self, id: &str) -> Result<Option<Pane>, String> {
+        Ok(self
+            .load()?
+            .into_iter()
+            .flat_map(|state| state.groups)
+            .flat_map(|group| group.panes)
+            .find(|pane| pane.id == id))
     }
 
-    /// Returns `true` when the snapshot was persisted and `false` when the
-    /// existing TypeScript regression guard would have ignored it.
-    pub fn write_guarded(&self, next: Value) -> Result<bool, String> {
-        let current = self.read()?;
-        if is_agent_state_regression(&current, &next) {
-            return Ok(false);
-        }
-        let next = canonical_agent_state(&next, false)?
-            .ok_or_else(|| "Invalid workspace snapshot".to_string())?;
-        write_json_atomic(&self.current_path, &next)?;
-        Ok(true)
+    /// Selected pane first, then the other panes in the selected group.
+    pub fn active_cwds(&self) -> Result<Vec<String>, String> {
+        let Some(state) = self.load()? else {
+            return Ok(Vec::new());
+        };
+        let Some(mut group) = state
+            .groups
+            .into_iter()
+            .find(|group| group.id == state.selected_group_id)
+        else {
+            return Ok(Vec::new());
+        };
+        group
+            .panes
+            .sort_by_key(|pane| group.selected_pane_id.as_deref() != Some(pane.id.as_str()));
+        Ok(group
+            .panes
+            .into_iter()
+            .filter_map(|pane| pane.cwd)
+            .filter(|cwd| !cwd.is_empty())
+            .collect())
+    }
+
+    pub fn initialize(&self, default_kind: &str) -> Result<Value, String> {
+        self.save(&self.load()?.unwrap_or_else(|| Workspace::new(default_kind)))
     }
 
     pub fn apply_workspace_action(&self, action: &Value) -> Result<Value, String> {
-        let current = self.read()?;
-        let default_agent_kind = action
-            .get("defaultAgentKind")
-            .and_then(Value::as_str)
-            .filter(|kind| matches!(*kind, "claude" | "codex"))
-            .unwrap_or(DEFAULT_CHAT_AGENT_KIND);
-        let current = normalize_agent_state(&current, false)?
-            .unwrap_or_else(|| create_default_agent_state_with_chat_kind(default_agent_kind));
-        let next = reduce_agent_workspace_state(&current, action)?;
-        let normalized = canonical_agent_state(next.as_ref().unwrap_or(&current), false)?
-            .ok_or_else(|| "Workspace action produced invalid state".to_string())?;
-        write_json_atomic(&self.current_path, &normalized)?;
-        Ok(normalized)
+        let mut state = self
+            .load()?
+            .unwrap_or_else(|| Workspace::new(default_kind(action)));
+        state.apply(action)?;
+        state.validate()?;
+        self.save(&state)
+    }
+
+    fn save(&self, state: &Workspace) -> Result<Value, String> {
+        let value = serde_json::to_value(state).map_err(|e| e.to_string())?;
+        crate::atomic_write::overwrite(
+            &self.path,
+            &serde_json::to_vec(&value).map_err(|e| e.to_string())?,
+        )?;
+        Ok(value)
     }
 }
 
-pub fn agent_state_score(state: &Value) -> usize {
-    let Some(groups) = state.get("groups").and_then(Value::as_array) else {
-        return 0;
-    };
-    let mut score = groups.len();
-    for group in groups {
-        let Some(panes) = group.get("panes").and_then(Value::as_array) else {
-            continue;
-        };
-        score += panes.len() * 10;
-        for pane in panes {
-            if pane
-                .get("cwd")
-                .and_then(Value::as_str)
-                .is_some_and(|cwd| !cwd.is_empty())
-            {
-                score += 10;
-            }
-            if pane.get("pendingCwd") == Some(&Value::Bool(false)) {
-                score += 3;
-            }
-        }
-    }
-    score
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Workspace {
+    groups: Vec<Group>,
+    selected_group_id: String,
+    theme_id: String,
+    font_size: f64,
+    font_family: String,
+    opacity: f64,
 }
 
-pub fn is_agent_state_regression(current: &Value, next: &Value) -> bool {
-    if agent_state_score(next) < agent_state_score(current) {
-        return true;
-    }
-    let current_panes = pane_map(current);
-    if current_panes.is_empty() {
-        return false;
-    }
-    let next_panes = pane_map(next);
-    current_panes.into_iter().any(|(pane_id, current_pane)| {
-        if current_pane.cwd.as_deref().is_none_or(str::is_empty) {
-            return false;
-        }
-        next_panes.get(&pane_id).is_some_and(|next_pane| {
-            next_pane.cwd.as_deref().is_none_or(str::is_empty)
-                && next_pane.pending_cwd == Some(true)
-        })
-    })
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Group {
+    id: String,
+    name: String,
+    panes: Vec<Pane>,
+    selected_pane_id: Option<String>,
+    columns: u64,
+    rows: u64,
 }
 
-#[derive(Default)]
-struct PaneSnapshot {
-    cwd: Option<String>,
-    pending_cwd: Option<bool>,
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Pane {
+    id: String,
+    title: String,
+    pub agent_kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pending_cwd: bool,
+    #[serde(default)]
+    pub reference_paths: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider_session_id: Option<String>,
 }
 
-fn pane_map(state: &Value) -> HashMap<String, PaneSnapshot> {
-    let mut result = HashMap::new();
-    let Some(groups) = state.get("groups").and_then(Value::as_array) else {
-        return result;
-    };
-    for group in groups {
-        let Some(panes) = group.get("panes").and_then(Value::as_array) else {
-            continue;
-        };
-        for pane in panes {
-            let Some(id) = pane.get("id").and_then(Value::as_str) else {
-                continue;
-            };
-            result.insert(
-                id.to_string(),
-                PaneSnapshot {
-                    cwd: pane.get("cwd").and_then(Value::as_str).map(str::to_string),
-                    pending_cwd: pane.get("pendingCwd").and_then(Value::as_bool),
-                },
-            );
-        }
-    }
-    result
-}
-
-pub fn create_default_agent_state() -> Value {
-    create_default_agent_state_with_chat_kind(DEFAULT_CHAT_AGENT_KIND)
-}
-
-pub fn create_default_agent_state_with_chat_kind(agent_kind: &str) -> Value {
-    let agent_kind = if agent_kind == "claude" {
+fn default_kind(action: &Value) -> &str {
+    if action["defaultAgentKind"] == "claude" {
         "claude"
     } else {
-        DEFAULT_CHAT_AGENT_KIND
-    };
-    let pane_id = Uuid::new_v4().to_string();
-    let group_id = Uuid::new_v4().to_string();
-    json!({
-        "groups": [{
-            "id": group_id,
-            "name": "Default",
-            "panes": [{
-                "id": pane_id,
-                "title": if agent_kind == "claude" { "Claude" } else { "Codex" },
-                "agentKind": agent_kind,
-                "isClaude": agent_kind == "claude",
-                "paneType": agent_kind,
-                "pendingCwd": true,
-            }],
-            "selectedPaneId": pane_id,
-            "columns": DEFAULT_COLUMNS,
-            "rows": DEFAULT_ROWS,
-        }],
-        "selectedGroupId": group_id,
-        "themeId": DEFAULT_THEME_ID,
-        "fontSize": DEFAULT_FONT_SIZE,
-        "fontFamily": DEFAULT_FONT_FAMILY,
-        "opacity": DEFAULT_OPACITY,
-    })
-}
-
-pub fn normalize_agent_state(value: &Value, create_default: bool) -> Result<Option<Value>, String> {
-    if !is_valid_agent_state(value) {
-        return Ok(create_default.then(create_default_agent_state));
+        "codex"
     }
-    let source = value
-        .as_object()
-        .ok_or_else(|| "agent state must be an object".to_string())?;
-    let groups = source["groups"]
-        .as_array()
-        .expect("validated groups must be an array")
-        .iter()
-        .map(migrate_group)
-        .collect::<Result<Vec<_>, _>>()?;
-    if groups.is_empty() {
-        return Ok(create_default.then(create_default_agent_state));
-    }
-
-    let mut normalized = source.clone();
-    let selected_group_id = choose_selected_group_id(&groups, source.get("selectedGroupId"));
-    normalized.insert("groups".into(), Value::Array(groups));
-    normalized.insert("selectedGroupId".into(), selected_group_id);
-    let theme = source["themeId"].as_str().unwrap_or(DEFAULT_THEME_ID);
-    normalized.insert(
-        "themeId".into(),
-        Value::String(if THEME_IDS.contains(&theme) {
-            theme.to_string()
-        } else {
-            DEFAULT_THEME_ID.to_string()
-        }),
-    );
-    if source["fontFamily"].as_str().is_none_or(str::is_empty) {
-        normalized.insert(
-            "fontFamily".into(),
-            Value::String(DEFAULT_FONT_FAMILY.into()),
-        );
-    }
-    Ok(Some(Value::Object(normalized)))
 }
-
-/// Produces the same normalized, selected-draft-preserving state consumed by
-/// the renderer after loading the canonical agent state.
-pub fn canonical_agent_state(value: &Value, create_default: bool) -> Result<Option<Value>, String> {
-    normalize_agent_state(value, create_default)?
-        .map(|state| compact_agent_state(&state, true))
-        .transpose()
+fn string<'a>(value: &'a Value, key: &str) -> Result<&'a str, String> {
+    value[key]
+        .as_str()
+        .ok_or_else(|| format!("{key} must be a string"))
 }
-
-fn is_valid_agent_state(value: &Value) -> bool {
-    let Some(value) = value.as_object() else {
-        return false;
-    };
-    value
-        .get("groups")
-        .and_then(Value::as_array)
-        .is_some_and(|groups| !groups.is_empty())
-        && value.get("themeId").is_some_and(Value::is_string)
-        && value.get("fontSize").is_some_and(Value::is_number)
-        && value.get("fontFamily").is_some_and(Value::is_string)
-        && value.get("opacity").is_some_and(Value::is_number)
-}
-
-fn migrate_group(group: &Value) -> Result<Value, String> {
-    let source = group
-        .as_object()
-        .ok_or_else(|| "agent group must be an object".to_string())?;
-    if source
-        .get("id")
-        .and_then(Value::as_str)
-        .is_none_or(str::is_empty)
-        || !source.get("name").is_some_and(Value::is_string)
-    {
-        return Err("Invalid workspace identity".into());
-    }
-    let panes = source
-        .get("panes")
-        .and_then(Value::as_array)
-        .ok_or_else(|| "agent group panes must be an array".to_string())?
-        .iter()
-        .map(migrate_pane)
-        .collect::<Result<Vec<_>, _>>()?;
-    let selected = source.get("selectedPaneId");
-    let selected_is_valid = panes
-        .iter()
-        .any(|pane| same_optional_value(pane.get("id"), selected));
-    let selected_pane_id = if selected_is_valid {
-        selected.cloned().unwrap_or(Value::Null)
+fn kind(value: &str) -> Result<&str, String> {
+    if matches!(value, "claude" | "codex" | "agent") {
+        Ok(value)
     } else {
-        panes
-            .first()
-            .and_then(|pane| pane.get("id"))
-            .cloned()
-            .unwrap_or(Value::Null)
-    };
-
-    let mut migrated = source.clone();
-    migrated.insert("panes".into(), Value::Array(panes));
-    migrated.insert("selectedPaneId".into(), selected_pane_id);
-    if source.get("columns").is_none_or(Value::is_null) {
-        migrated.insert("columns".into(), json!(DEFAULT_COLUMNS));
+        Err("Unknown agentKind".into())
     }
-    if source.get("rows").is_none_or(Value::is_null) {
-        migrated.insert("rows".into(), json!(DEFAULT_ROWS));
-    }
-    Ok(Value::Object(migrated))
 }
-
-fn migrate_pane(pane: &Value) -> Result<Value, String> {
-    let source = pane
-        .as_object()
-        .ok_or_else(|| "agent pane must be an object".to_string())?;
-    if source
-        .get("id")
-        .and_then(Value::as_str)
-        .is_none_or(str::is_empty)
-    {
-        return Err("Invalid pane identity".into());
-    }
-    let inferred = source
-        .get("agentKind")
-        .filter(|value| !value.is_null())
-        .and_then(Value::as_str)
-        .unwrap_or_else(|| {
-            if source.get("paneType").and_then(Value::as_str) == Some("codex") {
-                "codex"
-            } else if source.get("isClaude").is_some_and(js_truthy) {
-                "claude"
-            } else {
-                "agent"
-            }
-        });
-    let agent_kind = if matches!(inferred, "claude" | "codex") {
-        inferred
+fn paths(value: &Value) -> Result<Vec<String>, String> {
+    if value.is_null() {
+        Ok(Vec::new())
     } else {
-        DEFAULT_CHAT_AGENT_KIND
-    };
-    let mut migrated = source.clone();
-    migrated.insert("agentKind".into(), Value::String(agent_kind.into()));
-    migrated.insert("isClaude".into(), Value::Bool(agent_kind == "claude"));
-    migrated.insert("paneType".into(), Value::String(agent_kind.into()));
-    Ok(Value::Object(migrated))
-}
-
-fn choose_selected_group_id(groups: &[Value], selected: Option<&Value>) -> Value {
-    if groups
-        .iter()
-        .any(|group| same_optional_value(group.get("id"), selected))
-    {
-        return selected.cloned().unwrap_or(Value::Null);
-    }
-    let mut best_group = None;
-    let mut best_score = None;
-    for group in groups {
-        let score = renderer_group_score(group);
-        if best_score.is_none_or(|current| score > current) {
-            best_group = Some(group);
-            best_score = Some(score);
-        }
-    }
-    best_group
-        .and_then(|group| group.get("id"))
-        .cloned()
-        .unwrap_or(Value::Null)
-}
-
-fn renderer_group_score(group: &Value) -> usize {
-    let Some(panes) = group.get("panes").and_then(Value::as_array) else {
-        return 1;
-    };
-    1 + panes.len() * 10
-        + panes
-            .iter()
-            .filter(|pane| has_durable_pane_value(pane))
-            .count()
-            * 10
-}
-
-pub fn reduce_agent_workspace_state(
-    state: &Value,
-    action: &Value,
-) -> Result<Option<Value>, String> {
-    let action_type = action.get("type").and_then(Value::as_str).unwrap_or("");
-    let mut next = state.clone();
-    match action_type {
-        "selectWorkspace" => {
-            let group_id = action.get("groupId");
-            if !state_groups(state)?
-                .iter()
-                .any(|group| same_optional_value(group.get("id"), group_id))
-            {
-                return Ok(Some(state.clone()));
-            }
-            set_optional_property(next_object_mut(&mut next)?, "selectedGroupId", group_id);
-            Ok(Some(compact_agent_state(&next, true)?))
-        }
-        "selectPane" => {
-            let group_id = action.get("groupId");
-            let pane_id = action.get("paneId");
-            set_optional_property(next_object_mut(&mut next)?, "selectedGroupId", group_id);
-            for group in state_groups_mut(&mut next)? {
-                if same_optional_value(group.get("id"), group_id) {
-                    set_optional_property(next_object_mut(group)?, "selectedPaneId", pane_id);
-                }
-            }
-            Ok(Some(compact_agent_state(&next, true)?))
-        }
-        "addWorkspace" => {
-            next = compact_agent_state(state, true)?;
-            let groups = state_groups(&next)?;
-            let selected = next.get("selectedGroupId");
-            let selected_group = groups
-                .iter()
-                .find(|group| same_optional_value(group.get("id"), selected))
-                .or_else(|| groups.first());
-            let columns = selected_group
-                .and_then(|group| group.get("columns"))
-                .filter(|value| !value.is_null())
-                .cloned()
-                .unwrap_or_else(|| json!(DEFAULT_COLUMNS));
-            let rows = selected_group
-                .and_then(|group| group.get("rows"))
-                .filter(|value| !value.is_null())
-                .cloned()
-                .unwrap_or_else(|| json!(DEFAULT_ROWS));
-            let group_id = Uuid::new_v4().to_string();
-            let default_agent_kind = action
-                .get("defaultAgentKind")
-                .and_then(Value::as_str)
-                .filter(|kind| matches!(*kind, "claude" | "codex"))
-                .unwrap_or(DEFAULT_CHAT_AGENT_KIND);
-            let starter_pane = create_pending_chat_pane(default_agent_kind);
-            let starter_pane_id = starter_pane.get("id").cloned().unwrap_or(Value::Null);
-            let group = json!({
-                "id": group_id,
-                "name": format!("Workspace {}", groups.len() + 1),
-                "panes": [starter_pane],
-                "selectedPaneId": starter_pane_id,
-                "columns": columns,
-                "rows": rows,
-            });
-            state_groups_mut(&mut next)?.push(group);
-            next_object_mut(&mut next)?.insert("selectedGroupId".into(), json!(group_id));
-            Ok(Some(next))
-        }
-        "removeWorkspace" => {
-            if state_groups(state)?.len() <= 1 {
-                return Ok(None);
-            }
-            let group_id = action.get("groupId");
-            let selected_was_removed = same_optional_value(state.get("selectedGroupId"), group_id);
-            state_groups_mut(&mut next)?
-                .retain(|group| !same_optional_value(group.get("id"), group_id));
-            if selected_was_removed {
-                let first_id = state_groups(&next)?
-                    .first()
-                    .and_then(|group| group.get("id"))
-                    .cloned()
-                    .unwrap_or(Value::Null);
-                next_object_mut(&mut next)?.insert("selectedGroupId".into(), first_id);
-            }
-            Ok(Some(next))
-        }
-        "renameWorkspace" => {
-            let group_id = action.get("groupId");
-            let name = action
-                .get("name")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "workspace name must be a string".to_string())?
-                .trim();
-            for group in state_groups_mut(&mut next)? {
-                if same_optional_value(group.get("id"), group_id) && !name.is_empty() {
-                    next_object_mut(group)?.insert("name".into(), Value::String(name.into()));
-                }
-            }
-            Ok(Some(next))
-        }
-        "addPane" => {
-            let selected_group_id = action
-                .get("groupId")
-                .filter(|value| !value.is_null())
-                .or_else(|| {
-                    state
-                        .get("selectedGroupId")
-                        .filter(|value| !value.is_null())
-                })
-                .or_else(|| state_groups(state).ok()?.first()?.get("id"));
-            let Some(selected_group_id) = selected_group_id.cloned() else {
-                return Ok(None);
-            };
-            let pane = if let Some(pane) = action.get("pane") {
-                pane.clone()
-            } else {
-                let kind = action
-                    .get("agentKind")
-                    .or_else(|| action.get("defaultAgentKind"))
-                    .and_then(Value::as_str)
-                    .filter(|kind| matches!(*kind, "claude" | "codex"))
-                    .unwrap_or(DEFAULT_CHAT_AGENT_KIND);
-                let mut pane = create_pending_chat_pane(kind);
-                if let Some(cwd) = action.get("cwd").and_then(Value::as_str) {
-                    pane["cwd"] = json!(cwd);
-                    pane["pendingCwd"] = json!(false);
-                    pane["title"] = json!(pane_title(kind, Some(cwd)));
-                }
-                if let Some(paths) = action.get("referencePaths") {
-                    pane["referencePaths"] = paths.clone();
-                }
-                pane
-            };
-            for group in state_groups_mut(&mut next)? {
-                if group.get("id") == Some(&selected_group_id) {
-                    append_pane_to_group(group, pane.clone())?;
-                }
-            }
-            next_object_mut(&mut next)?.insert("selectedGroupId".into(), selected_group_id);
-            Ok(Some(next))
-        }
-        "removePane" => {
-            reduce_remove_pane(&mut next, action)?;
-            Ok(Some(next))
-        }
-        "directorySelected" => {
-            reduce_directory_selected(&mut next, action)?;
-            Ok(Some(next))
-        }
-        "setPaneAgentKind" => {
-            reduce_set_pane_agent_kind(&mut next, action)?;
-            Ok(Some(next))
-        }
-        "reorderPanes" => {
-            let group_id = action.get("groupId");
-            let from = action.get("fromIndex").and_then(Value::as_u64);
-            let to = action.get("toIndex").and_then(Value::as_u64);
-            if let (Some(from), Some(to)) = (from, to) {
-                for group in state_groups_mut(&mut next)? {
-                    if !same_optional_value(group.get("id"), group_id) {
-                        continue;
-                    }
-                    let panes = group_panes_mut(group)?;
-                    let (Ok(from), Ok(to)) = (usize::try_from(from), usize::try_from(to)) else {
-                        continue;
-                    };
-                    if from < panes.len() && to < panes.len() && from != to {
-                        let pane = panes.remove(from);
-                        panes.insert(to, pane);
-                    }
-                }
-            }
-            Ok(Some(next))
-        }
-        "setGridDimensions" => {
-            let group_id = action.get("groupId");
-            let columns = action
-                .get("columns")
-                .and_then(Value::as_u64)
-                .filter(|value| *value > 0);
-            let rows = action
-                .get("rows")
-                .and_then(Value::as_u64)
-                .filter(|value| *value > 0);
-            for group in state_groups_mut(&mut next)? {
-                if same_optional_value(group.get("id"), group_id) {
-                    let object = next_object_mut(group)?;
-                    if let Some(columns) = columns {
-                        object.insert("columns".into(), json!(columns));
-                    }
-                    if let Some(rows) = rows {
-                        object.insert("rows".into(), json!(rows));
-                    }
-                }
-            }
-            Ok(Some(next))
-        }
-        "setTheme" => {
-            let theme = action
-                .get("themeId")
-                .and_then(Value::as_str)
-                .filter(|theme| THEME_IDS.contains(theme))
-                .ok_or_else(|| "unknown themeId".to_string())?;
-            next_object_mut(&mut next)?.insert("themeId".into(), json!(theme));
-            Ok(Some(next))
-        }
-        "changePaneAgentKind" | "setPaneProviderSession" => {
-            let pane_id = action
-                .get("paneId")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "paneId must be a string".to_string())?;
-            let agent_kind = if action_type == "changePaneAgentKind" {
-                Some(
-                    action
-                        .get("agentKind")
-                        .and_then(Value::as_str)
-                        .filter(|kind| matches!(*kind, "agent" | "claude" | "codex"))
-                        .ok_or_else(|| "unknown agentKind".to_string())?,
-                )
-            } else {
-                None
-            };
-            let session_id = action.get("providerSessionId");
-            if agent_kind.is_none() && !matches!(session_id, Some(Value::Null | Value::String(_))) {
-                return Err("providerSessionId must be a string or null".into());
-            }
-            for group in state_groups_mut(&mut next)? {
-                for pane in group_panes_mut(group)? {
-                    if pane.get("id").and_then(Value::as_str) != Some(pane_id) {
-                        continue;
-                    }
-                    let object = next_object_mut(pane)?;
-                    if let Some(kind) = agent_kind {
-                        object.insert("agentKind".into(), json!(kind));
-                        object.insert("isClaude".into(), json!(kind == "claude"));
-                        object.remove("providerSessionId");
-                    } else {
-                        set_optional_property(
-                            object,
-                            "providerSessionId",
-                            session_id.filter(|value| !value.is_null()),
-                        );
-                    }
-                }
-            }
-            Ok(Some(next))
-        }
-        "ensureChatPane" => reduce_ensure_chat_pane(&mut next, action),
-        _ => Err("Unknown workspace action".into()),
+        serde_json::from_value(value.clone()).map_err(|e| e.to_string())
     }
 }
 
-fn compact_agent_state(state: &Value, keep_selected_draft: bool) -> Result<Value, String> {
-    let groups = state_groups(state)?;
-    let has_durable_group = groups.iter().any(has_durable_pane);
-    let selected_group = groups
-        .iter()
-        .find(|group| same_optional_value(group.get("id"), state.get("selectedGroupId")))
-        .or_else(|| groups.first());
-    let mut compacted_groups = Vec::new();
-
-    for group in groups {
-        let group_is_durable = has_durable_pane(group);
-        let is_selected = same_optional_value(group.get("id"), state.get("selectedGroupId"));
-        if has_durable_group && !(keep_selected_draft && is_selected) && !group_is_durable {
-            continue;
-        }
-        if !has_durable_group
-            && selected_group.is_some_and(|selected| group.get("id") != selected.get("id"))
-        {
-            continue;
-        }
-        if !group_is_durable {
-            if keep_selected_draft && is_selected {
-                compacted_groups.push(group.clone());
-                continue;
-            }
-            let panes = group_panes(group)?;
-            let selected_pane = panes
-                .iter()
-                .find(|pane| same_optional_value(pane.get("id"), group.get("selectedPaneId")))
-                .or_else(|| panes.first());
-            let mut compacted = group.clone();
-            let compacted_object = next_object_mut(&mut compacted)?;
-            compacted_object.insert(
-                "panes".into(),
-                Value::Array(selected_pane.cloned().into_iter().collect()),
-            );
-            compacted_object.insert(
-                "selectedPaneId".into(),
-                selected_pane
-                    .and_then(|pane| pane.get("id"))
-                    .cloned()
-                    .unwrap_or(Value::Null),
-            );
-            compacted_groups.push(compacted);
-            continue;
-        }
-
-        let panes = group_panes(group)?;
-        let compacted_panes = panes
-            .iter()
-            .filter(|pane| {
-                same_optional_value(pane.get("id"), group.get("selectedPaneId"))
-                    || (keep_selected_draft
-                        && is_selected
-                        && is_chat_agent_kind(pane.get("agentKind")))
-                    || !is_empty_pending_pane(pane)
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        let mut compacted = group.clone();
-        let selected_still_exists = compacted_panes
-            .iter()
-            .any(|pane| same_optional_value(pane.get("id"), group.get("selectedPaneId")));
-        let compacted_object = next_object_mut(&mut compacted)?;
-        compacted_object.insert("panes".into(), Value::Array(compacted_panes.clone()));
-        if !selected_still_exists {
-            compacted_object.insert(
-                "selectedPaneId".into(),
-                compacted_panes
-                    .first()
-                    .and_then(|pane| pane.get("id"))
-                    .cloned()
-                    .unwrap_or(Value::Null),
-            );
-        }
-        compacted_groups.push(compacted);
-    }
-
-    let mut next = state.clone();
-    let selected = choose_selected_group_id(&compacted_groups, state.get("selectedGroupId"));
-    let object = next_object_mut(&mut next)?;
-    object.insert("groups".into(), Value::Array(compacted_groups));
-    object.insert("selectedGroupId".into(), selected);
-    Ok(next)
-}
-
-fn append_pane_to_group(group: &mut Value, pane: Value) -> Result<(), String> {
-    let existing = group_panes(group)?.clone();
-    let replace_draft = existing.len() == 1
-        && existing.first().is_some_and(is_empty_pending_pane)
-        && !is_empty_pending_pane(&pane);
-    let mut panes = if replace_draft { Vec::new() } else { existing };
-    panes.push(pane.clone());
-    let object = next_object_mut(group)?;
-    object.insert("panes".into(), Value::Array(panes));
-    object.insert(
-        "selectedPaneId".into(),
-        pane.get("id").cloned().unwrap_or(Value::Null),
-    );
-    Ok(())
-}
-
-fn reduce_remove_pane(state: &mut Value, action: &Value) -> Result<(), String> {
-    let group_id = action.get("groupId");
-    let pane_id = action.get("paneId");
-    for group in state_groups_mut(state)? {
-        if !same_optional_value(group.get("id"), group_id) {
-            continue;
-        }
-        let mut panes = group_panes(group)?.clone();
-        panes.retain(|pane| !same_optional_value(pane.get("id"), pane_id));
-        let selected_was_removed = same_optional_value(group.get("selectedPaneId"), pane_id);
-        let first_id = panes
-            .first()
-            .and_then(|pane| pane.get("id"))
-            .cloned()
-            .unwrap_or(Value::Null);
-        let object = next_object_mut(group)?;
-        object.insert("panes".into(), Value::Array(panes));
-        if selected_was_removed {
-            object.insert("selectedPaneId".into(), first_id);
-        }
-    }
-    Ok(())
-}
-
-fn reduce_directory_selected(state: &mut Value, action: &Value) -> Result<(), String> {
-    let group_id = action.get("groupId");
-    let pane_id = action.get("paneId");
-    for group in state_groups_mut(state)? {
-        if !same_optional_value(group.get("id"), group_id) {
-            continue;
-        }
-        for pane in group_panes_mut(group)? {
-            if !same_optional_value(pane.get("id"), pane_id) {
-                continue;
-            }
-            let agent_kind = pane
-                .get("agentKind")
-                .and_then(Value::as_str)
-                .unwrap_or(DEFAULT_CHAT_AGENT_KIND);
-            let path = action.get("path").and_then(Value::as_str);
-            let title = pane_title(agent_kind, path);
-            let object = next_object_mut(pane)?;
-            set_optional_property(
-                object,
-                "cwd",
-                action.get("path").filter(|value| !value.is_null()),
-            );
-            object.insert("pendingCwd".into(), Value::Bool(false));
-            set_optional_property(object, "referencePaths", action.get("referencePaths"));
-            object.insert("title".into(), Value::String(title));
-        }
-    }
-    Ok(())
-}
-
-fn reduce_set_pane_agent_kind(state: &mut Value, action: &Value) -> Result<(), String> {
-    let group_id = action.get("groupId");
-    let pane_id = action.get("paneId");
-    let agent_kind = action
-        .get("agentKind")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "agentKind must be a string".to_string())?;
-    if !matches!(agent_kind, "agent" | "claude" | "codex") {
-        return Err("unknown agentKind".into());
-    }
-    for group in state_groups_mut(state)? {
-        if !same_optional_value(group.get("id"), group_id) {
-            continue;
-        }
-        for pane in group_panes_mut(group)? {
-            if !same_optional_value(pane.get("id"), pane_id) {
-                continue;
-            }
-            let title = pane_title(agent_kind, pane.get("cwd").and_then(Value::as_str));
-            let object = next_object_mut(pane)?;
-            object.insert("agentKind".into(), Value::String(agent_kind.into()));
-            object.insert("isClaude".into(), Value::Bool(agent_kind == "claude"));
-            object.insert("paneType".into(), Value::String(agent_kind.into()));
-            object.insert("title".into(), Value::String(title));
-        }
-    }
-    Ok(())
-}
-
-fn reduce_ensure_chat_pane(state: &mut Value, action: &Value) -> Result<Option<Value>, String> {
-    let selected_group_id = state
-        .get("selectedGroupId")
-        .filter(|value| !value.is_null())
-        .cloned()
-        .or_else(|| state_groups(state).ok()?.first()?.get("id").cloned());
-    let Some(selected_group_id) = selected_group_id else {
-        return Ok(None);
-    };
-    let group_index = state_groups(state)?
-        .iter()
-        .position(|group| group.get("id") == Some(&selected_group_id))
-        .unwrap_or(0);
-    let group = &state_groups(state)?[group_index];
-    let selected_pane_id = group.get("selectedPaneId");
-    let panes = group_panes(group)?;
-    let chat_pane_index = panes
-        .iter()
-        .position(|pane| {
-            same_optional_value(pane.get("id"), selected_pane_id)
-                && is_chat_agent_kind(pane.get("agentKind"))
-        })
-        .or_else(|| {
-            panes
-                .iter()
-                .position(|pane| is_chat_agent_kind(pane.get("agentKind")))
-        });
-    let default_agent_kind = action
-        .get("defaultAgentKind")
-        .and_then(Value::as_str)
-        .filter(|kind| matches!(*kind, "claude" | "codex"))
-        .unwrap_or(DEFAULT_CHAT_AGENT_KIND);
-    let chat_pane = chat_pane_index
-        .and_then(|index| panes.get(index).cloned())
-        .unwrap_or_else(|| create_pending_chat_pane(default_agent_kind));
-    let chat_pane_id = chat_pane.get("id").cloned().unwrap_or(Value::Null);
-    let group = &mut state_groups_mut(state)?[group_index];
-    if chat_pane_index.is_none() {
-        group_panes_mut(group)?.insert(0, chat_pane);
-    }
-    next_object_mut(group)?.insert("selectedPaneId".into(), chat_pane_id);
-    next_object_mut(state)?.insert("selectedGroupId".into(), selected_group_id);
-    Ok(Some(state.clone()))
-}
-
-fn create_pending_chat_pane(agent_kind: &str) -> Value {
-    json!({
-        "id": Uuid::new_v4().to_string(),
-        "title": if agent_kind == "claude" { "Claude" } else { "Codex" },
-        "agentKind": agent_kind,
-        "isClaude": agent_kind == "claude",
-        "paneType": agent_kind,
-        "pendingCwd": true,
-    })
-}
-
-fn pane_title(agent_kind: &str, cwd: Option<&str>) -> String {
-    if let Some(cwd) = cwd.filter(|cwd| !cwd.is_empty()) {
-        let final_component = cwd.rsplit('/').next().unwrap_or(cwd);
-        return if final_component.is_empty() {
-            cwd.to_string()
-        } else {
-            final_component.to_string()
+impl Pane {
+    fn new(kind: &str) -> Self {
+        let mut pane = Self {
+            id: Uuid::new_v4().to_string(),
+            title: String::new(),
+            agent_kind: kind.into(),
+            cwd: None,
+            pending_cwd: true,
+            reference_paths: Vec::new(),
+            summary: None,
+            provider_session_id: None,
         };
+        pane.update_title();
+        pane
     }
-    match agent_kind {
-        "claude" => "Claude",
-        "agent" => "Agent",
-        _ => "Codex",
+    fn update_title(&mut self) {
+        self.title = self
+            .cwd
+            .as_deref()
+            .filter(|cwd| !cwd.is_empty())
+            .map(|cwd| {
+                cwd.rsplit('/')
+                    .next()
+                    .filter(|name| !name.is_empty())
+                    .unwrap_or(cwd)
+            })
+            .unwrap_or(match self.agent_kind.as_str() {
+                "claude" => "Claude",
+                "agent" => "Agent",
+                _ => "Codex",
+            })
+            .into();
     }
-    .into()
+    fn empty_draft(&self) -> bool {
+        self.pending_cwd
+            && self.cwd.as_deref().is_none_or(str::is_empty)
+            && self.reference_paths.is_empty()
+    }
+    fn durable(&self) -> bool {
+        !self.pending_cwd || self.cwd.as_deref().is_some_and(|s| !s.is_empty())
+    }
 }
-
-fn has_durable_pane(group: &Value) -> bool {
-    group_panes(group).is_ok_and(|panes| panes.iter().any(has_durable_pane_value))
-}
-
-fn has_durable_pane_value(pane: &Value) -> bool {
-    pane.get("cwd").is_some_and(js_truthy) || pane.get("pendingCwd") == Some(&Value::Bool(false))
-}
-
-fn is_empty_pending_pane(pane: &Value) -> bool {
-    pane.get("pendingCwd") == Some(&Value::Bool(true))
-        && !pane.get("cwd").is_some_and(js_truthy)
-        && match pane.get("referencePaths") {
-            None | Some(Value::Null) => true,
-            Some(Value::Array(paths)) => paths.is_empty(),
-            Some(value) => !js_truthy(value),
+impl Group {
+    fn new(name: String, kind: &str, columns: u64, rows: u64) -> Self {
+        let pane = Pane::new(kind);
+        Self {
+            id: Uuid::new_v4().to_string(),
+            name,
+            selected_pane_id: Some(pane.id.clone()),
+            panes: vec![pane],
+            columns,
+            rows,
         }
-}
-
-fn is_chat_agent_kind(value: Option<&Value>) -> bool {
-    matches!(value.and_then(Value::as_str), Some("claude" | "codex"))
-}
-
-fn js_truthy(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::Bool(value) => *value,
-        Value::Number(value) => value.as_f64().is_some_and(|value| value != 0.0),
-        Value::String(value) => !value.is_empty(),
-        Value::Array(_) | Value::Object(_) => true,
+    }
+    fn add(&mut self, pane: Pane) {
+        if self.panes.len() == 1 && self.panes[0].empty_draft() && !pane.empty_draft() {
+            self.panes.clear();
+        }
+        self.selected_pane_id = Some(pane.id.clone());
+        self.panes.push(pane);
+    }
+    fn repair_selection(&mut self) {
+        if !self
+            .panes
+            .iter()
+            .any(|p| Some(&p.id) == self.selected_pane_id.as_ref())
+        {
+            self.selected_pane_id = self.panes.first().map(|p| p.id.clone());
+        }
     }
 }
-
-fn same_optional_value(left: Option<&Value>, right: Option<&Value>) -> bool {
-    match (left, right) {
-        (None, None) => true,
-        (Some(left), Some(right)) => left == right,
-        _ => false,
+impl Workspace {
+    fn new(kind: &str) -> Self {
+        let group = Group::new(
+            "Default".into(),
+            if kind == "claude" { "claude" } else { "codex" },
+            1,
+            1,
+        );
+        Self {
+            selected_group_id: group.id.clone(),
+            groups: vec![group],
+            theme_id: "default".into(),
+            font_size: 13.,
+            font_family: "SF Mono".into(),
+            opacity: 1.,
+        }
     }
-}
-
-fn state_groups(state: &Value) -> Result<&Vec<Value>, String> {
-    state
-        .get("groups")
-        .and_then(Value::as_array)
-        .ok_or_else(|| "agent state groups must be an array".to_string())
-}
-
-fn state_groups_mut(state: &mut Value) -> Result<&mut Vec<Value>, String> {
-    state
-        .get_mut("groups")
-        .and_then(Value::as_array_mut)
-        .ok_or_else(|| "agent state groups must be an array".to_string())
-}
-
-fn group_panes(group: &Value) -> Result<&Vec<Value>, String> {
-    group
-        .get("panes")
-        .and_then(Value::as_array)
-        .ok_or_else(|| "agent group panes must be an array".to_string())
-}
-
-fn group_panes_mut(group: &mut Value) -> Result<&mut Vec<Value>, String> {
-    group
-        .get_mut("panes")
-        .and_then(Value::as_array_mut)
-        .ok_or_else(|| "agent group panes must be an array".to_string())
-}
-
-fn next_object_mut(value: &mut Value) -> Result<&mut Map<String, Value>, String> {
-    value
-        .as_object_mut()
-        .ok_or_else(|| "agent value must be an object".to_string())
-}
-
-fn set_optional_property(object: &mut Map<String, Value>, key: &str, value: Option<&Value>) {
-    if let Some(value) = value {
-        object.insert(key.into(), value.clone());
-    } else {
-        object.remove(key);
+    fn validate(&mut self) -> Result<(), String> {
+        if self.groups.is_empty() {
+            return Err("Workspace must contain a group".into());
+        }
+        let mut ids = HashSet::new();
+        for group in &mut self.groups {
+            if group.id.is_empty()
+                || !ids.insert(group.id.clone())
+                || group.columns == 0
+                || group.rows == 0
+            {
+                return Err("Invalid workspace group".into());
+            }
+            for pane in &group.panes {
+                kind(&pane.agent_kind)?;
+                if pane.id.is_empty() || !ids.insert(pane.id.clone()) {
+                    return Err("Invalid pane identity".into());
+                }
+            }
+            group.repair_selection();
+        }
+        if !self.groups.iter().any(|g| g.id == self.selected_group_id) {
+            self.selected_group_id = self.groups[0].id.clone();
+        }
+        Ok(())
     }
-}
-
-fn read_json(path: &Path) -> Result<Option<Value>, String> {
-    match std::fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes)
-            .map(Some)
-            .map_err(|error| error.to_string()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error.to_string()),
+    fn compact(&mut self) {
+        let durable = self
+            .groups
+            .iter()
+            .any(|g| g.panes.iter().any(Pane::durable));
+        self.groups.retain(|g| {
+            g.id == self.selected_group_id || (durable && g.panes.iter().any(Pane::durable))
+        });
+        for g in &mut self.groups {
+            if g.id != self.selected_group_id {
+                g.panes
+                    .retain(|p| Some(&p.id) == g.selected_pane_id.as_ref() || !p.empty_draft());
+                g.repair_selection();
+            }
+        }
     }
-}
-
-fn write_json_atomic(path: &Path, value: &Value) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| "agent state path has no parent directory".to_string())?;
-    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    let bytes = serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?;
-    crate::atomic_write::overwrite(path, &bytes)
+    fn group(&mut self, id: &str) -> Result<&mut Group, String> {
+        self.groups
+            .iter_mut()
+            .find(|g| g.id == id)
+            .ok_or_else(|| "Workspace not found".into())
+    }
+    fn apply(&mut self, action: &Value) -> Result<(), String> {
+        let action_type = string(action, "type")?;
+        match action_type {
+            "selectWorkspace" | "selectPane" => {
+                let id = string(action, "groupId")?;
+                let group = self.group(id)?;
+                if action_type == "selectPane" {
+                    let pane = string(action, "paneId")?;
+                    if !group.panes.iter().any(|p| p.id == pane) {
+                        return Err("Pane not found".into());
+                    }
+                    group.selected_pane_id = Some(pane.into());
+                }
+                self.selected_group_id = id.into();
+                self.compact();
+            }
+            "addWorkspace" => {
+                self.compact();
+                let selected = self.group(&self.selected_group_id.clone())?;
+                let (columns, rows) = (selected.columns, selected.rows);
+                let group = Group::new(
+                    format!("Workspace {}", self.groups.len() + 1),
+                    default_kind(action),
+                    columns,
+                    rows,
+                );
+                self.selected_group_id = group.id.clone();
+                self.groups.push(group);
+            }
+            "removeWorkspace" => {
+                let id = string(action, "groupId")?;
+                if self.groups.len() > 1 {
+                    self.groups.retain(|g| g.id != id);
+                }
+            }
+            "renameWorkspace" => {
+                let name = string(action, "name")?.trim();
+                if !name.is_empty() {
+                    self.group(string(action, "groupId")?)?.name = name.into();
+                }
+            }
+            "addPane" => {
+                let id = action["groupId"]
+                    .as_str()
+                    .unwrap_or(&self.selected_group_id)
+                    .to_owned();
+                let mut pane = Pane::new(kind(
+                    action["agentKind"].as_str().unwrap_or(default_kind(action)),
+                )?);
+                if let Some(cwd) = action["cwd"].as_str() {
+                    pane.cwd = Some(cwd.into());
+                    pane.pending_cwd = false;
+                    pane.update_title();
+                }
+                pane.reference_paths = paths(&action["referencePaths"])?;
+                self.group(&id)?.add(pane);
+                self.selected_group_id = id;
+            }
+            "removePane" => {
+                let group = self.group(string(action, "groupId")?)?;
+                let id = string(action, "paneId")?;
+                group.panes.retain(|p| p.id != id);
+            }
+            "reorderPanes" => {
+                let group = self.group(string(action, "groupId")?)?;
+                let index = |key| {
+                    action[key]
+                        .as_u64()
+                        .and_then(|n| usize::try_from(n).ok())
+                        .ok_or_else(|| format!("Invalid {key}"))
+                };
+                let (from, to) = (index("fromIndex")?, index("toIndex")?);
+                if from < group.panes.len() && to < group.panes.len() {
+                    let pane = group.panes.remove(from);
+                    group.panes.insert(to, pane);
+                }
+            }
+            "setGridDimensions" => {
+                let group = self.group(string(action, "groupId")?)?;
+                for (key, target) in [("columns", &mut group.columns), ("rows", &mut group.rows)] {
+                    if !action[key].is_null() {
+                        *target = action[key]
+                            .as_u64()
+                            .filter(|n| *n > 0)
+                            .ok_or_else(|| format!("Invalid {key}"))?;
+                    }
+                }
+            }
+            "setTheme" => {
+                let theme = string(action, "themeId")?;
+                if !matches!(theme, "default" | "midnight") {
+                    return Err("Unknown themeId".into());
+                }
+                self.theme_id = theme.into();
+            }
+            "directorySelected"
+            | "setPaneAgentKind"
+            | "changePaneAgentKind"
+            | "setPaneProviderSession" => {
+                let id = string(action, "paneId")?;
+                let pane = self
+                    .groups
+                    .iter_mut()
+                    .filter(|g| action["groupId"].as_str().is_none_or(|id| g.id == id))
+                    .flat_map(|g| &mut g.panes)
+                    .find(|p| p.id == id)
+                    .ok_or("Pane not found")?;
+                match action_type {
+                    "directorySelected" => {
+                        pane.cwd = serde_json::from_value(action["path"].clone())
+                            .map_err(|e| e.to_string())?;
+                        pane.pending_cwd = false;
+                        pane.reference_paths = paths(&action["referencePaths"])?;
+                        pane.update_title();
+                    }
+                    "setPaneProviderSession" => {
+                        if action.get("providerSessionId").is_none() {
+                            return Err("Missing providerSessionId".into());
+                        }
+                        pane.provider_session_id =
+                            serde_json::from_value(action["providerSessionId"].clone())
+                                .map_err(|e| e.to_string())?;
+                    }
+                    _ => {
+                        pane.agent_kind = kind(string(action, "agentKind")?)?.into();
+                        pane.provider_session_id = None;
+                        pane.update_title();
+                    }
+                }
+            }
+            "ensureChatPane" => {
+                let group = self.group(&self.selected_group_id.clone())?;
+                let selected = group
+                    .panes
+                    .iter()
+                    .find(|p| {
+                        Some(&p.id) == group.selected_pane_id.as_ref() && p.agent_kind != "agent"
+                    })
+                    .or_else(|| group.panes.iter().find(|p| p.agent_kind != "agent"));
+                if let Some(pane) = selected {
+                    group.selected_pane_id = Some(pane.id.clone());
+                } else {
+                    group.add(Pane::new(default_kind(action)));
+                }
+            }
+            _ => return Err("Unknown workspace action".into()),
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn saved_state() -> Value {
-        json!({
-            "groups": [{
-                "id": "group-1",
-                "name": "Workspace",
-                "panes": [{
-                    "id": "pane-1",
-                    "title": "project",
-                    "agentKind": "codex",
-                    "isClaude": false,
-                    "paneType": "codex",
-                    "cwd": "/tmp/project",
-                    "pendingCwd": false,
-                    "extra": "preserved",
-                }],
-                "selectedPaneId": "pane-1",
-                "columns": 2,
-                "rows": 1,
-            }],
-            "selectedGroupId": "group-1",
-            "themeId": "midnight",
-            "fontSize": 14,
-            "fontFamily": "Menlo",
-            "opacity": 0.9,
-            "futureField": true,
-        })
+    fn store(root: &tempfile::TempDir) -> AgentStateStore {
+        AgentStateStore::new(root.path().join("workspace.json"))
     }
-
     #[test]
-    fn normalizes_legacy_panes_and_preserves_unknown_fields() {
-        let state = json!({
-            "groups": [{
-                "id": "group-1",
-                "name": "Legacy",
-                "panes": [{ "id": "pane-1", "title": "Old", "isClaude": true, "extra": 7 }],
-                "selectedPaneId": "missing",
-            }],
-            "selectedGroupId": "missing",
-            "themeId": "not-a-theme",
-            "fontSize": 13,
-            "fontFamily": "",
-            "opacity": 1,
-            "futureField": true,
-        });
-        let normalized = normalize_agent_state(&state, true).unwrap().unwrap();
-        assert_eq!(normalized["selectedGroupId"], "group-1");
-        assert_eq!(normalized["groups"][0]["selectedPaneId"], "pane-1");
-        assert_eq!(normalized["groups"][0]["columns"], 1);
-        assert_eq!(normalized["groups"][0]["rows"], 1);
-        assert_eq!(normalized["groups"][0]["panes"][0]["agentKind"], "claude");
-        assert_eq!(normalized["groups"][0]["panes"][0]["paneType"], "claude");
-        assert_eq!(normalized["groups"][0]["panes"][0]["extra"], 7);
-        assert_eq!(normalized["themeId"], "default");
-        assert_eq!(normalized["fontFamily"], "SF Mono");
-        assert_eq!(normalized["futureField"], true);
-    }
-
-    #[test]
-    fn pane_actions_preserve_unrelated_state_and_reset_provider_identity() {
-        let state = saved_state();
-        let next = reduce_agent_workspace_state(&state, &json!({
-            "type": "setPaneProviderSession", "paneId": "pane-1", "providerSessionId": "session-1"
-        })).unwrap().unwrap();
+    fn actions_preserve_identity_and_survive_restart() {
+        let root = tempfile::tempdir().unwrap();
+        let store = store(&root);
+        let initial = store.initialize("claude").unwrap();
+        let group = &initial["selectedGroupId"];
+        let pane = &initial["groups"][0]["selectedPaneId"];
+        for action in [
+            json!({"type":"directorySelected","groupId":group,"paneId":pane,"path":"/work/repo","referencePaths":["/reference"]}),
+            json!({"type":"setPaneProviderSession","paneId":pane,"providerSessionId":"session"}),
+            json!({"type":"renameWorkspace","groupId":group,"name":"  Work  "}),
+            json!({"type":"setGridDimensions","groupId":group,"columns":3,"rows":2}),
+            json!({"type":"setTheme","themeId":"midnight"}),
+        ] {
+            store.apply_workspace_action(&action).unwrap();
+        }
+        let saved = store.read().unwrap();
         assert_eq!(
-            next["groups"][0]["panes"][0]["providerSessionId"],
-            "session-1"
-        );
-        let next = reduce_agent_workspace_state(
-            &next,
-            &json!({
-                "type": "changePaneAgentKind", "paneId": "pane-1", "agentKind": "claude"
-            }),
-        )
-        .unwrap()
-        .unwrap();
-        let pane = &next["groups"][0]["panes"][0];
-        assert_eq!(pane["agentKind"], "claude");
-        assert_eq!(pane["extra"], "preserved");
-        assert!(pane.get("providerSessionId").is_none());
-        assert_eq!(next["themeId"], state["themeId"]);
-        assert!(
-            reduce_agent_workspace_state(
-                &next,
-                &json!({
-                    "type": "setPaneProviderSession", "paneId": "pane-1", "providerSessionId": 42
-                })
-            )
-            .is_err()
-        );
-        let themed =
-            reduce_agent_workspace_state(&next, &json!({"type": "setTheme", "themeId": "nord"}))
-                .unwrap()
-                .unwrap();
-        assert_eq!(themed["themeId"], "nord");
-        assert_eq!(themed["groups"], next["groups"]);
-    }
-
-    #[test]
-    fn canonical_state_matches_renderer_compaction_after_normalization() {
-        let mut state = saved_state();
-        state["groups"].as_array_mut().unwrap().push(json!({
-            "id": "empty-group",
-            "name": "Empty",
-            "panes": [],
-            "selectedPaneId": null,
-            "columns": 2,
-            "rows": 1,
-        }));
-        let canonical = canonical_agent_state(&state, false).unwrap().unwrap();
-        assert_eq!(canonical["groups"].as_array().unwrap().len(), 1);
-        assert_eq!(canonical["groups"][0]["id"], "group-1");
-        assert_eq!(canonical["selectedGroupId"], "group-1");
-    }
-
-    #[test]
-    fn guards_state_regressions_like_the_bun_server() {
-        let current = saved_state();
-        let mut fewer = current.clone();
-        fewer["groups"][0]["panes"] = json!([]);
-        assert!(is_agent_state_regression(&current, &fewer));
-
-        let mut pending_loss = current.clone();
-        pending_loss["groups"][0]["panes"][0]
-            .as_object_mut()
-            .unwrap()
-            .remove("cwd");
-        pending_loss["groups"][0]["panes"][0]["pendingCwd"] = true.into();
-        pending_loss["groups"][0]["panes"]
-            .as_array_mut()
-            .unwrap()
-            .push(json!({
-                "id": "pane-2",
-                "cwd": "/tmp/extra",
-                "pendingCwd": false,
-            }));
-        assert!(agent_state_score(&pending_loss) >= agent_state_score(&current));
-        assert!(is_agent_state_regression(&current, &pending_loss));
-    }
-
-    #[test]
-    fn applies_workspace_actions_with_the_existing_compaction_contract() {
-        let state = saved_state();
-        let renamed = reduce_agent_workspace_state(
-            &state,
-            &json!({ "type": "renameWorkspace", "groupId": "group-1", "name": "  Renamed  " }),
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(renamed["groups"][0]["name"], "Renamed");
-
-        let selected = reduce_agent_workspace_state(
-            &renamed,
-            &json!({
-                "type": "directorySelected",
-                "groupId": "group-1",
-                "paneId": "pane-1",
-                "path": "/tmp/other",
-                "referencePaths": ["/tmp/reference"],
-            }),
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(selected["groups"][0]["panes"][0]["cwd"], "/tmp/other");
-        assert_eq!(selected["groups"][0]["panes"][0]["title"], "other");
-        assert_eq!(selected["groups"][0]["panes"][0]["pendingCwd"], false);
-        assert_eq!(selected["groups"][0]["panes"][0]["extra"], "preserved");
-
-        let removed = reduce_agent_workspace_state(
-            &selected,
-            &json!({ "type": "removeWorkspace", "groupId": "group-1" }),
-        )
-        .unwrap();
-        assert!(removed.is_none());
-    }
-
-    #[test]
-    fn creates_a_workspace_with_a_selected_starter_chat() {
-        let added = reduce_agent_workspace_state(
-            &saved_state(),
-            &json!({ "type": "addWorkspace", "defaultAgentKind": "claude" }),
-        )
-        .unwrap()
-        .unwrap();
-        let workspace = &added["groups"][1];
-        let pane = &workspace["panes"][0];
-
-        assert_eq!(workspace["selectedPaneId"], pane["id"]);
-        assert_eq!(added["selectedGroupId"], workspace["id"]);
-        assert_eq!(pane["agentKind"], "claude");
-        assert_eq!(pane["pendingCwd"], true);
-    }
-
-    #[test]
-    fn initialization_imports_once_preserves_identity_and_actions_survive_restart() {
-        let root = tempfile::TempDir::new().unwrap();
-        let current = root.path().join("state.json");
-        let legacy = root.path().join("legacy.json");
-        let store = AgentStateStore::new(current.clone(), legacy.clone());
-        let mut browser = saved_state();
-        browser["groups"][0]["panes"][0]["providerSessionId"] = json!("provider-history");
-        browser["groups"][0]["panes"][0]["referencePaths"] = json!(["/other/repo"]);
-        browser["selectedGroupId"] = json!("missing");
-        let imported = store
-            .initialize(&json!(browser.to_string()), "claude")
-            .unwrap();
-        assert_eq!(imported["selectedGroupId"], "group-1");
-        assert_eq!(
-            imported["groups"][0]["panes"][0]["providerSessionId"],
-            "provider-history"
+            saved["groups"][0]["panes"][0]["providerSessionId"],
+            "session"
         );
         assert_eq!(
-            imported["groups"][0]["panes"][0]["referencePaths"],
-            json!(["/other/repo"])
+            saved["groups"][0]["panes"][0]["referencePaths"],
+            json!(["/reference"])
+        );
+        assert_eq!(saved["groups"][0]["panes"][0]["title"], "repo");
+        assert_eq!(saved["groups"][0]["name"], "Work");
+        assert_eq!(saved["groups"][0]["columns"], 3);
+        assert_eq!(
+            AgentStateStore::new(store.path.clone())
+                .initialize("codex")
+                .unwrap(),
+            saved
         );
         let next = store
             .apply_workspace_action(
-                &json!({"type":"addPane","agentKind":"claude","cwd":"/new/repo"}),
+                &json!({"type":"changePaneAgentKind","paneId":pane,"agentKind":"codex"}),
             )
             .unwrap();
-        let pane = &next["groups"][0]["panes"][1];
-        assert_eq!(pane["title"], "repo");
-        assert_eq!(pane["agentKind"], "claude");
-        assert_eq!(next["groups"][0]["selectedPaneId"], pane["id"]);
-        let restarted = AgentStateStore::new(current, legacy);
+        assert!(
+            next["groups"][0]["panes"][0]
+                .get("providerSessionId")
+                .is_none()
+        );
+        assert_eq!(next["groups"][0]["panes"][0]["id"], *pane);
+    }
+    #[test]
+    fn pane_order_selection_and_starter_replacement() {
+        let root = tempfile::tempdir().unwrap();
+        let store = store(&root);
+        let initial = store.initialize("codex").unwrap();
+        let group = &initial["selectedGroupId"];
+        let first = store
+            .apply_workspace_action(&json!({"type":"addPane","cwd":"/one"}))
+            .unwrap();
+        assert_eq!(first["groups"][0]["panes"].as_array().unwrap().len(), 1);
+        let first_id = &first["groups"][0]["selectedPaneId"];
+        let second = store
+            .apply_workspace_action(&json!({"type":"addPane","agentKind":"claude","cwd":"/two"}))
+            .unwrap();
+        let second_id = &second["groups"][0]["selectedPaneId"];
+        store
+            .apply_workspace_action(
+                &json!({"type":"reorderPanes","groupId":group,"fromIndex":1,"toIndex":0}),
+            )
+            .unwrap();
+        let removed = store
+            .apply_workspace_action(
+                &json!({"type":"removePane","groupId":group,"paneId":second_id}),
+            )
+            .unwrap();
+        assert_eq!(removed["groups"][0]["selectedPaneId"], *first_id);
+        store
+            .apply_workspace_action(&json!({"type":"removePane","groupId":group,"paneId":first_id}))
+            .unwrap();
+        let ensured = store
+            .apply_workspace_action(&json!({"type":"ensureChatPane","defaultAgentKind":"claude"}))
+            .unwrap();
+        assert_eq!(ensured["groups"][0]["panes"][0]["agentKind"], "claude");
         assert_eq!(
-            restarted
-                .initialize(&json!("invalid stale browser JSON"), "codex")
-                .unwrap(),
-            next
+            store
+                .apply_workspace_action(&json!({"type":"removeWorkspace","groupId":group}))
+                .unwrap()["groups"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
         );
     }
-
     #[test]
-    fn malformed_saved_state_never_gets_overwritten_by_reads_import_or_actions() {
-        let root = tempfile::TempDir::new().unwrap();
-        let current = root.path().join("state.json");
-        let store = AgentStateStore::new(current.clone(), root.path().join("legacy.json"));
-        let mut invalid_group = saved_state();
-        invalid_group["groups"][0]["panes"] = json!("invalid");
-        let mut invalid_identity = saved_state();
-        invalid_identity["groups"][0]["panes"][0]["id"] = Value::Null;
-        for bytes in [
-            b"{truncated".to_vec(),
-            invalid_group.to_string().into_bytes(),
-            invalid_identity.to_string().into_bytes(),
+    fn workspace_selection_keeps_active_drafts_and_removes_abandoned_ones() {
+        let root = tempfile::tempdir().unwrap();
+        let store = store(&root);
+        let initial = store.initialize("codex").unwrap();
+        let group = &initial["selectedGroupId"];
+        let pane = &initial["groups"][0]["selectedPaneId"];
+        store
+            .apply_workspace_action(
+                &json!({"type":"directorySelected","groupId":group,"paneId":pane,"path":"/repo"}),
+            )
+            .unwrap();
+        let draft = store
+            .apply_workspace_action(&json!({"type":"addWorkspace","defaultAgentKind":"claude"}))
+            .unwrap();
+        assert_eq!(draft["groups"].as_array().unwrap().len(), 2);
+        assert_eq!(store.read().unwrap(), draft);
+        let selected = store
+            .apply_workspace_action(&json!({"type":"selectPane","groupId":group,"paneId":pane}))
+            .unwrap();
+        assert_eq!(selected["groups"].as_array().unwrap().len(), 1);
+    }
+    #[test]
+    fn malformed_files_and_invalid_actions_do_not_overwrite_state() {
+        let root = tempfile::tempdir().unwrap();
+        let store = store(&root);
+        store.initialize("codex").unwrap();
+        let bytes = std::fs::read(&store.path).unwrap();
+        for action in [
+            json!({"type":"bogus"}),
+            json!({"type":"setTheme","themeId":"missing"}),
+            json!({"type":"selectWorkspace","groupId":"missing"}),
         ] {
-            std::fs::write(&current, &bytes).unwrap();
-            assert!(store.read().is_err());
-            assert!(store.initialize(&saved_state(), "codex").is_err());
+            assert!(store.apply_workspace_action(&action).is_err());
+            assert_eq!(std::fs::read(&store.path).unwrap(), bytes);
+        }
+        for bytes in [b"{truncated".as_slice(), b"{\"groups\":[]}"] {
+            std::fs::write(&store.path, bytes).unwrap();
+            assert!(store.initialize("codex").is_err());
             assert!(
                 store
                     .apply_workspace_action(&json!({"type":"addWorkspace"}))
                     .is_err()
             );
-            assert!(store.write_guarded(saved_state()).is_err());
-            assert_eq!(std::fs::read(&current).unwrap(), bytes);
+            assert_eq!(std::fs::read(&store.path).unwrap(), bytes);
         }
-    }
-
-    #[test]
-    fn store_migrates_legacy_before_applying_actions() {
-        let root = tempfile::TempDir::new().unwrap();
-        let current = root.path().join("agent-state.json");
-        let legacy = root.path().join("terminal-state.json");
-        std::fs::write(&legacy, serde_json::to_vec(&saved_state()).unwrap()).unwrap();
-        let store = AgentStateStore::new(current.clone(), legacy);
-        assert_eq!(store.read().unwrap()["selectedGroupId"], "group-1");
-
-        let next = store
-            .apply_workspace_action(&json!({ "type": "ensureChatPane" }))
-            .unwrap();
-        assert_eq!(next["selectedGroupId"], "group-1");
-        assert!(current.is_file());
-        assert!(!store.write_guarded(json!({ "groups": [] })).unwrap());
-    }
-
-    #[test]
-    fn ensure_chat_pane_uses_the_validated_default_only_when_creating_a_pane() {
-        let state = json!({
-            "groups": [{
-                "id":"group", "name":"Group", "selectedPaneId":"editor",
-                "columns":3, "rows":2,
-                "panes":[{"id":"editor","title":"Editor","agentKind":"editor","paneType":"editor"}]
-            }],
-            "selectedGroupId":"group", "themeId":"default", "fontSize":13,
-            "fontFamily":"SF Mono", "opacity":1
-        });
-        let next = reduce_agent_workspace_state(
-            &state,
-            &json!({"type":"ensureChatPane","defaultAgentKind":"claude"}),
-        )
-        .unwrap()
-        .unwrap();
-        let pane = &next["groups"][0]["panes"][0];
-        assert_eq!(pane["agentKind"], "claude");
-        assert_eq!(pane["paneType"], "claude");
-        assert_eq!(pane["title"], "Claude");
-        assert_eq!(pane["isClaude"], true);
-        assert_eq!(pane["pendingCwd"], true);
-
-        let existing = reduce_agent_workspace_state(
-            &next,
-            &json!({"type":"ensureChatPane","defaultAgentKind":"codex"}),
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(existing["groups"][0]["panes"][0]["agentKind"], "claude");
-        assert_eq!(existing["groups"][0]["panes"].as_array().unwrap().len(), 2);
     }
 }

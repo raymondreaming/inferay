@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use inferay_core::agent_state::AgentStateStore;
 use inferay_core::path_security::{AllowedPaths, is_within_directory, resolve_lexically};
 use serde::{Deserialize, Serialize};
+use walkdir::WalkDir;
 
 const MAX_FILE_CONTENT_BYTES: u64 = 1024 * 1024;
 const MAX_SEARCH_RESULTS: usize = 50;
@@ -61,106 +62,42 @@ impl std::error::Error for NativeProjectFilesError {}
 #[derive(Clone)]
 pub struct NativeProjectFiles {
     allowed_paths: AllowedPaths,
-    agent_state: Option<Arc<Mutex<AgentStateStore>>>,
-    owner: tokio::runtime::Handle,
+    agent_state: Arc<Mutex<AgentStateStore>>,
 }
 
 impl NativeProjectFiles {
-    pub fn new(allowed_paths: AllowedPaths) -> Self {
+    pub fn new(allowed_paths: AllowedPaths, agent_state: Arc<Mutex<AgentStateStore>>) -> Self {
         Self {
             allowed_paths,
-            agent_state: None,
-            owner: tokio::runtime::Handle::current(),
-        }
-    }
-
-    pub fn with_agent_state(
-        allowed_paths: AllowedPaths,
-        agent_state: Arc<Mutex<AgentStateStore>>,
-    ) -> Self {
-        Self {
-            allowed_paths,
-            agent_state: Some(agent_state),
-            owner: tokio::runtime::Handle::current(),
+            agent_state,
         }
     }
 
     /// Returns the selected pane's project first, then the other unique projects in its group.
     pub async fn active_cwds(&self) -> Result<Vec<String>, NativeProjectFilesError> {
-        let Some(agent_state) = self.agent_state.clone() else {
-            return Ok(vec![
-                self.allowed_paths
-                    .project_root()
-                    .to_string_lossy()
-                    .into_owned(),
-            ]);
-        };
+        let agent_state = self.agent_state.clone();
         let allowed_paths = self.allowed_paths.clone();
-        self.owner
-            .spawn_blocking(move || {
-                let state = agent_state
-                    .lock()
-                    .map_err(|_| {
-                        NativeProjectFilesError::Runtime("agent state lock poisoned".into())
-                    })?
-                    .read()
-                    .map_err(NativeProjectFilesError::Runtime)?;
-                let fallback = || vec![allowed_paths.project_root().to_string_lossy().into_owned()];
-                let Some(groups) = state.get("groups").and_then(serde_json::Value::as_array) else {
-                    return Ok(fallback());
-                };
-                let selected_group_id = state
-                    .get("selectedGroupId")
-                    .and_then(serde_json::Value::as_str);
-                let selected_group = selected_group_id
-                    .and_then(|id| {
-                        groups.iter().find(|group| {
-                            group.get("id").and_then(serde_json::Value::as_str) == Some(id)
-                        })
-                    })
-                    .or_else(|| groups.first());
-                let Some(panes) = selected_group
-                    .and_then(|group| group.get("panes"))
-                    .and_then(serde_json::Value::as_array)
-                else {
-                    return Ok(fallback());
-                };
-                let selected_pane_id = selected_group
-                    .and_then(|group| group.get("selectedPaneId"))
-                    .and_then(serde_json::Value::as_str);
-                let ordered = panes
-                    .iter()
-                    .filter(|pane| {
-                        selected_pane_id.is_some_and(|id| {
-                            pane.get("id").and_then(serde_json::Value::as_str) == Some(id)
-                        })
-                    })
-                    .chain(panes.iter().filter(|pane| {
-                        selected_pane_id.is_none_or(|id| {
-                            pane.get("id").and_then(serde_json::Value::as_str) != Some(id)
-                        })
-                    }));
-                let mut seen = HashSet::new();
-                let mut cwds = Vec::new();
-                for pane in ordered {
-                    let Some(cwd) = pane
-                        .get("cwd")
-                        .and_then(serde_json::Value::as_str)
-                        .filter(|cwd| !cwd.is_empty())
-                    else {
-                        continue;
-                    };
-                    let Ok(cwd) = resolve_lexically(Path::new(cwd)) else {
-                        continue;
-                    };
-                    if allowed_paths.is_allowed_local_path(&cwd) && seen.insert(cwd.clone()) {
-                        cwds.push(cwd.to_string_lossy().into_owned());
-                    }
-                }
-                Ok(if cwds.is_empty() { fallback() } else { cwds })
+        tokio::task::spawn_blocking(move || {
+            let paths = agent_state
+                .lock()
+                .map_err(|_| NativeProjectFilesError::Runtime("agent state lock poisoned".into()))?
+                .active_cwds()
+                .map_err(NativeProjectFilesError::Runtime)?;
+            let mut seen = HashSet::new();
+            let cwds: Vec<_> = paths
+                .into_iter()
+                .filter_map(|cwd| resolve_lexically(Path::new(&cwd)).ok())
+                .filter(|cwd| allowed_paths.is_allowed_local_path(cwd) && seen.insert(cwd.clone()))
+                .map(|cwd| cwd.to_string_lossy().into_owned())
+                .collect();
+            Ok(if cwds.is_empty() {
+                vec![allowed_paths.project_root().to_string_lossy().into_owned()]
+            } else {
+                cwds
             })
-            .await
-            .map_err(|error| NativeProjectFilesError::Runtime(error.to_string()))?
+        })
+        .await
+        .map_err(|error| NativeProjectFilesError::Runtime(error.to_string()))?
     }
 
     fn cwd(&self, cwd: &str) -> Result<PathBuf, NativeProjectFilesError> {
@@ -189,8 +126,7 @@ impl NativeProjectFiles {
         let cwd = self.cwd(cwd)?;
         let query = query.to_lowercase();
         let limit = limit.min(MAX_SEARCH_RESULTS);
-        self.owner
-            .spawn_blocking(move || search_files_in_cwd(&cwd, &query, limit))
+        tokio::task::spawn_blocking(move || search_files_in_cwd(&cwd, &query, limit))
             .await
             .map_err(|error| NativeProjectFilesError::Runtime(error.to_string()))
     }
@@ -208,8 +144,7 @@ impl NativeProjectFiles {
         {
             return Err(NativeProjectFilesError::AccessDenied);
         }
-        self.owner
-            .spawn_blocking(move || list_project_directory(&cwd, &directory))
+        tokio::task::spawn_blocking(move || list_project_directory(&cwd, &directory))
             .await
             .map_err(|error| NativeProjectFilesError::Runtime(error.to_string()))?
     }
@@ -234,36 +169,31 @@ impl NativeProjectFiles {
         if !self.allowed_paths.is_allowed_local_path(&file) || !is_within_directory(&file, &cwd) {
             return Err(NativeProjectFilesError::AccessDenied);
         }
-        self.owner
-            .spawn(async move {
-                let metadata = tokio::fs::metadata(&file).await.map_err(map_io_error)?;
-                if !metadata.is_file() {
-                    return Err(NativeProjectFilesError::NotFile);
-                }
-                if metadata.len() > MAX_FILE_CONTENT_BYTES {
-                    return Err(NativeProjectFilesError::FileTooLarge);
-                }
-                let bytes = tokio::fs::read(&file).await.map_err(map_io_error)?;
-                let updated_at = metadata
-                    .modified()
-                    .ok()
-                    .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|duration| duration.as_secs_f64() * 1000.0)
-                    .unwrap_or(0.0);
-                Ok(ProjectFileContent {
-                    content: String::from_utf8_lossy(&bytes).into_owned(),
-                    cwd: cwd.to_string_lossy().into_owned(),
-                    path: file
-                        .strip_prefix(&cwd)
-                        .unwrap_or(&file)
-                        .to_string_lossy()
-                        .into_owned(),
-                    size: metadata.len(),
-                    updated_at,
-                })
-            })
-            .await
-            .map_err(|error| NativeProjectFilesError::Runtime(error.to_string()))?
+        let metadata = tokio::fs::metadata(&file).await.map_err(map_io_error)?;
+        if !metadata.is_file() {
+            return Err(NativeProjectFilesError::NotFile);
+        }
+        if metadata.len() > MAX_FILE_CONTENT_BYTES {
+            return Err(NativeProjectFilesError::FileTooLarge);
+        }
+        let bytes = tokio::fs::read(&file).await.map_err(map_io_error)?;
+        let updated_at = metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| duration.as_secs_f64() * 1000.0)
+            .unwrap_or(0.0);
+        Ok(ProjectFileContent {
+            content: String::from_utf8_lossy(&bytes).into_owned(),
+            cwd: cwd.to_string_lossy().into_owned(),
+            path: file
+                .strip_prefix(&cwd)
+                .unwrap_or(&file)
+                .to_string_lossy()
+                .into_owned(),
+            size: metadata.len(),
+            updated_at,
+        })
     }
 }
 
@@ -313,8 +243,6 @@ fn list_project_directory(
 
 fn search_files_in_cwd(cwd: &Path, query: &str, limit: usize) -> Vec<ProjectFileEntry> {
     let cwd_string = cwd.to_string_lossy().into_owned();
-    let mut results = Vec::new();
-    let mut seen = HashSet::new();
     if let Ok(output) = std::process::Command::new("git")
         .args(["-C"])
         .arg(cwd)
@@ -322,99 +250,63 @@ fn search_files_in_cwd(cwd: &Path, query: &str, limit: usize) -> Vec<ProjectFile
         .output()
         && output.status.success()
     {
-        for path in String::from_utf8_lossy(&output.stdout).split('\n') {
-            add_result(
-                &mut results,
-                &mut seen,
-                path,
-                None,
-                &cwd_string,
-                query,
-                limit,
-            );
-        }
+        let results = search_results(
+            String::from_utf8_lossy(&output.stdout)
+                .split('\n')
+                .map(str::to_owned),
+            &cwd_string,
+            query,
+            limit,
+        );
         if !results.is_empty() || !query.is_empty() {
             return results;
         }
     }
-    search_directory(cwd, cwd, 0, query, limit, &mut results, &mut seen);
-    results
+    let paths = WalkDir::new(cwd)
+        .min_depth(1)
+        .max_depth(MAX_DIRECTORY_DEPTH + 1)
+        .into_iter()
+        .filter_entry(|entry| {
+            let name = entry.file_name().to_string_lossy();
+            !name.starts_with('.') && !matches!(name.as_ref(), "node_modules" | "build" | "dist")
+        })
+        .filter_map(Result::ok)
+        .filter(|entry| !entry.file_type().is_dir())
+        .map(|entry| {
+            entry
+                .path()
+                .strip_prefix(cwd)
+                .unwrap_or(entry.path())
+                .to_string_lossy()
+                .into_owned()
+        });
+    search_results(paths, &cwd_string, query, limit)
 }
 
-fn search_directory(
-    root: &Path,
-    directory: &Path,
-    depth: usize,
-    query: &str,
-    limit: usize,
-    results: &mut Vec<ProjectFileEntry>,
-    seen: &mut HashSet<String>,
-) {
-    if depth > MAX_DIRECTORY_DEPTH || results.len() >= limit {
-        return;
-    }
-    let Ok(entries) = std::fs::read_dir(directory) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        if results.len() >= limit {
-            break;
-        }
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with('.') || matches!(name.as_str(), "node_modules" | "build" | "dist") {
-            continue;
-        }
-        let path = entry.path();
-        let relative = path
-            .strip_prefix(root)
-            .unwrap_or(&path)
-            .to_string_lossy()
-            .into_owned();
-        let is_directory = entry.file_type().is_ok_and(|kind| kind.is_dir());
-        if !is_directory {
-            add_result(
-                results,
-                seen,
-                &relative,
-                Some(&name),
-                &root.to_string_lossy(),
-                query,
-                limit,
-            );
-        }
-        if is_directory && depth < MAX_DIRECTORY_DEPTH {
-            search_directory(root, &path, depth + 1, query, limit, results, seen);
-        }
-    }
-}
-
-fn add_result(
-    results: &mut Vec<ProjectFileEntry>,
-    seen: &mut HashSet<String>,
-    path: &str,
-    name: Option<&str>,
+fn search_results(
+    paths: impl Iterator<Item = String>,
     cwd: &str,
     query: &str,
     limit: usize,
-) {
-    if results.len() >= limit
-        || path.is_empty()
-        || (!query.is_empty() && !path.to_lowercase().contains(query))
-        || !seen.insert(path.to_owned())
-    {
-        return;
-    }
-    results.push(ProjectFileEntry {
-        name: name.map(str::to_owned).unwrap_or_else(|| {
-            Path::new(path)
+) -> Vec<ProjectFileEntry> {
+    let mut seen = HashSet::new();
+    paths
+        .filter(|path| {
+            !path.is_empty()
+                && (query.is_empty() || path.to_lowercase().contains(query))
+                && seen.insert(path.clone())
+        })
+        .take(limit)
+        .map(|path| ProjectFileEntry {
+            name: Path::new(&path)
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_else(|| path.to_owned())
-        }),
-        path: path.to_owned(),
-        is_dir: false,
-        cwd: cwd.to_owned(),
-    });
+                .unwrap_or_else(|| path.clone()),
+            path,
+            is_dir: false,
+            cwd: cwd.to_owned(),
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -428,7 +320,12 @@ mod tests {
         std::fs::create_dir_all(project.join("src")).unwrap();
         std::fs::write(project.join("src/main.rs"), "fn main() {}\n").unwrap();
         std::fs::write(root.path().join("outside.txt"), "secret").unwrap();
-        let service = NativeProjectFiles::new(AllowedPaths::new(root.path(), root.path()).unwrap());
+        let service = NativeProjectFiles::new(
+            AllowedPaths::new(root.path(), root.path()).unwrap(),
+            Arc::new(Mutex::new(AgentStateStore::new(
+                root.path().join("workspace.json"),
+            ))),
+        );
 
         let root_entries = service.list(project.to_str().unwrap(), "").await.unwrap();
         assert_eq!(root_entries.len(), 1);
@@ -439,6 +336,8 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(source_entries[0].path, "src/main.rs");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(root.path(), project.join("linked")).unwrap();
 
         let entries = service
             .search(&project.to_string_lossy(), "MAIN", 50)
@@ -472,7 +371,12 @@ mod tests {
             vec![0_u8; MAX_FILE_CONTENT_BYTES as usize + 1],
         )
         .unwrap();
-        let service = NativeProjectFiles::new(AllowedPaths::new(root.path(), root.path()).unwrap());
+        let service = NativeProjectFiles::new(
+            AllowedPaths::new(root.path(), root.path()).unwrap(),
+            Arc::new(Mutex::new(AgentStateStore::new(
+                root.path().join("workspace.json"),
+            ))),
+        );
         assert_eq!(
             service
                 .search(&root.path().to_string_lossy(), "file", 500)
@@ -480,6 +384,20 @@ mod tests {
                 .unwrap()
                 .len(),
             50
+        );
+        let deepest =
+            (0..MAX_DIRECTORY_DEPTH).fold(root.path().to_path_buf(), |path, _| path.join("nested"));
+        std::fs::create_dir_all(deepest.join("beyond")).unwrap();
+        std::fs::write(deepest.join("boundary.txt"), "included").unwrap();
+        std::fs::write(deepest.join("beyond/boundary.txt"), "excluded").unwrap();
+        let boundary = service
+            .search(&root.path().to_string_lossy(), "boundary", 50)
+            .await
+            .unwrap();
+        assert_eq!(boundary.len(), 1);
+        assert_eq!(
+            root.path().join(&boundary[0].path),
+            deepest.join("boundary.txt")
         );
         assert_eq!(
             service
@@ -498,29 +416,20 @@ mod tests {
         std::fs::create_dir_all(&second).unwrap();
         let store = Arc::new(Mutex::new(AgentStateStore::new(
             root.path().join("agent-state.json"),
-            root.path().join("terminal-state.json"),
         )));
-        store
-            .lock()
-            .unwrap()
-            .write_guarded(serde_json::json!({
-                "selectedGroupId": "group",
-                "themeId":"default", "fontSize":13, "fontFamily":"SF Mono", "opacity":1,
-                "groups": [{
-                    "id": "group", "name":"Main",
-                    "selectedPaneId": "second-pane",
-                    "panes": [
-                        {"id": "first-pane", "cwd": first},
-                        {"id": "second-pane", "cwd": second},
-                        {"id": "duplicate", "cwd": first}
-                    ]
-                }]
-            }))
-            .unwrap();
-        let service = NativeProjectFiles::with_agent_state(
-            AllowedPaths::new(root.path(), root.path()).unwrap(),
-            store,
-        );
+        {
+            let workspace = store.lock().unwrap();
+            workspace.initialize("codex").unwrap();
+            for cwd in [&first, &second, &first] {
+                workspace
+                    .apply_workspace_action(&serde_json::json!({"type":"addPane","cwd":cwd}))
+                    .unwrap();
+            }
+            let state = workspace.read().unwrap();
+            workspace.apply_workspace_action(&serde_json::json!({"type":"selectPane", "groupId":state["selectedGroupId"], "paneId":state["groups"][0]["panes"][1]["id"]})).unwrap();
+        }
+        let service =
+            NativeProjectFiles::new(AllowedPaths::new(root.path(), root.path()).unwrap(), store);
         assert_eq!(
             service.active_cwds().await.unwrap(),
             vec![
