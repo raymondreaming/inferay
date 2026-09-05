@@ -1,7 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import { Suspense } from "octane";
 import type { ThemeId } from "../../model/workspace-model.ts";
-import { type AgentPersistenceArgs, Settings } from "./shared.ts";
+import { Settings } from "./shared.ts";
 import { styles } from "./styles.ts";
 
 type AgentMainSurfaceProps = {
@@ -9,7 +9,7 @@ type AgentMainSurfaceProps = {
 	readonly chatSidebar: unknown;
 	readonly chatZenMode: boolean;
 	readonly hasCurrentPanes: boolean;
-	readonly setAppearance: AgentPersistenceArgs["setAppearance"];
+	readonly onThemeChange: (id: ThemeId) => void;
 	readonly setShowSettings: (value: boolean) => void;
 	readonly showSettings: boolean;
 	readonly agentGrid: unknown;
@@ -21,7 +21,7 @@ export function AgentMainSurface({
 	chatSidebar,
 	chatZenMode,
 	hasCurrentPanes,
-	setAppearance,
+	onThemeChange,
 	setShowSettings,
 	showSettings,
 	agentGrid,
@@ -65,9 +65,7 @@ export function AgentMainSurface({
 								<Suspense fallback={null}>
 									<Settings
 										themeId={themeId}
-										onThemeChange={(v: ThemeId) =>
-											setAppearance((prev) => ({ ...prev, themeId: v }))
-										}
+										onThemeChange={onThemeChange}
 										onClose={setShowSettings.bind(null, false)}
 									/>
 								</Suspense>

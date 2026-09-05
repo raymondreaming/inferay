@@ -7,21 +7,13 @@ import {
 import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
 import { AgentChatView } from "../../../conversation/components/AgentChatView/index.tsx";
 import { ChatPaneBoundary } from "../../../conversation/components/ChatPaneBoundary/index.tsx";
-import type {
-	AgentKind,
-	AgentPaneModel,
-	AgentTheme,
-} from "../../model/workspace-model.ts";
+import type { AgentKind, AgentPaneModel } from "../../model/workspace-model.ts";
 import { styles } from "./styles.ts";
 
 interface PaneViewProps {
 	pane: AgentPaneModel;
 	isSelected: boolean;
 	isVisible?: boolean;
-	theme: AgentTheme;
-	fontSize: number;
-	fontFamily: string;
-	onSelect: (paneId: string) => void;
 	onClose: (paneId: string, force?: boolean) => void;
 	onDirectorySelect?: (
 		paneId: string,

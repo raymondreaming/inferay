@@ -38,8 +38,6 @@ export interface WorkspaceCanvasProps {
 	rows: number;
 	layoutMode: "grid" | "rows";
 	theme: AgentTheme;
-	fontSize: number;
-	fontFamily: string;
 	onSelectPane: (paneId: string) => void;
 	onFocusPane?: (paneId: string) => void;
 	onClosePane: (paneId: string, force?: boolean) => void;
@@ -67,10 +65,6 @@ export const paneViewProps = (
 	pane,
 	isSelected: p.active !== false && pane.id === p.selectedPaneId,
 	isVisible: p.active !== false,
-	theme: p.theme,
-	fontSize: p.fontSize,
-	fontFamily: p.fontFamily,
-	onSelect: p.onSelectPane,
 	onClose: p.onClosePane,
 	onDirectorySelect: p.onDirectorySelect,
 	onDirectoryCancel: p.onDirectoryCancel,

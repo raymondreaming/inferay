@@ -1,5 +1,5 @@
 export const AGENT_STATE_STORAGE_KEY = "inferay-agent-state";
-export const AGENT_MAIN_VIEW_STORAGE_KEY = "agent-main-view";
+
 const AGENT_LAYOUT_MODE_STORAGE_KEY = "agent-layout-mode";
 const EDITOR_SELECTED_PANE_STORAGE_KEY = "editor-selected-pane";
 const MAIN_SIDEBAR_WIDTH_STORAGE_KEY = "main-sidebar-width";
@@ -15,7 +15,7 @@ const CHAT_MODEL_KEY_PREFIX = "inferay-chat-model-";
 const CHAT_REASONING_KEY_PREFIX = "inferay-chat-reasoning-";
 const CHAT_PENDING_SEND_KEY_PREFIX = "inferay-chat-pending-send-";
 const CHAT_SUMMARY_KEY_PREFIX = "inferay-chat-summary-";
-export const CHAT_SESSION_INDEX_STORAGE_KEY = "inferay-session-library";
+
 const CHAT_PENDING_WORKSPACE_KEY_PREFIX = "inferay-chat-pending-workspace-";
 export const CHAT_QUEUE_KEY_PREFIX = "inferay-chat-queue-";
 const CHAT_LOADING_STATE_KEY_PREFIX = "inferay-chat-loading-";
@@ -54,7 +54,6 @@ const SYNCED_STORAGE_KEYS = new Set([
 	"sidebar-collapsed",
 	"agent-editor-zen",
 	AGENT_LAYOUT_MODE_STORAGE_KEY,
-	AGENT_MAIN_VIEW_STORAGE_KEY,
 ]);
 
 const SYNCED_STORAGE_PREFIXES = [

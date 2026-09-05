@@ -9,7 +9,6 @@ import {
 	APP_FONT_STORAGE_KEY,
 	APP_THEME_STORAGE_KEY,
 } from "../../../adapters/storage/keys.ts";
-import { readStoredValue } from "../../../adapters/storage/stored-values.ts";
 import { CLIENT_STORAGE_CHANGED_EVENT } from "../../../adapters/storage/sync.ts";
 import { SettingsModalHost } from "../../../modules/settings/components/SettingsModal/index.tsx";
 import { SkillsModalHost } from "../../../modules/skills/components/SkillsModal/index.tsx";
@@ -32,20 +31,11 @@ import { shellThemeProps, styles } from "./styles.ts";
 export function AppLayout() {
 	const location = useLocation();
 	const [background, setBackground] = useState(loadAppBackgroundSettings);
-	const [mainView, setMainView] = useState(
-		() => readStoredValue("agent-main-view") ?? "chat",
-	);
-	const sidebarOpen = location.pathname === "/agent" && mainView === "chat";
+	const sidebarOpen = location.pathname === "/agent";
 	useEffect(() => {
 		wsClient.connect();
 	}, []);
-	useEffect(
-		() =>
-			listenWindowEvent("agent-shell-change", () => {
-				setMainView(readStoredValue("agent-main-view") ?? "chat");
-			}),
-		[],
-	);
+
 	useEffect(
 		() =>
 			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {

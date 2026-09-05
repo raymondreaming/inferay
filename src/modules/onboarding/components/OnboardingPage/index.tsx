@@ -5,10 +5,7 @@ import {
 	fetchJsonOr,
 	sendJsonWithBusy,
 } from "../../../../adapters/backend/http.ts";
-import {
-	AGENT_MAIN_VIEW_STORAGE_KEY,
-	ONBOARDING_DONE_STORAGE_KEY,
-} from "../../../../adapters/storage/keys.ts";
+import { ONBOARDING_DONE_STORAGE_KEY } from "../../../../adapters/storage/keys.ts";
 import {
 	readStoredBoolean,
 	writeStoredValue,
@@ -139,7 +136,6 @@ export function OnboardingPage() {
 		writeStoredValue(ONBOARDING_DONE_KEY, "true");
 		// Default to grid layout
 		writeStoredValue("agent-layout-mode", "grid");
-		writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, "chat");
 		// New users land directly in the multi-agent chat grid.
 		const canonicalState = await loadCanonicalAgentState();
 		if (!canonicalState || isFirstRun)

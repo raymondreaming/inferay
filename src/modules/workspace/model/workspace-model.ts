@@ -1,31 +1,17 @@
 import { postJson } from "../../../adapters/backend/http.ts";
 import { readStoredValue } from "../../../adapters/storage/stored-values.ts";
-import {
-	type AgentKind,
-	getAgentDefinition,
-} from "../../../modules/agents/model/agents.ts";
-import { hasId, noop } from "../../../shared/lib/data.ts";
+import type { AppThemeId } from "../../../app/model/appearance.ts";
+import type { AgentKind } from "../../../modules/agents/model/agents.ts";
+import { noop } from "../../../shared/lib/data.ts";
 import { listenWindowEvent } from "../../../shared/lib/react-events.ts";
 
 export type { AgentKind } from "../../../modules/agents/model/agents.ts";
 
-export type HexColor = `#${string}`;
-
+export type ThemeId = AppThemeId;
 export interface AgentTheme {
-	readonly id: ThemeId;
-	readonly name: string;
-	readonly bg: HexColor;
-	readonly fg: HexColor;
-	readonly cursor: HexColor;
-	readonly separator: HexColor;
+	readonly cursor: string;
+	readonly separator: string;
 }
-
-const THEME_IDS = {
-	default: "default",
-	midnight: "midnight",
-} as const;
-
-export type ThemeId = (typeof THEME_IDS)[keyof typeof THEME_IDS];
 export type AgentLayoutMode = "grid" | "rows";
 
 export function loadAgentLayoutMode(): AgentLayoutMode {
@@ -96,42 +82,10 @@ export type AgentWorkspaceAction =
 	| { type: "setTheme"; themeId: string }
 	| { type: "ensureChatPane" };
 
-// Compact: [id, name, bg, fg, cursor, separator]
-// prettier-ignore
-const TERM_THEME_DATA: [
-	ThemeId,
-	string,
-	HexColor,
-	HexColor,
-	HexColor,
-	HexColor,
-][] = [
-	["default", "Black", "#000000", "#e5e5e5", "#007AFF", "#111111"],
-	["midnight", "Midnight", "#0d0e0f", "#ededed", "#6e8cff", "#1e1f21"],
-];
-
-const AGENT_THEMES: readonly AgentTheme[] = TERM_THEME_DATA.map(
-	([id, name, bg, fg, cursor, separator]) => ({
-		id,
-		name,
-		bg,
-		fg,
-		cursor,
-		separator,
-	}),
-);
-
-const AGENT_FONTS = [
-	"SF Mono",
-	"Menlo",
-	"Monaco",
-	"Courier New",
-	"JetBrains Mono",
-	"Fira Code",
-	"Source Code Pro",
-] as const;
-
-export type AgentFont = (typeof AGENT_FONTS)[number];
+const AGENT_THEMES: Record<ThemeId, AgentTheme> = {
+	default: { cursor: "#007AFF", separator: "#111111" },
+	midnight: { cursor: "#6e8cff", separator: "#1e1f21" },
+};
 
 export type PaneId = string & { readonly __brand: "PaneId" };
 
@@ -168,7 +122,6 @@ export interface AgentSavedState {
 
 /** Canonical workspace names for new code; legacy Agent names remain wire-compatible. */
 export type Pane = AgentPaneModel;
-export type WorkspaceGroup = AgentGroupModel;
 
 const AGENT_SHELL_CHANGE_EVENT = "agent-shell-change" as const;
 export const REMOVE_AGENT_PANE_REQUEST_EVENT =
@@ -190,14 +143,6 @@ export interface AgentShellChangeDetail {
 	stateKey?: string;
 	state?: AgentSavedState;
 }
-
-const DEFAULT_THEME_ID: ThemeId = "default";
-
-export const DEFAULT_FONT_SIZE = 13 as const;
-
-export const DEFAULT_FONT_FAMILY: AgentFont = "SF Mono";
-
-export const DEFAULT_OPACITY = 1 as const;
 
 export const DEFAULT_COLUMNS = 1 as const;
 
@@ -349,7 +294,7 @@ export function mutateAgentWorkspaceState(
 			if (pendingSelection?.id === id) pendingSelection = null;
 			dispatchAgentShellChange({
 				source: "canonical",
-				state: _cachedAgentState ?? undefined,
+				state: loadAgentState() ?? undefined,
 				selection: pendingSelection?.selection,
 				error: "Workspace changes could not be saved.",
 			});
@@ -394,28 +339,8 @@ export function setPaneProviderSession(
 	);
 }
 
-export function getPaneTitle(pane: AgentPaneModel): string;
-
-export function getPaneTitle(agentKind: AgentKind, cwd?: string): string;
-
-export function getPaneTitle(
-	paneOrAgentKind: AgentPaneModel | AgentKind,
-	cwd?: string,
-): string {
-	const agentKind =
-		typeof paneOrAgentKind === "string"
-			? paneOrAgentKind
-			: paneOrAgentKind.agentKind;
-	const dir = typeof paneOrAgentKind === "string" ? cwd : paneOrAgentKind.cwd;
-	const dirName = dir ? dir.split("/").pop() || dir : undefined;
-	if (dirName) return dirName;
-	return getAgentDefinition(agentKind).paneTitle;
-}
-
 export function getThemeById(themeId: string): AgentTheme {
-	return (
-		AGENT_THEMES.find(hasId.bind(null, themeId)) ??
-		AGENT_THEMES.find(hasId.bind(null, DEFAULT_THEME_ID)) ??
-		AGENT_THEMES[0]!
-	);
+	return Object.hasOwn(AGENT_THEMES, themeId)
+		? AGENT_THEMES[themeId as ThemeId]
+		: AGENT_THEMES.default;
 }

@@ -1,17 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { isAgentMainView } from "../src/app/model/navigation.tsx";
 import {
 	getFileSelectionAfterToggle,
 	visibleGitFiles,
 } from "../src/modules/workbench/changes/components/ChangesPanel/index.tsx";
 
 describe("agent state and git change behavior", () => {
-	test("accepts only current agent main views", () => {
-		expect(isAgentMainView("editor")).toBe(false);
-		expect(isAgentMainView("chat")).toBe(true);
-		expect(isAgentMainView("missing")).toBe(false);
-	});
-
 	test("uses native ordering while preserving optimistic staged file objects", () => {
 		const staged = { path: "src/a.rs", staged: true, status: "M" };
 		const unstaged = { ...staged, staged: false };

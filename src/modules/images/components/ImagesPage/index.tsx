@@ -2,8 +2,6 @@ import * as stylex from "@octanejs/stylex";
 import { useNavigate } from "@octanejs/tanstack-router";
 import { useCallback, useMemo, useRef, useState } from "octane";
 import { fetchJsonOr, postJson } from "../../../../adapters/backend/http.ts";
-import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../../../adapters/storage/keys.ts";
-import { writeStoredValue } from "../../../../adapters/storage/stored-values.ts";
 import { DEFAULT_APP_ROUTE } from "../../../../app/model/navigation.tsx";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
@@ -151,7 +149,6 @@ export function ImagesPage() {
 				throw new Error(
 					"This request was accepted before an interruption. Review the chat before resending.",
 				);
-			writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, "chat");
 			dispatchAgentShellChange({ source: "view", reason: "image-start-chat" });
 			navigate({ to: DEFAULT_APP_ROUTE });
 		} catch (error) {

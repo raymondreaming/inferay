@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "octane";
+import { useCallback, useEffect, useMemo } from "octane";
 import { hasId } from "../../../../shared/lib/data.ts";
 import { listenWindowEvent } from "../../../../shared/lib/react-events.ts";
 import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
@@ -15,22 +15,7 @@ export function useAgentPaneActions({
 	dispatchAgentGroupAction,
 	groups,
 	selectedGroupId,
-	withSelectedGroup,
 }: AgentPaneActionsArgs) {
-	const handleAddPane = useCallback(
-		(agentKind: AgentKind) =>
-			withSelectedGroup((groupId) => {
-				dispatchAgentGroupAction(
-					{
-						type: "addPane",
-						groupId,
-						agentKind,
-					},
-					"add-pane",
-				);
-			}),
-		[dispatchAgentGroupAction, withSelectedGroup],
-	);
 	const removePane = useCallback(
 		(paneId: string, _force?: boolean) => {
 			const group =
@@ -60,63 +45,40 @@ export function useAgentPaneActions({
 			}),
 		[removePane],
 	);
-	const reorderPanes = useCallback(
-		(fromIndex: number, toIndex: number) =>
-			withSelectedGroup((groupId) =>
-				dispatchAgentGroupAction(
-					{
-						type: "reorderPanes",
-						groupId,
-						fromIndex,
-						toIndex,
-					},
+	const actions = useMemo(() => {
+		const dispatch = (
+			action: Parameters<typeof dispatchAgentGroupAction>[0],
+			reason: string,
+		) => {
+			if (selectedGroupId) dispatchAgentGroupAction(action, reason);
+		};
+		const groupId = selectedGroupId ?? "";
+		return {
+			handleAddPane: (agentKind: AgentKind) =>
+				dispatch({ type: "addPane", groupId, agentKind }, "add-pane"),
+			reorderPanes: (fromIndex: number, toIndex: number) =>
+				dispatch(
+					{ type: "reorderPanes", groupId, fromIndex, toIndex },
 					"reorder-panes",
 				),
-			),
-		[dispatchAgentGroupAction, withSelectedGroup],
-	);
-	const handleSetPaneAgentKind = useCallback(
-		(paneId: string, agentKind: AgentKind) =>
-			withSelectedGroup((groupId) =>
-				dispatchAgentGroupAction(
-					{
-						type: "setPaneAgentKind",
-						groupId,
-						paneId,
-						agentKind,
-					},
+			handleSetPaneAgentKind: (paneId: string, agentKind: AgentKind) =>
+				dispatch(
+					{ type: "setPaneAgentKind", groupId, paneId, agentKind },
 					"set-pane-agent-kind",
 				),
-			),
-		[dispatchAgentGroupAction, withSelectedGroup],
-	);
-	const handleDirectorySelected = useCallback(
-		(paneId: string, path: string | null, referencePaths?: string[]) => {
-			withSelectedGroup((groupId) =>
-				dispatchAgentGroupAction(
-					{
-						type: "directorySelected",
-						groupId,
-						paneId,
-						path,
-						referencePaths,
-					},
+			handleDirectorySelected: (
+				paneId: string,
+				path: string | null,
+				referencePaths?: string[],
+			) =>
+				dispatch(
+					{ type: "directorySelected", groupId, paneId, path, referencePaths },
 					"directory-selected",
 				),
-			);
-		},
-		[dispatchAgentGroupAction, withSelectedGroup],
-	);
-	const selectPane = useCallback(
-		(paneId: string) =>
-			withSelectedGroup((groupId) =>
-				dispatchAgentGroupAction(
-					{ type: "selectPane", groupId, paneId },
-					"select-pane",
-				),
-			),
-		[dispatchAgentGroupAction, withSelectedGroup],
-	);
+			selectPane: (paneId: string) =>
+				dispatch({ type: "selectPane", groupId, paneId }, "select-pane"),
+		};
+	}, [dispatchAgentGroupAction, selectedGroupId]);
 	const handleChatRef = useCallback(
 		(paneId: string, handle: AgentChatHandle | null) => {
 			if (handle) chatRefs.current?.set(paneId, handle);
@@ -124,13 +86,5 @@ export function useAgentPaneActions({
 		},
 		[chatRefs],
 	);
-	return {
-		handleAddPane,
-		handleChatRef,
-		handleDirectorySelected,
-		handleSetPaneAgentKind,
-		removePane,
-		reorderPanes,
-		selectPane,
-	};
+	return { ...actions, handleChatRef, removePane };
 }

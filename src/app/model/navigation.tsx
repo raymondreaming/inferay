@@ -4,8 +4,6 @@ import { IconFilePlus } from "../../shared/ui/Icons/index.tsx";
 
 export type AppRouteId = "agent" | "images";
 
-export type AgentMainView = "chat" | "graph";
-
 type NavigationIcon = ComponentType<{ size?: number; className?: string }>;
 
 interface AppPageRoute {
@@ -17,7 +15,6 @@ interface AppPageRoute {
 }
 
 export const DEFAULT_APP_ROUTE = "/agent";
-export const DEFAULT_AGENT_MAIN_VIEW: AgentMainView = "chat";
 
 const ALL_APP_PAGE_ROUTES = [
 	{ id: "agent", label: "Agent", path: "/agent" },
@@ -41,7 +38,3 @@ export const SIDEBAR_NAV_ROUTES = APP_PAGE_ROUTES.filter(
 		icon: NavigationIcon;
 	} => route.sidebar === true && !!route.icon,
 );
-
-export function isAgentMainView(value: string | null): value is AgentMainView {
-	return value === "chat";
-}

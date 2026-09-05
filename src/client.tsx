@@ -1,14 +1,8 @@
 import { hydrateStart, StartClient } from "@octanejs/tanstack-start/client";
 import { hydrateRoot, initializeHydrationEventCapture } from "octane";
 import { getServerOrigin, resolveServerUrl } from "./adapters/backend/http.ts";
-import {
-	AGENT_MAIN_VIEW_STORAGE_KEY,
-	ONBOARDING_DONE_STORAGE_KEY,
-} from "./adapters/storage/keys.ts";
-import {
-	readStoredBoolean,
-	writeStoredValue,
-} from "./adapters/storage/stored-values.ts";
+import { ONBOARDING_DONE_STORAGE_KEY } from "./adapters/storage/keys.ts";
+import { readStoredBoolean } from "./adapters/storage/stored-values.ts";
 import { hydrateStoredValues } from "./adapters/storage/sync.ts";
 import {
 	applyAppBackgroundSurfaces,
@@ -17,10 +11,7 @@ import {
 	loadAppThemeId,
 } from "./app/model/appearance.ts";
 import { applyAppFont, loadAppFontId } from "./app/model/font.ts";
-import {
-	DEFAULT_AGENT_MAIN_VIEW,
-	DEFAULT_APP_ROUTE,
-} from "./app/model/navigation.tsx";
+import { DEFAULT_APP_ROUTE } from "./app/model/navigation.tsx";
 import { initializeAgentCatalog } from "./modules/agents/model/agents.ts";
 import { preloadSkills } from "./modules/skills/hooks/useSkills.tsx";
 import { initializeAgentState } from "./modules/workspace/model/workspace-model.ts";
@@ -92,7 +83,6 @@ if (
 	window.history.replaceState(window.history.state, "", DEFAULT_APP_ROUTE);
 }
 
-writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, DEFAULT_AGENT_MAIN_VIEW);
 applyAppTheme(loadAppThemeId());
 applyAppFont(loadAppFontId());
 applyAppBackgroundSurfaces(loadAppBackgroundSettings().mode);

@@ -1,27 +1,9 @@
-import {
-	useCallback,
-	useEffect,
-	useMemo,
-	useReducer,
-	useRef,
-	useState,
-} from "octane";
+import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
 import { wsClient } from "../../../../adapters/backend/websocket.ts";
-import {
-	AGENT_MAIN_VIEW_STORAGE_KEY,
-	APP_THEME_STORAGE_KEY,
-} from "../../../../adapters/storage/keys.ts";
-import {
-	readStoredValue,
-	writeStoredValue,
-} from "../../../../adapters/storage/stored-values.ts";
+import { APP_THEME_STORAGE_KEY } from "../../../../adapters/storage/keys.ts";
+import { writeStoredValue } from "../../../../adapters/storage/stored-values.ts";
 import { CLIENT_STORAGE_CHANGED_EVENT } from "../../../../adapters/storage/sync.ts";
 import { loadAppThemeId } from "../../../../app/model/appearance.ts";
-import {
-	type AgentMainView,
-	DEFAULT_AGENT_MAIN_VIEW,
-	isAgentMainView,
-} from "../../../../app/model/navigation.tsx";
 import { hasId } from "../../../../shared/lib/data.ts";
 import {
 	listenWindowEvent,
@@ -34,59 +16,25 @@ import {
 	getVisibleRepositoryEntries,
 	projectRepositoryWorkspaces,
 } from "../../model/repository-workspaces.ts";
+import { useWorkspaceState } from "../../model/useWorkspaceState.ts";
 import {
 	FOCUS_AGENT_CHAT_COMPOSER_EVENT,
 	type FocusAgentChatComposerDetail,
 } from "../../model/workspace-events.ts";
 import {
 	type AgentGroupsAction,
-	type AgentLayoutMode,
 	type AgentSavedState,
-	DEFAULT_FONT_FAMILY,
-	DEFAULT_FONT_SIZE,
-	DEFAULT_OPACITY,
 	DEFAULT_ROWS,
 	type GroupId,
 	getThemeById,
+	listenAgentLayoutMode,
 	loadAgentLayoutMode,
-	loadAgentState,
 	mutateAgentWorkspaceState,
-	type ThemeId,
 } from "../../model/workspace-model.ts";
 import { WorkspaceCanvas } from "../WorkspaceCanvas/index.tsx";
 import { AgentMainSurface } from "./AgentMainSurface.tsx";
 import type { MutableRef } from "./shared.ts";
 import { useAgentPaneActions } from "./useAgentPaneActions.ts";
-import { useAgentPersistence } from "./useAgentPersistence.ts";
-
-export type AgentViewState = {
-	layoutMode: AgentLayoutMode;
-	mainView: AgentMainView;
-};
-
-export type AgentViewAction =
-	| { type: "layoutModeChanged"; value: AgentLayoutMode }
-	| { type: "mainViewChanged"; value: AgentMainView };
-
-export function getInitialAgentViewState(): AgentViewState {
-	const stored = readStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY);
-	return {
-		layoutMode: loadAgentLayoutMode(),
-		mainView: isAgentMainView(stored) ? stored : DEFAULT_AGENT_MAIN_VIEW,
-	};
-}
-
-export function agentViewReducer(
-	state: AgentViewState,
-	action: AgentViewAction,
-): AgentViewState {
-	switch (action.type) {
-		case "layoutModeChanged":
-			return { ...state, layoutMode: action.value };
-		case "mainViewChanged":
-			return { ...state, mainView: action.value };
-	}
-}
 
 export type AgentPaneActionsArgs = {
 	readonly chatRefs: MutableRef<Map<string, AgentChatHandle> | null>;
@@ -97,52 +45,27 @@ export type AgentPaneActionsArgs = {
 	) => void;
 	readonly groups: AgentSavedState["groups"];
 	readonly selectedGroupId: GroupId | null;
-	readonly withSelectedGroup: (fn: (groupId: string) => void) => void;
 };
 
 export function AgentPage() {
-	const [viewState, viewDispatch] = useReducer(
-		agentViewReducer,
-		undefined,
-		getInitialAgentViewState,
-	);
-	const { layoutMode, mainView } = viewState;
-	const setLayoutMode = useCallback(
-		(value: AgentLayoutMode) =>
-			viewDispatch({ type: "layoutModeChanged", value }),
-		[],
-	);
-	const setMainView = useCallback(
-		(value: AgentMainView) => viewDispatch({ type: "mainViewChanged", value }),
-		[],
-	);
+	const [layoutMode, setLayoutMode] = useState(loadAgentLayoutMode);
+	useEffect(() => listenAgentLayoutMode(setLayoutMode), []);
 	useEffect(() => {
 		writeStoredValue("agent-layout-mode", layoutMode);
 	}, [layoutMode]);
-	const initialState = useMemo(() => loadAgentState(), []);
-	const [groups, setGroups] = useState(() => initialState?.groups ?? []);
-	const [selectedGroupId, setSelectedGroupId] = useState<GroupId | null>(
-		() => initialState?.selectedGroupId ?? null,
+	const [workspace, setWorkspace, workspaceError] = useWorkspaceState(
+		false,
+		false,
 	);
+	const { groups, selectedGroupId } = workspace;
 	const [showSettings, setShowSettings] = useState(false);
-	const [appearance, setAppearance] = useState(() => ({
-		themeId: loadAppThemeId() as ThemeId,
-		fontSize: initialState?.fontSize ?? DEFAULT_FONT_SIZE,
-		fontFamily: initialState?.fontFamily ?? DEFAULT_FONT_FAMILY,
-		opacity: initialState?.opacity ?? DEFAULT_OPACITY,
-	}));
-	const { themeId, fontSize, fontFamily, opacity } = appearance;
+	const [themeId, setThemeId] = useState(loadAppThemeId);
 	useEffect(
 		() =>
 			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
 				const key = (event as CustomEvent<{ key?: string }>).detail?.key;
 				if (key !== APP_THEME_STORAGE_KEY) return;
-				const nextThemeId = loadAppThemeId();
-				setAppearance((current) =>
-					current.themeId === nextThemeId
-						? current
-						: { ...current, themeId: nextThemeId },
-				);
+				setThemeId(loadAppThemeId());
 			}),
 		[],
 	);
@@ -234,94 +157,30 @@ export function AgentPage() {
 			currentGroup?.id ??
 			"default",
 	});
-	const restoreSavedState = useCallback((state: AgentSavedState | null) => {
-		if (!state) return;
-		setGroups(state.groups);
-		setSelectedGroupId(state.selectedGroupId);
-		setAppearance({
-			themeId: loadAppThemeId(),
-			fontSize: state.fontSize,
-			fontFamily: state.fontFamily,
-			opacity: state.opacity,
-		});
-	}, []);
-	const applySelection = useCallback(
-		(selection: { groupId: string; paneId?: string }) => {
-			setSelectedGroupId(selection.groupId as GroupId);
-			if (selection.paneId)
-				setGroups((groups) =>
-					groups.map((group) =>
-						group.id === selection.groupId
-							? {
-									...group,
-									selectedPaneId: selection.paneId as NonNullable<
-										typeof group.selectedPaneId
-									>,
-								}
-							: group,
-					),
-				);
-		},
-		[],
-	);
-	const [workspaceError, setWorkspaceError] = useState<string | null>(null);
-
 	const cleanupPane = useCallback((paneId: string) => {
 		wsClient.send({ type: "chat:destroy", paneId });
 		chatRefs.current?.delete(paneId);
 		clearAgentChatPaneState(paneId);
 	}, []);
-	const withSelectedGroup = useCallback(
-		(fn: (groupId: string) => void) => {
-			if (selectedGroupId) fn(selectedGroupId);
-		},
-		[selectedGroupId],
-	);
 	const dispatchAgentGroupAction = useCallback(
 		(action: AgentGroupsAction, reason?: string) => {
 			if (action.type === "reorderPanes") {
-				setGroups((groups) =>
-					groups.map((group) => {
+				setWorkspace((current) => ({
+					...current,
+					groups: current.groups.map((group) => {
 						if (group.id !== action.groupId) return group;
 						const panes = [...group.panes];
 						const [pane] = panes.splice(action.fromIndex, 1);
 						if (pane) panes.splice(action.toIndex, 0, pane);
 						return { ...group, panes };
 					}),
-				);
+				}));
 			}
 			void mutateAgentWorkspaceState(action, reason);
 		},
 		[],
 	);
 
-	const latestStateRef = useRef({
-		groups,
-		selectedGroupId,
-		themeId,
-		fontSize,
-		fontFamily,
-		opacity,
-	});
-	const mainViewRef = useRef(mainView);
-	mainViewRef.current = mainView;
-	useAgentPersistence({
-		applySelection,
-		setWorkspaceError,
-		fontFamily,
-		fontSize,
-		groups,
-		latestStateRef,
-		mainView,
-		mainViewRef,
-		opacity,
-		restoreSavedState,
-		selectedGroupId,
-		setAppearance,
-		setLayoutMode,
-		setMainView,
-		themeId,
-	});
 	useEffect(() => {
 		return setupAgentThemePanelShortcut(setShowSettings);
 	}, []);
@@ -339,7 +198,6 @@ export function AgentPage() {
 		dispatchAgentGroupAction,
 		groups,
 		selectedGroupId,
-		withSelectedGroup,
 	});
 	const selectChatPane = useCallback(
 		(paneId: string) => {
@@ -366,8 +224,6 @@ export function AgentPage() {
 			}
 			layoutMode={layoutMode}
 			theme={theme}
-			fontSize={fontSize}
-			fontFamily={fontFamily}
 			onSelectPane={selectChatPane}
 			onFocusPane={focusChatComposer}
 			onClosePane={removePane}
@@ -390,7 +246,7 @@ export function AgentPage() {
 				chatSidebar={repositoryWorkbench.sidebar}
 				chatZenMode={repositoryWorkbench.zenMode}
 				hasCurrentPanes={hasCurrentPanes}
-				setAppearance={setAppearance}
+				onThemeChange={setThemeId}
 				setShowSettings={setShowSettings}
 				showSettings={showSettings}
 				agentGrid={agentGrid}

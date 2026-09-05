@@ -81,10 +81,6 @@ export function syncStoredValue(key: string, value: StoredValue): void {
 	syncTimer = setTimeout(flushPendingSync, 250);
 }
 
-export function flushPendingClientStorageSync(): void {
-	flushPendingSync();
-}
-
 async function syncAllStoredValues(): Promise<void> {
 	await sendStoragePatch(readLocalEntries());
 }

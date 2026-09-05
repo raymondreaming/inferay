@@ -2,7 +2,6 @@ import * as stylex from "@octanejs/stylex";
 import { useLocation, useNavigate } from "@octanejs/tanstack-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
 import { sendJson } from "../../../../adapters/backend/http.ts";
-import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../../../adapters/storage/keys.ts";
 import {
 	readStoredValue,
 	writeStoredValue,
@@ -11,10 +10,6 @@ import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
 } from "../../../../app/model/appearance.ts";
-import {
-	DEFAULT_AGENT_MAIN_VIEW,
-	isAgentMainView,
-} from "../../../../app/model/navigation.tsx";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { useAppInfo } from "../../../../shared/hooks/useAppInfo.ts";
 import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
@@ -39,7 +34,6 @@ import {
 	type WorkspaceSidebarCollapsedDetail,
 } from "../../model/workspace-events.ts";
 import {
-	type AgentShellChangeDetail,
 	dispatchAgentShellChange,
 	listenAgentLayoutMode,
 	loadAgentLayoutMode,
@@ -85,23 +79,8 @@ export function WorkspaceSidebar() {
 		forgeAccounts.find((account) => account.active) ?? forgeAccounts[0] ?? null;
 	const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
 	const resizeWidthRef = useRef(sidebarWidth);
-	const [mainView, setMainView] = useState(() => {
-		const stored = readStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY);
-		return isAgentMainView(stored) ? stored : DEFAULT_AGENT_MAIN_VIEW;
-	});
-	const showWorkspaceSidebar =
-		location.pathname === "/agent" && mainView === "chat";
+	const showWorkspaceSidebar = location.pathname === "/agent";
 
-	useEffect(
-		() =>
-			listenWindowEvent("agent-shell-change", (event) => {
-				const detail = (event as CustomEvent<AgentShellChangeDetail>).detail;
-				if (detail?.source !== "view" || detail.reason !== "main-view") return;
-				const stored = readStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY);
-				setMainView(isAgentMainView(stored) ? stored : DEFAULT_AGENT_MAIN_VIEW);
-			}),
-		[],
-	);
 	useEffect(
 		() =>
 			listenWindowEvent(WORKSPACE_SIDEBAR_COLLAPSED_EVENT, (event) => {

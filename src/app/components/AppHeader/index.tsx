@@ -1,84 +1,29 @@
 import { useLocation, useNavigate } from "@octanejs/tanstack-router";
-import { useCallback, useEffect, useMemo, useState } from "octane";
-import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../../adapters/storage/keys.ts";
-import {
-	readStoredValue,
-	writeStoredValue,
-} from "../../../adapters/storage/stored-values.ts";
+import { useCallback, useMemo } from "octane";
 import { iconSize } from "../../../design-system/styles.stylex.ts";
 import { openSettingsModal } from "../../../modules/settings/model/settings-events.ts";
 import { openSkills } from "../../../modules/skills/model/skill-events.ts";
 import { dispatchOpenActiveGitGraph } from "../../../modules/workbench/model/workbench-events.ts";
+import { useWorkspaceState } from "../../../modules/workspace/model/useWorkspaceState.ts";
 import { dispatchCreateAgentChat } from "../../../modules/workspace/model/workspace-events.ts";
-import {
-	agentStateKey,
-	dispatchAgentShellChange,
-	loadAgentState,
-} from "../../../modules/workspace/model/workspace-model.ts";
-import { listenWindowEvent } from "../../../shared/lib/react-events.ts";
 import {
 	IconGitBranch,
 	IconMessageCircle,
 	IconPlus,
 	IconSettings,
 } from "../../../shared/ui/Icons/index.tsx";
-import {
-	type AgentMainView,
-	DEFAULT_AGENT_MAIN_VIEW,
-	isAgentMainView,
-	SIDEBAR_NAV_ROUTES,
-} from "../../model/navigation.tsx";
+import { SIDEBAR_NAV_ROUTES } from "../../model/navigation.tsx";
 import { CommandPalette } from "../CommandPalette/index.tsx";
-
-function loadShellState() {
-	const agentState = loadAgentState();
-	const mainView = readStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY);
-	return {
-		groups: agentState?.groups ?? [],
-		selectedGroupId:
-			agentState?.selectedGroupId ?? agentState?.groups[0]?.id ?? null,
-		mainView: isAgentMainView(mainView) ? mainView : DEFAULT_AGENT_MAIN_VIEW,
-		key: agentState ? agentStateKey(agentState) : "",
-	};
-}
 
 export function AppHeader() {
 	const location = useLocation();
 	const navigate = useNavigate();
-	const [shellState, setShellState] = useState(loadShellState);
+	const [shellState] = useWorkspaceState(false);
 	const isAgentRoute = location.pathname === "/agent";
 
-	const refreshShellState = useCallback(() => {
-		const next = loadShellState();
-		setShellState((current) =>
-			current.key === next.key && current.mainView === next.mainView
-				? current
-				: next,
-		);
-	}, []);
-
-	useEffect(
-		() => listenWindowEvent("agent-shell-change", refreshShellState),
-		[refreshShellState],
-	);
-
-	const activateMainView = useCallback(
-		(view: AgentMainView) => {
-			if (shellState.mainView !== view) {
-				writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, view);
-				setShellState((current) =>
-					current.mainView === view ? current : { ...current, mainView: view },
-				);
-				dispatchAgentShellChange({
-					source: "view",
-					reason: "main-view",
-					mainView: view,
-				});
-			}
-			if (!isAgentRoute) navigate({ to: "/agent" });
-		},
-		[isAgentRoute, navigate, shellState.mainView],
-	);
+	const activateMainView = useCallback(() => {
+		if (!isAgentRoute) navigate({ to: "/agent" });
+	}, [isAgentRoute, navigate]);
 
 	const activateRoute = useCallback(
 		(path: string) => navigate({ to: path }),
@@ -92,11 +37,11 @@ export function AppHeader() {
 	)?.cwd;
 	const openCommitGraph = useCallback(() => {
 		if (!selectedCwd) return;
-		activateMainView("chat");
+		activateMainView();
 		requestAnimationFrame(dispatchOpenActiveGitGraph);
 	}, [activateMainView, selectedCwd]);
 	const createNewChat = useCallback(() => {
-		activateMainView("chat");
+		activateMainView();
 		requestAnimationFrame(() =>
 			requestAnimationFrame(() => dispatchCreateAgentChat()),
 		);
@@ -118,7 +63,7 @@ export function AppHeader() {
 				detail: "Return to your agent conversations",
 				keywords: "conversation chats",
 				icon: <IconMessageCircle size={iconSize.compact} />,
-				run: () => activateMainView("chat"),
+				run: () => activateMainView(),
 			},
 			{
 				id: "graph",
