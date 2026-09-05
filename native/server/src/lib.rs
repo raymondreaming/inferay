@@ -640,6 +640,9 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
         if path == "/api/workspace/panels" && request.method() == Method::POST {
             return workspace_panels::handle(&state, request).await;
         }
+        if path == "/api/agent/state/initialize" && request.method() == Method::POST {
+            return initialize_agent_state(&state, request).await;
+        }
         if path == "/api/agent/state" {
             if request.method() == Method::GET {
                 return get_agent_state(&state, request).await;
@@ -1050,6 +1053,32 @@ async fn checkpoint_detail(state: &ServerState, request: Request, checkpoint_id:
     }
 }
 
+async fn initialize_agent_state(state: &ServerState, request: Request) -> Response {
+    let headers = request.headers().clone();
+    let body: Value = match request_json(request, &headers).await {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let defaults = state
+        .native_chat_handoff
+        .workspace_action_with_defaults(json!({"type":"ensureChatPane"}))
+        .await;
+    let kind = defaults["defaultAgentKind"].as_str().unwrap_or("codex");
+    match state
+        .agent_state_store
+        .lock()
+        .expect("agent state lock poisoned")
+        .initialize(body.get("legacy").unwrap_or(&Value::Null), kind)
+    {
+        Ok(value) => json_response(StatusCode::OK, json!({"state":value}), &headers),
+        Err(error) => json_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({"error":error}),
+            &headers,
+        ),
+    }
+}
+
 async fn get_agent_state(state: &ServerState, request: Request) -> Response {
     let request_headers = request.headers().clone();
     let value = state
@@ -1057,7 +1086,14 @@ async fn get_agent_state(state: &ServerState, request: Request) -> Response {
         .lock()
         .expect("agent state lock poisoned")
         .read();
-    json_response(StatusCode::OK, value, &request_headers)
+    match value {
+        Ok(value) => json_response(StatusCode::OK, value, &request_headers),
+        Err(error) => json_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({"error":error}),
+            &request_headers,
+        ),
+    }
 }
 
 async fn update_agent_state(state: &ServerState, request: Request) -> Response {
@@ -5426,7 +5462,19 @@ printf '{"type":"result","result":"%s"}\n' "$result"
         .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(value["state"]["groups"].as_array().unwrap().len(), 1);
-        assert_eq!(value["state"]["groups"][0]["name"], "Default");
+        // Removing the last workspace is a no-op, preserving its chats and directory.
+        assert_eq!(value["state"]["groups"][0]["name"], "Current");
+        assert_eq!(
+            value["state"]["groups"][0]["panes"][0]["cwd"],
+            "/tmp/renamed"
+        );
+        assert_eq!(
+            value["state"]["groups"][0]["panes"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
         assert_eq!(
             value["state"]["groups"][0]["panes"][0]["agentKind"],
             "codex"
@@ -5690,7 +5738,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
             config.user_data_dir.join("agent-state.json"),
             json!({
                 "groups": [{
-                    "id": "group-1",
+                    "id": "group-1", "name":"Main",
                     "selectedPaneId": "pane-2",
                     "panes": [
                         { "id": "pane-1", "cwd": root_path },
@@ -5698,6 +5746,7 @@ printf '{"type":"result","result":"%s"}\n' "$result"
                     ],
                 }],
                 "selectedGroupId": "group-1",
+                "themeId":"default", "fontSize":13, "fontFamily":"SF Mono", "opacity":1,
             })
             .to_string(),
         )

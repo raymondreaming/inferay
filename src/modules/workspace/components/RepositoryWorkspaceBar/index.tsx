@@ -35,19 +35,15 @@ import {
 } from "../../model/workspace-events.ts";
 import {
 	agentStateKey,
-	compactAgentState,
 	loadAgentState,
 	loadCanonicalAgentState,
 	mutateAgentWorkspaceState,
-	reduceAgentWorkspaceState,
 } from "../../model/workspace-model.ts";
 import { styles } from "./styles.ts";
 
 function loadRepositoryBarState() {
 	const state = loadAgentState();
-	const compact = state
-		? compactAgentState(state, { keepSelectedDraft: true })
-		: null;
+	const compact = state;
 	return {
 		groups: compact?.groups ?? [],
 		selectedGroupId: compact?.selectedGroupId ?? null,
@@ -137,16 +133,14 @@ export function RepositoryWorkspaceBar() {
 				currentState.selectedGroupId,
 			);
 			if (!target) return;
-			const nextState = reduceAgentWorkspaceState(currentState, {
-				type: "selectPane",
-				groupId: target.groupId,
-				paneId: target.pane.id,
-			});
-			if (!nextState) return;
 			setState({
-				groups: nextState.groups,
-				selectedGroupId: nextState.selectedGroupId,
-				key: agentStateKey(nextState),
+				groups: currentState.groups.map((group) =>
+					group.id === target.groupId
+						? { ...group, selectedPaneId: target.pane.id }
+						: group,
+				),
+				selectedGroupId: target.groupId as typeof currentState.selectedGroupId,
+				key: "selection",
 			});
 			void mutateAgentWorkspaceState(
 				{

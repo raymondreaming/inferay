@@ -41,8 +41,6 @@ import {
 import {
 	type AgentShellChangeDetail,
 	agentStateKey,
-	compactAgentState,
-	createAgentPane,
 	dispatchAgentShellChange,
 	listenAgentLayoutMode,
 	loadAgentLayoutMode,
@@ -120,9 +118,7 @@ export function WorkspaceSidebar() {
 	// Workspace state
 	const loadWorkspaces = useCallback(() => {
 		const state = loadAgentState();
-		const cleanState = state
-			? compactAgentState(state, { keepSelectedDraft: true })
-			: null;
+		const cleanState = state;
 		return {
 			groups: cleanState?.groups ?? [],
 			selectedGroupId:
@@ -224,14 +220,15 @@ export function WorkspaceSidebar() {
 				target,
 				repositoryProjection.activeWorkspace?.cwd,
 			);
-			const pane = createAgentPane(
-				loadDefaultChatSettings().agentKind,
-				cwd,
-				!cwd,
+			await mutateAgentWorkspaceState(
+				{
+					type: "addPane",
+					agentKind: loadDefaultChatSettings().agentKind,
+					cwd,
+				},
+				"add-pane",
+				{ createIfMissing: true },
 			);
-			await mutateAgentWorkspaceState({ type: "addPane", pane }, "add-pane", {
-				createIfMissing: true,
-			});
 			navigate({ to: "/agent" });
 		},
 		[navigate, repositoryProjection.activeWorkspace?.cwd],

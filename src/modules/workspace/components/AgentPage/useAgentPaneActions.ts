@@ -4,7 +4,6 @@ import { listenWindowEvent } from "../../../../shared/lib/react-events.ts";
 import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
 import {
 	type AgentKind,
-	createAgentPane,
 	REMOVE_AGENT_PANE_REQUEST_EVENT,
 	type RemoveAgentPaneRequestDetail,
 } from "../../model/workspace-model.ts";
@@ -21,12 +20,11 @@ export function useAgentPaneActions({
 	const handleAddPane = useCallback(
 		(agentKind: AgentKind) =>
 			withSelectedGroup((groupId) => {
-				const pane = createAgentPane(agentKind, undefined, true);
 				dispatchAgentGroupAction(
 					{
 						type: "addPane",
 						groupId,
-						pane,
+						agentKind,
 					},
 					"add-pane",
 				);
@@ -34,7 +32,7 @@ export function useAgentPaneActions({
 		[dispatchAgentGroupAction, withSelectedGroup],
 	);
 	const removePane = useCallback(
-		(paneId: string, force?: boolean) => {
+		(paneId: string, _force?: boolean) => {
 			const group =
 				groups.find((item) => item.panes.some(hasId.bind(null, paneId))) ??
 				(selectedGroupId
@@ -47,7 +45,6 @@ export function useAgentPaneActions({
 					type: "removePane",
 					groupId: group.id,
 					paneId,
-					force,
 				},
 				"remove-pane",
 			);

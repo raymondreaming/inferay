@@ -47,14 +47,10 @@ import {
 	DEFAULT_OPACITY,
 	DEFAULT_ROWS,
 	type GroupId,
-	getInitialGroups,
 	getThemeById,
 	loadAgentLayoutMode,
 	loadAgentState,
-	migrateGroup,
 	mutateAgentWorkspaceState,
-	normalizeAgentState,
-	reduceAgentGroups,
 	type ThemeId,
 } from "../../model/workspace-model.ts";
 import { WorkspaceCanvas } from "../WorkspaceCanvas/index.tsx";
@@ -124,10 +120,9 @@ export function AgentPage() {
 		writeStoredValue("agent-layout-mode", layoutMode);
 	}, [layoutMode]);
 	const initialState = useMemo(() => loadAgentState(), []);
-	const initGroups = useMemo(() => getInitialGroups(), []);
-	const [groups, groupsDispatch] = useReducer(reduceAgentGroups, initGroups);
+	const [groups, setGroups] = useState(() => initialState?.groups ?? []);
 	const [selectedGroupId, setSelectedGroupId] = useState<GroupId | null>(
-		() => initialState?.selectedGroupId ?? initGroups[0]?.id ?? null,
+		() => initialState?.selectedGroupId ?? null,
 	);
 	const [showSettings, setShowSettings] = useState(false);
 	const [appearance, setAppearance] = useState(() => ({
@@ -239,24 +234,38 @@ export function AgentPage() {
 			currentGroup?.id ??
 			"default",
 	});
-	const restoreSavedState = useCallback(
-		(s: ReturnType<typeof loadAgentState>) => {
-			const normalized = normalizeAgentState(s);
-			if (!normalized) return;
-			groupsDispatch({
-				type: "replaceAll",
-				groups: normalized.groups.map(migrateGroup),
-			});
-			setSelectedGroupId(normalized.selectedGroupId);
-			setAppearance({
-				themeId: loadAppThemeId(),
-				fontSize: normalized.fontSize,
-				fontFamily: normalized.fontFamily,
-				opacity: normalized.opacity,
-			});
+	const restoreSavedState = useCallback((state: AgentSavedState | null) => {
+		if (!state) return;
+		setGroups(state.groups);
+		setSelectedGroupId(state.selectedGroupId);
+		setAppearance({
+			themeId: loadAppThemeId(),
+			fontSize: state.fontSize,
+			fontFamily: state.fontFamily,
+			opacity: state.opacity,
+		});
+	}, []);
+	const applySelection = useCallback(
+		(selection: { groupId: string; paneId?: string }) => {
+			setSelectedGroupId(selection.groupId as GroupId);
+			if (selection.paneId)
+				setGroups((groups) =>
+					groups.map((group) =>
+						group.id === selection.groupId
+							? {
+									...group,
+									selectedPaneId: selection.paneId as NonNullable<
+										typeof group.selectedPaneId
+									>,
+								}
+							: group,
+					),
+				);
 		},
 		[],
 	);
+	const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+
 	const cleanupPane = useCallback((paneId: string) => {
 		wsClient.send({ type: "chat:destroy", paneId });
 		chatRefs.current?.delete(paneId);
@@ -270,41 +279,22 @@ export function AgentPage() {
 	);
 	const dispatchAgentGroupAction = useCallback(
 		(action: AgentGroupsAction, reason?: string) => {
-			groupsDispatch(action);
-			if (!reason) return;
-			switch (action.type) {
-				case "reorderPanes":
-				case "directorySelected":
-				case "selectPane":
-				case "setPaneAgentKind":
-					void mutateAgentWorkspaceState(action, reason);
-					return;
-				case "addPane":
-					if ("pane" in action) {
-						void mutateAgentWorkspaceState(
-							{
-								type: "addPane",
-								groupId: action.groupId,
-								pane: action.pane,
-							},
-							reason,
-						);
-					}
-					return;
-				case "removePane":
-					void mutateAgentWorkspaceState(
-						{
-							type: "removePane",
-							groupId: action.groupId,
-							paneId: action.paneId,
-						},
-						reason,
-					);
-					return;
+			if (action.type === "reorderPanes") {
+				setGroups((groups) =>
+					groups.map((group) => {
+						if (group.id !== action.groupId) return group;
+						const panes = [...group.panes];
+						const [pane] = panes.splice(action.fromIndex, 1);
+						if (pane) panes.splice(action.toIndex, 0, pane);
+						return { ...group, panes };
+					}),
+				);
 			}
+			void mutateAgentWorkspaceState(action, reason);
 		},
 		[],
 	);
+
 	const latestStateRef = useRef({
 		groups,
 		selectedGroupId,
@@ -323,6 +313,8 @@ export function AgentPage() {
 		view: mainView,
 	});
 	useAgentPersistence({
+		applySelection,
+		setWorkspaceError,
 		fontFamily,
 		fontSize,
 		groups,
@@ -336,7 +328,6 @@ export function AgentPage() {
 		setAppearance,
 		setLayoutMode,
 		setMainView,
-		setSelectedGroupId,
 		themeId,
 	});
 	useEffect(() => {
@@ -400,17 +391,20 @@ export function AgentPage() {
 	) : null;
 	const hasCurrentPanes = currentRepositoryPanes.length > 0;
 	return (
-		<AgentMainSurface
-			chatDiffPanel={repositoryWorkbench.diffPanel}
-			chatSidebar={repositoryWorkbench.sidebar}
-			chatZenMode={repositoryWorkbench.zenMode}
-			hasCurrentPanes={hasCurrentPanes}
-			setAppearance={setAppearance}
-			setShowSettings={setShowSettings}
-			showSettings={showSettings}
-			agentGrid={agentGrid}
-			themeId={themeId}
-		/>
+		<>
+			{workspaceError ? <div role="alert">{workspaceError}</div> : null}
+			<AgentMainSurface
+				chatDiffPanel={repositoryWorkbench.diffPanel}
+				chatSidebar={repositoryWorkbench.sidebar}
+				chatZenMode={repositoryWorkbench.zenMode}
+				hasCurrentPanes={hasCurrentPanes}
+				setAppearance={setAppearance}
+				setShowSettings={setShowSettings}
+				showSettings={showSettings}
+				agentGrid={agentGrid}
+				themeId={themeId}
+			/>
+		</>
 	);
 }
 export { useAgentPaneActions } from "./useAgentPaneActions.ts";

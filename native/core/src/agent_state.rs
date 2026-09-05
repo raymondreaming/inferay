@@ -8,8 +8,8 @@ const DEFAULT_THEME_ID: &str = "default";
 const DEFAULT_FONT_SIZE: u64 = 13;
 const DEFAULT_FONT_FAMILY: &str = "SF Mono";
 const DEFAULT_OPACITY: u64 = 1;
-const DEFAULT_COLUMNS: u64 = 3;
-const DEFAULT_ROWS: u64 = 2;
+const DEFAULT_COLUMNS: u64 = 1;
+const DEFAULT_ROWS: u64 = 1;
 const DEFAULT_CHAT_AGENT_KIND: &str = "codex";
 const THEME_IDS: &[&str] = &[
     "default",
@@ -43,26 +43,65 @@ impl AgentStateStore {
         }
     }
 
-    pub fn read(&self) -> Value {
-        match read_json(&self.current_path) {
-            Some(value) if !value.is_null() => value,
-            _ => read_json(&self.legacy_path).unwrap_or(Value::Null),
+    pub fn read(&self) -> Result<Value, String> {
+        let value = match read_json(&self.current_path)?.filter(|value| !value.is_null()) {
+            Some(value) => Some(value),
+            None => read_json(&self.legacy_path)?.filter(|value| !value.is_null()),
+        };
+        match value {
+            Some(value) => canonical_agent_state(&value, false)?
+                .ok_or_else(|| "Saved workspace state is invalid".into()),
+            None => Ok(Value::Null),
         }
+    }
+
+    /// Import only when the canonical file is absent. Acknowledgement follows
+    /// a successful atomic write; malformed saved data must never be replaced.
+    pub fn initialize(
+        &self,
+        browser_state: &Value,
+        default_agent_kind: &str,
+    ) -> Result<Value, String> {
+        let current = read_json(&self.current_path)?.filter(|value| !value.is_null());
+        let candidate = match current {
+            Some(value) => Some(value),
+            None => read_json(&self.legacy_path)?
+                .filter(|value| !value.is_null())
+                .or_else(|| (!browser_state.is_null()).then(|| browser_state.clone())),
+        };
+        let next = match candidate {
+            Some(value) => {
+                let value = if let Some(text) = value.as_str() {
+                    serde_json::from_str(text)
+                        .map_err(|error| format!("Invalid saved workspace JSON: {error}"))?
+                } else {
+                    value
+                };
+                canonical_agent_state(&value, false)?.ok_or_else(|| {
+                    "Saved workspace state is invalid; original data was preserved".to_string()
+                })?
+            }
+            None => create_default_agent_state_with_chat_kind(default_agent_kind),
+        };
+        write_json_atomic(&self.current_path, &next)?;
+        Ok(next)
     }
 
     /// Returns `true` when the snapshot was persisted and `false` when the
     /// existing TypeScript regression guard would have ignored it.
     pub fn write_guarded(&self, next: Value) -> Result<bool, String> {
-        let current = read_json(&self.current_path).unwrap_or(Value::Null);
+        let current = self.read()?;
         if is_agent_state_regression(&current, &next) {
             return Ok(false);
         }
+        let next = canonical_agent_state(&next, false)?
+            .ok_or_else(|| "Invalid workspace snapshot".to_string())?;
         write_json_atomic(&self.current_path, &next)?;
         Ok(true)
     }
 
     pub fn apply_workspace_action(&self, action: &Value) -> Result<Value, String> {
-        let current = read_json(&self.current_path).unwrap_or(Value::Null);
+        let current = self.read()?;
         let default_agent_kind = action
             .get("defaultAgentKind")
             .and_then(Value::as_str)
@@ -71,8 +110,8 @@ impl AgentStateStore {
         let current = normalize_agent_state(&current, false)?
             .unwrap_or_else(|| create_default_agent_state_with_chat_kind(default_agent_kind));
         let next = reduce_agent_workspace_state(&current, action)?;
-        let normalized = normalize_agent_state(next.as_ref().unwrap_or(&Value::Null), true)?
-            .unwrap_or_else(create_default_agent_state);
+        let normalized = canonical_agent_state(next.as_ref().unwrap_or(&current), false)?
+            .ok_or_else(|| "Workspace action produced invalid state".to_string())?;
         write_json_atomic(&self.current_path, &normalized)?;
         Ok(normalized)
     }
@@ -256,6 +295,14 @@ fn migrate_group(group: &Value) -> Result<Value, String> {
     let source = group
         .as_object()
         .ok_or_else(|| "agent group must be an object".to_string())?;
+    if source
+        .get("id")
+        .and_then(Value::as_str)
+        .is_none_or(str::is_empty)
+        || !source.get("name").is_some_and(Value::is_string)
+    {
+        return Err("Invalid workspace identity".into());
+    }
     let panes = source
         .get("panes")
         .and_then(Value::as_array)
@@ -293,6 +340,13 @@ fn migrate_pane(pane: &Value) -> Result<Value, String> {
     let source = pane
         .as_object()
         .ok_or_else(|| "agent pane must be an object".to_string())?;
+    if source
+        .get("id")
+        .and_then(Value::as_str)
+        .is_none_or(str::is_empty)
+    {
+        return Err("Invalid pane identity".into());
+    }
     let inferred = source
         .get("agentKind")
         .filter(|value| !value.is_null())
@@ -464,10 +518,26 @@ pub fn reduce_agent_workspace_state(
             let Some(selected_group_id) = selected_group_id.cloned() else {
                 return Ok(None);
             };
-            let pane = action
-                .get("pane")
-                .cloned()
-                .ok_or_else(|| "addPane action requires a pane".to_string())?;
+            let pane = if let Some(pane) = action.get("pane") {
+                pane.clone()
+            } else {
+                let kind = action
+                    .get("agentKind")
+                    .or_else(|| action.get("defaultAgentKind"))
+                    .and_then(Value::as_str)
+                    .filter(|kind| matches!(*kind, "claude" | "codex"))
+                    .unwrap_or(DEFAULT_CHAT_AGENT_KIND);
+                let mut pane = create_pending_chat_pane(kind);
+                if let Some(cwd) = action.get("cwd").and_then(Value::as_str) {
+                    pane["cwd"] = json!(cwd);
+                    pane["pendingCwd"] = json!(false);
+                    pane["title"] = json!(pane_title(kind, Some(cwd)));
+                }
+                if let Some(paths) = action.get("referencePaths") {
+                    pane["referencePaths"] = paths.clone();
+                }
+                pane
+            };
             for group in state_groups_mut(&mut next)? {
                 if group.get("id") == Some(&selected_group_id) {
                     append_pane_to_group(group, pane.clone())?;
@@ -583,7 +653,7 @@ pub fn reduce_agent_workspace_state(
             Ok(Some(next))
         }
         "ensureChatPane" => reduce_ensure_chat_pane(&mut next, action),
-        _ => Ok(None),
+        _ => Err("Unknown workspace action".into()),
     }
 }
 
@@ -928,9 +998,14 @@ fn set_optional_property(object: &mut Map<String, Value>, key: &str, value: Opti
     }
 }
 
-fn read_json(path: &Path) -> Option<Value> {
-    let bytes = std::fs::read(path).ok()?;
-    serde_json::from_slice(&bytes).ok()
+fn read_json(path: &Path) -> Result<Option<Value>, String> {
+    match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|error| error.to_string()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 fn write_json_atomic(path: &Path, value: &Value) -> Result<(), String> {
@@ -993,8 +1068,8 @@ mod tests {
         let normalized = normalize_agent_state(&state, true).unwrap().unwrap();
         assert_eq!(normalized["selectedGroupId"], "group-1");
         assert_eq!(normalized["groups"][0]["selectedPaneId"], "pane-1");
-        assert_eq!(normalized["groups"][0]["columns"], 3);
-        assert_eq!(normalized["groups"][0]["rows"], 2);
+        assert_eq!(normalized["groups"][0]["columns"], 1);
+        assert_eq!(normalized["groups"][0]["rows"], 1);
         assert_eq!(normalized["groups"][0]["panes"][0]["agentKind"], "claude");
         assert_eq!(normalized["groups"][0]["panes"][0]["paneType"], "claude");
         assert_eq!(normalized["groups"][0]["panes"][0]["extra"], 7);
@@ -1139,18 +1214,85 @@ mod tests {
     }
 
     #[test]
-    fn store_reads_legacy_but_actions_start_from_the_current_file() {
+    fn initialization_imports_once_preserves_identity_and_actions_survive_restart() {
+        let root = tempfile::TempDir::new().unwrap();
+        let current = root.path().join("state.json");
+        let legacy = root.path().join("legacy.json");
+        let store = AgentStateStore::new(current.clone(), legacy.clone());
+        let mut browser = saved_state();
+        browser["groups"][0]["panes"][0]["providerSessionId"] = json!("provider-history");
+        browser["groups"][0]["panes"][0]["referencePaths"] = json!(["/other/repo"]);
+        browser["selectedGroupId"] = json!("missing");
+        let imported = store
+            .initialize(&json!(browser.to_string()), "claude")
+            .unwrap();
+        assert_eq!(imported["selectedGroupId"], "group-1");
+        assert_eq!(
+            imported["groups"][0]["panes"][0]["providerSessionId"],
+            "provider-history"
+        );
+        assert_eq!(
+            imported["groups"][0]["panes"][0]["referencePaths"],
+            json!(["/other/repo"])
+        );
+        let next = store
+            .apply_workspace_action(
+                &json!({"type":"addPane","agentKind":"claude","cwd":"/new/repo"}),
+            )
+            .unwrap();
+        let pane = &next["groups"][0]["panes"][1];
+        assert_eq!(pane["title"], "repo");
+        assert_eq!(pane["agentKind"], "claude");
+        assert_eq!(next["groups"][0]["selectedPaneId"], pane["id"]);
+        let restarted = AgentStateStore::new(current, legacy);
+        assert_eq!(
+            restarted
+                .initialize(&json!("invalid stale browser JSON"), "codex")
+                .unwrap(),
+            next
+        );
+    }
+
+    #[test]
+    fn malformed_saved_state_never_gets_overwritten_by_reads_import_or_actions() {
+        let root = tempfile::TempDir::new().unwrap();
+        let current = root.path().join("state.json");
+        let store = AgentStateStore::new(current.clone(), root.path().join("legacy.json"));
+        let mut invalid_group = saved_state();
+        invalid_group["groups"][0]["panes"] = json!("invalid");
+        let mut invalid_identity = saved_state();
+        invalid_identity["groups"][0]["panes"][0]["id"] = Value::Null;
+        for bytes in [
+            b"{truncated".to_vec(),
+            invalid_group.to_string().into_bytes(),
+            invalid_identity.to_string().into_bytes(),
+        ] {
+            std::fs::write(&current, &bytes).unwrap();
+            assert!(store.read().is_err());
+            assert!(store.initialize(&saved_state(), "codex").is_err());
+            assert!(
+                store
+                    .apply_workspace_action(&json!({"type":"addWorkspace"}))
+                    .is_err()
+            );
+            assert!(store.write_guarded(saved_state()).is_err());
+            assert_eq!(std::fs::read(&current).unwrap(), bytes);
+        }
+    }
+
+    #[test]
+    fn store_migrates_legacy_before_applying_actions() {
         let root = tempfile::TempDir::new().unwrap();
         let current = root.path().join("agent-state.json");
         let legacy = root.path().join("terminal-state.json");
         std::fs::write(&legacy, serde_json::to_vec(&saved_state()).unwrap()).unwrap();
         let store = AgentStateStore::new(current.clone(), legacy);
-        assert_eq!(store.read()["selectedGroupId"], "group-1");
+        assert_eq!(store.read().unwrap()["selectedGroupId"], "group-1");
 
         let next = store
             .apply_workspace_action(&json!({ "type": "ensureChatPane" }))
             .unwrap();
-        assert_ne!(next["selectedGroupId"], "group-1");
+        assert_eq!(next["selectedGroupId"], "group-1");
         assert!(current.is_file());
         assert!(!store.write_guarded(json!({ "groups": [] })).unwrap());
     }

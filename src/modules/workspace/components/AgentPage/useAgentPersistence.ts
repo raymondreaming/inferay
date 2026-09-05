@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "octane";
+import { useCallback, useEffect } from "octane";
 
 import { AGENT_MAIN_VIEW_STORAGE_KEY } from "../../../../adapters/storage/keys.ts";
 import {
@@ -13,22 +13,17 @@ import {
 import { listenWindowEvent } from "../../../../shared/lib/react-events.ts";
 import {
 	type AgentShellChangeDetail,
-	agentStateKey,
-	agentStateScore,
-	cacheAgentState,
 	createAgentViewSwitchHealth,
 	dispatchAgentShellChange,
 	getPrimaryProductLoopContext,
-	loadAgentState,
-	loadCanonicalAgentState,
-	normalizeAgentState,
-	saveSyncedAgentState,
 	syncAgentLayoutMode,
 } from "../../model/workspace-model.ts";
 
 import type { AgentPersistenceArgs } from "./shared.ts";
 
 export function useAgentPersistence({
+	applySelection,
+	setWorkspaceError,
 	fontFamily,
 	fontSize,
 	groups,
@@ -42,22 +37,10 @@ export function useAgentPersistence({
 	setAppearance,
 	setLayoutMode,
 	setMainView,
-	setSelectedGroupId,
 	themeId,
 }: AgentPersistenceArgs): void {
-	const pendingSaveRef = useRef(false);
-	const startupRestoreCompleteRef = useRef(false);
-	const canonicalShellKeyRef = useRef<string | null>(null);
-	const latestStateKey = agentStateKey({
-		groups,
-		selectedGroupId,
-		themeId,
-		fontSize,
-		fontFamily,
-		opacity,
-	});
 	useEffect(() => {
-		const nextState = {
+		latestStateRef.current = {
 			groups,
 			selectedGroupId,
 			themeId,
@@ -65,50 +48,15 @@ export function useAgentPersistence({
 			fontFamily,
 			opacity,
 		};
-		const canonicalShellKey = canonicalShellKeyRef.current;
-		if (
-			canonicalShellKey &&
-			agentStateKey(nextState) !== canonicalShellKey &&
-			agentStateScore(nextState) < agentStateScore(latestStateRef.current)
-		) {
-			return;
-		}
-		latestStateRef.current = nextState;
-		cacheAgentState(latestStateRef.current);
 	}, [
-		fontFamily,
-		fontSize,
 		groups,
-		latestStateRef,
-		opacity,
 		selectedGroupId,
 		themeId,
+		fontSize,
+		fontFamily,
+		opacity,
+		latestStateRef,
 	]);
-	useEffect(() => {
-		void latestStateKey;
-		pendingSaveRef.current = true;
-		const id = setTimeout(() => {
-			if (!startupRestoreCompleteRef.current) {
-				pendingSaveRef.current = false;
-				return;
-			}
-			const saved = loadAgentState();
-			if (
-				saved &&
-				agentStateScore(latestStateRef.current) < agentStateScore(saved)
-			) {
-				pendingSaveRef.current = false;
-				return;
-			}
-			saveSyncedAgentState(
-				latestStateRef.current,
-				"agent-page-save",
-				"canonical",
-			);
-			pendingSaveRef.current = false;
-		}, 100);
-		return () => clearTimeout(id);
-	}, [latestStateKey, latestStateRef]);
 	useEffect(() => {
 		writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, mainView);
 		const previous = mainViewHealthRef.current;
@@ -131,61 +79,8 @@ export function useAgentPersistence({
 		});
 		mainViewHealthRef.current = { timestamp, view: mainView };
 	}, [latestStateRef, mainView, mainViewHealthRef]);
-	useEffect(
-		() => () => {
-			if (!startupRestoreCompleteRef.current) return;
-			const saved = loadAgentState();
-			if (
-				saved &&
-				agentStateScore(latestStateRef.current) < agentStateScore(saved)
-			) {
-				return;
-			}
-			saveSyncedAgentState(
-				latestStateRef.current,
-				"agent-page-unmount",
-				"canonical",
-			);
-		},
-		[latestStateRef],
-	);
-	useEffect(() => {
-		let cancelled = false;
-		const restoreCanonicalState = async () => {
-			const canonicalState = await loadCanonicalAgentState();
-			if (cancelled) return;
-			if (!canonicalState) {
-				startupRestoreCompleteRef.current = true;
-				return;
-			}
-			const currentState = latestStateRef.current;
-			const canonicalKey = agentStateKey(canonicalState);
-			const currentKey = agentStateKey(currentState);
-			if (
-				canonicalKey !== currentKey &&
-				agentStateScore(canonicalState) >= agentStateScore(currentState)
-			) {
-				canonicalShellKeyRef.current = canonicalKey;
-				latestStateRef.current = canonicalState;
-				restoreSavedState(canonicalState);
-				saveSyncedAgentState(
-					canonicalState,
-					"startup-canonical-restore",
-					"canonical",
-				);
-			}
-			startupRestoreCompleteRef.current = true;
-		};
-		restoreCanonicalState().catch(() => {
-			startupRestoreCompleteRef.current = true;
-		});
-		return () => {
-			cancelled = true;
-		};
-	}, [latestStateRef, restoreSavedState]);
 	const handleShellChange = useCallback(
 		(event: Event) => {
-			const currentState = latestStateRef.current;
 			const detail = (event as CustomEvent<AgentShellChangeDetail>).detail;
 			const requestedMainView = detail?.mainView ?? null;
 			if (
@@ -198,39 +93,13 @@ export function useAgentPersistence({
 				}
 				return;
 			}
-			const saved =
-				normalizeAgentState(detail?.state) ??
-				(detail?.source === "canonical" ? loadAgentState() : null);
-			const savedState = saved;
-			const isRegressiveSnapshot =
-				savedState &&
-				detail?.reason !== "remove-pane" &&
-				detail?.reason !== "remove-workspace" &&
-				detail?.reason !== "select-repository-workspace" &&
-				agentStateScore(savedState) < agentStateScore(currentState);
-			if (
-				!isRegressiveSnapshot &&
-				savedState?.selectedGroupId &&
-				savedState.selectedGroupId !== currentState.selectedGroupId
-			) {
-				setSelectedGroupId(savedState.selectedGroupId);
-				latestStateRef.current = {
-					...latestStateRef.current,
-					selectedGroupId: savedState.selectedGroupId,
-				};
+			if (detail?.state) {
+				latestStateRef.current = detail.state;
+				restoreSavedState(detail.state);
 			}
-			if (savedState && !isRegressiveSnapshot) {
-				const savedShellKey = agentStateKey(savedState);
-				const currentShellKey = agentStateKey(latestStateRef.current);
-				if (savedShellKey !== currentShellKey) {
-					latestStateRef.current = savedState;
-					restoreSavedState(savedState);
-					pendingSaveRef.current = false;
-				}
-			}
-			if (pendingSaveRef.current) {
-				return;
-			}
+			if (detail?.selection) applySelection(detail.selection);
+			if (detail?.error) setWorkspaceError(detail.error);
+			else if (detail?.saved) setWorkspaceError(null);
 			const storedView = readStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY);
 			const nextMainView = isAgentMainView(storedView)
 				? storedView
@@ -241,13 +110,14 @@ export function useAgentPersistence({
 			syncAgentLayoutMode(setLayoutMode);
 		},
 		[
+			applySelection,
+			setWorkspaceError,
 			latestStateRef,
 			mainViewRef,
 			restoreSavedState,
 			setAppearance,
 			setLayoutMode,
 			setMainView,
-			setSelectedGroupId,
 		],
 	);
 	useEffect(() => {

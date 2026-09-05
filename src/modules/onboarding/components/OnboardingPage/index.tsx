@@ -28,9 +28,8 @@ import {
 	invalidateForgeAccountsCache,
 } from "../../../repository/adapters/forge-client.ts";
 import {
-	createDefaultAgentState,
 	loadCanonicalAgentState,
-	saveSyncedAgentState,
+	mutateAgentWorkspaceState,
 } from "../../../workspace/model/workspace-model.ts";
 import { GithubStep } from "./GithubStep.tsx";
 import { IntroStep } from "./IntroStep.tsx";
@@ -143,15 +142,12 @@ export function OnboardingPage() {
 		writeStoredValue(AGENT_MAIN_VIEW_STORAGE_KEY, "chat");
 		// New users land directly in the multi-agent chat grid.
 		const canonicalState = await loadCanonicalAgentState();
-		if (!canonicalState || isFirstRun) {
-			saveSyncedAgentState(
-				canonicalState
-					? { ...canonicalState, themeId: "default" }
-					: createDefaultAgentState(),
+		if (!canonicalState || isFirstRun)
+			await mutateAgentWorkspaceState(
+				{ type: "setTheme", themeId: "default" },
 				"onboarding-default",
-				"canonical",
+				{ createIfMissing: true },
 			);
-		}
 		navigate({ to: "/agent", replace: true });
 	}, [isFirstRun, navigate]);
 

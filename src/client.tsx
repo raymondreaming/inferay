@@ -23,6 +23,7 @@ import {
 } from "./app/model/navigation.tsx";
 import { initializeAgentCatalog } from "./modules/agents/model/agents.ts";
 import { preloadSkills } from "./modules/skills/hooks/useSkills.tsx";
+import { initializeAgentState } from "./modules/workspace/model/workspace-model.ts";
 
 function routeLocalRequestsToDesktopServer() {
 	if (window.location.origin === getServerOrigin()) return;
@@ -54,6 +55,31 @@ function routeLocalRequestsToDesktopServer() {
 routeLocalRequestsToDesktopServer();
 await hydrateStoredValues();
 await initializeAgentCatalog();
+let restoreStartupContent: (() => void) | undefined;
+while (true) {
+	try {
+		await initializeAgentState();
+		restoreStartupContent?.();
+		break;
+	} catch {
+		const container = document.getElementById("__app");
+		if (container && !restoreStartupContent) {
+			const content = Array.from(container.childNodes);
+			restoreStartupContent = () => container.replaceChildren(...content);
+		}
+		const notice = document.createElement("div");
+		notice.setAttribute("role", "alert");
+		notice.textContent =
+			"Saved workspaces could not be loaded. Your saved data has not been replaced. ";
+		const retry = document.createElement("button");
+		retry.textContent = "Retry";
+		notice.append(retry);
+		container?.replaceChildren(notice);
+		await new Promise<void>((resolve) =>
+			retry.addEventListener("click", () => resolve(), { once: true }),
+		);
+	}
+}
 
 // The desktop host uses a fresh loopback origin on each launch, so the durable
 // onboarding value is restored from the native store immediately above. Move

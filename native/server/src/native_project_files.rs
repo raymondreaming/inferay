@@ -103,7 +103,8 @@ impl NativeProjectFiles {
                     .map_err(|_| {
                         NativeProjectFilesError::Runtime("agent state lock poisoned".into())
                     })?
-                    .read();
+                    .read()
+                    .map_err(NativeProjectFilesError::Runtime)?;
                 let fallback = || vec![allowed_paths.project_root().to_string_lossy().into_owned()];
                 let Some(groups) = state.get("groups").and_then(serde_json::Value::as_array) else {
                     return Ok(fallback());
@@ -504,8 +505,9 @@ mod tests {
             .unwrap()
             .write_guarded(serde_json::json!({
                 "selectedGroupId": "group",
+                "themeId":"default", "fontSize":13, "fontFamily":"SF Mono", "opacity":1,
                 "groups": [{
-                    "id": "group",
+                    "id": "group", "name":"Main",
                     "selectedPaneId": "second-pane",
                     "panes": [
                         {"id": "first-pane", "cwd": first},

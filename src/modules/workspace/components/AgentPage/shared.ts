@@ -25,6 +25,11 @@ type AgentAppearance = {
 };
 
 export type AgentPersistenceArgs = AgentAppearance & {
+	readonly applySelection: (selection: {
+		groupId: string;
+		paneId?: string;
+	}) => void;
+	readonly setWorkspaceError: (error: string | null) => void;
 	readonly groups: AgentSavedState["groups"];
 	readonly latestStateRef: MutableRef<AgentSavedState>;
 	readonly mainView: AgentMainView;
@@ -40,5 +45,4 @@ export type AgentPersistenceArgs = AgentAppearance & {
 	) => void;
 	readonly setLayoutMode: (value: AgentLayoutMode) => void;
 	readonly setMainView: (value: AgentMainView) => void;
-	readonly setSelectedGroupId: (value: GroupId | null) => void;
 };
