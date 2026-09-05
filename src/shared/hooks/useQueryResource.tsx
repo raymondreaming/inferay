@@ -34,10 +34,13 @@ export function useQueryResource<T>(
 			gcTime: options.gcTime,
 			refetchInterval: options.refetchInterval,
 			staleTime: options.staleTime,
-			structuralSharing: (previous, next) =>
-				previous !== undefined && options.isEqual?.(previous as T, next as T)
-					? (previous as T)
-					: (next as T),
+			structuralSharing: options.isEqual
+				? (previous, next) =>
+						previous !== undefined &&
+						options.isEqual?.(previous as T, next as T)
+							? (previous as T)
+							: (next as T)
+				: true,
 		},
 		queryClient,
 	);

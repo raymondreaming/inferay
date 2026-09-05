@@ -22,13 +22,16 @@ export default defineConfig({
 				find: /^octane$/,
 				replacement: new URL(
 					"./node_modules/octane/dist/index.js",
-					import.meta.url
+					import.meta.url,
 				).pathname,
 			},
 		],
 	},
 	plugins: [
-		stripTransformSourceMaps(octane({ hmr: false, ssr: false })),
+		// Compiler plugins use the application Vite types; Vitest bundles its own.
+		stripTransformSourceMaps(
+			octane({ hmr: false, ssr: false }) as unknown as Plugin,
+		),
 		stripTransformSourceMaps(stylex({ useCSSLayers: true }) as Plugin),
 	],
 	test: {

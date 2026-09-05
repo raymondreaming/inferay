@@ -26,19 +26,17 @@ export function BorderBeamOverlay({ active }: BorderBeamOverlayProps) {
 
 	useEffect(() => {
 		rootRef.current?.render(
-			createElement(
-				BorderBeam,
-				{
-					active,
-					borderRadius: 12,
-					colorVariant: "colorful",
-					duration: 2.5,
-					size: "md",
-					strength: 0.7,
-					style: { height: "100%", width: "100%" },
-					theme: "dark",
-				},
-				createElement("span", {
+			createElement(BorderBeam, {
+				active,
+				borderRadius: 12,
+				colorVariant: "colorful",
+				duration: 2.5,
+				size: "md",
+				strength: 0.7,
+				style: { height: "100%", width: "100%" },
+				theme: "dark",
+				// biome-ignore lint/correctness/noChildrenProp: BorderBeam requires children in its typed props for createElement.
+				children: createElement("span", {
 					style: {
 						borderRadius: 12,
 						display: "block",
@@ -46,7 +44,7 @@ export function BorderBeamOverlay({ active }: BorderBeamOverlayProps) {
 						width: "100%",
 					},
 				}),
-			),
+			}),
 		);
 	}, [active]);
 
