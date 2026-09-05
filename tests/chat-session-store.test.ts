@@ -140,6 +140,46 @@ test("queue mutation response cannot replace a newer server snapshot", async () 
 	}
 });
 
+test("an equal authoritative queue snapshot invalidates a stale mutation response", async () => {
+	const restore = installBrowserStorage();
+	const previousFetch = globalThis.fetch;
+	let finish!: (response: Response) => void;
+	globalThis.fetch = mock(
+		() =>
+			new Promise<Response>((resolve) => {
+				finish = resolve;
+			}),
+	) as typeof fetch;
+	try {
+		const { getChatQueueReadModel } = await import(
+			"../src/modules/conversation/model/chat-session-store.ts"
+		);
+		const model = getChatQueueReadModel("pane-equal-server-queue");
+		const original = [{ id: "q1", text: "original", displayText: "original" }];
+		model.replaceFromServer(original);
+		let notifications = 0;
+		const unsubscribe = model.subscribe(() => {
+			notifications++;
+		});
+		const mutation = model.mutate("edit", "q1", "edited");
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		// Another client reverted the edit before publication, returning to the displayed state.
+		model.replaceFromServer([...original]);
+		finish(
+			Response.json({
+				queue: [{ id: "q1", text: "edited", displayText: "edited" }],
+			}),
+		);
+		await mutation;
+		expect(model.getSnapshot()).toEqual(original);
+		expect(notifications).toBe(0);
+		unsubscribe();
+	} finally {
+		globalThis.fetch = previousFetch;
+		restore();
+	}
+});
+
 test("chat queue restore ignores legacy local queue and preference rows", async () => {
 	const restoreBrowserStorage = installBrowserStorage();
 	try {

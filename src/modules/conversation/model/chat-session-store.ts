@@ -610,7 +610,11 @@ function createChatQueueReadModel(paneId: string): ChatQueueReadModel {
 		get: () => queue,
 		getSnapshot: () => queue,
 		loadAsync,
-		replaceFromServer: (messages) => setSnapshot(messages),
+		replaceFromServer: (messages) => {
+			// Even unchanged authoritative content supersedes an older HTTP response.
+			revision++;
+			setSnapshot(messages);
+		},
 		mutate,
 		subscribe: (listener) => {
 			listeners.add(listener);

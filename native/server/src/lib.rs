@@ -961,7 +961,7 @@ async fn patch_chat_queue(state: &ServerState, request: Request, pane_id: &str) 
         .await
     {
         Ok(queue) => {
-            state.chat_runtime.broadcast_queue(pane_id, &queue).await;
+            state.chat_runtime.broadcast_queue(pane_id).await;
             json_response(StatusCode::OK, json!({"queue":queue}), &headers)
         }
         Err(error) => json_response(
@@ -987,7 +987,7 @@ async fn put_chat_queue(state: &ServerState, request: Request, pane_id: &str) ->
     };
     match state.chat_persistence.save_queue(pane_id, queue).await {
         Ok(()) => {
-            state.chat_runtime.broadcast_queue(pane_id, queue).await;
+            state.chat_runtime.broadcast_queue(pane_id).await;
             json_response(StatusCode::OK, json!({ "ok": true }), &headers)
         }
         Err(error) => json_response(
@@ -1002,7 +1002,7 @@ async fn delete_chat_queue(state: &ServerState, request: Request, pane_id: &str)
     let headers = request.headers().clone();
     match state.chat_persistence.delete_queue(pane_id).await {
         Ok(()) => {
-            state.chat_runtime.broadcast_queue(pane_id, &[]).await;
+            state.chat_runtime.broadcast_queue(pane_id).await;
             json_response(StatusCode::OK, json!({ "ok": true }), &headers)
         }
         Err(error) => json_response(

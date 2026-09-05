@@ -182,6 +182,7 @@ struct ChatSession {
 pub struct ChatRuntime {
     sessions: Arc<Mutex<HashMap<String, Arc<Mutex<ChatSession>>>>>,
     persistence: ChatPersistence,
+    queue_publication: Arc<Mutex<()>>,
     checkpoints: CheckpointService,
     executor: Arc<dyn AgentExecutor>,
     agent_context: Arc<Mutex<AgentContextStore>>,
@@ -198,6 +199,7 @@ impl ChatRuntime {
     ) -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            queue_publication: Arc::new(Mutex::new(())),
             persistence,
             checkpoints,
             executor,
@@ -213,15 +215,29 @@ impl ChatRuntime {
         self.send_message_with_admission(input, false)
     }
 
-    /// Publishes a queue already persisted by the compatibility HTTP route.
-    pub async fn broadcast_queue(&self, pane_id: &str, queue: &[Value]) {
-        let session = self.sessions.lock().await.get(pane_id).cloned();
-        if let Some(session) = session {
-            self.emit(
-                &session,
-                json!({"type":"chat:queue", "paneId":pane_id, "queue":queue}),
-            )
-            .await;
+    /// Publication owns the read as well as the send: delayed publishers cannot replay an older snapshot.
+    /// Callers must release session and persistence locks before entering this method.
+    pub async fn broadcast_queue(&self, pane_id: &str) {
+        self.publish_queue(pane_id, None).await;
+    }
+
+    async fn publish_queue(&self, pane_id: &str, recipient: Option<&broadcast::Sender<Value>>) {
+        let _publication = self.queue_publication.lock().await;
+        let queue = match self.persistence.read_queue(pane_id).await {
+            Ok(queue) => queue
+                .into_iter()
+                .filter_map(|value| serde_json::from_value::<QueuedMessageInfo>(value).ok())
+                .collect::<Vec<_>>(),
+            Err(error) => {
+                eprintln!("Failed to publish durable queue for {pane_id}: {error}");
+                return;
+            }
+        };
+        let message = json!({"type":"chat:queue", "paneId":pane_id, "queue":queue});
+        if let Some(sender) = recipient {
+            let _ = sender.send(message);
+        } else if let Some(session) = self.session(pane_id).await {
+            self.emit(&session, message).await;
         }
     }
 
@@ -387,17 +403,13 @@ impl ChatRuntime {
                         images: (!input.images.is_empty()).then(|| paths_to_strings(&input.images)),
                     })
                     .expect("queue serialization");
-                    let queue = self
+                    let _ = self
                         .persistence
                         .enqueue_runtime(&input.pane_id, queued)
                         .await
                         .unwrap_or_default();
                     drop(state);
-                    self.emit(
-                        &session,
-                        json!({"type":"chat:queue", "paneId":input.pane_id, "queue":queue}),
-                    )
-                    .await;
+                    self.broadcast_queue(&input.pane_id).await;
                     return;
                 }
                 state.turn_active = true;
@@ -630,15 +642,7 @@ impl ChatRuntime {
                 let _ = sender.send(message);
             }
             let _ = sender.send(sync);
-            let queue = self
-                .persistence
-                .read_queue(pane_id)
-                .await
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|value| serde_json::from_value::<QueuedMessageInfo>(value).ok())
-                .collect::<Vec<_>>();
-            let _ = sender.send(json!({"type":"chat:queue", "paneId":pane_id, "queue":queue}));
+            self.publish_queue(pane_id, Some(&sender)).await;
             let _ = sender.send(status);
         } else {
             let snapshot = self.persistence.persisted_reconnect_snapshot(pane_id).await;
@@ -708,7 +712,7 @@ impl ChatRuntime {
             } else {
                 let _ = sender.send(snapshot.sync);
             }
-            let _ = sender.send(snapshot.queue);
+            self.publish_queue(pane_id, Some(&sender)).await;
             let _ = sender.send(snapshot.status);
         }
     }
@@ -1459,23 +1463,19 @@ impl ChatRuntime {
 
     async fn drain_next_or_release(&self, session: &Arc<Mutex<ChatSession>>) {
         let pane = session.lock().await.pane_id.clone();
-        let (next, queue) = loop {
+        let next = loop {
             let mut state = session.lock().await;
             let shifted = self.persistence.shift_runtime(&pane).await.unwrap_or(None);
-            let Some((next, queue)) = shifted else {
+            let Some((next, _)) = shifted else {
                 state.turn_active = false;
                 return;
             };
             drop(state);
             if let Ok(next) = serde_json::from_value::<QueuedMessageInfo>(next) {
-                break (next, queue);
+                break next;
             }
         };
-        self.emit(
-            session,
-            json!({"type":"chat:queue", "paneId":pane, "queue":queue}),
-        )
-        .await;
+        self.broadcast_queue(&pane).await;
         let state = session.lock().await;
         let input = SendMessageInput {
             expand_commands: false,
@@ -2088,6 +2088,44 @@ mod tests {
             context_hash: None,
             pending_steers: Vec::new(),
         }))
+    }
+
+    #[tokio::test]
+    async fn delayed_queue_publishers_and_reconnect_read_current_durable_state() {
+        let root = tempdir().unwrap();
+        let (runtime, persistence, _) = test_runtime(root.path(), Arc::new(UnusedExecutor));
+        let (sender, mut receiver) = broadcast::channel(16);
+        let session = test_session(root.path(), sender.clone(), None);
+        runtime.sessions.lock().await.insert("pane".into(), session);
+        persistence
+            .enqueue_runtime("pane", json!({"id":"old","text":"old","displayText":"old"}))
+            .await
+            .unwrap();
+        let publication = runtime.queue_publication.lock().await;
+        let publisher = {
+            let runtime = runtime.clone();
+            tokio::spawn(async move {
+                runtime.broadcast_queue("pane").await;
+            })
+        };
+        tokio::task::yield_now().await;
+        // A drain overtakes a publisher waiting on the serialized publication gate.
+        persistence.shift_runtime("pane").await.unwrap().unwrap();
+        let reconnect = {
+            let runtime = runtime.clone();
+            tokio::spawn(async move {
+                runtime.publish_queue("pane", Some(&sender)).await;
+            })
+        };
+        drop(publication);
+        publisher.await.unwrap();
+        reconnect.await.unwrap();
+        for _ in 0..2 {
+            let event = receiver.recv().await.unwrap();
+            assert_eq!(event["type"], "chat:queue");
+            assert_eq!(event["queue"], json!([]));
+        }
+        assert!(receiver.try_recv().is_err());
     }
 
     #[tokio::test]
@@ -2810,7 +2848,7 @@ mod tests {
         );
         let queue = vec![json!({"id":"q", "text":"edited", "displayText":"edited"})];
         persistence.save_queue("pane", &queue).await.unwrap();
-        runtime.broadcast_queue("pane", &queue).await;
+        runtime.broadcast_queue("pane").await;
         let event = receiver.recv().await.unwrap();
         assert_eq!(
             event,
@@ -2821,7 +2859,7 @@ mod tests {
         assert_eq!(events.last().unwrap().payload["source"], "api");
 
         persistence.delete_queue("pane").await.unwrap();
-        runtime.broadcast_queue("pane", &[]).await;
+        runtime.broadcast_queue("pane").await;
         let event = receiver.recv().await.unwrap();
         assert_eq!(
             event,
