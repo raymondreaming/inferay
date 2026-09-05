@@ -53,24 +53,7 @@ export function ChatDiffPanel(
 						styles.viewerFloatingScrimAboveContent,
 				)}
 			/>
-			<ViewerHeader
-				mainViewMode={view.mainViewMode}
-				drag={view.drag}
-				file={view.file}
-				stats={view.stats}
-				graphActionRunning={view.graphActionRunning}
-				requestGraphAction={view.requestGraphAction}
-				setHoveredModeIndex={view.setHoveredModeIndex}
-				hoveredModeIndex={view.hoveredModeIndex}
-				activeModeIndex={view.activeModeIndex}
-				onMainViewModeChange={view.onMainViewModeChange}
-				onViewModeChange={view.onViewModeChange}
-				viewMode={view.viewMode}
-				onToggleZenMode={view.onToggleZenMode}
-				zenMode={view.zenMode}
-				onClose={view.onClose}
-				closeLabel={view.closeLabel}
-			/>
+			<ViewerHeader {...view} />
 			<div
 				{...stylex.props(
 					styles.viewerBody,
@@ -156,46 +139,23 @@ export function ChatDiffPanel(
 				) : null}
 				{view.mainViewMode === "graph" && view.pendingRefAction ? (
 					<RefOperationDialog
-						interactiveRebaseOpen={view.interactiveRebaseOpen}
+						{...view}
 						pendingRefAction={view.pendingRefAction}
-						refOperationResult={view.refOperationResult}
-						interactiveRebasePlan={view.interactiveRebasePlan}
-						interactiveRebaseCommits={view.interactiveRebaseCommits}
-						moveRebaseRow={view.moveRebaseRow}
-						setInteractiveRebasePlan={view.setInteractiveRebasePlan}
-						refPreflightRunning={view.refPreflightRunning}
-						refOperationPreflight={view.refOperationPreflight}
-						refOperationRunning={view.refOperationRunning}
-						runRefOperation={view.runRefOperation}
-						setInteractiveRebaseOpen={view.setInteractiveRebaseOpen}
-						setPendingRefAction={view.setPendingRefAction}
 					/>
 				) : null}
 				{view.mainViewMode === "graph" &&
 				view.pendingGraphAction &&
 				view.pendingGraphActionPresentation ? (
 					<GraphActionDialog
+						{...view}
 						pendingGraphActionPresentation={view.pendingGraphActionPresentation}
-						graphActionRunning={view.graphActionRunning}
-						setPendingGraphAction={view.setPendingGraphAction}
 						pendingGraphAction={view.pendingGraphAction}
-						graphActionName={view.graphActionName}
-						setGraphActionName={view.setGraphActionName}
-						graphActionMessage={view.graphActionMessage}
-						setGraphActionMessage={view.setGraphActionMessage}
-						graphActionResult={view.graphActionResult}
-						runGraphAction={view.runGraphAction}
 					/>
 				) : null}
 				{view.mainViewMode === "graph" &&
 				view.repositoryOperation.kind !== "idle" &&
 				!view.pendingRefAction ? (
-					<RepositoryOperationBar
-						repositoryOperation={view.repositoryOperation}
-						resumableOperation={view.resumableOperation}
-						refOperationRunning={view.refOperationRunning}
-						runRefOperation={view.runRefOperation}
-					/>
+					<RepositoryOperationBar {...view} />
 				) : null}
 			</div>
 		</section>

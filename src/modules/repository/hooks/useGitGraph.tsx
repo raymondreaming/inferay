@@ -140,30 +140,13 @@ type WireGraphNode = Omit<GraphNode, "color" | "id" | "itemKind"> & {
 	itemKind?: GitGraphItemKind;
 	colorIndex: number;
 };
+type WireColor<T> = Omit<T, "color"> & { colorIndex: number };
 type WireGraphRow = {
 	row: number;
-	rails: Array<{
-		column: number;
-		colorIndex: number;
-		startsAtNode?: boolean;
-		endsAtNode?: boolean;
-	}>;
-	transitions: Array<{
-		fromColumn: number;
-		toColumn: number;
-		colorIndex: number;
-	}>;
-	convergences?: Array<{
-		fromColumn: number;
-		toColumn: number;
-		colorIndex: number;
-	}>;
-	truncatedEdges?: Array<{
-		column: number;
-		colorIndex: number;
-		startsAtNode?: boolean;
-		endsAtNode?: boolean;
-	}>;
+	rails: WireColor<GraphRail>[];
+	transitions: WireColor<GraphTransition>[];
+	convergences?: WireColor<GraphTransition>[];
+	truncatedEdges?: WireColor<GraphRail>[];
 };
 
 function laneColor(index: number): string {
@@ -246,31 +229,30 @@ function graphNodeFromWire(node: WireGraphNode): GraphNode {
 	};
 }
 
+function graphTransitionFromWire(
+	value: WireColor<GraphTransition>,
+): GraphTransition {
+	return {
+		fromColumn: value.fromColumn,
+		toColumn: value.toColumn,
+		color: laneColor(value.colorIndex),
+	};
+}
+function graphRailFromWire(value: WireColor<GraphRail>): GraphRail {
+	return {
+		column: value.column,
+		color: laneColor(value.colorIndex),
+		startsAtNode: value.startsAtNode === true,
+		endsAtNode: value.endsAtNode === true,
+	};
+}
 function graphRowFromWire(row: WireGraphRow): GraphRow {
 	return {
 		row: row.row,
-		rails: row.rails.map((rail) => ({
-			column: rail.column,
-			color: laneColor(rail.colorIndex),
-			startsAtNode: rail.startsAtNode === true,
-			endsAtNode: rail.endsAtNode === true,
-		})),
-		transitions: row.transitions.map((transition) => ({
-			fromColumn: transition.fromColumn,
-			toColumn: transition.toColumn,
-			color: laneColor(transition.colorIndex),
-		})),
-		convergences: (row.convergences || []).map((transition) => ({
-			fromColumn: transition.fromColumn,
-			toColumn: transition.toColumn,
-			color: laneColor(transition.colorIndex),
-		})),
-		truncatedEdges: (row.truncatedEdges || []).map((edge) => ({
-			column: edge.column,
-			color: laneColor(edge.colorIndex),
-			startsAtNode: edge.startsAtNode === true,
-			endsAtNode: edge.endsAtNode === true,
-		})),
+		rails: row.rails.map(graphRailFromWire),
+		transitions: row.transitions.map(graphTransitionFromWire),
+		convergences: (row.convergences || []).map(graphTransitionFromWire),
+		truncatedEdges: (row.truncatedEdges || []).map(graphRailFromWire),
 	};
 }
 
@@ -356,18 +338,9 @@ export function useGitGraph(
 		[setData],
 	);
 	return {
-		ancestry: data.ancestry,
+		...data,
 		searchQuery,
 		setSearchQuery,
-		commits: data.commits,
-		rows: data.rows,
-		hasMore: data.hasMore,
-		worktrees: data.worktrees,
-		stashes: data.stashes,
-		revision: data.revision,
-		operation: data.operation,
-		state: data.state,
-		stateError: data.stateError,
 		loading,
 		error,
 		refresh,
@@ -416,87 +389,6 @@ export interface ComparisonDetails {
 	files: CommitFile[];
 }
 
-function commitFileFromWire(value: unknown): CommitFile | null {
-	if (!value || typeof value !== "object") return null;
-	const file = value as Partial<CommitFile> & { original_path?: unknown };
-	const path = wireString(file.path);
-	if (!path) return null;
-	return {
-		path,
-		originalPath:
-			wireString(file.originalPath, wireString(file.original_path)) ||
-			undefined,
-		status: wireString(file.status, "M"),
-		additions: typeof file.additions === "number" ? file.additions : 0,
-		deletions: typeof file.deletions === "number" ? file.deletions : 0,
-		binary: file.binary === true,
-	};
-}
-
-function commitDetailsFromWire(value: unknown): CommitDetails | null {
-	if (!value || typeof value !== "object") return null;
-	const details = value as Partial<CommitDetails> & {
-		diff_parent?: unknown;
-		author_email?: unknown;
-		authored_at?: unknown;
-		committer_email?: unknown;
-		committed_at?: unknown;
-	};
-	const hash = wireString(details.hash);
-	if (!hash) return null;
-	const author = wireString(details.author, "Unknown author");
-	const authorEmail = wireString(
-		details.authorEmail,
-		wireString(details.author_email),
-	);
-	const authoredAt = wireString(
-		details.authoredAt,
-		wireString(details.authored_at),
-	);
-	return {
-		hash,
-		parents: Array.isArray(details.parents)
-			? details.parents.filter(
-					(parent): parent is string => typeof parent === "string",
-				)
-			: [],
-		diffParent:
-			wireString(details.diffParent, wireString(details.diff_parent)) ||
-			undefined,
-		message: wireString(details.message),
-		body: wireString(details.body),
-		author,
-		authorEmail,
-		authoredAt,
-		committer: wireString(details.committer, author),
-		committerEmail: wireString(
-			details.committerEmail,
-			wireString(details.committer_email, authorEmail),
-		),
-		committedAt: wireString(
-			details.committedAt,
-			wireString(details.committed_at, authoredAt),
-		),
-		refs: Array.isArray(details.refs)
-			? details.refs
-					.map(graphRefFromWire)
-					.filter((ref): ref is GitGraphRef => ref !== null)
-			: [],
-		provider:
-			details.provider?.provider === "github" &&
-			typeof details.provider.repository === "string" &&
-			typeof details.provider.repositoryUrl === "string"
-				? details.provider
-				: undefined,
-		filePresentation: details.filePresentation,
-		files: Array.isArray(details.files)
-			? details.files
-					.map(commitFileFromWire)
-					.filter((file): file is CommitFile => file !== null)
-			: [],
-	};
-}
-
 export function useCommitDetails(
 	cwd: string | undefined,
 	hash: string | undefined,
@@ -516,7 +408,8 @@ export function useCommitDetails(
 				);
 				if (!res.ok) throw new Error("Failed to fetch commit details");
 				const json = await res.json();
-				return commitDetailsFromWire(json.details);
+				// The bundled Rust server owns the canonical commit-details schema.
+				return (json.details ?? null) as CommitDetails | null;
 			})();
 		},
 		[cwd, hash, parent],

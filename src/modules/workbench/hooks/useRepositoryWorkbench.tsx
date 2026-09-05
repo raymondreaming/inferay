@@ -128,8 +128,6 @@ export type WorkspacePanelSession =
 
 export type StateValue<T> = T | ((current: T) => T);
 
-export const WORKSPACE_PANEL_SESSION_KEY = "agent-workspace-panels:";
-
 export const emptyPanelSession =
 	emptyGitWorkspacePanelSession<FileContentResponse>();
 

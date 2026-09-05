@@ -141,27 +141,37 @@ export function bindGitGraphRepository<InitialFile>(
 	};
 }
 
+function openFileDiff<InitialFile>(
+	current: GitWorkspacePanelSession<InitialFile>,
+	cwd: string,
+	file: GitWorkspaceSelectedFile,
+	diffContext: GitWorkspaceDiffContext,
+): GitWorkspacePanelSession<InitialFile> {
+	return {
+		...current,
+		...EMPTY_FILE_SELECTION,
+		diffViewerCwd: cwd,
+		selectedFile: file,
+		diffContext,
+		mainViewMode: "diff",
+		focusedAuxiliaryPanel: { id: "workspace-diff-viewer", cwd },
+	};
+}
+
 export function openGitWorkingTreeFileDiff<InitialFile>(
 	current: GitWorkspacePanelSession<InitialFile>,
 	cwd: string,
 	file: GitWorkspaceSelectedFile,
 ): GitWorkspacePanelSession<InitialFile> {
-	return {
-		...current,
-		diffViewerCwd: cwd,
-		selectedFile: file,
-		selectedFileCommitHash: null,
-		selectedFileCommitParent: null,
-		selectedFileComparisonFrom: null,
-		selectedFileComparisonTo: null,
-		diffContext:
-			current.mainViewMode === "graph" ||
+	return openFileDiff(
+		current,
+		cwd,
+		file,
+		current.mainViewMode === "graph" ||
 			resolvedDiffContext(current) === "graphWorkingTree"
-				? "graphWorkingTree"
-				: "workingTree",
-		mainViewMode: "diff",
-		focusedAuxiliaryPanel: { id: "workspace-diff-viewer", cwd },
-	};
+			? "graphWorkingTree"
+			: "workingTree",
+	);
 }
 
 export function openGitCommitFileDiff<InitialFile>(
@@ -172,16 +182,9 @@ export function openGitCommitFileDiff<InitialFile>(
 	commitParent: string | null,
 ): GitWorkspacePanelSession<InitialFile> {
 	return {
-		...current,
-		diffViewerCwd: cwd,
-		selectedFile: { path, staged: false },
+		...openFileDiff(current, cwd, { path, staged: false }, "commit"),
 		selectedFileCommitHash: commitHash,
 		selectedFileCommitParent: commitParent,
-		selectedFileComparisonFrom: null,
-		selectedFileComparisonTo: null,
-		diffContext: "commit",
-		mainViewMode: "diff",
-		focusedAuxiliaryPanel: { id: "workspace-diff-viewer", cwd },
 	};
 }
 
@@ -193,16 +196,9 @@ export function openGitComparisonFileDiff<InitialFile>(
 	to: string,
 ): GitWorkspacePanelSession<InitialFile> {
 	return {
-		...current,
-		diffViewerCwd: cwd,
-		selectedFile: { path, staged: false },
-		selectedFileCommitHash: null,
-		selectedFileCommitParent: null,
+		...openFileDiff(current, cwd, { path, staged: false }, "comparison"),
 		selectedFileComparisonFrom: from,
 		selectedFileComparisonTo: to,
-		diffContext: "comparison",
-		mainViewMode: "diff",
-		focusedAuxiliaryPanel: { id: "workspace-diff-viewer", cwd },
 	};
 }
 

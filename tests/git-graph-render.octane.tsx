@@ -891,7 +891,7 @@ describe("Git commit graph renderer", () => {
 		}
 	});
 
-	test("fetches first-selection commit details and normalizes the native wire format", async () => {
+	test("fetches first-selection commit details and uses the canonical Rust response", async () => {
 		const { useCommitDetails } = await import(
 			"../src/modules/repository/hooks/useGitGraph.tsx"
 		);
@@ -906,20 +906,20 @@ describe("Git commit graph renderer", () => {
 					details: {
 						hash,
 						parents: [],
-						diff_parent: null,
+						diffParent: null,
 						message: "Keep the titlebar above search content",
 						body: "",
 						author: "Graph Author",
-						author_email: "graph-author@users.noreply.github.com",
-						authored_at: "2026-08-25T09:57:00-05:00",
+						authorEmail: "graph-author@users.noreply.github.com",
+						authoredAt: "2026-08-25T09:57:00-05:00",
 						committer: "Graph Author",
-						committer_email: "graph-author@users.noreply.github.com",
-						committed_at: "2026-08-25T09:57:00-05:00",
+						committerEmail: "graph-author@users.noreply.github.com",
+						committedAt: "2026-08-25T09:57:00-05:00",
 						refs: [],
 						files: [
 							{
 								path: "src/app.tsx",
-								original_path: "src/old-app.tsx",
+								originalPath: "src/old-app.tsx",
 								status: "R",
 								additions: 4,
 								deletions: 2,
@@ -1578,6 +1578,56 @@ describe("Git commit graph renderer", () => {
 				queryKey: ["git", "graph", "/search-contract-fixture"],
 			});
 			globalThis.fetch = previousFetch;
+		}
+	});
+	test("keeps graph preferences scoped when switching repositories", async () => {
+		const { useCommitGraphState } = await import(
+			"../src/modules/workbench/graph/components/CommitGraph/useCommitGraphState.tsx"
+		);
+		const { dom, root, rootElement } = setupDom();
+		const key = (repo: string) => `commit-graph-columns-v12:${repo}`;
+		for (const repo of ["repo-a", "repo-b"])
+			dom.window.localStorage.setItem(
+				key(repo),
+				JSON.stringify({ soloRefs: [repo] }),
+			);
+		function Probe({ repo }: { repo: string }) {
+			const graph = useCommitGraphState({
+				repositoryKey: repo,
+				commits: [],
+				rows: [],
+			});
+			return (
+				<button
+					type="button"
+					onClick={() => graph.setSoloRefs((current) => [...current, "extra"])}
+				>
+					{graph.soloRefs.join(",")}
+				</button>
+			);
+		}
+		try {
+			root.render(<Probe repo="repo-a" />);
+			await vi.waitFor(() => expect(rootElement.textContent).toBe("repo-a"));
+			rootElement
+				.querySelector("button")!
+				.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+			await vi.waitFor(() =>
+				expect(
+					JSON.parse(dom.window.localStorage.getItem(key("repo-a"))!).soloRefs,
+				).toEqual(["repo-a", "extra"]),
+			);
+			root.render(<Probe repo="repo-b" />);
+			await vi.waitFor(() => expect(rootElement.textContent).toBe("repo-b"));
+			expect(
+				JSON.parse(dom.window.localStorage.getItem(key("repo-b"))!).soloRefs,
+			).toEqual(["repo-b"]);
+			root.render(<Probe repo="repo-a" />);
+			await vi.waitFor(() =>
+				expect(rootElement.textContent).toBe("repo-a,extra"),
+			);
+		} finally {
+			root.unmount();
 		}
 	});
 	test("search results stay visible when a persisted solo tip is outside the matches", async () => {

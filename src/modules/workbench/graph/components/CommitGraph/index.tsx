@@ -205,30 +205,10 @@ export const CommitGraph = memo(function CommitGraph(
 				</button>
 			) : null}
 			{view.refContextMenu ? (
-				<RefContextMenu
-					refContextMenu={view.refContextMenu}
-					onCheckoutRef={view.onCheckoutRef}
-					setRefContextMenu={view.setRefContextMenu}
-					branch={view.branch}
-					onRefDrop={view.onRefDrop}
-					onGraphAction={view.onGraphAction}
-					defaultRemoteName={view.defaultRemoteName}
-					setSoloRefs={view.setSoloRefs}
-					soloRefs={view.soloRefs}
-					setPinnedRefs={view.setPinnedRefs}
-					pinnedRefs={view.pinnedRefs}
-					setHiddenRefs={view.setHiddenRefs}
-				/>
+				<RefContextMenu {...view} refContextMenu={view.refContextMenu} />
 			) : null}
 			{view.itemContextMenu ? (
-				<RowContextMenu
-					itemContextMenu={view.itemContextMenu}
-					onCompareWithWip={view.onCompareWithWip}
-					setItemContextMenu={view.setItemContextMenu}
-					selectedIds={view.selectedIds}
-					commits={view.commits}
-					onGraphAction={view.onGraphAction}
-				/>
+				<RowContextMenu {...view} itemContextMenu={view.itemContextMenu} />
 			) : null}
 		</div>
 	);

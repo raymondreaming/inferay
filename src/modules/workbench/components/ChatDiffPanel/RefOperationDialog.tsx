@@ -40,6 +40,72 @@ export function RefOperationDialog({
 	setInteractiveRebaseOpen,
 	setPendingRefAction,
 }: RefOperationDialogProps) {
+	const actions: Array<{
+		label: string;
+		run: () => void;
+		primary?: boolean;
+		show?: boolean;
+	}> = refOperationResult?.conflicts.length
+		? [
+				{
+					label: "Abort",
+					run: () => runRefOperation(refOperationResult.operation, "abort"),
+				},
+				{
+					label: "Skip commit",
+					show: refOperationResult.operation !== "merge",
+					run: () => runRefOperation(refOperationResult.operation, "skip"),
+				},
+				{
+					label: "Continue",
+					primary: true,
+					run: () => runRefOperation(refOperationResult.operation, "continue"),
+				},
+			]
+		: interactiveRebaseOpen
+			? [
+					{ label: "Back", run: () => setInteractiveRebaseOpen(false) },
+					{
+						label: refOperationRunning
+							? "Rebasing…"
+							: "Start interactive rebase",
+						primary: true,
+						run: () => runRefOperation("interactiveRebase"),
+					},
+				]
+			: [
+					{ label: "Cancel", run: () => setPendingRefAction(null) },
+					{
+						label: "Interactive rebase…",
+						show: !!refOperationPreflight?.canInteractiveRebase,
+						run: () => setInteractiveRebaseOpen(true),
+					},
+					{
+						label: "Rebase source onto target",
+						show: !!refOperationPreflight?.canRebase,
+						run: () => runRefOperation("rebase"),
+					},
+					{
+						label: "Fast-forward target",
+						show: !!refOperationPreflight?.canFastForward,
+						run: () => runRefOperation("fastForward"),
+					},
+					{
+						label: "Merge source into target",
+						show: !!refOperationPreflight?.canMerge,
+						primary: true,
+						run: () => runRefOperation("merge"),
+					},
+				];
+	const updateStep = (
+		index: number,
+		patch: Partial<GitInteractiveRebaseStep>,
+	) =>
+		setInteractiveRebasePlan((current) =>
+			current.map((step, position) =>
+				position === index ? { ...step, ...patch } : step,
+			),
+		);
 	return (
 		<div {...stylex.props(styles.refActionOverlay)}>
 			<div
@@ -91,17 +157,10 @@ export function RefOperationDialog({
 											<select
 												value={step.action}
 												onChange={(event) =>
-													setInteractiveRebasePlan((current) =>
-														current.map((row, rowIndex) =>
-															rowIndex === index
-																? {
-																		...row,
-																		action: event.currentTarget
-																			.value as GitInteractiveRebaseStep["action"],
-																	}
-																: row,
-														),
-													)
+													updateStep(index, {
+														action: event.currentTarget
+															.value as GitInteractiveRebaseStep["action"],
+													})
 												}
 												aria-label={`Action for ${step.hash.slice(0, 7)}`}
 												{...stylex.props(styles.rebaseActionSelect)}
@@ -140,16 +199,9 @@ export function RefOperationDialog({
 											<input
 												value={step.message ?? ""}
 												onInput={(event) =>
-													setInteractiveRebasePlan((current) =>
-														current.map((row, rowIndex) =>
-															rowIndex === index
-																? {
-																		...row,
-																		message: event.currentTarget.value,
-																	}
-																: row,
-														),
-													)
+													updateStep(index, {
+														message: event.currentTarget.value,
+													})
 												}
 												aria-label={`New message for ${step.hash.slice(0, 7)}`}
 												{...stylex.props(styles.graphActionInput)}
@@ -190,112 +242,23 @@ export function RefOperationDialog({
 					</p>
 				) : null}
 				<div {...stylex.props(styles.refActionButtons)}>
-					{refOperationResult?.conflicts.length ? (
-						<>
+					{actions
+						.filter((action) => action.show !== false)
+						.map((action) => (
 							<button
+								key={action.label}
 								type="button"
 								disabled={refOperationRunning}
-								onClick={() =>
-									runRefOperation(refOperationResult.operation, "abort")
-								}
-								{...stylex.props(styles.refActionSecondary)}
+								onClick={action.run}
+								{...stylex.props(
+									action.primary
+										? styles.refActionPrimary
+										: styles.refActionSecondary,
+								)}
 							>
-								Abort
+								{action.label}
 							</button>
-							{refOperationResult.operation !== "merge" ? (
-								<button
-									type="button"
-									disabled={refOperationRunning}
-									onClick={() =>
-										runRefOperation(refOperationResult.operation, "skip")
-									}
-									{...stylex.props(styles.refActionSecondary)}
-								>
-									Skip commit
-								</button>
-							) : null}
-							<button
-								type="button"
-								disabled={refOperationRunning}
-								onClick={() =>
-									runRefOperation(refOperationResult.operation, "continue")
-								}
-								{...stylex.props(styles.refActionPrimary)}
-							>
-								Continue
-							</button>
-						</>
-					) : interactiveRebaseOpen ? (
-						<>
-							<button
-								type="button"
-								disabled={refOperationRunning}
-								onClick={() => setInteractiveRebaseOpen(false)}
-								{...stylex.props(styles.refActionSecondary)}
-							>
-								Back
-							</button>
-							<button
-								type="button"
-								disabled={refOperationRunning}
-								onClick={() => runRefOperation("interactiveRebase")}
-								{...stylex.props(styles.refActionPrimary)}
-							>
-								{refOperationRunning ? "Rebasing…" : "Start interactive rebase"}
-							</button>
-						</>
-					) : (
-						<>
-							<button
-								type="button"
-								disabled={refOperationRunning}
-								onClick={() => setPendingRefAction(null)}
-								{...stylex.props(styles.refActionSecondary)}
-							>
-								Cancel
-							</button>
-							{refOperationPreflight?.canInteractiveRebase ? (
-								<button
-									type="button"
-									disabled={refOperationRunning}
-									onClick={() => setInteractiveRebaseOpen(true)}
-									{...stylex.props(styles.refActionSecondary)}
-								>
-									Interactive rebase…
-								</button>
-							) : null}
-							{refOperationPreflight?.canRebase ? (
-								<button
-									type="button"
-									disabled={refOperationRunning}
-									onClick={() => runRefOperation("rebase")}
-									{...stylex.props(styles.refActionSecondary)}
-								>
-									Rebase source onto target
-								</button>
-							) : null}
-							{refOperationPreflight?.canFastForward ? (
-								<button
-									type="button"
-									disabled={refOperationRunning}
-									onClick={() => runRefOperation("fastForward")}
-									{...stylex.props(styles.refActionSecondary)}
-								>
-									Fast-forward target
-								</button>
-							) : null}
-							{refOperationPreflight?.canMerge ? (
-								<button
-									type="button"
-									disabled={refOperationRunning}
-									onClick={() => runRefOperation("merge")}
-									{...stylex.props(styles.refActionPrimary)}
-								>
-									Merge source into target
-								</button>
-							) : null}
-						</>
-					)}
+						))}
 				</div>
 			</div>
 		</div>

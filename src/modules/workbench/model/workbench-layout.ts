@@ -79,16 +79,34 @@ export function dockPanelIds(tree: DockTree | null): string[] {
 	return [...dockPanelIds(tree.first), ...dockPanelIds(tree.second)];
 }
 
-function pruneDockTree(
+/** Transform leaves in one traversal. Reconciliation preserves split ratios;
+ * moving a panel recomputes them to match the remaining panel spans. */
+function transformPanels(
 	tree: DockTree,
-	allowed: ReadonlySet<string>,
+	visit: (leaf: Extract<DockTree, { type: "panel" }>) => DockTree | null,
+	preserveRatio: boolean | "clamp" = false,
 ): DockTree | null {
-	if (tree.type === "panel") return allowed.has(tree.id) ? tree : null;
-	const first = pruneDockTree(tree.first, allowed);
-	const second = pruneDockTree(tree.second, allowed);
+	if (tree.type === "panel") return visit(tree);
+	const first = transformPanels(tree.first, visit, preserveRatio);
+	const second = transformPanels(tree.second, visit, preserveRatio);
 	if (!first) return second;
 	if (!second) return first;
-	return split(tree.direction, first, second, tree.ratio);
+	return preserveRatio === true
+		? { ...tree, first, second }
+		: split(
+				tree.direction,
+				first,
+				second,
+				preserveRatio ? tree.ratio : undefined,
+			);
+}
+
+function beside(tree: DockTree, id: string, edge: DockEdge): DockTree {
+	const direction =
+		edge === "top" || edge === "bottom" ? "vertical" : "horizontal";
+	return edge === "left" || edge === "top"
+		? split(direction, panel(id), tree)
+		: split(direction, tree, panel(id));
 }
 
 function buildRow(ids: readonly string[]): DockTree {
@@ -161,7 +179,13 @@ export function reconcileDockTree(
 	columns: number,
 ): DockTree | null {
 	const allowed = new Set(ids);
-	let next = tree ? pruneDockTree(tree, allowed) : null;
+	let next = tree
+		? transformPanels(
+				tree,
+				(leaf) => (allowed.has(leaf.id) ? leaf : null),
+				"clamp",
+			)
+		: null;
 	if (next) next = constrainDockTreeColumns(next, columns);
 	const present = new Set(dockPanelIds(next));
 	for (const id of ids) {
@@ -170,47 +194,6 @@ export function reconcileDockTree(
 		present.add(id);
 	}
 	return next ?? createDockTree(ids, columns);
-}
-
-function removePanel(tree: DockTree, id: string): DockTree | null {
-	if (tree.type === "panel") return tree.id === id ? null : tree;
-	const first = removePanel(tree.first, id);
-	const second = removePanel(tree.second, id);
-	if (!first) return second;
-	if (!second) return first;
-	return split(tree.direction, first, second);
-}
-
-function replacePanel(
-	tree: DockTree,
-	targetId: string,
-	replacement: (target: DockTree) => DockTree,
-): DockTree {
-	if (tree.type === "panel") {
-		return tree.id === targetId ? replacement(tree) : tree;
-	}
-	return split(
-		tree.direction,
-		replacePanel(tree.first, targetId, replacement),
-		replacePanel(tree.second, targetId, replacement),
-	);
-}
-
-function swapPanels(
-	tree: DockTree,
-	firstId: string,
-	secondId: string,
-): DockTree {
-	if (tree.type === "panel") {
-		if (tree.id === firstId) return panel(secondId);
-		if (tree.id === secondId) return panel(firstId);
-		return tree;
-	}
-	return {
-		...tree,
-		first: swapPanels(tree.first, firstId, secondId),
-		second: swapPanels(tree.second, firstId, secondId),
-	};
 }
 
 export type DockTreePath = readonly ("first" | "second")[];
@@ -239,16 +222,24 @@ export function moveDockPanel(
 	if (sourceId === targetId) return tree;
 	const ids = dockPanelIds(tree);
 	if (!ids.includes(sourceId) || !ids.includes(targetId)) return tree;
-	if (edge === "center") return swapPanels(tree, sourceId, targetId);
-	const withoutSource = removePanel(tree, sourceId);
-	if (!withoutSource) return tree;
-	const direction =
-		edge === "left" || edge === "right" ? "horizontal" : "vertical";
-	return replacePanel(withoutSource, targetId, (target) =>
-		edge === "left" || edge === "top"
-			? split(direction, panel(sourceId), target)
-			: split(direction, target, panel(sourceId)),
+	if (edge === "center")
+		return transformPanels(
+			tree,
+			(leaf) =>
+				leaf.id === sourceId
+					? panel(targetId)
+					: leaf.id === targetId
+						? panel(sourceId)
+						: leaf,
+			true,
+		)!;
+	const withoutSource = transformPanels(tree, (leaf) =>
+		leaf.id === sourceId ? null : leaf,
 	);
+	if (!withoutSource) return tree;
+	return transformPanels(withoutSource, (leaf) =>
+		leaf.id === targetId ? beside(leaf, sourceId, edge) : leaf,
+	)!;
 }
 
 export function moveDockPanelToOuterEdge(
@@ -258,13 +249,11 @@ export function moveDockPanelToOuterEdge(
 ): DockTree {
 	const ids = dockPanelIds(tree);
 	if (ids.length < 2 || !ids.includes(sourceId)) return tree;
-	const withoutSource = removePanel(tree, sourceId);
+	const withoutSource = transformPanels(tree, (leaf) =>
+		leaf.id === sourceId ? null : leaf,
+	);
 	if (!withoutSource) return tree;
-	const direction =
-		edge === "left" || edge === "right" ? "horizontal" : "vertical";
-	return edge === "left" || edge === "top"
-		? split(direction, panel(sourceId), withoutSource)
-		: split(direction, withoutSource, panel(sourceId));
+	return beside(withoutSource, sourceId, edge);
 }
 
 export function insertDockPanel(
@@ -275,14 +264,9 @@ export function insertDockPanel(
 ): DockTree {
 	const ids = dockPanelIds(tree);
 	if (ids.includes(panelId) || !ids.includes(targetId)) return tree;
-	const placement = edge === "center" ? "right" : edge;
-	const direction =
-		placement === "left" || placement === "right" ? "horizontal" : "vertical";
-	return replacePanel(tree, targetId, (target) =>
-		placement === "left" || placement === "top"
-			? split(direction, panel(panelId), target)
-			: split(direction, target, panel(panelId)),
-	);
+	return transformPanels(tree, (leaf) =>
+		leaf.id === targetId ? beside(leaf, panelId, edge) : leaf,
+	)!;
 }
 
 export function insertDockPanelAtOuterEdge(
@@ -291,62 +275,34 @@ export function insertDockPanelAtOuterEdge(
 	edge: DockOuterEdge,
 ): DockTree {
 	if (dockPanelIds(tree).includes(panelId)) return tree;
-	const direction =
-		edge === "left" || edge === "right" ? "horizontal" : "vertical";
-	return edge === "left" || edge === "top"
-		? split(direction, panel(panelId), tree)
-		: split(direction, tree, panel(panelId));
+	return beside(tree, panelId, edge);
 }
 
 export function parseDockTree(value: string | null): DockTree | null {
 	if (!value) return null;
 	try {
-		const parsed = JSON.parse(value) as unknown;
-		if (!isDockTreeShape(parsed)) return null;
-		const normalized = normalizeDockTree(parsed);
-		return dockPanelIds(normalized).length > 0 ? normalized : null;
+		return parseDockNode(JSON.parse(value));
 	} catch {
 		return null;
 	}
 }
 
-type PersistedDockTree =
-	| { readonly type: "panel"; readonly id: string }
-	| {
-			readonly type: "split";
-			readonly direction: "horizontal" | "vertical";
-			readonly ratio?: number;
-			readonly first: PersistedDockTree;
-			readonly second: PersistedDockTree;
-	  };
-
-function normalizeDockTree(tree: PersistedDockTree): DockTree {
-	if (tree.type === "panel") return panel(tree.id);
-	return split(
-		tree.direction,
-		normalizeDockTree(tree.first),
-		normalizeDockTree(tree.second),
-		typeof tree.ratio === "number" && Number.isFinite(tree.ratio)
-			? tree.ratio
-			: undefined,
-	);
-}
-
-function isDockTreeShape(
-	value: unknown,
-	depth = 0,
-): value is PersistedDockTree {
-	if (!value || typeof value !== "object" || depth > 32) return false;
-	const candidate = value as Record<string, unknown>;
-	if (candidate.type === "panel") return typeof candidate.id === "string";
-	return (
-		candidate.type === "split" &&
-		(candidate.direction === "horizontal" ||
-			candidate.direction === "vertical") &&
-		(candidate.ratio === undefined ||
-			(typeof candidate.ratio === "number" &&
-				Number.isFinite(candidate.ratio))) &&
-		isDockTreeShape(candidate.first, depth + 1) &&
-		isDockTreeShape(candidate.second, depth + 1)
-	);
+/** Validate and normalize persisted nodes together, with the same depth bound. */
+function parseDockNode(value: unknown, depth = 0): DockTree | null {
+	if (!value || typeof value !== "object" || depth > 32) return null;
+	const node = value as Record<string, unknown>;
+	if (node.type === "panel")
+		return typeof node.id === "string" ? panel(node.id) : null;
+	if (
+		node.type !== "split" ||
+		(node.direction !== "horizontal" && node.direction !== "vertical") ||
+		(node.ratio !== undefined &&
+			(typeof node.ratio !== "number" || !Number.isFinite(node.ratio)))
+	)
+		return null;
+	const first = parseDockNode(node.first, depth + 1);
+	const second = parseDockNode(node.second, depth + 1);
+	return first && second
+		? split(node.direction, first, second, node.ratio as number | undefined)
+		: null;
 }

@@ -16,7 +16,11 @@ import {
 	moveGraphColumn,
 	pinnedGraphColumnOrder,
 } from "../../model/graph-model.ts";
-import type { CommitGraphProps, RowTransition } from "./graph-preferences.ts";
+import type {
+	CommitGraphProps,
+	GraphPreferences,
+	RowTransition,
+} from "./graph-preferences.ts";
 import {
 	EMPTY_SELECTED_IDS,
 	loadPreferences,
@@ -59,24 +63,47 @@ export function useCommitGraphState(props: CommitGraphProps) {
 		onOpenSelection,
 	} = props;
 
-	const [columns, setColumns] = useState<ColumnVisibility>(
-		() => loadPreferences(repositoryKey).columns,
-	);
-	const [widths, setWidths] = useState<ColumnWidths>(
-		() => loadPreferences(repositoryKey).widths,
-	);
-	const [order, setOrder] = useState<ColumnKey[]>(
-		() => loadPreferences(repositoryKey).order,
-	);
-	const [hiddenRefs, setHiddenRefs] = useState<string[]>(
-		() => loadPreferences(repositoryKey).hiddenRefs,
-	);
-	const [soloRefs, setSoloRefs] = useState<string[]>(
-		() => loadPreferences(repositoryKey).soloRefs,
-	);
-	const [pinnedRefs, setPinnedRefs] = useState<string[]>(
-		() => loadPreferences(repositoryKey).pinnedRefs,
-	);
+	const [preferences, setPreferences] = useState(() => ({
+		repositoryKey,
+		value: loadPreferences(repositoryKey),
+	}));
+	const { columns, widths, order, hiddenRefs, soloRefs, pinnedRefs } =
+		preferences.value;
+	const setters = useMemo(() => {
+		const field =
+			<K extends keyof GraphPreferences>(key: K) =>
+			(
+				update:
+					| GraphPreferences[K]
+					| ((value: GraphPreferences[K]) => GraphPreferences[K]),
+			) =>
+				setPreferences((current) => ({
+					...current,
+					value: {
+						...current.value,
+						[key]:
+							typeof update === "function"
+								? update(current.value[key])
+								: update,
+					},
+				}));
+		return {
+			setColumns: field("columns"),
+			setWidths: field("widths"),
+			setOrder: field("order"),
+			setHiddenRefs: field("hiddenRefs"),
+			setSoloRefs: field("soloRefs"),
+			setPinnedRefs: field("pinnedRefs"),
+		};
+	}, []);
+	const {
+		setColumns,
+		setWidths,
+		setOrder,
+		setHiddenRefs,
+		setSoloRefs,
+		setPinnedRefs,
+	} = setters;
 	const [isColumnsOpen, setIsColumnsOpen] = useState(false);
 	const [commitAvatars, setCommitAvatars] = useState<
 		Record<string, string | null>
@@ -137,13 +164,14 @@ export function useCommitGraphState(props: CommitGraphProps) {
 	);
 
 	useEffect(() => {
-		const preferences = loadPreferences(repositoryKey);
-		setColumns(preferences.columns);
-		setWidths(preferences.widths);
-		setOrder(preferences.order);
-		setHiddenRefs(preferences.hiddenRefs);
-		setSoloRefs(preferences.soloRefs);
-		setPinnedRefs(preferences.pinnedRefs);
+		setPreferences((current) =>
+			current.repositoryKey === repositoryKey
+				? current
+				: {
+						repositoryKey,
+						value: loadPreferences(repositoryKey),
+					},
+		);
 	}, [repositoryKey]);
 	useEffect(() => {
 		const key = scrollPreferencesKey(repositoryKey);
@@ -189,15 +217,9 @@ export function useCommitGraphState(props: CommitGraphProps) {
 	}, [itemContextMenu, refContextMenu]);
 
 	useEffect(() => {
-		writeStoredJson(preferencesKey(repositoryKey), {
-			columns,
-			widths,
-			order,
-			hiddenRefs,
-			soloRefs,
-			pinnedRefs,
-		});
-	}, [columns, hiddenRefs, order, pinnedRefs, repositoryKey, soloRefs, widths]);
+		if (preferences.repositoryKey === repositoryKey)
+			writeStoredJson(preferencesKey(repositoryKey), preferences.value);
+	}, [preferences, repositoryKey]);
 
 	const repositoryRefs = useMemo(() => {
 		const refs = new Map<string, GitGraphRef>();

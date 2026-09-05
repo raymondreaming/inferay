@@ -6,19 +6,6 @@ export type GraphColumnKey =
 	| "author"
 	| "sha";
 
-export interface GraphPresentationNode {
-	id: string;
-	hash: string;
-	parents: string[];
-}
-
-export interface GraphPresentationRef {
-	fullName: string;
-	displayName: string;
-	kind: "head" | "localBranch" | "remoteBranch" | "tag" | "stash";
-	target: string;
-}
-
 export interface GraphPresentationTransition {
 	row: number;
 	fromCol: number;
