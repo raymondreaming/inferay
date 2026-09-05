@@ -11,7 +11,7 @@ import {
 	radius,
 	surfaceStyles,
 } from "../../../design-system/styles.stylex.ts";
-import { usePrompts } from "../../prompts/hooks/usePrompts.tsx";
+import { useSkills } from "../../skills/hooks/useSkills.tsx";
 import { openSkills } from "../model/skill-events.ts";
 import type { SkillProposal, SkillRead } from "../model/skill-proposal.ts";
 
@@ -56,7 +56,7 @@ export function SkillProposalCard({
 	streaming?: boolean;
 	onResult?: (text: string) => void;
 }) {
-	const { prompts, createPrompt, updatePrompt, loading } = usePrompts();
+	const { skills, createSkill, updateSkill, loading } = useSkills(true);
 	const key = `inferay-skill-proposal:${messageId}`;
 	const signature = JSON.stringify(proposal);
 	const [outcome, setOutcome] = useState<Outcome | null>(() => {
@@ -69,7 +69,7 @@ export function SkillProposalCard({
 	const inFlight = useRef(false);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState("");
-	const existing = prompts.find((skill) => skill._id === proposal.skillId);
+	const existing = skills.find((skill) => skill._id === proposal.skillId);
 	const stale =
 		proposal.action === "update" &&
 		!loading &&
@@ -95,8 +95,8 @@ export function SkillProposalCard({
 			};
 			const saved =
 				proposal.action === "create"
-					? await createPrompt(data)
-					: await updatePrompt(proposal.skillId!, {
+					? await createSkill(data)
+					: await updateSkill(proposal.skillId!, {
 							...data,
 							expectedUpdatedAt: proposal.expectedUpdatedAt,
 						});

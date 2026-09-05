@@ -13,21 +13,6 @@ export function listenWindowEvent<K extends keyof WindowEventMap | string>(
 	) as () => void;
 }
 
-export function listenDocumentEvent<K extends keyof DocumentEventMap | string>(
-	type: K,
-	listener: K extends keyof DocumentEventMap
-		? (event: DocumentEventMap[K]) => void
-		: EventListenerOrEventListenerObject,
-): () => void {
-	const eventListener = listener as EventListenerOrEventListenerObject;
-	document.addEventListener(type, eventListener);
-	return document.removeEventListener.bind(
-		document,
-		type,
-		eventListener,
-	) as () => void;
-}
-
 export function stopPropagation(event: Event): void {
 	event.stopPropagation();
 }

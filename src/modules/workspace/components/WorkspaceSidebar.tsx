@@ -44,7 +44,6 @@ import {
 	loadDefaultChatSettings,
 } from "../../../modules/agents/model/agents.ts";
 import { deriveStoredSummary } from "../../../modules/conversation/model/chat-session-store.ts";
-import { Explorer } from "../../../modules/explorer/index.ts";
 import {
 	fetchForgeAccounts,
 	getCachedForgeAccounts,
@@ -94,6 +93,7 @@ import {
 	IconUser,
 	IconX,
 } from "../../../shared/ui/Icons.tsx";
+import { Explorer } from "../../explorer/components/Explorer.tsx";
 import {
 	getVisibleRepositoryEntries,
 	projectRepositoryWorkspaces,

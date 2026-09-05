@@ -33,7 +33,6 @@ import {
 	areForgeAccountsEqual,
 	areGithubReposEqual,
 } from "../../../modules/repository/model/forge-equality.ts";
-import { SettingsContent } from "../../../modules/settings/index.ts";
 import { dispatchAgentShellChange } from "../../../modules/workspace/model/workspace-model.ts";
 import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
 import { Button } from "../../../shared/ui/Button.tsx";
@@ -50,6 +49,7 @@ import {
 	type StateValue,
 	settingsModalUiReducer,
 } from "../model/settings-modal-state.ts";
+import { SettingsContent } from "./Settings.tsx";
 import {
 	SettingsGithubAccount,
 	SettingsGithubEmptyState,

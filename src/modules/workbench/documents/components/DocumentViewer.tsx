@@ -30,8 +30,11 @@ import {
 } from "../../../../shared/hooks/useShikiHighlighter.tsx";
 import { indexedValues } from "../../../../shared/lib/indexed-values.ts";
 import { IconCode, IconX } from "../../../../shared/ui/Icons.tsx";
+import {
+	FileSearch,
+	type FileSearchResult,
+} from "../../../explorer/components/FileSearch.tsx";
 import { FileTypeIcon } from "../../../explorer/components/FileTypeIcon.tsx";
-import { FileSearch, type FileSearchResult } from "../../../explorer/index.ts";
 import { WorkspaceDockHandle } from "../../components/WorkspaceDockHandle.tsx";
 
 export type FileContentResponse = {

@@ -34,7 +34,7 @@ import {
 import { SettingsModalHost } from "../modules/settings/components/SettingsModal.tsx";
 import { SkillsModalHost } from "../modules/skills/components/SkillsModal.tsx";
 import { RepositoryWorkspaceBar } from "../modules/workspace/components/RepositoryWorkspaceBar.tsx";
-import { WorkspaceSidebar } from "../modules/workspace/index.ts";
+import { WorkspaceSidebar } from "../modules/workspace/components/WorkspaceSidebar.tsx";
 import { listenWindowEvent } from "../shared/lib/react-events.ts";
 
 export const Route = createFileRoute("/_app")({ component: AppLayout });

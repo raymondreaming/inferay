@@ -11,17 +11,6 @@ import {
 	shadow,
 	surfaceStyles,
 } from "../../../design-system/styles.stylex.ts";
-import { PromptDetailPanel } from "../../../modules/prompts/components/PromptDetailPanel.tsx";
-import { usePrompts } from "../../../modules/prompts/hooks/usePrompts.tsx";
-import {
-	promptFormReducer as formReducer,
-	INITIAL_PROMPT_FORM as INITIAL_FORM,
-} from "../../../modules/prompts/model/prompt-form.ts";
-import { filterPrompts } from "../../../modules/prompts/model/prompt-utils.ts";
-import {
-	PROMPT_CATEGORIES,
-	type Prompt,
-} from "../../../modules/prompts/model/types.ts";
 import {
 	listenWindowEvent,
 	setInputValue,
@@ -32,7 +21,16 @@ import {
 	IconSearch,
 	IconX,
 } from "../../../shared/ui/Icons.tsx";
+import { useSkills } from "../hooks/useSkills.tsx";
 import { OPEN_SKILLS_EVENT, type SkillsTarget } from "../model/skill-events.ts";
+import {
+	filterSkills,
+	skillFormReducer as formReducer,
+	INITIAL_SKILL_FORM as INITIAL_FORM,
+	SKILL_CATEGORIES,
+	type Skill,
+} from "../model/skill-library.ts";
+import { SkillEditor } from "./SkillEditor.tsx";
 
 export function SkillsModalHost() {
 	const [request, setRequest] = useState<{
@@ -63,13 +61,13 @@ function SkillsDialog({
 	target: SkillsTarget;
 	onClose: () => void;
 }) {
-	const { prompts, createPrompt, updatePrompt, removePrompt, loading, error } =
-		usePrompts();
+	const { skills, createSkill, updateSkill, removeSkill, loading, error } =
+		useSkills(true);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
-	const selectedPrompt =
-		prompts.find((prompt) => prompt._id === selectedId) ?? null;
-	const setSelectedPrompt = (prompt: Prompt | null) =>
-		setSelectedId(prompt?._id ?? null);
+	const selectedSkill =
+		skills.find((skill) => skill._id === selectedId) ?? null;
+	const setSelectedSkill = (skill: Skill | null) =>
+		setSelectedId(skill?._id ?? null);
 	const [filter, setFilter] = useState("all");
 	const [search, setSearch] = useState("");
 	const [form, formDispatch] = useReducer(formReducer, INITIAL_FORM);
@@ -77,17 +75,16 @@ function SkillsDialog({
 	const initialized = useRef(false);
 	const dirty =
 		(form.isCreating || form.isEditing) &&
-		(form.name !== (form.isEditing ? (selectedPrompt?.name ?? "") : "") ||
-			form.command !==
-				(form.isEditing ? (selectedPrompt?.command ?? "") : "") ||
+		(form.name !== (form.isEditing ? (selectedSkill?.name ?? "") : "") ||
+			form.command !== (form.isEditing ? (selectedSkill?.command ?? "") : "") ||
 			form.description !==
-				(form.isEditing ? (selectedPrompt?.description ?? "") : "") ||
+				(form.isEditing ? (selectedSkill?.description ?? "") : "") ||
 			form.promptTemplate !==
-				(form.isEditing ? (selectedPrompt?.promptTemplate ?? "") : "") ||
+				(form.isEditing ? (selectedSkill?.promptTemplate ?? "") : "") ||
 			form.category !==
-				(form.isEditing ? (selectedPrompt?.category ?? "custom") : "custom") ||
+				(form.isEditing ? (selectedSkill?.category ?? "custom") : "custom") ||
 			form.tags !==
-				(form.isEditing ? (selectedPrompt?.tags.join(", ") ?? "") : ""));
+				(form.isEditing ? (selectedSkill?.tags.join(", ") ?? "") : ""));
 	const canLeave = () =>
 		!form.isSaving && (!dirty || confirm("Discard unsaved skill changes?"));
 	const close = () => {
@@ -104,19 +101,19 @@ function SkillsDialog({
 		if (initialized.current || loading) return;
 		initialized.current = true;
 		if (target.mode === "create") formDispatch({ type: "startCreate" });
-		if (target.mode === "browse" && prompts[0]) setSelectedId(prompts[0]._id);
+		if (target.mode === "browse" && skills[0]) setSelectedId(skills[0]._id);
 		if (target.mode === "edit") {
-			const prompt = prompts.find((item) => item._id === target.skillId);
-			if (prompt) {
-				setSelectedId(prompt._id);
-				if (!prompt.isBuiltIn) formDispatch({ type: "startEdit", prompt });
+			const skill = skills.find((item) => item._id === target.skillId);
+			if (skill) {
+				setSelectedId(skill._id);
+				if (!skill.isBuiltIn) formDispatch({ type: "startEdit", skill });
 			} else
 				formDispatch({
 					type: "setError",
 					error: "This skill is no longer available.",
 				});
 		}
-	}, [loading, prompts, target]);
+	}, [loading, skills, target]);
 
 	const handleFormChange = useCallback((field: string, value: string) => {
 		formDispatch({ type: "setField", field, value });
@@ -127,24 +124,24 @@ function SkillsDialog({
 		formDispatch({ type: "cancelEdit" });
 	};
 
-	const startEdit = useCallback((p: Prompt) => {
-		formDispatch({ type: "startEdit", prompt: p });
+	const startEdit = useCallback((p: Skill) => {
+		formDispatch({ type: "startEdit", skill: p });
 	}, []);
 
 	const startCreate = () => {
 		if (!canLeave()) return;
-		setSelectedPrompt(null);
+		setSelectedSkill(null);
 		formDispatch({ type: "startCreate" });
 	};
 
-	const selectPrompt = (p: Prompt) => {
+	const selectSkill = (p: Skill) => {
 		if (!canLeave()) return;
 		formDispatch({ type: "cancelEdit" });
-		setSelectedPrompt(p);
+		setSelectedSkill(p);
 	};
 	const duplicateSelected = () => {
-		if (!selectedPrompt || !canLeave()) return;
-		const source = selectedPrompt;
+		if (!selectedSkill || !canLeave()) return;
+		const source = selectedSkill;
 		setSelectedId(null);
 		formDispatch({ type: "startCreate" });
 		for (const [field, value] of Object.entries({
@@ -191,11 +188,11 @@ function SkillsDialog({
 					return trimmed ? [trimmed] : [];
 				}),
 			};
-			if (isInlineEdit && selectedPrompt) {
-				await updatePrompt(selectedPrompt._id, data);
+			if (isInlineEdit && selectedSkill) {
+				await updateSkill(selectedSkill._id, data);
 				formDispatch({ type: "finishEdit" });
 			} else if (form.isCreating) {
-				const created = await createPrompt(data);
+				const created = await createSkill(data);
 				setSelectedId(created._id);
 				formDispatch({ type: "finishCreate" });
 			}
@@ -209,10 +206,10 @@ function SkillsDialog({
 		}
 	};
 
-	const handleDelete = async (p: Prompt) => {
+	const handleDelete = async (p: Skill) => {
 		if (p.isBuiltIn || !confirm(`Delete /${p.command}?`)) return;
 		try {
-			await removePrompt(p._id);
+			await removeSkill(p._id);
 			setSelectedId(null);
 			formDispatch({ type: "cancelEdit" });
 		} catch (error) {
@@ -224,7 +221,7 @@ function SkillsDialog({
 		}
 	};
 
-	const filtered = filterPrompts(prompts, filter, search);
+	const filtered = filterSkills(skills, filter, search);
 	return (
 		<dialog
 			ref={dialogRef}
@@ -291,7 +288,7 @@ function SkillsDialog({
 									<option value="builtin">Built-in</option>
 									<option value="custom">Personal</option>
 									<optgroup label="Category">
-										{PROMPT_CATEGORIES.filter(
+										{SKILL_CATEGORIES.filter(
 											(category) => category.value !== "custom",
 										).map((category) => (
 											<option key={category.value} value={category.value}>
@@ -314,36 +311,30 @@ function SkillsDialog({
 									</span>
 								</div>
 							) : (
-								filtered.map((prompt) => {
-									const active = !form.isCreating && selectedId === prompt._id;
+								filtered.map((skill) => {
+									const active = !form.isCreating && selectedId === skill._id;
 									return (
 										<button
 											type="button"
-											key={prompt._id}
-											onClick={() => selectPrompt(prompt)}
+											key={skill._id}
+											onClick={() => selectSkill(skill)}
 											aria-current={active ? "true" : undefined}
-											title={prompt.description || prompt.name}
+											title={skill.description || skill.name}
 											{...stylex.props(
 												styles.skillRow,
 												active && surfaceStyles.panel,
 												active && styles.skillRowActive,
 											)}
 										>
-											<span
-												aria-hidden="true"
-												{...stylex.props(styles.skillGlyph)}
-											>
-												/
-											</span>
 											<span {...stylex.props(styles.skillCopy)}>
 												<span {...stylex.props(styles.skillCommand)}>
-													/{prompt.command}
+													/{skill.command}
 												</span>
 												<span {...stylex.props(styles.skillDescription)}>
-													{prompt.description || prompt.name}
+													{skill.description || skill.name}
 												</span>
 											</span>
-											{prompt.isBuiltIn && (
+											{skill.isBuiltIn && (
 												<span {...stylex.props(styles.builtinLabel)}>
 													Built-in
 												</span>
@@ -354,9 +345,9 @@ function SkillsDialog({
 							)}
 						</nav>
 					</aside>
-					{selectedPrompt || form.isCreating ? (
+					{selectedSkill || form.isCreating ? (
 						<div {...stylex.props(styles.detailPane)}>
-							{selectedPrompt?.isBuiltIn && !form.isCreating && (
+							{selectedSkill?.isBuiltIn && !form.isCreating && (
 								<div {...stylex.props(styles.builtInNotice)}>
 									<span>Built-in workflow · Read-only</span>
 									<button
@@ -368,26 +359,24 @@ function SkillsDialog({
 									</button>
 								</div>
 							)}
-							<PromptDetailPanel
-								selectedPrompt={selectedPrompt}
+							<SkillEditor
+								selectedSkill={selectedSkill}
 								isCreatingNew={form.isCreating}
 								isEditing={form.isEditing}
 								isSaving={form.isSaving}
 								formCommand={form.command}
 								formName={form.name}
 								formDescription={form.description}
-								formPromptTemplate={form.promptTemplate}
+								formInstructions={form.promptTemplate}
 								formCategory={form.category}
 								formTags={form.tags}
 								formError={form.error}
 								onFormChange={handleFormChange}
-								onStartEditing={() =>
-									selectedPrompt && startEdit(selectedPrompt)
-								}
+								onStartEditing={() => selectedSkill && startEdit(selectedSkill)}
 								onCancelEditing={cancelEdit}
 								onSave={handleSave}
 								onDelete={() => {
-									if (selectedPrompt) void handleDelete(selectedPrompt);
+									if (selectedSkill) void handleDelete(selectedSkill);
 								}}
 							/>
 						</div>
@@ -509,7 +498,7 @@ const styles = stylex.create({
 		padding: controlSize._3,
 		paddingRight: {
 			default: controlSize._3,
-			"@media (max-width: 700px)": controlSize._14,
+			"@media (max-width: 700px)": controlSize._12,
 		},
 		paddingBottom: controlSize._1,
 		flexShrink: 0,
@@ -654,7 +643,7 @@ const styles = stylex.create({
 		flexShrink: 0,
 		paddingBlock: controlSize._2,
 		paddingInline: controlSize._6,
-		paddingRight: controlSize._14,
+		paddingRight: controlSize._12,
 		color: color.textSoft,
 		fontSize: font.size_1,
 		borderBottomWidth: 1,

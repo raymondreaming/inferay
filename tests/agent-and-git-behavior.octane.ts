@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import { isAgentMainView } from "../src/app/model/navigation.tsx";
-import { summarizeHunkDiff } from "../src/modules/repository/hooks/useGitDiff.tsx";
 import {
 	getFileSelectionAfterToggle,
 	isUnstagedTrackedChange,
@@ -9,6 +8,7 @@ import {
 	orderProjectGitFiles,
 	resolveGitFileSelection,
 } from "../src/modules/workbench/changes/model/changes-model.ts";
+import { summarizeHunkDiff } from "../src/modules/workbench/diff/model/diff-lines.ts";
 import {
 	type AgentGroupModel,
 	type AgentPaneModel,
@@ -20,10 +20,8 @@ import {
 	type GroupId,
 	getPaneTitle,
 	getPrimaryProductLoopContext,
-	getStatusInfo,
 	migrateGroup,
 	type PaneId,
-	PRIMARY_PRODUCT_LOOP,
 	reduceAgentGroups,
 	reduceAgentWorkspaceState,
 } from "../src/modules/workspace/model/workspace-model.ts";
@@ -86,7 +84,7 @@ describe("agent state and git change behavior", () => {
 		expect(group.panes.every((item) => item.pendingCwd)).toBe(true);
 	});
 
-	test("defines the primary workspace to checkpoint or diff product loop", () => {
+	test("derives the selected workspace and chat context", () => {
 		const group = createDefaultAgentChatGroup();
 		const selected = reduceAgentWorkspaceState(
 			{
@@ -106,12 +104,6 @@ describe("agent state and git change behavior", () => {
 		)!;
 		const context = getPrimaryProductLoopContext(selected);
 
-		expect(PRIMARY_PRODUCT_LOOP.map((step) => step.stage)).toEqual([
-			"workspace",
-			"pane",
-			"chatSession",
-			"checkpointOrDiff",
-		]);
 		expect(context).toEqual({
 			workspaceId: group.id,
 			paneId: group.panes[0]!.id,
@@ -720,28 +712,6 @@ describe("agent state and git change behavior", () => {
 		expect(cleaned.selectedGroupId).toBe("default" as GroupId);
 	});
 
-	/*
-	 * This protects status mapping used by agent and agent surfaces. Tool
-	 * statuses carry the tool name through the UI, active statuses remain marked
-	 * active, and unknown statuses degrade into an inactive readable label.
-	 */
-	test("maps agent status strings into stable status info", () => {
-		expect(getStatusInfo("tool:apply_patch")).toEqual(
-			expect.objectContaining({
-				label: "Running apply_patch",
-				toolName: "apply_patch",
-				isActive: true,
-				iconType: "wrench",
-			}),
-		);
-		expect(getStatusInfo("thinking")).toEqual(
-			expect.objectContaining({ label: "Planning next step", isActive: true }),
-		);
-		expect(getStatusInfo("queued")).toEqual(
-			expect.objectContaining({ label: "queued", isActive: false }),
-		);
-	});
-
 	test("accepts only current agent main views", () => {
 		expect(isAgentMainView("editor")).toBe(false);
 		expect(isAgentMainView("chat")).toBe(true);
@@ -842,6 +812,12 @@ describe("agent state and git change behavior", () => {
 	test("summarizes deletion-only diffs as navigable hunks", () => {
 		expect(
 			summarizeHunkDiff({
+				metadata: {
+					stats: { added: 0, removed: 1, hunks: 1, lines: 2 },
+					tokenizationDisabled: false,
+					maxOldLineChars: 9,
+					maxNewLineChars: 4,
+				},
 				oldLines: [
 					{ number: 1, content: "remove me", type: "remove" },
 					{ number: 2, content: "keep", type: "context" },

@@ -307,18 +307,6 @@ export interface AgentSavedState {
 export type Pane = AgentPaneModel;
 export type WorkspaceGroup = AgentGroupModel;
 
-export type PrimaryProductLoopStage =
-	| "workspace"
-	| "pane"
-	| "chatSession"
-	| "checkpointOrDiff";
-
-export interface PrimaryProductLoopStep {
-	readonly stage: PrimaryProductLoopStage;
-	readonly owner: string;
-	readonly outcome: string;
-}
-
 export interface PrimaryProductLoopContext {
 	readonly workspaceId: GroupId | null;
 	readonly paneId: PaneId | null;
@@ -338,29 +326,6 @@ export interface AgentViewSwitchHealth {
 	readonly chatSessionPaneId: PaneId | null;
 	readonly workspacePath: string | null;
 }
-
-export const PRIMARY_PRODUCT_LOOP = [
-	{
-		stage: "workspace",
-		owner: "AgentGroupModel",
-		outcome: "select a durable project workspace",
-	},
-	{
-		stage: "pane",
-		owner: "AgentPaneModel",
-		outcome: "focus a chat-capable pane inside that workspace",
-	},
-	{
-		stage: "chatSession",
-		owner: "ChatService",
-		outcome: "run the agent session against the pane workspace context",
-	},
-	{
-		stage: "checkpointOrDiff",
-		owner: "ChatCheckpointReadModel + DiffViewer",
-		outcome: "review checkpoint cards and editor/git diffs from the run",
-	},
-] as const satisfies readonly PrimaryProductLoopStep[];
 
 const AGENT_STORAGE_KEY = "inferay-agent-state" as const;
 const LEGACY_AGENT_STORAGE_KEY = "inferay-terminal-state" as const;
@@ -1066,80 +1031,6 @@ export function getInitialGroups(): AgentGroupModel[] {
 			createDefaultAgentChatGroup(),
 		]
 	);
-}
-
-const BASE_STATUSES = {
-	idle: "idle",
-	thinking: "thinking",
-	responding: "responding",
-	error: "error",
-} as const;
-
-type BaseStatus = (typeof BASE_STATUSES)[keyof typeof BASE_STATUSES];
-
-export type StatusIconType =
-	| "circle"
-	| "sparkles"
-	| "message"
-	| "alert"
-	| "wrench"
-	| "agent";
-
-export interface StatusInfo {
-	readonly label: string;
-	readonly tone: "idle" | "thinking" | "responding" | "error" | "tool";
-	readonly iconType: StatusIconType;
-	readonly isActive: boolean;
-	readonly toolName?: string;
-}
-
-const STATUS_CONFIG: Record<BaseStatus, Omit<StatusInfo, "toolName">> = {
-	idle: {
-		label: "Idle",
-		tone: "idle",
-		iconType: "circle",
-		isActive: false,
-	},
-	thinking: {
-		label: "Planning next step",
-		tone: "thinking",
-		iconType: "sparkles",
-		isActive: true,
-	},
-	responding: {
-		label: "Writing response",
-		tone: "responding",
-		iconType: "message",
-		isActive: true,
-	},
-	error: {
-		label: "Error",
-		tone: "error",
-		iconType: "alert",
-		isActive: false,
-	},
-};
-
-const TOOL_STATUS_CONFIG: Omit<StatusInfo, "toolName" | "label"> = {
-	tone: "tool",
-	iconType: "wrench",
-	isActive: true,
-};
-
-export function getStatusInfo(status: string): StatusInfo {
-	if (status in BASE_STATUSES) return STATUS_CONFIG[status as BaseStatus];
-	if (status.startsWith("tool:"))
-		return {
-			...TOOL_STATUS_CONFIG,
-			label: `Running ${status.slice(5)}`,
-			toolName: status.slice(5),
-		};
-	return {
-		label: status,
-		tone: "idle",
-		iconType: "circle",
-		isActive: false,
-	};
 }
 
 export function getThemeById(themeId: string): AgentTheme {

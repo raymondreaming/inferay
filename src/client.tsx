@@ -21,7 +21,7 @@ import {
 	DEFAULT_AGENT_MAIN_VIEW,
 	DEFAULT_APP_ROUTE,
 } from "./app/model/navigation.tsx";
-import { preloadPrompts } from "./modules/prompts/hooks/usePrompts.tsx";
+import { preloadSkills } from "./modules/skills/hooks/useSkills.tsx";
 
 function routeLocalRequestsToDesktopServer() {
 	if (window.location.origin === getServerOrigin()) return;
@@ -72,7 +72,7 @@ applyAppBackgroundSurfaces(loadAppBackgroundSettings().mode);
 const idle =
 	window.requestIdleCallback ??
 	((callback: IdleRequestCallback) => window.setTimeout(callback, 150));
-idle(() => void preloadPrompts());
+idle(() => void preloadSkills());
 
 initializeHydrationEventCapture();
 

@@ -13,17 +13,17 @@ import {
 	IconPencil,
 	IconTrash,
 } from "../../../shared/ui/Icons.tsx";
-import { PROMPT_CATEGORIES, type Prompt } from "../model/types.ts";
+import { SKILL_CATEGORIES, type Skill } from "../model/skill-library.ts";
 
-interface PromptDetailPanelProps {
-	selectedPrompt: Prompt | null;
+interface SkillEditorProps {
+	selectedSkill: Skill | null;
 	isCreatingNew: boolean;
 	isEditing: boolean;
 	isSaving: boolean;
 	formCommand: string;
 	formName: string;
 	formDescription: string;
-	formPromptTemplate: string;
+	formInstructions: string;
 	formCategory: string;
 	formTags: string;
 	formError: string;
@@ -34,15 +34,15 @@ interface PromptDetailPanelProps {
 	onDelete: () => void;
 }
 
-export function PromptDetailPanel({
-	selectedPrompt,
+export function SkillEditor({
+	selectedSkill,
 	isCreatingNew,
 	isEditing,
 	isSaving,
 	formCommand,
 	formName,
 	formDescription,
-	formPromptTemplate,
+	formInstructions,
 	formCategory,
 	formTags,
 	formError,
@@ -51,12 +51,12 @@ export function PromptDetailPanel({
 	onCancelEditing,
 	onSave,
 	onDelete,
-}: PromptDetailPanelProps) {
+}: SkillEditorProps) {
 	const editing = isCreatingNew || isEditing;
 	const instructions = editing
-		? formPromptTemplate
-		: (selectedPrompt?.promptTemplate ?? "");
-	const command = editing ? formCommand : (selectedPrompt?.command ?? "");
+		? formInstructions
+		: (selectedSkill?.promptTemplate ?? "");
+	const command = editing ? formCommand : (selectedSkill?.command ?? "");
 	return (
 		<div {...stylex.props(styles.root)}>
 			<div {...stylex.props(styles.toolbar)}>
@@ -86,12 +86,12 @@ export function PromptDetailPanel({
 					<span {...stylex.props(styles.badge)}>
 						{isCreatingNew
 							? "Draft"
-							: selectedPrompt?.isBuiltIn
+							: selectedSkill?.isBuiltIn
 								? "Built-in"
 								: "Personal"}
 					</span>
 				</div>
-				{!editing && selectedPrompt && !selectedPrompt.isBuiltIn && (
+				{!editing && selectedSkill && !selectedSkill.isBuiltIn && (
 					<button
 						type="button"
 						onClick={onStartEditing}
@@ -115,7 +115,7 @@ export function PromptDetailPanel({
 							{...stylex.props(styles.title, styles.titleInput)}
 						/>
 					) : (
-						<h2 {...stylex.props(styles.title)}>{selectedPrompt?.name}</h2>
+						<h2 {...stylex.props(styles.title)}>{selectedSkill?.name}</h2>
 					)}
 					{editing ? (
 						<textarea
@@ -131,7 +131,7 @@ export function PromptDetailPanel({
 						/>
 					) : (
 						<p {...stylex.props(styles.description)}>
-							{selectedPrompt?.description}
+							{selectedSkill?.description}
 						</p>
 					)}
 				</div>
@@ -164,7 +164,7 @@ export function PromptDetailPanel({
 					)}
 				</section>
 				<details
-					key={selectedPrompt?._id ?? "new"}
+					key={selectedSkill?._id ?? "new"}
 					{...stylex.props(styles.details)}
 				>
 					<summary {...stylex.props(styles.detailsSummary)}>
@@ -183,7 +183,7 @@ export function PromptDetailPanel({
 									}
 									{...stylex.props(styles.input)}
 								>
-									{PROMPT_CATEGORIES.map((category) => (
+									{SKILL_CATEGORIES.map((category) => (
 										<option key={category.value} value={category.value}>
 											{category.label}
 										</option>
@@ -191,7 +191,7 @@ export function PromptDetailPanel({
 								</select>
 							) : (
 								<span {...stylex.props(styles.fieldValue)}>
-									{selectedPrompt?.category || "Custom"}
+									{selectedSkill?.category || "Custom"}
 								</span>
 							)}
 						</div>
@@ -210,7 +210,7 @@ export function PromptDetailPanel({
 								/>
 							) : (
 								<span {...stylex.props(styles.fieldValue)}>
-									{selectedPrompt?.tags.join(" · ") || "No tags"}
+									{selectedSkill?.tags.join(" · ") || "No tags"}
 								</span>
 							)}
 						</div>
@@ -224,7 +224,7 @@ export function PromptDetailPanel({
 			</div>
 			<footer {...stylex.props(styles.footer)}>
 				<div>
-					{selectedPrompt && !selectedPrompt.isBuiltIn && !isCreatingNew && (
+					{selectedSkill && !selectedSkill.isBuiltIn && !isCreatingNew && (
 						<button
 							type="button"
 							disabled={isSaving}
@@ -287,7 +287,7 @@ const styles = stylex.create({
 		justifyContent: "space-between",
 		gap: controlSize._3,
 		paddingInline: controlSize._4,
-		paddingRight: controlSize._14,
+		paddingRight: controlSize._12,
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,

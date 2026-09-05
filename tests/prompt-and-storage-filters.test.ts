@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { filterPrompts } from "../src/modules/prompts/model/prompt-utils.ts";
+import { filterSkills } from "../src/modules/skills/model/skill-library.ts";
 
 describe("prompt search filters", () => {
 	/*
@@ -32,12 +32,12 @@ describe("prompt search filters", () => {
 		};
 		const prompts = [reviewPrompt, releasePrompt, debugPrompt];
 
-		expect(filterPrompts(prompts, "builtin", "")).toEqual([reviewPrompt]);
-		expect(filterPrompts(prompts, "custom", "")).toEqual([
+		expect(filterSkills(prompts, "builtin", "")).toEqual([reviewPrompt]);
+		expect(filterSkills(prompts, "custom", "")).toEqual([
 			releasePrompt,
 			debugPrompt,
 		]);
-		expect(filterPrompts(prompts, "code", "runtime")).toEqual([debugPrompt]);
-		expect(filterPrompts(prompts, "all", "REVIEW")).toEqual([reviewPrompt]);
+		expect(filterSkills(prompts, "code", "runtime")).toEqual([debugPrompt]);
+		expect(filterSkills(prompts, "all", "REVIEW")).toEqual([reviewPrompt]);
 	});
 });

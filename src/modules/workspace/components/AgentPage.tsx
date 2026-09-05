@@ -32,8 +32,6 @@ import {
 } from "../../../design-system/styles.stylex.ts";
 import type { AgentChatHandle } from "../../../modules/conversation/components/AgentChatView.tsx";
 import { clearAgentChatPaneState } from "../../../modules/conversation/model/chat-session-store.ts";
-import { useRepositoryWorkbench } from "../../../modules/workbench/index.ts";
-import { WorkspaceCanvas } from "../../../modules/workspace/index.ts";
 import {
 	getVisibleRepositoryEntries,
 	projectRepositoryWorkspaces,
@@ -80,6 +78,8 @@ import {
 	listenWindowEvent,
 	setupAgentThemePanelShortcut,
 } from "../../../shared/lib/react-events.ts";
+import { useRepositoryWorkbench } from "../../workbench/hooks/useRepositoryWorkbench.tsx";
+import { WorkspaceCanvas } from "./WorkspaceCanvas.tsx";
 
 const Settings = lazy(() =>
 	import("../../settings/components/Settings.tsx").then((module) => ({

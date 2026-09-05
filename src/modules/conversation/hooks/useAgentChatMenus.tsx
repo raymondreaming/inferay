@@ -3,7 +3,7 @@ import type React from "react";
 import { fetchJsonOr } from "../../../adapters/backend/http.ts";
 import { getAgentDefinition } from "../../../modules/agents/model/agents.ts";
 import type { SlashCommand } from "../../../modules/conversation/model/agent-chat-shared.ts";
-import { usePrompts } from "../../../modules/prompts/hooks/usePrompts.tsx";
+import { useSkills } from "../../../modules/skills/hooks/useSkills.tsx";
 import type { AgentKind } from "../../../modules/workspace/model/workspace-model.ts";
 import {
 	findTriggerAtCursor,
@@ -89,7 +89,7 @@ export function useAgentChatMenus({
 	inputContainerRef,
 	containerRef,
 }: UseAgentChatMenusOptions) {
-	const { prompts: localPrompts, incrementUsage } = usePrompts(enabled);
+	const { skills: localSkills, incrementUsage } = useSkills(enabled);
 	const [fileMenu, setFileMenu] = useState<FileMenuState>({
 		show: false,
 		selectedIdx: 0,
@@ -130,13 +130,13 @@ export function useAgentChatMenus({
 				action: "local" as const,
 				isLocalCommand: true,
 			},
-			...localPrompts.map((prompt) => ({
-				id: prompt._id,
-				name: prompt.command,
-				description: prompt.description,
+			...localSkills.map((skill) => ({
+				id: skill._id,
+				name: skill.command,
+				description: skill.description,
 				action: "send" as const,
-				promptTemplate: prompt.promptTemplate,
-				category: prompt.category,
+				promptTemplate: skill.promptTemplate,
+				category: skill.category,
 				isFromLibrary: true,
 			})),
 			...getAgentDefinition(agentKind).nativeSlashCommands.map((command) => ({
@@ -150,7 +150,7 @@ export function useAgentChatMenus({
 			if (!deduped.has(key)) deduped.set(key, command);
 		}
 		return [...deduped.values()];
-	}, [agentKind, localPrompts]);
+	}, [agentKind, localSkills]);
 	const slashCommandNames = useMemo(
 		() => allCommands.map((command) => command.name),
 		[allCommands],

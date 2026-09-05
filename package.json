@@ -41,7 +41,6 @@
 		"vitest": "4.1.10"
 	},
 	"dependencies": {
-		"@chenglou/pretext": "^0.0.2",
 		"@octanejs/stylex": "0.1.43",
 		"@octanejs/tanstack-query": "0.1.43",
 		"@octanejs/tanstack-router": "0.1.43",
