@@ -13,7 +13,7 @@ export type DragProps = {
 	readonly onDragEnd: () => void;
 };
 
-type GitOperationResult<Operation extends string> = {
+export type GitOperationResult<Operation extends string> = {
 	readonly ok: boolean;
 	readonly operation: Operation;
 	readonly outcome: GitOperationOutcome;
@@ -32,6 +32,14 @@ export type GitRefOperationResult = GitOperationResult<
 	| "cherryPick"
 	| "revert"
 >;
+
+export type GitRefOperationRequest = {
+	operation: GitRefOperationResult["operation"];
+	action: "start" | "continue" | "skip" | "abort";
+	source?: string;
+	target?: string;
+	steps?: GitInteractiveRebaseStep[];
+};
 
 export type GitRefOperationPreflight = {
 	readonly source: string;

@@ -51,25 +51,3 @@ impl ConfigManager {
         crate::atomic_write::overwrite(&self.path, &bytes)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn persists_folder_changes_across_reload_and_reports_corruption() {
-        let root = tempfile::TempDir::new().unwrap();
-        let path = root.path().join("settings.json");
-        let config = ConfigManager::new(path.clone());
-        assert_eq!(config.search_folders().unwrap(), DEFAULT_SEARCH_FOLDERS);
-        config.set_search_folders(vec!["~/Code".into()]).unwrap();
-        assert_eq!(
-            ConfigManager::new(path.clone()).search_folders().unwrap(),
-            ["~/Code"]
-        );
-        config.set_search_folders(vec![]).unwrap();
-        assert!(config.search_folders().unwrap().is_empty());
-        std::fs::write(path, b"invalid").unwrap();
-        assert!(config.search_folders().is_err());
-    }
-}

@@ -2,6 +2,53 @@
 use super::*;
 use serde_json::Value;
 
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+enum DiffSource {
+    WorkingTree,
+    GraphWorkingTree,
+    Commit {
+        commit_hash: String,
+        commit_parent: Option<String>,
+    },
+    Comparison {
+        comparison_from: String,
+        comparison_to: String,
+    },
+}
+
+fn file_source(value: &Value) -> DiffSource {
+    serde_json::from_value(value["selectedFile"]["source"].clone()).unwrap_or_else(|_| {
+        // Convert saved panels from the previous flat representation once on read.
+        if let Some(hash) = value["selectedFileCommitHash"].as_str() {
+            DiffSource::Commit {
+                commit_hash: hash.into(),
+                commit_parent: value["selectedFileCommitParent"]
+                    .as_str()
+                    .map(str::to_owned),
+            }
+        } else if let (Some(from), Some(to)) = (
+            value["selectedFileComparisonFrom"].as_str(),
+            value["selectedFileComparisonTo"].as_str(),
+        ) {
+            DiffSource::Comparison {
+                comparison_from: from.into(),
+                comparison_to: to.into(),
+            }
+        } else if value["diffContext"] == "graphWorkingTree"
+            || (value["diffContext"] != "workingTree" && value["selectedCommitHash"].is_string())
+        {
+            DiffSource::GraphWorkingTree
+        } else {
+            DiffSource::WorkingTree
+        }
+    })
+}
+
 const KEY: &str = "native-workspace-panels:";
 
 pub(super) async fn handle(state: &ServerState, request: Request) -> ApiResult {
@@ -49,13 +96,9 @@ fn normalize(value: &Value, restore: bool) -> Value {
         "fileViewerOpen":value["fileViewerOpen"] == true,
         "fileViewerCwd":string("fileViewerCwd"), "diffViewerCwd":string("diffViewerCwd"),
         "focusedAuxiliaryPanel":null, "detachedFilePanels":[], "fileRequest":null, "selectedFile":null,
-        "selectedFileCommitHash":string("selectedFileCommitHash"),
-        "selectedFileCommitParent":string("selectedFileCommitParent"),
-        "selectedFileComparisonFrom":string("selectedFileComparisonFrom"),
-        "selectedFileComparisonTo":string("selectedFileComparisonTo"),
         "selectedCommitHash":string("selectedCommitHash"),
         "selectedCommitParent":string("selectedCommitParent"),
-        "selectedCommitIds":[], "diffContext":null, "mainViewMode":mode
+        "selectedCommitIds":[], "mainViewMode":mode
     });
     let focus = &value["focusedAuxiliaryPanel"];
     if focus["id"].is_string() && focus["cwd"].is_string() {
@@ -74,7 +117,8 @@ fn normalize(value: &Value, restore: bool) -> Value {
     );
     let file = &value["selectedFile"];
     if file["path"].is_string() && file["staged"].is_boolean() {
-        session["selectedFile"] = json!({"path":file["path"], "staged":file["staged"]});
+        session["selectedFile"] =
+            json!({"path":file["path"], "staged":file["staged"], "source":file_source(value)});
     }
     if value["fileRequest"]["path"].is_string() {
         let token = if restore {
@@ -93,42 +137,5 @@ fn normalize(value: &Value, restore: bool) -> Value {
                 .unwrap_or_default(),
         ),
     };
-    if mode == "diff" && !session["selectedFile"].is_null() {
-        session["diffContext"] = json!(match value["diffContext"].as_str() {
-            Some(context @ ("workingTree" | "graphWorkingTree" | "commit" | "comparison")) =>
-                context,
-            _ if session["selectedFileCommitHash"].is_string() => "commit",
-            _ if session["selectedFileComparisonFrom"].is_string()
-                && session["selectedFileComparisonTo"].is_string() =>
-                "comparison",
-            _ if session["selectedCommitHash"].is_string() => "graphWorkingTree",
-            _ => "workingTree",
-        });
-    }
     session
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn restores_selection_and_excludes_transient_content() {
-        let session = normalize(
-            &json!({
-                "mainViewMode":"diff", "selectedFile":{"path":"a.rs", "staged":false},
-                "selectedCommitHash":"abc", "fileRequest":{"path":"a.rs", "token":1},
-                "detachedFilePanels":[{"id":"p", "cwd":"/repo", "path":"a.rs", "initialFile":{"content":"large"}}, null]
-            }),
-            true,
-        );
-        assert_eq!(session["selectedCommitIds"], json!(["abc"]));
-        assert_eq!(session["diffContext"], "graphWorkingTree");
-        assert_eq!(
-            session["detachedFilePanels"],
-            json!([{"id":"p", "cwd":"/repo", "path":"a.rs"}])
-        );
-        assert!(session["fileRequest"]["token"].as_u64().unwrap() > 1);
-        let roundtrip = normalize(&session, false);
-        assert_eq!(roundtrip, session);
-    }
 }

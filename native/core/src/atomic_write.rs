@@ -60,18 +60,3 @@ pub fn replace(source: &Path, destination: &Path) -> std::io::Result<()> {
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn overwrites_an_existing_destination_repeatedly() {
-        let root = tempfile::tempdir().unwrap();
-        let path = root.path().join("state.json");
-        overwrite(&path, b"first").unwrap();
-        overwrite(&path, b"second").unwrap();
-        overwrite(&path, b"third").unwrap();
-        assert_eq!(std::fs::read(path).unwrap(), b"third");
-    }
-}

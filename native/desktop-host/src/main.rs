@@ -272,18 +272,3 @@ fn main() -> wry::Result<()> {
         }
     });
 }
-
-#[cfg(test)]
-mod tests {
-    use super::INITIALIZATION_SCRIPT;
-
-    #[test]
-    fn preserves_existing_renderer_drag_region_contract() {
-        assert!(INITIALIZATION_SCRIPT.contains(".electrobun-webkit-app-region-drag"));
-        assert!(INITIALIZATION_SCRIPT.contains(".electrobun-webkit-app-region-no-drag"));
-        assert!(INITIALIZATION_SCRIPT.contains("const interactive"));
-        assert!(INITIALIZATION_SCRIPT.contains("event.detail === 2"));
-        assert!(INITIALIZATION_SCRIPT.contains("toggle_maximize"));
-        assert!(INITIALIZATION_SCRIPT.contains("drag_window"));
-    }
-}

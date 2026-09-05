@@ -14,6 +14,7 @@ import type {
 	GitGraphActionResult,
 	GitOperationActivityPhase,
 	GitRefOperationPreflight,
+	GitRefOperationRequest,
 	GitRefOperationResult,
 } from "./operation-model.ts";
 import {
@@ -40,19 +41,9 @@ export function useChatDiffPanelState(props: {
 	) => void;
 	readonly onOpenGraphSelection: (itemId: string) => void;
 	readonly onCheckoutRef: (ref: string) => void;
-	readonly onRunRefOperation: (request: {
-		operation:
-			| "merge"
-			| "rebase"
-			| "interactiveRebase"
-			| "fastForward"
-			| "cherryPick"
-			| "revert";
-		action: "start" | "continue" | "skip" | "abort";
-		source?: string;
-		target?: string;
-		steps?: GitInteractiveRebaseStep[];
-	}) => Promise<GitRefOperationResult>;
+	readonly onRunRefOperation: (
+		request: GitRefOperationRequest,
+	) => Promise<GitRefOperationResult>;
 	readonly onRunGraphAction: (
 		request: GitGraphActionRequest & { name?: string; message?: string },
 	) => Promise<GitGraphActionResult>;
@@ -167,14 +158,8 @@ export function useChatDiffPanelState(props: {
 	}, [pendingRefAction, repositoryKey]);
 	const runRefOperation = useCallback(
 		async (
-			operation:
-				| "merge"
-				| "rebase"
-				| "interactiveRebase"
-				| "fastForward"
-				| "cherryPick"
-				| "revert",
-			action: "start" | "continue" | "skip" | "abort" = "start",
+			operation: GitRefOperationRequest["operation"],
+			action: GitRefOperationRequest["action"] = "start",
 		) => {
 			if (action === "start" && !pendingRefAction) return;
 			setRefOperationRunning(true);
@@ -242,6 +227,7 @@ export function useChatDiffPanelState(props: {
 	);
 	const resumableOperation =
 		repositoryOperation.kind === "idle" ? null : repositoryOperation.kind;
+	const lastResult = graphActionResult ?? refOperationResult;
 	const operationActivity: {
 		phase: GitOperationActivityPhase;
 		message: string;
@@ -255,21 +241,14 @@ export function useChatDiffPanelState(props: {
 							phase: "awaitingContinuation",
 							message: "Git operation is ready to continue",
 						}
-					: graphActionResult
+					: lastResult
 						? {
-								phase: graphActionResult.ok ? "completed" : "failed",
-								message: graphActionResult.ok
-									? `Git ${graphActionResult.operation} completed`
-									: gitOperationErrorLabel(graphActionResult.errorKind),
+								phase: lastResult.ok ? "completed" : "failed",
+								message: lastResult.ok
+									? `Git ${lastResult.operation} completed`
+									: gitOperationErrorLabel(lastResult.errorKind),
 							}
-						: refOperationResult
-							? {
-									phase: refOperationResult.ok ? "completed" : "failed",
-									message: refOperationResult.ok
-										? `Git ${refOperationResult.operation} completed`
-										: gitOperationErrorLabel(refOperationResult.errorKind),
-								}
-							: { phase: "idle", message: "" };
+						: { phase: "idle", message: "" };
 
 	return {
 		...props,
@@ -314,6 +293,7 @@ export type {
 	GitOperationErrorKind,
 	GitOperationOutcome,
 	GitRefOperationPreflight,
+	GitRefOperationRequest,
 	GitRefOperationResult,
 	GraphActionPresentation,
 } from "./operation-model.ts";

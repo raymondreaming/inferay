@@ -3,11 +3,18 @@ export interface GitWorkspaceSelectedFile {
 	readonly staged: boolean;
 }
 
-export type GitWorkspaceDiffContext =
-	| "workingTree"
-	| "graphWorkingTree"
-	| "commit"
-	| "comparison";
+export type GitWorkspaceDiffSource =
+	| { readonly kind: "workingTree" | "graphWorkingTree" }
+	| {
+			readonly kind: "commit";
+			readonly commitHash: string;
+			readonly commitParent: string | null;
+	  }
+	| {
+			readonly kind: "comparison";
+			readonly comparisonFrom: string;
+			readonly comparisonTo: string;
+	  };
 
 export interface GitWorkspaceDetachedFilePanel<InitialFile = unknown> {
 	readonly id: string;
@@ -31,12 +38,9 @@ export interface GitWorkspacePanelSession<InitialFile = unknown> {
 		readonly path: string;
 		readonly token: number;
 	} | null;
-	readonly selectedFile: GitWorkspaceSelectedFile | null;
-	readonly selectedFileCommitHash: string | null;
-	readonly selectedFileCommitParent: string | null;
-	readonly selectedFileComparisonFrom: string | null;
-	readonly selectedFileComparisonTo: string | null;
-	readonly diffContext: GitWorkspaceDiffContext | null;
+	readonly selectedFile:
+		| (GitWorkspaceSelectedFile & { readonly source: GitWorkspaceDiffSource })
+		| null;
 	readonly selectedCommitHash: string | null;
 	readonly selectedCommitIds: readonly string[];
 	readonly selectedCommitParent: string | null;
@@ -53,14 +57,6 @@ export interface GitGraphSelectionItem {
 	readonly message: string;
 }
 
-const EMPTY_FILE_SELECTION = {
-	selectedFile: null,
-	selectedFileCommitHash: null,
-	selectedFileCommitParent: null,
-	selectedFileComparisonFrom: null,
-	selectedFileComparisonTo: null,
-};
-
 export function emptyGitWorkspacePanelSession<
 	InitialFile = unknown,
 >(): GitWorkspacePanelSession<InitialFile> {
@@ -73,8 +69,7 @@ export function emptyGitWorkspacePanelSession<
 		focusedAuxiliaryPanel: null,
 		detachedFilePanels: [],
 		fileRequest: null,
-		...EMPTY_FILE_SELECTION,
-		diffContext: null,
+		selectedFile: null,
 		selectedCommitHash: null,
 		selectedCommitIds: [],
 		selectedCommitParent: null,
@@ -82,15 +77,10 @@ export function emptyGitWorkspacePanelSession<
 	};
 }
 
-function resolvedDiffContext(
-	current: GitWorkspacePanelSession,
-): GitWorkspaceDiffContext | null {
-	if (current.mainViewMode !== "diff" || !current.selectedFile) return null;
-	if (current.diffContext) return current.diffContext;
-	if (current.selectedFileCommitHash) return "commit";
-	if (current.selectedFileComparisonFrom && current.selectedFileComparisonTo)
-		return "comparison";
-	return current.selectedCommitHash ? "graphWorkingTree" : "workingTree";
+function resolvedDiffContext(current: GitWorkspacePanelSession) {
+	return current.mainViewMode === "diff"
+		? current.selectedFile?.source.kind
+		: undefined;
 }
 
 export function openGitGraph<InitialFile>(
@@ -100,7 +90,6 @@ export function openGitGraph<InitialFile>(
 	return {
 		...current,
 		diffViewerCwd: cwd,
-		diffContext: null,
 		mainViewMode: "graph",
 		focusedAuxiliaryPanel: { id: "workspace-diff-viewer", cwd },
 	};
@@ -131,8 +120,7 @@ export function bindGitGraphRepository<InitialFile>(
 		...current,
 		diffViewerCwd: cwd,
 		focusedAuxiliaryPanel: null,
-		...(repositoryChanged ? EMPTY_FILE_SELECTION : {}),
-		diffContext: null,
+		selectedFile: repositoryChanged ? null : current.selectedFile,
 		selectedCommitHash: repositoryChanged ? null : current.selectedCommitHash,
 		selectedCommitIds: repositoryChanged ? [] : current.selectedCommitIds,
 		selectedCommitParent: repositoryChanged
@@ -145,14 +133,12 @@ function openFileDiff<InitialFile>(
 	current: GitWorkspacePanelSession<InitialFile>,
 	cwd: string,
 	file: GitWorkspaceSelectedFile,
-	diffContext: GitWorkspaceDiffContext,
+	source: GitWorkspaceDiffSource,
 ): GitWorkspacePanelSession<InitialFile> {
 	return {
 		...current,
-		...EMPTY_FILE_SELECTION,
 		diffViewerCwd: cwd,
-		selectedFile: file,
-		diffContext,
+		selectedFile: { ...file, source },
 		mainViewMode: "diff",
 		focusedAuxiliaryPanel: { id: "workspace-diff-viewer", cwd },
 	};
@@ -163,15 +149,13 @@ export function openGitWorkingTreeFileDiff<InitialFile>(
 	cwd: string,
 	file: GitWorkspaceSelectedFile,
 ): GitWorkspacePanelSession<InitialFile> {
-	return openFileDiff(
-		current,
-		cwd,
-		file,
-		current.mainViewMode === "graph" ||
+	return openFileDiff(current, cwd, file, {
+		kind:
+			current.mainViewMode === "graph" ||
 			resolvedDiffContext(current) === "graphWorkingTree"
-			? "graphWorkingTree"
-			: "workingTree",
-	);
+				? "graphWorkingTree"
+				: "workingTree",
+	});
 }
 
 export function openGitCommitFileDiff<InitialFile>(
@@ -181,11 +165,12 @@ export function openGitCommitFileDiff<InitialFile>(
 	commitHash: string,
 	commitParent: string | null,
 ): GitWorkspacePanelSession<InitialFile> {
-	return {
-		...openFileDiff(current, cwd, { path, staged: false }, "commit"),
-		selectedFileCommitHash: commitHash,
-		selectedFileCommitParent: commitParent,
-	};
+	return openFileDiff(
+		current,
+		cwd,
+		{ path, staged: false },
+		{ kind: "commit", commitHash, commitParent },
+	);
 }
 
 export function openGitComparisonFileDiff<InitialFile>(
@@ -195,11 +180,12 @@ export function openGitComparisonFileDiff<InitialFile>(
 	from: string,
 	to: string,
 ): GitWorkspacePanelSession<InitialFile> {
-	return {
-		...openFileDiff(current, cwd, { path, staged: false }, "comparison"),
-		selectedFileComparisonFrom: from,
-		selectedFileComparisonTo: to,
-	};
+	return openFileDiff(
+		current,
+		cwd,
+		{ path, staged: false },
+		{ kind: "comparison", comparisonFrom: from, comparisonTo: to },
+	);
 }
 
 export function dismissGitWorkspaceViewer<InitialFile>(
@@ -213,8 +199,7 @@ export function dismissGitWorkspaceViewer<InitialFile>(
 	}
 	return {
 		...current,
-		...EMPTY_FILE_SELECTION,
-		diffContext: null,
+		selectedFile: null,
 		selectedCommitHash: null,
 		selectedCommitIds: [],
 		selectedCommitParent: null,
@@ -300,7 +285,7 @@ export function updateGitGraphSelection<InitialFile>(
 		nextIds.some((id, index) => id !== current.selectedCommitIds[index]);
 	return {
 		...current,
-		...(selectionChanged ? EMPTY_FILE_SELECTION : {}),
+		selectedFile: selectionChanged ? null : current.selectedFile,
 		selectedCommitHash: nextPrimary,
 		selectedCommitIds: nextIds,
 		selectedCommitParent: null,

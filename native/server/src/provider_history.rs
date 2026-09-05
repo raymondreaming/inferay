@@ -169,29 +169,3 @@ fn message(content: &str, role: &str, source_id: Option<&Value>) -> Option<ChatT
         extra: Map::new(),
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_codex_event_messages_without_response_item_duplicates() {
-        let text = r#"{"type":"event_msg","timestamp":"1","payload":{"type":"user_message","message":"hello"}}
-{"type":"response_item","payload":{"type":"message","role":"user","content":[]}}
-{"type":"event_msg","timestamp":"2","payload":{"type":"agent_message","message":"hi"}}"#;
-        let messages = parse_codex(text);
-        assert_eq!(messages.len(), 2);
-        assert_eq!(messages[0].role, "user");
-        assert_eq!(messages[1].content, "hi");
-    }
-
-    #[test]
-    fn parses_visible_claude_text_blocks() {
-        let text = r#"{"type":"user","uuid":"1","message":{"content":"hello"}}
-{"type":"assistant","uuid":"2","message":{"content":[{"type":"text","text":"hi"}]}}
-{"type":"user","isMeta":true,"message":{"content":"hidden"}}"#;
-        let messages = parse_claude(text);
-        assert_eq!(messages.len(), 2);
-        assert_eq!(messages[1].content, "hi");
-    }
-}

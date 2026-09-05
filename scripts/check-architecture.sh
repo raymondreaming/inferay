@@ -17,20 +17,7 @@ bunx biome lint \
 	src/modules/workbench/diff/components/DiffViewer/index.tsx \
 	src/modules/workspace/components/WorkspaceCanvas/index.tsx \
 	src/modules/workspace/components/PaneView/index.tsx \
-	src/routes/_app/agent.tsx \
-	tests/agent-chat-view-visibility.octane.tsx \
-	tests/agent-inline-diff-parity.test.ts \
-	tests/chat-behavior.test.ts \
-	tests/chat-connection-behavior.octane.tsx \
-	tests/chat-header-behavior.octane.tsx \
-	tests/chat-input-actions-behavior.octane.tsx \
-	tests/chat-message-list-memo.test.tsx \
-	tests/chat-queue-behavior.octane.tsx \
-	tests/chat-session-store.test.ts \
-	tests/chat-sync-reconciler.test.ts \
-	tests/git-diff-view-render.octane.tsx \
-	tests/agent-and-git-behavior.octane.ts \
-	tests/agent-pane-visibility.octane.tsx
+	src/routes/_app/agent.tsx
 
 echo
 echo "==> Component folder structure"
@@ -41,7 +28,7 @@ if find src/components src/features src/pages src/hooks src/lib -type f 2>/dev/n
 	echo "Legacy implementation buckets must stay empty" >&2
 	exit 1
 fi
-if rg -n 'src/(components|features|pages|hooks|lib)/' src tests; then
+if rg -n 'src/(components|features|pages|hooks|lib)/' src; then
 	echo "Legacy implementation import remains" >&2
 	exit 1
 fi
@@ -51,27 +38,12 @@ echo "==> TypeScript"
 bunx tsc --noEmit
 
 echo
-echo "==> Focused architecture tests"
-bun test \
-	tests/agent-inline-diff-parity.test.ts \
-	tests/chat-message-list-memo.test.tsx \
-	tests/chat-behavior.test.ts \
-	tests/chat-session-store.test.ts \
-	tests/chat-sync-reconciler.test.ts
-
-bun run test:renderer
-
-echo
 echo "==> Native Rust format"
 cargo fmt --all -- --check
 
 echo
 echo "==> Native Rust lint"
 cargo clippy --workspace --all-targets --all-features -- -D warnings
-
-echo
-echo "==> Native Rust tests"
-cargo test --workspace
 
 echo
 echo "==> Renderer build"

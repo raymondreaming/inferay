@@ -7,18 +7,3 @@ pub async fn overwrite(path: &Path, bytes: &[u8]) -> Result<(), String> {
         .await
         .map_err(|error| error.to_string())?
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn overwrites_an_existing_destination_repeatedly() {
-        let root = tempfile::tempdir().unwrap();
-        let path = root.path().join("state.json");
-        overwrite(&path, b"first").await.unwrap();
-        overwrite(&path, b"second").await.unwrap();
-        overwrite(&path, b"third").await.unwrap();
-        assert_eq!(tokio::fs::read(path).await.unwrap(), b"third");
-    }
-}

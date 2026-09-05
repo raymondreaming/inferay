@@ -21,7 +21,3 @@ tokio-tungstenite = "0.29.0"
 url = "2.5.8"
 uuid = { version = "1.21.0", features = ["v4"] }
 walkdir = "2.5.0"
-
-[dev-dependencies]
-tempfile = "3.27.0"
-tower = { version = "0.5.3", features = ["util"] }

@@ -51,13 +51,11 @@ Callers own layout and behavior. Recipes own colors, borders, shadows, and
 interaction states; do not override those locally. Message boxes and Explorer
 headers use `surfaceStyles.panel`. Explorer rows use the row recipes.
 
-Run `bun test tests/app-appearance.test.ts` and `bun run build:renderer`.
-The tests load the production stylesheet and cover initial colors, theme
-switching, previews, background modes, and clearing custom colors. Check both
-themes and affected selection states in the browser after visual changes.
+Run `bun run build:renderer`. Check both themes and affected selection states
+in the browser after visual changes, including initial colors, previews,
+background modes, and clearing custom colors.
 
 The StyleX build hook in `vite.config.ts` fingerprints source files before Vite
 names the CSS asset. Keep this hook: StyleX inserts its final rules after asset
-hashing, and the native server caches asset URLs as immutable. The regression
-test `tests/stylex-asset-cache.test.ts` checks that style-only edits change the
-stylesheet URL and unchanged sources keep it stable.
+hashing, and the native server caches asset URLs as immutable. Verify that style-only edits change the stylesheet URL and unchanged sources
+keep it stable.

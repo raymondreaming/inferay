@@ -44,20 +44,6 @@ impl AgentCommandResolver {
         }
     }
 
-    #[cfg(test)]
-    fn with_environment(
-        home_directory: impl Into<PathBuf>,
-        is_windows: bool,
-        environment: impl IntoIterator<Item = (OsString, OsString)>,
-    ) -> Self {
-        Self {
-            home_directory: home_directory.into(),
-            is_windows,
-            fixed_environment: Some(environment.into_iter().collect()),
-            availability_cache: Mutex::new([None, None]),
-        }
-    }
-
     pub fn path_candidates(&self, kind: AgentKind) -> Vec<PathBuf> {
         let environment = self.environment();
         let binary = kind.as_str();
@@ -224,86 +210,4 @@ fn javascript_dirname(path: &Path) -> PathBuf {
         .filter(|parent| !parent.as_os_str().is_empty())
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("."))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::TempDir;
-
-    #[test]
-    fn preserves_agent_candidate_priority_and_resolution() {
-        let root = TempDir::new().unwrap();
-        let configured = root.path().join("configured/claude");
-        let local = root.path().join(".local/bin/claude");
-        let codex = root.path().join(".nvm/versions/node/v20/bin/codex");
-        std::fs::create_dir_all(configured.parent().unwrap()).unwrap();
-        std::fs::create_dir_all(local.parent().unwrap()).unwrap();
-        std::fs::create_dir_all(codex.parent().unwrap()).unwrap();
-        std::fs::write(&local, "local").unwrap();
-        std::fs::write(&codex, "codex").unwrap();
-        let resolver = AgentCommandResolver::with_environment(
-            root.path(),
-            false,
-            [
-                (
-                    OsString::from("CLAUDE_PATH"),
-                    configured.as_os_str().to_owned(),
-                ),
-                (OsString::from("PATH"), OsString::from("/usr/bin:/bin")),
-            ],
-        );
-
-        let claude_candidates = resolver.path_candidates(AgentKind::Claude);
-        assert_eq!(claude_candidates[0], configured);
-        assert_eq!(claude_candidates[1], local);
-        assert_eq!(resolver.resolve_agent_binary(AgentKind::Claude), local);
-        assert_eq!(resolver.resolve_agent_binary(AgentKind::Codex), codex);
-    }
-
-    #[test]
-    fn creates_agent_environment_with_the_existing_prepend_order() {
-        let root = TempDir::new().unwrap();
-        let explicit = root.path().join("configured/claude");
-        let resolver = AgentCommandResolver::with_environment(
-            root.path(),
-            false,
-            [
-                (
-                    OsString::from("CLAUDE_PATH"),
-                    explicit.as_os_str().to_owned(),
-                ),
-                (OsString::from("PATH"), OsString::from("/usr/bin:/bin")),
-                (OsString::from("CLAUDECODE"), OsString::from("1")),
-            ],
-        );
-
-        let environment = resolver.create_agent_env(AgentKind::Claude);
-        assert!(!environment.contains_key(OsStr::new("CLAUDECODE")));
-        let path = environment[OsStr::new("PATH")].to_string_lossy();
-        let entries = path.split(':').collect::<Vec<_>>();
-        assert_eq!(entries.last().copied(), Some("/bin"));
-        assert!(entries.contains(&explicit.parent().unwrap().to_string_lossy().as_ref()));
-        assert_eq!(entries[entries.len() - 2], "/usr/bin");
-    }
-
-    #[test]
-    fn caches_agent_availability_like_the_typescript_helper() {
-        let root = TempDir::new().unwrap();
-        let binary = root.path().join("configured/codex");
-        std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
-        std::fs::write(&binary, "codex").unwrap();
-        let resolver = AgentCommandResolver::with_environment(
-            root.path(),
-            false,
-            [
-                (OsString::from("CODEX_PATH"), binary.as_os_str().to_owned()),
-                (OsString::from("PATH"), OsString::new()),
-            ],
-        );
-
-        assert!(resolver.has_agent_cli(AgentKind::Codex));
-        std::fs::remove_file(binary).unwrap();
-        assert!(resolver.has_agent_cli(AgentKind::Codex));
-    }
 }

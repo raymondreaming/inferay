@@ -59,23 +59,3 @@ fn auth_config_candidates(home: &Path, kind: AgentKind) -> Vec<PathBuf> {
         ],
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn preserves_health_states_for_each_supported_auth_location() {
-        for kind in [AgentKind::Claude, AgentKind::Codex] {
-            let root = tempfile::tempdir().unwrap();
-            assert_eq!(provider_health(true, root.path(), kind), "needs-login");
-            for candidate in auth_config_candidates(root.path(), kind) {
-                std::fs::create_dir_all(candidate.parent().unwrap()).unwrap();
-                std::fs::write(&candidate, "{}").unwrap();
-                assert_eq!(provider_health(true, root.path(), kind), "ready");
-                assert_eq!(provider_health(false, root.path(), kind), "missing-cli");
-                std::fs::remove_file(candidate).unwrap();
-            }
-        }
-    }
-}

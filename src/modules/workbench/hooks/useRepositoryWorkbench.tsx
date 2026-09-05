@@ -19,10 +19,7 @@ import {
 	useGitGraph,
 } from "../../../modules/repository/hooks/useGitGraph.tsx";
 import { useGitStatus } from "../../../modules/repository/hooks/useGitStatus.tsx";
-import type {
-	GitFileEntry,
-	GitInteractiveRebaseStep,
-} from "../../../modules/repository/model/types.ts";
+import type { GitFileEntry } from "../../../modules/repository/model/types.ts";
 import { lockPointerSelection } from "../../../shared/lib/pointer-selection-lock.ts";
 import { queryClient } from "../../../shared/lib/query-client.ts";
 import { listenWindowEvent } from "../../../shared/lib/react-events.ts";
@@ -30,15 +27,14 @@ import type { DiffRequest } from "../../repository/model/types.ts";
 import {
 	ChangesPanel,
 	getFileSelectionAfterToggle,
-	type SelectedFile,
 	visibleGitFiles,
 } from "../changes/components/ChangesPanel/index.tsx";
-import type {
-	DragProps,
-	GitGraphActionResult,
-	GitRefOperationResult,
-} from "../components/ChatDiffPanel/index.tsx";
+import type { DragProps } from "../components/ChatDiffPanel/index.tsx";
 import { ChatDiffPanel } from "../components/ChatDiffPanel/index.tsx";
+import type {
+	GitOperationResult,
+	GitRefOperationRequest,
+} from "../components/ChatDiffPanel/operation-model.ts";
 import {
 	WorkbenchDiffRail,
 	WorkbenchSidebar,
@@ -245,15 +241,16 @@ export function useRepositoryWorkbench({
 		detachedFilePanels,
 		fileRequest,
 		selectedFile,
-		selectedFileCommitHash,
-		selectedFileCommitParent,
-		selectedFileComparisonFrom,
-		selectedFileComparisonTo,
 		selectedCommitHash,
 		selectedCommitIds,
 		selectedCommitParent,
 		mainViewMode,
 	} = panelSession;
+	const fileSource = selectedFile?.source;
+	const commitSource = fileSource?.kind === "commit" ? fileSource : null;
+	const comparisonSource =
+		fileSource?.kind === "comparison" ? fileSource : null;
+
 	const setPanelField = useCallback(
 		<Key extends keyof WorkspacePanelSession>(
 			key: Key,
@@ -265,10 +262,6 @@ export function useRepositoryWorkbench({
 			})),
 		[updatePanelSession],
 	);
-	const setDiffViewerCwd = useCallback(
-		(value: StateValue<string | null>) => setPanelField("diffViewerCwd", value),
-		[setPanelField],
-	);
 	const setFocusedAuxiliaryPanel = useCallback(
 		(value: StateValue<WorkspacePanelSession["focusedAuxiliaryPanel"]>) =>
 			setPanelField("focusedAuxiliaryPanel", value),
@@ -277,11 +270,6 @@ export function useRepositoryWorkbench({
 	const setDetachedFilePanels = useCallback(
 		(value: StateValue<DetachedFilePanel[]>) =>
 			setPanelField("detachedFilePanels", value),
-		[setPanelField],
-	);
-	const setSelectedFile = useCallback(
-		(value: StateValue<SelectedFile | null>) =>
-			setPanelField("selectedFile", value),
 		[setPanelField],
 	);
 	const setMainViewMode = useCallback(
@@ -470,11 +458,6 @@ export function useRepositoryWorkbench({
 			...current,
 			diffViewerCwd: selectedGraphWorktree.path,
 			selectedFile: null,
-			selectedFileCommitHash: null,
-			selectedFileCommitParent: null,
-			selectedFileComparisonFrom: null,
-			selectedFileComparisonTo: null,
-			diffContext: null,
 			selectedCommitHash: null,
 			selectedCommitIds: [],
 			selectedCommitParent: null,
@@ -486,12 +469,12 @@ export function useRepositoryWorkbench({
 		}));
 	}, [selectedGraphWorktree, updatePanelSession]);
 	const historicalCommitCwd =
-		mainViewMode === "diff" && selectedFileCommitHash
+		mainViewMode === "diff" && commitSource?.commitHash
 			? (diffViewerCwd ?? undefined)
 			: graphCwd;
 	const historicalCommitHash =
 		mainViewMode === "diff"
-			? (selectedFileCommitHash ?? undefined)
+			? (commitSource?.commitHash ?? undefined)
 			: selectedCommitIds.length <= 1 &&
 					selectedGraphItem &&
 					selectedGraphItem.itemKind !== "worktreeWip"
@@ -499,7 +482,7 @@ export function useRepositoryWorkbench({
 				: undefined;
 	const historicalCommitParent =
 		mainViewMode === "diff"
-			? (selectedFileCommitParent ?? undefined)
+			? (commitSource?.commitParent ?? undefined)
 			: (selectedCommitParent ?? undefined);
 	const historicalGraphRevision =
 		mainViewMode === "diff" && diffViewerCwd
@@ -514,10 +497,10 @@ export function useRepositoryWorkbench({
 	const comparisonDetailsState = useComparisonDetails(
 		mainViewMode === "diff" ? (diffViewerCwd ?? undefined) : graphCwd,
 		mainViewMode === "diff"
-			? (selectedFileComparisonFrom ?? undefined)
+			? (comparisonSource?.comparisonFrom ?? undefined)
 			: undefined,
 		mainViewMode === "diff"
-			? (selectedFileComparisonTo ?? undefined)
+			? (comparisonSource?.comparisonTo ?? undefined)
 			: undefined,
 		historicalGraphRevision,
 		mainViewMode === "graph" && selectedCommitIds.length > 1
@@ -557,106 +540,78 @@ export function useRepositoryWorkbench({
 		},
 		[graphCwd, refetch, selectGraphCommit],
 	);
-	const runGraphRefOperation = useCallback(
-		async (request: {
-			operation:
-				| "merge"
-				| "rebase"
-				| "interactiveRebase"
-				| "fastForward"
-				| "cherryPick"
-				| "revert";
-			action: "start" | "continue" | "skip" | "abort";
-			source?: string;
-			target?: string;
-			steps?: GitInteractiveRebaseStep[];
-		}): Promise<GitRefOperationResult> => {
-			if (!graphCwd) {
-				return {
-					ok: false,
-					operation: request.operation,
-					outcome: "failed",
-					conflicts: [],
-					errorKind: "invalidInput",
-					error: "No Git repository selected",
-				};
-			}
+	const { runGraphRefOperation, runGraphActionRequest } = useMemo(() => {
+		async function run<Operation extends string>(
+			endpoint: string,
+			operation: Operation,
+			request: object,
+			selectHead: boolean,
+			fallback: string,
+		): Promise<GitOperationResult<Operation>> {
+			const failed = (
+				error: string,
+				errorKind: "invalidInput" | "commandFailed",
+			): GitOperationResult<Operation> => ({
+				ok: false,
+				operation,
+				outcome: "failed",
+				conflicts: [],
+				errorKind,
+				error,
+			});
+			if (!graphCwd)
+				return failed("No Git repository selected", "invalidInput");
 			try {
-				const result = await postJson<GitRefOperationResult>(
-					"/api/git/ref-operation",
+				const result = await postJson<GitOperationResult<Operation>>(
+					`/api/git/${endpoint}`,
 					{ cwd: graphCwd, ...request },
-				);
-				await refetch();
-				if (result.ok) selectGraphCommit(result.head ?? null);
-				return result;
-			} catch (error) {
-				return {
-					ok: false,
-					operation: request.operation,
-					outcome: "failed",
-					conflicts: [],
-					errorKind: "commandFailed",
-					error:
-						error instanceof Error ? error.message : "Git operation failed",
-				};
-			}
-		},
-		[graphCwd, refetch, selectGraphCommit],
-	);
-	const runGraphActionRequest = useCallback(
-		async (
-			request: GitGraphActionRequest & { name?: string; message?: string },
-		): Promise<GitGraphActionResult> => {
-			if (!graphCwd) {
-				return {
-					ok: false,
-					operation: request.action,
-					outcome: "failed",
-					conflicts: [],
-					errorKind: "invalidInput",
-					error: "No Git repository selected",
-				};
-			}
-			try {
-				const result = await postJson<GitGraphActionResult>(
-					"/api/git/graph-action",
-					{
-						cwd: graphCwd,
-						action: request.action,
-						target: request.target,
-						targets: request.targets,
-						name: request.name,
-						message: request.message,
-					},
 				);
 				await refetch();
 				if (
 					result.ok &&
-					result.head &&
+					selectHead &&
+					(endpoint === "ref-operation" || result.head)
+				)
+					selectGraphCommit(result.head ?? null);
+				return result;
+			} catch (error) {
+				return failed(
+					error instanceof Error ? error.message : fallback,
+					"commandFailed",
+				);
+			}
+		}
+		return {
+			runGraphRefOperation: (request: GitRefOperationRequest) =>
+				run(
+					"ref-operation",
+					request.operation,
+					request,
+					true,
+					"Git operation failed",
+				),
+			runGraphActionRequest: ({
+				action,
+				target,
+				targets,
+				name,
+				message,
+			}: GitGraphActionRequest & { name?: string; message?: string }) =>
+				run(
+					"graph-action",
+					action,
+					{ action, target, targets, name, message },
 					[
 						"cherryPick",
 						"revert",
 						"resetSoft",
 						"resetMixed",
 						"resetHard",
-					].includes(request.action)
-				) {
-					selectGraphCommit(result.head);
-				}
-				return result;
-			} catch (error) {
-				return {
-					ok: false,
-					operation: request.action,
-					outcome: "failed",
-					conflicts: [],
-					errorKind: "commandFailed",
-					error: error instanceof Error ? error.message : "Git action failed",
-				};
-			}
-		},
-		[graphCwd, refetch, selectGraphCommit],
-	);
+					].includes(action),
+					"Git action failed",
+				),
+		};
+	}, [graphCwd, refetch, selectGraphCommit]);
 	useEffect(() => {
 		if (mainViewMode !== "graph" || graph.loading || !graph.commits.length)
 			return;
@@ -728,10 +683,10 @@ export function useRepositoryWorkbench({
 							graphRevisionsRef.current.get(diffViewerCwd) ?? undefined,
 						file: selectedFile.path,
 						staged: selectedFile.staged,
-						commitHash: selectedFileCommitHash ?? undefined,
-						commitParent: selectedFileCommitParent ?? undefined,
-						comparisonFrom: selectedFileComparisonFrom ?? undefined,
-						comparisonTo: selectedFileComparisonTo ?? undefined,
+						commitHash: commitSource?.commitHash ?? undefined,
+						commitParent: commitSource?.commitParent ?? undefined,
+						comparisonFrom: comparisonSource?.comparisonFrom ?? undefined,
+						comparisonTo: comparisonSource?.comparisonTo ?? undefined,
 						view: diffViewMode === "split" ? "full" : "review",
 					}
 				: null,
@@ -741,21 +696,14 @@ export function useRepositoryWorkbench({
 			diffViewerCwd,
 			graph.revision,
 			selectedFile,
-			selectedFileCommitHash,
-			selectedFileCommitParent,
-			selectedFileComparisonFrom,
-			selectedFileComparisonTo,
+			commitSource,
+			comparisonSource,
 		],
 	);
 	const { diff, loading: diffLoading } = useGitDiff(diffRequest);
 
 	useEffect(() => {
-		if (
-			!selectedFile ||
-			!diffViewerProject ||
-			selectedFileCommitHash ||
-			(selectedFileComparisonFrom && selectedFileComparisonTo)
-		)
+		if (!selectedFile || !diffViewerProject || commitSource || comparisonSource)
 			return;
 		const current =
 			diffViewerProject.files.find(
@@ -764,23 +712,24 @@ export function useRepositoryWorkbench({
 					file.staged === selectedFile.staged,
 			) ??
 			diffViewerProject.files.find((file) => file.path === selectedFile.path);
-		if (!current) {
-			setSelectedFile(null);
-			setDiffViewerCwd(null);
-			return;
-		}
-		if (current.staged !== selectedFile.staged) {
-			setSelectedFile({ path: current.path, staged: current.staged });
-		}
+		if (current && current.staged === selectedFile.staged) return;
+		updatePanelSession((session) => {
+			if (session.selectedFile !== selectedFile) return session;
+			return current
+				? {
+						...session,
+						selectedFile: { ...selectedFile, staged: current.staged },
+					}
+				: { ...session, selectedFile: null, diffViewerCwd: null };
+		});
 	}, [
 		diffViewerProject,
 		selectedFile,
-		selectedFileCommitHash,
-		selectedFileComparisonFrom,
-		selectedFileComparisonTo,
-		setDiffViewerCwd,
-		setSelectedFile,
+		commitSource,
+		comparisonSource,
+		updatePanelSession,
 	]);
+
 	useEffect(() => {
 		if (!active) return;
 		setSidebarWidth(loadSidebarWidth());
@@ -855,14 +804,14 @@ export function useRepositoryWorkbench({
 	);
 	const selectCommitFile = useCallback(
 		(file: CommitFile) => {
-			const commitCwd = selectedFileCommitHash ? diffViewerCwd : activeCwd;
+			const commitCwd = commitSource?.commitHash ? diffViewerCwd : activeCwd;
 			const commitHash =
-				selectedFileCommitHash ??
+				commitSource?.commitHash ??
 				(selectedGraphItem?.itemKind !== "worktreeWip"
 					? selectedGraphItem?.hash
 					: undefined);
-			const commitParent = selectedFileCommitHash
-				? selectedFileCommitParent
+			const commitParent = commitSource?.commitHash
+				? commitSource?.commitParent
 				: selectedCommitParent;
 			if (!commitCwd || !commitHash) return;
 			updatePanelSession((current) =>
@@ -879,19 +828,19 @@ export function useRepositoryWorkbench({
 			activeCwd,
 			diffViewerCwd,
 			selectedCommitParent,
-			selectedFileCommitHash,
-			selectedFileCommitParent,
+			commitSource,
 			selectedGraphItem,
 			updatePanelSession,
 		],
 	);
 	const selectComparisonFile = useCallback(
 		(file: CommitFile) => {
-			const fileComparisonCwd = selectedFileComparisonFrom
+			const fileComparisonCwd = comparisonSource?.comparisonFrom
 				? diffViewerCwd
 				: comparisonCwd;
-			const fileComparisonFrom = selectedFileComparisonFrom ?? comparisonFrom;
-			const fileComparisonTo = selectedFileComparisonTo ?? comparisonTo;
+			const fileComparisonFrom =
+				comparisonSource?.comparisonFrom ?? comparisonFrom;
+			const fileComparisonTo = comparisonSource?.comparisonTo ?? comparisonTo;
 			if (!fileComparisonCwd || !fileComparisonFrom || !fileComparisonTo)
 				return;
 			updatePanelSession((current) =>
@@ -909,8 +858,7 @@ export function useRepositoryWorkbench({
 			comparisonFrom,
 			comparisonTo,
 			diffViewerCwd,
-			selectedFileComparisonFrom,
-			selectedFileComparisonTo,
+			comparisonSource,
 			updatePanelSession,
 		],
 	);
@@ -1040,9 +988,7 @@ export function useRepositoryWorkbench({
 	);
 	const cycleHistoricalFile = useCallback(
 		(direction: -1 | 1) => {
-			const comparisonDiff =
-				selectedFileComparisonFrom !== null &&
-				selectedFileComparisonTo !== null;
+			const comparisonDiff = comparisonSource !== null;
 			const historicalFiles = comparisonDiff
 				? comparisonKeyboardFiles
 				: commitKeyboardFiles;
@@ -1070,8 +1016,7 @@ export function useRepositoryWorkbench({
 			selectCommitFile,
 			selectComparisonFile,
 			selectedFile,
-			selectedFileComparisonFrom,
-			selectedFileComparisonTo,
+			comparisonSource,
 		],
 	);
 	const handleDiffKeyboardNavigation = useCallback(
@@ -1354,11 +1299,7 @@ export function useRepositoryWorkbench({
 					}
 					viewMode={diffViewMode}
 					onViewModeChange={setDiffViewMode}
-					startAtFirstChange={
-						!selectedFileCommitHash &&
-						!selectedFileComparisonFrom &&
-						!selectedFileComparisonTo
-					}
+					startAtFirstChange={!commitSource && !comparisonSource}
 					zenMode={zenMode}
 					onToggleZenMode={toggleZenMode}
 				/>
