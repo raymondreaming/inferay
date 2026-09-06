@@ -9,7 +9,7 @@ import {
 	IconPencil,
 	IconTrash,
 } from "../../../../shared/ui/Icons/index.tsx";
-import { SKILL_CATEGORIES, type Skill } from "../../model/skill-library.ts";
+import type { Skill } from "../../model/skill-library.ts";
 import { styles } from "./styles.ts";
 
 interface SkillEditorProps {
@@ -21,8 +21,6 @@ interface SkillEditorProps {
 	formName: string;
 	formDescription: string;
 	formInstructions: string;
-	formCategory: string;
-	formTags: string;
 	formError: string;
 	onFormChange: (field: string, value: string) => void;
 	onStartEditing: () => void;
@@ -40,8 +38,6 @@ export function SkillEditor({
 	formName,
 	formDescription,
 	formInstructions,
-	formCategory,
-	formTags,
 	formError,
 	onFormChange,
 	onStartEditing,
@@ -160,59 +156,6 @@ export function SkillEditor({
 						<pre {...stylex.props(styles.instructions)}>{instructions}</pre>
 					)}
 				</section>
-				<details
-					key={selectedSkill?._id ?? "new"}
-					{...stylex.props(styles.details)}
-				>
-					<summary {...stylex.props(styles.detailsSummary)}>
-						Category & tags
-					</summary>
-					<div {...stylex.props(styles.fields)}>
-						<div {...stylex.props(styles.field)}>
-							Category
-							{editing ? (
-								<select
-									aria-label="Skill category"
-									value={formCategory}
-									disabled={isSaving}
-									onChange={(event) =>
-										onFormChange("category", event.currentTarget.value)
-									}
-									{...stylex.props(styles.input)}
-								>
-									{SKILL_CATEGORIES.map((category) => (
-										<option key={category.value} value={category.value}>
-											{category.label}
-										</option>
-									))}
-								</select>
-							) : (
-								<span {...stylex.props(styles.fieldValue)}>
-									{selectedSkill?.category || "Custom"}
-								</span>
-							)}
-						</div>
-						<div {...stylex.props(styles.field, styles.tagsField)}>
-							Tags
-							{editing ? (
-								<input
-									aria-label="Skill tags"
-									value={formTags}
-									disabled={isSaving}
-									onInput={(event) =>
-										onFormChange("tags", event.currentTarget.value)
-									}
-									placeholder="e.g. writing, review"
-									{...stylex.props(styles.input)}
-								/>
-							) : (
-								<span {...stylex.props(styles.fieldValue)}>
-									{selectedSkill?.tags.join(" · ") || "No tags"}
-								</span>
-							)}
-						</div>
-					</div>
-				</details>
 				{formError && (
 					<p role="alert" {...stylex.props(styles.error)}>
 						{formError}

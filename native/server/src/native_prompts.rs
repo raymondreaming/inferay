@@ -17,7 +17,7 @@ impl NativePrompts {
     }
 
     pub async fn list(&self) -> Result<Vec<Prompt>, String> {
-        self.store.lock().await.list_by_usage()
+        self.store.lock().await.load()
     }
 
     /// Expansion happens once at chat admission. Queued sends carry
@@ -28,16 +28,8 @@ impl NativePrompts {
         command_id: Option<&str>,
         args: Option<&str>,
     ) -> Result<String, String> {
-        let store = self.store.lock().await;
-        let skills = store.list_by_usage()?;
-        let (expanded, used) = expand_commands(text, &skills, command_id, args);
-        let now = crate::unix_millis();
-        for id in used {
-            store
-                .increment_usage(&id, now)
-                .map_err(|error| error.message)?;
-        }
-        Ok(expanded)
+        let skills = self.store.lock().await.load()?;
+        Ok(expand_commands(text, &skills, command_id, args))
     }
 
     /// Agent tools read the same store as the editor. Proposals never write it.
@@ -175,10 +167,6 @@ impl NativePrompts {
         self.store.lock().await.delete(id)
     }
 
-    pub async fn increment_usage_at(&self, id: &str, now: u64) -> Result<(), PromptError> {
-        self.store.lock().await.increment_usage(id, now)
-    }
-
     pub(crate) async fn create_json(
         &self,
         body: Map<String, Value>,
@@ -202,7 +190,7 @@ fn expand_commands(
     skills: &[Prompt],
     command_id: Option<&str>,
     args: Option<&str>,
-) -> (String, Vec<String>) {
+) -> String {
     let expand = |skill: &Prompt, token: &str, args: &str| {
         if skill.prompt_template.is_empty() {
             token.trim().to_owned()
@@ -218,18 +206,12 @@ fn expand_commands(
         return skills
             .iter()
             .find(|skill| skill.id == id)
-            .map(|skill| {
-                (
-                    expand(skill, text, args.unwrap_or("")),
-                    vec![skill.id.clone()],
-                )
-            })
-            .unwrap_or_else(|| (text.to_owned(), Vec::new()));
+            .map(|skill| expand(skill, text, args.unwrap_or("")))
+            .unwrap_or_else(|| text.to_owned());
     }
     static TOKENS: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let tokens = TOKENS.get_or_init(|| regex::Regex::new(r"/[a-zA-Z][a-zA-Z0-9_-]*").unwrap());
     let mut output = String::with_capacity(text.len());
-    let mut used = Vec::new();
     let mut offset = 0;
     for token in tokens.find_iter(text) {
         if text[..token.start()]
@@ -257,10 +239,9 @@ fn expand_commands(
         {
             output.push_str(&text[offset..token.start()]);
             output.push_str(&expand(skill, token.as_str(), ""));
-            used.push(skill.id.clone());
             offset = token.end();
         }
     }
     output.push_str(&text[offset..]);
-    (output, used)
+    output
 }

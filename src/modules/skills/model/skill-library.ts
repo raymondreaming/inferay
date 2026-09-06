@@ -71,35 +71,15 @@ export interface Skill {
 	description: string;
 	command: string;
 	promptTemplate: string;
-	category?: string;
-	tags: string[];
 	isBuiltIn: boolean;
-	executionCount: number;
-	lastUsed?: number;
 	createdAt: number;
 	updatedAt: number;
 }
-export const SKILL_CATEGORIES = [
-	"code",
-	"refactoring",
-	"security",
-	"performance",
-	"planning",
-	"testing",
-	"debugging",
-	"documentation",
-	"git",
-	"learning",
-	"conversation",
-	"custom",
-].map((value) => ({ value, label: value[0]!.toUpperCase() + value.slice(1) }));
 export interface SkillFormState {
 	name: string;
 	command: string;
 	description: string;
 	promptTemplate: string;
-	category: string;
-	tags: string;
 	error: string;
 	isSaving: boolean;
 	isEditing: boolean;
@@ -110,8 +90,6 @@ export const INITIAL_SKILL_FORM: SkillFormState = {
 	command: "",
 	description: "",
 	promptTemplate: "",
-	category: "custom",
-	tags: "",
 	error: "",
 	isSaving: false,
 	isEditing: false,

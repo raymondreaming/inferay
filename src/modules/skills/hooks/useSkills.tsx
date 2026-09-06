@@ -20,8 +20,7 @@ async function refreshSkills() {
 }
 
 async function createSkill(
-	data: Pick<Skill, "name" | "command" | "description" | "promptTemplate"> &
-		Partial<Pick<Skill, "category">> & { tags?: string | string[] },
+	data: Pick<Skill, "name" | "command" | "description" | "promptTemplate">,
 ) {
 	return saveSkill("/api/prompts", data, "POST");
 }

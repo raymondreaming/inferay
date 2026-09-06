@@ -610,11 +610,10 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
     text_response(StatusCode::NOT_FOUND, "Not found")
 }
 async fn dynamic_json_route(state: &ServerState, path: &str, request: Request) -> ApiResult {
-    if let Some((id, usage)) = prompt_path(path) {
-        return match (request.method().as_str(), usage) {
-            ("POST", true) => increment_prompt_usage(state, request, id).await,
-            ("PUT", false) => update_prompt(state, request, id).await,
-            ("DELETE", false) => delete_prompt(state, request, id).await,
+    if let Some(id) = prompt_path(path) {
+        return match request.method().as_str() {
+            "PUT" => update_prompt(state, request, id).await,
+            "DELETE" => delete_prompt(state, request, id).await,
             _ => Err(api_error(StatusCode::NOT_FOUND, "Not found")),
         };
     }
@@ -1244,15 +1243,11 @@ async fn git_diff(state: &ServerState, request: Request) -> ApiResult<Response> 
     .await
 }
 
-fn prompt_path(path: &str) -> Option<(&str, bool)> {
+fn prompt_path(path: &str) -> Option<&str> {
     let remainder = path.strip_prefix("/api/prompts/")?;
     let mut parts = remainder.split('/');
     let id = parts.next().filter(|id| !id.is_empty())?;
-    match (parts.next(), parts.next()) {
-        (None, None) => Some((id, false)),
-        (Some("usage"), None) => Some((id, true)),
-        _ => None,
-    }
+    (parts.next().is_none()).then_some(id)
 }
 
 async fn list_prompts(state: &ServerState, request: Request) -> ApiResult {
@@ -1286,14 +1281,6 @@ async fn update_prompt(state: &ServerState, request: Request, id: &str) -> ApiRe
 
 async fn delete_prompt(state: &ServerState, _request: Request, id: &str) -> ApiResult {
     state.native_prompts.delete(id).await?;
-    Ok(json!({"ok":true}))
-}
-
-async fn increment_prompt_usage(state: &ServerState, _request: Request, id: &str) -> ApiResult {
-    state
-        .native_prompts
-        .increment_usage_at(id, unix_millis())
-        .await?;
     Ok(json!({"ok":true}))
 }
 

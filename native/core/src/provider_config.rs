@@ -32,14 +32,10 @@ pub fn composer_commands(kind: &str, skills: &[crate::prompts::Prompt]) -> Vec<V
         command["isLocalCommand"] = json!(true);
     }
     result.extend(skills.iter().map(|skill| {
-        let mut command = json!({
+        json!({
             "id":skill.id, "name":skill.command, "description":skill.description,
             "action":"send", "isFromLibrary":true
-        });
-        if let Some(category) = &skill.category {
-            command["category"] = json!(category);
-        }
-        command
+        })
     }));
     if let Some(native) = catalog()["agents"][kind]["nativeSlashCommands"].as_array() {
         result.extend(native.iter().cloned().map(|mut command| {

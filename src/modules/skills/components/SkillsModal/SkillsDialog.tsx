@@ -16,7 +16,6 @@ import { useSkills } from "../../hooks/useSkills.tsx";
 import type { SkillsTarget } from "../../model/skill-library.ts";
 import {
 	INITIAL_SKILL_FORM as INITIAL_FORM,
-	SKILL_CATEGORIES,
 	type Skill,
 	type SkillFormState,
 } from "../../model/skill-library.ts";
@@ -51,8 +50,6 @@ export function SkillsDialog({
 			command: skill.command,
 			description: skill.description,
 			promptTemplate: skill.promptTemplate,
-			category: skill.category || "custom",
-			tags: skill.tags.join(", "),
 			error: "",
 		});
 	}, []);
@@ -61,11 +58,9 @@ export function SkillsDialog({
 	const original = form.isEditing ? selectedSkill : null;
 	const dirty =
 		(form.isCreating || form.isEditing) &&
-		((["name", "command", "description", "promptTemplate"] as const).some(
+		(["name", "command", "description", "promptTemplate"] as const).some(
 			(field) => form[field] !== (original?.[field] ?? ""),
-		) ||
-			form.category !== (original?.category ?? "custom") ||
-			form.tags !== (original?.tags.join(", ") ?? ""));
+		);
 	const canLeave = () =>
 		!form.isSaving && (!dirty || confirm("Discard unsaved skill changes?"));
 	const close = () => {
@@ -127,8 +122,6 @@ export function SkillsDialog({
 			command: `${source.command}-custom`,
 			description: source.description,
 			promptTemplate: source.promptTemplate,
-			category: source.category ?? "custom",
-			tags: source.tags.join(", "),
 		});
 	};
 
@@ -140,8 +133,6 @@ export function SkillsDialog({
 				command: form.command,
 				description: form.description,
 				promptTemplate: form.promptTemplate,
-				category: form.category,
-				tags: form.tags,
 			};
 			if (isInlineEdit && selectedSkill) {
 				await updateSkill(selectedSkill._id, data);
@@ -244,15 +235,6 @@ export function SkillsDialog({
 									<option value="all">All skills</option>
 									<option value="builtin">Built-in</option>
 									<option value="custom">Personal</option>
-									<optgroup label="Category">
-										{SKILL_CATEGORIES.filter(
-											(category) => category.value !== "custom",
-										).map((category) => (
-											<option key={category.value} value={category.value}>
-												{category.label}
-											</option>
-										))}
-									</optgroup>
 								</select>
 								<span {...stylex.props(styles.count)}>{filtered.length}</span>
 							</div>
@@ -329,8 +311,6 @@ export function SkillsDialog({
 								formName={form.name}
 								formDescription={form.description}
 								formInstructions={form.promptTemplate}
-								formCategory={form.category}
-								formTags={form.tags}
 								formError={form.error}
 								onFormChange={handleFormChange}
 								onStartEditing={() => selectedSkill && startEdit(selectedSkill)}

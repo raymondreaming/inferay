@@ -13,30 +13,23 @@ pub struct Prompt {
     pub description: String,
     pub command: String,
     pub prompt_template: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub category: Option<String>,
-    pub tags: Vec<String>,
     pub is_built_in: bool,
-    pub execution_count: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_used: Option<u64>,
     pub created_at: u64,
     pub updated_at: u64,
 }
 
-/// Shared library filtering for the editor and native agent tools. Keeps usage order.
+/// Shared name, command, description, and ownership filtering.
 pub fn filter_prompts<'a>(prompts: &'a [Prompt], filter: &str, query: &str) -> Vec<&'a Prompt> {
     let query = query.to_lowercase();
     prompts
         .iter()
         .filter(|prompt| {
-            let category_matches = match filter {
-                "all" => true,
+            let kind_matches = match filter {
                 "builtin" => prompt.is_built_in,
                 "custom" => !prompt.is_built_in,
-                category => prompt.category.as_deref() == Some(category),
+                _ => true,
             };
-            category_matches
+            kind_matches
                 && (query.is_empty()
                     || [&prompt.name, &prompt.command, &prompt.description]
                         .iter()
@@ -79,12 +72,6 @@ impl PromptStore {
         Ok(merge_prompts(bundled, local))
     }
 
-    pub fn list_by_usage(&self) -> Result<Vec<Prompt>, String> {
-        let mut prompts = self.load()?;
-        prompts.sort_by_key(|prompt| std::cmp::Reverse(prompt.execution_count));
-        Ok(prompts)
-    }
-
     pub fn create(&self, body: &Map<String, Value>, now: u64) -> Result<Prompt, PromptError> {
         let body = normalize_prompt_fields(body, true)?;
         let body = &body;
@@ -105,15 +92,7 @@ impl PromptStore {
                 .unwrap_or(name),
             command,
             prompt_template: string_value(body, "promptTemplate").unwrap_or_default(),
-            category: Some(
-                string_value(body, "category")
-                    .filter(|value| !value.is_empty())
-                    .unwrap_or_else(|| "custom".into()),
-            ),
-            tags: string_array(body.get("tags")).unwrap_or_default(),
             is_built_in: false,
-            execution_count: 0,
-            last_used: None,
             created_at: now,
             updated_at: now,
         };
@@ -173,12 +152,6 @@ impl PromptStore {
                 *field = value;
             }
         }
-        if let Some(value) = string_value(body, "category") {
-            current.category = Some(value);
-        }
-        if let Some(value) = string_array(body.get("tags")) {
-            current.tags = value;
-        }
         current.updated_at = now.max(current.updated_at.saturating_add(1));
         let updated = current.clone();
         self.save(&prompts).map_err(internal_prompt_error)?;
@@ -200,16 +173,6 @@ impl PromptStore {
         self.save(&prompts).map_err(internal_prompt_error)
     }
 
-    pub fn increment_usage(&self, id: &str, now: u64) -> Result<(), PromptError> {
-        let mut prompts = self.load().map_err(internal_prompt_error)?;
-        let Some(prompt) = prompts.iter_mut().find(|prompt| prompt.id == id) else {
-            return Err(not_found());
-        };
-        prompt.execution_count += 1;
-        prompt.last_used = Some(now);
-        self.save(&prompts).map_err(internal_prompt_error)
-    }
-
     fn save(&self, prompts: &[Prompt]) -> Result<(), String> {
         let bytes = serde_json::to_vec_pretty(prompts).map_err(|error| error.to_string())?;
         crate::atomic_write::overwrite(&self.local_path, &bytes)
@@ -217,34 +180,11 @@ impl PromptStore {
 }
 
 pub fn merge_prompts(bundled: Vec<Prompt>, local: Vec<Prompt>) -> Vec<Prompt> {
-    let local_by_id: HashMap<_, _> = local
-        .iter()
-        .map(|prompt| (prompt.id.as_str(), prompt))
-        .collect();
-    let local_built_in_by_command: HashMap<_, _> = local
-        .iter()
-        .filter(|prompt| prompt.is_built_in)
-        .map(|prompt| (prompt.command.as_str(), prompt))
-        .collect();
     let (mut merged, custom): (Vec<_>, Vec<_>) =
         bundled.into_iter().partition(|prompt| prompt.is_built_in);
     let built_in_ids: HashSet<_> = merged.iter().map(|prompt| prompt.id.clone()).collect();
     let built_in_commands: HashSet<_> =
         merged.iter().map(|prompt| prompt.command.clone()).collect();
-
-    for prompt in &mut merged {
-        let local_prompt = local_by_id.get(prompt.id.as_str()).copied().or_else(|| {
-            local_built_in_by_command
-                .get(prompt.command.as_str())
-                .copied()
-        });
-        if let Some(local_prompt) = local_prompt {
-            prompt.execution_count = local_prompt.execution_count;
-            if local_prompt.last_used.is_some() {
-                prompt.last_used = local_prompt.last_used;
-            }
-        }
-    }
 
     let mut custom_positions = HashMap::<String, usize>::new();
     for prompt in custom.into_iter().chain(local) {
@@ -309,35 +249,11 @@ fn normalize_prompt_fields(
                 .unwrap_or(Value::String(String::new())),
         );
     }
-    if let Some(tags) = body.get("tags") {
-        let values: Vec<&str> = match tags {
-            Value::String(text) => text.split(',').collect(),
-            Value::Array(values) => values.iter().filter_map(Value::as_str).collect(),
-            _ => return Err(invalid("Tags must be comma-separated text or an array")),
-        };
-        let tags = values
-            .into_iter()
-            .map(str::trim)
-            .filter(|tag| !tag.is_empty())
-            .map(|tag| Value::String(tag.into()))
-            .collect();
-        body.insert("tags".into(), Value::Array(tags));
-    }
     Ok(body)
 }
 
 fn string_value(body: &Map<String, Value>, key: &str) -> Option<String> {
     body.get(key).and_then(Value::as_str).map(str::to_owned)
-}
-
-fn string_array(value: Option<&Value>) -> Option<Vec<String>> {
-    value.and_then(Value::as_array).map(|values| {
-        values
-            .iter()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
-            .collect()
-    })
 }
 
 fn not_found() -> PromptError {
