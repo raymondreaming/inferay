@@ -5,11 +5,7 @@ import {
 	CLIENT_STORAGE_CHANGED_EVENT,
 } from "../../../../adapters/storage/stored-values.ts";
 import { loadAppThemeId } from "../../../../app/model/appearance.ts";
-import {
-	hasId,
-	listenWindowEvent,
-	setupAgentThemePanelShortcut,
-} from "../../../../shared/lib/data.ts";
+import { hasId, listenWindowEvent } from "../../../../shared/lib/data.ts";
 import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
 import { clearAgentChatPaneState } from "../../../conversation/model/chat-session-store.ts";
 import { useRepositoryWorkbench } from "../../../workbench/hooks/useRepositoryWorkbench.tsx";
@@ -173,7 +169,9 @@ export function AgentPage() {
 		void mutateAgentWorkspaceState(action);
 	}, []);
 	useEffect(() => {
-		return setupAgentThemePanelShortcut(setShowSettings);
+		return listenWindowEvent("agent-open-theme-panel", () =>
+			setShowSettings(true),
+		);
 	}, []);
 	const {
 		handleAddPane,

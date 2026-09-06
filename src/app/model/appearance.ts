@@ -61,7 +61,7 @@ export type AppBackgroundId =
 	| (typeof APP_BACKGROUNDS)[number]["id"]
 	| "custom"
 	| "none";
-export type AppBackgroundMode = "solid" | "scene" | "glass";
+type AppBackgroundMode = "solid" | "scene" | "glass";
 
 /** CSS owns mode-specific surface colors; registered tokens resolve at the root. */
 export function applyAppBackgroundSurfaces(mode: AppBackgroundMode): void {
@@ -100,11 +100,6 @@ export function saveAppBackgroundSettings(
 ): void {
 	applyAppBackgroundSurfaces(settings.mode);
 	writeStoredJson(APP_BACKGROUND_STORAGE_KEY, settings);
-}
-export function getBuiltInBackgroundPath(id: AppBackgroundId): string | null {
-	return (
-		APP_BACKGROUNDS.find((background) => background.id === id)?.path ?? null
-	);
 }
 export function applyAppBackgroundPalette(id: AppBackgroundId): void {
 	applyAppTheme(loadAppThemeId());
@@ -145,13 +140,9 @@ export const APP_FONTS = [
 	},
 ] as const;
 export type AppFontId = (typeof APP_FONTS)[number]["id"];
-export const DEFAULT_APP_FONT_ID: AppFontId = "geist";
-export function isAppFontId(value: unknown): value is AppFontId {
-	return APP_FONTS.some((font) => font.id === value);
-}
 export function loadAppFontId(): AppFontId {
 	const stored = readStoredValue(APP_FONT_STORAGE_KEY);
-	return isAppFontId(stored) ? stored : DEFAULT_APP_FONT_ID;
+	return APP_FONTS.find((font) => font.id === stored)?.id ?? "geist";
 }
 export function applyAppFont(id: AppFontId): void {
 	const selected = APP_FONTS.find((font) => font.id === id) ?? APP_FONTS[0];
@@ -190,7 +181,7 @@ export interface AppInfo {
 		error?: string;
 	};
 }
-export const FALLBACK_APP_INFO: AppInfo = {
+const FALLBACK_APP_INFO: AppInfo = {
 	name: "inferay",
 	version: "dev",
 	channel: "dev",

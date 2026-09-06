@@ -11,7 +11,10 @@ import {
 	SkillReadCard,
 } from "../../../skills/components/SkillProposalCard/index.tsx";
 import type { ChatMessage } from "../../model/agent-chat-shared.ts";
-import { getToolDisplayInfo } from "../../model/agent-chat-shared.ts";
+import {
+	getToolDisplayInfo,
+	getUserMessagePresentation,
+} from "../../model/agent-chat-shared.ts";
 import { MiniEditDiff } from "../ChatEditDiff/index.tsx";
 import { useCopyText } from "../ChatRichContent/CopyButton.tsx";
 import {
@@ -48,36 +51,17 @@ export const Bubble = memo(function Bubble({
 	);
 	const editPayload = msg.render?.edit;
 	const userMessageDisplay = useMemo(() => {
-		if (msg.role !== "user") return null;
-		let imagePaths = msg.images ?? [];
-		let displayContent = msg.content;
-		if (
-			imagePaths.length === 0 &&
-			msg.content.includes("Here are the images at these paths:")
-		) {
-			const parts = msg.content.split("Here are the images at these paths:\n");
-			displayContent = parts[0]?.trim() ?? "";
-			const pathLines = parts[1]?.split("\n").filter((p) => p.trim()) ?? [];
-			imagePaths = pathLines.filter((p) => p.includes("/.tmp/"));
-		}
+		const display = getUserMessagePresentation(msg, slashCommandNames);
+		if (!display) return null;
 		return {
-			contentNodes: displayContent
-				? renderTextPills(displayContent, slashCommandNames)
+			contentNodes: display.content
+				? renderTextPills(display.content, slashCommandNames)
 				: null,
-			imagePaths,
+			imagePaths: display.imagePaths,
 		};
 	}, [msg.content, msg.images, msg.role, slashCommandNames]);
 
 	if (msg.role === "user") {
-		const commandMatch = msg.content.match(/^\/([a-zA-Z0-9_-]+)(\s|$)/);
-		if (
-			commandMatch?.[1] &&
-			slashCommandNames.some(
-				(command) => command.toLowerCase() === commandMatch[1]!.toLowerCase(),
-			)
-		) {
-			return null;
-		}
 		if (!userMessageDisplay) return null;
 		return (
 			<div {...stylex.props(styles.userRow)}>

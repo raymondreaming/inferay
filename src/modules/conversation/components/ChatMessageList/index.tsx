@@ -16,7 +16,10 @@ import type {
 } from "../../model/agent-chat-shared.ts";
 import {
 	buildRenderRows,
-	type RenderItem,
+	calculateChatOffsets,
+	calculateChatWindow,
+	getRenderRowKey,
+	indexCheckpoints,
 } from "../../model/agent-chat-shared.ts";
 import { GroupedEditDiff } from "../ChatEditDiff/index.tsx";
 import { Bubble } from "./Bubble.tsx";
@@ -30,19 +33,6 @@ export type ChatVirtualizerControls = {
 	isAtEnd: () => boolean;
 	getDistanceFromEnd: () => number;
 };
-
-type ChatRenderRow = RenderItem;
-
-function getRowKey(row: ChatRenderRow | undefined, index: number) {
-	if (!row) return `row-${index}`;
-	if (row.type === "edit-group") {
-		return `edit-group:${row.edits[0]?.render?.groupId ?? row.edits[0]?.id}`;
-	}
-	if (row.type === "tool-group") {
-		return `tool-group:${row.tools[0]?.id}`;
-	}
-	return row.message.id;
-}
 
 export const ChatMessageList = memo(function ChatMessageList({
 	paneId,
@@ -78,50 +68,25 @@ export const ChatMessageList = memo(function ChatMessageList({
 	const [measurementVersion, setMeasurementVersion] = useState(0);
 	const [scrollOffset, setScrollOffset] = useState<number | null>(null);
 	const virtual = renderRows.length > 60;
-	const rowOffsets = useMemo(() => {
-		const offsets = [0];
-		for (let index = 0; index < renderRows.length; index++) {
-			offsets.push(
-				offsets[index]! +
-					(measuredHeights.current.get(getRowKey(renderRows[index]!, index)) ??
-						160),
-			);
-		}
-		return offsets;
-	}, [renderRows, measurementVersion]);
-	let firstVisible = 0;
-	if (virtual) {
-		if (scrollOffset === null)
-			firstVisible = Math.max(0, renderRows.length - 24);
-		else {
-			let low = 0;
-			let high = renderRows.length;
-			while (low < high) {
-				const middle = (low + high) >>> 1;
-				if (rowOffsets[middle + 1]! <= scrollOffset) low = middle + 1;
-				else high = middle;
-			}
-			firstVisible = Math.min(low, renderRows.length - 1);
-		}
-	}
-	const windowStart = virtual ? Math.max(0, firstVisible - 8) : 0;
-	let windowEnd = renderRows.length;
-	if (virtual) {
-		const viewportBottom =
-			(scrollOffset ?? rowOffsets[firstVisible]!) +
-			(scrollElementRef.current?.clientHeight || 800);
-		let low = firstVisible;
-		let high = renderRows.length;
-		while (low < high) {
-			const middle = (low + high) >>> 1;
-			if (rowOffsets[middle]! < viewportBottom) low = middle + 1;
-			else high = middle;
-		}
-		windowEnd = Math.min(
-			renderRows.length,
-			Math.max(windowStart + 48, low + 8),
-		);
-	}
+	const offsets = useMemo(
+		() => calculateChatOffsets(renderRows, measuredHeights.current),
+		[renderRows, measurementVersion],
+	);
+	const {
+		firstVisible,
+		offsets: rowOffsets,
+		start: windowStart,
+		end: windowEnd,
+	} = useMemo(
+		() =>
+			calculateChatWindow(
+				renderRows,
+				offsets,
+				scrollOffset,
+				scrollElementRef.current?.clientHeight ?? 800,
+			),
+		[renderRows, offsets, scrollOffset, scrollElementRef],
+	);
 	useLayoutEffect(() => {
 		const element = scrollElementRef.current;
 		if (!element || !virtual) return;
@@ -185,19 +150,14 @@ export const ChatMessageList = memo(function ChatMessageList({
 		stickToBottom,
 	]);
 	useEffect(() => {
-		const keys = new Set(renderRows.map(getRowKey));
+		const keys = new Set(renderRows.map(getRenderRowKey));
 		for (const key of measuredHeights.current.keys())
 			if (!keys.has(key)) measuredHeights.current.delete(key);
 	}, [renderRows]);
-	const checkpointsByMessageId = useMemo(() => {
-		const byMessageId = new Map<string, CheckpointInfo>();
-		for (const checkpoint of checkpoints) {
-			if (checkpoint.afterMessageId) {
-				byMessageId.set(checkpoint.afterMessageId, checkpoint);
-			}
-		}
-		return byMessageId;
-	}, [checkpoints]);
+	const checkpointsByMessageId = useMemo(
+		() => indexCheckpoints(checkpoints),
+		[checkpoints],
+	);
 	const pinToBottom = useCallback(
 		(behavior: ScrollBehavior = "auto") => {
 			const element = scrollElementRef.current;
@@ -307,8 +267,8 @@ export const ChatMessageList = memo(function ChatMessageList({
 				if (item.type === "edit-group") {
 					return (
 						<div
-							key={getRowKey(item, index)}
-							data-chat-row-key={getRowKey(item, index)}
+							key={getRenderRowKey(item, index)}
+							data-chat-row-key={getRenderRowKey(item, index)}
 							data-chat-row-index={index}
 							{...stylex.props(styles.messageRow)}
 						>
@@ -319,8 +279,8 @@ export const ChatMessageList = memo(function ChatMessageList({
 				if (item.type === "tool-group") {
 					return (
 						<div
-							key={getRowKey(item, index)}
-							data-chat-row-key={getRowKey(item, index)}
+							key={getRenderRowKey(item, index)}
+							data-chat-row-key={getRenderRowKey(item, index)}
 							data-chat-row-index={index}
 							{...stylex.props(
 								styles.messageRow,
@@ -343,8 +303,8 @@ export const ChatMessageList = memo(function ChatMessageList({
 						: undefined;
 				return (
 					<div
-						key={getRowKey(item, index)}
-						data-chat-row-key={getRowKey(item, index)}
+						key={getRenderRowKey(item, index)}
+						data-chat-row-key={getRenderRowKey(item, index)}
 						data-chat-row-index={index}
 						{...stylex.props(styles.messageRow)}
 					>

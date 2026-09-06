@@ -35,12 +35,12 @@ export const Settings = lazy(() =>
 );
 export type MutableRef<T> = { current: T };
 export type ThemeId = AppThemeId;
-export type AgentTheme = {
+type AgentTheme = {
 	readonly cursor: string;
 	readonly separator: string;
 };
-export type AgentLayoutMode = "grid" | "rows";
-export type PaneId = string & { readonly __brand: "PaneId" };
+type AgentLayoutMode = "grid" | "rows";
+type PaneId = string & { readonly __brand: "PaneId" };
 export type GroupId = string & { readonly __brand: "GroupId" };
 export interface AgentPaneModel {
 	readonly id: PaneId;
@@ -53,7 +53,7 @@ export interface AgentPaneModel {
 	summary?: string;
 	providerSessionId?: string;
 }
-export interface AgentGroupModel {
+interface AgentGroupModel {
 	readonly id: GroupId;
 	name: string;
 	panes: AgentPaneModel[];
@@ -61,7 +61,7 @@ export interface AgentGroupModel {
 	columns: number;
 	rows: number;
 }
-export interface RepositoryWorkspaceEntry {
+interface RepositoryWorkspaceEntry {
 	readonly groupId: string;
 	readonly pane: AgentPaneModel;
 }
@@ -70,7 +70,7 @@ export interface RepositoryWorkspace {
 	readonly name: string;
 	readonly entries: readonly RepositoryWorkspaceEntry[];
 }
-export interface RepositoryWorkspaceIndex {
+interface RepositoryWorkspaceIndex {
 	readonly workspaces: readonly RepositoryWorkspace[];
 	readonly unassignedEntries: readonly RepositoryWorkspaceEntry[];
 	readonly activePath: string | null;
@@ -86,8 +86,7 @@ export interface AgentSavedState {
 	fontFamily: string;
 	opacity: number;
 }
-export type Pane = AgentPaneModel;
-export type AgentWorkspaceAction =
+type AgentWorkspaceAction =
 	| { type: "selectWorkspace"; groupId: string }
 	| { type: "selectRepository"; cwd: string }
 	| { type: "selectPane"; groupId: string; paneId: string }
@@ -133,12 +132,10 @@ export type AgentGroupsAction = Exclude<
 	AgentWorkspaceAction,
 	{ type: "addWorkspace" | "removeWorkspace" | "renameWorkspace" }
 >;
-export const REMOVE_AGENT_PANE_REQUEST_EVENT =
-	"inferay-remove-agent-pane-request";
-export interface RemoveAgentPaneRequestDetail {
+const REMOVE_AGENT_PANE_REQUEST_EVENT = "inferay-remove-agent-pane-request";
+interface RemoveAgentPaneRequestDetail {
 	paneId: string;
 }
-export const DEFAULT_COLUMNS = 1 as const;
 export const DEFAULT_ROWS = 1 as const;
 const EMPTY: RepositoryWorkspaceIndex = {
 	workspaces: [],
@@ -199,7 +196,7 @@ export const dispatchRemoveAgentPaneRequest = (paneId: string) =>
 		REMOVE_AGENT_PANE_REQUEST_EVENT,
 		{ paneId },
 	);
-export function loadAgentState() {
+function loadAgentState() {
 	return snapshot.state;
 }
 function accept(state: AgentSavedState, saved = false) {
@@ -384,7 +381,7 @@ export function useAgentPaneActions({
 export const EMPTY_AUXILIARY_PANELS: readonly AuxiliaryPanel[] = [];
 export const ROOT_DOCK_TARGET_ID = "__workspace-root__";
 export const MIN_GRID_ROW_HEIGHT = 340;
-export type AuxiliaryPanel = {
+type AuxiliaryPanel = {
 	readonly id: string;
 	readonly onSelect?: () => void;
 	readonly render: (drag: {

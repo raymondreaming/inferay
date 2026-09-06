@@ -1,26 +1,28 @@
 import type { SlashCommand } from "../../conversation/model/agent-chat-shared.ts";
-export type AgentAccountHealth = "ready" | "needs-login" | "missing-cli";
+
+type AgentAccountHealth = "ready" | "needs-login" | "missing-cli";
 export interface AgentAccountProviderStatus {
 	kind: ChatAgentKind;
 	health: AgentAccountHealth;
 }
 
 import { fetchJson, postJson } from "../../../adapters/backend/http.ts";
-export type ChatAgentKind = "claude" | "codex";
+
+type ChatAgentKind = "claude" | "codex";
 export type AgentKind = "agent" | ChatAgentKind;
 export type AgentIconKey = "agent" | "anthropic" | "openai";
-export interface ModelOption {
+interface ModelOption {
 	readonly id: string;
 	readonly label: string;
 	readonly shortLabel?: string;
 	readonly detail?: string;
 }
-export interface ReasoningLevel {
+interface ReasoningLevel {
 	readonly id: string;
 	readonly label: string;
 	readonly detail: string;
 }
-export interface AgentDefinition {
+interface AgentDefinition {
 	readonly kind: AgentKind;
 	readonly label: string;
 	readonly iconKey: AgentIconKey;
@@ -59,7 +61,7 @@ export function getAgentDefinition(kind: AgentKind): AgentDefinition {
 		}
 	);
 }
-export interface DefaultChatSettings {
+interface DefaultChatSettings {
 	readonly agentKind: ChatAgentKind;
 	readonly model: string;
 	readonly reasoningLevel: string;

@@ -465,9 +465,3 @@ export const AgentChatView = memo(function AgentChatView({
 		</div>
 	);
 });
-
-export {
-	useAgentChatSettings,
-	useChatViewport,
-	usePendingChatWorkspace,
-} from "../../model/chat-session-store.ts";

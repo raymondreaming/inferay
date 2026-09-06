@@ -27,14 +27,6 @@ function forgeResource<T>(kind: string, field: string, url: string) {
 		options,
 		empty,
 		invalidate,
-		load: (refresh = false) => {
-			if (refresh) invalidate();
-			return queryClient.fetchQuery({
-				...options,
-				retry: false,
-				queryFn: ({ signal }) => request(signal),
-			});
-		},
 	};
 }
 const accountsResource = forgeResource<ForgeAccount>(
@@ -49,7 +41,14 @@ const reposResource = forgeResource<GithubRepo>(
 );
 export const invalidateForgeAccountsCache = accountsResource.invalidate;
 export const invalidateGithubReposCache = reposResource.invalidate;
-export const fetchForgeAccounts = accountsResource.load;
+export function fetchForgeAccounts() {
+	accountsResource.invalidate();
+	return queryClient.fetchQuery({
+		...accountsResource.options,
+		retry: false,
+		queryFn: ({ signal }) => accountsResource.request(signal),
+	});
+}
 export function useForgeAccounts() {
 	return useQueryResource(
 		accountsResource.request,
@@ -270,7 +269,7 @@ export interface DiffRequest {
 	comparisonTo?: string;
 	view?: "full" | "review";
 }
-export interface HunkDiffStats {
+interface HunkDiffStats {
 	added: number;
 	removed: number;
 	hunks: number;
@@ -282,3 +281,16 @@ export type DiffMinimapSegment = {
 	startLine: number;
 	endLine: number;
 };
+
+export function partitionGitFiles(files: readonly GitFileEntry[] = []) {
+	const groups: {
+		staged: GitFileEntry[];
+		modified: GitFileEntry[];
+		untracked: GitFileEntry[];
+	} = { staged: [], modified: [], untracked: [] };
+	for (const file of files)
+		groups[
+			file.staged ? "staged" : file.status === "?" ? "untracked" : "modified"
+		].push(file);
+	return groups;
+}

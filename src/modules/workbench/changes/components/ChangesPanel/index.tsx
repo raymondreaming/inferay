@@ -5,34 +5,22 @@ import type {
 	CommitDetails,
 	CommitFile,
 	ComparisonDetails,
-} from "../../../../repository/hooks/useGitGraph.tsx";
+} from "../../../../repository/model/git-graph.ts";
 import type {
 	GitFileEntry,
 	GitFilePresentation,
 } from "../../../../repository/model/types.ts";
 import {
 	adjacentGitFile,
+	buildChangesPanelModel,
+	getFileSelectionAfterToggle,
 	type SelectedFile,
-	visibleGitFiles,
 } from "../../../model/workbench-model.ts";
 import { ChangesPanelHeader } from "./ChangesPanelHeader.tsx";
 import { CommitSection } from "./CommitSection.tsx";
 import { FileGroup } from "./FileGroup.tsx";
 import { HistoricalDetailsPanel } from "./HistoricalDetailsPanel.tsx";
 import { styles } from "./styles.ts";
-
-export function getFileSelectionAfterToggle<T extends SelectedFile>(
-	files: readonly T[],
-	selected: SelectedFile,
-): T | null {
-	const section = files.filter((file) => file.staged === selected.staged);
-	const index = section.findIndex((file) => file.path === selected.path);
-	const current = section[index];
-	return current
-		? (section[index + 1] ??
-				section[index - 1] ?? { ...current, staged: !current.staged })
-		: null;
-}
 
 interface ChangesPanelProps {
 	filePresentation?: GitFilePresentation;
@@ -115,66 +103,51 @@ export const ChangesPanel = memo(function ChangesPanel(
 		onOpenGraph,
 	} = props;
 	const filePresentation = props.filePresentation;
-	const unstagedFiles = useMemo(
+	const {
+		unstagedFiles,
+		stagedFiles,
+		workingFiles,
+		navigableFiles,
+		showingWorkingTree,
+		comparing,
+		historyDetails,
+		historyLoading,
+		historyMessage,
+		navigableHistoricalFiles,
+		additions,
+		deletions,
+	} = useMemo(
 		() =>
-			visibleGitFiles([...modified, ...untracked], filePresentation, "path"),
-		[modified, untracked, filePresentation],
-	);
-	const stagedFiles = useMemo(
-		() => visibleGitFiles(staged, filePresentation, "path"),
-		[staged, filePresentation],
-	);
-	const workingFiles = useMemo(
-		() => [...unstagedFiles, ...stagedFiles],
-		[stagedFiles, unstagedFiles],
-	);
-	const navigableFiles = useMemo(
-		() =>
-			fileViewMode === "tree"
-				? [
-						...visibleGitFiles(unstagedFiles, filePresentation, "tree"),
-						...visibleGitFiles(stagedFiles, filePresentation, "tree"),
-					]
-				: workingFiles,
-		[fileViewMode, stagedFiles, unstagedFiles, workingFiles, filePresentation],
-	);
-	const showingWorkingTree = content === "workingTree";
-	const comparing = selectedCommitCount > 1;
-	const historyDetails = comparing
-		? comparisonDetails
-		: selectedCommitHash
-			? commitDetails
-			: null;
-	const historyLoading = comparing
-		? comparisonDetailsLoading
-		: !!selectedCommitHash && commitDetailsLoading;
-	const historyMessage = historyLoading
-		? comparing
-			? "Comparing…"
-			: "Loading…"
-		: comparing
-			? "The selected items cannot be compared"
-			: selectedCommitHash
-				? commitDetailsError || "No details available for this commit"
-				: "Select a commit to view details";
-
-	const historicalFiles =
-		comparisonDetails?.files ?? commitDetails?.files ?? [];
-	const historicalPresentation =
-		comparisonDetails?.filePresentation ?? commitDetails?.filePresentation;
-	const navigableHistoricalFiles = useMemo(
-		() =>
-			visibleGitFiles(historicalFiles, historicalPresentation, fileViewMode),
-		[fileViewMode, historicalFiles, historicalPresentation],
-	);
-	const displayedFiles = showingWorkingTree ? workingFiles : historicalFiles;
-	const additions = displayedFiles.reduce(
-		(total, file) => total + (file.additions ?? 0),
-		0,
-	);
-	const deletions = displayedFiles.reduce(
-		(total, file) => total + (file.deletions ?? 0),
-		0,
+			buildChangesPanelModel({
+				content,
+				fileViewMode,
+				filePresentation,
+				modified,
+				untracked,
+				staged,
+				selectedCommitHash,
+				selectedCommitCount,
+				commitDetailsLoading,
+				commitDetails,
+				commitDetailsError,
+				comparisonDetailsLoading,
+				comparisonDetails: comparisonDetails ?? null,
+			}),
+		[
+			content,
+			fileViewMode,
+			filePresentation,
+			modified,
+			untracked,
+			staged,
+			selectedCommitHash,
+			selectedCommitCount,
+			commitDetailsLoading,
+			commitDetails,
+			commitDetailsError,
+			comparisonDetailsLoading,
+			comparisonDetails,
+		],
 	);
 	const selectAdjacentFile = (direction: -1 | 1) => {
 		if (!showingWorkingTree) {
@@ -341,5 +314,8 @@ export const ChangesPanel = memo(function ChangesPanel(
 });
 
 export type { SelectedFile } from "../../../model/workbench-model.ts";
-export { visibleGitFiles } from "../../../model/workbench-model.ts";
+export {
+	getFileSelectionAfterToggle,
+	visibleGitFiles,
+} from "../../../model/workbench-model.ts";
 export { CollapsedChangesPanel } from "./CollapsedChangesPanel.tsx";

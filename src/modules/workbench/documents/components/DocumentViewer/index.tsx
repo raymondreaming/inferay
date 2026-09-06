@@ -1,64 +1,26 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useCallback, useEffect, useMemo, useState } from "octane";
-import { fetchJson } from "../../../../../adapters/backend/http.ts";
-import {
-	readStoredJson,
-	writeStoredJson,
-} from "../../../../../adapters/storage/stored-values.ts";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
 } from "../../../../../app/model/appearance.ts";
 import { iconSize } from "../../../../../design-system/styles.stylex.ts";
+import { basename as fileName } from "../../../../../shared/lib/data.ts";
 import { IconCode, IconX } from "../../../../../shared/ui/Icons/index.tsx";
 import { FileSearch } from "../../../../explorer/components/FileSearch/index.tsx";
 import { FileTypeIcon } from "../../../../explorer/components/FileTypeIcon/index.tsx";
 import { WorkspaceDockHandle } from "../../../components/WorkspaceDockHandle/index.tsx";
+import {
+	fileViewerSessions,
+	mergeRestoredDocuments,
+	persistFileViewerSession,
+	readDocument,
+	readPersistedFileViewerSession,
+	restoreDocumentFiles,
+} from "../../../model/document-session.ts";
 import type { FileContentResponse } from "../../../model/workbench-model.ts";
 import { SourcePreview } from "./SourcePreview.tsx";
 import { styles } from "./styles.ts";
-
-function fileName(path: string) {
-	return path.split("/").pop() || path;
-}
-
-type FileViewerSession = {
-	readonly activePath: string | null;
-	readonly openFiles: FileContentResponse[];
-};
-
-type PersistedFileViewerSession = {
-	readonly cwd: string;
-	readonly activePath: string | null;
-	readonly paths: string[];
-};
-
-const fileViewerSessions = new Map<string, FileViewerSession>();
-
-function fileViewerStorageKey(sessionId: string) {
-	return `agent-workspace-files:${sessionId}`;
-}
-
-function readPersistedFileViewerSession(
-	sessionId: string,
-	cwd: string,
-): PersistedFileViewerSession | null {
-	const stored = readStoredJson<PersistedFileViewerSession | null>(
-		fileViewerStorageKey(sessionId),
-		null,
-	);
-	if (!stored || stored.cwd !== cwd || !Array.isArray(stored.paths))
-		return null;
-	return {
-		cwd,
-		activePath:
-			typeof stored.activePath === "string" ? stored.activePath : null,
-		paths: stored.paths.filter(
-			(path, index, paths) =>
-				typeof path === "string" && !!path && paths.indexOf(path) === index,
-		),
-	};
-}
 
 export const DocumentViewer = memo(function DocumentViewer({
 	cwd,
@@ -115,41 +77,26 @@ export const DocumentViewer = memo(function DocumentViewer({
 	const activeFile = openFiles.find((file) => file.path === activePath) ?? null;
 
 	useEffect(() => {
-		fileViewerSessions.set(sessionId, { activePath, openFiles });
-		if (restoringSession) return;
-		writeStoredJson<PersistedFileViewerSession>(
-			fileViewerStorageKey(sessionId),
-			{
-				cwd,
-				activePath,
-				paths: openFiles.map((file) => file.path),
-			},
+		persistFileViewerSession(
+			sessionId,
+			cwd,
+			{ activePath, openFiles },
+			restoringSession,
 		);
 	}, [activePath, cwd, openFiles, restoringSession, sessionId]);
 
 	useEffect(() => {
 		if (pathsToRestore.length === 0) return;
 		let cancelled = false;
-		Promise.all(
-			pathsToRestore.map((path) => {
-				const params = new URLSearchParams({ cwd, path });
-				return fetchJson<FileContentResponse>(
-					`/api/files/content?${params}`,
-				).catch(() => null);
-			}),
-		).then((restoredFiles) => {
+		restoreDocumentFiles(cwd, pathsToRestore).then((available) => {
 			if (cancelled) return;
-			const available = restoredFiles.filter(
-				(file): file is FileContentResponse => file !== null,
+			setOpenFiles((current) =>
+				mergeRestoredDocuments(
+					current,
+					available,
+					persistedSession?.paths ?? [],
+				),
 			);
-			setOpenFiles((current) => {
-				const byPath = new Map(
-					[...current, ...available].map((file) => [file.path, file]),
-				);
-				return (persistedSession?.paths ?? [])
-					.map((path) => byPath.get(path))
-					.filter((file): file is FileContentResponse => !!file);
-			});
 			const availablePaths = new Set([
 				...(initialFile ? [initialFile.path] : []),
 				...available.map((file) => file.path),
@@ -168,18 +115,13 @@ export const DocumentViewer = memo(function DocumentViewer({
 
 	const openFile = useCallback(
 		({ path }: { path: string }) => {
-			const params = new URLSearchParams({ cwd, path });
-			fetchJson<FileContentResponse>(`/api/files/content?${params}`)
+			readDocument(cwd, path)
 				.then((file) => {
-					setOpenFiles((current) => {
-						const existingIndex = current.findIndex(
-							(openFile) => openFile.path === file.path,
-						);
-						if (existingIndex < 0) return [...current, file];
-						return current.map((openFile, index) =>
-							index === existingIndex ? file : openFile,
-						);
-					});
+					setOpenFiles((current) =>
+						current.some((open) => open.path === file.path)
+							? current.map((open) => (open.path === file.path ? file : open))
+							: [...current, file],
+					);
 					setActivePath(file.path);
 					setError(null);
 				})

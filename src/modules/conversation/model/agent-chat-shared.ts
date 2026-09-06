@@ -1,5 +1,5 @@
 export type ChatMessage = RenderChatMessage;
-export type TokenRange = { start: number; end: number };
+type TokenRange = { start: number; end: number };
 export function findDecoratedTokenRanges(
 	text: string,
 	slashCommandNames?: readonly string[],
@@ -38,7 +38,7 @@ export interface AttachedImageInfo {
 	path: string;
 	previewUrl: string;
 }
-export type ChatMessagePart =
+type ChatMessagePart =
 	| { type: "text"; content: string }
 	| { type: "thinking"; content: string }
 	| {
@@ -49,11 +49,11 @@ export type ChatMessagePart =
 			output?: unknown;
 			error?: string;
 	  };
-export interface NativeToolDisplay {
+interface NativeToolDisplay {
 	label: string;
 	detail?: string;
 }
-export interface NativeToolSummary {
+interface NativeToolSummary {
 	type: string;
 	value: string;
 	fileName?: string;
@@ -70,12 +70,7 @@ export type CommandSystemMessage = {
 	description?: string;
 	args?: string;
 };
-export type GoalSystemStatus =
-	| "active"
-	| "paused"
-	| "complete"
-	| "cleared"
-	| "empty";
+type GoalSystemStatus = "active" | "paused" | "complete" | "cleared" | "empty";
 export type GoalSystemMessage = {
 	type: "inferay.goal";
 	status: GoalSystemStatus;
@@ -104,7 +99,7 @@ export interface NativeChatRender {
 		| { pending: true }
 	>;
 }
-export interface ChatTranscriptUpdate {
+interface ChatTranscriptUpdate {
 	version: 1;
 	epoch?: string;
 	baseRevision: number;
@@ -150,11 +145,10 @@ export interface SlashCommand {
 	name: string;
 	description: string;
 	action: "local" | "send";
-	category?: string;
 	isLocalCommand?: boolean;
 	isFromLibrary?: boolean;
 }
-export type ChatServerMessage = {
+type ChatServerMessage = {
 	paneId: string;
 	type: string;
 	[key: string]: any;
@@ -218,7 +212,7 @@ export type RenderChatMessage = Pick<
 	| "toolName"
 	| "render"
 >;
-export type RenderItem =
+type RenderItem =
 	| { type: "message"; message: RenderChatMessage }
 	| { type: "edit-group"; filePath: string; edits: RenderChatMessage[] }
 	| {
@@ -226,6 +220,101 @@ export type RenderItem =
 			tools: [RenderChatMessage];
 			continuesAfter: boolean;
 	  };
+export function getRenderRowKey(row: RenderItem | undefined, index: number) {
+	if (!row) return `row-${index}`;
+	if (row.type === "edit-group")
+		return `edit-group:${row.edits[0]?.render?.groupId ?? row.edits[0]?.id}`;
+	if (row.type === "tool-group") return `tool-group:${row.tools[0]?.id}`;
+	return row.message.id;
+}
+
+export function calculateChatOffsets(
+	rows: RenderItem[],
+	heights: ReadonlyMap<string, number>,
+) {
+	const offsets = [0];
+	for (let index = 0; index < rows.length; index++)
+		offsets.push(
+			offsets[index]! +
+				(heights.get(getRenderRowKey(rows[index], index)) ?? 160),
+		);
+	return offsets;
+}
+
+export function calculateChatWindow(
+	rows: RenderItem[],
+	offsets: number[],
+	scrollOffset: number | null,
+	viewportHeight: number,
+) {
+	if (rows.length <= 60)
+		return { firstVisible: 0, offsets, start: 0, end: rows.length };
+	let firstVisible = Math.max(0, rows.length - 24);
+	if (scrollOffset !== null) {
+		let low = 0;
+		let high = rows.length;
+		while (low < high) {
+			const middle = (low + high) >>> 1;
+			if (offsets[middle + 1]! <= scrollOffset) low = middle + 1;
+			else high = middle;
+		}
+		firstVisible = Math.min(low, rows.length - 1);
+	}
+	const start = Math.max(0, firstVisible - 8);
+	const viewportBottom =
+		(scrollOffset ?? offsets[firstVisible]!) + (viewportHeight || 800);
+	let low = firstVisible;
+	let high = rows.length;
+	while (low < high) {
+		const middle = (low + high) >>> 1;
+		if (offsets[middle]! < viewportBottom) low = middle + 1;
+		else high = middle;
+	}
+	return {
+		firstVisible,
+		offsets,
+		start,
+		end: Math.min(rows.length, Math.max(start + 48, low + 8)),
+	};
+}
+
+export function indexCheckpoints(checkpoints: CheckpointInfo[]) {
+	const result = new Map<string, CheckpointInfo>();
+	for (const checkpoint of checkpoints)
+		if (checkpoint.afterMessageId)
+			result.set(checkpoint.afterMessageId, checkpoint);
+	return result;
+}
+
+export function getUserMessagePresentation(
+	message: RenderChatMessage,
+	slashCommandNames: readonly string[],
+) {
+	if (message.role !== "user") return null;
+	const command = message.content.match(/^\/([a-zA-Z0-9_-]+)(\s|$)/)?.[1];
+	if (
+		command &&
+		slashCommandNames.some(
+			(name) => name.toLowerCase() === command.toLowerCase(),
+		)
+	)
+		return null;
+	let imagePaths = message.images ?? [];
+	let content = message.content;
+	if (
+		!imagePaths.length &&
+		content.includes("Here are the images at these paths:")
+	) {
+		const [visible = "", paths = ""] = content.split(
+			"Here are the images at these paths:\n",
+		);
+		content = visible.trim();
+		imagePaths = paths
+			.split("\n")
+			.filter((path) => path.trim() && path.includes("/.tmp/"));
+	}
+	return { content, imagePaths };
+}
 export function formatAskUserAnswer(
 	questions: AskUserQuestion[],
 	selections: Map<number, Set<number>>,

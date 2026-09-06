@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
 import { postJson } from "../../../adapters/backend/http.ts";
 import {
 	CLIENT_STORAGE_CHANGED_EVENT,
-	readStoredValue,
 	writeStoredValue,
 } from "../../../adapters/storage/stored-values.ts";
 import {
@@ -17,20 +16,19 @@ import {
 } from "../../explorer/model/explorer-events.ts";
 import { useGitDiff } from "../../repository/hooks/useGitDiff.tsx";
 import {
-	type CommitFile,
 	useCommitDetails,
 	useComparisonDetails,
 	useGitGraph,
 } from "../../repository/hooks/useGitGraph.tsx";
 import { useGitStatus } from "../../repository/hooks/useGitStatus.tsx";
-import type {
-	DiffRequest,
-	GitFileEntry,
+import type { CommitFile } from "../../repository/model/git-graph.ts";
+import type { GitFileEntry } from "../../repository/model/types.ts";
+import {
+	partitionGitFiles,
+	useGitChangeActions,
 } from "../../repository/model/types.ts";
-import { useGitChangeActions } from "../../repository/model/types.ts";
 import {
 	ChangesPanel,
-	getFileSelectionAfterToggle,
 	visibleGitFiles,
 } from "../changes/components/ChangesPanel/index.tsx";
 import type { DragProps } from "../components/ChatDiffPanel/index.tsx";
@@ -40,183 +38,55 @@ import {
 	WorkbenchSidebar,
 } from "../components/WorkbenchPanels/index.tsx";
 import type { DiffViewMode } from "../diff/components/DiffViewer/index.tsx";
-import {
-	DocumentViewer,
-	type FileContentResponse,
-} from "../documents/components/DocumentViewer/index.tsx";
-import type {
-	GitGraphActionRequest,
-	GraphSelectionIntent,
-} from "../graph/components/CommitGraph/index.tsx";
+import { DocumentViewer } from "../documents/components/DocumentViewer/index.tsx";
+import type { GraphSelectionIntent } from "../graph/components/CommitGraph/index.tsx";
 import {
 	DEFAULT_GIT_GRAPH_HISTORY_LIMIT,
 	nextGitGraphHistoryLimit,
 } from "../graph/model/graph-model.ts";
-import type {
-	GitOperationResult,
-	GitRefOperationRequest,
-} from "../model/workbench-model.ts";
 import {
 	adjacentGitFile,
-	emptyGitWorkspacePanelSession,
+	createGitOperations,
+	DIFF_VIEW_MODE_KEY,
+	DIFF_WIDTH_KEY_PREFIX,
+	type FileContentResponse,
 	GIT_FILE_VIEW_MODE_STORAGE_KEY,
-	type GitWorkspaceDetachedFilePanel,
-	type GitWorkspacePanelAction,
-	type GitWorkspacePanelSession,
+	getFileSelectionAfterToggle,
+	gitWorkbenchDiffRequest,
+	historicalGitQueryContext,
+	loadDiffViewMode,
+	loadDiffWidth,
 	loadGitFileViewMode,
+	loadSidebarWidth,
+	MAX_SIDEBAR_WIDTH,
+	MIN_DIFF_WIDTH,
 	MIN_RESPONSIVE_PANE_WIDTH,
+	MIN_SIDEBAR_WIDTH,
 	OPEN_ACTIVE_GIT_GRAPH_EVENT,
+	resolveSelectedGraphItems,
+	type SelectedGraphCache,
+	SIDEBAR_WIDTH_KEY,
 	saveGitFileViewMode,
 	TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT,
 } from "../model/workbench-model.ts";
+import {
+	createWorkspacePanelModel,
+	emptyPanelSession,
+	type PanelAction,
+	panelQuery,
+} from "../model/workspace-panels.ts";
 
-export const SIDEBAR_WIDTH_KEY = "agent-workspace-changes-width";
-
-export const DIFF_WIDTH_KEY_PREFIX = "agent-workspace-diff-width:";
-
-export const DIFF_VIEW_MODE_KEY = "agent-workspace-diff-view-mode";
-
-export const MIN_SIDEBAR_WIDTH = 230;
-
-export const MAX_SIDEBAR_WIDTH = 420;
-
-export const DEFAULT_SIDEBAR_WIDTH = 300;
-
-export const MIN_DIFF_WIDTH = 320;
-
-export const DEFAULT_DIFF_WIDTH = 680;
-
-export function loadSidebarWidth() {
-	const stored = Number(readStoredValue(SIDEBAR_WIDTH_KEY));
-	return Number.isFinite(stored) && stored > 0
-		? Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, stored))
-		: DEFAULT_SIDEBAR_WIDTH;
-}
-
-export function loadDiffWidth(workspaceId: string) {
-	const stored = Number(
-		readStoredValue(`${DIFF_WIDTH_KEY_PREFIX}${workspaceId}`),
-	);
-	return Number.isFinite(stored) && stored > 0
-		? Math.max(MIN_DIFF_WIDTH, stored)
-		: DEFAULT_DIFF_WIDTH;
-}
-
-export function loadDiffViewMode(): DiffViewMode {
-	return readStoredValue(DIFF_VIEW_MODE_KEY) === "split" ? "split" : "hunks";
-}
-
-export type DetachedFilePanel =
-	GitWorkspaceDetachedFilePanel<FileContentResponse>;
-
-export type WorkspacePanelSession =
-	GitWorkspacePanelSession<FileContentResponse>;
-
-export const emptyPanelSession =
-	emptyGitWorkspacePanelSession<FileContentResponse>();
-type PanelAction = GitWorkspacePanelAction<FileContentResponse>;
-function panelQuery(workspaceId: string) {
-	return {
-		queryKey: ["workspace-panels", workspaceId],
-		queryFn: async () =>
-			(
-				await postJson<{ session: WorkspacePanelSession }>(
-					"/api/workspace/panels",
-					{ workspaceId },
-				)
-			).session,
-		staleTime: Infinity,
-		gcTime: 30 * 60 * 1000,
-	};
-}
-export function useWorkspacePanelSession(workspaceId: string) {
-	const options = useMemo(() => panelQuery(workspaceId), [workspaceId]);
-	const query = useQuery(options, queryClient);
-	// File contents and the immediate drag preview stay local; native stores only panel identity.
-	const draggedFiles = useRef(
-		new Map<
-			string,
-			{ panel: DetachedFilePanel; pending: boolean; workspaceId: string }
-		>(),
-	);
-	const mutation = useMutation(
-		{
-			mutationKey: ["workspace-panels", workspaceId],
-			scope: { id: `workspace-panels:${workspaceId}` },
-			mutationFn: async ({
-				workspaceId,
-				action,
-			}: {
-				workspaceId: string;
-				action: PanelAction;
-			}) => {
-				await queryClient.ensureQueryData(panelQuery(workspaceId));
-				const wireAction = { ...action };
-				if (wireAction.type === "detachFile") delete wireAction.initialFile;
-				return postJson<{
-					session: WorkspacePanelSession;
-					announcement: string | null;
-				}>("/api/workspace/panels", { workspaceId, action: wireAction });
-			},
-			onSuccess: ({ session }, { workspaceId, action }) => {
-				const file =
-					"id" in action && action.id
-						? draggedFiles.current.get(action.id)
-						: undefined;
-				if (file && action.type === "detachFile") file.pending = false;
-				if (action.type === "closeFile") draggedFiles.current.delete(action.id);
-				const panels = session.detachedFilePanels.map((panel) => ({
-					...panel,
-					initialFile: draggedFiles.current.get(panel.id)?.panel.initialFile,
-				}));
-				for (const entry of draggedFiles.current.values()) {
-					if (
-						entry.workspaceId === workspaceId &&
-						entry.pending &&
-						!panels.some((panel) => panel.id === entry.panel.id)
-					)
-						panels.push({
-							...entry.panel,
-							initialFile: entry.panel.initialFile,
-						});
-				}
-				queryClient.setQueryData(panelQuery(workspaceId).queryKey, {
-					...session,
-					detachedFilePanels: panels,
-				});
-			},
-		},
-		queryClient,
-	);
+function useWorkspacePanelSession(workspaceId: string) {
+	const model = useMemo(createWorkspacePanelModel, []);
+	const query = useQuery(panelQuery(workspaceId), queryClient);
+	const mutation = useMutation(model.mutationOptions(workspaceId), queryClient);
 	const mutate = mutation.mutate;
 	const update = useCallback(
 		(action: PanelAction) => {
-			if (action.type === "detachFile") {
-				const panel = {
-					id: action.id,
-					cwd: action.cwd,
-					path: action.path,
-					initialFile: action.initialFile,
-				};
-				draggedFiles.current.set(action.id, {
-					panel,
-					pending: true,
-					workspaceId,
-				});
-				queryClient.setQueryData<WorkspacePanelSession>(
-					panelQuery(workspaceId).queryKey,
-					(current) =>
-						current
-							? {
-									...current,
-									detachedFilePanels: [...current.detachedFilePanels, panel],
-								}
-							: current,
-				);
-			}
+			model.preview(workspaceId, action);
 			mutate({ workspaceId, action });
 		},
-		[mutate, workspaceId],
+		[model, mutate, workspaceId],
 	);
 	const error = query.error
 		? "Saved workspace panels could not be restored."
@@ -268,33 +138,19 @@ export function useRepositoryWorkbench({
 		mainViewMode,
 	} = panelSession;
 	const fileSource = selectedFile?.source;
-	const commitSource = fileSource?.kind === "commit" ? fileSource : null;
-	const comparisonSource =
-		fileSource?.kind === "comparison" ? fileSource : null;
 
 	const [fileViewMode, setFileViewModeState] = useState(loadGitFileViewMode);
 	useEffect(() => {
 		const applyStoredMode = (value: string | null) => {
 			if (value === "path" || value === "tree") setFileViewModeState(value);
 		};
-		const stopLocalSync = listenWindowEvent(
-			CLIENT_STORAGE_CHANGED_EVENT,
-			(event) => {
-				const detail = (
-					event as CustomEvent<{ key?: string; value?: string | null }>
-				).detail;
-				if (detail?.key === GIT_FILE_VIEW_MODE_STORAGE_KEY)
-					applyStoredMode(detail.value ?? null);
-			},
-		);
-		const stopWindowSync = listenWindowEvent("storage", (event) => {
-			if (event.key === GIT_FILE_VIEW_MODE_STORAGE_KEY)
-				applyStoredMode(event.newValue);
+		return listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
+			const detail = (
+				event as CustomEvent<{ key?: string; value?: string | null }>
+			).detail;
+			if (detail?.key === GIT_FILE_VIEW_MODE_STORAGE_KEY)
+				applyStoredMode(detail.value ?? null);
 		});
-		return () => {
-			stopLocalSync();
-			stopWindowSync();
-		};
 	}, []);
 	const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
 	const [diffWidth, setDiffWidth] = useState(() => loadDiffWidth(workspaceId));
@@ -324,27 +180,30 @@ export function useRepositoryWorkbench({
 		});
 	}, [active, zenMode]);
 	const activeCwd = focusedAuxiliaryPanel?.cwd ?? cwd;
-	const trackedCwds = useMemo(() => {
-		if (!active) return [];
-		return [
-			...new Set(
-				[
-					cwd,
-					fileViewerCwd,
-					diffViewerCwd,
-					focusedAuxiliaryPanel?.cwd,
-					...detachedFilePanels.map((panel) => panel.cwd),
-				].filter((value): value is string => !!value),
-			),
-		];
-	}, [
-		active,
-		cwd,
-		detachedFilePanels,
-		diffViewerCwd,
-		fileViewerCwd,
-		focusedAuxiliaryPanel?.cwd,
-	]);
+	const trackedCwds = useMemo(
+		() =>
+			active
+				? [
+						...new Set(
+							[
+								cwd,
+								fileViewerCwd,
+								diffViewerCwd,
+								focusedAuxiliaryPanel?.cwd,
+								...detachedFilePanels.map((panel) => panel.cwd),
+							].filter((value): value is string => Boolean(value)),
+						),
+					]
+				: [],
+		[
+			active,
+			cwd,
+			detachedFilePanels,
+			diffViewerCwd,
+			fileViewerCwd,
+			focusedAuxiliaryPanel?.cwd,
+		],
+	);
 	const graphCwd =
 		active && mainViewMode === "graph"
 			? (diffViewerCwd ?? undefined)
@@ -362,44 +221,33 @@ export function useRepositoryWorkbench({
 	const diffViewerProject = diffViewerCwd
 		? (projectMap.get(diffViewerCwd) ?? null)
 		: null;
-	const { staged, modified, untracked } = useMemo(
-		() => ({
-			staged: project?.files.filter((file) => file.staged) ?? [],
-			modified:
-				project?.files.filter((file) => !file.staged && file.status !== "?") ??
-				[],
-			untracked:
-				project?.files.filter((file) => !file.staged && file.status === "?") ??
-				[],
-		}),
+	const fileGroups = useMemo(
+		() => partitionGitFiles(project?.files),
 		[project],
 	);
+	const { staged, modified, untracked } = fileGroups;
 	const graphRevisionsRef = useRef(new Map<string, string>());
 	if (graphCwd && graph.revision) {
 		graphRevisionsRef.current.set(graphCwd, graph.revision);
 	}
 	useEffect(() => setGraphLimit(DEFAULT_GIT_GRAPH_HISTORY_LIMIT), [graphCwd]);
-	const selectedGraphCache = useRef<{
-		cwd: string | undefined;
-		items: Map<string, (typeof graph.commits)[number]>;
-	}>({ cwd: graphCwd, items: new Map() });
-	if (selectedGraphCache.current.cwd !== graphCwd)
-		selectedGraphCache.current = { cwd: graphCwd, items: new Map() };
-	const selectedGraphItems = useMemo(() => {
-		const selected = new Set(selectedCommitIds);
-		if (selectedCommitHash) selected.add(selectedCommitHash);
-		const cached = selectedGraphCache.current.items;
-		for (const id of cached.keys()) if (!selected.has(id)) cached.delete(id);
-		for (const item of graph.commits)
-			if (selected.has(item.id)) cached.set(item.id, item);
-		return selectedCommitIds.flatMap((id) => {
-			const item = cached.get(id);
-			return item ? [item] : [];
-		});
+	const selectedGraphCache = useRef<SelectedGraphCache>({
+		cwd: graphCwd,
+		items: new Map(),
+	});
+	const selectedGraph = useMemo(() => {
+		const result = resolveSelectedGraphItems(
+			selectedGraphCache.current,
+			graphCwd,
+			graph.commits,
+			selectedCommitIds,
+			selectedCommitHash,
+		);
+		selectedGraphCache.current = result.cache;
+		return result;
 	}, [graph.commits, graphCwd, selectedCommitHash, selectedCommitIds]);
-	const selectedGraphItem = selectedCommitHash
-		? (selectedGraphCache.current.items.get(selectedCommitHash) ?? null)
-		: null;
+	const selectedGraphItems = selectedGraph.items;
+	const selectedGraphItem = selectedGraph.item;
 
 	const comparisonSelection = useMemo(
 		() =>
@@ -425,19 +273,17 @@ export function useRepositoryWorkbench({
 		selectedGraphWorktree && !selectedGraphWorktree.isCurrent
 			? selectedGraphWorktree.status
 			: null;
-	const sidebarStaged = selectedLinkedWorktreeStatus
-		? selectedLinkedWorktreeStatus.files.filter((file) => file.staged)
-		: staged;
-	const sidebarModified = selectedLinkedWorktreeStatus
-		? selectedLinkedWorktreeStatus.files.filter(
-				(file) => !file.staged && file.status !== "?",
-			)
-		: modified;
-	const sidebarUntracked = selectedLinkedWorktreeStatus
-		? selectedLinkedWorktreeStatus.files.filter(
-				(file) => !file.staged && file.status === "?",
-			)
-		: untracked;
+	const {
+		staged: sidebarStaged,
+		modified: sidebarModified,
+		untracked: sidebarUntracked,
+	} = useMemo(
+		() =>
+			selectedLinkedWorktreeStatus
+				? partitionGitFiles(selectedLinkedWorktreeStatus.files)
+				: fileGroups,
+		[selectedLinkedWorktreeStatus, fileGroups],
+	);
 	const selectedWorkingTreeCwd = selectedGraphWorktree?.path ?? activeCwd;
 	const openSelectedWorktree = useCallback(() => {
 		if (!selectedGraphWorktree || selectedGraphWorktree.isCurrent) return;
@@ -447,41 +293,31 @@ export function useRepositoryWorkbench({
 			reset: true,
 		});
 	}, [selectedGraphWorktree, updatePanelSession]);
-	const historicalCommitCwd =
-		mainViewMode === "diff" && commitSource?.commitHash
-			? (diffViewerCwd ?? undefined)
-			: graphCwd;
-	const historicalCommitHash =
-		mainViewMode === "diff"
-			? (commitSource?.commitHash ?? undefined)
-			: selectedCommitIds.length <= 1 &&
-					selectedGraphItem &&
-					selectedGraphItem.itemKind !== "worktreeWip"
-				? selectedGraphItem.hash
-				: undefined;
-	const historicalCommitParent =
-		mainViewMode === "diff"
-			? (commitSource?.commitParent ?? undefined)
-			: (selectedCommitParent ?? undefined);
-	const historicalGraphRevision =
-		mainViewMode === "diff" && diffViewerCwd
+	const historical = historicalGitQueryContext({
+		mainViewMode,
+		diffViewerCwd,
+		graphCwd,
+		graphRevision: graph.revision,
+		storedRevision: diffViewerCwd
 			? graphRevisionsRef.current.get(diffViewerCwd)
-			: graph.revision;
+			: undefined,
+		selectedCommitIds,
+		selectedCommitParent,
+		selectedGraphItem,
+		fileSource,
+	});
+	const { commitSource, comparisonSource } = historical;
 	const commitDetailsState = useCommitDetails(
-		historicalCommitCwd,
-		historicalCommitHash,
-		historicalCommitParent,
-		historicalGraphRevision,
+		historical.commit.cwd,
+		historical.commit.hash,
+		historical.commit.parent,
+		historical.revision,
 	);
 	const comparisonDetailsState = useComparisonDetails(
-		mainViewMode === "diff" ? (diffViewerCwd ?? undefined) : graphCwd,
-		mainViewMode === "diff"
-			? (comparisonSource?.comparisonFrom ?? undefined)
-			: undefined,
-		mainViewMode === "diff"
-			? (comparisonSource?.comparisonTo ?? undefined)
-			: undefined,
-		historicalGraphRevision,
+		historical.comparison.cwd,
+		historical.comparison.from,
+		historical.comparison.to,
+		historical.revision,
 		mainViewMode === "graph" && selectedCommitIds.length > 1
 			? comparisonSelection
 			: undefined,
@@ -522,82 +358,10 @@ export function useRepositoryWorkbench({
 		},
 		[graphCwd, refetch, selectGraphCommit],
 	);
-	const { runGraphRefOperation, runGraphActionRequest } = useMemo(() => {
-		async function run<Operation extends string>(
-			endpoint: string,
-			operation: Operation,
-			request: object,
-			selectHead: boolean,
-			fallback: string,
-		): Promise<GitOperationResult<Operation>> {
-			const failed = (
-				error: string,
-				errorKind: "invalidInput" | "commandFailed",
-			): GitOperationResult<Operation> => ({
-				ok: false,
-				operation,
-				outcome: "failed",
-				conflicts: [],
-				errorKind,
-				errorLabel:
-					errorKind === "invalidInput"
-						? "Invalid Git action"
-						: "Git command failed",
-				error,
-			});
-			if (!graphCwd)
-				return failed("No Git repository selected", "invalidInput");
-			try {
-				const result = await postJson<GitOperationResult<Operation>>(
-					`/api/git/${endpoint}`,
-					{ cwd: graphCwd, ...request },
-				);
-				await refetch();
-				if (
-					result.ok &&
-					selectHead &&
-					(endpoint === "ref-operation" || result.head)
-				)
-					selectGraphCommit(result.head ?? null);
-				return result;
-			} catch (error) {
-				return failed(
-					error instanceof Error ? error.message : fallback,
-					"commandFailed",
-				);
-			}
-		}
-		return {
-			runGraphRefOperation: (request: GitRefOperationRequest) =>
-				run(
-					"ref-operation",
-					request.operation,
-					request,
-					true,
-					"Git operation failed",
-				),
-			runGraphActionRequest: ({
-				action,
-				target,
-				targets,
-				name,
-				message,
-			}: GitGraphActionRequest & { name?: string; message?: string }) =>
-				run(
-					"graph-action",
-					action,
-					{ action, target, targets, name, message },
-					[
-						"cherryPick",
-						"revert",
-						"resetSoft",
-						"resetMixed",
-						"resetHard",
-					].includes(action),
-					"Git action failed",
-				),
-		};
-	}, [graphCwd, refetch, selectGraphCommit]);
+	const { runGraphRefOperation, runGraphActionRequest } = useMemo(
+		() => createGitOperations(graphCwd, refetch, selectGraphCommit),
+		[graphCwd, refetch, selectGraphCommit],
+	);
 	useEffect(() => {
 		if (mainViewMode !== "graph" || graph.loading || !graph.commits.length)
 			return;
@@ -663,30 +427,25 @@ export function useRepositoryWorkbench({
 		cwd: activeCwd,
 		refetchStatus: refetch,
 	});
-	const diffRequest = useMemo<DiffRequest | null>(
+	const diffRequest = useMemo(
 		() =>
-			active && diffViewerCwd && selectedFile
-				? {
-						cwd: diffViewerCwd,
-						repositoryRevision:
-							graphRevisionsRef.current.get(diffViewerCwd) ?? undefined,
-						file: selectedFile.path,
-						staged: selectedFile.staged,
-						commitHash: commitSource?.commitHash ?? undefined,
-						commitParent: commitSource?.commitParent ?? undefined,
-						comparisonFrom: comparisonSource?.comparisonFrom ?? undefined,
-						comparisonTo: comparisonSource?.comparisonTo ?? undefined,
-						view: diffViewMode === "split" ? "full" : "review",
-					}
-				: null,
+			gitWorkbenchDiffRequest({
+				active,
+				cwd: diffViewerCwd,
+				selectedFile,
+				repositoryRevision: diffViewerCwd
+					? graphRevisionsRef.current.get(diffViewerCwd)
+					: undefined,
+				fileSource,
+				viewMode: diffViewMode,
+			}),
 		[
 			active,
 			diffViewMode,
 			diffViewerCwd,
 			graph.revision,
 			selectedFile,
-			commitSource,
-			comparisonSource,
+			fileSource,
 		],
 	);
 	const {

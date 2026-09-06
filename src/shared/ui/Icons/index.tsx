@@ -1,7 +1,7 @@
 import { memo } from "octane";
 import type { CSSProperties } from "react";
 
-import type { GraphRail } from "../../../modules/repository/hooks/useGitGraph.tsx";
+import type { GraphRail } from "../../../modules/repository/model/git-graph.ts";
 import type { RowTransition } from "../../../modules/workbench/graph/model/graph-model.ts";
 
 type PositionedRail = GraphRail & { key: string; row: number };

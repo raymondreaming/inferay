@@ -1,5 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { iconSize } from "../../../../../design-system/styles.stylex.ts";
+import { basename } from "../../../../../shared/lib/data.ts";
 import { IconButton } from "../../../../../shared/ui/IconButton/index.tsx";
 import {
 	IconChevronRight,
@@ -25,12 +26,10 @@ export function DiffHeader({
 	onPrevChange?: () => void;
 	onNextChange?: () => void;
 }) {
-	const name = filePath.split("/").pop() || filePath;
-
 	return (
 		<div {...stylex.props(diffStyles.header)}>
 			<FileTypeIcon path={filePath} size={iconSize.lg} />
-			<span {...stylex.props(diffStyles.pathName)}>{name}</span>
+			<span {...stylex.props(diffStyles.pathName)}>{basename(filePath)}</span>
 
 			{stats && (stats.added > 0 || stats.removed > 0) && (
 				<div {...stylex.props(diffStyles.stats)}>

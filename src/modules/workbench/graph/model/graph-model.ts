@@ -7,7 +7,13 @@ export interface ColumnVisibility {
 	sha: boolean;
 	date: boolean;
 }
-export type ColumnKey = GraphColumnKey;
+export type ColumnKey =
+	| "date"
+	| "refs"
+	| "graph"
+	| "message"
+	| "author"
+	| "sha";
 export interface ColumnWidths {
 	date: number;
 	refs: number;
@@ -17,7 +23,7 @@ export interface ColumnWidths {
 	sha: number;
 }
 export const TOOLS_WIDTH = 32;
-export const GIT_GRAPH_GEOMETRY = {
+const GIT_GRAPH_GEOMETRY = {
 	rowHeight: 23,
 	columnWidth: 18,
 	avatarSize: 18,
@@ -40,10 +46,11 @@ export { AVATAR_SIZE } from "../components/CommitGraph/styles.ts";
 
 import { readStoredJson } from "../../../../adapters/storage/stored-values.ts";
 import type {
+	GitGraphRef,
 	GitWorktree,
 	GraphNode,
 	GraphRow,
-} from "../../../repository/hooks/useGitGraph.tsx";
+} from "../../../repository/model/git-graph.ts";
 export interface CommitGraphProps {
 	searchQuery?: string;
 	searchActive?: boolean;
@@ -109,16 +116,8 @@ export interface GraphPreferences {
 	pinnedRefs: string[];
 }
 export const TOP_PADDING = ROW_HEIGHT;
-export const ROW_OVERSCAN = 12;
-export const AUTHOR_WIDTH = 136;
-export const SHA_WIDTH = 76;
-export const DATE_WIDTH = 132;
-export const REF_WIDTH = 192;
-export const GRAPH_WIDTH = 96;
-export const MESSAGE_WIDTH = 340;
-export const COLUMN_PREFS_KEY = "commit-graph-columns-v12";
-export const SCROLL_PREFS_KEY = "commit-graph-scroll-v1";
-export const DEFAULT_COLUMN_ORDER: ColumnKey[] = [
+const ROW_OVERSCAN = 12;
+const DEFAULT_COLUMN_ORDER: ColumnKey[] = [
 	"date",
 	"refs",
 	"graph",
@@ -127,18 +126,18 @@ export const DEFAULT_COLUMN_ORDER: ColumnKey[] = [
 	"sha",
 ];
 export const EMPTY_SELECTED_IDS: readonly string[] = [];
-export const DEFAULT_COLUMNS: ColumnVisibility = {
+const DEFAULT_COLUMNS: ColumnVisibility = {
 	author: true,
 	sha: true,
 	date: true,
 };
-export const DEFAULT_WIDTHS: ColumnWidths = {
-	date: DATE_WIDTH,
-	refs: REF_WIDTH,
-	graph: GRAPH_WIDTH,
-	message: MESSAGE_WIDTH,
-	author: AUTHOR_WIDTH,
-	sha: SHA_WIDTH,
+const DEFAULT_WIDTHS: ColumnWidths = {
+	date: 132,
+	refs: 192,
+	graph: 96,
+	message: 340,
+	author: 136,
+	sha: 76,
 };
 export const MIN_COLUMN_WIDTHS: ColumnWidths = {
 	date: 84,
@@ -149,7 +148,7 @@ export const MIN_COLUMN_WIDTHS: ColumnWidths = {
 	sha: 56,
 };
 export const MAX_COLUMN_WIDTH = 480;
-export function normalizedColumnWidths(
+function normalizedColumnWidths(
 	stored: Partial<ColumnWidths> | undefined,
 ): ColumnWidths {
 	return Object.fromEntries(
@@ -167,10 +166,10 @@ export function normalizedColumnWidths(
 	) as unknown as ColumnWidths;
 }
 export function preferencesKey(repositoryKey?: string) {
-	return `${COLUMN_PREFS_KEY}:${repositoryKey ?? "default"}`;
+	return `commit-graph-columns-v12:${repositoryKey ?? "default"}`;
 }
 export function scrollPreferencesKey(repositoryKey?: string) {
-	return `${SCROLL_PREFS_KEY}:${repositoryKey ?? "default"}`;
+	return `commit-graph-scroll-v1:${repositoryKey ?? "default"}`;
 }
 export function loadPreferences(repositoryKey?: string): GraphPreferences {
 	const stored = readStoredJson<Partial<GraphPreferences>>(
@@ -203,16 +202,8 @@ export interface RowTransition {
 	toCol: number;
 	color: string;
 }
-export type GraphColumnKey =
-	| "date"
-	| "refs"
-	| "graph"
-	| "message"
-	| "author"
-	| "sha";
-
 export const DEFAULT_GIT_GRAPH_HISTORY_LIMIT = 1_000;
-export const MAX_GIT_GRAPH_HISTORY_LIMIT = 100_000;
+const MAX_GIT_GRAPH_HISTORY_LIMIT = 100_000;
 export function nextGitGraphHistoryLimit(current: number): number {
 	return Math.min(
 		MAX_GIT_GRAPH_HISTORY_LIMIT,
@@ -220,7 +211,7 @@ export function nextGitGraphHistoryLimit(current: number): number {
 	);
 }
 
-export function graphVirtualRange(
+function graphVirtualRange(
 	itemCount: number,
 	scrollTop: number,
 	viewportHeight: number,
@@ -237,10 +228,10 @@ export function graphVirtualRange(
 	};
 }
 export function moveGraphColumn(
-	order: readonly GraphColumnKey[],
-	source: GraphColumnKey,
-	target: GraphColumnKey,
-): GraphColumnKey[] {
+	order: readonly ColumnKey[],
+	source: ColumnKey,
+	target: ColumnKey,
+): ColumnKey[] {
 	const sourceIndex = order.indexOf(source);
 	const targetIndex = order.indexOf(target);
 	if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex)
@@ -250,7 +241,7 @@ export function moveGraphColumn(
 	next.splice(targetIndex, 0, source);
 	return next;
 }
-export function pinnedGraphColumnOrder(
+function pinnedGraphColumnOrder(
 	maxColumn: number,
 	pinnedColumns: readonly number[],
 ): number[] {
@@ -272,7 +263,7 @@ const {
 	curveRadius: requestedCurveRadius,
 } = GIT_GRAPH_GEOMETRY;
 
-export function buildGraphConnectionPath(connection: RowTransition): string {
+function buildGraphConnectionPath(connection: RowTransition): string {
 	const rowY = (row: number) => row * rowHeight + rowHeight / 2;
 	const x1 = graphPadding + connection.fromCol * columnWidth + columnWidth / 2;
 	const y1 = rowY(connection.row);
@@ -294,7 +285,7 @@ export function buildGraphConnectionPath(connection: RowTransition): string {
 	].join(" ");
 }
 
-export function buildGraphConvergencePath(connection: RowTransition): string {
+function buildGraphConvergencePath(connection: RowTransition): string {
 	const centerY = connection.row * rowHeight + rowHeight / 2;
 	const topY = connection.row * rowHeight;
 	const fromX =
@@ -314,4 +305,155 @@ export function buildGraphConvergencePath(connection: RowTransition): string {
 		`A ${curveRadius} ${curveRadius} 0 0 ${sweep} ${curveEndX} ${centerY}`,
 		`L ${toX} ${centerY}`,
 	].join(" ");
+}
+
+export function buildCommitGraphViewModel({
+	ancestry,
+	commits,
+	hiddenRefs,
+	order,
+	pinnedRefs,
+	soloRefs,
+	widths,
+	columns,
+	worktrees,
+}: Pick<CommitGraphProps, "ancestry" | "commits" | "worktrees"> &
+	Pick<
+		GraphPreferences,
+		"columns" | "hiddenRefs" | "order" | "pinnedRefs" | "soloRefs" | "widths"
+	>) {
+	const repositoryRefs = new Map<string, GitGraphRef>();
+	for (const commit of commits)
+		for (const ref of commit.refs) repositoryRefs.set(ref.fullName, ref);
+	const containingBranches = new Map(
+		commits.flatMap((commit) => {
+			const ref = repositoryRefs.get(commit.navigation?.containingBranch ?? "");
+			return ref ? [[commit.id, ref] as const] : [];
+		}),
+	);
+	const hiddenRefDetails = hiddenRefs.flatMap((name) => {
+		const ref = repositoryRefs.get(name);
+		return ref ? [ref] : [];
+	});
+	const defaultRemoteName = Array.from(repositoryRefs.values()).find(
+		(ref) => ref.kind === "remoteBranch" && ref.remoteName,
+	)?.remoteName;
+	const reachableHistory = new Set<string>();
+	for (const ref of soloRefs)
+		for (const [start, end] of ancestry?.[ref] ?? [])
+			for (let row = start; row <= end && row < commits.length; row++)
+				reachableHistory.add(commits[row]!.id);
+	const maxColumn = commits.reduce(
+		(max, commit) => Math.max(max, commit.column),
+		0,
+	);
+	const pinnedColumns = pinnedRefs.flatMap((name) => {
+		const target = repositoryRefs.get(name)?.target;
+		const column = target
+			? commits.find((commit) => commit.hash === target || commit.id === target)
+					?.column
+			: undefined;
+		return column === undefined ? [] : [column];
+	});
+	const positions = new Map(
+		pinnedGraphColumnOrder(maxColumn, pinnedColumns).map((column, index) => [
+			column,
+			index,
+		]),
+	);
+	const displayGraphColumn = (column: number) =>
+		positions.get(column) ?? column;
+	const graphWidth = Math.max(
+		widths.graph,
+		(maxColumn + 1) * COLUMN_WIDTH + GRAPH_PADDING * 2,
+	);
+	const columnX = (column: number) =>
+		GRAPH_PADDING +
+		displayGraphColumn(column) * COLUMN_WIDTH +
+		COLUMN_WIDTH / 2;
+	const remap = (transition: RowTransition) => ({
+		...transition,
+		fromCol: displayGraphColumn(transition.fromCol),
+		toCol: displayGraphColumn(transition.toCol),
+	});
+	const connectionPath = (transition: RowTransition) =>
+		buildGraphConnectionPath(remap(transition));
+	const convergencePath = (transition: RowTransition) =>
+		buildGraphConvergencePath(remap(transition));
+	const visibleColumns = order.filter(
+		(column) =>
+			(column !== "date" || columns.date) &&
+			(column !== "author" || columns.author) &&
+			(column !== "sha" || columns.sha),
+	);
+	const renderedWidth = (column: ColumnKey) =>
+		column === "graph" ? graphWidth : widths[column];
+	const graphLeft = visibleColumns
+		.slice(0, visibleColumns.indexOf("graph"))
+		.reduce((total, column) => total + renderedWidth(column), 0);
+	const selectableItems = commits.map((commit) => commit.id);
+	return {
+		columnX,
+		connectionPath,
+		containingBranches,
+		convergencePath,
+		defaultRemoteName,
+		displayGraphColumn,
+		graphHeight: commits.length * ROW_HEIGHT,
+		graphLeft,
+		graphWidth,
+		hiddenRefDetails,
+		hiddenRefNames: new Set(hiddenRefs),
+		itemIndexes: new Map(selectableItems.map((id, index) => [id, index])),
+		matchingHashes: new Set(selectableItems),
+		pinnedRefNames: new Set(pinnedRefs),
+		reachableHistory,
+		selectableItems,
+		tableWidth:
+			visibleColumns.reduce(
+				(total, column) => total + renderedWidth(column),
+				0,
+			) + TOOLS_WIDTH,
+		totalHeight: TOP_PADDING + commits.length * ROW_HEIGHT,
+		worktreesByPath: new Map(worktrees?.map((tree) => [tree.path, tree]) ?? []),
+	};
+}
+
+export function projectCommitGraphViewport(
+	rows: readonly GraphRow[],
+	itemCount: number,
+	scrollTop: number,
+	viewportHeight: number,
+) {
+	const { start: visibleStart, end: visibleEnd } = graphVirtualRange(
+		itemCount,
+		Math.max(0, scrollTop - TOP_PADDING),
+		viewportHeight,
+	);
+	const visibleRows = rows.slice(visibleStart, visibleEnd);
+	const connections = (key: "convergences" | "transitions") =>
+		visibleRows.flatMap((row) =>
+			row[key].map((transition) => ({
+				row: row.row,
+				fromCol: transition.fromColumn,
+				toCol: transition.toColumn,
+				color: transition.color,
+			})),
+		);
+	const segments = (key: "rails" | "truncatedEdges", prefix: string) =>
+		visibleRows.flatMap((row) =>
+			row[key].map((segment) => ({
+				...segment,
+				key: `${prefix}-${row.row}-${segment.column}`,
+				row: row.row,
+			})),
+		);
+	return {
+		convergences: connections("convergences"),
+		railSegments: segments("rails", "rail"),
+		transitions: connections("transitions"),
+		truncatedSegments: segments("truncatedEdges", "truncated"),
+		visibleEnd,
+		visibleStart,
+	};
 }

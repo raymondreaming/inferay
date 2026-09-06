@@ -1,27 +1,6 @@
-export function isString(value: unknown): value is string {
-	return typeof value === "string";
-}
-export function isActive(value: { active: boolean }): boolean {
-	return value.active;
-}
-export function isBuiltIn(value: { isBuiltIn: boolean }): boolean {
-	return value.isBuiltIn;
-}
-export function toggleBoolean(value: boolean): boolean {
-	return !value;
-}
 export function noop(): void {}
-export function contentOf<T extends { content: string }>(item: T): string {
-	return item.content;
-}
 export function hasId(id: unknown, item: { id: string }): boolean {
 	return item.id === id;
-}
-export function hasPath(path: unknown, item: { path: string }): boolean {
-	return item.path === path;
-}
-export function lacksValue<T>(value: T, item: T): boolean {
-	return item !== value;
 }
 
 export function basename(value: string): string {
@@ -167,17 +146,6 @@ export function listenWindowEvent<K extends keyof WindowEventMap | string>(
 		eventListener,
 	) as () => void;
 }
-export function stopPropagation(event: Event): void {
-	event.stopPropagation();
-}
-export function activateOnEnterOrSpacePreventDefault(
-	action: () => void,
-	event: KeyboardEvent,
-): void {
-	if (event.key !== "Enter" && event.key !== " ") return;
-	event.preventDefault();
-	action();
-}
 export function setInputValue(
 	setValue: (value: string) => void,
 	event: InputEvent & {
@@ -185,14 +153,6 @@ export function setInputValue(
 	},
 ): void {
 	setValue(event.currentTarget.value);
-}
-export function setupAgentThemePanelShortcut(
-	setShowSettings: (show: boolean) => void,
-): () => void {
-	return listenWindowEvent(
-		"agent-open-theme-panel",
-		setShowSettings.bind(null, true),
-	);
 }
 export interface DotMatrixLoaderProps {
 	dotSize?: number;

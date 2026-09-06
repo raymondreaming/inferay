@@ -44,7 +44,7 @@ export function useGitStatus(
 	);
 	const {
 		data,
-		refetch: refreshStatuses,
+		refresh: refreshStatuses,
 		loaded,
 	} = usePollingQuery(fetcher, 5000, EMPTY_GIT_PROJECTS, {
 		queryKey: ["git", "status", cwdKey],

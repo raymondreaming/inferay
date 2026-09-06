@@ -3,7 +3,7 @@ import {
 	IconSearch,
 	IconSettings,
 } from "../../../../../shared/ui/Icons/index.tsx";
-import type { GitGraphRef } from "../../../../repository/hooks/useGitGraph.tsx";
+import type { GitGraphRef } from "../../../../repository/model/git-graph.ts";
 import {
 	type ColumnKey,
 	type ColumnVisibility,

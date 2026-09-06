@@ -8,7 +8,6 @@ import {
 } from "../../../../design-system/styles.stylex.ts";
 import { queryClient } from "../../../../shared/lib/data.ts";
 import { IconChevronRight } from "../../../../shared/ui/Icons/index.tsx";
-import type { ExplorerEntry } from "../../model/explorer-events.ts";
 import { dispatchDocumentOpen } from "../../model/explorer-events.ts";
 import { FileTypeIcon, FolderTypeIcon } from "../FileTypeIcon/index.tsx";
 import * as inlineStyles from "./styles.ts";
@@ -61,6 +60,13 @@ export function Directory({
 		</div>
 	);
 }
+
+type ExplorerEntry = {
+	readonly cwd: string;
+	readonly isDir: boolean;
+	readonly name: string;
+	readonly path: string;
+};
 
 const EXPLORER_ROW_HEIGHT = 24;
 

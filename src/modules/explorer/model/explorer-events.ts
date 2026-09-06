@@ -1,12 +1,5 @@
-import { dispatchWindowEvent } from "../../../shared/lib/data.ts";
-export type ExplorerEntry = {
-	readonly cwd: string;
-	readonly isDir: boolean;
-	readonly name: string;
-	readonly path: string;
-};
-
 import { DEFAULT_FILE, getIconForFile } from "@yutengjing/vscode-icons";
+import { dispatchWindowEvent } from "../../../shared/lib/data.ts";
 
 const importedIcons = import.meta.glob(
 	"/node_modules/@yutengjing/vscode-icons/assets/icons/*.svg",

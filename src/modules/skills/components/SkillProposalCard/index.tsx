@@ -7,7 +7,11 @@ import {
 import { surfaceStyles } from "../../../../design-system/styles.stylex.ts";
 import { useSkills } from "../../hooks/useSkills.tsx";
 import type { SkillProposal } from "../../model/skill-library.ts";
-import { openSkills } from "../../model/skill-library.ts";
+import {
+	createSkill,
+	openSkills,
+	updateSkill,
+} from "../../model/skill-library.ts";
 import { styles } from "./styles.ts";
 
 type Outcome = { status: "saved"; skillId: string } | { status: "rejected" };
@@ -23,7 +27,7 @@ export function SkillProposalCard({
 	streaming?: boolean;
 	onResult?: (text: string) => void;
 }) {
-	const { skills, createSkill, updateSkill, loading } = useSkills(true);
+	const { skills, loading } = useSkills();
 	const key = `inferay-skill-proposal:${messageId}`;
 	const signature = JSON.stringify(proposal);
 	const [outcome, setOutcome] = useState<Outcome | null>(() => {

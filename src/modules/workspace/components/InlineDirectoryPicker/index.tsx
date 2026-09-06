@@ -18,11 +18,7 @@ import {
 } from "../../../../shared/ui/Icons/index.tsx";
 import { styles } from "./styles.ts";
 
-interface QuickPick {
-	name: string;
-	path: string;
-	isGitRepo: boolean;
-}
+type QuickPick = { name: string; path: string; isGitRepo: boolean };
 
 interface InlineDirectoryPickerProps {
 	onSelect: (path: string | null) => void;
@@ -50,10 +46,7 @@ export function InlineDirectoryPicker({
 			quickPicks?: QuickPick[];
 			home?: string;
 		}>("/api/agent/directories?quickPicks=true", {});
-		return {
-			quickPicks: data.quickPicks || [],
-			homePath: data.home || "",
-		};
+		return { quickPicks: data.quickPicks ?? [], homePath: data.home ?? "" };
 	}, []);
 	const { data: pickerData } = useQueryResource(
 		fetchPickerData,
@@ -70,9 +63,8 @@ export function InlineDirectoryPicker({
 		const data = await fetchJsonOr<{
 			directories?: Array<{ name: string; path: string }>;
 		}>(`/api/agent/directories?q=${encodeURIComponent(deferredQuery)}`, {});
-		return (data.directories || []).map((d) => ({
-			name: d.name,
-			path: d.path,
+		return (data.directories ?? []).map((directory) => ({
+			...directory,
 			isGitRepo: false,
 		}));
 	}, [deferredQuery]);
@@ -107,7 +99,7 @@ export function InlineDirectoryPicker({
 
 	const togglePath = (path: string) => {
 		const next = selectedPaths.includes(path)
-			? selectedPaths.filter((p) => p !== path)
+			? selectedPaths.filter((selected) => selected !== path)
 			: [...selectedPaths, path];
 		setSelectedPaths(next);
 		onSelectionChange?.(next);
@@ -158,12 +150,10 @@ export function InlineDirectoryPicker({
 		}
 	};
 
-	const shortenPath = (path: string) => {
-		if (pickerData.homePath && path.startsWith(pickerData.homePath)) {
-			return `~${path.slice(pickerData.homePath.length)}`;
-		}
-		return path;
-	};
+	const shortenPath = (path: string) =>
+		pickerData.homePath && path.startsWith(pickerData.homePath)
+			? `~${path.slice(pickerData.homePath.length)}`
+			: path;
 
 	const showResults = true;
 	if (hideInput) {

@@ -18,19 +18,6 @@ export type FileSearchResult = {
 	readonly path: string;
 };
 
-type FileSearchResponse = {
-	readonly results: FileSearchResult[];
-};
-
-function fileName(path: string) {
-	return path.split("/").pop() || path;
-}
-
-function fileDirectory(path: string) {
-	const name = fileName(path);
-	return path === name ? "Project root" : path.slice(0, -(name.length + 1));
-}
-
 export function FileSearch({
 	cwd,
 	onSelect,
@@ -61,12 +48,13 @@ export function FileSearch({
 		const controller = new AbortController();
 		const timer = window.setTimeout(() => {
 			setLoading(true);
-			const params = new URLSearchParams({ cwd, q: query, limit: "24" });
-			fetchJson<FileSearchResponse>(`/api/files/search?${params}`, {
-				signal: controller.signal,
-			})
+			fetchJson<{ results: FileSearchResult[] }>(
+				`/api/files/search?${new URLSearchParams({ cwd, q: query, limit: "24" })}`,
+				{ signal: controller.signal },
+			)
+				.then(({ results }) => results.filter((result) => !result.isDir))
 				.then((response) => {
-					setResults(response.results.filter((result) => !result.isDir));
+					setResults(response);
 					setSelectedIndex(-1);
 				})
 				.catch(() => {
@@ -250,10 +238,16 @@ export function FileSearch({
 										<FileTypeIcon path={result.path} size={iconSize.lg} />
 										<span {...stylex.props(styles.resultText)}>
 											<strong {...stylex.props(styles.resultName)}>
-												{fileName(result.path)}
+												{result.path.split("/").pop() || result.path}
 											</strong>
 											<small {...stylex.props(styles.resultPath)}>
-												{fileDirectory(result.path)}
+												{(() => {
+													const name =
+														result.path.split("/").pop() || result.path;
+													return result.path === name
+														? "Project root"
+														: result.path.slice(0, -(name.length + 1));
+												})()}
 											</small>
 										</span>
 									</button>

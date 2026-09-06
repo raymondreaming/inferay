@@ -1,6 +1,7 @@
-import { dispatchWindowEvent } from "../../../shared/lib/data.ts";
+import { fetchJson, sendJson } from "../../../adapters/backend/http.ts";
+import { dispatchWindowEvent, queryClient } from "../../../shared/lib/data.ts";
 export type AgentContextMode = "inherit" | "replace";
-export interface AgentContextLayer {
+interface AgentContextLayer {
 	instructions: string;
 	mode: AgentContextMode;
 	updatedAt: number;
@@ -95,3 +96,121 @@ export const INITIAL_SKILL_FORM: SkillFormState = {
 	isEditing: false,
 	isCreating: false,
 };
+
+export function skillFormForEdit(skill: Skill): Partial<SkillFormState> {
+	return {
+		isEditing: true,
+		name: skill.name,
+		command: skill.command,
+		description: skill.description,
+		promptTemplate: skill.promptTemplate,
+		error: "",
+	};
+}
+export function skillFormForDuplicate(skill: Skill): SkillFormState {
+	return {
+		...INITIAL_SKILL_FORM,
+		isCreating: true,
+		name: `${skill.name} copy`,
+		command: `${skill.command}-custom`,
+		description: skill.description,
+		promptTemplate: skill.promptTemplate,
+	};
+}
+export function initializeSkillDialog(target: SkillsTarget, skills: Skill[]) {
+	if (target.mode === "create")
+		return {
+			selectedId: null,
+			form: { ...INITIAL_SKILL_FORM, isCreating: true },
+		};
+	if (target.mode === "browse")
+		return { selectedId: skills[0]?._id ?? null, form: INITIAL_SKILL_FORM };
+	const skill = skills.find((item) => item._id === target.skillId);
+	return skill
+		? {
+				selectedId: skill._id,
+				form: skill.isBuiltIn ? INITIAL_SKILL_FORM : skillFormForEdit(skill),
+			}
+		: {
+				selectedId: null,
+				form: {
+					...INITIAL_SKILL_FORM,
+					error: "This skill is no longer available.",
+				},
+			};
+}
+export function isSkillFormDirty(form: SkillFormState, original: Skill | null) {
+	return (
+		(form.isCreating || form.isEditing) &&
+		(["name", "command", "description", "promptTemplate"] as const).some(
+			(field) => form[field] !== (original?.[field] ?? ""),
+		)
+	);
+}
+export async function saveSkillForm(
+	form: SkillFormState,
+	selected: Skill | null,
+	inlineEdit: boolean,
+) {
+	const data = {
+		name: form.name,
+		command: form.command,
+		description: form.description,
+		promptTemplate: form.promptTemplate,
+	};
+	if (inlineEdit && selected) {
+		await updateSkill(selected._id, data);
+		return { selectedId: selected._id, form: { isEditing: false } };
+	}
+	if (form.isCreating) {
+		const created = await createSkill(data);
+		return { selectedId: created._id, form: INITIAL_SKILL_FORM };
+	}
+	return { selectedId: selected?._id ?? null, form: {} };
+}
+
+const skillsKey = ["skills"] as const;
+export const emptySkills: Skill[] = [];
+export const skillsQuery = (filter = "all", search = "") => ({
+	queryKey: [...skillsKey, filter, search],
+	queryFn: ({ signal }: { signal: AbortSignal }) =>
+		fetchJson<Skill[]>(
+			`/api/prompts?${new URLSearchParams({ filter, search })}`,
+			{ signal },
+		),
+});
+
+async function refreshSkills() {
+	await queryClient.cancelQueries({ queryKey: skillsKey });
+	await queryClient.invalidateQueries({ queryKey: skillsKey });
+}
+
+export async function createSkill(
+	data: Pick<Skill, "name" | "command" | "description" | "promptTemplate">,
+) {
+	return saveSkill("/api/prompts", data, "POST");
+}
+
+export async function updateSkill(id: string, data: Record<string, unknown>) {
+	return saveSkill(`/api/prompts/${id}`, data, "PUT");
+}
+
+async function saveSkill(url: string, data: unknown, method: "POST" | "PUT") {
+	const response = await sendJson(url, data, { method });
+	if (!response.ok) {
+		const failure = await response.json().catch(() => null);
+		throw new Error(failure?.error ?? `Request failed: ${response.status}`);
+	}
+	const skill = (await response.json()) as Skill;
+	await refreshSkills();
+	return skill;
+}
+
+export async function removeSkill(id: string) {
+	await fetchJson(`/api/prompts/${id}`, { method: "DELETE" });
+	await refreshSkills();
+}
+
+export function preloadSkills() {
+	return queryClient.prefetchQuery(skillsQuery());
+}

@@ -1,8 +1,49 @@
-import type { GitFilePresentation } from "../../repository/model/types.ts";
+import type {
+	CommitDetails,
+	CommitFile,
+	ComparisonDetails,
+	GraphNode,
+} from "../../repository/model/git-graph.ts";
+import type {
+	DiffRequest,
+	GitFileEntry,
+	GitFilePresentation,
+	HunkDiff,
+} from "../../repository/model/types.ts";
 export interface SelectedFile {
 	path: string;
 	staged: boolean;
 }
+
+export type SelectedGraphCache = {
+	cwd: string | undefined;
+	items: Map<string, GraphNode>;
+};
+
+export function resolveSelectedGraphItems(
+	cache: SelectedGraphCache,
+	cwd: string | undefined,
+	commits: readonly GraphNode[],
+	selectedIds: readonly string[],
+	selectedHash: string | null,
+) {
+	const current = cache.cwd === cwd ? cache : { cwd, items: new Map() };
+	const selected = new Set(selectedIds);
+	if (selectedHash) selected.add(selectedHash);
+	for (const id of current.items.keys())
+		if (!selected.has(id)) current.items.delete(id);
+	for (const item of commits)
+		if (selected.has(item.id)) current.items.set(item.id, item);
+	return {
+		cache: current,
+		items: selectedIds.flatMap((id) => {
+			const item = current.items.get(id);
+			return item ? [item] : [];
+		}),
+		item: selectedHash ? (current.items.get(selectedHash) ?? null) : null,
+	};
+}
+
 export function adjacentGitFile<T>(
 	files: readonly T[],
 	isSelected: (file: T) => boolean,
@@ -33,6 +74,113 @@ export function visibleGitFiles<T extends { path: string }>(
 	});
 }
 
+export function getFileSelectionAfterToggle<T extends SelectedFile>(
+	files: readonly T[],
+	selected: SelectedFile,
+): T | null {
+	const section = files.filter((file) => file.staged === selected.staged);
+	const index = section.findIndex((file) => file.path === selected.path);
+	const current = section[index];
+	return current
+		? (section[index + 1] ??
+				section[index - 1] ?? { ...current, staged: !current.staged })
+		: null;
+}
+
+export function buildChangesPanelModel({
+	content,
+	fileViewMode,
+	filePresentation,
+	modified,
+	untracked,
+	staged,
+	selectedCommitHash,
+	selectedCommitCount,
+	commitDetailsLoading,
+	commitDetails,
+	commitDetailsError,
+	comparisonDetailsLoading,
+	comparisonDetails,
+}: {
+	content: "workingTree" | "history";
+	fileViewMode: "path" | "tree";
+	filePresentation?: GitFilePresentation;
+	modified: readonly GitFileEntry[];
+	untracked: readonly GitFileEntry[];
+	staged: readonly GitFileEntry[];
+	selectedCommitHash: string | null;
+	selectedCommitCount: number;
+	commitDetailsLoading: boolean;
+	commitDetails: CommitDetails | null;
+	commitDetailsError?: string | null;
+	comparisonDetailsLoading: boolean;
+	comparisonDetails: ComparisonDetails | null;
+}) {
+	const unstagedFiles = visibleGitFiles(
+		[...modified, ...untracked],
+		filePresentation,
+		"path",
+	);
+	const stagedFiles = visibleGitFiles(staged, filePresentation, "path");
+	const workingFiles = [...unstagedFiles, ...stagedFiles];
+	const navigableFiles =
+		fileViewMode === "tree"
+			? [
+					...visibleGitFiles(unstagedFiles, filePresentation, "tree"),
+					...visibleGitFiles(stagedFiles, filePresentation, "tree"),
+				]
+			: workingFiles;
+	const showingWorkingTree = content === "workingTree";
+	const comparing = selectedCommitCount > 1;
+	const historyDetails = comparing
+		? comparisonDetails
+		: selectedCommitHash
+			? commitDetails
+			: null;
+	const historyLoading = comparing
+		? comparisonDetailsLoading
+		: Boolean(selectedCommitHash && commitDetailsLoading);
+	const historicalFiles =
+		comparisonDetails?.files ?? commitDetails?.files ?? [];
+	const historicalPresentation =
+		comparisonDetails?.filePresentation ?? commitDetails?.filePresentation;
+	const navigableHistoricalFiles = visibleGitFiles(
+		historicalFiles,
+		historicalPresentation,
+		fileViewMode,
+	);
+	const displayedFiles: readonly (GitFileEntry | CommitFile)[] =
+		showingWorkingTree ? workingFiles : historicalFiles;
+	return {
+		unstagedFiles,
+		stagedFiles,
+		workingFiles,
+		navigableFiles,
+		showingWorkingTree,
+		comparing,
+		historyDetails,
+		historyLoading,
+		historyMessage: historyLoading
+			? comparing
+				? "Comparing…"
+				: "Loading…"
+			: comparing
+				? "The selected items cannot be compared"
+				: selectedCommitHash
+					? commitDetailsError || "No details available for this commit"
+					: "Select a commit to view details",
+		navigableHistoricalFiles,
+		additions: displayedFiles.reduce(
+			(total, file) => total + (file.additions ?? 0),
+			0,
+		),
+		deletions: displayedFiles.reduce(
+			(total, file) => total + (file.deletions ?? 0),
+			0,
+		),
+	};
+}
+
 import type { GitGraphActionRequest } from "../graph/components/CommitGraph/index.tsx";
 export type DragProps = {
 	readonly draggable: boolean;
@@ -44,7 +192,7 @@ export type DragProps = {
 	) => void;
 	readonly onDragEnd: () => void;
 };
-export type GitOperationResult<Operation extends string> = {
+type GitOperationResult<Operation extends string> = {
 	readonly ok: boolean;
 	readonly operation: Operation;
 	readonly outcome: GitOperationOutcome;
@@ -107,6 +255,71 @@ export type GraphActionPresentation = {
 };
 export type DiffViewMode = "split" | "hunks";
 export const MAX_RENDERED_LINE_CHARS = 4000;
+const MAX_RENDERED_DIFF_LINES = 100_000;
+
+export function buildDiffViewerModel(
+	diff: HunkDiff,
+	filePath: string,
+	viewMode: DiffViewMode,
+) {
+	const changeRanges =
+		viewMode === "hunks"
+			? diff.metadata.inlineChangeRanges
+			: diff.metadata.splitChangeRanges;
+	const changePositions = changeRanges.map(([start]) => start);
+	const extension = filePath.includes(".")
+		? (filePath.split(".").pop() ?? "")
+		: "";
+	let statusMessage: string | null = null;
+	if (diff.compactLines?.length === 1) {
+		const line = diff.compactLines[0];
+		if (line?.type === "context" && /too large|cannot read/i.test(line.content))
+			statusMessage = line.content.trim();
+	}
+	if (
+		!statusMessage &&
+		diff.oldLines.length === 0 &&
+		diff.newLines.length === 1
+	) {
+		const line = diff.newLines[0];
+		if (line?.type === "context" && /too large|cannot read/i.test(line.content))
+			statusMessage = line.content.trim();
+	}
+	const totalLines =
+		diff.compactLines?.length ??
+		Math.max(diff.oldLines.length, diff.newLines.length);
+	const longestLine = Math.max(
+		diff.metadata.maxOldLineChars,
+		diff.metadata.maxNewLineChars,
+		diff.metadata.maxInlineLineChars,
+		diff.metadata.maxConflictLineChars,
+	);
+	const oversizedMessage =
+		totalLines > MAX_RENDERED_DIFF_LINES
+			? `Diff is too large to render safely (${totalLines.toLocaleString()} lines). Use the Editor/agent to inspect this file in smaller chunks.`
+			: longestLine > MAX_RENDERED_LINE_CHARS * 2
+				? `Diff contains a very long line (${longestLine.toLocaleString()} characters). Rendering is limited to keep the app responsive.`
+				: null;
+	const isMarkdown =
+		!diff.compactLines && (extension === "md" || extension === "mdx");
+	const conflict = Boolean(diff.mergeConflictContent) && !isMarkdown;
+	const message = statusMessage ?? oversizedMessage;
+	return {
+		changeRanges,
+		changePositions,
+		extension,
+		conflict,
+		message,
+		isMarkdown,
+		markdownContent: isMarkdown
+			? diff.newLines
+					.filter((line) => line.type !== "hunk" && line.type !== "spacer")
+					.map((line) => line.content)
+					.join("\n")
+			: "",
+		navigable: !diff.isBinary && (conflict || (!message && !isMarkdown)),
+	};
+}
 export {
 	DIFF_CONFIG,
 	GUTTER_W,
@@ -227,7 +440,7 @@ export function resizeDockSplit(
 	const key = branch === "first" ? "first" : "second";
 	return { ...tree, [key]: resizeDockSplit(tree[key], rest, ratio) };
 }
-export type GitWorkspaceDiffSource =
+type GitWorkspaceDiffSource =
 	| { readonly kind: "workingTree" | "graphWorkingTree" }
 	| {
 			readonly kind: "commit";
@@ -239,6 +452,89 @@ export type GitWorkspaceDiffSource =
 			readonly comparisonFrom: string;
 			readonly comparisonTo: string;
 	  };
+
+export function historicalGitQueryContext({
+	mainViewMode,
+	diffViewerCwd,
+	graphCwd,
+	graphRevision,
+	storedRevision,
+	selectedCommitIds,
+	selectedCommitParent,
+	selectedGraphItem,
+	fileSource,
+}: {
+	mainViewMode: "diff" | "graph";
+	diffViewerCwd: string | null;
+	graphCwd: string | undefined;
+	graphRevision: string;
+	storedRevision: string | undefined;
+	selectedCommitIds: readonly string[];
+	selectedCommitParent: string | null;
+	selectedGraphItem: GraphNode | null;
+	fileSource: GitWorkspaceDiffSource | undefined;
+}) {
+	const commitSource = fileSource?.kind === "commit" ? fileSource : null;
+	const comparisonSource =
+		fileSource?.kind === "comparison" ? fileSource : null;
+	const diffMode = mainViewMode === "diff";
+	return {
+		commitSource,
+		comparisonSource,
+		commit: {
+			cwd:
+				diffMode && commitSource?.commitHash
+					? (diffViewerCwd ?? undefined)
+					: graphCwd,
+			hash: diffMode
+				? (commitSource?.commitHash ?? undefined)
+				: selectedCommitIds.length <= 1 &&
+						selectedGraphItem?.itemKind !== "worktreeWip"
+					? selectedGraphItem?.hash
+					: undefined,
+			parent: diffMode
+				? (commitSource?.commitParent ?? undefined)
+				: (selectedCommitParent ?? undefined),
+		},
+		comparison: {
+			cwd: diffMode ? (diffViewerCwd ?? undefined) : graphCwd,
+			from: diffMode ? comparisonSource?.comparisonFrom : undefined,
+			to: diffMode ? comparisonSource?.comparisonTo : undefined,
+		},
+		revision: diffMode && diffViewerCwd ? storedRevision : graphRevision,
+	};
+}
+
+export function gitWorkbenchDiffRequest({
+	active,
+	cwd,
+	selectedFile,
+	repositoryRevision,
+	fileSource,
+	viewMode,
+}: {
+	active: boolean;
+	cwd: string | null;
+	selectedFile: (SelectedFile & { source: GitWorkspaceDiffSource }) | null;
+	repositoryRevision: string | undefined;
+	fileSource: GitWorkspaceDiffSource | undefined;
+	viewMode: DiffViewMode;
+}): DiffRequest | null {
+	if (!active || !cwd || !selectedFile) return null;
+	const commit = fileSource?.kind === "commit" ? fileSource : null;
+	const comparison = fileSource?.kind === "comparison" ? fileSource : null;
+	return {
+		cwd,
+		repositoryRevision,
+		file: selectedFile.path,
+		staged: selectedFile.staged,
+		commitHash: commit?.commitHash,
+		commitParent: commit?.commitParent ?? undefined,
+		comparisonFrom: comparison?.comparisonFrom,
+		comparisonTo: comparison?.comparisonTo,
+		view: viewMode === "split" ? "full" : "review",
+	};
+}
 export interface GitWorkspaceDetachedFilePanel<InitialFile = unknown> {
 	readonly id: string;
 	readonly cwd: string;
@@ -353,4 +649,121 @@ export function loadGitFileViewMode(): "path" | "tree" {
 }
 export function saveGitFileViewMode(mode: "path" | "tree"): void {
 	writeStoredValue(GIT_FILE_VIEW_MODE_STORAGE_KEY, mode);
+}
+
+export const SIDEBAR_WIDTH_KEY = "agent-workspace-changes-width";
+
+export const DIFF_WIDTH_KEY_PREFIX = "agent-workspace-diff-width:";
+
+export const DIFF_VIEW_MODE_KEY = "agent-workspace-diff-view-mode";
+
+export const MIN_SIDEBAR_WIDTH = 230;
+
+export const MAX_SIDEBAR_WIDTH = 420;
+
+const DEFAULT_SIDEBAR_WIDTH = 300;
+
+export const MIN_DIFF_WIDTH = 320;
+
+const DEFAULT_DIFF_WIDTH = 680;
+
+export function loadSidebarWidth() {
+	const stored = Number(readStoredValue(SIDEBAR_WIDTH_KEY));
+	return Number.isFinite(stored) && stored > 0
+		? Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, stored))
+		: DEFAULT_SIDEBAR_WIDTH;
+}
+
+export function loadDiffWidth(workspaceId: string) {
+	const stored = Number(
+		readStoredValue(`${DIFF_WIDTH_KEY_PREFIX}${workspaceId}`),
+	);
+	return Number.isFinite(stored) && stored > 0
+		? Math.max(MIN_DIFF_WIDTH, stored)
+		: DEFAULT_DIFF_WIDTH;
+}
+
+export function loadDiffViewMode(): DiffViewMode {
+	return readStoredValue(DIFF_VIEW_MODE_KEY) === "split" ? "split" : "hunks";
+}
+
+import { postJson } from "../../../adapters/backend/http.ts";
+export function createGitOperations(
+	graphCwd: string | undefined,
+	refetch: () => Promise<unknown>,
+	selectGraphCommit: (id: string | null) => void,
+) {
+	async function run<Operation extends string>(
+		endpoint: string,
+		operation: Operation,
+		request: object,
+		selectHead: boolean,
+		fallback: string,
+	): Promise<GitOperationResult<Operation>> {
+		const failed = (
+			error: string,
+			errorKind: "invalidInput" | "commandFailed",
+		): GitOperationResult<Operation> => ({
+			ok: false,
+			operation,
+			outcome: "failed",
+			conflicts: [],
+			errorKind,
+			errorLabel:
+				errorKind === "invalidInput"
+					? "Invalid Git action"
+					: "Git command failed",
+			error,
+		});
+		if (!graphCwd) return failed("No Git repository selected", "invalidInput");
+		try {
+			const result = await postJson<GitOperationResult<Operation>>(
+				`/api/git/${endpoint}`,
+				{ cwd: graphCwd, ...request },
+			);
+			await refetch();
+			if (
+				result.ok &&
+				selectHead &&
+				(endpoint === "ref-operation" || result.head)
+			)
+				selectGraphCommit(result.head ?? null);
+			return result;
+		} catch (error) {
+			return failed(
+				error instanceof Error ? error.message : fallback,
+				"commandFailed",
+			);
+		}
+	}
+	return {
+		runGraphRefOperation: (request: GitRefOperationRequest) =>
+			run(
+				"ref-operation",
+				request.operation,
+				request,
+				true,
+				"Git operation failed",
+			),
+		runGraphActionRequest: ({
+			action,
+			target,
+			targets,
+			name,
+			message,
+		}: GitGraphActionRequest & { name?: string; message?: string }) =>
+			run(
+				"graph-action",
+				action,
+				{ action, target, targets, name, message },
+				[
+					"cherryPick",
+					"revert",
+					"resetSoft",
+					"resetMixed",
+					"resetHard",
+				].includes(action),
+				"Git action failed",
+			),
+	};
 }

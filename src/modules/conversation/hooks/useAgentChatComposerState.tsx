@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "octane";
 import { fetchJson, sendJson } from "../../../adapters/backend/http.ts";
 import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
-import { hasPath } from "../../../shared/lib/data.ts";
 import type {
 	AttachedImageInfo,
 	QueuedMessageInfo,
 } from "../model/agent-chat-shared.ts";
+import {
+	mergeNativeQueue,
+	releaseChatImages,
+	uploadChatImage,
+} from "../model/chat-composer.ts";
 
 export function useAgentChatComposerState(paneId: string, enabled = true) {
 	const [attachedImages, setAttachedImages] = useState<AttachedImageInfo[]>([]);
@@ -92,11 +96,7 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 				setEditingQueueId(null);
 				setEditingQueueText("");
 			}
-			const persistedIds = new Set(messages.map((message) => message.id));
-			const pending = queueRef.current.filter(
-				(message) => message.transient && !persistedIds.has(message.id),
-			);
-			replaceQueue([...messages, ...pending]);
+			replaceQueue(mergeNativeQueue(queueRef.current, messages));
 		},
 		[replaceQueue],
 	);
@@ -121,7 +121,7 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 	const removeQueuedMessage = useCallback(
 		(id: string) => {
 			const queue = queueRef.current;
-			const existing = queue.find((item) => item.id === id);
+			const existing = queue.find((message) => message.id === id);
 			if (!existing || existing.transient) return;
 			setQueueError(null);
 			void mutateQueue("remove", id).catch((error: Error) =>
@@ -138,8 +138,9 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 	const updateQueuedMessage = useCallback(
 		(id: string, text: string) => {
 			const queue = queueRef.current;
-			const existing = queue.find((item) => item.id === id);
-			if (!existing || existing.transient || existing.text === text) return;
+			const existing = queue.find((message) => message.id === id);
+			if (!existing || existing.text === text) return;
+			if (existing.transient) return;
 			setQueueError(null);
 			void mutateQueue("edit", id, text).catch((error: Error) =>
 				setQueueError(error.message),
@@ -169,28 +170,16 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 
 	const attachImage = useCallback(async (file: File) => {
 		try {
-			const fd = new FormData();
-			fd.append("file", file);
-			const res = await fetch("/api/upload-temp", {
-				method: "POST",
-				body: fd,
-			});
-			const data = await res.json();
-			if (data.path) {
-				const previewUrl = URL.createObjectURL(file);
-				setAttachedImages((prev) => [
-					...prev,
-					{ name: file.name, path: data.path, previewUrl },
-				]);
-			}
+			const image = await uploadChatImage(file);
+			if (image) setAttachedImages((previous) => [...previous, image]);
 		} catch {}
 	}, []);
 
 	const removeAttachedImage = useCallback((path: string) => {
 		setAttachedImages((prev) => {
-			const target = prev.find(hasPath.bind(null, path));
+			const target = prev.find((image) => image.path === path);
 			if (!target) return prev;
-			URL.revokeObjectURL(target.previewUrl);
+			releaseChatImages([target]);
 			return prev.filter((item) => item.path !== path);
 		});
 	}, []);
@@ -198,7 +187,7 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 	const clearAttachedImages = useCallback(() => {
 		setAttachedImages((prev) => {
 			if (prev.length === 0) return prev;
-			for (const img of prev) URL.revokeObjectURL(img.previewUrl);
+			releaseChatImages(prev);
 			return [];
 		});
 	}, []);
@@ -231,9 +220,7 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 
 	useEffect(
 		() => () => {
-			for (const img of attachedImagesRef.current) {
-				URL.revokeObjectURL(img.previewUrl);
-			}
+			releaseChatImages(attachedImagesRef.current);
 		},
 		[],
 	);

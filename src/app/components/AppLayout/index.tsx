@@ -15,10 +15,10 @@ import { RepositoryWorkspaceBar } from "../../../modules/workspace/components/Re
 import { WorkspaceSidebar } from "../../../modules/workspace/components/WorkspaceSidebar/index.tsx";
 import { listenWindowEvent } from "../../../shared/lib/data.ts";
 import {
+	APP_BACKGROUNDS,
 	applyAppBackgroundPalette,
 	applyAppBackgroundSurfaces,
 	applyAppFont,
-	getBuiltInBackgroundPath,
 	loadAppBackgroundSettings,
 	loadAppFontId,
 	restoreAppTheme,
@@ -47,15 +47,13 @@ export function AppLayout() {
 			}),
 		[],
 	);
-	const builtInPath = getBuiltInBackgroundPath(background.id);
 	const backgroundUrl =
 		background.mode !== "scene"
 			? null
 			: background.id === "custom"
 				? `/api/config/background-image?v=${background.customRevision}`
-				: builtInPath
-					? builtInPath
-					: null;
+				: (APP_BACKGROUNDS.find((scene) => scene.id === background.id)?.path ??
+					null);
 
 	useEffect(() => {
 		applyAppBackgroundSurfaces(background.mode);

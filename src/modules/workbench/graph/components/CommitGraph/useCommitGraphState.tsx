@@ -7,32 +7,26 @@ import { trackPointerResize } from "../../../../../shared/lib/data.ts";
 import type {
 	GitGraphRef,
 	GraphNode,
-} from "../../../../repository/hooks/useGitGraph.tsx";
+} from "../../../../repository/model/git-graph.ts";
 import { resolveGitCommitAvatars } from "../../../../repository/model/types.ts";
 import type {
 	CommitGraphProps,
 	GraphPreferences,
-	RowTransition,
 } from "../../model/graph-model.ts";
 import {
-	buildGraphConnectionPath,
-	buildGraphConvergencePath,
-	COLUMN_WIDTH,
+	buildCommitGraphViewModel,
 	type ColumnKey,
 	type ColumnVisibility,
 	type ColumnWidths,
 	EMPTY_SELECTED_IDS,
-	GRAPH_PADDING,
-	graphVirtualRange,
 	loadPreferences,
 	MAX_COLUMN_WIDTH,
 	MIN_COLUMN_WIDTHS,
 	moveGraphColumn,
-	pinnedGraphColumnOrder,
 	preferencesKey,
+	projectCommitGraphViewport,
 	ROW_HEIGHT,
 	scrollPreferencesKey,
-	TOOLS_WIDTH,
 	TOP_PADDING,
 } from "../../model/graph-model.ts";
 import { getGraphLineLayerStyle } from "./styles.ts";
@@ -159,10 +153,6 @@ export function useCommitGraphState(props: CommitGraphProps) {
 			preventScroll: true,
 		});
 	}, [embedded, hasCommits, repositoryKey]);
-	const worktreesByPath = useMemo(
-		() => new Map(worktrees.map((worktree) => [worktree.path, worktree])),
-		[worktrees],
-	);
 	useEffect(() => {
 		setPreferences((current) =>
 			current.repositoryKey === repositoryKey
@@ -225,123 +215,47 @@ export function useCommitGraphState(props: CommitGraphProps) {
 		if (preferences.repositoryKey === repositoryKey)
 			writeStoredJson(preferencesKey(repositoryKey), preferences.value);
 	}, [preferences, repositoryKey]);
-	const repositoryRefs = useMemo(() => {
-		const refs = new Map<string, GitGraphRef>();
-		for (const commit of commits) {
-			for (const ref of commit.refs) refs.set(ref.fullName, ref);
-		}
-		return refs;
-	}, [commits]);
-	const containingBranches = useMemo(
+	const graphModel = useMemo(
 		() =>
-			new Map(
-				commits.flatMap((commit) => {
-					const ref = repositoryRefs.get(
-						commit.navigation?.containingBranch ?? "",
-					);
-					return ref ? [[commit.id, ref] as const] : [];
-				}),
+			buildCommitGraphViewModel({
+				ancestry,
+				columns,
+				commits,
+				hiddenRefs,
+				order,
+				pinnedRefs,
+				soloRefs,
+				widths,
+				worktrees,
+			}),
+		[
+			ancestry,
+			columns,
+			commits,
+			hiddenRefs,
+			order,
+			pinnedRefs,
+			soloRefs,
+			widths,
+			worktrees,
+		],
+	);
+	const viewportModel = useMemo(
+		() =>
+			projectCommitGraphViewport(
+				rows,
+				commits.length,
+				scrollTop,
+				viewportHeight,
 			),
-		[commits, repositoryRefs],
+		[commits.length, rows, scrollTop, viewportHeight],
 	);
-	const hiddenRefDetails = hiddenRefs
-		.map((fullName) => repositoryRefs.get(fullName))
-		.filter((ref): ref is GitGraphRef => Boolean(ref));
-	const defaultRemoteName = Array.from(repositoryRefs.values()).find(
-		(ref) => ref.kind === "remoteBranch" && ref.remoteName,
-	)?.remoteName;
-	const hiddenRefNames = useMemo(() => new Set(hiddenRefs), [hiddenRefs]);
-	const pinnedRefNames = useMemo(() => new Set(pinnedRefs), [pinnedRefs]);
-	const reachableHistory = useMemo(() => {
-		const reachable = new Set<string>();
-		for (const ref of soloRefs) {
-			for (const [start, end] of ancestry?.[ref] ?? []) {
-				for (let row = start; row <= end && row < commits.length; row++)
-					reachable.add(commits[row]!.id);
-			}
-		}
-		return reachable;
-	}, [ancestry, commits, soloRefs]);
-	const maxColumn = useMemo(() => {
-		let max = 0;
-		for (const c of commits) if (c.column > max) max = c.column;
-		return max;
-	}, [commits]);
-	const pinnedColumnOrder = useMemo(() => {
-		const columns = pinnedRefs
-			.map((fullName) => repositoryRefs.get(fullName)?.target)
-			.filter((target): target is string => Boolean(target))
-			.map(
-				(target) =>
-					commits.find(
-						(commit) => commit.hash === target || commit.id === target,
-					)?.column,
-			)
-			.filter((column): column is number => column !== undefined);
-		return pinnedGraphColumnOrder(maxColumn, columns);
-	}, [commits, maxColumn, pinnedRefs, repositoryRefs]);
-	const graphColumnPositions = useMemo(
-		() => new Map(pinnedColumnOrder.map((column, index) => [column, index])),
-		[pinnedColumnOrder],
-	);
-	const displayGraphColumn = useCallback(
-		(column: number) => graphColumnPositions.get(column) ?? column,
-		[graphColumnPositions],
-	);
-	const graphWidth = Math.max(
-		widths.graph,
-		(maxColumn + 1) * COLUMN_WIDTH + GRAPH_PADDING * 2,
-	);
-	const columnX = useCallback(
-		(column: number) =>
-			GRAPH_PADDING +
-			displayGraphColumn(column) * COLUMN_WIDTH +
-			COLUMN_WIDTH / 2,
-		[displayGraphColumn],
-	);
-	const connectionPath = useCallback(
-		(transition: RowTransition) =>
-			buildGraphConnectionPath({
-				...transition,
-				fromCol: displayGraphColumn(transition.fromCol),
-				toCol: displayGraphColumn(transition.toCol),
-			}),
-		[displayGraphColumn],
-	);
-	const convergencePath = useCallback(
-		(transition: RowTransition) =>
-			buildGraphConvergencePath({
-				...transition,
-				fromCol: displayGraphColumn(transition.fromCol),
-				toCol: displayGraphColumn(transition.toCol),
-			}),
-		[displayGraphColumn],
-	);
-	const visibleColumns = order.filter(
-		(column) =>
-			(column !== "date" || columns.date) &&
-			(column !== "author" || columns.author) &&
-			(column !== "sha" || columns.sha),
-	);
-	const renderedColumnWidth = (column: ColumnKey) =>
-		column === "graph" ? graphWidth : widths[column];
-	const graphLeft = visibleColumns
-		.slice(0, visibleColumns.indexOf("graph"))
-		.reduce((total, column) => total + renderedColumnWidth(column), 0);
+	const { graphLeft, itemIndexes, selectableItems } = graphModel;
 	const lineLayerStyle = useMemo(
 		() => getGraphLineLayerStyle(graphLeft, TOP_PADDING),
 		[graphLeft],
 	);
-	const tableWidth =
-		visibleColumns.reduce(
-			(total, column) => total + renderedColumnWidth(column),
-			0,
-		) + TOOLS_WIDTH;
 	const normalizedQuery = query.trim();
-	const matchingHashes = useMemo(
-		() => new Set(commits.map((commit) => commit.id)),
-		[commits],
-	);
 	useEffect(() => {
 		const timer = window.setTimeout(
 			() => onSearchChange?.(normalizedQuery),
@@ -352,21 +266,6 @@ export function useCommitGraphState(props: CommitGraphProps) {
 	useEffect(() => {
 		setQuery(searchQuery);
 	}, [repositoryKey]);
-	const graphHeight = commits.length * ROW_HEIGHT;
-	const totalHeight = TOP_PADDING + graphHeight;
-	const selectableItems = useMemo(
-		() => commits.map((commit) => commit.id),
-		[commits],
-	);
-	const itemIndexes = useMemo(
-		() => new Map(selectableItems.map((id, index) => [id, index])),
-		[selectableItems],
-	);
-	const { start: visibleStart, end: visibleEnd } = graphVirtualRange(
-		commits.length,
-		Math.max(0, scrollTop - TOP_PADDING),
-		viewportHeight,
-	);
 	useEffect(() => {
 		const scroller = scrollerRef.current;
 		if (!scroller) return;
@@ -534,7 +433,6 @@ export function useCommitGraphState(props: CommitGraphProps) {
 		},
 		[
 			commits,
-			containingBranches,
 			onOpenSelection,
 			onSelect,
 			selectableItems,
@@ -561,41 +459,10 @@ export function useCommitGraphState(props: CommitGraphProps) {
 		},
 		[widths],
 	);
-	const { railSegments, convergences, transitions, truncatedSegments } =
-		useMemo(() => {
-			const visibleRows = rows.slice(visibleStart, visibleEnd);
-			const connections = (
-				key: "convergences" | "transitions",
-			): RowTransition[] =>
-				visibleRows.flatMap((row) =>
-					(row[key] ?? []).map((transition) => ({
-						row: row.row,
-						fromCol: transition.fromColumn,
-						toCol: transition.toColumn,
-						color: transition.color,
-					})),
-				);
-			return {
-				railSegments: visibleRows.flatMap((row) =>
-					row.rails.map((rail) => ({
-						...rail,
-						key: `rail-${row.row}-${rail.column}`,
-						row: row.row,
-					})),
-				),
-				truncatedSegments: visibleRows.flatMap((row) =>
-					row.truncatedEdges.map((edge) => ({
-						...edge,
-						key: `truncated-${row.row}-${edge.column}`,
-						row: row.row,
-					})),
-				),
-				convergences: connections("convergences"),
-				transitions: connections("transitions"),
-			};
-		}, [rows, visibleEnd, visibleStart]);
 	return {
 		...props,
+		...graphModel,
+		...viewportModel,
 		emptyLabel,
 		searchActive,
 		selectedIds,
@@ -627,25 +494,7 @@ export function useCommitGraphState(props: CommitGraphProps) {
 		setRefContextMenu,
 		itemContextMenu,
 		setItemContextMenu,
-		worktreesByPath,
-		containingBranches,
-		hiddenRefDetails,
-		defaultRemoteName,
-		hiddenRefNames,
-		pinnedRefNames,
-		reachableHistory,
-		displayGraphColumn,
-		graphWidth,
-		columnX,
-		connectionPath,
-		convergencePath,
 		lineLayerStyle,
-		tableWidth,
-		matchingHashes,
-		graphHeight,
-		totalHeight,
-		visibleStart,
-		visibleEnd,
 		toggleColumn,
 		moveColumn,
 		rememberScroll,
@@ -653,36 +502,5 @@ export function useCommitGraphState(props: CommitGraphProps) {
 		openItemContextMenu,
 		navigateRows,
 		startColumnResize,
-		railSegments,
-		convergences,
-		transitions,
-		truncatedSegments,
 	};
 }
-export type {
-	CommitGraphProps,
-	GitGraphActionRequest,
-	GraphPreferences,
-	RowTransition,
-} from "../../model/graph-model.ts";
-export {
-	AUTHOR_WIDTH,
-	COLUMN_PREFS_KEY,
-	DATE_WIDTH,
-	DEFAULT_COLUMN_ORDER,
-	DEFAULT_COLUMNS,
-	DEFAULT_WIDTHS,
-	EMPTY_SELECTED_IDS,
-	GRAPH_WIDTH,
-	loadPreferences,
-	MAX_COLUMN_WIDTH,
-	MESSAGE_WIDTH,
-	MIN_COLUMN_WIDTHS,
-	normalizedColumnWidths,
-	preferencesKey,
-	REF_WIDTH,
-	SCROLL_PREFS_KEY,
-	SHA_WIDTH,
-	scrollPreferencesKey,
-	TOP_PADDING,
-} from "../../model/graph-model.ts";

@@ -52,7 +52,6 @@ export function useQueryResource<T>(
 		error: query.error instanceof Error ? query.error.message : null,
 		loaded: query.isFetched,
 		loading: query.isFetching,
-		refetch: refresh,
 		refresh,
 		setData,
 	};

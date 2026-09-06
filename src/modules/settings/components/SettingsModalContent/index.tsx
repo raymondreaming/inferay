@@ -1,16 +1,11 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useMemo, useState } from "octane";
-import {
-	fetchJsonOr,
-	sendJson,
-	sendJsonWithBusy,
-} from "../../../../adapters/backend/http.ts";
+import { sendJson } from "../../../../adapters/backend/http.ts";
 import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
 import { DropdownButton } from "../../../../shared/ui/DropdownButton/index.tsx";
 import { TextInput } from "../../../../shared/ui/TextInput/index.tsx";
 import { getAgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
-import type { AgentAccountProviderStatus } from "../../../agents/model/agents.ts";
 import {
 	getAgentDefinition,
 	loadDefaultChatSettings,
@@ -24,6 +19,11 @@ import {
 	useGithubRepos,
 } from "../../../repository/model/types.ts";
 import type { SettingsModalTarget } from "../../../skills/model/skill-library.ts";
+import {
+	pickCloneDirectory as chooseCloneDirectory,
+	cloneGithubRepo,
+	fetchAgentAccountStatuses,
+} from "../../model/settings-workflows.ts";
 import { SettingsContent } from "../Settings/index.tsx";
 import {
 	SettingsGithubAccount,
@@ -54,15 +54,6 @@ export function SettingsModalContent({
 		error: reposError,
 		refresh: refreshRepos,
 	} = useGithubRepos(accounts.length > 0);
-	const fetchAgentAccountStatuses = useCallback(
-		async () =>
-			fetchJsonOr<{
-				providers?: AgentAccountProviderStatus[];
-			}>("/api/agents/account-status", {}).then((payload) =>
-				Array.isArray(payload.providers) ? payload.providers : [],
-			),
-		[],
-	);
 	const {
 		data: agentAccountStatuses,
 		loading: agentAccountStatusesLoading,
@@ -119,45 +110,25 @@ export function SettingsModalContent({
 				repo.description?.toLowerCase().includes(query),
 		);
 	}, [repoQuery, repos]);
-	const connectGithub = sendJsonWithBusy.bind(
-		null,
-		setConnecting,
-		"/api/forge/connect",
-		{
-			provider: "github",
-		},
-		undefined,
-	);
+	const connectGithub = async () => {
+		setConnecting(true);
+		try {
+			await sendJson("/api/forge/connect", { provider: "github" });
+		} finally {
+			setConnecting(false);
+		}
+	};
 	const pickCloneDirectory = async () => {
-		const payload = await fetchJsonOr<{
-			folder: string | null;
-		}>(
-			"/api/config/pick-folder",
-			{
-				folder: null,
-			},
-			{
-				method: "POST",
-			},
-		);
-		if (payload.folder) setCloneDirectory(payload.folder);
+		const folder = await chooseCloneDirectory();
+		if (folder) setCloneDirectory(folder);
 	};
 	const cloneRepo = async (repo: GithubRepo) => {
 		setCloningRepo(repo.full_name);
 		setCloneStatus(null);
 		setError(null);
 		try {
-			const response = await sendJson("/api/forge/clone", {
-				gitUrl: repo.html_url,
-				cloneDirectory,
-			});
-			const payload = (await response.json()) as {
-				error?: string;
-				displayPath?: string;
-			};
-			if (!response.ok) throw new Error(payload.error ?? "Clone failed");
+			setCloneStatus(await cloneGithubRepo(repo, cloneDirectory));
 			invalidateGithubReposCache();
-			setCloneStatus(`Cloned ${repo.full_name} to ${payload.displayPath}`);
 		} catch (err) {
 			setError(
 				err instanceof Error ? err.message : "Unable to clone repository",

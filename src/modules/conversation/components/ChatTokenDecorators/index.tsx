@@ -82,7 +82,3 @@ export function renderTextPills(
 
 	return parts;
 }
-
-export type { TokenRange } from "../../model/agent-chat-shared.ts";
-export { findDecoratedTokenRanges } from "../../model/agent-chat-shared.ts";
-export { styles } from "./styles.ts";

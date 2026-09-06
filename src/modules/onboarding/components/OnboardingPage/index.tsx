@@ -1,10 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import { useNavigate } from "@octanejs/tanstack-router";
 import { useCallback, useEffect, useState } from "octane";
-import {
-	fetchJsonOr,
-	sendJsonWithBusy,
-} from "../../../../adapters/backend/http.ts";
+import { fetchJsonOr, sendJson } from "../../../../adapters/backend/http.ts";
 import {
 	ONBOARDING_DONE_STORAGE_KEY,
 	readStoredBoolean,
@@ -18,10 +15,8 @@ import {
 	saveAppBackgroundSettings,
 	saveAppThemeId,
 } from "../../../../app/model/appearance.ts";
-import { lacksValue } from "../../../../shared/lib/data.ts";
 import {
 	fetchForgeAccounts,
-	invalidateForgeAccountsCache,
 	useForgeAccounts,
 	useGithubRepos,
 } from "../../../repository/model/types.ts";
@@ -55,8 +50,7 @@ export function OnboardingPage() {
 		refresh: refreshRepos,
 	} = useGithubRepos(accounts.length > 0);
 	const refreshAccounts = async () => {
-		invalidateForgeAccountsCache();
-		setAccounts(await fetchForgeAccounts(true));
+		setAccounts(await fetchForgeAccounts());
 	};
 	useEffect(() => {
 		applyAppTheme("default");
@@ -65,17 +59,18 @@ export function OnboardingPage() {
 		};
 	}, [isFirstRun]);
 	const connectGithub = async () => {
-		await sendJsonWithBusy(setConnecting, "/api/forge/connect", {
-			provider: "github",
-		});
-		invalidateForgeAccountsCache();
-		setAccounts(await fetchForgeAccounts(true));
+		setConnecting(true);
+		try {
+			await sendJson("/api/forge/connect", { provider: "github" });
+		} finally {
+			setConnecting(false);
+		}
+		setAccounts(await fetchForgeAccounts());
 	};
 	useEffect(() => {
 		if (step !== "github" || accounts.length > 0 || connecting) return;
 		const id = window.setInterval(() => {
-			invalidateForgeAccountsCache();
-			fetchForgeAccounts(true)
+			fetchForgeAccounts()
 				.then(setAccounts)
 				.catch(() => undefined);
 		}, 3000);
@@ -106,7 +101,7 @@ export function OnboardingPage() {
 		}
 	};
 	const removeFolder = (folder: string) => {
-		setLocalFolders((prev) => prev.filter(lacksValue.bind(null, folder)));
+		setLocalFolders((prev) => prev.filter((value) => value !== folder));
 	};
 	const toggleRepo = (fullName: string) => {
 		setSelectedRepos((prev) => {

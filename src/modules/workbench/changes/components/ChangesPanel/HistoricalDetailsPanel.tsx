@@ -3,7 +3,7 @@ import type {
 	CommitDetails,
 	CommitFile,
 	ComparisonDetails,
-} from "../../../../repository/hooks/useGitGraph.tsx";
+} from "../../../../repository/model/git-graph.ts";
 import type { SelectedFile } from "../../../model/workbench-model.ts";
 import { DetailIdentity } from "./DetailIdentity.tsx";
 import { HistoricalFileList } from "./HistoricalFileList.tsx";

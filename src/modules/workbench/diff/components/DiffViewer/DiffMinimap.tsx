@@ -1,6 +1,5 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useRef } from "octane";
-import { activateOnEnterOrSpacePreventDefault } from "../../../../../shared/lib/data.ts";
 import type { DiffMinimapSegment as MinimapSegment } from "../../../../repository/model/types.ts";
 import * as inlineStyles from "./styles.ts";
 import { diffStyles } from "./styles.ts";
@@ -61,10 +60,11 @@ export const DiffMinimap = memo(function DiffMinimap({
 			aria-label="Jump within diff"
 			{...stylex.props(diffStyles.minimap, diffStyles.minimapInteractive)}
 			onClick={handleClick}
-			onKeyDown={activateOnEnterOrSpacePreventDefault.bind(
-				null,
-				handleKeyboardJump,
-			)}
+			onKeyDown={(event) => {
+				if (event.key !== "Enter" && event.key !== " ") return;
+				event.preventDefault();
+				handleKeyboardJump();
+			}}
 		>
 			{segments.map((seg) => (
 				<div

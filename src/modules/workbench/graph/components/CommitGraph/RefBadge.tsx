@@ -1,7 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import { useState } from "octane";
 import { palette } from "../../../../../design-system/styles.stylex.ts";
-import type { GitGraphRefKind } from "../../../../repository/hooks/useGitGraph.tsx";
+import type { GitGraphRefKind } from "../../../../repository/model/git-graph.ts";
 import { hexToRgba } from "../../model/graph-model.ts";
 import { RefIcon } from "./RefIcon.tsx";
 import * as inlineStyles from "./styles.ts";

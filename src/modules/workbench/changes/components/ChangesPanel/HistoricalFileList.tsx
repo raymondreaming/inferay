@@ -1,5 +1,5 @@
 import { useMemo } from "octane";
-import type { CommitFile } from "../../../../repository/hooks/useGitGraph.tsx";
+import type { CommitFile } from "../../../../repository/model/git-graph.ts";
 import type {
 	GitFileEntry,
 	GitFilePresentation,

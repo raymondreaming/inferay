@@ -12,11 +12,11 @@ import {
 import { listenWindowEvent } from "../../../../../shared/lib/data.ts";
 import type { HunkDiff } from "../../../../repository/model/types.ts";
 import {
+	buildDiffViewerModel,
 	type DiffViewMode,
 	diffNavigationReducer,
 	INITIAL_DIFF_NAVIGATION_STATE,
 	LINE_H,
-	MAX_RENDERED_LINE_CHARS,
 } from "../../../model/workbench-model.ts";
 import { MarkdownPreview } from "../MarkdownPreview/index.tsx";
 import { DiffHeader } from "./DiffHeader.tsx";
@@ -35,8 +35,6 @@ interface DiffViewerProps {
 	hideToolbar?: boolean;
 	startAtFirstChange?: boolean;
 }
-
-const MAX_RENDERED_DIFF_LINES = 100_000;
 
 export const DiffViewer = memo(function DiffViewer({
 	diff,
@@ -69,14 +67,18 @@ export const DiffViewer = memo(function DiffViewer({
 		dispatchNavigation({ type: "reset" });
 	}, [diffIdentity]);
 
-	const changeRanges =
-		viewMode === "hunks"
-			? diff.metadata.inlineChangeRanges
-			: diff.metadata.splitChangeRanges;
-
-	const changePositions = useMemo(
-		() => changeRanges.map(([start]) => start),
-		[changeRanges],
+	const {
+		changeRanges,
+		changePositions,
+		extension: ext,
+		conflict,
+		message,
+		isMarkdown,
+		markdownContent,
+		navigable,
+	} = useMemo(
+		() => buildDiffViewerModel(diff, filePath, viewMode),
+		[diff, filePath, viewMode],
 	);
 	const totalChanges = changePositions.length;
 	const firstChangeLine = changePositions[0];
@@ -179,57 +181,7 @@ export const DiffViewer = memo(function DiffViewer({
 		};
 	}, [diffIdentity, firstChangeLine, startAtFirstChange, viewMode]);
 
-	const ext = useMemo(() => {
-		const p = filePath.split(".");
-		return p.length > 1 ? p.pop()! : "";
-	}, [filePath]);
-
-	const statusMessage = useMemo(() => {
-		if (diff.compactLines?.length === 1) {
-			const line = diff.compactLines[0];
-			if (
-				line?.type === "context" &&
-				/too large|cannot read/i.test(line.content)
-			) {
-				return line.content.trim();
-			}
-		}
-		if (diff.oldLines.length !== 0 || diff.newLines.length !== 1) return null;
-		const line = diff.newLines[0];
-		if (line?.type !== "context") return null;
-		const text = line.content.trim();
-		return /too large|cannot read/i.test(text) ? text : null;
-	}, [diff.compactLines, diff.newLines, diff.oldLines.length]);
-
-	const oversizedMessage = useMemo(() => {
-		// Split panes share row positions; counting both sides rejects ordinary
-		// large files even though only a viewport of rows is mounted.
-		const totalLines =
-			diff.compactLines?.length ??
-			Math.max(diff.oldLines.length, diff.newLines.length);
-		if (totalLines > MAX_RENDERED_DIFF_LINES) {
-			return `Diff is too large to render safely (${totalLines.toLocaleString()} lines). Use the Editor/agent to inspect this file in smaller chunks.`;
-		}
-		const longest = Math.max(
-			diff.metadata.maxOldLineChars,
-			diff.metadata.maxNewLineChars,
-			diff.metadata.maxInlineLineChars,
-			diff.metadata.maxConflictLineChars,
-		);
-		if (longest > MAX_RENDERED_LINE_CHARS * 2) {
-			return `Diff contains a very long line (${longest.toLocaleString()} characters). Rendering is limited to keep the app responsive.`;
-		}
-		return null;
-	}, [diff.metadata, diff.compactLines, diff.newLines, diff.oldLines]);
-
 	const disableTokenize = diff.metadata.tokenizationDisabled;
-
-	const renderMergeConflict = Boolean(diff.mergeConflictContent);
-
-	const isMarkdown = !diff.compactLines && (ext === "md" || ext === "mdx");
-	const conflict = renderMergeConflict && !isMarkdown;
-	const message = statusMessage ?? oversizedMessage;
-	const navigable = !diff.isBinary && (conflict || (!message && !isMarkdown));
 	let body: OctaneNode;
 	if (diff.isBinary) {
 		body = (
@@ -252,14 +204,10 @@ export const DiffViewer = memo(function DiffViewer({
 			</div>
 		);
 	} else if (isMarkdown) {
-		const content = diff.newLines
-			.filter((line) => line.type !== "hunk" && line.type !== "spacer")
-			.map((line) => line.content)
-			.join("\n");
 		body = (
 			<div {...stylex.props(diffStyles.markdownBody)}>
 				<div {...stylex.props(diffStyles.markdownInner)}>
-					<MarkdownPreview content={content} />
+					<MarkdownPreview content={markdownContent} />
 				</div>
 			</div>
 		);

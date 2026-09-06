@@ -79,23 +79,6 @@ export function useChatInputActions({
 		) => void;
 		textareaRef: React.RefObject<HTMLTextAreaElement | null>;
 	}) {
-	const appendLocalMessage = useCallback(
-		(message: Pick<ChatMessage, "role" | "content" | "images">) => {
-			const id = nextId();
-			setMessages((prev) => [
-				...prev,
-				{
-					id,
-					optimistic: true,
-					role: message.role,
-					content: localChatContent(message.content),
-					images: message.images,
-				},
-			]);
-			return id;
-		},
-		[setMessages],
-	);
 	const sendToServer = useCallback(
 		(
 			text: string,
@@ -147,23 +130,26 @@ export function useChatInputActions({
 				sendToServer(trimmed, visibleText, images, undefined, command);
 				return;
 			}
-			const messageId = appendLocalMessage({
-				role: "user",
-				content: visibleText,
+			const message = {
+				id: nextId(),
+				optimistic: true as const,
+				role: "user" as const,
+				content: localChatContent(visibleText),
 				images,
-			});
-			sendToServer(trimmed, visibleText, images, messageId, command);
+			};
+			setMessages((previous) => [...previous, message]);
+			sendToServer(trimmed, visibleText, images, message.id, command);
 		},
-		[appendLocalMessage, isLoading, sendToServer],
+		[isLoading, sendToServer, setMessages],
 	);
 	const sendMessage = useCallback(() => {
 		const rawInput = textareaRef.current?.value ?? input;
 		const text = rawInput.trim();
 		if (!text && attachedImages.length === 0) return;
+		const images = attachedImages.length
+			? attachedImages.map((image) => image.path)
+			: undefined;
 		cancelSpeechListening();
-		const imagePaths = attachedImages.map((image) => image.path);
-		const displayText =
-			text || `Attached image${attachedImages.length > 1 ? "s" : ""}`;
 		setInput("");
 		setSlashMenu(hideMenuState);
 		setFileMenu(hideMenuState);
@@ -173,8 +159,9 @@ export function useChatInputActions({
 			textareaRef.current.style.height = "20px";
 		}
 		sendUserMessage({
-			displayText,
-			images: imagePaths.length > 0 ? imagePaths : undefined,
+			displayText:
+				text || `Attached image${attachedImages.length > 1 ? "s" : ""}`,
+			images,
 			text,
 			command: {
 				expandCommands: true,

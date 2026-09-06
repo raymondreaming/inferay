@@ -4,7 +4,7 @@ import type {
 	GitGraphRef,
 	GitWorktree,
 	GraphNode,
-} from "../../../../repository/hooks/useGitGraph.tsx";
+} from "../../../../repository/model/git-graph.ts";
 import {
 	AVATAR_SIZE,
 	COLUMN_WIDTH,

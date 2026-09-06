@@ -11,7 +11,6 @@ import {
 	type SyntaxToken,
 	useSyntaxHighlight,
 } from "../../../../../shared/hooks/useSyntaxHighlight.tsx";
-import { contentOf } from "../../../../../shared/lib/data.ts";
 import type {
 	DiffLine,
 	DiffMinimapSegment as MinimapSegment,
@@ -140,7 +139,10 @@ export const VirtualPanel = memo(function VirtualPanel({
 		rowCount,
 		Math.ceil((scrollTop + viewHeight) / LINE_H) + OVERSCAN,
 	);
-	const lineContents = useMemo(() => lines.map(contentOf), [lines]);
+	const lineContents = useMemo(
+		() => lines.map((line) => line.content),
+		[lines],
+	);
 	const {
 		getLineTokens,
 		isReady: syntaxReady,

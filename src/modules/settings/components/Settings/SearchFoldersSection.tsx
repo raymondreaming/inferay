@@ -1,6 +1,5 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useMemo, useRef, useState } from "octane";
-import { fetchJsonOr } from "../../../../adapters/backend/http.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
 import { setInputValue } from "../../../../shared/lib/data.ts";
@@ -11,6 +10,11 @@ import {
 	IconPlus,
 	IconX,
 } from "../../../../shared/ui/Icons/index.tsx";
+import {
+	fetchSearchFolders,
+	pickCloneDirectory,
+	saveSearchFolders,
+} from "../../model/settings-workflows.ts";
 import { styles } from "./styles.ts";
 
 const EMPTY_FOLDERS: string[] = [];
@@ -20,13 +24,6 @@ export function SearchFoldersSection({
 }: {
 	contained?: boolean;
 }) {
-	const fetchSearchFolders = useCallback(async () => {
-		const data = await fetchJsonOr<{ folders: string[] }>(
-			"/api/config/search-folders",
-			{ folders: [] },
-		);
-		return data.folders;
-	}, []);
 	const { data: loadedFolders, setData: setFolders } = useQueryResource<
 		string[] | null
 	>(fetchSearchFolders, null, {
@@ -42,37 +39,29 @@ export function SearchFoldersSection({
 	const saveFolders = useCallback(
 		async (next: string[]) => {
 			setFolders(next);
-			await fetch("/api/config/search-folders", {
-				method: "PUT",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ folders: next }),
-			});
+			await saveSearchFolders(next);
 		},
 		[setFolders],
 	);
 
 	const addFolder = useCallback(() => {
-		const trimmed = newFolder.trim();
-		if (!trimmed || folders.includes(trimmed)) return;
-		saveFolders([...folders, trimmed]);
+		const folder = newFolder.trim();
+		if (!folder || folders.includes(folder)) return;
+		saveFolders([...folders, folder]);
 		setNewFolder("");
 		inputRef.current?.focus();
 	}, [newFolder, folders, saveFolders]);
 
 	const removeFolder = useCallback(
 		(idx: number) => {
-			saveFolders(folders.filter((_, i) => i !== idx));
+			saveFolders(folders.filter((_, candidate) => candidate !== idx));
 		},
 		[folders, saveFolders],
 	);
 
 	const browseFolder = useCallback(async () => {
 		try {
-			const { folder } = await fetchJsonOr<{ folder: string | null }>(
-				"/api/config/pick-folder",
-				{ folder: null },
-				{ method: "POST" },
-			);
+			const folder = await pickCloneDirectory();
 			if (folder && !folders.includes(folder)) {
 				saveFolders([...folders, folder]);
 			}

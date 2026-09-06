@@ -43,19 +43,6 @@ export async function sendJson(
 		body: body === undefined ? init?.body : JSON.stringify(body),
 	});
 }
-export async function sendJsonWithBusy(
-	setBusy: (busy: boolean) => void,
-	input: RequestInfo | URL,
-	body?: unknown,
-	init?: RequestInit,
-): Promise<Response> {
-	setBusy(true);
-	try {
-		return await sendJson(input, body, init);
-	} finally {
-		setBusy(false);
-	}
-}
 interface WSMessage {
 	type: string;
 	paneId?: string;

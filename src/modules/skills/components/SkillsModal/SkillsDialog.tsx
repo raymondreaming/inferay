@@ -16,8 +16,14 @@ import { useSkills } from "../../hooks/useSkills.tsx";
 import type { SkillsTarget } from "../../model/skill-library.ts";
 import {
 	INITIAL_SKILL_FORM as INITIAL_FORM,
+	initializeSkillDialog,
+	isSkillFormDirty,
+	removeSkill,
 	type Skill,
 	type SkillFormState,
+	saveSkillForm,
+	skillFormForDuplicate,
+	skillFormForEdit,
 } from "../../model/skill-library.ts";
 import { SkillEditor } from "../SkillEditor/index.tsx";
 import { styles } from "./styles.ts";
@@ -33,8 +39,7 @@ export function SkillsDialog({
 	target: SkillsTarget;
 	onClose: () => void;
 }) {
-	const { skills, createSkill, updateSkill, removeSkill, loading, error } =
-		useSkills(true);
+	const { skills, loading, error } = useSkills();
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const selectedSkill =
 		skills.find((skill) => skill._id === selectedId) ?? null;
@@ -44,23 +49,12 @@ export function SkillsDialog({
 	const [search, setSearch] = useState("");
 	const [form, formDispatch] = useReducer(formReducer, INITIAL_FORM);
 	const startEdit = useCallback((skill: Skill) => {
-		formDispatch({
-			isEditing: true,
-			name: skill.name,
-			command: skill.command,
-			description: skill.description,
-			promptTemplate: skill.promptTemplate,
-			error: "",
-		});
+		formDispatch(skillFormForEdit(skill));
 	}, []);
 	const dialogRef = useRef<HTMLDialogElement | null>(null);
 	const initialized = useRef(false);
 	const original = form.isEditing ? selectedSkill : null;
-	const dirty =
-		(form.isCreating || form.isEditing) &&
-		(["name", "command", "description", "promptTemplate"] as const).some(
-			(field) => form[field] !== (original?.[field] ?? ""),
-		);
+	const dirty = isSkillFormDirty(form, original);
 	const canLeave = () =>
 		!form.isSaving && (!dirty || confirm("Discard unsaved skill changes?"));
 	const close = () => {
@@ -76,19 +70,9 @@ export function SkillsDialog({
 	useEffect(() => {
 		if (initialized.current || loading) return;
 		initialized.current = true;
-		if (target.mode === "create")
-			formDispatch({ ...INITIAL_FORM, isCreating: true });
-		if (target.mode === "browse" && skills[0]) setSelectedId(skills[0]._id);
-		if (target.mode === "edit") {
-			const skill = skills.find((item) => item._id === target.skillId);
-			if (skill) {
-				setSelectedId(skill._id);
-				if (!skill.isBuiltIn) startEdit(skill);
-			} else
-				formDispatch({
-					error: "This skill is no longer available.",
-				});
-		}
+		const initial = initializeSkillDialog(target, skills);
+		setSelectedId(initial.selectedId);
+		formDispatch(initial.form);
 	}, [loading, skills, target, startEdit]);
 
 	const handleFormChange = useCallback((field: string, value: string) => {
@@ -113,35 +97,16 @@ export function SkillsDialog({
 	};
 	const duplicateSelected = () => {
 		if (!selectedSkill || !canLeave()) return;
-		const source = selectedSkill;
 		setSelectedId(null);
-		formDispatch({
-			...INITIAL_FORM,
-			isCreating: true,
-			name: `${source.name} copy`,
-			command: `${source.command}-custom`,
-			description: source.description,
-			promptTemplate: source.promptTemplate,
-		});
+		formDispatch(skillFormForDuplicate(selectedSkill));
 	};
 
 	const handleSave = async (isInlineEdit = false) => {
 		formDispatch({ isSaving: true, error: "" });
 		try {
-			const data = {
-				name: form.name,
-				command: form.command,
-				description: form.description,
-				promptTemplate: form.promptTemplate,
-			};
-			if (isInlineEdit && selectedSkill) {
-				await updateSkill(selectedSkill._id, data);
-				formDispatch({ isEditing: false });
-			} else if (form.isCreating) {
-				const created = await createSkill(data);
-				setSelectedId(created._id);
-				formDispatch(INITIAL_FORM);
-			}
+			const saved = await saveSkillForm(form, selectedSkill, isInlineEdit);
+			setSelectedId(saved.selectedId);
+			formDispatch(saved.form);
 		} catch (e) {
 			formDispatch({
 				error: e instanceof Error ? e.message : "Failed to save",
@@ -169,7 +134,7 @@ export function SkillsDialog({
 		skills: filtered,
 		loading: filtering,
 		error: filterError,
-	} = useSkills(true, filter, search);
+	} = useSkills(filter, search);
 	return (
 		<dialog
 			ref={dialogRef}
