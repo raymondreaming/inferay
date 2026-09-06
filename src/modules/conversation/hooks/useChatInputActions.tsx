@@ -13,11 +13,7 @@ import {
 	type SlashCommand,
 	trimMessages,
 } from "../model/agent-chat-shared.ts";
-import {
-	clearAgentChatPaneState,
-	clearProviderSessionId,
-	getProviderSessionId,
-} from "../model/chat-session-store.ts";
+import { clearAgentChatPaneState } from "../model/chat-session-store.ts";
 import type {
 	FileMenuState,
 	FileSearchResult,
@@ -173,7 +169,6 @@ export function useChatInputActions({
 				text,
 				cwd: workspaceOverride?.cwd ?? cwd,
 				referencePaths: workspaceOverride?.referencePaths ?? referencePaths,
-				sessionId: getProviderSessionId(paneId),
 				agentKind,
 				model: effectiveSelectedModel,
 				reasoningLevel:
@@ -288,7 +283,6 @@ export function useChatInputActions({
 						type: "chat:destroy",
 						paneId,
 					});
-					clearProviderSessionId(paneId);
 					setMessages([]);
 					clearAgentChatPaneState(paneId);
 					clearCheckpoints();

@@ -26,9 +26,7 @@ export function hasPath(path: unknown, item: { path: string }): boolean {
 export function lacksValue<T>(value: T, item: T): boolean {
 	return item !== value;
 }
-export function hasRole(role: unknown, item: { role: string }): boolean {
-	return item.role === role;
-}
+
 export function basename(value: string): string {
 	return value.split("/").pop() || value;
 }
@@ -113,44 +111,35 @@ export interface PreparedMarkdown {
 	blocks: MdBlock[];
 }
 let activeLocks = 0;
-let previousBodyUserSelect = "";
-let previousRootUserSelect = "";
-let previousBodyWebkitUserSelect = "";
-let previousRootWebkitUserSelect = "";
 const preventSelection = (event: Event) => event.preventDefault();
+let restorePointerSelection = () => {};
 export function lockPointerSelection(): () => void {
 	if (activeLocks === 0) {
-		previousBodyUserSelect = document.body.style.userSelect;
-		previousRootUserSelect = document.documentElement.style.userSelect;
-		previousBodyWebkitUserSelect = document.body.style.getPropertyValue(
-			"-webkit-user-select",
+		const saved = [document.body, document.documentElement].flatMap(
+			({ style }) =>
+				["user-select", "-webkit-user-select"].map((property) => ({
+					style,
+					property,
+					value: style.getPropertyValue(property),
+					priority: style.getPropertyPriority(property),
+				})),
 		);
-		previousRootWebkitUserSelect =
-			document.documentElement.style.getPropertyValue("-webkit-user-select");
-		document.body.style.userSelect = "none";
-		document.documentElement.style.userSelect = "none";
-		document.body.style.setProperty("-webkit-user-select", "none");
-		document.documentElement.style.setProperty("-webkit-user-select", "none");
+		for (const { style, property } of saved)
+			style.setProperty(property, "none");
+		restorePointerSelection = () => {
+			for (const { style, property, value, priority } of saved)
+				style.setProperty(property, value, priority);
+		};
 		document.addEventListener("selectstart", preventSelection, true);
 		window.getSelection()?.removeAllRanges();
 	}
-	activeLocks += 1;
+	activeLocks++;
 	let released = false;
 	return () => {
 		if (released) return;
 		released = true;
-		activeLocks = Math.max(0, activeLocks - 1);
-		if (activeLocks === 0) {
-			document.body.style.userSelect = previousBodyUserSelect;
-			document.documentElement.style.userSelect = previousRootUserSelect;
-			document.body.style.setProperty(
-				"-webkit-user-select",
-				previousBodyWebkitUserSelect,
-			);
-			document.documentElement.style.setProperty(
-				"-webkit-user-select",
-				previousRootWebkitUserSelect,
-			);
+		if (--activeLocks === 0) {
+			restorePointerSelection();
 			document.removeEventListener("selectstart", preventSelection, true);
 			window.getSelection()?.removeAllRanges();
 		}

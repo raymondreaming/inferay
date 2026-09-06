@@ -286,6 +286,39 @@ impl ChatPersistence {
         .await
     }
 
+    pub async fn clear_session(&self, pane_id: &str, epoch: Option<String>) -> Result<(), String> {
+        self.transaction(pane_id, move |connection, pane| {
+            connection.execute("INSERT OR IGNORE INTO retired_epochs SELECT pane,epoch FROM transcripts WHERE pane=?1", [pane])?;
+            if let Some(epoch) = epoch {
+                connection.execute("INSERT OR IGNORE INTO retired_epochs(pane,epoch) VALUES(?1,?2)", [pane, &epoch])?;
+            }
+            connection.execute("DELETE FROM transcript_messages WHERE pane=?1", [pane])?;
+            connection.execute("DELETE FROM documents WHERE pane=?1 AND kind IN ('session','queue')", [pane])?;
+            write_document(connection, pane, "legacySummaryCleared", &true)?;
+            // Retain an empty transcript so legacy provider history cannot restore a cleared chat.
+            connection.execute("INSERT INTO transcripts(pane,epoch,revision) VALUES(?1,?2,'0') ON CONFLICT(pane) DO UPDATE SET epoch=excluded.epoch,revision='0'", [pane, &uuid::Uuid::new_v4().to_string()])?;
+            Ok(())
+        }).await
+    }
+
+    pub async fn legacy_summary(&self, pane_id: &str) -> Option<String> {
+        if self
+            .transaction(pane_id, |connection, pane| {
+                read_document::<bool>(connection, pane, "legacySummaryCleared")
+            })
+            .await
+            .ok()?
+        {
+            return None;
+        }
+        super::read_client_storage(&self.path.with_file_name("client-storage.json"))
+            .await
+            .ok()?
+            .get(&format!("inferay-chat-summary-{pane_id}"))?
+            .as_str()
+            .map(str::to_owned)
+    }
+
     pub async fn read_session_reference(&self, pane_id: &str) -> Option<ChatSessionReference> {
         self.transaction(pane_id, |connection, pane| {
             read_document::<Option<ChatSessionReference>>(connection, pane, "session")
@@ -352,17 +385,6 @@ impl ChatPersistence {
                 return Ok(None);
             }
             Ok(Some((queue.remove(0), queue.clone())))
-        })
-        .await
-    }
-
-    pub async fn delete_queue(&self, pane_id: &str) -> Result<(), String> {
-        self.transaction(pane_id, |connection, pane| {
-            connection.execute(
-                "DELETE FROM documents WHERE pane=?1 AND kind='queue'",
-                [pane],
-            )?;
-            Ok(())
         })
         .await
     }

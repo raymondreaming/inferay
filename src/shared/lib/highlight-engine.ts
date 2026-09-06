@@ -33,15 +33,6 @@ export class ByteCache<T> {
 		this.bytes -= entry.bytes;
 		this.entries.delete(key);
 	}
-	keys() {
-		return this.entries.keys();
-	}
-	get size() {
-		return this.entries.size;
-	}
-	get retainedBytes() {
-		return this.bytes;
-	}
 }
 // Explicit imports keep unsupported grammars and themes out of the renderer build.
 export const syntaxLanguages = {

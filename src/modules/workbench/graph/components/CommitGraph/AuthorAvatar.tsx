@@ -39,7 +39,7 @@ export function AuthorAvatar({
 		let current = true;
 		setUrl(null);
 		setFailed(false);
-		if (githubAvatar !== undefined) {
+		if (githubAvatar) {
 			setUrl(githubAvatar);
 		} else if (!stash) {
 			void resolveGitAuthorAvatar(email, name).then((next) => {

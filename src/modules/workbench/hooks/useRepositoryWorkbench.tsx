@@ -1,4 +1,4 @@
-import { useQuery } from "@octanejs/tanstack-query";
+import { useMutation, useQuery } from "@octanejs/tanstack-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
 import { postJson } from "../../../adapters/backend/http.ts";
 import {
@@ -57,27 +57,19 @@ import type {
 	GitRefOperationRequest,
 } from "../model/workbench-model.ts";
 import {
-	bindGitGraphRepository,
-	dismissGitWorkspaceViewer,
 	emptyGitWorkspacePanelSession,
 	GIT_FILE_VIEW_MODE_STORAGE_KEY,
 	type GitWorkspaceDetachedFilePanel,
+	type GitWorkspacePanelAction,
 	type GitWorkspacePanelSession,
 	getGitWorkspaceSidebarContent,
-	initializeGitRepositoryPanels,
 	isGitWorkspaceGraphDrillIn,
 	isHistoricalGitWorkspaceDiff,
 	loadGitFileViewMode,
 	MIN_RESPONSIVE_PANE_WIDTH,
 	OPEN_ACTIVE_GIT_GRAPH_EVENT,
-	openGitCommitFileDiff,
-	openGitComparisonFileDiff,
-	openGitGraph,
-	openGitWorkingTreeFileDiff,
-	reconcileGitGraphSelection,
 	saveGitFileViewMode,
 	TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT,
-	updateGitGraphSelection,
 } from "../model/workbench-model.ts";
 
 export const SIDEBAR_WIDTH_KEY = "agent-workspace-changes-width";
@@ -122,96 +114,130 @@ export type DetachedFilePanel =
 export type WorkspacePanelSession =
 	GitWorkspacePanelSession<FileContentResponse>;
 
-export type StateValue<T> = T | ((current: T) => T);
-
 export const emptyPanelSession =
 	emptyGitWorkspacePanelSession<FileContentResponse>();
-
-export function resolveStateValue<T>(value: StateValue<T>, current: T): T {
-	return typeof value === "function"
-		? (value as (current: T) => T)(current)
-		: value;
-}
-
-export function useWorkspacePanelSession(workspaceId: string) {
-	const [saveError, setSaveError] = useState<{
-		workspaceId: string;
-		message: string;
-	} | null>(null);
-	const pending = useRef<Promise<unknown>>(Promise.resolve());
-	const options = useMemo(
-		() => ({
-			queryKey: ["workspace-panels", workspaceId],
-			queryFn: async () => {
-				const { session } = await postJson<{ session: WorkspacePanelSession }>(
+type PanelAction = GitWorkspacePanelAction<FileContentResponse>;
+function panelQuery(workspaceId: string) {
+	return {
+		queryKey: ["workspace-panels", workspaceId],
+		queryFn: async () =>
+			(
+				await postJson<{ session: WorkspacePanelSession }>(
 					"/api/workspace/panels",
-					{
-						workspaceId,
-					},
-				);
-				return session;
-			},
-			staleTime: Infinity,
-			gcTime: 30 * 60 * 1000,
-		}),
-		[workspaceId],
-	);
+					{ workspaceId },
+				)
+			).session,
+		staleTime: Infinity,
+		gcTime: 30 * 60 * 1000,
+	};
+}
+export function useWorkspacePanelSession(workspaceId: string) {
+	const options = useMemo(() => panelQuery(workspaceId), [workspaceId]);
 	const query = useQuery(options, queryClient);
-	const update = useCallback(
-		(change: (current: WorkspacePanelSession) => WorkspacePanelSession) => {
-			const apply = (current: WorkspacePanelSession) => {
-				const next = change(current);
-				if (next === current) return;
-				queryClient.setQueryData(options.queryKey, next);
-				const patch = Object.fromEntries(
-					Object.entries(next).filter(
-						([key, value]) =>
-							value !== current[key as keyof WorkspacePanelSession],
-					),
-				);
-				if (patch.detachedFilePanels) {
-					patch.detachedFilePanels = next.detachedFilePanels.map(
-						({ id, cwd, path }) => ({ id, cwd, path }),
-					);
-				}
-				pending.current = pending.current
-					.catch(() => undefined)
-					.then(async () => {
-						await postJson("/api/workspace/panels", { workspaceId, patch });
-					})
-					.catch((error) => {
-						console.error("Could not save workspace panels", error);
-						setSaveError({
-							workspaceId,
-							message: "Some workspace panel changes could not be saved.",
+	// File contents and the immediate drag preview stay local; native stores only panel identity.
+	const draggedFiles = useRef(
+		new Map<
+			string,
+			{ panel: DetachedFilePanel; pending: boolean; workspaceId: string }
+		>(),
+	);
+	const mutation = useMutation(
+		{
+			mutationKey: ["workspace-panels", workspaceId],
+			scope: { id: `workspace-panels:${workspaceId}` },
+			mutationFn: async ({
+				workspaceId,
+				action,
+			}: {
+				workspaceId: string;
+				action: PanelAction;
+			}) => {
+				await queryClient.ensureQueryData(panelQuery(workspaceId));
+				const wireAction =
+					action.type === "detachFile"
+						? {
+								type: action.type,
+								id: action.id,
+								cwd: action.cwd,
+								path: action.path,
+							}
+						: action;
+				return postJson<{
+					session: WorkspacePanelSession;
+					announcement: string | null;
+				}>("/api/workspace/panels", { workspaceId, action: wireAction });
+			},
+			onSuccess: ({ session }, { workspaceId, action }) => {
+				const file =
+					"id" in action && action.id
+						? draggedFiles.current.get(action.id)
+						: undefined;
+				if (file && action.type === "detachFile") file.pending = false;
+				if (action.type === "closeFile") draggedFiles.current.delete(action.id);
+				const panels = session.detachedFilePanels.map((panel) => ({
+					...panel,
+					initialFile: draggedFiles.current.get(panel.id)?.panel.initialFile,
+				}));
+				for (const entry of draggedFiles.current.values()) {
+					if (
+						entry.workspaceId === workspaceId &&
+						entry.pending &&
+						!panels.some((panel) => panel.id === entry.panel.id)
+					)
+						panels.push({
+							...entry.panel,
+							initialFile: entry.panel.initialFile,
 						});
-					});
-			};
-			const current = queryClient.getQueryData<WorkspacePanelSession>(
-				options.queryKey,
-			);
-			if (current) apply(current);
-			else
-				void queryClient
-					.ensureQueryData(options)
-					.then(() => {
-						const restored = queryClient.getQueryData<WorkspacePanelSession>(
-							options.queryKey,
-						);
-						if (restored) apply(restored);
-					})
-					.catch((error) =>
-						console.error("Could not restore workspace panels", error),
-					);
+				}
+				queryClient.setQueryData(panelQuery(workspaceId).queryKey, {
+					...session,
+					detachedFilePanels: panels,
+				});
+			},
 		},
-		[options, workspaceId],
+		queryClient,
+	);
+	const mutate = mutation.mutate;
+	const update = useCallback(
+		(action: PanelAction) => {
+			if (action.type === "detachFile") {
+				const panel = {
+					id: action.id,
+					cwd: action.cwd,
+					path: action.path,
+					initialFile: action.initialFile,
+				};
+				draggedFiles.current.set(action.id, {
+					panel,
+					pending: true,
+					workspaceId,
+				});
+				queryClient.setQueryData<WorkspacePanelSession>(
+					panelQuery(workspaceId).queryKey,
+					(current) =>
+						current
+							? {
+									...current,
+									detachedFilePanels: [...current.detachedFilePanels, panel],
+								}
+							: current,
+				);
+			}
+			mutate({ workspaceId, action });
+		},
+		[mutate, workspaceId],
 	);
 	const error = query.error
 		? "Saved workspace panels could not be restored."
-		: saveError?.workspaceId === workspaceId
-			? saveError.message
+		: mutation.error
+			? "Some workspace panel changes could not be saved."
 			: null;
-	return [query.data ?? emptyPanelSession, update, error] as const;
+	return [
+		query.data ?? emptyPanelSession,
+		update,
+		error,
+		mutation.data?.announcement,
+	] as const;
 }
 
 export let detachedFilePanelSequence = 0;
@@ -230,8 +256,12 @@ export function useRepositoryWorkbench({
 	readonly cwd?: string;
 	readonly workspaceId: string;
 }) {
-	const [panelSession, updatePanelSession, panelSessionError] =
-		useWorkspacePanelSession(workspaceId);
+	const [
+		panelSession,
+		updatePanelSession,
+		panelSessionError,
+		panelAnnouncement,
+	] = useWorkspacePanelSession(workspaceId);
 	const {
 		sidebarVisible,
 		fileViewerOpen,
@@ -251,31 +281,6 @@ export function useRepositoryWorkbench({
 	const comparisonSource =
 		fileSource?.kind === "comparison" ? fileSource : null;
 
-	const setPanelField = useCallback(
-		<Key extends keyof WorkspacePanelSession>(
-			key: Key,
-			value: StateValue<WorkspacePanelSession[Key]>,
-		) =>
-			updatePanelSession((current) => ({
-				...current,
-				[key]: resolveStateValue(value, current[key]),
-			})),
-		[updatePanelSession],
-	);
-	const setFocusedAuxiliaryPanel = useCallback(
-		(value: StateValue<WorkspacePanelSession["focusedAuxiliaryPanel"]>) =>
-			setPanelField("focusedAuxiliaryPanel", value),
-		[setPanelField],
-	);
-	const setDetachedFilePanels = useCallback(
-		(value: StateValue<DetachedFilePanel[]>) =>
-			setPanelField("detachedFilePanels", value),
-		[setPanelField],
-	);
-	const setMainViewMode = useCallback(
-		(value: "diff" | "graph") => setPanelField("mainViewMode", value),
-		[setPanelField],
-	);
 	const [fileViewMode, setFileViewModeState] = useState(loadGitFileViewMode);
 	useEffect(() => {
 		const applyStoredMode = (value: string | null) => {
@@ -454,19 +459,11 @@ export function useRepositoryWorkbench({
 	const selectedWorkingTreeCwd = selectedGraphWorktree?.path ?? activeCwd;
 	const openSelectedWorktree = useCallback(() => {
 		if (!selectedGraphWorktree || selectedGraphWorktree.isCurrent) return;
-		updatePanelSession((current) => ({
-			...current,
-			diffViewerCwd: selectedGraphWorktree.path,
-			selectedFile: null,
-			selectedCommitHash: null,
-			selectedCommitIds: [],
-			selectedCommitParent: null,
-			mainViewMode: "graph",
-			focusedAuxiliaryPanel: {
-				id: "workspace-diff-viewer",
-				cwd: selectedGraphWorktree.path,
-			},
-		}));
+		updatePanelSession({
+			type: "openGraph",
+			cwd: selectedGraphWorktree.path,
+			reset: true,
+		});
 	}, [selectedGraphWorktree, updatePanelSession]);
 	const historicalCommitCwd =
 		mainViewMode === "diff" && commitSource?.commitHash
@@ -513,9 +510,12 @@ export function useRepositoryWorkbench({
 	const selectGraphCommit = useCallback(
 		(itemId: string | null, intent?: GraphSelectionIntent) => {
 			const orderedItemIds = graph.commits.map((item) => item.id);
-			updatePanelSession((current) =>
-				updateGitGraphSelection(current, itemId, orderedItemIds, intent),
-			);
+			updatePanelSession({
+				type: "selectGraph",
+				id: itemId,
+				orderedIds: orderedItemIds,
+				intent,
+			});
 		},
 		[graph.commits, updatePanelSession],
 	);
@@ -615,15 +615,18 @@ export function useRepositoryWorkbench({
 	useEffect(() => {
 		if (mainViewMode !== "graph" || graph.loading || !graph.commits.length)
 			return;
-		const reconciliation = reconcileGitGraphSelection(
-			panelSession,
-			graph.commits,
-		);
-		if (reconciliation.session === panelSession) return;
-		if (reconciliation.announcement) {
-			setGraphSelectionAnnouncement(reconciliation.announcement);
-		}
-		updatePanelSession(() => reconciliation.session);
+		const visible = new Set(graph.commits.map((item) => item.id));
+		if (
+			panelSession.selectedCommitHash &&
+			visible.has(panelSession.selectedCommitHash) &&
+			panelSession.selectedCommitIds.length &&
+			panelSession.selectedCommitIds.every((id) => visible.has(id))
+		)
+			return;
+		updatePanelSession({
+			type: "reconcileGraph",
+			items: graph.commits.map(({ id, message }) => ({ id, message })),
+		});
 	}, [
 		graph.commits,
 		graph.loading,
@@ -631,6 +634,9 @@ export function useRepositoryWorkbench({
 		panelSession,
 		updatePanelSession,
 	]);
+	useEffect(() => {
+		if (panelAnnouncement) setGraphSelectionAnnouncement(panelAnnouncement);
+	}, [panelAnnouncement]);
 	const keyboardFiles = useMemo(
 		() => [
 			...visibleGitFiles(
@@ -713,14 +719,10 @@ export function useRepositoryWorkbench({
 			) ??
 			diffViewerProject.files.find((file) => file.path === selectedFile.path);
 		if (current && current.staged === selectedFile.staged) return;
-		updatePanelSession((session) => {
-			if (session.selectedFile !== selectedFile) return session;
-			return current
-				? {
-						...session,
-						selectedFile: { ...selectedFile, staged: current.staged },
-					}
-				: { ...session, selectedFile: null, diffViewerCwd: null };
+		updatePanelSession({
+			type: "reconcileFile",
+			expected: selectedFile,
+			staged: current?.staged ?? null,
 		});
 	}, [
 		diffViewerProject,
@@ -736,10 +738,16 @@ export function useRepositoryWorkbench({
 	}, [active, workspaceId]);
 	useEffect(() => {
 		if (!active || !cwd || !gitLoaded || !projectMap.has(cwd)) return;
-		updatePanelSession((current) =>
-			initializeGitRepositoryPanels(current, cwd),
-		);
-	}, [active, cwd, gitLoaded, projectMap, updatePanelSession]);
+		if (!panelSession.repositoryInitialized)
+			updatePanelSession({ type: "initialize", cwd });
+	}, [
+		active,
+		cwd,
+		gitLoaded,
+		projectMap,
+		panelSession.repositoryInitialized,
+		updatePanelSession,
+	]);
 	useEffect(() => {
 		setDiffWidth(loadDiffWidth(workspaceId));
 	}, [workspaceId]);
@@ -748,16 +756,11 @@ export function useRepositoryWorkbench({
 		return listenWindowEvent(DOCUMENT_OPEN_EVENT, (event) => {
 			const detail = (event as CustomEvent<DocumentOpenDetail>).detail;
 			if (!detail?.cwd || !detail.path) return;
-			updatePanelSession((current) => ({
-				...current,
-				fileViewerCwd: detail.cwd,
-				focusedAuxiliaryPanel: {
-					id: "workspace-file-viewer",
-					cwd: detail.cwd,
-				},
-				fileRequest: { path: detail.path, token: Date.now() },
-				fileViewerOpen: true,
-			}));
+			updatePanelSession({
+				type: "document",
+				cwd: detail.cwd,
+				path: detail.path,
+			});
 		});
 	}, [active, updatePanelSession]);
 
@@ -765,10 +768,7 @@ export function useRepositoryWorkbench({
 		() =>
 			listenWindowEvent(TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT, () => {
 				if (!active) return;
-				updatePanelSession((current) => ({
-					...current,
-					sidebarVisible: !current.sidebarVisible,
-				}));
+				updatePanelSession({ type: "toggleSidebar" });
 			}),
 		[active, updatePanelSession],
 	);
@@ -777,28 +777,21 @@ export function useRepositoryWorkbench({
 		saveGitFileViewMode(mode);
 	}, []);
 	const closeFileViewer = useCallback(() => {
-		updatePanelSession((current) => ({
-			...current,
-			fileViewerOpen: false,
-			focusedAuxiliaryPanel:
-				current.focusedAuxiliaryPanel?.id === "workspace-file-viewer"
-					? null
-					: current.focusedAuxiliaryPanel,
-		}));
+		updatePanelSession({ type: "closeFile", id: "workspace-file-viewer" });
 	}, [updatePanelSession]);
 	const closeDiffViewer = useCallback(() => {
-		updatePanelSession(dismissGitWorkspaceViewer);
+		updatePanelSession({ type: "dismissDiff" });
 	}, [updatePanelSession]);
 	const returnsToGraphOnClose = isGitWorkspaceGraphDrillIn(panelSession);
 	const selectChangedFile = useCallback(
 		(file: GitFileEntry) => {
 			if (!selectedWorkingTreeCwd) return;
-			updatePanelSession((current) =>
-				openGitWorkingTreeFileDiff(current, selectedWorkingTreeCwd, {
-					path: file.path,
-					staged: file.staged,
-				}),
-			);
+			updatePanelSession({
+				type: "workingTreeFile",
+				cwd: selectedWorkingTreeCwd,
+				path: file.path,
+				staged: file.staged,
+			});
 		},
 		[selectedWorkingTreeCwd, updatePanelSession],
 	);
@@ -814,15 +807,13 @@ export function useRepositoryWorkbench({
 				? commitSource?.commitParent
 				: selectedCommitParent;
 			if (!commitCwd || !commitHash) return;
-			updatePanelSession((current) =>
-				openGitCommitFileDiff(
-					current,
-					commitCwd,
-					file.path,
-					commitHash,
-					commitParent,
-				),
-			);
+			updatePanelSession({
+				type: "commitFile",
+				cwd: commitCwd,
+				path: file.path,
+				commitHash,
+				commitParent,
+			});
 		},
 		[
 			activeCwd,
@@ -843,15 +834,13 @@ export function useRepositoryWorkbench({
 			const fileComparisonTo = comparisonSource?.comparisonTo ?? comparisonTo;
 			if (!fileComparisonCwd || !fileComparisonFrom || !fileComparisonTo)
 				return;
-			updatePanelSession((current) =>
-				openGitComparisonFileDiff(
-					current,
-					fileComparisonCwd,
-					file.path,
-					fileComparisonFrom,
-					fileComparisonTo,
-				),
-			);
+			updatePanelSession({
+				type: "comparisonFile",
+				cwd: fileComparisonCwd,
+				path: file.path,
+				from: fileComparisonFrom,
+				to: fileComparisonTo,
+			});
 		},
 		[
 			comparisonCwd,
@@ -920,12 +909,12 @@ export function useRepositoryWorkbench({
 	const changeMainViewMode = useCallback(
 		(mode: "diff" | "graph") => {
 			if (mode === "graph" && activeCwd) {
-				updatePanelSession((current) => openGitGraph(current, activeCwd));
+				updatePanelSession({ type: "openGraph", cwd: activeCwd });
 				return;
 			}
-			setMainViewMode(mode);
+			updatePanelSession({ type: "mode", mode });
 		},
-		[activeCwd, setMainViewMode, updatePanelSession],
+		[activeCwd, updatePanelSession],
 	);
 	useEffect(
 		() =>
@@ -935,32 +924,18 @@ export function useRepositoryWorkbench({
 		[active, changeMainViewMode],
 	);
 	const focusWorkbench = useCallback(
-		(repositoryCwd?: string) =>
-			updatePanelSession((current) =>
-				repositoryCwd && repositoryCwd !== cwd
-					? current
-					: repositoryCwd && current.mainViewMode === "graph"
-						? bindGitGraphRepository(current, repositoryCwd)
-						: current.focusedAuxiliaryPanel
-							? { ...current, focusedAuxiliaryPanel: null }
-							: current,
-			),
+		(repositoryCwd?: string) => {
+			if (!repositoryCwd || repositoryCwd === cwd)
+				updatePanelSession({ type: "focusChat", cwd: repositoryCwd });
+		},
 		[cwd, updatePanelSession],
 	);
 	const focusDiffViewer = useCallback(() => {
-		if (!diffViewerCwd) return;
-		updatePanelSession((current) =>
-			current.focusedAuxiliaryPanel?.id === "workspace-diff-viewer" &&
-			current.focusedAuxiliaryPanel.cwd === diffViewerCwd
-				? current
-				: {
-						...current,
-						focusedAuxiliaryPanel: {
-							id: "workspace-diff-viewer",
-							cwd: diffViewerCwd,
-						},
-					},
-		);
+		if (diffViewerCwd)
+			updatePanelSession({
+				type: "focus",
+				panel: { id: "workspace-diff-viewer", cwd: diffViewerCwd },
+			});
 	}, [diffViewerCwd, updatePanelSession]);
 	const cycleChangedFile = useCallback(
 		(direction: -1 | 1) => {
@@ -1186,11 +1161,13 @@ export function useRepositoryWorkbench({
 		) => {
 			const id = createDetachedFilePanelId();
 			drag.onCreatePanelDragStart(event, id, () => {
-				setDetachedFilePanels((current) => [
-					...current,
-					{ id, cwd: file.cwd, path: file.path, initialFile: file },
-				]);
-				setFocusedAuxiliaryPanel({ id, cwd: file.cwd });
+				updatePanelSession({
+					type: "detachFile",
+					id,
+					cwd: file.cwd,
+					path: file.path,
+					initialFile: file,
+				});
 				completeMove();
 			});
 		};
@@ -1204,9 +1181,9 @@ export function useRepositoryWorkbench({
 			panels.push({
 				id: "workspace-file-viewer",
 				onSelect: () =>
-					setFocusedAuxiliaryPanel({
-						id: "workspace-file-viewer",
-						cwd: fileViewerCwd,
+					updatePanelSession({
+						type: "focus",
+						panel: { id: "workspace-file-viewer", cwd: fileViewerCwd },
 					}),
 				render: (drag: DragProps) => (
 					<DocumentViewer
@@ -1225,7 +1202,10 @@ export function useRepositoryWorkbench({
 			panels.push({
 				id: panel.id,
 				onSelect: () =>
-					setFocusedAuxiliaryPanel({ id: panel.id, cwd: panel.cwd }),
+					updatePanelSession({
+						type: "focus",
+						panel: { id: panel.id, cwd: panel.cwd },
+					}),
 				render: (drag: DragProps) => (
 					<DocumentViewer
 						key={panel.id}
@@ -1236,12 +1216,7 @@ export function useRepositoryWorkbench({
 							panel.initialFile ? null : { path: panel.path, token: 0 }
 						}
 						onClose={() => {
-							setDetachedFilePanels((current) =>
-								current.filter((item) => item.id !== panel.id),
-							);
-							setFocusedAuxiliaryPanel((current) =>
-								current?.id === panel.id ? null : current,
-							);
+							updatePanelSession({ type: "closeFile", id: panel.id });
 						}}
 						onFileTabDragStart={startFileDrag.bind(null, drag)}
 						{...drag}
@@ -1256,8 +1231,7 @@ export function useRepositoryWorkbench({
 		fileRequest,
 		fileViewerCwd,
 		fileViewerOpen,
-		setDetachedFilePanels,
-		setFocusedAuxiliaryPanel,
+		updatePanelSession,
 		workspaceId,
 	]);
 

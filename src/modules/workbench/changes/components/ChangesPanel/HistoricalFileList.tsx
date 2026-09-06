@@ -47,7 +47,6 @@ export function HistoricalFileList({
 			}}
 			isCollapsible={false}
 			showHeader={false}
-			showFullPath
 			viewMode={viewMode}
 		/>
 	);

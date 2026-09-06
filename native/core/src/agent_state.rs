@@ -121,9 +121,9 @@ pub struct Pane {
     #[serde(default)]
     pub reference_paths: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    summary: Option<String>,
+    pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    provider_session_id: Option<String>,
+    pub provider_session_id: Option<String>,
 }
 
 fn default_kind(action: &Value) -> &str {
@@ -387,7 +387,8 @@ impl Workspace {
             "directorySelected"
             | "setPaneAgentKind"
             | "changePaneAgentKind"
-            | "setPaneProviderSession" => {
+            | "setPaneProviderSession"
+            | "setPaneSummary" => {
                 let id = string(action, "paneId")?;
                 let pane = self
                     .groups
@@ -404,6 +405,10 @@ impl Workspace {
                         pane.reference_paths = paths(&action["referencePaths"])?;
                         pane.update_title();
                     }
+                    "setPaneSummary" => {
+                        pane.summary = serde_json::from_value(action["summary"].clone())
+                            .map_err(|e| e.to_string())?;
+                    }
                     "setPaneProviderSession" => {
                         if action.get("providerSessionId").is_none() {
                             return Err("Missing providerSessionId".into());
@@ -411,6 +416,9 @@ impl Workspace {
                         pane.provider_session_id =
                             serde_json::from_value(action["providerSessionId"].clone())
                                 .map_err(|e| e.to_string())?;
+                        if pane.provider_session_id.is_none() {
+                            pane.summary = None;
+                        }
                     }
                     _ => {
                         pane.agent_kind = kind(string(action, "agentKind")?)?.into();

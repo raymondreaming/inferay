@@ -1,56 +1,67 @@
-import { fetchJsonOr } from "../../../adapters/backend/http.ts";
+import { fetchJson } from "../../../adapters/backend/http.ts";
+import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
+import { queryClient } from "../../../shared/lib/data.ts";
 
-const CACHE_TTL_MS = 120_000;
-let cachedAccounts: { value: ForgeAccount[]; cachedAt: number } | null = null;
-let cachedRepos: { value: GithubRepo[]; cachedAt: number } | null = null;
-function isFresh(cachedAt: number) {
-	return Date.now() - cachedAt < CACHE_TTL_MS;
-}
-export function getCachedForgeAccounts(): ForgeAccount[] {
-	return cachedAccounts && isFresh(cachedAccounts.cachedAt)
-		? cachedAccounts.value
-		: [];
-}
-export function getCachedGithubRepos(): GithubRepo[] {
-	return cachedRepos && isFresh(cachedRepos.cachedAt) ? cachedRepos.value : [];
-}
-export function invalidateForgeAccountsCache(): void {
-	cachedAccounts = null;
-}
-export function invalidateGithubReposCache(): void {
-	cachedRepos = null;
-}
-export async function fetchForgeAccounts(
-	refresh = false,
-): Promise<ForgeAccount[]> {
-	if (!refresh && cachedAccounts && isFresh(cachedAccounts.cachedAt)) {
-		return cachedAccounts.value;
-	}
-	const data = await fetchJsonOr<{ accounts?: ForgeAccount[] }>(
-		refresh ? "/api/forge/accounts?refresh=1" : "/api/forge/accounts",
-		{},
-	);
-	const accounts = Array.isArray(data.accounts) ? data.accounts : [];
-	cachedAccounts = {
-		value: accounts,
-		cachedAt: Date.now(),
+function forgeResource<T>(kind: string, field: string, url: string) {
+	const options = { queryKey: ["forge", kind], staleTime: 120_000 };
+	const empty: T[] = [];
+	let refreshNative = false;
+	const request = async (signal?: AbortSignal): Promise<T[]> => {
+		const refreshing = refreshNative;
+		const data = await fetchJson<Record<string, T[]>>(
+			refreshing ? `${url}${url.includes("?") ? "&" : "?"}refresh=1` : url,
+			{ signal },
+		);
+		if (refreshing) refreshNative = false;
+		return Array.isArray(data[field]) ? data[field]! : empty;
 	};
-	return accounts;
-}
-export async function fetchGithubRepos(): Promise<GithubRepo[]> {
-	if (cachedRepos && isFresh(cachedRepos.cachedAt)) {
-		return cachedRepos.value;
-	}
-	const data = await fetchJsonOr<{ repos?: GithubRepo[] }>(
-		"/api/forge/repos?limit=50",
-		{},
-	);
-	const repos = Array.isArray(data.repos) ? data.repos : [];
-	cachedRepos = {
-		value: repos,
-		cachedAt: Date.now(),
+	const invalidate = () => {
+		refreshNative = true;
+		void queryClient.invalidateQueries({
+			queryKey: options.queryKey,
+			refetchType: "none",
+		});
 	};
-	return repos;
+	return {
+		request,
+		options,
+		empty,
+		invalidate,
+		load: (refresh = false) => {
+			if (refresh) invalidate();
+			return queryClient.fetchQuery({
+				...options,
+				retry: false,
+				queryFn: ({ signal }) => request(signal),
+			});
+		},
+	};
+}
+const accountsResource = forgeResource<ForgeAccount>(
+	"accounts",
+	"accounts",
+	"/api/forge/accounts",
+);
+const reposResource = forgeResource<GithubRepo>(
+	"repos",
+	"repos",
+	"/api/forge/repos?limit=50",
+);
+export const invalidateForgeAccountsCache = accountsResource.invalidate;
+export const invalidateGithubReposCache = reposResource.invalidate;
+export const fetchForgeAccounts = accountsResource.load;
+export function useForgeAccounts() {
+	return useQueryResource(
+		accountsResource.request,
+		accountsResource.empty,
+		accountsResource.options,
+	);
+}
+export function useGithubRepos(enabled: boolean) {
+	return useQueryResource(reposResource.request, reposResource.empty, {
+		...reposResource.options,
+		enabled,
+	});
 }
 export interface ForgeAccount {
 	provider: "github";
@@ -119,39 +130,26 @@ export function useGitChangeActions({
 		(staged: boolean, file?: string) => {
 			if (!cwd) return;
 			applyOptimistic?.(cwd, (p) => {
-				if (file) {
-					// Single-file toggle: O(1) count adjustment when state actually changes.
-					const target = p.files.find((f) => f.path === file);
-					const changed = !!target && target.staged !== staged;
-					return {
-						...p,
-						files: changed
-							? p.files.map((f) =>
-									f.path === file
-										? {
-												...f,
-												staged,
-											}
-										: f,
-								)
-							: p.files,
-						stagedCount: changed
-							? p.stagedCount + (staged ? 1 : -1)
-							: p.stagedCount,
-						unstagedCount: changed
-							? p.unstagedCount + (staged ? -1 : 1)
-							: p.unstagedCount,
-					};
-				}
-				// Bulk stage/unstage: counts are deterministic from total file count.
+				let changed = 0;
+				const files = p.files.map((entry) => {
+					if ((file && entry.path !== file) || entry.staged === staged)
+						return entry;
+					changed += staged ? 1 : -1;
+					return { ...entry, staged };
+				});
 				return {
 					...p,
-					files: p.files.map((f) => ({
-						...f,
-						staged,
-					})),
-					stagedCount: staged ? p.files.length : 0,
-					unstagedCount: staged ? 0 : p.files.length,
+					files: changed ? files : p.files,
+					stagedCount: file
+						? p.stagedCount + changed
+						: staged
+							? files.length
+							: 0,
+					unstagedCount: file
+						? p.unstagedCount - changed
+						: staged
+							? 0
+							: files.length,
 				};
 			});
 			gitAction(
@@ -222,8 +220,6 @@ export function useGitChangeActions({
 
 import { postJson } from "../../../adapters/backend/http.ts";
 
-const avatarUrlCache = new Map<string, Promise<string | null>>();
-let forgeAccountsRequest: ReturnType<typeof fetchForgeAccounts> | null = null;
 function normalizedIdentity(value?: string | null): string {
 	return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
@@ -249,8 +245,12 @@ function identityLooksRelated(
 		prefixMatch(authorName, githubName)
 	);
 }
-function matchingForgeAvatar(email: string, name: string): string | null {
-	const account = getCachedForgeAccounts().find(
+function matchingForgeAccount(
+	accounts: ForgeAccount[],
+	email: string,
+	name: string,
+): ForgeAccount | undefined {
+	return accounts.find(
 		(candidate) =>
 			(email && normalizedIdentity(candidate.email) === email) ||
 			(name &&
@@ -264,44 +264,39 @@ function matchingForgeAvatar(email: string, name: string): string | null {
 					normalizedIdentity(candidate.login),
 				)),
 	);
-	return account?.avatarUrl ?? null;
 }
-function resolveForgeAvatar(
-	email: string,
-	name: string,
-): Promise<string | null> {
-	const cached = matchingForgeAvatar(email, name);
-	if (cached) return Promise.resolve(cached);
-	forgeAccountsRequest ??= fetchForgeAccounts().catch(() => []);
-	return forgeAccountsRequest.then(() => matchingForgeAvatar(email, name));
+export async function resolveGitAuthorIdentity(
+	email?: string | null,
+	name?: string | null,
+): Promise<{ login: string; avatarUrl: string | null } | null> {
+	const normalized = normalizedIdentity(email);
+	const normalizedName = normalizedIdentity(name);
+	if (!normalized && !normalizedName) return null;
+	const login = normalized.match(
+		/^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/,
+	)?.[1];
+	if (login)
+		return {
+			login,
+			avatarUrl: `https://github.com/${encodeURIComponent(login)}.png?size=64`,
+		};
+	try {
+		return (
+			matchingForgeAccount(
+				await fetchForgeAccounts(),
+				normalized,
+				normalizedName,
+			) ?? null
+		);
+	} catch {
+		return null;
+	}
 }
-
-/** Resolve an author email without allowing incomplete Git metadata to break rendering. */
-export function resolveGitAuthorAvatar(
+export async function resolveGitAuthorAvatar(
 	email?: string | null,
 	name?: string | null,
 ): Promise<string | null> {
-	const normalized = normalizedIdentity(email);
-	const normalizedName = normalizedIdentity(name);
-	if (!normalized && !normalizedName) return Promise.resolve(null);
-	const cacheKey = `${normalized}\n${normalizedName}`;
-	const cached = avatarUrlCache.get(cacheKey);
-	if (cached) return cached;
-	const githubIdentity = normalized.match(
-		/^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/,
-	)?.[1];
-	if (githubIdentity) {
-		const request = Promise.resolve(
-			`https://github.com/${encodeURIComponent(githubIdentity)}.png?size=64`,
-		);
-		avatarUrlCache.set(cacheKey, request);
-		return request;
-	}
-	const request = resolveForgeAvatar(normalized, normalizedName).then(
-		(avatar) => avatar,
-	);
-	avatarUrlCache.set(cacheKey, request);
-	return request;
+	return (await resolveGitAuthorIdentity(email, name))?.avatarUrl ?? null;
 }
 export async function resolveGitCommitAvatars(
 	cwd: string,

@@ -58,6 +58,8 @@ struct Checkpoint {
     before_snapshot: HashMap<String, Option<String>>,
     changed_files: Vec<FileSnapshot>,
     reverted: bool,
+    #[serde(default)]
+    after_message_id: Option<String>,
 }
 
 impl Checkpoint {
@@ -119,6 +121,7 @@ pub struct CheckpointMeta {
     pub changed_file_count: usize,
     pub changed_files: Vec<CheckpointChangedFile>,
     pub reverted: bool,
+    pub after_message_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -134,15 +137,21 @@ pub struct RevertResult {
 pub struct CheckpointService {
     allowed_paths: AllowedPaths,
     checkpoints_path: PathBuf,
+    client_storage_path: PathBuf,
     store: Arc<OnceCell<Mutex<Vec<Checkpoint>>>>,
     save_lock: Arc<Mutex<()>>,
 }
 
 impl CheckpointService {
-    pub fn new(allowed_paths: AllowedPaths, checkpoints_path: PathBuf) -> Self {
+    pub fn new(
+        allowed_paths: AllowedPaths,
+        checkpoints_path: PathBuf,
+        client_storage_path: PathBuf,
+    ) -> Self {
         Self {
             allowed_paths,
             checkpoints_path,
+            client_storage_path,
             store: Arc::new(OnceCell::new()),
             save_lock: Arc::new(Mutex::new(())),
         }
@@ -151,13 +160,34 @@ impl CheckpointService {
     async fn checkpoints(&self) -> MutexGuard<'_, Vec<Checkpoint>> {
         self.store
             .get_or_init(|| async {
-                let checkpoints = match tokio::fs::read(&self.checkpoints_path).await {
-                    Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|error| {
-                        eprintln!("[Checkpoint] Failed to load: {error}");
-                        Vec::new()
-                    }),
-                    Err(_) => Vec::new(),
-                };
+                let mut checkpoints: Vec<Checkpoint> =
+                    match tokio::fs::read(&self.checkpoints_path).await {
+                        Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|error| {
+                            eprintln!("[Checkpoint] Failed to load: {error}");
+                            Vec::new()
+                        }),
+                        Err(_) => Vec::new(),
+                    };
+                // Adopt associations written by older renderers; native snapshots own new links.
+                if let Ok(entries) = super::read_client_storage(&self.client_storage_path).await {
+                    for checkpoint in &mut checkpoints {
+                        if checkpoint.after_message_id.is_some() {
+                            continue;
+                        }
+                        let links = entries
+                            .get(&format!("inferay-checkpoints-{}", checkpoint.pane_id))
+                            .and_then(serde_json::Value::as_str)
+                            .and_then(|text| {
+                                serde_json::from_str::<Vec<serde_json::Value>>(text).ok()
+                            })
+                            .unwrap_or_default();
+                        checkpoint.after_message_id = links
+                            .iter()
+                            .find(|link| link["id"] == checkpoint.id)
+                            .and_then(|link| link["afterMessageId"].as_str())
+                            .map(str::to_owned);
+                    }
+                }
                 Mutex::new(checkpoints)
             })
             .await
@@ -202,6 +232,7 @@ impl CheckpointService {
             before_snapshot,
             changed_files: Vec::new(),
             reverted: false,
+            after_message_id: None,
         };
 
         let mut store = self.checkpoints().await;
@@ -217,6 +248,7 @@ impl CheckpointService {
         &self,
         checkpoint_id: &str,
         touched_paths: &[String],
+        after_message_id: Option<String>,
     ) -> Result<Option<CheckpointMeta>, String> {
         let checkpoint = {
             let store = self.checkpoints().await;
@@ -259,19 +291,16 @@ impl CheckpointService {
         }
 
         checkpoint.changed_files = changed_files;
+        checkpoint.after_message_id = after_message_id;
         let meta = to_meta(&checkpoint);
         {
             let mut store = self.checkpoints().await;
             if let Some(current) = store.iter_mut().find(|cp| cp.id == checkpoint_id) {
                 current.changed_files = checkpoint.changed_files;
+                current.after_message_id = checkpoint.after_message_id;
             }
         }
-        let service = self.clone();
-        tokio::spawn(async move {
-            if let Err(error) = service.save().await {
-                eprintln!("[Checkpoint] save failed: {error}");
-            }
-        });
+        self.save().await?;
         Ok(Some(meta))
     }
 
@@ -336,11 +365,26 @@ impl CheckpointService {
         revert_ok(restored_files)
     }
 
+    pub async fn clear_checkpoints(&self, pane_id: &str) -> Result<(), String> {
+        self.checkpoints()
+            .await
+            .retain(|checkpoint| checkpoint.pane_id != pane_id);
+        self.save().await
+    }
+
     pub async fn list_checkpoints(&self, pane_id: &str) -> Vec<CheckpointMeta> {
+        let mut seen = HashSet::new();
         self.checkpoints()
             .await
             .iter()
-            .filter(|cp| cp.pane_id == pane_id)
+            .filter(|cp| {
+                cp.pane_id == pane_id
+                    && !cp.changed_files.is_empty()
+                    && cp
+                        .after_message_id
+                        .as_ref()
+                        .is_some_and(|id| seen.insert(id.clone()))
+            })
             .map(to_meta)
             .collect()
     }
@@ -471,6 +515,7 @@ fn to_meta(checkpoint: &Checkpoint) -> CheckpointMeta {
             })
             .collect(),
         reverted: checkpoint.reverted,
+        after_message_id: checkpoint.after_message_id.clone(),
     }
 }
 

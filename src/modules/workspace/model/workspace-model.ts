@@ -81,11 +81,6 @@ export type AgentWorkspaceAction =
 			rows?: number;
 	  }
 	| {
-			type: "setPaneProviderSession";
-			paneId: string;
-			providerSessionId: string | null;
-	  }
-	| {
 			type: "changePaneAgentKind";
 			paneId: string;
 			agentKind: WorkspaceModelAgentKind;
@@ -336,19 +331,6 @@ export function changePaneAgentKind(
 			agentKind,
 		},
 		"agent-kind-change",
-	);
-}
-export function setPaneProviderSession(
-	paneId: string,
-	providerSessionId: string | null,
-): void {
-	void mutateAgentWorkspaceState(
-		{
-			type: "setPaneProviderSession",
-			paneId,
-			providerSessionId,
-		},
-		"provider-session",
 	);
 }
 export function getThemeById(themeId: string): AgentTheme {
@@ -782,12 +764,6 @@ export function useWorkspaceState(loadCanonical = true, selectFirst = true) {
 				const detail = (event as CustomEvent<AgentShellChangeDetail>).detail;
 				if (detail?.error) setError(detail.error);
 				else if (detail?.saved) setError(null);
-				if (detail?.reason === "session-title") {
-					setState((current) => ({
-						...current,
-					}));
-					return;
-				}
 				if (detail?.source === "view" && !detail.stateKey) return;
 				const next = load(detail?.state ?? loadAgentState());
 				setState((current) =>

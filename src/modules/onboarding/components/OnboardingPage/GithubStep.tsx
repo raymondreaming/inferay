@@ -84,9 +84,7 @@ export function GithubStep({
 										)}
 									</div>
 									<div {...stylex.props(styles.rowText)}>
-										<p {...stylex.props(styles.accountName)}>
-											{account.name || account.login}
-										</p>
+										<p {...stylex.props(styles.accountName)}>{account.login}</p>
 										<p {...stylex.props(styles.accountMeta)}>
 											@{account.login} · {account.host}
 										</p>

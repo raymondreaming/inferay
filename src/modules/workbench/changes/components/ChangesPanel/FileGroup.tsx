@@ -27,7 +27,6 @@ export function FileGroup({
 	onActionAll,
 	isCollapsible = true,
 	showHeader = true,
-	showFullPath = false,
 	viewMode = "path",
 	splitPane = false,
 }: {
@@ -41,7 +40,6 @@ export function FileGroup({
 	onActionAll?: () => void;
 	isCollapsible?: boolean;
 	showHeader?: boolean;
-	showFullPath?: boolean;
 	viewMode?: "path" | "tree";
 	splitPane?: boolean;
 }) {
@@ -161,6 +159,7 @@ export function FileGroup({
 				>
 					{(viewMode === "path" || !filePresentation) &&
 						files.map((f) => {
+							const separator = f.path.lastIndexOf("/");
 							const active =
 								selected?.path === f.path && selected?.staged === f.staged;
 							return (
@@ -190,13 +189,13 @@ export function FileGroup({
 									>
 										<FileChangeIcon file={f} />
 										<span {...stylex.props(styles.fileButton)}>
-											<span
-												{...stylex.props(
-													styles.pathFileName,
-													active && styles.activeText,
-												)}
-											>
-												{showFullPath ? f.path : f.path.split("/").pop()}
+											{separator >= 0 && (
+												<span {...stylex.props(styles.pathDirectory)}>
+													{f.path.slice(0, separator)}
+												</span>
+											)}
+											<span {...stylex.props(styles.pathFileName)}>
+												{separator >= 0 ? f.path.slice(separator) : f.path}
 											</span>
 										</span>
 										{hoveredActionPath !== f.path ? (

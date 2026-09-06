@@ -16,24 +16,17 @@ use tokio::process::Command;
 const CLAUDE_HAIKU_MODEL: &str = "claude-haiku-4-5";
 const GIT_MAX_BUFFER: usize = 512 * 1024;
 
-pub(super) async fn generate_title_route(state: &ServerState, request: Request) -> ApiResult {
-    let body: Value = api_body(request).await?;
-    let message = required(
-        body["message"]
-            .as_str()
-            .filter(|message| !message.trim().is_empty()),
-        "Missing message",
-    )?;
+pub(super) async fn generate_title(resolver: &AgentCommandResolver, message: &str) -> String {
     let prompt = format!(
         "Generate a concise title (max 6 words) that summarizes what this chat is about. Output ONLY the title, nothing else.\n\nUser message:\n{}",
         javascript_slice(message, 0, 500)
     );
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let title = run_claude_once(state, &prompt, &cwd, CLAUDE_HAIKU_MODEL, 20_000)
+    run_claude_once(resolver, &prompt, &cwd, CLAUDE_HAIKU_MODEL, 20_000)
         .await
         .map(|result| strip_title_quotes(&result))
-        .unwrap_or_else(|| fallback_title(message));
-    Ok(json!({ "title": title }))
+        .filter(|title| !title.trim().is_empty())
+        .unwrap_or_else(|| fallback_title(message))
 }
 
 pub(super) async fn generate_commit_message_route(
@@ -65,29 +58,32 @@ pub(super) async fn generate_commit_message_route(
         "You are a git commit message generator. Based on the following staged diff, write a concise commit message.\n\nRules:\n- First line: imperative summary, max 72 chars (e.g. \"Add user auth flow\", \"Fix sidebar overflow bug\")\n- If needed, add a blank line then 1-3 bullet points explaining key changes\n- Focus on WHAT changed and WHY, not HOW\n- Be specific but brief\n- Output ONLY the commit message, no quotes or prefixes\n\nStaged diff:\n{truncated_diff}"
     );
     let message = required(
-        run_claude_once(state, &prompt, &cwd, CLAUDE_HAIKU_MODEL, 30_000).await,
+        run_claude_once(
+            &state.agent_command_resolver,
+            &prompt,
+            &cwd,
+            CLAUDE_HAIKU_MODEL,
+            30_000,
+        )
+        .await,
         "No staged changes or Claude is unavailable",
     )?;
     Ok(json!({"message":message}))
 }
 
 async fn run_claude_once(
-    state: &ServerState,
+    resolver: &AgentCommandResolver,
     prompt: &str,
     cwd: &Path,
     model: &str,
     timeout_ms: u64,
 ) -> Option<String> {
-    let binary = state
-        .agent_command_resolver
-        .resolve_agent_binary(AgentKind::Claude);
+    let binary = resolver.resolve_agent_binary(AgentKind::Claude);
     let arguments = build_claude_invocation_args(&binary, prompt, Some(model), None);
     let child = crate::agent_runner::spawn_direct(
         &arguments,
         cwd,
-        &state
-            .agent_command_resolver
-            .create_agent_env(AgentKind::Claude),
+        &resolver.create_agent_env(AgentKind::Claude),
     )
     .ok()?;
     let output = tokio::time::timeout(Duration::from_millis(timeout_ms), child.wait_with_output())
@@ -127,7 +123,7 @@ async fn run_git_capture(cwd: &Path, arguments: &[&str]) -> Option<String> {
     Some(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-fn fallback_title(message: &str) -> String {
+pub(super) fn fallback_title(message: &str) -> String {
     let line = message.trim().split('\n').next().unwrap_or_default();
     if javascript_len(line) > 60 {
         format!("{}...", javascript_slice(line, 0, 57))

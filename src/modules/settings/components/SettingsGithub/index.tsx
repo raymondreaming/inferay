@@ -28,9 +28,7 @@ export function SettingsGithubAccount({ account }: { account: ForgeAccount }) {
 			</div>
 			<div {...stylex.props(styles.accountIdentity)}>
 				<div {...stylex.props(styles.accountNameRow)}>
-					<strong {...stylex.props(styles.accountName)}>
-						{account.name || account.login}
-					</strong>
+					<strong {...stylex.props(styles.accountName)}>{account.login}</strong>
 					<span {...stylex.props(styles.accountStatus)}>
 						<span
 							aria-hidden="true"

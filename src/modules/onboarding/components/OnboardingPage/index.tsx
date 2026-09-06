@@ -18,12 +18,12 @@ import {
 	saveAppBackgroundSettings,
 	saveAppThemeId,
 } from "../../../../app/model/appearance.ts";
-import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
 import { lacksValue } from "../../../../shared/lib/data.ts";
 import {
 	fetchForgeAccounts,
-	fetchGithubRepos,
 	invalidateForgeAccountsCache,
+	useForgeAccounts,
+	useGithubRepos,
 } from "../../../repository/model/types.ts";
 import {
 	loadCanonicalAgentState,
@@ -48,20 +48,12 @@ export function OnboardingPage() {
 		data: accounts,
 		setData: setAccounts,
 		loading: accountsLoading,
-	} = useQueryResource(() => fetchForgeAccounts(), [], {
-		queryKey: ["forge", "accounts"],
-	});
-	const fetchRepos = useCallback(
-		async () => (accounts.length > 0 ? fetchGithubRepos() : []),
-		[accounts.length],
-	);
+	} = useForgeAccounts();
 	const {
 		data: repos,
 		loading: reposLoading,
 		refresh: refreshRepos,
-	} = useQueryResource(fetchRepos, [], {
-		queryKey: ["forge", "repos"],
-	});
+	} = useGithubRepos(accounts.length > 0);
 	const refreshAccounts = async () => {
 		invalidateForgeAccountsCache();
 		setAccounts(await fetchForgeAccounts(true));

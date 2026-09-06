@@ -1,4 +1,5 @@
 import * as stylex from "@octanejs/stylex";
+import { readStoredValue } from "../../../../adapters/storage/stored-values.ts";
 import {
 	iconSize,
 	selectionAppearance,
@@ -6,22 +7,12 @@ import {
 import { IconAgent, IconX } from "../../../../shared/ui/Icons/index.tsx";
 import { getAgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
 import { isChatAgentKind } from "../../../agents/model/agents.ts";
-import { deriveStoredSummary } from "../../../conversation/model/chat-session-store.ts";
 import {
 	type AgentPaneModel,
-	dispatchAgentShellChange,
 	dispatchRemoveAgentPaneRequest,
 } from "../../model/workspace-model.ts";
 import { styles } from "./styles.ts";
 
-function deriveSummary(paneId: string): string | null {
-	return deriveStoredSummary(paneId, undefined, () =>
-		dispatchAgentShellChange({
-			source: "cache",
-			reason: "session-title",
-		}),
-	);
-}
 export function PaneSummaryItem({
 	pane,
 	isActive,
@@ -32,7 +23,9 @@ export function PaneSummaryItem({
 	onClick: () => void;
 }) {
 	const isChat = isChatAgentKind(pane.agentKind);
-	const summary = isChat ? deriveSummary(pane.id) : null;
+	const summary = isChat
+		? (pane.summary ?? readStoredValue(`inferay-chat-summary-${pane.id}`))
+		: null;
 	const primaryLabel = isChat ? (summary ?? pane.title) : pane.title;
 	return (
 		<div {...stylex.props(styles.paneSummaryCard)}>

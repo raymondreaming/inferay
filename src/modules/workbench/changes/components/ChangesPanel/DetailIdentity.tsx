@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { useEffect, useState } from "octane";
-import { resolveGitAuthorAvatar } from "../../../../repository/model/types.ts";
+import { resolveGitAuthorIdentity } from "../../../../repository/model/types.ts";
 import { styles } from "./styles.ts";
 
 function detailInitials(name?: string | null) {
@@ -29,14 +29,17 @@ export function DetailIdentity({
 	email?: string | null;
 	date?: string | null;
 }) {
-	const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+	const [identity, setIdentity] =
+		useState<Awaited<ReturnType<typeof resolveGitAuthorIdentity>>>(null);
+	const avatarUrl = identity?.avatarUrl;
+	const displayName = identity?.login || name || "Unknown author";
 	const [avatarFailed, setAvatarFailed] = useState(false);
 	useEffect(() => {
 		let current = true;
-		setAvatarUrl(null);
+		setIdentity(null);
 		setAvatarFailed(false);
-		void resolveGitAuthorAvatar(email, name).then((url) => {
-			if (current) setAvatarUrl(url);
+		void resolveGitAuthorIdentity(email, name).then((url) => {
+			if (current) setIdentity(url);
 		});
 		return () => {
 			current = false;
@@ -55,16 +58,14 @@ export function DetailIdentity({
 						{...stylex.props(styles.detailAvatarImage)}
 					/>
 				) : (
-					detailInitials(name)
+					detailInitials(displayName)
 				)}
 			</span>
 			<span {...stylex.props(styles.detailIdentityCopy)}>
 				{label ? (
 					<span {...stylex.props(styles.detailIdentityLabel)}>{label}</span>
 				) : null}
-				<strong {...stylex.props(styles.authorText)}>
-					{name || "Unknown author"}
-				</strong>
+				<strong {...stylex.props(styles.authorText)}>{displayName}</strong>
 				<span {...stylex.props(styles.mutedTextSmall)}>
 					{formatDetailDate(date)}
 				</span>

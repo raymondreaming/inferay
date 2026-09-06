@@ -95,55 +95,19 @@ export interface Skill {
 	updatedAt: number;
 }
 export const SKILL_CATEGORIES = [
-	{
-		value: "code",
-		label: "Code",
-	},
-	{
-		value: "refactoring",
-		label: "Refactoring",
-	},
-	{
-		value: "security",
-		label: "Security",
-	},
-	{
-		value: "performance",
-		label: "Performance",
-	},
-	{
-		value: "planning",
-		label: "Planning",
-	},
-	{
-		value: "testing",
-		label: "Testing",
-	},
-	{
-		value: "debugging",
-		label: "Debugging",
-	},
-	{
-		value: "documentation",
-		label: "Documentation",
-	},
-	{
-		value: "git",
-		label: "Git",
-	},
-	{
-		value: "learning",
-		label: "Learning",
-	},
-	{
-		value: "conversation",
-		label: "Conversation",
-	},
-	{
-		value: "custom",
-		label: "Custom",
-	},
-] as const;
+	"code",
+	"refactoring",
+	"security",
+	"performance",
+	"planning",
+	"testing",
+	"debugging",
+	"documentation",
+	"git",
+	"learning",
+	"conversation",
+	"custom",
+].map((value) => ({ value, label: value[0]!.toUpperCase() + value.slice(1) }));
 export interface SkillFormState {
 	name: string;
 	command: string;

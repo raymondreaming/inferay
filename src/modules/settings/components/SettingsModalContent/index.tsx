@@ -19,12 +19,10 @@ import {
 } from "../../../agents/model/agents.ts";
 import type { GithubRepo } from "../../../repository/model/types.ts";
 import {
-	fetchForgeAccounts,
-	fetchGithubRepos,
-	getCachedForgeAccounts,
-	getCachedGithubRepos,
 	invalidateForgeAccountsCache,
 	invalidateGithubReposCache,
+	useForgeAccounts,
+	useGithubRepos,
 } from "../../../repository/model/types.ts";
 import type { SettingsModalTarget } from "../../../skills/model/skill-library.ts";
 import { dispatchAgentShellChange } from "../../../workspace/model/workspace-model.ts";
@@ -46,15 +44,12 @@ export function SettingsModalContent({
 }: {
 	section: SettingsModalSection;
 }) {
-	const initialAccounts = getCachedForgeAccounts();
 	const {
 		data: accounts,
 		loading: accountsLoading,
 		error: accountsError,
 		refresh: refreshAccounts,
-	} = useQueryResource(() => fetchForgeAccounts(), initialAccounts, {
-		queryKey: ["forge", "accounts"],
-	});
+	} = useForgeAccounts();
 	const loadState = accountsLoading
 		? "loading"
 		: accountsError
@@ -62,18 +57,12 @@ export function SettingsModalContent({
 			: accounts.length > 0
 				? "ready"
 				: "idle";
-	const fetchRepos = useCallback(
-		async () => (accounts.length > 0 ? fetchGithubRepos() : []),
-		[accounts.length],
-	);
 	const {
 		data: repos,
 		loading: reposLoading,
 		error: reposError,
 		refresh: refreshRepos,
-	} = useQueryResource(fetchRepos, getCachedGithubRepos(), {
-		queryKey: ["forge", "repos"],
-	});
+	} = useGithubRepos(accounts.length > 0);
 	const fetchAgentAccountStatuses = useCallback(
 		async () =>
 			fetchJsonOr<{

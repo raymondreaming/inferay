@@ -316,12 +316,6 @@ export function hideMenuState<S extends { show: boolean }>(state: S): S {
 		show: false,
 	};
 }
-export function markRespondingState<S extends { status: string }>(state: S): S {
-	return {
-		...state,
-		status: "responding",
-	};
-}
 export function clearCompletedChatUiState(
 	messageIds: Set<string>,
 	state: ChatActivityUiState,
@@ -332,15 +326,6 @@ export function clearCompletedChatUiState(
 		...state,
 		expandedTools:
 			pruned.size === state.expandedTools.size ? state.expandedTools : pruned,
-	};
-}
-export function markToolState(
-	toolName: string,
-	state: ChatLoadingState,
-): ChatLoadingState {
-	return {
-		...state,
-		status: `tool:${toolName}`,
 	};
 }
 export type RenderChatMessage = Pick<

@@ -12,14 +12,10 @@ import {
 	useAppInfo,
 } from "../../../../app/model/appearance.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
 import { listenWindowEvent } from "../../../../shared/lib/data.ts";
 import { IconSettings, IconUser } from "../../../../shared/ui/Icons/index.tsx";
 import { loadDefaultChatSettings } from "../../../agents/model/agents.ts";
-import {
-	fetchForgeAccounts,
-	getCachedForgeAccounts,
-} from "../../../repository/model/types.ts";
+import { useForgeAccounts } from "../../../repository/model/types.ts";
 import { openSettingsModal } from "../../../skills/model/skill-library.ts";
 import type { SidebarUpdateStatus } from "../../model/workspace-model.ts";
 import {
@@ -66,13 +62,7 @@ export function WorkspaceSidebar() {
 	const [updateStatus, setUpdateStatus] = useState<SidebarUpdateStatus>("idle");
 	const [layoutMode, setLayoutMode] = useState(loadAgentLayoutMode);
 	const { data: appInfo } = useAppInfo();
-	const { data: forgeAccounts } = useQueryResource(
-		() => fetchForgeAccounts(),
-		getCachedForgeAccounts(),
-		{
-			queryKey: ["forge", "accounts"],
-		},
-	);
+	const { data: forgeAccounts } = useForgeAccounts();
 	const githubAccount =
 		forgeAccounts.find((account) => account.active) ?? forgeAccounts[0] ?? null;
 	const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);

@@ -369,8 +369,11 @@ fn build_router_with_connection_reset(
     let bundled_prompts = config.app_root.join("data/prompts.json");
     let agent_state_path = config.user_data_dir.join("agent-state.json");
     let checkpoints_path = config.user_data_dir.join("checkpoints.json");
-    let checkpoint_service =
-        checkpoint::CheckpointService::new(allowed_paths.clone(), checkpoints_path);
+    let checkpoint_service = checkpoint::CheckpointService::new(
+        allowed_paths.clone(),
+        checkpoints_path,
+        config.user_data_dir.join("client-storage.json"),
+    );
     let pid_tracker =
         pid_tracker::RuntimePidTracker::new(config.user_data_dir.join("runtime-pids.json"));
     let orphan_cleaner = pid_tracker.clone();
@@ -408,6 +411,8 @@ fn build_router_with_connection_reset(
         }),
         agent_context_store.clone(),
         prompt_store.clone(),
+        agent_state_store.clone(),
+        agent_command_resolver.clone(),
     );
     let state = ServerState {
         dist_dir,
@@ -556,9 +561,6 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             ("/api/git/commit-diff" | "/api/git/comparison-diff" | "/api/git/full-diff", "GET") => {
                 return api_http_response(git_diff(&state, request).await, &request_headers);
             }
-            ("/api/generate-title", "POST") => {
-                one_shot::generate_title_route(&state, request).await
-            }
             ("/api/git/generate-commit-message", "POST") => {
                 one_shot::generate_commit_message_route(&state, request).await
             }
@@ -604,7 +606,6 @@ async fn dynamic_json_route(state: &ServerState, path: &str, request: Request) -
         return match request.method().as_str() {
             "GET" => get_chat_queue(state, request, &pane_id).await,
             "PATCH" => patch_chat_queue(state, request, &pane_id).await,
-            "DELETE" => delete_chat_queue(state, request, &pane_id).await,
             _ => Err(api_error(StatusCode::NOT_FOUND, "Not found")),
         };
     }
@@ -646,12 +647,6 @@ async fn patch_chat_queue(state: &ServerState, request: Request, pane_id: &str) 
         .await?;
     state.chat_runtime.broadcast_queue(pane_id).await;
     Ok(json!({"queue":queue}))
-}
-
-async fn delete_chat_queue(state: &ServerState, _request: Request, pane_id: &str) -> ApiResult {
-    state.chat_persistence.delete_queue(pane_id).await?;
-    state.chat_runtime.broadcast_queue(pane_id).await;
-    Ok(json!({"ok":true}))
 }
 
 async fn prepare_image_chat_message(state: &ServerState, request: Request) -> ApiResult {
@@ -2297,7 +2292,23 @@ async fn handle_native_websocket_message(
         .unwrap_or_default();
     match message_type {
         "chat:destroy" if !pane_id.is_empty() => {
-            state.chat_runtime.destroy_session(pane_id).await;
+            if let Err(error) = state.chat_runtime.destroy_session(pane_id).await {
+                let _ = sender.send(json!({"type":"chat:error", "paneId":pane_id, "error":format!("Could not clear saved chat: {error}")}));
+                return;
+            }
+            let result = (|| {
+                let store = state
+                    .agent_state_store
+                    .lock()
+                    .expect("agent state lock poisoned");
+                if store.pane(pane_id)?.is_some() {
+                    store.apply_workspace_action(&json!({"type":"setPaneProviderSession", "paneId":pane_id, "providerSessionId":null}))?;
+                }
+                Ok::<_, String>(())
+            })();
+            if let Err(error) = result {
+                let _ = sender.send(json!({"type":"chat:error", "paneId":pane_id, "error":error}));
+            }
         }
         "chat:reconnect" if !pane_id.is_empty() => {
             let pane = state
@@ -2305,14 +2316,16 @@ async fn handle_native_websocket_message(
                 .lock()
                 .expect("agent state lock poisoned")
                 .pane(pane_id);
-            let pane_exists = match pane {
-                Ok(pane) => pane.is_some(),
+            let pane = match pane {
+                Ok(pane) => pane,
                 Err(error) => {
                     let _ = sender.send(json!({"type":"chat:error","paneId":pane_id,"error":format!("Could not restore saved workspace: {error}")}));
                     return;
                 }
             };
-            if !pane_exists && let Err(error) = state.chat_runtime.cancel_handoffs(pane_id).await {
+            if pane.is_none()
+                && let Err(error) = state.chat_runtime.cancel_handoffs(pane_id).await
+            {
                 let _ = sender.send(json!({"type":"chat:error","paneId":pane_id,"error":format!("Could not cancel removed chat handoff: {error}")}));
                 return;
             }
@@ -2323,7 +2336,9 @@ async fn handle_native_websocket_message(
                     client_id,
                     sender.clone(),
                     message.get("agentKind").and_then(Value::as_str),
-                    message.get("sessionId").and_then(Value::as_str),
+                    pane.as_ref()
+                        .and_then(|pane| pane.provider_session_id.as_deref())
+                        .or_else(|| message.get("sessionId").and_then(Value::as_str)),
                     message
                         .get("cwd")
                         .and_then(Value::as_str)
@@ -2389,6 +2404,8 @@ async fn handle_native_websocket_message(
             });
             if result.ok {
                 response["restoredFiles"] = json!(result.restored_files);
+                response["checkpoints"] =
+                    json!(state.checkpoint_service.list_checkpoints(pane_id).await);
             } else {
                 response["error"] = json!(result.error);
             }

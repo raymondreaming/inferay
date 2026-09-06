@@ -12,8 +12,10 @@ use std::{
 };
 
 use inferay_core::{
+    agent_command::AgentCommandResolver,
     agent_context::AgentContextStore,
     agent_protocol::ProtocolEmission,
+    agent_state::AgentStateStore,
     chat_protocol::{ChatMessageBuffer, ChatTranscriptMessage},
     prompts::PromptStore,
 };
@@ -159,6 +161,8 @@ struct ChatSession {
     clients: HashMap<ClientId, broadcast::Sender<Value>>,
     current_handle: Option<AgentProcessHandle>,
     turn_active: bool,
+    run_status: Value,
+    summary_started: bool,
     cwd: PathBuf,
     reference_paths: Vec<PathBuf>,
     message_buffer: ChatMessageBuffer,
@@ -194,6 +198,8 @@ pub struct ChatRuntime {
     queue_publication: Arc<Mutex<()>>,
     handoffs_inflight: Arc<Mutex<HashMap<String, tokio::task::AbortHandle>>>,
     checkpoints: CheckpointService,
+    workspaces: Arc<std::sync::Mutex<AgentStateStore>>,
+    resolver: Arc<AgentCommandResolver>,
     executor: Arc<dyn AgentExecutor>,
     agent_context: Arc<Mutex<AgentContextStore>>,
     prompts: Arc<Mutex<PromptStore>>,
@@ -206,6 +212,8 @@ impl ChatRuntime {
         executor: Arc<dyn AgentExecutor>,
         agent_context: Arc<Mutex<AgentContextStore>>,
         prompts: Arc<Mutex<PromptStore>>,
+        workspaces: Arc<std::sync::Mutex<AgentStateStore>>,
+        resolver: Arc<AgentCommandResolver>,
     ) -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -216,6 +224,8 @@ impl ChatRuntime {
             executor,
             agent_context,
             prompts,
+            workspaces,
+            resolver,
         }
     }
 
@@ -544,6 +554,7 @@ impl ChatRuntime {
                 }
                 state.cancelled = false;
             }
+            self.ensure_summary(&session).await;
             if let Some(message_id) = pending_steer_id {
                 self.emit(
                     &session,
@@ -674,24 +685,33 @@ impl ChatRuntime {
         Ok(())
     }
 
-    pub async fn destroy_session(&self, pane_id: &str) {
+    pub async fn destroy_session(&self, pane_id: &str) -> Result<(), String> {
         if let Err(error) = self.cancel_handoffs(pane_id).await {
             eprintln!("Could not cancel image chat handoff for {pane_id}: {error}");
         }
-        if let Some(session) = self.sessions.lock().await.remove(pane_id) {
-            {
-                let mut state = session.lock().await;
-                state.cancelled = true;
-                state.goal = None;
-                state.turn_active = false;
-                // Dropping the last handle does not spawn a wrapper process;
-                // the runner's child is kill-on-drop and explicit server wiring
-                // may additionally invoke its PidTracker for Codex.
-                if let Some(handle) = state.current_handle.take() {
-                    self.executor.kill(&handle);
-                }
+        let session = self.sessions.lock().await.remove(pane_id);
+        let mut state = match session.as_ref() {
+            Some(session) => Some(session.lock().await),
+            None => None,
+        };
+        if let Some(state) = state.as_mut() {
+            state.cancelled = true;
+            state.goal = None;
+            state.turn_active = false;
+            state.clients.clear();
+            if let Some(handle) = state.current_handle.take() {
+                self.executor.kill(&handle);
             }
         }
+        self.checkpoints.clear_checkpoints(pane_id).await?;
+        self.persistence
+            .clear_session(
+                pane_id,
+                state
+                    .as_ref()
+                    .map(|state| state.message_buffer.epoch().to_owned()),
+            )
+            .await
     }
 
     pub async fn detach_client(&self, client_id: ClientId) {
@@ -780,6 +800,8 @@ impl ChatRuntime {
                 ..Default::default()
             })
             .await;
+        self.ensure_summary(&session).await;
+        let checkpoints = self.checkpoints.list_checkpoints(pane_id).await;
         let (session_message, sync, status) = {
             let mut state = session.lock().await;
             state.clients.insert(client_id, sender.clone());
@@ -788,22 +810,15 @@ impl ChatRuntime {
                 .session_id
                 .as_ref()
                 .map(|id| json!({"type":"chat:session", "paneId":pane_id, "sessionId":id}));
-            let status = if !state.turn_active {
-                "idle"
-            } else if state.message_buffer.streaming() {
-                "responding"
-            } else {
-                "thinking"
-            };
             (
                 session_message,
                 json!({
                     "type":"chat:sync", "modelVersion":1, "paneId":pane_id,
                     "messages":state.message_buffer.messages(),
                     "epoch":state.message_buffer.epoch(), "revision":state.message_buffer.revision(),
-                    "isStreaming":state.turn_active
+                    "isStreaming":state.turn_active, "checkpoints":checkpoints
                 }),
-                status_message(pane_id, status, state.turn_active),
+                json!({"type":"chat:status","paneId":pane_id,"runStatus":state.run_status}),
             )
         };
         if let Some(message) = session_message {
@@ -813,6 +828,73 @@ impl ChatRuntime {
         self.publish_queue(pane_id, Some(&sender)).await;
         let _ = sender.send(status);
         self.resume_handoffs(pane_id, client_id, &sender).await;
+    }
+
+    async fn ensure_summary(&self, session: &Arc<Mutex<ChatSession>>) {
+        let (pane, message) = {
+            let mut state = session.lock().await;
+            if state.summary_started || state.cancelled {
+                return;
+            }
+            let Some(message) = state
+                .message_buffer
+                .messages()
+                .iter()
+                .find(|message| message.role == "user")
+                .map(|message| message.content.clone())
+            else {
+                return;
+            };
+            state.summary_started = true;
+            (state.pane_id.clone(), message)
+        };
+        if self
+            .workspaces
+            .lock()
+            .expect("agent state lock poisoned")
+            .pane(&pane)
+            .ok()
+            .flatten()
+            .is_some_and(|pane| pane.summary.is_some())
+        {
+            return;
+        }
+        let runtime = self.clone();
+        let session = session.clone();
+        tokio::spawn(async move {
+            if let Some(title) = runtime.persistence.legacy_summary(&pane).await {
+                runtime.save_summary(&session, title).await;
+            } else {
+                runtime
+                    .save_summary(&session, crate::one_shot::fallback_title(&message))
+                    .await;
+                let title = crate::one_shot::generate_title(&runtime.resolver, &message).await;
+                runtime.save_summary(&session, title).await;
+            }
+        });
+    }
+
+    async fn save_summary(&self, session: &Arc<Mutex<ChatSession>>, title: String) {
+        let pane = {
+            let state = session.lock().await;
+            if state.cancelled {
+                return;
+            }
+            let result = self
+                .workspaces
+                .lock()
+                .expect("agent state lock poisoned")
+                .apply_workspace_action(
+                    &json!({"type":"setPaneSummary","paneId":state.pane_id,"summary":title}),
+                );
+            if let Err(error) = result {
+                eprintln!("Could not save chat title: {error}");
+                return;
+            }
+            state.pane_id.clone()
+        };
+        self.emit(session, json!({"type":"chat:summary", "paneId":pane}))
+            .await;
     }
 
     async fn create_agent_context_prefix(
@@ -962,6 +1044,8 @@ impl ChatRuntime {
                 .collect(),
             current_handle: None,
             turn_active: false,
+            run_status: json!({"isLoading":false,"status":"idle","startTime":null}),
+            summary_started: false,
             cwd,
             reference_paths: input.reference_paths.clone(),
             message_buffer: buffer,
@@ -1172,27 +1256,23 @@ impl ChatRuntime {
             }
             ProtocolEmission::System(message) => self.emit_system(session, &message).await,
             ProtocolEmission::Session(id) => {
-                let (provider, cwd, model, reasoning) = {
-                    let mut state = session.lock().await;
-                    state.session_id = Some(id.clone());
-                    (
-                        state.agent_kind.clone(),
-                        state.cwd.clone(),
-                        state.model.clone(),
-                        state.reasoning_level.clone(),
-                    )
-                };
-                if let Err(error) = self
+                let mut state = session.lock().await;
+                if state.cancelled {
+                    return;
+                }
+                state.session_id = Some(id.clone());
+                let saved = self
                     .persistence
                     .save_session_reference(
                         &pane_id,
-                        &provider,
+                        &state.agent_kind,
                         &id,
-                        &cwd,
-                        (model.as_deref(), reasoning.as_deref()),
+                        &state.cwd,
+                        (state.model.as_deref(), state.reasoning_level.as_deref()),
                     )
-                    .await
-                {
+                    .await;
+                drop(state);
+                if let Err(error) = saved {
                     self.emit_system(
                         session,
                         &format!("Chat session could not be saved: {error}"),
@@ -1371,9 +1451,30 @@ impl ChatRuntime {
         let pane_id = session.lock().await.pane_id.clone();
         let touched = edited_paths(session.lock().await.message_buffer.messages());
         if let Some(id) = checkpoint_id {
-            match self.checkpoints.finalize_checkpoint(id, &touched).await {
+            let after_message_id = {
+                let state = session.lock().await;
+                let messages = state.message_buffer.messages();
+                messages
+                    .iter()
+                    .rev()
+                    .find(|message| {
+                        message.role == "assistant" && message.is_streaming != Some(true)
+                    })
+                    .or_else(|| {
+                        messages
+                            .iter()
+                            .rev()
+                            .find(|message| message.role == "assistant")
+                    })
+                    .map(|message| message.id.clone())
+            };
+            match self
+                .checkpoints
+                .finalize_checkpoint(id, &touched, after_message_id)
+                .await
+            {
                 Ok(Some(meta)) if meta.changed_file_count > 0 => {
-                    self.emit(session, json!({"type":"checkpoint:finalized", "paneId":pane_id, "checkpointId":id, "changedFileCount":meta.changed_file_count, "changedFiles":meta.changed_files})).await;
+                    self.emit(session, json!({"type":"checkpoint:finalized", "paneId":pane_id, "checkpointId":id, "changedFileCount":meta.changed_file_count, "changedFiles":meta.changed_files,"checkpoints":self.checkpoints.list_checkpoints(&pane_id).await})).await;
                     let existing =
                         existing_edit_paths(session.lock().await.message_buffer.messages());
                     for diff in self.checkpoints.get_inline_diffs(id).await {
@@ -1460,6 +1561,46 @@ impl ChatRuntime {
     ) {
         let (senders, update) = {
             let mut state = session.lock().await;
+            let status = match message["type"].as_str() {
+                Some("chat:user_message") => Some(("thinking".to_owned(), Some(true))),
+                Some("chat:done") => Some(("idle".to_owned(), Some(false))),
+                Some("chat:error") => Some(("error".to_owned(), Some(false))),
+                Some("chat:status") => message["status"]
+                    .as_str()
+                    .map(|status| (status.to_owned(), message["isLoading"].as_bool())),
+                Some("chat:event") => match message["event"]["type"].as_str() {
+                    Some("content_block_start")
+                        if message["event"]["content_block"]["type"] == "tool_use" =>
+                    {
+                        Some((
+                            format!(
+                                "tool:{}",
+                                message["event"]["content_block"]["name"]
+                                    .as_str()
+                                    .unwrap_or_default()
+                            ),
+                            None,
+                        ))
+                    }
+                    Some("content_block_delta" | "assistant" | "result") => {
+                        Some(("responding".into(), None))
+                    }
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let Some((status, loading)) = status {
+                state.run_status["status"] = json!(status);
+                if let Some(loading) = loading {
+                    state.run_status["isLoading"] = json!(loading);
+                    if !loading {
+                        state.run_status["startTime"] = Value::Null;
+                    } else if state.run_status["startTime"].is_null() {
+                        state.run_status["startTime"] = json!(now_millis());
+                    }
+                }
+                message["runStatus"] = state.run_status.clone();
+            }
             if matches!(
                 message["type"].as_str(),
                 Some(
