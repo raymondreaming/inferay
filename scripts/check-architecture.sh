@@ -9,15 +9,13 @@ bunx biome lint \
 	src/modules/conversation/model/chat-session-store.ts \
 	src/modules/conversation/hooks/useChatInputActions.tsx \
 	src/modules/conversation/model/agent-chat-shared.ts \
-	src/modules/conversation/model/agent-chat-shared.ts \
-	src/modules/conversation/model/chat-session-store.ts \
 	src/modules/repository/hooks/useGitDiff.tsx \
 	src/modules/workspace/model/workspace-model.ts \
-	src/shared/hooks/useShikiHighlighter.tsx \
+	src/shared/hooks/useSyntaxHighlight.tsx \
 	src/modules/workbench/diff/components/DiffViewer/index.tsx \
 	src/modules/workspace/components/WorkspaceCanvas/index.tsx \
 	src/modules/workspace/components/PaneView/index.tsx \
-	src/routes/_app/agent.tsx
+	src/routes/_app/index.tsx
 
 echo
 echo "==> Component folder structure"
@@ -51,7 +49,9 @@ bun run build:renderer
 
 echo
 echo "==> React runtime dependency audit"
-if rg -n -P '^import\s+(?!type\b).*from "react|react-router-dom|@tanstack/react-virtual|@stylexjs/stylex' src; then
+# BorderBeam is a React package mounted through this dedicated Octane bridge.
+if rg -n -P '^import\s+(?!type\b).*from "react|react-router-dom|@tanstack/react-virtual|@stylexjs/stylex' src |
+	rg -v '^src/shared/ui/BorderBeamOverlay/index\.tsx:[0-9]+:import (\{ createElement \} from "react";|\{ createRoot, type Root \} from "react-dom/client";)$'; then
 	echo "Unexpected React renderer dependency remains" >&2
 	exit 1
 fi
