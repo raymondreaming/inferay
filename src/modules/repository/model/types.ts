@@ -1,4 +1,4 @@
-import { fetchJson } from "../../../adapters/backend/http.ts";
+import { fetchJson, sendJson } from "../../../adapters/backend/http.ts";
 import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
 import { queryClient } from "../../../shared/lib/data.ts";
 
@@ -73,63 +73,50 @@ export interface ForgeAccount {
 	active: boolean;
 }
 export interface GithubRepo {
-	name: string;
 	full_name: string;
 	description: string | null;
 	html_url: string;
 	language: string | null;
-	stargazers_count: number;
-	updated_at: string;
 	private: boolean;
 }
 
 import { useCallback, useState } from "octane";
 export function useGitChangeActions({
 	cwd,
-	onRefresh,
 	applyOptimistic,
 	refetchStatus,
 }: {
 	cwd?: string;
-	onRefresh?: () => void;
 	/** Apply an instant local mutation for the current cwd's git status. */
-	applyOptimistic?: (
+	applyOptimistic: (
 		cwd: string,
 		mutator: (p: GitProjectStatus) => GitProjectStatus,
 	) => void;
 	/** Force a server-truth refetch (called after a fire-and-forget mutation). */
-	refetchStatus?: () => undefined | Promise<unknown>;
+	refetchStatus: () => undefined | Promise<unknown>;
 }) {
 	const [commitMessage, setCommitMessage] = useState("");
 	const [isCommitting, setIsCommitting] = useState(false);
-	const [amendMode, setAmendMode] = useState(false);
 
 	// Fire a git mutation in the background and reconcile when it settles.
 	// Callers apply optimistic UI updates first so the user sees the result
 	// instantly regardless of HTTP latency.
 	const gitAction = useCallback(
 		(endpoint: string, body: object) => {
-			void fetch(`/api/git/${endpoint}`, {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-				},
-				body: JSON.stringify(body),
-			})
+			void sendJson(`/api/git/${endpoint}`, body)
 				.catch(() => {
 					/* swallow; refetch below restores truth */
 				})
 				.finally(() => {
-					if (refetchStatus) void refetchStatus();
-					onRefresh?.();
+					void refetchStatus();
 				});
 		},
-		[onRefresh, refetchStatus],
+		[refetchStatus],
 	);
 	const stageMutation = useCallback(
 		(staged: boolean, file?: string) => {
 			if (!cwd) return;
-			applyOptimistic?.(cwd, (p) => {
+			applyOptimistic(cwd, (p) => {
 				let changed = 0;
 				const files = p.files.map((entry) => {
 					if ((file && entry.path !== file) || entry.staged === staged)
@@ -140,29 +127,9 @@ export function useGitChangeActions({
 				return {
 					...p,
 					files: changed ? files : p.files,
-					stagedCount: file
-						? p.stagedCount + changed
-						: staged
-							? files.length
-							: 0,
-					unstagedCount: file
-						? p.unstagedCount - changed
-						: staged
-							? 0
-							: files.length,
 				};
 			});
-			gitAction(
-				staged ? "stage" : "unstage",
-				file
-					? {
-							cwd,
-							file,
-						}
-					: {
-							cwd,
-						},
-			);
+			gitAction(staged ? "stage" : "unstage", { cwd, file: file || undefined });
 		},
 		[cwd, gitAction, applyOptimistic],
 	);
@@ -179,38 +146,26 @@ export function useGitChangeActions({
 	const commit = useCallback(async () => {
 		if (!cwd || !commitMessage.trim() || isCommitting) return;
 		setIsCommitting(true);
-		const controller = new AbortController();
-		const timeout = setTimeout(controller.abort.bind(controller), 35_000);
 		try {
-			const response = await fetch("/api/git/commit", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-				},
-				body: JSON.stringify({
-					cwd,
-					message: commitMessage,
-				}),
-				signal: controller.signal,
-			});
+			const response = await sendJson(
+				"/api/git/commit",
+				{ cwd, message: commitMessage },
+				{ signal: AbortSignal.timeout(35_000) },
+			);
 			const result = (await response.json()) as { success?: boolean };
 			if (result.success) {
 				setCommitMessage("");
-				if (refetchStatus) void refetchStatus();
-				onRefresh?.();
+				void refetchStatus();
 			}
 		} finally {
-			clearTimeout(timeout);
 			setIsCommitting(false);
 		}
-	}, [cwd, commitMessage, isCommitting, onRefresh, refetchStatus]);
+	}, [cwd, commitMessage, isCommitting, refetchStatus]);
 	return {
 		commit,
 		commitMessage,
 		setCommitMessage,
 		isCommitting,
-		amendMode,
-		setAmendMode,
 		stageFile,
 		unstageFile,
 		stageAll,
@@ -342,9 +297,6 @@ export interface GitProjectStatus {
 	upstream: string | null;
 	ahead: number;
 	behind: number;
-	stagedCount: number;
-	unstagedCount: number;
-	untrackedCount: number;
 	files: GitFileEntry[];
 }
 
@@ -377,17 +329,16 @@ export interface HunkDiff {
 	isNew: boolean;
 	isImage?: boolean;
 	imagePath?: string;
-	rawPatch?: string;
 	mergeConflictContent?: string;
-	metadata?: {
+	metadata: {
 		stats: HunkDiffStats;
 		tokenizationDisabled: boolean;
 		maxOldLineChars: number;
 		maxNewLineChars: number;
-		maxInlineLineChars?: number;
-		maxConflictLineChars?: number;
-		splitChangeRanges?: Array<[number, number]>;
-		inlineChangeRanges?: Array<[number, number]>;
+		maxInlineLineChars: number;
+		maxConflictLineChars: number;
+		splitChangeRanges: Array<[number, number]>;
+		inlineChangeRanges: Array<[number, number]>;
 		splitMinimap?: DiffMinimapSegment[];
 		inlineMinimap?: DiffMinimapSegment[];
 		conflictMinimap?: DiffMinimapSegment[];

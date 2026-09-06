@@ -62,10 +62,7 @@ export function SidebarWorkspacesSection({
 		workspaces.groups.find(
 			(group) => group.id === workspaces.selectedGroupId,
 		) ?? null;
-	const repositoryProjection = projectRepositoryWorkspaces(
-		workspaces.groups,
-		workspaces.selectedGroupId,
-	);
+	const repositoryProjection = projectRepositoryWorkspaces(workspaces);
 	const selectedCwd = repositoryProjection.activeWorkspace?.cwd;
 	const projectCwds = selectedCwd ? [selectedCwd] : [];
 	const selectSectionMode = (mode: "chats" | "explorer") => {

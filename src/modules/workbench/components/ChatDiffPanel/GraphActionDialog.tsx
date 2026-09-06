@@ -2,7 +2,6 @@ import * as stylex from "@octanejs/stylex";
 
 import { styles } from "./styles.ts";
 import type { useChatDiffPanelState } from "./useChatDiffPanelState.tsx";
-import { gitOperationErrorLabel } from "./useChatDiffPanelState.tsx";
 
 type GraphActionDialogProps = Pick<
 	ReturnType<typeof useChatDiffPanelState>,
@@ -98,7 +97,7 @@ export function GraphActionDialog({
 				{graphActionResult?.error ? (
 					<p {...stylex.props(styles.refActionError)}>
 						<strong>
-							{gitOperationErrorLabel(graphActionResult.errorKind)}:
+							{graphActionResult.errorLabel ?? "Git command failed"}:
 						</strong>{" "}
 						{graphActionResult.error}
 					</p>

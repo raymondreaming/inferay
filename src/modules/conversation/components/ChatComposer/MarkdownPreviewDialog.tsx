@@ -10,10 +10,10 @@ import type { useChatComposerState } from "./useChatComposerState.tsx";
 
 type MarkdownPreviewDialogProps = Pick<
 	ReturnType<typeof useChatComposerState>,
-	"setMdPreview" | "mdPreview" | "onMdFileClick"
+	"closeMdPreview" | "mdPreview" | "onMdFileClick"
 >;
 export function MarkdownPreviewDialog({
-	setMdPreview,
+	closeMdPreview,
 	mdPreview,
 	onMdFileClick,
 }: MarkdownPreviewDialogProps) {
@@ -23,14 +23,14 @@ export function MarkdownPreviewDialog({
 				type="button"
 				aria-label="Close markdown preview"
 				{...stylex.props(styles.modalBackdropButton)}
-				onClick={setMdPreview.bind(null, CLOSED_MD_PREVIEW)}
+				onClick={closeMdPreview}
 			/>
 			<div {...stylex.props(styles.modal)}>
 				<div {...stylex.props(styles.modalHeader)}>
 					<span {...stylex.props(styles.modalTitle)}>{mdPreview.path}</span>
 					<IconButton
 						type="button"
-						onClick={setMdPreview.bind(null, CLOSED_MD_PREVIEW)}
+						onClick={closeMdPreview}
 						variant="ghost"
 						size="xs"
 					>
@@ -58,11 +58,3 @@ export function MarkdownPreviewDialog({
 		</div>
 	);
 }
-
-const CLOSED_MD_PREVIEW = {
-	show: false,
-	path: "",
-	content: null,
-	loading: false,
-	error: null,
-};

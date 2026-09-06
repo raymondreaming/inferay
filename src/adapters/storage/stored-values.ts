@@ -1,76 +1,19 @@
-export const AGENT_STATE_STORAGE_KEY = "inferay-agent-state";
-const AGENT_LAYOUT_MODE_STORAGE_KEY = "agent-layout-mode";
-const EDITOR_SELECTED_PANE_STORAGE_KEY = "editor-selected-pane";
-const MAIN_SIDEBAR_WIDTH_STORAGE_KEY = "main-sidebar-width";
+import { dispatchWindowEvent } from "../../shared/lib/data.ts";
+import { sendJson } from "../backend/http.ts";
 export const ONBOARDING_DONE_STORAGE_KEY = "inferay-onboarding-done";
 export const APP_THEME_STORAGE_KEY = "inferay-app-theme-id";
 export const APP_BACKGROUND_STORAGE_KEY = "inferay-app-background";
 export const APP_FONT_STORAGE_KEY = "inferay-app-font";
-const CHAT_MESSAGES_STORAGE_KEY_PREFIX = "inferay-chat-";
-const CHAT_SESSION_KEY_PREFIX = "inferay-chat-session-";
-const CHAT_INPUT_KEY_PREFIX = "inferay-chat-input-";
-const CHAT_CHECKPOINT_KEY_PREFIX = "inferay-checkpoints-";
-const CHAT_MODEL_KEY_PREFIX = "inferay-chat-model-";
-const CHAT_REASONING_KEY_PREFIX = "inferay-chat-reasoning-";
-const CHAT_PENDING_SEND_KEY_PREFIX = "inferay-chat-pending-send-";
-const CHAT_SUMMARY_KEY_PREFIX = "inferay-chat-summary-";
-const CHAT_PENDING_WORKSPACE_KEY_PREFIX = "inferay-chat-pending-workspace-";
-export const CHAT_QUEUE_KEY_PREFIX = "inferay-chat-queue-";
-const CHAT_LOADING_STATE_KEY_PREFIX = "inferay-chat-loading-";
-const CHAT_COMPOSER_CONTEXT_KEY_PREFIX = "inferay-chat-composer-context-";
-const CHAT_WORKTREE_INFO_KEY_PREFIX = "inferay-chat-worktree-";
-const CHAT_NON_MESSAGE_STORAGE_KEY_PREFIXES = [
-	CHAT_SESSION_KEY_PREFIX,
-	CHAT_INPUT_KEY_PREFIX,
-	CHAT_CHECKPOINT_KEY_PREFIX,
-	CHAT_MODEL_KEY_PREFIX,
-	CHAT_REASONING_KEY_PREFIX,
-	CHAT_PENDING_SEND_KEY_PREFIX,
-	CHAT_SUMMARY_KEY_PREFIX,
-	CHAT_PENDING_WORKSPACE_KEY_PREFIX,
-	CHAT_QUEUE_KEY_PREFIX,
-	CHAT_LOADING_STATE_KEY_PREFIX,
-	CHAT_COMPOSER_CONTEXT_KEY_PREFIX,
-	CHAT_WORKTREE_INFO_KEY_PREFIX,
-] as const;
-export function isChatMessageStorageKey(key: string): boolean {
-	return (
-		key.startsWith(CHAT_MESSAGES_STORAGE_KEY_PREFIX) &&
-		!CHAT_NON_MESSAGE_STORAGE_KEY_PREFIXES.some((prefix) =>
-			key.startsWith(prefix),
-		)
-	);
-}
-const SYNCED_STORAGE_KEYS = new Set([
-	AGENT_STATE_STORAGE_KEY,
-	"commit-graph-columns-v5",
-	EDITOR_SELECTED_PANE_STORAGE_KEY,
-	MAIN_SIDEBAR_WIDTH_STORAGE_KEY,
-	"sidebar-collapsed",
-	"agent-editor-zen",
-	AGENT_LAYOUT_MODE_STORAGE_KEY,
-]);
-const SYNCED_STORAGE_PREFIXES = [
-	"agent-workspace-",
-	"git-change-checkpoint:",
-	"inferay-",
-	"inferay.",
-];
-export function shouldSyncClientStorageKey(key: string): boolean {
-	if (key === AGENT_STATE_STORAGE_KEY) return false;
-	if (isChatMessageStorageKey(key)) return false;
-	if (key.startsWith(CHAT_QUEUE_KEY_PREFIX)) return false;
-	if (key.startsWith(CHAT_LOADING_STATE_KEY_PREFIX)) return false;
-	return (
-		SYNCED_STORAGE_KEYS.has(key) ||
-		SYNCED_STORAGE_PREFIXES.some((prefix) => key.startsWith(prefix))
-	);
+let storageKeyPattern: RegExp | undefined;
+function shouldSyncClientStorageKey(key: string): boolean {
+	return storageKeyPattern?.test(key) ?? false;
 }
 
 import { noop } from "../../shared/lib/data.ts";
 
 type StoredValue = string | null;
 interface ClientStoragePayload {
+	storageKeyPattern: string;
 	entries?: Record<string, StoredValue>;
 }
 let hydrating = false;
@@ -94,27 +37,16 @@ function shouldApplyServerValue(
 	key: string,
 	serverValue: StoredValue,
 ): boolean {
-	let localValue: string | null = null;
 	try {
-		localValue = localStorage.getItem(key);
+		return localStorage.getItem(key) !== serverValue;
 	} catch {
 		return false;
 	}
-	if (serverValue === null) return localValue !== null;
-	if (localValue === null) return true;
-	return serverValue !== localValue;
 }
 async function sendStoragePatch(entries: Record<string, StoredValue>) {
-	await fetch("/api/client-storage", {
-		method: "PUT",
-		headers: {
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify({
-			entries,
-		}),
-	});
+	await sendJson("/api/client-storage", { entries }, { method: "PUT" });
 }
+
 function sendStorageBeacon(entries: Record<string, StoredValue>): boolean {
 	if (typeof navigator === "undefined" || !navigator.sendBeacon) return false;
 	return navigator.sendBeacon(
@@ -145,14 +77,10 @@ function flushPendingSync(useBeacon = false) {
 export function syncStoredValue(key: string, value: StoredValue): void {
 	if (hydrating || !shouldSyncClientStorageKey(key)) return;
 	pendingSync.set(key, value);
-	window.dispatchEvent(
-		new CustomEvent(CLIENT_STORAGE_CHANGED_EVENT, {
-			detail: {
-				key,
-				value,
-			},
-		}),
-	);
+	dispatchWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, {
+		key,
+		value,
+	});
 	if (syncTimer) return;
 	syncTimer = setTimeout(flushPendingSync, 250);
 }
@@ -161,15 +89,16 @@ async function syncAllStoredValues(): Promise<void> {
 }
 export async function hydrateStoredValues(): Promise<void> {
 	if (typeof window === "undefined") return;
-	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), HYDRATION_TIMEOUT_MS);
 	try {
 		const response = await fetch("/api/client-storage", {
-			signal: controller.signal,
+			signal: AbortSignal.timeout(HYDRATION_TIMEOUT_MS),
 		});
 		if (!response.ok) throw new Error("Could not load saved preferences");
 		const payload = (await response.json()) as ClientStoragePayload;
 		if (!payload.entries) throw new Error("Missing saved preferences");
+		if (!payload.storageKeyPattern)
+			throw new Error("Missing native storage policy");
+		storageKeyPattern = new RegExp(payload.storageKeyPattern);
 		hydrating = true;
 		for (const [key, value] of Object.entries(payload.entries)) {
 			if (
@@ -182,7 +111,6 @@ export async function hydrateStoredValues(): Promise<void> {
 		}
 	} finally {
 		hydrating = false;
-		clearTimeout(timeout);
 	}
 	// Browser-only UI preferences remain eligible for import; workspace initialization owns its own source.
 	syncAllStoredValues().catch(noop);
@@ -203,10 +131,7 @@ export function readStoredJson<T>(key: string, fallback: T): T {
 }
 export function writeStoredJson<T>(key: string, value: T) {
 	try {
-		const stored = JSON.stringify(value);
-		if (localStorage.getItem(key) === stored) return;
-		localStorage.setItem(key, stored);
-		syncStoredValue(key, stored);
+		writeStoredValue(key, JSON.stringify(value));
 	} catch {}
 }
 export function readStoredValue(

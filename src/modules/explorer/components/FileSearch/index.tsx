@@ -119,6 +119,24 @@ export function FileSearch({
 		[choose, results.length, selected],
 	);
 
+	const openSearch = () => {
+		setSelectedIndex(-1);
+		setOpen((current) => placement !== "panel" || !current);
+		window.setTimeout(() => panelInputRef.current?.focus(), 0);
+	};
+
+	const inputProps = {
+		ref: panelInputRef,
+		type: "text",
+		autoComplete: "off",
+		autoCorrect: "off",
+		autoCapitalize: "off",
+		spellCheck: false,
+		value: query,
+		onKeyDown: handleKeyDown,
+		...stylex.props(styles.input),
+	};
+
 	return (
 		<div
 			ref={rootRef}
@@ -133,40 +151,22 @@ export function FileSearch({
 						: styles.rootPanel,
 			)}
 		>
-			{placement === "panel" ? (
+			{placement === "panel" || (placement === "shell" && !open) ? (
 				<button
 					type="button"
 					disabled={!cwd}
 					onPointerDown={(event) => {
-						if (event.button !== 0 || !event.isPrimary) return;
-						setSelectedIndex(-1);
-						setOpen((current) => !current);
-						window.setTimeout(() => panelInputRef.current?.focus(), 0);
+						if (placement === "panel" && event.button === 0 && event.isPrimary)
+							openSearch();
 					}}
 					onClick={(event) => {
-						if (event.detail !== 0) return;
-						setSelectedIndex(-1);
-						setOpen((current) => !current);
-						window.setTimeout(() => panelInputRef.current?.focus(), 0);
+						if (placement !== "panel" || event.detail === 0) openSearch();
 					}}
 					title="Search workspace files"
 					aria-label="Search workspace files"
-					{...stylex.props(styles.panelTrigger)}
-				>
-					<IconSearch size={iconSize.compact} />
-				</button>
-			) : placement === "shell" && !open ? (
-				<button
-					type="button"
-					disabled={!cwd}
-					onClick={() => {
-						setSelectedIndex(-1);
-						setOpen(true);
-						window.setTimeout(() => panelInputRef.current?.focus(), 0);
-					}}
-					title="Search workspace files"
-					aria-label="Search workspace files"
-					{...stylex.props(styles.shellTrigger)}
+					{...stylex.props(
+						placement === "panel" ? styles.panelTrigger : styles.shellTrigger,
+					)}
 				>
 					<IconSearch size={iconSize.compact} />
 				</button>
@@ -177,13 +177,7 @@ export function FileSearch({
 						{...stylex.props(styles.searchIcon)}
 					/>
 					<input
-						ref={panelInputRef}
-						type="text"
-						autoComplete="off"
-						autoCorrect="off"
-						autoCapitalize="off"
-						spellCheck={false}
-						value={query}
+						{...inputProps}
 						disabled={!cwd}
 						placeholder={
 							cwd ? "Search workspace files" : "Open a workspace to search"
@@ -197,8 +191,6 @@ export function FileSearch({
 							setSelectedIndex(-1);
 							setOpen(true);
 						}}
-						onKeyDown={handleKeyDown}
-						{...stylex.props(styles.input)}
 					/>
 				</div>
 			)}
@@ -230,20 +222,12 @@ export function FileSearch({
 											{...stylex.props(styles.searchIcon)}
 										/>
 										<input
-											ref={panelInputRef}
-											type="text"
-											autoComplete="off"
-											autoCorrect="off"
-											autoCapitalize="off"
-											spellCheck={false}
-											value={query}
+											{...inputProps}
 											onInput={(event) => {
 												setQuery(event.currentTarget.value);
 												setSelectedIndex(-1);
 											}}
-											onKeyDown={handleKeyDown}
 											placeholder="Search workspace files"
-											{...stylex.props(styles.input)}
 										/>
 									</div>
 								) : null}

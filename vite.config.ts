@@ -5,10 +5,6 @@ import { stylex } from "@octanejs/stylex/vite";
 import { tanstackStart } from "@octanejs/tanstack-start/plugin/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, type Plugin } from "vite";
-import {
-	DEV_FEATURE_FLAGS,
-	PUBLISHED_FEATURE_FLAGS,
-} from "./src/shared/lib/feature-flags.ts";
 
 function stripTransformSourceMaps(plugin: Plugin): Plugin {
 	const transform = plugin.transform;
@@ -86,11 +82,6 @@ export default defineConfig(({ mode }) => ({
 		octaneStylexPlugin(),
 		tailwindcss(),
 	],
-	define: {
-		__INFERAY_FEATURE_FLAGS__: JSON.stringify(
-			mode === "development" ? DEV_FEATURE_FLAGS : PUBLISHED_FEATURE_FLAGS,
-		),
-	},
 	build: {
 		sourcemap: false,
 		minify: mode === "development" ? false : "oxc",

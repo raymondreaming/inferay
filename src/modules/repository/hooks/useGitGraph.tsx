@@ -5,6 +5,7 @@ import {
 	useQueryResource,
 } from "../../../shared/hooks/useQueryResource.tsx";
 import { DEFAULT_GIT_GRAPH_HISTORY_LIMIT } from "../../workbench/graph/model/graph-model.ts";
+import type { GraphActionPresentation } from "../../workbench/model/workbench-model.ts";
 import type {
 	GitFilePresentation,
 	GitGraphAncestry,
@@ -40,6 +41,7 @@ export type GitGraphRefKind =
 export interface GitGraphRef {
 	fullName: string;
 	displayName: string;
+	label: string;
 	kind: GitGraphRefKind;
 	target: string;
 	remoteName?: string;
@@ -92,6 +94,7 @@ export interface GitRepositoryOperationState {
 	conflicts: string[];
 }
 export interface GraphData {
+	actions: Record<string, GraphActionPresentation>;
 	ancestry: GitGraphAncestry;
 	commits: GraphNode[];
 	rows: GraphRow[];
@@ -110,6 +113,7 @@ export type GitRepositorySnapshotState =
 	| "nonRepository"
 	| "commandFailed";
 const EMPTY_GRAPH: GraphData = {
+	actions: {},
 	ancestry: {},
 	commits: [],
 	rows: [],
@@ -124,121 +128,28 @@ const EMPTY_GRAPH: GraphData = {
 	},
 	state: "empty",
 };
-type WireGraphNode = Omit<GraphNode, "color" | "id" | "itemKind"> & {
-	id?: string;
-	itemKind?: GitGraphItemKind;
-	colorIndex: number;
+type WireColor<T> = Omit<T, "color"> & { colorIndex: number };
+type WireGraphData = Omit<GraphData, "commits" | "rows"> & {
+	commits: WireColor<GraphNode>[];
+	rows: Array<{
+		row: number;
+		rails: WireColor<GraphRail>[];
+		transitions: WireColor<GraphTransition>[];
+		convergences: WireColor<GraphTransition>[];
+		truncatedEdges: WireColor<GraphRail>[];
+	}>;
 };
-type WireColor<T> = Omit<T, "color"> & {
-	colorIndex: number;
-};
-type WireGraphRow = {
-	row: number;
-	rails: WireColor<GraphRail>[];
-	transitions: WireColor<GraphTransition>[];
-	convergences?: WireColor<GraphTransition>[];
-	truncatedEdges?: WireColor<GraphRail>[];
-};
-function laneColor(index: number): string {
-	return runtimeGitGraphLaneColors[
-		Math.abs(index) % runtimeGitGraphLaneColors.length
-	]!;
-}
-function wireString(value: unknown, fallback = ""): string {
-	return typeof value === "string" ? value : fallback;
-}
-function graphRefFromWire(value: unknown): GitGraphRef | null {
-	if (!value || typeof value !== "object") return null;
-	const ref = value as Partial<GitGraphRef>;
-	const fullName = wireString(ref.fullName);
-	const target = wireString(ref.target);
-	if (!fullName || !target) return null;
-	const kind: GitGraphRefKind = [
-		"head",
-		"localBranch",
-		"remoteBranch",
-		"tag",
-		"stash",
-	].includes(ref.kind ?? "")
-		? (ref.kind as GitGraphRefKind)
-		: "localBranch";
+// Rust owns the graph schema; only theme colors are resolved in the renderer.
+function withLaneColor<T extends { colorIndex: number }>({
+	colorIndex,
+	...value
+}: T) {
 	return {
-		fullName,
-		displayName: wireString(
-			ref.displayName,
-			fullName.replace(/^refs\/[^/]+\//, ""),
-		),
-		kind,
-		target,
-		remoteName: wireString(ref.remoteName) || undefined,
-		isHead: ref.isHead === true,
-		worktreePath: wireString(ref.worktreePath) || undefined,
-		upstream: wireString(ref.upstream) || undefined,
-		ahead: typeof ref.ahead === "number" ? ref.ahead : undefined,
-		behind: typeof ref.behind === "number" ? ref.behind : undefined,
-	};
-}
-function graphNodeFromWire(node: WireGraphNode): GraphNode {
-	const hash = wireString(node.hash);
-	const author = wireString(node.author, "Unknown author");
-	const date = wireString(node.date);
-	return {
-		navigation: node.navigation,
-		id: wireString(node.id, hash),
-		itemKind: node.itemKind || "commit",
-		hash,
-		message: wireString(node.message),
-		body: wireString(node.body),
-		author,
-		authorEmail: wireString(node.authorEmail),
-		committer: wireString(node.committer, author),
-		committerEmail: wireString(
-			node.committerEmail,
-			wireString(node.authorEmail),
-		),
-		date,
-		authoredAt: wireString(node.authoredAt, date),
-		committedAt: wireString(node.committedAt, date),
-		parents: Array.isArray(node.parents)
-			? node.parents.filter(
-					(parent): parent is string => typeof parent === "string",
-				)
-			: [],
-		refs: Array.isArray(node.refs)
-			? node.refs
-					.map(graphRefFromWire)
-					.filter((ref): ref is GitGraphRef => ref !== null)
-			: [],
-		column: typeof node.column === "number" ? node.column : 0,
-		color: laneColor(typeof node.colorIndex === "number" ? node.colorIndex : 0),
-		worktreePath: wireString(node.worktreePath) || undefined,
-		stashName: wireString(node.stashName) || undefined,
-	};
-}
-function graphTransitionFromWire(
-	value: WireColor<GraphTransition>,
-): GraphTransition {
-	return {
-		fromColumn: value.fromColumn,
-		toColumn: value.toColumn,
-		color: laneColor(value.colorIndex),
-	};
-}
-function graphRailFromWire(value: WireColor<GraphRail>): GraphRail {
-	return {
-		column: value.column,
-		color: laneColor(value.colorIndex),
-		startsAtNode: value.startsAtNode === true,
-		endsAtNode: value.endsAtNode === true,
-	};
-}
-function graphRowFromWire(row: WireGraphRow): GraphRow {
-	return {
-		row: row.row,
-		rails: row.rails.map(graphRailFromWire),
-		transitions: row.transitions.map(graphTransitionFromWire),
-		convergences: (row.convergences || []).map(graphTransitionFromWire),
-		truncatedEdges: (row.truncatedEdges || []).map(graphRailFromWire),
+		...value,
+		color:
+			runtimeGitGraphLaneColors[
+				Math.abs(colorIndex) % runtimeGitGraphLaneColors.length
+			]!,
 	};
 }
 export function useGitGraph(
@@ -286,22 +197,17 @@ export function useGitGraph(
 					const error = await res.json().catch(() => null);
 					throw new Error(error?.error || "Failed to fetch Git history");
 				}
-				const json = await res.json();
+				const json = (await res.json()) as WireGraphData;
 				const data: GraphData = {
-					ancestry: json.ancestry ?? {},
-					commits: ((json.commits || []) as WireGraphNode[]).map(
-						graphNodeFromWire,
-					),
-					rows: ((json.rows || []) as WireGraphRow[]).map(graphRowFromWire),
-					hasMore: json.hasMore === true,
-					worktrees: (json.worktrees || []) as GitWorktree[],
-					stashes: (json.stashes || []) as GitStash[],
-					revision: typeof json.revision === "string" ? json.revision : "",
-					operation: (json.operation ||
-						EMPTY_GRAPH.operation) as GitRepositoryOperationState,
-					state: (json.state || "empty") as GitRepositorySnapshotState,
-					stateError:
-						typeof json.stateError === "string" ? json.stateError : undefined,
+					...json,
+					commits: json.commits.map(withLaneColor),
+					rows: json.rows.map((row) => ({
+						...row,
+						rails: row.rails.map(withLaneColor),
+						transitions: row.transitions.map(withLaneColor),
+						convergences: row.convergences.map(withLaneColor),
+						truncatedEdges: row.truncatedEdges.map(withLaneColor),
+					})),
 				};
 				const etag = res.headers?.get("etag");
 				if (etag && !signal?.aborted)
@@ -357,7 +263,6 @@ export interface CommitFile {
 	status: string;
 	additions: number;
 	deletions: number;
-	binary: boolean;
 }
 export interface CommitDetails {
 	filePresentation?: GitFilePresentation;
@@ -376,7 +281,6 @@ export interface CommitDetails {
 	provider?: {
 		provider: "github";
 		repository: string;
-		repositoryUrl: string;
 		pullRequestNumber?: number;
 		pullRequestUrl?: string;
 	};

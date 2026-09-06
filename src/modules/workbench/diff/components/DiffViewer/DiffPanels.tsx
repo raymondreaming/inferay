@@ -74,11 +74,11 @@ export const DiffPanels = memo(function DiffPanels({
 					}
 					maxLineChars={
 						conflict
-							? metadata?.maxConflictLineChars
-							: metadata?.maxInlineLineChars
+							? metadata.maxConflictLineChars
+							: metadata.maxInlineLineChars
 					}
 					minimapSegments={
-						conflict ? metadata?.conflictMinimap : metadata?.inlineMinimap
+						conflict ? metadata.conflictMinimap : metadata.inlineMinimap
 					}
 					scrollRef={singleRef}
 					side="single"
@@ -101,7 +101,7 @@ export const DiffPanels = memo(function DiffPanels({
 					{...shared}
 					rowCount={rowCount}
 					lines={oldLines}
-					maxLineChars={diff.isNew ? 0 : metadata?.maxOldLineChars}
+					maxLineChars={diff.isNew ? 0 : metadata.maxOldLineChars}
 					scrollRef={followerRef}
 					verticalFollower
 					gutterLines={diff.newLines}
@@ -115,12 +115,12 @@ export const DiffPanels = memo(function DiffPanels({
 					{...shared}
 					rowCount={rowCount}
 					lines={diff.newLines}
-					maxLineChars={metadata?.maxNewLineChars}
+					maxLineChars={metadata.maxNewLineChars}
 					scrollRef={scrollRef}
 					onScroll={syncFromMaster}
 					showGutter={false}
 					showMinimap
-					minimapSegments={metadata?.splitMinimap}
+					minimapSegments={metadata.splitMinimap}
 					side="right"
 				/>
 			</div>

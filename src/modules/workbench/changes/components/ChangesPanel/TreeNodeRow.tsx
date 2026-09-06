@@ -15,24 +15,12 @@ import { FileDiffStats } from "./FileDiffStats.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
-export function TreeNodeRow({
-	node,
-	visibleFiles,
-	visibleCounts,
-	depth,
-	selected,
-	onSelect,
-	onAction,
-	actionLabel,
-	hoveredActionPath,
-	onActionHover,
-	collapsedDirs,
-	toggleDir,
-}: {
-	node: GitFileTreeNode;
+export function TreeNodeRow(props: {
+	node?: GitFileTreeNode;
+	pathFile?: GitFileEntry;
 	visibleFiles: Map<string, GitFileEntry>;
 	visibleCounts: Uint32Array;
-	depth: number;
+	depth?: number;
 	selected: SelectedFile | null;
 	onSelect: (f: GitFileEntry) => void;
 	onAction?: (path: string) => void;
@@ -42,17 +30,36 @@ export function TreeNodeRow({
 	collapsedDirs: Set<string>;
 	toggleDir: (path: string) => void;
 }) {
-	const isDir = node.children.length > 0;
-	const isExpanded = !collapsedDirs.has(node.path);
-	const file = isDir ? undefined : visibleFiles.get(node.path);
-	if (visibleCounts[node.fileRange[1]] === visibleCounts[node.fileRange[0]])
+	const {
+		node,
+		pathFile,
+		visibleFiles,
+		visibleCounts,
+		depth = 0,
+		selected,
+		onSelect,
+		onAction,
+		actionLabel,
+		hoveredActionPath,
+		onActionHover,
+		collapsedDirs,
+		toggleDir,
+	} = props;
+	const isDir = !!node?.children.length;
+	const isExpanded = !collapsedDirs.has(node?.path ?? "");
+	const file =
+		pathFile ?? (isDir || !node ? undefined : visibleFiles.get(node.path));
+	const separator = file?.path.lastIndexOf("/") ?? -1;
+	if (
+		node &&
+		visibleCounts[node.fileRange[1]] === visibleCounts[node.fileRange[0]]
+	)
 		return null;
 	const active =
 		file && selected?.path === file.path && selected?.staged === file.staged;
 
-	const sortedChildren = node.children;
 	const selectTreeNode = () => {
-		if (isDir) {
+		if (isDir && node) {
 			toggleDir(node.path);
 		} else if (file) {
 			onSelect(file);
@@ -63,8 +70,15 @@ export function TreeNodeRow({
 		<>
 			<div
 				data-git-file-active={active ? "true" : undefined}
-				{...stylex.props(styles.treeRow, active && styles.fileRowActive)}
-				style={inlineStyles.getTreeNodeRowTreeRowStyle(`${4 + depth * 9}px`)}
+				{...stylex.props(
+					node ? styles.treeRow : styles.pathRow,
+					active && styles.fileRowActive,
+				)}
+				style={
+					node
+						? inlineStyles.getTreeNodeRowTreeRowStyle(`${4 + depth * 9}px`)
+						: undefined
+				}
 				onMouseEnter={() => {
 					if (!file) return;
 					onActionHover(file.path);
@@ -73,8 +87,9 @@ export function TreeNodeRow({
 			>
 				<button
 					type="button"
+					title={node ? undefined : file?.path}
 					data-git-file-select
-					{...stylex.props(styles.treeNodeButton)}
+					{...stylex.props(node ? styles.treeNodeButton : styles.fileRowButton)}
 					onPointerDown={(event) => {
 						if (event.button === 0 && event.isPrimary) selectTreeNode();
 					}}
@@ -82,7 +97,7 @@ export function TreeNodeRow({
 						if (event.detail === 0) selectTreeNode();
 					}}
 				>
-					{isDir ? (
+					{isDir && node ? (
 						<>
 							<IconChevronRight
 								size={iconSize.sm}
@@ -102,16 +117,29 @@ export function TreeNodeRow({
 						</>
 					) : file ? (
 						<>
-							<span {...stylex.props(styles.treeIndentSpacer)} />
+							{node && <span {...stylex.props(styles.treeIndentSpacer)} />}
 							<FileChangeIcon file={file} />
-							<span
-								{...stylex.props(
-									styles.treeFileName,
-									active && styles.activeText,
-								)}
-							>
-								{node.name}
-							</span>
+							{node ? (
+								<span
+									{...stylex.props(
+										styles.treeFileName,
+										active && styles.activeText,
+									)}
+								>
+									{node.name}
+								</span>
+							) : (
+								<span {...stylex.props(styles.fileButton)}>
+									{separator >= 0 && (
+										<span {...stylex.props(styles.pathDirectory)}>
+											{file.path.slice(0, separator)}
+										</span>
+									)}
+									<span {...stylex.props(styles.pathFileName)}>
+										{separator >= 0 ? file.path.slice(separator) : file.path}
+									</span>
+								</span>
+							)}
 							{hoveredActionPath !== file.path ? (
 								<FileDiffStats file={file} />
 							) : null}
@@ -126,7 +154,7 @@ export function TreeNodeRow({
 							onAction(file.path);
 						}}
 						{...stylex.props(
-							styles.rowAction,
+							node ? styles.rowAction : styles.rowActionSubtle,
 							hoveredActionPath === file.path && styles.rowActionVisible,
 						)}
 						aria-label={`${actionLabel} ${file.path}`}
@@ -137,21 +165,12 @@ export function TreeNodeRow({
 			</div>
 			{isDir &&
 				isExpanded &&
-				sortedChildren.map((child) => (
+				node?.children.map((child) => (
 					<TreeNodeRow
+						{...props}
 						key={child.path}
 						node={child}
-						visibleFiles={visibleFiles}
-						visibleCounts={visibleCounts}
 						depth={depth + 1}
-						selected={selected}
-						onSelect={onSelect}
-						onAction={onAction}
-						actionLabel={actionLabel}
-						hoveredActionPath={hoveredActionPath}
-						onActionHover={onActionHover}
-						collapsedDirs={collapsedDirs}
-						toggleDir={toggleDir}
 					/>
 				))}
 		</>

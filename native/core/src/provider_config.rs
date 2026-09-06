@@ -20,6 +20,39 @@ fn commands(rows: &[(&str, &str)]) -> Vec<Value> {
         .collect()
 }
 
+/// Local commands take precedence over skills, then provider commands.
+pub fn composer_commands(kind: &str, skills: &[crate::prompts::Prompt]) -> Vec<Value> {
+    let mut result = commands(&[
+        ("exit", "Close this chat pane"),
+        ("clear", "Clear all messages"),
+        ("help", "Show available commands"),
+    ]);
+    for command in &mut result {
+        command["action"] = json!("local");
+        command["isLocalCommand"] = json!(true);
+    }
+    result.extend(skills.iter().map(|skill| {
+        let mut command = json!({
+            "id":skill.id, "name":skill.command, "description":skill.description,
+            "action":"send", "isFromLibrary":true
+        });
+        if let Some(category) = &skill.category {
+            command["category"] = json!(category);
+        }
+        command
+    }));
+    if let Some(native) = catalog()["agents"][kind]["nativeSlashCommands"].as_array() {
+        result.extend(native.iter().cloned().map(|mut command| {
+            command["action"] = json!("send");
+            command["isLocalCommand"] = json!(true);
+            command
+        }));
+    }
+    let mut seen = std::collections::HashSet::new();
+    result.retain(|command| seen.insert(command["name"].as_str().unwrap().to_lowercase()));
+    result
+}
+
 pub fn catalog() -> &'static Value {
     static CATALOG: LazyLock<Value> = LazyLock::new(|| {
         let mut value = json!({
@@ -27,12 +60,7 @@ pub fn catalog() -> &'static Value {
                         "agent": {
                             "kind": "agent",
                             "label": "Agent",
-                            "paneTitle": "Agent",
-                            "description": "Interactive shell session",
                             "iconKey": "agent",
-                            "supportsChat": false,
-                            "supportsInteractiveAgent": true,
-                            "supportsResume": false,
                             "nativeSlashCommands": [],
                             "models": [],
                             "defaultModel": ""
@@ -40,12 +68,7 @@ pub fn catalog() -> &'static Value {
                         "claude": {
                             "kind": "claude",
                             "label": "Claude",
-                            "paneTitle": "Claude",
-                            "description": "Anthropic Claude Code CLI",
                             "iconKey": "anthropic",
-                            "supportsChat": true,
-                            "supportsInteractiveAgent": true,
-                            "supportsResume": true,
                             "nativeSlashCommands": commands(&[
         ("btw", "Ask a side question without adding to conversation"),
         ("bug", "Report bugs or issues"),
@@ -75,12 +98,7 @@ pub fn catalog() -> &'static Value {
                         "codex": {
                             "kind": "codex",
                             "label": "Codex",
-                            "paneTitle": "Codex",
-                            "description": "OpenAI Codex CLI",
                             "iconKey": "openai",
-                            "supportsChat": true,
-                            "supportsInteractiveAgent": true,
-                            "supportsResume": true,
                             "nativeSlashCommands": commands(&[
         ("goal", "Start, pause, resume, clear, or inspect a Codex objective")
         ]),

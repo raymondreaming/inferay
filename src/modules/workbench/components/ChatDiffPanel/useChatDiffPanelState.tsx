@@ -1,5 +1,7 @@
+import { useQuery } from "@octanejs/tanstack-query";
 import { useCallback, useEffect, useState } from "octane";
 import { postJson } from "../../../../adapters/backend/http.ts";
+import { queryClient } from "../../../../shared/lib/data.ts";
 import type { useGitDiff } from "../../../repository/hooks/useGitDiff.tsx";
 import type { useGitGraph } from "../../../repository/hooks/useGitGraph.tsx";
 import type { GitInteractiveRebaseStep } from "../../../repository/model/types.ts";
@@ -17,15 +19,12 @@ import type {
 	GitRefOperationRequest,
 	GitRefOperationResult,
 } from "../../model/workbench-model.ts";
-import {
-	gitOperationErrorLabel,
-	graphActionPresentation,
-} from "../../model/workbench-model.ts";
 
 export function useChatDiffPanelState(props: {
 	readonly diff: ReturnType<typeof useGitDiff>["diff"];
 	readonly file: SelectedFile | null;
 	readonly loading: boolean;
+	readonly error?: string;
 	readonly mainViewMode: "diff" | "graph";
 	readonly onMainViewModeChange: (mode: "diff" | "graph") => void;
 	readonly graph: ReturnType<typeof useGitGraph>;
@@ -83,9 +82,6 @@ export function useChatDiffPanelState(props: {
 	const [refOperationResult, setRefOperationResult] =
 		useState<GitRefOperationResult | null>(null);
 	const [refOperationRunning, setRefOperationRunning] = useState(false);
-	const [refOperationPreflight, setRefOperationPreflight] =
-		useState<GitRefOperationPreflight | null>(null);
-	const [refPreflightRunning, setRefPreflightRunning] = useState(false);
 	const [interactiveRebaseOpen, setInteractiveRebaseOpen] = useState(false);
 	const [interactiveRebasePlan, setInteractiveRebasePlan] = useState<
 		GitInteractiveRebaseStep[]
@@ -111,51 +107,32 @@ export function useChatDiffPanelState(props: {
 	const [graphActionResult, setGraphActionResult] =
 		useState<GitGraphActionResult | null>(null);
 	const [graphActionRunning, setGraphActionRunning] = useState(false);
+	const preflight = useQuery(
+		{
+			queryKey: ["git-ref-preflight", repositoryKey, pendingRefAction],
+			queryFn: ({ signal }) =>
+				postJson<GitRefOperationPreflight>(
+					"/api/git/ref-operation-preflight",
+					{ cwd: repositoryKey, ...pendingRefAction },
+					{ signal },
+				),
+			enabled: !!pendingRefAction && !!repositoryKey,
+			gcTime: 0,
+			staleTime: 0,
+			retry: false,
+			refetchOnReconnect: false,
+		},
+		queryClient,
+	);
 	useEffect(() => {
 		if (!pendingRefAction || !repositoryKey) {
-			setRefOperationPreflight(null);
-			setRefPreflightRunning(false);
 			setInteractiveRebaseOpen(false);
 			setInteractiveRebasePlan([]);
-			return;
+		} else if (preflight.data) {
+			setInteractiveRebasePlan(preflight.data.interactiveRebasePlan);
 		}
-		let current = true;
-		setRefOperationPreflight(null);
-		setRefPreflightRunning(true);
-		void postJson<GitRefOperationPreflight>(
-			"/api/git/ref-operation-preflight",
-			{
-				cwd: repositoryKey,
-				source: pendingRefAction.source,
-				target: pendingRefAction.target,
-			},
-		)
-			.then((result) => {
-				if (!current) return;
-				setRefOperationPreflight(result);
-				setInteractiveRebasePlan(result.interactiveRebasePlan);
-			})
-			.catch((error) => {
-				if (!current) return;
-				setRefOperationResult({
-					ok: false,
-					operation: "merge",
-					outcome: "failed",
-					conflicts: [],
-					errorKind: "commandFailed",
-					error:
-						error instanceof Error
-							? error.message
-							: "Unable to check branch operations",
-				});
-			})
-			.finally(() => {
-				if (current) setRefPreflightRunning(false);
-			});
-		return () => {
-			current = false;
-		};
-	}, [pendingRefAction, repositoryKey]);
+	}, [pendingRefAction, repositoryKey, preflight.data]);
+
 	const runRefOperation = useCallback(
 		async (
 			operation: GitRefOperationRequest["operation"],
@@ -217,22 +194,27 @@ export function useChatDiffPanelState(props: {
 		conflicts: [] as string[],
 	};
 	const pendingGraphActionPresentation = pendingGraphAction
-		? graphActionPresentation(pendingGraphAction.action)
+		? (graph.actions[pendingGraphAction.action] ?? null)
 		: null;
 	const interactiveRebaseCommits = new Map(
-		(refOperationPreflight?.interactiveRebaseCommits ?? []).map((commit) => [
+		(preflight.data?.interactiveRebaseCommits ?? []).map((commit) => [
 			commit.hash,
 			commit,
 		]),
 	);
 	const resumableOperation =
 		repositoryOperation.kind === "idle" ? null : repositoryOperation.kind;
-	const lastResult = graphActionResult ?? refOperationResult;
+	const lastResult =
+		graphActionResult ??
+		refOperationResult ??
+		(preflight.error
+			? { ok: false, operation: "merge", errorLabel: "Git command failed" }
+			: null);
 	const operationActivity: {
 		phase: GitOperationActivityPhase;
 		message: string;
 	} =
-		refOperationRunning || graphActionRunning || refPreflightRunning
+		refOperationRunning || graphActionRunning || preflight.isFetching
 			? { phase: "running", message: "Git operation running" }
 			: repositoryOperation.phase === "conflicted"
 				? { phase: "conflicted", message: "Git operation has conflicts" }
@@ -246,7 +228,7 @@ export function useChatDiffPanelState(props: {
 								phase: lastResult.ok ? "completed" : "failed",
 								message: lastResult.ok
 									? `Git ${lastResult.operation} completed`
-									: gitOperationErrorLabel(lastResult.errorKind),
+									: (lastResult.errorLabel ?? "Git command failed"),
 							}
 						: { phase: "idle", message: "" };
 
@@ -260,8 +242,11 @@ export function useChatDiffPanelState(props: {
 		refOperationResult,
 		setRefOperationResult,
 		refOperationRunning,
-		refOperationPreflight,
-		refPreflightRunning,
+		refOperationPreflight: preflight.data ?? null,
+		refPreflightRunning: preflight.isFetching,
+		refPreflightError: preflight.error
+			? preflight.error.message || "Unable to check branch operations"
+			: null,
 		interactiveRebaseOpen,
 		setInteractiveRebaseOpen,
 		interactiveRebasePlan,
@@ -296,8 +281,4 @@ export type {
 	GitRefOperationRequest,
 	GitRefOperationResult,
 	GraphActionPresentation,
-} from "../../model/workbench-model.ts";
-export {
-	gitOperationErrorLabel,
-	graphActionPresentation,
 } from "../../model/workbench-model.ts";

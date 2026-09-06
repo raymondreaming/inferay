@@ -22,8 +22,6 @@ import { dispatchToggleActiveGitSidebar } from "../../../workbench/model/workben
 import {
 	type CreateAgentChatTarget,
 	dispatchCreateAgentChat,
-	getRepositoryWorkspaceTarget,
-	loadAgentState,
 	loadSidebarCollapsed,
 	mutateAgentWorkspaceState,
 	projectRepositoryWorkspaces,
@@ -43,7 +41,7 @@ export function RepositoryWorkspaceBar() {
 	const [newMenuOpen, setNewMenuOpen] = useState(false);
 	const newMenuRef = useRef<HTMLDivElement | null>(null);
 	const projection = useMemo(
-		() => projectRepositoryWorkspaces(state.groups, state.selectedGroupId),
+		() => projectRepositoryWorkspaces(state),
 		[state.groups, state.selectedGroupId],
 	);
 	useEffect(
@@ -82,30 +80,10 @@ export function RepositoryWorkspaceBar() {
 	}, []);
 	const activateWorkspace = useCallback(
 		(workspace: RepositoryWorkspace) => {
-			const currentState = loadAgentState();
-			if (!currentState) return;
-			const currentProjection = projectRepositoryWorkspaces(
-				currentState.groups,
-				currentState.selectedGroupId,
-			);
-			const currentWorkspace = currentProjection.workspaces.find(
-				(candidate) => candidate.cwd === workspace.cwd,
-			);
-			if (!currentWorkspace) return;
-			const target = getRepositoryWorkspaceTarget(
-				currentWorkspace,
-				currentState.groups,
-				currentState.selectedGroupId,
-			);
-			if (!target) return;
-			void mutateAgentWorkspaceState(
-				{
-					type: "selectPane",
-					groupId: target.groupId,
-					paneId: target.pane.id,
-				},
-				"select-repository-workspace",
-			);
+			void mutateAgentWorkspaceState({
+				type: "selectRepository",
+				cwd: workspace.cwd,
+			});
 			if (location.pathname !== "/agent")
 				navigate({
 					to: "/agent",

@@ -1,12 +1,5 @@
 import * as stylex from "@octanejs/stylex";
-import {
-	memo,
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "octane";
+import { memo, useMemo } from "octane";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import {
 	IconCheck,
@@ -18,11 +11,9 @@ import {
 	SkillReadCard,
 } from "../../../skills/components/SkillProposalCard/index.tsx";
 import type { ChatMessage } from "../../model/agent-chat-shared.ts";
-import {
-	getEditToolPayload,
-	getToolDisplayInfo,
-} from "../../model/agent-chat-shared.ts";
+import { getToolDisplayInfo } from "../../model/agent-chat-shared.ts";
 import { MiniEditDiff } from "../ChatEditDiff/index.tsx";
+import { useCopyText } from "../ChatRichContent/CopyButton.tsx";
 import {
 	AskUserQuestionCard,
 	CopyButton,
@@ -51,21 +42,11 @@ export const Bubble = memo(function Bubble({
 	onMdFileClick?: (path: string) => void;
 	slashCommandNames: readonly string[];
 }) {
-	const [copied, setCopied] = useState(false);
-	const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	useEffect(
-		() => () => {
-			if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
-		},
-		[],
+	const { copied, handleCopy: handleCopyMessage } = useCopyText(
+		msg.content,
+		true,
 	);
-	const editPayload = useMemo(
-		() =>
-			msg.role === "tool" && msg.toolName === "Edit" && msg.content
-				? getEditToolPayload(msg.render?.toolInput)
-				: null,
-		[msg.content, msg.role, msg.toolName, msg.render],
-	);
+	const editPayload = msg.render?.edit;
 	const userMessageDisplay = useMemo(() => {
 		if (msg.role !== "user") return null;
 		let imagePaths = msg.images ?? [];
@@ -86,20 +67,6 @@ export const Bubble = memo(function Bubble({
 			imagePaths,
 		};
 	}, [msg.content, msg.images, msg.role, slashCommandNames]);
-	const handleCopyMessage = useCallback(() => {
-		if (!msg.content) return;
-		navigator.clipboard
-			.writeText(msg.content)
-			.then(() => {
-				setCopied(true);
-				if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
-				copiedTimerRef.current = setTimeout(() => {
-					copiedTimerRef.current = null;
-					setCopied(false);
-				}, 1500);
-			})
-			.catch(() => setCopied(false));
-	}, [msg.content]);
 
 	if (msg.role === "user") {
 		const commandMatch = msg.content.match(/^\/([a-zA-Z0-9_-]+)(\s|$)/);
@@ -207,9 +174,9 @@ export const Bubble = memo(function Bubble({
 		if (editPayload && !msg.isStreaming) {
 			return (
 				<MiniEditDiff
-					oldStr={editPayload.oldString}
-					newStr={editPayload.newString}
-					filePath={editPayload.filePath}
+					oldStr={editPayload.old_string}
+					newStr={editPayload.new_string}
+					filePath={editPayload.file_path}
 					isStreaming={msg.isStreaming}
 				/>
 			);

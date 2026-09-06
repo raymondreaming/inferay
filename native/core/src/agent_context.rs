@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 
 use crate::prompts::Prompt;
 
@@ -21,10 +20,8 @@ pub struct EffectiveAgentContext {
     pub project: Option<AgentContextLayer>,
     pub chat: Option<AgentContextLayer>,
     pub effective_instructions: String,
-    pub scope: String,
-    pub skill_count: usize,
-    pub skill_manifest: String,
-    pub activated_skills: Vec<Value>,
+    #[serde(skip)]
+    pub activated_skills: String,
 }
 
 #[derive(Debug)]
@@ -53,39 +50,18 @@ impl AgentContextStore {
         Self { path }
     }
 
-    pub fn resolve(
-        &self,
-        cwd: Option<&str>,
-        pane_id: Option<&str>,
-        skills: &[Prompt],
-    ) -> EffectiveAgentContext {
-        let stored = self.load();
-        let project = project_key(cwd).and_then(|key| stored.projects.get(&key).cloned());
-        let chat = pane_id.and_then(|id| stored.chats.get(id).cloned());
+    pub fn resolve(&self, cwd: Option<&str>, pane_id: Option<&str>) -> EffectiveAgentContext {
+        let mut stored = self.load();
+        let project = project_key(cwd).and_then(|key| stored.projects.remove(&key));
+        let chat = pane_id.and_then(|id| stored.chats.remove(id));
         let effective_instructions =
             compose_layers(&stored.global, project.as_ref(), chat.as_ref());
-        let scope = if chat
-            .as_ref()
-            .is_some_and(|layer| !layer.instructions.trim().is_empty())
-        {
-            "chat"
-        } else if project
-            .as_ref()
-            .is_some_and(|layer| !layer.instructions.trim().is_empty())
-        {
-            "project"
-        } else {
-            "global"
-        };
         EffectiveAgentContext {
             global: stored.global,
             project,
             chat,
             effective_instructions,
-            scope: scope.into(),
-            skill_count: skills.len(),
-            skill_manifest: create_skill_manifest(skills),
-            activated_skills: Vec::new(),
+            activated_skills: String::new(),
         }
     }
 
@@ -96,28 +72,28 @@ impl AgentContextStore {
         text: &str,
         skills: &[Prompt],
     ) -> EffectiveAgentContext {
-        let mut context = self.resolve(cwd, pane_id, skills);
+        let mut context = self.resolve(cwd, pane_id);
         let normalized = text.to_lowercase();
         context.activated_skills = skills
             .iter()
             .filter(|skill| {
-                let command = skill.command.to_lowercase();
-                let explicit = normalized.contains(&format!("/{command}"));
-                let trigger_terms = [skill.command.replace('-', " "), skill.name.clone()];
-                let automatic = trigger_terms.into_iter().any(|term| {
-                    let term = term.to_lowercase().trim().to_string();
-                    term.len() >= 4 && normalized.contains(&term)
-                });
-                explicit || automatic
+                normalized.contains(&format!("/{}", skill.command.to_lowercase()))
+                    || [skill.command.replace('-', " ").as_str(), &skill.name]
+                        .into_iter()
+                        .any(|term| {
+                            let lower = term.to_lowercase();
+                            let term = lower.trim();
+                            term.len() >= 4 && normalized.contains(term)
+                        })
             })
             .map(|skill| {
-                json!({
-                    "name": skill.name,
-                    "command": skill.command,
-                    "instructions": skill.prompt_template,
-                })
+                format!(
+                    "<activated-skill name=\"{}\">\n{}\n</activated-skill>",
+                    skill.command, skill.prompt_template
+                )
             })
-            .collect();
+            .collect::<Vec<_>>()
+            .join("\n\n");
         context
     }
 
@@ -130,24 +106,26 @@ impl AgentContextStore {
         };
         match update.scope.as_str() {
             "global" => stored.global = layer,
-            "project" => {
-                let key = project_key(update.cwd.as_deref())
-                    .ok_or_else(|| "A project directory is required".to_string())?;
-                if layer.instructions.is_empty() {
-                    stored.projects.remove(&key);
+            "project" | "chat" => {
+                let (layers, key) = if update.scope == "project" {
+                    (
+                        &mut stored.projects,
+                        project_key(update.cwd.as_deref())
+                            .ok_or_else(|| "A project directory is required".to_string())?,
+                    )
                 } else {
-                    stored.projects.insert(key, layer);
-                }
-            }
-            "chat" => {
-                let pane_id = update
-                    .pane_id
-                    .filter(|value| !value.is_empty())
-                    .ok_or_else(|| "A chat pane is required".to_string())?;
+                    (
+                        &mut stored.chats,
+                        update
+                            .pane_id
+                            .filter(|value| !value.is_empty())
+                            .ok_or_else(|| "A chat pane is required".to_string())?,
+                    )
+                };
                 if layer.instructions.is_empty() {
-                    stored.chats.remove(&pane_id);
+                    layers.remove(&key);
                 } else {
-                    stored.chats.insert(pane_id, layer);
+                    layers.insert(key, layer);
                 }
             }
             _ => return Err("scope is invalid".into()),
@@ -162,24 +140,6 @@ impl AgentContextStore {
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default()
     }
-}
-
-pub fn create_skill_manifest(skills: &[Prompt]) -> String {
-    skills
-        .iter()
-        .map(|skill| {
-            let description = if skill.description.is_empty() {
-                &skill.name
-            } else {
-                &skill.description
-            };
-            format!(
-                "- {}: {} (invoke with /{})",
-                skill.command, description, skill.command
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 impl Default for AgentContextLayer {
@@ -215,20 +175,16 @@ fn compose_layers(
     project: Option<&AgentContextLayer>,
     chat: Option<&AgentContextLayer>,
 ) -> String {
-    let mut parts = if global.instructions.trim().is_empty() {
-        Vec::new()
-    } else {
-        vec![global.instructions.trim().to_string()]
-    };
-    for layer in [project, chat].into_iter().flatten() {
-        if layer.instructions.trim().is_empty() {
+    let mut parts = Vec::new();
+    for layer in [Some(global), project, chat].into_iter().flatten() {
+        let instructions = layer.instructions.trim();
+        if instructions.is_empty() {
             continue;
         }
         if layer.mode == "replace" {
-            parts = vec![layer.instructions.trim().to_string()];
-        } else {
-            parts.push(layer.instructions.trim().to_string());
+            parts.clear();
         }
+        parts.push(instructions);
     }
     parts.join("\n\n")
 }

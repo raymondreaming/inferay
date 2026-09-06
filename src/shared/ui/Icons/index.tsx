@@ -1,6 +1,11 @@
 import { memo } from "octane";
 import type { CSSProperties } from "react";
 
+import type { GraphRail } from "../../../modules/repository/hooks/useGitGraph.tsx";
+import type { RowTransition } from "../../../modules/workbench/graph/model/graph-model.ts";
+
+type PositionedRail = GraphRail & { key: string; row: number };
+
 export const CommitGraphLinesLayer = memo(function CommitGraphLinesLayer({
 	width,
 	height,
@@ -21,51 +26,21 @@ export const CommitGraphLinesLayer = memo(function CommitGraphLinesLayer({
 	height: number;
 	className?: string;
 	style?: CSSProperties;
-	railSegments: Array<{
-		key: string;
-		row: number;
-		column: number;
-		color: string;
-		startsAtNode: boolean;
-		endsAtNode: boolean;
-	}>;
-	transitions: Array<{
-		row: number;
-		fromCol: number;
-		toCol: number;
-		color: string;
-	}>;
-	convergences: Array<{
-		row: number;
-		fromCol: number;
-		toCol: number;
-		color: string;
-	}>;
-	truncatedSegments: Array<{
-		key: string;
-		row: number;
-		column: number;
-		color: string;
-	}>;
+	railSegments: PositionedRail[];
+	transitions: RowTransition[];
+	convergences: RowTransition[];
+	truncatedSegments: PositionedRail[];
 	colX: (column: number) => number;
 	rowTop: (row: number) => number;
 	rowBottom: (row: number) => number;
-	buildConnection: (transition: {
-		row: number;
-		fromCol: number;
-		toCol: number;
-		color: string;
-	}) => string;
-	buildConvergence: (transition: {
-		row: number;
-		fromCol: number;
-		toCol: number;
-		color: string;
-	}) => string;
+	buildConnection: (transition: RowTransition) => string;
+	buildConvergence: (transition: RowTransition) => string;
 	lineWidth: number;
 }) {
 	return (
 		<svg
+			strokeWidth={lineWidth}
+			strokeLinecap="round"
 			aria-hidden="true"
 			overflow="hidden"
 			className={className}
@@ -89,43 +64,31 @@ export const CommitGraphLinesLayer = memo(function CommitGraphLinesLayer({
 						x2={x}
 						y2={segment.endsAtNode ? center : bottom}
 						stroke={segment.color}
-						strokeWidth={lineWidth}
 						strokeOpacity={0.98}
-						strokeLinecap="round"
 					/>
 				);
 			})}
 			{transitions.map((transition) => (
-				<g
+				<path
 					key={`${transition.row}:${transition.fromCol}:${transition.toCol}:${transition.color}`}
-				>
-					<path
-						data-graph-transition="true"
-						d={buildConnection(transition)}
-						stroke={transition.color}
-						strokeWidth={lineWidth}
-						strokeOpacity={0.96}
-						strokeLinecap="round"
-						strokeLinejoin="round"
-						fill="none"
-					/>
-				</g>
+					data-graph-transition="true"
+					d={buildConnection(transition)}
+					stroke={transition.color}
+					strokeOpacity={0.96}
+					strokeLinejoin="round"
+					fill="none"
+				/>
 			))}
 			{convergences.map((transition) => (
-				<g
+				<path
 					key={`convergence:${transition.row}:${transition.fromCol}:${transition.toCol}:${transition.color}`}
-				>
-					<path
-						data-graph-convergence="true"
-						d={buildConvergence(transition)}
-						stroke={transition.color}
-						strokeWidth={lineWidth}
-						strokeOpacity={0.98}
-						strokeLinecap="round"
-						strokeLinejoin="round"
-						fill="none"
-					/>
-				</g>
+					data-graph-convergence="true"
+					d={buildConvergence(transition)}
+					stroke={transition.color}
+					strokeOpacity={0.98}
+					strokeLinejoin="round"
+					fill="none"
+				/>
 			))}
 			{truncatedSegments.map((segment) => {
 				const x = colX(segment.column);
@@ -138,9 +101,7 @@ export const CommitGraphLinesLayer = memo(function CommitGraphLinesLayer({
 							x2={x}
 							y2={rowBottom(segment.row)}
 							stroke={segment.color}
-							strokeWidth={lineWidth}
 							strokeDasharray="2 3"
-							strokeLinecap="round"
 						/>
 						<circle
 							cx={x}

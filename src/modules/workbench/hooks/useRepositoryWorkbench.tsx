@@ -8,8 +8,8 @@ import {
 } from "../../../adapters/storage/stored-values.ts";
 import {
 	listenWindowEvent,
-	lockPointerSelection,
 	queryClient,
+	trackPointerResize,
 } from "../../../shared/lib/data.ts";
 import {
 	DOCUMENT_OPEN_EVENT,
@@ -57,6 +57,7 @@ import type {
 	GitRefOperationRequest,
 } from "../model/workbench-model.ts";
 import {
+	adjacentGitFile,
 	emptyGitWorkspacePanelSession,
 	GIT_FILE_VIEW_MODE_STORAGE_KEY,
 	type GitWorkspaceDetachedFilePanel,
@@ -153,15 +154,8 @@ export function useWorkspacePanelSession(workspaceId: string) {
 				action: PanelAction;
 			}) => {
 				await queryClient.ensureQueryData(panelQuery(workspaceId));
-				const wireAction =
-					action.type === "detachFile"
-						? {
-								type: action.type,
-								id: action.id,
-								cwd: action.cwd,
-								path: action.path,
-							}
-						: action;
+				const wireAction = { ...action };
+				if (wireAction.type === "detachFile") delete wireAction.initialFile;
 				return postJson<{
 					session: WorkspacePanelSession;
 					announcement: string | null;
@@ -332,14 +326,6 @@ export function useRepositoryWorkbench({
 			setZenMode(false);
 		});
 	}, [active, zenMode]);
-	const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
-	const diffDragRef = useRef<{ startX: number; startWidth: number } | null>(
-		null,
-	);
-	const sidebarWidthRef = useRef(sidebarWidth);
-	const diffWidthRef = useRef(diffWidth);
-	sidebarWidthRef.current = sidebarWidth;
-	diffWidthRef.current = diffWidth;
 	const activeCwd = focusedAuxiliaryPanel?.cwd ?? cwd;
 	const trackedCwds = useMemo(() => {
 		if (!active) return [];
@@ -557,6 +543,10 @@ export function useRepositoryWorkbench({
 				outcome: "failed",
 				conflicts: [],
 				errorKind,
+				errorLabel:
+					errorKind === "invalidInput"
+						? "Invalid Git action"
+						: "Git command failed",
 				error,
 			});
 			if (!graphCwd)
@@ -669,8 +659,6 @@ export function useRepositoryWorkbench({
 		commitMessage,
 		setCommitMessage,
 		isCommitting,
-		amendMode,
-		setAmendMode,
 		stageFile,
 		unstageFile,
 		stageAll,
@@ -706,7 +694,11 @@ export function useRepositoryWorkbench({
 			comparisonSource,
 		],
 	);
-	const { diff, loading: diffLoading } = useGitDiff(diffRequest);
+	const {
+		diff,
+		error: diffError,
+		loading: diffLoading,
+	} = useGitDiff(diffRequest);
 
 	useEffect(() => {
 		if (!selectedFile || !diffViewerProject || commitSource || comparisonSource)
@@ -874,22 +866,15 @@ export function useRepositoryWorkbench({
 			if (firstFile) selectChangedFile(firstFile);
 			return;
 		}
-		if (selectedCommitIds.length > 1) {
-			if (comparisonDetailsState.loading) return;
-			setPendingGraphFileOpen(null);
-			const firstFile =
-				comparisonKeyboardFiles.find(
-					(file) => file.path === selectedFile?.path,
-				) ?? comparisonKeyboardFiles[0];
-			if (firstFile) selectComparisonFile(firstFile);
+		const comparing = selectedCommitIds.length > 1;
+		if (comparing ? comparisonDetailsState.loading : commitDetailsState.loading)
 			return;
-		}
-		if (commitDetailsState.loading) return;
 		setPendingGraphFileOpen(null);
+		const files = comparing ? comparisonKeyboardFiles : commitKeyboardFiles;
 		const firstFile =
-			commitKeyboardFiles.find((file) => file.path === selectedFile?.path) ??
-			commitKeyboardFiles[0];
-		if (firstFile) selectCommitFile(firstFile);
+			files.find((file) => file.path === selectedFile?.path) ?? files[0];
+		if (firstFile)
+			(comparing ? selectComparisonFile : selectCommitFile)(firstFile);
 	}, [
 		commitDetailsState.loading,
 		commitKeyboardFiles,
@@ -939,25 +924,14 @@ export function useRepositoryWorkbench({
 	}, [diffViewerCwd, updatePanelSession]);
 	const cycleChangedFile = useCallback(
 		(direction: -1 | 1) => {
-			if (!keyboardFiles.length) return;
-			const currentIndex = selectedFile
-				? keyboardFiles.findIndex(
-						(file) =>
-							file.path === selectedFile.path &&
-							file.staged === selectedFile.staged,
-					)
-				: -1;
-			const nextIndex =
-				currentIndex < 0
-					? direction > 0
-						? 0
-						: keyboardFiles.length - 1
-					: Math.max(
-							0,
-							Math.min(keyboardFiles.length - 1, currentIndex + direction),
-						);
-			if (nextIndex === currentIndex) return;
-			selectChangedFile(keyboardFiles[nextIndex]!);
+			const next = adjacentGitFile(
+				keyboardFiles,
+				(file) =>
+					file.path === selectedFile?.path &&
+					file.staged === selectedFile?.staged,
+				direction,
+			);
+			if (next) selectChangedFile(next);
 		},
 		[keyboardFiles, selectChangedFile, selectedFile],
 	);
@@ -967,21 +941,12 @@ export function useRepositoryWorkbench({
 			const historicalFiles = comparisonDiff
 				? comparisonKeyboardFiles
 				: commitKeyboardFiles;
-			if (!historicalFiles.length) return;
-			const currentIndex = selectedFile
-				? historicalFiles.findIndex((file) => file.path === selectedFile.path)
-				: -1;
-			const nextIndex =
-				currentIndex < 0
-					? direction > 0
-						? 0
-						: historicalFiles.length - 1
-					: Math.max(
-							0,
-							Math.min(historicalFiles.length - 1, currentIndex + direction),
-						);
-			if (nextIndex === currentIndex) return;
-			const nextFile = historicalFiles[nextIndex]!;
+			const nextFile = adjacentGitFile(
+				historicalFiles,
+				(file) => file.path === selectedFile?.path,
+				direction,
+			);
+			if (!nextFile) return;
 			if (comparisonDiff) selectComparisonFile(nextFile);
 			else selectCommitFile(nextFile);
 		},
@@ -1017,18 +982,14 @@ export function useRepositoryWorkbench({
 				closeDiffViewer();
 				return;
 			}
-			if (isHistoricalGitWorkspaceDiff(panelSession)) {
-				if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-					event.preventDefault();
-					cycleHistoricalFile(event.key === "ArrowUp" ? -1 : 1);
-				}
-				return;
-			}
-
+			const historical = isHistoricalGitWorkspaceDiff(panelSession);
 			if (event.key === "ArrowUp" || event.key === "ArrowDown") {
 				event.preventDefault();
-				cycleChangedFile(event.key === "ArrowUp" ? -1 : 1);
+				(historical ? cycleHistoricalFile : cycleChangedFile)(
+					event.key === "ArrowUp" ? -1 : 1,
+				);
 			} else if (
+				!historical &&
 				event.key === "Enter" &&
 				selectedFile &&
 				target.tagName !== "BUTTON"
@@ -1061,93 +1022,53 @@ export function useRepositoryWorkbench({
 		return listenWindowEvent("keydown", handleDiffKeyboardNavigation);
 	}, [active, handleDiffKeyboardNavigation]);
 	const handleResizeStart = useCallback(
-		(event: MouseEvent & { currentTarget: HTMLButtonElement }) => {
-			event.preventDefault();
-			const releaseSelection = lockPointerSelection();
-			const shell = event.currentTarget.parentElement;
-			dragRef.current = { startX: event.clientX, startWidth: sidebarWidth };
-			const move = (moveEvent: MouseEvent) => {
-				if (!dragRef.current) return;
-				const width = Math.min(
-					MAX_SIDEBAR_WIDTH,
-					Math.max(
-						MIN_SIDEBAR_WIDTH,
-						dragRef.current.startWidth +
-							dragRef.current.startX -
-							moveEvent.clientX,
-					),
-				);
-				sidebarWidthRef.current = width;
-				if (shell) shell.style.width = `${width}px`;
-			};
-			const end = () => {
-				releaseSelection();
-				writeStoredValue(SIDEBAR_WIDTH_KEY, String(sidebarWidthRef.current));
-				setSidebarWidth(sidebarWidthRef.current);
-				dragRef.current = null;
-				document.removeEventListener("mousemove", move);
-				document.removeEventListener("mouseup", end);
-			};
-			document.addEventListener("mousemove", move);
-			document.addEventListener("mouseup", end);
-		},
-		[sidebarWidth],
-	);
-	const handleDiffResizeStart = useCallback(
-		(event: PointerEvent & { currentTarget: HTMLButtonElement }) => {
+		(
+			event: PointerEvent & { currentTarget: HTMLButtonElement },
+			isDiff = false,
+		) => {
 			if (event.button !== 0) return;
 			event.preventDefault();
-			event.stopPropagation();
-			const releaseSelection = lockPointerSelection();
+			if (isDiff) event.stopPropagation();
 			const rail = event.currentTarget.parentElement;
-			const workspaceWidth =
-				event.currentTarget.parentElement?.parentElement?.getBoundingClientRect()
-					.width ?? window.innerWidth;
-			const reservedSidebarWidth = sidebarVisible ? sidebarWidth : 0;
-			const availableWidth = Math.max(
-				MIN_DIFF_WIDTH,
-				workspaceWidth - reservedSidebarWidth - MIN_RESPONSIVE_PANE_WIDTH,
-			);
-			const maximumWidth = availableWidth;
-			const pointerId = event.pointerId;
-			diffDragRef.current = {
-				startX: event.clientX,
-				startWidth: rail?.getBoundingClientRect().width ?? diffWidth,
-			};
-			try {
-				event.currentTarget.setPointerCapture(pointerId);
-			} catch {}
-			const move = (moveEvent: PointerEvent) => {
-				if (moveEvent.pointerId !== pointerId || !diffDragRef.current) return;
-				moveEvent.preventDefault();
-				const width = Math.min(
-					maximumWidth,
-					Math.max(
+			const minimum = isDiff ? MIN_DIFF_WIDTH : MIN_SIDEBAR_WIDTH;
+			const maximum = isDiff
+				? Math.max(
 						MIN_DIFF_WIDTH,
-						diffDragRef.current.startWidth +
-							diffDragRef.current.startX -
-							moveEvent.clientX,
-					),
-				);
-				diffWidthRef.current = width;
-				if (rail) rail.style.width = `${width}px`;
-			};
-			const end = (endEvent: PointerEvent) => {
-				if (endEvent.pointerId !== pointerId) return;
-				releaseSelection();
-				writeStoredValue(
-					`${DIFF_WIDTH_KEY_PREFIX}${workspaceId}`,
-					String(diffWidthRef.current),
-				);
-				setDiffWidth(diffWidthRef.current);
-				diffDragRef.current = null;
-				window.removeEventListener("pointermove", move);
-				window.removeEventListener("pointerup", end);
-				window.removeEventListener("pointercancel", end);
-			};
-			window.addEventListener("pointermove", move);
-			window.addEventListener("pointerup", end);
-			window.addEventListener("pointercancel", end);
+						(rail?.parentElement?.getBoundingClientRect().width ??
+							window.innerWidth) -
+							(sidebarVisible ? sidebarWidth : 0) -
+							MIN_RESPONSIVE_PANE_WIDTH,
+					)
+				: MAX_SIDEBAR_WIDTH;
+			const startX = event.clientX;
+			const startWidth = isDiff
+				? (rail?.getBoundingClientRect().width ?? diffWidth)
+				: sidebarWidth;
+			let width = isDiff ? diffWidth : sidebarWidth;
+			try {
+				event.currentTarget.setPointerCapture(event.pointerId);
+			} catch {}
+			trackPointerResize(
+				event.pointerId,
+				(moveEvent) => {
+					moveEvent.preventDefault();
+					width = Math.min(
+						maximum,
+						Math.max(minimum, startWidth + startX - moveEvent.clientX),
+					);
+					if (rail) rail.style.width = `${width}px`;
+				},
+				() => {
+					writeStoredValue(
+						isDiff
+							? `${DIFF_WIDTH_KEY_PREFIX}${workspaceId}`
+							: SIDEBAR_WIDTH_KEY,
+						String(width),
+					);
+					if (isDiff) setDiffWidth(width);
+					else setSidebarWidth(width);
+				},
+			);
 		},
 		[diffWidth, sidebarVisible, sidebarWidth, workspaceId],
 	);
@@ -1243,12 +1164,13 @@ export function useRepositoryWorkbench({
 				width={diffWidth}
 				maxWidth={`max(0px, calc(100% - ${MIN_RESPONSIVE_PANE_WIDTH + (sidebarVisible ? sidebarWidth : 0)}px))`}
 				onFocus={focusDiffViewer}
-				onResize={handleDiffResizeStart}
+				onResize={(event) => handleResizeStart(event, true)}
 			>
 				<ChatDiffPanel
 					diff={diff}
 					file={selectedFile}
 					loading={diffLoading}
+					error={diffError}
 					mainViewMode={mainViewMode}
 					onMainViewModeChange={changeMainViewMode}
 					graph={graph}
@@ -1336,8 +1258,6 @@ export function useRepositoryWorkbench({
 				onCommitMessageChange={setCommitMessage}
 				onCommit={commit}
 				isCommitting={isCommitting}
-				amendMode={amendMode}
-				onAmendModeChange={setAmendMode}
 				showFileActions={!selectedLinkedWorktreeStatus}
 				showCommitSection={!selectedLinkedWorktreeStatus}
 			/>

@@ -5,86 +5,41 @@ import type { ReactNode } from "../../../../shared/ui/gooey/observer.ts";
 import { getAgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
 import { getAgentDefinition } from "../../../agents/model/agents.ts";
 import type { WorkspaceModelAgentKind as AgentKind } from "../../../workspace/model/workspace-model.ts";
-import type {
-	FileMenuState,
-	FileSearchResult,
-	SlashMenuState,
-} from "../../hooks/useAgentChatMenus.tsx";
-import type {
-	AttachedImageInfo,
-	QueuedMessageInfo,
-	SlashCommand,
-} from "../../model/agent-chat-shared.ts";
+import type { useAgentChatComposerState } from "../../hooks/useAgentChatComposerState.tsx";
+import type { useAgentChatMenus } from "../../hooks/useAgentChatMenus.tsx";
 import { renderInputHighlights } from "../ChatTokenDecorators/index.tsx";
 export type AgentOption = {
 	id: AgentKind;
 	label: string;
 	icon: unknown;
 };
-export function useChatComposerState(props: {
-	agentKind: AgentKind;
-	agentKindOptions: AgentOption[];
-	model: string;
-	reasoningLevel: string;
-	onAgentKindChange: (agentKind: AgentKind) => void;
-	onModelChange: (model: string) => void;
-	onReasoningLevelChange: (reasoningLevel: string) => void;
-	onAgentConfigOpenChange?: (open: boolean) => void;
-	input: string;
-	setInput: (value: string) => void;
-	attachedImages: AttachedImageInfo[];
-	removeAttachedImage: (path: string) => void;
-	attachImage: (file: File) => Promise<void>;
-	queuedMessages: QueuedMessageInfo[];
-	editingQueueId: string | null;
-	editingQueueText: string;
-	setEditingQueueText: (text: string) => void;
-	startQueuedMessageEdit: (id: string, text: string) => void;
-	cancelQueuedMessageEdit: () => void;
-	saveQueuedMessageEdit: (id: string) => void;
-	removeQueuedMessage: (id: string) => void;
-	fileMenu: FileMenuState;
-	setFileMenu: React.Dispatch<React.SetStateAction<FileMenuState>>;
-	fileResults: FileSearchResult[];
-	selectFile: (idx: number) => void;
-	slashMenu: SlashMenuState;
-	setSlashMenu: React.Dispatch<React.SetStateAction<SlashMenuState>>;
-	showCommands: boolean;
-	filteredCommands: SlashCommand[];
-	slashCommandNames: readonly string[];
-	selectCommand: (idx: number) => void;
-	handleInputForFileMenu: (value: string, cursorPos: number) => void;
-	handleInputForSlashMenu: (value: string, cursorPos: number) => void;
-	handleKeyDown: (e: KeyboardEvent) => void;
-	handlePaste: (e: ClipboardEvent) => void;
-	textareaRef: React.RefObject<HTMLTextAreaElement | null>;
-	highlightOverlayRef: React.RefObject<HTMLDivElement | null>;
-	mdPreview: {
-		show: boolean;
-		path: string;
-		content: string | null;
-		loading: boolean;
-		error: string | null;
-	};
-	setMdPreview: React.Dispatch<
-		React.SetStateAction<{
-			show: boolean;
-			path: string;
-			content: string | null;
-			loading: boolean;
-			error: string | null;
-		}>
-	>;
-	onMdFileClick: (path: string) => void;
-	voiceInput?: {
-		error: string | null;
-		isListening: boolean;
-		isSupported: boolean;
-		onToggleListening: () => void;
-	};
-	workspaceControl?: ReactNode;
-	beamActive?: boolean;
-}) {
+export function useChatComposerState(
+	props: ReturnType<typeof useAgentChatComposerState> &
+		ReturnType<typeof useAgentChatMenus> & {
+			agentKind: AgentKind;
+			agentKindOptions: AgentOption[];
+			model: string;
+			reasoningLevel: string;
+			onAgentKindChange: (agentKind: AgentKind) => void;
+			onModelChange: (model: string) => void;
+			onReasoningLevelChange: (reasoningLevel: string) => void;
+			onAgentConfigOpenChange?: (open: boolean) => void;
+			input: string;
+			setInput: (value: string) => void;
+			handleKeyDown: (e: KeyboardEvent) => void;
+			textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+			highlightOverlayRef: React.RefObject<HTMLDivElement | null>;
+			onMdFileClick: (path: string) => void;
+			voiceInput?: {
+				error: string | null;
+				isListening: boolean;
+				isSupported: boolean;
+				onToggleListening: () => void;
+			};
+			workspaceControl?: ReactNode;
+			beamActive?: boolean;
+		},
+) {
 	const {
 		agentKind,
 		agentKindOptions,

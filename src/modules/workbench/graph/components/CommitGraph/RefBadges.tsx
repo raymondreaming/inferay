@@ -3,7 +3,6 @@ import type {
 	GitGraphRef,
 	GitGraphRefKind,
 } from "../../../../repository/hooks/useGitGraph.tsx";
-import { refPresentationLabel } from "../../model/graph-model.ts";
 import { RefBadge } from "./RefBadge.tsx";
 import { styles } from "./styles.ts";
 
@@ -22,14 +21,14 @@ export function RefBadges({
 }) {
 	if (!refs.length) return null;
 	const primary = refs[0]!;
-	const primaryLabel = refPresentationLabel(primary);
+	const primaryLabel = primary.label;
 	const companionRefs = refs
 		.slice(1)
 		.filter(
 			(ref) =>
 				ref.kind === "remoteBranch" &&
 				primary.kind !== "remoteBranch" &&
-				refPresentationLabel(ref) === primaryLabel,
+				ref.label === primaryLabel,
 		);
 	const companionNames = new Set(companionRefs.map((ref) => ref.fullName));
 	const overflowRefs = refs
@@ -38,7 +37,7 @@ export function RefBadges({
 	const renderBadge = (ref: GitGraphRef, trailingKinds?: GitGraphRefKind[]) => (
 		<RefBadge
 			key={ref.fullName}
-			label={refPresentationLabel(ref)}
+			label={ref.label}
 			fullName={ref.fullName}
 			color={color}
 			kind={ref.kind}

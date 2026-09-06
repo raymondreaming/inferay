@@ -42,19 +42,6 @@ pub struct AgentQuickPicks {
     pub home: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum NativeAgentDirectoriesError {
-    PathOutsideAllowedRoots,
-}
-
-impl std::fmt::Display for NativeAgentDirectoriesError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("Path is outside allowed local roots")
-    }
-}
-
-impl std::error::Error for NativeAgentDirectoriesError {}
-
 /// Directory discovery reads the shared settings store on each request.
 #[derive(Clone, Debug)]
 pub struct NativeAgentDirectories {
@@ -101,12 +88,9 @@ impl NativeAgentDirectories {
         }
     }
 
-    pub fn browse(
-        &self,
-        path: impl AsRef<Path>,
-    ) -> Result<AgentDirectoryListing, NativeAgentDirectoriesError> {
+    pub fn browse(&self, path: impl AsRef<Path>) -> Result<AgentDirectoryListing, &'static str> {
         let Some(path) = self.allowed_paths.resolve_allowed_local_path(path) else {
-            return Err(NativeAgentDirectoriesError::PathOutsideAllowedRoots);
+            return Err("Path is outside allowed local roots");
         };
         let parent = path.parent().and_then(|parent| {
             (parent != path && self.allowed_paths.is_allowed_local_path(parent))

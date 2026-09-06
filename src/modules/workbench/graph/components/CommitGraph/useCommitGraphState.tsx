@@ -3,7 +3,7 @@ import {
 	readStoredJson,
 	writeStoredJson,
 } from "../../../../../adapters/storage/stored-values.ts";
-import { lockPointerSelection } from "../../../../../shared/lib/data.ts";
+import { trackPointerResize } from "../../../../../shared/lib/data.ts";
 import type {
 	GitGraphRef,
 	GraphNode,
@@ -31,7 +31,6 @@ import {
 	pinnedGraphColumnOrder,
 	preferencesKey,
 	ROW_HEIGHT,
-	ROW_OVERSCAN,
 	scrollPreferencesKey,
 	TOOLS_WIDTH,
 	TOP_PADDING,
@@ -367,8 +366,6 @@ export function useCommitGraphState(props: CommitGraphProps) {
 		commits.length,
 		Math.max(0, scrollTop - TOP_PADDING),
 		viewportHeight,
-		ROW_HEIGHT,
-		ROW_OVERSCAN,
 	);
 	useEffect(() => {
 		const scroller = scrollerRef.current;
@@ -551,7 +548,6 @@ export function useCommitGraphState(props: CommitGraphProps) {
 			event.preventDefault();
 			const startX = event.clientX;
 			const startWidth = widths[column];
-			const releaseSelection = lockPointerSelection();
 			const move = (moveEvent: PointerEvent) => {
 				setWidths((current) => ({
 					...current,
@@ -561,96 +557,43 @@ export function useCommitGraphState(props: CommitGraphProps) {
 					),
 				}));
 			};
-			const stop = () => {
-				releaseSelection();
-				window.removeEventListener("pointermove", move);
-				window.removeEventListener("pointerup", stop);
-				window.removeEventListener("pointercancel", stop);
-			};
-			window.addEventListener("pointermove", move);
-			window.addEventListener("pointerup", stop, {
-				once: true,
-			});
-			window.addEventListener("pointercancel", stop, {
-				once: true,
-			});
+			trackPointerResize(event.pointerId, move);
 		},
 		[widths],
 	);
-	const railSegments = useMemo(() => {
-		const segments: Array<{
-			key: string;
-			row: number;
-			column: number;
-			color: string;
-			startsAtNode: boolean;
-			endsAtNode: boolean;
-		}> = [];
-		for (const row of rows.slice(visibleStart, visibleEnd)) {
-			const logicalRow = row.row;
-			for (const rail of row.rails) {
-				segments.push({
-					key: `rail-${logicalRow}-${rail.column}`,
-					row: logicalRow,
-					column: rail.column,
-					color: rail.color,
-					startsAtNode: rail.startsAtNode === true,
-					endsAtNode: rail.endsAtNode === true,
-				});
-			}
-		}
-		return segments;
-	}, [rows, visibleEnd, visibleStart]);
-	const convergences = useMemo(() => {
-		const result: RowTransition[] = [];
-		for (const row of rows.slice(visibleStart, visibleEnd)) {
-			const logicalRow = row.row;
-			for (const transition of row.convergences ?? []) {
-				result.push({
-					row: logicalRow,
-					fromCol: transition.fromColumn,
-					toCol: transition.toColumn,
-					color: transition.color,
-				});
-			}
-		}
-		return result;
-	}, [rows, visibleEnd, visibleStart]);
-	const transitions = useMemo(() => {
-		const result: RowTransition[] = [];
-		for (const row of rows.slice(visibleStart, visibleEnd)) {
-			const logicalRow = row.row;
-			for (const transition of row.transitions) {
-				result.push({
-					row: logicalRow,
-					fromCol: transition.fromColumn,
-					toCol: transition.toColumn,
-					color: transition.color,
-				});
-			}
-		}
-		return result;
-	}, [rows, visibleEnd, visibleStart]);
-	const truncatedSegments = useMemo(() => {
-		const segments: Array<{
-			key: string;
-			row: number;
-			column: number;
-			color: string;
-		}> = [];
-		for (const row of rows.slice(visibleStart, visibleEnd)) {
-			const logicalRow = row.row;
-			for (const edge of row.truncatedEdges) {
-				segments.push({
-					key: `truncated-${logicalRow}-${edge.column}`,
-					row: logicalRow,
-					column: edge.column,
-					color: edge.color,
-				});
-			}
-		}
-		return segments;
-	}, [rows, visibleEnd, visibleStart]);
+	const { railSegments, convergences, transitions, truncatedSegments } =
+		useMemo(() => {
+			const visibleRows = rows.slice(visibleStart, visibleEnd);
+			const connections = (
+				key: "convergences" | "transitions",
+			): RowTransition[] =>
+				visibleRows.flatMap((row) =>
+					(row[key] ?? []).map((transition) => ({
+						row: row.row,
+						fromCol: transition.fromColumn,
+						toCol: transition.toColumn,
+						color: transition.color,
+					})),
+				);
+			return {
+				railSegments: visibleRows.flatMap((row) =>
+					row.rails.map((rail) => ({
+						...rail,
+						key: `rail-${row.row}-${rail.column}`,
+						row: row.row,
+					})),
+				),
+				truncatedSegments: visibleRows.flatMap((row) =>
+					row.truncatedEdges.map((edge) => ({
+						...edge,
+						key: `truncated-${row.row}-${edge.column}`,
+						row: row.row,
+					})),
+				),
+				convergences: connections("convergences"),
+				transitions: connections("transitions"),
+			};
+		}, [rows, visibleEnd, visibleStart]);
 	return {
 		...props,
 		emptyLabel,
@@ -738,7 +681,6 @@ export {
 	normalizedColumnWidths,
 	preferencesKey,
 	REF_WIDTH,
-	ROW_OVERSCAN,
 	SCROLL_PREFS_KEY,
 	SHA_WIDTH,
 	scrollPreferencesKey,

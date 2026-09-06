@@ -1,3 +1,4 @@
+import type { SlashCommand } from "../../conversation/model/agent-chat-shared.ts";
 export type AgentAccountHealth = "ready" | "needs-login" | "missing-cli";
 export interface AgentAccountProviderStatus {
 	kind: ChatAgentKind;
@@ -12,10 +13,6 @@ import {
 export type ChatAgentKind = "claude" | "codex";
 export type AgentKind = "agent" | ChatAgentKind;
 export type AgentIconKey = "agent" | "anthropic" | "openai";
-export interface NativeSlashCommand {
-	readonly name: string;
-	readonly description: string;
-}
 export interface ModelOption {
 	readonly id: string;
 	readonly label: string;
@@ -30,13 +27,8 @@ export interface ReasoningLevel {
 export interface AgentDefinition {
 	readonly kind: AgentKind;
 	readonly label: string;
-	readonly paneTitle: string;
-	readonly description: string;
 	readonly iconKey: AgentIconKey;
-	readonly supportsChat: boolean;
-	readonly supportsInteractiveAgent: boolean;
-	readonly supportsResume: boolean;
-	readonly nativeSlashCommands: readonly NativeSlashCommand[];
+	readonly commands: SlashCommand[];
 	readonly models: readonly ModelOption[];
 	readonly defaultModel: string;
 	readonly reasoningLevels: readonly ReasoningLevel[];
@@ -72,15 +64,9 @@ export function getAgentDefinition(kind: AgentKind): AgentDefinition {
 			kind,
 			label:
 				kind === "codex" ? "Codex" : kind === "claude" ? "Claude" : "Agent",
-			paneTitle:
-				kind === "codex" ? "Codex" : kind === "claude" ? "Claude" : "Agent",
-			description: "",
 			iconKey:
 				kind === "codex" ? "openai" : kind === "claude" ? "anthropic" : "agent",
-			supportsChat: kind !== "agent",
-			supportsInteractiveAgent: true,
-			supportsResume: false,
-			nativeSlashCommands: [],
+			commands: [],
 			models: [],
 			defaultModel: "",
 			reasoningLevels: [],

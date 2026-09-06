@@ -1,95 +1,18 @@
 import * as stylex from "@octanejs/stylex";
 import type { MdInlineToken } from "../../../../../shared/lib/data.ts";
+import { MarkdownInline } from "../../../../../shared/ui/MarkdownInline/index.tsx";
 import { styles } from "./styles.ts";
+
+const appearance = {
+	code: stylex.props(styles.inlineCode),
+	bold: stylex.props(styles.strong),
+	italic: stylex.props(styles.italic),
+	"bold-italic": stylex.props(styles.strongBold),
+	boldItalicEm: stylex.props(styles.italic),
+	strikethrough: stylex.props(styles.deleted),
+	image: { ...stylex.props(styles.image), alt: "" },
+	link: stylex.props(styles.link),
+};
 export function InlineTokens({ tokens }: { tokens: MdInlineToken[] }) {
-	return (
-		<>
-			{tokens.map((tok, index) => (
-				<InlineToken key={index} token={tok} />
-			))}
-		</>
-	);
-}
-
-export function InlineToken({ token }: { token: MdInlineToken }) {
-	switch (token.type) {
-		case "linebreak":
-			return <br />;
-
-		case "image":
-			return (
-				<img
-					src={token.href}
-					alt={token.alt ?? ""}
-					{...stylex.props(styles.image)}
-				/>
-			);
-
-		case "link":
-			return (
-				<a
-					href={token.href}
-					{...stylex.props(styles.link)}
-					target="_blank"
-					rel="noopener noreferrer"
-				>
-					{token.children ? (
-						<InlineTokens tokens={token.children} />
-					) : (
-						token.text
-					)}
-				</a>
-			);
-
-		case "code":
-			return <code {...stylex.props(styles.inlineCode)}>{token.text}</code>;
-
-		case "bold-italic":
-			return (
-				<strong {...stylex.props(styles.strongBold)}>
-					<em {...stylex.props(styles.italic)}>
-						{token.children ? (
-							<InlineTokens tokens={token.children} />
-						) : (
-							token.text
-						)}
-					</em>
-				</strong>
-			);
-
-		case "bold":
-			return (
-				<strong {...stylex.props(styles.strong)}>
-					{token.children ? (
-						<InlineTokens tokens={token.children} />
-					) : (
-						token.text
-					)}
-				</strong>
-			);
-
-		case "italic":
-			return (
-				<em {...stylex.props(styles.italic)}>
-					{token.children ? (
-						<InlineTokens tokens={token.children} />
-					) : (
-						token.text
-					)}
-				</em>
-			);
-
-		case "strikethrough":
-			return (
-				<del {...stylex.props(styles.deleted)}>
-					{token.children ? (
-						<InlineTokens tokens={token.children} />
-					) : (
-						token.text
-					)}
-				</del>
-			);
-		default:
-			return <>{token.text}</>;
-	}
+	return <MarkdownInline tokens={tokens} appearance={appearance} />;
 }

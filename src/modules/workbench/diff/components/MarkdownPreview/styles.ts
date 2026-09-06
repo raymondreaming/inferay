@@ -154,14 +154,6 @@ export const styles = stylex.create({
 		borderColor: color.border,
 		borderRadius: radius.sm,
 	},
-	nestedList: {
-		display: "flex",
-		flexDirection: "column",
-		gap: "0.125rem",
-		listStyleType: "disc",
-		marginTop: controlSize._1,
-		paddingLeft: controlSize._5,
-	},
 	codeBlock: {
 		position: "relative",
 	},

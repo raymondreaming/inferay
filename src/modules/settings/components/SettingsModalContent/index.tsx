@@ -2,13 +2,12 @@ import * as stylex from "@octanejs/stylex";
 import { useCallback, useMemo, useState } from "octane";
 import {
 	fetchJsonOr,
+	sendJson,
 	sendJsonWithBusy,
 } from "../../../../adapters/backend/http.ts";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
 import { DropdownButton } from "../../../../shared/ui/DropdownButton/index.tsx";
-import { IconRefreshCw } from "../../../../shared/ui/Icons/index.tsx";
 import { TextInput } from "../../../../shared/ui/TextInput/index.tsx";
 import { getAgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
 import type { AgentAccountProviderStatus } from "../../../agents/model/agents.ts";
@@ -50,13 +49,6 @@ export function SettingsModalContent({
 		error: accountsError,
 		refresh: refreshAccounts,
 	} = useForgeAccounts();
-	const loadState = accountsLoading
-		? "loading"
-		: accountsError
-			? "error"
-			: accounts.length > 0
-				? "ready"
-				: "idle";
 	const {
 		data: repos,
 		loading: reposLoading,
@@ -109,14 +101,11 @@ export function SettingsModalContent({
 			setError(error instanceof Error ? error.message : String(error));
 		}
 	};
-	const loadRepos = useCallback(
-		async (force = false) => {
-			setError(null);
-			if (force) invalidateGithubReposCache();
-			await refreshRepos();
-		},
-		[refreshRepos, setError],
-	);
+	const loadRepos = useCallback(async () => {
+		setError(null);
+		invalidateGithubReposCache();
+		await refreshRepos();
+	}, [refreshRepos, setError]);
 	const refreshGithubAccounts = useCallback(async () => {
 		invalidateForgeAccountsCache();
 		await refreshAccounts();
@@ -159,15 +148,9 @@ export function SettingsModalContent({
 		setCloneStatus(null);
 		setError(null);
 		try {
-			const response = await fetch("/api/forge/clone", {
-				method: "POST",
-				headers: {
-					"content-type": "application/json",
-				},
-				body: JSON.stringify({
-					gitUrl: repo.html_url,
-					cloneDirectory,
-				}),
+			const response = await sendJson("/api/forge/clone", {
+				gitUrl: repo.html_url,
+				cloneDirectory,
 			});
 			const payload = (await response.json()) as {
 				error?: string;
@@ -178,7 +161,6 @@ export function SettingsModalContent({
 			setCloneStatus(`Cloned ${repo.full_name} to ${payload.displayPath}`);
 			dispatchAgentShellChange({
 				source: "cache",
-				reason: "repo-cloned",
 			});
 		} catch (err) {
 			setError(
@@ -197,18 +179,7 @@ export function SettingsModalContent({
 							id="agent-defaults"
 							title="New chats"
 							description="The provider, model, and reasoning level used by default."
-							actions={
-								<Button
-									liquid={false}
-									type="button"
-									onClick={() => void refreshAgentAccountStatuses()}
-									variant="secondary"
-									size="sm"
-								>
-									<IconRefreshCw size={iconSize.md} />
-									<span>Refresh</span>
-								</Button>
-							}
+							onRefresh={refreshAgentAccountStatuses}
 						>
 							{agentAccountStatusesError ? (
 								<SettingsErrorBanner message={agentAccountStatusesError} />
@@ -269,42 +240,38 @@ export function SettingsModalContent({
 									</div>
 								</div>
 								<div {...stylex.props(styles.defaultSettingsGrid)}>
-									<div {...stylex.props(styles.settingField)}>
-										<span {...stylex.props(styles.settingLabel)}>Model</span>
-										<DropdownButton
-											liquid={false}
-											value={defaultChatSettings.model}
-											options={defaultModelOptions}
-											onChange={(model) =>
-												updateDefaultChatSettings({
-													model,
-												})
-											}
-											fullWidth
-											buttonClassName={
-												stylex.props(styles.settingsDropdown).className
-											}
-										/>
-									</div>
-									{defaultChatSettings.agentKind === "codex" ? (
-										<div {...stylex.props(styles.settingField)}>
+									{(
+										[
+											{
+												key: "model",
+												label: "Model",
+												options: defaultModelOptions,
+											},
+											...(defaultChatSettings.agentKind === "codex"
+												? [
+														{
+															key: "reasoningLevel",
+															label: "Reasoning",
+															options: defaultAgentDefinition.reasoningLevels,
+														},
+													]
+												: []),
+										] as const
+									).map((field) => (
+										<div key={field.key} {...stylex.props(styles.settingField)}>
 											<span {...stylex.props(styles.settingLabel)}>
-												Reasoning
+												{field.label}
 											</span>
 											<DropdownButton
 												liquid={false}
-												value={defaultChatSettings.reasoningLevel}
-												options={defaultAgentDefinition.reasoningLevels.map(
-													(level) => ({
-														id: level.id,
-														label: level.label,
-														detail: level.detail,
-													}),
-												)}
-												onChange={(reasoningLevel) =>
-													updateDefaultChatSettings({
-														reasoningLevel,
-													})
+												value={
+													field.key === "model"
+														? defaultChatSettings.model
+														: defaultChatSettings.reasoningLevel
+												}
+												options={field.options}
+												onChange={(value) =>
+													updateDefaultChatSettings({ [field.key]: value })
 												}
 												fullWidth
 												buttonClassName={
@@ -312,7 +279,7 @@ export function SettingsModalContent({
 												}
 											/>
 										</div>
-									) : null}
+									))}
 								</div>
 							</div>
 						</SettingsSection>
@@ -333,24 +300,13 @@ export function SettingsModalContent({
 								id="github-account"
 								title={accounts.length > 1 ? "Accounts" : "Account"}
 								description="Your GitHub identity, detected from the GitHub CLI."
-								actions={
-									<Button
-										liquid={false}
-										type="button"
-										onClick={() => void refreshGithubAccounts()}
-										variant="secondary"
-										size="sm"
-										className={stylex.props(styles.noShrink).className}
-									>
-										<IconRefreshCw size={iconSize.md} />
-										<span>Refresh</span>
-									</Button>
-								}
+								onRefresh={refreshGithubAccounts}
+								refreshNoShrink
 							>
 								{accountsError ? (
 									<SettingsErrorBanner message={accountsError} />
 								) : null}
-								{loadState === "loading" ? (
+								{accountsLoading ? (
 									<div {...stylex.props(styles.accountLoadingState)}>
 										Checking GitHub CLI account…
 									</div>
@@ -375,21 +331,9 @@ export function SettingsModalContent({
 								id="github"
 								title="Repositories"
 								description="Find repositories from your connected account and clone them locally."
-								actions={
-									accounts.length > 0 ? (
-										<Button
-											liquid={false}
-											type="button"
-											onClick={() => void loadRepos(true)}
-											variant="secondary"
-											size="sm"
-											className={stylex.props(styles.noShrink).className}
-										>
-											<IconRefreshCw size={iconSize.md} />
-											<span>Repos</span>
-										</Button>
-									) : null
-								}
+								onRefresh={accounts.length > 0 ? loadRepos : undefined}
+								refreshLabel="Repos"
+								refreshNoShrink
 							>
 								{githubResourceError ? (
 									<SettingsErrorBanner message={githubResourceError} />

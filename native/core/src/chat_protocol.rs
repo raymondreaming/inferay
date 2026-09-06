@@ -153,16 +153,6 @@ impl ChatMessageBuffer {
         let Some(event_type) = event.get("type").and_then(Value::as_str) else {
             return;
         };
-        if !matches!(
-            event_type,
-            "assistant"
-                | "content_block_start"
-                | "content_block_delta"
-                | "content_block_stop"
-                | "result"
-        ) {
-            return;
-        }
         match event_type {
             "assistant" => self.apply_assistant_event(event),
             "content_block_start" => self.apply_block_start(event),
@@ -174,7 +164,7 @@ impl ChatMessageBuffer {
                 self.current_tool_index = None;
             }
             "result" => self.apply_result(event),
-            _ => unreachable!(),
+            _ => return,
         }
         self.trim();
         self.prepare_render_model();
@@ -251,7 +241,7 @@ impl ChatMessageBuffer {
             {
                 cached.unwrap()
             } else {
-                let mut render = serde_json::json!({"version":1,"toolInput":null});
+                let mut render = serde_json::json!({"version":1});
                 if message.role == "system" {
                     if let Ok(value) = serde_json::from_str::<Value>(&message.content) {
                         prepare_system_card(&value, &mut render);
@@ -309,8 +299,8 @@ impl ChatMessageBuffer {
                             && let Some(path) = input.get("file_path").and_then(Value::as_str)
                         {
                             render["filePath"] = Value::String(path.to_owned());
+                            render["edit"] = serde_json::json!({"file_path":path,"old_string":input["old_string"],"new_string":input["new_string"]});
                         }
-                        render["toolInput"] = input;
                         render["trailingOutput"] =
                             Value::String(message.content[end..].trim_start().to_owned());
                     }

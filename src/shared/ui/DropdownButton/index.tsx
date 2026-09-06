@@ -26,7 +26,7 @@ import { styles } from "./styles.ts";
 
 interface DropdownButtonProps {
 	value: string | null;
-	options: DropdownOption[];
+	options: readonly DropdownOption[];
 	onChange: (id: string) => void;
 	placeholder?: string;
 	icon?: unknown;

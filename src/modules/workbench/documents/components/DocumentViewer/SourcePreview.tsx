@@ -5,7 +5,6 @@ import {
 	useShikiHighlighter,
 	useSyntaxHighlightTheme,
 } from "../../../../../shared/hooks/useShikiHighlighter.tsx";
-import { indexedValues } from "../../../../../shared/lib/data.ts";
 import type { FileContentResponse } from "../../../model/workbench-model.ts";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
@@ -103,7 +102,7 @@ export const SourcePreview = memo(function SourcePreview({
 						`translate3d(0, ${start * SOURCE_LINE_HEIGHT + 8}px, 0)`,
 					)}
 				>
-					{indexedValues(visibleLines).map(({ index, value }) => {
+					{visibleLines.map((value, index) => {
 						const absoluteIndex = start + index;
 						const tokens =
 							isReady && language && value.length <= MAX_SOURCE_LINE_CHARS

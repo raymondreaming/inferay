@@ -6,35 +6,19 @@ export function findDecoratedTokenRanges(
 ): TokenRange[] {
 	if (!text) return [];
 	const ranges: TokenRange[] = [];
-	const slashRegex = /(^|\s)(\/[a-zA-Z][\w-]*)/g;
-	const fileRegex = /(^|\s)(@[^\s]+)/g;
 	const knownSlashCommands = slashCommandNames
 		? new Set(slashCommandNames.map((name) => name.toLowerCase()))
 		: null;
-	for (
-		let match = slashRegex.exec(text);
-		match;
-		match = slashRegex.exec(text)
-	) {
-		const prefix = match[1]!;
+	for (const match of text.matchAll(/(^|\s)(\/[a-zA-Z][\w-]*|@[^\s]+)/g)) {
 		const token = match[2]!;
-		if (!knownSlashCommands?.has(token.slice(1).toLowerCase())) continue;
-		const start = match.index + prefix.length;
-		ranges.push({
-			start,
-			end: start + token.length,
-		});
+		if (
+			token.startsWith("/") &&
+			!knownSlashCommands?.has(token.slice(1).toLowerCase())
+		)
+			continue;
+		const start = match.index + match[1]!.length;
+		ranges.push({ start, end: start + token.length });
 	}
-	for (let match = fileRegex.exec(text); match; match = fileRegex.exec(text)) {
-		const prefix = match[1]!;
-		const token = match[2]!;
-		const start = match.index + prefix.length;
-		ranges.push({
-			start,
-			end: start + token.length,
-		});
-	}
-	ranges.sort((a, b) => a.start - b.start);
 	return ranges;
 }
 
@@ -105,7 +89,7 @@ export interface NativeChatRender {
 	groupId: string;
 	hidden: boolean;
 	filePath?: string;
-	toolInput: Record<string, unknown> | null;
+	edit?: { file_path: string; old_string: string; new_string: string };
 	trailingOutput?: string;
 	display?: NativeToolDisplay;
 	summary?: NativeToolSummary | null;
@@ -161,7 +145,6 @@ export type ChatLoadingState = {
 	status: string;
 	startTime: number | null;
 };
-export type ChatUiState = ChatLoadingState & { expandedTools: Set<string> };
 export interface SlashCommand {
 	id?: string;
 	name: string;
@@ -196,25 +179,13 @@ let msgId = 0;
 export function nextId() {
 	return `c${++msgId}-${Date.now().toString(36)}`;
 }
-export function truncateChatContent(
-	content: string,
-	maxChars = CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
-): string {
-	if (content.length <= maxChars) return content;
-	if (maxChars <= CHAT_TRUNCATION_MARKER.length) {
-		return content.slice(-Math.max(0, maxChars));
-	}
-	const prefixLength = Math.min(
-		Math.floor(maxChars / 4),
-		maxChars - CHAT_TRUNCATION_MARKER.length,
-	);
-	const suffixLength = maxChars - CHAT_TRUNCATION_MARKER.length - prefixLength;
-	if (suffixLength <= 0) {
-		return (content.slice(0, prefixLength) + CHAT_TRUNCATION_MARKER).slice(
-			0,
-			maxChars,
-		);
-	}
+function truncateChatContent(content: string): string {
+	if (content.length <= CHAT_SINGLE_MESSAGE_CHAR_LIMIT) return content;
+	const prefixLength = CHAT_SINGLE_MESSAGE_CHAR_LIMIT / 4;
+	const suffixLength =
+		CHAT_SINGLE_MESSAGE_CHAR_LIMIT -
+		CHAT_TRUNCATION_MARKER.length -
+		prefixLength;
 	return (
 		content.slice(0, prefixLength) +
 		CHAT_TRUNCATION_MARKER +
@@ -258,37 +229,6 @@ export function appendTrimmedMessage(
 ): AgentChatSharedChatMessage[] {
 	return trimMessages([...msgs, msg]);
 }
-function transcriptDuplicateKey(
-	message:
-		| Pick<AgentChatSharedChatMessage, "content" | "isStreaming" | "role">
-		| undefined,
-) {
-	if (!message?.content || message.isStreaming) return null;
-	if (message.role === "assistant") return `assistant:${message.content}`;
-	if (message.role === "system") return `system:${message.content}`;
-	return null;
-}
-export function compactAdjacentDuplicateTranscriptMessages<
-	T extends Pick<
-		AgentChatSharedChatMessage,
-		"content" | "isStreaming" | "role"
-	>,
->(messages: T[]): T[] {
-	let compacted: T[] | null = null;
-	let previousKey: string | null = null;
-	for (let index = 0; index < messages.length; index++) {
-		const message = messages[index]!;
-		const key = transcriptDuplicateKey(message);
-		if (key && key === previousKey) {
-			compacted ??= messages.slice(0, index);
-			continue;
-		}
-		previousKey = key;
-		if (compacted) compacted.push(message);
-	}
-	return compacted ?? messages;
-}
-type ChatActivityUiState = { expandedTools: Set<string> };
 export function findTriggerAtCursor(
 	value: string,
 	cursorPos: number,
@@ -314,18 +254,6 @@ export function hideMenuState<S extends { show: boolean }>(state: S): S {
 	return {
 		...state,
 		show: false,
-	};
-}
-export function clearCompletedChatUiState(
-	messageIds: Set<string>,
-	state: ChatActivityUiState,
-): ChatActivityUiState {
-	const pruned = new Set<string>();
-	for (const id of state.expandedTools) if (messageIds.has(id)) pruned.add(id);
-	return {
-		...state,
-		expandedTools:
-			pruned.size === state.expandedTools.size ? state.expandedTools : pruned,
 	};
 }
 export type RenderChatMessage = Pick<
@@ -370,25 +298,6 @@ export function hasAskUserSelections(
 ) {
 	return questions.every((_, qi) => !!selections.get(qi)?.size);
 }
-export function getEditToolPayload(parsed?: Record<string, unknown> | null): {
-	filePath: string;
-	oldString: string;
-	newString: string;
-} | null {
-	if (
-		typeof parsed?.file_path === "string" &&
-		typeof parsed.old_string === "string" &&
-		typeof parsed.new_string === "string"
-	) {
-		return {
-			filePath: parsed.file_path,
-			oldString: parsed.old_string,
-			newString: parsed.new_string,
-		};
-	}
-	return null;
-}
-
 /** Native descriptors own interpretation; unhydrated saved chats remain readable. */
 export function getToolOutputSummary(
 	content: string,
@@ -457,37 +366,6 @@ export function buildRenderItems(messages: RenderChatMessage[]): RenderItem[] {
 		) {
 			continue;
 		}
-		const isTimelineTool =
-			msg.role === "tool" &&
-			msg.toolName !== "Edit" &&
-			msg.toolName !== "AskUserQuestion";
-		if (isTimelineTool) {
-			const tools = [msg];
-			let j = i + 1;
-			while (j < messages.length) {
-				const next = messages[j]!;
-				if (
-					next.role !== "tool" ||
-					next.toolName === "Edit" ||
-					next.toolName === "AskUserQuestion"
-				)
-					break;
-				const previous = tools.at(-1)!;
-				if (
-					next.toolName !== previous.toolName ||
-					next.content !== previous.content
-				) {
-					tools.push(next);
-				}
-				j++;
-			}
-			items.push({
-				type: "tool-group",
-				tools,
-			});
-			i = j - 1;
-			continue;
-		}
 		items.push({
 			type: "message",
 			message: msg,
@@ -529,6 +407,14 @@ export function appendSystemMessage(
 	content: string,
 	render?: AgentChatSharedChatMessage["render"],
 ): ChatStateMessage[] {
+	const previous = messages.at(-1);
+	if (
+		content &&
+		previous?.role === "system" &&
+		!previous.isStreaming &&
+		previous.content === content
+	)
+		return messages;
 	const next = [
 		...messages,
 		{
@@ -543,8 +429,7 @@ export function appendSystemMessage(
 				: {}),
 		},
 	];
-	const compacted = compactAdjacentDuplicateTranscriptMessages(next);
-	return compacted === next ? trimMessages(next) : messages;
+	return trimMessages(next);
 }
 
 /** Apply native transport changes without interpreting provider events. Null

@@ -1,6 +1,5 @@
 import * as stylex from "@octanejs/stylex";
 import type { MdBlock, MdListItem } from "../../../../../shared/lib/data.ts";
-import { indexedValues } from "../../../../../shared/lib/data.ts";
 import { InlineTokens } from "./InlineTokens.tsx";
 import { ListItemRenderer } from "./ListItemRenderer.tsx";
 import { MermaidBlock } from "./MermaidBlock.tsx";
@@ -48,7 +47,7 @@ export function BlockRenderer({ block }: { block: MdBlock }) {
 			const innerBlocks = block.children ?? [];
 			return (
 				<div {...stylex.props(styles.blockquote)}>
-					{indexedValues(innerBlocks).map(({ index, value: inner }) => (
+					{innerBlocks.map((inner, index) => (
 						<BlockRenderer key={index} block={inner} />
 					))}
 				</div>
@@ -65,52 +64,46 @@ export function BlockRenderer({ block }: { block: MdBlock }) {
 					<table {...stylex.props(styles.table)}>
 						<thead>
 							<tr {...stylex.props(styles.tableHeadRow)}>
-								{indexedValues(block.rows[0] ?? []).map(
-									({ index, value: cell }) => (
-										<th key={index} {...stylex.props(styles.tableHeadCell)}>
-											<InlineTokens tokens={cell} />
-										</th>
-									),
-								)}
+								{(block.rows[0] ?? []).map((cell, index) => (
+									<th key={index} {...stylex.props(styles.tableHeadCell)}>
+										<InlineTokens tokens={cell} />
+									</th>
+								))}
 							</tr>
 						</thead>
 						<tbody>
-							{indexedValues(block.rows.slice(1)).map(
-								({ index: rowIndex, value: row }) => (
-									<tr key={rowIndex} {...stylex.props(styles.tableRow)}>
-										{indexedValues(row).map(({ index, value: cell }) => (
-											<td key={index} {...stylex.props(styles.tableCell)}>
-												<InlineTokens tokens={cell} />
-											</td>
-										))}
-									</tr>
-								),
-							)}
+							{block.rows.slice(1).map((row, rowIndex) => (
+								<tr key={rowIndex} {...stylex.props(styles.tableRow)}>
+									{row.map((cell, index) => (
+										<td key={index} {...stylex.props(styles.tableCell)}>
+											<InlineTokens tokens={cell} />
+										</td>
+									))}
+								</tr>
+							))}
 						</tbody>
 					</table>
 				</div>
 			);
 
 		case "checklist":
-			return (
-				<ul {...stylex.props(styles.checklist)}>
-					{(block.items ?? []).map(renderListItem)}
-				</ul>
-			);
-
 		case "ul":
+		case "ol": {
+			const List = block.type === "ol" ? "ol" : "ul";
 			return (
-				<ul {...stylex.props(styles.unorderedList)}>
+				<List
+					{...stylex.props(
+						block.type === "checklist"
+							? styles.checklist
+							: block.type === "ol"
+								? styles.orderedList
+								: styles.unorderedList,
+					)}
+				>
 					{(block.items ?? []).map(renderListItem)}
-				</ul>
+				</List>
 			);
-
-		case "ol":
-			return (
-				<ol {...stylex.props(styles.orderedList)}>
-					{(block.items ?? []).map(renderListItem)}
-				</ol>
-			);
+		}
 
 		case "paragraph":
 			return (

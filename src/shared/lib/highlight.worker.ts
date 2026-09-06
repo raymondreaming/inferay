@@ -15,6 +15,7 @@ self.onmessage = async ({ data }: MessageEvent<HighlightRequest>) => {
 	}
 	const controller = new AbortController();
 	active.set(data.id, controller);
+	let rows: HighlightResponse["rows"];
 	try {
 		if (data.lines)
 			registerHighlightDocument(
@@ -23,24 +24,16 @@ self.onmessage = async ({ data }: MessageEvent<HighlightRequest>) => {
 				data.language,
 				data.theme,
 			);
-		const rows = await highlightDocumentRange(
+		rows = await highlightDocumentRange(
 			data.key,
 			data.start,
 			data.end,
 			controller.signal,
 		);
-		if (!controller.signal.aborted)
-			self.postMessage({
-				id: data.id,
-				rows,
-			} satisfies HighlightResponse);
-	} catch (error) {
-		if (!controller.signal.aborted)
-			self.postMessage({
-				id: data.id,
-				error: String(error),
-			} satisfies HighlightResponse);
+	} catch {
 	} finally {
 		active.delete(data.id);
 	}
+	if (!controller.signal.aborted)
+		self.postMessage({ id: data.id, rows } satisfies HighlightResponse);
 };

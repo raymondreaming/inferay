@@ -1,7 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useMemo, useState } from "octane";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { indexedValues } from "../../../../shared/lib/data.ts";
 import {
 	IconCheck,
 	IconHelpCircle,
@@ -87,7 +86,7 @@ export function AskUserQuestionCard({
 
 	return (
 		<div {...stylex.props(styles.questionStack)}>
-			{indexedValues(parsed).map(({ index: questionIndex, value: q }) => {
+			{parsed.map((q, questionIndex) => {
 				const qSelections = selections.get(questionIndex) ?? new Set<number>();
 				return (
 					<div key={questionIndex} {...stylex.props(styles.questionCard)}>
@@ -122,67 +121,63 @@ export function AskUserQuestionCard({
 						</div>
 						{q.options && q.options.length > 0 && (
 							<div {...stylex.props(styles.optionStack)}>
-								{indexedValues(q.options).map(
-									({ index: optionIndex, value: opt }) => {
-										const isSelected = qSelections.has(optionIndex);
-										return (
-											<button
-												type="button"
-												key={optionIndex}
-												onClick={() =>
-													toggleOption(
-														questionIndex,
-														optionIndex,
-														!!q.multiSelect,
-													)
-												}
-												disabled={submitted}
-												{...stylex.props(
-													styles.optionButton,
-													isSelected ? styles.optionSelected : null,
-													submitted && !isSelected
-														? styles.optionDisabled
-														: null,
-												)}
-												style={inlineStyles.getChatRichContentOptionButtonStyle(
-													isSelected
-														? `${accentColor}50`
-														: "var(--color-inferay-gray-border)",
-													submitted ? "default" : "pointer",
+								{q.options.map((opt, optionIndex) => {
+									const isSelected = qSelections.has(optionIndex);
+									return (
+										<button
+											type="button"
+											key={optionIndex}
+											onClick={() =>
+												toggleOption(
+													questionIndex,
+													optionIndex,
+													!!q.multiSelect,
+												)
+											}
+											disabled={submitted}
+											{...stylex.props(
+												styles.optionButton,
+												isSelected ? styles.optionSelected : null,
+												submitted && !isSelected ? styles.optionDisabled : null,
+											)}
+											style={inlineStyles.getChatRichContentOptionButtonStyle(
+												isSelected
+													? `${accentColor}50`
+													: "var(--color-inferay-gray-border)",
+												submitted ? "default" : "pointer",
+											)}
+										>
+											<span
+												{...stylex.props(styles.optionMarker)}
+												style={inlineStyles.getChatRichContentOptionMarkerStyle(
+													isSelected ? accentColor : `${accentColor}20`,
+													isSelected ? accentForeground : accentColor,
 												)}
 											>
-												<span
-													{...stylex.props(styles.optionMarker)}
-													style={inlineStyles.getChatRichContentOptionMarkerStyle(
-														isSelected ? accentColor : `${accentColor}20`,
-														isSelected ? accentForeground : accentColor,
-													)}
-												>
-													{isSelected ? (
-														<IconCheck size={iconSize.xs} />
-													) : (
-														String.fromCharCode(65 + optionIndex)
-													)}
+												{isSelected ? (
+													<IconCheck size={iconSize.xs} />
+												) : (
+													String.fromCharCode(65 + optionIndex)
+												)}
+											</span>
+											<div {...stylex.props(styles.optionTextWrap)}>
+												<span {...stylex.props(styles.optionLabel)}>
+													{opt.label}
 												</span>
-												<div {...stylex.props(styles.optionTextWrap)}>
-													<span {...stylex.props(styles.optionLabel)}>
-														{opt.label}
-													</span>
-													{opt.description && (
-														<p
-															{...stylex.props(styles.optionDescription)}
-															style={inlineStyles.getChatRichContentOptionDescriptionStyle(
-																fgMuted,
-															)}
-														>
-															{opt.description}
-														</p>
-													)}
-												</div>
-											</button>
-										);
-									},
-								)}
+												{opt.description && (
+													<p
+														{...stylex.props(styles.optionDescription)}
+														style={inlineStyles.getChatRichContentOptionDescriptionStyle(
+															fgMuted,
+														)}
+													>
+														{opt.description}
+													</p>
+												)}
+											</div>
+										</button>
+									);
+								})}
 							</div>
 						)}
 					</div>

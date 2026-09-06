@@ -1,17 +1,24 @@
 import * as stylex from "@octanejs/stylex";
+import { iconSize } from "../../../../design-system/styles.stylex.ts";
+import { Button } from "../../../../shared/ui/Button/index.tsx";
+import { IconRefreshCw } from "../../../../shared/ui/Icons/index.tsx";
 import { styles } from "./styles.ts";
 
 export function SettingsSection({
 	id,
 	title,
 	description,
-	actions,
+	onRefresh,
+	refreshLabel = "Refresh",
+	refreshNoShrink = false,
 	children,
 }: {
 	id: string;
 	title: string;
 	description: string;
-	actions?: unknown;
+	onRefresh?: () => unknown;
+	refreshLabel?: string;
+	refreshNoShrink?: boolean;
 	children: unknown;
 }) {
 	return (
@@ -21,8 +28,24 @@ export function SettingsSection({
 					<h2 {...stylex.props(styles.sectionTitle)}>{title}</h2>
 					<p {...stylex.props(styles.sectionDescription)}>{description}</p>
 				</div>
-				{actions ? (
-					<div {...stylex.props(styles.sectionActions)}>{actions}</div>
+				{onRefresh ? (
+					<div {...stylex.props(styles.sectionActions)}>
+						<Button
+							liquid={false}
+							type="button"
+							onClick={() => void onRefresh()}
+							variant="secondary"
+							size="sm"
+							className={
+								refreshNoShrink
+									? stylex.props(styles.noShrink).className
+									: undefined
+							}
+						>
+							<IconRefreshCw size={iconSize.md} />
+							<span>{refreshLabel}</span>
+						</Button>
+					</div>
 				) : null}
 			</div>
 			{children}

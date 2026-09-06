@@ -1,4 +1,5 @@
 import { replaceEqualDeep } from "@tanstack/query-core";
+import { sendJson } from "../../../adapters/backend/http.ts";
 import {
 	readStoredJson,
 	readStoredValue,
@@ -135,19 +136,10 @@ function createChatQueueReadModel(paneId: string) {
 			.catch(() => undefined)
 			.then(async () => {
 				const before = ++revision;
-				const response = await fetch(
+				const response = await sendJson(
 					`/api/chat-queues/${encodeURIComponent(paneId)}`,
-					{
-						method: "PATCH",
-						headers: {
-							"Content-Type": "application/json",
-						},
-						body: JSON.stringify({
-							action,
-							id,
-							text,
-						}),
-					},
+					{ action, id, text },
+					{ method: "PATCH" },
 				);
 				if (!response.ok)
 					throw new Error("Could not update queued message. Please retry.");
@@ -313,7 +305,6 @@ export function useAgentChatSettings(paneId: string, agentKind: AgentKind) {
 }
 
 import { useSyncExternalStore } from "octane";
-import type { ChatUiState } from "./agent-chat-shared.ts";
 export function useChatUiState(paneId: string) {
 	const runStatusReadModel = useMemo(
 		() => getChatRunStatusReadModel(paneId),
@@ -324,35 +315,13 @@ export function useChatUiState(paneId: string) {
 		runStatusReadModel.getSnapshot,
 		runStatusReadModel.getSnapshot,
 	);
-	const [chatUiControls, setChatUiControls] = useState<
-		Pick<ChatUiState, "expandedTools">
-	>(() => ({
-		expandedTools: new Set(),
-	}));
+	const [expandedTools, setExpandedTools] = useState(() => new Set<string>());
 	const chatUiState = useMemo(
-		() => ({
-			...runStatus,
-			...chatUiControls,
-		}),
-		[chatUiControls, runStatus],
-	);
-	const setExpandedTools = useCallback(
-		(value: Set<string> | ((prev: Set<string>) => Set<string>)) => {
-			setChatUiControls((prev) => {
-				const expandedTools =
-					typeof value === "function" ? value(prev.expandedTools) : value;
-				if (prev.expandedTools === expandedTools) return prev;
-				return {
-					...prev,
-					expandedTools,
-				};
-			});
-		},
-		[],
+		() => ({ ...runStatus, expandedTools }),
+		[expandedTools, runStatus],
 	);
 	return {
 		chatUiState,
-		setChatUiState: setChatUiControls,
 		setExpandedTools,
 		setRunStatus: runStatusReadModel.set,
 	};
@@ -523,35 +492,6 @@ export function usePendingChatWorkspace(
 		loadPendingWorkspacePaths(paneId).filter(Boolean),
 	);
 	const visibleCwd = cwd ?? pendingWorkspacePaths[0];
-	const cwdList = useMemo(() => (visibleCwd ? [visibleCwd] : []), [visibleCwd]);
-	const clearPendingWorkspacePaths = useCallback(() => {
-		pendingWorkspacePathsRef.current = [];
-		setPendingWorkspacePaths([]);
-		savePendingWorkspacePaths(paneId, []);
-	}, [paneId]);
-	const consumePendingWorkspace = useCallback(() => {
-		const paths = (
-			pendingWorkspacePathsRef.current.length > 0
-				? pendingWorkspacePathsRef.current
-				: loadPendingWorkspacePaths(paneId)
-		).filter(Boolean);
-		const selectedWorkspace =
-			!cwd && paths.length > 0
-				? {
-						cwd: paths[0],
-						referencePaths: paths.slice(1),
-					}
-				: undefined;
-		if (selectedWorkspace?.cwd) {
-			onDirectoryChange?.(
-				paneId,
-				selectedWorkspace.cwd,
-				selectedWorkspace.referencePaths,
-			);
-			clearPendingWorkspacePaths();
-		}
-		return selectedWorkspace;
-	}, [clearPendingWorkspacePaths, cwd, onDirectoryChange, paneId]);
 	const savePendingWorkspaceSelection = useCallback(
 		(paths: string[]) => {
 			const nextPaths = paths.filter(Boolean);
@@ -561,9 +501,25 @@ export function usePendingChatWorkspace(
 		},
 		[paneId],
 	);
+	const consumePendingWorkspace = useCallback(() => {
+		const paths = (
+			pendingWorkspacePathsRef.current.length > 0
+				? pendingWorkspacePathsRef.current
+				: loadPendingWorkspacePaths(paneId)
+		).filter(Boolean);
+		if (cwd || !paths[0]) return;
+		const selectedWorkspace = { cwd: paths[0], referencePaths: paths.slice(1) };
+		onDirectoryChange?.(
+			paneId,
+			selectedWorkspace.cwd,
+			selectedWorkspace.referencePaths,
+		);
+		savePendingWorkspaceSelection([]);
+		return selectedWorkspace;
+	}, [savePendingWorkspaceSelection, cwd, onDirectoryChange, paneId]);
+
 	return {
 		consumePendingWorkspace,
-		cwdList,
 		savePendingWorkspaceSelection,
 		visibleCwd,
 	};
@@ -602,25 +558,16 @@ import {
 	applyNativeTranscriptUpdate,
 	type ChatLoadingState,
 	type AgentChatSharedChatMessage as ChatMessage,
-	clearCompletedChatUiState,
 	isChatServerMessage,
 	mergeNativeTranscript,
 	type QueuedMessageInfo,
 } from "./agent-chat-shared.ts";
-
-type ChatActivityUiState = { expandedTools: Set<string> };
 
 // Rendering every protocol fragment makes words repeatedly reflow while the
 // browser is still laying out the previous fragment. A short fixed cadence
 // keeps first-token latency effectively unchanged while presenting coherent
 // text chunks and cutting Markdown/layout work roughly in half.
 const STREAM_RENDER_INTERVAL_MS = 32;
-function scheduleFrame(callback: () => void): number {
-	return setTimeout(callback, STREAM_RENDER_INTERVAL_MS) as unknown as number;
-}
-function cancelFrame(id: number) {
-	clearTimeout(id as unknown as ReturnType<typeof setTimeout>);
-}
 export function useChatConnection({
 	enabled = true,
 	agentKind,
@@ -630,7 +577,7 @@ export function useChatConnection({
 	replaceQueuedMessages,
 	resolveSteeringMessage,
 	stageSteeringMessage,
-	setChatUiState,
+	setExpandedTools,
 	setRunStatus,
 }: {
 	enabled?: boolean;
@@ -641,7 +588,7 @@ export function useChatConnection({
 	replaceQueuedMessages: (messages: QueuedMessageInfo[]) => void;
 	resolveSteeringMessage?: (id: string) => void;
 	stageSteeringMessage?: (message: QueuedMessageInfo) => void;
-	setChatUiState: Dispatch<SetStateAction<ChatActivityUiState>>;
+	setExpandedTools: Dispatch<SetStateAction<Set<string>>>;
 	setRunStatus: (
 		value: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState),
 	) => void;
@@ -673,7 +620,8 @@ export function useChatConnection({
 		[paneId],
 	);
 	const flushNativeTranscript = useCallback(() => {
-		if (nativeFrameRef.current !== null) cancelFrame(nativeFrameRef.current);
+		if (nativeFrameRef.current !== null)
+			window.clearTimeout(nativeFrameRef.current);
 		nativeFrameRef.current = null;
 		const native = nativeTranscriptRef.current;
 		if (!native) return;
@@ -683,7 +631,8 @@ export function useChatConnection({
 	}, [messageReadModel]);
 	useEffect(
 		() => () => {
-			if (nativeFrameRef.current !== null) cancelFrame(nativeFrameRef.current);
+			if (nativeFrameRef.current !== null)
+				window.clearTimeout(nativeFrameRef.current);
 		},
 		[],
 	);
@@ -742,7 +691,10 @@ export function useChatConnection({
 				if (next === nativeTranscriptRef.current) return;
 				nativeTranscriptRef.current = next;
 				if (nativeFrameRef.current === null)
-					nativeFrameRef.current = scheduleFrame(flushNativeTranscript);
+					nativeFrameRef.current = window.setTimeout(
+						flushNativeTranscript,
+						STREAM_RENDER_INTERVAL_MS,
+					);
 			}
 			if (msg.type === "chat:summary") void loadCanonicalAgentState();
 			if (msg.runStatus) setRunStatus(msg.runStatus);
@@ -753,7 +705,10 @@ export function useChatConnection({
 				const updated = messageReadModel.settle(messageReadModel.get());
 				messageReadModel.set(updated);
 				const ids = new Set(updated.map((message) => message.id));
-				setChatUiState(clearCompletedChatUiState.bind(null, ids));
+				setExpandedTools((previous) => {
+					const next = new Set([...previous].filter((id) => ids.has(id)));
+					return next.size === previous.size ? previous : next;
+				});
 			} else if (
 				msg.type === "chat:steer_pending" &&
 				msg.message &&
@@ -800,7 +755,8 @@ export function useChatConnection({
 		reconnectChat();
 		const cleanupReconnect = wsClient.onReconnect(reconnectChat);
 		return () => {
-			if (nativeFrameRef.current !== null) cancelFrame(nativeFrameRef.current);
+			if (nativeFrameRef.current !== null)
+				window.clearTimeout(nativeFrameRef.current);
 			nativeFrameRef.current = null;
 			cleanupReconnect();
 			cleanup();
@@ -815,7 +771,7 @@ export function useChatConnection({
 		flushNativeTranscript,
 		replaceQueuedMessages,
 		resolveSteeringMessage,
-		setChatUiState,
+		setExpandedTools,
 		setRunStatus,
 		stageSteeringMessage,
 	]);

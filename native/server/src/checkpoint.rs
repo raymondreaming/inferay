@@ -389,29 +389,58 @@ impl CheckpointService {
             .collect()
     }
 
-    pub async fn get_inline_diffs(&self, checkpoint_id: &str) -> Vec<CheckpointInlineDiff> {
-        let checkpoint = {
-            let store = self.checkpoints().await;
-            store.iter().find(|cp| cp.id == checkpoint_id).cloned()
-        };
+    pub async fn get_inline_diffs(
+        &self,
+        checkpoint_id: &str,
+        touched_paths: Option<&[PathBuf]>,
+    ) -> Vec<CheckpointInlineDiff> {
+        let checkpoint = self
+            .checkpoints()
+            .await
+            .iter()
+            .find(|cp| cp.id == checkpoint_id)
+            .cloned();
         let Some(checkpoint) = checkpoint else {
             return Vec::new();
         };
+        let files: Vec<_> = if let Some(paths) = touched_paths {
+            let mut seen = HashSet::new();
+            paths
+                .iter()
+                .filter_map(|path| checkpoint.relative_path(path).ok().flatten())
+                .filter(|path| seen.insert(path.clone()))
+                .map(|path| (path, None))
+                .collect()
+        } else {
+            checkpoint
+                .changed_files
+                .iter()
+                .map(|file| (file.relative_path.clone(), Some(file)))
+                .collect()
+        };
         let mut diffs = Vec::new();
         let mut total_chars = 0;
-        for file in &checkpoint.changed_files {
+        for (path, saved) in files {
             if diffs.len() >= MAX_INLINE_DIFFS {
                 break;
             }
-            let (Some(before_ref), Some(after_ref)) =
-                (file.blob_before.as_ref(), file.blob_after.as_ref())
-            else {
+            let before_ref = match saved {
+                Some(file) => file.blob_before.clone(),
+                None => checkpoint.before(&path).await,
+            };
+            let Some(before_ref) = before_ref else {
                 continue;
             };
-            let (Some(before), Some(after)) = (
-                resolve_content(&checkpoint, before_ref).await,
-                resolve_content(&checkpoint, after_ref).await,
-            ) else {
+            let after = match saved {
+                Some(file) => match &file.blob_after {
+                    Some(blob) => resolve_content(&checkpoint, blob).await,
+                    None => None,
+                },
+                None => safe_read_file(&checkpoint.root().join(&path)).await,
+            };
+            let (Some(before), Some(after)) =
+                (resolve_content(&checkpoint, &before_ref).await, after)
+            else {
                 continue;
             };
             if before == after {
@@ -422,56 +451,7 @@ impl CheckpointService {
                 continue;
             }
             diffs.push(CheckpointInlineDiff {
-                path: file.relative_path.clone(),
-                old_string: before,
-                new_string: after,
-            });
-            total_chars += chars;
-        }
-        diffs
-    }
-
-    pub async fn preview_inline_diffs(
-        &self,
-        checkpoint_id: &str,
-        touched_paths: &[PathBuf],
-    ) -> Vec<CheckpointInlineDiff> {
-        let checkpoint = {
-            let store = self.checkpoints().await;
-            store.iter().find(|cp| cp.id == checkpoint_id).cloned()
-        };
-        let Some(checkpoint) = checkpoint else {
-            return Vec::new();
-        };
-        let root = checkpoint.root();
-        let mut seen = HashSet::new();
-        let mut diffs = Vec::new();
-        let mut total_chars = 0;
-        for path in touched_paths {
-            let Some(relative) = checkpoint.relative_path(path).ok().flatten() else {
-                continue;
-            };
-            if !seen.insert(relative.clone()) || diffs.len() >= MAX_INLINE_DIFFS {
-                continue;
-            }
-            let before_ref = checkpoint.before(&relative).await;
-            let (Some(before_ref), Some(after)) =
-                (before_ref, safe_read_file(&root.join(&relative)).await)
-            else {
-                continue;
-            };
-            let Some(before) = resolve_content(&checkpoint, &before_ref).await else {
-                continue;
-            };
-            if before == after {
-                continue;
-            }
-            let chars = js_string_len(&before) + js_string_len(&after);
-            if chars > MAX_FILE_SIZE as usize || total_chars + chars > MAX_INLINE_DIFF_CHARS {
-                continue;
-            }
-            diffs.push(CheckpointInlineDiff {
-                path: relative,
+                path,
                 old_string: before,
                 new_string: after,
             });

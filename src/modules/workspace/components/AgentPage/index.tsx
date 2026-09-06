@@ -36,10 +36,7 @@ import { AgentMainSurface } from "./AgentMainSurface.tsx";
 export type AgentPaneActionsArgs = {
 	readonly chatRefs: MutableRef<Map<string, AgentChatHandle> | null>;
 	readonly cleanupPane: (paneId: string) => void;
-	readonly dispatchAgentGroupAction: (
-		action: AgentGroupsAction,
-		reason?: string,
-	) => void;
+	readonly dispatchAgentGroupAction: (action: AgentGroupsAction) => void;
 	readonly groups: AgentSavedState["groups"];
 	readonly selectedGroupId: GroupId | null;
 };
@@ -136,19 +133,17 @@ export function AgentPage() {
 			(pane) => pane.id === currentGroup.selectedPaneId,
 		) ?? null;
 	const repositoryProjection = useMemo(
-		() => projectRepositoryWorkspaces(groups, selectedGroupId),
-		[groups, selectedGroupId],
+		() => projectRepositoryWorkspaces(workspace),
+		[workspace],
 	);
-	const currentRepositoryPanes = useMemo(
-		() =>
-			currentGroup
-				? getVisibleRepositoryEntries(
-						repositoryProjection,
-						currentGroup.id,
-					).map((entry) => entry.pane)
-				: [],
-		[currentGroup, repositoryProjection],
-	);
+	const currentRepositoryPanes = useMemo(() => {
+		const visible = new Set(
+			getVisibleRepositoryEntries(repositoryProjection, currentGroup?.id).map(
+				(entry) => entry.pane.id,
+			),
+		);
+		return currentGroup?.panes.filter((pane) => visible.has(pane.id)) ?? [];
+	}, [currentGroup, repositoryProjection]);
 	const repositoryWorkbench = useRepositoryWorkbench({
 		active: true,
 		cwd: selectedPane?.cwd,
@@ -165,27 +160,24 @@ export function AgentPage() {
 		chatRefs.current?.delete(paneId);
 		clearAgentChatPaneState(paneId);
 	}, []);
-	const dispatchAgentGroupAction = useCallback(
-		(action: AgentGroupsAction, reason?: string) => {
-			if (action.type === "reorderPanes") {
-				setWorkspace((current) => ({
-					...current,
-					groups: current.groups.map((group) => {
-						if (group.id !== action.groupId) return group;
-						const panes = [...group.panes];
-						const [pane] = panes.splice(action.fromIndex, 1);
-						if (pane) panes.splice(action.toIndex, 0, pane);
-						return {
-							...group,
-							panes,
-						};
-					}),
-				}));
-			}
-			void mutateAgentWorkspaceState(action, reason);
-		},
-		[],
-	);
+	const dispatchAgentGroupAction = useCallback((action: AgentGroupsAction) => {
+		if (action.type === "reorderPanes") {
+			setWorkspace((current) => ({
+				...current,
+				groups: current.groups.map((group) => {
+					if (group.id !== action.groupId) return group;
+					const panes = [...group.panes];
+					const [pane] = panes.splice(action.fromIndex, 1);
+					if (pane) panes.splice(action.toIndex, 0, pane);
+					return {
+						...group,
+						panes,
+					};
+				}),
+			}));
+		}
+		void mutateAgentWorkspaceState(action);
+	}, []);
 	useEffect(() => {
 		return setupAgentThemePanelShortcut(setShowSettings);
 	}, []);

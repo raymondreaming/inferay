@@ -27,14 +27,7 @@ pub async fn load_provider_history(
         _ => return None,
     };
     let text = read_tail_page(&path).await?;
-    let mut messages = match provider {
-        "codex" => parse_codex(&text),
-        "claude" => parse_claude(&text),
-        _ => Vec::new(),
-    };
-    if messages.len() > HISTORY_PAGE_SIZE {
-        messages.drain(..messages.len() - HISTORY_PAGE_SIZE);
-    }
+    let mut messages = parse_history(&text, provider);
     trim_messages(&mut messages);
     (!messages.is_empty()).then_some(messages)
 }
@@ -64,13 +57,15 @@ async fn read_tail_page(path: &Path) -> Option<String> {
     file.seek(SeekFrom::Start(start)).await.ok()?;
     let mut bytes = Vec::with_capacity((size - start) as usize);
     file.read_to_end(&mut bytes).await.ok()?;
-    let mut text = String::from_utf8_lossy(&bytes).into_owned();
-    if start > 0 {
-        text = text
-            .find('\n')
-            .map_or_else(String::new, |index| text[index + 1..].to_string());
-    }
-    Some(text)
+    let offset = if start > 0 {
+        bytes
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(bytes.len(), |index| index + 1)
+    } else {
+        0
+    };
+    Some(String::from_utf8_lossy(&bytes[offset..]).into_owned())
 }
 
 async fn find_session_file(root: &Path, session_id: &str) -> Option<PathBuf> {
@@ -97,34 +92,31 @@ async fn find_session_file(root: &Path, session_id: &str) -> Option<PathBuf> {
     None
 }
 
-fn parse_codex(text: &str) -> Vec<ChatTranscriptMessage> {
-    text.lines()
+fn parse_history(text: &str, provider: &str) -> Vec<ChatTranscriptMessage> {
+    let mut messages = text
+        .lines()
+        .rev()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter(|row| row.get("type").and_then(Value::as_str) == Some("event_msg"))
         .filter_map(|row| {
-            let payload = row.get("payload")?;
-            match payload.get("type").and_then(Value::as_str)? {
-                "user_message" => message(
+            if provider == "codex" {
+                if row.get("type").and_then(Value::as_str) != Some("event_msg") {
+                    return None;
+                }
+                let payload = row.get("payload")?;
+                let role = match payload.get("type").and_then(Value::as_str)? {
+                    "user_message" => "user",
+                    "agent_message" => "assistant",
+                    _ => return None,
+                };
+                return message(
                     payload.get("message").and_then(Value::as_str)?,
-                    "user",
+                    role,
                     row.get("timestamp"),
-                ),
-                "agent_message" => message(
-                    payload.get("message").and_then(Value::as_str)?,
-                    "assistant",
-                    row.get("timestamp"),
-                ),
-                _ => None,
+                );
             }
-        })
-        .collect()
-}
-
-fn parse_claude(text: &str) -> Vec<ChatTranscriptMessage> {
-    text.lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter(|row| row.get("isMeta").and_then(Value::as_bool) != Some(true))
-        .filter_map(|row| {
+            if row.get("isMeta").and_then(Value::as_bool) == Some(true) {
+                return None;
+            }
             let role = match row.get("type").and_then(Value::as_str)? {
                 "user" => "user",
                 "assistant" => "assistant",
@@ -146,7 +138,10 @@ fn parse_claude(text: &str) -> Vec<ChatTranscriptMessage> {
                 row.get("uuid").or_else(|| row.get("timestamp")),
             )
         })
-        .collect()
+        .take(HISTORY_PAGE_SIZE)
+        .collect::<Vec<_>>();
+    messages.reverse();
+    messages
 }
 
 fn message(content: &str, role: &str, source_id: Option<&Value>) -> Option<ChatTranscriptMessage> {

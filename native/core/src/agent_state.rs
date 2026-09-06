@@ -28,7 +28,10 @@ impl AgentStateStore {
     }
 
     pub fn read(&self) -> Result<Value, String> {
-        serde_json::to_value(self.load()?).map_err(|e| e.to_string())
+        self.load()?
+            .map(|state| state.presentation())
+            .transpose()
+            .map(|state| state.unwrap_or(Value::Null))
     }
 
     pub fn pane(&self, id: &str) -> Result<Option<Pane>, String> {
@@ -82,7 +85,7 @@ impl AgentStateStore {
             &self.path,
             &serde_json::to_vec(&value).map_err(|e| e.to_string())?,
         )?;
-        Ok(value)
+        state.presentation()
     }
 }
 
@@ -124,6 +127,15 @@ pub struct Pane {
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_session_id: Option<String>,
+}
+
+fn repository_path(path: &str) -> &str {
+    let path = path.trim();
+    if path == "/" {
+        path
+    } else {
+        path.trim_end_matches(['/', '\\'])
+    }
 }
 
 fn default_kind(action: &Value) -> &str {
@@ -225,6 +237,35 @@ impl Group {
     }
 }
 impl Workspace {
+    fn presentation(&self) -> Result<Value, String> {
+        let mut value = serde_json::to_value(self).map_err(|e| e.to_string())?;
+        let mut workspaces: Vec<Value> = Vec::new();
+        let mut unassigned = Vec::new();
+        for group in &self.groups {
+            for pane in &group.panes {
+                let cwd = repository_path(pane.cwd.as_deref().unwrap_or(""));
+                let entry = serde_json::json!({"groupId":group.id,"pane":pane});
+                if cwd.is_empty() {
+                    unassigned.push(entry);
+                } else if let Some(workspace) = workspaces
+                    .iter_mut()
+                    .find(|workspace| workspace["cwd"] == cwd)
+                {
+                    workspace["entries"].as_array_mut().unwrap().push(entry);
+                } else {
+                    let name = cwd
+                        .rsplit(['/', '\\'])
+                        .find(|part| !part.is_empty())
+                        .unwrap_or(cwd);
+                    workspaces.push(serde_json::json!({"cwd":cwd,"name":name,"entries":[entry]}));
+                }
+            }
+        }
+        value["repositories"] =
+            serde_json::json!({"workspaces":workspaces,"unassignedEntries":unassigned});
+        Ok(value)
+    }
+
     fn new(kind: &str) -> Self {
         let group = Group::new(
             "Default".into(),
@@ -292,6 +333,20 @@ impl Workspace {
     fn apply(&mut self, action: &Value) -> Result<(), String> {
         let action_type = string(action, "type")?;
         match action_type {
+            "selectRepository" => {
+                let cwd = string(action, "cwd")?;
+                let target = self.groups.iter().flat_map(|group| {
+                    group.panes.iter().filter(move |pane| pane.cwd.as_deref().is_some_and(|path| repository_path(path) == cwd))
+                        .map(move |pane| (group, pane))
+                }).min_by_key(|(group, pane)| {
+                    if group.id == self.selected_group_id { 0 }
+                    else if group.selected_pane_id.as_deref() == Some(&pane.id) { 1 }
+                    else { 2 }
+                }).map(|(group, pane)| serde_json::json!({"type":"selectPane","groupId":group.id,"paneId":pane.id}));
+                if let Some(target) = target {
+                    self.apply(&target)?;
+                }
+            }
             "selectWorkspace" | "selectPane" => {
                 let id = string(action, "groupId")?;
                 let group = self.group(id)?;

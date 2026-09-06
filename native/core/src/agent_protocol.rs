@@ -10,13 +10,6 @@ use crate::chat_protocol::{
 use crate::path_security::{is_within_directory, resolve_lexically};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CompletedAssistantMessage {
-    Skip,
-    Delta(String),
-    Replace,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CodexInvocationContext {
     pub cwd: PathBuf,
     pub reference_paths: Vec<PathBuf>,
@@ -84,7 +77,16 @@ impl ClaudeProtocolState {
         {
             self.last_assistant_message = truncate_agent_result(text);
         }
-        if is_chat_stream_event(event) {
+        if matches!(
+            event["type"].as_str(),
+            Some(
+                "assistant"
+                    | "content_block_start"
+                    | "content_block_delta"
+                    | "content_block_stop"
+                    | "result"
+            )
+        ) {
             context
                 .emissions
                 .push(ProtocolEmission::Chat(event.clone()));
@@ -112,8 +114,7 @@ impl CodexProtocolState {
         params: &Value,
     ) {
         let item = params.get("item").unwrap_or(&Value::Null);
-        let item_record = item.as_object();
-        let item_type = item_record.map_or("", |item| string_field(item, "type"));
+        let item_type = string_field(item, "type");
 
         match (method, item_type) {
             ("turn/started", _) => {
@@ -121,17 +122,15 @@ impl CodexProtocolState {
             }
             ("item/started", "commandExecution") => {
                 let payload = json!({
-                    "command": item_record.map_or("", |item| string_field(item, "command")),
+                    "command": string_field(item, "command"),
                     "cwd": context.cwd,
                 });
-                if let Some(item) = item_record {
-                    let item_id = string_field(item, "id");
-                    if !item_id.is_empty() {
-                        self.command_outputs.insert(
-                            item_id.into(),
-                            string_field(item, "aggregatedOutput").into(),
-                        );
-                    }
+                let item_id = string_field(item, "id");
+                if !item_id.is_empty() {
+                    self.command_outputs.insert(
+                        item_id.into(),
+                        string_field(item, "aggregatedOutput").into(),
+                    );
                 }
                 self.begin_tool(context, "exec", payload);
             }
@@ -140,12 +139,7 @@ impl CodexProtocolState {
             }
             ("item/completed", "commandExecution") => {
                 self.emit_command_output_delta(context, item);
-                if let Some(item) = item_record {
-                    let item_id = string_field(item, "id");
-                    if !item_id.is_empty() {
-                        self.command_outputs.remove(item_id);
-                    }
-                }
+                self.command_outputs.remove(string_field(item, "id"));
                 self.close_tool(context);
             }
             ("item/started", "fileChange") => {
@@ -185,7 +179,7 @@ impl CodexProtocolState {
                 self.emit_status(context, "responding", true);
             }
             ("item/completed", "error") => {
-                let message = item_record.map_or("", |item| string_field(item, "message"));
+                let message = string_field(item, "message");
                 if !message.is_empty() {
                     self.emit_error(context, message);
                 }
@@ -343,17 +337,15 @@ impl CodexProtocolState {
     }
 
     fn complete_assistant_message(&mut self, context: &mut AgentProtocolContext, text: &str) {
-        match resolve_completed_codex_assistant_message(&self.last_assistant_message, text) {
-            CompletedAssistantMessage::Delta(delta) => {
-                self.assistant_delta(context, &delta);
-                self.close_assistant(context);
-            }
-            CompletedAssistantMessage::Replace => {
+        if !text.is_empty() && text != self.last_assistant_message {
+            if let Some(delta) = text.strip_prefix(&self.last_assistant_message) {
+                self.assistant_delta(context, delta);
+            } else {
                 self.close_assistant(context);
                 self.emit_result(context, text);
             }
-            CompletedAssistantMessage::Skip => self.close_assistant(context),
         }
+        self.close_assistant(context);
         self.last_assistant_message = truncate_chat_content(text, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
     }
 
@@ -377,7 +369,6 @@ impl CodexProtocolState {
     }
 
     fn emit_command_output_delta(&mut self, context: &mut AgentProtocolContext, item: &Value) {
-        let Some(item) = item.as_object() else { return };
         let next_output = string_field(item, "aggregatedOutput");
         if next_output.is_empty() {
             return;
@@ -443,11 +434,11 @@ impl CodexProtocolState {
     }
 }
 
-fn string_field<'a>(record: &'a serde_json::Map<String, Value>, key: &str) -> &'a str {
+fn string_field<'a>(record: &'a Value, key: &str) -> &'a str {
     record.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
-fn first_string(record: &serde_json::Map<String, Value>, keys: &[&str]) -> String {
+fn first_string(record: &Value, keys: &[&str]) -> String {
     keys.iter()
         .find_map(|key| {
             let value = string_field(record, key);
@@ -456,20 +447,11 @@ fn first_string(record: &serde_json::Map<String, Value>, keys: &[&str]) -> Strin
         .unwrap_or_default()
 }
 
-fn array_field<'a>(
-    record: &'a serde_json::Map<String, Value>,
-    key: &str,
-) -> Option<&'a Vec<Value>> {
-    record.get(key).and_then(Value::as_array)
-}
-
 fn extract_text(value: &Value) -> String {
     if let Some(text) = value.as_str() {
         return text.into();
     }
-    let Some(record) = value.as_object() else {
-        return String::new();
-    };
+    let record = value;
     let text = first_string(
         record,
         &[
@@ -509,19 +491,17 @@ fn workspace_path(context: &AgentProtocolContext, value: &str) -> Option<PathBuf
 }
 
 fn file_change_paths(context: &AgentProtocolContext, value: &Value) -> Vec<PathBuf> {
-    let Some(record) = value.as_object() else {
-        return Vec::new();
-    };
+    let record = value;
     let mut candidates = Vec::new();
     for key in ["changes", "files"] {
         if let Some(values) = record.get(key).and_then(Value::as_object) {
             candidates.extend(values.keys().cloned());
         }
-        if let Some(values) = array_field(record, key) {
+        if let Some(values) = record.get(key).and_then(Value::as_array) {
             for value in values {
                 if let Some(path) = value.as_str() {
                     candidates.push(path.to_string());
-                } else if let Some(value) = value.as_object() {
+                } else {
                     candidates.push(first_string(value, &["path", "file_path", "file"]));
                 }
             }
@@ -574,22 +554,6 @@ fn read_snapshot(path: &Path) -> Option<String> {
         .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
 }
 
-pub fn is_chat_stream_event(value: &Value) -> bool {
-    value
-        .get("type")
-        .and_then(Value::as_str)
-        .is_some_and(|event_type| {
-            matches!(
-                event_type,
-                "assistant"
-                    | "content_block_start"
-                    | "content_block_delta"
-                    | "content_block_stop"
-                    | "result"
-            )
-        })
-}
-
 pub fn build_claude_invocation_args(
     binary: &Path,
     prompt: &str,
@@ -638,21 +602,6 @@ pub fn workspace_roots(cwd: &Path, reference_paths: &[PathBuf]) -> Vec<PathBuf> 
         roots.push(root);
     }
     roots
-}
-
-pub fn resolve_completed_codex_assistant_message(
-    streamed_text: &str,
-    completed_text: &str,
-) -> CompletedAssistantMessage {
-    if completed_text.is_empty() || completed_text == streamed_text {
-        CompletedAssistantMessage::Skip
-    } else if streamed_text.is_empty() {
-        CompletedAssistantMessage::Delta(completed_text.into())
-    } else if let Some(delta) = completed_text.strip_prefix(streamed_text) {
-        CompletedAssistantMessage::Delta(delta.into())
-    } else {
-        CompletedAssistantMessage::Replace
-    }
 }
 
 pub fn truncate_agent_result(value: &str) -> String {

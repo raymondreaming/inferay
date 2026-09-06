@@ -75,15 +75,9 @@ export async function postJson<TResponse>(
 	body?: unknown,
 	init?: RequestInit,
 ): Promise<TResponse> {
-	return fetchJson<TResponse>(input, {
-		...init,
-		method: init?.method ?? "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...init?.headers,
-		},
-		body: body === undefined ? init?.body : JSON.stringify(body),
-	});
+	const response = await sendJson(input, body, init);
+	if (!response.ok) throw new Error(`Request failed: ${response.status}`);
+	return response.json() as Promise<TResponse>;
 }
 export async function sendJson(
 	input: RequestInfo | URL,

@@ -23,21 +23,18 @@ export function WorkspaceLayoutSection({
 		writeStoredValue("agent-layout-mode", next);
 		dispatchAgentShellChange({
 			source: "view",
-			reason: "layout-mode",
 		});
 	};
 	const updateColumns = async (next: number) => {
 		setColumns(next);
-		await mutateAgentWorkspaceState(
-			(state) =>
-				state.selectedGroupId
-					? {
-							type: "setGridDimensions",
-							groupId: state.selectedGroupId,
-							columns: next,
-						}
-					: null,
-			"grid-size",
+		await mutateAgentWorkspaceState((state) =>
+			state.selectedGroupId
+				? {
+						type: "setGridDimensions",
+						groupId: state.selectedGroupId,
+						columns: next,
+					}
+				: null,
 		);
 	};
 	return (

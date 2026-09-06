@@ -75,10 +75,10 @@ export const SettingsContent = memo(function SettingsContent({
 			applyAppTheme(id);
 			const termThemeId = id;
 			onThemeChange?.(termThemeId);
-			void mutateAgentWorkspaceState(
-				{ type: "setTheme", themeId: termThemeId },
-				"theme-change",
-			);
+			void mutateAgentWorkspaceState({
+				type: "setTheme",
+				themeId: termThemeId,
+			});
 		},
 		[onThemeChange],
 	);

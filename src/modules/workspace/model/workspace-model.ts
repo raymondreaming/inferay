@@ -1,4 +1,5 @@
 import { lazy } from "octane";
+import { dispatchWindowEvent } from "../../../shared/lib/data.ts";
 export const Settings = lazy(() =>
 	import("../../settings/components/Settings/index.tsx").then((module) => ({
 		default: module.Settings,
@@ -43,6 +44,7 @@ export function listenAgentLayoutMode(
 }
 export type AgentWorkspaceAction =
 	| { type: "selectWorkspace"; groupId: string }
+	| { type: "selectRepository"; cwd: string }
 	| { type: "selectPane"; groupId: string; paneId: string }
 	| { type: "addWorkspace" }
 	| { type: "removeWorkspace"; groupId: string }
@@ -118,6 +120,7 @@ export interface AgentGroupModel {
 	rows: number;
 }
 export interface AgentSavedState {
+	repositories: RepositoryWorkspaceIndex;
 	groups: AgentGroupModel[];
 	selectedGroupId: GroupId | null;
 	themeId: ThemeId;
@@ -134,14 +137,12 @@ export const REMOVE_AGENT_PANE_REQUEST_EVENT =
 export interface RemoveAgentPaneRequestDetail {
 	paneId: string;
 }
-export type AgentStateChangeSource = "canonical" | "local" | "view" | "cache";
 export interface AgentShellChangeDetail {
 	selection?: { groupId: string; paneId?: string };
 	error?: string;
 	saved?: boolean;
-	source: AgentStateChangeSource;
-	reason?: string;
-	mainView?: "chat" | "graph";
+	source: "canonical" | "local" | "view" | "cache";
+
 	stateKey?: string;
 	state?: AgentSavedState;
 }
@@ -152,22 +153,14 @@ export function agentStateKey(state: AgentSavedState): string {
 }
 let _cachedAgentState: AgentSavedState | null = null;
 export function dispatchAgentShellChange(detail: AgentShellChangeDetail): void {
-	window.dispatchEvent(
-		new CustomEvent<AgentShellChangeDetail>(AGENT_SHELL_CHANGE_EVENT, {
-			detail,
-		}),
-	);
+	dispatchWindowEvent<AgentShellChangeDetail>(AGENT_SHELL_CHANGE_EVENT, detail);
 }
 export function dispatchRemoveAgentPaneRequest(paneId: string): void {
-	window.dispatchEvent(
-		new CustomEvent<RemoveAgentPaneRequestDetail>(
-			REMOVE_AGENT_PANE_REQUEST_EVENT,
-			{
-				detail: {
-					paneId,
-				},
-			},
-		),
+	dispatchWindowEvent<RemoveAgentPaneRequestDetail>(
+		REMOVE_AGENT_PANE_REQUEST_EVENT,
+		{
+			paneId,
+		},
 	);
 }
 export function loadAgentState(): AgentSavedState | null {
@@ -191,13 +184,13 @@ export function loadAgentState(): AgentSavedState | null {
 }
 function acceptAgentState(
 	state: AgentSavedState,
-	reason?: string,
+
 	saved = false,
 ): void {
 	_cachedAgentState = state;
 	dispatchAgentShellChange({
 		source: "canonical",
-		reason,
+
 		saved,
 		state: loadAgentState() ?? state,
 		stateKey: agentStateKey(state),
@@ -209,7 +202,7 @@ export async function initializeAgentState(): Promise<AgentSavedState> {
 		"/api/agent/state/initialize",
 		{},
 	);
-	acceptAgentState(state, "initialize");
+	acceptAgentState(state);
 	return state;
 }
 let pendingWorkspaceRead: {
@@ -225,7 +218,7 @@ export function loadCanonicalAgentState(): Promise<AgentSavedState | null> {
 			const response = await fetch("/api/agent/state");
 			if (!response.ok) throw new Error("Failed to load workspace");
 			const state = (await response.json()) as AgentSavedState | null;
-			if (state) acceptAgentState(state, "canonical-load");
+			if (state) acceptAgentState(state);
 			return loadAgentState();
 		} catch {
 			dispatchAgentShellChange({
@@ -257,8 +250,6 @@ export function mutateAgentWorkspaceState(
 	action:
 		| AgentWorkspaceAction
 		| ((state: AgentSavedState) => AgentWorkspaceAction | null),
-	reason?: string,
-	_options: { createIfMissing?: boolean } = {},
 ): Promise<AgentSavedState | null> {
 	const id = ++workspaceRequestId;
 	if (
@@ -274,7 +265,7 @@ export function mutateAgentWorkspaceState(
 		};
 		dispatchAgentShellChange({
 			source: "local",
-			reason,
+
 			selection: pendingSelection.selection,
 		});
 	}
@@ -290,7 +281,7 @@ export function mutateAgentWorkspaceState(
 				},
 			);
 			if (pendingSelection?.id === id) pendingSelection = null;
-			acceptAgentState(state, reason, true);
+			acceptAgentState(state, true);
 			return loadAgentState();
 		} catch {
 			if (pendingSelection?.id === id) pendingSelection = null;
@@ -324,14 +315,11 @@ export function changePaneAgentKind(
 	paneId: string,
 	agentKind: WorkspaceModelAgentKind,
 ): void {
-	void mutateAgentWorkspaceState(
-		{
-			type: "changePaneAgentKind",
-			paneId,
-			agentKind,
-		},
-		"agent-kind-change",
-	);
+	void mutateAgentWorkspaceState({
+		type: "changePaneAgentKind",
+		paneId,
+		agentKind,
+	});
 }
 export function getThemeById(themeId: string): AgentTheme {
 	return Object.hasOwn(AGENT_THEMES, themeId)
@@ -351,7 +339,7 @@ export function useAgentPaneActions({
 	selectedGroupId,
 }: AgentPaneActionsArgs) {
 	const removePane = useCallback(
-		(paneId: string, _force?: boolean) => {
+		(paneId: string) => {
 			const group =
 				groups.find((item) => item.panes.some(hasId.bind(null, paneId))) ??
 				(selectedGroupId
@@ -359,14 +347,11 @@ export function useAgentPaneActions({
 					: null);
 			if (!group) return;
 			cleanupPane(paneId);
-			dispatchAgentGroupAction(
-				{
-					type: "removePane",
-					groupId: group.id,
-					paneId,
-				},
-				"remove-pane",
-			);
+			dispatchAgentGroupAction({
+				type: "removePane",
+				groupId: group.id,
+				paneId,
+			});
 		},
 		[cleanupPane, dispatchAgentGroupAction, groups, selectedGroupId],
 	);
@@ -385,68 +370,52 @@ export function useAgentPaneActions({
 	const actions = useMemo(() => {
 		const dispatch = (
 			action: Parameters<typeof dispatchAgentGroupAction>[0],
-			reason: string,
 		) => {
-			if (selectedGroupId) dispatchAgentGroupAction(action, reason);
+			if (selectedGroupId) dispatchAgentGroupAction(action);
 		};
 		const groupId = selectedGroupId ?? "";
 		return {
 			handleAddPane: (agentKind: WorkspaceModelAgentKind) =>
-				dispatch(
-					{
-						type: "addPane",
-						groupId,
-						agentKind,
-					},
-					"add-pane",
-				),
+				dispatch({
+					type: "addPane",
+					groupId,
+					agentKind,
+				}),
 			reorderPanes: (fromIndex: number, toIndex: number) =>
-				dispatch(
-					{
-						type: "reorderPanes",
-						groupId,
-						fromIndex,
-						toIndex,
-					},
-					"reorder-panes",
-				),
+				dispatch({
+					type: "reorderPanes",
+					groupId,
+					fromIndex,
+					toIndex,
+				}),
 			handleSetPaneAgentKind: (
 				paneId: string,
 				agentKind: WorkspaceModelAgentKind,
 			) =>
-				dispatch(
-					{
-						type: "setPaneAgentKind",
-						groupId,
-						paneId,
-						agentKind,
-					},
-					"set-pane-agent-kind",
-				),
+				dispatch({
+					type: "setPaneAgentKind",
+					groupId,
+					paneId,
+					agentKind,
+				}),
 			handleDirectorySelected: (
 				paneId: string,
 				path: string | null,
 				referencePaths?: string[],
 			) =>
-				dispatch(
-					{
-						type: "directorySelected",
-						groupId,
-						paneId,
-						path,
-						referencePaths,
-					},
-					"directory-selected",
-				),
+				dispatch({
+					type: "directorySelected",
+					groupId,
+					paneId,
+					path,
+					referencePaths,
+				}),
 			selectPane: (paneId: string) =>
-				dispatch(
-					{
-						type: "selectPane",
-						groupId,
-						paneId,
-					},
-					"select-pane",
-				),
+				dispatch({
+					type: "selectPane",
+					groupId,
+					paneId,
+				}),
 		};
 	}, [dispatchAgentGroupAction, selectedGroupId]);
 	const handleChatRef = useCallback(
@@ -494,7 +463,7 @@ export interface WorkspaceCanvasProps {
 	theme: AgentTheme;
 	onSelectPane: (paneId: string) => void;
 	onFocusPane?: (paneId: string) => void;
-	onClosePane: (paneId: string, force?: boolean) => void;
+	onClosePane: (paneId: string) => void;
 	onDirectorySelect: (
 		paneId: string,
 		path: string | null,
@@ -637,6 +606,7 @@ interface SidebarWorkspaceGroup {
 	rows: number;
 }
 export interface SidebarWorkspaceState {
+	repositories: RepositoryWorkspaceIndex;
 	groups: SidebarWorkspaceGroup[];
 	selectedGroupId: string | null;
 	key: string;
@@ -655,6 +625,14 @@ export interface RepositoryWorkspace {
 	readonly name: string;
 	readonly entries: readonly RepositoryWorkspaceEntry[];
 }
+export interface RepositoryWorkspaceIndex {
+	readonly workspaces: readonly RepositoryWorkspace[];
+	readonly unassignedEntries: readonly RepositoryWorkspaceEntry[];
+}
+const EMPTY_REPOSITORIES: RepositoryWorkspaceIndex = {
+	workspaces: [],
+	unassignedEntries: [],
+};
 export interface RepositoryWorkspaceProjection {
 	readonly workspaces: readonly RepositoryWorkspace[];
 	readonly activePath: string | null;
@@ -666,37 +644,16 @@ function normalizeRepositoryPath(path: string): string {
 	if (trimmed === "/") return trimmed;
 	return trimmed.replace(/[\\/]+$/, "");
 }
-export function getRepositoryWorkspaceName(cwd: string): string {
-	const normalized = normalizeRepositoryPath(cwd);
-	return normalized.split(/[\\/]/).filter(Boolean).pop() ?? normalized;
-}
-export function projectRepositoryWorkspaces(
-	groups: readonly RepositoryWorkspaceSourceGroup[],
-	selectedGroupId: string | null,
-): RepositoryWorkspaceProjection {
-	const entriesByPath = new Map<string, RepositoryWorkspaceEntry[]>();
-	const unassignedEntries: RepositoryWorkspaceEntry[] = [];
-	for (const group of groups) {
-		for (const pane of group.panes) {
-			const cwd = pane.cwd ? normalizeRepositoryPath(pane.cwd) : "";
-			const entry = {
-				groupId: group.id,
-				pane,
-			};
-			if (!cwd) {
-				unassignedEntries.push(entry);
-				continue;
-			}
-			const entries = entriesByPath.get(cwd);
-			if (entries) entries.push(entry);
-			else entriesByPath.set(cwd, [entry]);
-		}
-	}
-	const workspaces = Array.from(entriesByPath, ([cwd, entries]) => ({
-		cwd,
-		name: getRepositoryWorkspaceName(cwd),
-		entries,
-	}));
+export function projectRepositoryWorkspaces({
+	groups,
+	selectedGroupId,
+	repositories = EMPTY_REPOSITORIES,
+}: {
+	groups: readonly RepositoryWorkspaceSourceGroup[];
+	selectedGroupId: string | null;
+	repositories: RepositoryWorkspaceIndex;
+}): RepositoryWorkspaceProjection {
+	const { workspaces, unassignedEntries } = repositories;
 	const selectedGroup =
 		groups.find((group) => group.id === selectedGroupId) ?? groups[0] ?? null;
 	const selectedPane =
@@ -717,21 +674,6 @@ export function projectRepositoryWorkspaces(
 		unassignedEntries,
 	};
 }
-export function getRepositoryWorkspaceTarget(
-	workspace: RepositoryWorkspace,
-	groups: readonly RepositoryWorkspaceSourceGroup[],
-	selectedGroupId: string | null,
-): RepositoryWorkspaceEntry | null {
-	const currentGroupEntry = workspace.entries.find(
-		(entry) => entry.groupId === selectedGroupId,
-	);
-	if (currentGroupEntry) return currentGroupEntry;
-	const selectedEntry = workspace.entries.find((entry) => {
-		const group = groups.find((candidate) => candidate.id === entry.groupId);
-		return group?.selectedPaneId === entry.pane.id;
-	});
-	return selectedEntry ?? workspace.entries[0] ?? null;
-}
 export function getVisibleRepositoryEntries(
 	projection: RepositoryWorkspaceProjection,
 	groupId?: string,
@@ -748,6 +690,7 @@ export function useWorkspaceState(loadCanonical = true, selectFirst = true) {
 	const load = (state: AgentSavedState | null = loadAgentState()) => {
 		return {
 			groups: state?.groups ?? [],
+			repositories: state?.repositories ?? EMPTY_REPOSITORIES,
 			selectedGroupId:
 				state?.selectedGroupId ??
 				(selectFirst ? state?.groups[0]?.id : null) ??
@@ -800,24 +743,16 @@ export function resolveCreateAgentChatCwd(
 export function dispatchCreateAgentChat(
 	target: CreateAgentChatTarget = "active-repository",
 ): void {
-	window.dispatchEvent(
-		new CustomEvent<CreateAgentChatDetail>(CREATE_AGENT_CHAT_EVENT, {
-			detail: {
-				target,
-			},
-		}),
-	);
+	dispatchWindowEvent<CreateAgentChatDetail>(CREATE_AGENT_CHAT_EVENT, {
+		target,
+	});
 }
 export function dispatchFocusAgentChatComposer(paneId: string): void {
-	window.dispatchEvent(
-		new CustomEvent<FocusAgentChatComposerDetail>(
-			FOCUS_AGENT_CHAT_COMPOSER_EVENT,
-			{
-				detail: {
-					paneId,
-				},
-			},
-		),
+	dispatchWindowEvent<FocusAgentChatComposerDetail>(
+		FOCUS_AGENT_CHAT_COMPOSER_EVENT,
+		{
+			paneId,
+		},
 	);
 }
 export const WORKSPACE_SIDEBAR_COLLAPSED_EVENT =
@@ -831,14 +766,10 @@ export function loadSidebarCollapsed(): boolean {
 }
 export function setWorkspaceSidebarCollapsed(collapsed: boolean): void {
 	writeStoredValue(SIDEBAR_COLLAPSED_STORAGE_KEY, String(collapsed));
-	window.dispatchEvent(
-		new CustomEvent<WorkspaceSidebarCollapsedDetail>(
-			WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
-			{
-				detail: {
-					collapsed,
-				},
-			},
-		),
+	dispatchWindowEvent<WorkspaceSidebarCollapsedDetail>(
+		WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
+		{
+			collapsed,
+		},
 	);
 }

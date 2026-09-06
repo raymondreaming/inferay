@@ -1,3 +1,4 @@
+import { dispatchWindowEvent } from "../../../shared/lib/data.ts";
 export type ExplorerEntry = {
 	readonly cwd: string;
 	readonly isDir: boolean;
@@ -32,9 +33,5 @@ export type DocumentOpenDetail = {
 	readonly path: string;
 };
 export function dispatchDocumentOpen(detail: DocumentOpenDetail) {
-	window.dispatchEvent(
-		new CustomEvent<DocumentOpenDetail>(DOCUMENT_OPEN_EVENT, {
-			detail,
-		}),
-	);
+	dispatchWindowEvent<DocumentOpenDetail>(DOCUMENT_OPEN_EVENT, detail);
 }

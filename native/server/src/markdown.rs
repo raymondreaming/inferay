@@ -41,12 +41,10 @@ pub struct MdBlock {
 #[derive(Debug, Serialize)]
 pub struct MdListItem {
     pub bullet: String,
-    pub content: String,
     pub tokens: Vec<MdInlineToken>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checked: Option<bool>,
     pub indent: usize,
-    pub children: Vec<MdListItem>,
 }
 #[derive(Debug, Serialize)]
 pub struct MdInlineToken {
@@ -340,11 +338,9 @@ impl Parser {
                     let tokens = self.inline(&text, 0);
                     items.push(MdListItem {
                         bullet: m[2].into(),
-                        content: String::new(),
                         tokens,
                         checked,
                         indent: m[1].len(),
-                        children: Vec::new(),
                     });
                     i += 1;
                 }

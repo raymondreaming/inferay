@@ -7,20 +7,13 @@ import {
 	useSyncExternalStore,
 } from "octane";
 import { fetchJson } from "../../../adapters/backend/http.ts";
+import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
 import { hasPath } from "../../../shared/lib/data.ts";
 import type {
 	AttachedImageInfo,
 	QueuedMessageInfo,
 } from "../model/agent-chat-shared.ts";
 import { getChatQueueReadModel } from "../model/chat-session-store.ts";
-
-interface MarkdownPreviewState {
-	show: boolean;
-	path: string;
-	content: string | null;
-	loading: boolean;
-	error: string | null;
-}
 
 export function useAgentChatComposerState(paneId: string, enabled = true) {
 	const [attachedImages, setAttachedImages] = useState<AttachedImageInfo[]>([]);
@@ -35,43 +28,35 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 	const [queueError, setQueueError] = useState<string | null>(null);
 	const [editingQueueId, setEditingQueueId] = useState<string | null>(null);
 	const [editingQueueText, setEditingQueueText] = useState("");
-	const [mdPreview, setMdPreview] = useState<MarkdownPreviewState>({
-		show: false,
-		path: "",
-		content: null,
-		loading: false,
-		error: null,
-	});
-
-	const handleMdFileClick = useCallback((filePath: string) => {
-		setMdPreview({
-			show: true,
-			path: filePath,
-			content: null,
-			loading: true,
-			error: null,
-		});
-	}, []);
-
-	useEffect(() => {
-		if (!enabled || !mdPreview.loading) return;
-		const controller = new AbortController();
-		const finish = (patch: Partial<MarkdownPreviewState>) => {
-			if (!controller.signal.aborted)
-				setMdPreview((previous) => ({ ...previous, ...patch, loading: false }));
-		};
-		void fetchJson<{ content: string }>(
-			`/api/files/preview?${new URLSearchParams({ path: mdPreview.path })}`,
-			{ signal: controller.signal },
-		)
-			.then(({ content }) => finish({ content }))
-			.catch((error) =>
-				finish({
-					error: error instanceof Error ? error.message : "Failed to read file",
-				}),
-			);
-		return () => controller.abort();
-	}, [enabled, mdPreview.loading, mdPreview.path]);
+	const [previewPath, setPreviewPath] = useState<string | null>(null);
+	const preview = useQueryResource(
+		(signal) =>
+			fetchJson<{ content: string }>(
+				`/api/files/preview?${new URLSearchParams({ path: previewPath ?? "" })}`,
+				{ signal },
+			),
+		null,
+		{
+			queryKey: ["markdown-preview", previewPath],
+			enabled: enabled && previewPath !== null,
+			gcTime: 0,
+		},
+	);
+	const handleMdFileClick = useCallback(
+		(path: string) => {
+			if (path === previewPath) void preview.refresh();
+			else setPreviewPath(path);
+		},
+		[previewPath, preview.refresh],
+	);
+	const closeMdPreview = useCallback(() => setPreviewPath(null), []);
+	const mdPreview = {
+		show: previewPath !== null,
+		path: previewPath ?? "",
+		content: preview.data?.content ?? null,
+		loading: preview.loading,
+		error: preview.error,
+	};
 
 	const replaceQueuedMessages = useCallback(
 		(messages: QueuedMessageInfo[]) => {
@@ -241,7 +226,7 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 		cancelQueuedMessageEdit,
 		saveQueuedMessageEdit,
 		mdPreview,
-		setMdPreview,
+		closeMdPreview,
 		handleMdFileClick,
 		attachImage,
 		removeAttachedImage,

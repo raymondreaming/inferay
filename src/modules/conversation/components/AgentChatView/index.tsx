@@ -142,7 +142,7 @@ export const AgentChatView = memo(function AgentChatView({
 		value: input,
 		onChange: setInput,
 	});
-	const { chatUiState, setChatUiState, setExpandedTools, setRunStatus } =
+	const { chatUiState, setExpandedTools, setRunStatus } =
 		useChatUiState(paneId);
 	const { isLoading, startTime, expandedTools } = chatUiState;
 	const imageDragDepthRef = useRef(0);
@@ -203,44 +203,8 @@ export const AgentChatView = memo(function AgentChatView({
 		scrollToBottom,
 		textareaRef,
 	} = useChatViewport(input, isSelected, renderVisibleChat);
-	const {
-		attachedImages,
-		queuedMessages,
-		queueError,
-		replaceQueuedMessages,
-		resolveSteeringMessage,
-		stageSteeringMessage,
-		removeQueuedMessage,
-		editingQueueId,
-		editingQueueText,
-		setEditingQueueText,
-		startQueuedMessageEdit,
-		cancelQueuedMessageEdit,
-		saveQueuedMessageEdit,
-		mdPreview,
-		setMdPreview,
-		handleMdFileClick,
-		attachImage,
-		removeAttachedImage,
-		clearAttachedImages,
-		handleDrop,
-		handlePaste,
-	} = useAgentChatComposerState(paneId, renderVisibleChat);
-	const {
-		allCommands,
-		fileMenu,
-		setFileMenu,
-		fileResults,
-		slashMenu,
-		setSlashMenu,
-		filteredCommands,
-		showCommands,
-		slashCommandNames,
-		handleInputForFileMenu,
-		handleInputForSlashMenu,
-		selectCommand,
-		selectFile,
-	} = useAgentChatMenus({
+	const composer = useAgentChatComposerState(paneId, renderVisibleChat);
+	const menus = useAgentChatMenus({
 		agentKind,
 		cwd,
 		enabled: renderVisibleChat,
@@ -255,27 +219,23 @@ export const AgentChatView = memo(function AgentChatView({
 			enabled: renderVisibleChat,
 			messageReadModel,
 			paneId,
-			replaceQueuedMessages,
-			resolveSteeringMessage,
-			stageSteeringMessage,
-			setChatUiState,
+			replaceQueuedMessages: composer.replaceQueuedMessages,
+			resolveSteeringMessage: composer.resolveSteeringMessage,
+			stageSteeringMessage: composer.stageSteeringMessage,
+			setExpandedTools,
 			setRunStatus,
 		},
 	);
 	const { handleKeyDown, sendUserMessage } = useChatInputActions({
+		...composer,
+		...menus,
 		agentKind,
-		allCommands,
-		attachedImages,
 		cancelSpeechListening,
-		clearAttachedImages,
 		clearCheckpoints,
 
 		consumePendingWorkspace,
 		cwd,
 		effectiveSelectedModel,
-		fileMenu,
-		fileResults,
-		filteredCommands,
 		input,
 		isLoading,
 		onSendStart: () => {
@@ -285,22 +245,18 @@ export const AgentChatView = memo(function AgentChatView({
 
 		paneId,
 		referencePaths,
-		selectCommand,
-		selectFile,
 		selectedReasoningLevel,
-		setFileMenu,
 		setInput,
 		setRunStatus,
 		setMessages,
-		setSlashMenu,
-		showCommands,
-		slashMenu,
 		textareaRef,
 	});
 	const handleSendMessage = useStableCallback((text: string) =>
 		sendUserMessage({ text, workspaceOverride: consumePendingWorkspace() }),
 	);
-	const handleMdFileClickFromMessage = useStableCallback(handleMdFileClick);
+	const handleMdFileClickFromMessage = useStableCallback(
+		composer.handleMdFileClick,
+	);
 	const revertCheckpointFromMessage = useStableCallback(revertCheckpoint);
 	const stopGeneration = useCallback(() => {
 		wsClient.send({ type: "chat:stop", paneId });
@@ -375,7 +331,7 @@ export const AgentChatView = memo(function AgentChatView({
 				event.stopPropagation();
 				imageDragDepthRef.current = 0;
 				setIsImageDragActive(false);
-				void handleDrop(event);
+				void composer.handleDrop(event);
 			}}
 		>
 			{renderVisibleChat && draggable && (
@@ -449,7 +405,7 @@ export const AgentChatView = memo(function AgentChatView({
 							revertCheckpoint={revertCheckpointFromMessage}
 							handleSendMessage={handleSendMessage}
 							onMdFileClick={handleMdFileClickFromMessage}
-							slashCommandNames={slashCommandNames}
+							slashCommandNames={menus.slashCommandNames}
 							stickToBottom={isAtBottom}
 						/>
 					</div>
@@ -487,8 +443,12 @@ export const AgentChatView = memo(function AgentChatView({
 							onStop={stopGeneration}
 						/>
 						{configurationError && <div role="alert">{configurationError}</div>}
-						{queueError && <div role="alert">{queueError}</div>}
+						{composer.queueError && (
+							<div role="alert">{composer.queueError}</div>
+						)}
 						<ChatComposer
+							{...composer}
+							{...menus}
 							beamActive={composerBeamActive}
 							agentKind={agentKind}
 							agentKindOptions={agentKindOptions}
@@ -500,36 +460,10 @@ export const AgentChatView = memo(function AgentChatView({
 							onAgentConfigOpenChange={setIsAgentConfigOpen}
 							input={input}
 							setInput={setInput}
-							attachedImages={attachedImages}
-							removeAttachedImage={removeAttachedImage}
-							attachImage={attachImage}
-							queuedMessages={queuedMessages}
-							editingQueueId={editingQueueId}
-							editingQueueText={editingQueueText}
-							setEditingQueueText={setEditingQueueText}
-							startQueuedMessageEdit={startQueuedMessageEdit}
-							cancelQueuedMessageEdit={cancelQueuedMessageEdit}
-							saveQueuedMessageEdit={saveQueuedMessageEdit}
-							removeQueuedMessage={removeQueuedMessage}
-							fileMenu={fileMenu}
-							setFileMenu={setFileMenu}
-							fileResults={fileResults}
-							selectFile={selectFile}
-							slashMenu={slashMenu}
-							setSlashMenu={setSlashMenu}
-							showCommands={showCommands}
-							filteredCommands={filteredCommands}
-							slashCommandNames={slashCommandNames}
-							selectCommand={selectCommand}
-							handleInputForFileMenu={handleInputForFileMenu}
-							handleInputForSlashMenu={handleInputForSlashMenu}
 							handleKeyDown={handleKeyDown}
-							handlePaste={handlePaste}
 							textareaRef={textareaRef}
 							highlightOverlayRef={highlightOverlayRef}
-							mdPreview={mdPreview}
-							setMdPreview={setMdPreview}
-							onMdFileClick={handleMdFileClick}
+							onMdFileClick={composer.handleMdFileClick}
 							voiceInput={voiceInput}
 							workspaceControl={
 								<AgentWorkspaceControl

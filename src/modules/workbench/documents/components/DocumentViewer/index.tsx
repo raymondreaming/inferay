@@ -11,10 +11,7 @@ import {
 } from "../../../../../app/model/appearance.ts";
 import { iconSize } from "../../../../../design-system/styles.stylex.ts";
 import { IconCode, IconX } from "../../../../../shared/ui/Icons/index.tsx";
-import {
-	FileSearch,
-	type FileSearchResult,
-} from "../../../../explorer/components/FileSearch/index.tsx";
+import { FileSearch } from "../../../../explorer/components/FileSearch/index.tsx";
 import { FileTypeIcon } from "../../../../explorer/components/FileTypeIcon/index.tsx";
 import { WorkspaceDockHandle } from "../../../components/WorkspaceDockHandle/index.tsx";
 import type { FileContentResponse } from "../../../model/workbench-model.ts";
@@ -91,7 +88,6 @@ export const DocumentViewer = memo(function DocumentViewer({
 		readonly token: number;
 	} | null;
 }) {
-	const [, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const cachedSession = fileViewerSessions.get(sessionId);
 	const [persistedSession] = useState(() =>
@@ -171,10 +167,8 @@ export const DocumentViewer = memo(function DocumentViewer({
 	}, [cwd, initialFile, pathsToRestore, persistedSession?.paths]);
 
 	const openFile = useCallback(
-		(result: FileSearchResult | null) => {
-			if (!result) return;
-			setLoading(true);
-			const params = new URLSearchParams({ cwd, path: result.path });
+		({ path }: { path: string }) => {
+			const params = new URLSearchParams({ cwd, path });
 			fetchJson<FileContentResponse>(`/api/files/content?${params}`)
 				.then((file) => {
 					setOpenFiles((current) => {
@@ -195,18 +189,12 @@ export const DocumentViewer = memo(function DocumentViewer({
 							? nextError.message
 							: "File could not open",
 					);
-				})
-				.finally(() => setLoading(false));
+				});
 		},
 		[cwd],
 	);
 	useEffect(() => {
-		if (!openRequest) return;
-		openFile({
-			isDir: false,
-			name: fileName(openRequest.path),
-			path: openRequest.path,
-		});
+		if (openRequest) openFile(openRequest);
 	}, [openFile, openRequest]);
 	const closeFile = useCallback(
 		(path: string) => {

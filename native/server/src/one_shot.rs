@@ -94,17 +94,9 @@ async fn run_claude_once(
 }
 
 async fn staged_diff(cwd: &Path) -> Option<String> {
-    let stat = run_git_capture(cwd, &["diff", "--cached", "--stat"]).await?;
-    if stat.trim().is_empty() {
-        return None;
-    }
-    run_git_capture(cwd, &["diff", "--cached"]).await
-}
-
-async fn run_git_capture(cwd: &Path, arguments: &[&str]) -> Option<String> {
     let mut command = Command::new("git");
     command
-        .args(arguments)
+        .args(["diff", "--cached"])
         .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -120,7 +112,8 @@ async fn run_git_capture(cwd: &Path, arguments: &[&str]) -> Option<String> {
     {
         return None;
     }
-    Some(String::from_utf8_lossy(&output.stdout).into_owned())
+    let diff = String::from_utf8_lossy(&output.stdout).into_owned();
+    (!diff.trim().is_empty()).then_some(diff)
 }
 
 pub(super) fn fallback_title(message: &str) -> String {
@@ -133,11 +126,8 @@ pub(super) fn fallback_title(message: &str) -> String {
 }
 
 fn strip_title_quotes(value: &str) -> String {
-    let value = value.strip_prefix(['"', '\'']).unwrap_or(value).to_string();
-    value
-        .strip_suffix(['"', '\''])
-        .unwrap_or(&value)
-        .to_string()
+    let value = value.strip_prefix(['"', '\'']).unwrap_or(value);
+    value.strip_suffix(['"', '\'']).unwrap_or(value).to_string()
 }
 
 enum ClaudeText<'a> {

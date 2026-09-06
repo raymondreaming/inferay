@@ -4,7 +4,6 @@ import type { GitInteractiveRebaseStep } from "../../../repository/model/types.t
 
 import { styles } from "./styles.ts";
 import type { useChatDiffPanelState } from "./useChatDiffPanelState.tsx";
-import { gitOperationErrorLabel } from "./useChatDiffPanelState.tsx";
 
 type RefOperationDialogProps = Pick<
 	ReturnType<typeof useChatDiffPanelState>,
@@ -14,6 +13,7 @@ type RefOperationDialogProps = Pick<
 	| "interactiveRebaseCommits"
 	| "moveRebaseRow"
 	| "setInteractiveRebasePlan"
+	| "refPreflightError"
 	| "refPreflightRunning"
 	| "refOperationPreflight"
 	| "refOperationRunning"
@@ -33,6 +33,7 @@ export function RefOperationDialog({
 	interactiveRebaseCommits,
 	moveRebaseRow,
 	setInteractiveRebasePlan,
+	refPreflightError,
 	refPreflightRunning,
 	refOperationPreflight,
 	refOperationRunning,
@@ -213,12 +214,12 @@ export function RefOperationDialog({
 						</div>
 					</>
 				) : null}
-				{refOperationResult?.error ? (
+				{refOperationResult?.error || refPreflightError ? (
 					<p {...stylex.props(styles.refActionError)}>
 						<strong>
-							{gitOperationErrorLabel(refOperationResult.errorKind)}:
+							{refOperationResult?.errorLabel ?? "Git command failed"}:
 						</strong>{" "}
-						{refOperationResult.error}
+						{refOperationResult?.error || refPreflightError}
 					</p>
 				) : null}
 				{refOperationResult?.conflicts.length ? (

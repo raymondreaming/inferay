@@ -14,10 +14,7 @@ export function SidebarChatList({
 	workspaces: SidebarWorkspaceState;
 	onSelectPane: (groupId: string, paneId: string) => void;
 }) {
-	const repositoryProjection = projectRepositoryWorkspaces(
-		workspaces.groups,
-		workspaces.selectedGroupId,
-	);
+	const repositoryProjection = projectRepositoryWorkspaces(workspaces);
 	const entries = getVisibleRepositoryEntries(repositoryProjection);
 
 	return (

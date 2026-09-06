@@ -127,16 +127,10 @@ export function OnboardingPage() {
 		// New users land directly in the multi-agent chat grid.
 		const canonicalState = await loadCanonicalAgentState();
 		if (!canonicalState || isFirstRun)
-			await mutateAgentWorkspaceState(
-				{
-					type: "setTheme",
-					themeId: "default",
-				},
-				"onboarding-default",
-				{
-					createIfMissing: true,
-				},
-			);
+			await mutateAgentWorkspaceState({
+				type: "setTheme",
+				themeId: "default",
+			});
 		navigate({
 			to: "/agent",
 			replace: true,

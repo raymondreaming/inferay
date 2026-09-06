@@ -1,10 +1,12 @@
 import * as stylex from "@octanejs/stylex";
-import { useCallback, useEffect, useState } from "octane";
+import { useQuery } from "@octanejs/tanstack-query";
+import { useCallback, useState } from "octane";
 import { fetchJson } from "../../../../adapters/backend/http.ts";
 import {
 	iconSize,
 	surfaceStyles,
 } from "../../../../design-system/styles.stylex.ts";
+import { queryClient } from "../../../../shared/lib/data.ts";
 import { IconChevronRight } from "../../../../shared/ui/Icons/index.tsx";
 import type { ExplorerEntry } from "../../model/explorer-events.ts";
 import { dispatchDocumentOpen } from "../../model/explorer-events.ts";
@@ -20,40 +22,30 @@ export function Directory({
 	path?: string;
 	depth?: number;
 }) {
-	const [entries, setEntries] = useState<ExplorerEntry[]>([]);
-	const [loading, setLoading] = useState(true);
-	const [error, setError] = useState<string | null>(null);
-	const [requestVersion, setRequestVersion] = useState(0);
-	useEffect(() => {
-		const controller = new AbortController();
-		const params = new URLSearchParams({ cwd, path });
-		setLoading(true);
-		setError(null);
-		fetchJson<{ entries: ExplorerEntry[] }>(`/api/files/list?${params}`, {
-			signal: controller.signal,
-		})
-			.then((value) => setEntries(value.entries))
-			.catch((reason) => {
-				if (!controller.signal.aborted) {
-					setEntries([]);
-					setError(
-						reason instanceof Error
-							? reason.message
-							: "Could not load this folder",
-					);
-				}
-			})
-			.finally(() => {
-				if (!controller.signal.aborted) setLoading(false);
-			});
-		return () => controller.abort();
-	}, [cwd, path, requestVersion]);
-	if (loading) return <span {...stylex.props(styles.status)}>Loading…</span>;
-	if (error)
+	const query = useQuery(
+		{
+			queryKey: ["explorer-directory", cwd, path],
+			queryFn: ({ signal }) =>
+				fetchJson<{ entries: ExplorerEntry[] }>(
+					`/api/files/list?${new URLSearchParams({ cwd, path })}`,
+					{ signal },
+				),
+			gcTime: 0,
+			staleTime: 0,
+			retry: false,
+			refetchOnReconnect: false,
+			refetchOnWindowFocus: false,
+		},
+		queryClient,
+	);
+	const entries = query.data?.entries ?? [];
+	if (query.isPending || query.isFetching)
+		return <span {...stylex.props(styles.status)}>Loading…</span>;
+	if (query.error)
 		return (
 			<button
 				type="button"
-				onClick={() => setRequestVersion((value) => value + 1)}
+				onClick={() => void query.refetch()}
 				{...stylex.props(styles.error)}
 			>
 				Could not load files · Retry

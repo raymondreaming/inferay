@@ -1,4 +1,5 @@
 use native_files::{image_content_type, is_image_extension};
+mod git_actions;
 mod git_changes;
 mod workspace_panels;
 use std::net::SocketAddr;
@@ -503,8 +504,27 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             ("/api/git/unstage", "POST") => git_stage_change(&state, request, false).await,
             ("/api/git/commit", "POST") => git_commit(&state, request).await,
 
+            ("/api/agent/commands", "GET") => state
+                .native_prompts
+                .list()
+                .await
+                .map_err(ApiError::from)
+                .map(|skills| {
+                    json!(inferay_core::provider_config::composer_commands(
+                        &query_value(&request, "kind").unwrap_or_default(),
+                        &skills,
+                    ))
+                }),
             ("/api/native/provider-config", "GET") => {
-                Ok(inferay_core::provider_config::catalog().clone())
+                // A broken skill library must not prevent startup or local commands.
+                let skills = state.native_prompts.list().await.unwrap_or_default();
+                let mut catalog = inferay_core::provider_config::catalog().clone();
+                for (kind, definition) in catalog["agents"].as_object_mut().unwrap() {
+                    definition["commands"] = json!(
+                        inferay_core::provider_config::composer_commands(kind, &skills)
+                    );
+                }
+                Ok(catalog)
             }
             ("/api/native/provider-config", "POST") => to_bytes(request.into_body(), 64 * 1024)
                 .await
@@ -773,7 +793,6 @@ async fn apply_agent_workspace_action(state: &ServerState, request: Request) -> 
         .expect("agent state lock poisoned")
         .apply_workspace_action(&action))
     .map(|value| json!({ "state": value })))
-    .map(|value| json!(value))
     .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error))
 }
 
@@ -948,7 +967,7 @@ async fn git_ref_operation(state: &ServerState, request: Request) -> ApiResult {
         tokio::task::spawn_blocking(move || finish_git_ref_operation(&cwd, &operation, &action))
             .await?
     };
-    Ok(json!(result))
+    Ok(git_actions::operation_payload(result))
 }
 async fn git_ref_operation_preflight(state: &ServerState, request: Request) -> ApiResult {
     let body: GitRefOperationBody = api_body(request).await?;
@@ -963,16 +982,18 @@ async fn git_ref_operation_preflight(state: &ServerState, request: Request) -> A
 async fn git_graph_action(state: &ServerState, request: Request) -> ApiResult {
     let body: GitGraphActionBody = api_body(request).await?;
     let cwd = request_cwd(state, body.cwd.as_deref())?;
-    Ok(json!(
-        tokio::task::spawn_blocking(move || perform_git_graph_action_with_targets(
-            &cwd,
-            body.action.as_deref().unwrap_or_default(),
-            body.target.as_deref(),
-            body.targets.as_deref().unwrap_or_default(),
-            body.name.as_deref(),
-            body.message.as_deref(),
-        ))
-        .await?
+    Ok(git_actions::operation_payload(
+        tokio::task::spawn_blocking(move || {
+            perform_git_graph_action_with_targets(
+                &cwd,
+                body.action.as_deref().unwrap_or_default(),
+                body.target.as_deref(),
+                body.targets.as_deref().unwrap_or_default(),
+                body.name.as_deref(),
+                body.message.as_deref(),
+            )
+        })
+        .await?,
     ))
 }
 async fn git_stage_change(state: &ServerState, request: Request, stage: bool) -> ApiResult {
@@ -1040,7 +1061,9 @@ async fn git_graph(state: &ServerState, request: Request) -> ApiResult<Response>
         render_jobs::cached(key, std::time::Duration::from_secs(30), move || {
             let snapshot =
                 inferay_native_diff::get_git_graph_snapshot_with_query(&cwd, limit, input, &query);
-            serde_json::to_vec(&git_changes::prepare(json!(snapshot))).ok()
+            let mut response = git_changes::prepare(json!(snapshot));
+            response["actions"] = git_actions::CATALOG.clone();
+            serde_json::to_vec(&response).ok()
         })
         .await
     };
@@ -1081,27 +1104,25 @@ async fn git_commit_details(state: &ServerState, request: Request) -> ApiResult 
 async fn git_comparison_details(state: &ServerState, request: Request) -> ApiResult {
     let cwd = query_value(&request, "cwd")
         .as_deref()
-        .and_then(|cwd| safe_cwd(state, cwd));
-    if cwd.is_none() {
-        return Err(api_error(
-            StatusCode::BAD_REQUEST,
-            "Invalid comparison directory",
-        ));
-    }
+        .and_then(|cwd| safe_cwd(state, cwd))
+        .ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "Invalid comparison directory"))?;
     let explicit_from = query_value(&request, "from").unwrap_or_default();
     let explicit_to = query_value(&request, "to").unwrap_or_default();
     let selection = if request.method() == Method::POST {
-        let body: Value = api_body(request).await?;
-        Some(body.get("selection").unwrap_or(&Value::Null).to_string())
+        let mut body: Value = api_body(request).await?;
+        Some(
+            serde_json::from_value::<Vec<native_git::ComparisonSelection>>(
+                body.get_mut("selection")
+                    .map(Value::take)
+                    .unwrap_or(Value::Null),
+            ),
+        )
     } else {
-        query_value(&request, "selection")
+        query_value(&request, "selection").map(|selection| serde_json::from_str(&selection))
     };
-    let plan = if let Some(selection) = selection {
-        let items = serde_json::from_str::<Vec<native_git::ComparisonSelection>>(&selection);
-        match (cwd.as_deref(), items) {
-            (Some(cwd), Ok(items)) if items.len() <= 1000 => {
-                native_git::plan_comparison(cwd, &items)
-            }
+    let plan = if let Some(items) = selection {
+        match items {
+            Ok(items) if items.len() <= 1000 => native_git::plan_comparison(&cwd, &items),
             _ => {
                 return Err(api_error(
                     StatusCode::BAD_REQUEST,
@@ -1110,7 +1131,7 @@ async fn git_comparison_details(state: &ServerState, request: Request) -> ApiRes
             }
         }
     } else {
-        cwd.map(|cwd| native_git::ComparisonPlan {
+        Some(native_git::ComparisonPlan {
             cwd,
             from: explicit_from,
             to: explicit_to,
@@ -1229,7 +1250,18 @@ async fn git_diff(state: &ServerState, request: Request) -> ApiResult<Response> 
             value("revision").unwrap_or_default()
         )
     );
-    let ttl = std::time::Duration::from_secs(if worktree { 0 } else { 2 });
+    // Full object IDs are immutable; abbreviated hashes retain the short cache window.
+    let full_oid = |value: &str| {
+        matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+    };
+    let immutable = full_oid(&from) && to.as_deref().is_none_or(full_oid);
+    let ttl = std::time::Duration::from_secs(if worktree {
+        0
+    } else if immutable {
+        60
+    } else {
+        2
+    });
     let task = render_jobs::cached(key, ttl, move || {
         let diff = if worktree {
             get_git_worktree_comparison_hunk_diff(&allowed_paths, &cwd, &from, &file, review)
@@ -1272,8 +1304,13 @@ fn prompt_path(path: &str) -> Option<(&str, bool)> {
     }
 }
 
-async fn list_prompts(state: &ServerState, _request: Request) -> ApiResult {
-    Ok(json!(state.native_prompts.list().await?))
+async fn list_prompts(state: &ServerState, request: Request) -> ApiResult {
+    let skills = state.native_prompts.list().await?;
+    Ok(json!(inferay_core::prompts::filter_prompts(
+        &skills,
+        &query_value(&request, "filter").unwrap_or_else(|| "all".into()),
+        &query_value(&request, "search").unwrap_or_default(),
+    )))
 }
 
 async fn create_prompt(state: &ServerState, request: Request) -> ApiResult {
@@ -1312,12 +1349,13 @@ async fn increment_prompt_usage(state: &ServerState, _request: Request, id: &str
 async fn get_agent_context(state: &ServerState, request: Request) -> ApiResult {
     let cwd = query_value(&request, "cwd");
     let pane_id = query_value(&request, "paneId");
-    let skills = state.native_prompts.list().await?;
-    Ok(json!(state.agent_context_store.lock().await.resolve(
-        cwd.as_deref(),
-        pane_id.as_deref(),
-        &skills
-    )))
+    Ok(json!(
+        state
+            .agent_context_store
+            .lock()
+            .await
+            .resolve(cwd.as_deref(), pane_id.as_deref())
+    ))
 }
 
 async fn update_agent_context(state: &ServerState, request: Request) -> ApiResult {
@@ -1364,9 +1402,7 @@ async fn search_files(state: &ServerState, request: Request) -> ApiResult {
         .map(|cwd| state.native_project_files.resolve_cwd(cwd))
         .collect::<Result<Vec<_>, _>>()
         .map_err(invalid_directory)?;
-    let query = query_value(&request, "q")
-        .unwrap_or_default()
-        .to_lowercase();
+    let query = query_value(&request, "q").unwrap_or_default();
     let limit = safe_limit(
         query_value(&request, "limit").as_deref().unwrap_or("20"),
         20,
@@ -1386,9 +1422,7 @@ async fn search_files(state: &ServerState, request: Request) -> ApiResult {
         .flat_map(|row| per_cwd.iter().filter_map(move |entries| entries.get(row)))
         .take(limit)
         .collect::<Vec<_>>();
-    Ok(
-        json!({"cwd":cwds.first().cloned().unwrap_or_else(|| project_root_cwd(state)), "cwds":cwds, "results":results}),
-    )
+    Ok(json!({"results":results}))
 }
 
 fn project_root_cwd(state: &ServerState) -> String {
@@ -1698,6 +1732,28 @@ const CHAT_NON_MESSAGE_STORAGE_PREFIXES: &[&str] = &[
     "inferay-chat-worktree-",
 ];
 
+// Browser filtering uses the native key lists, before preferences are uploaded.
+fn client_storage_key_pattern() -> String {
+    let alternatives = |values: &[&str]| {
+        values
+            .iter()
+            .map(|value| regex::escape(value))
+            .collect::<Vec<_>>()
+            .join("|")
+    };
+    let chat_suffixes = CHAT_NON_MESSAGE_STORAGE_PREFIXES
+        .iter()
+        .filter_map(|prefix| prefix.strip_prefix("inferay-chat-"))
+        .collect::<Vec<_>>();
+    format!(
+        r"^(?!{}(?![\s\S])|inferay-chat-queue-|inferay-chat-loading-)(?!inferay-chat-(?!(?:{})))(?:(?:{})(?![\s\S])|{})",
+        regex::escape(AGENT_STATE_STORAGE_KEY),
+        alternatives(&chat_suffixes),
+        alternatives(SYNCED_STORAGE_KEYS),
+        alternatives(SYNCED_STORAGE_PREFIXES),
+    )
+}
+
 fn is_chat_message_storage_key(key: &str) -> bool {
     key.starts_with("inferay-chat-")
         && !CHAT_NON_MESSAGE_STORAGE_PREFIXES
@@ -1764,7 +1820,7 @@ async fn get_client_storage(state: &ServerState, request: Request) -> ApiResult 
     if let Some(key) = requested_key {
         entries.retain(|entry_key, _| entry_key == &key);
     }
-    Ok(json!({"entries":entries}))
+    Ok(json!({"entries":entries,"storageKeyPattern":client_storage_key_pattern()}))
 }
 
 async fn update_client_storage(state: &ServerState, request: Request) -> ApiResult {
@@ -2099,46 +2155,19 @@ async fn serve_renderer_index(
     head_only: bool,
 ) -> Response {
     let index = state.dist_dir.join("index.html");
-    if index.is_file() {
-        if state.live_reload && !head_only {
-            return serve_live_reload_index(state, &index, headers).await;
-        }
-        return serve_file(
-            &index,
-            "text/html",
-            "no-cache",
-            true,
-            headers,
-            &state.auth_token,
-            head_only,
-        )
-        .await;
+    if state.live_reload && !head_only {
+        return serve_live_reload_index(state, &index, headers).await;
     }
-
-    if !state.dist_dir.join("main.js").is_file() {
-        return text_response(StatusCode::NOT_FOUND, "Not found");
-    }
-
-    let body = concat!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"UTF-8\" />",
-        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, viewport-fit=cover\" />",
-        "<title>inferay</title><meta name=\"theme-color\" content=\"#09090b\" />",
-        "<meta name=\"color-scheme\" content=\"dark\" /></head>",
-        "<body><div id=\"root\"></div><script type=\"module\" src=\"/main.js\"></script></body></html>"
-    );
-    response_with_headers(
-        StatusCode::OK,
-        if head_only {
-            Body::empty()
-        } else {
-            Body::from(body)
-        },
+    serve_file(
+        &index,
         "text/html",
         "no-cache",
         true,
         headers,
         &state.auth_token,
+        head_only,
     )
+    .await
 }
 
 async fn serve_live_reload_index(
@@ -2160,7 +2189,6 @@ async fn serve_live_reload_index(
     );
     let html = html.replacen("</head>", &format!("{reload}</head>"), 1);
     response_with_headers(
-        StatusCode::OK,
         Body::from(html),
         "text/html",
         "no-cache",
@@ -2181,7 +2209,6 @@ async fn serve_file(
 ) -> Response {
     match tokio::fs::read(path).await {
         Ok(bytes) => response_with_headers(
-            StatusCode::OK,
             if head_only {
                 Body::empty()
             } else {
@@ -2198,7 +2225,6 @@ async fn serve_file(
 }
 
 fn response_with_headers(
-    status: StatusCode,
     body: Body,
     content_type: &'static str,
     cache_control: &'static str,
@@ -2207,7 +2233,6 @@ fn response_with_headers(
     auth_token: &str,
 ) -> Response {
     let mut response = Response::new(body);
-    *response.status_mut() = status;
     response
         .headers_mut()
         .insert(CONTENT_TYPE, HeaderValue::from_static(content_type));

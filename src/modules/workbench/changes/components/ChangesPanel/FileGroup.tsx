@@ -10,9 +10,6 @@ import type {
 	GitFilePresentation,
 } from "../../../../repository/model/types.ts";
 import type { SelectedFile } from "../../../model/workbench-model.ts";
-import { FileActionIcon } from "./FileActionIcon.tsx";
-import { FileChangeIcon } from "./FileChangeIcon.tsx";
-import { FileDiffStats } from "./FileDiffStats.tsx";
 import { styles } from "./styles.ts";
 import { TreeNodeRow } from "./TreeNodeRow.tsx";
 
@@ -84,6 +81,19 @@ export function FileGroup({
 	const isEmpty = files.length === 0;
 	const toggleGroup = () => {
 		if (isCollapsible && !isEmpty) setIsCollapsed(!isCollapsed);
+	};
+
+	const rowProps = {
+		visibleFiles,
+		visibleCounts,
+		selected,
+		onSelect,
+		onAction,
+		actionLabel,
+		hoveredActionPath,
+		onActionHover: setHoveredActionPath,
+		collapsedDirs,
+		toggleDir,
 	};
 
 	return (
@@ -158,87 +168,17 @@ export function FileGroup({
 					)}
 				>
 					{(viewMode === "path" || !filePresentation) &&
-						files.map((f) => {
-							const separator = f.path.lastIndexOf("/");
-							const active =
-								selected?.path === f.path && selected?.staged === f.staged;
-							return (
-								<div
-									key={`${f.staged ? "s" : "u"}-${f.path}`}
-									data-git-file-active={active ? "true" : undefined}
-									{...stylex.props(
-										styles.pathRow,
-										active && styles.fileRowActive,
-									)}
-									onMouseEnter={() => {
-										setHoveredActionPath(f.path);
-									}}
-									onMouseLeave={() => setHoveredActionPath(null)}
-								>
-									<button
-										type="button"
-										data-git-file-select
-										onPointerDown={(event) => {
-											if (event.button === 0 && event.isPrimary) onSelect(f);
-										}}
-										onClick={(event) => {
-											if (event.detail === 0) onSelect(f);
-										}}
-										{...stylex.props(styles.fileRowButton)}
-										title={f.path}
-									>
-										<FileChangeIcon file={f} />
-										<span {...stylex.props(styles.fileButton)}>
-											{separator >= 0 && (
-												<span {...stylex.props(styles.pathDirectory)}>
-													{f.path.slice(0, separator)}
-												</span>
-											)}
-											<span {...stylex.props(styles.pathFileName)}>
-												{separator >= 0 ? f.path.slice(separator) : f.path}
-											</span>
-										</span>
-										{hoveredActionPath !== f.path ? (
-											<FileDiffStats file={f} />
-										) : null}
-									</button>
-									{onAction && (
-										<button
-											type="button"
-											onClick={(e) => {
-												e.stopPropagation();
-												onAction(f.path);
-											}}
-											{...stylex.props(
-												styles.rowActionSubtle,
-												hoveredActionPath === f.path && styles.rowActionVisible,
-											)}
-											aria-label={`${actionLabel} ${f.path}`}
-										>
-											<FileActionIcon actionLabel={actionLabel} />
-										</button>
-									)}
-								</div>
-							);
-						})}
+						files.map((file) => (
+							<TreeNodeRow
+								{...rowProps}
+								key={`${file.staged ? "s" : "u"}-${file.path}`}
+								pathFile={file}
+							/>
+						))}
 					{viewMode === "tree" && filePresentation && (
 						<div>
 							{filePresentation.tree.map((child) => (
-								<TreeNodeRow
-									key={child.path}
-									node={child}
-									visibleFiles={visibleFiles}
-									visibleCounts={visibleCounts}
-									depth={0}
-									selected={selected}
-									onSelect={onSelect}
-									onAction={onAction}
-									actionLabel={actionLabel}
-									hoveredActionPath={hoveredActionPath}
-									onActionHover={setHoveredActionPath}
-									collapsedDirs={collapsedDirs}
-									toggleDir={toggleDir}
-								/>
+								<TreeNodeRow {...rowProps} key={child.path} node={child} />
 							))}
 						</div>
 					)}

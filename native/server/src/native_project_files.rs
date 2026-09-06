@@ -28,36 +28,25 @@ pub struct ProjectFileContent {
     pub content: String,
     pub cwd: String,
     pub path: String,
-    pub size: u64,
-    pub updated_at: f64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(thiserror::Error, Clone, Debug, PartialEq, Eq)]
 pub enum NativeProjectFilesError {
+    #[error("Invalid directory")]
     InvalidDirectory,
+    #[error("No path provided")]
     MissingPath,
+    #[error("Access denied")]
     AccessDenied,
+    #[error("File not found")]
     NotFound,
+    #[error("Not a file")]
     NotFile,
+    #[error("File too large")]
     FileTooLarge,
+    #[error("{0}")]
     Runtime(String),
 }
-
-impl std::fmt::Display for NativeProjectFilesError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidDirectory => formatter.write_str("Invalid directory"),
-            Self::MissingPath => formatter.write_str("No path provided"),
-            Self::AccessDenied => formatter.write_str("Access denied"),
-            Self::NotFound => formatter.write_str("File not found"),
-            Self::NotFile => formatter.write_str("Not a file"),
-            Self::FileTooLarge => formatter.write_str("File too large"),
-            Self::Runtime(error) => formatter.write_str(error),
-        }
-    }
-}
-
-impl std::error::Error for NativeProjectFilesError {}
 
 #[derive(Clone)]
 pub struct NativeProjectFiles {
@@ -112,6 +101,16 @@ impl NativeProjectFiles {
             .ok_or(NativeProjectFilesError::InvalidDirectory)
     }
 
+    fn child(&self, cwd: &Path, path: &str) -> Result<PathBuf, NativeProjectFilesError> {
+        let child = resolve_lexically(&cwd.join(path))
+            .map_err(|_| NativeProjectFilesError::AccessDenied)?;
+        if self.allowed_paths.is_allowed_local_path(&child) && is_within_directory(&child, cwd) {
+            Ok(child)
+        } else {
+            Err(NativeProjectFilesError::AccessDenied)
+        }
+    }
+
     pub fn resolve_cwd(&self, cwd: &str) -> Result<String, NativeProjectFilesError> {
         self.cwd(cwd)
             .map(|path| path.to_string_lossy().into_owned())
@@ -137,13 +136,7 @@ impl NativeProjectFiles {
         path: &str,
     ) -> Result<Vec<ProjectFileEntry>, NativeProjectFilesError> {
         let cwd = self.cwd(cwd)?;
-        let directory = resolve_lexically(&cwd.join(path))
-            .map_err(|_| NativeProjectFilesError::AccessDenied)?;
-        if !self.allowed_paths.is_allowed_local_path(&directory)
-            || !is_within_directory(&directory, &cwd)
-        {
-            return Err(NativeProjectFilesError::AccessDenied);
-        }
+        let directory = self.child(&cwd, path)?;
         tokio::task::spawn_blocking(move || list_project_directory(&cwd, &directory))
             .await
             .map_err(|error| NativeProjectFilesError::Runtime(error.to_string()))?
@@ -158,17 +151,7 @@ impl NativeProjectFiles {
         if path.is_empty() {
             return Err(NativeProjectFilesError::MissingPath);
         }
-        let candidate = PathBuf::from(path);
-        let candidate = if candidate.is_absolute() {
-            candidate
-        } else {
-            cwd.join(candidate)
-        };
-        let file =
-            resolve_lexically(&candidate).map_err(|_| NativeProjectFilesError::AccessDenied)?;
-        if !self.allowed_paths.is_allowed_local_path(&file) || !is_within_directory(&file, &cwd) {
-            return Err(NativeProjectFilesError::AccessDenied);
-        }
+        let file = self.child(&cwd, path)?;
         let metadata = tokio::fs::metadata(&file).await.map_err(map_io_error)?;
         if !metadata.is_file() {
             return Err(NativeProjectFilesError::NotFile);
@@ -177,12 +160,6 @@ impl NativeProjectFiles {
             return Err(NativeProjectFilesError::FileTooLarge);
         }
         let bytes = tokio::fs::read(&file).await.map_err(map_io_error)?;
-        let updated_at = metadata
-            .modified()
-            .ok()
-            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|duration| duration.as_secs_f64() * 1000.0)
-            .unwrap_or(0.0);
         Ok(ProjectFileContent {
             content: String::from_utf8_lossy(&bytes).into_owned(),
             cwd: cwd.to_string_lossy().into_owned(),
@@ -191,8 +168,6 @@ impl NativeProjectFiles {
                 .unwrap_or(&file)
                 .to_string_lossy()
                 .into_owned(),
-            size: metadata.len(),
-            updated_at,
         })
     }
 }
@@ -232,12 +207,7 @@ fn list_project_directory(
             })
         })
         .collect::<Vec<_>>();
-    entries.sort_by(|left, right| {
-        right
-            .is_dir
-            .cmp(&left.is_dir)
-            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
-    });
+    entries.sort_by_cached_key(|entry| (!entry.is_dir, entry.name.to_lowercase()));
     Ok(entries)
 }
 

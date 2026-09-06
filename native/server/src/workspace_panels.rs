@@ -64,19 +64,23 @@ pub(super) async fn handle(state: &ServerState, request: Request) -> ApiResult {
         .get(&key)
         .and_then(Value::as_str)
         .and_then(|text| serde_json::from_str::<Value>(text).ok());
-    let mut current = normalize(stored.as_ref().unwrap_or(&Value::Null), false);
+    let mut current = normalize(stored.as_ref().unwrap_or(&Value::Null));
     let announcement = match body.get("action") {
-        Some(action) => apply_action(&mut current, action)?,
+        Some(action) => {
+            let announcement = apply_action(&mut current, action)?;
+            current = normalize(&current);
+            announcement
+        }
         None => None,
     };
-    let durable = normalize(&current, false);
-    if stored.as_ref() != Some(&durable) {
-        entries.insert(key, Value::String(durable.to_string()));
+    if stored.as_ref() != Some(&current) {
+        entries.insert(key, Value::String(current.to_string()));
         write_json_object(&state.client_storage_path, &entries).await?;
     }
-    Ok(
-        json!({"session":normalize(&durable, body.get("action").is_none()), "announcement":announcement}),
-    )
+    if body.get("action").is_none() && current["fileRequest"].is_object() {
+        current["fileRequest"]["token"] = json!(unix_millis());
+    }
+    Ok(json!({"session":current, "announcement":announcement}))
 }
 
 fn clear_selection(session: &mut Value) {
@@ -272,7 +276,7 @@ fn apply_action(session: &mut Value, action: &Value) -> ApiResult<Option<String>
     Ok(None)
 }
 
-fn normalize(value: &Value, restore: bool) -> Value {
+fn normalize(value: &Value) -> Value {
     let string = |key: &str| {
         value
             .get(key)
@@ -316,11 +320,7 @@ fn normalize(value: &Value, restore: bool) -> Value {
             json!({"path":file["path"], "staged":file["staged"], "source":file_source(value)});
     }
     if value["fileRequest"]["path"].is_string() {
-        let token = if restore {
-            unix_millis()
-        } else {
-            value["fileRequest"]["token"].as_u64().unwrap_or(0)
-        };
+        let token = value["fileRequest"]["token"].as_u64().unwrap_or(0);
         session["fileRequest"] = json!({"path":value["fileRequest"]["path"], "token":token});
     }
     session["selectedCommitIds"] = match value["selectedCommitIds"].as_array() {

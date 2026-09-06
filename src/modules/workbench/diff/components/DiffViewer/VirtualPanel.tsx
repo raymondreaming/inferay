@@ -12,11 +12,7 @@ import {
 	type SyntaxHighlightTheme,
 	useShikiHighlighter,
 } from "../../../../../shared/hooks/useShikiHighlighter.tsx";
-import {
-	contentOf,
-	type Token,
-	tokenizeLine,
-} from "../../../../../shared/lib/data.ts";
+import { contentOf } from "../../../../../shared/lib/data.ts";
 import type {
 	DiffLine,
 	DiffMinimapSegment as MinimapSegment,
@@ -46,27 +42,6 @@ function roundToDevicePixel(value: number): number {
 	return Math.round(value * dpr) / dpr;
 }
 
-const tokenCache = new Map<string, Token[]>();
-
-function getTokens(
-	content: string,
-	ext: string,
-	disable: boolean,
-): Token[] | null {
-	if (disable || !content) return null;
-	const key = `${ext}:${content}`;
-	let tokens = tokenCache.get(key);
-	if (!tokens) {
-		tokens = tokenizeLine(content, ext);
-		tokenCache.set(key, tokens);
-		if (tokenCache.size > 3000) {
-			const first = tokenCache.keys().next().value;
-			if (first) tokenCache.delete(first);
-		}
-	}
-	return tokens;
-}
-
 export const VirtualPanel = memo(function VirtualPanel({
 	lines,
 	rowCount = lines.length,
@@ -89,7 +64,7 @@ export const VirtualPanel = memo(function VirtualPanel({
 }: {
 	lines: DiffLine[];
 	rowCount?: number;
-	maxLineChars?: number;
+	maxLineChars: number;
 	ext: string;
 	scrollRef: React.RefObject<HTMLDivElement | null>;
 	onScroll?: (
@@ -157,19 +132,10 @@ export const VirtualPanel = memo(function VirtualPanel({
 	useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
 	const total = rowCount * LINE_H;
-	const maxLineLength = useMemo(() => {
-		if (maxLineChars !== undefined) return maxLineChars;
-		let max = 0;
-		for (const line of lines) {
-			if (line.content && line.content.length > max) {
-				max = line.content.length;
-			}
-		}
-		return max;
-	}, [lines, maxLineChars]);
+
 	const minContentWidth = Math.min(
 		MAX_PANEL_CONTENT_WIDTH,
-		(showGutter ? GUTTER_W : SPLIT_RIGHT_INSET) + maxLineLength * 9 + 48,
+		(showGutter ? GUTTER_W : SPLIT_RIGHT_INSET) + maxLineChars * 9 + 48,
 	);
 
 	const start = Math.max(0, Math.floor(scrollTop / LINE_H) - OVERSCAN);
@@ -259,7 +225,6 @@ export const VirtualPanel = memo(function VirtualPanel({
 	const visibleRows = useMemo(() => {
 		const rows: {
 			line: DiffLine;
-			tokens: Token[] | null;
 			highlightedTokens?: ShikiLineToken[];
 			key: number;
 			isHighlighted: boolean;
@@ -280,17 +245,9 @@ export const VirtualPanel = memo(function VirtualPanel({
 			const highlightedTokens = canUseShiki
 				? getHighlightedLineTokens(i)
 				: undefined;
-			const useFallbackTokens = !canUseShiki;
 
 			rows.push({
 				line,
-				tokens:
-					line.type === "spacer" ||
-					line.type === "hunk" ||
-					highlightedTokens ||
-					!useFallbackTokens
-						? null
-						: getTokens(line.content, ext, disableTokenize),
 				highlightedTokens,
 				key: i,
 				isHighlighted,
@@ -356,12 +313,10 @@ export const VirtualPanel = memo(function VirtualPanel({
 							</div>
 						) : null}
 						{visibleRows.map(
-							({ line, tokens, highlightedTokens, key, isHighlighted }) => (
+							({ line, highlightedTokens, key, isHighlighted }) => (
 								<DiffRow
 									key={key}
 									line={line}
-									ext={ext}
-									tokens={tokens}
 									highlightedTokens={highlightedTokens}
 									isHighlighted={isHighlighted}
 									minWidth={minContentWidth}

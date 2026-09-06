@@ -237,15 +237,11 @@ pub(crate) fn read_history(
     limit: usize,
     query: &str,
     refs: HashMap<String, Vec<crate::GitGraphRef>>,
-) -> Result<Vec<(crate::GraphCommit, usize)>, crate::GitCommandFailure> {
+) -> Result<Vec<(crate::GraphCommit, usize)>, String> {
     use std::io::{BufRead, BufReader, Read};
     use std::process::{Command, Stdio};
     use std::time::Duration;
-    let failure = |kind, detail: String| crate::GitCommandFailure {
-        command: "git log".into(),
-        kind,
-        detail,
-    };
+    let failure = |kind, detail: String| crate::git_failure("git log", kind, &detail);
     let mut child = Command::new("git")
         .args([
             "--no-optional-locks",
@@ -262,7 +258,7 @@ pub(crate) fn read_history(
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|e| failure(crate::GitCommandFailureKind::SpawnFailed, e.to_string()))?;
+        .map_err(|e| failure("could not start", e.to_string()))?;
     let stdout = child.stdout.take().unwrap();
     let terms = terms(query);
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
@@ -329,13 +325,13 @@ pub(crate) fn read_history(
     }
     match result {
         Ok(Ok((commits, _))) if stopped_early || status.is_some_and(|s| s.success()) => Ok(commits),
-        Ok(Err(detail)) => Err(failure(crate::GitCommandFailureKind::InvalidOutput, detail)),
+        Ok(Err(detail)) => Err(failure("returned invalid output", detail)),
         Err(_) => Err(failure(
-            crate::GitCommandFailureKind::TimedOut,
+            "timed out",
             "Search exceeded the repository deadline".into(),
         )),
         _ => Err(failure(
-            crate::GitCommandFailureKind::Failed,
+            "failed",
             "Repository history could not be read".into(),
         )),
     }

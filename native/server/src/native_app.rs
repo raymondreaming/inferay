@@ -1,6 +1,5 @@
 use crate::unix_millis as epoch_millis;
 use std::collections::HashSet;
-use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
@@ -32,7 +31,6 @@ struct AppUpdateInfo {
     current_version: String,
     latest_version: Option<String>,
     url: Option<String>,
-    checked_at: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -113,8 +111,7 @@ async fn load_update_info(
         return cache.info.clone();
     }
 
-    let checked_at = now;
-    let result = fetch_release_info(state, current_version, channel, checked_at).await;
+    let result = fetch_release_info(state, current_version, channel).await;
     let ttl = if result.error.is_some() {
         RELEASE_CHECK_ERROR_TTL_MS
     } else {
@@ -132,7 +129,6 @@ async fn fetch_release_info(
     state: &ServerState,
     current_version: &str,
     channel: &str,
-    checked_at: u64,
 ) -> AppUpdateInfo {
     let result = async {
         let response = state
@@ -172,7 +168,6 @@ async fn fetch_release_info(
             current_version: current_version.to_string(),
             latest_version,
             url,
-            checked_at,
             error: None,
         },
         Err(error) => AppUpdateInfo {
@@ -180,7 +175,6 @@ async fn fetch_release_info(
             current_version: current_version.to_string(),
             latest_version: None,
             url: None,
-            checked_at,
             error: Some(error),
         },
     }
@@ -247,13 +241,18 @@ pub(super) fn update_route(headers: &HeaderMap) -> Response {
 }
 
 fn run_inferay_update() -> Result<String, String> {
-    let environment = update_environment();
+    let path = create_inferay_update_path(std::env::vars_os().map(|(key, value)| {
+        (
+            key.to_string_lossy().into_owned(),
+            value.to_string_lossy().into_owned(),
+        )
+    }));
     let probe = std::process::Command::new("/bin/zsh")
         .args([
             "-lc",
             "command -v npx >/dev/null 2>&1 || command -v bunx >/dev/null 2>&1",
         ])
-        .envs(environment.iter().map(|(key, value)| (key, value)))
+        .env("PATH", &path)
         .status();
     if !probe.is_ok_and(|status| status.success()) {
         return Err("npx or bunx is required to update Inferay".into());
@@ -268,7 +267,7 @@ fn run_inferay_update() -> Result<String, String> {
     );
     std::process::Command::new("/bin/zsh")
         .args(["-lc", &command])
-        .envs(environment.iter().map(|(key, value)| (key, value)))
+        .env("PATH", &path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -284,25 +283,6 @@ fn create_update_command(app_pid: u32) -> String {
     format!(
         "if command -v npx >/dev/null 2>&1; then npx --yes inferay update && {relaunch} && exit 0; fi; if command -v bunx >/dev/null 2>&1; then bunx inferay update && {relaunch} && exit 0; fi; echo 'npx or bunx is required to update Inferay' >&2; exit 127;"
     )
-}
-
-fn update_environment() -> Vec<(OsString, OsString)> {
-    let mut environment = std::env::vars_os().collect::<Vec<_>>();
-    let path = create_inferay_update_path(environment.iter().map(|(key, value)| {
-        (
-            key.to_string_lossy().into_owned(),
-            value.to_string_lossy().into_owned(),
-        )
-    }));
-    if let Some((_, value)) = environment
-        .iter_mut()
-        .find(|(key, _)| key == OsStr::new("PATH"))
-    {
-        *value = OsString::from(path);
-    } else {
-        environment.push((OsString::from("PATH"), OsString::from(path)));
-    }
-    environment
 }
 
 fn create_inferay_update_path<I, K, V>(env: I) -> String
@@ -333,20 +313,10 @@ where
         .collect::<Vec<_>>();
     values.extend(env.get("NVM_BIN").map(String::as_str).map(str::to_string));
     if let Some(home) = home {
-        values.extend([
-            Path::new(home)
-                .join(".bun/bin")
-                .to_string_lossy()
-                .into_owned(),
-            Path::new(home)
-                .join(".local/bin")
-                .to_string_lossy()
-                .into_owned(),
-            Path::new(home)
-                .join(".npm-global/bin")
-                .to_string_lossy()
-                .into_owned(),
-        ]);
+        values.extend(
+            [".bun/bin", ".local/bin", ".npm-global/bin"]
+                .map(|suffix| Path::new(home).join(suffix).to_string_lossy().into_owned()),
+        );
         values.extend(nvm_bin_directories(home));
     }
     values.extend([

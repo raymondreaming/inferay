@@ -2,8 +2,6 @@ import * as stylex from "@octanejs/stylex";
 import { memo } from "octane";
 import type { CSSProperties } from "react";
 import type { ShikiLineToken } from "../../../../../shared/hooks/useShikiHighlighter.tsx";
-import type { Token } from "../../../../../shared/lib/data.ts";
-import { indexedValues } from "../../../../../shared/lib/data.ts";
 import type { DiffLine } from "../../../../repository/model/types.ts";
 import {
 	DIFF_CONFIG,
@@ -13,17 +11,6 @@ import {
 import { DiffGutterCells } from "./DiffGutterCells.tsx";
 import * as inlineStyles from "./styles.ts";
 import { diffStyles } from "./styles.ts";
-
-const TOKEN_CLASSES: Record<string, string> = {
-	keyword: "text-syntax-keyword",
-	string: "text-syntax-string",
-	comment: "text-syntax-comment",
-	number: "text-syntax-number",
-	punctuation: "text-syntax-punctuation",
-	tag: "text-syntax-tag",
-	attr: "text-syntax-attr",
-	default: "",
-};
 
 type DiffRowStyle = CSSProperties & { "--hover-bg"?: string };
 
@@ -47,7 +34,6 @@ function getDiffRowBg(line: DiffLine, isHighlighted?: boolean) {
 export const DiffRow = memo(function DiffRow({
 	clipContent = false,
 	line,
-	tokens,
 	highlightedTokens,
 	isHighlighted,
 	minWidth,
@@ -56,8 +42,6 @@ export const DiffRow = memo(function DiffRow({
 }: {
 	clipContent?: boolean;
 	line: DiffLine;
-	ext: string;
-	tokens: Token[] | null;
 	highlightedTokens?: ShikiLineToken[];
 	isHighlighted?: boolean;
 	minWidth?: number;
@@ -102,7 +86,7 @@ export const DiffRow = memo(function DiffRow({
 			? `${line.content.slice(0, MAX_RENDERED_LINE_CHARS)} ... [line truncated for display]`
 			: line.content;
 	const lineContent = highlightedTokens
-		? indexedValues(highlightedTokens).map(({ index, value: tok }) => (
+		? highlightedTokens.map((tok, index) => (
 				<span
 					key={`${index}-${tok.content}`}
 					style={inlineStyles.getDiffRowSpanStyle(tok.bgColor, tok.color)}
@@ -110,16 +94,7 @@ export const DiffRow = memo(function DiffRow({
 					{tok.content}
 				</span>
 			))
-		: tokens
-			? tokens.map((tok, i) => (
-					<span
-						key={`${tok.type}-${i}-${tok.text}`}
-						className={TOKEN_CLASSES[tok.type]}
-					>
-						{tok.text}
-					</span>
-				))
-			: content;
+		: content;
 
 	return (
 		<div

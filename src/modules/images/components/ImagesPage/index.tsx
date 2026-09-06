@@ -31,11 +31,7 @@ const addedDateFormatter = new Intl.DateTimeFormat(undefined, {
 });
 
 async function ensureChatPaneId(): Promise<string | null> {
-	const next = await mutateAgentWorkspaceState(
-		{ type: "ensureChatPane" },
-		"image-chat-pane",
-		{ createIfMissing: true },
-	);
+	const next = await mutateAgentWorkspaceState({ type: "ensureChatPane" });
 	const group = next?.groups.find((item) => item.id === next.selectedGroupId);
 	return group?.selectedPaneId ?? null;
 }
@@ -83,26 +79,16 @@ export function ImagesPage() {
 		visibleFiles.length > 0 &&
 		visibleFiles.every((file) => selectedPaths.has(file.path));
 
-	const toggleSelection = useCallback((file: FileEntry) => {
+	const toggleSelection = useCallback((files: FileEntry[]) => {
 		setSelectedPaths((prev) => {
 			const next = new Set(prev);
-			if (next.has(file.path)) next.delete(file.path);
-			else next.add(file.path);
+			const action = files.every((file) => next.has(file.path))
+				? "delete"
+				: "add";
+			for (const file of files) next[action](file.path);
 			return next;
 		});
 	}, []);
-
-	const toggleAllVisible = useCallback(() => {
-		setSelectedPaths((prev) => {
-			const next = new Set(prev);
-			if (visibleFiles.every((file) => next.has(file.path))) {
-				for (const file of visibleFiles) next.delete(file.path);
-			} else {
-				for (const file of visibleFiles) next.add(file.path);
-			}
-			return next;
-		});
-	}, [visibleFiles]);
 
 	const deleteSelected = useCallback(async () => {
 		if (selected.length === 0) return;
@@ -148,7 +134,7 @@ export function ImagesPage() {
 				throw new Error(
 					"This request was accepted before an interruption. Review the chat before resending.",
 				);
-			dispatchAgentShellChange({ source: "view", reason: "image-start-chat" });
+			dispatchAgentShellChange({ source: "view" });
 			navigate({ to: DEFAULT_APP_ROUTE });
 		} catch (error) {
 			setError(error instanceof Error ? error.message : String(error));
@@ -209,9 +195,7 @@ export function ImagesPage() {
 						<span>Delete</span>
 					</button>
 					<div {...stylex.props(styles.selectionLabel)}>
-						{selected.length === 1
-							? "1 selected"
-							: `${selected.length} selected`}
+						{`${selected.length} selected`}
 					</div>
 				</div>
 
@@ -219,7 +203,7 @@ export function ImagesPage() {
 					<div {...stylex.props(styles.tableHeader)}>
 						<button
 							type="button"
-							onClick={toggleAllVisible}
+							onClick={() => toggleSelection(visibleFiles)}
 							{...stylex.props(
 								styles.checkBox,
 								allVisibleSelected && styles.checkBoxChecked,
@@ -253,7 +237,7 @@ export function ImagesPage() {
 									>
 										<button
 											type="button"
-											onClick={() => toggleSelection(file)}
+											onClick={() => toggleSelection([file])}
 											{...stylex.props(
 												styles.checkBox,
 												isSelected && styles.checkBoxChecked,
@@ -264,7 +248,7 @@ export function ImagesPage() {
 										</button>
 										<button
 											type="button"
-											onClick={() => toggleSelection(file)}
+											onClick={() => toggleSelection([file])}
 											{...stylex.props(styles.nameCell)}
 										>
 											<span {...stylex.props(styles.thumbnailFrame)}>

@@ -15,7 +15,6 @@ export type HighlightRequest =
 export type HighlightResponse = {
 	id: number;
 	rows?: Array<[number, HighlightToken[]]> | null;
-	error?: string;
 };
 let worker: Worker | undefined;
 let workerFailed = false;
@@ -38,7 +37,6 @@ function getWorker() {
 			for (const [id, resolve] of [...pending])
 				resolve({
 					id,
-					error: "Highlight worker failed",
 				});
 		};
 	} catch {

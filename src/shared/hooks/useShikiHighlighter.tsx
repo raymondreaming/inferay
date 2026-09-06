@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
 import type { BundledLanguage, BundledTheme } from "shiki";
-import { incrementNumber } from "../lib/data.ts";
+import { dispatchWindowEvent, incrementNumber } from "../lib/data.ts";
 import { requestHighlight } from "../lib/highlight-client.ts";
 
 // Map file extensions to Shiki language IDs
@@ -101,13 +101,6 @@ function pruneHighlightCache<T>(
 		if (cache.size <= MAX_CACHED_HIGHLIGHT_LINES) break;
 	}
 }
-const FALLBACK_TOKEN_COLORS = {
-	keyword: "#c586c0",
-	string: "#ce9178",
-	number: "#b5cea8",
-	comment: "#6a9955",
-};
-
 function createLineContentKey(lines: string[]): string {
 	let hash = 2166136261;
 	let totalLength = 0;
@@ -171,39 +164,10 @@ export function useSyntaxHighlightTheme() {
 		try {
 			window.localStorage.setItem(SYNTAX_THEME_STORAGE_KEY, normalized);
 		} catch {}
-		window.dispatchEvent(
-			new CustomEvent(SYNTAX_THEME_EVENT, { detail: normalized }),
-		);
+		dispatchWindowEvent(SYNTAX_THEME_EVENT, normalized);
 	}, []);
 
 	return [theme, setTheme] as const;
-}
-
-function fallbackHighlightLine(line: string) {
-	const escaped = escapeHtml(line);
-	return escaped
-		.replace(/(&quot;.*?&quot;|&#39;.*?&#39;|`.*?`)/g, (match) => {
-			return `<span style="color:${FALLBACK_TOKEN_COLORS.string}">${match}</span>`;
-		})
-		.replace(/\b(\d+(?:\.\d+)?)\b/g, (match) => {
-			return `<span style="color:${FALLBACK_TOKEN_COLORS.number}">${match}</span>`;
-		})
-		.replace(
-			/\b(import|export|const|let|var|function|return|from|type|interface|if|else|for|while|class|extends|new|true|false|null|undefined)\b/g,
-			(match) =>
-				`<span style="color:${FALLBACK_TOKEN_COLORS.keyword}">${match}</span>`,
-		)
-		.replace(/(\/\/.*)$/g, (match) => {
-			return `<span style="color:${FALLBACK_TOKEN_COLORS.comment}">${match}</span>`;
-		});
-}
-
-function fallbackHighlightLines(lines: string[]) {
-	const highlighted = new Map<number, string>();
-	for (let i = 0; i < lines.length; i++) {
-		highlighted.set(i, fallbackHighlightLine(lines[i] ?? ""));
-	}
-	return highlighted;
 }
 
 function getLanguageFromPath(filePath: string): BundledLanguage | null {
@@ -339,16 +303,10 @@ export function useShikiSnippet(
 		!highlightEnabled ||
 		lines.length === 0 ||
 		highlightedState?.key === snippetKey;
-	const fallbackHighlighted = useMemo(
-		() => (highlightEnabled ? fallbackHighlightLines(lines) : EMPTY_HIGHLIGHTS),
-		[highlightEnabled, lines],
-	);
 	const highlighted =
 		highlightedState?.key === snippetKey
 			? highlightedState.highlighted
-			: !highlightEnabled || lines.length === 0
-				? EMPTY_HIGHLIGHTS
-				: fallbackHighlighted;
+			: EMPTY_HIGHLIGHTS;
 
 	useEffect(() => {
 		// Only re-highlight if lines actually changed
@@ -395,7 +353,7 @@ export function useShikiSnippet(
 				if (!signal.aborted) {
 					setHighlightedState({
 						key: snippetKey,
-						highlighted: fallbackHighlighted,
+						highlighted: EMPTY_HIGHLIGHTS,
 					});
 				}
 			}
@@ -404,15 +362,7 @@ export function useShikiSnippet(
 		highlight();
 
 		return controller.abort.bind(controller);
-	}, [
-		fallbackHighlighted,
-		lines,
-		language,
-		highlightEnabled,
-		isReady,
-		snippetKey,
-		theme,
-	]);
+	}, [lines, language, highlightEnabled, isReady, snippetKey, theme]);
 
 	return { highlighted, isReady };
 }

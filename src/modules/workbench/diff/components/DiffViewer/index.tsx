@@ -32,7 +32,6 @@ interface DiffViewerProps {
 	diff: HunkDiff;
 	filePath: string;
 	staged: boolean;
-	loading: boolean;
 	onClose: () => void;
 	hideHeader?: boolean;
 	viewMode?: DiffViewMode;
@@ -48,7 +47,6 @@ export const DiffViewer = memo(function DiffViewer({
 	diff,
 	filePath,
 	staged,
-	loading,
 	onClose,
 	hideHeader = false,
 	viewMode: controlledViewMode,
@@ -71,12 +69,7 @@ export const DiffViewer = memo(function DiffViewer({
 	);
 	const { externalScrollSource, externalScrollTop, highlightedChangeIdx } =
 		navigationState;
-	const stats = diff?.metadata?.stats ?? {
-		added: 0,
-		removed: 0,
-		hunks: 0,
-		lines: 0,
-	};
+	const stats = diff.metadata.stats;
 	const diffIdentity = `${filePath}:${staged ? "staged" : "unstaged"}`;
 
 	useEffect(() => {
@@ -84,42 +77,10 @@ export const DiffViewer = memo(function DiffViewer({
 		dispatchNavigation({ type: "reset" });
 	}, [diffIdentity]);
 
-	const changeRanges = useMemo(() => {
-		const nativeRanges =
-			viewMode === "hunks"
-				? diff.metadata?.inlineChangeRanges
-				: diff.metadata?.splitChangeRanges;
-		if (nativeRanges) return nativeRanges;
-		const ranges: Array<[number, number]> = [];
-
-		// Compatibility for responses created before native navigation metadata.
-		const inline =
-			viewMode === "hunks"
-				? (diff.inlineLines ?? diff.compactLines)
-				: undefined;
-		const count =
-			inline?.length ?? Math.max(diff.oldLines.length, diff.newLines.length);
-		for (let row = 0; row < count; row++) {
-			const changed = inline
-				? inline[row]?.type === "remove" || inline[row]?.type === "add"
-				: diff.oldLines[row]?.type === "remove" ||
-					diff.newLines[row]?.type === "add";
-			if (changed) {
-				const last = ranges.at(-1);
-				if (last?.[1] === row) last[1] = row + 1;
-				else ranges.push([row, row + 1]);
-			}
-		}
-
-		return ranges;
-	}, [
-		diff.metadata,
-		diff.inlineLines,
-		diff.compactLines,
-		diff.oldLines,
-		diff.newLines,
-		viewMode,
-	]);
+	const changeRanges =
+		viewMode === "hunks"
+			? diff.metadata.inlineChangeRanges
+			: diff.metadata.splitChangeRanges;
 
 	const changePositions = useMemo(
 		() => changeRanges.map(([start]) => start),
@@ -257,44 +218,21 @@ export const DiffViewer = memo(function DiffViewer({
 		if (totalLines > MAX_RENDERED_DIFF_LINES) {
 			return `Diff is too large to render safely (${totalLines.toLocaleString()} lines). Use the Editor/agent to inspect this file in smaller chunks.`;
 		}
-		let longest = diff.metadata
-			? Math.max(
-					diff.metadata.maxOldLineChars,
-					diff.metadata.maxNewLineChars,
-					diff.metadata.maxInlineLineChars ?? 0,
-					diff.metadata.maxConflictLineChars ?? 0,
-				)
-			: 0;
-		if (
-			!diff.metadata ||
-			(diff.compactLines && diff.metadata.maxInlineLineChars === undefined)
-		)
-			for (const lines of diff.compactLines
-				? [diff.compactLines]
-				: [diff.oldLines, diff.newLines]) {
-				for (const line of lines)
-					longest = Math.max(longest, line.content.length);
-			}
+		const longest = Math.max(
+			diff.metadata.maxOldLineChars,
+			diff.metadata.maxNewLineChars,
+			diff.metadata.maxInlineLineChars,
+			diff.metadata.maxConflictLineChars,
+		);
 		if (longest > MAX_RENDERED_LINE_CHARS * 2) {
 			return `Diff contains a very long line (${longest.toLocaleString()} characters). Rendering is limited to keep the app responsive.`;
 		}
 		return null;
 	}, [diff.metadata, diff.compactLines, diff.newLines, diff.oldLines]);
 
-	const disableTokenize = diff.metadata?.tokenizationDisabled ?? true;
+	const disableTokenize = diff.metadata.tokenizationDisabled;
 
 	const renderMergeConflict = Boolean(diff.mergeConflictContent);
-
-	if (loading) {
-		return (
-			<div {...stylex.props(diffStyles.centerState)}>
-				<div {...stylex.props(diffStyles.centerInline)}>
-					<div {...stylex.props(diffStyles.spinner)} />
-					<span {...stylex.props(diffStyles.centerText)}>Loading diff…</span>
-				</div>
-			</div>
-		);
-	}
 
 	const isMarkdown = !diff.compactLines && (ext === "md" || ext === "mdx");
 	const conflict = renderMergeConflict && !isMarkdown;

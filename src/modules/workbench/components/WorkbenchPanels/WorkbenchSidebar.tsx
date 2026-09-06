@@ -10,7 +10,9 @@ export function WorkbenchSidebar({
 	visible: boolean;
 	width: number;
 	error: string | null;
-	onResize: (event: MouseEvent & { currentTarget: HTMLButtonElement }) => void;
+	onResize: (
+		event: PointerEvent & { currentTarget: HTMLButtonElement },
+	) => void;
 	children?: unknown;
 }) {
 	return (
@@ -28,7 +30,7 @@ export function WorkbenchSidebar({
 					<button
 						type="button"
 						aria-label="Resize changes sidebar"
-						onMouseDown={onResize}
+						onPointerDown={onResize}
 						{...stylex.props(styles.resizeHandle)}
 					/>
 					{children}

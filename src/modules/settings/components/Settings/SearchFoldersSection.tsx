@@ -15,15 +15,6 @@ import { styles } from "./styles.ts";
 
 const EMPTY_FOLDERS: string[] = [];
 
-function areLoadedFoldersEqual(prev: string[] | null, next: string[] | null) {
-	if (prev === next) return true;
-	if (!prev || !next || prev.length !== next.length) return false;
-	for (let i = 0; i < prev.length; i++) {
-		if (prev[i] !== next[i]) return false;
-	}
-	return true;
-}
-
 export function SearchFoldersSection({
 	contained = false,
 }: {
@@ -40,7 +31,6 @@ export function SearchFoldersSection({
 		string[] | null
 	>(fetchSearchFolders, null, {
 		queryKey: ["agent", "search-folders"],
-		isEqual: areLoadedFoldersEqual,
 	});
 	const folders = useMemo(
 		() => loadedFolders ?? EMPTY_FOLDERS,

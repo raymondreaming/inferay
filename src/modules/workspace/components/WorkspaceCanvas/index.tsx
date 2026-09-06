@@ -11,7 +11,10 @@ import {
 	readStoredValue,
 	writeStoredValue,
 } from "../../../../adapters/storage/stored-values.ts";
-import { lockPointerSelection } from "../../../../shared/lib/data.ts";
+import {
+	lockPointerSelection,
+	trackPointerResize,
+} from "../../../../shared/lib/data.ts";
 
 import {
 	constrainDockTreeColumns,
@@ -72,12 +75,6 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 		auxiliaryPanels = EMPTY_AUXILIARY_PANELS,
 	} = props;
 	const containerRef = useRef<HTMLDivElement | null>(null);
-	const dragIndexRef = useRef<number | null>(null);
-	const clearDragStateRef = useRef<() => void>(() => {});
-	const pendingPanelDropRef = useRef<{
-		readonly id: string;
-		readonly complete: () => void;
-	} | null>(null);
 	const [dragIndex, setDragIndex] = useState<number | null>(null);
 	const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 	const [dragPanelId, setDragPanelId] = useState<string | null>(null);
@@ -141,8 +138,6 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 		!!renderedDockTree &&
 		dockHorizontalSpan < effectiveColumns;
 	const clearDragState = useCallback(() => {
-		dragIndexRef.current = null;
-		pendingPanelDropRef.current = null;
 		setDragIndex(null);
 		setDragOverIndex(null);
 		setDragPanelId(null);
@@ -179,9 +174,6 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 		observer.observe(container);
 		return () => observer.disconnect();
 	}, [columns, layoutMode]);
-	useEffect(() => {
-		clearDragStateRef.current = clearDragState;
-	}, [clearDragState]);
 
 	const commitDockPlacement = useCallback(
 		(
@@ -257,7 +249,6 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 				readonly edge: DockEdge;
 				readonly rowIndex?: number;
 			} | null = null;
-			pendingPanelDropRef.current = pendingPanel;
 			try {
 				source?.setPointerCapture(pointerId);
 			} catch {}
@@ -271,7 +262,6 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 					);
 					if (distance < 3) return;
 					activated = true;
-					dragIndexRef.current = sourceIndex;
 					setDragIndex(sourceIndex);
 					setDragPanelId(sourceId);
 				}
@@ -398,10 +388,6 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 		[beginPointerDock],
 	);
 
-	const handleHeaderDragEnd = useCallback(() => {
-		clearDragState();
-	}, [clearDragState]);
-
 	const handleDividerPointerDown = useCallback(
 		(
 			event: PointerEvent & { currentTarget: HTMLButtonElement },
@@ -411,7 +397,6 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 			const splitElement = event.currentTarget.parentElement;
 			if (!splitElement) return;
 			event.preventDefault();
-			const releaseSelection = lockPointerSelection();
 			const pointerId = event.pointerId;
 			event.currentTarget.setPointerCapture?.(pointerId);
 			const resize = (moveEvent: PointerEvent) => {
@@ -425,15 +410,7 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 					return rendered ? resizeDockSplit(rendered, path, ratio) : rendered;
 				});
 			};
-			const finish = () => {
-				releaseSelection();
-				window.removeEventListener("pointermove", resize);
-				window.removeEventListener("pointerup", finish);
-				window.removeEventListener("pointercancel", finish);
-			};
-			window.addEventListener("pointermove", resize);
-			window.addEventListener("pointerup", finish);
-			window.addEventListener("pointercancel", finish);
+			trackPointerResize(pointerId, resize);
 		},
 		[],
 	);
@@ -490,12 +467,11 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 			clearDragState();
 			return;
 		}
-		const handleGlobalDragEnd = () => clearDragStateRef.current();
-		window.addEventListener("dragend", handleGlobalDragEnd);
-		window.addEventListener("drop", handleGlobalDragEnd);
+		window.addEventListener("dragend", clearDragState);
+		window.addEventListener("drop", clearDragState);
 		return () => {
-			window.removeEventListener("dragend", handleGlobalDragEnd);
-			window.removeEventListener("drop", handleGlobalDragEnd);
+			window.removeEventListener("dragend", clearDragState);
+			window.removeEventListener("drop", clearDragState);
 		};
 	}, [active, clearDragState]);
 
@@ -540,7 +516,7 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 								pane,
 								idx,
 								handleHeaderDragStart,
-								handleHeaderDragEnd,
+								clearDragState,
 							)}
 						/>
 					</div>
@@ -633,7 +609,7 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 							pane,
 							paneIndex,
 							handleHeaderDragStart,
-							handleHeaderDragEnd,
+							clearDragState,
 						)}
 					/>
 				) : auxiliaryPanel ? (
@@ -641,7 +617,7 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 						draggable: true,
 						onDragStart: handleAuxiliaryDragStart,
 						onCreatePanelDragStart: handleCreatePanelDragStart,
-						onDragEnd: handleHeaderDragEnd,
+						onDragEnd: clearDragState,
 					})
 				) : null}
 				{isDropTarget ? (

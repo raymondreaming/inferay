@@ -944,18 +944,7 @@ impl ChatRuntime {
         .flatten()
         .collect::<Vec<_>>()
         .join("\n\n");
-        let activated = context
-            .activated_skills
-            .iter()
-            .filter_map(|skill| {
-                Some(format!(
-                    "<activated-skill name=\"{}\">\n{}\n</activated-skill>",
-                    skill.get("command")?.as_str()?,
-                    skill.get("instructions")?.as_str()?
-                ))
-            })
-            .collect::<Vec<_>>()
-            .join("\n\n");
+        let activated = context.activated_skills;
         let include_base = {
             let mut state = session.lock().await;
             let include = state.context_hash.as_deref() != Some(base.as_str());
@@ -1351,7 +1340,7 @@ impl ChatRuntime {
         };
         for mut diff in self
             .checkpoints
-            .preview_inline_diffs(checkpoint_id, paths)
+            .get_inline_diffs(checkpoint_id, Some(paths))
             .await
         {
             if let Some(previous) =
@@ -1477,7 +1466,7 @@ impl ChatRuntime {
                     self.emit(session, json!({"type":"checkpoint:finalized", "paneId":pane_id, "checkpointId":id, "changedFileCount":meta.changed_file_count, "changedFiles":meta.changed_files,"checkpoints":self.checkpoints.list_checkpoints(&pane_id).await})).await;
                     let existing =
                         existing_edit_paths(session.lock().await.message_buffer.messages());
-                    for diff in self.checkpoints.get_inline_diffs(id).await {
+                    for diff in self.checkpoints.get_inline_diffs(id, None).await {
                         if existing.contains(&diff.path) {
                             continue;
                         }

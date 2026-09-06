@@ -5,7 +5,6 @@ import {
 	useShikiSnippet,
 	useSyntaxHighlightTheme,
 } from "../../../../shared/hooks/useShikiHighlighter.tsx";
-import { indexedValues } from "../../../../shared/lib/data.ts";
 import {
 	IconChevronRight,
 	IconFilePlus,
@@ -141,92 +140,88 @@ export function EditDiffCard({
 							(changedLines.length - endLine) * 15,
 						)}
 					>
-						{indexedValues(changedHunks).map((hunkEntry) => {
-							const hunk = hunkEntry.value;
-							const offset = hunkOffsets[hunkEntry.index]!;
+						{changedHunks.map((hunk, hunkIndex) => {
+							const offset = hunkOffsets[hunkIndex]!;
 							if (offset >= endLine || offset + hunk.lines.length <= startLine)
 								return null;
 							const rowStart = Math.max(0, startLine - offset);
 							const rowEnd = Math.min(hunk.lines.length, endLine - offset);
 							return (
-								<div key={hunkEntry.index} {...stylex.props(styles.hunkBlock)}>
-									{indexedValues(hunk.lines.slice(rowStart, rowEnd)).map(
-										(lineEntry) => {
-											const globalLineIdx = offset + rowStart + lineEntry.index;
-											if (globalLineIdx < startLine || globalLineIdx >= endLine)
-												return null;
-											const line = lineEntry.value;
-											const isRemoved = line.type === "removed";
-											const isAdded = line.type === "added";
-											const highlightedHtml = highlighted.get(globalLineIdx);
-											const lineSegments = line.segments;
+								<div key={hunkIndex} {...stylex.props(styles.hunkBlock)}>
+									{hunk.lines.slice(rowStart, rowEnd).map((line, lineIndex) => {
+										const globalLineIdx = offset + rowStart + lineIndex;
+										if (globalLineIdx < startLine || globalLineIdx >= endLine)
+											return null;
+										const isRemoved = line.type === "removed";
+										const isAdded = line.type === "added";
+										const highlightedHtml = highlighted.get(globalLineIdx);
+										const lineSegments = line.segments;
 
-											const lineContent = lineSegments ? (
-												<span {...stylex.props(styles.lineText)}>
-													{indexedValues(lineSegments).map((segmentEntry) => (
-														<span
-															key={segmentEntry.index}
-															{...stylex.props(
-																segmentEntry.value.changed &&
-																	(isRemoved
-																		? styles.inlineRemoved
-																		: styles.inlineAdded),
-															)}
-														>
-															{segmentEntry.value.text || " "}
-														</span>
-													))}
-												</span>
-											) : isReady && highlightedHtml ? (
-												<span
-													{...stylex.props(styles.lineText)}
-													// biome-ignore lint/security/noDangerouslySetInnerHtml: useShikiSnippet returns Shiki-generated markup or HTML-escaped fallback text.
-													dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-												/>
-											) : (
-												<span {...stylex.props(styles.lineText)}>
-													{line.text || " "}
-												</span>
-											);
-
-											return (
-												<div
-													key={globalLineIdx}
-													data-edit-diff-line={globalLineIdx}
-													{...stylex.props(
-														styles.diffLine,
-														isRemoved && styles.removedLine,
-														isAdded && styles.addedLine,
-													)}
-													style={inlineStyles.getEditDiffCardDiffLineStyle(
-														isRemoved
-															? removedBg
-															: isAdded
-																? addedBg
-																: "transparent",
-														`2px solid ${isRemoved ? removedBorder : isAdded ? addedBorder : "transparent"}`,
-													)}
-												>
+										const lineContent = lineSegments ? (
+											<span {...stylex.props(styles.lineText)}>
+												{lineSegments.map((segment, segmentIndex) => (
 													<span
-														{...stylex.props(styles.sign)}
-														style={inlineStyles.getEditDiffCardSignStyle(
-															isRemoved
-																? "rgba(248,81,73,0.7)"
-																: isAdded
-																	? "rgba(46,160,67,0.7)"
-																	: "rgba(255,255,255,0.22)",
+														key={segmentIndex}
+														{...stylex.props(
+															segment.changed &&
+																(isRemoved
+																	? styles.inlineRemoved
+																	: styles.inlineAdded),
 														)}
 													>
-														{isRemoved ? "−" : isAdded ? "+" : " "}
+														{segment.text || " "}
 													</span>
-													<span {...stylex.props(styles.lineNumber)}>
-														{isRemoved ? line.oldLineNum : line.newLineNum}
-													</span>
-													{lineContent}
-												</div>
-											);
-										},
-									)}
+												))}
+											</span>
+										) : isReady && highlightedHtml ? (
+											<span
+												{...stylex.props(styles.lineText)}
+												// biome-ignore lint/security/noDangerouslySetInnerHtml: useShikiSnippet returns HTML-escaped Shiki markup.
+												dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+											/>
+										) : (
+											<span {...stylex.props(styles.lineText)}>
+												{line.text || " "}
+											</span>
+										);
+
+										return (
+											<div
+												key={globalLineIdx}
+												data-edit-diff-line={globalLineIdx}
+												{...stylex.props(
+													styles.diffLine,
+													isRemoved && styles.removedLine,
+													isAdded && styles.addedLine,
+												)}
+												style={inlineStyles.getEditDiffCardDiffLineStyle(
+													isRemoved
+														? removedBg
+														: isAdded
+															? addedBg
+															: "transparent",
+													`2px solid ${isRemoved ? removedBorder : isAdded ? addedBorder : "transparent"}`,
+												)}
+											>
+												<span
+													{...stylex.props(styles.sign)}
+													style={inlineStyles.getEditDiffCardSignStyle(
+														isRemoved
+															? "rgba(248,81,73,0.7)"
+															: isAdded
+																? "rgba(46,160,67,0.7)"
+																: "rgba(255,255,255,0.22)",
+													)}
+												>
+													{isRemoved ? "−" : isAdded ? "+" : " "}
+												</span>
+												<span {...stylex.props(styles.lineNumber)}>
+													{isRemoved ? line.oldLineNum : line.newLineNum}
+												</span>
+												{lineContent}
+											</div>
+										);
+									})}
 								</div>
 							);
 						})}

@@ -1,9 +1,8 @@
 //! Typed, transport-free prompt/skill persistence for native clients.
 
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use inferay_core::prompts::{Prompt, PromptError, PromptStore};
+use inferay_core::prompts::{Prompt, PromptError, PromptStore, filter_prompts};
 use serde_json::{Map, Value, json};
 use tokio::sync::Mutex;
 
@@ -32,10 +31,7 @@ impl NativePrompts {
         let store = self.store.lock().await;
         let skills = store.list_by_usage()?;
         let (expanded, used) = expand_commands(text, &skills, command_id, args);
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let now = crate::unix_millis();
         for id in used {
             store
                 .increment_usage(&id, now)
@@ -84,9 +80,7 @@ impl NativePrompts {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_lowercase();
-                let matches = skills.iter().filter(|skill| {
-                    format!("{} {} {}", skill.name, skill.command, skill.description).to_lowercase().contains(&query)
-                }).map(|skill| json!({"_id":skill.id,"name":skill.name,"command":skill.command,
+                let matches = filter_prompts(&skills, "all", &query).into_iter().map(|skill| json!({"_id":skill.id,"name":skill.name,"command":skill.command,
                     "description":skill.description,"isBuiltIn":skill.is_built_in,"updatedAt":skill.updated_at})).collect::<Vec<_>>();
                 Ok((json!({"skills":matches}), None))
             }

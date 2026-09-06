@@ -17,20 +17,12 @@ impl AgentKind {
             Self::Codex => "codex",
         }
     }
-
-    fn cache_index(self) -> usize {
-        match self {
-            Self::Claude => 0,
-            Self::Codex => 1,
-        }
-    }
 }
 
 #[derive(Debug)]
 pub struct AgentCommandResolver {
     home_directory: PathBuf,
     is_windows: bool,
-    fixed_environment: Option<HashMap<OsString, OsString>>,
     availability_cache: Mutex<[Option<bool>; 2]>,
 }
 
@@ -39,13 +31,12 @@ impl AgentCommandResolver {
         Self {
             home_directory: home_directory.into(),
             is_windows: cfg!(target_os = "windows"),
-            fixed_environment: None,
             availability_cache: Mutex::new([None, None]),
         }
     }
 
     pub fn path_candidates(&self, kind: AgentKind) -> Vec<PathBuf> {
-        let environment = self.environment();
+        let environment: HashMap<_, _> = std::env::vars_os().collect();
         let binary = kind.as_str();
         let nvm_bin = environment
             .get(OsStr::new("NVM_BIN"))
@@ -126,7 +117,7 @@ impl AgentCommandResolver {
     }
 
     pub fn create_agent_env(&self, kind: AgentKind) -> HashMap<OsString, OsString> {
-        let mut environment = self.environment();
+        let mut environment: HashMap<_, _> = std::env::vars_os().collect();
         if kind == AgentKind::Claude {
             environment.remove(OsStr::new("CLAUDECODE"));
         }
@@ -160,7 +151,7 @@ impl AgentCommandResolver {
     }
 
     pub fn has_agent_cli(&self, kind: AgentKind) -> bool {
-        let index = kind.cache_index();
+        let index = kind as usize;
         if let Some(value) = self.availability_cache.lock().expect("cache lock")[index] {
             return value;
         }
@@ -178,12 +169,6 @@ impl AgentCommandResolver {
                 .is_ok_and(|status| status.success());
         self.availability_cache.lock().expect("cache lock")[index] = Some(available);
         available
-    }
-
-    fn environment(&self) -> HashMap<OsString, OsString> {
-        self.fixed_environment
-            .clone()
-            .unwrap_or_else(|| std::env::vars_os().collect())
     }
 
     fn find_in_nvm_versions(&self, binary_name: &str) -> Option<PathBuf> {

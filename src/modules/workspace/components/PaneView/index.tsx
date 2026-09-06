@@ -17,7 +17,7 @@ interface PaneViewProps {
 	pane: AgentPaneModel;
 	isSelected: boolean;
 	isVisible?: boolean;
-	onClose: (paneId: string, force?: boolean) => void;
+	onClose: (paneId: string) => void;
 	onDirectorySelect?: (
 		paneId: string,
 		path: string | null,

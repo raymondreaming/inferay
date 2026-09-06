@@ -24,6 +24,27 @@ pub struct Prompt {
     pub updated_at: u64,
 }
 
+/// Shared library filtering for the editor and native agent tools. Keeps usage order.
+pub fn filter_prompts<'a>(prompts: &'a [Prompt], filter: &str, query: &str) -> Vec<&'a Prompt> {
+    let query = query.to_lowercase();
+    prompts
+        .iter()
+        .filter(|prompt| {
+            let category_matches = match filter {
+                "all" => true,
+                "builtin" => prompt.is_built_in,
+                "custom" => !prompt.is_built_in,
+                category => prompt.category.as_deref() == Some(category),
+            };
+            category_matches
+                && (query.is_empty()
+                    || [&prompt.name, &prompt.command, &prompt.description]
+                        .iter()
+                        .any(|field| field.to_lowercase().contains(&query)))
+        })
+        .collect()
+}
+
 #[derive(Debug, PartialEq)]
 pub struct PromptError {
     pub status: u16,
@@ -65,6 +86,8 @@ impl PromptStore {
     }
 
     pub fn create(&self, body: &Map<String, Value>, now: u64) -> Result<Prompt, PromptError> {
+        let body = normalize_prompt_fields(body, true)?;
+        let body = &body;
         let mut prompts = self.load().map_err(internal_prompt_error)?;
         let command = string_value(body, "command").unwrap_or_default();
         if prompts.iter().any(|prompt| prompt.command == command) {
@@ -125,6 +148,8 @@ impl PromptStore {
                         .into(),
             });
         }
+        let body = normalize_prompt_fields(body, false)?;
+        let body = &body;
         if let Some(command) = string_value(body, "command")
             && command != prompts[index].command
             && prompts
@@ -138,17 +163,15 @@ impl PromptStore {
         }
 
         let current = &mut prompts[index];
-        if let Some(value) = string_value(body, "name") {
-            current.name = value;
-        }
-        if let Some(value) = string_value(body, "description") {
-            current.description = value;
-        }
-        if let Some(value) = string_value(body, "command") {
-            current.command = value;
-        }
-        if let Some(value) = string_value(body, "promptTemplate") {
-            current.prompt_template = value;
+        for (key, field) in [
+            ("name", &mut current.name),
+            ("description", &mut current.description),
+            ("command", &mut current.command),
+            ("promptTemplate", &mut current.prompt_template),
+        ] {
+            if let Some(value) = string_value(body, key) {
+                *field = value;
+            }
         }
         if let Some(value) = string_value(body, "category") {
             current.category = Some(value);
@@ -163,7 +186,7 @@ impl PromptStore {
     }
 
     pub fn delete(&self, id: &str) -> Result<(), PromptError> {
-        let prompts = self.load().map_err(internal_prompt_error)?;
+        let mut prompts = self.load().map_err(internal_prompt_error)?;
         let Some(prompt) = prompts.iter().find(|prompt| prompt.id == id) else {
             return Err(not_found());
         };
@@ -173,13 +196,8 @@ impl PromptStore {
                 message: "Cannot delete built-in prompts".into(),
             });
         }
-        self.save(
-            &prompts
-                .into_iter()
-                .filter(|prompt| prompt.id != id)
-                .collect::<Vec<_>>(),
-        )
-        .map_err(internal_prompt_error)
+        prompts.retain(|prompt| prompt.id != id);
+        self.save(&prompts).map_err(internal_prompt_error)
     }
 
     pub fn increment_usage(&self, id: &str, now: u64) -> Result<(), PromptError> {
@@ -208,39 +226,28 @@ pub fn merge_prompts(bundled: Vec<Prompt>, local: Vec<Prompt>) -> Vec<Prompt> {
         .filter(|prompt| prompt.is_built_in)
         .map(|prompt| (prompt.command.as_str(), prompt))
         .collect();
-    let bundled_built_ins: Vec<_> = bundled
-        .iter()
-        .filter(|prompt| prompt.is_built_in)
-        .cloned()
-        .collect();
-    let built_in_ids: HashSet<_> = bundled_built_ins
-        .iter()
-        .map(|prompt| prompt.id.clone())
-        .collect();
-    let built_in_commands: HashSet<_> = bundled_built_ins
-        .iter()
-        .map(|prompt| prompt.command.clone())
-        .collect();
+    let (mut merged, custom): (Vec<_>, Vec<_>) =
+        bundled.into_iter().partition(|prompt| prompt.is_built_in);
+    let built_in_ids: HashSet<_> = merged.iter().map(|prompt| prompt.id.clone()).collect();
+    let built_in_commands: HashSet<_> =
+        merged.iter().map(|prompt| prompt.command.clone()).collect();
 
-    let mut merged = Vec::new();
-    for mut prompt in bundled_built_ins {
+    for prompt in &mut merged {
         let local_prompt = local_by_id.get(prompt.id.as_str()).copied().or_else(|| {
             local_built_in_by_command
                 .get(prompt.command.as_str())
                 .copied()
         });
-        prompt.is_built_in = true;
         if let Some(local_prompt) = local_prompt {
             prompt.execution_count = local_prompt.execution_count;
             if local_prompt.last_used.is_some() {
                 prompt.last_used = local_prompt.last_used;
             }
         }
-        merged.push(prompt);
     }
 
     let mut custom_positions = HashMap::<String, usize>::new();
-    for prompt in bundled.into_iter().chain(local) {
+    for prompt in custom.into_iter().chain(local) {
         if prompt.is_built_in
             || built_in_ids.contains(prompt.id.as_str())
             || built_in_commands.contains(prompt.command.as_str())
@@ -260,6 +267,63 @@ pub fn merge_prompts(bundled: Vec<Prompt>, local: Vec<Prompt>) -> Vec<Prompt> {
 fn read_prompts(path: &Path) -> Result<Vec<Prompt>, String> {
     let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
     serde_json::from_slice(&bytes).map_err(|error| error.to_string())
+}
+
+fn normalize_prompt_fields(
+    body: &Map<String, Value>,
+    creating: bool,
+) -> Result<Map<String, Value>, PromptError> {
+    let mut body = body.clone();
+    let invalid = |message: &str| PromptError {
+        status: 400,
+        message: message.into(),
+    };
+    for key in ["name", "command", "promptTemplate", "description"] {
+        if !creating && !body.contains_key(key) {
+            continue;
+        }
+        let text = body.get(key).and_then(Value::as_str).unwrap_or("").trim();
+        if key != "description" && text.is_empty() {
+            return Err(invalid("Name, command, and instructions are required"));
+        }
+        let value = if key == "command" {
+            let command = text.strip_prefix('/').unwrap_or(text).to_lowercase();
+            if !command.starts_with(|c: char| c.is_ascii_lowercase())
+                || !command
+                    .bytes()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+            {
+                return Err(invalid("Command: letters, numbers, hyphens only"));
+            }
+            command
+        } else {
+            text.to_owned()
+        };
+        body.insert(key.into(), Value::String(value));
+    }
+    if body.get("description").and_then(Value::as_str) == Some("") {
+        body.insert(
+            "description".into(),
+            body.get("name")
+                .cloned()
+                .unwrap_or(Value::String(String::new())),
+        );
+    }
+    if let Some(tags) = body.get("tags") {
+        let values: Vec<&str> = match tags {
+            Value::String(text) => text.split(',').collect(),
+            Value::Array(values) => values.iter().filter_map(Value::as_str).collect(),
+            _ => return Err(invalid("Tags must be comma-separated text or an array")),
+        };
+        let tags = values
+            .into_iter()
+            .map(str::trim)
+            .filter(|tag| !tag.is_empty())
+            .map(|tag| Value::String(tag.into()))
+            .collect();
+        body.insert("tags".into(), Value::Array(tags));
+    }
+    Ok(body)
 }
 
 fn string_value(body: &Map<String, Value>, key: &str) -> Option<String> {

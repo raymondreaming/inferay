@@ -44,21 +44,6 @@ export function formatBytes(bytes: number): string {
 	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
-export interface IndexedValue<T> {
-	index: number;
-	value: T;
-}
-
-/**
- * Keeps a render-list index on the item object. This avoids compiler-generated
- * JSX key functions closing over a map callback's second parameter.
- */
-export function indexedValues<T>(values: readonly T[]): IndexedValue<T>[] {
-	return values.map((value, index) => ({
-		index,
-		value,
-	}));
-}
 /** Prepared native Markdown wire model. Parsing belongs to the Rust server. */
 export interface MdBlock {
 	type:
@@ -82,11 +67,9 @@ export interface MdBlock {
 }
 export interface MdListItem {
 	bullet?: string;
-	content: string;
 	tokens: MdInlineToken[];
 	checked?: boolean;
 	indent: number;
-	children: MdListItem[];
 }
 export interface MdInlineToken {
 	type:
@@ -146,6 +129,28 @@ export function lockPointerSelection(): () => void {
 	};
 }
 
+export function trackPointerResize(
+	pointerId: number,
+	onMove: (event: PointerEvent) => void,
+	onEnd: () => void = noop,
+) {
+	const release = lockPointerSelection();
+	const move = (event: PointerEvent) => {
+		if (event.pointerId === pointerId) onMove(event);
+	};
+	const end = (event: PointerEvent) => {
+		if (event.pointerId !== pointerId) return;
+		for (const stop of cleanup) stop();
+		release();
+		onEnd();
+	};
+	const cleanup = [
+		listenWindowEvent("pointermove", move),
+		listenWindowEvent("pointerup", end),
+		listenWindowEvent("pointercancel", end),
+	];
+}
+
 import { QueryClient } from "@octanejs/tanstack-query";
 export const queryClient = new QueryClient({
 	defaultOptions: {
@@ -197,97 +202,6 @@ export function setupAgentThemePanelShortcut(
 		setShowSettings.bind(null, true),
 	);
 }
-export type TokenType =
-	| "keyword"
-	| "string"
-	| "comment"
-	| "number"
-	| "punctuation"
-	| "tag"
-	| "attr"
-	| "default";
-export interface Token {
-	text: string;
-	type: TokenType;
-}
-const keywords = {
-	js: new Set(
-		`import export from default const let var function return if else for while do
-switch case break continue new delete typeof instanceof in of class extends
-super this async await yield throw try catch finally true false null undefined
-void as type interface enum implements static readonly private public
-protected abstract declare module namespace`.split(/\s+/),
-	),
-	py: new Set(
-		`import from def class return if elif else for while break continue pass raise
-try except finally with as lambda yield True False None and or not in is del
-global nonlocal assert async await self`.split(/\s+/),
-	),
-	rust: new Set(
-		`fn let mut const static struct enum impl trait type pub mod use crate super
-self if else match for while loop break continue return async await move where
-true false Some None Ok Err Self`.split(/\s+/),
-	),
-	go: new Set(
-		`package import func return if else for range switch case default break
-continue go defer chan select struct interface type map var const true false
-nil make new append len cap delete copy`.split(/\s+/),
-	),
-};
-
-// Sticky expressions consume one complete token at the current cursor.
-// Rule order preserves comments, quoted strings, and tags before identifiers.
-const rules: Array<[TokenType, RegExp, ((ext: string) => boolean)?]> = [
-	["comment", /\/\/[\s\S]*|\/\*[\s\S]*?(?:\*\/|$)/y],
-	["comment", /#[\s\S]*/y, (ext) => !["css", "scss", "less"].includes(ext)],
-	[
-		"string",
-		/"(?:\\[\s\S]?|[^"\\])*"?|'(?:\\[\s\S]?|[^'\\])*'?|`(?:\\[\s\S]?|[^`\\])*`?/y,
-	],
-	["number", /(?<!\w)\d[\d.xXa-fA-Fe_]*/y],
-	[
-		"tag",
-		/<\/?[\w-]+/y,
-		(ext) => ["html", "htm", "xml", "svg", "jsx", "tsx"].includes(ext),
-	],
-	["keyword", /[a-zA-Z_$][\w$]*/y],
-	["punctuation", /[{}()[\];:,.<>!=+\-*/%&|^~?@]/y],
-	["default", /[^a-zA-Z_$@0-9"'`/{}()[\];:,.<>!=+\-*/%&|^~?#]+|[\s\S]/y],
-];
-export function tokenizeLine(line: string, ext: string): Token[] {
-	if (!line)
-		return [
-			{
-				text: line,
-				type: "default",
-			},
-		];
-	const vocabulary =
-		ext === "py"
-			? keywords.py
-			: ext === "rs"
-				? keywords.rust
-				: ext === "go"
-					? keywords.go
-					: keywords.js;
-	const activeRules = rules.filter(([, , accepts]) => !accepts || accepts(ext));
-	const tokens: Token[] = [];
-	for (let cursor = 0; cursor < line.length; ) {
-		for (const [kind, expression] of activeRules) {
-			expression.lastIndex = cursor;
-			const match = expression.exec(line);
-			if (!match) continue;
-			const text = match[0];
-			tokens.push({
-				text,
-				type: kind === "keyword" && !vocabulary.has(text) ? "default" : kind,
-			});
-			cursor += text.length;
-			break;
-		}
-	}
-	return tokens;
-}
 export interface DotMatrixLoaderProps {
 	dotSize?: number;
 	gap?: number;
@@ -311,4 +225,8 @@ export function selectDropdownOption(
 ) {
 	onChange(id);
 	setOpen(false);
+}
+
+export function dispatchWindowEvent<T>(name: string, detail: T): void {
+	window.dispatchEvent(new CustomEvent<T>(name, { detail }));
 }

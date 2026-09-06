@@ -249,28 +249,6 @@ export const diffStyles = stylex.create({
 		justifyContent: "center",
 		backgroundColor: color.transparent,
 	},
-	centerInline: {
-		display: "flex",
-		alignItems: "center",
-		gap: controlSize._2,
-	},
-	spinner: {
-		width: font.size_3,
-		height: font.size_3,
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.textMuted,
-		borderTopColor: color.transparent,
-		borderRadius: radius.pill,
-		animationName: stylex.keyframes({
-			to: {
-				transform: "rotate(360deg)",
-			},
-		}),
-		animationDuration: motion.durationLonger,
-		animationTimingFunction: "linear",
-		animationIterationCount: "infinite",
-	},
 	centerText: {
 		color: color.textMuted,
 		fontSize: font.size_4,

@@ -1,17 +1,10 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useEffect, useRef, useState } from "octane";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { noop } from "../../../../shared/lib/data.ts";
 import { IconCheck, IconCopy } from "../../../../shared/ui/Icons/index.tsx";
 import { styles } from "./styles.ts";
 
-export function CopyButton({
-	text,
-	className,
-}: {
-	text: string;
-	className?: string;
-}) {
+export function useCopyText(text: string, clearOnError = false) {
 	const [copied, setCopied] = useState(false);
 	const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	useEffect(
@@ -32,8 +25,21 @@ export function CopyButton({
 					setCopied(false);
 				}, 1500);
 			})
-			.catch(noop);
-	}, [text]);
+			.catch(() => {
+				if (clearOnError) setCopied(false);
+			});
+	}, [text, clearOnError]);
+	return { copied, handleCopy };
+}
+
+export function CopyButton({
+	text,
+	className,
+}: {
+	text: string;
+	className?: string;
+}) {
+	const { copied, handleCopy } = useCopyText(text);
 	const copyButtonProps = stylex.props(
 		styles.copyButton,
 		copied ? styles.copyButtonCopied : null,

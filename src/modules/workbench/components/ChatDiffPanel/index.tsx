@@ -125,7 +125,6 @@ export function ChatDiffPanel(
 							diff={view.diff}
 							filePath={view.file.path}
 							staged={view.file.staged}
-							loading={false}
 							onClose={view.onClose}
 							hideHeader
 							hideToolbar
@@ -135,7 +134,9 @@ export function ChatDiffPanel(
 						/>
 					</DiffViewerBoundary>
 				) : !view.loading ? (
-					<div {...stylex.props(styles.viewerEmpty)}>No diff available</div>
+					<div {...stylex.props(styles.viewerEmpty)}>
+						{view.error ?? "No diff available"}
+					</div>
 				) : null}
 				{view.mainViewMode === "graph" && view.pendingRefAction ? (
 					<RefOperationDialog
@@ -173,8 +174,4 @@ export type {
 	GitRefOperationPreflight,
 	GitRefOperationResult,
 	GraphActionPresentation,
-} from "./useChatDiffPanelState.tsx";
-export {
-	gitOperationErrorLabel,
-	graphActionPresentation,
 } from "./useChatDiffPanelState.tsx";

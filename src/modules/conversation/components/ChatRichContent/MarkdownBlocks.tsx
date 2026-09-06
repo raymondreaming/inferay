@@ -1,6 +1,5 @@
 import * as stylex from "@octanejs/stylex";
 import type { MdBlock } from "../../../../shared/lib/data.ts";
-import { indexedValues } from "../../../../shared/lib/data.ts";
 import { CopyablePre } from "./CopyablePre.tsx";
 import { Inline } from "./Inline.tsx";
 import * as inlineStyles from "./styles.ts";
@@ -17,7 +16,7 @@ export function MarkdownBlocks({
 }) {
 	return (
 		<>
-			{indexedValues(blocks).map(({ index, value: block }) => {
+			{blocks.map((block, index) => {
 				switch (block.type) {
 					case "code":
 					case "mermaid":
@@ -54,33 +53,31 @@ export function MarkdownBlocks({
 					case "checklist":
 						return (
 							<div key={index}>
-								{indexedValues(block.items ?? []).map(
-									({ index: itemIndex, value: item }) => (
-										<div
-											key={itemIndex}
-											{...stylex.props(styles.listItem)}
-											style={inlineStyles.getMarkdownBlocksListItemStyle(
-												item.indent * 4,
-											)}
-										>
-											<span {...stylex.props(styles.listBullet)}>
-												{item.checked !== undefined
-													? item.checked
-														? "✓"
-														: "□"
-													: block.type === "ol"
-														? (item.bullet ?? `${itemIndex + 1}.`)
-														: (item.bullet ?? "-")}
-											</span>
-											<span {...stylex.props(styles.listContent)}>
-												<Inline
-													tokens={item.tokens}
-													onMdFileClick={onMdFileClick}
-												/>
-											</span>
-										</div>
-									),
-								)}
+								{(block.items ?? []).map((item, itemIndex) => (
+									<div
+										key={itemIndex}
+										{...stylex.props(styles.listItem)}
+										style={inlineStyles.getMarkdownBlocksListItemStyle(
+											item.indent * 4,
+										)}
+									>
+										<span {...stylex.props(styles.listBullet)}>
+											{item.checked !== undefined
+												? item.checked
+													? "✓"
+													: "□"
+												: block.type === "ol"
+													? (item.bullet ?? `${itemIndex + 1}.`)
+													: (item.bullet ?? "-")}
+										</span>
+										<span {...stylex.props(styles.listContent)}>
+											<Inline
+												tokens={item.tokens}
+												onMdFileClick={onMdFileClick}
+											/>
+										</span>
+									</div>
+								))}
 							</div>
 						);
 					case "table": {
@@ -94,46 +91,37 @@ export function MarkdownBlocks({
 								<table {...stylex.props(styles.table)}>
 									<thead>
 										<tr>
-											{indexedValues(headers).map(
-												({ index: cellIndex, value: cell }) => (
-													<th
+											{headers.map((cell, cellIndex) => (
+												<th
+													key={cellIndex}
+													{...stylex.props(styles.tableHeadCell)}
+												>
+													<Inline tokens={cell} onMdFileClick={onMdFileClick} />
+												</th>
+											))}
+										</tr>
+									</thead>
+									<tbody>
+										{rows.map((row, rowIndex) => (
+											<tr key={rowIndex}>
+												{row.map((cell, cellIndex) => (
+													<td
 														key={cellIndex}
-														{...stylex.props(styles.tableHeadCell)}
+														{...stylex.props(styles.tableCell)}
+														style={inlineStyles.getMarkdownBlocksTableCellStyle(
+															rowIndex < rows.length - 1
+																? "1px solid var(--color-inferay-gray-border)"
+																: "none",
+														)}
 													>
 														<Inline
 															tokens={cell}
 															onMdFileClick={onMdFileClick}
 														/>
-													</th>
-												),
-											)}
-										</tr>
-									</thead>
-									<tbody>
-										{indexedValues(rows).map(
-											({ index: rowIndex, value: row }) => (
-												<tr key={rowIndex}>
-													{indexedValues(row).map(
-														({ index: cellIndex, value: cell }) => (
-															<td
-																key={cellIndex}
-																{...stylex.props(styles.tableCell)}
-																style={inlineStyles.getMarkdownBlocksTableCellStyle(
-																	rowIndex < rows.length - 1
-																		? "1px solid var(--color-inferay-gray-border)"
-																		: "none",
-																)}
-															>
-																<Inline
-																	tokens={cell}
-																	onMdFileClick={onMdFileClick}
-																/>
-															</td>
-														),
-													)}
-												</tr>
-											),
-										)}
+													</td>
+												))}
+											</tr>
+										))}
 									</tbody>
 								</table>
 							</div>

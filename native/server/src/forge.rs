@@ -61,7 +61,6 @@ struct ForgeAccount {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 struct GithubRepo {
-    name: String,
     #[serde(rename(deserialize = "nameWithOwner"))]
     full_name: String,
     description: Option<String>,
@@ -73,10 +72,6 @@ struct GithubRepo {
         deserialize_with = "primary_language"
     )]
     language: Option<String>,
-    #[serde(rename(deserialize = "stargazerCount"))]
-    stargazers_count: f64,
-    #[serde(rename(deserialize = "updatedAt"))]
-    updated_at: String,
     #[serde(rename(deserialize = "isPrivate"))]
     private: bool,
 }
@@ -380,19 +375,18 @@ async fn list_github_repos(state: &ServerState, limit: usize) -> Vec<GithubRepo>
             .iter()
             .find(|account| account.active)
             .or_else(|| accounts.first());
-        let mut arguments = vec!["repo".to_string(), "list".to_string()];
-        if let Some(login) = active.map(|account| account.login.clone()) {
-            arguments.push(login);
+        let mut arguments = vec!["repo", "list"];
+        if let Some(account) = active {
+            arguments.push(&account.login);
         }
+        let limit = limit.to_string();
         arguments.extend([
-            "--json".into(),
-            "name,description,url,primaryLanguage,stargazerCount,updatedAt,isPrivate,nameWithOwner"
-                .into(),
-            "--limit".into(),
-            limit.to_string(),
+            "--json",
+            "description,url,primaryLanguage,isPrivate,nameWithOwner",
+            "--limit",
+            &limit,
         ]);
-        let references = arguments.iter().map(String::as_str).collect::<Vec<_>>();
-        let output = run_gh(&references, 20_000).await?;
+        let output = run_gh(&arguments, 20_000).await?;
         serde_json::from_str::<Vec<GithubRepo>>(&output).map_err(parse_error)
     }
     .await;

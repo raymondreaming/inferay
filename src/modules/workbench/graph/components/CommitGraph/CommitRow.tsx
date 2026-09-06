@@ -15,7 +15,6 @@ import {
 	type GraphSelectionIntent,
 	hexToRgba,
 	ROW_HEIGHT,
-	refPresentationLabel,
 	TOOLS_WIDTH,
 } from "../../model/graph-model.ts";
 import { AuthorAvatar } from "./AuthorAvatar.tsx";
@@ -100,6 +99,7 @@ export const CommitRow = memo(function CommitRow({
 		? {
 				fullName: commit.stashName ?? "refs/stash",
 				displayName: commit.stashName ?? "stash",
+				label: commit.stashName ?? "stash",
 				kind: "stash",
 				target: commit.hash,
 				isHead: false,
@@ -236,7 +236,7 @@ export const CommitRow = memo(function CommitRow({
 									/>
 								) : showGhostRef && visibleGhostRef ? (
 									<RefBadge
-										label={refPresentationLabel(visibleGhostRef)}
+										label={visibleGhostRef.label}
 										fullName={visibleGhostRef.fullName}
 										color={commit.color}
 										kind={visibleGhostRef.kind}

@@ -1,4 +1,3 @@
-import type { GitGraphRef } from "../../../repository/hooks/useGitGraph.tsx";
 export interface GraphSelectionIntent {
 	additive: boolean;
 	range: boolean;
@@ -23,21 +22,8 @@ export const GRAPH_PADDING = 18;
 export const TOOLS_WIDTH = 32;
 export function hexToRgba(hex: string, alpha: number) {
 	const c = hex.replace("#", "");
-	const n =
-		c.length === 3
-			? c
-					.split("")
-					.map((ch) => `${ch}${ch}`)
-					.join("")
-			: c;
+	const n = c.length === 3 ? c.replace(/[\s\S]/g, "$&$&") : c;
 	return `rgba(${Number.parseInt(n.slice(0, 2), 16)}, ${Number.parseInt(n.slice(2, 4), 16)}, ${Number.parseInt(n.slice(4, 6), 16)}, ${alpha})`;
-}
-export function refPresentationLabel(ref: GitGraphRef): string {
-	if (ref.kind !== "remoteBranch" || !ref.remoteName) return ref.displayName;
-	const remotePrefix = `${ref.remoteName}/`;
-	return ref.displayName.startsWith(remotePrefix)
-		? ref.displayName.slice(remotePrefix.length)
-		: ref.displayName;
 }
 export { AVATAR_SIZE } from "../components/CommitGraph/styles.ts";
 
@@ -256,17 +242,16 @@ export function graphVirtualRange(
 	itemCount: number,
 	scrollTop: number,
 	viewportHeight: number,
-	rowHeight = GIT_GRAPH_GEOMETRY.rowHeight,
-	overscan = 12,
 ): GraphVirtualRange {
 	const count = Math.max(0, Math.floor(itemCount));
-	const height = Math.max(1, rowHeight);
 	const viewport = Math.max(0, viewportHeight);
 	const scroll = Math.max(0, scrollTop);
-	const padding = Math.max(0, Math.floor(overscan));
 	return {
-		start: Math.max(0, Math.floor(scroll / height) - padding),
-		end: Math.min(count, Math.ceil((scroll + viewport) / height) + padding),
+		start: Math.max(0, Math.floor(scroll / ROW_HEIGHT) - ROW_OVERSCAN),
+		end: Math.min(
+			count,
+			Math.ceil((scroll + viewport) / ROW_HEIGHT) + ROW_OVERSCAN,
+		),
 	};
 }
 export function moveGraphColumn(
@@ -302,31 +287,20 @@ export function pinnedGraphColumnOrder(
 		).filter((column) => !pinned.has(column)),
 	];
 }
+const {
+	rowHeight,
+	columnWidth,
+	graphPadding,
+	curveRadius: requestedCurveRadius,
+} = GIT_GRAPH_GEOMETRY;
+
 export function buildGraphConnectionPath(
 	connection: GraphPresentationTransition,
-	{
-		refWidth = 0,
-		rowHeight = GIT_GRAPH_GEOMETRY.rowHeight,
-		columnWidth = GIT_GRAPH_GEOMETRY.columnWidth,
-		graphPadding = GIT_GRAPH_GEOMETRY.graphPadding,
-		curveRadius: requestedCurveRadius = GIT_GRAPH_GEOMETRY.curveRadius,
-	}: {
-		refWidth?: number;
-		rowHeight?: number;
-		columnWidth?: number;
-		graphPadding?: number;
-		curveRadius?: number;
-	} = {},
 ): string {
 	const rowY = (row: number) => row * rowHeight + rowHeight / 2;
-	const x1 =
-		refWidth +
-		graphPadding +
-		connection.fromCol * columnWidth +
-		columnWidth / 2;
+	const x1 = graphPadding + connection.fromCol * columnWidth + columnWidth / 2;
 	const y1 = rowY(connection.row);
-	const x2 =
-		refWidth + graphPadding + connection.toCol * columnWidth + columnWidth / 2;
+	const x2 = graphPadding + connection.toCol * columnWidth + columnWidth / 2;
 	const endY = rowY(connection.row + 1);
 	const directionToCommit = x1 > x2 ? 1 : -1;
 	const curveRadius = Math.min(
@@ -338,30 +312,18 @@ export function buildGraphConnectionPath(
 	// Terminate beneath the opaque node instead of at its mathematical edge.
 	// This avoids antialiasing gaps when a row uses a smaller merge dot while
 	// keeping the visible line clipped cleanly by avatar-sized nodes.
-	const nodeEdgeX = x1;
 	const sweep = directionToCommit > 0 ? 1 : 0;
 	return [
 		`M ${x2} ${endY}`,
 		`L ${x2} ${y1 + curveRadius}`,
 		`A ${curveRadius} ${curveRadius} 0 0 ${sweep} ${curveEndX} ${y1}`,
-		`L ${nodeEdgeX} ${y1}`,
+		`L ${x1} ${y1}`,
 	].join(" ");
 }
 
 /** Route an incoming duplicate edge from the row above into its parent node. */
 export function buildGraphConvergencePath(
 	connection: GraphPresentationTransition,
-	{
-		rowHeight = GIT_GRAPH_GEOMETRY.rowHeight,
-		columnWidth = GIT_GRAPH_GEOMETRY.columnWidth,
-		graphPadding = GIT_GRAPH_GEOMETRY.graphPadding,
-		curveRadius: requestedCurveRadius = GIT_GRAPH_GEOMETRY.curveRadius,
-	}: {
-		rowHeight?: number;
-		columnWidth?: number;
-		graphPadding?: number;
-		curveRadius?: number;
-	} = {},
 ): string {
 	const centerY = connection.row * rowHeight + rowHeight / 2;
 	const topY = connection.row * rowHeight;
@@ -375,12 +337,11 @@ export function buildGraphConvergencePath(
 		Math.abs(toX - fromX) / 2,
 	);
 	const curveEndX = fromX + direction * curveRadius;
-	const nodeEdgeX = toX;
 	const sweep = direction < 0 ? 1 : 0;
 	return [
 		`M ${fromX} ${topY}`,
 		`L ${fromX} ${centerY - curveRadius}`,
 		`A ${curveRadius} ${curveRadius} 0 0 ${sweep} ${curveEndX} ${centerY}`,
-		`L ${nodeEdgeX} ${centerY}`,
+		`L ${toX} ${centerY}`,
 	].join(" ");
 }

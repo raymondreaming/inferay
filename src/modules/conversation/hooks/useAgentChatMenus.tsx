@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
+import { useCallback, useMemo, useState } from "octane";
 import type React from "react";
-import { fetchJsonOr } from "../../../adapters/backend/http.ts";
+import { fetchJson, fetchJsonOr } from "../../../adapters/backend/http.ts";
+import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
 import { getAgentDefinition } from "../../agents/model/agents.ts";
-import { useSkills } from "../../skills/hooks/useSkills.tsx";
 import type { WorkspaceModelAgentKind as AgentKind } from "../../workspace/model/workspace-model.ts";
 import type { SlashCommand } from "../model/agent-chat-shared.ts";
 import {
@@ -53,23 +53,6 @@ interface UseAgentChatMenusOptions {
 	textareaRef: React.RefObject<HTMLTextAreaElement | null>;
 }
 
-function areFileResultsEqual(
-	previous: FileSearchResult[],
-	next: FileSearchResult[],
-) {
-	return (
-		previous.length === next.length &&
-		previous.every((file, index) => {
-			const other = next[index]!;
-			return (
-				file.name === other.name &&
-				file.path === other.path &&
-				file.isDir === other.isDir
-			);
-		})
-	);
-}
-
 function showCompletion<Key extends "atIndex" | "slashIndex">(
 	previous: { show: boolean; selectedIdx: number; query: string } & Record<
 		Key,
@@ -100,7 +83,6 @@ export function useAgentChatMenus({
 	setInput,
 	textareaRef,
 }: UseAgentChatMenusOptions) {
-	const { skills: localSkills } = useSkills(enabled);
 	const [fileMenu, setFileMenu] = useState<FileMenuState>({
 		show: false,
 		selectedIdx: 0,
@@ -113,50 +95,34 @@ export function useAgentChatMenus({
 		query: "",
 		slashIndex: -1,
 	});
-	const [fileResults, setFileResults] = useState<FileSearchResult[]>([]);
-	const fileSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const fileSearchRequestRef = useRef(0);
-	const allCommands = useMemo<SlashCommand[]>(() => {
-		const deduped = new Map<string, SlashCommand>();
-		for (const command of [
-			{
-				name: "exit",
-				description: "Close this chat pane",
-				action: "local" as const,
-				isLocalCommand: true,
-			},
-			{
-				name: "clear",
-				description: "Clear all messages",
-				action: "local" as const,
-				isLocalCommand: true,
-			},
-			{
-				name: "help",
-				description: "Show available commands",
-				action: "local" as const,
-				isLocalCommand: true,
-			},
-			...localSkills.map((skill) => ({
-				id: skill._id,
-				name: skill.command,
-				description: skill.description,
-				action: "send" as const,
-				category: skill.category,
-				isFromLibrary: true,
-			})),
-			...getAgentDefinition(agentKind).nativeSlashCommands.map((command) => ({
-				name: command.name,
-				description: command.description,
-				action: "send" as const,
-				isLocalCommand: true,
-			})),
-		]) {
-			const key = command.name.toLowerCase();
-			if (!deduped.has(key)) deduped.set(key, command);
-		}
-		return [...deduped.values()];
-	}, [agentKind, localSkills]);
+	const { data: allCommands } = useQueryResource(
+		(signal) =>
+			fetchJson<SlashCommand[]>(`/api/agent/commands?kind=${agentKind}`, {
+				signal,
+			}),
+		getAgentDefinition(agentKind).commands,
+		{ queryKey: ["skills", "commands", agentKind], enabled },
+	);
+	const { data: fileResults } = useQueryResource(
+		async (signal) => {
+			await new Promise((resolve) => setTimeout(resolve, 150));
+			signal?.throwIfAborted();
+			const params = new URLSearchParams({ q: fileMenu.query, limit: "15" });
+			if (cwd) params.set("cwd", cwd);
+			const data = await fetchJsonOr<{ results?: FileSearchResult[] }>(
+				`/api/files/search?${params}`,
+				{},
+				{ signal },
+			);
+			return data.results ?? [];
+		},
+		[] as FileSearchResult[],
+		{
+			queryKey: ["file-completion", cwd ?? "", fileMenu.query],
+			enabled: enabled && fileMenu.show,
+			gcTime: 0,
+		},
+	);
 	const slashCommandNames = useMemo(
 		() => allCommands.map((command) => command.name),
 		[allCommands],
@@ -175,22 +141,6 @@ export function useAgentChatMenus({
 	const visibleFileMenu = enabled ? fileMenu : hideMenuState(fileMenu);
 	const visibleSlashMenu = enabled ? slashMenu : hideMenuState(slashMenu);
 	const showCommands = enabled && visibleSlashMenu.show;
-
-	useEffect(() => {
-		if (enabled) return;
-		fileSearchRequestRef.current++;
-		if (fileSearchTimerRef.current) {
-			clearTimeout(fileSearchTimerRef.current);
-			fileSearchTimerRef.current = null;
-		}
-	}, [enabled]);
-
-	useEffect(
-		() => () => {
-			if (fileSearchTimerRef.current) clearTimeout(fileSearchTimerRef.current);
-		},
-		[],
-	);
 
 	const handleInputForSlashMenu = useCallback(
 		(value: string, cursorPos: number) => {
@@ -213,39 +163,13 @@ export function useAgentChatMenus({
 			if (!enabled) return;
 			const trigger = findTriggerAtCursor(value, cursorPos, "@");
 			if (!trigger) {
-				fileSearchRequestRef.current++;
-				if (fileSearchTimerRef.current) {
-					clearTimeout(fileSearchTimerRef.current);
-					fileSearchTimerRef.current = null;
-				}
 				setFileMenu((prev) => (prev.show ? hideMenuState(prev) : prev));
 				return;
 			}
 
 			setFileMenu((previous) => showCompletion(previous, "atIndex", trigger));
-
-			if (fileSearchTimerRef.current) clearTimeout(fileSearchTimerRef.current);
-			const requestId = ++fileSearchRequestRef.current;
-			fileSearchTimerRef.current = setTimeout(async () => {
-				const params = new URLSearchParams({
-					q: trigger.query,
-					limit: "15",
-				});
-				if (cwd) params.set("cwd", cwd);
-				if (requestId !== fileSearchRequestRef.current) return;
-				const data = await fetchJsonOr<{ results?: FileSearchResult[] }>(
-					`/api/files/search?${params}`,
-					{},
-				);
-				if (requestId === fileSearchRequestRef.current) {
-					const next = data.results || [];
-					setFileResults((prev) =>
-						areFileResultsEqual(prev, next) ? prev : next,
-					);
-				}
-			}, 150);
 		},
-		[cwd, enabled],
+		[enabled],
 	);
 
 	const complete = useCallback(

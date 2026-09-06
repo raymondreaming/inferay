@@ -17,31 +17,16 @@ pub struct NativeFileEntry {
     pub size: u64,
 }
 
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum NativeFilesError {
+    #[error("Access denied")]
     AccessDenied,
+    #[error("Unsupported file type")]
     UnsupportedFileType,
+    #[error("File too large")]
     FileTooLarge,
-    Io(std::io::Error),
-}
-
-impl std::fmt::Display for NativeFilesError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::AccessDenied => formatter.write_str("Access denied"),
-            Self::UnsupportedFileType => formatter.write_str("Unsupported file type"),
-            Self::FileTooLarge => formatter.write_str("File too large"),
-            Self::Io(error) => error.fmt(formatter),
-        }
-    }
-}
-
-impl std::error::Error for NativeFilesError {}
-
-impl From<std::io::Error> for NativeFilesError {
-    fn from(error: std::io::Error) -> Self {
-        Self::Io(error)
-    }
+    #[error("{0}")]
+    Io(#[from] std::io::Error),
 }
 
 #[derive(Clone, Debug)]
@@ -170,15 +155,11 @@ impl NativeFiles {
 
 pub(crate) fn safe_upload_name(name: &str) -> String {
     name.encode_utf16()
-        .map(|unit| {
-            let byte = u8::try_from(unit).ok();
-            if byte.is_some_and(|byte| {
-                byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-')
-            }) {
-                char::from(byte.unwrap_or_default())
-            } else {
-                '_'
+        .map(|unit| match u8::try_from(unit) {
+            Ok(byte) if byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-') => {
+                char::from(byte)
             }
+            _ => '_',
         })
         .collect()
 }

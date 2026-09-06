@@ -81,11 +81,7 @@ export function WorkspaceSidebar() {
 	);
 	const [workspaces, setWorkspaces] = useWorkspaceState();
 	const repositoryProjection = useMemo(
-		() =>
-			projectRepositoryWorkspaces(
-				workspaces.groups,
-				workspaces.selectedGroupId,
-			),
+		() => projectRepositoryWorkspaces(workspaces),
 		[workspaces.groups, workspaces.selectedGroupId],
 	);
 
@@ -93,10 +89,7 @@ export function WorkspaceSidebar() {
 
 	const selectPane = useCallback(
 		async (groupId: string, paneId: string) => {
-			await mutateAgentWorkspaceState(
-				{ type: "selectPane", groupId, paneId },
-				"select-pane",
-			);
+			await mutateAgentWorkspaceState({ type: "selectPane", groupId, paneId });
 			if (location.pathname !== "/agent") {
 				navigate({ to: "/agent" });
 			}
@@ -110,11 +103,7 @@ export function WorkspaceSidebar() {
 	const addChat = useCallback(
 		async (target: CreateAgentChatTarget) => {
 			if (target === "new-repository") {
-				await mutateAgentWorkspaceState(
-					{ type: "addWorkspace" },
-					"open-repository",
-					{ createIfMissing: true },
-				);
+				await mutateAgentWorkspaceState({ type: "addWorkspace" });
 				navigate({ to: "/agent" });
 				return;
 			}
@@ -122,15 +111,11 @@ export function WorkspaceSidebar() {
 				target,
 				repositoryProjection.activeWorkspace?.cwd,
 			);
-			await mutateAgentWorkspaceState(
-				{
-					type: "addPane",
-					agentKind: loadDefaultChatSettings().agentKind,
-					cwd,
-				},
-				"add-pane",
-				{ createIfMissing: true },
-			);
+			await mutateAgentWorkspaceState({
+				type: "addPane",
+				agentKind: loadDefaultChatSettings().agentKind,
+				cwd,
+			});
 			navigate({ to: "/agent" });
 		},
 		[navigate, repositoryProjection.activeWorkspace?.cwd],
@@ -149,7 +134,7 @@ export function WorkspaceSidebar() {
 			if (mode === layoutMode) return;
 			writeStoredValue("agent-layout-mode", mode);
 			setLayoutMode(mode);
-			dispatchAgentShellChange({ source: "view", reason: "layout-mode" });
+			dispatchAgentShellChange({ source: "view" });
 		},
 		[layoutMode],
 	);
@@ -168,16 +153,14 @@ export function WorkspaceSidebar() {
 				});
 				return changed ? { ...current, groups } : current;
 			});
-			await mutateAgentWorkspaceState(
-				(state) =>
-					state.selectedGroupId
-						? {
-								type: "setGridDimensions",
-								groupId: state.selectedGroupId,
-								...patch,
-							}
-						: null,
-				"grid-size",
+			await mutateAgentWorkspaceState((state) =>
+				state.selectedGroupId
+					? {
+							type: "setGridDimensions",
+							groupId: state.selectedGroupId,
+							...patch,
+						}
+					: null,
 			);
 		},
 		[],

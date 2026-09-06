@@ -41,9 +41,6 @@ pub struct GitStatusResult {
     pub upstream: Option<String>,
     pub ahead: usize,
     pub behind: usize,
-    pub staged_count: usize,
-    pub unstaged_count: usize,
-    pub untracked_count: usize,
     pub files: Vec<GitFileEntry>,
 }
 
@@ -158,8 +155,6 @@ pub struct GitOperationResult {
     pub operation: String,
     pub outcome: GitOperationOutcome,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub current_branch: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub head: Option<String>,
     pub conflicts: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -173,10 +168,6 @@ pub struct GitOperationResult {
 pub struct GitRefOperationPreflight {
     pub source: String,
     pub target: String,
-    pub valid_refs: bool,
-    pub clean_worktree: bool,
-    pub source_in_other_worktree: bool,
-    pub target_in_other_worktree: bool,
     pub can_merge: bool,
     pub can_fast_forward: bool,
     pub can_rebase: bool,
@@ -212,7 +203,6 @@ pub struct GitCommitFile {
     pub status: String,
     pub additions: usize,
     pub deletions: usize,
-    pub binary: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -240,7 +230,6 @@ pub struct GitCommitDetails {
 pub struct GitCommitProviderMetadata {
     pub provider: String,
     pub repository: String,
-    pub repository_url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pull_request_number: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -318,6 +307,7 @@ pub enum GitGraphRefKind {
 pub struct GitGraphRef {
     pub full_name: String,
     pub display_name: String,
+    pub label: String,
     pub kind: GitGraphRefKind,
     pub target: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -539,34 +529,11 @@ fn run_git(args: &[&str], cwd: &str) -> Option<String> {
     run_git_timed(args, cwd, Duration::from_secs(10))
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum GitCommandFailureKind {
-    SpawnFailed,
-    TimedOut,
-    Failed,
-    InvalidOutput,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct GitCommandFailure {
-    command: String,
-    kind: GitCommandFailureKind,
-    detail: String,
-}
-
-impl GitCommandFailure {
-    fn summary(&self) -> String {
-        let kind = match self.kind {
-            GitCommandFailureKind::SpawnFailed => "could not start",
-            GitCommandFailureKind::TimedOut => "timed out",
-            GitCommandFailureKind::Failed => "failed",
-            GitCommandFailureKind::InvalidOutput => "returned invalid output",
-        };
-        if self.detail.is_empty() {
-            format!("{} {kind}", self.command)
-        } else {
-            format!("{} {kind}: {}", self.command, self.detail)
-        }
+fn git_failure(command: &str, kind: &str, detail: &str) -> String {
+    if detail.is_empty() {
+        format!("{command} {kind}")
+    } else {
+        format!("{command} {kind}: {detail}")
     }
 }
 
@@ -605,19 +572,12 @@ fn run_git_timed(args: &[&str], cwd: &str, timeout: Duration) -> Option<String> 
         .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
 }
 
-fn run_git_bytes(
-    args: &[&str],
-    cwd: &str,
-    timeout: Duration,
-) -> Result<Vec<u8>, GitCommandFailure> {
+fn run_git_bytes(args: &[&str], cwd: &str, timeout: Duration) -> Result<Vec<u8>, String> {
     let timeout = remaining_git_time(timeout);
     let command = format!("git {}", args.first().copied().unwrap_or("command"));
+    let failure = |kind, detail: &str| git_failure(&command, kind, detail);
     if timeout.is_zero() {
-        return Err(GitCommandFailure {
-            command,
-            kind: GitCommandFailureKind::TimedOut,
-            detail: "request deadline exceeded".into(),
-        });
+        return Err(failure("timed out", "request deadline exceeded"));
     }
     let mut child = Command::new("git")
         .args(args)
@@ -625,21 +585,15 @@ fn run_git_bytes(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| GitCommandFailure {
-            command: command.clone(),
-            kind: GitCommandFailureKind::SpawnFailed,
-            detail: error.to_string(),
-        })?;
-    let mut stdout = child.stdout.take().ok_or_else(|| GitCommandFailure {
-        command: command.clone(),
-        kind: GitCommandFailureKind::SpawnFailed,
-        detail: "stdout was unavailable".to_string(),
-    })?;
-    let mut stderr = child.stderr.take().ok_or_else(|| GitCommandFailure {
-        command: command.clone(),
-        kind: GitCommandFailureKind::SpawnFailed,
-        detail: "stderr was unavailable".to_string(),
-    })?;
+        .map_err(|error| failure("could not start", &error.to_string()))?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| failure("could not start", "stdout was unavailable"))?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| failure("could not start", "stderr was unavailable"))?;
     let stdout_reader = std::thread::spawn(move || {
         let mut bytes = Vec::new();
         let _ = stdout.read_to_end(&mut bytes);
@@ -657,36 +611,25 @@ fn run_git_bytes(
             let _ = child.wait();
             drop(stdout_reader);
             drop(stderr_reader);
-            return Err(GitCommandFailure {
-                command,
-                kind: GitCommandFailureKind::TimedOut,
-                detail: format!("after {} ms", timeout.as_millis()),
-            });
+            return Err(failure(
+                "timed out",
+                &format!("after {} ms", timeout.as_millis()),
+            ));
         }
         Err(error) => {
             let _ = child.kill();
             let _ = child.wait();
             drop(stdout_reader);
             drop(stderr_reader);
-            return Err(GitCommandFailure {
-                command,
-                kind: GitCommandFailureKind::Failed,
-                detail: error.to_string(),
-            });
+            return Err(failure("failed", &error.to_string()));
         }
     };
-    let stdout = stdout_reader.join().map_err(|_| GitCommandFailure {
-        command: command.clone(),
-        kind: GitCommandFailureKind::InvalidOutput,
-        detail: "stdout reader failed".to_string(),
-    })?;
+    let stdout = stdout_reader
+        .join()
+        .map_err(|_| failure("returned invalid output", "stdout reader failed"))?;
     let stderr = stderr_reader.join().unwrap_or_default();
     if !status.success() {
-        return Err(GitCommandFailure {
-            command,
-            kind: GitCommandFailureKind::Failed,
-            detail: sanitized_git_error(&stderr),
-        });
+        return Err(failure("failed", &sanitized_git_error(&stderr)));
     }
     Ok(stdout)
 }
@@ -1054,6 +997,14 @@ fn patch_header_path(raw_patch: &str, prefix: &str) -> Option<String> {
     })
 }
 
+fn git_file_content(cwd: &str, revision: &str, path: &str) -> Option<String> {
+    run_git_timed(
+        &["show", &format!("{revision}:{path}")],
+        cwd,
+        Duration::from_secs(5),
+    )
+}
+
 fn get_git_revision_hunk_diff(
     cwd: &str,
     old_revision: Option<&str>,
@@ -1061,40 +1012,19 @@ fn get_git_revision_hunk_diff(
     file_path: &str,
     review: bool,
 ) -> Option<GitHunkDiff> {
-    let raw_patch = if let Some(old_revision) = old_revision {
-        run_git_timed(
-            &[
-                "diff",
-                "--no-ext-diff",
-                "--no-textconv",
-                "--binary",
-                "--find-renames",
-                old_revision,
-                new_revision,
-                "--",
-                file_path,
-            ],
-            cwd,
-            Duration::from_secs(5),
-        )?
-    } else {
-        run_git_timed(
-            &[
-                "show",
-                "--format=",
-                "--root",
-                "--no-ext-diff",
-                "--no-textconv",
-                "--binary",
-                "--find-renames",
-                new_revision,
-                "--",
-                file_path,
-            ],
-            cwd,
-            Duration::from_secs(5),
-        )?
+    let mut args = match old_revision {
+        Some(_) => vec!["diff"],
+        None => vec!["show", "--format=", "--root"],
     };
+    args.extend([
+        "--no-ext-diff",
+        "--no-textconv",
+        "--binary",
+        "--find-renames",
+    ]);
+    args.extend(old_revision);
+    args.extend([new_revision, "--", file_path]);
+    let raw_patch = run_git_timed(&args, cwd, Duration::from_secs(5))?;
     if raw_patch.trim().is_empty() {
         return None;
     }
@@ -1104,24 +1034,13 @@ fn get_git_revision_hunk_diff(
     let is_deleted = raw_patch.lines().any(|line| line == "+++ /dev/null");
     let old_content = old_revision
         .filter(|_| !is_new)
-        .and_then(|revision| {
-            run_git_timed(
-                &["show", &format!("{revision}:{old_path}")],
-                cwd,
-                Duration::from_secs(5),
-            )
-        })
+        .and_then(|revision| git_file_content(cwd, revision, &old_path))
         .unwrap_or_default();
-    let new_content = (!is_deleted)
-        .then(|| {
-            run_git_timed(
-                &["show", &format!("{new_revision}:{new_path}")],
-                cwd,
-                Duration::from_secs(5),
-            )
-        })
-        .flatten()
-        .unwrap_or_default();
+    let new_content = if is_deleted {
+        String::new()
+    } else {
+        git_file_content(cwd, new_revision, &new_path).unwrap_or_default()
+    };
     let diff = build_hunk_diff_from_versions(
         raw_patch,
         &old_content,
@@ -1213,12 +1132,7 @@ pub fn get_git_worktree_comparison_hunk_diff(
     let old_content = if untracked {
         String::new()
     } else {
-        run_git_timed(
-            &["show", &format!("{from_hash}:{file_path}")],
-            cwd,
-            Duration::from_secs(5),
-        )
-        .unwrap_or_default()
+        git_file_content(cwd, from_hash, file_path).unwrap_or_default()
     };
     let raw_patch = if untracked {
         create_untracked_patch(file_path, &new_content)
@@ -1249,20 +1163,16 @@ pub fn get_git_commit_hunk_diff_for_parent(
     file_path: &str,
     review: bool,
 ) -> Option<GitHunkDiff> {
-    if !is_safe_relative_path(file_path) || run_git(&["cat-file", "-e", hash], cwd).is_none() {
+    if !is_safe_relative_path(file_path) {
         return None;
     }
     let lineage = run_git(&["rev-list", "--parents", "-n", "1", hash], cwd)?;
-    let parents = lineage
-        .split_whitespace()
-        .skip(1)
-        .map(ToOwned::to_owned)
-        .collect::<Vec<_>>();
+    let mut parents = lineage.split_whitespace().skip(1);
+    let first = parents.next();
     let parent = requested_parent
-        .filter(|candidate| parents.iter().any(|parent| parent == candidate))
-        .map(ToOwned::to_owned)
-        .or_else(|| parents.first().cloned());
-    get_git_revision_hunk_diff(cwd, parent.as_deref(), hash, file_path, review)
+        .filter(|candidate| Some(*candidate) == first || parents.any(|parent| parent == *candidate))
+        .or(first);
+    get_git_revision_hunk_diff(cwd, parent, hash, file_path, review)
 }
 
 pub fn get_git_hunk_diff(
@@ -1341,12 +1251,7 @@ pub fn get_git_hunk_diff(
     let merge_conflict_content =
         has_merge_conflict_markers(&current_content).then(|| current_content.clone());
 
-    let reference = if staged {
-        format!("HEAD:{file_path}")
-    } else {
-        format!(":{file_path}")
-    };
-    let old_result = run_git_timed(&["show", &reference], cwd, Duration::from_secs(5));
+    let old_result = git_file_content(cwd, if staged { "HEAD" } else { "" }, file_path);
     // `git show :path` can return success with an empty result when an untracked
     // path contains pathspec metacharacters such as `[...path]`. Confirm the
     // ambiguous empty case with a literal status lookup instead of treating the
@@ -1357,12 +1262,7 @@ pub fn get_git_hunk_diff(
             && is_untracked_git_file(cwd, file_path));
     let old_content = old_result.unwrap_or_default();
     let new_content = if staged {
-        run_git_timed(
-            &["show", &format!(":{file_path}")],
-            cwd,
-            Duration::from_secs(5),
-        )
-        .unwrap_or_default()
+        git_file_content(cwd, "", file_path).unwrap_or_default()
     } else {
         current_content
     };
@@ -1877,7 +1777,7 @@ fn ref_operation_result(
                 } else {
                     GitOperationOutcome::AwaitingContinuation
                 },
-                current_branch: current_git_branch(cwd),
+
                 head: current_git_head(cwd),
                 conflicts: repository_operation.conflicts,
                 error_kind: None,
@@ -2008,10 +1908,6 @@ pub fn preflight_git_ref_operation(
     GitRefOperationPreflight {
         source: source.to_string(),
         target: target.to_string(),
-        valid_refs,
-        clean_worktree,
-        source_in_other_worktree,
-        target_in_other_worktree,
         can_merge,
         can_fast_forward,
         can_rebase,
@@ -2053,7 +1949,7 @@ fn ref_operation_failure(
         ok: false,
         operation: operation.into(),
         outcome: GitOperationOutcome::Failed,
-        current_branch: current_git_branch(cwd),
+
         head: current_git_head(cwd),
         conflicts: Vec::new(),
         error_kind: Some(kind),
@@ -2274,7 +2170,7 @@ pub fn perform_git_ref_operation(
             ok: false,
             operation: operation.to_string(),
             outcome: GitOperationOutcome::Failed,
-            current_branch: checkout.branch,
+
             head: current_git_head(cwd),
             conflicts: Vec::new(),
             error_kind: Some(classify_git_operation_error(&error, &[])),
@@ -2353,7 +2249,7 @@ fn git_operation_error(cwd: &str, action: &str, error: impl Into<String>) -> Git
         } else {
             GitOperationOutcome::Conflicted
         },
-        current_branch: current_git_branch(cwd),
+
         head: current_git_head(cwd),
         error_kind: Some(classify_git_operation_error(&error, &conflicts)),
         conflicts,
@@ -2361,16 +2257,24 @@ fn git_operation_error(cwd: &str, action: &str, error: impl Into<String>) -> Git
     }
 }
 
-fn valid_commit_target(cwd: &str, target: &str) -> bool {
+fn resolve_commit(cwd: &str, target: &str) -> Option<String> {
     if target.is_empty() {
-        return false;
+        return None;
     }
-    let revision = format!("{target}^{{commit}}");
-    Command::new("git")
-        .args(["rev-parse", "--verify", "--quiet", &revision])
-        .current_dir(cwd)
-        .output()
-        .is_ok_and(|output| output.status.success())
+    run_git(
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{target}^{{commit}}"),
+        ],
+        cwd,
+    )
+    .map(|hash| hash.trim().to_owned())
+}
+
+fn valid_commit_target(cwd: &str, target: &str) -> bool {
+    resolve_commit(cwd, target).is_some()
 }
 
 fn valid_ref_name(cwd: &str, kind: &str, name: &str) -> bool {
@@ -2631,9 +2535,10 @@ pub fn perform_git_graph_action_with_targets(
         "fetch" => {
             command.args(["fetch", "--all", "--prune"]);
         }
-        "pull" => {
-            if !run_git(&["status", "--porcelain"], cwd)
-                .is_some_and(|value| value.trim().is_empty())
+        "pull" | "push" | "forcePushWithLease" => {
+            if action == "pull"
+                && !run_git(&["status", "--porcelain"], cwd)
+                    .is_some_and(|value| value.trim().is_empty())
             {
                 return git_operation_error(
                     cwd,
@@ -2644,42 +2549,28 @@ pub fn perform_git_graph_action_with_targets(
             let Some(status) = git_status(cwd, false) else {
                 return git_operation_error(cwd, action, "Repository status is unavailable");
             };
-            if status.upstream.is_none() {
+            let force = action == "forcePushWithLease";
+            if status.upstream.is_none() || (force && status.branch != target) {
                 return git_operation_error(
                     cwd,
                     action,
-                    "The current branch has no configured upstream",
+                    if force {
+                        "The checked-out branch and a configured upstream are required"
+                    } else {
+                        "The current branch has no configured upstream"
+                    },
                 );
             }
-            command
-                .args(["pull", "--no-edit"])
-                .env("GIT_EDITOR", "true");
-        }
-        "push" => {
-            let Some(status) = git_status(cwd, false) else {
-                return git_operation_error(cwd, action, "Repository status is unavailable");
-            };
-            if status.upstream.is_none() {
-                return git_operation_error(
-                    cwd,
-                    action,
-                    "The current branch has no configured upstream",
-                );
+            if action == "pull" {
+                command
+                    .args(["pull", "--no-edit"])
+                    .env("GIT_EDITOR", "true");
+            } else {
+                command.arg("push");
+                if force {
+                    command.arg("--force-with-lease");
+                }
             }
-            command.arg("push");
-        }
-        "forcePushWithLease" => {
-            let Some(status) = git_status(cwd, false) else {
-                return git_operation_error(cwd, action, "Repository status is unavailable");
-            };
-            if status.branch != target || status.upstream.is_none() {
-                return git_operation_error(
-                    cwd,
-                    action,
-                    "The checked-out branch and a configured upstream are required",
-                );
-            }
-            command.args(["push", "--force-with-lease"]);
         }
         _ => return git_operation_error(cwd, action, "Unsupported graph action"),
     };
@@ -2735,7 +2626,6 @@ fn get_commit_provider_metadata(cwd: &str, subject: &str) -> Option<GitCommitPro
     Some(GitCommitProviderMetadata {
         provider: "github".to_string(),
         repository,
-        repository_url,
         pull_request_number,
         pull_request_url,
     })
@@ -2754,21 +2644,7 @@ fn git_change_files(cwd: &str, from: Option<&str>, to: Option<&str>) -> Vec<GitC
         args.extend(to);
         run_git(&args, cwd).unwrap_or_default()
     };
-    let stats: HashMap<_, _> = read("--numstat")
-        .lines()
-        .filter_map(|line| {
-            let mut fields = line.split('\t');
-            let (added, removed, path) = (fields.next()?, fields.next()?, fields.next()?);
-            Some((
-                normalize_numstat_path(path),
-                (
-                    parse_numstat_count(added),
-                    parse_numstat_count(removed),
-                    added == "-" || removed == "-",
-                ),
-            ))
-        })
-        .collect();
+    let stats = parse_numstat(&read("--numstat"));
     read("--name-status")
         .lines()
         .filter_map(|line| {
@@ -2779,14 +2655,13 @@ fn git_change_files(cwd: &str, from: Option<&str>, to: Option<&str>) -> Vec<GitC
             let path = fields.last()?.to_string();
             let status = fields[0].chars().next()?.to_string();
             let original_path = matches!(status.as_str(), "R" | "C").then(|| fields[1].to_owned());
-            let (additions, deletions, binary) = stats.get(&path).copied().unwrap_or_default();
+            let (additions, deletions) = stats.get(&path).copied().unwrap_or_default();
             Some(GitCommitFile {
                 path,
                 original_path,
                 status,
                 additions,
                 deletions,
-                binary,
             })
         })
         .collect()
@@ -2859,18 +2734,11 @@ pub fn get_git_comparison_details(
     from_hash: &str,
     to_hash: &str,
 ) -> Option<GitComparisonDetails> {
-    if from_hash == to_hash
-        || !valid_commit_target(cwd, from_hash)
-        || !valid_commit_target(cwd, to_hash)
-    {
+    if from_hash == to_hash {
         return None;
     }
-    let from_hash = run_git(&["rev-parse", &format!("{from_hash}^{{commit}}")], cwd)?
-        .trim()
-        .to_string();
-    let to_hash = run_git(&["rev-parse", &format!("{to_hash}^{{commit}}")], cwd)?
-        .trim()
-        .to_string();
+    let from_hash = resolve_commit(cwd, from_hash)?;
+    let to_hash = resolve_commit(cwd, to_hash)?;
     let merge_base = run_git(&["merge-base", &from_hash, &to_hash], cwd)
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
@@ -2888,12 +2756,7 @@ pub fn get_git_worktree_comparison_details(
     cwd: &str,
     from_hash: &str,
 ) -> Option<GitComparisonDetails> {
-    if !valid_commit_target(cwd, from_hash) {
-        return None;
-    }
-    let from_hash = run_git(&["rev-parse", &format!("{from_hash}^{{commit}}")], cwd)?
-        .trim()
-        .to_string();
+    let from_hash = resolve_commit(cwd, from_hash)?;
     let mut files = git_change_files(cwd, Some(&from_hash), None);
     let mut seen: HashSet<String> = files.iter().map(|file| file.path.clone()).collect();
     if let Some(status) = get_git_status(cwd) {
@@ -2919,7 +2782,6 @@ pub fn get_git_worktree_comparison_details(
                 status: "A".to_string(),
                 additions,
                 deletions: 0,
-                binary,
             });
         }
     }
@@ -3066,17 +2928,11 @@ fn git_status(cwd: &str, include_stats: bool) -> Option<GitStatusResult> {
         }
     }
 
-    let staged_count = files.iter().filter(|file| file.staged).count();
-    let unstaged_count = files
-        .iter()
-        .filter(|file| !file.staged && file.status != "?")
-        .count();
-    let untracked_count = files.iter().filter(|file| file.status == "?").count();
     let name = cwd.rsplit('/').next().unwrap_or(cwd).to_string();
     let diff_stats = get_working_tree_numstat(
         cwd,
-        include_stats && unstaged_count > 0,
-        include_stats && staged_count > 0,
+        include_stats && files.iter().any(|file| !file.staged && file.status != "?"),
+        include_stats && files.iter().any(|file| file.staged),
     );
     for file in &mut files {
         let prefix = if file.staged { "staged" } else { "unstaged" };
@@ -3093,9 +2949,6 @@ fn git_status(cwd: &str, include_stats: bool) -> Option<GitStatusResult> {
         upstream,
         ahead,
         behind,
-        staged_count,
-        unstaged_count,
-        untracked_count,
         files,
     })
 }
@@ -3124,38 +2977,31 @@ fn get_working_tree_numstat(
 }
 
 fn get_numstat_entries(cwd: &str, staged: bool) -> HashMap<String, (usize, usize)> {
-    let mut stats = HashMap::new();
     let args = if staged {
         ["diff", "--cached", "--numstat"].as_slice()
     } else {
         ["diff", "--numstat"].as_slice()
     };
-    let Some(result) = run_git(args, cwd) else {
-        return stats;
-    };
     let prefix = if staged { "staged" } else { "unstaged" };
-    for line in result.lines().filter(|line| !line.is_empty()) {
-        let parts: Vec<&str> = line.split('\t').collect();
-        if parts.len() < 3 {
-            continue;
-        }
-        let additions = parse_numstat_count(parts[0]);
-        let deletions = parse_numstat_count(parts[1]);
-        let raw_path = parts[parts.len() - 1];
-        stats.insert(
-            format!("{prefix}:{}", normalize_numstat_path(raw_path)),
-            (additions, deletions),
-        );
-    }
-    stats
+    parse_numstat(&run_git(args, cwd).unwrap_or_default())
+        .into_iter()
+        .map(|(path, counts)| (format!("{prefix}:{path}"), counts))
+        .collect()
 }
 
-fn parse_numstat_count(value: &str) -> usize {
-    if value == "-" {
-        0
-    } else {
-        value.parse().unwrap_or(0)
-    }
+fn parse_numstat(output: &str) -> HashMap<String, (usize, usize)> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split('\t');
+            let added = fields.next()?.parse().unwrap_or(0);
+            let removed = fields.next()?.parse().unwrap_or(0);
+            Some((
+                normalize_numstat_path(fields.next_back()?),
+                (added, removed),
+            ))
+        })
+        .collect()
 }
 
 fn normalize_numstat_path(path: &str) -> String {
@@ -3277,6 +3123,11 @@ fn get_graph_refs_with_worktrees(
             .or_default()
             .push(GitGraphRef {
                 full_name: full_name.clone(),
+                label: remote_name
+                    .as_ref()
+                    .and_then(|remote| display_name.strip_prefix(&format!("{remote}/")))
+                    .unwrap_or(&display_name)
+                    .to_owned(),
                 display_name,
                 kind,
                 target,
@@ -3291,12 +3142,14 @@ fn get_graph_refs_with_worktrees(
 
     if current_head.is_none() {
         if let Some(target) = current_oid {
+            let label = format!("HEAD detached at {}", &target[..target.len().min(7)]);
             refs_by_target
                 .entry(target.clone())
                 .or_default()
                 .push(GitGraphRef {
                     full_name: "HEAD".to_string(),
-                    display_name: format!("HEAD detached at {}", &target[..target.len().min(7)]),
+                    display_name: label.clone(),
+                    label,
                     kind: GitGraphRefKind::Head,
                     target,
                     remote_name: None,
@@ -3455,18 +3308,6 @@ pub fn prepare_git_graph(cwd: &str) -> GitGraphInput {
     }
 }
 
-pub fn get_git_graph_snapshot(cwd: &str, limit: usize) -> GitGraphSnapshot {
-    get_git_graph_snapshot_with_input(cwd, limit, prepare_git_graph(cwd))
-}
-
-pub fn get_git_graph_snapshot_with_input(
-    cwd: &str,
-    limit: usize,
-    input: GitGraphInput,
-) -> GitGraphSnapshot {
-    get_git_graph_snapshot_with_query(cwd, limit, input, "")
-}
-
 pub fn get_git_graph_snapshot_with_query(
     cwd: &str,
     limit: usize,
@@ -3500,7 +3341,6 @@ pub fn get_git_graph_snapshot_with_query(
         match graph_semantics::read_history(cwd, requested_history, query, input.refs_by_target) {
             Ok(commits) => commits,
             Err(error) => {
-                let error = error.summary();
                 eprintln!("[git-graph] {error}");
                 return GitGraphSnapshot {
                     ancestry: GraphAncestry::default(),

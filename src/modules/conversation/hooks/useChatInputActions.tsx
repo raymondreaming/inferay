@@ -14,18 +14,12 @@ import {
 	trimMessages,
 } from "../model/agent-chat-shared.ts";
 import { clearAgentChatPaneState } from "../model/chat-session-store.ts";
-import type {
-	FileMenuState,
-	FileSearchResult,
-	SlashMenuState,
-} from "./useAgentChatMenus.tsx";
+import type { useAgentChatComposerState } from "./useAgentChatComposerState.tsx";
+import type { useAgentChatMenus } from "./useAgentChatMenus.tsx";
 
 type MenuState = {
 	show: boolean;
 	selectedIdx: number;
-};
-type AttachedImage = {
-	path: string;
 };
 type ChatWorkspaceOverride = {
 	cwd?: string;
@@ -86,41 +80,30 @@ export function useChatInputActions({
 	showCommands,
 	slashMenu,
 	textareaRef,
-}: {
-	agentKind: AgentKind;
-	allCommands: SlashCommand[];
-	attachedImages: AttachedImage[];
-	cancelSpeechListening: () => void;
-	clearAttachedImages: () => void;
-	clearCheckpoints: () => void;
-	consumePendingWorkspace: () => ChatWorkspaceOverride | undefined;
-	cwd?: string;
-	effectiveSelectedModel: string;
-	fileMenu: FileMenuState;
-	fileResults: FileSearchResult[];
-	filteredCommands: SlashCommand[];
-	input: string;
-	isLoading: boolean;
-	onSendStart?: () => void;
-	onExit?: () => void;
-	paneId: string;
-	referencePaths?: string[];
-	selectCommand: (idx: number) => void;
-	selectFile: (idx: number) => void;
-	selectedReasoningLevel: string;
-	setFileMenu: React.Dispatch<React.SetStateAction<FileMenuState>>;
-	setInput: (value: string) => void;
-	setMessages: (
-		update: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[]),
-	) => void;
-	setRunStatus: (
-		state: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState),
-	) => void;
-	setSlashMenu: React.Dispatch<React.SetStateAction<SlashMenuState>>;
-	showCommands: boolean;
-	slashMenu: SlashMenuState;
-	textareaRef: React.RefObject<HTMLTextAreaElement | null>;
-}) {
+}: ReturnType<typeof useAgentChatComposerState> &
+	ReturnType<typeof useAgentChatMenus> & {
+		agentKind: AgentKind;
+		cancelSpeechListening: () => void;
+		clearCheckpoints: () => void;
+		consumePendingWorkspace: () => ChatWorkspaceOverride | undefined;
+		cwd?: string;
+		effectiveSelectedModel: string;
+		input: string;
+		isLoading: boolean;
+		onSendStart?: () => void;
+		onExit?: () => void;
+		paneId: string;
+		referencePaths?: string[];
+		selectedReasoningLevel: string;
+		setInput: (value: string) => void;
+		setMessages: (
+			update: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[]),
+		) => void;
+		setRunStatus: (
+			state: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState),
+		) => void;
+		textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+	}) {
 	const appendLocalMessage = useCallback(
 		(message: Pick<ChatMessage, "role" | "content" | "images">) => {
 			const id = nextId();
@@ -235,7 +218,6 @@ export function useChatInputActions({
 						kind: "message",
 						groupId: nextId(),
 						hidden: false,
-						toolInput: null,
 						command: systemMessage,
 					}),
 				);

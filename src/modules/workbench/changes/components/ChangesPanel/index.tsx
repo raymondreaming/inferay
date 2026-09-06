@@ -11,14 +11,14 @@ import type {
 	GitFilePresentation,
 } from "../../../../repository/model/types.ts";
 import {
+	adjacentGitFile,
 	type SelectedFile,
 	visibleGitFiles,
 } from "../../../model/workbench-model.ts";
 import { ChangesPanelHeader } from "./ChangesPanelHeader.tsx";
-import { CommitDetailsPanel } from "./CommitDetailsPanel.tsx";
 import { CommitSection } from "./CommitSection.tsx";
-import { ComparisonDetailsPanel } from "./ComparisonDetailsPanel.tsx";
 import { FileGroup } from "./FileGroup.tsx";
+import { HistoricalDetailsPanel } from "./HistoricalDetailsPanel.tsx";
 import { styles } from "./styles.ts";
 
 export function getFileSelectionAfterToggle<T extends SelectedFile>(
@@ -68,8 +68,6 @@ interface ChangesPanelProps {
 	onCommitMessageChange: (msg: string) => void;
 	onCommit: () => void;
 	isCommitting: boolean;
-	amendMode: boolean;
-	onAmendModeChange: (v: boolean) => void;
 	showFileActions?: boolean;
 	showCommitSection?: boolean;
 	onCollapse?: () => void;
@@ -141,6 +139,25 @@ export const ChangesPanel = memo(function ChangesPanel(
 		[fileViewMode, stagedFiles, unstagedFiles, workingFiles, filePresentation],
 	);
 	const showingWorkingTree = content === "workingTree";
+	const comparing = selectedCommitCount > 1;
+	const historyDetails = comparing
+		? comparisonDetails
+		: selectedCommitHash
+			? commitDetails
+			: null;
+	const historyLoading = comparing
+		? comparisonDetailsLoading
+		: !!selectedCommitHash && commitDetailsLoading;
+	const historyMessage = historyLoading
+		? comparing
+			? "Comparing…"
+			: "Loading…"
+		: comparing
+			? "The selected items cannot be compared"
+			: selectedCommitHash
+				? commitDetailsError || "No details available for this commit"
+				: "Select a commit to view details";
+
 	const historicalFiles =
 		comparisonDetails?.files ?? commitDetails?.files ?? [];
 	const historicalPresentation =
@@ -161,47 +178,26 @@ export const ChangesPanel = memo(function ChangesPanel(
 	);
 	const selectAdjacentFile = (direction: -1 | 1) => {
 		if (!showingWorkingTree) {
-			if (navigableHistoricalFiles.length === 0) return;
-			const currentIndex = selectedFile
-				? navigableHistoricalFiles.findIndex(
-						(file) => file.path === selectedFile.path,
-					)
-				: -1;
-			const nextIndex =
-				currentIndex < 0
-					? direction > 0
-						? 0
-						: navigableHistoricalFiles.length - 1
-					: Math.max(
-							0,
-							Math.min(
-								navigableHistoricalFiles.length - 1,
-								currentIndex + direction,
-							),
-						);
-			const nextFile = navigableHistoricalFiles[nextIndex]!;
+			const nextFile = adjacentGitFile(
+				navigableHistoricalFiles,
+				(file) => file.path === selectedFile?.path,
+				direction,
+				true,
+			);
+			if (!nextFile) return;
 			if (selectedCommitCount > 1) onSelectComparisonFile?.(nextFile);
 			else onSelectCommitFile?.(nextFile);
 			return;
 		}
-		if (navigableFiles.length === 0) return;
-		const currentIndex = selectedFile
-			? navigableFiles.findIndex(
-					(file) =>
-						file.path === selectedFile.path &&
-						file.staged === selectedFile.staged,
-				)
-			: -1;
-		const nextIndex =
-			currentIndex < 0
-				? direction > 0
-					? 0
-					: navigableFiles.length - 1
-				: Math.max(
-						0,
-						Math.min(navigableFiles.length - 1, currentIndex + direction),
-					);
-		onSelectFile(navigableFiles[nextIndex]!);
+		const nextFile = adjacentGitFile(
+			navigableFiles,
+			(file) =>
+				file.path === selectedFile?.path &&
+				file.staged === selectedFile?.staged,
+			direction,
+			true,
+		);
+		if (nextFile) onSelectFile(nextFile);
 	};
 	const toggleSelectedFile = () => {
 		if (!selectedFile) return;
@@ -316,49 +312,25 @@ export const ChangesPanel = memo(function ChangesPanel(
 
 			{!showingWorkingTree && (
 				<div {...stylex.props(styles.splitArea)}>
-					{selectedCommitCount > 1 ? (
-						comparisonDetailsLoading ? (
-							<div {...stylex.props(styles.emptyStateLarge)}>
-								<p {...stylex.props(styles.mutedText)}>Comparing…</p>
-							</div>
-						) : comparisonDetails ? (
-							<ComparisonDetailsPanel
-								details={comparisonDetails}
-								selectionCount={selectedCommitCount}
-								selectedFile={selectedFile}
-								onSelectFile={onSelectComparisonFile}
-								viewMode={fileViewMode}
-							/>
-						) : (
-							<div {...stylex.props(styles.emptyStateLarge)}>
-								<p {...stylex.props(styles.mutedText, styles.centerText)}>
-									The selected items cannot be compared
-								</p>
-							</div>
-						)
-					) : selectedCommitHash ? (
-						commitDetailsLoading ? (
-							<div {...stylex.props(styles.emptyStateLarge)}>
-								<p {...stylex.props(styles.mutedText)}>Loading…</p>
-							</div>
-						) : commitDetails ? (
-							<CommitDetailsPanel
-								details={commitDetails}
-								selectedFile={selectedFile}
-								onSelectFile={onSelectCommitFile}
-								viewMode={fileViewMode}
-							/>
-						) : (
-							<div {...stylex.props(styles.emptyStateLarge)}>
-								<p {...stylex.props(styles.mutedText, styles.centerText)}>
-									{commitDetailsError || "No details available for this commit"}
-								</p>
-							</div>
-						)
+					{!historyLoading && historyDetails ? (
+						<HistoricalDetailsPanel
+							details={historyDetails}
+							selectionCount={comparing ? selectedCommitCount : undefined}
+							selectedFile={selectedFile}
+							onSelectFile={
+								comparing ? onSelectComparisonFile : onSelectCommitFile
+							}
+							viewMode={fileViewMode}
+						/>
 					) : (
 						<div {...stylex.props(styles.emptyStateLarge)}>
-							<p {...stylex.props(styles.mutedText, styles.centerText)}>
-								Select a commit to view details
+							<p
+								{...stylex.props(
+									styles.mutedText,
+									!historyLoading && styles.centerText,
+								)}
+							>
+								{historyMessage}
 							</p>
 						</div>
 					)}

@@ -1,13 +1,13 @@
 import { useMemo } from "octane";
 import { useNearViewport } from "../../../../shared/hooks/useNearViewport.tsx";
 import { useNativeEditDiff } from "../../hooks/useNativeEditDiff.tsx";
-import { getEditToolPayload } from "../../model/agent-chat-shared.ts";
+import type { NativeChatRender } from "../../model/agent-chat-shared.ts";
 import { EditDiffCard } from "./EditDiffCard.tsx";
 import * as inlineStyles from "./styles.ts";
 
 type EditMessage = {
 	content: string;
-	render?: { toolInput?: Record<string, unknown> | null };
+	render?: Pick<NativeChatRender, "edit">;
 	isStreaming?: boolean;
 };
 
@@ -21,22 +21,11 @@ export function GroupedEditDiff({
 	const fileName = filePath.split("/").pop() || filePath;
 	const { ref, visible } = useNearViewport();
 	const isStreaming = edits.some((edit) => edit.isStreaming);
-	const parsedEdits = useMemo(() => {
-		const parsedEdits: { old_string: string; new_string: string }[] = [];
-
-		for (const edit of edits) {
-			if (!edit.content) continue;
-			const parsed = getEditToolPayload(edit.render?.toolInput);
-			if (parsed) {
-				parsedEdits.push({
-					old_string: parsed.oldString,
-					new_string: parsed.newString,
-				});
-			}
-		}
-
-		return parsedEdits;
-	}, [edits]);
+	const parsedEdits = useMemo(
+		() =>
+			edits.flatMap((edit) => (edit.render?.edit ? [edit.render.edit] : [])),
+		[edits],
+	);
 	const { hunks, loading, error } = useNativeEditDiff(
 		"",
 		"",
