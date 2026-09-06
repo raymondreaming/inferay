@@ -1,6 +1,5 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useRef } from "octane";
-import type { SyntaxHighlightTheme } from "../../../../../shared/hooks/useShikiHighlighter.tsx";
 import type { HunkDiff } from "../../../../repository/model/types.ts";
 import { type DiffViewMode, LINE_H } from "../../../model/workbench-model.ts";
 import {
@@ -21,7 +20,6 @@ export const DiffPanels = memo(function DiffPanels({
 	scrollRef: React.RefObject<HTMLDivElement | null>;
 	ext: string;
 	filePath: string;
-	syntaxTheme: SyntaxHighlightTheme;
 	disableTokenize: boolean;
 	externalScrollTop?: number;
 	externalScrollSource?: DiffScrollSource;

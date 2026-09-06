@@ -14,10 +14,10 @@ import {
 	loadAppFontId,
 	loadAppThemeId,
 } from "./app/model/appearance.ts";
-import { DEFAULT_APP_ROUTE } from "./app/model/navigation.tsx";
 import { initializeAgentCatalog } from "./modules/agents/model/agents.ts";
 import { preloadSkills } from "./modules/skills/hooks/useSkills.tsx";
 import { initializeAgentState } from "./modules/workspace/model/workspace-model.ts";
+import { restoreSyntaxTheme } from "./shared/hooks/useSyntaxHighlight.tsx";
 
 function routeLocalRequestsToDesktopServer() {
 	if (window.location.origin === getServerOrigin()) return;
@@ -79,16 +79,20 @@ while (true) {
 // onboarding value is restored from the native store immediately above. Move
 // away from a prerendered entry route before TanStack hydrates that stale URL.
 const initialPath = window.location.pathname.replace(/\/+$/, "") || "/";
+const entryPath = readStoredBoolean(ONBOARDING_DONE_STORAGE_KEY)
+	? "/"
+	: "/onboarding";
 if (
-	readStoredBoolean(ONBOARDING_DONE_STORAGE_KEY) &&
-	(initialPath === "/" || initialPath === "/onboarding")
+	(initialPath === "/" || initialPath === "/onboarding") &&
+	initialPath !== entryPath
 ) {
-	window.history.replaceState(window.history.state, "", DEFAULT_APP_ROUTE);
+	window.history.replaceState(window.history.state, "", entryPath);
 }
 
 applyAppTheme(loadAppThemeId());
 applyAppFont(loadAppFontId());
 applyAppBackgroundSurfaces(loadAppBackgroundSettings().mode);
+restoreSyntaxTheme();
 
 const idle =
 	window.requestIdleCallback ??

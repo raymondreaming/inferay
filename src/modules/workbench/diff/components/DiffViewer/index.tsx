@@ -9,10 +9,6 @@ import {
 	useRef,
 	useState,
 } from "octane";
-import {
-	type SyntaxHighlightTheme,
-	useSyntaxHighlightTheme,
-} from "../../../../../shared/hooks/useShikiHighlighter.tsx";
 import { listenWindowEvent } from "../../../../../shared/lib/data.ts";
 import type { HunkDiff } from "../../../../repository/model/types.ts";
 import {
@@ -38,7 +34,6 @@ interface DiffViewerProps {
 	onViewModeChange?: (viewMode: DiffViewMode) => void;
 	hideToolbar?: boolean;
 	startAtFirstChange?: boolean;
-	syntaxTheme?: SyntaxHighlightTheme;
 }
 
 const MAX_RENDERED_DIFF_LINES = 100_000;
@@ -53,7 +48,6 @@ export const DiffViewer = memo(function DiffViewer({
 	onViewModeChange,
 	hideToolbar = false,
 	startAtFirstChange = false,
-	syntaxTheme: controlledSyntaxTheme,
 }: DiffViewerProps) {
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	const rightRef = useRef<HTMLDivElement | null>(null);
@@ -61,8 +55,6 @@ export const DiffViewer = memo(function DiffViewer({
 		useState<DiffViewMode>("split");
 	const viewMode = controlledViewMode ?? internalViewMode;
 	const setViewMode = onViewModeChange ?? setInternalViewMode;
-	const [storedSyntaxTheme] = useSyntaxHighlightTheme();
-	const syntaxTheme = controlledSyntaxTheme ?? storedSyntaxTheme;
 	const [navigationState, dispatchNavigation] = useReducer(
 		diffNavigationReducer,
 		INITIAL_DIFF_NAVIGATION_STATE,
@@ -281,7 +273,6 @@ export const DiffViewer = memo(function DiffViewer({
 				scrollRef={rightRef}
 				ext={ext}
 				filePath={filePath}
-				syntaxTheme={syntaxTheme}
 				disableTokenize={disableTokenize}
 				externalScrollTop={externalScrollTop}
 				externalScrollSource={externalScrollSource}

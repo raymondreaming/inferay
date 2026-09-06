@@ -14,14 +14,12 @@ import { LiquidSegmentedRail } from "../../../../shared/ui/gooey/LiquidSegmented
 import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
 import {
 	IconFolder,
-	IconGitBranch,
 	IconLayoutGrid,
 	IconLayoutRows,
 	IconMessageCircle,
 	IconPanelLeft,
 } from "../../../../shared/ui/Icons/index.tsx";
 import { Explorer } from "../../../explorer/components/Explorer/index.tsx";
-import { dispatchOpenActiveGitGraph } from "../../../workbench/model/workbench-model.ts";
 import type { SidebarWorkspaceState } from "../../model/workspace-model.ts";
 import { projectRepositoryWorkspaces } from "../../model/workspace-model.ts";
 import { SidebarChatList } from "./SidebarChatList.tsx";
@@ -84,18 +82,6 @@ export function SidebarWorkspacesSection({
 		<div className={workspaceSectionProps.className}>
 			{!collapsed ? (
 				<div {...stylex.props(styles.sidebarToolbar)}>
-					<div {...stylex.props(styles.sidebarRepositoryActions)}>
-						<button
-							type="button"
-							onClick={dispatchOpenActiveGitGraph}
-							disabled={!selectedCwd}
-							{...stylex.props(styles.sidebarRepositoryAction)}
-							title="Open commit graph"
-						>
-							<IconGitBranch size={iconSize.sm} />
-							<span>Graph</span>
-						</button>
-					</div>
 					<div {...stylex.props(styles.sidebarModeTabs)}>
 						<button
 							type="button"

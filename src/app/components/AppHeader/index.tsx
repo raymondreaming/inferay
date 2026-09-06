@@ -16,23 +16,18 @@ import {
 	IconPlus,
 	IconSettings,
 } from "../../../shared/ui/Icons/index.tsx";
-import { SIDEBAR_NAV_ROUTES } from "../../model/navigation.tsx";
 import { CommandPalette } from "../CommandPalette/index.tsx";
 
 export function AppHeader() {
 	const location = useLocation();
 	const navigate = useNavigate();
 	const [shellState] = useWorkspaceState(false);
-	const isAgentRoute = location.pathname === "/agent";
+	const isAgentRoute = location.pathname === "/";
 
 	const activateMainView = useCallback(() => {
-		if (!isAgentRoute) navigate({ to: "/agent" });
+		if (!isAgentRoute) navigate({ to: "/" });
 	}, [isAgentRoute, navigate]);
 
-	const activateRoute = useCallback(
-		(path: string) => navigate({ to: path }),
-		[navigate],
-	);
 	const selectedGroup = shellState.groups.find(
 		(group) => group.id === shellState.selectedGroupId,
 	);
@@ -77,17 +72,6 @@ export function AppHeader() {
 				icon: <IconGitBranch size={iconSize.compact} />,
 				run: openCommitGraph,
 			},
-			...SIDEBAR_NAV_ROUTES.map((route) => {
-				const Icon = route.icon;
-				return {
-					id: route.id,
-					label: `Open ${route.label.toLocaleLowerCase()}`,
-					detail: `Go to the ${route.label} page`,
-					keywords: `navigate ${route.label}`,
-					icon: <Icon size={iconSize.compact} />,
-					run: () => activateRoute(route.path),
-				};
-			}),
 
 			{
 				id: "settings",
@@ -106,7 +90,7 @@ export function AppHeader() {
 				run: () => openSkills(),
 			},
 		],
-		[activateMainView, activateRoute, createNewChat, openCommitGraph],
+		[activateMainView, createNewChat, openCommitGraph],
 	);
 
 	return <CommandPalette commands={commands} showTrigger={false} />;

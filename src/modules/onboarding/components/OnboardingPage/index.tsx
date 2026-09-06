@@ -132,7 +132,7 @@ export function OnboardingPage() {
 				themeId: "default",
 			});
 		navigate({
-			to: "/agent",
+			to: "/",
 			replace: true,
 		});
 	}, [isFirstRun, navigate]);

@@ -84,9 +84,9 @@ export function RepositoryWorkspaceBar() {
 				type: "selectRepository",
 				cwd: workspace.cwd,
 			});
-			if (location.pathname !== "/agent")
+			if (location.pathname !== "/")
 				navigate({
-					to: "/agent",
+					to: "/",
 				});
 		},
 		[location.pathname, navigate],

@@ -6,7 +6,6 @@ import {
 	readStoredBoolean,
 } from "../../../../adapters/storage/stored-values.ts";
 import { APP_REGION_DRAG_CLASS } from "../../../../app/model/appearance.ts";
-import { DEFAULT_APP_ROUTE } from "../../../../app/model/navigation.tsx";
 import { OnboardingPage } from "../OnboardingPage/index.tsx";
 import { routeStyles } from "./styles.ts";
 
@@ -15,7 +14,7 @@ export function OnboardingRoute() {
 
 	useEffect(() => {
 		if (!readStoredBoolean(ONBOARDING_DONE_STORAGE_KEY)) return;
-		navigate({ to: DEFAULT_APP_ROUTE, replace: true });
+		navigate({ to: "/", replace: true });
 	}, [navigate]);
 
 	return (

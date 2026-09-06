@@ -12,8 +12,6 @@ import type { CheckpointInfo } from "./agent-chat-shared.ts";
 
 const INPUT_KEY_PREFIX = "inferay-chat-input-";
 const CHECKPOINT_KEY_PREFIX = "inferay-checkpoints-";
-const MODEL_KEY_PREFIX = "inferay-chat-model-";
-const REASONING_KEY_PREFIX = "inferay-chat-reasoning-";
 const SUMMARY_KEY_PREFIX = "inferay-chat-summary-";
 const PENDING_WORKSPACE_KEY_PREFIX = "inferay-chat-pending-workspace-";
 const DEFAULT_CHAT_RUN_STATUS: ChatLoadingState = {
@@ -92,21 +90,6 @@ export const getChatCheckpointReadModel = perPane(() => {
 	const model = snapshot<CheckpointInfo[]>([]);
 	return { ...model, clear: () => model.set([]) };
 });
-export function loadStoredModel(paneId: string): string | null {
-	return readStoredValue(MODEL_KEY_PREFIX + paneId);
-}
-export function saveStoredModel(paneId: string, modelId: string) {
-	writePaneValue(MODEL_KEY_PREFIX, paneId, modelId);
-}
-export function loadStoredReasoningLevel(paneId: string): string | null {
-	return readStoredValue(REASONING_KEY_PREFIX + paneId);
-}
-export function saveStoredReasoningLevel(
-	paneId: string,
-	reasoningLevel: string,
-) {
-	writePaneValue(REASONING_KEY_PREFIX, paneId, reasoningLevel);
-}
 export function loadPendingWorkspacePaths(paneId: string): string[] {
 	const parsed = readStoredJson<unknown>(
 		PENDING_WORKSPACE_KEY_PREFIX + paneId,
@@ -199,71 +182,51 @@ export function clearAgentChatPaneState(paneId: string) {
 }
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
+import { postJson } from "../../../adapters/backend/http.ts";
 import { getAgentIcon } from "../../agents/components/AgentIcon/index.tsx";
-import {
-	loadDefaultChatSettings,
-	resolveChatSettings,
-} from "../../agents/model/agents.ts";
 import {
 	type WorkspaceModelAgentKind as AgentKind,
 	changePaneAgentKind,
 } from "../../workspace/model/workspace-model.ts";
 export function useAgentChatSettings(paneId: string, agentKind: AgentKind) {
-	const [selection, setSelection] = useState(() => ({
-		model: loadStoredModel(paneId) ?? "",
-		reasoningLevel: loadStoredReasoningLevel(paneId) ?? "",
-	}));
-	const pendingSelection = useRef<{
-		model: string | null;
-		reasoningLevel: string | null;
-	}>(selection);
+	const [selection, setSelection] = useState({ model: "", reasoningLevel: "" });
 	const [configurationError, setConfigurationError] = useState<string | null>(
 		null,
 	);
 	const requestRevision = useRef(0);
+	const requests = useRef(Promise.resolve());
 	const resolveSelection = useCallback(
-		async (
-			kind: AgentKind,
-			model: string | null,
-			reasoningLevel: string | null,
-		) => {
+		(patch: Partial<typeof selection> = {}) => {
 			const revision = ++requestRevision.current;
-			pendingSelection.current = {
-				model,
-				reasoningLevel,
-			};
-			try {
-				const resolved = await resolveChatSettings({
-					agentKind: kind,
-					model,
-					reasoningLevel,
-					defaults: loadDefaultChatSettings(),
-				});
-				if (revision !== requestRevision.current) return;
-				setSelection(resolved);
-				pendingSelection.current = resolved;
-				saveStoredModel(paneId, resolved.model);
-				saveStoredReasoningLevel(paneId, resolved.reasoningLevel);
-				setConfigurationError(null);
-			} catch (error) {
-				if (revision === requestRevision.current)
-					setConfigurationError(
-						`Could not update chat settings: ${error instanceof Error ? error.message : String(error)}`,
+			requests.current = requests.current.then(async () => {
+				try {
+					const resolved = await postJson<typeof selection>(
+						"/api/native/provider-config",
+						{
+							paneId,
+							agentKind,
+							...patch,
+						},
 					);
-			}
+					if (revision !== requestRevision.current) return;
+					setSelection(resolved);
+					setConfigurationError(null);
+				} catch (error) {
+					if (revision === requestRevision.current)
+						setConfigurationError(
+							`Could not update chat settings: ${error instanceof Error ? error.message : String(error)}`,
+						);
+				}
+			});
 		},
-		[paneId],
+		[paneId, agentKind],
 	);
 	useEffect(() => {
-		void resolveSelection(
-			agentKind,
-			loadStoredModel(paneId),
-			loadStoredReasoningLevel(paneId),
-		);
+		resolveSelection();
 		return () => {
 			requestRevision.current++;
 		};
-	}, [agentKind, paneId, resolveSelection]);
+	}, [resolveSelection]);
 	const agentKindOptions = useMemo(
 		() => [
 			{
@@ -287,20 +250,9 @@ export function useAgentChatSettings(paneId: string, agentKind: AgentKind) {
 		handleAgentKindChange: (kind: AgentKind) => {
 			changePaneAgentKind(paneId, kind);
 		},
-		handleModelChange: (model: string) => {
-			void resolveSelection(
-				agentKind,
-				model,
-				pendingSelection.current.reasoningLevel,
-			);
-		},
-		handleReasoningLevelChange: (reasoning: string) => {
-			void resolveSelection(
-				agentKind,
-				pendingSelection.current.model,
-				reasoning,
-			);
-		},
+		handleModelChange: (model: string) => resolveSelection({ model }),
+		handleReasoningLevelChange: (reasoningLevel: string) =>
+			resolveSelection({ reasoningLevel }),
 	};
 }
 

@@ -2,9 +2,8 @@ import * as stylex from "@octanejs/stylex";
 import { memo, useEffect, useMemo, useRef, useState } from "octane";
 import {
 	shouldDisableSnippetHighlighting,
-	useShikiHighlighter,
-	useSyntaxHighlightTheme,
-} from "../../../../../shared/hooks/useShikiHighlighter.tsx";
+	useSyntaxHighlight,
+} from "../../../../../shared/hooks/useSyntaxHighlight.tsx";
 import type { FileContentResponse } from "../../../model/workbench-model.ts";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
@@ -25,7 +24,6 @@ export const SourcePreview = memo(function SourcePreview({
 }: {
 	file: FileContentResponse;
 }) {
-	const [syntaxTheme] = useSyntaxHighlightTheme();
 	const lines = useMemo(() => file.content.split("\n"), [file.content]);
 	const scrollRef = useRef<HTMLDivElement | null>(null);
 	const [viewport, setViewport] = useState({ scrollTop: 0, height: 800 });
@@ -42,11 +40,9 @@ export const SourcePreview = memo(function SourcePreview({
 		() => !shouldDisableSnippetHighlighting(lines),
 		[lines],
 	);
-	const { getHighlightedLineTokens, isReady, language } = useShikiHighlighter({
+	const { getLineTokens, isReady, language } = useSyntaxHighlight({
 		filePath: file.path,
 		lines,
-		visibleRange: [start, Math.max(start, end - 1)],
-		theme: syntaxTheme,
 		enabled: syntaxEnabled,
 	});
 	const visibleLines = useMemo(
@@ -106,7 +102,7 @@ export const SourcePreview = memo(function SourcePreview({
 						const absoluteIndex = start + index;
 						const tokens =
 							isReady && language && value.length <= MAX_SOURCE_LINE_CHARS
-								? getHighlightedLineTokens(absoluteIndex)
+								? getLineTokens(absoluteIndex)
 								: undefined;
 						return (
 							<div key={absoluteIndex} {...stylex.props(styles.sourceLine)}>
@@ -118,12 +114,9 @@ export const SourcePreview = memo(function SourcePreview({
 										? tokens.map((token, tokenIndex) => (
 												<span
 													key={tokenIndex}
-													style={inlineStyles.getSourcePreviewSpanStyle(
-														token.color,
-														token.bgColor,
-													)}
+													className={`syntax-${token.kind}`}
 												>
-													{token.content}
+													{token.text}
 												</span>
 											))
 										: visibleLineContent(value)}

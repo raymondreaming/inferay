@@ -22,3 +22,4 @@ tokio-tungstenite = "0.29.0"
 url = "2.5.8"
 uuid = { version = "1.21.0", features = ["v4"] }
 walkdir = "2.5.0"
+syntect = { version = "5.3.0", default-features = false, features = ["default-fancy"] }

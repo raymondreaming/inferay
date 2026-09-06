@@ -8,10 +8,9 @@ import {
 	useRef,
 } from "octane";
 import {
-	type ShikiLineToken,
-	type SyntaxHighlightTheme,
-	useShikiHighlighter,
-} from "../../../../../shared/hooks/useShikiHighlighter.tsx";
+	type SyntaxToken,
+	useSyntaxHighlight,
+} from "../../../../../shared/hooks/useSyntaxHighlight.tsx";
 import { contentOf } from "../../../../../shared/lib/data.ts";
 import type {
 	DiffLine,
@@ -60,7 +59,6 @@ export const VirtualPanel = memo(function VirtualPanel({
 	side,
 	filePath,
 	highlightedRange,
-	syntaxTheme,
 }: {
 	lines: DiffLine[];
 	rowCount?: number;
@@ -83,7 +81,6 @@ export const VirtualPanel = memo(function VirtualPanel({
 	side: "left" | "right" | "single";
 	filePath?: string;
 	highlightedRange?: readonly [number, number];
-	syntaxTheme: SyntaxHighlightTheme;
 }) {
 	const [viewport, dispatchViewport] = useReducer(
 		diffViewportReducer,
@@ -144,21 +141,13 @@ export const VirtualPanel = memo(function VirtualPanel({
 		Math.ceil((scrollTop + viewHeight) / LINE_H) + OVERSCAN,
 	);
 	const lineContents = useMemo(() => lines.map(contentOf), [lines]);
-	const visibleRange = useMemo<[number, number]>(
-		() => [start, end],
-		[start, end],
-	);
 	const {
-		ensureHighlightedRange,
-		getHighlightedLineTokens,
-		isReady: shikiReady,
-		language: shikiLanguage,
-		revision: shikiRevision,
-	} = useShikiHighlighter({
+		getLineTokens,
+		isReady: syntaxReady,
+		language: syntaxLanguage,
+	} = useSyntaxHighlight({
 		filePath: filePath ?? `file.${ext}`,
 		lines: lineContents,
-		visibleRange,
-		theme: syntaxTheme,
 		enabled: !disableTokenize && !!filePath,
 	});
 
@@ -172,21 +161,11 @@ export const VirtualPanel = memo(function VirtualPanel({
 			const nextScrollTop = roundToDevicePixel(
 				Math.min(Math.max(0, externalScrollTop), maxScrollTop),
 			);
-			const nextStart = Math.max(
-				0,
-				Math.floor(nextScrollTop / LINE_H) - OVERSCAN,
-			);
-			const nextEnd = Math.min(
-				rowCount,
-				Math.ceil((nextScrollTop + viewHeight) / LINE_H) + OVERSCAN,
-			);
-			ensureHighlightedRange(nextStart, nextEnd);
 			scrollRef.current.scrollTop = nextScrollTop;
 			lastScrollRef.current.top = nextScrollTop;
 			dispatchViewport({ type: "scroll", top: nextScrollTop });
 		}
 	}, [
-		ensureHighlightedRange,
 		externalScrollTop,
 		externalScrollSource,
 		rowCount,
@@ -205,27 +184,18 @@ export const VirtualPanel = memo(function VirtualPanel({
 					maxScrollTop,
 				),
 			);
-			const nextStart = Math.max(
-				0,
-				Math.floor(nextScrollTop / LINE_H) - OVERSCAN,
-			);
-			const nextEnd = Math.min(
-				rowCount,
-				Math.ceil((nextScrollTop + viewHeight) / LINE_H) + OVERSCAN,
-			);
-			ensureHighlightedRange(nextStart, nextEnd);
 			scrollRef.current.scrollTop = nextScrollTop;
 			lastScrollRef.current.top = nextScrollTop;
 			dispatchViewport({ type: "scroll", top: nextScrollTop });
 			onScroll?.(nextScrollTop, scrollRef.current.scrollLeft, true);
 		},
-		[scrollRef, viewHeight, rowCount, ensureHighlightedRange, onScroll],
+		[scrollRef, viewHeight, rowCount, onScroll],
 	);
 
 	const visibleRows = useMemo(() => {
 		const rows: {
 			line: DiffLine;
-			highlightedTokens?: ShikiLineToken[];
+			highlightedTokens?: SyntaxToken[];
 			key: number;
 			isHighlighted: boolean;
 		}[] = [];
@@ -240,11 +210,10 @@ export const VirtualPanel = memo(function VirtualPanel({
 				highlightedRange !== undefined &&
 				i >= highlightedRange[0] &&
 				i < highlightedRange[1];
-			const canUseShiki =
-				shikiReady && !disableTokenize && !!filePath && !!shikiLanguage;
-			const highlightedTokens = canUseShiki
-				? getHighlightedLineTokens(i)
-				: undefined;
+			const highlightedTokens =
+				syntaxReady && !disableTokenize && filePath && syntaxLanguage
+					? getLineTokens(i)
+					: undefined;
 
 			rows.push({
 				line,
@@ -261,10 +230,9 @@ export const VirtualPanel = memo(function VirtualPanel({
 		end,
 		ext,
 		disableTokenize,
-		shikiReady,
-		shikiRevision,
-		shikiLanguage,
-		getHighlightedLineTokens,
+		syntaxReady,
+		syntaxLanguage,
+		getLineTokens,
 		filePath,
 		highlightedRange,
 	]);

@@ -59,7 +59,6 @@ export function useChatInputActions({
 	clearCheckpoints,
 	consumePendingWorkspace,
 	cwd,
-	effectiveSelectedModel,
 	fileMenu,
 	fileResults,
 	filteredCommands,
@@ -71,7 +70,6 @@ export function useChatInputActions({
 	referencePaths,
 	selectCommand,
 	selectFile,
-	selectedReasoningLevel,
 	setFileMenu,
 	setInput,
 	setMessages,
@@ -87,14 +85,12 @@ export function useChatInputActions({
 		clearCheckpoints: () => void;
 		consumePendingWorkspace: () => ChatWorkspaceOverride | undefined;
 		cwd?: string;
-		effectiveSelectedModel: string;
 		input: string;
 		isLoading: boolean;
 		onSendStart?: () => void;
 		onExit?: () => void;
 		paneId: string;
 		referencePaths?: string[];
-		selectedReasoningLevel: string;
 		setInput: (value: string) => void;
 		setMessages: (
 			update: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[]),
@@ -153,9 +149,6 @@ export function useChatInputActions({
 				cwd: workspaceOverride?.cwd ?? cwd,
 				referencePaths: workspaceOverride?.referencePaths ?? referencePaths,
 				agentKind,
-				model: effectiveSelectedModel,
-				reasoningLevel:
-					agentKind === "codex" ? selectedReasoningLevel : undefined,
 				displayText,
 				images,
 			});
@@ -163,12 +156,10 @@ export function useChatInputActions({
 		[
 			agentKind,
 			cwd,
-			effectiveSelectedModel,
 			isLoading,
 			onSendStart,
 			paneId,
 			referencePaths,
-			selectedReasoningLevel,
 			setRunStatus,
 		],
 	);

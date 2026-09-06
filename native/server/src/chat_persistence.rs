@@ -170,98 +170,6 @@ impl ChatPersistence {
         .await
     }
 
-    pub async fn contains_message(&self, pane_id: &str, id: &str) -> bool {
-        let id = id.to_owned();
-        self.transaction(pane_id, move |connection, pane| {
-            let queue: Vec<Value> = read_document(connection, pane, "queue")?;
-            if queue.iter().any(|item| item["id"] == id) { return Ok(true); }
-            Ok(connection.query_row("SELECT EXISTS(SELECT 1 FROM transcript_messages WHERE pane=?1 AND json_extract(body,'$.id')=?2)", [pane, &id], |row| row.get(0))?)
-        }).await.unwrap_or(false)
-    }
-
-    pub async fn receive_handoff(
-        &self,
-        pane_id: &str,
-        request_id: &str,
-        request: Value,
-    ) -> Result<Value, String> {
-        if !request_id.starts_with(&format!("{}:{pane_id}:", pane_id.len()))
-            || request_id.len() > 128
-            || !request_id
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"-_:".contains(&b))
-        {
-            return Err("Invalid image chat request ID".into());
-        }
-        let request_id = request_id.to_owned();
-        self.edit_document(pane_id, "handoffs", move |entries: &mut serde_json::Map<String, Value>| {
-            if let Some(receipt) = entries.get(&request_id) {
-                if receipt["request"] != request { return Err("Request ID was already used for a different handoff".into()); }
-                return Ok(receipt.clone());
-            }
-            if entries.values().any(|receipt| matches!(receipt["status"].as_str(), Some("pending" | "accepted"))) {
-                return Err("Another image chat handoff is pending; wait for it before starting another".into());
-            }
-            if entries.len() >= 256 { return Err("Image chat receipt limit reached; start a new chat".into()); }
-            let receipt = json!({"requestId":request_id,"status":"pending","request":request});
-            entries.insert(request_id, receipt.clone());
-            Ok(receipt)
-        }).await
-    }
-
-    pub async fn handoff_receipts(&self, pane_id: &str) -> Result<Vec<Value>, String> {
-        self.transaction(pane_id, |connection, pane| {
-            let entries: serde_json::Map<String, Value> =
-                read_document(connection, pane, "handoffs")?;
-            Ok(entries.into_values().collect())
-        })
-        .await
-    }
-
-    /// Commit the claim before any provider side effect; accepted work is never replayed after a crash.
-    pub async fn claim_handoff(
-        &self,
-        pane_id: &str,
-        request_id: &str,
-    ) -> Result<Option<Value>, String> {
-        let request_id = request_id.to_owned();
-        self.edit_document(
-            pane_id,
-            "handoffs",
-            move |entries: &mut serde_json::Map<String, Value>| {
-                let Some(receipt) = entries
-                    .get_mut(&request_id)
-                    .filter(|receipt| receipt["status"] == "pending")
-                else {
-                    return Ok(None);
-                };
-                receipt["status"] = json!("accepted");
-                Ok(Some(receipt["request"].clone()))
-            },
-        )
-        .await
-    }
-
-    pub async fn mark_handoff(
-        &self,
-        pane_id: &str,
-        request_id: &str,
-        status: &str,
-    ) -> Result<(), String> {
-        let (request_id, status) = (request_id.to_owned(), status.to_owned());
-        self.edit_document(
-            pane_id,
-            "handoffs",
-            move |entries: &mut serde_json::Map<String, Value>| {
-                if let Some(receipt) = entries.get_mut(&request_id) {
-                    receipt["status"] = json!(status);
-                }
-                Ok(())
-            },
-        )
-        .await
-    }
-
     pub async fn save_session_reference(
         &self,
         pane_id: &str,
@@ -415,9 +323,6 @@ fn write_document(
     value: &impl Serialize,
 ) -> StoreResult<()> {
     let body = serde_json::to_string(value)?;
-    if kind == "handoffs" && body.len() > 4 * 1024 * 1024 {
-        return Err("Image chat handoff storage is full; start a new chat".into());
-    }
     connection.execute("INSERT INTO documents(pane,kind,body) VALUES(?1,?2,?3) ON CONFLICT(pane,kind) DO UPDATE SET body=excluded.body", [pane, kind, &body])?;
     Ok(())
 }

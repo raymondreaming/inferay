@@ -1,26 +1,10 @@
 use crate::unix_millis as now_millis;
-use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
-
-use inferay_core::path_security::{is_within_directory, resolve_lexically};
-use serde::Serialize;
 
 const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NativeFileEntry {
-    pub name: String,
-    pub path: String,
-    pub timestamp: Option<f64>,
-    pub size: u64,
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum NativeFilesError {
-    #[error("Access denied")]
-    AccessDenied,
     #[error("Unsupported file type")]
     UnsupportedFileType,
     #[error("File too large")]
@@ -43,88 +27,7 @@ impl NativeFiles {
         Self::new(app_root.join("data/.tmp"))
     }
 
-    pub async fn prepare_chat_message(&self, paths: &[String]) -> Result<String, NativeFilesError> {
-        let files = self.list().await?;
-        let mut selected = Vec::new();
-        for path in paths {
-            let file = files
-                .iter()
-                .find(|file| &file.path == path)
-                .ok_or(NativeFilesError::AccessDenied)?;
-            if !selected.contains(&file) {
-                selected.push(file);
-            }
-        }
-        if selected.is_empty() {
-            return Err(NativeFilesError::AccessDenied);
-        }
-        let title = if selected.len() == 1 {
-            format!("Attached {}", selected[0].name)
-        } else {
-            format!("Attached {} files", selected.len())
-        };
-        Ok(format!(
-            "{title}\n\nHere are the images at these paths:\n{}",
-            selected
-                .iter()
-                .map(|file| file.path.as_str())
-                .collect::<Vec<_>>()
-                .join("\n")
-        ))
-    }
-
-    pub async fn list(&self) -> Result<Vec<NativeFileEntry>, NativeFilesError> {
-        tokio::fs::create_dir_all(&self.temp_dir).await?;
-        let mut directory = tokio::fs::read_dir(&self.temp_dir).await?;
-        let mut files = Vec::new();
-        while let Some(entry) = directory.next_entry().await? {
-            let entry_name = entry.file_name().to_string_lossy().into_owned();
-            if !is_image_extension(&entry_name) {
-                continue;
-            }
-            let metadata = entry.metadata().await?;
-            let timestamped = entry_name
-                .split_once('-')
-                .filter(|(timestamp, name)| !timestamp.is_empty() && !name.is_empty());
-            let modified = metadata
-                .modified()
-                .ok()
-                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-                .map(|duration| duration.as_secs_f64() * 1000.0)
-                .unwrap_or(0.0);
-            let timestamp = timestamped
-                .and_then(|(timestamp, _)| timestamp.parse::<f64>().ok())
-                .or_else(|| timestamped.is_none().then_some(modified));
-            files.push(NativeFileEntry {
-                name: timestamped
-                    .map(|(_, name)| name.to_string())
-                    .unwrap_or_else(|| entry_name.clone()),
-                path: entry.path().to_string_lossy().into_owned(),
-                timestamp,
-                size: metadata.len(),
-            });
-        }
-        files.sort_by(|left, right| {
-            right
-                .timestamp
-                .zip(left.timestamp)
-                .and_then(|(right, left)| right.partial_cmp(&left))
-                .unwrap_or(Ordering::Equal)
-        });
-        Ok(files)
-    }
-
-    pub async fn delete(&self, path: &Path) -> Result<(), NativeFilesError> {
-        let path = self.allowed_path(path)?;
-        tokio::fs::remove_file(path).await?;
-        Ok(())
-    }
-
-    pub async fn store_image(
-        &self,
-        name: &str,
-        bytes: &[u8],
-    ) -> Result<NativeFileEntry, NativeFilesError> {
+    pub async fn store_image(&self, name: &str, bytes: &[u8]) -> Result<PathBuf, NativeFilesError> {
         if bytes.len() as u64 > MAX_IMAGE_BYTES {
             return Err(NativeFilesError::FileTooLarge);
         }
@@ -136,19 +39,6 @@ impl NativeFiles {
         let safe_name = safe_upload_name(name);
         let path = self.temp_dir.join(format!("{timestamp}-{safe_name}"));
         tokio::fs::write(&path, bytes).await?;
-        Ok(NativeFileEntry {
-            name: safe_name,
-            path: path.to_string_lossy().into_owned(),
-            timestamp: Some(timestamp as f64),
-            size: bytes.len() as u64,
-        })
-    }
-
-    fn allowed_path(&self, path: &Path) -> Result<PathBuf, NativeFilesError> {
-        let path = resolve_lexically(path).map_err(|_| NativeFilesError::AccessDenied)?;
-        if !is_within_directory(&path, &self.temp_dir) {
-            return Err(NativeFilesError::AccessDenied);
-        }
         Ok(path)
     }
 }

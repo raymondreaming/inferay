@@ -103,14 +103,6 @@ export const DEFAULT_APP_BACKGROUND_SETTINGS: AppBackgroundSettings = {
 	autoTheme: false,
 	customRevision: 0,
 };
-interface BackgroundPalette {
-	black: string;
-	darkGray: string;
-	gray: string;
-	lightGray: string;
-	accent: string;
-	accentHover: string;
-}
 function clamp(value: unknown, min: number, max: number, fallback: number) {
 	const number = Number(value);
 	return Number.isFinite(number)
@@ -186,126 +178,11 @@ export function getBuiltInBackgroundPath(id: AppBackgroundId): string | null {
 		APP_BACKGROUNDS.find((background) => background.id === id)?.path ?? null
 	);
 }
-function channelToHex(value: number) {
-	return Math.round(Math.min(255, Math.max(0, value)))
-		.toString(16)
-		.padStart(2, "0");
-}
-function rgbToHex(red: number, green: number, blue: number) {
-	return `#${channelToHex(red)}${channelToHex(green)}${channelToHex(blue)}`;
-}
-function foregroundForHex(hex: string) {
-	const value = Number.parseInt(hex.slice(1), 16);
-	const red = (value >> 16) & 255;
-	const green = (value >> 8) & 255;
-	const blue = value & 255;
-	return (red * 299 + green * 587 + blue * 114) / 1000 > 145
-		? "#111111"
-		: "#f8f8f8";
-}
-function mixRgb(
-	color: [number, number, number],
-	target: [number, number, number],
-	amount: number,
-): [number, number, number] {
-	return color.map(
-		(channel, index) => channel + (target[index]! - channel) * amount,
-	) as [number, number, number];
-}
-async function deriveCustomPalette(
-	imageUrl: string,
-): Promise<BackgroundPalette> {
-	const image = new Image();
-	image.crossOrigin = "anonymous";
-	image.src = imageUrl;
-	await image.decode();
-	const canvas = document.createElement("canvas");
-	canvas.width = 48;
-	canvas.height = 48;
-	const context = canvas.getContext("2d", {
-		willReadFrequently: true,
-	});
-	if (!context) throw new Error("Canvas unavailable");
-	context.drawImage(image, 0, 0, canvas.width, canvas.height);
-	const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-	const candidates: Array<{
-		color: [number, number, number];
-		weight: number;
-	}> = [];
-	for (let index = 0; index < pixels.length; index += 16) {
-		const red = pixels[index] ?? 0;
-		const green = pixels[index + 1] ?? 0;
-		const blue = pixels[index + 2] ?? 0;
-		const max = Math.max(red, green, blue);
-		const min = Math.min(red, green, blue);
-		const lightness = (max + min) / 510;
-		const saturation = max === 0 ? 0 : (max - min) / max;
-		if (lightness < 0.16 || lightness > 0.88 || saturation < 0.12) continue;
-		candidates.push({
-			color: [red, green, blue],
-			weight: saturation * (1 - Math.abs(lightness - 0.55)),
-		});
-	}
-	candidates.sort((a, b) => b.weight - a.weight);
-	const selected = candidates.slice(0, Math.max(8, candidates.length / 8));
-	const totals = selected.reduce<[number, number, number]>(
-		(total, sample) => [
-			total[0] + sample.color[0],
-			total[1] + sample.color[1],
-			total[2] + sample.color[2],
-		],
-		[0, 0, 0],
-	);
-	const source: [number, number, number] =
-		selected.length > 0
-			? [
-					totals[0] / selected.length,
-					totals[1] / selected.length,
-					totals[2] / selected.length,
-				]
-			: [104, 128, 180];
-	const accent = mixRgb(source, [255, 255, 255], 0.2);
-	const mutedAccent = mixRgb(accent, [135, 135, 140], 0.58);
-	return {
-		black: rgbToHex(...mixRgb([5, 5, 6], mutedAccent, 0.015)),
-		darkGray: rgbToHex(...mixRgb([28, 28, 30], mutedAccent, 0.05)),
-		gray: rgbToHex(...mixRgb([44, 44, 46], mutedAccent, 0.075)),
-		lightGray: rgbToHex(...mixRgb([58, 58, 60], mutedAccent, 0.1)),
-		accent: rgbToHex(...mutedAccent),
-		accentHover: rgbToHex(...mixRgb(mutedAccent, [255, 255, 255], 0.14)),
-	};
-}
-export async function deriveAppBackgroundPalette(
-	id: AppBackgroundId,
-	imageUrl: string | null,
-): Promise<BackgroundPalette | null> {
-	if (id === "none") return null;
-	if (id === "custom" && imageUrl) return deriveCustomPalette(imageUrl);
-	return null;
-}
-export function applyAppBackgroundPalette(
-	palette: BackgroundPalette | null,
-	id: AppBackgroundId,
-): void {
+export function applyAppBackgroundPalette(id: AppBackgroundId): void {
 	applyAppTheme(loadAppThemeId());
-	if (!palette) {
-		if (APP_BACKGROUNDS.some((background) => background.id === id)) {
-			document.documentElement.dataset.inferayScene = id;
-		}
-		return;
+	if (APP_BACKGROUNDS.some((background) => background.id === id)) {
+		document.documentElement.dataset.inferayScene = id;
 	}
-	const root = document.documentElement;
-	root.style.setProperty("--color-inferay-black", palette.black);
-	root.style.setProperty("--color-inferay-dark-gray", palette.darkGray);
-	root.style.setProperty("--color-inferay-gray", palette.gray);
-	root.style.setProperty("--color-inferay-light-gray", palette.lightGray);
-	root.style.setProperty("--color-inferay-accent", palette.accent);
-	root.style.setProperty("--color-inferay-accent-hover", palette.accentHover);
-	root.style.setProperty(
-		"--color-inferay-accent-foreground",
-		foregroundForHex(palette.accent),
-	);
-	root.style.setProperty("--color-inferay-info", palette.accent);
 }
 export function restoreAppTheme(): void {
 	applyAppTheme(loadAppThemeId());

@@ -730,7 +730,7 @@ export function useRepositoryWorkbench({
 	}, [active, workspaceId]);
 	useEffect(() => {
 		if (!active || !cwd || !gitLoaded || !projectMap.has(cwd)) return;
-		if (!panelSession.repositoryInitialized)
+		if (!panelSession.repositoryInitialized || !diffViewerCwd)
 			updatePanelSession({ type: "initialize", cwd });
 	}, [
 		active,
@@ -738,6 +738,7 @@ export function useRepositoryWorkbench({
 		gitLoaded,
 		projectMap,
 		panelSession.repositoryInitialized,
+		diffViewerCwd,
 		updatePanelSession,
 	]);
 	useEffect(() => {

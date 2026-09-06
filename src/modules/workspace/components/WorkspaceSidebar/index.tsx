@@ -67,7 +67,7 @@ export function WorkspaceSidebar() {
 		forgeAccounts.find((account) => account.active) ?? forgeAccounts[0] ?? null;
 	const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
 	const resizeWidthRef = useRef(sidebarWidth);
-	const showWorkspaceSidebar = location.pathname === "/agent";
+	const showWorkspaceSidebar = location.pathname === "/";
 
 	useEffect(
 		() =>
@@ -90,8 +90,8 @@ export function WorkspaceSidebar() {
 	const selectPane = useCallback(
 		async (groupId: string, paneId: string) => {
 			await mutateAgentWorkspaceState({ type: "selectPane", groupId, paneId });
-			if (location.pathname !== "/agent") {
-				navigate({ to: "/agent" });
+			if (location.pathname !== "/") {
+				navigate({ to: "/" });
 			}
 			requestAnimationFrame(() => {
 				requestAnimationFrame(() => dispatchFocusAgentChatComposer(paneId));
@@ -104,7 +104,7 @@ export function WorkspaceSidebar() {
 		async (target: CreateAgentChatTarget) => {
 			if (target === "new-repository") {
 				await mutateAgentWorkspaceState({ type: "addWorkspace" });
-				navigate({ to: "/agent" });
+				navigate({ to: "/" });
 				return;
 			}
 			const cwd = resolveCreateAgentChatCwd(
@@ -116,7 +116,7 @@ export function WorkspaceSidebar() {
 				agentKind: loadDefaultChatSettings().agentKind,
 				cwd,
 			});
-			navigate({ to: "/agent" });
+			navigate({ to: "/" });
 		},
 		[navigate, repositoryProjection.activeWorkspace?.cwd],
 	);

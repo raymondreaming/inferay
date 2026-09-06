@@ -235,7 +235,6 @@ export const AgentChatView = memo(function AgentChatView({
 
 		consumePendingWorkspace,
 		cwd,
-		effectiveSelectedModel,
 		input,
 		isLoading,
 		onSendStart: () => {
@@ -245,7 +244,6 @@ export const AgentChatView = memo(function AgentChatView({
 
 		paneId,
 		referencePaths,
-		selectedReasoningLevel,
 		setInput,
 		setRunStatus,
 		setMessages,

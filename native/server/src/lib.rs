@@ -55,6 +55,7 @@ pub mod chat_persistence;
 mod chat_runtime;
 pub mod checkpoint;
 mod forge;
+mod highlight;
 mod markdown;
 mod native_app;
 pub mod native_directories;
@@ -526,16 +527,14 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
                 }
                 Ok(catalog)
             }
-            ("/api/native/provider-config", "POST") => to_bytes(request.into_body(), 64 * 1024)
-                .await
-                .ok()
-                .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-                .map(|input| inferay_core::provider_config::resolve(&input))
-                .ok_or_else(|| {
-                    api_error(StatusCode::BAD_REQUEST, "Invalid provider configuration")
-                }),
+            ("/api/native/provider-config", "POST") => {
+                provider_configuration(&state, request).await
+            }
             ("/api/native/markdown", "POST") => {
                 return api_http_response(native_markdown(request).await, &request_headers);
+            }
+            ("/api/native/highlight", "POST") => {
+                return api_http_response(native_highlight(request).await, &request_headers);
             }
             ("/api/native/diff", "POST") => {
                 return api_http_response(native_diff(request).await, &request_headers);
@@ -563,12 +562,7 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
                 get_file_content(&state, request).await
             }
             ("/api/upload-temp", "POST") => upload_temp_file(&state, request).await,
-            ("/api/images/chat-message", "POST") => {
-                prepare_image_chat_message(&state, request).await
-            }
 
-            ("/api/images", "GET") => list_temp_images(&state, request).await,
-            ("/api/delete-temp", "DELETE") => delete_temp_file(&state, request).await,
             ("/api/file", "GET") => {
                 return api_http_response(
                     serve_local_image(&state, request).await,
@@ -669,80 +663,36 @@ async fn patch_chat_queue(state: &ServerState, request: Request, pane_id: &str) 
     Ok(json!({"queue":queue}))
 }
 
-async fn prepare_image_chat_message(state: &ServerState, request: Request) -> ApiResult {
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct ImageSelection {
-        paths: Vec<String>,
-        pane_id: Option<String>,
-        request_id: Option<String>,
-    }
-    let selection: ImageSelection = api_body(request).await?;
-    let text = state
-        .native_files
-        .prepare_chat_message(&selection.paths)
-        .await
-        .map_err(|error| api_error(StatusCode::BAD_REQUEST, error))?;
-    if let Some(pane_id) = selection.pane_id {
-        let request_id = required(selection.request_id, "Expected requestId")?;
-        let receipt = receive_image_handoff(state, &pane_id, &request_id, text)
-            .await
-            .map_err(|error| api_error(StatusCode::BAD_REQUEST, error))?;
-        Ok(json!({"requestId":receipt["requestId"], "status":receipt["status"]}))
-    } else {
-        Ok(json!({"text":text}))
-    }
-}
-
-async fn receive_image_handoff(
-    state: &ServerState,
-    pane_id: &str,
-    request_id: &str,
-    text: String,
-) -> Result<Value, String> {
-    let _admission = state.chat_runtime.handoff_admission_guard().await;
-    if text.len() > 256 * 1024 {
-        return Err("Image chat request is too large".into());
-    }
-    if let Some(receipt) = state
-        .chat_persistence
-        .handoff_receipts(pane_id)
-        .await?
-        .into_iter()
-        .find(|receipt| receipt["requestId"] == request_id)
-    {
-        if receipt["request"]["text"] != text {
-            return Err("Request ID was already used for a different image selection".into());
-        }
-        return Ok(receipt);
-    }
-    let pane = state
-        .agent_state_store
-        .lock()
-        .map_err(|e| e.to_string())?
-        .pane(pane_id)?
-        .ok_or("Chat pane was not found")?;
-    let kind = pane.agent_kind.as_str();
-    if !matches!(kind, "claude" | "codex") {
-        return Err("Selected pane does not support chat".into());
-    }
-    let entries = {
-        let _guard = state.client_storage_write.lock().await;
-        read_client_storage(&state.client_storage_path).await?
+async fn provider_configuration(state: &ServerState, request: Request) -> ApiResult {
+    let mut input: Value = api_body(request).await?;
+    let Some(pane_id) = input["paneId"].as_str().map(str::to_owned) else {
+        return Ok(inferay_core::provider_config::resolve(&input));
     };
-    let defaults = entries
+    let _guard = state.client_storage_write.lock().await;
+    let mut entries = read_client_storage(&state.client_storage_path).await?;
+    input["defaults"] = entries
         .get("inferay-default-chat-settings")
         .and_then(Value::as_str)
-        .and_then(|value| serde_json::from_str::<Value>(value).ok())
+        .and_then(|text| serde_json::from_str::<Value>(text).ok())
         .unwrap_or(Value::Null);
-    let config = inferay_core::provider_config::resolve(
-        &json!({"agentKind":kind,"model":entries.get(&format!("inferay-chat-model-{pane_id}")),"reasoningLevel":entries.get(&format!("inferay-chat-reasoning-{pane_id}")),"defaults":defaults}),
-    );
-    let request = json!({"text":text,"agentKind":kind,"cwd":normalize_chat_cwd(state, pane.cwd.as_deref().map(Path::new)),"referencePaths":normalize_chat_paths(state, &pane.reference_paths),"model":config["model"],"reasoningLevel":config["reasoningLevel"]});
-    state
-        .chat_persistence
-        .receive_handoff(pane_id, request_id, request)
-        .await
+    let fields = [
+        ("model", format!("inferay-chat-model-{pane_id}")),
+        (
+            "reasoningLevel",
+            format!("inferay-chat-reasoning-{pane_id}"),
+        ),
+    ];
+    for (field, key) in &fields {
+        if input.get(field).is_none() {
+            input[field] = entries.get(key).cloned().unwrap_or(Value::Null);
+        }
+    }
+    let resolved = inferay_core::provider_config::resolve(&input);
+    for (field, key) in fields {
+        entries.insert(key, resolved[field].clone());
+    }
+    write_json_object(&state.client_storage_path, &entries).await?;
+    Ok(resolved)
 }
 
 async fn default_chat_kind(state: &ServerState) -> &'static str {
@@ -844,7 +794,6 @@ impl From<native_files::NativeFilesError> for ApiError {
     fn from(error: native_files::NativeFilesError) -> Self {
         use native_files::NativeFilesError::*;
         let status = match error {
-            AccessDenied => StatusCode::FORBIDDEN,
             FileTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             UnsupportedFileType => StatusCode::BAD_REQUEST,
             Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -1504,21 +1453,8 @@ async fn uploaded_file(
 
 async fn upload_temp_file(state: &ServerState, request: Request) -> ApiResult {
     let (name, _, bytes) = uploaded_file(request, "No file provided").await?;
-    let file = state.native_files.store_image(&name, &bytes).await?;
-    Ok(json!({"path":file.path}))
-}
-
-async fn list_temp_images(state: &ServerState, _request: Request) -> ApiResult {
-    Ok(json!({"images":state.native_files.list().await?}))
-}
-
-async fn delete_temp_file(state: &ServerState, request: Request) -> ApiResult {
-    let path = required(
-        query_value(&request, "path").filter(|path| !path.is_empty()),
-        "No path provided",
-    )?;
-    state.native_files.delete(Path::new(&path)).await?;
-    Ok(json!({"ok":true}))
+    let path = state.native_files.store_image(&name, &bytes).await?;
+    Ok(json!({"path":path}))
 }
 
 async fn serve_local_image(state: &ServerState, request: Request) -> ApiResult<Response> {
@@ -1746,7 +1682,7 @@ fn client_storage_key_pattern() -> String {
         .filter_map(|prefix| prefix.strip_prefix("inferay-chat-"))
         .collect::<Vec<_>>();
     format!(
-        r"^(?!{}(?![\s\S])|inferay-chat-queue-|inferay-chat-loading-)(?!inferay-chat-(?!(?:{})))(?:(?:{})(?![\s\S])|{})",
+        r"^(?!{}(?![\s\S])|inferay-chat-(?:queue|loading|model|reasoning)-)(?!inferay-chat-(?!(?:{})))(?:(?:{})(?![\s\S])|{})",
         regex::escape(AGENT_STATE_STORAGE_KEY),
         alternatives(&chat_suffixes),
         alternatives(SYNCED_STORAGE_KEYS),
@@ -1766,6 +1702,8 @@ fn should_sync_client_storage_key(key: &str) -> bool {
         || is_chat_message_storage_key(key)
         || key.starts_with("inferay-chat-queue-")
         || key.starts_with("inferay-chat-loading-")
+        || key.starts_with("inferay-chat-model-")
+        || key.starts_with("inferay-chat-reasoning-")
     {
         return false;
     }
@@ -1986,6 +1924,48 @@ async fn native_markdown(request: Request) -> ApiResult<Response> {
         _ => Err(api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "Markdown preparation unavailable",
+        )),
+    }
+}
+
+async fn native_highlight(request: Request) -> ApiResult<Response> {
+    const MAX_TEXT_BYTES: usize = 4 * 1024 * 1024;
+    #[derive(Deserialize)]
+    struct Input {
+        path: String,
+        text: String,
+    }
+    let headers = request.headers().clone();
+    // A JSON escape can expand one input byte into six wire bytes.
+    let Ok(bytes) = to_bytes(request.into_body(), MAX_TEXT_BYTES * 6 + 1024).await else {
+        return Err(api_error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "Highlight request exceeds the payload limit",
+        ));
+    };
+    let Ok(input) = serde_json::from_slice::<Input>(&bytes) else {
+        return Err(api_error(StatusCode::BAD_REQUEST, "Expected path and text"));
+    };
+    // Only the extension selects a grammar, so keying on it instead of the full
+    // path lets two views of the same file share one classification.
+    let extension = input
+        .path
+        .rsplit('/')
+        .next()
+        .unwrap_or_default()
+        .rsplit('.')
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    let key = format!("highlight:1:{}:{}", extension, input.text);
+    let job = render_jobs::cached(key, std::time::Duration::from_secs(300), move || {
+        serde_json::to_vec(&highlight::classify(&input.path, &input.text)).ok()
+    });
+    match tokio::time::timeout(std::time::Duration::from_secs(10), job).await {
+        Ok(Ok((Some(body), _))) => Ok(json_bytes_response(StatusCode::OK, body, &headers)),
+        _ => Err(api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Syntax highlighting unavailable",
         )),
     }
 }
@@ -2348,12 +2328,6 @@ async fn handle_native_websocket_message(
                     return;
                 }
             };
-            if pane.is_none()
-                && let Err(error) = state.chat_runtime.cancel_handoffs(pane_id).await
-            {
-                let _ = sender.send(json!({"type":"chat:error","paneId":pane_id,"error":format!("Could not cancel removed chat handoff: {error}")}));
-                return;
-            }
             state
                 .chat_runtime
                 .reconnect(
@@ -2386,8 +2360,30 @@ async fn handle_native_websocket_message(
             if message.get("agentKind").is_none() {
                 input.agent_kind = "claude".into();
             }
+            let settings = {
+                let _guard = state.client_storage_write.lock().await;
+                read_client_storage(&state.client_storage_path).await
+            };
+            let settings = match settings {
+                Ok(settings) => settings,
+                Err(error) => {
+                    let _ =
+                        sender.send(json!({"type":"chat:error","paneId":pane_id,"error":error}));
+                    return;
+                }
+            };
+            input.model = settings
+                .get(&format!("inferay-chat-model-{pane_id}"))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or(input.model);
+            input.reasoning_level = settings
+                .get(&format!("inferay-chat-reasoning-{pane_id}"))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or(input.reasoning_level);
             input.cwd_provided = !input.cwd.as_os_str().is_empty();
-            input.reasoning_level_provided = message.get("reasoningLevel").is_some();
+            input.reasoning_level_provided = input.reasoning_level.is_some();
             input.reference_paths_provided = message.get("referencePaths").is_some();
             input.cwd = normalize_chat_cwd(state, Some(&input.cwd));
             input.reference_paths = normalize_chat_paths(state, &input.reference_paths);

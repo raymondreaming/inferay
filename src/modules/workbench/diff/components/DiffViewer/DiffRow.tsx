@@ -1,7 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import { memo } from "octane";
 import type { CSSProperties } from "react";
-import type { ShikiLineToken } from "../../../../../shared/hooks/useShikiHighlighter.tsx";
+import type { SyntaxToken } from "../../../../../shared/hooks/useSyntaxHighlight.tsx";
 import type { DiffLine } from "../../../../repository/model/types.ts";
 import {
 	DIFF_CONFIG,
@@ -42,7 +42,7 @@ export const DiffRow = memo(function DiffRow({
 }: {
 	clipContent?: boolean;
 	line: DiffLine;
-	highlightedTokens?: ShikiLineToken[];
+	highlightedTokens?: SyntaxToken[];
 	isHighlighted?: boolean;
 	minWidth?: number;
 	hideGutter?: boolean;
@@ -86,12 +86,9 @@ export const DiffRow = memo(function DiffRow({
 			? `${line.content.slice(0, MAX_RENDERED_LINE_CHARS)} ... [line truncated for display]`
 			: line.content;
 	const lineContent = highlightedTokens
-		? highlightedTokens.map((tok, index) => (
-				<span
-					key={`${index}-${tok.content}`}
-					style={inlineStyles.getDiffRowSpanStyle(tok.bgColor, tok.color)}
-				>
-					{tok.content}
+		? highlightedTokens.map((token, index) => (
+				<span key={`${index}-${token.text}`} className={`syntax-${token.kind}`}>
+					{token.text}
 				</span>
 			))
 		: content;

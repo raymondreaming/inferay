@@ -1,5 +1,5 @@
 import * as stylex from "@octanejs/stylex";
-import { Outlet, useLocation } from "@octanejs/tanstack-router";
+import { Outlet } from "@octanejs/tanstack-router";
 import { Suspense, useEffect, useState } from "octane";
 import type { CSSProperties } from "react";
 import { resolveServerUrl, wsClient } from "../../../adapters/backend/http.ts";
@@ -18,7 +18,6 @@ import {
 	applyAppBackgroundPalette,
 	applyAppBackgroundSurfaces,
 	applyAppFont,
-	deriveAppBackgroundPalette,
 	getBuiltInBackgroundPath,
 	loadAppBackgroundSettings,
 	loadAppFontId,
@@ -29,9 +28,7 @@ import * as inlineStyles from "./styles.ts";
 import { shellThemeProps, styles } from "./styles.ts";
 
 export function AppLayout() {
-	const location = useLocation();
 	const [background, setBackground] = useState(loadAppBackgroundSettings);
-	const sidebarOpen = location.pathname === "/agent";
 	useEffect(() => {
 		wsClient.connect();
 	}, []);
@@ -65,22 +62,9 @@ export function AppLayout() {
 	}, [background.mode]);
 
 	useEffect(() => {
-		let active = true;
-		if (!background.autoTheme) {
-			restoreAppTheme();
-			return;
-		}
-		void deriveAppBackgroundPalette(background.id, backgroundUrl)
-			.then((palette) => {
-				if (active) applyAppBackgroundPalette(palette, background.id);
-			})
-			.catch(() => {
-				if (active) restoreAppTheme();
-			});
-		return () => {
-			active = false;
-		};
-	}, [background.autoTheme, background.id, backgroundUrl]);
+		if (background.autoTheme) applyAppBackgroundPalette(background.id);
+		else restoreAppTheme();
+	}, [background.autoTheme, background.id]);
 
 	return (
 		<div
@@ -131,12 +115,7 @@ export function AppLayout() {
 			<RepositoryWorkspaceBar />
 			<SettingsModalHost />
 			<SkillsModalHost />
-			<div
-				{...stylex.props(
-					styles.appBody,
-					sidebarOpen && styles.appBodySidebarOpen,
-				)}
-			>
+			<div {...stylex.props(styles.appBody, styles.appBodySidebarOpen)}>
 				<WorkspaceSidebar />
 				<div {...stylex.props(styles.mainColumn)}>
 					<main {...stylex.props(styles.mainContent)}>

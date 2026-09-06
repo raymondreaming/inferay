@@ -87,8 +87,7 @@ export type AgentWorkspaceAction =
 			paneId: string;
 			agentKind: WorkspaceModelAgentKind;
 	  }
-	| { type: "setTheme"; themeId: string }
-	| { type: "ensureChatPane" };
+	| { type: "setTheme"; themeId: string };
 const AGENT_THEMES: Record<ThemeId, AgentTheme> = {
 	default: {
 		cursor: "#007AFF",
@@ -300,11 +299,7 @@ export function mutateAgentWorkspaceState(
 export type AgentGroupsAction = Exclude<
 	AgentWorkspaceAction,
 	{
-		type:
-			| "addWorkspace"
-			| "removeWorkspace"
-			| "renameWorkspace"
-			| "ensureChatPane";
+		type: "addWorkspace" | "removeWorkspace" | "renameWorkspace";
 	}
 >;
 

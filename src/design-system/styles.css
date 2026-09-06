@@ -12,7 +12,8 @@
 	--color-git-renamed: #7a8fb5;
 	--color-git-unmerged: #b0896a;
 
-	/* Syntax highlighting — high contrast on the near-black code surfaces */
+	/* Syntax highlighting — one kind vocabulary, five palettes below. Native
+	   classification never carries colour, so a theme swap is a repaint. */
 	--color-syntax-keyword: #ff9492;
 	--color-syntax-string: #b7e1ff;
 	--color-syntax-comment: #a1aab5;
@@ -20,6 +21,11 @@
 	--color-syntax-punctuation: #f0f3f6;
 	--color-syntax-tag: #91e6a7;
 	--color-syntax-attr: #b8d7ff;
+	--color-syntax-function: #dbb7ff;
+	--color-syntax-type: #ffb757;
+	--color-syntax-constant: #8ce99a;
+	--color-syntax-operator: #ff9492;
+	--color-syntax-plain: #f0f3f6;
 
 	--font-sans:
 		"Geist", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
@@ -469,4 +475,104 @@ body,
 body * {
 	/* biome-ignore lint/complexity/noImportantStyles: the user-selected font must override component and inline font families */
 	font-family: var(--font-sans) !important;
+}
+
+/* Syntax palettes. `plain` carries ordinary code, so every palette must set it. */
+[data-inferay-syntax-theme="vitesse"] {
+	--color-syntax-keyword: #4d9375;
+	--color-syntax-string: #c98a7d;
+	--color-syntax-comment: #758575;
+	--color-syntax-number: #4c9a91;
+	--color-syntax-punctuation: #666666;
+	--color-syntax-tag: #4d9375;
+	--color-syntax-attr: #b07d48;
+	--color-syntax-function: #80a665;
+	--color-syntax-type: #5da994;
+	--color-syntax-constant: #4c9a91;
+	--color-syntax-operator: #999999;
+	--color-syntax-plain: #dbd7caee;
+}
+
+[data-inferay-syntax-theme="one-dark"] {
+	--color-syntax-keyword: #c678dd;
+	--color-syntax-string: #98c379;
+	--color-syntax-comment: #7f848e;
+	--color-syntax-number: #d19a66;
+	--color-syntax-punctuation: #abb2bf;
+	--color-syntax-tag: #e06c75;
+	--color-syntax-attr: #d19a66;
+	--color-syntax-function: #61afef;
+	--color-syntax-type: #e5c07b;
+	--color-syntax-constant: #d19a66;
+	--color-syntax-operator: #56b6c2;
+	--color-syntax-plain: #abb2bf;
+}
+
+[data-inferay-syntax-theme="dracula"] {
+	--color-syntax-keyword: #ff79c6;
+	--color-syntax-string: #f1fa8c;
+	--color-syntax-comment: #6272a4;
+	--color-syntax-number: #bd93f9;
+	--color-syntax-punctuation: #f8f8f2;
+	--color-syntax-tag: #ff79c6;
+	--color-syntax-attr: #50fa7b;
+	--color-syntax-function: #50fa7b;
+	--color-syntax-type: #8be9fd;
+	--color-syntax-constant: #bd93f9;
+	--color-syntax-operator: #ff79c6;
+	--color-syntax-plain: #f8f8f2;
+}
+
+[data-inferay-syntax-theme="slack"] {
+	--color-syntax-keyword: #a1c8ff;
+	--color-syntax-string: #a5e3b8;
+	--color-syntax-comment: #8a94a6;
+	--color-syntax-number: #e8b98a;
+	--color-syntax-punctuation: #d5dbe4;
+	--color-syntax-tag: #a1c8ff;
+	--color-syntax-attr: #e8b98a;
+	--color-syntax-function: #c9b0ff;
+	--color-syntax-type: #7fd4d0;
+	--color-syntax-constant: #e8b98a;
+	--color-syntax-operator: #a1c8ff;
+	--color-syntax-plain: #d5dbe4;
+}
+
+/* Token spans. Rendering a kind is a class, never an inline style. */
+.syntax-attribute {
+	color: var(--color-syntax-attr);
+}
+.syntax-comment {
+	color: var(--color-syntax-comment);
+	font-style: italic;
+}
+.syntax-constant {
+	color: var(--color-syntax-constant);
+}
+.syntax-function {
+	color: var(--color-syntax-function);
+}
+.syntax-keyword {
+	color: var(--color-syntax-keyword);
+}
+.syntax-number {
+	color: var(--color-syntax-number);
+}
+.syntax-operator {
+	color: var(--color-syntax-operator);
+}
+.syntax-plain {
+	color: var(--color-syntax-plain);
+}
+.syntax-punctuation {
+	color: var(--color-syntax-punctuation);
+}
+.syntax-string {
+	color: var(--color-syntax-string);
+}
+.syntax-tag {
+	color: var(--color-syntax-tag);
+}
+.syntax-type {
+	color: var(--color-syntax-type);
 }

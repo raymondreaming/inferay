@@ -1,10 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import { useEffect, useMemo, useRef, useState } from "octane";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import {
-	useShikiSnippet,
-	useSyntaxHighlightTheme,
-} from "../../../../shared/hooks/useShikiHighlighter.tsx";
+import { useSyntaxHighlight } from "../../../../shared/hooks/useSyntaxHighlight.tsx";
 import {
 	IconChevronRight,
 	IconFilePlus,
@@ -32,13 +29,11 @@ export function EditDiffCard({
 		[changedHunks],
 	);
 	const [isExpanded, setIsExpanded] = useState(true);
-	const [syntaxTheme] = useSyntaxHighlightTheme();
-	const { highlighted, isReady } = useShikiSnippet(
-		changedLines,
-		fileName,
-		!isStreaming && isExpanded,
-		syntaxTheme,
-	);
+	const { getLineTokens, isReady } = useSyntaxHighlight({
+		filePath: fileName,
+		lines: changedLines,
+		enabled: !isStreaming && isExpanded,
+	});
 	const [isScrollActive, setIsScrollActive] = useState(false);
 
 	const removedBg =
@@ -154,7 +149,7 @@ export function EditDiffCard({
 											return null;
 										const isRemoved = line.type === "removed";
 										const isAdded = line.type === "added";
-										const highlightedHtml = highlighted.get(globalLineIdx);
+										const highlightedTokens = getLineTokens(globalLineIdx);
 										const lineSegments = line.segments;
 
 										const lineContent = lineSegments ? (
@@ -173,12 +168,17 @@ export function EditDiffCard({
 													</span>
 												))}
 											</span>
-										) : isReady && highlightedHtml ? (
-											<span
-												{...stylex.props(styles.lineText)}
-												// biome-ignore lint/security/noDangerouslySetInnerHtml: useShikiSnippet returns HTML-escaped Shiki markup.
-												dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-											/>
+										) : isReady && highlightedTokens?.length ? (
+											<span {...stylex.props(styles.lineText)}>
+												{highlightedTokens.map((token, tokenIndex) => (
+													<span
+														key={tokenIndex}
+														className={`syntax-${token.kind}`}
+													>
+														{token.text}
+													</span>
+												))}
+											</span>
 										) : (
 											<span {...stylex.props(styles.lineText)}>
 												{line.text || " "}

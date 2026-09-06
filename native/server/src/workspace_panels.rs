@@ -103,7 +103,7 @@ fn apply_action(session: &mut Value, action: &Value) -> ApiResult<Option<String>
         .to_owned();
     match kind {
         "initialize" => {
-            if session["repositoryInitialized"] == true {
+            if session["repositoryInitialized"] == true && session["diffViewerCwd"].is_string() {
                 return Ok(None);
             }
             if session["diffViewerCwd"].is_null() {
@@ -162,23 +162,10 @@ fn apply_action(session: &mut Value, action: &Value) -> ApiResult<Option<String>
             }
         }
         "dismissDiff" => {
-            if session["diffViewerCwd"].is_string()
-                && session["mainViewMode"] == "diff"
-                && matches!(
-                    source.as_str(),
-                    "graphWorkingTree" | "commit" | "comparison"
-                )
-            {
-                session["mainViewMode"] = json!("graph");
+            session["mainViewMode"] = json!("graph");
+            if session["diffViewerCwd"].is_string() {
                 let cwd = session["diffViewerCwd"].clone();
                 focus(session, "workspace-diff-viewer", &cwd);
-            } else {
-                clear_selection(session);
-                session["mainViewMode"] = json!("diff");
-                session["diffViewerCwd"] = Value::Null;
-                if session["focusedAuxiliaryPanel"]["id"] == "workspace-diff-viewer" {
-                    session["focusedAuxiliaryPanel"] = Value::Null;
-                }
             }
         }
         "workingTreeFile" | "commitFile" | "comparisonFile" => {

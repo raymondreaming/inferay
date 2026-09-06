@@ -482,21 +482,6 @@ impl Workspace {
                     }
                 }
             }
-            "ensureChatPane" => {
-                let group = self.group(&self.selected_group_id.clone())?;
-                let selected = group
-                    .panes
-                    .iter()
-                    .find(|p| {
-                        Some(&p.id) == group.selected_pane_id.as_ref() && p.agent_kind != "agent"
-                    })
-                    .or_else(|| group.panes.iter().find(|p| p.agent_kind != "agent"));
-                if let Some(pane) = selected {
-                    group.selected_pane_id = Some(pane.id.clone());
-                } else {
-                    group.add(Pane::new(default_kind(action)));
-                }
-            }
             _ => return Err("Unknown workspace action".into()),
         }
         Ok(())

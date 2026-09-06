@@ -9,17 +9,10 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
-import { Route as AppAgentRouteImport } from './routes/_app/agent'
-import { Route as AppImagesRouteImport } from './routes/_app/images'
+import { Route as AppIndexRouteImport } from './routes/_app/index'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AppRoute = AppRouteImport.update({
   id: '/_app',
   getParentRoute: () => rootRouteImport,
@@ -29,61 +22,41 @@ const OnboardingRoute = OnboardingRouteImport.update({
   path: '/onboarding',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AppAgentRoute = AppAgentRouteImport.update({
-  id: '/agent',
-  path: '/agent',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppImagesRoute = AppImagesRouteImport.update({
-  id: '/images',
-  path: '/images',
+const AppIndexRoute = AppIndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => AppRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
+  '/': typeof AppIndexRoute
   '/onboarding': typeof OnboardingRoute
-  '/agent': typeof AppAgentRoute
-  '/images': typeof AppImagesRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
   '/onboarding': typeof OnboardingRoute
-  '/agent': typeof AppAgentRoute
-  '/images': typeof AppImagesRoute
+  '/': typeof AppIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
   '/onboarding': typeof OnboardingRoute
-  '/_app/agent': typeof AppAgentRoute
-  '/_app/images': typeof AppImagesRoute
+  '/_app/': typeof AppIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/onboarding' | '/agent' | '/images'
+  fullPaths: '/' | '/onboarding'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/onboarding' | '/agent' | '/images'
-  id:
-    '__root__' | '/' | '/_app' | '/onboarding' | '/_app/agent' | '/_app/images'
+  to: '/onboarding' | '/'
+  id: '__root__' | '/_app' | '/onboarding' | '/_app/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   OnboardingRoute: typeof OnboardingRoute
 }
 
 declare module '@octanejs/tanstack-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/_app': {
       id: '/_app'
       path: ''
@@ -98,37 +71,27 @@ declare module '@octanejs/tanstack-router' {
       preLoaderRoute: typeof OnboardingRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_app/agent': {
-      id: '/_app/agent'
-      path: '/agent'
-      fullPath: '/agent'
-      preLoaderRoute: typeof AppAgentRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/images': {
-      id: '/_app/images'
-      path: '/images'
-      fullPath: '/images'
-      preLoaderRoute: typeof AppImagesRouteImport
+    '/_app/': {
+      id: '/_app/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
   }
 }
 
 interface AppRouteChildren {
-  AppAgentRoute: typeof AppAgentRoute
-  AppImagesRoute: typeof AppImagesRoute
+  AppIndexRoute: typeof AppIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
-  AppAgentRoute: AppAgentRoute,
-  AppImagesRoute: AppImagesRoute,
+  AppIndexRoute: AppIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   OnboardingRoute: OnboardingRoute,
 }

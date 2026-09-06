@@ -24,7 +24,7 @@ import {
 	SYNTAX_HIGHLIGHT_THEMES,
 	type SyntaxHighlightTheme,
 	useSyntaxHighlightTheme,
-} from "../../../../shared/hooks/useShikiHighlighter.tsx";
+} from "../../../../shared/hooks/useSyntaxHighlight.tsx";
 import { listenWindowEvent } from "../../../../shared/lib/data.ts";
 import { DropdownButton } from "../../../../shared/ui/DropdownButton/index.tsx";
 import {
