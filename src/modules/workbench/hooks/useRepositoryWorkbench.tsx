@@ -1,3 +1,5 @@
+const EMPTY_FILE_GROUPS = { staged: [], modified: [], untracked: [] };
+
 import { useMutation, useQuery } from "@octanejs/tanstack-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
 import { postJson } from "../../../adapters/backend/http.ts";
@@ -23,15 +25,11 @@ import {
 import { useGitStatus } from "../../repository/hooks/useGitStatus.tsx";
 import type { CommitFile } from "../../repository/model/git-graph.ts";
 import type { GitFileEntry } from "../../repository/model/types.ts";
-import {
-	partitionGitFiles,
-	useGitChangeActions,
-} from "../../repository/model/types.ts";
+import { useGitChangeActions } from "../../repository/model/types.ts";
 import {
 	ChangesPanel,
 	visibleGitFiles,
 } from "../changes/components/ChangesPanel/index.tsx";
-import type { DragProps } from "../components/ChatDiffPanel/index.tsx";
 import { ChatDiffPanel } from "../components/ChatDiffPanel/index.tsx";
 import {
 	WorkbenchDiffRail,
@@ -44,6 +42,7 @@ import {
 	DEFAULT_GIT_GRAPH_HISTORY_LIMIT,
 	nextGitGraphHistoryLimit,
 } from "../graph/model/graph-model.ts";
+import type { DragProps } from "../model/workbench-model.ts";
 import {
 	adjacentGitFile,
 	createGitOperations,
@@ -51,6 +50,7 @@ import {
 	DIFF_WIDTH_KEY_PREFIX,
 	type FileContentResponse,
 	GIT_FILE_VIEW_MODE_STORAGE_KEY,
+	type GitWorkspacePanelSession,
 	getFileSelectionAfterToggle,
 	gitWorkbenchDiffRequest,
 	historicalGitQueryContext,
@@ -66,7 +66,6 @@ import {
 	resolveSelectedGraphItems,
 	type SelectedGraphCache,
 	SIDEBAR_WIDTH_KEY,
-	saveGitFileViewMode,
 	TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT,
 } from "../model/workbench-model.ts";
 import {
@@ -130,6 +129,7 @@ export function useRepositoryWorkbench({
 		diffViewerCwd,
 		focusedAuxiliaryPanel,
 		detachedFilePanels,
+		documentSessions,
 		fileRequest,
 		selectedFile,
 		selectedCommitHash,
@@ -138,6 +138,13 @@ export function useRepositoryWorkbench({
 		mainViewMode,
 	} = panelSession;
 	const fileSource = selectedFile?.source;
+	const saveDocumentSession = useCallback(
+		(
+			sessionId: string,
+			session: GitWorkspacePanelSession["documentSessions"][string],
+		) => updatePanelSession({ type: "documents", sessionId, ...session }),
+		[updatePanelSession],
+	);
 
 	const [fileViewMode, setFileViewModeState] = useState(loadGitFileViewMode);
 	useEffect(() => {
@@ -221,10 +228,7 @@ export function useRepositoryWorkbench({
 	const diffViewerProject = diffViewerCwd
 		? (projectMap.get(diffViewerCwd) ?? null)
 		: null;
-	const fileGroups = useMemo(
-		() => partitionGitFiles(project?.files),
-		[project],
-	);
+	const fileGroups = project?.fileGroups ?? EMPTY_FILE_GROUPS;
 	const { staged, modified, untracked } = fileGroups;
 	const graphRevisionsRef = useRef(new Map<string, string>());
 	if (graphCwd && graph.revision) {
@@ -277,13 +281,7 @@ export function useRepositoryWorkbench({
 		staged: sidebarStaged,
 		modified: sidebarModified,
 		untracked: sidebarUntracked,
-	} = useMemo(
-		() =>
-			selectedLinkedWorktreeStatus
-				? partitionGitFiles(selectedLinkedWorktreeStatus.files)
-				: fileGroups,
-		[selectedLinkedWorktreeStatus, fileGroups],
-	);
+	} = selectedLinkedWorktreeStatus?.fileGroups ?? fileGroups;
 	const selectedWorkingTreeCwd = selectedGraphWorktree?.path ?? activeCwd;
 	const openSelectedWorktree = useCallback(() => {
 		if (!selectedGraphWorktree || selectedGraphWorktree.isCurrent) return;
@@ -433,7 +431,7 @@ export function useRepositoryWorkbench({
 				active,
 				cwd: diffViewerCwd,
 				selectedFile,
-				repositoryRevision: diffViewerCwd
+				revision: diffViewerCwd
 					? graphRevisionsRef.current.get(diffViewerCwd)
 					: undefined,
 				fileSource,
@@ -521,7 +519,7 @@ export function useRepositoryWorkbench({
 	);
 	const setFileViewMode = useCallback((mode: "path" | "tree") => {
 		setFileViewModeState(mode);
-		saveGitFileViewMode(mode);
+		writeStoredValue(GIT_FILE_VIEW_MODE_STORAGE_KEY, mode);
 	}, []);
 	const closeFileViewer = useCallback(() => {
 		updatePanelSession({ type: "closeFile", id: "workspace-file-viewer" });
@@ -853,6 +851,7 @@ export function useRepositoryWorkbench({
 			readonly render: (drag: DragProps) => unknown;
 		}> = [];
 		if (fileViewerOpen && fileViewerCwd) {
+			const sessionId = `workspace-file-viewer:${workspaceId}:${fileViewerCwd}`;
 			panels.push({
 				id: "workspace-file-viewer",
 				onSelect: () =>
@@ -864,7 +863,9 @@ export function useRepositoryWorkbench({
 					<DocumentViewer
 						key={fileViewerCwd}
 						cwd={fileViewerCwd}
-						sessionId={`workspace-file-viewer:${workspaceId}:${fileViewerCwd}`}
+						sessionId={sessionId}
+						persistedSession={documentSessions[sessionId]}
+						onSessionChange={saveDocumentSession}
 						openRequest={fileRequest}
 						onClose={closeFileViewer}
 						onFileTabDragStart={startFileDrag.bind(null, drag)}
@@ -886,6 +887,8 @@ export function useRepositoryWorkbench({
 						key={panel.id}
 						cwd={panel.cwd}
 						sessionId={panel.id}
+						persistedSession={documentSessions[panel.id]}
+						onSessionChange={saveDocumentSession}
 						initialFile={panel.initialFile}
 						openRequest={
 							panel.initialFile ? null : { path: panel.path, token: 0 }
@@ -903,9 +906,11 @@ export function useRepositoryWorkbench({
 	}, [
 		closeFileViewer,
 		detachedFilePanels,
+		documentSessions,
 		fileRequest,
 		fileViewerCwd,
 		fileViewerOpen,
+		saveDocumentSession,
 		updatePanelSession,
 		workspaceId,
 	]);

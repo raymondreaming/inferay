@@ -9,28 +9,14 @@ import type {
 	HunkDiff,
 } from "./types.ts";
 
-export function gitDiffQuery(request: DiffRequest): {
-	key: string;
-	url: string;
-} {
-	const view = request.view ?? "full";
-	const endpoint =
-		request.comparisonFrom && request.comparisonTo
-			? `/api/git/comparison-diff?cwd=${encodeURIComponent(request.cwd)}&from=${encodeURIComponent(request.comparisonFrom)}&to=${encodeURIComponent(request.comparisonTo)}&file=${encodeURIComponent(request.file)}&view=${view}`
-			: request.commitHash
-				? `/api/git/commit-diff?cwd=${encodeURIComponent(request.cwd)}&hash=${encodeURIComponent(request.commitHash)}&file=${encodeURIComponent(request.file)}&view=${view}${request.commitParent ? `&parent=${encodeURIComponent(request.commitParent)}` : ""}`
-				: `/api/git/full-diff?cwd=${encodeURIComponent(request.cwd)}&file=${encodeURIComponent(request.file)}&staged=${request.staged}&view=${view}`;
-	return {
-		key: JSON.stringify(request),
-		url: `${endpoint}&revision=${encodeURIComponent(request.repositoryRevision ?? "")}`,
-	};
-}
-
 export async function fetchGitDiff(
 	request: DiffRequest,
 	signal: AbortSignal,
 ): Promise<HunkDiff> {
-	const response = await fetch(gitDiffQuery(request).url, {
+	const query = new URLSearchParams();
+	for (const [key, value] of Object.entries(request))
+		if (value !== undefined) query.set(key, String(value));
+	const response = await fetch(`/api/git/diff?${query}`, {
 		signal: AbortSignal.any([signal, AbortSignal.timeout(12000)]),
 	});
 	if (!response.ok)

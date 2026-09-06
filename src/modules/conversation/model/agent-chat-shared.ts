@@ -38,17 +38,6 @@ export interface AttachedImageInfo {
 	path: string;
 	previewUrl: string;
 }
-type ChatMessagePart =
-	| { type: "text"; content: string }
-	| { type: "thinking"; content: string }
-	| {
-			type: "tool";
-			id: string;
-			name: string;
-			input?: unknown;
-			output?: unknown;
-			error?: string;
-	  };
 interface NativeToolDisplay {
 	label: string;
 	detail?: string;
@@ -81,8 +70,11 @@ export type GoalSystemMessage = {
 export interface NativeChatRender {
 	version: 1;
 	kind: "message" | "edit-group" | "tool-group";
-	groupId: string;
+	groupEnd?: number;
+	groupLeader?: boolean;
 	hidden: boolean;
+	continuesAfter?: boolean;
+	rowId?: string;
 	filePath?: string;
 	edit?: { file_path: string; old_string: string; new_string: string };
 	trailingOutput?: string;
@@ -122,7 +114,6 @@ export interface AgentChatSharedChatMessage {
 	optimistic?: boolean;
 	/** UI interaction notice absent from the authoritative transcript. */
 	localOnly?: boolean;
-	parts?: ChatMessagePart[];
 	isStreaming?: boolean;
 	btwQuestion?: string;
 	images?: string[];
@@ -144,7 +135,6 @@ export interface SlashCommand {
 	id?: string;
 	name: string;
 	description: string;
-	action: "local" | "send";
 	isLocalCommand?: boolean;
 	isFromLibrary?: boolean;
 }
@@ -222,10 +212,13 @@ type RenderItem =
 	  };
 export function getRenderRowKey(row: RenderItem | undefined, index: number) {
 	if (!row) return `row-${index}`;
-	if (row.type === "edit-group")
-		return `edit-group:${row.edits[0]?.render?.groupId ?? row.edits[0]?.id}`;
-	if (row.type === "tool-group") return `tool-group:${row.tools[0]?.id}`;
-	return row.message.id;
+	const message =
+		row.type === "message"
+			? row.message
+			: row.type === "edit-group"
+				? row.edits[0]
+				: row.tools[0];
+	return message?.render?.rowId ?? message?.id ?? `row-${index}`;
 }
 
 export function calculateChatOffsets(
@@ -365,44 +358,35 @@ export function getToolDisplayInfo(
 	);
 }
 export function buildRenderRows(messages: RenderChatMessage[]): RenderItem[] {
-	const items: RenderItem[] = [];
-	for (let i = 0; i < messages.length; i++) {
-		const msg = messages[i]!;
+	return messages.flatMap((msg, index): RenderItem[] => {
 		const render = msg.render;
-		if (render?.hidden) continue;
+		if (
+			render?.hidden ||
+			(render?.kind === "edit-group" && !render.groupLeader)
+		)
+			return [];
 		if (render?.kind === "edit-group" && render.filePath) {
-			const edits = [msg];
-			while (messages[i + 1]?.render?.groupId === render.groupId) {
-				const next = messages[++i]!;
-				if (!next.render?.hidden) edits.push(next);
-			}
-			items.push(
+			const edits = messages.slice(index, render.groupEnd ?? index + 1);
+			return [
 				edits.length > 1
 					? { type: "edit-group", filePath: render.filePath, edits }
 					: { type: "message", message: msg },
-			);
-			continue;
+			];
 		}
-		if (render?.kind === "tool-group") {
-			let next = i + 1;
-			while (messages[next]?.render?.groupId === render.groupId) {
-				if (!messages[next]?.render?.hidden) break;
-				next++;
-			}
-			items.push({
-				type: "tool-group",
-				tools: [msg],
-				continuesAfter: messages[next]?.render?.groupId === render.groupId,
-			});
-			continue;
-		}
-		items.push({ type: "message", message: msg });
-	}
-	return items;
+		if (render?.kind === "tool-group")
+			return [
+				{
+					type: "tool-group",
+					tools: [msg],
+					continuesAfter: render.continuesAfter === true,
+				},
+			];
+		return [{ type: "message", message: msg }];
+	});
 }
 type ChatStateMessage = Pick<
 	AgentChatSharedChatMessage,
-	"id" | "role" | "content" | "parts" | "isStreaming" | "localOnly" | "render"
+	"id" | "role" | "content" | "isStreaming" | "localOnly" | "render"
 >;
 export function appendSystemMessage(
 	messages: ChatStateMessage[],

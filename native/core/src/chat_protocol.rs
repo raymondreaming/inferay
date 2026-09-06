@@ -341,9 +341,46 @@ impl ChatMessageBuffer {
             render["kind"] = Value::String(kind.into());
             render["groupId"] = Value::String(group_id);
             render["hidden"] = Value::Bool(hidden);
+            render["continuesAfter"] = Value::Bool(false);
+            render["groupEnd"] = Value::from(index + 1);
+            render["groupLeader"] = Value::Bool(render["groupId"] == message.id);
+            render["rowId"] = Value::String(if kind == "edit-group" {
+                format!(
+                    "edit-group:{}",
+                    render["groupId"].as_str().unwrap_or(&message.id)
+                )
+            } else if kind == "tool-group" {
+                format!("tool-group:{}", message.id)
+            } else {
+                message.id.clone()
+            });
             self.messages[index]
                 .extra
                 .insert("render".to_owned(), render);
+            if kind != "message"
+                && self.messages[index].extra["render"]["groupId"] != self.messages[index].id
+            {
+                let group_id = self.messages[index].extra["render"]["groupId"].clone();
+                let member = |&candidate: &usize| {
+                    self.messages[candidate].extra["render"]["groupId"] == group_id
+                        && !self.messages[candidate].extra["render"]["hidden"]
+                            .as_bool()
+                            .unwrap_or(false)
+                };
+                let leader = if kind == "edit-group" {
+                    (0..index).find(member)
+                } else {
+                    (0..index).rev().find(member)
+                };
+                if let Some(leader) = leader {
+                    if kind == "edit-group" {
+                        self.messages[leader].extra["render"]["groupEnd"] = Value::from(index + 1);
+                    } else if !hidden {
+                        self.messages[leader].extra["render"]["continuesAfter"] = Value::Bool(true);
+                    }
+                    self.mark_changed(leader);
+                }
+            }
         }
     }
 

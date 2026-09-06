@@ -159,11 +159,11 @@ export async function saveSkillForm(
 		promptTemplate: form.promptTemplate,
 	};
 	if (inlineEdit && selected) {
-		await updateSkill(selected._id, data);
+		await saveSkill(data, selected._id);
 		return { selectedId: selected._id, form: { isEditing: false } };
 	}
 	if (form.isCreating) {
-		const created = await createSkill(data);
+		const created = await saveSkill(data);
 		return { selectedId: created._id, form: INITIAL_SKILL_FORM };
 	}
 	return { selectedId: selected?._id ?? null, form: {} };
@@ -185,18 +185,14 @@ async function refreshSkills() {
 	await queryClient.invalidateQueries({ queryKey: skillsKey });
 }
 
-export async function createSkill(
-	data: Pick<Skill, "name" | "command" | "description" | "promptTemplate">,
-) {
-	return saveSkill("/api/prompts", data, "POST");
-}
-
-export async function updateSkill(id: string, data: Record<string, unknown>) {
-	return saveSkill(`/api/prompts/${id}`, data, "PUT");
-}
-
-async function saveSkill(url: string, data: unknown, method: "POST" | "PUT") {
-	const response = await sendJson(url, data, { method });
+export async function saveSkill(data: Record<string, unknown>, id?: string) {
+	const response = await sendJson(
+		id ? `/api/prompts/${id}` : "/api/prompts",
+		data,
+		{
+			method: id ? "PUT" : "POST",
+		},
+	);
 	if (!response.ok) {
 		const failure = await response.json().catch(() => null);
 		throw new Error(failure?.error ?? `Request failed: ${response.status}`);

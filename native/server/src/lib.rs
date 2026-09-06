@@ -580,7 +580,7 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             ("/api/git/graph", "GET") => {
                 return api_http_response(git_graph(&state, request).await, &request_headers);
             }
-            ("/api/git/commit-diff" | "/api/git/comparison-diff" | "/api/git/full-diff", "GET") => {
+            ("/api/git/diff", "GET") => {
                 return api_http_response(git_diff(&state, request).await, &request_headers);
             }
             ("/api/git/generate-commit-message", "POST") => {
@@ -1138,9 +1138,6 @@ async fn git_comparison_details(state: &ServerState, request: Request) -> ApiRes
 }
 
 async fn git_diff(state: &ServerState, request: Request) -> ApiResult<Response> {
-    let path = request.uri().path();
-    let comparison = path == "/api/git/comparison-diff";
-    let full = path == "/api/git/full-diff";
     // Decode once, retaining the first occurrence of duplicate parameters.
     let query = url::form_urlencoded::parse(request.uri().query().unwrap_or_default().as_bytes())
         .collect::<Vec<_>>();
@@ -1150,6 +1147,9 @@ async fn git_diff(state: &ServerState, request: Request) -> ApiResult<Response> 
             .find(|(name, _)| name == key)
             .map(|(_, value)| value.as_ref())
     };
+    let comparison = value("comparisonFrom").is_some_and(|s| !s.is_empty())
+        && value("comparisonTo").is_some_and(|s| !s.is_empty());
+    let full = !comparison && value("commitHash").is_none_or(|s| s.is_empty());
     let missing = if full {
         "Missing cwd or file parameter"
     } else if comparison {
@@ -1179,19 +1179,23 @@ async fn git_diff(state: &ServerState, request: Request) -> ApiResult<Response> 
         .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "File is not changed"))?;
         return Ok(json_bytes_response(StatusCode::OK, body, request.headers()));
     }
-    let from = value(if comparison { "from" } else { "hash" })
-        .filter(|hash| safe_hash(hash))
-        .ok_or_else(invalid)?
-        .to_owned();
+    let from = value(if comparison {
+        "comparisonFrom"
+    } else {
+        "commitHash"
+    })
+    .filter(|hash| safe_hash(hash))
+    .ok_or_else(invalid)?
+    .to_owned();
     let to = if comparison {
         Some(
-            value("to")
+            value("comparisonTo")
                 .filter(|hash| *hash == "WORKTREE" || safe_hash(hash))
                 .ok_or_else(invalid)?
                 .to_owned(),
         )
     } else {
-        value("parent")
+        value("commitParent")
             .filter(|hash| safe_hash(hash))
             .map(str::to_owned)
     };

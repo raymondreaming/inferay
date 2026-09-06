@@ -36,6 +36,18 @@ pub(super) fn prepare(mut value: Value) -> Value {
                 }
                 let mut tree_order = Vec::new();
                 let tree = children(&root, "", &mut tree_order);
+                let mut groups = json!({"staged":[], "modified":[], "untracked":[]});
+                for file in files {
+                    let group = if file["staged"] == true {
+                        "staged"
+                    } else if file["status"] == "?" {
+                        "untracked"
+                    } else {
+                        "modified"
+                    };
+                    groups[group].as_array_mut().unwrap().push(file.clone());
+                }
+                object.insert("fileGroups".into(), groups);
                 object.insert(
                     "filePresentation".into(),
                     json!({"pathOrder":paths, "treeOrder":tree_order, "tree":tree}),

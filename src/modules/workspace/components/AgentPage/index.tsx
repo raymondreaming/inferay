@@ -244,4 +244,3 @@ export function AgentPage() {
 		</>
 	);
 }
-export { useAgentPaneActions } from "../../model/workspace-model.ts";

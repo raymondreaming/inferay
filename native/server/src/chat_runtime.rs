@@ -1504,7 +1504,8 @@ impl ChatRuntime {
             if Some(id) != exclude {
                 let _ = sender.send(message.clone());
             } else if let Some(update) = &update {
-                let _ = sender.send(json!({"type":"chat:model","paneId":message["paneId"],"modelVersion":1,"transcriptUpdate":update}));
+                let _ = sender.send(json!({"type":"chat:model","paneId":message["paneId"],
+                    "modelVersion":1,"transcriptUpdate":update}));
             }
             if let Some(error) = &persistence_error {
                 let _ = sender.send(error.clone());

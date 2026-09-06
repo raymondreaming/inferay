@@ -1,5 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useCallback, useEffect, useMemo, useState } from "octane";
+import { fetchJson } from "../../../../../adapters/backend/http.ts";
+import { readStoredJson } from "../../../../../adapters/storage/stored-values.ts";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
@@ -10,17 +12,24 @@ import { IconCode, IconX } from "../../../../../shared/ui/Icons/index.tsx";
 import { FileSearch } from "../../../../explorer/components/FileSearch/index.tsx";
 import { FileTypeIcon } from "../../../../explorer/components/FileTypeIcon/index.tsx";
 import { WorkspaceDockHandle } from "../../../components/WorkspaceDockHandle/index.tsx";
-import {
-	fileViewerSessions,
-	mergeRestoredDocuments,
-	persistFileViewerSession,
-	readDocument,
-	readPersistedFileViewerSession,
-	restoreDocumentFiles,
-} from "../../../model/document-session.ts";
-import type { FileContentResponse } from "../../../model/workbench-model.ts";
+import type {
+	FileContentResponse,
+	GitWorkspaceDocumentSession,
+} from "../../../model/workbench-model.ts";
 import { SourcePreview } from "./SourcePreview.tsx";
 import { styles } from "./styles.ts";
+
+const fileViewerSessions = new Map<
+	string,
+	{
+		readonly activePath: string | null;
+		readonly openFiles: FileContentResponse[];
+	}
+>();
+const readDocument = (cwd: string, path: string) =>
+	fetchJson<FileContentResponse>(
+		`/api/files/content?${new URLSearchParams({ cwd, path })}`,
+	);
 
 export const DocumentViewer = memo(function DocumentViewer({
 	cwd,
@@ -32,6 +41,8 @@ export const DocumentViewer = memo(function DocumentViewer({
 	onDragStart,
 	onDragEnd,
 	openRequest,
+	persistedSession,
+	onSessionChange,
 }: {
 	readonly cwd: string;
 	readonly sessionId?: string;
@@ -49,25 +60,51 @@ export const DocumentViewer = memo(function DocumentViewer({
 		readonly path: string;
 		readonly token: number;
 	} | null;
+	readonly persistedSession?: GitWorkspaceDocumentSession;
+	readonly onSessionChange?: (
+		sessionId: string,
+		session: GitWorkspaceDocumentSession,
+	) => void;
 }) {
 	const [error, setError] = useState<string | null>(null);
 	const cachedSession = fileViewerSessions.get(sessionId);
-	const [persistedSession] = useState(() =>
-		cachedSession ? null : readPersistedFileViewerSession(sessionId, cwd),
-	);
+	const [restoredSession] = useState(() => {
+		if (cachedSession) return null;
+		const saved =
+			persistedSession ??
+			readStoredJson<GitWorkspaceDocumentSession | null>(
+				`agent-workspace-files:${sessionId}`,
+				null,
+			);
+		if (saved?.cwd !== cwd || !Array.isArray(saved.paths)) return null;
+		const paths = saved.paths.filter(
+			(path, index) =>
+				typeof path === "string" &&
+				!!path &&
+				saved.paths.indexOf(path) === index,
+		);
+		return {
+			cwd,
+			paths,
+			activePath:
+				typeof saved.activePath === "string" && paths.includes(saved.activePath)
+					? saved.activePath
+					: null,
+		};
+	});
 	const pathsToRestore = useMemo(
 		() =>
-			(persistedSession?.paths ?? []).filter(
+			(restoredSession?.paths ?? []).filter(
 				(path) => path !== initialFile?.path,
 			),
-		[initialFile?.path, persistedSession],
+		[initialFile?.path, restoredSession],
 	);
 	const [openFiles, setOpenFiles] = useState<FileContentResponse[]>(
 		cachedSession?.openFiles ?? (initialFile ? [initialFile] : []),
 	);
 	const [activePath, setActivePath] = useState<string | null>(
 		cachedSession?.activePath ??
-			persistedSession?.activePath ??
+			restoredSession?.activePath ??
 			initialFile?.path ??
 			null,
 	);
@@ -77,25 +114,38 @@ export const DocumentViewer = memo(function DocumentViewer({
 	const activeFile = openFiles.find((file) => file.path === activePath) ?? null;
 
 	useEffect(() => {
-		persistFileViewerSession(
-			sessionId,
-			cwd,
-			{ activePath, openFiles },
-			restoringSession,
-		);
-	}, [activePath, cwd, openFiles, restoringSession, sessionId]);
+		fileViewerSessions.set(sessionId, { activePath, openFiles });
+		if (!restoringSession)
+			onSessionChange?.(sessionId, {
+				cwd,
+				activePath,
+				paths: openFiles.map((file) => file.path),
+			});
+	}, [
+		activePath,
+		cwd,
+		onSessionChange,
+		openFiles,
+		restoringSession,
+		sessionId,
+	]);
 
 	useEffect(() => {
 		if (pathsToRestore.length === 0) return;
 		let cancelled = false;
-		restoreDocumentFiles(cwd, pathsToRestore).then((available) => {
+		Promise.all(
+			pathsToRestore.map((path) => readDocument(cwd, path).catch(() => null)),
+		).then((files) => {
 			if (cancelled) return;
+			const available = files.filter(
+				(file): file is FileContentResponse => file !== null,
+			);
 			setOpenFiles((current) =>
-				mergeRestoredDocuments(
-					current,
-					available,
-					persistedSession?.paths ?? [],
-				),
+				(restoredSession?.paths ?? [])
+					.map((path) =>
+						[...current, ...available].find((file) => file.path === path),
+					)
+					.filter((file): file is FileContentResponse => !!file),
 			);
 			const availablePaths = new Set([
 				...(initialFile ? [initialFile.path] : []),
@@ -111,7 +161,7 @@ export const DocumentViewer = memo(function DocumentViewer({
 		return () => {
 			cancelled = true;
 		};
-	}, [cwd, initialFile, pathsToRestore, persistedSession?.paths]);
+	}, [cwd, initialFile, pathsToRestore, restoredSession]);
 
 	const openFile = useCallback(
 		({ path }: { path: string }) => {
@@ -257,5 +307,3 @@ export const DocumentViewer = memo(function DocumentViewer({
 		</section>
 	);
 });
-
-export type { FileContentResponse } from "../../../model/workbench-model.ts";

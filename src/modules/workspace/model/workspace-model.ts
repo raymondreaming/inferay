@@ -555,10 +555,6 @@ export interface CreateAgentChatDetail {
 export interface FocusAgentChatComposerDetail {
 	paneId: string;
 }
-export const resolveCreateAgentChatCwd = (
-	t: CreateAgentChatTarget,
-	c?: string,
-) => (t === "active-repository" ? c : undefined);
 export const dispatchCreateAgentChat = (
 	target: CreateAgentChatTarget = "active-repository",
 ) =>

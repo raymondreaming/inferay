@@ -7,11 +7,7 @@ import {
 import { surfaceStyles } from "../../../../design-system/styles.stylex.ts";
 import { useSkills } from "../../hooks/useSkills.tsx";
 import type { SkillProposal } from "../../model/skill-library.ts";
-import {
-	createSkill,
-	openSkills,
-	updateSkill,
-} from "../../model/skill-library.ts";
+import { openSkills, saveSkill } from "../../model/skill-library.ts";
 import { styles } from "./styles.ts";
 
 type Outcome = { status: "saved"; skillId: string } | { status: "rejected" };
@@ -66,11 +62,14 @@ export function SkillProposalCard({
 			};
 			const saved =
 				proposal.action === "create"
-					? await createSkill(data)
-					: await updateSkill(proposal.skillId!, {
-							...data,
-							expectedUpdatedAt: proposal.expectedUpdatedAt,
-						});
+					? await saveSkill(data)
+					: await saveSkill(
+							{
+								...data,
+								expectedUpdatedAt: proposal.expectedUpdatedAt,
+							},
+							proposal.skillId!,
+						);
 			finish({ status: "saved", skillId: saved._id });
 			onResult?.(
 				`I approved the skill proposal. Inferay successfully ${proposal.action === "create" ? "created" : "updated"} /${saved.command} (skill ID: ${saved._id}).`,

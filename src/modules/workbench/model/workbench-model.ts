@@ -509,14 +509,14 @@ export function gitWorkbenchDiffRequest({
 	active,
 	cwd,
 	selectedFile,
-	repositoryRevision,
+	revision,
 	fileSource,
 	viewMode,
 }: {
 	active: boolean;
 	cwd: string | null;
 	selectedFile: (SelectedFile & { source: GitWorkspaceDiffSource }) | null;
-	repositoryRevision: string | undefined;
+	revision: string | undefined;
 	fileSource: GitWorkspaceDiffSource | undefined;
 	viewMode: DiffViewMode;
 }): DiffRequest | null {
@@ -525,7 +525,7 @@ export function gitWorkbenchDiffRequest({
 	const comparison = fileSource?.kind === "comparison" ? fileSource : null;
 	return {
 		cwd,
-		repositoryRevision,
+		revision,
 		file: selectedFile.path,
 		staged: selectedFile.staged,
 		commitHash: commit?.commitHash,
@@ -541,6 +541,11 @@ export interface GitWorkspaceDetachedFilePanel<InitialFile = unknown> {
 	readonly path: string;
 	readonly initialFile?: InitialFile;
 }
+export interface GitWorkspaceDocumentSession {
+	readonly cwd: string;
+	readonly activePath: string | null;
+	readonly paths: readonly string[];
+}
 export interface GitWorkspacePanelSession<InitialFile = unknown> {
 	readonly repositoryInitialized: boolean;
 	readonly sidebarVisible: boolean;
@@ -552,6 +557,9 @@ export interface GitWorkspacePanelSession<InitialFile = unknown> {
 		readonly cwd: string;
 	} | null;
 	readonly detachedFilePanels: GitWorkspaceDetachedFilePanel<InitialFile>[];
+	readonly documentSessions: Readonly<
+		Record<string, GitWorkspaceDocumentSession>
+	>;
 	readonly fileRequest: {
 		readonly path: string;
 		readonly token: number;
@@ -580,6 +588,7 @@ export function emptyGitWorkspacePanelSession<
 		diffViewerCwd: null,
 		focusedAuxiliaryPanel: null,
 		detachedFilePanels: [],
+		documentSessions: {},
 		fileRequest: null,
 		selectedFile: null,
 		selectedCommitHash: null,
@@ -606,6 +615,13 @@ export type GitWorkspacePanelAction<InitialFile = unknown> =
 			initialFile?: InitialFile;
 	  }
 	| { type: "closeFile"; id: string }
+	| {
+			type: "documents";
+			sessionId: string;
+			cwd: string;
+			activePath: string | null;
+			paths: readonly string[];
+	  }
 	| { type: "workingTreeFile"; cwd: string; path: string; staged: boolean }
 	| {
 			type: "commitFile";
@@ -637,18 +653,12 @@ export type GitWorkspacePanelAction<InitialFile = unknown> =
 			staged: boolean | null;
 	  };
 
-import {
-	readStoredValue,
-	writeStoredValue,
-} from "../../../adapters/storage/stored-values.ts";
+import { readStoredValue } from "../../../adapters/storage/stored-values.ts";
 export const GIT_FILE_VIEW_MODE_STORAGE_KEY = "inferay-git-file-view-mode";
 export function loadGitFileViewMode(): "path" | "tree" {
 	return readStoredValue(GIT_FILE_VIEW_MODE_STORAGE_KEY) === "path"
 		? "path"
 		: "tree";
-}
-export function saveGitFileViewMode(mode: "path" | "tree"): void {
-	writeStoredValue(GIT_FILE_VIEW_MODE_STORAGE_KEY, mode);
 }
 
 export const SIDEBAR_WIDTH_KEY = "agent-workspace-changes-width";

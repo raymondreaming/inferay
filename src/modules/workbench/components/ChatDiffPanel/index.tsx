@@ -161,16 +161,3 @@ export function ChatDiffPanel(
 		</section>
 	);
 }
-
-export { DiffFilePath } from "./DiffFilePath.tsx";
-export { styles } from "./styles.ts";
-export type {
-	DragProps,
-	GitGraphActionResult,
-	GitOperationActivityPhase,
-	GitOperationErrorKind,
-	GitOperationOutcome,
-	GitRefOperationPreflight,
-	GitRefOperationResult,
-	GraphActionPresentation,
-} from "./useChatDiffPanelState.tsx";

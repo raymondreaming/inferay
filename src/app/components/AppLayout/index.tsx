@@ -126,4 +126,3 @@ export function AppLayout() {
 		</div>
 	);
 }
-export { shellThemeProps, styles } from "./styles.ts";

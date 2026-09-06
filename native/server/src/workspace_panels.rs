@@ -161,6 +161,14 @@ fn apply_action(session: &mut Value, action: &Value) -> ApiResult<Option<String>
                 session["focusedAuxiliaryPanel"] = Value::Null;
             }
         }
+        "documents" => {
+            let session_id = required(action["sessionId"].as_str(), "Missing document session")?;
+            session["documentSessions"][session_id] = json!({
+                "cwd": required(action["cwd"].as_str(), "Missing document cwd")?,
+                "activePath": action["activePath"],
+                "paths": action["paths"],
+            });
+        }
         "dismissDiff" => {
             session["mainViewMode"] = json!("graph");
             if session["diffViewerCwd"].is_string() {
@@ -281,7 +289,7 @@ fn normalize(value: &Value) -> Value {
         "sidebarVisible":value["sidebarVisible"].as_bool().unwrap_or(mode == "graph"),
         "fileViewerOpen":value["fileViewerOpen"] == true,
         "fileViewerCwd":string("fileViewerCwd"), "diffViewerCwd":string("diffViewerCwd"),
-        "focusedAuxiliaryPanel":null, "detachedFilePanels":[], "fileRequest":null, "selectedFile":null,
+        "focusedAuxiliaryPanel":null, "detachedFilePanels":[], "documentSessions":{}, "fileRequest":null, "selectedFile":null,
         "selectedCommitHash":string("selectedCommitHash"),
         "selectedCommitParent":string("selectedCommitParent"),
         "selectedCommitIds":[], "mainViewMode":mode
@@ -301,6 +309,10 @@ fn normalize(value: &Value) -> Value {
             .map(|panel| json!({"id":panel["id"], "cwd":panel["cwd"], "path":panel["path"]}))
             .collect(),
     );
+    session["documentSessions"] = value["documentSessions"]
+        .as_object()
+        .map(|_| value["documentSessions"].clone())
+        .unwrap_or_else(|| json!({}));
     let file = &value["selectedFile"];
     if file["path"].is_string() && file["staged"].is_boolean() {
         session["selectedFile"] =
@@ -336,7 +348,7 @@ fn normalize(value: &Value) -> Value {
     session["sidebarContent"] = json!(if session["mainViewMode"] == "graph" {
         if session["selectedCommitHash"]
             .as_str()
-            .is_some_and(|id| id.starts_with("inferay-wip-"))
+            .is_some_and(|id| id == "wip" || id.starts_with("wip:"))
         {
             "workingTree"
         } else {

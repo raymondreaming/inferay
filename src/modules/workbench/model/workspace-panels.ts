@@ -3,12 +3,9 @@ import { queryClient } from "../../../shared/lib/data.ts";
 import {
 	emptyGitWorkspacePanelSession,
 	type FileContentResponse,
-	type GitWorkspaceDetachedFilePanel,
 	type GitWorkspacePanelAction,
 	type GitWorkspacePanelSession,
 } from "./workbench-model.ts";
-
-type DetachedFilePanel = GitWorkspaceDetachedFilePanel<FileContentResponse>;
 
 type WorkspacePanelSession = GitWorkspacePanelSession<FileContentResponse>;
 
@@ -30,12 +27,7 @@ export function panelQuery(workspaceId: string) {
 	};
 }
 
-/** Preserves local file previews while serial native mutations acknowledge panel identity. */
 export function createWorkspacePanelModel() {
-	const draggedFiles = new Map<
-		string,
-		{ panel: DetachedFilePanel; pending: boolean; workspaceId: string }
-	>();
 	return {
 		mutationOptions: (workspaceId: string) => ({
 			mutationKey: ["workspace-panels", workspaceId],
@@ -47,7 +39,6 @@ export function createWorkspacePanelModel() {
 				workspaceId: string;
 				action: PanelAction;
 			}) => {
-				await queryClient.ensureQueryData(panelQuery(workspaceId));
 				const wireAction = { ...action };
 				if (wireAction.type === "detachFile") delete wireAction.initialFile;
 				return postJson<{
@@ -59,28 +50,29 @@ export function createWorkspacePanelModel() {
 				{ session }: { session: WorkspacePanelSession },
 				{ workspaceId, action }: { workspaceId: string; action: PanelAction },
 			) => {
-				const file =
-					"id" in action && action.id ? draggedFiles.get(action.id) : undefined;
-				if (file && action.type === "detachFile") file.pending = false;
-				if (action.type === "closeFile") draggedFiles.delete(action.id);
-				const panels = session.detachedFilePanels.map((panel) => ({
-					...panel,
-					initialFile: draggedFiles.get(panel.id)?.panel.initialFile,
-				}));
-				for (const entry of draggedFiles.values()) {
-					if (
-						entry.workspaceId === workspaceId &&
-						entry.pending &&
-						!panels.some((panel) => panel.id === entry.panel.id)
-					)
-						panels.push({
-							...entry.panel,
-							initialFile: entry.panel.initialFile,
-						});
-				}
+				const current = queryClient.getQueryData<WorkspacePanelSession>(
+					panelQuery(workspaceId).queryKey,
+				);
+				const pending =
+					action.type === "detachFile"
+						? current?.detachedFilePanels.filter(
+								(panel) =>
+									!session.detachedFilePanels.some(
+										(saved) => saved.id === panel.id,
+									),
+							)
+						: undefined;
 				queryClient.setQueryData(panelQuery(workspaceId).queryKey, {
 					...session,
-					detachedFilePanels: panels,
+					detachedFilePanels: [
+						...session.detachedFilePanels.map((panel) => ({
+							...panel,
+							initialFile: current?.detachedFilePanels.find(
+								(candidate) => candidate.id === panel.id,
+							)?.initialFile,
+						})),
+						...(pending ?? []),
+					],
 				});
 			},
 		}),
@@ -92,11 +84,6 @@ export function createWorkspacePanelModel() {
 					path: action.path,
 					initialFile: action.initialFile,
 				};
-				draggedFiles.set(action.id, {
-					panel,
-					pending: true,
-					workspaceId,
-				});
 				queryClient.setQueryData<WorkspacePanelSession>(
 					panelQuery(workspaceId).queryKey,
 					(current) =>

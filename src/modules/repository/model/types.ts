@@ -202,6 +202,11 @@ export interface GitFileEntry {
 	deletions?: number;
 }
 export interface GitProjectStatus {
+	fileGroups: {
+		staged: GitFileEntry[];
+		modified: GitFileEntry[];
+		untracked: GitFileEntry[];
+	};
 	filePresentation?: GitFilePresentation;
 	cwd: string;
 	name: string;
@@ -260,7 +265,7 @@ export interface HunkDiff {
 // Request parameters for loading a diff
 export interface DiffRequest {
 	cwd: string;
-	repositoryRevision?: string;
+	revision?: string;
 	file: string;
 	staged: boolean;
 	commitHash?: string;
@@ -281,16 +286,3 @@ export type DiffMinimapSegment = {
 	startLine: number;
 	endLine: number;
 };
-
-export function partitionGitFiles(files: readonly GitFileEntry[] = []) {
-	const groups: {
-		staged: GitFileEntry[];
-		modified: GitFileEntry[];
-		untracked: GitFileEntry[];
-	} = { staged: [], modified: [], untracked: [] };
-	for (const file of files)
-		groups[
-			file.staged ? "staged" : file.status === "?" ? "untracked" : "modified"
-		].push(file);
-	return groups;
-}

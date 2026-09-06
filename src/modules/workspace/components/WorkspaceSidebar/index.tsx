@@ -27,7 +27,6 @@ import {
 	loadAgentLayoutMode,
 	loadSidebarCollapsed,
 	mutateAgentWorkspaceState,
-	resolveCreateAgentChatCwd,
 	setAgentLayoutMode,
 	useWorkspaceState,
 	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
@@ -102,14 +101,10 @@ export function WorkspaceSidebar() {
 				navigate({ to: "/" });
 				return;
 			}
-			const cwd = resolveCreateAgentChatCwd(
-				target,
-				workspaces.repositories.activeWorkspace?.cwd,
-			);
 			await mutateAgentWorkspaceState({
 				type: "addPane",
 				agentKind: loadDefaultChatSettings().agentKind,
-				cwd,
+				cwd: workspaces.repositories.activeWorkspace?.cwd,
 			});
 			navigate({ to: "/" });
 		},

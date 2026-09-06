@@ -227,14 +227,3 @@ export function useChatDiffPanelState(props: {
 		operationActivity,
 	};
 }
-export type {
-	DragProps,
-	GitGraphActionResult,
-	GitOperationActivityPhase,
-	GitOperationErrorKind,
-	GitOperationOutcome,
-	GitRefOperationPreflight,
-	GitRefOperationRequest,
-	GitRefOperationResult,
-	GraphActionPresentation,
-} from "../../model/workbench-model.ts";

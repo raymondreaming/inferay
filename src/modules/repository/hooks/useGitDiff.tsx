@@ -1,11 +1,11 @@
 import { useQuery } from "@octanejs/tanstack-query";
 import { queryClient } from "../../../shared/lib/data.ts";
 
-import { fetchGitDiff, gitDiffQuery } from "../model/git-graph.ts";
+import { fetchGitDiff } from "../model/git-graph.ts";
 import type { DiffRequest } from "../model/types.ts";
 
 export function useGitDiff(request: DiffRequest | null = null) {
-	const key = request ? gitDiffQuery(request).key : "";
+	const key = request ? JSON.stringify(request) : "";
 	const query = useQuery(
 		{
 			queryKey: ["git-diff", request?.cwd, key],
