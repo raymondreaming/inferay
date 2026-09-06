@@ -1,6 +1,7 @@
 use native_files::{image_content_type, is_image_extension};
 mod git_actions;
 mod git_changes;
+mod workspace_dock;
 mod workspace_panels;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -555,6 +556,7 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
 
             ("/api/agents/account-status", "GET") => agent_account::account_status(&state).await,
             ("/api/workspace/panels", "POST") => workspace_panels::handle(&state, request).await,
+            ("/api/workspace/dock", "POST") => workspace_dock::handle(&state, request).await,
 
             ("/api/files/search", "GET") => search_files(&state, request).await,
             ("/api/files/list", "GET") => list_project_files(&state, request).await,

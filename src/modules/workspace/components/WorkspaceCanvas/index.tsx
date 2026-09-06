@@ -7,30 +7,16 @@ import {
 	useRef,
 	useState,
 } from "octane";
-import {
-	readStoredValue,
-	writeStoredValue,
-} from "../../../../adapters/storage/stored-values.ts";
+import { postJson } from "../../../../adapters/backend/http.ts";
 import {
 	lockPointerSelection,
 	trackPointerResize,
 } from "../../../../shared/lib/data.ts";
 
 import {
-	constrainDockTreeColumns,
-	createDockTree,
 	type DockEdge,
 	type DockTree,
-	dockAxisSpan,
-	dockPanelIds,
-	getGridCanvasWidthPercent,
-	getResponsiveGridColumns,
-	insertDockPanel,
-	insertDockPanelAtOuterEdge,
-	moveDockPanel,
-	moveDockPanelToOuterEdge,
-	parseDockTree,
-	reconcileDockTree,
+	MIN_RESPONSIVE_PANE_WIDTH,
 	resizeDockSplit,
 } from "../../../workbench/model/workbench-model.ts";
 import type { WorkspaceCanvasProps } from "../../model/workspace-model.ts";
@@ -83,7 +69,6 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 		readonly id: string;
 		readonly edge: DockEdge;
 	} | null>(null);
-	const dockStorageKey = `agent-workspace-dock:${workspaceId}`;
 	const auxiliaryPanelIdKey = auxiliaryPanels
 		.map((panel) => panel.id)
 		.join("\u0000");
@@ -94,44 +79,65 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 		],
 		[auxiliaryPanelIdKey, panes],
 	);
-	const [dockTree, setDockTree] = useState<DockTree | null>(() =>
-		parseDockTree(readStoredValue(dockStorageKey)),
-	);
-	const layoutPresetRef = useRef(`${layoutMode}:${columns}`);
-	const canonicalDockTree = useMemo(
-		() => reconcileDockTree(dockTree, panelIds, columns),
-		[columns, dockTree, panelIds],
-	);
+	const [layout, setLayout] = useState<{
+		tree: DockTree | null;
+		horizontal: number;
+		vertical: number;
+	}>({ tree: null, horizontal: 1, vertical: 1 });
+	const renderedDockTree = layout.tree;
+	const [dockError, setDockError] = useState<string | null>(null);
 	const effectiveColumns =
 		layoutMode === "grid"
 			? Math.max(1, Math.min(columns, availableGridColumns))
 			: columns;
-	const renderedDockTree = useMemo(() => {
-		if (
-			!canonicalDockTree ||
-			layoutMode !== "grid" ||
-			effectiveColumns >= columns ||
-			dockAxisSpan(canonicalDockTree, "horizontal") <= effectiveColumns
-		) {
-			return canonicalDockTree;
-		}
-		return createDockTree(dockPanelIds(canonicalDockTree), effectiveColumns);
-	}, [canonicalDockTree, columns, effectiveColumns, layoutMode]);
+	const requestRevision = useRef(0);
+	const requests = useRef(Promise.resolve());
+	const panelKey = JSON.stringify(panelIds);
+	const updateDock = useCallback(
+		(action?: object) => {
+			const revision = ++requestRevision.current;
+			const result = requests.current.then(async () => {
+				try {
+					const result = await postJson<typeof layout>("/api/workspace/dock", {
+						workspaceId,
+						ids: JSON.parse(panelKey),
+						columns,
+						mode: layoutMode,
+						visibleColumns: effectiveColumns,
+						action,
+					});
+					if (revision === requestRevision.current) {
+						setLayout(result);
+						setDockError(null);
+					}
+					return true;
+				} catch {
+					if (revision === requestRevision.current)
+						setDockError("Could not save pane layout. Please retry.");
+					return false;
+				}
+			});
+			requests.current = result.then(() => {});
+			return result;
+		},
+		[workspaceId, panelKey, columns, layoutMode, effectiveColumns],
+	);
+	useEffect(() => {
+		void updateDock();
+		return () => {
+			requestRevision.current++;
+		};
+	}, [updateDock]);
 	const renderedDockTreeRef = useRef(renderedDockTree);
 	renderedDockTreeRef.current = renderedDockTree;
-	const dockHorizontalSpan = renderedDockTree
-		? Math.max(1, dockAxisSpan(renderedDockTree, "horizontal"))
-		: 1;
-	const dockVerticalSpan = renderedDockTree
-		? Math.max(1, dockAxisSpan(renderedDockTree, "vertical"))
-		: 1;
+	const { horizontal: dockHorizontalSpan, vertical: dockVerticalSpan } = layout;
 	const dockCanvasMinHeight = `max(${Math.max(
 		100,
 		(dockVerticalSpan / Math.max(1, rows)) * 100,
 	)}%, ${dockVerticalSpan * MIN_GRID_ROW_HEIGHT}px)`;
 	const dockCanvasWidth =
 		layoutMode === "grid" && renderedDockTree
-			? `${getGridCanvasWidthPercent(dockHorizontalSpan, effectiveColumns)}%`
+			? `${(dockHorizontalSpan / effectiveColumns) * 100}%`
 			: "100%";
 	const sparseGrid =
 		layoutMode === "grid" &&
@@ -144,25 +150,13 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 		setDockTarget(null);
 	}, []);
 	useEffect(() => {
-		const layoutPreset = `${layoutMode}:${columns}`;
-		const presetChanged = layoutPresetRef.current !== layoutPreset;
-		layoutPresetRef.current = layoutPreset;
-		const stored = parseDockTree(readStoredValue(dockStorageKey));
-		setDockTree(
-			presetChanged && layoutMode === "grid"
-				? createDockTree(panelIds, columns)
-				: reconcileDockTree(stored, panelIds, columns),
-		);
-	}, [columns, dockStorageKey, layoutMode, panelIds]);
-	useEffect(() => {
-		if (!canonicalDockTree) return;
-		writeStoredValue(dockStorageKey, JSON.stringify(canonicalDockTree));
-	}, [canonicalDockTree, dockStorageKey]);
-	useEffect(() => {
 		const container = containerRef.current;
 		if (!container || layoutMode !== "grid") return;
 		const updateAvailableColumns = (width: number) => {
-			const next = getResponsiveGridColumns(width, columns);
+			const next = Math.max(
+				1,
+				Math.min(4, columns, Math.floor(width / MIN_RESPONSIVE_PANE_WIDTH)),
+			);
 			setAvailableGridColumns((current) => (current === next ? current : next));
 		};
 		updateAvailableColumns(container.getBoundingClientRect().width);
@@ -184,44 +178,21 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 				readonly complete: () => void;
 			} | null,
 		) => {
-			if (!renderedDockTree) return;
-			let nextTree: DockTree;
-			if (target.id === ROOT_DOCK_TARGET_ID && target.edge !== "center") {
-				nextTree = pendingPanel
-					? insertDockPanelAtOuterEdge(
-							renderedDockTree,
-							pendingPanel.id,
-							target.edge,
-						)
-					: moveDockPanelToOuterEdge(renderedDockTree, sourceId, target.edge);
-			} else {
-				nextTree = pendingPanel
-					? insertDockPanel(
-							renderedDockTree,
-							pendingPanel.id,
-							target.id,
-							target.edge,
-						)
-					: moveDockPanel(renderedDockTree, sourceId, target.id, target.edge);
-			}
-			if (layoutMode === "grid") {
-				nextTree = constrainDockTreeColumns(nextTree, effectiveColumns);
-			}
-			writeStoredValue(dockStorageKey, JSON.stringify(nextTree));
-			setDockTree(nextTree);
-			pendingPanel?.complete();
-			if (!pendingPanel && panes.some((pane) => pane.id === sourceId)) {
-				props.onSelectPane(sourceId);
-			}
+			void updateDock({
+				type: "place",
+				source: pendingPanel?.id ?? sourceId,
+				target: target.id,
+				edge: target.edge,
+				insert: !!pendingPanel,
+				outer: target.id === ROOT_DOCK_TARGET_ID && target.edge !== "center",
+			}).then((saved) => {
+				if (!saved) return;
+				pendingPanel?.complete();
+				if (!pendingPanel && panes.some((pane) => pane.id === sourceId))
+					props.onSelectPane(sourceId);
+			});
 		},
-		[
-			dockStorageKey,
-			effectiveColumns,
-			layoutMode,
-			panes,
-			props.onSelectPane,
-			renderedDockTree,
-		],
+		[updateDock, panes, props.onSelectPane],
 	);
 
 	const beginPointerDock = useCallback(
@@ -399,20 +370,28 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 			event.preventDefault();
 			const pointerId = event.pointerId;
 			event.currentTarget.setPointerCapture?.(pointerId);
+			let finalRatio: number | undefined;
 			const resize = (moveEvent: PointerEvent) => {
 				const rect = splitElement.getBoundingClientRect();
 				const ratio =
 					direction === "horizontal"
 						? (moveEvent.clientX - rect.left) / Math.max(1, rect.width)
 						: (moveEvent.clientY - rect.top) / Math.max(1, rect.height);
-				setDockTree(() => {
+				finalRatio = ratio;
+				setLayout((current) => {
 					const rendered = renderedDockTreeRef.current;
-					return rendered ? resizeDockSplit(rendered, path, ratio) : rendered;
+					return {
+						...current,
+						tree: rendered ? resizeDockSplit(rendered, path, ratio) : rendered,
+					};
 				});
 			};
-			trackPointerResize(pointerId, resize);
+			trackPointerResize(pointerId, resize, () => {
+				if (finalRatio !== undefined)
+					void updateDock({ type: "resize", path, ratio: finalRatio });
+			});
 		},
-		[],
+		[updateDock],
 	);
 
 	const handleRowWheelCapture = useCallback(
@@ -640,6 +619,14 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 			data-agent-grid-scroll-area
 			onWheelCapture={handleGridWheelCapture}
 		>
+			{dockError && (
+				<div role="alert">
+					{dockError}{" "}
+					<button type="button" onClick={() => void updateDock()}>
+						Reload layout
+					</button>
+				</div>
+			)}
 			<div
 				{...stylex.props(
 					styles.dockCanvas,
