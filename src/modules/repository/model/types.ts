@@ -363,11 +363,6 @@ export interface HunkDiffStats {
 	hunks: number;
 	lines: number;
 }
-export type GitInteractiveRebaseStep = {
-	readonly hash: string;
-	readonly action: "pick" | "reword" | "squash" | "drop";
-	readonly message?: string;
-};
 export type DiffMinimapSegment = {
 	type: "add" | "remove";
 	side: "left" | "right" | "full";

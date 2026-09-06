@@ -34,12 +34,12 @@ use inferay_core::path_security::{
 };
 use inferay_core::prompts::{PromptError, PromptStore};
 use inferay_native_diff::{
-    GitInteractiveRebaseStep, checkout_git_branch, commit_git, finish_git_ref_operation,
-    get_git_branches, get_git_commit_details_for_parent, get_git_commit_hunk_diff_for_parent,
+    checkout_git_branch, commit_git, finish_git_ref_operation, get_git_branches,
+    get_git_commit_details_for_parent, get_git_commit_hunk_diff_for_parent,
     get_git_comparison_details, get_git_comparison_hunk_diff, get_git_status,
     get_git_worktree_comparison_details, get_git_worktree_comparison_hunk_diff,
-    perform_git_graph_action_with_targets, perform_git_interactive_rebase,
-    perform_git_ref_operation, preflight_git_ref_operation, stage_git, unstage_git,
+    perform_git_graph_action_with_targets, perform_git_ref_operation, preflight_git_ref_operation,
+    stage_git, unstage_git,
 };
 use percent_encoding::percent_decode_str;
 use reqwest::Client;
@@ -240,8 +240,6 @@ struct GitRefOperationBody {
     action: Option<String>,
     source: Option<String>,
     target: Option<String>,
-    #[serde(default)]
-    steps: Vec<GitInteractiveRebaseStep>,
 }
 
 #[derive(Deserialize)]
@@ -906,11 +904,7 @@ async fn git_ref_operation(state: &ServerState, request: Request) -> ApiResult {
         let source = required(body.source, "Missing source branch")?;
         let target = required(body.target, "Missing target branch")?;
         tokio::task::spawn_blocking(move || {
-            if operation == "interactiveRebase" {
-                perform_git_interactive_rebase(&cwd, &source, &target, &body.steps)
-            } else {
-                perform_git_ref_operation(&cwd, &operation, &source, &target)
-            }
+            perform_git_ref_operation(&cwd, &operation, &source, &target)
         })
         .await?
     } else {

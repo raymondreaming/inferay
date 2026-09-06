@@ -7,9 +7,8 @@ pub use graph_semantics::{GraphAncestry, GraphNavigation};
 use inferay_core::path_security::{is_safe_relative_path, AllowedPaths};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use wait_timeout::ChildExt;
@@ -171,27 +170,7 @@ pub struct GitRefOperationPreflight {
     pub can_merge: bool,
     pub can_fast_forward: bool,
     pub can_rebase: bool,
-    pub can_interactive_rebase: bool,
-    pub interactive_rebase_commits: Vec<GitCommitSummary>,
-    pub interactive_rebase_plan: Vec<GitInteractiveRebaseStep>,
     pub reasons: Vec<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GitInteractiveRebaseStep {
-    pub hash: String,
-    pub action: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-pub struct GitCommitSummary {
-    pub hash: String,
-    pub message: String,
-    pub author: String,
-    pub date: String,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -1525,19 +1504,6 @@ pub fn get_git_stashes(cwd: &str) -> Vec<GitStash> {
         .collect()
 }
 
-fn repository_git_path(cwd: &str, name: &str) -> Option<PathBuf> {
-    run_git(&["rev-parse", "--git-path", name], cwd).and_then(|value| {
-        let path = Path::new(value.trim());
-        if path.as_os_str().is_empty() {
-            None
-        } else if path.is_absolute() {
-            Some(path.to_path_buf())
-        } else {
-            Some(Path::new(cwd).join(path))
-        }
-    })
-}
-
 pub fn get_git_repository_operation_state(cwd: &str) -> GitRepositoryOperationState {
     let git_dir = run_git(&["rev-parse", "--absolute-git-dir"], cwd);
     let exists = |name: &str| {
@@ -1799,43 +1765,6 @@ fn ref_operation_result(
     }
 }
 
-fn interactive_rebase_commits(cwd: &str, source: &str, target: &str) -> Vec<GitCommitSummary> {
-    let range = format!("{target}..{source}");
-    run_git(
-        &[
-            "log",
-            "--reverse",
-            "--topo-order",
-            "--no-merges",
-            "--format=%H%x1f%s%x1f%an%x1f%aI",
-            &range,
-        ],
-        cwd,
-    )
-    .unwrap_or_default()
-    .lines()
-    .filter_map(|line| {
-        let mut fields = line.splitn(4, '\x1f');
-        let hash = fields.next()?.trim();
-        if hash.is_empty() {
-            return None;
-        }
-        Some(GitCommitSummary {
-            hash: hash.to_string(),
-            message: fields.next().unwrap_or_default().to_string(),
-            author: fields.next().unwrap_or_default().to_string(),
-            date: fields.next().unwrap_or_default().to_string(),
-        })
-    })
-    .collect()
-}
-
-fn interactive_rebase_has_merge(cwd: &str, source: &str, target: &str) -> bool {
-    let range = format!("{target}..{source}");
-    run_git(&["rev-list", "--merges", "--max-count=1", &range], cwd)
-        .is_some_and(|value| !value.trim().is_empty())
-}
-
 pub fn preflight_git_ref_operation(
     cwd: &str,
     source: &str,
@@ -1861,15 +1790,6 @@ pub fn preflight_git_ref_operation(
     let shared_ancestor =
         run_git(&["merge-base", source, target], cwd).is_some_and(|value| !value.trim().is_empty());
     let can_rebase = common && !source_in_other_worktree && shared_ancestor;
-    let interactive_rebase_commits = if can_rebase {
-        interactive_rebase_commits(cwd, source, target)
-    } else {
-        Vec::new()
-    };
-    let interactive_rebase_has_merge =
-        can_rebase && interactive_rebase_has_merge(cwd, source, target);
-    let can_interactive_rebase =
-        can_rebase && !interactive_rebase_commits.is_empty() && !interactive_rebase_has_merge;
     let can_fast_forward = can_merge
         && Command::new("git")
             .args(["merge-base", "--is-ancestor", target, source])
@@ -1897,13 +1817,6 @@ pub fn preflight_git_ref_operation(
     }
     if common && !shared_ancestor {
         reasons.push("The branches do not share a common ancestor".to_string());
-    } else if can_rebase && interactive_rebase_commits.is_empty() {
-        reasons.push(format!("{source} has no commits to replay onto {target}"));
-    } else if interactive_rebase_has_merge {
-        reasons.push(
-            "Interactive rebase is unavailable while the source range contains merge commits"
-                .to_string(),
-        );
     }
     GitRefOperationPreflight {
         source: source.to_string(),
@@ -1911,31 +1824,7 @@ pub fn preflight_git_ref_operation(
         can_merge,
         can_fast_forward,
         can_rebase,
-        can_interactive_rebase,
-        interactive_rebase_plan: interactive_rebase_commits
-            .iter()
-            .map(|commit| GitInteractiveRebaseStep {
-                hash: commit.hash.clone(),
-                action: "pick".into(),
-                message: Some(commit.message.clone()),
-            })
-            .collect(),
-        interactive_rebase_commits,
         reasons,
-    }
-}
-
-fn shell_single_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
-}
-
-fn interactive_rebase_state_dir(cwd: &str) -> Option<PathBuf> {
-    repository_git_path(cwd, "inferay-interactive-rebase")
-}
-
-fn cleanup_interactive_rebase_state(cwd: &str) {
-    if let Some(path) = interactive_rebase_state_dir(cwd) {
-        let _ = fs::remove_dir_all(path);
     }
 }
 
@@ -1962,165 +1851,6 @@ fn invalid_ref_operation(cwd: &str, operation: &str, error: String) -> GitOperat
         conflicts: git_conflicts(cwd),
         ..ref_operation_failure(cwd, operation, GitOperationErrorKind::InvalidInput, error)
     }
-}
-
-pub fn perform_git_interactive_rebase(
-    cwd: &str,
-    source: &str,
-    target: &str,
-    steps: &[GitInteractiveRebaseStep],
-) -> GitOperationResult {
-    const OPERATION: &str = "interactiveRebase";
-    let preflight = preflight_git_ref_operation(cwd, source, target);
-    if !preflight.can_interactive_rebase {
-        let reason = if preflight.reasons.is_empty() {
-            "Interactive rebase is not valid for these branches".to_string()
-        } else {
-            preflight.reasons.join(". ")
-        };
-        return invalid_ref_operation(cwd, OPERATION, reason);
-    }
-
-    let expected = preflight
-        .interactive_rebase_commits
-        .iter()
-        .map(|commit| commit.hash.as_str())
-        .collect::<HashSet<_>>();
-    let supplied = steps
-        .iter()
-        .map(|step| step.hash.as_str())
-        .collect::<HashSet<_>>();
-    if steps.len() != expected.len() || supplied != expected {
-        return invalid_ref_operation(
-            cwd,
-            OPERATION,
-            "The interactive rebase plan must contain every source commit exactly once".to_string(),
-        );
-    }
-
-    let messages = preflight
-        .interactive_rebase_commits
-        .iter()
-        .map(|commit| (commit.hash.as_str(), commit.message.as_str()))
-        .collect::<HashMap<_, _>>();
-    let mut has_kept_commit = false;
-    for step in steps {
-        match step.action.as_str() {
-            "pick" => has_kept_commit = true,
-            "reword" => {
-                if step
-                    .message
-                    .as_deref()
-                    .is_none_or(|message| message.trim().is_empty())
-                {
-                    return invalid_ref_operation(
-                        cwd,
-                        OPERATION,
-                        format!("A replacement message is required for {}", step.hash),
-                    );
-                }
-                has_kept_commit = true;
-            }
-            "squash" if !has_kept_commit => {
-                return invalid_ref_operation(
-                    cwd,
-                    OPERATION,
-                    "The first retained commit cannot be squashed".to_string(),
-                );
-            }
-            "squash" | "drop" => {}
-            _ => {
-                return invalid_ref_operation(
-                    cwd,
-                    OPERATION,
-                    format!("Unsupported interactive rebase action: {}", step.action),
-                );
-            }
-        }
-    }
-
-    let Some(state_dir) = interactive_rebase_state_dir(cwd) else {
-        return invalid_ref_operation(
-            cwd,
-            OPERATION,
-            "Unable to resolve repository metadata directory".to_string(),
-        );
-    };
-    cleanup_interactive_rebase_state(cwd);
-    let prepare = || -> Result<Command, String> {
-        fs::create_dir_all(&state_dir).map_err(|error| error.to_string())?;
-        let todo_path = state_dir.join("todo");
-        let editor_path = state_dir.join("sequence-editor.sh");
-        let mut todo = String::new();
-        for (index, step) in steps.iter().enumerate() {
-            let subject = messages
-                .get(step.hash.as_str())
-                .copied()
-                .unwrap_or_default()
-                .replace(['\r', '\n'], " ");
-            match step.action.as_str() {
-                "reword" => {
-                    let message_path = state_dir.join(format!("message-{index}"));
-                    fs::write(
-                        &message_path,
-                        format!("{}\n", step.message.as_deref().unwrap_or_default().trim()),
-                    )
-                    .map_err(|error| error.to_string())?;
-                    todo.push_str(&format!("pick {} {}\n", step.hash, subject));
-                    todo.push_str(&format!(
-                        "exec git -c commit.gpgSign=false commit --amend --no-verify -F {}\n",
-                        shell_single_quote(&message_path.to_string_lossy())
-                    ));
-                }
-                action => todo.push_str(&format!("{action} {} {}\n", step.hash, subject)),
-            }
-        }
-        fs::write(&todo_path, todo)
-            .and_then(|_| {
-                fs::write(
-                    &editor_path,
-                    "#!/bin/sh\ncp \"$INFERAY_REBASE_TODO\" \"$1\"\n",
-                )
-            })
-            .map_err(|error| error.to_string())?;
-        let checkout = checkout_git_branch(cwd, source);
-        if !checkout.ok {
-            return Err(checkout
-                .error
-                .unwrap_or_else(|| format!("Unable to check out {source}")));
-        }
-        let merge_base = run_git(&["merge-base", source, target], cwd)
-            .ok_or("The branches do not share a common ancestor")?;
-        let mut command = Command::new("git");
-        command
-            .args([
-                "rebase",
-                "--interactive",
-                "--onto",
-                target,
-                merge_base.trim(),
-                source,
-            ])
-            .current_dir(cwd)
-            .env(
-                "GIT_SEQUENCE_EDITOR",
-                format!("sh {}", shell_single_quote(&editor_path.to_string_lossy())),
-            )
-            .env("INFERAY_REBASE_TODO", &todo_path)
-            .env("GIT_EDITOR", "true");
-        Ok(command)
-    };
-    let result = match prepare() {
-        Ok(mut command) => ref_operation_result(cwd, OPERATION, command.output()),
-        Err(error) => {
-            cleanup_interactive_rebase_state(cwd);
-            return invalid_ref_operation(cwd, OPERATION, error);
-        }
-    };
-    if get_git_repository_operation_state(cwd).kind == GitRepositoryOperationKind::Idle {
-        cleanup_interactive_rebase_state(cwd);
-    }
-    result
 }
 
 pub fn perform_git_ref_operation(
@@ -2187,8 +1917,15 @@ pub fn perform_git_ref_operation(
         "fastForward" => {
             command.args(["merge", "--ff-only", source]);
         }
-        _ => {
+        "rebase" => {
             command.args(["rebase", target]).env("GIT_EDITOR", "true");
+        }
+        _ => {
+            return invalid_ref_operation(
+                cwd,
+                operation,
+                "Unsupported branch operation".to_string(),
+            );
         }
     }
     let output = command.output();
@@ -2202,9 +1939,6 @@ pub fn finish_git_ref_operation(cwd: &str, operation: &str, action: &str) -> Git
         ("rebase", "continue") => &["rebase", "--continue"],
         ("rebase", "skip") => &["rebase", "--skip"],
         ("rebase", "abort") => &["rebase", "--abort"],
-        ("interactiveRebase", "continue") => &["rebase", "--continue"],
-        ("interactiveRebase", "skip") => &["rebase", "--skip"],
-        ("interactiveRebase", "abort") => &["rebase", "--abort"],
         ("cherryPick", "continue") => &["cherry-pick", "--continue"],
         ("cherryPick", "skip") => &["cherry-pick", "--skip"],
         ("cherryPick", "abort") => &["cherry-pick", "--abort"],
@@ -2228,14 +1962,7 @@ pub fn finish_git_ref_operation(cwd: &str, operation: &str, action: &str) -> Git
         .current_dir(cwd)
         .env("GIT_EDITOR", "true")
         .output();
-    let result = ref_operation_result(cwd, operation, output);
-    if get_git_repository_operation_state(cwd).kind == GitRepositoryOperationKind::Idle
-        && (operation == "interactiveRebase"
-            || interactive_rebase_state_dir(cwd).is_some_and(|path| path.exists()))
-    {
-        cleanup_interactive_rebase_state(cwd);
-    }
-    result
+    ref_operation_result(cwd, operation, output)
 }
 
 fn git_operation_error(cwd: &str, action: &str, error: impl Into<String>) -> GitOperationResult {

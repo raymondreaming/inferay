@@ -33,7 +33,6 @@ export function visibleGitFiles<T extends { path: string }>(
 	});
 }
 
-import type { GitInteractiveRebaseStep } from "../../repository/model/types.ts";
 import type { GitGraphActionRequest } from "../graph/components/CommitGraph/index.tsx";
 export type DragProps = {
 	readonly draggable: boolean;
@@ -56,19 +55,13 @@ export type GitOperationResult<Operation extends string> = {
 	readonly error?: string;
 };
 export type GitRefOperationResult = GitOperationResult<
-	| "merge"
-	| "rebase"
-	| "interactiveRebase"
-	| "fastForward"
-	| "cherryPick"
-	| "revert"
+	"merge" | "rebase" | "fastForward" | "cherryPick" | "revert"
 >;
 export type GitRefOperationRequest = {
 	operation: GitRefOperationResult["operation"];
 	action: "start" | "continue" | "skip" | "abort";
 	source?: string;
 	target?: string;
-	steps?: GitInteractiveRebaseStep[];
 };
 export type GitRefOperationPreflight = {
 	readonly source: string;
@@ -76,14 +69,6 @@ export type GitRefOperationPreflight = {
 	readonly canMerge: boolean;
 	readonly canFastForward: boolean;
 	readonly canRebase: boolean;
-	readonly canInteractiveRebase: boolean;
-	readonly interactiveRebaseCommits: {
-		hash: string;
-		message: string;
-		author: string;
-		date: string;
-	}[];
-	readonly interactiveRebasePlan: GitInteractiveRebaseStep[];
 	readonly reasons: string[];
 };
 export type GitOperationOutcome =

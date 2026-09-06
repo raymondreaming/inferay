@@ -1,10 +1,9 @@
 import { useQuery } from "@octanejs/tanstack-query";
-import { useCallback, useEffect, useState } from "octane";
+import { useCallback, useState } from "octane";
 import { postJson } from "../../../../adapters/backend/http.ts";
 import { queryClient } from "../../../../shared/lib/data.ts";
 import type { useGitDiff } from "../../../repository/hooks/useGitDiff.tsx";
 import type { useGitGraph } from "../../../repository/hooks/useGitGraph.tsx";
-import type { GitInteractiveRebaseStep } from "../../../repository/model/types.ts";
 import type { SelectedFile } from "../../changes/components/ChangesPanel/index.tsx";
 import type { DiffViewMode } from "../../diff/components/DiffViewer/index.tsx";
 import type {
@@ -82,24 +81,6 @@ export function useChatDiffPanelState(props: {
 	const [refOperationResult, setRefOperationResult] =
 		useState<GitRefOperationResult | null>(null);
 	const [refOperationRunning, setRefOperationRunning] = useState(false);
-	const [interactiveRebaseOpen, setInteractiveRebaseOpen] = useState(false);
-	const [interactiveRebasePlan, setInteractiveRebasePlan] = useState<
-		GitInteractiveRebaseStep[]
-	>([]);
-	const moveRebaseRow = (from: number, to: number) => {
-		setInteractiveRebasePlan((current) => {
-			if (
-				!Number.isInteger(from) ||
-				!current[from] ||
-				to < 0 ||
-				to >= current.length
-			)
-				return current;
-			const next = [...current];
-			next.splice(to, 0, next.splice(from, 1)[0]!);
-			return next;
-		});
-	};
 	const [pendingGraphAction, setPendingGraphAction] =
 		useState<GitGraphActionRequest | null>(null);
 	const [graphActionName, setGraphActionName] = useState("");
@@ -124,15 +105,6 @@ export function useChatDiffPanelState(props: {
 		},
 		queryClient,
 	);
-	useEffect(() => {
-		if (!pendingRefAction || !repositoryKey) {
-			setInteractiveRebaseOpen(false);
-			setInteractiveRebasePlan([]);
-		} else if (preflight.data) {
-			setInteractiveRebasePlan(preflight.data.interactiveRebasePlan);
-		}
-	}, [pendingRefAction, repositoryKey, preflight.data]);
-
 	const runRefOperation = useCallback(
 		async (
 			operation: GitRefOperationRequest["operation"],
@@ -145,18 +117,14 @@ export function useChatDiffPanelState(props: {
 				action,
 				source: pendingRefAction?.source,
 				target: pendingRefAction?.target,
-				steps:
-					operation === "interactiveRebase" ? interactiveRebasePlan : undefined,
 			});
 			setRefOperationResult(result);
 			setRefOperationRunning(false);
 			if (result.ok) {
 				setPendingRefAction(null);
-			} else if (result.outcome === "conflicted") {
-				setInteractiveRebaseOpen(false);
 			}
 		},
-		[interactiveRebasePlan, onRunRefOperation, pendingRefAction],
+		[onRunRefOperation, pendingRefAction],
 	);
 	const requestGraphAction = useCallback((request: GitGraphActionRequest) => {
 		setGraphActionName(request.suggestedName ?? "");
@@ -196,12 +164,6 @@ export function useChatDiffPanelState(props: {
 	const pendingGraphActionPresentation = pendingGraphAction
 		? (graph.actions[pendingGraphAction.action] ?? null)
 		: null;
-	const interactiveRebaseCommits = new Map(
-		(preflight.data?.interactiveRebaseCommits ?? []).map((commit) => [
-			commit.hash,
-			commit,
-		]),
-	);
 	const resumableOperation =
 		repositoryOperation.kind === "idle" ? null : repositoryOperation.kind;
 	const lastResult =
@@ -247,11 +209,6 @@ export function useChatDiffPanelState(props: {
 		refPreflightError: preflight.error
 			? preflight.error.message || "Unable to check branch operations"
 			: null,
-		interactiveRebaseOpen,
-		setInteractiveRebaseOpen,
-		interactiveRebasePlan,
-		setInteractiveRebasePlan,
-		moveRebaseRow,
 		pendingGraphAction,
 		setPendingGraphAction,
 		graphActionName,
@@ -266,7 +223,6 @@ export function useChatDiffPanelState(props: {
 		activeModeIndex,
 		repositoryOperation,
 		pendingGraphActionPresentation,
-		interactiveRebaseCommits,
 		resumableOperation,
 		operationActivity,
 	};

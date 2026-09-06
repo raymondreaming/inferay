@@ -102,7 +102,6 @@ export function ChatDiffPanel(
 							onLoadMore={view.onLoadMoreCommits}
 							onRefDrop={(source, target) => {
 								view.setRefOperationResult(null);
-								view.setInteractiveRebaseOpen(false);
 								view.setPendingRefAction({ source, target });
 							}}
 							onGraphAction={view.requestGraphAction}

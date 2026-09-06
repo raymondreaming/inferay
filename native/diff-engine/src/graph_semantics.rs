@@ -276,7 +276,7 @@ pub(crate) fn read_history(
             {
                 Ok(0) => break Ok((matches_found, false)),
                 Ok(_) if record.len() == 8 * 1024 * 1024 => {
-                    break Err("A commit record exceeded the 8 MiB graph limit".to_string())
+                    break Err("A commit record exceeded the 8 MiB graph limit".to_string());
                 }
                 Err(e) => break Err(e.to_string()),
                 _ => {}
