@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { useLocation, useNavigate } from "@octanejs/tanstack-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
+import { useCallback, useEffect, useRef, useState } from "octane";
 import { sendJson } from "../../../../adapters/backend/http.ts";
 import {
 	readStoredValue,
@@ -22,14 +22,13 @@ import {
 	CREATE_AGENT_CHAT_EVENT,
 	type CreateAgentChatDetail,
 	type CreateAgentChatTarget,
-	dispatchAgentShellChange,
 	dispatchFocusAgentChatComposer,
 	listenAgentLayoutMode,
 	loadAgentLayoutMode,
 	loadSidebarCollapsed,
 	mutateAgentWorkspaceState,
-	projectRepositoryWorkspaces,
 	resolveCreateAgentChatCwd,
+	setAgentLayoutMode,
 	useWorkspaceState,
 	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
 	type WorkspaceSidebarCollapsedDetail,
@@ -80,10 +79,6 @@ export function WorkspaceSidebar() {
 		[],
 	);
 	const [workspaces, setWorkspaces] = useWorkspaceState();
-	const repositoryProjection = useMemo(
-		() => projectRepositoryWorkspaces(workspaces),
-		[workspaces.groups, workspaces.selectedGroupId],
-	);
 
 	useEffect(() => listenAgentLayoutMode(setLayoutMode), []);
 
@@ -109,7 +104,7 @@ export function WorkspaceSidebar() {
 			}
 			const cwd = resolveCreateAgentChatCwd(
 				target,
-				repositoryProjection.activeWorkspace?.cwd,
+				workspaces.repositories.activeWorkspace?.cwd,
 			);
 			await mutateAgentWorkspaceState({
 				type: "addPane",
@@ -118,7 +113,7 @@ export function WorkspaceSidebar() {
 			});
 			navigate({ to: "/" });
 		},
-		[navigate, repositoryProjection.activeWorkspace?.cwd],
+		[navigate, workspaces.repositories.activeWorkspace?.cwd],
 	);
 
 	useEffect(() => {
@@ -132,9 +127,8 @@ export function WorkspaceSidebar() {
 	const updateLayoutMode = useCallback(
 		(mode: "grid" | "rows") => {
 			if (mode === layoutMode) return;
-			writeStoredValue("agent-layout-mode", mode);
 			setLayoutMode(mode);
-			dispatchAgentShellChange({ source: "view" });
+			setAgentLayoutMode(mode);
 		},
 		[layoutMode],
 	);

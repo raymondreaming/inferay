@@ -170,64 +170,15 @@ export function isChatServerMessage(
 		(message.type.startsWith("chat:") || message.type.startsWith("checkpoint:"))
 	);
 }
-const CHAT_MESSAGE_RETAIN_LIMIT = 5_000;
-const CHAT_MESSAGE_CHAR_LIMIT = 1_000_000;
-export const CHAT_SINGLE_MESSAGE_CHAR_LIMIT = 256_000;
-const CHAT_TRUNCATION_MARKER =
-	"\n\n[… content truncated to keep Inferay responsive …]\n\n";
 let msgId = 0;
 export function nextId() {
 	return `c${++msgId}-${Date.now().toString(36)}`;
 }
-function truncateChatContent(content: string): string {
-	if (content.length <= CHAT_SINGLE_MESSAGE_CHAR_LIMIT) return content;
-	const prefixLength = CHAT_SINGLE_MESSAGE_CHAR_LIMIT / 4;
-	const suffixLength =
-		CHAT_SINGLE_MESSAGE_CHAR_LIMIT -
-		CHAT_TRUNCATION_MARKER.length -
-		prefixLength;
-	return (
-		content.slice(0, prefixLength) +
-		CHAT_TRUNCATION_MARKER +
-		content.slice(-suffixLength)
-	);
-}
-export function trimMessages<T extends { content: string }>(msgs: T[]): T[] {
-	const retained: T[] = [];
-	let totalChars = 0;
-	let changed = false;
-	for (
-		let index = msgs.length - 1;
-		index >= Math.max(0, msgs.length - CHAT_MESSAGE_RETAIN_LIMIT);
-		index--
-	) {
-		const message = msgs[index]!;
-		const content = truncateChatContent(message.content);
-		if (
-			retained.length &&
-			totalChars + content.length > CHAT_MESSAGE_CHAR_LIMIT
-		)
-			break;
-		totalChars += content.length;
-		changed ||= content !== message.content;
-		retained.push(
-			content === message.content
-				? message
-				: {
-						...message,
-						content,
-					},
-		);
-	}
-	return !changed && retained.length === msgs.length
-		? msgs
-		: retained.reverse();
-}
-export function appendTrimmedMessage(
-	msg: AgentChatSharedChatMessage,
-	msgs: AgentChatSharedChatMessage[],
-): AgentChatSharedChatMessage[] {
-	return trimMessages([...msgs, msg]);
+const LOCAL_RENDER_LIMIT = 256_000;
+export function localChatContent(content: string) {
+	return content.length <= LOCAL_RENDER_LIMIT
+		? content
+		: `${content.slice(0, LOCAL_RENDER_LIMIT)}\n\n[… pending message truncated for display …]`;
 }
 export function findTriggerAtCursor(
 	value: string,
@@ -270,7 +221,11 @@ export type RenderChatMessage = Pick<
 export type RenderItem =
 	| { type: "message"; message: RenderChatMessage }
 	| { type: "edit-group"; filePath: string; edits: RenderChatMessage[] }
-	| { type: "tool-group"; tools: RenderChatMessage[] };
+	| {
+			type: "tool-group";
+			tools: [RenderChatMessage];
+			continuesAfter: boolean;
+	  };
 export function formatAskUserAnswer(
 	questions: AskUserQuestion[],
 	selections: Map<number, Set<number>>,
@@ -320,93 +275,52 @@ export function getToolDisplayInfo(
 		}
 	);
 }
-export function buildRenderItems(messages: RenderChatMessage[]): RenderItem[] {
+export function buildRenderRows(messages: RenderChatMessage[]): RenderItem[] {
 	const items: RenderItem[] = [];
 	for (let i = 0; i < messages.length; i++) {
 		const msg = messages[i]!;
-		if (msg.render?.version === 1) {
-			if (msg.render.hidden) continue;
-			const group = [msg];
-			if (msg.render.kind !== "message") {
-				while (
-					i + 1 < messages.length &&
-					messages[i + 1]?.render?.groupId === msg.render.groupId
-				) {
-					const next = messages[++i]!;
-					if (!next.render?.hidden) group.push(next);
-				}
+		const render = msg.render;
+		if (render?.hidden) continue;
+		if (render?.kind === "edit-group" && render.filePath) {
+			const edits = [msg];
+			while (messages[i + 1]?.render?.groupId === render.groupId) {
+				const next = messages[++i]!;
+				if (!next.render?.hidden) edits.push(next);
 			}
 			items.push(
-				msg.render.kind === "tool-group"
-					? {
-							type: "tool-group",
-							tools: group,
-						}
-					: msg.render.kind === "edit-group" &&
-							group.length > 1 &&
-							msg.render.filePath
-						? {
-								type: "edit-group",
-								filePath: msg.render.filePath,
-								edits: group,
-							}
-						: {
-								type: "message",
-								message: msg,
-							},
+				edits.length > 1
+					? { type: "edit-group", filePath: render.filePath, edits }
+					: { type: "message", message: msg },
 			);
 			continue;
 		}
-		const previousMessage = messages[i - 1];
-		if (
-			previousMessage &&
-			previousMessage.role === msg.role &&
-			previousMessage.toolName === msg.toolName &&
-			previousMessage.content === msg.content
-		) {
+		if (render?.kind === "tool-group") {
+			let next = i + 1;
+			while (messages[next]?.render?.groupId === render.groupId) {
+				if (!messages[next]?.render?.hidden) break;
+				next++;
+			}
+			items.push({
+				type: "tool-group",
+				tools: [msg],
+				continuesAfter: messages[next]?.render?.groupId === render.groupId,
+			});
 			continue;
 		}
-		items.push({
-			type: "message",
-			message: msg,
-		});
+		items.push({ type: "message", message: msg });
 	}
 	return items;
 }
 type ChatStateMessage = Pick<
 	AgentChatSharedChatMessage,
-	"id" | "role" | "content" | "parts" | "isStreaming"
+	"id" | "role" | "content" | "parts" | "isStreaming" | "localOnly" | "render"
 >;
-const CHAT_RENDER_CHAR_WINDOW = 500_000;
-const CHAT_RENDER_MIN_MESSAGES = 30;
-const CHAT_RENDER_MAX_MESSAGES = 2_000;
-export function windowChatMessagesForRender<T extends { content: string }>(
-	messages: T[],
-): T[] {
-	if (messages.length <= CHAT_RENDER_MIN_MESSAGES) return messages;
-	let totalChars = 0;
-	let start = messages.length;
-	while (start > 0) {
-		const next = messages[start - 1]!;
-		const nextTotal = totalChars + next.content.length;
-		const selectedCount = messages.length - start;
-		if (
-			selectedCount >= CHAT_RENDER_MIN_MESSAGES &&
-			(nextTotal > CHAT_RENDER_CHAR_WINDOW ||
-				selectedCount >= CHAT_RENDER_MAX_MESSAGES)
-		) {
-			break;
-		}
-		totalChars = nextTotal;
-		start--;
-	}
-	return start <= 0 ? messages : messages.slice(start);
-}
 export function appendSystemMessage(
 	messages: ChatStateMessage[],
 	content: string,
 	render?: AgentChatSharedChatMessage["render"],
 ): ChatStateMessage[] {
+	content = localChatContent(content);
 	const previous = messages.at(-1);
 	if (
 		content &&
@@ -415,7 +329,7 @@ export function appendSystemMessage(
 		previous.content === content
 	)
 		return messages;
-	const next = [
+	return [
 		...messages,
 		{
 			id: nextId(),
@@ -429,7 +343,6 @@ export function appendSystemMessage(
 				: {}),
 		},
 	];
-	return trimMessages(next);
 }
 
 /** Apply native transport changes without interpreting provider events. Null
@@ -446,11 +359,13 @@ export function applyNativeTranscriptUpdate(
 	revision: number;
 	epoch?: string;
 } | null {
+	const validInteger = (value: number) =>
+		Number.isSafeInteger(value) && value >= 0;
 	if (
 		update.version !== 1 ||
-		!Number.isSafeInteger(update.revision) ||
-		!Number.isSafeInteger(update.start) ||
-		!Number.isSafeInteger(update.deleteCount) ||
+		!validInteger(update.revision) ||
+		!validInteger(update.start) ||
+		!validInteger(update.deleteCount) ||
 		!Array.isArray(update.messages)
 	)
 		return null;
@@ -460,15 +375,11 @@ export function applyNativeTranscriptUpdate(
 		return null;
 	const before = update.reset ? [] : current!.messages;
 	if (
-		update.start < 0 ||
 		update.start > before.length ||
-		update.deleteCount < 0 ||
 		(!update.reset && update.start + update.deleteCount > before.length)
 	)
 		return null;
-	const inserted: AgentChatSharedChatMessage[] = [];
-	for (let index = 0; index < update.messages.length; index++) {
-		const change = update.messages[index];
+	const inserted = update.messages.map((change, index) => {
 		if (
 			!change?.message ||
 			typeof change.message.id !== "string" ||
@@ -478,26 +389,23 @@ export function applyNativeTranscriptUpdate(
 		)
 			return null;
 		const previous = before[update.start + index];
-		let content = change.message.content;
-		if (change.appendContent !== undefined) {
-			if (
-				typeof change.appendContent !== "string" ||
-				!previous ||
-				previous.id !== change.message.id
-			)
-				return null;
-			content = previous.content + change.appendContent;
-		}
-		if (typeof content !== "string") return null;
-		inserted.push({
+		if (
+			change.appendContent === undefined &&
+			typeof change.message.content === "string"
+		)
+			return change.message as AgentChatSharedChatMessage;
+		if (typeof change.appendContent !== "string") return null;
+		if (!previous || previous.id !== change.message.id) return null;
+		return {
 			...change.message,
-			content,
-		});
-	}
+			content: previous.content + change.appendContent,
+		} as AgentChatSharedChatMessage;
+	});
+	if (inserted.some((message) => message === null)) return null;
 	return {
 		messages: [
 			...before.slice(0, update.start),
-			...inserted,
+			...(inserted as AgentChatSharedChatMessage[]),
 			...before.slice(update.start + update.deleteCount),
 		],
 		revision: update.revision,

@@ -12,8 +12,10 @@ import type {
 	GitGraphNavigation,
 	GitProjectStatus,
 } from "../model/types.ts";
-export interface GitCommit {
+export interface GraphNode {
 	navigation?: GitGraphNavigation;
+	column: number;
+	color: string;
 	id: string;
 	itemKind: GitGraphItemKind;
 	hash: string;
@@ -50,10 +52,6 @@ export interface GitGraphRef {
 	upstream?: string;
 	ahead?: number;
 	behind?: number;
-}
-export interface GraphNode extends GitCommit {
-	column: number;
-	color: string;
 }
 export interface GraphRail {
 	column: number;
@@ -223,7 +221,6 @@ export function useGitGraph(
 	);
 	const {
 		data,
-		setData,
 		loading,
 		error,
 		refetch: refresh,
@@ -231,22 +228,6 @@ export function useGitGraph(
 		queryKey: ["git", "graph", cwd ?? "", limit, searchQuery],
 		enabled: !!cwd,
 	});
-	const updateWorktreeStatus = useCallback(
-		(cwd: string, update: (status: GitProjectStatus) => GitProjectStatus) => {
-			setData((current) => ({
-				...current,
-				worktrees: current.worktrees.map((worktree) =>
-					worktree.status?.cwd === cwd
-						? {
-								...worktree,
-								status: update(worktree.status),
-							}
-						: worktree,
-				),
-			}));
-		},
-		[setData],
-	);
 	return {
 		...data,
 		searchQuery,
@@ -254,7 +235,6 @@ export function useGitGraph(
 		loading,
 		error,
 		refresh,
-		updateWorktreeStatus,
 	};
 }
 export interface CommitFile {

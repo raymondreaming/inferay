@@ -319,5 +319,33 @@ fn normalize(value: &Value) -> Value {
                 .unwrap_or_default(),
         ),
     };
+    let context = session["selectedFile"]["source"]["kind"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let diff_mode = session["mainViewMode"] == "diff";
+    session["graphDrillIn"] = json!(
+        diff_mode
+            && matches!(
+                context.as_str(),
+                "graphWorkingTree" | "commit" | "comparison"
+            )
+    );
+    session["historicalDiff"] =
+        json!(diff_mode && matches!(context.as_str(), "commit" | "comparison"));
+    session["sidebarContent"] = json!(if session["mainViewMode"] == "graph" {
+        if session["selectedCommitHash"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("inferay-wip-"))
+        {
+            "workingTree"
+        } else {
+            "history"
+        }
+    } else if matches!(context.as_str(), "workingTree" | "graphWorkingTree") {
+        "workingTree"
+    } else {
+        "history"
+    });
     session
 }

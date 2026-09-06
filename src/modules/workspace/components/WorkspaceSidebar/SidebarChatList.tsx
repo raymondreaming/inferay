@@ -1,9 +1,5 @@
 import * as stylex from "@octanejs/stylex";
 import type { SidebarWorkspaceState } from "../../model/workspace-model.ts";
-import {
-	getVisibleRepositoryEntries,
-	projectRepositoryWorkspaces,
-} from "../../model/workspace-model.ts";
 import { PaneSummaryItem } from "./PaneSummaryItem.tsx";
 import { styles } from "./styles.ts";
 
@@ -14,8 +10,7 @@ export function SidebarChatList({
 	workspaces: SidebarWorkspaceState;
 	onSelectPane: (groupId: string, paneId: string) => void;
 }) {
-	const repositoryProjection = projectRepositoryWorkspaces(workspaces);
-	const entries = getVisibleRepositoryEntries(repositoryProjection);
+	const entries = workspaces.repositories.visibleEntries;
 
 	return (
 		<div {...stylex.props(styles.workspacePaneList)}>

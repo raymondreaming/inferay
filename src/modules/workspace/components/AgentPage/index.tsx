@@ -3,7 +3,6 @@ import { wsClient } from "../../../../adapters/backend/http.ts";
 import {
 	APP_THEME_STORAGE_KEY,
 	CLIENT_STORAGE_CHANGED_EVENT,
-	writeStoredValue,
 } from "../../../../adapters/storage/stored-values.ts";
 import { loadAppThemeId } from "../../../../app/model/appearance.ts";
 import {
@@ -23,11 +22,10 @@ import {
 	type FocusAgentChatComposerDetail,
 	type GroupId,
 	getThemeById,
-	getVisibleRepositoryEntries,
 	listenAgentLayoutMode,
 	loadAgentLayoutMode,
 	mutateAgentWorkspaceState,
-	projectRepositoryWorkspaces,
+	setAgentLayoutMode,
 	useAgentPaneActions,
 	useWorkspaceState,
 } from "../../model/workspace-model.ts";
@@ -44,7 +42,7 @@ export function AgentPage() {
 	const [layoutMode, setLayoutMode] = useState(loadAgentLayoutMode);
 	useEffect(() => listenAgentLayoutMode(setLayoutMode), []);
 	useEffect(() => {
-		writeStoredValue("agent-layout-mode", layoutMode);
+		setAgentLayoutMode(layoutMode);
 	}, [layoutMode]);
 	const [workspace, setWorkspace, workspaceError] = useWorkspaceState(
 		false,
@@ -132,23 +130,19 @@ export function AgentPage() {
 		currentGroup?.panes.find(
 			(pane) => pane.id === currentGroup.selectedPaneId,
 		) ?? null;
-	const repositoryProjection = useMemo(
-		() => projectRepositoryWorkspaces(workspace),
-		[workspace],
-	);
 	const currentRepositoryPanes = useMemo(() => {
 		const visible = new Set(
-			getVisibleRepositoryEntries(repositoryProjection, currentGroup?.id).map(
-				(entry) => entry.pane.id,
-			),
+			workspace.repositories.visibleEntries
+				.filter((entry) => entry.groupId === currentGroup?.id)
+				.map((entry) => entry.pane.id),
 		);
 		return currentGroup?.panes.filter((pane) => visible.has(pane.id)) ?? [];
-	}, [currentGroup, repositoryProjection]);
+	}, [currentGroup, workspace.repositories.visibleEntries]);
 	const repositoryWorkbench = useRepositoryWorkbench({
 		active: true,
 		cwd: selectedPane?.cwd,
 		workspaceId:
-			repositoryProjection.activeWorkspace?.cwd ??
+			workspace.repositories.activeWorkspace?.cwd ??
 			currentGroup?.id ??
 			"default",
 	});

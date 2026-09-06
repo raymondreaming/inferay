@@ -43,6 +43,38 @@ impl AgentStateStore {
             .find(|pane| pane.id == id))
     }
 
+    /// Stages a repository picker result without committing it to the pane.
+    /// Chat messages use these methods on the websocket thread so staging and
+    /// first-send consumption have one ordering boundary.
+    pub fn set_pending_workspace(&self, id: &str, paths: Vec<String>) -> Result<Value, String> {
+        let mut state = self.load()?.ok_or("Workspace not initialized")?;
+        let pane = state.pane_mut(id)?;
+        pane.pending_workspace_paths = paths.into_iter().filter(|path| !path.is_empty()).collect();
+        self.save(&state)
+    }
+
+    pub fn consume_pending_workspace(
+        &self,
+        id: &str,
+    ) -> Result<Option<(String, Vec<String>)>, String> {
+        let mut state = self.load()?.ok_or("Workspace not initialized")?;
+        let pane = state.pane_mut(id)?;
+        if pane.cwd.as_deref().is_some_and(|cwd| !cwd.is_empty())
+            || pane.pending_workspace_paths.is_empty()
+        {
+            return Ok(None);
+        }
+        let paths = std::mem::take(&mut pane.pending_workspace_paths);
+        let cwd = paths[0].clone();
+        let references = paths[1..].to_vec();
+        pane.cwd = Some(cwd.clone());
+        pane.pending_cwd = false;
+        pane.reference_paths = references.clone();
+        pane.update_title();
+        self.save(&state)?;
+        Ok(Some((cwd, references)))
+    }
+
     /// Selected pane first, then the other panes in the selected group.
     pub fn active_cwds(&self) -> Result<Vec<String>, String> {
         let Some(state) = self.load()? else {
@@ -123,6 +155,8 @@ pub struct Pane {
     pending_cwd: bool,
     #[serde(default)]
     pub reference_paths: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_workspace_paths: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -174,6 +208,7 @@ impl Pane {
             cwd: None,
             pending_cwd: true,
             reference_paths: Vec::new(),
+            pending_workspace_paths: Vec::new(),
             summary: None,
             provider_session_id: None,
         };
@@ -237,6 +272,13 @@ impl Group {
     }
 }
 impl Workspace {
+    fn pane_mut(&mut self, id: &str) -> Result<&mut Pane, String> {
+        self.groups
+            .iter_mut()
+            .flat_map(|group| &mut group.panes)
+            .find(|pane| pane.id == id)
+            .ok_or_else(|| "Pane not found".into())
+    }
     fn presentation(&self) -> Result<Value, String> {
         let mut value = serde_json::to_value(self).map_err(|e| e.to_string())?;
         let mut workspaces: Vec<Value> = Vec::new();
@@ -261,8 +303,33 @@ impl Workspace {
                 }
             }
         }
-        value["repositories"] =
-            serde_json::json!({"workspaces":workspaces,"unassignedEntries":unassigned});
+        let active_path = self
+            .groups
+            .iter()
+            .find(|group| group.id == self.selected_group_id)
+            .and_then(|group| {
+                group
+                    .panes
+                    .iter()
+                    .find(|pane| Some(&pane.id) == group.selected_pane_id.as_ref())
+                    .or_else(|| group.panes.first())
+            })
+            .and_then(|pane| pane.cwd.as_deref())
+            .map(repository_path)
+            .filter(|path| !path.is_empty());
+        let active = active_path
+            .and_then(|path| workspaces.iter().find(|workspace| workspace["cwd"] == path));
+        let visible = active
+            .and_then(|workspace| workspace["entries"].as_array())
+            .cloned()
+            .unwrap_or_else(|| unassigned.clone());
+        value["repositories"] = serde_json::json!({
+            "workspaces": workspaces,
+            "unassignedEntries": unassigned,
+            "activePath": active_path,
+            "activeWorkspace": active,
+            "visibleEntries": visible,
+        });
         Ok(value)
     }
 
@@ -458,6 +525,7 @@ impl Workspace {
                             .map_err(|e| e.to_string())?;
                         pane.pending_cwd = false;
                         pane.reference_paths = paths(&action["referencePaths"])?;
+                        pane.pending_workspace_paths.clear();
                         pane.update_title();
                     }
                     "setPaneSummary" => {

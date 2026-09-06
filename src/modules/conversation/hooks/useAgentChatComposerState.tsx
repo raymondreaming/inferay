@@ -1,29 +1,56 @@
-import {
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-	useSyncExternalStore,
-} from "octane";
-import { fetchJson } from "../../../adapters/backend/http.ts";
+import { useCallback, useEffect, useRef, useState } from "octane";
+import { fetchJson, sendJson } from "../../../adapters/backend/http.ts";
 import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
 import { hasPath } from "../../../shared/lib/data.ts";
 import type {
 	AttachedImageInfo,
 	QueuedMessageInfo,
 } from "../model/agent-chat-shared.ts";
-import { getChatQueueReadModel } from "../model/chat-session-store.ts";
 
 export function useAgentChatComposerState(paneId: string, enabled = true) {
 	const [attachedImages, setAttachedImages] = useState<AttachedImageInfo[]>([]);
 	const attachedImagesRef = useRef(attachedImages);
 	attachedImagesRef.current = attachedImages;
-	const queueReadModel = useMemo(() => getChatQueueReadModel(paneId), [paneId]);
-	const queuedMessages = useSyncExternalStore(
-		queueReadModel.subscribe,
-		queueReadModel.getSnapshot,
-		queueReadModel.getSnapshot,
+	const [queuedMessages, setQueuedMessages] = useState<QueuedMessageInfo[]>([]);
+	const queueRef = useRef(queuedMessages);
+	queueRef.current = queuedMessages;
+	const queueRevision = useRef(0);
+	const mutationChain = useRef(Promise.resolve());
+	const replaceQueue = useCallback((queue: QueuedMessageInfo[]) => {
+		queueRevision.current++;
+		queueRef.current = queue;
+		setQueuedMessages(queue);
+	}, []);
+	const mutateQueue = useCallback(
+		(action: "edit" | "remove", id: string, text?: string) => {
+			let requestRevision = 0;
+			const result = mutationChain.current
+				.catch(() => undefined)
+				.then(async () => {
+					requestRevision = ++queueRevision.current;
+					const response = await sendJson(
+						`/api/chat-queues/${encodeURIComponent(paneId)}`,
+						{ action, id, text },
+						{ method: "PATCH" },
+					);
+					if (!response.ok)
+						throw new Error("Could not update queued message. Please retry.");
+					const queue = (
+						(await response.json()) as { queue: QueuedMessageInfo[] }
+					).queue;
+					if (queueRevision.current === requestRevision)
+						replaceQueue([
+							...queue,
+							...queueRef.current.filter((item) => item.transient),
+						]);
+				})
+				.catch((error) => {
+					if (queueRevision.current === requestRevision) throw error;
+				});
+			mutationChain.current = result;
+			return result;
+		},
+		[paneId, replaceQueue],
 	);
 	const [queueError, setQueueError] = useState<string | null>(null);
 	const [editingQueueId, setEditingQueueId] = useState<string | null>(null);
@@ -60,64 +87,65 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 
 	const replaceQueuedMessages = useCallback(
 		(messages: QueuedMessageInfo[]) => {
+			if (messages.length === 0) {
+				setQueueError(null);
+				setEditingQueueId(null);
+				setEditingQueueText("");
+			}
 			const persistedIds = new Set(messages.map((message) => message.id));
-			const pending = queueReadModel
-				.get()
-				.filter(
-					(message) => message.transient && !persistedIds.has(message.id),
-				);
-			queueReadModel.replaceFromServer([...messages, ...pending]);
+			const pending = queueRef.current.filter(
+				(message) => message.transient && !persistedIds.has(message.id),
+			);
+			replaceQueue([...messages, ...pending]);
 		},
-		[queueReadModel],
+		[replaceQueue],
 	);
 
 	const stageSteeringMessage = useCallback(
 		(message: QueuedMessageInfo) => {
-			queueReadModel.replaceFromServer([
-				...queueReadModel.get().filter((item) => item.id !== message.id),
+			replaceQueue([
+				...queueRef.current.filter((item) => item.id !== message.id),
 				{ ...message, transient: true },
 			]);
 		},
-		[queueReadModel],
+		[replaceQueue],
 	);
 
 	const resolveSteeringMessage = useCallback(
 		(id: string) => {
-			queueReadModel.replaceFromServer(
-				queueReadModel.get().filter((message) => message.id !== id),
-			);
+			replaceQueue(queueRef.current.filter((message) => message.id !== id));
 		},
-		[queueReadModel],
+		[replaceQueue],
 	);
 
 	const removeQueuedMessage = useCallback(
 		(id: string) => {
-			const queue = queueReadModel.get();
+			const queue = queueRef.current;
 			const existing = queue.find((item) => item.id === id);
 			if (!existing || existing.transient) return;
 			setQueueError(null);
-			void queueReadModel
-				.mutate("remove", id)
-				.catch((error: Error) => setQueueError(error.message));
+			void mutateQueue("remove", id).catch((error: Error) =>
+				setQueueError(error.message),
+			);
 			if (editingQueueId === id) {
 				setEditingQueueId(null);
 				setEditingQueueText("");
 			}
 		},
-		[editingQueueId, queueReadModel],
+		[editingQueueId, mutateQueue],
 	);
 
 	const updateQueuedMessage = useCallback(
 		(id: string, text: string) => {
-			const queue = queueReadModel.get();
+			const queue = queueRef.current;
 			const existing = queue.find((item) => item.id === id);
 			if (!existing || existing.transient || existing.text === text) return;
 			setQueueError(null);
-			void queueReadModel
-				.mutate("edit", id, text)
-				.catch((error: Error) => setQueueError(error.message));
+			void mutateQueue("edit", id, text).catch((error: Error) =>
+				setQueueError(error.message),
+			);
 		},
-		[queueReadModel],
+		[mutateQueue],
 	);
 
 	const startQueuedMessageEdit = useCallback((id: string, text: string) => {

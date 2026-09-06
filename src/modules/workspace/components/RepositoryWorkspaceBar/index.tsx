@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { useLocation, useNavigate } from "@octanejs/tanstack-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
+import { useCallback, useEffect, useRef, useState } from "octane";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
@@ -24,7 +24,6 @@ import {
 	dispatchCreateAgentChat,
 	loadSidebarCollapsed,
 	mutateAgentWorkspaceState,
-	projectRepositoryWorkspaces,
 	type RepositoryWorkspace,
 	setWorkspaceSidebarCollapsed,
 	useWorkspaceState,
@@ -40,10 +39,7 @@ export function RepositoryWorkspaceBar() {
 		useState(loadSidebarCollapsed);
 	const [newMenuOpen, setNewMenuOpen] = useState(false);
 	const newMenuRef = useRef<HTMLDivElement | null>(null);
-	const projection = useMemo(
-		() => projectRepositoryWorkspaces(state),
-		[state.groups, state.selectedGroupId],
-	);
+	const projection = state.repositories;
 	useEffect(
 		() =>
 			listenWindowEvent(WORKSPACE_SIDEBAR_COLLAPSED_EVENT, (event) => {

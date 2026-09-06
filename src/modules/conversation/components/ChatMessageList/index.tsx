@@ -15,7 +15,7 @@ import type {
 	CheckpointInfo,
 } from "../../model/agent-chat-shared.ts";
 import {
-	buildRenderItems,
+	buildRenderRows,
 	type RenderItem,
 } from "../../model/agent-chat-shared.ts";
 import { GroupedEditDiff } from "../ChatEditDiff/index.tsx";
@@ -31,7 +31,7 @@ export type ChatVirtualizerControls = {
 	getDistanceFromEnd: () => number;
 };
 
-type ChatRenderRow = RenderItem & { continuesAfter?: boolean };
+type ChatRenderRow = RenderItem;
 
 function getRowKey(row: ChatRenderRow | undefined, index: number) {
 	if (!row) return `row-${index}`;
@@ -73,22 +73,7 @@ export const ChatMessageList = memo(function ChatMessageList({
 }) {
 	const didInitialScrollRef = useRef(false);
 	const messageListRef = useRef<HTMLDivElement | null>(null);
-	const renderItems = useMemo(() => buildRenderItems(messages), [messages]);
-	// Timeline groups are semantic units, but each milestone is a measured row
-	// so one long run of tools cannot defeat transcript virtualization.
-	const renderRows = useMemo<ChatRenderRow[]>(
-		() =>
-			renderItems.flatMap<ChatRenderRow>((item) =>
-				item.type === "tool-group"
-					? item.tools.map((tool, index) => ({
-							type: "tool-group" as const,
-							tools: [tool],
-							continuesAfter: index < item.tools.length - 1,
-						}))
-					: [item],
-			),
-		[renderItems],
-	);
+	const renderRows = useMemo(() => buildRenderRows(messages), [messages]);
 	const measuredHeights = useRef(new Map<string, number>());
 	const [measurementVersion, setMeasurementVersion] = useState(0);
 	const [scrollOffset, setScrollOffset] = useState<number | null>(null);

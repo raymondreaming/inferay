@@ -20,19 +20,14 @@ import { useAgentChatComposerState } from "../../hooks/useAgentChatComposerState
 import { useAgentChatMenus } from "../../hooks/useAgentChatMenus.tsx";
 import { useChatInputActions } from "../../hooks/useChatInputActions.tsx";
 import { useSpeechToText } from "../../hooks/useSpeechToText.tsx";
-import {
-	appendSystemMessage,
-	windowChatMessagesForRender,
-} from "../../model/agent-chat-shared.ts";
+import { appendSystemMessage } from "../../model/agent-chat-shared.ts";
 import {
 	loadStoredInput,
 	saveStoredInput,
 	useAgentChatSettings,
 	useChatConnection,
-	useChatUiState,
 	useChatViewport,
 	usePendingChatWorkspace,
-	usePersistentChatMessages,
 	useStableCallback,
 } from "../../model/chat-session-store.ts";
 import { AgentWorkspaceControl } from "../AgentChatHeader/index.tsx";
@@ -52,6 +47,7 @@ export interface AgentChatViewProps {
 	paneId: string;
 	cwd?: string;
 	referencePaths?: string[];
+	pendingWorkspacePaths?: string[];
 
 	agentKind?: AgentKind;
 
@@ -77,6 +73,7 @@ export const AgentChatView = memo(function AgentChatView({
 	paneId,
 	cwd,
 	referencePaths,
+	pendingWorkspacePaths,
 
 	agentKind = loadDefaultChatSettings().agentKind,
 
@@ -94,12 +91,6 @@ export const AgentChatView = memo(function AgentChatView({
 	const renderVisibleChat = isVisible;
 	const [isContextOpen, setIsContextOpen] = useState(false);
 	const [isAgentConfigOpen, setIsAgentConfigOpen] = useState(false);
-	const { messageReadModel, messages, setMessages } =
-		usePersistentChatMessages(paneId);
-	const visibleMessages = useMemo(
-		() => windowChatMessagesForRender(messages),
-		[messages],
-	);
 	const {
 		configurationError,
 		agentKindOptions,
@@ -109,8 +100,11 @@ export const AgentChatView = memo(function AgentChatView({
 		handleReasoningLevelChange,
 		selectedReasoningLevel,
 	} = useAgentChatSettings(paneId, agentKind);
-	const { consumePendingWorkspace, savePendingWorkspaceSelection, visibleCwd } =
-		usePendingChatWorkspace(paneId, cwd, onDirectoryChange);
+	const { savePendingWorkspaceSelection, visibleCwd } = usePendingChatWorkspace(
+		paneId,
+		cwd,
+		pendingWorkspacePaths,
+	);
 	const [input, setInputRaw] = useState(() => loadStoredInput(paneId));
 	const pendingInputRef = useRef(input);
 	const inputSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -142,9 +136,6 @@ export const AgentChatView = memo(function AgentChatView({
 		value: input,
 		onChange: setInput,
 	});
-	const { chatUiState, setExpandedTools, setRunStatus } =
-		useChatUiState(paneId);
-	const { isLoading, startTime, expandedTools } = chatUiState;
 	const imageDragDepthRef = useRef(0);
 	const [isImageDragActive, setIsImageDragActive] = useState(false);
 	const [composerBeamActive, setComposerBeamActive] = useState(false);
@@ -193,7 +184,7 @@ export const AgentChatView = memo(function AgentChatView({
 		[],
 	);
 	const {
-		cancelActivationRestore,
+		cancelScrollRestore,
 		chatVirtualizerRef,
 		handleScroll,
 		isAtBottom,
@@ -212,45 +203,44 @@ export const AgentChatView = memo(function AgentChatView({
 		setInput,
 		textareaRef,
 	});
-	const { checkpoints, clearCheckpoints, revertCheckpoint } = useChatConnection(
-		{
-			agentKind,
-			cwd,
-			enabled: renderVisibleChat,
-			messageReadModel,
-			paneId,
-			replaceQueuedMessages: composer.replaceQueuedMessages,
-			resolveSteeringMessage: composer.resolveSteeringMessage,
-			stageSteeringMessage: composer.stageSteeringMessage,
-			setExpandedTools,
-			setRunStatus,
-		},
-	);
+	const exitChat = useStableCallback(() => onClose?.(paneId));
+	const {
+		chatUiState: { isLoading, startTime, expandedTools },
+		checkpoints,
+		messages,
+		revertCheckpoint,
+		setMessages,
+		setExpandedTools,
+		setRunStatus,
+	} = useChatConnection({
+		agentKind,
+		cwd,
+		enabled: renderVisibleChat,
+		paneId,
+		onExit: exitChat,
+		replaceQueuedMessages: composer.replaceQueuedMessages,
+		resolveSteeringMessage: composer.resolveSteeringMessage,
+		stageSteeringMessage: composer.stageSteeringMessage,
+	});
 	const { handleKeyDown, sendUserMessage } = useChatInputActions({
 		...composer,
 		...menus,
 		agentKind,
 		cancelSpeechListening,
-		clearCheckpoints,
-
-		consumePendingWorkspace,
 		cwd,
 		input,
 		isLoading,
 		onSendStart: () => {
 			scheduleScrollToBottom("auto");
 		},
-		onExit: onClose ? () => onClose(paneId) : undefined,
-
 		paneId,
 		referencePaths,
 		setInput,
-		setRunStatus,
 		setMessages,
 		textareaRef,
 	});
 	const handleSendMessage = useStableCallback((text: string) =>
-		sendUserMessage({ text, workspaceOverride: consumePendingWorkspace() }),
+		sendUserMessage({ text }),
 	);
 	const handleMdFileClickFromMessage = useStableCallback(
 		composer.handleMdFileClick,
@@ -356,7 +346,7 @@ export const AgentChatView = memo(function AgentChatView({
 						ref={scrollRef}
 						{...stylex.props(styles.scrollArea)}
 						onScroll={handleScroll}
-						onWheelCapture={cancelActivationRestore}
+						onWheelCapture={cancelScrollRestore}
 					>
 						{messages.length === 0 &&
 							!isLoading &&
@@ -369,24 +359,22 @@ export const AgentChatView = memo(function AgentChatView({
 										<div {...stylex.props(styles.directoryPickerInner)}>
 											<InlineDirectoryPicker
 												onSelect={(path) => {
-													if (path) onDirectoryChange(paneId, path);
-													else onDirectoryCancel?.(paneId);
+													if (path) savePendingWorkspaceSelection([path]);
+													else {
+														savePendingWorkspaceSelection([]);
+														onDirectoryCancel?.(paneId);
+													}
 												}}
-												onCancel={onDirectoryCancel?.bind(null, paneId)}
+												onCancel={() => {
+													savePendingWorkspaceSelection([]);
+													onDirectoryCancel?.(paneId);
+												}}
 												multiSelect
 												showStartButton={false}
 												onSelectionChange={(paths) => {
 													savePendingWorkspaceSelection(paths);
 												}}
-												onMultiSelect={(paths) => {
-													if (paths.length > 0) {
-														onDirectoryChange(
-															paneId,
-															paths[0]!,
-															paths.slice(1),
-														);
-													}
-												}}
+												onMultiSelect={savePendingWorkspaceSelection}
 											/>
 										</div>
 									</DirectoryPickerModal>
@@ -394,7 +382,7 @@ export const AgentChatView = memo(function AgentChatView({
 							)}
 						<ChatMessageList
 							paneId={paneId}
-							messages={visibleMessages}
+							messages={messages}
 							scrollElementRef={scrollRef}
 							virtualizerControlsRef={chatVirtualizerRef}
 							expandedTools={expandedTools}
@@ -480,8 +468,6 @@ export const AgentChatView = memo(function AgentChatView({
 
 export {
 	useAgentChatSettings,
-	useChatUiState,
 	useChatViewport,
 	usePendingChatWorkspace,
-	usePersistentChatMessages,
 } from "../../model/chat-session-store.ts";

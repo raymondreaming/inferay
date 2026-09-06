@@ -83,24 +83,14 @@ export interface GithubRepo {
 import { useCallback, useState } from "octane";
 export function useGitChangeActions({
 	cwd,
-	applyOptimistic,
 	refetchStatus,
 }: {
 	cwd?: string;
-	/** Apply an instant local mutation for the current cwd's git status. */
-	applyOptimistic: (
-		cwd: string,
-		mutator: (p: GitProjectStatus) => GitProjectStatus,
-	) => void;
-	/** Force a server-truth refetch (called after a fire-and-forget mutation). */
 	refetchStatus: () => undefined | Promise<unknown>;
 }) {
 	const [commitMessage, setCommitMessage] = useState("");
 	const [isCommitting, setIsCommitting] = useState(false);
 
-	// Fire a git mutation in the background and reconcile when it settles.
-	// Callers apply optimistic UI updates first so the user sees the result
-	// instantly regardless of HTTP latency.
 	const gitAction = useCallback(
 		(endpoint: string, body: object) => {
 			void sendJson(`/api/git/${endpoint}`, body)
@@ -116,22 +106,9 @@ export function useGitChangeActions({
 	const stageMutation = useCallback(
 		(staged: boolean, file?: string) => {
 			if (!cwd) return;
-			applyOptimistic(cwd, (p) => {
-				let changed = 0;
-				const files = p.files.map((entry) => {
-					if ((file && entry.path !== file) || entry.staged === staged)
-						return entry;
-					changed += staged ? 1 : -1;
-					return { ...entry, staged };
-				});
-				return {
-					...p,
-					files: changed ? files : p.files,
-				};
-			});
 			gitAction(staged ? "stage" : "unstage", { cwd, file: file || undefined });
 		},
-		[cwd, gitAction, applyOptimistic],
+		[cwd, gitAction],
 	);
 	const stageFile = useCallback(
 		(file: string) => stageMutation(true, file),
@@ -175,83 +152,19 @@ export function useGitChangeActions({
 
 import { postJson } from "../../../adapters/backend/http.ts";
 
-function normalizedIdentity(value?: string | null): string {
-	return typeof value === "string" ? value.trim().toLowerCase() : "";
-}
-function compactIdentity(value: string): string {
-	return value.replace(/[^a-z0-9]/g, "");
-}
-function identityLooksRelated(
-	email: string,
-	name: string,
-	accountName: string,
-	login: string,
-): boolean {
-	const emailHandle = compactIdentity(email.split("@", 1)[0] ?? "");
-	const authorName = compactIdentity(name);
-	const githubName = compactIdentity(accountName);
-	const githubLogin = compactIdentity(login);
-	const prefixMatch = (left: string, right: string) =>
-		Math.min(left.length, right.length) >= 3 &&
-		(left.startsWith(right) || right.startsWith(left));
-	return (
-		prefixMatch(emailHandle, githubLogin) ||
-		prefixMatch(authorName, githubLogin) ||
-		prefixMatch(authorName, githubName)
-	);
-}
-function matchingForgeAccount(
-	accounts: ForgeAccount[],
-	email: string,
-	name: string,
-): ForgeAccount | undefined {
-	return accounts.find(
-		(candidate) =>
-			(email && normalizedIdentity(candidate.email) === email) ||
-			(name &&
-				(normalizedIdentity(candidate.name) === name ||
-					normalizedIdentity(candidate.login) === name.replace(/\s+/g, ""))) ||
-			(candidate.active &&
-				identityLooksRelated(
-					email,
-					name,
-					normalizedIdentity(candidate.name),
-					normalizedIdentity(candidate.login),
-				)),
-	);
-}
 export async function resolveGitAuthorIdentity(
 	email?: string | null,
 	name?: string | null,
 ): Promise<{ login: string; avatarUrl: string | null } | null> {
-	const normalized = normalizedIdentity(email);
-	const normalizedName = normalizedIdentity(name);
-	if (!normalized && !normalizedName) return null;
-	const login = normalized.match(
-		/^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/,
-	)?.[1];
-	if (login)
-		return {
-			login,
-			avatarUrl: `https://github.com/${encodeURIComponent(login)}.png?size=64`,
-		};
+	if (!email?.trim() && !name?.trim()) return null;
 	try {
-		return (
-			matchingForgeAccount(
-				await fetchForgeAccounts(),
-				normalized,
-				normalizedName,
-			) ?? null
-		);
+		const response = await postJson<{
+			identities?: Array<{ login: string; avatarUrl: string | null } | null>;
+		}>("/api/forge/commit-avatars", { identities: [{ email, name }] });
+		return response.identities?.[0] ?? null;
 	} catch {
 		return null;
 	}
-}
-export async function resolveGitAuthorAvatar(
-	email?: string | null,
-	name?: string | null,
-): Promise<string | null> {
-	return (await resolveGitAuthorIdentity(email, name))?.avatarUrl ?? null;
 }
 export async function resolveGitCommitAvatars(
 	cwd: string,

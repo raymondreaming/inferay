@@ -44,7 +44,6 @@ export function useGitStatus(
 	);
 	const {
 		data,
-		setData,
 		refetch: refreshStatuses,
 		loaded,
 	} = usePollingQuery(fetcher, 5000, EMPTY_GIT_PROJECTS, {
@@ -70,26 +69,10 @@ export function useGitStatus(
 			refreshGraph?.(),
 		]);
 	}, [refreshStatuses, refreshGraph, requestedCwds]);
-	const updateGraphStatus = graph?.updateWorktreeStatus;
-	const applyOptimistic = useCallback(
-		(cwd: string, mutator: (project: GitProjectStatus) => GitProjectStatus) => {
-			if (graphProjects.some((project) => project.cwd === cwd)) {
-				updateGraphStatus?.(cwd, mutator);
-			} else {
-				setData((current) =>
-					current.map((project) =>
-						project.cwd === cwd ? mutator(project) : project,
-					),
-				);
-			}
-		},
-		[graphProjects, setData, updateGraphStatus],
-	);
 	return {
 		projects,
 		projectMap,
 		refetch,
-		applyOptimistic,
 		loaded: !options.enabled || requestedCwds.length === 0 || loaded,
 	};
 }

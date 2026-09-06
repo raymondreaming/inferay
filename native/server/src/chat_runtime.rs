@@ -433,6 +433,16 @@ impl ChatRuntime {
                 } else {
                     state.message_buffer.push_user(display, images);
                 }
+                if let Some(command) = display.strip_prefix('/') {
+                    let mut parts = command.splitn(2, char::is_whitespace);
+                    if let Some(name) = parts.next().filter(|name| !name.is_empty()) {
+                        state.message_buffer.push_system(
+                            &json!({"type":"inferay.command", "name":name,
+                                "args":parts.next().map(str::trim).filter(|args| !args.is_empty())})
+                            .to_string(),
+                        );
+                    }
+                }
                 state.cancelled = false;
             }
             self.ensure_summary(&session).await;
@@ -590,6 +600,24 @@ impl ChatRuntime {
         }
     }
 
+    pub async fn publish_command_response(&self, input: SendMessageInput, message: &str) {
+        let session = self.ensure_session(&input).await;
+        if let (Some(client_id), Some(sender)) = (input.client_id, input.client_sender) {
+            session.lock().await.clients.insert(client_id, sender);
+        }
+        {
+            let mut state = session.lock().await;
+            if let Some(id) = input.client_message_id.as_deref() {
+                state
+                    .message_buffer
+                    .push_user_with_id(id, &input.text, None);
+            } else {
+                state.message_buffer.push_user(&input.text, None);
+            }
+        }
+        self.emit_system(&session, message).await;
+    }
+
     pub async fn run_side_question(
         &self,
         pane_id: &str,
@@ -665,7 +693,12 @@ impl ChatRuntime {
                     "type":"chat:sync", "modelVersion":1, "paneId":pane_id,
                     "messages":state.message_buffer.messages(),
                     "epoch":state.message_buffer.epoch(), "revision":state.message_buffer.revision(),
-                    "isStreaming":state.turn_active, "checkpoints":checkpoints
+                    "isStreaming":state.turn_active, "checkpoints":checkpoints,
+                    "pendingSteers":state.pending_steers.iter().map(|pending| json!({
+                        "id":pending.id, "text":pending.text,
+                        "displayText":pending.display_text, "images":pending.images,
+                        "transient":true
+                    })).collect::<Vec<_>>()
                 }),
                 json!({"type":"chat:status","paneId":pane_id,"runStatus":state.run_status}),
             )

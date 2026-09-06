@@ -3,27 +3,17 @@ import type React from "react";
 import { wsClient } from "../../../adapters/backend/http.ts";
 import type { WorkspaceModelAgentKind as AgentKind } from "../../workspace/model/workspace-model.ts";
 import {
-	appendSystemMessage,
-	appendTrimmedMessage,
-	type ChatLoadingState,
 	type AgentChatSharedChatMessage as ChatMessage,
-	type CommandSystemMessage,
 	hideMenuState,
+	localChatContent,
 	nextId,
-	type SlashCommand,
-	trimMessages,
 } from "../model/agent-chat-shared.ts";
-import { clearAgentChatPaneState } from "../model/chat-session-store.ts";
 import type { useAgentChatComposerState } from "./useAgentChatComposerState.tsx";
 import type { useAgentChatMenus } from "./useAgentChatMenus.tsx";
 
 type MenuState = {
 	show: boolean;
 	selectedIdx: number;
-};
-type ChatWorkspaceOverride = {
-	cwd?: string;
-	referencePaths?: string[];
 };
 function handleMenuKey<S extends MenuState>(
 	e: KeyboardEvent,
@@ -52,12 +42,9 @@ function handleMenuKey<S extends MenuState>(
 }
 export function useChatInputActions({
 	agentKind,
-	allCommands,
 	attachedImages,
 	cancelSpeechListening,
 	clearAttachedImages,
-	clearCheckpoints,
-	consumePendingWorkspace,
 	cwd,
 	fileMenu,
 	fileResults,
@@ -65,7 +52,6 @@ export function useChatInputActions({
 	input,
 	isLoading,
 	onSendStart,
-	onExit,
 	paneId,
 	referencePaths,
 	selectCommand,
@@ -73,7 +59,6 @@ export function useChatInputActions({
 	setFileMenu,
 	setInput,
 	setMessages,
-	setRunStatus,
 	setSlashMenu,
 	showCommands,
 	slashMenu,
@@ -82,39 +67,31 @@ export function useChatInputActions({
 	ReturnType<typeof useAgentChatMenus> & {
 		agentKind: AgentKind;
 		cancelSpeechListening: () => void;
-		clearCheckpoints: () => void;
-		consumePendingWorkspace: () => ChatWorkspaceOverride | undefined;
 		cwd?: string;
 		input: string;
 		isLoading: boolean;
 		onSendStart?: () => void;
-		onExit?: () => void;
 		paneId: string;
 		referencePaths?: string[];
 		setInput: (value: string) => void;
 		setMessages: (
 			update: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[]),
 		) => void;
-		setRunStatus: (
-			state: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState),
-		) => void;
 		textareaRef: React.RefObject<HTMLTextAreaElement | null>;
 	}) {
 	const appendLocalMessage = useCallback(
 		(message: Pick<ChatMessage, "role" | "content" | "images">) => {
 			const id = nextId();
-			setMessages((prev) =>
-				trimMessages([
-					...prev,
-					{
-						id,
-						optimistic: true,
-						role: message.role,
-						content: message.content,
-						images: message.images,
-					},
-				]),
-			);
+			setMessages((prev) => [
+				...prev,
+				{
+					id,
+					optimistic: true,
+					role: message.role,
+					content: localChatContent(message.content),
+					images: message.images,
+				},
+			]);
 			return id;
 		},
 		[setMessages],
@@ -122,7 +99,6 @@ export function useChatInputActions({
 	const sendToServer = useCallback(
 		(
 			text: string,
-			workspaceOverride?: ChatWorkspaceOverride,
 			displayText?: string,
 			images?: string[],
 			messageId?: string,
@@ -132,51 +108,32 @@ export function useChatInputActions({
 				commandArgs?: string;
 			},
 		) => {
-			if (!isLoading) {
-				onSendStart?.();
-				setRunStatus({
-					isLoading: true,
-					status: "thinking",
-					startTime: Date.now(),
-				});
-			}
+			onSendStart?.();
 			wsClient.send({
 				type: "chat:send",
 				messageId,
 				...command,
 				paneId,
 				text,
-				cwd: workspaceOverride?.cwd ?? cwd,
-				referencePaths: workspaceOverride?.referencePaths ?? referencePaths,
+				cwd,
+				referencePaths,
 				agentKind,
 				displayText,
 				images,
 			});
 		},
-		[
-			agentKind,
-			cwd,
-			isLoading,
-			onSendStart,
-			paneId,
-			referencePaths,
-			setRunStatus,
-		],
+		[agentKind, cwd, isLoading, onSendStart, paneId, referencePaths],
 	);
 	const sendUserMessage = useCallback(
 		({
 			displayText,
 			images,
-			systemMessage,
 			text,
-			workspaceOverride,
 			command,
 		}: {
 			displayText?: string;
 			images?: string[];
-			systemMessage?: CommandSystemMessage;
 			text: string;
-			workspaceOverride?: ChatWorkspaceOverride;
 			command?: {
 				expandCommands?: boolean;
 				commandId?: string;
@@ -187,14 +144,7 @@ export function useChatInputActions({
 			if (!trimmed && !images?.length) return;
 			const visibleText = displayText ?? trimmed;
 			if (isLoading) {
-				sendToServer(
-					trimmed,
-					workspaceOverride,
-					visibleText,
-					images,
-					undefined,
-					command,
-				);
+				sendToServer(trimmed, visibleText, images, undefined, command);
 				return;
 			}
 			const messageId = appendLocalMessage({
@@ -202,121 +152,15 @@ export function useChatInputActions({
 				content: visibleText,
 				images,
 			});
-			if (systemMessage) {
-				setMessages((prev) =>
-					appendSystemMessage(prev, JSON.stringify(systemMessage), {
-						version: 1,
-						kind: "message",
-						groupId: nextId(),
-						hidden: false,
-						command: systemMessage,
-					}),
-				);
-			}
-			sendToServer(
-				trimmed,
-				workspaceOverride,
-				visibleText,
-				images,
-				messageId,
-				command,
-			);
+			sendToServer(trimmed, visibleText, images, messageId, command);
 		},
-		[appendLocalMessage, isLoading, sendToServer, setMessages],
-	);
-	const executeCommand = useCallback(
-		(cmd: SlashCommand, args?: string) => {
-			setInput("");
-			if (textareaRef.current) textareaRef.current.value = "";
-			if (cmd.name === "btw") {
-				const question = (args || "").trim();
-				setMessages(
-					question
-						? appendTrimmedMessage.bind(null, {
-								id: nextId(),
-								role: "user",
-								content: `/btw ${question}`,
-							})
-						: (prev) => appendSystemMessage(prev, "Usage: /btw <question>"),
-				);
-				if (question)
-					wsClient.send({
-						type: "chat:btw",
-						paneId,
-						text: question,
-						cwd,
-					});
-				return;
-			}
-			if (cmd.action === "local") {
-				if (cmd.name === "exit") {
-					onExit?.();
-				} else if (cmd.name === "clear") {
-					wsClient.send({
-						type: "chat:destroy",
-						paneId,
-					});
-					setMessages([]);
-					clearAgentChatPaneState(paneId);
-					clearCheckpoints();
-					setMessages((prev) => appendSystemMessage(prev, "Chat cleared"));
-				} else if (cmd.name === "help") {
-					setMessages((prev) =>
-						appendSystemMessage(
-							prev,
-							allCommands
-								.map((command) => `/${command.name} - ${command.description}`)
-								.join("\n"),
-						),
-					);
-				}
-				return;
-			}
-			const displayText = `/${cmd.name}${args ? ` ${args}` : ""}`;
-			sendUserMessage({
-				displayText,
-				systemMessage: {
-					type: "inferay.command",
-					name: cmd.name,
-					description: cmd.description,
-					args: args?.trim() || undefined,
-				},
-				text: displayText,
-				command: cmd.id
-					? {
-							expandCommands: true,
-							commandId: cmd.id,
-							commandArgs: args,
-						}
-					: undefined,
-			});
-		},
-		[
-			allCommands,
-			clearCheckpoints,
-			cwd,
-			onExit,
-			paneId,
-			sendUserMessage,
-			setInput,
-			setMessages,
-			textareaRef,
-		],
+		[appendLocalMessage, isLoading, sendToServer],
 	);
 	const sendMessage = useCallback(() => {
 		const rawInput = textareaRef.current?.value ?? input;
 		const text = rawInput.trim();
 		if (!text && attachedImages.length === 0) return;
 		cancelSpeechListening();
-		if (text.startsWith("/") && !text.includes(" ")) {
-			const cmd = allCommands.find(
-				(command) => command.name.toLowerCase() === text.slice(1).toLowerCase(),
-			);
-			if (cmd) {
-				executeCommand(cmd);
-				return;
-			}
-		}
 		const imagePaths = attachedImages.map((image) => image.path);
 		const displayText =
 			text || `Attached image${attachedImages.length > 1 ? "s" : ""}`;
@@ -335,15 +179,11 @@ export function useChatInputActions({
 			command: {
 				expandCommands: true,
 			},
-			workspaceOverride: consumePendingWorkspace(),
 		});
 	}, [
-		allCommands,
 		attachedImages,
 		cancelSpeechListening,
 		clearAttachedImages,
-		consumePendingWorkspace,
-		executeCommand,
 		input,
 		sendUserMessage,
 		setFileMenu,

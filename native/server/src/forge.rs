@@ -59,6 +59,12 @@ struct ForgeAccount {
     active: bool,
 }
 
+#[derive(Deserialize)]
+struct AuthorIdentityRequest {
+    email: Option<String>,
+    name: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 struct GithubRepo {
     #[serde(rename(deserialize = "nameWithOwner"))]
@@ -132,16 +138,32 @@ pub(super) async fn handle_request(state: &ServerState, path: &str, request: Req
                 .take(100)
                 .map(str::to_owned)
                 .collect::<Vec<_>>();
-            let cwd = required(
-                state
-                    .allowed_paths
-                    .resolve_allowed_local_path(body["cwd"].as_str().unwrap_or_default()),
-                "Repository is outside allowed local roots",
-            )?;
-            let avatars = resolve_commit_avatars(state, &cwd, &hashes)
-                .await
-                .unwrap_or_default();
-            Ok(json!({"avatars":avatars}))
+            let avatars = if hashes.is_empty() {
+                HashMap::new()
+            } else {
+                let cwd = required(
+                    state
+                        .allowed_paths
+                        .resolve_allowed_local_path(body["cwd"].as_str().unwrap_or_default()),
+                    "Repository is outside allowed local roots",
+                )?;
+                resolve_commit_avatars(state, &cwd, &hashes)
+                    .await
+                    .unwrap_or_default()
+            };
+            let identities = serde_json::from_value::<Vec<AuthorIdentityRequest>>(
+                body.get("identities").cloned().unwrap_or_else(|| json!([])),
+            )
+            .unwrap_or_default();
+            let accounts = if identities.is_empty() {
+                Vec::new()
+            } else {
+                list_github_accounts(state).await.unwrap_or_default()
+            };
+            Ok(json!({
+                "avatars": avatars,
+                "identities": identities.iter().map(|identity| resolve_author_identity(&accounts, identity)).collect::<Vec<_>>()
+            }))
         }
         "/api/forge/clone" => {
             let body: Value = api_body(request).await?;
@@ -174,6 +196,60 @@ pub(super) async fn handle_request(state: &ServerState, path: &str, request: Req
         }
         _ => unreachable!("forge handler called for an unknown route"),
     }
+}
+
+fn normalized(value: Option<&str>) -> String {
+    value.unwrap_or_default().trim().to_lowercase()
+}
+
+fn compact(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .collect()
+}
+
+fn related(left: &str, right: &str) -> bool {
+    let (left, right) = (compact(left), compact(right));
+    left.len().min(right.len()) >= 3 && (left.starts_with(&right) || right.starts_with(&left))
+}
+
+fn resolve_author_identity(accounts: &[ForgeAccount], identity: &AuthorIdentityRequest) -> Value {
+    let email = normalized(identity.email.as_deref());
+    let name = normalized(identity.name.as_deref());
+    if let Some(handle) = email.strip_suffix("@users.noreply.github.com") {
+        let login = handle.split_once('+').map_or(handle, |(prefix, login)| {
+            if prefix.bytes().all(|byte| byte.is_ascii_digit()) {
+                login
+            } else {
+                handle
+            }
+        });
+        if !login.is_empty()
+            && login
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        {
+            return json!({"login":login,"avatarUrl":format!("https://github.com/{login}.png?size=64")});
+        }
+    }
+    accounts
+        .iter()
+        .find(|account| {
+            let account_email = normalized(account.email.as_deref());
+            let account_name = normalized(account.name.as_deref());
+            let login = account.login.to_lowercase();
+            (!email.is_empty() && account_email == email)
+                || (!name.is_empty() && (account_name == name || login == name.replace(' ', "")))
+                || (account.active
+                    && (related(email.split('@').next().unwrap_or_default(), &login)
+                        || related(&name, &login)
+                        || related(&name, &account_name)))
+        })
+        .map_or(
+            Value::Null,
+            |account| json!({"login":account.login,"avatarUrl":account.avatar_url}),
+        )
 }
 
 async fn resolve_commit_avatars(

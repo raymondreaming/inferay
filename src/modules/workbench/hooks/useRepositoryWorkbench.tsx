@@ -63,9 +63,6 @@ import {
 	type GitWorkspaceDetachedFilePanel,
 	type GitWorkspacePanelAction,
 	type GitWorkspacePanelSession,
-	getGitWorkspaceSidebarContent,
-	isGitWorkspaceGraphDrillIn,
-	isHistoricalGitWorkspaceDiff,
 	loadGitFileViewMode,
 	MIN_RESPONSIVE_PANE_WIDTH,
 	OPEN_ACTIVE_GIT_GRAPH_EVENT,
@@ -356,7 +353,6 @@ export function useRepositoryWorkbench({
 	const {
 		projectMap,
 		refetch,
-		applyOptimistic,
 		loaded: gitLoaded,
 	} = useGitStatus(trackedCwds, {
 		enabled: trackedCwds.length > 0,
@@ -665,7 +661,6 @@ export function useRepositoryWorkbench({
 		unstageAll,
 	} = useGitChangeActions({
 		cwd: activeCwd,
-		applyOptimistic,
 		refetchStatus: refetch,
 	});
 	const diffRequest = useMemo<DiffRequest | null>(
@@ -775,7 +770,7 @@ export function useRepositoryWorkbench({
 	const closeDiffViewer = useCallback(() => {
 		updatePanelSession({ type: "dismissDiff" });
 	}, [updatePanelSession]);
-	const returnsToGraphOnClose = isGitWorkspaceGraphDrillIn(panelSession);
+	const returnsToGraphOnClose = panelSession.graphDrillIn;
 	const selectChangedFile = useCallback(
 		(file: GitFileEntry) => {
 			if (!selectedWorkingTreeCwd) return;
@@ -977,13 +972,12 @@ export function useRepositoryWorkbench({
 				target.tagName === "TEXTAREA" ||
 				target.isContentEditable;
 			if (isEditable) return;
-			const graphDrillIn = isGitWorkspaceGraphDrillIn(panelSession);
-			if (graphDrillIn && event.key === "ArrowLeft") {
+			if (panelSession.graphDrillIn && event.key === "ArrowLeft") {
 				event.preventDefault();
 				closeDiffViewer();
 				return;
 			}
-			const historical = isHistoricalGitWorkspaceDiff(panelSession);
+			const historical = panelSession.historicalDiff;
 			if (event.key === "ArrowUp" || event.key === "ArrowDown") {
 				event.preventDefault();
 				(historical ? cycleHistoricalFile : cycleChangedFile)(
@@ -1203,10 +1197,6 @@ export function useRepositoryWorkbench({
 			</WorkbenchDiffRail>
 		) : null;
 
-	const sidebarContent = getGitWorkspaceSidebarContent(
-		panelSession,
-		selectedGraphItem?.itemKind === "worktreeWip",
-	);
 	const sidebar = (
 		<WorkbenchSidebar
 			visible={sidebarVisible}
@@ -1222,7 +1212,7 @@ export function useRepositoryWorkbench({
 				cwd={selectedWorkingTreeCwd}
 				fileViewMode={fileViewMode}
 				onFileViewModeChange={setFileViewMode}
-				content={sidebarContent}
+				content={panelSession.sidebarContent}
 				graphActive={mainViewMode === "graph"}
 				modified={sidebarModified}
 				untracked={sidebarUntracked}

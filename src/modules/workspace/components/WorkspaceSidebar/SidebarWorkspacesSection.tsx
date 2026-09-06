@@ -21,7 +21,6 @@ import {
 } from "../../../../shared/ui/Icons/index.tsx";
 import { Explorer } from "../../../explorer/components/Explorer/index.tsx";
 import type { SidebarWorkspaceState } from "../../model/workspace-model.ts";
-import { projectRepositoryWorkspaces } from "../../model/workspace-model.ts";
 import { SidebarChatList } from "./SidebarChatList.tsx";
 import { styles } from "./styles.ts";
 
@@ -60,8 +59,7 @@ export function SidebarWorkspacesSection({
 		workspaces.groups.find(
 			(group) => group.id === workspaces.selectedGroupId,
 		) ?? null;
-	const repositoryProjection = projectRepositoryWorkspaces(workspaces);
-	const selectedCwd = repositoryProjection.activeWorkspace?.cwd;
+	const selectedCwd = workspaces.repositories.activeWorkspace?.cwd;
 	const projectCwds = selectedCwd ? [selectedCwd] : [];
 	const selectSectionMode = (mode: "chats" | "explorer") => {
 		setSectionMode(mode);

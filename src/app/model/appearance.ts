@@ -22,17 +22,6 @@ export type AppThemeId = (typeof APP_THEMES)[number]["id"];
 export const APP_REGION_DRAG_CLASS = "electrobun-webkit-app-region-drag";
 export const APP_REGION_NO_DRAG_CLASS = "electrobun-webkit-app-region-no-drag";
 
-// Only custom image palettes write inline colors. Clear them when choosing a theme.
-const CUSTOM_PALETTE_PROPERTIES = [
-	"--color-inferay-black",
-	"--color-inferay-dark-gray",
-	"--color-inferay-gray",
-	"--color-inferay-light-gray",
-	"--color-inferay-accent",
-	"--color-inferay-accent-hover",
-	"--color-inferay-accent-foreground",
-	"--color-inferay-info",
-] as const;
 export function loadAppThemeId(): AppThemeId {
 	return readStoredValue(APP_THEME_STORAGE_KEY) === "midnight"
 		? "midnight"
@@ -43,9 +32,6 @@ export function saveAppThemeId(id: AppThemeId): void {
 }
 export function applyAppTheme(id: AppThemeId): void {
 	const root = document.documentElement;
-	for (const property of CUSTOM_PALETTE_PROPERTIES) {
-		root.style.removeProperty(property);
-	}
 	delete root.dataset.inferayScene;
 	root.dataset.inferayTheme = id;
 }
@@ -103,69 +89,11 @@ export const DEFAULT_APP_BACKGROUND_SETTINGS: AppBackgroundSettings = {
 	autoTheme: false,
 	customRevision: 0,
 };
-function clamp(value: unknown, min: number, max: number, fallback: number) {
-	const number = Number(value);
-	return Number.isFinite(number)
-		? Math.min(max, Math.max(min, number))
-		: fallback;
-}
-function isBackgroundId(value: unknown): value is AppBackgroundId {
-	return (
-		value === "custom" ||
-		value === "none" ||
-		APP_BACKGROUNDS.some((background) => background.id === value)
-	);
-}
-function isBackgroundMode(value: unknown): value is AppBackgroundMode {
-	return value === "solid" || value === "scene" || value === "glass";
-}
 export function loadAppBackgroundSettings(): AppBackgroundSettings {
-	const stored = readStoredJson<
-		Partial<Omit<AppBackgroundSettings, "version">> & { version?: number }
-	>(APP_BACKGROUND_STORAGE_KEY, DEFAULT_APP_BACKGROUND_SETTINGS);
-	const storedBlur = clamp(
-		stored.blur,
-		0,
-		20,
-		DEFAULT_APP_BACKGROUND_SETTINGS.blur,
+	return readStoredJson(
+		APP_BACKGROUND_STORAGE_KEY,
+		DEFAULT_APP_BACKGROUND_SETTINGS,
 	);
-	return {
-		version: 7,
-		mode: isBackgroundMode(stored.mode)
-			? stored.mode
-			: stored.id && stored.id !== "none"
-				? "scene"
-				: "solid",
-		id: isBackgroundId(stored.id)
-			? stored.id
-			: DEFAULT_APP_BACKGROUND_SETTINGS.id,
-		dim: clamp(stored.dim, 0, 85, DEFAULT_APP_BACKGROUND_SETTINGS.dim),
-		blur:
-			stored.version === 2 || stored.version === 3
-				? storedBlur
-				: Math.min(1, storedBlur),
-		glassBlur: clamp(
-			stored.version === 7
-				? stored.glassBlur
-				: DEFAULT_APP_BACKGROUND_SETTINGS.glassBlur,
-			0,
-			40,
-			DEFAULT_APP_BACKGROUND_SETTINGS.glassBlur,
-		),
-		glassOpacity: clamp(
-			stored.version === 7
-				? stored.glassOpacity
-				: DEFAULT_APP_BACKGROUND_SETTINGS.glassOpacity,
-			8,
-			100,
-			DEFAULT_APP_BACKGROUND_SETTINGS.glassOpacity,
-		),
-		autoTheme:
-			typeof stored.autoTheme === "boolean"
-				? stored.autoTheme
-				: DEFAULT_APP_BACKGROUND_SETTINGS.autoTheme,
-		customRevision: clamp(stored.customRevision, 0, Number.MAX_SAFE_INTEGER, 0),
-	};
 }
 export function saveAppBackgroundSettings(
 	settings: AppBackgroundSettings,

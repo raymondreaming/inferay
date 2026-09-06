@@ -1,187 +1,35 @@
-import { replaceEqualDeep } from "@tanstack/query-core";
-import { sendJson } from "../../../adapters/backend/http.ts";
 import {
-	readStoredJson,
 	readStoredValue,
 	removeStoredValue,
-	writeStoredJson,
 	writeStoredValue,
 } from "../../../adapters/storage/stored-values.ts";
-import { isString } from "../../../shared/lib/data.ts";
 import type { CheckpointInfo } from "./agent-chat-shared.ts";
 
 const INPUT_KEY_PREFIX = "inferay-chat-input-";
-const CHECKPOINT_KEY_PREFIX = "inferay-checkpoints-";
-const SUMMARY_KEY_PREFIX = "inferay-chat-summary-";
-const PENDING_WORKSPACE_KEY_PREFIX = "inferay-chat-pending-workspace-";
 const DEFAULT_CHAT_RUN_STATUS: ChatLoadingState = {
 	isLoading: false,
 	status: "idle",
 	startTime: null,
 };
-type ReadModelListener = () => void;
-function subscriptions() {
-	const listeners = new Set<ReadModelListener>();
-	return {
-		notify: () => {
-			for (const listener of listeners) listener();
-		},
-		subscribe: (listener: ReadModelListener) => {
-			listeners.add(listener);
-			return () => {
-				listeners.delete(listener);
-			};
-		},
-	};
-}
-function perPane<T>(create: (paneId: string) => T) {
-	const models = new Map<string, T>();
-	const get = (paneId: string): T => {
-		if (!models.has(paneId)) models.set(paneId, create(paneId));
-		return models.get(paneId)!;
-	};
-	return Object.assign(get, {
-		delete: (paneId: string) => models.delete(paneId),
-		peek: (paneId: string) => models.get(paneId),
-	});
-}
-function snapshot<T>(initial: T, equal = Object.is) {
-	let value = initial;
-	const events = subscriptions();
-	const get = () => value;
-	return {
-		get,
-		getSnapshot: get,
-		subscribe: events.subscribe,
-		set(update: T | ((previous: T) => T)) {
-			const next =
-				typeof update === "function"
-					? (update as (previous: T) => T)(value)
-					: update;
-			if (!equal(value, next)) {
-				value = next;
-				events.notify();
-			}
-			return value;
-		},
-	};
-}
-function writePaneValue(prefix: string, paneId: string, value: string | null) {
-	if (value) writeStoredValue(prefix + paneId, value);
-	else removeStoredValue(prefix + paneId);
-}
-function createChatMessageReadModel() {
-	return {
-		...snapshot<ChatMessage[]>([]),
-		settle: (messages: ChatMessage[]) =>
-			messages.map((message) =>
-				message.isStreaming ? { ...message, isStreaming: false } : message,
-			),
-	};
-}
-export const getChatMessageReadModel = perPane(createChatMessageReadModel);
 export function loadStoredInput(paneId: string): string {
 	return readStoredValue(INPUT_KEY_PREFIX + paneId, "") ?? "";
 }
 export function saveStoredInput(paneId: string, value: string) {
-	writePaneValue(INPUT_KEY_PREFIX, paneId, value);
+	if (value) writeStoredValue(INPUT_KEY_PREFIX + paneId, value);
+	else removeStoredValue(INPUT_KEY_PREFIX + paneId);
 }
-export const getChatCheckpointReadModel = perPane(() => {
-	const model = snapshot<CheckpointInfo[]>([]);
-	return { ...model, clear: () => model.set([]) };
-});
-export function loadPendingWorkspacePaths(paneId: string): string[] {
-	const parsed = readStoredJson<unknown>(
-		PENDING_WORKSPACE_KEY_PREFIX + paneId,
-		[],
-	);
-	return Array.isArray(parsed) ? parsed.filter(isString) : [];
-}
-export function savePendingWorkspacePaths(paneId: string, paths: string[]) {
-	if (paths.length === 0)
-		removeStoredValue(PENDING_WORKSPACE_KEY_PREFIX + paneId);
-	else writeStoredJson(PENDING_WORKSPACE_KEY_PREFIX + paneId, paths);
-}
-function createChatQueueReadModel(paneId: string) {
-	let queue: QueuedMessageInfo[] = [];
-	let revision = 0;
-	const { notify, subscribe } = subscriptions();
-	const setSnapshot = (next: QueuedMessageInfo[]) => {
-		const shared = replaceEqualDeep(queue, next);
-		if (queue === shared) return;
-		revision++;
-		queue = shared;
-		notify();
-	};
-	let mutationChain = Promise.resolve();
-	const mutate = (action: "edit" | "remove", id: string, text?: string) => {
-		const result = mutationChain
-			.catch(() => undefined)
-			.then(async () => {
-				const before = ++revision;
-				const response = await sendJson(
-					`/api/chat-queues/${encodeURIComponent(paneId)}`,
-					{ action, id, text },
-					{ method: "PATCH" },
-				);
-				if (!response.ok)
-					throw new Error("Could not update queued message. Please retry.");
-				const payload = (await response.json()) as {
-					queue: QueuedMessageInfo[];
-				};
-				if (revision === before)
-					setSnapshot([
-						...payload.queue,
-						...queue.filter((item) => item.transient),
-					]);
-			});
-		mutationChain = result;
-		return result;
-	};
-	return {
-		get: () => queue,
-		getSnapshot: () => queue,
-		replaceFromServer: (messages: QueuedMessageInfo[]) => {
-			// Even unchanged authoritative content supersedes an older HTTP response.
-			revision++;
-			setSnapshot(messages);
-		},
-		mutate,
-		subscribe,
-	};
-}
-export const getChatQueueReadModel = perPane(createChatQueueReadModel);
-function createChatRunStatusReadModel() {
-	const model = snapshot(
-		DEFAULT_CHAT_RUN_STATUS,
-		(previous: ChatLoadingState, next: ChatLoadingState) =>
-			previous.isLoading === next.isLoading &&
-			previous.status === next.status &&
-			previous.startTime === next.startTime,
-	);
-	return {
-		...model,
-		clear: () => model.set(DEFAULT_CHAT_RUN_STATUS),
-	};
-}
-export const getChatRunStatusReadModel = perPane(createChatRunStatusReadModel);
 export function clearAgentChatPaneState(paneId: string) {
-	getChatMessageReadModel.delete(paneId);
-	getChatCheckpointReadModel.delete(paneId);
-	getChatQueueReadModel.delete(paneId);
-	getChatRunStatusReadModel.peek(paneId)?.clear();
-	getChatRunStatusReadModel.delete(paneId);
-	for (const prefix of [
-		INPUT_KEY_PREFIX,
-		CHECKPOINT_KEY_PREFIX,
-		SUMMARY_KEY_PREFIX,
-		PENDING_WORKSPACE_KEY_PREFIX,
-	]) {
-		removeStoredValue(prefix + paneId);
-	}
+	removeStoredValue(INPUT_KEY_PREFIX + paneId);
 }
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "octane";
 import { postJson } from "../../../adapters/backend/http.ts";
 import { getAgentIcon } from "../../agents/components/AgentIcon/index.tsx";
 import {
@@ -202,11 +50,7 @@ export function useAgentChatSettings(paneId: string, agentKind: AgentKind) {
 				try {
 					const resolved = await postJson<typeof selection>(
 						"/api/native/provider-config",
-						{
-							paneId,
-							agentKind,
-							...patch,
-						},
+						{ paneId, agentKind, ...patch },
 					);
 					if (revision !== requestRevision.current) return;
 					setSelection(resolved);
@@ -214,7 +58,7 @@ export function useAgentChatSettings(paneId: string, agentKind: AgentKind) {
 				} catch (error) {
 					if (revision === requestRevision.current)
 						setConfigurationError(
-							`Could not update chat settings: ${error instanceof Error ? error.message : String(error)}`,
+							`Could not update chat settings: ${String(error)}`,
 						);
 				}
 			});
@@ -228,18 +72,12 @@ export function useAgentChatSettings(paneId: string, agentKind: AgentKind) {
 		};
 	}, [resolveSelection]);
 	const agentKindOptions = useMemo(
-		() => [
-			{
-				id: "claude" as const,
-				label: "Claude",
-				icon: getAgentIcon("claude", 11),
-			},
-			{
-				id: "codex" as const,
-				label: "Codex",
-				icon: getAgentIcon("codex", 11),
-			},
-		],
+		() =>
+			(["claude", "codex"] as const).map((id) => ({
+				id,
+				label: id === "claude" ? "Claude" : "Codex",
+				icon: getAgentIcon(id, 11),
+			})),
 		[],
 	);
 	return {
@@ -247,39 +85,14 @@ export function useAgentChatSettings(paneId: string, agentKind: AgentKind) {
 		agentKindOptions,
 		effectiveSelectedModel: selection.model,
 		selectedReasoningLevel: selection.reasoningLevel,
-		handleAgentKindChange: (kind: AgentKind) => {
-			changePaneAgentKind(paneId, kind);
-		},
+		handleAgentKindChange: (kind: AgentKind) =>
+			changePaneAgentKind(paneId, kind),
 		handleModelChange: (model: string) => resolveSelection({ model }),
 		handleReasoningLevelChange: (reasoningLevel: string) =>
 			resolveSelection({ reasoningLevel }),
 	};
 }
 
-import { useSyncExternalStore } from "octane";
-export function useChatUiState(paneId: string) {
-	const runStatusReadModel = useMemo(
-		() => getChatRunStatusReadModel(paneId),
-		[paneId],
-	);
-	const runStatus = useSyncExternalStore(
-		runStatusReadModel.subscribe,
-		runStatusReadModel.getSnapshot,
-		runStatusReadModel.getSnapshot,
-	);
-	const [expandedTools, setExpandedTools] = useState(() => new Set<string>());
-	const chatUiState = useMemo(
-		() => ({ ...runStatus, expandedTools }),
-		[expandedTools, runStatus],
-	);
-	return {
-		chatUiState,
-		setExpandedTools,
-		setRunStatus: runStatusReadModel.set,
-	};
-}
-
-import { useLayoutEffect } from "octane";
 import { listenWindowEvent } from "../../../shared/lib/data.ts";
 import type { ChatVirtualizerControls } from "../components/ChatMessageList/index.tsx";
 export function useChatViewport(
@@ -287,56 +100,27 @@ export function useChatViewport(
 	isSelected?: boolean,
 	isVisible = true,
 ) {
-	type ScrollSnapshot = {
-		atBottom: boolean;
-		fromBottom: number;
-		top: number;
-	};
 	const scrollRef = useRef<HTMLDivElement | null>(null);
 	const chatVirtualizerRef = useRef<ChatVirtualizerControls | null>(null);
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const highlightOverlayRef = useRef<HTMLDivElement | null>(null);
-	const wasSelectedRef = useRef(isSelected);
-	const activationRestoreFrameRef = useRef(0);
-	const scrollSnapshotRef = useRef<ScrollSnapshot>({
-		atBottom: true,
-		fromBottom: 0,
-		top: 0,
-	});
+	const scrollSnapshotRef = useRef({ atBottom: true, fromBottom: 0, top: 0 });
+	const restoreFrameRef = useRef(0);
 	const [isAtBottom, setIsAtBottom] = useState(true);
-	const captureScrollSnapshot = useCallback(() => {
-		const el = scrollRef.current;
-		if (!el) return;
-		const fromBottom = Math.max(
-			0,
-			el.scrollHeight - el.scrollTop - el.clientHeight,
-		);
-		scrollSnapshotRef.current = {
-			atBottom: fromBottom < 48,
-			fromBottom,
-			top: el.scrollTop,
-		};
-	}, []);
 	const handleScroll = useCallback(() => {
 		const el = scrollRef.current;
 		if (!el) return;
-		const nextIsAtBottom =
+		setIsAtBottom(
 			chatVirtualizerRef.current?.isAtEnd() ??
-			el.scrollHeight - el.scrollTop - el.clientHeight < 48;
-		setIsAtBottom(nextIsAtBottom);
-		if (!isSelected) captureScrollSnapshot();
-	}, [captureScrollSnapshot, isSelected]);
+				el.scrollHeight - el.scrollTop - el.clientHeight < 48,
+		);
+	}, []);
 	const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
 		const el = scrollRef.current;
 		if (!el) return;
-		if (chatVirtualizerRef.current) {
+		if (chatVirtualizerRef.current)
 			chatVirtualizerRef.current.scrollToEnd(behavior);
-		} else {
-			el.scrollTo({
-				top: el.scrollHeight,
-				behavior,
-			});
-		}
+		else el.scrollTo({ top: el.scrollHeight, behavior });
 		setIsAtBottom(true);
 	}, []);
 	const scheduleScrollToBottom = useCallback(
@@ -347,45 +131,40 @@ export function useChatViewport(
 		},
 		[scrollToBottom],
 	);
-	useLayoutEffect(() => {
-		const wasSelected = wasSelectedRef.current;
-		wasSelectedRef.current = isSelected;
-		if (wasSelected && !isSelected) {
-			captureScrollSnapshot();
-			return;
-		}
-		if (wasSelected || !isSelected || !isVisible) return;
-		const el = scrollRef.current;
-		if (!el) return;
-		const snapshot = scrollSnapshotRef.current;
-		let passes = 6;
-		const restoreViewport = () => {
-			const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
-			el.scrollTop = snapshot.atBottom
-				? Math.max(0, maxScrollTop - snapshot.fromBottom)
-				: Math.min(snapshot.top, maxScrollTop);
-			setIsAtBottom(snapshot.atBottom);
-			passes -= 1;
-			if (passes > 0) {
-				activationRestoreFrameRef.current =
-					requestAnimationFrame(restoreViewport);
-			} else {
-				activationRestoreFrameRef.current = 0;
-			}
-		};
-		restoreViewport();
-		return () => {
-			if (activationRestoreFrameRef.current) {
-				cancelAnimationFrame(activationRestoreFrameRef.current);
-				activationRestoreFrameRef.current = 0;
-			}
-		};
-	}, [captureScrollSnapshot, isSelected, isVisible]);
-	const cancelActivationRestore = useCallback(() => {
-		if (!activationRestoreFrameRef.current) return;
-		cancelAnimationFrame(activationRestoreFrameRef.current);
-		activationRestoreFrameRef.current = 0;
+	const cancelScrollRestore = useCallback(() => {
+		cancelAnimationFrame(restoreFrameRef.current);
+		restoreFrameRef.current = 0;
 	}, []);
+	useLayoutEffect(() => {
+		if (!isVisible) return;
+		const snapshot = scrollSnapshotRef.current;
+		let passes = 3;
+		const restore = () => {
+			const el = scrollRef.current;
+			if (!el) return;
+			const max = Math.max(0, el.scrollHeight - el.clientHeight);
+			el.scrollTop = snapshot.atBottom
+				? Math.max(0, max - snapshot.fromBottom)
+				: Math.min(snapshot.top, max);
+			setIsAtBottom(snapshot.atBottom);
+			if (--passes) restoreFrameRef.current = requestAnimationFrame(restore);
+		};
+		restore();
+		return () => {
+			cancelScrollRestore();
+			const el = scrollRef.current;
+			if (!el) return;
+			const fromBottom = Math.max(
+				0,
+				el.scrollHeight - el.scrollTop - el.clientHeight,
+			);
+			scrollSnapshotRef.current = {
+				atBottom: fromBottom < 48,
+				fromBottom,
+				top: el.scrollTop,
+			};
+		};
+	}, [cancelScrollRestore, isVisible]);
 	useEffect(() => {
 		if (!isVisible) return;
 		const ta = textareaRef.current;
@@ -422,10 +201,10 @@ export function useChatViewport(
 	}, [handleWindowKeyDown, isSelected, isVisible]);
 	return {
 		chatVirtualizerRef,
+		cancelScrollRestore,
 		handleScroll,
 		highlightOverlayRef,
 		isAtBottom,
-		cancelActivationRestore,
 		scheduleScrollToBottom,
 		scrollRef,
 		scrollToBottom,
@@ -435,65 +214,28 @@ export function useChatViewport(
 export function usePendingChatWorkspace(
 	paneId: string,
 	cwd: string | undefined,
-	onDirectoryChange:
-		| ((paneId: string, cwd: string, referencePaths?: string[]) => void)
-		| undefined,
+	nativePaths: string[] | undefined,
 ) {
-	const pendingWorkspacePathsRef = useRef<string[]>([]);
-	const [pendingWorkspacePaths, setPendingWorkspacePaths] = useState(() =>
-		loadPendingWorkspacePaths(paneId).filter(Boolean),
+	const [pendingWorkspacePaths, setPendingWorkspacePaths] = useState(
+		nativePaths ?? [],
 	);
+	useEffect(() => setPendingWorkspacePaths(nativePaths ?? []), [nativePaths]);
 	const visibleCwd = cwd ?? pendingWorkspacePaths[0];
 	const savePendingWorkspaceSelection = useCallback(
 		(paths: string[]) => {
 			const nextPaths = paths.filter(Boolean);
-			pendingWorkspacePathsRef.current = nextPaths;
 			setPendingWorkspacePaths(nextPaths);
-			savePendingWorkspacePaths(paneId, nextPaths);
+			wsClient.send({ type: "chat:workspace", paneId, paths: nextPaths });
 		},
 		[paneId],
 	);
-	const consumePendingWorkspace = useCallback(() => {
-		const paths = (
-			pendingWorkspacePathsRef.current.length > 0
-				? pendingWorkspacePathsRef.current
-				: loadPendingWorkspacePaths(paneId)
-		).filter(Boolean);
-		if (cwd || !paths[0]) return;
-		const selectedWorkspace = { cwd: paths[0], referencePaths: paths.slice(1) };
-		onDirectoryChange?.(
-			paneId,
-			selectedWorkspace.cwd,
-			selectedWorkspace.referencePaths,
-		);
-		savePendingWorkspaceSelection([]);
-		return selectedWorkspace;
-	}, [savePendingWorkspaceSelection, cwd, onDirectoryChange, paneId]);
-
 	return {
-		consumePendingWorkspace,
 		savePendingWorkspaceSelection,
 		visibleCwd,
 	};
 }
 
 import { loadCanonicalAgentState } from "../../workspace/model/workspace-model.ts";
-export function usePersistentChatMessages(paneId: string) {
-	const messageReadModel = useMemo(
-		() => getChatMessageReadModel(paneId),
-		[paneId],
-	);
-	const messages = useSyncExternalStore(
-		messageReadModel.subscribe,
-		messageReadModel.getSnapshot,
-		messageReadModel.getSnapshot,
-	);
-	return {
-		messageReadModel,
-		messages,
-		setMessages: messageReadModel.set,
-	};
-}
 export function useStableCallback<Args extends unknown[], Return>(
 	callback: (...args: Args) => Return,
 ): (...args: Args) => Return {
@@ -502,7 +244,6 @@ export function useStableCallback<Args extends unknown[], Return>(
 	return useCallback((...args: Args) => callbackRef.current(...args), []);
 }
 
-import type { Dispatch, SetStateAction } from "react";
 import { wsClient } from "../../../adapters/backend/http.ts";
 import type { AgentKind as UseChatConnectionAgentKind } from "../../agents/model/agents.ts";
 import {
@@ -524,27 +265,25 @@ export function useChatConnection({
 	enabled = true,
 	agentKind,
 	cwd,
-	messageReadModel,
 	paneId,
+	onExit,
 	replaceQueuedMessages,
 	resolveSteeringMessage,
 	stageSteeringMessage,
-	setExpandedTools,
-	setRunStatus,
 }: {
 	enabled?: boolean;
 	agentKind: UseChatConnectionAgentKind;
 	cwd?: string;
-	messageReadModel: ReturnType<typeof getChatMessageReadModel>;
 	paneId: string;
+	onExit?: () => void;
 	replaceQueuedMessages: (messages: QueuedMessageInfo[]) => void;
 	resolveSteeringMessage?: (id: string) => void;
 	stageSteeringMessage?: (message: QueuedMessageInfo) => void;
-	setExpandedTools: Dispatch<SetStateAction<Set<string>>>;
-	setRunStatus: (
-		value: ChatLoadingState | ((prev: ChatLoadingState) => ChatLoadingState),
-	) => void;
 }) {
+	const [messages, setMessages] = useState<ChatMessage[]>([]);
+	const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
+	const [runStatus, setRunStatus] = useState(DEFAULT_CHAT_RUN_STATUS);
+	const [expandedTools, setExpandedTools] = useState(() => new Set<string>());
 	const nativeTranscriptRef = useRef<{
 		messages: ChatMessage[];
 		revision: number;
@@ -552,15 +291,6 @@ export function useChatConnection({
 	} | null>(null);
 	const nativeFrameRef = useRef<number | null>(null);
 	const resyncPendingRef = useRef(false);
-	const checkpointReadModel = useMemo(
-		() => getChatCheckpointReadModel(paneId),
-		[paneId],
-	);
-	const checkpoints = useSyncExternalStore(
-		checkpointReadModel.subscribe,
-		checkpointReadModel.getSnapshot,
-		checkpointReadModel.getSnapshot,
-	);
 	const revertCheckpoint = useCallback(
 		(checkpointId: string) => {
 			wsClient.send({
@@ -577,10 +307,20 @@ export function useChatConnection({
 		nativeFrameRef.current = null;
 		const native = nativeTranscriptRef.current;
 		if (!native) return;
-		messageReadModel.set((current) =>
-			mergeNativeTranscript(current, native.messages),
-		);
-	}, [messageReadModel]);
+		setMessages((current) => mergeNativeTranscript(current, native.messages));
+	}, [setMessages]);
+	const clearChatState = useCallback(() => {
+		if (nativeFrameRef.current !== null)
+			window.clearTimeout(nativeFrameRef.current);
+		nativeFrameRef.current = null;
+		nativeTranscriptRef.current = null;
+		resyncPendingRef.current = false;
+		setMessages([]);
+		setCheckpoints([]);
+		setRunStatus(DEFAULT_CHAT_RUN_STATUS);
+		setExpandedTools(new Set());
+		replaceQueuedMessages([]);
+	}, [replaceQueuedMessages]);
 	useEffect(
 		() => () => {
 			if (nativeFrameRef.current !== null)
@@ -624,6 +364,10 @@ export function useChatConnection({
 					revision: msg.revision,
 				};
 				resyncPendingRef.current = false;
+				if (Array.isArray(msg.pendingSteers))
+					for (const pending of msg.pendingSteers)
+						if (pending && typeof pending.id === "string")
+							stageSteeringMessage?.(pending as QueuedMessageInfo);
 				flushNativeTranscript();
 			} else if (msg.transcriptUpdate) {
 				const next = applyNativeTranscriptUpdate(
@@ -648,18 +392,32 @@ export function useChatConnection({
 						STREAM_RENDER_INTERVAL_MS,
 					);
 			}
-			if (msg.type === "chat:summary") void loadCanonicalAgentState();
+			if (msg.type === "chat:summary" || msg.type === "chat:workspace")
+				void loadCanonicalAgentState();
+			if (msg.type === "chat:control") {
+				if (msg.action === "cleared") {
+					clearChatState();
+					clearAgentChatPaneState(paneId);
+					setMessages((messages) =>
+						appendSystemMessage(messages, "Chat cleared"),
+					);
+				} else if (msg.action === "exit") onExit?.();
+				return;
+			}
 			if (msg.runStatus) setRunStatus(msg.runStatus);
-			if (Array.isArray(msg.checkpoints))
-				checkpointReadModel.set(msg.checkpoints);
+			if (Array.isArray(msg.checkpoints)) setCheckpoints(msg.checkpoints);
 			if (msg.type === "chat:done") {
 				flushNativeTranscript();
-				const updated = messageReadModel.settle(messageReadModel.get());
-				messageReadModel.set(updated);
-				const ids = new Set(updated.map((message) => message.id));
-				setExpandedTools((previous) => {
-					const next = new Set([...previous].filter((id) => ids.has(id)));
-					return next.size === previous.size ? previous : next;
+				setMessages((current) => {
+					const updated = current.map((message) =>
+						message.isStreaming ? { ...message, isStreaming: false } : message,
+					);
+					const ids = new Set(updated.map((message) => message.id));
+					setExpandedTools((previous) => {
+						const next = new Set([...previous].filter((id) => ids.has(id)));
+						return next.size === previous.size ? previous : next;
+					});
+					return updated;
 				});
 			} else if (
 				msg.type === "chat:steer_pending" &&
@@ -672,25 +430,22 @@ export function useChatConnection({
 					resolveSteeringMessage?.(msg.messageId);
 			} else if (msg.type === "chat:error") {
 				if (msg.modelVersion !== 1)
-					messageReadModel.set((prev) => appendSystemMessage(prev, msg.error));
+					setMessages((messages) =>
+						appendSystemMessage(messages, String(msg.error ?? "Chat failed")),
+					);
 				if (!msg.runStatus)
 					setRunStatus({ isLoading: false, status: "error", startTime: null });
-			} else if (msg.type === "chat:system") {
-				if (msg.modelVersion !== 1)
-					messageReadModel.set((prev) =>
-						appendSystemMessage(prev, msg.message),
-					);
 			} else if (msg.type === "chat:queue" && Array.isArray(msg.queue)) {
 				replaceQueuedMessages(msg.queue);
 			} else if (msg.type === "checkpoint:reverted") {
-				messageReadModel.set((prev) =>
+				setMessages((prev) =>
 					appendSystemMessage(
 						prev,
 						`Reverted ${msg.restoredFiles?.length ?? 0} file(s) to checkpoint`,
 					),
 				);
 			} else if (msg.type === "checkpoint:error") {
-				messageReadModel.set((prev) =>
+				setMessages((prev) =>
 					appendSystemMessage(prev, `Revert failed: ${msg.error}`),
 				);
 			}
@@ -714,13 +469,13 @@ export function useChatConnection({
 			cleanup();
 		};
 	}, [
-		checkpointReadModel,
 		enabled,
 		agentKind,
 		cwd,
-		messageReadModel,
 		paneId,
 		flushNativeTranscript,
+		clearChatState,
+		onExit,
 		replaceQueuedMessages,
 		resolveSteeringMessage,
 		setExpandedTools,
@@ -728,8 +483,12 @@ export function useChatConnection({
 		stageSteeringMessage,
 	]);
 	return {
+		chatUiState: { ...runStatus, expandedTools },
 		checkpoints,
-		clearCheckpoints: checkpointReadModel.clear,
+		messages,
 		revertCheckpoint,
+		setMessages,
+		setExpandedTools,
+		setRunStatus,
 	};
 }

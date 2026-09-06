@@ -1,11 +1,10 @@
 import * as stylex from "@octanejs/stylex";
 import { useState } from "octane";
-import { writeStoredValue } from "../../../../adapters/storage/stored-values.ts";
 import {
-	dispatchAgentShellChange,
 	loadAgentLayoutMode,
-	loadAgentState,
 	mutateAgentWorkspaceState,
+	setAgentLayoutMode,
+	useWorkspaceState,
 } from "../../../workspace/model/workspace-model.ts";
 import { styles } from "./styles.ts";
 export function WorkspaceLayoutSection({
@@ -14,16 +13,14 @@ export function WorkspaceLayoutSection({
 	contained?: boolean;
 }) {
 	const [mode, setMode] = useState(loadAgentLayoutMode);
-	const selected = loadAgentState()?.groups.find(
-		(group) => group.id === loadAgentState()?.selectedGroupId,
+	const [workspace] = useWorkspaceState(false);
+	const selected = workspace.groups.find(
+		(group) => group.id === workspace.selectedGroupId,
 	);
 	const [columns, setColumns] = useState(selected?.columns ?? 1);
 	const updateMode = (next: "grid" | "rows") => {
 		setMode(next);
-		writeStoredValue("agent-layout-mode", next);
-		dispatchAgentShellChange({
-			source: "view",
-		});
+		setAgentLayoutMode(next);
 	};
 	const updateColumns = async (next: number) => {
 		setColumns(next);

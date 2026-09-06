@@ -6,10 +6,6 @@ export interface AgentAccountProviderStatus {
 }
 
 import { fetchJson, postJson } from "../../../adapters/backend/http.ts";
-import {
-	readStoredJson,
-	writeStoredJson,
-} from "../../../adapters/storage/stored-values.ts";
 export type ChatAgentKind = "claude" | "codex";
 export type AgentKind = "agent" | ChatAgentKind;
 export type AgentIconKey = "agent" | "anthropic" | "openai";
@@ -39,20 +35,10 @@ let catalog: Record<AgentKind, AgentDefinition> | undefined;
 export async function initializeAgentCatalog() {
 	const response = await fetchJson<{
 		agents: Record<AgentKind, AgentDefinition>;
+		defaults: DefaultChatSettings;
 	}>("/api/native/provider-config");
 	catalog = response.agents;
-	const defaults = await resolveChatSettings({
-		defaults: loadDefaultChatSettings(),
-	});
-	writeStoredJson(DEFAULT_CHAT_SETTINGS_KEY, defaults);
-}
-export function resolveChatSettings(input: {
-	agentKind?: AgentKind;
-	model?: string | null;
-	reasoningLevel?: string | null;
-	defaults?: Partial<DefaultChatSettings>;
-}) {
-	return postJson<DefaultChatSettings>("/api/native/provider-config", input);
+	defaultSettings = response.defaults;
 }
 export function isChatAgentKind(kind: AgentKind): kind is ChatAgentKind {
 	return kind === "claude" || kind === "codex";
@@ -78,16 +64,18 @@ export interface DefaultChatSettings {
 	readonly model: string;
 	readonly reasoningLevel: string;
 }
-const DEFAULT_CHAT_SETTINGS_KEY = "inferay-default-chat-settings";
+let defaultSettings: DefaultChatSettings = {
+	agentKind: "codex",
+	model: "",
+	reasoningLevel: "",
+};
 export function loadDefaultChatSettings(): DefaultChatSettings {
-	return readStoredJson<DefaultChatSettings>(DEFAULT_CHAT_SETTINGS_KEY, {
-		agentKind: "codex",
-		model: "",
-		reasoningLevel: "",
-	});
+	return defaultSettings;
 }
 export async function saveDefaultChatSettings(settings: DefaultChatSettings) {
-	const normalized = await resolveChatSettings(settings);
-	writeStoredJson(DEFAULT_CHAT_SETTINGS_KEY, normalized);
-	return normalized;
+	defaultSettings = await postJson<DefaultChatSettings>(
+		"/api/native/provider-config",
+		settings,
+	);
+	return defaultSettings;
 }

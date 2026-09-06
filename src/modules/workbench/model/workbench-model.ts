@@ -114,36 +114,27 @@ export {
 } from "../diff/components/DiffViewer/styles.ts";
 
 import type { DiffScrollSource } from "../diff/hooks/useSplitDiffScroll.tsx";
-export interface DiffNavigationState {
+
+type DiffNavigationState = {
 	externalScrollSource: DiffScrollSource;
 	externalScrollTop: number;
 	highlightedChangeIdx: number | undefined;
-}
-export interface DiffViewportState {
-	scrollTop: number;
-	viewHeight: number;
-}
-export type DiffNavigationAction =
-	| { type: "clearHighlight" }
-	| { type: "clearScroll" }
-	| { type: "jumpToChange"; changeIdx: number; top: number }
-	| { type: "jumpToPosition"; source: DiffScrollSource; top: number }
-	| { type: "reset" };
-export type DiffViewportAction =
-	| { type: "measure"; height: number }
-	| { type: "scroll"; top: number };
-export const INITIAL_DIFF_NAVIGATION_STATE: DiffNavigationState = {
+};
+export const INITIAL_DIFF_NAVIGATION_STATE = {
 	externalScrollSource: "all",
 	externalScrollTop: -1,
 	highlightedChangeIdx: undefined,
-};
-export const INITIAL_DIFF_VIEWPORT_STATE: DiffViewportState = {
+} satisfies DiffNavigationState;
+export const INITIAL_DIFF_VIEWPORT_STATE = {
 	scrollTop: 0,
 	viewHeight: 600,
 };
 export function diffNavigationReducer(
 	state: DiffNavigationState,
-	action: DiffNavigationAction,
+	action:
+		| { type: "clearHighlight" | "clearScroll" | "reset" }
+		| { type: "jumpToChange"; changeIdx: number; top: number }
+		| { type: "jumpToPosition"; source: DiffScrollSource; top: number },
 ): DiffNavigationState {
 	let next: DiffNavigationState;
 	switch (action.type) {
@@ -176,9 +167,9 @@ export function diffNavigationReducer(
 		: next;
 }
 export function diffViewportReducer(
-	state: DiffViewportState,
-	action: DiffViewportAction,
-): DiffViewportState {
+	state: typeof INITIAL_DIFF_VIEWPORT_STATE,
+	action: { type: "measure"; height: number } | { type: "scroll"; top: number },
+) {
 	const field = action.type === "measure" ? "viewHeight" : "scrollTop";
 	const value =
 		action.type === "measure"
@@ -218,10 +209,9 @@ export type DockTree =
 function clampRatio(ratio: number) {
 	return Math.max(0.14, Math.min(0.86, ratio));
 }
-export type DockTreePath = readonly ("first" | "second")[];
 export function resizeDockSplit(
 	tree: DockTree,
-	path: DockTreePath,
+	path: readonly ("first" | "second")[],
 	ratio: number,
 ): DockTree {
 	if (path.length === 0) {
@@ -236,10 +226,6 @@ export function resizeDockSplit(
 	const [branch, ...rest] = path;
 	const key = branch === "first" ? "first" : "second";
 	return { ...tree, [key]: resizeDockSplit(tree[key], rest, ratio) };
-}
-export interface GitWorkspaceSelectedFile {
-	readonly path: string;
-	readonly staged: boolean;
 }
 export type GitWorkspaceDiffSource =
 	| { readonly kind: "workingTree" | "graphWorkingTree" }
@@ -274,21 +260,18 @@ export interface GitWorkspacePanelSession<InitialFile = unknown> {
 		readonly path: string;
 		readonly token: number;
 	} | null;
-	readonly selectedFile:
-		| (GitWorkspaceSelectedFile & { readonly source: GitWorkspaceDiffSource })
-		| null;
+	readonly selectedFile: {
+		readonly path: string;
+		readonly staged: boolean;
+		readonly source: GitWorkspaceDiffSource;
+	} | null;
 	readonly selectedCommitHash: string | null;
 	readonly selectedCommitIds: readonly string[];
 	readonly selectedCommitParent: string | null;
 	readonly mainViewMode: "diff" | "graph";
-}
-export interface GitGraphSelectionIntent {
-	readonly additive: boolean;
-	readonly range: boolean;
-}
-export interface GitGraphSelectionItem {
-	readonly id: string;
-	readonly message: string;
+	readonly graphDrillIn: boolean;
+	readonly historicalDiff: boolean;
+	readonly sidebarContent: "workingTree" | "history";
 }
 export function emptyGitWorkspacePanelSession<
 	InitialFile = unknown,
@@ -307,12 +290,10 @@ export function emptyGitWorkspacePanelSession<
 		selectedCommitIds: [],
 		selectedCommitParent: null,
 		mainViewMode: "diff",
+		graphDrillIn: false,
+		historicalDiff: false,
+		sidebarContent: "history",
 	};
-}
-function resolvedDiffContext(current: GitWorkspacePanelSession) {
-	return current.mainViewMode === "diff"
-		? current.selectedFile?.source.kind
-		: undefined;
 }
 export type GitWorkspacePanelAction<InitialFile = unknown> =
 	| { type: "initialize" | "focusChat"; cwd?: string }
@@ -348,58 +329,28 @@ export type GitWorkspacePanelAction<InitialFile = unknown> =
 			type: "selectGraph";
 			id: string | null;
 			orderedIds: readonly string[];
-			intent?: GitGraphSelectionIntent;
+			intent?: { readonly additive: boolean; readonly range: boolean };
 	  }
-	| { type: "reconcileGraph"; items: readonly GitGraphSelectionItem[] }
+	| {
+			type: "reconcileGraph";
+			items: readonly { readonly id: string; readonly message: string }[];
+	  }
 	| {
 			type: "reconcileFile";
 			expected: GitWorkspacePanelSession["selectedFile"];
 			staged: boolean | null;
 	  };
-export function isGitWorkspaceGraphDrillIn(
-	current: GitWorkspacePanelSession,
-): boolean {
-	const context = resolvedDiffContext(current);
-	return (
-		current.mainViewMode === "diff" &&
-		(context === "graphWorkingTree" ||
-			context === "commit" ||
-			context === "comparison")
-	);
-}
-export function isHistoricalGitWorkspaceDiff(
-	current: GitWorkspacePanelSession,
-): boolean {
-	const context = resolvedDiffContext(current);
-	return (
-		current.mainViewMode === "diff" &&
-		(context === "commit" || context === "comparison")
-	);
-}
-export function getGitWorkspaceSidebarContent(
-	current: GitWorkspacePanelSession,
-	selectedGraphItemIsWorkingTree: boolean,
-): "workingTree" | "history" {
-	if (current.mainViewMode === "graph") {
-		return selectedGraphItemIsWorkingTree ? "workingTree" : "history";
-	}
-	const context = resolvedDiffContext(current);
-	return context === "workingTree" || context === "graphWorkingTree"
-		? "workingTree"
-		: "history";
-}
 
 import {
 	readStoredValue,
 	writeStoredValue,
 } from "../../../adapters/storage/stored-values.ts";
-export type GitFileViewMode = "path" | "tree";
 export const GIT_FILE_VIEW_MODE_STORAGE_KEY = "inferay-git-file-view-mode";
-export function loadGitFileViewMode(): GitFileViewMode {
+export function loadGitFileViewMode(): "path" | "tree" {
 	return readStoredValue(GIT_FILE_VIEW_MODE_STORAGE_KEY) === "path"
 		? "path"
 		: "tree";
 }
-export function saveGitFileViewMode(mode: GitFileViewMode): void {
+export function saveGitFileViewMode(mode: "path" | "tree"): void {
 	writeStoredValue(GIT_FILE_VIEW_MODE_STORAGE_KEY, mode);
 }

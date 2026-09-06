@@ -524,6 +524,14 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
                         inferay_core::provider_config::composer_commands(kind, &skills)
                     );
                 }
+                let entries = read_json_object(&state.client_storage_path).await;
+                let defaults = entries
+                    .get("inferay-default-chat-settings")
+                    .and_then(Value::as_str)
+                    .and_then(|text| serde_json::from_str::<Value>(text).ok())
+                    .unwrap_or(Value::Null);
+                catalog["defaults"] =
+                    inferay_core::provider_config::resolve(&json!({"defaults": defaults}));
                 Ok(catalog)
             }
             ("/api/native/provider-config", "POST") => {
@@ -665,7 +673,15 @@ async fn patch_chat_queue(state: &ServerState, request: Request, pane_id: &str) 
 async fn provider_configuration(state: &ServerState, request: Request) -> ApiResult {
     let mut input: Value = api_body(request).await?;
     let Some(pane_id) = input["paneId"].as_str().map(str::to_owned) else {
-        return Ok(inferay_core::provider_config::resolve(&input));
+        let resolved = inferay_core::provider_config::resolve(&input);
+        let _guard = state.client_storage_write.lock().await;
+        let mut entries = read_client_storage(&state.client_storage_path).await?;
+        entries.insert(
+            "inferay-default-chat-settings".into(),
+            Value::String(resolved.to_string()),
+        );
+        write_json_object(&state.client_storage_path, &entries).await?;
+        return Ok(resolved);
     };
     let _guard = state.client_storage_write.lock().await;
     let mut entries = read_client_storage(&state.client_storage_path).await?;
@@ -1626,11 +1642,14 @@ const SYNCED_STORAGE_KEYS: &[&str] = &[
     "git-watched-dirs",
     "main-sidebar-width",
     "sidebar-collapsed",
+    "workspace-sidebar-mode",
     "agent-editor-zen",
     "agent-layout-mode",
     "agent-main-view",
 ];
 const SYNCED_STORAGE_PREFIXES: &[&str] = &[
+    "commit-graph-columns-v12:",
+    "commit-graph-scroll-v1:",
     "agent-workspace-",
     "git-change-checkpoint:",
     "inferay-",
@@ -1707,8 +1726,56 @@ fn normalize_client_storage_entries(
         .filter(|(key, value)| {
             should_sync_client_storage_key(key) && (value.is_string() || value.is_null())
         })
-        .map(|(key, value)| (key.clone(), value.clone()))
+        .map(|(key, value)| {
+            let value = if key == "inferay-app-background" {
+                value
+                    .as_str()
+                    .map(normalize_background_settings)
+                    .map(Value::String)
+                    .unwrap_or_else(|| value.clone())
+            } else {
+                value.clone()
+            };
+            (key.clone(), value)
+        })
         .collect()
+}
+
+fn normalize_background_settings(text: &str) -> String {
+    let stored: Value = serde_json::from_str(text).unwrap_or(Value::Null);
+    let field = |key| stored.as_object().and_then(|object| object.get(key));
+    let clamp = |key, min: f64, max: f64, fallback| {
+        field(key)
+            .and_then(Value::as_f64)
+            .unwrap_or(fallback)
+            .clamp(min, max)
+    };
+    let version = field("version").and_then(Value::as_f64);
+    let id = field("id")
+        .and_then(Value::as_str)
+        .filter(|id| {
+            matches!(
+                *id,
+                "city" | "nature" | "orbit" | "signals" | "custom" | "none"
+            )
+        })
+        .unwrap_or("none");
+    let mode = field("mode")
+        .and_then(Value::as_str)
+        .filter(|mode| matches!(*mode, "solid" | "scene" | "glass"))
+        .unwrap_or(if id != "none" { "scene" } else { "solid" });
+    let stored_blur = clamp("blur", 0.0, 20.0, 1.0);
+    json!({
+        "version": 7,
+        "mode": mode,
+        "id": id,
+        "dim": clamp("dim", 0.0, 85.0, 42.0),
+        "blur": if matches!(version, Some(2.0 | 3.0)) { stored_blur } else { stored_blur.min(1.0) },
+        "glassBlur": if version == Some(7.0) { clamp("glassBlur", 0.0, 40.0, 7.0) } else { 7.0 },
+        "glassOpacity": if version == Some(7.0) { clamp("glassOpacity", 8.0, 100.0, 83.0) } else { 83.0 },
+        "autoTheme": field("autoTheme").and_then(Value::as_bool).unwrap_or(false),
+        "customRevision": clamp("customRevision", 0.0, 9_007_199_254_740_991.0, 0.0),
+    }).to_string()
 }
 
 fn is_chat_preference_key(key: &str) -> bool {
@@ -1738,6 +1805,13 @@ async fn get_client_storage(state: &ServerState, request: Request) -> ApiResult 
     let requested_key = query_value(&request, "key");
     let _guard = state.client_storage_write.lock().await;
     let mut entries = read_client_storage(&state.client_storage_path).await?;
+    if let Some(Value::String(stored)) = entries.get("inferay-app-background") {
+        let normalized = normalize_background_settings(stored);
+        if normalized != *stored {
+            entries.insert("inferay-app-background".into(), Value::String(normalized));
+            write_json_object(&state.client_storage_path, &entries).await?;
+        }
+    }
     if let Some(key) = requested_key {
         entries.retain(|entry_key, _| entry_key == &key);
     }
@@ -2278,6 +2352,88 @@ async fn handle_native_websocket_message(
         .get("paneId")
         .and_then(Value::as_str)
         .unwrap_or_default();
+    if message_type == "chat:send"
+        && !pane_id.is_empty()
+        && let Some(text) = message.get("text").and_then(Value::as_str)
+        && let Some(command) = text.trim().strip_prefix('/')
+    {
+        let mut parts = command.splitn(2, char::is_whitespace);
+        let name = parts.next().unwrap_or_default().to_ascii_lowercase();
+        let args = parts.next().unwrap_or_default().trim();
+        let command_input = || {
+            let mut input =
+                chat_runtime::SendMessageInput::deserialize(&message).unwrap_or_default();
+            if input.agent_kind.is_empty() {
+                input.agent_kind = "claude".into();
+            }
+            input.cwd = normalize_chat_cwd(state, Some(&input.cwd));
+            input.cwd_provided = true;
+            input.client_id = Some(client_id);
+            input.client_sender = Some(sender.clone());
+            input
+        };
+        if name == "exit" {
+            let _ = sender.send(json!({"type":"chat:control","paneId":pane_id,"action":"exit"}));
+            return;
+        }
+        if name == "clear" {
+            match state.chat_runtime.destroy_session(pane_id).await {
+                Ok(()) => {
+                    let _ = sender
+                        .send(json!({"type":"chat:control","paneId":pane_id,"action":"cleared"}));
+                }
+                Err(error) => {
+                    let _ =
+                        sender.send(json!({"type":"chat:error","paneId":pane_id,"error":error}));
+                }
+            }
+            return;
+        }
+        if name == "help" {
+            let skills = state.native_prompts.list().await.unwrap_or_default();
+            let kind = message
+                .get("agentKind")
+                .and_then(Value::as_str)
+                .unwrap_or("claude");
+            let help = inferay_core::provider_config::composer_commands(kind, &skills)
+                .into_iter()
+                .filter_map(|command| {
+                    Some(format!(
+                        "/{} - {}",
+                        command["name"].as_str()?,
+                        command["description"].as_str()?
+                    ))
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            state
+                .chat_runtime
+                .publish_command_response(command_input(), &help)
+                .await;
+            return;
+        }
+        if name == "btw" {
+            if args.is_empty() {
+                state
+                    .chat_runtime
+                    .publish_command_response(command_input(), "Usage: /btw <question>")
+                    .await;
+            } else {
+                let cwd = normalize_chat_cwd(state, message["cwd"].as_str().map(Path::new));
+                let runtime = state.chat_runtime.clone();
+                let resolver = state.agent_command_resolver.clone();
+                let sender = sender.clone();
+                let pane = pane_id.to_owned();
+                let question = args.to_owned();
+                tokio::spawn(async move {
+                    runtime
+                        .run_side_question(&pane, &question, cwd, client_id, sender, &resolver)
+                        .await;
+                });
+            }
+            return;
+        }
+    }
     match message_type {
         "chat:destroy" if !pane_id.is_empty() => {
             if let Err(error) = state.chat_runtime.destroy_session(pane_id).await {
@@ -2332,6 +2488,24 @@ async fn handle_native_websocket_message(
         "chat:stop" if !pane_id.is_empty() => {
             state.chat_runtime.stop_generation(pane_id).await;
         }
+        "chat:workspace" if !pane_id.is_empty() => {
+            let result = serde_json::from_value::<Vec<String>>(message["paths"].clone())
+                .map_err(|error| error.to_string())
+                .and_then(|paths| {
+                    let paths = normalize_chat_paths(state, &paths)
+                        .into_iter()
+                        .map(|path| path.to_string_lossy().into_owned())
+                        .collect();
+                    state
+                        .agent_state_store
+                        .lock()
+                        .expect("agent state lock poisoned")
+                        .set_pending_workspace(pane_id, paths)
+                });
+            if let Err(error) = result {
+                let _ = sender.send(json!({"type":"chat:error","paneId":pane_id,"error":error}));
+            }
+        }
         "chat:send" if !pane_id.is_empty() => {
             let mut input = match chat_runtime::SendMessageInput::deserialize(&message) {
                 Ok(input) => input,
@@ -2365,9 +2539,30 @@ async fn handle_native_websocket_message(
                 .and_then(Value::as_str)
                 .map(str::to_owned)
                 .or(input.reasoning_level);
+            if input.cwd.as_os_str().is_empty() {
+                let pending = state
+                    .agent_state_store
+                    .lock()
+                    .expect("agent state lock poisoned")
+                    .consume_pending_workspace(pane_id);
+                match pending {
+                    Ok(Some((cwd, references))) => {
+                        input.cwd = PathBuf::from(cwd);
+                        input.reference_paths = references.into_iter().map(PathBuf::from).collect();
+                        input.reference_paths_provided = true;
+                        let _ = sender.send(json!({"type":"chat:workspace","paneId":pane_id}));
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        let _ = sender
+                            .send(json!({"type":"chat:error","paneId":pane_id,"error":error}));
+                        return;
+                    }
+                }
+            }
             input.cwd_provided = !input.cwd.as_os_str().is_empty();
             input.reasoning_level_provided = input.reasoning_level.is_some();
-            input.reference_paths_provided = message.get("referencePaths").is_some();
+            input.reference_paths_provided |= message.get("referencePaths").is_some();
             input.cwd = normalize_chat_cwd(state, Some(&input.cwd));
             input.reference_paths = normalize_chat_paths(state, &input.reference_paths);
             input.images = normalize_chat_paths(state, &input.images);

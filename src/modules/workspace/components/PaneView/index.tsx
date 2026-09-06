@@ -76,6 +76,7 @@ export const PaneView = memo(function PaneView({
 						paneId={pane.id}
 						cwd={pane.cwd}
 						referencePaths={pane.referencePaths}
+						pendingWorkspacePaths={pane.pendingWorkspacePaths}
 						agentKind={viewAgentKind}
 						onClose={onClose}
 						isSelected={isSelected}

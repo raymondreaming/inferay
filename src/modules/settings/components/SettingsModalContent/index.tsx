@@ -24,7 +24,6 @@ import {
 	useGithubRepos,
 } from "../../../repository/model/types.ts";
 import type { SettingsModalTarget } from "../../../skills/model/skill-library.ts";
-import { dispatchAgentShellChange } from "../../../workspace/model/workspace-model.ts";
 import { SettingsContent } from "../Settings/index.tsx";
 import {
 	SettingsGithubAccount,
@@ -159,9 +158,6 @@ export function SettingsModalContent({
 			if (!response.ok) throw new Error(payload.error ?? "Clone failed");
 			invalidateGithubReposCache();
 			setCloneStatus(`Cloned ${repo.full_name} to ${payload.displayPath}`);
-			dispatchAgentShellChange({
-				source: "cache",
-			});
 		} catch (err) {
 			setError(
 				err instanceof Error ? err.message : "Unable to clone repository",

@@ -16,10 +16,21 @@ export interface ColumnWidths {
 	author: number;
 	sha: number;
 }
-export const ROW_HEIGHT = 23;
-export const COLUMN_WIDTH = 18;
-export const GRAPH_PADDING = 18;
 export const TOOLS_WIDTH = 32;
+export const GIT_GRAPH_GEOMETRY = {
+	rowHeight: 23,
+	columnWidth: 18,
+	avatarSize: 18,
+	graphPadding: 18,
+	graphWidth: 360,
+	lineWidth: 2,
+	curveRadius: 9,
+} as const;
+export const {
+	rowHeight: ROW_HEIGHT,
+	columnWidth: COLUMN_WIDTH,
+	graphPadding: GRAPH_PADDING,
+} = GIT_GRAPH_GEOMETRY;
 export function hexToRgba(hex: string, alpha: number) {
 	const c = hex.replace("#", "");
 	const n = c.length === 3 ? c.replace(/[\s\S]/g, "$&$&") : c;
@@ -186,7 +197,12 @@ export function loadPreferences(repositoryKey?: string): GraphPreferences {
 				: DEFAULT_COLUMN_ORDER,
 	};
 }
-export type RowTransition = GraphPresentationTransition;
+export interface RowTransition {
+	row: number;
+	fromCol: number;
+	toCol: number;
+	color: string;
+}
 export type GraphColumnKey =
 	| "date"
 	| "refs"
@@ -194,36 +210,7 @@ export type GraphColumnKey =
 	| "message"
 	| "author"
 	| "sha";
-export interface GraphPresentationTransition {
-	row: number;
-	fromCol: number;
-	toCol: number;
-	color: string;
-}
-export interface GraphVirtualRange {
-	start: number;
-	end: number;
-}
 
-/**
- * One geometry scale shared by virtualization, lanes, nodes, and SVG routing.
- * These values are measured from the AIVRE-Core GitKraken reference captures.
- */
-export const GIT_GRAPH_GEOMETRY = {
-	rowHeight: 23,
-	columnWidth: 18,
-	avatarSize: 18,
-	graphPadding: 18,
-	graphWidth: 360,
-	lineWidth: 2,
-	curveRadius: 9,
-} as const;
-
-/**
- * The 1,000-row first page keeps typical repositories complete in one request
- * while the viewport-bounded renderer stays below 60 mounted rows. Larger
- * histories grow geometrically to avoid many full-snapshot round trips.
- */
 export const DEFAULT_GIT_GRAPH_HISTORY_LIMIT = 1_000;
 export const MAX_GIT_GRAPH_HISTORY_LIMIT = 100_000;
 export function nextGitGraphHistoryLimit(current: number): number {
@@ -233,16 +220,11 @@ export function nextGitGraphHistoryLimit(current: number): number {
 	);
 }
 
-/**
- * Return the half-open item range that should be mounted for a scroll viewport.
- * Keeping this calculation outside the renderer makes large-history behavior
- * deterministic and independently measurable.
- */
 export function graphVirtualRange(
 	itemCount: number,
 	scrollTop: number,
 	viewportHeight: number,
-): GraphVirtualRange {
+) {
 	const count = Math.max(0, Math.floor(itemCount));
 	const viewport = Math.max(0, viewportHeight);
 	const scroll = Math.max(0, scrollTop);
@@ -261,9 +243,8 @@ export function moveGraphColumn(
 ): GraphColumnKey[] {
 	const sourceIndex = order.indexOf(source);
 	const targetIndex = order.indexOf(target);
-	if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
+	if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex)
 		return [...order];
-	}
 	const next = [...order];
 	next.splice(sourceIndex, 1);
 	next.splice(targetIndex, 0, source);
@@ -279,12 +260,9 @@ export function pinnedGraphColumnOrder(
 	const pinned = new Set(validPinned);
 	return [
 		...validPinned,
-		...Array.from(
-			{
-				length: maxColumn + 1,
-			},
-			(_, column) => column,
-		).filter((column) => !pinned.has(column)),
+		...Array.from({ length: maxColumn + 1 }, (_, column) => column).filter(
+			(column) => !pinned.has(column),
+		),
 	];
 }
 const {
@@ -294,9 +272,7 @@ const {
 	curveRadius: requestedCurveRadius,
 } = GIT_GRAPH_GEOMETRY;
 
-export function buildGraphConnectionPath(
-	connection: GraphPresentationTransition,
-): string {
+export function buildGraphConnectionPath(connection: RowTransition): string {
 	const rowY = (row: number) => row * rowHeight + rowHeight / 2;
 	const x1 = graphPadding + connection.fromCol * columnWidth + columnWidth / 2;
 	const y1 = rowY(connection.row);
@@ -309,9 +285,6 @@ export function buildGraphConnectionPath(
 		Math.abs(x2 - x1) / 2,
 	);
 	const curveEndX = x2 + directionToCommit * curveRadius;
-	// Terminate beneath the opaque node instead of at its mathematical edge.
-	// This avoids antialiasing gaps when a row uses a smaller merge dot while
-	// keeping the visible line clipped cleanly by avatar-sized nodes.
 	const sweep = directionToCommit > 0 ? 1 : 0;
 	return [
 		`M ${x2} ${endY}`,
@@ -321,10 +294,7 @@ export function buildGraphConnectionPath(
 	].join(" ");
 }
 
-/** Route an incoming duplicate edge from the row above into its parent node. */
-export function buildGraphConvergencePath(
-	connection: GraphPresentationTransition,
-): string {
+export function buildGraphConvergencePath(connection: RowTransition): string {
 	const centerY = connection.row * rowHeight + rowHeight / 2;
 	const topY = connection.row * rowHeight;
 	const fromX =
