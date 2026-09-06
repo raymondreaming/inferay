@@ -1,6 +1,5 @@
 import { hydrateStart, StartClient } from "@octanejs/tanstack-start/client";
 import { hydrateRoot, initializeHydrationEventCapture } from "octane";
-import { getServerOrigin, resolveServerUrl } from "./adapters/backend/http.ts";
 import {
 	hydrateStoredValues,
 	ONBOARDING_DONE_STORAGE_KEY,
@@ -19,34 +18,6 @@ import { preloadSkills } from "./modules/skills/hooks/useSkills.tsx";
 import { initializeAgentState } from "./modules/workspace/model/workspace-model.ts";
 import { restoreSyntaxTheme } from "./shared/hooks/useSyntaxHighlight.tsx";
 
-function routeLocalRequestsToDesktopServer() {
-	if (window.location.origin === getServerOrigin()) return;
-
-	const originalFetch = window.fetch.bind(window);
-	window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-		if (typeof input === "string" && input.startsWith("/")) {
-			return originalFetch(resolveServerUrl(input), init);
-		}
-		if (input instanceof URL && input.pathname.startsWith("/")) {
-			return originalFetch(
-				resolveServerUrl(`${input.pathname}${input.search}`),
-				init,
-			);
-		}
-		if (input instanceof Request) {
-			const url = new URL(input.url, window.location.origin);
-			if (url.pathname.startsWith("/")) {
-				return originalFetch(
-					new Request(resolveServerUrl(`${url.pathname}${url.search}`), input),
-					init,
-				);
-			}
-		}
-		return originalFetch(input, init);
-	}) as typeof window.fetch;
-}
-
-routeLocalRequestsToDesktopServer();
 let restoreStartupContent: (() => void) | undefined;
 while (true) {
 	try {

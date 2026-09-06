@@ -1,12 +1,11 @@
 import * as stylex from "@octanejs/stylex";
-import { resolveServerUrl } from "../../../../adapters/backend/http.ts";
 import { getStepPhase, type Step } from "../../../../app/model/appearance.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
 import { IconChevronRight } from "../../../../shared/ui/Icons/index.tsx";
 import { styles } from "./styles.ts";
 
-const logoUrl = resolveServerUrl("/logo.png");
+const logoUrl = "/logo.png";
 
 export function IntroStep({
 	step,

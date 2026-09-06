@@ -1,6 +1,5 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useEffect, useRef, useState } from "octane";
-import { resolveServerUrl } from "../../../../adapters/backend/http.ts";
 import {
 	APP_BACKGROUND_STORAGE_KEY,
 	CLIENT_STORAGE_CHANGED_EVENT,
@@ -194,7 +193,7 @@ export function BackgroundScenePicker({
 										{...stylex.props(styles.backgroundPreview)}
 										style={inlineStyles.getBackgroundScenePickerBackgroundPreviewStyle(
 											scene.path
-												? `linear-gradient(rgba(2,3,8,.12), rgba(2,3,8,.32)), url("${resolveServerUrl(scene.path)}")`
+												? `linear-gradient(rgba(2,3,8,.12), rgba(2,3,8,.32)), url("${scene.path}")`
 												: "linear-gradient(135deg, #272938, #0a0b10)",
 										)}
 									/>

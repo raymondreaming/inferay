@@ -2,7 +2,7 @@ import * as stylex from "@octanejs/stylex";
 import { Outlet } from "@octanejs/tanstack-router";
 import { Suspense, useEffect, useState } from "octane";
 import type { CSSProperties } from "react";
-import { resolveServerUrl, wsClient } from "../../../adapters/backend/http.ts";
+import { wsClient } from "../../../adapters/backend/http.ts";
 import {
 	APP_BACKGROUND_STORAGE_KEY,
 	APP_FONT_STORAGE_KEY,
@@ -52,9 +52,9 @@ export function AppLayout() {
 		background.mode !== "scene"
 			? null
 			: background.id === "custom"
-				? `${resolveServerUrl("/api/config/background-image")}?v=${background.customRevision}`
+				? `/api/config/background-image?v=${background.customRevision}`
 				: builtInPath
-					? resolveServerUrl(builtInPath)
+					? builtInPath
 					: null;
 
 	useEffect(() => {
