@@ -15,8 +15,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     export!(
         GitFileEntry,
         inferay_presentation::appearance::AppearanceCatalog,
+        inferay_presentation::shadow::ShadowLayer,
         inferay_core::provider_config::ProviderCatalog,
-        inferay_presentation::chat_view::ChatRow,
+        inferay_presentation::chat_view::ChatListRow,
+        inferay_presentation::graph::GraphLines,
         inferay_presentation::chat_view::ChatWindow,
         GitStatusResult,
         GitBranch,
@@ -55,6 +57,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(
         presentation_path.join("appearance-catalog.json"),
         serde_json::to_string(&inferay_presentation::appearance::catalog())?,
+    )?;
+    std::fs::write(
+        presentation_path.join("liquid-defaults.json"),
+        serde_json::to_string(&serde_json::json!({
+            "evolve": inferay_presentation::liquid::EvolveOptions::default(),
+            "move": inferay_presentation::liquid::MoveOptions::default(),
+        }))?,
     )?;
     let catalog_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../build/presentation/provider-catalog.json");

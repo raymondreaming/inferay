@@ -1,13 +1,12 @@
-import { createPortal } from "octane";
+import { createPortal, type OctaneNode } from "octane";
 import { GooeyRoot } from "../Gooey/index.tsx";
 import { LiquidItem } from "../LiquidItem/index.tsx";
-import type { ReactNode } from "../observer.ts";
 import * as inlineStyles from "./styles.ts";
 export interface LiquidPopoverSurfaceProps {
 	open: boolean;
 	present?: boolean;
-	trigger: ReactNode;
-	panel: ReactNode;
+	trigger: OctaneNode;
+	panel: OctaneNode;
 	portalTarget: Element;
 	fill: string;
 	fullWidth?: boolean;

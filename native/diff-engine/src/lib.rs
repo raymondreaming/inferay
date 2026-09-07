@@ -1164,116 +1164,80 @@ fn stable_revision_token(parts: &[String]) -> String {
     format!("{hash:016x}")
 }
 
-pub fn preflight_git_checkout(cwd: &str, branch_name: &str) -> GitCheckoutPreflight {
-    let branch_exists = get_git_branches(cwd)
-        .iter()
-        .any(|branch| branch.name == branch_name);
-    let already_current = current_git_branch(cwd).as_deref() == Some(branch_name);
-    let status = git_status(cwd, false);
-    let clean_worktree = status
-        .as_ref()
-        .is_some_and(|status| status.files.is_empty());
-    let operation = get_git_repository_operation_state(cwd);
-    let conflicts = operation.conflicts.clone();
-    let checked_out_worktree = get_git_worktrees(cwd)
-        .into_iter()
-        .find(|worktree| !worktree.is_current && worktree.branch.as_deref() == Some(branch_name))
-        .map(|worktree| worktree.path);
-
-    let (error_kind, reason) = if !branch_exists {
-        (
-            Some(GitOperationErrorKind::InvalidInput),
-            Some("Branch not found".to_string()),
-        )
-    } else if already_current {
-        (None, None)
-    } else if let Some(path) = checked_out_worktree.as_deref() {
-        (
-            Some(GitOperationErrorKind::WorktreeInUse),
-            Some(format!("Branch is already checked out at {path}")),
-        )
-    } else if operation.kind != GitRepositoryOperationKind::Idle {
-        (
-            Some(GitOperationErrorKind::Conflict),
-            Some("Continue or abort the current Git operation before checkout".to_string()),
-        )
-    } else if !clean_worktree {
-        (
-            Some(GitOperationErrorKind::DirtyWorktree),
-            Some("Commit or stash working changes before checkout".to_string()),
-        )
-    } else {
-        (None, None)
-    };
-    GitCheckoutPreflight {
-        branch: branch_name.to_string(),
-        branch_exists,
-        already_current,
-        clean_worktree,
-        conflicts,
-        checked_out_worktree,
-        can_checkout: error_kind.is_none(),
-        error_kind,
-        reason,
-    }
-}
-
 pub fn checkout_git_branch(cwd: &str, branch_name: &str) -> GitCheckoutResult {
-    let preflight = preflight_git_checkout(cwd, branch_name);
-    if !preflight.can_checkout {
-        return GitCheckoutResult {
-            ok: false,
-            branch: None,
-            error_kind: preflight.error_kind,
-            error: preflight.reason,
-        };
-    }
-    if preflight.already_current {
-        return GitCheckoutResult {
+    let checkout = || -> Result<String, (GitOperationErrorKind, String)> {
+        if !get_git_branches(cwd)
+            .iter()
+            .any(|branch| branch.name == branch_name)
+        {
+            return Err((
+                GitOperationErrorKind::InvalidInput,
+                "Branch not found".into(),
+            ));
+        }
+        if current_git_branch(cwd).as_deref() == Some(branch_name) {
+            return Ok(branch_name.into());
+        }
+        if let Some(worktree) = get_git_worktrees(cwd).into_iter().find(|worktree| {
+            !worktree.is_current && worktree.branch.as_deref() == Some(branch_name)
+        }) {
+            return Err((
+                GitOperationErrorKind::WorktreeInUse,
+                format!("Branch is already checked out at {}", worktree.path),
+            ));
+        }
+        if get_git_repository_operation_state(cwd).kind != GitRepositoryOperationKind::Idle {
+            return Err((
+                GitOperationErrorKind::Conflict,
+                "Continue or abort the current Git operation before checkout".into(),
+            ));
+        }
+        if !git_status(cwd, false).is_some_and(|status| status.files.is_empty()) {
+            return Err((
+                GitOperationErrorKind::DirtyWorktree,
+                "Commit or stash working changes before checkout".into(),
+            ));
+        }
+        let output = Command::new("git")
+            .args(["checkout", branch_name])
+            .current_dir(cwd)
+            .output()
+            .map_err(|_| {
+                (
+                    GitOperationErrorKind::Io,
+                    format!("Unable to checkout {branch_name}"),
+                )
+            })?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let kind = classify_git_operation_error(&stderr, &git_conflicts(cwd));
+            return Err((
+                kind,
+                if stderr.is_empty() {
+                    format!("Unable to checkout {branch_name}")
+                } else {
+                    stderr
+                },
+            ));
+        }
+        Ok(run_git(&["rev-parse", "--abbrev-ref", "HEAD"], cwd)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| branch_name.to_string()))
+    };
+    match checkout() {
+        Ok(branch) => GitCheckoutResult {
             ok: true,
-            branch: Some(branch_name.to_string()),
+            branch: Some(branch),
             error_kind: None,
             error: None,
-        };
-    }
-
-    let output = match Command::new("git")
-        .args(["checkout", branch_name])
-        .current_dir(cwd)
-        .output()
-    {
-        Ok(output) => output,
-        Err(_) => {
-            return GitCheckoutResult {
-                ok: false,
-                branch: None,
-                error_kind: Some(GitOperationErrorKind::Io),
-                error: Some(format!("Unable to checkout {branch_name}")),
-            };
-        }
-    };
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return GitCheckoutResult {
+        },
+        Err((kind, error)) => GitCheckoutResult {
             ok: false,
             branch: None,
-            error_kind: Some(classify_git_operation_error(&stderr, &git_conflicts(cwd))),
-            error: Some(if stderr.is_empty() {
-                format!("Unable to checkout {branch_name}")
-            } else {
-                stderr
-            }),
-        };
-    }
-    let current = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], cwd)
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| branch_name.to_string());
-    GitCheckoutResult {
-        ok: true,
-        branch: Some(current),
-        error_kind: None,
-        error: None,
+            error_kind: Some(kind),
+            error: Some(error),
+        },
     }
 }
 
@@ -2055,7 +2019,9 @@ pub fn get_git_commit_details_for_parent(
 
     let provider = get_commit_provider_metadata(cwd, &message);
     Some(GitCommitDetails {
-        file_presentation: None,
+        file_presentation: Some(GitFilePresentation::from_paths(
+            files.iter().map(|file| file.path.clone()).collect(),
+        )),
         hash: full_hash,
         parents,
         diff_parent,
@@ -2088,7 +2054,9 @@ pub fn get_git_comparison_details(
         .filter(|value| !value.is_empty());
     let files = git_change_files(cwd, Some(&from_hash), Some(&to_hash));
     Some(GitComparisonDetails {
-        file_presentation: None,
+        file_presentation: Some(GitFilePresentation::from_paths(
+            files.iter().map(|file| file.path.clone()).collect(),
+        )),
         from_hash,
         to_hash,
         merge_base,
@@ -2132,7 +2100,9 @@ pub fn get_git_worktree_comparison_details(
     }
     files.sort_by(|left, right| left.path.cmp(&right.path));
     Some(GitComparisonDetails {
-        file_presentation: None,
+        file_presentation: Some(GitFilePresentation::from_paths(
+            files.iter().map(|file| file.path.clone()).collect(),
+        )),
         from_hash: from_hash.clone(),
         to_hash: "WORKTREE".to_string(),
         merge_base: Some(from_hash),
@@ -2290,7 +2260,9 @@ fn git_status(cwd: &str, include_stats: bool) -> Option<GitStatusResult> {
 
     Some(GitStatusResult {
         file_groups: GitFileGroups::from_files(&files),
-        file_presentation: None,
+        file_presentation: include_stats.then(|| {
+            GitFilePresentation::from_paths(files.iter().map(|file| file.path.clone()).collect())
+        }),
         cwd: cwd.to_string(),
         name,
         branch,
@@ -3081,4 +3053,77 @@ fn layout_graph(mut commits: Vec<GraphCommit>) -> (Vec<GraphCommit>, Vec<GraphRo
     }
 
     (commits, graph_rows)
+}
+
+#[cfg(test)]
+mod checkout_tests {
+    use super::*;
+
+    #[test]
+    fn checkout_preserves_dirty_worktree_operation_and_worktree_guards() {
+        let root = std::env::temp_dir().join(format!(
+            "inferay-checkout-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let cwd = root.to_str().unwrap();
+        let git = |args: &[&str]| {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(&root)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{args:?}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["init", "-b", "main"]);
+        git(&["config", "user.email", "fixture@example.invalid"]);
+        git(&["config", "user.name", "Fixture"]);
+        git(&["config", "commit.gpgsign", "false"]);
+        std::fs::write(root.join("file.txt"), "original\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-m", "Initial"]);
+        git(&["branch", "next"]);
+        assert!(checkout_git_branch(cwd, "next").ok);
+        assert_eq!(current_git_branch(cwd).as_deref(), Some("next"));
+        std::fs::write(root.join("file.txt"), "dirty\n").unwrap();
+        assert!(checkout_git_branch(cwd, "next").ok);
+        assert_eq!(
+            checkout_git_branch(cwd, "main").error_kind,
+            Some(GitOperationErrorKind::DirtyWorktree)
+        );
+        assert_eq!(
+            checkout_git_branch(cwd, "missing").error_kind,
+            Some(GitOperationErrorKind::InvalidInput)
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("file.txt")).unwrap(),
+            "dirty\n"
+        );
+        git(&["restore", "file.txt"]);
+        let worktree = root.join("linked");
+        git(&["worktree", "add", worktree.to_str().unwrap(), "main"]);
+        assert_eq!(
+            checkout_git_branch(cwd, "main").error_kind,
+            Some(GitOperationErrorKind::WorktreeInUse)
+        );
+        git(&["worktree", "remove", worktree.to_str().unwrap()]);
+        let head = current_git_head(cwd).unwrap();
+        std::fs::write(root.join(".git/MERGE_HEAD"), head).unwrap();
+        assert_eq!(
+            checkout_git_branch(cwd, "main").error_kind,
+            Some(GitOperationErrorKind::Conflict)
+        );
+        assert!(checkout_git_branch(cwd, "next").ok);
+        std::fs::remove_file(root.join(".git/MERGE_HEAD")).unwrap();
+        assert!(checkout_git_branch(cwd, "main").ok);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

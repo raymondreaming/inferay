@@ -3,10 +3,11 @@
 pub mod appearance;
 pub mod chat_view;
 mod composer;
-mod graph;
+pub mod graph;
 pub mod liquid;
 pub mod panels;
 pub mod repository;
+pub mod shadow;
 pub mod skills;
 pub mod transcript;
 mod workbench;
@@ -29,10 +30,8 @@ fn flag(value: &Value) -> bool {
 
 pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
     Ok(match operation {
-        "chatRows" => json!(chat_view::rows(
-            &serde_json::from_value::<Vec<Option<chat_view::RowDescriptor>>>(input.clone())
-                .map_err(|error| error.to_string())?
-        )),
+        "shadowLayers" => json!(shadow::parse(string(input))),
+        "chatList" => json!(chat_view::list(input)?),
         "chatOffsets" => json!(chat_view::offsets(
             &serde_json::from_value::<Vec<Option<f64>>>(input.clone())
                 .map_err(|error| error.to_string())?
@@ -62,7 +61,7 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         "workspaceSelection" => workbench::workspace_selection(input),
         "graphPreferences" => graph::preferences(input),
         "graphLayout" => graph::layout(input),
-        "graphPath" => graph::path(input),
+        "graphLines" => json!(graph::lines(input)),
         "moveColumn" => graph::move_column(input),
         "nextHistoryLimit" => json!(
             (number(input) + 1000.)

@@ -1,28 +1,33 @@
 use crate::{array, flag, number, string};
 use serde_json::{Value, json};
 
-fn ordered(files: &Value, presentation: &Value, mode: &Value) -> Value {
+fn ordered<'a>(files: Vec<&'a Value>, presentation: &Value, mode: &Value) -> Vec<&'a Value> {
     if presentation.is_null() {
-        return files.clone();
+        return files;
     }
     let order = &presentation[if mode == "tree" {
         "treeOrder"
     } else {
         "pathOrder"
     }];
-    let by_path: std::collections::HashMap<_, _> = array(files)
-        .iter()
-        .map(|f| (string(&f["path"]), f))
+    let by_path: std::collections::HashMap<_, _> = files
+        .into_iter()
+        .map(|file| (string(&file["path"]), file))
         .collect();
-    json!(
-        array(order)
-            .iter()
-            .filter_map(|path| by_path.get(string(path)))
-            .collect::<Vec<_>>()
-    )
+    array(order)
+        .iter()
+        .filter_map(|path| by_path.get(string(path)).copied())
+        .collect()
 }
 pub fn visible_files(input: &Value) -> Value {
-    ordered(&input["files"], &input["presentation"], &input["mode"])
+    if input["presentation"].is_null() {
+        return input["files"].clone();
+    }
+    json!(ordered(
+        array(&input["files"]).iter().collect(),
+        &input["presentation"],
+        &input["mode"]
+    ))
 }
 pub fn adjacent_file(input: &Value) -> Value {
     let files = array(&input["files"]);
@@ -69,34 +74,26 @@ pub fn selection_after_toggle(input: &Value) -> Value {
     next
 }
 pub fn changes_panel(i: &Value) -> Value {
-    let unstaged = json!(
+    let presentation = &i["filePresentation"];
+    let mode = &i["fileViewMode"];
+    let unstaged = ordered(
         array(&i["modified"])
             .iter()
             .chain(array(&i["untracked"]))
-            .collect::<Vec<_>>()
+            .collect(),
+        presentation,
+        &json!("path"),
     );
-    let unstaged = ordered(&unstaged, &i["filePresentation"], &json!("path"));
-    let staged = ordered(&i["staged"], &i["filePresentation"], &json!("path"));
-    let working = json!(
-        array(&unstaged)
-            .iter()
-            .chain(array(&staged))
-            .collect::<Vec<_>>()
+    let staged = ordered(
+        array(&i["staged"]).iter().collect(),
+        presentation,
+        &json!("path"),
     );
-    let navigable = json!(
-        array(&ordered(
-            &unstaged,
-            &i["filePresentation"],
-            &i["fileViewMode"]
-        ))
-        .iter()
-        .chain(array(&ordered(
-            &staged,
-            &i["filePresentation"],
-            &i["fileViewMode"]
-        )))
-        .collect::<Vec<_>>()
-    );
+    let working: Vec<_> = unstaged.iter().chain(&staged).copied().collect();
+    let navigable: Vec<_> = ordered(unstaged.clone(), presentation, mode)
+        .into_iter()
+        .chain(ordered(staged.clone(), presentation, mode))
+        .collect();
     let showing = i["content"] == "workingTree";
     let comparing = number(&i["selectedCommitCount"]) > 1.;
     let has_commit = !string(&i["selectedCommitHash"]).is_empty();
@@ -117,11 +114,7 @@ pub fn changes_panel(i: &Value) -> Value {
     } else {
         &i["commitDetails"]
     };
-    let historical_files = if history["files"].is_array() {
-        history["files"].clone()
-    } else {
-        json!([])
-    };
+    let historical_files: Vec<_> = array(&history["files"]).iter().collect();
     let displayed = if showing { &working } else { &historical_files };
     let message = if loading {
         if comparing {
@@ -143,9 +136,9 @@ pub fn changes_panel(i: &Value) -> Value {
     json!({"unstagedFiles":unstaged, "stagedFiles":staged, "workingFiles":working,
         "navigableFiles":navigable, "showingWorkingTree":showing, "comparing":comparing,
         "historyDetails":details, "historyLoading":loading, "historyMessage":message,
-        "navigableHistoricalFiles":ordered(&historical_files, &history["filePresentation"], &i["fileViewMode"]),
-        "additions":array(displayed).iter().map(|f|number(&f["additions"])).sum::<f64>(),
-        "deletions":array(displayed).iter().map(|f|number(&f["deletions"])).sum::<f64>()})
+        "navigableHistoricalFiles":ordered(historical_files.clone(), &history["filePresentation"], &i["fileViewMode"]),
+        "additions":displayed.iter().map(|f|number(&f["additions"])).sum::<f64>(),
+        "deletions":displayed.iter().map(|f|number(&f["deletions"])).sum::<f64>()})
 }
 fn grouped(n: usize) -> String {
     let text = n.to_string();
@@ -237,79 +230,25 @@ pub fn historical_query(i: &Value) -> Value {
         &Value::Null
     };
     let diff = i["mainViewMode"] == "diff";
-    let mut result =
-        json!({"commitSource":commit,"comparisonSource":comparison,"commit":{},"comparison":{}});
-    // Omitted query fields are intentionally absent, rather than JSON null.
-    for (target, fields) in [
-        (
-            "commit",
-            vec![
-                (
-                    "cwd",
-                    if diff && !string(&commit["commitHash"]).is_empty() {
-                        &i["diffViewerCwd"]
-                    } else {
-                        &i["graphCwd"]
-                    },
-                ),
-                (
-                    "hash",
-                    if diff {
-                        &commit["commitHash"]
-                    } else if array(&i["selectedCommitIds"]).len() <= 1
-                        && i["selectedGraphItem"]["itemKind"] != "worktreeWip"
-                    {
-                        &i["selectedGraphItem"]["hash"]
-                    } else {
-                        &Value::Null
-                    },
-                ),
-                (
-                    "parent",
-                    if diff {
-                        &commit["commitParent"]
-                    } else {
-                        &i["selectedCommitParent"]
-                    },
-                ),
-            ],
-        ),
-        (
-            "comparison",
-            vec![
-                (
-                    "cwd",
-                    if diff {
-                        &i["diffViewerCwd"]
-                    } else {
-                        &i["graphCwd"]
-                    },
-                ),
-                (
-                    "from",
-                    if diff {
-                        &comparison["comparisonFrom"]
-                    } else {
-                        &Value::Null
-                    },
-                ),
-                (
-                    "to",
-                    if diff {
-                        &comparison["comparisonTo"]
-                    } else {
-                        &Value::Null
-                    },
-                ),
-            ],
-        ),
-    ] {
-        for (key, value) in fields {
-            if !value.is_null() {
-                result[target][key] = value.clone();
-            }
-        }
+    let mut commit_query = json!({
+        "cwd": if diff && !string(&commit["commitHash"]).is_empty() { &i["diffViewerCwd"] } else { &i["graphCwd"] },
+        "hash": if diff { &commit["commitHash"] } else if array(&i["selectedCommitIds"]).len() <= 1 && i["selectedGraphItem"]["itemKind"] != "worktreeWip" { &i["selectedGraphItem"]["hash"] } else { &Value::Null },
+        "parent": if diff { &commit["commitParent"] } else { &i["selectedCommitParent"] },
+    });
+    let mut comparison_query = json!({
+        "cwd": if diff { &i["diffViewerCwd"] } else { &i["graphCwd"] },
+        "from": if diff { &comparison["comparisonFrom"] } else { &Value::Null },
+        "to": if diff { &comparison["comparisonTo"] } else { &Value::Null },
+    });
+    // Absent query parameters must remain omitted, not JSON null.
+    for query in [&mut commit_query, &mut comparison_query] {
+        query
+            .as_object_mut()
+            .unwrap()
+            .retain(|_, value| !value.is_null());
     }
+    let mut result = json!({"commitSource":commit, "comparisonSource":comparison,
+        "commit":commit_query, "comparison":comparison_query});
     let revision = if diff && !string(&i["diffViewerCwd"]).is_empty() {
         &i["storedRevision"]
     } else {

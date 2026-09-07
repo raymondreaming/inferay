@@ -1,4 +1,5 @@
-import type { ReactElement, ShadowLayer } from "../observer.ts";
+import type { OctaneElement } from "octane/jsx-runtime";
+import type { ShadowLayer } from "../../../../../build/presentation/contracts/ShadowLayer.ts";
 import { InsetPass } from "./InsetPass.tsx";
 import { ShadowPass } from "./ShadowPass.tsx";
 
@@ -16,7 +17,7 @@ export function GooFilterPrimitives({
 	blur: number;
 	contrast: number;
 	shadows: ShadowLayer[];
-}): ReactElement {
+}): OctaneElement {
 	// Intercept tracks the slope so the alpha threshold stays near the same
 	// crossing as the classic 18/-7 goo pairing.
 	const intercept = Math.round((0.5 - contrast * (5 / 12)) * 100) / 100;

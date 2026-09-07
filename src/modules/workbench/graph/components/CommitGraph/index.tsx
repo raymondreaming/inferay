@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { memo } from "octane";
-import { CommitGraphLinesLayer } from "../../../../../shared/ui/Icons/index.tsx";
+import { CommitGraphLinesLayer } from "./CommitGraphLinesLayer.tsx";
 import { CommitRow } from "./CommitRow.tsx";
 import { HeaderRow } from "./HeaderRow.tsx";
 import { RefContextMenu } from "./RefContextMenu.tsx";
@@ -13,12 +13,6 @@ import {
 	useCommitGraphState,
 } from "./useCommitGraphState.tsx";
 export const LINE_WIDTH = 2;
-export function rowTop(row: number): number {
-	return row * ROW_HEIGHT;
-}
-export function rowBottom(row: number): number {
-	return (row + 1) * ROW_HEIGHT;
-}
 export const CommitGraph = memo(function CommitGraph(
 	props: Parameters<typeof useCommitGraphState>[0],
 ) {
@@ -137,15 +131,7 @@ export const CommitGraph = memo(function CommitGraph(
 					width={view.graphWidth}
 					height={view.graphHeight}
 					style={view.lineLayerStyle}
-					railSegments={view.railSegments}
-					transitions={view.transitions}
-					convergences={view.convergences}
-					truncatedSegments={view.truncatedSegments}
-					colX={view.columnX}
-					rowTop={rowTop}
-					rowBottom={rowBottom}
-					buildConnection={view.connectionPath}
-					buildConvergence={view.convergencePath}
+					lines={view.lines}
 					lineWidth={LINE_WIDTH}
 				/>
 				{view.commits

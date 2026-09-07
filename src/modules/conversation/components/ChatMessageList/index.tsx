@@ -10,18 +10,14 @@ import {
 	useState,
 } from "octane";
 import type React from "react";
-import type { ChatRow } from "../../../../../build/presentation/contracts/ChatRow.ts";
+import type { ChatListRow } from "../../../../../build/presentation/contracts/ChatListRow.ts";
 import type { ChatWindow } from "../../../../../build/presentation/contracts/ChatWindow.ts";
 import type { CheckpointMeta } from "../../../../../build/presentation/contracts/CheckpointMeta.ts";
 import { project as rustProject } from "../../../../adapters/presentation/model.ts";
 import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
-
-import { GroupedEditDiff } from "../ChatEditDiff/index.tsx";
-import { Bubble } from "./Bubble.tsx";
-import { CheckpointMarker } from "./CheckpointMarker.tsx";
+import { ChatRenderRow } from "./ChatRenderRow.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
-import { ToolTimeline } from "./ToolTimeline.tsx";
 
 export type ChatVirtualizerControls = {
 	scrollToEnd: (behavior?: ScrollBehavior) => void;
@@ -58,28 +54,55 @@ export const ChatMessageList = memo(function ChatMessageList({
 }) {
 	const didInitialScrollRef = useRef(false);
 	const messageListRef = useRef<HTMLDivElement | null>(null);
-	const renderRows = useMemo(() => buildRenderRows(messages), [messages]);
+	const renderRows = useMemo(
+		() =>
+			rustProject<ChatListRow[]>("chatList", {
+				messages: messages.map(({ id, role, isStreaming, render }) => ({
+					id,
+					role,
+					isStreaming,
+					render: render
+						? {
+								kind: render.kind,
+								hidden: render.hidden,
+								groupLeader: render.groupLeader,
+								groupEnd: render.groupEnd,
+								filePath: render.filePath,
+								continuesAfter: render.continuesAfter,
+								rowId: render.rowId,
+							}
+						: null,
+				})),
+				checkpoints: checkpoints.map(({ afterMessageId }) => ({
+					afterMessageId,
+				})),
+			}),
+		[messages, checkpoints],
+	);
 	const measuredHeights = useRef(new Map<string, number>());
 	const [measurementVersion, setMeasurementVersion] = useState(0);
 	const [scrollOffset, setScrollOffset] = useState<number | null>(null);
 	const virtual = renderRows.length > 60;
 	const offsets = useMemo(
-		() => calculateChatOffsets(renderRows, measuredHeights.current),
+		() =>
+			rustProject<number[]>(
+				"chatOffsets",
+				renderRows.map((row) => measuredHeights.current.get(row.key) ?? null),
+			),
 		[renderRows, measurementVersion],
 	);
 	const {
 		firstVisible,
-		offsets: rowOffsets,
+
 		start: windowStart,
 		end: windowEnd,
 	} = useMemo(
 		() =>
-			calculateChatWindow(
-				renderRows,
+			rustProject<ChatWindow>("chatWindow", {
 				offsets,
 				scrollOffset,
-				scrollElementRef.current?.clientHeight ?? 800,
-			),
+				viewportHeight: scrollElementRef.current?.clientHeight ?? 800,
+			}),
 		[renderRows, offsets, scrollOffset, scrollElementRef],
 	);
 	useLayoutEffect(() => {
@@ -145,14 +168,10 @@ export const ChatMessageList = memo(function ChatMessageList({
 		stickToBottom,
 	]);
 	useEffect(() => {
-		const keys = new Set(renderRows.map(getRenderRowKey));
+		const keys = new Set(renderRows.map((row) => row.key));
 		for (const key of measuredHeights.current.keys())
 			if (!keys.has(key)) measuredHeights.current.delete(key);
 	}, [renderRows]);
-	const checkpointsByMessageId = useMemo(
-		() => indexCheckpoints(checkpoints),
-		[checkpoints],
-	);
 	const pinToBottom = useCallback(
 		(behavior: ScrollBehavior = "auto") => {
 			const element = scrollElementRef.current;
@@ -252,166 +271,41 @@ export const ChatMessageList = memo(function ChatMessageList({
 			{virtual && (
 				<div
 					aria-hidden="true"
-					style={inlineStyles.getChatMessageListDivStyle(
-						rowOffsets[windowStart],
-					)}
+					style={inlineStyles.getChatMessageListDivStyle(offsets[windowStart])}
 				/>
 			)}
 			{renderRows.slice(windowStart, windowEnd).map((item, windowIndex) => {
 				const index = windowStart + windowIndex;
-				if (item.type === "edit-group") {
-					return (
-						<div
-							key={getRenderRowKey(item, index)}
-							data-chat-row-key={getRenderRowKey(item, index)}
-							data-chat-row-index={index}
-							{...stylex.props(styles.messageRow)}
-						>
-							<GroupedEditDiff filePath={item.filePath} edits={item.edits} />
-						</div>
-					);
-				}
-				if (item.type === "tool-group") {
-					return (
-						<div
-							key={getRenderRowKey(item, index)}
-							data-chat-row-key={getRenderRowKey(item, index)}
-							data-chat-row-index={index}
-							{...stylex.props(
-								styles.messageRow,
-								item.continuesAfter && styles.continuingToolRow,
-							)}
-						>
-							<ToolTimeline
-								tools={item.tools}
-								continuesAfter={item.continuesAfter}
-								expandedTools={expandedTools}
-								onToggle={toggleTool}
-							/>
-						</div>
-					);
-				}
-				const msg = item.message;
-				const checkpoint =
-					msg.role === "assistant" && !msg.isStreaming
-						? checkpointsByMessageId.get(msg.id)
-						: undefined;
 				return (
-					<div
-						key={getRenderRowKey(item, index)}
-						data-chat-row-key={getRenderRowKey(item, index)}
-						data-chat-row-index={index}
-						{...stylex.props(styles.messageRow)}
-					>
-						<Bubble
-							paneId={paneId}
-							msg={msg}
-							collapsed={!expandedTools.has(msg.id)}
-							onToggle={toggleTool}
-							onSendMessage={handleSendMessage}
-							onMdFileClick={onMdFileClick}
-							slashCommandNames={slashCommandNames}
-						/>
-						{checkpoint && (
-							<CheckpointMarker
-								checkpoint={checkpoint}
-								onRevert={revertCheckpoint}
-							/>
-						)}
-					</div>
+					<ChatRenderRow
+						key={item.key}
+						item={item}
+						index={index}
+						rowKey={item.key}
+						paneId={paneId}
+						expandedTools={expandedTools}
+						toggleTool={toggleTool}
+						messages={messages}
+						checkpoint={
+							item.checkpoint === null
+								? undefined
+								: checkpoints[item.checkpoint]
+						}
+						revertCheckpoint={revertCheckpoint}
+						handleSendMessage={handleSendMessage}
+						onMdFileClick={onMdFileClick}
+						slashCommandNames={slashCommandNames}
+					/>
 				);
 			})}
 			{virtual && (
 				<div
 					aria-hidden="true"
 					style={inlineStyles.getChatMessageListDivStyle1(
-						rowOffsets[renderRows.length]! - rowOffsets[windowEnd]!,
+						offsets[renderRows.length]! - offsets[windowEnd]!,
 					)}
 				/>
 			)}
 		</div>
 	);
 });
-
-type RenderItem =
-	| { type: "message"; message: ChatMessage }
-	| { type: "edit-group"; filePath: string; edits: ChatMessage[] }
-	| {
-			type: "tool-group";
-			tools: [ChatMessage];
-			continuesAfter: boolean;
-	  };
-export function getRenderRowKey(row: RenderItem | undefined, index: number) {
-	if (!row) return `row-${index}`;
-	const message =
-		row.type === "message"
-			? row.message
-			: row.type === "edit-group"
-				? row.edits[0]
-				: row.tools[0];
-	return message?.render?.rowId ?? message?.id ?? `row-${index}`;
-}
-export function calculateChatOffsets(
-	rows: RenderItem[],
-	heights: ReadonlyMap<string, number>,
-): number[] {
-	return rustProject(
-		"chatOffsets",
-		rows.map((row, index) => heights.get(getRenderRowKey(row, index)) ?? null),
-	);
-}
-export function calculateChatWindow(
-	_rows: RenderItem[],
-	offsets: number[],
-	scrollOffset: number | null,
-	viewportHeight: number,
-) {
-	return {
-		...rustProject<ChatWindow>("chatWindow", {
-			offsets,
-			scrollOffset,
-			viewportHeight,
-		}),
-		offsets,
-	};
-}
-export function indexCheckpoints(checkpoints: CheckpointMeta[]) {
-	const result = new Map<string, CheckpointMeta>();
-	for (const checkpoint of checkpoints)
-		if (checkpoint.afterMessageId)
-			result.set(checkpoint.afterMessageId, checkpoint);
-	return result;
-}
-export function buildRenderRows(messages: ChatMessage[]): RenderItem[] {
-	const rows = rustProject<ChatRow[]>(
-		"chatRows",
-		messages.map((message) => {
-			const render = message.render;
-			return render
-				? {
-						kind: render.kind,
-						hidden: render.hidden,
-						groupLeader: render.groupLeader,
-						groupEnd: render.groupEnd,
-						filePath: render.filePath,
-						continuesAfter: render.continuesAfter,
-					}
-				: null;
-		}),
-	);
-	return rows.map((row): RenderItem => {
-		if (row.type === "message")
-			return { type: row.type, message: messages[row.index]! };
-		if (row.type === "edit-group")
-			return {
-				type: row.type,
-				filePath: row.filePath,
-				edits: messages.slice(row.start, row.end),
-			};
-		return {
-			type: row.type,
-			tools: [messages[row.index]!],
-			continuesAfter: row.continuesAfter,
-		};
-	});
-}

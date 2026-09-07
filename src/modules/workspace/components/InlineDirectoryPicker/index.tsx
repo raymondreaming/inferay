@@ -9,13 +9,10 @@ import {
 import { fetchJsonOr } from "../../../../adapters/backend/http.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
-import { basename, setInputValue } from "../../../../shared/lib/data.ts";
-import {
-	IconChevronRight,
-	IconFolder,
-	IconGitBranch,
-	IconX,
-} from "../../../../shared/ui/Icons/index.tsx";
+import { setInputValue } from "../../../../shared/lib/data.ts";
+import { IconFolder } from "../../../../shared/ui/Icons/index.tsx";
+import { DirectoryResult } from "./DirectoryResult.tsx";
+import { SelectedDirectoryChip } from "./SelectedDirectoryChip.tsx";
 import { styles } from "./styles.ts";
 
 type QuickPick = { name: string; path: string; isGitRepo: boolean };
@@ -155,59 +152,24 @@ export function InlineDirectoryPicker({
 			? `~${path.slice(pickerData.homePath.length)}`
 			: path;
 
-	const showResults = true;
 	if (hideInput) {
 		return (
 			<div {...stylex.props(styles.compactRoot)}>
 				<div {...stylex.props(styles.compactList)}>
 					{displayList.map((pick, i) => (
-						<button
-							type="button"
+						<DirectoryResult
 							key={pick.path}
-							onClick={handleItemClick.bind(null, pick.path)}
-							{...stylex.props(
-								styles.resultRow,
-								i === selectedIndex && styles.resultRowActive,
-							)}
-						>
-							<span
-								{...stylex.props(
-									styles.resultIcon,
-									i === selectedIndex && styles.accentText,
-								)}
-							>
-								{pick.isGitRepo ? (
-									<IconGitBranch size={iconSize._2md} />
-								) : (
-									<IconFolder size={iconSize._2md} />
-								)}
-							</span>
-							<div {...stylex.props(styles.resultText)}>
-								<span {...stylex.props(styles.resultName)}>{pick.name}</span>
-								<span {...stylex.props(styles.resultPath)}>
-									{shortenPath(pick.path)}
-								</span>
-							</div>
-							<IconChevronRight
-								size={iconSize.compact}
-								{...stylex.props(styles.chevron)}
-							/>
-						</button>
+							pick={pick}
+							active={i === selectedIndex}
+							displayPath={shortenPath(pick.path)}
+							onSelect={handleItemClick}
+						/>
 					))}
 				</div>
 				{multiSelect && selectedPaths.length > 0 && (
 					<div {...stylex.props(styles.selectedBar)}>
 						{selectedPaths.slice(0, 4).map((p) => (
-							<span key={p} {...stylex.props(styles.selectedTag)}>
-								<span {...stylex.props(styles.truncate)}>{basename(p)}</span>
-								<button
-									type="button"
-									onClick={togglePath.bind(null, p)}
-									{...stylex.props(styles.tagRemove)}
-								>
-									<IconX size={iconSize.xs} />
-								</button>
-							</span>
+							<SelectedDirectoryChip key={p} path={p} onRemove={togglePath} />
 						))}
 						{selectedPaths.length > 4 && (
 							<span {...stylex.props(styles.moreCount)}>
@@ -255,45 +217,19 @@ export function InlineDirectoryPicker({
 						</button>
 					)}
 				</div>
-				{showResults && itemCount > 0 && (
+				{itemCount > 0 && (
 					<div {...stylex.props(styles.unifiedList)}>
 						{displayList.map((pick, i) => (
-							<button
-								type="button"
+							<DirectoryResult
 								key={pick.path}
-								onMouseDown={(e) => e.preventDefault()}
-								onMouseMove={() => setSelectedIndex(i)}
-								onClick={handleItemClick.bind(null, pick.path)}
-								{...stylex.props(
-									styles.resultRowCompact,
-									selectedIndexValue >= 0 &&
-										i === selectedIndex &&
-										styles.resultRowActiveAccent,
-								)}
-							>
-								<span
-									{...stylex.props(
-										styles.resultIcon,
-										i === selectedIndex && styles.accentText,
-									)}
-								>
-									{pick.isGitRepo ? (
-										<IconGitBranch size={iconSize.md} />
-									) : (
-										<IconFolder size={iconSize.md} />
-									)}
-								</span>
-								<div {...stylex.props(styles.resultText)}>
-									<span {...stylex.props(styles.resultName)}>{pick.name}</span>
-									<span {...stylex.props(styles.resultPathSmall)}>
-										{shortenPath(pick.path)}
-									</span>
-								</div>
-								<IconChevronRight
-									size={iconSize.sm}
-									{...stylex.props(styles.chevron)}
-								/>
-							</button>
+								pick={pick}
+								active={i === selectedIndex}
+								displayPath={shortenPath(pick.path)}
+								onSelect={handleItemClick}
+								searchable
+								highlight={selectedIndexValue >= 0}
+								onHover={() => setSelectedIndex(i)}
+							/>
 						))}
 					</div>
 				)}
@@ -301,17 +237,13 @@ export function InlineDirectoryPicker({
 					<div {...stylex.props(styles.selectedWrap)}>
 						<div {...stylex.props(styles.selectedList)}>
 							{selectedPaths.map((p, i) => (
-								<span key={p} {...stylex.props(styles.selectedTagStrong)}>
-									{i === 0 ? "● " : ""}
-									{basename(p)}
-									<button
-										type="button"
-										onClick={togglePath.bind(null, p)}
-										{...stylex.props(styles.tagRemove)}
-									>
-										<IconX size={iconSize.xs} />
-									</button>
-								</span>
+								<SelectedDirectoryChip
+									key={p}
+									path={p}
+									onRemove={togglePath}
+									primary={i === 0}
+									strong
+								/>
 							))}
 						</div>
 					</div>

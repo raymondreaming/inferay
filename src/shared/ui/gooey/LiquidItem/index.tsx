@@ -1,8 +1,13 @@
+import type { OctaneNode } from "octane";
+import type { CSSProperties } from "react";
 import type { EvolveOptions } from "../../../../../build/presentation/contracts/EvolveOptions.ts";
 import type { MoveOptions } from "../../../../../build/presentation/contracts/MoveOptions.ts";
 import { GooeyItem } from "../GooeyItem/index.tsx";
-import type { CornerRadii, CSSProperties, ReactNode } from "../observer.ts";
-import { EVOLVE_DEFAULTS, MOVE_DEFAULTS } from "../observer.ts";
+import {
+	type CornerRadii,
+	EVOLVE_DEFAULTS,
+	MOVE_DEFAULTS,
+} from "../observer.ts";
 
 /** The two public liquid behaviors:
  *  - 'morph' (default): pieces merge gooily, change shape like jelly, and can
@@ -72,7 +77,7 @@ export interface LiquidItemProps {
 	radius?: number | CornerRadii;
 	className?: string;
 	style?: CSSProperties;
-	children?: ReactNode;
+	children?: OctaneNode;
 }
 function zeta(bounce: number): number {
 	return Math.max(0.12, 1 - 1.1 * Math.min(1, Math.max(0, bounce)));

@@ -7,18 +7,12 @@ import {
 	useState,
 } from "octane";
 import type { Octane } from "octane/jsx-runtime";
+import type { CSSProperties } from "react";
 import { GooFilterPrimitives } from "../filter/index.tsx";
-import type { CSSProperties, Ref } from "../observer.ts";
-import {
-	GooeyContext,
-	type GooeyContextValue,
-	ObserveEngine,
-	parseShadow,
-	useIsoLayoutEffect,
-} from "../observer.ts";
+import { ObserveEngine, parseShadow } from "../observer.ts";
 import * as inlineStyles from "./styles.ts";
 export interface GooeyProps extends Octane.HTMLAttributes<HTMLDivElement> {
-	ref?: Ref<HTMLDivElement>;
+	ref?: Octane.Ref<HTMLDivElement>;
 	style?: CSSProperties;
 	/** Goo blur sigma in px — how far apart pieces start bridging. Default 6. */
 	blur?: number;
@@ -177,3 +171,23 @@ export function GooeyRoot({
 		</div>
 	);
 }
+
+import { createContext, useContext } from "octane";
+export interface GooeyContextValue {
+	portal: SVGGElement | null;
+	/** The group's liquid fill — default colour of the intruding mix liquid. */
+	fill: string;
+	getGroup: () => HTMLDivElement | null;
+	engine: ObserveEngine;
+}
+export const GooeyContext = createContext<GooeyContextValue | null>(null);
+export function useGooeyContext(): GooeyContextValue {
+	const ctx = useContext(GooeyContext);
+	if (!ctx)
+		throw new Error("<Gooey.Item> must be rendered inside a <Gooey> group.");
+	return ctx;
+}
+
+import { useLayoutEffect } from "octane";
+export const useIsoLayoutEffect =
+	typeof window !== "undefined" ? useLayoutEffect : useEffect;

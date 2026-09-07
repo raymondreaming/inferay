@@ -1,7 +1,7 @@
+import type { OctaneNode } from "octane";
 import { GooeyRoot } from "../../../../shared/ui/gooey/Gooey/index.tsx";
 import { LiquidItem } from "../../../../shared/ui/gooey/LiquidItem/index.tsx";
-import type { ReactNode } from "../../../../shared/ui/gooey/observer.ts";
-export function DirectoryPickerModal({ children }: { children: ReactNode }) {
+export function DirectoryPickerModal({ children }: { children: OctaneNode }) {
 	return (
 		<div
 			className="inferay-directory-picker-modal"

@@ -11,16 +11,11 @@ import {
 	iconSize,
 	runtimeColor,
 } from "../../../design-system/styles.stylex.ts";
-import {
-	type DropdownOption,
-	type DropdownOptionRenderer,
-	hasId,
-	selectDropdownOption,
-	setInputValue,
-} from "../../lib/data.ts";
+import { hasId } from "../../lib/data.ts";
 import { LiquidPopoverSurface } from "../gooey/LiquidPopoverSurface/index.tsx";
 import { IconChevronDown } from "../Icons/index.tsx";
-import { DropdownCustomOption } from "./DropdownCustomOption.tsx";
+import { DropdownOptions } from "./DropdownOptions.tsx";
+import { DropdownSearch } from "./DropdownSearch.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
@@ -179,87 +174,24 @@ export function DropdownButton({
 		);
 	}, [options, search]);
 	const searchBox = showSearch ? (
-		<div {...stylex.props(styles.searchWrap)}>
-			<input
-				ref={searchRef}
-				type="text"
-				value={search}
-				onInput={setInputValue.bind(null, setSearch)}
-				placeholder="Search..."
-				{...stylex.props(styles.searchInput)}
-				onKeyDown={(e) => {
-					if (e.key === "Escape") {
-						setOpen(false);
-					}
-				}}
-			/>
-		</div>
+		<DropdownSearch
+			searchRef={searchRef}
+			search={search}
+			setSearch={setSearch}
+			setOpen={setOpen}
+		/>
 	) : null;
 	const optionsBox = (
-		<div
-			{...stylex.props(styles.optionsBox)}
-			style={inlineStyles.getDropdownButtonOptionsBoxStyle(
-				Math.max(44, pos.maxH - (showSearch ? 38 : 0)),
-			)}
-		>
-			{filtered.length === 0 ? (
-				<p {...stylex.props(styles.empty)}>
-					{search ? "No matches" : emptyLabel}
-				</p>
-			) : (
-				filtered.map((opt) =>
-					renderOption ? (
-						<DropdownCustomOption
-							key={opt.id}
-							opt={opt}
-							isSelected={opt.id === value}
-							renderOption={renderOption}
-							onChange={onChange}
-							setOpen={setOpen}
-						/>
-					) : (
-						<button
-							type="button"
-							key={opt.id}
-							onClick={selectDropdownOption.bind(
-								null,
-								onChange,
-								setOpen,
-								opt.id,
-							)}
-							{...stylex.props(
-								styles.option,
-								opt.id === value ? styles.optionSelected : null,
-							)}
-						>
-							{opt.icon && (
-								<span {...stylex.props(styles.optionIcon)}>{opt.icon}</span>
-							)}
-							<div {...stylex.props(styles.optionContent)}>
-								<span {...stylex.props(styles.optionLabel)}>{opt.label}</span>
-								{opt.detail && (
-									<span
-										{...stylex.props(
-											styles.detailBadge,
-											(opt.detail.includes("★") ||
-												opt.detail.includes("Best")) &&
-												styles.detailBadgeFeatured,
-										)}
-									>
-										{opt.detail}
-									</span>
-								)}
-								{opt.status && (
-									<span {...stylex.props(styles.optionStatus)}>
-										{opt.status}
-									</span>
-								)}
-							</div>
-						</button>
-					),
-				)
-			)}
-		</div>
+		<DropdownOptions
+			maxHeight={Math.max(44, pos.maxH - (showSearch ? 38 : 0))}
+			filtered={filtered}
+			search={search}
+			emptyLabel={emptyLabel}
+			renderOption={renderOption}
+			value={value}
+			onChange={onChange}
+			setOpen={setOpen}
+		/>
 	);
 	const trigger = (
 		<button
@@ -352,4 +284,13 @@ export function DropdownButton({
 	);
 }
 
-export type { DropdownOption } from "../../lib/data.ts";
+export interface DropdownOption {
+	id: string;
+	label: string;
+	detail?: string;
+	status?: string;
+	icon?: unknown;
+}
+export type DropdownOptionRenderer =
+	| ((props: { option: DropdownOption; isSelected: boolean }) => unknown)
+	| ((option: DropdownOption, isSelected: boolean) => unknown);

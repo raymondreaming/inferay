@@ -8,7 +8,6 @@ import { project as rustProject } from "../../../adapters/presentation/model.ts"
 import { readStoredValue } from "../../../adapters/storage/stored-values.ts";
 import type { DiffRequest } from "../../repository/hooks/useGitDiff.tsx";
 import type { GraphNode } from "../../repository/hooks/useGitGraph.tsx";
-import type { SelectedFile } from "../changes/components/ChangesPanel/index.tsx";
 import type { GitGraphActionRequest } from "../graph/components/CommitGraph/index.tsx";
 import { useWorkspacePanelSession } from "./useWorkspacePanelSession.tsx";
 
@@ -267,7 +266,13 @@ export function useRepositoryWorkbench({
 			reset: true,
 		});
 	}, [selectedGraphWorktree, updatePanelSession]);
-	const historical = historicalGitQueryContext({
+	const historical = rustProject<{
+		commitSource: Extract<DiffSource, { kind: "commit" }> | null;
+		comparisonSource: Extract<DiffSource, { kind: "comparison" }> | null;
+		commit: { cwd?: string; hash?: string; parent?: string };
+		comparison: { cwd?: string; from?: string; to?: string };
+		revision?: string;
+	}>("historicalQuery", {
 		mainViewMode,
 		diffViewerCwd,
 		graphCwd,
@@ -405,7 +410,7 @@ export function useRepositoryWorkbench({
 	});
 	const diffRequest = useMemo(
 		() =>
-			gitWorkbenchDiffRequest({
+			rustProject<DiffRequest | null>("diffRequest", {
 				active,
 				cwd: diffViewerCwd,
 				selectedFile,
@@ -1049,69 +1054,6 @@ export type GitRefOperationRequest = {
 	target?: string;
 };
 
-export function historicalGitQueryContext({
-	mainViewMode,
-	diffViewerCwd,
-	graphCwd,
-	graphRevision,
-	storedRevision,
-	selectedCommitIds,
-	selectedCommitParent,
-	selectedGraphItem,
-	fileSource,
-}: {
-	mainViewMode: "diff" | "graph";
-	diffViewerCwd: string | null;
-	graphCwd: string | undefined;
-	graphRevision: string;
-	storedRevision: string | undefined;
-	selectedCommitIds: readonly string[];
-	selectedCommitParent: string | null;
-	selectedGraphItem: GraphNode | null;
-	fileSource: DiffSource | undefined;
-}): {
-	commitSource: Extract<DiffSource, { kind: "commit" }> | null;
-	comparisonSource: Extract<DiffSource, { kind: "comparison" }> | null;
-	commit: { cwd?: string; hash?: string; parent?: string };
-	comparison: { cwd?: string; from?: string; to?: string };
-	revision?: string;
-} {
-	return rustProject("historicalQuery", {
-		mainViewMode,
-		diffViewerCwd,
-		graphCwd,
-		graphRevision,
-		storedRevision,
-		selectedCommitIds,
-		selectedCommitParent,
-		selectedGraphItem,
-		fileSource,
-	});
-}
-export function gitWorkbenchDiffRequest({
-	active,
-	cwd,
-	selectedFile,
-	revision,
-	fileSource,
-	viewMode,
-}: {
-	active: boolean;
-	cwd: string | null;
-	selectedFile: (SelectedFile & { source: DiffSource }) | null;
-	revision: string | undefined;
-	fileSource: DiffSource | undefined;
-	viewMode: DiffViewMode;
-}): DiffRequest | null {
-	return rustProject("diffRequest", {
-		active,
-		cwd,
-		selectedFile,
-		revision,
-		fileSource,
-		viewMode,
-	});
-}
 export const GIT_FILE_VIEW_MODE_STORAGE_KEY = "inferay-git-file-view-mode";
 export function loadGitFileViewMode(): "path" | "tree" {
 	return readStoredValue(GIT_FILE_VIEW_MODE_STORAGE_KEY) === "path"

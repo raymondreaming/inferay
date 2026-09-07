@@ -1,9 +1,5 @@
 import * as stylex from "@octanejs/stylex";
-import {
-	type DropdownOption,
-	type DropdownOptionRenderer,
-	selectDropdownOption,
-} from "../../lib/data.ts";
+import type { DropdownOption, DropdownOptionRenderer } from "./index.tsx";
 import { styles } from "./styles.ts";
 
 export function DropdownCustomOption({
@@ -38,4 +34,13 @@ export function DropdownCustomOption({
 			{content}
 		</button>
 	);
+}
+
+export function selectDropdownOption(
+	onChange: (id: string) => void,
+	setOpen: (v: boolean) => void,
+	id: string,
+) {
+	onChange(id);
+	setOpen(false);
 }

@@ -1,11 +1,10 @@
-import { Suspense, useEffect, useState } from "octane";
-import type { ReactNode } from "../observer.ts";
-import { LazyLiquidPanelSurface } from "../observer.ts";
+import { type OctaneNode, Suspense, useEffect, useState } from "octane";
+
 export function LiquidPanel({
 	children,
 	fill,
 }: {
-	children?: ReactNode;
+	children?: OctaneNode;
 	fill: string;
 }) {
 	const [mounted, setMounted] = useState(false);
@@ -17,3 +16,11 @@ export function LiquidPanel({
 		</Suspense>
 	);
 }
+
+import { lazy } from "octane";
+
+const LazyLiquidPanelSurface = lazy(() =>
+	import("../LiquidPanelSurface/index.tsx").then((module) => ({
+		default: module.LiquidPanelSurface,
+	})),
+);

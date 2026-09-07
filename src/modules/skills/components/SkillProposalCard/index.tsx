@@ -7,7 +7,7 @@ import {
 } from "../../../../adapters/storage/stored-values.ts";
 import { surfaceStyles } from "../../../../design-system/styles.stylex.ts";
 import { openSkills } from "../../../../shared/lib/data.ts";
-import { saveSkill, useSkills } from "../../hooks/useSkills.tsx";
+import { approveSkillProposal, useSkills } from "../../hooks/useSkills.tsx";
 import { styles } from "./styles.ts";
 
 type Outcome = { status: "saved"; skillId: string } | { status: "rejected" };
@@ -54,26 +54,9 @@ export function SkillProposalCard({
 		setSaving(true);
 		setError("");
 		try {
-			const data = {
-				name: proposal.name,
-				command: proposal.command,
-				description: proposal.description,
-				promptTemplate: proposal.promptTemplate,
-			};
-			const saved =
-				proposal.action === "create"
-					? await saveSkill(data)
-					: await saveSkill(
-							{
-								...data,
-								expectedUpdatedAt: proposal.expectedUpdatedAt,
-							},
-							proposal.skillId!,
-						);
-			finish({ status: "saved", skillId: saved._id });
-			onResult?.(
-				`I approved the skill proposal. Inferay successfully ${proposal.action === "create" ? "created" : "updated"} /${saved.command} (skill ID: ${saved._id}).`,
-			);
+			const result = await approveSkillProposal(proposal);
+			finish(result.outcome);
+			onResult?.(result.message);
 		} catch (error) {
 			setError(
 				error instanceof Error

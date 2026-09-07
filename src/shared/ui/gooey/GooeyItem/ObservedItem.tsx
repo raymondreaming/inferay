@@ -1,12 +1,11 @@
 import { createPortal, useRef } from "octane";
+import { useIsoLayoutEffect } from "../Gooey/index.tsx";
 import {
 	EVOLVE_DEFAULTS,
-	type Internal,
 	MOVE_DEFAULTS,
 	normalizeRadius,
-	toEffects,
-	useIsoLayoutEffect,
 } from "../observer.ts";
+import type { Internal } from "./index.tsx";
 import * as inlineStyles from "./styles.ts";
 
 export function ObservedItem({
@@ -77,3 +76,11 @@ export function ObservedItem({
 		</>
 	);
 }
+
+export function toEffects(
+	effect: GooeyEffect | GooeyEffect[] | undefined,
+): GooeyEffect[] {
+	return Array.isArray(effect) ? effect : effect ? [effect] : [];
+}
+
+import type { GooeyEffect } from "./index.tsx";

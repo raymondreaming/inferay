@@ -9,15 +9,11 @@ import {
 	surfaceStyles,
 } from "../../../../design-system/styles.stylex.ts";
 import type { SkillsTarget } from "../../../../shared/lib/data.ts";
-import { setInputValue } from "../../../../shared/lib/data.ts";
-import {
-	IconCopy,
-	IconPlus,
-	IconSearch,
-	IconX,
-} from "../../../../shared/ui/Icons/index.tsx";
+import { IconPlus, IconX } from "../../../../shared/ui/Icons/index.tsx";
 import { removeSkill, saveSkill, useSkills } from "../../hooks/useSkills.tsx";
 import { SkillEditor } from "../SkillEditor/index.tsx";
+import { BuiltInSkillNotice } from "./BuiltInSkillNotice.tsx";
+import { SkillLibrary } from "./SkillLibrary.tsx";
 import { styles } from "./styles.ts";
 
 function formReducer(state: SkillFormState, patch: Partial<SkillFormState>) {
@@ -41,12 +37,12 @@ export function SkillsDialog({
 	const [search, setSearch] = useState("");
 	const [form, formDispatch] = useReducer(formReducer, INITIAL_FORM);
 	const startEdit = useCallback((skill: Prompt) => {
-		formDispatch(skillFormForEdit(skill));
+		formDispatch(rustProject<Partial<SkillFormState>>("skillEdit", skill));
 	}, []);
 	const dialogRef = useRef<HTMLDialogElement | null>(null);
 	const initialized = useRef(false);
 	const original = form.isEditing ? selectedSkill : null;
-	const dirty = isSkillFormDirty(form, original);
+	const dirty = rustProject<boolean>("skillDirty", { form, original });
 	const canLeave = () =>
 		!form.isSaving && (!dirty || confirm("Discard unsaved skill changes?"));
 	const close = () => {
@@ -62,7 +58,10 @@ export function SkillsDialog({
 	useEffect(() => {
 		if (initialized.current || loading) return;
 		initialized.current = true;
-		const initial = initializeSkillDialog(target, skills);
+		const initial = rustProject<{
+			selectedId: string | null;
+			form: Partial<SkillFormState>;
+		}>("skillDialog", { target, skills });
 		setSelectedId(initial.selectedId);
 		formDispatch(initial.form);
 	}, [loading, skills, target, startEdit]);
@@ -90,15 +89,21 @@ export function SkillsDialog({
 	const duplicateSelected = () => {
 		if (!selectedSkill || !canLeave()) return;
 		setSelectedId(null);
-		formDispatch(skillFormForDuplicate(selectedSkill));
+		formDispatch(rustProject<SkillFormState>("skillDuplicate", selectedSkill));
 	};
 
 	const handleSave = async (isInlineEdit = false) => {
+		if (!(isInlineEdit && selectedSkill) && !form.isCreating) return;
 		formDispatch({ isSaving: true, error: "" });
 		try {
-			const saved = await saveSkillForm(form, selectedSkill, isInlineEdit);
-			setSelectedId(saved.selectedId);
-			formDispatch(saved.form);
+			const saved = await saveSkill(
+				form,
+				isInlineEdit ? selectedSkill?._id : undefined,
+			);
+			setSelectedId(saved._id);
+			formDispatch(
+				isInlineEdit && selectedSkill ? { isEditing: false } : INITIAL_FORM,
+			);
 		} catch (e) {
 			formDispatch({
 				error: e instanceof Error ? e.message : "Failed to save",
@@ -154,110 +159,23 @@ export function SkillsDialog({
 					</p>
 				)}
 				<div {...stylex.props(styles.content)}>
-					<aside aria-label="Skills library" {...stylex.props(styles.listPane)}>
-						<div {...stylex.props(styles.libraryControls)}>
-							<button
-								type="button"
-								onClick={startCreate}
-								disabled={form.isSaving}
-								{...stylex.props(
-									surfaceStyles.panel,
-									styles.newButton,
-									styles.libraryNew,
-								)}
-							>
-								<IconPlus size={iconSize.sm} /> New skill
-							</button>
-							<div {...stylex.props(styles.searchWrap)}>
-								<IconSearch
-									size={iconSize.md}
-									{...stylex.props(styles.searchIcon)}
-								/>
-								<input
-									type="search"
-									value={search}
-									onInput={setInputValue.bind(null, setSearch)}
-									placeholder="Find a skill…"
-									aria-label="Search skills"
-									{...stylex.props(styles.searchInput)}
-								/>
-							</div>
-							<div {...stylex.props(styles.libraryHeading)}>
-								<select
-									aria-label="Filter skills"
-									value={filter}
-									onChange={(event) => setFilter(event.currentTarget.value)}
-									{...stylex.props(styles.filter)}
-								>
-									<option value="all">All skills</option>
-									<option value="builtin">Built-in</option>
-									<option value="custom">Personal</option>
-								</select>
-								<span {...stylex.props(styles.count)}>{filtered.length}</span>
-							</div>
-						</div>
-						<nav aria-label="Saved skills" {...stylex.props(styles.skillList)}>
-							{filtered.length === 0 ? (
-								<div {...stylex.props(styles.emptyList)}>
-									<p>
-										{loading || filtering
-											? "Loading skills…"
-											: "No skills found"}
-									</p>
-									<span>
-										{search
-											? "Try another name or command."
-											: "Create a skill to get started."}
-									</span>
-								</div>
-							) : (
-								filtered.map((skill) => {
-									const active = !form.isCreating && selectedId === skill._id;
-									return (
-										<button
-											type="button"
-											key={skill._id}
-											onClick={() => selectSkill(skill)}
-											aria-current={active ? "true" : undefined}
-											title={skill.description || skill.name}
-											{...stylex.props(
-												styles.skillRow,
-												active && surfaceStyles.panel,
-												active && styles.skillRowActive,
-											)}
-										>
-											<span {...stylex.props(styles.skillCopy)}>
-												<span {...stylex.props(styles.skillCommand)}>
-													/{skill.command}
-												</span>
-												<span {...stylex.props(styles.skillDescription)}>
-													{skill.description || skill.name}
-												</span>
-											</span>
-											{skill.isBuiltIn && (
-												<span {...stylex.props(styles.builtinLabel)}>
-													Built-in
-												</span>
-											)}
-										</button>
-									);
-								})
-							)}
-						</nav>
-					</aside>
+					<SkillLibrary
+						startCreate={startCreate}
+						form={form}
+						search={search}
+						setSearch={setSearch}
+						filter={filter}
+						setFilter={setFilter}
+						filtered={filtered}
+						loading={loading}
+						filtering={filtering}
+						selectedId={selectedId}
+						selectSkill={selectSkill}
+					/>
 					{selectedSkill || form.isCreating ? (
 						<div {...stylex.props(styles.detailPane)}>
 							{selectedSkill?.isBuiltIn && !form.isCreating && (
-								<div {...stylex.props(styles.builtInNotice)}>
-									<span>Built-in workflow · Read-only</span>
-									<button
-										type="button"
-										onClick={duplicateSelected}
-										{...stylex.props(styles.copyButton)}
-									>
-										<IconCopy size={iconSize.sm} /> Make a copy
-									</button>
-								</div>
+								<BuiltInSkillNotice duplicateSelected={duplicateSelected} />
 							)}
 							<SkillEditor
 								selectedSkill={selectedSkill}
@@ -302,42 +220,3 @@ export function SkillsDialog({
 }
 
 const INITIAL_FORM = rustProject<SkillFormState>("emptySkillForm", null);
-export function skillFormForEdit(skill: Prompt): Partial<SkillFormState> {
-	return rustProject("skillEdit", skill);
-}
-export function skillFormForDuplicate(skill: Prompt): SkillFormState {
-	return rustProject("skillDuplicate", skill);
-}
-export function initializeSkillDialog(
-	target: SkillsTarget,
-	skills: Prompt[],
-): { selectedId: string | null; form: Partial<SkillFormState> } {
-	return rustProject("skillDialog", { target, skills });
-}
-export function isSkillFormDirty(
-	form: SkillFormState,
-	original: Prompt | null,
-): boolean {
-	return rustProject("skillDirty", { form, original });
-}
-export async function saveSkillForm(
-	form: SkillFormState,
-	selected: Prompt | null,
-	inlineEdit: boolean,
-) {
-	const data = {
-		name: form.name,
-		command: form.command,
-		description: form.description,
-		promptTemplate: form.promptTemplate,
-	};
-	if (inlineEdit && selected) {
-		await saveSkill(data, selected._id);
-		return { selectedId: selected._id, form: { isEditing: false } };
-	}
-	if (form.isCreating) {
-		const created = await saveSkill(data);
-		return { selectedId: created._id, form: INITIAL_FORM };
-	}
-	return { selectedId: selected?._id ?? null, form: {} };
-}

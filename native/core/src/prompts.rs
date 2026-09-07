@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
@@ -193,6 +193,37 @@ impl PromptStore {
         Ok(updated)
     }
 
+    pub fn approve_proposal(
+        &self,
+        proposal: &Map<String, Value>,
+        now: u64,
+    ) -> Result<Value, PromptError> {
+        let invalid = || PromptError {
+            status: 400,
+            message: "Invalid skill proposal".into(),
+        };
+        let (saved, verb) = match proposal.get("action").and_then(Value::as_str) {
+            Some("create") => (self.create(proposal, now)?, "created"),
+            Some("update") => {
+                let id = proposal
+                    .get("skillId")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty())
+                    .ok_or_else(invalid)?;
+                proposal
+                    .get("expectedUpdatedAt")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(invalid)?;
+                (self.update(id, proposal, now)?, "updated")
+            }
+            _ => return Err(invalid()),
+        };
+        Ok(json!({
+            "outcome": { "status": "saved", "skillId": saved.id },
+            "message": format!("I approved the skill proposal. Inferay successfully {verb} /{} (skill ID: {}).", saved.command, saved.id)
+        }))
+    }
+
     pub fn delete(&self, id: &str) -> Result<(), PromptError> {
         let mut prompts = self.load().map_err(internal_prompt_error)?;
         let Some(prompt) = prompts.iter().find(|prompt| prompt.id == id) else {
@@ -263,11 +294,7 @@ fn normalize_prompt_fields(
         }
         let value = if key == "command" {
             let command = text.strip_prefix('/').unwrap_or(text).to_lowercase();
-            if !command.starts_with(|c: char| c.is_ascii_lowercase())
-                || !command
-                    .bytes()
-                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
-            {
+            if !valid_command(&command) {
                 return Err(invalid("Command: letters, numbers, hyphens only"));
             }
             command
@@ -321,14 +348,7 @@ pub fn chat_skill_proposal(value: &Value) -> Option<Value> {
         }
     }
     let command = value["command"].as_str()?;
-    if !command
-        .as_bytes()
-        .first()
-        .is_some_and(u8::is_ascii_lowercase)
-        || !command
-            .bytes()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
-    {
+    if !valid_command(command) {
         return None;
     }
     let (skill_id, expected_updated_at) = if value["action"] == "update" {
@@ -477,5 +497,310 @@ mod skill_card_tests {
         envelope["skill"]["isBuiltIn"] = json!(false);
         envelope["skill"].as_object_mut().unwrap().remove("name");
         assert!(chat_skill_read(&envelope).is_none());
+    }
+}
+
+impl PromptStore {
+    /// Expansion happens once at chat admission. Queued sends carry
+    /// prepared text without the expansion flag, so replay never expands again.
+    pub fn expand_chat_commands(
+        &self,
+        text: &str,
+        command_id: Option<&str>,
+        args: Option<&str>,
+    ) -> Result<String, String> {
+        let skills = self.load()?;
+        Ok(expand_commands(text, &skills, command_id, args))
+    }
+
+    /// Agent tools read the same store as the editor. Proposals never write it.
+    pub fn tool_definitions() -> Value {
+        json!([
+            {"type":"function","name":"inferay_list_skills",
+             "description":"Find skills in the user's Inferay library. No filesystem or HTTP lookup needed.",
+             "inputSchema":{"type":"object","properties":{"query":{"type":"string","description":"Optional name, command, or description filter"}},"additionalProperties":false}},
+            {"type":"function","name":"inferay_read_skill",
+             "description":"Read a saved Inferay skill directly by ID, slash command, or exact name. Returns complete instructions and revision, and displays a native skill card.",
+             "inputSchema":{"type":"object","properties":{"skill":{"type":"string"}},"required":["skill"],"additionalProperties":false}},
+            {"type":"function","name":"inferay_propose_skill",
+             "description":"Show a native approval card to create or update an Inferay skill. Does NOT save. For updates first read the skill and pass its ID and updatedAt revision. Wait for the user's approval result; never save through shell or HTTP.",
+             "inputSchema":{"type":"object","properties":{
+                 "action":{"type":"string","enum":["create","update"]},
+                 "skillId":{"type":"string"},"expectedUpdatedAt":{"type":"integer"},
+                 "name":{"type":"string"},"command":{"type":"string"},
+                 "description":{"type":"string"},"promptTemplate":{"type":"string"},"reason":{"type":"string"}
+             },"required":["action","name","command","description","promptTemplate","reason"],"additionalProperties":false}}
+        ])
+    }
+
+    /// Returns the tool result and, optionally, a persisted native chat card.
+    pub fn call_tool(&self, tool: &str, args: &Value) -> Result<(Value, Option<Value>), String> {
+        if !matches!(
+            tool,
+            "inferay_list_skills" | "inferay_read_skill" | "inferay_propose_skill"
+        ) {
+            return Err(format!("Unknown Inferay tool: {tool}"));
+        }
+        let skills = self.load()?;
+        match tool {
+            "inferay_list_skills" => {
+                let query = args
+                    .get("query")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_lowercase();
+                let matches = filter_prompts(&skills, "all", &query).into_iter().map(|skill| json!({"_id":skill.id,"name":skill.name,"command":skill.command,
+                    "description":skill.description,"isBuiltIn":skill.is_built_in,"updatedAt":skill.updated_at})).collect::<Vec<_>>();
+                Ok((json!({"skills":matches}), None))
+            }
+            "inferay_read_skill" => {
+                let key = args
+                    .get("skill")
+                    .and_then(Value::as_str)
+                    .ok_or("skill is required")?
+                    .trim()
+                    .trim_start_matches('/');
+                let matches = skills
+                    .iter()
+                    .filter(|skill| {
+                        skill.id == key
+                            || skill.command.eq_ignore_ascii_case(key)
+                            || skill.name.eq_ignore_ascii_case(key)
+                    })
+                    .collect::<Vec<_>>();
+                if matches.len() != 1 {
+                    return Err("Skill not found or ambiguous. Use inferay_list_skills to find its exact ID.".into());
+                }
+                let skill = matches[0];
+                let result = json!({"_id":skill.id,"name":skill.name,"command":skill.command,
+                    "description":skill.description,"promptTemplate":skill.prompt_template,
+                    "isBuiltIn":skill.is_built_in,"updatedAt":skill.updated_at});
+                Ok((
+                    result.clone(),
+                    Some(json!({"type":"inferay.skill-read","skill":result})),
+                ))
+            }
+            _ => {
+                let action = args
+                    .get("action")
+                    .and_then(Value::as_str)
+                    .ok_or("action is required")?;
+                if !matches!(action, "create" | "update") {
+                    return Err("Invalid action".into());
+                }
+                let mut proposal = json!({"type":"inferay.skill-proposal","action":action});
+                for field in ["name", "command", "description", "promptTemplate", "reason"] {
+                    let value = args
+                        .get(field)
+                        .and_then(Value::as_str)
+                        .filter(|value| !value.trim().is_empty() && value.len() <= 50_000)
+                        .ok_or_else(|| {
+                            format!("{field} must be nonempty text, at most 50000 bytes")
+                        })?;
+                    proposal[field] = json!(value);
+                }
+                let command = proposal["command"].as_str().unwrap();
+                if !valid_command(command) {
+                    return Err("Command must start with a lowercase letter and contain only lowercase letters, digits, and hyphens".into());
+                }
+                let id = args.get("skillId").and_then(Value::as_str).unwrap_or("");
+                if skills
+                    .iter()
+                    .any(|skill| skill.command == command && (action == "create" || skill.id != id))
+                {
+                    return Err("That command already exists. Choose a unique command.".into());
+                }
+                if action == "update" {
+                    let skill = skills
+                        .iter()
+                        .find(|skill| skill.id == id)
+                        .ok_or("Skill no longer exists. Read it again.")?;
+                    if skill.is_built_in {
+                        return Err("Built-in skills are read-only. Propose a custom copy.".into());
+                    }
+                    if args.get("expectedUpdatedAt").and_then(Value::as_u64)
+                        != Some(skill.updated_at)
+                    {
+                        return Err(
+                            "Skill changed. Read it again before proposing an update.".into()
+                        );
+                    }
+                    proposal["skillId"] = json!(id);
+                    proposal["expectedUpdatedAt"] = json!(skill.updated_at);
+                }
+                Ok((
+                    json!({"status":"pending_approval","message":"Approval card displayed. Nothing saved. Do not repeat the proposal as a fenced block. Wait for the user's approval result."}),
+                    Some(proposal),
+                ))
+            }
+        }
+    }
+}
+
+fn expand_commands(
+    text: &str,
+    skills: &[Prompt],
+    command_id: Option<&str>,
+    args: Option<&str>,
+) -> String {
+    let expand = |skill: &Prompt, token: &str, args: &str| {
+        if skill.prompt_template.is_empty() {
+            token.trim().to_owned()
+        } else {
+            skill
+                .prompt_template
+                .replacen("{args}", args, 1)
+                .trim()
+                .to_owned()
+        }
+    };
+    if let Some(id) = command_id {
+        return skills
+            .iter()
+            .find(|skill| skill.id == id)
+            .map(|skill| expand(skill, text, args.unwrap_or("")))
+            .unwrap_or_else(|| text.to_owned());
+    }
+    text.split_inclusive(char::is_whitespace)
+        .map(|part| {
+            let token = part.trim_end_matches(char::is_whitespace);
+            let Some(name) = token.strip_prefix('/') else {
+                return part.to_owned();
+            };
+            if !name.starts_with(|c: char| c.is_ascii_alphabetic())
+                || !name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                || ["exit", "clear", "help"]
+                    .iter()
+                    .any(|local| name.eq_ignore_ascii_case(local))
+            {
+                return part.to_owned();
+            }
+            skills
+                .iter()
+                .find(|skill| skill.command.eq_ignore_ascii_case(name))
+                .map(|skill| format!("{}{}", expand(skill, token, ""), &part[token.len()..]))
+                .unwrap_or_else(|| part.to_owned())
+        })
+        .collect()
+}
+
+fn valid_command(command: &str) -> bool {
+    command.starts_with(|c: char| c.is_ascii_lowercase())
+        && command
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+}
+
+#[cfg(test)]
+mod store_behavior_tests {
+    use super::*;
+
+    #[test]
+    fn expansion_and_proposals_share_the_saved_library_without_implicit_writes() {
+        let root = std::env::temp_dir().join(format!("inferay-skills-{}", uuid::Uuid::new_v4()));
+        let store = PromptStore::new(root.join("bundled.json"), root.join("local.json"));
+        let skill = store
+            .create(
+                json!({"name":"Review", "command":"review", "description":"Review changes",
+            "promptTemplate":"Inspect {args}"})
+                .as_object()
+                .unwrap(),
+                42,
+            )
+            .unwrap();
+        for (input, expected) in [
+            (" /REVIEW\t/review\n", " Inspect\tInspect\n"),
+            (
+                "/review, x/review /review/foo /reviewé",
+                "/review, x/review /review/foo /reviewé",
+            ),
+            ("\u{2003}/review\u{2003}", "\u{2003}Inspect\u{2003}"),
+            ("/help /unknown", "/help /unknown"),
+        ] {
+            assert_eq!(
+                store.expand_chat_commands(input, None, None).unwrap(),
+                expected
+            );
+        }
+        assert_eq!(
+            store
+                .expand_chat_commands("/review", Some(&skill.id), Some("changes"))
+                .unwrap(),
+            "Inspect changes"
+        );
+        let (result, card) = store
+            .call_tool("inferay_read_skill", &json!({"skill":"review"}))
+            .unwrap();
+        assert_eq!(result["_id"], skill.id);
+        assert_eq!(card.unwrap()["type"], "inferay.skill-read");
+        let proposal = json!({"action":"update", "skillId":skill.id, "expectedUpdatedAt":42,
+            "name":"New name", "command":"review", "description":"New description",
+            "promptTemplate":"New instructions", "reason":"Improve review"});
+        assert!(
+            store
+                .call_tool("inferay_propose_skill", &proposal)
+                .unwrap()
+                .1
+                .is_some()
+        );
+        assert_eq!(store.load().unwrap()[0].name, "Review");
+        let mut stale = proposal.clone();
+        stale["expectedUpdatedAt"] = json!(41);
+        assert!(store.call_tool("inferay_propose_skill", &stale).is_err());
+        assert!(store.call_tool("unknown", &proposal).is_err());
+        assert_eq!(
+            store
+                .approve_proposal(stale.as_object().unwrap(), 43)
+                .unwrap_err()
+                .status,
+            409
+        );
+        let approved = store
+            .approve_proposal(proposal.as_object().unwrap(), 43)
+            .unwrap();
+        assert_eq!(approved["outcome"]["skillId"], skill.id);
+        assert!(
+            approved["message"]
+                .as_str()
+                .unwrap()
+                .contains("updated /review")
+        );
+        assert_eq!(store.load().unwrap()[0].name, "New name");
+        assert_eq!(
+            store
+                .approve_proposal(proposal.as_object().unwrap(), 44)
+                .unwrap_err()
+                .status,
+            409
+        );
+        let mut invalid = proposal.clone();
+        invalid.as_object_mut().unwrap().remove("expectedUpdatedAt");
+        assert_eq!(
+            store
+                .approve_proposal(invalid.as_object().unwrap(), 44)
+                .unwrap_err()
+                .status,
+            400
+        );
+        invalid["action"] = json!("delete");
+        assert_eq!(
+            store
+                .approve_proposal(invalid.as_object().unwrap(), 44)
+                .unwrap_err()
+                .status,
+            400
+        );
+        let created = store.approve_proposal(json!({"action":"create", "name":"Build", "command":"/BUILD", "promptTemplate":"Build it"}).as_object().unwrap(), 45).unwrap();
+        assert!(
+            created["message"]
+                .as_str()
+                .unwrap()
+                .contains("created /build")
+        );
+        assert_eq!(store.load().unwrap().len(), 2);
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

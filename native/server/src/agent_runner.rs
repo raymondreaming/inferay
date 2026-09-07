@@ -11,11 +11,11 @@ use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::native_prompts::NativePrompts;
 use inferay_core::agent_protocol::{
     AgentProtocolContext, ClaudeProtocolState, CodexInvocationContext, CodexProtocolState,
     ProtocolEmission, build_claude_invocation_args,
 };
+use inferay_core::prompts::PromptStore;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
@@ -23,19 +23,13 @@ use tokio::sync::{mpsc, oneshot};
 
 const MAX_STREAM_CHARS: usize = 64_000;
 
-pub trait PidTracker: Send + Sync {
-    fn track_pid(&self, pid: u32);
-    fn untrack_pid(&self, pid: u32);
-    fn kill_pid_tree(&self, pid: u32);
-}
-
 /// Process control shared with the session owner while `run_*` is awaiting.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct AgentProcessHandle {
     pid: Arc<AtomicU32>,
     cancelled: Arc<AtomicBool>,
     codex_control: Arc<Mutex<Option<mpsc::UnboundedSender<CodexControl>>>>,
-    skills: Option<NativePrompts>,
+    skills: Arc<tokio::sync::Mutex<PromptStore>>,
 }
 
 pub(crate) enum CodexControl {
@@ -48,10 +42,12 @@ pub(crate) enum CodexControl {
 }
 
 impl AgentProcessHandle {
-    pub(crate) fn with_skills(skills: NativePrompts) -> Self {
+    pub(crate) fn with_skills(skills: Arc<tokio::sync::Mutex<PromptStore>>) -> Self {
         Self {
-            skills: Some(skills),
-            ..Self::default()
+            skills,
+            pid: Arc::default(),
+            cancelled: Arc::default(),
+            codex_control: Arc::default(),
         }
     }
 
@@ -110,11 +106,11 @@ impl AgentProcessHandle {
             .is_some_and(|sender| sender.send(CodexControl::Interrupt).is_ok())
     }
 
-    pub fn kill(&self, tracker: &dyn PidTracker) {
+    pub fn kill(&self) {
         self.cancelled.store(true, Ordering::Release);
         self.clear_codex_control();
         if let Some(pid) = self.pid() {
-            tracker.kill_pid_tree(pid);
+            tree_kill(pid);
         }
     }
 
@@ -151,17 +147,12 @@ pub struct CodexRun<'a> {
     pub env: &'a HashMap<OsString, OsString>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct AgentRunResult {
-    pub last_assistant_message: String,
-}
-
 pub async fn run_claude(
     run: ClaudeRun<'_>,
     handle: &AgentProcessHandle,
     context: &mut AgentProtocolContext,
-    emissions: Option<&tokio::sync::mpsc::UnboundedSender<ProtocolEmission>>,
-) -> AgentRunResult {
+    emissions: &mpsc::UnboundedSender<ProtocolEmission>,
+) -> String {
     let arguments = claude_invocation_args(&run);
     let spawn = spawn_direct(&arguments, run.cwd, run.env);
     let mut child = match spawn {
@@ -171,7 +162,7 @@ pub async fn run_claude(
                 emit_error(context, error.to_string());
             }
             flush_emissions(context, emissions);
-            return AgentRunResult::default();
+            return String::new();
         }
     };
     handle.set_pid(child.id());
@@ -208,9 +199,7 @@ pub async fn run_claude(
         emit_error(context, stderr);
     }
     flush_emissions(context, emissions);
-    AgentRunResult {
-        last_assistant_message: protocol.last_assistant_message,
-    }
+    protocol.last_assistant_message
 }
 
 fn claude_invocation_args(run: &ClaudeRun<'_>) -> Vec<String> {
@@ -225,11 +214,11 @@ fn claude_invocation_args(run: &ClaudeRun<'_>) -> Vec<String> {
 pub async fn run_codex(
     run: CodexRun<'_>,
     handle: &AgentProcessHandle,
-    tracker: &dyn PidTracker,
+    tracker: &RuntimePidTracker,
     context: &mut AgentProtocolContext,
     state: &mut CodexProtocolState,
-    emissions: Option<&tokio::sync::mpsc::UnboundedSender<ProtocolEmission>>,
-) -> AgentRunResult {
+    emissions: &mpsc::UnboundedSender<ProtocolEmission>,
+) -> String {
     let mut child = match spawn_codex_app_server(run.binary, &run.invocation.cwd, run.env) {
         Ok(child) => child,
         Err(error) => {
@@ -237,7 +226,7 @@ pub async fn run_codex(
                 emit_error(context, error.to_string());
             }
             flush_emissions(context, emissions);
-            return AgentRunResult::default();
+            return String::new();
         }
     };
     let pid = child.id();
@@ -265,9 +254,7 @@ pub async fn run_codex(
         .await?;
         rpc.write(&json!({"method":"initialized"})).await?;
         let mut start_params = codex_thread_params(run.invocation);
-        if handle.skills.is_some() {
-            start_params["dynamicTools"] = NativePrompts::tool_definitions();
-        }
+        start_params["dynamicTools"] = PromptStore::tool_definitions();
         let thread_response = if let Some(thread_id) = &run.invocation.session_id {
             let mut params = codex_thread_params(run.invocation);
             params["threadId"] = json!(thread_id);
@@ -380,10 +367,7 @@ pub async fn run_codex(
                     {
                         let tool = message.pointer("/params/tool").and_then(Value::as_str).unwrap_or("");
                         let args = message.pointer("/params/arguments").cloned().unwrap_or(Value::Null);
-                        let result = match &handle.skills {
-                            Some(skills) => skills.call_tool(tool, &args).await,
-                            None => Err("Inferay skills are unavailable in this session".into()),
-                        };
+                        let result = handle.skills.lock().await.call_tool(tool, &args);
                         let (success, output) = match result {
                             Ok((output, card)) => {
                                 if let Some(card) = card {
@@ -515,7 +499,7 @@ impl CodexConnection {
         protocol: (
             &mut AgentProtocolContext,
             &mut CodexProtocolState,
-            Option<&mpsc::UnboundedSender<ProtocolEmission>>,
+            &mpsc::UnboundedSender<ProtocolEmission>,
         ),
     ) -> Result<Value, String> {
         let id = self.send(method, params).await?;
@@ -551,18 +535,18 @@ async fn finish_codex_child(
     mut child: tokio::process::Child,
     pid: Option<u32>,
     handle: &AgentProcessHandle,
-    tracker: &dyn PidTracker,
+    tracker: &RuntimePidTracker,
     stderr: tokio::task::JoinHandle<String>,
     protocol: (
         &mut AgentProtocolContext,
         &mut CodexProtocolState,
-        Option<&mpsc::UnboundedSender<ProtocolEmission>>,
+        &mpsc::UnboundedSender<ProtocolEmission>,
     ),
-) -> AgentRunResult {
+) -> String {
     let (context, state, emissions) = protocol;
     handle.clear_codex_control();
     if let Some(pid) = pid {
-        tracker.kill_pid_tree(pid);
+        tree_kill(pid);
     }
     let _ = child.start_kill();
     let exit = child.wait().await;
@@ -581,9 +565,7 @@ async fn finish_codex_child(
         emit_error(context, stderr);
     }
     flush_emissions(context, emissions);
-    AgentRunResult {
-        last_assistant_message: state.last_assistant_message.clone(),
-    }
+    state.last_assistant_message.clone()
 }
 
 fn spawn_codex_app_server(
@@ -699,9 +681,8 @@ fn emit_error(context: &mut AgentProtocolContext, message: String) {
 
 fn flush_emissions(
     context: &mut AgentProtocolContext,
-    sender: Option<&tokio::sync::mpsc::UnboundedSender<ProtocolEmission>>,
+    sender: &mpsc::UnboundedSender<ProtocolEmission>,
 ) {
-    let Some(sender) = sender else { return };
     for emission in context.take_emissions() {
         let _ = sender.send(emission);
     }
@@ -720,4 +701,179 @@ fn signal_interrupt(pid: u32) {
     let _ = std::process::Command::new("taskkill")
         .args(["/PID", &pid.to_string()])
         .status();
+}
+
+#[derive(Clone)]
+pub struct RuntimePidTracker {
+    path: PathBuf,
+    active: Arc<std::sync::Mutex<std::collections::HashSet<u32>>>,
+    save_pending: Arc<AtomicBool>,
+    save_lock: Arc<tokio::sync::Mutex<()>>,
+}
+
+impl RuntimePidTracker {
+    pub fn new(path: PathBuf) -> Self {
+        Self {
+            path,
+            active: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
+            save_pending: Arc::new(AtomicBool::new(false)),
+            save_lock: Arc::new(tokio::sync::Mutex::new(())),
+        }
+    }
+
+    pub async fn cleanup_orphans(&self) {
+        if let Ok(bytes) = tokio::fs::read(&self.path).await
+            && let Ok(values) = serde_json::from_slice::<Vec<serde_json::Value>>(&bytes)
+        {
+            for value in values {
+                if let Some(pid) = value.as_u64().and_then(|pid| u32::try_from(pid).ok())
+                    && pid > 0
+                {
+                    tree_kill(pid);
+                }
+            }
+        }
+        self.active
+            .lock()
+            .expect("PID tracker lock poisoned")
+            .clear();
+        self.write_pids().await;
+    }
+
+    fn schedule_save(&self) {
+        if self.save_pending.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let tracker = self.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            tracker.save_pending.store(false, Ordering::Release);
+            tracker.write_pids().await;
+        });
+    }
+
+    async fn write_pids(&self) {
+        let _guard = self.save_lock.lock().await;
+        let mut pids = self
+            .active
+            .lock()
+            .expect("PID tracker lock poisoned")
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        pids.sort_unstable();
+        let Ok(bytes) = serde_json::to_vec_pretty(&pids) else {
+            return;
+        };
+        let _ = crate::atomic_write::overwrite(&self.path, &bytes).await;
+    }
+
+    pub fn track_pid(&self, pid: u32) {
+        if pid == 0 {
+            return;
+        }
+        self.active
+            .lock()
+            .expect("PID tracker lock poisoned")
+            .insert(pid);
+        self.schedule_save();
+    }
+
+    pub fn untrack_pid(&self, pid: u32) {
+        if pid == 0 {
+            return;
+        }
+        self.active
+            .lock()
+            .expect("PID tracker lock poisoned")
+            .remove(&pid);
+        self.schedule_save();
+    }
+}
+
+#[cfg(windows)]
+fn tree_kill(pid: u32) {
+    if pid == 0 {
+        return;
+    }
+    let _ = std::process::Command::new("taskkill")
+        .args(["/T", "/F", "/PID", &pid.to_string()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+
+#[cfg(not(windows))]
+fn tree_kill(pid: u32) {
+    if pid == 0 {
+        return;
+    }
+    if let Ok(output) = std::process::Command::new("pgrep")
+        .args(["-P", &pid.to_string()])
+        .output()
+    {
+        for child in String::from_utf8_lossy(&output.stdout).lines() {
+            if let Ok(child) = child.trim().parse::<u32>() {
+                tree_kill(child);
+            }
+        }
+    }
+    let _ = std::process::Command::new("kill")
+        .args(["-TERM", &pid.to_string()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+
+#[cfg(all(test, unix))]
+mod runner_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[tokio::test]
+    async fn concrete_runner_delivers_result_session_and_failure_events() {
+        let root = std::env::temp_dir().join(format!("inferay-runner-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let binary = root.join("claude-fixture");
+        std::fs::write(&binary, "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"result\",\"result\":\"done\",\"session_id\":\"fixture-session\"}'\n").unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let handle = AgentProcessHandle::with_skills(Arc::new(tokio::sync::Mutex::new(
+            PromptStore::new(root.join("bundled.json"), root.join("local.json")),
+        )));
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut context = AgentProtocolContext::new(root.clone());
+        let env = HashMap::new();
+        let make_run = || ClaudeRun {
+            binary: &binary,
+            prompt: "fixture",
+            developer_instructions: None,
+            cwd: &root,
+            model: None,
+            session_id: None,
+            env: &env,
+        };
+        assert_eq!(
+            run_claude(make_run(), &handle, &mut context, &tx).await,
+            "done"
+        );
+        assert!(handle.pid().is_none());
+        assert!(
+            matches!(rx.try_recv().unwrap(), ProtocolEmission::Session(id) if id == "fixture-session")
+        );
+        assert!(
+            matches!(rx.try_recv().unwrap(), ProtocolEmission::Chat(event) if event["result"] == "done")
+        );
+        std::fs::write(&binary, "#!/bin/sh\nprintf 'fixture failure' >&2\nexit 1\n").unwrap();
+        assert_eq!(run_claude(make_run(), &handle, &mut context, &tx).await, "");
+        assert!(
+            matches!(rx.try_recv().unwrap(), ProtocolEmission::System(error) if error == "fixture failure")
+        );
+        std::fs::remove_file(&binary).unwrap();
+        assert_eq!(run_claude(make_run(), &handle, &mut context, &tx).await, "");
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            ProtocolEmission::System(_)
+        ));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

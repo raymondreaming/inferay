@@ -13,20 +13,6 @@ import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
 import { getAgentIcon } from "../../agents/components/AgentIcon/index.tsx";
 import { changePaneAgentKind } from "../../workspace/hooks/useWorkspaceState.tsx";
 
-function applyInlineCompletion(
-	input: string,
-	cursorPos: number,
-	triggerIndex: number,
-	replacement: string,
-): { nextValue: string; nextCursor: number } {
-	return rustProject("completion", {
-		input,
-		cursorPos,
-		triggerIndex,
-		replacement,
-	});
-}
-
 export interface FileMenuState {
 	show: boolean;
 	selectedIdx: number;
@@ -178,12 +164,15 @@ export function useAgentChatMenus({
 	const complete = useCallback(
 		(index: number, replacement: string, hide: () => void) => {
 			const cursor = textareaRef.current?.selectionStart ?? input.length;
-			const { nextValue, nextCursor } = applyInlineCompletion(
+			const { nextValue, nextCursor } = rustProject<{
+				nextValue: string;
+				nextCursor: number;
+			}>("completion", {
 				input,
-				cursor,
-				index,
+				cursorPos: cursor,
+				triggerIndex: index,
 				replacement,
-			);
+			});
 			setInput(nextValue);
 			hide();
 			requestAnimationFrame(() => {
@@ -298,14 +287,7 @@ export function findTriggerAtCursor(
 	cursorPos: number,
 	trigger: "/" | "@",
 ): { index: number; query: string } | null {
-	const match = rustProject<{ index: number } | null>("trigger", {
-		value,
-		cursorPos,
-		trigger,
-	});
-	return match
-		? { index: match.index, query: value.slice(match.index + 1, cursorPos) }
-		: null;
+	return rustProject("trigger", { value, cursorPos, trigger });
 }
 export function hideMenuState<S extends { show: boolean }>(state: S): S {
 	return {

@@ -9,7 +9,7 @@ pub struct Frame {
     pub w: f64,
     pub h: f64,
 }
-#[derive(Clone, Deserialize, ts_rs::TS)]
+#[derive(Clone, Deserialize, Serialize, ts_rs::TS)]
 #[serde(default, rename_all = "camelCase")]
 pub struct EvolveOptions {
     pub mass_stiffness: f64,
@@ -45,7 +45,7 @@ impl Default for EvolveOptions {
         }
     }
 }
-#[derive(Clone, Copy, Deserialize, ts_rs::TS)]
+#[derive(Clone, Copy, Deserialize, Serialize, ts_rs::TS)]
 #[serde(default)]
 pub struct MoveOptions {
     pub stiffness: f64,
@@ -128,6 +128,8 @@ pub struct LiquidFrame {
 #[wasm_bindgen]
 #[derive(Default)]
 pub struct LiquidBody {
+    observed: Option<(Frame, f64)>,
+    bridge_inset: Option<f64>,
     sim: Option<Sim>,
     previous: Option<(f64, f64)>,
     tvx: f64,
@@ -159,6 +161,130 @@ impl LiquidBody {
         let tick: Tick =
             serde_json::from_str(input).map_err(|e| JsValue::from_str(&e.to_string()))?;
         serde_json::to_string(&self.advance(tick)).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Static observed surfaces use numeric buffers, without per-frame JSON.
+    /// Options: layout width, radius, inset, bridge growth, blur, elapsed seconds.
+    pub fn observe(&mut self, group: &LiquidGroup, index: usize, options: &[f64]) -> Vec<f64> {
+        let Some(&frame) = group.frames.get(index) else {
+            return Vec::new();
+        };
+        let [base_w, radius, inset, grow, blur, dt] = options else {
+            return Vec::new();
+        };
+        let mut inset = *inset;
+        if *grow > 0. {
+            let range = (blur * 3.).max(14.);
+            let gap = group
+                .frames
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != index)
+                .map(|(_, other)| {
+                    let dx = (other.x - (frame.x + frame.w))
+                        .max(frame.x - (other.x + other.w))
+                        .max(0.);
+                    let dy = (other.y - (frame.y + frame.h))
+                        .max(frame.y - (other.y + other.h))
+                        .max(0.);
+                    dx.hypot(dy)
+                })
+                .fold(f64::INFINITY, f64::min);
+            if gap < range {
+                let t = (1. - gap / range).clamp(0., 1.);
+                inset -= grow * t * t * (3. - 2. * t);
+            }
+            if let Some(previous) = self.bridge_inset {
+                inset = previous + (inset - previous) * (dt * 18.).min(1.);
+            }
+        }
+        self.bridge_inset = Some(inset);
+        if self.observed.is_some_and(|(last, last_inset)| {
+            (last.x - frame.x).abs() < 0.05
+                && (last.y - frame.y).abs() < 0.05
+                && (last.w - frame.w).abs() < 0.05
+                && (last.h - frame.h).abs() < 0.05
+                && (last_inset - inset).abs() < 0.05
+        }) {
+            return Vec::new();
+        }
+        self.observed = Some((frame, inset));
+        let w = (frame.w - inset * 2.).max(0.);
+        let h = (frame.h - inset * 2.).max(0.);
+        let scale = if *base_w > 0. { frame.w / base_w } else { 1. };
+        vec![
+            frame.x + inset,
+            frame.y + inset,
+            w,
+            h,
+            pill(radius * scale - inset, w, h),
+        ]
+    }
+}
+
+/// A group transfers measured rectangles once, then all bodies share them.
+#[wasm_bindgen]
+#[derive(Default)]
+pub struct LiquidGroup {
+    frames: Vec<Frame>,
+}
+
+#[wasm_bindgen]
+impl LiquidGroup {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn measure(&mut self, coordinates: &[f64]) {
+        self.frames.clear();
+        self.frames
+            .extend(coordinates.chunks_exact(4).map(|f| Frame {
+                x: f[0],
+                y: f[1],
+                w: f[2],
+                h: f[3],
+            }));
+    }
+}
+
+#[cfg(test)]
+mod observation_tests {
+    use super::*;
+
+    #[test]
+    fn nearby_surfaces_grow_a_bridge_and_settled_surfaces_stop_painting() {
+        let mut group = LiquidGroup::new();
+        group.measure(&[0., 0., 100., 40., 100., 0., 100., 40.]);
+        let mut body = LiquidBody::new();
+        let options = [100., 999., 2., 8., 6., 1. / 60.];
+        assert_eq!(
+            body.observe(&group, 0, &options),
+            vec![-6., -6., 112., 52., 26.]
+        );
+        assert!(body.observe(&group, 0, &options).is_empty());
+        group.measure(&[0., 0., 100., 40., 1000., 0., 100., 40.]);
+        let moving = body.observe(&group, 0, &options);
+        assert!((moving[0] - -3.6).abs() < 1e-12);
+        for _ in 0..150 {
+            body.observe(&group, 0, &options);
+        }
+        assert!(body.observe(&group, 0, &options).is_empty());
+    }
+
+    #[test]
+    fn subpixel_motion_accumulates_until_a_repaint_is_needed() {
+        let mut group = LiquidGroup::new();
+        let mut body = LiquidBody::new();
+        let options = [100., 999., 0., 0., 6., 1. / 60.];
+        group.measure(&[0., 0., 100., 20.]);
+        assert_eq!(body.observe(&group, 0, &options)[4], 10.);
+        group.measure(&[0.03, 0., 100., 20.]);
+        assert!(body.observe(&group, 0, &options).is_empty());
+        group.measure(&[0.06, 0., 100., 20.]);
+        assert_eq!(body.observe(&group, 0, &options)[0], 0.06);
+        group.measure(&[]);
+        assert!(body.observe(&group, 0, &options).is_empty());
     }
 }
 impl LiquidBody {
@@ -347,8 +473,7 @@ impl LiquidBody {
         }
     }
 }
-#[wasm_bindgen]
-pub fn ease(spec: &str, t: f64) -> f64 {
+fn ease(spec: &str, t: f64) -> f64 {
     let spec = match spec {
         "ease" => "cubic-bezier(0.25, 0.1, 0.25, 1)",
         "ease-in" => "cubic-bezier(0.42, 0, 1, 1)",

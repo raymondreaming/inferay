@@ -1,15 +1,12 @@
-//! Rust-native owner for live agent chat sessions.
-//!
-//! This module is the direct replacement boundary for `agent-chat.ts`: it owns
-//! sessions, queues, transcript/event persistence, checkpoint lifecycle and
-//! client fanout. Agent execution is injected as a Rust future so the server
-//! can call `agent_runner::{run_claude, run_codex}` without Node/Bun or IPC.
+//! Owns live sessions, queued turns, transcript publication and checkpoint lifecycle.
 use crate::unix_millis as now_millis;
+use inferay_core::agent_command::AgentKind;
+use inferay_core::agent_protocol::{
+    AgentProtocolContext, CodexInvocationContext, CodexProtocolState,
+};
 use inferay_core::utf16_slice as javascript_slice;
 
-use std::{
-    collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::Arc, time::Duration,
-};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
 use inferay_core::{
     agent_command::AgentCommandResolver,
@@ -25,7 +22,7 @@ use tokio::sync::{Mutex, broadcast};
 use uuid::Uuid;
 
 use crate::{
-    agent_runner::{AgentProcessHandle, AgentRunResult},
+    agent_runner::{AgentProcessHandle, RuntimePidTracker},
     chat_persistence::{ChatPersistence, QueuedMessageInfo},
     checkpoint::CheckpointService,
 };
@@ -61,36 +58,6 @@ The previous turn ended after a tool call without a final user-facing response. 
 </inferay-final-summary-recovery>"#;
 
 pub type ClientId = u64;
-pub type AgentFuture<'a> =
-    Pin<Box<dyn Future<Output = Result<AgentRunResult, String>> + Send + 'a>>;
-
-/// The production implementation calls the Rust agent runner functions
-/// directly. This trait exists for provider selection and deterministic tests;
-/// it is not an IPC or JavaScript adapter boundary.
-pub trait AgentExecutor: Send + Sync {
-    fn run<'a>(
-        &'a self,
-        request: AgentRunRequest,
-        handle: AgentProcessHandle,
-        emissions: tokio::sync::mpsc::UnboundedSender<ProtocolEmission>,
-    ) -> AgentFuture<'a>;
-    fn stop(&self, agent_kind: &str, handle: &AgentProcessHandle);
-    fn kill(&self, handle: &AgentProcessHandle);
-}
-
-#[derive(Clone, Debug)]
-pub struct AgentRunRequest {
-    pub agent_kind: String,
-    pub prompt: String,
-    pub cwd: PathBuf,
-    pub reference_paths: Vec<PathBuf>,
-    pub images: Vec<PathBuf>,
-    pub model: Option<String>,
-    pub reasoning_level: Option<String>,
-    pub developer_instructions: Option<String>,
-    pub session_id: Option<String>,
-}
-
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendMessageInput {
@@ -199,7 +166,7 @@ pub struct ChatRuntime {
     checkpoints: CheckpointService,
     workspaces: Arc<std::sync::Mutex<AgentStateStore>>,
     resolver: Arc<AgentCommandResolver>,
-    executor: Arc<dyn AgentExecutor>,
+    pid_tracker: RuntimePidTracker,
     agent_context: Arc<Mutex<AgentContextStore>>,
     prompts: Arc<Mutex<PromptStore>>,
 }
@@ -208,7 +175,7 @@ impl ChatRuntime {
     pub fn new(
         persistence: ChatPersistence,
         checkpoints: CheckpointService,
-        executor: Arc<dyn AgentExecutor>,
+        pid_tracker: RuntimePidTracker,
         agent_context: Arc<Mutex<AgentContextStore>>,
         prompts: Arc<Mutex<PromptStore>>,
         workspaces: Arc<std::sync::Mutex<AgentStateStore>>,
@@ -219,7 +186,7 @@ impl ChatRuntime {
             queue_publication: Arc::new(Mutex::new(())),
             persistence,
             checkpoints,
-            executor,
+            pid_tracker,
             agent_context,
             prompts,
             workspaces,
@@ -270,14 +237,12 @@ impl ChatRuntime {
             }
             let session = self.ensure_session(&input).await;
             if input.expand_commands {
-                match crate::native_prompts::NativePrompts::new(self.prompts.clone())
-                    .expand_chat_commands(
-                        &input.text,
-                        input.command_id.as_deref(),
-                        input.command_args.as_deref(),
-                    )
-                    .await
-                {
+                let expanded = self.prompts.lock().await.expand_chat_commands(
+                    &input.text,
+                    input.command_id.as_deref(),
+                    input.command_args.as_deref(),
+                );
+                match expanded {
                     Ok(text) => input.text = text,
                     Err(error) => {
                         self.emit(&session, json!({"type":"chat:error", "paneId":input.pane_id, "error":format!("Command expansion failed: {error}")})).await;
@@ -495,17 +460,15 @@ impl ChatRuntime {
                 .await;
                 }
 
-                let outcome = self
-                    .run_goal_loop(
-                        &session,
-                        prompt,
-                        input.images,
-                        checkpoint_id.as_deref(),
-                        (!instruction_prefix.is_empty()).then_some(instruction_prefix.as_str()),
-                    )
-                    .await;
-                self.finalize_run(&session, checkpoint_id.as_deref(), outcome)
-                    .await;
+                self.run_goal_loop(
+                    &session,
+                    prompt,
+                    input.images,
+                    checkpoint_id.as_deref(),
+                    (!instruction_prefix.is_empty()).then_some(instruction_prefix.as_str()),
+                )
+                .await;
+                self.finalize_run(&session, checkpoint_id.as_deref()).await;
             } else {
                 self.finalize_turn(&session).await;
             }
@@ -527,7 +490,13 @@ impl ChatRuntime {
             (state.agent_kind.clone(), state.current_handle.take())
         };
         if let Some(handle) = handle {
-            self.executor.stop(&agent_kind, &handle);
+            if agent_kind == "codex" {
+                if !handle.stop_codex() {
+                    handle.kill();
+                }
+            } else {
+                handle.stop_claude();
+            }
         }
         let should_emit = {
             let state = session.lock().await;
@@ -559,7 +528,7 @@ impl ChatRuntime {
             state.turn_active = false;
             state.clients.clear();
             if let Some(handle) = state.current_handle.take() {
-                self.executor.kill(&handle);
+                handle.kill();
             }
         }
         self.checkpoints.clear_checkpoints(pane_id).await?;
@@ -639,10 +608,7 @@ impl ChatRuntime {
         session.lock().await.clients.insert(client_id, sender);
         let id = format!("btw-{}", Uuid::new_v4());
         let (events, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        let run =
-            crate::one_shot::run_btw_chat_message(pane_id, text, &cwd, resolver, move |event| {
-                let _ = events.send(event);
-            });
+        let run = crate::one_shot::run_btw_chat_message(pane_id, text, &cwd, resolver, events);
         let publish = async {
             while let Some(event) = receiver.recv().await {
                 let mut state = session.lock().await;
@@ -947,7 +913,7 @@ impl ChatRuntime {
         images: Vec<PathBuf>,
         checkpoint_id: Option<&str>,
         turn_instructions: Option<&str>,
-    ) -> Result<(), String> {
+    ) {
         let goal_run = session
             .lock()
             .await
@@ -956,7 +922,7 @@ impl ChatRuntime {
             .is_some_and(|goal| goal.status == GoalStatus::Active);
         let mut result = self
             .run_once(session, prompt, images, checkpoint_id, turn_instructions)
-            .await?;
+            .await;
         let last_is_tool = session
             .lock()
             .await
@@ -973,48 +939,40 @@ impl ChatRuntime {
                     checkpoint_id,
                     turn_instructions,
                 )
-                .await?;
+                .await;
         }
         if !goal_run {
-            return Ok(());
+            return;
         }
         loop {
             let next = {
                 let mut state = session.lock().await;
                 let cancelled = state.cancelled;
                 let Some(goal) = state.goal.as_mut() else {
-                    return Ok(());
+                    return;
                 };
                 goal.turns += 1;
-                match goal_result_status(&result.last_assistant_message) {
-                    GoalResult::Complete => {
-                        goal.status = GoalStatus::Paused;
-                        None
-                    }
-                    GoalResult::Paused => {
-                        goal.status = GoalStatus::Paused;
-                        None
-                    }
-                    GoalResult::Active if !cancelled && goal.turns < GOAL_MAX_TURNS => {
-                        Some(create_goal_continuation(goal))
-                    }
-                    GoalResult::Active => {
-                        goal.status = GoalStatus::Paused;
-                        None
-                    }
+                if goal_result_status(&result) == GoalResult::Active
+                    && !cancelled
+                    && goal.turns < GOAL_MAX_TURNS
+                {
+                    Some(create_goal_continuation(goal))
+                } else {
+                    goal.status = GoalStatus::Paused;
+                    None
                 }
             };
             let Some(next) = next else { break };
             result = self
                 .run_once(session, next, Vec::new(), checkpoint_id, turn_instructions)
-                .await?;
+                .await;
         }
         let message = {
             let mut state = session.lock().await;
             let Some(goal) = state.goal.as_ref() else {
-                return Ok(());
+                return;
             };
-            let result_status = goal_result_status(&result.last_assistant_message);
+            let result_status = goal_result_status(&result);
             let payload = match result_status {
                 GoalResult::Complete => {
                     json!({"type":"inferay.goal", "status":"complete", "objective":goal.objective, "turns":goal.turns, "detail":"Goal achieved"})
@@ -1043,7 +1001,6 @@ impl ChatRuntime {
             payload.to_string()
         };
         self.emit_system(session, &message).await;
-        Ok(())
     }
 
     async fn run_once(
@@ -1053,12 +1010,10 @@ impl ChatRuntime {
         images: Vec<PathBuf>,
         checkpoint_id: Option<&str>,
         turn_instructions: Option<&str>,
-    ) -> Result<AgentRunResult, String> {
-        let (request, handle) = {
+    ) -> String {
+        let (agent_kind, invocation, handle) = {
             let mut state = session.lock().await;
-            let handle = AgentProcessHandle::with_skills(
-                crate::native_prompts::NativePrompts::new(self.prompts.clone()),
-            );
+            let handle = AgentProcessHandle::with_skills(self.prompts.clone());
             state.current_handle = Some(handle.clone());
             let developer_instructions = [
                 (state.agent_kind == "codex").then_some(CODEX_WORKFLOW_INSTRUCTIONS),
@@ -1070,9 +1025,8 @@ impl ChatRuntime {
             .collect::<Vec<_>>()
             .join("\n\n");
             (
-                AgentRunRequest {
-                    agent_kind: state.agent_kind.clone(),
-                    prompt,
+                state.agent_kind.clone(),
+                CodexInvocationContext {
                     cwd: state.cwd.clone(),
                     reference_paths: state.reference_paths.clone(),
                     images,
@@ -1086,7 +1040,50 @@ impl ChatRuntime {
             )
         };
         let (emission_tx, mut emission_rx) = tokio::sync::mpsc::unbounded_channel();
-        let executed = self.executor.run(request, handle, emission_tx);
+        let executed = async {
+            let kind = if agent_kind == "codex" {
+                AgentKind::Codex
+            } else {
+                AgentKind::Claude
+            };
+            let binary = self.resolver.resolve_agent_binary(kind);
+            let environment = self.resolver.create_agent_env(kind);
+            let mut protocol = AgentProtocolContext::new(invocation.cwd.clone());
+            protocol.reference_paths = invocation.reference_paths.clone();
+            protocol.session_id = invocation.session_id.clone();
+            if agent_kind == "codex" {
+                crate::agent_runner::run_codex(
+                    crate::agent_runner::CodexRun {
+                        binary: &binary,
+                        prompt: &prompt,
+                        invocation: &invocation,
+                        env: &environment,
+                    },
+                    &handle,
+                    &self.pid_tracker,
+                    &mut protocol,
+                    &mut CodexProtocolState::default(),
+                    &emission_tx,
+                )
+                .await
+            } else {
+                crate::agent_runner::run_claude(
+                    crate::agent_runner::ClaudeRun {
+                        binary: &binary,
+                        prompt: &prompt,
+                        developer_instructions: invocation.developer_instructions.as_deref(),
+                        cwd: &invocation.cwd,
+                        model: invocation.model.as_deref(),
+                        session_id: invocation.session_id.as_deref(),
+                        env: &environment,
+                    },
+                    &handle,
+                    &mut protocol,
+                    &emission_tx,
+                )
+                .await
+            }
+        };
         tokio::pin!(executed);
         let executed = loop {
             tokio::select! {
@@ -1266,32 +1263,10 @@ impl ChatRuntime {
         }
     }
 
-    async fn finalize_run(
-        &self,
-        session: &Arc<Mutex<ChatSession>>,
-        checkpoint_id: Option<&str>,
-        outcome: Result<(), String>,
-    ) {
-        let error = outcome.err();
-        if let Some(error) = &error {
-            self.emit_system(session, error).await;
-            let pane_id = {
-                let mut state = session.lock().await;
-                state.message_buffer.finalize();
-                state.pane_id.clone()
-            };
-            self.emit(
-                session,
-                json!({"type":"chat:error", "paneId":pane_id, "error":error}),
-            )
-            .await;
-        }
+    async fn finalize_run(&self, session: &Arc<Mutex<ChatSession>>, checkpoint_id: Option<&str>) {
         let changed = self
             .finalize_checkpoint_events(session, checkpoint_id)
             .await;
-        if error.is_some() {
-            return;
-        }
         let needs_summary = {
             let state = session.lock().await;
             let last = state.message_buffer.messages().last();

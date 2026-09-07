@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import type { CSSProperties } from "react";
-import type { DotMatrixLoaderProps } from "../../lib/data.ts";
+
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
@@ -60,3 +60,10 @@ export { DotMatrixRipple } from "./DotMatrixRipple.tsx";
 export { DotMatrixWeave } from "./DotMatrixWeave.tsx";
 
 export { ThinkingIndicator } from "./ThinkingIndicator.tsx";
+
+export interface DotMatrixLoaderProps {
+	dotSize?: number;
+	gap?: number;
+	speed?: number;
+	ariaLabel?: string;
+}

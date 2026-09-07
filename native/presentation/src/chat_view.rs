@@ -74,6 +74,63 @@ pub fn rows(descriptors: &[Option<RowDescriptor>]) -> Vec<ChatRow> {
         .collect()
 }
 
+#[derive(Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatListRow {
+    #[serde(flatten)]
+    pub row: ChatRow,
+    pub key: String,
+    pub checkpoint: Option<usize>,
+}
+
+pub fn list(input: &serde_json::Value) -> Result<Vec<ChatListRow>, String> {
+    use crate::{array, flag, string};
+    let messages = array(&input["messages"]);
+    let descriptors = messages
+        .iter()
+        .map(|message| serde_json::from_value(message["render"].clone()))
+        .collect::<Result<Vec<Option<RowDescriptor>>, _>>()
+        .map_err(|error| error.to_string())?;
+    let checkpoints: std::collections::HashMap<_, _> = array(&input["checkpoints"])
+        .iter()
+        .enumerate()
+        .filter_map(|(index, checkpoint)| {
+            checkpoint["afterMessageId"]
+                .as_str()
+                .filter(|id| !id.is_empty())
+                .map(|id| (id, index))
+        })
+        .collect();
+    Ok(rows(&descriptors)
+        .into_iter()
+        .enumerate()
+        .map(|(index, row)| {
+            let message = &messages[match &row {
+                ChatRow::Message { index } | ChatRow::ToolGroup { index, .. } => *index,
+                ChatRow::EditGroup { start, .. } => *start,
+            }];
+            let key = message["render"]["rowId"]
+                .as_str()
+                .or_else(|| message["id"].as_str())
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("row-{index}"));
+            let checkpoint = if matches!(row, ChatRow::Message { .. })
+                && message["role"] == "assistant"
+                && !flag(&message["isStreaming"])
+            {
+                checkpoints.get(string(&message["id"])).copied()
+            } else {
+                None
+            };
+            ChatListRow {
+                row,
+                key,
+                checkpoint,
+            }
+        })
+        .collect())
+}
+
 pub fn offsets(heights: &[Option<f64>]) -> Vec<f64> {
     let mut result = Vec::with_capacity(heights.len() + 1);
     result.push(0.);
@@ -135,6 +192,32 @@ pub fn window(input: &ChatViewport) -> ChatWindow {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn list_projects_stable_identity_and_checkpoint_eligibility() {
+        let model = serde_json::to_value(list(&json!({
+            "messages": [
+                {"id":"user", "role":"user"},
+                {"id":"streaming", "role":"assistant", "isStreaming":true},
+                {"id":"done", "role":"assistant", "render":{"rowId":"stable"}},
+                {"id":"edit", "role":"assistant", "render":{"kind":"edit-group", "groupLeader":true, "groupEnd":5, "filePath":"a.rs"}},
+                {"id":"hidden", "render":{"kind":"edit-group"}}
+            ],
+            "checkpoints":[
+                {"afterMessageId":"user"}, {"afterMessageId":"streaming"},
+                {"afterMessageId":"done"}, {"afterMessageId":"edit"}, {"afterMessageId":"done"}
+            ]
+        })).unwrap()).unwrap();
+        assert_eq!(
+            model,
+            json!([
+                {"type":"message","index":0,"key":"user","checkpoint":null},
+                {"type":"message","index":1,"key":"streaming","checkpoint":null},
+                {"type":"message","index":2,"key":"stable","checkpoint":4},
+                {"type":"edit-group","start":3,"end":5,"filePath":"a.rs","key":"edit","checkpoint":null}
+            ])
+        );
+    }
 
     #[test]
     fn groups_keep_original_indices_and_unhydrated_messages() {

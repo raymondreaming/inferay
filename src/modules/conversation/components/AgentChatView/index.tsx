@@ -18,10 +18,7 @@ import {
 	loadStoredInput,
 	saveStoredInput,
 } from "../../../../adapters/storage/stored-values.ts";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { IconArrowDown } from "../../../../shared/ui/Icons/index.tsx";
 import { WorkspaceDockHandle } from "../../../workbench/components/WorkspaceDockHandle/index.tsx";
-import { InlineDirectoryPicker } from "../../../workspace/components/InlineDirectoryPicker/index.tsx";
 import {
 	useAgentChatComposerState,
 	usePendingChatWorkspace,
@@ -38,7 +35,8 @@ import { AgentContextPanel } from "../AgentContextPanel/index.tsx";
 import { ChatComposer } from "../ChatComposer/index.tsx";
 import { ChatMessageList } from "../ChatMessageList/index.tsx";
 import { useChatViewport } from "../ChatMessageList/useChatViewport.tsx";
-import { DirectoryPickerModal } from "./DirectoryPickerModal.tsx";
+import { ChatWorkspacePicker } from "./ChatWorkspacePicker.tsx";
+import { ScrollToLatestButton } from "./ScrollToLatestButton.tsx";
 import { styles } from "./styles.ts";
 import {
 	appendSystemMessage,
@@ -361,31 +359,11 @@ export const AgentChatView = memo(function AgentChatView({
 							!isAgentConfigOpen &&
 							isSelected !== false &&
 							onDirectoryChange && (
-								<div {...stylex.props(styles.directoryPickerWrap)}>
-									<DirectoryPickerModal>
-										<div {...stylex.props(styles.directoryPickerInner)}>
-											<InlineDirectoryPicker
-												onSelect={(path) => {
-													if (path) savePendingWorkspaceSelection([path]);
-													else {
-														savePendingWorkspaceSelection([]);
-														onDirectoryCancel?.(paneId);
-													}
-												}}
-												onCancel={() => {
-													savePendingWorkspaceSelection([]);
-													onDirectoryCancel?.(paneId);
-												}}
-												multiSelect
-												showStartButton={false}
-												onSelectionChange={(paths) => {
-													savePendingWorkspaceSelection(paths);
-												}}
-												onMultiSelect={savePendingWorkspaceSelection}
-											/>
-										</div>
-									</DirectoryPickerModal>
-								</div>
+								<ChatWorkspacePicker
+									savePendingWorkspaceSelection={savePendingWorkspaceSelection}
+									onDirectoryCancel={onDirectoryCancel}
+									paneId={paneId}
+								/>
 							)}
 						<ChatMessageList
 							paneId={paneId}
@@ -403,21 +381,7 @@ export const AgentChatView = memo(function AgentChatView({
 						/>
 					</div>
 					{!isAtBottom && (
-						<button
-							type="button"
-							onPointerDown={(event) => {
-								if (event.button === 0 && event.isPrimary) scrollToBottom();
-							}}
-							onClick={(event) => {
-								if (event.detail === 0) scrollToBottom();
-							}}
-							{...stylex.props(styles.scrollButton)}
-						>
-							<IconArrowDown
-								size={iconSize.md}
-								{...stylex.props(styles.scrollIcon)}
-							/>
-						</button>
+						<ScrollToLatestButton scrollToBottom={scrollToBottom} />
 					)}
 				</div>
 			)}

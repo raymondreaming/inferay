@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
 import type { GitGraphRef } from "../../../../../../build/presentation/contracts/GitGraphRef.ts";
 import type { GitWorktree } from "../../../../../../build/presentation/contracts/GitWorktree.ts";
+import type { GraphLines } from "../../../../../../build/presentation/contracts/GraphLines.ts";
 import { postJson } from "../../../../../adapters/backend/http.ts";
 import { project as rustProject } from "../../../../../adapters/presentation/model.ts";
 import {
@@ -199,8 +200,15 @@ export function useCommitGraphState(props: CommitGraphProps) {
 				commits.length,
 				scrollTop,
 				viewportHeight,
+				graphModel.displayColumns,
 			),
-		[commits.length, rows, scrollTop, viewportHeight],
+		[
+			commits.length,
+			rows,
+			scrollTop,
+			viewportHeight,
+			graphModel.displayColumns,
+		],
 	);
 	const { graphLeft, itemIndexes, selectableItems } = graphModel;
 	const lineLayerStyle = useMemo(
@@ -613,12 +621,6 @@ export function loadPreferences(repositoryKey?: string): GraphPreferences {
 		readStoredJson(preferencesKey(repositoryKey), {}),
 	);
 }
-export interface RowTransition {
-	row: number;
-	fromCol: number;
-	toCol: number;
-	color: string;
-}
 export const DEFAULT_GIT_GRAPH_HISTORY_LIMIT = 1_000;
 export function nextGitGraphHistoryLimit(current: number): number {
 	return rustProject("nextHistoryLimit", current);
@@ -646,12 +648,6 @@ export function moveGraphColumn(
 ): ColumnKey[] {
 	return rustProject("moveColumn", { order, source, target });
 }
-function buildGraphConnectionPath(connection: RowTransition): string {
-	return rustProject("graphPath", connection);
-}
-function buildGraphConvergencePath(connection: RowTransition): string {
-	return rustProject("graphPath", { ...connection, convergence: true });
-}
 export function buildCommitGraphViewModel({
 	commits,
 	presentation,
@@ -677,27 +673,11 @@ export function buildCommitGraphViewModel({
 	});
 	const displayGraphColumn = (column: number) =>
 		geometry.displayColumns[column] ?? column;
-	const columnX = (column: number) =>
-		GRAPH_PADDING +
-		displayGraphColumn(column) * COLUMN_WIDTH +
-		COLUMN_WIDTH / 2;
-	const remap = (transition: RowTransition) => ({
-		...transition,
-		fromCol: displayGraphColumn(transition.fromCol),
-		toCol: displayGraphColumn(transition.toCol),
-	});
-	const connectionPath = (transition: RowTransition) =>
-		buildGraphConnectionPath(remap(transition));
-	const convergencePath = (transition: RowTransition) =>
-		buildGraphConvergencePath(remap(transition));
 	const selectableItems = presentation.selectableItems;
 	return {
-		columnX,
-		connectionPath,
 		containingBranches: new Map(
 			Object.entries(presentation.containingBranches),
 		),
-		convergencePath,
 		defaultRemoteName: presentation.defaultRemoteName,
 		displayGraphColumn,
 		...geometry,
@@ -711,41 +691,24 @@ export function buildCommitGraphViewModel({
 		worktreesByPath: new Map(worktrees?.map((tree) => [tree.path, tree]) ?? []),
 	};
 }
-export function projectCommitGraphViewport(
+function projectCommitGraphViewport(
 	rows: readonly RenderGraphRow[],
 	itemCount: number,
 	scrollTop: number,
 	viewportHeight: number,
+	displayColumns: number[],
 ) {
 	const { start: visibleStart, end: visibleEnd } = graphVirtualRange(
 		itemCount,
 		Math.max(0, scrollTop - TOP_PADDING),
 		viewportHeight,
 	);
-	const visibleRows = rows.slice(visibleStart, visibleEnd);
-	const connections = (key: "convergences" | "transitions") =>
-		visibleRows.flatMap((row) =>
-			row[key].map((transition) => ({
-				row: row.row,
-				fromCol: transition.fromColumn,
-				toCol: transition.toColumn,
-				color: transition.color,
-			})),
-		);
-	const segments = (key: "rails" | "truncatedEdges", prefix: string) =>
-		visibleRows.flatMap((row) =>
-			row[key].map((segment) => ({
-				...segment,
-				key: `${prefix}-${row.row}-${segment.column}`,
-				row: row.row,
-			})),
-		);
 	return {
-		convergences: connections("convergences"),
-		railSegments: segments("rails", "rail"),
-		transitions: connections("transitions"),
-		truncatedSegments: segments("truncatedEdges", "truncated"),
-		visibleEnd,
 		visibleStart,
+		visibleEnd,
+		lines: rustProject<GraphLines>("graphLines", {
+			rows: rows.slice(visibleStart, visibleEnd),
+			displayColumns,
+		}),
 	};
 }

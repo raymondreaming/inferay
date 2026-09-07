@@ -16,8 +16,8 @@ export function project<T>(operation: string, input: unknown): T {
 
 export {
 	ChatReplica,
-	ease,
 	LiquidBody,
+	LiquidGroup,
 	rounded_rect,
 } from "../../../build/presentation/presentation.js";
 

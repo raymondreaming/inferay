@@ -3,8 +3,8 @@ import { memo, useCallback } from "octane";
 import type { GitGraphRef } from "../../../../../../build/presentation/contracts/GitGraphRef.ts";
 import type { GitWorktree } from "../../../../../../build/presentation/contracts/GitWorktree.ts";
 import type { GraphNode } from "../../../../repository/hooks/useGitGraph.tsx";
-import { AuthorAvatar } from "./AuthorAvatar.tsx";
-import { MergeNode } from "./MergeNode.tsx";
+import { CommitGraphCell } from "./CommitGraphCell.tsx";
+import { CommitMessageCell } from "./CommitMessageCell.tsx";
 import { RefBadge } from "./RefBadge.tsx";
 import { RefBadges } from "./RefBadges.tsx";
 import * as inlineStyles from "./styles.ts";
@@ -255,83 +255,31 @@ export const CommitRow = memo(function CommitRow({
 						);
 					case "graph":
 						return (
-							<div
+							<CommitGraphCell
 								key={column}
-								{...stylex.props(styles.graphCell)}
-								style={inlineStyles.getCommitRowGraphCellStyle(graphWidth)}
-							>
-								{showWipRef || hasRefs || showGhostRef ? (
-									<span
-										aria-hidden="true"
-										{...stylex.props(styles.refToNodeConnector)}
-										style={inlineStyles.getCommitRowRefToNodeConnectorStyle(
-											nodeCenter,
-											commit.color,
-										)}
-									/>
-								) : null}
-								{isWip ? (
-									<span
-										aria-hidden="true"
-										{...stylex.props(styles.wipNode)}
-										style={inlineStyles.getCommitRowWipNodeStyle(
-											nodeLeft,
-											nodeTop,
-											commit.color,
-										)}
-									/>
-								) : isMergeCommit ? (
-									<MergeNode
-										color={commit.color}
-										left={nodeLeft}
-										top={nodeTop}
-									/>
-								) : (
-									<AuthorAvatar
-										name={commit.author}
-										email={commit.authorEmail}
-										githubAvatar={githubAvatar}
-										color={commit.color}
-										left={nodeLeft}
-										top={nodeTop}
-										stash={isStash}
-									/>
-								)}
-							</div>
+								commit={commit}
+								graphWidth={graphWidth}
+								hasConnector={showWipRef || hasRefs || showGhostRef}
+								nodeCenter={nodeCenter}
+								nodeLeft={nodeLeft}
+								nodeTop={nodeTop}
+								isWip={isWip}
+								isMergeCommit={isMergeCommit}
+								isStash={isStash}
+								githubAvatar={githubAvatar}
+							/>
 						);
 					case "message":
 						return (
-							<div
+							<CommitMessageCell
 								key={column}
-								{...stylex.props(styles.messageCell)}
-								style={inlineStyles.getCommitRowMessageCellStyle(
-									widths.message,
-									`1px solid ${commit.color}`,
-								)}
-							>
-								<span
-									{...stylex.props(styles.commitMessage)}
-									style={inlineStyles.getCommitRowCommitMessageStyle(
-										commit.body ? "64%" : "100%",
-									)}
-								>
-									{isWip
-										? showWipRef
-											? `// WIP ${worktreeLabel}`
-											: "// WIP"
-										: commit.message}
-								</span>
-								{!isWip && commit.body ? (
-									<span {...stylex.props(styles.commitBody)}>
-										— {commit.body.replace(/\s+/g, " ")}
-									</span>
-								) : null}
-								{isWip ? (
-									<span {...stylex.props(styles.fileCount)}>
-										{fileCount} file{fileCount === 1 ? "" : "s"}
-									</span>
-								) : null}
-							</div>
+								commit={commit}
+								width={widths.message}
+								isWip={isWip}
+								showWipRef={showWipRef}
+								worktreeLabel={worktreeLabel}
+								fileCount={fileCount}
+							/>
 						);
 					case "author":
 						return (

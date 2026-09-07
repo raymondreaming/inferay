@@ -182,3 +182,128 @@ fn diff_fingerprint(cwd: &str, file: &str) -> DiffFingerprint {
         config: file_stamp(common.join("config")),
     }
 }
+
+/// Graph preferences decorate the typed snapshot at the HTTP boundary.
+pub(super) fn graph_response(
+    snapshot: inferay_native_diff::GitGraphSnapshot,
+    hidden: &[String],
+    solo: &[String],
+    pinned: &[String],
+) -> serde_json::Value {
+    use inferay_native_diff::GitGraphRefKind;
+    use serde_json::json;
+    use std::collections::{BTreeMap, BTreeSet};
+    let commits = &snapshot.commits;
+    let refs = commits
+        .iter()
+        .flat_map(|commit| &commit.refs)
+        .map(|reference| (reference.full_name.as_str(), reference))
+        .collect::<BTreeMap<_, _>>();
+    let containing = commits
+        .iter()
+        .filter_map(|commit| {
+            Some((
+                commit.id.as_str(),
+                *refs.get(commit.navigation.containing_branch.as_deref()?)?,
+            ))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut reachable = BTreeSet::new();
+    for name in solo {
+        for [start, end] in snapshot.ancestry.get(name).into_iter().flatten() {
+            reachable.extend(
+                commits
+                    .iter()
+                    .take(end.saturating_add(1))
+                    .skip(*start)
+                    .map(|commit| &commit.id),
+            );
+        }
+    }
+    let pinned_columns = pinned
+        .iter()
+        .filter_map(|name| {
+            let target = &refs.get(name.as_str())?.target;
+            commits
+                .iter()
+                .find(|commit| &commit.hash == target || &commit.id == target)
+                .map(|commit| commit.column)
+        })
+        .collect::<Vec<_>>();
+    let presentation = json!({
+        "containingBranches": containing,
+        "defaultRemoteName": refs.values().find(|reference| reference.kind == GitGraphRefKind::RemoteBranch).and_then(|reference| reference.remote_name.as_deref()),
+        "hiddenRefDetails": hidden.iter().filter_map(|name| refs.get(name.as_str())).collect::<Vec<_>>(),
+        "hiddenRefNames": hidden,
+        "pinnedColumns": pinned_columns,
+        "pinnedRefNames": pinned,
+        "reachableHistory": reachable,
+        "selectableItems": commits.iter().map(|commit| &commit.id).collect::<Vec<_>>(),
+    });
+    let mut response = json!(snapshot);
+    response["presentation"] = presentation;
+    response["actions"] = crate::git_actions::CATALOG.clone();
+    response
+}
+
+#[cfg(test)]
+mod graph_response_tests {
+    use super::*;
+    use inferay_native_diff::*;
+    use serde_json::json;
+
+    #[test]
+    fn graph_preferences_preserve_branch_identity_reachability_and_pinned_columns() {
+        let reference: GitGraphRef =
+            serde_json::from_value(json!({"fullName":"refs/remotes/origin/main",
+            "displayName":"origin/main", "label":"main", "kind":"remoteBranch", "target":"tip",
+            "remoteName":"origin", "isHead":false}))
+            .unwrap();
+        let snapshot = GitGraphSnapshot {
+            commits: vec![
+                GraphCommit {
+                    id: "tip".into(),
+                    hash: "tip".into(),
+                    column: 2,
+                    refs: vec![reference.clone()],
+                    navigation: GraphNavigation {
+                        containing_branch: Some(reference.full_name.clone()),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                GraphCommit {
+                    id: "base".into(),
+                    hash: "base".into(),
+                    ..Default::default()
+                },
+            ],
+            rows: vec![],
+            has_more: false,
+            worktrees: vec![],
+            stashes: vec![],
+            revision: "fixture".into(),
+            ancestry: [(reference.full_name.clone(), vec![[0, 1]])].into(),
+            operation: GitRepositoryOperationState {
+                kind: GitRepositoryOperationKind::Idle,
+                phase: GitRepositoryOperationPhase::Idle,
+                conflicts: vec![],
+            },
+            state: GitRepositorySnapshotState::Ready,
+            state_error: None,
+        };
+        let refs = vec![reference.full_name.clone(), "missing".into()];
+        let response = graph_response(snapshot.clone(), &refs, &refs, &refs);
+        assert_eq!(
+            response["presentation"],
+            json!({
+                "containingBranches":{"tip":reference}, "defaultRemoteName":"origin",
+                "hiddenRefDetails":[reference], "hiddenRefNames":refs,
+                "pinnedColumns":[2], "pinnedRefNames":refs, "reachableHistory":["base","tip"],
+                "selectableItems":["tip","base"],
+            })
+        );
+        assert_eq!(response["commits"], json!(snapshot.commits));
+        assert_eq!(response["actions"], crate::git_actions::CATALOG.clone());
+    }
+}

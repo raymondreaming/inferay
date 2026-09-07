@@ -1,6 +1,10 @@
 import { useQuery } from "@octanejs/tanstack-query";
 import type { Prompt } from "../../../../build/presentation/contracts/Prompt.ts";
-import { fetchJson, sendJson } from "../../../adapters/backend/http.ts";
+import {
+	fetchJson,
+	postJson,
+	sendJson,
+} from "../../../adapters/backend/http.ts";
 import { queryClient } from "../../../shared/lib/data.ts";
 
 export function useSkills(filter = "all", search = "") {
@@ -48,4 +52,15 @@ export async function removeSkill(id: string) {
 }
 export function preloadSkills() {
 	return queryClient.prefetchQuery(skillsQuery());
+}
+
+export async function approveSkillProposal(
+	proposal: import("../../../../build/presentation/contracts/SkillProposal.ts").SkillProposal,
+) {
+	const result = await postJson<{
+		outcome: { status: "saved"; skillId: string };
+		message: string;
+	}>("/api/prompts/approve-proposal", proposal);
+	await refreshSkills();
+	return result;
 }

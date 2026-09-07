@@ -1,4 +1,5 @@
-import type { ReactElement, ShadowLayer } from "../observer.ts";
+import type { OctaneElement } from "octane/jsx-runtime";
+import type { ShadowLayer } from "../../../../../build/presentation/contracts/ShadowLayer.ts";
 
 /** Alpha-binarize matrix used before spread dilation: the goo alpha has a soft
  *  fringe past the opaque edge — dilating it directly pushes a spread ring a
@@ -14,8 +15,8 @@ export function InsetPass({
 }: {
 	i: number;
 	s: ShadowLayer;
-}): ReactElement {
-	const parts: ReactElement[] = [];
+}): OctaneElement {
+	const parts: OctaneElement[] = [];
 	// `bin` is computed once for the whole stack (see GooFilterPrimitives) —
 	// every full-region pass costs real milliseconds on WebKit's CPU
 	// rasterizer, and each pass here used to re-binarize `shape` identically.

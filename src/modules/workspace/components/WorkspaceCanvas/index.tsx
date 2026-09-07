@@ -16,8 +16,8 @@ import {
 	trackPointerResize,
 } from "../../../../shared/lib/data.ts";
 import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
-
 import { PaneView } from "../PaneView/index.tsx";
+import { DockSplit } from "./DockSplit.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
@@ -493,43 +493,16 @@ export const WorkspaceCanvas = memo(function WorkspaceCanvas(
 	): unknown => {
 		if (node.type === "split") {
 			return (
-				<div
+				<DockSplit
 					key={`${node.direction}:${node.first.type === "panel" ? node.first.id : "split"}:${node.second.type === "panel" ? node.second.id : "split"}`}
-					{...stylex.props(
-						styles.dockSplit,
-						node.direction === "horizontal"
-							? styles.dockHorizontal
-							: styles.dockVertical,
-					)}
-				>
-					<div
-						{...stylex.props(styles.dockBranch)}
-						style={inlineStyles.getWorkspaceCanvasDockBranchStyle(node.ratio)}
-					>
-						{renderDockNode(node.first, [...path, "first"])}
-					</div>
-					<button
-						type="button"
-						aria-label={`Resize ${node.direction === "horizontal" ? "columns" : "rows"}`}
-						onPointerDown={(event) =>
-							handleDividerPointerDown(event, path, node.direction)
-						}
-						{...stylex.props(
-							styles.dockDivider,
-							node.direction === "horizontal"
-								? styles.dockDividerHorizontal
-								: styles.dockDividerVertical,
-						)}
-					/>
-					<div
-						{...stylex.props(styles.dockBranch)}
-						style={inlineStyles.getWorkspaceCanvasDockBranchStyle1(
-							1 - node.ratio,
-						)}
-					>
-						{renderDockNode(node.second, [...path, "second"])}
-					</div>
-				</div>
+					direction={node.direction}
+					ratio={node.ratio}
+					first={renderDockNode(node.first, [...path, "first"])}
+					second={renderDockNode(node.second, [...path, "second"])}
+					onResize={(event) =>
+						handleDividerPointerDown(event, path, node.direction)
+					}
+				/>
 			);
 		}
 		const paneIndex = panes.findIndex((pane) => pane.id === node.id);

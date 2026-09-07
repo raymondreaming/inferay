@@ -4,16 +4,12 @@ import type { DocumentSession } from "../../../../../../build/presentation/contr
 import type { FileContent } from "../../../../../../build/presentation/contracts/FileContent.ts";
 import { fetchJson } from "../../../../../adapters/backend/http.ts";
 import { readStoredJson } from "../../../../../adapters/storage/stored-values.ts";
-import {
-	APP_REGION_DRAG_CLASS,
-	APP_REGION_NO_DRAG_CLASS,
-} from "../../../../../app/hooks/useAppAppearance.tsx";
+import { APP_REGION_DRAG_CLASS } from "../../../../../app/hooks/useAppAppearance.tsx";
 import { iconSize } from "../../../../../design-system/styles.stylex.ts";
-import { basename as fileName } from "../../../../../shared/lib/data.ts";
 import { IconCode, IconX } from "../../../../../shared/ui/Icons/index.tsx";
 import { FileSearch } from "../../../../explorer/components/FileSearch/index.tsx";
-import { FileTypeIcon } from "../../../../explorer/components/FileTypeIcon/index.tsx";
 import { WorkspaceDockHandle } from "../../../components/WorkspaceDockHandle/index.tsx";
+import { DocumentTabs } from "./DocumentTabs.tsx";
 import { SourcePreview } from "./SourcePreview.tsx";
 import { styles } from "./styles.ts";
 
@@ -221,59 +217,14 @@ export const DocumentViewer = memo(function DocumentViewer({
 					onDragStart={onDragStart}
 					onDragEnd={onDragEnd}
 				/>
-				<div
-					{...stylex.props(styles.fileTabs)}
-					className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.fileTabs).className ?? ""}`}
-				>
-					{openFiles.length > 0
-						? openFiles.map((file) => (
-								<div
-									key={file.path}
-									data-workspace-dock-drag-source={
-										onFileTabDragStart ? "true" : undefined
-									}
-									onPointerDown={(event) => startFileTabDrag(event, file)}
-									{...stylex.props(
-										styles.fileTab,
-										file.path === activePath && styles.fileTabActive,
-									)}
-								>
-									<button
-										type="button"
-										onPointerDown={(event) => {
-											if (event.button === 0 && event.isPrimary)
-												setActivePath(file.path);
-										}}
-										onClick={(event) => {
-											if (event.detail === 0) setActivePath(file.path);
-										}}
-										{...stylex.props(styles.fileTabSelect)}
-									>
-										<FileTypeIcon path={file.path} size={iconSize._2md} />
-										<span {...stylex.props(styles.fileTabName)}>
-											{fileName(file.path)}
-										</span>
-									</button>
-									<button
-										type="button"
-										aria-label={`Close ${fileName(file.path)}`}
-										onPointerDown={(event) => {
-											event.stopPropagation();
-											if (event.button === 0 && event.isPrimary)
-												closeFile(file.path);
-										}}
-										onClick={(event) => {
-											event.stopPropagation();
-											if (event.detail === 0) closeFile(file.path);
-										}}
-										{...stylex.props(styles.fileTabClose)}
-									>
-										<IconX size={iconSize.xs} />
-									</button>
-								</div>
-							))
-						: null}
-				</div>
+				<DocumentTabs
+					activePath={activePath}
+					onFileTabDragStart={Boolean(onFileTabDragStart)}
+					startFileTabDrag={startFileTabDrag}
+					setActivePath={setActivePath}
+					closeFile={closeFile}
+					openFiles={openFiles}
+				/>
 				<FileSearch cwd={cwd} onSelect={openFile} placement="panel" />
 				<button
 					type="button"

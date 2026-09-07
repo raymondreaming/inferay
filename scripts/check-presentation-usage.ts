@@ -14,7 +14,7 @@ const operations = new Set(
 	].map((match) => match[1]!),
 );
 const uses = new Map<string, string[]>();
-const requiredBindings = ["ChatReplica", "LiquidBody", "ease", "rounded_rect"];
+const requiredBindings = ["ChatReplica", "LiquidBody", "rounded_rect"];
 function files(directory: string): string[] {
 	return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
 		const path = join(directory, entry.name);

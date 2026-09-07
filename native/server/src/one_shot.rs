@@ -172,108 +172,78 @@ pub(crate) fn extract_one_shot_output(stdout: &str) -> Option<String> {
     (!text.is_empty()).then(|| text.to_owned())
 }
 
-/// Runs the lightweight "by the way" Claude prompt and emits the same
-/// `chat:btw:*` messages as the former Bun implementation.
-pub async fn run_btw_chat_message<F>(
+pub(super) async fn run_btw_chat_message(
     pane_id: &str,
     text: &str,
     cwd: &Path,
     resolver: &AgentCommandResolver,
-    mut emit: F,
-) where
-    F: FnMut(Value),
-{
-    emit(json!({
-        "type": "chat:btw:start",
-        "paneId": pane_id,
-        "question": text,
-    }));
-
+    events: tokio::sync::mpsc::UnboundedSender<Value>,
+) {
+    let _ = events.send(json!({"type":"chat:btw:start", "paneId":pane_id, "question":text}));
     let mut full_text = String::new();
-    let run_result = run_claude(cwd, text, resolver, |event| match event {
-        ClaudeText::Delta(delta) => {
-            full_text.push_str(delta);
-            emit(json!({
-                "type": "chat:btw:delta",
-                "paneId": pane_id,
-                "text": delta,
-            }));
-        }
-        ClaudeText::Result(result) if full_text.is_empty() => {
-            full_text.push_str(result);
-        }
-        ClaudeText::Result(_) => {}
-    })
-    .await;
+    let result = async {
+        let binary = resolver.resolve_agent_binary(AgentKind::Claude);
+        let mut child = crate::agent_runner::spawn_direct(
+            &[
+                binary.as_os_str(),
+                OsStr::new("-p"),
+                OsStr::new(text),
+                OsStr::new("--dangerously-skip-permissions"),
+                OsStr::new("--output-format"),
+                OsStr::new("stream-json"),
+                OsStr::new("--verbose"),
+            ],
+            cwd,
+            &resolver.create_agent_env(AgentKind::Claude),
+        )?;
 
-    match run_result {
-        Ok(output) => {
-            if full_text.is_empty() && !output.trim().is_empty() {
-                full_text = output.trim().to_string();
+        let stdout = child.stdout.take().expect("piped Claude stdout");
+        let mut stderr = child.stderr.take().expect("piped Claude stderr");
+        let stderr_task = tokio::spawn(async move {
+            let mut bytes = Vec::new();
+            stderr.read_to_end(&mut bytes).await?;
+            Ok::<_, std::io::Error>(crate::agent_runner::tail_javascript_chars(
+                &String::from_utf8_lossy(&bytes),
+                64_000,
+            ))
+        });
+
+        let mut reader = BufReader::new(stdout);
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            let read = reader.read_until(b'\n', &mut line).await?;
+            if read == 0 {
+                break;
+            }
+            if let Ok(event) = serde_json::from_slice::<Value>(&line)
+                && let Some(text) = claude_text(&event)
+            {
+                match text {
+                    ClaudeText::Delta(delta) => {
+                        full_text.push_str(delta);
+                        let _ = events
+                            .send(json!({"type":"chat:btw:delta", "paneId":pane_id, "text":delta}));
+                    }
+                    ClaudeText::Result(result) if full_text.is_empty() => {
+                        full_text.push_str(result)
+                    }
+                    ClaudeText::Result(_) => {}
+                }
             }
         }
-        Err(error) if full_text.is_empty() => full_text = error.to_string(),
-        Err(_) => {}
+
+        child.wait().await?;
+        let stderr = stderr_task.await.map_err(std::io::Error::other)??;
+        Ok::<_, std::io::Error>(stderr)
     }
-
-    emit(json!({
-        "type": "chat:btw:done",
-        "paneId": pane_id,
-        "answer": if full_text.is_empty() { "(no response)" } else { &full_text },
-    }));
-}
-
-async fn run_claude<F>(
-    cwd: &Path,
-    text: &str,
-    resolver: &AgentCommandResolver,
-    mut emit_delta: F,
-) -> std::io::Result<String>
-where
-    F: for<'a> FnMut(ClaudeText<'a>),
-{
-    let binary = resolver.resolve_agent_binary(AgentKind::Claude);
-    let mut child = crate::agent_runner::spawn_direct(
-        &[
-            binary.as_os_str(),
-            OsStr::new("-p"),
-            OsStr::new(text),
-            OsStr::new("--dangerously-skip-permissions"),
-            OsStr::new("--output-format"),
-            OsStr::new("stream-json"),
-            OsStr::new("--verbose"),
-        ],
-        cwd,
-        &resolver.create_agent_env(AgentKind::Claude),
-    )?;
-
-    let stdout = child.stdout.take().expect("piped Claude stdout");
-    let mut stderr = child.stderr.take().expect("piped Claude stderr");
-    let stderr_task = tokio::spawn(async move {
-        let mut bytes = Vec::new();
-        stderr.read_to_end(&mut bytes).await?;
-        Ok::<_, std::io::Error>(crate::agent_runner::tail_javascript_chars(
-            &String::from_utf8_lossy(&bytes),
-            64_000,
-        ))
-    });
-
-    let mut reader = BufReader::new(stdout);
-    let mut line = Vec::new();
-    loop {
-        line.clear();
-        let read = reader.read_until(b'\n', &mut line).await?;
-        if read == 0 {
-            break;
-        }
-        if let Ok(event) = serde_json::from_slice::<Value>(&line)
-            && let Some(text) = claude_text(&event)
-        {
-            emit_delta(text);
-        }
+    .await;
+    if full_text.is_empty() {
+        full_text = match result {
+            Ok(stderr) => stderr.trim().to_string(),
+            Err(error) => error.to_string(),
+        };
     }
-
-    child.wait().await?;
-    let stderr = stderr_task.await.map_err(std::io::Error::other)??;
-    Ok(stderr)
+    let _ = events.send(json!({"type":"chat:btw:done", "paneId":pane_id,
+        "answer": if full_text.is_empty() { "(no response)" } else { &full_text }}));
 }

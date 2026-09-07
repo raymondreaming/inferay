@@ -1,12 +1,12 @@
+import type { OctaneNode } from "octane";
 import { GooeyRoot } from "../Gooey/index.tsx";
 import { LiquidItem } from "../LiquidItem/index.tsx";
-import type { ReactNode } from "../observer.ts";
 import * as inlineStyles from "./styles.ts";
 export function LiquidPanelSurface({
 	children,
 	fill,
 }: {
-	children?: ReactNode;
+	children?: OctaneNode;
 	fill: string;
 }) {
 	return (

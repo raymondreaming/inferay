@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "octane";
+import { type OctaneNode, useEffect, useMemo, useRef, useState } from "octane";
 import type React from "react";
 import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import { getAgentDefinition } from "../../../../adapters/backend/http.ts";
 import { hasId } from "../../../../shared/lib/data.ts";
-import type { ReactNode } from "../../../../shared/ui/gooey/observer.ts";
 import { getAgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
 import type { useAgentChatComposerState } from "../../hooks/useAgentChatComposerState.tsx";
 import type { useAgentChatMenus } from "../../hooks/useAgentChatMenus.tsx";
@@ -36,7 +35,7 @@ export function useChatComposerState(
 				isSupported: boolean;
 				onToggleListening: () => void;
 			};
-			workspaceControl?: ReactNode;
+			workspaceControl?: OctaneNode;
 			beamActive?: boolean;
 		},
 ) {

@@ -156,26 +156,6 @@ pub struct GitCheckoutResult {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
-pub struct GitCheckoutPreflight {
-    pub branch: String,
-    pub branch_exists: bool,
-    pub already_current: bool,
-    pub clean_worktree: bool,
-    pub conflicts: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub checked_out_worktree: Option<String>,
-    pub can_checkout: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub error_kind: Option<GitOperationErrorKind>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub reason: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase")]
 pub struct GitOperationResult {
     pub ok: bool,
     pub operation: String,
@@ -494,5 +474,91 @@ impl GitFileGroups {
             group.push(file.clone());
         }
         groups
+    }
+}
+
+#[derive(Default)]
+struct Node {
+    children: BTreeMap<String, Node>,
+    file: bool,
+}
+
+impl GitFilePresentation {
+    pub fn from_paths(mut paths: Vec<String>) -> Self {
+        paths.sort();
+        paths.dedup();
+        let mut root = Node::default();
+        for path in &paths {
+            let mut node = &mut root;
+            // Bound wire/render depth while keeping deep tails as a single leaf.
+            for part in path.splitn(32, '/') {
+                node = node.children.entry(part.into()).or_default();
+            }
+            node.file = true;
+        }
+        let mut tree_order = Vec::new();
+        let tree = children(&root, "", &mut tree_order);
+        Self {
+            path_order: paths,
+            tree_order,
+            tree,
+        }
+    }
+}
+
+fn children(node: &Node, parent: &str, order: &mut Vec<String>) -> Vec<GitFileTreeNode> {
+    node.children
+        .iter()
+        .map(|(name, child)| {
+            let path = if parent.is_empty() {
+                name.clone()
+            } else {
+                format!("{parent}/{name}")
+            };
+            let start = order.len();
+            let descendants = if child.file {
+                order.push(path.clone());
+                Vec::new()
+            } else {
+                children(child, &path, order)
+            };
+            GitFileTreeNode {
+                name: name.clone(),
+                path,
+                children: descendants,
+                file_range: [start, order.len()],
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod file_presentation_tests {
+    use super::*;
+
+    #[test]
+    fn file_order_deduplicates_and_preserves_tree_ranges_and_depth_limit() {
+        let paths = ["a.z", "a/file", "b", "a/file", "b/hidden-by-file", "z/last"];
+        let presentation = GitFilePresentation::from_paths(paths.map(str::to_owned).to_vec());
+        assert_eq!(
+            presentation.path_order,
+            ["a.z", "a/file", "b", "b/hidden-by-file", "z/last"]
+        );
+        assert_eq!(presentation.tree_order, ["a/file", "a.z", "b", "z/last"]);
+        assert_eq!(presentation.tree[0].name, "a");
+        assert_eq!(presentation.tree[0].file_range, [0, 1]);
+        assert_eq!(presentation.tree[0].children[0].path, "a/file");
+        assert!(presentation.tree[2].children.is_empty());
+        let deep = (0..40).map(|i| i.to_string()).collect::<Vec<_>>().join("/");
+        let presentation = GitFilePresentation::from_paths(vec![deep.clone()]);
+        assert_eq!(presentation.tree_order, [deep]);
+        let mut node = &presentation.tree[0];
+        let mut depth = 1;
+        while let Some(child) = node.children.first() {
+            node = child;
+            depth += 1;
+        }
+        assert_eq!(depth, 32);
+        assert!(node.name.contains('/'));
     }
 }

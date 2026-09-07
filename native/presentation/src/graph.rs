@@ -123,3 +123,149 @@ pub fn path(i: &Value) -> Value {
         ))
     }
 }
+
+#[derive(serde::Serialize, ts_rs::TS)]
+pub struct GraphLine {
+    key: String,
+    row: f64,
+    column: f64,
+    x: f64,
+    top: f64,
+    bottom: f64,
+    color: String,
+}
+#[derive(serde::Serialize, ts_rs::TS)]
+pub struct GraphCurve {
+    key: String,
+    path: String,
+    color: String,
+}
+#[derive(serde::Serialize, ts_rs::TS)]
+pub struct GraphLines {
+    rails: Vec<GraphLine>,
+    transitions: Vec<GraphCurve>,
+    convergences: Vec<GraphCurve>,
+    truncated: Vec<GraphLine>,
+}
+pub fn lines(i: &Value) -> GraphLines {
+    let display = |column: &Value| {
+        i["displayColumns"]
+            .get(number(column) as usize)
+            .map(number)
+            .unwrap_or_else(|| number(column))
+    };
+    let segments = |field: &str, prefix: &str| {
+        array(&i["rows"])
+            .iter()
+            .flat_map(|row| {
+                array(&row[field])
+                    .iter()
+                    .map(|segment| {
+                        let y = number(&row["row"]) * 23.;
+                        GraphLine {
+                            key: format!("{prefix}-{}-{}", row["row"], segment["column"]),
+                            row: number(&row["row"]),
+                            column: number(&segment["column"]),
+                            x: 27. + display(&segment["column"]) * 18.,
+                            top: y + if field == "truncatedEdges" {
+                                8.
+                            } else if flag(&segment["startsAtNode"]) {
+                                11.5
+                            } else {
+                                0.
+                            },
+                            bottom: y
+                                + if field != "truncatedEdges" && flag(&segment["endsAtNode"]) {
+                                    11.5
+                                } else {
+                                    23.
+                                },
+                            color: string(&segment["color"]).into(),
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    };
+    let curves = |field: &str, convergence: bool| {
+        array(&i["rows"])
+            .iter()
+            .flat_map(|row| {
+                array(&row[field])
+                    .iter()
+                    .map(|curve| GraphCurve {
+                        key: format!(
+                            "{}{}:{}:{}:{}",
+                            if convergence { "convergence:" } else { "" },
+                            row["row"],
+                            curve["fromColumn"],
+                            curve["toColumn"],
+                            string(&curve["color"])
+                        ),
+                        path: string(&path(
+                            &json!({"row":row["row"], "fromCol":display(&curve["fromColumn"]),
+                "toCol":display(&curve["toColumn"]), "convergence":convergence}),
+                        ))
+                        .into(),
+                        color: string(&curve["color"]).into(),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    };
+    GraphLines {
+        rails: segments("rails", "rail"),
+        truncated: segments("truncatedEdges", "truncated"),
+        transitions: curves("transitions", false),
+        convergences: curves("convergences", true),
+    }
+}
+
+#[cfg(test)]
+mod line_tests {
+    use super::*;
+
+    #[test]
+    fn visible_lines_keep_pinned_columns_node_endpoints_and_curve_identity() {
+        let result = lines(&json!({
+            "displayColumns":[1,0],
+            "rows":[{
+                "row":2,
+                "rails":[
+                    {"column":0,"color":"red","startsAtNode":true},
+                    {"column":1,"color":"blue","endsAtNode":true}
+                ],
+                "truncatedEdges":[{"column":0,"color":"red"}],
+                "transitions":[{"fromColumn":0,"toColumn":1,"color":"red"}],
+                "convergences":[{"fromColumn":1,"toColumn":0,"color":"blue"}]
+            }]
+        }));
+        let value = serde_json::to_value(result).unwrap();
+        assert_eq!(
+            value["rails"][0],
+            json!({"key":"rail-2-0", "row":2.0,"column":0.0,"x":45.0,"top":57.5,"bottom":69.0,"color":"red"})
+        );
+        assert_eq!(value["rails"][1]["top"], 46.0);
+        assert_eq!(value["rails"][1]["bottom"], 57.5);
+        assert_eq!(value["truncated"][0]["top"], 54.0);
+        assert_eq!(value["truncated"][0]["bottom"], 69.0);
+        assert_eq!(value["transitions"][0]["key"], "2:0:1:red");
+        assert_eq!(
+            value["transitions"][0]["path"],
+            "M 27 80.5 L 27 66.5 A 9 9 0 0 1 36 57.5 L 45 57.5"
+        );
+        assert_eq!(value["convergences"][0]["key"], "convergence:2:1:0:blue");
+        assert_eq!(
+            value["convergences"][0]["path"],
+            "M 27 46 L 27 48.5 A 9 9 0 0 0 36 57.5 L 45 57.5"
+        );
+        let empty = serde_json::to_value(lines(&json!({"rows":[]}))).unwrap();
+        assert!(
+            empty
+                .as_object()
+                .unwrap()
+                .values()
+                .all(|items| items.as_array().unwrap().is_empty())
+        );
+    }
+}

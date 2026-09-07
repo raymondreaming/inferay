@@ -1,14 +1,13 @@
 import { createPortal, useRef, useState } from "octane";
-import type { CSSProperties, Internal } from "../observer.ts";
+import type { CSSProperties } from "react";
+import { rounded_rect } from "../../../../adapters/presentation/model.ts";
+import { useIsoLayoutEffect } from "../Gooey/index.tsx";
 import {
-	type BlobBox,
 	type CornerRadii,
 	measureRadius,
 	normalizeRadius,
-	offsetTo,
-	roundedRectPath,
-	useIsoLayoutEffect,
 } from "../observer.ts";
+import type { Internal } from "./index.tsx";
 import * as inlineStyles from "./styles.ts";
 
 function sameBox(a: BlobBox | null, b: BlobBox): boolean {
@@ -97,8 +96,37 @@ function renderBlob(box: BlobBox, style: CSSProperties) {
 	}
 	return (
 		<path
-			d={roundedRectPath(box.x, box.y, box.w, box.h, box.r)}
+			d={rounded_rect(box.x, box.y, box.w, box.h, ...box.r)}
 			style={style}
 		/>
 	);
+}
+
+interface BlobBox {
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+	r: CornerRadii;
+}
+
+/** Transform-free position of `el` relative to `ancestor` via the offsetParent
+ *  chain — the blob mirrors motion separately, so its base box must ignore the
+ *  transform currently applied to the wrapper. */
+function offsetTo(
+	el: HTMLElement,
+	ancestor: HTMLElement,
+): { x: number; y: number } {
+	let x = 0;
+	let y = 0;
+	let node: HTMLElement | null = el;
+	while (node && node !== ancestor && ancestor.contains(node)) {
+		x += node.offsetLeft;
+		y += node.offsetTop;
+		node = node.offsetParent as HTMLElement | null;
+	}
+	return {
+		x,
+		y,
+	};
 }

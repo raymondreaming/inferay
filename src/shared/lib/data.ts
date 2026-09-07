@@ -8,17 +8,6 @@ export function hasId(id: unknown, item: { id: string }): boolean {
 export function basename(value: string): string {
 	return value.split("/").pop() || value;
 }
-export function formatElapsedMs(ms: number): string {
-	const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-	const minutes = Math.floor(totalSeconds / 60);
-	const seconds = totalSeconds % 60;
-	if (minutes < 1) return `${seconds}s`;
-	const hours = Math.floor(minutes / 60);
-	if (hours < 1) return `${minutes}m ${seconds}s`;
-	return `${hours}h ${minutes % 60}m`;
-}
-/** Prepared native Markdown wire model. Parsing belongs to the Rust server. */
-
 let activeLocks = 0;
 const preventSelection = (event: Event) => event.preventDefault();
 let restorePointerSelection = () => {};
@@ -109,31 +98,6 @@ export function setInputValue(
 ): void {
 	setValue(event.currentTarget.value);
 }
-export interface DotMatrixLoaderProps {
-	dotSize?: number;
-	gap?: number;
-	speed?: number;
-	ariaLabel?: string;
-}
-export interface DropdownOption {
-	id: string;
-	label: string;
-	detail?: string;
-	status?: string;
-	icon?: unknown;
-}
-export type DropdownOptionRenderer =
-	| ((props: { option: DropdownOption; isSelected: boolean }) => unknown)
-	| ((option: DropdownOption, isSelected: boolean) => unknown);
-export function selectDropdownOption(
-	onChange: (id: string) => void,
-	setOpen: (v: boolean) => void,
-	id: string,
-) {
-	onChange(id);
-	setOpen(false);
-}
-
 export function dispatchWindowEvent<T>(name: string, detail: T): void {
 	window.dispatchEvent(new CustomEvent<T>(name, { detail }));
 }
