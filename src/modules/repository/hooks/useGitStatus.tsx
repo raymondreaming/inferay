@@ -32,18 +32,12 @@ export function useGitStatus(
 		const _cwdKeyValue = cwdKey();
 		return _cwdKeyValue ? _cwdKeyValue.split("\u0000") : [];
 	});
-	const fetcher = (signal?: AbortSignal) =>
-		postJson<GitStatusResult[]>(
-			"/api/git/statuses",
-			{
-				cwds: requestedCwds(),
-			},
-			{
-				signal,
-			},
-		);
 	const _source = usePollingQuery(
-		() => fetcher,
+		() => {
+			const cwds = requestedCwds();
+			return (signal) =>
+				postJson<GitStatusResult[]>("/api/git/statuses", { cwds }, { signal });
+		},
 		() => 5000,
 		() => EMPTY_GIT_PROJECTS,
 		() => ({

@@ -40,10 +40,15 @@ export function useGitGraph(
 			query,
 		});
 	const readGraph = createMemo(createGitGraphReader);
-	const fetchGraph = (signal?: AbortSignal) =>
-		readGraph()(_cwd(), _limit(), searchQuery(), _preferences(), signal);
 	const _source3 = usePollingQuery<GraphData>(
-		() => fetchGraph,
+		() => {
+			const read = readGraph();
+			const cwd = _cwd(),
+				limit = _limit(),
+				search = searchQuery();
+			const preferences = { ..._preferences() };
+			return (signal) => read(cwd, limit, search, preferences, signal);
+		},
 		() => 3000,
 		() => EMPTY_GRAPH,
 		() => {
@@ -105,10 +110,15 @@ export function useCommitDetails(
 	_parent: Accessor<string | undefined> = () => undefined,
 	_repositoryRevision: Accessor<string | undefined> = () => undefined,
 ) {
-	const request = (signal?: AbortSignal) =>
-		fetchCommitDetails(_cwd2(), _hash(), _parent(), signal);
+	const request = () => {
+		const cwd = _cwd2(),
+			hash = _hash(),
+			parent = _parent();
+		return (signal?: AbortSignal) =>
+			fetchCommitDetails(cwd, hash, parent, signal);
+	};
 	const _source2 = useQueryResource<GitCommitDetails | null>(
-		() => request,
+		request,
 		() => null,
 		() => ({
 			queryKey: [
@@ -155,19 +165,19 @@ export function useComparisonDetails(
 		const _selectionValue = _selection();
 		return _selectionValue ? JSON.stringify(_selectionValue) : undefined;
 	});
-	const fetchComparison = (signal?: AbortSignal) =>
-		fetchComparisonDetails(
-			_cwd3(),
-			_fromHash(),
-			_toHash(),
-			selectionKey(),
-			signal,
-		);
+	const fetchComparison = () => {
+		const cwd = _cwd3(),
+			fromHash = _fromHash(),
+			toHash = _toHash(),
+			selection = selectionKey();
+		return (signal?: AbortSignal) =>
+			fetchComparisonDetails(cwd, fromHash, toHash, selection, signal);
+	};
 	const _source = useQueryResource<{
 		details: GitComparisonDetails | null;
 		plan: ComparisonPlan | null;
 	} | null>(
-		() => fetchComparison,
+		fetchComparison,
 		() => null,
 		() => ({
 			queryKey: [

@@ -1,11 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import {
-	createEffect,
-	createMemo,
-	createSignal,
-	For,
-	onSettled,
-} from "solid-js";
+import { createMemo, createSignal, For, onSettled } from "solid-js";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
 import { setInputValue } from "../../../../shared/lib/dom.tsx";
@@ -52,8 +46,10 @@ export function InlineDirectoryPicker(_props: InlineDirectoryPickerProps) {
 			queryKey: ["agent", "directories", "quick"],
 		}),
 	);
-	const fetchSearchResults = async () => {
-		const _deferredQueryValue = deferredQuery();
+	const fetchSearchResults = async (
+		_deferredQueryValue: string,
+		signal?: AbortSignal,
+	) => {
 		if (!_deferredQueryValue) return [];
 		const data = await fetchJsonOr<{
 			directories?: Array<{
@@ -63,6 +59,7 @@ export function InlineDirectoryPicker(_props: InlineDirectoryPickerProps) {
 		}>(
 			`/api/agent/directories?q=${encodeURIComponent(_deferredQueryValue)}`,
 			{},
+			{ signal },
 		);
 		return (data.directories ?? []).map((directory) => ({
 			...directory,
@@ -70,7 +67,10 @@ export function InlineDirectoryPicker(_props: InlineDirectoryPickerProps) {
 		}));
 	};
 	const _source2 = useQueryResource<QuickPick[]>(
-		() => fetchSearchResults,
+		() => {
+			const query = deferredQuery();
+			return (signal) => fetchSearchResults(query, signal);
+		},
 		() => [],
 		() => ({
 			queryKey: ["agent", "directories", "search", deferredQuery()],

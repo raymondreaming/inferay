@@ -18,11 +18,12 @@ export function useQueryResource<T>(
 	const query = useBackgroundQuery(
 		() => {
 			const _optionsValue = _options();
+			const fetcher = _fetcher();
+			const initialData = _initialData();
 			return {
 				..._optionsValue,
-				queryFn: async ({ signal }) =>
-					(await _fetcher()(signal)) ?? _initialData(),
-				initialData: _initialData(),
+				queryFn: async ({ signal }) => (await fetcher(signal)) ?? initialData,
+				initialData,
 				// Initial data is a render-safe placeholder, not a completed request.
 				// Mark it stale so queries with a positive staleTime still fetch once.
 				initialDataUpdatedAt: 0,

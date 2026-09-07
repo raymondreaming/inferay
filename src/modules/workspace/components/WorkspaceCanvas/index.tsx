@@ -5,9 +5,9 @@ import type { Pane } from "../../../../../build/presentation/contracts/Pane.ts";
 import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import {
 	captureEvent,
+	createPointerResize,
 	domStyle,
 	lockPointerSelection,
-	trackPointerResize,
 } from "../../../../shared/lib/dom.tsx";
 import { postJson } from "../../../../shared/lib/native.tsx";
 import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
@@ -25,6 +25,7 @@ export function dropEdgeStyle(edge: DockEdge | null) {
 export const WorkspaceCanvas = function WorkspaceCanvas(
 	props: WorkspaceCanvasProps,
 ) {
+	const trackResize = createPointerResize();
 	const containerRef = {
 		current: null,
 	} as {
@@ -390,7 +391,7 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 				};
 			});
 		};
-		trackPointerResize(pointerId, resize, () => {
+		trackResize(pointerId, resize, () => {
 			if (finalRatio !== undefined)
 				void updateDock({
 					type: "resize",

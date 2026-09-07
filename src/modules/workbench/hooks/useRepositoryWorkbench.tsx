@@ -29,12 +29,12 @@ const EMPTY_FILE_GROUPS = {
 
 import type { FileContent } from "../../../../build/presentation/contracts/FileContent.ts";
 import {
+	createPointerResize,
 	DOCUMENT_OPEN_EVENT,
 	type DocumentOpenDetail,
 	listenWindowEvent,
 	OPEN_ACTIVE_GIT_GRAPH_EVENT,
 	TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT,
-	trackPointerResize,
 } from "../../../shared/lib/dom.tsx";
 import {
 	adjacentGitFile,
@@ -71,7 +71,6 @@ import { DocumentViewer } from "../documents/components/DocumentViewer/index.tsx
 import type { GraphSelectionIntent } from "../graph/components/CommitGraph/index.tsx";
 import {
 	DEFAULT_GIT_GRAPH_HISTORY_LIMIT,
-	type GraphPreferences,
 	loadPreferences,
 	nextGitGraphHistoryLimit,
 } from "../graph/components/CommitGraph/useCommitGraphState.tsx";
@@ -144,6 +143,7 @@ export function useRepositoryWorkbench(
 		setDiffViewModeState(mode);
 		writeStoredValue(DIFF_VIEW_MODE_KEY, mode);
 	};
+	const trackResize = createPointerResize();
 	const toggleZenMode = () => setZenMode((current) => !current);
 	createEffect(
 		() => [_options().active, zenMode()],
@@ -229,16 +229,16 @@ export function useRepositoryWorkbench(
 		current: new Map<string, string>(),
 	};
 	createEffect(
-		() => [graphCwd(), graph.revision],
-		() => {
-			if (graphCwd() && graph.revision) {
-				graphRevisionsRef.current.set(graphCwd() ?? "", graph.revision);
+		() => [graphCwd(), graph.revision] as const,
+		([cwd, revision]) => {
+			if (cwd && revision) {
+				graphRevisionsRef.current.set(cwd, revision);
 			}
 		},
 	);
 	const selectedGraphCache = {
 		current: {
-			cwd: graphCwd(),
+			cwd: undefined,
 			items: new Map(),
 		},
 	} as {
@@ -916,7 +916,7 @@ export function useRepositoryWorkbench(
 		try {
 			event.currentTarget.setPointerCapture(event.pointerId);
 		} catch {}
-		trackPointerResize(
+		trackResize(
 			event.pointerId,
 			(moveEvent) => {
 				moveEvent.preventDefault();

@@ -12,7 +12,7 @@ import type { GraphCommit } from "../../../../../../build/presentation/contracts
 import type { GraphLines } from "../../../../../../build/presentation/contracts/GraphLines.ts";
 import type { GraphRow } from "../../../../../../build/presentation/contracts/GraphRow.ts";
 import { runtimeGitGraphLaneColors } from "../../../../../design-system/styles.stylex.ts";
-import { trackPointerResize } from "../../../../../shared/lib/dom.tsx";
+import { createPointerResize } from "../../../../../shared/lib/dom.tsx";
 import {
 	postJson,
 	readStoredJson,
@@ -22,6 +22,7 @@ import {
 import type { GraphPresentation } from "../../../../repository/hooks/useGitGraph.tsx";
 import { getGraphLineLayerStyle } from "./styles.ts";
 export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
+	const trackResize = createPointerResize();
 	const _source = createMemo(() => _props());
 	const preferences = createMemo(() => _props().preferences);
 	const setPreferences = createMemo(() => _props().onPreferencesChange);
@@ -447,7 +448,7 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 				),
 			}));
 		};
-		trackPointerResize(event.pointerId, move);
+		trackResize(event.pointerId, move);
 	};
 	return merge(
 		() => {

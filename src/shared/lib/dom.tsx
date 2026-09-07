@@ -107,17 +107,20 @@ export function captureEvent<K extends keyof HTMLElementEventMap>(
 	};
 }
 
-import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js";
+import { type Accessor, createEffect, createSignal, untrack } from "solid-js";
 
 /** Connect a durable native-backed store to the current Solid owner. */
 export function createExternalSignal<T>(
 	subscribe: (notify: () => void) => () => unknown,
 	snapshot: () => T,
 ): Accessor<T> {
-	const [value, setValue] = createSignal<T>(() => snapshot());
-	const unsubscribe = subscribe(() => setValue(() => snapshot()));
-	onCleanup(unsubscribe);
-	setValue(() => snapshot());
+	const [value, setValue] = createSignal<T>(() => untrack(snapshot));
+	onSettled(() => {
+		const unsubscribe = subscribe(() => setValue(() => snapshot()));
+		// Catch changes between the initial snapshot and subscription setup.
+		setValue(() => snapshot());
+		return unsubscribe;
+	});
 	return value;
 }
 export function createReducer<S, A>(
@@ -188,6 +191,16 @@ export function lockPointerSelection(): () => void {
 		}
 	};
 }
+/** Create during component setup so a disappearing pane cancels its drag. */
+export function createPointerResize() {
+	let cancel = noop;
+	onSettled(() => () => cancel());
+	return (...args: Parameters<typeof trackPointerResize>) => {
+		cancel();
+		cancel = trackPointerResize(...args);
+		return cancel;
+	};
+}
 export function trackPointerResize(
 	pointerId: number,
 	onMove: (event: PointerEvent) => void,
@@ -197,17 +210,25 @@ export function trackPointerResize(
 	const move = (event: PointerEvent) => {
 		if (event.pointerId === pointerId) onMove(event);
 	};
-	const end = (event: PointerEvent) => {
-		if (event.pointerId !== pointerId) return;
+	let disposed = false;
+	const cancel = () => {
+		if (disposed) return;
+		disposed = true;
 		for (const stop of cleanup) stop();
 		release();
+	};
+	const end = (event: PointerEvent) => {
+		if (event.pointerId !== pointerId) return;
+		cancel();
 		onEnd();
 	};
 	const cleanup = [
 		listenWindowEvent("pointermove", move),
 		listenWindowEvent("pointerup", end),
 		listenWindowEvent("pointercancel", end),
+		listenWindowEvent("blur", cancel),
 	];
+	return cancel;
 }
 
 import { QueryClient } from "@tanstack/solid-query";

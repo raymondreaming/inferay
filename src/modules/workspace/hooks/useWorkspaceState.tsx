@@ -257,9 +257,9 @@ export function useWorkspaceState(
 			s?.selectedGroupId ?? (_selectFirst() ? s?.groups[0]?.id : null) ?? null,
 	});
 	createEffect(
-		() => [_loadCanonical(), _selectFirst()],
-		() => {
-			if (_loadCanonical()) void loadCanonicalAgentState();
+		() => [_loadCanonical(), _selectFirst()] as const,
+		([load]) => {
+			if (load) void loadCanonicalAgentState();
 		},
 	);
 	const state = createMemo<SidebarWorkspaceState>(() =>
