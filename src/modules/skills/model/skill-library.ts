@@ -1,17 +1,21 @@
+import type { AgentContextLayer as NativeContextLayer } from "../../../../build/presentation/contracts/AgentContextLayer.ts";
+import type { EffectiveAgentContext as NativeEffectiveContext } from "../../../../build/presentation/contracts/EffectiveAgentContext.ts";
+import type { Prompt as NativeSkill } from "../../../../build/presentation/contracts/Prompt.ts";
 import { fetchJson, sendJson } from "../../../adapters/backend/http.ts";
+import { project as rustProject } from "../../../adapters/presentation/model.ts";
 import { dispatchWindowEvent, queryClient } from "../../../shared/lib/data.ts";
 export type AgentContextMode = "inherit" | "replace";
-interface AgentContextLayer {
-	instructions: string;
+type AgentContextLayer = Omit<NativeContextLayer, "mode"> & {
 	mode: AgentContextMode;
-	updatedAt: number;
-}
-export interface EffectiveAgentContext {
+};
+export type EffectiveAgentContext = Omit<
+	NativeEffectiveContext,
+	"global" | "project" | "chat"
+> & {
 	global: AgentContextLayer;
 	project: AgentContextLayer | null;
 	chat: AgentContextLayer | null;
-	effectiveInstructions: string;
-}
+};
 export interface AgentContextUpdate {
 	scope: "global" | "project" | "chat";
 	cwd?: string;
@@ -66,16 +70,7 @@ export interface SkillRead {
 	promptTemplate: string;
 	isBuiltIn: boolean;
 }
-export interface Skill {
-	_id: string;
-	name: string;
-	description: string;
-	command: string;
-	promptTemplate: string;
-	isBuiltIn: boolean;
-	createdAt: number;
-	updatedAt: number;
-}
+export type Skill = NativeSkill;
 export interface SkillFormState {
 	name: string;
 	command: string;
@@ -98,54 +93,22 @@ export const INITIAL_SKILL_FORM: SkillFormState = {
 };
 
 export function skillFormForEdit(skill: Skill): Partial<SkillFormState> {
-	return {
-		isEditing: true,
-		name: skill.name,
-		command: skill.command,
-		description: skill.description,
-		promptTemplate: skill.promptTemplate,
-		error: "",
-	};
+	return rustProject("skillEdit", skill);
 }
 export function skillFormForDuplicate(skill: Skill): SkillFormState {
-	return {
-		...INITIAL_SKILL_FORM,
-		isCreating: true,
-		name: `${skill.name} copy`,
-		command: `${skill.command}-custom`,
-		description: skill.description,
-		promptTemplate: skill.promptTemplate,
-	};
+	return rustProject("skillDuplicate", skill);
 }
-export function initializeSkillDialog(target: SkillsTarget, skills: Skill[]) {
-	if (target.mode === "create")
-		return {
-			selectedId: null,
-			form: { ...INITIAL_SKILL_FORM, isCreating: true },
-		};
-	if (target.mode === "browse")
-		return { selectedId: skills[0]?._id ?? null, form: INITIAL_SKILL_FORM };
-	const skill = skills.find((item) => item._id === target.skillId);
-	return skill
-		? {
-				selectedId: skill._id,
-				form: skill.isBuiltIn ? INITIAL_SKILL_FORM : skillFormForEdit(skill),
-			}
-		: {
-				selectedId: null,
-				form: {
-					...INITIAL_SKILL_FORM,
-					error: "This skill is no longer available.",
-				},
-			};
+export function initializeSkillDialog(
+	target: SkillsTarget,
+	skills: Skill[],
+): { selectedId: string | null; form: Partial<SkillFormState> } {
+	return rustProject("skillDialog", { target, skills });
 }
-export function isSkillFormDirty(form: SkillFormState, original: Skill | null) {
-	return (
-		(form.isCreating || form.isEditing) &&
-		(["name", "command", "description", "promptTemplate"] as const).some(
-			(field) => form[field] !== (original?.[field] ?? ""),
-		)
-	);
+export function isSkillFormDirty(
+	form: SkillFormState,
+	original: Skill | null,
+): boolean {
+	return rustProject("skillDirty", { form, original });
 }
 export async function saveSkillForm(
 	form: SkillFormState,

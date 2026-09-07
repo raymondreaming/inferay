@@ -6,6 +6,7 @@ import {
 	useSyncExternalStore,
 } from "octane";
 import { postJson } from "../../../adapters/backend/http.ts";
+import { project as rustProject } from "../../../adapters/presentation/model.ts";
 import {
 	CLIENT_STORAGE_CHANGED_EVENT,
 	readStoredBoolean,
@@ -160,36 +161,12 @@ let read: Promise<AgentSavedState | null> | null = null;
 let selectionRequest = 0;
 let pendingSelection: { id: number; groupId: string; paneId?: string } | null =
 	null;
-function selected(state: AgentSavedState, groupId: string, paneId?: string) {
-	const groups = paneId
-		? state.groups.map((group) =>
-				group.id === groupId
-					? { ...group, selectedPaneId: paneId as PaneId }
-					: group,
-			)
-		: state.groups;
-	const group = groups.find((group) => group.id === groupId);
-	const pane =
-		group?.panes.find((pane) => pane.id === group.selectedPaneId) ??
-		group?.panes[0];
-	const raw = pane?.cwd?.trim(),
-		activePath = raw === "/" ? raw : (raw?.replace(/[\\/]+$/, "") ?? null);
-	const activeWorkspace =
-		state.repositories.workspaces.find(
-			(workspace) => workspace.cwd === activePath,
-		) ?? null;
-	return {
-		...state,
-		groups,
-		selectedGroupId: groupId as GroupId,
-		repositories: {
-			...state.repositories,
-			activePath,
-			activeWorkspace,
-			visibleEntries:
-				activeWorkspace?.entries ?? state.repositories.unassignedEntries,
-		},
-	};
+function selected(
+	state: AgentSavedState,
+	groupId: string,
+	paneId?: string,
+): AgentSavedState {
+	return rustProject("workspaceSelection", { state, groupId, paneId });
 }
 export const dispatchRemoveAgentPaneRequest = (paneId: string) =>
 	dispatchWindowEvent<RemoveAgentPaneRequestDetail>(

@@ -1,3 +1,13 @@
+import type { DetachedFilePanel as NativeDetachedFilePanel } from "../../../../build/presentation/contracts/DetachedFilePanel.ts";
+import type { DiffSource as NativeDiffSource } from "../../../../build/presentation/contracts/DiffSource.ts";
+import type { DocumentSession as NativeDocumentSession } from "../../../../build/presentation/contracts/DocumentSession.ts";
+import type { FileContent as NativeFileContent } from "../../../../build/presentation/contracts/FileContent.ts";
+import type { GitOperationErrorKind as NativeErrorKind } from "../../../../build/presentation/contracts/GitOperationErrorKind.ts";
+import type { GitOperationOutcome as NativeOutcome } from "../../../../build/presentation/contracts/GitOperationOutcome.ts";
+import type { GitRefOperationPreflight as NativeRefPreflight } from "../../../../build/presentation/contracts/GitRefOperationPreflight.ts";
+import type { PanelAction as NativePanelAction } from "../../../../build/presentation/contracts/PanelAction.ts";
+import type { PanelSession as NativePanelSession } from "../../../../build/presentation/contracts/PanelSession.ts";
+import { project as rustProject } from "../../../adapters/presentation/model.ts";
 import type {
 	CommitDetails,
 	CommitFile,
@@ -50,41 +60,28 @@ export function adjacentGitFile<T>(
 	direction: -1 | 1,
 	repeatBoundary = false,
 ): T | undefined {
-	const current = files.findIndex(isSelected);
-	const next =
-		current < 0
-			? direction > 0
-				? 0
-				: files.length - 1
-			: Math.max(0, Math.min(files.length - 1, current + direction));
-	return repeatBoundary || next !== current ? files[next] : undefined;
+	return (
+		rustProject<T | null>("adjacentFile", {
+			files,
+			current: files.findIndex(isSelected),
+			direction,
+			repeatBoundary,
+		}) ?? undefined
+	);
 }
 export function visibleGitFiles<T extends { path: string }>(
 	files: readonly T[],
 	presentation: GitFilePresentation | undefined,
 	mode: "path" | "tree",
 ): T[] {
-	if (!presentation) return [...files];
-	const current = new Map(files.map((file) => [file.path, file]));
-	return (
-		mode === "tree" ? presentation.treeOrder : presentation.pathOrder
-	).flatMap((path) => {
-		const file = current.get(path);
-		return file ? [file] : [];
-	});
+	return rustProject("visibleFiles", { files, presentation, mode });
 }
 
 export function getFileSelectionAfterToggle<T extends SelectedFile>(
 	files: readonly T[],
 	selected: SelectedFile,
 ): T | null {
-	const section = files.filter((file) => file.staged === selected.staged);
-	const index = section.findIndex((file) => file.path === selected.path);
-	const current = section[index];
-	return current
-		? (section[index + 1] ??
-				section[index - 1] ?? { ...current, staged: !current.staged })
-		: null;
+	return rustProject("selectionAfterToggle", { files, selected });
 }
 
 export function buildChangesPanelModel({
@@ -115,70 +112,35 @@ export function buildChangesPanelModel({
 	commitDetailsError?: string | null;
 	comparisonDetailsLoading: boolean;
 	comparisonDetails: ComparisonDetails | null;
-}) {
-	const unstagedFiles = visibleGitFiles(
-		[...modified, ...untracked],
-		filePresentation,
-		"path",
-	);
-	const stagedFiles = visibleGitFiles(staged, filePresentation, "path");
-	const workingFiles = [...unstagedFiles, ...stagedFiles];
-	const navigableFiles =
-		fileViewMode === "tree"
-			? [
-					...visibleGitFiles(unstagedFiles, filePresentation, "tree"),
-					...visibleGitFiles(stagedFiles, filePresentation, "tree"),
-				]
-			: workingFiles;
-	const showingWorkingTree = content === "workingTree";
-	const comparing = selectedCommitCount > 1;
-	const historyDetails = comparing
-		? comparisonDetails
-		: selectedCommitHash
-			? commitDetails
-			: null;
-	const historyLoading = comparing
-		? comparisonDetailsLoading
-		: Boolean(selectedCommitHash && commitDetailsLoading);
-	const historicalFiles =
-		comparisonDetails?.files ?? commitDetails?.files ?? [];
-	const historicalPresentation =
-		comparisonDetails?.filePresentation ?? commitDetails?.filePresentation;
-	const navigableHistoricalFiles = visibleGitFiles(
-		historicalFiles,
-		historicalPresentation,
+}): {
+	unstagedFiles: GitFileEntry[];
+	stagedFiles: GitFileEntry[];
+	workingFiles: GitFileEntry[];
+	navigableFiles: GitFileEntry[];
+	showingWorkingTree: boolean;
+	comparing: boolean;
+	historyDetails: CommitDetails | ComparisonDetails | null;
+	historyLoading: boolean;
+	historyMessage: string;
+	navigableHistoricalFiles: CommitFile[];
+	additions: number;
+	deletions: number;
+} {
+	return rustProject("changesPanel", {
+		content,
 		fileViewMode,
-	);
-	const displayedFiles: readonly (GitFileEntry | CommitFile)[] =
-		showingWorkingTree ? workingFiles : historicalFiles;
-	return {
-		unstagedFiles,
-		stagedFiles,
-		workingFiles,
-		navigableFiles,
-		showingWorkingTree,
-		comparing,
-		historyDetails,
-		historyLoading,
-		historyMessage: historyLoading
-			? comparing
-				? "Comparing…"
-				: "Loading…"
-			: comparing
-				? "The selected items cannot be compared"
-				: selectedCommitHash
-					? commitDetailsError || "No details available for this commit"
-					: "Select a commit to view details",
-		navigableHistoricalFiles,
-		additions: displayedFiles.reduce(
-			(total, file) => total + (file.additions ?? 0),
-			0,
-		),
-		deletions: displayedFiles.reduce(
-			(total, file) => total + (file.deletions ?? 0),
-			0,
-		),
-	};
+		filePresentation,
+		modified,
+		untracked,
+		staged,
+		selectedCommitHash,
+		selectedCommitCount,
+		commitDetailsLoading,
+		commitDetails,
+		commitDetailsError,
+		comparisonDetailsLoading,
+		comparisonDetails,
+	});
 }
 
 import type { GitGraphActionRequest } from "../graph/components/CommitGraph/index.tsx";
@@ -211,19 +173,8 @@ export type GitRefOperationRequest = {
 	source?: string;
 	target?: string;
 };
-export type GitRefOperationPreflight = {
-	readonly source: string;
-	readonly target: string;
-	readonly canMerge: boolean;
-	readonly canFastForward: boolean;
-	readonly canRebase: boolean;
-	readonly reasons: string[];
-};
-export type GitOperationOutcome =
-	| "completed"
-	| "awaitingContinuation"
-	| "conflicted"
-	| "failed";
+export type GitRefOperationPreflight = NativeRefPreflight;
+export type GitOperationOutcome = NativeOutcome;
 export type GitOperationActivityPhase =
 	| "idle"
 	| "running"
@@ -231,16 +182,7 @@ export type GitOperationActivityPhase =
 	| "awaitingContinuation"
 	| "completed"
 	| "failed";
-export type GitOperationErrorKind =
-	| "conflict"
-	| "dirtyWorktree"
-	| "authentication"
-	| "nonFastForward"
-	| "network"
-	| "worktreeInUse"
-	| "invalidInput"
-	| "commandFailed"
-	| "io";
+export type GitOperationErrorKind = NativeErrorKind;
 export type GitGraphActionResult = GitOperationResult<
 	GitGraphActionRequest["action"]
 >;
@@ -261,64 +203,17 @@ export function buildDiffViewerModel(
 	diff: HunkDiff,
 	filePath: string,
 	viewMode: DiffViewMode,
-) {
-	const changeRanges =
-		viewMode === "hunks"
-			? diff.metadata.inlineChangeRanges
-			: diff.metadata.splitChangeRanges;
-	const changePositions = changeRanges.map(([start]) => start);
-	const extension = filePath.includes(".")
-		? (filePath.split(".").pop() ?? "")
-		: "";
-	let statusMessage: string | null = null;
-	if (diff.compactLines?.length === 1) {
-		const line = diff.compactLines[0];
-		if (line?.type === "context" && /too large|cannot read/i.test(line.content))
-			statusMessage = line.content.trim();
-	}
-	if (
-		!statusMessage &&
-		diff.oldLines.length === 0 &&
-		diff.newLines.length === 1
-	) {
-		const line = diff.newLines[0];
-		if (line?.type === "context" && /too large|cannot read/i.test(line.content))
-			statusMessage = line.content.trim();
-	}
-	const totalLines =
-		diff.compactLines?.length ??
-		Math.max(diff.oldLines.length, diff.newLines.length);
-	const longestLine = Math.max(
-		diff.metadata.maxOldLineChars,
-		diff.metadata.maxNewLineChars,
-		diff.metadata.maxInlineLineChars,
-		diff.metadata.maxConflictLineChars,
-	);
-	const oversizedMessage =
-		totalLines > MAX_RENDERED_DIFF_LINES
-			? `Diff is too large to render safely (${totalLines.toLocaleString()} lines). Use the Editor/agent to inspect this file in smaller chunks.`
-			: longestLine > MAX_RENDERED_LINE_CHARS * 2
-				? `Diff contains a very long line (${longestLine.toLocaleString()} characters). Rendering is limited to keep the app responsive.`
-				: null;
-	const isMarkdown =
-		!diff.compactLines && (extension === "md" || extension === "mdx");
-	const conflict = Boolean(diff.mergeConflictContent) && !isMarkdown;
-	const message = statusMessage ?? oversizedMessage;
-	return {
-		changeRanges,
-		changePositions,
-		extension,
-		conflict,
-		message,
-		isMarkdown,
-		markdownContent: isMarkdown
-			? diff.newLines
-					.filter((line) => line.type !== "hunk" && line.type !== "spacer")
-					.map((line) => line.content)
-					.join("\n")
-			: "",
-		navigable: !diff.isBinary && (conflict || (!message && !isMarkdown)),
-	};
+): {
+	changeRanges: Array<[number, number]>;
+	changePositions: number[];
+	extension: string;
+	conflict: boolean;
+	message: string | null;
+	isMarkdown: boolean;
+	markdownContent: string;
+	navigable: boolean;
+} {
+	return rustProject("diffViewer", { diff, filePath, viewMode });
 }
 export {
 	DIFF_CONFIG,
@@ -393,11 +288,7 @@ export function diffViewportReducer(
 		: state;
 }
 
-export type FileContentResponse = {
-	readonly content: string;
-	readonly cwd: string;
-	readonly path: string;
-};
+export type FileContentResponse = NativeFileContent;
 export const OPEN_ACTIVE_GIT_GRAPH_EVENT = "inferay-open-active-git-graph";
 export const TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT =
 	"inferay-toggle-active-git-sidebar";
@@ -440,18 +331,7 @@ export function resizeDockSplit(
 	const key = branch === "first" ? "first" : "second";
 	return { ...tree, [key]: resizeDockSplit(tree[key], rest, ratio) };
 }
-type GitWorkspaceDiffSource =
-	| { readonly kind: "workingTree" | "graphWorkingTree" }
-	| {
-			readonly kind: "commit";
-			readonly commitHash: string;
-			readonly commitParent: string | null;
-	  }
-	| {
-			readonly kind: "comparison";
-			readonly comparisonFrom: string;
-			readonly comparisonTo: string;
-	  };
+type GitWorkspaceDiffSource = NativeDiffSource;
 
 export function historicalGitQueryContext({
 	mainViewMode,
@@ -473,36 +353,27 @@ export function historicalGitQueryContext({
 	selectedCommitParent: string | null;
 	selectedGraphItem: GraphNode | null;
 	fileSource: GitWorkspaceDiffSource | undefined;
-}) {
-	const commitSource = fileSource?.kind === "commit" ? fileSource : null;
-	const comparisonSource =
-		fileSource?.kind === "comparison" ? fileSource : null;
-	const diffMode = mainViewMode === "diff";
-	return {
-		commitSource,
-		comparisonSource,
-		commit: {
-			cwd:
-				diffMode && commitSource?.commitHash
-					? (diffViewerCwd ?? undefined)
-					: graphCwd,
-			hash: diffMode
-				? (commitSource?.commitHash ?? undefined)
-				: selectedCommitIds.length <= 1 &&
-						selectedGraphItem?.itemKind !== "worktreeWip"
-					? selectedGraphItem?.hash
-					: undefined,
-			parent: diffMode
-				? (commitSource?.commitParent ?? undefined)
-				: (selectedCommitParent ?? undefined),
-		},
-		comparison: {
-			cwd: diffMode ? (diffViewerCwd ?? undefined) : graphCwd,
-			from: diffMode ? comparisonSource?.comparisonFrom : undefined,
-			to: diffMode ? comparisonSource?.comparisonTo : undefined,
-		},
-		revision: diffMode && diffViewerCwd ? storedRevision : graphRevision,
-	};
+}): {
+	commitSource: Extract<GitWorkspaceDiffSource, { kind: "commit" }> | null;
+	comparisonSource: Extract<
+		GitWorkspaceDiffSource,
+		{ kind: "comparison" }
+	> | null;
+	commit: { cwd?: string; hash?: string; parent?: string };
+	comparison: { cwd?: string; from?: string; to?: string };
+	revision?: string;
+} {
+	return rustProject("historicalQuery", {
+		mainViewMode,
+		diffViewerCwd,
+		graphCwd,
+		graphRevision,
+		storedRevision,
+		selectedCommitIds,
+		selectedCommitParent,
+		selectedGraphItem,
+		fileSource,
+	});
 }
 
 export function gitWorkbenchDiffRequest({
@@ -520,138 +391,21 @@ export function gitWorkbenchDiffRequest({
 	fileSource: GitWorkspaceDiffSource | undefined;
 	viewMode: DiffViewMode;
 }): DiffRequest | null {
-	if (!active || !cwd || !selectedFile) return null;
-	const commit = fileSource?.kind === "commit" ? fileSource : null;
-	const comparison = fileSource?.kind === "comparison" ? fileSource : null;
-	return {
+	return rustProject("diffRequest", {
+		active,
 		cwd,
+		selectedFile,
 		revision,
-		file: selectedFile.path,
-		staged: selectedFile.staged,
-		commitHash: commit?.commitHash,
-		commitParent: commit?.commitParent ?? undefined,
-		comparisonFrom: comparison?.comparisonFrom,
-		comparisonTo: comparison?.comparisonTo,
-		view: viewMode === "split" ? "full" : "review",
-	};
+		fileSource,
+		viewMode,
+	});
 }
-export interface GitWorkspaceDetachedFilePanel<InitialFile = unknown> {
-	readonly id: string;
-	readonly cwd: string;
-	readonly path: string;
-	readonly initialFile?: InitialFile;
+export type GitWorkspaceDetachedFilePanel = NativeDetachedFilePanel;
+export type GitWorkspaceDocumentSession = NativeDocumentSession;
+export type GitWorkspacePanelSession = NativePanelSession;
+export function emptyGitWorkspacePanelSession(): GitWorkspacePanelSession {
+	return rustProject("emptyPanels", null);
 }
-export interface GitWorkspaceDocumentSession {
-	readonly cwd: string;
-	readonly activePath: string | null;
-	readonly paths: readonly string[];
-}
-export interface GitWorkspacePanelSession<InitialFile = unknown> {
-	readonly repositoryInitialized: boolean;
-	readonly sidebarVisible: boolean;
-	readonly fileViewerOpen: boolean;
-	readonly fileViewerCwd: string | null;
-	readonly diffViewerCwd: string | null;
-	readonly focusedAuxiliaryPanel: {
-		readonly id: string;
-		readonly cwd: string;
-	} | null;
-	readonly detachedFilePanels: GitWorkspaceDetachedFilePanel<InitialFile>[];
-	readonly documentSessions: Readonly<
-		Record<string, GitWorkspaceDocumentSession>
-	>;
-	readonly fileRequest: {
-		readonly path: string;
-		readonly token: number;
-	} | null;
-	readonly selectedFile: {
-		readonly path: string;
-		readonly staged: boolean;
-		readonly source: GitWorkspaceDiffSource;
-	} | null;
-	readonly selectedCommitHash: string | null;
-	readonly selectedCommitIds: readonly string[];
-	readonly selectedCommitParent: string | null;
-	readonly mainViewMode: "diff" | "graph";
-	readonly graphDrillIn: boolean;
-	readonly historicalDiff: boolean;
-	readonly sidebarContent: "workingTree" | "history";
-}
-export function emptyGitWorkspacePanelSession<
-	InitialFile = unknown,
->(): GitWorkspacePanelSession<InitialFile> {
-	return {
-		repositoryInitialized: false,
-		sidebarVisible: false,
-		fileViewerOpen: false,
-		fileViewerCwd: null,
-		diffViewerCwd: null,
-		focusedAuxiliaryPanel: null,
-		detachedFilePanels: [],
-		documentSessions: {},
-		fileRequest: null,
-		selectedFile: null,
-		selectedCommitHash: null,
-		selectedCommitIds: [],
-		selectedCommitParent: null,
-		mainViewMode: "diff",
-		graphDrillIn: false,
-		historicalDiff: false,
-		sidebarContent: "history",
-	};
-}
-export type GitWorkspacePanelAction<InitialFile = unknown> =
-	| { type: "initialize" | "focusChat"; cwd?: string }
-	| { type: "openGraph"; cwd: string; reset?: boolean }
-	| { type: "focus"; panel: GitWorkspacePanelSession["focusedAuxiliaryPanel"] }
-	| { type: "mode"; mode: "diff" | "graph" }
-	| { type: "toggleSidebar" | "dismissDiff" }
-	| { type: "document"; cwd: string; path: string }
-	| {
-			type: "detachFile";
-			id: string;
-			cwd: string;
-			path: string;
-			initialFile?: InitialFile;
-	  }
-	| { type: "closeFile"; id: string }
-	| {
-			type: "documents";
-			sessionId: string;
-			cwd: string;
-			activePath: string | null;
-			paths: readonly string[];
-	  }
-	| { type: "workingTreeFile"; cwd: string; path: string; staged: boolean }
-	| {
-			type: "commitFile";
-			cwd: string;
-			path: string;
-			commitHash: string;
-			commitParent: string | null;
-	  }
-	| {
-			type: "comparisonFile";
-			cwd: string;
-			path: string;
-			from: string;
-			to: string;
-	  }
-	| {
-			type: "selectGraph";
-			id: string | null;
-			orderedIds: readonly string[];
-			intent?: { readonly additive: boolean; readonly range: boolean };
-	  }
-	| {
-			type: "reconcileGraph";
-			items: readonly { readonly id: string; readonly message: string }[];
-	  }
-	| {
-			type: "reconcileFile";
-			expected: GitWorkspacePanelSession["selectedFile"];
-			staged: boolean | null;
-	  };
 
 import { readStoredValue } from "../../../adapters/storage/stored-values.ts";
 export const GIT_FILE_VIEW_MODE_STORAGE_KEY = "inferay-git-file-view-mode";
@@ -777,3 +531,5 @@ export function createGitOperations(
 			),
 	};
 }
+
+export type GitWorkspacePanelAction = NativePanelAction;

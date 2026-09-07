@@ -169,6 +169,8 @@ if (import.meta.main) {
 		{ category: "App .tsx", files: 0, lines: 0 },
 		{ category: "App .ts", files: 0, lines: 0 },
 		{ category: "Rust .rs", files: 0, lines: 0 },
+		{ category: "React .jsx", files: 0, lines: 0 },
+		{ category: "Renderer .js", files: 0, lines: 0 },
 	];
 	const components: { file: string; names: string[]; lines: number }[] = [];
 	for (const file of [
@@ -181,7 +183,11 @@ if (import.meta.main) {
 				? 1
 				: file.endsWith(".rs")
 					? 2
-					: -1;
+					: file.endsWith(".jsx")
+						? 3
+						: file.endsWith(".js")
+							? 4
+							: -1;
 		if (index < 0) continue;
 		const source = readFileSync(file, "utf8");
 		const count = index === 2 ? rustProductionLines(source) : lines(source);

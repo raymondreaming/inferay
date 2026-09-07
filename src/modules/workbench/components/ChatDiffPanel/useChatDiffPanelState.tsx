@@ -10,6 +10,7 @@ import type {
 	GitGraphActionRequest,
 	GraphSelectionIntent,
 } from "../../graph/components/CommitGraph/index.tsx";
+import type { GraphPreferences } from "../../graph/model/graph-model.ts";
 import type {
 	DragProps,
 	GitGraphActionResult,
@@ -27,6 +28,12 @@ export function useChatDiffPanelState(props: {
 	readonly mainViewMode: "diff" | "graph";
 	readonly onMainViewModeChange: (mode: "diff" | "graph") => void;
 	readonly graph: ReturnType<typeof useGitGraph>;
+	readonly graphPreferences: GraphPreferences;
+	readonly onGraphPreferencesChange: (
+		update:
+			| GraphPreferences
+			| ((current: GraphPreferences) => GraphPreferences),
+	) => void;
 	readonly graphLoading: boolean;
 	readonly graphError: string | null;
 	readonly selectionAnnouncement: string;

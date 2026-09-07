@@ -633,6 +633,21 @@ impl ChatMessageBuffer {
         self.total_chars -= self.message_chars[start..].iter().sum::<usize>();
         self.message_chars.truncate(start);
         for message in &mut self.messages[start..] {
+            if message.role == "user"
+                && message.images.as_ref().is_none_or(Vec::is_empty)
+                && let Some((visible, paths)) = message
+                    .content
+                    .split_once("Here are the images at these paths:\n")
+            {
+                message.images = Some(
+                    paths
+                        .split('\n')
+                        .filter(|path| !path.trim().is_empty() && path.contains("/.tmp/"))
+                        .map(str::to_owned)
+                        .collect(),
+                );
+                message.content = visible.trim().to_owned();
+            }
             let mut chars = javascript_length(&message.content);
             if chars > CHAT_SINGLE_MESSAGE_CHAR_LIMIT {
                 message.content =

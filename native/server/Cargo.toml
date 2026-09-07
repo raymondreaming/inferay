@@ -6,6 +6,7 @@ license = "LicenseRef-Inferay"
 description = "Rust HTTP and WebSocket server for Inferay"
 
 [dependencies]
+inferay-presentation = { path = "../presentation" }
 axum = { version = "0.8.9", features = ["multipart", "ws"] }
 futures-util = "0.3.32"
 inferay-core = { path = "../core" }

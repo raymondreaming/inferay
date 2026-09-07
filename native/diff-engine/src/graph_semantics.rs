@@ -1,29 +1,8 @@
 //! Repository semantics prepared once alongside graph layout. The client keeps
 //! row geometry and interaction, without repeating ancestry walks per keypress.
 use crate::{GitGraphRefKind, GraphCommit};
-use serde::{Deserialize, Serialize};
+use inferay_presentation::repository::GraphAncestry;
 use std::collections::{BTreeMap, HashMap, VecDeque};
-
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GraphNavigation {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub history_order: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub containing_branch: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub child: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub branch_newer: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub branch_older: Option<String>,
-}
-
-/// Inclusive row intervals, usually one interval per branch even in long
-/// histories. Avoid copying an ID for every ancestor of every branch.
-pub type GraphAncestry = BTreeMap<String, Vec<[usize; 2]>>;
 
 pub(crate) fn prepare(commits: &mut [GraphCommit]) -> GraphAncestry {
     let by_hash: HashMap<_, _> = commits

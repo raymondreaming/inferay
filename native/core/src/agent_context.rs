@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::prompts::Prompt;
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentContextLayer {
     pub instructions: String,
@@ -13,7 +13,7 @@ pub struct AgentContextLayer {
     pub updated_at: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct EffectiveAgentContext {
     pub global: AgentContextLayer,

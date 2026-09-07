@@ -1,3 +1,4 @@
+import { project as rustProject } from "../../../adapters/presentation/model.ts";
 import type {
 	AttachedImageInfo,
 	QueuedMessageInfo,
@@ -6,14 +7,8 @@ import type {
 export function mergeNativeQueue(
 	current: QueuedMessageInfo[],
 	persisted: QueuedMessageInfo[],
-) {
-	const persistedIds = new Set(persisted.map((message) => message.id));
-	return [
-		...persisted,
-		...current.filter(
-			(message) => message.transient && !persistedIds.has(message.id),
-		),
-	];
+): QueuedMessageInfo[] {
+	return rustProject("mergeQueue", { current, persisted });
 }
 
 export async function uploadChatImage(

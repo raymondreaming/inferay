@@ -1006,6 +1006,18 @@ async fn git_graph(state: &ServerState, request: Request) -> ApiResult<Response>
         .map(|value| safe_limit(value, 1000, 100000))
         .unwrap_or(1000);
     let query = query_value(&request, "query").unwrap_or_default();
+    let (hidden_refs, solo_refs, pinned_refs) = {
+        let preference = |key: &str| {
+            query_value(&request, key)
+                .and_then(|value| serde_json::from_str::<Vec<String>>(&value).ok())
+                .unwrap_or_default()
+        };
+        (
+            preference("hiddenRefs"),
+            preference("soloRefs"),
+            preference("pinnedRefs"),
+        )
+    };
     if query.len() > 4096 {
         return Err(api_error(
             StatusCode::BAD_REQUEST,
@@ -1017,11 +1029,15 @@ async fn git_graph(state: &ServerState, request: Request) -> ApiResult<Response>
         let input_cwd = cwd.clone();
         let input =
             render_jobs::run(move || inferay_native_diff::prepare_git_graph(&input_cwd)).await?;
-        let key = format!("graph-v3\0{cwd}\0{limit}\0{}\0{query}", input.revision);
+        let key = format!(
+            "graph-v4\0{cwd}\0{limit}\0{}\0{query}\0{:?}\0{:?}\0{:?}",
+            input.revision, hidden_refs, solo_refs, pinned_refs
+        );
         render_jobs::cached(key, std::time::Duration::from_secs(30), move || {
             let snapshot =
                 inferay_native_diff::get_git_graph_snapshot_with_query(&cwd, limit, input, &query);
-            let mut response = git_changes::prepare(json!(snapshot));
+            let mut response =
+                git_changes::prepare_graph(json!(snapshot), &hidden_refs, &solo_refs, &pinned_refs);
             response["actions"] = git_actions::CATALOG.clone();
             serde_json::to_vec(&response).ok()
         })

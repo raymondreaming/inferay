@@ -1,10 +1,10 @@
 # App component inventory
 
-The app has **66 component folders** containing **223 named component implementations**, including **52 factory-generated SVG icons**. This inventory excludes `site/`, tests, imported library components, and aliases of existing components. JSX rendering helpers are listed separately.
+The app has **165 component definitions in 164 files**, across **65 component folders**. Run `bun run code` for the current inventory; counts exclude generated files, tests, styles, and dependencies.
 
 ## Folder convention
 
-Every component family has a named folder with `index.tsx` and, when it has local styles, one `styles.ts`. Child components live beside the entry point. Folder-local hooks, types, and pure helpers also live beside it. Styles for the entry point and all of its children belong in that folder's `styles.ts`; dynamic values are passed to style helpers. SVG geometry and imperative DOM measurements stay with their rendering logic. Folders without local style rules omit `styles.ts`.
+Every component family has a named folder with `index.tsx` and, when it has local styles, one `styles.ts`. Child components live beside the entry point. Folder-local hooks, types, and pure helpers also live beside it. Styles for the entry point and all of its children belong in that folder's `styles.ts`; dynamic values are passed to style helpers. Rust owns shared geometry and simulation; imperative DOM measurements stay in the renderer. Folders without local style rules omit `styles.ts`.
 
 Mutually recursive `Directory`/`Entry` and `InlineTokens`/`InlineToken` renderers stay together in small files to avoid circular component imports.
 

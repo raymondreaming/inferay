@@ -40,6 +40,8 @@ import { DocumentViewer } from "../documents/components/DocumentViewer/index.tsx
 import type { GraphSelectionIntent } from "../graph/components/CommitGraph/index.tsx";
 import {
 	DEFAULT_GIT_GRAPH_HISTORY_LIMIT,
+	type GraphPreferences,
+	loadPreferences,
 	nextGitGraphHistoryLimit,
 } from "../graph/model/graph-model.ts";
 import type { DragProps } from "../model/workbench-model.ts";
@@ -170,6 +172,10 @@ export function useRepositoryWorkbench({
 		string | null
 	>(null);
 	const [graphLimit, setGraphLimit] = useState(DEFAULT_GIT_GRAPH_HISTORY_LIMIT);
+	const [graphPreferenceState, setGraphPreferenceState] = useState<{
+		repositoryKey?: string;
+		value: GraphPreferences;
+	}>(() => ({ repositoryKey: undefined, value: loadPreferences() }));
 	const setDiffViewMode = useCallback((mode: DiffViewMode) => {
 		setDiffViewModeState(mode);
 		writeStoredValue(DIFF_VIEW_MODE_KEY, mode);
@@ -215,7 +221,18 @@ export function useRepositoryWorkbench({
 		active && mainViewMode === "graph"
 			? (diffViewerCwd ?? undefined)
 			: undefined;
-	const graph = useGitGraph(graphCwd, graphLimit);
+	const graphPreferences =
+		graphPreferenceState.repositoryKey === graphCwd
+			? graphPreferenceState.value
+			: loadPreferences(graphCwd);
+	useEffect(() => {
+		setGraphPreferenceState((current) =>
+			current.repositoryKey === graphCwd
+				? current
+				: { repositoryKey: graphCwd, value: loadPreferences(graphCwd) },
+		);
+	}, [graphCwd]);
+	const graph = useGitGraph(graphCwd, graphLimit, graphPreferences);
 	const {
 		projectMap,
 		refetch,
@@ -933,6 +950,20 @@ export function useRepositoryWorkbench({
 					mainViewMode={mainViewMode}
 					onMainViewModeChange={changeMainViewMode}
 					graph={graph}
+					graphPreferences={graphPreferences}
+					onGraphPreferencesChange={(update) =>
+						setGraphPreferenceState((current) => ({
+							repositoryKey: graphCwd,
+							value:
+								typeof update === "function"
+									? update(
+											current.repositoryKey === graphCwd
+												? current.value
+												: loadPreferences(graphCwd),
+										)
+									: update,
+						}))
+					}
 					graphLoading={graph.loading}
 					graphError={graphActionError ?? graph.error}
 					selectionAnnouncement={graphSelectionAnnouncement}

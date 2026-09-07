@@ -71,6 +71,10 @@ bun install
 # Install Rust toolchain
 # https://rustup.rs
 
+# Install the Rust renderer target and matching bindings tool
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.127 --locked
+
 # Build the Rust workspace
 bun run build:native
 
@@ -109,6 +113,18 @@ the GitHub release, and publishes the npm CLI package.
 3. Drag **inferay** to your **Applications** folder
 4. First launch: Right-click the app → **Open** (to bypass unsigned app warning)
    - Or run: `xattr -cr /Applications/inferay.app`
+
+## Code ownership
+
+Rust owns application models and native operations. The pure models in
+`native/presentation` are shared with the TSX renderer through WebAssembly;
+React/Octane owns the DOM, view composition, and browser events. Build the
+renderer with `bun run build:renderer` to regenerate the Rust bindings first.
+
+`bun run code` reports Rust and renderer code separately. Keep React views and
+browser interactions in typed TSX; move application models into Rust and generate
+their TypeScript contracts. `bun run check:architecture` checks the boundaries,
+TypeScript, Rust, and renderer build.
 
 ## Tech stack
 

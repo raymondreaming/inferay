@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "octane";
 import type React from "react";
 import { fetchJson, fetchJsonOr } from "../../../adapters/backend/http.ts";
+import { project as rustProject } from "../../../adapters/presentation/model.ts";
 import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
 import { getAgentDefinition } from "../../agents/model/agents.ts";
 import type { WorkspaceModelAgentKind as AgentKind } from "../../workspace/model/workspace-model.ts";
@@ -15,13 +16,13 @@ function applyInlineCompletion(
 	cursorPos: number,
 	triggerIndex: number,
 	replacement: string,
-) {
-	const before = input.slice(0, triggerIndex);
-	const after = input.slice(cursorPos);
-	return {
-		nextValue: `${before}${replacement}${after || " "}`,
-		nextCursor: before.length + replacement.length + (after ? 0 : 1),
-	};
+): { nextValue: string; nextCursor: number } {
+	return rustProject("completion", {
+		input,
+		cursorPos,
+		triggerIndex,
+		replacement,
+	});
 }
 
 export interface FileMenuState {

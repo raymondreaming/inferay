@@ -1,25 +1,11 @@
+import { project as rustProject } from "../../../adapters/presentation/model.ts";
 export type ChatMessage = RenderChatMessage;
 type TokenRange = { start: number; end: number };
 export function findDecoratedTokenRanges(
 	text: string,
 	slashCommandNames?: readonly string[],
 ): TokenRange[] {
-	if (!text) return [];
-	const ranges: TokenRange[] = [];
-	const knownSlashCommands = slashCommandNames
-		? new Set(slashCommandNames.map((name) => name.toLowerCase()))
-		: null;
-	for (const match of text.matchAll(/(^|\s)(\/[a-zA-Z][\w-]*|@[^\s]+)/g)) {
-		const token = match[2]!;
-		if (
-			token.startsWith("/") &&
-			!knownSlashCommands?.has(token.slice(1).toLowerCase())
-		)
-			continue;
-		const start = match.index + match[1]!.length;
-		ranges.push({ start, end: start + token.length });
-	}
-	return ranges;
+	return rustProject("decoratedTokens", { text, commands: slashCommandNames });
 }
 
 import type {
@@ -91,19 +77,6 @@ export interface NativeChatRender {
 		| { pending: true }
 	>;
 }
-interface ChatTranscriptUpdate {
-	version: 1;
-	epoch?: string;
-	baseRevision: number;
-	revision: number;
-	reset: boolean;
-	start: number;
-	deleteCount: number;
-	messages: Array<{
-		message: Omit<AgentChatSharedChatMessage, "content"> & { content?: string };
-		appendContent?: string;
-	}>;
-}
 export interface AgentChatSharedChatMessage {
 	id: string;
 	role: "user" | "assistant" | "tool" | "system" | "btw";
@@ -169,21 +142,14 @@ export function findTriggerAtCursor(
 	cursorPos: number,
 	trigger: "/" | "@",
 ): { index: number; query: string } | null {
-	let triggerIdx = -1;
-	for (let i = cursorPos - 1; i >= 0; i--) {
-		if (value[i] === trigger) {
-			if (i === 0 || /\s/.test(value[i - 1]!)) {
-				triggerIdx = i;
-			}
-			break;
-		}
-		if (/\s/.test(value[i]!)) break;
-	}
-	if (triggerIdx === -1) return null;
-	return {
-		index: triggerIdx,
-		query: value.slice(triggerIdx + 1, cursorPos),
-	};
+	const match = rustProject<{ index: number } | null>("trigger", {
+		value,
+		cursorPos,
+		trigger,
+	});
+	return match
+		? { index: match.index, query: value.slice(match.index + 1, cursorPos) }
+		: null;
 }
 export function hideMenuState<S extends { show: boolean }>(state: S): S {
 	return {
@@ -282,52 +248,19 @@ export function indexCheckpoints(checkpoints: CheckpointInfo[]) {
 export function getUserMessagePresentation(
 	message: RenderChatMessage,
 	slashCommandNames: readonly string[],
-) {
-	if (message.role !== "user") return null;
-	const command = message.content.match(/^\/([a-zA-Z0-9_-]+)(\s|$)/)?.[1];
-	if (
-		command &&
-		slashCommandNames.some(
-			(name) => name.toLowerCase() === command.toLowerCase(),
-		)
-	)
-		return null;
-	let imagePaths = message.images ?? [];
-	let content = message.content;
-	if (
-		!imagePaths.length &&
-		content.includes("Here are the images at these paths:")
-	) {
-		const [visible = "", paths = ""] = content.split(
-			"Here are the images at these paths:\n",
-		);
-		content = visible.trim();
-		imagePaths = paths
-			.split("\n")
-			.filter((path) => path.trim() && path.includes("/.tmp/"));
-	}
-	return { content, imagePaths };
+): { content: string; imagePaths: string[] } | null {
+	return rustProject("userMessage", { message, commands: slashCommandNames });
 }
 export function formatAskUserAnswer(
 	questions: AskUserQuestion[],
 	selections: Map<number, Set<number>>,
-) {
-	const parts: string[] = [];
-	for (let qi = 0; qi < questions.length; qi++) {
-		const question = questions[qi]!;
-		const selected = selections.get(qi);
-		if (!selected?.size) continue;
-		const labels = Array.from(selected)
-			.sort()
-			.flatMap((oi) => {
-				const label = question.options?.[oi]?.label;
-				return label ? [label] : [];
-			});
-		if (question.header)
-			parts.push(`**${question.header}**: ${labels.join(", ")}`);
-		else parts.push(labels.join(", "));
-	}
-	return parts.join("\n");
+): string {
+	return rustProject("askAnswer", {
+		questions,
+		selections: Object.fromEntries(
+			[...selections].map(([key, indexes]) => [key, [...indexes]]),
+		),
+	});
 }
 export function hasAskUserSelections(
 	questions: AskUserQuestion[],
@@ -420,107 +353,26 @@ export function appendSystemMessage(
 
 /** Apply native transport changes without interpreting provider events. Null
  * requests a full resync: never apply a delta against a different revision. */
-export function applyNativeTranscriptUpdate(
-	current: {
-		messages: AgentChatSharedChatMessage[];
-		revision: number;
-		epoch?: string;
-	} | null,
-	update: ChatTranscriptUpdate,
-): {
-	messages: AgentChatSharedChatMessage[];
-	revision: number;
-	epoch?: string;
-} | null {
-	const validInteger = (value: number) =>
-		Number.isSafeInteger(value) && value >= 0;
-	if (
-		update.version !== 1 ||
-		!validInteger(update.revision) ||
-		!validInteger(update.start) ||
-		!validInteger(update.deleteCount) ||
-		!Array.isArray(update.messages)
-	)
-		return null;
-	if (current && current.epoch !== update.epoch) return null;
-	if (current && update.revision <= current.revision) return current;
-	if (!update.reset && (!current || current.revision !== update.baseRevision))
-		return null;
-	const before = update.reset ? [] : current!.messages;
-	if (
-		update.start > before.length ||
-		(!update.reset && update.start + update.deleteCount > before.length)
-	)
-		return null;
-	const inserted = update.messages.map((change, index) => {
-		if (
-			!change?.message ||
-			typeof change.message.id !== "string" ||
-			!["user", "assistant", "tool", "system", "btw"].includes(
-				change.message.role,
-			)
-		)
-			return null;
-		const previous = before[update.start + index];
-		if (
-			change.appendContent === undefined &&
-			typeof change.message.content === "string"
-		)
-			return change.message as AgentChatSharedChatMessage;
-		if (typeof change.appendContent !== "string") return null;
-		if (!previous || previous.id !== change.message.id) return null;
-		return {
-			...change.message,
-			content: previous.content + change.appendContent,
-		} as AgentChatSharedChatMessage;
-	});
-	if (inserted.some((message) => message === null)) return null;
-	return {
-		messages: [
-			...before.slice(0, update.start),
-			...(inserted as AgentChatSharedChatMessage[]),
-			...before.slice(update.start + update.deleteCount),
-		],
-		revision: update.revision,
-		epoch: update.epoch,
-	};
-}
-
 /** Native messages are authoritative; only unacknowledged local sends survive
  * a splice/reset. Unlike the legacy reader this never aligns users by index. */
 export function mergeNativeTranscript(
 	local: AgentChatSharedChatMessage[],
 	server: AgentChatSharedChatMessage[],
 ): AgentChatSharedChatMessage[] {
-	const ids = new Set(server.map((message) => message.id));
-	const merged = [...server];
-	for (let index = 0; index < local.length; index++) {
-		const message = local[index]!;
-		const browserOwned =
-			(message.optimistic && message.role === "user") ||
-			message.localOnly ||
-			message.role === "btw";
-		if (!browserOwned || ids.has(message.id)) continue;
-		if (
-			message.localOnly &&
-			server.some(
-				(candidate) =>
-					candidate.role === message.role &&
-					candidate.content === message.content,
-			)
-		)
-			continue;
-		let insertion = merged.length;
-		for (let anchor = index - 1; anchor >= 0; anchor--) {
-			const position = merged.findIndex(
-				(candidate) => candidate.id === local[anchor]!.id,
-			);
-			if (position >= 0) {
-				insertion = position + 1;
-				break;
-			}
-		}
-		merged.splice(insertion, 0, message);
-	}
-	return merged;
+	const describe = (message: AgentChatSharedChatMessage) => ({
+		id: message.id,
+		role: message.role,
+		optimistic: message.optimistic,
+		localOnly: message.localOnly,
+		content: message.localOnly ? message.content : undefined,
+	});
+	const hasNotices = local.some((message) => message.localOnly);
+	const order = rustProject<Array<[boolean, number]>>("mergeTranscriptOrder", {
+		local: local.map(describe),
+		server: server.map((message) => ({
+			...describe(message),
+			content: hasNotices ? message.content : undefined,
+		})),
+	});
+	return order.map(([browser, index]) => (browser ? local : server)[index]!);
 }

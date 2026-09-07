@@ -76,7 +76,6 @@ export function ChatDiffPanel(
 					) : (
 						<CommitGraph
 							commits={view.graph.commits}
-							ancestry={view.graph.ancestry}
 							onSearchChange={view.graph.setSearchQuery}
 							searchActive={Boolean(view.graph.searchQuery)}
 							searchQuery={view.graph.searchQuery}
@@ -88,6 +87,9 @@ export function ChatDiffPanel(
 										"No matching commits")
 							}
 							rows={view.graph.rows}
+							presentation={view.graph.presentation}
+							preferences={view.graphPreferences}
+							onPreferencesChange={view.onGraphPreferencesChange}
 							worktrees={view.graph.worktrees}
 							selectedHash={view.selectedCommitHash ?? undefined}
 							selectedIds={view.selectedCommitIds}

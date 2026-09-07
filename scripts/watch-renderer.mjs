@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import process from "node:process";
 import { watch } from "chokidar";
 
-const watchedPaths = ["src", "public", "index.html", "vite.config.ts"];
+const watchedPaths = ["src", "public", "native/presentation", "index.html", "vite.config.ts"];
 let building = false;
 let pending = true;
 

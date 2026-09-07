@@ -5,6 +5,7 @@ members = [
     "native/diff-engine",
     "native/server",
     "native/tooling",
+    "native/presentation",
 ]
 resolver = "2"
 

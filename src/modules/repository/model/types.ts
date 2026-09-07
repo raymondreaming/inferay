@@ -1,3 +1,7 @@
+import type { GitDiffLine as NativeDiffLine } from "../../../../build/presentation/contracts/GitDiffLine.ts";
+import type { GitFileEntry as NativeGitFileEntry } from "../../../../build/presentation/contracts/GitFileEntry.ts";
+import type { GitStatusResult as NativeGitStatus } from "../../../../build/presentation/contracts/GitStatusResult.ts";
+import type { GraphNavigation as NativeGraphNavigation } from "../../../../build/presentation/contracts/GraphNavigation.ts";
 import { fetchJson, sendJson } from "../../../adapters/backend/http.ts";
 import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
 import { queryClient } from "../../../shared/lib/data.ts";
@@ -193,47 +197,20 @@ export interface GitFilePresentation {
 	treeOrder: string[];
 	tree: GitFileTreeNode[];
 }
-export interface GitFileEntry {
-	status: string; // M, A, D, ?, R, C, U
-	staged: boolean;
-	path: string;
-	originalPath?: string;
-	additions?: number;
-	deletions?: number;
-}
-export interface GitProjectStatus {
+export type GitFileEntry = NativeGitFileEntry;
+export type GitProjectStatus = NativeGitStatus & {
 	fileGroups: {
 		staged: GitFileEntry[];
 		modified: GitFileEntry[];
 		untracked: GitFileEntry[];
 	};
 	filePresentation?: GitFilePresentation;
-	cwd: string;
-	name: string;
-	branch: string;
-	upstream: string | null;
-	ahead: number;
-	behind: number;
-	files: GitFileEntry[];
-}
+};
 
 /** Native repository semantics; pixel geometry remains a browser concern. */
-export interface GitGraphNavigation {
-	historyOrder?: number;
-	containingBranch?: string;
-	parent?: string;
-	child?: string;
-	branchNewer?: string;
-	branchOlder?: string;
-}
-export type GitGraphAncestry = Record<string, Array<[number, number]>>;
-
+export type GitGraphNavigation = NativeGraphNavigation;
 // Single line in a diff view
-export interface DiffLine {
-	number: number | null;
-	content: string;
-	type: "add" | "remove" | "context" | "spacer" | "hunk";
-}
+export type DiffLine = NativeDiffLine;
 
 // Full diff result with aligned old/new lines
 export interface HunkDiff {

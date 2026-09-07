@@ -1,3 +1,10 @@
+import type { EvolveOptions as NativeEvolveOptions } from "../../../../build/presentation/contracts/EvolveOptions.ts";
+import type { MoveOptions as NativeMoveOptions } from "../../../../build/presentation/contracts/MoveOptions.ts";
+import {
+	ease,
+	LiquidBody,
+	rounded_rect,
+} from "../../../adapters/presentation/model.ts";
 export type GooeyEffect = "morph" | "evolve" | "move";
 export interface GooeyItemProps {
 	/** Liquid behavior of this piece:
@@ -116,114 +123,17 @@ export function roundedRectPath(
 	h: number,
 	radii: CornerRadii,
 ): string {
-	let [tl, tr, br, bl] = radii.map((v) => Math.max(0, v)) as CornerRadii;
-	const f = Math.min(
-		1,
-		w / Math.max(1e-6, tl + tr),
-		w / Math.max(1e-6, bl + br),
-		h / Math.max(1e-6, tl + bl),
-		h / Math.max(1e-6, tr + br),
-	);
-	tl *= f;
-	tr *= f;
-	br *= f;
-	bl *= f;
-	return (
-		`M ${x + tl} ${y} ` +
-		`H ${x + w - tr} A ${tr} ${tr} 0 0 1 ${x + w} ${y + tr} ` +
-		`V ${y + h - br} A ${br} ${br} 0 0 1 ${x + w - br} ${y + h} ` +
-		`H ${x + bl} A ${bl} ${bl} 0 0 1 ${x} ${y + h - bl} ` +
-		`V ${y + tl} A ${tl} ${tl} 0 0 1 ${x + tl} ${y} Z`
-	);
+	return rounded_rect(x, y, w, h, ...radii);
 }
 
 import { useEffect, useLayoutEffect } from "octane";
 export const useIsoLayoutEffect =
 	typeof window !== "undefined" ? useLayoutEffect : useEffect;
 /** Evaluate timing curves used by the observed liquid shape animation. */
-const evalCache = new Map<string, (t: number) => number>();
 export function easingFunction(spec: string): (t: number) => number {
-	let fn = evalCache.get(spec);
-	if (fn) return fn;
-	const lin = /^linear\(([^)]+)\)$/.exec(spec.trim());
-	const bez = /^cubic-bezier\(([^)]+)\)$/.exec(spec.trim());
-	if (lin) {
-		// Numeric sample lists use evenly spaced stops.
-		const values = lin[1].split(",").map(Number);
-		fn = (t: number) => {
-			if (t <= 0) return values[0];
-			if (t >= 1) return values[values.length - 1];
-			const f = t * (values.length - 1);
-			const i = Math.floor(f);
-			return values[i] + (values[i + 1] - values[i]) * (f - i);
-		};
-	} else if (bez) {
-		const [x1, y1, x2, y2] = bez[1].split(",").map(Number);
-		fn = (t: number) => {
-			if (t <= 0) return 0;
-			if (t >= 1) return 1;
-			let lo = 0;
-			let hi = 1;
-			for (let i = 0; i < 24; i++) {
-				const mid = (lo + hi) / 2;
-				const xm =
-					3 * mid * (1 - mid) * (1 - mid) * x1 +
-					3 * mid * mid * (1 - mid) * x2 +
-					mid ** 3;
-				if (xm < t) lo = mid;
-				else hi = mid;
-			}
-			const u = (lo + hi) / 2;
-			return 3 * u * (1 - u) * (1 - u) * y1 + 3 * u * u * (1 - u) * y2 + u ** 3;
-		};
-	} else if (spec === "ease") {
-		fn = easingFunction("cubic-bezier(0.25, 0.1, 0.25, 1)");
-	} else if (spec === "ease-in") {
-		fn = easingFunction("cubic-bezier(0.42, 0, 1, 1)");
-	} else if (spec === "ease-out") {
-		fn = easingFunction("cubic-bezier(0, 0, 0.58, 1)");
-	} else if (spec === "ease-in-out") {
-		fn = easingFunction("cubic-bezier(0.42, 0, 0.58, 1)");
-	} else {
-		fn = (t: number) => Math.min(1, Math.max(0, t));
-	}
-	evalCache.set(spec, fn);
-	return fn;
+	return (t) => ease(spec, t);
 }
-export interface EvolveOptions {
-	/** Spring driving the liquid mass's centre. Default 320 / 17. */
-	massStiffness?: number;
-	massDamping?: number;
-	/** Spring driving width/height. Default 170 / 11.5. */
-	sizeStiffness?: number;
-	sizeDamping?: number;
-	/** Spring driving the corner radius. Default 900 / 60 — stiff and
-	 *  overdamped, so the element's own border-radius transition timing shows
-	 *  through instead of the spring imposing its own. Soften it to make the
-	 *  corners lag the element. */
-	radiusStiffness?: number;
-	radiusDamping?: number;
-	/** Max content cross-blur during the morph, px. 0 disables. Default 7. */
-	contentBlur?: number;
-	/** 0..1 — how strongly the blob rounds into a droplet while morphing. Default 1. */
-	roundness?: number;
-	/** Corner-forming timeline: starts at the very beginning of the morph and
-	 *  runs droplet-round → target radius over `cornerDuration` ms with
-	 *  `cornerEase` (a cubic-bezier(...) string, 'ease-in-out' or 'linear'),
-	 *  after `cornerDelay` ms. No motion gating — tweak duration/easing and it
-	 *  behaves like a normal animation. Defaults 460 / 0 / smooth. */
-	cornerDuration?: number;
-	cornerDelay?: number;
-	cornerEase?: string;
-	/** Ms the travel lead takes to ramp in — how EAGERLY the droplet commits to
-	 *  the destination. 0 leads instantly; it never scales the reach.
-	 *  Default 90. */
-	anticipation?: number;
-	/** Px the mass centre leads ahead of the element — how FAR the droplet
-	 *  travels toward the destination before it inflates. 0 disables.
-	 *  Default 32. */
-	travel?: number;
-}
+export type EvolveOptions = Partial<NativeEvolveOptions>;
 export const EVOLVE_DEFAULTS: Required<EvolveOptions> = {
 	massStiffness: 320,
 	massDamping: 17,
@@ -240,22 +150,7 @@ export const EVOLVE_DEFAULTS: Required<EvolveOptions> = {
 	travel: 32,
 };
 
-// Keep the observer's accepted curves and linear fallback while sharing evaluation.
-function easingFn(spec: string): (t: number) => number {
-	const curve = /cubic-bezier\(([^)]+)\)/.exec(spec)?.[0];
-	return easingFunction(curve ?? (spec === "ease-in-out" ? spec : "linear"));
-}
-export interface MoveOptions {
-	/** Spring pulling the liquid surface after the element. Lower stiffness /
-	 *  damping = a laggier, more rubbery trail. Default 380 / 18. */
-	stiffness?: number;
-	damping?: number;
-	/** Max axial stretch at speed (0 = rigid). Default 0.18. */
-	stretch?: number;
-	/** Trailing droplet size as a fraction of the body. 0 disables the tail.
-	 *  Default 0.46. */
-	tail?: number;
-}
+export type MoveOptions = Partial<NativeMoveOptions>;
 export const MOVE_DEFAULTS: Required<MoveOptions> = {
 	stiffness: 380,
 	damping: 18,
@@ -293,11 +188,6 @@ interface Frame {
 	h: number;
 }
 
-/** Total length of the corner timeline (delay + duration). */
-function cornerTotalOf(eo: Required<EvolveOptions>): number {
-	return Math.max(0, eo.cornerDelay) + Math.max(1, eo.cornerDuration);
-}
-
 /** Clamp a CSS corner radius for use as an SVG rect `rx`.
  *
  *  SVG clamps `rx` to w/2 and `ry` (defaulted from rx) to h/2 INDEPENDENTLY,
@@ -308,52 +198,14 @@ function pillRadius(r: number, w: number, h: number): number {
 	return Math.max(0, Math.min(r, Math.min(w, h) / 2));
 }
 
-/** Centre-based liquid body: the mass's centre leads, size follows, corner
- *  radius adapts last — the order real liquid reads as. */
-interface Sim {
-	cx: number;
-	cy: number;
-	w: number;
-	h: number;
-	r: number;
-	vcx: number;
-	vcy: number;
-	vw: number;
-	vh: number;
-	vr: number;
-}
 interface Item extends ObservedTarget {
 	baseW: number;
 	baseH: number;
 	radiusPx: number;
 	last: Frame | null;
 	frame: Frame | null;
-	sim: Sim | null;
-	/** Peak-hold envelope of morph motion: rises instantly, decays smoothly —
-	 *  keeps roundness/blur monotone through the springs' settle oscillations. */
-	motionEnv: number;
-	/** Previous target centre + smoothed target velocity, for anticipation. */
-	tPrev: { cx: number; cy: number } | null;
-	tvx: number;
-	tvy: number;
-	/** Ramp-in envelope for the travel lead, 0..1, timed by `anticipation`. */
-	lead01: number;
-	/** Corner timeline: morph start time + target-size change tracking. */
-	cornerT0: number;
-	lastTargetMoveT: number;
-	lastTargetSize: { w: number; h: number } | null;
-	/** Latch: a morph is in progress, so the corner timeline can't restart. */
-	morphActive: boolean;
-	/** Rate-limited droplet-roundness value — glides, never steps. */
-	round01: number;
-	/** Trailing droplet for move items: a laggier satellite the goo filter
-	 *  strings into a teardrop tail while the element is in motion. */
+	body: LiquidBody;
 	tailEl: SVGCircleElement | null;
-	tailX: number;
-	tailY: number;
-	tailVx: number;
-	tailVy: number;
-	tailR: number;
 	/** True while an evolve morph has a motion blur written onto the target. */
 	contentBlurred: boolean;
 	/** Last values painted to the blob by the dynamics branch. Writes are
@@ -371,48 +223,6 @@ interface Item extends ObservedTarget {
 	ro: ResizeObserver;
 }
 
-/** Semi-implicit Euler spring step; returns [position, velocity]. */
-function springStep(
-	cur: number,
-	vel: number,
-	target: number,
-	k: number,
-	c: number,
-	dt: number,
-): [number, number] {
-	const a = k * (target - cur) - c * vel;
-	const v = vel + a * dt;
-	return [cur + v * dt, v];
-}
-
-/** Spring advance over a WALL-CLOCK dt, substepped at ≤1/60s so the
- *  integration stays stable no matter how long the frame gap was.
- *
- *  The loop used to clamp dt to 1/24 per FRAME instead: at Safari's worst
- *  (~1 paint per 2s under filter load) the simulation then advanced 42ms per
- *  2000ms of wall time — everything ran in ~50x slow motion, so timed melt
- *  releases visibly never finished (avatars stayed erased) and silhouettes
- *  trailed their elements by seconds. Time must follow the wall clock; only
- *  the integration STEP is capped. */
-function springSteps(
-	cur: number,
-	vel: number,
-	target: number,
-	k: number,
-	c: number,
-	dt: number,
-): [number, number] {
-	let n = Math.max(1, Math.ceil(dt * 60));
-	const h = dt / n;
-	let p = cur;
-	let v = vel;
-	while (n-- > 0) {
-		const step = springStep(p, v, target, k, c, h);
-		p = step[0];
-		v = step[1];
-	}
-	return [p, v];
-}
 const SVG_NS = "http://www.w3.org/2000/svg";
 function smoothstep(t: number): number {
 	const c = Math.min(1, Math.max(0, t));
@@ -452,23 +262,8 @@ export class ObserveEngine {
 			radiusPx: this.resolveRadius(t),
 			last: null,
 			frame: null,
-			sim: null,
-			motionEnv: 0,
-			tPrev: null,
-			tvx: 0,
-			tvy: 0,
-			lead01: 0,
-			cornerT0: 0,
-			lastTargetMoveT: 0,
-			lastTargetSize: null,
-			morphActive: false,
-			round01: 0,
+			body: new LiquidBody(),
 			tailEl: null,
-			tailX: 0,
-			tailY: 0,
-			tailVx: 0,
-			tailVy: 0,
-			tailR: 0,
 			contentBlurred: false,
 			lastPaint: null,
 			lastTail: null,
@@ -499,6 +294,7 @@ export class ObserveEngine {
 		return () => {
 			item.ro.disconnect();
 			this.items.delete(item);
+			item.body.free();
 			if (item.contentBlurred) item.target.style.removeProperty("filter");
 			item.tailEl?.remove();
 		};
@@ -519,6 +315,7 @@ export class ObserveEngine {
 		if (this.interval) clearInterval(this.interval);
 		this.items.forEach((i) => {
 			i.ro.disconnect();
+			i.body.free();
 		});
 		this.items.clear();
 		this.awake = false;
@@ -649,341 +446,44 @@ export class ObserveEngine {
 			return true;
 		}
 
-		// Liquid dynamics: the surface is a simulated body chasing the element.
-		// Centre-based on purpose: the mass's CENTRE moves first (fast spring),
-		// size follows on a slower jelly spring, corner radius adapts last —
-		// liquid flows to where it's going before it takes the new shape.
-		const tcx = f.x + f.w / 2;
-		const tcy = f.y + f.h / 2;
-		// Evolve re-measures the element's border-radius every frame, so the
-		// element's OWN css transition timing (duration/easing) shows through on
-		// the liquid surface. A one-time snapshot would ignore it entirely.
-		let tr: number;
-		if (dyn.evolve) {
-			// measureRadius already resolves the CURRENT radius for the CURRENT
-			// box (px values pass through as-is; % values resolve against the
-			// ow/oh passed in) — no further scaling is needed or correct here.
-			// The previous version additionally multiplied by (f.w / ow): the
-			// getBoundingClientRect width (f.w, float) vs offsetWidth (ow, an
-			// independently-rounded integer) differ by sub-pixel noise on every
-			// animation frame, especially under Safari's own layout rounding
-			// during a live width transition. That near-1.0 ratio contributed
-			// nothing functionally but injected exactly that noise into the
-			// radius spring's target — which a near-critically-damped spring
-			// tracks almost instantly, i.e. visible per-frame jitter ("flashing")
-			// on the rendered corner.
-			const ow = item.target.offsetWidth;
-			const oh = item.target.offsetHeight;
-			tr = measureRadius(item.target, ow, oh)[0];
-		} else {
-			tr = item.radiusPx * (item.baseW > 0 ? f.w / item.baseW : 1);
-		}
-		if (!item.sim) {
-			item.sim = {
-				cx: tcx,
-				cy: tcy,
-				w: f.w,
-				h: f.h,
-				r: tr,
-				vcx: 0,
-				vcy: 0,
-				vw: 0,
-				vh: 0,
-				vr: 0,
-			};
-		}
-		const s = item.sim;
-		if (dyn.move) {
-			// Lag + wobble: liquid rubber trailing the element.
-			const mo = dyn.moveOpts ?? MOVE_DEFAULTS;
-			[s.cx, s.vcx] = springSteps(
-				s.cx,
-				s.vcx,
-				tcx,
-				mo.stiffness,
-				mo.damping,
-				dt,
-			);
-			[s.cy, s.vcy] = springSteps(
-				s.cy,
-				s.vcy,
-				tcy,
-				mo.stiffness,
-				mo.damping,
-				dt,
-			);
-		} else if (dyn.evolve) {
-			// Mass moves first: springs can only chase, so aim AHEAD of the moving
-			// target by its (smoothed) velocity — the droplet travels toward the
-			// destination while still small, then the size catches up.
-			const eo = dyn.evolveOpts ?? EVOLVE_DEFAULTS;
-			const rawVx = item.tPrev ? (tcx - item.tPrev.cx) / dt : 0;
-			const rawVy = item.tPrev ? (tcy - item.tPrev.cy) / dt : 0;
-			item.tvx = item.tvx * 0.7 + rawVx * 0.3;
-			item.tvy = item.tvy * 0.7 + rawVy * 0.3;
-			item.tPrev = {
-				cx: tcx,
-				cy: tcy,
-			};
-			// Lead direction: the target's own velocity while it is moving, else
-			// whatever distance the droplet still has to cover.
-			const remX = tcx - s.cx;
-			const remY = tcy - s.cy;
-			const rem = Math.hypot(remX, remY);
-			const vMag = Math.hypot(item.tvx, item.tvy);
-			let dx = 0;
-			let dy = 0;
-			if (vMag > 1e-3) {
-				dx = item.tvx / vMag;
-				dy = item.tvy / vMag;
-			} else if (rem > 1e-3) {
-				dx = remX / rem;
-				dy = remY / rem;
-			}
-			// `anticipation` only times the ramp-in; it must never scale the reach,
-			// or a small value would silently cancel `travel`.
-			const tau = Math.max(0, eo.anticipation) / 1000;
-			const k = tau > 0 ? 1 - Math.exp(-dt / tau) : 1;
-			item.lead01 += ((rem > 0.5 ? 1 : 0) - item.lead01) * k;
-			// Clamping the reach to the remaining distance keeps the lead from
-			// pulling the spring target past the destination as it arrives.
-			const reach = Math.min(Math.max(0, eo.travel) * item.lead01, rem);
-			const ox = dx * reach;
-			const oy = dy * reach;
-			[s.cx, s.vcx] = springSteps(
-				s.cx,
-				s.vcx,
-				tcx + ox,
-				eo.massStiffness,
-				eo.massDamping,
-				dt,
-			);
-			[s.cy, s.vcy] = springSteps(
-				s.cy,
-				s.vcy,
-				tcy + oy,
-				eo.massStiffness,
-				eo.massDamping,
-				dt,
-			);
-		} else {
-			s.cx = tcx;
-			s.cy = tcy;
-			s.vcx = 0;
-			s.vcy = 0;
-		}
-		if (dyn.evolve) {
-			// Size adapts after the mass, radius after the size.
-			const eo = dyn.evolveOpts ?? EVOLVE_DEFAULTS;
-			[s.w, s.vw] = springSteps(
-				s.w,
-				s.vw,
-				f.w,
-				eo.sizeStiffness,
-				eo.sizeDamping,
-				dt,
-			);
-			[s.h, s.vh] = springSteps(
-				s.h,
-				s.vh,
-				f.h,
-				eo.sizeStiffness,
-				eo.sizeDamping,
-				dt,
-			);
-			// Default near-critical damping: the corner radius must land without
-			// bouncing — the roundness envelope already supplies the liquid overshoot.
-			[s.r, s.vr] = springSteps(
-				s.r,
-				s.vr,
-				tr,
-				eo.radiusStiffness,
-				eo.radiusDamping,
-				dt,
-			);
-		} else {
-			s.w = f.w;
-			s.h = f.h;
-			s.r = tr;
-			s.vw = 0;
-			s.vh = 0;
-			s.vr = 0;
-		}
-		let extra = "";
-		const speed = Math.hypot(s.vcx, s.vcy);
-		if (dyn.move && speed > 2) {
-			// Mild stretch along the velocity axis — the drop shape itself comes
-			// from the trailing satellite below, not from squashing the body into
-			// an ellipse.
-			const st = Math.min(
-				(dyn.moveOpts ?? MOVE_DEFAULTS).stretch,
-				speed * 0.0006,
-			);
-			const a = Math.round(Math.atan2(s.vcy, s.vcx) * 100) / 100;
-			extra += ` rotate(${a}rad) scale(${(1 + st).toFixed(3)}, ${(1 / (1 + st * 0.65)).toFixed(3)}) rotate(${-a}rad)`;
-		}
-		if (dyn.move && item.tailEl) {
-			// Trailing droplet: chases the body's centre on a laggier spring and
-			// swells with speed — the goo filter strings body + satellite into a
-			// moving-drop silhouette with a liquid tail. The lag is clamped so the
-			// satellite always overlaps the body's blur field: a small circle on
-			// its own sits below the goo alpha threshold and would simply vanish.
-			const round = (v: number) => Math.round(v * 10) / 10;
-			if (
-				item.tailR === 0 &&
-				Math.abs(item.tailX) < 0.001 &&
-				Math.abs(item.tailY) < 0.001
-			) {
-				item.tailX = s.cx;
-				item.tailY = s.cy;
-			}
-			[item.tailX, item.tailVx] = springSteps(
-				item.tailX,
-				item.tailVx,
-				s.cx,
-				170,
-				22,
-				dt,
-			);
-			[item.tailY, item.tailVy] = springSteps(
-				item.tailY,
-				item.tailVy,
-				s.cy,
-				170,
-				22,
-				dt,
-			);
-			const bi = item.blobInset ?? 0;
-			const base = Math.max(4, Math.min(s.w, s.h) - bi * 2);
-			const lagX = item.tailX - s.cx;
-			const lagY = item.tailY - s.cy;
-			const lag = Math.hypot(lagX, lagY);
-			const maxLag = base * 0.8;
-			if (lag > maxLag) {
-				item.tailX = s.cx + (lagX / lag) * maxLag;
-				item.tailY = s.cy + (lagY / lag) * maxLag;
-			}
-			const targetR = Math.min(
-				base * (dyn.moveOpts ?? MOVE_DEFAULTS).tail,
-				Math.max(0, (speed - 20) * 0.03),
-			);
-			item.tailR += (targetR - item.tailR) * Math.min(1, dt * 10);
-			if (item.tailR < 0.3) {
-				if (item.lastTail !== "hidden") {
-					item.tailEl.setAttribute("r", "0");
-					item.lastTail = "hidden";
-				}
-			} else {
-				const tail = `${round(item.tailX)},${round(item.tailY)},${round(item.tailR)}`;
-				if (tail !== item.lastTail) {
-					item.tailEl.setAttribute("cx", String(round(item.tailX)));
-					item.tailEl.setAttribute("cy", String(round(item.tailY)));
-					item.tailEl.setAttribute("r", String(round(item.tailR)));
-					item.lastTail = tail;
-				}
-			}
-		}
-		let renderR = Math.max(0, s.r);
-		let cornerActive = false;
-		if (dyn.evolve) {
-			const eo = dyn.evolveOpts ?? EVOLVE_DEFAULTS;
-			const now = performance.now();
-			// Corner timeline: detect a morph beginning (target size starts
-			// changing after a quiet spell) and run droplet-round → target radius
-			// over the configured duration/easing/delay, starting at t=0 of the
-			// morph — a normal animation, no motion gating.
-			const prevSize = item.lastTargetSize;
-			const sizeDelta = prevSize
-				? Math.abs(f.w - prevSize.w) + Math.abs(f.h - prevSize.h)
-				: 0;
-			// LATCHED trigger: the timeline starts once per morph and cannot
-			// restart until the size has been still AND the timeline has finished.
-			// A gap-based test ("no size change for 120ms → new morph") restarts
-			// mid-morph whenever frames are delivered irregularly — which Safari
-			// does under filter repaints — and each restart snaps the corners back
-			// to fully round, reading as flashing.
-			if (sizeDelta > 0.5) {
-				if (!item.morphActive) {
-					item.cornerT0 = now;
-					item.morphActive = true;
-				}
-				item.lastTargetMoveT = now;
-			} else if (
-				item.morphActive &&
-				now - item.lastTargetMoveT > 150 &&
-				now - item.cornerT0 > cornerTotalOf(eo)
-			) {
-				item.morphActive = false;
-			}
-			item.lastTargetSize = {
-				w: f.w,
-				h: f.h,
-			};
-			const cornerTotal = cornerTotalOf(eo);
-			let target01 = 0;
-			if (
-				item.cornerT0 > 0 &&
-				eo.roundness > 0 &&
-				now - item.cornerT0 < cornerTotal
-			) {
-				const p = Math.min(
-					1,
-					Math.max(
-						0,
-						(now - item.cornerT0 - Math.max(0, eo.cornerDelay)) /
-							Math.max(1, eo.cornerDuration),
-					),
-				);
-				const eased = easingFn(eo.cornerEase)(p);
-				target01 = Math.min(1, Math.max(0, (1 - eased) * eo.roundness));
-			}
-			// Rate-limit the roundness so it GLIDES to the timeline value instead of
-			// stepping: at morph start the timeline jumps to full round — invisible
-			// when opening from a circle, a hard snap when closing from a card.
-			const maxStep = dt * 8;
-			item.round01 += Math.max(
-				-maxStep,
-				Math.min(maxStep, target01 - item.round01),
-			);
-			cornerActive =
-				(item.cornerT0 > 0 && now - item.cornerT0 < cornerTotal + 80) ||
-				Math.abs(target01 - item.round01) > 0.004 ||
-				item.round01 > 0.004;
-			if (item.round01 > 0.001) {
-				// The boost may only RAISE the radius above the spring value: when the
-				// size spring undershoots, min(w,h)/2 can fall below the corner radius
-				// and would drag it down — that reads as the corners pulsing.
-				const roundTarget = Math.max(Math.min(s.w, s.h) / 2, renderR);
-				renderR = renderR + (roundTarget - renderR) * item.round01;
-				// And never dip below the destination radius on the way down. (Safe
-				// unconditionally: SVG clamps rx to half the rect on its own.)
-				renderR = Math.max(renderR, tr);
-			}
-			// Content cross-blur still follows physical motion.
-			const motionRaw = Math.min(
-				1,
-				(Math.hypot(s.vcx, s.vcy) + Math.abs(s.vw) + Math.abs(s.vh)) / 420,
-			);
-			item.motionEnv = Math.max(motionRaw, item.motionEnv - dt * 1.9);
-			const motion = item.motionEnv;
-			const blurPx = motion * motion * Math.max(0, eo.contentBlur);
-			if (blurPx > 0.3) {
-				item.target.style.filter = `blur(${blurPx.toFixed(1)}px)`;
-				item.contentBlurred = true;
-			} else if (item.contentBlurred) {
-				item.target.style.removeProperty("filter");
-				item.contentBlurred = false;
-			}
-		}
-		const bi = item.blobInset ?? 0;
-		const bw = Math.max(0, s.w - bi * 2);
-		const bh = Math.max(0, s.h - bi * 2);
-		const paint = {
-			t: `translate(${s.cx - s.w / 2 + bi}px, ${s.cy - s.h / 2 + bi}px)${extra}`,
-			w: String(bw),
-			h: String(bh),
-			rx: String(pillRadius(renderR - bi, bw, bh)),
+		const radius = dyn.evolve
+			? measureRadius(
+					item.target,
+					item.target.offsetWidth,
+					item.target.offsetHeight,
+				)[0]
+			: item.radiusPx * (item.baseW > 0 ? f.w / item.baseW : 1);
+		const { paint, tail, blur, settled } = JSON.parse(
+			item.body.tick(
+				JSON.stringify({
+					frame: f,
+					dt,
+					now: performance.now(),
+					radius,
+					inset: item.blobInset ?? 0,
+					dynamics: dyn,
+				}),
+			),
+		) as {
+			paint: NonNullable<Item["lastPaint"]>;
+			tail: [number, number, number] | null;
+			blur: string | null;
+			settled: boolean;
 		};
+		if (tail && item.tailEl) {
+			const key = tail[2] === 0 ? "hidden" : tail.join(",");
+			if (key !== item.lastTail) {
+				item.tailEl.setAttribute("cx", String(tail[0]));
+				item.tailEl.setAttribute("cy", String(tail[1]));
+				item.tailEl.setAttribute("r", String(tail[2]));
+				item.lastTail = key;
+			}
+		}
+		if (dyn.evolve) {
+			if (blur) item.target.style.filter = blur;
+			else if (item.contentBlurred) item.target.style.removeProperty("filter");
+			item.contentBlurred = blur !== null;
+		}
 		const lp = item.lastPaint;
 		if (!lp || lp.t !== paint.t) item.blob.style.transform = paint.t;
 		if (!lp || lp.w !== paint.w) item.blob.setAttribute("width", paint.w);
@@ -991,17 +491,6 @@ export class ObserveEngine {
 		if (!lp || lp.rx !== paint.rx) item.blob.setAttribute("rx", paint.rx);
 		item.lastPaint = paint;
 		item.last = f;
-		const settled =
-			Math.abs(s.cx - tcx) < 0.05 &&
-			Math.abs(s.cy - tcy) < 0.05 &&
-			Math.abs(s.w - f.w) < 0.05 &&
-			Math.abs(s.h - f.h) < 0.05 &&
-			Math.abs(s.r - tr) < 0.05 &&
-			speed < 1 &&
-			Math.abs(s.vw) + Math.abs(s.vh) + Math.abs(s.vr) < 1 &&
-			item.motionEnv < 0.01 &&
-			item.tailR < 0.3 &&
-			!cornerActive;
 		return !settled;
 	}
 	private ensureSources(): void {

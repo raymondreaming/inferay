@@ -7,11 +7,10 @@ import {
 	type GitWorkspacePanelSession,
 } from "./workbench-model.ts";
 
-type WorkspacePanelSession = GitWorkspacePanelSession<FileContentResponse>;
+type WorkspacePanelSession = GitWorkspacePanelSession;
 
-export const emptyPanelSession =
-	emptyGitWorkspacePanelSession<FileContentResponse>();
-export type PanelAction = GitWorkspacePanelAction<FileContentResponse>;
+export const emptyPanelSession = emptyGitWorkspacePanelSession();
+export type PanelAction = GitWorkspacePanelAction;
 export function panelQuery(workspaceId: string) {
 	return {
 		queryKey: ["workspace-panels", workspaceId],

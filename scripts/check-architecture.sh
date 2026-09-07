@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+echo "==> Build Rust renderer models and contracts"
+bun run build:presentation
+
 echo "==> Biome focused architecture lint"
 bunx biome lint \
 	src/modules/conversation/components/AgentChatView/index.tsx \

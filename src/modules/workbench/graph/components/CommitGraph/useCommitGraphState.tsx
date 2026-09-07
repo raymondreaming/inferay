@@ -19,7 +19,6 @@ import {
 	type ColumnVisibility,
 	type ColumnWidths,
 	EMPTY_SELECTED_IDS,
-	loadPreferences,
 	MAX_COLUMN_WIDTH,
 	MIN_COLUMN_WIDTHS,
 	moveGraphColumn,
@@ -32,13 +31,13 @@ import {
 import { getGraphLineLayerStyle } from "./styles.ts";
 export function useCommitGraphState(props: CommitGraphProps) {
 	const {
-		ancestry,
 		onSearchChange,
 		emptyLabel = "No matching commits",
 		searchActive = false,
 		searchQuery = "",
 		commits,
 		rows,
+		presentation,
 		selectedHash,
 		selectedIds = EMPTY_SELECTED_IDS,
 		onSelect,
@@ -50,12 +49,9 @@ export function useCommitGraphState(props: CommitGraphProps) {
 		repositoryKey,
 		onOpenSelection,
 	} = props;
-	const [preferences, setPreferences] = useState(() => ({
-		repositoryKey,
-		value: loadPreferences(repositoryKey),
-	}));
-	const { columns, widths, order, hiddenRefs, soloRefs, pinnedRefs } =
-		preferences.value;
+	const preferences = props.preferences;
+	const setPreferences = props.onPreferencesChange;
+	const { columns, widths, order, soloRefs, pinnedRefs } = preferences;
 	const setters = useMemo(() => {
 		const field =
 			<K extends keyof GraphPreferences>(key: K) =>
@@ -66,13 +62,7 @@ export function useCommitGraphState(props: CommitGraphProps) {
 			) =>
 				setPreferences((current) => ({
 					...current,
-					value: {
-						...current.value,
-						[key]:
-							typeof update === "function"
-								? update(current.value[key])
-								: update,
-					},
+					[key]: typeof update === "function" ? update(current[key]) : update,
 				}));
 		return {
 			setColumns: field("columns"),
@@ -154,16 +144,6 @@ export function useCommitGraphState(props: CommitGraphProps) {
 		});
 	}, [embedded, hasCommits, repositoryKey]);
 	useEffect(() => {
-		setPreferences((current) =>
-			current.repositoryKey === repositoryKey
-				? current
-				: {
-						repositoryKey,
-						value: loadPreferences(repositoryKey),
-					},
-		);
-	}, [repositoryKey]);
-	useEffect(() => {
 		const key = scrollPreferencesKey(repositoryKey);
 		if (restoredScrollKeyRef.current === key || commits.length === 0) return;
 		const position = readStoredJson<{
@@ -212,33 +192,19 @@ export function useCommitGraphState(props: CommitGraphProps) {
 		};
 	}, [itemContextMenu, refContextMenu]);
 	useEffect(() => {
-		if (preferences.repositoryKey === repositoryKey)
-			writeStoredJson(preferencesKey(repositoryKey), preferences.value);
+		writeStoredJson(preferencesKey(repositoryKey), preferences);
 	}, [preferences, repositoryKey]);
 	const graphModel = useMemo(
 		() =>
 			buildCommitGraphViewModel({
-				ancestry,
 				columns,
 				commits,
-				hiddenRefs,
 				order,
-				pinnedRefs,
-				soloRefs,
+				presentation,
 				widths,
 				worktrees,
 			}),
-		[
-			ancestry,
-			columns,
-			commits,
-			hiddenRefs,
-			order,
-			pinnedRefs,
-			soloRefs,
-			widths,
-			worktrees,
-		],
+		[columns, commits, order, presentation, widths, worktrees],
 	);
 	const viewportModel = useMemo(
 		() =>

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "octane";
+import { useCallback, useMemo, useRef, useState } from "octane";
 import {
 	usePollingQuery,
 	useQueryResource,
@@ -14,11 +14,18 @@ import {
 	fetchComparisonDetails,
 	type GitGraphItemKind,
 	type GraphData,
+	type GraphSemanticPreferences,
 } from "../model/git-graph.ts";
 export function useGitGraph(
 	cwd: string | undefined,
 	limit = DEFAULT_GIT_GRAPH_HISTORY_LIMIT,
+	preferences: GraphSemanticPreferences = {
+		hiddenRefs: [],
+		soloRefs: [],
+		pinnedRefs: [],
+	},
 ) {
+	const preferenceKey = JSON.stringify(preferences);
 	const [search, setSearch] = useState({
 		cwd,
 		query: "",
@@ -34,20 +41,24 @@ export function useGitGraph(
 	);
 	const readGraph = useMemo(createGitGraphReader, []);
 	const fetchGraph = useCallback(
-		(signal?: AbortSignal) => readGraph(cwd, limit, searchQuery, signal),
-		[readGraph, cwd, limit, searchQuery],
+		(signal?: AbortSignal) =>
+			readGraph(cwd, limit, searchQuery, preferences, signal),
+		[readGraph, cwd, limit, searchQuery, preferenceKey],
 	);
 	const { data, loading, error, refresh } = usePollingQuery<GraphData>(
 		fetchGraph,
 		3000,
 		EMPTY_GRAPH,
 		{
-			queryKey: ["git", "graph", cwd ?? "", limit, searchQuery],
+			queryKey: ["git", "graph", cwd ?? "", limit, searchQuery, preferenceKey],
 			enabled: !!cwd,
 		},
 	);
+	const visible = useRef({ cwd, data: EMPTY_GRAPH });
+	if (visible.current.cwd !== cwd) visible.current = { cwd, data: EMPTY_GRAPH };
+	if (data !== EMPTY_GRAPH) visible.current.data = data;
 	return {
-		...data,
+		...visible.current.data,
 		searchQuery,
 		setSearchQuery,
 		loading,
