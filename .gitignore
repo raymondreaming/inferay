@@ -49,3 +49,6 @@ scripts/config.local.yaml
 src/data/checkpoints.json
 
 .env.codesign
+
+# Local upstream documentation snapshot
+/docs/solid-2.0/

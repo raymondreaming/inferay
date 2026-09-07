@@ -169,7 +169,7 @@ if (import.meta.main) {
 		{ category: "App .tsx", files: 0, lines: 0 },
 		{ category: "App .ts", files: 0, lines: 0 },
 		{ category: "Rust .rs", files: 0, lines: 0 },
-		{ category: "React .jsx", files: 0, lines: 0 },
+		{ category: "JSX .jsx", files: 0, lines: 0 },
 		{ category: "Renderer .js", files: 0, lines: 0 },
 	];
 	const components: { file: string; names: string[]; lines: number }[] = [];
@@ -221,7 +221,7 @@ if (import.meta.main) {
 		);
 	else {
 		console.log(
-			`React components: ${report.components.definitions} definitions in ${report.components.files} files (${report.components.lines.toLocaleString("en-US")} lines; included below).\n`,
+			`Solid components: ${report.components.definitions} definitions in ${report.components.files} files (${report.components.lines.toLocaleString("en-US")} lines; included below).\n`,
 		);
 		console.table([
 			...rows.filter((row) => row.files > 0),
@@ -231,7 +231,7 @@ if (import.meta.main) {
 			"Scope: src/ and native/, excluding styles, tests/fixtures/mocks, tooling, generated files and build/dependency folders.",
 		);
 		console.log(
-			"Lines include comments and blanks; Rust test items/modules are subtracted. Component counts use static naming/render conventions, including Octane components.",
+			"Lines include comments and blanks; Rust test items/modules are subtracted. Component counts use static naming/render conventions, including Solid components.",
 		);
 	}
 }

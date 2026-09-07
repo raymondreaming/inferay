@@ -1,6 +1,6 @@
 # Gooey
 
-Vendored, Octane-adapted liquid control primitives for Inferay. Interactive
+Vendored, Solid 2 liquid control primitives for Inferay. Interactive
 DOM stays crisp and owns clicks, focus, labels, disabled state, and keyboard
 behavior; an SVG layer mirrors the control geometry underneath.
 

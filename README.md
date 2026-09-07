@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/backend-Rust-f74c00?style=flat-square" />
-  <img src="https://img.shields.io/badge/frontend-React_19_%2B_Octane-61dafb?style=flat-square" />
+  <img src="https://img.shields.io/badge/frontend-Solid_2.0-2c4f7c?style=flat-square" />
   <img src="https://img.shields.io/badge/agent_shell-xterm.js-22c55e?style=flat-square" />
   <img src="https://img.shields.io/badge/styling-Tailwind_4-38bdf8?style=flat-square" />
   <img src="https://img.shields.io/badge/desktop-Rust%20%2B%20Wry-f74c00?style=flat-square" />
@@ -118,20 +118,20 @@ the GitHub release, and publishes the npm CLI package.
 
 Rust owns application models and native operations. The pure models in
 `native/presentation` are shared with the TSX renderer through WebAssembly;
-React/Octane owns the DOM, view composition, and browser events. Build the
+Solid owns the DOM, view composition, and browser events. Build the
 renderer with `bun run build:renderer` to regenerate the Rust bindings first.
 
-`bun run code` reports Rust and renderer code separately. Keep React views and
+`bun run code` reports Rust and renderer code separately. Keep Solid views and
 browser interactions in typed TSX; move application models into Rust and generate
 their TypeScript contracts. Import generated contracts by their Rust names;
-React owns local UI state, browser events, and calls to the backend.
+Solid owns local UI state, browser events, and calls to the backend.
 `bun run check:architecture` checks the boundaries,
 TypeScript, Rust, and renderer build.
 
 ## Tech stack
 
 - **Application server and agent runtime**: Rust
-- **Frontend**: [Octane](https://github.com/octanejs/octane), TypeScript/TSX, and StyleX
+- **Frontend**: [Solid 2.0](https://www.solidjs.com/), TypeScript/TSX, and StyleX
 - **Agent workspace**: xterm.js
 - **Styling**: Tailwind CSS v4
 - **Desktop**: Rust, Tao, and Wry
@@ -141,3 +141,5 @@ TypeScript, Rust, and renderer build.
 This project is source-available for reference and educational purposes. All rights are reserved by the author.
 
 See [LICENSE](LICENSE) for the full terms.
+
+Validation: `bun run check:architecture` checks the Solid wrapper, Rust models, and production build. `bun test scripts/tests/workbench-navigation.test.ts` checks navigation against the Rust presentation models. Temporary browser fixtures and profiling artifacts have been removed.
