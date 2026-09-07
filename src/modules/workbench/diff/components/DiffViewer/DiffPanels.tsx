@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { createMemo, omit } from "solid-js";
+import { createMemo, omit, Show } from "solid-js";
 import type { HunkDiff } from "../../../../../../build/presentation/contracts/HunkDiff.ts";
 import type { RefCell } from "../../../../../shared/lib/dom.tsx";
 import {
@@ -27,19 +27,25 @@ export const DiffPanels = function DiffPanels(_props: {
 		() => omit(_props, "diff", "mode", "scrollRef").externalScrollSource,
 	);
 	const metadata = createMemo(() => _props.diff.metadata);
+	const conflict = createMemo(() => _props.mode === "conflict");
+	const oldLines = createMemo(() =>
+		_props.diff.isNew ? [] : _props.diff.oldLines,
+	);
+	const rowCount = createMemo(() =>
+		Math.max(oldLines().length, _props.diff.newLines.length),
+	);
 	return (
 		<>
-			{(() => {
-				const _metadataValue3 = metadata();
-				if (_props.mode !== "split") {
-					const conflict = _props.mode === "conflict";
-					return (
+			{
+				<Show
+					when={_props.mode === "split"}
+					fallback={
 						<div
 							{...stylex.attrs(
-								conflict ? diffStyles.conflictBody : diffStyles.singlePanel,
+								conflict() ? diffStyles.conflictBody : diffStyles.singlePanel,
 							)}
 						>
-							{conflict && (
+							{conflict() && (
 								<div {...stylex.attrs(diffStyles.conflictActions)}>
 									{[
 										"Accept current change",
@@ -58,18 +64,18 @@ export const DiffPanels = function DiffPanels(_props: {
 							<VirtualPanel
 								{...omit(_props, "diff", "mode", "scrollRef")}
 								lines={
-									(conflict
+									(conflict()
 										? _props.diff.conflictLines
 										: (_props.diff.inlineLines ?? _props.diff.compactLines)) ??
 									[]
 								}
 								maxLineChars={
-									conflict
+									conflict()
 										? metadata().maxConflictLineChars
 										: metadata().maxInlineLineChars
 								}
 								minimapSegments={
-									conflict
+									conflict()
 										? metadata().conflictMinimap
 										: metadata().inlineMinimap
 								}
@@ -77,13 +83,13 @@ export const DiffPanels = function DiffPanels(_props: {
 								side="single"
 								showMinimap
 								externalScrollTop={
-									conflict
+									conflict()
 										? undefined
 										: omit(_props, "diff", "mode", "scrollRef")
 												.externalScrollTop
 								}
 								externalScrollSource={
-									conflict
+									conflict()
 										? undefined
 										: omit(_props, "diff", "mode", "scrollRef")
 												.externalScrollSource
@@ -91,15 +97,8 @@ export const DiffPanels = function DiffPanels(_props: {
 								highlightedRange={undefined}
 							/>
 						</div>
-					);
-				}
-				const oldLines = createMemo(() =>
-					_props.diff.isNew ? [] : _props.diff.oldLines,
-				);
-				const rowCount = createMemo(() =>
-					Math.max(oldLines().length, _props.diff.newLines.length),
-				);
-				return (
+					}
+				>
 					<div {...stylex.attrs(diffStyles.splitPanels)}>
 						<div
 							{...stylex.attrs(
@@ -112,7 +111,7 @@ export const DiffPanels = function DiffPanels(_props: {
 								rowCount={rowCount()}
 								lines={oldLines()}
 								maxLineChars={
-									_props.diff.isNew ? 0 : _metadataValue3.maxOldLineChars
+									_props.diff.isNew ? 0 : metadata().maxOldLineChars
 								}
 								scrollRef={_source.followerRef}
 								onScroll={_source.syncFromFollower}
@@ -127,18 +126,18 @@ export const DiffPanels = function DiffPanels(_props: {
 								{...omit(_props, "diff", "mode", "scrollRef")}
 								rowCount={rowCount()}
 								lines={_props.diff.newLines}
-								maxLineChars={_metadataValue3.maxNewLineChars}
+								maxLineChars={metadata().maxNewLineChars}
 								scrollRef={_props.scrollRef}
 								onScroll={_source.syncFromMaster}
 								showGutter={false}
 								showMinimap
-								minimapSegments={_metadataValue3.splitMinimap}
+								minimapSegments={metadata().splitMinimap}
 								side="right"
 							/>
 						</div>
 					</div>
-				);
-			})()}
+				</Show>
+			}
 		</>
 	);
 };

@@ -1,10 +1,4 @@
-import {
-	type Accessor,
-	createEffect,
-	createMemo,
-	createSignal,
-	onSettled,
-} from "solid-js";
+import { type Accessor, createMemo, createSignal, onSettled } from "solid-js";
 import {
 	dispatchWindowEvent,
 	listenWindowEvent,
@@ -71,72 +65,66 @@ interface ClassifiedDocument {
 	language: string;
 	lines: Array<Array<number | string>>;
 }
-export function useSyntaxHighlight(
-	_options: Accessor<{
-		filePath: string;
-		lines: string[];
-		lineTypes?: string[];
-		enabled?: boolean;
-	}>,
-) {
-	const active = createMemo(() => {
-		const _optionsValue = _options();
-		return (
-			(_optionsValue.enabled === undefined ? true : _optionsValue.enabled) &&
-			!shouldDisableSnippetHighlighting(_optionsValue.lines)
-		);
-	});
-	const key = createMemo(() => {
-		const _optionsValue2 = _options();
-		return active()
-			? contentKey(_optionsValue2.lines)
-			: String(_optionsValue2.lines.length);
-	});
-	const query = useQuery(
-		() => {
-			const _optionsValue4 = _options();
-			return {
-				queryKey: [
-					"syntax",
-					4,
-					_optionsValue4.filePath,
-					key(),
-					_optionsValue4.lineTypes
-						? contentKey(_optionsValue4.lineTypes)
-						: "source",
-				],
-				enabled: active() && _optionsValue4.lines.length > 0,
-				queryFn: async ({ signal }: { signal: AbortSignal }) => {
-					const _optionsValue3 = _options();
-					const response = await sendJson(
-						"/api/native/highlight",
-						{
-							path: _optionsValue3.filePath,
-							text: _optionsValue3.lines.join("\n"),
-							lineTypes: _optionsValue3.lineTypes,
-						},
-						{
-							signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
-						},
-					);
-					if (!response.ok) throw new Error("Highlight request failed");
-					const document: ClassifiedDocument | null = await response.json();
-					// Older native processes use the same run format. Keep their colors
-					// during renderer reloads until the native process restarts.
-					return document && [1, 2, 3].includes(document.version)
-						? document
-						: null;
-				},
-				staleTime: Infinity,
-				gcTime: 60_000,
-				retry: false,
-			};
+type HighlightInput = {
+	filePath: string;
+	lines: string[];
+	lineTypes?: string[];
+	enabled?: boolean;
+};
+function syntaxQueryOptions(input: HighlightInput) {
+	const enabled =
+		input.enabled !== false &&
+		input.lines.length > 0 &&
+		!shouldDisableSnippetHighlighting(input.lines);
+	const path = input.filePath;
+	const text = enabled ? input.lines.join("\n") : "";
+	const lineTypes = input.lineTypes ? [...input.lineTypes] : undefined;
+	return {
+		queryKey: [
+			"syntax",
+			4,
+			path,
+			enabled ? contentKey(input.lines) : String(input.lines.length),
+			lineTypes ? contentKey(lineTypes) : "source",
+		],
+		enabled,
+		queryFn: async ({ signal }: { signal: AbortSignal }) => {
+			const response = await sendJson(
+				"/api/native/highlight",
+				{ path, text, lineTypes },
+				{ signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]) },
+			);
+			if (!response.ok) throw new Error("Highlight request failed");
+			const document: ClassifiedDocument | null = await response.json();
+			return document && [1, 2, 3].includes(document.version) ? document : null;
 		},
-		() => queryClient,
-	);
+		staleTime: Infinity,
+		gcTime: 5 * 60_000,
+		retry: false as const,
+	};
+}
+export async function prefetchSyntaxHighlight(
+	input: HighlightInput,
+): Promise<void> {
+	const options = syntaxQueryOptions(input);
+	if (options.enabled) await queryClient.prefetchQuery(options);
+}
+export function useSyntaxHighlight(_options: Accessor<HighlightInput>) {
+	const options = createMemo(() => syntaxQueryOptions(_options()));
+	const active = createMemo(() => options().enabled);
+	const query = useQuery(options, () => queryClient);
 	// Slicing every line up front wastes the work virtualization exists to
 	// avoid, so tokens are cut on demand and kept per document.
-	const document = createMemo(() => query.data ?? null);
+	const document = createMemo(() => {
+		// Observe fetch completion, but always select the current document's cache entry.
+		// Cached navigation must not wait for the observer effect or use the previous file's runs.
+		query.data;
+		return active()
+			? (queryClient.getQueryData<ClassifiedDocument | null>(
+					options().queryKey,
+				) ?? null)
+			: null;
+	});
 	const tokens = createMemo(() => {
 		document();
 		return new Map<number, SyntaxToken[]>();
@@ -172,7 +160,7 @@ export function useSyntaxHighlight(
 			return getLineTokens;
 		},
 		get isReady() {
-			return !active() || !query.isPending;
+			return !active() || document() !== null || !query.isPending;
 		},
 		get language() {
 			return document()?.language ?? null;

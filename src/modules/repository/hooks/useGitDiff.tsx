@@ -1,6 +1,7 @@
 import { type Accessor, createMemo, onSettled } from "solid-js";
 import type { HunkDiff } from "../../../../build/presentation/contracts/HunkDiff.ts";
 import { useBackgroundQuery as useQuery } from "../../../shared/hooks/useQueryResource.tsx";
+import { prefetchSyntaxHighlight } from "../../../shared/hooks/useSyntaxHighlight.tsx";
 import { queryClient } from "../../../shared/lib/dom.tsx";
 export function useGitDiff(
 	_request: Accessor<DiffRequest | null> = () => null,
@@ -106,6 +107,26 @@ export function useDiffPrefetch() {
 					gcTime: 30_000,
 					retry: false,
 				});
+				const diff = queryClient.getQueryData<HunkDiff>(diffQueryKey(request));
+				if (disposed || !diff || diff.isBinary) continue;
+				const panels =
+					request.view === "review"
+						? [
+								diff.conflictLines ??
+									diff.inlineLines ??
+									diff.compactLines ??
+									[],
+							]
+						: [diff.isNew ? [] : diff.oldLines, diff.newLines];
+				await Promise.all(
+					panels.map((lines) =>
+						prefetchSyntaxHighlight({
+							filePath: request.file,
+							lines: lines.map((line) => line.content),
+							lineTypes: lines.map((line) => line.type),
+						}),
+					),
+				);
 			}
 		} finally {
 			running = false;

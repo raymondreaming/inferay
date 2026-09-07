@@ -65,13 +65,10 @@ export const VirtualPanel = function VirtualPanel(_props: {
 			top: 0,
 		},
 	};
-	const lastAppliedScrollRef = {
-		current: -1,
-	};
 	createEffect(
-		() => [_props.scrollRef],
-		() => {
-			const el = _props.scrollRef.current;
+		() => _props.scrollRef,
+		(scrollRef) => {
+			const el = scrollRef.current;
 			if (!el) return;
 			dispatchViewport({
 				type: "measure",
@@ -149,42 +146,24 @@ export const VirtualPanel = function VirtualPanel(_props: {
 		enabled: !_props.disableTokenize && !!_props.filePath,
 	}));
 	createEffect(
-		() => [
-			_props.externalScrollTop,
-			_props.externalScrollSource,
-			_props.rowCount === undefined ? _props.lines.length : _props.rowCount,
-			_props.scrollRef,
-			_props.side,
-			_source().viewHeight,
-		],
-		() => {
-			if (
-				_props.externalScrollTop === undefined ||
-				_props.externalScrollTop < 0
-			)
-				return;
-			if (_props.externalScrollSource === _props.side) return;
-			if (_props.externalScrollTop === lastAppliedScrollRef.current) return;
-			lastAppliedScrollRef.current = _props.externalScrollTop;
-			if (_props.scrollRef.current) {
-				const maxScrollTop = Math.max(
-					0,
-					(_props.rowCount === undefined
-						? _props.lines.length
-						: _props.rowCount) *
-						LINE_H -
-						_source().viewHeight,
-				);
-				const nextScrollTop = roundToDevicePixel(
-					Math.min(Math.max(0, _props.externalScrollTop), maxScrollTop),
-				);
-				_props.scrollRef.current.scrollTop = nextScrollTop;
-				lastScrollRef.current.top = nextScrollTop;
-				dispatchViewport({
-					type: "scroll",
-					top: nextScrollTop,
-				});
-			}
+		() => ({
+			top: _props.externalScrollTop,
+			source: _props.externalScrollSource,
+			rowCount: _props.rowCount ?? _props.lines.length,
+			scrollRef: _props.scrollRef,
+			side: _props.side,
+			viewHeight: _source().viewHeight,
+		}),
+		({ top, source, rowCount, scrollRef, side, viewHeight }) => {
+			const element = scrollRef.current;
+			if (!element || top === undefined || top < 0 || source === side) return;
+			const maxScrollTop = Math.max(0, rowCount * LINE_H - viewHeight);
+			const nextScrollTop = roundToDevicePixel(Math.min(top, maxScrollTop));
+			// Reapply the clamped target after a file or viewport size changes.
+			if (element.scrollTop !== nextScrollTop)
+				element.scrollTop = nextScrollTop;
+			lastScrollRef.current.top = nextScrollTop;
+			dispatchViewport({ type: "scroll", top: nextScrollTop });
 		},
 	);
 	const scrollToLine = (lineIndex: number) => {
