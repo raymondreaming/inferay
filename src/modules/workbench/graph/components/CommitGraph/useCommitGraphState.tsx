@@ -343,7 +343,27 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 			y: Math.min(event.clientY, window.innerHeight - 260),
 		});
 	};
+	const revealKeyboardRow = (index: number, repeat: boolean) => {
+		const scroller = scrollerRef.current;
+		if (!scroller || index < 0) return;
+		const rowTop = index * ROW_HEIGHT;
+		const padding = ROW_HEIGHT * 2;
+		const top =
+			rowTop < scroller.scrollTop + padding
+				? Math.max(0, rowTop - padding)
+				: rowTop + ROW_HEIGHT >
+						scroller.scrollTop + scroller.clientHeight - padding
+					? rowTop + ROW_HEIGHT - scroller.clientHeight + padding
+					: scroller.scrollTop;
+		if (Math.abs(top - scroller.scrollTop) > 0.5)
+			scroller.scrollTo({ top, behavior: repeat ? "instant" : "smooth" });
+	};
 	const navigateRows = (event: KeyboardEvent) => {
+		// Left returns from the file sidebar, but has no action inside the graph.
+		if (event.key === "ArrowLeft") {
+			event.preventDefault();
+			return;
+		}
 		const _source4Value = _source4(),
 			_sourceValue0 = _source();
 		if (
@@ -375,10 +395,7 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 			if (next) {
 				const nextIndex = _source4Value.itemIndexes.get(next) ?? -1;
 				_sourceValue0.onSelect?.(next);
-				scrollerRef.current?.scrollTo({
-					top: Math.max(0, nextIndex * ROW_HEIGHT - ROW_HEIGHT * 2),
-					behavior: "smooth",
-				});
+				revealKeyboardRow(nextIndex, event.repeat);
 			}
 			return;
 		}
@@ -392,31 +409,7 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 			);
 			return;
 		}
-		if (
-			(event.key === "ArrowLeft" || event.key === "ArrowRight") &&
-			currentIndex >= 0
-		) {
-			const current = _sourceValue0.commits[currentIndex];
-			const connectedId =
-				event.key === "ArrowLeft"
-					? current?.navigation?.parent
-					: current?.navigation?.child;
-			const connected = connectedId
-				? _sourceValue0.commits[
-						_source4Value.itemIndexes.get(connectedId) ?? -1
-					]
-				: undefined;
-			if (connected) {
-				const connectedIndex = _sourceValue0.commits.indexOf(connected);
-				_sourceValue0.onSelect?.(connected.id);
-				scrollerRef.current?.scrollTo({
-					top: Math.max(0, connectedIndex * ROW_HEIGHT - ROW_HEIGHT * 2),
-					behavior: "smooth",
-				});
-			}
-			return;
-		}
-		if (event.key === "ArrowLeft" || event.key === "ArrowRight") return;
+		if (event.key === "ArrowRight") return;
 		const nextIndex =
 			event.key === "Home"
 				? 0
@@ -435,10 +428,7 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 							);
 		const next = _source4Value.selectableItems[nextIndex]!;
 		_sourceValue0.onSelect?.(next);
-		scrollerRef.current?.scrollTo({
-			top: Math.max(0, nextIndex * ROW_HEIGHT - ROW_HEIGHT * 2),
-			behavior: "smooth",
-		});
+		revealKeyboardRow(nextIndex, event.repeat);
 	};
 	const startColumnResize = (
 		column: keyof ColumnWidths,

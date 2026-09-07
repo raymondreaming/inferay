@@ -1015,7 +1015,6 @@ export function useRepositoryWorkbench(
 			{_source().diffViewerCwd &&
 			(_source().selectedFile || _source().mainViewMode === "graph") ? (
 				<WorkbenchDiffRail
-					graph={_source().mainViewMode === "graph"}
 					zenMode={zenMode()}
 					width={diffWidth()}
 					maxWidth={`max(0px, calc(100% - ${MIN_RESPONSIVE_PANE_WIDTH + (_source().sidebarVisible ? sidebarWidth() : 0)}px))`}

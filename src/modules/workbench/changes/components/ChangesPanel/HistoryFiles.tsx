@@ -16,7 +16,7 @@ export function HistoryFiles(_props: {
 }) {
 	return (
 		<div {...stylex.attrs(styles.splitArea)}>
-			{!_props.historyLoading && _props.historyDetails ? (
+			{_props.historyDetails ? (
 				<HistoricalDetailsPanel
 					details={_props.historyDetails}
 					selectionCount={_props.selectionCount}

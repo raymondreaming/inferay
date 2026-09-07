@@ -5,7 +5,6 @@ import { diffRailStyle, styles } from "./styles.ts";
 
 export { WorkbenchSidebar } from "./WorkbenchSidebar.tsx";
 export function WorkbenchDiffRail(_props: {
-	graph: boolean;
 	zenMode: boolean;
 	width: number;
 	maxWidth: string;
@@ -19,11 +18,7 @@ export function WorkbenchDiffRail(_props: {
 }) {
 	return (
 		<aside
-			{...stylex.attrs(
-				styles.diffRail,
-				_props.graph && styles.graphRail,
-				_props.zenMode && styles.diffRailZen,
-			)}
+			{...stylex.attrs(styles.diffRail, _props.zenMode && styles.diffRailZen)}
 			style={domStyle(
 				_props.zenMode
 					? undefined

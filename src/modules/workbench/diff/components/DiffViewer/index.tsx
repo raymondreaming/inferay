@@ -105,12 +105,11 @@ export const DiffViewer = function DiffViewer(_props: DiffViewerProps) {
 		const _source2Value3 = _source2();
 		if (_source2Value3.changePositions.length === 0) return;
 		const currentScroll = rightRef.current?.scrollTop ?? 0;
-		const currentLine = Math.floor(currentScroll / LINE_H);
+		// Jumps place the change five rows below the viewport top.
+		const currentLine = Math.round(currentScroll / LINE_H) + 5;
 		const idx =
 			dir === 1
-				? _source2Value3.changePositions.findIndex(
-						(pos) => pos > currentLine + 2,
-					)
+				? _source2Value3.changePositions.findIndex((pos) => pos > currentLine)
 				: (() => {
 						const _source2Value2 = _source2();
 						for (
@@ -119,7 +118,7 @@ export const DiffViewer = function DiffViewer(_props: DiffViewerProps) {
 							i--
 						) {
 							const p = _source2Value2.changePositions[i];
-							if (p !== undefined && p < currentLine - 2) return i;
+							if (p !== undefined && p < currentLine) return i;
 						}
 						return -1;
 					})();
@@ -138,8 +137,28 @@ export const DiffViewer = function DiffViewer(_props: DiffViewerProps) {
 		() => {
 			const handleKeyDown = (e: KeyboardEvent) => {
 				const target = e.target as HTMLElement;
-				if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
-				if (!containerRef.current?.matches(":hover")) return;
+				if (
+					e.defaultPrevented ||
+					e.metaKey ||
+					e.ctrlKey ||
+					e.altKey ||
+					target.isContentEditable ||
+					target.closest("input, textarea, select, [role='textbox']")
+				)
+					return;
+				const container = containerRef.current;
+				if (
+					!container ||
+					(!container.contains(document.activeElement) &&
+						!container.matches(":hover"))
+				)
+					return;
+				if (e.key === " ") {
+					if (target.closest("button, a, [role='button']")) return;
+					e.preventDefault();
+					goToNextChange();
+					return;
+				}
 				if (e.key === "n" && !e.metaKey && !e.ctrlKey) {
 					e.preventDefault();
 					goToNextChange();
@@ -278,6 +297,15 @@ export const DiffViewer = function DiffViewer(_props: DiffViewerProps) {
 	return (
 		<div
 			ref={(_element) => assignRef(containerRef, _element)}
+			tabindex={-1}
+			onPointerDown={(event) => {
+				const target = event.target as HTMLElement;
+				if (
+					!target.isContentEditable &&
+					!target.closest("button, a, input, textarea, select")
+				)
+					containerRef.current?.focus({ preventScroll: true });
+			}}
 			{...stylex.attrs(
 				diffStyles.shell,
 				_source2().navigable && diffStyles.shellRelative,

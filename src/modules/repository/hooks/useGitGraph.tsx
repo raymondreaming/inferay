@@ -128,7 +128,7 @@ export function useCommitDetails(
 			return _source2.data;
 		},
 		get loading() {
-			return _source2.loading;
+			return _source2.loading && !_source2.data;
 		},
 		get error() {
 			return _source2.error;
@@ -191,7 +191,7 @@ export function useComparisonDetails(
 			return _source.data?.plan ?? null;
 		},
 		get loading() {
-			return _source.loading;
+			return _source.loading && !_source.data?.details;
 		},
 	};
 }

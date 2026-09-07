@@ -40,8 +40,6 @@ export const styles = stylex.create({
 		flexShrink: 0,
 		backgroundColor: color.transparent,
 		overflow: "visible",
-	},
-	graphRail: {
 		borderLeftWidth: 1,
 		borderLeftStyle: "solid",
 		borderLeftColor: color.border,

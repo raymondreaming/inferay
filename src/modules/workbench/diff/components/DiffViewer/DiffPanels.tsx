@@ -20,11 +20,6 @@ export const DiffPanels = function DiffPanels(_props: {
 	externalScrollSource?: DiffScrollSource;
 	highlightedRange?: readonly [number, number];
 }) {
-	const singleRef = {
-		current: null,
-	} as {
-		current: HTMLDivElement | null;
-	};
 	const _source = useSplitDiffScroll(
 		() => _props.scrollRef,
 		() => LINE_H,
@@ -78,7 +73,7 @@ export const DiffPanels = function DiffPanels(_props: {
 										? metadata().conflictMinimap
 										: metadata().inlineMinimap
 								}
-								scrollRef={singleRef}
+								scrollRef={_props.scrollRef}
 								side="single"
 								showMinimap
 								externalScrollTop={
