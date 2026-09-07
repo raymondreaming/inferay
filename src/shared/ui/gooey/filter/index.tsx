@@ -1,5 +1,5 @@
 import type { Element } from "solid-js";
-import { createMemo, For } from "solid-js";
+import { createMemo, For, Show } from "solid-js";
 import type { ShadowLayer } from "../../../../../build/presentation/contracts/ShadowLayer.ts";
 import { InsetPass } from "./InsetPass.tsx";
 import { ShadowPass } from "./ShadowPass.tsx";
@@ -52,13 +52,11 @@ export function GooFilterPrimitives(_props: {
 			)}
 			{
 				<For each={_props.shadows} keyed={false}>
-					{(s, i) =>
-						s().inset ? (
+					{(s, i) => (
+						<Show when={s().inset} fallback={<ShadowPass i={i} s={s()} />}>
 							<InsetPass i={i} s={s()} />
-						) : (
-							<ShadowPass i={i} s={s()} />
-						)
-					}
+						</Show>
+					)}
 				</For>
 			}
 			{_props.shadows.length > 0 && (
@@ -80,7 +78,11 @@ export function GooFilterPrimitives(_props: {
 					<feMergeNode in="shape" />
 					{
 						<For each={_props.shadows} keyed={false}>
-							{(s, i) => (s().inset ? <feMergeNode in={`s${i}`} /> : null)}
+							{(s, i) => (
+								<Show when={s().inset}>
+									<feMergeNode in={`s${i}`} />
+								</Show>
+							)}
 						</For>
 					}
 				</feMerge>

@@ -1,5 +1,5 @@
 import { Portal } from "@solidjs/web";
-import { createEffect, createMemo, createSignal } from "solid-js";
+import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { type CSSProperties, domStyle } from "../../../lib/dom.tsx";
 import { rounded_rect } from "../../../lib/native.tsx";
 import {
@@ -31,20 +31,19 @@ export function MirroredItem(_props: Internal) {
 		_props.radius == null ? "" : JSON.stringify(_props.radius),
 	);
 	createEffect(
-		() => [_props.ctx, radiusKey()],
-		() => {
+		() => [_props.ctx.getGroup, radiusKey()] as const,
+		([getGroup, radius]) => {
 			const el = wrapRef.current;
-			const group = _props.ctx.getGroup();
+			const group = getGroup();
 			if (!el || !group) return;
 			const measure = () => {
 				const base = offsetTo(el, group);
 				const w = el.offsetWidth;
 				const h = el.offsetHeight;
 				const target = (el.firstElementChild as HTMLElement | null) ?? el;
-				const r: CornerRadii =
-					_props.radius != null
-						? normalizeRadius(_props.radius)
-						: measureRadius(target, w, h);
+				const r: CornerRadii = radius
+					? normalizeRadius(JSON.parse(radius))
+					: measureRadius(target, w, h);
 				const next: BlobBox = {
 					x: base.x,
 					y: base.y,
@@ -70,47 +69,61 @@ export function MirroredItem(_props: Internal) {
 			>
 				{_props.children}
 			</div>
-			{_props.ctx.portal && box() && (
-				<Portal mount={_props.ctx.portal}>
-					{renderBlob(box()!, inlineStyles.mirroredBlobStyle)}
-				</Portal>
-			)}
+			<Show when={_props.ctx.portal}>
+				{(mount) => (
+					<Portal mount={mount()}>
+						<Show when={box()}>
+							{(current) => (
+								<MirroredBlob
+									box={current()}
+									style={inlineStyles.mirroredBlobStyle}
+								/>
+							)}
+						</Show>
+					</Portal>
+				)}
+			</Show>
 		</>
 	);
 }
-function renderBlob(box: BlobBox, style: CSSProperties) {
-	const _source = createMemo(() => box.r);
-	const uniform = createMemo(() => {
-		const _sourceValue = _source();
-		return (
-			_sourceValue[0] === _sourceValue[1] &&
-			_sourceValue[1] === _sourceValue[2] &&
-			_sourceValue[2] === _sourceValue[3]
-		);
-	});
-	if (uniform()) {
-		// Clamp to min(w,h)/2: SVG clamps rx and ry independently, so a large
-		// radius on a wide short box (the `border-radius: 999px` pill idiom)
-		// would degenerate into an ellipse instead of a pill.
-		const rx = Math.max(0, Math.min(_source()[0], Math.min(box.w, box.h) / 2));
-		return (
-			<rect
-				x={box.x}
-				y={box.y}
-				width={box.w}
-				height={box.h}
-				rx={rx}
-				style={domStyle(style)}
-			/>
-		);
-	}
+function MirroredBlob(props: { box: BlobBox; style: CSSProperties }) {
+	const uniform = createMemo(() =>
+		props.box.r.every((radius) => radius === props.box.r[0]),
+	);
+	const radius = createMemo(() =>
+		Math.max(
+			0,
+			Math.min(props.box.r[0], Math.min(props.box.w, props.box.h) / 2),
+		),
+	);
 	return (
-		<path
-			d={rounded_rect(box.x, box.y, box.w, box.h, ...box.r)}
-			style={domStyle(style)}
-		/>
+		<Show
+			when={uniform()}
+			fallback={
+				<path
+					d={rounded_rect(
+						props.box.x,
+						props.box.y,
+						props.box.w,
+						props.box.h,
+						...props.box.r,
+					)}
+					style={domStyle(props.style)}
+				/>
+			}
+		>
+			<rect
+				x={props.box.x}
+				y={props.box.y}
+				width={props.box.w}
+				height={props.box.h}
+				rx={radius()}
+				style={domStyle(props.style)}
+			/>
+		</Show>
 	);
 }
+
 interface BlobBox {
 	x: number;
 	y: number;

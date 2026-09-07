@@ -53,29 +53,31 @@ export function ObservedItem(_props: Internal) {
 		);
 	});
 	createEffect(
-		() => [
-			_props.ctx,
-			radiusKey(),
-			effectKey(),
-			_props.blobInset,
-			_props.bridgeGrow,
-		],
-		() => {
+		() => ({
+			engine: _props.ctx.engine,
+			portal: _props.ctx.portal,
+			radius: radiusKey(),
+			effect: effectKey(),
+			blobInset: _props.blobInset,
+			bridgeGrow: _props.bridgeGrow,
+			dynamics: hasDynamics() ? dynamics() : undefined,
+		}),
+		({ engine, portal, radius, blobInset, bridgeGrow, dynamics }) => {
 			const host = hostRef.current;
 			const blob = blobRef.current;
 			const target = (host?.firstElementChild as HTMLElement | null) ?? null;
-			if (!target || !blob) return;
-			return _props.ctx.engine.add({
+			if (!target || !blob || !portal) return;
+			return engine.add({
 				target,
 				blob,
-				radius:
-					_props.radius == null ? undefined : normalizeRadius(_props.radius)[0],
-				blobInset: _props.blobInset,
-				bridgeGrow: _props.bridgeGrow,
-				dynamics: hasDynamics() ? dynamics() : undefined,
+				radius: radius ? normalizeRadius(JSON.parse(radius))[0] : undefined,
+				blobInset,
+				bridgeGrow,
+				dynamics,
 			});
 		},
 	);
+
 	return (
 		<>
 			<span

@@ -64,23 +64,25 @@ export function GooeyRoot(_props: GooeyProps) {
 		ro.observe(el);
 		return () => ro.disconnect();
 	});
-	const engine = createMemo(() => new ObserveEngine(() => groupRef.current));
+	const engine = new ObserveEngine(() => groupRef.current);
+	onSettled(() => () => engine.dispose());
 	createEffect(
-		() => [engine()],
-		() => () => engine().dispose(),
-	);
-	createEffect(
-		() => [engine(), _props.blur === undefined ? 6 : _props.blur],
-		() => {
-			engine().gooBlur = _props.blur === undefined ? 6 : _props.blur;
+		() => _props.blur ?? 6,
+		(blur) => {
+			engine.gooBlur = blur;
 		},
 	);
-	const ctx = createMemo<GooeyContextValue>(() => ({
-		portal: portal(),
-		fill: _props.fill === undefined ? "#fff" : _props.fill,
+	// Context identity is fixed; consumers track individual reactive fields.
+	const ctx: GooeyContextValue = {
+		get portal() {
+			return portal();
+		},
+		get fill() {
+			return _props.fill ?? "#fff";
+		},
 		getGroup: () => groupRef.current,
-		engine: engine(),
-	}));
+		engine,
+	};
 
 	// The filter raster is the whole performance story on WebKit, which runs
 	// SVG filters on the CPU at full device scale — measured at 9fps for a
@@ -186,7 +188,7 @@ export function GooeyRoot(_props: GooeyProps) {
 					)}
 				/>
 			</svg>
-			<GooeyContext value={ctx()}>{_props.children}</GooeyContext>
+			<GooeyContext value={ctx}>{_props.children}</GooeyContext>
 		</div>
 	);
 }
@@ -297,7 +299,7 @@ function svg<K extends keyof SVGElementTagNameMap>(
 /** Shared per-group measurement loop for observe-mode items: mirrors externally
  *  animated elements onto their blobs each frame, then sleeps entirely once
  *  nothing has moved for ~half a second. MutationObserver + transition /
- *  animation events + a slow safety tick wake it, so idle cost is zero.
+ *  animation events + a slow safety tick wake it. Empty groups stop all sources.
  */
 export class ObserveEngine {
 	/** Goo blur of the owning group; used to derive the bridge-growth range. */
@@ -344,14 +346,18 @@ export class ObserveEngine {
 		this.ensureSources();
 		this.measureAll();
 		this.wake();
-		return () => {
-			item.ro.disconnect();
-			this.items.delete(item);
-			item.body.free();
-			if (item.contentBlurred) item.target.style.removeProperty("filter");
-			item.tailEl?.remove();
-		};
+		return () => this.removeItem(item);
 	}
+	private removeItem(item: Item): void {
+		// Owner and child cleanups may arrive in either order.
+		if (!this.items.delete(item)) return;
+		item.ro.disconnect();
+		item.body.free();
+		if (item.contentBlurred) item.target.style.removeProperty("filter");
+		item.tailEl?.remove();
+		if (this.items.size === 0) this.stopSources();
+	}
+
 	wake = (): void => {
 		this.clean = 0;
 		if (this.awake || this.items.size === 0) return;
@@ -359,21 +365,23 @@ export class ObserveEngine {
 		this.raf = requestAnimationFrame(this.loop);
 	};
 	dispose(): void {
-		cancelAnimationFrame(this.raf);
-		this.mo?.disconnect();
-		this.removeListeners.forEach((off) => {
-			off();
-		});
-		this.removeListeners = [];
-		if (this.interval) clearInterval(this.interval);
-		this.items.forEach((i) => {
-			i.ro.disconnect();
-			i.body.free();
-		});
-		this.items.clear();
+		for (const item of this.items) this.removeItem(item);
+		this.stopSources();
 		this.geometry?.free();
 		this.geometry = null;
+	}
+	private stopSources(): void {
+		cancelAnimationFrame(this.raf);
+		this.raf = 0;
+		this.mo?.disconnect();
+		this.mo = null;
+		for (const off of this.removeListeners) off();
+		this.removeListeners = [];
+		if (this.interval !== null) clearInterval(this.interval);
+		this.interval = null;
 		this.awake = false;
+		this.clean = 0;
+		this.lastNow = 0;
 		this.sourcesReady = false;
 	}
 	private resolveRadius(t: ObservedTarget): number {
