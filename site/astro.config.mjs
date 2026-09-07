@@ -2,13 +2,13 @@
 
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "astro/config";
-import react from "@astrojs/react";
+import solidPages from "./integrations/solid/index.mjs";
 
 const tailwindPlugin = /** @type {any} */ (tailwindcss());
 
 // https://astro.build/config
 export default defineConfig({
-	integrations: [react()],
+	integrations: [solidPages()],
 	vite: {
 		plugins: [tailwindPlugin],
 	},
