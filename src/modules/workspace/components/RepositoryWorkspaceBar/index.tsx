@@ -6,7 +6,7 @@ import { loadSidebarCollapsed } from "../../../../adapters/storage/stored-values
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
-} from "../../../../app/model/appearance.ts";
+} from "../../../../app/hooks/useAppAppearance.tsx";
 import {
 	iconSize,
 	selectionAppearance,

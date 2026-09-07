@@ -1,5 +1,6 @@
 //! Pure renderer models. Native persistence and side effects remain in core/server.
 //! The browser supplies interaction facts and renders the resulting projections.
+pub mod appearance;
 pub mod chat_view;
 mod composer;
 mod graph;

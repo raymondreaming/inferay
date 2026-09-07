@@ -13,7 +13,7 @@ import {
 import {
 	getThemeById,
 	loadAppThemeId,
-} from "../../../../app/model/appearance.ts";
+} from "../../../../app/hooks/useAppAppearance.tsx";
 import type { MutableRef } from "../../../../shared/lib/data.ts";
 import {
 	FOCUS_AGENT_CHAT_COMPOSER_EVENT,

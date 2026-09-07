@@ -7,14 +7,13 @@ import {
 	readStoredBoolean,
 	writeStoredValue,
 } from "../../../../adapters/storage/stored-values.ts";
-import type { Step } from "../../../../app/model/appearance.ts";
 import {
 	applyAppTheme,
 	DEFAULT_APP_BACKGROUND_SETTINGS,
 	loadAppThemeId,
 	saveAppBackgroundSettings,
 	saveAppThemeId,
-} from "../../../../app/model/appearance.ts";
+} from "../../../../app/hooks/useAppAppearance.tsx";
 import {
 	fetchForgeAccounts,
 	useForgeAccounts,
@@ -24,6 +23,7 @@ import {
 	loadCanonicalAgentState,
 	mutateAgentWorkspaceState,
 } from "../../../workspace/hooks/useWorkspaceState.tsx";
+import { useOnboardingStep } from "../../hooks/useOnboardingStep.tsx";
 import { GithubStep } from "./GithubStep.tsx";
 import { IntroStep } from "./IntroStep.tsx";
 import { ProjectsStep } from "./ProjectsStep.tsx";
@@ -32,7 +32,7 @@ export const ONBOARDING_DONE_KEY = ONBOARDING_DONE_STORAGE_KEY;
 export function OnboardingPage() {
 	const navigate = useNavigate();
 	const [isFirstRun] = useState(() => !readStoredBoolean(ONBOARDING_DONE_KEY));
-	const [step, setStep] = useState<Step>("intro");
+	const [step, setStep] = useOnboardingStep();
 	const [connecting, setConnecting] = useState(false);
 	const [localFolders, setLocalFolders] = useState<string[]>([]);
 	const [isAddingFolder, setIsAddingFolder] = useState(false);

@@ -1,3 +1,4 @@
+use inferay_presentation::appearance::normalize_background_settings;
 use native_files::{image_content_type, is_image_extension};
 mod git_actions;
 mod git_changes;
@@ -1772,43 +1773,6 @@ fn normalize_client_storage_entries(
             (key.clone(), value)
         })
         .collect()
-}
-
-fn normalize_background_settings(text: &str) -> String {
-    let stored: Value = serde_json::from_str(text).unwrap_or(Value::Null);
-    let field = |key| stored.as_object().and_then(|object| object.get(key));
-    let clamp = |key, min: f64, max: f64, fallback| {
-        field(key)
-            .and_then(Value::as_f64)
-            .unwrap_or(fallback)
-            .clamp(min, max)
-    };
-    let version = field("version").and_then(Value::as_f64);
-    let id = field("id")
-        .and_then(Value::as_str)
-        .filter(|id| {
-            matches!(
-                *id,
-                "city" | "nature" | "orbit" | "signals" | "custom" | "none"
-            )
-        })
-        .unwrap_or("none");
-    let mode = field("mode")
-        .and_then(Value::as_str)
-        .filter(|mode| matches!(*mode, "solid" | "scene" | "glass"))
-        .unwrap_or(if id != "none" { "scene" } else { "solid" });
-    let stored_blur = clamp("blur", 0.0, 20.0, 1.0);
-    json!({
-        "version": 7,
-        "mode": mode,
-        "id": id,
-        "dim": clamp("dim", 0.0, 85.0, 42.0),
-        "blur": if matches!(version, Some(2.0 | 3.0)) { stored_blur } else { stored_blur.min(1.0) },
-        "glassBlur": if version == Some(7.0) { clamp("glassBlur", 0.0, 40.0, 7.0) } else { 7.0 },
-        "glassOpacity": if version == Some(7.0) { clamp("glassOpacity", 8.0, 100.0, 83.0) } else { 83.0 },
-        "autoTheme": field("autoTheme").and_then(Value::as_bool).unwrap_or(false),
-        "customRevision": clamp("customRevision", 0.0, 9_007_199_254_740_991.0, 0.0),
-    }).to_string()
 }
 
 fn is_chat_preference_key(key: &str) -> bool {

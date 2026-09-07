@@ -1,12 +1,12 @@
 import * as stylex from "@octanejs/stylex";
 import { memo } from "octane";
-import type { ThemeId } from "../../../../app/model/appearance.ts";
+import type { AppThemeId } from "../../../../../build/presentation/contracts/AppThemeId.ts";
 import { SettingsContent } from "./SettingsContent.tsx";
 import { styles } from "./styles.ts";
 
 interface SettingsProps {
-	themeId: ThemeId;
-	onThemeChange: (id: ThemeId) => void;
+	themeId: AppThemeId;
+	onThemeChange: (id: AppThemeId) => void;
 	onClose: () => void;
 }
 

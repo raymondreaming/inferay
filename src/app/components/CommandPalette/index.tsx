@@ -1,7 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import { useEffect, useMemo, useRef, useState } from "octane";
 import { IconSearch } from "../../../shared/ui/Icons/index.tsx";
-import { APP_REGION_NO_DRAG_CLASS } from "../../model/appearance.ts";
+import { APP_REGION_NO_DRAG_CLASS } from "../../hooks/useAppAppearance.tsx";
 import { styles } from "./styles.ts";
 
 export interface CommandPaletteItem {

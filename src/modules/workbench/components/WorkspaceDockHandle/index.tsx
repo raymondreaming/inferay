@@ -1,5 +1,5 @@
 import * as stylex from "@octanejs/stylex";
-import { APP_REGION_NO_DRAG_CLASS } from "../../../../app/model/appearance.ts";
+import { APP_REGION_NO_DRAG_CLASS } from "../../../../app/hooks/useAppAppearance.tsx";
 import { styles } from "./styles.ts";
 
 export function WorkspaceDockHandle({

@@ -1,16 +1,15 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useCallback, useEffect, useState } from "octane";
+import type { AppFontId } from "../../../../../build/presentation/contracts/AppFontId.ts";
+import type { AppThemeId } from "../../../../../build/presentation/contracts/AppThemeId.ts";
 import {
 	APP_BACKGROUND_STORAGE_KEY,
 	APP_THEME_STORAGE_KEY,
 	CLIENT_STORAGE_CHANGED_EVENT,
 } from "../../../../adapters/storage/stored-values.ts";
-import type { ThemeId } from "../../../../app/model/appearance.ts";
 import {
 	APP_FONTS,
 	APP_THEMES,
-	type AppFontId,
-	type AppThemeId,
 	applyAppFont,
 	applyAppTheme,
 	loadAppBackgroundSettings,
@@ -19,8 +18,8 @@ import {
 	saveAppBackgroundSettings,
 	saveAppFontId,
 	saveAppThemeId,
-	useAppInfo,
-} from "../../../../app/model/appearance.ts";
+} from "../../../../app/hooks/useAppAppearance.tsx";
+import { useAppInfo } from "../../../../app/hooks/useAppInfo.tsx";
 import {
 	SYNTAX_HIGHLIGHT_THEMES,
 	type SyntaxHighlightTheme,
@@ -37,8 +36,8 @@ import { ThemeOrb } from "./ThemeOrb.tsx";
 import { WorkspaceLayoutSection } from "./WorkspaceLayoutSection.tsx";
 
 interface SettingsContentProps {
-	themeId?: ThemeId;
-	onThemeChange?: (id: ThemeId) => void;
+	themeId?: AppThemeId;
+	onThemeChange?: (id: AppThemeId) => void;
 	showVersion?: boolean;
 	embedded?: boolean;
 	section?: "all" | "agents" | "appearance" | "workspace";

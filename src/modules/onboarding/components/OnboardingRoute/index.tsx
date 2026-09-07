@@ -5,7 +5,7 @@ import {
 	ONBOARDING_DONE_STORAGE_KEY,
 	readStoredBoolean,
 } from "../../../../adapters/storage/stored-values.ts";
-import { APP_REGION_DRAG_CLASS } from "../../../../app/model/appearance.ts";
+import { APP_REGION_DRAG_CLASS } from "../../../../app/hooks/useAppAppearance.tsx";
 import { OnboardingPage } from "../OnboardingPage/index.tsx";
 import { routeStyles } from "./styles.ts";
 

@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { memo } from "octane";
-import { APP_REGION_NO_DRAG_CLASS } from "../../../../app/model/appearance.ts";
+import { APP_REGION_NO_DRAG_CLASS } from "../../../../app/hooks/useAppAppearance.tsx";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { IconFolder } from "../../../../shared/ui/Icons/index.tsx";
 import { styles } from "./styles.ts";

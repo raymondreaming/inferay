@@ -3,7 +3,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "octane";
 import type { Prompt } from "../../../../../build/presentation/contracts/Prompt.ts";
 import type { SkillFormState } from "../../../../../build/presentation/contracts/SkillFormState.ts";
 import { project as rustProject } from "../../../../adapters/presentation/model.ts";
-import { APP_REGION_NO_DRAG_CLASS } from "../../../../app/model/appearance.ts";
+import { APP_REGION_NO_DRAG_CLASS } from "../../../../app/hooks/useAppAppearance.tsx";
 import {
 	iconSize,
 	surfaceStyles,

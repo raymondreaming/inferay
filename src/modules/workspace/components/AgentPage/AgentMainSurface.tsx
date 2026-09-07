@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { lazy, Suspense } from "octane";
-import type { ThemeId } from "../../../../app/model/appearance.ts";
+import type { AppThemeId } from "../../../../../build/presentation/contracts/AppThemeId.ts";
 
 const Settings = lazy(() =>
 	import("../../../settings/components/Settings/index.tsx").then(
@@ -15,11 +15,11 @@ type AgentMainSurfaceProps = {
 	readonly chatSidebar: unknown;
 	readonly chatZenMode: boolean;
 	readonly hasCurrentPanes: boolean;
-	readonly onThemeChange: (id: ThemeId) => void;
+	readonly onThemeChange: (id: AppThemeId) => void;
 	readonly setShowSettings: (value: boolean) => void;
 	readonly showSettings: boolean;
 	readonly agentGrid: unknown;
-	readonly themeId: ThemeId;
+	readonly themeId: AppThemeId;
 };
 
 export function AgentMainSurface({

@@ -1,68 +1,22 @@
 import * as stylex from "@octanejs/stylex";
 import { Outlet } from "@octanejs/tanstack-router";
-import { Suspense, useEffect, useState } from "octane";
+import { Suspense, useEffect } from "octane";
 import type { CSSProperties } from "react";
 import { wsClient } from "../../../adapters/backend/http.ts";
-import {
-	APP_BACKGROUND_STORAGE_KEY,
-	APP_FONT_STORAGE_KEY,
-	APP_THEME_STORAGE_KEY,
-	CLIENT_STORAGE_CHANGED_EVENT,
-} from "../../../adapters/storage/stored-values.ts";
 import { SettingsModalHost } from "../../../modules/settings/components/SettingsModal/index.tsx";
 import { SkillsModalHost } from "../../../modules/skills/components/SkillsModal/index.tsx";
 import { RepositoryWorkspaceBar } from "../../../modules/workspace/components/RepositoryWorkspaceBar/index.tsx";
 import { WorkspaceSidebar } from "../../../modules/workspace/components/WorkspaceSidebar/index.tsx";
-import { listenWindowEvent } from "../../../shared/lib/data.ts";
-import {
-	APP_BACKGROUNDS,
-	applyAppBackgroundPalette,
-	applyAppBackgroundSurfaces,
-	applyAppFont,
-	loadAppBackgroundSettings,
-	loadAppFontId,
-	restoreAppTheme,
-} from "../../model/appearance.ts";
+import { useAppAppearance } from "../../hooks/useAppAppearance.tsx";
 import { AppHeader } from "../AppHeader/index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { shellThemeProps, styles } from "./styles.ts";
 
 export function AppLayout() {
-	const [background, setBackground] = useState(loadAppBackgroundSettings);
+	const { background, backgroundUrl } = useAppAppearance();
 	useEffect(() => {
 		wsClient.connect();
 	}, []);
-
-	useEffect(
-		() =>
-			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
-				const key = (event as CustomEvent<{ key?: string }>).detail?.key;
-				if (
-					key === APP_BACKGROUND_STORAGE_KEY ||
-					key === APP_THEME_STORAGE_KEY
-				) {
-					setBackground(loadAppBackgroundSettings());
-				}
-				if (key === APP_FONT_STORAGE_KEY) applyAppFont(loadAppFontId());
-			}),
-		[],
-	);
-	const backgroundUrl =
-		background.mode !== "scene"
-			? null
-			: background.id === "custom"
-				? `/api/config/background-image?v=${background.customRevision}`
-				: (APP_BACKGROUNDS.find((scene) => scene.id === background.id)?.path ??
-					null);
-
-	useEffect(() => {
-		applyAppBackgroundSurfaces(background.mode);
-	}, [background.mode]);
-
-	useEffect(() => {
-		if (background.autoTheme) applyAppBackgroundPalette(background.id);
-		else restoreAppTheme();
-	}, [background.autoTheme, background.id]);
 
 	return (
 		<div

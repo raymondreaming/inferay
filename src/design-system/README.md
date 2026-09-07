@@ -8,7 +8,7 @@ compatibility exports, or parallel palettes.
 | Theme colors, surface formulas, scene tints, depth effects, global CSS | [styles.css](styles.css) |
 | Typed tokens, shared panel/selection styles, spacing, typography, radius, motion, runtime SVG/Liquid values | [styles.stylex.ts](styles.stylex.ts) |
 
-[Appearance settings](../app/model/appearance.ts) owns selection and persistence,
+[Appearance settings](../app/hooks/useAppAppearance.tsx) owns selection and persistence,
 not built-in style values. It selects CSS through root data attributes. Only a
 custom image palette writes inline colors, which are cleared when switching
 back to a theme or built-in scene. Settings swatches use the same CSS palettes.

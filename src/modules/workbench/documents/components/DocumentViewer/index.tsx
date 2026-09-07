@@ -7,7 +7,7 @@ import { readStoredJson } from "../../../../../adapters/storage/stored-values.ts
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
-} from "../../../../../app/model/appearance.ts";
+} from "../../../../../app/hooks/useAppAppearance.tsx";
 import { iconSize } from "../../../../../design-system/styles.stylex.ts";
 import { basename as fileName } from "../../../../../shared/lib/data.ts";
 import { IconCode, IconX } from "../../../../../shared/ui/Icons/index.tsx";

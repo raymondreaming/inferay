@@ -16,8 +16,8 @@ import {
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
-	useAppInfo,
-} from "../../../../app/model/appearance.ts";
+} from "../../../../app/hooks/useAppAppearance.tsx";
+import { useAppInfo } from "../../../../app/hooks/useAppInfo.tsx";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import {
 	CREATE_AGENT_CHAT_EVENT,

@@ -13,7 +13,7 @@ import {
 	loadAppBackgroundSettings,
 	loadAppFontId,
 	loadAppThemeId,
-} from "./app/model/appearance.ts";
+} from "./app/hooks/useAppAppearance.tsx";
 import { preloadSkills } from "./modules/skills/hooks/useSkills.tsx";
 import { initializeAgentState } from "./modules/workspace/hooks/useWorkspaceState.tsx";
 import { restoreSyntaxTheme } from "./shared/hooks/useSyntaxHighlight.tsx";

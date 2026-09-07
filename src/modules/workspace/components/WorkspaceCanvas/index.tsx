@@ -7,10 +7,10 @@ import {
 	useRef,
 	useState,
 } from "octane";
+import type { AgentTheme } from "../../../../../build/presentation/contracts/AgentTheme.ts";
 import type { Pane } from "../../../../../build/presentation/contracts/Pane.ts";
 import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import { postJson } from "../../../../adapters/backend/http.ts";
-import type { AgentTheme } from "../../../../app/model/appearance.ts";
 import {
 	lockPointerSelection,
 	trackPointerResize,

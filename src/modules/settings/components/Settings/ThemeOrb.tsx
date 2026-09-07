@@ -1,5 +1,5 @@
 import * as stylex from "@octanejs/stylex";
-import type { AppThemeId } from "../../../../app/model/appearance.ts";
+import type { AppThemeId } from "../../../../../build/presentation/contracts/AppThemeId.ts";
 import * as inlineStyles from "./styles.ts";
 
 import { styles } from "./styles.ts";
