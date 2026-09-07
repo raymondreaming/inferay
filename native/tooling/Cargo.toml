@@ -7,6 +7,7 @@ license = "LicenseRef-Inferay"
 description = "Rust-native development and release tooling for Inferay"
 
 [dependencies]
+inferay-server = { path = "../server" }
 inferay-core = { path = "../core" }
 inferay-native-diff = { path = "../diff-engine" }
 inferay-presentation = { path = "../presentation" }

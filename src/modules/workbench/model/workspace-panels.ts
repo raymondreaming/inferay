@@ -1,25 +1,19 @@
+import type { PanelAction } from "../../../../build/presentation/contracts/PanelAction.ts";
+import type { PanelSession } from "../../../../build/presentation/contracts/PanelSession.ts";
 import { postJson } from "../../../adapters/backend/http.ts";
 import { queryClient } from "../../../shared/lib/data.ts";
-import {
-	emptyGitWorkspacePanelSession,
-	type FileContentResponse,
-	type GitWorkspacePanelAction,
-	type GitWorkspacePanelSession,
-} from "./workbench-model.ts";
-
-type WorkspacePanelSession = GitWorkspacePanelSession;
+import { emptyGitWorkspacePanelSession } from "./workbench-model.ts";
 
 export const emptyPanelSession = emptyGitWorkspacePanelSession();
-export type PanelAction = GitWorkspacePanelAction;
+
 export function panelQuery(workspaceId: string) {
 	return {
 		queryKey: ["workspace-panels", workspaceId],
 		queryFn: async () =>
 			(
-				await postJson<{ session: WorkspacePanelSession }>(
-					"/api/workspace/panels",
-					{ workspaceId },
-				)
+				await postJson<{ session: PanelSession }>("/api/workspace/panels", {
+					workspaceId,
+				})
 			).session,
 		staleTime: Infinity,
 		gcTime: 30 * 60 * 1000,
@@ -41,15 +35,15 @@ export function createWorkspacePanelModel() {
 				const wireAction = { ...action };
 				if (wireAction.type === "detachFile") delete wireAction.initialFile;
 				return postJson<{
-					session: WorkspacePanelSession;
+					session: PanelSession;
 					announcement: string | null;
 				}>("/api/workspace/panels", { workspaceId, action: wireAction });
 			},
 			onSuccess: (
-				{ session }: { session: WorkspacePanelSession },
+				{ session }: { session: PanelSession },
 				{ workspaceId, action }: { workspaceId: string; action: PanelAction },
 			) => {
-				const current = queryClient.getQueryData<WorkspacePanelSession>(
+				const current = queryClient.getQueryData<PanelSession>(
 					panelQuery(workspaceId).queryKey,
 				);
 				const pending =
@@ -83,7 +77,7 @@ export function createWorkspacePanelModel() {
 					path: action.path,
 					initialFile: action.initialFile,
 				};
-				queryClient.setQueryData<WorkspacePanelSession>(
+				queryClient.setQueryData<PanelSession>(
 					panelQuery(workspaceId).queryKey,
 					(current) =>
 						current

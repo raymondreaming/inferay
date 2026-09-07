@@ -1,5 +1,6 @@
 import { useQuery } from "@octanejs/tanstack-query";
 import { useCallback, useState } from "octane";
+import type { GitRefOperationPreflight } from "../../../../../build/presentation/contracts/GitRefOperationPreflight.ts";
 import { postJson } from "../../../../adapters/backend/http.ts";
 import { queryClient } from "../../../../shared/lib/data.ts";
 import type { useGitDiff } from "../../../repository/hooks/useGitDiff.tsx";
@@ -15,7 +16,6 @@ import type {
 	DragProps,
 	GitGraphActionResult,
 	GitOperationActivityPhase,
-	GitRefOperationPreflight,
 	GitRefOperationRequest,
 	GitRefOperationResult,
 } from "../../model/workbench-model.ts";

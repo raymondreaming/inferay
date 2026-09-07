@@ -1,3 +1,12 @@
+import type { CheckpointMeta } from "../../../../build/presentation/contracts/CheckpointMeta.ts";
+import type { QueuedMessageInfo } from "../../../../build/presentation/contracts/QueuedMessageInfo.ts";
+
+export type QueuedChatMessage = QueuedMessageInfo & { transient?: boolean };
+
+import type { AskUserQuestion } from "../../../../build/presentation/contracts/AskUserQuestion.ts";
+import type { ToolDisplayInfo } from "../../../../build/presentation/contracts/ToolDisplayInfo.ts";
+import type { ToolOutputSummary } from "../../../../build/presentation/contracts/ToolOutputSummary.ts";
+
 import { project as rustProject } from "../../../adapters/presentation/model.ts";
 export type ChatMessage = RenderChatMessage;
 type TokenRange = { start: number; end: number };
@@ -12,33 +21,13 @@ import type {
 	SkillProposal,
 	SkillRead,
 } from "../../skills/model/skill-library.ts";
-export interface QueuedMessageInfo {
-	id: string;
-	text: string;
-	displayText: string;
-	images?: string[];
-	transient?: boolean;
-}
+
 export interface AttachedImageInfo {
 	name: string;
 	path: string;
 	previewUrl: string;
 }
-interface NativeToolDisplay {
-	label: string;
-	detail?: string;
-}
-interface NativeToolSummary {
-	type: string;
-	value: string;
-	fileName?: string;
-}
-export interface AskUserQuestion {
-	question: string;
-	header?: string;
-	options?: Array<{ label: string; description?: string }>;
-	multiSelect?: boolean;
-}
+
 export type CommandSystemMessage = {
 	type: "inferay.command";
 	name: string;
@@ -64,8 +53,8 @@ export interface NativeChatRender {
 	filePath?: string;
 	edit?: { file_path: string; old_string: string; new_string: string };
 	trailingOutput?: string;
-	display?: NativeToolDisplay;
-	summary?: NativeToolSummary | null;
+	display?: ToolDisplayInfo;
+	summary?: ToolOutputSummary | null;
 	questions?: AskUserQuestion[] | null;
 	command?: CommandSystemMessage;
 	goal?: GoalSystemMessage;
@@ -91,14 +80,7 @@ export interface AgentChatSharedChatMessage {
 	btwQuestion?: string;
 	images?: string[];
 }
-export interface CheckpointInfo {
-	id: string;
-	timestamp: number;
-	changedFileCount: number;
-	changedFiles: { path: string; action: "created" | "modified" | "deleted" }[];
-	reverted: boolean;
-	afterMessageId: string | null;
-}
+
 export type ChatLoadingState = {
 	isLoading: boolean;
 	status: string;
@@ -237,8 +219,8 @@ export function calculateChatWindow(
 	};
 }
 
-export function indexCheckpoints(checkpoints: CheckpointInfo[]) {
-	const result = new Map<string, CheckpointInfo>();
+export function indexCheckpoints(checkpoints: CheckpointMeta[]) {
+	const result = new Map<string, CheckpointMeta>();
 	for (const checkpoint of checkpoints)
 		if (checkpoint.afterMessageId)
 			result.set(checkpoint.afterMessageId, checkpoint);
@@ -271,8 +253,8 @@ export function hasAskUserSelections(
 /** Native descriptors own interpretation; unhydrated saved chats remain readable. */
 export function getToolOutputSummary(
 	content: string,
-	nativeSummary?: NativeToolSummary | null,
-): NativeToolSummary {
+	nativeSummary?: ToolOutputSummary | null,
+): ToolOutputSummary {
 	return (
 		nativeSummary ?? {
 			type: "text",
@@ -282,8 +264,8 @@ export function getToolOutputSummary(
 }
 export function getToolDisplayInfo(
 	toolName: string | undefined,
-	nativeDisplay?: NativeToolDisplay,
-): NativeToolDisplay {
+	nativeDisplay?: ToolDisplayInfo,
+): ToolDisplayInfo {
 	return (
 		nativeDisplay ?? {
 			label: toolName ? `Using ${toolName}` : "Running tool",

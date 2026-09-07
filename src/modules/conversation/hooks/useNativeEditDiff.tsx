@@ -3,7 +3,7 @@ import { sendJson } from "../../../adapters/backend/http.ts";
 import { queryClient } from "../../../shared/lib/data.ts";
 
 export type LineTextSegment = { text: string; changed: boolean };
-export type DiffLine = {
+export type GitDiffLine = {
 	type: "context" | "removed" | "added";
 	text: string;
 	oldLineNum?: number;
@@ -11,7 +11,7 @@ export type DiffLine = {
 	segments?: LineTextSegment[];
 };
 export type DiffHunk = {
-	lines: DiffLine[];
+	lines: GitDiffLine[];
 	oldStart: number;
 	oldCount: number;
 	newStart: number;

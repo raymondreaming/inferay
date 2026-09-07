@@ -19,9 +19,7 @@ export type {
 export { LiquidItem } from "./LiquidItem/index.tsx";
 export type {
 	CornerRadii,
-	EvolveOptions,
 	GooeySurfacePreset,
-	MoveOptions,
 } from "./observer.ts";
 export {
 	EVOLVE_DEFAULTS,

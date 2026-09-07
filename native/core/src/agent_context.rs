@@ -9,6 +9,7 @@ use crate::prompts::Prompt;
 #[serde(rename_all = "camelCase")]
 pub struct AgentContextLayer {
     pub instructions: String,
+    #[ts(type = "'inherit' | 'replace'")]
     pub mode: String,
     pub updated_at: u64,
 }
@@ -24,12 +25,17 @@ pub struct EffectiveAgentContext {
     pub activated_skills: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, ts_rs::TS)]
+#[ts(rename_all = "camelCase")]
 pub struct AgentContextUpdate {
+    #[ts(type = "'global' | 'project' | 'chat'")]
     pub scope: String,
+    #[ts(optional)]
     pub cwd: Option<String>,
+    #[ts(optional)]
     pub pane_id: Option<String>,
     pub instructions: String,
+    #[ts(optional, type = "'inherit' | 'replace'")]
     pub mode: Option<String>,
 }
 

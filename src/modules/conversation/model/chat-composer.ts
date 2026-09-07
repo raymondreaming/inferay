@@ -1,13 +1,13 @@
 import { project as rustProject } from "../../../adapters/presentation/model.ts";
 import type {
 	AttachedImageInfo,
-	QueuedMessageInfo,
+	QueuedChatMessage,
 } from "./agent-chat-shared.ts";
 
 export function mergeNativeQueue(
-	current: QueuedMessageInfo[],
-	persisted: QueuedMessageInfo[],
-): QueuedMessageInfo[] {
+	current: QueuedChatMessage[],
+	persisted: QueuedChatMessage[],
+): QueuedChatMessage[] {
 	return rustProject("mergeQueue", { current, persisted });
 }
 

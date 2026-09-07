@@ -10,10 +10,8 @@ import {
 	useState,
 } from "octane";
 import type React from "react";
-import type {
-	ChatMessage,
-	CheckpointInfo,
-} from "../../model/agent-chat-shared.ts";
+import type { CheckpointMeta } from "../../../../../build/presentation/contracts/CheckpointMeta.ts";
+import type { ChatMessage } from "../../model/agent-chat-shared.ts";
 import {
 	buildRenderRows,
 	calculateChatOffsets,
@@ -54,7 +52,7 @@ export const ChatMessageList = memo(function ChatMessageList({
 	virtualizerControlsRef?: React.Ref<ChatVirtualizerControls | null>;
 	expandedTools: Set<string>;
 	toggleTool: (id: string) => void;
-	checkpoints: CheckpointInfo[];
+	checkpoints: CheckpointMeta[];
 	revertCheckpoint: (id: string) => void;
 	handleSendMessage?: (text: string) => void;
 	onMdFileClick?: (path: string) => void;

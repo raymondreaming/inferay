@@ -1,9 +1,7 @@
 import { useMemo } from "octane";
-import type { CommitFile } from "../../../../repository/model/git-graph.ts";
-import type {
-	GitFileEntry,
-	GitFilePresentation,
-} from "../../../../repository/model/types.ts";
+import type { GitCommitFile } from "../../../../../../build/presentation/contracts/GitCommitFile.ts";
+import type { GitFileEntry } from "../../../../../../build/presentation/contracts/GitFileEntry.ts";
+import type { GitFilePresentation } from "../../../../../../build/presentation/contracts/GitFilePresentation.ts";
 import {
 	type SelectedFile,
 	visibleGitFiles,
@@ -17,11 +15,11 @@ export function HistoricalFileList({
 	viewMode,
 	onSelectFile,
 }: {
-	files: CommitFile[];
+	files: GitCommitFile[];
 	filePresentation?: GitFilePresentation;
 	selectedFile: SelectedFile | null;
 	viewMode: "path" | "tree";
-	onSelectFile?: (file: CommitFile) => void;
+	onSelectFile?: (file: GitCommitFile) => void;
 }) {
 	const orderedFiles = useMemo(
 		() => visibleGitFiles(files, filePresentation, viewMode),

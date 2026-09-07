@@ -8,7 +8,7 @@ pub mod config;
 pub mod path_security;
 pub mod prompts;
 
-mod tool_presentation;
+pub mod tool_presentation;
 
 pub mod provider_config;
 

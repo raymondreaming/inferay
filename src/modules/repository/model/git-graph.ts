@@ -1,26 +1,19 @@
-import type { GitCommitDetails as NativeCommitDetails } from "../../../../build/presentation/contracts/GitCommitDetails.ts";
-import type { GitCommitFile as NativeCommitFile } from "../../../../build/presentation/contracts/GitCommitFile.ts";
-import type { GitComparisonDetails as NativeComparisonDetails } from "../../../../build/presentation/contracts/GitComparisonDetails.ts";
-import type { GitGraphItemKind as NativeGraphItemKind } from "../../../../build/presentation/contracts/GitGraphItemKind.ts";
-import type { GitGraphRef as NativeRef } from "../../../../build/presentation/contracts/GitGraphRef.ts";
-import type { GitGraphRefKind as NativeRefKind } from "../../../../build/presentation/contracts/GitGraphRefKind.ts";
-import type { GitRepositoryOperationState as NativeOperationState } from "../../../../build/presentation/contracts/GitRepositoryOperationState.ts";
-import type { GitRepositorySnapshotState as NativeSnapshotState } from "../../../../build/presentation/contracts/GitRepositorySnapshotState.ts";
-import type { GitStash as NativeGitStash } from "../../../../build/presentation/contracts/GitStash.ts";
-import type { GitWorktree as NativeGitWorktree } from "../../../../build/presentation/contracts/GitWorktree.ts";
-import type { GraphCommit as NativeGraphCommit } from "../../../../build/presentation/contracts/GraphCommit.ts";
-import type { GraphRail as NativeGraphRail } from "../../../../build/presentation/contracts/GraphRail.ts";
-import type { GraphRow as NativeGraphRow } from "../../../../build/presentation/contracts/GraphRow.ts";
-import type { GraphTransition as NativeGraphTransition } from "../../../../build/presentation/contracts/GraphTransition.ts";
+import type { ComparisonPlan } from "../../../../build/presentation/contracts/ComparisonPlan.ts";
+import type { GitCommitDetails } from "../../../../build/presentation/contracts/GitCommitDetails.ts";
+import type { GitComparisonDetails } from "../../../../build/presentation/contracts/GitComparisonDetails.ts";
+import type { GitGraphRef } from "../../../../build/presentation/contracts/GitGraphRef.ts";
+import type { GitRepositoryOperationState } from "../../../../build/presentation/contracts/GitRepositoryOperationState.ts";
+import type { GitRepositorySnapshotState } from "../../../../build/presentation/contracts/GitRepositorySnapshotState.ts";
+import type { GitStash } from "../../../../build/presentation/contracts/GitStash.ts";
+import type { GitWorktree } from "../../../../build/presentation/contracts/GitWorktree.ts";
+import type { GraphCommit } from "../../../../build/presentation/contracts/GraphCommit.ts";
+import type { GraphRail } from "../../../../build/presentation/contracts/GraphRail.ts";
+import type { GraphRow } from "../../../../build/presentation/contracts/GraphRow.ts";
+import type { GraphTransition } from "../../../../build/presentation/contracts/GraphTransition.ts";
+import type { HunkDiff } from "../../../../build/presentation/contracts/HunkDiff.ts";
 import { runtimeGitGraphLaneColors } from "../../../design-system/styles.stylex.ts";
 import type { GraphActionPresentation } from "../../workbench/model/workbench-model.ts";
-import type {
-	DiffRequest,
-	GitFilePresentation,
-	GitGraphNavigation,
-	GitProjectStatus,
-	HunkDiff,
-} from "./types.ts";
+import type { DiffRequest } from "./types.ts";
 
 export async function fetchGitDiff(
 	request: DiffRequest,
@@ -36,34 +29,26 @@ export async function fetchGitDiff(
 		throw new Error(`Diff request failed (HTTP ${response.status})`);
 	return (await response.json()) as HunkDiff;
 }
-export type GraphNode = Omit<NativeGraphCommit, "colorIndex"> & {
+export type GraphNode = Omit<GraphCommit, "colorIndex"> & { color: string };
+
+export type RenderGraphRail = Omit<GraphRail, "colorIndex"> & { color: string };
+type RenderGraphTransition = Omit<GraphTransition, "colorIndex"> & {
 	color: string;
 };
-export type GitGraphItemKind = NativeGraphItemKind;
-export type GitGraphRefKind = NativeRefKind;
-export type GitGraphRef = NativeRef;
-export type GraphRail = Omit<NativeGraphRail, "colorIndex"> & { color: string };
-type GraphTransition = Omit<NativeGraphTransition, "colorIndex"> & {
-	color: string;
-};
-export type GraphRow = Omit<
-	NativeGraphRow,
+export type RenderGraphRow = Omit<
+	GraphRow,
 	"rails" | "transitions" | "convergences" | "truncatedEdges"
 > & {
-	rails: GraphRail[];
-	transitions: GraphTransition[];
-	convergences: GraphTransition[];
-	truncatedEdges: GraphRail[];
+	rails: RenderGraphRail[];
+	transitions: RenderGraphTransition[];
+	convergences: RenderGraphTransition[];
+	truncatedEdges: RenderGraphRail[];
 };
-export type GitWorktree = Omit<NativeGitWorktree, "status"> & {
-	status?: GitProjectStatus;
-};
-type GitStash = NativeGitStash;
-type GitRepositoryOperationState = NativeOperationState;
+
 export interface GraphData {
 	actions: Record<string, GraphActionPresentation>;
 	commits: GraphNode[];
-	rows: GraphRow[];
+	rows: RenderGraphRow[];
 	hasMore: boolean;
 	worktrees: GitWorktree[];
 	stashes: GitStash[];
@@ -88,7 +73,7 @@ export interface GraphPresentation {
 	reachableHistory: string[];
 	selectableItems: string[];
 }
-type GitRepositorySnapshotState = NativeSnapshotState;
+
 export const EMPTY_GRAPH: GraphData = {
 	actions: {},
 	commits: [],
@@ -118,10 +103,10 @@ type WireGraphData = Omit<GraphData, "commits" | "rows"> & {
 	commits: WireColor<GraphNode>[];
 	rows: Array<{
 		row: number;
-		rails: WireColor<GraphRail>[];
-		transitions: WireColor<GraphTransition>[];
-		convergences: WireColor<GraphTransition>[];
-		truncatedEdges: WireColor<GraphRail>[];
+		rails: WireColor<RenderGraphRail>[];
+		transitions: WireColor<RenderGraphTransition>[];
+		convergences: WireColor<RenderGraphTransition>[];
+		truncatedEdges: WireColor<RenderGraphRail>[];
 	}>;
 };
 // Rust owns the graph schema; only theme colors are resolved in the renderer.
@@ -136,20 +121,6 @@ function withLaneColor<T extends { colorIndex: number }>({
 				Math.abs(colorIndex) % runtimeGitGraphLaneColors.length
 			]!,
 	};
-}
-
-export type CommitFile = NativeCommitFile;
-export type CommitDetails = NativeCommitDetails & {
-	filePresentation?: GitFilePresentation;
-};
-export type ComparisonDetails = NativeComparisonDetails & {
-	filePresentation?: GitFilePresentation;
-};
-
-export interface ComparisonPlan {
-	cwd: string;
-	from: string;
-	to: string;
 }
 
 export function createGitGraphReader() {
@@ -208,7 +179,7 @@ export async function fetchCommitDetails(
 	hash: string | undefined,
 	parent?: string,
 	signal?: AbortSignal,
-): Promise<CommitDetails | null> {
+): Promise<GitCommitDetails | null> {
 	if (!cwd || !hash) return null;
 	const parentQuery = parent ? `&parent=${encodeURIComponent(parent)}` : "";
 	const res = await fetch(
@@ -220,7 +191,7 @@ export async function fetchCommitDetails(
 	if (!res.ok) throw new Error("Failed to fetch commit details");
 	const json = await res.json();
 	// The bundled Rust server owns the canonical commit-details schema.
-	return (json.details ?? null) as CommitDetails | null;
+	return (json.details ?? null) as GitCommitDetails | null;
 }
 export async function fetchComparisonDetails(
 	cwd: string | undefined,
@@ -251,7 +222,7 @@ export async function fetchComparisonDetails(
 	);
 	if (!res.ok) throw new Error("Failed to compare commits");
 	return (await res.json()) as {
-		details: ComparisonDetails | null;
+		details: GitComparisonDetails | null;
 		plan: ComparisonPlan | null;
 	};
 }

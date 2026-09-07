@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { memo } from "octane";
-import type { DiffLine } from "../../../../repository/model/types.ts";
+import type { GitDiffLine } from "../../../../../../build/presentation/contracts/GitDiffLine.ts";
 import { DIFF_CONFIG } from "../../../model/workbench-model.ts";
 import * as inlineStyles from "./styles.ts";
 import { diffStyles } from "./styles.ts";
@@ -8,7 +8,7 @@ import { diffStyles } from "./styles.ts";
 export const DiffGutterCells = memo(function DiffGutterCells({
 	line,
 }: {
-	line: DiffLine;
+	line: GitDiffLine;
 }) {
 	const isAdd = line.type === "add";
 	const isRemove = line.type === "remove";

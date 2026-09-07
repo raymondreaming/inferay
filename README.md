@@ -123,7 +123,9 @@ renderer with `bun run build:renderer` to regenerate the Rust bindings first.
 
 `bun run code` reports Rust and renderer code separately. Keep React views and
 browser interactions in typed TSX; move application models into Rust and generate
-their TypeScript contracts. `bun run check:architecture` checks the boundaries,
+their TypeScript contracts. Import generated contracts by their Rust names;
+React owns local UI state, browser events, and calls to the backend.
+`bun run check:architecture` checks the boundaries,
 TypeScript, Rust, and renderer build.
 
 ## Tech stack

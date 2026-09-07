@@ -1,10 +1,10 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useEffect, useMemo, useRef, useState } from "octane";
+import type { FileContent } from "../../../../../../build/presentation/contracts/FileContent.ts";
 import {
 	shouldDisableSnippetHighlighting,
 	useSyntaxHighlight,
 } from "../../../../../shared/hooks/useSyntaxHighlight.tsx";
-import type { FileContentResponse } from "../../../model/workbench-model.ts";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
@@ -22,7 +22,7 @@ function visibleLineContent(line: string) {
 export const SourcePreview = memo(function SourcePreview({
 	file,
 }: {
-	file: FileContentResponse;
+	file: FileContent;
 }) {
 	const lines = useMemo(() => file.content.split("\n"), [file.content]);
 	const scrollRef = useRef<HTMLDivElement | null>(null);

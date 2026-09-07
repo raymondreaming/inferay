@@ -1,10 +1,10 @@
+import type { CheckpointMeta } from "../../../../build/presentation/contracts/CheckpointMeta.ts";
 import { ChatReplica } from "../../../adapters/presentation/model.ts";
 import {
 	readStoredValue,
 	removeStoredValue,
 	writeStoredValue,
 } from "../../../adapters/storage/stored-values.ts";
-import type { CheckpointInfo } from "./agent-chat-shared.ts";
 
 const INPUT_KEY_PREFIX = "inferay-chat-input-";
 const DEFAULT_CHAT_RUN_STATUS: ChatLoadingState = {
@@ -253,7 +253,7 @@ import {
 	type AgentChatSharedChatMessage as ChatMessage,
 	isChatServerMessage,
 	mergeNativeTranscript,
-	type QueuedMessageInfo,
+	type QueuedChatMessage,
 } from "./agent-chat-shared.ts";
 
 // Rendering every protocol fragment makes words repeatedly reflow while the
@@ -276,12 +276,12 @@ export function useChatConnection({
 	cwd?: string;
 	paneId: string;
 	onExit?: () => void;
-	replaceQueuedMessages: (messages: QueuedMessageInfo[]) => void;
+	replaceQueuedMessages: (messages: QueuedChatMessage[]) => void;
 	resolveSteeringMessage?: (id: string) => void;
-	stageSteeringMessage?: (message: QueuedMessageInfo) => void;
+	stageSteeringMessage?: (message: QueuedChatMessage) => void;
 }) {
 	const [messages, setMessages] = useState<ChatMessage[]>([]);
-	const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
+	const [checkpoints, setCheckpoints] = useState<CheckpointMeta[]>([]);
 	const [runStatus, setRunStatus] = useState(DEFAULT_CHAT_RUN_STATUS);
 	const [expandedTools, setExpandedTools] = useState(() => new Set<string>());
 	const replicaRef = useRef<ChatReplica | null>(null);
@@ -398,7 +398,7 @@ export function useChatConnection({
 				msg.message &&
 				typeof msg.message.id === "string"
 			) {
-				stageSteeringMessage?.(msg.message as QueuedMessageInfo);
+				stageSteeringMessage?.(msg.message as QueuedChatMessage);
 			} else if (msg.type === "chat:steered") {
 				if (typeof msg.messageId === "string")
 					resolveSteeringMessage?.(msg.messageId);

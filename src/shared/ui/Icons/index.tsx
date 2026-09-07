@@ -1,10 +1,10 @@
 import { memo } from "octane";
 import type { CSSProperties } from "react";
 
-import type { GraphRail } from "../../../modules/repository/model/git-graph.ts";
+import type { RenderGraphRail } from "../../../modules/repository/model/git-graph.ts";
 import type { RowTransition } from "../../../modules/workbench/graph/model/graph-model.ts";
 
-type PositionedRail = GraphRail & { key: string; row: number };
+type PositionedRail = RenderGraphRail & { key: string; row: number };
 
 export const CommitGraphLinesLayer = memo(function CommitGraphLinesLayer({
 	width,

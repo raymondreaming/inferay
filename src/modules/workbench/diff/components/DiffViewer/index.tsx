@@ -9,8 +9,8 @@ import {
 	useRef,
 	useState,
 } from "octane";
+import type { HunkDiff } from "../../../../../../build/presentation/contracts/HunkDiff.ts";
 import { listenWindowEvent } from "../../../../../shared/lib/data.ts";
-import type { HunkDiff } from "../../../../repository/model/types.ts";
 import {
 	buildDiffViewerModel,
 	type DiffViewMode,

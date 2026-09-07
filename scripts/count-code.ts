@@ -223,7 +223,10 @@ if (import.meta.main) {
 		console.log(
 			`React components: ${report.components.definitions} definitions in ${report.components.files} files (${report.components.lines.toLocaleString("en-US")} lines; included below).\n`,
 		);
-		console.table([...rows, { category: "TOTAL", ...report.total }]);
+		console.table([
+			...rows.filter((row) => row.files > 0),
+			{ category: "TOTAL", ...report.total },
+		]);
 		console.log(
 			"Scope: src/ and native/, excluding styles, tests/fixtures/mocks, tooling, generated files and build/dependency folders.",
 		);

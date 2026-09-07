@@ -1,5 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useEffect, useReducer, useRef, useState } from "octane";
+import type { Prompt } from "../../../../../build/presentation/contracts/Prompt.ts";
 import { APP_REGION_NO_DRAG_CLASS } from "../../../../app/model/appearance.ts";
 import {
 	iconSize,
@@ -19,7 +20,6 @@ import {
 	initializeSkillDialog,
 	isSkillFormDirty,
 	removeSkill,
-	type Skill,
 	type SkillFormState,
 	saveSkillForm,
 	skillFormForDuplicate,
@@ -43,12 +43,12 @@ export function SkillsDialog({
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const selectedSkill =
 		skills.find((skill) => skill._id === selectedId) ?? null;
-	const setSelectedSkill = (skill: Skill | null) =>
+	const setSelectedSkill = (skill: Prompt | null) =>
 		setSelectedId(skill?._id ?? null);
 	const [filter, setFilter] = useState("all");
 	const [search, setSearch] = useState("");
 	const [form, formDispatch] = useReducer(formReducer, INITIAL_FORM);
-	const startEdit = useCallback((skill: Skill) => {
+	const startEdit = useCallback((skill: Prompt) => {
 		formDispatch(skillFormForEdit(skill));
 	}, []);
 	const dialogRef = useRef<HTMLDialogElement | null>(null);
@@ -90,7 +90,7 @@ export function SkillsDialog({
 		formDispatch({ ...INITIAL_FORM, isCreating: true });
 	};
 
-	const selectSkill = (p: Skill) => {
+	const selectSkill = (p: Prompt) => {
 		if (!canLeave()) return;
 		formDispatch(INITIAL_FORM);
 		setSelectedSkill(p);
@@ -116,7 +116,7 @@ export function SkillsDialog({
 		}
 	};
 
-	const handleDelete = async (p: Skill) => {
+	const handleDelete = async (p: Prompt) => {
 		if (p.isBuiltIn || !confirm(`Delete /${p.command}?`)) return;
 		try {
 			await removeSkill(p._id);

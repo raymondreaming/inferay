@@ -3,7 +3,7 @@ import { fetchJson, sendJson } from "../../../adapters/backend/http.ts";
 import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
 import type {
 	AttachedImageInfo,
-	QueuedMessageInfo,
+	QueuedChatMessage,
 } from "../model/agent-chat-shared.ts";
 import {
 	mergeNativeQueue,
@@ -15,12 +15,12 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 	const [attachedImages, setAttachedImages] = useState<AttachedImageInfo[]>([]);
 	const attachedImagesRef = useRef(attachedImages);
 	attachedImagesRef.current = attachedImages;
-	const [queuedMessages, setQueuedMessages] = useState<QueuedMessageInfo[]>([]);
+	const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>([]);
 	const queueRef = useRef(queuedMessages);
 	queueRef.current = queuedMessages;
 	const queueRevision = useRef(0);
 	const mutationChain = useRef(Promise.resolve());
-	const replaceQueue = useCallback((queue: QueuedMessageInfo[]) => {
+	const replaceQueue = useCallback((queue: QueuedChatMessage[]) => {
 		queueRevision.current++;
 		queueRef.current = queue;
 		setQueuedMessages(queue);
@@ -40,7 +40,7 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 					if (!response.ok)
 						throw new Error("Could not update queued message. Please retry.");
 					const queue = (
-						(await response.json()) as { queue: QueuedMessageInfo[] }
+						(await response.json()) as { queue: QueuedChatMessage[] }
 					).queue;
 					if (queueRevision.current === requestRevision)
 						replaceQueue([
@@ -90,7 +90,7 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 	};
 
 	const replaceQueuedMessages = useCallback(
-		(messages: QueuedMessageInfo[]) => {
+		(messages: QueuedChatMessage[]) => {
 			if (messages.length === 0) {
 				setQueueError(null);
 				setEditingQueueId(null);
@@ -102,7 +102,7 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 	);
 
 	const stageSteeringMessage = useCallback(
-		(message: QueuedMessageInfo) => {
+		(message: QueuedChatMessage) => {
 			replaceQueue([
 				...queueRef.current.filter((item) => item.id !== message.id),
 				{ ...message, transient: true },

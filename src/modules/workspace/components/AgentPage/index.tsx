@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
+import type { AgentSavedState } from "../../../../../build/presentation/contracts/AgentSavedState.ts";
 import { wsClient } from "../../../../adapters/backend/http.ts";
 import {
 	APP_THEME_STORAGE_KEY,
@@ -12,11 +13,9 @@ import { useRepositoryWorkbench } from "../../../workbench/hooks/useRepositoryWo
 import type { MutableRef } from "../../model/workspace-model.ts";
 import {
 	type AgentGroupsAction,
-	type AgentSavedState,
 	DEFAULT_ROWS,
 	FOCUS_AGENT_CHAT_COMPOSER_EVENT,
 	type FocusAgentChatComposerDetail,
-	type GroupId,
 	getThemeById,
 	listenAgentLayoutMode,
 	loadAgentLayoutMode,
@@ -32,7 +31,7 @@ export type AgentPaneActionsArgs = {
 	readonly cleanupPane: (paneId: string) => void;
 	readonly dispatchAgentGroupAction: (action: AgentGroupsAction) => void;
 	readonly groups: AgentSavedState["groups"];
-	readonly selectedGroupId: GroupId | null;
+	readonly selectedGroupId: string | null;
 };
 export function AgentPage() {
 	const [layoutMode, setLayoutMode] = useState(loadAgentLayoutMode);

@@ -1,12 +1,12 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useMemo, useState } from "octane";
+import type { AskUserQuestion } from "../../../../../build/presentation/contracts/AskUserQuestion.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import {
 	IconCheck,
 	IconHelpCircle,
 	IconSend,
 } from "../../../../shared/ui/Icons/index.tsx";
-import type { AskUserQuestion } from "../../model/agent-chat-shared.ts";
 import {
 	formatAskUserAnswer,
 	hasAskUserSelections,

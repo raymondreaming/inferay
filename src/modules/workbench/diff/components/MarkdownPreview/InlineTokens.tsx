@@ -1,5 +1,5 @@
 import * as stylex from "@octanejs/stylex";
-import type { MdInlineToken } from "../../../../../shared/lib/data.ts";
+import type { MdInlineToken } from "../../../../../../build/presentation/contracts/MdInlineToken.ts";
 import { MarkdownInline } from "../../../../../shared/ui/MarkdownInline/index.tsx";
 import { styles } from "./styles.ts";
 

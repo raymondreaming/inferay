@@ -121,20 +121,21 @@ impl AgentStateStore {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
-struct Workspace {
+pub struct Workspace {
     groups: Vec<Group>,
     selected_group_id: String,
+    #[ts(type = "'default' | 'midnight'")]
     theme_id: String,
     font_size: f64,
     font_family: String,
     opacity: f64,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
-struct Group {
+pub struct Group {
     id: String,
     name: String,
     panes: Vec<Pane>,
@@ -143,24 +144,58 @@ struct Group {
     rows: u64,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct Pane {
     id: String,
     title: String,
+    #[ts(type = "'agent' | 'claude' | 'codex'")]
     pub agent_kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub cwd: Option<String>,
     #[serde(default)]
     pending_cwd: bool,
     #[serde(default)]
     pub reference_paths: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<String>>", optional)]
     pub pending_workspace_paths: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub provider_session_id: Option<String>,
+}
+
+#[derive(Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSavedState<'a> {
+    #[serde(flatten)]
+    workspace: &'a Workspace,
+    repositories: RepositoryWorkspaceIndex<'a>,
+}
+#[derive(Clone, Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryWorkspaceEntry<'a> {
+    group_id: &'a str,
+    pane: &'a Pane,
+}
+#[derive(Clone, Serialize, ts_rs::TS)]
+pub struct RepositoryWorkspace<'a> {
+    cwd: &'a str,
+    name: &'a str,
+    entries: Vec<RepositoryWorkspaceEntry<'a>>,
+}
+#[derive(Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryWorkspaceIndex<'a> {
+    workspaces: Vec<RepositoryWorkspace<'a>>,
+    unassigned_entries: Vec<RepositoryWorkspaceEntry<'a>>,
+    active_path: Option<&'a str>,
+    active_workspace: Option<RepositoryWorkspace<'a>>,
+    visible_entries: Vec<RepositoryWorkspaceEntry<'a>>,
 }
 
 fn repository_path(path: &str) -> &str {
@@ -280,26 +315,31 @@ impl Workspace {
             .ok_or_else(|| "Pane not found".into())
     }
     fn presentation(&self) -> Result<Value, String> {
-        let mut value = serde_json::to_value(self).map_err(|e| e.to_string())?;
-        let mut workspaces: Vec<Value> = Vec::new();
-        let mut unassigned = Vec::new();
+        let mut workspaces: Vec<RepositoryWorkspace<'_>> = Vec::new();
+        let mut unassigned_entries = Vec::new();
         for group in &self.groups {
             for pane in &group.panes {
                 let cwd = repository_path(pane.cwd.as_deref().unwrap_or(""));
-                let entry = serde_json::json!({"groupId":group.id,"pane":pane});
+                let entry = RepositoryWorkspaceEntry {
+                    group_id: &group.id,
+                    pane,
+                };
                 if cwd.is_empty() {
-                    unassigned.push(entry);
-                } else if let Some(workspace) = workspaces
-                    .iter_mut()
-                    .find(|workspace| workspace["cwd"] == cwd)
+                    unassigned_entries.push(entry);
+                } else if let Some(workspace) =
+                    workspaces.iter_mut().find(|workspace| workspace.cwd == cwd)
                 {
-                    workspace["entries"].as_array_mut().unwrap().push(entry);
+                    workspace.entries.push(entry);
                 } else {
                     let name = cwd
                         .rsplit(['/', '\\'])
                         .find(|part| !part.is_empty())
                         .unwrap_or(cwd);
-                    workspaces.push(serde_json::json!({"cwd":cwd,"name":name,"entries":[entry]}));
+                    workspaces.push(RepositoryWorkspace {
+                        cwd,
+                        name,
+                        entries: vec![entry],
+                    });
                 }
             }
         }
@@ -317,20 +357,24 @@ impl Workspace {
             .and_then(|pane| pane.cwd.as_deref())
             .map(repository_path)
             .filter(|path| !path.is_empty());
-        let active = active_path
-            .and_then(|path| workspaces.iter().find(|workspace| workspace["cwd"] == path));
-        let visible = active
-            .and_then(|workspace| workspace["entries"].as_array())
-            .cloned()
-            .unwrap_or_else(|| unassigned.clone());
-        value["repositories"] = serde_json::json!({
-            "workspaces": workspaces,
-            "unassignedEntries": unassigned,
-            "activePath": active_path,
-            "activeWorkspace": active,
-            "visibleEntries": visible,
-        });
-        Ok(value)
+        let active_workspace = active_path
+            .and_then(|path| workspaces.iter().find(|workspace| workspace.cwd == path))
+            .cloned();
+        let visible_entries = active_workspace
+            .as_ref()
+            .map(|workspace| workspace.entries.clone())
+            .unwrap_or_else(|| unassigned_entries.clone());
+        serde_json::to_value(AgentSavedState {
+            workspace: self,
+            repositories: RepositoryWorkspaceIndex {
+                workspaces,
+                unassigned_entries,
+                active_path,
+                active_workspace,
+                visible_entries,
+            },
+        })
+        .map_err(|error| error.to_string())
     }
 
     fn new(kind: &str) -> Self {
@@ -553,5 +597,64 @@ impl Workspace {
             _ => return Err("Unknown workspace action".into()),
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod presentation_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn repository_projection_preserves_panes_and_normalizes_paths() {
+        let workspace: Workspace = serde_json::from_value(json!({
+            "groups": [{
+                "id": "group", "name": "Work", "selectedPaneId": "second",
+                "columns": 2, "rows": 1,
+                "panes": [
+                    {"id": "first", "title": "First", "agentKind": "claude", "cwd": " /repo/ "},
+                    {"id": "second", "title": "Second", "agentKind": "codex", "cwd": "/repo"},
+                    {"id": "draft", "title": "Draft", "agentKind": "agent"}
+                ]
+            }],
+            "selectedGroupId": "group", "themeId": "default",
+            "fontSize": 13, "fontFamily": "SF Mono", "opacity": 1
+        }))
+        .unwrap();
+        let response = workspace.presentation().unwrap();
+        let repositories = &response["repositories"];
+        assert_eq!(repositories["workspaces"].as_array().unwrap().len(), 1);
+        assert_eq!(repositories["activePath"], "/repo");
+        assert_eq!(repositories["activeWorkspace"]["name"], "repo");
+        assert_eq!(repositories["visibleEntries"].as_array().unwrap().len(), 2);
+        assert_eq!(repositories["unassignedEntries"][0]["pane"]["id"], "draft");
+        assert_eq!(
+            repositories["visibleEntries"][0]["pane"],
+            response["groups"][0]["panes"][0]
+        );
+        assert!(
+            response["groups"][0]["panes"][0]
+                .get("pendingWorkspacePaths")
+                .is_none()
+        );
+        assert_eq!(
+            response["groups"][0]["panes"][0]["referencePaths"],
+            json!([])
+        );
+    }
+
+    #[test]
+    fn unassigned_selection_exposes_drafts_without_an_active_repository() {
+        let workspace = Workspace::new("codex");
+        let response = workspace.presentation().unwrap();
+        let repositories = &response["repositories"];
+        assert_eq!(repositories["activePath"], Value::Null);
+        assert_eq!(repositories["activeWorkspace"], Value::Null);
+        assert_eq!(repositories["workspaces"], json!([]));
+        assert_eq!(
+            repositories["visibleEntries"],
+            repositories["unassignedEntries"]
+        );
+        assert_eq!(repositories["visibleEntries"].as_array().unwrap().len(), 1);
     }
 }

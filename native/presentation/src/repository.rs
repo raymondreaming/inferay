@@ -56,6 +56,11 @@ pub struct GitStatusResult {
     pub ahead: usize,
     pub behind: usize,
     pub files: Vec<GitFileEntry>,
+    #[serde(default)]
+    pub file_groups: GitFileGroups,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub file_presentation: Option<GitFilePresentation>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
@@ -229,6 +234,9 @@ pub struct GitCommitDetails {
     #[ts(optional)]
     pub provider: Option<GitCommitProviderMetadata>,
     pub files: Vec<GitCommitFile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub file_presentation: Option<GitFilePresentation>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
@@ -253,6 +261,9 @@ pub struct GitComparisonDetails {
     #[ts(optional)]
     pub merge_base: Option<String>,
     pub files: Vec<GitCommitFile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub file_presentation: Option<GitFilePresentation>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
@@ -445,4 +456,43 @@ pub enum GitRepositorySnapshotState {
     Empty,
     NonRepository,
     CommandFailed,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GitFileTreeNode {
+    pub name: String,
+    pub path: String,
+    pub children: Vec<GitFileTreeNode>,
+    pub file_range: [usize; 2],
+}
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GitFilePresentation {
+    pub path_order: Vec<String>,
+    pub tree_order: Vec<String>,
+    pub tree: Vec<GitFileTreeNode>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
+pub struct GitFileGroups {
+    pub staged: Vec<GitFileEntry>,
+    pub modified: Vec<GitFileEntry>,
+    pub untracked: Vec<GitFileEntry>,
+}
+impl GitFileGroups {
+    pub fn from_files(files: &[GitFileEntry]) -> Self {
+        let mut groups = Self::default();
+        for file in files {
+            let group = if file.staged {
+                &mut groups.staged
+            } else if file.status == "?" {
+                &mut groups.untracked
+            } else {
+                &mut groups.modified
+            };
+            group.push(file.clone());
+        }
+        groups
+    }
 }

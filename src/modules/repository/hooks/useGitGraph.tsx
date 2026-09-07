@@ -1,18 +1,18 @@
 import { useCallback, useMemo, useRef, useState } from "octane";
+import type { ComparisonPlan } from "../../../../build/presentation/contracts/ComparisonPlan.ts";
+import type { GitCommitDetails } from "../../../../build/presentation/contracts/GitCommitDetails.ts";
+import type { GitComparisonDetails } from "../../../../build/presentation/contracts/GitComparisonDetails.ts";
+import type { GitGraphItemKind } from "../../../../build/presentation/contracts/GitGraphItemKind.ts";
 import {
 	usePollingQuery,
 	useQueryResource,
 } from "../../../shared/hooks/useQueryResource.tsx";
 import { DEFAULT_GIT_GRAPH_HISTORY_LIMIT } from "../../workbench/graph/model/graph-model.ts";
 import {
-	type CommitDetails,
-	type ComparisonDetails,
-	type ComparisonPlan,
 	createGitGraphReader,
 	EMPTY_GRAPH,
 	fetchCommitDetails,
 	fetchComparisonDetails,
-	type GitGraphItemKind,
 	type GraphData,
 	type GraphSemanticPreferences,
 } from "../model/git-graph.ts";
@@ -76,7 +76,7 @@ export function useCommitDetails(
 		(signal?: AbortSignal) => fetchCommitDetails(cwd, hash, parent, signal),
 		[cwd, hash, parent],
 	);
-	const { data, loading, error } = useQueryResource<CommitDetails | null>(
+	const { data, loading, error } = useQueryResource<GitCommitDetails | null>(
 		request,
 		null,
 		{
@@ -118,7 +118,7 @@ export function useComparisonDetails(
 		[cwd, fromHash, toHash, selectionKey],
 	);
 	const { data, loading } = useQueryResource<{
-		details: ComparisonDetails | null;
+		details: GitComparisonDetails | null;
 		plan: ComparisonPlan | null;
 	} | null>(fetchComparison, null, {
 		queryKey: [

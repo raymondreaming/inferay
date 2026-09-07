@@ -1,5 +1,6 @@
 import * as stylex from "@octanejs/stylex";
-import type { MdBlock, MdListItem } from "../../../../../shared/lib/data.ts";
+import type { MdBlock } from "../../../../../../build/presentation/contracts/MdBlock.ts";
+import type { MdListItem } from "../../../../../../build/presentation/contracts/MdListItem.ts";
 import { InlineTokens } from "./InlineTokens.tsx";
 import { ListItemRenderer } from "./ListItemRenderer.tsx";
 import { MermaidBlock } from "./MermaidBlock.tsx";

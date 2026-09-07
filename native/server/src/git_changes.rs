@@ -1,4 +1,5 @@
 //! File order and directory structure are prepared once with repository responses.
+use inferay_presentation::repository::{GitFilePresentation, GitFileTreeNode};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -50,7 +51,11 @@ pub(super) fn prepare(mut value: Value) -> Value {
                 object.insert("fileGroups".into(), groups);
                 object.insert(
                     "filePresentation".into(),
-                    json!({"pathOrder":paths, "treeOrder":tree_order, "tree":tree}),
+                    json!(GitFilePresentation {
+                        path_order: paths,
+                        tree_order,
+                        tree
+                    }),
                 );
             }
             for key in ["details", "status", "worktrees"] {
@@ -140,7 +145,7 @@ pub(super) fn prepare_graph(
     value
 }
 
-fn children(node: &Node, parent: &str, order: &mut Vec<String>) -> Vec<Value> {
+fn children(node: &Node, parent: &str, order: &mut Vec<String>) -> Vec<GitFileTreeNode> {
     node.children
         .iter()
         .map(|(name, child)| {
@@ -156,7 +161,12 @@ fn children(node: &Node, parent: &str, order: &mut Vec<String>) -> Vec<Value> {
             } else {
                 children(child, &path, order)
             };
-            json!({"name":name,"path":path,"children":descendants,"fileRange":[start,order.len()]})
+            GitFileTreeNode {
+                name: name.clone(),
+                path,
+                children: descendants,
+                file_range: [start, order.len()],
+            }
         })
         .collect()
 }

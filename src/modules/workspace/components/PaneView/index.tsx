@@ -1,5 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useCallback } from "octane";
+import type { Pane } from "../../../../../build/presentation/contracts/Pane.ts";
 import {
 	isChatAgentKind,
 	loadDefaultChatSettings,
@@ -7,14 +8,11 @@ import {
 import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
 import { AgentChatView } from "../../../conversation/components/AgentChatView/index.tsx";
 import { ChatPaneBoundary } from "../../../conversation/components/ChatPaneBoundary/index.tsx";
-import type {
-	WorkspaceModelAgentKind as AgentKind,
-	AgentPaneModel,
-} from "../../model/workspace-model.ts";
+import type { WorkspaceModelAgentKind as AgentKind } from "../../model/workspace-model.ts";
 import { styles } from "./styles.ts";
 
 interface PaneViewProps {
-	pane: AgentPaneModel;
+	pane: Pane;
 	isSelected: boolean;
 	isVisible?: boolean;
 	onClose: (paneId: string) => void;

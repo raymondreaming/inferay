@@ -1,8 +1,8 @@
 import * as stylex from "@octanejs/stylex";
 import { memo } from "octane";
 import type { CSSProperties } from "react";
+import type { GitDiffLine } from "../../../../../../build/presentation/contracts/GitDiffLine.ts";
 import type { SyntaxToken } from "../../../../../shared/hooks/useSyntaxHighlight.tsx";
-import type { DiffLine } from "../../../../repository/model/types.ts";
 import {
 	DIFF_CONFIG,
 	LINE_H,
@@ -14,7 +14,7 @@ import { diffStyles } from "./styles.ts";
 
 type DiffRowStyle = CSSProperties & { "--hover-bg"?: string };
 
-function getDiffRowBg(line: DiffLine, isHighlighted?: boolean) {
+function getDiffRowBg(line: GitDiffLine, isHighlighted?: boolean) {
 	const isAdd = line.type === "add";
 	const isRemove = line.type === "remove";
 	if (isHighlighted) {
@@ -41,7 +41,7 @@ export const DiffRow = memo(function DiffRow({
 	gutterOffset = 0,
 }: {
 	clipContent?: boolean;
-	line: DiffLine;
+	line: GitDiffLine;
 	highlightedTokens?: SyntaxToken[];
 	isHighlighted?: boolean;
 	minWidth?: number;

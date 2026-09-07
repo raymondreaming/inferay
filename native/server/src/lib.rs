@@ -69,6 +69,19 @@ mod pid_tracker;
 mod provider_history;
 mod render_jobs;
 
+/// Export the same types that serialize HTTP and chat responses. Keeping this
+/// beside the server makes renderer contracts follow backend schema changes.
+pub fn export_renderer_types(config: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
+    use ts_rs::TS;
+    markdown::PreparedMarkdown::export_all(config)?;
+    checkpoint::CheckpointMeta::export_all(config)?;
+    chat_persistence::QueuedMessageInfo::export_all(config)?;
+    native_app::AppInfo::export_all(config)?;
+    native_git::ComparisonPlan::export_all(config)?;
+    render_jobs::HunkDiff::export_all(config)?;
+    Ok(())
+}
+
 const LOCAL_AUTH_COOKIE: &str = "inferay_local_auth";
 const MAX_PROXY_BODY_BYTES: usize = 32 * 1024 * 1024;
 const CORS_METHODS: &str = "GET,POST,PUT,DELETE,OPTIONS";

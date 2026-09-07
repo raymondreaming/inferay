@@ -9,7 +9,7 @@ import {
 	IconTrash,
 	IconX,
 } from "../../../../shared/ui/Icons/index.tsx";
-import type { QueuedMessageInfo } from "../../model/agent-chat-shared.ts";
+import type { QueuedChatMessage } from "../../model/agent-chat-shared.ts";
 import { styles } from "./styles.ts";
 
 export const QueuedMessageRow = memo(function QueuedMessageRow({
@@ -24,7 +24,7 @@ export const QueuedMessageRow = memo(function QueuedMessageRow({
 	removeQueuedMessage,
 }: {
 	index: number;
-	message: QueuedMessageInfo;
+	message: QueuedChatMessage;
 	isEditing: boolean;
 	editingQueueText: string;
 	setEditingQueueText: (text: string) => void;

@@ -5,6 +5,12 @@ import {
 	useMemo,
 	useSyncExternalStore,
 } from "octane";
+import type { AgentSavedState } from "../../../../build/presentation/contracts/AgentSavedState.ts";
+
+import type { Group } from "../../../../build/presentation/contracts/Group.ts";
+
+import type { Pane } from "../../../../build/presentation/contracts/Pane.ts";
+import type { RepositoryWorkspaceIndex } from "../../../../build/presentation/contracts/RepositoryWorkspaceIndex.ts";
 import { postJson } from "../../../adapters/backend/http.ts";
 import { project as rustProject } from "../../../adapters/presentation/model.ts";
 import {
@@ -41,52 +47,7 @@ type AgentTheme = {
 	readonly separator: string;
 };
 type AgentLayoutMode = "grid" | "rows";
-type PaneId = string & { readonly __brand: "PaneId" };
-export type GroupId = string & { readonly __brand: "GroupId" };
-export interface AgentPaneModel {
-	readonly id: PaneId;
-	title: string;
-	readonly agentKind: AgentKind;
-	cwd?: string;
-	pendingCwd?: boolean;
-	referencePaths?: string[];
-	pendingWorkspacePaths?: string[];
-	summary?: string;
-	providerSessionId?: string;
-}
-interface AgentGroupModel {
-	readonly id: GroupId;
-	name: string;
-	panes: AgentPaneModel[];
-	selectedPaneId: PaneId | null;
-	columns: number;
-	rows: number;
-}
-interface RepositoryWorkspaceEntry {
-	readonly groupId: string;
-	readonly pane: AgentPaneModel;
-}
-export interface RepositoryWorkspace {
-	readonly cwd: string;
-	readonly name: string;
-	readonly entries: readonly RepositoryWorkspaceEntry[];
-}
-interface RepositoryWorkspaceIndex {
-	readonly workspaces: readonly RepositoryWorkspace[];
-	readonly unassignedEntries: readonly RepositoryWorkspaceEntry[];
-	readonly activePath: string | null;
-	readonly activeWorkspace: RepositoryWorkspace | null;
-	readonly visibleEntries: readonly RepositoryWorkspaceEntry[];
-}
-export interface AgentSavedState {
-	repositories: RepositoryWorkspaceIndex;
-	groups: AgentGroupModel[];
-	selectedGroupId: GroupId | null;
-	themeId: ThemeId;
-	fontSize: number;
-	fontFamily: string;
-	opacity: number;
-}
+
 type AgentWorkspaceAction =
 	| { type: "selectWorkspace"; groupId: string }
 	| { type: "selectRepository"; cwd: string }
@@ -374,7 +335,7 @@ type AuxiliaryPanel = {
 };
 export interface WorkspaceCanvasProps {
 	active?: boolean;
-	panes: AgentPaneModel[];
+	panes: Pane[];
 	selectedPaneId: string | null;
 	columns: number;
 	rows: number;
@@ -398,7 +359,7 @@ export interface WorkspaceCanvasProps {
 }
 export const paneViewProps = (
 	p: WorkspaceCanvasProps,
-	pane: AgentPaneModel,
+	pane: Pane,
 	paneIndex: number,
 	onHeaderDragStart: (e: PointerEvent, i: number) => void,
 	onHeaderDragEnd: () => void,
@@ -490,8 +451,8 @@ export function outerDockEdgeForPointer(
 export type SidebarUpdateStatus = "idle" | "updating" | "error";
 export interface SidebarWorkspaceState {
 	repositories: RepositoryWorkspaceIndex;
-	groups: AgentGroupModel[];
-	selectedGroupId: GroupId | null;
+	groups: Group[];
+	selectedGroupId: string | null;
 }
 export function useWorkspaceState(loadCanonical = true, selectFirst = true) {
 	const current = useSyncExternalStore(
@@ -519,7 +480,15 @@ export function useWorkspaceState(loadCanonical = true, selectFirst = true) {
 	) => {
 		const next = typeof update === "function" ? update(state) : update;
 		if (current.state)
-			publish({ ...current, state: { ...current.state, ...next } });
+			publish({
+				...current,
+				state: {
+					...current.state,
+					...next,
+					selectedGroupId:
+						next.selectedGroupId ?? current.state.selectedGroupId,
+				},
+			});
 	};
 	return [state, setState, current.error] as const;
 }

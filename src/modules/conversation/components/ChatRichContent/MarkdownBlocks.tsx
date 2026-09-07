@@ -1,5 +1,5 @@
 import * as stylex from "@octanejs/stylex";
-import type { MdBlock } from "../../../../shared/lib/data.ts";
+import type { MdBlock } from "../../../../../build/presentation/contracts/MdBlock.ts";
 import { CopyablePre } from "./CopyablePre.tsx";
 import { Inline } from "./Inline.tsx";
 import * as inlineStyles from "./styles.ts";

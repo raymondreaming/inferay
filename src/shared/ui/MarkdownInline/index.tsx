@@ -1,6 +1,6 @@
 import { Fragment, memo } from "octane";
 import type { CSSProperties } from "react";
-import type { MdInlineToken } from "../../lib/data.ts";
+import type { MdInlineToken } from "../../../../build/presentation/contracts/MdInlineToken.ts";
 
 export type InlineAppearance = Partial<
 	Record<

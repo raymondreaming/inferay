@@ -3,36 +3,42 @@ use crate::{utf16_length as javascript_length, utf16_slice as javascript_slice};
 use serde::Serialize;
 use serde_json::Value;
 
-#[derive(Debug, Serialize, PartialEq)]
+#[derive(Debug, Serialize, PartialEq, ts_rs::TS)]
 pub struct ToolDisplayInfo {
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub detail: Option<String>,
 }
-#[derive(Debug, Serialize, PartialEq)]
+#[derive(Debug, Serialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolOutputSummary {
     #[serde(rename = "type")]
     pub kind: &'static str,
     pub value: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub file_name: Option<String>,
 }
-#[derive(Debug, Serialize, PartialEq)]
+#[derive(Debug, Serialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct AskUserQuestion {
     pub question: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub header: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub options: Option<Vec<QuestionOption>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub multi_select: Option<bool>,
 }
-#[derive(Debug, Serialize, PartialEq)]
+#[derive(Debug, Serialize, PartialEq, ts_rs::TS)]
 pub struct QuestionOption {
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub description: Option<String>,
 }
 fn string(value: &Value, key: &str) -> Option<String> {

@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useRef } from "octane";
-import type { DiffMinimapSegment as MinimapSegment } from "../../../../repository/model/types.ts";
+import type { MinimapSegment } from "../../../../../../build/presentation/contracts/MinimapSegment.ts";
 import * as inlineStyles from "./styles.ts";
 import { diffStyles } from "./styles.ts";
 

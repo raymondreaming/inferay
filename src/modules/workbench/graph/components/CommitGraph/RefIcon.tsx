@@ -1,11 +1,11 @@
 import * as stylex from "@octanejs/stylex";
+import type { GitGraphRefKind } from "../../../../../../build/presentation/contracts/GitGraphRefKind.ts";
 import {
 	IconCloud,
 	IconComputer,
 	IconGitCommit,
 	IconTag,
 } from "../../../../../shared/ui/Icons/index.tsx";
-import type { GitGraphRefKind } from "../../../../repository/model/git-graph.ts";
 import { styles } from "./styles.ts";
 
 export function RefIcon({ kind }: { kind: GitGraphRefKind }) {

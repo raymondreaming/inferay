@@ -1,10 +1,10 @@
 import { useCallback, useMemo } from "octane";
+import type { GitStatusResult } from "../../../../build/presentation/contracts/GitStatusResult.ts";
 import { postJson } from "../../../adapters/backend/http.ts";
 import { usePollingQuery } from "../../../shared/hooks/useQueryResource.tsx";
-import type { GitProjectStatus } from "../model/types.ts";
 import type { useGitGraph } from "./useGitGraph.tsx";
 
-const EMPTY_GIT_PROJECTS: GitProjectStatus[] = [];
+const EMPTY_GIT_PROJECTS: GitStatusResult[] = [];
 export function useGitStatus(
 	cwds: string[],
 	options: {
@@ -31,7 +31,7 @@ export function useGitStatus(
 	);
 	const fetcher = useCallback(
 		(signal?: AbortSignal) =>
-			postJson<GitProjectStatus[]>(
+			postJson<GitStatusResult[]>(
 				"/api/git/statuses",
 				{
 					cwds: requestedCwds,

@@ -1,3 +1,5 @@
+import type { AppInfo } from "../../../build/presentation/contracts/AppInfo.ts";
+
 import {
 	APP_BACKGROUND_STORAGE_KEY,
 	APP_THEME_STORAGE_KEY,
@@ -166,21 +168,7 @@ export function getStepPhase(current: Step, target: Step) {
 
 import { fetchJsonOr } from "../../adapters/backend/http.ts";
 import { useQueryResource } from "../../shared/hooks/useQueryResource.tsx";
-export interface AppInfo {
-	name: string;
-	version: string;
-	hash?: string;
-	channel: string;
-	identifier?: string;
-	production: boolean;
-	update: {
-		available: boolean;
-		currentVersion: string;
-		latestVersion: string | null;
-		url: string | null;
-		error?: string;
-	};
-}
+
 const FALLBACK_APP_INFO: AppInfo = {
 	name: "inferay",
 	version: "dev",

@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useRef } from "octane";
-import type { HunkDiff } from "../../../../repository/model/types.ts";
+import type { HunkDiff } from "../../../../../../build/presentation/contracts/HunkDiff.ts";
 import { type DiffViewMode, LINE_H } from "../../../model/workbench-model.ts";
 import {
 	type DiffScrollSource,

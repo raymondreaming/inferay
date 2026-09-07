@@ -15,47 +15,64 @@ static AUTO: LazyLock<Regex> = LazyLock::new(|| {
     .unwrap()
 });
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 pub struct PreparedMarkdown {
+    #[ts(type = "1")]
     pub version: u8,
     pub blocks: Vec<MdBlock>,
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 pub struct MdBlock {
     #[serde(rename = "type")]
+    #[ts(
+        type = "'heading' | 'code' | 'mermaid' | 'blockquote' | 'hr' | 'table' | 'ul' | 'ol' | 'checklist' | 'paragraph'"
+    )]
     pub kind: &'static str,
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub tokens: Option<Vec<MdInlineToken>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub level: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub lang: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub rows: Option<Vec<Vec<Vec<MdInlineToken>>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub items: Option<Vec<MdListItem>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub children: Option<Vec<MdBlock>>,
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 pub struct MdListItem {
     pub bullet: String,
     pub tokens: Vec<MdInlineToken>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub checked: Option<bool>,
     pub indent: usize,
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 pub struct MdInlineToken {
     #[serde(rename = "type")]
+    #[ts(
+        type = "'text' | 'bold' | 'italic' | 'bold-italic' | 'strikethrough' | 'code' | 'link' | 'image' | 'linebreak' | 'markdown_path' | 'url'"
+    )]
     pub kind: &'static str,
     pub text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub href: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub alt: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub children: Option<Vec<MdInlineToken>>,
 }
 impl MdBlock {

@@ -1,13 +1,11 @@
 import * as stylex from "@octanejs/stylex";
+import type { GitFileEntry } from "../../../../../../build/presentation/contracts/GitFileEntry.ts";
+import type { GitFileTreeNode } from "../../../../../../build/presentation/contracts/GitFileTreeNode.ts";
 import { iconSize } from "../../../../../design-system/styles.stylex.ts";
 import {
 	IconChevronRight,
 	IconFolderFill,
 } from "../../../../../shared/ui/Icons/index.tsx";
-import type {
-	GitFileEntry,
-	GitFileTreeNode,
-} from "../../../../repository/model/types.ts";
 import type { SelectedFile } from "../../../model/workbench-model.ts";
 import { FileActionIcon } from "./FileActionIcon.tsx";
 import { FileChangeIcon } from "./FileChangeIcon.tsx";

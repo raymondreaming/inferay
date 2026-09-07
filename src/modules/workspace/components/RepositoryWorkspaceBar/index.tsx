@@ -1,6 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import { useLocation, useNavigate } from "@octanejs/tanstack-router";
 import { useCallback, useEffect, useRef, useState } from "octane";
+import type { RepositoryWorkspace } from "../../../../../build/presentation/contracts/RepositoryWorkspace.ts";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
@@ -24,7 +25,6 @@ import {
 	dispatchCreateAgentChat,
 	loadSidebarCollapsed,
 	mutateAgentWorkspaceState,
-	type RepositoryWorkspace,
 	setWorkspaceSidebarCollapsed,
 	useWorkspaceState,
 	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,

@@ -37,7 +37,7 @@ pub struct ComparisonSelection {
     pub worktree_path: Option<String>,
 }
 
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, PartialEq, Eq, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ComparisonPlan {
     pub cwd: String,

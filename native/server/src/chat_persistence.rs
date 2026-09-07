@@ -6,13 +6,14 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 pub struct QueuedMessageInfo {
     pub id: String,
     pub text: String,
     #[serde(rename = "displayText")]
     pub display_text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub images: Option<Vec<String>>,
 }
 

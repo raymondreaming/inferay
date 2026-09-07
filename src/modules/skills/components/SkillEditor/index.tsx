@@ -1,4 +1,5 @@
 import * as stylex from "@octanejs/stylex";
+import type { Prompt } from "../../../../../build/presentation/contracts/Prompt.ts";
 import {
 	iconSize,
 	surfaceStyles,
@@ -9,11 +10,10 @@ import {
 	IconPencil,
 	IconTrash,
 } from "../../../../shared/ui/Icons/index.tsx";
-import type { Skill } from "../../model/skill-library.ts";
 import { styles } from "./styles.ts";
 
 interface SkillEditorProps {
-	selectedSkill: Skill | null;
+	selectedSkill: Prompt | null;
 	isCreatingNew: boolean;
 	isEditing: boolean;
 	isSaving: boolean;

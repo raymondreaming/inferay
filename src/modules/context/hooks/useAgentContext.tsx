@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useState } from "octane";
+import type { AgentContextUpdate } from "../../../../build/presentation/contracts/AgentContextUpdate.ts";
+import type { EffectiveAgentContext } from "../../../../build/presentation/contracts/EffectiveAgentContext.ts";
 import { fetchJson, postJson } from "../../../adapters/backend/http.ts";
-import type {
-	AgentContextMode,
-	AgentContextUpdate,
-	EffectiveAgentContext,
-} from "../../skills/model/skill-library.ts";
+import type { AgentContextMode } from "../../skills/model/skill-library.ts";
 
 const EMPTY = {
 	instructions: "",

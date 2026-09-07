@@ -7,14 +7,12 @@ import {
 	useReducer,
 	useRef,
 } from "octane";
+import type { GitDiffLine } from "../../../../../../build/presentation/contracts/GitDiffLine.ts";
+import type { MinimapSegment } from "../../../../../../build/presentation/contracts/MinimapSegment.ts";
 import {
 	type SyntaxToken,
 	useSyntaxHighlight,
 } from "../../../../../shared/hooks/useSyntaxHighlight.tsx";
-import type {
-	DiffLine,
-	DiffMinimapSegment as MinimapSegment,
-} from "../../../../repository/model/types.ts";
 import {
 	DIFF_CONFIG,
 	diffViewportReducer,
@@ -59,7 +57,7 @@ export const VirtualPanel = memo(function VirtualPanel({
 	filePath,
 	highlightedRange,
 }: {
-	lines: DiffLine[];
+	lines: GitDiffLine[];
 	rowCount?: number;
 	maxLineChars: number;
 	ext: string;
@@ -70,7 +68,7 @@ export const VirtualPanel = memo(function VirtualPanel({
 		programmatic?: boolean,
 	) => void;
 	disableTokenize: boolean;
-	gutterLines?: DiffLine[];
+	gutterLines?: GitDiffLine[];
 	showGutter?: boolean;
 	showMinimap?: boolean;
 	minimapSegments?: MinimapSegment[];
@@ -196,13 +194,13 @@ export const VirtualPanel = memo(function VirtualPanel({
 
 	const visibleRows = useMemo(() => {
 		const rows: {
-			line: DiffLine;
+			line: GitDiffLine;
 			highlightedTokens?: SyntaxToken[];
 			key: number;
 			isHighlighted: boolean;
 		}[] = [];
 		for (let i = start; i < end; i++) {
-			const line: DiffLine = lines[i] ?? {
+			const line: GitDiffLine = lines[i] ?? {
 				number: null,
 				content: "",
 				type: "spacer",

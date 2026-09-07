@@ -1,15 +1,11 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useMemo } from "octane";
+import type { GitCommitDetails } from "../../../../../../build/presentation/contracts/GitCommitDetails.ts";
+import type { GitCommitFile } from "../../../../../../build/presentation/contracts/GitCommitFile.ts";
+import type { GitComparisonDetails } from "../../../../../../build/presentation/contracts/GitComparisonDetails.ts";
+import type { GitFileEntry } from "../../../../../../build/presentation/contracts/GitFileEntry.ts";
+import type { GitFilePresentation } from "../../../../../../build/presentation/contracts/GitFilePresentation.ts";
 import { DotMatrixWeave } from "../../../../../shared/ui/DotMatrixLoader/index.tsx";
-import type {
-	CommitDetails,
-	CommitFile,
-	ComparisonDetails,
-} from "../../../../repository/model/git-graph.ts";
-import type {
-	GitFileEntry,
-	GitFilePresentation,
-} from "../../../../repository/model/types.ts";
 import {
 	adjacentGitFile,
 	buildChangesPanelModel,
@@ -45,12 +41,12 @@ interface ChangesPanelProps {
 	selectedWorktreePath?: string;
 	onOpenWorktree?: () => void;
 	commitDetailsLoading: boolean;
-	commitDetails: CommitDetails | null;
+	commitDetails: GitCommitDetails | null;
 	commitDetailsError?: string | null;
 	comparisonDetailsLoading?: boolean;
-	comparisonDetails?: ComparisonDetails | null;
-	onSelectCommitFile?: (file: CommitFile) => void;
-	onSelectComparisonFile?: (file: CommitFile) => void;
+	comparisonDetails?: GitComparisonDetails | null;
+	onSelectCommitFile?: (file: GitCommitFile) => void;
+	onSelectComparisonFile?: (file: GitCommitFile) => void;
 	branch?: string;
 	commitMessage: string;
 	onCommitMessageChange: (msg: string) => void;

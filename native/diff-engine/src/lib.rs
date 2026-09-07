@@ -2055,6 +2055,7 @@ pub fn get_git_commit_details_for_parent(
 
     let provider = get_commit_provider_metadata(cwd, &message);
     Some(GitCommitDetails {
+        file_presentation: None,
         hash: full_hash,
         parents,
         diff_parent,
@@ -2087,6 +2088,7 @@ pub fn get_git_comparison_details(
         .filter(|value| !value.is_empty());
     let files = git_change_files(cwd, Some(&from_hash), Some(&to_hash));
     Some(GitComparisonDetails {
+        file_presentation: None,
         from_hash,
         to_hash,
         merge_base,
@@ -2130,6 +2132,7 @@ pub fn get_git_worktree_comparison_details(
     }
     files.sort_by(|left, right| left.path.cmp(&right.path));
     Some(GitComparisonDetails {
+        file_presentation: None,
         from_hash: from_hash.clone(),
         to_hash: "WORKTREE".to_string(),
         merge_base: Some(from_hash),
@@ -2286,6 +2289,8 @@ fn git_status(cwd: &str, include_stats: bool) -> Option<GitStatusResult> {
     }
 
     Some(GitStatusResult {
+        file_groups: GitFileGroups::from_files(&files),
+        file_presentation: None,
         cwd: cwd.to_string(),
         name,
         branch,

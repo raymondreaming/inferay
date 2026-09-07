@@ -130,10 +130,12 @@ pub async fn cached_if(
     .await
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 struct MinimapSegment {
+    #[ts(type = "'add' | 'remove'")]
     r#type: &'static str,
+    #[ts(type = "'left' | 'right' | 'full'")]
     side: &'static str,
     start_line: usize,
     end_line: usize,
@@ -200,41 +202,44 @@ fn change_ranges(changed: impl Iterator<Item = bool>) -> Vec<[usize; 2]> {
     ranges
 }
 
+#[derive(serde::Serialize, ts_rs::TS)]
+struct HunkDiffStats {
+    added: usize,
+    removed: usize,
+    hunks: usize,
+    lines: usize,
+}
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+struct HunkDiffMetadata {
+    stats: HunkDiffStats,
+    tokenization_disabled: bool,
+    max_old_line_chars: usize,
+    max_new_line_chars: usize,
+    max_inline_line_chars: usize,
+    max_conflict_line_chars: usize,
+    split_change_ranges: Vec<[usize; 2]>,
+    inline_change_ranges: Vec<[usize; 2]>,
+    split_minimap: Vec<MinimapSegment>,
+    inline_minimap: Vec<MinimapSegment>,
+    conflict_minimap: Vec<MinimapSegment>,
+}
+#[derive(serde::Serialize, ts_rs::TS)]
+pub(crate) struct HunkDiff {
+    #[serde(flatten)]
+    diff: inferay_native_diff::GitHunkDiff,
+    metadata: HunkDiffMetadata,
+    #[serde(rename = "inlineLines", skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    inline_lines: Option<Vec<inferay_native_diff::GitDiffLine>>,
+    #[serde(rename = "conflictLines", skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    conflict_lines: Option<Vec<inferay_native_diff::GitDiffLine>>,
+}
+
 /// Git HTTP responses contain prepared view data; raw patches remain internal.
 pub fn diff_bytes(mut diff: inferay_native_diff::GitHunkDiff) -> Vec<u8> {
     use inferay_native_diff::GitDiffLineType;
-    #[derive(serde::Serialize)]
-    struct Stats {
-        added: usize,
-        removed: usize,
-        hunks: usize,
-        lines: usize,
-    }
-    #[derive(serde::Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Metadata {
-        stats: Stats,
-        tokenization_disabled: bool,
-        max_old_line_chars: usize,
-        max_new_line_chars: usize,
-        max_inline_line_chars: usize,
-        max_conflict_line_chars: usize,
-        split_change_ranges: Vec<[usize; 2]>,
-        inline_change_ranges: Vec<[usize; 2]>,
-        split_minimap: Vec<MinimapSegment>,
-        inline_minimap: Vec<MinimapSegment>,
-        conflict_minimap: Vec<MinimapSegment>,
-    }
-    #[derive(serde::Serialize)]
-    struct Payload {
-        #[serde(flatten)]
-        diff: inferay_native_diff::GitHunkDiff,
-        metadata: Metadata,
-        #[serde(rename = "inlineLines", skip_serializing_if = "Option::is_none")]
-        inline_lines: Option<Vec<inferay_native_diff::GitDiffLine>>,
-        #[serde(rename = "conflictLines", skip_serializing_if = "Option::is_none")]
-        conflict_lines: Option<Vec<inferay_native_diff::GitDiffLine>>,
-    }
     let old_max = max_line_chars(&diff.old_lines);
     let new_max = max_line_chars(&diff.new_lines);
     // Compact rows already are the inline view; send that array only once.
@@ -287,7 +292,7 @@ pub fn diff_bytes(mut diff: inferay_native_diff::GitHunkDiff) -> Vec<u8> {
         .as_deref()
         .map(|lines| (lines, lines))
         .unwrap_or((&diff.old_lines, &diff.new_lines));
-    let stats = Stats {
+    let stats = HunkDiffStats {
         added: added
             .iter()
             .filter(|line| line.line_type == GitDiffLineType::Add)
@@ -316,11 +321,11 @@ pub fn diff_bytes(mut diff: inferay_native_diff::GitHunkDiff) -> Vec<u8> {
             .as_ref()
             .is_some_and(|patch| patch.lines().any(|line| line.encode_utf16().count() > 1000));
     diff.raw_patch = None;
-    serde_json::to_vec(&Payload {
+    serde_json::to_vec(&HunkDiff {
         diff,
         inline_lines,
         conflict_lines,
-        metadata: Metadata {
+        metadata: HunkDiffMetadata {
             stats,
             tokenization_disabled: disabled,
             max_old_line_chars: old_max,

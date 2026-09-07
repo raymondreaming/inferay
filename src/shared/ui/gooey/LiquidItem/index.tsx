@@ -1,11 +1,8 @@
+import type { EvolveOptions } from "../../../../../build/presentation/contracts/EvolveOptions.ts";
+import type { MoveOptions } from "../../../../../build/presentation/contracts/MoveOptions.ts";
 import { GooeyItem } from "../GooeyItem/index.tsx";
 import type { CornerRadii, CSSProperties, ReactNode } from "../observer.ts";
-import {
-	EVOLVE_DEFAULTS,
-	type EvolveOptions,
-	MOVE_DEFAULTS,
-	type MoveOptions,
-} from "../observer.ts";
+import { EVOLVE_DEFAULTS, MOVE_DEFAULTS } from "../observer.ts";
 
 /** The two public liquid behaviors:
  *  - 'morph' (default): pieces merge gooily, change shape like jelly, and can
@@ -38,7 +35,7 @@ export interface MorphTuning {
 	contentBlur?: number;
 	/** Full escape hatch: raw engine options, merged over the mapped values. */
 	advanced?: {
-		evolve?: EvolveOptions;
+		evolve?: Partial<EvolveOptions>;
 		/** Shrink the blob by px per side so opaque content fully covers its own
 		 *  liquid (e.g. round photos). */
 		blobInset?: number;
@@ -58,7 +55,7 @@ export interface MoveTuning {
 	/** Trailing droplet size. 0 disables the tail. Default 0.575. */
 	trail?: number;
 	/** Full escape hatch: raw spring values, merged over the mapped values. */
-	advanced?: MoveOptions;
+	advanced?: Partial<MoveOptions>;
 }
 export interface LiquidItemProps {
 	/** 'morph' (default) or 'move'. */
@@ -80,7 +77,7 @@ export interface LiquidItemProps {
 function zeta(bounce: number): number {
 	return Math.max(0.12, 1 - 1.1 * Math.min(1, Math.max(0, bounce)));
 }
-function mapMorphSprings(t: MorphTuning | undefined): EvolveOptions {
+function mapMorphSprings(t: MorphTuning | undefined): Partial<EvolveOptions> {
 	const s = Math.max(0.25, t?.speed ?? 1);
 	// Damping scales with ζ(bounce)/ζ(0.5) so (speed 1, bounce 0.5) reproduces
 	// EVOLVE_DEFAULTS exactly; stiffness × s² + damping × s keeps the ratio, so
@@ -100,7 +97,7 @@ function mapMorphSprings(t: MorphTuning | undefined): EvolveOptions {
 		contentBlur: t?.contentBlur ?? EVOLVE_DEFAULTS.contentBlur,
 	};
 }
-function mapMove(t: MoveTuning | undefined): MoveOptions {
+function mapMove(t: MoveTuning | undefined): Partial<MoveOptions> {
 	const p = Math.min(1, Math.max(0, t?.springiness ?? 0.5));
 	// Exponential feel curve centred on the default: 0 → ~120, 0.5 → 380,
 	// 1 → ~1200. Damping rescales with √stiffness and ζ(wobble) so the default

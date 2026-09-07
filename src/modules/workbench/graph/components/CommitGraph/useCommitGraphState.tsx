@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
+import type { GitGraphRef } from "../../../../../../build/presentation/contracts/GitGraphRef.ts";
 import {
 	readStoredJson,
 	writeStoredJson,
 } from "../../../../../adapters/storage/stored-values.ts";
 import { trackPointerResize } from "../../../../../shared/lib/data.ts";
-import type {
-	GitGraphRef,
-	GraphNode,
-} from "../../../../repository/model/git-graph.ts";
+import type { GraphNode } from "../../../../repository/model/git-graph.ts";
 import { resolveGitCommitAvatars } from "../../../../repository/model/types.ts";
 import type {
 	CommitGraphProps,

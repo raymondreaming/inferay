@@ -1,28 +1,9 @@
-import type { AgentContextLayer as NativeContextLayer } from "../../../../build/presentation/contracts/AgentContextLayer.ts";
-import type { EffectiveAgentContext as NativeEffectiveContext } from "../../../../build/presentation/contracts/EffectiveAgentContext.ts";
-import type { Prompt as NativeSkill } from "../../../../build/presentation/contracts/Prompt.ts";
+import type { Prompt } from "../../../../build/presentation/contracts/Prompt.ts";
 import { fetchJson, sendJson } from "../../../adapters/backend/http.ts";
 import { project as rustProject } from "../../../adapters/presentation/model.ts";
 import { dispatchWindowEvent, queryClient } from "../../../shared/lib/data.ts";
 export type AgentContextMode = "inherit" | "replace";
-type AgentContextLayer = Omit<NativeContextLayer, "mode"> & {
-	mode: AgentContextMode;
-};
-export type EffectiveAgentContext = Omit<
-	NativeEffectiveContext,
-	"global" | "project" | "chat"
-> & {
-	global: AgentContextLayer;
-	project: AgentContextLayer | null;
-	chat: AgentContextLayer | null;
-};
-export interface AgentContextUpdate {
-	scope: "global" | "project" | "chat";
-	cwd?: string;
-	paneId?: string;
-	instructions: string;
-	mode?: AgentContextMode;
-}
+
 export const OPEN_SETTINGS_MODAL_EVENT = "inferay-open-settings-modal";
 export type SettingsModalTarget =
 	| "agents"
@@ -70,7 +51,7 @@ export interface SkillRead {
 	promptTemplate: string;
 	isBuiltIn: boolean;
 }
-export type Skill = NativeSkill;
+
 export interface SkillFormState {
 	name: string;
 	command: string;
@@ -92,27 +73,27 @@ export const INITIAL_SKILL_FORM: SkillFormState = {
 	isCreating: false,
 };
 
-export function skillFormForEdit(skill: Skill): Partial<SkillFormState> {
+export function skillFormForEdit(skill: Prompt): Partial<SkillFormState> {
 	return rustProject("skillEdit", skill);
 }
-export function skillFormForDuplicate(skill: Skill): SkillFormState {
+export function skillFormForDuplicate(skill: Prompt): SkillFormState {
 	return rustProject("skillDuplicate", skill);
 }
 export function initializeSkillDialog(
 	target: SkillsTarget,
-	skills: Skill[],
+	skills: Prompt[],
 ): { selectedId: string | null; form: Partial<SkillFormState> } {
 	return rustProject("skillDialog", { target, skills });
 }
 export function isSkillFormDirty(
 	form: SkillFormState,
-	original: Skill | null,
+	original: Prompt | null,
 ): boolean {
 	return rustProject("skillDirty", { form, original });
 }
 export async function saveSkillForm(
 	form: SkillFormState,
-	selected: Skill | null,
+	selected: Prompt | null,
 	inlineEdit: boolean,
 ) {
 	const data = {
@@ -133,11 +114,11 @@ export async function saveSkillForm(
 }
 
 const skillsKey = ["skills"] as const;
-export const emptySkills: Skill[] = [];
+export const emptySkills: Prompt[] = [];
 export const skillsQuery = (filter = "all", search = "") => ({
 	queryKey: [...skillsKey, filter, search],
 	queryFn: ({ signal }: { signal: AbortSignal }) =>
-		fetchJson<Skill[]>(
+		fetchJson<Prompt[]>(
 			`/api/prompts?${new URLSearchParams({ filter, search })}`,
 			{ signal },
 		),
@@ -160,7 +141,7 @@ export async function saveSkill(data: Record<string, unknown>, id?: string) {
 		const failure = await response.json().catch(() => null);
 		throw new Error(failure?.error ?? `Request failed: ${response.status}`);
 	}
-	const skill = (await response.json()) as Skill;
+	const skill = (await response.json()) as Prompt;
 	await refreshSkills();
 	return skill;
 }

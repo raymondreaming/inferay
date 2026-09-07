@@ -1,9 +1,7 @@
 import * as stylex from "@octanejs/stylex";
-import type {
-	CommitDetails,
-	CommitFile,
-	ComparisonDetails,
-} from "../../../../repository/model/git-graph.ts";
+import type { GitCommitDetails } from "../../../../../../build/presentation/contracts/GitCommitDetails.ts";
+import type { GitCommitFile } from "../../../../../../build/presentation/contracts/GitCommitFile.ts";
+import type { GitComparisonDetails } from "../../../../../../build/presentation/contracts/GitComparisonDetails.ts";
 import type { SelectedFile } from "../../../model/workbench-model.ts";
 import { DetailIdentity } from "./DetailIdentity.tsx";
 import { HistoricalFileList } from "./HistoricalFileList.tsx";
@@ -17,10 +15,10 @@ export function HistoricalDetailsPanel({
 	onSelectFile,
 	viewMode,
 }: {
-	details: CommitDetails | ComparisonDetails;
+	details: GitCommitDetails | GitComparisonDetails;
 	selectionCount?: number;
 	selectedFile: SelectedFile | null;
-	onSelectFile?: (file: CommitFile) => void;
+	onSelectFile?: (file: GitCommitFile) => void;
 	viewMode: "path" | "tree";
 }) {
 	const comparison = "fromHash" in details;

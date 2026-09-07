@@ -1,5 +1,5 @@
 import * as stylex from "@octanejs/stylex";
-import type { AppInfo } from "../../../../app/model/appearance.ts";
+import type { AppInfo } from "../../../../../build/presentation/contracts/AppInfo.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { IconRefreshCw } from "../../../../shared/ui/Icons/index.tsx";
 import type { SidebarUpdateStatus } from "../../model/workspace-model.ts";

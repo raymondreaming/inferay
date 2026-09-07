@@ -24,7 +24,7 @@ pub(super) struct ReleaseCheckCache {
     info: AppUpdateInfo,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 struct AppUpdateInfo {
     available: bool,
@@ -32,17 +32,20 @@ struct AppUpdateInfo {
     latest_version: Option<String>,
     url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     error: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 pub(super) struct AppInfo {
     name: String,
     version: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     hash: Option<String>,
     channel: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     identifier: Option<String>,
     production: bool,
     update: AppUpdateInfo,

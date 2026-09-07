@@ -1,5 +1,5 @@
-import type { EvolveOptions as NativeEvolveOptions } from "../../../../build/presentation/contracts/EvolveOptions.ts";
-import type { MoveOptions as NativeMoveOptions } from "../../../../build/presentation/contracts/MoveOptions.ts";
+import type { EvolveOptions } from "../../../../build/presentation/contracts/EvolveOptions.ts";
+import type { MoveOptions } from "../../../../build/presentation/contracts/MoveOptions.ts";
 import {
 	ease,
 	LiquidBody,
@@ -18,9 +18,9 @@ export interface GooeyItemProps {
 	effect?: GooeyEffect | GooeyEffect[];
 	/** Tuning for effect="evolve": springs for mass / size / corner radius,
 	 *  content cross-blur, and droplet roundness. See EvolveOptions. */
-	evolve?: EvolveOptions;
+	evolve?: Partial<EvolveOptions>;
 	/** Tuning for effect="move": trail spring, velocity stretch, tail size. */
-	move?: MoveOptions;
+	move?: Partial<MoveOptions>;
 	/** Observe mode: you animate the child however you like (Framer Motion, GSAP,
 	 *  CSS); the blob follows its rendered rect. */
 	observe?: boolean;
@@ -133,7 +133,7 @@ export const useIsoLayoutEffect =
 export function easingFunction(spec: string): (t: number) => number {
 	return (t) => ease(spec, t);
 }
-export type EvolveOptions = Partial<NativeEvolveOptions>;
+
 export const EVOLVE_DEFAULTS: Required<EvolveOptions> = {
 	massStiffness: 320,
 	massDamping: 17,
@@ -150,7 +150,6 @@ export const EVOLVE_DEFAULTS: Required<EvolveOptions> = {
 	travel: 32,
 };
 
-export type MoveOptions = Partial<NativeMoveOptions>;
 export const MOVE_DEFAULTS: Required<MoveOptions> = {
 	stiffness: 380,
 	damping: 18,

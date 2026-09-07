@@ -45,12 +45,12 @@ export function hexToRgba(hex: string, alpha: number) {
 }
 export { AVATAR_SIZE } from "../components/CommitGraph/styles.ts";
 
+import type { GitWorktree } from "../../../../../build/presentation/contracts/GitWorktree.ts";
 import { readStoredJson } from "../../../../adapters/storage/stored-values.ts";
 import type {
-	GitWorktree,
 	GraphNode,
 	GraphPresentation,
-	GraphRow,
+	RenderGraphRow,
 } from "../../../repository/model/git-graph.ts";
 export interface CommitGraphProps {
 	searchQuery?: string;
@@ -58,7 +58,7 @@ export interface CommitGraphProps {
 	emptyLabel?: string;
 	onSearchChange?: (query: string) => void;
 	commits: GraphNode[];
-	rows: GraphRow[];
+	rows: RenderGraphRow[];
 	presentation: GraphPresentation;
 	preferences: GraphPreferences;
 	onPreferencesChange: (
@@ -249,7 +249,7 @@ export function buildCommitGraphViewModel({
 }
 
 export function projectCommitGraphViewport(
-	rows: readonly GraphRow[],
+	rows: readonly RenderGraphRow[],
 	itemCount: number,
 	scrollTop: number,
 	viewportHeight: number,

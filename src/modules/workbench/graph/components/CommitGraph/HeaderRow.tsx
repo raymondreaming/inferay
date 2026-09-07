@@ -1,9 +1,9 @@
 import * as stylex from "@octanejs/stylex";
+import type { GitGraphRef } from "../../../../../../build/presentation/contracts/GitGraphRef.ts";
 import {
 	IconSearch,
 	IconSettings,
 } from "../../../../../shared/ui/Icons/index.tsx";
-import type { GitGraphRef } from "../../../../repository/model/git-graph.ts";
 import {
 	type ColumnKey,
 	type ColumnVisibility,

@@ -1,8 +1,6 @@
 import * as stylex from "@octanejs/stylex";
-import type {
-	GitGraphRef,
-	GitGraphRefKind,
-} from "../../../../repository/model/git-graph.ts";
+import type { GitGraphRef } from "../../../../../../build/presentation/contracts/GitGraphRef.ts";
+import type { GitGraphRefKind } from "../../../../../../build/presentation/contracts/GitGraphRefKind.ts";
 import { RefBadge } from "./RefBadge.tsx";
 import { styles } from "./styles.ts";
 

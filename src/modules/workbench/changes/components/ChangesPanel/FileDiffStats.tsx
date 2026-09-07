@@ -1,5 +1,5 @@
 import * as stylex from "@octanejs/stylex";
-import type { GitFileEntry } from "../../../../repository/model/types.ts";
+import type { GitFileEntry } from "../../../../../../build/presentation/contracts/GitFileEntry.ts";
 import { styles } from "./styles.ts";
 
 export function FileDiffStats({ file }: { file: GitFileEntry }) {

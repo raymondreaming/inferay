@@ -1,5 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useCallback, useEffect, useMemo, useState } from "octane";
+import type { DocumentSession } from "../../../../../../build/presentation/contracts/DocumentSession.ts";
+import type { FileContent } from "../../../../../../build/presentation/contracts/FileContent.ts";
 import { fetchJson } from "../../../../../adapters/backend/http.ts";
 import { readStoredJson } from "../../../../../adapters/storage/stored-values.ts";
 import {
@@ -12,10 +14,6 @@ import { IconCode, IconX } from "../../../../../shared/ui/Icons/index.tsx";
 import { FileSearch } from "../../../../explorer/components/FileSearch/index.tsx";
 import { FileTypeIcon } from "../../../../explorer/components/FileTypeIcon/index.tsx";
 import { WorkspaceDockHandle } from "../../../components/WorkspaceDockHandle/index.tsx";
-import type {
-	FileContentResponse,
-	GitWorkspaceDocumentSession,
-} from "../../../model/workbench-model.ts";
 import { SourcePreview } from "./SourcePreview.tsx";
 import { styles } from "./styles.ts";
 
@@ -23,11 +21,11 @@ const fileViewerSessions = new Map<
 	string,
 	{
 		readonly activePath: string | null;
-		readonly openFiles: FileContentResponse[];
+		readonly openFiles: FileContent[];
 	}
 >();
 const readDocument = (cwd: string, path: string) =>
-	fetchJson<FileContentResponse>(
+	fetchJson<FileContent>(
 		`/api/files/content?${new URLSearchParams({ cwd, path })}`,
 	);
 
@@ -46,11 +44,11 @@ export const DocumentViewer = memo(function DocumentViewer({
 }: {
 	readonly cwd: string;
 	readonly sessionId?: string;
-	readonly initialFile?: FileContentResponse;
+	readonly initialFile?: FileContent;
 	readonly onClose: () => void;
 	readonly onFileTabDragStart?: (
 		event: PointerEvent,
-		file: FileContentResponse,
+		file: FileContent,
 		completeMove: () => void,
 	) => void;
 	readonly draggable?: boolean;
@@ -60,10 +58,10 @@ export const DocumentViewer = memo(function DocumentViewer({
 		readonly path: string;
 		readonly token: number;
 	} | null;
-	readonly persistedSession?: GitWorkspaceDocumentSession;
+	readonly persistedSession?: DocumentSession;
 	readonly onSessionChange?: (
 		sessionId: string,
-		session: GitWorkspaceDocumentSession,
+		session: DocumentSession,
 	) => void;
 }) {
 	const [error, setError] = useState<string | null>(null);
@@ -72,7 +70,7 @@ export const DocumentViewer = memo(function DocumentViewer({
 		if (cachedSession) return null;
 		const saved =
 			persistedSession ??
-			readStoredJson<GitWorkspaceDocumentSession | null>(
+			readStoredJson<DocumentSession | null>(
 				`agent-workspace-files:${sessionId}`,
 				null,
 			);
@@ -99,7 +97,7 @@ export const DocumentViewer = memo(function DocumentViewer({
 			),
 		[initialFile?.path, restoredSession],
 	);
-	const [openFiles, setOpenFiles] = useState<FileContentResponse[]>(
+	const [openFiles, setOpenFiles] = useState<FileContent[]>(
 		cachedSession?.openFiles ?? (initialFile ? [initialFile] : []),
 	);
 	const [activePath, setActivePath] = useState<string | null>(
@@ -138,14 +136,14 @@ export const DocumentViewer = memo(function DocumentViewer({
 		).then((files) => {
 			if (cancelled) return;
 			const available = files.filter(
-				(file): file is FileContentResponse => file !== null,
+				(file): file is FileContent => file !== null,
 			);
 			setOpenFiles((current) =>
 				(restoredSession?.paths ?? [])
 					.map((path) =>
 						[...current, ...available].find((file) => file.path === path),
 					)
-					.filter((file): file is FileContentResponse => !!file),
+					.filter((file): file is FileContent => !!file),
 			);
 			const availablePaths = new Set([
 				...(initialFile ? [initialFile.path] : []),
@@ -200,7 +198,7 @@ export const DocumentViewer = memo(function DocumentViewer({
 		[activePath, openFiles],
 	);
 	const startFileTabDrag = useCallback(
-		(event: PointerEvent, file: FileContentResponse) => {
+		(event: PointerEvent, file: FileContent) => {
 			if (!onFileTabDragStart) return;
 			if ((event.target as HTMLElement).closest("button")) return;
 			event.stopPropagation();

@@ -1,11 +1,11 @@
 import * as stylex from "@octanejs/stylex";
 import { useState } from "octane";
+import type { CheckpointMeta } from "../../../../../build/presentation/contracts/CheckpointMeta.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import {
 	IconChevronDown,
 	IconClock,
 } from "../../../../shared/ui/Icons/index.tsx";
-import type { CheckpointInfo } from "../../model/agent-chat-shared.ts";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
@@ -13,7 +13,7 @@ export function CheckpointMarker({
 	checkpoint,
 	onRevert,
 }: {
-	checkpoint: CheckpointInfo;
+	checkpoint: CheckpointMeta;
 	onRevert: (id: string) => void;
 }) {
 	const [expanded, setExpanded] = useState(false);

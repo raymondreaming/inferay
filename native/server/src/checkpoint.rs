@@ -97,7 +97,7 @@ pub struct CheckpointInlineDiff {
     pub new_string: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum CheckpointAction {
     Created,
@@ -105,13 +105,13 @@ pub enum CheckpointAction {
     Deleted,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
 pub struct CheckpointChangedFile {
     pub path: String,
     pub action: CheckpointAction,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct CheckpointMeta {
     pub id: String,

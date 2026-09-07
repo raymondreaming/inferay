@@ -1,10 +1,8 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useCallback } from "octane";
-import type {
-	GitGraphRef,
-	GitWorktree,
-	GraphNode,
-} from "../../../../repository/model/git-graph.ts";
+import type { GitGraphRef } from "../../../../../../build/presentation/contracts/GitGraphRef.ts";
+import type { GitWorktree } from "../../../../../../build/presentation/contracts/GitWorktree.ts";
+import type { GraphNode } from "../../../../repository/model/git-graph.ts";
 import {
 	AVATAR_SIZE,
 	COLUMN_WIDTH,

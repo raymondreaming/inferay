@@ -2,6 +2,11 @@ const EMPTY_FILE_GROUPS = { staged: [], modified: [], untracked: [] };
 
 import { useMutation, useQuery } from "@octanejs/tanstack-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
+import type { FileContent } from "../../../../build/presentation/contracts/FileContent.ts";
+import type { GitCommitFile } from "../../../../build/presentation/contracts/GitCommitFile.ts";
+import type { GitFileEntry } from "../../../../build/presentation/contracts/GitFileEntry.ts";
+import type { PanelAction } from "../../../../build/presentation/contracts/PanelAction.ts";
+import type { PanelSession } from "../../../../build/presentation/contracts/PanelSession.ts";
 import { postJson } from "../../../adapters/backend/http.ts";
 import {
 	CLIENT_STORAGE_CHANGED_EVENT,
@@ -23,8 +28,6 @@ import {
 	useGitGraph,
 } from "../../repository/hooks/useGitGraph.tsx";
 import { useGitStatus } from "../../repository/hooks/useGitStatus.tsx";
-import type { CommitFile } from "../../repository/model/git-graph.ts";
-import type { GitFileEntry } from "../../repository/model/types.ts";
 import { useGitChangeActions } from "../../repository/model/types.ts";
 import {
 	ChangesPanel,
@@ -50,9 +53,7 @@ import {
 	createGitOperations,
 	DIFF_VIEW_MODE_KEY,
 	DIFF_WIDTH_KEY_PREFIX,
-	type FileContentResponse,
 	GIT_FILE_VIEW_MODE_STORAGE_KEY,
-	type GitWorkspacePanelSession,
 	getFileSelectionAfterToggle,
 	gitWorkbenchDiffRequest,
 	historicalGitQueryContext,
@@ -73,7 +74,6 @@ import {
 import {
 	createWorkspacePanelModel,
 	emptyPanelSession,
-	type PanelAction,
 	panelQuery,
 } from "../model/workspace-panels.ts";
 
@@ -141,10 +141,8 @@ export function useRepositoryWorkbench({
 	} = panelSession;
 	const fileSource = selectedFile?.source;
 	const saveDocumentSession = useCallback(
-		(
-			sessionId: string,
-			session: GitWorkspacePanelSession["documentSessions"][string],
-		) => updatePanelSession({ type: "documents", sessionId, ...session }),
+		(sessionId: string, session: PanelSession["documentSessions"][string]) =>
+			updatePanelSession({ type: "documents", sessionId, ...session }),
 		[updatePanelSession],
 	);
 
@@ -558,7 +556,7 @@ export function useRepositoryWorkbench({
 		[selectedWorkingTreeCwd, updatePanelSession],
 	);
 	const selectCommitFile = useCallback(
-		(file: CommitFile) => {
+		(file: GitCommitFile) => {
 			const commitCwd = commitSource?.commitHash ? diffViewerCwd : activeCwd;
 			const commitHash =
 				commitSource?.commitHash ??
@@ -587,7 +585,7 @@ export function useRepositoryWorkbench({
 		],
 	);
 	const selectComparisonFile = useCallback(
-		(file: CommitFile) => {
+		(file: GitCommitFile) => {
 			const fileComparisonCwd = comparisonSource?.comparisonFrom
 				? diffViewerCwd
 				: comparisonCwd;
@@ -846,7 +844,7 @@ export function useRepositoryWorkbench({
 		const startFileDrag = (
 			drag: DragProps,
 			event: PointerEvent,
-			file: FileContentResponse,
+			file: FileContent,
 			completeMove: () => void,
 		) => {
 			const id = createDetachedFilePanelId();

@@ -1,14 +1,12 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
+import type { GitFileEntry } from "../../../../../../build/presentation/contracts/GitFileEntry.ts";
+import type { GitFilePresentation } from "../../../../../../build/presentation/contracts/GitFilePresentation.ts";
 import {
 	iconSize,
 	selectionAppearance,
 } from "../../../../../design-system/styles.stylex.ts";
 import { IconChevronRight } from "../../../../../shared/ui/Icons/index.tsx";
-import type {
-	GitFileEntry,
-	GitFilePresentation,
-} from "../../../../repository/model/types.ts";
 import type { SelectedFile } from "../../../model/workbench-model.ts";
 import { styles } from "./styles.ts";
 import { TreeNodeRow } from "./TreeNodeRow.tsx";

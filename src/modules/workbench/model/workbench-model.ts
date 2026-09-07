@@ -1,25 +1,16 @@
-import type { DetachedFilePanel as NativeDetachedFilePanel } from "../../../../build/presentation/contracts/DetachedFilePanel.ts";
-import type { DiffSource as NativeDiffSource } from "../../../../build/presentation/contracts/DiffSource.ts";
-import type { DocumentSession as NativeDocumentSession } from "../../../../build/presentation/contracts/DocumentSession.ts";
-import type { FileContent as NativeFileContent } from "../../../../build/presentation/contracts/FileContent.ts";
-import type { GitOperationErrorKind as NativeErrorKind } from "../../../../build/presentation/contracts/GitOperationErrorKind.ts";
-import type { GitOperationOutcome as NativeOutcome } from "../../../../build/presentation/contracts/GitOperationOutcome.ts";
-import type { GitRefOperationPreflight as NativeRefPreflight } from "../../../../build/presentation/contracts/GitRefOperationPreflight.ts";
-import type { PanelAction as NativePanelAction } from "../../../../build/presentation/contracts/PanelAction.ts";
-import type { PanelSession as NativePanelSession } from "../../../../build/presentation/contracts/PanelSession.ts";
+import type { DiffSource } from "../../../../build/presentation/contracts/DiffSource.ts";
+import type { GitCommitDetails } from "../../../../build/presentation/contracts/GitCommitDetails.ts";
+import type { GitCommitFile } from "../../../../build/presentation/contracts/GitCommitFile.ts";
+import type { GitComparisonDetails } from "../../../../build/presentation/contracts/GitComparisonDetails.ts";
+import type { GitFileEntry } from "../../../../build/presentation/contracts/GitFileEntry.ts";
+import type { GitFilePresentation } from "../../../../build/presentation/contracts/GitFilePresentation.ts";
+import type { GitOperationErrorKind } from "../../../../build/presentation/contracts/GitOperationErrorKind.ts";
+import type { GitOperationOutcome } from "../../../../build/presentation/contracts/GitOperationOutcome.ts";
+import type { HunkDiff } from "../../../../build/presentation/contracts/HunkDiff.ts";
+import type { PanelSession } from "../../../../build/presentation/contracts/PanelSession.ts";
 import { project as rustProject } from "../../../adapters/presentation/model.ts";
-import type {
-	CommitDetails,
-	CommitFile,
-	ComparisonDetails,
-	GraphNode,
-} from "../../repository/model/git-graph.ts";
-import type {
-	DiffRequest,
-	GitFileEntry,
-	GitFilePresentation,
-	HunkDiff,
-} from "../../repository/model/types.ts";
+import type { GraphNode } from "../../repository/model/git-graph.ts";
+import type { DiffRequest } from "../../repository/model/types.ts";
 export interface SelectedFile {
 	path: string;
 	staged: boolean;
@@ -108,10 +99,10 @@ export function buildChangesPanelModel({
 	selectedCommitHash: string | null;
 	selectedCommitCount: number;
 	commitDetailsLoading: boolean;
-	commitDetails: CommitDetails | null;
+	commitDetails: GitCommitDetails | null;
 	commitDetailsError?: string | null;
 	comparisonDetailsLoading: boolean;
-	comparisonDetails: ComparisonDetails | null;
+	comparisonDetails: GitComparisonDetails | null;
 }): {
 	unstagedFiles: GitFileEntry[];
 	stagedFiles: GitFileEntry[];
@@ -119,10 +110,10 @@ export function buildChangesPanelModel({
 	navigableFiles: GitFileEntry[];
 	showingWorkingTree: boolean;
 	comparing: boolean;
-	historyDetails: CommitDetails | ComparisonDetails | null;
+	historyDetails: GitCommitDetails | GitComparisonDetails | null;
 	historyLoading: boolean;
 	historyMessage: string;
-	navigableHistoricalFiles: CommitFile[];
+	navigableHistoricalFiles: GitCommitFile[];
 	additions: number;
 	deletions: number;
 } {
@@ -173,8 +164,7 @@ export type GitRefOperationRequest = {
 	source?: string;
 	target?: string;
 };
-export type GitRefOperationPreflight = NativeRefPreflight;
-export type GitOperationOutcome = NativeOutcome;
+
 export type GitOperationActivityPhase =
 	| "idle"
 	| "running"
@@ -182,7 +172,7 @@ export type GitOperationActivityPhase =
 	| "awaitingContinuation"
 	| "completed"
 	| "failed";
-export type GitOperationErrorKind = NativeErrorKind;
+
 export type GitGraphActionResult = GitOperationResult<
 	GitGraphActionRequest["action"]
 >;
@@ -288,7 +278,6 @@ export function diffViewportReducer(
 		: state;
 }
 
-export type FileContentResponse = NativeFileContent;
 export const OPEN_ACTIVE_GIT_GRAPH_EVENT = "inferay-open-active-git-graph";
 export const TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT =
 	"inferay-toggle-active-git-sidebar";
@@ -331,7 +320,6 @@ export function resizeDockSplit(
 	const key = branch === "first" ? "first" : "second";
 	return { ...tree, [key]: resizeDockSplit(tree[key], rest, ratio) };
 }
-type GitWorkspaceDiffSource = NativeDiffSource;
 
 export function historicalGitQueryContext({
 	mainViewMode,
@@ -352,13 +340,10 @@ export function historicalGitQueryContext({
 	selectedCommitIds: readonly string[];
 	selectedCommitParent: string | null;
 	selectedGraphItem: GraphNode | null;
-	fileSource: GitWorkspaceDiffSource | undefined;
+	fileSource: DiffSource | undefined;
 }): {
-	commitSource: Extract<GitWorkspaceDiffSource, { kind: "commit" }> | null;
-	comparisonSource: Extract<
-		GitWorkspaceDiffSource,
-		{ kind: "comparison" }
-	> | null;
+	commitSource: Extract<DiffSource, { kind: "commit" }> | null;
+	comparisonSource: Extract<DiffSource, { kind: "comparison" }> | null;
 	commit: { cwd?: string; hash?: string; parent?: string };
 	comparison: { cwd?: string; from?: string; to?: string };
 	revision?: string;
@@ -386,9 +371,9 @@ export function gitWorkbenchDiffRequest({
 }: {
 	active: boolean;
 	cwd: string | null;
-	selectedFile: (SelectedFile & { source: GitWorkspaceDiffSource }) | null;
+	selectedFile: (SelectedFile & { source: DiffSource }) | null;
 	revision: string | undefined;
-	fileSource: GitWorkspaceDiffSource | undefined;
+	fileSource: DiffSource | undefined;
 	viewMode: DiffViewMode;
 }): DiffRequest | null {
 	return rustProject("diffRequest", {
@@ -400,10 +385,8 @@ export function gitWorkbenchDiffRequest({
 		viewMode,
 	});
 }
-export type GitWorkspaceDetachedFilePanel = NativeDetachedFilePanel;
-export type GitWorkspaceDocumentSession = NativeDocumentSession;
-export type GitWorkspacePanelSession = NativePanelSession;
-export function emptyGitWorkspacePanelSession(): GitWorkspacePanelSession {
+
+export function emptyGitWorkspacePanelSession(): PanelSession {
 	return rustProject("emptyPanels", null);
 }
 
@@ -531,5 +514,3 @@ export function createGitOperations(
 			),
 	};
 }
-
-export type GitWorkspacePanelAction = NativePanelAction;
