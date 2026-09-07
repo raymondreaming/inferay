@@ -121,10 +121,10 @@ export const diffStyles = stylex.create({
 		borderRadius: radius.none,
 	},
 	minimapAdd: {
-		backgroundColor: "var(--color-git-added)",
+		backgroundColor: DIFF_CONFIG.addBg,
 	},
 	minimapDelete: {
-		backgroundColor: "var(--color-git-deleted)",
+		backgroundColor: DIFF_CONFIG.removeBg,
 	},
 	minimapThumb: {
 		position: "absolute",
