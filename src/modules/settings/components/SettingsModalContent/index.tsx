@@ -14,7 +14,7 @@ import {
 } from "../../../../shared/lib/native.tsx";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
 import { TextInput } from "../../../../shared/ui/TextInput/index.tsx";
-import { getAgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
+import { AgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
 import {
 	invalidateForgeAccountsCache,
 	invalidateGithubReposCache,
@@ -59,10 +59,13 @@ export function SettingsModalContent(_props: {
 	const defaultAgentDefinition = createMemo(() =>
 		getAgentDefinition(defaultChatSettings().agentKind),
 	);
+	const ModelIcon = () => (
+		<AgentIcon kind={defaultChatSettings().agentKind} size={12} />
+	);
 	const defaultModelOptions = createMemo(() =>
 		defaultAgentDefinition().models.map((option) => ({
 			...option,
-			icon: getAgentIcon(defaultChatSettings().agentKind, 12),
+			iconComponent: ModelIcon,
 		})),
 	);
 	const updateDefaultChatSettings = async (

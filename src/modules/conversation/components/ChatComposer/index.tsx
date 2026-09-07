@@ -16,6 +16,7 @@ import {
 	IconPlus,
 	IconStop,
 } from "../../../../shared/ui/Icons/index.tsx";
+import { InputHighlights } from "../ChatTokenDecorators/index.tsx";
 import { CommandMenu } from "./CommandMenu.tsx";
 import { ComposerAttachments } from "./ComposerAttachments.tsx";
 import { ComposerControls } from "./ComposerControls.tsx";
@@ -149,7 +150,10 @@ export const ChatComposer = function ChatComposer(
 												)}
 												aria-hidden="true"
 											>
-												{view.inputHighlights}
+												<InputHighlights
+													text={view.input}
+													slashCommandNames={view.slashCommandNames}
+												/>
 											</div>
 										)}
 										<textarea
@@ -204,8 +208,10 @@ export const ChatComposer = function ChatComposer(
 				</div>
 			}
 
-			<Show when={view.activeControl} keyed>
-				{(control) => <ProviderConfigMenu {...view} activeControl={control} />}
+			<Show when={view.activeControl}>
+				{(control) => (
+					<ProviderConfigMenu {...view} activeControl={control()} />
+				)}
 			</Show>
 
 			{view.mdPreview.show && <MarkdownPreviewDialog {...view} />}

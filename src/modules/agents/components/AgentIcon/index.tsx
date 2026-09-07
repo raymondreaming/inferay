@@ -1,5 +1,4 @@
-import { createMemo } from "solid-js";
-import type { AgentIconKey } from "../../../../../build/presentation/contracts/AgentIconKey.ts";
+import { createMemo, Match, Switch } from "solid-js";
 import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import { getAgentDefinition } from "../../../../shared/lib/native.tsx";
 import {
@@ -7,19 +6,23 @@ import {
 	IconAnthropic,
 	IconOpenAI,
 } from "../../../../shared/ui/Icons/index.tsx";
-export function getAgentIcon(
-	kind: WorkspaceAgentKind,
-	size = 12,
-	className?: string,
-) {
-	const props = createMemo(() => ({
-		size,
-		class: className,
-	}));
-	const iconKey = createMemo<AgentIconKey>(
-		() => getAgentDefinition(kind).iconKey,
+
+export function AgentIcon(props: {
+	kind: WorkspaceAgentKind;
+	size?: number;
+	class?: string;
+}) {
+	const iconKey = createMemo(() => getAgentDefinition(props.kind).iconKey);
+	return (
+		<Switch
+			fallback={<IconAgent size={props.size ?? 12} class={props.class} />}
+		>
+			<Match when={iconKey() === "anthropic"}>
+				<IconAnthropic size={props.size ?? 12} class={props.class} />
+			</Match>
+			<Match when={iconKey() === "openai"}>
+				<IconOpenAI size={props.size ?? 12} class={props.class} />
+			</Match>
+		</Switch>
 	);
-	if (iconKey() === "anthropic") return <IconAnthropic {...props()} />;
-	if (iconKey() === "openai") return <IconOpenAI {...props()} />;
-	return <IconAgent {...props()} />;
 }

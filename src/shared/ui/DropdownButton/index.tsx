@@ -285,6 +285,7 @@ export function DropdownButton(_props: DropdownButtonProps) {
 }
 
 export interface DropdownOption {
+	iconComponent?: import("solid-js").Component;
 	id: string;
 	label: string;
 	detail?: string;

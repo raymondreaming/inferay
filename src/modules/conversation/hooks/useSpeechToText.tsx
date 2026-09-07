@@ -3,6 +3,7 @@ import {
 	createEffect,
 	createMemo,
 	createSignal,
+	untrack,
 } from "solid-js";
 
 const SPEECH_RECOGNITION_LANGUAGE = "en-US";
@@ -88,10 +89,10 @@ export function useSpeechToText(
 		current: BrowserSpeechRecognition | null;
 	};
 	const baseTextRef = {
-		current: _options().value,
+		current: untrack(() => _options().value),
 	};
 	const valueRef = {
-		current: _options().value,
+		current: untrack(() => _options().value),
 	};
 	const shouldApplyResultsRef = {
 		current: false,
@@ -109,18 +110,17 @@ export function useSpeechToText(
 	createEffect(
 		() => {
 			const _optionsValue = _options();
-			return [_optionsValue.enabled ?? true, _optionsValue.value];
+			return [_optionsValue.enabled ?? true, _optionsValue.value] as const;
 		},
-		() => {
-			const _optionsValue2 = _options();
-			if (!(_optionsValue2.enabled ?? true)) return;
-			valueRef.current = _optionsValue2.value;
+		([enabled, value]) => {
+			if (!enabled) return;
+			valueRef.current = value;
 		},
 	);
 	createEffect(
-		() => [_options().enabled ?? true],
-		() => {
-			if (!(_options().enabled ?? true)) {
+		() => _options().enabled ?? true,
+		(enabled) => {
+			if (!enabled) {
 				release();
 				return;
 			}
@@ -130,10 +130,9 @@ export function useSpeechToText(
 		},
 	);
 	createEffect(
-		() => [_options().enabled ?? true],
-		() => {
-			if (!(_options().enabled ?? true) || typeof window === "undefined")
-				return;
+		() => _options().enabled ?? true,
+		(enabled) => {
+			if (!enabled || typeof window === "undefined") return;
 			const releaseIfListening = () => {
 				if (!recognitionRef.current) return;
 				release();

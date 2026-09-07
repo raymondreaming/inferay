@@ -1,5 +1,6 @@
+import { Dynamic } from "@solidjs/web";
 import * as stylex from "@stylexjs/stylex";
-import { For } from "solid-js";
+import { For, Show } from "solid-js";
 import { domStyle } from "../../lib/dom.tsx";
 import {
 	DropdownCustomOption,
@@ -31,57 +32,68 @@ export function DropdownOptions(_props: {
 				</p>
 			) : (
 				<For each={_props.filtered} keyed={(row) => row.id}>
-					{(opt) =>
-						_props.renderOption ? (
-							<DropdownCustomOption
-								opt={opt()}
-								isSelected={opt().id === _props.value}
-								renderOption={_props.renderOption}
-								onChange={_props.onChange}
-								setOpen={_props.setOpen}
-							/>
-						) : (
-							<button
-								type="button"
-								onClick={selectDropdownOption.bind(
-									null,
-									_props.onChange,
-									_props.setOpen,
-									opt().id,
-								)}
-								{...stylex.attrs(
-									styles.option,
-									opt().id === _props.value ? styles.optionSelected : null,
-								)}
-							>
-								{opt().icon && (
-									<span {...stylex.attrs(styles.optionIcon)}>{opt().icon}</span>
-								)}
-								<div {...stylex.attrs(styles.optionContent)}>
-									<span {...stylex.attrs(styles.optionLabel)}>
-										{opt().label}
-									</span>
-									{opt().detail && (
-										<span
-											{...stylex.attrs(
-												styles.detailBadge,
-												(opt().detail?.includes("★") ||
-													opt().detail?.includes("Best")) &&
-													styles.detailBadgeFeatured,
+					{(opt) => (
+						<Show
+							when={_props.renderOption}
+							fallback={
+								<button
+									type="button"
+									onClick={selectDropdownOption.bind(
+										null,
+										_props.onChange,
+										_props.setOpen,
+										opt().id,
+									)}
+									{...stylex.attrs(
+										styles.option,
+										opt().id === _props.value ? styles.optionSelected : null,
+									)}
+								>
+									{(opt().icon || opt().iconComponent) && (
+										<span {...stylex.attrs(styles.optionIcon)}>
+											{opt().iconComponent ? (
+												<Dynamic component={opt().iconComponent} />
+											) : (
+												opt().icon
 											)}
-										>
-											{opt().detail}
 										</span>
 									)}
-									{opt().status && (
-										<span {...stylex.attrs(styles.optionStatus)}>
-											{opt().status}
+									<div {...stylex.attrs(styles.optionContent)}>
+										<span {...stylex.attrs(styles.optionLabel)}>
+											{opt().label}
 										</span>
-									)}
-								</div>
-							</button>
-						)
-					}
+										{opt().detail && (
+											<span
+												{...stylex.attrs(
+													styles.detailBadge,
+													(opt().detail?.includes("★") ||
+														opt().detail?.includes("Best")) &&
+														styles.detailBadgeFeatured,
+												)}
+											>
+												{opt().detail}
+											</span>
+										)}
+										{opt().status && (
+											<span {...stylex.attrs(styles.optionStatus)}>
+												{opt().status}
+											</span>
+										)}
+									</div>
+								</button>
+							}
+						>
+							{(renderOption) => (
+								<DropdownCustomOption
+									opt={opt()}
+									isSelected={opt().id === _props.value}
+									renderOption={renderOption()}
+									onChange={_props.onChange}
+									setOpen={_props.setOpen}
+								/>
+							)}
+						</Show>
+					)}
 				</For>
 			)}
 		</div>

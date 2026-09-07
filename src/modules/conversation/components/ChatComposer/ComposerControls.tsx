@@ -1,8 +1,9 @@
 import * as stylex from "@stylexjs/stylex";
-import { For } from "solid-js";
+import { For, Show } from "solid-js";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { ariaValue, assignRef } from "../../../../shared/lib/dom.tsx";
 import { IconChevronDown } from "../../../../shared/ui/Icons/index.tsx";
+import { AgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
 import { styles } from "./styles.ts";
 import type { useChatComposerState } from "./useChatComposerState.tsx";
 
@@ -47,7 +48,9 @@ export function ComposerControls(_props: ComposerControlsProps) {
 									styles.providerConfigChoiceActive,
 							)}
 						>
-							{control().icon}
+							<Show when={control().agentKind}>
+								{(kind) => <AgentIcon kind={kind()} size={10} />}
+							</Show>
 							<span {...stylex.attrs(styles.providerConfigLabel)}>
 								{control().label}
 							</span>

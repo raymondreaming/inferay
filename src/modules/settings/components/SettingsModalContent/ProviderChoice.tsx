@@ -4,7 +4,7 @@ import {
 	getAgentDefinition,
 	type loadDefaultChatSettings,
 } from "../../../../shared/lib/native.tsx";
-import { getAgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
+import { AgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
 import { styles } from "./styles.ts";
 export function ProviderChoice(_props: {
 	agentKind: "claude" | "codex";
@@ -35,7 +35,7 @@ export function ProviderChoice(_props: {
 			)}
 		>
 			<span {...stylex.attrs(styles.agentProviderIcon)}>
-				{getAgentIcon(_props.agentKind, 14)}
+				<AgentIcon kind={_props.agentKind} size={14} />
 			</span>
 			<span {...stylex.attrs(styles.agentProviderText)}>
 				<strong>{getAgentDefinition(_props.agentKind).label}</strong>

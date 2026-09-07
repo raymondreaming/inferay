@@ -14,7 +14,7 @@ import {
 	readStoredValue,
 } from "../../../../shared/lib/native.tsx";
 import { IconAgent, IconX } from "../../../../shared/ui/Icons/index.tsx";
-import { getAgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
+import { AgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
 import { styles } from "./styles.ts";
 export function PaneSummaryItem(_props: {
 	pane: Pane;
@@ -43,11 +43,11 @@ export function PaneSummaryItem(_props: {
 			>
 				<span {...stylex.attrs(styles.paneSummaryIcon)}>
 					{isChat() ? (
-						getAgentIcon(
-							_props.pane.agentKind,
-							12,
-							stylex.attrs(styles.iconDim).class,
-						)
+						<AgentIcon
+							kind={_props.pane.agentKind}
+							size={12}
+							class={stylex.attrs(styles.iconDim).class}
+						/>
 					) : (
 						<IconAgent
 							size={iconSize.md}

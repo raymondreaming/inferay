@@ -10,14 +10,11 @@ import type { WorkspaceAgentKind } from "../../../../../build/presentation/contr
 import type { RefCell } from "../../../../shared/lib/dom.tsx";
 import { hasId } from "../../../../shared/lib/dom.tsx";
 import { getAgentDefinition } from "../../../../shared/lib/native.tsx";
-import { getAgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
 import type { useAgentChatComposerState } from "../../hooks/useAgentChatComposerState.tsx";
 import type { useAgentChatMenus } from "../../hooks/useAgentChatMenus.tsx";
-import { renderInputHighlights } from "../ChatTokenDecorators/index.tsx";
 export type AgentOption = {
 	id: WorkspaceAgentKind;
 	label: string;
-	icon: Element;
 };
 export function useChatComposerState(
 	_props: Accessor<
@@ -73,25 +70,16 @@ export function useChatComposerState(
 	const agentConfigOpen = createMemo(() => activeConfig() !== null);
 	const [messageInputFocused, setMessageInputFocused] = createSignal(false);
 	createEffect(
-		() => [agentConfigOpen(), _source().onAgentConfigOpenChange],
-		() => {
-			_source().onAgentConfigOpenChange?.(agentConfigOpen());
+		() => [agentConfigOpen(), _source().onAgentConfigOpenChange] as const,
+		([open, notify]) => {
+			notify?.(open);
 		},
 	);
 	createEffect(
-		() => [_source().onAgentConfigOpenChange],
-		() => () => _source().onAgentConfigOpenChange?.(false),
+		() => _source().onAgentConfigOpenChange,
+		(notify) => () => notify?.(false),
 	);
 	const usePlainTextarea = createMemo(() => _source().input.length > 6000);
-	const inputHighlights = createMemo(() => {
-		const _sourceValue = _source();
-		return usePlainTextarea()
-			? null
-			: renderInputHighlights(
-					_sourceValue.input,
-					_sourceValue.slashCommandNames,
-				);
-	});
 	const agentDefinition = createMemo(() =>
 		getAgentDefinition(_source().agentKind),
 	);
@@ -119,7 +107,7 @@ export function useChatComposerState(
 				label: _agentDefinitionValue.label,
 				value: _sourceValue3.agentKind,
 				options: _sourceValue3.agentKindOptions,
-				icon: getAgentIcon(_sourceValue3.agentKind, 10),
+				agentKind: _sourceValue3.agentKind,
 				onChange: (id: string) =>
 					_source().onAgentKindChange(id as WorkspaceAgentKind),
 			},
@@ -131,7 +119,7 @@ export function useChatComposerState(
 							label: selectedModel()?.shortLabel || selectedModelLabel(),
 							value: _sourceValue3.model,
 							options: _agentDefinitionValue.models,
-							icon: null,
+							agentKind: null,
 							onChange: _sourceValue3.onModelChange,
 						},
 					]
@@ -144,7 +132,7 @@ export function useChatComposerState(
 							label: selectedReasoningLabel(),
 							value: _sourceValue3.reasoningLevel,
 							options: _agentDefinitionValue.reasoningLevels,
-							icon: null,
+							agentKind: null,
 							onChange: _sourceValue3.onReasoningLevelChange,
 						},
 					]
@@ -155,9 +143,9 @@ export function useChatComposerState(
 		configControls().find((control) => control.id === activeConfig()),
 	);
 	createEffect(
-		() => [agentConfigOpen()],
-		() => {
-			if (!agentConfigOpen()) return;
+		() => agentConfigOpen(),
+		(open) => {
+			if (!open) return;
 			const handlePointerDown = (event: MouseEvent) => {
 				const target = event.target as Node;
 				if (
@@ -182,9 +170,9 @@ export function useChatComposerState(
 		},
 	);
 	createEffect(
-		() => [activeConfig()],
-		() => {
-			if (!activeConfig()) return;
+		() => activeConfig(),
+		(active) => {
+			if (!active) return;
 			const menu = agentConfigMenuRef.current;
 			(
 				menu?.querySelector<HTMLButtonElement>('[aria-checked="true"]') ??
@@ -230,9 +218,6 @@ export function useChatComposerState(
 			},
 			get usePlainTextarea() {
 				return usePlainTextarea();
-			},
-			get inputHighlights() {
-				return inputHighlights();
 			},
 			get selectedModelLabel() {
 				return selectedModelLabel();

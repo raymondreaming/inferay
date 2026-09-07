@@ -21,24 +21,24 @@ export function useAgentChatComposerState(
 		[],
 	);
 	const attachedImagesRef = {
-		current: attachedImages(),
+		current: [] as AttachedImageInfo[],
 	};
 	createEffect(
-		() => [attachedImages()],
-		() => {
-			attachedImagesRef.current = attachedImages();
+		() => attachedImages(),
+		(images) => {
+			attachedImagesRef.current = images;
 		},
 	);
 	const [queuedMessages, setQueuedMessages] = createSignal<QueuedChatMessage[]>(
 		[],
 	);
 	const queueRef = {
-		current: queuedMessages(),
+		current: [] as QueuedChatMessage[],
 	};
 	createEffect(
-		() => [queuedMessages()],
-		() => {
-			queueRef.current = queuedMessages();
+		() => queuedMessages(),
+		(messages) => {
+			queueRef.current = messages;
 		},
 	);
 	const queueRevision = {
@@ -97,17 +97,20 @@ export function useAgentChatComposerState(
 	const [editingQueueText, setEditingQueueText] = createSignal("");
 	const [previewPath, setPreviewPath] = createSignal<string | null>(null);
 	const preview = useQueryResource(
-		() => (signal) =>
-			fetchJson<{
-				content: string;
-			}>(
-				`/api/files/preview?${new URLSearchParams({
-					path: previewPath() ?? "",
-				})}`,
-				{
-					signal,
-				},
-			),
+		() => {
+			const path = previewPath() ?? "";
+			return (signal) =>
+				fetchJson<{
+					content: string;
+				}>(
+					`/api/files/preview?${new URLSearchParams({
+						path,
+					})}`,
+					{
+						signal,
+					},
+				);
+		},
 		() => null,
 		() => {
 			const _previewPathValue = previewPath();

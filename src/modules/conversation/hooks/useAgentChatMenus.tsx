@@ -15,7 +15,6 @@ import {
 	postJson,
 	project as rustProject,
 } from "../../../shared/lib/native.tsx";
-import { getAgentIcon } from "../../agents/components/AgentIcon/index.tsx";
 import { changePaneAgentKind } from "../../workspace/hooks/useWorkspaceState.tsx";
 export interface FileMenuState {
 	show: boolean;
@@ -83,13 +82,13 @@ export function useAgentChatMenus(
 		slashIndex: -1,
 	});
 	const _source = useQueryResource(
-		() => (signal) =>
-			fetchJson<SlashCommand[]>(
-				`/api/agent/commands?kind=${_options().agentKind}`,
-				{
+		() => {
+			const kind = _options().agentKind;
+			return (signal) =>
+				fetchJson<SlashCommand[]>(`/api/agent/commands?kind=${kind}`, {
 					signal,
-				},
-			),
+				});
+		},
 		() => getAgentDefinition(_options().agentKind).commands,
 		() => {
 			const _optionsValue = _options();
@@ -101,25 +100,24 @@ export function useAgentChatMenus(
 		},
 	);
 	const _source2 = useQueryResource(
-		() => async (signal) => {
-			const _optionsValue2 = _options();
-			await new Promise((resolve) => setTimeout(resolve, 150));
-			signal?.throwIfAborted();
-			const params = new URLSearchParams({
-				q: fileMenu().query,
-				limit: "15",
-			});
-			if (_optionsValue2.cwd) params.set("cwd", _optionsValue2.cwd);
-			const data = await fetchJsonOr<{
-				results?: FileSearchResult[];
-			}>(
-				`/api/files/search?${params}`,
-				{},
-				{
-					signal,
-				},
-			);
-			return data.results ?? [];
+		() => {
+			const cwd = _options().cwd;
+			const params = new URLSearchParams({ q: fileMenu().query, limit: "15" });
+			if (cwd) params.set("cwd", cwd);
+			return async (signal) => {
+				await new Promise((resolve) => setTimeout(resolve, 150));
+				signal?.throwIfAborted();
+				const data = await fetchJsonOr<{
+					results?: FileSearchResult[];
+				}>(
+					`/api/files/search?${params}`,
+					{},
+					{
+						signal,
+					},
+				);
+				return data.results ?? [];
+			};
 		},
 		() => [] as FileSearchResult[],
 		() => {
@@ -337,7 +335,6 @@ export function useAgentChatSettings(
 		(["claude", "codex"] as const).map((id) => ({
 			id,
 			label: getAgentDefinition(id).label,
-			icon: getAgentIcon(id, 11),
 		})),
 	);
 	return {

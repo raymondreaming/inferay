@@ -17,7 +17,7 @@ export function WorkspaceLayoutSection(_props: { contained?: boolean }) {
 			(group) => group.id === workspace().selectedGroupId,
 		),
 	);
-	const [columns, setColumns] = createSignal(selected()?.columns ?? 1);
+	const [columns, setColumns] = createSignal(() => selected()?.columns ?? 1);
 	const updateMode = (next: "grid" | "rows") => {
 		setMode(next);
 		setAgentLayoutMode(next);

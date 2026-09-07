@@ -120,6 +120,8 @@ export function useChatInputActions(
 		}
 	};
 	const handleKeyDown = (e: KeyboardEvent) => {
+		// Enter confirms IME text before it acts as a composer shortcut.
+		if (e.isComposing || e.keyCode === 229) return;
 		const _optionsValue3 = _options();
 		if (
 			_optionsValue3.fileMenu.show &&
