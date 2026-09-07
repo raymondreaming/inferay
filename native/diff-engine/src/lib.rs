@@ -475,48 +475,16 @@ fn build_hunk_diff_from_versions(
         return result;
     }
 
-    if is_deleted {
-        let lines = content_lines(old_content);
-        return GitHunkDiff {
-            old_lines: lines
-                .iter()
-                .enumerate()
-                .map(|(index, content)| GitDiffLine {
-                    number: Some(index + 1),
-                    content: (*content).to_string(),
-                    line_type: GitDiffLineType::Remove,
-                })
-                .collect(),
-            new_lines: lines
-                .iter()
-                .map(|_| GitDiffLine {
-                    number: None,
-                    content: String::new(),
-                    line_type: GitDiffLineType::Spacer,
-                })
-                .collect(),
-            raw_patch: Some(raw_patch),
-            ..Default::default()
-        };
-    }
-
-    if is_new {
-        return GitHunkDiff {
-            new_lines: content_lines(new_content)
-                .iter()
-                .enumerate()
-                .map(|(index, content)| GitDiffLine {
-                    number: Some(index + 1),
-                    content: (*content).to_string(),
-                    line_type: GitDiffLineType::Add,
-                })
-                .collect(),
-            is_new: true,
-            raw_patch: Some(raw_patch),
-            merge_conflict_content,
-            ..Default::default()
-        };
-    }
+    let old_file_lines = if is_new && !is_deleted {
+        Vec::new()
+    } else {
+        old_file_lines
+    };
+    let new_file_lines = if is_deleted {
+        Vec::new()
+    } else {
+        new_file_lines
+    };
 
     let (removed_ranges, added_ranges) = parse_changed_ranges(&raw_patch);
     let mut old_lines = Vec::new();
@@ -552,13 +520,15 @@ fn build_hunk_diff_from_versions(
                 GitDiffLineType::Context
             },
         };
-        old_lines.push(line(
-            &old_file_lines,
-            old_index,
-            take_old,
-            removed,
-            GitDiffLineType::Remove,
-        ));
+        if !is_new || is_deleted {
+            old_lines.push(line(
+                &old_file_lines,
+                old_index,
+                take_old,
+                removed,
+                GitDiffLineType::Remove,
+            ));
+        }
         new_lines.push(line(
             &new_file_lines,
             new_index,
@@ -573,8 +543,13 @@ fn build_hunk_diff_from_versions(
     GitHunkDiff {
         old_lines,
         new_lines,
+        is_new: is_new && !is_deleted,
         raw_patch: Some(raw_patch),
-        merge_conflict_content,
+        merge_conflict_content: if is_deleted {
+            None
+        } else {
+            merge_conflict_content
+        },
         ..Default::default()
     }
 }
@@ -1426,13 +1401,6 @@ fn ref_operation_failure(
     }
 }
 
-fn invalid_ref_operation(cwd: &str, operation: &str, error: String) -> GitOperationResult {
-    GitOperationResult {
-        conflicts: git_conflicts(cwd),
-        ..ref_operation_failure(cwd, operation, GitOperationErrorKind::InvalidInput, error)
-    }
-}
-
 pub fn perform_git_ref_operation(
     cwd: &str,
     operation: &str,
@@ -1460,9 +1428,10 @@ pub fn perform_git_ref_operation(
         );
     }
 
-    let checkout = match operation {
-        "merge" | "fastForward" => checkout_git_branch(cwd, target),
-        "rebase" => checkout_git_branch(cwd, source),
+    let (branch, args): (&str, &[&str]) = match operation {
+        "merge" => (target, &["merge", "--no-edit", source]),
+        "fastForward" => (target, &["merge", "--ff-only", source]),
+        "rebase" => (source, &["rebase", target]),
         _ => {
             return ref_operation_failure(
                 cwd,
@@ -1472,44 +1441,25 @@ pub fn perform_git_ref_operation(
             );
         }
     };
+    let checkout = checkout_git_branch(cwd, branch);
     if !checkout.ok {
         let error = checkout
             .error
             .unwrap_or_else(|| "Unable to check out the requested branch".to_string());
-        return GitOperationResult {
-            ok: false,
-            operation: operation.to_string(),
-            outcome: GitOperationOutcome::Failed,
-
-            head: current_git_head(cwd),
-            conflicts: Vec::new(),
-            error_kind: Some(classify_git_operation_error(&error, &[])),
-            error: Some(error),
-        };
+        return ref_operation_failure(
+            cwd,
+            operation,
+            classify_git_operation_error(&error, &[]),
+            error,
+        );
     }
 
     let mut command = Command::new("git");
-    command.current_dir(cwd);
-    match operation {
-        "merge" => {
-            command.args(["merge", "--no-edit", source]);
-        }
-        "fastForward" => {
-            command.args(["merge", "--ff-only", source]);
-        }
-        "rebase" => {
-            command.args(["rebase", target]).env("GIT_EDITOR", "true");
-        }
-        _ => {
-            return invalid_ref_operation(
-                cwd,
-                operation,
-                "Unsupported branch operation".to_string(),
-            );
-        }
+    command.current_dir(cwd).args(args);
+    if operation == "rebase" {
+        command.env("GIT_EDITOR", "true");
     }
-    let output = command.output();
-    ref_operation_result(cwd, operation, output)
+    ref_operation_result(cwd, operation, command.output())
 }
 
 pub fn finish_git_ref_operation(cwd: &str, operation: &str, action: &str) -> GitOperationResult {
@@ -1549,18 +1499,14 @@ fn git_operation_error(cwd: &str, action: &str, error: impl Into<String>) -> Git
     let error = error.into();
     let conflicts = git_conflicts(cwd);
     GitOperationResult {
-        ok: false,
-        operation: action.to_string(),
         outcome: if conflicts.is_empty() {
             GitOperationOutcome::Failed
         } else {
             GitOperationOutcome::Conflicted
         },
-
-        head: current_git_head(cwd),
         error_kind: Some(classify_git_operation_error(&error, &conflicts)),
         conflicts,
-        error: Some(error),
+        ..ref_operation_failure(cwd, action, GitOperationErrorKind::CommandFailed, error)
     }
 }
 
@@ -3124,6 +3070,63 @@ mod checkout_tests {
         assert!(checkout_git_branch(cwd, "next").ok);
         std::fs::remove_file(root.join(".git/MERGE_HEAD")).unwrap();
         assert!(checkout_git_branch(cwd, "main").ok);
+        for operation in ["merge", "fastForward", "rebase"] {
+            git(&["checkout", "main"]);
+            let source = format!("source-{operation}");
+            git(&["checkout", "-b", &source]);
+            let path = format!("{operation}.txt");
+            std::fs::write(root.join(&path), operation).unwrap();
+            git(&["add", &path]);
+            git(&["commit", "-m", operation]);
+            git(&["checkout", "main"]);
+            let result = perform_git_ref_operation(cwd, operation, &source, "main");
+            assert!(result.ok, "{operation}: {:?}", result.error);
+            assert_eq!(
+                current_git_branch(cwd).as_deref(),
+                Some(if operation == "rebase" {
+                    source.as_str()
+                } else {
+                    "main"
+                })
+            );
+            assert_eq!(std::fs::read_to_string(root.join(path)).unwrap(), operation);
+        }
+        let branch = current_git_branch(cwd);
+        assert_eq!(
+            perform_git_ref_operation(cwd, "unsupported", "next", "main").error_kind,
+            Some(GitOperationErrorKind::InvalidInput)
+        );
+        assert_eq!(current_git_branch(cwd), branch);
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod file_mode_tests {
+    use super::*;
+    #[test]
+    fn additions_and_deletions_use_the_shared_alignment_without_extra_rows() {
+        for content in ["", "one", "one\ntwo\n"] {
+            let added =
+                build_hunk_diff_from_versions(String::new(), "", content, true, false, None);
+            assert!(added.is_new && added.old_lines.is_empty());
+            assert_eq!(added.new_lines.len(), content_lines(content).len());
+            assert!(added
+                .new_lines
+                .iter()
+                .all(|line| line.line_type == GitDiffLineType::Add));
+            let deleted =
+                build_hunk_diff_from_versions(String::new(), content, "", false, true, None);
+            assert_eq!(deleted.old_lines.len(), added.new_lines.len());
+            assert_eq!(deleted.old_lines.len(), deleted.new_lines.len());
+            assert!(deleted
+                .old_lines
+                .iter()
+                .all(|line| line.line_type == GitDiffLineType::Remove));
+            assert!(deleted
+                .new_lines
+                .iter()
+                .all(|line| line.line_type == GitDiffLineType::Spacer && line.number.is_none()));
+        }
     }
 }

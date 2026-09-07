@@ -1,7 +1,7 @@
 use inferay_core::chat_protocol::ChatTranscriptMessage;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -14,7 +14,7 @@ pub struct QueuedMessageInfo {
     pub display_text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub images: Option<Vec<String>>,
+    pub images: Option<Vec<PathBuf>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -106,20 +106,18 @@ impl ChatPersistence {
         }).await.map_err(|error| error.to_string())?.map_err(|error| error.to_string())
     }
 
-    async fn edit_document<D, T>(
+    async fn edit_queue<T>(
         &self,
         pane_id: &str,
-        kind: &'static str,
-        edit: impl FnOnce(&mut D) -> StoreResult<T> + Send + 'static,
+        edit: impl FnOnce(&mut Vec<QueuedMessageInfo>) -> StoreResult<T> + Send + 'static,
     ) -> Result<T, String>
     where
-        D: Serialize + serde::de::DeserializeOwned + Default,
         T: Send + 'static,
     {
         self.transaction(pane_id, move |connection, pane| {
-            let mut document: D = read_document(connection, pane, kind)?;
+            let mut document = read_queue_document(connection, pane)?;
             let result = edit(&mut document)?;
-            write_document(connection, pane, kind, &document)?;
+            write_document(connection, pane, "queue", &document)?;
             Ok(result)
         })
         .await
@@ -240,9 +238,9 @@ impl ChatPersistence {
         })
     }
 
-    pub async fn read_queue(&self, pane_id: &str) -> Result<Vec<Value>, String> {
+    pub async fn read_queue(&self, pane_id: &str) -> Result<Vec<QueuedMessageInfo>, String> {
         self.transaction(pane_id, |connection, pane| {
-            read_document(connection, pane, "queue")
+            read_queue_document(connection, pane)
         })
         .await
     }
@@ -250,11 +248,11 @@ impl ChatPersistence {
     pub async fn enqueue_runtime(
         &self,
         pane_id: &str,
-        message: Value,
-    ) -> Result<Vec<Value>, String> {
-        self.edit_document(pane_id, "queue", move |queue: &mut Vec<Value>| {
+        message: QueuedMessageInfo,
+    ) -> Result<(), String> {
+        self.edit_queue(pane_id, move |queue| {
             queue.push(message);
-            Ok(queue.clone())
+            Ok(())
         })
         .await
     }
@@ -265,17 +263,17 @@ impl ChatPersistence {
         pane_id: &str,
         id: &str,
         text: Option<&str>,
-    ) -> Result<Vec<Value>, String> {
+    ) -> Result<Vec<QueuedMessageInfo>, String> {
         let (id, text) = (id.to_owned(), text.map(str::to_owned));
-        self.edit_document(pane_id, "queue", move |queue: &mut Vec<Value>| {
-            if let Some(index) = queue.iter().position(|item| item["id"] == id) {
+        self.edit_queue(pane_id, move |queue| {
+            if let Some(index) = queue.iter().position(|item| item.id == id) {
                 if let Some(text) = text {
                     let text = text.trim();
                     if text.is_empty() {
                         return Err("Queued message cannot be empty".into());
                     }
-                    queue[index]["text"] = json!(text);
-                    queue[index]["displayText"] = json!(text);
+                    queue[index].text = text.into();
+                    queue[index].display_text = text.into();
                 } else {
                     queue.remove(index);
                 }
@@ -285,18 +283,22 @@ impl ChatPersistence {
         .await
     }
 
-    pub async fn shift_runtime(
-        &self,
-        pane_id: &str,
-    ) -> Result<Option<(Value, Vec<Value>)>, String> {
-        self.edit_document(pane_id, "queue", |queue: &mut Vec<Value>| {
+    pub async fn shift_runtime(&self, pane_id: &str) -> Result<Option<QueuedMessageInfo>, String> {
+        self.edit_queue(pane_id, |queue| {
             if queue.is_empty() {
                 return Ok(None);
             }
-            Ok(Some((queue.remove(0), queue.clone())))
+            Ok(Some(queue.remove(0)))
         })
         .await
     }
+}
+
+fn read_queue_document(connection: &Connection, pane: &str) -> StoreResult<Vec<QueuedMessageInfo>> {
+    Ok(read_document::<Vec<Value>>(connection, pane, "queue")?
+        .into_iter()
+        .filter_map(|message| serde_json::from_value(message).ok())
+        .collect())
 }
 
 fn read_document<T: serde::de::DeserializeOwned + Default>(
@@ -471,4 +473,67 @@ fn apply_update(connection: &Connection, pane: &str, update: &Value) -> StoreRes
     }
     connection.execute("INSERT INTO transcripts(pane,epoch,revision) VALUES(?1,?2,?3) ON CONFLICT(pane) DO UPDATE SET epoch=excluded.epoch,revision=excluded.revision", [pane, epoch, &revision.to_string()])?;
     Ok(())
+}
+
+#[cfg(test)]
+mod queue_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn durable_queue_preserves_order_edits_and_images_across_restarts() {
+        let root = std::env::temp_dir().join(format!("inferay-queue-{}", uuid::Uuid::new_v4()));
+        let store = ChatPersistence::new(root.clone());
+        store
+            .transaction("pane", |connection, pane| {
+                write_document(
+                    connection,
+                    pane,
+                    "queue",
+                    &vec![serde_json::json!({"broken":true})],
+                )
+            })
+            .await
+            .unwrap();
+        for id in ["first", "second"] {
+            store
+                .enqueue_runtime(
+                    "pane",
+                    QueuedMessageInfo {
+                        id: id.into(),
+                        text: id.into(),
+                        display_text: id.into(),
+                        images: Some(vec!["/image.png".into()]),
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        assert!(
+            store
+                .mutate_queue_item("pane", "first", Some(" "))
+                .await
+                .is_err()
+        );
+        store
+            .mutate_queue_item("pane", "second", Some(" revised "))
+            .await
+            .unwrap();
+        drop(store);
+        let store = ChatPersistence::new(root.clone());
+        let first = store.shift_runtime("pane").await.unwrap().unwrap();
+        assert_eq!(first.id, "first");
+        assert_eq!(first.text, "first");
+        assert_eq!(first.images, Some(vec![PathBuf::from("/image.png")]));
+        let remaining = store.read_queue("pane").await.unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].text, "revised");
+        assert_eq!(remaining[0].display_text, "revised");
+        store
+            .mutate_queue_item("pane", "second", None)
+            .await
+            .unwrap();
+        assert!(store.shift_runtime("pane").await.unwrap().is_none());
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

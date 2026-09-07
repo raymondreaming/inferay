@@ -1661,10 +1661,28 @@ async fn read_client_storage(path: &Path) -> Result<serde_json::Map<String, Valu
     }
 }
 
+fn migrate_vscode_appearance(entries: &mut serde_json::Map<String, Value>) -> bool {
+    const MIGRATION: &str = "inferay-vscode-appearance-version";
+    if entries.get(MIGRATION).and_then(Value::as_str) == Some("1") {
+        return false;
+    }
+    entries.insert("inferay-app-font".into(), json!("vscode"));
+    entries.insert("inferay-app-theme-id".into(), json!("default"));
+    entries.insert(
+        "inferay-syntax-highlight-theme".into(),
+        json!("vscode-black"),
+    );
+    entries.insert(MIGRATION.into(), json!("1"));
+    true
+}
+
 async fn get_client_storage(state: &ServerState, request: Request) -> ApiResult {
     let requested_key = query_value(&request, "key");
     let _guard = state.client_storage_write.lock().await;
     let mut entries = read_client_storage(&state.client_storage_path).await?;
+    if migrate_vscode_appearance(&mut entries) {
+        write_json_object(&state.client_storage_path, &entries).await?;
+    }
     if let Some(Value::String(stored)) = entries.get("inferay-app-background") {
         let normalized = normalize_background_settings(stored);
         if normalized != *stored {
@@ -1851,6 +1869,8 @@ async fn native_highlight(request: Request) -> ApiResult<Response> {
     struct Input {
         path: String,
         text: String,
+        #[serde(default, rename = "lineTypes")]
+        line_types: Option<Vec<String>>,
     }
     let headers = request.headers().clone();
     // A JSON escape can expand one input byte into six wire bytes.
@@ -1863,20 +1883,17 @@ async fn native_highlight(request: Request) -> ApiResult<Response> {
     let Ok(input) = serde_json::from_slice::<Input>(&bytes) else {
         return Err(api_error(StatusCode::BAD_REQUEST, "Expected path and text"));
     };
-    // Only the extension selects a grammar, so keying on it instead of the full
-    // path lets two views of the same file share one classification.
-    let extension = input
-        .path
-        .rsplit('/')
-        .next()
-        .unwrap_or_default()
-        .rsplit('.')
-        .next()
-        .unwrap_or_default()
-        .to_string();
-    let key = format!("highlight:1:{}:{}", extension, input.text);
+    // Filename and shebang can select grammars for extensionless files.
+    let key = format!(
+        "highlight:4:{}:{:?}:{}",
+        input.path, input.line_types, input.text
+    );
     let job = render_jobs::cached_highlight(key, std::time::Duration::from_secs(300), move || {
-        serde_json::to_vec(&highlight::classify(&input.path, &input.text)).ok()
+        let result = match input.line_types {
+            Some(types) => highlight::classify_diff(&input.path, &input.text, &types),
+            None => highlight::classify(&input.path, &input.text),
+        };
+        serde_json::to_vec(&result).ok()
     });
     match tokio::time::timeout(std::time::Duration::from_secs(10), job).await {
         Ok(Ok((Some(body), _))) => Ok(json_bytes_response(StatusCode::OK, body, &headers)),
@@ -2801,5 +2818,22 @@ mod proposal_http_tests {
             drop(server);
         }
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod appearance_default_tests {
+    use super::*;
+    #[test]
+    fn vscode_defaults_apply_once_and_preserve_later_choices() {
+        let mut entries = serde_json::Map::new();
+        entries.insert("inferay-app-font".into(), json!("geist"));
+        entries.insert("inferay-syntax-highlight-theme".into(), json!("dracula"));
+        assert!(migrate_vscode_appearance(&mut entries));
+        assert_eq!(entries["inferay-app-font"], "vscode");
+        assert_eq!(entries["inferay-syntax-highlight-theme"], "vscode-black");
+        entries.insert("inferay-app-font".into(), json!("menlo"));
+        assert!(!migrate_vscode_appearance(&mut entries));
+        assert_eq!(entries["inferay-app-font"], "menlo");
     }
 }

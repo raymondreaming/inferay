@@ -33,6 +33,8 @@ pub enum AppBackgroundMode {
 #[derive(Clone, Copy, Deserialize, Serialize, ts_rs::TS)]
 #[serde(rename_all = "kebab-case")]
 pub enum AppFontId {
+    Vscode,
+    Menlo,
     Geist,
     Inter,
     Manrope,
@@ -61,10 +63,13 @@ pub struct AppBackground {
 }
 
 #[derive(Deserialize, Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
 pub struct AppFont {
     pub id: AppFontId,
     pub label: String,
     pub family: String,
+    #[serde(default)]
+    pub editor_family: Option<String>,
 }
 
 #[derive(Serialize, ts_rs::TS)]
@@ -104,6 +109,8 @@ pub fn catalog() -> AppearanceCatalog {
             {"id":"signals","name":"Signal field","path":"/inferay-vibespace.png"}
         ])).expect("static backgrounds"),
         fonts: serde_json::from_value(json!([
+            {"id":"vscode","label":"System UI + Menlo","family":"-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif","editorFamily":"Menlo, Monaco, \"Courier New\", monospace"},
+            {"id":"menlo","label":"Menlo","family":"Menlo, Monaco, \"Courier New\", monospace"},
             {"id":"geist","label":"Geist","family":"\"Geist\", sans-serif"},
             {"id":"inter","label":"Inter","family":"\"Inter\", sans-serif"},
             {"id":"manrope","label":"Manrope","family":"\"Manrope\", sans-serif"},

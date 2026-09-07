@@ -203,10 +203,7 @@ impl ChatRuntime {
     async fn publish_queue(&self, pane_id: &str, recipient: Option<&broadcast::Sender<Value>>) {
         let _publication = self.queue_publication.lock().await;
         let queue = match self.persistence.read_queue(pane_id).await {
-            Ok(queue) => queue
-                .into_iter()
-                .filter_map(|value| serde_json::from_value::<QueuedMessageInfo>(value).ok())
-                .collect::<Vec<_>>(),
+            Ok(queue) => queue,
             Err(error) => {
                 eprintln!("Failed to publish durable queue for {pane_id}: {error}");
                 return;
@@ -342,7 +339,7 @@ impl ChatRuntime {
                 }
                 let prefix = create_system_prefix(&state, input.include_workspace, changed);
                 if !already_admitted && state.turn_active {
-                    let queued = serde_json::to_value(QueuedMessageInfo {
+                    let queued = QueuedMessageInfo {
                         id: pending_steer_id
                             .take()
                             .or_else(|| input.client_message_id.clone())
@@ -352,9 +349,8 @@ impl ChatRuntime {
                             .display_text
                             .clone()
                             .unwrap_or_else(|| input.text.clone()),
-                        images: (!input.images.is_empty()).then(|| paths_to_strings(&input.images)),
-                    })
-                    .expect("queue serialization");
+                        images: (!input.images.is_empty()).then(|| input.images.clone()),
+                    };
                     if let Err(error) = self
                         .persistence
                         .enqueue_runtime(&input.pane_id, queued)
@@ -1493,17 +1489,13 @@ impl ChatRuntime {
         session: &Arc<Mutex<ChatSession>>,
     ) -> Option<SendMessageInput> {
         let pane = session.lock().await.pane_id.clone();
-        let next = loop {
+        let next = {
             let mut state = session.lock().await;
-            let shifted = self.persistence.shift_runtime(&pane).await.unwrap_or(None);
-            let Some((next, _)) = shifted else {
+            let Some(next) = self.persistence.shift_runtime(&pane).await.unwrap_or(None) else {
                 state.turn_active = false;
                 return None;
             };
-            drop(state);
-            if let Ok(next) = serde_json::from_value::<QueuedMessageInfo>(next) {
-                break next;
-            }
+            next
         };
         self.broadcast_queue(&pane).await;
         let state = session.lock().await;
@@ -1519,12 +1511,7 @@ impl ChatRuntime {
             reference_paths: state.reference_paths.clone(),
             reference_paths_provided: true,
             display_text: Some(next.display_text),
-            images: next
-                .images
-                .unwrap_or_default()
-                .into_iter()
-                .map(PathBuf::from)
-                .collect(),
+            images: next.images.unwrap_or_default(),
             text: next.text,
 
             include_workspace: true,

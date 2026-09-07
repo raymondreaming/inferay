@@ -52,14 +52,16 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
             )?;
             panels::normalize(&session)
         }
-        "refOperationDialog" => workbench::ref_operation_dialog(input),
+        "gitOperationModel" => workbench::git_operation_model(input),
         "diffViewer" => workbench::diff_viewer(input),
         "changesPanel" => workbench::changes_panel(input),
         "visibleFiles" => workbench::visible_files(input),
         "adjacentFile" => workbench::adjacent_file(input),
         "selectionAfterToggle" => workbench::selection_after_toggle(input),
         "historicalQuery" => workbench::historical_query(input),
+        "diffPrefetchFiles" => workbench::diff_prefetch_files(input),
         "diffRequest" => workbench::diff_request(input),
+        "repositorySelection" => workbench::repository_selection(input),
         "workspaceSelection" => workbench::workspace_selection(input),
         "graphPreferences" => graph::preferences(input),
         "graphLayout" => graph::layout(input),

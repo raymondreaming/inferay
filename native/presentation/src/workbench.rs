@@ -280,6 +280,32 @@ pub fn diff_request(i: &Value) -> Value {
     }
     result
 }
+pub fn repository_selection(i: &Value) -> Value {
+    let state = &i["state"];
+    let groups = array(&state["groups"]);
+    let target = array(&state["repositories"]["workspaces"])
+        .iter()
+        .find(|workspace| workspace["cwd"] == i["cwd"])
+        .map(|workspace| array(&workspace["entries"]))
+        .unwrap_or(&[])
+        .iter()
+        .min_by_key(|entry| {
+            if entry["groupId"] == state["selectedGroupId"] {
+                0
+            } else if groups.iter().any(|group| {
+                group["id"] == entry["groupId"] && group["selectedPaneId"] == entry["pane"]["id"]
+            }) {
+                1
+            } else {
+                2
+            }
+        });
+    target.map_or(
+        Value::Null,
+        |entry| json!({"groupId":entry["groupId"],"paneId":entry["pane"]["id"]}),
+    )
+}
+
 pub fn workspace_selection(i: &Value) -> Value {
     let mut state = i["state"].clone();
     if let Some(groups) = state["groups"].as_array_mut() {
@@ -325,22 +351,14 @@ pub fn workspace_selection(i: &Value) -> Value {
     state
 }
 
-pub fn ref_operation_dialog(input: &Value) -> Value {
+pub fn git_operation_model(input: &Value) -> Value {
     let result = &input["result"];
     let preflight = &input["preflight"];
     let conflicts = array(&result["conflicts"]).len();
     let operation = string(&result["operation"]);
     let mut actions = Vec::new();
     if conflicts > 0 {
-        for (phase, label) in [
-            ("abort", "Abort"),
-            ("skip", "Skip commit"),
-            ("continue", "Continue"),
-        ] {
-            if phase != "skip" || operation != "merge" {
-                actions.push(json!({"label":label,"operation":operation,"phase":phase,"primary":phase == "continue"}));
-            }
-        }
+        actions = recovery_actions(operation, false);
     } else {
         actions.push(json!({"label":"Cancel","operation":null,"phase":"start","primary":false}));
         for (operation, allowed, label) in [
@@ -371,15 +389,112 @@ pub fn ref_operation_dialog(input: &Value) -> Value {
             .collect::<Vec<_>>()
             .join(". ")
     });
-    json!({"actions":actions,"conflictMessage":conflict_message,"blockedReason":blocked_reason})
+    let repository = &input["repository"];
+    let kind = string(&repository["kind"]);
+    let resumable = !kind.is_empty() && kind != "idle";
+    let remaining = array(&repository["conflicts"]).len();
+    let last = if input["graphResult"].is_object() {
+        &input["graphResult"]
+    } else {
+        result
+    };
+    let (phase, message) = if flag(&input["running"]) {
+        ("running", "Git operation running".into())
+    } else if repository["phase"] == "conflicted" {
+        ("conflicted", "Git operation has conflicts".into())
+    } else if repository["phase"] == "awaitingContinuation" {
+        (
+            "awaitingContinuation",
+            "Git operation is ready to continue".into(),
+        )
+    } else if last.is_object() {
+        if flag(&last["ok"]) {
+            (
+                "completed",
+                format!("Git {} completed", string(&last["operation"])),
+            )
+        } else {
+            (
+                "failed",
+                last["errorLabel"]
+                    .as_str()
+                    .unwrap_or("Git command failed")
+                    .into(),
+            )
+        }
+    } else if flag(&input["preflightFailed"]) {
+        ("failed", "Git command failed".into())
+    } else {
+        ("idle", String::new())
+    };
+    json!({"actions":actions,"conflictMessage":conflict_message,"blockedReason":blocked_reason,
+        "operationActivity":{"phase":phase,"message":message},
+        "recoveryActions":if resumable {recovery_actions(kind, remaining > 0)} else {Vec::new()},
+        "recoveryTitle":resumable.then(|| format!("{kind} in progress")),
+        "recoveryMessage":if remaining == 0 {"Ready to continue".into()} else {format!("{remaining} conflicted file{}", if remaining == 1 {""} else {"s"})}})
+}
+
+fn recovery_actions(operation: &str, blocked: bool) -> Vec<Value> {
+    [
+        ("abort", "Abort"),
+        ("skip", "Skip commit"),
+        ("continue", "Continue"),
+    ]
+    .into_iter()
+    .filter(|(phase, _)| *phase != "skip" || operation != "merge")
+    .map(|(phase, label)| {
+        json!({"operation":operation,"phase":phase,"label":label,
+            "primary":phase == "continue","disabled":blocked && phase == "continue"})
+    })
+    .collect()
 }
 
 #[cfg(test)]
 mod ref_dialog_tests {
     use super::*;
     #[test]
+    fn activity_precedence_and_recovery_use_repository_state() {
+        let mut input = json!({"repository":{"kind":"rebase","phase":"conflicted","conflicts":["a","b"]},
+            "result":{"ok":true,"operation":"merge"},"graphResult":{"ok":false,"errorLabel":"Invalid Git action"},"running":true});
+        assert_eq!(
+            git_operation_model(&input)["operationActivity"]["phase"],
+            "running"
+        );
+        input["running"] = json!(false);
+        let model = git_operation_model(&input);
+        assert_eq!(model["operationActivity"]["phase"], "conflicted");
+        assert_eq!(model["recoveryMessage"], "2 conflicted files");
+        assert_eq!(model["recoveryActions"][2]["disabled"], true);
+        input["repository"]["phase"] = json!("awaitingContinuation");
+        input["repository"]["conflicts"] = json!([]);
+        let model = git_operation_model(&input);
+        assert_eq!(model["operationActivity"]["phase"], "awaitingContinuation");
+        assert_eq!(model["recoveryActions"][2]["disabled"], false);
+        input["repository"] = json!({"kind":"idle","phase":"idle"});
+        let model = git_operation_model(&input);
+        assert_eq!(model["operationActivity"]["message"], "Invalid Git action");
+        assert!(model["recoveryActions"].as_array().unwrap().is_empty());
+        assert!(model["recoveryTitle"].is_null());
+        input["graphResult"] = Value::Null;
+        assert_eq!(
+            git_operation_model(&input)["operationActivity"]["message"],
+            "Git merge completed"
+        );
+        input["result"] = Value::Null;
+        input["preflightFailed"] = json!(true);
+        assert_eq!(
+            git_operation_model(&input)["operationActivity"]["phase"],
+            "failed"
+        );
+        assert_eq!(
+            git_operation_model(&json!({}))["operationActivity"]["phase"],
+            "idle"
+        );
+    }
+
+    #[test]
     fn branch_choices_and_conflict_recovery_follow_native_capabilities() {
-        let dialog = ref_operation_dialog(
+        let dialog = git_operation_model(
             &json!({"preflight":{"canRebase":true,"canFastForward":true,"canMerge":true}}),
         );
         assert_eq!(
@@ -397,7 +512,7 @@ mod ref_dialog_tests {
             ]
         );
         for operation in ["merge", "rebase", "cherryPick"] {
-            let dialog = ref_operation_dialog(
+            let dialog = git_operation_model(
                 &json!({"result":{"operation":operation,"conflicts":["file"]}}),
             );
             let actions = dialog["actions"].as_array().unwrap();
@@ -409,7 +524,7 @@ mod ref_dialog_tests {
                 "Resolve 1 conflicted file, then continue or abort."
             );
         }
-        let blocked = ref_operation_dialog(
+        let blocked = git_operation_model(
             &json!({"preflight":{"reasons":["No shared ancestor", "Source unavailable"]}}),
         );
         assert_eq!(
@@ -418,8 +533,54 @@ mod ref_dialog_tests {
         );
         assert_eq!(blocked["actions"].as_array().unwrap().len(), 1);
         assert!(
-            ref_operation_dialog(&json!({"preflight":{"canFastForward":true}}))["blockedReason"]
+            git_operation_model(&json!({"preflight":{"canFastForward":true}}))["blockedReason"]
                 .is_null()
         );
+    }
+}
+
+/// Warm only the two adjacent keyboard targets, preserving staged identity and
+/// the caller's visible ordering. With no selection, prime the first two rows.
+pub fn diff_prefetch_files(i: &Value) -> Value {
+    let files = array(&i["files"]);
+    let selected = &i["selected"];
+    let current = files
+        .iter()
+        .position(|f| f["path"] == selected["path"] && f["staged"] == selected["staged"]);
+    let mut targets = Vec::new();
+    if let Some(index) = current {
+        for next in [
+            (index + 1) % files.len(),
+            (index + files.len() - 1) % files.len(),
+        ] {
+            if next != index && !targets.contains(&files[next]) {
+                targets.push(files[next].clone());
+            }
+        }
+    } else {
+        targets.extend(files.iter().take(2).cloned());
+    }
+    json!(targets)
+}
+
+#[cfg(test)]
+mod prefetch_tests {
+    use super::*;
+    #[test]
+    fn neighbors_preserve_stage_identity_wrap_and_remain_bounded() {
+        let files = json!([{"path":"a","staged":false},{"path":"a","staged":true},{"path":"b","staged":true}]);
+        assert_eq!(
+            diff_prefetch_files(&json!({"files":files,"selected":files[0]})),
+            json!([files[1], files[2]])
+        );
+        assert_eq!(
+            diff_prefetch_files(&json!({"files":files,"selected":files[2]})),
+            json!([files[0], files[1]])
+        );
+        assert_eq!(
+            diff_prefetch_files(&json!({"files":[files[0]],"selected":files[0]})),
+            json!([])
+        );
+        assert_eq!(diff_prefetch_files(&json!({"files":[]})), json!([]));
     }
 }

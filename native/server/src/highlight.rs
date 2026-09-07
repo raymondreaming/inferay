@@ -16,12 +16,14 @@ const MAX_LINE_BYTES: usize = 4_000;
 /// Kinds a renderer can style, most specific selector first. Anything
 /// unrecognised stays `plain` rather than growing this set: a stable vocabulary
 /// keeps the stylesheet finite.
-const SELECTORS: [(&str, &str); 15] = [
+const SELECTORS: &[(&str, &str)] = &[
     ("comment", "comment"),
     ("constant.character.escape", "string"),
     ("constant.numeric", "number"),
     ("constant", "constant"),
     ("string", "string"),
+    ("keyword.control", "control"),
+    ("keyword.operator.word", "keyword"),
     ("keyword.operator", "operator"),
     ("keyword", "keyword"),
     // `storage.type` marks declaration keywords — const, let, fn, class — not
@@ -33,12 +35,22 @@ const SELECTORS: [(&str, &str); 15] = [
     ("entity.other.attribute-name", "attribute"),
     ("entity.name", "type"),
     ("support.type", "type"),
+    ("support.class", "type"),
+    ("variable.type", "type"),
+    ("variable.function", "function"),
+    ("variable", "variable"),
+    ("support.variable", "variable"),
+    ("meta.object-literal.key", "variable"),
+    ("meta.property.object", "variable"),
     ("punctuation", "punctuation"),
 ];
 
 fn syntaxes() -> &'static SyntaxSet {
     static SET: OnceLock<SyntaxSet> = OnceLock::new();
-    SET.get_or_init(SyntaxSet::load_defaults_newlines)
+    SET.get_or_init(|| {
+        syntect::dumps::from_uncompressed_data(include_bytes!("../syntaxes/syntaxes.bin"))
+            .expect("bundled native syntax definitions")
+    })
 }
 
 /// `punctuation.definition.*` marks the delimiters of the construct it sits
@@ -59,17 +71,13 @@ fn selectors() -> &'static [(Scope, &'static str)] {
     })
 }
 
-/// Extensions the bundled grammars do not carry, mapped to their nearest
-/// relative. Kinds are coarse enough that a superset grammar reads correctly:
-/// TypeScript's type annotations fall back to `plain`, everything else holds.
-const ALIASES: [(&str, &str); 8] = [
-    ("ts", "js"),
-    ("tsx", "js"),
-    ("jsx", "js"),
+/// Alternate extensions use their matching bundled language grammar.
+const ALIASES: [(&str, &str); 6] = [
+    ("jsx", "tsx"),
     ("mjs", "js"),
     ("cjs", "js"),
-    ("mts", "js"),
-    ("cts", "js"),
+    ("mts", "ts"),
+    ("cts", "ts"),
     ("scss", "css"),
 ];
 
@@ -86,11 +94,14 @@ fn syntax(path: &str) -> Option<&'static SyntaxReference> {
         .iter()
         .find(|(from, _)| *from == extension)
         .map_or(extension, |(_, to)| to);
-    if resolved.is_empty() {
-        return None;
-    }
-    set.find_syntax_by_extension(resolved)
-        .or_else(|| set.find_syntax_by_token(resolved))
+    let name = path.rsplit('/').next().unwrap_or(path);
+    set.find_syntax_by_extension(name)
+        .or_else(|| set.find_syntax_by_extension(extension))
+        .or_else(|| {
+            (!resolved.is_empty())
+                .then(|| set.find_syntax_by_extension(resolved))
+                .flatten()
+        })
 }
 
 /// Innermost scope wins, so walk the stack outwards and stop at the first
@@ -130,7 +141,9 @@ pub fn classify(path: &str, text: &str) -> Option<Classified> {
     if text.len() > MAX_BYTES || text.lines().any(|line| line.len() > MAX_LINE_BYTES) {
         return None;
     }
-    let syntax = syntax(path)?;
+    let syntax = syntax(path).or_else(|| {
+        syntaxes().find_syntax_by_first_line(text.lines().next().unwrap_or_default())
+    })?;
     let set = syntaxes();
     let mut state = ParseState::new(syntax);
     let mut stack = ScopeStack::new();
@@ -168,15 +181,109 @@ pub fn classify(path: &str, text: &str) -> Option<Classified> {
         lines.push(runs);
     }
     Some(Classified {
-        version: 1,
+        version: 3,
         language: syntax.name.clone(),
         lines,
     })
 }
 
+/// Diff headers are not source, and before/after revisions have independent
+/// parser state. Reset at omitted hunks and map each side back to display rows.
+pub fn classify_diff(path: &str, text: &str, types: &[String]) -> Option<Classified> {
+    let rows: Vec<_> = text.split('\n').collect();
+    if rows.len() != types.len() || rows.len() > MAX_LINES || text.len() > MAX_BYTES {
+        return None;
+    }
+    let mut result = Classified {
+        version: 3,
+        language: syntax(path)?.name.clone(),
+        lines: vec![Vec::new(); rows.len()],
+    };
+    let mut start = 0;
+    while start < rows.len() {
+        if types[start] == "hunk" {
+            start += 1;
+            continue;
+        }
+        let end = (start..rows.len())
+            .find(|&i| types[i] == "hunk")
+            .unwrap_or(rows.len());
+        let has_removed = types[start..end].iter().any(|kind| kind == "remove");
+        let has_added = types[start..end].iter().any(|kind| kind == "add");
+        let sides: &[bool] = if has_removed && has_added {
+            &[true, false]
+        } else if has_removed {
+            &[true]
+        } else {
+            &[false]
+        };
+        for &removed in sides {
+            let indices: Vec<_> = (start..end)
+                .filter(|&i| {
+                    types[i] != "spacer"
+                        && if removed {
+                            types[i] != "add"
+                        } else {
+                            types[i] != "remove"
+                        }
+                })
+                .collect();
+            if indices.is_empty() {
+                continue;
+            }
+            let mut source = indices
+                .iter()
+                .map(|&i| rows[i])
+                .collect::<Vec<_>>()
+                .join("\n");
+            source.push('\n');
+            let classified = classify(path, &source)?;
+            for (index, runs) in indices.into_iter().zip(classified.lines) {
+                result.lines[index] = runs;
+            }
+        }
+        start = end;
+    }
+    Some(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn distinguishes_control_variables_and_constructor_types() {
+        let source =
+            "import { buildPayload } from './types.js';\nconst value = new Agent(config.name);\n";
+        let result = classify("example.js", source).unwrap();
+        let mut tokens = Vec::new();
+        for (line, runs) in source.lines().zip(result.lines) {
+            let mut offset = 0;
+            for run in runs.chunks_exact(2) {
+                let end = offset + run[0].as_u64().unwrap() as usize;
+                tokens.push((
+                    line[offset..end].to_string(),
+                    run[1].as_str().unwrap().to_string(),
+                ));
+                offset = end;
+            }
+        }
+        for (text, kind) in [
+            ("import", "control"),
+            ("buildPayload", "variable"),
+            ("const", "keyword"),
+            ("value", "variable"),
+            ("Agent", "type"),
+            ("name", "variable"),
+        ] {
+            assert!(
+                tokens
+                    .iter()
+                    .any(|(token, category)| token.trim() == text && category == kind),
+                "{text}: {tokens:?}"
+            );
+        }
+    }
 
     #[test]
     #[ignore = "manual syntax throughput measurement"]
@@ -201,12 +308,88 @@ mod tests {
     }
 
     #[test]
-    fn classifies_typescript_through_the_javascript_grammar() {
+    fn classifies_typescript_with_its_own_grammar() {
         let lines = kinds("src/a/b.ts", "// hi\nconst x = 42;\n");
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0], vec![json!(5), json!("comment")]);
         // `42` must carry the number kind wherever the runs place it.
         assert!(lines[1].chunks(2).any(|run| run[1] == json!("number")));
+    }
+
+    #[test]
+    fn supports_repository_languages_and_extensionless_files() {
+        for path in [
+            "main.rs",
+            "main.ts",
+            "main.tsx",
+            "main.jsx",
+            "main.py",
+            "main.go",
+            "main.java",
+            "main.kt",
+            "main.swift",
+            "main.c",
+            "main.cpp",
+            "main.cs",
+            "main.rb",
+            "main.php",
+            "main.sh",
+            "main.zig",
+            "main.lua",
+            "main.ex",
+            "main.dart",
+            "main.vue",
+            "main.svelte",
+            "main.sql",
+            "config.toml",
+            "config.yaml",
+            "config.json",
+            "main.scss",
+            "main.html",
+            "README.md",
+            "Dockerfile",
+            "Makefile",
+            "CMakeLists.txt",
+        ] {
+            assert!(syntax(path).is_some(), "missing grammar: {path}");
+        }
+        assert!(classify("script", "#!/usr/bin/env python3\nprint('hello')\n").is_some());
+        eprintln!("{} bundled syntax definitions", syntaxes().syntaxes().len());
+    }
+
+    #[test]
+    fn tsx_fragments_do_not_turn_following_code_into_strings() {
+        let text = "interface Props { visible: boolean }\nconst view = (props: Props) => (\n<>\n{props.visible ? <><div id=\"appearance\">Hello</div></> : null}\n<section title=\"next\">{props.visible && <Button />}</section>\n</>\n);\nconst after = 42;\n";
+        let result = classify("view.tsx", text).unwrap();
+        assert_ne!(result.language, "JavaScript");
+        let last = result.lines.last().unwrap();
+        assert_eq!(last[1], json!("keyword"));
+        assert!(!last.chunks_exact(2).any(|run| run[1] == json!("string")));
+        assert!(last.chunks_exact(2).any(|run| run[1] == json!("number")));
+        // Also cover the real component that exposed the JSX fragment failure.
+        let source =
+            include_str!("../../../src/modules/settings/components/Settings/SettingsContent.tsx");
+        let result = classify("SettingsContent.tsx", source).unwrap();
+        for (line, runs) in source.lines().zip(result.lines) {
+            if line.trim_start().starts_with("import ") {
+                assert!(runs.chunks_exact(2).any(|run| run[1] == json!("control")));
+            }
+        }
+    }
+
+    #[test]
+    fn hunk_headers_and_removed_strings_do_not_poison_added_code() {
+        let text = "@@ -1,1 +1,1 @@\nconst old = `unterminated\nconst value = 42;\n@@ -20,1 +20,1 @@\nreturn value;";
+        let types = ["hunk", "remove", "add", "hunk", "context"].map(str::to_owned);
+        let result = classify_diff("file.ts", text, &types).unwrap();
+        assert!(result.lines[0].is_empty());
+        assert_eq!(result.lines[2][1], json!("keyword"));
+        assert!(
+            result.lines[2]
+                .chunks_exact(2)
+                .any(|r| r[1] == json!("number"))
+        );
+        assert_eq!(result.lines[4][1], json!("control"));
     }
 
     #[test]
@@ -234,7 +417,7 @@ mod tests {
     #[test]
     fn declines_unknown_extensions_and_bare_names() {
         assert!(classify("data.zzz", "x").is_none());
-        assert!(classify("Makefile", "x").is_none());
+        assert!(classify("unknown-file", "x").is_none());
     }
 
     #[test]
