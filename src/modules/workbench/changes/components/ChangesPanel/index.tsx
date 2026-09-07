@@ -10,12 +10,11 @@ import {
 	getFileSelectionAfterToggle,
 	project as rustProject,
 } from "../../../../../adapters/presentation/model.ts";
-import { DotMatrixWeave } from "../../../../../shared/ui/DotMatrixLoader/index.tsx";
 import { ChangesPanelHeader } from "./ChangesPanelHeader.tsx";
 import { CommitSection } from "./CommitSection.tsx";
-import { FileGroup } from "./FileGroup.tsx";
-import { HistoricalDetailsPanel } from "./HistoricalDetailsPanel.tsx";
+import { HistoryFiles } from "./HistoryFiles.tsx";
 import { styles } from "./styles.ts";
+import { WorkingTreeFiles } from "./WorkingTreeFiles.tsx";
 
 interface ChangesPanelProps {
 	filePresentation?: GitFilePresentation;
@@ -113,7 +112,20 @@ export const ChangesPanel = memo(function ChangesPanel(
 		deletions,
 	} = useMemo(
 		() =>
-			buildChangesPanelModel({
+			rustProject<{
+				unstagedFiles: GitFileEntry[];
+				stagedFiles: GitFileEntry[];
+				workingFiles: GitFileEntry[];
+				navigableFiles: GitFileEntry[];
+				showingWorkingTree: boolean;
+				comparing: boolean;
+				historyDetails: GitCommitDetails | GitComparisonDetails | null;
+				historyLoading: boolean;
+				historyMessage: string;
+				navigableHistoricalFiles: GitCommitFile[];
+				additions: number;
+				deletions: number;
+			}>("changesPanel", {
 				content,
 				fileViewMode,
 				filePresentation,
@@ -222,49 +234,21 @@ export const ChangesPanel = memo(function ChangesPanel(
 			/>
 
 			{showingWorkingTree && (
-				<div {...stylex.props(styles.splitArea)}>
-					{!hasProject ? (
-						<div {...stylex.props(styles.emptyState)}>
-							{projectLoading ? (
-								<div {...stylex.props(styles.loadingState)}>
-									<DotMatrixWeave ariaLabel="Checking repository" />
-									<span>Checking repository…</span>
-								</div>
-							) : (
-								<p {...stylex.props(styles.emptyText, styles.centerText)}>
-									No Git repository
-								</p>
-							)}
-						</div>
-					) : (
-						<>
-							<FileGroup
-								title="Unstaged"
-								filePresentation={filePresentation}
-								files={unstagedFiles}
-								selected={selectedFile}
-								onSelect={onSelectFile}
-								actionLabel={showFileActions ? "Stage" : undefined}
-								onAction={showFileActions ? onStageFile : undefined}
-								onActionAll={showFileActions ? onStageAll : undefined}
-								viewMode={fileViewMode}
-								splitPane
-							/>
-							<FileGroup
-								title="Staged"
-								filePresentation={filePresentation}
-								files={stagedFiles}
-								selected={selectedFile}
-								onSelect={onSelectFile}
-								actionLabel={showFileActions ? "Unstage" : undefined}
-								onAction={showFileActions ? onUnstageFile : undefined}
-								onActionAll={showFileActions ? onUnstageAll : undefined}
-								viewMode={fileViewMode}
-								splitPane
-							/>
-						</>
-					)}
-				</div>
+				<WorkingTreeFiles
+					hasProject={hasProject}
+					projectLoading={projectLoading}
+					filePresentation={filePresentation}
+					unstagedFiles={unstagedFiles}
+					stagedFiles={stagedFiles}
+					selectedFile={selectedFile}
+					onSelectFile={onSelectFile}
+					showFileActions={showFileActions}
+					onStageFile={onStageFile}
+					onUnstageFile={onUnstageFile}
+					onStageAll={onStageAll}
+					onUnstageAll={onUnstageAll}
+					fileViewMode={fileViewMode}
+				/>
 			)}
 
 			{hasProject && showingWorkingTree && showCommitSection && (
@@ -279,30 +263,15 @@ export const ChangesPanel = memo(function ChangesPanel(
 			)}
 
 			{!showingWorkingTree && (
-				<div {...stylex.props(styles.splitArea)}>
-					{!historyLoading && historyDetails ? (
-						<HistoricalDetailsPanel
-							details={historyDetails}
-							selectionCount={comparing ? selectedCommitCount : undefined}
-							selectedFile={selectedFile}
-							onSelectFile={
-								comparing ? onSelectComparisonFile : onSelectCommitFile
-							}
-							viewMode={fileViewMode}
-						/>
-					) : (
-						<div {...stylex.props(styles.emptyStateLarge)}>
-							<p
-								{...stylex.props(
-									styles.mutedText,
-									!historyLoading && styles.centerText,
-								)}
-							>
-								{historyMessage}
-							</p>
-						</div>
-					)}
-				</div>
+				<HistoryFiles
+					historyLoading={historyLoading}
+					historyDetails={historyDetails}
+					selectionCount={comparing ? selectedCommitCount : undefined}
+					selectedFile={selectedFile}
+					onSelectFile={comparing ? onSelectComparisonFile : onSelectCommitFile}
+					fileViewMode={fileViewMode}
+					historyMessage={historyMessage}
+				/>
 			)}
 		</div>
 	);
@@ -317,62 +286,4 @@ export { CollapsedChangesPanel } from "./CollapsedChangesPanel.tsx";
 export interface SelectedFile {
 	path: string;
 	staged: boolean;
-}
-export function buildChangesPanelModel({
-	content,
-	fileViewMode,
-	filePresentation,
-	modified,
-	untracked,
-	staged,
-	selectedCommitHash,
-	selectedCommitCount,
-	commitDetailsLoading,
-	commitDetails,
-	commitDetailsError,
-	comparisonDetailsLoading,
-	comparisonDetails,
-}: {
-	content: "workingTree" | "history";
-	fileViewMode: "path" | "tree";
-	filePresentation?: GitFilePresentation;
-	modified: readonly GitFileEntry[];
-	untracked: readonly GitFileEntry[];
-	staged: readonly GitFileEntry[];
-	selectedCommitHash: string | null;
-	selectedCommitCount: number;
-	commitDetailsLoading: boolean;
-	commitDetails: GitCommitDetails | null;
-	commitDetailsError?: string | null;
-	comparisonDetailsLoading: boolean;
-	comparisonDetails: GitComparisonDetails | null;
-}): {
-	unstagedFiles: GitFileEntry[];
-	stagedFiles: GitFileEntry[];
-	workingFiles: GitFileEntry[];
-	navigableFiles: GitFileEntry[];
-	showingWorkingTree: boolean;
-	comparing: boolean;
-	historyDetails: GitCommitDetails | GitComparisonDetails | null;
-	historyLoading: boolean;
-	historyMessage: string;
-	navigableHistoricalFiles: GitCommitFile[];
-	additions: number;
-	deletions: number;
-} {
-	return rustProject("changesPanel", {
-		content,
-		fileViewMode,
-		filePresentation,
-		modified,
-		untracked,
-		staged,
-		selectedCommitHash,
-		selectedCommitCount,
-		commitDetailsLoading,
-		commitDetails,
-		commitDetailsError,
-		comparisonDetailsLoading,
-		comparisonDetails,
-	});
 }

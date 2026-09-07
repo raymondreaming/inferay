@@ -14,6 +14,7 @@ import { project as rustProject } from "../../../../../adapters/presentation/mod
 import { listenWindowEvent } from "../../../../../shared/lib/data.ts";
 import type { DiffScrollSource } from "../../hooks/useSplitDiffScroll.tsx";
 import { MarkdownPreview } from "../MarkdownPreview/index.tsx";
+import { BinaryPreview } from "./BinaryPreview.tsx";
 import { DiffHeader } from "./DiffHeader.tsx";
 import { DiffPanels } from "./DiffPanels.tsx";
 import { DiffViewToolbar } from "./DiffViewToolbar.tsx";
@@ -179,19 +180,7 @@ export const DiffViewer = memo(function DiffViewer({
 	const disableTokenize = diff.metadata.tokenizationDisabled;
 	let body: OctaneNode;
 	if (diff.isBinary) {
-		body = (
-			<div {...stylex.props(diffStyles.imageBody)}>
-				{diff.isImage && diff.imagePath ? (
-					<img
-						src={`/api/file?path=${encodeURIComponent(diff.imagePath)}`}
-						alt={filePath}
-						{...stylex.props(diffStyles.image)}
-					/>
-				) : (
-					<span {...stylex.props(diffStyles.centerText)}>Binary file</span>
-				)}
-			</div>
-		);
+		body = <BinaryPreview diff={diff} filePath={filePath} />;
 	} else if (!conflict && message) {
 		body = (
 			<div {...stylex.props(diffStyles.centerBody)}>

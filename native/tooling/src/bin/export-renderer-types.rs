@@ -15,6 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     export!(
         GitFileEntry,
         inferay_presentation::appearance::AppearanceCatalog,
+        inferay_presentation::appearance::BackgroundModel,
         inferay_presentation::shadow::ShadowLayer,
         inferay_core::provider_config::ProviderCatalog,
         inferay_presentation::chat_view::ChatListRow,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "octane";
+import { useEffect, useMemo, useSyncExternalStore } from "octane";
 import appearanceCatalog from "../../../build/presentation/appearance-catalog.json";
 import type { AppBackgroundId } from "../../../build/presentation/contracts/AppBackgroundId.ts";
 import type { AppBackgroundMode } from "../../../build/presentation/contracts/AppBackgroundMode.ts";
@@ -6,6 +6,8 @@ import type { AppBackgroundSettings } from "../../../build/presentation/contract
 import type { AppearanceCatalog } from "../../../build/presentation/contracts/AppearanceCatalog.ts";
 import type { AppFontId } from "../../../build/presentation/contracts/AppFontId.ts";
 import type { AppThemeId } from "../../../build/presentation/contracts/AppThemeId.ts";
+import type { BackgroundModel } from "../../../build/presentation/contracts/BackgroundModel.ts";
+import { project as rustProject } from "../../adapters/presentation/model.ts";
 import {
 	APP_BACKGROUND_STORAGE_KEY,
 	APP_FONT_STORAGE_KEY,
@@ -80,38 +82,58 @@ export function applyAppFont(id: AppFontId): void {
 export function saveAppFontId(id: AppFontId): void {
 	writeStoredValue(APP_FONT_STORAGE_KEY, id);
 }
+const subscribeAppearance = (notify: () => void) =>
+	listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, notify);
+const readBackground = () => readStoredValue(APP_BACKGROUND_STORAGE_KEY);
+export function useBackgroundModel() {
+	const stored = useSyncExternalStore(
+		subscribeAppearance,
+		readBackground,
+		readBackground,
+	);
+	const themeId = useSyncExternalStore(
+		subscribeAppearance,
+		loadAppThemeId,
+		loadAppThemeId,
+	);
+	return useMemo(
+		() =>
+			rustProject<BackgroundModel>("backgroundModel", {
+				stored: loadAppBackgroundSettings(),
+				themeId,
+			}),
+		[stored, themeId],
+	);
+}
+export function updateAppBackground(patch: Partial<AppBackgroundSettings>) {
+	const model = rustProject<BackgroundModel>("backgroundModel", {
+		stored: loadAppBackgroundSettings(),
+		themeId: loadAppThemeId(),
+		patch,
+	});
+	if (model.themeId !== loadAppThemeId()) saveAppThemeId(model.themeId);
+	saveAppBackgroundSettings(model.background);
+}
 export function useAppAppearance() {
-	const [background, setBackground] = useState(loadAppBackgroundSettings);
+	const { background, backgroundUrl, themeId } = useBackgroundModel();
 	useEffect(
 		() =>
 			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
-				const key = (event as CustomEvent<{ key?: string }>).detail?.key;
 				if (
-					key === APP_BACKGROUND_STORAGE_KEY ||
-					key === APP_THEME_STORAGE_KEY
-				) {
-					setBackground(loadAppBackgroundSettings());
-				}
-				if (key === APP_FONT_STORAGE_KEY) applyAppFont(loadAppFontId());
+					(event as CustomEvent<{ key?: string }>).detail?.key ===
+					APP_FONT_STORAGE_KEY
+				)
+					applyAppFont(loadAppFontId());
 			}),
 		[],
 	);
-	const backgroundUrl =
-		background.mode !== "scene"
-			? null
-			: background.id === "custom"
-				? `/api/config/background-image?v=${background.customRevision}`
-				: (APP_BACKGROUNDS.find((scene) => scene.id === background.id)?.path ??
-					null);
-
-	useEffect(() => {
-		applyAppBackgroundSurfaces(background.mode);
-	}, [background.mode]);
-
+	useEffect(
+		() => applyAppBackgroundSurfaces(background.mode),
+		[background.mode],
+	);
 	useEffect(() => {
 		if (background.autoTheme) applyAppBackgroundPalette(background.id);
-		else restoreAppTheme();
-	}, [background.autoTheme, background.id]);
-
+		else applyAppTheme(themeId);
+	}, [background.autoTheme, background.id, themeId]);
 	return { background, backgroundUrl };
 }

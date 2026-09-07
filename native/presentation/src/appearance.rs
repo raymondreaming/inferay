@@ -57,7 +57,7 @@ pub struct AppTheme {
 pub struct AppBackground {
     pub id: AppBackgroundId,
     pub name: String,
-    pub path: String,
+    pub path: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, ts_rs::TS)]
@@ -156,6 +156,62 @@ pub fn normalize_background(stored: &Value) -> AppBackgroundSettings {
     }
 }
 
+#[derive(Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundModel {
+    background: AppBackgroundSettings,
+    scenes: Vec<AppBackground>,
+    background_url: Option<String>,
+    theme_id: AppThemeId,
+}
+
+pub fn background_model(input: &Value) -> BackgroundModel {
+    let mut saved = serde_json::to_value(normalize_background(&input["stored"])).unwrap();
+    if let Some(patch) = input["patch"].as_object() {
+        saved.as_object_mut().unwrap().extend(patch.clone());
+        if patch.contains_key("customRevision") {
+            saved["id"] = json!("custom");
+        }
+        if patch.contains_key("mode")
+            || patch.contains_key("id")
+            || patch.contains_key("customRevision")
+        {
+            saved["autoTheme"] = json!(false);
+        }
+    }
+    let background = normalize_background(&saved);
+    let mut scenes = catalog().backgrounds;
+    scenes.push(AppBackground {
+        id: AppBackgroundId::Custom,
+        name: "Your image".into(),
+        path: (background.custom_revision > 0.).then(|| {
+            format!(
+                "/api/config/background-image?v={}",
+                background.custom_revision
+            )
+        }),
+    });
+    let background_url = if matches!(background.mode, AppBackgroundMode::Scene) {
+        scenes
+            .iter()
+            .find(|scene| scene.id == background.id)
+            .and_then(|scene| scene.path.clone())
+    } else {
+        None
+    };
+    let theme_id = if input["patch"].get("mode").is_some() || input["themeId"] != "midnight" {
+        AppThemeId::Default
+    } else {
+        AppThemeId::Midnight
+    };
+    BackgroundModel {
+        background,
+        scenes,
+        background_url,
+        theme_id,
+    }
+}
+
 pub fn normalize_background_settings(text: &str) -> String {
     serde_json::to_string(&normalize_background(
         &serde_json::from_str(text).unwrap_or(Value::Null),
@@ -166,6 +222,42 @@ pub fn normalize_background_settings(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn background_choices_and_uploads_share_normalized_policy() {
+        let initial =
+            serde_json::to_value(background_model(&json!({"themeId":"midnight"}))).unwrap();
+        assert_eq!(initial["themeId"], "midnight");
+        assert!(initial["scenes"].as_array().unwrap().last().unwrap()["path"].is_null());
+        let uploaded = serde_json::to_value(background_model(&json!({
+            "stored":{"version":7,"mode":"scene","id":"city","autoTheme":true},
+            "themeId":"midnight","patch":{"customRevision":42,"dim":500}
+        })))
+        .unwrap();
+        assert_eq!(uploaded["background"]["id"], "custom");
+        assert_eq!(uploaded["background"]["autoTheme"], false);
+        assert_eq!(uploaded["background"]["dim"], 85.0);
+        assert_eq!(
+            uploaded["backgroundUrl"],
+            "/api/config/background-image?v=42"
+        );
+        assert_eq!(uploaded["themeId"], "midnight");
+        let switched = serde_json::to_value(background_model(&json!({
+            "stored":uploaded["background"],"themeId":"midnight","patch":{"mode":"glass"}
+        })))
+        .unwrap();
+        assert_eq!(switched["themeId"], "default");
+        assert!(switched["backgroundUrl"].is_null());
+        let selected = serde_json::to_value(background_model(&json!({
+            "stored":{"version":7,"mode":"scene","autoTheme":true}, "patch":{"id":"nature"}
+        })))
+        .unwrap();
+        assert_eq!(
+            selected["backgroundUrl"],
+            "/background-nature-sanctuary.png"
+        );
+        assert_eq!(selected["background"]["autoTheme"], false);
+    }
 
     #[test]
     fn migrates_old_backgrounds_without_reusing_obsolete_glass_values() {

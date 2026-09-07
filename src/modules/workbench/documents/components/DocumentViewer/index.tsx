@@ -1,9 +1,8 @@
 import * as stylex from "@octanejs/stylex";
-import { memo, useCallback, useEffect, useMemo, useState } from "octane";
+import { memo, useCallback, useEffect, useRef, useState } from "octane";
 import type { DocumentSession } from "../../../../../../build/presentation/contracts/DocumentSession.ts";
 import type { FileContent } from "../../../../../../build/presentation/contracts/FileContent.ts";
-import { fetchJson } from "../../../../../adapters/backend/http.ts";
-import { readStoredJson } from "../../../../../adapters/storage/stored-values.ts";
+import { fetchJson, postJson } from "../../../../../adapters/backend/http.ts";
 import { APP_REGION_DRAG_CLASS } from "../../../../../app/hooks/useAppAppearance.tsx";
 import { iconSize } from "../../../../../design-system/styles.stylex.ts";
 import { IconCode, IconX } from "../../../../../shared/ui/Icons/index.tsx";
@@ -35,7 +34,7 @@ export const DocumentViewer = memo(function DocumentViewer({
 	onDragStart,
 	onDragEnd,
 	openRequest,
-	persistedSession,
+	workspaceId,
 	onSessionChange,
 }: {
 	readonly cwd: string;
@@ -54,7 +53,7 @@ export const DocumentViewer = memo(function DocumentViewer({
 		readonly path: string;
 		readonly token: number;
 	} | null;
-	readonly persistedSession?: DocumentSession;
+	readonly workspaceId: string;
 	readonly onSessionChange?: (
 		sessionId: string,
 		session: DocumentSession,
@@ -62,59 +61,36 @@ export const DocumentViewer = memo(function DocumentViewer({
 }) {
 	const [error, setError] = useState<string | null>(null);
 	const cachedSession = fileViewerSessions.get(sessionId);
-	const [restoredSession] = useState(() => {
-		if (cachedSession) return null;
-		const saved =
-			persistedSession ??
-			readStoredJson<DocumentSession | null>(
-				`agent-workspace-files:${sessionId}`,
-				null,
-			);
-		if (saved?.cwd !== cwd || !Array.isArray(saved.paths)) return null;
-		const paths = saved.paths.filter(
-			(path, index) =>
-				typeof path === "string" &&
-				!!path &&
-				saved.paths.indexOf(path) === index,
-		);
-		return {
-			cwd,
-			paths,
-			activePath:
-				typeof saved.activePath === "string" && paths.includes(saved.activePath)
-					? saved.activePath
-					: null,
-		};
-	});
-	const pathsToRestore = useMemo(
-		() =>
-			(restoredSession?.paths ?? []).filter(
-				(path) => path !== initialFile?.path,
-			),
-		[initialFile?.path, restoredSession],
+	const [restoreRequest] = useState(() =>
+		cachedSession
+			? null
+			: {
+					workspaceId,
+					sessionId,
+					cwd,
+					initialPath: initialFile?.path,
+				},
 	);
+	const closedPaths = useRef(new Set<string>());
 	const [openFiles, setOpenFiles] = useState<FileContent[]>(
 		cachedSession?.openFiles ?? (initialFile ? [initialFile] : []),
 	);
 	const [activePath, setActivePath] = useState<string | null>(
-		cachedSession?.activePath ??
-			restoredSession?.activePath ??
-			initialFile?.path ??
-			null,
+		cachedSession?.activePath ?? initialFile?.path ?? null,
 	);
 	const [restoringSession, setRestoringSession] = useState(
-		pathsToRestore.length > 0,
+		restoreRequest !== null,
 	);
 	const activeFile = openFiles.find((file) => file.path === activePath) ?? null;
 
 	useEffect(() => {
+		if (restoringSession) return;
 		fileViewerSessions.set(sessionId, { activePath, openFiles });
-		if (!restoringSession)
-			onSessionChange?.(sessionId, {
-				cwd,
-				activePath,
-				paths: openFiles.map((file) => file.path),
-			});
+		onSessionChange?.(sessionId, {
+			cwd,
+			activePath,
+			paths: openFiles.map((file) => file.path),
+		});
 	}, [
 		activePath,
 		cwd,
@@ -125,42 +101,51 @@ export const DocumentViewer = memo(function DocumentViewer({
 	]);
 
 	useEffect(() => {
-		if (pathsToRestore.length === 0) return;
+		if (!restoreRequest) return;
 		let cancelled = false;
-		Promise.all(
-			pathsToRestore.map((path) => readDocument(cwd, path).catch(() => null)),
-		).then((files) => {
-			if (cancelled) return;
-			const available = files.filter(
-				(file): file is FileContent => file !== null,
-			);
-			setOpenFiles((current) =>
-				(restoredSession?.paths ?? [])
-					.map((path) =>
-						[...current, ...available].find((file) => file.path === path),
-					)
-					.filter((file): file is FileContent => !!file),
-			);
-			const availablePaths = new Set([
-				...(initialFile ? [initialFile.path] : []),
-				...available.map((file) => file.path),
-			]);
-			setActivePath((current) =>
-				current && availablePaths.has(current)
-					? current
-					: (available[0]?.path ?? initialFile?.path ?? null),
-			);
-			setRestoringSession(false);
-		});
+		postJson<{ files: FileContent[]; activePath: string | null }>(
+			"/api/workspace/documents",
+			restoreRequest,
+		)
+			.then((restored) => {
+				if (cancelled) return;
+				// Keep tabs opened or closed while the snapshot was loading.
+				const files = restored.files.filter(
+					(file) => !closedPaths.current.has(file.path),
+				);
+				setOpenFiles((current) => [
+					...files.map(
+						(file) => current.find((open) => open.path === file.path) ?? file,
+					),
+					...current.filter(
+						(open) => !files.some((file) => file.path === open.path),
+					),
+				]);
+				setActivePath(
+					(current) =>
+						current ??
+						(closedPaths.current.has(restored.activePath ?? "")
+							? (files[0]?.path ?? null)
+							: restored.activePath),
+				);
+				setRestoringSession(false);
+			})
+			.catch((error) => {
+				if (!cancelled)
+					setError(
+						error instanceof Error ? error.message : "Files could not restore",
+					);
+			});
 		return () => {
 			cancelled = true;
 		};
-	}, [cwd, initialFile, pathsToRestore, restoredSession]);
+	}, [restoreRequest]);
 
 	const openFile = useCallback(
 		({ path }: { path: string }) => {
 			readDocument(cwd, path)
 				.then((file) => {
+					closedPaths.current.delete(file.path);
 					setOpenFiles((current) =>
 						current.some((open) => open.path === file.path)
 							? current.map((open) => (open.path === file.path ? file : open))
@@ -184,6 +169,7 @@ export const DocumentViewer = memo(function DocumentViewer({
 	}, [openFile, openRequest]);
 	const closeFile = useCallback(
 		(path: string) => {
+			closedPaths.current.add(path);
 			const index = openFiles.findIndex((file) => file.path === path);
 			const next = openFiles.filter((file) => file.path !== path);
 			setOpenFiles(next);

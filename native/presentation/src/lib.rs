@@ -30,6 +30,7 @@ fn flag(value: &Value) -> bool {
 
 pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
     Ok(match operation {
+        "backgroundModel" => json!(appearance::background_model(input)),
         "shadowLayers" => json!(shadow::parse(string(input))),
         "chatList" => json!(chat_view::list(input)?),
         "chatOffsets" => json!(chat_view::offsets(
@@ -51,6 +52,7 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
             )?;
             panels::normalize(&session)
         }
+        "refOperationDialog" => workbench::ref_operation_dialog(input),
         "diffViewer" => workbench::diff_viewer(input),
         "changesPanel" => workbench::changes_panel(input),
         "visibleFiles" => workbench::visible_files(input),

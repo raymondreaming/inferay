@@ -92,7 +92,6 @@ export function useRepositoryWorkbench({
 		diffViewerCwd,
 		focusedAuxiliaryPanel,
 		detachedFilePanels,
-		documentSessions,
 		fileRequest,
 		selectedFile,
 		selectedCommitHash,
@@ -848,7 +847,7 @@ export function useRepositoryWorkbench({
 						key={fileViewerCwd}
 						cwd={fileViewerCwd}
 						sessionId={sessionId}
-						persistedSession={documentSessions[sessionId]}
+						workspaceId={workspaceId}
 						onSessionChange={saveDocumentSession}
 						openRequest={fileRequest}
 						onClose={closeFileViewer}
@@ -871,7 +870,7 @@ export function useRepositoryWorkbench({
 						key={panel.id}
 						cwd={panel.cwd}
 						sessionId={panel.id}
-						persistedSession={documentSessions[panel.id]}
+						workspaceId={workspaceId}
 						onSessionChange={saveDocumentSession}
 						initialFile={panel.initialFile}
 						openRequest={
@@ -890,7 +889,6 @@ export function useRepositoryWorkbench({
 	}, [
 		closeFileViewer,
 		detachedFilePanels,
-		documentSessions,
 		fileRequest,
 		fileViewerCwd,
 		fileViewerOpen,

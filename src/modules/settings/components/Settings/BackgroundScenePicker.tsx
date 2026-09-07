@@ -1,23 +1,14 @@
 import * as stylex from "@octanejs/stylex";
-import { useCallback, useEffect, useRef, useState } from "octane";
-import type { AppBackgroundId } from "../../../../../build/presentation/contracts/AppBackgroundId.ts";
-import type { AppBackgroundSettings } from "../../../../../build/presentation/contracts/AppBackgroundSettings.ts";
+import { useCallback, useRef, useState } from "octane";
 import {
-	APP_BACKGROUND_STORAGE_KEY,
-	CLIENT_STORAGE_CHANGED_EVENT,
-} from "../../../../adapters/storage/stored-values.ts";
-import {
-	APP_BACKGROUNDS,
-	applyAppTheme,
-	loadAppBackgroundSettings,
-	saveAppBackgroundSettings,
-	saveAppThemeId,
+	updateAppBackground,
+	useBackgroundModel,
 } from "../../../../app/hooks/useAppAppearance.tsx";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { listenWindowEvent } from "../../../../shared/lib/data.ts";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
 import { IconFolder } from "../../../../shared/ui/Icons/index.tsx";
-import * as inlineStyles from "./styles.ts";
+import { BackgroundSceneCard } from "./BackgroundSceneCard.tsx";
+import { BackgroundSceneControls } from "./BackgroundSceneControls.tsx";
 import { styles } from "./styles.ts";
 
 export function BackgroundScenePicker({
@@ -25,42 +16,10 @@ export function BackgroundScenePicker({
 }: {
 	contained?: boolean;
 }) {
-	const [background, setBackground] = useState<AppBackgroundSettings>(
-		loadAppBackgroundSettings,
-	);
+	const { background, scenes } = useBackgroundModel();
 	const [uploading, setUploading] = useState(false);
 	const [uploadError, setUploadError] = useState<string | null>(null);
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-	useEffect(
-		() =>
-			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
-				const key = (event as CustomEvent<{ key?: string }>).detail?.key;
-				if (key === APP_BACKGROUND_STORAGE_KEY) {
-					setBackground(loadAppBackgroundSettings());
-				}
-			}),
-		[],
-	);
-
-	const updateBackground = useCallback(
-		(patch: Partial<AppBackgroundSettings>) => {
-			setBackground((current) => {
-				const next = { ...current, ...patch };
-				saveAppBackgroundSettings(next);
-				return next;
-			});
-		},
-		[],
-	);
-	const selectBackgroundMode = useCallback(
-		(mode: AppBackgroundSettings["mode"]) => {
-			saveAppThemeId("default");
-			applyAppTheme("default");
-			updateBackground({ mode, autoTheme: false });
-		},
-		[updateBackground],
-	);
 
 	const uploadCustomBackground = useCallback(
 		async (file: File | null) => {
@@ -78,11 +37,9 @@ export function BackgroundScenePicker({
 					const failure = await response.json().catch(() => null);
 					throw new Error(failure?.error || "Could not import that image");
 				}
-				const payload = (await response.json()) as { revision?: number };
-				updateBackground({
-					id: "custom",
-					autoTheme: false,
-					customRevision: payload.revision ?? Date.now(),
+				const payload = (await response.json()) as { revision: number };
+				updateAppBackground({
+					customRevision: payload.revision,
 				});
 			} catch (error) {
 				setUploadError(
@@ -95,24 +52,8 @@ export function BackgroundScenePicker({
 				if (fileInputRef.current) fileInputRef.current.value = "";
 			}
 		},
-		[updateBackground],
+		[updateAppBackground],
 	);
-
-	const scenes: Array<{
-		id: AppBackgroundId;
-		name: string;
-		path: string | null;
-	}> = [
-		...APP_BACKGROUNDS,
-		{
-			id: "custom",
-			name: "Your image",
-			path:
-				background.customRevision > 0
-					? `/api/config/background-image?v=${background.customRevision}`
-					: null,
-		},
-	];
 
 	return (
 		<div
@@ -153,7 +94,7 @@ export function BackgroundScenePicker({
 					<button
 						key={mode}
 						type="button"
-						onClick={() => selectBackgroundMode(mode)}
+						onClick={() => updateAppBackground({ mode })}
 						{...stylex.props(
 							styles.colorSourceButton,
 							background.mode === mode && styles.colorSourceButtonSelected,
@@ -173,74 +114,26 @@ export function BackgroundScenePicker({
 						{scenes.map((scene) => {
 							const selected = background.id === scene.id;
 							return (
-								<button
+								<BackgroundSceneCard
 									key={scene.id}
-									type="button"
-									onClick={() =>
+									scene={scene}
+									selected={selected}
+									onSelect={() =>
 										scene.id === "custom" && background.customRevision === 0
 											? fileInputRef.current?.click()
-											: updateBackground({
-													id: scene.id,
-													autoTheme: false,
-												})
+											: updateAppBackground({ id: scene.id })
 									}
-									{...stylex.props(
-										styles.backgroundCard,
-										selected && styles.backgroundCardSelected,
-									)}
-								>
-									<span
-										{...stylex.props(styles.backgroundPreview)}
-										style={inlineStyles.getBackgroundScenePickerBackgroundPreviewStyle(
-											scene.path
-												? `linear-gradient(rgba(2,3,8,.12), rgba(2,3,8,.32)), url("${scene.path}")`
-												: "linear-gradient(135deg, #272938, #0a0b10)",
-										)}
-									/>
-									<span {...stylex.props(styles.backgroundName)}>
-										{scene.name}
-									</span>
-								</button>
+								/>
 							);
 						})}
 					</div>
 					{uploadError ? (
 						<p {...stylex.props(styles.backgroundError)}>{uploadError}</p>
 					) : null}
-					<div {...stylex.props(styles.backgroundControls)}>
-						<label {...stylex.props(styles.backgroundControl)}>
-							<span>Darkness</span>
-							<input
-								type="range"
-								min="0"
-								max="85"
-								value={background.dim}
-								{...stylex.props(styles.backgroundRange)}
-								onInput={(event) =>
-									updateBackground({ dim: Number(event.currentTarget.value) })
-								}
-							/>
-							<span {...stylex.props(styles.backgroundValue)}>
-								{background.dim}%
-							</span>
-						</label>
-						<label {...stylex.props(styles.backgroundControl)}>
-							<span>Image softness</span>
-							<input
-								type="range"
-								min="0"
-								max="20"
-								value={background.blur}
-								{...stylex.props(styles.backgroundRange)}
-								onInput={(event) =>
-									updateBackground({ blur: Number(event.currentTarget.value) })
-								}
-							/>
-							<span {...stylex.props(styles.backgroundValue)}>
-								{background.blur}px
-							</span>
-						</label>
-					</div>
+					<BackgroundSceneControls
+						background={background}
+						updateBackground={updateAppBackground}
+					/>
 				</>
 			) : null}
 			{background.mode === "glass" ? (
@@ -254,7 +147,7 @@ export function BackgroundScenePicker({
 							value={background.glassBlur}
 							{...stylex.props(styles.backgroundRange)}
 							onInput={(event) =>
-								updateBackground({
+								updateAppBackground({
 									glassBlur: Number(event.currentTarget.value),
 								})
 							}
@@ -272,7 +165,7 @@ export function BackgroundScenePicker({
 							value={100 - background.glassOpacity}
 							{...stylex.props(styles.backgroundRange)}
 							onInput={(event) =>
-								updateBackground({
+								updateAppBackground({
 									glassOpacity: 100 - Number(event.currentTarget.value),
 								})
 							}

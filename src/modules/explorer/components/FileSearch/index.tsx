@@ -8,7 +8,7 @@ import {
 import { GooeyRoot } from "../../../../shared/ui/gooey/Gooey/index.tsx";
 import { LiquidItem } from "../../../../shared/ui/gooey/LiquidItem/index.tsx";
 import { IconSearch } from "../../../../shared/ui/Icons/index.tsx";
-import { FileTypeIcon } from "../FileTypeIcon/index.tsx";
+import { FileSearchResultRow } from "./FileSearchResultRow.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
@@ -221,37 +221,14 @@ export function FileSearch({
 									</div>
 								) : null}
 								{results.map((result, index) => (
-									<button
+									<FileSearchResultRow
 										key={result.path}
-										type="button"
-										onMouseEnter={() => setSelectedIndex(index)}
-										onPointerDown={(event) => {
-											if (event.button === 0 && event.isPrimary) choose(result);
-										}}
-										onClick={(event) => {
-											if (event.detail === 0) choose(result);
-										}}
-										{...stylex.props(
-											styles.result,
-											index === selectedIndex && styles.resultActive,
-										)}
-									>
-										<FileTypeIcon path={result.path} size={iconSize.lg} />
-										<span {...stylex.props(styles.resultText)}>
-											<strong {...stylex.props(styles.resultName)}>
-												{result.path.split("/").pop() || result.path}
-											</strong>
-											<small {...stylex.props(styles.resultPath)}>
-												{(() => {
-													const name =
-														result.path.split("/").pop() || result.path;
-													return result.path === name
-														? "Project root"
-														: result.path.slice(0, -(name.length + 1));
-												})()}
-											</small>
-										</span>
-									</button>
+										result={result}
+										index={index}
+										selectedIndex={selectedIndex}
+										setSelectedIndex={setSelectedIndex}
+										choose={choose}
+									/>
 								))}
 								{!loading && results.length === 0 ? (
 									<span {...stylex.props(styles.empty)}>No matching files</span>

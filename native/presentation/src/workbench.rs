@@ -324,3 +324,102 @@ pub fn workspace_selection(i: &Value) -> Value {
     state["repositories"]["activeWorkspace"] = active;
     state
 }
+
+pub fn ref_operation_dialog(input: &Value) -> Value {
+    let result = &input["result"];
+    let preflight = &input["preflight"];
+    let conflicts = array(&result["conflicts"]).len();
+    let operation = string(&result["operation"]);
+    let mut actions = Vec::new();
+    if conflicts > 0 {
+        for (phase, label) in [
+            ("abort", "Abort"),
+            ("skip", "Skip commit"),
+            ("continue", "Continue"),
+        ] {
+            if phase != "skip" || operation != "merge" {
+                actions.push(json!({"label":label,"operation":operation,"phase":phase,"primary":phase == "continue"}));
+            }
+        }
+    } else {
+        actions.push(json!({"label":"Cancel","operation":null,"phase":"start","primary":false}));
+        for (operation, allowed, label) in [
+            ("rebase", "canRebase", "Rebase source onto target"),
+            ("fastForward", "canFastForward", "Fast-forward target"),
+            ("merge", "canMerge", "Merge source into target"),
+        ] {
+            if flag(&preflight[allowed]) {
+                actions.push(json!({"label":label,"operation":operation,"phase":"start","primary":operation == "merge"}));
+            }
+        }
+    }
+    let conflict_message = (conflicts > 0).then(|| {
+        format!(
+            "Resolve {conflicts} conflicted file{}, then continue or abort.",
+            if conflicts == 1 { "" } else { "s" }
+        )
+    });
+    let blocked_reason = (conflicts == 0
+        && !preflight.is_null()
+        && !flag(&preflight["canMerge"])
+        && !flag(&preflight["canRebase"])
+        && !flag(&preflight["canFastForward"]))
+    .then(|| {
+        array(&preflight["reasons"])
+            .iter()
+            .map(string)
+            .collect::<Vec<_>>()
+            .join(". ")
+    });
+    json!({"actions":actions,"conflictMessage":conflict_message,"blockedReason":blocked_reason})
+}
+
+#[cfg(test)]
+mod ref_dialog_tests {
+    use super::*;
+    #[test]
+    fn branch_choices_and_conflict_recovery_follow_native_capabilities() {
+        let dialog = ref_operation_dialog(
+            &json!({"preflight":{"canRebase":true,"canFastForward":true,"canMerge":true}}),
+        );
+        assert_eq!(
+            dialog["actions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|a| a["operation"].clone())
+                .collect::<Vec<_>>(),
+            vec![
+                Value::Null,
+                json!("rebase"),
+                json!("fastForward"),
+                json!("merge")
+            ]
+        );
+        for operation in ["merge", "rebase", "cherryPick"] {
+            let dialog = ref_operation_dialog(
+                &json!({"result":{"operation":operation,"conflicts":["file"]}}),
+            );
+            let actions = dialog["actions"].as_array().unwrap();
+            assert_eq!(actions.len(), if operation == "merge" { 2 } else { 3 });
+            assert_eq!(actions.first().unwrap()["phase"], "abort");
+            assert_eq!(actions.last().unwrap()["phase"], "continue");
+            assert_eq!(
+                dialog["conflictMessage"],
+                "Resolve 1 conflicted file, then continue or abort."
+            );
+        }
+        let blocked = ref_operation_dialog(
+            &json!({"preflight":{"reasons":["No shared ancestor", "Source unavailable"]}}),
+        );
+        assert_eq!(
+            blocked["blockedReason"],
+            "No shared ancestor. Source unavailable"
+        );
+        assert_eq!(blocked["actions"].as_array().unwrap().len(), 1);
+        assert!(
+            ref_operation_dialog(&json!({"preflight":{"canFastForward":true}}))["blockedReason"]
+                .is_null()
+        );
+    }
+}

@@ -474,6 +474,9 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
 
             ("/api/files/search", "GET") => search_files(&state, request).await,
             ("/api/files/list", "GET") => list_project_files(&state, request).await,
+            ("/api/workspace/documents", "POST") => {
+                workspace_panels::restore_documents(&state, request).await
+            }
             ("/api/files/content" | "/api/files/preview", "GET") => {
                 get_file_content(&state, request).await
             }
@@ -2630,6 +2633,13 @@ mod file_http_tests {
             json!({"search_folders":[home]}).to_string(),
         )
         .unwrap();
+        std::fs::write(app.join("second.txt"), "second").unwrap();
+        let session = json!({"cwd":app, "paths":["second.txt", "missing", "note.txt", "note.txt", "./note.txt", "large.txt", "../outside/secret.txt", "", 12], "activePath":"note.txt"});
+        std::fs::write(config.user_data_dir.join("client-storage.json"), json!({
+            "native-workspace-panels:test": json!({"documentSessions":{"tabs":session}}).to_string(),
+            "agent-workspace-files:legacy": session.to_string(),
+            "agent-workspace-files:wrong-cwd": json!({"cwd":home,"paths":["note.txt"]}).to_string()
+        }).to_string()).unwrap();
         let auth = config.auth_token.clone();
         let server = ServerHandle::start(config).unwrap();
         let base = format!("http://{}", server.local_addr());
@@ -2711,6 +2721,39 @@ mod file_http_tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        for (session_id, expected) in [
+            ("tabs", json!(["second.txt", "note.txt"])),
+            ("legacy", json!(["second.txt", "note.txt"])),
+            ("wrong-cwd", json!([])),
+            ("new", json!([])),
+        ] {
+            let response = client
+                .post(format!("{base}/api/workspace/documents"))
+                .header("x-inferay-auth", &auth)
+                .header("sec-fetch-site", "same-origin")
+                .header("content-type", "application/json")
+                .body(json!({"workspaceId":"test","sessionId":session_id,"cwd":app}).to_string())
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let restored: Value = serde_json::from_slice(&response.bytes().await.unwrap()).unwrap();
+            let paths: Vec<_> = restored["files"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|file| file["path"].clone())
+                .collect();
+            assert_eq!(json!(paths), expected, "{session_id}");
+            assert_eq!(
+                restored["activePath"],
+                if paths.is_empty() {
+                    Value::Null
+                } else {
+                    json!("note.txt")
+                }
+            );
+        }
         drop(server);
         std::fs::remove_dir_all(root).unwrap();
     }
