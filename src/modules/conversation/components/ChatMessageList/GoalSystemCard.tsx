@@ -6,7 +6,7 @@ import {
 	IconCheck,
 	IconTarget,
 } from "../../../../shared/ui/Icons/index.tsx";
-import type { GoalSystemMessage } from "../../model/agent-chat-shared.ts";
+
 import { styles } from "./styles.ts";
 
 function goalStatusLabel(status: GoalSystemMessage["status"]) {
@@ -73,3 +73,12 @@ export function GoalSystemCard({ goal }: { goal: GoalSystemMessage }) {
 		</div>
 	);
 }
+
+type GoalSystemStatus = "active" | "paused" | "complete" | "cleared" | "empty";
+export type GoalSystemMessage = {
+	type: "inferay.goal";
+	status: GoalSystemStatus;
+	objective?: string;
+	turns?: number;
+	detail?: string;
+};

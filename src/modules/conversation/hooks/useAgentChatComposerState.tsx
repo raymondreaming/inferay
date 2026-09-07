@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "octane";
+import type { QueuedMessageInfo } from "../../../../build/presentation/contracts/QueuedMessageInfo.ts";
 import {
 	fetchJson,
 	sendJson,
@@ -6,10 +7,6 @@ import {
 } from "../../../adapters/backend/http.ts";
 import { project as rustProject } from "../../../adapters/presentation/model.ts";
 import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
-import type {
-	AttachedImageInfo,
-	QueuedChatMessage,
-} from "../model/agent-chat-shared.ts";
 
 export function useAgentChatComposerState(paneId: string, enabled = true) {
 	const [attachedImages, setAttachedImages] = useState<AttachedImageInfo[]>([]);
@@ -297,4 +294,11 @@ export function usePendingChatWorkspace(
 		savePendingWorkspaceSelection,
 		visibleCwd,
 	};
+}
+
+export type QueuedChatMessage = QueuedMessageInfo & { transient?: boolean };
+export interface AttachedImageInfo {
+	name: string;
+	path: string;
+	previewUrl: string;
 }

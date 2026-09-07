@@ -6,7 +6,8 @@ import {
 	runtimeColor,
 } from "../../../../../design-system/styles.stylex.ts";
 import { DotMatrixWeave } from "../../../../../shared/ui/DotMatrixLoader/index.tsx";
-import { Liquid } from "../../../../../shared/ui/gooey/index.ts";
+import { GooeyRoot } from "../../../../../shared/ui/gooey/Gooey/index.tsx";
+import { LiquidItem } from "../../../../../shared/ui/gooey/LiquidItem/index.tsx";
 import {
 	IconGitCommit,
 	IconSparkles,
@@ -51,14 +52,14 @@ export function CommitSection({
 	return (
 		<div {...stylex.props(styles.commitSection)}>
 			<div {...stylex.props(styles.commitForm)}>
-				<Liquid
+				<GooeyRoot
 					blur={5}
 					contrast={20}
 					fill={runtimeColor.backgroundRaised}
 					filterPadding={18}
 					shadow="inset 0 1px 0 rgba(255,255,255,.08), 0 8px 24px rgba(0,0,0,.2)"
 				>
-					<Liquid.Item observe radius={6}>
+					<LiquidItem observe radius={6}>
 						<div
 							{...stylex.props(styles.commitEditor, styles.commitEditorLiquid)}
 						>
@@ -99,8 +100,8 @@ export function CommitSection({
 								</button>
 							</div>
 						</div>
-					</Liquid.Item>
-				</Liquid>
+					</LiquidItem>
+				</GooeyRoot>
 				<div {...stylex.props(styles.commitButtonSurface)}>
 					<button
 						type="button"

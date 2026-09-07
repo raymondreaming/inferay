@@ -1,3 +1,7 @@
+import type { ProviderCatalog } from "../../../build/presentation/contracts/ProviderCatalog.ts";
+import type { ProviderSettings } from "../../../build/presentation/contracts/ProviderSettings.ts";
+import type { WorkspaceAgentKind } from "../../../build/presentation/contracts/WorkspaceAgentKind.ts";
+import providerCatalog from "../../../build/presentation/provider-catalog.json";
 export async function fetchJson<T>(
 	input: RequestInfo | URL,
 	init?: RequestInit,
@@ -131,4 +135,28 @@ export async function pickCloneDirectory() {
 		{ method: "POST" },
 	);
 	return payload.folder;
+}
+
+// The build and the native endpoint use the same Rust catalog serializer.
+let catalog = providerCatalog as ProviderCatalog;
+export async function initializeAgentCatalog() {
+	catalog = await fetchJson<ProviderCatalog>("/api/native/provider-config");
+}
+export function getAgentDefinition(kind: WorkspaceAgentKind) {
+	return catalog.agents[kind];
+}
+export function isChatAgentKind(
+	kind: WorkspaceAgentKind,
+): kind is "claude" | "codex" {
+	return kind !== "agent";
+}
+export function loadDefaultChatSettings(): ProviderSettings {
+	return catalog.defaults;
+}
+export async function saveDefaultChatSettings(settings: ProviderSettings) {
+	catalog.defaults = await postJson<ProviderSettings>(
+		"/api/native/provider-config",
+		settings,
+	);
+	return catalog.defaults;
 }

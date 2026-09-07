@@ -2,6 +2,113 @@
 use serde_json::{Value, json};
 use std::sync::LazyLock;
 
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "lowercase")]
+pub enum WorkspaceAgentKind {
+    Agent,
+    Claude,
+    Codex,
+}
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentIconKey {
+    Agent,
+    Anthropic,
+    Openai,
+}
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelOption {
+    pub id: String,
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub short_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub detail: Option<String>,
+}
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+pub struct ReasoningLevel {
+    pub id: String,
+    pub label: String,
+    pub detail: String,
+}
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SlashCommand {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub id: Option<String>,
+    pub name: String,
+    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub action: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub is_local_command: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub is_from_library: Option<bool>,
+}
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentDefinition {
+    pub kind: WorkspaceAgentKind,
+    pub label: String,
+    pub icon_key: AgentIconKey,
+    #[serde(default)]
+    pub commands: Vec<SlashCommand>,
+    pub native_slash_commands: Vec<SlashCommand>,
+    pub models: Vec<ModelOption>,
+    pub default_model: String,
+    pub reasoning_levels: Vec<ReasoningLevel>,
+}
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+pub struct AgentCatalog {
+    pub agent: AgentDefinition,
+    pub claude: AgentDefinition,
+    pub codex: AgentDefinition,
+}
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderSettings {
+    pub agent_kind: WorkspaceAgentKind,
+    pub model: String,
+    pub reasoning_level: String,
+}
+#[derive(Clone, Debug, serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderCatalog {
+    pub agents: AgentCatalog,
+    pub reasoning_levels: Vec<ReasoningLevel>,
+    pub defaults: ProviderSettings,
+}
+
+/// Shared serializer for the native endpoint and the build's prerender snapshot.
+pub fn renderer_catalog(defaults: &Value, skills: &[crate::prompts::Prompt]) -> ProviderCatalog {
+    let mut agents: AgentCatalog =
+        serde_json::from_value(catalog()["agents"].clone()).expect("native provider catalog");
+    for (kind, definition) in [
+        ("agent", &mut agents.agent),
+        ("claude", &mut agents.claude),
+        ("codex", &mut agents.codex),
+    ] {
+        definition.commands = composer_commands(kind, skills)
+            .into_iter()
+            .map(|command| serde_json::from_value(command).expect("native composer command"))
+            .collect();
+    }
+    ProviderCatalog {
+        agents,
+        reasoning_levels: serde_json::from_value(catalog()["reasoningLevels"].clone())
+            .expect("native reasoning levels"),
+        defaults: serde_json::from_value(resolve(&json!({"defaults": defaults})))
+            .expect("resolved provider settings"),
+    }
+}
+
 fn models(rows: &[(&str, &str, &str, Option<&str>)]) -> Vec<Value> {
     rows.iter()
         .map(|(id, label, detail, short_label)| {
@@ -186,7 +293,15 @@ pub fn resolve(input: &Value) -> Value {
     } else {
         json!("high")
     };
-    json!({"agentKind":kind, "model":model, "reasoningLevel":reasoning})
+    json!(ProviderSettings {
+        agent_kind: match kind {
+            "claude" => WorkspaceAgentKind::Claude,
+            "codex" => WorkspaceAgentKind::Codex,
+            _ => WorkspaceAgentKind::Agent,
+        },
+        model: model.as_str().unwrap_or_default().into(),
+        reasoning_level: reasoning.as_str().unwrap_or_default().into(),
+    })
 }
 
 /// An unknown previous model is a restored session, not evidence of a config change.
@@ -202,4 +317,43 @@ pub fn requires_new_session(
         || previous_model.is_some_and(|value| Some(value) != next_model)
         || (next_kind == "codex"
             && previous_reasoning.is_some_and(|value| Some(value) != next_reasoning))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn renderer_catalog_preserves_the_endpoint_contract_and_command_precedence() {
+        let skills = vec![crate::prompts::Prompt {
+            id: "skill-review".into(),
+            name: "Review".into(),
+            description: "Custom review".into(),
+            command: "review".into(),
+            prompt_template: "Review the changes".into(),
+            is_built_in: false,
+            created_at: 0,
+            updated_at: 0,
+        }];
+        let defaults =
+            json!({"agentKind":"claude", "model":"missing-model", "reasoningLevel":"low"});
+        let actual = json!(renderer_catalog(&defaults, &skills));
+        let mut expected = catalog().clone();
+        for (kind, definition) in expected["agents"].as_object_mut().unwrap() {
+            definition["commands"] = json!(composer_commands(kind, &skills));
+        }
+        expected["defaults"] = resolve(&json!({"defaults":defaults}));
+        assert_eq!(actual, expected);
+        let commands = actual["agents"]["claude"]["commands"].as_array().unwrap();
+        let review: Vec<_> = commands
+            .iter()
+            .filter(|command| command["name"] == "review")
+            .collect();
+        assert_eq!(review.len(), 1);
+        assert_eq!(review[0]["id"], "skill-review");
+        assert_eq!(
+            actual["defaults"]["model"],
+            catalog()["agents"]["claude"]["defaultModel"]
+        );
+    }
 }

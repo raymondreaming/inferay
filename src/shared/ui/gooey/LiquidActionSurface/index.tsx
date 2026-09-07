@@ -1,4 +1,5 @@
-import { Liquid } from "../index.ts";
+import { GooeyRoot } from "../Gooey/index.tsx";
+import { LiquidItem } from "../LiquidItem/index.tsx";
 import type { ReactNode } from "../observer.ts";
 import * as inlineStyles from "./styles.ts";
 export interface LiquidActionSurfaceProps {
@@ -14,7 +15,7 @@ export function LiquidActionSurface({
 	intense = false,
 }: LiquidActionSurfaceProps) {
 	return (
-		<Liquid
+		<GooeyRoot
 			blur={intense ? 6 : 5}
 			contrast={20}
 			fill={fill}
@@ -25,7 +26,7 @@ export function LiquidActionSurface({
 				fullWidth ? "100%" : undefined,
 			)}
 		>
-			<Liquid.Item
+			<LiquidItem
 				effect="move"
 				move={{
 					springiness: 0.62,
@@ -35,7 +36,7 @@ export function LiquidActionSurface({
 				}}
 			>
 				{children}
-			</Liquid.Item>
-		</Liquid>
+			</LiquidItem>
+		</GooeyRoot>
 	);
 }

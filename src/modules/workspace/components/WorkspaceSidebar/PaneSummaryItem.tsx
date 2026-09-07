@@ -1,5 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import type { Pane } from "../../../../../build/presentation/contracts/Pane.ts";
+import { isChatAgentKind } from "../../../../adapters/backend/http.ts";
 import { readStoredValue } from "../../../../adapters/storage/stored-values.ts";
 import {
 	iconSize,
@@ -8,7 +9,6 @@ import {
 import { dispatchRemoveAgentPaneRequest } from "../../../../shared/lib/data.ts";
 import { IconAgent, IconX } from "../../../../shared/ui/Icons/index.tsx";
 import { getAgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
-import { isChatAgentKind } from "../../../agents/model/agents.ts";
 import { styles } from "./styles.ts";
 
 export function PaneSummaryItem({

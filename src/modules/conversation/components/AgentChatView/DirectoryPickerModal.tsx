@@ -1,4 +1,5 @@
-import { Liquid } from "../../../../shared/ui/gooey/index.ts";
+import { GooeyRoot } from "../../../../shared/ui/gooey/Gooey/index.tsx";
+import { LiquidItem } from "../../../../shared/ui/gooey/LiquidItem/index.tsx";
 import type { ReactNode } from "../../../../shared/ui/gooey/observer.ts";
 export function DirectoryPickerModal({ children }: { children: ReactNode }) {
 	return (
@@ -7,7 +8,7 @@ export function DirectoryPickerModal({ children }: { children: ReactNode }) {
 			role="dialog"
 			aria-label="Choose workspace folders"
 		>
-			<Liquid
+			<GooeyRoot
 				blur={5}
 				contrast={20}
 				fill="transparent"
@@ -15,10 +16,10 @@ export function DirectoryPickerModal({ children }: { children: ReactNode }) {
 				shadow="none"
 				className="inferay-directory-picker-liquid"
 			>
-				<Liquid.Item observe radius={12}>
+				<LiquidItem observe radius={12}>
 					{children}
-				</Liquid.Item>
-			</Liquid>
+				</LiquidItem>
+			</GooeyRoot>
 		</div>
 	);
 }

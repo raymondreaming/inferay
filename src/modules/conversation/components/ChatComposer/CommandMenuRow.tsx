@@ -1,11 +1,11 @@
 import * as stylex from "@octanejs/stylex";
 import { memo } from "octane";
 import type React from "react";
+import type { SlashCommand } from "../../../../../build/presentation/contracts/SlashCommand.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { openSkills } from "../../../../shared/lib/data.ts";
 import { IconPencil } from "../../../../shared/ui/Icons/index.tsx";
 import type { SlashMenuState } from "../../hooks/useAgentChatMenus.tsx";
-import type { SlashCommand } from "../../model/agent-chat-shared.ts";
 import { styles } from "./styles.ts";
 
 export const CommandMenuRow = memo(function CommandMenuRow({

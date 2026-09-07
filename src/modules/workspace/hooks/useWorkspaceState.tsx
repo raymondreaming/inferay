@@ -2,10 +2,10 @@ import { useEffect, useSyncExternalStore } from "octane";
 import type { AgentSavedState } from "../../../../build/presentation/contracts/AgentSavedState.ts";
 import type { Group } from "../../../../build/presentation/contracts/Group.ts";
 import type { RepositoryWorkspaceIndex } from "../../../../build/presentation/contracts/RepositoryWorkspaceIndex.ts";
+import type { WorkspaceAgentKind } from "../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import { postJson } from "../../../adapters/backend/http.ts";
 import { project as rustProject } from "../../../adapters/presentation/model.ts";
 import { noop } from "../../../shared/lib/data.ts";
-import type { AgentKind } from "../../agents/model/agents.ts";
 
 type AgentWorkspaceAction =
 	| { type: "selectWorkspace"; groupId: string }
@@ -17,7 +17,7 @@ type AgentWorkspaceAction =
 	| {
 			type: "addPane";
 			groupId?: string;
-			agentKind?: AgentKind;
+			agentKind?: WorkspaceAgentKind;
 			cwd?: string;
 			referencePaths?: string[];
 	  }
@@ -33,7 +33,7 @@ type AgentWorkspaceAction =
 			type: "setPaneAgentKind";
 			groupId: string;
 			paneId: string;
-			agentKind: AgentKind;
+			agentKind: WorkspaceAgentKind;
 	  }
 	| {
 			type: "reorderPanes";
@@ -47,7 +47,11 @@ type AgentWorkspaceAction =
 			columns?: number;
 			rows?: number;
 	  }
-	| { type: "changePaneAgentKind"; paneId: string; agentKind: AgentKind }
+	| {
+			type: "changePaneAgentKind";
+			paneId: string;
+			agentKind: WorkspaceAgentKind;
+	  }
 	| { type: "setTheme"; themeId: string };
 export type AgentGroupsAction = Exclude<
 	AgentWorkspaceAction,
@@ -171,7 +175,10 @@ export function mutateAgentWorkspaceState(
 	queue = mutation.catch(noop);
 	return mutation;
 }
-export const changePaneAgentKind = (paneId: string, agentKind: AgentKind) => {
+export const changePaneAgentKind = (
+	paneId: string,
+	agentKind: WorkspaceAgentKind,
+) => {
 	void mutateAgentWorkspaceState({
 		type: "changePaneAgentKind",
 		paneId,

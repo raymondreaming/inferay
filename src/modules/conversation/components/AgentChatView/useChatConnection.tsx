@@ -1,18 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "octane";
+import type { AskUserQuestion } from "../../../../../build/presentation/contracts/AskUserQuestion.ts";
 import type { CheckpointMeta } from "../../../../../build/presentation/contracts/CheckpointMeta.ts";
+import type { SkillProposal } from "../../../../../build/presentation/contracts/SkillProposal.ts";
+import type { SkillRead } from "../../../../../build/presentation/contracts/SkillRead.ts";
+import type { ToolDisplayInfo } from "../../../../../build/presentation/contracts/ToolDisplayInfo.ts";
+import type { ToolOutputSummary } from "../../../../../build/presentation/contracts/ToolOutputSummary.ts";
+import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import { wsClient } from "../../../../adapters/backend/http.ts";
-import { ChatReplica } from "../../../../adapters/presentation/model.ts";
-import { clearAgentChatPaneState } from "../../../../adapters/storage/stored-values.ts";
-import type { AgentKind as UseChatConnectionAgentKind } from "../../../agents/model/agents.ts";
-import { loadCanonicalAgentState } from "../../../workspace/hooks/useWorkspaceState.tsx";
 import {
-	appendSystemMessage,
-	type ChatLoadingState,
-	type AgentChatSharedChatMessage as ChatMessage,
-	isChatServerMessage,
-	mergeNativeTranscript,
-	type QueuedChatMessage,
-} from "../../model/agent-chat-shared.ts";
+	ChatReplica,
+	project as rustProject,
+} from "../../../../adapters/presentation/model.ts";
+import { clearAgentChatPaneState } from "../../../../adapters/storage/stored-values.ts";
+import { loadCanonicalAgentState } from "../../../workspace/hooks/useWorkspaceState.tsx";
+import type { QueuedChatMessage } from "../../hooks/useAgentChatComposerState.tsx";
+import type { CommandSystemMessage } from "../ChatMessageList/CommandSystemCard.tsx";
+import type { GoalSystemMessage } from "../ChatMessageList/GoalSystemCard.tsx";
+import type { ChatLoadingState } from "./index.tsx";
 
 const DEFAULT_CHAT_RUN_STATUS: ChatLoadingState = {
 	isLoading: false,
@@ -31,7 +35,7 @@ export function useChatConnection({
 	stageSteeringMessage,
 }: {
 	enabled?: boolean;
-	agentKind: UseChatConnectionAgentKind;
+	agentKind: WorkspaceAgentKind;
 	cwd?: string;
 	paneId: string;
 	onExit?: () => void;
@@ -224,4 +228,123 @@ export function useChatConnection({
 		setExpandedTools,
 		setRunStatus,
 	};
+}
+
+export interface NativeChatRender {
+	version: 1;
+	kind: "message" | "edit-group" | "tool-group";
+	groupEnd?: number;
+	groupLeader?: boolean;
+	hidden: boolean;
+	continuesAfter?: boolean;
+	rowId?: string;
+	filePath?: string;
+	edit?: { file_path: string; old_string: string; new_string: string };
+	trailingOutput?: string;
+	display?: ToolDisplayInfo;
+	summary?: ToolOutputSummary | null;
+	questions?: AskUserQuestion[] | null;
+	command?: CommandSystemMessage;
+	goal?: GoalSystemMessage;
+	skillProposal?: SkillProposal;
+	skillRead?: SkillRead;
+	skillParts?: Array<
+		| { start: number; end: number }
+		| { proposal: SkillProposal; index: number }
+		| { pending: true }
+	>;
+}
+export interface ChatMessage {
+	id: string;
+	role: "user" | "assistant" | "tool" | "system" | "btw";
+	content: string;
+	toolName?: string;
+	render?: NativeChatRender;
+	/** Browser-only pending send; removed when native acknowledges this ID. */
+	optimistic?: boolean;
+	/** UI interaction notice absent from the authoritative transcript. */
+	localOnly?: boolean;
+	isStreaming?: boolean;
+	btwQuestion?: string;
+	images?: string[];
+}
+type ChatServerMessage = {
+	paneId: string;
+	type: string;
+	[key: string]: any;
+};
+export function isChatServerMessage(
+	value: unknown,
+): value is ChatServerMessage {
+	if (!value || typeof value !== "object") return false;
+	const message = value as Record<string, unknown>;
+	return (
+		typeof message.paneId === "string" &&
+		typeof message.type === "string" &&
+		(message.type.startsWith("chat:") || message.type.startsWith("checkpoint:"))
+	);
+}
+let msgId = 0;
+export function nextId() {
+	return `c${++msgId}-${Date.now().toString(36)}`;
+}
+const LOCAL_RENDER_LIMIT = 256_000;
+export function localChatContent(content: string) {
+	return content.length <= LOCAL_RENDER_LIMIT
+		? content
+		: `${content.slice(0, LOCAL_RENDER_LIMIT)}\n\n[… pending message truncated for display …]`;
+}
+type ChatStateMessage = Pick<
+	ChatMessage,
+	"id" | "role" | "content" | "isStreaming" | "localOnly" | "render"
+>;
+export function appendSystemMessage(
+	messages: ChatStateMessage[],
+	content: string,
+	render?: ChatMessage["render"],
+): ChatStateMessage[] {
+	content = localChatContent(content);
+	const previous = messages.at(-1);
+	if (
+		content &&
+		previous?.role === "system" &&
+		!previous.isStreaming &&
+		previous.content === content
+	)
+		return messages;
+	return [
+		...messages,
+		{
+			id: nextId(),
+			role: "system" as const,
+			content,
+			localOnly: true,
+			...(render
+				? {
+						render,
+					}
+				: {}),
+		},
+	];
+}
+export function mergeNativeTranscript(
+	local: ChatMessage[],
+	server: ChatMessage[],
+): ChatMessage[] {
+	const describe = (message: ChatMessage) => ({
+		id: message.id,
+		role: message.role,
+		optimistic: message.optimistic,
+		localOnly: message.localOnly,
+		content: message.localOnly ? message.content : undefined,
+	});
+	const hasNotices = local.some((message) => message.localOnly);
+	const order = rustProject<Array<[boolean, number]>>("mergeTranscriptOrder", {
+		local: local.map(describe),
+		server: server.map((message) => ({
+			...describe(message),
+			content: hasNotices ? message.content : undefined,
+		})),
+	});
+	return order.map(([browser, index]) => (browser ? local : server)[index]!);
 }

@@ -5,7 +5,8 @@ import {
 	iconSize,
 	runtimeColor,
 } from "../../../../design-system/styles.stylex.ts";
-import { Liquid } from "../../../../shared/ui/gooey/index.ts";
+import { GooeyRoot } from "../../../../shared/ui/gooey/Gooey/index.tsx";
+import { LiquidItem } from "../../../../shared/ui/gooey/LiquidItem/index.tsx";
 import { IconSearch } from "../../../../shared/ui/Icons/index.tsx";
 import { FileTypeIcon } from "../FileTypeIcon/index.tsx";
 import * as inlineStyles from "./styles.ts";
@@ -193,7 +194,7 @@ export function FileSearch({
 								: styles.menuShell,
 					)}
 				>
-					<Liquid
+					<GooeyRoot
 						blur={6}
 						contrast={18}
 						fill={runtimeColor.backgroundRaised}
@@ -201,7 +202,7 @@ export function FileSearch({
 						shadow="inset 0 1px 0 rgba(255,255,255,.12), 0 10px 28px rgba(0,0,0,.34)"
 						style={inlineStyles.getFileSearchLiquidStyle()}
 					>
-						<Liquid.Item style={inlineStyles.getFileSearchElementStyle()}>
+						<LiquidItem style={inlineStyles.getFileSearchElementStyle()}>
 							<div {...stylex.props(styles.menu)}>
 								{placement === "panel" ? (
 									<div {...stylex.props(styles.menuSearch)}>
@@ -256,8 +257,8 @@ export function FileSearch({
 									<span {...stylex.props(styles.empty)}>No matching files</span>
 								) : null}
 							</div>
-						</Liquid.Item>
-					</Liquid>
+						</LiquidItem>
+					</GooeyRoot>
 				</div>
 			) : null}
 		</div>

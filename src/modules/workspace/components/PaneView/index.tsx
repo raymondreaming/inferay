@@ -1,11 +1,11 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useCallback } from "octane";
 import type { Pane } from "../../../../../build/presentation/contracts/Pane.ts";
-import type { AgentKind } from "../../../agents/model/agents.ts";
+import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import {
 	isChatAgentKind,
 	loadDefaultChatSettings,
-} from "../../../agents/model/agents.ts";
+} from "../../../../adapters/backend/http.ts";
 import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
 import { AgentChatView } from "../../../conversation/components/AgentChatView/index.tsx";
 import { ChatPaneBoundary } from "../../../conversation/components/ChatPaneBoundary/index.tsx";
@@ -26,7 +26,7 @@ interface PaneViewProps {
 	paneIndex?: number;
 	onHeaderDragStart?: (e: PointerEvent, index: number) => void;
 	onHeaderDragEnd?: () => void;
-	onSetPaneAgentKind?: (paneId: string, agentKind: AgentKind) => void;
+	onSetPaneAgentKind?: (paneId: string, agentKind: WorkspaceAgentKind) => void;
 }
 export const PaneView = memo(function PaneView({
 	pane,

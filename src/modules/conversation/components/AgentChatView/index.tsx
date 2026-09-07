@@ -9,15 +9,17 @@ import {
 	useState,
 } from "octane";
 import type React from "react";
-import { wsClient } from "../../../../adapters/backend/http.ts";
+import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
+import {
+	loadDefaultChatSettings,
+	wsClient,
+} from "../../../../adapters/backend/http.ts";
 import {
 	loadStoredInput,
 	saveStoredInput,
 } from "../../../../adapters/storage/stored-values.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { IconArrowDown } from "../../../../shared/ui/Icons/index.tsx";
-import type { AgentKind } from "../../../agents/model/agents.ts";
-import { loadDefaultChatSettings } from "../../../agents/model/agents.ts";
 import { WorkspaceDockHandle } from "../../../workbench/components/WorkspaceDockHandle/index.tsx";
 import { InlineDirectoryPicker } from "../../../workspace/components/InlineDirectoryPicker/index.tsx";
 import {
@@ -30,7 +32,6 @@ import {
 } from "../../hooks/useAgentChatMenus.tsx";
 import { useChatInputActions } from "../../hooks/useChatInputActions.tsx";
 import { useSpeechToText } from "../../hooks/useSpeechToText.tsx";
-import { appendSystemMessage } from "../../model/agent-chat-shared.ts";
 import { AgentWorkspaceControl } from "../AgentChatHeader/index.tsx";
 import { AgentChatStatusBar } from "../AgentChatStatusBar/index.tsx";
 import { AgentContextPanel } from "../AgentContextPanel/index.tsx";
@@ -39,7 +40,10 @@ import { ChatMessageList } from "../ChatMessageList/index.tsx";
 import { useChatViewport } from "../ChatMessageList/useChatViewport.tsx";
 import { DirectoryPickerModal } from "./DirectoryPickerModal.tsx";
 import { styles } from "./styles.ts";
-import { useChatConnection } from "./useChatConnection.tsx";
+import {
+	appendSystemMessage,
+	useChatConnection,
+} from "./useChatConnection.tsx";
 
 export interface AgentChatHandle {
 	focusInput: (atEnd?: boolean) => void;
@@ -52,7 +56,7 @@ export interface AgentChatViewProps {
 	referencePaths?: string[];
 	pendingWorkspacePaths?: string[];
 
-	agentKind?: AgentKind;
+	agentKind?: WorkspaceAgentKind;
 
 	onClose?: (paneId: string) => void;
 	isSelected?: boolean;
@@ -476,3 +480,9 @@ export function useStableCallback<Args extends unknown[], Return>(
 	callbackRef.current = callback;
 	return useCallback((...args: Args) => callbackRef.current(...args), []);
 }
+
+export type ChatLoadingState = {
+	isLoading: boolean;
+	status: string;
+	startTime: number | null;
+};

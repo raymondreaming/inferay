@@ -1,15 +1,15 @@
 import { useCallback } from "octane";
 import type React from "react";
+import type { WorkspaceAgentKind } from "../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import { wsClient } from "../../../adapters/backend/http.ts";
-import type { AgentKind } from "../../agents/model/agents.ts";
 import {
-	type AgentChatSharedChatMessage as ChatMessage,
-	hideMenuState,
+	type ChatMessage,
 	localChatContent,
 	nextId,
-} from "../model/agent-chat-shared.ts";
+} from "../components/AgentChatView/useChatConnection.tsx";
 import type { useAgentChatComposerState } from "./useAgentChatComposerState.tsx";
 import type { useAgentChatMenus } from "./useAgentChatMenus.tsx";
+import { hideMenuState } from "./useAgentChatMenus.tsx";
 
 type MenuState = {
 	show: boolean;
@@ -65,7 +65,7 @@ export function useChatInputActions({
 	textareaRef,
 }: ReturnType<typeof useAgentChatComposerState> &
 	ReturnType<typeof useAgentChatMenus> & {
-		agentKind: AgentKind;
+		agentKind: WorkspaceAgentKind;
 		cancelSpeechListening: () => void;
 		cwd?: string;
 		input: string;

@@ -1,5 +1,6 @@
 //! Pure renderer models. Native persistence and side effects remain in core/server.
 //! The browser supplies interaction facts and renders the resulting projections.
+pub mod chat_view;
 mod composer;
 mod graph;
 pub mod liquid;
@@ -27,6 +28,18 @@ fn flag(value: &Value) -> bool {
 
 pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
     Ok(match operation {
+        "chatRows" => json!(chat_view::rows(
+            &serde_json::from_value::<Vec<Option<chat_view::RowDescriptor>>>(input.clone())
+                .map_err(|error| error.to_string())?
+        )),
+        "chatOffsets" => json!(chat_view::offsets(
+            &serde_json::from_value::<Vec<Option<f64>>>(input.clone())
+                .map_err(|error| error.to_string())?
+        )),
+        "chatWindow" => json!(chat_view::window(
+            &serde_json::from_value::<chat_view::ChatViewport>(input.clone())
+                .map_err(|error| error.to_string())?
+        )),
         "mergeTranscriptOrder" => transcript::merge_order(input),
         "emptyPanels" => panels::normalize(&Value::Null),
         "diffViewer" => workbench::diff_viewer(input),

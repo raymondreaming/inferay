@@ -1,22 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
 import type React from "react";
+import type { SlashCommand } from "../../../../build/presentation/contracts/SlashCommand.ts";
+import type { WorkspaceAgentKind } from "../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import {
 	fetchJson,
 	fetchJsonOr,
+	getAgentDefinition,
 	postJson,
 } from "../../../adapters/backend/http.ts";
 import { project as rustProject } from "../../../adapters/presentation/model.ts";
 import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
 import { getAgentIcon } from "../../agents/components/AgentIcon/index.tsx";
-import type { AgentKind } from "../../agents/model/agents.ts";
-import { getAgentDefinition } from "../../agents/model/agents.ts";
 import { changePaneAgentKind } from "../../workspace/hooks/useWorkspaceState.tsx";
-
-import type { SlashCommand } from "../model/agent-chat-shared.ts";
-import {
-	findTriggerAtCursor,
-	hideMenuState,
-} from "../model/agent-chat-shared.ts";
 
 function applyInlineCompletion(
 	input: string,
@@ -53,7 +48,7 @@ export interface FileSearchResult {
 }
 
 interface UseAgentChatMenusOptions {
-	agentKind: AgentKind;
+	agentKind: WorkspaceAgentKind;
 	cwd?: string;
 	enabled?: boolean;
 	input: string;
@@ -238,7 +233,10 @@ export function useAgentChatMenus({
 	};
 }
 
-export function useAgentChatSettings(paneId: string, agentKind: AgentKind) {
+export function useAgentChatSettings(
+	paneId: string,
+	agentKind: WorkspaceAgentKind,
+) {
 	const [selection, setSelection] = useState({ model: "", reasoningLevel: "" });
 	const [configurationError, setConfigurationError] = useState<string | null>(
 		null,
@@ -277,7 +275,7 @@ export function useAgentChatSettings(paneId: string, agentKind: AgentKind) {
 		() =>
 			(["claude", "codex"] as const).map((id) => ({
 				id,
-				label: id === "claude" ? "Claude" : "Codex",
+				label: getAgentDefinition(id).label,
 				icon: getAgentIcon(id, 11),
 			})),
 		[],
@@ -287,10 +285,31 @@ export function useAgentChatSettings(paneId: string, agentKind: AgentKind) {
 		agentKindOptions,
 		effectiveSelectedModel: selection.model,
 		selectedReasoningLevel: selection.reasoningLevel,
-		handleAgentKindChange: (kind: AgentKind) =>
+		handleAgentKindChange: (kind: WorkspaceAgentKind) =>
 			changePaneAgentKind(paneId, kind),
 		handleModelChange: (model: string) => resolveSelection({ model }),
 		handleReasoningLevelChange: (reasoningLevel: string) =>
 			resolveSelection({ reasoningLevel }),
+	};
+}
+
+export function findTriggerAtCursor(
+	value: string,
+	cursorPos: number,
+	trigger: "/" | "@",
+): { index: number; query: string } | null {
+	const match = rustProject<{ index: number } | null>("trigger", {
+		value,
+		cursorPos,
+		trigger,
+	});
+	return match
+		? { index: match.index, query: value.slice(match.index + 1, cursorPos) }
+		: null;
+}
+export function hideMenuState<S extends { show: boolean }>(state: S): S {
+	return {
+		...state,
+		show: false,
 	};
 }

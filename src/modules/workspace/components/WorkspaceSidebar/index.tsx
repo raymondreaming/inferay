@@ -1,7 +1,10 @@
 import * as stylex from "@octanejs/stylex";
 import { useLocation, useNavigate } from "@octanejs/tanstack-router";
 import { useCallback, useEffect, useRef, useState } from "octane";
-import { sendJson } from "../../../../adapters/backend/http.ts";
+import {
+	loadDefaultChatSettings,
+	sendJson,
+} from "../../../../adapters/backend/http.ts";
 import {
 	listenAgentLayoutMode,
 	loadAgentLayoutMode,
@@ -27,7 +30,6 @@ import {
 	type WorkspaceSidebarCollapsedDetail,
 } from "../../../../shared/lib/data.ts";
 import { IconSettings, IconUser } from "../../../../shared/ui/Icons/index.tsx";
-import { loadDefaultChatSettings } from "../../../agents/model/agents.ts";
 import { useForgeAccounts } from "../../../repository/hooks/useForgeAccounts.tsx";
 import {
 	mutateAgentWorkspaceState,

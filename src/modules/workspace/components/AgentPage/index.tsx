@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
 import type { AgentSavedState } from "../../../../../build/presentation/contracts/AgentSavedState.ts";
+import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import { wsClient } from "../../../../adapters/backend/http.ts";
 import {
 	APP_THEME_STORAGE_KEY,
@@ -22,7 +23,6 @@ import {
 	REMOVE_AGENT_PANE_REQUEST_EVENT,
 	type RemoveAgentPaneRequestDetail,
 } from "../../../../shared/lib/data.ts";
-import type { AgentKind } from "../../../agents/model/agents.ts";
 import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
 import { useRepositoryWorkbench } from "../../../workbench/hooks/useRepositoryWorkbench.tsx";
 import {
@@ -288,11 +288,11 @@ export function useAgentPaneActions({
 			},
 			groupId = selectedGroupId ?? "";
 		return {
-			handleAddPane: (agentKind: AgentKind) =>
+			handleAddPane: (agentKind: WorkspaceAgentKind) =>
 				send({ type: "addPane", groupId, agentKind }),
 			reorderPanes: (fromIndex: number, toIndex: number) =>
 				send({ type: "reorderPanes", groupId, fromIndex, toIndex }),
-			handleSetPaneAgentKind: (paneId: string, agentKind: AgentKind) =>
+			handleSetPaneAgentKind: (paneId: string, agentKind: WorkspaceAgentKind) =>
 				send({ type: "setPaneAgentKind", groupId, paneId, agentKind }),
 			handleDirectorySelected: (
 				paneId: string,

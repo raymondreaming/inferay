@@ -1,24 +1,21 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useMemo, useState } from "octane";
+import type { AgentAccountProviderStatus } from "../../../../../build/presentation/contracts/AgentAccountProviderStatus.ts";
 import type { GithubRepo } from "../../../../../build/presentation/contracts/GithubRepo.ts";
 import {
 	pickCloneDirectory as chooseCloneDirectory,
 	fetchJsonOr,
+	getAgentDefinition,
+	loadDefaultChatSettings,
+	saveDefaultChatSettings,
 	sendJson,
 } from "../../../../adapters/backend/http.ts";
-
 import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
 import type { SettingsModalTarget } from "../../../../shared/lib/data.ts";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
 import { DropdownButton } from "../../../../shared/ui/DropdownButton/index.tsx";
 import { TextInput } from "../../../../shared/ui/TextInput/index.tsx";
 import { getAgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
-import type { AgentAccountProviderStatus } from "../../../agents/model/agents.ts";
-import {
-	getAgentDefinition,
-	loadDefaultChatSettings,
-	saveDefaultChatSettings,
-} from "../../../agents/model/agents.ts";
 import {
 	invalidateForgeAccountsCache,
 	invalidateGithubReposCache,

@@ -1,6 +1,7 @@
 import * as stylex from "@octanejs/stylex";
-import type { ChatMessage } from "../../model/agent-chat-shared.ts";
-import { getToolOutputSummary } from "../../model/agent-chat-shared.ts";
+import type { ToolOutputSummary } from "../../../../../build/presentation/contracts/ToolOutputSummary.ts";
+import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
+
 import { styles } from "./styles.ts";
 
 export function ToolOutputHighlight({
@@ -59,5 +60,17 @@ export function ToolOutputHighlight({
 				</>
 			)}
 		</>
+	);
+}
+
+export function getToolOutputSummary(
+	content: string,
+	nativeSummary?: ToolOutputSummary | null,
+): ToolOutputSummary {
+	return (
+		nativeSummary ?? {
+			type: "text",
+			value: content,
+		}
 	);
 }

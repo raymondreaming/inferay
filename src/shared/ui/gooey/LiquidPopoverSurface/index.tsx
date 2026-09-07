@@ -1,5 +1,6 @@
 import { createPortal } from "octane";
-import { Liquid } from "../index.ts";
+import { GooeyRoot } from "../Gooey/index.tsx";
+import { LiquidItem } from "../LiquidItem/index.tsx";
 import type { ReactNode } from "../observer.ts";
 import * as inlineStyles from "./styles.ts";
 export interface LiquidPopoverSurfaceProps {
@@ -23,7 +24,7 @@ export function LiquidPopoverSurface({
 	panelRadius = 8,
 }: LiquidPopoverSurfaceProps) {
 	return (
-		<Liquid
+		<GooeyRoot
 			blur={6}
 			contrast={18}
 			fill={fill}
@@ -36,20 +37,20 @@ export function LiquidPopoverSurface({
 				present ? 319 : undefined,
 			)}
 		>
-			<Liquid.Item
+			<LiquidItem
 				style={inlineStyles.getLiquidPopoverSurfaceElementStyle(
 					fullWidth ? "100%" : undefined,
 				)}
 			>
 				{trigger}
-			</Liquid.Item>
+			</LiquidItem>
 			{present &&
 				createPortal(
-					<Liquid.Item observe radius={panelRadius}>
+					<LiquidItem observe radius={panelRadius}>
 						{panel}
-					</Liquid.Item>,
+					</LiquidItem>,
 					portalTarget,
 				)}
-		</Liquid>
+		</GooeyRoot>
 	);
 }

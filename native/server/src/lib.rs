@@ -73,6 +73,7 @@ mod render_jobs;
 /// beside the server makes renderer contracts follow backend schema changes.
 pub fn export_renderer_types(config: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
     use ts_rs::TS;
+    agent_account::AgentAccountProviderStatus::export_all(config)?;
     forge::ForgeAccount::export_all(config)?;
     forge::GithubRepo::export_all(config)?;
     git_actions::GraphActionPresentation::export_all(config)?;
@@ -535,21 +536,15 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             ("/api/native/provider-config", "GET") => {
                 // A broken skill library must not prevent startup or local commands.
                 let skills = state.native_prompts.list().await.unwrap_or_default();
-                let mut catalog = inferay_core::provider_config::catalog().clone();
-                for (kind, definition) in catalog["agents"].as_object_mut().unwrap() {
-                    definition["commands"] = json!(
-                        inferay_core::provider_config::composer_commands(kind, &skills)
-                    );
-                }
                 let entries = read_json_object(&state.client_storage_path).await;
                 let defaults = entries
                     .get("inferay-default-chat-settings")
                     .and_then(Value::as_str)
                     .and_then(|text| serde_json::from_str::<Value>(text).ok())
                     .unwrap_or(Value::Null);
-                catalog["defaults"] =
-                    inferay_core::provider_config::resolve(&json!({"defaults": defaults}));
-                Ok(catalog)
+                Ok(json!(inferay_core::provider_config::renderer_catalog(
+                    &defaults, &skills
+                )))
             }
             ("/api/native/provider-config", "POST") => {
                 provider_configuration(&state, request).await

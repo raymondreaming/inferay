@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { DotMatrixRipple } from "../../../../shared/ui/DotMatrixLoader/index.tsx";
-import type { CommandSystemMessage } from "../../model/agent-chat-shared.ts";
+
 import { styles } from "./styles.ts";
 
 export function CommandSystemCard({
@@ -31,3 +31,10 @@ export function CommandSystemCard({
 		</div>
 	);
 }
+
+export type CommandSystemMessage = {
+	type: "inferay.command";
+	name: string;
+	description?: string;
+	args?: string;
+};

@@ -6,7 +6,8 @@ import {
 	surfaceStyles,
 } from "../../../../design-system/styles.stylex.ts";
 import { BorderBeamOverlay } from "../../../../shared/ui/BorderBeamOverlay/index.tsx";
-import { Liquid } from "../../../../shared/ui/gooey/index.ts";
+import { GooeyRoot } from "../../../../shared/ui/gooey/Gooey/index.tsx";
+import { LiquidItem } from "../../../../shared/ui/gooey/LiquidItem/index.tsx";
 import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
 import {
 	IconAlertTriangle,
@@ -54,7 +55,7 @@ export const ChatComposer = memo(function ChatComposer(
 					{...stylex.props(styles.inputDock)}
 					className={`${stylex.props(styles.inputDock).className ?? ""} inferay-chat-composer`}
 				>
-					<Liquid
+					<GooeyRoot
 						blur={5}
 						contrast={20}
 						fill="transparent"
@@ -62,7 +63,7 @@ export const ChatComposer = memo(function ChatComposer(
 						shadow="none"
 						className="inferay-message-liquid"
 					>
-						<Liquid.Item observe radius={12}>
+						<LiquidItem observe radius={12}>
 							<div {...stylex.props(surfaceStyles.panel, styles.inputFrame)}>
 								<BorderBeamOverlay
 									active={view.beamActive || view.messageInputFocused}
@@ -189,8 +190,8 @@ export const ChatComposer = memo(function ChatComposer(
 								</div>
 								<ComposerControls {...view} />
 							</div>
-						</Liquid.Item>
-					</Liquid>
+						</LiquidItem>
+					</GooeyRoot>
 				</div>
 			}
 

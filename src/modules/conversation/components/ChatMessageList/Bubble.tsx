@@ -1,5 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useMemo } from "octane";
+import { project as rustProject } from "../../../../adapters/presentation/model.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import {
 	IconCheck,
@@ -10,11 +11,7 @@ import {
 	SkillProposalCard,
 	SkillReadCard,
 } from "../../../skills/components/SkillProposalCard/index.tsx";
-import type { ChatMessage } from "../../model/agent-chat-shared.ts";
-import {
-	getToolDisplayInfo,
-	getUserMessagePresentation,
-} from "../../model/agent-chat-shared.ts";
+import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
 import { MiniEditDiff } from "../ChatEditDiff/index.tsx";
 import { useCopyText } from "../ChatRichContent/CopyButton.tsx";
 import {
@@ -27,6 +24,7 @@ import { CommandSystemCard } from "./CommandSystemCard.tsx";
 import { GoalSystemCard } from "./GoalSystemCard.tsx";
 import { styles } from "./styles.ts";
 import { ToolOutputHighlight } from "./ToolOutputHighlight.tsx";
+import { getToolDisplayInfo } from "./ToolTimeline.tsx";
 
 export const Bubble = memo(function Bubble({
 	paneId,
@@ -246,3 +244,10 @@ export const Bubble = memo(function Bubble({
 		</div>
 	);
 });
+
+export function getUserMessagePresentation(
+	message: ChatMessage,
+	slashCommandNames: readonly string[],
+): { content: string; imagePaths: string[] } | null {
+	return rustProject("userMessage", { message, commands: slashCommandNames });
+}

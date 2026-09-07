@@ -1,5 +1,6 @@
 import * as stylex from "@octanejs/stylex";
-import { findDecoratedTokenRanges } from "../../model/agent-chat-shared.ts";
+import { project as rustProject } from "../../../../adapters/presentation/model.ts";
+
 import { styles } from "./styles.ts";
 
 export function renderInputHighlights(
@@ -81,4 +82,12 @@ export function renderTextPills(
 	}
 
 	return parts;
+}
+
+type TokenRange = { start: number; end: number };
+export function findDecoratedTokenRanges(
+	text: string,
+	slashCommandNames?: readonly string[],
+): TokenRange[] {
+	return rustProject("decoratedTokens", { text, commands: slashCommandNames });
 }

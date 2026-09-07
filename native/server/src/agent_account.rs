@@ -5,9 +5,11 @@ use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-#[derive(Debug, PartialEq, Eq, Serialize)]
-struct AgentAccountProviderStatus {
+#[derive(Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
+pub(crate) struct AgentAccountProviderStatus {
+    #[ts(type = "'claude' | 'codex'")]
     kind: &'static str,
+    #[ts(type = "'ready' | 'needs-login' | 'missing-cli'")]
     health: &'static str,
 }
 

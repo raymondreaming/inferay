@@ -10,15 +10,12 @@ import {
 	useState,
 } from "octane";
 import type React from "react";
+import type { ChatRow } from "../../../../../build/presentation/contracts/ChatRow.ts";
+import type { ChatWindow } from "../../../../../build/presentation/contracts/ChatWindow.ts";
 import type { CheckpointMeta } from "../../../../../build/presentation/contracts/CheckpointMeta.ts";
-import type { ChatMessage } from "../../model/agent-chat-shared.ts";
-import {
-	buildRenderRows,
-	calculateChatOffsets,
-	calculateChatWindow,
-	getRenderRowKey,
-	indexCheckpoints,
-} from "../../model/agent-chat-shared.ts";
+import { project as rustProject } from "../../../../adapters/presentation/model.ts";
+import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
+
 import { GroupedEditDiff } from "../ChatEditDiff/index.tsx";
 import { Bubble } from "./Bubble.tsx";
 import { CheckpointMarker } from "./CheckpointMarker.tsx";
@@ -335,3 +332,86 @@ export const ChatMessageList = memo(function ChatMessageList({
 		</div>
 	);
 });
+
+type RenderItem =
+	| { type: "message"; message: ChatMessage }
+	| { type: "edit-group"; filePath: string; edits: ChatMessage[] }
+	| {
+			type: "tool-group";
+			tools: [ChatMessage];
+			continuesAfter: boolean;
+	  };
+export function getRenderRowKey(row: RenderItem | undefined, index: number) {
+	if (!row) return `row-${index}`;
+	const message =
+		row.type === "message"
+			? row.message
+			: row.type === "edit-group"
+				? row.edits[0]
+				: row.tools[0];
+	return message?.render?.rowId ?? message?.id ?? `row-${index}`;
+}
+export function calculateChatOffsets(
+	rows: RenderItem[],
+	heights: ReadonlyMap<string, number>,
+): number[] {
+	return rustProject(
+		"chatOffsets",
+		rows.map((row, index) => heights.get(getRenderRowKey(row, index)) ?? null),
+	);
+}
+export function calculateChatWindow(
+	_rows: RenderItem[],
+	offsets: number[],
+	scrollOffset: number | null,
+	viewportHeight: number,
+) {
+	return {
+		...rustProject<ChatWindow>("chatWindow", {
+			offsets,
+			scrollOffset,
+			viewportHeight,
+		}),
+		offsets,
+	};
+}
+export function indexCheckpoints(checkpoints: CheckpointMeta[]) {
+	const result = new Map<string, CheckpointMeta>();
+	for (const checkpoint of checkpoints)
+		if (checkpoint.afterMessageId)
+			result.set(checkpoint.afterMessageId, checkpoint);
+	return result;
+}
+export function buildRenderRows(messages: ChatMessage[]): RenderItem[] {
+	const rows = rustProject<ChatRow[]>(
+		"chatRows",
+		messages.map((message) => {
+			const render = message.render;
+			return render
+				? {
+						kind: render.kind,
+						hidden: render.hidden,
+						groupLeader: render.groupLeader,
+						groupEnd: render.groupEnd,
+						filePath: render.filePath,
+						continuesAfter: render.continuesAfter,
+					}
+				: null;
+		}),
+	);
+	return rows.map((row): RenderItem => {
+		if (row.type === "message")
+			return { type: row.type, message: messages[row.index]! };
+		if (row.type === "edit-group")
+			return {
+				type: row.type,
+				filePath: row.filePath,
+				edits: messages.slice(row.start, row.end),
+			};
+		return {
+			type: row.type,
+			tools: [messages[row.index]!],
+			continuesAfter: row.continuesAfter,
+		};
+	});
+}

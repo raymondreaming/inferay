@@ -1,4 +1,5 @@
-import { Liquid } from "../index.ts";
+import { GooeyRoot } from "../Gooey/index.tsx";
+import { LiquidItem } from "../LiquidItem/index.tsx";
 import * as inlineStyles from "./styles.ts";
 
 export interface LiquidSegmentedRailProps {
@@ -32,7 +33,7 @@ export function LiquidSegmentedRail({
 			: `translateY(${activeIndex * 100}%)`;
 	return (
 		<div aria-hidden="true" className="inferay-liquid-segmented-rail">
-			<Liquid
+			<GooeyRoot
 				blur={3.5}
 				contrast={20}
 				fill={fill}
@@ -40,7 +41,7 @@ export function LiquidSegmentedRail({
 				className="inferay-liquid-segmented-rail__group"
 				style={inlineStyles.getLiquidSegmentedRailLiquidStyle()}
 			>
-				<Liquid.Item
+				<LiquidItem
 					effect="move"
 					move={{
 						springiness: 0.72,
@@ -58,8 +59,8 @@ export function LiquidSegmentedRail({
 							transform,
 						)}
 					/>
-				</Liquid.Item>
-			</Liquid>
+				</LiquidItem>
+			</GooeyRoot>
 		</div>
 	);
 }

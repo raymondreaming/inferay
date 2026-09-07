@@ -1,10 +1,8 @@
 import * as stylex from "@octanejs/stylex";
+import type { ToolDisplayInfo } from "../../../../../build/presentation/contracts/ToolDisplayInfo.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { IconChevronDown } from "../../../../shared/ui/Icons/index.tsx";
-import {
-	getToolDisplayInfo,
-	type RenderChatMessage,
-} from "../../model/agent-chat-shared.ts";
+import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
 import { CopyButton } from "../ChatRichContent/index.tsx";
 import { styles } from "./styles.ts";
 import { ToolOutputHighlight } from "./ToolOutputHighlight.tsx";
@@ -14,7 +12,7 @@ export function ToolTimeline({
 	onToggle,
 	continuesAfter = false,
 }: {
-	tools: RenderChatMessage[];
+	tools: ChatMessage[];
 	expandedTools: Set<string>;
 	onToggle: (id: string) => void;
 	continuesAfter?: boolean;
@@ -81,5 +79,16 @@ export function ToolTimeline({
 				);
 			})}
 		</div>
+	);
+}
+
+export function getToolDisplayInfo(
+	toolName: string | undefined,
+	nativeDisplay?: ToolDisplayInfo,
+): ToolDisplayInfo {
+	return (
+		nativeDisplay ?? {
+			label: toolName ? `Using ${toolName}` : "Running tool",
+		}
 	);
 }

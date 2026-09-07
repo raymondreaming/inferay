@@ -30,15 +30,13 @@ import {
 	writeStoredValue,
 } from "../../../adapters/storage/stored-values.ts";
 import {
+	DOCUMENT_OPEN_EVENT,
+	type DocumentOpenDetail,
 	listenWindowEvent,
 	OPEN_ACTIVE_GIT_GRAPH_EVENT,
 	TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT,
 	trackPointerResize,
 } from "../../../shared/lib/data.ts";
-import {
-	DOCUMENT_OPEN_EVENT,
-	type DocumentOpenDetail,
-} from "../../explorer/model/explorer-events.ts";
 import { useGitDiff } from "../../repository/hooks/useGitDiff.tsx";
 import {
 	useCommitDetails,

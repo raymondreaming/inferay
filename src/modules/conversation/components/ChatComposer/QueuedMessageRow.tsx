@@ -9,7 +9,7 @@ import {
 	IconTrash,
 	IconX,
 } from "../../../../shared/ui/Icons/index.tsx";
-import type { QueuedChatMessage } from "../../model/agent-chat-shared.ts";
+import type { QueuedChatMessage } from "../../hooks/useAgentChatComposerState.tsx";
 import { styles } from "./styles.ts";
 
 export const QueuedMessageRow = memo(function QueuedMessageRow({

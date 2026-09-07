@@ -1,5 +1,6 @@
 import { hydrateStart, StartClient } from "@octanejs/tanstack-start/client";
 import { hydrateRoot, initializeHydrationEventCapture } from "octane";
+import { initializeAgentCatalog } from "./adapters/backend/http.ts";
 import {
 	hydrateStoredValues,
 	ONBOARDING_DONE_STORAGE_KEY,
@@ -13,7 +14,6 @@ import {
 	loadAppFontId,
 	loadAppThemeId,
 } from "./app/model/appearance.ts";
-import { initializeAgentCatalog } from "./modules/agents/model/agents.ts";
 import { preloadSkills } from "./modules/skills/hooks/useSkills.tsx";
 import { initializeAgentState } from "./modules/workspace/hooks/useWorkspaceState.tsx";
 import { restoreSyntaxTheme } from "./shared/hooks/useSyntaxHighlight.tsx";

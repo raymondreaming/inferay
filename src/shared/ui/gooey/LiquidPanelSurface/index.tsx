@@ -1,4 +1,5 @@
-import { Liquid } from "../index.ts";
+import { GooeyRoot } from "../Gooey/index.tsx";
+import { LiquidItem } from "../LiquidItem/index.tsx";
 import type { ReactNode } from "../observer.ts";
 import * as inlineStyles from "./styles.ts";
 export function LiquidPanelSurface({
@@ -9,7 +10,7 @@ export function LiquidPanelSurface({
 	fill: string;
 }) {
 	return (
-		<Liquid
+		<GooeyRoot
 			blur={6}
 			contrast={20}
 			fill={fill}
@@ -18,7 +19,7 @@ export function LiquidPanelSurface({
 			className="inferay-liquid-panel"
 			style={inlineStyles.getLiquidPanelSurfaceLiquidStyle()}
 		>
-			<Liquid.Item
+			<LiquidItem
 				morph={{
 					shape: true,
 					speed: 1.35,
@@ -27,7 +28,7 @@ export function LiquidPanelSurface({
 				}}
 			>
 				{children}
-			</Liquid.Item>
-		</Liquid>
+			</LiquidItem>
+		</GooeyRoot>
 	);
 }

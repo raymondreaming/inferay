@@ -8,13 +8,13 @@ import {
 	useState,
 } from "octane";
 import type { Pane } from "../../../../../build/presentation/contracts/Pane.ts";
+import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import { postJson } from "../../../../adapters/backend/http.ts";
 import type { AgentTheme } from "../../../../app/model/appearance.ts";
 import {
 	lockPointerSelection,
 	trackPointerResize,
 } from "../../../../shared/lib/data.ts";
-import type { AgentKind } from "../../../agents/model/agents.ts";
 import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
 
 import { PaneView } from "../PaneView/index.tsx";
@@ -718,8 +718,8 @@ export interface WorkspaceCanvasProps {
 	onDirectoryCancel: (id: string) => void;
 	onChatRef: (id: string, handle: AgentChatHandle | null) => void;
 	onReorderPanes?: (from: number, to: number) => void;
-	onAddPane?: (kind: AgentKind) => void;
-	onSetPaneAgentKind?: (id: string, kind: AgentKind) => void;
+	onAddPane?: (kind: WorkspaceAgentKind) => void;
+	onSetPaneAgentKind?: (id: string, kind: WorkspaceAgentKind) => void;
 	workspaceId?: string;
 	auxiliaryPanels?: readonly AuxiliaryPanel[];
 }

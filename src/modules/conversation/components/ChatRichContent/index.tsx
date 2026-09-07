@@ -1,16 +1,14 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useMemo, useState } from "octane";
 import type { AskUserQuestion } from "../../../../../build/presentation/contracts/AskUserQuestion.ts";
+import { project as rustProject } from "../../../../adapters/presentation/model.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import {
 	IconCheck,
 	IconHelpCircle,
 	IconSend,
 } from "../../../../shared/ui/Icons/index.tsx";
-import {
-	formatAskUserAnswer,
-	hasAskUserSelections,
-} from "../../model/agent-chat-shared.ts";
+
 import { CopyablePre } from "./CopyablePre.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
@@ -207,3 +205,21 @@ export function AskUserQuestionCard({
 export { CopyButton } from "./CopyButton.tsx";
 
 export { Markdown } from "./Markdown.tsx";
+
+export function formatAskUserAnswer(
+	questions: AskUserQuestion[],
+	selections: Map<number, Set<number>>,
+): string {
+	return rustProject("askAnswer", {
+		questions,
+		selections: Object.fromEntries(
+			[...selections].map(([key, indexes]) => [key, [...indexes]]),
+		),
+	});
+}
+export function hasAskUserSelections(
+	questions: AskUserQuestion[],
+	selections: Map<number, Set<number>>,
+) {
+	return questions.every((_, qi) => !!selections.get(qi)?.size);
+}

@@ -14,6 +14,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     macro_rules! export { ($($ty:ty),* $(,)?) => { $(<$ty>::export_all(&cfg)?;)* }; }
     export!(
         GitFileEntry,
+        inferay_core::provider_config::ProviderCatalog,
+        inferay_presentation::chat_view::ChatRow,
+        inferay_presentation::chat_view::ChatWindow,
         GitStatusResult,
         GitBranch,
         GitWorktree,
@@ -46,5 +49,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         inferay_core::agent_context::EffectiveAgentContext
     );
     inferay_server::export_renderer_types(&cfg)?;
+    let catalog_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../build/presentation/provider-catalog.json");
+    std::fs::write(
+        catalog_path,
+        serde_json::to_string(&inferay_core::provider_config::renderer_catalog(
+            &serde_json::Value::Null,
+            &[],
+        ))?,
+    )?;
     Ok(())
 }

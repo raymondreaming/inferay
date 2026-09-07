@@ -6,9 +6,11 @@ import {
 	iconSize,
 	surfaceStyles,
 } from "../../../../design-system/styles.stylex.ts";
-import { queryClient } from "../../../../shared/lib/data.ts";
+import {
+	dispatchDocumentOpen,
+	queryClient,
+} from "../../../../shared/lib/data.ts";
 import { IconChevronRight } from "../../../../shared/ui/Icons/index.tsx";
-import { dispatchDocumentOpen } from "../../model/explorer-events.ts";
 import { FileTypeIcon, FolderTypeIcon } from "../FileTypeIcon/index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";

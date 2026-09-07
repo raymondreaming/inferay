@@ -1,26 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from "octane";
 import type React from "react";
+import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
+import { getAgentDefinition } from "../../../../adapters/backend/http.ts";
 import { hasId } from "../../../../shared/lib/data.ts";
 import type { ReactNode } from "../../../../shared/ui/gooey/observer.ts";
 import { getAgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
-import type { AgentKind } from "../../../agents/model/agents.ts";
-import { getAgentDefinition } from "../../../agents/model/agents.ts";
 import type { useAgentChatComposerState } from "../../hooks/useAgentChatComposerState.tsx";
 import type { useAgentChatMenus } from "../../hooks/useAgentChatMenus.tsx";
 import { renderInputHighlights } from "../ChatTokenDecorators/index.tsx";
 export type AgentOption = {
-	id: AgentKind;
+	id: WorkspaceAgentKind;
 	label: string;
 	icon: unknown;
 };
 export function useChatComposerState(
 	props: ReturnType<typeof useAgentChatComposerState> &
 		ReturnType<typeof useAgentChatMenus> & {
-			agentKind: AgentKind;
+			agentKind: WorkspaceAgentKind;
 			agentKindOptions: AgentOption[];
 			model: string;
 			reasoningLevel: string;
-			onAgentKindChange: (agentKind: AgentKind) => void;
+			onAgentKindChange: (agentKind: WorkspaceAgentKind) => void;
 			onModelChange: (model: string) => void;
 			onReasoningLevelChange: (reasoningLevel: string) => void;
 			onAgentConfigOpenChange?: (open: boolean) => void;
@@ -87,7 +87,7 @@ export function useChatComposerState(
 			value: agentKind,
 			options: agentKindOptions,
 			icon: getAgentIcon(agentKind, 10),
-			onChange: (id: string) => onAgentKindChange(id as AgentKind),
+			onChange: (id: string) => onAgentKindChange(id as WorkspaceAgentKind),
 		},
 		...(agentDefinition.models.length
 			? [

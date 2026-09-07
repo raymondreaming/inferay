@@ -1,7 +1,7 @@
 import { useMemo } from "octane";
 import { useNearViewport } from "../../../../shared/hooks/useNearViewport.tsx";
 import { useNativeEditDiff } from "../../hooks/useNativeEditDiff.tsx";
-import type { NativeChatRender } from "../../model/agent-chat-shared.ts";
+import type { NativeChatRender } from "../AgentChatView/useChatConnection.tsx";
 import { EditDiffCard } from "./EditDiffCard.tsx";
 import * as inlineStyles from "./styles.ts";
 
