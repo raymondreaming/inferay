@@ -1,4 +1,6 @@
-import * as stylex from "@octanejs/stylex";
+import { Dynamic } from "@solidjs/web";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo } from "solid-js";
 import type { GitGraphRefKind } from "../../../../../../build/presentation/contracts/GitGraphRefKind.ts";
 import {
 	IconCloud,
@@ -7,32 +9,37 @@ import {
 	IconTag,
 } from "../../../../../shared/ui/Icons/index.tsx";
 import { styles } from "./styles.ts";
-
-export function RefIcon({ kind }: { kind: GitGraphRefKind }) {
+export function RefIcon(_props: { kind: GitGraphRefKind }) {
 	const size = 10;
-	const symbol =
-		kind === "tag"
+	const symbol = createMemo(() =>
+		_props.kind === "tag"
 			? "tag"
-			: kind === "remoteBranch"
+			: _props.kind === "remoteBranch"
 				? "remote"
-				: kind === "stash"
+				: _props.kind === "stash"
 					? "stash"
-					: "local";
-	const Icon =
-		kind === "tag"
+					: "local",
+	);
+	const Icon = createMemo(() =>
+		_props.kind === "tag"
 			? IconTag
-			: kind === "remoteBranch"
+			: _props.kind === "remoteBranch"
 				? IconCloud
-				: kind === "stash"
+				: _props.kind === "stash"
 					? IconGitCommit
-					: IconComputer;
+					: IconComputer,
+	);
 	return (
 		<span
 			aria-hidden="true"
-			data-ref-symbol={symbol}
-			{...stylex.props(styles.shrink)}
+			data-ref-symbol={symbol()}
+			{...stylex.attrs(styles.shrink)}
 		>
-			<Icon size={size} {...stylex.props(styles.refSymbolIcon)} />
+			<Dynamic
+				component={Icon()}
+				size={size}
+				{...stylex.attrs(styles.refSymbolIcon)}
+			/>
 		</span>
 	);
 }

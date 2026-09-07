@@ -1,19 +1,40 @@
-import { useEffect, useSyncExternalStore } from "octane";
+import { type Accessor, createEffect, createMemo } from "solid-js";
 import type { AgentSavedState } from "../../../../build/presentation/contracts/AgentSavedState.ts";
 import type { Group } from "../../../../build/presentation/contracts/Group.ts";
 import type { RepositoryWorkspaceIndex } from "../../../../build/presentation/contracts/RepositoryWorkspaceIndex.ts";
 import type { WorkspaceAgentKind } from "../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
-import { postJson } from "../../../adapters/backend/http.ts";
-import { project as rustProject } from "../../../adapters/presentation/model.ts";
-import { noop } from "../../../shared/lib/data.ts";
+import { createExternalSignal, noop } from "../../../shared/lib/dom.tsx";
+import {
+	postJson,
+	project as rustProject,
+} from "../../../shared/lib/native.tsx";
 
 type AgentWorkspaceAction =
-	| { type: "selectWorkspace"; groupId: string }
-	| { type: "selectRepository"; cwd: string }
-	| { type: "selectPane"; groupId: string; paneId: string }
-	| { type: "addWorkspace" }
-	| { type: "removeWorkspace"; groupId: string }
-	| { type: "renameWorkspace"; groupId: string; name: string }
+	| {
+			type: "selectWorkspace";
+			groupId: string;
+	  }
+	| {
+			type: "selectRepository";
+			cwd: string;
+	  }
+	| {
+			type: "selectPane";
+			groupId: string;
+			paneId: string;
+	  }
+	| {
+			type: "addWorkspace";
+	  }
+	| {
+			type: "removeWorkspace";
+			groupId: string;
+	  }
+	| {
+			type: "renameWorkspace";
+			groupId: string;
+			name: string;
+	  }
 	| {
 			type: "addPane";
 			groupId?: string;
@@ -21,7 +42,11 @@ type AgentWorkspaceAction =
 			cwd?: string;
 			referencePaths?: string[];
 	  }
-	| { type: "removePane"; groupId: string; paneId: string }
+	| {
+			type: "removePane";
+			groupId: string;
+			paneId: string;
+	  }
 	| {
 			type: "directorySelected";
 			groupId: string;
@@ -52,10 +77,15 @@ type AgentWorkspaceAction =
 			paneId: string;
 			agentKind: WorkspaceAgentKind;
 	  }
-	| { type: "setTheme"; themeId: string };
+	| {
+			type: "setTheme";
+			themeId: string;
+	  };
 export type AgentGroupsAction = Exclude<
 	AgentWorkspaceAction,
-	{ type: "addWorkspace" | "removeWorkspace" | "renameWorkspace" }
+	{
+		type: "addWorkspace" | "removeWorkspace" | "renameWorkspace";
+	}
 >;
 const EMPTY: RepositoryWorkspaceIndex = {
 	workspaces: [],
@@ -68,7 +98,10 @@ type WorkspaceSnapshot = {
 	state: AgentSavedState | null;
 	error: string | null;
 };
-let snapshot: WorkspaceSnapshot = { state: null, error: null };
+let snapshot: WorkspaceSnapshot = {
+	state: null,
+	error: null,
+};
 let canonicalState: AgentSavedState | null = null;
 const subscribers = new Set<() => void>();
 const publish = (next: WorkspaceSnapshot) => {
@@ -78,14 +111,21 @@ const publish = (next: WorkspaceSnapshot) => {
 let queue: Promise<unknown> = Promise.resolve();
 let read: Promise<AgentSavedState | null> | null = null;
 let selectionRequest = 0;
-let pendingSelection: { id: number; groupId: string; paneId?: string } | null =
-	null;
+let pendingSelection: {
+	id: number;
+	groupId: string;
+	paneId?: string;
+} | null = null;
 function selected(
 	state: AgentSavedState,
 	groupId: string,
 	paneId?: string,
 ): AgentSavedState {
-	return rustProject("workspaceSelection", { state, groupId, paneId });
+	return rustProject("workspaceSelection", {
+		state,
+		groupId,
+		paneId,
+	});
 }
 function loadAgentState() {
 	return snapshot.state;
@@ -99,10 +139,9 @@ function accept(state: AgentSavedState, saved = false) {
 	});
 }
 export async function initializeAgentState() {
-	const { state } = await postJson<{ state: AgentSavedState }>(
-		"/api/agent/state/initialize",
-		{},
-	);
+	const { state } = await postJson<{
+		state: AgentSavedState;
+	}>("/api/agent/state/initialize", {});
 	accept(state, true);
 	return state;
 }
@@ -116,7 +155,10 @@ export function loadCanonicalAgentState(): Promise<AgentSavedState | null> {
 			if (state) accept(state, true);
 			return loadAgentState();
 		} catch {
-			publish({ ...snapshot, error: "Saved workspaces could not be loaded." });
+			publish({
+				...snapshot,
+				error: "Saved workspaces could not be loaded.",
+			});
 			return snapshot.state;
 		}
 	});
@@ -133,24 +175,27 @@ export function mutateAgentWorkspaceState(
 		| ((state: AgentSavedState) => AgentWorkspaceAction | null),
 ) {
 	const requestId = ++selectionRequest;
-	if (
-		typeof action !== "function" &&
-		(action.type === "selectPane" || action.type === "selectWorkspace")
-	) {
-		pendingSelection = {
-			id: requestId,
-			groupId: action.groupId,
-			paneId: action.type === "selectPane" ? action.paneId : undefined,
-		};
+	const selection =
+		typeof action === "function"
+			? null
+			: action.type === "selectRepository" && snapshot.state
+				? rustProject<{ groupId: string; paneId: string } | null>(
+						"repositorySelection",
+						{ state: snapshot.state, cwd: action.cwd },
+					)
+				: action.type === "selectPane" || action.type === "selectWorkspace"
+					? {
+							groupId: action.groupId,
+							paneId: action.type === "selectPane" ? action.paneId : undefined,
+						}
+					: null;
+	if (selection) {
+		pendingSelection = { id: requestId, ...selection };
 		const state = snapshot.state;
 		if (state)
 			publish({
 				...snapshot,
-				state: selected(
-					state,
-					action.groupId,
-					action.type === "selectPane" ? action.paneId : undefined,
-				),
+				state: selected(state, selection.groupId, selection.paneId),
 			});
 	}
 	const mutation = queue.then(async () => {
@@ -158,17 +203,21 @@ export function mutateAgentWorkspaceState(
 			next = typeof action === "function" ? action(current) : action;
 		if (!next) return null;
 		try {
-			const { state } = await postJson<{ state: AgentSavedState }>(
-				"/api/agent/state/workspace-action",
-				{ action: next },
-			);
+			const { state } = await postJson<{
+				state: AgentSavedState;
+			}>("/api/agent/state/workspace-action", {
+				action: next,
+			});
 			if (pendingSelection?.id === requestId) pendingSelection = null;
 			accept(state, true);
 			return loadAgentState();
 		} catch {
 			if (pendingSelection?.id === requestId) pendingSelection = null;
 			if (canonicalState) accept(canonicalState);
-			publish({ ...snapshot, error: "Workspace changes could not be saved." });
+			publish({
+				...snapshot,
+				error: "Workspace changes could not be saved.",
+			});
 			return null;
 		}
 	});
@@ -190,41 +239,49 @@ export interface SidebarWorkspaceState {
 	groups: Group[];
 	selectedGroupId: string | null;
 }
-export function useWorkspaceState(loadCanonical = true, selectFirst = true) {
-	const current = useSyncExternalStore(
+export function useWorkspaceState(
+	_loadCanonical: Accessor<boolean> = () => true,
+	_selectFirst: Accessor<boolean> = () => true,
+) {
+	const current = createExternalSignal(
 		(subscribe) => {
 			subscribers.add(subscribe);
 			return () => subscribers.delete(subscribe);
 		},
-		() => snapshot,
 		() => snapshot,
 	);
 	const project = (s: AgentSavedState | null) => ({
 		groups: s?.groups ?? [],
 		repositories: s?.repositories ?? EMPTY,
 		selectedGroupId:
-			s?.selectedGroupId ?? (selectFirst ? s?.groups[0]?.id : null) ?? null,
+			s?.selectedGroupId ?? (_selectFirst() ? s?.groups[0]?.id : null) ?? null,
 	});
-	useEffect(() => {
-		if (loadCanonical) void loadCanonicalAgentState();
-	}, [loadCanonical, selectFirst]);
-	const state: SidebarWorkspaceState = project(current.state);
+	createEffect(
+		() => [_loadCanonical(), _selectFirst()],
+		() => {
+			if (_loadCanonical()) void loadCanonicalAgentState();
+		},
+	);
+	const state = createMemo<SidebarWorkspaceState>(() =>
+		project(current().state),
+	);
 	const setState = (
 		update:
 			| SidebarWorkspaceState
 			| ((state: SidebarWorkspaceState) => SidebarWorkspaceState),
 	) => {
-		const next = typeof update === "function" ? update(state) : update;
-		if (current.state)
+		const _currentValue = current();
+		const next = typeof update === "function" ? update(state()) : update;
+		if (_currentValue.state)
 			publish({
-				...current,
+				..._currentValue,
 				state: {
-					...current.state,
+					..._currentValue.state,
 					...next,
 					selectedGroupId:
-						next.selectedGroupId ?? current.state.selectedGroupId,
+						next.selectedGroupId ?? _currentValue.state.selectedGroupId,
 				},
 			});
 	};
-	return [state, setState, current.error] as const;
+	return [() => state(), setState, () => current().error] as const;
 }

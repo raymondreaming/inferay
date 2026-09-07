@@ -1,6 +1,6 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import { iconSize } from "../../../../../design-system/styles.stylex.ts";
-import { basename } from "../../../../../shared/lib/data.ts";
+import { basename } from "../../../../../shared/lib/dom.tsx";
 import { IconButton } from "../../../../../shared/ui/IconButton/index.tsx";
 import {
 	IconChevronRight,
@@ -8,67 +8,65 @@ import {
 } from "../../../../../shared/ui/Icons/index.tsx";
 import { FileTypeIcon } from "../../../../explorer/components/FileTypeIcon/index.tsx";
 import { diffStyles } from "./styles.ts";
-
-export function DiffHeader({
-	filePath,
-	staged: _staged,
-	onClose,
-	stats,
-	totalChanges,
-	onPrevChange,
-	onNextChange,
-}: {
+export function DiffHeader(_props: {
 	filePath: string;
 	staged: boolean;
 	onClose: () => void;
-	stats?: { added: number; removed: number };
+	stats?: {
+		added: number;
+		removed: number;
+	};
 	totalChanges?: number;
 	onPrevChange?: () => void;
 	onNextChange?: () => void;
 }) {
 	return (
-		<div {...stylex.props(diffStyles.header)}>
-			<FileTypeIcon path={filePath} size={iconSize.lg} />
-			<span {...stylex.props(diffStyles.pathName)}>{basename(filePath)}</span>
+		<div {...stylex.attrs(diffStyles.header)}>
+			<FileTypeIcon path={_props.filePath} size={iconSize.lg} />
+			<span {...stylex.attrs(diffStyles.pathName)}>
+				{basename(_props.filePath)}
+			</span>
 
-			{stats && (stats.added > 0 || stats.removed > 0) && (
-				<div {...stylex.props(diffStyles.stats)}>
-					{stats.added > 0 && (
-						<span {...stylex.props(diffStyles.addedText)}>+{stats.added}</span>
+			{_props.stats && (_props.stats.added > 0 || _props.stats.removed > 0) && (
+				<div {...stylex.attrs(diffStyles.stats)}>
+					{_props.stats.added > 0 && (
+						<span {...stylex.attrs(diffStyles.addedText)}>
+							+{_props.stats.added}
+						</span>
 					)}
-					{stats.removed > 0 && (
-						<span {...stylex.props(diffStyles.deletedText)}>
-							−{stats.removed}
+					{_props.stats.removed > 0 && (
+						<span {...stylex.attrs(diffStyles.deletedText)}>
+							−{_props.stats.removed}
 						</span>
 					)}
 				</div>
 			)}
 
-			<span {...stylex.props(diffStyles.headerSpacer)} />
+			<span {...stylex.attrs(diffStyles.headerSpacer)} />
 
-			{totalChanges !== undefined &&
-				totalChanges > 0 &&
-				onPrevChange &&
-				onNextChange && (
-					<div {...stylex.props(diffStyles.changeNav)}>
+			{_props.totalChanges !== undefined &&
+				_props.totalChanges > 0 &&
+				_props.onPrevChange &&
+				_props.onNextChange && (
+					<div {...stylex.attrs(diffStyles.changeNav)}>
 						<IconButton
 							type="button"
-							onClick={onPrevChange}
+							onClick={_props.onPrevChange}
 							variant="ghost"
 							size="xs"
 							title="Previous change (k/p)"
 						>
 							<IconChevronRight
 								size={iconSize.sm}
-								className={stylex.props(diffStyles.rotateHalfTurn).className}
+								class={stylex.attrs(diffStyles.rotateHalfTurn).class}
 							/>
 						</IconButton>
-						<span {...stylex.props(diffStyles.changeCount)}>
-							{totalChanges}
+						<span {...stylex.attrs(diffStyles.changeCount)}>
+							{_props.totalChanges}
 						</span>
 						<IconButton
 							type="button"
-							onClick={onNextChange}
+							onClick={_props.onNextChange}
 							variant="ghost"
 							size="xs"
 							title="Next change (j/n)"
@@ -80,7 +78,7 @@ export function DiffHeader({
 
 			<IconButton
 				type="button"
-				onClick={onClose}
+				onClick={_props.onClose}
 				variant="ghost"
 				size="xs"
 				title="Close diff"

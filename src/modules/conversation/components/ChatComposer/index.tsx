@@ -1,10 +1,11 @@
-import * as stylex from "@octanejs/stylex";
-import { memo } from "octane";
+import * as stylex from "@stylexjs/stylex";
+import { Show } from "solid-js";
 import {
 	iconSize,
 	runtimeColor,
 	surfaceStyles,
 } from "../../../../design-system/styles.stylex.ts";
+import { ariaValue, assignRef, domStyle } from "../../../../shared/lib/dom.tsx";
 import { BorderBeamOverlay } from "../../../../shared/ui/BorderBeamOverlay/index.tsx";
 import { GooeyRoot } from "../../../../shared/ui/gooey/Gooey/index.tsx";
 import { LiquidItem } from "../../../../shared/ui/gooey/LiquidItem/index.tsx";
@@ -23,23 +24,21 @@ import { MarkdownPreviewDialog } from "./MarkdownPreviewDialog.tsx";
 import { ProviderConfigMenu } from "./ProviderConfigMenu.tsx";
 import { QueuedMessages } from "./QueuedMessages.tsx";
 import * as inlineStyles from "./styles.ts";
-
 import { styles } from "./styles.ts";
 import { useChatComposerState } from "./useChatComposerState.tsx";
-
-export const ChatComposer = memo(function ChatComposer(
-	props: Parameters<typeof useChatComposerState>[0],
+export const ChatComposer = function ChatComposer(
+	props: ReturnType<Parameters<typeof useChatComposerState>[0]>,
 ) {
-	const view = useChatComposerState(props);
+	const view = useChatComposerState(() => props);
 	return (
 		<>
 			<input
 				type="file"
-				ref={view.fileInputRef}
+				ref={(_element) => assignRef(view.fileInputRef, _element)}
 				accept="image/*"
 				multiple
-				{...stylex.props(styles.hidden)}
-				onChange={async (e) => {
+				{...stylex.attrs(styles.hidden)}
+				onInput={async (e) => {
 					const files = Array.from(e.currentTarget.files || []).filter((file) =>
 						file.type.startsWith("image/"),
 					);
@@ -52,8 +51,8 @@ export const ChatComposer = memo(function ChatComposer(
 
 			{
 				<div
-					{...stylex.props(styles.inputDock)}
-					className={`${stylex.props(styles.inputDock).className ?? ""} inferay-chat-composer`}
+					{...stylex.attrs(styles.inputDock)}
+					class={`${stylex.attrs(styles.inputDock).class ?? ""} inferay-chat-composer`}
 				>
 					<GooeyRoot
 						blur={5}
@@ -61,10 +60,10 @@ export const ChatComposer = memo(function ChatComposer(
 						fill="transparent"
 						filterPadding={18}
 						shadow="none"
-						className="inferay-message-liquid"
+						class="inferay-message-liquid"
 					>
 						<LiquidItem observe radius={12}>
-							<div {...stylex.props(surfaceStyles.panel, styles.inputFrame)}>
+							<div {...stylex.attrs(surfaceStyles.panel, styles.inputFrame)}>
 								<BorderBeamOverlay
 									active={view.beamActive || view.messageInputFocused}
 								/>
@@ -74,14 +73,14 @@ export const ChatComposer = memo(function ChatComposer(
 								{view.showCommands && <CommandMenu {...view} />}
 								{view.queuedMessages.length > 0 && <QueuedMessages {...view} />}
 
-								<div {...stylex.props(styles.inputRow)}>
-									<div {...stylex.props(styles.inputActions)}>
+								<div {...stylex.attrs(styles.inputRow)}>
+									<div {...stylex.attrs(styles.inputActions)}>
 										<IconButton
 											type="button"
 											onClick={() => view.fileInputRef.current?.click()}
 											variant="ghost"
 											size="md"
-											className={stylex.props(styles.noShrink).className}
+											class={stylex.attrs(styles.noShrink).class}
 											title="Attach image"
 										>
 											<IconPlus size={iconSize.xl} />
@@ -92,8 +91,8 @@ export const ChatComposer = memo(function ChatComposer(
 												onClick={view.voiceInput.onToggleListening}
 												variant="ghost"
 												size="md"
-												className={
-													stylex.props(
+												class={
+													stylex.attrs(
 														styles.noShrink,
 														view.voiceInput.isListening &&
 															styles.voiceButtonListening,
@@ -101,7 +100,7 @@ export const ChatComposer = memo(function ChatComposer(
 															view.voiceInput.error
 															? styles.voiceButtonError
 															: null,
-													).className
+													).class
 												}
 												title={
 													view.voiceInput.error && !view.voiceInput.isListening
@@ -112,14 +111,14 @@ export const ChatComposer = memo(function ChatComposer(
 																: "Start voice input"
 															: "Voice input is not supported in this browser"
 												}
-												aria-label={
+												aria-label={ariaValue(
 													view.voiceInput.isListening
 														? "Stop voice input"
 														: view.voiceInput.error
 															? view.voiceInput.error
-															: "Start voice input"
-												}
-												aria-pressed={view.voiceInput.isListening}
+															: "Start voice input",
+												)}
+												aria-pressed={ariaValue(view.voiceInput.isListening)}
 												disabled={!view.voiceInput.isSupported}
 											>
 												{view.voiceInput.isListening ? (
@@ -134,21 +133,29 @@ export const ChatComposer = memo(function ChatComposer(
 									</div>
 
 									<div
-										{...stylex.props(styles.textAreaWrap)}
-										style={inlineStyles.getChatComposerTextAreaWrapStyle()}
+										{...stylex.attrs(styles.textAreaWrap)}
+										style={domStyle(
+											inlineStyles.getChatComposerTextAreaWrapStyle(),
+										)}
 									>
 										{!view.usePlainTextarea && (
 											<div
-												ref={view.highlightOverlayRef}
-												{...stylex.props(styles.highlightOverlay)}
-												style={inlineStyles.getChatComposerHighlightOverlayStyle()}
+												ref={(_element2) =>
+													assignRef(view.highlightOverlayRef, _element2)
+												}
+												{...stylex.attrs(styles.highlightOverlay)}
+												style={domStyle(
+													inlineStyles.getChatComposerHighlightOverlayStyle(),
+												)}
 												aria-hidden="true"
 											>
 												{view.inputHighlights}
 											</div>
 										)}
 										<textarea
-											ref={view.textareaRef}
+											ref={(_element3) =>
+												assignRef(view.textareaRef, _element3)
+											}
 											value={view.input}
 											onFocus={() => view.setMessageInputFocused(true)}
 											onBlur={() => view.setMessageInputFocused(false)}
@@ -173,17 +180,19 @@ export const ChatComposer = memo(function ChatComposer(
 											placeholder="Message… (/ commands, @ files)"
 											rows={1}
 											aria-label="Message input"
-											spellCheck
-											autoCorrect="on"
-											autoCapitalize="sentences"
-											{...stylex.props(styles.textarea)}
-											style={inlineStyles.getChatComposerTextareaStyle(
-												view.usePlainTextarea
-													? runtimeColor.textMain
-													: "transparent",
-												view.usePlainTextarea
-													? runtimeColor.textMain
-													: "transparent",
+											spellcheck
+											autocorrect="on"
+											autocapitalize="sentences"
+											{...stylex.attrs(styles.textarea)}
+											style={domStyle(
+												inlineStyles.getChatComposerTextareaStyle(
+													view.usePlainTextarea
+														? runtimeColor.textMain
+														: "transparent",
+													view.usePlainTextarea
+														? runtimeColor.textMain
+														: "transparent",
+												),
 											)}
 										/>
 									</div>
@@ -195,11 +204,11 @@ export const ChatComposer = memo(function ChatComposer(
 				</div>
 			}
 
-			{view.activeControl && (
-				<ProviderConfigMenu {...view} activeControl={view.activeControl} />
-			)}
+			<Show when={view.activeControl} keyed>
+				{(control) => <ProviderConfigMenu {...view} activeControl={control} />}
+			</Show>
 
 			{view.mdPreview.show && <MarkdownPreviewDialog {...view} />}
 		</>
 	);
-});
+};

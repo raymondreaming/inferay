@@ -1,49 +1,69 @@
-import { useCallback, useEffect, useState } from "octane";
+import type { Accessor } from "solid-js";
 import type { AgentContextUpdate } from "../../../../build/presentation/contracts/AgentContextUpdate.ts";
 import type { EffectiveAgentContext } from "../../../../build/presentation/contracts/EffectiveAgentContext.ts";
-import { fetchJson, postJson } from "../../../adapters/backend/http.ts";
+import { useBackgroundQuery } from "../../../shared/hooks/useQueryResource.tsx";
+import { queryClient } from "../../../shared/lib/dom.tsx";
+import { fetchJson, postJson } from "../../../shared/lib/native.tsx";
 
 const EMPTY = {
 	instructions: "",
 	mode: "inherit" as const,
 	updatedAt: 0,
 };
-
-export function useAgentContext(paneId: string, cwd?: string) {
-	const [context, setContext] = useState<EffectiveAgentContext>({
+export function useAgentContext(
+	_paneId: Accessor<string>,
+	_cwd: Accessor<string | undefined> = () => undefined,
+) {
+	const empty: EffectiveAgentContext = {
 		global: EMPTY,
 		project: null,
 		chat: null,
 		effectiveInstructions: "",
-	});
-
-	const reload = useCallback(async () => {
-		try {
-			const params = new URLSearchParams({ paneId });
-			if (cwd) params.set("cwd", cwd);
-			setContext(await fetchJson(`/api/agent-context?${params.toString()}`));
-		} catch {}
-	}, [cwd, paneId]);
-
-	useEffect(() => void reload(), [reload]);
-
-	const save = useCallback(
-		async (
-			scope: AgentContextUpdate["scope"],
-			instructions: string,
-			mode: AgentContextMode,
-		) => {
-			await postJson(
-				"/api/agent-context",
-				{ scope, instructions, mode, cwd, paneId },
-				{ method: "PUT" },
-			);
-			await reload();
-		},
-		[cwd, paneId, reload],
+	};
+	const query = useBackgroundQuery(
+		() => ({
+			queryKey: ["agent-context", _paneId(), _cwd()],
+			queryFn: async ({ signal }) => {
+				const params = new URLSearchParams({ paneId: _paneId() });
+				const cwd = _cwd();
+				if (cwd) params.set("cwd", cwd);
+				return fetchJson<EffectiveAgentContext>(
+					`/api/agent-context?${params}`,
+					{ signal },
+				);
+			},
+			retry: false,
+		}),
+		() => queryClient,
 	);
-
-	return { context, save };
+	const save = async (
+		scope: AgentContextUpdate["scope"],
+		instructions: string,
+		mode: AgentContextMode,
+	) => {
+		const queryKey = ["agent-context", _paneId(), _cwd()];
+		await postJson(
+			"/api/agent-context",
+			{
+				scope,
+				instructions,
+				mode,
+				cwd: _cwd(),
+				paneId: _paneId(),
+			},
+			{
+				method: "PUT",
+			},
+		);
+		await queryClient.invalidateQueries({ queryKey });
+	};
+	return {
+		get context() {
+			return query.data ?? empty;
+		},
+		get save() {
+			return save;
+		},
+	};
 }
-
 export type AgentContextMode = "inherit" | "replace";

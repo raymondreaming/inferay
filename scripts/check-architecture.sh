@@ -20,7 +20,7 @@ bunx biome lint \
 	src/modules/workbench/diff/components/DiffViewer/index.tsx \
 	src/modules/workspace/components/WorkspaceCanvas/index.tsx \
 	src/modules/workspace/components/PaneView/index.tsx \
-	src/routes/_app/index.tsx
+	src/app/components/RootComponent/index.tsx
 
 echo
 echo "==> Component folder structure"
@@ -40,6 +40,11 @@ echo
 echo "==> TypeScript"
 bunx tsc --noEmit
 
+echo "==> Solid principles audit"
+bun scripts/check-solid-principles.ts
+
+echo "==> Solid reactivity regression"
+
 echo
 echo "==> Native Rust format"
 cargo fmt --all -- --check
@@ -53,10 +58,8 @@ echo "==> Renderer build"
 bun run build:renderer
 
 echo
-echo "==> React runtime dependency audit"
-# BorderBeam is a React package mounted through this dedicated Octane bridge.
-if rg -n -P '^import\s+(?!type\b).*from "react|react-router-dom|@tanstack/react-virtual|@stylexjs/stylex' src |
-	rg -v '^src/shared/ui/BorderBeamOverlay/index\.tsx:[0-9]+:import (\{ createElement \} from "react";|\{ createRoot, type Root \} from "react-dom/client";)$'; then
-	echo "Unexpected React renderer dependency remains" >&2
+echo "==> Renderer runtime dependency audit"
+if rg -n 'from ["\x27](react|react-dom|octane|@octanejs/|@tanstack/(react-|solid-router|router-))' src; then
+	echo "Legacy renderer or router dependency remains" >&2
 	exit 1
 fi

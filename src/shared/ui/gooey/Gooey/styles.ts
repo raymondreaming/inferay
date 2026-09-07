@@ -1,5 +1,4 @@
-import type { CSSProperties } from "react";
-
+import type { CSSProperties } from "../../../lib/dom.tsx";
 export function getGooeyRootDivStyle(
 	overrides: CSSProperties | undefined | null,
 ): CSSProperties {
@@ -9,7 +8,6 @@ export function getGooeyRootDivStyle(
 		...overrides,
 	} as CSSProperties;
 }
-
 export function getGooeyRootSvgStyle(
 	filter: CSSProperties["filter"],
 ): CSSProperties {
@@ -25,7 +23,8 @@ export function getGooeyRootSvgStyle(
 		willChange: "filter, transform",
 	} as CSSProperties;
 }
-
 export function getGooeyRootGStyle(fill: CSSProperties["fill"]): CSSProperties {
-	return { fill: fill } as CSSProperties;
+	return {
+		fill: fill,
+	} as CSSProperties;
 }

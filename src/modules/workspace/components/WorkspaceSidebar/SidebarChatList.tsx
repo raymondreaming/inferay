@@ -1,38 +1,39 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
+import { For } from "solid-js";
 import type { SidebarWorkspaceState } from "../../hooks/useWorkspaceState.tsx";
 import { PaneSummaryItem } from "./PaneSummaryItem.tsx";
 import { styles } from "./styles.ts";
-
-export function SidebarChatList({
-	workspaces,
-	onSelectPane,
-}: {
+export function SidebarChatList(_props: {
 	workspaces: SidebarWorkspaceState;
 	onSelectPane: (groupId: string, paneId: string) => void;
 }) {
-	const entries = workspaces.repositories.visibleEntries;
-
 	return (
-		<div {...stylex.props(styles.workspacePaneList)}>
-			{entries.length > 0 ? (
-				entries.map(({ groupId, pane }) => (
+		<div {...stylex.attrs(styles.workspacePaneList)}>
+			<For
+				each={_props.workspaces.repositories.visibleEntries}
+				keyed={(entry) => `${entry.groupId}:${entry.pane.id}`}
+				fallback={
+					<div {...stylex.attrs(styles.repositoryEmptyState)}>
+						No chats in this repository yet.
+					</div>
+				}
+			>
+				{(entry) => (
 					<PaneSummaryItem
-						key={pane.id}
-						pane={pane}
+						pane={entry().pane}
 						isActive={
-							groupId === workspaces.selectedGroupId &&
-							pane.id ===
-								workspaces.groups.find((group) => group.id === groupId)
-									?.selectedPaneId
+							entry().groupId === _props.workspaces.selectedGroupId &&
+							entry().pane.id ===
+								_props.workspaces.groups.find(
+									(group) => group.id === entry().groupId,
+								)?.selectedPaneId
 						}
-						onClick={() => onSelectPane(groupId, pane.id)}
+						onClick={() =>
+							_props.onSelectPane(entry().groupId, entry().pane.id)
+						}
 					/>
-				))
-			) : (
-				<div {...stylex.props(styles.repositoryEmptyState)}>
-					No chats in this repository yet.
-				</div>
-			)}
+				)}
+			</For>
 		</div>
 	);
 }

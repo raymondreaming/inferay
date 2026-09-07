@@ -1,29 +1,27 @@
-import * as stylex from "@octanejs/stylex";
-import { useEffect } from "octane";
+import * as stylex from "@stylexjs/stylex";
+import { createEffect } from "solid-js";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
 import { styles } from "./styles.ts";
-
-export function ChatPaneRecovery({
-	error,
-	reset,
-}: {
+export function ChatPaneRecovery(_props: {
 	error: unknown;
 	reset: () => void;
 }) {
-	useEffect(() => {
-		console.error("[chat] Chat pane render failed:", error);
-	}, [error]);
-
+	createEffect(
+		() => [_props.error],
+		() => {
+			console.error("[chat] Chat pane render failed:", _props.error);
+		},
+	);
 	return (
-		<div {...stylex.props(styles.root)} role="alert">
-			<div {...stylex.props(styles.card)}>
-				<div {...stylex.props(styles.title)}>This chat pane hit a problem.</div>
-				<div {...stylex.props(styles.message)}>
+		<div {...stylex.attrs(styles.root)} role="alert">
+			<div {...stylex.attrs(styles.card)}>
+				<div {...stylex.attrs(styles.title)}>This chat pane hit a problem.</div>
+				<div {...stylex.attrs(styles.message)}>
 					The rest of your workspace is still available.
 				</div>
 				<Button
 					type="button"
-					onClick={reset}
+					onClick={_props.reset}
 					variant="secondary"
 					size="sm"
 					liquid={false}

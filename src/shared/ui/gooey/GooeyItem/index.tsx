@@ -1,18 +1,23 @@
+import { createMemo, type Element } from "solid-js";
+import type { CSSProperties } from "../../../lib/dom.tsx";
 import { useGooeyContext } from "../Gooey/index.tsx";
 import { MirroredItem } from "./MirroredItem.tsx";
 import { ObservedItem, toEffects } from "./ObservedItem.tsx";
-
 export function GooeyItem(props: GooeyItemProps) {
 	const ctx = useGooeyContext();
-	const needsEngine =
-		props.observe || toEffects(props.effect).some((e) => e !== "morph");
-	return needsEngine ? (
-		<ObservedItem {...props} ctx={ctx} />
-	) : (
-		<MirroredItem {...props} ctx={ctx} />
+	const needsEngine = createMemo(
+		() => props.observe || toEffects(props.effect).some((e) => e !== "morph"),
+	);
+	return (
+		<>
+			{needsEngine() ? (
+				<ObservedItem {...props} ctx={ctx} />
+			) : (
+				<MirroredItem {...props} ctx={ctx} />
+			)}
+		</>
 	);
 }
-
 export type GooeyEffect = "morph" | "evolve" | "move";
 export interface GooeyItemProps {
 	/** Liquid behavior of this piece:
@@ -42,16 +47,14 @@ export interface GooeyItemProps {
 	 *  nears a neighbour — the element visibly grows a liquid coat that necks
 	 *  into the other surface. */
 	bridgeGrow?: number;
-	className?: string;
+	class?: string;
 	style?: CSSProperties;
-	children?: OctaneNode;
+	children?: Element;
 }
+export type Internal = GooeyItemProps & {
+	ctx: GooeyContextValue;
+};
 
-export type Internal = GooeyItemProps & { ctx: GooeyContextValue };
-
-import type { OctaneNode } from "octane";
-import type { CSSProperties } from "react";
 import type { EvolveOptions } from "../../../../../build/presentation/contracts/EvolveOptions.ts";
 import type { MoveOptions } from "../../../../../build/presentation/contracts/MoveOptions.ts";
-import type { GooeyContextValue } from "../Gooey/index.tsx";
-import type { CornerRadii } from "../observer.ts";
+import type { CornerRadii, GooeyContextValue } from "../Gooey/index.tsx";

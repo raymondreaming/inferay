@@ -1,91 +1,99 @@
-import * as stylex from "@octanejs/stylex";
-import { useState } from "octane";
+import * as stylex from "@stylexjs/stylex";
+import { createSignal, For } from "solid-js";
 import type { CheckpointMeta } from "../../../../../build/presentation/contracts/CheckpointMeta.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
+import { domStyle } from "../../../../shared/lib/dom.tsx";
 import {
 	IconChevronDown,
 	IconClock,
 } from "../../../../shared/ui/Icons/index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
-
-export function CheckpointMarker({
-	checkpoint,
-	onRevert,
-}: {
+export function CheckpointMarker(_props: {
 	checkpoint: CheckpointMeta;
 	onRevert: (id: string) => void;
 }) {
-	const [expanded, setExpanded] = useState(false);
+	const [expanded, setExpanded] = createSignal(false);
 	return (
-		<div {...stylex.props(styles.checkpointCard)}>
+		<div {...stylex.attrs(styles.checkpointCard)}>
 			<div
-				{...stylex.props(styles.checkpointHeader)}
-				style={inlineStyles.getCheckpointMarkerCheckpointHeaderStyle(
-					expanded ? "1px solid var(--color-inferay-gray-border)" : "none",
+				{...stylex.attrs(styles.checkpointHeader)}
+				style={domStyle(
+					inlineStyles.getCheckpointMarkerCheckpointHeaderStyle(
+						expanded() ? "1px solid var(--color-inferay-gray-border)" : "none",
+					),
 				)}
 			>
 				<button
 					type="button"
-					onClick={() => setExpanded(!expanded)}
-					{...stylex.props(styles.checkpointToggle)}
+					onClick={() => setExpanded(!expanded())}
+					{...stylex.attrs(styles.checkpointToggle)}
 				>
 					<IconChevronDown
 						size={iconSize.compact}
-						{...stylex.props(
+						{...stylex.attrs(
 							styles.checkpointChevron,
-							!expanded && styles.rotateClosed,
+							!expanded() && styles.rotateClosed,
 						)}
 					/>
 					<IconClock
 						size={iconSize.compact}
-						{...stylex.props(
+						{...stylex.attrs(
 							styles.checkpointIcon,
-							checkpoint.reverted && styles.revertedIcon,
+							_props.checkpoint.reverted && styles.revertedIcon,
 						)}
 					/>
-					<span {...stylex.props(styles.checkpointTitle)}>
-						{checkpoint.changedFileCount} file
-						{checkpoint.changedFileCount !== 1 ? "s" : ""} changed
+					<span {...stylex.attrs(styles.checkpointTitle)}>
+						{_props.checkpoint.changedFileCount} file
+						{_props.checkpoint.changedFileCount !== 1 ? "s" : ""} changed
 					</span>
 				</button>
-				<span {...stylex.props(styles.spacer)} />
-				{!checkpoint.reverted ? (
+				<span {...stylex.attrs(styles.spacer)} />
+				{!_props.checkpoint.reverted ? (
 					<button
 						type="button"
-						onClick={() => onRevert(checkpoint.id)}
-						{...stylex.props(styles.undoButton)}
+						onClick={() => _props.onRevert(_props.checkpoint.id)}
+						{...stylex.attrs(styles.undoButton)}
 					>
 						Undo
 					</button>
 				) : (
-					<span {...stylex.props(styles.revertedLabel)}>reverted</span>
+					<span {...stylex.attrs(styles.revertedLabel)}>reverted</span>
 				)}
 			</div>
-			{expanded && (
-				<div {...stylex.props(styles.checkpointFiles)}>
-					{checkpoint.changedFiles.map((f) => (
-						<div key={f.path} {...stylex.props(styles.checkpointFile)}>
-							<span
-								style={inlineStyles.getCheckpointMarkerSpanStyle(
-									f.action === "created"
-										? "#22c55e"
-										: f.action === "deleted"
-											? "#ef4444"
-											: "#eab308",
-								)}
-							>
-								{f.action === "created"
-									? "+"
-									: f.action === "deleted"
-										? "-"
-										: "~"}
-							</span>
-							<span {...stylex.props(styles.toolMuted)}>
-								{f.path.split("/").pop()}
-							</span>
-						</div>
-					))}
+			{expanded() && (
+				<div {...stylex.attrs(styles.checkpointFiles)}>
+					{
+						<For
+							each={_props.checkpoint.changedFiles}
+							keyed={(row) => row.path}
+						>
+							{(f) => (
+								<div {...stylex.attrs(styles.checkpointFile)}>
+									<span
+										style={domStyle(
+											inlineStyles.getCheckpointMarkerSpanStyle(
+												f().action === "created"
+													? "#22c55e"
+													: f().action === "deleted"
+														? "#ef4444"
+														: "#eab308",
+											),
+										)}
+									>
+										{f().action === "created"
+											? "+"
+											: f().action === "deleted"
+												? "-"
+												: "~"}
+									</span>
+									<span {...stylex.attrs(styles.toolMuted)}>
+										{f().path.split("/").pop()}
+									</span>
+								</div>
+							)}
+						</For>
+					}
 				</div>
 			)}
 		</div>

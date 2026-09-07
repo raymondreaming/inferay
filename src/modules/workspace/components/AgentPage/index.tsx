@@ -1,15 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
+import {
+	type Accessor,
+	createEffect,
+	createMemo,
+	createSignal,
+	merge,
+	onSettled,
+	Show,
+} from "solid-js";
 import type { AgentSavedState } from "../../../../../build/presentation/contracts/AgentSavedState.ts";
 import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
-import { wsClient } from "../../../../adapters/backend/http.ts";
-import {
-	APP_THEME_STORAGE_KEY,
-	CLIENT_STORAGE_CHANGED_EVENT,
-	clearAgentChatPaneState,
-	listenAgentLayoutMode,
-	loadAgentLayoutMode,
-	setAgentLayoutMode,
-} from "../../../../adapters/storage/stored-values.ts";
 import {
 	getThemeById,
 	loadAppThemeId,
@@ -22,7 +21,16 @@ import {
 	type MutableRef,
 	REMOVE_AGENT_PANE_REQUEST_EVENT,
 	type RemoveAgentPaneRequestDetail,
-} from "../../../../shared/lib/data.ts";
+} from "../../../../shared/lib/dom.tsx";
+import {
+	APP_THEME_STORAGE_KEY,
+	CLIENT_STORAGE_CHANGED_EVENT,
+	clearAgentChatPaneState,
+	listenAgentLayoutMode,
+	loadAgentLayoutMode,
+	setAgentLayoutMode,
+	wsClient,
+} from "../../../../shared/lib/native.tsx";
 import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
 import { useRepositoryWorkbench } from "../../../workbench/hooks/useRepositoryWorkbench.tsx";
 import {
@@ -40,37 +48,46 @@ export type AgentPaneActionsArgs = {
 	readonly selectedGroupId: string | null;
 };
 export function AgentPage() {
-	const [layoutMode, setLayoutMode] = useState(loadAgentLayoutMode);
-	useEffect(() => listenAgentLayoutMode(setLayoutMode), []);
-	useEffect(() => {
-		setAgentLayoutMode(layoutMode);
-	}, [layoutMode]);
+	const [layoutMode, setLayoutMode] = createSignal(loadAgentLayoutMode);
+	onSettled(() => {
+		return listenAgentLayoutMode(setLayoutMode);
+	});
+	createEffect(
+		() => [layoutMode()],
+		() => {
+			setAgentLayoutMode(layoutMode());
+		},
+	);
 	const [workspace, setWorkspace, workspaceError] = useWorkspaceState(
-		false,
-		false,
+		() => false,
+		() => false,
 	);
-	const { groups, selectedGroupId } = workspace;
-	const [showSettings, setShowSettings] = useState(false);
-	const [themeId, setThemeId] = useState(loadAppThemeId);
-	useEffect(
-		() =>
-			listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
-				const key = (
-					event as CustomEvent<{
-						key?: string;
-					}>
-				).detail?.key;
-				if (key !== APP_THEME_STORAGE_KEY) return;
-				setThemeId(loadAppThemeId());
-			}),
-		[],
-	);
-	const chatRefs = useRef<Map<string, AgentChatHandle> | null>(null);
+	const _source = createMemo(() => workspace());
+	const [showSettings, setShowSettings] = createSignal(false);
+	const [themeId, setThemeId] = createSignal(loadAppThemeId);
+	onSettled(() => {
+		return listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
+			const key = (
+				event as CustomEvent<{
+					key?: string;
+				}>
+			).detail?.key;
+			if (key !== APP_THEME_STORAGE_KEY) return;
+			setThemeId(loadAppThemeId());
+		});
+	});
+	const chatRefs = {
+		current: null,
+	} as {
+		current: Map<string, AgentChatHandle> | null;
+	};
 	if (chatRefs.current === null) {
 		chatRefs.current = new Map();
 	}
-	const composerFocusFrameRef = useRef(0);
-	const focusChatComposer = useCallback((paneId: string) => {
+	const composerFocusFrameRef = {
+		current: 0,
+	};
+	const focusChatComposer = (paneId: string) => {
 		if (composerFocusFrameRef.current) {
 			cancelAnimationFrame(composerFocusFrameRef.current);
 		}
@@ -105,57 +122,67 @@ export function AgentPage() {
 			}
 		};
 		composerFocusFrameRef.current = requestAnimationFrame(focusComposer);
-	}, []);
-	useEffect(() => {
-		const stopListening = listenWindowEvent(
-			FOCUS_AGENT_CHAT_COMPOSER_EVENT,
-			(event) => {
-				const { paneId } = (event as CustomEvent<FocusAgentChatComposerDetail>)
-					.detail;
-				focusChatComposer(paneId);
-			},
-		);
-		return () => {
-			stopListening();
-			if (composerFocusFrameRef.current) {
-				cancelAnimationFrame(composerFocusFrameRef.current);
-			}
-		};
-	}, [focusChatComposer]);
-	const theme = useMemo(() => getThemeById(themeId), [themeId]);
-	const currentGroup = useMemo(
-		() => groups.find(hasId.bind(null, selectedGroupId)),
-		[groups, selectedGroupId],
+	};
+	createEffect(
+		() => [focusChatComposer],
+		() => {
+			const stopListening = listenWindowEvent(
+				FOCUS_AGENT_CHAT_COMPOSER_EVENT,
+				(event) => {
+					const { paneId } = (
+						event as CustomEvent<FocusAgentChatComposerDetail>
+					).detail;
+					focusChatComposer(paneId);
+				},
+			);
+			return () => {
+				stopListening();
+				if (composerFocusFrameRef.current) {
+					cancelAnimationFrame(composerFocusFrameRef.current);
+				}
+			};
+		},
 	);
-	const selectedPane =
-		currentGroup?.panes.find(
-			(pane) => pane.id === currentGroup.selectedPaneId,
-		) ?? null;
-	const currentRepositoryPanes = useMemo(() => {
+	const theme = createMemo(() => getThemeById(themeId()));
+	const currentGroup = createMemo(() => {
+		const _sourceValue = _source();
+		return _sourceValue.groups.find(
+			hasId.bind(null, _sourceValue.selectedGroupId),
+		);
+	});
+	const selectedPane = createMemo(
+		() =>
+			currentGroup()?.panes.find(
+				(pane) => pane.id === currentGroup()?.selectedPaneId,
+			) ?? null,
+	);
+	const currentRepositoryPanes = createMemo(() => {
 		const visible = new Set(
-			workspace.repositories.visibleEntries
-				.filter((entry) => entry.groupId === currentGroup?.id)
+			workspace()
+				.repositories.visibleEntries.filter(
+					(entry) => entry.groupId === currentGroup()?.id,
+				)
 				.map((entry) => entry.pane.id),
 		);
-		return currentGroup?.panes.filter((pane) => visible.has(pane.id)) ?? [];
-	}, [currentGroup, workspace.repositories.visibleEntries]);
-	const repositoryWorkbench = useRepositoryWorkbench({
-		active: true,
-		cwd: selectedPane?.cwd,
-		workspaceId:
-			workspace.repositories.activeWorkspace?.cwd ??
-			currentGroup?.id ??
-			"default",
+		return currentGroup()?.panes.filter((pane) => visible.has(pane.id)) ?? [];
 	});
-	const cleanupPane = useCallback((paneId: string) => {
+	const repositoryWorkbench = useRepositoryWorkbench(() => ({
+		active: true,
+		cwd: selectedPane()?.cwd,
+		workspaceId:
+			workspace().repositories.activeWorkspace?.cwd ??
+			currentGroup()?.id ??
+			"default",
+	}));
+	const cleanupPane = (paneId: string) => {
 		wsClient.send({
 			type: "chat:destroy",
 			paneId,
 		});
 		chatRefs.current?.delete(paneId);
 		clearAgentChatPaneState(paneId);
-	}, []);
-	const dispatchAgentGroupAction = useCallback((action: AgentGroupsAction) => {
+	};
+	const dispatchAgentGroupAction = (action: AgentGroupsAction) => {
 		if (action.type === "reorderPanes") {
 			setWorkspace((current) => ({
 				...current,
@@ -172,128 +199,140 @@ export function AgentPage() {
 			}));
 		}
 		void mutateAgentWorkspaceState(action);
-	}, []);
-	useEffect(() => {
+	};
+	onSettled(() => {
 		return listenWindowEvent("agent-open-theme-panel", () =>
 			setShowSettings(true),
 		);
-	}, []);
-	const {
-		handleAddPane,
-		handleChatRef,
-		handleDirectorySelected,
-		handleSetPaneAgentKind,
-		removePane,
-		reorderPanes,
-		selectPane,
-	} = useAgentPaneActions({
-		chatRefs,
-		cleanupPane,
-		dispatchAgentGroupAction,
-		groups,
-		selectedGroupId,
 	});
-	const selectChatPane = useCallback(
-		(paneId: string) => {
-			const paneCwd = currentGroup?.panes.find(
-				(pane) => pane.id === paneId,
-			)?.cwd;
-			repositoryWorkbench.focusWorkbench(paneCwd);
-			selectPane(paneId);
-		},
-		[repositoryWorkbench.focusWorkbench, currentGroup?.panes, selectPane],
+	const _source2 = useAgentPaneActions(() => {
+		const _sourceValue2 = _source();
+		return {
+			chatRefs,
+			cleanupPane,
+			dispatchAgentGroupAction,
+			groups: _sourceValue2.groups,
+			selectedGroupId: _sourceValue2.selectedGroupId,
+		};
+	});
+	const selectChatPane = (paneId: string) => {
+		const paneCwd = currentGroup()?.panes.find(
+			(pane) => pane.id === paneId,
+		)?.cwd;
+		repositoryWorkbench.focusWorkbench(paneCwd);
+		_source2.selectPane(paneId);
+	};
+	const agentGrid = (
+		<Show when={currentGroup()?.id} keyed>
+			{(groupId) => (
+				<WorkspaceCanvas
+					active
+					panes={
+						repositoryWorkbench.zenMode && selectedPane()
+							? [selectedPane()!]
+							: currentRepositoryPanes()
+					}
+					selectedPaneId={currentGroup()?.selectedPaneId ?? null}
+					columns={
+						repositoryWorkbench.zenMode ? 1 : (currentGroup()?.columns ?? 1)
+					}
+					rows={
+						repositoryWorkbench.zenMode
+							? 1
+							: (currentGroup()?.rows ?? DEFAULT_ROWS)
+					}
+					layoutMode={layoutMode()}
+					theme={theme()}
+					onSelectPane={selectChatPane}
+					onFocusPane={focusChatComposer}
+					onClosePane={_source2.removePane}
+					onDirectorySelect={_source2.handleDirectorySelected}
+					onDirectoryCancel={_source2.removePane}
+					onChatRef={_source2.handleChatRef}
+					onReorderPanes={_source2.reorderPanes}
+					onAddPane={_source2.handleAddPane}
+					onSetPaneAgentKind={_source2.handleSetPaneAgentKind}
+					workspaceId={groupId}
+					auxiliaryPanels={repositoryWorkbench.auxiliaryPanels}
+				/>
+			)}
+		</Show>
 	);
-	const agentGrid = currentGroup ? (
-		<WorkspaceCanvas
-			active
-			panes={
-				repositoryWorkbench.zenMode && selectedPane
-					? [selectedPane]
-					: currentRepositoryPanes
-			}
-			selectedPaneId={currentGroup.selectedPaneId}
-			columns={repositoryWorkbench.zenMode ? 1 : currentGroup.columns}
-			rows={
-				repositoryWorkbench.zenMode ? 1 : (currentGroup.rows ?? DEFAULT_ROWS)
-			}
-			layoutMode={layoutMode}
-			theme={theme}
-			onSelectPane={selectChatPane}
-			onFocusPane={focusChatComposer}
-			onClosePane={removePane}
-			onDirectorySelect={handleDirectorySelected}
-			onDirectoryCancel={removePane}
-			onChatRef={handleChatRef}
-			onReorderPanes={reorderPanes}
-			onAddPane={handleAddPane}
-			onSetPaneAgentKind={handleSetPaneAgentKind}
-			workspaceId={currentGroup.id}
-			auxiliaryPanels={repositoryWorkbench.auxiliaryPanels}
-		/>
-	) : null;
-	const hasCurrentPanes = currentRepositoryPanes.length > 0;
+	const hasCurrentPanes = createMemo(() => currentRepositoryPanes().length > 0);
 	return (
 		<>
-			{workspaceError ? <div role="alert">{workspaceError}</div> : null}
+			{workspaceError() ? <div role="alert">{workspaceError()}</div> : null}
 			<AgentMainSurface
 				chatDiffPanel={repositoryWorkbench.diffPanel}
 				chatSidebar={repositoryWorkbench.sidebar}
 				chatZenMode={repositoryWorkbench.zenMode}
-				hasCurrentPanes={hasCurrentPanes}
+				hasCurrentPanes={hasCurrentPanes()}
 				onThemeChange={setThemeId}
 				setShowSettings={setShowSettings}
-				showSettings={showSettings}
+				showSettings={showSettings()}
 				agentGrid={agentGrid}
-				themeId={themeId}
+				themeId={themeId()}
 			/>
 		</>
 	);
 }
-
-export function useAgentPaneActions({
-	chatRefs,
-	cleanupPane,
-	dispatchAgentGroupAction,
-	groups,
-	selectedGroupId,
-}: AgentPaneActionsArgs) {
-	const removePane = useCallback(
-		(paneId: string) => {
-			const group =
-				groups.find((g) => g.panes.some(hasId.bind(null, paneId))) ??
-				groups.find(hasId.bind(null, selectedGroupId));
-			if (group) {
-				cleanupPane(paneId);
-				dispatchAgentGroupAction({
-					type: "removePane",
-					groupId: group.id,
-					paneId,
-				});
-			}
-		},
-		[cleanupPane, dispatchAgentGroupAction, groups, selectedGroupId],
-	);
-	useEffect(
-		() =>
-			listenWindowEvent(REMOVE_AGENT_PANE_REQUEST_EVENT, (event) => {
+export function useAgentPaneActions(_options: Accessor<AgentPaneActionsArgs>) {
+	const removePane = (paneId: string) => {
+		const _optionsValue = _options();
+		const group =
+			_optionsValue.groups.find((g) =>
+				g.panes.some(hasId.bind(null, paneId)),
+			) ??
+			_optionsValue.groups.find(
+				hasId.bind(null, _optionsValue.selectedGroupId),
+			);
+		if (group) {
+			_optionsValue.cleanupPane(paneId);
+			_optionsValue.dispatchAgentGroupAction({
+				type: "removePane",
+				groupId: group.id,
+				paneId,
+			});
+		}
+	};
+	createEffect(
+		() => [removePane, _options()],
+		() => {
+			return listenWindowEvent(REMOVE_AGENT_PANE_REQUEST_EVENT, (event) => {
 				const id = (event as CustomEvent<RemoveAgentPaneRequestDetail>).detail
 					?.paneId;
 				if (id) removePane(id);
-			}),
-		[removePane],
+			});
+		},
 	);
-	const actions = useMemo(() => {
+	const actions = createMemo(() => {
 		const send = (a: AgentGroupsAction) => {
-				if (selectedGroupId) dispatchAgentGroupAction(a);
+				const _optionsValue2 = _options();
+				if (_optionsValue2.selectedGroupId)
+					_optionsValue2.dispatchAgentGroupAction(a);
 			},
-			groupId = selectedGroupId ?? "";
+			groupId = _options().selectedGroupId ?? "";
 		return {
 			handleAddPane: (agentKind: WorkspaceAgentKind) =>
-				send({ type: "addPane", groupId, agentKind }),
+				send({
+					type: "addPane",
+					groupId,
+					agentKind,
+				}),
 			reorderPanes: (fromIndex: number, toIndex: number) =>
-				send({ type: "reorderPanes", groupId, fromIndex, toIndex }),
+				send({
+					type: "reorderPanes",
+					groupId,
+					fromIndex,
+					toIndex,
+				}),
 			handleSetPaneAgentKind: (paneId: string, agentKind: WorkspaceAgentKind) =>
-				send({ type: "setPaneAgentKind", groupId, paneId, agentKind }),
+				send({
+					type: "setPaneAgentKind",
+					groupId,
+					paneId,
+					agentKind,
+				}),
 			handleDirectorySelected: (
 				paneId: string,
 				path: string | null,
@@ -307,14 +346,30 @@ export function useAgentPaneActions({
 					referencePaths,
 				}),
 			selectPane: (paneId: string) =>
-				send({ type: "selectPane", groupId, paneId }),
+				send({
+					type: "selectPane",
+					groupId,
+					paneId,
+				}),
 		};
-	}, [dispatchAgentGroupAction, selectedGroupId]);
-	const handleChatRef = useCallback(
-		(id: string, handle: AgentChatHandle | null) => {
-			handle ? chatRefs.current?.set(id, handle) : chatRefs.current?.delete(id);
+	});
+	const handleChatRef = (id: string, handle: AgentChatHandle | null) => {
+		const _optionsValue3 = _options();
+		handle
+			? _optionsValue3.chatRefs.current?.set(id, handle)
+			: _optionsValue3.chatRefs.current?.delete(id);
+	};
+	return merge(
+		() => {
+			return actions();
 		},
-		[chatRefs],
+		{
+			get handleChatRef() {
+				return handleChatRef;
+			},
+			get removePane() {
+				return removePane;
+			},
+		},
 	);
-	return { ...actions, handleChatRef, removePane };
 }

@@ -1,10 +1,9 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
-
 export const styles = stylex.create({
 	handle: {
 		display: "grid",
@@ -21,7 +20,10 @@ export const styles = stylex.create({
 		padding: controlSize._0,
 		touchAction: "none",
 		userSelect: "none",
-		cursor: { default: "grab", ":active": "grabbing" },
+		cursor: {
+			default: "grab",
+			":active": "grabbing",
+		},
 		backgroundColor: {
 			default: color.transparent,
 			":hover": color.surfaceControl,

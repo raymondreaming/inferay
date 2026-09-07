@@ -1,5 +1,4 @@
-import * as stylex from "@octanejs/stylex";
-import type { CSSProperties } from "react";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
@@ -11,7 +10,7 @@ import {
 	runtimeColor,
 	shadow,
 } from "../../../../design-system/styles.stylex.ts";
-
+import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 export const styles = stylex.create({
 	hidden: {
 		display: "none",
@@ -233,7 +232,9 @@ export const styles = stylex.create({
 	commandRowActive: {
 		backgroundColor: color.controlActive,
 	},
-	commandRowWrap: { position: "relative" },
+	commandRowWrap: {
+		position: "relative",
+	},
 	commandEdit: {
 		position: "absolute",
 		right: controlSize._2,
@@ -584,11 +585,11 @@ export const styles = stylex.create({
 		zIndex: layer.content,
 	},
 });
-
 export function getChatComposerTextAreaWrapStyle(): CSSProperties {
-	return { maxHeight: "120px" } as CSSProperties;
+	return {
+		maxHeight: "120px",
+	} as CSSProperties;
 }
-
 export function getChatComposerHighlightOverlayStyle(): CSSProperties {
 	return {
 		lineHeight: "20px",
@@ -596,7 +597,6 @@ export function getChatComposerHighlightOverlayStyle(): CSSProperties {
 		overflowWrap: "break-word",
 	} as CSSProperties;
 }
-
 export function getChatComposerTextareaStyle(
 	color: CSSProperties["color"],
 	WebkitTextFillColor: CSSProperties["WebkitTextFillColor"],

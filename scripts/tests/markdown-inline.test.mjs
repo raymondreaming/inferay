@@ -2,26 +2,27 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { compile } from "octane/compiler";
-import { renderToStaticMarkup } from "octane/server";
+import { transform as compile } from "@solidjs/compiler";
+import { transformWithOxc } from "vite";
+import { renderToString } from "@solidjs/web";
 
 const file = new URL(
 	"../../src/shared/ui/MarkdownInline/index.tsx",
 	import.meta.url,
 );
-const compiled = compile(readFileSync(file, "utf8"), fileURLToPath(file), {
-	mode: "server",
+const compiled = compile(readFileSync(file, "utf8"), {
+  filename: fileURLToPath(file), generate: "ssr", hydratable: false, omitQuotes: false,
 });
-const code = compiled.code.replace(
-	/from (["'])octane(?:\/server)?\1/g,
-	`from '${import.meta.resolve("octane/server")}'`,
+const stripped = await transformWithOxc(compiled.code, fileURLToPath(file), { lang: "ts" });
+const code = stripped.code.replace(
+  /from (["'])(@solidjs\/web|solid-js)\1/g,
+  (_, quote, name) => `from '${import.meta.resolve(name)}'`,
 );
 const { MarkdownInline } = await import(
 	`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`
 );
 const render = (tokens, appearance = {}, onMdFileClick) =>
-	renderToStaticMarkup(MarkdownInline, { tokens, appearance, onMdFileClick })
-		.html;
+	renderToString(() => MarkdownInline({ tokens, appearance, onMdFileClick }), { noScripts: true });
 
 test("nested formatting preserves the view's styles and escapes text", () => {
 	const html = render(
@@ -36,14 +37,14 @@ test("nested formatting preserves the view's styles and escapes text", () => {
 			},
 		],
 		{
-			"bold-italic": { className: "bold" },
-			boldItalicEm: { className: "italic" },
+			"bold-italic": { class: "bold" },
+			boldItalicEm: { class: "italic" },
 		},
 	);
 	assert.match(html, /class="bold"/);
 	assert.match(html, /class="italic"/);
-	assert.match(html, /&lt;unsafe&gt;&amp;/);
-	assert.match(html, /<code>a&lt;b<\/code>/);
+	assert.match(html, /&lt;unsafe(?:&gt;|>)&amp;/);
+	assert.match(html, /<code[^>]*>a&lt;b<\/code>/);
 });
 
 test("preview and chat retain different autolink and image fallback behavior", () => {
@@ -52,12 +53,12 @@ test("preview and chat retain different autolink and image fallback behavior", (
 	];
 	assert.doesNotMatch(render(url), /<a /);
 	assert.match(
-		render(url, { url: { className: "link" } }),
+		render(url, { url: { class: "link" } }),
 		/rel="noopener noreferrer"/,
 	);
 	assert.match(
 		render([{ type: "image", text: "fallback" }], { image: { alt: "" } }),
-		/alt=""/,
+		/alt(?:="")?(?=\s|\/?>)/,
 	);
 	assert.match(render([{ type: "image", text: "fallback" }]), /alt="fallback"/);
 });

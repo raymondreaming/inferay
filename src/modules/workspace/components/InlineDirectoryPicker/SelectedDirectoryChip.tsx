@@ -1,15 +1,9 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { basename } from "../../../../shared/lib/data.ts";
+import { basename } from "../../../../shared/lib/dom.tsx";
 import { IconX } from "../../../../shared/ui/Icons/index.tsx";
 import { styles } from "./styles.ts";
-
-export function SelectedDirectoryChip({
-	path,
-	onRemove,
-	strong = false,
-	primary = false,
-}: {
+export function SelectedDirectoryChip(_props: {
 	path: string;
 	onRemove: (path: string) => void;
 	strong?: boolean;
@@ -17,20 +11,24 @@ export function SelectedDirectoryChip({
 }) {
 	return (
 		<span
-			{...stylex.props(strong ? styles.selectedTagStrong : styles.selectedTag)}
+			{...stylex.attrs(
+				(_props.strong === undefined ? false : _props.strong)
+					? styles.selectedTagStrong
+					: styles.selectedTag,
+			)}
 		>
-			{strong ? (
+			{(_props.strong === undefined ? false : _props.strong) ? (
 				<>
-					{primary ? "● " : ""}
-					{basename(path)}
+					{(_props.primary === undefined ? false : _props.primary) ? "● " : ""}
+					{basename(_props.path)}
 				</>
 			) : (
-				<span {...stylex.props(styles.truncate)}>{basename(path)}</span>
+				<span {...stylex.attrs(styles.truncate)}>{basename(_props.path)}</span>
 			)}
 			<button
 				type="button"
-				onClick={onRemove.bind(null, path)}
-				{...stylex.props(styles.tagRemove)}
+				onClick={_props.onRemove.bind(null, _props.path)}
+				{...stylex.attrs(styles.tagRemove)}
 			>
 				<IconX size={iconSize.xs} />
 			</button>

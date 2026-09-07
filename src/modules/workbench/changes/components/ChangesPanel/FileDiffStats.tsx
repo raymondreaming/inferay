@@ -1,20 +1,25 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo } from "solid-js";
 import type { GitFileEntry } from "../../../../../../build/presentation/contracts/GitFileEntry.ts";
 import { styles } from "./styles.ts";
-
-export function FileDiffStats({ file }: { file: GitFileEntry }) {
-	const additions = file.additions ?? 0;
-	const deletions = file.deletions ?? 0;
-	if (additions === 0 && deletions === 0) return null;
-
+export function FileDiffStats(_props: { file: GitFileEntry }) {
+	const additions = createMemo(() => _props.file.additions ?? 0);
+	const deletions = createMemo(() => _props.file.deletions ?? 0);
 	return (
-		<span {...stylex.props(styles.fileStats)}>
-			{additions > 0 && (
-				<span {...stylex.props(styles.addedText)}>+{additions}</span>
-			)}
-			{deletions > 0 && (
-				<span {...stylex.props(styles.deletedText)}>-{deletions}</span>
-			)}
-		</span>
+		<>
+			{(() => {
+				if (additions() === 0 && deletions() === 0) return null;
+				return (
+					<span {...stylex.attrs(styles.fileStats)}>
+						{additions() > 0 && (
+							<span {...stylex.attrs(styles.addedText)}>+{additions()}</span>
+						)}
+						{deletions() > 0 && (
+							<span {...stylex.attrs(styles.deletedText)}>-{deletions()}</span>
+						)}
+					</span>
+				);
+			})()}
+		</>
 	);
 }

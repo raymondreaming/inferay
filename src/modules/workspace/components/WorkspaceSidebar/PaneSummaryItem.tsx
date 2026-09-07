@@ -1,64 +1,70 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo } from "solid-js";
 import type { Pane } from "../../../../../build/presentation/contracts/Pane.ts";
-import { isChatAgentKind } from "../../../../adapters/backend/http.ts";
-import { readStoredValue } from "../../../../adapters/storage/stored-values.ts";
 import {
 	iconSize,
 	selectionAppearance,
 } from "../../../../design-system/styles.stylex.ts";
-import { dispatchRemoveAgentPaneRequest } from "../../../../shared/lib/data.ts";
+import {
+	ariaValue,
+	dispatchRemoveAgentPaneRequest,
+} from "../../../../shared/lib/dom.tsx";
+import {
+	isChatAgentKind,
+	readStoredValue,
+} from "../../../../shared/lib/native.tsx";
 import { IconAgent, IconX } from "../../../../shared/ui/Icons/index.tsx";
 import { getAgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
 import { styles } from "./styles.ts";
-
-export function PaneSummaryItem({
-	pane,
-	isActive,
-	onClick,
-}: {
+export function PaneSummaryItem(_props: {
 	pane: Pane;
 	isActive: boolean;
 	onClick: () => void;
 }) {
-	const isChat = isChatAgentKind(pane.agentKind);
-	const summary = isChat
-		? (pane.summary ?? readStoredValue(`inferay-chat-summary-${pane.id}`))
-		: null;
-	const primaryLabel = isChat ? (summary ?? pane.title) : pane.title;
+	const isChat = createMemo(() => isChatAgentKind(_props.pane.agentKind));
+	const summary = createMemo(() =>
+		isChat()
+			? (_props.pane.summary ??
+				readStoredValue(`inferay-chat-summary-${_props.pane.id}`))
+			: null,
+	);
+	const primaryLabel = createMemo(() =>
+		isChat() ? (summary() ?? _props.pane.title) : _props.pane.title,
+	);
 	return (
-		<div {...stylex.props(styles.paneSummaryCard)}>
+		<div {...stylex.attrs(styles.paneSummaryCard)}>
 			<button
 				type="button"
-				onClick={onClick}
-				{...stylex.props(
+				onClick={_props.onClick}
+				{...stylex.attrs(
 					styles.paneSummary,
-					...selectionAppearance("list", isActive),
+					...selectionAppearance("list", _props.isActive),
 				)}
 			>
-				<span {...stylex.props(styles.paneSummaryIcon)}>
-					{isChat ? (
+				<span {...stylex.attrs(styles.paneSummaryIcon)}>
+					{isChat() ? (
 						getAgentIcon(
-							pane.agentKind,
+							_props.pane.agentKind,
 							12,
-							stylex.props(styles.iconDim).className,
+							stylex.attrs(styles.iconDim).class,
 						)
 					) : (
 						<IconAgent
 							size={iconSize.md}
-							className={stylex.props(styles.iconDim).className}
+							class={stylex.attrs(styles.iconDim).class}
 						/>
 					)}
 				</span>
-				<div {...stylex.props(styles.paneSummaryText)}>
-					<p {...stylex.props(styles.paneSummaryTitle)}>{primaryLabel}</p>
+				<div {...stylex.attrs(styles.paneSummaryText)}>
+					<p {...stylex.attrs(styles.paneSummaryTitle)}>{primaryLabel()}</p>
 				</div>
 			</button>
 			<button
 				type="button"
-				onClick={() => dispatchRemoveAgentPaneRequest(pane.id)}
-				{...stylex.props(styles.paneSummaryDelete)}
+				onClick={() => dispatchRemoveAgentPaneRequest(_props.pane.id)}
+				{...stylex.attrs(styles.paneSummaryDelete)}
 				title="Delete pane"
-				aria-label={`Delete ${primaryLabel}`}
+				aria-label={ariaValue(`Delete ${primaryLabel()}`)}
 			>
 				<IconX size={iconSize.xs} />
 			</button>

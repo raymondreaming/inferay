@@ -1,21 +1,20 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import type { MdListItem } from "../../../../../../build/presentation/contracts/MdListItem.ts";
 import { InlineTokens } from "./InlineTokens.tsx";
 import { styles } from "./styles.ts";
-
-export function ListItemRenderer({ item }: { item: MdListItem }) {
+export function ListItemRenderer(_props: { item: MdListItem }) {
 	return (
-		<li {...stylex.props(styles.listItem)}>
-			{item.checked !== undefined && (
-				<span {...stylex.props(styles.checkSlot)}>
-					{item.checked ? (
-						<span {...stylex.props(styles.checkOn)}>✓</span>
+		<li {...stylex.attrs(styles.listItem)}>
+			{_props.item.checked !== undefined && (
+				<span {...stylex.attrs(styles.checkSlot)}>
+					{_props.item.checked ? (
+						<span {...stylex.attrs(styles.checkOn)}>✓</span>
 					) : (
-						<span {...stylex.props(styles.checkOff)} />
+						<span {...stylex.attrs(styles.checkOff)} />
 					)}
 				</span>
 			)}
-			<InlineTokens tokens={item.tokens} />
+			<InlineTokens tokens={_props.item.tokens} />
 		</li>
 	);
 }

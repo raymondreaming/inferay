@@ -1,15 +1,9 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import type { AppThemeId } from "../../../../../build/presentation/contracts/AppThemeId.ts";
+import { domStyle } from "../../../../shared/lib/dom.tsx";
 import * as inlineStyles from "./styles.ts";
-
 import { styles } from "./styles.ts";
-
-export function ThemeOrb({
-	theme,
-	selected,
-	onClick,
-	dashed,
-}: {
+export function ThemeOrb(_props: {
 	theme: {
 		id: AppThemeId;
 		name: string;
@@ -24,45 +18,49 @@ export function ThemeOrb({
 	return (
 		<button
 			type="button"
-			onClick={onClick}
-			{...stylex.props(
+			onClick={_props.onClick}
+			{...stylex.attrs(
 				styles.themeOrbButton,
-				selected && styles.themeOrbSelected,
+				_props.selected && styles.themeOrbSelected,
 			)}
 		>
 			<div
-				data-inferay-theme={theme.id}
-				{...stylex.props(
+				data-inferay-theme={_props.theme.id}
+				{...stylex.attrs(
 					styles.themeOrb,
-					dashed && styles.themeOrbDashed,
-					selected && styles.themeOrbSelectedRing,
+					_props.dashed && styles.themeOrbDashed,
+					_props.selected && styles.themeOrbSelectedRing,
 				)}
-				style={inlineStyles.getThemeOrbThemeOrbStyle(black)}
+				style={domStyle(inlineStyles.getThemeOrbThemeOrbStyle(black))}
 			>
 				<div
-					{...stylex.props(styles.themeOrbFill)}
-					style={inlineStyles.getThemeOrbThemeOrbFillStyle(
-						`radial-gradient(circle at 35% 35%, ${darkGray} 0%, ${black} 60%, ${black} 100%)`,
+					{...stylex.attrs(styles.themeOrbFill)}
+					style={domStyle(
+						inlineStyles.getThemeOrbThemeOrbFillStyle(
+							`radial-gradient(circle at 35% 35%, ${darkGray} 0%, ${black} 60%, ${black} 100%)`,
+						),
 					)}
 				/>
 				<div
-					{...stylex.props(styles.themeOrbGlow)}
-					style={inlineStyles.getThemeOrbThemeOrbGlowStyle(
-						`radial-gradient(ellipse at center, color-mix(in srgb, ${accent} 33%, transparent), transparent 70%)`,
+					{...stylex.attrs(styles.themeOrbGlow)}
+					style={domStyle(
+						inlineStyles.getThemeOrbThemeOrbGlowStyle(
+							`radial-gradient(ellipse at center, color-mix(in srgb, ${accent} 33%, transparent), transparent 70%)`,
+						),
 					)}
 				/>
 				<div
-					{...stylex.props(styles.themeOrbHighlight)}
-					style={inlineStyles.getThemeOrbThemeOrbHighlightStyle()}
+					{...stylex.attrs(styles.themeOrbHighlight)}
+					style={domStyle(inlineStyles.getThemeOrbThemeOrbHighlightStyle())}
 				/>
 			</div>
 			<span
-				{...stylex.props(
+				{...stylex.attrs(
 					styles.themeOrbLabel,
-					selected && styles.themeOrbLabelSelected,
+					_props.selected && styles.themeOrbLabelSelected,
 				)}
 			>
-				{theme.name}
+				{_props.theme.name}
 			</span>
 		</button>
 	);

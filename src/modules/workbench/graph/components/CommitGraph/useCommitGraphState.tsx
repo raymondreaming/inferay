@@ -1,44 +1,32 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
+import {
+	type Accessor,
+	createEffect,
+	createMemo,
+	createSignal,
+	merge,
+	onSettled,
+} from "solid-js";
 import type { GitGraphRef } from "../../../../../../build/presentation/contracts/GitGraphRef.ts";
 import type { GitWorktree } from "../../../../../../build/presentation/contracts/GitWorktree.ts";
 import type { GraphCommit } from "../../../../../../build/presentation/contracts/GraphCommit.ts";
 import type { GraphLines } from "../../../../../../build/presentation/contracts/GraphLines.ts";
 import type { GraphRow } from "../../../../../../build/presentation/contracts/GraphRow.ts";
-import { postJson } from "../../../../../adapters/backend/http.ts";
-import { project as rustProject } from "../../../../../adapters/presentation/model.ts";
-import {
-	readStoredJson,
-	writeStoredJson,
-} from "../../../../../adapters/storage/stored-values.ts";
 import { runtimeGitGraphLaneColors } from "../../../../../design-system/styles.stylex.ts";
-import { trackPointerResize } from "../../../../../shared/lib/data.ts";
+import { trackPointerResize } from "../../../../../shared/lib/dom.tsx";
+import {
+	postJson,
+	readStoredJson,
+	project as rustProject,
+	writeStoredJson,
+} from "../../../../../shared/lib/native.tsx";
 import type { GraphPresentation } from "../../../../repository/hooks/useGitGraph.tsx";
-
 import { getGraphLineLayerStyle } from "./styles.ts";
-export function useCommitGraphState(props: CommitGraphProps) {
-	const {
-		onSearchChange,
-		emptyLabel = "No matching commits",
-		searchActive = false,
-		searchQuery = "",
-		commits,
-		rows,
-		presentation,
-		selectedHash,
-		selectedIds = EMPTY_SELECTED_IDS,
-		onSelect,
-		className = "",
-		worktrees = [],
-		embedded = false,
-		hasMore = false,
-		loadingMore = false,
-		repositoryKey,
-		onOpenSelection,
-	} = props;
-	const preferences = props.preferences;
-	const setPreferences = props.onPreferencesChange;
-	const { columns, widths, order, soloRefs, pinnedRefs } = preferences;
-	const setters = useMemo(() => {
+export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
+	const _source = createMemo(() => _props());
+	const preferences = createMemo(() => _props().preferences);
+	const setPreferences = createMemo(() => _props().onPreferencesChange);
+	const _source2 = createMemo(() => preferences());
+	const setters = createMemo(() => {
 		const field =
 			<K extends keyof GraphPreferences>(key: K) =>
 			(
@@ -46,7 +34,7 @@ export function useCommitGraphState(props: CommitGraphProps) {
 					| GraphPreferences[K]
 					| ((value: GraphPreferences[K]) => GraphPreferences[K]),
 			) =>
-				setPreferences((current) => ({
+				setPreferences()((current) => ({
 					...current,
 					[key]: typeof update === "function" ? update(current[key]) : update,
 				}));
@@ -58,412 +46,586 @@ export function useCommitGraphState(props: CommitGraphProps) {
 			setSoloRefs: field("soloRefs"),
 			setPinnedRefs: field("pinnedRefs"),
 		};
-	}, []);
-	const {
-		setColumns,
-		setWidths,
-		setOrder,
-		setHiddenRefs,
-		setSoloRefs,
-		setPinnedRefs,
-	} = setters;
-	const [isColumnsOpen, setIsColumnsOpen] = useState(false);
-	const [commitAvatars, setCommitAvatars] = useState<
+	});
+	const _source3 = createMemo(() => setters());
+	const [isColumnsOpen, setIsColumnsOpen] = createSignal(false);
+	const [commitAvatars, setCommitAvatars] = createSignal<
 		Record<string, string | null>
 	>({});
-	const avatarHashes = useMemo(
-		() =>
-			commits
-				.filter((commit) => commit.itemKind === "commit")
-				.slice(0, 100)
-				.map((commit) => commit.hash),
-		[commits],
+	const avatarHashes = createMemo(() =>
+		_source()
+			.commits.filter((commit) => commit.itemKind === "commit")
+			.slice(0, 100)
+			.map((commit) => commit.hash),
 	);
-	useEffect(() => {
-		let current = true;
-		if (!repositoryKey || avatarHashes.length === 0) return;
-		void resolveGitCommitAvatars(repositoryKey, avatarHashes).then(
-			(avatars) => {
+	createEffect(
+		() => [avatarHashes(), _source().repositoryKey],
+		() => {
+			const _sourceValue = _source(),
+				_avatarHashesValue = avatarHashes();
+			let current = true;
+			if (!_sourceValue.repositoryKey || _avatarHashesValue.length === 0)
+				return;
+			void resolveGitCommitAvatars(
+				_sourceValue.repositoryKey,
+				_avatarHashesValue,
+			).then((avatars) => {
 				if (current) setCommitAvatars(avatars);
-			},
+			});
+			return () => {
+				current = false;
+			};
+		},
+	);
+	const selectedIdSet = createMemo(() => {
+		const _sourceValue2 = _source();
+		return new Set(
+			_sourceValue2.selectedIds === undefined
+				? EMPTY_SELECTED_IDS
+				: _sourceValue2.selectedIds,
 		);
-		return () => {
-			current = false;
-		};
-	}, [avatarHashes, repositoryKey]);
-	const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
-	const [hoveredRow, setHoveredRow] = useState<string | null>(null);
-	const keyboardNavigationRef = useRef(false);
-	const mousePositionRef = useRef<{
-		x: number;
-		y: number;
-	} | null>(null);
-	const handleRowHover = useCallback((itemId: string | null) => {
-		if (!keyboardNavigationRef.current) setHoveredRow(itemId);
-	}, []);
-	const scrollerRef = useRef<HTMLDivElement | null>(null);
-	const scrollFrameRef = useRef<number | null>(null);
-	const scrollWriteTimerRef = useRef<number | null>(null);
-	const scrollPositionRef = useRef({
-		top: 0,
-		left: 0,
 	});
-	const restoredScrollKeyRef = useRef<string | null>(null);
-	const [scrollTop, setScrollTop] = useState(0);
-	const [viewportHeight, setViewportHeight] = useState(600);
-	const [query, setQuery] = useState(searchQuery);
-	const [refContextMenu, setRefContextMenu] = useState<{
+	const [hoveredRow, setHoveredRow] = createSignal<string | null>(null);
+	const keyboardNavigationRef = {
+		current: false,
+	};
+	const mousePositionRef = {
+		current: null,
+	} as {
+		current: {
+			x: number;
+			y: number;
+		} | null;
+	};
+	const handleRowHover = (itemId: string | null) => {
+		if (!keyboardNavigationRef.current) setHoveredRow(itemId);
+	};
+	const [scrollerElement, setScrollerElement] =
+		createSignal<HTMLDivElement | null>(null);
+	const scrollerRef = {
+		get current() {
+			return scrollerElement();
+		},
+		set current(element: HTMLDivElement | null) {
+			setScrollerElement(element);
+		},
+	};
+	const scrollFrameRef = {
+		current: null,
+	} as {
+		current: number | null;
+	};
+	const scrollWriteTimerRef = {
+		current: null,
+	} as {
+		current: number | null;
+	};
+	const scrollPositionRef = {
+		current: {
+			top: 0,
+			left: 0,
+		},
+	};
+	const restoredScrollKeyRef = {
+		current: null,
+	} as {
+		current: string | null;
+	};
+	const [scrollTop, setScrollTop] = createSignal(0);
+	const [viewportHeight, setViewportHeight] = createSignal(600);
+	const [query, setQuery] = createSignal(() => {
+		_source().repositoryKey;
+		return _source().searchQuery ?? "";
+	});
+	const [refContextMenu, setRefContextMenu] = createSignal<{
 		ref: GitGraphRef;
 		x: number;
 		y: number;
 	} | null>(null);
-	const [itemContextMenu, setItemContextMenu] = useState<{
+	const [itemContextMenu, setItemContextMenu] = createSignal<{
 		item: GraphCommit;
 		x: number;
 		y: number;
 	} | null>(null);
-	const hasCommits = commits.length > 0;
-	useEffect(() => {
-		if (!embedded || !hasCommits) return;
-		scrollerRef.current?.focus({
-			preventScroll: true,
-		});
-	}, [embedded, hasCommits, repositoryKey]);
-	useEffect(() => {
-		const key = scrollPreferencesKey(repositoryKey);
-		if (restoredScrollKeyRef.current === key || commits.length === 0) return;
-		const position = readStoredJson<{
-			top?: number;
-			left?: number;
-		}>(key, {});
-		const scroller = scrollerRef.current;
-		if (!scroller) return;
-		restoredScrollKeyRef.current = key;
-		const top = typeof position.top === "number" ? position.top : 0;
-		const left = typeof position.left === "number" ? position.left : 0;
-		scrollPositionRef.current = {
-			top,
-			left,
-		};
-		scroller.scrollTop = top;
-		scroller.scrollLeft = left;
-		setScrollTop(top);
-	}, [commits.length, repositoryKey]);
-	useEffect(
+	const hasCommits = createMemo(() => _source().commits.length > 0);
+	createEffect(
+		() => {
+			const _sourceValue3 = _source();
+			return [
+				_sourceValue3.embedded === undefined ? false : _sourceValue3.embedded,
+				hasCommits(),
+				_sourceValue3.repositoryKey,
+			];
+		},
+		() => {
+			const _sourceValue4 = _source();
+			if (
+				!(_sourceValue4.embedded === undefined
+					? false
+					: _sourceValue4.embedded) ||
+				!hasCommits()
+			)
+				return;
+			scrollerRef.current?.focus({
+				preventScroll: true,
+			});
+		},
+	);
+	createEffect(
+		() => {
+			const _sourceValue5 = _source();
+			return [_sourceValue5.commits.length, _sourceValue5.repositoryKey];
+		},
+		() => {
+			const _sourceValue6 = _source();
+			const key = scrollPreferencesKey(_sourceValue6.repositoryKey);
+			if (
+				restoredScrollKeyRef.current === key ||
+				_sourceValue6.commits.length === 0
+			)
+				return;
+			const position = readStoredJson<{
+				top?: number;
+				left?: number;
+			}>(key, {});
+			const scroller = scrollerRef.current;
+			if (!scroller) return;
+			restoredScrollKeyRef.current = key;
+			const top = typeof position.top === "number" ? position.top : 0;
+			const left = typeof position.left === "number" ? position.left : 0;
+			scrollPositionRef.current = {
+				top,
+				left,
+			};
+			scroller.scrollTop = top;
+			scroller.scrollLeft = left;
+			setScrollTop(top);
+		},
+	);
+	createEffect(
+		() => [_source().repositoryKey],
 		() => () => {
 			if (scrollWriteTimerRef.current !== null) {
 				window.clearTimeout(scrollWriteTimerRef.current);
 			}
 			writeStoredJson(
-				scrollPreferencesKey(repositoryKey),
+				scrollPreferencesKey(_source().repositoryKey),
 				scrollPositionRef.current,
 			);
 		},
-		[repositoryKey],
 	);
-	useEffect(() => {
-		if (!refContextMenu && !itemContextMenu) return;
-		const close = () => {
-			setRefContextMenu(null);
-			setItemContextMenu(null);
-		};
-		const closeOnEscape = (event: KeyboardEvent) => {
-			if (event.key === "Escape") close();
-		};
-		window.addEventListener("pointerdown", close);
-		window.addEventListener("keydown", closeOnEscape);
-		return () => {
-			window.removeEventListener("pointerdown", close);
-			window.removeEventListener("keydown", closeOnEscape);
-		};
-	}, [itemContextMenu, refContextMenu]);
-	useEffect(() => {
-		writeStoredJson(preferencesKey(repositoryKey), preferences);
-	}, [preferences, repositoryKey]);
-	const graphModel = useMemo(
-		() =>
-			buildCommitGraphViewModel({
-				columns,
-				commits,
-				order,
-				presentation,
-				widths,
-				worktrees,
-			}),
-		[columns, commits, order, presentation, widths, worktrees],
+	createEffect(
+		() => [itemContextMenu(), refContextMenu()],
+		() => {
+			if (!refContextMenu() && !itemContextMenu()) return;
+			const close = () => {
+				setRefContextMenu(null);
+				setItemContextMenu(null);
+			};
+			const closeOnEscape = (event: KeyboardEvent) => {
+				if (event.key === "Escape") close();
+			};
+			window.addEventListener("pointerdown", close);
+			window.addEventListener("keydown", closeOnEscape);
+			return () => {
+				window.removeEventListener("pointerdown", close);
+				window.removeEventListener("keydown", closeOnEscape);
+			};
+		},
 	);
-	const viewportModel = useMemo(
-		() =>
-			projectCommitGraphViewport(
-				rows,
-				commits.length,
-				scrollTop,
-				viewportHeight,
-				graphModel.displayColumns,
-			),
-		[
-			commits.length,
-			rows,
-			scrollTop,
-			viewportHeight,
-			graphModel.displayColumns,
-		],
+	createEffect(
+		() => [preferences(), _source().repositoryKey],
+		() => {
+			writeStoredJson(preferencesKey(_source().repositoryKey), preferences());
+		},
 	);
-	const { graphLeft, itemIndexes, selectableItems } = graphModel;
-	const lineLayerStyle = useMemo(
-		() => getGraphLineLayerStyle(graphLeft, TOP_PADDING),
-		[graphLeft],
-	);
-	const normalizedQuery = query.trim();
-	useEffect(() => {
-		const timer = window.setTimeout(
-			() => onSearchChange?.(normalizedQuery),
-			200,
+	const graphModel = createMemo(() => {
+		const _source2Value = _source2(),
+			_sourceValue7 = _source();
+		return buildCommitGraphViewModel({
+			columns: _source2Value.columns,
+			commits: _sourceValue7.commits,
+			order: _source2Value.order,
+			presentation: _sourceValue7.presentation,
+			widths: _source2Value.widths,
+			worktrees:
+				_sourceValue7.worktrees === undefined ? [] : _sourceValue7.worktrees,
+		});
+	});
+	const viewportModel = createMemo(() => {
+		const _sourceValue8 = _source();
+		return projectCommitGraphViewport(
+			_sourceValue8.rows,
+			_sourceValue8.commits.length,
+			scrollTop(),
+			viewportHeight(),
+			graphModel().displayColumns,
 		);
-		return () => window.clearTimeout(timer);
-	}, [normalizedQuery, onSearchChange]);
-	useEffect(() => {
-		setQuery(searchQuery);
-	}, [repositoryKey]);
-	useEffect(() => {
-		const scroller = scrollerRef.current;
-		if (!scroller) return;
-		const update = () => setViewportHeight(scroller.clientHeight);
-		update();
-		const observer = new ResizeObserver(update);
-		observer.observe(scroller);
-		return () => observer.disconnect();
-	}, []);
+	});
+	const _source4 = createMemo(() => graphModel());
+	const lineLayerStyle = createMemo(() =>
+		getGraphLineLayerStyle(_source4().graphLeft, TOP_PADDING),
+	);
+	const normalizedQuery = createMemo(() => (query() ?? "").trim());
+	createEffect(
+		() => [normalizedQuery(), _source().onSearchChange],
+		() => {
+			const timer = window.setTimeout(
+				() => _source().onSearchChange?.(normalizedQuery()),
+				200,
+			);
+			return () => window.clearTimeout(timer);
+		},
+	);
+	createEffect(
+		() => scrollerRef.current,
+		(scroller) => {
+			if (!scroller) return;
+			const update = () => setViewportHeight(scroller.clientHeight);
+			update();
+			const observer = new ResizeObserver(update);
+			observer.observe(scroller);
+			return () => observer.disconnect();
+		},
+	);
 	const toggleColumn = (key: keyof ColumnVisibility) =>
-		setColumns((cur) => ({
+		_source3().setColumns((cur) => ({
 			...cur,
 			[key]: !cur[key],
 		}));
-	const moveColumn = useCallback((source: ColumnKey, target: ColumnKey) => {
-		setOrder((current) => moveGraphColumn(current, source, target));
-	}, []);
-	const rememberScroll = useCallback(
-		(top: number, left: number) => {
-			scrollPositionRef.current = {
+	const moveColumn = (source: ColumnKey, target: ColumnKey) => {
+		_source3().setOrder((current) => moveGraphColumn(current, source, target));
+	};
+	const rememberScroll = (top: number, left: number) => {
+		scrollPositionRef.current = {
+			top,
+			left,
+		};
+		if (scrollFrameRef.current === null) {
+			scrollFrameRef.current = requestAnimationFrame(() => {
+				scrollFrameRef.current = null;
+				const nextTop = scrollPositionRef.current.top;
+				setScrollTop((current) =>
+					Math.floor(current / ROW_HEIGHT) === Math.floor(nextTop / ROW_HEIGHT)
+						? current
+						: nextTop,
+				);
+			});
+		}
+		if (scrollWriteTimerRef.current !== null) {
+			window.clearTimeout(scrollWriteTimerRef.current);
+		}
+		scrollWriteTimerRef.current = window.setTimeout(() => {
+			writeStoredJson(scrollPreferencesKey(_source().repositoryKey), {
 				top,
 				left,
-			};
-			if (scrollFrameRef.current === null) {
-				scrollFrameRef.current = requestAnimationFrame(() => {
-					scrollFrameRef.current = null;
-					const nextTop = scrollPositionRef.current.top;
-					setScrollTop((current) =>
-						Math.floor(current / ROW_HEIGHT) ===
-						Math.floor(nextTop / ROW_HEIGHT)
-							? current
-							: nextTop,
-					);
-				});
-			}
-			if (scrollWriteTimerRef.current !== null) {
-				window.clearTimeout(scrollWriteTimerRef.current);
-			}
-			scrollWriteTimerRef.current = window.setTimeout(() => {
-				writeStoredJson(scrollPreferencesKey(repositoryKey), {
-					top,
-					left,
-				});
-				scrollWriteTimerRef.current = null;
-			}, 160);
-		},
-		[repositoryKey],
-	);
-	useEffect(
-		() => () => {
-			if (scrollFrameRef.current !== null)
-				cancelAnimationFrame(scrollFrameRef.current);
-		},
-		[],
-	);
-	const openRefContextMenu = useCallback(
-		(ref: GitGraphRef, event: MouseEvent) => {
-			setItemContextMenu(null);
-			setRefContextMenu({
-				ref,
-				x: Math.max(8, Math.min(event.clientX, window.innerWidth - 232)),
-				y: Math.max(8, Math.min(event.clientY, window.innerHeight - 460)),
 			});
-		},
-		[],
-	);
-	const openItemContextMenu = useCallback(
-		(item: GraphCommit, event: MouseEvent) => {
-			setRefContextMenu(null);
-			setItemContextMenu({
-				item,
-				x: Math.min(event.clientX, window.innerWidth - 224),
-				y: Math.min(event.clientY, window.innerHeight - 260),
-			});
-		},
-		[],
-	);
-	const navigateRows = useCallback(
-		(event: KeyboardEvent) => {
-			if (
-				event.key !== "ArrowUp" &&
-				event.key !== "ArrowDown" &&
-				event.key !== "ArrowLeft" &&
-				event.key !== "ArrowRight" &&
-				event.key !== "Home" &&
-				event.key !== "End"
-			)
-				return;
-			if (!selectableItems.length) return;
-			keyboardNavigationRef.current = true;
-			setHoveredRow(null);
-			event.preventDefault();
-			const currentIndex = selectedHash
-				? (itemIndexes.get(selectedHash) ?? -1)
-				: -1;
-			if (
-				event.altKey &&
-				(event.key === "ArrowUp" || event.key === "ArrowDown") &&
-				selectedHash
-			) {
-				const current = commits[currentIndex];
-				const next =
-					event.key === "ArrowUp"
-						? current?.navigation?.branchNewer
-						: current?.navigation?.branchOlder;
-				if (next) {
-					const nextIndex = itemIndexes.get(next) ?? -1;
-					onSelect?.(next);
-					scrollerRef.current?.scrollTo({
-						top: Math.max(0, nextIndex * ROW_HEIGHT - ROW_HEIGHT * 2),
-						behavior: "smooth",
-					});
-				}
-				return;
-			}
-			if (event.key === "ArrowRight" && currentIndex >= 0 && onOpenSelection) {
-				onOpenSelection(selectableItems[currentIndex]!);
-				return;
-			}
-			if (
-				(event.key === "ArrowLeft" || event.key === "ArrowRight") &&
-				currentIndex >= 0
-			) {
-				const current = commits[currentIndex];
-				const connectedId =
-					event.key === "ArrowLeft"
-						? current?.navigation?.parent
-						: current?.navigation?.child;
-				const connected = connectedId
-					? commits[itemIndexes.get(connectedId) ?? -1]
-					: undefined;
-				if (connected) {
-					const connectedIndex = commits.indexOf(connected);
-					onSelect?.(connected.id);
-					scrollerRef.current?.scrollTo({
-						top: Math.max(0, connectedIndex * ROW_HEIGHT - ROW_HEIGHT * 2),
-						behavior: "smooth",
-					});
-				}
-				return;
-			}
-			if (event.key === "ArrowLeft" || event.key === "ArrowRight") return;
-			const nextIndex =
-				event.key === "Home"
-					? 0
-					: event.key === "End"
-						? selectableItems.length - 1
-						: currentIndex < 0
-							? event.key === "ArrowUp"
-								? selectableItems.length - 1
-								: 0
-							: Math.max(
-									0,
-									Math.min(
-										selectableItems.length - 1,
-										currentIndex + (event.key === "ArrowUp" ? -1 : 1),
-									),
-								);
-			const next = selectableItems[nextIndex]!;
-			onSelect?.(next);
-			scrollerRef.current?.scrollTo({
-				top: Math.max(0, nextIndex * ROW_HEIGHT - ROW_HEIGHT * 2),
-				behavior: "smooth",
-			});
-		},
-		[
-			commits,
-			onOpenSelection,
-			onSelect,
-			selectableItems,
-			itemIndexes,
-			selectedHash,
-		],
-	);
-	const startColumnResize = useCallback(
-		(column: keyof ColumnWidths, event: PointerEvent) => {
-			if (event.button !== 0) return;
-			event.preventDefault();
-			const startX = event.clientX;
-			const startWidth = widths[column];
-			const move = (moveEvent: PointerEvent) => {
-				setWidths((current) => ({
-					...current,
-					[column]: Math.max(
-						MIN_COLUMN_WIDTHS[column],
-						Math.min(MAX_COLUMN_WIDTH, startWidth + moveEvent.clientX - startX),
-					),
-				}));
-			};
-			trackPointerResize(event.pointerId, move);
-		},
-		[widths],
-	);
-	return {
-		...props,
-		...graphModel,
-		...viewportModel,
-		emptyLabel,
-		searchActive,
-		selectedIds,
-		className,
-		embedded,
-		hasMore,
-		loadingMore,
-		columns,
-		widths,
-		order,
-		setHiddenRefs,
-		soloRefs,
-		setSoloRefs,
-		pinnedRefs,
-		setPinnedRefs,
-		isColumnsOpen,
-		setIsColumnsOpen,
-		commitAvatars,
-		selectedIdSet,
-		hoveredRow,
-		setHoveredRow,
-		keyboardNavigationRef,
-		mousePositionRef,
-		handleRowHover,
-		scrollerRef,
-		query,
-		setQuery,
-		refContextMenu,
-		setRefContextMenu,
-		itemContextMenu,
-		setItemContextMenu,
-		lineLayerStyle,
-		toggleColumn,
-		moveColumn,
-		rememberScroll,
-		openRefContextMenu,
-		openItemContextMenu,
-		navigateRows,
-		startColumnResize,
+			scrollWriteTimerRef.current = null;
+		}, 160);
 	};
+	onSettled(() => () => {
+		if (scrollFrameRef.current !== null)
+			cancelAnimationFrame(scrollFrameRef.current);
+	});
+	const openRefContextMenu = (ref: GitGraphRef, event: MouseEvent) => {
+		setItemContextMenu(null);
+		setRefContextMenu({
+			ref,
+			x: Math.max(8, Math.min(event.clientX, window.innerWidth - 232)),
+			y: Math.max(8, Math.min(event.clientY, window.innerHeight - 460)),
+		});
+	};
+	const openItemContextMenu = (item: GraphCommit, event: MouseEvent) => {
+		setRefContextMenu(null);
+		setItemContextMenu({
+			item,
+			x: Math.min(event.clientX, window.innerWidth - 224),
+			y: Math.min(event.clientY, window.innerHeight - 260),
+		});
+	};
+	const navigateRows = (event: KeyboardEvent) => {
+		const _source4Value = _source4(),
+			_sourceValue0 = _source();
+		if (
+			event.key !== "ArrowUp" &&
+			event.key !== "ArrowDown" &&
+			event.key !== "ArrowLeft" &&
+			event.key !== "ArrowRight" &&
+			event.key !== "Home" &&
+			event.key !== "End"
+		)
+			return;
+		if (!_source4Value.selectableItems.length) return;
+		keyboardNavigationRef.current = true;
+		setHoveredRow(null);
+		event.preventDefault();
+		const currentIndex = _sourceValue0.selectedHash
+			? (_source4Value.itemIndexes.get(_sourceValue0.selectedHash) ?? -1)
+			: -1;
+		if (
+			event.altKey &&
+			(event.key === "ArrowUp" || event.key === "ArrowDown") &&
+			_sourceValue0.selectedHash
+		) {
+			const current = _sourceValue0.commits[currentIndex];
+			const next =
+				event.key === "ArrowUp"
+					? current?.navigation?.branchNewer
+					: current?.navigation?.branchOlder;
+			if (next) {
+				const nextIndex = _source4Value.itemIndexes.get(next) ?? -1;
+				_sourceValue0.onSelect?.(next);
+				scrollerRef.current?.scrollTo({
+					top: Math.max(0, nextIndex * ROW_HEIGHT - ROW_HEIGHT * 2),
+					behavior: "smooth",
+				});
+			}
+			return;
+		}
+		if (
+			event.key === "ArrowRight" &&
+			currentIndex >= 0 &&
+			_sourceValue0.onOpenSelection
+		) {
+			_sourceValue0.onOpenSelection(
+				_source4Value.selectableItems[currentIndex]!,
+			);
+			return;
+		}
+		if (
+			(event.key === "ArrowLeft" || event.key === "ArrowRight") &&
+			currentIndex >= 0
+		) {
+			const current = _sourceValue0.commits[currentIndex];
+			const connectedId =
+				event.key === "ArrowLeft"
+					? current?.navigation?.parent
+					: current?.navigation?.child;
+			const connected = connectedId
+				? _sourceValue0.commits[
+						_source4Value.itemIndexes.get(connectedId) ?? -1
+					]
+				: undefined;
+			if (connected) {
+				const connectedIndex = _sourceValue0.commits.indexOf(connected);
+				_sourceValue0.onSelect?.(connected.id);
+				scrollerRef.current?.scrollTo({
+					top: Math.max(0, connectedIndex * ROW_HEIGHT - ROW_HEIGHT * 2),
+					behavior: "smooth",
+				});
+			}
+			return;
+		}
+		if (event.key === "ArrowLeft" || event.key === "ArrowRight") return;
+		const nextIndex =
+			event.key === "Home"
+				? 0
+				: event.key === "End"
+					? _source4Value.selectableItems.length - 1
+					: currentIndex < 0
+						? event.key === "ArrowUp"
+							? _source4Value.selectableItems.length - 1
+							: 0
+						: Math.max(
+								0,
+								Math.min(
+									_source4Value.selectableItems.length - 1,
+									currentIndex + (event.key === "ArrowUp" ? -1 : 1),
+								),
+							);
+		const next = _source4Value.selectableItems[nextIndex]!;
+		_sourceValue0.onSelect?.(next);
+		scrollerRef.current?.scrollTo({
+			top: Math.max(0, nextIndex * ROW_HEIGHT - ROW_HEIGHT * 2),
+			behavior: "smooth",
+		});
+	};
+	const startColumnResize = (
+		column: keyof ColumnWidths,
+		event: PointerEvent,
+	) => {
+		if (event.button !== 0) return;
+		event.preventDefault();
+		const startX = event.clientX;
+		const startWidth = _source2().widths[column];
+		const move = (moveEvent: PointerEvent) => {
+			_source3().setWidths((current) => ({
+				...current,
+				[column]: Math.max(
+					MIN_COLUMN_WIDTHS[column],
+					Math.min(MAX_COLUMN_WIDTH, startWidth + moveEvent.clientX - startX),
+				),
+			}));
+		};
+		trackPointerResize(event.pointerId, move);
+	};
+	return merge(
+		() => {
+			const _sourceValue1 = _source(),
+				_source2Value2 = _source2(),
+				_source3Value = _source3();
+			return _props();
+		},
+		() => {
+			const _sourceValue1 = _source(),
+				_source2Value2 = _source2(),
+				_source3Value = _source3();
+			return graphModel();
+		},
+		() => {
+			const _sourceValue1 = _source(),
+				_source2Value2 = _source2(),
+				_source3Value = _source3();
+			return viewportModel();
+		},
+		{
+			get emptyLabel() {
+				const _sourceValue1 = _source();
+				return _sourceValue1.emptyLabel === undefined
+					? "No matching commits"
+					: _sourceValue1.emptyLabel;
+			},
+			get searchActive() {
+				const _sourceValue1 = _source();
+				return _sourceValue1.searchActive === undefined
+					? false
+					: _sourceValue1.searchActive;
+			},
+			get selectedIds() {
+				const _sourceValue1 = _source();
+				return _sourceValue1.selectedIds === undefined
+					? EMPTY_SELECTED_IDS
+					: _sourceValue1.selectedIds;
+			},
+			get class() {
+				const _sourceValue1 = _source();
+				return _sourceValue1.class === undefined ? "" : _sourceValue1.class;
+			},
+			get embedded() {
+				const _sourceValue1 = _source();
+				return _sourceValue1.embedded === undefined
+					? false
+					: _sourceValue1.embedded;
+			},
+			get hasMore() {
+				const _sourceValue1 = _source();
+				return _sourceValue1.hasMore === undefined
+					? false
+					: _sourceValue1.hasMore;
+			},
+			get loadingMore() {
+				const _sourceValue1 = _source();
+				return _sourceValue1.loadingMore === undefined
+					? false
+					: _sourceValue1.loadingMore;
+			},
+			get columns() {
+				const _source2Value2 = _source2();
+				return _source2Value2.columns;
+			},
+			get widths() {
+				const _source2Value2 = _source2();
+				return _source2Value2.widths;
+			},
+			get order() {
+				const _source2Value2 = _source2();
+				return _source2Value2.order;
+			},
+			get setHiddenRefs() {
+				const _source3Value = _source3();
+				return _source3Value.setHiddenRefs;
+			},
+			get soloRefs() {
+				const _source2Value2 = _source2();
+				return _source2Value2.soloRefs;
+			},
+			get setSoloRefs() {
+				const _source3Value = _source3();
+				return _source3Value.setSoloRefs;
+			},
+			get pinnedRefs() {
+				const _source2Value2 = _source2();
+				return _source2Value2.pinnedRefs;
+			},
+			get setPinnedRefs() {
+				const _source3Value = _source3();
+				return _source3Value.setPinnedRefs;
+			},
+			get isColumnsOpen() {
+				return isColumnsOpen();
+			},
+			get setIsColumnsOpen() {
+				return setIsColumnsOpen;
+			},
+			get commitAvatars() {
+				return commitAvatars();
+			},
+			get selectedIdSet() {
+				return selectedIdSet();
+			},
+			get hoveredRow() {
+				return hoveredRow();
+			},
+			get setHoveredRow() {
+				return setHoveredRow;
+			},
+			get keyboardNavigationRef() {
+				return keyboardNavigationRef;
+			},
+			get mousePositionRef() {
+				return mousePositionRef;
+			},
+			get handleRowHover() {
+				return handleRowHover;
+			},
+			get scrollerRef() {
+				return scrollerRef;
+			},
+			get query() {
+				return query();
+			},
+			get setQuery() {
+				return setQuery;
+			},
+			get refContextMenu() {
+				return refContextMenu();
+			},
+			get setRefContextMenu() {
+				return setRefContextMenu;
+			},
+			get itemContextMenu() {
+				return itemContextMenu();
+			},
+			get setItemContextMenu() {
+				return setItemContextMenu;
+			},
+			get lineLayerStyle() {
+				return lineLayerStyle();
+			},
+			get toggleColumn() {
+				return toggleColumn;
+			},
+			get moveColumn() {
+				return moveColumn;
+			},
+			get rememberScroll() {
+				return rememberScroll;
+			},
+			get openRefContextMenu() {
+				return openRefContextMenu;
+			},
+			get openItemContextMenu() {
+				return openItemContextMenu;
+			},
+			get navigateRows() {
+				return navigateRows;
+			},
+			get startColumnResize() {
+				return startColumnResize;
+			},
+		},
+	);
 }
-
 export async function resolveGitCommitAvatars(
 	cwd: string,
 	hashes: readonly string[],
@@ -481,7 +643,6 @@ export async function resolveGitCommitAvatars(
 		return {};
 	}
 }
-
 export interface GraphSelectionIntent {
 	additive: boolean;
 	range: boolean;
@@ -543,7 +704,7 @@ export interface CommitGraphProps {
 	selectedHash?: string;
 	selectedIds?: readonly string[];
 	onSelect?: (itemId: string, intent?: GraphSelectionIntent) => void;
-	className?: string;
+	class?: string;
 	worktrees?: GitWorktree[];
 	branch?: string;
 	embedded?: boolean;
@@ -645,7 +806,11 @@ export function moveGraphColumn(
 	source: ColumnKey,
 	target: ColumnKey,
 ): ColumnKey[] {
-	return rustProject("moveColumn", { order, source, target });
+	return rustProject("moveColumn", {
+		order,
+		source,
+		target,
+	});
 }
 export function buildCommitGraphViewModel({
 	commits,

@@ -1,126 +1,165 @@
-import {
-	useCallback,
-	useEffect,
-	useLayoutEffect,
-	useRef,
-	useState,
-} from "octane";
-import { listenWindowEvent } from "../../../../shared/lib/data.ts";
+import { type Accessor, createEffect, createSignal } from "solid-js";
+import { listenWindowEvent } from "../../../../shared/lib/dom.tsx";
 import type { ChatVirtualizerControls } from "./index.tsx";
-
 export function useChatViewport(
-	input: string,
-	isSelected?: boolean,
-	isVisible = true,
+	_input: Accessor<string>,
+	_isSelected: Accessor<boolean | undefined> = () => undefined,
+	_isVisible: Accessor<boolean> = () => true,
 ) {
-	const scrollRef = useRef<HTMLDivElement | null>(null);
-	const chatVirtualizerRef = useRef<ChatVirtualizerControls | null>(null);
-	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-	const highlightOverlayRef = useRef<HTMLDivElement | null>(null);
-	const scrollSnapshotRef = useRef({ atBottom: true, fromBottom: 0, top: 0 });
-	const restoreFrameRef = useRef(0);
-	const [isAtBottom, setIsAtBottom] = useState(true);
-	const handleScroll = useCallback(() => {
+	const scrollRef = {
+		current: null,
+	} as {
+		current: HTMLDivElement | null;
+	};
+	const chatVirtualizerRef = {
+		current: null,
+	} as {
+		current: ChatVirtualizerControls | null;
+	};
+	const textareaRef = {
+		current: null,
+	} as {
+		current: HTMLTextAreaElement | null;
+	};
+	const highlightOverlayRef = {
+		current: null,
+	} as {
+		current: HTMLDivElement | null;
+	};
+	const scrollSnapshotRef = {
+		current: {
+			atBottom: true,
+			fromBottom: 0,
+			top: 0,
+		},
+	};
+	const restoreFrameRef = {
+		current: 0,
+	};
+	const [isAtBottom, setIsAtBottom] = createSignal(true);
+	const handleScroll = () => {
 		const el = scrollRef.current;
 		if (!el) return;
 		setIsAtBottom(
 			chatVirtualizerRef.current?.isAtEnd() ??
 				el.scrollHeight - el.scrollTop - el.clientHeight < 48,
 		);
-	}, []);
-	const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+	};
+	const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
 		const el = scrollRef.current;
 		if (!el) return;
 		if (chatVirtualizerRef.current)
 			chatVirtualizerRef.current.scrollToEnd(behavior);
-		else el.scrollTo({ top: el.scrollHeight, behavior });
-		setIsAtBottom(true);
-	}, []);
-	const scheduleScrollToBottom = useCallback(
-		(behavior: ScrollBehavior = "auto") => {
-			requestAnimationFrame(() => {
-				requestAnimationFrame(() => scrollToBottom(behavior));
+		else
+			el.scrollTo({
+				top: el.scrollHeight,
+				behavior,
 			});
-		},
-		[scrollToBottom],
-	);
-	const cancelScrollRestore = useCallback(() => {
+		setIsAtBottom(true);
+	};
+	const scheduleScrollToBottom = (behavior: ScrollBehavior = "auto") => {
+		requestAnimationFrame(() => {
+			requestAnimationFrame(() => scrollToBottom(behavior));
+		});
+	};
+	const cancelScrollRestore = () => {
 		cancelAnimationFrame(restoreFrameRef.current);
 		restoreFrameRef.current = 0;
-	}, []);
-	useLayoutEffect(() => {
-		if (!isVisible) return;
-		const snapshot = scrollSnapshotRef.current;
-		let passes = 3;
-		const restore = () => {
-			const el = scrollRef.current;
-			if (!el) return;
-			const max = Math.max(0, el.scrollHeight - el.clientHeight);
-			el.scrollTop = snapshot.atBottom
-				? Math.max(0, max - snapshot.fromBottom)
-				: Math.min(snapshot.top, max);
-			setIsAtBottom(snapshot.atBottom);
-			if (--passes) restoreFrameRef.current = requestAnimationFrame(restore);
-		};
-		restore();
-		return () => {
-			cancelScrollRestore();
-			const el = scrollRef.current;
-			if (!el) return;
-			const fromBottom = Math.max(
-				0,
-				el.scrollHeight - el.scrollTop - el.clientHeight,
-			);
-			scrollSnapshotRef.current = {
-				atBottom: fromBottom < 48,
-				fromBottom,
-				top: el.scrollTop,
+	};
+	createEffect(
+		() => [cancelScrollRestore, _isVisible()],
+		() => {
+			if (!_isVisible()) return;
+			const snapshot = scrollSnapshotRef.current;
+			let passes = 3;
+			const restore = () => {
+				const el = scrollRef.current;
+				if (!el) return;
+				const max = Math.max(0, el.scrollHeight - el.clientHeight);
+				el.scrollTop = snapshot.atBottom
+					? Math.max(0, max - snapshot.fromBottom)
+					: Math.min(snapshot.top, max);
+				setIsAtBottom(snapshot.atBottom);
+				if (--passes) restoreFrameRef.current = requestAnimationFrame(restore);
 			};
-		};
-	}, [cancelScrollRestore, isVisible]);
-	useEffect(() => {
-		if (!isVisible) return;
-		const ta = textareaRef.current;
-		if (!ta) return;
-		if (!input) {
-			ta.style.height = "20px";
-		} else {
-			ta.style.height = "20px";
-			ta.style.height = `${Math.min(Math.max(ta.scrollHeight, 20), 120)}px`;
-		}
-		if (highlightOverlayRef.current) {
-			highlightOverlayRef.current.style.transform = `translateY(-${ta.scrollTop}px)`;
-		}
-	}, [input, isVisible]);
-	const handleWindowKeyDown = useCallback(
-		(e: KeyboardEvent) => {
-			if (e.key !== "ArrowDown") return;
-			const active = document.activeElement;
-			if (
-				active &&
-				(active.tagName === "TEXTAREA" || active.tagName === "INPUT")
-			)
-				return;
-			if (!isAtBottom) {
-				e.preventDefault();
-				scrollToBottom();
+			restore();
+			return () => {
+				cancelScrollRestore();
+				const el = scrollRef.current;
+				if (!el) return;
+				const fromBottom = Math.max(
+					0,
+					el.scrollHeight - el.scrollTop - el.clientHeight,
+				);
+				scrollSnapshotRef.current = {
+					atBottom: fromBottom < 48,
+					fromBottom,
+					top: el.scrollTop,
+				};
+			};
+		},
+	);
+	createEffect(
+		() => [_input(), _isVisible()],
+		() => {
+			if (!_isVisible()) return;
+			const ta = textareaRef.current;
+			if (!ta) return;
+			if (!_input()) {
+				ta.style.height = "20px";
+			} else {
+				ta.style.height = "20px";
+				ta.style.height = `${Math.min(Math.max(ta.scrollHeight, 20), 120)}px`;
+			}
+			if (highlightOverlayRef.current) {
+				highlightOverlayRef.current.style.transform = `translateY(-${ta.scrollTop}px)`;
 			}
 		},
-		[isAtBottom, scrollToBottom],
 	);
-	useEffect(() => {
-		if (!isSelected || !isVisible) return;
-		return listenWindowEvent("keydown", handleWindowKeyDown);
-	}, [handleWindowKeyDown, isSelected, isVisible]);
+	const handleWindowKeyDown = (e: KeyboardEvent) => {
+		if (e.key !== "ArrowDown") return;
+		const active = document.activeElement;
+		if (active && (active.tagName === "TEXTAREA" || active.tagName === "INPUT"))
+			return;
+		if (!isAtBottom()) {
+			e.preventDefault();
+			scrollToBottom();
+		}
+	};
+	createEffect(
+		() => [handleWindowKeyDown, _isSelected(), _isVisible(), isAtBottom()],
+		() => {
+			if (!_isSelected() || !_isVisible()) return;
+			return listenWindowEvent("keydown", handleWindowKeyDown);
+		},
+	);
 	return {
-		chatVirtualizerRef,
-		cancelScrollRestore,
-		handleScroll,
-		highlightOverlayRef,
-		isAtBottom,
-		scheduleScrollToBottom,
-		scrollRef,
-		scrollToBottom,
-		textareaRef,
+		get chatVirtualizerRef() {
+			return chatVirtualizerRef;
+		},
+		get cancelScrollRestore() {
+			return cancelScrollRestore;
+		},
+		get handleScroll() {
+			return handleScroll;
+		},
+		get highlightOverlayRef() {
+			return highlightOverlayRef;
+		},
+		get isAtBottom() {
+			return isAtBottom();
+		},
+		get scheduleScrollToBottom() {
+			return scheduleScrollToBottom;
+		},
+		get scrollRef() {
+			return scrollRef;
+		},
+		get scrollToBottom() {
+			return scrollToBottom;
+		},
+		get textareaRef() {
+			return textareaRef;
+		},
 	};
 }

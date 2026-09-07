@@ -1,25 +1,23 @@
-import * as stylex from "@octanejs/stylex";
-import { useState } from "octane";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo, createSignal } from "solid-js";
 import {
 	loadAgentLayoutMode,
 	setAgentLayoutMode,
-} from "../../../../adapters/storage/stored-values.ts";
+} from "../../../../shared/lib/native.tsx";
 import {
 	mutateAgentWorkspaceState,
 	useWorkspaceState,
 } from "../../../workspace/hooks/useWorkspaceState.tsx";
 import { styles } from "./styles.ts";
-export function WorkspaceLayoutSection({
-	contained = false,
-}: {
-	contained?: boolean;
-}) {
-	const [mode, setMode] = useState(loadAgentLayoutMode);
-	const [workspace] = useWorkspaceState(false);
-	const selected = workspace.groups.find(
-		(group) => group.id === workspace.selectedGroupId,
+export function WorkspaceLayoutSection(_props: { contained?: boolean }) {
+	const [mode, setMode] = createSignal(loadAgentLayoutMode);
+	const [workspace] = useWorkspaceState(() => false);
+	const selected = createMemo(() =>
+		workspace().groups.find(
+			(group) => group.id === workspace().selectedGroupId,
+		),
 	);
-	const [columns, setColumns] = useState(selected?.columns ?? 1);
+	const [columns, setColumns] = createSignal(selected()?.columns ?? 1);
 	const updateMode = (next: "grid" | "rows") => {
 		setMode(next);
 		setAgentLayoutMode(next);
@@ -39,24 +37,27 @@ export function WorkspaceLayoutSection({
 	return (
 		<div
 			id="workspace-layout"
-			{...stylex.props(styles.section, contained && styles.sectionContained)}
+			{...stylex.attrs(
+				styles.section,
+				(_props.contained === undefined ? false : _props.contained) &&
+					styles.sectionContained,
+			)}
 		>
-			<h4 {...stylex.props(styles.sectionHeading)}>Workspace layout</h4>
-			<p {...stylex.props(styles.sectionDescription)}>
+			<h4 {...stylex.attrs(styles.sectionHeading)}>Workspace layout</h4>
+			<p {...stylex.attrs(styles.sectionDescription)}>
 				Choose how chat panes are arranged in the selected workspace.
 			</p>
-			<div {...stylex.props(styles.layoutControls)}>
-				<div {...stylex.props(styles.layoutControlGroup)}>
-					<span {...stylex.props(styles.layoutControlLabel)}>Flow</span>
-					<div {...stylex.props(styles.colorSourceOptions)}>
+			<div {...stylex.attrs(styles.layoutControls)}>
+				<div {...stylex.attrs(styles.layoutControlGroup)}>
+					<span {...stylex.attrs(styles.layoutControlLabel)}>Flow</span>
+					<div {...stylex.attrs(styles.colorSourceOptions)}>
 						{(["grid", "rows"] as const).map((value) => (
 							<button
-								key={value}
 								type="button"
 								onClick={() => updateMode(value)}
-								{...stylex.props(
+								{...stylex.attrs(
 									styles.colorSourceButton,
-									mode === value && styles.colorSourceButtonSelected,
+									mode() === value && styles.colorSourceButtonSelected,
 								)}
 							>
 								{value === "grid" ? "Grid" : "Rows"}
@@ -64,21 +65,20 @@ export function WorkspaceLayoutSection({
 						))}
 					</div>
 				</div>
-				<div {...stylex.props(styles.layoutControlGroup)}>
-					<span {...stylex.props(styles.layoutControlLabel)}>Columns</span>
-					<div {...stylex.props(styles.colorSourceOptions)}>
+				<div {...stylex.attrs(styles.layoutControlGroup)}>
+					<span {...stylex.attrs(styles.layoutControlLabel)}>Columns</span>
+					<div {...stylex.attrs(styles.colorSourceOptions)}>
 						{[1, 2, 3, 4].map((value) => (
 							<button
-								key={value}
 								type="button"
 								onClick={() => {
 									updateMode("grid");
 									void updateColumns(value);
 								}}
-								{...stylex.props(
+								{...stylex.attrs(
 									styles.colorSourceButton,
-									mode === "grid" &&
-										columns === value &&
+									mode() === "grid" &&
+										columns() === value &&
 										styles.colorSourceButtonSelected,
 								)}
 							>

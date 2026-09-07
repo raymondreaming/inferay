@@ -1,31 +1,28 @@
-import * as stylex from "@octanejs/stylex";
-import { memo } from "octane";
+import * as stylex from "@stylexjs/stylex";
+import { For } from "solid-js";
 import { useNativeMarkdown } from "../../../../../shared/hooks/useNativeMarkdown.tsx";
 import { BlockRenderer } from "./BlockRenderer.tsx";
 import { styles } from "./styles.ts";
-
-export const MarkdownPreview = memo(function MarkdownPreview({
-	content,
-}: {
+export const MarkdownPreview = function MarkdownPreview(_props: {
 	content: string;
 }) {
-	const { blocks, loading, error } = useNativeMarkdown(content);
+	const _source = useNativeMarkdown(() => _props.content);
 	return (
-		<div {...stylex.props(styles.root)}>
-			{loading || error ? (
+		<div {...stylex.attrs(styles.root)}>
+			{_source.loading || _source.error ? (
 				<>
-					{error && (
-						<p role="status" {...stylex.props(styles.errorPre)}>
+					{_source.error && (
+						<p role="status" {...stylex.attrs(styles.errorPre)}>
 							Markdown preview unavailable.
 						</p>
 					)}
-					<pre {...stylex.props(styles.plainText)}>{content}</pre>
+					<pre {...stylex.attrs(styles.plainText)}>{_props.content}</pre>
 				</>
 			) : (
-				blocks.map((block, index) => (
-					<BlockRenderer key={index} block={block} />
-				))
+				<For each={_source.blocks} keyed={false}>
+					{(block, index) => <BlockRenderer block={block()} />}
+				</For>
 			)}
 		</div>
 	);
-});
+};

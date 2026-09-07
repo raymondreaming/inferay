@@ -1,11 +1,10 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
 	font,
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
-
 export const styles = stylex.create({
 	root: {
 		display: "flex",
@@ -53,8 +52,12 @@ export const styles = stylex.create({
 		borderRadius: radius.sm,
 		color: color.textMain,
 		outline: "none",
-		":focus-visible": { boxShadow: `0 1px 0 ${color.textSoft}` },
-		"::placeholder": { color: color.textMuted },
+		":focus-visible": {
+			boxShadow: `0 1px 0 ${color.textSoft}`,
+		},
+		"::placeholder": {
+			color: color.textMuted,
+		},
 	},
 	badge: {
 		fontSize: font.size_1,
@@ -102,8 +105,12 @@ export const styles = stylex.create({
 		backgroundColor: color.transparent,
 		outline: "none",
 		padding: controlSize._2,
-		":focus-visible": { boxShadow: `0 1px 0 ${color.borderStrong}` },
-		"::placeholder": { color: color.textSoft },
+		":focus-visible": {
+			boxShadow: `0 1px 0 ${color.borderStrong}`,
+		},
+		"::placeholder": {
+			color: color.textSoft,
+		},
 	},
 	description: {
 		margin: 0,
@@ -123,8 +130,12 @@ export const styles = stylex.create({
 		backgroundColor: color.transparent,
 		outline: "none",
 		minHeight: "42px",
-		":focus-visible": { boxShadow: `0 1px 0 ${color.borderStrong}` },
-		"::placeholder": { color: color.textMuted },
+		":focus-visible": {
+			boxShadow: `0 1px 0 ${color.borderStrong}`,
+		},
+		"::placeholder": {
+			color: color.textMuted,
+		},
 	},
 	document: {
 		display: "flex",
@@ -180,8 +191,12 @@ export const styles = stylex.create({
 		backgroundColor: color.transparent,
 		color: color.textMain,
 		outline: "none",
-		":focus-visible": { boxShadow: `inset 0 0 0 1px ${color.borderStrong}` },
-		"::placeholder": { color: color.textMuted },
+		":focus-visible": {
+			boxShadow: `inset 0 0 0 1px ${color.borderStrong}`,
+		},
+		"::placeholder": {
+			color: color.textMuted,
+		},
 	},
 	footer: {
 		display: "flex",
@@ -197,7 +212,10 @@ export const styles = stylex.create({
 		borderTopStyle: "solid",
 		borderTopColor: color.border,
 	},
-	actions: { display: "flex", gap: controlSize._2 },
+	actions: {
+		display: "flex",
+		gap: controlSize._2,
+	},
 	button: {
 		display: "inline-flex",
 		alignItems: "center",
@@ -215,8 +233,12 @@ export const styles = stylex.create({
 		},
 		color: color.textSoft,
 		fontSize: font.size_2,
-		":disabled": { opacity: 0.5 },
-		":focus-visible": { outline: `1px solid ${color.textSoft}` },
+		":disabled": {
+			opacity: 0.5,
+		},
+		":focus-visible": {
+			outline: `1px solid ${color.textSoft}`,
+		},
 	},
 	saveButton: {
 		backgroundColor: {
@@ -229,7 +251,12 @@ export const styles = stylex.create({
 	},
 	deleteButton: {
 		borderColor: color.border,
-		":hover": { color: color.danger },
+		":hover": {
+			color: color.danger,
+		},
 	},
-	error: { color: color.danger, fontSize: font.size_2 },
+	error: {
+		color: color.danger,
+		fontSize: font.size_2,
+	},
 });

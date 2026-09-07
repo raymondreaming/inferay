@@ -1,5 +1,4 @@
-import * as stylex from "@octanejs/stylex";
-import type { CSSProperties } from "react";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
@@ -8,7 +7,7 @@ import {
 	motion,
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
-
+import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 export const styles = stylex.create({
 	root: {
 		boxSizing: "border-box",
@@ -20,7 +19,9 @@ export const styles = stylex.create({
 		paddingBottom: controlSize._1,
 		paddingInline: controlSize._3,
 	},
-	project: { marginBottom: controlSize._1 },
+	project: {
+		marginBottom: controlSize._1,
+	},
 	projectName: {
 		boxSizing: "border-box",
 		borderRadius: radius.md,
@@ -36,7 +37,9 @@ export const styles = stylex.create({
 		fontSize: font.size_2,
 		fontWeight: font.weight_6,
 	},
-	entryGroup: { position: "relative" },
+	entryGroup: {
+		position: "relative",
+	},
 	row: {
 		display: "flex",
 		alignItems: "center",
@@ -45,7 +48,10 @@ export const styles = stylex.create({
 		height: controlSize._6,
 		paddingRight: controlSize._2,
 		borderRadius: radius.sm,
-		color: { default: color.textMain, ":hover": color.textMain },
+		color: {
+			default: color.textMain,
+			":hover": color.textMain,
+		},
 		textAlign: "left",
 	},
 	stickyFolderRow: {
@@ -57,8 +63,13 @@ export const styles = stylex.create({
 		transitionDuration: motion.durationFast,
 		transitionProperty: "transform",
 	},
-	chevronOpen: { transform: "rotate(90deg)" },
-	spacer: { width: controlSize._3, flexShrink: 0 },
+	chevronOpen: {
+		transform: "rotate(90deg)",
+	},
+	spacer: {
+		width: controlSize._3,
+		flexShrink: 0,
+	},
 	name: {
 		overflow: "hidden",
 		textOverflow: "ellipsis",
@@ -87,7 +98,6 @@ export const styles = stylex.create({
 		lineHeight: 1.5,
 	},
 });
-
 export function getEntryRowStyle(
 	paddingLeft: CSSProperties["paddingLeft"],
 	top: CSSProperties["top"],

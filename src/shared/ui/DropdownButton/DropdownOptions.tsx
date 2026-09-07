@@ -1,4 +1,6 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
+import { For } from "solid-js";
+import { domStyle } from "../../lib/dom.tsx";
 import {
 	DropdownCustomOption,
 	selectDropdownOption,
@@ -6,17 +8,7 @@ import {
 import type { DropdownOption, DropdownOptionRenderer } from "./index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
-
-export function DropdownOptions({
-	maxHeight,
-	filtered,
-	search,
-	emptyLabel,
-	renderOption,
-	value,
-	onChange,
-	setOpen,
-}: {
+export function DropdownOptions(_props: {
 	maxHeight: number;
 	filtered: readonly DropdownOption[];
 	search: string;
@@ -28,65 +20,69 @@ export function DropdownOptions({
 }) {
 	return (
 		<div
-			{...stylex.props(styles.optionsBox)}
-			style={inlineStyles.getDropdownButtonOptionsBoxStyle(maxHeight)}
+			{...stylex.attrs(styles.optionsBox)}
+			style={domStyle(
+				inlineStyles.getDropdownButtonOptionsBoxStyle(_props.maxHeight),
+			)}
 		>
-			{filtered.length === 0 ? (
-				<p {...stylex.props(styles.empty)}>
-					{search ? "No matches" : emptyLabel}
+			{_props.filtered.length === 0 ? (
+				<p {...stylex.attrs(styles.empty)}>
+					{_props.search ? "No matches" : _props.emptyLabel}
 				</p>
 			) : (
-				filtered.map((opt) =>
-					renderOption ? (
-						<DropdownCustomOption
-							key={opt.id}
-							opt={opt}
-							isSelected={opt.id === value}
-							renderOption={renderOption}
-							onChange={onChange}
-							setOpen={setOpen}
-						/>
-					) : (
-						<button
-							type="button"
-							key={opt.id}
-							onClick={selectDropdownOption.bind(
-								null,
-								onChange,
-								setOpen,
-								opt.id,
-							)}
-							{...stylex.props(
-								styles.option,
-								opt.id === value ? styles.optionSelected : null,
-							)}
-						>
-							{opt.icon && (
-								<span {...stylex.props(styles.optionIcon)}>{opt.icon}</span>
-							)}
-							<div {...stylex.props(styles.optionContent)}>
-								<span {...stylex.props(styles.optionLabel)}>{opt.label}</span>
-								{opt.detail && (
-									<span
-										{...stylex.props(
-											styles.detailBadge,
-											(opt.detail.includes("★") ||
-												opt.detail.includes("Best")) &&
-												styles.detailBadgeFeatured,
-										)}
-									>
-										{opt.detail}
-									</span>
+				<For each={_props.filtered} keyed={(row) => row.id}>
+					{(opt) =>
+						_props.renderOption ? (
+							<DropdownCustomOption
+								opt={opt()}
+								isSelected={opt().id === _props.value}
+								renderOption={_props.renderOption}
+								onChange={_props.onChange}
+								setOpen={_props.setOpen}
+							/>
+						) : (
+							<button
+								type="button"
+								onClick={selectDropdownOption.bind(
+									null,
+									_props.onChange,
+									_props.setOpen,
+									opt().id,
 								)}
-								{opt.status && (
-									<span {...stylex.props(styles.optionStatus)}>
-										{opt.status}
-									</span>
+								{...stylex.attrs(
+									styles.option,
+									opt().id === _props.value ? styles.optionSelected : null,
 								)}
-							</div>
-						</button>
-					),
-				)
+							>
+								{opt().icon && (
+									<span {...stylex.attrs(styles.optionIcon)}>{opt().icon}</span>
+								)}
+								<div {...stylex.attrs(styles.optionContent)}>
+									<span {...stylex.attrs(styles.optionLabel)}>
+										{opt().label}
+									</span>
+									{opt().detail && (
+										<span
+											{...stylex.attrs(
+												styles.detailBadge,
+												(opt().detail?.includes("★") ||
+													opt().detail?.includes("Best")) &&
+													styles.detailBadgeFeatured,
+											)}
+										>
+											{opt().detail}
+										</span>
+									)}
+									{opt().status && (
+										<span {...stylex.attrs(styles.optionStatus)}>
+											{opt().status}
+										</span>
+									)}
+								</div>
+							</button>
+						)
+					}
+				</For>
 			)}
 		</div>
 	);

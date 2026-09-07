@@ -1,5 +1,6 @@
-import * as stylex from "@octanejs/stylex";
-import { useState } from "octane";
+import * as stylex from "@stylexjs/stylex";
+import { createSignal } from "solid-js";
+import { domStyle } from "../../../../../shared/lib/dom.tsx";
 import { IconGitCommit } from "../../../../../shared/ui/Icons/index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
@@ -14,15 +15,7 @@ function authorInitials(name?: string | null) {
 	if (words.length === 1) return words[0]!.slice(0, 2).toLocaleUpperCase();
 	return `${words[0]![0] ?? ""}${words.at(-1)?.[0] ?? ""}`.toLocaleUpperCase();
 }
-
-export function AuthorAvatar({
-	name,
-	githubAvatar,
-	color,
-	left,
-	top,
-	stash,
-}: {
+export function AuthorAvatar(_props: {
 	name?: string | null;
 	email?: string | null;
 	githubAvatar?: string | null;
@@ -31,31 +24,33 @@ export function AuthorAvatar({
 	top: number;
 	stash: boolean;
 }) {
-	const [failed, setFailed] = useState(false);
+	const [failed, setFailed] = createSignal(false);
 	return (
 		<span
 			aria-hidden="true"
-			{...stylex.props(styles.graphAvatar, stash && styles.stashNode)}
-			style={inlineStyles.getAuthorAvatarGraphAvatarStyle(
-				left,
-				top,
-				`1px solid ${color}`,
-				`0 0 2px ${hexToRgba(color, 0.18)}`,
+			{...stylex.attrs(styles.graphAvatar, _props.stash && styles.stashNode)}
+			style={domStyle(
+				inlineStyles.getAuthorAvatarGraphAvatarStyle(
+					_props.left,
+					_props.top,
+					`1px solid ${_props.color}`,
+					`0 0 2px ${hexToRgba(_props.color, 0.18)}`,
+				),
 			)}
 		>
-			{githubAvatar && !failed ? (
+			{_props.githubAvatar && !failed() ? (
 				<img
-					src={githubAvatar}
+					src={_props.githubAvatar}
 					alt=""
 					loading="lazy"
-					referrerPolicy="no-referrer"
+					referrerpolicy="no-referrer"
 					onError={() => setFailed(true)}
-					{...stylex.props(styles.avatarImage)}
+					{...stylex.attrs(styles.avatarImage)}
 				/>
-			) : stash ? (
+			) : _props.stash ? (
 				<IconGitCommit size={10} />
 			) : (
-				authorInitials(name)
+				authorInitials(_props.name)
 			)}
 		</span>
 	);

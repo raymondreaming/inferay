@@ -1,11 +1,10 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
 	font,
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
-
 export const styles = stylex.create({
 	projectButton: {
 		alignItems: "center",
@@ -38,7 +37,6 @@ export const styles = stylex.create({
 		backgroundColor: color.controlActive,
 		color: color.textMain,
 	},
-
 	sessionLabel: {
 		fontSize: font.size_1,
 		maxWidth: "120px",

@@ -1,34 +1,22 @@
-import * as stylex from "@octanejs/stylex";
-import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
+import * as stylex from "@stylexjs/stylex";
+import { createEffect, createMemo, createSignal, For } from "solid-js";
 import type { GitFileEntry } from "../../../../../../build/presentation/contracts/GitFileEntry.ts";
 import type { GitFilePresentation } from "../../../../../../build/presentation/contracts/GitFilePresentation.ts";
 import {
 	iconSize,
 	selectionAppearance,
 } from "../../../../../design-system/styles.stylex.ts";
+import { ariaValue } from "../../../../../shared/lib/dom.tsx";
 import { IconChevronRight } from "../../../../../shared/ui/Icons/index.tsx";
 import type { SelectedFile } from "./index.tsx";
 import { styles } from "./styles.ts";
 import { TreeNodeRow } from "./TreeNodeRow.tsx";
-
-export function FileGroup({
-	title,
-	files,
-	filePresentation,
-	selected,
-	onSelect,
-	actionLabel,
-	onAction,
-	onActionAll,
-	isCollapsible = true,
-	showHeader = true,
-	viewMode = "path",
-	splitPane = false,
-}: {
+export function FileGroup(_props: {
 	title: string;
 	files: GitFileEntry[];
 	filePresentation?: GitFilePresentation;
 	selected: SelectedFile | null;
+	onPrefetchFile?: (file: GitFileEntry | null) => void;
 	onSelect: (f: GitFileEntry) => void;
 	actionLabel?: string;
 	onAction?: (path: string) => void;
@@ -38,14 +26,16 @@ export function FileGroup({
 	viewMode?: "path" | "tree";
 	splitPane?: boolean;
 }) {
-	const [isCollapsed, setIsCollapsed] = useState(false);
-	const [hoveredActionPath, setHoveredActionPath] = useState<string | null>(
-		null,
+	const [isCollapsed, setIsCollapsed] = createSignal(false);
+	const [collapsedDirs, setCollapsedDirs] = createSignal<Set<string>>(
+		new Set(),
 	);
-	const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
-	const groupRef = useRef<HTMLDivElement | null>(null);
-
-	const toggleDir = useCallback((path: string) => {
+	const groupRef = {
+		current: null,
+	} as {
+		current: HTMLDivElement | null;
+	};
+	const toggleDir = (path: string) => {
 		setCollapsedDirs((prev) => {
 			const next = new Set(prev);
 			if (next.has(path)) {
@@ -55,55 +45,85 @@ export function FileGroup({
 			}
 			return next;
 		});
-	}, []);
-
-	const visibleFiles = useMemo(
-		() => new Map(files.map((file) => [file.path, file])),
-		[files],
+	};
+	const visibleFiles = createMemo(
+		() => new Map(_props.files.map((file) => [file.path, file])),
 	);
-	const visibleCounts = useMemo(() => {
-		const order = filePresentation?.treeOrder ?? [];
+	const visibleCounts = createMemo(() => {
+		const order = _props.filePresentation?.treeOrder ?? [];
 		const counts = new Uint32Array(order.length + 1);
 		for (let index = 0; index < order.length; index++) {
 			counts[index + 1] =
-				counts[index]! + (visibleFiles.has(order[index]!) ? 1 : 0);
+				counts[index]! + (visibleFiles().has(order[index]!) ? 1 : 0);
 		}
 		return counts;
-	}, [filePresentation, visibleFiles]);
-	useEffect(() => {
-		if (!selected) return;
+	});
+	const selectionKey = createMemo(() =>
+		JSON.stringify([
+			_props.selected?.path,
+			_props.selected?.staged,
+			_props.viewMode ?? "path",
+		]),
+	);
+	createEffect(selectionKey, () => {
+		if (!_props.selected) return;
 		groupRef.current
 			?.querySelector<HTMLElement>('[data-git-file-active="true"]')
-			?.scrollIntoView?.({ block: "nearest" });
-	}, [selected, viewMode]);
-	const isEmpty = files.length === 0;
+			?.scrollIntoView?.({
+				block: "nearest",
+			});
+	});
+	const isEmpty = createMemo(() => _props.files.length === 0);
 	const toggleGroup = () => {
-		if (isCollapsible && !isEmpty) setIsCollapsed(!isCollapsed);
+		if (
+			(_props.isCollapsible === undefined ? true : _props.isCollapsible) &&
+			!isEmpty()
+		)
+			setIsCollapsed(!isCollapsed());
 	};
-
+	// Independent getters prevent hover/selection changes from invalidating
+	// every tree row through one shared snapshot.
 	const rowProps = {
-		visibleFiles,
-		visibleCounts,
-		selected,
-		onSelect,
-		onAction,
-		actionLabel,
-		hoveredActionPath,
-		onActionHover: setHoveredActionPath,
-		collapsedDirs,
+		get visibleFiles() {
+			return visibleFiles();
+		},
+		get visibleCounts() {
+			return visibleCounts();
+		},
+		get selected() {
+			return _props.selected;
+		},
+		get onPrefetchFile() {
+			return _props.onPrefetchFile;
+		},
+		get onSelect() {
+			return _props.onSelect;
+		},
+		get onAction() {
+			return _props.onAction;
+		},
+		get actionLabel() {
+			return _props.actionLabel;
+		},
+		get collapsedDirs() {
+			return collapsedDirs();
+		},
 		toggleDir,
 	};
-
 	return (
 		<div
-			ref={groupRef}
-			{...stylex.props(styles.fileGroup, splitPane && styles.splitFileGroup)}
+			ref={(element) => (groupRef.current = element)}
+			{...stylex.attrs(
+				styles.fileGroup,
+				(_props.splitPane === undefined ? false : _props.splitPane) &&
+					styles.splitFileGroup,
+			)}
 		>
-			{showHeader ? (
+			{(_props.showHeader === undefined ? true : _props.showHeader) ? (
 				<div
-					{...stylex.props(
+					{...stylex.attrs(
 						styles.groupHeader,
-						title === "Staged" && styles.groupHeaderSeparated,
+						_props.title === "Staged" && styles.groupHeaderSeparated,
 					)}
 				>
 					<button
@@ -114,72 +134,88 @@ export function FileGroup({
 						onClick={(event) => {
 							if (event.detail === 0) toggleGroup();
 						}}
-						{...stylex.props(
+						{...stylex.attrs(
 							styles.groupToggle,
-							isCollapsible && !isEmpty
+							(_props.isCollapsible === undefined
+								? true
+								: _props.isCollapsible) && !isEmpty()
 								? styles.cursorPointer
 								: styles.cursorDefault,
 						)}
 					>
-						{isCollapsible && (
+						{(_props.isCollapsible === undefined
+							? true
+							: _props.isCollapsible) && (
 							<IconChevronRight
 								size={iconSize.sm}
-								{...stylex.props(
+								{...stylex.attrs(
 									styles.chevron,
-									!isCollapsed && !isEmpty && styles.chevronOpen,
+									!isCollapsed() && !isEmpty() && styles.chevronOpen,
 								)}
 							/>
 						)}
-						<span {...stylex.props(styles.sectionTitle, styles.fileGroupTitle)}>
-							{title} Files
+						<span {...stylex.attrs(styles.sectionTitle, styles.fileGroupTitle)}>
+							{_props.title} Files
 						</span>
-						<span {...stylex.props(styles.countPill)}>{files.length}</span>
+						<span {...stylex.attrs(styles.countPill)}>
+							{_props.files.length}
+						</span>
 					</button>
-					{onActionAll && !isCollapsed && actionLabel && !isEmpty && (
-						<button
-							type="button"
-							onClick={onActionAll}
-							title={`${actionLabel} all files`}
-							aria-label={`${actionLabel} all files`}
-							{...stylex.props(
-								styles.segmentButton,
-								styles.actionAllButton,
-								...selectionAppearance("view", false),
-							)}
-						>
-							{actionLabel} All
-						</button>
-					)}
+					{_props.onActionAll &&
+						!isCollapsed() &&
+						_props.actionLabel &&
+						!isEmpty() && (
+							<button
+								type="button"
+								onClick={_props.onActionAll}
+								title={`${_props.actionLabel} all files`}
+								aria-label={ariaValue(`${_props.actionLabel} all files`)}
+								{...stylex.attrs(
+									styles.segmentButton,
+									styles.actionAllButton,
+									...selectionAppearance("view", false),
+								)}
+							>
+								{_props.actionLabel} All
+							</button>
+						)}
 				</div>
 			) : null}
-			{isEmpty ? (
-				<div {...stylex.props(styles.emptyGroupBody)}>
-					<span {...stylex.props(styles.emptyGroupText)}>
-						No {title.toLowerCase()} changes
+			{isEmpty() ? (
+				<div {...stylex.attrs(styles.emptyGroupBody)}>
+					<span {...stylex.attrs(styles.emptyGroupText)}>
+						No {_props.title.toLowerCase()} changes
 					</span>
 				</div>
-			) : !isCollapsed ? (
+			) : !isCollapsed() ? (
 				<div
-					{...stylex.props(
+					{...stylex.attrs(
 						styles.groupList,
-						splitPane && styles.splitGroupList,
+						(_props.splitPane === undefined ? false : _props.splitPane) &&
+							styles.splitGroupList,
 					)}
 				>
-					{(viewMode === "path" || !filePresentation) &&
-						files.map((file) => (
-							<TreeNodeRow
-								{...rowProps}
-								key={`${file.staged ? "s" : "u"}-${file.path}`}
-								pathFile={file}
-							/>
-						))}
-					{viewMode === "tree" && filePresentation && (
-						<div>
-							{filePresentation.tree.map((child) => (
-								<TreeNodeRow {...rowProps} key={child.path} node={child} />
-							))}
-						</div>
+					{((_props.viewMode === undefined ? "path" : _props.viewMode) ===
+						"path" ||
+						!_props.filePresentation) && (
+						<For each={_props.files} keyed={(row) => row.path}>
+							{(file) => <TreeNodeRow {...rowProps} pathFile={file()} />}
+						</For>
 					)}
+					{(_props.viewMode === undefined ? "path" : _props.viewMode) ===
+						"tree" &&
+						!!_props.filePresentation && (
+							<div>
+								{
+									<For
+										each={_props.filePresentation!.tree}
+										keyed={(row) => row.path}
+									>
+										{(child) => <TreeNodeRow {...rowProps} node={child()} />}
+									</For>
+								}
+							</div>
+						)}
 				</div>
 			) : null}
 		</div>

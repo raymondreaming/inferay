@@ -1,23 +1,24 @@
-import * as stylex from "@octanejs/stylex";
-import { useEffect } from "octane";
+import * as stylex from "@stylexjs/stylex";
+import { createEffect } from "solid-js";
 import { styles } from "./styles.ts";
-
-export function RecoveryFallback({
-	error,
-	reset,
-}: {
+export function RecoveryFallback(_props: {
 	error: unknown;
 	reset: () => void;
 }) {
-	useEffect(() => {
-		console.error("[renderer] Recovered from an app render error:", error);
-		const timer = window.setTimeout(reset, 1500);
-		return () => window.clearTimeout(timer);
-	}, [error, reset]);
-
+	createEffect(
+		() => [_props.error, _props.reset],
+		() => {
+			console.error(
+				"[renderer] Recovered from an app render error:",
+				_props.error,
+			);
+			const timer = window.setTimeout(_props.reset, 1500);
+			return () => window.clearTimeout(timer);
+		},
+	);
 	return (
-		<div {...stylex.props(styles.fallback)}>
-			<p {...stylex.props(styles.message)}>Recovering the workspace…</p>
+		<div {...stylex.attrs(styles.fallback)}>
+			<p {...stylex.attrs(styles.message)}>Recovering the workspace…</p>
 		</div>
 	);
 }

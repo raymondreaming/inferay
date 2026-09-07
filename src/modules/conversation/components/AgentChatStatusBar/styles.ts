@@ -1,4 +1,4 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
@@ -6,7 +6,6 @@ import {
 	motion,
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
-
 export const styles = stylex.create({
 	root: {
 		alignItems: "center",

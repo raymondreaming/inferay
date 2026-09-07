@@ -1,62 +1,43 @@
-import { useCallback, useEffect, useRef, useState } from "octane";
-import type React from "react";
-
+import type { Accessor } from "solid-js";
+import type { RefCell } from "../../../../shared/lib/dom.tsx";
 export type DiffScrollSource = "left" | "right" | "all";
-
 export function useSplitDiffScroll(
-	masterRef: React.RefObject<HTMLDivElement | null>,
-	lineHeight: number,
-	externalScrollTop?: number,
-	externalScrollSource?: DiffScrollSource,
+	masterRef: Accessor<RefCell<HTMLDivElement | null>>,
+	_lineHeight: Accessor<number>,
+	externalScrollTop: Accessor<number | undefined> = () => undefined,
+	externalScrollSource: Accessor<DiffScrollSource | undefined> = () =>
+		undefined,
 ) {
-	const followerRef = useRef<HTMLDivElement | null>(null);
-	const [programmaticJumpTop, setProgrammaticJumpTop] = useState(-1);
-	const syncFromMaster = useCallback(
-		(top: number, _left: number, programmatic?: boolean) => {
-			const follower = followerRef.current;
-			if (!follower) return;
-			if (Math.abs(follower.scrollTop - top) > 0.5) follower.scrollTop = top;
-			if (programmatic) setProgrammaticJumpTop(top);
-		},
-		[],
-	);
+	const followerRef: RefCell<HTMLDivElement | null> = { current: null };
+	// A mirrored scroll event may arrive after the user already moved the other
+	// pane again. Consume that acknowledgement instead of bouncing it back.
+	const mirrored = new WeakMap<HTMLDivElement, number>();
+	const sync = (
+		source: HTMLDivElement | null,
+		target: HTMLDivElement | null,
+		top: number,
+	) => {
+		if (!source || !target) return;
+		const expected = mirrored.get(source);
+		mirrored.delete(source);
+		if (expected !== undefined && Math.abs(expected - top) <= 0.5) return;
+		if (Math.abs(target.scrollTop - top) > 0.5) {
+			target.scrollTop = top;
+			mirrored.set(target, target.scrollTop);
+		}
+	};
 
-	useEffect(() => {
-		const follower = followerRef.current;
-		const master = masterRef.current;
-		if (!follower || !master) return;
-		const scrollTogether = (event: WheelEvent) => {
-			if (event.deltaY === 0) return;
-			event.preventDefault();
-			const unit =
-				event.deltaMode === 1
-					? lineHeight
-					: event.deltaMode === 2
-						? master.clientHeight
-						: 1;
-			if (event.deltaX) {
-				(event.currentTarget as HTMLDivElement).scrollLeft +=
-					event.deltaX * unit;
-			}
-			master.scrollTop += event.deltaY * unit;
-			follower.scrollTop = master.scrollTop;
-		};
-		follower.addEventListener("wheel", scrollTogether, { passive: false });
-		master.addEventListener("wheel", scrollTogether, { passive: false });
-		return () => {
-			follower.removeEventListener("wheel", scrollTogether);
-			master.removeEventListener("wheel", scrollTogether);
-		};
-	}, [lineHeight, masterRef]);
-
-	const hasExternalJump =
-		externalScrollTop !== undefined && externalScrollTop >= 0;
 	return {
 		followerRef,
-		followerScrollSource: hasExternalJump ? externalScrollSource : "right",
-		followerScrollTop: hasExternalJump
-			? externalScrollTop
-			: programmaticJumpTop,
-		syncFromMaster,
+		get followerScrollTop() {
+			return externalScrollTop();
+		},
+		get followerScrollSource() {
+			return externalScrollSource();
+		},
+		syncFromMaster: (top: number, _left: number) =>
+			sync(masterRef().current, followerRef.current, top),
+		syncFromFollower: (top: number, _left: number) =>
+			sync(followerRef.current, masterRef().current, top),
 	};
 }

@@ -1,28 +1,46 @@
-import * as stylex from "@octanejs/stylex";
-import type { CSSProperties } from "react";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
 	font,
 	radius,
 } from "../../../design-system/styles.stylex.ts";
+import type { CSSProperties } from "../../lib/dom.tsx";
 
 const rippleEcho = stylex.keyframes({
-	"0%, 100%": { opacity: 0.1 },
-	"28%": { opacity: 0.98 },
-	"56%": { opacity: 0.32 },
-	"78%": { opacity: 0.78 },
+	"0%, 100%": {
+		opacity: 0.1,
+	},
+	"28%": {
+		opacity: 0.98,
+	},
+	"56%": {
+		opacity: 0.32,
+	},
+	"78%": {
+		opacity: 0.78,
+	},
 });
-
 const spiralFade = stylex.keyframes({
-	"0%, 100%": { opacity: 0.15 },
-	"8%": { opacity: 1 },
-	"16%": { opacity: 0.73 },
-	"24%": { opacity: 0.56 },
-	"32%": { opacity: 0.4 },
-	"40%": { opacity: 0.22 },
+	"0%, 100%": {
+		opacity: 0.15,
+	},
+	"8%": {
+		opacity: 1,
+	},
+	"16%": {
+		opacity: 0.73,
+	},
+	"24%": {
+		opacity: 0.56,
+	},
+	"32%": {
+		opacity: 0.4,
+	},
+	"40%": {
+		opacity: 0.22,
+	},
 });
-
 const weaveStrand = stylex.keyframes({
 	"0%, 100%": {
 		opacity: 0.08,
@@ -37,7 +55,6 @@ const weaveStrand = stylex.keyframes({
 		transform: "scale(0.88)",
 	},
 });
-
 export const styles = stylex.create({
 	matrixGrid: {
 		display: "grid",
@@ -111,7 +128,6 @@ export const styles = stylex.create({
 		opacity: 0.58,
 	},
 });
-
 export function getDotMatrixRippleMatrixGridStyle(
 	gridTemplateColumns: CSSProperties["gridTemplateColumns"],
 	gridTemplateRows: CSSProperties["gridTemplateRows"],
@@ -123,7 +139,6 @@ export function getDotMatrixRippleMatrixGridStyle(
 		gap: gap,
 	} as CSSProperties;
 }
-
 export function getDotMatrixRippleRippleDotStyle(
 	width: CSSProperties["width"],
 	height: CSSProperties["height"],
@@ -139,14 +154,15 @@ export function getDotMatrixRippleRippleDotStyle(
 		"--dmx-ripple-parity": dmxrippleparity,
 	} as CSSProperties;
 }
-
 export function getDotMatrixWeaveWeaveSlotStyle(
 	height: CSSProperties["height"],
 	width: CSSProperties["width"],
 ): CSSProperties {
-	return { height: height, width: width } as CSSProperties;
+	return {
+		height: height,
+		width: width,
+	} as CSSProperties;
 }
-
 export function getDotMatrixWeaveWeaveGridStyle(
 	gridTemplateColumns: CSSProperties["gridTemplateColumns"],
 	gridTemplateRows: CSSProperties["gridTemplateRows"],
@@ -160,7 +176,6 @@ export function getDotMatrixWeaveWeaveGridStyle(
 		"--dmx-weave-cycle": dmxweavecycle,
 	} as CSSProperties;
 }
-
 export function getDotMatrixWeaveWeaveDotStyle(
 	height: CSSProperties["height"],
 	dmxweavecenterdistance: string | number | undefined,
@@ -174,7 +189,6 @@ export function getDotMatrixWeaveWeaveDotStyle(
 		width: width,
 	} as CSSProperties;
 }
-
 export function getDotMatrixLoaderMatrixGridStyle(
 	gridTemplateColumns: CSSProperties["gridTemplateColumns"],
 	gridTemplateRows: CSSProperties["gridTemplateRows"],
@@ -186,7 +200,6 @@ export function getDotMatrixLoaderMatrixGridStyle(
 		gap: gap,
 	} as CSSProperties;
 }
-
 export function getDotMatrixLoaderSpiralDotStyle(
 	width: CSSProperties["width"],
 	height: CSSProperties["height"],

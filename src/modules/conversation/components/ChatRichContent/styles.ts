@@ -1,5 +1,4 @@
-import * as stylex from "@octanejs/stylex";
-import type { CSSProperties } from "react";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
@@ -7,7 +6,7 @@ import {
 	motion,
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
-
+import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 export const styles = stylex.create({
 	copyButton: {
 		alignItems: "center",
@@ -311,21 +310,23 @@ export const styles = stylex.create({
 		transitionTimingFunction: motion.ease,
 	},
 });
-
 export function getInlineImgStyle(): CSSProperties {
-	return { maxWidth: "100%" } as CSSProperties;
+	return {
+		maxWidth: "100%",
+	} as CSSProperties;
 }
-
 export function getMarkdownParagraphStyle(): CSSProperties {
-	return { whiteSpace: "pre-wrap" } as CSSProperties;
+	return {
+		whiteSpace: "pre-wrap",
+	} as CSSProperties;
 }
-
 export function getMarkdownBlocksListItemStyle(
 	paddingLeft: CSSProperties["paddingLeft"],
 ): CSSProperties {
-	return { paddingLeft: paddingLeft } as CSSProperties;
+	return {
+		paddingLeft: paddingLeft,
+	} as CSSProperties;
 }
-
 export function getMarkdownBlocksTableCellStyle(
 	borderBottom: CSSProperties["borderBottom"],
 ): CSSProperties {
@@ -334,51 +335,59 @@ export function getMarkdownBlocksTableCellStyle(
 		color: "var(--color-inferay-white)",
 	} as CSSProperties;
 }
-
 export function getAskUserQuestionCardQuestionStreamingDotStyle(
 	backgroundColor: CSSProperties["backgroundColor"],
 ): CSSProperties {
-	return { backgroundColor: backgroundColor } as CSSProperties;
+	return {
+		backgroundColor: backgroundColor,
+	} as CSSProperties;
 }
-
 export function getChatRichContentIconHelpCircleStyle(
 	color: CSSProperties["color"],
 ): CSSProperties {
-	return { color: color } as CSSProperties;
+	return {
+		color: color,
+	} as CSSProperties;
 }
-
 export function getChatRichContentMultiSelectLabelStyle(
 	color: CSSProperties["color"],
 ): CSSProperties {
-	return { color: color } as CSSProperties;
+	return {
+		color: color,
+	} as CSSProperties;
 }
-
 export function getChatRichContentQuestionStreamingDotStyle(
 	backgroundColor: CSSProperties["backgroundColor"],
 ): CSSProperties {
-	return { backgroundColor: backgroundColor } as CSSProperties;
+	return {
+		backgroundColor: backgroundColor,
+	} as CSSProperties;
 }
-
 export function getChatRichContentOptionButtonStyle(
 	borderColor: CSSProperties["borderColor"],
 	cursor: CSSProperties["cursor"],
 ): CSSProperties {
-	return { borderColor: borderColor, cursor: cursor } as CSSProperties;
+	return {
+		borderColor: borderColor,
+		cursor: cursor,
+	} as CSSProperties;
 }
-
 export function getChatRichContentOptionMarkerStyle(
 	backgroundColor: CSSProperties["backgroundColor"],
 	color: CSSProperties["color"],
 ): CSSProperties {
-	return { backgroundColor: backgroundColor, color: color } as CSSProperties;
+	return {
+		backgroundColor: backgroundColor,
+		color: color,
+	} as CSSProperties;
 }
-
 export function getChatRichContentOptionDescriptionStyle(
 	color: CSSProperties["color"],
 ): CSSProperties {
-	return { color: color } as CSSProperties;
+	return {
+		color: color,
+	} as CSSProperties;
 }
-
 export function getAskUserQuestionCardSendSelectionsButtonStyle(
 	backgroundColor: CSSProperties["backgroundColor"],
 	color: CSSProperties["color"],

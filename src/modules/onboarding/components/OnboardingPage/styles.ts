@@ -1,4 +1,4 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
@@ -7,9 +7,7 @@ import {
 	motion,
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
-
 export const EASING = "cubic-bezier(.22,.82,.2,1)";
-
 export const styles = stylex.create({
 	root: {
 		position: "relative",

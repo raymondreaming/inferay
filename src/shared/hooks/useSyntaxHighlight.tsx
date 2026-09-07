@@ -1,15 +1,17 @@
-import { useQuery } from "@octanejs/tanstack-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
-import { sendJson } from "../../adapters/backend/http.ts";
 import {
-	readStoredValue,
-	writeStoredValue,
-} from "../../adapters/storage/stored-values.ts";
+	type Accessor,
+	createEffect,
+	createMemo,
+	createSignal,
+	onSettled,
+} from "solid-js";
 import {
 	dispatchWindowEvent,
 	listenWindowEvent,
 	queryClient,
-} from "../lib/data.ts";
+} from "../lib/dom.tsx";
+import { readStoredValue, sendJson, writeStoredValue } from "../lib/native.tsx";
+import { useBackgroundQuery as useQuery } from "./useQueryResource.tsx";
 
 /** Query lifecycle only: native code owns all syntax interpretation. Kinds are
  *  a closed vocabulary the stylesheet colours, so one classification serves
@@ -18,6 +20,8 @@ export type SyntaxKind =
 	| "attribute"
 	| "comment"
 	| "constant"
+	| "control"
+	| "variable"
 	| "function"
 	| "keyword"
 	| "number"
@@ -27,7 +31,6 @@ export type SyntaxKind =
 	| "string"
 	| "tag"
 	| "type";
-
 export interface SyntaxToken {
 	text: string;
 	kind: SyntaxKind;
@@ -38,7 +41,6 @@ export interface SyntaxToken {
 const MAX_HIGHLIGHT_CHARS = 2_000_000;
 const MAX_HIGHLIGHT_LINES = 50_000;
 const MAX_HIGHLIGHT_LINE_CHARS = 4_000;
-
 export function shouldDisableSnippetHighlighting(lines: string[]): boolean {
 	if (lines.length > MAX_HIGHLIGHT_LINES) return true;
 	let total = 0;
@@ -64,109 +66,148 @@ function contentKey(lines: string[]): string {
 	}
 	return `${lines.length}:${length}:${hash >>> 0}`;
 }
-
 interface ClassifiedDocument {
 	version: number;
 	language: string;
 	lines: Array<Array<number | string>>;
 }
-
-export function useSyntaxHighlight({
-	filePath,
-	lines,
-	enabled = true,
-}: {
-	filePath: string;
-	lines: string[];
-	enabled?: boolean;
-}) {
-	const active = useMemo(
-		() => enabled && !shouldDisableSnippetHighlighting(lines),
-		[enabled, lines],
-	);
-	const key = useMemo(
-		() => (active ? contentKey(lines) : String(lines.length)),
-		[active, lines],
-	);
-	const linesRef = useRef(lines);
-	linesRef.current = lines;
+export function useSyntaxHighlight(
+	_options: Accessor<{
+		filePath: string;
+		lines: string[];
+		lineTypes?: string[];
+		enabled?: boolean;
+	}>,
+) {
+	const active = createMemo(() => {
+		const _optionsValue = _options();
+		return (
+			(_optionsValue.enabled === undefined ? true : _optionsValue.enabled) &&
+			!shouldDisableSnippetHighlighting(_optionsValue.lines)
+		);
+	});
+	const key = createMemo(() => {
+		const _optionsValue2 = _options();
+		return active()
+			? contentKey(_optionsValue2.lines)
+			: String(_optionsValue2.lines.length);
+	});
 	const query = useQuery(
-		{
-			queryKey: ["syntax", 1, filePath, key],
-			enabled: active && lines.length > 0,
-			queryFn: async ({ signal }: { signal: AbortSignal }) => {
-				const response = await sendJson(
-					"/api/native/highlight",
-					{ path: filePath, text: lines.join("\n") },
-					{ signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]) },
-				);
-				if (!response.ok) throw new Error("Highlight request failed");
-				const document: ClassifiedDocument | null = await response.json();
-				return document?.version === 1 ? document : null;
-			},
-			staleTime: Infinity,
-			gcTime: 60_000,
-			retry: false,
+		() => {
+			const _optionsValue4 = _options();
+			return {
+				queryKey: [
+					"syntax",
+					4,
+					_optionsValue4.filePath,
+					key(),
+					_optionsValue4.lineTypes
+						? contentKey(_optionsValue4.lineTypes)
+						: "source",
+				],
+				enabled: active() && _optionsValue4.lines.length > 0,
+				queryFn: async ({ signal }: { signal: AbortSignal }) => {
+					const _optionsValue3 = _options();
+					const response = await sendJson(
+						"/api/native/highlight",
+						{
+							path: _optionsValue3.filePath,
+							text: _optionsValue3.lines.join("\n"),
+							lineTypes: _optionsValue3.lineTypes,
+						},
+						{
+							signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
+						},
+					);
+					if (!response.ok) throw new Error("Highlight request failed");
+					const document: ClassifiedDocument | null = await response.json();
+					// Older native processes use the same run format. Keep their colors
+					// during renderer reloads until the native process restarts.
+					return document && [1, 2, 3].includes(document.version)
+						? document
+						: null;
+				},
+				staleTime: Infinity,
+				gcTime: 60_000,
+				retry: false,
+			};
 		},
-		queryClient,
+		() => queryClient,
 	);
 	// Slicing every line up front wastes the work virtualization exists to
 	// avoid, so tokens are cut on demand and kept per document.
-	const tokens = useRef(new Map<number, SyntaxToken[]>());
-	const document = query.data ?? null;
-	const documentRef = useRef(document);
-	if (documentRef.current !== document) {
-		documentRef.current = document;
-		tokens.current = new Map();
-	}
-	const getLineTokens = useCallback(
-		(index: number): SyntaxToken[] | undefined => {
-			const runs = documentRef.current?.lines[index];
-			const text = linesRef.current[index];
-			if (!runs || text === undefined) return undefined;
-			const cached = tokens.current.get(index);
-			if (cached) return cached;
-			const cut: SyntaxToken[] = [];
-			let offset = 0;
-			for (let i = 0; i + 1 < runs.length; i += 2) {
-				const length = runs[i] as number;
-				cut.push({
-					text: text.slice(offset, offset + length),
-					kind: runs[i + 1] as SyntaxKind,
-				});
-				offset += length;
-			}
-			// A trailing remainder means the grammar stopped early; show it plain
-			// rather than dropping characters the reader can see in the source.
-			if (offset < text.length)
-				cut.push({ text: text.slice(offset), kind: "plain" });
-			tokens.current.set(index, cut);
-			return cut;
-		},
-		[],
-	);
+	const document = createMemo(() => query.data ?? null);
+	const tokens = createMemo(() => {
+		document();
+		return new Map<number, SyntaxToken[]>();
+	});
+	const getLineTokens = (index: number): SyntaxToken[] | undefined => {
+		const runs = document()?.lines[index];
+		const text = _options().lines[index];
+		if (!runs || text === undefined) return undefined;
+		const cached = tokens().get(index);
+		if (cached) return cached;
+		const cut: SyntaxToken[] = [];
+		let offset = 0;
+		for (let i = 0; i + 1 < runs.length; i += 2) {
+			const length = runs[i] as number;
+			cut.push({
+				text: text.slice(offset, offset + length),
+				kind: runs[i + 1] as SyntaxKind,
+			});
+			offset += length;
+		}
+		// A trailing remainder means the grammar stopped early; show it plain
+		// rather than dropping characters the reader can see in the source.
+		if (offset < text.length)
+			cut.push({
+				text: text.slice(offset),
+				kind: "plain",
+			});
+		tokens().set(index, cut);
+		return cut;
+	};
 	return {
-		getLineTokens,
-		isReady: !active || !query.isPending,
-		language: document?.language ?? null,
+		get getLineTokens() {
+			return getLineTokens;
+		},
+		get isReady() {
+			return !active() || !query.isPending;
+		},
+		get language() {
+			return document()?.language ?? null;
+		},
 	};
 }
-
 export const SYNTAX_HIGHLIGHT_THEMES = [
-	{ id: "contrast", label: "High Contrast" },
-	{ id: "vitesse", label: "Vitesse" },
-	{ id: "one-dark", label: "One Dark" },
-	{ id: "dracula", label: "Dracula" },
-	{ id: "slack", label: "Slack" },
+	{ id: "vscode-black", label: "Black" },
+	{
+		id: "contrast",
+		label: "High Contrast",
+	},
+	{
+		id: "vitesse",
+		label: "Vitesse",
+	},
+	{
+		id: "one-dark",
+		label: "One Dark",
+	},
+	{
+		id: "dracula",
+		label: "Dracula",
+	},
+	{
+		id: "slack",
+		label: "Slack",
+	},
 ] as const;
-
 export type SyntaxHighlightTheme =
 	(typeof SYNTAX_HIGHLIGHT_THEMES)[number]["id"];
-export const DEFAULT_SYNTAX_HIGHLIGHT_THEME: SyntaxHighlightTheme = "contrast";
-
+export const DEFAULT_SYNTAX_HIGHLIGHT_THEME: SyntaxHighlightTheme =
+	"vscode-black";
 const SYNTAX_THEME_STORAGE_KEY = "inferay-syntax-highlight-theme";
 const SYNTAX_THEME_EVENT = "inferay-syntax-highlight-theme-change";
-
 function normalize(value: string | null): SyntaxHighlightTheme {
 	return (
 		SYNTAX_HIGHLIGHT_THEMES.find((entry) => entry.id === value)?.id ??
@@ -179,28 +220,24 @@ function normalize(value: string | null): SyntaxHighlightTheme {
 export function applySyntaxTheme(theme: SyntaxHighlightTheme): void {
 	document.documentElement.dataset.inferaySyntaxTheme = theme;
 }
-
 export function useSyntaxHighlightTheme() {
-	const [theme, setTheme] = useState(() =>
-		normalize(readStoredValue(SYNTAX_THEME_STORAGE_KEY)),
+	const [theme, setTheme] = createSignal(
+		(() => normalize(readStoredValue(SYNTAX_THEME_STORAGE_KEY)))(),
 	);
-	useEffect(
-		() =>
-			listenWindowEvent(SYNTAX_THEME_EVENT, (event: Event) =>
-				setTheme(normalize((event as CustomEvent<string>).detail ?? null)),
-			),
-		[],
-	);
-	const select = useCallback((next: SyntaxHighlightTheme) => {
+	onSettled(() => {
+		return listenWindowEvent(SYNTAX_THEME_EVENT, (event: Event) =>
+			setTheme(normalize((event as CustomEvent<string>).detail ?? null)),
+		);
+	});
+	const select = (next: SyntaxHighlightTheme) => {
 		const resolved = normalize(next);
 		setTheme(resolved);
 		applySyntaxTheme(resolved);
 		writeStoredValue(SYNTAX_THEME_STORAGE_KEY, resolved);
 		dispatchWindowEvent(SYNTAX_THEME_EVENT, resolved);
-	}, []);
-	return [theme, select] as const;
+	};
+	return [() => theme(), select] as const;
 }
-
 export function restoreSyntaxTheme(): void {
 	applySyntaxTheme(normalize(readStoredValue(SYNTAX_THEME_STORAGE_KEY)));
 }

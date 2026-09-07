@@ -1,54 +1,12 @@
-import * as stylex from "@octanejs/stylex";
-import { BorderBeam } from "border-beam";
-import { useEffect, useRef } from "octane";
-import { createElement } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { styles } from "./styles.ts";
+import "./beam.css";
 
-interface BorderBeamOverlayProps {
-	active: boolean;
-}
-
-export function BorderBeamOverlay({ active }: BorderBeamOverlayProps) {
-	const hostRef = useRef<HTMLSpanElement | null>(null);
-	const rootRef = useRef<Root | null>(null);
-
-	useEffect(() => {
-		const host = hostRef.current;
-		if (!host) return;
-		const root = createRoot(host);
-		rootRef.current = root;
-		return () => {
-			rootRef.current = null;
-			root.unmount();
-		};
-	}, []);
-
-	useEffect(() => {
-		rootRef.current?.render(
-			createElement(BorderBeam, {
-				active,
-				borderRadius: 12,
-				colorVariant: "colorful",
-				duration: 2.5,
-				size: "md",
-				strength: 0.7,
-				style: { height: "100%", width: "100%" },
-				theme: "dark",
-				// biome-ignore lint/correctness/noChildrenProp: BorderBeam requires children in its typed props for createElement.
-				children: createElement("span", {
-					style: {
-						borderRadius: 12,
-						display: "block",
-						height: "100%",
-						width: "100%",
-					},
-				}),
-			}),
-		);
-	}, [active]);
-
+/** Compositor-driven border highlight for an active composer. */
+export function BorderBeamOverlay(props: { active: boolean }) {
 	return (
-		<span ref={hostRef} aria-hidden="true" {...stylex.props(styles.host)} />
+		<span
+			aria-hidden="true"
+			class="inferay-border-beam"
+			data-active={props.active ? "true" : "false"}
+		/>
 	);
 }

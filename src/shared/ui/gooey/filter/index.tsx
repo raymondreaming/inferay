@@ -1,4 +1,5 @@
-import type { OctaneElement } from "octane/jsx-runtime";
+import type { Element } from "solid-js";
+import { createMemo, For } from "solid-js";
 import type { ShadowLayer } from "../../../../../build/presentation/contracts/ShadowLayer.ts";
 import { InsetPass } from "./InsetPass.tsx";
 import { ShadowPass } from "./ShadowPass.tsx";
@@ -8,26 +9,27 @@ import { ShadowPass } from "./ShadowPass.tsx";
  *  pixel out and the fringe reads as a second hairline. */
 
 const BINARIZE = "1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 60 -29.5";
-
-export function GooFilterPrimitives({
-	blur,
-	contrast,
-	shadows,
-}: {
+export function GooFilterPrimitives(_props: {
 	blur: number;
 	contrast: number;
 	shadows: ShadowLayer[];
-}): OctaneElement {
+}): Element {
 	// Intercept tracks the slope so the alpha threshold stays near the same
 	// crossing as the classic 18/-7 goo pairing.
-	const intercept = Math.round((0.5 - contrast * (5 / 12)) * 100) / 100;
+	const intercept = createMemo(
+		() => Math.round((0.5 - _props.contrast * (5 / 12)) * 100) / 100,
+	);
 	return (
 		<>
-			<feGaussianBlur in="SourceGraphic" stdDeviation={blur} result="blur" />
+			<feGaussianBlur
+				in="SourceGraphic"
+				stdDeviation={_props.blur}
+				result="blur"
+			/>
 			<feColorMatrix
 				in="blur"
 				type="matrix"
-				values={`1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 ${contrast} ${intercept}`}
+				values={`1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 ${_props.contrast} ${intercept()}`}
 				result="goo"
 			/>
 			<feComposite
@@ -40,7 +42,7 @@ export function GooFilterPrimitives({
           needs it. Each inset pass and each spread pass used to run this
           identical feColorMatrix themselves — on a 5-layer stack that was
           three redundant full-region passes per repaint. */}
-			{shadows.some((s) => s.inset || s.spread !== 0) && (
+			{_props.shadows.some((s) => s.inset || s.spread !== 0) && (
 				<feColorMatrix
 					in="shape"
 					type="matrix"
@@ -48,29 +50,39 @@ export function GooFilterPrimitives({
 					result="bin"
 				/>
 			)}
-			{shadows.map((s, i) =>
-				s.inset ? (
-					<InsetPass key={i} i={i} s={s} />
-				) : (
-					<ShadowPass key={i} i={i} s={s} />
-				),
-			)}
-			{shadows.length > 0 && (
+			{
+				<For each={_props.shadows} keyed={false}>
+					{(s, i) =>
+						s().inset ? (
+							<InsetPass i={i} s={s()} />
+						) : (
+							<ShadowPass i={i} s={s()} />
+						)
+					}
+				</For>
+			}
+			{_props.shadows.length > 0 && (
 				<feMerge>
 					{/* CSS paints the first shadow of the list on top: outer passes
               merge in reverse (among themselves) BELOW the shape; inset
               passes paint ABOVE it — they live inside the liquid edge. */}
-					{shadows
-						.map((s, i) => (!s.inset ? i : -1))
-						.filter((i) => i >= 0)
-						.reverse()
-						.map((i) => (
-							<feMergeNode key={i} in={`s${i}`} />
-						))}
+					{
+						<For
+							each={_props.shadows
+								.map((s, i) => (!s.inset ? i : -1))
+								.filter((i) => i >= 0)
+								.reverse()}
+							keyed={false}
+						>
+							{(i) => <feMergeNode in={`s${i()}`} />}
+						</For>
+					}
 					<feMergeNode in="shape" />
-					{shadows.map((s, i) =>
-						s.inset ? <feMergeNode key={i} in={`s${i}`} /> : null,
-					)}
+					{
+						<For each={_props.shadows} keyed={false}>
+							{(s, i) => (s().inset ? <feMergeNode in={`s${i}`} /> : null)}
+						</For>
+					}
 				</feMerge>
 			)}
 		</>

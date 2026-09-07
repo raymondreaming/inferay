@@ -1,5 +1,4 @@
-import * as stylex from "@octanejs/stylex";
-import type { CSSProperties } from "react";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
@@ -10,7 +9,7 @@ import {
 	radius,
 	shadow,
 } from "../../../design-system/styles.stylex.ts";
-
+import type { CSSProperties } from "../../lib/dom.tsx";
 export const styles = stylex.create({
 	button: {
 		alignItems: "center",
@@ -224,13 +223,13 @@ export const styles = stylex.create({
 		borderTopWidth: 1,
 	},
 });
-
 export function getDropdownButtonOptionsBoxStyle(
 	maxHeight: CSSProperties["maxHeight"],
 ): CSSProperties {
-	return { maxHeight: maxHeight } as CSSProperties;
+	return {
+		maxHeight: maxHeight,
+	} as CSSProperties;
 }
-
 export function getDropdownButtonMenuStyle(
 	top: CSSProperties["top"],
 	bottom: CSSProperties["bottom"],

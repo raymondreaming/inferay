@@ -1,13 +1,9 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import type { Prompt } from "../../../../../build/presentation/contracts/Prompt.ts";
 import { surfaceStyles } from "../../../../design-system/styles.stylex.ts";
+import { ariaValue } from "../../../../shared/lib/dom.tsx";
 import { styles } from "./styles.ts";
-
-export function SkillLibraryItem({
-	skill,
-	active,
-	selectSkill,
-}: {
+export function SkillLibraryItem(_props: {
 	skill: Prompt;
 	active: boolean;
 	selectSkill: (skill: Prompt) => void;
@@ -15,24 +11,25 @@ export function SkillLibraryItem({
 	return (
 		<button
 			type="button"
-			key={skill._id}
-			onClick={() => selectSkill(skill)}
-			aria-current={active ? "true" : undefined}
-			title={skill.description || skill.name}
-			{...stylex.props(
+			onClick={() => _props.selectSkill(_props.skill)}
+			aria-current={ariaValue(_props.active ? "true" : undefined)}
+			title={_props.skill.description || _props.skill.name}
+			{...stylex.attrs(
 				styles.skillRow,
-				active && surfaceStyles.panel,
-				active && styles.skillRowActive,
+				_props.active && surfaceStyles.panel,
+				_props.active && styles.skillRowActive,
 			)}
 		>
-			<span {...stylex.props(styles.skillCopy)}>
-				<span {...stylex.props(styles.skillCommand)}>/{skill.command}</span>
-				<span {...stylex.props(styles.skillDescription)}>
-					{skill.description || skill.name}
+			<span {...stylex.attrs(styles.skillCopy)}>
+				<span {...stylex.attrs(styles.skillCommand)}>
+					/{_props.skill.command}
+				</span>
+				<span {...stylex.attrs(styles.skillDescription)}>
+					{_props.skill.description || _props.skill.name}
 				</span>
 			</span>
-			{skill.isBuiltIn && (
-				<span {...stylex.props(styles.builtinLabel)}>Built-in</span>
+			{_props.skill.isBuiltIn && (
+				<span {...stylex.attrs(styles.builtinLabel)}>Built-in</span>
 			)}
 		</button>
 	);

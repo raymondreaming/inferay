@@ -1,4 +1,4 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import type { useGitGraph } from "../../../repository/hooks/useGitGraph.tsx";
 import { DiffViewer } from "../../diff/components/DiffViewer/index.tsx";
 import { DiffViewerBoundary } from "../../diff/components/DiffViewerBoundary/index.tsx";
@@ -9,7 +9,6 @@ import { RepositoryOperationBar } from "./RepositoryOperationBar.tsx";
 import { styles } from "./styles.ts";
 import { useChatDiffPanelState } from "./useChatDiffPanelState.tsx";
 import { ViewerHeader } from "./ViewerHeader.tsx";
-
 export function gitGraphEmptyLabel(
 	graph: ReturnType<typeof useGitGraph>,
 ): string {
@@ -26,28 +25,27 @@ export function gitGraphEmptyLabel(
 			return "No commits";
 	}
 }
-
 export function ChatDiffPanel(
-	props: Parameters<typeof useChatDiffPanelState>[0],
+	props: ReturnType<Parameters<typeof useChatDiffPanelState>[0]>,
 ) {
-	const view = useChatDiffPanelState(props);
+	const view = useChatDiffPanelState(() => props);
 	return (
-		<section {...stylex.props(styles.viewerPanel)}>
-			<span role="status" aria-live="polite" {...stylex.props(styles.srStatus)}>
+		<section {...stylex.attrs(styles.viewerPanel)}>
+			<span role="status" aria-live="polite" {...stylex.attrs(styles.srStatus)}>
 				{view.selectionAnnouncement}
 			</span>
 			<span
 				role="status"
 				aria-live="polite"
 				data-git-operation-phase={view.operationActivity.phase}
-				{...stylex.props(styles.srStatus)}
+				{...stylex.attrs(styles.srStatus)}
 			>
 				{view.operationActivity.message}
 			</span>
 			<div
 				aria-hidden="true"
 				data-floating-viewer-scrim="true"
-				{...stylex.props(
+				{...stylex.attrs(
 					styles.viewerFloatingScrim,
 					view.mainViewMode === "graph" &&
 						styles.viewerFloatingScrimAboveContent,
@@ -55,7 +53,7 @@ export function ChatDiffPanel(
 			/>
 			<ViewerHeader {...view} />
 			<div
-				{...stylex.props(
+				{...stylex.attrs(
 					styles.viewerBody,
 					view.mainViewMode !== "graph" && styles.viewerBodyAboveScrim,
 				)}
@@ -64,13 +62,13 @@ export function ChatDiffPanel(
 					view.graphLoading &&
 					view.graph.commits.length === 0 &&
 					!view.graph.searchQuery ? (
-						<div {...stylex.props(styles.viewerEmpty)}>Loading history…</div>
+						<div {...stylex.attrs(styles.viewerEmpty)}>Loading history…</div>
 					) : view.graphError &&
 						view.graph.commits.length === 0 &&
 						!view.graph.searchQuery ? (
-						<div {...stylex.props(styles.viewerEmpty)}>{view.graphError}</div>
+						<div {...stylex.attrs(styles.viewerEmpty)}>{view.graphError}</div>
 					) : view.graph.commits.length === 0 && !view.graph.searchQuery ? (
-						<div {...stylex.props(styles.viewerEmpty)}>
+						<div {...stylex.attrs(styles.viewerEmpty)}>
 							{gitGraphEmptyLabel(view.graph)}
 						</div>
 					) : (
@@ -104,7 +102,10 @@ export function ChatDiffPanel(
 							onLoadMore={view.onLoadMoreCommits}
 							onRefDrop={(source, target) => {
 								view.setRefOperationResult(null);
-								view.setPendingRefAction({ source, target });
+								view.setPendingRefAction({
+									source,
+									target,
+								});
 							}}
 							onGraphAction={view.requestGraphAction}
 							onCompareWithWip={(itemId) => {
@@ -114,7 +115,10 @@ export function ChatDiffPanel(
 								);
 								if (!wip) return;
 								view.onSelectCommit(wip.id);
-								view.onSelectCommit(itemId, { additive: true, range: false });
+								view.onSelectCommit(itemId, {
+									additive: true,
+									range: false,
+								});
 							}}
 						/>
 					)
@@ -135,7 +139,7 @@ export function ChatDiffPanel(
 						/>
 					</DiffViewerBoundary>
 				) : !view.loading ? (
-					<div {...stylex.props(styles.viewerEmpty)}>
+					<div {...stylex.attrs(styles.viewerEmpty)}>
 						{view.error ?? "No diff available"}
 					</div>
 				) : null}
@@ -155,7 +159,7 @@ export function ChatDiffPanel(
 					/>
 				) : null}
 				{view.mainViewMode === "graph" &&
-				view.repositoryOperation.kind !== "idle" &&
+				view.operationModel.recoveryTitle &&
 				!view.pendingRefAction ? (
 					<RepositoryOperationBar {...view} />
 				) : null}

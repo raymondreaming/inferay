@@ -1,54 +1,56 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
+import type { Element } from "solid-js";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
 import { IconRefreshCw } from "../../../../shared/ui/Icons/index.tsx";
 import { styles } from "./styles.ts";
-
-export function SettingsSection({
-	id,
-	title,
-	description,
-	onRefresh,
-	refreshLabel = "Refresh",
-	refreshNoShrink = false,
-	children,
-}: {
+export function SettingsSection(_props: {
 	id: string;
 	title: string;
 	description: string;
 	onRefresh?: () => unknown;
 	refreshLabel?: string;
 	refreshNoShrink?: boolean;
-	children: unknown;
+	children: Element;
 }) {
 	return (
-		<section id={id} {...stylex.props(styles.settingsSection)}>
-			<div {...stylex.props(styles.sectionIntro)}>
-				<div {...stylex.props(styles.sectionIntroText)}>
-					<h2 {...stylex.props(styles.sectionTitle)}>{title}</h2>
-					<p {...stylex.props(styles.sectionDescription)}>{description}</p>
+		<section id={_props.id} {...stylex.attrs(styles.settingsSection)}>
+			<div {...stylex.attrs(styles.sectionIntro)}>
+				<div {...stylex.attrs(styles.sectionIntroText)}>
+					<h2 {...stylex.attrs(styles.sectionTitle)}>{_props.title}</h2>
+					<p {...stylex.attrs(styles.sectionDescription)}>
+						{_props.description}
+					</p>
 				</div>
-				{onRefresh ? (
-					<div {...stylex.props(styles.sectionActions)}>
+				{_props.onRefresh ? (
+					<div {...stylex.attrs(styles.sectionActions)}>
 						<Button
 							liquid={false}
 							type="button"
-							onClick={() => void onRefresh()}
+							onClick={() => void _props.onRefresh?.()}
 							variant="secondary"
 							size="sm"
-							className={
-								refreshNoShrink
-									? stylex.props(styles.noShrink).className
+							class={
+								(
+									_props.refreshNoShrink === undefined
+										? false
+										: _props.refreshNoShrink
+								)
+									? stylex.attrs(styles.noShrink).class
 									: undefined
 							}
 						>
 							<IconRefreshCw size={iconSize.md} />
-							<span>{refreshLabel}</span>
+							<span>
+								{_props.refreshLabel === undefined
+									? "Refresh"
+									: _props.refreshLabel}
+							</span>
 						</Button>
 					</div>
 				) : null}
 			</div>
-			{children}
+			{_props.children}
 		</section>
 	);
 }

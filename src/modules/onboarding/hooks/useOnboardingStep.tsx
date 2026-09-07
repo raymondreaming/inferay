@@ -1,4 +1,4 @@
-import { useState } from "octane";
+import { createSignal } from "solid-js";
 export type Step = "intro" | "github" | "projects" | "complete";
 export function getStepPhase(current: Step, target: Step) {
 	const order: Step[] = ["intro", "github", "projects", "complete"];
@@ -8,7 +8,6 @@ export function getStepPhase(current: Step, target: Step) {
 			? "before"
 			: "after";
 }
-
 export function useOnboardingStep() {
-	return useState<Step>("intro");
+	return createSignal<Step>("intro");
 }

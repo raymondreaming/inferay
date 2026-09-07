@@ -1,10 +1,9 @@
-import * as stylex from "@octanejs/stylex";
-import { useEffect, useRef, useState } from "octane";
+import * as stylex from "@stylexjs/stylex";
+import { createEffect, createSignal } from "solid-js";
 import { runtimeFont } from "../../../../../design-system/styles.stylex.ts";
 import { styles } from "./styles.ts";
 
 let mermaidPromise: Promise<unknown> | null = null;
-
 function loadMermaid(): Promise<unknown> {
 	if (mermaidPromise) return mermaidPromise;
 	mermaidPromise = new Promise((resolve, reject) => {
@@ -37,7 +36,6 @@ function loadMermaid(): Promise<unknown> {
 	});
 	return mermaidPromise;
 }
-
 function sanitizeMermaidSvg(svg: string): string {
 	const document = new DOMParser().parseFromString(svg, "image/svg+xml");
 	for (const element of document.querySelectorAll("script, foreignObject")) {
@@ -58,43 +56,61 @@ function sanitizeMermaidSvg(svg: string): string {
 	}
 	return new XMLSerializer().serializeToString(document.documentElement);
 }
-
-export function MermaidBlock({ code }: { code: string }) {
-	const ref = useRef<HTMLDivElement | null>(null);
-	const [error, setError] = useState<string | null>(null);
-
-	useEffect(() => {
-		setError(null);
-		if (ref.current) ref.current.replaceChildren();
-		const controller = new AbortController();
-		const { signal } = controller;
-		const id = `mermaid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-		loadMermaid()
-			.then(() => {
-				if (signal.aborted || !ref.current) return;
-				const m = (window as unknown as Record<string, unknown>).mermaid as {
-					render: (id: string, code: string) => Promise<{ svg: string }>;
-				};
-				return m.render(id, code);
-			})
-			.then((result) => {
-				if (signal.aborted || !ref.current || !result) return;
-				ref.current.innerHTML = sanitizeMermaidSvg(result.svg);
-			})
-			.catch((err) => {
-				if (!signal.aborted) setError(String(err));
-			});
-		return controller.abort.bind(controller);
-	}, [code]);
-
-	if (error)
-		return (
-			<div {...stylex.props(styles.mermaidBox)}>
-				<pre {...stylex.props(styles.errorPre)}>{error}</pre>
-			</div>
-		);
-
+export function MermaidBlock(_props: { code: string }) {
+	const ref = {
+		current: null,
+	} as {
+		current: HTMLDivElement | null;
+	};
+	const [error, setError] = createSignal<string | null>(null);
+	createEffect(
+		() => [_props.code],
+		() => {
+			setError(null);
+			if (ref.current) ref.current.replaceChildren();
+			const controller = new AbortController();
+			const { signal } = controller;
+			const id = `mermaid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+			loadMermaid()
+				.then(() => {
+					if (signal.aborted || !ref.current) return;
+					const m = (window as unknown as Record<string, unknown>).mermaid as {
+						render: (
+							id: string,
+							code: string,
+						) => Promise<{
+							svg: string;
+						}>;
+					};
+					return m.render(id, _props.code);
+				})
+				.then((result) => {
+					if (signal.aborted || !ref.current || !result) return;
+					ref.current.innerHTML = sanitizeMermaidSvg(result.svg);
+				})
+				.catch((err) => {
+					if (!signal.aborted) setError(String(err));
+				});
+			return controller.abort.bind(controller);
+		},
+	);
 	return (
-		<div ref={ref} {...stylex.props(styles.mermaidBox, styles.mermaidRender)} />
+		<>
+			{(() => {
+				const _errorValue = error();
+				if (_errorValue)
+					return (
+						<div {...stylex.attrs(styles.mermaidBox)}>
+							<pre {...stylex.attrs(styles.errorPre)}>{_errorValue}</pre>
+						</div>
+					);
+				return (
+					<div
+						ref={(element) => (ref.current = element)}
+						{...stylex.attrs(styles.mermaidBox, styles.mermaidRender)}
+					/>
+				);
+			})()}
+		</>
 	);
 }

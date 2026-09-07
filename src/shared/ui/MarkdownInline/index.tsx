@@ -1,101 +1,105 @@
-import { Fragment, memo } from "octane";
-import type { CSSProperties } from "react";
+import type { JSX } from "@solidjs/web";
+import { createMemo, For, Match, Show, Switch } from "solid-js";
 import type { MdInlineToken } from "../../../../build/presentation/contracts/MdInlineToken.ts";
-
 export type InlineAppearance = Partial<
 	Record<
 		MdInlineToken["type"] | "boldItalicEm",
-		{ className?: string; style?: CSSProperties; alt?: string }
+		{
+			class?: string;
+			style?: JSX.CSSProperties | string;
+			alt?: string;
+		}
 	>
 >;
-const tags = {
-	code: "code",
-	bold: "strong",
-	italic: "em",
-	strikethrough: "del",
-} as const;
-
-export const MarkdownInline = memo(function MarkdownInline({
-	tokens,
-	appearance,
-	onMdFileClick,
-}: {
-	tokens: MdInlineToken[];
+type InlineProps = {
 	appearance: InlineAppearance;
 	onMdFileClick?: (path: string) => void;
-}) {
+};
+export function MarkdownInline(
+	props: InlineProps & { tokens: MdInlineToken[] },
+) {
 	return (
-		<>
-			{tokens.map((token, index) => {
-				const children = token.children ? (
-					<MarkdownInline
-						tokens={token.children}
-						appearance={appearance}
-						onMdFileClick={onMdFileClick}
-					/>
-				) : (
-					token.text
-				);
-				const props = appearance[token.type];
-				switch (token.type) {
-					case "code":
-					case "bold":
-					case "italic":
-					case "strikethrough": {
-						const Tag = tags[token.type];
-						return (
-							<Tag key={index} {...props}>
-								{token.type === "code" ? token.text : children}
-							</Tag>
-						);
-					}
-					case "bold-italic":
-						return (
-							<strong key={index} {...props}>
-								<em {...appearance.boldItalicEm}>{children}</em>
-							</strong>
-						);
-					case "linebreak":
-						return <br key={index} />;
-					case "image":
-						return (
-							<img
-								key={index}
-								{...props}
-								src={token.href}
-								alt={token.alt ?? props?.alt ?? token.text}
-							/>
-						);
-					case "markdown_path":
-						if (onMdFileClick)
-							return (
-								<button
-									key={index}
-									type="button"
-									{...props}
-									onClick={() => onMdFileClick(token.text)}
-								>
-									{token.text}
-								</button>
-							);
-						break;
-					case "url":
-					case "link":
-						if (token.type === "url" && !props) break;
-						return (
-							<a
-								key={index}
-								{...props}
-								href={token.href}
-								target="_blank"
-								rel="noopener noreferrer"
-							>
-								{children}
-							</a>
-						);
-				}
-				return <Fragment key={index}>{token.text}</Fragment>;
-			})}
-		</>
+		<For each={props.tokens} keyed={false}>
+			{(token) => (
+				<InlineToken
+					token={token()}
+					appearance={props.appearance}
+					onMdFileClick={props.onMdFileClick}
+				/>
+			)}
+		</For>
 	);
-});
+}
+function InlineToken(props: InlineProps & { token: MdInlineToken }) {
+	const kind = createMemo(() => props.token.type);
+	const appearance = createMemo(() => props.appearance[kind()]);
+	const Children = () => (
+		<Show when={props.token.children} fallback={props.token.text}>
+			{(tokens) => (
+				<MarkdownInline
+					tokens={tokens()}
+					appearance={props.appearance}
+					onMdFileClick={props.onMdFileClick}
+				/>
+			)}
+		</Show>
+	);
+	return (
+		<Switch fallback={<>{props.token.text}</>}>
+			<Match when={kind() === "code"}>
+				<code {...appearance()}>{props.token.text}</code>
+			</Match>
+			<Match when={kind() === "bold"}>
+				<strong {...appearance()}>
+					<Children />
+				</strong>
+			</Match>
+			<Match when={kind() === "italic"}>
+				<em {...appearance()}>
+					<Children />
+				</em>
+			</Match>
+			<Match when={kind() === "strikethrough"}>
+				<del {...appearance()}>
+					<Children />
+				</del>
+			</Match>
+			<Match when={kind() === "bold-italic"}>
+				<strong {...appearance()}>
+					<em {...props.appearance.boldItalicEm}>
+						<Children />
+					</em>
+				</strong>
+			</Match>
+			<Match when={kind() === "linebreak"}>
+				<br />
+			</Match>
+			<Match when={kind() === "image"}>
+				<img
+					{...appearance()}
+					src={props.token.href}
+					alt={props.token.alt ?? appearance()?.alt ?? props.token.text}
+				/>
+			</Match>
+			<Match when={kind() === "markdown_path" && !!props.onMdFileClick}>
+				<button
+					type="button"
+					{...appearance()}
+					onClick={() => props.onMdFileClick?.(props.token.text)}
+				>
+					{props.token.text}
+				</button>
+			</Match>
+			<Match when={kind() === "link" || (kind() === "url" && !!appearance())}>
+				<a
+					{...appearance()}
+					href={props.token.href}
+					target="_blank"
+					rel="noopener noreferrer"
+				>
+					<Children />
+				</a>
+			</Match>
+		</Switch>
+	);
+}

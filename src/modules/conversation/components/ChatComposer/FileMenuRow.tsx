@@ -1,44 +1,41 @@
-import * as stylex from "@octanejs/stylex";
-import { memo } from "octane";
-import type React from "react";
+import * as stylex from "@stylexjs/stylex";
+import type { Dispatch, StateUpdate } from "../../../../shared/lib/dom.tsx";
 import type {
 	FileMenuState,
 	FileSearchResult,
 } from "../../hooks/useAgentChatMenus.tsx";
 import { styles } from "./styles.ts";
-
-export const FileMenuRow = memo(function FileMenuRow({
-	file,
-	index,
-	selected,
-	selectFile,
-	setFileMenu,
-}: {
+export const FileMenuRow = function FileMenuRow(_props: {
 	file: FileSearchResult;
 	index: number;
 	selected: boolean;
 	selectFile: (idx: number) => void;
-	setFileMenu: React.Dispatch<React.SetStateAction<FileMenuState>>;
+	setFileMenu: Dispatch<StateUpdate<FileMenuState>>;
 }) {
 	return (
 		<button
 			type="button"
-			onClick={() => selectFile(index)}
+			onClick={() => _props.selectFile(_props.index)}
 			onMouseEnter={() =>
-				setFileMenu((prev) =>
-					prev.selectedIdx === index ? prev : { ...prev, selectedIdx: index },
+				_props.setFileMenu((prev) =>
+					prev.selectedIdx === _props.index
+						? prev
+						: {
+								...prev,
+								selectedIdx: _props.index,
+							},
 				)
 			}
-			{...stylex.props(
+			{...stylex.attrs(
 				styles.fileMenuRow,
-				selected && styles.fileMenuRowActive,
+				_props.selected && styles.fileMenuRowActive,
 			)}
 		>
-			<span {...stylex.props(styles.fileMenuIcon)}>
-				{file.isDir ? "\u{1F4C1}" : "\u{1F4C4}"}
+			<span {...stylex.attrs(styles.fileMenuIcon)}>
+				{_props.file.isDir ? "\u{1F4C1}" : "\u{1F4C4}"}
 			</span>
-			<span {...stylex.props(styles.fileMenuName)}>{file.name}</span>
-			<span {...stylex.props(styles.fileMenuPath)}>{file.path}</span>
+			<span {...stylex.attrs(styles.fileMenuName)}>{_props.file.name}</span>
+			<span {...stylex.attrs(styles.fileMenuPath)}>{_props.file.path}</span>
 		</button>
 	);
-});
+};

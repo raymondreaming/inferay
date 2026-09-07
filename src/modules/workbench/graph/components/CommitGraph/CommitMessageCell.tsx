@@ -1,18 +1,9 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import type { GraphCommit } from "../../../../../../build/presentation/contracts/GraphCommit.ts";
-
+import { domStyle } from "../../../../../shared/lib/dom.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
-
-export function CommitMessageCell({
-	commit,
-	color,
-	width,
-	isWip,
-	showWipRef,
-	worktreeLabel,
-	fileCount,
-}: {
+export function CommitMessageCell(_props: {
 	commit: GraphCommit;
 	color: string;
 	width: number;
@@ -23,32 +14,36 @@ export function CommitMessageCell({
 }) {
 	return (
 		<div
-			{...stylex.props(styles.messageCell)}
-			style={inlineStyles.getCommitRowMessageCellStyle(
-				width,
-				`1px solid ${color}`,
+			{...stylex.attrs(styles.messageCell)}
+			style={domStyle(
+				inlineStyles.getCommitRowMessageCellStyle(
+					_props.width,
+					`1px solid ${_props.color}`,
+				),
 			)}
 		>
 			<span
-				{...stylex.props(styles.commitMessage)}
-				style={inlineStyles.getCommitRowCommitMessageStyle(
-					commit.body ? "64%" : "100%",
+				{...stylex.attrs(styles.commitMessage)}
+				style={domStyle(
+					inlineStyles.getCommitRowCommitMessageStyle(
+						_props.commit.body ? "64%" : "100%",
+					),
 				)}
 			>
-				{isWip
-					? showWipRef
-						? `// WIP ${worktreeLabel}`
+				{_props.isWip
+					? _props.showWipRef
+						? `// WIP ${_props.worktreeLabel}`
 						: "// WIP"
-					: commit.message}
+					: _props.commit.message}
 			</span>
-			{!isWip && commit.body ? (
-				<span {...stylex.props(styles.commitBody)}>
-					— {commit.body.replace(/\s+/g, " ")}
+			{!_props.isWip && _props.commit.body ? (
+				<span {...stylex.attrs(styles.commitBody)}>
+					— {_props.commit.body.replace(/\s+/g, " ")}
 				</span>
 			) : null}
-			{isWip ? (
-				<span {...stylex.props(styles.fileCount)}>
-					{fileCount} file{fileCount === 1 ? "" : "s"}
+			{_props.isWip ? (
+				<span {...stylex.attrs(styles.fileCount)}>
+					{_props.fileCount} file{_props.fileCount === 1 ? "" : "s"}
 				</span>
 			) : null}
 		</div>

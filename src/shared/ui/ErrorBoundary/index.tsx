@@ -1,14 +1,13 @@
-import { ErrorBoundary as OctaneErrorBoundary } from "octane";
+import { type Element, Errored } from "solid-js";
 import { RecoveryFallback } from "./RecoveryFallback.tsx";
-
-function renderRecoveryFallback(error: unknown, reset: () => void) {
-	return <RecoveryFallback error={error} reset={reset} />;
-}
-
-export function ErrorBoundary({ children }: { children: unknown }) {
+export function ErrorBoundary(props: { children: Element }) {
 	return (
-		<OctaneErrorBoundary fallback={renderRecoveryFallback}>
-			{children}
-		</OctaneErrorBoundary>
+		<Errored
+			fallback={(error, reset) => (
+				<RecoveryFallback error={error()} reset={reset} />
+			)}
+		>
+			{props.children}
+		</Errored>
 	);
 }

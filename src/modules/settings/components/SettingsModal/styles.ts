@@ -1,5 +1,4 @@
-import * as stylex from "@octanejs/stylex";
-import type { CSSProperties } from "react";
+import * as stylex from "@stylexjs/stylex";
 import {
 	breakpoint,
 	color,
@@ -9,7 +8,7 @@ import {
 	radius,
 	shadow,
 } from "../../../../design-system/styles.stylex.ts";
-
+import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 export const styles = stylex.create({
 	backdrop: {
 		backdropFilter: "blur(14px)",
@@ -144,7 +143,6 @@ export const styles = stylex.create({
 		overflowY: "auto",
 	},
 });
-
 export function getSettingsModalHostDivStyle(): CSSProperties {
 	return {
 		boxSizing: "border-box",
@@ -155,7 +153,6 @@ export function getSettingsModalHostDivStyle(): CSSProperties {
 		position: "fixed",
 	} as CSSProperties;
 }
-
 export function getSettingsModalHostSectionStyle(): CSSProperties {
 	return {
 		display: "grid",

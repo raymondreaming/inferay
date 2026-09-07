@@ -1,34 +1,50 @@
-import { useQuery } from "@octanejs/tanstack-query";
+import type { Accessor } from "solid-js";
 import type { Prompt } from "../../../../build/presentation/contracts/Prompt.ts";
-import {
-	fetchJson,
-	postJson,
-	sendJson,
-} from "../../../adapters/backend/http.ts";
-import { queryClient } from "../../../shared/lib/data.ts";
-
-export function useSkills(filter = "all", search = "") {
-	const query = useQuery(skillsQuery(filter, search), queryClient);
+import { useBackgroundQuery as useQuery } from "../../../shared/hooks/useQueryResource.tsx";
+import { queryClient } from "../../../shared/lib/dom.tsx";
+import { fetchJson, postJson, sendJson } from "../../../shared/lib/native.tsx";
+export function useSkills(
+	_filter: Accessor<string> = () => "all",
+	_search: Accessor<string> = () => "",
+) {
+	const query = useQuery(
+		() => skillsQuery(_filter(), _search()),
+		() => queryClient,
+	);
 	return {
-		skills: query.data ?? emptySkills,
-		loading: query.isPending,
-		error: query.error?.message ?? "",
+		get skills() {
+			return query.data ?? emptySkills;
+		},
+		get loading() {
+			return query.isPending;
+		},
+		get error() {
+			return query.error?.message ?? "";
+		},
 	};
 }
-
 const skillsKey = ["skills"] as const;
 export const emptySkills: Prompt[] = [];
 export const skillsQuery = (filter = "all", search = "") => ({
 	queryKey: [...skillsKey, filter, search],
 	queryFn: ({ signal }: { signal: AbortSignal }) =>
 		fetchJson<Prompt[]>(
-			`/api/prompts?${new URLSearchParams({ filter, search })}`,
-			{ signal },
+			`/api/prompts?${new URLSearchParams({
+				filter,
+				search,
+			})}`,
+			{
+				signal,
+			},
 		),
 });
 async function refreshSkills() {
-	await queryClient.cancelQueries({ queryKey: skillsKey });
-	await queryClient.invalidateQueries({ queryKey: skillsKey });
+	await queryClient.cancelQueries({
+		queryKey: skillsKey,
+	});
+	await queryClient.invalidateQueries({
+		queryKey: skillsKey,
+	});
 }
 export async function saveSkill(data: Record<string, unknown>, id?: string) {
 	const response = await sendJson(
@@ -47,13 +63,14 @@ export async function saveSkill(data: Record<string, unknown>, id?: string) {
 	return skill;
 }
 export async function removeSkill(id: string) {
-	await fetchJson(`/api/prompts/${id}`, { method: "DELETE" });
+	await fetchJson(`/api/prompts/${id}`, {
+		method: "DELETE",
+	});
 	await refreshSkills();
 }
 export function preloadSkills() {
 	return queryClient.prefetchQuery(skillsQuery());
 }
-
 export async function decideSkillProposal(
 	messageId: string,
 	proposal: import("../../../../build/presentation/contracts/SkillProposal.ts").SkillProposal,
@@ -61,7 +78,11 @@ export async function decideSkillProposal(
 ) {
 	const view = await postJson<
 		import("../../../../build/presentation/contracts/SkillProposalView.ts").SkillProposalView
-	>("/api/prompts/proposal", { messageId, proposal, decision });
+	>("/api/prompts/proposal", {
+		messageId,
+		proposal,
+		decision,
+	});
 	await refreshSkills();
 	return view;
 }

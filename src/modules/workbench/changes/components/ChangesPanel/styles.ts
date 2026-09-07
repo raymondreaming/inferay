@@ -1,5 +1,4 @@
-import * as stylex from "@octanejs/stylex";
-import type { CSSProperties } from "react";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
@@ -9,7 +8,7 @@ import {
 	radius,
 	shadow,
 } from "../../../../../design-system/styles.stylex.ts";
-
+import type { CSSProperties } from "../../../../../shared/lib/dom.tsx";
 export const styles = stylex.create({
 	root: {
 		display: "flex",
@@ -443,10 +442,10 @@ export const styles = stylex.create({
 		fontVariantNumeric: "tabular-nums",
 	},
 	addedText: {
-		color: color.diffAdded,
+		color: color.gitAdded,
 	},
 	deletedText: {
-		color: color.diffRemoved,
+		color: color.gitDeleted,
 	},
 	statusIcon: {
 		display: "flex",
@@ -478,10 +477,10 @@ export const styles = stylex.create({
 		color: color.diffModified,
 	},
 	addedStatus: {
-		color: color.diffAdded,
+		color: color.gitAdded,
 	},
 	deletedStatus: {
-		color: color.diffRemoved,
+		color: color.gitDeleted,
 	},
 	renamedStatus: {
 		color: color.diffRenamed,
@@ -772,13 +771,17 @@ export const styles = stylex.create({
 		transitionDuration: motion.durationFast,
 	},
 });
-
 export function getCommitDetailsPanelCommitDescriptionViewportStyle(): CSSProperties {
-	return { maxHeight: "8.4em", overflow: "auto" } as CSSProperties;
+	return {
+		maxHeight: "8.4em",
+		overflow: "auto",
+	} as CSSProperties;
 }
-
 export function getTreeNodeRowTreeRowStyle(
 	paddingLeft: CSSProperties["paddingLeft"],
 ): CSSProperties {
-	return { paddingLeft: paddingLeft, paddingRight: 6 } as CSSProperties;
+	return {
+		paddingLeft: paddingLeft,
+		paddingRight: 6,
+	} as CSSProperties;
 }

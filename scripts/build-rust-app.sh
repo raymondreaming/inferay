@@ -33,4 +33,4 @@ SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 codesign --force --sign "${SIGN_IDENTITY}" "${MACOS_DIR}/inferay"
 codesign --force --sign "${SIGN_IDENTITY}" --entitlements "${HOST_DIR}/entitlements.plist" "${APP_DIR}"
 
-echo "[rust-host] built ${APP_DIR} with the Octane renderer and native Rust server"
+echo "[rust-host] built ${APP_DIR} with the Solid renderer and native Rust server"

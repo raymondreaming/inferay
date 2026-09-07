@@ -1,24 +1,31 @@
-import { type OctaneNode, Suspense, useEffect, useState } from "octane";
-
-export function LiquidPanel({
-	children,
-	fill,
-}: {
-	children?: OctaneNode;
-	fill: string;
-}) {
-	const [mounted, setMounted] = useState(false);
-	useEffect(() => setMounted(true), []);
-	if (!mounted) return children;
+import {
+	createEffect,
+	createSignal,
+	type Element,
+	Loading,
+	lazy,
+	onSettled,
+} from "solid-js";
+export function LiquidPanel(_props: { children?: Element; fill: string }) {
+	const [mounted, setMounted] = createSignal(false);
+	onSettled(() => {
+		setMounted(true);
+	});
 	return (
-		<Suspense fallback={children}>
-			<LazyLiquidPanelSurface fill={fill}>{children}</LazyLiquidPanelSurface>
-		</Suspense>
+		<>
+			{(() => {
+				if (!mounted()) return _props.children;
+				return (
+					<Loading fallback={_props.children}>
+						<LazyLiquidPanelSurface fill={_props.fill}>
+							{_props.children}
+						</LazyLiquidPanelSurface>
+					</Loading>
+				);
+			})()}
+		</>
 	);
 }
-
-import { lazy } from "octane";
-
 const LazyLiquidPanelSurface = lazy(() =>
 	import("../LiquidPanelSurface/index.tsx").then((module) => ({
 		default: module.LiquidPanelSurface,

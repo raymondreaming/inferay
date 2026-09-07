@@ -1,37 +1,37 @@
-import * as stylex from "@octanejs/stylex";
+import { Dynamic } from "@solidjs/web";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo } from "solid-js";
 import {
 	iconSize,
 	selectionAppearance,
 } from "../../../../../design-system/styles.stylex.ts";
+import { ariaValue } from "../../../../../shared/lib/dom.tsx";
 import {
 	IconGitBranch,
 	IconLayoutRows,
 } from "../../../../../shared/ui/Icons/index.tsx";
 import { styles } from "./styles.ts";
-
-export function FileViewToggle({
-	value,
-	onChange,
-}: {
+export function FileViewToggle(_props: {
 	value: "path" | "tree";
 	onChange: (mode: "path" | "tree") => void;
 }) {
 	return (
-		<div {...stylex.props(styles.segmented)}>
+		<div {...stylex.attrs(styles.segmented)}>
 			{(["path", "tree"] as const).map((mode) => {
-				const ModeIcon = mode === "path" ? IconLayoutRows : IconGitBranch;
+				const ModeIcon = createMemo(() =>
+					mode === "path" ? IconLayoutRows : IconGitBranch,
+				);
 				return (
 					<button
 						type="button"
-						key={mode}
-						onClick={() => onChange(mode)}
-						aria-pressed={value === mode}
-						{...stylex.props(
+						onClick={() => _props.onChange(mode)}
+						aria-pressed={ariaValue(_props.value === mode)}
+						{...stylex.attrs(
 							styles.segmentButton,
-							...selectionAppearance("view", value === mode),
+							...selectionAppearance("view", _props.value === mode),
 						)}
 					>
-						<ModeIcon size={iconSize.sm} />
+						<Dynamic component={ModeIcon()} size={iconSize.sm} />
 						{mode === "path" ? "Path" : "Tree"}
 					</button>
 				);

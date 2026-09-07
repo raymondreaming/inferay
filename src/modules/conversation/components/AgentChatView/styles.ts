@@ -1,4 +1,4 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
@@ -7,7 +7,6 @@ import {
 	motion,
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
-
 export const styles = stylex.create({
 	root: {
 		display: "flex",
@@ -52,7 +51,6 @@ export const styles = stylex.create({
 		justifyContent: "center",
 		padding: controlSize._0_5,
 	},
-
 	messageRegion: {
 		position: "relative",
 		flex: 1,

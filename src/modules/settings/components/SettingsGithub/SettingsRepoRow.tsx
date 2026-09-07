@@ -1,4 +1,4 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import type { GithubRepo } from "../../../../../build/presentation/contracts/GithubRepo.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
@@ -7,33 +7,29 @@ import {
 	IconPlus,
 } from "../../../../shared/ui/Icons/index.tsx";
 import { styles } from "./styles.ts";
-export function SettingsRepoRow({
-	repo,
-	cloning,
-	onClone,
-}: {
+export function SettingsRepoRow(_props: {
 	repo: GithubRepo;
 	cloning: boolean;
 	onClone: () => void;
 }) {
 	return (
-		<div {...stylex.props(styles.repoRow)}>
-			<div {...stylex.props(styles.rowText)}>
-				<div {...stylex.props(styles.inlineRow)}>
-					<p {...stylex.props(styles.repoName)}>{repo.full_name}</p>
-					{repo.private ? (
-						<span {...stylex.props(styles.privatePill)}>Private</span>
+		<div {...stylex.attrs(styles.repoRow)}>
+			<div {...stylex.attrs(styles.rowText)}>
+				<div {...stylex.attrs(styles.inlineRow)}>
+					<p {...stylex.attrs(styles.repoName)}>{_props.repo.full_name}</p>
+					{_props.repo.private ? (
+						<span {...stylex.attrs(styles.privatePill)}>Private</span>
 					) : null}
 				</div>
-				<p {...stylex.props(styles.repoDescription)}>
-					{repo.description || repo.language || "No description"}
+				<p {...stylex.attrs(styles.repoDescription)}>
+					{_props.repo.description || _props.repo.language || "No description"}
 				</p>
 			</div>
 			<a
-				href={repo.html_url}
+				href={_props.repo.html_url}
 				target="_blank"
 				rel="noreferrer"
-				{...stylex.props(styles.externalLink)}
+				{...stylex.attrs(styles.externalLink)}
 				title="Open on GitHub"
 			>
 				<IconExternalLink size={iconSize.md} />
@@ -41,13 +37,13 @@ export function SettingsRepoRow({
 			<Button
 				liquid={false}
 				type="button"
-				onClick={onClone}
-				disabled={cloning}
+				onClick={_props.onClone}
+				disabled={_props.cloning}
 				variant="secondary"
 				size="sm"
 			>
 				<IconPlus size={iconSize.md} />
-				<span>{cloning ? "Cloning" : "Clone"}</span>
+				<span>{_props.cloning ? "Cloning" : "Clone"}</span>
 			</Button>
 		</div>
 	);

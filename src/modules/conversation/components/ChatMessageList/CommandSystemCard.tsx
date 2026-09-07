@@ -1,17 +1,12 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import { DotMatrixRipple } from "../../../../shared/ui/DotMatrixLoader/index.tsx";
-
 import { styles } from "./styles.ts";
-
-export function CommandSystemCard({
-	command,
-}: {
-	command: CommandSystemMessage;
-}) {
-	const commandLabel = `/${command.name}${command.args ? ` ${command.args}` : ""}`;
+export function CommandSystemCard(_props: { command: CommandSystemMessage }) {
+	const commandLabel = () =>
+		`/${_props.command.name}${_props.command.args ? ` ${_props.command.args}` : ""}`;
 	return (
-		<div {...stylex.props(styles.goalCard, styles.goalCardActive)}>
-			<span {...stylex.props(styles.goalIconSlot, styles.goalIconActive)}>
+		<div {...stylex.attrs(styles.goalCard, styles.goalCardActive)}>
+			<span {...stylex.attrs(styles.goalIconSlot, styles.goalIconActive)}>
 				<DotMatrixRipple
 					dotSize={1.35}
 					gap={1}
@@ -19,19 +14,20 @@ export function CommandSystemCard({
 					ariaLabel="Command running"
 				/>
 			</span>
-			<div {...stylex.props(styles.goalCardBody)}>
-				<div {...stylex.props(styles.goalCardHeader)}>
-					<span {...stylex.props(styles.goalCardTitle)}>Running Command</span>
+			<div {...stylex.attrs(styles.goalCardBody)}>
+				<div {...stylex.attrs(styles.goalCardHeader)}>
+					<span {...stylex.attrs(styles.goalCardTitle)}>Running Command</span>
 				</div>
-				<div {...stylex.props(styles.commandObjective)}>{commandLabel}</div>
-				{command.description && (
-					<div {...stylex.props(styles.goalDetail)}>{command.description}</div>
+				<div {...stylex.attrs(styles.commandObjective)}>{commandLabel()}</div>
+				{_props.command.description && (
+					<div {...stylex.attrs(styles.goalDetail)}>
+						{_props.command.description}
+					</div>
 				)}
 			</div>
 		</div>
 	);
 }
-
 export type CommandSystemMessage = {
 	type: "inferay.command";
 	name: string;

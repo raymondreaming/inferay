@@ -1,12 +1,6 @@
-import * as stylex from "@octanejs/stylex";
-import { useNavigate } from "@octanejs/tanstack-router";
-import { useCallback, useEffect, useState } from "octane";
-import { fetchJsonOr, sendJson } from "../../../../adapters/backend/http.ts";
-import {
-	ONBOARDING_DONE_STORAGE_KEY,
-	readStoredBoolean,
-	writeStoredValue,
-} from "../../../../adapters/storage/stored-values.ts";
+import { useNavigate } from "@solidjs/router";
+import * as stylex from "@stylexjs/stylex";
+import { createEffect, createSignal } from "solid-js";
 import {
 	applyAppTheme,
 	DEFAULT_APP_BACKGROUND_SETTINGS,
@@ -14,6 +8,13 @@ import {
 	saveAppBackgroundSettings,
 	saveAppThemeId,
 } from "../../../../app/hooks/useAppAppearance.tsx";
+import {
+	fetchJsonOr,
+	ONBOARDING_DONE_STORAGE_KEY,
+	readStoredBoolean,
+	sendJson,
+	writeStoredValue,
+} from "../../../../shared/lib/native.tsx";
 import {
 	fetchForgeAccounts,
 	useForgeAccounts,
@@ -31,53 +32,56 @@ import { styles } from "./styles.ts";
 export const ONBOARDING_DONE_KEY = ONBOARDING_DONE_STORAGE_KEY;
 export function OnboardingPage() {
 	const navigate = useNavigate();
-	const [isFirstRun] = useState(() => !readStoredBoolean(ONBOARDING_DONE_KEY));
-	const [step, setStep] = useOnboardingStep();
-	const [connecting, setConnecting] = useState(false);
-	const [localFolders, setLocalFolders] = useState<string[]>([]);
-	const [isAddingFolder, setIsAddingFolder] = useState(false);
-	const [selectedRepos, setSelectedRepos] = useState<Set<string>>(
-		() => new Set(),
+	const [isFirstRun] = createSignal(
+		(() => !readStoredBoolean(ONBOARDING_DONE_KEY))(),
 	);
-	const {
-		data: accounts,
-		setData: setAccounts,
-		loading: accountsLoading,
-	} = useForgeAccounts();
-	const {
-		data: repos,
-		loading: reposLoading,
-		refresh: refreshRepos,
-	} = useGithubRepos(accounts.length > 0);
+	const [step, setStep] = useOnboardingStep();
+	const [connecting, setConnecting] = createSignal(false);
+	const [localFolders, setLocalFolders] = createSignal<string[]>([]);
+	const [isAddingFolder, setIsAddingFolder] = createSignal(false);
+	const [selectedRepos, setSelectedRepos] = createSignal<Set<string>>(
+		(() => new Set())(),
+	);
+	const _source = useForgeAccounts();
+	const _source2 = useGithubRepos(() => _source.data.length > 0);
 	const refreshAccounts = async () => {
-		setAccounts(await fetchForgeAccounts());
+		_source.setData(await fetchForgeAccounts());
 	};
-	useEffect(() => {
-		applyAppTheme("default");
-		return () => {
-			if (!isFirstRun) applyAppTheme(loadAppThemeId());
-		};
-	}, [isFirstRun]);
+	createEffect(
+		() => [isFirstRun()],
+		() => {
+			applyAppTheme("default");
+			return () => {
+				if (!isFirstRun()) applyAppTheme(loadAppThemeId());
+			};
+		},
+	);
 	const connectGithub = async () => {
 		setConnecting(true);
 		try {
-			await sendJson("/api/forge/connect", { provider: "github" });
+			await sendJson("/api/forge/connect", {
+				provider: "github",
+			});
 		} finally {
 			setConnecting(false);
 		}
-		setAccounts(await fetchForgeAccounts());
+		_source.setData(await fetchForgeAccounts());
 	};
-	useEffect(() => {
-		if (step !== "github" || accounts.length > 0 || connecting) return;
-		const id = window.setInterval(() => {
-			fetchForgeAccounts()
-				.then(setAccounts)
-				.catch(() => undefined);
-		}, 3000);
-		return () => window.clearInterval(id);
-	}, [accounts.length, connecting, setAccounts, step]);
+	createEffect(
+		() => [_source.data.length, connecting(), _source.setData, step()],
+		() => {
+			if (step() !== "github" || _source.data.length > 0 || connecting())
+				return;
+			const id = window.setInterval(() => {
+				fetchForgeAccounts()
+					.then(_source.setData)
+					.catch(() => undefined);
+			}, 3000);
+			return () => window.clearInterval(id);
+		},
+	);
 	const pickFolder = async () => {
-		if (isAddingFolder) return;
+		if (isAddingFolder()) return;
 		setIsAddingFolder(true);
 		try {
 			const data = await fetchJsonOr<{
@@ -91,7 +95,7 @@ export function OnboardingPage() {
 					method: "POST",
 				},
 			);
-			if (data.folder && !localFolders.includes(data.folder)) {
+			if (data.folder && !localFolders().includes(data.folder)) {
 				setLocalFolders((prev) => [...prev, data.folder as string]);
 			}
 		} catch {
@@ -111,8 +115,9 @@ export function OnboardingPage() {
 			return next;
 		});
 	};
-	const finish = useCallback(async () => {
-		if (isFirstRun) {
+	const finish = async () => {
+		const _isFirstRunValue = isFirstRun();
+		if (_isFirstRunValue) {
 			saveAppThemeId("default");
 			saveAppBackgroundSettings(DEFAULT_APP_BACKGROUND_SETTINGS);
 		}
@@ -121,61 +126,58 @@ export function OnboardingPage() {
 		writeStoredValue("agent-layout-mode", "grid");
 		// New users land directly in the multi-agent chat grid.
 		const canonicalState = await loadCanonicalAgentState();
-		if (!canonicalState || isFirstRun)
+		if (!canonicalState || _isFirstRunValue)
 			await mutateAgentWorkspaceState({
 				type: "setTheme",
 				themeId: "default",
 			});
-		navigate({
-			to: "/",
-			replace: true,
-		});
-	}, [isFirstRun, navigate]);
-	const completeOnboarding = useCallback(() => {
+		navigate("/", { replace: true });
+	};
+	const completeOnboarding = () => {
 		setStep("complete");
 		window.setTimeout(finish, 600);
-	}, [finish, setStep]);
+	};
 	return (
-		<main {...stylex.props(styles.root)}>
+		<main {...stylex.attrs(styles.root)}>
 			{/* Grid background — like Helmor */}
 			<div
-				aria-hidden
-				{...stylex.props(
+				aria-hidden="true"
+				{...stylex.attrs(
 					styles.gridBackdrop,
-					step === "complete"
+					step() === "complete"
 						? styles.gridBackdropHidden
 						: styles.gridBackdropVisible,
 				)}
 			/>
 			{/* Bottom fade */}
-			<div aria-hidden {...stylex.props(styles.bottomFade)} />
+			<div aria-hidden="true" {...stylex.attrs(styles.bottomFade)} />
 
 			{/* All steps rendered simultaneously — CSS transitions only */}
 			<IntroStep
-				step={step}
+				step={step()}
 				onNext={setStep.bind(null, "github")}
 				onSkip={finish}
 			/>
 			<GithubStep
-				step={step}
-				accounts={accounts}
-				loading={accountsLoading}
-				connecting={connecting}
+				step={step()}
+				accounts={_source.data}
+				loading={_source.loading}
+				connecting={connecting()}
 				onConnect={connectGithub}
 				onRefresh={refreshAccounts}
 				onBack={setStep.bind(null, "intro")}
 				onNext={setStep.bind(null, "projects")}
 			/>
 			<ProjectsStep
-				step={step}
-				repos={repos}
-				reposLoading={reposLoading}
-				hasGithub={accounts.length > 0}
-				selected={selectedRepos}
+				step={step()}
+				repos={_source2.data}
+				reposLoading={_source2.loading}
+				hasGithub={_source.data.length > 0}
+				selected={selectedRepos()}
 				onToggle={toggleRepo}
-				onRefreshRepos={refreshRepos}
-				localFolders={localFolders}
-				isAddingFolder={isAddingFolder}
+				onRefreshRepos={_source2.refresh}
+				localFolders={localFolders()}
+				isAddingFolder={isAddingFolder()}
 				onPickFolder={pickFolder}
 				onRemoveFolder={removeFolder}
 				onBack={setStep.bind(null, "github")}

@@ -1,5 +1,4 @@
-import type { CSSProperties } from "react";
-
+import type { CSSProperties } from "../../../lib/dom.tsx";
 export function getMirroredItemDivStyle(
 	overrides: CSSProperties | undefined | null,
 ): CSSProperties {
@@ -10,13 +9,14 @@ export function getMirroredItemDivStyle(
 		transform: "translate(0px, 0px)",
 	} as CSSProperties;
 }
-
 export function getObservedItemSpanStyle(
 	overrides: CSSProperties | undefined | null,
 ): CSSProperties {
-	return { display: "contents", ...overrides } as CSSProperties;
+	return {
+		display: "contents",
+		...overrides,
+	} as CSSProperties;
 }
-
 export function getObservedItemRectStyle(): CSSProperties {
 	return {
 		willChange: "transform",
@@ -24,7 +24,6 @@ export function getObservedItemRectStyle(): CSSProperties {
 		transformOrigin: "center",
 	} as CSSProperties;
 }
-
 export const mirroredBlobStyle: CSSProperties = {
 	transformBox: "fill-box",
 	transformOrigin: "center",

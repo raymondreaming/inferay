@@ -1,12 +1,11 @@
-import * as stylex from "@octanejs/stylex";
-import type { CSSProperties } from "react";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
 	layer,
 	motion,
 } from "../../../../design-system/styles.stylex.ts";
-
+import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 export const styles = stylex.create({
 	rowScroller: {
 		backgroundColor: color.transparent,
@@ -57,8 +56,12 @@ export const styles = stylex.create({
 		minHeight: controlSize._0,
 		overflow: "hidden",
 	},
-	dockHorizontal: { flexDirection: "row" },
-	dockVertical: { flexDirection: "column" },
+	dockHorizontal: {
+		flexDirection: "row",
+	},
+	dockVertical: {
+		flexDirection: "column",
+	},
 	dockBranch: {
 		display: "flex",
 		minWidth: controlSize._0,
@@ -127,49 +130,69 @@ export const styles = stylex.create({
 	rootDropIndicator: {
 		zIndex: layer.workspaceDrag,
 	},
-	dropLeft: { insetBlock: controlSize._2, left: controlSize._2, width: "42%" },
+	dropLeft: {
+		insetBlock: controlSize._2,
+		left: controlSize._2,
+		width: "42%",
+	},
 	dropRight: {
 		insetBlock: controlSize._2,
 		right: controlSize._2,
 		width: "42%",
 	},
-	dropTop: { insetInline: controlSize._2, top: controlSize._2, height: "42%" },
+	dropTop: {
+		insetInline: controlSize._2,
+		top: controlSize._2,
+		height: "42%",
+	},
 	dropBottom: {
 		insetInline: controlSize._2,
 		bottom: controlSize._2,
 		height: "42%",
 	},
-	dropCenter: { inset: controlSize._3 },
+	dropCenter: {
+		inset: controlSize._3,
+	},
 });
-
 export function getWorkspaceCanvasRowCellStyle(
 	overrides: CSSProperties | undefined | null,
 ): CSSProperties {
-	return { ...overrides, width: 400 } as CSSProperties;
+	return {
+		...overrides,
+		width: 400,
+	} as CSSProperties;
 }
-
 export function getWorkspaceCanvasDockBranchStyle(
 	flexGrow: CSSProperties["flexGrow"],
 ): CSSProperties {
-	return { flexBasis: 0, flexGrow: flexGrow } as CSSProperties;
+	return {
+		flexBasis: 0,
+		flexGrow: flexGrow,
+	} as CSSProperties;
 }
-
 export function getWorkspaceCanvasDockBranchStyle1(
 	flexGrow: CSSProperties["flexGrow"],
 ): CSSProperties {
-	return { flexBasis: 0, flexGrow: flexGrow } as CSSProperties;
+	return {
+		flexBasis: 0,
+		flexGrow: flexGrow,
+	} as CSSProperties;
 }
-
 export function getWorkspaceCanvasDockCanvasStyle(
 	minHeight: CSSProperties["minHeight"],
 	width: CSSProperties["width"],
 ): CSSProperties {
-	return { minHeight: minHeight, width: width } as CSSProperties;
+	return {
+		minHeight: minHeight,
+		width: width,
+	} as CSSProperties;
 }
-
 export function getCanvasCellStyle(
 	borderColor: CSSProperties["borderColor"],
 	opacity: CSSProperties["opacity"],
 ): CSSProperties {
-	return { borderColor, opacity };
+	return {
+		borderColor,
+		opacity,
+	};
 }

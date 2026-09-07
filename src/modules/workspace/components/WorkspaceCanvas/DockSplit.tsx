@@ -1,53 +1,56 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
+import type { Element } from "solid-js";
+import { ariaValue, domStyle } from "../../../../shared/lib/dom.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
-
-export function DockSplit({
-	direction,
-	ratio,
-	first,
-	second,
-	onResize,
-}: {
+export function DockSplit(_props: {
 	direction: "horizontal" | "vertical";
 	ratio: number;
-	first: unknown;
-	second: unknown;
+	first: Element;
+	second: Element;
 	onResize: (
-		event: PointerEvent & { currentTarget: HTMLButtonElement },
+		event: PointerEvent & {
+			currentTarget: HTMLButtonElement;
+		},
 	) => void;
 }) {
 	return (
 		<div
-			{...stylex.props(
+			{...stylex.attrs(
 				styles.dockSplit,
-				direction === "horizontal"
+				_props.direction === "horizontal"
 					? styles.dockHorizontal
 					: styles.dockVertical,
 			)}
 		>
 			<div
-				{...stylex.props(styles.dockBranch)}
-				style={inlineStyles.getWorkspaceCanvasDockBranchStyle(ratio)}
+				{...stylex.attrs(styles.dockBranch)}
+				style={domStyle(
+					inlineStyles.getWorkspaceCanvasDockBranchStyle(_props.ratio),
+				)}
 			>
-				{first}
+				{_props.first}
 			</div>
 			<button
 				type="button"
-				aria-label={`Resize ${direction === "horizontal" ? "columns" : "rows"}`}
-				onPointerDown={onResize}
-				{...stylex.props(
+				aria-label={ariaValue(
+					`Resize ${_props.direction === "horizontal" ? "columns" : "rows"}`,
+				)}
+				onPointerDown={_props.onResize}
+				{...stylex.attrs(
 					styles.dockDivider,
-					direction === "horizontal"
+					_props.direction === "horizontal"
 						? styles.dockDividerHorizontal
 						: styles.dockDividerVertical,
 				)}
 			/>
 			<div
-				{...stylex.props(styles.dockBranch)}
-				style={inlineStyles.getWorkspaceCanvasDockBranchStyle1(1 - ratio)}
+				{...stylex.attrs(styles.dockBranch)}
+				style={domStyle(
+					inlineStyles.getWorkspaceCanvasDockBranchStyle1(1 - _props.ratio),
+				)}
 			>
-				{second}
+				{_props.second}
 			</div>
 		</div>
 	);

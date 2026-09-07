@@ -1,17 +1,10 @@
 import { DEFAULT_FILE, getIconForFile } from "@yutengjing/vscode-icons";
-import type { CSSProperties } from "react";
-
+import { type CSSProperties, domStyle } from "../../../../shared/lib/dom.tsx";
 import * as inlineStyles from "./styles.ts";
-
-export function FileTypeIcon({
-	path,
-	size = 15,
-	className,
-	style,
-}: {
+export function FileTypeIcon(_props: {
 	readonly path: string;
 	readonly size?: number;
-	readonly className?: string;
+	readonly class?: string;
 	readonly style?: CSSProperties;
 }) {
 	return (
@@ -19,13 +12,18 @@ export function FileTypeIcon({
 			aria-hidden="true"
 			alt=""
 			draggable={false}
-			src={resolveFileIconUrl(path)}
-			className={className}
-			style={inlineStyles.getFileTypeIconImgStyle(size, size, style)}
+			src={resolveFileIconUrl(_props.path)}
+			class={_props.class}
+			style={domStyle(
+				inlineStyles.getFileTypeIconImgStyle(
+					_props.size === undefined ? 15 : _props.size,
+					_props.size === undefined ? 15 : _props.size,
+					_props.style,
+				),
+			)}
 		/>
 	);
 }
-
 export { FolderTypeIcon, resolveFolderIconUrl } from "./FolderTypeIcon.tsx";
 
 const importedIcons = import.meta.glob(
@@ -33,7 +31,7 @@ const importedIcons = import.meta.glob(
 	{
 		eager: true,
 		import: "default",
-		query: "?url",
+		query: "?url&no-inline",
 	},
 ) as Record<string, string>;
 export const iconUrls = new Map(

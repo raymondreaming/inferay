@@ -1,10 +1,9 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
 	font,
 } from "../../../../../design-system/styles.stylex.ts";
-
 export const styles = stylex.create({
 	fallback: {
 		alignItems: "center",

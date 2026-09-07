@@ -1,6 +1,6 @@
-import * as stylex from "@octanejs/stylex";
-import { memo, useCallback } from "octane";
+import * as stylex from "@stylexjs/stylex";
 import { useNativeMarkdown } from "../../../../shared/hooks/useNativeMarkdown.tsx";
+import { domStyle } from "../../../../shared/lib/dom.tsx";
 import { MarkdownBlocks } from "./MarkdownBlocks.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
@@ -19,45 +19,47 @@ function findParentScrollContainer(
 	}
 	return null;
 }
-
-export const Markdown = memo(function Markdown({
-	text,
-	onMdFileClick,
-	streaming = false,
-}: {
+export const Markdown = function Markdown(_props: {
 	text: string;
 	onMdFileClick?: (path: string) => void;
 	streaming?: boolean;
 }) {
-	const { blocks, loading, error } = useNativeMarkdown(text, streaming, true);
-	const handleTableWheel = useCallback(
-		(event: WheelEvent & { currentTarget: HTMLDivElement }) => {
-			if (Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.shiftKey)
-				return;
-			const parentScroller = findParentScrollContainer(event.currentTarget);
-			if (!parentScroller) return;
-			parentScroller.scrollTop += event.deltaY;
-			event.preventDefault();
-		},
-		[],
+	const _source = useNativeMarkdown(
+		() => _props.text,
+		() => (_props.streaming === undefined ? false : _props.streaming),
+		() => true,
 	);
+	const handleTableWheel = (
+		event: WheelEvent & {
+			currentTarget: HTMLDivElement;
+		},
+	) => {
+		if (Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.shiftKey)
+			return;
+		const parentScroller = findParentScrollContainer(event.currentTarget);
+		if (!parentScroller) return;
+		parentScroller.scrollTop += event.deltaY;
+		event.preventDefault();
+	};
 	return (
-		<div {...stylex.props(styles.markdownRoot)}>
-			{loading || error ? (
+		<div {...stylex.attrs(styles.markdownRoot)}>
+			{_source.loading || _source.error ? (
 				<p
-					{...stylex.props(styles.paragraph)}
-					style={inlineStyles.getMarkdownParagraphStyle()}
+					{...stylex.attrs(styles.paragraph)}
+					style={domStyle(inlineStyles.getMarkdownParagraphStyle())}
 				>
-					{text}
+					{_props.text}
 				</p>
 			) : (
 				<MarkdownBlocks
-					blocks={blocks}
-					onMdFileClick={onMdFileClick}
+					blocks={_source.blocks}
+					onMdFileClick={_props.onMdFileClick}
 					onTableWheel={handleTableWheel}
 				/>
 			)}
-			{error && <span role="status">Formatting unavailable: {error}</span>}
+			{_source.error && (
+				<span role="status">Formatting unavailable: {_source.error}</span>
+			)}
 		</div>
 	);
-});
+};

@@ -1,16 +1,9 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { FileTypeIcon } from "../FileTypeIcon/index.tsx";
 import type { FileSearchResult } from "./index.tsx";
 import { styles } from "./styles.ts";
-
-export function FileSearchResultRow({
-	result,
-	index,
-	selectedIndex,
-	setSelectedIndex,
-	choose,
-}: {
+export function FileSearchResultRow(_props: {
 	result: FileSearchResult;
 	index: number;
 	selectedIndex: number;
@@ -19,31 +12,31 @@ export function FileSearchResultRow({
 }) {
 	return (
 		<button
-			key={result.path}
 			type="button"
-			onMouseEnter={() => setSelectedIndex(index)}
+			onMouseEnter={() => _props.setSelectedIndex(_props.index)}
 			onPointerDown={(event) => {
-				if (event.button === 0 && event.isPrimary) choose(result);
+				if (event.button === 0 && event.isPrimary) _props.choose(_props.result);
 			}}
 			onClick={(event) => {
-				if (event.detail === 0) choose(result);
+				if (event.detail === 0) _props.choose(_props.result);
 			}}
-			{...stylex.props(
+			{...stylex.attrs(
 				styles.result,
-				index === selectedIndex && styles.resultActive,
+				_props.index === _props.selectedIndex && styles.resultActive,
 			)}
 		>
-			<FileTypeIcon path={result.path} size={iconSize.lg} />
-			<span {...stylex.props(styles.resultText)}>
-				<strong {...stylex.props(styles.resultName)}>
-					{result.path.split("/").pop() || result.path}
+			<FileTypeIcon path={_props.result.path} size={iconSize.lg} />
+			<span {...stylex.attrs(styles.resultText)}>
+				<strong {...stylex.attrs(styles.resultName)}>
+					{_props.result.path.split("/").pop() || _props.result.path}
 				</strong>
-				<small {...stylex.props(styles.resultPath)}>
+				<small {...stylex.attrs(styles.resultPath)}>
 					{(() => {
-						const name = result.path.split("/").pop() || result.path;
-						return result.path === name
+						const name =
+							_props.result.path.split("/").pop() || _props.result.path;
+						return _props.result.path === name
 							? "Project root"
-							: result.path.slice(0, -(name.length + 1));
+							: _props.result.path.slice(0, -(name.length + 1));
 					})()}
 				</small>
 			</span>

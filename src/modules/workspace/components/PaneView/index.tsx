@@ -1,11 +1,11 @@
-import * as stylex from "@octanejs/stylex";
-import { memo, useCallback } from "octane";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo } from "solid-js";
 import type { Pane } from "../../../../../build/presentation/contracts/Pane.ts";
 import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import {
 	isChatAgentKind,
 	loadDefaultChatSettings,
-} from "../../../../adapters/backend/http.ts";
+} from "../../../../shared/lib/native.tsx";
 import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
 import { AgentChatView } from "../../../conversation/components/AgentChatView/index.tsx";
 import { ChatPaneBoundary } from "../../../conversation/components/ChatPaneBoundary/index.tsx";
@@ -28,66 +28,51 @@ interface PaneViewProps {
 	onHeaderDragEnd?: () => void;
 	onSetPaneAgentKind?: (paneId: string, agentKind: WorkspaceAgentKind) => void;
 }
-export const PaneView = memo(function PaneView({
-	pane,
-	isSelected,
-	isVisible = true,
-	onClose,
-	onDirectorySelect,
-	onDirectoryCancel,
-	chatRef,
-	paneIndex,
-	onHeaderDragStart,
-	onHeaderDragEnd,
-	onSetPaneAgentKind,
-}: PaneViewProps) {
-	const viewAgentKind = isChatAgentKind(pane.agentKind)
-		? pane.agentKind
-		: loadDefaultChatSettings().agentKind;
-	const handlePaneDragStart = useCallback(
-		(e: PointerEvent) => {
-			if (paneIndex == null || !onHeaderDragStart) return;
-			onHeaderDragStart(e, paneIndex);
-		},
-		[onHeaderDragStart, pane.id, paneIndex],
+export const PaneView = function PaneView(_props: PaneViewProps) {
+	const viewAgentKind = createMemo(() =>
+		isChatAgentKind(_props.pane.agentKind)
+			? _props.pane.agentKind
+			: loadDefaultChatSettings().agentKind,
 	);
-	const handleDirectoryChange = useCallback(
-		(pid: string, cwd: string | null, refs?: string[]) => {
-			if (!isChatAgentKind(pane.agentKind)) {
-				onSetPaneAgentKind?.(pid, viewAgentKind);
-			}
-			onDirectorySelect?.(pid, cwd, refs);
-		},
-		[onDirectorySelect, onSetPaneAgentKind, pane.agentKind, viewAgentKind],
-	);
-	const handleChatRef = useCallback(
-		(handle: AgentChatHandle | null) => {
-			chatRef(pane.id, handle);
-		},
-		[chatRef, pane.id],
-	);
+	const handlePaneDragStart = (e: PointerEvent) => {
+		if (_props.paneIndex == null || !_props.onHeaderDragStart) return;
+		_props.onHeaderDragStart(e, _props.paneIndex);
+	};
+	const handleDirectoryChange = (
+		pid: string,
+		cwd: string | null,
+		refs?: string[],
+	) => {
+		if (!isChatAgentKind(_props.pane.agentKind)) {
+			_props.onSetPaneAgentKind?.(pid, viewAgentKind());
+		}
+		_props.onDirectorySelect?.(pid, cwd, refs);
+	};
+	const handleChatRef = (handle: AgentChatHandle | null) => {
+		_props.chatRef(_props.pane.id, handle);
+	};
 	return (
-		<div {...stylex.props(styles.root)}>
-			<div {...stylex.props(styles.agentPane)}>
-				<ChatPaneBoundary key={pane.id}>
+		<div {...stylex.attrs(styles.root)}>
+			<div {...stylex.attrs(styles.agentPane)}>
+				<ChatPaneBoundary>
 					<AgentChatView
-						paneId={pane.id}
-						cwd={pane.cwd}
-						referencePaths={pane.referencePaths}
-						pendingWorkspacePaths={pane.pendingWorkspacePaths}
-						agentKind={viewAgentKind}
-						onClose={onClose}
-						isSelected={isSelected}
-						isVisible={isVisible}
+						paneId={_props.pane.id}
+						cwd={_props.pane.cwd}
+						referencePaths={_props.pane.referencePaths}
+						pendingWorkspacePaths={_props.pane.pendingWorkspacePaths}
+						agentKind={viewAgentKind()}
+						onClose={_props.onClose}
+						isSelected={_props.isSelected}
+						isVisible={_props.isVisible === undefined ? true : _props.isVisible}
 						onDirectoryChange={handleDirectoryChange}
-						onDirectoryCancel={onDirectoryCancel}
-						draggable={paneIndex != null && !!onHeaderDragStart}
+						onDirectoryCancel={_props.onDirectoryCancel}
+						draggable={_props.paneIndex != null && !!_props.onHeaderDragStart}
 						onDragStart={handlePaneDragStart}
-						onDragEnd={onHeaderDragEnd}
+						onDragEnd={_props.onHeaderDragEnd}
 						ref={handleChatRef}
 					/>
 				</ChatPaneBoundary>
 			</div>
 		</div>
 	);
-});
+};

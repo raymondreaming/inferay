@@ -1,12 +1,13 @@
-import { ErrorBoundary } from "octane";
+import { type Element, Errored } from "solid-js";
 import { ChatPaneRecovery } from "./ChatPaneRecovery.tsx";
-
-function renderChatPaneRecovery(error: unknown, reset: () => void) {
-	return <ChatPaneRecovery error={error} reset={reset} />;
-}
-
-export function ChatPaneBoundary({ children }: { children: unknown }) {
+export function ChatPaneBoundary(props: { children: Element }) {
 	return (
-		<ErrorBoundary fallback={renderChatPaneRecovery}>{children}</ErrorBoundary>
+		<Errored
+			fallback={(error, reset) => (
+				<ChatPaneRecovery error={error()} reset={reset} />
+			)}
+		>
+			{props.children}
+		</Errored>
 	);
 }

@@ -1,7 +1,5 @@
-import * as stylex from "@octanejs/stylex";
-
+import * as stylex from "@stylexjs/stylex";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
-
 import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
 import { IconX } from "../../../../shared/ui/Icons/index.tsx";
 import { Markdown } from "../ChatRichContent/index.tsx";
@@ -12,46 +10,47 @@ type MarkdownPreviewDialogProps = Pick<
 	ReturnType<typeof useChatComposerState>,
 	"closeMdPreview" | "mdPreview" | "onMdFileClick"
 >;
-export function MarkdownPreviewDialog({
-	closeMdPreview,
-	mdPreview,
-	onMdFileClick,
-}: MarkdownPreviewDialogProps) {
+export function MarkdownPreviewDialog(_props: MarkdownPreviewDialogProps) {
 	return (
-		<div {...stylex.props(styles.modalBackdrop)}>
+		<div {...stylex.attrs(styles.modalBackdrop)}>
 			<button
 				type="button"
 				aria-label="Close markdown preview"
-				{...stylex.props(styles.modalBackdropButton)}
-				onClick={closeMdPreview}
+				{...stylex.attrs(styles.modalBackdropButton)}
+				onClick={_props.closeMdPreview}
 			/>
-			<div {...stylex.props(styles.modal)}>
-				<div {...stylex.props(styles.modalHeader)}>
-					<span {...stylex.props(styles.modalTitle)}>{mdPreview.path}</span>
+			<div {...stylex.attrs(styles.modal)}>
+				<div {...stylex.attrs(styles.modalHeader)}>
+					<span {...stylex.attrs(styles.modalTitle)}>
+						{_props.mdPreview.path}
+					</span>
 					<IconButton
 						type="button"
-						onClick={closeMdPreview}
+						onClick={_props.closeMdPreview}
 						variant="ghost"
 						size="xs"
 					>
 						<IconX size={iconSize.lg} />
 					</IconButton>
 				</div>
-				<div {...stylex.props(styles.modalBody)}>
-					{mdPreview.loading && (
-						<div {...stylex.props(styles.modalState)}>
-							<span {...stylex.props(styles.modalStateText)}>Loading…</span>
+				<div {...stylex.attrs(styles.modalBody)}>
+					{_props.mdPreview.loading && (
+						<div {...stylex.attrs(styles.modalState)}>
+							<span {...stylex.attrs(styles.modalStateText)}>Loading…</span>
 						</div>
 					)}
-					{mdPreview.error && (
-						<div {...stylex.props(styles.modalState)}>
-							<span {...stylex.props(styles.modalError)}>
-								{mdPreview.error}
+					{_props.mdPreview.error && (
+						<div {...stylex.attrs(styles.modalState)}>
+							<span {...stylex.attrs(styles.modalError)}>
+								{_props.mdPreview.error}
 							</span>
 						</div>
 					)}
-					{mdPreview.content && (
-						<Markdown text={mdPreview.content} onMdFileClick={onMdFileClick} />
+					{_props.mdPreview.content && (
+						<Markdown
+							text={_props.mdPreview.content}
+							onMdFileClick={_props.onMdFileClick}
+						/>
 					)}
 				</div>
 			</div>

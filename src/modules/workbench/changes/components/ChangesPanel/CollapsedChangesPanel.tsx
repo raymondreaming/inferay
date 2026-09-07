@@ -1,19 +1,11 @@
-import * as stylex from "@octanejs/stylex";
-import { memo } from "octane";
+import * as stylex from "@stylexjs/stylex";
 import { iconSize } from "../../../../../design-system/styles.stylex.ts";
 import {
 	IconGitCommit,
 	IconPanelLeft,
 } from "../../../../../shared/ui/Icons/index.tsx";
 import { styles } from "./styles.ts";
-
-export const CollapsedChangesPanel = memo(function CollapsedChangesPanel({
-	stagedCount,
-	unstagedCount,
-	onExpand,
-	onOpenGraph,
-	graphActive = false,
-}: {
+export const CollapsedChangesPanel = function CollapsedChangesPanel(_props: {
 	stagedCount: number;
 	unstagedCount: number;
 	onExpand: () => void;
@@ -21,51 +13,52 @@ export const CollapsedChangesPanel = memo(function CollapsedChangesPanel({
 	graphActive?: boolean;
 }) {
 	return (
-		<div {...stylex.props(styles.collapsedRoot)}>
+		<div {...stylex.attrs(styles.collapsedRoot)}>
 			<button
 				type="button"
 				onPointerDown={(event) => {
-					if (event.button === 0 && event.isPrimary) onExpand();
+					if (event.button === 0 && event.isPrimary) _props.onExpand();
 				}}
 				onClick={(event) => {
-					if (event.detail === 0) onExpand();
+					if (event.detail === 0) _props.onExpand();
 				}}
 				title="Expand files sidebar"
 				aria-label="Expand files sidebar"
-				{...stylex.props(styles.collapsedToggle)}
+				{...stylex.attrs(styles.collapsedToggle)}
 			>
 				<IconPanelLeft size={iconSize._2md} />
 			</button>
-			{onOpenGraph ? (
+			{_props.onOpenGraph ? (
 				<button
 					type="button"
-					onClick={onOpenGraph}
+					onClick={_props.onOpenGraph}
 					title="Repository graph"
 					aria-label="Repository graph"
-					{...stylex.props(
+					{...stylex.attrs(
 						styles.collapsedGraphButton,
-						graphActive && styles.headerIconButtonActive,
+						(_props.graphActive === undefined ? false : _props.graphActive) &&
+							styles.headerIconButtonActive,
 					)}
 				>
 					<IconGitCommit size={iconSize.md} />
 				</button>
 			) : null}
-			<div {...stylex.props(styles.collapsedCounts)}>
+			<div {...stylex.attrs(styles.collapsedCounts)}>
 				<div
-					{...stylex.props(styles.collapsedCount)}
-					title={`${unstagedCount} unstaged ${unstagedCount === 1 ? "file" : "files"}`}
+					{...stylex.attrs(styles.collapsedCount)}
+					title={`${_props.unstagedCount} unstaged ${_props.unstagedCount === 1 ? "file" : "files"}`}
 				>
-					<span {...stylex.props(styles.unstagedDot)} />
-					<span>{unstagedCount}</span>
+					<span {...stylex.attrs(styles.unstagedDot)} />
+					<span>{_props.unstagedCount}</span>
 				</div>
 				<div
-					{...stylex.props(styles.collapsedCount)}
-					title={`${stagedCount} staged ${stagedCount === 1 ? "file" : "files"}`}
+					{...stylex.attrs(styles.collapsedCount)}
+					title={`${_props.stagedCount} staged ${_props.stagedCount === 1 ? "file" : "files"}`}
 				>
-					<span {...stylex.props(styles.stagedDot)} />
-					<span>{stagedCount}</span>
+					<span {...stylex.attrs(styles.stagedDot)} />
+					<span>{_props.stagedCount}</span>
 				</div>
 			</div>
 		</div>
 	);
-});
+};

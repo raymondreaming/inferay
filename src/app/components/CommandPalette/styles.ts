@@ -1,4 +1,4 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
@@ -7,7 +7,6 @@ import {
 	radius,
 	shadow,
 } from "../../../design-system/styles.stylex.ts";
-
 export const styles = stylex.create({
 	trigger: {
 		display: "flex",
@@ -23,7 +22,10 @@ export const styles = stylex.create({
 		},
 		color: color.textMain,
 	},
-	triggerLabel: { fontSize: font.size_2, fontWeight: font.weight_5 },
+	triggerLabel: {
+		fontSize: font.size_2,
+		fontWeight: font.weight_5,
+	},
 	shortcut: {
 		color: color.textMuted,
 		fontFamily: "inherit",
@@ -125,7 +127,10 @@ export const styles = stylex.create({
 		fontSize: font.size_2_75,
 		fontWeight: font.weight_5,
 	},
-	commandDetail: { color: color.textMuted, fontSize: font.size_1 },
+	commandDetail: {
+		color: color.textMuted,
+		fontSize: font.size_1,
+	},
 	empty: {
 		padding: controlSize._6,
 		color: color.textMuted,

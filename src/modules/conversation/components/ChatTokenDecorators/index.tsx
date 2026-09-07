@@ -1,93 +1,78 @@
-import * as stylex from "@octanejs/stylex";
-import { project as rustProject } from "../../../../adapters/presentation/model.ts";
-
+import * as stylex from "@stylexjs/stylex";
+import { createMemo } from "solid-js";
+import { project as rustProject } from "../../../../shared/lib/native.tsx";
 import { styles } from "./styles.ts";
-
 export function renderInputHighlights(
 	text: string,
 	slashCommandNames?: readonly string[],
-): unknown {
+): import("solid-js").Element {
 	if (!text)
-		return <span {...stylex.props(styles.transparent)}>{"\u00A0"}</span>;
-
-	const tokens = findDecoratedTokenRanges(text, slashCommandNames);
-	if (tokens.length === 0) {
-		return <span {...stylex.props(styles.text)}>{text}</span>;
+		return <span {...stylex.attrs(styles.transparent)}>{"\u00A0"}</span>;
+	const tokens = createMemo(() =>
+		findDecoratedTokenRanges(text, slashCommandNames),
+	);
+	if (tokens().length === 0) {
+		return <span {...stylex.attrs(styles.text)}>{text}</span>;
 	}
-
-	const segments: unknown[] = [];
+	const segments = createMemo<import("solid-js").Element[]>(() => []);
 	let lastEnd = 0;
-
-	for (const token of tokens) {
+	for (const token of tokens()) {
 		if (token.start < lastEnd) continue;
-
 		if (token.start > lastEnd) {
-			segments.push(
-				<span key={`t-${lastEnd}`} {...stylex.props(styles.text)}>
+			segments().push(
+				<span {...stylex.attrs(styles.text)}>
 					{text.slice(lastEnd, token.start)}
 				</span>,
 			);
 		}
-
 		const tokenText = text.slice(token.start, token.end);
-		segments.push(
-			<span key={`h-${token.start}`} {...stylex.props(styles.highlight)}>
-				{tokenText}
-			</span>,
+		segments().push(
+			<span {...stylex.attrs(styles.highlight)}>{tokenText}</span>,
 		);
 		lastEnd = token.end;
 	}
-
 	if (lastEnd < text.length) {
-		segments.push(
-			<span key={`t-${lastEnd}`} {...stylex.props(styles.text)}>
-				{text.slice(lastEnd)}
-			</span>,
+		segments().push(
+			<span {...stylex.attrs(styles.text)}>{text.slice(lastEnd)}</span>,
 		);
 	}
-
-	return <>{segments}</>;
+	return <>{segments()}</>;
 }
-
 export function renderTextPills(
 	text: string,
 	slashCommandNames?: readonly string[],
-): unknown[] {
+): import("solid-js").Element[] {
 	if (!text) return [];
-
-	const matches = findDecoratedTokenRanges(text, slashCommandNames);
-	if (matches.length === 0) return [text];
-
-	const parts: unknown[] = [];
+	const matches = createMemo(() =>
+		findDecoratedTokenRanges(text, slashCommandNames),
+	);
+	if (matches().length === 0) return [text];
+	const parts = createMemo<import("solid-js").Element[]>(() => []);
 	let lastEnd = 0;
-
-	for (const token of matches) {
+	for (const token of matches()) {
 		if (token.start < lastEnd) continue;
-
 		if (token.start > lastEnd) {
-			parts.push(text.slice(lastEnd, token.start));
+			parts().push(text.slice(lastEnd, token.start));
 		}
-
 		const tokenText = text.slice(token.start, token.end);
-		parts.push(
-			<span key={`${token.start}-${tokenText}`} {...stylex.props(styles.pill)}>
-				{tokenText}
-			</span>,
-		);
+		parts().push(<span {...stylex.attrs(styles.pill)}>{tokenText}</span>);
 		lastEnd = token.end;
 	}
-
 	if (lastEnd < text.length) {
-		parts.push(text.slice(lastEnd));
+		parts().push(text.slice(lastEnd));
 	}
-
-	return parts;
+	return parts();
 }
-
-type TokenRange = { start: number; end: number };
+type TokenRange = {
+	start: number;
+	end: number;
+};
 export function findDecoratedTokenRanges(
 	text: string,
 	slashCommandNames?: readonly string[],
 ): TokenRange[] {
-	return rustProject("decoratedTokens", { text, commands: slashCommandNames });
+	return rustProject("decoratedTokens", {
+		text,
+		commands: slashCommandNames,
+	});
 }

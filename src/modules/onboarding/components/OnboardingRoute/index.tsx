@@ -1,29 +1,28 @@
-import * as stylex from "@octanejs/stylex";
-import { useNavigate } from "@octanejs/tanstack-router";
-import { useEffect } from "octane";
+import { useNavigate } from "@solidjs/router";
+import * as stylex from "@stylexjs/stylex";
+import { createEffect, onSettled } from "solid-js";
+import { APP_REGION_DRAG_CLASS } from "../../../../app/hooks/useAppAppearance.tsx";
 import {
 	ONBOARDING_DONE_STORAGE_KEY,
 	readStoredBoolean,
-} from "../../../../adapters/storage/stored-values.ts";
-import { APP_REGION_DRAG_CLASS } from "../../../../app/hooks/useAppAppearance.tsx";
+} from "../../../../shared/lib/native.tsx";
 import { OnboardingPage } from "../OnboardingPage/index.tsx";
 import { routeStyles } from "./styles.ts";
-
 export function OnboardingRoute() {
 	const navigate = useNavigate();
-
-	useEffect(() => {
+	onSettled(() => {
 		if (!readStoredBoolean(ONBOARDING_DONE_STORAGE_KEY)) return;
-		navigate({ to: "/", replace: true });
-	}, [navigate]);
-
+		navigate("/", {
+			replace: true,
+		});
+	});
 	return (
-		<div {...stylex.props(routeStyles.shell)}>
+		<div {...stylex.attrs(routeStyles.shell)}>
 			<div
-				{...stylex.props(routeStyles.windowSpacer)}
-				className={`${APP_REGION_DRAG_CLASS} ${stylex.props(routeStyles.windowSpacer).className ?? ""}`}
+				{...stylex.attrs(routeStyles.windowSpacer)}
+				class={`${APP_REGION_DRAG_CLASS} ${stylex.attrs(routeStyles.windowSpacer).class ?? ""}`}
 			/>
-			<div {...stylex.props(routeStyles.content)}>
+			<div {...stylex.attrs(routeStyles.content)}>
 				<OnboardingPage />
 			</div>
 		</div>

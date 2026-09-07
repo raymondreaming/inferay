@@ -1,7 +1,7 @@
-import * as stylex from "@octanejs/stylex";
-import { memo, useEffect, useRef } from "octane";
+import * as stylex from "@stylexjs/stylex";
+import { createEffect } from "solid-js";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { setInputValue } from "../../../../shared/lib/data.ts";
+import { setInputValue } from "../../../../shared/lib/dom.tsx";
 import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
 import {
 	IconCheck,
@@ -11,18 +11,7 @@ import {
 } from "../../../../shared/ui/Icons/index.tsx";
 import type { QueuedChatMessage } from "../../hooks/useAgentChatComposerState.tsx";
 import { styles } from "./styles.ts";
-
-export const QueuedMessageRow = memo(function QueuedMessageRow({
-	index,
-	message,
-	isEditing,
-	editingQueueText,
-	setEditingQueueText,
-	startQueuedMessageEdit,
-	cancelQueuedMessageEdit,
-	saveQueuedMessageEdit,
-	removeQueuedMessage,
-}: {
+export const QueuedMessageRow = function QueuedMessageRow(_props: {
 	index: number;
 	message: QueuedChatMessage;
 	isEditing: boolean;
@@ -33,42 +22,49 @@ export const QueuedMessageRow = memo(function QueuedMessageRow({
 	saveQueuedMessageEdit: (id: string) => void;
 	removeQueuedMessage: (id: string) => void;
 }) {
-	const editInputRef = useRef<HTMLInputElement | null>(null);
-	useEffect(() => {
-		if (isEditing) editInputRef.current?.focus();
-	}, [isEditing]);
+	const editInputRef = {
+		current: null,
+	} as {
+		current: HTMLInputElement | null;
+	};
+	createEffect(
+		() => [_props.isEditing],
+		() => {
+			if (_props.isEditing) editInputRef.current?.focus();
+		},
+	);
 	return (
-		<div {...stylex.props(styles.queueRow)}>
-			<span {...stylex.props(styles.queueIndex)}>{index + 1}</span>
-			{isEditing ? (
-				<div {...stylex.props(styles.queueEditRow)}>
+		<div {...stylex.attrs(styles.queueRow)}>
+			<span {...stylex.attrs(styles.queueIndex)}>{_props.index + 1}</span>
+			{_props.isEditing ? (
+				<div {...stylex.attrs(styles.queueEditRow)}>
 					<input
-						ref={editInputRef}
+						ref={(element) => (editInputRef.current = element)}
 						type="text"
-						value={editingQueueText}
-						onInput={setInputValue.bind(null, setEditingQueueText)}
+						value={_props.editingQueueText}
+						onInput={setInputValue.bind(null, _props.setEditingQueueText)}
 						onKeyDown={(e) => {
 							if (e.key === "Enter") {
-								saveQueuedMessageEdit(message.id);
+								_props.saveQueuedMessageEdit(_props.message.id);
 							} else if (e.key === "Escape") {
-								cancelQueuedMessageEdit();
+								_props.cancelQueuedMessageEdit();
 							}
 						}}
-						{...stylex.props(styles.queueEditInput)}
+						{...stylex.attrs(styles.queueEditInput)}
 					/>
 					<IconButton
 						type="button"
-						onClick={() => saveQueuedMessageEdit(message.id)}
+						onClick={() => _props.saveQueuedMessageEdit(_props.message.id)}
 						variant="ghost"
 						size="xs"
-						className={stylex.props(styles.saveButton).className}
+						class={stylex.attrs(styles.saveButton).class}
 						title="Save"
 					>
 						<IconCheck size={iconSize.compact} />
 					</IconButton>
 					<IconButton
 						type="button"
-						onClick={cancelQueuedMessageEdit}
+						onClick={_props.cancelQueuedMessageEdit}
 						variant="ghost"
 						size="xs"
 						title="Cancel"
@@ -78,21 +74,28 @@ export const QueuedMessageRow = memo(function QueuedMessageRow({
 				</div>
 			) : (
 				<>
-					{message.images && message.images.length > 0 && (
+					{_props.message.images && _props.message.images.length > 0 && (
 						<img
-							src={`/api/file?path=${encodeURIComponent(message.images[0]!)}`}
+							src={`/api/file?path=${encodeURIComponent(_props.message.images[0]!)}`}
 							alt=""
-							{...stylex.props(styles.queueImage)}
+							{...stylex.attrs(styles.queueImage)}
 						/>
 					)}
-					<span {...stylex.props(styles.queueText)}>{message.displayText}</span>
-					{message.transient ? (
-						<span {...stylex.props(styles.queueIndex)}>Steering…</span>
+					<span {...stylex.attrs(styles.queueText)}>
+						{_props.message.displayText}
+					</span>
+					{_props.message.transient ? (
+						<span {...stylex.attrs(styles.queueIndex)}>Steering…</span>
 					) : (
-						<div {...stylex.props(styles.queueActions)}>
+						<div {...stylex.attrs(styles.queueActions)}>
 							<IconButton
 								type="button"
-								onClick={() => startQueuedMessageEdit(message.id, message.text)}
+								onClick={() =>
+									_props.startQueuedMessageEdit(
+										_props.message.id,
+										_props.message.text,
+									)
+								}
 								variant="ghost"
 								size="xs"
 								title="Edit"
@@ -101,7 +104,7 @@ export const QueuedMessageRow = memo(function QueuedMessageRow({
 							</IconButton>
 							<IconButton
 								type="button"
-								onClick={() => removeQueuedMessage(message.id)}
+								onClick={() => _props.removeQueuedMessage(_props.message.id)}
 								variant="danger"
 								size="xs"
 								title="Remove from queue"
@@ -114,4 +117,4 @@ export const QueuedMessageRow = memo(function QueuedMessageRow({
 			)}
 		</div>
 	);
-});
+};

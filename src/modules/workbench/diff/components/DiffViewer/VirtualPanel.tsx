@@ -1,18 +1,17 @@
-import * as stylex from "@octanejs/stylex";
-import {
-	memo,
-	useCallback,
-	useEffect,
-	useMemo,
-	useReducer,
-	useRef,
-} from "octane";
+import * as stylex from "@stylexjs/stylex";
+import { createEffect, createMemo, For, onSettled } from "solid-js";
 import type { GitDiffLine } from "../../../../../../build/presentation/contracts/GitDiffLine.ts";
 import type { MinimapSegment } from "../../../../../../build/presentation/contracts/MinimapSegment.ts";
 import {
 	type SyntaxToken,
 	useSyntaxHighlight,
 } from "../../../../../shared/hooks/useSyntaxHighlight.tsx";
+import {
+	assignRef,
+	createReducer,
+	domStyle,
+	type RefCell,
+} from "../../../../../shared/lib/dom.tsx";
 import type { DiffScrollSource } from "../../hooks/useSplitDiffScroll.tsx";
 import { DiffGutterRow } from "./DiffGutterRow.tsx";
 import { DiffMinimap } from "./DiffMinimap.tsx";
@@ -21,40 +20,18 @@ import * as inlineStyles from "./styles.ts";
 import { DIFF_CONFIG, diffStyles, GUTTER_W, LINE_H } from "./styles.ts";
 
 const SPLIT_RIGHT_INSET = 12;
-
 const OVERSCAN = DIFF_CONFIG.overscan;
-
 const MAX_PANEL_CONTENT_WIDTH = 8000;
-
 function roundToDevicePixel(value: number): number {
 	const dpr = window.devicePixelRatio ?? 1;
 	return Math.round(value * dpr) / dpr;
 }
-
-export const VirtualPanel = memo(function VirtualPanel({
-	lines,
-	rowCount = lines.length,
-	maxLineChars,
-	ext,
-	scrollRef,
-	onScroll,
-	disableTokenize,
-	gutterLines,
-	showGutter = true,
-	showMinimap: _showMinimap = false,
-	minimapSegments,
-	verticalFollower = false,
-	externalScrollTop,
-	externalScrollSource,
-	side,
-	filePath,
-	highlightedRange,
-}: {
+export const VirtualPanel = function VirtualPanel(_props: {
 	lines: GitDiffLine[];
 	rowCount?: number;
 	maxLineChars: number;
 	ext: string;
-	scrollRef: React.RefObject<HTMLDivElement | null>;
+	scrollRef: RefCell<HTMLDivElement | null>;
 	onScroll?: (
 		scrollTop: number,
 		scrollLeft: number,
@@ -72,142 +49,191 @@ export const VirtualPanel = memo(function VirtualPanel({
 	filePath?: string;
 	highlightedRange?: readonly [number, number];
 }) {
-	const [viewport, dispatchViewport] = useReducer(
+	const [viewport, dispatchViewport] = createReducer(
 		diffViewportReducer,
 		INITIAL_DIFF_VIEWPORT_STATE,
 	);
-	const { scrollTop, viewHeight } = viewport;
-	const rafRef = useRef<number>(0);
-	const lastScrollRef = useRef({ left: 0, top: 0 });
-	const lastAppliedScrollRef = useRef(-1);
-
-	useEffect(() => {
-		const el = scrollRef.current;
-		if (!el) return;
-		dispatchViewport({ type: "measure", height: el.clientHeight });
-		const obs = new ResizeObserver((e) =>
+	const _source = createMemo(() => viewport());
+	const rafRef = {
+		current: 0,
+	} as {
+		current: number;
+	};
+	const lastScrollRef = {
+		current: {
+			left: 0,
+			top: 0,
+		},
+	};
+	const lastAppliedScrollRef = {
+		current: -1,
+	};
+	createEffect(
+		() => [_props.scrollRef],
+		() => {
+			const el = _props.scrollRef.current;
+			if (!el) return;
 			dispatchViewport({
 				type: "measure",
-				height:
-					e[0]?.contentRect.height ?? INITIAL_DIFF_VIEWPORT_STATE.viewHeight,
-			}),
-		);
-		obs.observe(el);
-		return obs.disconnect.bind(obs);
-	}, [scrollRef]);
-
-	const handleScroll = useCallback(() => {
-		if (!scrollRef.current) return;
-		const { scrollTop: nextTop, scrollLeft: nextLeft } = scrollRef.current;
-		onScroll?.(nextTop, nextLeft);
+				height: el.clientHeight,
+			});
+			const obs = new ResizeObserver((e) =>
+				dispatchViewport({
+					type: "measure",
+					height:
+						e[0]?.contentRect.height ?? INITIAL_DIFF_VIEWPORT_STATE.viewHeight,
+				}),
+			);
+			obs.observe(el);
+			return obs.disconnect.bind(obs);
+		},
+	);
+	const handleScroll = () => {
+		if (!_props.scrollRef.current) return;
+		const { scrollTop: nextTop, scrollLeft: nextLeft } =
+			_props.scrollRef.current;
+		_props.onScroll?.(nextTop, nextLeft);
 		if (rafRef.current) return;
 		rafRef.current = requestAnimationFrame(() => {
 			rafRef.current = 0;
-			if (!scrollRef.current) return;
-			const { scrollTop: st, scrollLeft: sl } = scrollRef.current;
+			if (!_props.scrollRef.current) return;
+			const { scrollTop: st, scrollLeft: sl } = _props.scrollRef.current;
 			const last = lastScrollRef.current;
 			const topChanged = Math.abs(last.top - st) > 0.5;
 			const leftChanged = Math.abs(last.left - sl) > 0.5;
 			if (topChanged) {
 				last.top = st;
-				dispatchViewport({ type: "scroll", top: st });
+				dispatchViewport({
+					type: "scroll",
+					top: st,
+				});
 			}
 			if (leftChanged) last.left = sl;
 		});
-	}, [scrollRef, onScroll]);
-
-	useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
-
-	const total = rowCount * LINE_H;
-
-	const minContentWidth = Math.min(
-		MAX_PANEL_CONTENT_WIDTH,
-		(showGutter ? GUTTER_W : SPLIT_RIGHT_INSET) + maxLineChars * 9 + 48,
+	};
+	onSettled(() => () => cancelAnimationFrame(rafRef.current));
+	const total = createMemo(
+		() =>
+			(_props.rowCount === undefined ? _props.lines.length : _props.rowCount) *
+			LINE_H,
 	);
-
-	const start = Math.max(0, Math.floor(scrollTop / LINE_H) - OVERSCAN);
-	const end = Math.min(
-		rowCount,
-		Math.ceil((scrollTop + viewHeight) / LINE_H) + OVERSCAN,
+	const minContentWidth = createMemo(() =>
+		Math.min(
+			MAX_PANEL_CONTENT_WIDTH,
+			((_props.showGutter === undefined ? true : _props.showGutter)
+				? GUTTER_W
+				: SPLIT_RIGHT_INSET) +
+				_props.maxLineChars * 9 +
+				48,
+		),
 	);
-	const lineContents = useMemo(
-		() => lines.map((line) => line.content),
-		[lines],
+	const start = createMemo(() =>
+		Math.max(0, Math.floor(_source().scrollTop / LINE_H) - OVERSCAN),
 	);
-	const {
-		getLineTokens,
-		isReady: syntaxReady,
-		language: syntaxLanguage,
-	} = useSyntaxHighlight({
-		filePath: filePath ?? `file.${ext}`,
-		lines: lineContents,
-		enabled: !disableTokenize && !!filePath,
+	const end = createMemo(() => {
+		const _sourceValue = _source();
+		return Math.min(
+			_props.rowCount === undefined ? _props.lines.length : _props.rowCount,
+			Math.ceil((_sourceValue.scrollTop + _sourceValue.viewHeight) / LINE_H) +
+				OVERSCAN,
+		);
 	});
-
-	useEffect(() => {
-		if (externalScrollTop === undefined || externalScrollTop < 0) return;
-		if (externalScrollSource === side) return;
-		if (externalScrollTop === lastAppliedScrollRef.current) return;
-		lastAppliedScrollRef.current = externalScrollTop;
-		if (scrollRef.current) {
-			const maxScrollTop = Math.max(0, rowCount * LINE_H - viewHeight);
-			const nextScrollTop = roundToDevicePixel(
-				Math.min(Math.max(0, externalScrollTop), maxScrollTop),
-			);
-			scrollRef.current.scrollTop = nextScrollTop;
-			lastScrollRef.current.top = nextScrollTop;
-			dispatchViewport({ type: "scroll", top: nextScrollTop });
-		}
-	}, [
-		externalScrollTop,
-		externalScrollSource,
-		rowCount,
-		scrollRef,
-		side,
-		viewHeight,
-	]);
-
-	const scrollToLine = useCallback(
-		(lineIndex: number) => {
-			if (!scrollRef.current) return;
-			const maxScrollTop = Math.max(0, rowCount * LINE_H - viewHeight);
-			const nextScrollTop = roundToDevicePixel(
-				Math.min(
-					Math.max(0, lineIndex * LINE_H - viewHeight / 2),
-					maxScrollTop,
-				),
-			);
-			scrollRef.current.scrollTop = nextScrollTop;
-			lastScrollRef.current.top = nextScrollTop;
-			dispatchViewport({ type: "scroll", top: nextScrollTop });
-			onScroll?.(nextScrollTop, scrollRef.current.scrollLeft, true);
-		},
-		[scrollRef, viewHeight, rowCount, onScroll],
+	const lineContents = createMemo(() =>
+		_props.lines.map((line) => line.content),
 	);
-
-	const visibleRows = useMemo(() => {
+	const lineTypes = createMemo(() => _props.lines.map((line) => line.type));
+	const _source2 = useSyntaxHighlight(() => ({
+		filePath: _props.filePath ?? `file.${_props.ext}`,
+		lines: lineContents(),
+		lineTypes: lineTypes(),
+		enabled: !_props.disableTokenize && !!_props.filePath,
+	}));
+	createEffect(
+		() => [
+			_props.externalScrollTop,
+			_props.externalScrollSource,
+			_props.rowCount === undefined ? _props.lines.length : _props.rowCount,
+			_props.scrollRef,
+			_props.side,
+			_source().viewHeight,
+		],
+		() => {
+			if (
+				_props.externalScrollTop === undefined ||
+				_props.externalScrollTop < 0
+			)
+				return;
+			if (_props.externalScrollSource === _props.side) return;
+			if (_props.externalScrollTop === lastAppliedScrollRef.current) return;
+			lastAppliedScrollRef.current = _props.externalScrollTop;
+			if (_props.scrollRef.current) {
+				const maxScrollTop = Math.max(
+					0,
+					(_props.rowCount === undefined
+						? _props.lines.length
+						: _props.rowCount) *
+						LINE_H -
+						_source().viewHeight,
+				);
+				const nextScrollTop = roundToDevicePixel(
+					Math.min(Math.max(0, _props.externalScrollTop), maxScrollTop),
+				);
+				_props.scrollRef.current.scrollTop = nextScrollTop;
+				lastScrollRef.current.top = nextScrollTop;
+				dispatchViewport({
+					type: "scroll",
+					top: nextScrollTop,
+				});
+			}
+		},
+	);
+	const scrollToLine = (lineIndex: number) => {
+		const _sourceValue2 = _source();
+		if (!_props.scrollRef.current) return;
+		const maxScrollTop = Math.max(
+			0,
+			(_props.rowCount === undefined ? _props.lines.length : _props.rowCount) *
+				LINE_H -
+				_sourceValue2.viewHeight,
+		);
+		const nextScrollTop = roundToDevicePixel(
+			Math.min(
+				Math.max(0, lineIndex * LINE_H - _sourceValue2.viewHeight / 2),
+				maxScrollTop,
+			),
+		);
+		_props.scrollRef.current.scrollTop = nextScrollTop;
+		lastScrollRef.current.top = nextScrollTop;
+		dispatchViewport({
+			type: "scroll",
+			top: nextScrollTop,
+		});
+		_props.onScroll?.(nextScrollTop, _props.scrollRef.current.scrollLeft, true);
+	};
+	const visibleRows = createMemo(() => {
 		const rows: {
 			line: GitDiffLine;
 			highlightedTokens?: SyntaxToken[];
 			key: number;
 			isHighlighted: boolean;
 		}[] = [];
-		for (let i = start; i < end; i++) {
-			const line: GitDiffLine = lines[i] ?? {
+		for (let i = start(); i < end(); i++) {
+			const line: GitDiffLine = _props.lines[i] ?? {
 				number: null,
 				content: "",
 				type: "spacer",
 			};
-
 			const isHighlighted =
-				highlightedRange !== undefined &&
-				i >= highlightedRange[0] &&
-				i < highlightedRange[1];
+				_props.highlightedRange !== undefined &&
+				i >= _props.highlightedRange[0] &&
+				i < _props.highlightedRange[1];
 			const highlightedTokens =
-				syntaxReady && !disableTokenize && filePath && syntaxLanguage
-					? getLineTokens(i)
+				_source2.isReady &&
+				!_props.disableTokenize &&
+				_props.filePath &&
+				_source2.language
+					? _source2.getLineTokens(i)
 					: undefined;
-
 			rows.push({
 				line,
 				highlightedTokens,
@@ -216,100 +242,130 @@ export const VirtualPanel = memo(function VirtualPanel({
 			});
 		}
 		return rows;
-	}, [
-		lines,
-		rowCount,
-		start,
-		end,
-		ext,
-		disableTokenize,
-		syntaxReady,
-		syntaxLanguage,
-		getLineTokens,
-		filePath,
-		highlightedRange,
-	]);
-
+	});
 	return (
-		<div {...stylex.props(diffStyles.virtualRoot)}>
+		<div {...stylex.attrs(diffStyles.virtualRoot)}>
 			<div
-				ref={scrollRef}
+				ref={(_element) => assignRef(_props.scrollRef, _element)}
 				onScroll={handleScroll}
-				data-diff-scroll-side={side}
-				{...stylex.props(diffStyles.virtualScroller)}
-				style={
-					verticalFollower
+				data-diff-scroll-side={_props.side}
+				{...stylex.attrs(
+					diffStyles.virtualScroller,
+					_props.side !== "single" && diffStyles.splitScroller,
+				)}
+				style={domStyle(
+					(
+						_props.verticalFollower === undefined
+							? false
+							: _props.verticalFollower
+					)
 						? inlineStyles.getVirtualPanelVirtualScrollerStyle()
-						: undefined
-				}
+						: undefined,
+				)}
 			>
 				<div
-					style={inlineStyles.getVirtualPanelDivStyle(total, minContentWidth)}
+					style={domStyle(
+						inlineStyles.getVirtualPanelDivStyle(total(), minContentWidth()),
+					)}
 				>
 					<div
-						{...stylex.props(diffStyles.virtualOffsetLayer)}
-						style={inlineStyles.getVirtualPanelVirtualOffsetLayerStyle(
-							`translate3d(0, ${start * LINE_H}px, 0)`,
-							minContentWidth,
+						{...stylex.attrs(diffStyles.virtualOffsetLayer)}
+						style={domStyle(
+							inlineStyles.getVirtualPanelVirtualOffsetLayerStyle(
+								`translate3d(0, ${start() * LINE_H}px, 0)`,
+								minContentWidth(),
+							),
 						)}
 					>
-						{showGutter ? (
-							<div {...stylex.props(diffStyles.gutterLayer)}>
+						{(_props.showGutter === undefined ? true : _props.showGutter) ? (
+							<div {...stylex.attrs(diffStyles.gutterLayer)}>
 								<div
-									{...stylex.props(diffStyles.gutterBlock)}
-									style={inlineStyles.getVirtualPanelGutterBlockStyle()}
+									{...stylex.attrs(diffStyles.gutterBlock)}
+									style={domStyle(
+										inlineStyles.getVirtualPanelGutterBlockStyle(),
+									)}
 								>
-									{visibleRows.map(({ line, key }) => (
-										<DiffGutterRow
-											key={key}
-											line={
-												line.type === "spacer" &&
-												gutterLines?.[key]?.type === "add"
-													? gutterLines[key]!
-													: line
-											}
-										/>
-									))}
+									{
+										<For each={visibleRows()} keyed={(row) => row.key}>
+											{(_props2) => (
+												<DiffGutterRow
+													line={
+														_props2().line.type === "spacer" &&
+														_props.gutterLines?.[_props2().key]?.type === "add"
+															? _props.gutterLines[_props2().key]!
+															: _props2().line
+													}
+												/>
+											)}
+										</For>
+									}
 								</div>
 							</div>
 						) : null}
-						{visibleRows.map(
-							({ line, highlightedTokens, key, isHighlighted }) => (
-								<DiffRow
-									key={key}
-									line={line}
-									highlightedTokens={highlightedTokens}
-									isHighlighted={isHighlighted}
-									minWidth={minContentWidth}
-									hideGutter
-									gutterOffset={showGutter ? GUTTER_W : SPLIT_RIGHT_INSET}
-								/>
-							),
-						)}
+						{
+							<For each={visibleRows()} keyed={(row) => row.key}>
+								{(_props3) => (
+									<DiffRow
+										line={_props3().line}
+										highlightedTokens={_props3().highlightedTokens}
+										isHighlighted={_props3().isHighlighted}
+										minWidth={minContentWidth()}
+										hideGutter
+										gutterOffset={
+											(
+												_props.showGutter === undefined
+													? true
+													: _props.showGutter
+											)
+												? GUTTER_W
+												: SPLIT_RIGHT_INSET
+										}
+									/>
+								)}
+							</For>
+						}
 					</div>
 				</div>
 			</div>
-			{_showMinimap && rowCount > 0 && rowCount < 3000 && minimapSegments && (
-				<DiffMinimap
-					rowCount={rowCount}
-					segments={minimapSegments}
-					scrollTop={scrollTop}
-					viewHeight={viewHeight}
-					totalHeight={total}
-					onScrollTo={scrollToLine}
-				/>
-			)}
+			{(_props.showMinimap === undefined ? false : _props.showMinimap) &&
+				(_props.rowCount === undefined
+					? _props.lines.length
+					: _props.rowCount) > 0 &&
+				(_props.rowCount === undefined
+					? _props.lines.length
+					: _props.rowCount) < 3000 &&
+				_props.minimapSegments && (
+					<DiffMinimap
+						rowCount={
+							_props.rowCount === undefined
+								? _props.lines.length
+								: _props.rowCount
+						}
+						segments={_props.minimapSegments}
+						scrollTop={_source().scrollTop}
+						viewHeight={_source().viewHeight}
+						totalHeight={total()}
+						onScrollTo={scrollToLine}
+					/>
+				)}
 		</div>
 	);
-});
-
+};
 export const INITIAL_DIFF_VIEWPORT_STATE = {
 	scrollTop: 0,
 	viewHeight: 600,
 };
 export function diffViewportReducer(
 	state: typeof INITIAL_DIFF_VIEWPORT_STATE,
-	action: { type: "measure"; height: number } | { type: "scroll"; top: number },
+	action:
+		| {
+				type: "measure";
+				height: number;
+		  }
+		| {
+				type: "scroll";
+				top: number;
+		  },
 ) {
 	const field = action.type === "measure" ? "viewHeight" : "scrollTop";
 	const value =
@@ -317,6 +373,9 @@ export function diffViewportReducer(
 			? action.height || INITIAL_DIFF_VIEWPORT_STATE.viewHeight
 			: action.top;
 	return Math.abs(state[field] - value) > 0.5
-		? { ...state, [field]: value }
+		? {
+				...state,
+				[field]: value,
+			}
 		: state;
 }

@@ -1,5 +1,4 @@
-import type { CSSProperties } from "react";
-
+import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 export function getFolderTypeIconImgStyle(
 	width: CSSProperties["width"],
 	height: CSSProperties["height"],
@@ -12,7 +11,6 @@ export function getFolderTypeIconImgStyle(
 		filter: "saturate(0.82) brightness(1.08)",
 	} as CSSProperties;
 }
-
 export function getFileTypeIconImgStyle(
 	width: CSSProperties["width"],
 	height: CSSProperties["height"],

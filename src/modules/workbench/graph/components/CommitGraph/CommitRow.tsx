@@ -1,10 +1,10 @@
-import * as stylex from "@octanejs/stylex";
-import { memo, useCallback } from "octane";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo, For } from "solid-js";
 import type { GitGraphRef } from "../../../../../../build/presentation/contracts/GitGraphRef.ts";
 import type { GitWorktree } from "../../../../../../build/presentation/contracts/GitWorktree.ts";
 import type { GraphCommit } from "../../../../../../build/presentation/contracts/GraphCommit.ts";
 import { runtimeGitGraphLaneColors } from "../../../../../design-system/styles.stylex.ts";
-
+import { ariaValue, domStyle } from "../../../../../shared/lib/dom.tsx";
 import { CommitGraphCell } from "./CommitGraphCell.tsx";
 import { CommitMessageCell } from "./CommitMessageCell.tsx";
 import { RefBadge } from "./RefBadge.tsx";
@@ -35,30 +35,7 @@ function formatCommitDate(value: string, fallback: string) {
 	if (Number.isNaN(parsed.getTime())) return fallback;
 	return commitDateFormatter.format(parsed).replace(",", "");
 }
-export const CommitRow = memo(function CommitRow({
-	commit,
-	worktree,
-	graphWidth,
-	displayColumn,
-	selected,
-	onSelect,
-	onCheckoutRef,
-	onRefDrop,
-	onOpenRefContextMenu,
-	onOpenItemContextMenu,
-	ghostRef,
-	hiddenRefNames,
-	pinnedRefNames,
-	historyMatch,
-	visibleOrder,
-	graphStart,
-	widths,
-	virtualTop,
-	searchMatch,
-	githubAvatar,
-	rowActive,
-	onRowHover,
-}: {
+export const CommitRow = function CommitRow(_props: {
 	commit: GraphCommit;
 	worktree?: GitWorktree;
 	graphWidth: number;
@@ -82,76 +59,108 @@ export const CommitRow = memo(function CommitRow({
 	rowActive: boolean;
 	onRowHover: (itemId: string | null) => void;
 }) {
-	const nodeLeft =
-		GRAPH_PADDING +
-		displayColumn * COLUMN_WIDTH +
-		COLUMN_WIDTH / 2 -
-		AVATAR_SIZE / 2;
-	const nodeTop = ROW_HEIGHT / 2 - AVATAR_SIZE / 2;
-	const nodeCenter =
-		GRAPH_PADDING + displayColumn * COLUMN_WIDTH + COLUMN_WIDTH / 2;
-	const isWip = commit.itemKind === "worktreeWip";
-	const isStash = commit.itemKind === "stash";
-	const isMergeCommit = !isWip && !isStash && commit.parents.length > 1;
-	const syntheticStashRef: GitGraphRef | null = isStash
-		? {
-				fullName: commit.stashName ?? "refs/stash",
-				displayName: commit.stashName ?? "stash",
-				label: commit.stashName ?? "stash",
-				kind: "stash",
-				target: commit.hash,
-				isHead: false,
-			}
-		: null;
-	const allRefs =
-		syntheticStashRef && !commit.refs.some((ref) => ref.kind === "stash")
-			? [syntheticStashRef, ...commit.refs]
-			: commit.refs;
-	const visibleRefs = allRefs
-		.filter((ref) => !hiddenRefNames.has(ref.fullName))
-		.sort(
-			(a, b) =>
-				Number(pinnedRefNames.has(b.fullName)) -
-				Number(pinnedRefNames.has(a.fullName)),
-		);
-	const color =
-		runtimeGitGraphLaneColors[
-			Math.abs(commit.colorIndex) % runtimeGitGraphLaneColors.length
-		]!;
-	const hasRefs = visibleRefs.length > 0;
-	const visibleGhostRef =
-		ghostRef && !hiddenRefNames.has(ghostRef.fullName) ? ghostRef : undefined;
-	const showGhostRef = !hasRefs && !!visibleGhostRef && (selected || rowActive);
-	const fileCount = worktree?.status?.files.length ?? 0;
-	const worktreeLabel = worktree?.branch ?? "detached HEAD";
-	const showWipRef = isWip && worktree?.isCurrent === false;
-	const handleSelect = useCallback(
-		(intent?: GraphSelectionIntent) => onSelect?.(commit.id, intent),
-		[commit.id, onSelect],
+	const nodeLeft = createMemo(
+		() =>
+			GRAPH_PADDING +
+			_props.displayColumn * COLUMN_WIDTH +
+			COLUMN_WIDTH / 2 -
+			AVATAR_SIZE / 2,
 	);
-	const nodeAnchoredWashLeft = graphStart + nodeCenter;
+	const nodeTop = createMemo(() => ROW_HEIGHT / 2 - AVATAR_SIZE / 2);
+	const nodeCenter = createMemo(
+		() =>
+			GRAPH_PADDING + _props.displayColumn * COLUMN_WIDTH + COLUMN_WIDTH / 2,
+	);
+	const isWip = createMemo(() => _props.commit.itemKind === "worktreeWip");
+	const isStash = createMemo(() => _props.commit.itemKind === "stash");
+	const isMergeCommit = createMemo(
+		() => !isWip() && !isStash() && _props.commit.parents.length > 1,
+	);
+	const syntheticStashRef = createMemo<GitGraphRef | null>(() =>
+		isStash()
+			? {
+					fullName: _props.commit.stashName ?? "refs/stash",
+					displayName: _props.commit.stashName ?? "stash",
+					label: _props.commit.stashName ?? "stash",
+					kind: "stash",
+					target: _props.commit.hash,
+					isHead: false,
+				}
+			: null,
+	);
+	const allRefs = createMemo(() => {
+		const _syntheticStashRefValue = syntheticStashRef();
+		return _syntheticStashRefValue &&
+			!_props.commit.refs.some((ref) => ref.kind === "stash")
+			? [_syntheticStashRefValue, ..._props.commit.refs]
+			: _props.commit.refs;
+	});
+	const visibleRefs = createMemo(() =>
+		allRefs()
+			.filter((ref) => !_props.hiddenRefNames.has(ref.fullName))
+			.sort(
+				(a, b) =>
+					Number(_props.pinnedRefNames.has(b.fullName)) -
+					Number(_props.pinnedRefNames.has(a.fullName)),
+			),
+	);
+	const color = createMemo(
+		() =>
+			runtimeGitGraphLaneColors[
+				Math.abs(_props.commit.colorIndex) % runtimeGitGraphLaneColors.length
+			]!,
+	);
+	const hasRefs = createMemo(() => visibleRefs().length > 0);
+	const visibleGhostRef = createMemo(() =>
+		_props.ghostRef && !_props.hiddenRefNames.has(_props.ghostRef.fullName)
+			? _props.ghostRef
+			: undefined,
+	);
+	const showGhostRef = createMemo(
+		() =>
+			!hasRefs() &&
+			!!visibleGhostRef() &&
+			(_props.selected || _props.rowActive),
+	);
+	const fileCount = createMemo(
+		() => _props.worktree?.status?.files.length ?? 0,
+	);
+	const worktreeLabel = createMemo(
+		() => _props.worktree?.branch ?? "detached HEAD",
+	);
+	const showWipRef = createMemo(
+		() => isWip() && _props.worktree?.isCurrent === false,
+	);
+	const handleSelect = (intent?: GraphSelectionIntent) =>
+		_props.onSelect?.(_props.commit.id, intent);
+	const nodeAnchoredWashLeft = createMemo(
+		() => _props.graphStart + nodeCenter(),
+	);
 	return (
+		// biome-ignore lint/a11y/useFocusableInteractive: Solid uses lowercase tabindex, supplied below.
 		<div
 			role="option"
-			aria-selected={selected}
-			aria-label={
-				isWip
-					? `Uncommitted changes on ${worktreeLabel}, ${fileCount} files`
-					: `${commit.message}, ${commit.author}, ${formatCommitDate(commit.committedAt, commit.date)}, ${(visibleRefs.length ? visibleRefs : visibleGhostRef ? [visibleGhostRef] : []).map((ref) => ref.displayName).join(", ")}`
-			}
-			data-graph-item={commit.id}
-			data-graph-kind={commit.itemKind}
-			data-graph-column={displayColumn}
-			data-history-match={historyMatch ? "true" : "false"}
-			data-search-match={searchMatch ? "true" : "false"}
-			tabIndex={0}
-			onMouseEnter={() => onRowHover(commit.id)}
-			onMouseLeave={() => onRowHover(null)}
-			{...stylex.props(styles.graphRow, styles.virtualRow)}
-			style={inlineStyles.getCommitRowGraphRowStyle(
-				ROW_HEIGHT,
-				`translateY(${virtualTop}px)`,
-				searchMatch && historyMatch ? 1 : 0.22,
+			aria-selected={ariaValue(_props.selected)}
+			aria-label={ariaValue(
+				isWip()
+					? `Uncommitted changes on ${worktreeLabel()}, ${fileCount()} files`
+					: `${_props.commit.message}, ${_props.commit.author}, ${formatCommitDate(_props.commit.committedAt, _props.commit.date)}, ${(visibleRefs().length ? visibleRefs() : visibleGhostRef() ? [visibleGhostRef()] : []).map((ref) => ref?.displayName ?? "").join(", ")}`,
+			)}
+			data-graph-item={_props.commit.id}
+			data-graph-kind={_props.commit.itemKind}
+			data-graph-column={_props.displayColumn}
+			data-history-match={_props.historyMatch ? "true" : "false"}
+			data-search-match={_props.searchMatch ? "true" : "false"}
+			tabindex={0}
+			onMouseEnter={() => _props.onRowHover(_props.commit.id)}
+			onMouseLeave={() => _props.onRowHover(null)}
+			{...stylex.attrs(styles.graphRow, styles.virtualRow)}
+			style={domStyle(
+				inlineStyles.getCommitRowGraphRowStyle(
+					ROW_HEIGHT,
+					`translateY(${_props.virtualTop}px)`,
+					_props.searchMatch && _props.historyMatch ? 1 : 0.22,
+				),
 			)}
 			onClick={(event) =>
 				handleSelect({
@@ -161,7 +170,7 @@ export const CommitRow = memo(function CommitRow({
 			}
 			onContextMenu={(event) => {
 				event.preventDefault();
-				onOpenItemContextMenu?.(commit, event);
+				_props.onOpenItemContextMenu?.(_props.commit, event);
 			}}
 			onKeyDown={(event) => {
 				if (event.key !== "Enter" && event.key !== " ") return;
@@ -172,136 +181,170 @@ export const CommitRow = memo(function CommitRow({
 			<span
 				aria-hidden="true"
 				data-graph-row-wash="true"
-				data-graph-row-hovered={rowActive ? "true" : "false"}
-				data-graph-row-selected={selected ? "true" : "false"}
-				{...stylex.props(styles.nodeAnchoredRowWash)}
-				style={inlineStyles.getCommitRowNodeAnchoredRowWashStyle(
-					nodeAnchoredWashLeft,
-					nodeTop,
-					AVATAR_SIZE,
-					hexToRgba(color, selected || rowActive ? 0.42 : 0.1),
+				data-graph-row-hovered={_props.rowActive ? "true" : "false"}
+				data-graph-row-selected={_props.selected ? "true" : "false"}
+				{...stylex.attrs(styles.nodeAnchoredRowWash)}
+				style={domStyle(
+					inlineStyles.getCommitRowNodeAnchoredRowWashStyle(
+						nodeAnchoredWashLeft(),
+						nodeTop(),
+						AVATAR_SIZE,
+						hexToRgba(
+							color(),
+							_props.selected || _props.rowActive ? 0.42 : 0.1,
+						),
+					),
 				)}
 			/>
-			{visibleOrder.map((column) => {
-				switch (column) {
-					case "date": {
-						const date = isWip
-							? ""
-							: formatCommitDate(commit.committedAt, commit.date);
-						return (
-							<div
-								key={column}
-								title={date}
-								{...stylex.props(styles.metaCell)}
-								style={inlineStyles.getCommitRowMetaCellStyle(widths.date)}
-							>
-								{date}
-							</div>
-						);
-					}
-					case "refs":
-						return (
-							<div
-								key={column}
-								{...stylex.props(styles.refGutter)}
-								style={inlineStyles.getCommitRowRefGutterStyle(widths.refs)}
-							>
-								{showWipRef ? (
-									<RefBadge
-										label={worktreeLabel}
-										fullName={commit.id}
-										color={color}
-										kind="localBranch"
-										worktreePath={commit.worktreePath}
-									/>
-								) : hasRefs ? (
-									<RefBadges
-										refs={visibleRefs}
-										color={color}
-										onCheckout={onCheckoutRef}
-										onRefDrop={onRefDrop}
-										onOpenContextMenu={onOpenRefContextMenu}
-									/>
-								) : showGhostRef && visibleGhostRef ? (
-									<RefBadge
-										label={visibleGhostRef.label}
-										fullName={visibleGhostRef.fullName}
-										color={color}
-										kind={visibleGhostRef.kind}
-										onCheckout={onCheckoutRef}
-										onRefDrop={onRefDrop}
-										ghost
-									/>
-								) : null}
-								{showWipRef || hasRefs || showGhostRef ? (
-									<span
-										aria-hidden="true"
-										{...stylex.props(styles.refConnector)}
-										style={inlineStyles.getCommitRowRefConnectorStyle(color)}
-									/>
-								) : null}
-							</div>
-						);
-					case "graph":
-						return (
-							<CommitGraphCell
-								color={color}
-								key={column}
-								commit={commit}
-								graphWidth={graphWidth}
-								hasConnector={showWipRef || hasRefs || showGhostRef}
-								nodeCenter={nodeCenter}
-								nodeLeft={nodeLeft}
-								nodeTop={nodeTop}
-								isWip={isWip}
-								isMergeCommit={isMergeCommit}
-								isStash={isStash}
-								githubAvatar={githubAvatar}
-							/>
-						);
-					case "message":
-						return (
-							<CommitMessageCell
-								color={color}
-								key={column}
-								commit={commit}
-								width={widths.message}
-								isWip={isWip}
-								showWipRef={showWipRef}
-								worktreeLabel={worktreeLabel}
-								fileCount={fileCount}
-							/>
-						);
-					case "author":
-						return (
-							<div
-								key={column}
-								{...stylex.props(styles.authorCell)}
-								style={inlineStyles.getCommitRowAuthorCellStyle(widths.author)}
-							>
-								<span {...stylex.props(styles.authorName)}>
-									{isWip ? "Workspace" : commit.author}
-								</span>
-							</div>
-						);
-					case "sha":
-						return (
-							<div
-								key={column}
-								title={isWip ? "Uncommitted changes" : commit.hash}
-								{...stylex.props(styles.shaCell)}
-								style={inlineStyles.getCommitRowShaCellStyle(widths.sha)}
-							>
-								{isWip ? "" : commit.hash.slice(0, 7)}
-							</div>
-						);
-				}
-				return null;
-			})}
+			{
+				<For each={_props.visibleOrder} keyed={(row) => row}>
+					{(column) => (
+						<>
+							{(() => {
+								switch (column()) {
+									case "date": {
+										const date = isWip()
+											? ""
+											: formatCommitDate(
+													_props.commit.committedAt,
+													_props.commit.date,
+												);
+										return (
+											<div
+												title={date}
+												{...stylex.attrs(styles.metaCell)}
+												style={domStyle(
+													inlineStyles.getCommitRowMetaCellStyle(
+														_props.widths.date,
+													),
+												)}
+											>
+												{date}
+											</div>
+										);
+									}
+									case "refs":
+										return (
+											<div
+												{...stylex.attrs(styles.refGutter)}
+												style={domStyle(
+													inlineStyles.getCommitRowRefGutterStyle(
+														_props.widths.refs,
+													),
+												)}
+											>
+												{showWipRef() ? (
+													<RefBadge
+														label={worktreeLabel()}
+														fullName={_props.commit.id}
+														color={color()}
+														kind="localBranch"
+														worktreePath={_props.commit.worktreePath}
+													/>
+												) : hasRefs() ? (
+													<RefBadges
+														refs={visibleRefs()}
+														color={color()}
+														onCheckout={_props.onCheckoutRef}
+														onRefDrop={_props.onRefDrop}
+														onOpenContextMenu={_props.onOpenRefContextMenu}
+													/>
+												) : showGhostRef() && visibleGhostRef() ? (
+													<RefBadge
+														label={visibleGhostRef()!.label}
+														fullName={visibleGhostRef()!.fullName}
+														color={color()}
+														kind={visibleGhostRef()!.kind}
+														onCheckout={_props.onCheckoutRef}
+														onRefDrop={_props.onRefDrop}
+														ghost
+													/>
+												) : null}
+												{showWipRef() || hasRefs() || showGhostRef() ? (
+													<span
+														aria-hidden="true"
+														{...stylex.attrs(styles.refConnector)}
+														style={domStyle(
+															inlineStyles.getCommitRowRefConnectorStyle(
+																color(),
+															),
+														)}
+													/>
+												) : null}
+											</div>
+										);
+									case "graph":
+										return (
+											<CommitGraphCell
+												color={color()}
+												commit={_props.commit}
+												graphWidth={_props.graphWidth}
+												hasConnector={
+													showWipRef() || hasRefs() || showGhostRef()
+												}
+												nodeCenter={nodeCenter()}
+												nodeLeft={nodeLeft()}
+												nodeTop={nodeTop()}
+												isWip={isWip()}
+												isMergeCommit={isMergeCommit()}
+												isStash={isStash()}
+												githubAvatar={_props.githubAvatar}
+											/>
+										);
+									case "message":
+										return (
+											<CommitMessageCell
+												color={color()}
+												commit={_props.commit}
+												width={_props.widths.message}
+												isWip={isWip()}
+												showWipRef={showWipRef()}
+												worktreeLabel={worktreeLabel()}
+												fileCount={fileCount()}
+											/>
+										);
+									case "author":
+										return (
+											<div
+												{...stylex.attrs(styles.authorCell)}
+												style={domStyle(
+													inlineStyles.getCommitRowAuthorCellStyle(
+														_props.widths.author,
+													),
+												)}
+											>
+												<span {...stylex.attrs(styles.authorName)}>
+													{isWip() ? "Workspace" : _props.commit.author}
+												</span>
+											</div>
+										);
+									case "sha":
+										return (
+											<div
+												title={
+													isWip() ? "Uncommitted changes" : _props.commit.hash
+												}
+												{...stylex.attrs(styles.shaCell)}
+												style={domStyle(
+													inlineStyles.getCommitRowShaCellStyle(
+														_props.widths.sha,
+													),
+												)}
+											>
+												{isWip() ? "" : _props.commit.hash.slice(0, 7)}
+											</div>
+										);
+								}
+								return null;
+							})()}
+						</>
+					)}
+				</For>
+			}
 			<div
-				{...stylex.props(styles.rowEndPad)}
-				style={inlineStyles.getCommitRowRowEndPadStyle(TOOLS_WIDTH)}
+				{...stylex.attrs(styles.rowEndPad)}
+				style={domStyle(inlineStyles.getCommitRowRowEndPadStyle(TOOLS_WIDTH))}
 			/>
 		</div>
 	);
-});
+};

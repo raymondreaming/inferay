@@ -1,19 +1,29 @@
-import { createRouter } from "@octanejs/tanstack-router";
-import { routeTree } from "./routeTree.gen.ts";
-import { queryClient } from "./shared/lib/data.ts";
+import { createRouter } from "@solidjs/router";
+import { lazy } from "solid-js";
+import { AppLayout } from "./app/components/AppLayout/index.tsx";
 
-export function getRouter() {
-	return createRouter({
-		routeTree,
-		context: { queryClient },
-		defaultPreload: "intent",
-		defaultPreloadStaleTime: 15_000,
-		scrollRestoration: true,
-	});
-}
+const AgentPage = lazy(() =>
+	import("./modules/workspace/components/AgentPage/index.tsx").then(
+		(module) => ({ default: module.AgentPage }),
+	),
+);
+const OnboardingRoute = lazy(() =>
+	import("./modules/onboarding/components/OnboardingRoute/index.tsx").then(
+		(module) => ({ default: module.OnboardingRoute }),
+	),
+);
 
-declare module "@octanejs/tanstack-router" {
-	interface Register {
-		router: ReturnType<typeof getRouter>;
-	}
-}
+export const Router = createRouter({
+	routes: [
+		{
+			path: "/",
+			component: () => (
+				<AppLayout>
+					<AgentPage />
+				</AppLayout>
+			),
+		},
+		{ path: "/onboarding", component: OnboardingRoute },
+	],
+	singleFlight: false,
+});

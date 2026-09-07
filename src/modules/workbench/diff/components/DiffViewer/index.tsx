@@ -1,17 +1,19 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import {
-	memo,
-	type OctaneNode,
-	useCallback,
-	useEffect,
-	useMemo,
-	useReducer,
-	useRef,
-	useState,
-} from "octane";
+	createEffect,
+	createMemo,
+	createSignal,
+	type Element,
+	Match,
+	Show,
+	Switch,
+} from "solid-js";
 import type { HunkDiff } from "../../../../../../build/presentation/contracts/HunkDiff.ts";
-import { project as rustProject } from "../../../../../adapters/presentation/model.ts";
-import { listenWindowEvent } from "../../../../../shared/lib/data.ts";
+import {
+	assignRef,
+	listenWindowEvent,
+} from "../../../../../shared/lib/dom.tsx";
+import { project as rustProject } from "../../../../../shared/lib/native.tsx";
 import type { DiffScrollSource } from "../../hooks/useSplitDiffScroll.tsx";
 import { MarkdownPreview } from "../MarkdownPreview/index.tsx";
 import { BinaryPreview } from "./BinaryPreview.tsx";
@@ -31,215 +33,265 @@ interface DiffViewerProps {
 	hideToolbar?: boolean;
 	startAtFirstChange?: boolean;
 }
-
-export const DiffViewer = memo(function DiffViewer({
-	diff,
-	filePath,
-	staged,
-	onClose,
-	hideHeader = false,
-	viewMode: controlledViewMode,
-	onViewModeChange,
-	hideToolbar = false,
-	startAtFirstChange = false,
-}: DiffViewerProps) {
-	const containerRef = useRef<HTMLDivElement | null>(null);
-	const rightRef = useRef<HTMLDivElement | null>(null);
+export const DiffViewer = function DiffViewer(_props: DiffViewerProps) {
+	const containerRef = {
+		current: null,
+	} as {
+		current: HTMLDivElement | null;
+	};
+	const rightRef = {
+		current: null,
+	} as {
+		current: HTMLDivElement | null;
+	};
 	const [internalViewMode, setInternalViewMode] =
-		useState<DiffViewMode>("split");
-	const viewMode = controlledViewMode ?? internalViewMode;
-	const setViewMode = onViewModeChange ?? setInternalViewMode;
-	const [navigationState, dispatchNavigation] = useReducer(
-		diffNavigationReducer,
-		INITIAL_DIFF_NAVIGATION_STATE,
+		createSignal<DiffViewMode>("split");
+	const viewMode = createMemo(() => _props.viewMode ?? internalViewMode());
+	const setViewMode = createMemo(
+		() => _props.onViewModeChange ?? setInternalViewMode,
 	);
-	const { externalScrollSource, externalScrollTop, highlightedChangeIdx } =
-		navigationState;
-	const stats = diff.metadata.stats;
-	const diffIdentity = `${filePath}:${staged ? "staged" : "unstaged"}`;
-
-	useEffect(() => {
-		void diffIdentity;
-		dispatchNavigation({ type: "reset" });
-	}, [diffIdentity]);
-
-	const {
-		changeRanges,
-		changePositions,
-		extension: ext,
-		conflict,
-		message,
-		isMarkdown,
-		markdownContent,
-		navigable,
-	} = useMemo(
-		() => buildDiffViewerModel(diff, filePath, viewMode),
-		[diff, filePath, viewMode],
+	const diffIdentity = createMemo(
+		() => `${_props.filePath}:${_props.staged ? "staged" : "unstaged"}`,
 	);
-	const totalChanges = changePositions.length;
-	const firstChangeLine = changePositions[0];
-	const initialScrollIdentityRef = useRef<string | null>(null);
-	const initialScrollFrameRef = useRef(0);
-	const scrollToChangeIdx = useCallback(
-		(changeIdx: number) => {
-			if (changeIdx < 0 || changeIdx >= changePositions.length) return;
-			const lineIdx = changePositions[changeIdx];
-			if (lineIdx === undefined) return;
-			const scrollPos = Math.max(0, (lineIdx - 5) * LINE_H);
-			dispatchNavigation({
-				type: "jumpToChange",
-				changeIdx,
-				top: scrollPos,
-			});
-
-			setTimeout(() => {
-				dispatchNavigation({ type: "clearScroll" });
-				setTimeout(() => dispatchNavigation({ type: "clearHighlight" }), 1500);
-			}, 100);
-		},
-		[changePositions],
-	);
-	const stepChange = useCallback(
-		(dir: 1 | -1) => {
-			if (changePositions.length === 0) return;
-			const currentScroll = rightRef.current?.scrollTop ?? 0;
-			const currentLine = Math.floor(currentScroll / LINE_H);
-			const idx =
-				dir === 1
-					? changePositions.findIndex((pos) => pos > currentLine + 2)
-					: (() => {
-							for (let i = changePositions.length - 1; i >= 0; i--) {
-								const p = changePositions[i];
-								if (p !== undefined && p < currentLine - 2) return i;
-							}
-							return -1;
-						})();
-			scrollToChangeIdx(
-				idx !== -1 ? idx : dir === 1 ? 0 : changePositions.length - 1,
-			);
-		},
-		[changePositions, scrollToChangeIdx],
-	);
-	const goToNextChange = useCallback(() => stepChange(1), [stepChange]);
-	const goToPrevChange = useCallback(() => stepChange(-1), [stepChange]);
-	useEffect(() => {
-		const handleKeyDown = (e: KeyboardEvent) => {
-			const target = e.target as HTMLElement;
-			if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
-			if (!containerRef.current?.matches(":hover")) return;
-
-			if (e.key === "n" && !e.metaKey && !e.ctrlKey) {
-				e.preventDefault();
-				goToNextChange();
-			} else if (e.key === "p" && !e.metaKey && !e.ctrlKey) {
-				e.preventDefault();
-				goToPrevChange();
-			} else if (e.key === "j") {
-				e.preventDefault();
-				goToNextChange();
-			} else if (e.key === "k") {
-				e.preventDefault();
-				goToPrevChange();
-			}
-		};
-
-		return listenWindowEvent("keydown", handleKeyDown);
-	}, [goToNextChange, goToPrevChange]);
-
-	useEffect(() => {
-		if (initialScrollFrameRef.current) {
-			cancelAnimationFrame(initialScrollFrameRef.current);
-			initialScrollFrameRef.current = 0;
-		}
-		if (!startAtFirstChange || viewMode !== "split") {
-			initialScrollIdentityRef.current = null;
-			return;
-		}
-		if (firstChangeLine === undefined) return;
-		const scrollIdentity = `${diffIdentity}:first-change`;
-		if (initialScrollIdentityRef.current === scrollIdentity) return;
-		initialScrollIdentityRef.current = scrollIdentity;
-		const scrollTop = Math.max(0, (firstChangeLine - 5) * LINE_H);
-		initialScrollFrameRef.current = requestAnimationFrame(() => {
-			initialScrollFrameRef.current = 0;
-			const scrollers = containerRef.current?.querySelectorAll<HTMLElement>(
-				"[data-diff-scroll-side]",
-			);
-			for (const scroller of scrollers ?? []) {
-				scroller.scrollTop = scrollTop;
-				scroller.dispatchEvent(new window.Event("scroll"));
-			}
+	const [navigationState, setNavigationState] =
+		createSignal<DiffNavigationState>(() => {
+			diffIdentity();
+			return INITIAL_DIFF_NAVIGATION_STATE;
 		});
-		return () => {
-			if (!initialScrollFrameRef.current) return;
-			cancelAnimationFrame(initialScrollFrameRef.current);
-			initialScrollFrameRef.current = 0;
-		};
-	}, [diffIdentity, firstChangeLine, startAtFirstChange, viewMode]);
-
-	const disableTokenize = diff.metadata.tokenizationDisabled;
-	let body: OctaneNode;
-	if (diff.isBinary) {
-		body = <BinaryPreview diff={diff} filePath={filePath} />;
-	} else if (!conflict && message) {
-		body = (
-			<div {...stylex.props(diffStyles.centerBody)}>
-				<p {...stylex.props(diffStyles.centerMessage)}>{message}</p>
-			</div>
+	const dispatchNavigation = (
+		action: Parameters<typeof diffNavigationReducer>[1],
+	) => setNavigationState((current) => diffNavigationReducer(current, action));
+	const _source = navigationState;
+	const stats = createMemo(() => _props.diff.metadata.stats);
+	const _source2 = createMemo(() =>
+		buildDiffViewerModel(_props.diff, _props.filePath, viewMode()),
+	);
+	const totalChanges = createMemo(() => _source2().changePositions.length);
+	const firstChangeLine = createMemo(() => _source2().changePositions[0]);
+	const initialScrollIdentityRef = {
+		current: null,
+	} as {
+		current: string | null;
+	};
+	const initialScrollFrameRef = {
+		current: 0,
+	};
+	const scrollToChangeIdx = (changeIdx: number) => {
+		const _source2Value = _source2();
+		if (changeIdx < 0 || changeIdx >= _source2Value.changePositions.length)
+			return;
+		const lineIdx = _source2Value.changePositions[changeIdx];
+		if (lineIdx === undefined) return;
+		const scrollPos = Math.max(0, (lineIdx - 5) * LINE_H);
+		dispatchNavigation({
+			type: "jumpToChange",
+			changeIdx,
+			top: scrollPos,
+		});
+		setTimeout(() => {
+			dispatchNavigation({
+				type: "clearScroll",
+			});
+			setTimeout(
+				() =>
+					dispatchNavigation({
+						type: "clearHighlight",
+					}),
+				1500,
+			);
+		}, 100);
+	};
+	const stepChange = (dir: 1 | -1) => {
+		const _source2Value3 = _source2();
+		if (_source2Value3.changePositions.length === 0) return;
+		const currentScroll = rightRef.current?.scrollTop ?? 0;
+		const currentLine = Math.floor(currentScroll / LINE_H);
+		const idx =
+			dir === 1
+				? _source2Value3.changePositions.findIndex(
+						(pos) => pos > currentLine + 2,
+					)
+				: (() => {
+						const _source2Value2 = _source2();
+						for (
+							let i = _source2Value2.changePositions.length - 1;
+							i >= 0;
+							i--
+						) {
+							const p = _source2Value2.changePositions[i];
+							if (p !== undefined && p < currentLine - 2) return i;
+						}
+						return -1;
+					})();
+		scrollToChangeIdx(
+			idx !== -1
+				? idx
+				: dir === 1
+					? 0
+					: _source2Value3.changePositions.length - 1,
 		);
-	} else if (isMarkdown) {
-		body = (
-			<div {...stylex.props(diffStyles.markdownBody)}>
-				<div {...stylex.props(diffStyles.markdownInner)}>
-					<MarkdownPreview content={markdownContent} />
-				</div>
-			</div>
-		);
-	} else {
-		const mode = conflict ? "conflict" : viewMode;
-		const panels = (
-			<DiffPanels
-				key={`${diffIdentity}:${mode}`}
-				diff={diff}
-				mode={mode}
-				scrollRef={rightRef}
-				ext={ext}
-				filePath={filePath}
-				disableTokenize={disableTokenize}
-				externalScrollTop={externalScrollTop}
-				externalScrollSource={externalScrollSource}
-				highlightedRange={
-					highlightedChangeIdx === undefined
-						? undefined
-						: changeRanges[highlightedChangeIdx]
+	};
+	const goToNextChange = () => stepChange(1);
+	const goToPrevChange = () => stepChange(-1);
+	createEffect(
+		() => [goToNextChange, goToPrevChange, _source2()],
+		() => {
+			const handleKeyDown = (e: KeyboardEvent) => {
+				const target = e.target as HTMLElement;
+				if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+				if (!containerRef.current?.matches(":hover")) return;
+				if (e.key === "n" && !e.metaKey && !e.ctrlKey) {
+					e.preventDefault();
+					goToNextChange();
+				} else if (e.key === "p" && !e.metaKey && !e.ctrlKey) {
+					e.preventDefault();
+					goToPrevChange();
+				} else if (e.key === "j") {
+					e.preventDefault();
+					goToNextChange();
+				} else if (e.key === "k") {
+					e.preventDefault();
+					goToPrevChange();
 				}
-			/>
-		);
-		body = conflict ? (
-			panels
-		) : (
-			<>
-				{!hideToolbar && (
-					<DiffViewToolbar viewMode={viewMode} onChange={setViewMode} />
-				)}
-				<div {...stylex.props(diffStyles.body)}>{panels}</div>
-			</>
-		);
-	}
+			};
+			return listenWindowEvent("keydown", handleKeyDown);
+		},
+	);
+	createEffect(
+		() => [
+			diffIdentity(),
+			firstChangeLine(),
+			_props.startAtFirstChange === undefined
+				? false
+				: _props.startAtFirstChange,
+			viewMode(),
+		],
+		() => {
+			const _firstChangeLineValue = firstChangeLine();
+			if (initialScrollFrameRef.current) {
+				cancelAnimationFrame(initialScrollFrameRef.current);
+				initialScrollFrameRef.current = 0;
+			}
+			if (
+				!(_props.startAtFirstChange === undefined
+					? false
+					: _props.startAtFirstChange) ||
+				viewMode() !== "split"
+			) {
+				initialScrollIdentityRef.current = null;
+				return;
+			}
+			if (_firstChangeLineValue === undefined) return;
+			const scrollIdentity = `${diffIdentity()}:first-change`;
+			if (initialScrollIdentityRef.current === scrollIdentity) return;
+			initialScrollIdentityRef.current = scrollIdentity;
+			const scrollTop = Math.max(0, (_firstChangeLineValue - 5) * LINE_H);
+			initialScrollFrameRef.current = requestAnimationFrame(() => {
+				initialScrollFrameRef.current = 0;
+				const scrollers = containerRef.current?.querySelectorAll<HTMLElement>(
+					"[data-diff-scroll-side]",
+				);
+				for (const scroller of scrollers ?? []) {
+					scroller.scrollTop = scrollTop;
+					scroller.dispatchEvent(new window.Event("scroll"));
+				}
+			});
+			return () => {
+				if (!initialScrollFrameRef.current) return;
+				cancelAnimationFrame(initialScrollFrameRef.current);
+				initialScrollFrameRef.current = 0;
+			};
+		},
+	);
+	const disableTokenize = createMemo(
+		() => _props.diff.metadata.tokenizationDisabled,
+	);
+	const bodyKind = createMemo(() =>
+		_props.diff.isBinary
+			? "binary"
+			: !_source2().conflict && _source2().message
+				? "message"
+				: _source2().isMarkdown
+					? "markdown"
+					: "panels",
+	);
+	const Panels = () => (
+		<DiffPanels
+			diff={_props.diff}
+			mode={_source2().conflict ? "conflict" : viewMode()}
+			scrollRef={rightRef}
+			ext={_source2().extension}
+			filePath={_props.filePath}
+			disableTokenize={disableTokenize()}
+			externalScrollTop={_source().externalScrollTop}
+			externalScrollSource={_source().externalScrollSource}
+			highlightedRange={
+				_source().highlightedChangeIdx === undefined
+					? undefined
+					: _source2().changeRanges[_source().highlightedChangeIdx!]
+			}
+		/>
+	);
+	const body = (
+		<Switch
+			fallback={
+				<Show
+					when={_source2().conflict}
+					fallback={
+						<>
+							<Show when={!_props.hideToolbar}>
+								<DiffViewToolbar
+									viewMode={viewMode()}
+									onChange={setViewMode()}
+								/>
+							</Show>
+							<div {...stylex.attrs(diffStyles.body)}>
+								<Panels />
+							</div>
+						</>
+					}
+				>
+					<Panels />
+				</Show>
+			}
+		>
+			<Match when={bodyKind() === "binary"}>
+				<BinaryPreview diff={_props.diff} filePath={_props.filePath} />
+			</Match>
+			<Match when={bodyKind() === "message"}>
+				<div {...stylex.attrs(diffStyles.centerBody)}>
+					<p {...stylex.attrs(diffStyles.centerMessage)}>
+						{_source2().message}
+					</p>
+				</div>
+			</Match>
+			<Match when={bodyKind() === "markdown"}>
+				<div {...stylex.attrs(diffStyles.markdownBody)}>
+					<div {...stylex.attrs(diffStyles.markdownInner)}>
+						<MarkdownPreview content={_source2().markdownContent} />
+					</div>
+				</div>
+			</Match>
+		</Switch>
+	);
+
 	return (
 		<div
-			ref={navigable ? containerRef : undefined}
-			{...stylex.props(diffStyles.shell, navigable && diffStyles.shellRelative)}
+			ref={(_element) => assignRef(containerRef, _element)}
+			{...stylex.attrs(
+				diffStyles.shell,
+				_source2().navigable && diffStyles.shellRelative,
+			)}
 		>
-			{!hideHeader && (
+			{!(_props.hideHeader === undefined ? false : _props.hideHeader) && (
 				<DiffHeader
-					filePath={filePath}
-					staged={staged}
-					onClose={onClose}
-					{...(navigable
+					filePath={_props.filePath}
+					staged={_props.staged}
+					onClose={_props.onClose}
+					{...(_source2().navigable
 						? {
-								stats,
-								totalChanges,
+								stats: stats(),
+								totalChanges: totalChanges(),
 								onPrevChange: goToPrevChange,
 								onNextChange: goToNextChange,
 							}
@@ -249,8 +301,7 @@ export const DiffViewer = memo(function DiffViewer({
 			{body}
 		</div>
 	);
-});
-
+};
 export type DiffViewMode = "split" | "hunks";
 export const MAX_RENDERED_LINE_CHARS = 4000;
 export function buildDiffViewerModel(
@@ -271,7 +322,12 @@ export function buildDiffViewerModel(
 	// Send presentation facts, not the highlighted line arrays already held by
 	// the renderer. Only Markdown needs text to assemble its preview document.
 	const line = (value: HunkDiff["newLines"][number] | undefined) =>
-		value ? { type: value.type, content: value.content } : undefined;
+		value
+			? {
+					type: value.type,
+					content: value.content,
+				}
+			: undefined;
 	return rustProject("diffViewer", {
 		filePath,
 		viewMode,
@@ -319,17 +375,34 @@ export const INITIAL_DIFF_NAVIGATION_STATE = {
 export function diffNavigationReducer(
 	state: DiffNavigationState,
 	action:
-		| { type: "clearHighlight" | "clearScroll" | "reset" }
-		| { type: "jumpToChange"; changeIdx: number; top: number }
-		| { type: "jumpToPosition"; source: DiffScrollSource; top: number },
+		| {
+				type: "clearHighlight" | "clearScroll" | "reset";
+		  }
+		| {
+				type: "jumpToChange";
+				changeIdx: number;
+				top: number;
+		  }
+		| {
+				type: "jumpToPosition";
+				source: DiffScrollSource;
+				top: number;
+		  },
 ): DiffNavigationState {
 	let next: DiffNavigationState;
 	switch (action.type) {
 		case "clearHighlight":
-			next = { ...state, highlightedChangeIdx: undefined };
+			next = {
+				...state,
+				highlightedChangeIdx: undefined,
+			};
 			break;
 		case "clearScroll":
-			next = { ...state, externalScrollTop: -1, externalScrollSource: "all" };
+			next = {
+				...state,
+				externalScrollTop: -1,
+				externalScrollSource: "all",
+			};
 			break;
 		case "jumpToChange":
 			return {

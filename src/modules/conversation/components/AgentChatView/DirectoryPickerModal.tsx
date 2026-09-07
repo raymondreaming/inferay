@@ -1,10 +1,10 @@
-import type { OctaneNode } from "octane";
+import type { Element } from "solid-js";
 import { GooeyRoot } from "../../../../shared/ui/gooey/Gooey/index.tsx";
 import { LiquidItem } from "../../../../shared/ui/gooey/LiquidItem/index.tsx";
-export function DirectoryPickerModal({ children }: { children: OctaneNode }) {
+export function DirectoryPickerModal(_props: { children: Element }) {
 	return (
 		<div
-			className="inferay-directory-picker-modal"
+			class="inferay-directory-picker-modal"
 			role="dialog"
 			aria-label="Choose workspace folders"
 		>
@@ -14,10 +14,10 @@ export function DirectoryPickerModal({ children }: { children: OctaneNode }) {
 				fill="transparent"
 				filterPadding={20}
 				shadow="none"
-				className="inferay-directory-picker-liquid"
+				class="inferay-directory-picker-liquid"
 			>
 				<LiquidItem observe radius={12}>
-					{children}
+					{_props.children}
 				</LiquidItem>
 			</GooeyRoot>
 		</div>

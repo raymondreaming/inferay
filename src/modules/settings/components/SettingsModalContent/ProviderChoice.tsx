@@ -1,20 +1,12 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import type { AgentAccountProviderStatus } from "../../../../../build/presentation/contracts/AgentAccountProviderStatus.ts";
 import {
 	getAgentDefinition,
 	type loadDefaultChatSettings,
-} from "../../../../adapters/backend/http.ts";
+} from "../../../../shared/lib/native.tsx";
 import { getAgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
 import { styles } from "./styles.ts";
-
-export function ProviderChoice({
-	agentKind,
-	status,
-	connected,
-	agentAccountStatusesLoading,
-	defaultChatSettings,
-	updateDefaultChatSettings,
-}: {
+export function ProviderChoice(_props: {
 	agentKind: "claude" | "codex";
 	status: AgentAccountProviderStatus | undefined;
 	connected: boolean;
@@ -26,38 +18,39 @@ export function ProviderChoice({
 }) {
 	return (
 		<button
-			key={agentKind}
 			type="button"
 			onClick={() =>
-				updateDefaultChatSettings({
-					agentKind,
-					model: getAgentDefinition(agentKind).defaultModel,
+				_props.updateDefaultChatSettings({
+					agentKind: _props.agentKind,
+					model: getAgentDefinition(_props.agentKind).defaultModel,
 				})
 			}
-			disabled={status ? !connected : agentAccountStatusesLoading}
-			{...stylex.props(
+			disabled={
+				_props.status ? !_props.connected : _props.agentAccountStatusesLoading
+			}
+			{...stylex.attrs(
 				styles.agentProviderChoice,
-				defaultChatSettings.agentKind === agentKind &&
+				_props.defaultChatSettings.agentKind === _props.agentKind &&
 					styles.agentProviderChoiceActive,
 			)}
 		>
-			<span {...stylex.props(styles.agentProviderIcon)}>
-				{getAgentIcon(agentKind, 14)}
+			<span {...stylex.attrs(styles.agentProviderIcon)}>
+				{getAgentIcon(_props.agentKind, 14)}
 			</span>
-			<span {...stylex.props(styles.agentProviderText)}>
-				<strong>{getAgentDefinition(agentKind).label}</strong>
-				<span {...stylex.props(styles.agentProviderStatus)}>
-					{agentAccountStatusesLoading && !status
+			<span {...stylex.attrs(styles.agentProviderText)}>
+				<strong>{getAgentDefinition(_props.agentKind).label}</strong>
+				<span {...stylex.attrs(styles.agentProviderStatus)}>
+					{_props.agentAccountStatusesLoading && !_props.status
 						? "Checking…"
-						: connected
+						: _props.connected
 							? "Connected"
-							: status?.health === "needs-login"
+							: _props.status?.health === "needs-login"
 								? "Login needed"
 								: "Not installed"}
 				</span>
 			</span>
-			{defaultChatSettings.agentKind === agentKind ? (
-				<span {...stylex.props(styles.agentDefaultLabel)}>Default</span>
+			{_props.defaultChatSettings.agentKind === _props.agentKind ? (
+				<span {...stylex.attrs(styles.agentDefaultLabel)}>Default</span>
 			) : null}
 		</button>
 	);

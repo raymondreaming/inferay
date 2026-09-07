@@ -1,6 +1,8 @@
-import * as stylex from "@octanejs/stylex";
+import { Dynamic } from "@solidjs/web";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo } from "solid-js";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
-
+import { ariaValue } from "../../../../shared/lib/dom.tsx";
 import { LiquidSegmentedRail } from "../../../../shared/ui/gooey/LiquidSegmentedRail/index.tsx";
 import {
 	IconArrowDown,
@@ -14,7 +16,6 @@ import {
 import { WorkspaceDockHandle } from "../WorkspaceDockHandle/index.tsx";
 import { DiffFilePath } from "./DiffFilePath.tsx";
 import { styles } from "./styles.ts";
-
 import type { useChatDiffPanelState } from "./useChatDiffPanelState.tsx";
 
 type ViewerHeaderProps = Pick<
@@ -36,66 +37,56 @@ type ViewerHeaderProps = Pick<
 	| "onClose"
 	| "closeLabel"
 >;
-export function ViewerHeader({
-	mainViewMode,
-	drag,
-	file,
-	stats,
-	graphActionRunning,
-	requestGraphAction,
-	setHoveredModeIndex,
-	hoveredModeIndex,
-	activeModeIndex,
-	onMainViewModeChange,
-	onViewModeChange,
-	viewMode,
-	onToggleZenMode,
-	zenMode,
-	onClose,
-	closeLabel,
-}: ViewerHeaderProps) {
+export function ViewerHeader(_props: ViewerHeaderProps) {
 	return (
-		<header {...stylex.props(styles.viewerHeader, styles.viewerHeaderFloating)}>
-			{mainViewMode === "graph" && drag ? (
-				<WorkspaceDockHandle {...drag} />
+		<header {...stylex.attrs(styles.viewerHeader, styles.viewerHeaderFloating)}>
+			{_props.mainViewMode === "graph" && _props.drag ? (
+				<WorkspaceDockHandle {..._props.drag} />
 			) : null}
-			{mainViewMode === "diff" && file ? (
-				<DiffFilePath path={file.path} />
+			{_props.mainViewMode === "diff" && _props.file ? (
+				<DiffFilePath path={_props.file.path} />
 			) : null}
-			{mainViewMode === "diff" && (stats.added > 0 || stats.removed > 0) ? (
-				<span {...stylex.props(styles.viewerStats)}>
-					{stats.added > 0 ? (
-						<span {...stylex.props(styles.viewerAdded)}>+{stats.added}</span>
+			{_props.mainViewMode === "diff" &&
+			(_props.stats.added > 0 || _props.stats.removed > 0) ? (
+				<span {...stylex.attrs(styles.viewerStats)}>
+					{_props.stats.added > 0 ? (
+						<span {...stylex.attrs(styles.viewerAdded)}>
+							+{_props.stats.added}
+						</span>
 					) : null}
-					{stats.removed > 0 ? (
-						<span {...stylex.props(styles.viewerRemoved)}>
-							-{stats.removed}
+					{_props.stats.removed > 0 ? (
+						<span {...stylex.attrs(styles.viewerRemoved)}>
+							-{_props.stats.removed}
 						</span>
 					) : null}
 				</span>
 			) : null}
-			{mainViewMode === "graph" ? (
-				<div {...stylex.props(styles.graphSyncActions)}>
+			{_props.mainViewMode === "graph" ? (
+				<div {...stylex.attrs(styles.graphSyncActions)}>
 					{(["fetch", "pull", "push"] as const).map((action) => {
-						const ActionIcon =
-							action === "fetch" ? IconRefreshCw : IconArrowDown;
+						const ActionIcon = createMemo(() =>
+							action === "fetch" ? IconRefreshCw : IconArrowDown,
+						);
 						const label = `${action[0]!.toLocaleUpperCase()}${action.slice(1)} repository`;
 						const actionName = `${action[0]!.toLocaleUpperCase()}${action.slice(1)}`;
 						return (
 							<button
-								key={action}
 								type="button"
-								disabled={graphActionRunning}
+								disabled={_props.graphActionRunning}
 								onClick={() =>
-									requestGraphAction({ action, itemId: "repository" })
+									_props.requestGraphAction({
+										action,
+										itemId: "repository",
+									})
 								}
 								title={label}
-								aria-label={label}
-								{...stylex.props(styles.graphSyncButton)}
+								aria-label={ariaValue(label)}
+								{...stylex.attrs(styles.graphSyncButton)}
 							>
-								<ActionIcon
+								<Dynamic
+									component={ActionIcon()}
 									size={iconSize.compact}
-									{...stylex.props(action === "push" && styles.graphPushIcon)}
+									{...stylex.attrs(action === "push" && styles.graphPushIcon)}
 								/>
 								<span>{actionName}</span>
 							</button>
@@ -103,83 +94,86 @@ export function ViewerHeader({
 					})}
 				</div>
 			) : null}
-			{mainViewMode !== "graph" ? (
+			{_props.mainViewMode !== "graph" ? (
 				<>
-					<span {...stylex.props(styles.viewerFloatingDivider)} />
+					<span {...stylex.attrs(styles.viewerFloatingDivider)} />
 					<div
-						{...stylex.props(styles.viewerModes)}
-						onMouseLeave={() => setHoveredModeIndex(null)}
+						{...stylex.attrs(styles.viewerModes)}
+						onMouseLeave={() => _props.setHoveredModeIndex(null)}
 					>
 						<LiquidSegmentedRail
-							activeIndex={hoveredModeIndex ?? activeModeIndex}
+							activeIndex={_props.hoveredModeIndex ?? _props.activeModeIndex}
 							itemCount={3}
 							radius={4}
 						/>
 						<button
 							type="button"
-							onMouseEnter={() => setHoveredModeIndex(0)}
+							onMouseEnter={() => _props.setHoveredModeIndex(0)}
 							onPointerDown={(event) => {
 								if (event.button === 0 && event.isPrimary) {
-									onMainViewModeChange("diff");
-									onViewModeChange("split");
+									_props.onMainViewModeChange("diff");
+									_props.onViewModeChange("split");
 								}
 							}}
 							onClick={(event) => {
 								if (event.detail === 0) {
-									onMainViewModeChange("diff");
-									onViewModeChange("split");
+									_props.onMainViewModeChange("diff");
+									_props.onViewModeChange("split");
 								}
 							}}
 							title="Full file diff"
 							aria-label="Full file diff"
-							{...stylex.props(
+							{...stylex.attrs(
 								styles.viewerModeButton,
-								viewMode === "split" && styles.viewerModeButtonActive,
+								_props.viewMode === "split" && styles.viewerModeButtonActive,
 							)}
 						>
 							<IconLayoutGrid size={iconSize.compact} />
 						</button>
 						<button
 							type="button"
-							onMouseEnter={() => setHoveredModeIndex(1)}
+							onMouseEnter={() => _props.setHoveredModeIndex(1)}
 							onPointerDown={(event) => {
 								if (event.button === 0 && event.isPrimary) {
-									onMainViewModeChange("diff");
-									onViewModeChange("hunks");
+									_props.onMainViewModeChange("diff");
+									_props.onViewModeChange("hunks");
 								}
 							}}
 							onClick={(event) => {
 								if (event.detail === 0) {
-									onMainViewModeChange("diff");
-									onViewModeChange("hunks");
+									_props.onMainViewModeChange("diff");
+									_props.onViewModeChange("hunks");
 								}
 							}}
 							title="Hunk view"
 							aria-label="Hunk view"
-							{...stylex.props(
+							{...stylex.attrs(
 								styles.viewerModeButton,
-								viewMode === "hunks" && styles.viewerModeButtonActive,
+								_props.viewMode === "hunks" && styles.viewerModeButtonActive,
 							)}
 						>
 							<IconGitBranch size={iconSize.compact} />
 						</button>
 						<button
 							type="button"
-							onMouseEnter={() => setHoveredModeIndex(2)}
+							onMouseEnter={() => _props.setHoveredModeIndex(2)}
 							onPointerDown={(event) => {
-								if (event.button === 0 && event.isPrimary) onToggleZenMode();
+								if (event.button === 0 && event.isPrimary)
+									_props.onToggleZenMode();
 							}}
 							onClick={(event) => {
-								if (event.detail === 0) onToggleZenMode();
+								if (event.detail === 0) _props.onToggleZenMode();
 							}}
-							title={zenMode ? "Exit focus mode" : "Focus workspace"}
-							aria-label={zenMode ? "Exit focus mode" : "Focus workspace"}
-							{...stylex.props(
+							title={_props.zenMode ? "Exit focus mode" : "Focus workspace"}
+							aria-label={ariaValue(
+								_props.zenMode ? "Exit focus mode" : "Focus workspace",
+							)}
+							{...stylex.attrs(
 								styles.viewerModeButton,
-								zenMode && styles.viewerModeButtonActive,
+								_props.zenMode && styles.viewerModeButtonActive,
 							)}
 						>
-							{zenMode ? (
+							{_props.zenMode ? (
 								<IconCollapse size={iconSize.compact} />
 							) : (
 								<IconExpand size={iconSize.compact} />
@@ -188,18 +182,18 @@ export function ViewerHeader({
 					</div>
 				</>
 			) : null}
-			{mainViewMode !== "graph" ? (
+			{_props.mainViewMode !== "graph" ? (
 				<button
 					type="button"
 					onPointerDown={(event) => {
-						if (event.button === 0 && event.isPrimary) onClose();
+						if (event.button === 0 && event.isPrimary) _props.onClose();
 					}}
 					onClick={(event) => {
-						if (event.detail === 0) onClose();
+						if (event.detail === 0) _props.onClose();
 					}}
-					title={closeLabel}
-					aria-label={closeLabel}
-					{...stylex.props(styles.viewerClose)}
+					title={_props.closeLabel}
+					aria-label={ariaValue(_props.closeLabel)}
+					{...stylex.attrs(styles.viewerClose)}
 				>
 					<IconX size={iconSize.xs} />
 				</button>

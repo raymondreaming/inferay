@@ -1,19 +1,12 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import { CopyButton } from "./CopyButton.tsx";
 import { styles } from "./styles.ts";
-
-export function CopyablePre({
-	text,
-	preStyle,
-}: {
-	text: string;
-	preStyle: unknown;
-}) {
+export function CopyablePre(_props: { text: string; preStyle: unknown }) {
 	return (
-		<div {...stylex.props(styles.codeWrap)}>
-			<pre {...stylex.props(preStyle as never)}>{text}</pre>
-			<div {...stylex.props(styles.copyOverlay)}>
-				<CopyButton text={text} />
+		<div {...stylex.attrs(styles.codeWrap)}>
+			<pre {...stylex.attrs(_props.preStyle as never)}>{_props.text}</pre>
+			<div {...stylex.attrs(styles.copyOverlay)}>
+				<CopyButton text={_props.text} />
 			</div>
 		</div>
 	);

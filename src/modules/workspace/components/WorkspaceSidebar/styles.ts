@@ -1,5 +1,4 @@
-import * as stylex from "@octanejs/stylex";
-import type { CSSProperties } from "react";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
@@ -8,7 +7,7 @@ import {
 	motion,
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
-
+import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 export const styles = stylex.create({
 	iconDim: {
 		opacity: 0.6,
@@ -451,9 +450,10 @@ export const styles = stylex.create({
 		whiteSpace: "nowrap",
 	},
 });
-
 export function getWorkspaceSidebarAsideStyle(
 	width: CSSProperties["width"],
 ): CSSProperties {
-	return { width: width } as CSSProperties;
+	return {
+		width: width,
+	} as CSSProperties;
 }

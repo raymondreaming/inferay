@@ -1,45 +1,51 @@
-import { useMutation, useQuery } from "@octanejs/tanstack-query";
-import { useCallback, useMemo } from "octane";
+import { useMutation } from "@tanstack/solid-query";
+import { type Accessor, createMemo } from "solid-js";
 import type { PanelAction } from "../../../../build/presentation/contracts/PanelAction.ts";
 import type { PanelSession } from "../../../../build/presentation/contracts/PanelSession.ts";
-import { postJson } from "../../../adapters/backend/http.ts";
+import { useBackgroundQuery as useQuery } from "../../../shared/hooks/useQueryResource.tsx";
+import { queryClient } from "../../../shared/lib/dom.tsx";
 import {
 	emptyGitWorkspacePanelSession,
+	postJson,
 	project as rustProject,
-} from "../../../adapters/presentation/model.ts";
-import { queryClient } from "../../../shared/lib/data.ts";
-export function useWorkspacePanelSession(workspaceId: string) {
-	const model = useMemo(createWorkspacePanelModel, []);
-	const query = useQuery(model.queryOptions(workspaceId), queryClient);
-	const mutation = useMutation(model.mutationOptions(workspaceId), queryClient);
-	const mutate = mutation.mutate;
-	const update = useCallback(
-		(action: PanelAction) => {
-			mutate(model.preview(workspaceId, action));
-		},
-		[model, mutate, workspaceId],
+} from "../../../shared/lib/native.tsx";
+export function useWorkspacePanelSession(_workspaceId: Accessor<string>) {
+	const model = createMemo(() => createWorkspacePanelModel());
+	const query = useQuery(
+		() => model().queryOptions(_workspaceId()),
+		() => queryClient,
 	);
-	const error = query.error
-		? "Saved workspace panels could not be restored."
-		: mutation.error
-			? "Some workspace panel changes could not be saved."
-			: null;
+	const mutation = useMutation(
+		() => model().mutationOptions(_workspaceId()),
+		() => queryClient,
+	);
+	const mutate = createMemo(() => mutation.mutate);
+	const update = (action: PanelAction) => {
+		mutate()(model().preview(_workspaceId(), action));
+	};
+	const error = createMemo(() =>
+		query.error
+			? "Saved workspace panels could not be restored."
+			: mutation.error
+				? "Some workspace panel changes could not be saved."
+				: null,
+	);
 	return [
-		query.data ?? emptyPanelSession,
+		() => query.data ?? emptyPanelSession,
 		update,
-		error,
-		mutation.data?.announcement,
+		() => error(),
+		() => mutation.data?.announcement,
 	] as const;
 }
-
 export const emptyPanelSession = emptyGitWorkspacePanelSession();
-
 export function panelQuery(workspaceId: string, send = postJson) {
 	return {
 		queryKey: ["workspace-panels", workspaceId],
 		queryFn: async () =>
 			(
-				await send<{ session: PanelSession }>("/api/workspace/panels", {
+				await send<{
+					session: PanelSession;
+				}>("/api/workspace/panels", {
 					workspaceId,
 				})
 			).session,
@@ -47,7 +53,6 @@ export function panelQuery(workspaceId: string, send = postJson) {
 		gcTime: 30 * 60 * 1000,
 	};
 }
-
 export function createWorkspacePanelModel(
 	client = queryClient,
 	send = postJson,
@@ -71,7 +76,11 @@ export function createWorkspacePanelModel(
 	const state = (workspaceId: string) => {
 		let workspace = workspaces.get(workspaceId);
 		if (!workspace) {
-			workspace = { canonical: current(workspaceId), pending: [], revision: 0 };
+			workspace = {
+				canonical: current(workspaceId),
+				pending: [],
+				revision: 0,
+			};
 			workspaces.set(workspaceId, workspace);
 		}
 		return workspace;
@@ -81,7 +90,9 @@ export function createWorkspacePanelModel(
 		request: PendingAction,
 	): PanelSession => {
 		// File content belongs to the renderer cache, never to panel transitions.
-		const action = { ...request.action };
+		const action = {
+			...request.action,
+		};
 		if (action.type === "detachFile") delete action.initialFile;
 		return rustProject("panelPreview", {
 			session: {
@@ -154,17 +165,28 @@ export function createWorkspacePanelModel(
 		},
 		mutationOptions: (workspaceId: string) => ({
 			mutationKey: ["workspace-panels", workspaceId],
-			scope: { id: `workspace-panels:${workspaceId}` },
+			scope: {
+				id: `workspace-panels:${workspaceId}`,
+			},
 			mutationFn: async ({ workspaceId, action }: PendingAction) => {
-				const wireAction = { ...action };
+				const wireAction = {
+					...action,
+				};
 				if (wireAction.type === "detachFile") delete wireAction.initialFile;
-				return send<{ session: PanelSession; announcement: string | null }>(
-					"/api/workspace/panels",
-					{ workspaceId, action: wireAction },
-				);
+				return send<{
+					session: PanelSession;
+					announcement: string | null;
+				}>("/api/workspace/panels", {
+					workspaceId,
+					action: wireAction,
+				});
 			},
 			onSuccess: (
-				{ session }: { session: PanelSession },
+				{
+					session,
+				}: {
+					session: PanelSession;
+				},
 				request: PendingAction,
 			) => settle(request, session),
 			onError: (_error: unknown, request: PendingAction) => settle(request),

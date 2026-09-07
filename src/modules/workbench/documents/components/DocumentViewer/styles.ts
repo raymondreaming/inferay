@@ -1,12 +1,11 @@
-import * as stylex from "@octanejs/stylex";
-import type { CSSProperties } from "react";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
 	font,
 	radius,
 } from "../../../../../design-system/styles.stylex.ts";
-
+import type { CSSProperties } from "../../../../../shared/lib/dom.tsx";
 export const styles = stylex.create({
 	root: {
 		display: "flex",
@@ -53,7 +52,10 @@ export const styles = stylex.create({
 		borderRightStyle: "solid",
 		borderRightColor: color.border,
 		backgroundColor: color.transparent,
-		color: { default: color.textMuted, ":hover": color.textMain },
+		color: {
+			default: color.textMuted,
+			":hover": color.textMain,
+		},
 		paddingInline: controlSize._2,
 		cursor: "grab",
 	},
@@ -105,8 +107,14 @@ export const styles = stylex.create({
 		alignItems: "center",
 		justifyContent: "center",
 		borderRadius: radius.md,
-		backgroundColor: { default: color.transparent, ":hover": color.dangerWash },
-		color: { default: color.textMuted, ":hover": color.danger },
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.dangerWash,
+		},
+		color: {
+			default: color.textMuted,
+			":hover": color.danger,
+		},
 	},
 	body: {
 		position: "relative",
@@ -164,7 +172,10 @@ export const styles = stylex.create({
 		textAlign: "right",
 		userSelect: "none",
 	},
-	sourceCode: { paddingRight: controlSize._5, whiteSpace: "pre" },
+	sourceCode: {
+		paddingRight: controlSize._5,
+		whiteSpace: "pre",
+	},
 	error: {
 		borderTopWidth: 1,
 		borderTopStyle: "solid",
@@ -176,23 +187,28 @@ export const styles = stylex.create({
 		paddingInline: controlSize._3,
 	},
 });
-
 export function getSourcePreviewSourceCanvasStyle(
 	height: CSSProperties["height"],
 	minWidth: CSSProperties["minWidth"],
 ): CSSProperties {
-	return { height: height, minWidth: minWidth } as CSSProperties;
+	return {
+		height: height,
+		minWidth: minWidth,
+	} as CSSProperties;
 }
-
 export function getSourcePreviewSourceTableStyle(
 	transform: CSSProperties["transform"],
 ): CSSProperties {
-	return { transform: transform } as CSSProperties;
+	return {
+		transform: transform,
+	} as CSSProperties;
 }
-
 export function getSourcePreviewSpanStyle(
 	color: CSSProperties["color"],
 	backgroundColor: CSSProperties["backgroundColor"],
 ): CSSProperties {
-	return { color: color, backgroundColor: backgroundColor } as CSSProperties;
+	return {
+		color: color,
+		backgroundColor: backgroundColor,
+	} as CSSProperties;
 }

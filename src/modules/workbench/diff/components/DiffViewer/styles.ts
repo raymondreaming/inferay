@@ -1,12 +1,17 @@
-import type { CSSProperties } from "react";
-
+import type { CSSProperties } from "../../../../../shared/lib/dom.tsx";
 export const DIFF_CONFIG = {
-	lineHeight: 14, // Height of each line in pixels
-	lineNumFontSize: 9, // Line number font size
-	signFontSize: 10, // +/- sign font size
-	contentFontSize: 10, // Code content font size
-	lineNumWidth: 36, // Line number column width
-	signWidth: 12, // +/- sign column width
+	lineHeight: 14,
+	// Height of each line in pixels
+	lineNumFontSize: 9,
+	// Line number font size
+	signFontSize: 10,
+	// +/- sign font size
+	contentFontSize: 10,
+	// Code content font size
+	lineNumWidth: 36,
+	// Line number column width
+	signWidth: 12,
+	// +/- sign column width
 	lineNumColor: "var(--color-inferay-muted-gray)",
 	addLineNumColor: "var(--color-git-added)",
 	removeLineNumColor: "var(--color-git-deleted)",
@@ -22,12 +27,10 @@ export const DIFF_CONFIG = {
 		"color-mix(in srgb, var(--color-git-deleted) 28%, transparent)",
 	overscan: 15, // Extra rows to render above/below viewport
 };
-
 export const LINE_H = DIFF_CONFIG.lineHeight;
-
 export const GUTTER_W = DIFF_CONFIG.lineNumWidth + DIFF_CONFIG.signWidth;
 
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
@@ -38,7 +41,6 @@ import {
 	radius,
 	shadow,
 } from "../../../../../design-system/styles.stylex.ts";
-
 export const diffStyles = stylex.create({
 	virtualRoot: {
 		display: "flex",
@@ -85,8 +87,9 @@ export const diffStyles = stylex.create({
 		contain: "layout paint style",
 		willChange: "transform",
 	},
+	splitScroller: { overflowX: "scroll" },
 	minimap: {
-		width: "16px",
+		width: "32px",
 		flexShrink: 0,
 		borderLeftWidth: 1,
 		borderLeftStyle: "solid",
@@ -100,11 +103,21 @@ export const diffStyles = stylex.create({
 		borderBottomWidth: 0,
 		padding: controlSize._0,
 		position: "relative",
-		cursor: "pointer",
+		cursor: "default",
+		touchAction: "none",
+		userSelect: "none",
+	},
+	minimapExpanded: {
+		backgroundColor: "rgba(255, 255, 255, 0.06)",
+		cursor: "grab",
+	},
+	minimapThumbExpanded: {
+		left: 0,
+		backgroundColor: "rgba(255, 255, 255, 0.25)",
 	},
 	minimapSegment: {
 		position: "absolute",
-		width: "6px",
+		width: "12px",
 		borderRadius: radius.none,
 	},
 	minimapAdd: {
@@ -115,7 +128,7 @@ export const diffStyles = stylex.create({
 	},
 	minimapThumb: {
 		position: "absolute",
-		left: controlSize._0,
+		left: 8,
 		right: controlSize._0,
 		pointerEvents: "none",
 		backgroundColor: color.surfaceWhite14,
@@ -422,21 +435,24 @@ export const diffStyles = stylex.create({
 		whiteSpace: "pre",
 	},
 });
-
 export function getDiffGutterCellsLineNumberStyle(
 	fontSize: CSSProperties["fontSize"],
 	color: CSSProperties["color"],
 ): CSSProperties {
-	return { fontSize: fontSize, color: color } as CSSProperties;
+	return {
+		fontSize: fontSize,
+		color: color,
+	} as CSSProperties;
 }
-
 export function getDiffGutterCellsSignStyle(
 	fontSize: CSSProperties["fontSize"],
 	color: CSSProperties["color"],
 ): CSSProperties {
-	return { fontSize: fontSize, color: color } as CSSProperties;
+	return {
+		fontSize: fontSize,
+		color: color,
+	} as CSSProperties;
 }
-
 export function getDiffMinimapMinimapSegmentStyle(
 	left: CSSProperties["left"],
 	right: CSSProperties["right"],
@@ -452,34 +468,41 @@ export function getDiffMinimapMinimapSegmentStyle(
 		height: height,
 	} as CSSProperties;
 }
-
 export function getDiffMinimapMinimapThumbStyle(
 	top: CSSProperties["top"],
 	height: CSSProperties["height"],
 ): CSSProperties {
-	return { top: top, height: height, minHeight: 16 } as CSSProperties;
+	return {
+		top: top,
+		height: height,
+		minHeight: 16,
+	} as CSSProperties;
 }
-
 export function getDiffRowHunkSeparatorStyle(
 	minWidth: CSSProperties["minWidth"],
 	paddingLeft: CSSProperties["paddingLeft"],
 ): CSSProperties {
-	return { minWidth: minWidth, paddingLeft: paddingLeft } as CSSProperties;
+	return {
+		minWidth: minWidth,
+		paddingLeft: paddingLeft,
+	} as CSSProperties;
 }
-
 export function getDiffRowSpacerStyle(
 	minWidth: CSSProperties["minWidth"],
 ): CSSProperties {
-	return { minWidth: minWidth } as CSSProperties;
+	return {
+		minWidth: minWidth,
+	} as CSSProperties;
 }
-
 export function getDiffRowSpanStyle(
 	backgroundColor: CSSProperties["backgroundColor"],
 	color: CSSProperties["color"],
 ): CSSProperties {
-	return { backgroundColor: backgroundColor, color: color } as CSSProperties;
+	return {
+		backgroundColor: backgroundColor,
+		color: color,
+	} as CSSProperties;
 }
-
 export function getDiffRowDivStyle(
 	lineHeight: CSSProperties["lineHeight"],
 	backgroundColor: CSSProperties["backgroundColor"],
@@ -498,7 +521,6 @@ export function getDiffRowDivStyle(
 		"--hover-bg": hoverbg,
 	} as CSSProperties;
 }
-
 export function getDiffRowContentStyle(
 	fontSize: CSSProperties["fontSize"],
 	minWidth: CSSProperties["minWidth"],
@@ -510,11 +532,11 @@ export function getDiffRowContentStyle(
 		color: color,
 	} as CSSProperties;
 }
-
 export function getVirtualPanelVirtualScrollerStyle(): CSSProperties {
-	return { overflowY: "hidden" } as CSSProperties;
+	return {
+		overflowY: "hidden",
+	} as CSSProperties;
 }
-
 export function getVirtualPanelDivStyle(
 	height: CSSProperties["height"],
 	minWidth: CSSProperties["minWidth"],
@@ -525,14 +547,17 @@ export function getVirtualPanelDivStyle(
 		minWidth: minWidth,
 	} as CSSProperties;
 }
-
 export function getVirtualPanelVirtualOffsetLayerStyle(
 	transform: CSSProperties["transform"],
 	minWidth: CSSProperties["minWidth"],
 ): CSSProperties {
-	return { transform: transform, minWidth: minWidth } as CSSProperties;
+	return {
+		transform: transform,
+		minWidth: minWidth,
+	} as CSSProperties;
 }
-
 export function getVirtualPanelGutterBlockStyle(): CSSProperties {
-	return { top: 0 } as CSSProperties;
+	return {
+		top: 0,
+	} as CSSProperties;
 }

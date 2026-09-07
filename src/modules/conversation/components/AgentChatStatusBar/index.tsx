@@ -1,5 +1,4 @@
-import * as stylex from "@octanejs/stylex";
-import { memo } from "octane";
+import * as stylex from "@stylexjs/stylex";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { ThinkingIndicator } from "../../../../shared/ui/DotMatrixLoader/index.tsx";
 import { IconStop } from "../../../../shared/ui/Icons/index.tsx";
@@ -10,33 +9,40 @@ interface AgentChatStatusBarProps {
 	startTime?: number | null;
 	onStop: () => void;
 }
-
-export const AgentChatStatusBar = memo(function AgentChatStatusBar({
-	isLoading,
-	startTime,
-	onStop,
-}: AgentChatStatusBarProps) {
-	if (!isLoading) return null;
-
+export const AgentChatStatusBar = function AgentChatStatusBar(
+	_props: AgentChatStatusBarProps,
+) {
 	return (
-		<div {...stylex.props(styles.root)}>
-			{isLoading && (
-				<div {...stylex.props(styles.activity)}>
-					{startTime ? <ThinkingIndicator startTime={startTime} /> : null}
-				</div>
-			)}
+		<>
+			{(() => {
+				if (!_props.isLoading) return null;
+				return (
+					<div {...stylex.attrs(styles.root)}>
+						{_props.isLoading && (
+							<div {...stylex.attrs(styles.activity)}>
+								{_props.startTime ? (
+									<ThinkingIndicator startTime={_props.startTime} />
+								) : null}
+							</div>
+						)}
 
-			{isLoading && (
-				<button
-					type="button"
-					onClick={onStop}
-					title="Stop generation"
-					aria-label="Stop generation"
-					{...stylex.props(styles.stopButton)}
-				>
-					<IconStop size={iconSize.md} {...stylex.props(styles.toolIcon)} />
-				</button>
-			)}
-		</div>
+						{_props.isLoading && (
+							<button
+								type="button"
+								onClick={_props.onStop}
+								title="Stop generation"
+								aria-label="Stop generation"
+								{...stylex.attrs(styles.stopButton)}
+							>
+								<IconStop
+									size={iconSize.md}
+									{...stylex.attrs(styles.toolIcon)}
+								/>
+							</button>
+						)}
+					</div>
+				);
+			})()}
+		</>
 	);
-});
+};

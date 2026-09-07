@@ -1,5 +1,4 @@
-import * as stylex from "@octanejs/stylex";
-import type { CSSProperties } from "react";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
@@ -7,7 +6,7 @@ import {
 	motion,
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
-
+import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 export const styles = stylex.create({
 	card: {
 		backgroundColor: color.transparent,
@@ -131,13 +130,13 @@ export const styles = stylex.create({
 		color: color.textMain,
 	},
 });
-
 export function getEditDiffCardHeaderStyle(
 	borderBottom: CSSProperties["borderBottom"],
 ): CSSProperties {
-	return { borderBottom: borderBottom } as CSSProperties;
+	return {
+		borderBottom: borderBottom,
+	} as CSSProperties;
 }
-
 export function getEditDiffCardBodyInnerStyle(
 	width: CSSProperties["width"],
 	paddingTop: CSSProperties["paddingTop"],
@@ -149,7 +148,6 @@ export function getEditDiffCardBodyInnerStyle(
 		paddingBottom: paddingBottom,
 	} as CSSProperties;
 }
-
 export function getEditDiffCardDiffLineStyle(
 	backgroundColor: CSSProperties["backgroundColor"],
 	borderLeft: CSSProperties["borderLeft"],
@@ -159,21 +157,24 @@ export function getEditDiffCardDiffLineStyle(
 		borderLeft: borderLeft,
 	} as CSSProperties;
 }
-
 export function getEditDiffCardSignStyle(
 	color: CSSProperties["color"],
 ): CSSProperties {
-	return { color: color } as CSSProperties;
+	return {
+		color: color,
+	} as CSSProperties;
 }
-
 export function getMiniEditDiffDivStyle(
 	minHeight: CSSProperties["minHeight"],
 ): CSSProperties {
-	return { minHeight: minHeight } as CSSProperties;
+	return {
+		minHeight: minHeight,
+	} as CSSProperties;
 }
-
 export function getGroupedEditDiffDivStyle(
 	minHeight: CSSProperties["minHeight"],
 ): CSSProperties {
-	return { minHeight: minHeight } as CSSProperties;
+	return {
+		minHeight: minHeight,
+	} as CSSProperties;
 }

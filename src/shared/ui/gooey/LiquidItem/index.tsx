@@ -1,13 +1,13 @@
-import type { OctaneNode } from "octane";
-import type { CSSProperties } from "react";
+import { createMemo, type Element, omit } from "solid-js";
 import type { EvolveOptions } from "../../../../../build/presentation/contracts/EvolveOptions.ts";
 import type { MoveOptions } from "../../../../../build/presentation/contracts/MoveOptions.ts";
-import { GooeyItem } from "../GooeyItem/index.tsx";
+import type { CSSProperties } from "../../../lib/dom.tsx";
 import {
 	type CornerRadii,
 	EVOLVE_DEFAULTS,
 	MOVE_DEFAULTS,
-} from "../observer.ts";
+} from "../Gooey/index.tsx";
+import { GooeyItem } from "../GooeyItem/index.tsx";
 
 /** The two public liquid behaviors:
  *  - 'morph' (default): pieces merge gooily, change shape like jelly, and can
@@ -75,9 +75,9 @@ export interface LiquidItemProps {
 	observe?: boolean;
 	/** Override the measured border-radius for the liquid (px). */
 	radius?: number | CornerRadii;
-	className?: string;
+	class?: string;
 	style?: CSSProperties;
-	children?: OctaneNode;
+	children?: Element;
 }
 function zeta(bounce: number): number {
 	return Math.max(0.12, 1 - 1.1 * Math.min(1, Math.max(0, bounce)));
@@ -121,26 +121,45 @@ function mapMove(t: MoveTuning | undefined): Partial<MoveOptions> {
 	};
 }
 export function LiquidItem(props: LiquidItemProps) {
-	const { effect = "morph", morph, move, observe, ...rest } = props;
-	if (effect === "move") {
-		return <GooeyItem {...rest} observe effect="move" move={mapMove(move)} />;
-	}
-	const adv = morph?.advanced;
-	const shape = !!morph?.shape;
-	const evolve = shape
-		? {
-				...mapMorphSprings(morph),
-				...adv?.evolve,
-			}
-		: undefined;
 	return (
-		<GooeyItem
-			{...rest}
-			observe={observe || shape || undefined}
-			effect={shape ? "evolve" : undefined}
-			evolve={evolve}
-			blobInset={adv?.blobInset}
-			bridgeGrow={adv?.bridgeGrow}
-		/>
+		<>
+			{(() => {
+				const _sourceValue = props;
+				if (
+					(_sourceValue.effect === undefined
+						? "morph"
+						: _sourceValue.effect) === "move"
+				) {
+					return (
+						<GooeyItem
+							{...omit(_sourceValue, "effect", "morph", "move", "observe")}
+							observe
+							effect="move"
+							move={mapMove(_sourceValue.move)}
+						/>
+					);
+				}
+				const adv = createMemo(() => props.morph?.advanced);
+				const shape = createMemo(() => !!props.morph?.shape);
+				const evolve = createMemo(() =>
+					shape()
+						? {
+								...mapMorphSprings(props.morph),
+								...adv()?.evolve,
+							}
+						: undefined,
+				);
+				return (
+					<GooeyItem
+						{...omit(_sourceValue, "effect", "morph", "move", "observe")}
+						observe={_sourceValue.observe || shape() || undefined}
+						effect={shape() ? "evolve" : undefined}
+						evolve={evolve()}
+						blobInset={adv()?.blobInset}
+						bridgeGrow={adv()?.bridgeGrow}
+					/>
+				);
+			})()}
+		</>
 	);
 }

@@ -1,5 +1,4 @@
-import * as stylex from "@octanejs/stylex";
-
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
@@ -9,7 +8,6 @@ import {
 	radius,
 	shadow,
 } from "../../../../design-system/styles.stylex.ts";
-
 export const styles = stylex.create({
 	srStatus: {
 		position: "absolute",
@@ -22,7 +20,6 @@ export const styles = stylex.create({
 		padding: 0,
 		whiteSpace: "nowrap",
 	},
-
 	viewerPanel: {
 		position: "relative",
 		display: "flex",
@@ -170,16 +167,26 @@ export const styles = stylex.create({
 		backgroundColor: color.transparent,
 		color: color.textMain,
 	},
-	viewerAdded: { color: color.diffAdded },
-	viewerRemoved: { color: color.diffRemoved },
+	viewerAdded: {
+		color: color.diffAdded,
+	},
+	viewerRemoved: {
+		color: color.diffRemoved,
+	},
 	viewerClose: {
 		display: "flex",
 		width: controlSize._5,
 		height: controlSize._5,
 		alignItems: "center",
 		justifyContent: "center",
-		backgroundColor: { default: color.transparent, ":hover": color.dangerWash },
-		color: { default: color.textMuted, ":hover": color.danger },
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.dangerWash,
+		},
+		color: {
+			default: color.textMuted,
+			":hover": color.danger,
+		},
 	},
 	viewerBody: {
 		position: "relative",

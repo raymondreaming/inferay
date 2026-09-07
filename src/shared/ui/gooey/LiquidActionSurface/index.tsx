@@ -1,29 +1,28 @@
-import type { OctaneNode } from "octane";
+import type { Element } from "solid-js";
 import { GooeyRoot } from "../Gooey/index.tsx";
 import { LiquidItem } from "../LiquidItem/index.tsx";
 import * as inlineStyles from "./styles.ts";
 export interface LiquidActionSurfaceProps {
-	children?: OctaneNode;
+	children?: Element;
 	fill: string;
 	fullWidth?: boolean;
 	intense?: boolean;
 }
-export function LiquidActionSurface({
-	children,
-	fill,
-	fullWidth = false,
-	intense = false,
-}: LiquidActionSurfaceProps) {
+export function LiquidActionSurface(_props: LiquidActionSurfaceProps) {
 	return (
 		<GooeyRoot
-			blur={intense ? 6 : 5}
+			blur={(_props.intense === undefined ? false : _props.intense) ? 6 : 5}
 			contrast={20}
-			fill={fill}
+			fill={_props.fill}
 			filterPadding={18}
-			className="inferay-liquid-action"
+			class="inferay-liquid-action"
 			style={inlineStyles.getLiquidActionSurfaceLiquidStyle(
-				fullWidth ? "flex" : "inline-flex",
-				fullWidth ? "100%" : undefined,
+				(_props.fullWidth === undefined ? false : _props.fullWidth)
+					? "flex"
+					: "inline-flex",
+				(_props.fullWidth === undefined ? false : _props.fullWidth)
+					? "100%"
+					: undefined,
 			)}
 		>
 			<LiquidItem
@@ -35,7 +34,7 @@ export function LiquidActionSurface({
 					trail: 0.4,
 				}}
 			>
-				{children}
+				{_props.children}
 			</LiquidItem>
 		</GooeyRoot>
 	);

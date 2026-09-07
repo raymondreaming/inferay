@@ -1,14 +1,15 @@
-import * as stylex from "@octanejs/stylex";
-import { useEffect, useRef, useState } from "octane";
-import {
-	readStoredValue,
-	writeStoredValue,
-} from "../../../../adapters/storage/stored-values.ts";
+import * as stylex from "@stylexjs/stylex";
+import { createEffect, createMemo, createSignal } from "solid-js";
 import {
 	iconSize,
 	runtimeColor,
 	selectionAppearance,
 } from "../../../../design-system/styles.stylex.ts";
+import { ariaValue } from "../../../../shared/lib/dom.tsx";
+import {
+	readStoredValue,
+	writeStoredValue,
+} from "../../../../shared/lib/native.tsx";
 import { LiquidPanel } from "../../../../shared/ui/gooey/LiquidPanel/index.tsx";
 import { LiquidSegmentedRail } from "../../../../shared/ui/gooey/LiquidSegmentedRail/index.tsx";
 import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
@@ -25,16 +26,7 @@ import { SidebarChatList } from "./SidebarChatList.tsx";
 import { styles } from "./styles.ts";
 
 const GRID_DIMENSIONS = [1, 2, 3, 4] as const;
-
-export function SidebarWorkspacesSection({
-	collapsed,
-	workspaces,
-	layoutMode,
-	onUpdateLayoutMode,
-	onUpdateGrid,
-	onSelectPane,
-	onExpandSidebar,
-}: {
+export function SidebarWorkspacesSection(_props: {
 	collapsed: boolean;
 	workspaces: SidebarWorkspaceState;
 	layoutMode: "grid" | "rows";
@@ -43,51 +35,67 @@ export function SidebarWorkspacesSection({
 	onSelectPane: (groupId: string, paneId: string) => void;
 	onExpandSidebar: () => void;
 }) {
-	const workspaceSectionProps = stylex.props(styles.workspaceSection);
-	const [sectionMode, setSectionMode] = useState<"chats" | "explorer">(() =>
-		readStoredValue("workspace-sidebar-mode") === "explorer"
-			? "explorer"
-			: "chats",
+	const workspaceSectionProps = createMemo(() =>
+		stylex.attrs(styles.workspaceSection),
 	);
-	const [gridMenuOpen, setGridMenuOpen] = useState(false);
-	const [hoveredGridDimension, setHoveredGridDimension] = useState<{
+	const [sectionMode, setSectionMode] = createSignal<"chats" | "explorer">(
+		(() =>
+			readStoredValue("workspace-sidebar-mode") === "explorer"
+				? "explorer"
+				: "chats")(),
+	);
+	const [gridMenuOpen, setGridMenuOpen] = createSignal(false);
+	const [hoveredGridDimension, setHoveredGridDimension] = createSignal<{
 		axis: "columns";
 		value: number;
 	} | null>(null);
-	const gridMenuRef = useRef<HTMLDivElement | null>(null);
-	const selectedGroup =
-		workspaces.groups.find(
-			(group) => group.id === workspaces.selectedGroupId,
-		) ?? null;
-	const selectedCwd = workspaces.repositories.activeWorkspace?.cwd;
-	const projectCwds = selectedCwd ? [selectedCwd] : [];
+	const gridMenuRef = {
+		current: null,
+	} as {
+		current: HTMLDivElement | null;
+	};
+	const selectedGroup = createMemo(
+		() =>
+			_props.workspaces.groups.find(
+				(group) => group.id === _props.workspaces.selectedGroupId,
+			) ?? null,
+	);
+	const selectedCwd = createMemo(
+		() => _props.workspaces.repositories.activeWorkspace?.cwd,
+	);
+	const projectCwds = createMemo(() => {
+		const _selectedCwdValue = selectedCwd();
+		return _selectedCwdValue ? [_selectedCwdValue] : [];
+	});
 	const selectSectionMode = (mode: "chats" | "explorer") => {
 		setSectionMode(mode);
 		writeStoredValue("workspace-sidebar-mode", mode);
 	};
-	useEffect(() => {
-		if (!gridMenuOpen) return;
-		const closeMenu = (event: MouseEvent) => {
-			if (!gridMenuRef.current?.contains(event.target as Node)) {
-				setGridMenuOpen(false);
-			}
-		};
-		document.addEventListener("mousedown", closeMenu);
-		return () => document.removeEventListener("mousedown", closeMenu);
-	}, [gridMenuOpen]);
-
+	createEffect(
+		() => [gridMenuOpen()],
+		() => {
+			if (!gridMenuOpen()) return;
+			const closeMenu = (event: MouseEvent) => {
+				if (!gridMenuRef.current?.contains(event.target as Node)) {
+					setGridMenuOpen(false);
+				}
+			};
+			document.addEventListener("mousedown", closeMenu);
+			return () => document.removeEventListener("mousedown", closeMenu);
+		},
+	);
 	return (
-		<div className={workspaceSectionProps.className}>
-			{!collapsed ? (
-				<div {...stylex.props(styles.sidebarToolbar)}>
-					<div {...stylex.props(styles.sidebarModeTabs)}>
+		<div class={workspaceSectionProps().class}>
+			{!_props.collapsed ? (
+				<div {...stylex.attrs(styles.sidebarToolbar)}>
+					<div {...stylex.attrs(styles.sidebarModeTabs)}>
 						<button
 							type="button"
 							onClick={() => selectSectionMode("chats")}
-							aria-pressed={sectionMode === "chats"}
-							{...stylex.props(
+							aria-pressed={ariaValue(sectionMode() === "chats")}
+							{...stylex.attrs(
 								styles.sidebarModeTab,
-								...selectionAppearance("sidebar", sectionMode === "chats"),
+								...selectionAppearance("sidebar", sectionMode() === "chats"),
 							)}
 						>
 							<IconMessageCircle size={iconSize.sm} />
@@ -96,10 +104,10 @@ export function SidebarWorkspacesSection({
 						<button
 							type="button"
 							onClick={() => selectSectionMode("explorer")}
-							aria-pressed={sectionMode === "explorer"}
-							{...stylex.props(
+							aria-pressed={ariaValue(sectionMode() === "explorer")}
+							{...stylex.attrs(
 								styles.sidebarModeTab,
-								...selectionAppearance("sidebar", sectionMode === "explorer"),
+								...selectionAppearance("sidebar", sectionMode() === "explorer"),
 							)}
 						>
 							<IconFolder size={iconSize.sm} />
@@ -108,84 +116,83 @@ export function SidebarWorkspacesSection({
 					</div>
 				</div>
 			) : null}
-			{sectionMode === "explorer" && !collapsed ? (
-				<Explorer cwds={projectCwds} />
+			{sectionMode() === "explorer" && !_props.collapsed ? (
+				<Explorer cwds={projectCwds()} />
 			) : (
-				<div {...stylex.props(styles.workspaceListScroll)}>
+				<div {...stylex.attrs(styles.workspaceListScroll)}>
 					<div
-						{...stylex.props(
+						{...stylex.attrs(
 							styles.workspaceSectionHeader,
-							collapsed
+							_props.collapsed
 								? styles.workspaceSectionHeaderCollapsed
 								: styles.workspaceSectionHeaderOpen,
 						)}
 					>
-						{collapsed ? (
+						{_props.collapsed ? (
 							<IconButton
 								type="button"
-								onClick={onExpandSidebar}
+								onClick={_props.onExpandSidebar}
 								variant="ghost"
 								size="md"
-								className={stylex.props(styles.collapsedAddButton).className}
+								class={stylex.attrs(styles.collapsedAddButton).class}
 								title="Expand workspace sidebar"
 							>
 								<IconPanelLeft
 									size={iconSize.lg}
-									className={
-										stylex.props(styles.noShrink, styles.flipHorizontal)
-											.className
+									class={
+										stylex.attrs(styles.noShrink, styles.flipHorizontal).class
 									}
 								/>
 							</IconButton>
 						) : (
 							<div
-								ref={gridMenuRef}
-								{...stylex.props(styles.workspaceLayoutControl)}
+								ref={(element) => (gridMenuRef.current = element)}
+								{...stylex.attrs(styles.workspaceLayoutControl)}
 							>
 								<LiquidSegmentedRail
-									activeIndex={layoutMode === "grid" ? 0 : 1}
+									activeIndex={_props.layoutMode === "grid" ? 0 : 1}
 									itemCount={2}
 									radius={14}
 									itemSize={28}
 									gap={4}
 								/>
-								<span {...stylex.props(styles.workspaceGridWrap)}>
+								<span {...stylex.attrs(styles.workspaceGridWrap)}>
 									<button
 										type="button"
 										onClick={() => {
-											onUpdateLayoutMode("grid");
+											_props.onUpdateLayoutMode("grid");
 											setGridMenuOpen((open) => !open);
 										}}
-										{...stylex.props(
+										{...stylex.attrs(
 											styles.workspaceLayoutButton,
-											layoutMode === "grid"
+											_props.layoutMode === "grid"
 												? styles.workspaceLayoutButtonActive
 												: styles.workspaceLayoutButtonIdle,
 										)}
 										aria-label="Grid layout"
-										aria-expanded={gridMenuOpen}
+										aria-expanded={ariaValue(gridMenuOpen())}
 									>
 										<IconLayoutGrid size={iconSize.lg} />
 									</button>
-									{gridMenuOpen && selectedGroup ? (
-										<span {...stylex.props(styles.workspaceGridMenuAnchor)}>
+									{gridMenuOpen() && selectedGroup() ? (
+										<span {...stylex.attrs(styles.workspaceGridMenuAnchor)}>
 											<LiquidPanel fill={runtimeColor.backgroundRaised}>
-												<div {...stylex.props(styles.workspaceGridMenu)}>
-													<span {...stylex.props(styles.workspaceGridMenuRow)}>
+												<div {...stylex.attrs(styles.workspaceGridMenu)}>
+													<span {...stylex.attrs(styles.workspaceGridMenuRow)}>
 														<span
-															{...stylex.props(styles.workspaceGridMenuLabel)}
+															{...stylex.attrs(styles.workspaceGridMenuLabel)}
 														>
 															Columns
 														</span>
 														<span
-															{...stylex.props(styles.workspaceGridChoices)}
+															{...stylex.attrs(styles.workspaceGridChoices)}
 															onMouseLeave={() => setHoveredGridDimension(null)}
 														>
 															<LiquidSegmentedRail
 																activeIndex={
-																	(hoveredGridDimension?.axis === "columns"
-																		? hoveredGridDimension.value
-																		: selectedGroup.columns) - 1
+																	(hoveredGridDimension()?.axis === "columns"
+																		? hoveredGridDimension()!.value
+																		: selectedGroup()!.columns) - 1
 																}
 																itemCount={4}
 																itemSize={24}
@@ -194,7 +201,6 @@ export function SidebarWorkspacesSection({
 															/>
 															{GRID_DIMENSIONS.map((value) => (
 																<button
-																	key={`columns-${value}`}
 																	type="button"
 																	onMouseEnter={() =>
 																		setHoveredGridDimension({
@@ -203,12 +209,14 @@ export function SidebarWorkspacesSection({
 																		})
 																	}
 																	onClick={() => {
-																		onUpdateLayoutMode("grid");
-																		onUpdateGrid({ columns: value });
+																		_props.onUpdateLayoutMode("grid");
+																		_props.onUpdateGrid({
+																			columns: value,
+																		});
 																	}}
-																	{...stylex.props(
+																	{...stylex.attrs(
 																		styles.workspaceGridChoice,
-																		selectedGroup.columns === value
+																		selectedGroup()?.columns === value
 																			? styles.workspaceGridChoiceActive
 																			: null,
 																	)}
@@ -218,7 +226,7 @@ export function SidebarWorkspacesSection({
 															))}
 														</span>
 													</span>
-													<span {...stylex.props(styles.workspaceGridMenuHint)}>
+													<span {...stylex.attrs(styles.workspaceGridMenuHint)}>
 														Drag pane dividers to fine-tune the layout.
 													</span>
 												</div>
@@ -229,12 +237,12 @@ export function SidebarWorkspacesSection({
 								<button
 									type="button"
 									onClick={() => {
-										onUpdateLayoutMode("rows");
+										_props.onUpdateLayoutMode("rows");
 										setGridMenuOpen(false);
 									}}
-									{...stylex.props(
+									{...stylex.attrs(
 										styles.workspaceLayoutButton,
-										layoutMode === "rows"
+										_props.layoutMode === "rows"
 											? styles.workspaceLayoutButtonActive
 											: styles.workspaceLayoutButtonIdle,
 									)}
@@ -246,8 +254,8 @@ export function SidebarWorkspacesSection({
 						)}
 					</div>
 					<SidebarChatList
-						workspaces={workspaces}
-						onSelectPane={onSelectPane}
+						workspaces={_props.workspaces}
+						onSelectPane={_props.onSelectPane}
 					/>
 				</div>
 			)}

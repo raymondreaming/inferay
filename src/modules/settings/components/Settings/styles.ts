@@ -1,5 +1,4 @@
-import * as stylex from "@octanejs/stylex";
-import type { CSSProperties } from "react";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
@@ -8,7 +7,7 @@ import {
 	motion,
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
-
+import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 export const styles = stylex.create({
 	overlay: {
 		position: "fixed",
@@ -403,25 +402,27 @@ export const styles = stylex.create({
 		textAlign: "center",
 	},
 });
-
 export function getBackgroundScenePickerBackgroundPreviewStyle(
 	backgroundImage: CSSProperties["backgroundImage"],
 ): CSSProperties {
-	return { backgroundImage: backgroundImage } as CSSProperties;
+	return {
+		backgroundImage: backgroundImage,
+	} as CSSProperties;
 }
-
 export function getThemeOrbThemeOrbStyle(
 	backgroundColor: CSSProperties["backgroundColor"],
 ): CSSProperties {
-	return { backgroundColor: backgroundColor } as CSSProperties;
+	return {
+		backgroundColor: backgroundColor,
+	} as CSSProperties;
 }
-
 export function getThemeOrbThemeOrbFillStyle(
 	background: CSSProperties["background"],
 ): CSSProperties {
-	return { background: background } as CSSProperties;
+	return {
+		background: background,
+	} as CSSProperties;
 }
-
 export function getThemeOrbThemeOrbGlowStyle(
 	background: CSSProperties["background"],
 ): CSSProperties {
@@ -434,7 +435,6 @@ export function getThemeOrbThemeOrbGlowStyle(
 		filter: "blur(2px)",
 	} as CSSProperties;
 }
-
 export function getThemeOrbThemeOrbHighlightStyle(): CSSProperties {
 	return {
 		top: "18%",

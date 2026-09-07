@@ -1,11 +1,10 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
 	font,
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
-
 export const styles = stylex.create({
 	card: {
 		marginBlock: controlSize._3,
@@ -20,7 +19,10 @@ export const styles = stylex.create({
 		gap: controlSize._2,
 		color: color.textMain,
 	},
-	reason: { color: color.textMuted, marginBlock: controlSize._2 },
+	reason: {
+		color: color.textMuted,
+		marginBlock: controlSize._2,
+	},
 	instructions: {
 		whiteSpace: "pre-wrap",
 		overflowWrap: "anywhere",
@@ -32,7 +34,11 @@ export const styles = stylex.create({
 		fontFamily: font.familyMono,
 		fontSize: font.size_2,
 	},
-	actions: { display: "flex", gap: controlSize._2, marginTop: controlSize._3 },
+	actions: {
+		display: "flex",
+		gap: controlSize._2,
+		marginTop: controlSize._3,
+	},
 	button: {
 		borderWidth: 1,
 		borderStyle: "solid",
@@ -45,7 +51,12 @@ export const styles = stylex.create({
 			":hover": color.controlHover,
 		},
 		color: color.textSoft,
-		":disabled": { opacity: 0.5 },
+		":disabled": {
+			opacity: 0.5,
+		},
 	},
-	approve: { backgroundColor: color.controlActive, color: color.textMain },
+	approve: {
+		backgroundColor: color.controlActive,
+		color: color.textMain,
+	},
 });

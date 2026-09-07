@@ -1,15 +1,11 @@
 import { IconMinus, IconPlus } from "../../../../../shared/ui/Icons/index.tsx";
-
-export function FileActionIcon({
-	actionLabel,
-	size = 11,
-}: {
+export function FileActionIcon(_props: {
 	actionLabel?: string;
 	size?: number;
 }) {
-	return actionLabel === "Unstage" ? (
-		<IconMinus size={size} />
+	return _props.actionLabel === "Unstage" ? (
+		<IconMinus size={_props.size === undefined ? 11 : _props.size} />
 	) : (
-		<IconPlus size={size} />
+		<IconPlus size={_props.size === undefined ? 11 : _props.size} />
 	);
 }

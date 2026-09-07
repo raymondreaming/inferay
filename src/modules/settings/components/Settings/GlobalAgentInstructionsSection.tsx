@@ -1,22 +1,18 @@
-import * as stylex from "@octanejs/stylex";
-import { useEffect, useState } from "octane";
+import * as stylex from "@stylexjs/stylex";
+import { createEffect, createSignal, onSettled } from "solid-js";
 import type { EffectiveAgentContext } from "../../../../../build/presentation/contracts/EffectiveAgentContext.ts";
-import { fetchJson, postJson } from "../../../../adapters/backend/http.ts";
+import { fetchJson, postJson } from "../../../../shared/lib/native.tsx";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
 import { styles } from "./styles.ts";
-
-export function GlobalAgentInstructionsSection({
-	contained = false,
-}: {
+export function GlobalAgentInstructionsSection(_props: {
 	contained?: boolean;
 }) {
-	const [instructions, setInstructions] = useState("");
-	const [savedInstructions, setSavedInstructions] = useState("");
-	const [isLoading, setIsLoading] = useState(true);
-	const [isSaving, setIsSaving] = useState(false);
-	const [error, setError] = useState("");
-
-	useEffect(() => {
+	const [instructions, setInstructions] = createSignal("");
+	const [savedInstructions, setSavedInstructions] = createSignal("");
+	const [isLoading, setIsLoading] = createSignal(true);
+	const [isSaving, setIsSaving] = createSignal(false);
+	const [error, setError] = createSignal("");
+	onSettled(() => {
 		void fetchJson<EffectiveAgentContext>(
 			"/api/agent-context?paneId=global-settings",
 		)
@@ -35,9 +31,9 @@ export function GlobalAgentInstructionsSection({
 			.finally(() => {
 				setIsLoading(false);
 			});
-	}, []);
-
+	});
 	const handleSave = async () => {
+		const _instructionsValue = instructions();
 		setIsSaving(true);
 		setError("");
 		try {
@@ -45,13 +41,15 @@ export function GlobalAgentInstructionsSection({
 				"/api/agent-context",
 				{
 					scope: "global",
-					instructions,
+					instructions: _instructionsValue,
 					mode: "inherit",
 					paneId: "global-settings",
 				},
-				{ method: "PUT" },
+				{
+					method: "PUT",
+				},
 			);
-			setSavedInstructions(instructions);
+			setSavedInstructions(_instructionsValue);
 		} catch (cause) {
 			setError(
 				cause instanceof Error
@@ -62,43 +60,50 @@ export function GlobalAgentInstructionsSection({
 			setIsSaving(false);
 		}
 	};
-
 	return (
 		<div
 			id="agent-instructions"
-			{...stylex.props(styles.section, contained && styles.sectionContained)}
+			{...stylex.attrs(
+				styles.section,
+				(_props.contained === undefined ? false : _props.contained) &&
+					styles.sectionContained,
+			)}
 		>
-			<div {...stylex.props(styles.agentInstructionsHeading)}>
+			<div {...stylex.attrs(styles.agentInstructionsHeading)}>
 				<div>
-					<h4 {...stylex.props(styles.sectionHeading)}>
+					<h4 {...stylex.attrs(styles.sectionHeading)}>
 						Global agent instructions
 					</h4>
-					<p {...stylex.props(styles.sectionDescription)}>
+					<p {...stylex.attrs(styles.sectionDescription)}>
 						Your default AGENTS.md. Every new chat inherits these instructions.
 					</p>
 				</div>
 			</div>
 			<textarea
-				value={instructions}
+				value={instructions()}
 				onInput={(event) => {
 					setInstructions(event.currentTarget.value);
 				}}
-				disabled={isLoading}
+				disabled={isLoading()}
 				placeholder="How should agents work with you?"
-				{...stylex.props(styles.agentInstructionsEditor)}
+				{...stylex.attrs(styles.agentInstructionsEditor)}
 			/>
-			<div {...stylex.props(styles.agentInstructionsActions)}>
+			<div {...stylex.attrs(styles.agentInstructionsActions)}>
 				<Button
 					variant="secondary"
 					size="sm"
 					liquid={false}
-					disabled={isLoading || isSaving || instructions === savedInstructions}
+					disabled={
+						isLoading() || isSaving() || instructions() === savedInstructions()
+					}
 					onClick={() => void handleSave()}
 				>
-					{isSaving ? "Saving…" : "Save"}
+					{isSaving() ? "Saving…" : "Save"}
 				</Button>
 			</div>
-			{error ? <p {...stylex.props(styles.backgroundError)}>{error}</p> : null}
+			{error() ? (
+				<p {...stylex.attrs(styles.backgroundError)}>{error()}</p>
+			) : null}
 		</div>
 	);
 }

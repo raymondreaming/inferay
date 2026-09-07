@@ -1,4 +1,4 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import { iconSize } from "../../../../../design-system/styles.stylex.ts";
 import {
 	IconExternalLink,
@@ -8,19 +8,7 @@ import {
 import { FileChangeTotals } from "./FileChangeTotals.tsx";
 import { FileViewToggle } from "./FileViewToggle.tsx";
 import { styles } from "./styles.ts";
-
-export function ChangesPanelHeader({
-	onCollapse,
-	onOpenGraph,
-	graphActive,
-	additions,
-	deletions,
-	fileViewMode,
-	onFileViewModeChange,
-	showFileControls,
-	worktreePath,
-	onOpenWorktree,
-}: {
+export function ChangesPanelHeader(_props: {
 	onCollapse?: () => void;
 	onOpenGraph?: () => void;
 	graphActive: boolean;
@@ -33,51 +21,57 @@ export function ChangesPanelHeader({
 	onOpenWorktree?: () => void;
 }) {
 	return (
-		<div {...stylex.props(styles.sidebarHeader)}>
-			{onCollapse ? (
+		<div {...stylex.attrs(styles.sidebarHeader)}>
+			{_props.onCollapse ? (
 				<button
 					type="button"
 					onPointerDown={(event) => {
-						if (event.button === 0 && event.isPrimary) onCollapse();
+						if (event.button === 0 && event.isPrimary) _props.onCollapse?.();
 					}}
 					onClick={(event) => {
-						if (event.detail === 0) onCollapse();
+						if (event.detail === 0) _props.onCollapse?.();
 					}}
 					title="Collapse files sidebar"
 					aria-label="Collapse files sidebar"
-					{...stylex.props(styles.headerIconButton)}
+					{...stylex.attrs(styles.headerIconButton)}
 				>
 					<IconPanelLeft size={iconSize.md} />
 				</button>
 			) : null}
-			{onOpenGraph ? (
+			{_props.onOpenGraph ? (
 				<button
 					type="button"
-					onClick={onOpenGraph}
+					onClick={_props.onOpenGraph}
 					title="Repository graph"
 					aria-label="Repository graph"
-					{...stylex.props(
+					{...stylex.attrs(
 						styles.headerIconButton,
-						graphActive && styles.headerIconButtonActive,
+						_props.graphActive && styles.headerIconButtonActive,
 					)}
 				>
 					<IconGitCommit size={iconSize.compact} />
 				</button>
 			) : null}
-			{showFileControls ? (
-				<FileViewToggle value={fileViewMode} onChange={onFileViewModeChange} />
+			{_props.showFileControls ? (
+				<FileViewToggle
+					value={_props.fileViewMode}
+					onChange={_props.onFileViewModeChange}
+				/>
 			) : null}
-			<span {...stylex.props(styles.spacer)} />
-			{showFileControls ? (
-				<FileChangeTotals additions={additions} deletions={deletions} />
+			<span {...stylex.attrs(styles.spacer)} />
+			{_props.showFileControls ? (
+				<FileChangeTotals
+					additions={_props.additions}
+					deletions={_props.deletions}
+				/>
 			) : null}
-			{onOpenWorktree ? (
+			{_props.onOpenWorktree ? (
 				<button
 					type="button"
-					onClick={onOpenWorktree}
-					title={`Open linked worktree ${worktreePath ?? ""}`.trim()}
+					onClick={_props.onOpenWorktree}
+					title={`Open linked worktree ${_props.worktreePath ?? ""}`.trim()}
 					aria-label="Open linked worktree"
-					{...stylex.props(styles.headerIconButton)}
+					{...stylex.attrs(styles.headerIconButton)}
 				>
 					<IconExternalLink size={iconSize.compact} />
 				</button>

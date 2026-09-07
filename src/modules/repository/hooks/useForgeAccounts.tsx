@@ -1,18 +1,24 @@
+import type { Accessor } from "solid-js";
 import type { ForgeAccount } from "../../../../build/presentation/contracts/ForgeAccount.ts";
 import type { GithubRepo } from "../../../../build/presentation/contracts/GithubRepo.ts";
-import { fetchJson } from "../../../adapters/backend/http.ts";
 import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
-import { queryClient } from "../../../shared/lib/data.ts";
+import { queryClient } from "../../../shared/lib/dom.tsx";
+import { fetchJson } from "../../../shared/lib/native.tsx";
 
 function forgeResource<T>(kind: string, field: string, url: string) {
-	const options = { queryKey: ["forge", kind], staleTime: 120_000 };
+	const options = {
+		queryKey: ["forge", kind],
+		staleTime: 120_000,
+	};
 	const empty: T[] = [];
 	let refreshNative = false;
 	const request = async (signal?: AbortSignal): Promise<T[]> => {
 		const refreshing = refreshNative;
 		const data = await fetchJson<Record<string, T[]>>(
 			refreshing ? `${url}${url.includes("?") ? "&" : "?"}refresh=1` : url,
-			{ signal },
+			{
+				signal,
+			},
 		);
 		if (refreshing) refreshNative = false;
 		return Array.isArray(data[field]) ? data[field]! : empty;
@@ -53,14 +59,18 @@ export function fetchForgeAccounts() {
 }
 export function useForgeAccounts() {
 	return useQueryResource(
-		accountsResource.request,
-		accountsResource.empty,
-		accountsResource.options,
+		() => accountsResource.request,
+		() => accountsResource.empty,
+		() => accountsResource.options,
 	);
 }
-export function useGithubRepos(enabled: boolean) {
-	return useQueryResource(reposResource.request, reposResource.empty, {
-		...reposResource.options,
-		enabled,
-	});
+export function useGithubRepos(_enabled: Accessor<boolean>) {
+	return useQueryResource(
+		() => reposResource.request,
+		() => reposResource.empty,
+		() => ({
+			...reposResource.options,
+			enabled: _enabled(),
+		}),
+	);
 }

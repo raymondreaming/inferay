@@ -1,7 +1,8 @@
-import * as stylex from "@octanejs/stylex";
-import { useState } from "octane";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo, createSignal, For } from "solid-js";
 import type { GitGraphRefKind } from "../../../../../../build/presentation/contracts/GitGraphRefKind.ts";
 import { palette } from "../../../../../design-system/styles.stylex.ts";
+import { domStyle } from "../../../../../shared/lib/dom.tsx";
 import { RefIcon } from "./RefIcon.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
@@ -14,20 +15,7 @@ function refKindLabel(kind: GitGraphRefKind): string {
 	if (kind === "tag") return "tag";
 	return "stash";
 }
-
-export function RefBadge({
-	label,
-	fullName,
-	color,
-	kind,
-	onCheckout,
-	onRefDrop,
-	worktreePath,
-	upstream,
-	trailingKinds = [],
-	onOpenContextMenu,
-	ghost = false,
-}: {
+export function RefBadge(_props: {
 	label: string;
 	fullName: string;
 	color: string;
@@ -40,57 +28,64 @@ export function RefBadge({
 	onOpenContextMenu?: (event: MouseEvent) => void;
 	ghost?: boolean;
 }) {
-	const [hovered, setHovered] = useState(false);
-	const interactive =
-		(kind === "localBranch" ||
-			(kind === "head" && fullName.startsWith("refs/heads/"))) &&
-		!!(onCheckout || onRefDrop);
-	const keyboardActionable = interactive || Boolean(onOpenContextMenu);
-	const kindLabel = refKindLabel(kind);
+	const [hovered, setHovered] = createSignal(false);
+	const interactive = createMemo(
+		() =>
+			(_props.kind === "localBranch" ||
+				(_props.kind === "head" &&
+					_props.fullName.startsWith("refs/heads/"))) &&
+			!!(_props.onCheckout || _props.onRefDrop),
+	);
+	const keyboardActionable = createMemo(
+		() => interactive() || Boolean(_props.onOpenContextMenu),
+	);
+	const kindLabel = createMemo(() => refKindLabel(_props.kind));
 	return (
 		<span
-			role={keyboardActionable ? "button" : undefined}
-			data-ref-kind={kind}
-			data-ref-ghost={ghost ? "true" : undefined}
-			data-ref-hovered={hovered ? "true" : "false"}
-			tabIndex={keyboardActionable ? 0 : undefined}
-			draggable={interactive}
-			title={
-				ghost
-					? `${label} — nearest containing ${kindLabel}${interactive ? "; double-click to check out" : ""}`
-					: worktreePath
-						? `${label} — ${kindLabel}; checked out at ${worktreePath}`
-						: upstream
-							? `${label} — ${kindLabel}; tracks ${upstream}`
-							: interactive
-								? `${label} — ${kindLabel}; double-click to check out`
-								: `${label} — ${kindLabel}`
+			role={keyboardActionable() ? "button" : undefined}
+			data-ref-kind={_props.kind}
+			data-ref-ghost={
+				(_props.ghost === undefined ? false : _props.ghost) ? "true" : undefined
 			}
-			onDoubleClick={(event) => {
-				if (!interactive) return;
+			data-ref-hovered={hovered() ? "true" : "false"}
+			tabindex={keyboardActionable() ? 0 : undefined}
+			draggable={interactive() ? "true" : "false"}
+			title={
+				(_props.ghost === undefined ? false : _props.ghost)
+					? `${_props.label} — nearest containing ${kindLabel()}${interactive() ? "; double-click to check out" : ""}`
+					: _props.worktreePath
+						? `${_props.label} — ${kindLabel()}; checked out at ${_props.worktreePath}`
+						: _props.upstream
+							? `${_props.label} — ${kindLabel()}; tracks ${_props.upstream}`
+							: interactive()
+								? `${_props.label} — ${kindLabel()}; double-click to check out`
+								: `${_props.label} — ${kindLabel()}`
+			}
+			onDblClick={(event) => {
+				if (!interactive()) return;
 				event.preventDefault();
 				event.stopPropagation();
-				onCheckout?.(label);
+				_props.onCheckout?.(_props.label);
 			}}
 			onClick={(event) => {
-				if (keyboardActionable) event.stopPropagation();
+				if (keyboardActionable()) event.stopPropagation();
 			}}
 			onKeyDown={(event) => {
-				if (interactive && event.key === "Enter") {
+				if (interactive() && event.key === "Enter") {
 					event.preventDefault();
 					event.stopPropagation();
-					onCheckout?.(label);
+					_props.onCheckout?.(_props.label);
 					return;
 				}
 				if (
-					onOpenContextMenu &&
+					_props.onOpenContextMenu &&
 					(event.key === "ContextMenu" ||
 						(event.shiftKey && event.key === "F10"))
 				) {
 					event.preventDefault();
 					event.stopPropagation();
 					const bounds = event.currentTarget.getBoundingClientRect();
-					onOpenContextMenu(
+					_props.onOpenContextMenu(
 						new MouseEvent("contextmenu", {
 							clientX: bounds.left + bounds.width / 2,
 							clientY: bounds.bottom,
@@ -99,67 +94,80 @@ export function RefBadge({
 				}
 			}}
 			onDragStart={(event) => {
-				if (!interactive || !event.dataTransfer) return;
+				if (!interactive() || !event.dataTransfer) return;
 				event.stopPropagation();
 				event.dataTransfer.effectAllowed = "move";
-				event.dataTransfer.setData("application/x-inferay-git-ref", fullName);
-				event.dataTransfer.setData("text/plain", label);
+				event.dataTransfer.setData(
+					"application/x-inferay-git-ref",
+					_props.fullName,
+				);
+				event.dataTransfer.setData("text/plain", _props.label);
 			}}
 			onDragOver={(event) => {
-				if (!interactive || !event.dataTransfer) return;
+				if (!interactive() || !event.dataTransfer) return;
 				const source = event.dataTransfer.getData(
 					"application/x-inferay-git-ref",
 				);
-				if (!source || source === fullName) return;
+				if (!source || source === _props.fullName) return;
 				event.preventDefault();
 				event.dataTransfer.dropEffect = "move";
 			}}
 			onDrop={(event) => {
-				if (!interactive || !event.dataTransfer) return;
+				if (!interactive() || !event.dataTransfer) return;
 				const source = event.dataTransfer.getData(
 					"application/x-inferay-git-ref",
 				);
-				if (!source || source === fullName) return;
+				if (!source || source === _props.fullName) return;
 				event.preventDefault();
 				event.stopPropagation();
-				onRefDrop?.(
+				_props.onRefDrop?.(
 					source.replace(/^refs\/heads\//, ""),
-					fullName.replace(/^refs\/heads\//, ""),
+					_props.fullName.replace(/^refs\/heads\//, ""),
 				);
 			}}
 			onContextMenu={(event) => {
-				if (!onOpenContextMenu) return;
+				if (!_props.onOpenContextMenu) return;
 				event.preventDefault();
 				event.stopPropagation();
-				onOpenContextMenu(event);
+				_props.onOpenContextMenu(event);
 			}}
 			onMouseEnter={() => setHovered(true)}
 			onMouseLeave={() => setHovered(false)}
 			onFocus={() => setHovered(true)}
 			onBlur={() => setHovered(false)}
-			{...stylex.props(
+			{...stylex.attrs(
 				styles.refBadge,
-				(kind !== "head" || ghost) && styles.dimmedRefBadge,
-				ghost && styles.ghostRefBadge,
+				(_props.kind !== "head" ||
+					(_props.ghost === undefined ? false : _props.ghost)) &&
+					styles.dimmedRefBadge,
+				(_props.ghost === undefined ? false : _props.ghost) &&
+					styles.ghostRefBadge,
 			)}
-			style={inlineStyles.getRefBadgeRefBadgeStyle(
-				ghost
-					? hexToRgba(color, hovered ? 0.18 : 0.055)
-					: hexToRgba(color, hovered ? 0.75 : 0.5),
-				ghost ? color : palette.white,
+			style={domStyle(
+				inlineStyles.getRefBadgeRefBadgeStyle(
+					(_props.ghost === undefined ? false : _props.ghost)
+						? hexToRgba(_props.color, hovered() ? 0.18 : 0.055)
+						: hexToRgba(_props.color, hovered() ? 0.75 : 0.5),
+					(_props.ghost === undefined ? false : _props.ghost)
+						? _props.color
+						: palette.white,
+				),
 			)}
 		>
-			<RefIcon kind={kind} />
-			<span {...stylex.props(styles.truncate)}>{label}</span>
-			{trailingKinds.map((trailingKind, index) => (
-				<span
-					key={`${trailingKind}:${index}`}
-					aria-hidden="true"
-					{...stylex.props(styles.shrink)}
+			<RefIcon kind={_props.kind} />
+			<span {...stylex.attrs(styles.truncate)}>{_props.label}</span>
+			{
+				<For
+					each={_props.trailingKinds === undefined ? [] : _props.trailingKinds}
+					keyed={(row) => row}
 				>
-					<RefIcon kind={trailingKind} />
-				</span>
-			))}
+					{(trailingKind, index) => (
+						<span aria-hidden="true" {...stylex.attrs(styles.shrink)}>
+							<RefIcon kind={trailingKind()} />
+						</span>
+					)}
+				</For>
+			}
 		</span>
 	);
 }

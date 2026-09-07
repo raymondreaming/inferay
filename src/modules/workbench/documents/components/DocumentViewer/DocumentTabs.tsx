@@ -1,17 +1,10 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
+import { For } from "solid-js";
 import type { FileContent } from "../../../../../../build/presentation/contracts/FileContent.ts";
 import { APP_REGION_NO_DRAG_CLASS } from "../../../../../app/hooks/useAppAppearance.tsx";
 import { DocumentTab } from "./DocumentTab.tsx";
 import { styles } from "./styles.ts";
-
-export function DocumentTabs({
-	activePath,
-	onFileTabDragStart,
-	startFileTabDrag,
-	setActivePath,
-	closeFile,
-	openFiles,
-}: {
+export function DocumentTabs(_props: {
 	activePath: string | null;
 	onFileTabDragStart: boolean;
 	startFileTabDrag: (event: PointerEvent, file: FileContent) => void;
@@ -21,22 +14,23 @@ export function DocumentTabs({
 }) {
 	return (
 		<div
-			{...stylex.props(styles.fileTabs)}
-			className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.fileTabs).className ?? ""}`}
+			{...stylex.attrs(styles.fileTabs)}
+			class={`${APP_REGION_NO_DRAG_CLASS} ${stylex.attrs(styles.fileTabs).class ?? ""}`}
 		>
-			{openFiles.length > 0
-				? openFiles.map((file) => (
+			{_props.openFiles.length > 0 ? (
+				<For each={_props.openFiles} keyed={(row) => row.path}>
+					{(file) => (
 						<DocumentTab
-							key={file.path}
-							activePath={activePath}
-							onFileTabDragStart={Boolean(onFileTabDragStart)}
-							startFileTabDrag={startFileTabDrag}
-							setActivePath={setActivePath}
-							closeFile={closeFile}
-							file={file}
+							activePath={_props.activePath}
+							onFileTabDragStart={Boolean(_props.onFileTabDragStart)}
+							startFileTabDrag={_props.startFileTabDrag}
+							setActivePath={_props.setActivePath}
+							closeFile={_props.closeFile}
+							file={file()}
 						/>
-					))
-				: null}
+					)}
+				</For>
+			) : null}
 		</div>
 	);
 }

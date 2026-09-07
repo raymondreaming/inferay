@@ -1,5 +1,6 @@
-import * as stylex from "@octanejs/stylex";
-
+import * as stylex from "@stylexjs/stylex";
+import { For } from "solid-js";
+import { ariaValue } from "../../../../shared/lib/dom.tsx";
 import { styles } from "./styles.ts";
 import type { useChatDiffPanelState } from "./useChatDiffPanelState.tsx";
 
@@ -22,112 +23,112 @@ type GraphActionDialogProps = Pick<
 		ReturnType<typeof useChatDiffPanelState>["pendingGraphActionPresentation"]
 	>;
 };
-export function GraphActionDialog({
-	pendingGraphActionPresentation,
-	graphActionRunning,
-	setPendingGraphAction,
-	pendingGraphAction,
-	graphActionName,
-	setGraphActionName,
-	graphActionMessage,
-	setGraphActionMessage,
-	graphActionResult,
-	runGraphAction,
-}: GraphActionDialogProps) {
+export function GraphActionDialog(_props: GraphActionDialogProps) {
 	return (
-		<div {...stylex.props(styles.refActionOverlay)}>
+		<div {...stylex.attrs(styles.refActionOverlay)}>
 			<div
 				role="dialog"
 				aria-modal="true"
-				aria-label={pendingGraphActionPresentation.title}
-				{...stylex.props(styles.refActionDialog)}
+				aria-label={ariaValue(_props.pendingGraphActionPresentation.title)}
+				{...stylex.attrs(styles.refActionDialog)}
 				onKeyDown={(event) => {
-					if (event.key === "Escape" && !graphActionRunning) {
-						setPendingGraphAction(null);
+					if (event.key === "Escape" && !_props.graphActionRunning) {
+						_props.setPendingGraphAction(null);
 					}
 				}}
 			>
-				<strong {...stylex.props(styles.refActionTitle)}>
-					{pendingGraphActionPresentation.title}
+				<strong {...stylex.attrs(styles.refActionTitle)}>
+					{_props.pendingGraphActionPresentation.title}
 				</strong>
-				<p {...stylex.props(styles.refActionCopy)}>
-					{pendingGraphActionPresentation.copy}
-					{pendingGraphAction.target ? (
+				<p {...stylex.attrs(styles.refActionCopy)}>
+					{_props.pendingGraphActionPresentation.copy}
+					{_props.pendingGraphAction.target ? (
 						<>
 							{" "}
-							Target <code>{pendingGraphAction.target}</code>.
+							Target <code>{_props.pendingGraphAction.target}</code>.
 						</>
 					) : null}
-					{pendingGraphAction.targets?.length ? (
+					{_props.pendingGraphAction.targets?.length ? (
 						<>
 							{" "}
 							Apply oldest to newest:{" "}
-							{pendingGraphAction.targets.map((target, index) => (
-								<code key={target}>
-									{index ? " → " : ""}
-									{target.slice(0, 7)}
-								</code>
-							))}
+							{
+								<For
+									each={_props.pendingGraphAction.targets}
+									keyed={(row) => row}
+								>
+									{(target, index) => (
+										<code>
+											{index() ? " → " : ""}
+											{target().slice(0, 7)}
+										</code>
+									)}
+								</For>
+							}
 						</>
 					) : null}
 				</p>
-				{pendingGraphActionPresentation.needsName ? (
-					<label {...stylex.props(styles.graphActionField)}>
-						<span>{pendingGraphActionPresentation.nameLabel ?? "Name"}</span>
+				{_props.pendingGraphActionPresentation.needsName ? (
+					<label {...stylex.attrs(styles.graphActionField)}>
+						<span>
+							{_props.pendingGraphActionPresentation.nameLabel ?? "Name"}
+						</span>
 						<input
-							value={graphActionName}
-							onInput={(event) => setGraphActionName(event.currentTarget.value)}
-							{...stylex.props(styles.graphActionInput)}
+							value={_props.graphActionName}
+							onInput={(event) =>
+								_props.setGraphActionName(event.currentTarget.value)
+							}
+							{...stylex.attrs(styles.graphActionInput)}
 						/>
 					</label>
 				) : null}
-				{pendingGraphActionPresentation.messageLabel ? (
-					<label {...stylex.props(styles.graphActionField)}>
-						<span>{pendingGraphActionPresentation.messageLabel}</span>
+				{_props.pendingGraphActionPresentation.messageLabel ? (
+					<label {...stylex.attrs(styles.graphActionField)}>
+						<span>{_props.pendingGraphActionPresentation.messageLabel}</span>
 						<textarea
 							rows={2}
-							value={graphActionMessage}
+							value={_props.graphActionMessage}
 							onInput={(event) =>
-								setGraphActionMessage(event.currentTarget.value)
+								_props.setGraphActionMessage(event.currentTarget.value)
 							}
-							{...stylex.props(styles.graphActionInput)}
+							{...stylex.attrs(styles.graphActionInput)}
 						/>
 					</label>
 				) : null}
-				{graphActionResult?.error ? (
-					<p {...stylex.props(styles.refActionError)}>
+				{_props.graphActionResult?.error ? (
+					<p {...stylex.attrs(styles.refActionError)}>
 						<strong>
-							{graphActionResult.errorLabel ?? "Git command failed"}:
+							{_props.graphActionResult.errorLabel ?? "Git command failed"}:
 						</strong>{" "}
-						{graphActionResult.error}
+						{_props.graphActionResult.error}
 					</p>
 				) : null}
-				<div {...stylex.props(styles.refActionButtons)}>
+				<div {...stylex.attrs(styles.refActionButtons)}>
 					<button
 						type="button"
-						disabled={graphActionRunning}
-						onClick={() => setPendingGraphAction(null)}
-						{...stylex.props(styles.refActionSecondary)}
+						disabled={_props.graphActionRunning}
+						onClick={() => _props.setPendingGraphAction(null)}
+						{...stylex.attrs(styles.refActionSecondary)}
 					>
 						Cancel
 					</button>
 					<button
 						type="button"
 						disabled={
-							graphActionRunning ||
-							(pendingGraphActionPresentation.needsName &&
-								!graphActionName.trim())
+							_props.graphActionRunning ||
+							(_props.pendingGraphActionPresentation.needsName &&
+								!_props.graphActionName.trim())
 						}
-						onClick={runGraphAction}
-						{...stylex.props(
-							pendingGraphActionPresentation.danger
+						onClick={_props.runGraphAction}
+						{...stylex.attrs(
+							_props.pendingGraphActionPresentation.danger
 								? styles.graphActionDanger
 								: styles.refActionPrimary,
 						)}
 					>
-						{graphActionRunning
+						{_props.graphActionRunning
 							? "Working…"
-							: pendingGraphActionPresentation.confirm}
+							: _props.pendingGraphActionPresentation.confirm}
 					</button>
 				</div>
 			</div>

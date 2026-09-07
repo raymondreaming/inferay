@@ -1,11 +1,5 @@
-import { hydrateStart, StartClient } from "@octanejs/tanstack-start/client";
-import { hydrateRoot, initializeHydrationEventCapture } from "octane";
-import { initializeAgentCatalog } from "./adapters/backend/http.ts";
-import {
-	hydrateStoredValues,
-	ONBOARDING_DONE_STORAGE_KEY,
-	readStoredBoolean,
-} from "./adapters/storage/stored-values.ts";
+import { render } from "@solidjs/web";
+import { RootComponent } from "./app/components/RootComponent/index.tsx";
 import {
 	applyAppBackgroundSurfaces,
 	applyAppFont,
@@ -17,6 +11,12 @@ import {
 import { preloadSkills } from "./modules/skills/hooks/useSkills.tsx";
 import { initializeAgentState } from "./modules/workspace/hooks/useWorkspaceState.tsx";
 import { restoreSyntaxTheme } from "./shared/hooks/useSyntaxHighlight.tsx";
+import {
+	hydrateStoredValues,
+	initializeAgentCatalog,
+	ONBOARDING_DONE_STORAGE_KEY,
+	readStoredBoolean,
+} from "./shared/lib/native.tsx";
 
 let restoreStartupContent: (() => void) | undefined;
 while (true) {
@@ -41,14 +41,16 @@ while (true) {
 		notice.append(retry);
 		container?.replaceChildren(notice);
 		await new Promise<void>((resolve) =>
-			retry.addEventListener("click", () => resolve(), { once: true }),
+			retry.addEventListener("click", () => resolve(), {
+				once: true,
+			}),
 		);
 	}
 }
 
 // The desktop host uses a fresh loopback origin on each launch, so the durable
 // onboarding value is restored from the native store immediately above. Move
-// away from a prerendered entry route before TanStack hydrates that stale URL.
+// away from a prerendered entry route before rendering the application.
 const initialPath = window.location.pathname.replace(/\/+$/, "") || "/";
 const entryPath = readStoredBoolean(ONBOARDING_DONE_STORAGE_KEY)
 	? "/"
@@ -59,20 +61,14 @@ if (
 ) {
 	window.history.replaceState(window.history.state, "", entryPath);
 }
-
 applyAppTheme(loadAppThemeId());
 applyAppFont(loadAppFontId());
 applyAppBackgroundSurfaces(loadAppBackgroundSettings().mode);
 restoreSyntaxTheme();
-
 const idle =
 	window.requestIdleCallback ??
 	((callback: IdleRequestCallback) => window.setTimeout(callback, 150));
 idle(() => void preloadSkills());
-
-initializeHydrationEventCapture();
-
-const router = await hydrateStart();
 const container = document.getElementById("__app");
 if (!container) throw new Error("Missing application root.");
-hydrateRoot(container, StartClient, { router });
+render(() => <RootComponent />, container);

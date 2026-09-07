@@ -1,39 +1,34 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import { InlineDirectoryPicker } from "../../../workspace/components/InlineDirectoryPicker/index.tsx";
 import { DirectoryPickerModal } from "./DirectoryPickerModal.tsx";
 import { styles } from "./styles.ts";
-
-export function ChatWorkspacePicker({
-	savePendingWorkspaceSelection,
-	onDirectoryCancel,
-	paneId,
-}: {
+export function ChatWorkspacePicker(_props: {
 	savePendingWorkspaceSelection: (paths: string[]) => void;
 	onDirectoryCancel: ((paneId: string) => void) | undefined;
 	paneId: string;
 }) {
 	return (
-		<div {...stylex.props(styles.directoryPickerWrap)}>
+		<div {...stylex.attrs(styles.directoryPickerWrap)}>
 			<DirectoryPickerModal>
-				<div {...stylex.props(styles.directoryPickerInner)}>
+				<div {...stylex.attrs(styles.directoryPickerInner)}>
 					<InlineDirectoryPicker
 						onSelect={(path) => {
-							if (path) savePendingWorkspaceSelection([path]);
+							if (path) _props.savePendingWorkspaceSelection([path]);
 							else {
-								savePendingWorkspaceSelection([]);
-								onDirectoryCancel?.(paneId);
+								_props.savePendingWorkspaceSelection([]);
+								_props.onDirectoryCancel?.(_props.paneId);
 							}
 						}}
 						onCancel={() => {
-							savePendingWorkspaceSelection([]);
-							onDirectoryCancel?.(paneId);
+							_props.savePendingWorkspaceSelection([]);
+							_props.onDirectoryCancel?.(_props.paneId);
 						}}
 						multiSelect
 						showStartButton={false}
 						onSelectionChange={(paths) => {
-							savePendingWorkspaceSelection(paths);
+							_props.savePendingWorkspaceSelection(paths);
 						}}
-						onMultiSelect={savePendingWorkspaceSelection}
+						onMultiSelect={_props.savePendingWorkspaceSelection}
 					/>
 				</div>
 			</DirectoryPickerModal>

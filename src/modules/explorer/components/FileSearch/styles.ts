@@ -1,5 +1,4 @@
-import * as stylex from "@octanejs/stylex";
-import type { CSSProperties } from "react";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
@@ -8,9 +7,12 @@ import {
 	layer,
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
-
+import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 export const styles = stylex.create({
-	root: { position: "relative", minWidth: controlSize._0 },
+	root: {
+		position: "relative",
+		minWidth: controlSize._0,
+	},
 	rootShellClosed: {
 		width: controlSize._6,
 	},
@@ -40,7 +42,10 @@ export const styles = stylex.create({
 		backgroundImage: effect.controlDepth,
 		paddingInline: controlSize._2,
 	},
-	searchIcon: { flexShrink: 0, color: color.textMuted },
+	searchIcon: {
+		flexShrink: 0,
+		color: color.textMuted,
+	},
 	panelTrigger: {
 		display: "flex",
 		width: controlSize._6,
@@ -81,7 +86,9 @@ export const styles = stylex.create({
 		backgroundColor: color.transparent,
 		color: color.textMain,
 		fontSize: font.size_2,
-		"::placeholder": { color: color.textMuted },
+		"::placeholder": {
+			color: color.textMuted,
+		},
 	},
 	menuAnchor: {
 		position: "absolute",
@@ -101,7 +108,10 @@ export const styles = stylex.create({
 		boxShadow: "none",
 		padding: controlSize._1,
 	},
-	menuShell: { left: controlSize._0, width: "max(100%, 330px)" },
+	menuShell: {
+		left: controlSize._0,
+		width: "max(100%, 330px)",
+	},
 	menuPanel: {
 		left: controlSize._2,
 		right: controlSize._2,
@@ -172,11 +182,14 @@ export const styles = stylex.create({
 		textAlign: "center",
 	},
 });
-
 export function getFileSearchLiquidStyle(): CSSProperties {
-	return { display: "flex", width: "100%" } as CSSProperties;
+	return {
+		display: "flex",
+		width: "100%",
+	} as CSSProperties;
 }
-
 export function getFileSearchElementStyle(): CSSProperties {
-	return { width: "100%" } as CSSProperties;
+	return {
+		width: "100%",
+	} as CSSProperties;
 }

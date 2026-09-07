@@ -4,7 +4,7 @@ import { parse } from "@babel/parser";
 import type { Node } from "@babel/types";
 
 const root = resolve(import.meta.dir, "..");
-const bridge = join(root, "src/adapters/presentation/model.ts");
+const bridge = join(root, "src/shared/lib/native.tsx");
 const operations = new Set(
 	[
 		...readFileSync(
@@ -35,7 +35,7 @@ for (const file of files(join(root, "src"))) {
 	for (const node of ast.program.body) {
 		if (
 			node.type !== "ImportDeclaration" ||
-			!node.source.value.endsWith("/presentation/model.ts")
+			!node.source.value.endsWith("/lib/native.tsx")
 		)
 			continue;
 		for (const specifier of node.specifiers)

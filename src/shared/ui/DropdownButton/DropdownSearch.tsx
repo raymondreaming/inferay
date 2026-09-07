@@ -1,30 +1,26 @@
-import * as stylex from "@octanejs/stylex";
-import { setInputValue } from "../../lib/data.ts";
+import * as stylex from "@stylexjs/stylex";
+import { assignRef, setInputValue } from "../../lib/dom.tsx";
 import { styles } from "./styles.ts";
-
-export function DropdownSearch({
-	searchRef,
-	search,
-	setSearch,
-	setOpen,
-}: {
-	searchRef: { current: HTMLInputElement | null };
+export function DropdownSearch(_props: {
+	searchRef: {
+		current: HTMLInputElement | null;
+	};
 	search: string;
 	setSearch: (value: string) => void;
 	setOpen: (value: boolean) => void;
 }) {
 	return (
-		<div {...stylex.props(styles.searchWrap)}>
+		<div {...stylex.attrs(styles.searchWrap)}>
 			<input
-				ref={searchRef}
+				ref={(_element) => assignRef(_props.searchRef, _element)}
 				type="text"
-				value={search}
-				onInput={setInputValue.bind(null, setSearch)}
+				value={_props.search}
+				onInput={setInputValue.bind(null, _props.setSearch)}
 				placeholder="Search..."
-				{...stylex.props(styles.searchInput)}
+				{...stylex.attrs(styles.searchInput)}
 				onKeyDown={(e) => {
 					if (e.key === "Escape") {
-						setOpen(false);
+						_props.setOpen(false);
 					}
 				}}
 			/>

@@ -1,13 +1,11 @@
-import * as stylex from "@octanejs/stylex";
-import type { CSSProperties } from "react";
-
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
 	layer,
 	radius,
 } from "../../../design-system/styles.stylex.ts";
-
+import type { CSSProperties } from "../../../shared/lib/dom.tsx";
 export const styles = stylex.create({
 	shell: {
 		backgroundColor: "var(--inferay-app-background, #050506)",
@@ -69,11 +67,13 @@ export const styles = stylex.create({
 		minWidth: controlSize._0,
 		overflow: "hidden",
 	},
-	mainContent: { flex: 1, minWidth: controlSize._0, overflow: "hidden" },
+	mainContent: {
+		flex: 1,
+		minWidth: controlSize._0,
+		overflow: "hidden",
+	},
 });
-
-export const shellThemeProps = stylex.props(styles.shell);
-
+export const shellThemeProps = stylex.attrs(styles.shell);
 export function getAppLayoutDivStyle(
 	inferayappbackground: string | number | undefined,
 	inferayglassblur: string | number | undefined,
@@ -85,14 +85,15 @@ export function getAppLayoutDivStyle(
 		"--inferay-panel-backdrop": inferaypanelbackdrop,
 	} as CSSProperties;
 }
-
 export function getAppLayoutBackgroundLayerStyle(
 	backgroundImage: CSSProperties["backgroundImage"],
 	filter: CSSProperties["filter"],
 ): CSSProperties {
-	return { backgroundImage: backgroundImage, filter: filter } as CSSProperties;
+	return {
+		backgroundImage: backgroundImage,
+		filter: filter,
+	} as CSSProperties;
 }
-
 export function getAppLayoutGlassBackdropStyle(
 	WebkitBackdropFilter: CSSProperties["WebkitBackdropFilter"],
 	backdropFilter: CSSProperties["backdropFilter"],
@@ -104,9 +105,10 @@ export function getAppLayoutGlassBackdropStyle(
 		backgroundColor: backgroundColor,
 	} as CSSProperties;
 }
-
 export function getAppLayoutBackgroundShadeStyle(
 	background: CSSProperties["background"],
 ): CSSProperties {
-	return { background: background } as CSSProperties;
+	return {
+		background: background,
+	} as CSSProperties;
 }

@@ -1,9 +1,8 @@
-import * as stylex from "@octanejs/stylex";
-
+import * as stylex from "@stylexjs/stylex";
+import { For } from "solid-js";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
-
+import { ariaValue, assignRef } from "../../../../shared/lib/dom.tsx";
 import { IconCheck } from "../../../../shared/ui/Icons/index.tsx";
-
 import { styles } from "./styles.ts";
 import type { useChatComposerState } from "./useChatComposerState.tsx";
 
@@ -15,21 +14,16 @@ type ProviderConfigMenuProps = Pick<
 		ReturnType<typeof useChatComposerState>["activeControl"]
 	>;
 };
-export function ProviderConfigMenu({
-	agentConfigMenuRef,
-	activeControl,
-	setActiveConfig,
-	agentConfigButtonRef,
-}: ProviderConfigMenuProps) {
+export function ProviderConfigMenu(_props: ProviderConfigMenuProps) {
 	return (
 		<div
-			ref={agentConfigMenuRef}
-			{...stylex.props(styles.providerConfigAnchor)}
+			ref={(_element) => assignRef(_props.agentConfigMenuRef, _element)}
+			{...stylex.attrs(styles.providerConfigAnchor)}
 		>
 			<div
 				role="menu"
-				aria-label={activeControl.title}
-				{...stylex.props(styles.providerConfigMenu)}
+				aria-label={ariaValue(_props.activeControl.title)}
+				{...stylex.attrs(styles.providerConfigMenu)}
 				onKeyDown={(event) => {
 					const buttons = Array.from(
 						event.currentTarget.querySelectorAll<HTMLButtonElement>("button"),
@@ -51,35 +45,40 @@ export function ProviderConfigMenu({
 						event.preventDefault();
 						buttons[next]?.focus();
 					}
-					if (event.key === "Tab") setActiveConfig(null);
+					if (event.key === "Tab") _props.setActiveConfig(null);
 				}}
 			>
-				{activeControl.options.map((option) => (
-					<button
-						key={option.id}
-						type="button"
-						role="menuitemradio"
-						aria-checked={option.id === activeControl.value}
-						tabIndex={-1}
-						onClick={() => {
-							activeControl.onChange(option.id);
-							setActiveConfig(null);
-							agentConfigButtonRef.current?.focus();
-						}}
-						{...stylex.props(
-							styles.providerConfigChoice,
-							option.id === activeControl.value &&
-								styles.providerConfigChoiceActive,
+				{
+					<For each={_props.activeControl.options} keyed={(row) => row.id}>
+						{(option) => (
+							<button
+								type="button"
+								role="menuitemradio"
+								aria-checked={ariaValue(
+									option().id === _props.activeControl.value,
+								)}
+								tabindex={-1}
+								onClick={() => {
+									_props.activeControl.onChange(option().id);
+									_props.setActiveConfig(null);
+									_props.agentConfigButtonRef.current?.focus();
+								}}
+								{...stylex.attrs(
+									styles.providerConfigChoice,
+									option().id === _props.activeControl.value &&
+										styles.providerConfigChoiceActive,
+								)}
+							>
+								<span {...stylex.attrs(styles.providerConfigLabel)}>
+									{option().label}
+								</span>
+								{option().id === _props.activeControl.value && (
+									<IconCheck size={iconSize.sm} />
+								)}
+							</button>
 						)}
-					>
-						<span {...stylex.props(styles.providerConfigLabel)}>
-							{option.label}
-						</span>
-						{option.id === activeControl.value && (
-							<IconCheck size={iconSize.sm} />
-						)}
-					</button>
-				))}
+					</For>
+				}
 			</div>
 		</div>
 	);

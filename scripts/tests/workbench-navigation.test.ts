@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { parse } from "@babel/parser";
 import { QueryClient } from "@tanstack/query-core";
-import { project } from "../../src/adapters/presentation/model.ts";
+import { project } from "../../src/shared/lib/native.tsx";
 
-// Load the production models without compiling the Octane UI runtime. The
+// Load the production models without compiling the Solid UI runtime. The
 // transition itself runs through the built Rust Wasm, just as in the renderer.
 function functions(
 	path: string,
@@ -256,4 +256,45 @@ test("compact diff facts preserve full-payload presentation for every view", () 
 				expect(buildDiffViewerModel(diff, path, viewMode)).toEqual(
 					project("diffViewer", { diff, filePath: path, viewMode }),
 				);
+});
+
+test("repository tab selection matches native preference order", () => {
+	const state = {
+		selectedGroupId: "active",
+		groups: [
+			{ id: "other", selectedPaneId: "remembered" },
+			{ id: "active", selectedPaneId: "elsewhere" },
+		],
+		repositories: {
+			workspaces: [
+				{
+					cwd: "/repo",
+					entries: [
+						{ groupId: "other", pane: { id: "first" } },
+						{ groupId: "other", pane: { id: "remembered" } },
+						{ groupId: "active", pane: { id: "current" } },
+					],
+				},
+			],
+		},
+	};
+	expect(
+		project<{ groupId: string; paneId: string } | null>("repositorySelection", {
+			state,
+			cwd: "/repo",
+		}),
+	).toEqual({ groupId: "active", paneId: "current" });
+	state.selectedGroupId = "unrelated";
+	expect(
+		project<{ groupId: string; paneId: string } | null>("repositorySelection", {
+			state,
+			cwd: "/repo",
+		}),
+	).toEqual({ groupId: "other", paneId: "remembered" });
+	expect(
+		project<{ groupId: string; paneId: string } | null>("repositorySelection", {
+			state,
+			cwd: "/missing",
+		}),
+	).toBeNull();
 });

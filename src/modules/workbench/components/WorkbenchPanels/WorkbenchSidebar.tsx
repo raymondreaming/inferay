@@ -1,39 +1,37 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
+import type { Element } from "solid-js";
+import { domStyle } from "../../../../shared/lib/dom.tsx";
 import { sidebarStyle, styles } from "./styles.ts";
-export function WorkbenchSidebar({
-	visible,
-	width,
-	error,
-	onResize,
-	children,
-}: {
+export function WorkbenchSidebar(_props: {
 	visible: boolean;
 	width: number;
 	error: string | null;
 	onResize: (
-		event: PointerEvent & { currentTarget: HTMLButtonElement },
+		event: PointerEvent & {
+			currentTarget: HTMLButtonElement;
+		},
 	) => void;
-	children?: unknown;
+	children?: Element;
 }) {
 	return (
 		<aside
-			{...stylex.props(styles.sidebarShell)}
-			style={sidebarStyle(visible ? width : 0)}
+			{...stylex.attrs(styles.sidebarShell)}
+			style={domStyle(sidebarStyle(_props.visible ? _props.width : 0))}
 		>
-			{error ? (
-				<div role="alert" {...stylex.props(styles.persistenceError)}>
-					{error}
+			{_props.error ? (
+				<div role="alert" {...stylex.attrs(styles.persistenceError)}>
+					{_props.error}
 				</div>
 			) : null}
-			{visible ? (
+			{_props.visible ? (
 				<>
 					<button
 						type="button"
 						aria-label="Resize changes sidebar"
-						onPointerDown={onResize}
-						{...stylex.props(styles.resizeHandle)}
+						onPointerDown={_props.onResize}
+						{...stylex.attrs(styles.resizeHandle)}
 					/>
-					{children}
+					{_props.children}
 				</>
 			) : null}
 		</aside>

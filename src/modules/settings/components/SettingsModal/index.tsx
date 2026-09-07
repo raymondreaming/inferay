@@ -1,13 +1,23 @@
-import * as stylex from "@octanejs/stylex";
-import { useEffect, useRef, useState } from "octane";
+import { Dynamic } from "@solidjs/web";
+import * as stylex from "@stylexjs/stylex";
+import {
+	createEffect,
+	createMemo,
+	createSignal,
+	Loading,
+	onSettled,
+	Show,
+} from "solid-js";
 import { APP_REGION_NO_DRAG_CLASS } from "../../../../app/hooks/useAppAppearance.tsx";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import {
+	ariaValue,
+	domStyle,
 	listenWindowEvent,
 	OPEN_SETTINGS_MODAL_EVENT,
 	type OpenSettingsModalDetail,
 	type SettingsModalTarget,
-} from "../../../../shared/lib/data.ts";
+} from "../../../../shared/lib/dom.tsx";
 import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
 import {
 	IconAgent,
@@ -52,116 +62,128 @@ const SETTINGS_SECTIONS = [
 	description: string;
 	icon: typeof IconAgent;
 }>;
-
 export function SettingsModalHost() {
-	const [open, setOpen] = useState(false);
+	const [open, setOpen] = createSignal(false);
 	const [activeSection, setActiveSection] =
-		useState<SettingsModalTarget>("agents");
-	const contentRef = useRef<HTMLDivElement | null>(null);
-	const activePage =
-		SETTINGS_SECTIONS.find((section) => section.id === activeSection) ??
-		SETTINGS_SECTIONS[0];
-
-	useEffect(
+		createSignal<SettingsModalTarget>("agents");
+	const contentRef = {
+		current: null,
+	} as {
+		current: HTMLDivElement | null;
+	};
+	const activePage = createMemo(
 		() =>
-			listenWindowEvent(OPEN_SETTINGS_MODAL_EVENT, (event) => {
-				const requestedSection = (event as CustomEvent<OpenSettingsModalDetail>)
-					.detail?.section;
-				setActiveSection(
-					SETTINGS_SECTIONS.some((section) => section.id === requestedSection)
-						? requestedSection
-						: "agents",
-				);
-				setOpen(true);
-			}),
-		[],
+			SETTINGS_SECTIONS.find((section) => section.id === activeSection()) ??
+			SETTINGS_SECTIONS[0],
 	);
-	useEffect(() => {
-		if (!open) return;
-		const closeOnEscape = (event: KeyboardEvent) => {
-			if (event.key === "Escape") setOpen(false);
-		};
-		window.addEventListener("keydown", closeOnEscape);
-		return () => window.removeEventListener("keydown", closeOnEscape);
-	}, [open]);
-
-	if (!open) return null;
-	const modalProps = stylex.props(styles.modal);
-	const backdropProps = stylex.props(styles.backdrop);
-
+	onSettled(() => {
+		return listenWindowEvent(OPEN_SETTINGS_MODAL_EVENT, (event) => {
+			const requestedSection = (event as CustomEvent<OpenSettingsModalDetail>)
+				.detail?.section;
+			setActiveSection(
+				SETTINGS_SECTIONS.some((section) => section.id === requestedSection)
+					? requestedSection
+					: "agents",
+			);
+			setOpen(true);
+		});
+	});
+	createEffect(
+		() => [open()],
+		() => {
+			if (!open()) return;
+			const closeOnEscape = (event: KeyboardEvent) => {
+				if (event.key === "Escape") setOpen(false);
+			};
+			window.addEventListener("keydown", closeOnEscape);
+			return () => window.removeEventListener("keydown", closeOnEscape);
+		},
+	);
+	const modalProps = stylex.attrs(styles.modal);
+	const backdropProps = stylex.attrs(styles.backdrop);
 	return (
-		<div
-			role="presentation"
-			onMouseDown={(event) => {
-				if (event.target === event.currentTarget) setOpen(false);
-			}}
-			{...backdropProps}
-			style={inlineStyles.getSettingsModalHostDivStyle()}
-		>
-			<section
-				role="dialog"
-				aria-modal="true"
-				aria-labelledby="settings-modal-title"
-				{...modalProps}
-				className={`${APP_REGION_NO_DRAG_CLASS} ${modalProps.className ?? ""}`}
-				style={inlineStyles.getSettingsModalHostSectionStyle()}
+		<Show when={open()}>
+			<div
+				role="presentation"
+				onMouseDown={(event) => {
+					if (event.target === event.currentTarget) setOpen(false);
+				}}
+				{...backdropProps}
+				style={domStyle(inlineStyles.getSettingsModalHostDivStyle())}
 			>
-				<aside {...stylex.props(styles.sidebar)}>
-					<div {...stylex.props(styles.brand)}>
-						<span {...stylex.props(styles.brandIcon)}>
-							<IconSettings size={iconSize.md} />
-						</span>
-						<strong {...stylex.props(styles.brandTitle)}>Settings</strong>
-					</div>
-					<nav aria-label="Settings sections" {...stylex.props(styles.nav)}>
-						{SETTINGS_SECTIONS.map((section) => {
-							const SectionIcon = section.icon;
-							const selected = section.id === activeSection;
-							return (
-								<button
-									key={section.id}
-									type="button"
-									aria-current={selected ? "page" : undefined}
-									onClick={() => {
-										setActiveSection(section.id);
-										if (contentRef.current) contentRef.current.scrollTop = 0;
-									}}
-									{...stylex.props(
-										styles.navItem,
-										selected && styles.navItemSelected,
-									)}
-								>
-									<SectionIcon size={iconSize.md} />
-									<span>{section.label}</span>
-								</button>
-							);
-						})}
-					</nav>
-				</aside>
-				<div {...stylex.props(styles.main)}>
-					<header {...stylex.props(styles.header)}>
-						<div {...stylex.props(styles.heading)}>
-							<h1 id="settings-modal-title" {...stylex.props(styles.title)}>
-								{activePage.label}
-							</h1>
-							<p {...stylex.props(styles.subtitle)}>{activePage.description}</p>
+				<section
+					role="dialog"
+					aria-modal="true"
+					aria-labelledby="settings-modal-title"
+					{...modalProps}
+					class={`${APP_REGION_NO_DRAG_CLASS} ${modalProps.class ?? ""}`}
+					style={domStyle(inlineStyles.getSettingsModalHostSectionStyle())}
+				>
+					<aside {...stylex.attrs(styles.sidebar)}>
+						<div {...stylex.attrs(styles.brand)}>
+							<span {...stylex.attrs(styles.brandIcon)}>
+								<IconSettings size={iconSize.md} />
+							</span>
+							<strong {...stylex.attrs(styles.brandTitle)}>Settings</strong>
 						</div>
-						<IconButton
-							type="button"
-							onClick={() => setOpen(false)}
-							variant="ghost"
-							size="sm"
-							title="Close settings"
-							aria-label="Close settings"
+						<nav aria-label="Settings sections" {...stylex.attrs(styles.nav)}>
+							{SETTINGS_SECTIONS.map((section) => {
+								const SectionIcon = createMemo(() => section.icon);
+								const selected = createMemo(
+									() => section.id === activeSection(),
+								);
+								return (
+									<button
+										type="button"
+										aria-current={ariaValue(selected() ? "page" : undefined)}
+										onClick={() => {
+											setActiveSection(section.id);
+											if (contentRef.current) contentRef.current.scrollTop = 0;
+										}}
+										{...stylex.attrs(
+											styles.navItem,
+											selected() && styles.navItemSelected,
+										)}
+									>
+										<Dynamic component={SectionIcon()} size={iconSize.md} />
+										<span>{section.label}</span>
+									</button>
+								);
+							})}
+						</nav>
+					</aside>
+					<div {...stylex.attrs(styles.main)}>
+						<header {...stylex.attrs(styles.header)}>
+							<div {...stylex.attrs(styles.heading)}>
+								<h1 id="settings-modal-title" {...stylex.attrs(styles.title)}>
+									{activePage().label}
+								</h1>
+								<p {...stylex.attrs(styles.subtitle)}>
+									{activePage().description}
+								</p>
+							</div>
+							<IconButton
+								type="button"
+								onClick={() => setOpen(false)}
+								variant="ghost"
+								size="sm"
+								title="Close settings"
+								aria-label="Close settings"
+							>
+								<IconX size={iconSize.md} />
+							</IconButton>
+						</header>
+						<div
+							ref={(element) => (contentRef.current = element)}
+							{...stylex.attrs(styles.content)}
 						>
-							<IconX size={iconSize.md} />
-						</IconButton>
-					</header>
-					<div ref={contentRef} {...stylex.props(styles.content)}>
-						<SettingsModalContent section={activeSection} />
+							<Loading fallback={<p role="status">Loading settings…</p>}>
+								<SettingsModalContent section={activeSection()} />
+							</Loading>
+						</div>
 					</div>
-				</div>
-			</section>
-		</div>
+				</section>
+			</div>
+		</Show>
 	);
 }

@@ -1,5 +1,6 @@
-import { useMemo } from "octane";
+import { createMemo } from "solid-js";
 import { useNearViewport } from "../../../../shared/hooks/useNearViewport.tsx";
+import { assignRef, domStyle } from "../../../../shared/lib/dom.tsx";
 import { useNativeEditDiff } from "../../hooks/useNativeEditDiff.tsx";
 import type { NativeChatRender } from "../AgentChatView/useChatConnection.tsx";
 import { EditDiffCard } from "./EditDiffCard.tsx";
@@ -10,49 +11,55 @@ type EditMessage = {
 	render?: Pick<NativeChatRender, "edit">;
 	isStreaming?: boolean;
 };
-
-export function GroupedEditDiff({
-	filePath,
-	edits,
-}: {
+export function GroupedEditDiff(_props: {
 	filePath: string;
 	edits: EditMessage[];
 }) {
-	const fileName = filePath.split("/").pop() || filePath;
-	const { ref, visible } = useNearViewport();
-	const isStreaming = edits.some((edit) => edit.isStreaming);
-	const parsedEdits = useMemo(
+	const fileName = createMemo(
+		() => _props.filePath.split("/").pop() || _props.filePath,
+	);
+	const _source = useNearViewport();
+	const isStreaming = createMemo(() =>
+		_props.edits.some((edit) => edit.isStreaming),
+	);
+	const parsedEdits = createMemo(() =>
+		_props.edits.flatMap((edit) =>
+			edit.render?.edit ? [edit.render.edit] : [],
+		),
+	);
+	const _source2 = useNativeEditDiff(
+		() => "",
+		() => "",
+		() => isStreaming() || !_source.visible,
+		() => parsedEdits(),
+	);
+	const showCard = createMemo(
 		() =>
-			edits.flatMap((edit) => (edit.render?.edit ? [edit.render.edit] : [])),
-		[edits],
+			_source2.hunks.length > 0 ||
+			_source2.loading ||
+			_source2.error ||
+			isStreaming() ||
+			!_source.visible,
 	);
-	const { hunks, loading, error } = useNativeEditDiff(
-		"",
-		"",
-		isStreaming || !visible,
-		parsedEdits,
-	);
-
-	const showCard =
-		hunks.length > 0 || loading || error || isStreaming || !visible;
 	return (
 		<div
-			ref={ref}
-			style={inlineStyles.getGroupedEditDiffDivStyle(
-				showCard && !hunks.length ? 28 : undefined,
+			ref={(_element) => assignRef(_source.ref, _element)}
+			style={domStyle(
+				inlineStyles.getGroupedEditDiffDivStyle(
+					showCard() && !_source2.hunks.length ? 28 : undefined,
+				),
 			)}
 		>
-			{showCard && (
+			{showCard() && (
 				<EditDiffCard
-					fileName={fileName}
-					filePath={filePath}
-					hunks={hunks}
-					error={error}
-					isStreaming={isStreaming || loading || !visible}
+					fileName={fileName()}
+					filePath={_props.filePath}
+					hunks={_source2.hunks}
+					error={_source2.error}
+					isStreaming={isStreaming() || _source2.loading || !_source.visible}
 				/>
 			)}
 		</div>
 	);
 }
-
 export { MiniEditDiff } from "./MiniEditDiff.tsx";

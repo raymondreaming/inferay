@@ -1,4 +1,5 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo, onSettled } from "solid-js";
 import type { ChatListRow } from "../../../../../build/presentation/contracts/ChatListRow.ts";
 import type { CheckpointMeta } from "../../../../../build/presentation/contracts/CheckpointMeta.ts";
 import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
@@ -7,73 +8,66 @@ import { Bubble } from "./Bubble.tsx";
 import { CheckpointMarker } from "./CheckpointMarker.tsx";
 import { styles } from "./styles.ts";
 import { ToolTimeline } from "./ToolTimeline.tsx";
-export function ChatRenderRow({
-	item,
-	index,
-	rowKey,
-	paneId,
-	expandedTools,
-	toggleTool,
-	messages,
-	checkpoint,
-	revertCheckpoint,
-	handleSendMessage,
-	onMdFileClick,
-	slashCommandNames,
-}: {
+export function ChatRenderRow(_props: {
+	observeRow: (element: HTMLDivElement) => () => void;
 	item: ChatListRow;
 	index: number;
 	rowKey: string;
 	paneId: string;
 	expandedTools: Set<string>;
 	toggleTool: (id: string) => void;
-	messages: ChatMessage[];
+	messages: readonly ChatMessage[];
 	checkpoint: CheckpointMeta | undefined;
 	revertCheckpoint: (id: string) => void;
 	handleSendMessage: ((text: string) => void) | undefined;
 	onMdFileClick: ((path: string) => void) | undefined;
 	slashCommandNames: readonly string[];
 }) {
-	const msg = item.type === "message" ? messages[item.index]! : null;
+	let element: HTMLDivElement | undefined;
+	onSettled(() => (element ? _props.observeRow(element) : undefined));
+	const msg = createMemo(() =>
+		_props.item.type === "message" ? _props.messages[_props.item.index]! : null,
+	);
 	return (
 		<div
-			data-chat-row-key={rowKey}
-			data-chat-row-index={index}
-			{...stylex.props(
+			ref={(value) => (element = value)}
+			data-chat-row-key={_props.rowKey}
+			data-chat-row-index={_props.index}
+			{...stylex.attrs(
 				styles.messageRow,
-				item.type === "tool-group" &&
-					item.continuesAfter &&
+				_props.item.type === "tool-group" &&
+					_props.item.continuesAfter &&
 					styles.continuingToolRow,
 			)}
 		>
-			{item.type === "edit-group" ? (
+			{_props.item.type === "edit-group" ? (
 				<GroupedEditDiff
-					filePath={item.filePath}
-					edits={messages.slice(item.start, item.end)}
+					filePath={_props.item.filePath}
+					edits={_props.messages.slice(_props.item.start, _props.item.end)}
 				/>
-			) : item.type === "tool-group" ? (
+			) : _props.item.type === "tool-group" ? (
 				<ToolTimeline
-					tools={[messages[item.index]!]}
-					continuesAfter={item.continuesAfter}
-					expandedTools={expandedTools}
-					onToggle={toggleTool}
+					tools={[_props.messages[_props.item.index]!]}
+					continuesAfter={_props.item.continuesAfter}
+					expandedTools={_props.expandedTools}
+					onToggle={_props.toggleTool}
 				/>
 			) : (
-				msg && (
+				msg() && (
 					<>
 						<Bubble
-							paneId={paneId}
-							msg={msg}
-							collapsed={!expandedTools.has(msg.id)}
-							onToggle={toggleTool}
-							onSendMessage={handleSendMessage}
-							onMdFileClick={onMdFileClick}
-							slashCommandNames={slashCommandNames}
+							paneId={_props.paneId}
+							msg={msg()!}
+							collapsed={!_props.expandedTools.has(msg()!.id)}
+							onToggle={_props.toggleTool}
+							onSendMessage={_props.handleSendMessage}
+							onMdFileClick={_props.onMdFileClick}
+							slashCommandNames={_props.slashCommandNames}
 						/>
-						{checkpoint && (
+						{_props.checkpoint && (
 							<CheckpointMarker
-								checkpoint={checkpoint}
-								onRevert={revertCheckpoint}
+								checkpoint={_props.checkpoint}
+								onRevert={_props.revertCheckpoint}
 							/>
 						)}
 					</>

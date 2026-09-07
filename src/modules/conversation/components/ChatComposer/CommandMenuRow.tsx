@@ -1,62 +1,67 @@
-import * as stylex from "@octanejs/stylex";
-import { memo } from "octane";
-import type React from "react";
+import * as stylex from "@stylexjs/stylex";
 import type { SlashCommand } from "../../../../../build/presentation/contracts/SlashCommand.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { openSkills } from "../../../../shared/lib/data.ts";
+import type { Dispatch, StateUpdate } from "../../../../shared/lib/dom.tsx";
+import { ariaValue, openSkills } from "../../../../shared/lib/dom.tsx";
 import { IconPencil } from "../../../../shared/ui/Icons/index.tsx";
 import type { SlashMenuState } from "../../hooks/useAgentChatMenus.tsx";
 import { styles } from "./styles.ts";
-
-export const CommandMenuRow = memo(function CommandMenuRow({
-	command,
-	index,
-	selected,
-	selectCommand,
-	setSlashMenu,
-}: {
+export const CommandMenuRow = function CommandMenuRow(_props: {
 	command: SlashCommand;
 	index: number;
 	selected: boolean;
 	selectCommand: (idx: number) => void;
-	setSlashMenu: React.Dispatch<React.SetStateAction<SlashMenuState>>;
+	setSlashMenu: Dispatch<StateUpdate<SlashMenuState>>;
 }) {
 	return (
-		<div {...stylex.props(styles.commandRowWrap)}>
+		<div {...stylex.attrs(styles.commandRowWrap)}>
 			<button
 				type="button"
-				onClick={() => selectCommand(index)}
+				onClick={() => _props.selectCommand(_props.index)}
 				onMouseEnter={() =>
-					setSlashMenu((prev) =>
-						prev.selectedIdx === index ? prev : { ...prev, selectedIdx: index },
+					_props.setSlashMenu((prev) =>
+						prev.selectedIdx === _props.index
+							? prev
+							: {
+									...prev,
+									selectedIdx: _props.index,
+								},
 					)
 				}
-				{...stylex.props(
+				{...stylex.attrs(
 					styles.commandRow,
-					selected && styles.commandRowActive,
+					_props.selected && styles.commandRowActive,
 				)}
 			>
-				<span {...stylex.props(styles.commandTitleLine)}>
-					<span {...stylex.props(styles.commandName)}>/{command.name}</span>
-					{command.isLocalCommand && (
-						<span {...stylex.props(styles.commandBadge)}>Native</span>
+				<span {...stylex.attrs(styles.commandTitleLine)}>
+					<span {...stylex.attrs(styles.commandName)}>
+						/{_props.command.name}
+					</span>
+					{_props.command.isLocalCommand && (
+						<span {...stylex.attrs(styles.commandBadge)}>Native</span>
 					)}
 				</span>
 			</button>
-			{command.isFromLibrary && command.id && (
+			{_props.command.isFromLibrary && _props.command.id && (
 				<button
 					type="button"
-					title={`Edit /${command.name}`}
-					aria-label={`Edit /${command.name}`}
+					title={`Edit /${_props.command.name}`}
+					aria-label={ariaValue(`Edit /${_props.command.name}`)}
 					onClick={() => {
-						setSlashMenu((prev) => ({ ...prev, show: false }));
-						openSkills({ mode: "edit", skillId: command.id! });
+						_props.setSlashMenu((prev) => ({
+							...prev,
+							show: false,
+						}));
+						openSkills({
+							mode: "edit",
+							skillId: _props.command.id!,
+						});
 					}}
-					{...stylex.props(styles.commandEdit)}
+					{...stylex.attrs(styles.commandEdit)}
 				>
 					<IconPencil size={iconSize.sm} />
 				</button>
 			)}
 		</div>
 	);
-});
+};

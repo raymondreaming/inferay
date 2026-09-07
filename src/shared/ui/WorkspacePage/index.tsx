@@ -1,39 +1,37 @@
-import * as stylex from "@octanejs/stylex";
-import type { Octane } from "octane/jsx-runtime";
+import type { JSX } from "@solidjs/web";
+import * as stylex from "@stylexjs/stylex";
+import type { Element } from "solid-js";
+import { createMemo, omit } from "solid-js";
 import { styles } from "./styles.ts";
 
 interface WorkspaceEmptyStateProps
-	extends Omit<Octane.HTMLAttributes<HTMLDivElement>, "title"> {
-	icon?: unknown;
-	title: unknown;
-	description?: unknown;
-	action?: unknown;
+	extends Omit<JSX.HTMLAttributes<HTMLDivElement>, "title"> {
+	icon?: Element;
+	title: import("solid-js").Element;
+	description?: import("solid-js").Element;
+	action?: import("solid-js").Element;
 }
-
-export function WorkspaceEmptyState({
-	icon,
-	title,
-	description,
-	action,
-	className = "",
-	...props
-}: WorkspaceEmptyStateProps) {
-	const emptyProps = stylex.props(styles.emptyState);
+export function WorkspaceEmptyState(_props: WorkspaceEmptyStateProps) {
+	const emptyProps = createMemo(() => stylex.attrs(styles.emptyState));
 	return (
 		<div
-			{...emptyProps}
-			className={`${emptyProps.className ?? ""} ${className}`}
-			{...props}
+			{...emptyProps()}
+			class={`${emptyProps().class ?? ""} ${_props.class === undefined ? "" : _props.class}`}
+			{...omit(_props, "icon", "title", "description", "action", "class")}
 		>
-			{icon ? <span {...stylex.props(styles.emptyIcon)}>{icon}</span> : null}
-			<div {...stylex.props(styles.emptyText)}>
-				<span {...stylex.props(styles.emptyTitle)}>{title}</span>
-				{description ? (
-					<span {...stylex.props(styles.emptyDescription)}>{description}</span>
+			{_props.icon ? (
+				<span {...stylex.attrs(styles.emptyIcon)}>{_props.icon}</span>
+			) : null}
+			<div {...stylex.attrs(styles.emptyText)}>
+				<span {...stylex.attrs(styles.emptyTitle)}>{_props.title}</span>
+				{_props.description ? (
+					<span {...stylex.attrs(styles.emptyDescription)}>
+						{_props.description}
+					</span>
 				) : null}
 			</div>
-			{action ? (
-				<div {...stylex.props(styles.emptyAction)}>{action}</div>
+			{_props.action ? (
+				<div {...stylex.attrs(styles.emptyAction)}>{_props.action}</div>
 			) : null}
 		</div>
 	);

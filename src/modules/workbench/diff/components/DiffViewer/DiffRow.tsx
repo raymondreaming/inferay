@@ -1,15 +1,19 @@
-import * as stylex from "@octanejs/stylex";
-import { memo } from "octane";
-import type { CSSProperties } from "react";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo, For } from "solid-js";
 import type { GitDiffLine } from "../../../../../../build/presentation/contracts/GitDiffLine.ts";
 import type { SyntaxToken } from "../../../../../shared/hooks/useSyntaxHighlight.tsx";
+import {
+	type CSSProperties,
+	domStyle,
+} from "../../../../../shared/lib/dom.tsx";
 import { DiffGutterCells } from "./DiffGutterCells.tsx";
 import { MAX_RENDERED_LINE_CHARS } from "./index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { DIFF_CONFIG, diffStyles, LINE_H } from "./styles.ts";
 
-type DiffRowStyle = CSSProperties & { "--hover-bg"?: string };
-
+type DiffRowStyle = CSSProperties & {
+	"--hover-bg"?: string;
+};
 function getDiffRowBg(line: GitDiffLine, isHighlighted?: boolean) {
 	const isAdd = line.type === "add";
 	const isRemove = line.type === "remove";
@@ -26,16 +30,7 @@ function getDiffRowBg(line: GitDiffLine, isHighlighted?: boolean) {
 			? DIFF_CONFIG.removeBg
 			: "transparent";
 }
-
-export const DiffRow = memo(function DiffRow({
-	clipContent = false,
-	line,
-	highlightedTokens,
-	isHighlighted,
-	minWidth,
-	hideGutter,
-	gutterOffset = 0,
-}: {
+export const DiffRow = function DiffRow(_props: {
 	clipContent?: boolean;
 	line: GitDiffLine;
 	highlightedTokens?: SyntaxToken[];
@@ -44,80 +39,114 @@ export const DiffRow = memo(function DiffRow({
 	hideGutter?: boolean;
 	gutterOffset?: number;
 }) {
-	if (line.type === "hunk") {
-		return (
-			<div
-				{...stylex.props(diffStyles.hunkSeparator)}
-				style={inlineStyles.getDiffRowHunkSeparatorStyle(
-					minWidth || "100%",
-					hideGutter ? gutterOffset + 8 : undefined,
-				)}
-			>
-				<span {...stylex.props(diffStyles.hunkText)}>{line.content}</span>
-			</div>
-		);
-	}
-
-	if (line.type === "spacer") {
-		return (
-			<div
-				{...stylex.props(diffStyles.spacer)}
-				style={inlineStyles.getDiffRowSpacerStyle(minWidth || "100%")}
-			/>
-		);
-	}
-
-	const isAdd = line.type === "add";
-	const isRemove = line.type === "remove";
-	const hoverBg = isAdd
-		? DIFF_CONFIG.addBgHover
-		: isRemove
-			? DIFF_CONFIG.removeBgHover
-			: undefined;
-	const bgColor = getDiffRowBg(line, isHighlighted);
-
-	const rowProps = stylex.props(diffStyles.row);
-	const content =
-		line.content.length > MAX_RENDERED_LINE_CHARS
-			? `${line.content.slice(0, MAX_RENDERED_LINE_CHARS)} ... [line truncated for display]`
-			: line.content;
-	const lineContent = highlightedTokens
-		? highlightedTokens.map((token, index) => (
-				<span key={`${index}-${token.text}`} className={`syntax-${token.kind}`}>
-					{token.text}
-				</span>
-			))
-		: content;
-
+	const kind = createMemo(() => _props.line.type);
 	return (
-		<div
-			{...rowProps}
-			className={`diff-row ${rowProps.className ?? ""}`}
-			style={
-				inlineStyles.getDiffRowDivStyle(
-					`${LINE_H}px`,
-					bgColor,
-					isHighlighted
-						? "inset 2px 0 0 var(--color-inferay-accent)"
-						: undefined,
-					minWidth || "100%",
-					hideGutter && gutterOffset ? gutterOffset : undefined,
-					hoverBg,
-				) as DiffRowStyle
-			}
-		>
-			{!hideGutter && <DiffGutterCells line={line} />}
+		<>
+			{(() => {
+				if (kind() === "hunk") {
+					return (
+						<div
+							{...stylex.attrs(diffStyles.hunkSeparator)}
+							style={domStyle(
+								inlineStyles.getDiffRowHunkSeparatorStyle(
+									_props.minWidth || "100%",
+									_props.hideGutter
+										? (_props.gutterOffset === undefined
+												? 0
+												: _props.gutterOffset) + 8
+										: undefined,
+								),
+							)}
+						>
+							<span {...stylex.attrs(diffStyles.hunkText)}>
+								{_props.line.content}
+							</span>
+						</div>
+					);
+				}
+				if (kind() === "spacer") {
+					return (
+						<div
+							{...stylex.attrs(diffStyles.spacer)}
+							style={domStyle(
+								inlineStyles.getDiffRowSpacerStyle(_props.minWidth || "100%"),
+							)}
+						/>
+					);
+				}
+				const isAdd = createMemo(() => _props.line.type === "add");
+				const isRemove = createMemo(() => _props.line.type === "remove");
+				const hoverBg = createMemo(() =>
+					isAdd()
+						? DIFF_CONFIG.addBgHover
+						: isRemove()
+							? DIFF_CONFIG.removeBgHover
+							: undefined,
+				);
+				const bgColor = createMemo(() =>
+					getDiffRowBg(_props.line, _props.isHighlighted),
+				);
+				const rowProps = createMemo(() => stylex.attrs(diffStyles.row));
+				const content = createMemo(() =>
+					_props.line.content.length > MAX_RENDERED_LINE_CHARS
+						? `${_props.line.content.slice(0, MAX_RENDERED_LINE_CHARS)} ... [line truncated for display]`
+						: _props.line.content,
+				);
+				return (
+					<div
+						{...rowProps()}
+						class={`diff-row ${rowProps().class ?? ""}`}
+						style={domStyle(
+							inlineStyles.getDiffRowDivStyle(
+								`${LINE_H}px`,
+								bgColor(),
+								_props.isHighlighted
+									? "inset 2px 0 0 var(--color-inferay-accent)"
+									: undefined,
+								_props.minWidth || "100%",
+								_props.hideGutter &&
+									(_props.gutterOffset === undefined ? 0 : _props.gutterOffset)
+									? _props.gutterOffset === undefined
+										? 0
+										: _props.gutterOffset
+									: undefined,
+								hoverBg(),
+							) as DiffRowStyle,
+						)}
+					>
+						{!_props.hideGutter && <DiffGutterCells line={_props.line} />}
 
-			<span
-				{...stylex.props(diffStyles.content)}
-				style={inlineStyles.getDiffRowContentStyle(
-					DIFF_CONFIG.contentFontSize,
-					clipContent ? 0 : undefined,
-					highlightedTokens ? undefined : "#f2f4f7",
-				)}
-			>
-				{lineContent}
-			</span>
-		</div>
+						<span
+							{...stylex.attrs(diffStyles.content)}
+							style={domStyle(
+								inlineStyles.getDiffRowContentStyle(
+									DIFF_CONFIG.contentFontSize,
+									(
+										_props.clipContent === undefined
+											? false
+											: _props.clipContent
+									)
+										? 0
+										: undefined,
+									_props.highlightedTokens
+										? undefined
+										: "var(--color-syntax-plain)",
+								),
+							)}
+						>
+							{_props.highlightedTokens ? (
+								<For each={_props.highlightedTokens} keyed={false}>
+									{(token, index) => (
+										<span class={`syntax-${token().kind}`}>{token().text}</span>
+									)}
+								</For>
+							) : (
+								content()
+							)}
+						</span>
+					</div>
+				);
+			})()}
+		</>
 	);
-});
+};

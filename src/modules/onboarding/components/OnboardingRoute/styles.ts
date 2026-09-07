@@ -1,9 +1,8 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import {
 	controlSize,
 	palette,
 } from "../../../../design-system/styles.stylex.ts";
-
 export const routeStyles = stylex.create({
 	shell: {
 		backgroundColor: palette.canvas,
@@ -12,6 +11,12 @@ export const routeStyles = stylex.create({
 		height: "100vh",
 		overflow: "hidden",
 	},
-	windowSpacer: { flexShrink: 0, height: "1.5rem" },
-	content: { flex: 1, minHeight: controlSize._0 },
+	windowSpacer: {
+		flexShrink: 0,
+		height: "1.5rem",
+	},
+	content: {
+		flex: 1,
+		minHeight: controlSize._0,
+	},
 });

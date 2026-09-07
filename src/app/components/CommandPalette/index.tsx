@@ -1,40 +1,49 @@
-import * as stylex from "@octanejs/stylex";
-import { useEffect, useMemo, useRef, useState } from "octane";
+import * as stylex from "@stylexjs/stylex";
+import type { Element } from "solid-js";
+import {
+	createEffect,
+	createMemo,
+	createSignal,
+	For,
+	onSettled,
+} from "solid-js";
+import { ariaValue } from "../../../shared/lib/dom.tsx";
 import { IconSearch } from "../../../shared/ui/Icons/index.tsx";
 import { APP_REGION_NO_DRAG_CLASS } from "../../hooks/useAppAppearance.tsx";
 import { styles } from "./styles.ts";
-
 export interface CommandPaletteItem {
 	id: string;
 	label: string;
 	detail: string;
-	icon: unknown;
+	icon: Element;
 	keywords?: string;
 	run: () => void;
 }
-
-export function CommandPalette({
-	commands,
-	showTrigger = true,
-}: {
+export function CommandPalette(_props: {
 	commands: readonly CommandPaletteItem[];
 	showTrigger?: boolean;
 }) {
-	const [open, setOpen] = useState(false);
-	const [query, setQuery] = useState("");
-	const [activeIndex, setActiveIndex] = useState(0);
-	const inputRef = useRef<HTMLInputElement | null>(null);
-	const filteredCommands = useMemo(() => {
-		const needle = query.trim().toLocaleLowerCase();
-		if (!needle) return commands;
-		return commands.filter((command) =>
+	const [open, setOpen] = createSignal(false);
+	const [query, setQuery] = createSignal("");
+	const [activeIndex, setActiveIndex] = createSignal(() => {
+		query();
+		return 0;
+	});
+	const inputRef = {
+		current: null,
+	} as {
+		current: HTMLInputElement | null;
+	};
+	const filteredCommands = createMemo(() => {
+		const needle = query().trim().toLocaleLowerCase();
+		if (!needle) return _props.commands;
+		return _props.commands.filter((command) =>
 			`${command.label} ${command.detail} ${command.keywords ?? ""}`
 				.toLocaleLowerCase()
 				.includes(needle),
 		);
-	}, [commands, query]);
-
-	useEffect(() => {
+	});
+	onSettled(() => {
 		const handleShortcut = (event: KeyboardEvent) => {
 			if (
 				(event.metaKey || event.ctrlKey) &&
@@ -46,60 +55,58 @@ export function CommandPalette({
 		};
 		window.addEventListener("keydown", handleShortcut);
 		return () => window.removeEventListener("keydown", handleShortcut);
-	}, []);
-
-	useEffect(() => {
-		if (!open) {
-			setQuery("");
-			setActiveIndex(0);
-			return;
-		}
-		requestAnimationFrame(() => inputRef.current?.focus());
-	}, [open]);
-
-	useEffect(() => setActiveIndex(0), [query]);
-
+	});
+	createEffect(
+		() => [open()],
+		() => {
+			if (!open()) {
+				setQuery("");
+				setActiveIndex(0);
+				return;
+			}
+			requestAnimationFrame(() => inputRef.current?.focus());
+		},
+	);
 	const execute = (command: CommandPaletteItem | undefined) => {
 		if (!command) return;
 		setOpen(false);
 		command.run();
 	};
-
 	return (
 		<>
-			{showTrigger ? (
+			{(_props.showTrigger === undefined ? true : _props.showTrigger) ? (
 				<button
 					type="button"
 					onClick={() => setOpen(true)}
-					className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.trigger).className ?? ""}`}
+					class={`${APP_REGION_NO_DRAG_CLASS} ${stylex.attrs(styles.trigger).class ?? ""}`}
 					aria-label="Open command palette"
 					title="Open command palette (⌘K)"
 				>
 					<IconSearch size={14} />
-					<span {...stylex.props(styles.triggerLabel)}>Command</span>
-					<kbd {...stylex.props(styles.shortcut)}>⌘K</kbd>
+					<span {...stylex.attrs(styles.triggerLabel)}>Command</span>
+					<kbd {...stylex.attrs(styles.shortcut)}>⌘K</kbd>
 				</button>
 			) : null}
-			{open ? (
+			{open() ? (
 				<div
 					role="presentation"
 					onMouseDown={(event) => {
 						if (event.target === event.currentTarget) setOpen(false);
 					}}
-					{...stylex.props(styles.backdrop)}
+					{...stylex.attrs(styles.backdrop)}
 				>
 					<section
 						role="dialog"
 						aria-modal="true"
 						aria-label="Command palette"
-						{...stylex.props(styles.palette)}
-						className={`${APP_REGION_NO_DRAG_CLASS} ${stylex.props(styles.palette).className ?? ""}`}
+						{...stylex.attrs(styles.palette)}
+						class={`${APP_REGION_NO_DRAG_CLASS} ${stylex.attrs(styles.palette).class ?? ""}`}
 					>
-						<label {...stylex.props(styles.search)}>
+						<label {...stylex.attrs(styles.search)}>
 							<IconSearch size={16} />
 							<input
-								ref={inputRef}
-								value={query}
+								ref={(element) => (inputRef.current = element)}
+								value={query()}
 								onInput={(event) => setQuery(event.currentTarget.value)}
 								onKeyDown={(event) => {
 									if (event.key === "Escape") {
@@ -108,52 +115,56 @@ export function CommandPalette({
 									} else if (event.key === "ArrowDown") {
 										event.preventDefault();
 										setActiveIndex((current) =>
-											Math.min(filteredCommands.length - 1, current + 1),
+											Math.min(filteredCommands().length - 1, current + 1),
 										);
 									} else if (event.key === "ArrowUp") {
 										event.preventDefault();
 										setActiveIndex((current) => Math.max(0, current - 1));
 									} else if (event.key === "Enter") {
 										event.preventDefault();
-										execute(filteredCommands[activeIndex]);
+										execute(filteredCommands()[activeIndex()]);
 									}
 								}}
 								placeholder="What do you want to do?"
 								aria-label="Search commands"
-								{...stylex.props(styles.input)}
+								{...stylex.attrs(styles.input)}
 							/>
-							<kbd {...stylex.props(styles.escape)}>esc</kbd>
+							<kbd {...stylex.attrs(styles.escape)}>esc</kbd>
 						</label>
-						<div role="listbox" {...stylex.props(styles.results)}>
-							{filteredCommands.length ? (
-								filteredCommands.map((command, index) => (
-									<button
-										key={command.id}
-										type="button"
-										role="option"
-										aria-selected={index === activeIndex}
-										onMouseEnter={() => setActiveIndex(index)}
-										onClick={() => execute(command)}
-										{...stylex.props(
-											styles.command,
-											index === activeIndex && styles.commandActive,
-										)}
-									>
-										<span {...stylex.props(styles.commandIcon)}>
-											{command.icon}
-										</span>
-										<span {...stylex.props(styles.commandCopy)}>
-											<span {...stylex.props(styles.commandLabel)}>
-												{command.label}
-											</span>
-											<span {...stylex.props(styles.commandDetail)}>
-												{command.detail}
-											</span>
-										</span>
-									</button>
-								))
+						<div role="listbox" {...stylex.attrs(styles.results)}>
+							{filteredCommands().length ? (
+								<For each={filteredCommands()} keyed={(row) => row.id}>
+									{(command, index) => {
+										const _activeIndexValue = activeIndex();
+										return (
+											<button
+												type="button"
+												role="option"
+												aria-selected={ariaValue(index() === _activeIndexValue)}
+												onMouseEnter={() => setActiveIndex(index())}
+												onClick={() => execute(command())}
+												{...stylex.attrs(
+													styles.command,
+													index() === _activeIndexValue && styles.commandActive,
+												)}
+											>
+												<span {...stylex.attrs(styles.commandIcon)}>
+													{command().icon}
+												</span>
+												<span {...stylex.attrs(styles.commandCopy)}>
+													<span {...stylex.attrs(styles.commandLabel)}>
+														{command().label}
+													</span>
+													<span {...stylex.attrs(styles.commandDetail)}>
+														{command().detail}
+													</span>
+												</span>
+											</button>
+										);
+									}}
+								</For>
 							) : (
-								<div {...stylex.props(styles.empty)}>No matching commands</div>
+								<div {...stylex.attrs(styles.empty)}>No matching commands</div>
 							)}
 						</div>
 					</section>

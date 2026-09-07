@@ -1,28 +1,23 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
+import type { Element } from "solid-js";
 import { diffStyles } from "./styles.ts";
-
-export function DiffViewButton({
-	active,
-	title,
-	icon,
-	onClick,
-}: {
+export function DiffViewButton(_props: {
 	active: boolean;
 	title: string;
-	icon: unknown;
+	icon: Element;
 	onClick: () => void;
 }) {
 	return (
 		<button
 			type="button"
-			title={title}
-			onClick={onClick}
-			{...stylex.props(
+			title={_props.title}
+			onClick={_props.onClick}
+			{...stylex.attrs(
 				diffStyles.viewButton,
-				active && diffStyles.viewButtonActive,
+				_props.active && diffStyles.viewButtonActive,
 			)}
 		>
-			{icon}
+			{_props.icon}
 		</button>
 	);
 }

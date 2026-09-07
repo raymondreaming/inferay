@@ -1,22 +1,30 @@
-import * as stylex from "@octanejs/stylex";
-import { useCallback, useEffect, useRef, useState } from "octane";
+import * as stylex from "@stylexjs/stylex";
+import {
+	type Accessor,
+	createEffect,
+	createMemo,
+	createSignal,
+	onSettled,
+} from "solid-js";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { IconCheck, IconCopy } from "../../../../shared/ui/Icons/index.tsx";
 import { styles } from "./styles.ts";
-
-export function useCopyText(text: string, clearOnError = false) {
-	const [copied, setCopied] = useState(false);
-	const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	useEffect(
-		() => () => {
-			if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
-		},
-		[],
-	);
-
-	const handleCopy = useCallback(() => {
+export function useCopyText(
+	_text: Accessor<string>,
+	_clearOnError: Accessor<boolean> = () => false,
+) {
+	const [copied, setCopied] = createSignal(false);
+	const copiedTimerRef = {
+		current: null,
+	} as {
+		current: ReturnType<typeof setTimeout> | null;
+	};
+	onSettled(() => () => {
+		if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+	});
+	const handleCopy = () => {
 		navigator.clipboard
-			.writeText(text)
+			.writeText(_text())
 			.then(() => {
 				setCopied(true);
 				if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
@@ -26,34 +34,35 @@ export function useCopyText(text: string, clearOnError = false) {
 				}, 1500);
 			})
 			.catch(() => {
-				if (clearOnError) setCopied(false);
+				if (_clearOnError()) setCopied(false);
 			});
-	}, [text, clearOnError]);
-	return { copied, handleCopy };
+	};
+	return {
+		get copied() {
+			return copied();
+		},
+		get handleCopy() {
+			return handleCopy;
+		},
+	};
 }
-
-export function CopyButton({
-	text,
-	className,
-}: {
-	text: string;
-	className?: string;
-}) {
-	const { copied, handleCopy } = useCopyText(text);
-	const copyButtonProps = stylex.props(
-		styles.copyButton,
-		copied ? styles.copyButtonCopied : null,
+export function CopyButton(_props: { text: string; class?: string }) {
+	const _source = useCopyText(() => _props.text);
+	const copyButtonProps = createMemo(() =>
+		stylex.attrs(
+			styles.copyButton,
+			_source.copied ? styles.copyButtonCopied : null,
+		),
 	);
-
 	return (
 		<button
 			type="button"
-			onClick={handleCopy}
-			{...copyButtonProps}
-			className={`${copyButtonProps.className ?? ""} ${className ?? ""}`}
-			title={copied ? "Copied!" : "Copy"}
+			onClick={_source.handleCopy}
+			{...copyButtonProps()}
+			class={`${copyButtonProps().class ?? ""} ${_props.class ?? ""}`}
+			title={_source.copied ? "Copied!" : "Copy"}
 		>
-			{copied ? (
+			{_source.copied ? (
 				<IconCheck size={iconSize.sm} />
 			) : (
 				<IconCopy size={iconSize.sm} />

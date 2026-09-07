@@ -1,79 +1,79 @@
-import * as stylex from "@octanejs/stylex";
-import { Outlet } from "@octanejs/tanstack-router";
-import { Suspense, useEffect } from "octane";
-import type { CSSProperties } from "react";
-import { wsClient } from "../../../adapters/backend/http.ts";
+import * as stylex from "@stylexjs/stylex";
+import type { Element } from "solid-js";
+import { createEffect, Loading, onSettled } from "solid-js";
 import { SettingsModalHost } from "../../../modules/settings/components/SettingsModal/index.tsx";
 import { SkillsModalHost } from "../../../modules/skills/components/SkillsModal/index.tsx";
 import { RepositoryWorkspaceBar } from "../../../modules/workspace/components/RepositoryWorkspaceBar/index.tsx";
 import { WorkspaceSidebar } from "../../../modules/workspace/components/WorkspaceSidebar/index.tsx";
+import { type CSSProperties, domStyle } from "../../../shared/lib/dom.tsx";
+import { wsClient } from "../../../shared/lib/native.tsx";
 import { useAppAppearance } from "../../hooks/useAppAppearance.tsx";
 import { AppHeader } from "../AppHeader/index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { shellThemeProps, styles } from "./styles.ts";
-
-export function AppLayout() {
-	const { background, backgroundUrl } = useAppAppearance();
-	useEffect(() => {
+export function AppLayout(props: { children: Element }) {
+	const _source = useAppAppearance();
+	onSettled(() => {
 		wsClient.connect();
-	}, []);
-
+	});
 	return (
 		<div
 			{...shellThemeProps}
-			data-background-mode={background.mode}
-			style={
+			data-background-mode={_source.background.mode}
+			style={domStyle(
 				inlineStyles.getAppLayoutDivStyle(
-					background.mode === "glass"
+					_source.background.mode === "glass"
 						? "transparent"
 						: "var(--color-inferay-black)",
-					`${background.glassBlur}px`,
-					background.mode === "glass" ? "none" : undefined,
-				) as CSSProperties
-			}
+					`${_source.background.glassBlur}px`,
+					_source.background.mode === "glass" ? "none" : undefined,
+				) as CSSProperties,
+			)}
 		>
 			<div
 				aria-hidden="true"
-				{...stylex.props(styles.backgroundLayer)}
-				style={
+				{...stylex.attrs(styles.backgroundLayer)}
+				style={domStyle(
 					inlineStyles.getAppLayoutBackgroundLayerStyle(
-						backgroundUrl ? `url("${backgroundUrl}")` : "none",
-						`blur(${background.blur}px)`,
-					) as CSSProperties
-				}
+						_source.backgroundUrl ? `url("${_source.backgroundUrl}")` : "none",
+						`blur(${_source.background.blur}px)`,
+					) as CSSProperties,
+				)}
 			/>
-			{background.mode === "glass" ? (
+			{_source.background.mode === "glass" ? (
 				<div
 					aria-hidden="true"
 					data-glass-backdrop="true"
-					{...stylex.props(styles.glassBackdrop)}
-					style={inlineStyles.getAppLayoutGlassBackdropStyle(
-						`blur(${background.glassBlur}px) saturate(115%)`,
-						`blur(${background.glassBlur}px) saturate(115%)`,
-						`color-mix(in srgb, #000000 ${background.glassOpacity}%, transparent)`,
+					{...stylex.attrs(styles.glassBackdrop)}
+					style={domStyle(
+						inlineStyles.getAppLayoutGlassBackdropStyle(
+							`blur(${_source.background.glassBlur}px) saturate(115%)`,
+							`blur(${_source.background.glassBlur}px) saturate(115%)`,
+							`color-mix(in srgb, #000000 ${_source.background.glassOpacity}%, transparent)`,
+						),
 					)}
 				/>
 			) : null}
 			<div
 				aria-hidden="true"
-				{...stylex.props(styles.backgroundShade)}
-				style={inlineStyles.getAppLayoutBackgroundShadeStyle(
-					background.mode === "scene"
-						? `radial-gradient(ellipse at center, rgba(0, 0, 0, ${Math.min(0.78, background.dim / 100 + 0.08)}) 0%, rgba(0, 0, 0, ${Math.min(0.88, background.dim / 100 + 0.18)}) 100%)`
-						: "none",
+				{...stylex.attrs(styles.backgroundShade)}
+				style={domStyle(
+					inlineStyles.getAppLayoutBackgroundShadeStyle(
+						_source.background.mode === "scene"
+							? `radial-gradient(ellipse at center, rgba(0, 0, 0, ${Math.min(0.78, _source.background.dim / 100 + 0.08)}) 0%, rgba(0, 0, 0, ${Math.min(0.88, _source.background.dim / 100 + 0.18)}) 100%)`
+							: "none",
+					),
 				)}
 			/>
 			<AppHeader />
 			<RepositoryWorkspaceBar />
 			<SettingsModalHost />
 			<SkillsModalHost />
-			<div {...stylex.props(styles.appBody, styles.appBodySidebarOpen)}>
+			<div {...stylex.attrs(styles.appBody, styles.appBodySidebarOpen)}>
 				<WorkspaceSidebar />
-				<div {...stylex.props(styles.mainColumn)}>
-					<main {...stylex.props(styles.mainContent)}>
-						<Suspense fallback={null}>
-							<Outlet />
-						</Suspense>
+				<div {...stylex.attrs(styles.mainColumn)}>
+					<main {...stylex.attrs(styles.mainContent)}>
+						<Loading fallback={null}>{props.children}</Loading>
 					</main>
 				</div>
 			</div>

@@ -1,5 +1,5 @@
-import * as stylex from "@octanejs/stylex";
-import { useEffect, useRef, useState } from "octane";
+import * as stylex from "@stylexjs/stylex";
+import { createEffect, createMemo, createSignal, For } from "solid-js";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
 import { IconArrowLeft } from "../../../../shared/ui/Icons/index.tsx";
@@ -7,55 +7,63 @@ import { useAgentContext } from "../../../context/hooks/useAgentContext.tsx";
 import { styles } from "./styles.ts";
 
 type Scope = "project" | "chat";
-
-export function AgentContextPanel({
-	paneId,
-	cwd,
-	onClose,
-}: {
+export function AgentContextPanel(_props: {
 	paneId: string;
 	cwd?: string;
 	onClose: () => void;
 }) {
-	const { context, save } = useAgentContext(paneId, cwd);
-	const [scope, setScope] = useState<Scope>(cwd ? "project" : "chat");
-	const layer = scope === "project" ? context.project : context.chat;
-	const [instructions, setInstructions] = useState("");
-	const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const folderName = cwd
-		? cwd.replace(/\/+$/, "").split("/").pop() || cwd
-		: "Folder";
-
-	useEffect(() => {
-		setInstructions(layer?.instructions ?? "");
-	}, [layer, scope]);
-
+	const _source = useAgentContext(
+		() => _props.paneId,
+		() => _props.cwd,
+	);
+	const [scope, setScope] = createSignal<Scope>(
+		_props.cwd ? "project" : "chat",
+	);
+	const layer = createMemo(() =>
+		scope() === "project" ? _source.context.project : _source.context.chat,
+	);
+	const [instructions, setInstructions] = createSignal(
+		() => layer()?.instructions ?? "",
+	);
+	const saveTimerRef = {
+		current: null,
+	} as {
+		current: ReturnType<typeof setTimeout> | null;
+	};
+	const folderName = createMemo(() =>
+		_props.cwd
+			? _props.cwd.replace(/\/+$/, "").split("/").pop() || _props.cwd
+			: "Folder",
+	);
 	const scheduleSave = (nextInstructions: string) => {
 		if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
 		saveTimerRef.current = setTimeout(() => {
 			saveTimerRef.current = null;
-			void save(scope, nextInstructions, "inherit");
+			void _source.save(scope(), nextInstructions, "inherit");
 		}, 500);
 	};
-
-	useEffect(() => {
-		const handleKeyDown = (event: KeyboardEvent) => {
-			if (event.key === "Escape") onClose();
-		};
-		document.addEventListener("keydown", handleKeyDown);
-		return () => {
-			document.removeEventListener("keydown", handleKeyDown);
-		};
-	}, [onClose]);
-
-	const scopes: Scope[] = [...(cwd ? (["project"] as const) : []), "chat"];
-
+	createEffect(
+		() => [_props.onClose],
+		() => {
+			const handleKeyDown = (event: KeyboardEvent) => {
+				if (event.key === "Escape") _props.onClose();
+			};
+			document.addEventListener("keydown", handleKeyDown);
+			return () => {
+				document.removeEventListener("keydown", handleKeyDown);
+			};
+		},
+	);
+	const scopes = createMemo<Scope[]>(() => [
+		...(_props.cwd ? (["project"] as const) : []),
+		"chat",
+	]);
 	return (
-		<div {...stylex.props(styles.panel)}>
-			<div {...stylex.props(styles.scopeRow)}>
+		<div {...stylex.attrs(styles.panel)}>
+			<div {...stylex.attrs(styles.scopeRow)}>
 				<IconButton
 					type="button"
-					onClick={onClose}
+					onClick={_props.onClose}
 					variant="ghost"
 					size="sm"
 					title="Back to chat"
@@ -63,38 +71,41 @@ export function AgentContextPanel({
 				>
 					<IconArrowLeft size={iconSize.md} />
 				</IconButton>
-				<span {...stylex.props(styles.scopeDivider)} />
-				{scopes.map((item) => (
-					<button
-						type="button"
-						key={item}
-						onClick={() => setScope(item)}
-						{...stylex.props(
-							styles.scopeButton,
-							scope === item && styles.scopeButtonActive,
+				<span {...stylex.attrs(styles.scopeDivider)} />
+				{
+					<For each={scopes()} keyed={(row) => row}>
+						{(item) => (
+							<button
+								type="button"
+								onClick={() => setScope(item())}
+								{...stylex.attrs(
+									styles.scopeButton,
+									scope() === item() && styles.scopeButtonActive,
+								)}
+								title={item() === "project" ? _props.cwd : undefined}
+							>
+								{item() === "chat" ? "This chat" : folderName()}
+							</button>
 						)}
-						title={item === "project" ? cwd : undefined}
-					>
-						{item === "chat" ? "This chat" : folderName}
-					</button>
-				))}
+					</For>
+				}
 			</div>
 
-			<div {...stylex.props(styles.body)}>
-				<span {...stylex.props(styles.fieldLabel)}>Agent Instructions</span>
+			<div {...stylex.attrs(styles.body)}>
+				<span {...stylex.attrs(styles.fieldLabel)}>Agent Instructions</span>
 				<textarea
-					value={instructions}
+					value={instructions()}
 					onInput={(event) => {
 						const next = event.currentTarget.value;
 						setInstructions(next);
 						scheduleSave(next);
 					}}
 					placeholder={
-						scope === "chat"
+						scope() === "chat"
 							? "Instructions for this chat"
-							: `Instructions for ${folderName}`
+							: `Instructions for ${folderName()}`
 					}
-					{...stylex.props(styles.editor)}
+					{...stylex.attrs(styles.editor)}
 				/>
 			</div>
 		</div>

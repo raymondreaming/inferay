@@ -1,7 +1,9 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import type { GitFileEntry } from "../../../../../../build/presentation/contracts/GitFileEntry.ts";
 import type { GitFileTreeNode } from "../../../../../../build/presentation/contracts/GitFileTreeNode.ts";
 import { iconSize } from "../../../../../design-system/styles.stylex.ts";
+import { ariaValue, domStyle } from "../../../../../shared/lib/dom.tsx";
 import {
 	IconChevronRight,
 	IconFolderFill,
@@ -12,7 +14,6 @@ import { FileDiffStats } from "./FileDiffStats.tsx";
 import type { SelectedFile } from "./index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
-
 export function TreeNodeRow(props: {
 	node?: GitFileTreeNode;
 	pathFile?: GitFileEntry;
@@ -20,74 +21,84 @@ export function TreeNodeRow(props: {
 	visibleCounts: Uint32Array;
 	depth?: number;
 	selected: SelectedFile | null;
+	onPrefetchFile?: (file: GitFileEntry | null) => void;
 	onSelect: (f: GitFileEntry) => void;
 	onAction?: (path: string) => void;
 	actionLabel?: string;
-	hoveredActionPath: string | null;
-	onActionHover: (path: string | null) => void;
 	collapsedDirs: Set<string>;
 	toggleDir: (path: string) => void;
 }) {
-	const {
-		node,
-		pathFile,
-		visibleFiles,
-		visibleCounts,
-		depth = 0,
-		selected,
-		onSelect,
-		onAction,
-		actionLabel,
-		hoveredActionPath,
-		onActionHover,
-		collapsedDirs,
-		toggleDir,
-	} = props;
-	const isDir = !!node?.children.length;
-	const isExpanded = !collapsedDirs.has(node?.path ?? "");
-	const file =
-		pathFile ?? (isDir || !node ? undefined : visibleFiles.get(node.path));
-	const separator = file?.path.lastIndexOf("/") ?? -1;
-	if (
-		node &&
-		visibleCounts[node.fileRange[1]] === visibleCounts[node.fileRange[0]]
-	)
-		return null;
-	const active =
-		file && selected?.path === file.path && selected?.staged === file.staged;
-
+	const isDir = createMemo(() => !!props.node?.children.length);
+	const isExpanded = createMemo(() => {
+		const _sourceValue = props;
+		return !_sourceValue.collapsedDirs.has(_sourceValue.node?.path ?? "");
+	});
+	const file = createMemo(
+		() =>
+			props.pathFile ??
+			(isDir() || !props.node
+				? undefined
+				: props.visibleFiles.get(props.node.path)),
+	);
+	const separator = createMemo(() => file()?.path.lastIndexOf("/") ?? -1);
+	const [hovered, setHovered] = createSignal(false);
+	const visible = createMemo(
+		() =>
+			!props.node ||
+			props.visibleCounts[props.node.fileRange[1]] !==
+				props.visibleCounts[props.node.fileRange[0]],
+	);
+	const active = createMemo(() => {
+		const _fileValue = file(),
+			_sourceValue3 = props;
+		return (
+			_fileValue &&
+			_sourceValue3.selected?.path === _fileValue.path &&
+			_sourceValue3.selected?.staged === _fileValue.staged
+		);
+	});
 	const selectTreeNode = () => {
-		if (isDir && node) {
-			toggleDir(node.path);
-		} else if (file) {
-			onSelect(file);
+		const _sourceValue4 = props,
+			_fileValue2 = file();
+		if (isDir() && _sourceValue4.node) {
+			_sourceValue4.toggleDir(_sourceValue4.node.path);
+		} else if (_fileValue2) {
+			_sourceValue4.onSelect(_fileValue2);
 		}
 	};
-
 	return (
-		<>
+		<Show when={visible()}>
 			<div
-				data-git-file-active={active ? "true" : undefined}
-				{...stylex.props(
-					node ? styles.treeRow : styles.pathRow,
-					active && styles.fileRowActive,
+				data-git-file-active={active() ? "true" : undefined}
+				{...stylex.attrs(
+					props.node ? styles.treeRow : styles.pathRow,
+					active() && styles.fileRowActive,
 				)}
-				style={
-					node
-						? inlineStyles.getTreeNodeRowTreeRowStyle(`${4 + depth * 9}px`)
-						: undefined
-				}
+				style={domStyle(
+					props.node
+						? inlineStyles.getTreeNodeRowTreeRowStyle(
+								`${4 + (props.depth === undefined ? 0 : props.depth) * 9}px`,
+							)
+						: undefined,
+				)}
 				onMouseEnter={() => {
-					if (!file) return;
-					onActionHover(file.path);
+					const _fileValue3 = file();
+					if (!_fileValue3) return;
+					setHovered(true);
+					props.onPrefetchFile?.(_fileValue3);
 				}}
-				onMouseLeave={() => file && onActionHover(null)}
+				onMouseLeave={() => {
+					setHovered(false);
+					props.onPrefetchFile?.(null);
+				}}
 			>
 				<button
 					type="button"
-					title={node ? undefined : file?.path}
+					title={props.node ? undefined : file()?.path}
 					data-git-file-select
-					{...stylex.props(node ? styles.treeNodeButton : styles.fileRowButton)}
+					{...stylex.attrs(
+						props.node ? styles.treeNodeButton : styles.fileRowButton,
+					)}
 					onPointerDown={(event) => {
 						if (event.button === 0 && event.isPrimary) selectTreeNode();
 					}}
@@ -95,82 +106,90 @@ export function TreeNodeRow(props: {
 						if (event.detail === 0) selectTreeNode();
 					}}
 				>
-					{isDir && node ? (
+					{isDir() && props.node ? (
 						<>
 							<IconChevronRight
 								size={iconSize.sm}
-								{...stylex.props(
+								{...stylex.attrs(
 									styles.chevron,
-									isExpanded && styles.chevronOpen,
+									isExpanded() && styles.chevronOpen,
 								)}
 							/>
 							<IconFolderFill
 								size={iconSize.md}
-								{...stylex.props(
+								{...stylex.attrs(
 									styles.folderIcon,
-									isExpanded && styles.folderIconOpen,
+									isExpanded() && styles.folderIconOpen,
 								)}
 							/>
-							<span {...stylex.props(styles.treeName)}>{node.name}</span>
+							<span {...stylex.attrs(styles.treeName)}>{props.node.name}</span>
 						</>
-					) : file ? (
+					) : file() ? (
 						<>
-							{node && <span {...stylex.props(styles.treeIndentSpacer)} />}
-							<FileChangeIcon file={file} />
-							{node ? (
+							{props.node && (
+								<span {...stylex.attrs(styles.treeIndentSpacer)} />
+							)}
+							<FileChangeIcon file={file()!} />
+							{props.node ? (
 								<span
-									{...stylex.props(
+									{...stylex.attrs(
 										styles.treeFileName,
-										active && styles.activeText,
+										active() && styles.activeText,
 									)}
 								>
-									{node.name}
+									{props.node.name}
 								</span>
 							) : (
-								<span {...stylex.props(styles.fileButton)}>
-									{separator >= 0 && (
-										<span {...stylex.props(styles.pathDirectory)}>
-											{file.path.slice(0, separator)}
+								<span {...stylex.attrs(styles.fileButton)}>
+									{separator() >= 0 && (
+										<span {...stylex.attrs(styles.pathDirectory)}>
+											{file()?.path.slice(0, separator())}
 										</span>
 									)}
-									<span {...stylex.props(styles.pathFileName)}>
-										{separator >= 0 ? file.path.slice(separator) : file.path}
+									<span {...stylex.attrs(styles.pathFileName)}>
+										{(() => {
+											const _separatorValue2 = separator(),
+												_fileValue4 = file();
+											if (!_fileValue4) return null;
+											return _separatorValue2 >= 0
+												? _fileValue4.path.slice(_separatorValue2)
+												: _fileValue4.path;
+										})()}
 									</span>
 								</span>
 							)}
-							{hoveredActionPath !== file.path ? (
-								<FileDiffStats file={file} />
-							) : null}
+							{file() && !hovered() ? <FileDiffStats file={file()!} /> : null}
 						</>
 					) : null}
 				</button>
-				{file && onAction && (
+				{file() && props.onAction && (
 					<button
 						type="button"
 						onClick={(e) => {
 							e.stopPropagation();
-							onAction(file.path);
+							props.onAction?.(file()!.path);
 						}}
-						{...stylex.props(
-							node ? styles.rowAction : styles.rowActionSubtle,
-							hoveredActionPath === file.path && styles.rowActionVisible,
+						{...stylex.attrs(
+							props.node ? styles.rowAction : styles.rowActionSubtle,
+							hovered() && styles.rowActionVisible,
 						)}
-						aria-label={`${actionLabel} ${file.path}`}
+						aria-label={ariaValue(`${props.actionLabel} ${file()!.path}`)}
 					>
-						<FileActionIcon actionLabel={actionLabel} />
+						<FileActionIcon actionLabel={props.actionLabel} />
 					</button>
 				)}
 			</div>
-			{isDir &&
-				isExpanded &&
-				node?.children.map((child) => (
-					<TreeNodeRow
-						{...props}
-						key={child.path}
-						node={child}
-						depth={depth + 1}
-					/>
-				))}
-		</>
+			{isDir() && isExpanded() && (
+				<For each={props.node?.children ?? []} keyed={(child) => child.path}>
+					{(child) => (
+						<TreeNodeRow
+							{...props}
+							node={child()}
+							depth={(props.depth ?? 0) + 1}
+						/>
+					)}
+				</For>
+			)}
+		</Show>
 	);
 }

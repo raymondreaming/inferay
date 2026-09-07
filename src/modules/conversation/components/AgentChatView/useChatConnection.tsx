@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "octane";
+import { type Accessor, createEffect, createSignal, onSettled } from "solid-js";
 import type { AskUserQuestion } from "../../../../../build/presentation/contracts/AskUserQuestion.ts";
 import type { CheckpointMeta } from "../../../../../build/presentation/contracts/CheckpointMeta.ts";
 import type { SkillProposal } from "../../../../../build/presentation/contracts/SkillProposal.ts";
@@ -6,12 +6,12 @@ import type { SkillRead } from "../../../../../build/presentation/contracts/Skil
 import type { ToolDisplayInfo } from "../../../../../build/presentation/contracts/ToolDisplayInfo.ts";
 import type { ToolOutputSummary } from "../../../../../build/presentation/contracts/ToolOutputSummary.ts";
 import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
-import { wsClient } from "../../../../adapters/backend/http.ts";
 import {
 	ChatReplica,
+	clearAgentChatPaneState,
 	project as rustProject,
-} from "../../../../adapters/presentation/model.ts";
-import { clearAgentChatPaneState } from "../../../../adapters/storage/stored-values.ts";
+	wsClient,
+} from "../../../../shared/lib/native.tsx";
 import { loadCanonicalAgentState } from "../../../workspace/hooks/useWorkspaceState.tsx";
 import type { QueuedChatMessage } from "../../hooks/useAgentChatComposerState.tsx";
 import type { CommandSystemMessage } from "../ChatMessageList/CommandSystemCard.tsx";
@@ -24,52 +24,56 @@ const DEFAULT_CHAT_RUN_STATUS: ChatLoadingState = {
 	startTime: null,
 };
 const STREAM_RENDER_INTERVAL_MS = 32;
-export function useChatConnection({
-	enabled = true,
-	agentKind,
-	cwd,
-	paneId,
-	onExit,
-	replaceQueuedMessages,
-	resolveSteeringMessage,
-	stageSteeringMessage,
-}: {
-	enabled?: boolean;
-	agentKind: WorkspaceAgentKind;
-	cwd?: string;
-	paneId: string;
-	onExit?: () => void;
-	replaceQueuedMessages: (messages: QueuedChatMessage[]) => void;
-	resolveSteeringMessage?: (id: string) => void;
-	stageSteeringMessage?: (message: QueuedChatMessage) => void;
-}) {
-	const [messages, setMessages] = useState<ChatMessage[]>([]);
-	const [checkpoints, setCheckpoints] = useState<CheckpointMeta[]>([]);
-	const [runStatus, setRunStatus] = useState(DEFAULT_CHAT_RUN_STATUS);
-	const [expandedTools, setExpandedTools] = useState(() => new Set<string>());
-	const replicaRef = useRef<ChatReplica | null>(null);
-	if (!replicaRef.current) replicaRef.current = new ChatReplica();
-	const nativeTranscriptRef = useRef<ChatMessage[] | null>(null);
-	const nativeFrameRef = useRef<number | null>(null);
-	const revertCheckpoint = useCallback(
-		(checkpointId: string) => {
-			wsClient.send({
-				type: "checkpoint:revert",
-				paneId,
-				checkpointId,
-			});
-		},
-		[paneId],
+export function useChatConnection(
+	_options: Accessor<{
+		enabled?: boolean;
+		agentKind: WorkspaceAgentKind;
+		cwd?: string;
+		paneId: string;
+		onExit?: () => void;
+		replaceQueuedMessages: (messages: QueuedChatMessage[]) => void;
+		resolveSteeringMessage?: (id: string) => void;
+		stageSteeringMessage?: (message: QueuedChatMessage) => void;
+	}>,
+) {
+	const [messages, setMessages] = createSignal<ChatMessage[]>([]);
+	const [checkpoints, setCheckpoints] = createSignal<CheckpointMeta[]>([]);
+	const [runStatus, setRunStatus] = createSignal(DEFAULT_CHAT_RUN_STATUS);
+	const [expandedTools, setExpandedTools] = createSignal(
+		(() => new Set<string>())(),
 	);
-	const flushNativeTranscript = useCallback(() => {
+	const replicaRef = {
+		current: null,
+	} as {
+		current: ChatReplica | null;
+	};
+	if (!replicaRef.current) replicaRef.current = new ChatReplica();
+	const nativeTranscriptRef = {
+		current: null,
+	} as {
+		current: ChatMessage[] | null;
+	};
+	const nativeFrameRef = {
+		current: null,
+	} as {
+		current: number | null;
+	};
+	const revertCheckpoint = (checkpointId: string) => {
+		wsClient.send({
+			type: "checkpoint:revert",
+			paneId: _options().paneId,
+			checkpointId,
+		});
+	};
+	const flushNativeTranscript = () => {
 		if (nativeFrameRef.current !== null)
 			window.clearTimeout(nativeFrameRef.current);
 		nativeFrameRef.current = null;
 		const native = nativeTranscriptRef.current;
 		if (!native) return;
 		setMessages((current) => mergeNativeTranscript(current, native));
-	}, [setMessages]);
-	const clearChatState = useCallback(() => {
+	};
+	const clearChatState = () => {
 		if (nativeFrameRef.current !== null)
 			window.clearTimeout(nativeFrameRef.current);
 		nativeFrameRef.current = null;
@@ -78,158 +82,196 @@ export function useChatConnection({
 		setMessages([]);
 		setCheckpoints([]);
 		setRunStatus(DEFAULT_CHAT_RUN_STATUS);
-		setExpandedTools(new Set());
-		replaceQueuedMessages([]);
-	}, [replaceQueuedMessages]);
-	useEffect(
-		() => () => {
-			if (nativeFrameRef.current !== null)
-				window.clearTimeout(nativeFrameRef.current);
-			replicaRef.current?.free();
-			replicaRef.current = null;
+		setExpandedTools(new Set<string>());
+		_options().replaceQueuedMessages([]);
+	};
+	onSettled(() => () => {
+		if (nativeFrameRef.current !== null)
+			window.clearTimeout(nativeFrameRef.current);
+		replicaRef.current?.free();
+		replicaRef.current = null;
+	});
+	createEffect(
+		() => {
+			const _optionsValue = _options();
+			// Callback changes do not change the native chat subscription.
+			return JSON.stringify([
+				_optionsValue.enabled ?? true,
+				_optionsValue.agentKind,
+				_optionsValue.cwd,
+				_optionsValue.paneId,
+			]);
 		},
-		[],
-	);
-
-	useEffect(() => {
-		if (!enabled) return;
-		const cleanup = wsClient.subscribe(paneId, (rawMessage) => {
-			if (!isChatServerMessage(rawMessage)) return;
-			const msg = rawMessage;
-			const update = JSON.parse(
-				replicaRef.current!.receive(JSON.stringify(msg)),
-			) as {
-				kind: "none" | "ignore" | "resync" | "sync" | "patch";
-				reconnect?: boolean;
-				start: number;
-				deleteCount: number;
-				messages: ChatMessage[];
-			};
-			if (update.kind === "resync") {
-				if (update.reconnect) wsClient.send({ type: "chat:reconnect", paneId });
+		() => {
+			const _optionsValue4 = _options();
+			if (
+				!(_optionsValue4.enabled === undefined ? true : _optionsValue4.enabled)
+			)
 				return;
-			}
-			if (update.kind === "ignore") return;
-			if (update.kind === "sync" || update.kind === "patch") {
-				const before = nativeTranscriptRef.current ?? [];
-				nativeTranscriptRef.current = [
-					...before.slice(0, update.start),
-					...update.messages,
-					...before.slice(update.start + update.deleteCount),
-				];
-				if (update.kind === "sync") {
-					for (const pending of msg.pendingSteers ?? [])
-						if (typeof pending?.id === "string")
-							stageSteeringMessage?.(pending);
-					flushNativeTranscript();
-				} else if (nativeFrameRef.current === null) {
-					nativeFrameRef.current = window.setTimeout(
-						flushNativeTranscript,
-						STREAM_RENDER_INTERVAL_MS,
-					);
-				}
-			}
-			if (msg.type === "chat:summary" || msg.type === "chat:workspace")
-				void loadCanonicalAgentState();
-			if (msg.type === "chat:control") {
-				if (msg.action === "cleared") {
-					clearChatState();
-					clearAgentChatPaneState(paneId);
-					setMessages((messages) =>
-						appendSystemMessage(messages, "Chat cleared"),
-					);
-				} else if (msg.action === "exit") onExit?.();
-				return;
-			}
-			if (msg.runStatus) setRunStatus(msg.runStatus);
-			if (Array.isArray(msg.checkpoints)) setCheckpoints(msg.checkpoints);
-			if (msg.type === "chat:done") {
-				flushNativeTranscript();
-				setMessages((current) => {
-					const updated = current.map((message) =>
-						message.isStreaming ? { ...message, isStreaming: false } : message,
-					);
-					const ids = new Set(updated.map((message) => message.id));
-					setExpandedTools((previous) => {
-						const next = new Set([...previous].filter((id) => ids.has(id)));
-						return next.size === previous.size ? previous : next;
-					});
-					return updated;
+			const cleanup = wsClient.subscribe(
+				_optionsValue4.paneId,
+				(rawMessage) => {
+					const _optionsValue2 = _options();
+					if (!isChatServerMessage(rawMessage)) return;
+					const msg = rawMessage;
+					const update = JSON.parse(
+						replicaRef.current!.receive(JSON.stringify(msg)),
+					) as {
+						kind: "none" | "ignore" | "resync" | "sync" | "patch";
+						reconnect?: boolean;
+						start: number;
+						deleteCount: number;
+						messages: ChatMessage[];
+					};
+					if (update.kind === "resync") {
+						if (update.reconnect)
+							wsClient.send({
+								type: "chat:reconnect",
+								paneId: _optionsValue2.paneId,
+							});
+						return;
+					}
+					if (update.kind === "ignore") return;
+					if (update.kind === "sync" || update.kind === "patch") {
+						const before = nativeTranscriptRef.current ?? [];
+						nativeTranscriptRef.current = [
+							...before.slice(0, update.start),
+							...update.messages,
+							...before.slice(update.start + update.deleteCount),
+						];
+						if (update.kind === "sync") {
+							for (const pending of msg.pendingSteers ?? [])
+								if (typeof pending?.id === "string")
+									_optionsValue2.stageSteeringMessage?.(pending);
+							flushNativeTranscript();
+						} else if (nativeFrameRef.current === null) {
+							nativeFrameRef.current = window.setTimeout(
+								flushNativeTranscript,
+								STREAM_RENDER_INTERVAL_MS,
+							);
+						}
+					}
+					if (msg.type === "chat:summary" || msg.type === "chat:workspace")
+						void loadCanonicalAgentState();
+					if (msg.type === "chat:control") {
+						if (msg.action === "cleared") {
+							clearChatState();
+							clearAgentChatPaneState(_optionsValue2.paneId);
+							setMessages((messages) =>
+								appendSystemMessage(messages, "Chat cleared"),
+							);
+						} else if (msg.action === "exit") _optionsValue2.onExit?.();
+						return;
+					}
+					if (msg.runStatus) setRunStatus(msg.runStatus);
+					if (Array.isArray(msg.checkpoints)) setCheckpoints(msg.checkpoints);
+					if (msg.type === "chat:done") {
+						flushNativeTranscript();
+						setMessages((current) => {
+							const updated = current.map((message) =>
+								message.isStreaming
+									? {
+											...message,
+											isStreaming: false,
+										}
+									: message,
+							);
+							const ids = new Set(updated.map((message) => message.id));
+							setExpandedTools((previous) => {
+								const next = new Set([...previous].filter((id) => ids.has(id)));
+								return next.size === previous.size ? previous : next;
+							});
+							return updated;
+						});
+					} else if (
+						msg.type === "chat:steer_pending" &&
+						msg.message &&
+						typeof msg.message.id === "string"
+					) {
+						_optionsValue2.stageSteeringMessage?.(
+							msg.message as QueuedChatMessage,
+						);
+					} else if (msg.type === "chat:steered") {
+						if (typeof msg.messageId === "string")
+							_optionsValue2.resolveSteeringMessage?.(msg.messageId);
+					} else if (msg.type === "chat:error") {
+						if (msg.modelVersion !== 1)
+							setMessages((messages) =>
+								appendSystemMessage(
+									messages,
+									String(msg.error ?? "Chat failed"),
+								),
+							);
+						if (!msg.runStatus)
+							setRunStatus({
+								isLoading: false,
+								status: "error",
+								startTime: null,
+							});
+					} else if (msg.type === "chat:queue" && Array.isArray(msg.queue)) {
+						_optionsValue2.replaceQueuedMessages(msg.queue);
+					} else if (msg.type === "checkpoint:reverted") {
+						setMessages((prev) =>
+							appendSystemMessage(
+								prev,
+								`Reverted ${msg.restoredFiles?.length ?? 0} file(s) to checkpoint`,
+							),
+						);
+					} else if (msg.type === "checkpoint:error") {
+						setMessages((prev) =>
+							appendSystemMessage(prev, `Revert failed: ${msg.error}`),
+						);
+					}
+				},
+			);
+			const reconnectChat = () => {
+				const _optionsValue3 = _options();
+				replicaRef.current!.reconnect();
+				wsClient.send({
+					type: "chat:reconnect",
+					paneId: _optionsValue3.paneId,
+					agentKind: _optionsValue3.agentKind,
+					cwd: _optionsValue3.cwd,
 				});
-			} else if (
-				msg.type === "chat:steer_pending" &&
-				msg.message &&
-				typeof msg.message.id === "string"
-			) {
-				stageSteeringMessage?.(msg.message as QueuedChatMessage);
-			} else if (msg.type === "chat:steered") {
-				if (typeof msg.messageId === "string")
-					resolveSteeringMessage?.(msg.messageId);
-			} else if (msg.type === "chat:error") {
-				if (msg.modelVersion !== 1)
-					setMessages((messages) =>
-						appendSystemMessage(messages, String(msg.error ?? "Chat failed")),
-					);
-				if (!msg.runStatus)
-					setRunStatus({ isLoading: false, status: "error", startTime: null });
-			} else if (msg.type === "chat:queue" && Array.isArray(msg.queue)) {
-				replaceQueuedMessages(msg.queue);
-			} else if (msg.type === "checkpoint:reverted") {
-				setMessages((prev) =>
-					appendSystemMessage(
-						prev,
-						`Reverted ${msg.restoredFiles?.length ?? 0} file(s) to checkpoint`,
-					),
-				);
-			} else if (msg.type === "checkpoint:error") {
-				setMessages((prev) =>
-					appendSystemMessage(prev, `Revert failed: ${msg.error}`),
-				);
-			}
-		});
-		const reconnectChat = () => {
-			replicaRef.current!.reconnect();
-			wsClient.send({
-				type: "chat:reconnect",
-				paneId,
-				agentKind,
-				cwd,
-			});
-		};
-		reconnectChat();
-		const cleanupReconnect = wsClient.onReconnect(reconnectChat);
-		return () => {
-			if (nativeFrameRef.current !== null)
-				window.clearTimeout(nativeFrameRef.current);
-			nativeFrameRef.current = null;
-			cleanupReconnect();
-			cleanup();
-		};
-	}, [
-		enabled,
-		agentKind,
-		cwd,
-		paneId,
-		flushNativeTranscript,
-		clearChatState,
-		onExit,
-		replaceQueuedMessages,
-		resolveSteeringMessage,
-		setExpandedTools,
-		setRunStatus,
-		stageSteeringMessage,
-	]);
+			};
+			reconnectChat();
+			const cleanupReconnect = wsClient.onReconnect(reconnectChat);
+			return () => {
+				if (nativeFrameRef.current !== null)
+					window.clearTimeout(nativeFrameRef.current);
+				nativeFrameRef.current = null;
+				cleanupReconnect();
+				cleanup();
+			};
+		},
+	);
 	return {
-		chatUiState: { ...runStatus, expandedTools },
-		checkpoints,
-		messages,
-		revertCheckpoint,
-		setMessages,
-		setExpandedTools,
-		setRunStatus,
+		get chatUiState() {
+			return {
+				...runStatus(),
+				expandedTools: expandedTools(),
+			};
+		},
+		get checkpoints() {
+			return checkpoints();
+		},
+		get messages() {
+			return messages();
+		},
+		get revertCheckpoint() {
+			return revertCheckpoint;
+		},
+		get setMessages() {
+			return setMessages;
+		},
+		get setExpandedTools() {
+			return setExpandedTools;
+		},
+		get setRunStatus() {
+			return setRunStatus;
+		},
 	};
 }
-
 export interface NativeChatRender {
 	version: 1;
 	kind: "message" | "edit-group" | "tool-group";
@@ -239,7 +281,11 @@ export interface NativeChatRender {
 	continuesAfter?: boolean;
 	rowId?: string;
 	filePath?: string;
-	edit?: { file_path: string; old_string: string; new_string: string };
+	edit?: {
+		file_path: string;
+		old_string: string;
+		new_string: string;
+	};
 	trailingOutput?: string;
 	display?: ToolDisplayInfo;
 	summary?: ToolOutputSummary | null;
@@ -249,9 +295,17 @@ export interface NativeChatRender {
 	skillProposal?: SkillProposal;
 	skillRead?: SkillRead;
 	skillParts?: Array<
-		| { start: number; end: number }
-		| { proposal: SkillProposal; index: number }
-		| { pending: true }
+		| {
+				start: number;
+				end: number;
+		  }
+		| {
+				proposal: SkillProposal;
+				index: number;
+		  }
+		| {
+				pending: true;
+		  }
 	>;
 }
 export interface ChatMessage {

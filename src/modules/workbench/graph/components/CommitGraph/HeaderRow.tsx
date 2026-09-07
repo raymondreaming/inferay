@@ -1,5 +1,7 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo, For } from "solid-js";
 import type { GitGraphRef } from "../../../../../../build/presentation/contracts/GitGraphRef.ts";
+import { domStyle } from "../../../../../shared/lib/dom.tsx";
 import {
 	IconSearch,
 	IconSettings,
@@ -13,22 +15,7 @@ import {
 	type ColumnWidths,
 	TOOLS_WIDTH,
 } from "./useCommitGraphState.tsx";
-export function HeaderRow({
-	graphWidth,
-	columns,
-	widths,
-	order,
-	isColumnsOpen,
-	onToggleColumnsMenu,
-	onToggleColumn,
-	onMoveColumn,
-	onResizeStart,
-	hiddenRefs,
-	onShowRef,
-	query,
-	onQueryChange,
-	matchCount,
-}: {
+export function HeaderRow(_props: {
 	graphWidth: number;
 	columns: ColumnVisibility;
 	widths: ColumnWidths;
@@ -47,124 +34,145 @@ export function HeaderRow({
 	const visible = (column: ColumnKey) =>
 		column !== "author" && column !== "sha" && column !== "date"
 			? true
-			: columns[column];
-	const labels: Record<ColumnKey, string> = {
+			: _props.columns[column];
+	const labels = createMemo<Record<ColumnKey, string>>(() => ({
 		date: "Date",
 		refs: "Branch",
 		graph: "Graph",
 		message: "Message",
 		author: "Author",
 		sha: "SHA",
-	};
+	}));
 	const columnWidth = (column: ColumnKey) =>
-		column === "graph" ? graphWidth : widths[column];
-	const visibleOrder = order.filter(visible);
-	const headerWidth =
-		visibleOrder.reduce((total, column) => total + columnWidth(column), 0) +
-		TOOLS_WIDTH;
+		column === "graph" ? _props.graphWidth : _props.widths[column];
+	const visibleOrder = createMemo(() => _props.order.filter(visible));
+	const headerWidth = createMemo(
+		() =>
+			visibleOrder().reduce((total, column) => total + columnWidth(column), 0) +
+			TOOLS_WIDTH,
+	);
 	return (
 		<div
 			data-graph-header="true"
-			{...stylex.props(styles.header)}
-			style={inlineStyles.getHeaderRowHeaderStyle(headerWidth)}
+			{...stylex.attrs(styles.header)}
+			style={domStyle(inlineStyles.getHeaderRowHeaderStyle(headerWidth()))}
 		>
-			{visibleOrder.map((column) => (
-				<div
-					key={column}
-					data-graph-column-header={column}
-					title={`Drag to reorder ${labels[column].toLocaleLowerCase()}`}
-					draggable
-					onDragStart={(event) => {
-						event.dataTransfer?.setData(
-							"application/x-inferay-graph-column",
-							column,
+			{
+				<For each={visibleOrder()} keyed={(row) => row}>
+					{(column) => {
+						return (
+							<div
+								data-graph-column-header={column()}
+								title={`Drag to reorder ${labels()[column()].toLocaleLowerCase()}`}
+								draggable="true"
+								onDragStart={(event) => {
+									event.dataTransfer?.setData(
+										"application/x-inferay-graph-column",
+										column(),
+									);
+								}}
+								onDragOver={(event) => {
+									if (
+										Array.from(event.dataTransfer?.types ?? []).includes(
+											"application/x-inferay-graph-column",
+										)
+									)
+										event.preventDefault();
+								}}
+								onDrop={(event) => {
+									const source = event.dataTransfer?.getData(
+										"application/x-inferay-graph-column",
+									) as ColumnKey;
+									if (source && source !== column())
+										_props.onMoveColumn(source, column());
+								}}
+								{...stylex.attrs(styles.headerCell, styles.draggableHeader)}
+								style={domStyle(
+									inlineStyles.getHeaderRowHeaderCellStyle(
+										columnWidth(column()),
+									),
+								)}
+							>
+								{labels()[column()]}
+								<ColumnResizeHandle
+									column={column()}
+									onResizeStart={_props.onResizeStart}
+								/>
+							</div>
 						);
 					}}
-					onDragOver={(event) => {
-						if (
-							Array.from(event.dataTransfer?.types ?? []).includes(
-								"application/x-inferay-graph-column",
-							)
-						)
-							event.preventDefault();
-					}}
-					onDrop={(event) => {
-						const source = event.dataTransfer?.getData(
-							"application/x-inferay-graph-column",
-						) as ColumnKey;
-						if (source && source !== column) onMoveColumn(source, column);
-					}}
-					{...stylex.props(styles.headerCell, styles.draggableHeader)}
-					style={inlineStyles.getHeaderRowHeaderCellStyle(columnWidth(column))}
-				>
-					{labels[column]}
-					<ColumnResizeHandle column={column} onResizeStart={onResizeStart} />
-				</div>
-			))}
+				</For>
+			}
 			<div
-				{...stylex.props(styles.headerTools)}
-				style={inlineStyles.getHeaderRowHeaderToolsStyle(TOOLS_WIDTH)}
+				{...stylex.attrs(styles.headerTools)}
+				style={domStyle(inlineStyles.getHeaderRowHeaderToolsStyle(TOOLS_WIDTH))}
 			>
-				<div {...stylex.props(styles.columnsMenuRoot)}>
+				<div {...stylex.attrs(styles.columnsMenuRoot)}>
 					<button
 						type="button"
-						onClick={onToggleColumnsMenu}
+						onClick={_props.onToggleColumnsMenu}
 						aria-label="Graph columns and search"
 						title="Graph columns and search"
-						{...stylex.props(styles.columnsButton)}
+						{...stylex.attrs(styles.columnsButton)}
 					>
 						<IconSettings size={11} />
 					</button>
-					{isColumnsOpen ? (
-						<div {...stylex.props(styles.columnsMenu)}>
-							<label {...stylex.props(styles.searchRoot)}>
+					{_props.isColumnsOpen ? (
+						<div {...stylex.attrs(styles.columnsMenu)}>
+							<label {...stylex.attrs(styles.searchRoot)}>
 								<IconSearch size={11} />
 								<input
 									type="search"
-									value={query}
-									onInput={(event) => onQueryChange(event.currentTarget.value)}
+									value={_props.query}
+									onInput={(event) =>
+										_props.onQueryChange(event.currentTarget.value)
+									}
 									placeholder="Search all branches"
 									aria-label="Search commits"
 									title="Search all branches using author:, committer:, message:, ref:, or sha:. Solo filtering resumes when search is cleared."
-									{...stylex.props(styles.searchInput)}
+									{...stylex.attrs(styles.searchInput)}
 								/>
-								{query ? (
-									<span {...stylex.props(styles.searchCount)}>
-										{matchCount}
+								{_props.query ? (
+									<span {...stylex.attrs(styles.searchCount)}>
+										{_props.matchCount}
 									</span>
 								) : null}
 							</label>
 							{(["author", "sha", "date"] as const).map((key) => (
 								<button
-									key={key}
 									type="button"
-									onClick={() => onToggleColumn(key)}
-									{...stylex.props(styles.columnsMenuItem)}
+									onClick={() => _props.onToggleColumn(key)}
+									{...stylex.attrs(styles.columnsMenuItem)}
 								>
-									{labels[key]}
-									<span {...stylex.props(styles.columnsState)}>
-										{columns[key] ? "On" : "Off"}
+									{labels()[key]}
+									<span {...stylex.attrs(styles.columnsState)}>
+										{_props.columns[key] ? "On" : "Off"}
 									</span>
 								</button>
 							))}
-							{hiddenRefs.length ? (
+							{_props.hiddenRefs.length ? (
 								<>
-									<div {...stylex.props(styles.columnsMenuSection)}>
+									<div {...stylex.attrs(styles.columnsMenuSection)}>
 										Hidden refs
 									</div>
-									{hiddenRefs.map((ref) => (
-										<button
-											key={ref.fullName}
-											type="button"
-											onClick={() => onShowRef(ref.fullName)}
-											{...stylex.props(styles.columnsMenuItem)}
-										>
-											<span {...stylex.props(styles.truncate)}>
-												{ref.displayName}
-											</span>
-											<span {...stylex.props(styles.columnsState)}>Show</span>
-										</button>
-									))}
+									{
+										<For each={_props.hiddenRefs} keyed={(row) => row.fullName}>
+											{(ref) => (
+												<button
+													type="button"
+													onClick={() => _props.onShowRef(ref().fullName)}
+													{...stylex.attrs(styles.columnsMenuItem)}
+												>
+													<span {...stylex.attrs(styles.truncate)}>
+														{ref().displayName}
+													</span>
+													<span {...stylex.attrs(styles.columnsState)}>
+														Show
+													</span>
+												</button>
+											)}
+										</For>
+									}
 								</>
 							) : null}
 						</div>

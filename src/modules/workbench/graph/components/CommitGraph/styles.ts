@@ -1,8 +1,7 @@
-import type { CSSProperties } from "react";
-
+import type { CSSProperties } from "../../../../../shared/lib/dom.tsx";
 export const AVATAR_SIZE = 18;
 
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
@@ -11,7 +10,6 @@ import {
 	radius,
 	shadow,
 } from "../../../../../design-system/styles.stylex.ts";
-
 export const styles = stylex.create({
 	root: {
 		position: "relative",
@@ -521,7 +519,6 @@ export const styles = stylex.create({
 		fontSize: font.size_2,
 	},
 });
-
 export function getAuthorAvatarGraphAvatarStyle(
 	left: CSSProperties["left"],
 	top: CSSProperties["top"],
@@ -535,7 +532,6 @@ export function getAuthorAvatarGraphAvatarStyle(
 		boxShadow: boxShadow,
 	} as CSSProperties;
 }
-
 export function getCommitRowGraphRowStyle(
 	height: CSSProperties["height"],
 	transform: CSSProperties["transform"],
@@ -547,7 +543,6 @@ export function getCommitRowGraphRowStyle(
 		opacity: opacity,
 	} as CSSProperties;
 }
-
 export function getCommitRowNodeAnchoredRowWashStyle(
 	left: CSSProperties["left"],
 	top: CSSProperties["top"],
@@ -561,95 +556,112 @@ export function getCommitRowNodeAnchoredRowWashStyle(
 		backgroundColor: backgroundColor,
 	} as CSSProperties;
 }
-
 export function getCommitRowMetaCellStyle(
 	width: CSSProperties["width"],
 ): CSSProperties {
-	return { width: width } as CSSProperties;
+	return {
+		width: width,
+	} as CSSProperties;
 }
-
 export function getCommitRowRefGutterStyle(
 	width: CSSProperties["width"],
 ): CSSProperties {
-	return { width: width } as CSSProperties;
+	return {
+		width: width,
+	} as CSSProperties;
 }
-
 export function getCommitRowRefConnectorStyle(
 	backgroundColor: CSSProperties["backgroundColor"],
 ): CSSProperties {
-	return { backgroundColor: backgroundColor } as CSSProperties;
+	return {
+		backgroundColor: backgroundColor,
+	} as CSSProperties;
 }
-
 export function getCommitRowGraphCellStyle(
 	width: CSSProperties["width"],
 ): CSSProperties {
-	return { width: width } as CSSProperties;
+	return {
+		width: width,
+	} as CSSProperties;
 }
-
 export function getCommitRowRefToNodeConnectorStyle(
 	width: CSSProperties["width"],
 	backgroundColor: CSSProperties["backgroundColor"],
 ): CSSProperties {
-	return { width: width, backgroundColor: backgroundColor } as CSSProperties;
+	return {
+		width: width,
+		backgroundColor: backgroundColor,
+	} as CSSProperties;
 }
-
 export function getCommitRowWipNodeStyle(
 	left: CSSProperties["left"],
 	top: CSSProperties["top"],
 	borderColor: CSSProperties["borderColor"],
 ): CSSProperties {
-	return { left: left, top: top, borderColor: borderColor } as CSSProperties;
+	return {
+		left: left,
+		top: top,
+		borderColor: borderColor,
+	} as CSSProperties;
 }
-
 export function getCommitRowMessageCellStyle(
 	width: CSSProperties["width"],
 	borderLeft: CSSProperties["borderLeft"],
 ): CSSProperties {
-	return { width: width, borderLeft: borderLeft } as CSSProperties;
+	return {
+		width: width,
+		borderLeft: borderLeft,
+	} as CSSProperties;
 }
-
 export function getCommitRowCommitMessageStyle(
 	maxWidth: CSSProperties["maxWidth"],
 ): CSSProperties {
-	return { maxWidth: maxWidth } as CSSProperties;
+	return {
+		maxWidth: maxWidth,
+	} as CSSProperties;
 }
-
 export function getCommitRowAuthorCellStyle(
 	width: CSSProperties["width"],
 ): CSSProperties {
-	return { width: width } as CSSProperties;
+	return {
+		width: width,
+	} as CSSProperties;
 }
-
 export function getCommitRowShaCellStyle(
 	width: CSSProperties["width"],
 ): CSSProperties {
-	return { width: width } as CSSProperties;
+	return {
+		width: width,
+	} as CSSProperties;
 }
-
 export function getCommitRowRowEndPadStyle(
 	width: CSSProperties["width"],
 ): CSSProperties {
-	return { width: width } as CSSProperties;
+	return {
+		width: width,
+	} as CSSProperties;
 }
-
 export function getHeaderRowHeaderStyle(
 	width: CSSProperties["width"],
 ): CSSProperties {
-	return { width: width } as CSSProperties;
+	return {
+		width: width,
+	} as CSSProperties;
 }
-
 export function getHeaderRowHeaderCellStyle(
 	width: CSSProperties["width"],
 ): CSSProperties {
-	return { width: width } as CSSProperties;
+	return {
+		width: width,
+	} as CSSProperties;
 }
-
 export function getHeaderRowHeaderToolsStyle(
 	width: CSSProperties["width"],
 ): CSSProperties {
-	return { width: width } as CSSProperties;
+	return {
+		width: width,
+	} as CSSProperties;
 }
-
 export function getMergeNodeMergeNodeStyle(
 	left: CSSProperties["left"],
 	top: CSSProperties["top"],
@@ -663,7 +675,6 @@ export function getMergeNodeMergeNodeStyle(
 		boxShadow: boxShadow,
 	} as CSSProperties;
 }
-
 export function getRefBadgeRefBadgeStyle(
 	backgroundColor: CSSProperties["backgroundColor"],
 	color: CSSProperties["color"],
@@ -674,28 +685,36 @@ export function getRefBadgeRefBadgeStyle(
 		color: color,
 	} as CSSProperties;
 }
-
 export function getCommitGraphDivStyle(): CSSProperties {
-	return { padding: 24 } as CSSProperties;
+	return {
+		padding: 24,
+	} as CSSProperties;
 }
-
 export function getCommitGraphRowsLayerStyle(
 	height: CSSProperties["height"],
 	width: CSSProperties["width"],
 ): CSSProperties {
-	return { height: height, width: width } as CSSProperties;
+	return {
+		height: height,
+		width: width,
+	} as CSSProperties;
 }
-
 export function getCommitGraphRefContextMenuStyle(
 	left: CSSProperties["left"],
 	top: CSSProperties["top"],
 ): CSSProperties {
-	return { left: left, top: top } as CSSProperties;
+	return {
+		left: left,
+		top: top,
+	} as CSSProperties;
 }
-
 export function getGraphLineLayerStyle(
 	left: number,
 	top: number,
 ): CSSProperties {
-	return { zIndex: 0, left, top };
+	return {
+		zIndex: 0,
+		left,
+		top,
+	};
 }

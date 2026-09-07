@@ -1,99 +1,102 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo } from "solid-js";
 import type { GitCommitDetails } from "../../../../../../build/presentation/contracts/GitCommitDetails.ts";
 import type { GitCommitFile } from "../../../../../../build/presentation/contracts/GitCommitFile.ts";
 import type { GitComparisonDetails } from "../../../../../../build/presentation/contracts/GitComparisonDetails.ts";
+import { domStyle } from "../../../../../shared/lib/dom.tsx";
 import { DetailIdentity } from "./DetailIdentity.tsx";
 import { HistoricalFileList } from "./HistoricalFileList.tsx";
 import type { SelectedFile } from "./index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
-
-export function HistoricalDetailsPanel({
-	details,
-	selectionCount,
-	selectedFile,
-	onSelectFile,
-	viewMode,
-}: {
+export function HistoricalDetailsPanel(_props: {
 	details: GitCommitDetails | GitComparisonDetails;
 	selectionCount?: number;
 	selectedFile: SelectedFile | null;
 	onSelectFile?: (file: GitCommitFile) => void;
 	viewMode: "path" | "tree";
 }) {
-	const comparison = "fromHash" in details;
+	const comparison = createMemo(() => "fromHash" in _props.details);
 	return (
-		<div {...stylex.props(styles.detailsRoot)}>
+		<div {...stylex.attrs(styles.detailsRoot)}>
 			<div
-				data-comparison-details-summary={comparison ? "true" : undefined}
-				data-commit-details-summary={comparison ? undefined : "true"}
-				{...stylex.props(styles.detailsHeader)}
+				data-comparison-details-summary={comparison() ? "true" : undefined}
+				data-commit-details-summary={comparison() ? undefined : "true"}
+				{...stylex.attrs(styles.detailsHeader)}
 			>
-				{comparison ? (
-					<>
-						<span {...stylex.props(styles.detailIdentityLabel)}>
-							Comparing {selectionCount} items
-						</span>
-						<div {...stylex.props(styles.comparisonRange)}>
-							<code title={details.fromHash}>
-								{details.fromHash.slice(0, 7)}
-							</code>
-							<span aria-hidden="true">→</span>
-							<code title={details.toHash}>
-								{details.toHash === "WORKTREE"
-									? "WIP"
-									: details.toHash.slice(0, 7)}
-							</code>
-						</div>
-						{details.mergeBase ? (
-							<span
-								{...stylex.props(styles.mutedTextSmall)}
-								title={details.mergeBase}
-							>
-								Merge base {details.mergeBase.slice(0, 7)}
+				{(() => {
+					const _details = _props.details;
+					return "fromHash" in _details ? (
+						<>
+							<span {...stylex.attrs(styles.detailIdentityLabel)}>
+								Comparing {_props.selectionCount} items
 							</span>
-						) : null}
-					</>
-				) : (
-					<>
-						<p title={details.message} {...stylex.props(styles.commitMessage)}>
-							{details.message}
-						</p>
-						{details.body ? (
-							<div
-								{...stylex.props(styles.commitDescriptionViewport)}
-								style={inlineStyles.getCommitDetailsPanelCommitDescriptionViewportStyle()}
-							>
-								<p
-									title={details.body}
-									{...stylex.props(styles.commitDescription)}
-								>
-									{details.body}
-								</p>
+							<div {...stylex.attrs(styles.comparisonRange)}>
+								<code title={_details.fromHash}>
+									{_details.fromHash.slice(0, 7)}
+								</code>
+								<span aria-hidden="true">→</span>
+								<code title={_details.toHash}>
+									{_details.toHash === "WORKTREE"
+										? "WIP"
+										: _details.toHash.slice(0, 7)}
+								</code>
 							</div>
-						) : null}
-						<div {...stylex.props(styles.detailIdentityGrid)}>
-							<DetailIdentity
-								name={details.author}
-								email={details.authorEmail}
-								date={details.authoredAt}
-							/>
-						</div>
-					</>
-				)}
+							{_details.mergeBase ? (
+								<span
+									{...stylex.attrs(styles.mutedTextSmall)}
+									title={_details.mergeBase}
+								>
+									Merge base {_details.mergeBase.slice(0, 7)}
+								</span>
+							) : null}
+						</>
+					) : (
+						<>
+							<p
+								title={_details.message}
+								{...stylex.attrs(styles.commitMessage)}
+							>
+								{_details.message}
+							</p>
+							{_details.body ? (
+								<div
+									{...stylex.attrs(styles.commitDescriptionViewport)}
+									style={domStyle(
+										inlineStyles.getCommitDetailsPanelCommitDescriptionViewportStyle(),
+									)}
+								>
+									<p
+										title={_details.body}
+										{...stylex.attrs(styles.commitDescription)}
+									>
+										{_details.body}
+									</p>
+								</div>
+							) : null}
+							<div {...stylex.attrs(styles.detailIdentityGrid)}>
+								<DetailIdentity
+									name={_details.author}
+									email={_details.authorEmail}
+									date={_details.authoredAt}
+								/>
+							</div>
+						</>
+					);
+				})()}
 			</div>
-			<div {...stylex.props(styles.scrollArea)}>
-				{!comparison || details.files.length ? (
+			<div {...stylex.attrs(styles.scrollArea)}>
+				{!comparison() || _props.details.files.length ? (
 					<HistoricalFileList
-						files={details.files}
-						filePresentation={details.filePresentation}
-						selectedFile={selectedFile}
-						viewMode={viewMode}
-						onSelectFile={onSelectFile}
+						files={_props.details.files}
+						filePresentation={_props.details.filePresentation}
+						selectedFile={_props.selectedFile}
+						viewMode={_props.viewMode}
+						onSelectFile={_props.onSelectFile}
 					/>
 				) : (
-					<div {...stylex.props(styles.emptyStateLarge)}>
-						<p {...stylex.props(styles.mutedText)}>No file differences</p>
+					<div {...stylex.attrs(styles.emptyStateLarge)}>
+						<p {...stylex.attrs(styles.mutedText)}>No file differences</p>
 					</div>
 				)}
 			</div>

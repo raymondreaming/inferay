@@ -1,10 +1,11 @@
-import * as stylex from "@octanejs/stylex";
-import type { Octane } from "octane/jsx-runtime";
+import type { JSX } from "@solidjs/web";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo, omit, Show } from "solid-js";
 import { runtimeColor } from "../../../design-system/styles.stylex.ts";
 import { LiquidAction } from "../gooey/LiquidAction/index.tsx";
 import { styles } from "./styles.ts";
 
-interface ButtonProps extends Octane.ButtonHTMLAttributes<HTMLButtonElement> {
+interface ButtonProps extends JSX.ButtonHTMLAttributes<HTMLButtonElement> {
 	variant?: "primary" | "secondary" | "ghost" | "danger";
 	size?: "sm" | "md" | "lg";
 	/** Visual-only liquid surface. Ghost and rapid controls stay plain by default. */
@@ -12,42 +13,47 @@ interface ButtonProps extends Octane.ButtonHTMLAttributes<HTMLButtonElement> {
 	/** Use when the button intentionally fills its container. */
 	liquidFullWidth?: boolean;
 }
-
-export function Button({
-	variant = "secondary",
-	size = "md",
-	liquid = variant !== "ghost",
-	liquidFullWidth = false,
-	className = "",
-	children,
-	...props
-}: ButtonProps) {
-	const buttonProps = stylex.props(styles.base, styles[size], styles[variant]);
-
-	const button = (
+export function Button(props: ButtonProps) {
+	const nativeProps = omit(
+		props,
+		"variant",
+		"size",
+		"liquid",
+		"liquidFullWidth",
+		"class",
+		"children",
+	);
+	const variant = createMemo(() => props.variant ?? "secondary");
+	const liquid = createMemo(() => props.liquid ?? variant() !== "ghost");
+	const appearance = createMemo(() =>
+		stylex.attrs(styles.base, styles[props.size ?? "md"], styles[variant()]),
+	);
+	const fill = createMemo(() =>
+		variant() === "primary"
+			? runtimeColor.accent
+			: variant() === "danger"
+				? runtimeColor.dangerWash
+				: runtimeColor.backgroundRaised,
+	);
+	const NativeButton = () => (
 		<button
-			{...buttonProps}
-			className={`${buttonProps.className ?? ""} ${className}`}
-			{...props}
-			type={props.type ?? "button"}
+			{...appearance()}
+			{...nativeProps}
+			class={`${appearance().class ?? ""} ${props.class ?? ""}`}
+			type={nativeProps.type ?? "button"}
 		>
-			{children}
+			{props.children}
 		</button>
 	);
-	if (!liquid) return button;
-	const fill =
-		variant === "primary"
-			? runtimeColor.accent
-			: variant === "danger"
-				? runtimeColor.dangerWash
-				: runtimeColor.backgroundRaised;
 	return (
-		<LiquidAction
-			fill={fill}
-			fullWidth={liquidFullWidth}
-			intense={variant === "primary"}
-		>
-			{button}
-		</LiquidAction>
+		<Show when={liquid()} fallback={<NativeButton />}>
+			<LiquidAction
+				fill={fill()}
+				fullWidth={props.liquidFullWidth ?? false}
+				intense={variant() === "primary"}
+			>
+				<NativeButton />
+			</LiquidAction>
+		</Show>
 	);
 }

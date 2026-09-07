@@ -1,6 +1,5 @@
-import * as stylex from "@octanejs/stylex";
-import { project } from "../../../../adapters/presentation/model.ts";
-
+import * as stylex from "@stylexjs/stylex";
+import { For } from "solid-js";
 import { styles } from "./styles.ts";
 import type { useChatDiffPanelState } from "./useChatDiffPanelState.tsx";
 
@@ -9,7 +8,7 @@ type RefOperationDialogProps = Pick<
 	| "refOperationResult"
 	| "refPreflightError"
 	| "refPreflightRunning"
-	| "refOperationPreflight"
+	| "operationModel"
 	| "refOperationRunning"
 	| "runRefOperation"
 	| "setPendingRefAction"
@@ -18,84 +17,75 @@ type RefOperationDialogProps = Pick<
 		ReturnType<typeof useChatDiffPanelState>["pendingRefAction"]
 	>;
 };
-export function RefOperationDialog({
-	pendingRefAction,
-	refOperationResult,
-	refPreflightError,
-	refPreflightRunning,
-	refOperationPreflight,
-	refOperationRunning,
-	runRefOperation,
-	setPendingRefAction,
-}: RefOperationDialogProps) {
-	const model = project<{
-		actions: Array<{
-			label: string;
-			operation: Parameters<typeof runRefOperation>[0] | null;
-			phase: Parameters<typeof runRefOperation>[1];
-			primary: boolean;
-		}>;
-		conflictMessage: string | null;
-		blockedReason: string | null;
-	}>("refOperationDialog", {
-		result: refOperationResult,
-		preflight: refOperationPreflight,
-	});
-
+export function RefOperationDialog(_props: RefOperationDialogProps) {
 	return (
-		<div {...stylex.props(styles.refActionOverlay)}>
+		<div {...stylex.attrs(styles.refActionOverlay)}>
 			<div
 				role="dialog"
 				aria-modal="true"
 				aria-label="Choose branch operation"
-				{...stylex.props(styles.refActionDialog)}
+				{...stylex.attrs(styles.refActionDialog)}
 			>
-				<strong {...stylex.props(styles.refActionTitle)}>
+				<strong {...stylex.attrs(styles.refActionTitle)}>
 					Move branch history
 				</strong>
-				<p {...stylex.props(styles.refActionCopy)}>
-					Source <code>{pendingRefAction.source}</code> → target{" "}
-					<code>{pendingRefAction.target}</code>
+				<p {...stylex.attrs(styles.refActionCopy)}>
+					Source <code>{_props.pendingRefAction.source}</code> → target{" "}
+					<code>{_props.pendingRefAction.target}</code>
 				</p>
-				{refOperationResult?.error || refPreflightError ? (
-					<p {...stylex.props(styles.refActionError)}>
+				{_props.refOperationResult?.error || _props.refPreflightError ? (
+					<p {...stylex.attrs(styles.refActionError)}>
 						<strong>
-							{refOperationResult?.errorLabel ?? "Git command failed"}:
+							{_props.refOperationResult?.errorLabel ?? "Git command failed"}:
 						</strong>{" "}
-						{refOperationResult?.error || refPreflightError}
+						{_props.refOperationResult?.error || _props.refPreflightError}
 					</p>
 				) : null}
-				{model.conflictMessage ? (
-					<p {...stylex.props(styles.refActionCopy)}>{model.conflictMessage}</p>
+				{_props.operationModel.conflictMessage ? (
+					<p {...stylex.attrs(styles.refActionCopy)}>
+						{_props.operationModel.conflictMessage}
+					</p>
 				) : null}
-				{!model.conflictMessage && refPreflightRunning ? (
-					<p {...stylex.props(styles.refActionCopy)}>
+				{!_props.operationModel.conflictMessage &&
+				_props.refPreflightRunning ? (
+					<p {...stylex.attrs(styles.refActionCopy)}>
 						Checking valid operations…
 					</p>
 				) : null}
-				{model.blockedReason ? (
-					<p {...stylex.props(styles.refActionError)}>{model.blockedReason}</p>
+				{_props.operationModel.blockedReason ? (
+					<p {...stylex.attrs(styles.refActionError)}>
+						{_props.operationModel.blockedReason}
+					</p>
 				) : null}
-				<div {...stylex.props(styles.refActionButtons)}>
-					{model.actions.map((action) => (
-						<button
-							key={action.label}
-							type="button"
-							disabled={refOperationRunning}
-							onClick={() =>
-								action.operation
-									? runRefOperation(action.operation, action.phase)
-									: setPendingRefAction(null)
-							}
-							{...stylex.props(
-								action.primary
-									? styles.refActionPrimary
-									: styles.refActionSecondary,
-							)}
+				<div {...stylex.attrs(styles.refActionButtons)}>
+					{
+						<For
+							each={_props.operationModel.actions}
+							keyed={(row) => row.label}
 						>
-							{action.label}
-						</button>
-					))}
+							{(action) => (
+								<button
+									type="button"
+									disabled={_props.refOperationRunning}
+									onClick={() =>
+										action().operation
+											? _props.runRefOperation(
+													action().operation!,
+													action().phase,
+												)
+											: _props.setPendingRefAction(null)
+									}
+									{...stylex.attrs(
+										action().primary
+											? styles.refActionPrimary
+											: styles.refActionSecondary,
+									)}
+								>
+									{action().label}
+								</button>
+							)}
+						</For>
+					}
 				</div>
 			</div>
 		</div>

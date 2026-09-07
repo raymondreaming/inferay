@@ -1,18 +1,14 @@
-import { ErrorBoundary } from "octane";
+import { type Element, Errored, Show } from "solid-js";
 import { DiffFallback } from "./DiffFallback.tsx";
 
 interface DiffViewerBoundaryProps {
-	children: unknown;
+	children: Element;
 	resetKey: string;
 }
-
-export function DiffViewerBoundary({
-	children,
-	resetKey,
-}: DiffViewerBoundaryProps) {
+export function DiffViewerBoundary(props: DiffViewerBoundaryProps) {
 	return (
-		<ErrorBoundary key={resetKey} fallback={<DiffFallback />}>
-			{children}
-		</ErrorBoundary>
+		<Show when={props.resetKey} keyed>
+			<Errored fallback={<DiffFallback />}>{props.children}</Errored>
+		</Show>
 	);
 }

@@ -1,5 +1,4 @@
-import * as stylex from "@octanejs/stylex";
-import type { CSSProperties } from "react";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
@@ -8,13 +7,11 @@ import {
 	motion,
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
+import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 
 const CHAT_LIST_TOP_PADDING_PX = 16;
-
 const CHAT_LIST_BOTTOM_PADDING_PX = 16;
-
 const CHAT_LIST_INLINE_GUTTER = "clamp(0.75rem, 3vw, 1.25rem)";
-
 export const styles = stylex.create({
 	toolMuted: {
 		color: color.textMuted,
@@ -556,6 +553,7 @@ export const styles = stylex.create({
 		color: color.success,
 	},
 	messageList: {
+		overflowAnchor: "none",
 		boxSizing: "border-box",
 		display: "flex",
 		flexDirection: "column",
@@ -567,7 +565,9 @@ export const styles = stylex.create({
 		paddingTop: CHAT_LIST_TOP_PADDING_PX,
 		width: "100%",
 	},
-	continuingToolRow: { paddingBottom: controlSize._0 },
+	continuingToolRow: {
+		paddingBottom: controlSize._0,
+	},
 	messageRow: {
 		boxSizing: "border-box",
 		flexShrink: 0,
@@ -577,27 +577,33 @@ export const styles = stylex.create({
 		width: "100%",
 	},
 });
-
 export function getCheckpointMarkerCheckpointHeaderStyle(
 	borderBottom: CSSProperties["borderBottom"],
 ): CSSProperties {
-	return { borderBottom: borderBottom } as CSSProperties;
+	return {
+		borderBottom: borderBottom,
+	} as CSSProperties;
 }
-
 export function getCheckpointMarkerSpanStyle(
 	color: CSSProperties["color"],
 ): CSSProperties {
-	return { color: color } as CSSProperties;
+	return {
+		color: color,
+	} as CSSProperties;
 }
-
 export function getChatMessageListDivStyle(
 	height: CSSProperties["height"],
 ): CSSProperties {
-	return { height: height, flexShrink: 0 } as CSSProperties;
+	return {
+		height: height,
+		flexShrink: 0,
+	} as CSSProperties;
 }
-
 export function getChatMessageListDivStyle1(
 	height: CSSProperties["height"],
 ): CSSProperties {
-	return { height: height, flexShrink: 0 } as CSSProperties;
+	return {
+		height: height,
+		flexShrink: 0,
+	} as CSSProperties;
 }

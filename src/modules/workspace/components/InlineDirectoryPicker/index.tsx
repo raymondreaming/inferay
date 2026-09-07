@@ -1,22 +1,25 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import {
-	useCallback,
-	useDeferredValue,
-	useEffect,
-	useRef,
-	useState,
-} from "octane";
-import { fetchJsonOr } from "../../../../adapters/backend/http.ts";
+	createEffect,
+	createMemo,
+	createSignal,
+	For,
+	onSettled,
+} from "solid-js";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
-import { setInputValue } from "../../../../shared/lib/data.ts";
+import { setInputValue } from "../../../../shared/lib/dom.tsx";
+import { fetchJsonOr } from "../../../../shared/lib/native.tsx";
 import { IconFolder } from "../../../../shared/ui/Icons/index.tsx";
 import { DirectoryResult } from "./DirectoryResult.tsx";
 import { SelectedDirectoryChip } from "./SelectedDirectoryChip.tsx";
 import { styles } from "./styles.ts";
 
-type QuickPick = { name: string; path: string; isGitRepo: boolean };
-
+type QuickPick = {
+	name: string;
+	path: string;
+	isGitRepo: boolean;
+};
 interface InlineDirectoryPickerProps {
 	onSelect: (path: string | null) => void;
 	onCancel?: () => void;
@@ -26,229 +29,277 @@ interface InlineDirectoryPickerProps {
 	onSelectionChange?: (paths: string[]) => void;
 	showStartButton?: boolean;
 }
-
-export function InlineDirectoryPicker({
-	onSelect,
-	onCancel,
-	multiSelect,
-	onMultiSelect,
-	hideInput,
-	onSelectionChange,
-	showStartButton = true,
-}: InlineDirectoryPickerProps) {
-	const [query, setQuery] = useState("");
-	const deferredQuery = useDeferredValue(query.trim());
-	const fetchPickerData = useCallback(async () => {
+export function InlineDirectoryPicker(_props: InlineDirectoryPickerProps) {
+	const [query, setQuery] = createSignal("");
+	const deferredQuery = createMemo(() => query().trim());
+	const fetchPickerData = async () => {
 		const data = await fetchJsonOr<{
 			quickPicks?: QuickPick[];
 			home?: string;
 		}>("/api/agent/directories?quickPicks=true", {});
-		return { quickPicks: data.quickPicks ?? [], homePath: data.home ?? "" };
-	}, []);
-	const { data: pickerData } = useQueryResource(
-		fetchPickerData,
-		{
+		return {
+			quickPicks: data.quickPicks ?? [],
+			homePath: data.home ?? "",
+		};
+	};
+	const _source = useQueryResource(
+		() => fetchPickerData,
+		() => ({
 			quickPicks: [],
 			homePath: "",
-		},
-		{
+		}),
+		() => ({
 			queryKey: ["agent", "directories", "quick"],
-		},
+		}),
 	);
-	const fetchSearchResults = useCallback(async () => {
-		if (!deferredQuery) return [];
+	const fetchSearchResults = async () => {
+		const _deferredQueryValue = deferredQuery();
+		if (!_deferredQueryValue) return [];
 		const data = await fetchJsonOr<{
-			directories?: Array<{ name: string; path: string }>;
-		}>(`/api/agent/directories?q=${encodeURIComponent(deferredQuery)}`, {});
+			directories?: Array<{
+				name: string;
+				path: string;
+			}>;
+		}>(
+			`/api/agent/directories?q=${encodeURIComponent(_deferredQueryValue)}`,
+			{},
+		);
 		return (data.directories ?? []).map((directory) => ({
 			...directory,
 			isGitRepo: false,
 		}));
-	}, [deferredQuery]);
-	const { data: searchResults, loading: searchLoading } = useQueryResource<
-		QuickPick[]
-	>(fetchSearchResults, [], {
-		queryKey: ["agent", "directories", "search", deferredQuery],
-	});
-	const [selectedIndexValue, setSelectedIndex] = useState(-1);
-	const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
-	const inputRef = useRef<HTMLInputElement | null>(null);
-	const containerRef = useRef<HTMLDivElement | null>(null);
-	const isSearching = deferredQuery.length > 0;
-	const displayList = (isSearching ? searchResults : pickerData.quickPicks)
-		.filter((p) => !multiSelect || !selectedPaths.includes(p.path))
-		.slice(0, 5);
-	const itemCount = displayList.length;
-	const selectedIndex =
-		itemCount === 0
+	};
+	const _source2 = useQueryResource<QuickPick[]>(
+		() => fetchSearchResults,
+		() => [],
+		() => ({
+			queryKey: ["agent", "directories", "search", deferredQuery()],
+		}),
+	);
+	const [selectedIndexValue, setSelectedIndex] = createSignal(-1);
+	const [selectedPaths, setSelectedPaths] = createSignal<string[]>([]);
+	const inputRef = {
+		current: null,
+	} as {
+		current: HTMLInputElement | null;
+	};
+	const containerRef = {
+		current: null,
+	} as {
+		current: HTMLDivElement | null;
+	};
+	const isSearching = createMemo(() => deferredQuery().length > 0);
+	const displayList = createMemo(() =>
+		(isSearching() ? _source2.data : _source.data.quickPicks)
+			.filter((p) => !_props.multiSelect || !selectedPaths().includes(p.path))
+			.slice(0, 5),
+	);
+	const itemCount = createMemo(() => displayList().length);
+	const selectedIndex = createMemo(() => {
+		const _itemCountValue = itemCount(),
+			_selectedIndexValueValue = selectedIndexValue();
+		return _itemCountValue === 0
 			? -1
-			: selectedIndexValue < 0
+			: _selectedIndexValueValue < 0
 				? 0
-				: Math.min(selectedIndexValue, itemCount - 1);
-	const loading = isSearching && searchLoading;
-
-	useEffect(() => {
+				: Math.min(_selectedIndexValueValue, _itemCountValue - 1);
+	});
+	const loading = createMemo(() => isSearching() && _source2.loading);
+	onSettled(() => {
 		const timer = setTimeout(() => inputRef.current?.focus(), 10);
 		return () => {
 			clearTimeout(timer);
 		};
-	}, []);
-
+	});
 	const togglePath = (path: string) => {
-		const next = selectedPaths.includes(path)
-			? selectedPaths.filter((selected) => selected !== path)
-			: [...selectedPaths, path];
+		const _selectedPathsValue = selectedPaths();
+		const next = _selectedPathsValue.includes(path)
+			? _selectedPathsValue.filter((selected) => selected !== path)
+			: [..._selectedPathsValue, path];
 		setSelectedPaths(next);
-		onSelectionChange?.(next);
+		_props.onSelectionChange?.(next);
 	};
-
 	const handleItemClick = (path: string) => {
 		setSelectedIndex(-1);
-		if (multiSelect) {
+		if (_props.multiSelect) {
 			togglePath(path);
 			setQuery("");
 		} else {
-			onSelect(path);
+			_props.onSelect(path);
 		}
 	};
-
 	const handleStart = () => {
-		if (selectedPaths.length > 0 && onMultiSelect) {
-			onMultiSelect(selectedPaths);
-		} else if (selectedPaths.length === 1) {
-			onSelect(selectedPaths[0]!);
+		const _selectedPathsValue2 = selectedPaths();
+		if (_selectedPathsValue2.length > 0 && _props.onMultiSelect) {
+			_props.onMultiSelect(_selectedPathsValue2);
+		} else if (_selectedPathsValue2.length === 1) {
+			_props.onSelect(_selectedPathsValue2[0]!);
 		}
 	};
-
 	const handleKeyDown = (e: KeyboardEvent) => {
-		if (itemCount === 0) {
+		const _selectedIndexValue = selectedIndex();
+		if (itemCount() === 0) {
 			if (e.key === "Escape") {
 				e.preventDefault();
-				onCancel?.();
+				_props.onCancel?.();
 			}
 			return;
 		}
 		if (e.key === "ArrowDown" || e.key === "Tab") {
 			e.preventDefault();
-			setSelectedIndex((current) => (current + 1) % itemCount);
+			setSelectedIndex((current) => (current + 1) % itemCount());
 		} else if (e.key === "ArrowUp") {
 			e.preventDefault();
-			setSelectedIndex((current) =>
-				current < 0 ? itemCount - 1 : (current - 1 + itemCount) % itemCount,
-			);
+			setSelectedIndex((current) => {
+				const _itemCountValue2 = itemCount();
+				return current < 0
+					? _itemCountValue2 - 1
+					: (current - 1 + _itemCountValue2) % _itemCountValue2;
+			});
 		} else if (e.key === "Enter") {
 			e.preventDefault();
-			const idx = selectedIndex >= 0 ? selectedIndex : 0;
-			const path = displayList[idx]?.path;
+			const idx = _selectedIndexValue >= 0 ? _selectedIndexValue : 0;
+			const path = displayList()[idx]?.path;
 			if (path) handleItemClick(path);
 		} else if (e.key === "Escape") {
 			e.preventDefault();
-			onCancel?.();
+			_props.onCancel?.();
 		}
 	};
-
 	const shortenPath = (path: string) =>
-		pickerData.homePath && path.startsWith(pickerData.homePath)
-			? `~${path.slice(pickerData.homePath.length)}`
+		_source.data.homePath && path.startsWith(_source.data.homePath)
+			? `~${path.slice(_source.data.homePath.length)}`
 			: path;
-
-	if (hideInput) {
-		return (
-			<div {...stylex.props(styles.compactRoot)}>
-				<div {...stylex.props(styles.compactList)}>
-					{displayList.map((pick, i) => (
-						<DirectoryResult
-							key={pick.path}
-							pick={pick}
-							active={i === selectedIndex}
-							displayPath={shortenPath(pick.path)}
-							onSelect={handleItemClick}
-						/>
-					))}
-				</div>
-				{multiSelect && selectedPaths.length > 0 && (
-					<div {...stylex.props(styles.selectedBar)}>
-						{selectedPaths.slice(0, 4).map((p) => (
-							<SelectedDirectoryChip key={p} path={p} onRemove={togglePath} />
-						))}
-						{selectedPaths.length > 4 && (
-							<span {...stylex.props(styles.moreCount)}>
-								+{selectedPaths.length - 4}
-							</span>
-						)}
-					</div>
-				)}
-			</div>
-		);
-	}
-
 	return (
-		<div {...stylex.props(styles.root)} ref={containerRef}>
-			<div {...stylex.props(styles.unifiedFrame)}>
-				<div {...stylex.props(styles.inputRow)}>
-					<span {...stylex.props(styles.inputIcon)}>
-						<IconFolder size={iconSize.lg} />
-					</span>
-					<input
-						ref={inputRef}
-						type="text"
-						value={query}
-						onInput={(event) => {
-							setInputValue(setQuery, event);
-							setSelectedIndex(-1);
-						}}
-						onKeyDown={handleKeyDown}
-						placeholder="Search folder..."
-						autoComplete="off"
-						autoCorrect="off"
-						autoCapitalize="off"
-						spellCheck={false}
-						{...stylex.props(styles.input)}
-					/>
-					{loading && <div {...stylex.props(styles.spinner)} />}
-					{showStartButton && multiSelect && selectedPaths.length > 0 && (
-						<button
-							type="button"
-							onClick={handleStart}
-							{...stylex.props(styles.startButton)}
-						>
-							Start
-							{selectedPaths.length > 1 ? ` (${selectedPaths.length})` : ""}
-						</button>
-					)}
-				</div>
-				{itemCount > 0 && (
-					<div {...stylex.props(styles.unifiedList)}>
-						{displayList.map((pick, i) => (
-							<DirectoryResult
-								key={pick.path}
-								pick={pick}
-								active={i === selectedIndex}
-								displayPath={shortenPath(pick.path)}
-								onSelect={handleItemClick}
-								searchable
-								highlight={selectedIndexValue >= 0}
-								onHover={() => setSelectedIndex(i)}
-							/>
-						))}
-					</div>
-				)}
-				{multiSelect && selectedPaths.length > 0 && (
-					<div {...stylex.props(styles.selectedWrap)}>
-						<div {...stylex.props(styles.selectedList)}>
-							{selectedPaths.map((p, i) => (
-								<SelectedDirectoryChip
-									key={p}
-									path={p}
-									onRemove={togglePath}
-									primary={i === 0}
-									strong
+		<>
+			{(() => {
+				if (_props.hideInput) {
+					return (
+						<div {...stylex.attrs(styles.compactRoot)}>
+							<div {...stylex.attrs(styles.compactList)}>
+								{
+									<For each={displayList()} keyed={(row) => row.path}>
+										{(pick, i) => (
+											<DirectoryResult
+												pick={pick()}
+												active={i() === selectedIndex()}
+												displayPath={shortenPath(pick().path)}
+												onSelect={handleItemClick}
+											/>
+										)}
+									</For>
+								}
+							</div>
+							{_props.multiSelect && selectedPaths().length > 0 && (
+								<div {...stylex.attrs(styles.selectedBar)}>
+									{
+										<For
+											each={selectedPaths().slice(0, 4)}
+											keyed={(row) => row}
+										>
+											{(p) => (
+												<SelectedDirectoryChip
+													path={p()}
+													onRemove={togglePath}
+												/>
+											)}
+										</For>
+									}
+									{selectedPaths().length > 4 && (
+										<span {...stylex.attrs(styles.moreCount)}>
+											+{selectedPaths().length - 4}
+										</span>
+									)}
+								</div>
+							)}
+						</div>
+					);
+				}
+				return (
+					<div
+						{...stylex.attrs(styles.root)}
+						ref={(element) => (containerRef.current = element)}
+					>
+						<div {...stylex.attrs(styles.unifiedFrame)}>
+							<div {...stylex.attrs(styles.inputRow)}>
+								<span {...stylex.attrs(styles.inputIcon)}>
+									<IconFolder size={iconSize.lg} />
+								</span>
+								<input
+									ref={(element) => (inputRef.current = element)}
+									type="text"
+									value={query()}
+									onInput={(event) => {
+										setInputValue(setQuery, event);
+										setSelectedIndex(-1);
+									}}
+									onKeyDown={handleKeyDown}
+									placeholder="Search folder..."
+									autocomplete="off"
+									autocorrect="off"
+									autocapitalize="off"
+									spellcheck={false}
+									{...stylex.attrs(styles.input)}
 								/>
-							))}
+								{loading() && <div {...stylex.attrs(styles.spinner)} />}
+								{(_props.showStartButton === undefined
+									? true
+									: _props.showStartButton) &&
+									_props.multiSelect &&
+									selectedPaths().length > 0 && (
+										<button
+											type="button"
+											onClick={handleStart}
+											{...stylex.attrs(styles.startButton)}
+										>
+											Start
+											{selectedPaths().length > 1
+												? ` (${selectedPaths().length})`
+												: ""}
+										</button>
+									)}
+							</div>
+							{itemCount() > 0 && (
+								<div {...stylex.attrs(styles.unifiedList)}>
+									{
+										<For each={displayList()} keyed={(row) => row.path}>
+											{(pick, i) => (
+												<DirectoryResult
+													pick={pick()}
+													active={i() === selectedIndex()}
+													displayPath={shortenPath(pick().path)}
+													onSelect={handleItemClick}
+													searchable
+													highlight={selectedIndexValue() >= 0}
+													onHover={() => setSelectedIndex(i())}
+												/>
+											)}
+										</For>
+									}
+								</div>
+							)}
+							{_props.multiSelect && selectedPaths().length > 0 && (
+								<div {...stylex.attrs(styles.selectedWrap)}>
+									<div {...stylex.attrs(styles.selectedList)}>
+										{
+											<For each={selectedPaths()} keyed={(row) => row}>
+												{(p, i) => (
+													<SelectedDirectoryChip
+														path={p()}
+														onRemove={togglePath}
+														primary={i() === 0}
+														strong
+													/>
+												)}
+											</For>
+										}
+									</div>
+								</div>
+							)}
 						</div>
 					</div>
-				)}
-			</div>
-		</div>
+				);
+			})()}
+		</>
 	);
 }

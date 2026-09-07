@@ -1,23 +1,17 @@
-import * as stylex from "@octanejs/stylex";
-import {
-	memo,
-	useCallback,
-	useEffect,
-	useImperativeHandle,
-	useMemo,
-	useRef,
-	useState,
-} from "octane";
-import type React from "react";
+import * as stylex from "@stylexjs/stylex";
+import { createEffect, createMemo, createSignal, onSettled } from "solid-js";
 import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import {
-	loadDefaultChatSettings,
-	wsClient,
-} from "../../../../adapters/backend/http.ts";
+	assignRef,
+	bindImperativeRef,
+	captureEvent,
+} from "../../../../shared/lib/dom.tsx";
 import {
+	loadDefaultChatSettings,
 	loadStoredInput,
 	saveStoredInput,
-} from "../../../../adapters/storage/stored-values.ts";
+	wsClient,
+} from "../../../../shared/lib/native.tsx";
 import { WorkspaceDockHandle } from "../../../workbench/components/WorkspaceDockHandle/index.tsx";
 import {
 	useAgentChatComposerState,
@@ -42,20 +36,16 @@ import {
 	appendSystemMessage,
 	useChatConnection,
 } from "./useChatConnection.tsx";
-
 export interface AgentChatHandle {
 	focusInput: (atEnd?: boolean) => void;
 	highlightComposer: () => void;
 }
-
 export interface AgentChatViewProps {
 	paneId: string;
 	cwd?: string;
 	referencePaths?: string[];
 	pendingWorkspacePaths?: string[];
-
 	agentKind?: WorkspaceAgentKind;
-
 	onClose?: (paneId: string) => void;
 	isSelected?: boolean;
 	isVisible?: boolean;
@@ -70,85 +60,75 @@ export interface AgentChatViewProps {
 		referencePaths?: string[],
 	) => void;
 	onDirectoryCancel?: (paneId: string) => void;
-
-	ref?: React.Ref<AgentChatHandle>;
+	ref?: (handle: AgentChatHandle | null) => void;
 }
-
-export const AgentChatView = memo(function AgentChatView({
-	paneId,
-	cwd,
-	referencePaths,
-	pendingWorkspacePaths,
-
-	agentKind = loadDefaultChatSettings().agentKind,
-
-	onClose,
-	isSelected,
-	isVisible = true,
-	draggable,
-	onDragStart,
-	onDragEnd,
-
-	onDirectoryChange,
-	onDirectoryCancel,
-	ref,
-}: AgentChatViewProps) {
-	const renderVisibleChat = isVisible;
-	const [isContextOpen, setIsContextOpen] = useState(false);
-	const [isAgentConfigOpen, setIsAgentConfigOpen] = useState(false);
-	const {
-		configurationError,
-		agentKindOptions,
-		effectiveSelectedModel,
-		handleAgentKindChange,
-		handleModelChange,
-		handleReasoningLevelChange,
-		selectedReasoningLevel,
-	} = useAgentChatSettings(paneId, agentKind);
-	const { savePendingWorkspaceSelection, visibleCwd } = usePendingChatWorkspace(
-		paneId,
-		cwd,
-		pendingWorkspacePaths,
+export const AgentChatView = function AgentChatView(
+	_props: AgentChatViewProps,
+) {
+	const renderVisibleChat = createMemo(() =>
+		_props.isVisible === undefined ? true : _props.isVisible,
 	);
-	const [input, setInputRaw] = useState(() => loadStoredInput(paneId));
-	const pendingInputRef = useRef(input);
-	const inputSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const flushInputSave = useCallback(() => {
+	const [isContextOpen, setIsContextOpen] = createSignal(false);
+	const [isAgentConfigOpen, setIsAgentConfigOpen] = createSignal(false);
+	const _source = useAgentChatSettings(
+		() => _props.paneId,
+		() =>
+			_props.agentKind === undefined
+				? loadDefaultChatSettings().agentKind
+				: _props.agentKind,
+	);
+	const _source2 = usePendingChatWorkspace(
+		() => _props.paneId,
+		() => _props.cwd,
+		() => _props.pendingWorkspacePaths,
+	);
+	const [input, setInputRaw] = createSignal(
+		(() => loadStoredInput(_props.paneId))(),
+	);
+	const pendingInputRef = {
+		current: input(),
+	};
+	const inputSaveTimerRef = {
+		current: null,
+	} as {
+		current: ReturnType<typeof setTimeout> | null;
+	};
+	const flushInputSave = () => {
 		if (inputSaveTimerRef.current) {
 			clearTimeout(inputSaveTimerRef.current);
 			inputSaveTimerRef.current = null;
 		}
-		saveStoredInput(paneId, pendingInputRef.current);
-	}, [paneId]);
-	const setInput = useCallback(
-		(val: string) => {
-			setInputRaw(val);
-			pendingInputRef.current = val;
-			if (inputSaveTimerRef.current) return;
-			inputSaveTimerRef.current = setTimeout(flushInputSave, 250);
-		},
-		[flushInputSave],
+		saveStoredInput(_props.paneId, pendingInputRef.current);
+	};
+	const setInput = (val: string) => {
+		setInputRaw(val);
+		pendingInputRef.current = val;
+		if (inputSaveTimerRef.current) return;
+		inputSaveTimerRef.current = setTimeout(flushInputSave, 250);
+	};
+	createEffect(
+		() => [flushInputSave],
+		() => () => flushInputSave(),
 	);
-	useEffect(() => () => flushInputSave(), [flushInputSave]);
-	const {
-		cancelListening: cancelSpeechListening,
-		error: speechError,
-		isListening: isSpeechListening,
-		isSupported: isSpeechSupported,
-		toggleListening: toggleSpeechListening,
-	} = useSpeechToText({
-		enabled: renderVisibleChat,
-		value: input,
+	const _source3 = useSpeechToText(() => ({
+		enabled: renderVisibleChat(),
+		value: input(),
 		onChange: setInput,
-	});
-	const imageDragDepthRef = useRef(0);
-	const [isImageDragActive, setIsImageDragActive] = useState(false);
-	const [composerBeamActive, setComposerBeamActive] = useState(false);
-	const composerBeamFrameRef = useRef(0);
-	const composerBeamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-		null,
-	);
-	const highlightComposer = useCallback(() => {
+	}));
+	const imageDragDepthRef = {
+		current: 0,
+	};
+	const [isImageDragActive, setIsImageDragActive] = createSignal(false);
+	const [composerBeamActive, setComposerBeamActive] = createSignal(false);
+	const composerBeamFrameRef = {
+		current: 0,
+	};
+	const composerBeamTimerRef = {
+		current: null,
+	} as {
+		current: ReturnType<typeof setTimeout> | null;
+	};
+	const highlightComposer = () => {
 		if (composerBeamFrameRef.current) {
 			cancelAnimationFrame(composerBeamFrameRef.current);
 		}
@@ -164,104 +144,115 @@ export const AgentChatView = memo(function AgentChatView({
 				setComposerBeamActive(false);
 			}, 1_800);
 		});
-	}, []);
-	useEffect(() => {
-		if (isSelected !== false) return;
-		if (composerBeamFrameRef.current) {
-			cancelAnimationFrame(composerBeamFrameRef.current);
-			composerBeamFrameRef.current = 0;
-		}
-		if (composerBeamTimerRef.current) {
-			clearTimeout(composerBeamTimerRef.current);
-			composerBeamTimerRef.current = null;
-		}
-		setComposerBeamActive(false);
-	}, [isSelected]);
-	useEffect(
-		() => () => {
+	};
+	createEffect(
+		() => [_props.isSelected],
+		() => {
+			if (_props.isSelected !== false) return;
 			if (composerBeamFrameRef.current) {
 				cancelAnimationFrame(composerBeamFrameRef.current);
+				composerBeamFrameRef.current = 0;
 			}
 			if (composerBeamTimerRef.current) {
 				clearTimeout(composerBeamTimerRef.current);
+				composerBeamTimerRef.current = null;
 			}
+			setComposerBeamActive(false);
 		},
-		[],
 	);
-	const {
-		cancelScrollRestore,
-		chatVirtualizerRef,
-		handleScroll,
-		isAtBottom,
-		highlightOverlayRef,
-		scheduleScrollToBottom,
-		scrollRef,
-		scrollToBottom,
-		textareaRef,
-	} = useChatViewport(input, isSelected, renderVisibleChat);
-	const composer = useAgentChatComposerState(paneId, renderVisibleChat);
-	const menus = useAgentChatMenus({
-		agentKind,
-		cwd,
-		enabled: renderVisibleChat,
-		input,
-		setInput,
-		textareaRef,
+	onSettled(() => () => {
+		if (composerBeamFrameRef.current) {
+			cancelAnimationFrame(composerBeamFrameRef.current);
+		}
+		if (composerBeamTimerRef.current) {
+			clearTimeout(composerBeamTimerRef.current);
+		}
 	});
-	const exitChat = useStableCallback(() => onClose?.(paneId));
-	const {
-		chatUiState: { isLoading, startTime, expandedTools },
-		checkpoints,
-		messages,
-		revertCheckpoint,
-		setMessages,
-		setExpandedTools,
-		setRunStatus,
-	} = useChatConnection({
-		agentKind,
-		cwd,
-		enabled: renderVisibleChat,
-		paneId,
+	const _source4 = useChatViewport(
+		() => input(),
+		() => _props.isSelected,
+		() => renderVisibleChat(),
+	);
+	const composer = useAgentChatComposerState(
+		() => _props.paneId,
+		() => renderVisibleChat(),
+	);
+	const menus = useAgentChatMenus(() => ({
+		agentKind:
+			_props.agentKind === undefined
+				? loadDefaultChatSettings().agentKind
+				: _props.agentKind,
+		cwd: _props.cwd,
+		enabled: renderVisibleChat(),
+		input: input(),
+		setInput,
+		textareaRef: _source4.textareaRef,
+	}));
+	const exitChat = useStableCallback(() => _props.onClose?.(_props.paneId));
+	const _source5 = useChatConnection(() => ({
+		agentKind:
+			_props.agentKind === undefined
+				? loadDefaultChatSettings().agentKind
+				: _props.agentKind,
+		cwd: _props.cwd,
+		enabled: renderVisibleChat(),
+		paneId: _props.paneId,
 		onExit: exitChat,
 		replaceQueuedMessages: composer.replaceQueuedMessages,
 		resolveSteeringMessage: composer.resolveSteeringMessage,
 		stageSteeringMessage: composer.stageSteeringMessage,
-	});
-	const { handleKeyDown, sendUserMessage } = useChatInputActions({
+	}));
+	const _source6 = useChatInputActions(() => ({
 		...composer,
 		...menus,
-		agentKind,
-		cancelSpeechListening,
-		cwd,
-		input,
-		isLoading,
+		agentKind:
+			_props.agentKind === undefined
+				? loadDefaultChatSettings().agentKind
+				: _props.agentKind,
+		cancelSpeechListening: _source3.cancelListening,
+		cwd: _props.cwd,
+		input: input(),
+		isLoading: _source5.chatUiState.isLoading,
 		onSendStart: () => {
-			scheduleScrollToBottom("auto");
+			_source4.scheduleScrollToBottom("auto");
 		},
-		paneId,
-		referencePaths,
+		paneId: _props.paneId,
+		referencePaths: _props.referencePaths,
 		setInput,
-		setMessages,
-		textareaRef,
-	});
+		setMessages: _source5.setMessages,
+		textareaRef: _source4.textareaRef,
+	}));
 	const handleSendMessage = useStableCallback((text: string) =>
-		sendUserMessage({ text }),
+		_source6.sendUserMessage({
+			text,
+		}),
 	);
 	const handleMdFileClickFromMessage = useStableCallback(
 		composer.handleMdFileClick,
 	);
-	const revertCheckpointFromMessage = useStableCallback(revertCheckpoint);
-	const stopGeneration = useCallback(() => {
-		wsClient.send({ type: "chat:stop", paneId });
-		setRunStatus({ isLoading: false, status: "idle", startTime: null });
-		setMessages((prev) => appendSystemMessage(prev, "Generation stopped"));
-		scheduleScrollToBottom("auto");
-	}, [paneId, scheduleScrollToBottom, setMessages, setRunStatus]);
-	useImperativeHandle(
-		ref,
+	const revertCheckpointFromMessage = useStableCallback(
+		_source5.revertCheckpoint,
+	);
+	const stopGeneration = () => {
+		wsClient.send({
+			type: "chat:stop",
+			paneId: _props.paneId,
+		});
+		_source5.setRunStatus({
+			isLoading: false,
+			status: "idle",
+			startTime: null,
+		});
+		_source5.setMessages((prev) =>
+			appendSystemMessage(prev, "Generation stopped"),
+		);
+		_source4.scheduleScrollToBottom("auto");
+	};
+	bindImperativeRef(
+		() => _props.ref,
 		() => ({
 			focusInput: (atEnd?: boolean) => {
-				const input = textareaRef.current;
+				const input = _source4.textareaRef.current;
 				if (!input) return;
 				input.focus();
 				if (atEnd)
@@ -269,32 +260,23 @@ export const AgentChatView = memo(function AgentChatView({
 			},
 			highlightComposer,
 		}),
-		[textareaRef, highlightComposer],
 	);
-
-	const toggleTool = useCallback(
-		(id: string) => {
-			setExpandedTools((prev) => {
-				const next = new Set(prev);
-				next.has(id) ? next.delete(id) : next.add(id);
-				return next;
-			});
-		},
-		[setExpandedTools],
-	);
-	const voiceInput = useMemo(
-		() => ({
-			error: speechError,
-			isListening: isSpeechListening,
-			isSupported: isSpeechSupported,
-			onToggleListening: toggleSpeechListening,
-		}),
-		[isSpeechListening, isSpeechSupported, speechError, toggleSpeechListening],
-	);
-
+	const toggleTool = (id: string) => {
+		_source5.setExpandedTools((prev) => {
+			const next = new Set(prev);
+			next.has(id) ? next.delete(id) : next.add(id);
+			return next;
+		});
+	};
+	const voiceInput = createMemo(() => ({
+		error: _source3.error,
+		isListening: _source3.isListening,
+		isSupported: _source3.isSupported,
+		onToggleListening: _source3.toggleListening,
+	}));
 	return (
 		<div
-			{...stylex.props(styles.root)}
+			{...stylex.attrs(styles.root)}
 			onDragEnter={(event) => {
 				const transfer = event.dataTransfer;
 				if (!transfer) return;
@@ -308,125 +290,137 @@ export const AgentChatView = memo(function AgentChatView({
 				setIsImageDragActive(true);
 			}}
 			onDragOver={(event) => {
-				if (!isImageDragActive) return;
+				if (!isImageDragActive()) return;
 				event.preventDefault();
 				event.stopPropagation();
 				if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
 			}}
 			onDragLeave={(event) => {
-				if (!isImageDragActive) return;
+				if (!isImageDragActive()) return;
 				event.stopPropagation();
 				imageDragDepthRef.current = Math.max(0, imageDragDepthRef.current - 1);
 				if (imageDragDepthRef.current === 0) setIsImageDragActive(false);
 			}}
 			onDrop={(event) => {
-				if (!isImageDragActive) return;
+				if (!isImageDragActive()) return;
 				event.stopPropagation();
 				imageDragDepthRef.current = 0;
 				setIsImageDragActive(false);
 				void composer.handleDrop(event);
 			}}
 		>
-			{renderVisibleChat && draggable && (
-				<div {...stylex.props(styles.dragReveal)}>
-					<div {...stylex.props(styles.dragRevealSurface)}>
+			{renderVisibleChat() && _props.draggable && (
+				<div {...stylex.attrs(styles.dragReveal)}>
+					<div {...stylex.attrs(styles.dragRevealSurface)}>
 						<WorkspaceDockHandle
 							draggable
-							onDragStart={onDragStart}
-							onDragEnd={onDragEnd}
+							onDragStart={_props.onDragStart}
+							onDragEnd={_props.onDragEnd}
 						/>
 					</div>
 				</div>
 			)}
-			{renderVisibleChat && isContextOpen && (
+			{renderVisibleChat() && isContextOpen() && (
 				<AgentContextPanel
-					paneId={paneId}
-					cwd={visibleCwd}
+					paneId={_props.paneId}
+					cwd={_source2.visibleCwd}
 					onClose={() => setIsContextOpen(false)}
 				/>
 			)}
-			{renderVisibleChat && !isContextOpen && (
-				<div {...stylex.props(styles.messageRegion)}>
+			{renderVisibleChat() && !isContextOpen() && (
+				<div {...stylex.attrs(styles.messageRegion)}>
 					<div
-						ref={scrollRef}
-						{...stylex.props(styles.scrollArea)}
-						onScroll={handleScroll}
-						onWheelCapture={cancelScrollRestore}
+						ref={[
+							(_element) => assignRef(_source4.scrollRef, _element),
+							captureEvent("wheel", (event) => _source4.cancelScrollRestore()),
+						]}
+						{...stylex.attrs(styles.scrollArea)}
+						onScroll={_source4.handleScroll}
 					>
-						{messages.length === 0 &&
-							!isLoading &&
-							!cwd &&
-							!isAgentConfigOpen &&
-							isSelected !== false &&
-							onDirectoryChange && (
+						{_source5.messages.length === 0 &&
+							!_source5.chatUiState.isLoading &&
+							!_props.cwd &&
+							!isAgentConfigOpen() &&
+							_props.isSelected !== false &&
+							_props.onDirectoryChange && (
 								<ChatWorkspacePicker
-									savePendingWorkspaceSelection={savePendingWorkspaceSelection}
-									onDirectoryCancel={onDirectoryCancel}
-									paneId={paneId}
+									savePendingWorkspaceSelection={
+										_source2.savePendingWorkspaceSelection
+									}
+									onDirectoryCancel={_props.onDirectoryCancel}
+									paneId={_props.paneId}
 								/>
 							)}
 						<ChatMessageList
-							paneId={paneId}
-							messages={messages}
-							scrollElementRef={scrollRef}
-							virtualizerControlsRef={chatVirtualizerRef}
-							expandedTools={expandedTools}
+							paneId={_props.paneId}
+							messages={_source5.messages}
+							scrollElementRef={_source4.scrollRef}
+							virtualizerControlsRef={(handle) => {
+								_source4.chatVirtualizerRef.current = handle;
+							}}
+							expandedTools={_source5.chatUiState.expandedTools}
 							toggleTool={toggleTool}
-							checkpoints={checkpoints}
+							checkpoints={_source5.checkpoints}
 							revertCheckpoint={revertCheckpointFromMessage}
 							handleSendMessage={handleSendMessage}
 							onMdFileClick={handleMdFileClickFromMessage}
 							slashCommandNames={menus.slashCommandNames}
-							stickToBottom={isAtBottom}
+							stickToBottom={_source4.isAtBottom}
 						/>
 					</div>
-					{!isAtBottom && (
-						<ScrollToLatestButton scrollToBottom={scrollToBottom} />
+					{!_source4.isAtBottom && (
+						<ScrollToLatestButton scrollToBottom={_source4.scrollToBottom} />
 					)}
 				</div>
 			)}
 
-			{renderVisibleChat && !isContextOpen && (
-				<div {...stylex.props(styles.composerRegion)}>
-					{isImageDragActive && (
-						<div {...stylex.props(styles.imageDropCue)}>
+			{renderVisibleChat() && !isContextOpen() && (
+				<div {...stylex.attrs(styles.composerRegion)}>
+					{isImageDragActive() && (
+						<div {...stylex.attrs(styles.imageDropCue)}>
 							Drop image to attach
 						</div>
 					)}
-					<div {...stylex.props(styles.composerContent)}>
+					<div {...stylex.attrs(styles.composerContent)}>
 						<AgentChatStatusBar
-							isLoading={isLoading}
-							startTime={startTime}
+							isLoading={_source5.chatUiState.isLoading}
+							startTime={_source5.chatUiState.startTime}
 							onStop={stopGeneration}
 						/>
-						{configurationError && <div role="alert">{configurationError}</div>}
+						{_source.configurationError && (
+							<div role="alert">{_source.configurationError}</div>
+						)}
 						{composer.queueError && (
 							<div role="alert">{composer.queueError}</div>
 						)}
 						<ChatComposer
 							{...composer}
 							{...menus}
-							beamActive={composerBeamActive}
-							agentKind={agentKind}
-							agentKindOptions={agentKindOptions}
-							model={effectiveSelectedModel}
-							reasoningLevel={selectedReasoningLevel}
-							onAgentKindChange={handleAgentKindChange}
-							onModelChange={handleModelChange}
-							onReasoningLevelChange={handleReasoningLevelChange}
+							beamActive={composerBeamActive()}
+							agentKind={
+								_props.agentKind === undefined
+									? loadDefaultChatSettings().agentKind
+									: _props.agentKind
+							}
+							agentKindOptions={_source.agentKindOptions}
+							model={_source.effectiveSelectedModel}
+							reasoningLevel={_source.selectedReasoningLevel}
+							onAgentKindChange={_source.handleAgentKindChange}
+							onModelChange={_source.handleModelChange}
+							onReasoningLevelChange={_source.handleReasoningLevelChange}
 							onAgentConfigOpenChange={setIsAgentConfigOpen}
-							input={input}
+							input={input()}
 							setInput={setInput}
-							handleKeyDown={handleKeyDown}
-							textareaRef={textareaRef}
-							highlightOverlayRef={highlightOverlayRef}
+							handleKeyDown={_source6.handleKeyDown}
+							textareaRef={_source4.textareaRef}
+							highlightOverlayRef={_source4.highlightOverlayRef}
 							onMdFileClick={composer.handleMdFileClick}
-							voiceInput={voiceInput}
+							voiceInput={voiceInput()}
 							workspaceControl={
 								<AgentWorkspaceControl
-									cwd={visibleCwd}
+									cwd={_source2.visibleCwd}
 									onAgentContext={() => setIsContextOpen((open) => !open)}
-									isAgentContextOpen={isContextOpen}
+									isAgentContextOpen={isContextOpen()}
 								/>
 							}
 						/>
@@ -435,16 +429,16 @@ export const AgentChatView = memo(function AgentChatView({
 			)}
 		</div>
 	);
-});
-
+};
 export function useStableCallback<Args extends unknown[], Return>(
 	callback: (...args: Args) => Return,
 ): (...args: Args) => Return {
-	const callbackRef = useRef(callback);
+	const callbackRef = {
+		current: callback,
+	};
 	callbackRef.current = callback;
-	return useCallback((...args: Args) => callbackRef.current(...args), []);
+	return (...args: Args) => callbackRef.current(...args);
 }
-
 export type ChatLoadingState = {
 	isLoading: boolean;
 	status: string;

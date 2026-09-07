@@ -1,4 +1,4 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
@@ -7,7 +7,6 @@ import {
 	radius,
 	shadow,
 } from "../../../../design-system/styles.stylex.ts";
-
 export const styles = stylex.create({
 	dialog: {
 		position: "relative",
@@ -31,15 +30,27 @@ export const styles = stylex.create({
 			backdropFilter: "blur(8px)",
 		},
 	},
-	root: { display: "flex", height: "100%", flexDirection: "column" },
-	brand: { display: "flex", alignItems: "center", gap: controlSize._3 },
+	root: {
+		display: "flex",
+		height: "100%",
+		flexDirection: "column",
+	},
+	brand: {
+		display: "flex",
+		alignItems: "center",
+		gap: controlSize._3,
+	},
 	title: {
 		margin: 0,
 		fontSize: font.size_4,
 		fontWeight: font.weight_6,
 		letterSpacing: "-0.025em",
 	},
-	headerActions: { display: "flex", alignItems: "center", gap: controlSize._3 },
+	headerActions: {
+		display: "flex",
+		alignItems: "center",
+		gap: controlSize._3,
+	},
 	closeButton: {
 		position: "absolute",
 		top: controlSize._3,
@@ -77,11 +88,16 @@ export const styles = stylex.create({
 		fontWeight: font.weight_5,
 		paddingInline: controlSize._3,
 		whiteSpace: "nowrap",
-		":disabled": { opacity: 0.5 },
+		":disabled": {
+			opacity: 0.5,
+		},
 	},
 	content: {
 		display: "flex",
-		flexDirection: { default: "row", "@media (max-width: 700px)": "column" },
+		flexDirection: {
+			default: "row",
+			"@media (max-width: 700px)": "column",
+		},
 		flex: 1,
 		minHeight: 0,
 		overflow: "hidden",
@@ -89,8 +105,14 @@ export const styles = stylex.create({
 	listPane: {
 		display: "flex",
 		flexDirection: "column",
-		width: { default: "270px", "@media (max-width: 700px)": "100%" },
-		maxHeight: { default: "none", "@media (max-width: 700px)": "180px" },
+		width: {
+			default: "270px",
+			"@media (max-width: 700px)": "100%",
+		},
+		maxHeight: {
+			default: "none",
+			"@media (max-width: 700px)": "180px",
+		},
 		flexShrink: 0,
 		minHeight: 0,
 		borderRightWidth: 1,
@@ -98,7 +120,10 @@ export const styles = stylex.create({
 		borderRightColor: color.border,
 		backgroundColor: color.surfaceBlack14,
 	},
-	libraryNew: { width: "100%", marginBottom: controlSize._3 },
+	libraryNew: {
+		width: "100%",
+		marginBottom: controlSize._3,
+	},
 	libraryControls: {
 		padding: controlSize._3,
 		paddingRight: {
@@ -108,7 +133,9 @@ export const styles = stylex.create({
 		paddingBottom: controlSize._1,
 		flexShrink: 0,
 	},
-	searchWrap: { position: "relative" },
+	searchWrap: {
+		position: "relative",
+	},
 	searchIcon: {
 		position: "absolute",
 		left: controlSize._2_5,
@@ -130,8 +157,12 @@ export const styles = stylex.create({
 		outline: "none",
 		paddingLeft: controlSize._8,
 		paddingRight: controlSize._2,
-		":focus-visible": { borderColor: color.textMuted },
-		"::placeholder": { color: color.textMuted },
+		":focus-visible": {
+			borderColor: color.textMuted,
+		},
+		"::placeholder": {
+			color: color.textMuted,
+		},
 	},
 	libraryHeading: {
 		display: "flex",
@@ -264,7 +295,9 @@ export const styles = stylex.create({
 		borderWidth: 0,
 		borderRadius: radius.md,
 		padding: controlSize._1,
-		":hover": { backgroundColor: color.surfaceControl },
+		":hover": {
+			backgroundColor: color.surfaceControl,
+		},
 	},
 	editorEmpty: {
 		display: "flex",

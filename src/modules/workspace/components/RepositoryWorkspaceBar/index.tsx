@@ -1,8 +1,13 @@
-import * as stylex from "@octanejs/stylex";
-import { useLocation, useNavigate } from "@octanejs/tanstack-router";
-import { useCallback, useEffect, useRef, useState } from "octane";
+import { useLocation, useNavigate } from "@solidjs/router";
+import * as stylex from "@stylexjs/stylex";
+import {
+	createEffect,
+	createMemo,
+	createSignal,
+	For,
+	onSettled,
+} from "solid-js";
 import type { RepositoryWorkspace } from "../../../../../build/presentation/contracts/RepositoryWorkspace.ts";
-import { loadSidebarCollapsed } from "../../../../adapters/storage/stored-values.ts";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
@@ -12,6 +17,7 @@ import {
 	selectionAppearance,
 } from "../../../../design-system/styles.stylex.ts";
 import {
+	ariaValue,
 	type CreateAgentChatTarget,
 	dispatchCreateAgentChat,
 	dispatchToggleActiveGitSidebar,
@@ -19,7 +25,8 @@ import {
 	setWorkspaceSidebarCollapsed,
 	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
 	type WorkspaceSidebarCollapsedDetail,
-} from "../../../../shared/lib/data.ts";
+} from "../../../../shared/lib/dom.tsx";
+import { loadSidebarCollapsed } from "../../../../shared/lib/native.tsx";
 import {
 	IconFolder,
 	IconGitBranch,
@@ -34,131 +41,133 @@ import {
 } from "../../hooks/useWorkspaceState.tsx";
 import { styles } from "./styles.ts";
 export function RepositoryWorkspaceBar() {
-	const location = useLocation();
 	const navigate = useNavigate();
-	const [state] = useWorkspaceState(true, false);
-	const [workspaceSidebarCollapsed, setWorkspaceSidebarCollapsedState] =
-		useState(loadSidebarCollapsed);
-	const [newMenuOpen, setNewMenuOpen] = useState(false);
-	const newMenuRef = useRef<HTMLDivElement | null>(null);
-	const projection = state.repositories;
-	useEffect(
-		() =>
-			listenWindowEvent(WORKSPACE_SIDEBAR_COLLAPSED_EVENT, (event) => {
-				setWorkspaceSidebarCollapsedState(
-					(event as CustomEvent<WorkspaceSidebarCollapsedDetail>).detail
-						.collapsed,
-				);
-			}),
-		[],
+	const location = useLocation();
+	const [state] = useWorkspaceState(
+		() => true,
+		() => false,
 	);
-	useEffect(() => {
-		if (!newMenuOpen) return;
-		const closeOnOutsidePointer = (event: PointerEvent) => {
-			if (
-				event.target instanceof Node &&
-				!newMenuRef.current?.contains(event.target)
-			) {
-				setNewMenuOpen(false);
-			}
-		};
-		const closeOnEscape = (event: KeyboardEvent) => {
-			if (event.key === "Escape") setNewMenuOpen(false);
-		};
-		document.addEventListener("pointerdown", closeOnOutsidePointer);
-		window.addEventListener("keydown", closeOnEscape);
-		return () => {
-			document.removeEventListener("pointerdown", closeOnOutsidePointer);
-			window.removeEventListener("keydown", closeOnEscape);
-		};
-	}, [newMenuOpen]);
-	const createChat = useCallback((target: CreateAgentChatTarget) => {
+	const [workspaceSidebarCollapsed, setWorkspaceSidebarCollapsedState] =
+		createSignal(loadSidebarCollapsed);
+	const [newMenuOpen, setNewMenuOpen] = createSignal(false);
+	const newMenuRef = {
+		current: null,
+	} as {
+		current: HTMLDivElement | null;
+	};
+	const projection = createMemo(() => state().repositories);
+	onSettled(() => {
+		return listenWindowEvent(WORKSPACE_SIDEBAR_COLLAPSED_EVENT, (event) => {
+			setWorkspaceSidebarCollapsedState(
+				(event as CustomEvent<WorkspaceSidebarCollapsedDetail>).detail
+					.collapsed,
+			);
+		});
+	});
+	createEffect(
+		() => [newMenuOpen()],
+		() => {
+			if (!newMenuOpen()) return;
+			const closeOnOutsidePointer = (event: PointerEvent) => {
+				if (
+					event.target instanceof Node &&
+					!newMenuRef.current?.contains(event.target)
+				) {
+					setNewMenuOpen(false);
+				}
+			};
+			const closeOnEscape = (event: KeyboardEvent) => {
+				if (event.key === "Escape") setNewMenuOpen(false);
+			};
+			document.addEventListener("pointerdown", closeOnOutsidePointer);
+			window.addEventListener("keydown", closeOnEscape);
+			return () => {
+				document.removeEventListener("pointerdown", closeOnOutsidePointer);
+				window.removeEventListener("keydown", closeOnEscape);
+			};
+		},
+	);
+	const createChat = (target: CreateAgentChatTarget) => {
 		setNewMenuOpen(false);
 		dispatchCreateAgentChat(target);
-	}, []);
-	const activateWorkspace = useCallback(
-		(workspace: RepositoryWorkspace) => {
-			void mutateAgentWorkspaceState({
-				type: "selectRepository",
-				cwd: workspace.cwd,
-			});
-			if (location.pathname !== "/")
-				navigate({
-					to: "/",
-				});
-		},
-		[location.pathname, navigate],
+	};
+	const activateWorkspace = (workspace: RepositoryWorkspace) => {
+		void mutateAgentWorkspaceState({
+			type: "selectRepository",
+			cwd: workspace.cwd,
+		});
+		if (location.pathname !== "/") navigate("/");
+	};
+	const barProps = createMemo(() => stylex.attrs(styles.bar));
+	const tabsProps = createMemo(() => stylex.attrs(styles.tabs));
+	const newChatProps = createMemo(() => stylex.attrs(styles.newChat));
+	const newMenuRootProps = createMemo(() => stylex.attrs(styles.newMenuRoot));
+	const workspaceSidebarToggleProps = createMemo(() =>
+		stylex.attrs(styles.panelToggle, styles.workspaceSidebarToggle),
 	);
-	const barProps = stylex.props(styles.bar);
-	const tabsProps = stylex.props(styles.tabs);
-	const newChatProps = stylex.props(styles.newChat);
-	const newMenuRootProps = stylex.props(styles.newMenuRoot);
-	const workspaceSidebarToggleProps = stylex.props(
-		styles.panelToggle,
-		styles.workspaceSidebarToggle,
-	);
-	const changesSidebarToggleProps = stylex.props(
-		styles.panelToggle,
-		styles.changesSidebarToggle,
+	const changesSidebarToggleProps = createMemo(() =>
+		stylex.attrs(styles.panelToggle, styles.changesSidebarToggle),
 	);
 	return (
 		<header
-			{...barProps}
-			className={`${APP_REGION_DRAG_CLASS} ${barProps.className ?? ""}`}
+			{...barProps()}
+			class={`${APP_REGION_DRAG_CLASS} ${barProps().class ?? ""}`}
 		>
 			<button
 				type="button"
-				onClick={() => setWorkspaceSidebarCollapsed(!workspaceSidebarCollapsed)}
-				aria-label={
-					workspaceSidebarCollapsed
-						? "Expand workspace sidebar"
-						: "Collapse workspace sidebar"
+				onClick={() =>
+					setWorkspaceSidebarCollapsed(!workspaceSidebarCollapsed())
 				}
+				aria-label={ariaValue(
+					workspaceSidebarCollapsed()
+						? "Expand workspace sidebar"
+						: "Collapse workspace sidebar",
+				)}
 				title={
-					workspaceSidebarCollapsed
+					workspaceSidebarCollapsed()
 						? "Expand workspace sidebar"
 						: "Collapse workspace sidebar"
 				}
-				aria-pressed={!workspaceSidebarCollapsed}
-				{...workspaceSidebarToggleProps}
-				className={`${APP_REGION_NO_DRAG_CLASS} ${workspaceSidebarToggleProps.className ?? ""}`}
+				aria-pressed={ariaValue(!workspaceSidebarCollapsed())}
+				{...workspaceSidebarToggleProps()}
+				class={`${APP_REGION_NO_DRAG_CLASS} ${workspaceSidebarToggleProps().class ?? ""}`}
 			>
 				<IconPanelLeft size={iconSize.md} />
 			</button>
 			<div
-				ref={newMenuRef}
-				{...newMenuRootProps}
-				className={`${APP_REGION_NO_DRAG_CLASS} ${newMenuRootProps.className ?? ""}`}
+				ref={(element) => (newMenuRef.current = element)}
+				{...newMenuRootProps()}
+				class={`${APP_REGION_NO_DRAG_CLASS} ${newMenuRootProps().class ?? ""}`}
 			>
 				<button
 					type="button"
 					onClick={() => setNewMenuOpen((open) => !open)}
 					aria-haspopup="menu"
-					aria-expanded={newMenuOpen}
+					aria-expanded={ariaValue(newMenuOpen())}
 					title="Create a chat or open a repository"
-					{...newChatProps}
+					{...newChatProps()}
 				>
 					<span>New</span>
 					<IconPlus size={iconSize.sm} />
 				</button>
-				{newMenuOpen ? (
+				{newMenuOpen() ? (
 					<div
 						role="menu"
 						aria-label="Create new"
-						{...stylex.props(styles.newMenu)}
+						{...stylex.attrs(styles.newMenu)}
 					>
 						<button
 							type="button"
 							role="menuitem"
 							onClick={() => createChat("active-repository")}
-							{...stylex.props(styles.newMenuItem)}
+							{...stylex.attrs(styles.newMenuItem)}
 						>
 							<IconMessageCircle size={iconSize.md} />
-							<span {...stylex.props(styles.newMenuCopy)}>
-								<strong {...stylex.props(styles.newMenuLabel)}>New chat</strong>
-								<span {...stylex.props(styles.newMenuDescription)}>
-									{projection.activeWorkspace
-										? `In ${projection.activeWorkspace.name}`
+							<span {...stylex.attrs(styles.newMenuCopy)}>
+								<strong {...stylex.attrs(styles.newMenuLabel)}>New chat</strong>
+								<span {...stylex.attrs(styles.newMenuDescription)}>
+									{projection().activeWorkspace
+										? `In ${projection().activeWorkspace?.name}`
 										: "Choose a repository first"}
 								</span>
 							</span>
@@ -167,14 +176,14 @@ export function RepositoryWorkspaceBar() {
 							type="button"
 							role="menuitem"
 							onClick={() => createChat("new-repository")}
-							{...stylex.props(styles.newMenuItem)}
+							{...stylex.attrs(styles.newMenuItem)}
 						>
 							<IconFolder size={iconSize.md} />
-							<span {...stylex.props(styles.newMenuCopy)}>
-								<strong {...stylex.props(styles.newMenuLabel)}>
+							<span {...stylex.attrs(styles.newMenuCopy)}>
+								<strong {...stylex.attrs(styles.newMenuLabel)}>
 									Open repository
 								</strong>
-								<span {...stylex.props(styles.newMenuDescription)}>
+								<span {...stylex.attrs(styles.newMenuDescription)}>
 									Choose another project folder
 								</span>
 							</span>
@@ -183,47 +192,52 @@ export function RepositoryWorkspaceBar() {
 				) : null}
 			</div>
 			<div
-				{...tabsProps}
-				className={`${APP_REGION_NO_DRAG_CLASS} ${tabsProps.className ?? ""}`}
+				{...tabsProps()}
+				class={`${APP_REGION_NO_DRAG_CLASS} ${tabsProps().class ?? ""}`}
 				role="tablist"
 				aria-label="Repository workspaces"
 			>
-				{projection.workspaces.length > 0 ? (
-					projection.workspaces.map((workspace) => {
-						const active = workspace.cwd === projection.activePath;
-						return (
-							<button
-								key={workspace.cwd}
-								type="button"
-								role="tab"
-								aria-selected={active}
-								title={workspace.cwd}
-								onClick={() => activateWorkspace(workspace)}
-								{...stylex.props(
-									styles.tab,
-									...selectionAppearance("repository", active),
-								)}
-							>
-								<IconGitBranch size={iconSize.sm} />
-								<span {...stylex.props(styles.tabLabel)}>{workspace.name}</span>
-								<span {...stylex.props(styles.chatCount)}>
-									{workspace.entries.length}
-								</span>
-							</button>
-						);
-					})
+				{projection().workspaces.length > 0 ? (
+					<For each={projection().workspaces} keyed={(row) => row.cwd}>
+						{(workspace) => {
+							const active = createMemo(
+								() => workspace().cwd === projection().activePath,
+							);
+							return (
+								<button
+									type="button"
+									role="tab"
+									aria-selected={ariaValue(active())}
+									title={workspace().cwd}
+									onClick={() => activateWorkspace(workspace())}
+									{...stylex.attrs(
+										styles.tab,
+										...selectionAppearance("repository", active()),
+									)}
+								>
+									<IconGitBranch size={iconSize.sm} />
+									<span {...stylex.attrs(styles.tabLabel)}>
+										{workspace().name}
+									</span>
+									<span {...stylex.attrs(styles.chatCount)}>
+										{workspace().entries.length}
+									</span>
+								</button>
+							);
+						}}
+					</For>
 				) : (
-					<span {...stylex.props(styles.emptyLabel)}>No repository open</span>
+					<span {...stylex.attrs(styles.emptyLabel)}>No repository open</span>
 				)}
 			</div>
 			<button
 				type="button"
 				onClick={dispatchToggleActiveGitSidebar}
-				disabled={!projection.activeWorkspace}
+				disabled={!projection().activeWorkspace}
 				aria-label="Toggle changes sidebar"
 				title="Toggle changes sidebar"
-				{...changesSidebarToggleProps}
-				className={`${APP_REGION_NO_DRAG_CLASS} ${changesSidebarToggleProps.className ?? ""}`}
+				{...changesSidebarToggleProps()}
+				class={`${APP_REGION_NO_DRAG_CLASS} ${changesSidebarToggleProps().class ?? ""}`}
 			>
 				<IconPanelRight size={iconSize.md} />
 			</button>

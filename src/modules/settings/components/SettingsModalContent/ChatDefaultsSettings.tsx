@@ -1,25 +1,16 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo, For } from "solid-js";
 import type { AgentAccountProviderStatus } from "../../../../../build/presentation/contracts/AgentAccountProviderStatus.ts";
 import type {
 	getAgentDefinition,
 	loadDefaultChatSettings,
-} from "../../../../adapters/backend/http.ts";
+} from "../../../../shared/lib/native.tsx";
 import { DropdownButton } from "../../../../shared/ui/DropdownButton/index.tsx";
 import { SettingsErrorBanner } from "../SettingsStatus/index.tsx";
 import { ProviderChoice } from "./ProviderChoice.tsx";
 import { SettingsSection } from "./SettingsSection.tsx";
 import { styles } from "./styles.ts";
-
-export function ChatDefaultsSettings({
-	agentAccountStatusesError,
-	refreshAgentAccountStatuses,
-	agentAccountStatuses,
-	agentAccountStatusesLoading,
-	defaultChatSettings,
-	updateDefaultChatSettings,
-	defaultModelOptions,
-	defaultAgentDefinition,
-}: {
+export function ChatDefaultsSettings(_props: {
 	agentAccountStatusesError: string | null;
 	refreshAgentAccountStatuses: () => void;
 	agentAccountStatuses: AgentAccountProviderStatus[];
@@ -36,73 +27,88 @@ export function ChatDefaultsSettings({
 			id="agent-defaults"
 			title="New chats"
 			description="The provider, model, and reasoning level used by default."
-			onRefresh={refreshAgentAccountStatuses}
+			onRefresh={_props.refreshAgentAccountStatuses}
 		>
-			{agentAccountStatusesError ? (
-				<SettingsErrorBanner message={agentAccountStatusesError} />
+			{_props.agentAccountStatusesError ? (
+				<SettingsErrorBanner message={_props.agentAccountStatusesError} />
 			) : null}
-			<div {...stylex.props(styles.agentDefaultsControl)}>
-				<div {...stylex.props(styles.settingField)}>
-					<span {...stylex.props(styles.settingLabel)}>Provider</span>
-					<div {...stylex.props(styles.agentProviderGrid)}>
+			<div {...stylex.attrs(styles.agentDefaultsControl)}>
+				<div {...stylex.attrs(styles.settingField)}>
+					<span {...stylex.attrs(styles.settingLabel)}>Provider</span>
+					<div {...stylex.attrs(styles.agentProviderGrid)}>
 						{(["claude", "codex"] as const).map((agentKind) => {
-							const status = agentAccountStatuses.find(
-								(item) => item.kind === agentKind,
+							const status = createMemo(() =>
+								_props.agentAccountStatuses.find(
+									(item) => item.kind === agentKind,
+								),
 							);
-							const connected = status?.health === "ready";
+							const connected = createMemo(() => status()?.health === "ready");
 							return (
 								<ProviderChoice
-									key={agentKind}
 									agentKind={agentKind}
-									status={status}
-									connected={connected}
-									agentAccountStatusesLoading={agentAccountStatusesLoading}
-									defaultChatSettings={defaultChatSettings}
-									updateDefaultChatSettings={updateDefaultChatSettings}
+									status={status()}
+									connected={connected()}
+									agentAccountStatusesLoading={
+										_props.agentAccountStatusesLoading
+									}
+									defaultChatSettings={_props.defaultChatSettings}
+									updateDefaultChatSettings={_props.updateDefaultChatSettings}
 								/>
 							);
 						})}
 					</div>
 				</div>
-				<div {...stylex.props(styles.defaultSettingsGrid)}>
-					{(
-						[
-							{
-								key: "model",
-								label: "Model",
-								options: defaultModelOptions,
-							},
-							...(defaultChatSettings.agentKind === "codex"
-								? [
-										{
-											key: "reasoningLevel",
-											label: "Reasoning",
-											options: defaultAgentDefinition.reasoningLevels,
-										},
-									]
-								: []),
-						] as const
-					).map((field) => (
-						<div key={field.key} {...stylex.props(styles.settingField)}>
-							<span {...stylex.props(styles.settingLabel)}>{field.label}</span>
-							<DropdownButton
-								liquid={false}
-								value={
-									field.key === "model"
-										? defaultChatSettings.model
-										: defaultChatSettings.reasoningLevel
-								}
-								options={field.options}
-								onChange={(value) =>
-									updateDefaultChatSettings({ [field.key]: value })
-								}
-								fullWidth
-								buttonClassName={
-									stylex.props(styles.settingsDropdown).className
-								}
-							/>
-						</div>
-					))}
+				<div {...stylex.attrs(styles.defaultSettingsGrid)}>
+					{
+						<For
+							each={
+								[
+									{
+										key: "model",
+										label: "Model",
+										options: _props.defaultModelOptions,
+									},
+									...(_props.defaultChatSettings.agentKind === "codex"
+										? [
+												{
+													key: "reasoningLevel",
+													label: "Reasoning",
+													options:
+														_props.defaultAgentDefinition.reasoningLevels,
+												},
+											]
+										: []),
+								] as const
+							}
+							keyed={(row) => row.key}
+						>
+							{(field) => (
+								<div {...stylex.attrs(styles.settingField)}>
+									<span {...stylex.attrs(styles.settingLabel)}>
+										{field().label}
+									</span>
+									<DropdownButton
+										liquid={false}
+										value={
+											field().key === "model"
+												? _props.defaultChatSettings.model
+												: _props.defaultChatSettings.reasoningLevel
+										}
+										options={field().options}
+										onChange={(value) =>
+											_props.updateDefaultChatSettings({
+												[field().key]: value,
+											})
+										}
+										fullWidth
+										buttonClassName={
+											stylex.attrs(styles.settingsDropdown).class
+										}
+									/>
+								</div>
+							)}
+						</For>
+					}
 				</div>
 			</div>
 		</SettingsSection>

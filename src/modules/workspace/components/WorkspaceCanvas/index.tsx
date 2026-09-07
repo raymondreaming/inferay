@@ -1,26 +1,20 @@
-import * as stylex from "@octanejs/stylex";
-import {
-	memo,
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "octane";
+import * as stylex from "@stylexjs/stylex";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { AgentTheme } from "../../../../../build/presentation/contracts/AgentTheme.ts";
 import type { Pane } from "../../../../../build/presentation/contracts/Pane.ts";
 import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
-import { postJson } from "../../../../adapters/backend/http.ts";
 import {
+	captureEvent,
+	domStyle,
 	lockPointerSelection,
 	trackPointerResize,
-} from "../../../../shared/lib/data.ts";
+} from "../../../../shared/lib/dom.tsx";
+import { postJson } from "../../../../shared/lib/native.tsx";
 import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
 import { PaneView } from "../PaneView/index.tsx";
 import { DockSplit } from "./DockSplit.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
-
 export function dropEdgeStyle(edge: DockEdge | null) {
 	if (edge === "left") return styles.dropLeft;
 	if (edge === "right") return styles.dropRight;
@@ -28,587 +22,724 @@ export function dropEdgeStyle(edge: DockEdge | null) {
 	if (edge === "bottom") return styles.dropBottom;
 	return styles.dropCenter;
 }
-
-export const WorkspaceCanvas = memo(function WorkspaceCanvas(
+export const WorkspaceCanvas = function WorkspaceCanvas(
 	props: WorkspaceCanvasProps,
 ) {
-	const {
-		active = true,
-		panes,
-		columns,
-		rows,
-		layoutMode,
-		theme,
-		onReorderPanes,
-		workspaceId = "default",
-		auxiliaryPanels = EMPTY_AUXILIARY_PANELS,
-	} = props;
-	const containerRef = useRef<HTMLDivElement | null>(null);
-	const [dragIndex, setDragIndex] = useState<number | null>(null);
-	const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-	const [dragPanelId, setDragPanelId] = useState<string | null>(null);
-	const [availableGridColumns, setAvailableGridColumns] = useState(columns);
-	const [dockTarget, setDockTarget] = useState<{
+	const containerRef = {
+		current: null,
+	} as {
+		current: HTMLDivElement | null;
+	};
+	const [dragIndex, setDragIndex] = createSignal<number | null>(null);
+	const [dragOverIndex, setDragOverIndex] = createSignal<number | null>(null);
+	const [dragPanelId, setDragPanelId] = createSignal<string | null>(null);
+	const [availableGridColumns, setAvailableGridColumns] = createSignal(
+		props.columns,
+	);
+	const [dockTarget, setDockTarget] = createSignal<{
 		readonly id: string;
 		readonly edge: DockEdge;
 	} | null>(null);
-	const auxiliaryPanelIdKey = auxiliaryPanels
-		.map((panel) => panel.id)
-		.join("\u0000");
-	const panelIds = useMemo(
-		() => [
-			...panes.map((pane) => pane.id),
-			...auxiliaryPanelIdKey.split("\u0000").filter(Boolean),
-		],
-		[auxiliaryPanelIdKey, panes],
-	);
-	const [layout, setLayout] = useState<{
+	const auxiliaryPanelIdKey = createMemo(() => {
+		const _sourceValue = props;
+		return (
+			_sourceValue.auxiliaryPanels === undefined
+				? EMPTY_AUXILIARY_PANELS
+				: _sourceValue.auxiliaryPanels
+		)
+			.map((panel) => panel.id)
+			.join("\u0000");
+	});
+	const panelIds = createMemo(() => [
+		...props.panes.map((pane) => pane.id),
+		...auxiliaryPanelIdKey().split("\u0000").filter(Boolean),
+	]);
+	const [layout, setLayout] = createSignal<{
 		tree: DockTree | null;
 		horizontal: number;
 		vertical: number;
-	}>({ tree: null, horizontal: 1, vertical: 1 });
-	const renderedDockTree = layout.tree;
-	const [dockError, setDockError] = useState<string | null>(null);
-	const effectiveColumns =
-		layoutMode === "grid"
-			? Math.max(1, Math.min(columns, availableGridColumns))
-			: columns;
-	const requestRevision = useRef(0);
-	const requests = useRef(Promise.resolve());
-	const panelKey = JSON.stringify(panelIds);
-	const updateDock = useCallback(
-		(action?: object) => {
-			const revision = ++requestRevision.current;
-			const result = requests.current.then(async () => {
-				try {
-					const result = await postJson<typeof layout>("/api/workspace/dock", {
-						workspaceId,
-						ids: JSON.parse(panelKey),
-						columns,
-						mode: layoutMode,
-						visibleColumns: effectiveColumns,
+	}>({
+		tree: null,
+		horizontal: 1,
+		vertical: 1,
+	});
+	const renderedDockTree = createMemo(() => layout().tree);
+	const [dockError, setDockError] = createSignal<string | null>(null);
+	const effectiveColumns = createMemo(() => {
+		const _sourceValue2 = props;
+		return _sourceValue2.layoutMode === "grid"
+			? Math.max(1, Math.min(_sourceValue2.columns, availableGridColumns()))
+			: _sourceValue2.columns;
+	});
+	const requestRevision = {
+		current: 0,
+	};
+	const requests = {
+		current: Promise.resolve(),
+	};
+	const panelKey = createMemo(() => JSON.stringify(panelIds()));
+	const updateDock = (action?: object) => {
+		const revision = ++requestRevision.current;
+		const result = requests.current.then(async () => {
+			const _sourceValue3 = props;
+			try {
+				const result = await postJson<ReturnType<typeof layout>>(
+					"/api/workspace/dock",
+					{
+						workspaceId:
+							_sourceValue3.workspaceId === undefined
+								? "default"
+								: _sourceValue3.workspaceId,
+						ids: JSON.parse(panelKey()),
+						columns: _sourceValue3.columns,
+						mode: _sourceValue3.layoutMode,
+						visibleColumns: effectiveColumns(),
 						action,
-					});
-					if (revision === requestRevision.current) {
-						setLayout(result);
-						setDockError(null);
-					}
-					return true;
-				} catch {
-					if (revision === requestRevision.current)
-						setDockError("Could not save pane layout. Please retry.");
-					return false;
+					},
+				);
+				if (revision === requestRevision.current) {
+					setLayout(result);
+					setDockError(null);
 				}
-			});
-			requests.current = result.then(() => {});
-			return result;
+				return true;
+			} catch {
+				if (revision === requestRevision.current)
+					setDockError("Could not save pane layout. Please retry.");
+				return false;
+			}
+		});
+		requests.current = result.then(() => {});
+		return result;
+	};
+	createEffect(
+		() => [updateDock, props, panelKey(), effectiveColumns()],
+		() => {
+			void updateDock();
+			return () => {
+				requestRevision.current++;
+			};
 		},
-		[workspaceId, panelKey, columns, layoutMode, effectiveColumns],
 	);
-	useEffect(() => {
-		void updateDock();
-		return () => {
-			requestRevision.current++;
-		};
-	}, [updateDock]);
-	const renderedDockTreeRef = useRef(renderedDockTree);
-	renderedDockTreeRef.current = renderedDockTree;
-	const { horizontal: dockHorizontalSpan, vertical: dockVerticalSpan } = layout;
-	const dockCanvasMinHeight = `max(${Math.max(
-		100,
-		(dockVerticalSpan / Math.max(1, rows)) * 100,
-	)}%, ${dockVerticalSpan * MIN_GRID_ROW_HEIGHT}px)`;
-	const dockCanvasWidth =
-		layoutMode === "grid" && renderedDockTree
-			? `${(dockHorizontalSpan / effectiveColumns) * 100}%`
-			: "100%";
-	const sparseGrid =
-		layoutMode === "grid" &&
-		!!renderedDockTree &&
-		dockHorizontalSpan < effectiveColumns;
-	const clearDragState = useCallback(() => {
+	const renderedDockTreeRef = {
+		current: renderedDockTree(),
+	};
+	createEffect(
+		() => [renderedDockTree()],
+		() => {
+			renderedDockTreeRef.current = renderedDockTree();
+		},
+	);
+	const _source2 = createMemo(() => layout());
+	const dockCanvasMinHeight = createMemo(
+		() =>
+			`max(${Math.max(100, (_source2().vertical / Math.max(1, props.rows)) * 100)}%, ${_source2().vertical * MIN_GRID_ROW_HEIGHT}px)`,
+	);
+	const dockCanvasWidth = createMemo(() =>
+		props.layoutMode === "grid" && renderedDockTree()
+			? `${(_source2().horizontal / effectiveColumns()) * 100}%`
+			: "100%",
+	);
+	const sparseGrid = createMemo(
+		() =>
+			props.layoutMode === "grid" &&
+			!!renderedDockTree() &&
+			_source2().horizontal < effectiveColumns(),
+	);
+	const clearDragState = () => {
 		setDragIndex(null);
 		setDragOverIndex(null);
 		setDragPanelId(null);
 		setDockTarget(null);
-	}, []);
-	useEffect(() => {
-		const container = containerRef.current;
-		if (!container || layoutMode !== "grid") return;
-		const updateAvailableColumns = (width: number) => {
-			const next = Math.max(
-				1,
-				Math.min(4, columns, Math.floor(width / MIN_RESPONSIVE_PANE_WIDTH)),
-			);
-			setAvailableGridColumns((current) => (current === next ? current : next));
-		};
-		updateAvailableColumns(container.getBoundingClientRect().width);
-		if (typeof ResizeObserver === "undefined") return;
-		const observer = new ResizeObserver((entries) => {
-			const width = entries[0]?.contentRect.width;
-			if (width !== undefined) updateAvailableColumns(width);
-		});
-		observer.observe(container);
-		return () => observer.disconnect();
-	}, [columns, layoutMode]);
-
-	const commitDockPlacement = useCallback(
-		(
-			sourceId: string,
-			target: { readonly id: string; readonly edge: DockEdge },
-			pendingPanel: {
-				readonly id: string;
-				readonly complete: () => void;
-			} | null,
-		) => {
-			void updateDock({
-				type: "place",
-				source: pendingPanel?.id ?? sourceId,
-				target: target.id,
-				edge: target.edge,
-				insert: !!pendingPanel,
-				outer: target.id === ROOT_DOCK_TARGET_ID && target.edge !== "center",
-			}).then((saved) => {
-				if (!saved) return;
-				pendingPanel?.complete();
-				if (!pendingPanel && panes.some((pane) => pane.id === sourceId))
-					props.onSelectPane(sourceId);
-			});
+	};
+	createEffect(
+		() => {
+			const _sourceValue4 = props;
+			return [_sourceValue4.columns, _sourceValue4.layoutMode];
 		},
-		[updateDock, panes, props.onSelectPane],
-	);
-
-	const beginPointerDock = useCallback(
-		(
-			event: PointerEvent,
-			sourceId: string,
-			sourceIndex: number | null,
-			pendingPanel: {
-				readonly id: string;
-				readonly complete: () => void;
-			} | null = null,
-		) => {
-			if (event.button !== 0) return;
-			event.preventDefault();
-			event.stopPropagation();
-			const releaseSelection = lockPointerSelection();
-			const source = event.currentTarget as HTMLElement | null;
-			const pointerId = event.pointerId;
-			const startX = event.clientX;
-			const startY = event.clientY;
-			let activated = false;
-			let finished = false;
-			let target: {
-				readonly id: string;
-				readonly edge: DockEdge;
-				readonly rowIndex?: number;
-			} | null = null;
-			try {
-				source?.setPointerCapture(pointerId);
-			} catch {}
-
-			const updateTarget = (moveEvent: PointerEvent) => {
-				if (moveEvent.pointerId !== pointerId) return;
-				if (!activated) {
-					const distance = Math.hypot(
-						moveEvent.clientX - startX,
-						moveEvent.clientY - startY,
-					);
-					if (distance < 3) return;
-					activated = true;
-					setDragIndex(sourceIndex);
-					setDragPanelId(sourceId);
-				}
-				moveEvent.preventDefault();
-				const root = containerRef.current;
-				if (!root) return;
-				if (layoutMode !== "rows") {
-					const outerEdge = outerDockEdgeForPointer(moveEvent, root);
-					const canUseOuterEdge = pendingPanel
-						? panelIds.length > 0
-						: panelIds.length > 1;
-					if (outerEdge && canUseOuterEdge) {
-						target = { id: ROOT_DOCK_TARGET_ID, edge: outerEdge };
-						setDockTarget(target);
-						setDragOverIndex(null);
-						return;
-					}
-				}
-				const hit = document.elementFromPoint(
-					moveEvent.clientX,
-					moveEvent.clientY,
+		() => {
+			const container = containerRef.current;
+			if (!container || props.layoutMode !== "grid") return;
+			const updateAvailableColumns = (width: number) => {
+				const next = Math.max(
+					1,
+					Math.min(
+						4,
+						props.columns,
+						Math.floor(width / MIN_RESPONSIVE_PANE_WIDTH),
+					),
 				);
-				const row = hit?.closest<HTMLElement>("[data-agent-row-pane-id]");
-				if (row) {
-					const rowId = row.dataset.agentRowPaneId;
-					const rowIndex = panes.findIndex((pane) => pane.id === rowId);
-					target =
-						rowId && rowIndex >= 0
-							? { id: rowId, edge: "center", rowIndex }
-							: null;
-					setDragOverIndex(target?.rowIndex ?? null);
-					setDockTarget(null);
-					return;
-				}
-				const cell = hit?.closest<HTMLElement>("[data-agent-grid-pane-id]");
-				const targetId = cell?.dataset.agentGridPaneId;
-				if (!cell || !targetId || (!pendingPanel && targetId === sourceId)) {
-					target = null;
-					setDockTarget(null);
-					return;
-				}
-				target = {
-					id: targetId,
-					edge: dockEdgeForPoint(moveEvent.clientX, moveEvent.clientY, cell),
-				};
-				setDockTarget(target);
+				setAvailableGridColumns((current) =>
+					current === next ? current : next,
+				);
 			};
-
-			const finish = (finishEvent: PointerEvent | null, commit: boolean) => {
-				if (finishEvent && finishEvent.pointerId !== pointerId) return;
-				if (finished) return;
-				finished = true;
-				window.removeEventListener("pointermove", updateTarget);
-				window.removeEventListener("pointerup", finishDrop);
-				window.removeEventListener("pointercancel", cancelDrop);
-				window.removeEventListener("blur", cancelAbandonedDrag);
-				source?.removeEventListener("lostpointercapture", cancelAbandonedDrag);
-				try {
-					source?.releasePointerCapture(pointerId);
-				} catch {}
-				releaseSelection();
-				if (commit && activated && target) {
-					if (
-						layoutMode === "rows" &&
-						sourceIndex !== null &&
-						target.rowIndex !== undefined
-					) {
-						if (sourceIndex !== target.rowIndex) {
-							onReorderPanes?.(sourceIndex, target.rowIndex);
-						}
-					} else {
-						commitDockPlacement(sourceId, target, pendingPanel);
-					}
-				} else if (!activated && sourceIndex !== null) {
-					props.onSelectPane(sourceId);
-				}
-				clearDragState();
-			};
-			const finishDrop = (finishEvent: PointerEvent) =>
-				finish(finishEvent, true);
-			const cancelDrop = (finishEvent: PointerEvent) =>
-				finish(finishEvent, false);
-			const cancelAbandonedDrag = () => finish(null, false);
-			window.addEventListener("pointermove", updateTarget);
-			window.addEventListener("pointerup", finishDrop);
-			window.addEventListener("pointercancel", cancelDrop);
-			window.addEventListener("blur", cancelAbandonedDrag);
-			source?.addEventListener("lostpointercapture", cancelAbandonedDrag);
-		},
-		[
-			clearDragState,
-			commitDockPlacement,
-			layoutMode,
-			onReorderPanes,
-			panelIds.length,
-			panes,
-			props.onSelectPane,
-		],
-	);
-
-	const handleHeaderDragStart = useCallback(
-		(event: PointerEvent, index: number) => {
-			const paneId = panes[index]?.id;
-			if (paneId) beginPointerDock(event, paneId, index);
-		},
-		[beginPointerDock, panes],
-	);
-	const handleAuxiliaryDragStart = useCallback(
-		(event: PointerEvent) => {
-			const panelId = (
-				event.currentTarget as HTMLElement | null
-			)?.closest<HTMLElement>("[data-agent-grid-pane-id]")?.dataset
-				.agentGridPaneId;
-			if (panelId) beginPointerDock(event, panelId, null);
-		},
-		[beginPointerDock],
-	);
-	const handleCreatePanelDragStart = useCallback(
-		(event: PointerEvent, panelId: string, completeDrop: () => void) =>
-			beginPointerDock(event, panelId, null, {
-				id: panelId,
-				complete: completeDrop,
-			}),
-		[beginPointerDock],
-	);
-
-	const handleDividerPointerDown = useCallback(
-		(
-			event: PointerEvent & { currentTarget: HTMLButtonElement },
-			path: readonly ("first" | "second")[],
-			direction: "horizontal" | "vertical",
-		) => {
-			const splitElement = event.currentTarget.parentElement;
-			if (!splitElement) return;
-			event.preventDefault();
-			const pointerId = event.pointerId;
-			event.currentTarget.setPointerCapture?.(pointerId);
-			let finalRatio: number | undefined;
-			const resize = (moveEvent: PointerEvent) => {
-				const rect = splitElement.getBoundingClientRect();
-				const ratio =
-					direction === "horizontal"
-						? (moveEvent.clientX - rect.left) / Math.max(1, rect.width)
-						: (moveEvent.clientY - rect.top) / Math.max(1, rect.height);
-				finalRatio = ratio;
-				setLayout((current) => {
-					const rendered = renderedDockTreeRef.current;
-					return {
-						...current,
-						tree: rendered ? resizeDockSplit(rendered, path, ratio) : rendered,
-					};
-				});
-			};
-			trackPointerResize(pointerId, resize, () => {
-				if (finalRatio !== undefined)
-					void updateDock({ type: "resize", path, ratio: finalRatio });
+			updateAvailableColumns(container.getBoundingClientRect().width);
+			if (typeof ResizeObserver === "undefined") return;
+			const observer = new ResizeObserver((entries) => {
+				const width = entries[0]?.contentRect.width;
+				if (width !== undefined) updateAvailableColumns(width);
 			});
+			observer.observe(container);
+			return () => observer.disconnect();
 		},
-		[updateDock],
 	);
-
-	const handleRowWheelCapture = useCallback(
-		(event: WheelEvent & { currentTarget: HTMLDivElement }) => {
-			if (layoutMode !== "rows") return;
-			const rowScroller = containerRef.current;
-			if (!rowScroller) return;
-			const target =
-				event.target instanceof Element
-					? event.target.closest<HTMLElement>("[data-agent-row-pane-id]")
-					: null;
-			const targetPaneId = target?.dataset.agentRowPaneId ?? null;
-			if (!targetPaneId) return;
-			const isHorizontalGesture =
-				event.shiftKey ||
-				(Math.abs(event.deltaX) > 0 &&
-					Math.abs(event.deltaX) >= Math.abs(event.deltaY));
-			if (!isHorizontalGesture) return;
-			event.preventDefault();
-			event.stopPropagation();
-			if (targetPaneId === props.selectedPaneId) return;
-			const delta = event.shiftKey ? event.deltaY : event.deltaX;
-			if (canScrollHorizontally(rowScroller, delta)) {
-				rowScroller.scrollLeft += delta;
+	const commitDockPlacement = (
+		sourceId: string,
+		target: {
+			readonly id: string;
+			readonly edge: DockEdge;
+		},
+		pendingPanel: {
+			readonly id: string;
+			readonly complete: () => void;
+		} | null,
+	) => {
+		void updateDock({
+			type: "place",
+			source: pendingPanel?.id ?? sourceId,
+			target: target.id,
+			edge: target.edge,
+			insert: !!pendingPanel,
+			outer: target.id === ROOT_DOCK_TARGET_ID && target.edge !== "center",
+		}).then((saved) => {
+			if (!saved) return;
+			pendingPanel?.complete();
+			if (!pendingPanel && props.panes.some((pane) => pane.id === sourceId))
+				props.onSelectPane(sourceId);
+		});
+	};
+	const beginPointerDock = (
+		event: PointerEvent,
+		sourceId: string,
+		sourceIndex: number | null,
+		pendingPanel: {
+			readonly id: string;
+			readonly complete: () => void;
+		} | null = null,
+	) => {
+		if (event.button !== 0) return;
+		event.preventDefault();
+		event.stopPropagation();
+		const releaseSelection = lockPointerSelection();
+		const source = event.currentTarget as HTMLElement | null;
+		const pointerId = event.pointerId;
+		const startX = event.clientX;
+		const startY = event.clientY;
+		let activated = false;
+		let finished = false;
+		let target: {
+			readonly id: string;
+			readonly edge: DockEdge;
+			readonly rowIndex?: number;
+		} | null = null;
+		try {
+			source?.setPointerCapture(pointerId);
+		} catch {}
+		const updateTarget = (moveEvent: PointerEvent) => {
+			const _sourceValue5 = props,
+				_panelIdsValue = panelIds();
+			if (moveEvent.pointerId !== pointerId) return;
+			if (!activated) {
+				const distance = Math.hypot(
+					moveEvent.clientX - startX,
+					moveEvent.clientY - startY,
+				);
+				if (distance < 3) return;
+				activated = true;
+				setDragIndex(sourceIndex);
+				setDragPanelId(sourceId);
 			}
-		},
-		[layoutMode, props.selectedPaneId],
-	);
-	const handleGridWheelCapture = useCallback(
-		(event: WheelEvent & { currentTarget: HTMLDivElement }) => {
-			if (layoutMode !== "grid" || event.deltaY === 0) return;
-			const grid = containerRef.current;
-			if (!grid) return;
-			const target =
-				event.target instanceof Element
-					? event.target.closest<HTMLElement>("[data-agent-grid-pane-id]")
-					: null;
-			if (!target) return;
-			const innerScroller = findVerticalScroller(event.target, target);
-			if (innerScroller && canScrollInDirection(innerScroller, event.deltaY)) {
+			moveEvent.preventDefault();
+			const root = containerRef.current;
+			if (!root) return;
+			if (_sourceValue5.layoutMode !== "rows") {
+				const outerEdge = outerDockEdgeForPointer(moveEvent, root);
+				const canUseOuterEdge = pendingPanel
+					? _panelIdsValue.length > 0
+					: _panelIdsValue.length > 1;
+				if (outerEdge && canUseOuterEdge) {
+					target = {
+						id: ROOT_DOCK_TARGET_ID,
+						edge: outerEdge,
+					};
+					setDockTarget(target);
+					setDragOverIndex(null);
+					return;
+				}
+			}
+			const hit = document.elementFromPoint(
+				moveEvent.clientX,
+				moveEvent.clientY,
+			);
+			const row = hit?.closest<HTMLElement>("[data-agent-row-pane-id]");
+			if (row) {
+				const rowId = row.dataset.agentRowPaneId;
+				const rowIndex = _sourceValue5.panes.findIndex(
+					(pane) => pane.id === rowId,
+				);
+				target =
+					rowId && rowIndex >= 0
+						? {
+								id: rowId,
+								edge: "center",
+								rowIndex,
+							}
+						: null;
+				setDragOverIndex(target?.rowIndex ?? null);
+				setDockTarget(null);
 				return;
 			}
-			event.preventDefault();
-			event.stopPropagation();
-			scrollElementBy(grid, event.deltaY);
-		},
-		[layoutMode],
-	);
-
-	useEffect(() => {
-		if (!active) {
+			const cell = hit?.closest<HTMLElement>("[data-agent-grid-pane-id]");
+			const targetId = cell?.dataset.agentGridPaneId;
+			if (!cell || !targetId || (!pendingPanel && targetId === sourceId)) {
+				target = null;
+				setDockTarget(null);
+				return;
+			}
+			target = {
+				id: targetId,
+				edge: dockEdgeForPoint(moveEvent.clientX, moveEvent.clientY, cell),
+			};
+			setDockTarget(target);
+		};
+		const finish = (finishEvent: PointerEvent | null, commit: boolean) => {
+			const _sourceValue6 = props;
+			if (finishEvent && finishEvent.pointerId !== pointerId) return;
+			if (finished) return;
+			finished = true;
+			window.removeEventListener("pointermove", updateTarget);
+			window.removeEventListener("pointerup", finishDrop);
+			window.removeEventListener("pointercancel", cancelDrop);
+			window.removeEventListener("blur", cancelAbandonedDrag);
+			source?.removeEventListener("lostpointercapture", cancelAbandonedDrag);
+			try {
+				source?.releasePointerCapture(pointerId);
+			} catch {}
+			releaseSelection();
+			if (commit && activated && target) {
+				if (
+					_sourceValue6.layoutMode === "rows" &&
+					sourceIndex !== null &&
+					target.rowIndex !== undefined
+				) {
+					if (sourceIndex !== target.rowIndex) {
+						_sourceValue6.onReorderPanes?.(sourceIndex, target.rowIndex);
+					}
+				} else {
+					commitDockPlacement(sourceId, target, pendingPanel);
+				}
+			} else if (!activated && sourceIndex !== null) {
+				props.onSelectPane(sourceId);
+			}
 			clearDragState();
+		};
+		const finishDrop = (finishEvent: PointerEvent) => finish(finishEvent, true);
+		const cancelDrop = (finishEvent: PointerEvent) =>
+			finish(finishEvent, false);
+		const cancelAbandonedDrag = () => finish(null, false);
+		window.addEventListener("pointermove", updateTarget);
+		window.addEventListener("pointerup", finishDrop);
+		window.addEventListener("pointercancel", cancelDrop);
+		window.addEventListener("blur", cancelAbandonedDrag);
+		source?.addEventListener("lostpointercapture", cancelAbandonedDrag);
+	};
+	const handleHeaderDragStart = (event: PointerEvent, index: number) => {
+		const paneId = props.panes[index]?.id;
+		if (paneId) beginPointerDock(event, paneId, index);
+	};
+	const handleAuxiliaryDragStart = (event: PointerEvent) => {
+		const panelId = (
+			event.currentTarget as HTMLElement | null
+		)?.closest<HTMLElement>("[data-agent-grid-pane-id]")?.dataset
+			.agentGridPaneId;
+		if (panelId) beginPointerDock(event, panelId, null);
+	};
+	const handleCreatePanelDragStart = (
+		event: PointerEvent,
+		panelId: string,
+		completeDrop: () => void,
+	) =>
+		beginPointerDock(event, panelId, null, {
+			id: panelId,
+			complete: completeDrop,
+		});
+	const handleDividerPointerDown = (
+		event: PointerEvent & {
+			currentTarget: HTMLButtonElement;
+		},
+		path: readonly ("first" | "second")[],
+		direction: "horizontal" | "vertical",
+	) => {
+		const splitElement = event.currentTarget.parentElement;
+		if (!splitElement) return;
+		event.preventDefault();
+		const pointerId = event.pointerId;
+		event.currentTarget.setPointerCapture?.(pointerId);
+		let finalRatio: number | undefined;
+		const resize = (moveEvent: PointerEvent) => {
+			const rect = splitElement.getBoundingClientRect();
+			const ratio =
+				direction === "horizontal"
+					? (moveEvent.clientX - rect.left) / Math.max(1, rect.width)
+					: (moveEvent.clientY - rect.top) / Math.max(1, rect.height);
+			finalRatio = ratio;
+			setLayout((current) => {
+				const rendered = renderedDockTreeRef.current;
+				return {
+					...current,
+					tree: rendered ? resizeDockSplit(rendered, path, ratio) : rendered,
+				};
+			});
+		};
+		trackPointerResize(pointerId, resize, () => {
+			if (finalRatio !== undefined)
+				void updateDock({
+					type: "resize",
+					path,
+					ratio: finalRatio,
+				});
+		});
+	};
+	const handleRowWheelCapture = (
+		event: WheelEvent & {
+			currentTarget: HTMLDivElement;
+		},
+	) => {
+		if (props.layoutMode !== "rows") return;
+		const rowScroller = containerRef.current;
+		if (!rowScroller) return;
+		const target =
+			event.target instanceof Element
+				? event.target.closest<HTMLElement>("[data-agent-row-pane-id]")
+				: null;
+		const targetPaneId = target?.dataset.agentRowPaneId ?? null;
+		if (!targetPaneId) return;
+		const isHorizontalGesture =
+			event.shiftKey ||
+			(Math.abs(event.deltaX) > 0 &&
+				Math.abs(event.deltaX) >= Math.abs(event.deltaY));
+		if (!isHorizontalGesture) return;
+		event.preventDefault();
+		event.stopPropagation();
+		if (targetPaneId === props.selectedPaneId) return;
+		const delta = event.shiftKey ? event.deltaY : event.deltaX;
+		if (canScrollHorizontally(rowScroller, delta)) {
+			rowScroller.scrollLeft += delta;
+		}
+	};
+	const handleGridWheelCapture = (
+		event: WheelEvent & {
+			currentTarget: HTMLDivElement;
+		},
+	) => {
+		if (props.layoutMode !== "grid" || event.deltaY === 0) return;
+		const grid = containerRef.current;
+		if (!grid) return;
+		const target =
+			event.target instanceof Element
+				? event.target.closest<HTMLElement>("[data-agent-grid-pane-id]")
+				: null;
+		if (!target) return;
+		const innerScroller = findVerticalScroller(event.target, target);
+		if (innerScroller && canScrollInDirection(innerScroller, event.deltaY)) {
 			return;
 		}
-		window.addEventListener("dragend", clearDragState);
-		window.addEventListener("drop", clearDragState);
-		return () => {
-			window.removeEventListener("dragend", clearDragState);
-			window.removeEventListener("drop", clearDragState);
-		};
-	}, [active, clearDragState]);
-
-	const cellStyle = (idx: number) =>
-		inlineStyles.getCanvasCellStyle(
-			dragOverIndex === idx && dragIndex !== idx
-				? (theme.cursor ?? "#d6ff00")
-				: theme.separator,
-			dragIndex === idx ? 0.4 : 1,
-		);
-
-	if (layoutMode === "rows" && auxiliaryPanels.length === 0) {
-		return (
-			<div
-				ref={containerRef}
-				{...stylex.props(styles.rowScroller)}
-				onWheelCapture={handleRowWheelCapture}
-				data-agent-row-scroll-area
-			>
-				{panes.map((pane, idx) => (
-					<div
-						key={pane.id}
-						data-agent-row-pane-id={pane.id}
-						{...stylex.props(styles.rowCell)}
-						style={inlineStyles.getWorkspaceCanvasRowCellStyle(cellStyle(idx))}
-						onPointerDownCapture={(event) => {
-							if (isWorkspaceDockDragSource(event.target)) return;
-							if (pane.id !== props.selectedPaneId) {
-								window.getSelection()?.removeAllRanges();
-							}
-							props.onSelectPane(pane.id);
-						}}
-						onClickCapture={(event) => {
-							if (shouldFocusPaneComposer(event.target)) {
-								props.onFocusPane?.(pane.id);
-							}
-						}}
-					>
-						<PaneView
-							{...paneViewProps(
-								props,
-								pane,
-								idx,
-								handleHeaderDragStart,
-								clearDragState,
-							)}
-						/>
-					</div>
-				))}
-			</div>
-		);
-	}
-
-	const renderDockNode = (
-		node: DockTree,
-		path: readonly ("first" | "second")[] = [],
-	): unknown => {
-		if (node.type === "split") {
-			return (
-				<DockSplit
-					key={`${node.direction}:${node.first.type === "panel" ? node.first.id : "split"}:${node.second.type === "panel" ? node.second.id : "split"}`}
-					direction={node.direction}
-					ratio={node.ratio}
-					first={renderDockNode(node.first, [...path, "first"])}
-					second={renderDockNode(node.second, [...path, "second"])}
-					onResize={(event) =>
-						handleDividerPointerDown(event, path, node.direction)
-					}
-				/>
-			);
-		}
-		const paneIndex = panes.findIndex((pane) => pane.id === node.id);
-		const pane = paneIndex >= 0 ? panes[paneIndex] : null;
-		const auxiliaryPanel = auxiliaryPanels.find(
-			(panel) => panel.id === node.id,
-		);
-		const isDropTarget = dockTarget?.id === node.id && dragPanelId !== node.id;
-		return (
-			<div
-				key={node.id}
-				data-agent-grid-pane-id={node.id}
-				{...stylex.props(styles.dockCell)}
-				onPointerDownCapture={(event) => {
-					if (isWorkspaceDockDragSource(event.target)) return;
-					if (pane) {
-						if (pane.id !== props.selectedPaneId) {
-							window.getSelection()?.removeAllRanges();
-						}
-						props.onSelectPane(pane.id);
-						return;
-					}
-					auxiliaryPanel?.onSelect?.();
-				}}
-				onClickCapture={(event) => {
-					if (isWorkspaceDockDragSource(event.target)) {
-						if (pane) props.onSelectPane(pane.id);
-						else auxiliaryPanel?.onSelect?.();
-					}
-					if (pane && shouldFocusPaneComposer(event.target)) {
-						props.onFocusPane?.(pane.id);
-					}
-				}}
-			>
-				{pane ? (
-					<PaneView
-						{...paneViewProps(
-							props,
-							pane,
-							paneIndex,
-							handleHeaderDragStart,
-							clearDragState,
-						)}
-					/>
-				) : auxiliaryPanel ? (
-					auxiliaryPanel.render({
-						draggable: true,
-						onDragStart: handleAuxiliaryDragStart,
-						onCreatePanelDragStart: handleCreatePanelDragStart,
-						onDragEnd: clearDragState,
-					})
-				) : null}
-				{isDropTarget ? (
-					<div
-						aria-hidden="true"
-						{...stylex.props(
-							styles.dropIndicator,
-							dropEdgeStyle(dockTarget.edge),
-						)}
-					/>
-				) : null}
-			</div>
+		event.preventDefault();
+		event.stopPropagation();
+		scrollElementBy(grid, event.deltaY);
+	};
+	createEffect(
+		() => {
+			const _sourceValue7 = props;
+			return [
+				_sourceValue7.active === undefined ? true : _sourceValue7.active,
+				clearDragState,
+			];
+		},
+		() => {
+			const _sourceValue8 = props;
+			if (!(_sourceValue8.active === undefined ? true : _sourceValue8.active)) {
+				clearDragState();
+				return;
+			}
+			window.addEventListener("dragend", clearDragState);
+			window.addEventListener("drop", clearDragState);
+			return () => {
+				window.removeEventListener("dragend", clearDragState);
+				window.removeEventListener("drop", clearDragState);
+			};
+		},
+	);
+	const cellStyle = (idx: number) => {
+		const _dragIndexValue = dragIndex(),
+			_sourceValue9 = props;
+		return inlineStyles.getCanvasCellStyle(
+			dragOverIndex() === idx && _dragIndexValue !== idx
+				? (_sourceValue9.theme.cursor ?? "#d6ff00")
+				: _sourceValue9.theme.separator,
+			_dragIndexValue === idx ? 0.4 : 1,
 		);
 	};
-
 	return (
-		<div
-			ref={containerRef}
-			{...stylex.props(styles.dockRoot)}
-			data-agent-grid-scroll-area
-			onWheelCapture={handleGridWheelCapture}
-		>
-			{dockError && (
-				<div role="alert">
-					{dockError}{" "}
-					<button type="button" onClick={() => void updateDock()}>
-						Reload layout
-					</button>
-				</div>
-			)}
-			<div
-				{...stylex.props(
-					styles.dockCanvas,
-					sparseGrid && styles.dockCanvasSparse,
-				)}
-				style={inlineStyles.getWorkspaceCanvasDockCanvasStyle(
-					dockCanvasMinHeight,
-					dockCanvasWidth,
-				)}
-			>
-				{renderedDockTree ? renderDockNode(renderedDockTree) : null}
-			</div>
-			{dockTarget?.id === ROOT_DOCK_TARGET_ID ? (
-				<div
-					aria-hidden="true"
-					{...stylex.props(
-						styles.dropIndicator,
-						styles.rootDropIndicator,
-						dropEdgeStyle(dockTarget.edge),
-					)}
-				/>
-			) : null}
-		</div>
+		<>
+			{(() => {
+				const _sourceValue1 = props;
+				if (
+					_sourceValue1.layoutMode === "rows" &&
+					(_sourceValue1.auxiliaryPanels === undefined
+						? EMPTY_AUXILIARY_PANELS
+						: _sourceValue1.auxiliaryPanels
+					).length === 0
+				) {
+					return (
+						<div
+							ref={[
+								(element) => (containerRef.current = element),
+								captureEvent("wheel", (event) =>
+									handleRowWheelCapture?.(event),
+								),
+							]}
+							{...stylex.attrs(styles.rowScroller)}
+							data-agent-row-scroll-area
+						>
+							{
+								<For each={props.panes} keyed={(row) => row.id}>
+									{(pane, idx) => (
+										<div
+											data-agent-row-pane-id={pane().id}
+											{...stylex.attrs(styles.rowCell)}
+											style={domStyle(
+												inlineStyles.getWorkspaceCanvasRowCellStyle(
+													cellStyle(idx()),
+												),
+											)}
+											ref={[
+												captureEvent("pointerdown", (event) =>
+													((event) => {
+														if (isWorkspaceDockDragSource(event.target)) return;
+														if (pane().id !== props.selectedPaneId) {
+															window.getSelection()?.removeAllRanges();
+														}
+														props.onSelectPane(pane().id);
+													})?.(event),
+												),
+												captureEvent("click", (event) =>
+													((event) => {
+														if (shouldFocusPaneComposer(event.target)) {
+															props.onFocusPane?.(pane().id);
+														}
+													})?.(event),
+												),
+											]}
+										>
+											<PaneView
+												{...paneViewProps(
+													props,
+													pane(),
+													idx(),
+													handleHeaderDragStart,
+													clearDragState,
+												)}
+											/>
+										</div>
+									)}
+								</For>
+							}
+						</div>
+					);
+				}
+				const DockNode = (nodeProps: {
+					node: DockTree;
+					path: readonly ("first" | "second")[];
+				}): import("solid-js").Element => {
+					const split = createMemo(() =>
+						nodeProps.node.type === "split" ? nodeProps.node : undefined,
+					);
+					return (
+						<Show
+							when={split()}
+							fallback={
+								<DockPanel
+									id={nodeProps.node.type === "panel" ? nodeProps.node.id : ""}
+								/>
+							}
+						>
+							{(branch) => (
+								<DockSplit
+									direction={branch().direction}
+									ratio={branch().ratio}
+									first={
+										<DockNode
+											node={branch().first}
+											path={[...nodeProps.path, "first"]}
+										/>
+									}
+									second={
+										<DockNode
+											node={branch().second}
+											path={[...nodeProps.path, "second"]}
+										/>
+									}
+									onResize={(event) =>
+										handleDividerPointerDown(
+											event,
+											nodeProps.path,
+											branch().direction,
+										)
+									}
+								/>
+							)}
+						</Show>
+					);
+				};
+				const DockPanel = (panelProps: {
+					id: string;
+				}): import("solid-js").Element => {
+					const paneIndex = createMemo(() =>
+						props.panes.findIndex((pane) => pane.id === panelProps.id),
+					);
+					const pane = createMemo(() => {
+						const _paneIndexValue = paneIndex();
+						return _paneIndexValue >= 0 ? props.panes[_paneIndexValue] : null;
+					});
+					const auxiliaryPanel = createMemo(() => {
+						const _sourceValue0 = props;
+						return (
+							_sourceValue0.auxiliaryPanels === undefined
+								? EMPTY_AUXILIARY_PANELS
+								: _sourceValue0.auxiliaryPanels
+						).find((panel) => panel.id === panelProps.id);
+					});
+					const hasPane = createMemo(() => !!pane());
+					const isDropTarget = createMemo(
+						() =>
+							dockTarget()?.id === panelProps.id &&
+							dragPanelId() !== panelProps.id,
+					);
+					return (
+						<div
+							data-agent-grid-pane-id={panelProps.id}
+							{...stylex.attrs(styles.dockCell)}
+							ref={[
+								captureEvent("pointerdown", (event) =>
+									((event) => {
+										const _paneValue = pane();
+										if (isWorkspaceDockDragSource(event.target)) return;
+										if (_paneValue) {
+											if (_paneValue.id !== props.selectedPaneId) {
+												window.getSelection()?.removeAllRanges();
+											}
+											props.onSelectPane(_paneValue.id);
+											return;
+										}
+										auxiliaryPanel()?.onSelect?.();
+									})?.(event),
+								),
+								captureEvent("click", (event) =>
+									((event) => {
+										const _paneValue2 = pane();
+										if (isWorkspaceDockDragSource(event.target)) {
+											if (_paneValue2) props.onSelectPane(_paneValue2.id);
+											else auxiliaryPanel()?.onSelect?.();
+										}
+										if (_paneValue2 && shouldFocusPaneComposer(event.target)) {
+											props.onFocusPane?.(_paneValue2.id);
+										}
+									})?.(event),
+								),
+							]}
+						>
+							{hasPane() ? (
+								<For each={pane() ? [pane()!] : []} keyed={(item) => item.id}>
+									{(item) => (
+										<PaneView
+											{...paneViewProps(
+												props,
+												item(),
+												paneIndex(),
+												handleHeaderDragStart,
+												clearDragState,
+											)}
+										/>
+									)}
+								</For>
+							) : (
+								<For
+									each={auxiliaryPanel() ? [auxiliaryPanel()!] : []}
+									keyed={(panel) => panel.id}
+								>
+									{(panel) =>
+										panel().render({
+											draggable: true,
+											onDragStart: handleAuxiliaryDragStart,
+											onCreatePanelDragStart: handleCreatePanelDragStart,
+											onDragEnd: clearDragState,
+										})
+									}
+								</For>
+							)}
+							{isDropTarget() ? (
+								<div
+									aria-hidden="true"
+									{...stylex.attrs(
+										styles.dropIndicator,
+										dropEdgeStyle(dockTarget()?.edge ?? null),
+									)}
+								/>
+							) : null}
+						</div>
+					);
+				};
+				return (
+					<div
+						ref={[
+							(element) => (containerRef.current = element),
+							captureEvent("wheel", (event) => handleGridWheelCapture?.(event)),
+						]}
+						{...stylex.attrs(styles.dockRoot)}
+						data-agent-grid-scroll-area
+					>
+						{dockError() && (
+							<div role="alert">
+								{dockError()}{" "}
+								<button type="button" onClick={() => void updateDock()}>
+									Reload layout
+								</button>
+							</div>
+						)}
+						<div
+							{...stylex.attrs(
+								styles.dockCanvas,
+								sparseGrid() && styles.dockCanvasSparse,
+							)}
+							style={domStyle(
+								inlineStyles.getWorkspaceCanvasDockCanvasStyle(
+									dockCanvasMinHeight(),
+									dockCanvasWidth(),
+								),
+							)}
+						>
+							{
+								<Show when={renderedDockTree()}>
+									{(tree) => <DockNode node={tree()} path={[]} />}
+								</Show>
+							}
+						</div>
+						{dockTarget()?.id === ROOT_DOCK_TARGET_ID ? (
+							<div
+								aria-hidden="true"
+								{...stylex.attrs(
+									styles.dropIndicator,
+									styles.rootDropIndicator,
+									dropEdgeStyle(dockTarget()!.edge),
+								)}
+							/>
+						) : null}
+					</div>
+				);
+			})()}
+		</>
 	);
-});
-
+};
 export type DragProps = {
 	readonly draggable: boolean;
 	readonly onDragStart: (event: PointerEvent) => void;
@@ -623,7 +754,10 @@ export type DockEdge = "center" | "left" | "right" | "top" | "bottom";
 export type DockOuterEdge = Exclude<DockEdge, "center">;
 export const MIN_RESPONSIVE_PANE_WIDTH = 300;
 export type DockTree =
-	| { readonly type: "panel"; readonly id: string }
+	| {
+			readonly type: "panel";
+			readonly id: string;
+	  }
 	| {
 			readonly type: "split";
 			readonly direction: "horizontal" | "vertical";
@@ -650,9 +784,11 @@ export function resizeDockSplit(
 	if (tree.type === "panel") return tree;
 	const [branch, ...rest] = path;
 	const key = branch === "first" ? "first" : "second";
-	return { ...tree, [key]: resizeDockSplit(tree[key], rest, ratio) };
+	return {
+		...tree,
+		[key]: resizeDockSplit(tree[key], rest, ratio),
+	};
 }
-
 export type AgentLayoutMode = "grid" | "rows";
 export const DEFAULT_ROWS = 1 as const;
 export const EMPTY_AUXILIARY_PANELS: readonly AuxiliaryPanel[] = [];
@@ -670,7 +806,7 @@ type AuxiliaryPanel = {
 			completeDrop: () => void,
 		) => void;
 		readonly onDragEnd: () => void;
-	}) => unknown;
+	}) => import("solid-js").Element;
 };
 export interface WorkspaceCanvasProps {
 	active?: boolean;
@@ -772,7 +908,10 @@ export function dockEdgeForPoint(
 					: "bottom";
 }
 export function outerDockEdgeForPointer(
-	e: { readonly clientX: number; readonly clientY: number },
+	e: {
+		readonly clientX: number;
+		readonly clientY: number;
+	},
 	root: HTMLElement,
 ): DockOuterEdge | null {
 	const r = root.getBoundingClientRect(),

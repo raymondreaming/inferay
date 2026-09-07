@@ -1,24 +1,11 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import type { GraphCommit } from "../../../../../../build/presentation/contracts/GraphCommit.ts";
-
+import { domStyle } from "../../../../../shared/lib/dom.tsx";
 import { AuthorAvatar } from "./AuthorAvatar.tsx";
 import { MergeNode } from "./MergeNode.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
-
-export function CommitGraphCell({
-	commit,
-	color,
-	graphWidth,
-	hasConnector,
-	nodeCenter,
-	nodeLeft,
-	nodeTop,
-	isWip,
-	isMergeCommit,
-	isStash,
-	githubAvatar,
-}: {
+export function CommitGraphCell(_props: {
 	commit: GraphCommit;
 	color: string;
 	graphWidth: number;
@@ -33,40 +20,50 @@ export function CommitGraphCell({
 }) {
 	return (
 		<div
-			{...stylex.props(styles.graphCell)}
-			style={inlineStyles.getCommitRowGraphCellStyle(graphWidth)}
+			{...stylex.attrs(styles.graphCell)}
+			style={domStyle(
+				inlineStyles.getCommitRowGraphCellStyle(_props.graphWidth),
+			)}
 		>
-			{hasConnector ? (
+			{_props.hasConnector ? (
 				<span
 					aria-hidden="true"
-					{...stylex.props(styles.refToNodeConnector)}
-					style={inlineStyles.getCommitRowRefToNodeConnectorStyle(
-						nodeCenter,
-						color,
+					{...stylex.attrs(styles.refToNodeConnector)}
+					style={domStyle(
+						inlineStyles.getCommitRowRefToNodeConnectorStyle(
+							_props.nodeCenter,
+							_props.color,
+						),
 					)}
 				/>
 			) : null}
-			{isWip ? (
+			{_props.isWip ? (
 				<span
 					aria-hidden="true"
-					{...stylex.props(styles.wipNode)}
-					style={inlineStyles.getCommitRowWipNodeStyle(
-						nodeLeft,
-						nodeTop,
-						color,
+					{...stylex.attrs(styles.wipNode)}
+					style={domStyle(
+						inlineStyles.getCommitRowWipNodeStyle(
+							_props.nodeLeft,
+							_props.nodeTop,
+							_props.color,
+						),
 					)}
 				/>
-			) : isMergeCommit ? (
-				<MergeNode color={color} left={nodeLeft} top={nodeTop} />
+			) : _props.isMergeCommit ? (
+				<MergeNode
+					color={_props.color}
+					left={_props.nodeLeft}
+					top={_props.nodeTop}
+				/>
 			) : (
 				<AuthorAvatar
-					name={commit.author}
-					email={commit.authorEmail}
-					githubAvatar={githubAvatar}
-					color={color}
-					left={nodeLeft}
-					top={nodeTop}
-					stash={isStash}
+					name={_props.commit.author}
+					email={_props.commit.authorEmail}
+					githubAvatar={_props.githubAvatar}
+					color={_props.color}
+					left={_props.nodeLeft}
+					top={_props.nodeTop}
+					stash={_props.isStash}
 				/>
 			)}
 		</div>

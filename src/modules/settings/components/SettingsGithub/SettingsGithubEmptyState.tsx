@@ -5,11 +5,7 @@ import {
 	IconGitBranch,
 } from "../../../../shared/ui/Icons/index.tsx";
 import { WorkspaceEmptyState } from "../../../../shared/ui/WorkspacePage/index.tsx";
-
-export function SettingsGithubEmptyState({
-	onConnect,
-	connecting,
-}: {
+export function SettingsGithubEmptyState(_props: {
 	onConnect: () => void;
 	connecting: boolean;
 }) {
@@ -22,13 +18,15 @@ export function SettingsGithubEmptyState({
 				<Button
 					liquid={false}
 					type="button"
-					onClick={onConnect}
-					disabled={connecting}
+					onClick={_props.onConnect}
+					disabled={_props.connecting}
 					variant="secondary"
 					size="sm"
 				>
 					<IconAgent size={iconSize.md} />
-					<span>{connecting ? "Opening GitHub…" : "Run gh auth login"}</span>
+					<span>
+						{_props.connecting ? "Opening GitHub…" : "Run gh auth login"}
+					</span>
 				</Button>
 			}
 		/>

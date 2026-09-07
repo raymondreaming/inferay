@@ -1,15 +1,19 @@
-import type { CSSProperties } from "react";
-
+import type { CSSProperties } from "../../../lib/dom.tsx";
 export function getLiquidPopoverSurfaceLiquidStyle(
 	display: CSSProperties["display"],
 	width: CSSProperties["width"],
 	zIndex: CSSProperties["zIndex"],
 ): CSSProperties {
-	return { display: display, width: width, zIndex: zIndex } as CSSProperties;
+	return {
+		display: display,
+		width: width,
+		zIndex: zIndex,
+	} as CSSProperties;
 }
-
 export function getLiquidPopoverSurfaceElementStyle(
 	width: CSSProperties["width"],
 ): CSSProperties {
-	return { width: width } as CSSProperties;
+	return {
+		width: width,
+	} as CSSProperties;
 }

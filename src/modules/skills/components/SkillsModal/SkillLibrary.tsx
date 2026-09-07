@@ -1,28 +1,16 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo, For } from "solid-js";
 import type { Prompt } from "../../../../../build/presentation/contracts/Prompt.ts";
 import type { SkillFormState } from "../../../../../build/presentation/contracts/SkillFormState.ts";
 import {
 	iconSize,
 	surfaceStyles,
 } from "../../../../design-system/styles.stylex.ts";
-import { setInputValue } from "../../../../shared/lib/data.ts";
+import { setInputValue } from "../../../../shared/lib/dom.tsx";
 import { IconPlus, IconSearch } from "../../../../shared/ui/Icons/index.tsx";
 import { SkillLibraryItem } from "./SkillLibraryItem.tsx";
 import { styles } from "./styles.ts";
-
-export function SkillLibrary({
-	startCreate,
-	form,
-	search,
-	setSearch,
-	filter,
-	setFilter,
-	filtered,
-	loading,
-	filtering,
-	selectedId,
-	selectSkill,
-}: {
+export function SkillLibrary(_props: {
 	startCreate: () => void;
 	form: Pick<SkillFormState, "isSaving" | "isCreating">;
 	search: string;
@@ -36,13 +24,13 @@ export function SkillLibrary({
 	selectSkill: (skill: Prompt) => void;
 }) {
 	return (
-		<aside aria-label="Skills library" {...stylex.props(styles.listPane)}>
-			<div {...stylex.props(styles.libraryControls)}>
+		<aside aria-label="Skills library" {...stylex.attrs(styles.listPane)}>
+			<div {...stylex.attrs(styles.libraryControls)}>
 				<button
 					type="button"
-					onClick={startCreate}
-					disabled={form.isSaving}
-					{...stylex.props(
+					onClick={_props.startCreate}
+					disabled={_props.form.isSaving}
+					{...stylex.attrs(
 						surfaceStyles.panel,
 						styles.newButton,
 						styles.libraryNew,
@@ -50,55 +38,61 @@ export function SkillLibrary({
 				>
 					<IconPlus size={iconSize.sm} /> New skill
 				</button>
-				<div {...stylex.props(styles.searchWrap)}>
-					<IconSearch size={iconSize.md} {...stylex.props(styles.searchIcon)} />
+				<div {...stylex.attrs(styles.searchWrap)}>
+					<IconSearch size={iconSize.md} {...stylex.attrs(styles.searchIcon)} />
 					<input
 						type="search"
-						value={search}
-						onInput={setInputValue.bind(null, setSearch)}
+						value={_props.search}
+						onInput={setInputValue.bind(null, _props.setSearch)}
 						placeholder="Find a skill…"
 						aria-label="Search skills"
-						{...stylex.props(styles.searchInput)}
+						{...stylex.attrs(styles.searchInput)}
 					/>
 				</div>
-				<div {...stylex.props(styles.libraryHeading)}>
+				<div {...stylex.attrs(styles.libraryHeading)}>
 					<select
 						aria-label="Filter skills"
-						value={filter}
-						onChange={(event) => setFilter(event.currentTarget.value)}
-						{...stylex.props(styles.filter)}
+						value={_props.filter}
+						onInput={(event) => _props.setFilter(event.currentTarget.value)}
+						{...stylex.attrs(styles.filter)}
 					>
 						<option value="all">All skills</option>
 						<option value="builtin">Built-in</option>
 						<option value="custom">Personal</option>
 					</select>
-					<span {...stylex.props(styles.count)}>{filtered.length}</span>
+					<span {...stylex.attrs(styles.count)}>{_props.filtered.length}</span>
 				</div>
 			</div>
-			<nav aria-label="Saved skills" {...stylex.props(styles.skillList)}>
-				{filtered.length === 0 ? (
-					<div {...stylex.props(styles.emptyList)}>
+			<nav aria-label="Saved skills" {...stylex.attrs(styles.skillList)}>
+				{_props.filtered.length === 0 ? (
+					<div {...stylex.attrs(styles.emptyList)}>
 						<p>
-							{loading || filtering ? "Loading skills…" : "No skills found"}
+							{_props.loading || _props.filtering
+								? "Loading skills…"
+								: "No skills found"}
 						</p>
 						<span>
-							{search
+							{_props.search
 								? "Try another name or command."
 								: "Create a skill to get started."}
 						</span>
 					</div>
 				) : (
-					filtered.map((skill) => {
-						const active = !form.isCreating && selectedId === skill._id;
-						return (
-							<SkillLibraryItem
-								key={skill._id}
-								skill={skill}
-								active={active}
-								selectSkill={selectSkill}
-							/>
-						);
-					})
+					<For each={_props.filtered} keyed={(row) => row._id}>
+						{(skill) => {
+							const active = createMemo(
+								() =>
+									!_props.form.isCreating && _props.selectedId === skill()._id,
+							);
+							return (
+								<SkillLibraryItem
+									skill={skill()}
+									active={active()}
+									selectSkill={_props.selectSkill}
+								/>
+							);
+						}}
+					</For>
 				)}
 			</nav>
 		</aside>

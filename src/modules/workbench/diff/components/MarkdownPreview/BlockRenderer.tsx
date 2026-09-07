@@ -1,116 +1,121 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo, For, Match, Show, Switch } from "solid-js";
 import type { MdBlock } from "../../../../../../build/presentation/contracts/MdBlock.ts";
-import type { MdListItem } from "../../../../../../build/presentation/contracts/MdListItem.ts";
 import { InlineTokens } from "./InlineTokens.tsx";
 import { ListItemRenderer } from "./ListItemRenderer.tsx";
 import { MermaidBlock } from "./MermaidBlock.tsx";
 import { styles } from "./styles.ts";
 
-function renderListItem(item: MdListItem, key: number) {
-	return <ListItemRenderer key={key} item={item} />;
-}
-
-export function BlockRenderer({ block }: { block: MdBlock }) {
-	switch (block.type) {
-		case "heading":
-			return (
+export function BlockRenderer(props: { block: MdBlock }) {
+	const kind = createMemo(() => props.block.type);
+	const Items = () => (
+		<For each={props.block.items ?? []} keyed={false}>
+			{(item) => <ListItemRenderer item={item()} />}
+		</For>
+	);
+	return (
+		<Switch>
+			<Match when={kind() === "heading"}>
 				<div
-					{...stylex.props(
+					{...stylex.attrs(
 						styles.heading,
-						block.level === 1 && styles.heading1,
-						block.level === 2 && styles.heading2,
-						block.level === 3 && styles.heading3,
-						block.level === 4 && styles.heading4,
-						block.level === 5 && styles.heading5,
-						block.level === 6 && styles.heading6,
+						props.block.level === 1 && styles.heading1,
+						props.block.level === 2 && styles.heading2,
+						props.block.level === 3 && styles.heading3,
+						props.block.level === 4 && styles.heading4,
+						props.block.level === 5 && styles.heading5,
+						props.block.level === 6 && styles.heading6,
 					)}
 				>
-					<InlineTokens tokens={block.tokens ?? []} />
+					<InlineTokens tokens={props.block.tokens ?? []} />
 				</div>
-			);
-
-		case "mermaid":
-			return <MermaidBlock code={block.content} />;
-
-		case "code":
-			return (
-				<div {...stylex.props(styles.codeBlock)}>
-					{block.lang && (
-						<span {...stylex.props(styles.codeLang)}>{block.lang}</span>
-					)}
-					<pre {...stylex.props(styles.pre)}>
-						<code {...stylex.props(styles.codeText)}>{block.content}</code>
+			</Match>
+			<Match when={kind() === "mermaid"}>
+				<MermaidBlock code={props.block.content} />
+			</Match>
+			<Match when={kind() === "code"}>
+				<div {...stylex.attrs(styles.codeBlock)}>
+					<Show when={props.block.lang}>
+						<span {...stylex.attrs(styles.codeLang)}>{props.block.lang}</span>
+					</Show>
+					<pre {...stylex.attrs(styles.pre)}>
+						<code {...stylex.attrs(styles.codeText)}>
+							{props.block.content}
+						</code>
 					</pre>
 				</div>
-			);
-
-		case "blockquote": {
-			const innerBlocks = block.children ?? [];
-			return (
-				<div {...stylex.props(styles.blockquote)}>
-					{innerBlocks.map((inner, index) => (
-						<BlockRenderer key={index} block={inner} />
-					))}
+			</Match>
+			<Match when={kind() === "blockquote"}>
+				<div {...stylex.attrs(styles.blockquote)}>
+					<For each={props.block.children ?? []} keyed={false}>
+						{(block) => <BlockRenderer block={block()} />}
+					</For>
 				</div>
-			);
-		}
-
-		case "hr":
-			return <hr {...stylex.props(styles.hr)} />;
-
-		case "table":
-			if (!block.rows?.length) return null;
-			return (
-				<div {...stylex.props(styles.tableWrap)}>
-					<table {...stylex.props(styles.table)}>
-						<thead>
-							<tr {...stylex.props(styles.tableHeadRow)}>
-								{(block.rows[0] ?? []).map((cell, index) => (
-									<th key={index} {...stylex.props(styles.tableHeadCell)}>
-										<InlineTokens tokens={cell} />
-									</th>
-								))}
-							</tr>
-						</thead>
-						<tbody>
-							{block.rows.slice(1).map((row, rowIndex) => (
-								<tr key={rowIndex} {...stylex.props(styles.tableRow)}>
-									{row.map((cell, index) => (
-										<td key={index} {...stylex.props(styles.tableCell)}>
-											<InlineTokens tokens={cell} />
-										</td>
-									))}
+			</Match>
+			<Match when={kind() === "hr"}>
+				<hr {...stylex.attrs(styles.hr)} />
+			</Match>
+			<Match when={kind() === "table"}>
+				<Show when={props.block.rows?.length}>
+					<div {...stylex.attrs(styles.tableWrap)}>
+						<table {...stylex.attrs(styles.table)}>
+							<thead>
+								<tr {...stylex.attrs(styles.tableHeadRow)}>
+									<For each={props.block.rows?.[0] ?? []} keyed={false}>
+										{(cell) => (
+											<th {...stylex.attrs(styles.tableHeadCell)}>
+												<InlineTokens tokens={cell()} />
+											</th>
+										)}
+									</For>
 								</tr>
-							))}
-						</tbody>
-					</table>
-				</div>
-			);
-
-		case "checklist":
-		case "ul":
-		case "ol": {
-			const List = block.type === "ol" ? "ol" : "ul";
-			return (
-				<List
-					{...stylex.props(
-						block.type === "checklist"
-							? styles.checklist
-							: block.type === "ol"
-								? styles.orderedList
-								: styles.unorderedList,
-					)}
+							</thead>
+							<tbody>
+								<For each={props.block.rows?.slice(1) ?? []} keyed={false}>
+									{(row) => (
+										<tr {...stylex.attrs(styles.tableRow)}>
+											<For each={row()} keyed={false}>
+												{(cell) => (
+													<td {...stylex.attrs(styles.tableCell)}>
+														<InlineTokens tokens={cell()} />
+													</td>
+												)}
+											</For>
+										</tr>
+									)}
+								</For>
+							</tbody>
+						</table>
+					</div>
+				</Show>
+			</Match>
+			<Match
+				when={kind() === "ul" || kind() === "ol" || kind() === "checklist"}
+			>
+				<Show
+					when={kind() === "ol"}
+					fallback={
+						<ul
+							{...stylex.attrs(
+								kind() === "checklist"
+									? styles.checklist
+									: styles.unorderedList,
+							)}
+						>
+							<Items />
+						</ul>
+					}
 				>
-					{(block.items ?? []).map(renderListItem)}
-				</List>
-			);
-		}
-
-		case "paragraph":
-			return (
-				<p {...stylex.props(styles.paragraph)}>
-					<InlineTokens tokens={block.tokens ?? []} />
+					<ol {...stylex.attrs(styles.orderedList)}>
+						<Items />
+					</ol>
+				</Show>
+			</Match>
+			<Match when={kind() === "paragraph"}>
+				<p {...stylex.attrs(styles.paragraph)}>
+					<InlineTokens tokens={props.block.tokens ?? []} />
 				</p>
-			);
-	}
+			</Match>
+		</Switch>
+	);
 }

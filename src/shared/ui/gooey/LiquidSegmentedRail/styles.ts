@@ -1,9 +1,10 @@
-import type { CSSProperties } from "react";
-
+import type { CSSProperties } from "../../../lib/dom.tsx";
 export function getLiquidSegmentedRailLiquidStyle(): CSSProperties {
-	return { height: "100%", width: "100%" } as CSSProperties;
+	return {
+		height: "100%",
+		width: "100%",
+	} as CSSProperties;
 }
-
 export function getLiquidSegmentedRailSpanStyle(
 	borderRadius: CSSProperties["borderRadius"],
 	width: CSSProperties["width"],

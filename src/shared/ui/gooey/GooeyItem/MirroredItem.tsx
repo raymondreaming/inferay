@@ -1,12 +1,12 @@
-import { createPortal, useRef, useState } from "octane";
-import type { CSSProperties } from "react";
-import { rounded_rect } from "../../../../adapters/presentation/model.ts";
-import { useIsoLayoutEffect } from "../Gooey/index.tsx";
+import { Portal } from "@solidjs/web";
+import { createEffect, createMemo, createSignal } from "solid-js";
+import { type CSSProperties, domStyle } from "../../../lib/dom.tsx";
+import { rounded_rect } from "../../../lib/native.tsx";
 import {
 	type CornerRadii,
 	measureRadius,
 	normalizeRadius,
-} from "../observer.ts";
+} from "../Gooey/index.tsx";
 import type { Internal } from "./index.tsx";
 import * as inlineStyles from "./styles.ts";
 
@@ -20,69 +20,79 @@ function sameBox(a: BlobBox | null, b: BlobBox): boolean {
 		a.r.every((v, i) => v === b.r[i])
 	);
 }
-export function MirroredItem({
-	radius,
-	className,
-	style,
-	children,
-	ctx,
-}: Internal) {
-	const wrapRef = useRef<HTMLDivElement | null>(null);
-	const [box, setBox] = useState<BlobBox | null>(null);
-	const radiusKey = radius == null ? "" : JSON.stringify(radius);
-	useIsoLayoutEffect(() => {
-		const el = wrapRef.current;
-		const group = ctx.getGroup();
-		if (!el || !group) return;
-		const measure = () => {
-			const base = offsetTo(el, group);
-			const w = el.offsetWidth;
-			const h = el.offsetHeight;
-			const target = (el.firstElementChild as HTMLElement | null) ?? el;
-			const r: CornerRadii =
-				radius != null ? normalizeRadius(radius) : measureRadius(target, w, h);
-			const next: BlobBox = {
-				x: base.x,
-				y: base.y,
-				w,
-				h,
-				r,
+export function MirroredItem(_props: Internal) {
+	const wrapRef = {
+		current: null,
+	} as {
+		current: HTMLDivElement | null;
+	};
+	const [box, setBox] = createSignal<BlobBox | null>(null);
+	const radiusKey = createMemo(() =>
+		_props.radius == null ? "" : JSON.stringify(_props.radius),
+	);
+	createEffect(
+		() => [_props.ctx, radiusKey()],
+		() => {
+			const el = wrapRef.current;
+			const group = _props.ctx.getGroup();
+			if (!el || !group) return;
+			const measure = () => {
+				const base = offsetTo(el, group);
+				const w = el.offsetWidth;
+				const h = el.offsetHeight;
+				const target = (el.firstElementChild as HTMLElement | null) ?? el;
+				const r: CornerRadii =
+					_props.radius != null
+						? normalizeRadius(_props.radius)
+						: measureRadius(target, w, h);
+				const next: BlobBox = {
+					x: base.x,
+					y: base.y,
+					w,
+					h,
+					r,
+				};
+				setBox((prev) => (sameBox(prev, next) ? prev : next));
 			};
-			setBox((prev) => (sameBox(prev, next) ? prev : next));
-		};
-		measure();
-		const ro = new ResizeObserver(measure);
-		ro.observe(el);
-		ro.observe(group);
-		return () => ro.disconnect();
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [ctx, radiusKey]);
+			measure();
+			const ro = new ResizeObserver(measure);
+			ro.observe(el);
+			ro.observe(group);
+			return () => ro.disconnect();
+		},
+	);
 	return (
 		<>
 			<div
-				ref={wrapRef}
-				className={className}
-				style={inlineStyles.getMirroredItemDivStyle(style)}
+				ref={(element) => (wrapRef.current = element)}
+				class={_props.class}
+				style={domStyle(inlineStyles.getMirroredItemDivStyle(_props.style))}
 			>
-				{children}
+				{_props.children}
 			</div>
-			{ctx.portal &&
-				box &&
-				createPortal(
-					renderBlob(box, inlineStyles.mirroredBlobStyle),
-					ctx.portal,
-				)}
+			{_props.ctx.portal && box() && (
+				<Portal mount={_props.ctx.portal}>
+					{renderBlob(box()!, inlineStyles.mirroredBlobStyle)}
+				</Portal>
+			)}
 		</>
 	);
 }
 function renderBlob(box: BlobBox, style: CSSProperties) {
-	const [tl, tr, br, bl] = box.r;
-	const uniform = tl === tr && tr === br && br === bl;
-	if (uniform) {
+	const _source = createMemo(() => box.r);
+	const uniform = createMemo(() => {
+		const _sourceValue = _source();
+		return (
+			_sourceValue[0] === _sourceValue[1] &&
+			_sourceValue[1] === _sourceValue[2] &&
+			_sourceValue[2] === _sourceValue[3]
+		);
+	});
+	if (uniform()) {
 		// Clamp to min(w,h)/2: SVG clamps rx and ry independently, so a large
 		// radius on a wide short box (the `border-radius: 999px` pill idiom)
 		// would degenerate into an ellipse instead of a pill.
-		const rx = Math.max(0, Math.min(tl, Math.min(box.w, box.h) / 2));
+		const rx = Math.max(0, Math.min(_source()[0], Math.min(box.w, box.h) / 2));
 		return (
 			<rect
 				x={box.x}
@@ -90,18 +100,17 @@ function renderBlob(box: BlobBox, style: CSSProperties) {
 				width={box.w}
 				height={box.h}
 				rx={rx}
-				style={style}
+				style={domStyle(style)}
 			/>
 		);
 	}
 	return (
 		<path
 			d={rounded_rect(box.x, box.y, box.w, box.h, ...box.r)}
-			style={style}
+			style={domStyle(style)}
 		/>
 	);
 }
-
 interface BlobBox {
 	x: number;
 	y: number;
@@ -116,7 +125,10 @@ interface BlobBox {
 function offsetTo(
 	el: HTMLElement,
 	ancestor: HTMLElement,
-): { x: number; y: number } {
+): {
+	x: number;
+	y: number;
+} {
 	let x = 0;
 	let y = 0;
 	let node: HTMLElement | null = el;

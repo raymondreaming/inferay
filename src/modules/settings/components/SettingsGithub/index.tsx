@@ -1,56 +1,64 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo } from "solid-js";
 import type { ForgeAccount } from "../../../../../build/presentation/contracts/ForgeAccount.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
+import { ariaValue } from "../../../../shared/lib/dom.tsx";
 import {
 	IconExternalLink,
 	IconUser,
 } from "../../../../shared/ui/Icons/index.tsx";
 import { styles } from "./styles.ts";
-export function SettingsGithubAccount({ account }: { account: ForgeAccount }) {
-	const fallback = account.login.slice(0, 2).toLocaleUpperCase();
+export function SettingsGithubAccount(_props: { account: ForgeAccount }) {
+	const fallback = createMemo(() =>
+		_props.account.login.slice(0, 2).toLocaleUpperCase(),
+	);
 	return (
 		<div
-			data-settings-github-account={account.login}
-			{...stylex.props(styles.accountCard)}
+			data-settings-github-account={_props.account.login}
+			{...stylex.attrs(styles.accountCard)}
 		>
-			<div {...stylex.props(styles.accountAvatar)}>
-				{account.avatarUrl ? (
+			<div {...stylex.attrs(styles.accountAvatar)}>
+				{_props.account.avatarUrl ? (
 					<img
-						src={account.avatarUrl}
+						src={_props.account.avatarUrl}
 						alt=""
-						{...stylex.props(styles.accountAvatarImage)}
+						{...stylex.attrs(styles.accountAvatarImage)}
 					/>
-				) : fallback ? (
-					fallback
+				) : fallback() ? (
+					fallback()
 				) : (
 					<IconUser size={iconSize.lg} />
 				)}
 			</div>
-			<div {...stylex.props(styles.accountIdentity)}>
-				<div {...stylex.props(styles.accountNameRow)}>
-					<strong {...stylex.props(styles.accountName)}>{account.login}</strong>
-					<span {...stylex.props(styles.accountStatus)}>
+			<div {...stylex.attrs(styles.accountIdentity)}>
+				<div {...stylex.attrs(styles.accountNameRow)}>
+					<strong {...stylex.attrs(styles.accountName)}>
+						{_props.account.login}
+					</strong>
+					<span {...stylex.attrs(styles.accountStatus)}>
 						<span
 							aria-hidden="true"
-							{...stylex.props(styles.accountStatusDot)}
+							{...stylex.attrs(styles.accountStatusDot)}
 						/>
-						{account.active ? "Active" : "Connected"}
+						{_props.account.active ? "Active" : "Connected"}
 					</span>
 				</div>
-				<span {...stylex.props(styles.accountHandle)}>
-					@{account.login} · {account.host}
+				<span {...stylex.attrs(styles.accountHandle)}>
+					@{_props.account.login} · {_props.account.host}
 				</span>
-				{account.email ? (
-					<span {...stylex.props(styles.accountEmail)}>{account.email}</span>
+				{_props.account.email ? (
+					<span {...stylex.attrs(styles.accountEmail)}>
+						{_props.account.email}
+					</span>
 				) : null}
 			</div>
 			<a
-				href={`https://${account.host}/${account.login}`}
+				href={`https://${_props.account.host}/${_props.account.login}`}
 				target="_blank"
 				rel="noreferrer"
-				title={`Open @${account.login} on GitHub`}
-				aria-label={`Open @${account.login} on GitHub`}
-				{...stylex.props(styles.externalLink)}
+				title={`Open @${_props.account.login} on GitHub`}
+				aria-label={ariaValue(`Open @${_props.account.login} on GitHub`)}
+				{...stylex.attrs(styles.externalLink)}
 			>
 				<IconExternalLink size={iconSize.md} />
 			</a>

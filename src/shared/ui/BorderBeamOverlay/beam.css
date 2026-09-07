@@ -1,0 +1,53 @@
+.inferay-border-beam {
+	position: absolute;
+	inset: 0;
+	z-index: 3;
+	overflow: hidden;
+	border-radius: 12px;
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity 200ms ease;
+	padding: 1px;
+	mask:
+		linear-gradient(#fff 0 0) content-box,
+		linear-gradient(#fff 0 0);
+	mask-composite: exclude;
+}
+.inferay-border-beam[data-active="true"] {
+	opacity: 0.7;
+}
+.inferay-border-beam::before {
+	content: "";
+	position: absolute;
+	width: 200%;
+	aspect-ratio: 1;
+	left: -50%;
+	top: 50%;
+	background: conic-gradient(
+		from 0deg,
+		transparent 0deg 250deg,
+		#60a5fa 280deg,
+		#c084fc 310deg,
+		#fb7185 340deg,
+		transparent 360deg
+	);
+	animation: inferay-border-beam-spin 2.5s linear infinite;
+	animation-play-state: paused;
+}
+.inferay-border-beam[data-active="true"]::before {
+	animation-play-state: running;
+}
+@keyframes inferay-border-beam-spin {
+	from {
+		transform: translateY(-50%) rotate(0deg);
+	}
+	to {
+		transform: translateY(-50%) rotate(360deg);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.inferay-border-beam::before {
+		animation: none;
+		transform: translateY(-50%);
+	}
+}

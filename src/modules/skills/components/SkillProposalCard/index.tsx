@@ -1,55 +1,65 @@
-import * as stylex from "@octanejs/stylex";
-import { useRef, useState } from "octane";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo, createSignal } from "solid-js";
 import type { SkillProposal } from "../../../../../build/presentation/contracts/SkillProposal.ts";
 import type { SkillProposalView } from "../../../../../build/presentation/contracts/SkillProposalView.ts";
-import { postJson } from "../../../../adapters/backend/http.ts";
 import { surfaceStyles } from "../../../../design-system/styles.stylex.ts";
 import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
-import { openSkills } from "../../../../shared/lib/data.ts";
+import { ariaValue, openSkills } from "../../../../shared/lib/dom.tsx";
+import { postJson } from "../../../../shared/lib/native.tsx";
 import { decideSkillProposal } from "../../hooks/useSkills.tsx";
 import { styles } from "./styles.ts";
-
-export function SkillProposalCard({
-	proposal,
-	messageId,
-	streaming,
-	onResult,
-}: {
+export function SkillProposalCard(_props: {
 	proposal: SkillProposal;
 	messageId: string;
 	streaming?: boolean;
 	onResult?: (text: string) => void;
 }) {
 	const resource = useQueryResource<SkillProposalView | null>(
-		(signal) =>
-			postJson("/api/prompts/proposal", { messageId, proposal }, { signal }),
-		null,
-		{
-			queryKey: ["skills", "proposal", messageId, proposal],
-			enabled: !streaming,
-		},
+		() => (signal) =>
+			postJson(
+				"/api/prompts/proposal",
+				{
+					messageId: _props.messageId,
+					proposal: _props.proposal,
+				},
+				{
+					signal,
+				},
+			),
+		() => null,
+		() => ({
+			queryKey: ["skills", "proposal", _props.messageId, _props.proposal],
+			enabled: !_props.streaming,
+		}),
 	);
-	const view = resource.data;
-	const loading = !resource.loaded || resource.loading;
-	const inFlight = useRef(false);
-	const [saving, setSaving] = useState(false);
-	const [error, setError] = useState("");
+	const view = createMemo(() => resource.data);
+	const loading = createMemo(() => !resource.loaded || resource.loading);
+	const inFlight = {
+		current: false,
+	};
+	const [saving, setSaving] = createSignal(false);
+	const [error, setError] = createSignal("");
 	const decide = async (decision: "approve" | "reject") => {
+		const _viewValue = view();
 		if (
 			inFlight.current ||
-			streaming ||
-			loading ||
-			view?.decided ||
-			(decision === "approve" && view?.blockedReason)
+			_props.streaming ||
+			loading() ||
+			_viewValue?.decided ||
+			(decision === "approve" && _viewValue?.blockedReason)
 		)
 			return;
 		inFlight.current = true;
 		setSaving(true);
 		setError("");
 		try {
-			const result = await decideSkillProposal(messageId, proposal, decision);
+			const result = await decideSkillProposal(
+				_props.messageId,
+				_props.proposal,
+				decision,
+			);
 			resource.setData(result);
-			if (result.message) onResult?.(result.message);
+			if (result.message) _props.onResult?.(result.message);
 		} catch (error) {
 			setError(
 				error instanceof Error
@@ -63,67 +73,79 @@ export function SkillProposalCard({
 	};
 	return (
 		<section
-			aria-label={`Skill proposal: ${proposal.name}`}
-			{...stylex.props(surfaceStyles.panel, styles.card)}
+			aria-label={ariaValue(`Skill proposal: ${_props.proposal.name}`)}
+			{...stylex.attrs(surfaceStyles.panel, styles.card)}
 		>
-			<div {...stylex.props(styles.heading)}>
-				<strong>{view?.title ?? "Skill proposal"}</strong>
-				<code>/{proposal.command}</code>
+			<div {...stylex.attrs(styles.heading)}>
+				<strong>{view()?.title ?? "Skill proposal"}</strong>
+				<code>/{_props.proposal.command}</code>
 			</div>
-			<p {...stylex.props(styles.reason)}>{proposal.reason}</p>
+			<p {...stylex.attrs(styles.reason)}>{_props.proposal.reason}</p>
 			<p>
-				{proposal.name} — {proposal.description}
+				{_props.proposal.name} — {_props.proposal.description}
 			</p>
-			{view?.currentInstructions != null && (
+			{view()?.currentInstructions != null && (
 				<details>
 					<summary>Current instructions</summary>
-					<pre {...stylex.props(styles.instructions)}>
-						{view.currentInstructions}
+					<pre {...stylex.attrs(styles.instructions)}>
+						{view()?.currentInstructions}
 					</pre>
 				</details>
 			)}
-			<details open={!view?.decided}>
+			<details open={!view()?.decided}>
 				<summary>Proposed instructions</summary>
-				<pre {...stylex.props(styles.instructions)}>
-					{proposal.promptTemplate}
+				<pre {...stylex.attrs(styles.instructions)}>
+					{_props.proposal.promptTemplate}
 				</pre>
 			</details>
-			{view?.blockedReason && <p role="alert">{view.blockedReason}</p>}
-			{(error || resource.error) && (
-				<p role="alert">{error || resource.error}</p>
+			{view()?.blockedReason && <p role="alert">{view()?.blockedReason}</p>}
+			{(error() || resource.error) && (
+				<p role="alert">{error() || resource.error}</p>
 			)}
-			<div role="status" {...stylex.props(styles.reason)}>
-				{saving ? "Saving decision…" : (view?.status ?? "Loading proposal…")}
+			<div role="status" {...stylex.attrs(styles.reason)}>
+				{saving()
+					? "Saving decision…"
+					: (view()?.status ?? "Loading proposal…")}
 			</div>
 
-			<div {...stylex.props(styles.actions)}>
-				{!view?.decided && (
+			<div {...stylex.attrs(styles.actions)}>
+				{!view()?.decided && (
 					<>
 						<button
 							type="button"
-							disabled={saving || streaming || loading || !!view?.blockedReason}
+							disabled={
+								saving() ||
+								_props.streaming ||
+								loading() ||
+								!!view()?.blockedReason
+							}
 							onClick={() => void decide("approve")}
-							{...stylex.props(styles.button, styles.approve)}
+							{...stylex.attrs(styles.button, styles.approve)}
 						>
-							{saving ? "Saving…" : "Approve & save"}
+							{saving() ? "Saving…" : "Approve & save"}
 						</button>
 						<button
 							type="button"
-							disabled={saving || streaming || loading}
+							disabled={saving() || _props.streaming || loading()}
 							onClick={() => void decide("reject")}
-							{...stylex.props(styles.button)}
+							{...stylex.attrs(styles.button)}
 						>
 							Decline
 						</button>
 					</>
 				)}
-				{view?.savedSkillId && (
+				{view()?.savedSkillId && (
 					<button
 						type="button"
-						onClick={() =>
-							openSkills({ mode: "edit", skillId: view.savedSkillId! })
-						}
-						{...stylex.props(styles.button)}
+						onClick={() => {
+							const skillId = view()?.savedSkillId;
+							if (skillId)
+								openSkills({
+									mode: "edit",
+									skillId,
+								});
+						}}
+						{...stylex.attrs(styles.button)}
 					>
 						Edit skill
 					</button>
@@ -132,5 +154,4 @@ export function SkillProposalCard({
 		</section>
 	);
 }
-
 export { SkillReadCard } from "./SkillReadCard.tsx";

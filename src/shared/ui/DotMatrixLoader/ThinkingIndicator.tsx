@@ -1,28 +1,26 @@
-import * as stylex from "@octanejs/stylex";
-import { useEffect, useState } from "octane";
-
+import * as stylex from "@stylexjs/stylex";
+import { createEffect, createMemo, createSignal, onSettled } from "solid-js";
+import { ariaValue } from "../../lib/dom.tsx";
 import { DotMatrixRipple } from "./DotMatrixRipple.tsx";
 import { styles } from "./styles.ts";
-
-export function ThinkingIndicator({ startTime }: { startTime: number }) {
-	const [now, setNow] = useState(() => Date.now());
-	useEffect(() => {
+export function ThinkingIndicator(_props: { startTime: number }) {
+	const [now, setNow] = createSignal((() => Date.now())());
+	onSettled(() => {
 		const id = window.setInterval(() => setNow(Date.now()), 1000);
 		return () => window.clearInterval(id);
-	}, []);
-	const elapsed = formatElapsedMs(now - startTime);
+	});
+	const elapsed = createMemo(() => formatElapsedMs(now() - _props.startTime));
 	return (
 		<output
-			{...stylex.props(styles.thinkingRow)}
+			{...stylex.attrs(styles.thinkingRow)}
 			aria-live="polite"
-			aria-label={`Agent active, ${elapsed} elapsed`}
+			aria-label={ariaValue(`Agent active, ${elapsed()} elapsed`)}
 		>
 			<DotMatrixRipple />
-			<span {...stylex.props(styles.thinkingTime)}>{elapsed}</span>
+			<span {...stylex.attrs(styles.thinkingTime)}>{elapsed()}</span>
 		</output>
 	);
 }
-
 function formatElapsedMs(ms: number): string {
 	const totalSeconds = Math.max(0, Math.floor(ms / 1000));
 	const minutes = Math.floor(totalSeconds / 60);

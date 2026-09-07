@@ -1,4 +1,4 @@
-import * as stylex from "@octanejs/stylex";
+import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
@@ -81,10 +81,14 @@ export const styles = stylex.create({
 		cursor: "ew-resize",
 	},
 });
-
 export function diffRailStyle(width: number, maxWidth: string) {
-	return { width, maxWidth };
+	return {
+		width,
+		maxWidth,
+	};
 }
 export function sidebarStyle(width: number) {
-	return { width };
+	return {
+		width,
+	};
 }

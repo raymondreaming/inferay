@@ -1,6 +1,7 @@
-import * as stylex from "@octanejs/stylex";
-import { memo, useRef } from "octane";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo, omit } from "solid-js";
 import type { HunkDiff } from "../../../../../../build/presentation/contracts/HunkDiff.ts";
+import type { RefCell } from "../../../../../shared/lib/dom.tsx";
 import {
 	type DiffScrollSource,
 	useSplitDiffScroll,
@@ -8,16 +9,10 @@ import {
 import type { DiffViewMode } from "./index.tsx";
 import { diffStyles, LINE_H } from "./styles.ts";
 import { VirtualPanel } from "./VirtualPanel.tsx";
-
-export const DiffPanels = memo(function DiffPanels({
-	diff,
-	mode,
-	scrollRef,
-	...shared
-}: {
+export const DiffPanels = function DiffPanels(_props: {
 	diff: HunkDiff;
 	mode: DiffViewMode | "conflict";
-	scrollRef: React.RefObject<HTMLDivElement | null>;
+	scrollRef: RefCell<HTMLDivElement | null>;
 	ext: string;
 	filePath: string;
 	disableTokenize: boolean;
@@ -25,103 +20,130 @@ export const DiffPanels = memo(function DiffPanels({
 	externalScrollSource?: DiffScrollSource;
 	highlightedRange?: readonly [number, number];
 }) {
-	const singleRef = useRef<HTMLDivElement | null>(null);
-	const {
-		followerRef,
-		followerScrollSource,
-		followerScrollTop,
-		syncFromMaster,
-	} = useSplitDiffScroll(
-		scrollRef,
-		LINE_H,
-		shared.externalScrollTop,
-		shared.externalScrollSource,
+	const singleRef = {
+		current: null,
+	} as {
+		current: HTMLDivElement | null;
+	};
+	const _source = useSplitDiffScroll(
+		() => _props.scrollRef,
+		() => LINE_H,
+		() => omit(_props, "diff", "mode", "scrollRef").externalScrollTop,
+		() => omit(_props, "diff", "mode", "scrollRef").externalScrollSource,
 	);
-	const metadata = diff.metadata;
-	if (mode !== "split") {
-		const conflict = mode === "conflict";
-		return (
-			<div
-				{...stylex.props(
-					conflict ? diffStyles.conflictBody : diffStyles.singlePanel,
-				)}
-			>
-				{conflict && (
-					<div {...stylex.props(diffStyles.conflictActions)}>
-						{[
-							"Accept current change",
-							"Accept incoming change",
-							"Accept both",
-						].map((label) => (
-							<button
-								key={label}
-								type="button"
-								{...stylex.props(diffStyles.conflictActionButton)}
-							>
-								{label}
-							</button>
-						))}
-					</div>
-				)}
-				<VirtualPanel
-					{...shared}
-					lines={
-						(conflict
-							? diff.conflictLines
-							: (diff.inlineLines ?? diff.compactLines)) ?? []
-					}
-					maxLineChars={
-						conflict
-							? metadata.maxConflictLineChars
-							: metadata.maxInlineLineChars
-					}
-					minimapSegments={
-						conflict ? metadata.conflictMinimap : metadata.inlineMinimap
-					}
-					scrollRef={singleRef}
-					side="single"
-					showMinimap
-					externalScrollTop={conflict ? undefined : shared.externalScrollTop}
-					externalScrollSource={
-						conflict ? undefined : shared.externalScrollSource
-					}
-					highlightedRange={undefined}
-				/>
-			</div>
-		);
-	}
-	const oldLines = diff.isNew ? [] : diff.oldLines;
-	const rowCount = Math.max(oldLines.length, diff.newLines.length);
+	const metadata = createMemo(() => _props.diff.metadata);
 	return (
-		<div {...stylex.props(diffStyles.splitPanels)}>
-			<div {...stylex.props(diffStyles.splitPanel, diffStyles.splitPanelLeft)}>
-				<VirtualPanel
-					{...shared}
-					rowCount={rowCount}
-					lines={oldLines}
-					maxLineChars={diff.isNew ? 0 : metadata.maxOldLineChars}
-					scrollRef={followerRef}
-					verticalFollower
-					gutterLines={diff.newLines}
-					externalScrollTop={followerScrollTop}
-					externalScrollSource={followerScrollSource}
-					side="left"
-				/>
-			</div>
-			<div {...stylex.props(diffStyles.splitPanel)}>
-				<VirtualPanel
-					{...shared}
-					rowCount={rowCount}
-					lines={diff.newLines}
-					maxLineChars={metadata.maxNewLineChars}
-					scrollRef={scrollRef}
-					onScroll={syncFromMaster}
-					showGutter={false}
-					showMinimap
-					minimapSegments={metadata.splitMinimap}
-					side="right"
-				/>
-			</div>
-		</div>
+		<>
+			{(() => {
+				const _metadataValue3 = metadata();
+				if (_props.mode !== "split") {
+					const conflict = _props.mode === "conflict";
+					return (
+						<div
+							{...stylex.attrs(
+								conflict ? diffStyles.conflictBody : diffStyles.singlePanel,
+							)}
+						>
+							{conflict && (
+								<div {...stylex.attrs(diffStyles.conflictActions)}>
+									{[
+										"Accept current change",
+										"Accept incoming change",
+										"Accept both",
+									].map((label) => (
+										<button
+											type="button"
+											{...stylex.attrs(diffStyles.conflictActionButton)}
+										>
+											{label}
+										</button>
+									))}
+								</div>
+							)}
+							<VirtualPanel
+								{...omit(_props, "diff", "mode", "scrollRef")}
+								lines={
+									(conflict
+										? _props.diff.conflictLines
+										: (_props.diff.inlineLines ?? _props.diff.compactLines)) ??
+									[]
+								}
+								maxLineChars={
+									conflict
+										? metadata().maxConflictLineChars
+										: metadata().maxInlineLineChars
+								}
+								minimapSegments={
+									conflict
+										? metadata().conflictMinimap
+										: metadata().inlineMinimap
+								}
+								scrollRef={singleRef}
+								side="single"
+								showMinimap
+								externalScrollTop={
+									conflict
+										? undefined
+										: omit(_props, "diff", "mode", "scrollRef")
+												.externalScrollTop
+								}
+								externalScrollSource={
+									conflict
+										? undefined
+										: omit(_props, "diff", "mode", "scrollRef")
+												.externalScrollSource
+								}
+								highlightedRange={undefined}
+							/>
+						</div>
+					);
+				}
+				const oldLines = createMemo(() =>
+					_props.diff.isNew ? [] : _props.diff.oldLines,
+				);
+				const rowCount = createMemo(() =>
+					Math.max(oldLines().length, _props.diff.newLines.length),
+				);
+				return (
+					<div {...stylex.attrs(diffStyles.splitPanels)}>
+						<div
+							{...stylex.attrs(
+								diffStyles.splitPanel,
+								diffStyles.splitPanelLeft,
+							)}
+						>
+							<VirtualPanel
+								{...omit(_props, "diff", "mode", "scrollRef")}
+								rowCount={rowCount()}
+								lines={oldLines()}
+								maxLineChars={
+									_props.diff.isNew ? 0 : _metadataValue3.maxOldLineChars
+								}
+								scrollRef={_source.followerRef}
+								onScroll={_source.syncFromFollower}
+								gutterLines={_props.diff.newLines}
+								externalScrollTop={_source.followerScrollTop}
+								externalScrollSource={_source.followerScrollSource}
+								side="left"
+							/>
+						</div>
+						<div {...stylex.attrs(diffStyles.splitPanel)}>
+							<VirtualPanel
+								{...omit(_props, "diff", "mode", "scrollRef")}
+								rowCount={rowCount()}
+								lines={_props.diff.newLines}
+								maxLineChars={_metadataValue3.maxNewLineChars}
+								scrollRef={_props.scrollRef}
+								onScroll={_source.syncFromMaster}
+								showGutter={false}
+								showMinimap
+								minimapSegments={_metadataValue3.splitMinimap}
+								side="right"
+							/>
+						</div>
+					</div>
+				);
+			})()}
+		</>
 	);
-});
+};
