@@ -8,7 +8,8 @@ export function useGitDiff(request: DiffRequest | null = null) {
 		{
 			queryKey: ["git-diff", request?.cwd, key],
 			enabled: request !== null,
-			gcTime: 0,
+			// Paint recently visited diffs immediately while checking for changes.
+			gcTime: 30_000,
 			staleTime: 0,
 			retry: false,
 			queryFn: ({ signal }: { signal: AbortSignal }) =>

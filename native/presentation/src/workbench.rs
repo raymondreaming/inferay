@@ -171,13 +171,24 @@ pub fn diff_viewer(i: &Value) -> Value {
         .rsplit_once('.')
         .map(|(_, e)| e)
         .unwrap_or_default();
-    let compact = diff["compactLines"].is_array();
+    let compact_count = diff["compactLineCount"]
+        .as_u64()
+        .map(|count| count as usize)
+        .or_else(|| diff["compactLines"].as_array().map(Vec::len));
+    let compact = compact_count.is_some();
     let old = array(&diff["oldLines"]);
     let new = array(&diff["newLines"]);
-    let status_line = if array(&diff["compactLines"]).len() == 1 {
-        array(&diff["compactLines"]).first()
-    } else if old.is_empty() && new.len() == 1 {
-        new.first()
+    let old_count = diff["oldLineCount"]
+        .as_u64()
+        .map_or(old.len(), |count| count as usize);
+    let new_count = diff["newLineCount"]
+        .as_u64()
+        .map_or(new.len(), |count| count as usize);
+    let status_line = if compact_count == Some(1) {
+        diff.get("firstCompactLine")
+            .or_else(|| array(&diff["compactLines"]).first())
+    } else if old_count == 0 && new_count == 1 {
+        diff.get("firstNewLine").or_else(|| new.first())
     } else {
         None
     };
@@ -188,11 +199,7 @@ pub fn diff_viewer(i: &Value) -> Value {
                 && (content.contains("too large") || content.contains("cannot read"))
         })
         .map(|line| string(&line["content"]).trim().to_owned());
-    let total = if compact {
-        array(&diff["compactLines"]).len()
-    } else {
-        old.len().max(new.len())
-    };
+    let total = compact_count.unwrap_or_else(|| old_count.max(new_count));
     let longest = [
         "maxOldLineChars",
         "maxNewLineChars",
@@ -209,7 +216,9 @@ pub fn diff_viewer(i: &Value) -> Value {
         Some(format!("Diff contains a very long line ({} characters). Rendering is limited to keep the app responsive.", grouped(longest)))
     } else { None });
     let markdown = !compact && matches!(extension, "md" | "mdx");
-    let conflict = !string(&diff["mergeConflictContent"]).is_empty() && !markdown;
+    let conflict = (flag(&diff["hasConflict"])
+        || !string(&diff["mergeConflictContent"]).is_empty())
+        && !markdown;
     json!({"changeRanges":ranges, "changePositions":array(ranges).iter().map(|r| &r[0]).collect::<Vec<_>>(),
         "extension":extension, "conflict":conflict, "message":message, "isMarkdown":markdown,
         "markdownContent":if markdown { new.iter().filter(|l| l["type"] != "hunk" && l["type"] != "spacer").map(|l|string(&l["content"])).collect::<Vec<_>>().join("\n") } else { String::new() },

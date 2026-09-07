@@ -2,23 +2,18 @@ import type { DiffSource } from "../../../../build/presentation/contracts/DiffSo
 import type { GitActionResponse } from "../../../../build/presentation/contracts/GitActionResponse.ts";
 import type { GitCommitFile } from "../../../../build/presentation/contracts/GitCommitFile.ts";
 import type { GitFileEntry } from "../../../../build/presentation/contracts/GitFileEntry.ts";
-import type { PanelAction } from "../../../../build/presentation/contracts/PanelAction.ts";
 import type { PanelSession } from "../../../../build/presentation/contracts/PanelSession.ts";
 import { postJson } from "../../../adapters/backend/http.ts";
-import {
-	emptyGitWorkspacePanelSession,
-	project as rustProject,
-} from "../../../adapters/presentation/model.ts";
+import { project as rustProject } from "../../../adapters/presentation/model.ts";
 import { readStoredValue } from "../../../adapters/storage/stored-values.ts";
-import { queryClient } from "../../../shared/lib/data.ts";
 import type { DiffRequest } from "../../repository/hooks/useGitDiff.tsx";
 import type { GraphNode } from "../../repository/hooks/useGitGraph.tsx";
 import type { SelectedFile } from "../changes/components/ChangesPanel/index.tsx";
 import type { GitGraphActionRequest } from "../graph/components/CommitGraph/index.tsx";
+import { useWorkspacePanelSession } from "./useWorkspacePanelSession.tsx";
 
 const EMPTY_FILE_GROUPS = { staged: [], modified: [], untracked: [] };
 
-import { useMutation, useQuery } from "@octanejs/tanstack-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
 import type { FileContent } from "../../../../build/presentation/contracts/FileContent.ts";
 import {
@@ -67,31 +62,6 @@ import {
 	loadPreferences,
 	nextGitGraphHistoryLimit,
 } from "../graph/components/CommitGraph/useCommitGraphState.tsx";
-
-function useWorkspacePanelSession(workspaceId: string) {
-	const model = useMemo(createWorkspacePanelModel, []);
-	const query = useQuery(panelQuery(workspaceId), queryClient);
-	const mutation = useMutation(model.mutationOptions(workspaceId), queryClient);
-	const mutate = mutation.mutate;
-	const update = useCallback(
-		(action: PanelAction) => {
-			model.preview(workspaceId, action);
-			mutate({ workspaceId, action });
-		},
-		[model, mutate, workspaceId],
-	);
-	const error = query.error
-		? "Saved workspace panels could not be restored."
-		: mutation.error
-			? "Some workspace panel changes could not be saved."
-			: null;
-	return [
-		query.data ?? emptyPanelSession,
-		update,
-		error,
-		mutation.data?.announcement,
-	] as const;
-}
 
 export let detachedFilePanelSequence = 0;
 
@@ -331,7 +301,9 @@ export function useRepositoryWorkbench({
 	const comparisonCwd = comparisonDetailsState.plan?.cwd;
 	const selectGraphCommit = useCallback(
 		(itemId: string | null, intent?: GraphSelectionIntent) => {
-			const orderedItemIds = graph.commits.map((item) => item.id);
+			const orderedItemIds = intent?.range
+				? graph.commits.map((item) => item.id)
+				: [];
 			updatePanelSession({
 				type: "selectGraph",
 				id: itemId,
@@ -1040,92 +1012,6 @@ export function useRepositoryWorkbench({
 	);
 
 	return { auxiliaryPanels, diffPanel, focusWorkbench, sidebar, zenMode };
-}
-
-export const emptyPanelSession = emptyGitWorkspacePanelSession();
-export function panelQuery(workspaceId: string) {
-	return {
-		queryKey: ["workspace-panels", workspaceId],
-		queryFn: async () =>
-			(
-				await postJson<{ session: PanelSession }>("/api/workspace/panels", {
-					workspaceId,
-				})
-			).session,
-		staleTime: Infinity,
-		gcTime: 30 * 60 * 1000,
-	};
-}
-export function createWorkspacePanelModel() {
-	return {
-		mutationOptions: (workspaceId: string) => ({
-			mutationKey: ["workspace-panels", workspaceId],
-			scope: { id: `workspace-panels:${workspaceId}` },
-			mutationFn: async ({
-				workspaceId,
-				action,
-			}: {
-				workspaceId: string;
-				action: PanelAction;
-			}) => {
-				const wireAction = { ...action };
-				if (wireAction.type === "detachFile") delete wireAction.initialFile;
-				return postJson<{
-					session: PanelSession;
-					announcement: string | null;
-				}>("/api/workspace/panels", { workspaceId, action: wireAction });
-			},
-			onSuccess: (
-				{ session }: { session: PanelSession },
-				{ workspaceId, action }: { workspaceId: string; action: PanelAction },
-			) => {
-				const current = queryClient.getQueryData<PanelSession>(
-					panelQuery(workspaceId).queryKey,
-				);
-				const pending =
-					action.type === "detachFile"
-						? current?.detachedFilePanels.filter(
-								(panel) =>
-									!session.detachedFilePanels.some(
-										(saved) => saved.id === panel.id,
-									),
-							)
-						: undefined;
-				queryClient.setQueryData(panelQuery(workspaceId).queryKey, {
-					...session,
-					detachedFilePanels: [
-						...session.detachedFilePanels.map((panel) => ({
-							...panel,
-							initialFile: current?.detachedFilePanels.find(
-								(candidate) => candidate.id === panel.id,
-							)?.initialFile,
-						})),
-						...(pending ?? []),
-					],
-				});
-			},
-		}),
-		preview(workspaceId: string, action: PanelAction) {
-			if (action.type === "detachFile") {
-				const panel = {
-					id: action.id,
-					cwd: action.cwd,
-					path: action.path,
-					initialFile: action.initialFile,
-				};
-				queryClient.setQueryData<PanelSession>(
-					panelQuery(workspaceId).queryKey,
-					(current) =>
-						current
-							? {
-									...current,
-									detachedFilePanels: [...current.detachedFilePanels, panel],
-								}
-							: current,
-				);
-			}
-		},
-	};
 }
 
 export type SelectedGraphCache = {

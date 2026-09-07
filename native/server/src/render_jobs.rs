@@ -18,8 +18,85 @@ struct Cache {
 }
 static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
 static KEYS: OnceLock<Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>> = OnceLock::new();
-static JOBS: OnceLock<Arc<Semaphore>> = OnceLock::new();
-static QUEUE: OnceLock<Arc<Semaphore>> = OnceLock::new();
+struct JobPool {
+    jobs: Arc<Semaphore>,
+    queue: Arc<Semaphore>,
+}
+
+impl JobPool {
+    fn new(concurrency: usize, capacity: usize) -> Self {
+        Self {
+            jobs: Arc::new(Semaphore::new(concurrency)),
+            queue: Arc::new(Semaphore::new(capacity)),
+        }
+    }
+
+    async fn run<T: Send + 'static>(
+        &self,
+        job: impl FnOnce() -> T + Send + 'static,
+    ) -> Result<T, String> {
+        let queued = self
+            .queue
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| "Rendering queue is full".to_string())?;
+        let permit = self
+            .jobs
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|e| e.to_string())?;
+        tokio::task::spawn_blocking(move || {
+            // The running job owns its permit, including after an HTTP timeout.
+            let _permit = permit;
+            let _queued = queued;
+            inferay_native_diff::with_git_deadline(Duration::from_secs(9), job)
+        })
+        .await
+        .map_err(|e| e.to_string())
+    }
+}
+
+fn foreground() -> &'static JobPool {
+    static POOL: OnceLock<JobPool> = OnceLock::new();
+    POOL.get_or_init(|| JobPool::new(4, 32))
+}
+
+fn highlighting() -> &'static JobPool {
+    static POOL: OnceLock<JobPool> = OnceLock::new();
+    // Colouring old previews must not occupy every slot needed to open a diff.
+    POOL.get_or_init(|| JobPool::new(2, 8))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn highlighting_cannot_block_foreground_work() {
+        let occupied = highlighting()
+            .jobs
+            .clone()
+            .acquire_many_owned(2)
+            .await
+            .unwrap();
+        let mut highlight = tokio::spawn(cached_highlight(
+            "test:highlight-pool".into(),
+            Duration::ZERO,
+            || Some(b"colours".to_vec()),
+        ));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), &mut highlight)
+                .await
+                .is_err()
+        );
+        let foreground = tokio::time::timeout(Duration::from_secs(1), run(|| "diff ready")).await;
+        // Release even if the assertion fails, so no background job stays blocked.
+        drop(occupied);
+        assert_eq!(foreground.unwrap().unwrap(), "diff ready");
+        assert!(highlight.await.unwrap().unwrap().0.is_some());
+    }
+}
 fn lookup(key: &str, ttl: Duration) -> Option<Bytes> {
     let mut cache = CACHE.get_or_init(Default::default).lock().ok()?;
     let index = cache.entries.iter().position(|entry| entry.key == key)?;
@@ -59,25 +136,7 @@ fn store(key: String, body: Bytes) {
     }
 }
 pub async fn run<T: Send + 'static>(job: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
-    let queued = QUEUE
-        .get_or_init(|| Arc::new(Semaphore::new(32)))
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| "Rendering queue is full".to_string())?;
-    let permit = JOBS
-        .get_or_init(|| Arc::new(Semaphore::new(4)))
-        .clone()
-        .acquire_owned()
-        .await
-        .map_err(|e| e.to_string())?;
-    tokio::task::spawn_blocking(move || {
-        // The running job owns its permit, including after an HTTP timeout.
-        let _permit = permit;
-        let _queued = queued;
-        inferay_native_diff::with_git_deadline(Duration::from_secs(9), job)
-    })
-    .await
-    .map_err(|e| e.to_string())
+    foreground().run(job).await
 }
 pub async fn cached(
     key: String,
@@ -93,8 +152,26 @@ pub async fn cached_if(
     job: impl FnOnce() -> Option<Vec<u8>> + Send + 'static,
     cacheable: impl FnOnce() -> bool + Send + 'static,
 ) -> Result<(Option<Bytes>, bool), String> {
+    cached_in(foreground(), key, ttl, job, cacheable).await
+}
+
+pub async fn cached_highlight(
+    key: String,
+    ttl: Duration,
+    job: impl FnOnce() -> Option<Vec<u8>> + Send + 'static,
+) -> Result<(Option<Bytes>, bool), String> {
+    cached_in(highlighting(), key, ttl, job, || true).await
+}
+
+async fn cached_in(
+    pool: &JobPool,
+    key: String,
+    ttl: Duration,
+    job: impl FnOnce() -> Option<Vec<u8>> + Send + 'static,
+    cacheable: impl FnOnce() -> bool + Send + 'static,
+) -> Result<(Option<Bytes>, bool), String> {
     if ttl.is_zero() {
-        return run(move || (job().map(Bytes::from), false)).await;
+        return pool.run(move || (job().map(Bytes::from), false)).await;
     }
     if let Some(body) = lookup(&key, ttl) {
         return Ok((Some(body), true));
@@ -117,7 +194,7 @@ pub async fn cached_if(
     if let Some(body) = lookup(&key, ttl) {
         return Ok((Some(body), true));
     }
-    run(move || {
+    pool.run(move || {
         let _guard = guard;
         let body = job().map(Bytes::from);
         if let Some(bytes) = &body

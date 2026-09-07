@@ -2048,7 +2048,7 @@ async fn native_highlight(request: Request) -> ApiResult<Response> {
         .unwrap_or_default()
         .to_string();
     let key = format!("highlight:1:{}:{}", extension, input.text);
-    let job = render_jobs::cached(key, std::time::Duration::from_secs(300), move || {
+    let job = render_jobs::cached_highlight(key, std::time::Duration::from_secs(300), move || {
         serde_json::to_vec(&highlight::classify(&input.path, &input.text)).ok()
     });
     match tokio::time::timeout(std::time::Duration::from_secs(10), job).await {

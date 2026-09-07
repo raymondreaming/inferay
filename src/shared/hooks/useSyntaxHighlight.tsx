@@ -80,7 +80,10 @@ export function useSyntaxHighlight({
 	lines: string[];
 	enabled?: boolean;
 }) {
-	const active = enabled && !shouldDisableSnippetHighlighting(lines);
+	const active = useMemo(
+		() => enabled && !shouldDisableSnippetHighlighting(lines),
+		[enabled, lines],
+	);
 	const key = useMemo(
 		() => (active ? contentKey(lines) : String(lines.length)),
 		[active, lines],
@@ -94,7 +97,7 @@ export function useSyntaxHighlight({
 			queryFn: async ({ signal }: { signal: AbortSignal }) => {
 				const response = await sendJson(
 					"/api/native/highlight",
-					{ path: filePath, text: linesRef.current.join("\n") },
+					{ path: filePath, text: lines.join("\n") },
 					{ signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]) },
 				);
 				if (!response.ok) throw new Error("Highlight request failed");

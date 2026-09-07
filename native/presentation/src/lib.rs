@@ -42,6 +42,15 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         )),
         "mergeTranscriptOrder" => transcript::merge_order(input),
         "emptyPanels" => panels::normalize(&Value::Null),
+        "panelPreview" => {
+            let mut session = input["session"].clone();
+            panels::apply_action(
+                &mut session,
+                &input["action"],
+                input["now"].as_u64().unwrap_or(0),
+            )?;
+            panels::normalize(&session)
+        }
         "diffViewer" => workbench::diff_viewer(input),
         "changesPanel" => workbench::changes_panel(input),
         "visibleFiles" => workbench::visible_files(input),

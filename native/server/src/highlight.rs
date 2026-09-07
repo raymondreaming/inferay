@@ -127,7 +127,7 @@ fn units(text: &str) -> usize {
 /// Classify a whole document. Callers cache and slice; a partial classification
 /// would still have to parse from line zero to carry grammar state.
 pub fn classify(path: &str, text: &str) -> Option<Classified> {
-    if text.len() > MAX_BYTES {
+    if text.len() > MAX_BYTES || text.lines().any(|line| line.len() > MAX_LINE_BYTES) {
         return None;
     }
     let syntax = syntax(path)?;
@@ -139,16 +139,13 @@ pub fn classify(path: &str, text: &str) -> Option<Classified> {
         if lines.len() >= MAX_LINES {
             return None;
         }
-        // A long line defeats the grammar and dominates the response. Parse it
-        // so state still advances, but emit a single plain run.
-        let long = line.len() > MAX_LINE_BYTES;
         let ops = state.parse_line(line, set).ok()?;
         let mut runs: Vec<serde_json::Value> = Vec::new();
         let mut open: Option<(&'static str, usize)> = None;
         for (piece, op) in ScopeRegionIterator::new(&ops, line) {
             stack.apply(op).ok()?;
             let piece = piece.trim_end_matches('\n');
-            if piece.is_empty() || long {
+            if piece.is_empty() {
                 continue;
             }
             let current = kind(&stack);
@@ -164,10 +161,7 @@ pub fn classify(path: &str, text: &str) -> Option<Classified> {
                 None => open = Some((current, units(piece))),
             }
         }
-        if long {
-            runs.push(serde_json::json!(units(line.trim_end_matches('\n'))));
-            runs.push(serde_json::json!("plain"));
-        } else if let Some((kind, length)) = open {
+        if let Some((kind, length)) = open {
             runs.push(serde_json::json!(length));
             runs.push(serde_json::json!(kind));
         }
@@ -183,6 +177,24 @@ pub fn classify(path: &str, text: &str) -> Option<Classified> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "manual syntax throughput measurement"]
+    fn benchmark_classification() {
+        let text = include_str!("lib.rs");
+        // Warm grammars independently of document classification.
+        classify("warm.rs", "fn main() {}\n").unwrap();
+        let start = std::time::Instant::now();
+        for _ in 0..3 {
+            let result = classify("lib.rs", text).unwrap();
+            assert_eq!(result.lines.len(), text.lines().count());
+        }
+        eprintln!(
+            "highlight: {} lines, {:.1} ms/document",
+            text.lines().count(),
+            start.elapsed().as_secs_f64() * 1000.0 / 3.0
+        );
+    }
 
     fn kinds(path: &str, text: &str) -> Vec<Vec<serde_json::Value>> {
         classify(path, text).expect("classified").lines
@@ -226,10 +238,14 @@ mod tests {
     }
 
     #[test]
-    fn emits_one_plain_run_for_a_line_past_the_budget() {
+    fn declines_long_lines_before_entering_the_grammar() {
         let long = format!("let x = \"{}\";\n", "a".repeat(MAX_LINE_BYTES));
-        let lines = kinds("m.rs", &long);
-        assert_eq!(lines[0].len(), 2);
-        assert_eq!(lines[0][1], json!("plain"));
+        assert!(classify("m.rs", &long).is_none());
+        // The line limit excludes the newline itself.
+        let boundary = format!("//{}\n", "a".repeat(MAX_LINE_BYTES - 2));
+        assert_eq!(
+            kinds("m.rs", &boundary)[0],
+            vec![json!(MAX_LINE_BYTES), json!("comment")]
+        );
     }
 }

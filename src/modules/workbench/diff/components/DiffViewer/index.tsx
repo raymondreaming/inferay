@@ -278,7 +278,44 @@ export function buildDiffViewerModel(
 	markdownContent: string;
 	navigable: boolean;
 } {
-	return rustProject("diffViewer", { diff, filePath, viewMode });
+	const metadata = diff.metadata;
+	// Send presentation facts, not the highlighted line arrays already held by
+	// the renderer. Only Markdown needs text to assemble its preview document.
+	const line = (value: HunkDiff["newLines"][number] | undefined) =>
+		value ? { type: value.type, content: value.content } : undefined;
+	return rustProject("diffViewer", {
+		filePath,
+		viewMode,
+		diff: {
+			isBinary: diff.isBinary,
+			hasConflict: !!diff.mergeConflictContent,
+			oldLineCount: diff.oldLines.length,
+			newLineCount: diff.newLines.length,
+			compactLineCount: diff.compactLines?.length,
+			firstCompactLine:
+				diff.compactLines?.length === 1
+					? line(diff.compactLines[0])
+					: undefined,
+			firstNewLine:
+				diff.oldLines.length === 0 && diff.newLines.length === 1
+					? line(diff.newLines[0])
+					: undefined,
+			newLines:
+				/\.mdx?$/.test(filePath) && !diff.compactLines
+					? diff.newLines.map(line)
+					: undefined,
+			metadata: {
+				maxOldLineChars: metadata.maxOldLineChars,
+				maxNewLineChars: metadata.maxNewLineChars,
+				maxInlineLineChars: metadata.maxInlineLineChars,
+				maxConflictLineChars: metadata.maxConflictLineChars,
+				splitChangeRanges:
+					viewMode === "split" ? metadata.splitChangeRanges : undefined,
+				inlineChangeRanges:
+					viewMode === "hunks" ? metadata.inlineChangeRanges : undefined,
+			},
+		},
+	});
 }
 type DiffNavigationState = {
 	externalScrollSource: DiffScrollSource;
