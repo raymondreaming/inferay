@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { createEffect, createMemo } from "solid-js";
+import { createMemo, Match, Switch } from "solid-js";
 import type { ToolOutputSummary } from "../../../../../build/presentation/contracts/ToolOutputSummary.ts";
 import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
 import { styles } from "./styles.ts";
@@ -16,34 +16,26 @@ export function ToolOutputHighlight(_props: {
 			? (_props.render?.trailingOutput ?? "")
 			: "",
 	);
-	let highlight: unknown;
-	createEffect(
-		() => [summary()],
-		() => {
-			if (summary().type === "edit" || summary().type === "file-content") {
-				highlight = (
-					<>
-						<span {...stylex.attrs(styles.toolMuted)}>
-							{summary().fileName}
-						</span>
-						{"\n"}
-						<span {...stylex.attrs(styles.toolAccent)}>{summary().value}</span>
-					</>
-				);
-			} else if (summary().type === "command") {
-				highlight = (
-					<span {...stylex.attrs(styles.toolAccent)}>$ {summary().value}</span>
-				);
-			} else if (summary().type === "pattern") {
-				highlight = (
-					<span {...stylex.attrs(styles.toolAccent)}>/{summary().value}/</span>
-				);
-			} else if (summary().type === "accent") {
-				highlight = (
+	return (
+		<>
+			<Switch fallback={summary().value}>
+				<Match
+					when={summary().type === "edit" || summary().type === "file-content"}
+				>
+					<span {...stylex.attrs(styles.toolMuted)}>{summary().fileName}</span>
+					{"\n"}
 					<span {...stylex.attrs(styles.toolAccent)}>{summary().value}</span>
-				);
-			} else if (summary().type === "url") {
-				highlight = (
+				</Match>
+				<Match when={summary().type === "command"}>
+					<span {...stylex.attrs(styles.toolAccent)}>$ {summary().value}</span>
+				</Match>
+				<Match when={summary().type === "pattern"}>
+					<span {...stylex.attrs(styles.toolAccent)}>/{summary().value}/</span>
+				</Match>
+				<Match when={summary().type === "accent"}>
+					<span {...stylex.attrs(styles.toolAccent)}>{summary().value}</span>
+				</Match>
+				<Match when={summary().type === "url"}>
 					<a
 						href={summary().value}
 						target="_blank"
@@ -52,15 +44,8 @@ export function ToolOutputHighlight(_props: {
 					>
 						{summary().value}
 					</a>
-				);
-			} else {
-				highlight = summary().value;
-			}
-		},
-	);
-	return (
-		<>
-			{highlight}
+				</Match>
+			</Switch>
 			{trailingOutput() && (
 				<>
 					{"\n"}

@@ -1,4 +1,4 @@
-import { type Accessor, createEffect, createSignal } from "solid-js";
+import { type Accessor, createEffect, createSignal, onSettled } from "solid-js";
 import { listenWindowEvent } from "../../../../shared/lib/dom.tsx";
 import type { ChatVirtualizerControls } from "./index.tsx";
 export function useChatViewport(
@@ -57,19 +57,33 @@ export function useChatViewport(
 			});
 		setIsAtBottom(true);
 	};
+	let bottomFrame = 0;
+	const cancelScheduledBottom = () => {
+		cancelAnimationFrame(bottomFrame);
+		bottomFrame = 0;
+	};
+	onSettled(() => cancelScheduledBottom);
 	const scheduleScrollToBottom = (behavior: ScrollBehavior = "auto") => {
-		requestAnimationFrame(() => {
-			requestAnimationFrame(() => scrollToBottom(behavior));
+		cancelScheduledBottom();
+		bottomFrame = requestAnimationFrame(() => {
+			bottomFrame = requestAnimationFrame(() => {
+				bottomFrame = 0;
+				if (_isVisible()) scrollToBottom(behavior);
+			});
 		});
 	};
 	const cancelScrollRestore = () => {
+		cancelScheduledBottom();
 		cancelAnimationFrame(restoreFrameRef.current);
 		restoreFrameRef.current = 0;
 	};
 	createEffect(
-		() => [cancelScrollRestore, _isVisible()],
-		() => {
-			if (!_isVisible()) return;
+		() => _isVisible(),
+		(visible) => {
+			if (!visible) {
+				cancelScheduledBottom();
+				return;
+			}
 			const snapshot = scrollSnapshotRef.current;
 			let passes = 3;
 			const restore = () => {
@@ -100,12 +114,12 @@ export function useChatViewport(
 		},
 	);
 	createEffect(
-		() => [_input(), _isVisible()],
-		() => {
-			if (!_isVisible()) return;
+		() => [_input(), _isVisible()] as const,
+		([input, visible]) => {
+			if (!visible) return;
 			const ta = textareaRef.current;
 			if (!ta) return;
-			if (!_input()) {
+			if (!input) {
 				ta.style.height = "20px";
 			} else {
 				ta.style.height = "20px";
@@ -127,9 +141,9 @@ export function useChatViewport(
 		}
 	};
 	createEffect(
-		() => [handleWindowKeyDown, _isSelected(), _isVisible(), isAtBottom()],
-		() => {
-			if (!_isSelected() || !_isVisible()) return;
+		() => !!_isSelected() && _isVisible(),
+		(enabled) => {
+			if (!enabled) return;
 			return listenWindowEvent("keydown", handleWindowKeyDown);
 		},
 	);

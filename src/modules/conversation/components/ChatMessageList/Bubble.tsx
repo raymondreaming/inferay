@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { createMemo, For } from "solid-js";
+import { createMemo, For, Match, Show, Switch } from "solid-js";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { ariaValue } from "../../../../shared/lib/dom.tsx";
 import { project as rustProject } from "../../../../shared/lib/native.tsx";
@@ -20,7 +20,7 @@ import {
 	CopyButton,
 	Markdown,
 } from "../ChatRichContent/index.tsx";
-import { renderTextPills } from "../ChatTokenDecorators/index.tsx";
+import { DecoratedText } from "../ChatTokenDecorators/index.tsx";
 import { CommandSystemCard } from "./CommandSystemCard.tsx";
 import { GoalSystemCard } from "./GoalSystemCard.tsx";
 import { styles } from "./styles.ts";
@@ -39,26 +39,79 @@ export const Bubble = function Bubble(_props: {
 		() => _props.msg.content,
 		() => true,
 	);
+	const skillProposal = createMemo(() => _props.msg.render?.skillProposal);
+	const skillRead = createMemo(() => _props.msg.render?.skillRead);
+	const goalMessage = createMemo(() => _props.msg.render?.goal);
+	const commandMessage = createMemo(() => _props.msg.render?.command);
+	const display = createMemo(() =>
+		getToolDisplayInfo(_props.msg.toolName, _props.msg.render?.display),
+	);
 	const editPayload = createMemo(() => _props.msg.render?.edit);
-	const userMessageDisplay = createMemo(() => {
-		const display = getUserMessagePresentation(
-			_props.msg,
-			_props.slashCommandNames,
-		);
-		if (!display) return null;
-		return {
-			contentNodes: display.content
-				? renderTextPills(display.content, _props.slashCommandNames)
-				: null,
-			imagePaths: display.imagePaths,
-		};
-	});
+	const userMessageDisplay = createMemo(() =>
+		getUserMessagePresentation(_props.msg, _props.slashCommandNames),
+	);
 	return (
 		<>
-			{(() => {
-				const _editPayloadValue = editPayload();
-				if (_props.msg.role === "user") {
-					return (
+			{
+				<Switch
+					fallback={
+						<div {...stylex.attrs(styles.assistantMessage)}>
+							{
+								<For
+									each={
+										_props.msg.render?.skillParts ?? [
+											{
+												start: 0,
+												end: _props.msg.content.length,
+											},
+										]
+									}
+									keyed={(row) =>
+										"start" in row
+											? `text:${row.start}`
+											: "proposal" in row
+												? `proposal:${row.index}`
+												: "pending"
+									}
+								>
+									{(part) => (
+										<AssistantMessagePart
+											part={part()}
+											msg={_props.msg}
+											paneId={_props.paneId}
+											onSendMessage={_props.onSendMessage}
+											onMdFileClick={_props.onMdFileClick}
+										/>
+									)}
+								</For>
+							}
+							{!_props.msg.isStreaming && _props.msg.content.trim() ? (
+								<div {...stylex.attrs(styles.messageActionRow)}>
+									<button
+										type="button"
+										onClick={_source.handleCopy}
+										title={_source.copied ? "Copied" : "Copy message"}
+										aria-label={ariaValue(
+											_source.copied ? "Copied message" : "Copy message",
+										)}
+										{...stylex.attrs(
+											styles.copyMessageButton,
+											_source.copied && styles.copyMessageButtonCopied,
+										)}
+									>
+										{_source.copied ? (
+											<IconCheck size={iconSize.compact} />
+										) : (
+											<IconCopy size={iconSize.compact} />
+										)}
+										<span>{_source.copied ? "Copied" : "Copy"}</span>
+									</button>
+								</div>
+							) : null}
+						</div>
+					}
+				>
+					<Match when={_props.msg.role === "user"}>
 						<div {...stylex.attrs(styles.userRow)}>
 							<div {...stylex.attrs(styles.userBubble)}>
 								{userMessageDisplay() &&
@@ -87,38 +140,43 @@ export const Bubble = function Bubble(_props: {
 											}
 										</div>
 									)}
-								{userMessageDisplay() && userMessageDisplay()!.contentNodes && (
+								{userMessageDisplay() && userMessageDisplay()!.content && (
 									<p {...stylex.attrs(styles.userText)}>
-										{userMessageDisplay()!.contentNodes}
+										<DecoratedText
+											text={userMessageDisplay()!.content}
+											slashCommandNames={_props.slashCommandNames}
+											pills
+										/>
 									</p>
 								)}
 							</div>
 						</div>
-					);
-				}
-				if (_props.msg.role === "system") {
-					const skillProposal = _props.msg.render?.skillProposal;
-					if (skillProposal)
-						return (
-							<SkillProposalCard
-								proposal={skillProposal}
-								messageId={`${_props.paneId}:${_props.msg.id}:native`}
-								onResult={_props.onSendMessage}
-							/>
-						);
-					const skillRead = _props.msg.render?.skillRead;
-					if (skillRead) return <SkillReadCard skill={skillRead} />;
-					const goalMessage = _props.msg.render?.goal;
-					if (goalMessage) return <GoalSystemCard goal={goalMessage} />;
-					const commandMessage = _props.msg.render?.command;
-					if (commandMessage)
-						return <CommandSystemCard command={commandMessage} />;
-					return (
-						<p {...stylex.attrs(styles.systemText)}>{_props.msg.content}</p>
-					);
-				}
-				if (_props.msg.role === "btw") {
-					return (
+					</Match>
+					<Match when={_props.msg.role === "system"}>
+						<Switch
+							fallback={
+								<p {...stylex.attrs(styles.systemText)}>{_props.msg.content}</p>
+							}
+						>
+							<Match when={!!skillProposal()}>
+								<SkillProposalCard
+									proposal={skillProposal()!}
+									messageId={`${_props.paneId}:${_props.msg.id}:native`}
+									onResult={_props.onSendMessage}
+								/>
+							</Match>
+							<Match when={!!skillRead()}>
+								<SkillReadCard skill={skillRead()!} />
+							</Match>
+							<Match when={!!goalMessage()}>
+								<GoalSystemCard goal={goalMessage()!} />
+							</Match>
+							<Match when={!!commandMessage()}>
+								<CommandSystemCard command={commandMessage()!} />
+							</Match>
+						</Switch>
+					</Match>
+					<Match when={_props.msg.role === "btw"}>
 						<div {...stylex.attrs(styles.btwCard)}>
 							<div {...stylex.attrs(styles.btwHeader)}>
 								<span {...stylex.attrs(styles.btwLabel)}>btw</span>
@@ -144,144 +202,68 @@ export const Bubble = function Bubble(_props: {
 								) : null}
 							</div>
 						</div>
-					);
-				}
-				if (_props.msg.role === "tool") {
-					if (_props.msg.toolName === "AskUserQuestion") {
-						return (
-							<AskUserQuestionCard
-								nativeQuestions={_props.msg.render?.questions}
-								content={_props.msg.content}
-								isStreaming={_props.msg.isStreaming}
-								onSendMessage={_props.onSendMessage}
-							/>
-						);
-					}
-					if (_editPayloadValue && !_props.msg.isStreaming) {
-						return (
-							<MiniEditDiff
-								oldStr={_editPayloadValue.old_string}
-								newStr={_editPayloadValue.new_string}
-								filePath={_editPayloadValue.file_path}
-								isStreaming={_props.msg.isStreaming}
-							/>
-						);
-					}
-					const display = getToolDisplayInfo(
-						_props.msg.toolName,
-						_props.msg.render?.display,
-					);
-					return (
-						<div>
-							<button
-								type="button"
-								onClick={() => _props.onToggle(_props.msg.id)}
-								{...stylex.attrs(styles.toolToggle)}
-							>
-								<span {...stylex.attrs(styles.toolName)}>{display.label}</span>
-								{_props.collapsed && display.detail && (
-									<span {...stylex.attrs(styles.toolSummary)}>
-										{display.detail}
-									</span>
-								)}
-								<IconChevronDown
-									size={iconSize.micro}
-									{...stylex.attrs(
-										styles.toolMilestoneChevron,
-										_props.collapsed && styles.rotateClosed,
-									)}
-								/>
-							</button>
-							{!_props.collapsed && _props.msg.content && (
-								<div {...stylex.attrs(styles.toolOutputWrap)}>
-									<pre {...stylex.attrs(styles.toolOutput)}>
-										<ToolOutputHighlight
-											render={_props.msg.render}
-											content={_props.msg.content}
+					</Match>
+					<Match when={_props.msg.role === "tool"}>
+						<Switch
+							fallback={
+								<div>
+									<button
+										type="button"
+										onClick={() => _props.onToggle(_props.msg.id)}
+										{...stylex.attrs(styles.toolToggle)}
+									>
+										<span {...stylex.attrs(styles.toolName)}>
+											{display().label}
+										</span>
+										{_props.collapsed && display().detail && (
+											<span {...stylex.attrs(styles.toolSummary)}>
+												{display().detail}
+											</span>
+										)}
+										<IconChevronDown
+											size={iconSize.micro}
+											{...stylex.attrs(
+												styles.toolMilestoneChevron,
+												_props.collapsed && styles.rotateClosed,
+											)}
 										/>
-									</pre>
-									<div {...stylex.attrs(styles.toolCopyOverlay)}>
-										<CopyButton text={_props.msg.content} />
-									</div>
+									</button>
+									{!_props.collapsed && _props.msg.content && (
+										<div {...stylex.attrs(styles.toolOutputWrap)}>
+											<pre {...stylex.attrs(styles.toolOutput)}>
+												<ToolOutputHighlight
+													render={_props.msg.render}
+													content={_props.msg.content}
+												/>
+											</pre>
+											<div {...stylex.attrs(styles.toolCopyOverlay)}>
+												<CopyButton text={_props.msg.content} />
+											</div>
+										</div>
+									)}
 								</div>
-							)}
-						</div>
-					);
-				}
-				return (
-					<div {...stylex.attrs(styles.assistantMessage)}>
-						{
-							<For
-								each={
-									_props.msg.render?.skillParts ?? [
-										{
-											start: 0,
-											end: _props.msg.content.length,
-										},
-									]
-								}
-								keyed={(row) =>
-									"start" in row
-										? `text:${row.start}`
-										: "proposal" in row
-											? `proposal:${row.index}`
-											: "pending"
-								}
-							>
-								{(part) => (
-									<>
-										{(() => {
-											const value = part();
-											return "proposal" in value ? (
-												<SkillProposalCard
-													messageId={`${_props.paneId}:${_props.msg.id}:${value.index}`}
-													proposal={value.proposal}
-													streaming={_props.msg.isStreaming}
-													onResult={_props.onSendMessage}
-												/>
-											) : "pending" in value ? (
-												<p>Preparing skill proposal…</p>
-											) : (
-												<Markdown
-													text={_props.msg.content.slice(
-														value.start,
-														value.end,
-													)}
-													onMdFileClick={_props.onMdFileClick}
-													streaming={_props.msg.isStreaming}
-												/>
-											);
-										})()}
-									</>
-								)}
-							</For>
-						}
-						{!_props.msg.isStreaming && _props.msg.content.trim() ? (
-							<div {...stylex.attrs(styles.messageActionRow)}>
-								<button
-									type="button"
-									onClick={_source.handleCopy}
-									title={_source.copied ? "Copied" : "Copy message"}
-									aria-label={ariaValue(
-										_source.copied ? "Copied message" : "Copy message",
-									)}
-									{...stylex.attrs(
-										styles.copyMessageButton,
-										_source.copied && styles.copyMessageButtonCopied,
-									)}
-								>
-									{_source.copied ? (
-										<IconCheck size={iconSize.compact} />
-									) : (
-										<IconCopy size={iconSize.compact} />
-									)}
-									<span>{_source.copied ? "Copied" : "Copy"}</span>
-								</button>
-							</div>
-						) : null}
-					</div>
-				);
-			})()}
+							}
+						>
+							<Match when={_props.msg.toolName === "AskUserQuestion"}>
+								<AskUserQuestionCard
+									nativeQuestions={_props.msg.render?.questions}
+									content={_props.msg.content}
+									isStreaming={_props.msg.isStreaming}
+									onSendMessage={_props.onSendMessage}
+								/>
+							</Match>
+							<Match when={!!editPayload() && !_props.msg.isStreaming}>
+								<MiniEditDiff
+									oldStr={editPayload()!.old_string}
+									newStr={editPayload()!.new_string}
+									filePath={editPayload()!.file_path}
+									isStreaming={_props.msg.isStreaming}
+								/>
+							</Match>
+						</Switch>
+					</Match>
+				</Switch>
+			}
 		</>
 	);
 };
@@ -296,4 +278,42 @@ export function getUserMessagePresentation(
 		message,
 		commands: slashCommandNames,
 	});
+}
+
+function AssistantMessagePart(props: {
+	part: NonNullable<NonNullable<ChatMessage["render"]>["skillParts"]>[number];
+	msg: ChatMessage;
+	paneId: string;
+	onSendMessage?: (text: string) => void;
+	onMdFileClick?: (path: string) => void;
+}) {
+	const text = createMemo(() => ("start" in props.part ? props.part : null));
+	const proposal = createMemo(() =>
+		"proposal" in props.part ? props.part : null,
+	);
+	return (
+		<Show
+			when={text()}
+			fallback={
+				<Show when={proposal()} fallback={<p>Preparing skill proposal…</p>}>
+					{(value) => (
+						<SkillProposalCard
+							messageId={`${props.paneId}:${props.msg.id}:${value().index}`}
+							proposal={value().proposal}
+							streaming={props.msg.isStreaming}
+							onResult={props.onSendMessage}
+						/>
+					)}
+				</Show>
+			}
+		>
+			{(range) => (
+				<Markdown
+					text={props.msg.content.slice(range().start, range().end)}
+					onMdFileClick={props.onMdFileClick}
+					streaming={props.msg.isStreaming}
+				/>
+			)}
+		</Show>
+	);
 }

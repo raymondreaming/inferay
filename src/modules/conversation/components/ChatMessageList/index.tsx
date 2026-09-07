@@ -72,10 +72,10 @@ export const ChatMessageList = function ChatMessageList(_props: {
 		}),
 	);
 	createEffect(
-		() => [_props.scrollElementRef, virtual()],
-		() => {
-			const element = _props.scrollElementRef.current;
-			if (!element || !virtual()) return;
+		() => [_props.scrollElementRef, virtual()] as const,
+		([scrollRef, isVirtual]) => {
+			const element = scrollRef.current;
+			if (!element || !isVirtual) return;
 			let frame = 0;
 			const update = () => {
 				if (frame) return;
@@ -180,9 +180,9 @@ export const ChatMessageList = function ChatMessageList(_props: {
 		};
 	};
 	createEffect(
-		() => [renderRows()],
-		() => {
-			const keys = new Set(renderRows().map((row) => row.key));
+		() => renderRows().map((row) => row.key),
+		(rowKeys) => {
+			const keys = new Set(rowKeys);
 			for (const key of measuredHeights.current.keys())
 				if (!keys.has(key)) measuredHeights.current.delete(key);
 		},
@@ -231,9 +231,9 @@ export const ChatMessageList = function ChatMessageList(_props: {
 		}),
 	);
 	createEffect(
-		() => [pinToBottom, renderRows().length, _props.scrollElementRef],
-		() => {
-			if (renderRows().length === 0) return;
+		() => [renderRows().length, _props.scrollElementRef] as const,
+		([rowCount, scrollRef]) => {
+			if (rowCount === 0) return;
 			if (!didInitialScrollRef.current) {
 				didInitialScrollRef.current = true;
 				let raf2 = 0;
@@ -248,7 +248,7 @@ export const ChatMessageList = function ChatMessageList(_props: {
 					if (raf2) cancelAnimationFrame(raf2);
 				};
 			}
-			const scrollElement = _props.scrollElementRef.current;
+			const scrollElement = scrollRef.current;
 			if (scrollElement) {
 				const distanceFromBottom =
 					scrollElement.scrollHeight -
@@ -266,14 +266,10 @@ export const ChatMessageList = function ChatMessageList(_props: {
 		},
 	);
 	createEffect(
-		() => [pinToBottom, _props.stickToBottom],
-		() => {
+		() => _props.stickToBottom,
+		(stickToBottom) => {
 			const list = messageListRef.current;
-			if (
-				!list ||
-				!_props.stickToBottom ||
-				typeof ResizeObserver === "undefined"
-			)
+			if (!list || !stickToBottom || typeof ResizeObserver === "undefined")
 				return;
 			let frame = 0;
 			const observer = new ResizeObserver(() => {
@@ -291,9 +287,9 @@ export const ChatMessageList = function ChatMessageList(_props: {
 		},
 	);
 	createEffect(
-		() => [renderRows().length],
-		() => {
-			if (renderRows().length > 0) return;
+		() => renderRows().length,
+		(rowCount) => {
+			if (rowCount > 0) return;
 			didInitialScrollRef.current = false;
 		},
 	);
@@ -365,24 +361,48 @@ export function createChatListModel(
 	checkpoints: Accessor<CheckpointMeta[]>,
 ) {
 	const messages = createProjection<ChatMessage[]>(source, [], { key: "id" });
+	// Transcript snapshots retain unchanged message objects. Cache only row facts,
+	// so streaming content does not subscribe grouping to every projected row.
+	const describeRow = ({ id, role, isStreaming, render }: ChatMessage) => ({
+		id,
+		role,
+		isStreaming,
+		render: render
+			? {
+					kind: render.kind,
+					hidden: render.hidden,
+					groupLeader: render.groupLeader,
+					groupEnd: render.groupEnd,
+					filePath: render.filePath,
+					continuesAfter: render.continuesAfter,
+					rowId: render.rowId,
+				}
+			: null,
+	});
+	const facts = new WeakMap<ChatMessage, ReturnType<typeof describeRow>>();
+	const rowFacts = createMemo(
+		() =>
+			source().map((message) => {
+				let value = facts.get(message);
+				if (!value) {
+					value = describeRow(message);
+					facts.set(message, value);
+				}
+				return value;
+			}),
+		{
+			equals: (before, after) =>
+				before.length === after.length &&
+				before.every(
+					(value, index) =>
+						value === after[index] ||
+						JSON.stringify(value) === JSON.stringify(after[index]),
+				),
+		},
+	);
 	const renderRows = createMemo(() =>
 		rustProject<ChatListRow[]>("chatList", {
-			messages: messages.map(({ id, role, isStreaming, render }) => ({
-				id,
-				role,
-				isStreaming,
-				render: render
-					? {
-							kind: render.kind,
-							hidden: render.hidden,
-							groupLeader: render.groupLeader,
-							groupEnd: render.groupEnd,
-							filePath: render.filePath,
-							continuesAfter: render.continuesAfter,
-							rowId: render.rowId,
-						}
-					: null,
-			})),
+			messages: rowFacts(),
 			checkpoints: checkpoints().map(({ afterMessageId }) => ({
 				afterMessageId,
 			})),

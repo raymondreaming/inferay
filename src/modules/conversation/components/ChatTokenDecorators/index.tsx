@@ -1,78 +1,82 @@
 import * as stylex from "@stylexjs/stylex";
-import { createMemo } from "solid-js";
+import { createMemo, For, Show } from "solid-js";
 import { project as rustProject } from "../../../../shared/lib/native.tsx";
 import { styles } from "./styles.ts";
-export function renderInputHighlights(
-	text: string,
-	slashCommandNames?: readonly string[],
-): import("solid-js").Element {
-	if (!text)
-		return <span {...stylex.attrs(styles.transparent)}>{"\u00A0"}</span>;
-	const tokens = createMemo(() =>
-		findDecoratedTokenRanges(text, slashCommandNames),
-	);
-	if (tokens().length === 0) {
-		return <span {...stylex.attrs(styles.text)}>{text}</span>;
-	}
-	const segments = createMemo<import("solid-js").Element[]>(() => []);
-	let lastEnd = 0;
-	for (const token of tokens()) {
-		if (token.start < lastEnd) continue;
-		if (token.start > lastEnd) {
-			segments().push(
-				<span {...stylex.attrs(styles.text)}>
-					{text.slice(lastEnd, token.start)}
-				</span>,
-			);
-		}
-		const tokenText = text.slice(token.start, token.end);
-		segments().push(
-			<span {...stylex.attrs(styles.highlight)}>{tokenText}</span>,
-		);
-		lastEnd = token.end;
-	}
-	if (lastEnd < text.length) {
-		segments().push(
-			<span {...stylex.attrs(styles.text)}>{text.slice(lastEnd)}</span>,
-		);
-	}
-	return <>{segments()}</>;
-}
-export function renderTextPills(
-	text: string,
-	slashCommandNames?: readonly string[],
-): import("solid-js").Element[] {
-	if (!text) return [];
-	const matches = createMemo(() =>
-		findDecoratedTokenRanges(text, slashCommandNames),
-	);
-	if (matches().length === 0) return [text];
-	const parts = createMemo<import("solid-js").Element[]>(() => []);
-	let lastEnd = 0;
-	for (const token of matches()) {
-		if (token.start < lastEnd) continue;
-		if (token.start > lastEnd) {
-			parts().push(text.slice(lastEnd, token.start));
-		}
-		const tokenText = text.slice(token.start, token.end);
-		parts().push(<span {...stylex.attrs(styles.pill)}>{tokenText}</span>);
-		lastEnd = token.end;
-	}
-	if (lastEnd < text.length) {
-		parts().push(text.slice(lastEnd));
-	}
-	return parts();
-}
-type TokenRange = {
-	start: number;
-	end: number;
+
+type DecoratedTextProps = {
+	text: string;
+	slashCommandNames?: readonly string[];
+	pills?: boolean;
 };
+
+/** Keep segment elements alive as their text changes during typing or edits. */
+export function DecoratedText(props: DecoratedTextProps) {
+	const segments = createMemo(() =>
+		decoratedTextSegments(props.text, props.slashCommandNames),
+	);
+	return (
+		<For each={segments()} keyed={false}>
+			{(segment) => (
+				<span
+					{...stylex.attrs(
+						segment().highlighted
+							? props.pills
+								? styles.pill
+								: styles.highlight
+							: props.pills
+								? null
+								: styles.text,
+					)}
+				>
+					{segment().text}
+				</span>
+			)}
+		</For>
+	);
+}
+
+export function InputHighlights(props: Omit<DecoratedTextProps, "pills">) {
+	return (
+		<Show
+			when={props.text.length > 0}
+			fallback={<span {...stylex.attrs(styles.transparent)}>{"\u00A0"}</span>}
+		>
+			<DecoratedText
+				text={props.text}
+				slashCommandNames={props.slashCommandNames}
+			/>
+		</Show>
+	);
+}
+
+export function decoratedTextSegments(
+	text: string,
+	slashCommandNames?: readonly string[],
+) {
+	const segments: Array<{ text: string; highlighted: boolean }> = [];
+	let lastEnd = 0;
+	for (const token of findDecoratedTokenRanges(text, slashCommandNames)) {
+		if (token.start < lastEnd) continue;
+		if (token.start > lastEnd)
+			segments.push({
+				text: text.slice(lastEnd, token.start),
+				highlighted: false,
+			});
+		segments.push({
+			text: text.slice(token.start, token.end),
+			highlighted: true,
+		});
+		lastEnd = token.end;
+	}
+	if (lastEnd < text.length)
+		segments.push({ text: text.slice(lastEnd), highlighted: false });
+	return segments;
+}
+
+type TokenRange = { start: number; end: number };
 export function findDecoratedTokenRanges(
 	text: string,
 	slashCommandNames?: readonly string[],
 ): TokenRange[] {
-	return rustProject("decoratedTokens", {
-		text,
-		commands: slashCommandNames,
-	});
+	return rustProject("decoratedTokens", { text, commands: slashCommandNames });
 }

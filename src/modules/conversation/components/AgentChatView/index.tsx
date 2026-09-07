@@ -8,8 +8,6 @@ import {
 } from "../../../../shared/lib/dom.tsx";
 import {
 	loadDefaultChatSettings,
-	loadStoredInput,
-	saveStoredInput,
 	wsClient,
 } from "../../../../shared/lib/native.tsx";
 import { WorkspaceDockHandle } from "../../../workbench/components/WorkspaceDockHandle/index.tsx";
@@ -21,6 +19,7 @@ import {
 	useAgentChatMenus,
 	useAgentChatSettings,
 } from "../../hooks/useAgentChatMenus.tsx";
+import { useChatDraft } from "../../hooks/useChatDraft.tsx";
 import { useChatInputActions } from "../../hooks/useChatInputActions.tsx";
 import { useSpeechToText } from "../../hooks/useSpeechToText.tsx";
 import { AgentWorkspaceControl } from "../AgentChatHeader/index.tsx";
@@ -82,34 +81,7 @@ export const AgentChatView = function AgentChatView(
 		() => _props.cwd,
 		() => _props.pendingWorkspacePaths,
 	);
-	const [input, setInputRaw] = createSignal(
-		(() => loadStoredInput(_props.paneId))(),
-	);
-	const pendingInputRef = {
-		current: input(),
-	};
-	const inputSaveTimerRef = {
-		current: null,
-	} as {
-		current: ReturnType<typeof setTimeout> | null;
-	};
-	const flushInputSave = () => {
-		if (inputSaveTimerRef.current) {
-			clearTimeout(inputSaveTimerRef.current);
-			inputSaveTimerRef.current = null;
-		}
-		saveStoredInput(_props.paneId, pendingInputRef.current);
-	};
-	const setInput = (val: string) => {
-		setInputRaw(val);
-		pendingInputRef.current = val;
-		if (inputSaveTimerRef.current) return;
-		inputSaveTimerRef.current = setTimeout(flushInputSave, 250);
-	};
-	createEffect(
-		() => [flushInputSave],
-		() => () => flushInputSave(),
-	);
+	const { input, setInput } = useChatDraft(() => _props.paneId);
 	const _source3 = useSpeechToText(() => ({
 		enabled: renderVisibleChat(),
 		value: input(),

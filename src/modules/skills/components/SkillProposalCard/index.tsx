@@ -14,21 +14,18 @@ export function SkillProposalCard(_props: {
 	streaming?: boolean;
 	onResult?: (text: string) => void;
 }) {
+	const request = createMemo(() => ({
+		messageId: _props.messageId,
+		proposal: JSON.parse(JSON.stringify(_props.proposal)) as SkillProposal,
+	}));
 	const resource = useQueryResource<SkillProposalView | null>(
-		() => (signal) =>
-			postJson(
-				"/api/prompts/proposal",
-				{
-					messageId: _props.messageId,
-					proposal: _props.proposal,
-				},
-				{
-					signal,
-				},
-			),
+		() => {
+			const input = request();
+			return (signal) => postJson("/api/prompts/proposal", input, { signal });
+		},
 		() => null,
 		() => ({
-			queryKey: ["skills", "proposal", _props.messageId, _props.proposal],
+			queryKey: ["skills", "proposal", request().messageId, request().proposal],
 			enabled: !_props.streaming,
 		}),
 	);
