@@ -2,7 +2,9 @@ import * as stylex from "@octanejs/stylex";
 import { memo, useCallback } from "octane";
 import type { GitGraphRef } from "../../../../../../build/presentation/contracts/GitGraphRef.ts";
 import type { GitWorktree } from "../../../../../../build/presentation/contracts/GitWorktree.ts";
-import type { GraphNode } from "../../../../repository/hooks/useGitGraph.tsx";
+import type { GraphCommit } from "../../../../../../build/presentation/contracts/GraphCommit.ts";
+import { runtimeGitGraphLaneColors } from "../../../../../design-system/styles.stylex.ts";
+
 import { CommitGraphCell } from "./CommitGraphCell.tsx";
 import { CommitMessageCell } from "./CommitMessageCell.tsx";
 import { RefBadge } from "./RefBadge.tsx";
@@ -12,7 +14,6 @@ import { AVATAR_SIZE, styles } from "./styles.ts";
 import {
 	COLUMN_WIDTH,
 	type ColumnKey,
-	type ColumnVisibility,
 	type ColumnWidths,
 	GRAPH_PADDING,
 	type GraphSelectionIntent,
@@ -49,16 +50,16 @@ export const CommitRow = memo(function CommitRow({
 	hiddenRefNames,
 	pinnedRefNames,
 	historyMatch,
-	columns,
+	visibleOrder,
+	graphStart,
 	widths,
-	order,
 	virtualTop,
 	searchMatch,
 	githubAvatar,
 	rowActive,
 	onRowHover,
 }: {
-	commit: GraphNode;
+	commit: GraphCommit;
 	worktree?: GitWorktree;
 	graphWidth: number;
 	displayColumn: number;
@@ -67,14 +68,14 @@ export const CommitRow = memo(function CommitRow({
 	onCheckoutRef?: (ref: string) => void;
 	onRefDrop?: (source: string, target: string) => void;
 	onOpenRefContextMenu?: (ref: GitGraphRef, event: MouseEvent) => void;
-	onOpenItemContextMenu?: (commit: GraphNode, event: MouseEvent) => void;
+	onOpenItemContextMenu?: (commit: GraphCommit, event: MouseEvent) => void;
 	ghostRef?: GitGraphRef;
 	hiddenRefNames: ReadonlySet<string>;
 	pinnedRefNames: ReadonlySet<string>;
 	historyMatch: boolean;
-	columns: ColumnVisibility;
+	visibleOrder: ColumnKey[];
+	graphStart: number;
 	widths: ColumnWidths;
-	order: ColumnKey[];
 	virtualTop: number;
 	searchMatch: boolean;
 	githubAvatar?: string | null;
@@ -113,6 +114,10 @@ export const CommitRow = memo(function CommitRow({
 				Number(pinnedRefNames.has(b.fullName)) -
 				Number(pinnedRefNames.has(a.fullName)),
 		);
+	const color =
+		runtimeGitGraphLaneColors[
+			Math.abs(commit.colorIndex) % runtimeGitGraphLaneColors.length
+		]!;
 	const hasRefs = visibleRefs.length > 0;
 	const visibleGhostRef =
 		ghostRef && !hiddenRefNames.has(ghostRef.fullName) ? ghostRef : undefined;
@@ -124,20 +129,6 @@ export const CommitRow = memo(function CommitRow({
 		(intent?: GraphSelectionIntent) => onSelect?.(commit.id, intent),
 		[commit.id, onSelect],
 	);
-	const visibleOrder = order.filter(
-		(column) =>
-			(column !== "date" || columns.date) &&
-			(column !== "author" || columns.author) &&
-			(column !== "sha" || columns.sha),
-	);
-	const graphOrderIndex = visibleOrder.indexOf("graph");
-	const graphStart = visibleOrder
-		.slice(0, graphOrderIndex)
-		.reduce(
-			(total, column) =>
-				total + (column === "graph" ? graphWidth : widths[column]),
-			0,
-		);
 	const nodeAnchoredWashLeft = graphStart + nodeCenter;
 	return (
 		<div
@@ -188,7 +179,7 @@ export const CommitRow = memo(function CommitRow({
 					nodeAnchoredWashLeft,
 					nodeTop,
 					AVATAR_SIZE,
-					hexToRgba(commit.color, selected || rowActive ? 0.42 : 0.1),
+					hexToRgba(color, selected || rowActive ? 0.42 : 0.1),
 				)}
 			/>
 			{visibleOrder.map((column) => {
@@ -219,14 +210,14 @@ export const CommitRow = memo(function CommitRow({
 									<RefBadge
 										label={worktreeLabel}
 										fullName={commit.id}
-										color={commit.color}
+										color={color}
 										kind="localBranch"
 										worktreePath={commit.worktreePath}
 									/>
 								) : hasRefs ? (
 									<RefBadges
 										refs={visibleRefs}
-										color={commit.color}
+										color={color}
 										onCheckout={onCheckoutRef}
 										onRefDrop={onRefDrop}
 										onOpenContextMenu={onOpenRefContextMenu}
@@ -235,7 +226,7 @@ export const CommitRow = memo(function CommitRow({
 									<RefBadge
 										label={visibleGhostRef.label}
 										fullName={visibleGhostRef.fullName}
-										color={commit.color}
+										color={color}
 										kind={visibleGhostRef.kind}
 										onCheckout={onCheckoutRef}
 										onRefDrop={onRefDrop}
@@ -246,9 +237,7 @@ export const CommitRow = memo(function CommitRow({
 									<span
 										aria-hidden="true"
 										{...stylex.props(styles.refConnector)}
-										style={inlineStyles.getCommitRowRefConnectorStyle(
-											commit.color,
-										)}
+										style={inlineStyles.getCommitRowRefConnectorStyle(color)}
 									/>
 								) : null}
 							</div>
@@ -256,6 +245,7 @@ export const CommitRow = memo(function CommitRow({
 					case "graph":
 						return (
 							<CommitGraphCell
+								color={color}
 								key={column}
 								commit={commit}
 								graphWidth={graphWidth}
@@ -272,6 +262,7 @@ export const CommitRow = memo(function CommitRow({
 					case "message":
 						return (
 							<CommitMessageCell
+								color={color}
 								key={column}
 								commit={commit}
 								width={widths.message}

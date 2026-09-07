@@ -77,6 +77,8 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         "completion" => composer::completion(input),
         "decoratedTokens" => composer::decorated_tokens(input),
         "askAnswer" => composer::ask_answer(input),
+        "systemNotice" => composer::system_notice(input),
+        "prepareChatSend" => composer::prepare_send(input),
         "userMessage" => composer::user_message(input),
         "mergeQueue" => composer::merge_queue(input),
         _ => return Err(format!("Unknown presentation operation: {operation}")),

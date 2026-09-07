@@ -1,19 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
 import type { GitGraphRef } from "../../../../../../build/presentation/contracts/GitGraphRef.ts";
 import type { GitWorktree } from "../../../../../../build/presentation/contracts/GitWorktree.ts";
+import type { GraphCommit } from "../../../../../../build/presentation/contracts/GraphCommit.ts";
 import type { GraphLines } from "../../../../../../build/presentation/contracts/GraphLines.ts";
+import type { GraphRow } from "../../../../../../build/presentation/contracts/GraphRow.ts";
 import { postJson } from "../../../../../adapters/backend/http.ts";
 import { project as rustProject } from "../../../../../adapters/presentation/model.ts";
 import {
 	readStoredJson,
 	writeStoredJson,
 } from "../../../../../adapters/storage/stored-values.ts";
+import { runtimeGitGraphLaneColors } from "../../../../../design-system/styles.stylex.ts";
 import { trackPointerResize } from "../../../../../shared/lib/data.ts";
-import type {
-	GraphNode,
-	GraphPresentation,
-	RenderGraphRow,
-} from "../../../../repository/hooks/useGitGraph.tsx";
+import type { GraphPresentation } from "../../../../repository/hooks/useGitGraph.tsx";
 
 import { getGraphLineLayerStyle } from "./styles.ts";
 export function useCommitGraphState(props: CommitGraphProps) {
@@ -119,7 +118,7 @@ export function useCommitGraphState(props: CommitGraphProps) {
 		y: number;
 	} | null>(null);
 	const [itemContextMenu, setItemContextMenu] = useState<{
-		item: GraphNode;
+		item: GraphCommit;
 		x: number;
 		y: number;
 	} | null>(null);
@@ -293,7 +292,7 @@ export function useCommitGraphState(props: CommitGraphProps) {
 		[],
 	);
 	const openItemContextMenu = useCallback(
-		(item: GraphNode, event: MouseEvent) => {
+		(item: GraphCommit, event: MouseEvent) => {
 			setRefContextMenu(null);
 			setItemContextMenu({
 				item,
@@ -532,8 +531,8 @@ export interface CommitGraphProps {
 	searchActive?: boolean;
 	emptyLabel?: string;
 	onSearchChange?: (query: string) => void;
-	commits: GraphNode[];
-	rows: RenderGraphRow[];
+	commits: GraphCommit[];
+	rows: GraphRow[];
 	presentation: GraphPresentation;
 	preferences: GraphPreferences;
 	onPreferencesChange: (
@@ -659,6 +658,7 @@ export function buildCommitGraphViewModel({
 	Pick<GraphPreferences, "columns" | "order" | "widths">) {
 	const geometry = rustProject<{
 		displayColumns: number[];
+		visibleOrder: ColumnKey[];
 		graphWidth: number;
 		graphLeft: number;
 		graphHeight: number;
@@ -692,7 +692,7 @@ export function buildCommitGraphViewModel({
 	};
 }
 function projectCommitGraphViewport(
-	rows: readonly RenderGraphRow[],
+	rows: readonly GraphRow[],
 	itemCount: number,
 	scrollTop: number,
 	viewportHeight: number,
@@ -708,6 +708,7 @@ function projectCommitGraphViewport(
 		visibleEnd,
 		lines: rustProject<GraphLines>("graphLines", {
 			rows: rows.slice(visibleStart, visibleEnd),
+			colors: runtimeGitGraphLaneColors,
 			displayColumns,
 		}),
 	};

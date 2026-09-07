@@ -2,12 +2,13 @@ import type { DiffSource } from "../../../../build/presentation/contracts/DiffSo
 import type { GitActionResponse } from "../../../../build/presentation/contracts/GitActionResponse.ts";
 import type { GitCommitFile } from "../../../../build/presentation/contracts/GitCommitFile.ts";
 import type { GitFileEntry } from "../../../../build/presentation/contracts/GitFileEntry.ts";
+import type { GraphCommit } from "../../../../build/presentation/contracts/GraphCommit.ts";
 import type { PanelSession } from "../../../../build/presentation/contracts/PanelSession.ts";
 import { postJson } from "../../../adapters/backend/http.ts";
 import { project as rustProject } from "../../../adapters/presentation/model.ts";
 import { readStoredValue } from "../../../adapters/storage/stored-values.ts";
 import type { DiffRequest } from "../../repository/hooks/useGitDiff.tsx";
-import type { GraphNode } from "../../repository/hooks/useGitGraph.tsx";
+
 import type { GitGraphActionRequest } from "../graph/components/CommitGraph/index.tsx";
 import { useWorkspacePanelSession } from "./useWorkspacePanelSession.tsx";
 
@@ -1021,12 +1022,12 @@ export function useRepositoryWorkbench({
 
 export type SelectedGraphCache = {
 	cwd: string | undefined;
-	items: Map<string, GraphNode>;
+	items: Map<string, GraphCommit>;
 };
 export function resolveSelectedGraphItems(
 	cache: SelectedGraphCache,
 	cwd: string | undefined,
-	commits: readonly GraphNode[],
+	commits: readonly GraphCommit[],
 	selectedIds: readonly string[],
 	selectedHash: string | null,
 ) {

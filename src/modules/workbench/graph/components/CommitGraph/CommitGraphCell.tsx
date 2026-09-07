@@ -1,5 +1,6 @@
 import * as stylex from "@octanejs/stylex";
-import type { GraphNode } from "../../../../repository/hooks/useGitGraph.tsx";
+import type { GraphCommit } from "../../../../../../build/presentation/contracts/GraphCommit.ts";
+
 import { AuthorAvatar } from "./AuthorAvatar.tsx";
 import { MergeNode } from "./MergeNode.tsx";
 import * as inlineStyles from "./styles.ts";
@@ -7,6 +8,7 @@ import { styles } from "./styles.ts";
 
 export function CommitGraphCell({
 	commit,
+	color,
 	graphWidth,
 	hasConnector,
 	nodeCenter,
@@ -17,7 +19,8 @@ export function CommitGraphCell({
 	isStash,
 	githubAvatar,
 }: {
-	commit: GraphNode;
+	commit: GraphCommit;
+	color: string;
 	graphWidth: number;
 	hasConnector: boolean;
 	nodeCenter: number;
@@ -39,7 +42,7 @@ export function CommitGraphCell({
 					{...stylex.props(styles.refToNodeConnector)}
 					style={inlineStyles.getCommitRowRefToNodeConnectorStyle(
 						nodeCenter,
-						commit.color,
+						color,
 					)}
 				/>
 			) : null}
@@ -50,17 +53,17 @@ export function CommitGraphCell({
 					style={inlineStyles.getCommitRowWipNodeStyle(
 						nodeLeft,
 						nodeTop,
-						commit.color,
+						color,
 					)}
 				/>
 			) : isMergeCommit ? (
-				<MergeNode color={commit.color} left={nodeLeft} top={nodeTop} />
+				<MergeNode color={color} left={nodeLeft} top={nodeTop} />
 			) : (
 				<AuthorAvatar
 					name={commit.author}
 					email={commit.authorEmail}
 					githubAvatar={githubAvatar}
-					color={commit.color}
+					color={color}
 					left={nodeLeft}
 					top={nodeTop}
 					stash={isStash}

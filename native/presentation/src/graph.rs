@@ -94,7 +94,7 @@ pub fn layout(i: &Value) -> Value {
         .map(|c| width(c))
         .sum();
     let height = array(&i["commitColumns"]).len() as f64 * 23.;
-    json!({"displayColumns":display,"graphHeight":height,"graphLeft":left,"graphWidth":graph_width,
+    json!({"visibleOrder":columns,"displayColumns":display,"graphHeight":height,"graphLeft":left,"graphWidth":graph_width,
         "tableWidth":columns.iter().map(|c|width(c)).sum::<f64>() + 32.,"totalHeight":23. + height})
 }
 pub fn path(i: &Value) -> Value {
@@ -148,6 +148,20 @@ pub struct GraphLines {
     truncated: Vec<GraphLine>,
 }
 pub fn lines(i: &Value) -> GraphLines {
+    let color = |value: &Value| {
+        let colors = array(&i["colors"]);
+        colors
+            .get(
+                value["colorIndex"]
+                    .as_i64()
+                    .unwrap_or_default()
+                    .unsigned_abs() as usize
+                    % colors.len().max(1),
+            )
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned()
+    };
     let display = |column: &Value| {
         i["displayColumns"]
             .get(number(column) as usize)
@@ -180,7 +194,7 @@ pub fn lines(i: &Value) -> GraphLines {
                                 } else {
                                     23.
                                 },
-                            color: string(&segment["color"]).into(),
+                            color: color(segment),
                         }
                     })
                     .collect::<Vec<_>>()
@@ -200,14 +214,14 @@ pub fn lines(i: &Value) -> GraphLines {
                             row["row"],
                             curve["fromColumn"],
                             curve["toColumn"],
-                            string(&curve["color"])
+                            color(curve)
                         ),
                         path: string(&path(
                             &json!({"row":row["row"], "fromCol":display(&curve["fromColumn"]),
                 "toCol":display(&curve["toColumn"]), "convergence":convergence}),
                         ))
                         .into(),
-                        color: string(&curve["color"]).into(),
+                        color: color(curve),
                     })
                     .collect::<Vec<_>>()
             })
@@ -228,16 +242,16 @@ mod line_tests {
     #[test]
     fn visible_lines_keep_pinned_columns_node_endpoints_and_curve_identity() {
         let result = lines(&json!({
-            "displayColumns":[1,0],
+            "displayColumns":[1,0], "colors":["red","blue"],
             "rows":[{
                 "row":2,
                 "rails":[
-                    {"column":0,"color":"red","startsAtNode":true},
-                    {"column":1,"color":"blue","endsAtNode":true}
+                    {"column":0,"colorIndex":0,"startsAtNode":true},
+                    {"column":1,"colorIndex":1,"endsAtNode":true}
                 ],
-                "truncatedEdges":[{"column":0,"color":"red"}],
-                "transitions":[{"fromColumn":0,"toColumn":1,"color":"red"}],
-                "convergences":[{"fromColumn":1,"toColumn":0,"color":"blue"}]
+                "truncatedEdges":[{"column":0,"colorIndex":0}],
+                "transitions":[{"fromColumn":0,"toColumn":1,"colorIndex":0}],
+                "convergences":[{"fromColumn":1,"toColumn":0,"colorIndex":1}]
             }]
         }));
         let value = serde_json::to_value(result).unwrap();

@@ -288,12 +288,6 @@ let msgId = 0;
 export function nextId() {
 	return `c${++msgId}-${Date.now().toString(36)}`;
 }
-const LOCAL_RENDER_LIMIT = 256_000;
-export function localChatContent(content: string) {
-	return content.length <= LOCAL_RENDER_LIMIT
-		? content
-		: `${content.slice(0, LOCAL_RENDER_LIMIT)}\n\n[… pending message truncated for display …]`;
-}
 type ChatStateMessage = Pick<
 	ChatMessage,
 	"id" | "role" | "content" | "isStreaming" | "localOnly" | "render"
@@ -303,29 +297,20 @@ export function appendSystemMessage(
 	content: string,
 	render?: ChatMessage["render"],
 ): ChatStateMessage[] {
-	content = localChatContent(content);
-	const previous = messages.at(-1);
-	if (
-		content &&
-		previous?.role === "system" &&
-		!previous.isStreaming &&
-		previous.content === content
-	)
-		return messages;
-	return [
-		...messages,
-		{
-			id: nextId(),
-			role: "system" as const,
-			content,
-			localOnly: true,
-			...(render
-				? {
-						render,
-					}
-				: {}),
-		},
-	];
+	const last = messages.at(-1);
+	const notice = rustProject<ChatStateMessage | null>("systemNotice", {
+		id: nextId(),
+		content,
+		render,
+		previous: last
+			? {
+					role: last.role,
+					isStreaming: last.isStreaming,
+					content: last.role === "system" ? last.content : undefined,
+				}
+			: null,
+	});
+	return notice ? [...messages, notice] : messages;
 }
 export function mergeNativeTranscript(
 	local: ChatMessage[],

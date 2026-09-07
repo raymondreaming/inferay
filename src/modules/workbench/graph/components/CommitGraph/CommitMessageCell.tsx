@@ -1,17 +1,20 @@
 import * as stylex from "@octanejs/stylex";
-import type { GraphNode } from "../../../../repository/hooks/useGitGraph.tsx";
+import type { GraphCommit } from "../../../../../../build/presentation/contracts/GraphCommit.ts";
+
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
 export function CommitMessageCell({
 	commit,
+	color,
 	width,
 	isWip,
 	showWipRef,
 	worktreeLabel,
 	fileCount,
 }: {
-	commit: GraphNode;
+	commit: GraphCommit;
+	color: string;
 	width: number;
 	isWip: boolean;
 	showWipRef: boolean;
@@ -23,7 +26,7 @@ export function CommitMessageCell({
 			{...stylex.props(styles.messageCell)}
 			style={inlineStyles.getCommitRowMessageCellStyle(
 				width,
-				`1px solid ${commit.color}`,
+				`1px solid ${color}`,
 			)}
 		>
 			<span

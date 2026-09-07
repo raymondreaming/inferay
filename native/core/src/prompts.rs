@@ -38,6 +38,18 @@ pub struct SkillProposal {
     prompt_template: String,
     reason: String,
 }
+#[derive(Debug, Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillProposalView {
+    title: String,
+    status: String,
+    decided: bool,
+    saved_skill_id: Option<String>,
+    current_instructions: Option<String>,
+    blocked_reason: Option<String>,
+    message: Option<String>,
+}
+
 #[derive(Deserialize, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillRead {
@@ -193,35 +205,105 @@ impl PromptStore {
         Ok(updated)
     }
 
-    pub fn approve_proposal(
+    pub fn proposal(
         &self,
-        proposal: &Map<String, Value>,
+        proposal: &Value,
+        stored: &Value,
+        decision: Option<&str>,
         now: u64,
-    ) -> Result<Value, PromptError> {
+    ) -> Result<(SkillProposalView, Option<Value>), PromptError> {
         let invalid = || PromptError {
             status: 400,
             message: "Invalid skill proposal".into(),
         };
-        let (saved, verb) = match proposal.get("action").and_then(Value::as_str) {
-            Some("create") => (self.create(proposal, now)?, "created"),
-            Some("update") => {
-                let id = proposal
-                    .get("skillId")
-                    .and_then(Value::as_str)
-                    .filter(|id| !id.is_empty())
-                    .ok_or_else(invalid)?;
-                proposal
-                    .get("expectedUpdatedAt")
-                    .and_then(Value::as_u64)
-                    .ok_or_else(invalid)?;
-                (self.update(id, proposal, now)?, "updated")
-            }
-            _ => return Err(invalid()),
+        let body = proposal.as_object().ok_or_else(invalid)?;
+        let action = proposal["action"]
+            .as_str()
+            .filter(|action| matches!(*action, "create" | "update"))
+            .ok_or_else(invalid)?;
+        let signature = stored["proposal"]
+            .as_str()
+            .and_then(|text| serde_json::from_str::<Value>(text).ok());
+        let mut outcome = if signature.as_ref() == Some(proposal) {
+            stored["outcome"].clone()
+        } else {
+            Value::Null
         };
-        Ok(json!({
-            "outcome": { "status": "saved", "skillId": saved.id },
-            "message": format!("I approved the skill proposal. Inferay successfully {verb} /{} (skill ID: {}).", saved.command, saved.id)
-        }))
+        let mut record = None;
+        let mut message = None;
+        if outcome.is_null() {
+            match decision {
+                Some("approve") => {
+                    let saved = if action == "create" {
+                        self.create(body, now)?
+                    } else {
+                        let id = proposal["skillId"]
+                            .as_str()
+                            .filter(|id| !id.is_empty())
+                            .ok_or_else(invalid)?;
+                        proposal["expectedUpdatedAt"].as_u64().ok_or_else(invalid)?;
+                        self.update(id, body, now)?
+                    };
+                    outcome = json!({"status":"saved","skillId":saved.id});
+                    message = Some(format!(
+                        "I approved the skill proposal. Inferay successfully {} /{} (skill ID: {}).",
+                        if action == "create" {
+                            "created"
+                        } else {
+                            "updated"
+                        },
+                        saved.command,
+                        saved.id
+                    ));
+                }
+                Some("reject") => {
+                    outcome = json!({"status":"rejected"});
+                    message = Some(format!(
+                        "I declined the proposed skill change for /{}. Do not apply it.",
+                        proposal["command"].as_str().unwrap_or_default()
+                    ));
+                }
+                None => {}
+                _ => return Err(invalid()),
+            }
+            if !outcome.is_null() {
+                record = Some(json!({"proposal":proposal.to_string(),"outcome":outcome}));
+            }
+        }
+        let existing = if action == "update" {
+            self.load()
+                .map_err(internal_prompt_error)?
+                .into_iter()
+                .find(|skill| Some(skill.id.as_str()) == proposal["skillId"].as_str())
+        } else {
+            None
+        };
+        let decided = !outcome.is_null();
+        let blocked = !decided
+            && action == "update"
+            && existing.as_ref().is_none_or(|skill| {
+                skill.is_built_in
+                    || Some(skill.updated_at) != proposal["expectedUpdatedAt"].as_u64()
+            });
+        let (title, status) = match outcome["status"].as_str() {
+            Some("saved") => ("Skill saved", "Saved to your local skills library."),
+            Some("rejected") => ("Skill change declined", "No changes were made."),
+            _ => (
+                if action == "create" {
+                    "Create skill"
+                } else {
+                    "Update skill"
+                },
+                "Your approval is required. Nothing has been changed.",
+            ),
+        };
+        Ok((SkillProposalView {
+            title: title.into(), status: status.into(), decided,
+            saved_skill_id: outcome["skillId"].as_str().map(str::to_owned),
+            current_instructions: existing.map(|skill| skill.prompt_template),
+            blocked_reason: blocked.then(|| "This skill changed or is no longer editable. Ask the agent for a fresh proposal.".into()),
+            message,
+        }, record))
     }
 
     pub fn delete(&self, id: &str) -> Result<(), PromptError> {
@@ -750,55 +832,46 @@ mod store_behavior_tests {
         stale["expectedUpdatedAt"] = json!(41);
         assert!(store.call_tool("inferay_propose_skill", &stale).is_err());
         assert!(store.call_tool("unknown", &proposal).is_err());
+
+        let (view, record) = store.proposal(&stale, &Value::Null, None, 43).unwrap();
+        assert!(view.blocked_reason.is_some());
+        assert!(record.is_none());
         assert_eq!(
             store
-                .approve_proposal(stale.as_object().unwrap(), 43)
+                .proposal(&stale, &Value::Null, Some("approve"), 43)
                 .unwrap_err()
                 .status,
             409
         );
-        let approved = store
-            .approve_proposal(proposal.as_object().unwrap(), 43)
+        let (saved, record) = store
+            .proposal(&proposal, &Value::Null, Some("approve"), 43)
             .unwrap();
-        assert_eq!(approved["outcome"]["skillId"], skill.id);
-        assert!(
-            approved["message"]
-                .as_str()
-                .unwrap()
-                .contains("updated /review")
-        );
-        assert_eq!(store.load().unwrap()[0].name, "New name");
-        assert_eq!(
-            store
-                .approve_proposal(proposal.as_object().unwrap(), 44)
-                .unwrap_err()
-                .status,
-            409
-        );
-        let mut invalid = proposal.clone();
-        invalid.as_object_mut().unwrap().remove("expectedUpdatedAt");
-        assert_eq!(
-            store
-                .approve_proposal(invalid.as_object().unwrap(), 44)
-                .unwrap_err()
-                .status,
-            400
-        );
-        invalid["action"] = json!("delete");
-        assert_eq!(
-            store
-                .approve_proposal(invalid.as_object().unwrap(), 44)
-                .unwrap_err()
-                .status,
-            400
-        );
-        let created = store.approve_proposal(json!({"action":"create", "name":"Build", "command":"/BUILD", "promptTemplate":"Build it"}).as_object().unwrap(), 45).unwrap();
-        assert!(
-            created["message"]
-                .as_str()
-                .unwrap()
-                .contains("created /build")
-        );
+        assert_eq!(saved.saved_skill_id.as_deref(), Some(skill.id.as_str()));
+        assert!(saved.message.unwrap().contains("updated /review"));
+        let record = record.unwrap();
+        let (replayed, replacement) = store
+            .proposal(&proposal, &record, Some("approve"), 44)
+            .unwrap();
+        assert!(replayed.decided);
+        assert!(replayed.message.is_none());
+        assert!(replacement.is_none());
+        assert_eq!(store.load().unwrap()[0].updated_at, 43);
+        let revised = json!({"action":"create","name":"Build","command":"/BUILD","promptTemplate":"Build it"});
+        let (rejected, rejected_record) = store
+            .proposal(&revised, &record, Some("reject"), 45)
+            .unwrap();
+        assert!(rejected.decided);
+        assert!(rejected.saved_skill_id.is_none());
+        assert_eq!(store.load().unwrap().len(), 1);
+        let (replayed, _) = store
+            .proposal(&revised, &rejected_record.unwrap(), Some("approve"), 46)
+            .unwrap();
+        assert_eq!(replayed.title, "Skill change declined");
+        assert_eq!(store.load().unwrap().len(), 1);
+        let (created, _) = store
+            .proposal(&revised, &Value::Null, Some("approve"), 47)
+            .unwrap();
+        assert!(created.message.unwrap().contains("created /build"));
         assert_eq!(store.load().unwrap().len(), 2);
 
         std::fs::remove_dir_all(root).unwrap();

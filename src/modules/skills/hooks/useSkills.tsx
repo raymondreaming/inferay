@@ -54,13 +54,14 @@ export function preloadSkills() {
 	return queryClient.prefetchQuery(skillsQuery());
 }
 
-export async function approveSkillProposal(
+export async function decideSkillProposal(
+	messageId: string,
 	proposal: import("../../../../build/presentation/contracts/SkillProposal.ts").SkillProposal,
+	decision: "approve" | "reject",
 ) {
-	const result = await postJson<{
-		outcome: { status: "saved"; skillId: string };
-		message: string;
-	}>("/api/prompts/approve-proposal", proposal);
+	const view = await postJson<
+		import("../../../../build/presentation/contracts/SkillProposalView.ts").SkillProposalView
+	>("/api/prompts/proposal", { messageId, proposal, decision });
 	await refreshSkills();
-	return result;
+	return view;
 }

@@ -379,17 +379,7 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             ("/api/client-storage", "POST" | "PUT") => update_client_storage(&state, request).await,
             ("/api/config/search-folders", "GET") => get_search_folders(&state, request).await,
             ("/api/prompts", "GET") => list_prompts(&state, request).await,
-            ("/api/prompts/approve-proposal", "POST") => {
-                async {
-                    let proposal: serde_json::Map<String, Value> = api_body(request).await?;
-                    Ok(state
-                        .prompts
-                        .lock()
-                        .await
-                        .approve_proposal(&proposal, unix_millis())?)
-                }
-                .await
-            }
+            ("/api/prompts/proposal", "POST") => skill_proposal(&state, request).await,
             ("/api/prompts", "POST") => create_prompt(&state, request).await,
             ("/api/agent-context", "GET") => get_agent_context(&state, request).await,
             ("/api/agent-context", "PUT") => update_agent_context(&state, request).await,
@@ -1151,6 +1141,33 @@ async fn list_prompts(state: &ServerState, request: Request) -> ApiResult {
         &query_value(&request, "filter").unwrap_or_else(|| "all".into()),
         &query_value(&request, "search").unwrap_or_default(),
     )))
+}
+
+async fn skill_proposal(state: &ServerState, request: Request) -> ApiResult {
+    let body: Value = api_body(request).await?;
+    let id = required(
+        body["messageId"].as_str().filter(|id| !id.is_empty()),
+        "Missing proposal message ID",
+    )?;
+    let key = format!("inferay-skill-proposal:{id}");
+    let _guard = state.client_storage_write.lock().await;
+    let mut entries = read_client_storage(&state.client_storage_path).await?;
+    let stored = entries
+        .get(&key)
+        .and_then(Value::as_str)
+        .and_then(|value| serde_json::from_str::<Value>(value).ok())
+        .unwrap_or(Value::Null);
+    let (view, record) = state.prompts.lock().await.proposal(
+        &body["proposal"],
+        &stored,
+        body["decision"].as_str(),
+        unix_millis(),
+    )?;
+    if let Some(record) = record {
+        entries.insert(key, Value::String(record.to_string()));
+        write_json_object(&state.client_storage_path, &entries).await?;
+    }
+    Ok(json!(view))
 }
 
 async fn create_prompt(state: &ServerState, request: Request) -> ApiResult {
@@ -2695,6 +2712,51 @@ mod file_http_tests {
             .unwrap();
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         drop(server);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod proposal_http_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn proposal_decisions_survive_restart_and_do_not_repeat_writes() {
+        let root = std::env::temp_dir().join(format!("inferay-proposal-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut saved_id = Value::Null;
+        for restart in [false, true] {
+            let mut config = ServerConfig::new("127.0.0.1:0".parse().unwrap(), root.clone());
+            config.home_directory = root.clone();
+            config.user_data_dir = root.join("state");
+            let auth = config.auth_token.clone();
+            let server = ServerHandle::start(config).unwrap();
+            let url = format!("http://{}/api/prompts/proposal", server.local_addr());
+            let client = Client::new();
+            for decision in [None, Some("approve"), Some("approve")] {
+                let response = client.post(&url)
+                    .header("x-inferay-auth", &auth).header("sec-fetch-site", "same-origin")
+                    .header("content-type", "application/json").body(json!({"messageId":"proposal-1", "decision":decision,
+                        "proposal":{"action":"create","name":"Review","command":"review","promptTemplate":"Review code"}}).to_string())
+                    .send().await.unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+                let model: Value =
+                    serde_json::from_slice(&response.bytes().await.unwrap()).unwrap();
+                if decision.is_none() && !restart {
+                    assert_eq!(model["decided"], false);
+                } else {
+                    assert_eq!(model["decided"], true);
+                    if saved_id.is_null() {
+                        saved_id = model["savedSkillId"].clone();
+                        assert!(model["message"].is_string());
+                    } else {
+                        assert_eq!(model["savedSkillId"], saved_id);
+                        assert!(model["message"].is_null());
+                    }
+                }
+            }
+            drop(server);
+        }
         std::fs::remove_dir_all(root).unwrap();
     }
 }

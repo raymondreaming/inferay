@@ -2,9 +2,9 @@ import { useCallback } from "octane";
 import type React from "react";
 import type { WorkspaceAgentKind } from "../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import { wsClient } from "../../../adapters/backend/http.ts";
+import { project as rustProject } from "../../../adapters/presentation/model.ts";
 import {
 	type ChatMessage,
-	localChatContent,
 	nextId,
 } from "../components/AgentChatView/useChatConnection.tsx";
 import type { useAgentChatComposerState } from "./useAgentChatComposerState.tsx";
@@ -79,76 +79,58 @@ export function useChatInputActions({
 		) => void;
 		textareaRef: React.RefObject<HTMLTextAreaElement | null>;
 	}) {
-	const sendToServer = useCallback(
-		(
-			text: string,
-			displayText?: string,
-			images?: string[],
-			messageId?: string,
-			command?: {
-				expandCommands?: boolean;
-				commandId?: string;
-				commandArgs?: string;
-			},
-		) => {
-			onSendStart?.();
-			wsClient.send({
-				type: "chat:send",
-				messageId,
-				...command,
-				paneId,
-				text,
-				cwd,
-				referencePaths,
-				agentKind,
-				displayText,
-				images,
-			});
-		},
-		[agentKind, cwd, isLoading, onSendStart, paneId, referencePaths],
-	);
 	const sendUserMessage = useCallback(
 		({
-			displayText,
-			images,
 			text,
-			command,
+			images = [],
+			expandCommands = false,
 		}: {
-			displayText?: string;
-			images?: string[];
 			text: string;
-			command?: {
-				expandCommands?: boolean;
-				commandId?: string;
-				commandArgs?: string;
-			};
+			images?: string[];
+			expandCommands?: boolean;
 		}) => {
-			const trimmed = text.trim();
-			if (!trimmed && !images?.length) return;
-			const visibleText = displayText ?? trimmed;
-			if (isLoading) {
-				sendToServer(trimmed, visibleText, images, undefined, command);
-				return;
-			}
-			const message = {
-				id: nextId(),
-				optimistic: true as const,
-				role: "user" as const,
-				content: localChatContent(visibleText),
+			const prepared = rustProject<{
+				request: Record<string, unknown>;
+				optimistic: ChatMessage | null;
+			} | null>("prepareChatSend", {
+				text,
 				images,
-			};
-			setMessages((previous) => [...previous, message]);
-			sendToServer(trimmed, visibleText, images, message.id, command);
+				expandCommands,
+				id: nextId(),
+				paneId,
+				agentKind,
+				cwd,
+				referencePaths,
+				isLoading,
+			});
+			if (!prepared) return false;
+			if (prepared.optimistic) {
+				const message = prepared.optimistic;
+				setMessages((previous) => [...previous, message]);
+			}
+			onSendStart?.();
+			wsClient.send(prepared.request);
+			return true;
 		},
-		[isLoading, sendToServer, setMessages],
+		[
+			agentKind,
+			cwd,
+			isLoading,
+			onSendStart,
+			paneId,
+			referencePaths,
+			setMessages,
+		],
 	);
 	const sendMessage = useCallback(() => {
-		const rawInput = textareaRef.current?.value ?? input;
-		const text = rawInput.trim();
-		if (!text && attachedImages.length === 0) return;
-		const images = attachedImages.length
-			? attachedImages.map((image) => image.path)
-			: undefined;
+		if (
+			!sendUserMessage({
+				text: textareaRef.current?.value ?? input,
+				images: attachedImages.map((image) => image.path),
+				expandCommands: true,
+			})
+		)
+			return;
 		cancelSpeechListening();
 		setInput("");
 		setSlashMenu(hideMenuState);
@@ -158,15 +140,6 @@ export function useChatInputActions({
 			textareaRef.current.value = "";
 			textareaRef.current.style.height = "20px";
 		}
-		sendUserMessage({
-			displayText:
-				text || `Attached image${attachedImages.length > 1 ? "s" : ""}`,
-			images,
-			text,
-			command: {
-				expandCommands: true,
-			},
-		});
 	}, [
 		attachedImages,
 		cancelSpeechListening,

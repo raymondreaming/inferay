@@ -10,10 +10,7 @@ import type { GitStash } from "../../../../build/presentation/contracts/GitStash
 import type { GitWorktree } from "../../../../build/presentation/contracts/GitWorktree.ts";
 import type { GraphActionPresentation } from "../../../../build/presentation/contracts/GraphActionPresentation.ts";
 import type { GraphCommit } from "../../../../build/presentation/contracts/GraphCommit.ts";
-import type { GraphRail } from "../../../../build/presentation/contracts/GraphRail.ts";
 import type { GraphRow } from "../../../../build/presentation/contracts/GraphRow.ts";
-import type { GraphTransition } from "../../../../build/presentation/contracts/GraphTransition.ts";
-import { runtimeGitGraphLaneColors } from "../../../design-system/styles.stylex.ts";
 import {
 	usePollingQuery,
 	useQueryResource,
@@ -144,24 +141,10 @@ export function useComparisonDetails(
 	};
 }
 
-export type GraphNode = Omit<GraphCommit, "colorIndex"> & { color: string };
-export type RenderGraphRail = Omit<GraphRail, "colorIndex"> & { color: string };
-type RenderGraphTransition = Omit<GraphTransition, "colorIndex"> & {
-	color: string;
-};
-export type RenderGraphRow = Omit<
-	GraphRow,
-	"rails" | "transitions" | "convergences" | "truncatedEdges"
-> & {
-	rails: RenderGraphRail[];
-	transitions: RenderGraphTransition[];
-	convergences: RenderGraphTransition[];
-	truncatedEdges: RenderGraphRail[];
-};
 export interface GraphData {
 	actions: Record<string, GraphActionPresentation>;
-	commits: GraphNode[];
-	rows: RenderGraphRow[];
+	commits: GraphCommit[];
+	rows: GraphRow[];
 	hasMore: boolean;
 	worktrees: GitWorktree[];
 	stashes: GitStash[];
@@ -210,29 +193,6 @@ export const EMPTY_GRAPH: GraphData = {
 	},
 	state: "empty",
 };
-type WireColor<T> = Omit<T, "color"> & { colorIndex: number };
-type WireGraphData = Omit<GraphData, "commits" | "rows"> & {
-	commits: WireColor<GraphNode>[];
-	rows: Array<{
-		row: number;
-		rails: WireColor<RenderGraphRail>[];
-		transitions: WireColor<RenderGraphTransition>[];
-		convergences: WireColor<RenderGraphTransition>[];
-		truncatedEdges: WireColor<RenderGraphRail>[];
-	}>;
-};
-function withLaneColor<T extends { colorIndex: number }>({
-	colorIndex,
-	...value
-}: T) {
-	return {
-		...value,
-		color:
-			runtimeGitGraphLaneColors[
-				Math.abs(colorIndex) % runtimeGitGraphLaneColors.length
-			]!,
-	};
-}
 export function createGitGraphReader() {
 	let response: { key: string; etag: string; data: GraphData } | null = null;
 	return async (
@@ -262,18 +222,7 @@ export function createGitGraphReader() {
 			const error = await res.json().catch(() => null);
 			throw new Error(error?.error || "Failed to fetch Git history");
 		}
-		const json = (await res.json()) as WireGraphData;
-		const data: GraphData = {
-			...json,
-			commits: json.commits.map(withLaneColor),
-			rows: json.rows.map((row) => ({
-				...row,
-				rails: row.rails.map(withLaneColor),
-				transitions: row.transitions.map(withLaneColor),
-				convergences: row.convergences.map(withLaneColor),
-				truncatedEdges: row.truncatedEdges.map(withLaneColor),
-			})),
-		};
+		const data = (await res.json()) as GraphData;
 		const etag = res.headers?.get("etag");
 		if (etag && !signal?.aborted)
 			response = {

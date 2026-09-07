@@ -141,3 +141,123 @@ pub fn merge_queue(i: &Value) -> Value {
             .collect::<Vec<_>>()
     )
 }
+
+fn local_content(content: &str) -> String {
+    let units: Vec<_> = content.encode_utf16().collect();
+    if units.len() > 256_000 {
+        format!(
+            "{}\n\n[… pending message truncated for display …]",
+            String::from_utf16_lossy(&units[..256_000])
+        )
+    } else {
+        content.to_owned()
+    }
+}
+
+pub fn system_notice(i: &Value) -> Value {
+    let content = local_content(string(&i["content"]));
+    let previous = &i["previous"];
+    if !content.is_empty()
+        && previous["role"] == "system"
+        && !flag(&previous["isStreaming"])
+        && previous["content"] == content
+    {
+        return Value::Null;
+    }
+    let mut message = json!({"id":i["id"],"role":"system","localOnly":true,"content":content});
+    if !i["render"].is_null() {
+        message["render"] = i["render"].clone();
+    }
+    message
+}
+
+// Prepare one user intent for transport and immediate display. Offsets and the
+// display cap use UTF-16 because the renderer edits browser strings.
+pub fn prepare_send(i: &Value) -> Value {
+    let text = string(&i["text"]).trim_matches(|c| {
+        matches!(c,
+        '\u{0009}'..='\u{000d}' | ' ' | '\u{00a0}' | '\u{1680}' |
+        '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' |
+        '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
+    });
+    let images = array(&i["images"]);
+    if text.is_empty() && images.is_empty() {
+        return Value::Null;
+    }
+    let display = if text.is_empty() && flag(&i["expandCommands"]) {
+        format!("Attached image{}", if images.len() > 1 { "s" } else { "" })
+    } else {
+        text.to_owned()
+    };
+    let mut request = json!({"type":"chat:send", "paneId":i["paneId"],
+        "agentKind":i["agentKind"], "text":text, "displayText":display,
+        "images":images, "expandCommands":flag(&i["expandCommands"])});
+    for field in ["cwd", "referencePaths"] {
+        if !i[field].is_null() {
+            request[field] = i[field].clone();
+        }
+    }
+    let optimistic = if flag(&i["isLoading"]) {
+        Value::Null
+    } else {
+        request["messageId"] = i["id"].clone();
+        let content = local_content(&display);
+        json!({"id":i["id"],"role":"user","optimistic":true,"content":content,"images":images})
+    };
+    json!({"request":request,"optimistic":optimistic})
+}
+
+#[cfg(test)]
+mod send_tests {
+    use super::*;
+
+    #[test]
+    fn system_notices_suppress_only_completed_nonempty_duplicates() {
+        let previous = json!({"role":"system","content":"Stopped"});
+        assert!(system_notice(&json!({"content":"Stopped","previous":previous})).is_null());
+        let notice = system_notice(
+            &json!({"id":"notice","content":"Stopped","render":{"kind":"notice"},
+            "previous":{"role":"system","content":"Stopped","isStreaming":true}}),
+        );
+        assert_eq!(notice["role"], "system");
+        assert_eq!(notice["localOnly"], true);
+        assert_eq!(notice["render"]["kind"], "notice");
+        assert!(
+            !system_notice(&json!({"content":"","previous":{"role":"system","content":""}}))
+                .is_null()
+        );
+    }
+
+    #[test]
+    fn send_intent_preserves_request_and_optimistic_semantics() {
+        let context = json!({"id":"local-1", "paneId":"pane", "agentKind":"codex",
+            "cwd":"/repo", "referencePaths":["/reference"], "text":" \u{feff}hello\n "});
+        let prepared = prepare_send(&context);
+        assert_eq!(prepared["request"]["text"], "hello");
+        assert_eq!(prepared["request"]["cwd"], "/repo");
+        assert_eq!(prepared["request"]["messageId"], "local-1");
+        assert_eq!(prepared["optimistic"]["content"], "hello");
+        assert_eq!(prepare_send(&json!({"text":" \u{feff}\n"})), Value::Null);
+        let image = prepare_send(
+            &json!({"text":"", "images":["a.png","b.png"], "expandCommands":true, "isLoading":true}),
+        );
+        assert_eq!(image["request"]["displayText"], "Attached images");
+        assert!(image["request"].get("messageId").is_none());
+        assert!(image["optimistic"].is_null());
+        assert_eq!(image["request"]["images"], json!(["a.png", "b.png"]));
+        // U+0085 is not ECMAScript whitespace.
+        assert_eq!(
+            prepare_send(&json!({"text":"\u{0085}"}))["request"]["text"],
+            "\u{0085}"
+        );
+        let long = "😀".repeat(128_001);
+        let model = prepare_send(&json!({"text":long}));
+        assert_eq!(model["request"]["text"], long);
+        assert!(
+            model["optimistic"]["content"]
+                .as_str()
+                .unwrap()
+                .ends_with("[… pending message truncated for display …]")
+        );
+    }
+}

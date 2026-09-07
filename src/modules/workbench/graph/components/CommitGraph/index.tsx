@@ -169,9 +169,9 @@ export const CommitGraph = memo(function CommitGraph(
 									view.reachableHistory.has(commit.id) ||
 									view.reachableHistory.has(commit.hash)
 								}
-								columns={view.columns}
+								visibleOrder={view.visibleOrder}
+								graphStart={view.graphLeft}
 								widths={view.widths}
-								order={view.order}
 								virtualTop={TOP_PADDING + logicalIndex * ROW_HEIGHT}
 								searchMatch={view.matchingHashes.has(commit.id)}
 								githubAvatar={view.commitAvatars[commit.hash] ?? undefined}

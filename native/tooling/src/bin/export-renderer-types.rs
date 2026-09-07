@@ -42,6 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         inferay_presentation::liquid::LiquidFrame,
         inferay_core::prompts::Prompt,
         inferay_core::prompts::SkillProposal,
+        inferay_core::prompts::SkillProposalView,
         inferay_core::prompts::SkillRead,
         inferay_presentation::skills::SkillFormState,
         inferay_core::agent_state::AgentSavedState,
