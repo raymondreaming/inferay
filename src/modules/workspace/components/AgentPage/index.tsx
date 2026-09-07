@@ -4,27 +4,33 @@ import { wsClient } from "../../../../adapters/backend/http.ts";
 import {
 	APP_THEME_STORAGE_KEY,
 	CLIENT_STORAGE_CHANGED_EVENT,
-} from "../../../../adapters/storage/stored-values.ts";
-import { loadAppThemeId } from "../../../../app/model/appearance.ts";
-import { hasId, listenWindowEvent } from "../../../../shared/lib/data.ts";
-import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
-import { clearAgentChatPaneState } from "../../../conversation/model/chat-session-store.ts";
-import { useRepositoryWorkbench } from "../../../workbench/hooks/useRepositoryWorkbench.tsx";
-import type { MutableRef } from "../../model/workspace-model.ts";
-import {
-	type AgentGroupsAction,
-	DEFAULT_ROWS,
-	FOCUS_AGENT_CHAT_COMPOSER_EVENT,
-	type FocusAgentChatComposerDetail,
-	getThemeById,
+	clearAgentChatPaneState,
 	listenAgentLayoutMode,
 	loadAgentLayoutMode,
-	mutateAgentWorkspaceState,
 	setAgentLayoutMode,
-	useAgentPaneActions,
+} from "../../../../adapters/storage/stored-values.ts";
+import {
+	getThemeById,
+	loadAppThemeId,
+} from "../../../../app/model/appearance.ts";
+import type { MutableRef } from "../../../../shared/lib/data.ts";
+import {
+	FOCUS_AGENT_CHAT_COMPOSER_EVENT,
+	type FocusAgentChatComposerDetail,
+	hasId,
+	listenWindowEvent,
+	REMOVE_AGENT_PANE_REQUEST_EVENT,
+	type RemoveAgentPaneRequestDetail,
+} from "../../../../shared/lib/data.ts";
+import type { AgentKind } from "../../../agents/model/agents.ts";
+import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
+import { useRepositoryWorkbench } from "../../../workbench/hooks/useRepositoryWorkbench.tsx";
+import {
+	type AgentGroupsAction,
+	mutateAgentWorkspaceState,
 	useWorkspaceState,
-} from "../../model/workspace-model.ts";
-import { WorkspaceCanvas } from "../WorkspaceCanvas/index.tsx";
+} from "../../hooks/useWorkspaceState.tsx";
+import { DEFAULT_ROWS, WorkspaceCanvas } from "../WorkspaceCanvas/index.tsx";
 import { AgentMainSurface } from "./AgentMainSurface.tsx";
 export type AgentPaneActionsArgs = {
 	readonly chatRefs: MutableRef<Map<string, AgentChatHandle> | null>;
@@ -242,4 +248,73 @@ export function AgentPage() {
 			/>
 		</>
 	);
+}
+
+export function useAgentPaneActions({
+	chatRefs,
+	cleanupPane,
+	dispatchAgentGroupAction,
+	groups,
+	selectedGroupId,
+}: AgentPaneActionsArgs) {
+	const removePane = useCallback(
+		(paneId: string) => {
+			const group =
+				groups.find((g) => g.panes.some(hasId.bind(null, paneId))) ??
+				groups.find(hasId.bind(null, selectedGroupId));
+			if (group) {
+				cleanupPane(paneId);
+				dispatchAgentGroupAction({
+					type: "removePane",
+					groupId: group.id,
+					paneId,
+				});
+			}
+		},
+		[cleanupPane, dispatchAgentGroupAction, groups, selectedGroupId],
+	);
+	useEffect(
+		() =>
+			listenWindowEvent(REMOVE_AGENT_PANE_REQUEST_EVENT, (event) => {
+				const id = (event as CustomEvent<RemoveAgentPaneRequestDetail>).detail
+					?.paneId;
+				if (id) removePane(id);
+			}),
+		[removePane],
+	);
+	const actions = useMemo(() => {
+		const send = (a: AgentGroupsAction) => {
+				if (selectedGroupId) dispatchAgentGroupAction(a);
+			},
+			groupId = selectedGroupId ?? "";
+		return {
+			handleAddPane: (agentKind: AgentKind) =>
+				send({ type: "addPane", groupId, agentKind }),
+			reorderPanes: (fromIndex: number, toIndex: number) =>
+				send({ type: "reorderPanes", groupId, fromIndex, toIndex }),
+			handleSetPaneAgentKind: (paneId: string, agentKind: AgentKind) =>
+				send({ type: "setPaneAgentKind", groupId, paneId, agentKind }),
+			handleDirectorySelected: (
+				paneId: string,
+				path: string | null,
+				referencePaths?: string[],
+			) =>
+				send({
+					type: "directorySelected",
+					groupId,
+					paneId,
+					path,
+					referencePaths,
+				}),
+			selectPane: (paneId: string) =>
+				send({ type: "selectPane", groupId, paneId }),
+		};
+	}, [dispatchAgentGroupAction, selectedGroupId]);
+	const handleChatRef = useCallback(
+		(id: string, handle: AgentChatHandle | null) => {
+			handle ? chatRefs.current?.set(id, handle) : chatRefs.current?.delete(id);
+		},
+		[chatRefs],
+	);
+	return { ...actions, handleChatRef, removePane };
 }

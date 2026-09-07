@@ -19,11 +19,11 @@ import {
 	fetchForgeAccounts,
 	useForgeAccounts,
 	useGithubRepos,
-} from "../../../repository/model/types.ts";
+} from "../../../repository/hooks/useForgeAccounts.tsx";
 import {
 	loadCanonicalAgentState,
 	mutateAgentWorkspaceState,
-} from "../../../workspace/model/workspace-model.ts";
+} from "../../../workspace/hooks/useWorkspaceState.tsx";
 import { GithubStep } from "./GithubStep.tsx";
 import { IntroStep } from "./IntroStep.tsx";
 import { ProjectsStep } from "./ProjectsStep.tsx";

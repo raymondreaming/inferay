@@ -5,13 +5,12 @@ import type { GitCommitFile } from "../../../../../../build/presentation/contrac
 import type { GitComparisonDetails } from "../../../../../../build/presentation/contracts/GitComparisonDetails.ts";
 import type { GitFileEntry } from "../../../../../../build/presentation/contracts/GitFileEntry.ts";
 import type { GitFilePresentation } from "../../../../../../build/presentation/contracts/GitFilePresentation.ts";
-import { DotMatrixWeave } from "../../../../../shared/ui/DotMatrixLoader/index.tsx";
 import {
 	adjacentGitFile,
-	buildChangesPanelModel,
 	getFileSelectionAfterToggle,
-	type SelectedFile,
-} from "../../../model/workbench-model.ts";
+	project as rustProject,
+} from "../../../../../adapters/presentation/model.ts";
+import { DotMatrixWeave } from "../../../../../shared/ui/DotMatrixLoader/index.tsx";
 import { ChangesPanelHeader } from "./ChangesPanelHeader.tsx";
 import { CommitSection } from "./CommitSection.tsx";
 import { FileGroup } from "./FileGroup.tsx";
@@ -309,9 +308,71 @@ export const ChangesPanel = memo(function ChangesPanel(
 	);
 });
 
-export type { SelectedFile } from "../../../model/workbench-model.ts";
 export {
 	getFileSelectionAfterToggle,
 	visibleGitFiles,
-} from "../../../model/workbench-model.ts";
+} from "../../../../../adapters/presentation/model.ts";
 export { CollapsedChangesPanel } from "./CollapsedChangesPanel.tsx";
+
+export interface SelectedFile {
+	path: string;
+	staged: boolean;
+}
+export function buildChangesPanelModel({
+	content,
+	fileViewMode,
+	filePresentation,
+	modified,
+	untracked,
+	staged,
+	selectedCommitHash,
+	selectedCommitCount,
+	commitDetailsLoading,
+	commitDetails,
+	commitDetailsError,
+	comparisonDetailsLoading,
+	comparisonDetails,
+}: {
+	content: "workingTree" | "history";
+	fileViewMode: "path" | "tree";
+	filePresentation?: GitFilePresentation;
+	modified: readonly GitFileEntry[];
+	untracked: readonly GitFileEntry[];
+	staged: readonly GitFileEntry[];
+	selectedCommitHash: string | null;
+	selectedCommitCount: number;
+	commitDetailsLoading: boolean;
+	commitDetails: GitCommitDetails | null;
+	commitDetailsError?: string | null;
+	comparisonDetailsLoading: boolean;
+	comparisonDetails: GitComparisonDetails | null;
+}): {
+	unstagedFiles: GitFileEntry[];
+	stagedFiles: GitFileEntry[];
+	workingFiles: GitFileEntry[];
+	navigableFiles: GitFileEntry[];
+	showingWorkingTree: boolean;
+	comparing: boolean;
+	historyDetails: GitCommitDetails | GitComparisonDetails | null;
+	historyLoading: boolean;
+	historyMessage: string;
+	navigableHistoricalFiles: GitCommitFile[];
+	additions: number;
+	deletions: number;
+} {
+	return rustProject("changesPanel", {
+		content,
+		fileViewMode,
+		filePresentation,
+		modified,
+		untracked,
+		staged,
+		selectedCommitHash,
+		selectedCommitCount,
+		commitDetailsLoading,
+		commitDetails,
+		commitDetailsError,
+		comparisonDetailsLoading,
+		comparisonDetails,
+	});
+}

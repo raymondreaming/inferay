@@ -1,3 +1,5 @@
+import { writeStoredValue } from "../../adapters/storage/stored-values.ts";
+
 export function noop(): void {}
 export function hasId(id: unknown, item: { id: string }): boolean {
 	return item.id === id;
@@ -134,4 +136,87 @@ export function selectDropdownOption(
 
 export function dispatchWindowEvent<T>(name: string, detail: T): void {
 	window.dispatchEvent(new CustomEvent<T>(name, { detail }));
+}
+
+export const OPEN_ACTIVE_GIT_GRAPH_EVENT = "inferay-open-active-git-graph";
+export const TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT =
+	"inferay-toggle-active-git-sidebar";
+export function dispatchOpenActiveGitGraph(): void {
+	window.dispatchEvent(new CustomEvent(OPEN_ACTIVE_GIT_GRAPH_EVENT));
+}
+export function dispatchToggleActiveGitSidebar(): void {
+	window.dispatchEvent(new CustomEvent(TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT));
+}
+
+export const OPEN_SETTINGS_MODAL_EVENT = "inferay-open-settings-modal";
+export type SettingsModalTarget =
+	| "agents"
+	| "appearance"
+	| "workspace"
+	| "github";
+export interface OpenSettingsModalDetail {
+	readonly section: SettingsModalTarget;
+}
+export function openSettingsModal(
+	section: SettingsModalTarget = "agents",
+): void {
+	dispatchWindowEvent<OpenSettingsModalDetail>(OPEN_SETTINGS_MODAL_EVENT, {
+		section,
+	});
+}
+export const OPEN_SKILLS_EVENT = "inferay-open-skills";
+export type SkillsTarget =
+	| { mode: "browse" }
+	| { mode: "create" }
+	| { mode: "edit"; skillId: string };
+export function openSkills(
+	target: SkillsTarget = {
+		mode: "browse",
+	},
+): void {
+	dispatchWindowEvent(OPEN_SKILLS_EVENT, target);
+}
+
+export type MutableRef<T> = { current: T };
+export const REMOVE_AGENT_PANE_REQUEST_EVENT =
+	"inferay-remove-agent-pane-request";
+export interface RemoveAgentPaneRequestDetail {
+	paneId: string;
+}
+export const dispatchRemoveAgentPaneRequest = (paneId: string) =>
+	dispatchWindowEvent<RemoveAgentPaneRequestDetail>(
+		REMOVE_AGENT_PANE_REQUEST_EVENT,
+		{ paneId },
+	);
+export const CREATE_AGENT_CHAT_EVENT = "create-agent-chat",
+	FOCUS_AGENT_CHAT_COMPOSER_EVENT = "inferay-focus-agent-chat-composer";
+export type CreateAgentChatTarget = "active-repository" | "new-repository";
+export interface CreateAgentChatDetail {
+	target: CreateAgentChatTarget;
+}
+export interface FocusAgentChatComposerDetail {
+	paneId: string;
+}
+export const dispatchCreateAgentChat = (
+	target: CreateAgentChatTarget = "active-repository",
+) =>
+	dispatchWindowEvent<CreateAgentChatDetail>(CREATE_AGENT_CHAT_EVENT, {
+		target,
+	});
+export const dispatchFocusAgentChatComposer = (paneId: string) =>
+	dispatchWindowEvent<FocusAgentChatComposerDetail>(
+		FOCUS_AGENT_CHAT_COMPOSER_EVENT,
+		{ paneId },
+	);
+export const WORKSPACE_SIDEBAR_COLLAPSED_EVENT =
+	"inferay-workspace-sidebar-collapsed";
+export interface WorkspaceSidebarCollapsedDetail {
+	collapsed: boolean;
+}
+export function setWorkspaceSidebarCollapsed(collapsed: boolean) {
+	writeStoredValue("sidebar-collapsed", String(collapsed));
+	dispatchWindowEvent<WorkspaceSidebarCollapsedDetail>(
+		WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
+		{ collapsed },
+	);
 }

@@ -1,5 +1,5 @@
 import * as stylex from "@octanejs/stylex";
-import type { SidebarWorkspaceState } from "../../model/workspace-model.ts";
+import type { SidebarWorkspaceState } from "../../hooks/useWorkspaceState.tsx";
 import { PaneSummaryItem } from "./PaneSummaryItem.tsx";
 import { styles } from "./styles.ts";
 

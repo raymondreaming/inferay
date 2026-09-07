@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
 import { memo } from "octane";
-import type { ThemeId } from "../../../workspace/model/workspace-model.ts";
+import type { ThemeId } from "../../../../app/model/appearance.ts";
 import { SettingsContent } from "./SettingsContent.tsx";
 import { styles } from "./styles.ts";
 

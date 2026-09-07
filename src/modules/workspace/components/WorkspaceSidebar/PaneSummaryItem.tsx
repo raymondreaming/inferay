@@ -5,10 +5,10 @@ import {
 	iconSize,
 	selectionAppearance,
 } from "../../../../design-system/styles.stylex.ts";
+import { dispatchRemoveAgentPaneRequest } from "../../../../shared/lib/data.ts";
 import { IconAgent, IconX } from "../../../../shared/ui/Icons/index.tsx";
 import { getAgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
 import { isChatAgentKind } from "../../../agents/model/agents.ts";
-import { dispatchRemoveAgentPaneRequest } from "../../model/workspace-model.ts";
 import { styles } from "./styles.ts";
 
 export function PaneSummaryItem({

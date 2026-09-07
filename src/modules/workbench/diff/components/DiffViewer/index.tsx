@@ -10,19 +10,14 @@ import {
 	useState,
 } from "octane";
 import type { HunkDiff } from "../../../../../../build/presentation/contracts/HunkDiff.ts";
+import { project as rustProject } from "../../../../../adapters/presentation/model.ts";
 import { listenWindowEvent } from "../../../../../shared/lib/data.ts";
-import {
-	buildDiffViewerModel,
-	type DiffViewMode,
-	diffNavigationReducer,
-	INITIAL_DIFF_NAVIGATION_STATE,
-	LINE_H,
-} from "../../../model/workbench-model.ts";
+import type { DiffScrollSource } from "../../hooks/useSplitDiffScroll.tsx";
 import { MarkdownPreview } from "../MarkdownPreview/index.tsx";
 import { DiffHeader } from "./DiffHeader.tsx";
 import { DiffPanels } from "./DiffPanels.tsx";
 import { DiffViewToolbar } from "./DiffViewToolbar.tsx";
-import { diffStyles } from "./styles.ts";
+import { diffStyles, LINE_H } from "./styles.ts";
 
 interface DiffViewerProps {
 	diff: HunkDiff;
@@ -267,4 +262,68 @@ export const DiffViewer = memo(function DiffViewer({
 	);
 });
 
-export type { DiffViewMode } from "../../../model/workbench-model.ts";
+export type DiffViewMode = "split" | "hunks";
+export const MAX_RENDERED_LINE_CHARS = 4000;
+export function buildDiffViewerModel(
+	diff: HunkDiff,
+	filePath: string,
+	viewMode: DiffViewMode,
+): {
+	changeRanges: Array<[number, number]>;
+	changePositions: number[];
+	extension: string;
+	conflict: boolean;
+	message: string | null;
+	isMarkdown: boolean;
+	markdownContent: string;
+	navigable: boolean;
+} {
+	return rustProject("diffViewer", { diff, filePath, viewMode });
+}
+type DiffNavigationState = {
+	externalScrollSource: DiffScrollSource;
+	externalScrollTop: number;
+	highlightedChangeIdx: number | undefined;
+};
+export const INITIAL_DIFF_NAVIGATION_STATE = {
+	externalScrollSource: "all",
+	externalScrollTop: -1,
+	highlightedChangeIdx: undefined,
+} satisfies DiffNavigationState;
+export function diffNavigationReducer(
+	state: DiffNavigationState,
+	action:
+		| { type: "clearHighlight" | "clearScroll" | "reset" }
+		| { type: "jumpToChange"; changeIdx: number; top: number }
+		| { type: "jumpToPosition"; source: DiffScrollSource; top: number },
+): DiffNavigationState {
+	let next: DiffNavigationState;
+	switch (action.type) {
+		case "clearHighlight":
+			next = { ...state, highlightedChangeIdx: undefined };
+			break;
+		case "clearScroll":
+			next = { ...state, externalScrollTop: -1, externalScrollSource: "all" };
+			break;
+		case "jumpToChange":
+			return {
+				externalScrollSource: "all",
+				externalScrollTop: action.top,
+				highlightedChangeIdx: action.changeIdx,
+			};
+		case "jumpToPosition":
+			return {
+				...state,
+				externalScrollSource: action.source,
+				externalScrollTop: action.top,
+			};
+		case "reset":
+			next = INITIAL_DIFF_NAVIGATION_STATE;
+			break;
+	}
+	return state.externalScrollSource === next.externalScrollSource &&
+		state.externalScrollTop === next.externalScrollTop &&
+		state.highlightedChangeIdx === next.highlightedChangeIdx
+		? state
+		: next;
+}

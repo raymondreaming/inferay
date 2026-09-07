@@ -1,5 +1,10 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useMemo, useRef, useState } from "octane";
+import {
+	fetchJsonOr,
+	pickCloneDirectory,
+	sendJson,
+} from "../../../../adapters/backend/http.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
 import { setInputValue } from "../../../../shared/lib/data.ts";
@@ -10,11 +15,6 @@ import {
 	IconPlus,
 	IconX,
 } from "../../../../shared/ui/Icons/index.tsx";
-import {
-	fetchSearchFolders,
-	pickCloneDirectory,
-	saveSearchFolders,
-} from "../../model/settings-workflows.ts";
 import { styles } from "./styles.ts";
 
 const EMPTY_FOLDERS: string[] = [];
@@ -136,4 +136,15 @@ export function SearchFoldersSection({
 			</div>
 		</div>
 	);
+}
+
+export async function fetchSearchFolders() {
+	return (
+		await fetchJsonOr<{ folders: string[] }>("/api/config/search-folders", {
+			folders: [],
+		})
+	).folders;
+}
+export async function saveSearchFolders(folders: string[]) {
+	await sendJson("/api/config/search-folders", { folders }, { method: "PUT" });
 }

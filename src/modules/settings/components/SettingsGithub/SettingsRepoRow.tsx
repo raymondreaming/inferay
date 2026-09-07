@@ -1,11 +1,11 @@
 import * as stylex from "@octanejs/stylex";
+import type { GithubRepo } from "../../../../../build/presentation/contracts/GithubRepo.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
 import {
 	IconExternalLink,
 	IconPlus,
 } from "../../../../shared/ui/Icons/index.tsx";
-import type { GithubRepo } from "../../../repository/model/types.ts";
 import { styles } from "./styles.ts";
 export function SettingsRepoRow({
 	repo,

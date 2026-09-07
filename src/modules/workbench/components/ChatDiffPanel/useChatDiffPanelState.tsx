@@ -1,24 +1,20 @@
 import { useQuery } from "@octanejs/tanstack-query";
 import { useCallback, useState } from "octane";
+import type { GitActionResponse } from "../../../../../build/presentation/contracts/GitActionResponse.ts";
 import type { GitRefOperationPreflight } from "../../../../../build/presentation/contracts/GitRefOperationPreflight.ts";
 import { postJson } from "../../../../adapters/backend/http.ts";
 import { queryClient } from "../../../../shared/lib/data.ts";
 import type { useGitDiff } from "../../../repository/hooks/useGitDiff.tsx";
 import type { useGitGraph } from "../../../repository/hooks/useGitGraph.tsx";
+import type { DragProps } from "../../../workspace/components/WorkspaceCanvas/index.tsx";
 import type { SelectedFile } from "../../changes/components/ChangesPanel/index.tsx";
 import type { DiffViewMode } from "../../diff/components/DiffViewer/index.tsx";
 import type {
 	GitGraphActionRequest,
 	GraphSelectionIntent,
 } from "../../graph/components/CommitGraph/index.tsx";
-import type { GraphPreferences } from "../../graph/model/graph-model.ts";
-import type {
-	DragProps,
-	GitGraphActionResult,
-	GitOperationActivityPhase,
-	GitRefOperationRequest,
-	GitRefOperationResult,
-} from "../../model/workbench-model.ts";
+import type { GraphPreferences } from "../../graph/components/CommitGraph/useCommitGraphState.tsx";
+import type { GitRefOperationRequest } from "../../hooks/useRepositoryWorkbench.tsx";
 
 export function useChatDiffPanelState(props: {
 	readonly diff: ReturnType<typeof useGitDiff>["diff"];
@@ -48,10 +44,10 @@ export function useChatDiffPanelState(props: {
 	readonly onCheckoutRef: (ref: string) => void;
 	readonly onRunRefOperation: (
 		request: GitRefOperationRequest,
-	) => Promise<GitRefOperationResult>;
+	) => Promise<GitActionResponse>;
 	readonly onRunGraphAction: (
 		request: GitGraphActionRequest & { name?: string; message?: string },
-	) => Promise<GitGraphActionResult>;
+	) => Promise<GitActionResponse>;
 	readonly onLoadMoreCommits: () => void;
 	readonly branch?: string;
 	readonly onClose: () => void;
@@ -86,14 +82,14 @@ export function useChatDiffPanelState(props: {
 		target: string;
 	} | null>(null);
 	const [refOperationResult, setRefOperationResult] =
-		useState<GitRefOperationResult | null>(null);
+		useState<GitActionResponse | null>(null);
 	const [refOperationRunning, setRefOperationRunning] = useState(false);
 	const [pendingGraphAction, setPendingGraphAction] =
 		useState<GitGraphActionRequest | null>(null);
 	const [graphActionName, setGraphActionName] = useState("");
 	const [graphActionMessage, setGraphActionMessage] = useState("");
 	const [graphActionResult, setGraphActionResult] =
-		useState<GitGraphActionResult | null>(null);
+		useState<GitActionResponse | null>(null);
 	const [graphActionRunning, setGraphActionRunning] = useState(false);
 	const preflight = useQuery(
 		{
@@ -234,3 +230,11 @@ export function useChatDiffPanelState(props: {
 		operationActivity,
 	};
 }
+
+export type GitOperationActivityPhase =
+	| "idle"
+	| "running"
+	| "conflicted"
+	| "awaitingContinuation"
+	| "completed"
+	| "failed";

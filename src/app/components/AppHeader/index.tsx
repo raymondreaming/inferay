@@ -1,15 +1,13 @@
 import { useLocation, useNavigate } from "@octanejs/tanstack-router";
 import { useCallback, useMemo } from "octane";
 import { iconSize } from "../../../design-system/styles.stylex.ts";
-import {
-	openSettingsModal,
-	openSkills,
-} from "../../../modules/skills/model/skill-library.ts";
-import { dispatchOpenActiveGitGraph } from "../../../modules/workbench/model/workbench-model.ts";
+import { useWorkspaceState } from "../../../modules/workspace/hooks/useWorkspaceState.tsx";
 import {
 	dispatchCreateAgentChat,
-	useWorkspaceState,
-} from "../../../modules/workspace/model/workspace-model.ts";
+	dispatchOpenActiveGitGraph,
+	openSettingsModal,
+	openSkills,
+} from "../../../shared/lib/data.ts";
 import {
 	IconGitBranch,
 	IconMessageCircle,

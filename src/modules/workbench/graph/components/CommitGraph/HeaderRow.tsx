@@ -4,15 +4,15 @@ import {
 	IconSearch,
 	IconSettings,
 } from "../../../../../shared/ui/Icons/index.tsx";
+import { ColumnResizeHandle } from "./ColumnResizeHandle.tsx";
+import * as inlineStyles from "./styles.ts";
+import { styles } from "./styles.ts";
 import {
 	type ColumnKey,
 	type ColumnVisibility,
 	type ColumnWidths,
 	TOOLS_WIDTH,
-} from "../../model/graph-model.ts";
-import { ColumnResizeHandle } from "./ColumnResizeHandle.tsx";
-import * as inlineStyles from "./styles.ts";
-import { styles } from "./styles.ts";
+} from "./useCommitGraphState.tsx";
 export function HeaderRow({
 	graphWidth,
 	columns,

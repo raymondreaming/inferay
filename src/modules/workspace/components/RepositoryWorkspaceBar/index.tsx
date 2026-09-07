@@ -2,6 +2,7 @@ import * as stylex from "@octanejs/stylex";
 import { useLocation, useNavigate } from "@octanejs/tanstack-router";
 import { useCallback, useEffect, useRef, useState } from "octane";
 import type { RepositoryWorkspace } from "../../../../../build/presentation/contracts/RepositoryWorkspace.ts";
+import { loadSidebarCollapsed } from "../../../../adapters/storage/stored-values.ts";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
@@ -10,7 +11,15 @@ import {
 	iconSize,
 	selectionAppearance,
 } from "../../../../design-system/styles.stylex.ts";
-import { listenWindowEvent } from "../../../../shared/lib/data.ts";
+import {
+	type CreateAgentChatTarget,
+	dispatchCreateAgentChat,
+	dispatchToggleActiveGitSidebar,
+	listenWindowEvent,
+	setWorkspaceSidebarCollapsed,
+	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
+	type WorkspaceSidebarCollapsedDetail,
+} from "../../../../shared/lib/data.ts";
 import {
 	IconFolder,
 	IconGitBranch,
@@ -19,17 +28,10 @@ import {
 	IconPanelRight,
 	IconPlus,
 } from "../../../../shared/ui/Icons/index.tsx";
-import { dispatchToggleActiveGitSidebar } from "../../../workbench/model/workbench-model.ts";
 import {
-	type CreateAgentChatTarget,
-	dispatchCreateAgentChat,
-	loadSidebarCollapsed,
 	mutateAgentWorkspaceState,
-	setWorkspaceSidebarCollapsed,
 	useWorkspaceState,
-	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
-	type WorkspaceSidebarCollapsedDetail,
-} from "../../model/workspace-model.ts";
+} from "../../hooks/useWorkspaceState.tsx";
 import { styles } from "./styles.ts";
 export function RepositoryWorkspaceBar() {
 	const location = useLocation();

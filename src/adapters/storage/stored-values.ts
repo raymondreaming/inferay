@@ -1,4 +1,9 @@
-import { dispatchWindowEvent } from "../../shared/lib/data.ts";
+import type { AgentLayoutMode } from "../../modules/workspace/components/WorkspaceCanvas/index.tsx";
+import {
+	dispatchWindowEvent,
+	listenWindowEvent,
+} from "../../shared/lib/data.ts";
+
 import { sendJson } from "../backend/http.ts";
 export const ONBOARDING_DONE_STORAGE_KEY = "inferay-onboarding-done";
 export const APP_THEME_STORAGE_KEY = "inferay-app-theme-id";
@@ -98,3 +103,31 @@ export function readStoredBoolean(key: string, fallback = false): boolean {
 	const value = readStoredValue(key);
 	return value === null ? fallback : value === "true";
 }
+
+const INPUT_KEY_PREFIX = "inferay-chat-input-";
+export function loadStoredInput(paneId: string): string {
+	return readStoredValue(INPUT_KEY_PREFIX + paneId, "") ?? "";
+}
+export function saveStoredInput(paneId: string, value: string) {
+	if (value) writeStoredValue(INPUT_KEY_PREFIX + paneId, value);
+	else removeStoredValue(INPUT_KEY_PREFIX + paneId);
+}
+export function clearAgentChatPaneState(paneId: string) {
+	removeStoredValue(INPUT_KEY_PREFIX + paneId);
+}
+
+export const loadAgentLayoutMode = (): AgentLayoutMode =>
+	readStoredValue("agent-layout-mode") === "grid" ? "grid" : "rows";
+export const listenAgentLayoutMode = (set: (mode: AgentLayoutMode) => void) =>
+	listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
+		if (
+			(event as CustomEvent<{ key?: string }>).detail?.key ===
+			"agent-layout-mode"
+		)
+			set(loadAgentLayoutMode());
+	});
+export function setAgentLayoutMode(mode: AgentLayoutMode) {
+	writeStoredValue("agent-layout-mode", mode);
+}
+export const loadSidebarCollapsed = () =>
+	readStoredBoolean("sidebar-collapsed");

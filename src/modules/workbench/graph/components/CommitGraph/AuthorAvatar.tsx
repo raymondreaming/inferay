@@ -1,9 +1,9 @@
 import * as stylex from "@octanejs/stylex";
 import { useState } from "octane";
 import { IconGitCommit } from "../../../../../shared/ui/Icons/index.tsx";
-import { hexToRgba } from "../../model/graph-model.ts";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
+import { hexToRgba } from "./useCommitGraphState.tsx";
 
 function authorInitials(name?: string | null) {
 	const words = (typeof name === "string" ? name : "")

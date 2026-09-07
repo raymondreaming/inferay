@@ -17,10 +17,8 @@ export function findDecoratedTokenRanges(
 	return rustProject("decoratedTokens", { text, commands: slashCommandNames });
 }
 
-import type {
-	SkillProposal,
-	SkillRead,
-} from "../../skills/model/skill-library.ts";
+import type { SkillProposal } from "../../../../build/presentation/contracts/SkillProposal.ts";
+import type { SkillRead } from "../../../../build/presentation/contracts/SkillRead.ts";
 
 export interface AttachedImageInfo {
 	name: string;

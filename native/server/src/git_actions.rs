@@ -2,6 +2,34 @@
 use serde_json::{Value, json};
 use std::sync::LazyLock;
 
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GraphActionPresentation {
+    title: String,
+    copy: String,
+    confirm: String,
+    needs_name: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    name_label: Option<String>,
+    message_label: Option<String>,
+    danger: bool,
+}
+#[derive(serde::Serialize, ts_rs::TS)]
+pub(crate) struct GitActionSelection {
+    commit: Option<String>,
+}
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GitActionResponse {
+    #[serde(flatten)]
+    result: inferay_native_diff::GitOperationResult,
+    error_label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    selection: Option<GitActionSelection>,
+}
+
 pub(super) static CATALOG: LazyLock<Value> = LazyLock::new(|| {
     let entries = [
         (
@@ -149,14 +177,29 @@ pub(super) static CATALOG: LazyLock<Value> = LazyLock::new(|| {
             json!({"confirm":"Push"}),
         ),
     ];
-    Value::Object(entries.into_iter().map(|(key, title, copy, options)| {
-        let mut action = json!({"title":title,"copy":copy,"confirm":title,"needsName":false,"messageLabel":null,"danger":false});
-        action.as_object_mut().unwrap().extend(options.as_object().unwrap().clone());
-        (key.into(), action)
-    }).collect())
+    Value::Object(
+        entries
+            .into_iter()
+            .map(|(key, title, copy, options)| {
+                let action = GraphActionPresentation {
+                    title: title.into(),
+                    copy: copy.into(),
+                    confirm: options["confirm"].as_str().unwrap_or(title).into(),
+                    needs_name: options["needsName"] == true,
+                    name_label: options["nameLabel"].as_str().map(str::to_owned),
+                    message_label: options["messageLabel"].as_str().map(str::to_owned),
+                    danger: options["danger"] == true,
+                };
+                (key.into(), json!(action))
+            })
+            .collect(),
+    )
 });
 
-pub(super) fn operation_payload(result: inferay_native_diff::GitOperationResult) -> Value {
+pub(super) fn operation_payload(
+    result: inferay_native_diff::GitOperationResult,
+    ref_operation: bool,
+) -> Value {
     use inferay_native_diff::GitOperationErrorKind::*;
     let label = match result.error_kind {
         Some(Conflict) => "Merge conflict",
@@ -169,7 +212,89 @@ pub(super) fn operation_payload(result: inferay_native_diff::GitOperationResult)
         Some(Io) => "Git could not be started",
         _ => "Git command failed",
     };
-    let mut payload = json!(result);
-    payload["errorLabel"] = json!(label);
-    payload
+    let select_head = ref_operation
+        || matches!(
+            result.operation.as_str(),
+            "cherryPick" | "revert" | "resetSoft" | "resetMixed" | "resetHard"
+        );
+    let selection =
+        (result.ok && select_head && (ref_operation || result.head.is_some())).then(|| {
+            GitActionSelection {
+                commit: result.head.clone(),
+            }
+        });
+    json!(GitActionResponse {
+        result,
+        error_label: label.into(),
+        selection
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use inferay_native_diff::{GitOperationErrorKind, GitOperationOutcome, GitOperationResult};
+
+    fn result(operation: &str, head: Option<&str>) -> GitOperationResult {
+        GitOperationResult {
+            ok: true,
+            operation: operation.into(),
+            outcome: GitOperationOutcome::Completed,
+            head: head.map(str::to_owned),
+            conflicts: Vec::new(),
+            error_kind: None,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn graph_actions_select_head_only_when_the_action_moves_selection() {
+        for operation in [
+            "cherryPick",
+            "revert",
+            "resetSoft",
+            "resetMixed",
+            "resetHard",
+        ] {
+            let payload = operation_payload(result(operation, Some("new-head")), false);
+            assert_eq!(payload["selection"], json!({"commit": "new-head"}));
+            assert_eq!(payload["operation"], operation);
+            assert_eq!(payload["head"], "new-head");
+            assert!(
+                operation_payload(result(operation, None), false)
+                    .get("selection")
+                    .is_none()
+            );
+        }
+        for operation in ["createBranch", "createTag", "stashPush", "fetch", "push"] {
+            assert!(
+                operation_payload(result(operation, Some("head")), false)
+                    .get("selection")
+                    .is_none()
+            );
+        }
+    }
+
+    #[test]
+    fn ref_actions_can_clear_selection_but_failed_actions_preserve_it() {
+        assert_eq!(
+            operation_payload(result("merge", None), true)["selection"],
+            json!({"commit": null})
+        );
+        assert_eq!(
+            operation_payload(result("merge", Some("merged")), true)["selection"],
+            json!({"commit": "merged"})
+        );
+        for ref_operation in [false, true] {
+            let mut failed = result("revert", Some("unchanged"));
+            failed.ok = false;
+            failed.outcome = GitOperationOutcome::Conflicted;
+            failed.error_kind = Some(GitOperationErrorKind::Conflict);
+            failed.conflicts.push("conflict.txt".into());
+            let payload = operation_payload(failed, ref_operation);
+            assert!(payload.get("selection").is_none());
+            assert_eq!(payload["errorLabel"], "Merge conflict");
+            assert_eq!(payload["conflicts"], json!(["conflict.txt"]));
+        }
+    }
 }

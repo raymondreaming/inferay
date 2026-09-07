@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "octane";
-import { fetchJson, sendJson } from "../../../adapters/backend/http.ts";
+import {
+	fetchJson,
+	sendJson,
+	wsClient,
+} from "../../../adapters/backend/http.ts";
+import { project as rustProject } from "../../../adapters/presentation/model.ts";
 import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
 import type {
 	AttachedImageInfo,
 	QueuedChatMessage,
 } from "../model/agent-chat-shared.ts";
-import {
-	mergeNativeQueue,
-	releaseChatImages,
-	uploadChatImage,
-} from "../model/chat-composer.ts";
 
 export function useAgentChatComposerState(paneId: string, enabled = true) {
 	const [attachedImages, setAttachedImages] = useState<AttachedImageInfo[]>([]);
@@ -96,7 +96,12 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 				setEditingQueueId(null);
 				setEditingQueueText("");
 			}
-			replaceQueue(mergeNativeQueue(queueRef.current, messages));
+			replaceQueue(
+				rustProject("mergeQueue", {
+					current: queueRef.current,
+					persisted: messages,
+				}),
+			);
 		},
 		[replaceQueue],
 	);
@@ -248,5 +253,48 @@ export function useAgentChatComposerState(paneId: string, enabled = true) {
 		clearAttachedImages,
 		handleDrop,
 		handlePaste,
+	};
+}
+
+export async function uploadChatImage(
+	file: File,
+): Promise<AttachedImageInfo | null> {
+	const body = new FormData();
+	body.append("file", file);
+	const response = await fetch("/api/upload-temp", { method: "POST", body });
+	const data = (await response.json()) as { path?: string };
+	return data.path
+		? {
+				name: file.name,
+				path: data.path,
+				previewUrl: URL.createObjectURL(file),
+			}
+		: null;
+}
+export function releaseChatImages(images: AttachedImageInfo[]) {
+	for (const image of images) URL.revokeObjectURL(image.previewUrl);
+}
+
+export function usePendingChatWorkspace(
+	paneId: string,
+	cwd: string | undefined,
+	nativePaths: string[] | undefined,
+) {
+	const [pendingWorkspacePaths, setPendingWorkspacePaths] = useState(
+		nativePaths ?? [],
+	);
+	useEffect(() => setPendingWorkspacePaths(nativePaths ?? []), [nativePaths]);
+	const visibleCwd = cwd ?? pendingWorkspacePaths[0];
+	const savePendingWorkspaceSelection = useCallback(
+		(paths: string[]) => {
+			const nextPaths = paths.filter(Boolean);
+			setPendingWorkspacePaths(nextPaths);
+			wsClient.send({ type: "chat:workspace", paneId, paths: nextPaths });
+		},
+		[paneId],
+	);
+	return {
+		savePendingWorkspaceSelection,
+		visibleCwd,
 	};
 }

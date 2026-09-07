@@ -1,6 +1,7 @@
 import * as stylex from "@octanejs/stylex";
 import { useEffect, useState } from "octane";
-import { resolveGitAuthorIdentity } from "../../../../repository/model/types.ts";
+import { postJson } from "../../../../../adapters/backend/http.ts";
+
 import { styles } from "./styles.ts";
 
 function detailInitials(name?: string | null) {
@@ -72,4 +73,19 @@ export function DetailIdentity({
 			</span>
 		</div>
 	);
+}
+
+export async function resolveGitAuthorIdentity(
+	email?: string | null,
+	name?: string | null,
+): Promise<{ login: string; avatarUrl: string | null } | null> {
+	if (!email?.trim() && !name?.trim()) return null;
+	try {
+		const response = await postJson<{
+			identities?: Array<{ login: string; avatarUrl: string | null } | null>;
+		}>("/api/forge/commit-avatars", { identities: [{ email, name }] });
+		return response.identities?.[0] ?? null;
+	} catch {
+		return null;
+	}
 }

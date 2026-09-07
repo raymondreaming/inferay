@@ -1,14 +1,17 @@
 import * as stylex from "@octanejs/stylex";
 import { memo } from "octane";
 import { CommitGraphLinesLayer } from "../../../../../shared/ui/Icons/index.tsx";
-import { ROW_HEIGHT, TOP_PADDING } from "../../model/graph-model.ts";
 import { CommitRow } from "./CommitRow.tsx";
 import { HeaderRow } from "./HeaderRow.tsx";
 import { RefContextMenu } from "./RefContextMenu.tsx";
 import { RowContextMenu } from "./RowContextMenu.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
-import { useCommitGraphState } from "./useCommitGraphState.tsx";
+import {
+	ROW_HEIGHT,
+	TOP_PADDING,
+	useCommitGraphState,
+} from "./useCommitGraphState.tsx";
 export const LINE_WIDTH = 2;
 export function rowTop(row: number): number {
 	return row * ROW_HEIGHT;
@@ -212,4 +215,4 @@ export const CommitGraph = memo(function CommitGraph(
 export type {
 	GitGraphActionRequest,
 	GraphSelectionIntent,
-} from "../../model/graph-model.ts";
+} from "./useCommitGraphState.tsx";

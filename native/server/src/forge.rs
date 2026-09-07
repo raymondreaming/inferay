@@ -47,9 +47,10 @@ struct ReposCache {
     cached_at: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
-struct ForgeAccount {
+pub(crate) struct ForgeAccount {
+    #[ts(type = "'github'")]
     provider: &'static str,
     host: String,
     login: String,
@@ -65,20 +66,24 @@ struct AuthorIdentityRequest {
     name: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-struct GithubRepo {
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ts_rs::TS)]
+pub(crate) struct GithubRepo {
     #[serde(rename(deserialize = "nameWithOwner"))]
+    #[ts(rename = "full_name")]
     full_name: String,
     description: Option<String>,
     #[serde(rename(deserialize = "url"))]
+    #[ts(rename = "html_url")]
     html_url: String,
     #[serde(
         default,
         rename(deserialize = "primaryLanguage"),
         deserialize_with = "primary_language"
     )]
+    #[ts(rename = "language")]
     language: Option<String>,
     #[serde(rename(deserialize = "isPrivate"))]
+    #[ts(rename = "private")]
     private: bool,
 }
 

@@ -123,3 +123,12 @@ class WebSocketClient {
 	}
 }
 export const wsClient = new WebSocketClient();
+
+export async function pickCloneDirectory() {
+	const payload = await fetchJsonOr<{ folder: string | null }>(
+		"/api/config/pick-folder",
+		{ folder: null },
+		{ method: "POST" },
+	);
+	return payload.folder;
+}

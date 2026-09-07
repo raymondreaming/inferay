@@ -5,6 +5,7 @@ import {
 	APP_THEME_STORAGE_KEY,
 	CLIENT_STORAGE_CHANGED_EVENT,
 } from "../../../../adapters/storage/stored-values.ts";
+import type { ThemeId } from "../../../../app/model/appearance.ts";
 import {
 	APP_FONTS,
 	APP_THEMES,
@@ -27,10 +28,7 @@ import {
 } from "../../../../shared/hooks/useSyntaxHighlight.tsx";
 import { listenWindowEvent } from "../../../../shared/lib/data.ts";
 import { DropdownButton } from "../../../../shared/ui/DropdownButton/index.tsx";
-import {
-	mutateAgentWorkspaceState,
-	type ThemeId,
-} from "../../../workspace/model/workspace-model.ts";
+import { mutateAgentWorkspaceState } from "../../../workspace/hooks/useWorkspaceState.tsx";
 import { BackgroundScenePicker } from "./BackgroundScenePicker.tsx";
 import { GlobalAgentInstructionsSection } from "./GlobalAgentInstructionsSection.tsx";
 import { SearchFoldersSection } from "./SearchFoldersSection.tsx";

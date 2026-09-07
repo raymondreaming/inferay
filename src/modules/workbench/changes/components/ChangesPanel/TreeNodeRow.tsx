@@ -6,10 +6,10 @@ import {
 	IconChevronRight,
 	IconFolderFill,
 } from "../../../../../shared/ui/Icons/index.tsx";
-import type { SelectedFile } from "../../../model/workbench-model.ts";
 import { FileActionIcon } from "./FileActionIcon.tsx";
 import { FileChangeIcon } from "./FileChangeIcon.tsx";
 import { FileDiffStats } from "./FileDiffStats.tsx";
+import type { SelectedFile } from "./index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 

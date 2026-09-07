@@ -2,11 +2,9 @@ import { useMemo } from "octane";
 import type { GitCommitFile } from "../../../../../../build/presentation/contracts/GitCommitFile.ts";
 import type { GitFileEntry } from "../../../../../../build/presentation/contracts/GitFileEntry.ts";
 import type { GitFilePresentation } from "../../../../../../build/presentation/contracts/GitFilePresentation.ts";
-import {
-	type SelectedFile,
-	visibleGitFiles,
-} from "../../../model/workbench-model.ts";
+import { visibleGitFiles } from "../../../../../adapters/presentation/model.ts";
 import { FileGroup } from "./FileGroup.tsx";
+import type { SelectedFile } from "./index.tsx";
 
 export function HistoricalFileList({
 	files,

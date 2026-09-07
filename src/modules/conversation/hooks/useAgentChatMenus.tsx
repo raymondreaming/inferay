@@ -1,10 +1,17 @@
-import { useCallback, useMemo, useState } from "octane";
+import { useCallback, useEffect, useMemo, useRef, useState } from "octane";
 import type React from "react";
-import { fetchJson, fetchJsonOr } from "../../../adapters/backend/http.ts";
+import {
+	fetchJson,
+	fetchJsonOr,
+	postJson,
+} from "../../../adapters/backend/http.ts";
 import { project as rustProject } from "../../../adapters/presentation/model.ts";
 import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
+import { getAgentIcon } from "../../agents/components/AgentIcon/index.tsx";
+import type { AgentKind } from "../../agents/model/agents.ts";
 import { getAgentDefinition } from "../../agents/model/agents.ts";
-import type { WorkspaceModelAgentKind as AgentKind } from "../../workspace/model/workspace-model.ts";
+import { changePaneAgentKind } from "../../workspace/hooks/useWorkspaceState.tsx";
+
 import type { SlashCommand } from "../model/agent-chat-shared.ts";
 import {
 	findTriggerAtCursor,
@@ -228,5 +235,62 @@ export function useAgentChatMenus({
 		handleInputForSlashMenu,
 		selectCommand,
 		selectFile,
+	};
+}
+
+export function useAgentChatSettings(paneId: string, agentKind: AgentKind) {
+	const [selection, setSelection] = useState({ model: "", reasoningLevel: "" });
+	const [configurationError, setConfigurationError] = useState<string | null>(
+		null,
+	);
+	const requestRevision = useRef(0);
+	const requests = useRef(Promise.resolve());
+	const resolveSelection = useCallback(
+		(patch: Partial<typeof selection> = {}) => {
+			const revision = ++requestRevision.current;
+			requests.current = requests.current.then(async () => {
+				try {
+					const resolved = await postJson<typeof selection>(
+						"/api/native/provider-config",
+						{ paneId, agentKind, ...patch },
+					);
+					if (revision !== requestRevision.current) return;
+					setSelection(resolved);
+					setConfigurationError(null);
+				} catch (error) {
+					if (revision === requestRevision.current)
+						setConfigurationError(
+							`Could not update chat settings: ${String(error)}`,
+						);
+				}
+			});
+		},
+		[paneId, agentKind],
+	);
+	useEffect(() => {
+		resolveSelection();
+		return () => {
+			requestRevision.current++;
+		};
+	}, [resolveSelection]);
+	const agentKindOptions = useMemo(
+		() =>
+			(["claude", "codex"] as const).map((id) => ({
+				id,
+				label: id === "claude" ? "Claude" : "Codex",
+				icon: getAgentIcon(id, 11),
+			})),
+		[],
+	);
+	return {
+		configurationError,
+		agentKindOptions,
+		effectiveSelectedModel: selection.model,
+		selectedReasoningLevel: selection.reasoningLevel,
+		handleAgentKindChange: (kind: AgentKind) =>
+			changePaneAgentKind(paneId, kind),
+		handleModelChange: (model: string) => resolveSelection({ model }),
+		handleReasoningLevelChange: (reasoningLevel: string) =>
+			resolveSelection({ reasoningLevel }),
 	};
 }

@@ -1,6 +1,8 @@
-import type { GitGraphActionRequest } from "../../model/graph-model.ts";
 import { ContextMenu, type ContextMenuEntry } from "./ContextMenu.tsx";
-import type { useCommitGraphState } from "./useCommitGraphState.tsx";
+import type {
+	GitGraphActionRequest,
+	useCommitGraphState,
+} from "./useCommitGraphState.tsx";
 
 type RefContextMenuProps = {
 	refContextMenu: NonNullable<

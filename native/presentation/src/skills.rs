@@ -1,8 +1,20 @@
 use crate::{array, flag, string};
 use serde_json::{Value, json};
 
-fn empty() -> Value {
-    json!({"name":"", "command":"", "description":"", "promptTemplate":"", "error":"", "isSaving":false, "isEditing":false, "isCreating":false})
+#[derive(Default, serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillFormState {
+    name: String,
+    command: String,
+    description: String,
+    prompt_template: String,
+    error: String,
+    is_saving: bool,
+    is_editing: bool,
+    is_creating: bool,
+}
+pub fn empty() -> Value {
+    json!(SkillFormState::default())
 }
 pub fn edit(skill: &Value) -> Value {
     json!({"isEditing":true,"name":skill["name"],"command":skill["command"],"description":skill["description"],"promptTemplate":skill["promptTemplate"],"error":""})

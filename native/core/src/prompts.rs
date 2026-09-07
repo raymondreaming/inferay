@@ -18,6 +18,41 @@ pub struct Prompt {
     pub updated_at: u64,
 }
 
+#[derive(Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillProposal {
+    #[serde(rename = "type")]
+    #[ts(type = "'inferay.skill-proposal'")]
+    kind: &'static str,
+    #[ts(type = "'create' | 'update'")]
+    action: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    skill_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    expected_updated_at: Option<u64>,
+    name: String,
+    command: String,
+    description: String,
+    prompt_template: String,
+    reason: String,
+}
+#[derive(Deserialize, Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillRead {
+    #[serde(rename = "_id")]
+    id: String,
+    name: String,
+    command: String,
+    description: String,
+    prompt_template: String,
+    is_built_in: bool,
+    #[serde(flatten)]
+    #[ts(skip)]
+    extra: Map<String, Value>,
+}
+
 /// Shared name, command, description, and ownership filtering.
 pub fn filter_prompts<'a>(prompts: &'a [Prompt], filter: &str, query: &str) -> Vec<&'a Prompt> {
     let query = query.to_lowercase();
@@ -296,36 +331,36 @@ pub fn chat_skill_proposal(value: &Value) -> Option<Value> {
     {
         return None;
     }
-    let mut result = Map::new();
-    for field in ["type", "action"].into_iter().chain(fields) {
-        result.insert(field.into(), value[field].clone());
-    }
-    if value["action"] == "update" {
-        if value["skillId"].as_str()?.is_empty()
-            || value["expectedUpdatedAt"].as_u64()? > 9_007_199_254_740_991
-        {
+    let (skill_id, expected_updated_at) = if value["action"] == "update" {
+        let id = value["skillId"].as_str()?;
+        let updated = value["expectedUpdatedAt"].as_u64()?;
+        if id.is_empty() || updated > 9_007_199_254_740_991 {
             return None;
         }
-        result.insert("skillId".into(), value["skillId"].clone());
-        result.insert(
-            "expectedUpdatedAt".into(),
-            value["expectedUpdatedAt"].clone(),
-        );
-    }
-    Some(Value::Object(result))
+        (Some(id.to_owned()), Some(updated))
+    } else {
+        (None, None)
+    };
+    serde_json::to_value(SkillProposal {
+        kind: "inferay.skill-proposal",
+        action: value["action"].as_str()?.to_owned(),
+        skill_id,
+        expected_updated_at,
+        name: value["name"].as_str()?.to_owned(),
+        command: command.to_owned(),
+        description: value["description"].as_str()?.to_owned(),
+        prompt_template: value["promptTemplate"].as_str()?.to_owned(),
+        reason: value["reason"].as_str()?.to_owned(),
+    })
+    .ok()
 }
 
 pub fn chat_skill_read(value: &Value) -> Option<Value> {
-    let skill = &value["skill"];
-    if value["type"] != "inferay.skill-read"
-        || !skill["isBuiltIn"].is_boolean()
-        || ["_id", "name", "command", "description", "promptTemplate"]
-            .iter()
-            .any(|key| !skill[key].is_string())
-    {
+    if value["type"] != "inferay.skill-read" {
         return None;
     }
-    Some(skill.clone())
+    let skill: SkillRead = serde_json::from_value(value["skill"].clone()).ok()?;
+    serde_json::to_value(skill).ok()
 }
 
 /// Text spans use JavaScript UTF-16 coordinates without duplicating message text.
@@ -400,4 +435,47 @@ pub fn chat_skill_parts(content: &str, streaming: bool) -> Option<Value> {
         parts.push(serde_json::json!({"start":cursor_utf16, "end":cursor_utf16 + rest.encode_utf16().count()}));
     }
     Some(Value::Array(parts))
+}
+
+#[cfg(test)]
+mod skill_card_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn proposal_contract_validates_revisions_and_preserves_card_fields() {
+        let mut proposal = json!({
+            "type": "inferay.skill-proposal", "action": "update",
+            "skillId": "skill-1", "expectedUpdatedAt": 42,
+            "name": "Review", "command": "review-2", "description": "Review changes",
+            "promptTemplate": "Check the diff", "reason": "Save this workflow"
+        });
+        assert_eq!(chat_skill_proposal(&proposal), Some(proposal.clone()));
+        proposal["expectedUpdatedAt"] = json!(9_007_199_254_740_992_u64);
+        assert!(chat_skill_proposal(&proposal).is_none());
+        proposal["action"] = json!("create");
+        let created = chat_skill_proposal(&proposal).unwrap();
+        assert!(created.get("skillId").is_none());
+        assert!(created.get("expectedUpdatedAt").is_none());
+        proposal["command"] = json!("Review");
+        assert!(chat_skill_proposal(&proposal).is_none());
+        proposal["command"] = json!("review");
+        proposal["promptTemplate"] = json!("🦀".repeat(25_001));
+        assert!(chat_skill_proposal(&proposal).is_none());
+    }
+
+    #[test]
+    fn read_contract_preserves_extra_fields_and_rejects_invalid_shapes() {
+        let mut envelope = json!({"type": "inferay.skill-read", "skill": {
+            "_id": "skill-1", "name": "Review", "command": "review",
+            "description": "Review changes", "promptTemplate": "Check the diff",
+            "isBuiltIn": false, "updatedAt": 42, "futureField": {"enabled": true}
+        }});
+        assert_eq!(chat_skill_read(&envelope), Some(envelope["skill"].clone()));
+        envelope["skill"]["isBuiltIn"] = json!("false");
+        assert!(chat_skill_read(&envelope).is_none());
+        envelope["skill"]["isBuiltIn"] = json!(false);
+        envelope["skill"].as_object_mut().unwrap().remove("name");
+        assert!(chat_skill_read(&envelope).is_none());
+    }
 }

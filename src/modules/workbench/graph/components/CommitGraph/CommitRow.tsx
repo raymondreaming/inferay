@@ -2,9 +2,14 @@ import * as stylex from "@octanejs/stylex";
 import { memo, useCallback } from "octane";
 import type { GitGraphRef } from "../../../../../../build/presentation/contracts/GitGraphRef.ts";
 import type { GitWorktree } from "../../../../../../build/presentation/contracts/GitWorktree.ts";
-import type { GraphNode } from "../../../../repository/model/git-graph.ts";
+import type { GraphNode } from "../../../../repository/hooks/useGitGraph.tsx";
+import { AuthorAvatar } from "./AuthorAvatar.tsx";
+import { MergeNode } from "./MergeNode.tsx";
+import { RefBadge } from "./RefBadge.tsx";
+import { RefBadges } from "./RefBadges.tsx";
+import * as inlineStyles from "./styles.ts";
+import { AVATAR_SIZE, styles } from "./styles.ts";
 import {
-	AVATAR_SIZE,
 	COLUMN_WIDTH,
 	type ColumnKey,
 	type ColumnVisibility,
@@ -14,13 +19,7 @@ import {
 	hexToRgba,
 	ROW_HEIGHT,
 	TOOLS_WIDTH,
-} from "../../model/graph-model.ts";
-import { AuthorAvatar } from "./AuthorAvatar.tsx";
-import { MergeNode } from "./MergeNode.tsx";
-import { RefBadge } from "./RefBadge.tsx";
-import { RefBadges } from "./RefBadges.tsx";
-import * as inlineStyles from "./styles.ts";
-import { styles } from "./styles.ts";
+} from "./useCommitGraphState.tsx";
 
 const commitDateFormatter = new Intl.DateTimeFormat("en-US", {
 	month: "2-digit",

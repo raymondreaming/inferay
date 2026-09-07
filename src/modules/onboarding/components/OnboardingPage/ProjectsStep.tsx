@@ -1,4 +1,5 @@
 import * as stylex from "@octanejs/stylex";
+import type { GithubRepo } from "../../../../../build/presentation/contracts/GithubRepo.ts";
 import { getStepPhase, type Step } from "../../../../app/model/appearance.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
@@ -13,7 +14,6 @@ import {
 	IconRefreshCw,
 	IconX,
 } from "../../../../shared/ui/Icons/index.tsx";
-import type { GithubRepo } from "../../../repository/model/types.ts";
 import { styles } from "./styles.ts";
 export function ProjectsStep({
 	step,

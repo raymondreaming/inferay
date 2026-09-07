@@ -20,7 +20,7 @@ import {
 	IconPanelLeft,
 } from "../../../../shared/ui/Icons/index.tsx";
 import { Explorer } from "../../../explorer/components/Explorer/index.tsx";
-import type { SidebarWorkspaceState } from "../../model/workspace-model.ts";
+import type { SidebarWorkspaceState } from "../../hooks/useWorkspaceState.tsx";
 import { SidebarChatList } from "./SidebarChatList.tsx";
 import { styles } from "./styles.ts";
 

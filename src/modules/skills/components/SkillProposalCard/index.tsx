@@ -1,13 +1,13 @@
 import * as stylex from "@octanejs/stylex";
 import { useRef, useState } from "octane";
+import type { SkillProposal } from "../../../../../build/presentation/contracts/SkillProposal.ts";
 import {
 	readStoredJson,
 	writeStoredJson,
 } from "../../../../adapters/storage/stored-values.ts";
 import { surfaceStyles } from "../../../../design-system/styles.stylex.ts";
-import { useSkills } from "../../hooks/useSkills.tsx";
-import type { SkillProposal } from "../../model/skill-library.ts";
-import { openSkills, saveSkill } from "../../model/skill-library.ts";
+import { openSkills } from "../../../../shared/lib/data.ts";
+import { saveSkill, useSkills } from "../../hooks/useSkills.tsx";
 import { styles } from "./styles.ts";
 
 type Outcome = { status: "saved"; skillId: string } | { status: "rejected" };

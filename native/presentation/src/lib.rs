@@ -5,7 +5,7 @@ mod graph;
 pub mod liquid;
 pub mod panels;
 pub mod repository;
-mod skills;
+pub mod skills;
 pub mod transcript;
 mod workbench;
 
@@ -46,6 +46,7 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
                 .max(number(input) * 2.)
                 .min(100_000.)
         ),
+        "emptySkillForm" => skills::empty(),
         "skillDialog" => skills::dialog(input),
         "skillEdit" => skills::edit(input),
         "skillDuplicate" => skills::duplicate(input),

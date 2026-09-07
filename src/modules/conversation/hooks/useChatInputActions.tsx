@@ -1,7 +1,7 @@
 import { useCallback } from "octane";
 import type React from "react";
 import { wsClient } from "../../../adapters/backend/http.ts";
-import type { WorkspaceModelAgentKind as AgentKind } from "../../workspace/model/workspace-model.ts";
+import type { AgentKind } from "../../agents/model/agents.ts";
 import {
 	type AgentChatSharedChatMessage as ChatMessage,
 	hideMenuState,

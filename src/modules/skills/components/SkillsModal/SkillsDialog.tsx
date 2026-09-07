@@ -1,11 +1,14 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useEffect, useReducer, useRef, useState } from "octane";
 import type { Prompt } from "../../../../../build/presentation/contracts/Prompt.ts";
+import type { SkillFormState } from "../../../../../build/presentation/contracts/SkillFormState.ts";
+import { project as rustProject } from "../../../../adapters/presentation/model.ts";
 import { APP_REGION_NO_DRAG_CLASS } from "../../../../app/model/appearance.ts";
 import {
 	iconSize,
 	surfaceStyles,
 } from "../../../../design-system/styles.stylex.ts";
+import type { SkillsTarget } from "../../../../shared/lib/data.ts";
 import { setInputValue } from "../../../../shared/lib/data.ts";
 import {
 	IconCopy,
@@ -13,18 +16,7 @@ import {
 	IconSearch,
 	IconX,
 } from "../../../../shared/ui/Icons/index.tsx";
-import { useSkills } from "../../hooks/useSkills.tsx";
-import type { SkillsTarget } from "../../model/skill-library.ts";
-import {
-	INITIAL_SKILL_FORM as INITIAL_FORM,
-	initializeSkillDialog,
-	isSkillFormDirty,
-	removeSkill,
-	type SkillFormState,
-	saveSkillForm,
-	skillFormForDuplicate,
-	skillFormForEdit,
-} from "../../model/skill-library.ts";
+import { removeSkill, saveSkill, useSkills } from "../../hooks/useSkills.tsx";
 import { SkillEditor } from "../SkillEditor/index.tsx";
 import { styles } from "./styles.ts";
 
@@ -307,4 +299,45 @@ export function SkillsDialog({
 			</div>
 		</dialog>
 	);
+}
+
+const INITIAL_FORM = rustProject<SkillFormState>("emptySkillForm", null);
+export function skillFormForEdit(skill: Prompt): Partial<SkillFormState> {
+	return rustProject("skillEdit", skill);
+}
+export function skillFormForDuplicate(skill: Prompt): SkillFormState {
+	return rustProject("skillDuplicate", skill);
+}
+export function initializeSkillDialog(
+	target: SkillsTarget,
+	skills: Prompt[],
+): { selectedId: string | null; form: Partial<SkillFormState> } {
+	return rustProject("skillDialog", { target, skills });
+}
+export function isSkillFormDirty(
+	form: SkillFormState,
+	original: Prompt | null,
+): boolean {
+	return rustProject("skillDirty", { form, original });
+}
+export async function saveSkillForm(
+	form: SkillFormState,
+	selected: Prompt | null,
+	inlineEdit: boolean,
+) {
+	const data = {
+		name: form.name,
+		command: form.command,
+		description: form.description,
+		promptTemplate: form.promptTemplate,
+	};
+	if (inlineEdit && selected) {
+		await saveSkill(data, selected._id);
+		return { selectedId: selected._id, form: { isEditing: false } };
+	}
+	if (form.isCreating) {
+		const created = await saveSkill(data);
+		return { selectedId: created._id, form: INITIAL_FORM };
+	}
+	return { selectedId: selected?._id ?? null, form: {} };
 }

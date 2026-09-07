@@ -2,9 +2,9 @@ import * as stylex from "@octanejs/stylex";
 import type { GitCommitDetails } from "../../../../../../build/presentation/contracts/GitCommitDetails.ts";
 import type { GitCommitFile } from "../../../../../../build/presentation/contracts/GitCommitFile.ts";
 import type { GitComparisonDetails } from "../../../../../../build/presentation/contracts/GitComparisonDetails.ts";
-import type { SelectedFile } from "../../../model/workbench-model.ts";
 import { DetailIdentity } from "./DetailIdentity.tsx";
 import { HistoricalFileList } from "./HistoricalFileList.tsx";
+import type { SelectedFile } from "./index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 

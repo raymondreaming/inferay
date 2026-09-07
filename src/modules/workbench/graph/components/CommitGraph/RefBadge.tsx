@@ -2,10 +2,10 @@ import * as stylex from "@octanejs/stylex";
 import { useState } from "octane";
 import type { GitGraphRefKind } from "../../../../../../build/presentation/contracts/GitGraphRefKind.ts";
 import { palette } from "../../../../../design-system/styles.stylex.ts";
-import { hexToRgba } from "../../model/graph-model.ts";
 import { RefIcon } from "./RefIcon.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
+import { hexToRgba } from "./useCommitGraphState.tsx";
 
 function refKindLabel(kind: GitGraphRefKind): string {
 	if (kind === "head") return "current local branch";

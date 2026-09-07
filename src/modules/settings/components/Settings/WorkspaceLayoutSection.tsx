@@ -2,10 +2,12 @@ import * as stylex from "@octanejs/stylex";
 import { useState } from "octane";
 import {
 	loadAgentLayoutMode,
-	mutateAgentWorkspaceState,
 	setAgentLayoutMode,
+} from "../../../../adapters/storage/stored-values.ts";
+import {
+	mutateAgentWorkspaceState,
 	useWorkspaceState,
-} from "../../../workspace/model/workspace-model.ts";
+} from "../../../workspace/hooks/useWorkspaceState.tsx";
 import { styles } from "./styles.ts";
 export function WorkspaceLayoutSection({
 	contained = false,

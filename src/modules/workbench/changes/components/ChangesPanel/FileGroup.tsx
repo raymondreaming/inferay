@@ -7,7 +7,7 @@ import {
 	selectionAppearance,
 } from "../../../../../design-system/styles.stylex.ts";
 import { IconChevronRight } from "../../../../../shared/ui/Icons/index.tsx";
-import type { SelectedFile } from "../../../model/workbench-model.ts";
+import type { SelectedFile } from "./index.tsx";
 import { styles } from "./styles.ts";
 import { TreeNodeRow } from "./TreeNodeRow.tsx";
 

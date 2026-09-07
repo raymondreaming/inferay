@@ -14,8 +14,8 @@ import {
 	loadAppThemeId,
 } from "./app/model/appearance.ts";
 import { initializeAgentCatalog } from "./modules/agents/model/agents.ts";
-import { preloadSkills } from "./modules/skills/model/skill-library.ts";
-import { initializeAgentState } from "./modules/workspace/model/workspace-model.ts";
+import { preloadSkills } from "./modules/skills/hooks/useSkills.tsx";
+import { initializeAgentState } from "./modules/workspace/hooks/useWorkspaceState.tsx";
 import { restoreSyntaxTheme } from "./shared/hooks/useSyntaxHighlight.tsx";
 
 let restoreStartupContent: (() => void) | undefined;

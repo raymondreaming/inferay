@@ -73,6 +73,10 @@ mod render_jobs;
 /// beside the server makes renderer contracts follow backend schema changes.
 pub fn export_renderer_types(config: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
     use ts_rs::TS;
+    forge::ForgeAccount::export_all(config)?;
+    forge::GithubRepo::export_all(config)?;
+    git_actions::GraphActionPresentation::export_all(config)?;
+    git_actions::GitActionResponse::export_all(config)?;
     markdown::PreparedMarkdown::export_all(config)?;
     checkpoint::CheckpointMeta::export_all(config)?;
     chat_persistence::QueuedMessageInfo::export_all(config)?;
@@ -940,7 +944,7 @@ async fn git_ref_operation(state: &ServerState, request: Request) -> ApiResult {
         tokio::task::spawn_blocking(move || finish_git_ref_operation(&cwd, &operation, &action))
             .await?
     };
-    Ok(git_actions::operation_payload(result))
+    Ok(git_actions::operation_payload(result, true))
 }
 async fn git_ref_operation_preflight(state: &ServerState, request: Request) -> ApiResult {
     let body: GitRefOperationBody = api_body(request).await?;
@@ -967,6 +971,7 @@ async fn git_graph_action(state: &ServerState, request: Request) -> ApiResult {
             )
         })
         .await?,
+        false,
     ))
 }
 async fn git_stage_change(state: &ServerState, request: Request, stage: bool) -> ApiResult {

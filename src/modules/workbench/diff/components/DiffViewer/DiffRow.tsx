@@ -3,14 +3,10 @@ import { memo } from "octane";
 import type { CSSProperties } from "react";
 import type { GitDiffLine } from "../../../../../../build/presentation/contracts/GitDiffLine.ts";
 import type { SyntaxToken } from "../../../../../shared/hooks/useSyntaxHighlight.tsx";
-import {
-	DIFF_CONFIG,
-	LINE_H,
-	MAX_RENDERED_LINE_CHARS,
-} from "../../../model/workbench-model.ts";
 import { DiffGutterCells } from "./DiffGutterCells.tsx";
+import { MAX_RENDERED_LINE_CHARS } from "./index.tsx";
 import * as inlineStyles from "./styles.ts";
-import { diffStyles } from "./styles.ts";
+import { DIFF_CONFIG, diffStyles, LINE_H } from "./styles.ts";
 
 type DiffRowStyle = CSSProperties & { "--hover-bg"?: string };
 

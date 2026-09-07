@@ -1,8 +1,8 @@
 import { memo } from "octane";
 import type { CSSProperties } from "react";
 
-import type { RenderGraphRail } from "../../../modules/repository/model/git-graph.ts";
-import type { RowTransition } from "../../../modules/workbench/graph/model/graph-model.ts";
+import type { RenderGraphRail } from "../../../modules/repository/hooks/useGitGraph.tsx";
+import type { RowTransition } from "../../../modules/workbench/graph/components/CommitGraph/useCommitGraphState.tsx";
 
 type PositionedRail = RenderGraphRail & { key: string; row: number };
 

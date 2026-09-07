@@ -1,8 +1,6 @@
 import { useQuery } from "@octanejs/tanstack-query";
+import type { HunkDiff } from "../../../../build/presentation/contracts/HunkDiff.ts";
 import { queryClient } from "../../../shared/lib/data.ts";
-
-import { fetchGitDiff } from "../model/git-graph.ts";
-import type { DiffRequest } from "../model/types.ts";
 
 export function useGitDiff(request: DiffRequest | null = null) {
 	const key = request ? JSON.stringify(request) : "";
@@ -24,4 +22,31 @@ export function useGitDiff(request: DiffRequest | null = null) {
 		request,
 		loading: request !== null && query.isPending,
 	};
+}
+
+export interface DiffRequest {
+	cwd: string;
+	revision?: string;
+	file: string;
+	staged: boolean;
+	commitHash?: string;
+	commitParent?: string;
+	comparisonFrom?: string;
+	comparisonTo?: string;
+	view?: "full" | "review";
+}
+
+export async function fetchGitDiff(
+	request: DiffRequest,
+	signal: AbortSignal,
+): Promise<HunkDiff> {
+	const query = new URLSearchParams();
+	for (const [key, value] of Object.entries(request))
+		if (value !== undefined) query.set(key, String(value));
+	const response = await fetch(`/api/git/diff?${query}`, {
+		signal: AbortSignal.any([signal, AbortSignal.timeout(12000)]),
+	});
+	if (!response.ok)
+		throw new Error(`Diff request failed (HTTP ${response.status})`);
+	return (await response.json()) as HunkDiff;
 }

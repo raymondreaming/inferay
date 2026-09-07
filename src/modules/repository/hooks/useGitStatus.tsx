@@ -1,6 +1,6 @@
-import { useCallback, useMemo } from "octane";
+import { useCallback, useMemo, useState } from "octane";
 import type { GitStatusResult } from "../../../../build/presentation/contracts/GitStatusResult.ts";
-import { postJson } from "../../../adapters/backend/http.ts";
+import { postJson, sendJson } from "../../../adapters/backend/http.ts";
 import { usePollingQuery } from "../../../shared/hooks/useQueryResource.tsx";
 import type { useGitGraph } from "./useGitGraph.tsx";
 
@@ -74,5 +74,74 @@ export function useGitStatus(
 		projectMap,
 		refetch,
 		loaded: !options.enabled || requestedCwds.length === 0 || loaded,
+	};
+}
+
+export function useGitChangeActions({
+	cwd,
+	refetchStatus,
+}: {
+	cwd?: string;
+	refetchStatus: () => undefined | Promise<unknown>;
+}) {
+	const [commitMessage, setCommitMessage] = useState("");
+	const [isCommitting, setIsCommitting] = useState(false);
+
+	const gitAction = useCallback(
+		(endpoint: string, body: object) => {
+			void sendJson(`/api/git/${endpoint}`, body)
+				.catch(() => {
+					/* swallow; refetch below restores truth */
+				})
+				.finally(() => {
+					void refetchStatus();
+				});
+		},
+		[refetchStatus],
+	);
+	const stageMutation = useCallback(
+		(staged: boolean, file?: string) => {
+			if (!cwd) return;
+			gitAction(staged ? "stage" : "unstage", { cwd, file: file || undefined });
+		},
+		[cwd, gitAction],
+	);
+	const stageFile = useCallback(
+		(file: string) => stageMutation(true, file),
+		[stageMutation],
+	);
+	const unstageFile = useCallback(
+		(file: string) => stageMutation(false, file),
+		[stageMutation],
+	);
+	const stageAll = useCallback(() => stageMutation(true), [stageMutation]);
+	const unstageAll = useCallback(() => stageMutation(false), [stageMutation]);
+	const commit = useCallback(async () => {
+		if (!cwd || !commitMessage.trim() || isCommitting) return;
+		setIsCommitting(true);
+		try {
+			const response = await sendJson(
+				"/api/git/commit",
+				{ cwd, message: commitMessage },
+				{ signal: AbortSignal.timeout(35_000) },
+			);
+			const result = (await response.json()) as { success?: boolean };
+			if (result.success) {
+				setCommitMessage("");
+				void refetchStatus();
+			}
+		} finally {
+			setIsCommitting(false);
+		}
+	}, [cwd, commitMessage, isCommitting, refetchStatus]);
+	return {
+		commit,
+		commitMessage,
+		setCommitMessage,
+		isCommitting,
+		stageFile,
+		unstageFile,
+		stageAll,
+		unstageAll,
 	};
 }

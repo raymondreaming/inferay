@@ -1,5 +1,4 @@
 import type { AppInfo } from "../../../build/presentation/contracts/AppInfo.ts";
-
 import {
 	APP_BACKGROUND_STORAGE_KEY,
 	APP_THEME_STORAGE_KEY,
@@ -189,3 +188,15 @@ export function useAppInfo() {
 		queryKey: ["app-info"],
 	});
 }
+
+export type ThemeId = AppThemeId;
+export type AgentTheme = {
+	readonly cursor: string;
+	readonly separator: string;
+};
+const THEMES: Record<ThemeId, AgentTheme> = {
+	default: { cursor: "#007AFF", separator: "#111111" },
+	midnight: { cursor: "#6e8cff", separator: "#1e1f21" },
+};
+export const getThemeById = (id: string) =>
+	Object.hasOwn(THEMES, id) ? THEMES[id as ThemeId] : THEMES.default;

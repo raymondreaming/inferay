@@ -1,12 +1,12 @@
 import * as stylex from "@octanejs/stylex";
 import { memo, useRef } from "octane";
 import type { HunkDiff } from "../../../../../../build/presentation/contracts/HunkDiff.ts";
-import { type DiffViewMode, LINE_H } from "../../../model/workbench-model.ts";
 import {
 	type DiffScrollSource,
 	useSplitDiffScroll,
 } from "../../hooks/useSplitDiffScroll.tsx";
-import { diffStyles } from "./styles.ts";
+import type { DiffViewMode } from "./index.tsx";
+import { diffStyles, LINE_H } from "./styles.ts";
 import { VirtualPanel } from "./VirtualPanel.tsx";
 
 export const DiffPanels = memo(function DiffPanels({

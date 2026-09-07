@@ -1,6 +1,6 @@
 import * as stylex from "@octanejs/stylex";
-import type { ColumnWidths } from "../../model/graph-model.ts";
 import { styles } from "./styles.ts";
+import type { ColumnWidths } from "./useCommitGraphState.tsx";
 export function ColumnResizeHandle({
 	column,
 	onResizeStart,

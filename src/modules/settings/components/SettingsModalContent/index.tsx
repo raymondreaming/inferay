@@ -1,29 +1,30 @@
 import * as stylex from "@octanejs/stylex";
 import { useCallback, useMemo, useState } from "octane";
-import { sendJson } from "../../../../adapters/backend/http.ts";
+import type { GithubRepo } from "../../../../../build/presentation/contracts/GithubRepo.ts";
+import {
+	pickCloneDirectory as chooseCloneDirectory,
+	fetchJsonOr,
+	sendJson,
+} from "../../../../adapters/backend/http.ts";
+
 import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
+import type { SettingsModalTarget } from "../../../../shared/lib/data.ts";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
 import { DropdownButton } from "../../../../shared/ui/DropdownButton/index.tsx";
 import { TextInput } from "../../../../shared/ui/TextInput/index.tsx";
 import { getAgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
+import type { AgentAccountProviderStatus } from "../../../agents/model/agents.ts";
 import {
 	getAgentDefinition,
 	loadDefaultChatSettings,
 	saveDefaultChatSettings,
 } from "../../../agents/model/agents.ts";
-import type { GithubRepo } from "../../../repository/model/types.ts";
 import {
 	invalidateForgeAccountsCache,
 	invalidateGithubReposCache,
 	useForgeAccounts,
 	useGithubRepos,
-} from "../../../repository/model/types.ts";
-import type { SettingsModalTarget } from "../../../skills/model/skill-library.ts";
-import {
-	pickCloneDirectory as chooseCloneDirectory,
-	cloneGithubRepo,
-	fetchAgentAccountStatuses,
-} from "../../model/settings-workflows.ts";
+} from "../../../repository/hooks/useForgeAccounts.tsx";
 import { SettingsContent } from "../Settings/index.tsx";
 import {
 	SettingsGithubAccount,
@@ -377,4 +378,26 @@ export function SettingsModalContent({
 			</main>
 		</div>
 	);
+}
+
+export async function fetchAgentAccountStatuses() {
+	const payload = await fetchJsonOr<{
+		providers?: AgentAccountProviderStatus[];
+	}>("/api/agents/account-status", {});
+	return Array.isArray(payload.providers) ? payload.providers : [];
+}
+export async function cloneGithubRepo(
+	repo: GithubRepo,
+	cloneDirectory: string,
+) {
+	const response = await sendJson("/api/forge/clone", {
+		gitUrl: repo.html_url,
+		cloneDirectory,
+	});
+	const payload = (await response.json()) as {
+		error?: string;
+		displayPath?: string;
+	};
+	if (!response.ok) throw new Error(payload.error ?? "Clone failed");
+	return `Cloned ${repo.full_name} to ${payload.displayPath}`;
 }

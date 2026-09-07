@@ -1,7 +1,13 @@
 import * as stylex from "@octanejs/stylex";
-import { Suspense } from "octane";
-import type { ThemeId } from "../../model/workspace-model.ts";
-import { Settings } from "../../model/workspace-model.ts";
+import { lazy, Suspense } from "octane";
+import type { ThemeId } from "../../../../app/model/appearance.ts";
+
+const Settings = lazy(() =>
+	import("../../../settings/components/Settings/index.tsx").then(
+		({ Settings }) => ({ default: Settings }),
+	),
+);
+
 import { styles } from "./styles.ts";
 
 type AgentMainSurfaceProps = {

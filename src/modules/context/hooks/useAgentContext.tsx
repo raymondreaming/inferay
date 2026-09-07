@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "octane";
 import type { AgentContextUpdate } from "../../../../build/presentation/contracts/AgentContextUpdate.ts";
 import type { EffectiveAgentContext } from "../../../../build/presentation/contracts/EffectiveAgentContext.ts";
 import { fetchJson, postJson } from "../../../adapters/backend/http.ts";
-import type { AgentContextMode } from "../../skills/model/skill-library.ts";
 
 const EMPTY = {
 	instructions: "",
@@ -46,3 +45,5 @@ export function useAgentContext(paneId: string, cwd?: string) {
 
 	return { context, save };
 }
+
+export type AgentContextMode = "inherit" | "replace";

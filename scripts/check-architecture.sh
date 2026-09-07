@@ -4,16 +4,19 @@ set -euo pipefail
 echo "==> Build Rust renderer models and contracts"
 bun run build:presentation
 
+echo "==> Rust presentation usage"
+bun scripts/check-presentation-usage.ts
+
 echo "==> Biome focused architecture lint"
 bunx biome lint \
 	src/modules/conversation/components/AgentChatView/index.tsx \
 	src/modules/conversation/components/ChatMessageList/index.tsx \
 	src/modules/conversation/hooks/useAgentChatComposerState.tsx \
-	src/modules/conversation/model/chat-session-store.ts \
+	src/modules/conversation/components/AgentChatView/useChatConnection.tsx \
 	src/modules/conversation/hooks/useChatInputActions.tsx \
 	src/modules/conversation/model/agent-chat-shared.ts \
 	src/modules/repository/hooks/useGitDiff.tsx \
-	src/modules/workspace/model/workspace-model.ts \
+	src/modules/workspace/hooks/useWorkspaceState.tsx \
 	src/shared/hooks/useSyntaxHighlight.tsx \
 	src/modules/workbench/diff/components/DiffViewer/index.tsx \
 	src/modules/workspace/components/WorkspaceCanvas/index.tsx \

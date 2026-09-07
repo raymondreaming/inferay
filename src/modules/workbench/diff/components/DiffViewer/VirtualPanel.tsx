@@ -13,19 +13,12 @@ import {
 	type SyntaxToken,
 	useSyntaxHighlight,
 } from "../../../../../shared/hooks/useSyntaxHighlight.tsx";
-import {
-	DIFF_CONFIG,
-	diffViewportReducer,
-	GUTTER_W,
-	INITIAL_DIFF_VIEWPORT_STATE,
-	LINE_H,
-} from "../../../model/workbench-model.ts";
 import type { DiffScrollSource } from "../../hooks/useSplitDiffScroll.tsx";
 import { DiffGutterRow } from "./DiffGutterRow.tsx";
 import { DiffMinimap } from "./DiffMinimap.tsx";
 import { DiffRow } from "./DiffRow.tsx";
 import * as inlineStyles from "./styles.ts";
-import { diffStyles } from "./styles.ts";
+import { DIFF_CONFIG, diffStyles, GUTTER_W, LINE_H } from "./styles.ts";
 
 const SPLIT_RIGHT_INSET = 12;
 
@@ -309,3 +302,21 @@ export const VirtualPanel = memo(function VirtualPanel({
 		</div>
 	);
 });
+
+export const INITIAL_DIFF_VIEWPORT_STATE = {
+	scrollTop: 0,
+	viewHeight: 600,
+};
+export function diffViewportReducer(
+	state: typeof INITIAL_DIFF_VIEWPORT_STATE,
+	action: { type: "measure"; height: number } | { type: "scroll"; top: number },
+) {
+	const field = action.type === "measure" ? "viewHeight" : "scrollTop";
+	const value =
+		action.type === "measure"
+			? action.height || INITIAL_DIFF_VIEWPORT_STATE.viewHeight
+			: action.top;
+	return Math.abs(state[field] - value) > 0.5
+		? { ...state, [field]: value }
+		: state;
+}

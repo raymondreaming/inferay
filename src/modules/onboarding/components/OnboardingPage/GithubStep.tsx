@@ -1,4 +1,5 @@
 import * as stylex from "@octanejs/stylex";
+import type { ForgeAccount } from "../../../../../build/presentation/contracts/ForgeAccount.ts";
 import { getStepPhase, type Step } from "../../../../app/model/appearance.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
@@ -10,7 +11,6 @@ import {
 	IconRefreshCw,
 	IconUser,
 } from "../../../../shared/ui/Icons/index.tsx";
-import type { ForgeAccount } from "../../../repository/model/types.ts";
 import { styles } from "./styles.ts";
 export function GithubStep({
 	step,

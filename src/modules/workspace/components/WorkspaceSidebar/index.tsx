@@ -3,7 +3,11 @@ import { useLocation, useNavigate } from "@octanejs/tanstack-router";
 import { useCallback, useEffect, useRef, useState } from "octane";
 import { sendJson } from "../../../../adapters/backend/http.ts";
 import {
+	listenAgentLayoutMode,
+	loadAgentLayoutMode,
+	loadSidebarCollapsed,
 	readStoredValue,
+	setAgentLayoutMode,
 	writeStoredValue,
 } from "../../../../adapters/storage/stored-values.ts";
 import {
@@ -12,26 +16,24 @@ import {
 	useAppInfo,
 } from "../../../../app/model/appearance.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { listenWindowEvent } from "../../../../shared/lib/data.ts";
-import { IconSettings, IconUser } from "../../../../shared/ui/Icons/index.tsx";
-import { loadDefaultChatSettings } from "../../../agents/model/agents.ts";
-import { useForgeAccounts } from "../../../repository/model/types.ts";
-import { openSettingsModal } from "../../../skills/model/skill-library.ts";
-import type { SidebarUpdateStatus } from "../../model/workspace-model.ts";
 import {
 	CREATE_AGENT_CHAT_EVENT,
 	type CreateAgentChatDetail,
 	type CreateAgentChatTarget,
 	dispatchFocusAgentChatComposer,
-	listenAgentLayoutMode,
-	loadAgentLayoutMode,
-	loadSidebarCollapsed,
-	mutateAgentWorkspaceState,
-	setAgentLayoutMode,
-	useWorkspaceState,
+	listenWindowEvent,
+	openSettingsModal,
 	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
 	type WorkspaceSidebarCollapsedDetail,
-} from "../../model/workspace-model.ts";
+} from "../../../../shared/lib/data.ts";
+import { IconSettings, IconUser } from "../../../../shared/ui/Icons/index.tsx";
+import { loadDefaultChatSettings } from "../../../agents/model/agents.ts";
+import { useForgeAccounts } from "../../../repository/hooks/useForgeAccounts.tsx";
+import {
+	mutateAgentWorkspaceState,
+	useWorkspaceState,
+} from "../../hooks/useWorkspaceState.tsx";
+import type { SidebarUpdateStatus } from "./SidebarFooter.tsx";
 import { SidebarFooter } from "./SidebarFooter.tsx";
 import { SidebarWorkspacesSection } from "./SidebarWorkspacesSection.tsx";
 import * as inlineStyles from "./styles.ts";
