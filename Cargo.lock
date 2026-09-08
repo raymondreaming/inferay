@@ -1365,7 +1365,7 @@ dependencies = [
 
 [[package]]
 name = "inferay-desktop"
-version = "0.1.105"
+version = "0.1.106"
 dependencies = [
  "inferay-server",
  "objc2",
