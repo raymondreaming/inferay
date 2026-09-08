@@ -70,6 +70,7 @@ type HighlightInput = {
 	lines: string[];
 	lineTypes?: string[];
 	enabled?: boolean;
+	preview?: boolean;
 };
 function syntaxQueryOptions(input: HighlightInput) {
 	const enabled =
@@ -91,7 +92,7 @@ function syntaxQueryOptions(input: HighlightInput) {
 		queryFn: async ({ signal }: { signal: AbortSignal }) => {
 			const response = await sendJson(
 				"/api/native/highlight",
-				{ path, text, lineTypes },
+				{ path, text, lineTypes, preview: input.preview === true },
 				{ signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]) },
 			);
 			if (!response.ok) throw new Error("Highlight request failed");
@@ -103,11 +104,38 @@ function syntaxQueryOptions(input: HighlightInput) {
 		retry: false as const,
 	};
 }
-export async function prefetchSyntaxHighlight(
+/** Parse from the beginning to preserve multiline grammar state, but stop
+ * after the initial viewport. The complete document fills in independently. */
+export async function prefetchSyntaxPreview(
 	input: HighlightInput,
+	lineCount = 200,
 ): Promise<void> {
-	const options = syntaxQueryOptions(input);
-	if (options.enabled) await queryClient.prefetchQuery(options);
+	const complete = syntaxQueryOptions({ ...input, preview: true });
+	if (
+		!complete.enabled ||
+		queryClient.getQueryData(complete.queryKey) !== undefined
+	)
+		return;
+	const count = Math.min(input.lines.length, Math.max(200, lineCount));
+	// Small documents cost less as one request than as a preview plus a refill.
+	if (input.lines.length - count < 200) {
+		await queryClient.prefetchQuery(complete);
+		return;
+	}
+	const preview = syntaxQueryOptions({
+		...input,
+		preview: true,
+		lines: input.lines.slice(0, count),
+		lineTypes: input.lineTypes?.slice(0, count),
+	});
+	const queryKey = [...complete.queryKey, "preview"];
+	const cached = queryClient.getQueryData<ClassifiedDocument | null>(queryKey);
+	await queryClient.prefetchQuery({
+		...preview,
+		queryKey,
+		// A later opening may start deeper in the same source.
+		staleTime: cached && cached.lines.length >= count ? Infinity : 0,
+	});
 }
 export function useSyntaxHighlight(_options: Accessor<HighlightInput>) {
 	const options = createMemo(() => syntaxQueryOptions(_options()));
@@ -122,7 +150,12 @@ export function useSyntaxHighlight(_options: Accessor<HighlightInput>) {
 		return active()
 			? (queryClient.getQueryData<ClassifiedDocument | null>(
 					options().queryKey,
-				) ?? null)
+				) ??
+					queryClient.getQueryData<ClassifiedDocument | null>([
+						...options().queryKey,
+						"preview",
+					]) ??
+					null)
 			: null;
 	});
 	const tokens = createMemo(() => {

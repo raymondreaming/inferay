@@ -1,7 +1,7 @@
 import { type Accessor, createMemo, onSettled } from "solid-js";
 import type { HunkDiff } from "../../../../build/presentation/contracts/HunkDiff.ts";
 import { useBackgroundQuery as useQuery } from "../../../shared/hooks/useQueryResource.tsx";
-import { prefetchSyntaxHighlight } from "../../../shared/hooks/useSyntaxHighlight.tsx";
+import { prefetchSyntaxPreview } from "../../../shared/hooks/useSyntaxHighlight.tsx";
 import { queryClient } from "../../../shared/lib/dom.tsx";
 export function useGitDiff(
 	_request: Accessor<DiffRequest | null> = () => null,
@@ -76,8 +76,7 @@ export async function fetchGitDiff(
 	if (!response.ok)
 		throw new Error(`Diff request failed (HTTP ${response.status})`);
 	const diff = (await response.json()) as HunkDiff;
-	// Publish text and its classifications together, including on a cold click.
-	// Both panels share these entries with useSyntaxHighlight when they mount.
+	// Prepare the initial viewport; mounted panels classify the rest in the background.
 	await prefetchDiffSyntax(request, diff);
 	signal.throwIfAborted();
 	return diff;
@@ -90,13 +89,21 @@ async function prefetchDiffSyntax(request: DiffRequest, diff: HunkDiff) {
 		: request.view === "review"
 			? [diff.inlineLines ?? diff.compactLines ?? []]
 			: [diff.isNew ? [] : diff.oldLines, diff.newLines];
+	// Working-tree split views start at the first change. History starts at the top.
+	const initialEnd =
+		request.view !== "review" && !request.commitHash && !request.comparisonFrom
+			? (diff.metadata.splitChangeRanges[0]?.[0] ?? 0) + 200
+			: 200;
 	await Promise.all(
 		panels.map((lines) =>
-			prefetchSyntaxHighlight({
-				filePath: request.file,
-				lines: lines.map((line) => line.content),
-				lineTypes: lines.map((line) => line.type),
-			}),
+			prefetchSyntaxPreview(
+				{
+					filePath: request.file,
+					lines: lines.map((line) => line.content),
+					lineTypes: lines.map((line) => line.type),
+				},
+				initialEnd,
+			),
 		),
 	);
 }

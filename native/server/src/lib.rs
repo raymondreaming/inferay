@@ -1871,6 +1871,8 @@ async fn native_highlight(request: Request) -> ApiResult<Response> {
         text: String,
         #[serde(default, rename = "lineTypes")]
         line_types: Option<Vec<String>>,
+        #[serde(default)]
+        preview: bool,
     }
     let headers = request.headers().clone();
     // A JSON escape can expand one input byte into six wire bytes.
@@ -1888,13 +1890,20 @@ async fn native_highlight(request: Request) -> ApiResult<Response> {
         "highlight:4:{}:{:?}:{}",
         input.path, input.line_types, input.text
     );
-    let job = render_jobs::cached_highlight(key, std::time::Duration::from_secs(300), move || {
+    let preview = input.preview;
+    let classify = move || {
         let result = match input.line_types {
             Some(types) => highlight::classify_diff(&input.path, &input.text, &types),
             None => highlight::classify(&input.path, &input.text),
         };
         serde_json::to_vec(&result).ok()
-    });
+    };
+    let job = render_jobs::cached_highlight_priority(
+        key,
+        std::time::Duration::from_secs(300),
+        preview,
+        classify,
+    );
     match tokio::time::timeout(std::time::Duration::from_secs(10), job).await {
         Ok(Ok((Some(body), _))) => Ok(json_bytes_response(StatusCode::OK, body, &headers)),
         _ => Err(api_error(

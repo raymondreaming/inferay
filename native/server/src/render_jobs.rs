@@ -68,6 +68,12 @@ fn highlighting() -> &'static JobPool {
     POOL.get_or_init(|| JobPool::new(2, 8))
 }
 
+fn highlight_previews() -> &'static JobPool {
+    static POOL: OnceLock<JobPool> = OnceLock::new();
+    // First paint must not wait behind full-document background classification.
+    POOL.get_or_init(|| JobPool::new(2, 8))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -91,9 +97,17 @@ mod tests {
                 .is_err()
         );
         let foreground = tokio::time::timeout(Duration::from_secs(1), run(|| "diff ready")).await;
+        let preview = tokio::time::timeout(
+            Duration::from_secs(1),
+            cached_highlight_priority("test:preview-pool".into(), Duration::ZERO, true, || {
+                Some(b"visible colours".to_vec())
+            }),
+        )
+        .await;
         // Release even if the assertion fails, so no background job stays blocked.
         drop(occupied);
         assert_eq!(foreground.unwrap().unwrap(), "diff ready");
+        assert!(preview.unwrap().unwrap().0.is_some());
         assert!(highlight.await.unwrap().unwrap().0.is_some());
     }
 }
@@ -155,12 +169,33 @@ pub async fn cached_if(
     cached_in(foreground(), key, ttl, job, cacheable).await
 }
 
+#[cfg(test)]
 pub async fn cached_highlight(
     key: String,
     ttl: Duration,
     job: impl FnOnce() -> Option<Vec<u8>> + Send + 'static,
 ) -> Result<(Option<Bytes>, bool), String> {
     cached_in(highlighting(), key, ttl, job, || true).await
+}
+
+pub async fn cached_highlight_priority(
+    key: String,
+    ttl: Duration,
+    preview: bool,
+    job: impl FnOnce() -> Option<Vec<u8>> + Send + 'static,
+) -> Result<(Option<Bytes>, bool), String> {
+    cached_in(
+        if preview {
+            highlight_previews()
+        } else {
+            highlighting()
+        },
+        key,
+        ttl,
+        job,
+        || true,
+    )
+    .await
 }
 
 async fn cached_in(
