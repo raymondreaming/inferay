@@ -1,16 +1,16 @@
 import { execFile } from "node:child_process";
-import { cp, mkdir, readdir, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { cp, mkdir, readdir, rm } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { getChannel } from "./config.js";
+import { openFile } from "./launch.js";
 import {
 	defaultInstallPath,
 	findExistingApp,
 	platformInfo,
 } from "./platform.js";
 import { downloadAsset, fetchRelease, findAsset } from "./releases.js";
-import { openFile } from "./launch.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -27,14 +27,14 @@ async function copyAppBundle(source, destination = defaultInstallPath()) {
 function parseMountPoint(output) {
 	return output
 		.split("\n")
-		.map((line) => line.trim().split(/\s+/).at(-1))
-		.find((part) => part?.startsWith("/Volumes/"));
+		.map((line) => line.match(/\/Volumes\/[^\r\n]+/)?.[0].trim())
+		.find(Boolean);
 }
 
 async function findAppBundle(directory) {
 	const entries = await readdir(directory, { withFileTypes: true });
 	const app = entries.find(
-		(entry) => entry.isDirectory() && entry.name.endsWith(".app")
+		(entry) => entry.isDirectory() && entry.name.endsWith(".app"),
 	);
 	if (!app) {
 		throw new Error(`no .app bundle found in ${directory}`);
@@ -100,7 +100,7 @@ export async function install({ local, launch = true, force = false } = {}) {
 	const asset = findAsset(release, platform);
 	if (!asset) {
 		throw new Error(
-			`no ${platform.target} release asset found for ${release.tag_name || channel}`
+			`no ${platform.target} release asset found for ${release.tag_name || channel}`,
 		);
 	}
 
