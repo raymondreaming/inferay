@@ -75,7 +75,30 @@ export async function fetchGitDiff(
 	});
 	if (!response.ok)
 		throw new Error(`Diff request failed (HTTP ${response.status})`);
-	return (await response.json()) as HunkDiff;
+	const diff = (await response.json()) as HunkDiff;
+	// Publish text and its classifications together, including on a cold click.
+	// Both panels share these entries with useSyntaxHighlight when they mount.
+	await prefetchDiffSyntax(request, diff);
+	signal.throwIfAborted();
+	return diff;
+}
+
+async function prefetchDiffSyntax(request: DiffRequest, diff: HunkDiff) {
+	if (diff.isBinary || diff.metadata.tokenizationDisabled) return;
+	const panels = diff.conflictLines
+		? [diff.conflictLines]
+		: request.view === "review"
+			? [diff.inlineLines ?? diff.compactLines ?? []]
+			: [diff.isNew ? [] : diff.oldLines, diff.newLines];
+	await Promise.all(
+		panels.map((lines) =>
+			prefetchSyntaxHighlight({
+				filePath: request.file,
+				lines: lines.map((line) => line.content),
+				lineTypes: lines.map((line) => line.type),
+			}),
+		),
+	);
 }
 
 function diffQueryKey(request: DiffRequest) {
@@ -107,26 +130,6 @@ export function useDiffPrefetch() {
 					gcTime: 30_000,
 					retry: false,
 				});
-				const diff = queryClient.getQueryData<HunkDiff>(diffQueryKey(request));
-				if (disposed || !diff || diff.isBinary) continue;
-				const panels =
-					request.view === "review"
-						? [
-								diff.conflictLines ??
-									diff.inlineLines ??
-									diff.compactLines ??
-									[],
-							]
-						: [diff.isNew ? [] : diff.oldLines, diff.newLines];
-				await Promise.all(
-					panels.map((lines) =>
-						prefetchSyntaxHighlight({
-							filePath: request.file,
-							lines: lines.map((line) => line.content),
-							lineTypes: lines.map((line) => line.type),
-						}),
-					),
-				);
 			}
 		} finally {
 			running = false;
