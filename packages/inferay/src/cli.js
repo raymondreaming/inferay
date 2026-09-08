@@ -1,8 +1,8 @@
 import { createRequire } from "node:module";
+import { getChannel, setChannel } from "./config.js";
+import { doctor } from "./doctor.js";
 import { install } from "./install.js";
 import { launchApp } from "./launch.js";
-import { doctor } from "./doctor.js";
-import { getChannel, setChannel } from "./config.js";
 
 const require = createRequire(import.meta.url);
 const { version: VERSION } = require("../package.json");
@@ -51,8 +51,11 @@ async function printDoctor(args) {
 	}
 }
 
-async function update() {
-	const result = await install({ force: true });
+async function update(args) {
+	const result = await install({
+		force: true,
+		launch: !args.includes("--no-launch"),
+	});
 	console.log(result.message);
 }
 
@@ -105,7 +108,7 @@ export async function main(argv) {
 			await printDoctor(args);
 			return;
 		case "update":
-			await update();
+			await update(args);
 			return;
 		case "channel":
 			if (!args[1]) {

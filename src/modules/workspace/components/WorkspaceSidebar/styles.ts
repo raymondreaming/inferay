@@ -422,6 +422,13 @@ export const styles = stylex.create({
 	flipHorizontal: {
 		transform: "scaleX(-1)",
 	},
+	updateError: {
+		fontSize: 11,
+		padding: 8,
+		margin: 0,
+		overflowWrap: "anywhere",
+		whiteSpace: "pre-wrap",
+	},
 	updateButton: {
 		alignItems: "center",
 		backgroundColor: {

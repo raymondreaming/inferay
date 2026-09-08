@@ -62,6 +62,7 @@ export function WorkspaceSidebar() {
 	const [resizing, setResizing] = createSignal(false);
 	const [updateStatus, setUpdateStatus] =
 		createSignal<SidebarUpdateStatus>("idle");
+	const [updateError, setUpdateError] = createSignal<string>();
 	const [layoutMode, setLayoutMode] = createSignal(loadAgentLayoutMode);
 	const _source = useAppInfo();
 	const _source2 = useForgeAccounts();
@@ -208,20 +209,57 @@ export function WorkspaceSidebar() {
 		const _updateInfoValue = updateInfo();
 		return _updateInfoValue.available && !!_updateInfoValue.url;
 	});
-	const openUpdate = () => {
-		setUpdateStatus("updating");
-		void sendJson("/api/native/update")
-			.then((response) => {
-				if (!response.ok) {
-					throw new Error(`Update request failed: ${response.status}`);
-				}
-			})
-			.catch((error) => {
-				if (error instanceof TypeError) return;
-				console.error("[update] failed", error);
-				setUpdateStatus("error");
+	let updateTimer: ReturnType<typeof setTimeout> | undefined;
+	let updateRequest: AbortController | undefined;
+	let updateDisposed = false;
+	const checkUpdate = async (method: "GET" | "POST") => {
+		clearTimeout(updateTimer);
+		updateRequest?.abort();
+		const request = new AbortController();
+		updateRequest = request;
+		try {
+			const response = await sendJson("/api/native/update", undefined, {
+				method,
+				signal: AbortSignal.any([request.signal, AbortSignal.timeout(8000)]),
 			});
+			const result = (await response.json()) as {
+				status: SidebarUpdateStatus;
+				error?: string;
+			};
+			if (updateDisposed || request.signal.aborted) return;
+			if (!response.ok || result.status === "error")
+				throw new Error(result.error || `Update failed (${response.status})`);
+			if (!["idle", "updating", "complete"].includes(result.status))
+				throw new Error(
+					"The updater did not report its status. Quit and reopen Inferay.",
+				);
+			setUpdateStatus(result.status);
+			setUpdateError(undefined);
+			if (result.status === "updating")
+				updateTimer = setTimeout(() => void checkUpdate("GET"), 1000);
+		} catch (error) {
+			if (updateDisposed || request.signal.aborted) return;
+			setUpdateStatus("error");
+			setUpdateError(
+				error instanceof Error ? error.message : "Could not reach the updater.",
+			);
+		}
 	};
+	onSettled(() => {
+		void checkUpdate("GET");
+		return () => {
+			updateDisposed = true;
+			clearTimeout(updateTimer);
+			updateRequest?.abort();
+		};
+	});
+	const openUpdate = () => {
+		if (updateStatus() === "updating") return;
+		setUpdateStatus("updating");
+		setUpdateError(undefined);
+		void checkUpdate("POST");
+	};
+
 	const shellProps = createMemo(() =>
 		stylex.attrs(
 			styles.shell,
@@ -269,6 +307,7 @@ export function WorkspaceSidebar() {
 							updateAvailable={updateAvailable()}
 							updateInfo={updateInfo()}
 							updateStatus={updateStatus()}
+							updateError={updateError()}
 							onUpdate={openUpdate}
 						/>
 						<button

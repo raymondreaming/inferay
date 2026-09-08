@@ -499,6 +499,9 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             }
             ("/api/app-info", "GET") => Ok(json!(native_app::load_app_info(&state).await)),
             ("/api/native/update", "POST") => return native_app::update_route(&request_headers),
+            ("/api/native/update", "GET") => {
+                return native_app::update_status_route(&request_headers);
+            }
             _ => dynamic_json_route(&state, &path, request).await,
         };
         return api_response(result, &request_headers);
