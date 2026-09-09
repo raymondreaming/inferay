@@ -200,7 +200,7 @@ impl ChatPersistence {
                 connection.execute("INSERT OR IGNORE INTO retired_epochs(pane,epoch) VALUES(?1,?2)", [pane, &epoch])?;
             }
             connection.execute("DELETE FROM transcript_messages WHERE pane=?1", [pane])?;
-            connection.execute("DELETE FROM documents WHERE pane=?1 AND kind IN ('session','queue')", [pane])?;
+            connection.execute("DELETE FROM documents WHERE pane=?1 AND kind IN ('session','queue','agentContext')", [pane])?;
             write_document(connection, pane, "legacySummaryCleared", &true)?;
             // Retain an empty transcript so legacy provider history cannot restore a cleared chat.
             connection.execute("INSERT INTO transcripts(pane,epoch,revision) VALUES(?1,?2,'0') ON CONFLICT(pane) DO UPDATE SET epoch=excluded.epoch,revision='0'", [pane, &uuid::Uuid::new_v4().to_string()])?;
@@ -224,6 +224,22 @@ impl ChatPersistence {
             .get(&format!("inferay-chat-summary-{pane_id}"))?
             .as_str()
             .map(str::to_owned)
+    }
+
+    pub async fn save_agent_context(&self, pane_id: &str, context: String) -> Result<(), String> {
+        self.transaction(pane_id, move |connection, pane| {
+            write_document(connection, pane, "agentContext", &context)
+        })
+        .await
+    }
+
+    pub async fn read_agent_context(&self, pane_id: &str) -> Option<String> {
+        self.transaction(pane_id, |connection, pane| {
+            read_document::<Option<String>>(connection, pane, "agentContext")
+        })
+        .await
+        .ok()
+        .flatten()
     }
 
     pub async fn read_session_reference(&self, pane_id: &str) -> Option<ChatSessionReference> {
@@ -478,6 +494,26 @@ fn apply_update(connection: &Connection, pane: &str, update: &Value) -> StoreRes
 #[cfg(test)]
 mod queue_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn session_instructions_survive_restart_without_entering_transcript() {
+        let root = std::env::temp_dir().join(format!("inferay-context-{}", uuid::Uuid::new_v4()));
+        let instructions = "User instructions and custom skills\n".repeat(4000);
+        let store = ChatPersistence::new(root.clone());
+        store
+            .save_agent_context("pane", instructions.clone())
+            .await
+            .unwrap();
+        drop(store);
+        let store = ChatPersistence::new(root.clone());
+        assert_eq!(store.read_agent_context("pane").await, Some(instructions));
+        assert!(store.read_transcript("pane").await.is_none());
+        assert!(store.read_agent_context("other-pane").await.is_none());
+        store.clear_session("pane", None).await.unwrap();
+        assert!(store.read_agent_context("pane").await.is_none());
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[tokio::test]
     async fn durable_queue_preserves_order_edits_and_images_across_restarts() {

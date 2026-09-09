@@ -65,6 +65,7 @@ export function useChatConnection(
 			checkpointId,
 		});
 	};
+	let nativeTranscriptShared = false;
 	const flushNativeTranscript = () => {
 		if (nativeFrameRef.current !== null)
 			window.clearTimeout(nativeFrameRef.current);
@@ -72,6 +73,7 @@ export function useChatConnection(
 		const native = nativeTranscriptRef.current;
 		if (!native) return;
 		setMessages((current) => mergeNativeTranscript(current, native));
+		nativeTranscriptShared = true;
 	};
 	const resetTranscript = () => {
 		if (nativeFrameRef.current !== null)
@@ -119,7 +121,7 @@ export function useChatConnection(
 			transcriptIdentity = identity;
 			if (!enabled) return;
 			let subscribed = true;
-			const cleanup = wsClient.subscribe(paneId, (rawMessage) => {
+			const cleanup = wsClient.subscribe(paneId, (rawMessage, serialized) => {
 				const _optionsValue2 = _options();
 				if (
 					!subscribed ||
@@ -128,15 +130,17 @@ export function useChatConnection(
 				)
 					return;
 				const msg = rawMessage;
-				const update = JSON.parse(
-					replicaRef.current!.receive(JSON.stringify(msg)),
-				) as {
-					kind: "none" | "ignore" | "resync" | "sync" | "patch";
-					reconnect?: boolean;
-					start: number;
-					deleteCount: number;
-					messages: ChatMessage[];
-				};
+				const update:
+					| { kind: "none" | "ignore" | "resync"; reconnect?: boolean }
+					| {
+							kind: "sync" | "patch";
+							start: number;
+							deleteCount: number;
+							messages: ChatMessage[];
+					  } =
+					msg.type === "chat:sync" || msg.transcriptUpdate
+						? JSON.parse(replicaRef.current!.receive(serialized))
+						: { kind: "none" };
 				if (update.kind === "resync") {
 					if (update.reconnect)
 						wsClient.send({
@@ -148,11 +152,10 @@ export function useChatConnection(
 				if (update.kind === "ignore") return;
 				if (update.kind === "sync" || update.kind === "patch") {
 					const before = nativeTranscriptRef.current ?? [];
-					nativeTranscriptRef.current = [
-						...before.slice(0, update.start),
-						...update.messages,
-						...before.slice(update.start + update.deleteCount),
-					];
+					const pending = nativeTranscriptShared ? before.slice() : before;
+					pending.splice(update.start, update.deleteCount, ...update.messages);
+					nativeTranscriptRef.current = pending;
+					nativeTranscriptShared = false;
 					if (update.kind === "sync") {
 						for (const pending of msg.pendingSteers ?? [])
 							if (typeof pending?.id === "string")
@@ -253,6 +256,7 @@ export function useChatConnection(
 				nativeFrameRef.current = null;
 				cleanupReconnect();
 				cleanup();
+				wsClient.send({ type: "chat:unsubscribe", paneId });
 			};
 		},
 	);
@@ -297,7 +301,7 @@ export interface NativeChatRender {
 		old_string: string;
 		new_string: string;
 	};
-	trailingOutput?: string;
+	outputStart?: number;
 	display?: ToolDisplayInfo;
 	summary?: ToolOutputSummary | null;
 	questions?: AskUserQuestion[] | null;

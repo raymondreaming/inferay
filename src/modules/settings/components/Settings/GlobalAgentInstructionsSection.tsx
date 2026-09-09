@@ -1,6 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
-import { createEffect, createSignal, onSettled } from "solid-js";
+import { createSignal, onSettled } from "solid-js";
 import type { EffectiveAgentContext } from "../../../../../build/presentation/contracts/EffectiveAgentContext.ts";
+import { queryClient } from "../../../../shared/lib/dom.tsx";
 import { fetchJson, postJson } from "../../../../shared/lib/native.tsx";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
 import { styles } from "./styles.ts";
@@ -50,6 +51,7 @@ export function GlobalAgentInstructionsSection(_props: {
 				},
 			);
 			setSavedInstructions(_instructionsValue);
+			await queryClient.invalidateQueries({ queryKey: ["agent-context"] });
 		} catch (cause) {
 			setError(
 				cause instanceof Error

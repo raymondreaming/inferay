@@ -1358,6 +1358,7 @@ async fn upload_temp_file(state: &ServerState, request: Request) -> ApiResult {
 
 async fn serve_local_image(state: &ServerState, request: Request) -> ApiResult<Response> {
     let request_headers = request.headers().clone();
+    let thumbnail = query_value(&request, "thumbnail").as_deref() == Some("true");
     let Some(path) = query_value(&request, "path").filter(|path| !path.is_empty()) else {
         return Err(api_error(StatusCode::BAD_REQUEST, "No path provided"));
     };
@@ -1377,15 +1378,50 @@ async fn serve_local_image(state: &ServerState, request: Request) -> ApiResult<R
     if metadata.len() > MAX_SERVED_FILE_BYTES {
         return Err(api_error(StatusCode::PAYLOAD_TOO_LARGE, "File too large"));
     }
-    let bytes = tokio::fs::read(&path).await?;
-    let mut response = Response::new(Body::from(bytes));
+    let etag = format!(
+        "\"{}-{}-{}\"",
+        metadata.len(),
+        metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|time| time.as_nanos())
+            .unwrap_or_default(),
+        if thumbnail { "preview-1" } else { "original" }
+    );
+    let unchanged = request_headers
+        .get("if-none-match")
+        .and_then(|value| value.to_str().ok())
+        == Some(etag.as_str());
+    let mut response = if unchanged {
+        let mut response = Response::new(Body::empty());
+        *response.status_mut() = StatusCode::NOT_MODIFIED;
+        response
+    } else {
+        let bytes = if thumbnail {
+            files::image_thumbnail(path.clone())
+                .await
+                .map_err(|error| api_error(StatusCode::UNPROCESSABLE_ENTITY, &error))?
+        } else {
+            tokio::fs::read(&path).await?
+        };
+        Response::new(Body::from(bytes))
+    };
     response.headers_mut().insert(
         CONTENT_TYPE,
-        HeaderValue::from_static(image_content_type(&path)),
+        HeaderValue::from_static(if thumbnail {
+            "image/png"
+        } else {
+            image_content_type(&path)
+        }),
+    );
+    response.headers_mut().insert(
+        "etag",
+        HeaderValue::from_str(&etag).expect("numeric image validator"),
     );
     response
         .headers_mut()
-        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        .insert(CACHE_CONTROL, HeaderValue::from_static("private, no-cache"));
     add_cors_headers(response.headers_mut(), &request_headers);
     Ok(response)
 }
@@ -2224,7 +2260,7 @@ async fn serve_native_websocket(state: ServerState, socket: WebSocket) {
 
         }
     }
-    state.chat_runtime.detach_client(client_id).await;
+    state.chat_runtime.detach_client(client_id, None).await;
     let _ = sink.close().await;
 }
 
@@ -2342,6 +2378,12 @@ async fn handle_native_websocket_message(
             if let Err(error) = result {
                 let _ = sender.send(json!({"type":"chat:error", "paneId":pane_id, "error":error}));
             }
+        }
+        "chat:unsubscribe" if !pane_id.is_empty() => {
+            state
+                .chat_runtime
+                .detach_client(client_id, Some(pane_id))
+                .await;
         }
         "chat:reconnect" if !pane_id.is_empty() => {
             let pane = state
@@ -2641,6 +2683,87 @@ fn text_response(status: StatusCode, text: &'static str) -> Response {
 #[cfg(test)]
 mod file_http_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn image_previews_are_bounded_cached_and_preserve_originals() {
+        let root = std::env::temp_dir().join(format!("inferay-image-test-{}", Uuid::new_v4()));
+        let app = root.join("app");
+        std::fs::create_dir_all(&app).unwrap();
+        let path = app.join("screenshot.png");
+        image::RgbaImage::from_pixel(3456, 2168, image::Rgba([20, 40, 80, 128]))
+            .save(&path)
+            .unwrap();
+        let original = std::fs::read(&path).unwrap();
+        let mut config = ServerConfig::new(
+            "127.0.0.1:0".parse().unwrap(),
+            std::fs::canonicalize(&app).unwrap(),
+        );
+        config.user_data_dir = root.join("state");
+        config.home_directory = root.join("home");
+        std::fs::create_dir_all(&config.user_data_dir).unwrap();
+        let auth = config.auth_token.clone();
+        let mut server = ServerHandle::start(config).unwrap();
+        let client = Client::new();
+        let get = |path: &Path, thumbnail: bool| {
+            let mut url = Url::parse(&format!("http://{}/api/file", server.local_addr())).unwrap();
+            url.query_pairs_mut().extend_pairs([
+                ("path", path.to_string_lossy().into_owned()),
+                ("thumbnail", thumbnail.to_string()),
+            ]);
+            client
+                .get(url)
+                .header("x-inferay-auth", &auth)
+                .header("sec-fetch-site", "same-origin")
+        };
+        let response = get(&path, true).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let etag = response.headers()["etag"].clone();
+        let bytes = response.bytes().await.unwrap();
+        let preview = image::load_from_memory(&bytes).unwrap();
+        assert_eq!(preview.width(), 512);
+        assert!(preview.height() <= 512);
+        assert_eq!(preview.to_rgba8().get_pixel(0, 0)[3], 128);
+        let cached = get(&path, true)
+            .header("if-none-match", &etag)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(cached.status(), StatusCode::NOT_MODIFIED);
+        assert!(cached.bytes().await.unwrap().is_empty());
+        assert_eq!(
+            get(&path, false)
+                .send()
+                .await
+                .unwrap()
+                .bytes()
+                .await
+                .unwrap()
+                .as_ref(),
+            original
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        image::RgbaImage::new(64, 32).save(&path).unwrap();
+        assert_eq!(
+            get(&path, true)
+                .header("if-none-match", &etag)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        std::fs::write(root.join("outside.png"), &original).unwrap();
+        assert_eq!(
+            get(&root.join("outside.png"), true)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        server.shutdown();
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[tokio::test]
     async fn files_and_directory_routes_preserve_access_and_response_contracts() {

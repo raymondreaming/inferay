@@ -3,7 +3,6 @@ import {
 	createEffect,
 	createMemo,
 	createSignal,
-	onSettled,
 } from "solid-js";
 import type { QueuedMessageInfo } from "../../../../build/presentation/contracts/QueuedMessageInfo.ts";
 import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
@@ -19,15 +18,6 @@ export function useAgentChatComposerState(
 ) {
 	const [attachedImages, setAttachedImages] = createSignal<AttachedImageInfo[]>(
 		[],
-	);
-	const attachedImagesRef = {
-		current: [] as AttachedImageInfo[],
-	};
-	createEffect(
-		() => attachedImages(),
-		(images) => {
-			attachedImagesRef.current = images;
-		},
 	);
 	const [queuedMessages, setQueuedMessages] = createSignal<QueuedChatMessage[]>(
 		[],
@@ -207,14 +197,12 @@ export function useAgentChatComposerState(
 		setAttachedImages((prev) => {
 			const target = prev.find((image) => image.path === path);
 			if (!target) return prev;
-			releaseChatImages([target]);
 			return prev.filter((item) => item.path !== path);
 		});
 	};
 	const clearAttachedImages = () => {
 		setAttachedImages((prev) => {
 			if (prev.length === 0) return prev;
-			releaseChatImages(prev);
 			return [];
 		});
 	};
@@ -236,9 +224,6 @@ export function useAgentChatComposerState(
 			}
 		}
 	};
-	onSettled(() => () => {
-		releaseChatImages(attachedImagesRef.current);
-	});
 	return {
 		get attachedImages() {
 			return attachedImages();
@@ -324,12 +309,9 @@ export async function uploadChatImage(
 		? {
 				name: file.name,
 				path: data.path,
-				previewUrl: URL.createObjectURL(file),
+				previewUrl: `/api/file?thumbnail=true&path=${encodeURIComponent(data.path)}`,
 			}
 		: null;
-}
-export function releaseChatImages(images: AttachedImageInfo[]) {
-	for (const image of images) URL.revokeObjectURL(image.previewUrl);
 }
 export function usePendingChatWorkspace(
 	_paneId2: Accessor<string>,

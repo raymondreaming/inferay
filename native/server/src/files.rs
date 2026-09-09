@@ -473,3 +473,40 @@ pub(super) async fn search_project_files(
         .await
         .map_err(|error| ApiError::from(error.to_string()))
 }
+
+/// Bound both the decoded bitmap and concurrent decoding, not just compressed bytes.
+/// The original file remains the agent attachment; this is only its UI preview.
+pub(super) async fn image_thumbnail(path: PathBuf) -> Result<Vec<u8>, String> {
+    static DECODERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+    let permit = DECODERS
+        .acquire()
+        .await
+        .map_err(|error| error.to_string())?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        use image::ImageDecoder;
+        let mut reader = image::ImageReader::open(path)
+            .map_err(|error| error.to_string())?
+            .with_guessed_format()
+            .map_err(|error| error.to_string())?;
+        let mut limits = image::Limits::default();
+        limits.max_alloc = Some(256 * 1024 * 1024);
+        limits.max_image_width = Some(16_384);
+        limits.max_image_height = Some(16_384);
+        reader.limits(limits);
+        let mut decoder = reader.into_decoder().map_err(|error| error.to_string())?;
+        let orientation = decoder.orientation().map_err(|error| error.to_string())?;
+        let bitmap =
+            image::DynamicImage::from_decoder(decoder).map_err(|error| error.to_string())?;
+        let mut thumbnail = bitmap.thumbnail(512.min(bitmap.width()), 512.min(bitmap.height()));
+        drop(bitmap);
+        thumbnail.apply_orientation(orientation);
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        thumbnail
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .map_err(|error| error.to_string())?;
+        Ok(bytes.into_inner())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}

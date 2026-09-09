@@ -130,7 +130,9 @@ export const Bubble = function Bubble(_props: {
 															)}
 														>
 															<img
-																src={`/api/file?path=${encodeURIComponent(imgPath())}`}
+																loading="lazy"
+																decoding="async"
+																src={`/api/file?thumbnail=true&path=${encodeURIComponent(imgPath())}`}
 																alt=""
 																{...stylex.attrs(styles.userImage)}
 															/>

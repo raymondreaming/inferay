@@ -830,6 +830,53 @@ mod runner_tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
 
+    #[test]
+    fn session_instructions_are_configuration_not_user_messages() {
+        let instructions = "Follow my repository rules and use /review.\n".repeat(4000);
+        let invocation = CodexInvocationContext {
+            cwd: PathBuf::from("/tmp"),
+            reference_paths: Vec::new(),
+            images: Vec::new(),
+            model: None,
+            reasoning_level: None,
+            developer_instructions: Some(instructions.clone()),
+            session_id: Some("existing-session".into()),
+        };
+        assert_eq!(
+            codex_thread_params(&invocation)["developerInstructions"],
+            instructions
+        );
+        let turn = codex_turn_params(
+            "existing-session",
+            "What instructions did I give you?",
+            &invocation,
+        );
+        assert_eq!(
+            turn["input"][0]["text"],
+            "What instructions did I give you?"
+        );
+        assert_eq!(turn["input"].as_array().unwrap().len(), 1);
+        let env = HashMap::new();
+        let args = claude_invocation_args(&ClaudeRun {
+            binary: Path::new("claude"),
+            prompt: "What instructions did I give you?",
+            developer_instructions: Some(&instructions),
+            cwd: &invocation.cwd,
+            model: None,
+            session_id: Some("existing-session"),
+            env: &env,
+        });
+        let index = args
+            .iter()
+            .position(|arg| arg == "--append-system-prompt")
+            .unwrap();
+        assert_eq!(args[index + 1], instructions);
+        assert!(
+            args.iter()
+                .any(|arg| arg == "What instructions did I give you?")
+        );
+    }
+
     #[tokio::test]
     async fn concrete_runner_delivers_result_session_and_failure_events() {
         let root = std::env::temp_dir().join(format!("inferay-runner-{}", uuid::Uuid::new_v4()));

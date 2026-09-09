@@ -301,8 +301,10 @@ impl ChatMessageBuffer {
                             render["filePath"] = Value::String(path.to_owned());
                             render["edit"] = serde_json::json!({"file_path":path,"old_string":input["old_string"],"new_string":input["new_string"]});
                         }
-                        render["trailingOutput"] =
-                            Value::String(message.content[end..].trim_start().to_owned());
+                        let output = message.content[end..].trim_start();
+                        let start = message.content.len() - output.len();
+                        render["outputStart"] =
+                            Value::from(crate::utf16_length(&message.content[..start]));
                     }
                 }
                 render
@@ -830,4 +832,40 @@ fn prepare_system_card(value: &Value, render: &mut Value) {
         card.insert("turns".into(), value["turns"].clone());
     }
     render[key] = Value::Object(card);
+}
+
+#[cfg(test)]
+mod output_reference_tests {
+    use super::*;
+
+    #[test]
+    fn tool_output_uses_utf16_reference_instead_of_duplicate_text() {
+        let content = format!(
+            "{{\"command\":\"echo 🌳\"}}\n\n{}",
+            "output 🌳\n".repeat(10_000)
+        );
+        let message: ChatTranscriptMessage = serde_json::from_value(serde_json::json!({
+            "id":"tool", "role":"tool", "toolName":"exec", "content":content
+        }))
+        .unwrap();
+        let mut buffer = ChatMessageBuffer::default();
+        buffer.replace_messages(vec![message]);
+        let message = &buffer.messages()[0];
+        let render = &message.extra["render"];
+        assert!(render.get("trailingOutput").is_none());
+        let start = render["outputStart"].as_u64().unwrap() as usize;
+        assert_eq!(
+            crate::utf16_slice(
+                &message.content,
+                start,
+                crate::utf16_length(&message.content)
+            ),
+            "output 🌳\n".repeat(10_000)
+        );
+        assert!(serde_json::to_vec(render).unwrap().len() < 1000);
+        // Restoring the saved transcript rebuilds this reference from its source.
+        let saved = buffer.messages().to_vec();
+        buffer.replace_messages(saved);
+        assert_eq!(buffer.messages()[0].extra["render"]["outputStart"], start);
+    }
 }

@@ -18,6 +18,8 @@ export function ComposerAttachments(_props: ComposerAttachmentsProps) {
 					{(img) => (
 						<div {...stylex.attrs(styles.attachmentTile)}>
 							<img
+								loading="lazy"
+								decoding="async"
 								src={img().previewUrl}
 								alt={img().name}
 								title={img().name}

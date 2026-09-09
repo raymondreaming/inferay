@@ -52,7 +52,7 @@ interface WSMessage {
 	paneId?: string;
 	[key: string]: unknown;
 }
-type MessageHandler = (data: WSMessage) => void;
+type MessageHandler = (data: WSMessage, serialized: string) => void;
 class WebSocketClient {
 	private ws: WebSocket | null = null;
 	private listeners = new Map<string, Set<MessageHandler>>();
@@ -90,7 +90,7 @@ class WebSocketClient {
 				if (msg.paneId) {
 					const paneListeners = this.listeners.get(msg.paneId);
 					if (paneListeners) {
-						for (const handler of paneListeners) handler(msg);
+						for (const handler of paneListeners) handler(msg, event.data);
 					}
 				}
 			} catch {}

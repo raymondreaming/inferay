@@ -76,7 +76,9 @@ export const QueuedMessageRow = function QueuedMessageRow(_props: {
 				<>
 					{_props.message.images && _props.message.images.length > 0 && (
 						<img
-							src={`/api/file?path=${encodeURIComponent(_props.message.images[0]!)}`}
+							loading="lazy"
+							decoding="async"
+							src={`/api/file?thumbnail=true&path=${encodeURIComponent(_props.message.images[0]!)}`}
 							alt=""
 							{...stylex.attrs(styles.queueImage)}
 						/>

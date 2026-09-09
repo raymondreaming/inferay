@@ -41,23 +41,30 @@ export function useAgentContext(
 		instructions: string,
 		mode: AgentContextMode,
 	) => {
-		const queryKey = ["agent-context", _paneId(), _cwd()];
+		const paneId = _paneId();
+		const cwd = _cwd();
 		await postJson(
 			"/api/agent-context",
 			{
 				scope,
 				instructions,
 				mode,
-				cwd: _cwd(),
-				paneId: _paneId(),
+				cwd,
+				paneId,
 			},
 			{
 				method: "PUT",
 			},
 		);
-		await queryClient.invalidateQueries({ queryKey });
+		await queryClient.invalidateQueries({ queryKey: ["agent-context"] });
 	};
 	return {
+		get error() {
+			return query.error instanceof Error ? query.error.message : null;
+		},
+		get isLoading() {
+			return query.data === undefined;
+		},
 		get context() {
 			return query.data ?? empty;
 		},

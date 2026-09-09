@@ -13,7 +13,9 @@ export function ToolOutputHighlight(_props: {
 	);
 	const trailingOutput = createMemo(() =>
 		(_props.showOutput === undefined ? true : _props.showOutput)
-			? (_props.render?.trailingOutput ?? "")
+			? _props.render?.outputStart !== undefined
+				? _props.content.slice(_props.render.outputStart)
+				: ""
 			: "",
 	);
 	return (

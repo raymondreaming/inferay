@@ -1,6 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createMemo, createSignal, For } from "solid-js";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
+import { Button } from "../../../../shared/ui/Button/index.tsx";
 import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
 import { IconArrowLeft } from "../../../../shared/ui/Icons/index.tsx";
 import { useAgentContext } from "../../../context/hooks/useAgentContext.tsx";
@@ -25,28 +26,37 @@ export function AgentContextPanel(_props: {
 	const [instructions, setInstructions] = createSignal(
 		() => layer()?.instructions ?? "",
 	);
-	const saveTimerRef = {
-		current: null,
-	} as {
-		current: ReturnType<typeof setTimeout> | null;
+	const [isSaving, setIsSaving] = createSignal(false);
+	const [error, setError] = createSignal("");
+	const save = async () => {
+		if (isSaving() || _source.isLoading) return false;
+		setIsSaving(true);
+		setError("");
+		try {
+			await _source.save(scope(), instructions(), "inherit");
+			return true;
+		} catch (cause) {
+			setError(
+				cause instanceof Error ? cause.message : "Unable to save instructions",
+			);
+			return false;
+		} finally {
+			setIsSaving(false);
+		}
+	};
+	const close = async () => {
+		if (_source.isLoading || (await save())) _props.onClose();
 	};
 	const folderName = createMemo(() =>
 		_props.cwd
 			? _props.cwd.replace(/\/+$/, "").split("/").pop() || _props.cwd
 			: "Folder",
 	);
-	const scheduleSave = (nextInstructions: string) => {
-		if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-		saveTimerRef.current = setTimeout(() => {
-			saveTimerRef.current = null;
-			void _source.save(scope(), nextInstructions, "inherit");
-		}, 500);
-	};
 	createEffect(
 		() => [_props.onClose],
 		() => {
 			const handleKeyDown = (event: KeyboardEvent) => {
-				if (event.key === "Escape") _props.onClose();
+				if (event.key === "Escape") void close();
 			};
 			document.addEventListener("keydown", handleKeyDown);
 			return () => {
@@ -63,7 +73,8 @@ export function AgentContextPanel(_props: {
 			<div {...stylex.attrs(styles.scopeRow)}>
 				<IconButton
 					type="button"
-					onClick={_props.onClose}
+					onClick={() => void close()}
+					disabled={isSaving()}
 					variant="ghost"
 					size="sm"
 					title="Back to chat"
@@ -77,7 +88,11 @@ export function AgentContextPanel(_props: {
 						{(item) => (
 							<button
 								type="button"
-								onClick={() => setScope(item())}
+								disabled={isSaving()}
+								onClick={async () => {
+									const next = item();
+									if (next !== scope() && (await save())) setScope(next);
+								}}
 								{...stylex.attrs(
 									styles.scopeButton,
 									scope() === item() && styles.scopeButtonActive,
@@ -95,10 +110,10 @@ export function AgentContextPanel(_props: {
 				<span {...stylex.attrs(styles.fieldLabel)}>Agent Instructions</span>
 				<textarea
 					value={instructions()}
+					disabled={isSaving() || _source.isLoading}
 					onInput={(event) => {
 						const next = event.currentTarget.value;
 						setInstructions(next);
-						scheduleSave(next);
 					}}
 					placeholder={
 						scope() === "chat"
@@ -107,6 +122,22 @@ export function AgentContextPanel(_props: {
 					}
 					{...stylex.attrs(styles.editor)}
 				/>
+				<p {...stylex.attrs(styles.fieldLabel)}>
+					Applied silently when a chat starts. Start a new chat to use changed
+					instructions.
+				</p>
+				<Button
+					variant="secondary"
+					size="sm"
+					liquid={false}
+					disabled={isSaving() || _source.isLoading}
+					onClick={() => void save()}
+				>
+					{isSaving() ? "Saving…" : "Save instructions"}
+				</Button>
+				{(error() || _source.error) && (
+					<p role="alert">{error() || _source.error}</p>
+				)}
 			</div>
 		</div>
 	);
