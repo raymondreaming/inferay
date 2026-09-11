@@ -179,10 +179,18 @@ export const DocumentViewer = function DocumentViewer(_props: {
 				);
 			});
 	};
+	const servedOpenRequest = {
+		current: null as string | null,
+	};
 	createEffect(
 		() => [openFile, _props.openRequest],
 		() => {
-			if (_props.openRequest) openFile(_props.openRequest);
+			const request = _props.openRequest;
+			if (!request) return;
+			const key = `${request.token} ${request.path}`;
+			if (servedOpenRequest.current === key) return;
+			servedOpenRequest.current = key;
+			openFile(request);
 		},
 	);
 	const closeFile = (path: string) => {
