@@ -190,13 +190,17 @@ pub fn catalog() -> &'static Value {
         ("vim", "Toggle vim mode")
         ]),
                             "models": models(&[
-        ("claude-fable-5", "Fable 5", "Hardest tasks", None),
-        ("claude-opus-4-7", "Opus 4.7", "★ Most capable", None),
-        ("claude-opus-4-6", "Opus 4.6", "Previous Opus", None),
-        ("claude-sonnet-4-6", "Sonnet 4.6", "Best value", None),
+        ("claude-fable-5-1", "Fable 5.1", "Hardest tasks", None),
+        ("claude-fable-5", "Fable 5", "Previous Fable", None),
+        ("claude-opus-5", "Opus 5", "★ Most capable", None),
+        ("claude-opus-4-8", "Opus 4.8", "Previous Opus", None),
+        ("claude-opus-4-7", "Opus 4.7", "Older Opus", None),
+        ("claude-opus-4-6", "Opus 4.6", "Older Opus", None),
+        ("claude-sonnet-5", "Sonnet 5", "Best value", None),
+        ("claude-sonnet-4-6", "Sonnet 4.6", "Previous Sonnet", None),
         ("claude-haiku-4-5", "Haiku 4.5", "Fastest", None)
         ]),
-                            "defaultModel": "claude-opus-4-7"
+                            "defaultModel": "claude-opus-5"
                         },
                         "codex": {
                             "kind": "codex",

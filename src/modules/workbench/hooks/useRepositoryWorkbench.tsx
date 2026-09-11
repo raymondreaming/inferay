@@ -973,18 +973,25 @@ export function useRepositoryWorkbench(
 		const panel = createMemo(() =>
 			_source().detachedFilePanels.find((panel) => panel.id === id),
 		);
+		const retained = createMemo<
+			PanelSession["detachedFilePanels"][number] | undefined
+		>((previous) => panel() ?? previous);
+		const openRequest = createMemo(() => {
+			const value = retained();
+			return !value || value.initialFile
+				? null
+				: { path: value.path, token: 0 };
+		});
 		return (
 			<Show when={panel()}>
-				{(value) => (
+				{(_value) => (
 					<DocumentViewer
-						cwd={value().cwd}
+						cwd={retained()?.cwd ?? ""}
 						sessionId={id}
 						workspaceId={_options().workspaceId}
 						onSessionChange={saveDocumentSession}
-						initialFile={value().initialFile}
-						openRequest={
-							value().initialFile ? null : { path: value().path, token: 0 }
-						}
+						initialFile={retained()?.initialFile}
+						openRequest={openRequest()}
 						onClose={() => updatePanelSession({ type: "closeFile", id })}
 						onFileTabDragStart={startFileDrag.bind(null, drag)}
 						{...drag}

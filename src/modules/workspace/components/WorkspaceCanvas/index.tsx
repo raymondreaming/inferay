@@ -555,6 +555,9 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 					const split = createMemo(() =>
 						nodeProps.node.type === "split" ? nodeProps.node : undefined,
 					);
+					const branch = createMemo<DockSplitNode | undefined>(
+						(previous) => split() ?? previous,
+					);
 					return (
 						<Show
 							when={split()}
@@ -564,19 +567,19 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 								/>
 							}
 						>
-							{(branch) => (
+							{(_branch) => (
 								<DockSplit
-									direction={branch().direction}
-									ratio={branch().ratio}
+									direction={branch()?.direction ?? "horizontal"}
+									ratio={branch()?.ratio ?? 0.5}
 									first={
 										<DockNode
-											node={branch().first}
+											node={branch()?.first ?? nodeProps.node}
 											path={[...nodeProps.path, "first"]}
 										/>
 									}
 									second={
 										<DockNode
-											node={branch().second}
+											node={branch()?.second ?? nodeProps.node}
 											path={[...nodeProps.path, "second"]}
 										/>
 									}
@@ -584,7 +587,7 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 										handleDividerPointerDown(
 											event,
 											nodeProps.path,
-											branch().direction,
+											branch()?.direction ?? "horizontal",
 										)
 									}
 								/>
@@ -754,6 +757,7 @@ export type DragProps = {
 export type DockEdge = "center" | "left" | "right" | "top" | "bottom";
 export type DockOuterEdge = Exclude<DockEdge, "center">;
 export const MIN_RESPONSIVE_PANE_WIDTH = 300;
+export type DockSplitNode = Extract<DockTree, { readonly type: "split" }>;
 export type DockTree =
 	| {
 			readonly type: "panel";
