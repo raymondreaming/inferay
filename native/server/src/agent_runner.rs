@@ -22,6 +22,8 @@ use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot};
 
 const MAX_STREAM_CHARS: usize = 64_000;
+const CODEX_RPC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+const CODEX_INTERRUPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Process control shared with the session owner while `run_*` is awaiting.
 #[derive(Clone)]
@@ -253,10 +255,19 @@ pub async fn run_codex(
         )
         .await?;
         rpc.write(&json!({"method":"initialized"})).await?;
+        let config = rpc
+            .request(
+                "config/read",
+                json!({"cwd": run.invocation.cwd, "includeLayers": false}),
+                (&mut *context, &mut *state, emissions),
+            )
+            .await?;
         let mut start_params = codex_thread_params(run.invocation);
+        configure_codex_transport(&mut start_params, &config["config"]);
         start_params["dynamicTools"] = PromptStore::tool_definitions();
         let thread_response = if let Some(thread_id) = &run.invocation.session_id {
             let mut params = codex_thread_params(run.invocation);
+            configure_codex_transport(&mut params, &config["config"]);
             params["threadId"] = json!(thread_id);
             rpc.request(
                 "thread/resume",
@@ -264,7 +275,8 @@ pub async fn run_codex(
                 (&mut *context, &mut *state, emissions),
             )
             .await
-            .ok()
+            .map(Some)
+            .map_err(|error| format!("Could not resume Codex session {thread_id}: {error}"))?
         } else {
             None
         };
@@ -307,8 +319,18 @@ pub async fn run_codex(
         let mut pending_steers = HashMap::<u64, oneshot::Sender<Result<(), String>>>::new();
         let mut pending_user_input: Option<(Value, Vec<String>)> = None;
         let mut completed = false;
+        let mut interrupt_deadline = None;
         loop {
             tokio::select! {
+                _ = async {
+                    match interrupt_deadline {
+                        Some(deadline) => tokio::time::sleep_until(deadline).await,
+                        None => std::future::pending::<()>().await,
+                    }
+                } => {
+                    emit_error(context, "Codex did not finish stopping; terminated its process.".into());
+                    break;
+                }
                 control = control_rx.recv() => {
                     match control {
                         Some(CodexControl::Steer { text, images, response }) => {
@@ -338,14 +360,18 @@ pub async fn run_codex(
                             }
                         }
                         Some(CodexControl::Interrupt) => {
-                            let _ = rpc.send("turn/interrupt", json!({"threadId":thread_id,"turnId":turn_id})).await;
+                            if rpc.send("turn/interrupt", json!({"threadId":thread_id,"turnId":turn_id})).await.is_err() {
+                                break;
+                            }
+                            interrupt_deadline.get_or_insert_with(|| tokio::time::Instant::now() + CODEX_INTERRUPT_TIMEOUT);
                         }
                         None => {}
                     }
                 }
                 read = rpc.read() => {
                     let Some(message) = read else { break };
-                    if let Some(id) = message.get("id").and_then(Value::as_u64)
+                    if message.get("method").is_none()
+                        && let Some(id) = message.get("id").and_then(Value::as_u64)
                         && let Some(response) = pending_steers.remove(&id)
                     {
                         let result = rpc_result(message).map(|_| ());
@@ -386,6 +412,15 @@ pub async fn run_codex(
                         }
                         continue;
                     }
+                    if let Some(reply) = unsupported_codex_request(&message) {
+                        let method = message["method"].as_str().unwrap_or("unknown");
+                        emit_error(context, format!("Codex requested {method}, which Inferay does not support yet. The request was declined so the turn can continue."));
+                        flush_emissions(context, emissions);
+                        if rpc.write(&reply).await.is_err() {
+                            break;
+                        }
+                        continue;
+                    }
                     let is_completed = message.get("method").and_then(Value::as_str) == Some("turn/completed");
                     if let Some(method) = message["method"].as_str() {
                         state.handle_notification(context, method, &message["params"]);
@@ -416,6 +451,33 @@ pub async fn run_codex(
         (context, state, emissions),
     )
     .await
+}
+
+// Inferay currently creates an app-server per turn. Codex's WebSocket -> HTTP
+// fallback lives only in that process, so restarting it repeats the entire retry
+// budget. Use HTTP for the built-in OpenAI provider; leave custom providers alone.
+// Built-in providers cannot be overridden, hence the separate provider ID.
+fn configure_codex_transport(params: &mut Value, config: &Value) {
+    let provider = config["model_provider"].as_str().unwrap_or("openai");
+    if provider != "openai" {
+        return;
+    }
+    let mut http_provider = json!({
+        "name": "OpenAI",
+        "wire_api": "responses",
+        "requires_openai_auth": true,
+        "supports_websockets": false,
+        "supports_standalone_web_search": true,
+        "env_http_headers": {
+            "OpenAI-Organization": "OPENAI_ORGANIZATION",
+            "OpenAI-Project": "OPENAI_PROJECT"
+        }
+    });
+    if let Some(base_url) = config["openai_base_url"].as_str() {
+        http_provider["base_url"] = json!(base_url);
+    }
+    params["modelProvider"] = json!("inferay_openai_http");
+    params["config"] = json!({"model_providers.inferay_openai_http": http_provider});
 }
 
 fn codex_thread_params(invocation: &CodexInvocationContext) -> Value {
@@ -469,11 +531,13 @@ impl CodexConnection {
     async fn write(&mut self, message: &Value) -> Result<(), String> {
         let mut encoded = serde_json::to_vec(message).map_err(|error| error.to_string())?;
         encoded.push(b'\n');
-        self.stdin
-            .write_all(&encoded)
-            .await
-            .map_err(|error| error.to_string())?;
-        self.stdin.flush().await.map_err(|error| error.to_string())
+        tokio::time::timeout(CODEX_RPC_TIMEOUT, async {
+            self.stdin.write_all(&encoded).await?;
+            self.stdin.flush().await
+        })
+        .await
+        .map_err(|_| "Codex App Server stopped reading requests".to_string())?
+        .map_err(|error| error.to_string())
     }
 
     async fn send(&mut self, method: &str, params: Value) -> Result<u64, String> {
@@ -504,13 +568,23 @@ impl CodexConnection {
     ) -> Result<Value, String> {
         let id = self.send(method, params).await?;
         let (context, state, emissions) = protocol;
+        let deadline = tokio::time::Instant::now() + CODEX_RPC_TIMEOUT;
         loop {
-            let message = tokio::time::timeout(std::time::Duration::from_secs(15), self.read())
+            if tokio::time::Instant::now() >= deadline {
+                return Err("Codex App Server response timed out".into());
+            }
+            let message = tokio::time::timeout_at(deadline, self.read())
                 .await
                 .map_err(|_| "Codex App Server response timed out".to_string())?
                 .ok_or_else(|| "Codex App Server closed before replying".to_string())?;
-            if message.get("id").and_then(Value::as_u64) == Some(id) {
+            if message.get("method").is_none()
+                && message.get("id").and_then(Value::as_u64) == Some(id)
+            {
                 return rpc_result(message);
+            }
+            if let Some(reply) = unsupported_codex_request(&message) {
+                self.write(&reply).await?;
+                continue;
             }
             if let Some(method) = message["method"].as_str() {
                 state.handle_notification(context, method, &message["params"]);
@@ -518,6 +592,17 @@ impl CodexConnection {
             }
         }
     }
+}
+
+// Server requests have their own ID namespace. Never confuse them with replies
+// to our requests, and never leave an unsupported request waiting indefinitely.
+fn unsupported_codex_request(message: &Value) -> Option<Value> {
+    let method = message.get("method")?.as_str()?;
+    let id = message.get("id")?;
+    Some(json!({
+        "id": id,
+        "error": {"code": -32601, "message": format!("Inferay does not support Codex server request: {method}")}
+    }))
 }
 
 fn rpc_result(message: Value) -> Result<Value, String> {
@@ -924,3 +1009,7 @@ mod runner_tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "agent_runner_tests.rs"]
+mod reliability_tests;
