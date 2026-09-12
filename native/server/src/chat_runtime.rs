@@ -14,7 +14,7 @@ use inferay_core::{
     agent_protocol::ProtocolEmission,
     agent_state::AgentStateStore,
     chat_protocol::{ChatMessageBuffer, ChatTranscriptMessage},
-    prompts::PromptStore,
+    prompts::{ChainStep, PromptStore},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -219,6 +219,7 @@ impl ChatRuntime {
 
     pub async fn send_message(&self, mut input: SendMessageInput) {
         let mut already_admitted = false;
+        let mut chained_steps: Vec<ChainStep> = Vec::new();
         loop {
             let resolved = inferay_core::provider_config::resolve(
                 &json!({"agentKind":input.agent_kind,"model":input.model,"reasoningLevel":input.reasoning_level}),
@@ -234,13 +235,22 @@ impl ChatRuntime {
             }
             let session = self.ensure_session(&input).await;
             if input.expand_commands {
-                let expanded = self.prompts.lock().await.expand_chat_commands(
+                let expanded = self.prompts.lock().await.expand_chat_command_chain(
                     &input.text,
                     input.command_id.as_deref(),
                     input.command_args.as_deref(),
                 );
                 match expanded {
-                    Ok(text) => input.text = text,
+                    Ok(mut steps) => {
+                        let first = steps.remove(0);
+                        input.text = first.text;
+                        // A chain retires the whole typed message as this turn's
+                        // label, so each step is captioned by its own words.
+                        if !steps.is_empty() {
+                            input.display_text = Some(first.display);
+                        }
+                        chained_steps = steps;
+                    }
                     Err(error) => {
                         self.emit(&session, json!({"type":"chat:error", "paneId":input.pane_id, "error":format!("Command expansion failed: {error}")})).await;
                         return;
@@ -365,6 +375,16 @@ impl ChatRuntime {
                         return;
                     }
                     drop(state);
+                    if let Err(error) = self
+                        .enqueue_chain(&input.pane_id, std::mem::take(&mut chained_steps))
+                        .await
+                    {
+                        self.emit_system(
+                            &session,
+                            &format!("Chained skills could not be queued: {error}"),
+                        )
+                        .await;
+                    }
                     self.broadcast_queue(&input.pane_id).await;
                     return;
                 }
@@ -373,6 +393,21 @@ impl ChatRuntime {
             };
 
             already_admitted = true;
+            // The remaining steps queue before this one runs, so the drain that
+            // follows it finds them already in order.
+            if !chained_steps.is_empty() {
+                if let Err(error) = self
+                    .enqueue_chain(&input.pane_id, std::mem::take(&mut chained_steps))
+                    .await
+                {
+                    self.emit_system(
+                        &session,
+                        &format!("Chained skills could not be queued: {error}"),
+                    )
+                    .await;
+                }
+                self.broadcast_queue(&input.pane_id).await;
+            }
             let agent_context_prefix = self
                 .create_agent_context_prefix(&session, &input.text)
                 .await;
@@ -1509,6 +1544,24 @@ impl ChatRuntime {
                 let _ = sender.send(error.clone());
             }
         }
+    }
+
+    /// Queues the tail of a skill chain, preserving the order it was written in.
+    async fn enqueue_chain(&self, pane_id: &str, steps: Vec<ChainStep>) -> Result<(), String> {
+        for step in steps {
+            self.persistence
+                .enqueue_runtime(
+                    pane_id,
+                    QueuedMessageInfo {
+                        id: Uuid::new_v4().to_string(),
+                        text: step.text,
+                        display_text: step.display,
+                        images: None,
+                    },
+                )
+                .await?;
+        }
+        Ok(())
     }
 
     async fn next_queued_message(
