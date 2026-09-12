@@ -131,13 +131,13 @@ export const styles = stylex.create({
 	},
 	tab: {
 		alignItems: "center",
+		color: color.textMain,
 		display: "flex",
 		flexShrink: 0,
 		fontSize: font.size_1,
 		fontWeight: font.weight_5,
 		gap: controlSize._1_5,
 		maxWidth: 220,
-		minWidth: 132,
 		paddingInline: controlSize._3,
 	},
 	tabLabel: {
@@ -145,18 +145,6 @@ export const styles = stylex.create({
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
-	},
-	chatCount: {
-		alignItems: "center",
-		backgroundColor: color.controlHover,
-		borderRadius: radius.pill,
-		color: color.textFaint,
-		display: "inline-flex",
-		fontSize: font.size_1,
-		height: controlSize._4,
-		justifyContent: "center",
-		minWidth: controlSize._4,
-		paddingInline: controlSize._1,
 	},
 	emptyLabel: {
 		alignItems: "center",

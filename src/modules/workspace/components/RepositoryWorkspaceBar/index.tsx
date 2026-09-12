@@ -211,16 +211,13 @@ export function RepositoryWorkspaceBar() {
 									title={workspace().cwd}
 									onClick={() => activateWorkspace(workspace())}
 									{...stylex.attrs(
-										styles.tab,
 										...selectionAppearance("repository", active()),
+										styles.tab,
 									)}
 								>
 									<IconGitBranch size={iconSize.sm} />
 									<span {...stylex.attrs(styles.tabLabel)}>
 										{workspace().name}
-									</span>
-									<span {...stylex.attrs(styles.chatCount)}>
-										{workspace().entries.length}
 									</span>
 								</button>
 							);
