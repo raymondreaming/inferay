@@ -1020,7 +1020,9 @@ export function useRepositoryWorkbench(
 	const diffPanel = (
 		<>
 			{_source().diffViewerCwd &&
-			(_source().selectedFile || _source().mainViewMode === "graph") ? (
+			(_source().mainViewMode === "graph"
+				? _source().sidebarVisible
+				: Boolean(_source().selectedFile)) ? (
 				<WorkbenchDiffRail
 					zenMode={zenMode()}
 					width={diffWidth()}
