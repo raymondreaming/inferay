@@ -79,7 +79,16 @@ async fn run_claude_once(
     timeout_ms: u64,
 ) -> Option<String> {
     let binary = resolver.resolve_agent_binary(AgentKind::Claude);
-    let arguments = build_claude_invocation_args(&binary, prompt, Some(model), None);
+    // A one-shot helper turn needs no MCP servers; reconnecting them is pure
+    // latency here. An empty scoped config plus --strict-mcp-config skips them.
+    let scoped_mcp = crate::agent_runner::write_empty_mcp_config();
+    let arguments = build_claude_invocation_args(
+        &binary,
+        prompt,
+        Some(model),
+        None,
+        scoped_mcp.as_ref().map(|file| file.path()),
+    );
     let child = crate::agent_runner::spawn_direct(
         &arguments,
         cwd,

@@ -81,6 +81,10 @@ pub struct SendMessageInput {
     pub reasoning_level: Option<String>,
     #[serde(skip)]
     pub reasoning_level_provided: bool,
+    /// MCP servers this chat needs, by name. Absent keeps every configured
+    /// server, which costs ~4.75s of spawn time per turn when eight are set up.
+    #[serde(rename = "mcpServers")]
+    pub mcp_servers: Option<Vec<String>>,
     #[serde(default)]
     pub reference_paths: Vec<PathBuf>,
     #[serde(skip)]
@@ -124,6 +128,10 @@ struct ChatSession {
     agent_kind: String,
     model: Option<String>,
     reasoning_level: Option<String>,
+    /// MCP servers this pane needs, by name. `None` keeps every configured
+    /// server; narrowing it skips reconnecting the rest on each spawn, which
+    /// measured at 4.75s of wall clock per turn with eight servers set up.
+    mcp_servers: Option<Vec<String>>,
     session_id: Option<String>,
     clients: HashMap<ClientId, broadcast::Sender<Value>>,
     current_handle: Option<AgentProcessHandle>,
@@ -930,6 +938,7 @@ impl ChatRuntime {
                 .as_ref()
                 .and_then(|r| r.reasoning_level.clone())
                 .or_else(|| input.reasoning_level.clone()),
+            mcp_servers: input.mcp_servers.clone(),
             session_id,
             clients: input
                 .client_id
@@ -1093,6 +1102,7 @@ impl ChatRuntime {
                     developer_instructions: (!developer_instructions.is_empty())
                         .then_some(developer_instructions),
                     session_id: state.session_id.clone(),
+                    mcp_servers: state.mcp_servers.clone(),
                 },
                 handle,
             )
@@ -1134,6 +1144,7 @@ impl ChatRuntime {
                         model: invocation.model.as_deref(),
                         session_id: invocation.session_id.as_deref(),
                         env: &environment,
+                        mcp_servers: invocation.mcp_servers.as_deref(),
                     },
                     &handle,
                     &mut protocol,

@@ -1479,6 +1479,7 @@ dependencies = [
  "serde",
  "serde_json",
  "syntect",
+ "tempfile",
  "tokio",
  "tokio-tungstenite",
  "ts-rs",

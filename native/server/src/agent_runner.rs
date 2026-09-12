@@ -140,6 +140,10 @@ pub struct ClaudeRun<'a> {
     pub model: Option<&'a str>,
     pub session_id: Option<&'a str>,
     pub env: &'a HashMap<OsString, OsString>,
+    /// Names of the MCP servers this run actually needs. `None` keeps Claude's
+    /// ambient configuration; `Some` writes a minimal config and passes
+    /// `--strict-mcp-config`, which skips reconnecting every other server.
+    pub mcp_servers: Option<&'a [String]>,
 }
 
 pub struct CodexRun<'a> {
@@ -155,7 +159,8 @@ pub async fn run_claude(
     context: &mut AgentProtocolContext,
     emissions: &mpsc::UnboundedSender<ProtocolEmission>,
 ) -> String {
-    let arguments = claude_invocation_args(&run);
+    let scoped_mcp = run.mcp_servers.and_then(write_scoped_mcp_config);
+    let arguments = claude_invocation_args(&run, scoped_mcp.as_ref().map(|file| file.path()));
     let spawn = spawn_direct(&arguments, run.cwd, run.env);
     let mut child = match spawn {
         Ok(child) => child,
@@ -204,13 +209,58 @@ pub async fn run_claude(
     protocol.last_assistant_message
 }
 
-fn claude_invocation_args(run: &ClaudeRun<'_>) -> Vec<String> {
-    let mut arguments =
-        build_claude_invocation_args(run.binary, run.prompt, run.model, run.session_id);
+fn claude_invocation_args(run: &ClaudeRun<'_>, mcp_config: Option<&Path>) -> Vec<String> {
+    let mut arguments = build_claude_invocation_args(
+        run.binary,
+        run.prompt,
+        run.model,
+        run.session_id,
+        mcp_config,
+    );
     if let Some(instructions) = run.developer_instructions {
         arguments.extend(["--append-system-prompt".into(), instructions.into()]);
     }
     arguments
+}
+
+/// Config with no MCP servers, for turns that cannot use them.
+pub(crate) fn write_empty_mcp_config() -> Option<tempfile::NamedTempFile> {
+    let file = tempfile::Builder::new()
+        .prefix("inferay-mcp-")
+        .suffix(".json")
+        .tempfile()
+        .ok()?;
+    serde_json::to_writer(&file, &serde_json::json!({ "mcpServers": {} })).ok()?;
+    Some(file)
+}
+
+/// Write a config holding only `wanted`, copied out of the user's own
+/// `~/.claude.json`. Returns `None` when nothing needs narrowing, so the caller
+/// falls back to Claude's ambient configuration rather than silently removing
+/// every server.
+fn write_scoped_mcp_config(wanted: &[String]) -> Option<tempfile::NamedTempFile> {
+    let home = std::env::var_os("HOME")?;
+    let source = std::path::Path::new(&home).join(".claude.json");
+    let text = std::fs::read_to_string(source).ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let available = parsed.get("mcpServers")?.as_object()?;
+    let mut scoped = serde_json::Map::new();
+    for name in wanted {
+        if let Some(entry) = available.get(name) {
+            scoped.insert(name.clone(), entry.clone());
+        }
+    }
+    let file = tempfile::Builder::new()
+        .prefix("inferay-mcp-")
+        .suffix(".json")
+        .tempfile()
+        .ok()?;
+    serde_json::to_writer(
+        &file,
+        &serde_json::json!({ "mcpServers": serde_json::Value::Object(scoped) }),
+    )
+    .ok()?;
+    Some(file)
 }
 
 pub async fn run_codex(
@@ -926,6 +976,7 @@ mod runner_tests {
             reasoning_level: None,
             developer_instructions: Some(instructions.clone()),
             session_id: Some("existing-session".into()),
+            mcp_servers: None,
         };
         assert_eq!(
             codex_thread_params(&invocation)["developerInstructions"],
@@ -950,7 +1001,8 @@ mod runner_tests {
             model: None,
             session_id: Some("existing-session"),
             env: &env,
-        });
+            mcp_servers: None,
+        }, None);
         let index = args
             .iter()
             .position(|arg| arg == "--append-system-prompt")
@@ -983,6 +1035,7 @@ mod runner_tests {
             model: None,
             session_id: None,
             env: &env,
+            mcp_servers: None,
         };
         assert_eq!(
             run_claude(make_run(), &handle, &mut context, &tx).await,

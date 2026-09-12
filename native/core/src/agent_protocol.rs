@@ -18,6 +18,10 @@ pub struct CodexInvocationContext {
     pub reasoning_level: Option<String>,
     pub developer_instructions: Option<String>,
     pub session_id: Option<String>,
+    /// MCP servers this chat actually needs, by name. `None` keeps Claude's
+    /// ambient configuration. Narrowing it skips reconnecting every other
+    /// server on each spawn, which dominates per-turn startup cost.
+    pub mcp_servers: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -554,11 +558,17 @@ fn read_snapshot(path: &Path) -> Option<String> {
         .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
 }
 
+/// Claude reconnects every MCP server on each spawn. Measured on a trivial turn:
+/// eight configured servers cost 4.75s of wall clock and ~2.9k cache tokens more
+/// than none, and servers that are unauthenticated still pay connection cost while
+/// exposing no tools. `mcp_config` points at a minimal config written for this run
+/// so `--strict-mcp-config` can ignore the ambient ones.
 pub fn build_claude_invocation_args(
     binary: &Path,
     prompt: &str,
     model: Option<&str>,
     session_id: Option<&str>,
+    mcp_config: Option<&Path>,
 ) -> Vec<String> {
     let mut arguments = vec![
         binary.to_string_lossy().into_owned(),
@@ -574,6 +584,13 @@ pub fn build_claude_invocation_args(
     }
     if let Some(session_id) = session_id {
         arguments.extend(["--resume".into(), session_id.into()]);
+    }
+    if let Some(mcp_config) = mcp_config {
+        arguments.extend([
+            "--mcp-config".into(),
+            mcp_config.to_string_lossy().into_owned(),
+            "--strict-mcp-config".into(),
+        ]);
     }
     arguments
 }

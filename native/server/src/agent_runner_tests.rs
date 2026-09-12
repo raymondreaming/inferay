@@ -57,6 +57,7 @@ for line in sys.stdin:
             reasoning_level: None,
             developer_instructions: None,
             session_id: resume.then(|| "saved-thread".into()),
+            mcp_servers: None,
         }
     }
     fn handle(&self) -> AgentProcessHandle {
