@@ -440,7 +440,16 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 				? event.target.closest<HTMLElement>("[data-agent-grid-pane-id]")
 				: null;
 		if (!target) return;
-		const innerScroller = findVerticalScroller(event.target, target);
+		// The grid owns vertical scrolling until a pane is activated by clicking
+		// it. Letting a merely hovered pane consume the wheel makes a column of
+		// stacked panes impossible to scroll past: the pointer is always over
+		// some pane, so the grid never receives the gesture.
+		const targetPaneId = target.dataset.agentGridPaneId ?? null;
+		const paneOwnsWheel =
+			targetPaneId !== null && targetPaneId === props.selectedPaneId;
+		const innerScroller = paneOwnsWheel
+			? findVerticalScroller(event.target, target)
+			: null;
 		if (innerScroller && canScrollInDirection(innerScroller, event.deltaY)) {
 			return;
 		}

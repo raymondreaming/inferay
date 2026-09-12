@@ -81,8 +81,12 @@ impl ClaudeProtocolState {
         {
             self.last_assistant_message = truncate_agent_result(text);
         }
+        // Partial messages arrive wrapped as {"type":"stream_event","event":{..}},
+        // so the inner type decides whether this is chat content. Matching the
+        // wrapper's type dropped every content_block_delta, which is why
+        // assistant text appeared all at once instead of streaming in.
         if matches!(
-            event["type"].as_str(),
+            data["type"].as_str(),
             Some(
                 "assistant"
                     | "content_block_start"
@@ -93,7 +97,7 @@ impl ClaudeProtocolState {
         ) {
             context
                 .emissions
-                .push(ProtocolEmission::Chat(event.clone()));
+                .push(ProtocolEmission::Chat(data.clone()));
         }
     }
 }
@@ -578,6 +582,10 @@ pub fn build_claude_invocation_args(
         "--output-format".into(),
         "stream-json".into(),
         "--verbose".into(),
+        // Without this, Claude emits one complete assistant message per turn and
+        // the UI shows nothing until it lands. The deltas arrive ~1.7s earlier
+        // and chat_protocol already knows how to fold them into the transcript.
+        "--include-partial-messages".into(),
     ];
     if let Some(model) = model {
         arguments.extend(["--model".into(), model.into()]);

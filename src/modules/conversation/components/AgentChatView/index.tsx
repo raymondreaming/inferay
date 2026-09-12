@@ -304,7 +304,7 @@ export const AgentChatView = function AgentChatView(
 					<div
 						ref={[
 							(_element) => assignRef(_source4.scrollRef, _element),
-							captureEvent("wheel", (event) => _source4.cancelScrollRestore()),
+							captureEvent("wheel", (_event) => _source4.cancelScrollRestore()),
 						]}
 						{...stylex.attrs(styles.scrollArea)}
 						onScroll={_source4.handleScroll}
