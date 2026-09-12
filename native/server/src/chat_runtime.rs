@@ -1176,7 +1176,9 @@ impl ChatRuntime {
         emission: ProtocolEmission,
         checkpoint_id: Option<&str>,
     ) {
-        let pane_id = session.lock().await.pane_id.clone();
+        // Only the Status and Session branches need pane_id. Taking the session
+        // lock and cloning it up front paid that cost on every streamed event,
+        // including the Chat branch that locks again immediately after.
         match emission {
             ProtocolEmission::Chat(event) => self.emit_chat_event(session, event).await,
             ProtocolEmission::UserInputAcknowledged { text } => {
@@ -1187,6 +1189,7 @@ impl ChatRuntime {
                     .await;
             }
             ProtocolEmission::Status { status, is_loading } => {
+                let pane_id = session.lock().await.pane_id.clone();
                 self.emit(session, status_message(&pane_id, &status, is_loading))
                     .await
             }
@@ -1196,6 +1199,7 @@ impl ChatRuntime {
                 if state.cancelled {
                     return;
                 }
+                let pane_id = state.pane_id.clone();
                 state.session_id = Some(id.clone());
                 let saved = self
                     .persistence
@@ -1362,8 +1366,13 @@ impl ChatRuntime {
         session: &Arc<Mutex<ChatSession>>,
         checkpoint_id: Option<&str>,
     ) -> usize {
-        let pane_id = session.lock().await.pane_id.clone();
-        let touched = edited_paths(session.lock().await.message_buffer.messages());
+        let (pane_id, touched) = {
+            let state = session.lock().await;
+            (
+                state.pane_id.clone(),
+                edited_paths(state.message_buffer.messages()),
+            )
+        };
         if let Some(id) = checkpoint_id {
             let after_message_id = {
                 let state = session.lock().await;
