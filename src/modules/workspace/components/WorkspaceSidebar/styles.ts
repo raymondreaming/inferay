@@ -73,19 +73,6 @@ export const styles = stylex.create({
 		paddingInline: controlSize._2,
 		textAlign: "center",
 	},
-	sidebarModeTabs: {
-		display: "grid",
-		gridTemplateColumns: "1fr 1fr",
-		gap: controlSize._1,
-		marginTop: controlSize._1,
-	},
-	sidebarToolbar: {
-		display: "flex",
-		flexDirection: "column",
-		gap: controlSize._1,
-		paddingBottom: controlSize._2,
-		paddingInline: controlSize._3,
-	},
 	sidebarRepositoryActions: {
 		display: "flex",
 	},
@@ -111,15 +98,6 @@ export const styles = stylex.create({
 			cursor: "default",
 			opacity: 0.45,
 		},
-	},
-	sidebarModeTab: {
-		alignItems: "center",
-		display: "flex",
-		gap: controlSize._1,
-		height: controlSize._7,
-		justifyContent: "center",
-		fontSize: font.size_2,
-		fontWeight: font.weight_5,
 	},
 	workspacePaneList: {
 		display: "flex",
@@ -269,6 +247,21 @@ export const styles = stylex.create({
 		minHeight: controlSize._0,
 		overflowY: "auto",
 		paddingInline: controlSize._3,
+	},
+	workspaceListScrollSplit: {
+		flex: "0 1 auto",
+		maxHeight: "50%",
+	},
+	sidebarExplorerSection: {
+		borderTopColor: color.borderSubtle,
+		borderTopStyle: "solid",
+		borderTopWidth: 1,
+		display: "flex",
+		flex: 1,
+		flexDirection: "column",
+		minHeight: controlSize._0,
+		marginTop: controlSize._2,
+		paddingTop: controlSize._2,
 	},
 	workspaceSectionHeader: {
 		position: "relative",
