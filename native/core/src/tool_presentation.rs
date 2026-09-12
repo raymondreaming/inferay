@@ -1,4 +1,5 @@
 //! Native interpretation of tool input; browser components only render the result.
+use crate::mcp_presentation::McpToolSource;
 use crate::{utf16_length as javascript_length, utf16_slice as javascript_slice};
 use serde::Serialize;
 use serde_json::Value;
@@ -9,6 +10,10 @@ pub struct ToolDisplayInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub detail: Option<String>,
+    /// Present only for MCP calls, which the transcript brands by server.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub source: Option<McpToolSource>,
 }
 #[derive(Debug, Serialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
@@ -189,6 +194,7 @@ fn label(text: impl Into<String>) -> ToolDisplayInfo {
     ToolDisplayInfo {
         label: text.into(),
         detail: None,
+        source: None,
     }
 }
 fn words(command: &str) -> Vec<&str> {
@@ -215,6 +221,15 @@ fn target(command: &str) -> Option<String> {
         .map(|word| word.rsplit('/').next().unwrap_or(word).into())
 }
 pub fn display(tool_name: Option<&str>, input: &Value) -> ToolDisplayInfo {
+    // An MCP call names its own server, so it is branded before the generic
+    // command and tool heuristics get a chance to describe it anonymously.
+    if let Some((source, action)) = tool_name.and_then(crate::mcp_presentation::resolve) {
+        return ToolDisplayInfo {
+            label: action,
+            detail: None,
+            source: Some(source),
+        };
+    }
     let command = input
         .get("command")
         .or_else(|| input.get("cmd"))
@@ -370,6 +385,7 @@ pub fn display(tool_name: Option<&str>, input: &Value) -> ToolDisplayInfo {
         return ToolDisplayInfo {
             label: "Running command".into(),
             detail: Some(if detail.is_empty() { "command" } else { detail }.into()),
+            source: None,
         };
     }
     label(

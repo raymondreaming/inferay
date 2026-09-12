@@ -1,10 +1,11 @@
 import * as stylex from "@stylexjs/stylex";
-import { createMemo, For } from "solid-js";
+import { createMemo, For, Show } from "solid-js";
 import type { ToolDisplayInfo } from "../../../../../build/presentation/contracts/ToolDisplayInfo.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { IconChevronDown } from "../../../../shared/ui/Icons/index.tsx";
 import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
 import { CopyButton } from "../ChatRichContent/index.tsx";
+import { McpSourceMark } from "./McpSourceMark.tsx";
 import { styles } from "./styles.ts";
 import { ToolOutputHighlight } from "./ToolOutputHighlight.tsx";
 export function ToolTimeline(_props: {
@@ -48,6 +49,9 @@ export function ToolTimeline(_props: {
 										}
 										{...stylex.attrs(styles.toolMilestoneToggle)}
 									>
+										<Show when={display().source}>
+											{(source) => <McpSourceMark source={source()} />}
+										</Show>
 										<span {...stylex.attrs(styles.toolMilestoneLabel)}>
 											{display().label}
 										</span>

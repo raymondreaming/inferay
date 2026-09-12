@@ -460,6 +460,38 @@ export const styles = stylex.create({
 		textAlign: "left",
 		width: "100%",
 	},
+	toolMilestoneMark: {
+		alignItems: "center",
+		// Tinted from the server's own hue so an unbranded MCP still reads as a
+		// consistent identity rather than a missing logo.
+		backgroundColor: "oklch(0.62 0.16 var(--mcp-hue) / 0.22)",
+		borderColor: "oklch(0.72 0.14 var(--mcp-hue) / 0.45)",
+		borderRadius: radius.sm,
+		borderStyle: "solid",
+		borderWidth: 1,
+		boxSizing: "border-box",
+		color: "oklch(0.88 0.11 var(--mcp-hue))",
+		display: "flex",
+		flexShrink: 0,
+		fontSize: font.size_0,
+		fontWeight: font.weight_6,
+		height: controlSize._3_5,
+		justifyContent: "center",
+		letterSpacing: "0.02em",
+		lineHeight: 1,
+		width: controlSize._3_5,
+	},
+	toolMilestoneSource: {
+		color: color.textSoft,
+		flexShrink: 0,
+		fontSize: font.size_2,
+		fontWeight: font.weight_6,
+	},
+	toolMilestoneSeparator: {
+		color: color.textFaint,
+		flexShrink: 0,
+		fontSize: font.size_2,
+	},
 	toolMilestoneLabel: {
 		fontSize: font.size_2,
 		fontWeight: font.weight_5,
@@ -605,5 +637,10 @@ export function getChatMessageListDivStyle1(
 	return {
 		height: height,
 		flexShrink: 0,
+	} as CSSProperties;
+}
+export function getMcpSourceMarkStyle(hue: number): CSSProperties {
+	return {
+		"--mcp-hue": String(hue),
 	} as CSSProperties;
 }
