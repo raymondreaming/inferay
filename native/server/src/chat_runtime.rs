@@ -468,6 +468,16 @@ impl ChatRuntime {
             } else {
                 self.finalize_turn(&session).await;
             }
+            // A stop ends the pipeline, not just the turn it interrupted.
+            // Queued messages stay queued for the user to send deliberately;
+            // draining them here is indistinguishable from ignoring the stop.
+            {
+                let mut state = session.lock().await;
+                if state.cancelled {
+                    state.turn_active = false;
+                    break;
+                }
+            }
             let Some(next) = self.next_queued_message(&session).await else {
                 break;
             };
@@ -483,7 +493,9 @@ impl ChatRuntime {
             let mut state = session.lock().await;
             state.cancelled = true;
             state.goal = None;
-            (state.agent_kind.clone(), state.current_handle.take())
+            // Borrowed, not taken: the run clears it when it actually ends, so
+            // a second stop still reaches a turn the first one failed to end.
+            (state.agent_kind.clone(), state.current_handle.clone())
         };
         if let Some(handle) = handle {
             if agent_kind == "codex" {
