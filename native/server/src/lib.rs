@@ -2775,7 +2775,6 @@ fn header_text(headers: &HeaderMap, name: HeaderName) -> Option<&str> {
 
 fn public_asset(path: &str) -> Option<&'static str> {
     match path {
-        "/logo.png" => Some("logo.png"),
         "/app-icon.png" => Some("app-icon.png"),
         "/background-city-rain.png" => Some("background-city-rain.png"),
         "/background-nature-sanctuary.png" => Some("background-nature-sanctuary.png"),

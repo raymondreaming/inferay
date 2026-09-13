@@ -48,14 +48,6 @@ const reposResource = forgeResource<GithubRepo>(
 );
 export const invalidateForgeAccountsCache = accountsResource.invalidate;
 export const invalidateGithubReposCache = reposResource.invalidate;
-export function fetchForgeAccounts() {
-	accountsResource.invalidate();
-	return queryClient.fetchQuery({
-		...accountsResource.options,
-		retry: false,
-		queryFn: ({ signal }) => accountsResource.request(signal),
-	});
-}
 export function useForgeAccounts(enabled: Accessor<boolean> = () => true) {
 	return useQueryResource(
 		() => accountsResource.request,

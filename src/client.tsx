@@ -14,8 +14,6 @@ import { restoreSyntaxTheme } from "./shared/hooks/useSyntaxHighlight.tsx";
 import {
 	hydrateStoredValues,
 	initializeAgentCatalog,
-	ONBOARDING_DONE_STORAGE_KEY,
-	readStoredBoolean,
 } from "./shared/lib/native.tsx";
 
 let restoreStartupContent: (() => void) | undefined;
@@ -48,18 +46,13 @@ while (true) {
 	}
 }
 
-// The desktop host uses a fresh loopback origin on each launch, so the durable
-// onboarding value is restored from the native store immediately above. Move
-// away from a prerendered entry route before rendering the application.
-const initialPath = window.location.pathname.replace(/\/+$/, "") || "/";
-const entryPath = readStoredBoolean(ONBOARDING_DONE_STORAGE_KEY)
-	? "/"
-	: "/onboarding";
-if (
-	(initialPath === "/" || initialPath === "/onboarding") &&
-	initialPath !== entryPath
-) {
-	window.history.replaceState(window.history.state, "", entryPath);
+// The workspace is the app's only entry route, including restored legacy URLs.
+if (window.location.pathname !== "/") {
+	window.history.replaceState(
+		window.history.state,
+		"",
+		`/${window.location.search}${window.location.hash}`,
+	);
 }
 applyAppTheme(loadAppThemeId());
 applyAppFont(loadAppFontId());

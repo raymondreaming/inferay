@@ -7,11 +7,6 @@ const AgentPage = lazy(() =>
 		(module) => ({ default: module.AgentPage }),
 	),
 );
-const OnboardingRoute = lazy(() =>
-	import("./modules/onboarding/components/OnboardingRoute/index.tsx").then(
-		(module) => ({ default: module.OnboardingRoute }),
-	),
-);
 
 export const Router = createRouter({
 	routes: [
@@ -23,7 +18,6 @@ export const Router = createRouter({
 				</AppLayout>
 			),
 		},
-		{ path: "/onboarding", component: OnboardingRoute },
 	],
 	singleFlight: false,
 });

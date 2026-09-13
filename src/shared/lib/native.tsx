@@ -181,7 +181,6 @@ export async function saveDefaultChatSettings(settings: ProviderSettings) {
 import type { AgentLayoutMode } from "../../modules/workspace/components/WorkspaceCanvas/index.tsx";
 import { dispatchWindowEvent, listenWindowEvent } from "./dom.tsx";
 
-export const ONBOARDING_DONE_STORAGE_KEY = "inferay-onboarding-done";
 export const APP_THEME_STORAGE_KEY = "inferay-app-theme-id";
 export const APP_BACKGROUND_STORAGE_KEY = "inferay-app-background";
 export const APP_FONT_STORAGE_KEY = "inferay-app-font";

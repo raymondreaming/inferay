@@ -122,17 +122,6 @@ Each heading links to the component entry point. Folders with local style rules 
 - [FolderTypeIcon.tsx](../src/modules/explorer/components/FileTypeIcon/FolderTypeIcon.tsx): `FolderTypeIcon`.
 - [index.tsx](../src/modules/explorer/components/FileTypeIcon/index.tsx): `FileTypeIcon`.
 
-### [src/modules/onboarding/components/OnboardingPage](../src/modules/onboarding/components/OnboardingPage/index.tsx)
-
-- [GithubStep.tsx](../src/modules/onboarding/components/OnboardingPage/GithubStep.tsx): `GithubStep`.
-- [IntroStep.tsx](../src/modules/onboarding/components/OnboardingPage/IntroStep.tsx): `IntroStep`.
-- [ProjectsStep.tsx](../src/modules/onboarding/components/OnboardingPage/ProjectsStep.tsx): `ProjectsStep`.
-- [index.tsx](../src/modules/onboarding/components/OnboardingPage/index.tsx): `OnboardingPage`.
-
-### [src/modules/onboarding/components/OnboardingRoute](../src/modules/onboarding/components/OnboardingRoute/index.tsx)
-
-- [index.tsx](../src/modules/onboarding/components/OnboardingRoute/index.tsx): `OnboardingRoute`.
-
 ### [src/modules/settings/components/Settings](../src/modules/settings/components/Settings/index.tsx)
 
 - [BackgroundScenePicker.tsx](../src/modules/settings/components/Settings/BackgroundScenePicker.tsx): `BackgroundScenePicker`.
