@@ -54,26 +54,6 @@
 	--inferay-panel-base-weight: 45%;
 }
 
-[data-inferay-theme="midnight"] {
-	--color-inferay-black: #0d0e0f;
-	--color-inferay-dark-gray: #151617;
-	--color-inferay-gray: #1e1f21;
-	--color-inferay-light-gray: #2a2c2f;
-	--color-inferay-gray-border: rgba(255, 255, 255, 0.075);
-	--color-inferay-gray-border-bold: rgba(255, 255, 255, 0.14);
-	--color-inferay-accent: #6e8cff;
-	--color-inferay-accent-hover: #8da2ff;
-	--color-inferay-success: #30d158;
-	--color-inferay-warning: #ff9f0a;
-	--color-inferay-error: #ff453a;
-	--color-inferay-info: #829cff;
-	--color-inferay-white: #ededed;
-	--color-inferay-soft-white: rgba(235, 235, 235, 0.68);
-	--color-inferay-muted-gray: rgba(210, 210, 210, 0.42);
-	--color-inferay-accent-foreground: #111111;
-	--inferay-panel-base-weight: 0%;
-}
-
 /* Resolved at the root so registered StyleX tokens see mode changes. */
 :root {
 	color-scheme: dark;

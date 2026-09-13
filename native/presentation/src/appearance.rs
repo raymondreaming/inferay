@@ -7,7 +7,6 @@ use serde_json::{Value, json};
 pub enum AppThemeId {
     #[default]
     Default,
-    Midnight,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Deserialize, Serialize, ts_rs::TS)]
@@ -75,7 +74,7 @@ pub struct AppFont {
 #[derive(Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct AppBackgroundSettings {
-    #[ts(type = "7")]
+    #[ts(type = "8")]
     pub version: u8,
     pub mode: AppBackgroundMode,
     pub id: AppBackgroundId,
@@ -99,8 +98,7 @@ pub struct AppearanceCatalog {
 pub fn catalog() -> AppearanceCatalog {
     AppearanceCatalog {
         themes: serde_json::from_value(json!([
-            {"id":"default","name":"Black","theme":{"cursor":"#007AFF","separator":"#111111"}},
-            {"id":"midnight","name":"Midnight","theme":{"cursor":"#6e8cff","separator":"#1e1f21"}}
+            {"id":"default","name":"Black","theme":{"cursor":"#007AFF","separator":"#111111"}}
         ])).expect("static themes"),
         backgrounds: serde_json::from_value(json!([
             {"id":"city","name":"City rain","path":"/background-city-rain.png"},
@@ -139,7 +137,7 @@ pub fn normalize_background(stored: &Value) -> AppBackgroundSettings {
         });
     let blur = clamp("blur", 0.0, 20.0, 1.0);
     AppBackgroundSettings {
-        version: 7,
+        version: 8,
         mode,
         id,
         dim: clamp("dim", 0.0, 85.0, 42.0),
@@ -148,15 +146,15 @@ pub fn normalize_background(stored: &Value) -> AppBackgroundSettings {
         } else {
             blur.min(1.0)
         },
-        glass_blur: if version == Some(7.0) {
-            clamp("glassBlur", 0.0, 40.0, 7.0)
+        glass_blur: if version == Some(8.0) {
+            clamp("glassBlur", 0.0, 60.0, 42.0)
         } else {
-            7.0
+            42.0
         },
-        glass_opacity: if version == Some(7.0) {
-            clamp("glassOpacity", 8.0, 100.0, 83.0)
+        glass_opacity: if version == Some(8.0) {
+            clamp("glassOpacity", 8.0, 100.0, 70.0)
         } else {
-            83.0
+            70.0
         },
         auto_theme: stored["autoTheme"].as_bool().unwrap_or(false),
         custom_revision: clamp("customRevision", 0.0, 9_007_199_254_740_991.0, 0.0),
@@ -206,11 +204,7 @@ pub fn background_model(input: &Value) -> BackgroundModel {
     } else {
         None
     };
-    let theme_id = if input["patch"].get("mode").is_some() || input["themeId"] != "midnight" {
-        AppThemeId::Default
-    } else {
-        AppThemeId::Midnight
-    };
+    let theme_id = AppThemeId::Default;
     BackgroundModel {
         background,
         scenes,
@@ -234,7 +228,7 @@ mod tests {
     fn background_choices_and_uploads_share_normalized_policy() {
         let initial =
             serde_json::to_value(background_model(&json!({"themeId":"midnight"}))).unwrap();
-        assert_eq!(initial["themeId"], "midnight");
+        assert_eq!(initial["themeId"], "default");
         assert!(initial["scenes"].as_array().unwrap().last().unwrap()["path"].is_null());
         let uploaded = serde_json::to_value(background_model(&json!({
             "stored":{"version":7,"mode":"scene","id":"city","autoTheme":true},
@@ -248,7 +242,7 @@ mod tests {
             uploaded["backgroundUrl"],
             "/api/config/background-image?v=42"
         );
-        assert_eq!(uploaded["themeId"], "midnight");
+        assert_eq!(uploaded["themeId"], "default");
         let switched = serde_json::to_value(background_model(&json!({
             "stored":uploaded["background"],"themeId":"midnight","patch":{"mode":"glass"}
         })))
@@ -274,15 +268,15 @@ mod tests {
         let value = serde_json::to_value(settings).unwrap();
         assert_eq!(value["mode"], "scene");
         assert_eq!(value["blur"], 12.);
-        assert_eq!(value["glassBlur"], 7.);
-        assert_eq!(value["glassOpacity"], 83.);
-        assert_eq!(value["version"], 7);
+        assert_eq!(value["glassBlur"], 42.);
+        assert_eq!(value["glassOpacity"], 70.);
+        assert_eq!(value["version"], 8);
     }
 
     #[test]
     fn current_backgrounds_validate_choices_and_clamp_saved_values() {
         let value = serde_json::to_value(normalize_background(&json!({
-            "version":7, "id":"unknown", "mode":"invalid", "dim":120,
+            "version":8, "id":"unknown", "mode":"invalid", "dim":120,
             "blur":14, "glassBlur":100, "glassOpacity":0, "customRevision":-2
         })))
         .unwrap();
@@ -290,7 +284,7 @@ mod tests {
         assert_eq!(value["mode"], "solid");
         assert_eq!(value["dim"], 85.);
         assert_eq!(value["blur"], 1.);
-        assert_eq!(value["glassBlur"], 40.);
+        assert_eq!(value["glassBlur"], 60.);
         assert_eq!(value["glassOpacity"], 8.);
         assert_eq!(value["customRevision"], 0.);
     }

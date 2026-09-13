@@ -22,7 +22,7 @@ back to a theme or built-in scene. Settings swatches use the same CSS palettes.
 - `color.backgroundSubtle`: the palette's secondary surface.
 
 Black mixes the panel with 45% of the base (about `#181819` in solid mode).
-Midnight uses its secondary surface unchanged. Solid, scene, and glass modes
+Black, scene, and glass modes
 resolve these roles in CSS. Change the formula there, never in a caller.
 Runtime color strings reference those same CSS properties.
 
@@ -51,7 +51,7 @@ Callers own layout and behavior. Recipes own colors, borders, shadows, and
 interaction states; do not override those locally. Message boxes and Explorer
 headers use `surfaceStyles.panel`. Explorer rows use the row recipes.
 
-Run `bun run build:renderer`. Check both themes and affected selection states
+Run `bun run build:renderer`. Check all three background modes and affected selection states
 in the browser after visual changes, including initial colors, previews,
 background modes, and clearing custom colors.
 

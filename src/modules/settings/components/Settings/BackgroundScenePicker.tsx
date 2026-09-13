@@ -18,9 +18,9 @@ import { BackgroundSceneControls } from "./BackgroundSceneControls.tsx";
 import { styles } from "./styles.ts";
 
 const BACKGROUND_MODES = [
-	{ id: "solid", label: "Solid black" },
-	{ id: "scene", label: "Scene" },
+	{ id: "solid", label: "Black" },
 	{ id: "glass", label: "Glass" },
+	{ id: "scene", label: "Scene" },
 ] as const;
 export function BackgroundScenePicker() {
 	const _source = useBackgroundModel();
@@ -150,7 +150,7 @@ export function BackgroundScenePicker() {
 						<input
 							type="range"
 							min="0"
-							max="40"
+							max="60"
 							aria-label="Window blur"
 							value={_source().background.glassBlur}
 							{...stylex.attrs(styles.backgroundRange)}

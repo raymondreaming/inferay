@@ -44,9 +44,7 @@ export const APP_REGION_NO_DRAG_CLASS = "electrobun-webkit-app-region-no-drag";
 export const getThemeById = (id: string) =>
 	(APP_THEMES.find((theme) => theme.id === id) ?? APP_THEMES[0]).theme;
 export function loadAppThemeId(): AppThemeId {
-	return readStoredValue(APP_THEME_STORAGE_KEY) === "midnight"
-		? "midnight"
-		: "default";
+	return "default";
 }
 export function saveAppThemeId(id: AppThemeId): void {
 	writeStoredValue(APP_THEME_STORAGE_KEY, id);
@@ -135,7 +133,7 @@ export function useAppAppearance() {
 	createEffect(
 		() =>
 			_source().background.mode === "glass"
-				? _source().background.glassBlur / 40
+				? _source().background.glassBlur / 60
 				: 0,
 		(strength) => {
 			if (usesNativeGlass)
