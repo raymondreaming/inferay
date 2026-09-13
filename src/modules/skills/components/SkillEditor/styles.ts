@@ -108,7 +108,7 @@ export const styles = stylex.create({
 	},
 	title: {
 		color: color.textMain,
-		fontSize: font.size_7,
+		fontSize: font.size_5,
 		fontWeight: font.weight_6,
 		letterSpacing: "-0.012em",
 		lineHeight: 1.4,
@@ -116,7 +116,7 @@ export const styles = stylex.create({
 	},
 	description: {
 		color: color.textMuted,
-		fontSize: font.size_3,
+		fontSize: font.size_2,
 		lineHeight: 1.6,
 		margin: 0,
 		minHeight: "1.6em",
