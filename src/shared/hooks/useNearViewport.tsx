@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onSettled } from "solid-js";
+import { createSignal, onSettled } from "solid-js";
 /** Expensive data preparation begins only when its presentation is nearby. */
 export function useNearViewport() {
 	const ref = {
@@ -13,7 +13,11 @@ export function useNearViewport() {
 		if (!ref.current || typeof IntersectionObserver === "undefined") return;
 		const observer = new IntersectionObserver(
 			([entry]) => {
-				if (entry) setVisible(entry.isIntersecting);
+				if (!entry?.isIntersecting) return;
+				// This is a lazy-start gate, not an instruction to erase prepared
+				// content whenever scrolling carries it outside the viewport.
+				setVisible(true);
+				observer.disconnect();
 			},
 			{
 				rootMargin: "600px",

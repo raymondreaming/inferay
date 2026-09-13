@@ -61,9 +61,9 @@ export function useNativeEditDiff(
 				},
 				enabled: !_streamingValue,
 				staleTime: Infinity,
-				// Large inputs/results live only while observed; the query owner handles
-				// in-flight sharing and cancellation without a second cache or subscribers.
-				gcTime: 0,
+				// Virtual rows remount on scroll-back. Reuse their prepared result
+				// instead of collapsing to a placeholder and requesting it again.
+				gcTime: 5 * 60_000,
 				retry: false,
 			};
 		},

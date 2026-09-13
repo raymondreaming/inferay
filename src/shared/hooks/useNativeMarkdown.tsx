@@ -109,7 +109,7 @@ export function useNativeMarkdown(
 						: undefined;
 				},
 				staleTime: Infinity,
-				gcTime: _streamingValue ? 0 : 60_000,
+				gcTime: _streamingValue ? 0 : 5 * 60_000,
 				retry: false,
 			};
 		},

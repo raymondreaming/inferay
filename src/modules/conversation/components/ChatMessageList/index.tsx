@@ -62,12 +62,24 @@ export const ChatMessageList = function ChatMessageList(_props: {
 		);
 	});
 	const [viewportHeight, setViewportHeight] = createSignal(800);
-	const _source = createMemo(() =>
-		rustProject<ChatWindow>("chatWindow", {
+	let retainedWindow: ChatWindow | undefined;
+	const _source = createMemo(() => {
+		const next = rustProject<ChatWindow>("chatWindow", {
 			offsets: offsets(),
 			scrollOffset: _props.stickToBottom ? null : scrollOffset(),
 			viewportHeight: viewportHeight(),
-		}),
+			retainedWindow,
+		});
+		retainedWindow = next;
+		return next;
+	});
+	// Changes to firstVisible alone must not reconcile the mounted row list.
+	const mountedWindow = createMemo(
+		() => ({ start: _source().start, end: _source().end }),
+		{
+			equals: (before, after) =>
+				before.start === after.start && before.end === after.end,
+		},
 	);
 	createEffect(
 		() =>
@@ -299,17 +311,21 @@ export const ChatMessageList = function ChatMessageList(_props: {
 				<div
 					aria-hidden="true"
 					style={domStyle(
-						inlineStyles.getChatMessageListDivStyle(offsets()[_source().start]),
+						inlineStyles.getChatMessageListDivStyle(
+							offsets()[mountedWindow().start],
+						),
 					)}
 				/>
 			)}
 			{
 				<For
-					each={renderRows().slice(_source().start, _source().end)}
+					each={renderRows().slice(mountedWindow().start, mountedWindow().end)}
 					keyed={(row) => row.key}
 				>
 					{(item, windowIndex) => {
-						const index = createMemo(() => _source().start + windowIndex());
+						const index = createMemo(
+							() => mountedWindow().start + windowIndex(),
+						);
 						return (
 							<ChatRenderRow
 								observeRow={observeRow}
@@ -339,7 +355,7 @@ export const ChatMessageList = function ChatMessageList(_props: {
 					aria-hidden="true"
 					style={domStyle(
 						inlineStyles.getChatMessageListDivStyle1(
-							offsets()[renderRows().length]! - offsets()[_source().end]!,
+							offsets()[renderRows().length]! - offsets()[mountedWindow().end]!,
 						),
 					)}
 				/>

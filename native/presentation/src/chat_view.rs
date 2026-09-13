@@ -146,9 +146,11 @@ pub struct ChatViewport {
     offsets: Vec<f64>,
     scroll_offset: Option<f64>,
     viewport_height: f64,
+    #[serde(default)]
+    retained_window: Option<ChatWindow>,
 }
 
-#[derive(Debug, PartialEq, Serialize, ts_rs::TS)]
+#[derive(Debug, PartialEq, Deserialize, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatWindow {
     first_visible: usize,
@@ -178,6 +180,23 @@ pub fn window(input: &ChatViewport) -> ChatWindow {
     let first_visible = input.offsets[1..]
         .partition_point(|offset| *offset <= scroll)
         .min(count - 1);
+    // Keep mounted rows stable while the viewport has room on both sides.
+    // Rebuilding the slice at every row boundary needlessly remounts rich
+    // content and introduces asynchronous height changes during scrolling.
+    if let Some(previous) = &input.retained_window
+        && input.scroll_offset.is_some()
+        && previous.start < previous.end
+        && previous.end <= count
+        && (previous.start == 0 || previous.start + 4 <= first_visible)
+        && (previous.end == count
+            || input.offsets[previous.end.saturating_sub(4)] >= scroll + height)
+    {
+        return ChatWindow {
+            first_visible,
+            start: previous.start,
+            end: previous.end,
+        };
+    }
     let start = first_visible.saturating_sub(8);
     let bottom = scroll + height;
     let low = first_visible
@@ -279,11 +298,71 @@ mod tests {
     }
 
     #[test]
+    fn scrolling_retains_mounted_rows_until_the_viewport_nears_an_edge() {
+        let mut viewport = ChatViewport {
+            offsets: offsets(&vec![Some(32.); 500]),
+            scroll_offset: Some(0.),
+            viewport_height: 600.,
+            retained_window: None,
+        };
+        let mut changes = 0;
+        for step in 0..200 {
+            let scroll = step as f64 * 32.;
+            viewport.scroll_offset = Some(scroll);
+            let next = window(&viewport);
+            assert!(viewport.offsets[next.start] <= scroll);
+            assert!(viewport.offsets[next.end] >= scroll + 600.);
+            if viewport
+                .retained_window
+                .as_ref()
+                .is_some_and(|previous| previous.start != next.start || previous.end != next.end)
+            {
+                changes += 1;
+            }
+            viewport.retained_window = Some(next);
+        }
+        assert!(changes < 30, "mounted range changed {changes} times");
+        // Jumping back across unmounted history must update immediately.
+        viewport.scroll_offset = Some(0.);
+        let top = window(&viewport);
+        assert_eq!(top.start, 0);
+        // Following a new response must still choose the tail.
+        viewport.scroll_offset = None;
+        assert_eq!(window(&viewport).end, 500);
+    }
+
+    #[test]
+    fn retained_window_covers_mixed_height_history_in_both_directions() {
+        let heights: Vec<_> = (0..200)
+            .map(|index| Some(if index % 7 == 0 { 900. } else { 32. }))
+            .collect();
+        let mut viewport = ChatViewport {
+            offsets: offsets(&heights),
+            scroll_offset: Some(0.),
+            viewport_height: 700.,
+            retained_window: None,
+        };
+        for step in (0..100).chain((0..100).rev()) {
+            let scroll = step as f64 * 250.;
+            viewport.scroll_offset = Some(scroll);
+            let next = window(&viewport);
+            assert!(viewport.offsets[next.start] <= scroll);
+            assert!(viewport.offsets[next.end] >= scroll + 700.);
+            viewport.retained_window = Some(next);
+        }
+        // Deleting history invalidates an old retained range.
+        viewport.offsets.truncate(81);
+        viewport.scroll_offset = Some(0.);
+        assert!(window(&viewport).end <= 80);
+    }
+
+    #[test]
     fn following_covers_the_viewport_with_short_rows_and_tracks_tail_growth() {
         let mut viewport = ChatViewport {
             offsets: offsets(&vec![Some(20.); 100]),
             scroll_offset: None,
             viewport_height: 1200.,
+            retained_window: None,
         };
         let initial = window(&viewport);
         assert_eq!(initial.first_visible, 40);
@@ -309,6 +388,7 @@ mod tests {
             offsets: offsets(&vec![None; 100]),
             scroll_offset: None,
             viewport_height: 0.,
+            retained_window: None,
         };
         assert_eq!(
             window(&viewport),
