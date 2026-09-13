@@ -213,13 +213,18 @@ export function useChatConnection(
 					return;
 				}
 				if (msg.runStatus)
-					setRunStatus((current) =>
-						current.isLoading === msg.runStatus.isLoading &&
-						current.status === msg.runStatus.status &&
-						current.startTime === msg.runStatus.startTime
+					setRunStatus((current) => {
+						const next = rustProject<ChatLoadingState>("chatRunStatus", {
+							current,
+							incoming: msg.runStatus,
+							terminal: msg.type === "chat:done" || msg.type === "chat:error",
+						});
+						return current.isLoading === next.isLoading &&
+							current.status === next.status &&
+							current.startTime === next.startTime
 							? current
-							: msg.runStatus,
-					);
+							: next;
+					});
 				if (Array.isArray(msg.checkpoints)) setCheckpoints(msg.checkpoints);
 				if (msg.type === "chat:done") {
 					flushNativeTranscript();
@@ -300,6 +305,27 @@ export function useChatConnection(
 			};
 		},
 	);
+	const beginRun = () =>
+		setRunStatus((current) =>
+			rustProject<ChatLoadingState>("chatRunStatus", {
+				current,
+				begin: true,
+				now: Date.now(),
+			}),
+		);
+	const failSend = (error: unknown, messageId?: string) => {
+		setRunStatus({ isLoading: false, status: "error", startTime: null });
+		setMessages((messages) =>
+			appendSystemMessage(
+				messages.filter(
+					(message) => !(message.id === messageId && message.optimistic),
+				),
+				error instanceof Error
+					? error.message
+					: "Message could not be sent. Please retry.",
+			),
+		);
+	};
 	const chatUiState = {
 		get isLoading() {
 			return runStatus().isLoading;
@@ -315,6 +341,8 @@ export function useChatConnection(
 		},
 	};
 	return {
+		beginRun,
+		failSend,
 		get chatUiState() {
 			return chatUiState;
 		},

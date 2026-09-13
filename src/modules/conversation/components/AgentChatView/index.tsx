@@ -185,6 +185,8 @@ export const AgentChatView = function AgentChatView(
 		cwd: _props.cwd,
 		input: input(),
 		isLoading: _source5.chatUiState.isLoading,
+		onRunStart: _source5.beginRun,
+		onSendError: _source5.failSend,
 		onSendStart: () => {
 			_source4.scheduleScrollToBottom("auto");
 		},

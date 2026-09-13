@@ -188,6 +188,35 @@ pub fn window(input: &ChatViewport) -> ChatWindow {
     }
 }
 
+/// Local submission starts activity immediately; provider acknowledgement keeps
+/// that start time. A reconnect's old idle snapshot cannot cancel a pending send.
+pub fn run_status(input: &serde_json::Value) -> serde_json::Value {
+    use serde_json::json;
+    let current = &input["current"];
+    if input["begin"] == true {
+        return if current["isLoading"] == true {
+            current.clone()
+        } else {
+            json!({"isLoading":true,"status":"sending","startTime":input["now"]})
+        };
+    }
+    let mut next = input["incoming"].clone();
+    if current["status"] == "sending" && next["status"] == "idle" && input["terminal"] != true {
+        return current.clone();
+    }
+    if next["isLoading"] == true
+        && current["isLoading"] == true
+        && let Some(start) = current["startTime"].as_u64()
+    {
+        next["startTime"] = json!(
+            next["startTime"]
+                .as_u64()
+                .map_or(start, |native| native.min(start))
+        );
+    }
+    next
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

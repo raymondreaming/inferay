@@ -63,6 +63,7 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         "diffRequest" => workbench::diff_request(input),
         "repositorySelection" => workbench::repository_selection(input),
         "workspaceSelection" => workbench::workspace_selection(input),
+        "chatRunStatus" => chat_view::run_status(input),
         "graphPreferences" => graph::preferences(input),
         "graphLayout" => graph::layout(input),
         "graphLines" => json!(graph::lines(input)),

@@ -56,6 +56,8 @@ export function useChatInputActions(
 				input: string;
 				isLoading: boolean;
 				onSendStart?: () => void;
+				onRunStart?: () => void;
+				onSendError?: (error: unknown, messageId?: string) => void;
 				paneId: string;
 				referencePaths?: string[];
 				setInput: (value: string) => void;
@@ -79,6 +81,7 @@ export function useChatInputActions(
 		const prepared = rustProject<{
 			request: Record<string, unknown>;
 			optimistic: ChatMessage | null;
+			startsRun: boolean;
 		} | null>("prepareChatSend", {
 			text,
 			images,
@@ -91,13 +94,19 @@ export function useChatInputActions(
 			isLoading: _optionsValue.isLoading,
 		});
 		if (!prepared) return false;
+		if (prepared.startsRun) _optionsValue.onRunStart?.();
 		if (prepared.optimistic) {
 			const message = prepared.optimistic;
 			_optionsValue.setMessages((previous) => [...previous, message]);
 		}
 		_optionsValue.onSendStart?.();
-		wsClient.send(prepared.request);
-		return true;
+		try {
+			wsClient.send(prepared.request);
+			return true;
+		} catch (error) {
+			_optionsValue.onSendError?.(error, prepared.optimistic?.id);
+			return false;
+		}
 	};
 	const sendMessage = () => {
 		const _optionsValue2 = _options();

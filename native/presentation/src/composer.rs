@@ -204,7 +204,14 @@ pub fn prepare_send(i: &Value) -> Value {
         let content = local_content(&display);
         json!({"id":i["id"],"role":"user","optimistic":true,"content":content,"images":images})
     };
-    json!({"request":request,"optimistic":optimistic})
+    let command = text
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let starts_run = !flag(&i["isLoading"])
+        && !matches!(command.as_str(), "/help" | "/clear" | "/exit" | "/btw");
+    json!({"request":request,"optimistic":optimistic,"startsRun":starts_run})
 }
 
 #[cfg(test)]

@@ -151,3 +151,48 @@ fn liquid_morphs_settle_after_irregular_frames() {
     }
     assert!(settled);
 }
+
+#[test]
+fn activity_starts_locally_and_timer_survives_delayed_acknowledgement() {
+    use serde_json::json;
+    let apply = |input| inferay_presentation::project("chatRunStatus", &input).unwrap();
+    let sending = apply(
+        json!({"current":{"isLoading":false,"status":"idle","startTime":null},"begin":true,"now":1000}),
+    );
+    assert_eq!(
+        sending,
+        json!({"isLoading":true,"status":"sending","startTime":1000})
+    );
+    assert_eq!(
+        apply(
+            json!({"current":sending,"incoming":{"isLoading":false,"status":"idle","startTime":null}})
+        ),
+        sending
+    );
+    let acknowledged = apply(
+        json!({"current":sending,"incoming":{"isLoading":true,"status":"thinking","startTime":8000}}),
+    );
+    assert_eq!(acknowledged["startTime"], 1000);
+    assert_eq!(acknowledged["status"], "thinking");
+    assert_eq!(
+        apply(json!({"current":acknowledged,"begin":true,"now":9000})),
+        acknowledged
+    );
+    for status in ["idle", "error"] {
+        let terminal = json!({"isLoading":false,"status":status,"startTime":null});
+        assert_eq!(
+            apply(json!({"current":sending,"incoming":terminal,"terminal":true})),
+            terminal
+        );
+    }
+    for text in ["/help", "/clear", "/exit", "/btw question"] {
+        assert_eq!(
+            inferay_presentation::project("prepareChatSend", &json!({"text":text})).unwrap()["startsRun"],
+            false
+        );
+    }
+    assert_eq!(
+        inferay_presentation::project("prepareChatSend", &json!({"text":"hello"})).unwrap()["startsRun"],
+        true
+    );
+}
