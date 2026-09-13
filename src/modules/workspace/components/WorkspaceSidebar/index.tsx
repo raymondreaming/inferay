@@ -1,6 +1,6 @@
 import { useLocation, useNavigate } from "@solidjs/router";
 import * as stylex from "@stylexjs/stylex";
-import { createEffect, createMemo, createSignal, onSettled } from "solid-js";
+import { createMemo, createSignal, onSettled } from "solid-js";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
@@ -23,10 +23,8 @@ import {
 	loadAgentLayoutMode,
 	loadDefaultChatSettings,
 	loadSidebarCollapsed,
-	readStoredValue,
 	sendJson,
 	setAgentLayoutMode,
-	writeStoredValue,
 } from "../../../../shared/lib/native.tsx";
 import { IconSettings } from "../../../../shared/ui/Icons/index.tsx";
 import { useForgeAccounts } from "../../../repository/hooks/useForgeAccounts.tsx";
@@ -40,26 +38,13 @@ import { SidebarFooter } from "./SidebarFooter.tsx";
 import { SidebarWorkspacesSection } from "./SidebarWorkspacesSection.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
+import { useSidebarResize } from "./useSidebarResize.ts";
 
-type PointerMouseEvent<T = Element> = globalThis.MouseEvent & {
-	currentTarget: T;
-};
-const MIN_SIDEBAR_WIDTH = 188;
-const MAX_SIDEBAR_WIDTH = 340;
 export function WorkspaceSidebar() {
 	const navigate = useNavigate();
 	const location = useLocation();
 	const [collapsed, setCollapsed] = createSignal(loadSidebarCollapsed);
-	const [sidebarWidth, setSidebarWidth] = createSignal(
-		(() => {
-			const stored = readStoredValue("main-sidebar-width");
-			const width = stored === null ? 292 : Number(stored);
-			return Number.isFinite(width)
-				? Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, width))
-				: 292;
-		})(),
-	);
-	const [resizing, setResizing] = createSignal(false);
+	const resize = useSidebarResize(collapsed);
 	const [updateStatus, setUpdateStatus] =
 		createSignal<SidebarUpdateStatus>("idle");
 	const [updateError, setUpdateError] = createSignal<string>();
@@ -72,17 +57,6 @@ export function WorkspaceSidebar() {
 			_source2.data[0] ??
 			null,
 	);
-	const resizeRef = {
-		current: null,
-	} as {
-		current: {
-			startX: number;
-			startWidth: number;
-		} | null;
-	};
-	const resizeWidthRef = {
-		current: sidebarWidth(),
-	};
 	const showWorkspaceSidebar = createMemo(() => location.pathname === "/");
 	onSettled(() => {
 		return listenWindowEvent(WORKSPACE_SIDEBAR_COLLAPSED_EVENT, (event) => {
@@ -124,15 +98,11 @@ export function WorkspaceSidebar() {
 		});
 		navigate("/");
 	};
-	createEffect(
-		() => [addChat],
-		() => {
-			const stopChat = listenWindowEvent(CREATE_AGENT_CHAT_EVENT, (event) => {
-				const { target } = (event as CustomEvent<CreateAgentChatDetail>).detail;
-				void addChat(target);
-			});
-			return stopChat;
-		},
+	onSettled(() =>
+		listenWindowEvent(CREATE_AGENT_CHAT_EVENT, (event) => {
+			const { target } = (event as CustomEvent<CreateAgentChatDetail>).detail;
+			void addChat(target);
+		}),
 	);
 	const updateLayoutMode = (mode: "grid" | "rows") => {
 		if (mode === layoutMode()) return;
@@ -173,36 +143,6 @@ export function WorkspaceSidebar() {
 					}
 				: null,
 		);
-	};
-	const handleResizeStart = (event: PointerMouseEvent<HTMLElement>) => {
-		const _sidebarWidthValue = sidebarWidth();
-		if (collapsed()) return;
-		event.preventDefault();
-		setResizing(true);
-		resizeWidthRef.current = _sidebarWidthValue;
-		resizeRef.current = {
-			startX: event.clientX,
-			startWidth: _sidebarWidthValue,
-		};
-		const handleMove = (moveEvent: MouseEvent) => {
-			if (!resizeRef.current) return;
-			const delta = moveEvent.clientX - resizeRef.current.startX;
-			const nextWidth = Math.min(
-				MAX_SIDEBAR_WIDTH,
-				Math.max(MIN_SIDEBAR_WIDTH, resizeRef.current.startWidth + delta),
-			);
-			resizeWidthRef.current = nextWidth;
-			setSidebarWidth(nextWidth);
-		};
-		const handleUp = () => {
-			resizeRef.current = null;
-			setResizing(false);
-			writeStoredValue("main-sidebar-width", String(resizeWidthRef.current));
-			window.removeEventListener("mousemove", handleMove);
-			window.removeEventListener("mouseup", handleUp);
-		};
-		window.addEventListener("mousemove", handleMove);
-		window.addEventListener("mouseup", handleUp);
 	};
 	const updateInfo = createMemo(() => _source.data.update);
 	const updateAvailable = createMemo(() => {
@@ -266,7 +206,7 @@ export function WorkspaceSidebar() {
 			!showWorkspaceSidebar() || collapsed()
 				? styles.shellHidden
 				: styles.shellOpen,
-			resizing() && styles.shellResizing,
+			resize.resizing() && styles.shellResizing,
 		),
 	);
 	const resizeHandleProps = createMemo(() => stylex.attrs(styles.resizeHandle));
@@ -277,7 +217,7 @@ export function WorkspaceSidebar() {
 			style={domStyle(
 				!showWorkspaceSidebar() || collapsed()
 					? undefined
-					: inlineStyles.getWorkspaceSidebarAsideStyle(sidebarWidth()),
+					: inlineStyles.getWorkspaceSidebarAsideStyle(resize.width()),
 			)}
 		>
 			{showWorkspaceSidebar() && !collapsed() && (
@@ -286,7 +226,7 @@ export function WorkspaceSidebar() {
 					aria-label="Resize sidebar"
 					{...resizeHandleProps()}
 					class={`${APP_REGION_NO_DRAG_CLASS} ${resizeHandleProps().class ?? ""}`}
-					onMouseDown={handleResizeStart}
+					onMouseDown={resize.start}
 				/>
 			)}
 			{showWorkspaceSidebar() && !collapsed() ? (

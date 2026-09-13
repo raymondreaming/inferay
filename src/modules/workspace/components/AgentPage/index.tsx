@@ -27,7 +27,6 @@ import {
 	clearAgentChatPaneState,
 	listenAgentLayoutMode,
 	loadAgentLayoutMode,
-	setAgentLayoutMode,
 	wsClient,
 } from "../../../../shared/lib/native.tsx";
 import { chatSessionCache } from "../../../conversation/components/AgentChatView/chatSessionCache.ts";
@@ -56,12 +55,6 @@ export function AgentPage() {
 	onSettled(() => {
 		return listenAgentLayoutMode(setLayoutMode);
 	});
-	createEffect(
-		() => [layoutMode()],
-		() => {
-			setAgentLayoutMode(layoutMode());
-		},
-	);
 	const [workspace, setWorkspace, workspaceError] = useWorkspaceState(
 		() => false,
 		() => false,
