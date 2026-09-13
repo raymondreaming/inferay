@@ -17,13 +17,13 @@ back to a theme or built-in scene. Settings swatches use the same CSS palettes.
 
 - `color.background`: the page/sidebar.
 - `color.backgroundPanel`: the message box and selected surfaces.
-- `color.backgroundModal`: opaque Settings and Skills dialogs; halfway between the base and selected-panel tones.
+- `color.backgroundModal`: shared floating surfaces, including Settings, Skills, and menus; opaque black in Black mode and a strong tinted surface in Glass and Scene.
 - `color.backgroundRaised`: menus and raised controls.
 - `color.backgroundSubtle`: the palette's secondary surface.
 
 Black mixes the panel with 45% of the base (about `#181819` in solid mode).
-Black, scene, and glass modes
-resolve these roles in CSS. Change the formula there, never in a caller.
+Black, Scene, and Glass modes resolve these roles in CSS. Floating surfaces blur
+their backdrop only in Glass and Scene. Change the formula there, never in a caller.
 Runtime color strings reference those same CSS properties.
 
 ## Selection contract

@@ -339,8 +339,8 @@ export const runtimeLayer = {
 export const surfaceStyles = stylex.create({
 	/** The one treatment for every floating layer: modals, dialogs, menus, popovers. */
 	overlay: {
-		backdropFilter: "blur(20px)",
-		backgroundColor: color.surfaceGlassStrong,
+		backdropFilter: "var(--inferay-overlay-blur, none)",
+		backgroundColor: color.backgroundModal,
 		backgroundImage: "none",
 		borderColor: color.border,
 		borderStyle: "solid",

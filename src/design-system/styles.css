@@ -61,16 +61,8 @@
 	--inferay-surface-raised: var(--color-inferay-dark-gray);
 	--inferay-surface-subtle: var(--color-inferay-gray);
 	--inferay-surface-canvas: var(--color-inferay-black);
-	/* Opaque midpoint between the base and selected-panel tones. */
-	--inferay-surface-modal: color-mix(
-		in srgb,
-		var(--color-inferay-black) 50%,
-		color-mix(
-			in srgb,
-			var(--color-inferay-black) var(--inferay-panel-base-weight),
-			var(--color-inferay-gray)
-		)
-	);
+	--inferay-surface-modal: var(--color-inferay-black);
+	--inferay-overlay-blur: none;
 	--inferay-surface-panel: color-mix(
 		in srgb,
 		var(--inferay-surface-base) var(--inferay-panel-base-weight),
@@ -119,6 +111,13 @@
 	--shadow-inferay-focus-ring: 0 0 0 1px rgba(229, 229, 231, 0.35);
 	--shadow-inferay-popover: 0 10px 15px -3px rgba(0, 0, 0, 0.6);
 	--shadow-inferay-modal: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+}
+
+/* Floating surfaces follow the background mode, retaining enough tint for text. */
+:root[data-inferay-background="scene"],
+:root[data-inferay-background="glass"] {
+	--inferay-surface-modal: var(--inferay-surface-glass-strong);
+	--inferay-overlay-blur: blur(20px);
 }
 
 :root[data-inferay-background="scene"] {
