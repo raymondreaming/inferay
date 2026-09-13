@@ -18,6 +18,7 @@ interface SkillEditorProps {
 	isCreatingNew: boolean;
 	isEditing: boolean;
 	isSaving: boolean;
+	isDeleting: boolean;
 	formCommand: string;
 	formName: string;
 	formDescription: string;
@@ -30,6 +31,7 @@ interface SkillEditorProps {
 	onDelete: () => void;
 }
 export function SkillEditor(_props: SkillEditorProps) {
+	const busy = () => _props.isSaving || _props.isDeleting;
 	const editing = createMemo(() => _props.isCreatingNew || _props.isEditing);
 	const instructions = createMemo(() =>
 		editing()
@@ -58,7 +60,7 @@ export function SkillEditor(_props: SkillEditorProps) {
 									)
 								}
 								placeholder="skill-command"
-								disabled={_props.isSaving}
+								disabled={busy()}
 								{...stylex.attrs(styles.commandInput)}
 							/>
 						) : (
@@ -79,6 +81,7 @@ export function SkillEditor(_props: SkillEditorProps) {
 						<button
 							type="button"
 							onClick={_props.onStartEditing}
+							disabled={busy()}
 							{...stylex.attrs(styles.button)}
 						>
 							<IconPencil size={iconSize.sm} /> Edit skill
@@ -91,7 +94,7 @@ export function SkillEditor(_props: SkillEditorProps) {
 						<input
 							aria-label="Skill name"
 							value={_props.formName}
-							disabled={_props.isSaving}
+							disabled={busy()}
 							onInput={(event) =>
 								_props.onFormChange("name", event.currentTarget.value)
 							}
@@ -108,7 +111,7 @@ export function SkillEditor(_props: SkillEditorProps) {
 							aria-label="Skill description"
 							value={_props.formDescription}
 							rows={2}
-							disabled={_props.isSaving}
+							disabled={busy()}
 							onInput={(event) =>
 								_props.onFormChange("description", event.currentTarget.value)
 							}
@@ -135,7 +138,7 @@ export function SkillEditor(_props: SkillEditorProps) {
 						<textarea
 							aria-label="Skill instructions"
 							value={instructions()}
-							disabled={_props.isSaving}
+							disabled={busy()}
 							onInput={(event) =>
 								_props.onFormChange("promptTemplate", event.currentTarget.value)
 							}
@@ -162,11 +165,12 @@ export function SkillEditor(_props: SkillEditorProps) {
 						!_props.isCreatingNew && (
 							<button
 								type="button"
-								disabled={_props.isSaving}
+								disabled={busy()}
 								onClick={_props.onDelete}
 								{...stylex.attrs(styles.button, styles.deleteButton)}
 							>
-								<IconTrash size={iconSize.sm} /> Delete skill
+								<IconTrash size={iconSize.sm} />{" "}
+								{_props.isDeleting ? "Deleting…" : "Delete skill"}
 							</button>
 						)}
 				</div>
@@ -175,7 +179,7 @@ export function SkillEditor(_props: SkillEditorProps) {
 						<>
 							<button
 								type="button"
-								disabled={_props.isSaving}
+								disabled={busy()}
 								onClick={_props.onCancelEditing}
 								{...stylex.attrs(styles.button)}
 							>
@@ -183,7 +187,7 @@ export function SkillEditor(_props: SkillEditorProps) {
 							</button>
 							<button
 								type="button"
-								disabled={_props.isSaving}
+								disabled={busy()}
 								onClick={() => _props.onSave(_props.isEditing)}
 								{...stylex.attrs(
 									surfaceStyles.panel,

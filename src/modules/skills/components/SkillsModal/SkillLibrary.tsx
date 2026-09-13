@@ -87,6 +87,7 @@ export function SkillLibrary(_props: {
 								<SkillLibraryItem
 									skill={skill()}
 									active={active()}
+									disabled={_props.form.isSaving}
 									selectSkill={_props.selectSkill}
 								/>
 							);

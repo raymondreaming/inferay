@@ -1,13 +1,12 @@
 import type { Prompt, SkillFormState } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
-import { createEffect, createMemo, createSignal, onSettled } from "solid-js";
+import { createMemo, createSignal, onCleanup, onSettled } from "solid-js";
 import { APP_REGION_NO_DRAG_CLASS } from "../../../../app/hooks/useAppAppearance.tsx";
 import {
 	iconSize,
 	surfaceStyles,
 } from "../../../../design-system/styles.stylex.ts";
 import type { SkillsTarget } from "../../../../shared/lib/dom.tsx";
-import { createReducer } from "../../../../shared/lib/dom.tsx";
 import { project as rustProject } from "../../../../shared/lib/native.tsx";
 import { IconPlus, IconX } from "../../../../shared/ui/Icons/index.tsx";
 import { removeSkill, saveSkill, useSkills } from "../../hooks/useSkills.tsx";
@@ -28,6 +27,13 @@ export function SkillsDialog(_props: {
 	target: SkillsTarget;
 	onClose: () => void;
 }) {
+	// Solid batches signal writes; guard mutations synchronously within an event.
+	let mutationPending = false;
+	let disposed = false;
+	onCleanup(() => {
+		disposed = true;
+	});
+	const [deleting, setDeleting] = createSignal(false);
 	const _source = useSkills();
 	// Resolve the opening request once; subsequent library refreshes preserve edits.
 	const initial = createMemo<
@@ -56,6 +62,7 @@ export function SkillsDialog(_props: {
 	const formDispatch = (update: Parameters<typeof formReducer>[1]) =>
 		setForm((current) => formReducer(current, update));
 	const startEdit = (skill: Prompt) => {
+		if (mutationPending || disposed) return;
 		formDispatch(rustProject<Partial<SkillFormState>>("skillEdit", skill));
 	};
 	const dialogRef = {
@@ -73,7 +80,9 @@ export function SkillsDialog(_props: {
 		}),
 	);
 	const canLeave = () =>
-		!form().isSaving && (!dirty() || confirm("Discard unsaved skill changes?"));
+		!mutationPending &&
+		!disposed &&
+		(!dirty() || confirm("Discard unsaved skill changes?"));
 	const close = () => {
 		if (canLeave()) _props.onClose();
 	};
@@ -85,6 +94,7 @@ export function SkillsDialog(_props: {
 		};
 	});
 	const handleFormChange = (field: string, value: string) => {
+		if (mutationPending || disposed) return;
 		formDispatch({
 			[field]: value,
 		});
@@ -115,10 +125,12 @@ export function SkillsDialog(_props: {
 		);
 	};
 	const handleSave = async (isInlineEdit = false) => {
+		if (mutationPending || disposed) return;
 		const _selectedSkillValue2 = selectedSkill(),
 			_formValue = form();
 		if (!(isInlineEdit && _selectedSkillValue2) && !_formValue.isCreating)
 			return;
+		mutationPending = true;
 		formDispatch({
 			isSaving: true,
 			error: "",
@@ -128,6 +140,7 @@ export function SkillsDialog(_props: {
 				_formValue,
 				isInlineEdit ? _selectedSkillValue2?._id : undefined,
 			);
+			if (disposed) return;
 			setSelectedId(saved._id);
 			formDispatch(
 				isInlineEdit && _selectedSkillValue2
@@ -137,26 +150,40 @@ export function SkillsDialog(_props: {
 					: INITIAL_FORM,
 			);
 		} catch (e) {
+			if (disposed) return;
 			formDispatch({
 				error: e instanceof Error ? e.message : "Failed to save",
 			});
 		} finally {
-			formDispatch({
-				isSaving: false,
-			});
+			mutationPending = false;
+			if (!disposed) formDispatch({ isSaving: false });
 		}
 	};
 	const handleDelete = async (p: Prompt) => {
-		if (p.isBuiltIn || !confirm(`Delete /${p.command}?`)) return;
+		if (
+			mutationPending ||
+			disposed ||
+			p.isBuiltIn ||
+			!confirm(`Delete /${p.command}?`)
+		)
+			return;
+		mutationPending = true;
+		setDeleting(true);
+		formDispatch({ error: "" });
 		try {
 			await removeSkill(p._id);
+			if (disposed) return;
 			setSelectedId(null);
 			formDispatch(INITIAL_FORM);
 		} catch (error) {
+			if (disposed) return;
 			formDispatch({
 				error:
 					error instanceof Error ? error.message : "Failed to delete skill",
 			});
+		} finally {
+			mutationPending = false;
+			if (!disposed) setDeleting(false);
 		}
 	};
 	const _source2 = useSkills(
@@ -180,6 +207,7 @@ export function SkillsDialog(_props: {
 					aria-label="Close skills"
 					title="Close skills"
 					onClick={close}
+					disabled={form().isSaving || deleting()}
 					{...stylex.attrs(styles.closeButton)}
 				>
 					<IconX size={iconSize.md} />
@@ -192,7 +220,10 @@ export function SkillsDialog(_props: {
 				<div {...stylex.attrs(styles.content)}>
 					<SkillLibrary
 						startCreate={startCreate}
-						form={form()}
+						form={{
+							isCreating: form().isCreating,
+							isSaving: form().isSaving || deleting(),
+						}}
 						search={search()}
 						setSearch={setSearch}
 						filter={filter()}
@@ -213,6 +244,7 @@ export function SkillsDialog(_props: {
 								isCreatingNew={form().isCreating}
 								isEditing={form().isEditing}
 								isSaving={form().isSaving}
+								isDeleting={deleting()}
 								formCommand={form().command}
 								formName={form().name}
 								formDescription={form().description}

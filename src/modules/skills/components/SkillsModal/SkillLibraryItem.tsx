@@ -6,11 +6,13 @@ import { styles } from "./styles.ts";
 export function SkillLibraryItem(_props: {
 	skill: Prompt;
 	active: boolean;
+	disabled: boolean;
 	selectSkill: (skill: Prompt) => void;
 }) {
 	return (
 		<button
 			type="button"
+			disabled={_props.disabled}
 			onClick={() => _props.selectSkill(_props.skill)}
 			aria-current={ariaValue(_props.active ? "true" : undefined)}
 			title={_props.skill.description || _props.skill.name}
