@@ -56,11 +56,11 @@ export function fetchForgeAccounts() {
 		queryFn: ({ signal }) => accountsResource.request(signal),
 	});
 }
-export function useForgeAccounts() {
+export function useForgeAccounts(enabled: Accessor<boolean> = () => true) {
 	return useQueryResource(
 		() => accountsResource.request,
 		() => accountsResource.empty,
-		() => accountsResource.options,
+		() => ({ ...accountsResource.options, enabled: enabled() }),
 	);
 }
 export function useGithubRepos(_enabled: Accessor<boolean>) {

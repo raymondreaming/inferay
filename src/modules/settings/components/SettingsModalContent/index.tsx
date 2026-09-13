@@ -5,7 +5,7 @@ import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx"
 import type { SettingsModalTarget } from "../../../../shared/lib/dom.tsx";
 import {
 	pickCloneDirectory as chooseCloneDirectory,
-	fetchJsonOr,
+	fetchJson,
 	getAgentDefinition,
 	loadDefaultChatSettings,
 	saveDefaultChatSettings,
@@ -37,13 +37,18 @@ export type SettingsModalSection = "all" | SettingsModalTarget;
 export function SettingsModalContent(_props: {
 	section: SettingsModalSection;
 }) {
-	const _source = useForgeAccounts();
-	const _source2 = useGithubRepos(() => _source.data.length > 0);
+	const showGithub = () =>
+		_props.section === "all" || _props.section === "github";
+	const _source = useForgeAccounts(showGithub);
+	const _source2 = useGithubRepos(
+		() => showGithub() && _source.data.length > 0,
+	);
 	const _source3 = useQueryResource(
 		() => fetchAgentAccountStatuses,
 		() => [],
 		() => ({
 			queryKey: ["agents", "account-status"],
+			enabled: _props.section === "all" || _props.section === "agents",
 		}),
 	);
 	const [error, setError] = createSignal<string | null>(null);
@@ -283,10 +288,10 @@ export function SettingsModalContent(_props: {
 		</div>
 	);
 }
-export async function fetchAgentAccountStatuses() {
-	const payload = await fetchJsonOr<{
+export async function fetchAgentAccountStatuses(signal?: AbortSignal) {
+	const payload = await fetchJson<{
 		providers?: AgentAccountProviderStatus[];
-	}>("/api/agents/account-status", {});
+	}>("/api/agents/account-status", { signal });
 	return Array.isArray(payload.providers) ? payload.providers : [];
 }
 export async function cloneGithubRepo(

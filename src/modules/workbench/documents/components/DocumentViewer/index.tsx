@@ -2,6 +2,7 @@ import * as stylex from "@stylexjs/stylex";
 import { createMemo, Show } from "solid-js";
 import { APP_REGION_DRAG_CLASS } from "../../../../../app/hooks/useAppAppearance.tsx";
 import { iconSize } from "../../../../../design-system/styles.stylex.ts";
+import { ErrorBoundary } from "../../../../../shared/ui/ErrorBoundary/index.tsx";
 import { IconCode, IconX } from "../../../../../shared/ui/Icons/index.tsx";
 import { FileSearch } from "../../../../explorer/components/FileSearch/index.tsx";
 import { WorkspaceDockHandle } from "../../../components/WorkspaceDockHandle/index.tsx";
@@ -74,14 +75,20 @@ function DocumentSessionView(_props: DocumentViewerProps) {
 			</header>
 
 			<div {...stylex.attrs(styles.body)}>
-				{activeFile() ? (
-					<SourcePreview file={activeFile()!} />
-				) : (
-					<div {...stylex.attrs(styles.emptyState)}>
-						<IconCode size={iconSize._2xl} />
-						<span>Search above to open a file.</span>
-					</div>
-				)}
+				<Show
+					when={activeFile()?.path}
+					keyed
+					fallback={
+						<div {...stylex.attrs(styles.emptyState)}>
+							<IconCode size={iconSize._2xl} />
+							<span>Search above to open a file.</span>
+						</div>
+					}
+				>
+					<ErrorBoundary label="Document preview" contained>
+						<SourcePreview file={activeFile()!} />
+					</ErrorBoundary>
+				</Show>
 			</div>
 			{error() ? <div {...stylex.attrs(styles.error)}>{error()}</div> : null}
 		</section>

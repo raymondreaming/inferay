@@ -1,21 +1,30 @@
 import * as stylex from "@stylexjs/stylex";
 import { createEffect } from "solid-js";
+import { Button } from "../Button/index.tsx";
 import { styles } from "./styles.ts";
 export function RecoveryFallback(_props: {
 	error: unknown;
 	reset: () => void;
+	label: string;
+	contained?: boolean;
 }) {
 	createEffect(
-		() => [_props.error, _props.reset] as const,
-		([error, reset]) => {
-			console.error("[renderer] Recovered from an app render error:", error);
-			const timer = window.setTimeout(reset, 1500);
-			return () => window.clearTimeout(timer);
+		() => _props.error,
+		(error) => {
+			console.error("[renderer] Render error:", error);
 		},
 	);
 	return (
-		<div {...stylex.attrs(styles.fallback)}>
-			<p {...stylex.attrs(styles.message)}>Recovering the workspace…</p>
+		<div
+			role="alert"
+			{...stylex.attrs(styles.fallback, _props.contained && styles.contained)}
+		>
+			<p {...stylex.attrs(styles.message)}>
+				{_props.label} couldn’t be displayed.
+			</p>
+			<Button liquid={false} variant="secondary" onClick={_props.reset}>
+				Retry {_props.label.toLowerCase()}
+			</Button>
 		</div>
 	);
 }

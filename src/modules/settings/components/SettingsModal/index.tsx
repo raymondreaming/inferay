@@ -18,6 +18,7 @@ import {
 	type OpenSettingsModalDetail,
 	type SettingsModalTarget,
 } from "../../../../shared/lib/dom.tsx";
+import { ErrorBoundary } from "../../../../shared/ui/ErrorBoundary/index.tsx";
 import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
 import {
 	IconAgent,
@@ -174,9 +175,15 @@ export function SettingsModalHost() {
 							ref={(element) => (contentRef.current = element)}
 							{...stylex.attrs(styles.content)}
 						>
-							<Loading fallback={<p role="status">Loading settings…</p>}>
-								<SettingsModalContent section={activeSection()} />
-							</Loading>
+							<Show when={activeSection()} keyed>
+								{(section) => (
+									<ErrorBoundary label="Settings" contained>
+										<Loading fallback={<p role="status">Loading settings…</p>}>
+											<SettingsModalContent section={section} />
+										</Loading>
+									</ErrorBoundary>
+								)}
+							</Show>
 						</div>
 					</div>
 				</section>
