@@ -58,6 +58,7 @@ mod client_storage;
 mod forge;
 mod highlight;
 mod markdown;
+mod markdown_stream;
 mod native_app;
 pub mod native_git;
 mod one_shot;
@@ -74,6 +75,7 @@ pub fn export_renderer_types(config: &ts_rs::Config) -> Result<(), ts_rs::Export
     git_actions::GraphActionPresentation::export_all(config)?;
     git_actions::GitActionResponse::export_all(config)?;
     markdown::PreparedMarkdown::export_all(config)?;
+    markdown::MarkdownPatch::export_all(config)?;
     checkpoint::CheckpointMeta::export_all(config)?;
     chat_persistence::QueuedMessageInfo::export_all(config)?;
     native_app::AppInfo::export_all(config)?;
@@ -455,6 +457,9 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             }
             ("/api/native/markdown", "POST") => {
                 return api_http_response(native_markdown(request).await, &request_headers);
+            }
+            ("/api/native/markdown/stream", "POST") => {
+                return api_http_response(native_markdown_stream(request).await, &request_headers);
             }
             ("/api/native/highlight", "POST") => {
                 return api_http_response(native_highlight(request).await, &request_headers);
@@ -1895,6 +1900,38 @@ fn default_user_data_directory() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| home_directory().join(".local").join("share"))
         .join("inferay")
+}
+
+async fn native_markdown_stream(request: Request) -> ApiResult<Response> {
+    let headers = request.headers().clone();
+    let bytes = to_bytes(request.into_body(), markdown::MAX_PARSE_BYTES * 6 + 1024)
+        .await
+        .map_err(|_| {
+            api_error(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "Markdown request exceeds the payload limit",
+            )
+        })?;
+    let input: markdown_stream::Input = serde_json::from_slice(&bytes)
+        .map_err(|_| api_error(StatusCode::BAD_REQUEST, "Invalid Markdown stream request"))?;
+    let job = render_jobs::run(move || {
+        markdown_stream::apply(input)
+            .map(|patch| serde_json::to_vec(&patch).expect("Markdown patch serialization"))
+    });
+    match tokio::time::timeout(std::time::Duration::from_secs(10), job).await {
+        Ok(Ok(Ok(body))) => Ok(json_bytes_response(StatusCode::OK, body.into(), &headers)),
+        Ok(Ok(Err(markdown_stream::Error::Resync))) => Err(api_error(
+            StatusCode::CONFLICT,
+            "Markdown stream needs a full reset",
+        )),
+        Ok(Ok(Err(markdown_stream::Error::Invalid(message)))) => {
+            Err(api_error(StatusCode::BAD_REQUEST, message))
+        }
+        _ => Err(api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Markdown preparation unavailable",
+        )),
+    }
 }
 
 async fn native_markdown(request: Request) -> ApiResult<Response> {

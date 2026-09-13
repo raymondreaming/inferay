@@ -7,6 +7,7 @@ import {
 } from "solid-js";
 import type { PreparedMarkdown } from "../../../build/presentation/contracts/PreparedMarkdown.ts";
 import { queryClient } from "../lib/dom.tsx";
+import { createMarkdownStreamClient } from "../lib/markdownStream.ts";
 import { sendJson } from "../lib/native.tsx";
 import { useBackgroundQuery as useQuery } from "./useQueryResource.tsx";
 
@@ -16,6 +17,9 @@ export function useNativeMarkdown(
 	_streaming: Accessor<boolean> = () => false,
 	_chat: Accessor<boolean> = () => false,
 ) {
+	const stream = createMarkdownStreamClient((body, signal) =>
+		sendJson("/api/native/markdown/stream", body, { signal }),
+	);
 	const [sample, setSample] = createSignal(untrack(_text));
 	const input = createMemo(() => {
 		const _textValue = _text(),
@@ -24,20 +28,50 @@ export function useNativeMarkdown(
 			? _sampleValue
 			: _textValue;
 	});
+	const streamKey = crypto.randomUUID();
+	let revision = 0;
+	const queryInput = createMemo(() => ({
+		text: input(),
+		revision: ++revision,
+	}));
 	const query = useQuery(
 		() => {
-			const _inputValue = input(),
+			const sampled = queryInput(),
+				_inputValue = sampled.text,
 				_streamingValue = _streaming(),
 				_chatValue = _chat();
 			return {
-				queryKey: [
-					"native-markdown",
-					1,
-					_chatValue,
-					_streamingValue,
-					_inputValue,
-				],
+				// A unique local revision identifies an in-flight prefix without
+				// hashing/copying its whole text into TanStack's cache key. Final
+				// documents keep their shared content key for fast tab returns.
+				queryKey: _streamingValue
+					? [
+							"native-markdown-stream",
+							1,
+							streamKey,
+							sampled.revision,
+							_chatValue,
+						]
+					: ["native-markdown", 1, _chatValue, false, _inputValue],
 				queryFn: async ({ signal }: { signal: AbortSignal }) => {
+					const requestSignal = AbortSignal.any([
+						signal,
+						AbortSignal.timeout(12000),
+					]);
+					if (_streamingValue || stream.active) {
+						const prepared = await stream.prepare(
+							_inputValue,
+							_streamingValue,
+							_chatValue,
+							requestSignal,
+						);
+						return {
+							...prepared,
+							text: _inputValue,
+							chat: _chatValue,
+							streaming: _streamingValue,
+						};
+					}
 					const response = await sendJson(
 						"/api/native/markdown",
 						{
@@ -46,7 +80,7 @@ export function useNativeMarkdown(
 							chat: _chatValue,
 						},
 						{
-							signal: AbortSignal.any([signal, AbortSignal.timeout(12000)]),
+							signal: requestSignal,
 						},
 					);
 					if (!response.ok) {
@@ -81,7 +115,7 @@ export function useNativeMarkdown(
 		},
 		() => queryClient,
 	);
-	// Sample growing text at most once per 80ms and only after the previous
+	// Sample growing text at most once per 16ms and only after the previous
 	// request settles. Slow native work cannot be continually aborted by tokens.
 	// Resets and final messages bypass sampling through `input` above.
 	const needsSample = createMemo(() => sample() !== _text());
@@ -89,7 +123,7 @@ export function useNativeMarkdown(
 		() => [sample(), _streaming(), needsSample(), query.isFetching] as const,
 		([, streaming, needsUpdate, fetching]) => {
 			if (!streaming || !needsUpdate || fetching) return;
-			const timer = setTimeout(() => setSample(_text()), 80);
+			const timer = setTimeout(() => setSample(_text()), 16);
 			return () => clearTimeout(timer);
 		},
 	);

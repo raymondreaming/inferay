@@ -4,7 +4,7 @@ use serde::Serialize;
 use std::sync::LazyLock;
 
 const MAX_DEPTH: usize = 16;
-const MAX_PARSE_BYTES: usize = 2 * 1024 * 1024;
+pub(crate) const MAX_PARSE_BYTES: usize = 2 * 1024 * 1024;
 static LIST: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(\s*)([-*+]|\d+[.)])\s+(.*)$").unwrap());
 static HEADING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(#{1,6})\s+(.*)$").unwrap());
@@ -245,6 +245,15 @@ impl Parser {
         b
     }
     fn blocks(&mut self, src: &str, depth: usize) -> Vec<MdBlock> {
+        self.blocks_recorded(src, depth, None, 0)
+    }
+    fn blocks_recorded(
+        &mut self,
+        src: &str,
+        depth: usize,
+        mut starts: Option<&mut Vec<BlockStart>>,
+        source_offset: usize,
+    ) -> Vec<MdBlock> {
         if depth >= MAX_DEPTH {
             return vec![self.text_block("paragraph", src)];
         }
@@ -257,6 +266,12 @@ impl Parser {
             if trimmed.is_empty() {
                 i += 1;
                 continue;
+            }
+            if let Some(starts) = starts.as_mut() {
+                starts.push(BlockStart {
+                    offset: source_offset + (line.as_ptr() as usize - src.as_ptr() as usize),
+                    budget: self.budget,
+                });
             }
             if let Some(fence) = fence(line) {
                 let lang = line.trim_start()[fence.len()..].trim();
@@ -491,4 +506,224 @@ pub fn prepare(text: &str, streaming: bool, chat: bool) -> PreparedMarkdown {
         parser.blocks(text, 0)
     };
     PreparedMarkdown { version: 1, blocks }
+}
+
+#[derive(Clone, Copy)]
+struct BlockStart {
+    offset: usize,
+    budget: usize,
+}
+
+/// Checkpoints retain parser budget as well as source offsets. Replaying a tail
+/// must have exactly the same delimiter-search budget as parsing the whole text.
+#[derive(Default)]
+pub(crate) struct IncrementalMarkdown {
+    text: String,
+    starts: Vec<BlockStart>,
+    lines: usize,
+    streaming: bool,
+    chat: bool,
+    pub revision: u64,
+}
+
+#[derive(Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct MarkdownPatch {
+    #[ts(type = "1")]
+    pub version: u8,
+    pub revision: u32,
+    pub reset: bool,
+    pub start: usize,
+    pub delete_count: usize,
+    pub blocks: Vec<MdBlock>,
+}
+
+impl IncrementalMarkdown {
+    pub fn weight(&self) -> usize {
+        self.text.capacity() + self.starts.capacity() * std::mem::size_of::<BlockStart>()
+    }
+
+    pub fn update(
+        &mut self,
+        text: &str,
+        reset: bool,
+        streaming: bool,
+        chat: bool,
+    ) -> Result<MarkdownPatch, &'static str> {
+        let bytes = if reset { 0 } else { self.text.len() };
+        let lines =
+            if reset { 1 } else { self.lines } + text.bytes().filter(|b| *b == b'\n').count();
+        if bytes + text.len() > MAX_PARSE_BYTES || lines > 50_000 {
+            return Err("Markdown exceeds the 2 MiB or 50,000 line preparation limit");
+        }
+        if !reset && self.revision >= u32::MAX as u64 {
+            return Err("Markdown stream revision limit reached");
+        }
+        let old_count = self.starts.len();
+        // The last line can change the interpretation of the preceding block
+        // (setext headings, table lookahead, or a partial block delimiter).
+        // Keep two blocks mutable; all earlier top-level blocks are complete.
+        let start = if reset || streaming != self.streaming || chat != self.chat {
+            0
+        } else {
+            old_count.saturating_sub(2)
+        };
+        let checkpoint = if start == 0 {
+            BlockStart {
+                offset: 0,
+                budget: MAX_PARSE_BYTES * 4,
+            }
+        } else {
+            self.starts[start]
+        };
+        if reset {
+            self.text.clear();
+            self.revision = 0;
+        }
+        self.text.push_str(text);
+        self.lines = lines;
+        self.streaming = streaming;
+        self.chat = chat;
+        self.starts.truncate(start);
+        let mut parser = Parser {
+            streaming,
+            chat,
+            budget: checkpoint.budget,
+        };
+        let blocks = parser.blocks_recorded(
+            &self.text[checkpoint.offset..],
+            0,
+            Some(&mut self.starts),
+            checkpoint.offset,
+        );
+        self.revision += 1;
+        Ok(MarkdownPatch {
+            version: 1,
+            revision: self.revision as u32,
+            reset,
+            start,
+            delete_count: old_count - start,
+            blocks,
+        })
+    }
+}
+
+#[cfg(test)]
+mod incremental_tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    fn check_prefixes(text: &str, stride: usize, chat: bool) {
+        let mut model = IncrementalMarkdown::default();
+        let mut blocks = Vec::<Value>::new();
+        let mut previous = 0;
+        let mut ends: Vec<_> = text
+            .char_indices()
+            .map(|(i, _)| i)
+            .step_by(stride)
+            .collect();
+        ends.push(text.len());
+        for end in ends {
+            let patch = model
+                .update(&text[previous..end], previous == 0, true, chat)
+                .unwrap();
+            let value = serde_json::to_value(&patch).unwrap();
+            let inserted = value["blocks"].as_array().unwrap().clone();
+            if patch.reset {
+                blocks = inserted;
+            } else {
+                blocks.splice(patch.start..patch.start + patch.delete_count, inserted);
+            }
+            assert_eq!(
+                json!(blocks),
+                serde_json::to_value(prepare(&text[..end], true, chat)).unwrap()["blocks"],
+                "prefix {end}: {:?}",
+                &text[..end]
+            );
+            previous = end;
+        }
+        let patch = model.update("", false, false, chat).unwrap();
+        let value = serde_json::to_value(&patch).unwrap();
+        blocks.splice(
+            patch.start..patch.start + patch.delete_count,
+            value["blocks"].as_array().unwrap().clone(),
+        );
+        assert_eq!(
+            json!(blocks),
+            serde_json::to_value(prepare(text, false, chat)).unwrap()["blocks"]
+        );
+    }
+
+    #[test]
+    fn incremental_matches_full_parser_at_every_character_and_finalization() {
+        let fixtures = [
+            "intro\n\nsecond\n\nthird\n\nHeading\n---\n\nTail 🦀 *emphasis* and [link](https://example.com)",
+            "intro\n\nsecond\n\nthird\n| column | other |\n| --- | --- |\n| cell | partial",
+            "intro\n\nsecond\n\nthird\n```rust\nfn main() {}\n\n# still code\n```\n\nlast",
+            "intro\n\nsecond\n\nthird\n> quoted\n> ## heading\n> - list\n> ```\n> code\n> ```\nend",
+            "intro\n\nsecond\n\nthird\n- a\n- [x] task\n1. one\n2. two\n\nend",
+            "intro\n\nsecond\n\nthird\n   \n    tail\n\n| alone |\n\nnext\n___\nend",
+            "a\n\nb\n\nc\n**bold _nested_** ![image](file.md)  \nline\\nmore\n\nfin",
+        ];
+        for chat in [false, true] {
+            for fixture in fixtures {
+                check_prefixes(fixture, 1, chat);
+            }
+        }
+    }
+
+    #[test]
+    fn incremental_preserves_search_budget_and_limits_without_partial_mutation() {
+        let text = format!("{}\n\n{}\n\nend", "[".repeat(12000), "*a* ".repeat(100));
+        check_prefixes(&text, 257, true);
+        let mut model = IncrementalMarkdown::default();
+        model.update("safe", true, true, true).unwrap();
+        assert!(
+            model
+                .update(&"x".repeat(MAX_PARSE_BYTES), false, true, true)
+                .is_err()
+        );
+        assert_eq!(model.text, "safe");
+        assert_eq!(model.revision, 1);
+        assert!(
+            model
+                .update(&"\n".repeat(50_000), false, true, true)
+                .is_err()
+        );
+        assert_eq!(model.text, "safe");
+    }
+
+    #[test]
+    fn incremental_matches_mixed_boundaries_across_irregular_chunks() {
+        let lines = [
+            "",
+            "plain",
+            "---",
+            "==",
+            "# title",
+            "```",
+            "```rs",
+            "|a|b|",
+            "|--|--|",
+            "|partial",
+            "> quote",
+            ">",
+            "- item",
+            "1. item",
+            "[x](https://example.com)",
+            "**incomplete",
+            "  ",
+            "🦀",
+        ];
+        let mut seed = 42u64;
+        for round in 0..80 {
+            let mut text = String::new();
+            for _ in 0..40 {
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                text.push_str(lines[(seed >> 32) as usize % lines.len()]);
+                text.push('\n');
+            }
+            check_prefixes(&text, round % 13 + 1, round % 2 == 0);
+        }
+    }
 }
