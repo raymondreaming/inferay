@@ -86,7 +86,6 @@ export function InstructionsEditor() {
 				<Button
 					variant="secondary"
 					size="sm"
-					liquid={false}
 					disabled={isSaving() || instructions() === savedInstructions()}
 					onClick={handleSave}
 				>

@@ -365,27 +365,17 @@ export function useChatConnection(
 	return {
 		beginRun,
 		failSend,
-		get chatUiState() {
-			return chatUiState;
-		},
+		chatUiState,
 		get checkpoints() {
 			return checkpoints();
 		},
 		get messages() {
 			return messages();
 		},
-		get revertCheckpoint() {
-			return revertCheckpoint;
-		},
-		get setMessages() {
-			return setMessages;
-		},
-		get setExpandedTools() {
-			return setExpandedTools;
-		},
-		get setRunStatus() {
-			return setRunStatus;
-		},
+		revertCheckpoint,
+		setMessages,
+		setExpandedTools,
+		setRunStatus,
 	};
 }
 export interface NativeChatRender {

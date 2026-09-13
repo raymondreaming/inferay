@@ -16,7 +16,6 @@ export function SettingsGithubEmptyState(_props: {
 			description="Connect with the GitHub CLI and Inferay will pick up the account automatically."
 			action={
 				<Button
-					liquid={false}
 					type="button"
 					onClick={_props.onConnect}
 					disabled={_props.connecting}

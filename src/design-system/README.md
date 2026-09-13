@@ -6,7 +6,7 @@ compatibility exports, or parallel palettes.
 | Change | Owner |
 | --- | --- |
 | Theme colors, surface formulas, scene tints, depth effects, global CSS | [styles.css](styles.css) |
-| Typed tokens, shared panel/selection styles, spacing, typography, radius, motion, runtime SVG/Liquid values | [styles.stylex.ts](styles.stylex.ts) |
+| Typed tokens, shared panel/selection styles, spacing, typography, radius, motion, runtime color values | [styles.stylex.ts](styles.stylex.ts) |
 
 [Appearance settings](../app/hooks/useAppAppearance.tsx) owns selection and persistence,
 not built-in style values. It selects CSS through root data attributes. Only a

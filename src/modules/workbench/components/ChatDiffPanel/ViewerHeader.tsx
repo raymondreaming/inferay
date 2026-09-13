@@ -3,7 +3,6 @@ import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { ariaValue } from "../../../../shared/lib/dom.tsx";
-import { LiquidSegmentedRail } from "../../../../shared/ui/gooey/LiquidSegmentedRail/index.tsx";
 import {
 	IconArrowDown,
 	IconCollapse,
@@ -101,11 +100,6 @@ export function ViewerHeader(_props: ViewerHeaderProps) {
 						{...stylex.attrs(styles.viewerModes)}
 						onMouseLeave={() => _props.setHoveredModeIndex(null)}
 					>
-						<LiquidSegmentedRail
-							activeIndex={_props.hoveredModeIndex ?? _props.activeModeIndex}
-							itemCount={2}
-							radius={4}
-						/>
 						<button
 							type="button"
 							onMouseEnter={() => _props.setHoveredModeIndex(0)}

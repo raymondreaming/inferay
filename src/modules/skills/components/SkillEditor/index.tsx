@@ -85,7 +85,6 @@ export function SkillEditor(_props: SkillEditorProps) {
 					_props.selectedSkill &&
 					!_props.selectedSkill.isBuiltIn && (
 						<Button
-							liquid={false}
 							type="button"
 							variant="ghost"
 							size="sm"
@@ -198,7 +197,6 @@ export function SkillEditor(_props: SkillEditorProps) {
 						!_props.selectedSkill.isBuiltIn &&
 						!_props.isCreatingNew && (
 							<Button
-								liquid={false}
 								type="button"
 								variant="ghost"
 								size="sm"
@@ -215,7 +213,6 @@ export function SkillEditor(_props: SkillEditorProps) {
 					{editing() ? (
 						<>
 							<Button
-								liquid={false}
 								type="button"
 								variant="ghost"
 								size="sm"
@@ -225,7 +222,6 @@ export function SkillEditor(_props: SkillEditorProps) {
 								Cancel
 							</Button>
 							<Button
-								liquid={false}
 								type="button"
 								variant="secondary"
 								size="sm"

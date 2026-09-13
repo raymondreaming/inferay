@@ -35,7 +35,6 @@ export function SettingsRepoRow(_props: {
 				<IconExternalLink size={iconSize.md} />
 			</a>
 			<Button
-				liquid={false}
 				type="button"
 				onClick={_props.onClone}
 				disabled={_props.cloning}

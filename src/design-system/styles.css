@@ -290,93 +290,6 @@ textarea::placeholder {
 	background-color: var(--hover-bg, inherit) !important;
 }
 
-/* Liquid controls ---------------------------------------------------------
- * The SVG owns only the visual silhouette. The real button remains above it
- * and continues to own pointer, keyboard, focus, and disabled behavior. */
-.inferay-liquid-action > div > button {
-	background-color: transparent;
-	background-image: none;
-	box-shadow: none;
-	position: relative;
-	z-index: 2;
-}
-
-.inferay-liquid-popover > div > button {
-	background-color: transparent;
-	background-image: none;
-	border-color: transparent;
-	box-shadow: none;
-	position: relative;
-	z-index: 2;
-}
-
-.inferay-liquid-popover-panel.inferay-liquid-popover-panel {
-	border-color: transparent;
-	background: transparent;
-	box-shadow: none;
-	backdrop-filter: none;
-	transform-origin: top left;
-	will-change: opacity, transform;
-}
-
-.inferay-liquid-popover-panel--top {
-	transform-origin: bottom left;
-}
-
-.inferay-liquid-popover-panel--open {
-	animation: inferay-liquid-popover-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-.inferay-liquid-popover-panel--closing {
-	animation: inferay-liquid-popover-out 200ms cubic-bezier(0.4, 0, 0.8, 0.2)
-		both;
-	pointer-events: none;
-}
-
-@keyframes inferay-liquid-popover-in {
-	from {
-		opacity: 0;
-		transform: translateY(-3px);
-	}
-	to {
-		opacity: 1;
-		transform: translateY(0);
-	}
-}
-
-@keyframes inferay-liquid-popover-out {
-	from {
-		opacity: 1;
-		transform: translateY(0);
-	}
-	to {
-		opacity: 0;
-		transform: translateY(-3px);
-	}
-}
-
-.inferay-liquid-panel,
-.inferay-liquid-panel > div {
-	display: flex;
-	width: 100%;
-}
-
-.inferay-liquid-panel > div > * {
-	background-color: transparent;
-	box-shadow: none;
-}
-
-.inferay-message-liquid {
-	display: flex;
-	width: 100%;
-}
-
-.inferay-message-liquid > span,
-.inferay-message-liquid > span > div {
-	display: flex;
-	width: 100%;
-}
-
 .inferay-directory-picker-modal {
 	position: relative;
 	box-sizing: border-box;
@@ -393,25 +306,6 @@ textarea::placeholder {
 		both;
 }
 
-.inferay-directory-picker-liquid,
-.inferay-directory-picker-liquid > span,
-.inferay-directory-picker-liquid > span > div {
-	display: flex;
-	width: 100%;
-}
-
-.inferay-directory-picker-liquid button {
-	transform-origin: center;
-	transition:
-		background-color 120ms ease,
-		color 120ms ease,
-		transform 100ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.inferay-directory-picker-liquid button:active {
-	transform: translateY(1px) scale(0.985);
-}
-
 @keyframes inferay-directory-picker-in {
 	from {
 		opacity: 0;
@@ -420,35 +314,6 @@ textarea::placeholder {
 	to {
 		opacity: 1;
 		transform: translateY(0) scale(1);
-	}
-}
-
-.inferay-liquid-segmented-rail {
-	inset: 0;
-	pointer-events: none;
-	position: absolute;
-	z-index: 0;
-}
-
-.inferay-liquid-segmented-rail__group {
-	height: 100%;
-	width: 100%;
-}
-
-.inferay-liquid-segmented-rail__item {
-	position: absolute;
-	transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.inferay-liquid-segmented-rail__carrier {
-	display: block;
-	height: 100%;
-	width: 100%;
-}
-
-@media (prefers-reduced-motion: reduce) {
-	.inferay-liquid-segmented-rail__item {
-		transition-duration: 0ms;
 	}
 }
 

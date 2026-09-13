@@ -4,11 +4,9 @@ import type { Element } from "solid-js";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import {
 	iconSize,
-	runtimeColor,
 	surfaceStyles,
 } from "../../../design-system/styles.stylex.ts";
 import { domStyle, hasId } from "../../lib/dom.tsx";
-import { LiquidPopoverSurface } from "../gooey/LiquidPopoverSurface/index.tsx";
 import { IconChevronDown } from "../Icons/index.tsx";
 import { DropdownOptions } from "./DropdownOptions.tsx";
 import { DropdownSearch } from "./DropdownSearch.tsx";
@@ -32,12 +30,9 @@ interface DropdownButtonProps {
 	maxVisibleOptions?: number;
 	optionHeight?: number;
 	onOpen?: () => void;
-	/** Visual-only liquid treatment for the trigger. */
-	liquid?: boolean;
 }
 export function DropdownButton(_props: DropdownButtonProps) {
 	const [open, setOpen] = createSignal(false);
-	const [menuPresent, setMenuPresent] = createSignal(false);
 	const [search, setSearch] = createSignal("");
 	const [trigger, setTrigger] = createSignal<HTMLButtonElement | null>(null);
 	const menuRef = {
@@ -54,7 +49,6 @@ export function DropdownButton(_props: DropdownButtonProps) {
 		open()
 			? {
 					element: trigger(),
-					liquid: _props.liquid ?? true,
 					placement: _props.menuPlacement ?? "auto",
 					rowHeight: _props.optionHeight ?? (_props.renderOption ? 34 : 30),
 					count: _props.options.length,
@@ -62,18 +56,6 @@ export function DropdownButton(_props: DropdownButtonProps) {
 					minWidth: _props.minWidth ?? 220,
 				}
 			: null,
-	);
-	createEffect(
-		() => [menuPresent(), open()] as const,
-		([present, isOpen]) => {
-			if (isOpen) {
-				setMenuPresent(true);
-				return;
-			}
-			if (!present) return;
-			const timeout = window.setTimeout(() => setMenuPresent(false), 220);
-			return () => window.clearTimeout(timeout);
-		},
 	);
 	createEffect(open, (isOpen) => {
 		if (!isOpen) return;
@@ -123,7 +105,7 @@ export function DropdownButton(_props: DropdownButtonProps) {
 	);
 	const showSearch = createMemo(() => _props.options.length > 5);
 	createEffect(
-		() => open() && menuPresent() && showSearch(),
+		() => open() && showSearch(),
 		(focus) => {
 			if (!focus) return;
 			const timer = setTimeout(() => searchRef.current?.focus(), 0);
@@ -184,11 +166,10 @@ export function DropdownButton(_props: DropdownButtonProps) {
 		</button>
 	);
 	const onTop = createMemo(() => pos().placement === "top");
-	const liquid = createMemo(() => _props.liquid ?? true);
 	const Menu = () => (
 		<div
 			ref={(element) => (menuRef.current = element)}
-			class={`${stylex.attrs(surfaceStyles.overlay, styles.menu, liquid() && styles.menuLiquid).class ?? ""} ${liquid() ? `inferay-liquid-popover-panel inferay-liquid-popover-panel--${pos().placement} ${open() ? "inferay-liquid-popover-panel--open" : "inferay-liquid-popover-panel--closing"}` : ""}`}
+			class={`${stylex.attrs(surfaceStyles.overlay, styles.menu).class ?? ""}`}
 			style={domStyle(
 				inlineStyles.getDropdownButtonMenuStyle(
 					onTop() ? undefined : pos().top,
@@ -218,29 +199,14 @@ export function DropdownButton(_props: DropdownButtonProps) {
 		</div>
 	);
 	return (
-		<Show
-			when={liquid()}
-			fallback={
-				<>
-					<Trigger />
-					<Show when={menuPresent()}>
-						<Portal mount={document.body}>
-							<Menu />
-						</Portal>
-					</Show>
-				</>
-			}
-		>
-			<LiquidPopoverSurface
-				open={open()}
-				present={menuPresent()}
-				trigger={<Trigger />}
-				panel={<Menu />}
-				portalTarget={document.body}
-				fill={runtimeColor.backgroundRaised}
-				fullWidth={_props.fullWidth ?? false}
-			/>
-		</Show>
+		<>
+			<Trigger />
+			<Show when={open()}>
+				<Portal mount={document.body}>
+					<Menu />
+				</Portal>
+			</Show>
+		</>
 	);
 }
 

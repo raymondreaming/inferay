@@ -2,16 +2,13 @@ import * as stylex from "@stylexjs/stylex";
 import { createEffect, createMemo, createSignal, For } from "solid-js";
 import {
 	iconSize,
-	runtimeColor,
+	surfaceStyles,
 } from "../../../../design-system/styles.stylex.ts";
 import { useBackgroundQuery } from "../../../../shared/hooks/useQueryResource.tsx";
 import { assignRef, queryClient } from "../../../../shared/lib/dom.tsx";
 import { fetchJson } from "../../../../shared/lib/native.tsx";
-import { GooeyRoot } from "../../../../shared/ui/gooey/Gooey/index.tsx";
-import { LiquidItem } from "../../../../shared/ui/gooey/LiquidItem/index.tsx";
 import { IconSearch } from "../../../../shared/ui/Icons/index.tsx";
 import { FileSearchResultRow } from "./FileSearchResultRow.tsx";
-import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 export type FileSearchResult = {
 	readonly cwd?: string;
@@ -222,53 +219,41 @@ export function FileSearch(_props: {
 								: styles.menuShell,
 					)}
 				>
-					<GooeyRoot
-						blur={6}
-						contrast={18}
-						fill={runtimeColor.backgroundRaised}
-						filterPadding={32}
-						shadow="inset 0 1px 0 rgba(255,255,255,.12), 0 10px 28px rgba(0,0,0,.34)"
-						style={inlineStyles.getFileSearchLiquidStyle()}
-					>
-						<LiquidItem style={inlineStyles.getFileSearchElementStyle()}>
-							<div {...stylex.attrs(styles.menu)}>
-								{(_props.placement === undefined
-									? "shell"
-									: _props.placement) === "panel" ? (
-									<div {...stylex.attrs(styles.menuSearch)}>
-										<IconSearch
-											size={iconSize.md}
-											{...stylex.attrs(styles.searchIcon)}
-										/>
-										<input
-											{...inputProps()}
-											onInput={(event) => {
-												setQuery(event.currentTarget.value);
-												setSelectedIndex(-1);
-											}}
-											placeholder="Search workspace files"
-										/>
-									</div>
-								) : null}
-								{
-									<For each={results()} keyed={(row) => row.path}>
-										{(result, index) => (
-											<FileSearchResultRow
-												result={result()}
-												index={index()}
-												selectedIndex={selectedIndex()}
-												setSelectedIndex={setSelectedIndex}
-												choose={choose}
-											/>
-										)}
-									</For>
-								}
-								{!loading() && results().length === 0 ? (
-									<span {...stylex.attrs(styles.empty)}>No matching files</span>
-								) : null}
+					<div {...stylex.attrs(surfaceStyles.overlay, styles.menu)}>
+						{(_props.placement === undefined ? "shell" : _props.placement) ===
+						"panel" ? (
+							<div {...stylex.attrs(styles.menuSearch)}>
+								<IconSearch
+									size={iconSize.md}
+									{...stylex.attrs(styles.searchIcon)}
+								/>
+								<input
+									{...inputProps()}
+									onInput={(event) => {
+										setQuery(event.currentTarget.value);
+										setSelectedIndex(-1);
+									}}
+									placeholder="Search workspace files"
+								/>
 							</div>
-						</LiquidItem>
-					</GooeyRoot>
+						) : null}
+						{
+							<For each={results()} keyed={(row) => row.path}>
+								{(result, index) => (
+									<FileSearchResultRow
+										result={result()}
+										index={index()}
+										selectedIndex={selectedIndex()}
+										setSelectedIndex={setSelectedIndex}
+										choose={choose}
+									/>
+								)}
+							</For>
+						}
+						{!loading() && results().length === 0 ? (
+							<span {...stylex.attrs(styles.empty)}>No matching files</span>
+						) : null}
+					</div>
 				</div>
 			) : null}
 		</div>

@@ -271,7 +271,6 @@ export function SkillsDialog(_props: {
 								Pick a skill from the library to read it, or start a new one.
 							</p>
 							<Button
-								liquid={false}
 								type="button"
 								variant="secondary"
 								size="sm"

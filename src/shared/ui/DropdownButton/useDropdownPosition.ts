@@ -2,7 +2,6 @@ import { type Accessor, createEffect, createSignal } from "solid-js";
 
 type MenuLayout = {
 	element: HTMLButtonElement | null;
-	liquid: boolean;
 	placement: "auto" | "top" | "bottom";
 	rowHeight: number;
 	count: number;
@@ -22,18 +21,11 @@ export function useDropdownPosition(layout: Accessor<MenuLayout | null>) {
 	});
 	createEffect(layout, (layout) => {
 		if (!layout?.element) return;
-		const {
-			element,
-			liquid,
-			placement,
-			rowHeight,
-			count,
-			maxVisible,
-			minWidth,
-		} = layout;
+		const { element, placement, rowHeight, count, maxVisible, minWidth } =
+			layout;
 		const measure = () => {
 			const rect = element.getBoundingClientRect();
-			const gap = liquid ? 12 : 4;
+			const gap = 4;
 			const below = window.innerHeight - rect.bottom - gap;
 			const above = rect.top - gap;
 			const onTop =

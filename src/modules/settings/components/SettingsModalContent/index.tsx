@@ -171,7 +171,6 @@ export function SettingsModalContent(_props: {
 						description="Your GitHub identity, detected from the GitHub CLI."
 						action={
 							<Button
-								liquid={false}
 								type="button"
 								onClick={() => void refreshGithubAccounts()}
 								variant="ghost"
@@ -212,7 +211,6 @@ export function SettingsModalContent(_props: {
 						action={
 							_source.data.length > 0 ? (
 								<Button
-									liquid={false}
 									type="button"
 									onClick={() => void loadRepos()}
 									variant="ghost"
@@ -264,7 +262,6 @@ export function SettingsModalContent(_props: {
 										class={stylex.attrs(styles.cloneDirectory).class}
 									/>
 									<Button
-										liquid={false}
 										type="button"
 										onClick={() => void pickCloneDirectory()}
 										variant="ghost"

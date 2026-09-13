@@ -23,7 +23,6 @@ export function SkillLibrary(_props: {
 		<aside aria-label="Skills library" {...stylex.attrs(styles.listPane)}>
 			<div {...stylex.attrs(styles.libraryControls)}>
 				<Button
-					liquid={false}
 					type="button"
 					variant="secondary"
 					size="sm"

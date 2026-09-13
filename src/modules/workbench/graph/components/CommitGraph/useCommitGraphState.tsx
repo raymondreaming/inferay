@@ -330,70 +330,7 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		};
 		trackResize(event.pointerId, move);
 	};
-	return merge(_props, {
-		get containingBranches() {
-			return graphModel().containingBranches;
-		},
-		get defaultRemoteName() {
-			return graphModel().defaultRemoteName;
-		},
-		get displayGraphColumn() {
-			return graphModel().displayGraphColumn;
-		},
-		get displayColumns() {
-			return graphModel().displayColumns;
-		},
-		get visibleOrder() {
-			return graphModel().visibleOrder;
-		},
-		get graphWidth() {
-			return graphModel().graphWidth;
-		},
-		get graphLeft() {
-			return graphModel().graphLeft;
-		},
-		get graphHeight() {
-			return graphModel().graphHeight;
-		},
-		get tableWidth() {
-			return graphModel().tableWidth;
-		},
-		get totalHeight() {
-			return graphModel().totalHeight;
-		},
-		get hiddenRefDetails() {
-			return graphModel().hiddenRefDetails;
-		},
-		get hiddenRefNames() {
-			return graphModel().hiddenRefNames;
-		},
-		get itemIndexes() {
-			return graphModel().itemIndexes;
-		},
-		get matchingHashes() {
-			return graphModel().matchingHashes;
-		},
-		get pinnedRefNames() {
-			return graphModel().pinnedRefNames;
-		},
-		get reachableHistory() {
-			return graphModel().reachableHistory;
-		},
-		get selectableItems() {
-			return graphModel().selectableItems;
-		},
-		get worktreesByPath() {
-			return graphModel().worktreesByPath;
-		},
-		get visibleStart() {
-			return viewportModel().visibleStart;
-		},
-		get visibleEnd() {
-			return viewportModel().visibleEnd;
-		},
-		get lines() {
-			return viewportModel().lines;
-		},
+	return merge(_props, graphModel, viewportModel, preferences, {
 		get emptyLabel() {
 			const _sourceValue1 = _props();
 			return _sourceValue1.emptyLabel === undefined
@@ -434,33 +371,13 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 				? false
 				: _sourceValue1.loadingMore;
 		},
-		get columns() {
-			const _source2Value2 = preferences();
-			return _source2Value2.columns;
-		},
-		get widths() {
-			const _source2Value2 = preferences();
-			return _source2Value2.widths;
-		},
-		get order() {
-			const _source2Value2 = preferences();
-			return _source2Value2.order;
-		},
 		get setHiddenRefs() {
 			const _source3Value = setters();
 			return _source3Value.setHiddenRefs;
 		},
-		get soloRefs() {
-			const _source2Value2 = preferences();
-			return _source2Value2.soloRefs;
-		},
 		get setSoloRefs() {
 			const _source3Value = setters();
 			return _source3Value.setSoloRefs;
-		},
-		get pinnedRefs() {
-			const _source2Value2 = preferences();
-			return _source2Value2.pinnedRefs;
 		},
 		get setPinnedRefs() {
 			const _source3Value = setters();
@@ -469,9 +386,7 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		get isColumnsOpen() {
 			return isColumnsOpen();
 		},
-		get setIsColumnsOpen() {
-			return setIsColumnsOpen;
-		},
+		setIsColumnsOpen,
 		get commitAvatars() {
 			return commitAvatars();
 		},
@@ -481,63 +396,33 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		get hoveredRow() {
 			return hoveredRow();
 		},
-		get setHoveredRow() {
-			return setHoveredRow;
-		},
-		get keyboardNavigationRef() {
-			return keyboardNavigationRef;
-		},
-		get mousePositionRef() {
-			return mousePositionRef;
-		},
-		get handleRowHover() {
-			return handleRowHover;
-		},
-		get scrollerRef() {
-			return scrollerRef;
-		},
+		setHoveredRow,
+		keyboardNavigationRef,
+		mousePositionRef,
+		handleRowHover,
+		scrollerRef,
 		get query() {
 			return query();
 		},
-		get setQuery() {
-			return setQuery;
-		},
+		setQuery,
 		get refContextMenu() {
 			return refContextMenu();
 		},
-		get setRefContextMenu() {
-			return setRefContextMenu;
-		},
+		setRefContextMenu,
 		get itemContextMenu() {
 			return itemContextMenu();
 		},
-		get setItemContextMenu() {
-			return setItemContextMenu;
-		},
+		setItemContextMenu,
 		get lineLayerStyle() {
 			return lineLayerStyle();
 		},
-		get toggleColumn() {
-			return toggleColumn;
-		},
-		get moveColumn() {
-			return moveColumn;
-		},
-		get rememberScroll() {
-			return rememberScroll;
-		},
-		get openRefContextMenu() {
-			return openRefContextMenu;
-		},
-		get openItemContextMenu() {
-			return openItemContextMenu;
-		},
-		get navigateRows() {
-			return navigateRows;
-		},
-		get startColumnResize() {
-			return startColumnResize;
-		},
+		toggleColumn,
+		moveColumn,
+		rememberScroll,
+		openRefContextMenu,
+		openItemContextMenu,
+		navigateRows,
+		startColumnResize,
 	});
 }
 export async function resolveGitCommitAvatars(

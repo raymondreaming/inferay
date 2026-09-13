@@ -24,7 +24,6 @@ export function ChatPaneRecovery(_props: {
 					onClick={_props.reset}
 					variant="secondary"
 					size="sm"
-					liquid={false}
 				>
 					Reload pane
 				</Button>

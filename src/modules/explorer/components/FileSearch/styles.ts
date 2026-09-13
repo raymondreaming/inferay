@@ -7,7 +7,6 @@ import {
 	layer,
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
-import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 export const styles = stylex.create({
 	root: {
 		position: "relative",
@@ -102,10 +101,7 @@ export const styles = stylex.create({
 		flexDirection: "column",
 		gap: controlSize._0_5,
 		overflowY: "auto",
-		borderWidth: 0,
 		borderRadius: radius.lg,
-		backgroundColor: color.transparent,
-		boxShadow: "none",
 		padding: controlSize._1,
 	},
 	menuShell: {
@@ -182,14 +178,3 @@ export const styles = stylex.create({
 		textAlign: "center",
 	},
 });
-export function getFileSearchLiquidStyle(): CSSProperties {
-	return {
-		display: "flex",
-		width: "100%",
-	} as CSSProperties;
-}
-export function getFileSearchElementStyle(): CSSProperties {
-	return {
-		width: "100%",
-	} as CSSProperties;
-}

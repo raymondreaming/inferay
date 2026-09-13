@@ -1102,15 +1102,9 @@ export function useRepositoryWorkbench(
 		get auxiliaryPanels() {
 			return auxiliaryPanels();
 		},
-		get diffPanel() {
-			return diffPanel;
-		},
-		get focusWorkbench() {
-			return focusWorkbench;
-		},
-		get sidebar() {
-			return sidebar;
-		},
+		diffPanel,
+		focusWorkbench,
+		sidebar,
 		get zenMode() {
 			return zenMode();
 		},

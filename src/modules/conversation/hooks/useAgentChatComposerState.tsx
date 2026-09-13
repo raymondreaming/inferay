@@ -257,63 +257,31 @@ export function useAgentChatComposerState(
 		get queueError() {
 			return queueError();
 		},
-		get replaceQueuedMessages() {
-			return replaceQueuedMessages;
-		},
-		get stageSteeringMessage() {
-			return stageSteeringMessage;
-		},
-		get resolveSteeringMessage() {
-			return resolveSteeringMessage;
-		},
-		get removeQueuedMessage() {
-			return removeQueuedMessage;
-		},
-		get updateQueuedMessage() {
-			return updateQueuedMessage;
-		},
+		replaceQueuedMessages,
+		stageSteeringMessage,
+		resolveSteeringMessage,
+		removeQueuedMessage,
+		updateQueuedMessage,
 		get editingQueueId() {
 			return editingQueueId();
 		},
 		get editingQueueText() {
 			return editingQueueText();
 		},
-		get setEditingQueueText() {
-			return setEditingQueueText;
-		},
-		get startQueuedMessageEdit() {
-			return startQueuedMessageEdit;
-		},
-		get cancelQueuedMessageEdit() {
-			return cancelQueuedMessageEdit;
-		},
-		get saveQueuedMessageEdit() {
-			return saveQueuedMessageEdit;
-		},
+		setEditingQueueText,
+		startQueuedMessageEdit,
+		cancelQueuedMessageEdit,
+		saveQueuedMessageEdit,
 		get mdPreview() {
 			return mdPreview();
 		},
-		get closeMdPreview() {
-			return closeMdPreview;
-		},
-		get handleMdFileClick() {
-			return handleMdFileClick;
-		},
-		get attachImage() {
-			return attachImage;
-		},
-		get removeAttachedImage() {
-			return removeAttachedImage;
-		},
-		get clearAttachedImages() {
-			return clearAttachedImages;
-		},
-		get handleDrop() {
-			return handleDrop;
-		},
-		get handlePaste() {
-			return handlePaste;
-		},
+		closeMdPreview,
+		handleMdFileClick,
+		attachImage,
+		removeAttachedImage,
+		clearAttachedImages,
+		handleDrop,
+		handlePaste,
 	};
 }
 export async function uploadChatImage(
@@ -355,9 +323,7 @@ export function usePendingChatWorkspace(
 		});
 	};
 	return {
-		get savePendingWorkspaceSelection() {
-			return savePendingWorkspaceSelection;
-		},
+		savePendingWorkspaceSelection,
 		get visibleCwd() {
 			return visibleCwd();
 		},

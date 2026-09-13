@@ -70,7 +70,6 @@ export function BackgroundScenePicker() {
 			action={
 				_source().background.mode === "scene" ? (
 					<Button
-						liquid={false}
 						type="button"
 						size="sm"
 						variant="ghost"

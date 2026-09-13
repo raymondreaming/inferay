@@ -129,7 +129,6 @@ export function AgentContextPanel(_props: {
 				<Button
 					variant="secondary"
 					size="sm"
-					liquid={false}
 					disabled={isSaving() || _source.isLoading}
 					onClick={() => void save()}
 				>

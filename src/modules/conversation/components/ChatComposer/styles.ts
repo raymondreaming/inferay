@@ -8,7 +8,6 @@ import {
 	palette,
 	radius,
 	runtimeColor,
-	shadow,
 } from "../../../../design-system/styles.stylex.ts";
 import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 export const styles = stylex.create({
@@ -198,11 +197,10 @@ export const styles = stylex.create({
 		fontSize: font.size_1,
 	},
 	commandMenu: {
+		borderRadius: radius.lg,
+		marginBottom: controlSize._3,
 		maxHeight: "360px",
 		overflow: "hidden",
-		marginBottom: controlSize._2,
-		borderRadius: radius.lg,
-		boxShadow: shadow.modal,
 	},
 	commandList: {
 		maxHeight: "280px",

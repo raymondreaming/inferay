@@ -8,7 +8,6 @@ export function BuiltInSkillNotice(_props: { duplicateSelected: () => void }) {
 		<div {...stylex.attrs(styles.builtInNotice)}>
 			<span>Built-in workflow · Read-only</span>
 			<Button
-				liquid={false}
 				type="button"
 				variant="ghost"
 				size="sm"

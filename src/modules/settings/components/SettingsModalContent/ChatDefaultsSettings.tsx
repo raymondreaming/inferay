@@ -52,7 +52,6 @@ export function ChatDefaultsSettings(_props: {
 			description="The provider, model, and reasoning level used by default."
 			action={
 				<Button
-					liquid={false}
 					type="button"
 					onClick={_props.refreshAgentAccountStatuses}
 					variant="ghost"
@@ -116,7 +115,6 @@ export function ChatDefaultsSettings(_props: {
 				{(field) => (
 					<SettingsRow label={field().label}>
 						<DropdownButton
-							liquid={false}
 							value={
 								field().key === "model"
 									? _props.defaultChatSettings.model

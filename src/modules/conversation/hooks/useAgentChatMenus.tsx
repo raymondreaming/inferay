@@ -244,18 +244,14 @@ export function useAgentChatMenus(
 		get fileMenu() {
 			return visibleFileMenu();
 		},
-		get setFileMenu() {
-			return setFileMenu;
-		},
+		setFileMenu,
 		get fileResults() {
 			return _source2.data;
 		},
 		get slashMenu() {
 			return visibleSlashMenu();
 		},
-		get setSlashMenu() {
-			return setSlashMenu;
-		},
+		setSlashMenu,
 		get filteredCommands() {
 			return filteredCommands();
 		},
@@ -265,18 +261,10 @@ export function useAgentChatMenus(
 		get slashCommandNames() {
 			return slashCommandNames();
 		},
-		get handleInputForFileMenu() {
-			return handleInputForFileMenu;
-		},
-		get handleInputForSlashMenu() {
-			return handleInputForSlashMenu;
-		},
-		get selectCommand() {
-			return selectCommand;
-		},
-		get selectFile() {
-			return selectFile;
-		},
+		handleInputForFileMenu,
+		handleInputForSlashMenu,
+		selectCommand,
+		selectFile,
 	};
 }
 export function useAgentChatSettings(

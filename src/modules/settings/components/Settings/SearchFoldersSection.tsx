@@ -74,7 +74,6 @@ export function SearchFoldersSection() {
 						description="Directories to scan when searching for projects. Use ~/path for home-relative paths."
 						action={
 							<Button
-								liquid={false}
 								type="button"
 								onClick={browseFolder}
 								variant="ghost"
@@ -121,7 +120,6 @@ export function SearchFoldersSection() {
 								{...stylex.attrs(styles.folderInput)}
 							/>
 							<Button
-								liquid={false}
 								type="button"
 								onClick={addFolder}
 								disabled={!_newFolderValue.trim()}

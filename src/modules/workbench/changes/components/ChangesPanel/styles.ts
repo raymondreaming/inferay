@@ -255,12 +255,6 @@ export const styles = stylex.create({
 		transitionDuration: motion.durationBase,
 		transitionProperty: "border-color, box-shadow, background-color",
 	},
-	commitEditorLiquid: {
-		backgroundColor: color.transparent,
-		borderColor: color.transparent,
-		borderRadius: radius.md,
-		boxShadow: "none",
-	},
 	summaryRow: {
 		display: "flex",
 		height: "100%",

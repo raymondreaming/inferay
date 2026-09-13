@@ -22,7 +22,7 @@ export function RecoveryFallback(_props: {
 			<p {...stylex.attrs(styles.message)}>
 				{_props.label} couldn’t be displayed.
 			</p>
-			<Button liquid={false} variant="secondary" onClick={_props.reset}>
+			<Button variant="secondary" onClick={_props.reset}>
 				Retry {_props.label.toLowerCase()}
 			</Button>
 		</div>

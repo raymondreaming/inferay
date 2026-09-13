@@ -360,10 +360,7 @@ export const styles = stylex.create({
 		width: 188,
 		flexDirection: "column",
 		gap: controlSize._2,
-		borderWidth: 0,
 		borderRadius: radius.lg,
-		backgroundColor: color.transparent,
-		boxShadow: "none",
 		padding: controlSize._2,
 	},
 	workspaceGridMenuRow: {
@@ -410,7 +407,7 @@ export const styles = stylex.create({
 	},
 	workspaceGridChoiceActive: {
 		color: color.textMain,
-		backgroundColor: color.transparent,
+		backgroundColor: color.controlActive,
 	},
 	flipHorizontal: {
 		transform: "scaleX(-1)",

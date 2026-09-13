@@ -60,7 +60,6 @@ export const SettingsContent = function SettingsContent(
 							description="System interface text with Menlo for code and diffs."
 						>
 							<DropdownButton
-								liquid={false}
 								value={appFontId()}
 								options={APP_FONTS.map((option) => ({
 									id: option.id,
@@ -80,7 +79,6 @@ export const SettingsContent = function SettingsContent(
 							description="Syntax colors for full files and inline diffs."
 						>
 							<DropdownButton
-								liquid={false}
 								value={syntaxTheme()}
 								options={SYNTAX_HIGHLIGHT_THEMES}
 								onChange={(id) => setSyntaxTheme(id as SyntaxHighlightTheme)}

@@ -2,11 +2,9 @@ import * as stylex from "@stylexjs/stylex";
 import { createEffect, createMemo, createSignal } from "solid-js";
 import {
 	iconSize,
-	runtimeColor,
+	surfaceStyles,
 } from "../../../../design-system/styles.stylex.ts";
 import { ariaValue } from "../../../../shared/lib/dom.tsx";
-import { LiquidPanel } from "../../../../shared/ui/gooey/LiquidPanel/index.tsx";
-import { LiquidSegmentedRail } from "../../../../shared/ui/gooey/LiquidSegmentedRail/index.tsx";
 import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
 import {
 	IconLayoutGrid,
@@ -32,10 +30,6 @@ export function SidebarWorkspacesSection(_props: {
 		stylex.attrs(styles.workspaceSection),
 	);
 	const [gridMenuOpen, setGridMenuOpen] = createSignal(false);
-	const [hoveredGridDimension, setHoveredGridDimension] = createSignal<{
-		axis: "columns";
-		value: number;
-	} | null>(null);
 	const gridMenuRef = {
 		current: null,
 	} as {
@@ -101,13 +95,6 @@ export function SidebarWorkspacesSection(_props: {
 							ref={(element) => (gridMenuRef.current = element)}
 							{...stylex.attrs(styles.workspaceLayoutControl)}
 						>
-							<LiquidSegmentedRail
-								activeIndex={_props.layoutMode === "grid" ? 0 : 1}
-								itemCount={2}
-								radius={14}
-								itemSize={28}
-								gap={4}
-							/>
 							<span {...stylex.attrs(styles.workspaceGridWrap)}>
 								<button
 									type="button"
@@ -128,61 +115,42 @@ export function SidebarWorkspacesSection(_props: {
 								</button>
 								{gridMenuOpen() && selectedGroup() ? (
 									<span {...stylex.attrs(styles.workspaceGridMenuAnchor)}>
-										<LiquidPanel fill={runtimeColor.backgroundRaised}>
-											<div {...stylex.attrs(styles.workspaceGridMenu)}>
-												<span {...stylex.attrs(styles.workspaceGridMenuRow)}>
-													<span
-														{...stylex.attrs(styles.workspaceGridMenuLabel)}
-													>
-														Columns
-													</span>
-													<span
-														{...stylex.attrs(styles.workspaceGridChoices)}
-														onMouseLeave={() => setHoveredGridDimension(null)}
-													>
-														<LiquidSegmentedRail
-															activeIndex={
-																(hoveredGridDimension()?.axis === "columns"
-																	? hoveredGridDimension()!.value
-																	: selectedGroup()!.columns) - 1
-															}
-															itemCount={4}
-															itemSize={24}
-															gap={2}
-															radius={12}
-														/>
-														{GRID_DIMENSIONS.map((value) => (
-															<button
-																type="button"
-																onMouseEnter={() =>
-																	setHoveredGridDimension({
-																		axis: "columns",
-																		value,
-																	})
-																}
-																onClick={() => {
-																	_props.onUpdateLayoutMode("grid");
-																	_props.onUpdateGrid({
-																		columns: value,
-																	});
-																}}
-																{...stylex.attrs(
-																	styles.workspaceGridChoice,
-																	selectedGroup()?.columns === value
-																		? styles.workspaceGridChoiceActive
-																		: null,
-																)}
-															>
-																{value}
-															</button>
-														))}
-													</span>
+										<div
+											{...stylex.attrs(
+												surfaceStyles.overlay,
+												styles.workspaceGridMenu,
+											)}
+										>
+											<span {...stylex.attrs(styles.workspaceGridMenuRow)}>
+												<span {...stylex.attrs(styles.workspaceGridMenuLabel)}>
+													Columns
 												</span>
-												<span {...stylex.attrs(styles.workspaceGridMenuHint)}>
-													Drag pane dividers to fine-tune the layout.
+												<span {...stylex.attrs(styles.workspaceGridChoices)}>
+													{GRID_DIMENSIONS.map((value) => (
+														<button
+															type="button"
+															onClick={() => {
+																_props.onUpdateLayoutMode("grid");
+																_props.onUpdateGrid({
+																	columns: value,
+																});
+															}}
+															{...stylex.attrs(
+																styles.workspaceGridChoice,
+																selectedGroup()?.columns === value
+																	? styles.workspaceGridChoiceActive
+																	: null,
+															)}
+														>
+															{value}
+														</button>
+													))}
 												</span>
-											</div>
-										</LiquidPanel>
+											</span>
+											<span {...stylex.attrs(styles.workspaceGridMenuHint)}>
+												Drag pane dividers to fine-tune the layout.
+											</span>
+										</div>
 									</span>
 								) : null}
 							</span>

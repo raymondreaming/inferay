@@ -83,13 +83,6 @@ export const styles = stylex.create({
 		userSelect: "none",
 		zIndex: layer.dropdownPopover,
 	},
-	menuLiquid: {
-		backdropFilter: "none",
-		backgroundColor: color.transparent,
-		backgroundImage: "none",
-		borderColor: color.transparent,
-		boxShadow: "none",
-	},
 	searchWrap: {
 		borderBottomColor: color.border,
 		borderBottomStyle: "solid",
