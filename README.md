@@ -5,141 +5,39 @@
 <h1 align="center">inferay</h1>
 
 <p align="center">
-  <strong>Run Claude and Codex side by side in a multi-pane agent workspace.</strong><br/>
-  Compare responses. Switch instantly. No lock-in.
+  <strong>A desktop workspace for building with Claude and Codex.</strong><br/>
+  Keep your conversations, repositories, and code changes together.
 </p>
 
-<p align="center">
-  <img src="https://img.shields.io/badge/backend-Rust-f74c00?style=flat-square" />
-  <img src="https://img.shields.io/badge/frontend-Solid_2.0-2c4f7c?style=flat-square" />
-  <img src="https://img.shields.io/badge/agent_shell-xterm.js-22c55e?style=flat-square" />
-  <img src="https://img.shields.io/badge/styling-Tailwind_4-38bdf8?style=flat-square" />
-  <img src="https://img.shields.io/badge/desktop-Rust%20%2B%20Wry-f74c00?style=flat-square" />
-</p>
+## Work with agents side by side
 
----
+Inferay brings Claude and Codex into one workspace. Give each conversation its own pane, run several tasks at once, and compare their progress without juggling terminal windows.
 
-## What is this?
+Repository tabs keep related chats together. Arrange panes to suit your work, return to saved conversations, and give each agent the directory and reference files it needs.
 
-inferay is a multi-pane agent workspace with Claude and Codex built in. Run AI agents side by side, compare responses, and switch between them instantly.
+## Follow the work
 
-Every pane is a real PTY. Every agent chat is a real conversation.
+- **Live conversations.** Read streaming responses, inspect tool calls, and respond to agent questions and approval requests.
+- **Multiple agents.** Work with Claude and Codex in the same workspace, with model and reasoning settings for each chat.
+- **Repository context.** Keep chats attached to their projects and include images and file references in your messages.
+- **Code review alongside chat.** Inspect changed files, diffs, commit history, and worktrees without leaving the workspace.
+- **Reusable instructions.** Use slash commands and saved skills for recurring tasks.
+- **Your workspace.** Choose a theme and arrange chat and document panes around the task at hand.
 
-## Features
+Inferay works with your local Claude and Codex installations and their configured accounts or credentials. Access to those services is managed separately.
 
-**Multi-agent panes**
+## Get Inferay
 
-- Claude and Codex in split panes
-- Compare responses side by side
-- Use the right agent for the job
+Download the macOS app from [inferay.com](https://inferay.com), then move it to Applications.
 
-**Your keys**
+Open a repository, start a chat, and choose an agent. Add another pane when you want to work on a second task or compare an approach.
 
-- Connect with your own API keys
-- No middleman. No subscriptions. Direct access.
+## Built for the desktop
 
-**Agent native**
+Inferay uses a Rust desktop host and local backend. Rust also owns application models shared with the interface through WebAssembly; Solid 2 handles the views and browser interactions.
 
-- Real PTY sessions alongside AI chat
-- Slash commands (`/review`, `/refactor`, `/debug`, `/test`, etc.)
-- 12 built-in themes
-- Keyboard-first workflow
-
-**Fast**
-
-- Rust-owned local server and agent runtime
-- Streaming responses
-- Native macOS host written in Rust with Tao and Wry
-- No Electron bloat
-
-## Download
-
-Download the latest release from [inferay.com](https://inferay.com) and drag to Applications.
-
-## Building from Source
-
-UI styling ownership and selection rules are documented in the
-[design system](src/design-system/README.md). Import its implementing files directly.
-
-Requires Bun 1.4.0. The repository's `.bun-version` file allows compatible
-version managers to select it automatically.
-
-```bash
-# Install dependencies
-bun install
-
-# Install Rust toolchain
-# https://rustup.rs
-
-# Install the Rust renderer target and matching bindings tool
-rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version 0.2.127 --locked
-
-# Build the Rust workspace
-bun run build:native
-
-# Build the app and create DMG installer
-bash scripts/build-dmg.sh
-```
-
-After the build completes, you'll find the installer at `artifacts/inferay-installer.dmg`.
-
-## Release
-
-Use one command so the CLI version, DMG asset, GitHub release, and npm package
-stay in sync.
-
-```bash
-# Standard release: bump patch, build, tag, GitHub release, npm publish
-bun run release
-
-# Use only when you need a different version bump:
-bun run release minor
-bun run release 0.2.0
-
-# Use only if publishing was interrupted after prepare/build:
-bun run release:resume
-```
-
-The script updates `packages/inferay` and the desktop app version, builds the
-DMG, creates `artifacts/inferay-macos-arm64.dmg`, writes
-`artifacts/checksums.txt`, commits `release vX.Y.Z`, tags `vX.Y.Z`, publishes
-the GitHub release, and publishes the npm CLI package.
-
-### Installing
-
-1. Download the `.dmg` file
-2. Double-click to mount it
-3. Drag **inferay** to your **Applications** folder
-4. First launch: Right-click the app → **Open** (to bypass unsigned app warning)
-   - Or run: `xattr -cr /Applications/inferay.app`
-
-## Code ownership
-
-Rust owns application models and native operations. The pure models in
-`native/presentation` are shared with the TSX renderer through WebAssembly;
-Solid owns the DOM, view composition, and browser events. Build the
-renderer with `bun run build:renderer` to regenerate the Rust bindings first.
-
-`bun run code` reports Rust and renderer code separately. Keep Solid views and
-browser interactions in typed TSX; move application models into Rust and generate
-their TypeScript contracts. Import generated contracts by their Rust names;
-Solid owns local UI state, browser events, and calls to the backend.
-`bun run check:architecture` checks the boundaries,
-TypeScript, Rust, and renderer build.
-
-## Tech stack
-
-- **Application server and agent runtime**: Rust
-- **Frontend**: [Solid 2.0](https://www.solidjs.com/), TypeScript/TSX, and StyleX
-- **Agent workspace**: xterm.js
-- **Styling**: Tailwind CSS v4
-- **Desktop**: Rust, Tao, and Wry
+For development setup, architecture checks, and release instructions, see [Contributing](CONTRIBUTING.md).
 
 ## License
 
-This project is source-available for reference and educational purposes. All rights are reserved by the author.
-
-See [LICENSE](LICENSE) for the full terms.
-
-Validation: `bun run check:architecture` checks the Solid wrapper, Rust models, and production build. `bun test scripts/tests/workbench-navigation.test.ts` checks navigation against the Rust presentation models. Temporary browser fixtures and profiling artifacts have been removed.
+Inferay is source-available for reference and educational purposes. All rights are reserved by the author. See [LICENSE](LICENSE) for the full terms.
