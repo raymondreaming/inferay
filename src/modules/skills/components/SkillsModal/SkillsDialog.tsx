@@ -52,7 +52,6 @@ export function SkillsDialog(_props: {
 	);
 	const setSelectedSkill = (skill: Prompt | null) =>
 		setSelectedId(skill?._id ?? null);
-	const [filter, setFilter] = createSignal("all");
 	const [search, setSearch] = createSignal("");
 	const [form, setForm] = createSignal<SkillFormState>(() => ({
 		...INITIAL_FORM,
@@ -185,10 +184,7 @@ export function SkillsDialog(_props: {
 			if (!disposed) setDeleting(false);
 		}
 	};
-	const _source2 = useSkills(
-		() => filter(),
-		() => search(),
-	);
+	const _source2 = useSkills(undefined, () => search());
 	return (
 		<dialog
 			ref={(element) => (dialogRef.current = element)}
@@ -227,8 +223,6 @@ export function SkillsDialog(_props: {
 						}}
 						search={search()}
 						setSearch={setSearch}
-						filter={filter()}
-						setFilter={setFilter}
 						filtered={_source2.skills}
 						loading={_source.loading}
 						filtering={_source2.loading}

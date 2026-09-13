@@ -28,6 +28,10 @@ interface SkillEditorProps {
 	onSave: (isInlineEdit: boolean) => void;
 	onDelete: () => void;
 }
+const fitToContent = (element: HTMLTextAreaElement) => {
+	element.style.height = "auto";
+	element.style.height = `${element.scrollHeight}px`;
+};
 export function SkillEditor(_props: SkillEditorProps) {
 	const busy = () => _props.isSaving || _props.isDeleting;
 	const editing = createMemo(() => _props.isCreatingNew || _props.isEditing);
@@ -59,7 +63,11 @@ export function SkillEditor(_props: SkillEditorProps) {
 								}
 								placeholder="skill-command"
 								disabled={busy()}
-								{...stylex.attrs(styles.commandInput)}
+								{...stylex.attrs(
+									styles.field,
+									styles.fieldEditable,
+									styles.commandInput,
+								)}
 							/>
 						) : (
 							<span>{command()}</span>
@@ -100,27 +108,39 @@ export function SkillEditor(_props: SkillEditorProps) {
 								_props.onFormChange("name", event.currentTarget.value)
 							}
 							placeholder="Give your skill a name"
-							{...stylex.attrs(styles.title, styles.titleInput)}
+							{...stylex.attrs(
+								styles.field,
+								styles.fieldEditable,
+								styles.title,
+							)}
 						/>
 					) : (
-						<h2 {...stylex.attrs(styles.title)}>
+						<h2 {...stylex.attrs(styles.field, styles.title)}>
 							{_props.selectedSkill?.name}
 						</h2>
 					)}
 					{editing() ? (
 						<textarea
+							ref={(element) =>
+								requestAnimationFrame(() => fitToContent(element))
+							}
 							aria-label="Skill description"
 							value={_props.formDescription}
-							rows={2}
+							rows={1}
 							disabled={busy()}
-							onInput={(event) =>
-								_props.onFormChange("description", event.currentTarget.value)
-							}
+							onInput={(event) => {
+								fitToContent(event.currentTarget);
+								_props.onFormChange("description", event.currentTarget.value);
+							}}
 							placeholder="When should your agent use this skill?"
-							{...stylex.attrs(styles.description, styles.descriptionInput)}
+							{...stylex.attrs(
+								styles.field,
+								styles.fieldEditable,
+								styles.description,
+							)}
 						/>
 					) : (
-						<p {...stylex.attrs(styles.description)}>
+						<p {...stylex.attrs(styles.field, styles.description)}>
 							{_props.selectedSkill?.description}
 						</p>
 					)}
@@ -137,20 +157,33 @@ export function SkillEditor(_props: SkillEditorProps) {
 					</div>
 					{editing() ? (
 						<textarea
+							ref={(element) =>
+								requestAnimationFrame(() => fitToContent(element))
+							}
 							aria-label="Skill instructions"
 							value={instructions()}
 							disabled={busy()}
-							onInput={(event) =>
-								_props.onFormChange("promptTemplate", event.currentTarget.value)
-							}
+							onInput={(event) => {
+								fitToContent(event.currentTarget);
+								_props.onFormChange(
+									"promptTemplate",
+									event.currentTarget.value,
+								);
+							}}
 							spellcheck={false}
 							placeholder={
 								"Describe the workflow your agent should follow.\n\nInclude the steps, important constraints, and what a good result looks like."
 							}
-							{...stylex.attrs(styles.instructions, styles.editor)}
+							{...stylex.attrs(
+								styles.field,
+								styles.fieldEditable,
+								styles.instructions,
+							)}
 						/>
 					) : (
-						<pre {...stylex.attrs(styles.instructions)}>{instructions()}</pre>
+						<pre {...stylex.attrs(styles.field, styles.instructions)}>
+							{instructions()}
+						</pre>
 					)}
 				</section>
 				{_props.formError && (

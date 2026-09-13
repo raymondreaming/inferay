@@ -5,25 +5,14 @@ import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { setInputValue } from "../../../../shared/lib/dom.tsx";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
 import { IconPlus, IconSearch } from "../../../../shared/ui/Icons/index.tsx";
-import {
-	SettingsSegment,
-	SettingsSegmented,
-} from "../../../../shared/ui/SettingsSurface/index.tsx";
 import { SkillLibraryItem } from "./SkillLibraryItem.tsx";
 import { styles } from "./styles.ts";
 
-const SKILL_FILTERS = [
-	{ id: "all", label: "All" },
-	{ id: "builtin", label: "Built-in" },
-	{ id: "custom", label: "Personal" },
-] as const;
 export function SkillLibrary(_props: {
 	startCreate: () => void;
 	form: Pick<SkillFormState, "isSaving" | "isCreating">;
 	search: string;
 	setSearch: (value: string) => void;
-	filter: string;
-	setFilter: (value: string) => void;
 	filtered: Prompt[];
 	loading: boolean;
 	filtering: boolean;
@@ -56,16 +45,6 @@ export function SkillLibrary(_props: {
 						{...stylex.attrs(styles.searchInput)}
 					/>
 				</div>
-				<SettingsSegmented label="Filter skills">
-					{SKILL_FILTERS.map((option) => (
-						<SettingsSegment
-							selected={_props.filter === option.id}
-							onSelect={() => _props.setFilter(option.id)}
-						>
-							{option.label}
-						</SettingsSegment>
-					))}
-				</SettingsSegmented>
 			</div>
 			<div {...stylex.attrs(styles.libraryHeading)}>
 				<span {...stylex.attrs(styles.libraryHeadingLabel)}>Library</span>

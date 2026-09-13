@@ -34,10 +34,6 @@ const staticLists = new Map([
 		new Set(["PROVIDERS"]),
 	],
 	[
-		"modules/skills/components/SkillsModal/SkillLibrary.tsx",
-		new Set(["SKILL_FILTERS"]),
-	],
-	[
 		"modules/workspace/components/WorkspaceSidebar/SidebarWorkspacesSection.tsx",
 		new Set(["GRID_DIMENSIONS"]),
 	],

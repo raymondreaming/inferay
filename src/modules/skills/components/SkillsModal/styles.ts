@@ -26,8 +26,8 @@ export const styles = stylex.create({
 		padding: 0,
 		overflow: "hidden",
 		"::backdrop": {
-			backgroundColor: color.backgroundOverlay,
-			backdropFilter: "blur(14px)",
+			backgroundColor: "rgba(0, 0, 0, 0.4)",
+			backdropFilter: "blur(7px)",
 		},
 	},
 	root: {
@@ -97,12 +97,12 @@ export const styles = stylex.create({
 		pointerEvents: "none",
 	},
 	searchInput: {
-		backgroundColor: color.surfaceWhite04,
+		backgroundColor: color.background,
 		borderColor: {
 			default: color.border,
-			":focus-visible": color.borderStrong,
+			":focus": color.focusRing,
 		},
-		borderRadius: radius.lg,
+		borderRadius: radius.md,
 		borderStyle: "solid",
 		borderWidth: 1,
 		color: color.textMain,
