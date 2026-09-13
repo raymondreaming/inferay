@@ -10,21 +10,10 @@ import {
 import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 export const styles = stylex.create({
 	control: {
-		backgroundColor: color.surfaceWhite04,
-		backgroundImage: "none",
-		borderColor: color.border,
-		borderRadius: radius.lg,
-		boxShadow: "none",
-		color: color.textSoft,
-		fontSize: font.size_2,
-		height: controlSize._8,
 		minWidth: {
 			default: controlSize._0,
 			[breakpoint.tablet]: "11rem",
 		},
-	},
-	controlLabel: {
-		fontSize: font.size_2,
 	},
 	noShrink: {
 		flexShrink: 0,
@@ -179,12 +168,12 @@ export const styles = stylex.create({
 		textAlign: "right",
 	},
 	instructionsEditor: {
-		backgroundColor: color.surfaceWhite02,
+		backgroundColor: color.background,
 		borderColor: {
 			default: color.border,
-			":focus-visible": color.borderStrong,
+			":focus": color.focusRing,
 		},
-		borderRadius: radius.lg,
+		borderRadius: radius.md,
 		borderStyle: "solid",
 		borderWidth: 1,
 		color: color.textSoft,
@@ -224,20 +213,20 @@ export const styles = stylex.create({
 		whiteSpace: "nowrap",
 	},
 	folderInput: {
-		backgroundColor: color.surfaceWhite04,
+		backgroundColor: color.background,
 		borderColor: {
 			default: color.border,
-			":focus": color.borderStrong,
+			":focus": color.focusRing,
 		},
-		borderRadius: radius.lg,
+		borderRadius: radius.md,
 		borderStyle: "solid",
 		borderWidth: 1,
-		color: color.textSoft,
+		color: color.textMain,
 		fontSize: font.size_2,
-		height: controlSize._8,
+		height: controlSize._7,
 		minWidth: controlSize._0,
 		outline: "none",
-		paddingInline: controlSize._2_5,
+		paddingInline: controlSize._2,
 		width: {
 			default: "9rem",
 			[breakpoint.tablet]: "14rem",

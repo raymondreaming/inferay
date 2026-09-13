@@ -12,8 +12,8 @@ import {
 import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 export const styles = stylex.create({
 	backdrop: {
-		backdropFilter: "blur(14px)",
-		backgroundColor: "rgba(0, 0, 0, 0.64)",
+		backdropFilter: "blur(7px)",
+		backgroundColor: "rgba(0, 0, 0, 0.4)",
 		display: "grid",
 		inset: controlSize._0,
 		overflow: "hidden",
@@ -67,12 +67,12 @@ export const styles = stylex.create({
 		transform: "translateY(-50%)",
 	},
 	searchInput: {
-		backgroundColor: color.surfaceWhite04,
+		backgroundColor: color.background,
 		borderColor: {
 			default: color.border,
-			":focus-visible": color.borderStrong,
+			":focus": color.focusRing,
 		},
-		borderRadius: radius.lg,
+		borderRadius: radius.md,
 		borderStyle: "solid",
 		borderWidth: 1,
 		color: color.textMain,
