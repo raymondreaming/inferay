@@ -2326,34 +2326,54 @@ async fn serve_native_websocket(state: ServerState, socket: WebSocket) {
     let (sender, mut outgoing) = broadcast::channel(512);
     let mut connection_reset = state.connection_reset.subscribe();
     let (mut sink, mut stream) = socket.split();
-    loop {
+    let (control_tx, mut control_rx) = tokio::sync::mpsc::channel(8);
+    {
+        // Keep command order on this connection, while allowing output for all
+        // panes to drain during a slow reconnect or state operation.
+        let read = async {
+            while let Some(incoming) = stream.next().await {
+                match incoming {
+                    Ok(AxumMessage::Text(text)) => {
+                        if let Ok(message) = serde_json::from_str::<Value>(&text) {
+                            handle_native_websocket_message(&state, client_id, &sender, message)
+                                .await;
+                        }
+                    }
+                    Ok(AxumMessage::Binary(bytes)) => {
+                        if let Ok(message) = serde_json::from_slice::<Value>(&bytes) {
+                            handle_native_websocket_message(&state, client_id, &sender, message)
+                                .await;
+                        }
+                    }
+                    Ok(AxumMessage::Ping(bytes)) => {
+                        if control_tx.send(AxumMessage::Pong(bytes)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Ok(AxumMessage::Pong(_)) => {}
+                    Ok(AxumMessage::Close(_)) | Err(_) => break,
+                }
+            }
+        };
+        let write = async {
+            loop {
+                let message = tokio::select! {
+                    Some(control) = control_rx.recv() => control,
+                    message = outgoing.recv() => match message {
+                        Ok(message) => AxumMessage::Text(message.to_string().into()),
+                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(broadcast::error::RecvError::Closed) => break,
+                    },
+                };
+                if sink.send(message).await.is_err() {
+                    break;
+                }
+            }
+        };
         tokio::select! {
-            _ = connection_reset.recv() => break,
-            incoming = stream.next() => match incoming {
-                Some(Ok(AxumMessage::Text(text))) => {
-                    if let Ok(message) = serde_json::from_str::<Value>(&text) {
-                        handle_native_websocket_message(&state, client_id, &sender, message).await;
-                    }
-                }
-                Some(Ok(AxumMessage::Binary(bytes))) => {
-                    if let Ok(message) = serde_json::from_slice::<Value>(&bytes) {
-                        handle_native_websocket_message(&state, client_id, &sender, message).await;
-                    }
-                }
-                Some(Ok(AxumMessage::Ping(bytes))) => {
-                    if sink.send(AxumMessage::Pong(bytes)).await.is_err() { break; }
-                }
-                Some(Ok(AxumMessage::Pong(_))) => {}
-                Some(Ok(AxumMessage::Close(_))) | Some(Err(_)) | None => break,
-            },
-            message = outgoing.recv() => match message {
-                Ok(message) => {
-                    if sink.send(AxumMessage::Text(message.to_string().into())).await.is_err() { break; }
-                }
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(broadcast::error::RecvError::Closed) => break,
-            },
-
+            _ = connection_reset.recv() => {},
+            _ = read => {},
+            _ = write => {},
         }
     }
     state.chat_runtime.detach_client(client_id, None).await;
@@ -2496,20 +2516,25 @@ async fn handle_native_websocket_message(
             };
             state
                 .chat_runtime
-                .reconnect(
+                .reconnect(chat_runtime::ReconnectInput {
                     pane_id,
                     client_id,
-                    sender.clone(),
-                    message.get("agentKind").and_then(Value::as_str),
-                    pane.as_ref()
+                    sender: sender.clone(),
+                    provider: message.get("agentKind").and_then(Value::as_str),
+                    provider_session_id: pane
+                        .as_ref()
                         .and_then(|pane| pane.provider_session_id.as_deref())
                         .or_else(|| message.get("sessionId").and_then(Value::as_str)),
-                    message
+                    cwd: message
                         .get("cwd")
                         .and_then(Value::as_str)
                         .filter(|path| !path.is_empty())
                         .and_then(|path| state.allowed_paths.resolve_allowed_local_path(path)),
-                )
+                    cursor: message
+                        .get("epoch")
+                        .and_then(Value::as_str)
+                        .zip(message.get("revision").and_then(Value::as_u64)),
+                })
                 .await;
         }
         "chat:stop" if !pane_id.is_empty() => {

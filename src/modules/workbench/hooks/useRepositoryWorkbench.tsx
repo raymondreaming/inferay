@@ -774,11 +774,16 @@ export function useRepositoryWorkbench(
 		},
 	);
 	const focusWorkbench = (repositoryCwd?: string) => {
-		if (!repositoryCwd || repositoryCwd === _options().cwd)
-			updatePanelSession({
-				type: "focusChat",
-				cwd: repositoryCwd,
-			});
+		if (repositoryCwd && repositoryCwd !== _options().cwd) return;
+		const session = panelSession();
+		if (
+			session.focusedAuxiliaryPanel === null &&
+			(!repositoryCwd ||
+				session.mainViewMode !== "graph" ||
+				session.diffViewerCwd === repositoryCwd)
+		)
+			return;
+		updatePanelSession({ type: "focusChat", cwd: repositoryCwd });
 	};
 	const focusDiffViewer = () => {
 		const _sourceValue12 = _source();

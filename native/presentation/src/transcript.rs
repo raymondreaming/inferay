@@ -1,5 +1,7 @@
 //! A renderer replica of the native transcript. Revisions and epochs are checked
 //! here; JS only applies admitted splices and preserves unchanged object identity.
+//! Keep IDs, not transcript bodies: content already lives in the renderer and
+//! must not be copied back through JSON for every streaming append.
 use crate::{array, string};
 use serde_json::{Value, json};
 use wasm_bindgen::prelude::*;
@@ -17,7 +19,7 @@ fn valid_message(message: &Value) -> bool {
 #[wasm_bindgen]
 #[derive(Default)]
 pub struct ChatReplica {
-    messages: Vec<Value>,
+    messages: Vec<String>,
     revision: Option<u64>,
     epoch: Value,
     reconnecting: bool,
@@ -30,6 +32,9 @@ impl ChatReplica {
     }
     pub fn clear(&mut self) {
         *self = Self::default();
+    }
+    pub fn cursor(&self) -> String {
+        json!({"epoch":self.epoch,"revision":self.revision}).to_string()
     }
     pub fn reconnect(&mut self) {
         self.reconnecting = true;
@@ -51,6 +56,13 @@ impl ChatReplica {
             let Some(revision) = valid_integer(&message["revision"]) else {
                 return self.resync();
             };
+            if message["unchanged"] == true {
+                if self.revision != Some(revision) || self.epoch != message["epoch"] {
+                    return self.resync();
+                }
+                self.reconnecting = false;
+                return json!({"kind":"none"});
+            }
             if !message["messages"].is_array()
                 || array(&message["messages"])
                     .iter()
@@ -65,11 +77,14 @@ impl ChatReplica {
                 return json!({"kind":"ignore"});
             }
             let delete_count = self.messages.len();
-            self.messages = array(&message["messages"]).to_vec();
+            self.messages = array(&message["messages"])
+                .iter()
+                .map(|m| string(&m["id"]).to_owned())
+                .collect();
             self.epoch = message["epoch"].clone();
             self.revision = Some(revision);
             self.reconnecting = false;
-            return json!({"kind":"sync","start":0,"deleteCount":delete_count,"messages":self.messages});
+            return json!({"kind":"sync","start":0,"deleteCount":delete_count});
         }
         let Some(update) = message.get("transcriptUpdate") else {
             return json!({"kind":"none"});
@@ -111,36 +126,34 @@ impl ChatReplica {
         }
         let mut inserted = Vec::new();
         for (index, change) in array(&update["messages"]).iter().enumerate() {
-            let mut message = change["message"].clone();
-            if !valid_message(&message) {
+            let message = &change["message"];
+            if !valid_message(message) {
                 return self.resync();
             }
             if change.get("appendContent").is_none() && message["content"].is_string() {
-                inserted.push(message);
+                inserted.push(string(&message["id"]).to_owned());
                 continue;
             }
-            let Some(append) = change["appendContent"].as_str() else {
+            if !change["appendContent"].is_string() {
                 return self.resync();
-            };
-            let Some(previous) = before
+            }
+            if before
                 .get(start + index)
-                .filter(|m| m["id"] == message["id"])
-            else {
+                .is_none_or(|id| id != string(&message["id"]))
+            {
                 return self.resync();
-            };
-            message["content"] = json!(format!("{}{append}", string(&previous["content"])));
-            inserted.push(message);
+            }
+            inserted.push(string(&message["id"]).to_owned());
         }
         let delete_count = if reset { self.messages.len() } else { delete };
         if reset {
-            self.messages = inserted.clone();
+            self.messages = inserted;
         } else {
-            self.messages
-                .splice(start..start + delete, inserted.clone());
+            self.messages.splice(start..start + delete, inserted);
         }
         self.revision = Some(revision);
         self.epoch = update["epoch"].clone();
-        json!({"kind":"patch","start":start,"deleteCount":delete_count,"messages":inserted})
+        json!({"kind":"patch","start":start,"deleteCount":delete_count})
     }
 }
 
@@ -186,4 +199,45 @@ pub fn merge_order(i: &Value) -> Value {
         order.insert(insertion, (true, index));
     }
     json!(order)
+}
+
+#[cfg(test)]
+mod reconnect_tests {
+    use super::*;
+
+    #[test]
+    fn unchanged_reconnect_preserves_history_and_accepts_the_next_delta() {
+        let mut replica = ChatReplica::new();
+        replica.admit(
+            &json!({"type":"chat:sync","modelVersion":1,"epoch":"session",
+            "revision":4,"messages":[{"id":"a","role":"assistant","content":"retained"}]}),
+        );
+        replica.reconnect();
+        let result = replica.admit(&json!({"type":"chat:sync","modelVersion":1,
+            "epoch":"session","revision":4,"unchanged":true,"messages":null}));
+        assert_eq!(result, json!({"kind":"none"}));
+        assert!(!replica.reconnecting);
+        let result = replica.admit(&json!({"transcriptUpdate":{"version":1,"epoch":"session",
+            "baseRevision":4,"revision":5,"start":0,"deleteCount":1,
+            "messages":[{"message":{"id":"a","role":"assistant"},"appendContent":" tail"}]}}));
+        assert_eq!(result["kind"], "patch");
+        assert_eq!(replica.messages, ["a"]);
+        assert_eq!(result, json!({"kind":"patch","start":0,"deleteCount":1}));
+    }
+
+    #[test]
+    fn unchanged_acknowledgement_cannot_replace_missing_or_mismatched_history() {
+        let acknowledgement = json!({"type":"chat:sync","modelVersion":1,"epoch":"current",
+            "revision":4,"unchanged":true});
+        let mut replica = ChatReplica::new();
+        assert_eq!(replica.admit(&acknowledgement)["kind"], "resync");
+        replica.admit(&json!({"type":"chat:sync","modelVersion":1,"epoch":"old",
+            "revision":4,"messages":[]}));
+        assert_eq!(replica.admit(&acknowledgement)["kind"], "resync");
+        replica.admit(
+            &json!({"type":"chat:sync","modelVersion":1,"epoch":"current",
+            "revision":3,"messages":[]}),
+        );
+        assert_eq!(replica.admit(&acknowledgement)["kind"], "resync");
+    }
 }

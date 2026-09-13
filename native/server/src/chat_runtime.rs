@@ -58,6 +58,17 @@ The previous turn ended after a tool call without a final user-facing response. 
 </inferay-final-summary-recovery>"#;
 
 pub type ClientId = u64;
+
+pub struct ReconnectInput<'a> {
+    pub pane_id: &'a str,
+    pub client_id: ClientId,
+    pub sender: broadcast::Sender<Value>,
+    pub provider: Option<&'a str>,
+    pub provider_session_id: Option<&'a str>,
+    pub cwd: Option<PathBuf>,
+    pub cursor: Option<(&'a str, u64)>,
+}
+
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendMessageInput {
@@ -676,15 +687,16 @@ impl ChatRuntime {
         tokio::join!(run, publish);
     }
 
-    pub async fn reconnect(
-        &self,
-        pane_id: &str,
-        client_id: ClientId,
-        sender: broadcast::Sender<Value>,
-        provider: Option<&str>,
-        provider_session_id: Option<&str>,
-        cwd: Option<PathBuf>,
-    ) {
+    pub async fn reconnect(&self, input: ReconnectInput<'_>) {
+        let ReconnectInput {
+            pane_id,
+            client_id,
+            sender,
+            provider,
+            provider_session_id,
+            cwd,
+            cursor,
+        } = input;
         let session = self
             .ensure_session(&SendMessageInput {
                 pane_id: pane_id.into(),
@@ -705,11 +717,15 @@ impl ChatRuntime {
                 .session_id
                 .as_ref()
                 .map(|id| json!({"type":"chat:session", "paneId":pane_id, "sessionId":id}));
+            let unchanged = cursor.is_some_and(|(epoch, revision)| {
+                epoch == state.message_buffer.epoch() && revision == state.message_buffer.revision()
+            });
             (
                 session_message,
                 json!({
                     "type":"chat:sync", "modelVersion":1, "paneId":pane_id,
-                    "messages":state.message_buffer.messages(),
+                    "unchanged":unchanged,
+                    "messages":(!unchanged).then(|| state.message_buffer.messages()),
                     "epoch":state.message_buffer.epoch(), "revision":state.message_buffer.revision(),
                     "isStreaming":state.turn_active, "checkpoints":checkpoints,
                     "pendingSteers":state.pending_steers.iter().map(|pending| json!({

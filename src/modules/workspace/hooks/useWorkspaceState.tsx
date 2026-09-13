@@ -111,6 +111,7 @@ const publish = (next: WorkspaceSnapshot) => {
 let queue: Promise<unknown> = Promise.resolve();
 let read: Promise<AgentSavedState | null> | null = null;
 let selectionRequest = 0;
+let queuedStructuralChanges = 0;
 let pendingSelection: {
 	id: number;
 	groupId: string;
@@ -189,6 +190,21 @@ export function mutateAgentWorkspaceState(
 							paneId: action.type === "selectPane" ? action.paneId : undefined,
 						}
 					: null;
+	// Repeated focus clicks should not persist the same selection or delay a new
+	// pane. A queued structural action may change selection, so keep ordering then.
+	if (selection && queuedStructuralChanges === 0 && !snapshot.error) {
+		const state = snapshot.state;
+		const group = state?.groups.find((group) => group.id === selection.groupId);
+		if (
+			state?.selectedGroupId === selection.groupId &&
+			group &&
+			(selection.paneId === undefined ||
+				group.selectedPaneId === selection.paneId)
+		)
+			return Promise.resolve(state);
+	}
+	const structural = selection === null;
+	if (structural) queuedStructuralChanges++;
 	if (selection) {
 		pendingSelection = { id: requestId, ...selection };
 		const state = snapshot.state;
@@ -221,8 +237,11 @@ export function mutateAgentWorkspaceState(
 			return null;
 		}
 	});
-	queue = mutation.catch(noop);
-	return mutation;
+	const settled = mutation.finally(() => {
+		if (structural) queuedStructuralChanges--;
+	});
+	queue = settled.catch(noop);
+	return settled;
 }
 export const changePaneAgentKind = (
 	paneId: string,

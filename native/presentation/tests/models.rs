@@ -104,7 +104,7 @@ fn transcript_rejects_gaps_wrong_epochs_and_invalid_append_targets() {
     assert_eq!(replica.admit(&initial)["kind"], "sync");
     let update = json!({"version":1,"epoch":"one","baseRevision":1,"revision":2,"reset":false,"start":0,"deleteCount":1,"messages":[{"message":{"id":"a","role":"assistant"},"appendContent":" there"}]});
     let result = replica.admit(&json!({"transcriptUpdate":update}));
-    assert_eq!(result["messages"][0]["content"], "Hi there");
+    assert_eq!(result, json!({"kind":"patch","start":0,"deleteCount":1}));
     assert_eq!(
         replica.admit(&json!({"transcriptUpdate":update}))["kind"],
         "ignore"

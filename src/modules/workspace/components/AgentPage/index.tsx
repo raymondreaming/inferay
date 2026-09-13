@@ -31,6 +31,7 @@ import {
 	setAgentLayoutMode,
 	wsClient,
 } from "../../../../shared/lib/native.tsx";
+import { chatSessionCache } from "../../../conversation/components/AgentChatView/chatSessionCache.ts";
 import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
 import { useRepositoryWorkbench } from "../../../workbench/hooks/useRepositoryWorkbench.tsx";
 import {
@@ -63,6 +64,11 @@ export function AgentPage() {
 		() => false,
 	);
 	const _source = createMemo(() => workspace());
+	createEffect(
+		() =>
+			workspace().groups.flatMap((group) => group.panes.map((pane) => pane.id)),
+		(ids) => chatSessionCache.setPaneIds(ids),
+	);
 	const [showSettings, setShowSettings] = createSignal(false);
 	const [themeId, setThemeId] = createSignal(loadAppThemeId);
 	onSettled(() => {
