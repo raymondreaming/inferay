@@ -48,6 +48,7 @@
 		"csstype": "^3.2.3",
 		"husky": "^9.1.7",
 		"lint-staged": "^16.4.0",
+		"oxlint": "1.82.0",
 		"typescript": "^7.0.2"
 	},
 	"dependencies": {
