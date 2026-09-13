@@ -20,7 +20,7 @@ import {
 	writeStoredValue,
 } from "@shared/lib/native.tsx";
 import { createEffect, createMemo, onSettled } from "solid-js";
-import appearanceCatalog from "../../../build/presentation/appearance-catalog.json";
+import appearanceCatalog from "../../../../build/presentation/appearance-catalog.json";
 
 const catalog = appearanceCatalog as AppearanceCatalog;
 declare global {
@@ -35,9 +35,6 @@ export const APP_THEMES = catalog.themes;
 export const APP_BACKGROUNDS = catalog.backgrounds;
 export const APP_FONTS = catalog.fonts;
 export const DEFAULT_APP_BACKGROUND_SETTINGS = catalog.defaultBackground;
-// Native window dragging uses these class names.
-export const APP_REGION_DRAG_CLASS = "electrobun-webkit-app-region-drag";
-export const APP_REGION_NO_DRAG_CLASS = "electrobun-webkit-app-region-no-drag";
 export const getThemeById = (id: string) =>
 	(APP_THEMES.find((theme) => theme.id === id) ?? APP_THEMES[0]).theme;
 export function loadAppThemeId(): AppThemeId {

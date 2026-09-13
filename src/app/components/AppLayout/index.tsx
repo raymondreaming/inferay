@@ -1,4 +1,8 @@
 import { SettingsModalHost } from "@settings/components/SettingsModal/index.tsx";
+import {
+	useAppAppearance,
+	usesNativeGlass,
+} from "@settings/hooks/useAppAppearance.tsx";
 import { type CSSProperties, domStyle } from "@shared/lib/dom.tsx";
 import { wsClient } from "@shared/lib/native.tsx";
 import { SkillsModalHost } from "@skills/components/SkillsModal/index.tsx";
@@ -7,10 +11,6 @@ import { RepositoryWorkspaceBar } from "@workspace/components/RepositoryWorkspac
 import { WorkspaceSidebar } from "@workspace/components/WorkspaceSidebar/index.tsx";
 import type { Element } from "solid-js";
 import { Loading, onSettled } from "solid-js";
-import {
-	useAppAppearance,
-	usesNativeGlass,
-} from "../../hooks/useAppAppearance.tsx";
 import { AppHeader } from "../AppHeader/index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { shellThemeProps, styles } from "./styles.ts";

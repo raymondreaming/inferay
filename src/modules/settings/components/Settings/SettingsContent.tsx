@@ -1,10 +1,10 @@
+import type { AppFontId, AppThemeId } from "@contracts";
 import {
 	APP_FONTS,
 	applyAppFont,
 	loadAppFontId,
 	saveAppFontId,
-} from "@app/hooks/useAppAppearance.tsx";
-import type { AppFontId, AppThemeId } from "@contracts";
+} from "@settings/hooks/useAppAppearance.tsx";
 import {
 	SYNTAX_HIGHLIGHT_THEMES,
 	type SyntaxHighlightTheme,

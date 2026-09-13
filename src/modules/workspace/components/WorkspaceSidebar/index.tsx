@@ -1,10 +1,6 @@
-import {
-	APP_REGION_DRAG_CLASS,
-	APP_REGION_NO_DRAG_CLASS,
-} from "@app/hooks/useAppAppearance.tsx";
-import { useAppInfo } from "@app/hooks/useAppInfo.tsx";
 import { iconSize } from "@design-system/styles.stylex.ts";
 import { useForgeAccounts } from "@repository/hooks/useForgeAccounts.tsx";
+import { useAppInfo } from "@shared/hooks/useAppInfo.tsx";
 import {
 	CREATE_AGENT_CHAT_EVENT,
 	type CreateAgentChatDetail,
@@ -23,6 +19,10 @@ import {
 	loadSidebarCollapsed,
 	setAgentLayoutMode,
 } from "@shared/lib/native.tsx";
+import {
+	APP_REGION_DRAG_CLASS,
+	APP_REGION_NO_DRAG_CLASS,
+} from "@shared/lib/windowChrome.ts";
 import { IconSettings } from "@shared/ui/Icons/index.tsx";
 import { useLocation, useNavigate } from "@solidjs/router";
 import * as stylex from "@stylexjs/stylex";

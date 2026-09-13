@@ -1,9 +1,9 @@
+import { iconSize } from "@design-system/styles.stylex.ts";
 import {
 	updateAppBackground,
 	useBackgroundModel,
 	usesNativeGlass,
-} from "@app/hooks/useAppAppearance.tsx";
-import { iconSize } from "@design-system/styles.stylex.ts";
+} from "@settings/hooks/useAppAppearance.tsx";
 import { Button } from "@shared/ui/Button/index.tsx";
 import { IconFolder } from "@shared/ui/Icons/index.tsx";
 import {

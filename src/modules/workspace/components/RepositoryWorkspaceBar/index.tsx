@@ -1,7 +1,3 @@
-import {
-	APP_REGION_DRAG_CLASS,
-	APP_REGION_NO_DRAG_CLASS,
-} from "@app/hooks/useAppAppearance.tsx";
 import type { RepositoryWorkspace } from "@contracts";
 import { iconSize } from "@design-system/styles.stylex.ts";
 import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
@@ -20,6 +16,10 @@ import {
 	loadSidebarCollapsed,
 	setWorkspaceSidebarCollapsed,
 } from "@shared/lib/native.tsx";
+import {
+	APP_REGION_DRAG_CLASS,
+	APP_REGION_NO_DRAG_CLASS,
+} from "@shared/lib/windowChrome.ts";
 import { IconPanelLeft } from "@shared/ui/Icons/index.tsx";
 import { useLocation, useNavigate } from "@solidjs/router";
 import * as stylex from "@stylexjs/stylex";

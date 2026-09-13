@@ -1,6 +1,6 @@
-import { APP_REGION_DRAG_CLASS } from "@app/hooks/useAppAppearance.tsx";
 import { iconSize } from "@design-system/styles.stylex.ts";
 import { FileSearch } from "@explorer/components/FileSearch/index.tsx";
+import { APP_REGION_DRAG_CLASS } from "@shared/lib/windowChrome.ts";
 import { ErrorBoundary } from "@shared/ui/ErrorBoundary/index.tsx";
 import { IconCode, IconX } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";

@@ -1,6 +1,9 @@
-import { getThemeById, loadAppThemeId } from "@app/hooks/useAppAppearance.tsx";
 import { chatSessionCache } from "@conversation/components/AgentChatView/chatSessionCache.ts";
 import type { AgentChatHandle } from "@conversation/components/AgentChatView/index.tsx";
+import {
+	getThemeById,
+	loadAppThemeId,
+} from "@settings/hooks/useAppAppearance.tsx";
 import {
 	FOCUS_AGENT_CHAT_COMPOSER_EVENT,
 	type FocusAgentChatComposerDetail,

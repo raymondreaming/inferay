@@ -1,6 +1,6 @@
-import { APP_REGION_NO_DRAG_CLASS } from "@app/hooks/useAppAppearance.tsx";
 import { iconSize } from "@design-system/styles.stylex.ts";
 import { ariaValue } from "@shared/lib/dom.tsx";
+import { APP_REGION_NO_DRAG_CLASS } from "@shared/lib/windowChrome.ts";
 import { IconGitBranch, IconPanelRight } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { styles } from "./styles.ts";

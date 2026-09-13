@@ -1,5 +1,5 @@
-import { APP_REGION_NO_DRAG_CLASS } from "@app/hooks/useAppAppearance.tsx";
 import type { FileContent } from "@contracts";
+import { APP_REGION_NO_DRAG_CLASS } from "@shared/lib/windowChrome.ts";
 import * as stylex from "@stylexjs/stylex";
 import { For } from "solid-js";
 import { DocumentTab } from "./DocumentTab.tsx";
