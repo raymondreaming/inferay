@@ -53,3 +53,7 @@ src/data/checkpoints.json
 # Local upstream documentation snapshot
 /docs/solid-2.0/
 public/file-icons/
+
+# Local performance investigation tools
+/scripts/benchmarks/
+/native/server/examples/chat_performance_fixture.rs
