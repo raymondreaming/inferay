@@ -68,6 +68,8 @@ export const styles = stylex.create({
 		},
 	},
 	directoryPickerWrap: {
+		maxWidth: "574px",
+		marginInline: "auto",
 		position: "absolute",
 		zIndex: layer.control,
 		left: controlSize._0,
@@ -130,6 +132,9 @@ export const styles = stylex.create({
 		whiteSpace: "nowrap",
 	},
 	composerContent: {
+		width: "100%",
+		maxWidth: "574px",
+		marginInline: "auto",
 		position: "relative",
 		zIndex: layer.control,
 	},
