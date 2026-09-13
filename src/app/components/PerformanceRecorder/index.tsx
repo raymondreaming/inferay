@@ -1,10 +1,10 @@
-import * as stylex from "@stylexjs/stylex";
-import { createMemo, createSignal, For, onSettled } from "solid-js";
 import {
 	recordUiTimings,
 	summarizeUiTimings,
 	type UiTiming,
-} from "../../../shared/lib/uiPerformance.ts";
+} from "@shared/lib/uiPerformance.ts";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo, createSignal, For, onSettled } from "solid-js";
 import { styles } from "./styles.ts";
 
 export default function PerformanceRecorder(props: { onClose: () => void }) {

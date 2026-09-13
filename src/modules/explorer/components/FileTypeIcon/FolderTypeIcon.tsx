@@ -1,8 +1,8 @@
+import { domStyle } from "@shared/lib/dom.tsx";
 import {
 	getIconForFolder,
 	getIconForOpenFolder,
 } from "@yutengjing/vscode-icons";
-import { domStyle } from "../../../../shared/lib/dom.tsx";
 import { iconUrl, resolveFileIconUrl } from "./index.tsx";
 import * as inlineStyles from "./styles.ts";
 export function resolveFolderIconUrl(path: string, open = false): string {

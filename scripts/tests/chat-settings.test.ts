@@ -19,7 +19,7 @@ test("workspace replacement retains resolved provider settings and real changes 
 	const dependencies = {
 		...signals,
 		getAgentDefinition: (kind: string) => ({ label: kind }),
-		postJson: async (_url: string, body: Record<string, string>) => {
+		resolveProviderConfig: async (body: Record<string, string>) => {
 			requests.push(body);
 			return { model: body.model ?? "default", reasoningLevel: "low" };
 		},

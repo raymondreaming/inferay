@@ -1,9 +1,6 @@
+import { bindImperativeRef } from "@shared/lib/dom.tsx";
+import { loadDefaultChatSettings, wsClient } from "@shared/lib/native.tsx";
 import { createMemo, merge } from "solid-js";
-import { bindImperativeRef } from "../../../../shared/lib/dom.tsx";
-import {
-	loadDefaultChatSettings,
-	wsClient,
-} from "../../../../shared/lib/native.tsx";
 import {
 	useAgentChatComposerState,
 	usePendingChatWorkspace,

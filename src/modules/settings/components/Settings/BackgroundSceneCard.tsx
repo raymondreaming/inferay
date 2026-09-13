@@ -1,6 +1,6 @@
 import type { AppBackgroundId } from "@contracts";
+import { domStyle } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { domStyle } from "../../../../shared/lib/dom.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 export function BackgroundSceneCard(_props: {

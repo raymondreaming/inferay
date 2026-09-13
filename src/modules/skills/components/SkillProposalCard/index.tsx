@@ -1,12 +1,15 @@
 import type { SkillProposal, SkillProposalView } from "@contracts";
+import { surfaceStyles } from "@design-system/styles.stylex.ts";
+import { useQueryResource } from "@shared/hooks/useQueryResource.tsx";
+import { ariaValue, openSkills } from "@shared/lib/dom.tsx";
+import { previewSkillProposal } from "@skills/services/skillsApi.ts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal } from "solid-js";
-import { surfaceStyles } from "../../../../design-system/styles.stylex.ts";
-import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
-import { ariaValue, openSkills } from "../../../../shared/lib/dom.tsx";
-import { postJson } from "../../../../shared/lib/native.tsx";
 import { decideSkillProposal } from "../../hooks/useSkills.tsx";
 import { styles } from "./styles.ts";
+
+export { SkillReadCard } from "./SkillReadCard.tsx";
+
 export function SkillProposalCard(_props: {
 	proposal: SkillProposal;
 	messageId: string;
@@ -20,7 +23,7 @@ export function SkillProposalCard(_props: {
 	const resource = useQueryResource<SkillProposalView | null>(
 		() => {
 			const input = request();
-			return (signal) => postJson("/api/prompts/proposal", input, { signal });
+			return (signal) => previewSkillProposal(input, signal);
 		},
 		() => null,
 		() => ({
@@ -150,4 +153,3 @@ export function SkillProposalCard(_props: {
 		</section>
 	);
 }
-export { SkillReadCard } from "./SkillReadCard.tsx";

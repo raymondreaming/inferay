@@ -1,5 +1,5 @@
-import { project, readStoredJson } from "../../../../shared/lib/native.tsx";
-import type { DockTree } from "./index.tsx";
+import { project, readStoredJson } from "@shared/lib/native.tsx";
+import type { DockTree } from "./dockTypes.ts";
 
 export type DockRequest = {
 	workspaceId: string;

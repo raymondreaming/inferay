@@ -1,16 +1,17 @@
+import { iconSize } from "@design-system/styles.stylex.ts";
+import { IconButton } from "@shared/ui/IconButton/index.tsx";
+import { IconX } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
-import { IconX } from "../../../../shared/ui/Icons/index.tsx";
 import { Markdown } from "../ChatRichContent/index.tsx";
 import { styles } from "./styles.ts";
 import type { useChatComposerState } from "./useChatComposerState.tsx";
 
-type MarkdownPreviewDialogProps = Pick<
-	ReturnType<typeof useChatComposerState>,
-	"closeMdPreview" | "mdPreview" | "onMdFileClick"
->;
-export function MarkdownPreviewDialog(_props: MarkdownPreviewDialogProps) {
+export function MarkdownPreviewDialog(
+	_props: Pick<
+		ReturnType<typeof useChatComposerState>,
+		"closeMdPreview" | "mdPreview" | "onMdFileClick"
+	>,
+) {
 	return (
 		<div {...stylex.attrs(styles.modalBackdrop)}>
 			<button

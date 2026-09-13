@@ -1,7 +1,7 @@
 import type { MdBlock } from "@contracts";
+import { domStyle } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For, Match, Switch } from "solid-js";
-import { domStyle } from "../../../../shared/lib/dom.tsx";
 import { CopyablePre } from "./CopyablePre.tsx";
 import { Inline } from "./Inline.tsx";
 import * as inlineStyles from "./styles.ts";

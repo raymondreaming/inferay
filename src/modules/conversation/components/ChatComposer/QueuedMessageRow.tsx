@@ -1,14 +1,14 @@
-import * as stylex from "@stylexjs/stylex";
-import { createEffect } from "solid-js";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { setInputValue } from "../../../../shared/lib/dom.tsx";
-import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
+import { iconSize } from "@design-system/styles.stylex.ts";
+import { setInputValue } from "@shared/lib/dom.tsx";
+import { IconButton } from "@shared/ui/IconButton/index.tsx";
 import {
 	IconCheck,
 	IconPencil,
 	IconTrash,
 	IconX,
-} from "../../../../shared/ui/Icons/index.tsx";
+} from "@shared/ui/Icons/index.tsx";
+import * as stylex from "@stylexjs/stylex";
+import { createEffect } from "solid-js";
 import type { QueuedChatMessage } from "../../hooks/useAgentChatComposerState.tsx";
 import { styles } from "./styles.ts";
 export const QueuedMessageRow = function QueuedMessageRow(_props: {

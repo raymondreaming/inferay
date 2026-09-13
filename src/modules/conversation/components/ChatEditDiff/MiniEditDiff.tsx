@@ -1,6 +1,6 @@
+import { useNearViewport } from "@shared/hooks/useNearViewport.tsx";
+import { assignRef, domStyle } from "@shared/lib/dom.tsx";
 import { createMemo } from "solid-js";
-import { useNearViewport } from "../../../../shared/hooks/useNearViewport.tsx";
-import { assignRef, domStyle } from "../../../../shared/lib/dom.tsx";
 import { useNativeEditDiff } from "../../hooks/useNativeEditDiff.tsx";
 import { EditDiffCard } from "./EditDiffCard.tsx";
 import * as inlineStyles from "./styles.ts";

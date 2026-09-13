@@ -1,8 +1,5 @@
+import { readStoredValue, writeStoredValue } from "@shared/lib/native.tsx";
 import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js";
-import {
-	readStoredValue,
-	writeStoredValue,
-} from "../../../../shared/lib/native.tsx";
 
 const MIN_WIDTH = 188;
 const MAX_WIDTH = 340;

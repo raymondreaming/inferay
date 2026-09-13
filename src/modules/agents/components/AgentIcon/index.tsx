@@ -1,11 +1,11 @@
 import type { WorkspaceAgentKind } from "@contracts";
-import { createMemo, Match, Switch } from "solid-js";
-import { getAgentDefinition } from "../../../../shared/lib/native.tsx";
+import { getAgentDefinition } from "@shared/lib/native.tsx";
 import {
 	IconAgent,
 	IconAnthropic,
 	IconOpenAI,
-} from "../../../../shared/ui/Icons/index.tsx";
+} from "@shared/ui/Icons/index.tsx";
+import { createMemo, Match, Switch } from "solid-js";
 
 export function AgentIcon(props: {
 	kind: WorkspaceAgentKind;

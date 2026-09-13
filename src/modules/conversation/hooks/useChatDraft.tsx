@@ -1,8 +1,5 @@
+import { loadStoredInput, saveStoredInput } from "@shared/lib/native.tsx";
 import { type Accessor, createSignal, onSettled } from "solid-js";
-import {
-	loadStoredInput,
-	saveStoredInput,
-} from "../../../shared/lib/native.tsx";
 
 /** Pending saves retain the pane that was edited, even after navigation. */
 export function useChatDraft(paneId: Accessor<string>) {

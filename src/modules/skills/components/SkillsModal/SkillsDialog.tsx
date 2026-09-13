@@ -1,16 +1,13 @@
+import { APP_REGION_NO_DRAG_CLASS } from "@app/hooks/useAppAppearance.tsx";
 import type { Prompt, SkillFormState } from "@contracts";
+import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
+import type { SkillsTarget } from "@shared/lib/dom.tsx";
+import { project as rustProject } from "@shared/lib/native.tsx";
+import { Button } from "@shared/ui/Button/index.tsx";
+import { IconButton } from "@shared/ui/IconButton/index.tsx";
+import { IconPlus, IconX } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, onCleanup, onSettled } from "solid-js";
-import { APP_REGION_NO_DRAG_CLASS } from "../../../../app/hooks/useAppAppearance.tsx";
-import {
-	iconSize,
-	surfaceStyles,
-} from "../../../../design-system/styles.stylex.ts";
-import type { SkillsTarget } from "../../../../shared/lib/dom.tsx";
-import { project as rustProject } from "../../../../shared/lib/native.tsx";
-import { Button } from "../../../../shared/ui/Button/index.tsx";
-import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
-import { IconPlus, IconX } from "../../../../shared/ui/Icons/index.tsx";
 import { removeSkill, saveSkill, useSkills } from "../../hooks/useSkills.tsx";
 import { SkillEditor } from "../SkillEditor/index.tsx";
 import { BuiltInSkillNotice } from "./BuiltInSkillNotice.tsx";

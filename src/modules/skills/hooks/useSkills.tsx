@@ -1,8 +1,13 @@
-import type { Prompt, SkillProposal, SkillProposalView } from "@contracts";
+import type { Prompt, SkillProposal } from "@contracts";
+import { useBackgroundQuery as useQuery } from "@shared/hooks/useQueryResource.tsx";
+import { queryClient } from "@shared/lib/dom.tsx";
+import {
+	decideSkillProposalRequest,
+	loadSkills,
+	removeSkillRequest,
+	saveSkillRequest,
+} from "@skills/services/skillsApi.ts";
 import type { Accessor } from "solid-js";
-import { useBackgroundQuery as useQuery } from "../../../shared/hooks/useQueryResource.tsx";
-import { queryClient } from "../../../shared/lib/dom.tsx";
-import { fetchJson, postJson, sendJson } from "../../../shared/lib/native.tsx";
 export function useSkills(
 	_filter: Accessor<string> = () => "all",
 	_search: Accessor<string> = () => "",
@@ -28,15 +33,7 @@ export const emptySkills: Prompt[] = [];
 export const skillsQuery = (filter = "all", search = "") => ({
 	queryKey: [...skillsKey, filter, search],
 	queryFn: ({ signal }: { signal: AbortSignal }) =>
-		fetchJson<Prompt[]>(
-			`/api/prompts?${new URLSearchParams({
-				filter,
-				search,
-			})}`,
-			{
-				signal,
-			},
-		),
+		loadSkills(filter, search, signal),
 });
 async function refreshSkills() {
 	await queryClient.cancelQueries({
@@ -47,25 +44,12 @@ async function refreshSkills() {
 	});
 }
 export async function saveSkill(data: Record<string, unknown>, id?: string) {
-	const response = await sendJson(
-		id ? `/api/prompts/${id}` : "/api/prompts",
-		data,
-		{
-			method: id ? "PUT" : "POST",
-		},
-	);
-	if (!response.ok) {
-		const failure = await response.json().catch(() => null);
-		throw new Error(failure?.error ?? `Request failed: ${response.status}`);
-	}
-	const skill = (await response.json()) as Prompt;
+	const skill = await saveSkillRequest(data, id);
 	await refreshSkills();
 	return skill;
 }
 export async function removeSkill(id: string) {
-	await fetchJson(`/api/prompts/${id}`, {
-		method: "DELETE",
-	});
+	await removeSkillRequest(id);
 	await refreshSkills();
 }
 export function preloadSkills() {
@@ -76,11 +60,7 @@ export async function decideSkillProposal(
 	proposal: SkillProposal,
 	decision: "approve" | "reject",
 ) {
-	const view = await postJson<SkillProposalView>("/api/prompts/proposal", {
-		messageId,
-		proposal,
-		decision,
-	});
+	const view = await decideSkillProposalRequest(messageId, proposal, decision);
 	await refreshSkills();
 	return view;
 }

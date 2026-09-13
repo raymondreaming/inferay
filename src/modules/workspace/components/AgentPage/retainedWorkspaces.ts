@@ -1,5 +1,5 @@
 import type { Group, Pane, RepositoryWorkspaceIndex } from "@contracts";
-import { project } from "../../../../shared/lib/native.tsx";
+import { project } from "@shared/lib/native.tsx";
 
 export type WorkspaceView = {
 	key: string;

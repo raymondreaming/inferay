@@ -1,70 +1,27 @@
+import {
+	contentKey,
+	type SyntaxKind,
+	type SyntaxToken,
+	shouldDisableSnippetHighlighting,
+} from "@shared/model/syntax.ts";
+import {
+	type ClassifiedDocument,
+	highlightSyntax,
+} from "@shared/services/syntaxApi.ts";
 import { type Accessor, createMemo, createSignal, onSettled } from "solid-js";
 import {
 	dispatchWindowEvent,
 	listenWindowEvent,
 	queryClient,
 } from "../lib/dom.tsx";
-import { readStoredValue, sendJson, writeStoredValue } from "../lib/native.tsx";
+import { readStoredValue, writeStoredValue } from "../lib/native.tsx";
 import { useBackgroundQuery as useQuery } from "./useQueryResource.tsx";
 
 /** Query lifecycle only: native code owns all syntax interpretation. Kinds are
  *  a closed vocabulary the stylesheet colours, so one classification serves
  *  every theme and the client never ships a grammar. */
-export type SyntaxKind =
-	| "attribute"
-	| "comment"
-	| "constant"
-	| "control"
-	| "variable"
-	| "function"
-	| "keyword"
-	| "number"
-	| "operator"
-	| "plain"
-	| "punctuation"
-	| "string"
-	| "tag"
-	| "type";
-export interface SyntaxToken {
-	text: string;
-	kind: SyntaxKind;
-}
+export { type SyntaxKind, type SyntaxToken, shouldDisableSnippetHighlighting };
 
-/** Beyond this the classification costs more than the colour is worth, and the
- *  native side declines it anyway. */
-const MAX_HIGHLIGHT_CHARS = 2_000_000;
-const MAX_HIGHLIGHT_LINES = 50_000;
-const MAX_HIGHLIGHT_LINE_CHARS = 4_000;
-export function shouldDisableSnippetHighlighting(lines: string[]): boolean {
-	if (lines.length > MAX_HIGHLIGHT_LINES) return true;
-	let total = 0;
-	for (const line of lines) {
-		if (line.length > MAX_HIGHLIGHT_LINE_CHARS) return true;
-		total += line.length;
-		if (total > MAX_HIGHLIGHT_CHARS) return true;
-	}
-	return false;
-}
-
-/** Identify content without retaining it: the query key must not hold a copy of
- *  every open document. */
-function contentKey(lines: string[]): string {
-	let hash = 2166136261;
-	let length = 0;
-	for (const line of lines) {
-		length += line.length;
-		for (let i = 0; i < line.length; i++) {
-			hash = Math.imul(hash ^ line.charCodeAt(i), 16777619);
-		}
-		hash = Math.imul(hash ^ 10, 16777619);
-	}
-	return `${lines.length}:${length}:${hash >>> 0}`;
-}
-interface ClassifiedDocument {
-	version: number;
-	language: string;
-	lines: Array<Array<number | string>>;
-}
 type HighlightInput = {
 	filePath: string;
 	lines: string[];
@@ -89,16 +46,11 @@ function syntaxQueryOptions(input: HighlightInput) {
 			lineTypes ? contentKey(lineTypes) : "source",
 		],
 		enabled,
-		queryFn: async ({ signal }: { signal: AbortSignal }) => {
-			const response = await sendJson(
-				"/api/native/highlight",
+		queryFn: ({ signal }: { signal: AbortSignal }) =>
+			highlightSyntax(
 				{ path, text, lineTypes, preview: input.preview === true },
-				{ signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]) },
-			);
-			if (!response.ok) throw new Error("Highlight request failed");
-			const document: ClassifiedDocument | null = await response.json();
-			return document && [1, 2, 3].includes(document.version) ? document : null;
-		},
+				AbortSignal.any([signal, AbortSignal.timeout(15000)]),
+			),
 		staleTime: Infinity,
 		gcTime: 5 * 60_000,
 		retry: false as const,

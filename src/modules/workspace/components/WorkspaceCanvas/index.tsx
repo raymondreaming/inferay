@@ -1,4 +1,9 @@
-import type { AgentTheme, Pane, WorkspaceAgentKind } from "@contracts";
+import {
+	captureEvent,
+	createPointerResize,
+	domStyle,
+	lockPointerSelection,
+} from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	createEffect,
@@ -6,27 +11,48 @@ import {
 	createSignal,
 	For,
 	onCleanup,
-	onSettled,
 	Show,
-	untrack,
 } from "solid-js";
-import {
-	captureEvent,
-	createPointerResize,
-	domStyle,
-	lockPointerSelection,
-} from "../../../../shared/lib/dom.tsx";
-import { postJson } from "../../../../shared/lib/native.tsx";
-import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
 import { PaneView } from "../PaneView/index.tsx";
 import { DockSplit } from "./DockSplit.tsx";
 import {
-	type DockLayout,
-	previewDockLayout,
-	rememberDockLayout,
-} from "./dockLayoutCache.ts";
+	canScrollHorizontally,
+	canScrollInDirection,
+	type DockEdge,
+	dockEdgeForPoint,
+	findVerticalScroller,
+	isWorkspaceDockDragSource,
+	MIN_GRID_ROW_HEIGHT,
+	outerDockEdgeForPointer,
+	ROOT_DOCK_TARGET_ID,
+	resizeDockSplit,
+	scrollElementBy,
+	shouldFocusPaneComposer,
+} from "./dockGeometry.ts";
+import type { DockSplitNode, DockTree } from "./dockTypes.ts";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
+import {
+	type AuxiliaryPanel,
+	paneViewProps,
+	type WorkspaceCanvasProps,
+} from "./types.ts";
+import { useContainedChatSelection } from "./useContainedChatSelection.ts";
+import { useDockLayout } from "./useDockLayout.ts";
+import { useResponsiveGridColumns } from "./useResponsiveGridColumns.ts";
+
+export {
+	MIN_GRID_ROW_HEIGHT,
+	MIN_RESPONSIVE_PANE_WIDTH,
+	resizeDockSplit,
+} from "./dockGeometry.ts";
+export type {
+	AuxiliaryPanel,
+	DragProps,
+	WorkspaceCanvasProps,
+} from "./types.ts";
+export type { DockSplitNode, DockTree };
+
 export function dropEdgeStyle(edge: DockEdge | null) {
 	if (edge === "left") return styles.dropLeft;
 	if (edge === "right") return styles.dropRight;
@@ -44,44 +70,9 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 		current: HTMLDivElement | null;
 	};
 	const [dragIndex, setDragIndex] = createSignal<number | null>(null);
-	createEffect(
+	useContainedChatSelection(
 		() => props.active !== false,
-		(active) => {
-			if (!active) return;
-			const containChatSelection = () => {
-				const selection = window.getSelection();
-				if (
-					!selection ||
-					selection.isCollapsed ||
-					!selection.anchorNode ||
-					!selection.focusNode
-				)
-					return;
-				const anchor = selection.anchorNode;
-				const pane = (
-					anchor instanceof Element ? anchor : anchor.parentElement
-				)?.closest("[data-chat-pane-id]");
-				if (
-					!pane ||
-					!containerRef.current?.contains(pane) ||
-					pane.contains(selection.focusNode)
-				)
-					return;
-				const bounds = document.createRange();
-				bounds.selectNodeContents(pane);
-				const before =
-					bounds.comparePoint(selection.focusNode, selection.focusOffset) < 0;
-				selection.setBaseAndExtent(
-					anchor,
-					selection.anchorOffset,
-					pane,
-					before ? 0 : pane.childNodes.length,
-				);
-			};
-			document.addEventListener("selectionchange", containChatSelection);
-			return () =>
-				document.removeEventListener("selectionchange", containChatSelection);
-		},
+		() => containerRef.current,
 	);
 	const [dragOverIndex, setDragOverIndex] = createSignal<number | null>(null);
 	const [dragPanelId, setDragPanelId] = createSignal<string | null>(null);
@@ -123,57 +114,13 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 		mode: props.layoutMode,
 		visibleColumns: effectiveColumns(),
 	}));
-	const [layout, setLayout] = createSignal<DockLayout>(() =>
-		previewDockLayout(dockInput()),
-	);
-	const renderedDockTree = createMemo(() => layout().tree);
-	const [dockError, setDockError] = createSignal<string | null>(null);
-	const requestRevision = { current: 0 };
-	const requests = { current: Promise.resolve() };
-	let lastRequested: string | null = null;
-	const updateDock = (action?: object, target = dockInput()) => {
-		const revision = ++requestRevision.current;
-		// Capture the target before enqueueing; a later tab/resize cannot retarget it.
-		const input = { ...target, action };
-		if (!action) setLayout(previewDockLayout(input));
-		const result = requests.current.then(async () => {
-			try {
-				const result = await postJson<DockLayout>("/api/workspace/dock", input);
-				rememberDockLayout(input.workspaceId, result);
-				if (revision === requestRevision.current) {
-					setLayout(result);
-					setDockError(null);
-				}
-				return true;
-			} catch {
-				if (revision === requestRevision.current) {
-					lastRequested = null;
-					setDockError("Could not save pane layout. Please retry.");
-				}
-				return false;
-			}
-		});
-		requests.current = result.then(() => {});
-		return result;
-	};
-	createEffect(
-		() => (props.active !== false ? JSON.stringify(dockInput()) : null),
-		(key) => {
-			if (!key || key === lastRequested) return;
-			lastRequested = key;
-			void updateDock(undefined, JSON.parse(key));
-		},
-	);
-	onSettled(() => () => {
-		requestRevision.current++;
-	});
-	const renderedDockTreeRef = {
-		current: untrack(renderedDockTree),
-	};
-	createEffect(renderedDockTree, (tree) => {
-		renderedDockTreeRef.current = tree;
-	});
-	const _source2 = createMemo(() => layout());
+	const dock = useDockLayout(dockInput, () => props.active !== false);
+	const renderedDockTree = dock.tree;
+	const renderedDockTreeRef = dock.treeRef;
+	const setLayout = dock.setLayout;
+	const updateDock = dock.update;
+	const dockError = dock.error;
+	const _source2 = dock.layout;
 	const dockCanvasMinHeight = createMemo(
 		() =>
 			`max(${Math.max(100, (_source2().vertical / Math.max(1, props.rows)) * 100)}%, ${_source2().vertical * MIN_GRID_ROW_HEIGHT}px)`,
@@ -195,33 +142,11 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 		setDragPanelId(null);
 		setDockTarget(null);
 	};
-	createEffect(
-		() => {
-			const _sourceValue4 = props;
-			return [_sourceValue4.columns, _sourceValue4.layoutMode] as const;
-		},
-		([columns, mode]) => {
-			const container = containerRef.current;
-			if (!container || mode !== "grid") return;
-			const updateAvailableColumns = (width: number) => {
-				if (width <= 0) return;
-				const next = Math.max(
-					1,
-					Math.min(4, columns, Math.floor(width / MIN_RESPONSIVE_PANE_WIDTH)),
-				);
-				setAvailableGridColumns((current) =>
-					current === next ? current : next,
-				);
-			};
-			updateAvailableColumns(container.getBoundingClientRect().width);
-			if (typeof ResizeObserver === "undefined") return;
-			const observer = new ResizeObserver((entries) => {
-				const width = entries[0]?.contentRect.width;
-				if (width !== undefined) updateAvailableColumns(width);
-			});
-			observer.observe(container);
-			return () => observer.disconnect();
-		},
+	useResponsiveGridColumns(
+		() => containerRef.current,
+		() => props.columns,
+		() => props.layoutMode === "grid",
+		setAvailableGridColumns,
 	);
 	const commitDockPlacement = (
 		sourceId: string,
@@ -798,192 +723,5 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 		</>
 	);
 };
-export type DragProps = {
-	readonly draggable: boolean;
-	readonly onDragStart: (event: PointerEvent) => void;
-	readonly onCreatePanelDragStart: (
-		event: PointerEvent,
-		panelId: string,
-		completeDrop: () => void,
-	) => void;
-	readonly onDragEnd: () => void;
-};
-export type DockEdge = "center" | "left" | "right" | "top" | "bottom";
-export type DockOuterEdge = Exclude<DockEdge, "center">;
-export const MIN_RESPONSIVE_PANE_WIDTH = 300;
-export type DockSplitNode = Extract<DockTree, { readonly type: "split" }>;
-export type DockTree =
-	| { readonly type: "empty"; readonly columns: number }
-	| {
-			readonly type: "panel";
-			readonly id: string;
-	  }
-	| {
-			readonly type: "split";
-			readonly direction: "horizontal" | "vertical";
-			readonly ratio: number;
-			readonly first: DockTree;
-			readonly second: DockTree;
-	  };
-function clampRatio(ratio: number) {
-	return Math.max(0.14, Math.min(0.86, ratio));
-}
-export function resizeDockSplit(
-	tree: DockTree,
-	path: readonly ("first" | "second")[],
-	ratio: number,
-): DockTree {
-	if (path.length === 0) {
-		return tree.type === "split"
-			? {
-					...tree,
-					ratio: clampRatio(ratio),
-				}
-			: tree;
-	}
-	if (tree.type !== "split") return tree;
-	const [branch, ...rest] = path;
-	const key = branch === "first" ? "first" : "second";
-	return {
-		...tree,
-		[key]: resizeDockSplit(tree[key], rest, ratio),
-	};
-}
-export type AgentLayoutMode = "grid" | "rows";
 export const DEFAULT_ROWS = 1 as const;
 export const EMPTY_AUXILIARY_PANELS: readonly AuxiliaryPanel[] = [];
-export const ROOT_DOCK_TARGET_ID = "__workspace-root__";
-export const MIN_GRID_ROW_HEIGHT = 340;
-type AuxiliaryPanel = {
-	readonly id: string;
-	readonly onSelect?: () => void;
-	readonly render: (drag: {
-		readonly draggable: boolean;
-		readonly onDragStart: (event: PointerEvent) => void;
-		readonly onCreatePanelDragStart: (
-			event: PointerEvent,
-			panelId: string,
-			completeDrop: () => void,
-		) => void;
-		readonly onDragEnd: () => void;
-	}) => import("solid-js").Element;
-};
-export interface WorkspaceCanvasProps {
-	active?: boolean;
-	panes: Pane[];
-	selectedPaneId: string | null;
-	columns: number;
-	rows: number;
-	layoutMode: AgentLayoutMode;
-	theme: AgentTheme;
-	onSelectPane: (id: string) => void;
-	onFocusPane?: (id: string) => void;
-	onClosePane: (id: string) => void;
-	onDirectorySelect: (
-		id: string,
-		path: string | null,
-		references?: string[],
-	) => void;
-	onDirectoryCancel: (id: string) => void;
-	onChatRef: (id: string, handle: AgentChatHandle | null) => void;
-	onReorderPanes?: (from: number, to: number) => void;
-	onAddPane?: (kind: WorkspaceAgentKind) => void;
-	onSetPaneAgentKind?: (id: string, kind: WorkspaceAgentKind) => void;
-	workspaceId?: string;
-	legacyWorkspaceId?: string;
-	auxiliaryPanels?: readonly AuxiliaryPanel[];
-}
-export const paneViewProps = (
-	p: WorkspaceCanvasProps,
-	pane: Pane,
-	paneIndex: number,
-	onHeaderDragStart: (e: PointerEvent, i: number) => void,
-	onHeaderDragEnd: () => void,
-) => ({
-	pane,
-	isSelected: p.active !== false && pane.id === p.selectedPaneId,
-	isVisible: p.active !== false,
-	onClose: p.onClosePane,
-	onDirectorySelect: p.onDirectorySelect,
-	onDirectoryCancel: p.onDirectoryCancel,
-	chatRef: p.onChatRef,
-	paneIndex,
-	onHeaderDragStart,
-	onHeaderDragEnd,
-	onSetPaneAgentKind: p.onSetPaneAgentKind,
-});
-export const canScrollInDirection = (e: HTMLElement, y: number) =>
-	y < 0
-		? e.scrollTop > 0
-		: y > 0 && e.scrollTop + e.clientHeight < e.scrollHeight - 1;
-export const canScrollHorizontally = (e: HTMLElement, x: number) =>
-	x < 0
-		? e.scrollLeft > 0
-		: x > 0 && e.scrollLeft + e.clientWidth < e.scrollWidth - 1;
-export const isWorkspaceDockDragSource = (t: EventTarget | null) =>
-	t instanceof Element &&
-	!!t.closest('[data-workspace-dock-drag-source="true"]');
-export const shouldFocusPaneComposer = (t: EventTarget | null) =>
-	!(t instanceof Element) ||
-	(!t.closest("button,input,textarea,select,a,[contenteditable='true']") &&
-		window.getSelection()?.isCollapsed !== false);
-const isScroller = (e: HTMLElement) =>
-	["auto", "scroll"].includes(getComputedStyle(e).overflowY) &&
-	e.scrollHeight > e.clientHeight;
-export function findVerticalScroller(t: EventTarget | null, b: HTMLElement) {
-	let e = t instanceof HTMLElement ? t : null;
-	while (e && e !== b) {
-		if (isScroller(e)) return e;
-		e = e.parentElement;
-	}
-	return [...b.querySelectorAll<HTMLElement>("*")].find(isScroller) ?? null;
-}
-export function scrollElementBy(e: HTMLElement, y: number) {
-	e.scrollTop = Math.max(
-		0,
-		Math.min(
-			e.scrollHeight > e.clientHeight
-				? e.scrollHeight - e.clientHeight
-				: Infinity,
-			e.scrollTop + y,
-		),
-	);
-}
-export function dockEdgeForPoint(
-	cx: number,
-	cy: number,
-	e: HTMLElement,
-): DockEdge {
-	const r = e.getBoundingClientRect(),
-		x = (cx - r.left) / Math.max(1, r.width),
-		y = (cy - r.top) / Math.max(1, r.height),
-		d = Math.min(x, 1 - x, y, 1 - y);
-	return d > 0.28
-		? "center"
-		: d === x
-			? "left"
-			: d === 1 - x
-				? "right"
-				: d === y
-					? "top"
-					: "bottom";
-}
-export function outerDockEdgeForPointer(
-	e: {
-		readonly clientX: number;
-		readonly clientY: number;
-	},
-	root: HTMLElement,
-): DockOuterEdge | null {
-	const r = root.getBoundingClientRect(),
-		band = Math.min(72, Math.max(28, Math.min(r.width, r.height) * 0.1)),
-		closest = (
-			[
-				["left", e.clientX - r.left],
-				["right", r.right - e.clientX],
-				["top", e.clientY - r.top],
-				["bottom", r.bottom - e.clientY],
-			] as const
-		).reduce((a, b) => (b[1] < a[1] ? b : a));
-	return closest[1] >= 0 && closest[1] <= band ? closest[0] : null;
-}

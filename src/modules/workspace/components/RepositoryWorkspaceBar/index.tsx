@@ -1,23 +1,10 @@
-import type { RepositoryWorkspace } from "@contracts";
-import { useLocation, useNavigate } from "@solidjs/router";
-import * as stylex from "@stylexjs/stylex";
-import {
-	createEffect,
-	createMemo,
-	createSignal,
-	For,
-	onSettled,
-} from "solid-js";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
-} from "../../../../app/hooks/useAppAppearance.tsx";
-import {
-	iconSize,
-	selectionAppearance,
-	surfaceStyles,
-} from "../../../../design-system/styles.stylex.ts";
-import { useBackgroundQuery } from "../../../../shared/hooks/useQueryResource.tsx";
+} from "@app/hooks/useAppAppearance.tsx";
+import type { RepositoryWorkspace } from "@contracts";
+import { iconSize } from "@design-system/styles.stylex.ts";
+import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
 import {
 	ariaValue,
 	type CreateAgentChatTarget,
@@ -26,27 +13,28 @@ import {
 	dispatchToggleActiveGitSidebar,
 	listenWindowEvent,
 	queryClient,
-	setWorkspaceSidebarCollapsed,
 	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
 	type WorkspaceSidebarCollapsedDetail,
-} from "../../../../shared/lib/dom.tsx";
-import { loadSidebarCollapsed } from "../../../../shared/lib/native.tsx";
+} from "@shared/lib/dom.tsx";
 import {
-	IconFolder,
-	IconGitBranch,
-	IconMessageCircle,
-	IconPanelLeft,
-	IconPanelRight,
-	IconPlus,
-} from "../../../../shared/ui/Icons/index.tsx";
+	loadSidebarCollapsed,
+	setWorkspaceSidebarCollapsed,
+} from "@shared/lib/native.tsx";
+import { IconPanelLeft } from "@shared/ui/Icons/index.tsx";
+import { useLocation, useNavigate } from "@solidjs/router";
+import * as stylex from "@stylexjs/stylex";
 import {
 	panelQuery,
 	usePanelVisibility,
-} from "../../../workbench/hooks/useWorkspacePanelSession.tsx";
+} from "@workspace/hooks/useWorkspacePanelSession.tsx";
+import { createEffect, createMemo, createSignal, onSettled } from "solid-js";
 import {
 	mutateAgentWorkspaceState,
 	useWorkspaceState,
 } from "../../hooks/useWorkspaceState.tsx";
+import { NewWorkspaceMenu } from "./NewWorkspaceMenu.tsx";
+import { RepositoryPanelControls } from "./RepositoryPanelControls.tsx";
+import { RepositoryWorkspaceTabs } from "./RepositoryWorkspaceTabs.tsx";
 import { styles } from "./styles.ts";
 import { useRepositoryTabDrag } from "./useRepositoryTabDrag.ts";
 export function RepositoryWorkspaceBar() {
@@ -119,14 +107,8 @@ export function RepositoryWorkspaceBar() {
 		if (location.pathname !== "/") navigate("/");
 	};
 	const barProps = createMemo(() => stylex.attrs(styles.bar));
-	const tabsProps = createMemo(() => stylex.attrs(styles.tabs));
-	const newChatProps = createMemo(() => stylex.attrs(styles.newChat));
-	const newMenuRootProps = createMemo(() => stylex.attrs(styles.newMenuRoot));
 	const workspaceSidebarToggleProps = createMemo(() =>
 		stylex.attrs(styles.panelToggle, styles.workspaceSidebarToggle),
-	);
-	const changesSidebarToggleProps = createMemo(() =>
-		stylex.attrs(styles.panelToggle, styles.changesSidebarToggle),
 	);
 	return (
 		<header
@@ -154,156 +136,34 @@ export function RepositoryWorkspaceBar() {
 			>
 				<IconPanelLeft size={iconSize.md} />
 			</button>
-			<div
-				ref={(element) => (newMenuRef.current = element)}
-				{...newMenuRootProps()}
-				class={`${APP_REGION_NO_DRAG_CLASS} ${newMenuRootProps().class ?? ""}`}
-			>
-				<button
-					type="button"
-					onClick={() => setNewMenuOpen((open) => !open)}
-					aria-haspopup="menu"
-					aria-expanded={ariaValue(newMenuOpen())}
-					title="Create a chat or open a repository"
-					{...newChatProps()}
-				>
-					<span>New</span>
-					<IconPlus size={iconSize.sm} />
-				</button>
-				{newMenuOpen() ? (
-					<div
-						role="menu"
-						aria-label="Create new"
-						{...stylex.attrs(surfaceStyles.overlay, styles.newMenu)}
-					>
-						<button
-							type="button"
-							role="menuitem"
-							onClick={() => createChat("active-repository")}
-							{...stylex.attrs(styles.newMenuItem)}
-						>
-							<IconMessageCircle size={iconSize.md} />
-							<span {...stylex.attrs(styles.newMenuCopy)}>
-								<strong {...stylex.attrs(styles.newMenuLabel)}>New chat</strong>
-								<span {...stylex.attrs(styles.newMenuDescription)}>
-									{projection().activeWorkspace
-										? `In ${projection().activeWorkspace?.name}`
-										: "Choose a repository first"}
-								</span>
-							</span>
-						</button>
-						<button
-							type="button"
-							role="menuitem"
-							onClick={() => createChat("new-repository")}
-							{...stylex.attrs(styles.newMenuItem)}
-						>
-							<IconFolder size={iconSize.md} />
-							<span {...stylex.attrs(styles.newMenuCopy)}>
-								<strong {...stylex.attrs(styles.newMenuLabel)}>
-									Open repository
-								</strong>
-								<span {...stylex.attrs(styles.newMenuDescription)}>
-									Choose another project folder
-								</span>
-							</span>
-						</button>
-					</div>
-				) : null}
-			</div>
-			<div
-				ref={tabDrag.setContainer}
-				{...tabsProps()}
-				class={`${APP_REGION_NO_DRAG_CLASS} ${tabsProps().class ?? ""}`}
-				role="tablist"
-				aria-label="Repository workspaces"
-			>
-				{projection().workspaces.length > 0 ? (
-					<For each={tabDrag.ordered()} keyed={(row) => row.cwd}>
-						{(workspace) => {
-							const active = createMemo(
-								() => workspace().cwd === projection().activePath,
-							);
-							return (
-								<button
-									type="button"
-									role="tab"
-									aria-selected={ariaValue(active())}
-									data-repository-tab={workspace().cwd}
-									title={`${workspace().cwd}\nDrag to reorder · Alt+Shift+Arrow keys to move`}
-									aria-keyshortcuts="Alt+Shift+ArrowLeft Alt+Shift+ArrowRight"
-									onPointerDown={(event) =>
-										tabDrag.onPointerDown(event, workspace().cwd)
-									}
-									onKeyDown={(event) =>
-										tabDrag.onKeyDown(event, workspace().cwd)
-									}
-									onClick={(event) => {
-										if (!tabDrag.consumeClick(event))
-											activateWorkspace(workspace());
-									}}
-									{...stylex.attrs(
-										...selectionAppearance("repository", active()),
-										styles.tab,
-										tabDrag.dragging() === workspace().cwd &&
-											styles.draggingTab,
-										tabDrag.target()?.before === workspace().cwd &&
-											styles.dropBefore,
-										tabDrag.target()?.before === null &&
-											tabDrag.ordered().at(-1)?.cwd === workspace().cwd &&
-											styles.dropAfter,
-									)}
-								>
-									<IconGitBranch size={iconSize.sm} />
-									<span {...stylex.attrs(styles.tabLabel)}>
-										{workspace().name}
-									</span>
-								</button>
-							);
-						}}
-					</For>
-				) : (
-					<span {...stylex.attrs(styles.emptyLabel)}>No repository open</span>
-				)}
-			</div>
+			<NewWorkspaceMenu
+				activeWorkspace={projection().activeWorkspace}
+				menuRef={newMenuRef}
+				open={newMenuOpen()}
+				onCreateChat={createChat}
+				onToggle={() => setNewMenuOpen((open) => !open)}
+			/>
+			<RepositoryWorkspaceTabs
+				activePath={projection().activePath}
+				hasWorkspaces={projection().workspaces.length > 0}
+				onActivate={activateWorkspace}
+				tabDrag={tabDrag}
+			/>
 			{tabDrag.error() ? (
 				<span role="alert" {...stylex.attrs(styles.emptyLabel)}>
 					{tabDrag.error()}
 				</span>
 			) : null}
-			<div
-				role="group"
-				aria-label="Repository panels"
-				{...stylex.attrs(styles.panelControls)}
-			>
-				<button
-					type="button"
-					onClick={dispatchToggleActiveGitGraph}
-					disabled={!projection().activeWorkspace}
-					aria-label="Toggle commit graph"
-					title="Toggle commit graph"
-					aria-pressed={ariaValue(
-						panelState.data?.mainViewMode === "graph" &&
-							panelVisibility().graphVisible,
-					)}
-					{...changesSidebarToggleProps()}
-					class={`${APP_REGION_NO_DRAG_CLASS} ${changesSidebarToggleProps().class ?? ""}`}
-				>
-					<IconGitBranch size={iconSize.md} />
-				</button>
-				<button
-					type="button"
-					onClick={dispatchToggleActiveGitSidebar}
-					disabled={!projection().activeWorkspace}
-					aria-label="Toggle changes sidebar"
-					aria-pressed={ariaValue(panelVisibility().sidebarVisible)}
-					title="Toggle changes sidebar"
-					{...changesSidebarToggleProps()}
-					class={`${APP_REGION_NO_DRAG_CLASS} ${changesSidebarToggleProps().class ?? ""}`}
-				>
-					<IconPanelRight size={iconSize.md} />
-				</button>
-			</div>
+			<RepositoryPanelControls
+				hasActiveWorkspace={!!projection().activeWorkspace}
+				graphVisible={
+					panelState.data?.mainViewMode === "graph" &&
+					panelVisibility().graphVisible
+				}
+				sidebarVisible={panelVisibility().sidebarVisible}
+				onToggleGraph={dispatchToggleActiveGitGraph}
+				onToggleSidebar={dispatchToggleActiveGitSidebar}
+			/>
 		</header>
 	);
 }

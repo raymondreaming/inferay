@@ -1,6 +1,6 @@
 import type { AppBackgroundSettings } from "@contracts";
+import { SettingsRow } from "@shared/ui/SettingsSurface/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { SettingsRow } from "../../../../shared/ui/SettingsSurface/index.tsx";
 import { styles } from "./styles.ts";
 export function BackgroundSceneControls(_props: {
 	background: AppBackgroundSettings;

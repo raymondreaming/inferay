@@ -5,15 +5,38 @@ import type {
 	ProviderSettings,
 	WorkspaceAgentKind,
 } from "@contracts";
+import wasmUrl from "../../../build/presentation/bytes.js";
+import {
+	initSync,
+	presentation,
+} from "../../../build/presentation/presentation.js";
 import providerCatalog from "../../../build/presentation/provider-catalog.json";
+import type { AgentLayoutMode } from "../contracts/workspace.ts";
+import {
+	dispatchWindowEvent,
+	listenWindowEvent,
+	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
+	type WorkspaceSidebarCollapsedDetail,
+} from "./dom.tsx";
 import { traceUi } from "./uiPerformance.ts";
 
 export { ChatReplica } from "../../../build/presentation/presentation.js";
+/** The only low-level browser HTTP seam. Every request has a finite deadline. */
+export function request(
+	input: RequestInfo | URL,
+	init?: RequestInit,
+): Promise<Response> {
+	const timeout = AbortSignal.timeout(12_000);
+	return fetch(input, {
+		...init,
+		signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout,
+	});
+}
 export async function fetchJson<T>(
 	input: RequestInfo | URL,
 	init?: RequestInit,
 ): Promise<T> {
-	const response = await fetch(input, init);
+	const response = await request(input, init);
 	if (!response.ok) {
 		throw new Error(`Request failed: ${response.status}`);
 	}
@@ -24,7 +47,7 @@ export async function fetchJsonOr<T>(
 	fallback: T,
 	init?: RequestInit,
 ): Promise<T> {
-	const response = await fetch(input, init);
+	const response = await request(input, init);
 	if (!response.ok) {
 		return fallback;
 	}
@@ -44,7 +67,7 @@ export async function sendJson(
 	body?: unknown,
 	init?: RequestInit,
 ): Promise<Response> {
-	return fetch(input, {
+	return request(input, {
 		...init,
 		method: init?.method ?? "POST",
 		headers: {
@@ -180,19 +203,18 @@ export async function saveDefaultChatSettings(settings: ProviderSettings) {
 	return catalog.defaults;
 }
 
-import type { AgentLayoutMode } from "../../modules/workspace/components/WorkspaceCanvas/index.tsx";
-import { dispatchWindowEvent, listenWindowEvent } from "./dom.tsx";
-
 export const APP_THEME_STORAGE_KEY = "inferay-app-theme-id";
 export const APP_BACKGROUND_STORAGE_KEY = "inferay-app-background";
 export const APP_FONT_STORAGE_KEY = "inferay-app-font";
 export const CLIENT_STORAGE_CHANGED_EVENT = "inferay-client-storage-change";
+
 type StoredValue = string | null;
 let values: Record<string, StoredValue> = {};
 let storageKeyPattern: RegExp | undefined;
 const pending = new Map<string, StoredValue>();
 let timer: ReturnType<typeof setTimeout> | undefined;
 let writing = false;
+
 async function flushPending() {
 	clearTimeout(timer);
 	timer = undefined;
@@ -221,7 +243,7 @@ async function flushPending() {
 	}
 }
 export async function hydrateStoredValues(): Promise<void> {
-	const response = await fetch("/api/client-storage", {
+	const response = await request("/api/client-storage", {
 		signal: AbortSignal.timeout(5000),
 	});
 	if (!response.ok) throw new Error("Could not load saved preferences");
@@ -283,6 +305,13 @@ export function readStoredJson<T>(key: string, fallback: T): T {
 export function writeStoredValue(key: string, value: string): void {
 	setStoredValue(key, value);
 }
+export function setWorkspaceSidebarCollapsed(collapsed: boolean) {
+	writeStoredValue("sidebar-collapsed", String(collapsed));
+	dispatchWindowEvent<WorkspaceSidebarCollapsedDetail>(
+		WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
+		{ collapsed },
+	);
+}
 export function removeStoredValue(key: string): void {
 	setStoredValue(key, null);
 }
@@ -322,12 +351,6 @@ export function setAgentLayoutMode(mode: AgentLayoutMode) {
 }
 export const loadSidebarCollapsed = () =>
 	readStoredBoolean("sidebar-collapsed");
-
-import wasmUrl from "../../../build/presentation/bytes.js";
-import {
-	initSync,
-	presentation,
-} from "../../../build/presentation/presentation.js";
 
 // Both prerendering and the browser execute the same Rust models. Bundling the
 // bytes also makes initialization independent of the desktop's loopback origin.

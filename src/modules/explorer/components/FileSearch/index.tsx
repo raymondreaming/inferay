@@ -1,21 +1,16 @@
+import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
+import {
+	type ExplorerSearchResult,
+	searchFiles,
+} from "@explorer/services/explorerApi.ts";
+import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
+import { assignRef, queryClient } from "@shared/lib/dom.tsx";
+import { IconSearch } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createMemo, createSignal, For } from "solid-js";
-import {
-	iconSize,
-	surfaceStyles,
-} from "../../../../design-system/styles.stylex.ts";
-import { useBackgroundQuery } from "../../../../shared/hooks/useQueryResource.tsx";
-import { assignRef, queryClient } from "../../../../shared/lib/dom.tsx";
-import { fetchJson } from "../../../../shared/lib/native.tsx";
-import { IconSearch } from "../../../../shared/ui/Icons/index.tsx";
 import { FileSearchResultRow } from "./FileSearchResultRow.tsx";
 import { styles } from "./styles.ts";
-export type FileSearchResult = {
-	readonly cwd?: string;
-	readonly isDir: boolean;
-	readonly name: string;
-	readonly path: string;
-};
+export type FileSearchResult = ExplorerSearchResult;
 export function FileSearch(_props: {
 	readonly cwd?: string | null;
 	readonly onSelect: (file: FileSearchResult) => void;
@@ -41,21 +36,8 @@ export function FileSearch(_props: {
 			return {
 				queryKey: ["file-search", cwd, text],
 				enabled: open() && !!cwd,
-				queryFn: async ({ signal }: { signal: AbortSignal }) => {
-					const response = await fetchJson<{
-						results: FileSearchResult[];
-					}>(
-						`/api/files/search?${new URLSearchParams({
-							cwd: cwd!,
-							q: text,
-							limit: "24",
-						})}`,
-						{
-							signal,
-						},
-					);
-					return response.results.filter((result) => !result.isDir);
-				},
+				queryFn: ({ signal }: { signal: AbortSignal }) =>
+					searchFiles(cwd!, text, signal),
 				retry: false,
 			};
 		},

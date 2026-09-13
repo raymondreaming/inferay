@@ -37,7 +37,7 @@ function InlineToken(props: InlineProps & { token: MdInlineToken }) {
 	const imageSource = createMemo(() => markdownImageSource(props.token.href));
 	const [failedSource, setFailedSource] = createSignal<string>();
 	const Children = () => (
-		<Show when={props.token.children} fallback={props.token.text}>
+		<Show when={props.token.children} fallback={<>{props.token.text}</>}>
 			{(tokens) => (
 				<MarkdownInline
 					tokens={tokens()}

@@ -1,5 +1,12 @@
 import type { QueuedMessageInfo } from "@contracts";
 import {
+	loadMarkdownPreview,
+	updateChatQueue,
+	uploadTempChatImage,
+} from "@conversation/services/conversationApi.ts";
+import { useQueryResource } from "@shared/hooks/useQueryResource.tsx";
+import { project as rustProject, wsClient } from "@shared/lib/native.tsx";
+import {
 	type Accessor,
 	createEffect,
 	createMemo,
@@ -7,13 +14,6 @@ import {
 	onCleanup,
 	untrack,
 } from "solid-js";
-import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
-import {
-	fetchJson,
-	project as rustProject,
-	sendJson,
-	wsClient,
-} from "../../../shared/lib/native.tsx";
 export function useAgentChatComposerState(
 	_paneId: Accessor<string>,
 	_enabled: Accessor<boolean> = () => true,
@@ -54,24 +54,7 @@ export function useAgentChatComposerState(
 			.then(async () => {
 				if (disposed || paneId !== _paneId()) return;
 				requestRevision = ++queueRevision.current;
-				const response = await sendJson(
-					`/api/chat-queues/${encodeURIComponent(paneId)}`,
-					{
-						action,
-						id,
-						text,
-					},
-					{
-						method: "PATCH",
-					},
-				);
-				if (!response.ok)
-					throw new Error("Could not update queued message. Please retry.");
-				const queue = (
-					(await response.json()) as {
-						queue: QueuedChatMessage[];
-					}
-				).queue;
+				const queue = await updateChatQueue(paneId, action, id, text);
 				if (
 					!disposed &&
 					paneId === _paneId() &&
@@ -110,17 +93,7 @@ export function useAgentChatComposerState(
 	const preview = useQueryResource(
 		() => {
 			const path = previewPath() ?? "";
-			return (signal) =>
-				fetchJson<{
-					content: string;
-				}>(
-					`/api/files/preview?${new URLSearchParams({
-						path,
-					})}`,
-					{
-						signal,
-					},
-				);
+			return (signal) => loadMarkdownPreview(path, signal);
 		},
 		() => null,
 		() => {
@@ -211,7 +184,7 @@ export function useAgentChatComposerState(
 	const attachImage = async (file: File) => {
 		const paneId = _paneId();
 		try {
-			const image = await uploadChatImage(file);
+			const image = await uploadTempChatImage(file);
 			if (image && !disposed && paneId === _paneId())
 				setAttachedImages((previous) => [...previous, image]);
 		} catch {}
@@ -287,22 +260,7 @@ export function useAgentChatComposerState(
 export async function uploadChatImage(
 	file: File,
 ): Promise<AttachedImageInfo | null> {
-	const body = new FormData();
-	body.append("file", file);
-	const response = await fetch("/api/upload-temp", {
-		method: "POST",
-		body,
-	});
-	const data = (await response.json()) as {
-		path?: string;
-	};
-	return data.path
-		? {
-				name: file.name,
-				path: data.path,
-				previewUrl: `/api/file?thumbnail=true&path=${encodeURIComponent(data.path)}`,
-			}
-		: null;
+	return uploadTempChatImage(file);
 }
 export function usePendingChatWorkspace(
 	_paneId2: Accessor<string>,

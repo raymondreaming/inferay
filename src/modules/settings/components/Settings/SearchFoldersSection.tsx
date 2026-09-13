@@ -1,25 +1,17 @@
-import * as stylex from "@stylexjs/stylex";
-import { createMemo, createSignal, For } from "solid-js";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
-import { setInputValue } from "../../../../shared/lib/dom.tsx";
-import {
-	fetchJsonOr,
-	pickCloneDirectory,
-	sendJson,
-} from "../../../../shared/lib/native.tsx";
-import { Button } from "../../../../shared/ui/Button/index.tsx";
-import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
-import {
-	IconFolder,
-	IconPlus,
-	IconX,
-} from "../../../../shared/ui/Icons/index.tsx";
+import { iconSize } from "@design-system/styles.stylex.ts";
+import { useQueryResource } from "@shared/hooks/useQueryResource.tsx";
+import { setInputValue } from "@shared/lib/dom.tsx";
+import { Button } from "@shared/ui/Button/index.tsx";
+import { IconButton } from "@shared/ui/IconButton/index.tsx";
+import { IconFolder, IconPlus, IconX } from "@shared/ui/Icons/index.tsx";
 import {
 	SettingsEmpty,
 	SettingsRow,
 	SettingsSection,
-} from "../../../../shared/ui/SettingsSurface/index.tsx";
+} from "@shared/ui/SettingsSurface/index.tsx";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo, createSignal, For } from "solid-js";
+import { settingsApi } from "../../services/settingsApi.ts";
 import { styles } from "./styles.ts";
 
 const EMPTY_FOLDERS: string[] = [];
@@ -56,7 +48,7 @@ export function SearchFoldersSection() {
 	const browseFolder = async () => {
 		const _foldersValue2 = folders();
 		try {
-			const folder = await pickCloneDirectory();
+			const folder = await settingsApi.pickSearchFolder();
 			if (folder && !_foldersValue2.includes(folder)) {
 				saveFolders([..._foldersValue2, folder]);
 			}
@@ -138,22 +130,8 @@ export function SearchFoldersSection() {
 	);
 }
 export async function fetchSearchFolders() {
-	return (
-		await fetchJsonOr<{
-			folders: string[];
-		}>("/api/config/search-folders", {
-			folders: [],
-		})
-	).folders;
+	return settingsApi.loadSearchFolders();
 }
 export async function saveSearchFolders(folders: string[]) {
-	await sendJson(
-		"/api/config/search-folders",
-		{
-			folders,
-		},
-		{
-			method: "PUT",
-		},
-	);
+	await settingsApi.saveSearchFolders(folders);
 }

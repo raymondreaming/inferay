@@ -1,9 +1,43 @@
+import { fileURLToPath, URL } from "node:url";
 import solid from "@solidjs/vite-plugin";
 import stylex from "@stylexjs/unplugin";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig(({ mode }) => ({
+	resolve: {
+		alias: {
+			"@app": fileURLToPath(new URL("./src/app", import.meta.url)),
+			"@agents": fileURLToPath(
+				new URL("./src/modules/agents", import.meta.url),
+			),
+			"@context": fileURLToPath(
+				new URL("./src/modules/context", import.meta.url),
+			),
+			"@conversation": fileURLToPath(
+				new URL("./src/modules/conversation", import.meta.url),
+			),
+			"@design-system": fileURLToPath(
+				new URL("./src/design-system", import.meta.url),
+			),
+			"@explorer": fileURLToPath(
+				new URL("./src/modules/explorer", import.meta.url),
+			),
+			"@repository": fileURLToPath(
+				new URL("./src/modules/repository", import.meta.url),
+			),
+			"@shared": fileURLToPath(new URL("./src/shared", import.meta.url)),
+			"@settings": fileURLToPath(
+				new URL("./src/modules/settings", import.meta.url),
+			),
+			"@skills": fileURLToPath(
+				new URL("./src/modules/skills", import.meta.url),
+			),
+			"@workspace": fileURLToPath(
+				new URL("./src/modules/workspace", import.meta.url),
+			),
+		},
+	},
 	plugins: [
 		stylex.vite({
 			useCSSLayers: true,

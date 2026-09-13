@@ -1,12 +1,10 @@
-import { useLocation, useNavigate } from "@solidjs/router";
-import * as stylex from "@stylexjs/stylex";
-import { createMemo, createSignal, onSettled } from "solid-js";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
-} from "../../../../app/hooks/useAppAppearance.tsx";
-import { useAppInfo } from "../../../../app/hooks/useAppInfo.tsx";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
+} from "@app/hooks/useAppAppearance.tsx";
+import { useAppInfo } from "@app/hooks/useAppInfo.tsx";
+import { iconSize } from "@design-system/styles.stylex.ts";
+import { useForgeAccounts } from "@repository/hooks/useForgeAccounts.tsx";
 import {
 	CREATE_AGENT_CHAT_EVENT,
 	type CreateAgentChatDetail,
@@ -17,17 +15,19 @@ import {
 	openSettingsModal,
 	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
 	type WorkspaceSidebarCollapsedDetail,
-} from "../../../../shared/lib/dom.tsx";
+} from "@shared/lib/dom.tsx";
 import {
 	listenAgentLayoutMode,
 	loadAgentLayoutMode,
 	loadDefaultChatSettings,
 	loadSidebarCollapsed,
-	sendJson,
 	setAgentLayoutMode,
-} from "../../../../shared/lib/native.tsx";
-import { IconSettings } from "../../../../shared/ui/Icons/index.tsx";
-import { useForgeAccounts } from "../../../repository/hooks/useForgeAccounts.tsx";
+} from "@shared/lib/native.tsx";
+import { IconSettings } from "@shared/ui/Icons/index.tsx";
+import { useLocation, useNavigate } from "@solidjs/router";
+import * as stylex from "@stylexjs/stylex";
+import { checkNativeUpdate } from "@workspace/services/workspaceApi.ts";
+import { createMemo, createSignal, onSettled } from "solid-js";
 import {
 	mutateAgentWorkspaceState,
 	useWorkspaceState,
@@ -158,17 +158,8 @@ export function WorkspaceSidebar() {
 		const request = new AbortController();
 		updateRequest = request;
 		try {
-			const response = await sendJson("/api/native/update", undefined, {
-				method,
-				signal: AbortSignal.any([request.signal, AbortSignal.timeout(8000)]),
-			});
-			const result = (await response.json()) as {
-				status: SidebarUpdateStatus;
-				error?: string;
-			};
+			const result = await checkNativeUpdate(method, request.signal);
 			if (updateDisposed || request.signal.aborted) return;
-			if (!response.ok || result.status === "error")
-				throw new Error(result.error || `Update failed (${response.status})`);
 			if (!["idle", "updating", "complete"].includes(result.status))
 				throw new Error(
 					"The updater did not report its status. Quit and reopen Inferay.",

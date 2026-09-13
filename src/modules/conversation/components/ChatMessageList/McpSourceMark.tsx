@@ -1,9 +1,9 @@
 import type { McpToolSource } from "@contracts";
+import { loadMcpIcons } from "@conversation/services/conversationApi.ts";
+import { useQueryResource } from "@shared/hooks/useQueryResource.tsx";
+import { domStyle, queryClient } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal, onSettled, Show } from "solid-js";
-import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
-import { domStyle, queryClient } from "../../../../shared/lib/dom.tsx";
-import { fetchJson } from "../../../../shared/lib/native.tsx";
 import { getMcpSourceMarkStyle, styles } from "./styles.ts";
 
 // One refresh timer for the transcript, regardless of how many tool rows mount.
@@ -23,8 +23,7 @@ export function McpSourceMark(props: { source: McpToolSource }) {
 		};
 	});
 	const icons = useQueryResource(
-		() => (signal) =>
-			fetchJson<Record<string, string>>("/api/mcp-icons", { signal }),
+		() => loadMcpIcons,
 		() => ({}) as Record<string, string>,
 		() => ({
 			queryKey: ["mcp-icons"],

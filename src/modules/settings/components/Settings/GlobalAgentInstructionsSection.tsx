@@ -1,6 +1,6 @@
+import { ErrorBoundary } from "@shared/ui/ErrorBoundary/index.tsx";
+import { SettingsSection } from "@shared/ui/SettingsSurface/index.tsx";
 import { Loading } from "solid-js";
-import { ErrorBoundary } from "../../../../shared/ui/ErrorBoundary/index.tsx";
-import { SettingsSection } from "../../../../shared/ui/SettingsSurface/index.tsx";
 import { InstructionsEditor } from "./InstructionsEditor.tsx";
 export function GlobalAgentInstructionsSection() {
 	return (

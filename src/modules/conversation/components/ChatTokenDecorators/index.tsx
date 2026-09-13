@@ -1,6 +1,6 @@
+import { project as rustProject } from "@shared/lib/native.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For, Show } from "solid-js";
-import { project as rustProject } from "../../../../shared/lib/native.tsx";
 import { styles } from "./styles.ts";
 
 type DecoratedTextProps = {

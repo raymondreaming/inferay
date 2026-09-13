@@ -1,8 +1,12 @@
 import type { HunkDiff } from "@contracts";
+import type { DiffRequest } from "@repository/model/diff.ts";
+import { loadGitDiff } from "@repository/services/gitApi.ts";
+import { useBackgroundQuery as useQuery } from "@shared/hooks/useQueryResource.tsx";
+import { prefetchSyntaxPreview } from "@shared/hooks/useSyntaxHighlight.tsx";
+import { queryClient } from "@shared/lib/dom.tsx";
 import { type Accessor, createMemo, onSettled } from "solid-js";
-import { useBackgroundQuery as useQuery } from "../../../shared/hooks/useQueryResource.tsx";
-import { prefetchSyntaxPreview } from "../../../shared/hooks/useSyntaxHighlight.tsx";
-import { queryClient } from "../../../shared/lib/dom.tsx";
+
+export type { DiffRequest } from "@repository/model/diff.ts";
 export function useGitDiff(
 	_request: Accessor<DiffRequest | null> = () => null,
 ) {
@@ -52,32 +56,13 @@ export function useGitDiff(
 		},
 	};
 }
-export interface DiffRequest {
-	cwd: string;
-	revision?: string;
-	file: string;
-	staged: boolean;
-	commitHash?: string;
-	commitParent?: string;
-	comparisonFrom?: string;
-	comparisonTo?: string;
-	view?: "full" | "review";
-}
 export async function fetchGitDiff(
-	request: DiffRequest,
+	input: DiffRequest,
 	signal: AbortSignal,
 ): Promise<HunkDiff> {
-	const query = new URLSearchParams();
-	for (const [key, value] of Object.entries(request))
-		if (value !== undefined) query.set(key, String(value));
-	const response = await fetch(`/api/git/diff?${query}`, {
-		signal: AbortSignal.any([signal, AbortSignal.timeout(12000)]),
-	});
-	if (!response.ok)
-		throw new Error(`Diff request failed (HTTP ${response.status})`);
-	const diff = (await response.json()) as HunkDiff;
+	const diff = await loadGitDiff(input, signal);
 	// Prepare the initial viewport; mounted panels classify the rest in the background.
-	await prefetchDiffSyntax(request, diff);
+	await prefetchDiffSyntax(input, diff);
 	signal.throwIfAborted();
 	return diff;
 }

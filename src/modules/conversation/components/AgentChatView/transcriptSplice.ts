@@ -1,4 +1,4 @@
-import type { ChatMessage } from "./useChatConnection.tsx";
+import type { ChatMessage } from "./types.ts";
 
 export type TranscriptAdmission =
 	| { kind: "none" | "ignore" | "resync"; reconnect?: boolean }

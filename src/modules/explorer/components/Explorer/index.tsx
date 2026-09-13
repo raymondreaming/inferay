@@ -1,10 +1,7 @@
+import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
+import { captureEvent } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { For } from "solid-js";
-import {
-	iconSize,
-	surfaceStyles,
-} from "../../../../design-system/styles.stylex.ts";
-import { captureEvent } from "../../../../shared/lib/dom.tsx";
 import { FolderTypeIcon } from "../FileTypeIcon/index.tsx";
 import { Directory } from "./Directory.tsx";
 import { styles } from "./styles.ts";

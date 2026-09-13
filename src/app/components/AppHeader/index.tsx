@@ -1,19 +1,19 @@
-import { useLocation, useNavigate } from "@solidjs/router";
-import { createMemo } from "solid-js";
-import { iconSize } from "../../../design-system/styles.stylex.ts";
-import { useWorkspaceState } from "../../../modules/workspace/hooks/useWorkspaceState.tsx";
+import { iconSize } from "@design-system/styles.stylex.ts";
 import {
 	dispatchCreateAgentChat,
 	dispatchOpenActiveGitGraph,
 	openSettingsModal,
 	openSkills,
-} from "../../../shared/lib/dom.tsx";
+} from "@shared/lib/dom.tsx";
 import {
 	IconGitBranch,
 	IconMessageCircle,
 	IconPlus,
 	IconSettings,
-} from "../../../shared/ui/Icons/index.tsx";
+} from "@shared/ui/Icons/index.tsx";
+import { useLocation, useNavigate } from "@solidjs/router";
+import { useWorkspaceState } from "@workspace/hooks/useWorkspaceState.tsx";
+import { createMemo } from "solid-js";
 import { CommandPalette } from "../CommandPalette/index.tsx";
 export function AppHeader() {
 	const navigate = useNavigate();

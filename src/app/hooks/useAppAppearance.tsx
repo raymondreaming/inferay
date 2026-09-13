@@ -7,12 +7,7 @@ import type {
 	AppThemeId,
 	BackgroundModel,
 } from "@contracts";
-import { createEffect, createMemo, onSettled } from "solid-js";
-import appearanceCatalog from "../../../build/presentation/appearance-catalog.json";
-import {
-	createExternalSignal,
-	listenWindowEvent,
-} from "../../shared/lib/dom.tsx";
+import { createExternalSignal, listenWindowEvent } from "@shared/lib/dom.tsx";
 import {
 	APP_BACKGROUND_STORAGE_KEY,
 	APP_FONT_STORAGE_KEY,
@@ -23,7 +18,9 @@ import {
 	project as rustProject,
 	writeStoredJson,
 	writeStoredValue,
-} from "../../shared/lib/native.tsx";
+} from "@shared/lib/native.tsx";
+import { createEffect, createMemo, onSettled } from "solid-js";
+import appearanceCatalog from "../../../build/presentation/appearance-catalog.json";
 
 const catalog = appearanceCatalog as AppearanceCatalog;
 declare global {

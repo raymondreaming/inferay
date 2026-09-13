@@ -1,3 +1,4 @@
+import type { CSSProperties } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	color,
@@ -8,7 +9,6 @@ import {
 	motion,
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
-import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 
 const CHAT_LIST_TOP_PADDING_PX = 16;
 const CHAT_LIST_BOTTOM_PADDING_PX = 16;

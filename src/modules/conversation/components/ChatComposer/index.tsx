@@ -1,19 +1,19 @@
-import * as stylex from "@stylexjs/stylex";
-import { Show } from "solid-js";
 import {
 	iconSize,
 	runtimeColor,
 	surfaceStyles,
-} from "../../../../design-system/styles.stylex.ts";
-import { ariaValue, assignRef, domStyle } from "../../../../shared/lib/dom.tsx";
-import { BorderBeamOverlay } from "../../../../shared/ui/BorderBeamOverlay/index.tsx";
-import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
+} from "@design-system/styles.stylex.ts";
+import { ariaValue, assignRef, domStyle } from "@shared/lib/dom.tsx";
+import { BorderBeamOverlay } from "@shared/ui/BorderBeamOverlay/index.tsx";
+import { IconButton } from "@shared/ui/IconButton/index.tsx";
 import {
 	IconAlertTriangle,
 	IconMic,
 	IconPlus,
 	IconStop,
-} from "../../../../shared/ui/Icons/index.tsx";
+} from "@shared/ui/Icons/index.tsx";
+import * as stylex from "@stylexjs/stylex";
+import { Show } from "solid-js";
 import { InputHighlights } from "../ChatTokenDecorators/index.tsx";
 import { CommandMenu } from "./CommandMenu.tsx";
 import { ComposerAttachments } from "./ComposerAttachments.tsx";

@@ -1,8 +1,8 @@
 import { Dynamic } from "@solidjs/web";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";
-import type { DropdownOption, DropdownOptionRenderer } from "./index.tsx";
 import { styles } from "./styles.ts";
+import type { DropdownOption, DropdownOptionRenderer } from "./types.ts";
 export function DropdownCustomOption(_props: {
 	opt: DropdownOption;
 	isSelected: boolean;

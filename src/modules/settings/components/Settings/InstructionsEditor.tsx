@@ -1,4 +1,5 @@
-import type { EffectiveAgentContext } from "@contracts";
+import { queryClient } from "@shared/lib/dom.tsx";
+import { Button } from "@shared/ui/Button/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	action,
@@ -7,9 +8,7 @@ import {
 	createSignal,
 	onCleanup,
 } from "solid-js";
-import { queryClient } from "../../../../shared/lib/dom.tsx";
-import { fetchJson, postJson } from "../../../../shared/lib/native.tsx";
-import { Button } from "../../../../shared/ui/Button/index.tsx";
+import { settingsApi } from "../../services/settingsApi.ts";
 import { styles } from "./styles.ts";
 
 export function InstructionsEditor() {
@@ -21,11 +20,7 @@ export function InstructionsEditor() {
 	const loaded = createMemo(async () => {
 		const controller = new AbortController();
 		onCleanup(() => controller.abort());
-		const context = await fetchJson<EffectiveAgentContext>(
-			"/api/agent-context?paneId=global-settings",
-			{ signal: controller.signal },
-		);
-		return context.global.instructions;
+		return settingsApi.loadGlobalInstructions(controller.signal);
 	});
 	// Saving changes the baseline without replacing edits typed during the request.
 	const [instructions, setInstructions] = createSignal(() => loaded());
@@ -36,16 +31,7 @@ export function InstructionsEditor() {
 	const [error, setError] = createSignal("");
 	const save = action(function* (value: string) {
 		setIsSaving(true);
-		yield postJson(
-			"/api/agent-context",
-			{
-				scope: "global",
-				instructions: value,
-				mode: "inherit",
-				paneId: "global-settings",
-			},
-			{ method: "PUT" },
-		);
+		yield settingsApi.saveGlobalInstructions(value);
 		if (!disposed) setSavedInstructions(value);
 		yield queryClient.invalidateQueries({ queryKey: ["agent-context"] });
 	});

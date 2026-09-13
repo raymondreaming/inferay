@@ -1,20 +1,24 @@
 import type { SlashCommand, WorkspaceAgentKind } from "@contracts";
 import {
+	type ChatFileSearchResult,
+	loadAgentCommands,
+	type ProviderConfigSelection,
+	resolveProviderConfig,
+	searchChatFiles,
+} from "@conversation/services/conversationApi.ts";
+import { useQueryResource } from "@shared/hooks/useQueryResource.tsx";
+import type { RefCell } from "@shared/lib/dom.tsx";
+import {
+	getAgentDefinition,
+	project as rustProject,
+} from "@shared/lib/native.tsx";
+import { changePaneAgentKind } from "@workspace/hooks/useWorkspaceState.tsx";
+import {
 	type Accessor,
 	createEffect,
 	createMemo,
 	createSignal,
 } from "solid-js";
-import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
-import type { RefCell } from "../../../shared/lib/dom.tsx";
-import {
-	fetchJson,
-	fetchJsonOr,
-	getAgentDefinition,
-	postJson,
-	project as rustProject,
-} from "../../../shared/lib/native.tsx";
-import { changePaneAgentKind } from "../../workspace/hooks/useWorkspaceState.tsx";
 export interface FileMenuState {
 	show: boolean;
 	selectedIdx: number;
@@ -27,11 +31,7 @@ export interface SlashMenuState {
 	query: string;
 	slashIndex: number;
 }
-export interface FileSearchResult {
-	name: string;
-	path: string;
-	isDir: boolean;
-}
+export type FileSearchResult = ChatFileSearchResult;
 interface UseAgentChatMenusOptions {
 	agentKind: WorkspaceAgentKind;
 	cwd?: string;
@@ -83,10 +83,7 @@ export function useAgentChatMenus(
 	const _source = useQueryResource(
 		() => {
 			const kind = _options().agentKind;
-			return (signal) =>
-				fetchJson<SlashCommand[]>(`/api/agent/commands?kind=${kind}`, {
-					signal,
-				});
+			return (signal) => loadAgentCommands(kind, signal);
 		},
 		() => getAgentDefinition(_options().agentKind).commands,
 		() => {
@@ -101,21 +98,11 @@ export function useAgentChatMenus(
 	const _source2 = useQueryResource(
 		() => {
 			const cwd = _options().cwd;
-			const params = new URLSearchParams({ q: fileMenu().query, limit: "15" });
-			if (cwd) params.set("cwd", cwd);
+			const query = fileMenu().query;
 			return async (signal) => {
 				await new Promise((resolve) => setTimeout(resolve, 150));
 				signal?.throwIfAborted();
-				const data = await fetchJsonOr<{
-					results?: FileSearchResult[];
-				}>(
-					`/api/files/search?${params}`,
-					{},
-					{
-						signal,
-					},
-				);
-				return data.results ?? [];
+				return searchChatFiles(query, cwd, signal);
 			};
 		},
 		() => [] as FileSearchResult[],
@@ -271,7 +258,7 @@ export function useAgentChatSettings(
 	_paneId: Accessor<string>,
 	_agentKind: Accessor<WorkspaceAgentKind>,
 ) {
-	const [selection, setSelection] = createSignal({
+	const [selection, setSelection] = createSignal<ProviderConfigSelection>({
 		model: "",
 		reasoningLevel: "",
 	});
@@ -295,10 +282,7 @@ export function useAgentChatSettings(
 		requests.current = requests.current.then(async () => {
 			if (version !== scopeVersion) return;
 			try {
-				const resolved = await postJson<ReturnType<typeof selection>>(
-					"/api/native/provider-config",
-					target,
-				);
+				const resolved = await resolveProviderConfig(target);
 				if (revision !== requestRevision.current) return;
 				setSelection(resolved);
 				setConfigurationError(null);

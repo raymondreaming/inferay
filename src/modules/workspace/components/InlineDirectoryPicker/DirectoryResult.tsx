@@ -1,10 +1,10 @@
-import * as stylex from "@stylexjs/stylex";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
+import { iconSize } from "@design-system/styles.stylex.ts";
 import {
 	IconChevronRight,
 	IconFolder,
 	IconGitBranch,
-} from "../../../../shared/ui/Icons/index.tsx";
+} from "@shared/ui/Icons/index.tsx";
+import * as stylex from "@stylexjs/stylex";
 import { styles } from "./styles.ts";
 export function DirectoryResult(_props: {
 	pick: {

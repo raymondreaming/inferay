@@ -166,89 +166,89 @@ Each heading links to the component entry point. Folders with local style rules 
 - [SkillsDialog.tsx](../src/modules/skills/components/SkillsModal/SkillsDialog.tsx): `SkillsDialog`.
 - [index.tsx](../src/modules/skills/components/SkillsModal/index.tsx): `SkillsModalHost`.
 
-### [src/modules/workbench/changes/components/ChangesPanel](../src/modules/workbench/changes/components/ChangesPanel/index.tsx)
+### [src/modules/repository/components/changes/components/ChangesPanel](../src/modules/repository/components/changes/components/ChangesPanel/index.tsx)
 
-- [ChangesPanelHeader.tsx](../src/modules/workbench/changes/components/ChangesPanel/ChangesPanelHeader.tsx): `ChangesPanelHeader`.
-- [CollapsedChangesPanel.tsx](../src/modules/workbench/changes/components/ChangesPanel/CollapsedChangesPanel.tsx): `CollapsedChangesPanel`.
-- [CommitSection.tsx](../src/modules/workbench/changes/components/ChangesPanel/CommitSection.tsx): `CommitSection`.
-- [DetailIdentity.tsx](../src/modules/workbench/changes/components/ChangesPanel/DetailIdentity.tsx): `DetailIdentity`.
-- [FileActionIcon.tsx](../src/modules/workbench/changes/components/ChangesPanel/FileActionIcon.tsx): `FileActionIcon`.
-- [FileChangeIcon.tsx](../src/modules/workbench/changes/components/ChangesPanel/FileChangeIcon.tsx): `FileChangeIcon`.
-- [FileChangeTotals.tsx](../src/modules/workbench/changes/components/ChangesPanel/FileChangeTotals.tsx): `FileChangeTotals`.
-- [FileDiffStats.tsx](../src/modules/workbench/changes/components/ChangesPanel/FileDiffStats.tsx): `FileDiffStats`.
-- [FileGroup.tsx](../src/modules/workbench/changes/components/ChangesPanel/FileGroup.tsx): `FileGroup`.
-- [FileStatusIcon.tsx](../src/modules/workbench/changes/components/ChangesPanel/FileStatusIcon.tsx): `FileStatusIcon`.
-- [FileViewToggle.tsx](../src/modules/workbench/changes/components/ChangesPanel/FileViewToggle.tsx): `FileViewToggle`.
-- [HistoricalDetailsPanel.tsx](../src/modules/workbench/changes/components/ChangesPanel/HistoricalDetailsPanel.tsx): `HistoricalDetailsPanel`.
-- [HistoricalFileList.tsx](../src/modules/workbench/changes/components/ChangesPanel/HistoricalFileList.tsx): `HistoricalFileList`.
-- [TreeNodeRow.tsx](../src/modules/workbench/changes/components/ChangesPanel/TreeNodeRow.tsx): `TreeNodeRow`.
-- [index.tsx](../src/modules/workbench/changes/components/ChangesPanel/index.tsx): `ChangesPanel`.
+- [ChangesPanelHeader.tsx](../src/modules/repository/components/changes/components/ChangesPanel/ChangesPanelHeader.tsx): `ChangesPanelHeader`.
+- [CollapsedChangesPanel.tsx](../src/modules/repository/components/changes/components/ChangesPanel/CollapsedChangesPanel.tsx): `CollapsedChangesPanel`.
+- [CommitSection.tsx](../src/modules/repository/components/changes/components/ChangesPanel/CommitSection.tsx): `CommitSection`.
+- [DetailIdentity.tsx](../src/modules/repository/components/changes/components/ChangesPanel/DetailIdentity.tsx): `DetailIdentity`.
+- [FileActionIcon.tsx](../src/modules/repository/components/changes/components/ChangesPanel/FileActionIcon.tsx): `FileActionIcon`.
+- [FileChangeIcon.tsx](../src/modules/repository/components/changes/components/ChangesPanel/FileChangeIcon.tsx): `FileChangeIcon`.
+- [FileChangeTotals.tsx](../src/modules/repository/components/changes/components/ChangesPanel/FileChangeTotals.tsx): `FileChangeTotals`.
+- [FileDiffStats.tsx](../src/modules/repository/components/changes/components/ChangesPanel/FileDiffStats.tsx): `FileDiffStats`.
+- [FileGroup.tsx](../src/modules/repository/components/changes/components/ChangesPanel/FileGroup.tsx): `FileGroup`.
+- [FileStatusIcon.tsx](../src/modules/repository/components/changes/components/ChangesPanel/FileStatusIcon.tsx): `FileStatusIcon`.
+- [FileViewToggle.tsx](../src/modules/repository/components/changes/components/ChangesPanel/FileViewToggle.tsx): `FileViewToggle`.
+- [HistoricalDetailsPanel.tsx](../src/modules/repository/components/changes/components/ChangesPanel/HistoricalDetailsPanel.tsx): `HistoricalDetailsPanel`.
+- [HistoricalFileList.tsx](../src/modules/repository/components/changes/components/ChangesPanel/HistoricalFileList.tsx): `HistoricalFileList`.
+- [TreeNodeRow.tsx](../src/modules/repository/components/changes/components/ChangesPanel/TreeNodeRow.tsx): `TreeNodeRow`.
+- [index.tsx](../src/modules/repository/components/changes/components/ChangesPanel/index.tsx): `ChangesPanel`.
 
-### [src/modules/workbench/components/ChatDiffPanel](../src/modules/workbench/components/ChatDiffPanel/index.tsx)
+### [src/modules/repository/components/operations/ChatDiffPanel](../src/modules/repository/components/operations/ChatDiffPanel/index.tsx)
 
-- [DiffFilePath.tsx](../src/modules/workbench/components/ChatDiffPanel/DiffFilePath.tsx): `DiffFilePath`.
-- [GraphActionDialog.tsx](../src/modules/workbench/components/ChatDiffPanel/GraphActionDialog.tsx): `GraphActionDialog`.
-- [RefOperationDialog.tsx](../src/modules/workbench/components/ChatDiffPanel/RefOperationDialog.tsx): `RefOperationDialog`.
-- [RepositoryOperationBar.tsx](../src/modules/workbench/components/ChatDiffPanel/RepositoryOperationBar.tsx): `RepositoryOperationBar`.
-- [ViewerHeader.tsx](../src/modules/workbench/components/ChatDiffPanel/ViewerHeader.tsx): `ViewerHeader`.
-- [index.tsx](../src/modules/workbench/components/ChatDiffPanel/index.tsx): `ChatDiffPanel`.
-- Supporting files: [useChatDiffPanelState.tsx](../src/modules/workbench/components/ChatDiffPanel/useChatDiffPanelState.tsx).
+- [DiffFilePath.tsx](../src/modules/repository/components/operations/ChatDiffPanel/DiffFilePath.tsx): `DiffFilePath`.
+- [GraphActionDialog.tsx](../src/modules/repository/components/operations/ChatDiffPanel/GraphActionDialog.tsx): `GraphActionDialog`.
+- [RefOperationDialog.tsx](../src/modules/repository/components/operations/ChatDiffPanel/RefOperationDialog.tsx): `RefOperationDialog`.
+- [RepositoryOperationBar.tsx](../src/modules/repository/components/operations/ChatDiffPanel/RepositoryOperationBar.tsx): `RepositoryOperationBar`.
+- [ViewerHeader.tsx](../src/modules/repository/components/operations/ChatDiffPanel/ViewerHeader.tsx): `ViewerHeader`.
+- [index.tsx](../src/modules/repository/components/operations/ChatDiffPanel/index.tsx): `ChatDiffPanel`.
+- Supporting files: [useChatDiffPanelState.tsx](../src/modules/repository/components/operations/ChatDiffPanel/useChatDiffPanelState.tsx).
 
-### [src/modules/workbench/components/WorkbenchPanels](../src/modules/workbench/components/WorkbenchPanels/index.tsx)
+### [src/modules/repository/components/RepositoryWorkbenchPanels](../src/modules/repository/components/RepositoryWorkbenchPanels/index.tsx)
 
-- [WorkbenchSidebar.tsx](../src/modules/workbench/components/WorkbenchPanels/WorkbenchSidebar.tsx): `WorkbenchSidebar`.
-- [index.tsx](../src/modules/workbench/components/WorkbenchPanels/index.tsx): `WorkbenchDiffRail`.
+- [WorkbenchSidebar.tsx](../src/modules/repository/components/RepositoryWorkbenchPanels/WorkbenchSidebar.tsx): `WorkbenchSidebar`.
+- [index.tsx](../src/modules/repository/components/RepositoryWorkbenchPanels/index.tsx): `WorkbenchDiffRail`.
 
-### [src/modules/workbench/components/WorkspaceDockHandle](../src/modules/workbench/components/WorkspaceDockHandle/index.tsx)
+### [src/modules/workspace/components/WorkspaceDockHandle](../src/modules/workspace/components/WorkspaceDockHandle/index.tsx)
 
-- [index.tsx](../src/modules/workbench/components/WorkspaceDockHandle/index.tsx): `WorkspaceDockHandle`.
+- [index.tsx](../src/modules/workspace/components/WorkspaceDockHandle/index.tsx): `WorkspaceDockHandle`.
 
-### [src/modules/workbench/diff/components/DiffViewer](../src/modules/workbench/diff/components/DiffViewer/index.tsx)
+### [src/modules/repository/components/diff/components/DiffViewer](../src/modules/repository/components/diff/components/DiffViewer/index.tsx)
 
-- [DiffGutterCells.tsx](../src/modules/workbench/diff/components/DiffViewer/DiffGutterCells.tsx): `DiffGutterCells`.
-- [DiffGutterRow.tsx](../src/modules/workbench/diff/components/DiffViewer/DiffGutterRow.tsx): `DiffGutterRow`.
-- [DiffHeader.tsx](../src/modules/workbench/diff/components/DiffViewer/DiffHeader.tsx): `DiffHeader`.
-- [DiffMinimap.tsx](../src/modules/workbench/diff/components/DiffViewer/DiffMinimap.tsx): `DiffMinimap`.
-- [DiffPanels.tsx](../src/modules/workbench/diff/components/DiffViewer/DiffPanels.tsx): `DiffPanels`.
-- [DiffRow.tsx](../src/modules/workbench/diff/components/DiffViewer/DiffRow.tsx): `DiffRow`.
-- [DiffViewButton.tsx](../src/modules/workbench/diff/components/DiffViewer/DiffViewButton.tsx): `DiffViewButton`.
-- [DiffViewToolbar.tsx](../src/modules/workbench/diff/components/DiffViewer/DiffViewToolbar.tsx): `DiffViewToolbar`.
-- [VirtualPanel.tsx](../src/modules/workbench/diff/components/DiffViewer/VirtualPanel.tsx): `VirtualPanel`.
-- [index.tsx](../src/modules/workbench/diff/components/DiffViewer/index.tsx): `DiffViewer`.
+- [DiffGutterCells.tsx](../src/modules/repository/components/diff/components/DiffViewer/DiffGutterCells.tsx): `DiffGutterCells`.
+- [DiffGutterRow.tsx](../src/modules/repository/components/diff/components/DiffViewer/DiffGutterRow.tsx): `DiffGutterRow`.
+- [DiffHeader.tsx](../src/modules/repository/components/diff/components/DiffViewer/DiffHeader.tsx): `DiffHeader`.
+- [DiffMinimap.tsx](../src/modules/repository/components/diff/components/DiffViewer/DiffMinimap.tsx): `DiffMinimap`.
+- [DiffPanels.tsx](../src/modules/repository/components/diff/components/DiffViewer/DiffPanels.tsx): `DiffPanels`.
+- [DiffRow.tsx](../src/modules/repository/components/diff/components/DiffViewer/DiffRow.tsx): `DiffRow`.
+- [DiffViewButton.tsx](../src/modules/repository/components/diff/components/DiffViewer/DiffViewButton.tsx): `DiffViewButton`.
+- [DiffViewToolbar.tsx](../src/modules/repository/components/diff/components/DiffViewer/DiffViewToolbar.tsx): `DiffViewToolbar`.
+- [VirtualPanel.tsx](../src/modules/repository/components/diff/components/DiffViewer/VirtualPanel.tsx): `VirtualPanel`.
+- [index.tsx](../src/modules/repository/components/diff/components/DiffViewer/index.tsx): `DiffViewer`.
 
-### [src/modules/workbench/diff/components/DiffViewerBoundary](../src/modules/workbench/diff/components/DiffViewerBoundary/index.tsx)
+### [src/modules/repository/components/diff/components/DiffViewerBoundary](../src/modules/repository/components/diff/components/DiffViewerBoundary/index.tsx)
 
-- [DiffFallback.tsx](../src/modules/workbench/diff/components/DiffViewerBoundary/DiffFallback.tsx): `DiffFallback`.
-- [index.tsx](../src/modules/workbench/diff/components/DiffViewerBoundary/index.tsx): `DiffViewerBoundary`.
+- [DiffFallback.tsx](../src/modules/repository/components/diff/components/DiffViewerBoundary/DiffFallback.tsx): `DiffFallback`.
+- [index.tsx](../src/modules/repository/components/diff/components/DiffViewerBoundary/index.tsx): `DiffViewerBoundary`.
 
-### [src/modules/workbench/diff/components/MarkdownPreview](../src/modules/workbench/diff/components/MarkdownPreview/index.tsx)
+### [src/modules/repository/components/diff/components/MarkdownPreview](../src/modules/repository/components/diff/components/MarkdownPreview/index.tsx)
 
-- [BlockRenderer.tsx](../src/modules/workbench/diff/components/MarkdownPreview/BlockRenderer.tsx): `BlockRenderer`.
-- [InlineTokens.tsx](../src/modules/workbench/diff/components/MarkdownPreview/InlineTokens.tsx): `InlineTokens`.
-- [ListItemRenderer.tsx](../src/modules/workbench/diff/components/MarkdownPreview/ListItemRenderer.tsx): `ListItemRenderer`.
-- [MermaidBlock.tsx](../src/modules/workbench/diff/components/MarkdownPreview/MermaidBlock.tsx): `MermaidBlock`.
-- [index.tsx](../src/modules/workbench/diff/components/MarkdownPreview/index.tsx): `MarkdownPreview`.
+- [BlockRenderer.tsx](../src/modules/repository/components/diff/components/MarkdownPreview/BlockRenderer.tsx): `BlockRenderer`.
+- [InlineTokens.tsx](../src/modules/repository/components/diff/components/MarkdownPreview/InlineTokens.tsx): `InlineTokens`.
+- [ListItemRenderer.tsx](../src/modules/repository/components/diff/components/MarkdownPreview/ListItemRenderer.tsx): `ListItemRenderer`.
+- [MermaidBlock.tsx](../src/modules/repository/components/diff/components/MarkdownPreview/MermaidBlock.tsx): `MermaidBlock`.
+- [index.tsx](../src/modules/repository/components/diff/components/MarkdownPreview/index.tsx): `MarkdownPreview`.
 
-### [src/modules/workbench/documents/components/DocumentViewer](../src/modules/workbench/documents/components/DocumentViewer/index.tsx)
+### [src/modules/repository/components/documents/components/DocumentViewer](../src/modules/repository/components/documents/components/DocumentViewer/index.tsx)
 
-- [SourcePreview.tsx](../src/modules/workbench/documents/components/DocumentViewer/SourcePreview.tsx): `SourcePreview`.
-- [index.tsx](../src/modules/workbench/documents/components/DocumentViewer/index.tsx): `DocumentViewer`.
+- [SourcePreview.tsx](../src/modules/repository/components/documents/components/DocumentViewer/SourcePreview.tsx): `SourcePreview`.
+- [index.tsx](../src/modules/repository/components/documents/components/DocumentViewer/index.tsx): `DocumentViewer`.
 
-### [src/modules/workbench/graph/components/CommitGraph](../src/modules/workbench/graph/components/CommitGraph/index.tsx)
+### [src/modules/repository/components/graph/components/CommitGraph](../src/modules/repository/components/graph/components/CommitGraph/index.tsx)
 
-- [AuthorAvatar.tsx](../src/modules/workbench/graph/components/CommitGraph/AuthorAvatar.tsx): `AuthorAvatar`.
-- [ColumnResizeHandle.tsx](../src/modules/workbench/graph/components/CommitGraph/ColumnResizeHandle.tsx): `ColumnResizeHandle`.
-- [CommitRow.tsx](../src/modules/workbench/graph/components/CommitGraph/CommitRow.tsx): `CommitRow`.
-- [ContextMenu.tsx](../src/modules/workbench/graph/components/CommitGraph/ContextMenu.tsx): `ContextMenu`.
-- [HeaderRow.tsx](../src/modules/workbench/graph/components/CommitGraph/HeaderRow.tsx): `HeaderRow`.
-- [MergeNode.tsx](../src/modules/workbench/graph/components/CommitGraph/MergeNode.tsx): `MergeNode`.
-- [RefBadge.tsx](../src/modules/workbench/graph/components/CommitGraph/RefBadge.tsx): `RefBadge`.
-- [RefBadges.tsx](../src/modules/workbench/graph/components/CommitGraph/RefBadges.tsx): `RefBadges`.
-- [RefContextMenu.tsx](../src/modules/workbench/graph/components/CommitGraph/RefContextMenu.tsx): `RefContextMenu`.
-- [RefIcon.tsx](../src/modules/workbench/graph/components/CommitGraph/RefIcon.tsx): `RefIcon`.
-- [RowContextMenu.tsx](../src/modules/workbench/graph/components/CommitGraph/RowContextMenu.tsx): `RowContextMenu`.
-- [index.tsx](../src/modules/workbench/graph/components/CommitGraph/index.tsx): `CommitGraph`.
-- Supporting files: [useCommitGraphState.tsx](../src/modules/workbench/graph/components/CommitGraph/useCommitGraphState.tsx).
+- [AuthorAvatar.tsx](../src/modules/repository/components/graph/components/CommitGraph/AuthorAvatar.tsx): `AuthorAvatar`.
+- [ColumnResizeHandle.tsx](../src/modules/repository/components/graph/components/CommitGraph/ColumnResizeHandle.tsx): `ColumnResizeHandle`.
+- [CommitRow.tsx](../src/modules/repository/components/graph/components/CommitGraph/CommitRow.tsx): `CommitRow`.
+- [ContextMenu.tsx](../src/modules/repository/components/graph/components/CommitGraph/ContextMenu.tsx): `ContextMenu`.
+- [HeaderRow.tsx](../src/modules/repository/components/graph/components/CommitGraph/HeaderRow.tsx): `HeaderRow`.
+- [MergeNode.tsx](../src/modules/repository/components/graph/components/CommitGraph/MergeNode.tsx): `MergeNode`.
+- [RefBadge.tsx](../src/modules/repository/components/graph/components/CommitGraph/RefBadge.tsx): `RefBadge`.
+- [RefBadges.tsx](../src/modules/repository/components/graph/components/CommitGraph/RefBadges.tsx): `RefBadges`.
+- [RefContextMenu.tsx](../src/modules/repository/components/graph/components/CommitGraph/RefContextMenu.tsx): `RefContextMenu`.
+- [RefIcon.tsx](../src/modules/repository/components/graph/components/CommitGraph/RefIcon.tsx): `RefIcon`.
+- [RowContextMenu.tsx](../src/modules/repository/components/graph/components/CommitGraph/RowContextMenu.tsx): `RowContextMenu`.
+- [index.tsx](../src/modules/repository/components/graph/components/CommitGraph/index.tsx): `CommitGraph`.
+- Supporting files: [useCommitGraphState.tsx](../src/modules/repository/components/graph/components/CommitGraph/useCommitGraphState.tsx).
 
 ### [src/modules/workspace/components/AgentPage](../src/modules/workspace/components/AgentPage/index.tsx)
 

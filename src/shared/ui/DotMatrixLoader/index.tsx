@@ -4,6 +4,10 @@ import { type CSSProperties, domStyle } from "../../lib/dom.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
+export { DotMatrixRipple } from "./DotMatrixRipple.tsx";
+export { DotMatrixWeave } from "./DotMatrixWeave.tsx";
+export { ThinkingIndicator } from "./ThinkingIndicator.tsx";
+
 const SPIRAL_ORDER_5 = [
 	0, 1, 2, 3, 4, 15, 16, 17, 18, 5, 14, 23, 24, 19, 6, 13, 22, 21, 20, 7, 12,
 	11, 10, 9, 8,
@@ -60,9 +64,6 @@ function DotMatrixLoader(_props: DotMatrixLoaderProps) {
 }
 void DotMatrixLoader;
 
-export { DotMatrixRipple } from "./DotMatrixRipple.tsx";
-export { DotMatrixWeave } from "./DotMatrixWeave.tsx";
-export { ThinkingIndicator } from "./ThinkingIndicator.tsx";
 export interface DotMatrixLoaderProps {
 	dotSize?: number;
 	gap?: number;

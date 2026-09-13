@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { InlineDirectoryPicker } from "../../../workspace/components/InlineDirectoryPicker/index.tsx";
+import { InlineDirectoryPicker } from "@workspace/components/InlineDirectoryPicker/index.tsx";
 import { DirectoryPickerModal } from "./DirectoryPickerModal.tsx";
 import { styles } from "./styles.ts";
 export function ChatWorkspacePicker(_props: {

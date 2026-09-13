@@ -6,9 +6,9 @@ import {
 	DropdownCustomOption,
 	selectDropdownOption,
 } from "./DropdownCustomOption.tsx";
-import type { DropdownOption, DropdownOptionRenderer } from "./index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
+import type { DropdownOption, DropdownOptionRenderer } from "./types.ts";
 export function DropdownOptions(_props: {
 	maxHeight: number;
 	filtered: readonly DropdownOption[];

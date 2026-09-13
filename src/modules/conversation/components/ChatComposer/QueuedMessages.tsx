@@ -4,18 +4,19 @@ import { QueuedMessageRow } from "./QueuedMessageRow.tsx";
 import { styles } from "./styles.ts";
 import type { useChatComposerState } from "./useChatComposerState.tsx";
 
-type QueuedMessagesProps = Pick<
-	ReturnType<typeof useChatComposerState>,
-	| "queuedMessages"
-	| "editingQueueId"
-	| "editingQueueText"
-	| "setEditingQueueText"
-	| "startQueuedMessageEdit"
-	| "cancelQueuedMessageEdit"
-	| "saveQueuedMessageEdit"
-	| "removeQueuedMessage"
->;
-export function QueuedMessages(_props: QueuedMessagesProps) {
+export function QueuedMessages(
+	_props: Pick<
+		ReturnType<typeof useChatComposerState>,
+		| "queuedMessages"
+		| "editingQueueId"
+		| "editingQueueText"
+		| "setEditingQueueText"
+		| "startQueuedMessageEdit"
+		| "cancelQueuedMessageEdit"
+		| "saveQueuedMessageEdit"
+		| "removeQueuedMessage"
+	>,
+) {
 	return (
 		<div {...stylex.attrs(styles.queueList)}>
 			{

@@ -1,19 +1,20 @@
-import * as stylex from "@stylexjs/stylex";
-import { createMemo, createSignal, For } from "solid-js";
 import {
 	updateAppBackground,
 	useBackgroundModel,
 	usesNativeGlass,
-} from "../../../../app/hooks/useAppAppearance.tsx";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { Button } from "../../../../shared/ui/Button/index.tsx";
-import { IconFolder } from "../../../../shared/ui/Icons/index.tsx";
+} from "@app/hooks/useAppAppearance.tsx";
+import { iconSize } from "@design-system/styles.stylex.ts";
+import { Button } from "@shared/ui/Button/index.tsx";
+import { IconFolder } from "@shared/ui/Icons/index.tsx";
 import {
 	SettingsRow,
 	SettingsSection,
 	SettingsSegment,
 	SettingsSegmented,
-} from "../../../../shared/ui/SettingsSurface/index.tsx";
+} from "@shared/ui/SettingsSurface/index.tsx";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo, createSignal, For } from "solid-js";
+import { settingsApi } from "../../services/settingsApi.ts";
 import { BackgroundSceneCard } from "./BackgroundSceneCard.tsx";
 import { BackgroundSceneControls } from "./BackgroundSceneControls.tsx";
 import { styles } from "./styles.ts";
@@ -37,19 +38,7 @@ export function BackgroundScenePicker() {
 		setUploading(true);
 		setUploadError(null);
 		try {
-			const formData = new FormData();
-			formData.append("file", file);
-			const response = await fetch("/api/config/background-image", {
-				method: "POST",
-				body: formData,
-			});
-			if (!response.ok) {
-				const failure = await response.json().catch(() => null);
-				throw new Error(failure?.error || "Could not import that image");
-			}
-			const payload = (await response.json()) as {
-				revision: number;
-			};
+			const payload = await settingsApi.uploadBackgroundImage(file);
 			updateAppBackground({
 				customRevision: payload.revision,
 			});

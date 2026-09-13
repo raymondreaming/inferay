@@ -1,7 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { styles } from "./styles.ts";
 
-type AgentMainSurfaceProps = {
+export function AgentMainSurface(_props: {
 	readonly active?: boolean;
 	readonly repositoryCwd?: string;
 	readonly paneCount?: number;
@@ -10,8 +10,7 @@ type AgentMainSurfaceProps = {
 	readonly chatZenMode: boolean;
 	readonly hasCurrentPanes: boolean;
 	readonly agentGrid: import("solid-js").Element;
-};
-export function AgentMainSurface(_props: AgentMainSurfaceProps) {
+}) {
 	return (
 		<div
 			data-repository-surface={_props.repositoryCwd}

@@ -1,20 +1,11 @@
+import { AgentIcon } from "@agents/components/AgentIcon/index.tsx";
 import type { Pane } from "@contracts";
+import { iconSize, selectionAppearance } from "@design-system/styles.stylex.ts";
+import { ariaValue, dispatchRemoveAgentPaneRequest } from "@shared/lib/dom.tsx";
+import { isChatAgentKind, readStoredValue } from "@shared/lib/native.tsx";
+import { IconAgent, IconX } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";
-import {
-	iconSize,
-	selectionAppearance,
-} from "../../../../design-system/styles.stylex.ts";
-import {
-	ariaValue,
-	dispatchRemoveAgentPaneRequest,
-} from "../../../../shared/lib/dom.tsx";
-import {
-	isChatAgentKind,
-	readStoredValue,
-} from "../../../../shared/lib/native.tsx";
-import { IconAgent, IconX } from "../../../../shared/ui/Icons/index.tsx";
-import { AgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
 import { styles } from "./styles.ts";
 export function PaneSummaryItem(_props: {
 	pane: Pane;

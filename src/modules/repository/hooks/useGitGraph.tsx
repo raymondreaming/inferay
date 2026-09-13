@@ -3,15 +3,22 @@ import type {
 	GitCommitDetails,
 	GitComparisonDetails,
 	GitGraphItemKind,
-	GitGraphRef,
-	GitRepositoryOperationState,
-	GitRepositorySnapshotState,
-	GitStash,
-	GitWorktree,
-	GraphActionPresentation,
-	GraphCommit,
-	GraphRow,
 } from "@contracts";
+import {
+	DEFAULT_GIT_GRAPH_HISTORY_LIMIT,
+	EMPTY_GRAPH,
+	type GraphData,
+	type GraphSemanticPreferences,
+} from "@repository/model/gitGraph.ts";
+import {
+	loadGitCommitDetails,
+	loadGitComparisonDetails,
+	loadGitGraph,
+} from "@repository/services/gitApi.ts";
+import {
+	usePollingQuery,
+	useQueryResource,
+} from "@shared/hooks/useQueryResource.tsx";
 import {
 	type Accessor,
 	createMemo,
@@ -19,11 +26,12 @@ import {
 	merge,
 	untrack,
 } from "solid-js";
-import {
-	usePollingQuery,
-	useQueryResource,
-} from "../../../shared/hooks/useQueryResource.tsx";
-import { DEFAULT_GIT_GRAPH_HISTORY_LIMIT } from "../../workbench/graph/components/CommitGraph/useCommitGraphState.tsx";
+
+export type {
+	GraphData,
+	GraphPresentation,
+	GraphSemanticPreferences,
+} from "@repository/model/gitGraph.ts";
 export function useGitGraph(
 	_cwd: Accessor<string | undefined>,
 	_limit: Accessor<number> = () => DEFAULT_GIT_GRAPH_HISTORY_LIMIT,
@@ -122,7 +130,7 @@ export function useCommitDetails(
 			hash = _hash(),
 			parent = _parent();
 		return (signal?: AbortSignal) =>
-			fetchCommitDetails(cwd, hash, parent, signal);
+			loadGitCommitDetails(cwd, hash, parent, signal);
 	};
 	const _source2 = useQueryResource<GitCommitDetails | null>(
 		request,
@@ -178,7 +186,7 @@ export function useComparisonDetails(
 			toHash = _toHash(),
 			selection = selectionKey();
 		return (signal?: AbortSignal) =>
-			fetchComparisonDetails(cwd, fromHash, toHash, selection, signal);
+			loadGitComparisonDetails(cwd, fromHash, toHash, selection, signal);
 	};
 	const _source = useQueryResource<{
 		details: GitComparisonDetails | null;
@@ -212,58 +220,6 @@ export function useComparisonDetails(
 		},
 	};
 }
-export interface GraphData {
-	actions: Record<string, GraphActionPresentation>;
-	commits: GraphCommit[];
-	rows: GraphRow[];
-	hasMore: boolean;
-	worktrees: GitWorktree[];
-	stashes: GitStash[];
-	revision: string;
-	operation: GitRepositoryOperationState;
-	presentation: GraphPresentation;
-	state: GitRepositorySnapshotState;
-	stateError?: string;
-}
-export interface GraphSemanticPreferences {
-	hiddenRefs: string[];
-	soloRefs: string[];
-	pinnedRefs: string[];
-}
-export interface GraphPresentation {
-	containingBranches: Record<string, GitGraphRef>;
-	defaultRemoteName?: string;
-	hiddenRefDetails: GitGraphRef[];
-	hiddenRefNames: string[];
-	pinnedColumns: number[];
-	pinnedRefNames: string[];
-	reachableHistory: string[];
-	selectableItems: string[];
-}
-export const EMPTY_GRAPH: GraphData = {
-	actions: {},
-	commits: [],
-	rows: [],
-	hasMore: false,
-	worktrees: [],
-	stashes: [],
-	revision: "",
-	operation: {
-		kind: "idle",
-		phase: "idle",
-		conflicts: [],
-	},
-	presentation: {
-		containingBranches: {},
-		hiddenRefDetails: [],
-		hiddenRefNames: [],
-		pinnedColumns: [],
-		pinnedRefNames: [],
-		reachableHistory: [],
-		selectableItems: [],
-	},
-	state: "empty",
-};
 export function createGitGraphReader() {
 	let response: {
 		key: string;
@@ -281,24 +237,13 @@ export function createGitGraphReader() {
 		const preferenceKey = JSON.stringify(preferences);
 		const key = `${cwd}\0${limit}\0${searchQuery}\0${preferenceKey}`;
 		const cached = response?.key === key ? response : null;
-		const res = await fetch(
-			`/api/git/graph?cwd=${encodeURIComponent(cwd)}&limit=${limit}&query=${encodeURIComponent(searchQuery)}&hiddenRefs=${encodeURIComponent(JSON.stringify(preferences.hiddenRefs))}&soloRefs=${encodeURIComponent(JSON.stringify(preferences.soloRefs))}&pinnedRefs=${encodeURIComponent(JSON.stringify(preferences.pinnedRefs))}`,
-			{
-				signal,
-				headers: cached
-					? {
-							"If-None-Match": cached.etag,
-						}
-					: undefined,
-			},
+		const result = await loadGitGraph(
+			{ cwd, limit, query: searchQuery, preferences, etag: cached?.etag },
+			signal,
 		);
-		if (res.status === 304 && cached) return cached.data;
-		if (!res.ok) {
-			const error = await res.json().catch(() => null);
-			throw new Error(error?.error || "Failed to fetch Git history");
-		}
-		const data = (await res.json()) as GraphData;
-		const etag = res.headers?.get("etag");
+		if (result.notModified && cached) return cached.data;
+		const data = result.data ?? EMPTY_GRAPH;
+		const etag = result.etag;
 		if (etag && !signal?.aborted)
 			response = {
 				key,
@@ -306,57 +251,5 @@ export function createGitGraphReader() {
 				data,
 			};
 		return data;
-	};
-}
-export async function fetchCommitDetails(
-	cwd: string | undefined,
-	hash: string | undefined,
-	parent?: string,
-	signal?: AbortSignal,
-): Promise<GitCommitDetails | null> {
-	if (!cwd || !hash) return null;
-	const parentQuery = parent ? `&parent=${encodeURIComponent(parent)}` : "";
-	const res = await fetch(
-		`/api/git/commit-details?cwd=${encodeURIComponent(cwd)}&hash=${encodeURIComponent(hash)}${parentQuery}`,
-		{
-			signal,
-		},
-	);
-	if (!res.ok) throw new Error("Failed to fetch commit details");
-	const json = await res.json();
-	// The bundled Rust server owns the canonical commit-details schema.
-	return (json.details ?? null) as GitCommitDetails | null;
-}
-export async function fetchComparisonDetails(
-	cwd: string | undefined,
-	fromHash: string | undefined,
-	toHash: string | undefined,
-	selectionKey?: string,
-	signal?: AbortSignal,
-) {
-	if (!cwd || (!selectionKey && (!fromHash || !toHash || fromHash === toHash)))
-		return null;
-	const query = selectionKey
-		? ""
-		: `from=${encodeURIComponent(fromHash!)}&to=${encodeURIComponent(toHash!)}`;
-	const res = await fetch(
-		`/api/git/comparison-details?cwd=${encodeURIComponent(cwd)}&${query}`,
-		selectionKey
-			? {
-					signal,
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-					},
-					body: `{"selection":${selectionKey}}`,
-				}
-			: {
-					signal,
-				},
-	);
-	if (!res.ok) throw new Error("Failed to compare commits");
-	return (await res.json()) as {
-		details: GitComparisonDetails | null;
-		plan: ComparisonPlan | null;
 	};
 }

@@ -1,5 +1,5 @@
+import { iconSize } from "@design-system/styles.stylex.ts";
 import * as stylex from "@stylexjs/stylex";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { FileTypeIcon } from "../FileTypeIcon/index.tsx";
 import type { FileSearchResult } from "./index.tsx";
 import { styles } from "./styles.ts";

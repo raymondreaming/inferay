@@ -1,20 +1,21 @@
+import { iconSize } from "@design-system/styles.stylex.ts";
+import { ariaValue, assignRef } from "@shared/lib/dom.tsx";
+import { IconCheck } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { For } from "solid-js";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { ariaValue, assignRef } from "../../../../shared/lib/dom.tsx";
-import { IconCheck } from "../../../../shared/ui/Icons/index.tsx";
 import { styles } from "./styles.ts";
 import type { useChatComposerState } from "./useChatComposerState.tsx";
 
-type ProviderConfigMenuProps = Pick<
-	ReturnType<typeof useChatComposerState>,
-	"agentConfigMenuRef" | "setActiveConfig" | "agentConfigButtonRef"
-> & {
-	activeControl: NonNullable<
-		ReturnType<typeof useChatComposerState>["activeControl"]
-	>;
-};
-export function ProviderConfigMenu(_props: ProviderConfigMenuProps) {
+export function ProviderConfigMenu(
+	_props: Pick<
+		ReturnType<typeof useChatComposerState>,
+		"agentConfigMenuRef" | "setActiveConfig" | "agentConfigButtonRef"
+	> & {
+		activeControl: NonNullable<
+			ReturnType<typeof useChatComposerState>["activeControl"]
+		>;
+	},
+) {
 	return (
 		<div
 			ref={(_element) => assignRef(_props.agentConfigMenuRef, _element)}

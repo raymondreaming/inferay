@@ -1,20 +1,18 @@
+import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
+import { openSkills } from "@shared/lib/dom.tsx";
+import { IconPlus } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { For } from "solid-js";
-import {
-	iconSize,
-	surfaceStyles,
-} from "../../../../design-system/styles.stylex.ts";
-import { openSkills } from "../../../../shared/lib/dom.tsx";
-import { IconPlus } from "../../../../shared/ui/Icons/index.tsx";
 import { CommandMenuRow } from "./CommandMenuRow.tsx";
 import { styles } from "./styles.ts";
 import type { useChatComposerState } from "./useChatComposerState.tsx";
 
-type CommandMenuProps = Pick<
-	ReturnType<typeof useChatComposerState>,
-	"filteredCommands" | "slashMenu" | "selectCommand" | "setSlashMenu"
->;
-export function CommandMenu(_props: CommandMenuProps) {
+export function CommandMenu(
+	_props: Pick<
+		ReturnType<typeof useChatComposerState>,
+		"filteredCommands" | "slashMenu" | "selectCommand" | "setSlashMenu"
+	>,
+) {
 	return (
 		<div
 			{...stylex.attrs(

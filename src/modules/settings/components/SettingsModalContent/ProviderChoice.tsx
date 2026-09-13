@@ -1,10 +1,10 @@
+import { AgentIcon } from "@agents/components/AgentIcon/index.tsx";
 import type { AgentAccountProviderStatus } from "@contracts";
 import {
 	getAgentDefinition,
 	type loadDefaultChatSettings,
-} from "../../../../shared/lib/native.tsx";
-import { SettingsSegment } from "../../../../shared/ui/SettingsSurface/index.tsx";
-import { AgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
+} from "@shared/lib/native.tsx";
+import { SettingsSegment } from "@shared/ui/SettingsSurface/index.tsx";
 export function ProviderChoice(_props: {
 	agentKind: "claude" | "codex";
 	status: AgentAccountProviderStatus | undefined;

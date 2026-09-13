@@ -1,6 +1,8 @@
+import { type CSSProperties, domStyle } from "@shared/lib/dom.tsx";
 import { DEFAULT_FILE, getIconForFile } from "@yutengjing/vscode-icons";
-import { type CSSProperties, domStyle } from "../../../../shared/lib/dom.tsx";
 import * as inlineStyles from "./styles.ts";
+
+export { FolderTypeIcon, resolveFolderIconUrl } from "./FolderTypeIcon.tsx";
 export function FileTypeIcon(_props: {
 	readonly path: string;
 	readonly size?: number;
@@ -24,8 +26,6 @@ export function FileTypeIcon(_props: {
 		/>
 	);
 }
-export { FolderTypeIcon, resolveFolderIconUrl } from "./FolderTypeIcon.tsx";
-
 // scripts/sync-file-icons.sh copies the package's SVGs here. Requesting them by
 // name keeps all 1553 out of the bundle: an eager import.meta.glob built a
 // name->hashed-URL map that cost ~340KB of JavaScript to parse, and every view

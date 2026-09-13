@@ -1,7 +1,11 @@
 import type { GitStatusResult } from "@contracts";
+import {
+	commitGitChanges,
+	loadGitStatuses,
+	runGitChangeAction,
+} from "@repository/services/gitApi.ts";
+import { usePollingQuery } from "@shared/hooks/useQueryResource.tsx";
 import { type Accessor, createMemo, createSignal } from "solid-js";
-import { usePollingQuery } from "../../../shared/hooks/useQueryResource.tsx";
-import { postJson, sendJson } from "../../../shared/lib/native.tsx";
 import type { useGitGraph } from "./useGitGraph.tsx";
 
 const EMPTY_GIT_PROJECTS: GitStatusResult[] = [];
@@ -35,8 +39,7 @@ export function useGitStatus(
 	const _source = usePollingQuery(
 		() => {
 			const cwds = requestedCwds();
-			return (signal) =>
-				postJson<GitStatusResult[]>("/api/git/statuses", { cwds }, { signal });
+			return (signal) => loadGitStatuses(cwds, signal);
 		},
 		() => 5000,
 		() => EMPTY_GIT_PROJECTS,
@@ -83,8 +86,10 @@ export function useGitChangeActions(
 ) {
 	const [commitMessage, setCommitMessage] = createSignal("");
 	const [isCommitting, setIsCommitting] = createSignal(false);
-	const gitAction = (endpoint: string, body: object) => {
-		void sendJson(`/api/git/${endpoint}`, body)
+	const gitAction = (action: "stage" | "unstage", file?: string) => {
+		const cwd = _options2().cwd;
+		if (!cwd) return;
+		void runGitChangeAction(cwd, action, file)
 			.catch(() => {
 				/* swallow; refetch below restores truth */
 			})
@@ -93,12 +98,8 @@ export function useGitChangeActions(
 			});
 	};
 	const stageMutation = (staged: boolean, file?: string) => {
-		const _options2Value = _options2();
-		if (!_options2Value.cwd) return;
-		gitAction(staged ? "stage" : "unstage", {
-			cwd: _options2Value.cwd,
-			file: file || undefined,
-		});
+		if (!_options2().cwd) return;
+		gitAction(staged ? "stage" : "unstage", file || undefined);
 	};
 	const stageFile = (file: string) => stageMutation(true, file);
 	const unstageFile = (file: string) => stageMutation(false, file);
@@ -111,20 +112,7 @@ export function useGitChangeActions(
 			return;
 		setIsCommitting(true);
 		try {
-			const response = await sendJson(
-				"/api/git/commit",
-				{
-					cwd: _options2Value2.cwd,
-					message: _commitMessageValue,
-				},
-				{
-					signal: AbortSignal.timeout(35_000),
-				},
-			);
-			const result = (await response.json()) as {
-				success?: boolean;
-			};
-			if (result.success) {
+			if (await commitGitChanges(_options2Value2.cwd, _commitMessageValue)) {
 				setCommitMessage("");
 				void _options2Value2.refetchStatus();
 			}

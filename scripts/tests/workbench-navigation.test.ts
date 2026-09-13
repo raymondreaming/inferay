@@ -39,12 +39,15 @@ function setup() {
 	});
 	const empty = project("emptyPanels", null);
 	const { createWorkspacePanelModel, panelQuery } = functions(
-		"../../src/modules/workbench/hooks/useWorkspacePanelSession.tsx",
+		"../../src/modules/workspace/hooks/useWorkspacePanelSession.tsx",
 		["createWorkspacePanelModel", "panelQuery"],
 		{
 			queryClient: client,
 			emptyPanelSession: empty,
 			rustProject: project,
+			saveWorkspacePanel: () => {
+				throw new Error("unexpected request");
+			},
 			postJson: () => {
 				throw new Error("unexpected request");
 			},
@@ -205,7 +208,7 @@ describe("navigation while native persistence is pending", () => {
 
 test("compact diff facts preserve full-payload presentation for every view", () => {
 	const { buildDiffViewerModel } = functions(
-		"../../src/modules/workbench/diff/components/DiffViewer/index.tsx",
+		"../../src/modules/repository/services/diffPresentation.ts",
 		["buildDiffViewerModel"],
 		{ rustProject: project },
 	);

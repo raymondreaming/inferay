@@ -1,6 +1,6 @@
+import { captureEvent } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { onSettled } from "solid-js";
-import { captureEvent } from "../../../../shared/lib/dom.tsx";
 import { ChatMessageList } from "../ChatMessageList/index.tsx";
 import { ChatWorkspacePicker } from "./ChatWorkspacePicker.tsx";
 import { ScrollToLatestButton } from "./ScrollToLatestButton.tsx";

@@ -1,3 +1,24 @@
+import { APP_REGION_NO_DRAG_CLASS } from "@app/hooks/useAppAppearance.tsx";
+import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
+import {
+	ariaValue,
+	domStyle,
+	listenWindowEvent,
+	OPEN_SETTINGS_MODAL_EVENT,
+	type OpenSettingsModalDetail,
+	type SettingsModalTarget,
+	setInputValue,
+} from "@shared/lib/dom.tsx";
+import { ErrorBoundary } from "@shared/ui/ErrorBoundary/index.tsx";
+import { IconButton } from "@shared/ui/IconButton/index.tsx";
+import {
+	IconAgent,
+	IconGitBranch,
+	IconLayoutGrid,
+	IconSearch,
+	IconSparkles,
+	IconX,
+} from "@shared/ui/Icons/index.tsx";
 import { Dynamic } from "@solidjs/web";
 import * as stylex from "@stylexjs/stylex";
 import {
@@ -9,30 +30,6 @@ import {
 	onSettled,
 	Show,
 } from "solid-js";
-import { APP_REGION_NO_DRAG_CLASS } from "../../../../app/hooks/useAppAppearance.tsx";
-import {
-	iconSize,
-	surfaceStyles,
-} from "../../../../design-system/styles.stylex.ts";
-import {
-	ariaValue,
-	domStyle,
-	listenWindowEvent,
-	OPEN_SETTINGS_MODAL_EVENT,
-	type OpenSettingsModalDetail,
-	type SettingsModalTarget,
-	setInputValue,
-} from "../../../../shared/lib/dom.tsx";
-import { ErrorBoundary } from "../../../../shared/ui/ErrorBoundary/index.tsx";
-import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
-import {
-	IconAgent,
-	IconGitBranch,
-	IconLayoutGrid,
-	IconSearch,
-	IconSparkles,
-	IconX,
-} from "../../../../shared/ui/Icons/index.tsx";
 import { SettingsModalContent } from "../SettingsModalContent/index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";

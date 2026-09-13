@@ -1,17 +1,17 @@
-import * as stylex from "@stylexjs/stylex";
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
 import {
-	iconSize,
-	surfaceStyles,
-} from "../../../../design-system/styles.stylex.ts";
-import { useBackgroundQuery as useQuery } from "../../../../shared/hooks/useQueryResource.tsx";
+	type ExplorerEntry,
+	listDirectory,
+} from "@explorer/services/explorerApi.ts";
+import { useBackgroundQuery as useQuery } from "@shared/hooks/useQueryResource.tsx";
 import {
 	dispatchDocumentOpen,
 	domStyle,
 	queryClient,
-} from "../../../../shared/lib/dom.tsx";
-import { fetchJson } from "../../../../shared/lib/native.tsx";
-import { IconChevronRight } from "../../../../shared/ui/Icons/index.tsx";
+} from "@shared/lib/dom.tsx";
+import { IconChevronRight } from "@shared/ui/Icons/index.tsx";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { FileTypeIcon, FolderTypeIcon } from "../FileTypeIcon/index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
@@ -26,18 +26,7 @@ export function Directory(_props: {
 			const path = _props.path ?? "";
 			return {
 				queryKey: ["explorer-directory", cwd, path],
-				queryFn: ({ signal }) =>
-					fetchJson<{
-						entries: ExplorerEntry[];
-					}>(
-						`/api/files/list?${new URLSearchParams({
-							cwd,
-							path,
-						})}`,
-						{
-							signal,
-						},
-					),
+				queryFn: ({ signal }) => listDirectory(cwd, path, signal),
 				staleTime: 0,
 				retry: false,
 				refetchOnReconnect: false,
@@ -46,7 +35,7 @@ export function Directory(_props: {
 		},
 		() => queryClient,
 	);
-	const entries = createMemo(() => query.data?.entries ?? []);
+	const entries = createMemo(() => query.data ?? []);
 	return (
 		<Show
 			when={!query.isPending}
@@ -80,12 +69,6 @@ export function Directory(_props: {
 	);
 }
 
-type ExplorerEntry = {
-	readonly cwd: string;
-	readonly isDir: boolean;
-	readonly name: string;
-	readonly path: string;
-};
 const EXPLORER_ROW_HEIGHT = 24;
 const PROJECT_HEADER_HEIGHT = 26;
 export function Entry(_props2: { entry: ExplorerEntry; depth: number }) {

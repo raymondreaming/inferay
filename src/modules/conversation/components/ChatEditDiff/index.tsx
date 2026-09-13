@@ -1,10 +1,12 @@
+import { useNearViewport } from "@shared/hooks/useNearViewport.tsx";
+import { assignRef, domStyle } from "@shared/lib/dom.tsx";
 import { createMemo } from "solid-js";
-import { useNearViewport } from "../../../../shared/hooks/useNearViewport.tsx";
-import { assignRef, domStyle } from "../../../../shared/lib/dom.tsx";
 import { useNativeEditDiff } from "../../hooks/useNativeEditDiff.tsx";
 import type { NativeChatRender } from "../AgentChatView/useChatConnection.tsx";
 import { EditDiffCard } from "./EditDiffCard.tsx";
 import * as inlineStyles from "./styles.ts";
+
+export { MiniEditDiff } from "./MiniEditDiff.tsx";
 
 type EditMessage = {
 	content: string;
@@ -62,4 +64,3 @@ export function GroupedEditDiff(_props: {
 		</div>
 	);
 }
-export { MiniEditDiff } from "./MiniEditDiff.tsx";

@@ -1,3 +1,4 @@
+import type { CSSProperties } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	color,
@@ -9,7 +10,6 @@ import {
 	radius,
 	runtimeColor,
 } from "../../../../design-system/styles.stylex.ts";
-import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 export const styles = stylex.create({
 	hidden: {
 		display: "none",

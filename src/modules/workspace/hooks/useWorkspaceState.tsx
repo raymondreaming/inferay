@@ -4,6 +4,14 @@ import type {
 	RepositoryWorkspaceIndex,
 	WorkspaceAgentKind,
 } from "@contracts";
+import { noop } from "@shared/lib/dom.tsx";
+import { project as rustProject } from "@shared/lib/native.tsx";
+import { traceUi } from "@shared/lib/uiPerformance.ts";
+import {
+	initializeWorkspaceState,
+	loadWorkspaceState,
+	saveWorkspaceAction,
+} from "@workspace/services/workspaceApi.ts";
 import {
 	type Accessor,
 	createEffect,
@@ -11,12 +19,6 @@ import {
 	reconcile,
 	snapshot as storeSnapshot,
 } from "solid-js";
-import { noop } from "../../../shared/lib/dom.tsx";
-import {
-	postJson,
-	project as rustProject,
-} from "../../../shared/lib/native.tsx";
-import { traceUi } from "../../../shared/lib/uiPerformance.ts";
 
 type AgentWorkspaceAction =
 	| {
@@ -156,9 +158,7 @@ function accept(state: AgentSavedState, saved = false) {
 	});
 }
 export async function initializeAgentState() {
-	const { state } = await postJson<{
-		state: AgentSavedState;
-	}>("/api/agent/state/initialize", {});
+	const state = await initializeWorkspaceState();
 	accept(state, true);
 	return state;
 }
@@ -166,9 +166,7 @@ export function loadCanonicalAgentState(): Promise<AgentSavedState | null> {
 	if (read) return read;
 	const current = queue.then(async () => {
 		try {
-			const response = await fetch("/api/agent/state");
-			if (!response.ok) throw 0;
-			const state = (await response.json()) as AgentSavedState | null;
+			const state = await loadWorkspaceState();
 			if (state) accept(state, true);
 			return loadAgentState();
 		} catch {
@@ -236,11 +234,7 @@ export function mutateAgentWorkspaceState(
 			next = typeof action === "function" ? action(current) : action;
 		if (!next) return null;
 		try {
-			const { state } = await postJson<{
-				state: AgentSavedState;
-			}>("/api/agent/state/workspace-action", {
-				action: next,
-			});
+			const state = await saveWorkspaceAction(next);
 			if (pendingSelection?.id === requestId) pendingSelection = null;
 			accept(state, true);
 			return loadAgentState();

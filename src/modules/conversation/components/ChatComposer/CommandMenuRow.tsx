@@ -1,9 +1,9 @@
 import type { SlashCommand } from "@contracts";
+import { iconSize } from "@design-system/styles.stylex.ts";
+import type { Dispatch, StateUpdate } from "@shared/lib/dom.tsx";
+import { ariaValue, openSkills } from "@shared/lib/dom.tsx";
+import { IconPencil } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import type { Dispatch, StateUpdate } from "../../../../shared/lib/dom.tsx";
-import { ariaValue, openSkills } from "../../../../shared/lib/dom.tsx";
-import { IconPencil } from "../../../../shared/ui/Icons/index.tsx";
 import type { SlashMenuState } from "../../hooks/useAgentChatMenus.tsx";
 import { styles } from "./styles.ts";
 export const CommandMenuRow = function CommandMenuRow(_props: {

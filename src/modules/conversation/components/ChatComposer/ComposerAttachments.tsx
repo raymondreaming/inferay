@@ -1,16 +1,17 @@
+import { iconSize } from "@design-system/styles.stylex.ts";
+import { IconButton } from "@shared/ui/IconButton/index.tsx";
+import { IconX } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { For } from "solid-js";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
-import { IconX } from "../../../../shared/ui/Icons/index.tsx";
 import { styles } from "./styles.ts";
 import type { useChatComposerState } from "./useChatComposerState.tsx";
 
-type ComposerAttachmentsProps = Pick<
-	ReturnType<typeof useChatComposerState>,
-	"attachedImages" | "removeAttachedImage"
->;
-export function ComposerAttachments(_props: ComposerAttachmentsProps) {
+export function ComposerAttachments(
+	_props: Pick<
+		ReturnType<typeof useChatComposerState>,
+		"attachedImages" | "removeAttachedImage"
+	>,
+) {
 	return (
 		<section {...stylex.attrs(styles.attachments)} aria-label="Attached images">
 			{

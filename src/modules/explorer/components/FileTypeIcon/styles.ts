@@ -1,4 +1,4 @@
-import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
+import type { CSSProperties } from "@shared/lib/dom.tsx";
 export function getFolderTypeIconImgStyle(
 	width: CSSProperties["width"],
 	height: CSSProperties["height"],

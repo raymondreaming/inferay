@@ -1,14 +1,7 @@
 import type { WorkspaceAgentKind } from "@contracts";
+import type { Dispatch, RefCell, StateUpdate } from "@shared/lib/dom.tsx";
+import { project as rustProject, wsClient } from "@shared/lib/native.tsx";
 import type { Accessor } from "solid-js";
-import type {
-	Dispatch,
-	RefCell,
-	StateUpdate,
-} from "../../../shared/lib/dom.tsx";
-import {
-	project as rustProject,
-	wsClient,
-} from "../../../shared/lib/native.tsx";
 import {
 	type ChatMessage,
 	nextId,

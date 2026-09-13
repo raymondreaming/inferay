@@ -1,38 +1,35 @@
-import type { AppFontId, AppThemeId } from "@contracts";
-import * as stylex from "@stylexjs/stylex";
-import { createMemo, createSignal } from "solid-js";
 import {
 	APP_FONTS,
 	applyAppFont,
 	loadAppFontId,
 	saveAppFontId,
-} from "../../../../app/hooks/useAppAppearance.tsx";
+} from "@app/hooks/useAppAppearance.tsx";
+import type { AppFontId, AppThemeId } from "@contracts";
 import {
 	SYNTAX_HIGHLIGHT_THEMES,
 	type SyntaxHighlightTheme,
 	useSyntaxHighlightTheme,
-} from "../../../../shared/hooks/useSyntaxHighlight.tsx";
-import { DropdownButton } from "../../../../shared/ui/DropdownButton/index.tsx";
+} from "@shared/hooks/useSyntaxHighlight.tsx";
+import { DropdownButton } from "@shared/ui/DropdownButton/index.tsx";
 import {
 	SettingsRow,
 	SettingsSection,
-} from "../../../../shared/ui/SettingsSurface/index.tsx";
+} from "@shared/ui/SettingsSurface/index.tsx";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo, createSignal } from "solid-js";
 import { BackgroundScenePicker } from "./BackgroundScenePicker.tsx";
 import { GlobalAgentInstructionsSection } from "./GlobalAgentInstructionsSection.tsx";
 import { SearchFoldersSection } from "./SearchFoldersSection.tsx";
 import { styles } from "./styles.ts";
 
-interface SettingsContentProps {
+export const SettingsContent = function SettingsContent(props: {
 	onThemeChange?: (id: AppThemeId) => void;
 	section?: "all" | "agents" | "appearance" | "workspace";
-}
-export const SettingsContent = function SettingsContent(
-	_props: SettingsContentProps,
-) {
+}) {
 	const [syntaxTheme, setSyntaxTheme] = useSyntaxHighlightTheme();
 	const [appFontId, setAppFontId] = createSignal<AppFontId>(loadAppFontId);
 	const section = createMemo(() =>
-		_props.section === undefined ? "all" : _props.section,
+		props.section === undefined ? "all" : props.section,
 	);
 	const showAgents = createMemo(
 		() => section() === "all" || section() === "agents",

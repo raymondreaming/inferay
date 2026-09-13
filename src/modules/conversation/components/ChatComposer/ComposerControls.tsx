@@ -1,23 +1,24 @@
+import { AgentIcon } from "@agents/components/AgentIcon/index.tsx";
+import { iconSize } from "@design-system/styles.stylex.ts";
+import { ariaValue, assignRef } from "@shared/lib/dom.tsx";
+import { IconChevronDown } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { For, Show } from "solid-js";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { ariaValue, assignRef } from "../../../../shared/lib/dom.tsx";
-import { IconChevronDown } from "../../../../shared/ui/Icons/index.tsx";
-import { AgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
 import { styles } from "./styles.ts";
 import type { useChatComposerState } from "./useChatComposerState.tsx";
 
-type ComposerControlsProps = Pick<
-	ReturnType<typeof useChatComposerState>,
-	| "agentConfigControlsRef"
-	| "configControls"
-	| "activeConfig"
-	| "selectedModelLabel"
-	| "agentConfigButtonRef"
-	| "setActiveConfig"
-	| "workspaceControl"
->;
-export function ComposerControls(_props: ComposerControlsProps) {
+export function ComposerControls(
+	_props: Pick<
+		ReturnType<typeof useChatComposerState>,
+		| "agentConfigControlsRef"
+		| "configControls"
+		| "activeConfig"
+		| "selectedModelLabel"
+		| "agentConfigButtonRef"
+		| "setActiveConfig"
+		| "workspaceControl"
+	>,
+) {
 	return (
 		<div {...stylex.attrs(styles.pickerRow)}>
 			<div

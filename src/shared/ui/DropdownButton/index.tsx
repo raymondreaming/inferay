@@ -1,20 +1,20 @@
+import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
 import { Portal } from "@solidjs/web";
 import * as stylex from "@stylexjs/stylex";
 import type { Element } from "solid-js";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
-import {
-	iconSize,
-	surfaceStyles,
-} from "../../../design-system/styles.stylex.ts";
 import { domStyle, hasId } from "../../lib/dom.tsx";
 import { IconChevronDown } from "../Icons/index.tsx";
 import { DropdownOptions } from "./DropdownOptions.tsx";
 import { DropdownSearch } from "./DropdownSearch.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
+import type { DropdownOption, DropdownOptionRenderer } from "./types.ts";
 import { useDropdownPosition } from "./useDropdownPosition.ts";
 
-interface DropdownButtonProps {
+export type { DropdownOption, DropdownOptionRenderer };
+
+export function DropdownButton(props: {
 	value: string | null;
 	options: readonly DropdownOption[];
 	onChange: (id: string) => void;
@@ -30,8 +30,7 @@ interface DropdownButtonProps {
 	maxVisibleOptions?: number;
 	optionHeight?: number;
 	onOpen?: () => void;
-}
-export function DropdownButton(_props: DropdownButtonProps) {
+}) {
 	const [open, setOpen] = createSignal(false);
 	const [search, setSearch] = createSignal("");
 	const [trigger, setTrigger] = createSignal<HTMLButtonElement | null>(null);
@@ -49,11 +48,11 @@ export function DropdownButton(_props: DropdownButtonProps) {
 		open()
 			? {
 					element: trigger(),
-					placement: _props.menuPlacement ?? "auto",
-					rowHeight: _props.optionHeight ?? (_props.renderOption ? 34 : 30),
-					count: _props.options.length,
-					maxVisible: _props.maxVisibleOptions,
-					minWidth: _props.minWidth ?? 220,
+					placement: props.menuPlacement ?? "auto",
+					rowHeight: props.optionHeight ?? (props.renderOption ? 34 : 30),
+					count: props.options.length,
+					maxVisible: props.maxVisibleOptions,
+					minWidth: props.minWidth ?? 220,
 				}
 			: null,
 	);
@@ -86,24 +85,24 @@ export function DropdownButton(_props: DropdownButtonProps) {
 	const toggle = () => {
 		const _openValue = open();
 		if (!_openValue) {
-			_props.onOpen?.();
+			props.onOpen?.();
 			setSearch("");
 		}
 		setOpen(!_openValue);
 	};
 	const selected = createMemo(() =>
-		_props.options.find(hasId.bind(null, _props.value)),
+		props.options.find(hasId.bind(null, props.value)),
 	);
 	const buttonProps = createMemo(() =>
 		stylex.attrs(
 			styles.button,
-			(_props.fullWidth === undefined ? false : _props.fullWidth)
+			(props.fullWidth === undefined ? false : props.fullWidth)
 				? styles.fullWidth
 				: null,
 			open() ? styles.buttonOpen : styles.buttonClosed,
 		),
 	);
-	const showSearch = createMemo(() => _props.options.length > 5);
+	const showSearch = createMemo(() => props.options.length > 5);
 	createEffect(
 		() => open() && showSearch(),
 		(focus) => {
@@ -114,9 +113,9 @@ export function DropdownButton(_props: DropdownButtonProps) {
 	);
 	const filtered = createMemo(() => {
 		const _searchValue = search();
-		if (!_searchValue) return _props.options;
+		if (!_searchValue) return props.options;
 		const needle = _searchValue.toLowerCase();
-		return _props.options.filter(
+		return props.options.filter(
 			(o) =>
 				o.label.toLowerCase().includes(needle) ||
 				o.detail?.toLowerCase().includes(needle) ||
@@ -138,10 +137,10 @@ export function DropdownButton(_props: DropdownButtonProps) {
 			maxHeight={Math.max(44, pos().maxH - (showSearch() ? 38 : 0))}
 			filtered={filtered()}
 			search={search()}
-			emptyLabel={_props.emptyLabel ?? "No options"}
-			renderOption={_props.renderOption}
-			value={_props.value}
-			onChange={_props.onChange}
+			emptyLabel={props.emptyLabel ?? "No options"}
+			renderOption={props.renderOption}
+			value={props.value}
+			onChange={props.onChange}
 			setOpen={setOpen}
 		/>
 	);
@@ -151,13 +150,13 @@ export function DropdownButton(_props: DropdownButtonProps) {
 			ref={setTrigger}
 			onClick={toggle}
 			{...buttonProps()}
-			class={`${buttonProps().class ?? ""} ${_props.buttonClassName ?? ""}`}
+			class={`${buttonProps().class ?? ""} ${props.buttonClassName ?? ""}`}
 		>
-			{_props.icon}
+			{props.icon}
 			<span
-				class={`${stylex.attrs(styles.buttonLabel, _props.fullWidth && styles.buttonLabelFull, selected() ? styles.buttonLabelSelected : styles.buttonLabelMuted).class ?? ""} ${_props.labelClassName ?? ""}`}
+				class={`${stylex.attrs(styles.buttonLabel, props.fullWidth && styles.buttonLabelFull, selected() ? styles.buttonLabelSelected : styles.buttonLabelMuted).class ?? ""} ${props.labelClassName ?? ""}`}
 			>
-				{selected()?.label || _props.placeholder || "Select..."}
+				{selected()?.label || props.placeholder || "Select..."}
 			</span>
 			<IconChevronDown
 				size={iconSize.sm}
@@ -209,16 +208,3 @@ export function DropdownButton(_props: DropdownButtonProps) {
 		</>
 	);
 }
-
-export interface DropdownOption {
-	iconComponent?: import("solid-js").Component;
-	id: string;
-	label: string;
-	detail?: string;
-	status?: string;
-	icon?: Element;
-}
-export type DropdownOptionRenderer = (props: {
-	option: DropdownOption;
-	isSelected: boolean;
-}) => Element;

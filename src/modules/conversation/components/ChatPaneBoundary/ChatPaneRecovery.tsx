@@ -1,6 +1,6 @@
+import { Button } from "@shared/ui/Button/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createEffect } from "solid-js";
-import { Button } from "../../../../shared/ui/Button/index.tsx";
 import { styles } from "./styles.ts";
 export function ChatPaneRecovery(_props: {
 	error: unknown;

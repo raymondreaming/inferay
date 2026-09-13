@@ -1,12 +1,12 @@
-import * as stylex from "@stylexjs/stylex";
-import { createMemo } from "solid-js";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { DotMatrixRipple } from "../../../../shared/ui/DotMatrixLoader/index.tsx";
+import { iconSize } from "@design-system/styles.stylex.ts";
+import { DotMatrixRipple } from "@shared/ui/DotMatrixLoader/index.tsx";
 import {
 	IconAlertTriangle,
 	IconCheck,
 	IconTarget,
-} from "../../../../shared/ui/Icons/index.tsx";
+} from "@shared/ui/Icons/index.tsx";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo } from "solid-js";
 import { styles } from "./styles.ts";
 
 function goalStatusLabel(status: GoalSystemMessage["status"]) {

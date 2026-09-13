@@ -1,7 +1,6 @@
 import type { CheckpointMeta } from "@contracts";
-import type { ChatReplica } from "../../../../shared/lib/native.tsx";
-import type { ChatLoadingState } from "./types.ts";
-import type { ChatMessage } from "./useChatConnection.tsx";
+import type { ChatReplica } from "@shared/lib/native.tsx";
+import type { ChatLoadingState, ChatMessage } from "./types.ts";
 
 export type RetainedChatSession = {
 	paneId: string;

@@ -14,9 +14,17 @@
 		"moduleResolution": "bundler",
 		"paths": {
 			"@contracts": ["./build/presentation/contracts/index.ts"],
-			"@tanstack/query-core": [
-				"./node_modules/@tanstack/query-core/src/index.ts"
-			]
+			"@app/*": ["./src/app/*"],
+			"@agents/*": ["./src/modules/agents/*"],
+			"@context/*": ["./src/modules/context/*"],
+			"@conversation/*": ["./src/modules/conversation/*"],
+			"@design-system/*": ["./src/design-system/*"],
+			"@explorer/*": ["./src/modules/explorer/*"],
+			"@repository/*": ["./src/modules/repository/*"],
+			"@shared/*": ["./src/shared/*"],
+			"@settings/*": ["./src/modules/settings/*"],
+			"@skills/*": ["./src/modules/skills/*"],
+			"@workspace/*": ["./src/modules/workspace/*"]
 		},
 		"allowImportingTsExtensions": true,
 		"verbatimModuleSyntax": false,
@@ -26,12 +34,13 @@
 		"skipLibCheck": true,
 		"noFallthroughCasesInSwitch": true,
 		"noUncheckedIndexedAccess": false,
-		"noImplicitOverride": false,
 
-		// Some stricter flags (disabled by default)
-		"noUnusedLocals": false,
-		"noUnusedParameters": false,
-		"noPropertyAccessFromIndexSignature": false
+		// Additional strictness guardrails
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noPropertyAccessFromIndexSignature": false,
+		"noImplicitReturns": true,
+		"noImplicitOverride": true
 	},
 	"exclude": ["dist", "build", "node_modules", "site", "docs"]
 }

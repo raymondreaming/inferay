@@ -1,3 +1,4 @@
+import type { CSSProperties } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	breakpoint,
@@ -8,7 +9,6 @@ import {
 	motion,
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
-import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 export const styles = stylex.create({
 	backdrop: {
 		backdropFilter: "blur(7px)",

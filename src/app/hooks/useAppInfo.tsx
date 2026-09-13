@@ -1,25 +1,9 @@
+import { FALLBACK_APP_INFO, loadAppInfo } from "@app/services/appApi.ts";
 import type { AppInfo } from "@contracts";
-import { useQueryResource } from "../../shared/hooks/useQueryResource.tsx";
-import { fetchJsonOr } from "../../shared/lib/native.tsx";
-
-const FALLBACK_APP_INFO: AppInfo = {
-	name: "inferay",
-	version: "dev",
-	channel: "dev",
-	production: false,
-	update: {
-		available: false,
-		currentVersion: "dev",
-		latestVersion: null,
-		url: null,
-	},
-};
-function fetchAppInfo() {
-	return fetchJsonOr("/api/app-info", FALLBACK_APP_INFO);
-}
+import { useQueryResource } from "@shared/hooks/useQueryResource.tsx";
 export function useAppInfo() {
 	return useQueryResource<AppInfo>(
-		() => fetchAppInfo,
+		() => loadAppInfo,
 		() => FALLBACK_APP_INFO,
 		() => ({
 			queryKey: ["app-info"],

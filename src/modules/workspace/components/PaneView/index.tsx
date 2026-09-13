@@ -1,16 +1,16 @@
 import type { Pane, WorkspaceAgentKind } from "@contracts";
-import * as stylex from "@stylexjs/stylex";
-import { createMemo } from "solid-js";
+import type { AgentChatHandle } from "@conversation/components/AgentChatView/index.tsx";
+import { AgentChatView } from "@conversation/components/AgentChatView/index.tsx";
+import { ChatPaneBoundary } from "@conversation/components/ChatPaneBoundary/index.tsx";
 import {
 	isChatAgentKind,
 	loadDefaultChatSettings,
-} from "../../../../shared/lib/native.tsx";
-import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
-import { AgentChatView } from "../../../conversation/components/AgentChatView/index.tsx";
-import { ChatPaneBoundary } from "../../../conversation/components/ChatPaneBoundary/index.tsx";
+} from "@shared/lib/native.tsx";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo } from "solid-js";
 import { styles } from "./styles.ts";
 
-interface PaneViewProps {
+export const PaneView = function PaneView(props: {
 	pane: Pane;
 	isSelected: boolean;
 	isVisible?: boolean;
@@ -26,48 +26,47 @@ interface PaneViewProps {
 	onHeaderDragStart?: (e: PointerEvent, index: number) => void;
 	onHeaderDragEnd?: () => void;
 	onSetPaneAgentKind?: (paneId: string, agentKind: WorkspaceAgentKind) => void;
-}
-export const PaneView = function PaneView(_props: PaneViewProps) {
+}) {
 	const viewAgentKind = createMemo(() =>
-		isChatAgentKind(_props.pane.agentKind)
-			? _props.pane.agentKind
+		isChatAgentKind(props.pane.agentKind)
+			? props.pane.agentKind
 			: loadDefaultChatSettings().agentKind,
 	);
 	const handlePaneDragStart = (e: PointerEvent) => {
-		if (_props.paneIndex == null || !_props.onHeaderDragStart) return;
-		_props.onHeaderDragStart(e, _props.paneIndex);
+		if (props.paneIndex == null || !props.onHeaderDragStart) return;
+		props.onHeaderDragStart(e, props.paneIndex);
 	};
 	const handleDirectoryChange = (
 		pid: string,
 		cwd: string | null,
 		refs?: string[],
 	) => {
-		if (!isChatAgentKind(_props.pane.agentKind)) {
-			_props.onSetPaneAgentKind?.(pid, viewAgentKind());
+		if (!isChatAgentKind(props.pane.agentKind)) {
+			props.onSetPaneAgentKind?.(pid, viewAgentKind());
 		}
-		_props.onDirectorySelect?.(pid, cwd, refs);
+		props.onDirectorySelect?.(pid, cwd, refs);
 	};
 	const handleChatRef = (handle: AgentChatHandle | null) => {
-		_props.chatRef(_props.pane.id, handle);
+		props.chatRef(props.pane.id, handle);
 	};
 	return (
 		<div {...stylex.attrs(styles.root)}>
 			<div {...stylex.attrs(styles.agentPane)}>
 				<ChatPaneBoundary>
 					<AgentChatView
-						paneId={_props.pane.id}
-						cwd={_props.pane.cwd}
-						referencePaths={_props.pane.referencePaths}
-						pendingWorkspacePaths={_props.pane.pendingWorkspacePaths}
+						paneId={props.pane.id}
+						cwd={props.pane.cwd}
+						referencePaths={props.pane.referencePaths}
+						pendingWorkspacePaths={props.pane.pendingWorkspacePaths}
 						agentKind={viewAgentKind()}
-						onClose={_props.onClose}
-						isSelected={_props.isSelected}
-						isVisible={_props.isVisible === undefined ? true : _props.isVisible}
+						onClose={props.onClose}
+						isSelected={props.isSelected}
+						isVisible={props.isVisible === undefined ? true : props.isVisible}
 						onDirectoryChange={handleDirectoryChange}
-						onDirectoryCancel={_props.onDirectoryCancel}
-						draggable={_props.paneIndex != null && !!_props.onHeaderDragStart}
+						onDirectoryCancel={props.onDirectoryCancel}
+						draggable={props.paneIndex != null && !!props.onHeaderDragStart}
 						onDragStart={handlePaneDragStart}
-						onDragEnd={_props.onHeaderDragEnd}
+						onDragEnd={props.onHeaderDragEnd}
 						ref={handleChatRef}
 					/>
 				</ChatPaneBoundary>

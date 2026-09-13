@@ -1,26 +1,12 @@
-import type { AgentSavedState, WorkspaceAgentKind } from "@contracts";
-import {
-	type Accessor,
-	createEffect,
-	createMemo,
-	createSignal,
-	For,
-	merge,
-	onSettled,
-} from "solid-js";
-import {
-	getThemeById,
-	loadAppThemeId,
-} from "../../../../app/hooks/useAppAppearance.tsx";
+import { getThemeById, loadAppThemeId } from "@app/hooks/useAppAppearance.tsx";
+import { chatSessionCache } from "@conversation/components/AgentChatView/chatSessionCache.ts";
+import type { AgentChatHandle } from "@conversation/components/AgentChatView/index.tsx";
 import {
 	FOCUS_AGENT_CHAT_COMPOSER_EVENT,
 	type FocusAgentChatComposerDetail,
 	hasId,
 	listenWindowEvent,
-	type MutableRef,
-	REMOVE_AGENT_PANE_REQUEST_EVENT,
-	type RemoveAgentPaneRequestDetail,
-} from "../../../../shared/lib/dom.tsx";
+} from "@shared/lib/dom.tsx";
 import {
 	APP_THEME_STORAGE_KEY,
 	CLIENT_STORAGE_CHANGED_EVENT,
@@ -28,9 +14,14 @@ import {
 	listenAgentLayoutMode,
 	loadAgentLayoutMode,
 	wsClient,
-} from "../../../../shared/lib/native.tsx";
-import { chatSessionCache } from "../../../conversation/components/AgentChatView/chatSessionCache.ts";
-import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
+} from "@shared/lib/native.tsx";
+import {
+	createEffect,
+	createMemo,
+	createSignal,
+	For,
+	onSettled,
+} from "solid-js";
 import {
 	type AgentGroupsAction,
 	mutateAgentWorkspaceState,
@@ -43,13 +34,7 @@ import {
 	workspaceViewKey,
 	workspaceViews,
 } from "./retainedWorkspaces.ts";
-export type AgentPaneActionsArgs = {
-	readonly chatRefs: MutableRef<Map<string, AgentChatHandle> | null>;
-	readonly cleanupPane: (paneId: string) => void;
-	readonly dispatchAgentGroupAction: (action: AgentGroupsAction) => void;
-	readonly groups: AgentSavedState["groups"];
-	readonly selectedGroupId: string | null;
-};
+import { useAgentPaneActions } from "./useAgentPaneActions.ts";
 export function AgentPage() {
 	const [layoutMode, setLayoutMode] = createSignal(loadAgentLayoutMode);
 	onSettled(() => {
@@ -216,99 +201,5 @@ export function AgentPage() {
 				)}
 			</For>
 		</>
-	);
-}
-
-export function useAgentPaneActions(_options: Accessor<AgentPaneActionsArgs>) {
-	const removePane = (paneId: string) => {
-		const _optionsValue = _options();
-		const group =
-			_optionsValue.groups.find((g) =>
-				g.panes.some(hasId.bind(null, paneId)),
-			) ??
-			_optionsValue.groups.find(
-				hasId.bind(null, _optionsValue.selectedGroupId),
-			);
-		if (group) {
-			_optionsValue.cleanupPane(paneId);
-			_optionsValue.dispatchAgentGroupAction({
-				type: "removePane",
-				groupId: group.id,
-				paneId,
-			});
-		}
-	};
-	createEffect(
-		() => [removePane, _options()],
-		() => {
-			return listenWindowEvent(REMOVE_AGENT_PANE_REQUEST_EVENT, (event) => {
-				const id = (event as CustomEvent<RemoveAgentPaneRequestDetail>).detail
-					?.paneId;
-				if (id) removePane(id);
-			});
-		},
-	);
-	const actions = createMemo(() => {
-		const send = (a: AgentGroupsAction) => {
-				const _optionsValue2 = _options();
-				if (_optionsValue2.selectedGroupId)
-					_optionsValue2.dispatchAgentGroupAction(a);
-			},
-			groupId = _options().selectedGroupId ?? "";
-		return {
-			handleAddPane: (agentKind: WorkspaceAgentKind) =>
-				send({
-					type: "addPane",
-					groupId,
-					agentKind,
-				}),
-			reorderPanes: (fromIndex: number, toIndex: number) =>
-				send({
-					type: "reorderPanes",
-					groupId,
-					fromIndex,
-					toIndex,
-				}),
-			handleSetPaneAgentKind: (paneId: string, agentKind: WorkspaceAgentKind) =>
-				send({
-					type: "setPaneAgentKind",
-					groupId,
-					paneId,
-					agentKind,
-				}),
-			handleDirectorySelected: (
-				paneId: string,
-				path: string | null,
-				referencePaths?: string[],
-			) =>
-				send({
-					type: "directorySelected",
-					groupId,
-					paneId,
-					path,
-					referencePaths,
-				}),
-			selectPane: (paneId: string) =>
-				send({
-					type: "selectPane",
-					groupId,
-					paneId,
-				}),
-		};
-	});
-	const handleChatRef = (id: string, handle: AgentChatHandle | null) => {
-		const _optionsValue3 = _options();
-		handle
-			? _optionsValue3.chatRefs.current?.set(id, handle)
-			: _optionsValue3.chatRefs.current?.delete(id);
-	};
-	return merge(
-		() => {
-			return actions();
-		},
-		{
-			handleChatRef,
-			removePane,
-		},
 	);
 }

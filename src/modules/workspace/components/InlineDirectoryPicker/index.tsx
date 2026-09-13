@@ -1,20 +1,20 @@
+import { iconSize } from "@design-system/styles.stylex.ts";
+import { useQueryResource } from "@shared/hooks/useQueryResource.tsx";
+import { setInputValue } from "@shared/lib/dom.tsx";
+import { IconFolder } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
+import {
+	type DirectoryPick,
+	loadDirectoryQuickPicks,
+	searchDirectories,
+} from "@workspace/services/workspaceApi.ts";
 import { createMemo, createSignal, For, onSettled } from "solid-js";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
-import { setInputValue } from "../../../../shared/lib/dom.tsx";
-import { fetchJsonOr } from "../../../../shared/lib/native.tsx";
-import { IconFolder } from "../../../../shared/ui/Icons/index.tsx";
 import { DirectoryResult } from "./DirectoryResult.tsx";
 import { SelectedDirectoryChip } from "./SelectedDirectoryChip.tsx";
 import { styles } from "./styles.ts";
 
-type QuickPick = {
-	name: string;
-	path: string;
-	isGitRepo: boolean;
-};
-interface InlineDirectoryPickerProps {
+type QuickPick = DirectoryPick;
+export function InlineDirectoryPicker(props: {
 	onSelect: (path: string | null) => void;
 	onCancel?: () => void;
 	multiSelect?: boolean;
@@ -22,22 +22,11 @@ interface InlineDirectoryPickerProps {
 	hideInput?: boolean;
 	onSelectionChange?: (paths: string[]) => void;
 	showStartButton?: boolean;
-}
-export function InlineDirectoryPicker(_props: InlineDirectoryPickerProps) {
+}) {
 	const [query, setQuery] = createSignal("");
 	const deferredQuery = createMemo(() => query().trim());
-	const fetchPickerData = async () => {
-		const data = await fetchJsonOr<{
-			quickPicks?: QuickPick[];
-			home?: string;
-		}>("/api/agent/directories?quickPicks=true", {});
-		return {
-			quickPicks: data.quickPicks ?? [],
-			homePath: data.home ?? "",
-		};
-	};
 	const _source = useQueryResource(
-		() => fetchPickerData,
+		() => loadDirectoryQuickPicks,
 		() => ({
 			quickPicks: [],
 			homePath: "",
@@ -46,30 +35,10 @@ export function InlineDirectoryPicker(_props: InlineDirectoryPickerProps) {
 			queryKey: ["agent", "directories", "quick"],
 		}),
 	);
-	const fetchSearchResults = async (
-		_deferredQueryValue: string,
-		signal?: AbortSignal,
-	) => {
-		if (!_deferredQueryValue) return [];
-		const data = await fetchJsonOr<{
-			directories?: Array<{
-				name: string;
-				path: string;
-			}>;
-		}>(
-			`/api/agent/directories?q=${encodeURIComponent(_deferredQueryValue)}`,
-			{},
-			{ signal },
-		);
-		return (data.directories ?? []).map((directory) => ({
-			...directory,
-			isGitRepo: false,
-		}));
-	};
 	const _source2 = useQueryResource<QuickPick[]>(
 		() => {
 			const query = deferredQuery();
-			return (signal) => fetchSearchResults(query, signal);
+			return (signal) => searchDirectories(query, signal);
 		},
 		() => [],
 		() => ({
@@ -91,7 +60,7 @@ export function InlineDirectoryPicker(_props: InlineDirectoryPickerProps) {
 	const isSearching = createMemo(() => deferredQuery().length > 0);
 	const displayList = createMemo(() =>
 		(isSearching() ? _source2.data : _source.data.quickPicks)
-			.filter((p) => !_props.multiSelect || !selectedPaths().includes(p.path))
+			.filter((p) => !props.multiSelect || !selectedPaths().includes(p.path))
 			.slice(0, 5),
 	);
 	const itemCount = createMemo(() => displayList().length);
@@ -117,23 +86,23 @@ export function InlineDirectoryPicker(_props: InlineDirectoryPickerProps) {
 			? _selectedPathsValue.filter((selected) => selected !== path)
 			: [..._selectedPathsValue, path];
 		setSelectedPaths(next);
-		_props.onSelectionChange?.(next);
+		props.onSelectionChange?.(next);
 	};
 	const handleItemClick = (path: string) => {
 		setSelectedIndex(-1);
-		if (_props.multiSelect) {
+		if (props.multiSelect) {
 			togglePath(path);
 			setQuery("");
 		} else {
-			_props.onSelect(path);
+			props.onSelect(path);
 		}
 	};
 	const handleStart = () => {
 		const _selectedPathsValue2 = selectedPaths();
-		if (_selectedPathsValue2.length > 0 && _props.onMultiSelect) {
-			_props.onMultiSelect(_selectedPathsValue2);
+		if (_selectedPathsValue2.length > 0 && props.onMultiSelect) {
+			props.onMultiSelect(_selectedPathsValue2);
 		} else if (_selectedPathsValue2.length === 1) {
-			_props.onSelect(_selectedPathsValue2[0]!);
+			props.onSelect(_selectedPathsValue2[0]!);
 		}
 	};
 	const handleKeyDown = (e: KeyboardEvent) => {
@@ -141,7 +110,7 @@ export function InlineDirectoryPicker(_props: InlineDirectoryPickerProps) {
 		if (itemCount() === 0) {
 			if (e.key === "Escape") {
 				e.preventDefault();
-				_props.onCancel?.();
+				props.onCancel?.();
 			}
 			return;
 		}
@@ -163,7 +132,7 @@ export function InlineDirectoryPicker(_props: InlineDirectoryPickerProps) {
 			if (path) handleItemClick(path);
 		} else if (e.key === "Escape") {
 			e.preventDefault();
-			_props.onCancel?.();
+			props.onCancel?.();
 		}
 	};
 	const shortenPath = (path: string) =>
@@ -173,7 +142,7 @@ export function InlineDirectoryPicker(_props: InlineDirectoryPickerProps) {
 	return (
 		<>
 			{(() => {
-				if (_props.hideInput) {
+				if (props.hideInput) {
 					return (
 						<div {...stylex.attrs(styles.compactRoot)}>
 							<div {...stylex.attrs(styles.compactList)}>
@@ -190,7 +159,7 @@ export function InlineDirectoryPicker(_props: InlineDirectoryPickerProps) {
 									</For>
 								}
 							</div>
-							{_props.multiSelect && selectedPaths().length > 0 && (
+							{props.multiSelect && selectedPaths().length > 0 && (
 								<div {...stylex.attrs(styles.selectedBar)}>
 									{
 										<For
@@ -242,10 +211,10 @@ export function InlineDirectoryPicker(_props: InlineDirectoryPickerProps) {
 									{...stylex.attrs(styles.input)}
 								/>
 								{loading() && <div {...stylex.attrs(styles.spinner)} />}
-								{(_props.showStartButton === undefined
+								{(props.showStartButton === undefined
 									? true
-									: _props.showStartButton) &&
-									_props.multiSelect &&
+									: props.showStartButton) &&
+									props.multiSelect &&
 									selectedPaths().length > 0 && (
 										<button
 											type="button"
@@ -278,7 +247,7 @@ export function InlineDirectoryPicker(_props: InlineDirectoryPickerProps) {
 									}
 								</div>
 							)}
-							{_props.multiSelect && selectedPaths().length > 0 && (
+							{props.multiSelect && selectedPaths().length > 0 && (
 								<div {...stylex.attrs(styles.selectedWrap)}>
 									<div {...stylex.attrs(styles.selectedList)}>
 										{

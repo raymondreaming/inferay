@@ -1,39 +1,36 @@
+import { iconSize } from "@design-system/styles.stylex.ts";
+import { ThinkingIndicator } from "@shared/ui/DotMatrixLoader/index.tsx";
+import { IconStop } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { ThinkingIndicator } from "../../../../shared/ui/DotMatrixLoader/index.tsx";
-import { IconStop } from "../../../../shared/ui/Icons/index.tsx";
 import { styles } from "./styles.ts";
 
-interface AgentChatStatusBarProps {
+export const AgentChatStatusBar = function AgentChatStatusBar(props: {
 	active?: boolean;
 	isLoading: boolean;
 	startTime?: number | null;
 	onStop: () => void;
-}
-export const AgentChatStatusBar = function AgentChatStatusBar(
-	_props: AgentChatStatusBarProps,
-) {
+}) {
 	return (
 		<>
 			{(() => {
-				if (!_props.isLoading) return null;
+				if (!props.isLoading) return null;
 				return (
 					<div data-chat-activity {...stylex.attrs(styles.root)}>
-						{_props.isLoading && (
+						{props.isLoading && (
 							<div {...stylex.attrs(styles.activity)}>
-								{_props.startTime ? (
+								{props.startTime ? (
 									<ThinkingIndicator
-										active={_props.active}
-										startTime={_props.startTime}
+										active={props.active}
+										startTime={props.startTime}
 									/>
 								) : null}
 							</div>
 						)}
 
-						{_props.isLoading && (
+						{props.isLoading && (
 							<button
 								type="button"
-								onClick={_props.onStop}
+								onClick={props.onStop}
 								title="Stop generation"
 								aria-label="Stop generation"
 								{...stylex.attrs(styles.stopButton)}

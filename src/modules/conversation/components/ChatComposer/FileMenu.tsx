@@ -1,15 +1,16 @@
+import { surfaceStyles } from "@design-system/styles.stylex.ts";
 import * as stylex from "@stylexjs/stylex";
 import { For } from "solid-js";
-import { surfaceStyles } from "../../../../design-system/styles.stylex.ts";
 import { FileMenuRow } from "./FileMenuRow.tsx";
 import { styles } from "./styles.ts";
 import type { useChatComposerState } from "./useChatComposerState.tsx";
 
-type FileMenuProps = Pick<
-	ReturnType<typeof useChatComposerState>,
-	"fileMenu" | "fileResults" | "selectFile" | "setFileMenu"
->;
-export function FileMenu(_props: FileMenuProps) {
+export function FileMenu(
+	_props: Pick<
+		ReturnType<typeof useChatComposerState>,
+		"fileMenu" | "fileResults" | "selectFile" | "setFileMenu"
+	>,
+) {
 	return (
 		<div
 			{...stylex.attrs(

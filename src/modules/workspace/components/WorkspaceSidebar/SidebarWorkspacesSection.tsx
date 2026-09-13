@@ -1,17 +1,14 @@
-import * as stylex from "@stylexjs/stylex";
-import { createEffect, createMemo, createSignal } from "solid-js";
-import {
-	iconSize,
-	surfaceStyles,
-} from "../../../../design-system/styles.stylex.ts";
-import { ariaValue } from "../../../../shared/lib/dom.tsx";
-import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
+import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
+import { Explorer } from "@explorer/components/Explorer/index.tsx";
+import { ariaValue } from "@shared/lib/dom.tsx";
+import { IconButton } from "@shared/ui/IconButton/index.tsx";
 import {
 	IconLayoutGrid,
 	IconLayoutRows,
 	IconPanelLeft,
-} from "../../../../shared/ui/Icons/index.tsx";
-import { Explorer } from "../../../explorer/components/Explorer/index.tsx";
+} from "@shared/ui/Icons/index.tsx";
+import * as stylex from "@stylexjs/stylex";
+import { createEffect, createMemo, createSignal } from "solid-js";
 import type { SidebarWorkspaceState } from "../../hooks/useWorkspaceState.tsx";
 import { SidebarChatList } from "./SidebarChatList.tsx";
 import { styles } from "./styles.ts";

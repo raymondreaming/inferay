@@ -1,6 +1,6 @@
+import { ariaValue, domStyle } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { type Element, Show } from "solid-js";
-import { ariaValue, domStyle } from "../../../../shared/lib/dom.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 export function DockSplit(_props: {

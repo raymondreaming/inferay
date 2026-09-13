@@ -1,10 +1,16 @@
 import type { ForgeAccount, GithubRepo } from "@contracts";
+import {
+	loadForgeAccounts,
+	loadGithubRepos,
+} from "@repository/services/gitApi.ts";
+import { useQueryResource } from "@shared/hooks/useQueryResource.tsx";
+import { queryClient } from "@shared/lib/dom.tsx";
 import type { Accessor } from "solid-js";
-import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
-import { queryClient } from "../../../shared/lib/dom.tsx";
-import { fetchJson } from "../../../shared/lib/native.tsx";
 
-function forgeResource<T>(kind: string, field: string, url: string) {
+function forgeResource<T>(
+	kind: string,
+	load: (refresh: boolean, signal?: AbortSignal) => Promise<T[]>,
+) {
 	const options = {
 		queryKey: ["forge", kind],
 		staleTime: 120_000,
@@ -13,14 +19,9 @@ function forgeResource<T>(kind: string, field: string, url: string) {
 	let refreshNative = false;
 	const request = async (signal?: AbortSignal): Promise<T[]> => {
 		const refreshing = refreshNative;
-		const data = await fetchJson<Record<string, T[]>>(
-			refreshing ? `${url}${url.includes("?") ? "&" : "?"}refresh=1` : url,
-			{
-				signal,
-			},
-		);
+		const data = await load(refreshing, signal);
 		if (refreshing) refreshNative = false;
-		return Array.isArray(data[field]) ? data[field]! : empty;
+		return data;
 	};
 	const invalidate = () => {
 		refreshNative = true;
@@ -38,14 +39,9 @@ function forgeResource<T>(kind: string, field: string, url: string) {
 }
 const accountsResource = forgeResource<ForgeAccount>(
 	"accounts",
-	"accounts",
-	"/api/forge/accounts",
+	loadForgeAccounts,
 );
-const reposResource = forgeResource<GithubRepo>(
-	"repos",
-	"repos",
-	"/api/forge/repos?limit=50",
-);
+const reposResource = forgeResource<GithubRepo>("repos", loadGithubRepos);
 export const invalidateForgeAccountsCache = accountsResource.invalidate;
 export const invalidateGithubReposCache = reposResource.invalidate;
 export function useForgeAccounts(enabled: Accessor<boolean> = () => true) {

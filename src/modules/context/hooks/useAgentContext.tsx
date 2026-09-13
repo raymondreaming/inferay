@@ -1,8 +1,11 @@
+import {
+	loadAgentContext,
+	saveAgentContext,
+} from "@context/services/contextApi.ts";
 import type { AgentContextUpdate, EffectiveAgentContext } from "@contracts";
+import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
+import { queryClient } from "@shared/lib/dom.tsx";
 import type { Accessor } from "solid-js";
-import { useBackgroundQuery } from "../../../shared/hooks/useQueryResource.tsx";
-import { queryClient } from "../../../shared/lib/dom.tsx";
-import { fetchJson, postJson } from "../../../shared/lib/native.tsx";
 
 const EMPTY = {
 	instructions: "",
@@ -25,14 +28,7 @@ export function useAgentContext(
 				cwd = _cwd();
 			return {
 				queryKey: ["agent-context", paneId, cwd],
-				queryFn: async ({ signal }) => {
-					const params = new URLSearchParams({ paneId });
-					if (cwd) params.set("cwd", cwd);
-					return fetchJson<EffectiveAgentContext>(
-						`/api/agent-context?${params}`,
-						{ signal },
-					);
-				},
+				queryFn: ({ signal }) => loadAgentContext(paneId, cwd, signal),
 				retry: false,
 			};
 		},
@@ -45,19 +41,7 @@ export function useAgentContext(
 	) => {
 		const paneId = _paneId();
 		const cwd = _cwd();
-		await postJson(
-			"/api/agent-context",
-			{
-				scope,
-				instructions,
-				mode,
-				cwd,
-				paneId,
-			},
-			{
-				method: "PUT",
-			},
-		);
+		await saveAgentContext({ scope, instructions, mode, cwd, paneId });
 		await queryClient.invalidateQueries({ queryKey: ["agent-context"] });
 	};
 	return {

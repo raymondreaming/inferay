@@ -1,29 +1,16 @@
+import type { DiffHunk, SequentialEdit } from "@conversation/model/editDiff.ts";
+import { prepareNativeEditDiff } from "@conversation/services/conversationApi.ts";
+import { useBackgroundQuery as useQuery } from "@shared/hooks/useQueryResource.tsx";
+import { queryClient } from "@shared/lib/dom.tsx";
 import type { Accessor } from "solid-js";
-import { useBackgroundQuery as useQuery } from "../../../shared/hooks/useQueryResource.tsx";
-import { queryClient } from "../../../shared/lib/dom.tsx";
-import { sendJson } from "../../../shared/lib/native.tsx";
-export type LineTextSegment = {
-	text: string;
-	changed: boolean;
-};
-export type GitDiffLine = {
-	type: "context" | "removed" | "added";
-	text: string;
-	oldLineNum?: number;
-	newLineNum?: number;
-	segments?: LineTextSegment[];
-};
-export type DiffHunk = {
-	lines: GitDiffLine[];
-	oldStart: number;
-	oldCount: number;
-	newStart: number;
-	newCount: number;
-};
-export type SequentialEdit = {
-	old_string: string;
-	new_string: string;
-};
+
+export type {
+	DiffHunk,
+	GitDiffLine,
+	LineTextSegment,
+	SequentialEdit,
+} from "@conversation/model/editDiff.ts";
+
 const EMPTY_HUNKS: DiffHunk[] = [];
 export function useNativeEditDiff(
 	_before: Accessor<string>,
@@ -43,21 +30,7 @@ export function useNativeEditDiff(
 					: ["native-edit-diff", "disabled"],
 				queryFn: async ({ signal }: { signal: AbortSignal }) => {
 					if (!input) return EMPTY_HUNKS;
-					const response = await sendJson("/api/native/diff", input, {
-						signal: AbortSignal.any([signal, AbortSignal.timeout(12000)]),
-					});
-					if (!response.ok) {
-						const failure = await response.json().catch(() => null);
-						throw new Error(
-							failure?.error ?? `Diff request failed (${response.status})`,
-						);
-					}
-					const result: {
-						prepared: {
-							hunks: DiffHunk[];
-						};
-					} = await response.json();
-					return result.prepared.hunks;
+					return prepareNativeEditDiff(input, signal);
 				},
 				enabled: !_streamingValue,
 				staleTime: Infinity,

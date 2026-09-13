@@ -1,10 +1,10 @@
 import type { Prompt, SkillFormState } from "@contracts";
+import { iconSize } from "@design-system/styles.stylex.ts";
+import { setInputValue } from "@shared/lib/dom.tsx";
+import { Button } from "@shared/ui/Button/index.tsx";
+import { IconPlus, IconSearch } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For } from "solid-js";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { setInputValue } from "../../../../shared/lib/dom.tsx";
-import { Button } from "../../../../shared/ui/Button/index.tsx";
-import { IconPlus, IconSearch } from "../../../../shared/ui/Icons/index.tsx";
 import { SkillLibraryItem } from "./SkillLibraryItem.tsx";
 import { styles } from "./styles.ts";
 

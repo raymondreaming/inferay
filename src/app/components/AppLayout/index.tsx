@@ -1,12 +1,12 @@
+import { SettingsModalHost } from "@settings/components/SettingsModal/index.tsx";
+import { type CSSProperties, domStyle } from "@shared/lib/dom.tsx";
+import { wsClient } from "@shared/lib/native.tsx";
+import { SkillsModalHost } from "@skills/components/SkillsModal/index.tsx";
 import * as stylex from "@stylexjs/stylex";
+import { RepositoryWorkspaceBar } from "@workspace/components/RepositoryWorkspaceBar/index.tsx";
+import { WorkspaceSidebar } from "@workspace/components/WorkspaceSidebar/index.tsx";
 import type { Element } from "solid-js";
 import { Loading, onSettled } from "solid-js";
-import { SettingsModalHost } from "../../../modules/settings/components/SettingsModal/index.tsx";
-import { SkillsModalHost } from "../../../modules/skills/components/SkillsModal/index.tsx";
-import { RepositoryWorkspaceBar } from "../../../modules/workspace/components/RepositoryWorkspaceBar/index.tsx";
-import { WorkspaceSidebar } from "../../../modules/workspace/components/WorkspaceSidebar/index.tsx";
-import { type CSSProperties, domStyle } from "../../../shared/lib/dom.tsx";
-import { wsClient } from "../../../shared/lib/native.tsx";
 import {
 	useAppAppearance,
 	usesNativeGlass,

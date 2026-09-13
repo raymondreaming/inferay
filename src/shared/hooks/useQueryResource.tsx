@@ -1,5 +1,19 @@
+import {
+	type DefaultError,
+	type QueryClient,
+	QueryObserver,
+	type QueryObserverOptions,
+	type QueryObserverResult,
+} from "@tanstack/query-core";
 import type { QueryKey } from "@tanstack/solid-query";
-import { type Accessor, createMemo } from "solid-js";
+import {
+	type Accessor,
+	createEffect,
+	createMemo,
+	createStore,
+	onSettled,
+	untrack,
+} from "solid-js";
 import type { StateUpdate } from "../lib/dom.tsx";
 import { queryClient } from "../lib/dom.tsx";
 
@@ -87,15 +101,6 @@ export function usePollingQuery<T>(
 		},
 	);
 }
-
-import {
-	type DefaultError,
-	type QueryClient,
-	QueryObserver,
-	type QueryObserverOptions,
-	type QueryObserverResult,
-} from "@tanstack/query-core";
-import { createEffect, createStore, onSettled, untrack } from "solid-js";
 
 /** Queries with explicit loading/error UI must never suspend the workspace.
  * Keep TanStack's cache, cancellation and placeholder behavior, and publish

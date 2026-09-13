@@ -3,11 +3,12 @@ import * as stylex from "@stylexjs/stylex";
 import { createMemo, omit } from "solid-js";
 import { styles } from "./styles.ts";
 
-interface IconButtonProps extends JSX.ButtonHTMLAttributes<HTMLButtonElement> {
-	variant?: "ghost" | "danger" | "subtle";
-	size?: "xs" | "sm" | "md";
-}
-export function IconButton(props: IconButtonProps) {
+export function IconButton(
+	props: JSX.ButtonHTMLAttributes<HTMLButtonElement> & {
+		variant?: "ghost" | "danger" | "subtle";
+		size?: "xs" | "sm" | "md";
+	},
+) {
 	const nativeProps = omit(props, "variant", "size", "class", "children");
 	const appearance = createMemo(() =>
 		stylex.attrs(

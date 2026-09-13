@@ -1,7 +1,7 @@
 import type { MdInlineToken } from "@contracts";
+import { domStyle } from "@shared/lib/dom.tsx";
+import { MarkdownInline } from "@shared/ui/MarkdownInline/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { domStyle } from "../../../../shared/lib/dom.tsx";
-import { MarkdownInline } from "../../../../shared/ui/MarkdownInline/index.tsx";
 import { getInlineImgStyle, styles } from "./styles.ts";
 
 const appearance = {

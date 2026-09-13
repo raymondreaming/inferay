@@ -20,18 +20,19 @@ const WEAVE_DOTS = Array.from(
 		};
 	},
 );
-interface DotMatrixWeaveProps extends DotMatrixLoaderProps {
-	size?: number;
-}
-export function DotMatrixWeave(_props: DotMatrixWeaveProps) {
+export function DotMatrixWeave(
+	props: DotMatrixLoaderProps & {
+		size?: number;
+	},
+) {
 	const cycleMs = createMemo(
-		() => 1600 / Math.max(_props.speed === undefined ? 1 : _props.speed, 0.1),
+		() => 1600 / Math.max(props.speed === undefined ? 1 : props.speed, 0.1),
 	);
 	const a11yProps = createMemo(() =>
-		_props.ariaLabel
+		props.ariaLabel
 			? {
 					role: "status" as const,
-					"aria-label": _props.ariaLabel,
+					"aria-label": props.ariaLabel,
 				}
 			: {
 					role: "presentation" as const,
@@ -43,8 +44,8 @@ export function DotMatrixWeave(_props: DotMatrixWeaveProps) {
 			{...stylex.attrs(styles.weaveSlot)}
 			style={domStyle(
 				inlineStyles.getDotMatrixWeaveWeaveSlotStyle(
-					_props.size === undefined ? 15 : _props.size,
-					_props.size === undefined ? 15 : _props.size,
+					props.size === undefined ? 15 : props.size,
+					props.size === undefined ? 15 : props.size,
 				) as CSSProperties,
 			)}
 			{...a11yProps()}
@@ -53,9 +54,9 @@ export function DotMatrixWeave(_props: DotMatrixWeaveProps) {
 				{...stylex.attrs(styles.weaveGrid)}
 				style={domStyle(
 					inlineStyles.getDotMatrixWeaveWeaveGridStyle(
-						`repeat(5, ${_props.dotSize === undefined ? 2 : _props.dotSize}px)`,
-						`repeat(5, ${_props.dotSize === undefined ? 2 : _props.dotSize}px)`,
-						`${_props.gap === undefined ? 1 : _props.gap}px`,
+						`repeat(5, ${props.dotSize === undefined ? 2 : props.dotSize}px)`,
+						`repeat(5, ${props.dotSize === undefined ? 2 : props.dotSize}px)`,
+						`${props.gap === undefined ? 1 : props.gap}px`,
 						`${cycleMs()}ms`,
 					) as CSSProperties,
 				)}
@@ -68,10 +69,10 @@ export function DotMatrixWeave(_props: DotMatrixWeaveProps) {
 						)}
 						style={domStyle(
 							inlineStyles.getDotMatrixWeaveWeaveDotStyle(
-								_props.dotSize === undefined ? 2 : _props.dotSize,
+								props.dotSize === undefined ? 2 : props.dotSize,
 								Math.abs(2 - dot.col),
 								dot.row,
-								_props.dotSize === undefined ? 2 : _props.dotSize,
+								props.dotSize === undefined ? 2 : props.dotSize,
 							) as CSSProperties,
 						)}
 					/>

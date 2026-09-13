@@ -1,5 +1,5 @@
+import type { RefCell } from "@shared/lib/dom.tsx";
 import { type Accessor, createEffect, onSettled } from "solid-js";
-import type { RefCell } from "../../../../shared/lib/dom.tsx";
 
 /** Create in the composer owner; the directive only captures its DOM node. */
 export function useComposerTextarea(options: {

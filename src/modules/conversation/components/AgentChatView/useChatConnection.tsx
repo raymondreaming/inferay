@@ -1,13 +1,12 @@
-import type {
-	AskUserQuestion,
-	CheckpointMeta,
-	McpElicitation,
-	SkillProposal,
-	SkillRead,
-	ToolDisplayInfo,
-	ToolOutputSummary,
-	WorkspaceAgentKind,
-} from "@contracts";
+import type { CheckpointMeta, WorkspaceAgentKind } from "@contracts";
+import {
+	ChatReplica,
+	clearAgentChatPaneState,
+	project as rustProject,
+	wsClient,
+} from "@shared/lib/native.tsx";
+import { traceUi } from "@shared/lib/uiPerformance.ts";
+import { loadCanonicalAgentState } from "@workspace/hooks/useWorkspaceState.tsx";
 import {
 	type Accessor,
 	createEffect,
@@ -16,23 +15,19 @@ import {
 	onSettled,
 	untrack,
 } from "solid-js";
-import {
-	ChatReplica,
-	clearAgentChatPaneState,
-	project as rustProject,
-	wsClient,
-} from "../../../../shared/lib/native.tsx";
-import { traceUi } from "../../../../shared/lib/uiPerformance.ts";
-import { loadCanonicalAgentState } from "../../../workspace/hooks/useWorkspaceState.tsx";
 import type { QueuedChatMessage } from "../../hooks/useAgentChatComposerState.tsx";
-import type { CommandSystemMessage } from "../ChatMessageList/CommandSystemCard.tsx";
-import type { GoalSystemMessage } from "../ChatMessageList/GoalSystemCard.tsx";
 import { chatSessionCache } from "./chatSessionCache.ts";
 import {
 	admittedTranscriptMessages,
 	type TranscriptAdmission,
 } from "./transcriptSplice.ts";
-import type { ChatLoadingState } from "./types.ts";
+import type {
+	ChatLoadingState,
+	ChatMessage,
+	NativeChatRender,
+} from "./types.ts";
+
+export type { ChatMessage, NativeChatRender };
 
 const DEFAULT_CHAT_RUN_STATUS: ChatLoadingState = {
 	isLoading: false,
@@ -378,57 +373,7 @@ export function useChatConnection(
 		setRunStatus,
 	};
 }
-export interface NativeChatRender {
-	version: 1;
-	kind: "message" | "edit-group" | "tool-group";
-	groupEnd?: number;
-	groupLeader?: boolean;
-	hidden: boolean;
-	continuesAfter?: boolean;
-	rowId?: string;
-	filePath?: string;
-	edit?: {
-		file_path: string;
-		old_string: string;
-		new_string: string;
-	};
-	outputStart?: number;
-	display?: ToolDisplayInfo;
-	summary?: ToolOutputSummary | null;
-	questions?: AskUserQuestion[] | null;
-	elicitation?: McpElicitation | null;
-	command?: CommandSystemMessage;
-	goal?: GoalSystemMessage;
-	skillProposal?: SkillProposal;
-	skillRead?: SkillRead;
-	skillParts?: Array<
-		| {
-				start: number;
-				end: number;
-		  }
-		| {
-				proposal: SkillProposal;
-				index: number;
-		  }
-		| {
-				pending: true;
-		  }
-	>;
-}
-export interface ChatMessage {
-	id: string;
-	role: "user" | "assistant" | "tool" | "system" | "btw";
-	content: string;
-	toolName?: string;
-	render?: NativeChatRender;
-	/** Browser-only pending send; removed when native acknowledges this ID. */
-	optimistic?: boolean;
-	/** UI interaction notice absent from the authoritative transcript. */
-	localOnly?: boolean;
-	isStreaming?: boolean;
-	btwQuestion?: string;
-	images?: string[];
-}
+
 type ChatServerMessage = {
 	paneId: string;
 	type: string;

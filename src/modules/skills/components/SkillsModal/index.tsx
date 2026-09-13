@@ -1,9 +1,9 @@
-import { createEffect, createSignal, onSettled, Show } from "solid-js";
 import {
 	listenWindowEvent,
 	OPEN_SKILLS_EVENT,
 	type SkillsTarget,
-} from "../../../../shared/lib/dom.tsx";
+} from "@shared/lib/dom.tsx";
+import { createSignal, onSettled, Show } from "solid-js";
 import { SkillsDialog } from "./SkillsDialog.tsx";
 export function SkillsModalHost() {
 	const [request, setRequest] = createSignal<{

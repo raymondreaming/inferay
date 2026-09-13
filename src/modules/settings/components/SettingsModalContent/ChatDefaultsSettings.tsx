@@ -1,19 +1,19 @@
 import type { AgentAccountProviderStatus } from "@contracts";
-import * as stylex from "@stylexjs/stylex";
-import { createMemo, For } from "solid-js";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
+import { iconSize } from "@design-system/styles.stylex.ts";
 import type {
 	getAgentDefinition,
 	loadDefaultChatSettings,
-} from "../../../../shared/lib/native.tsx";
-import { Button } from "../../../../shared/ui/Button/index.tsx";
-import { DropdownButton } from "../../../../shared/ui/DropdownButton/index.tsx";
-import { IconRefreshCw } from "../../../../shared/ui/Icons/index.tsx";
+} from "@shared/lib/native.tsx";
+import { Button } from "@shared/ui/Button/index.tsx";
+import { DropdownButton } from "@shared/ui/DropdownButton/index.tsx";
+import { IconRefreshCw } from "@shared/ui/Icons/index.tsx";
 import {
 	SettingsRow,
 	SettingsSection,
 	SettingsSegmented,
-} from "../../../../shared/ui/SettingsSurface/index.tsx";
+} from "@shared/ui/SettingsSurface/index.tsx";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo, For } from "solid-js";
 import { SettingsErrorBanner } from "../SettingsStatus/index.tsx";
 import { ProviderChoice } from "./ProviderChoice.tsx";
 import { styles } from "./styles.ts";

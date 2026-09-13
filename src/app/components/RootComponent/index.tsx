@@ -1,9 +1,9 @@
+import { queryClient } from "@shared/lib/dom.tsx";
+import { ErrorBoundary } from "@shared/ui/ErrorBoundary/index.tsx";
 import { QueryClientProvider } from "@tanstack/solid-query";
 import { createSignal, Loading, lazy, onSettled } from "solid-js";
 import { Router } from "../../../router.tsx";
-import { queryClient } from "../../../shared/lib/dom.tsx";
-import { ErrorBoundary } from "../../../shared/ui/ErrorBoundary/index.tsx";
-import "../../../design-system/styles.css";
+import "@design-system/styles.css";
 
 const PerformanceRecorder = lazy(
 	() => import("../PerformanceRecorder/index.tsx"),

@@ -1,20 +1,18 @@
 import type { ChatListRow, ChatWindow, CheckpointMeta } from "@contracts";
+import { bindImperativeRef, domStyle, type RefCell } from "@shared/lib/dom.tsx";
+import { project as rustProject } from "@shared/lib/native.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
+	type Accessor,
 	createEffect,
 	createMemo,
+	createProjection,
 	createSignal,
 	For,
 	flush,
 	onSettled,
 	untrack,
 } from "solid-js";
-import {
-	bindImperativeRef,
-	domStyle,
-	type RefCell,
-} from "../../../../shared/lib/dom.tsx";
-import { project as rustProject } from "../../../../shared/lib/native.tsx";
 import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
 import { ChatRenderRow } from "./ChatRenderRow.tsx";
 import { chatViewportState } from "./chatViewportCache.ts";
@@ -364,8 +362,6 @@ export const ChatMessageList = function ChatMessageList(_props: {
 		</div>
 	);
 };
-
-import { type Accessor, createProjection } from "solid-js";
 
 /** Reconcile stream patches by message ID so text updates do not regroup the transcript. */
 export function createChatListModel(

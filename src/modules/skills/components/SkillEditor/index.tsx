@@ -1,17 +1,21 @@
 import type { Prompt } from "@contracts";
-import * as stylex from "@stylexjs/stylex";
-import { createMemo } from "solid-js";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { Button } from "../../../../shared/ui/Button/index.tsx";
+import { iconSize } from "@design-system/styles.stylex.ts";
+import { Button } from "@shared/ui/Button/index.tsx";
 import {
 	IconCheck,
 	IconCode,
 	IconPencil,
 	IconTrash,
-} from "../../../../shared/ui/Icons/index.tsx";
+} from "@shared/ui/Icons/index.tsx";
+import * as stylex from "@stylexjs/stylex";
+import { createMemo } from "solid-js";
 import { styles } from "./styles.ts";
 
-interface SkillEditorProps {
+const fitToContent = (element: HTMLTextAreaElement) => {
+	element.style.height = "auto";
+	element.style.height = `${element.scrollHeight}px`;
+};
+export function SkillEditor(props: {
 	selectedSkill: Prompt | null;
 	isCreatingNew: boolean;
 	isEditing: boolean;
@@ -27,21 +31,16 @@ interface SkillEditorProps {
 	onCancelEditing: () => void;
 	onSave: (isInlineEdit: boolean) => void;
 	onDelete: () => void;
-}
-const fitToContent = (element: HTMLTextAreaElement) => {
-	element.style.height = "auto";
-	element.style.height = `${element.scrollHeight}px`;
-};
-export function SkillEditor(_props: SkillEditorProps) {
-	const busy = () => _props.isSaving || _props.isDeleting;
-	const editing = createMemo(() => _props.isCreatingNew || _props.isEditing);
+}) {
+	const busy = () => props.isSaving || props.isDeleting;
+	const editing = createMemo(() => props.isCreatingNew || props.isEditing);
 	const instructions = createMemo(() =>
 		editing()
-			? _props.formInstructions
-			: (_props.selectedSkill?.promptTemplate ?? ""),
+			? props.formInstructions
+			: (props.selectedSkill?.promptTemplate ?? ""),
 	);
 	const command = createMemo(() =>
-		editing() ? _props.formCommand : (_props.selectedSkill?.command ?? ""),
+		editing() ? props.formCommand : (props.selectedSkill?.command ?? ""),
 	);
 	return (
 		<div {...stylex.attrs(styles.root)}>
@@ -52,9 +51,9 @@ export function SkillEditor(_props: SkillEditorProps) {
 						{editing() ? (
 							<input
 								aria-label="Skill command"
-								value={_props.formCommand}
+								value={props.formCommand}
 								onInput={(event) =>
-									_props.onFormChange(
+									props.onFormChange(
 										"command",
 										event.currentTarget.value
 											.toLowerCase()
@@ -74,21 +73,21 @@ export function SkillEditor(_props: SkillEditorProps) {
 						)}
 					</div>
 					<span {...stylex.attrs(styles.badge)}>
-						{_props.isCreatingNew
+						{props.isCreatingNew
 							? "Draft"
-							: _props.selectedSkill?.isBuiltIn
+							: props.selectedSkill?.isBuiltIn
 								? "Built-in"
 								: "Personal"}
 					</span>
 				</div>
 				{!editing() &&
-					_props.selectedSkill &&
-					!_props.selectedSkill.isBuiltIn && (
+					props.selectedSkill &&
+					!props.selectedSkill.isBuiltIn && (
 						<Button
 							type="button"
 							variant="ghost"
 							size="sm"
-							onClick={_props.onStartEditing}
+							onClick={props.onStartEditing}
 							disabled={busy()}
 						>
 							<IconPencil size={iconSize.md} />
@@ -101,10 +100,10 @@ export function SkillEditor(_props: SkillEditorProps) {
 					{editing() ? (
 						<input
 							aria-label="Skill name"
-							value={_props.formName}
+							value={props.formName}
 							disabled={busy()}
 							onInput={(event) =>
-								_props.onFormChange("name", event.currentTarget.value)
+								props.onFormChange("name", event.currentTarget.value)
 							}
 							placeholder="Give your skill a name"
 							{...stylex.attrs(
@@ -115,7 +114,7 @@ export function SkillEditor(_props: SkillEditorProps) {
 						/>
 					) : (
 						<h2 {...stylex.attrs(styles.field, styles.title)}>
-							{_props.selectedSkill?.name}
+							{props.selectedSkill?.name}
 						</h2>
 					)}
 					{editing() ? (
@@ -124,12 +123,12 @@ export function SkillEditor(_props: SkillEditorProps) {
 								requestAnimationFrame(() => fitToContent(element))
 							}
 							aria-label="Skill description"
-							value={_props.formDescription}
+							value={props.formDescription}
 							rows={1}
 							disabled={busy()}
 							onInput={(event) => {
 								fitToContent(event.currentTarget);
-								_props.onFormChange("description", event.currentTarget.value);
+								props.onFormChange("description", event.currentTarget.value);
 							}}
 							placeholder="When should your agent use this skill?"
 							{...stylex.attrs(
@@ -140,7 +139,7 @@ export function SkillEditor(_props: SkillEditorProps) {
 						/>
 					) : (
 						<p {...stylex.attrs(styles.field, styles.description)}>
-							{_props.selectedSkill?.description}
+							{props.selectedSkill?.description}
 						</p>
 					)}
 				</div>
@@ -164,10 +163,7 @@ export function SkillEditor(_props: SkillEditorProps) {
 							disabled={busy()}
 							onInput={(event) => {
 								fitToContent(event.currentTarget);
-								_props.onFormChange(
-									"promptTemplate",
-									event.currentTarget.value,
-								);
+								props.onFormChange("promptTemplate", event.currentTarget.value);
 							}}
 							spellcheck={false}
 							placeholder={
@@ -185,27 +181,27 @@ export function SkillEditor(_props: SkillEditorProps) {
 						</pre>
 					)}
 				</section>
-				{_props.formError && (
+				{props.formError && (
 					<p role="alert" {...stylex.attrs(styles.error)}>
-						{_props.formError}
+						{props.formError}
 					</p>
 				)}
 			</div>
 			<footer {...stylex.attrs(styles.footer)}>
 				<div>
-					{_props.selectedSkill &&
-						!_props.selectedSkill.isBuiltIn &&
-						!_props.isCreatingNew && (
+					{props.selectedSkill &&
+						!props.selectedSkill.isBuiltIn &&
+						!props.isCreatingNew && (
 							<Button
 								type="button"
 								variant="ghost"
 								size="sm"
 								disabled={busy()}
-								onClick={_props.onDelete}
+								onClick={props.onDelete}
 								class={stylex.attrs(styles.deleteButton).class}
 							>
 								<IconTrash size={iconSize.md} />
-								<span>{_props.isDeleting ? "Deleting…" : "Delete skill"}</span>
+								<span>{props.isDeleting ? "Deleting…" : "Delete skill"}</span>
 							</Button>
 						)}
 				</div>
@@ -217,7 +213,7 @@ export function SkillEditor(_props: SkillEditorProps) {
 								variant="ghost"
 								size="sm"
 								disabled={busy()}
-								onClick={_props.onCancelEditing}
+								onClick={props.onCancelEditing}
 							>
 								Cancel
 							</Button>
@@ -226,13 +222,13 @@ export function SkillEditor(_props: SkillEditorProps) {
 								variant="secondary"
 								size="sm"
 								disabled={busy()}
-								onClick={() => _props.onSave(_props.isEditing)}
+								onClick={() => props.onSave(props.isEditing)}
 							>
 								<IconCheck size={iconSize.md} />
 								<span>
-									{_props.isSaving
+									{props.isSaving
 										? "Saving…"
-										: _props.isCreatingNew
+										: props.isCreatingNew
 											? "Create skill"
 											: "Save changes"}
 								</span>

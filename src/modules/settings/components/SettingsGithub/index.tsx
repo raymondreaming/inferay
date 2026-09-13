@@ -1,13 +1,13 @@
 import type { ForgeAccount } from "@contracts";
+import { iconSize } from "@design-system/styles.stylex.ts";
+import { ariaValue } from "@shared/lib/dom.tsx";
+import { IconExternalLink, IconUser } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { ariaValue } from "../../../../shared/lib/dom.tsx";
-import {
-	IconExternalLink,
-	IconUser,
-} from "../../../../shared/ui/Icons/index.tsx";
 import { styles } from "./styles.ts";
+
+export { SettingsGithubEmptyState } from "./SettingsGithubEmptyState.tsx";
+export { SettingsRepoRow } from "./SettingsRepoRow.tsx";
 export function SettingsGithubAccount(_props: { account: ForgeAccount }) {
 	const fallback = createMemo(() =>
 		_props.account.login.slice(0, 2).toLocaleUpperCase(),
@@ -61,5 +61,3 @@ export function SettingsGithubAccount(_props: { account: ForgeAccount }) {
 		</div>
 	);
 }
-export { SettingsGithubEmptyState } from "./SettingsGithubEmptyState.tsx";
-export { SettingsRepoRow } from "./SettingsRepoRow.tsx";

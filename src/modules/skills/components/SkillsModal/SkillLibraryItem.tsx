@@ -1,6 +1,6 @@
 import type { Prompt } from "@contracts";
+import { ariaValue } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { ariaValue } from "../../../../shared/lib/dom.tsx";
 import { styles } from "./styles.ts";
 export function SkillLibraryItem(_props: {
 	skill: Prompt;

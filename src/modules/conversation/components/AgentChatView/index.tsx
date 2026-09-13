@@ -1,7 +1,7 @@
+import { traceUi } from "@shared/lib/uiPerformance.ts";
 import * as stylex from "@stylexjs/stylex";
+import { WorkspaceDockHandle } from "@workspace/components/WorkspaceDockHandle/index.tsx";
 import { createSignal, onSettled } from "solid-js";
-import { traceUi } from "../../../../shared/lib/uiPerformance.ts";
-import { WorkspaceDockHandle } from "../../../workbench/components/WorkspaceDockHandle/index.tsx";
 import { AgentContextPanel } from "../AgentContextPanel/index.tsx";
 import { AgentChatComposer } from "./AgentChatComposer.tsx";
 import { AgentChatMessages } from "./AgentChatMessages.tsx";

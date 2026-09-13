@@ -1,7 +1,7 @@
 import type { AppInfo } from "@contracts";
+import { iconSize } from "@design-system/styles.stylex.ts";
+import { IconRefreshCw } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { IconRefreshCw } from "../../../../shared/ui/Icons/index.tsx";
 import { styles } from "./styles.ts";
 export function SidebarFooter(_props: {
 	updateAvailable: boolean;

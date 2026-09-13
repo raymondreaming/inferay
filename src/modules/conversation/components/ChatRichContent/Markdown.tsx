@@ -1,6 +1,6 @@
+import { useNativeMarkdown } from "@shared/hooks/useNativeMarkdown.tsx";
+import { domStyle } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { useNativeMarkdown } from "../../../../shared/hooks/useNativeMarkdown.tsx";
-import { domStyle } from "../../../../shared/lib/dom.tsx";
 import { MarkdownBlocks } from "./MarkdownBlocks.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";

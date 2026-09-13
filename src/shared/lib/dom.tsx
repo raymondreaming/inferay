@@ -1,6 +1,13 @@
 import type { JSX } from "@solidjs/web";
+import { QueryClient } from "@tanstack/solid-query";
 import type * as CSS from "csstype";
-import { onSettled } from "solid-js";
+import {
+	type Accessor,
+	createEffect,
+	createSignal,
+	onSettled,
+	untrack,
+} from "solid-js";
 export type CSSProperties = CSS.Properties<string | number> & {
 	[key: `--${string}`]: string | number | undefined;
 };
@@ -107,8 +114,6 @@ export function captureEvent<K extends keyof HTMLElementEventMap>(
 	};
 }
 
-import { type Accessor, createEffect, createSignal, untrack } from "solid-js";
-
 /** Connect a durable native-backed store to the current Solid owner. */
 export function createExternalSignal<T>(
 	subscribe: (notify: () => void) => () => unknown,
@@ -143,7 +148,6 @@ export function bindImperativeRef<T>(
 	);
 }
 
-import { writeStoredValue } from "./native.tsx";
 export function noop(): void {}
 export function hasId(
 	id: unknown,
@@ -231,7 +235,6 @@ export function trackPointerResize(
 	return cancel;
 }
 
-import { QueryClient } from "@tanstack/solid-query";
 export const queryClient = new QueryClient({
 	defaultOptions: {
 		queries: {
@@ -359,15 +362,6 @@ export const WORKSPACE_SIDEBAR_COLLAPSED_EVENT =
 	"inferay-workspace-sidebar-collapsed";
 export interface WorkspaceSidebarCollapsedDetail {
 	collapsed: boolean;
-}
-export function setWorkspaceSidebarCollapsed(collapsed: boolean) {
-	writeStoredValue("sidebar-collapsed", String(collapsed));
-	dispatchWindowEvent<WorkspaceSidebarCollapsedDetail>(
-		WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
-		{
-			collapsed,
-		},
-	);
 }
 export const DOCUMENT_OPEN_EVENT = "workspace-file-open";
 export type DocumentOpenDetail = {

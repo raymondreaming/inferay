@@ -1,21 +1,18 @@
 import type { AgentTheme } from "@contracts";
+import { useRepositoryWorkbench } from "@repository/hooks/useRepositoryWorkbench.tsx";
+import type { AgentLayoutMode } from "@shared/contracts/workspace.ts";
 import { createMemo } from "solid-js";
-import { useRepositoryWorkbench } from "../../../workbench/hooks/useRepositoryWorkbench.tsx";
-import {
-	type AgentLayoutMode,
-	DEFAULT_ROWS,
-	WorkspaceCanvas,
-} from "../WorkspaceCanvas/index.tsx";
+import { DEFAULT_ROWS, WorkspaceCanvas } from "../WorkspaceCanvas/index.tsx";
 import { AgentMainSurface } from "./AgentMainSurface.tsx";
-import type { useAgentPaneActions } from "./index.tsx";
 import type { WorkspaceView } from "./retainedWorkspaces.ts";
+import type { AgentPaneActions } from "./types.ts";
 
 export function RepositorySurface(props: {
 	view: WorkspaceView;
 	active: boolean;
 	layoutMode: AgentLayoutMode;
 	theme: AgentTheme;
-	actions: ReturnType<typeof useAgentPaneActions>;
+	actions: AgentPaneActions;
 	onFocusPane: (paneId: string) => void;
 }) {
 	const selectedPaneId = createMemo<string | null>((previous) => {

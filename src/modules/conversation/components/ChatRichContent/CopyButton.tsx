@@ -1,13 +1,7 @@
+import { iconSize } from "@design-system/styles.stylex.ts";
+import { IconCheck, IconCopy } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import {
-	type Accessor,
-	createEffect,
-	createMemo,
-	createSignal,
-	onSettled,
-} from "solid-js";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { IconCheck, IconCopy } from "../../../../shared/ui/Icons/index.tsx";
+import { type Accessor, createMemo, createSignal, onSettled } from "solid-js";
 import { styles } from "./styles.ts";
 export function useCopyText(
 	_text: Accessor<string>,

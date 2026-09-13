@@ -1,4 +1,7 @@
-import type { PreparedMarkdown } from "@contracts";
+import {
+	nativeMarkdownStream,
+	prepareNativeMarkdown,
+} from "@shared/services/markdownApi.ts";
 import {
 	type Accessor,
 	createEffect,
@@ -7,8 +10,6 @@ import {
 	untrack,
 } from "solid-js";
 import { queryClient } from "../lib/dom.tsx";
-import { createMarkdownStreamClient } from "../lib/markdownStream.ts";
-import { sendJson } from "../lib/native.tsx";
 import { useBackgroundQuery as useQuery } from "./useQueryResource.tsx";
 
 /** Query lifecycle only: native code owns all Markdown interpretation. */
@@ -17,9 +18,7 @@ export function useNativeMarkdown(
 	_streaming: Accessor<boolean> = () => false,
 	_chat: Accessor<boolean> = () => false,
 ) {
-	const stream = createMarkdownStreamClient((body, signal) =>
-		sendJson("/api/native/markdown/stream", body, { signal }),
-	);
+	const stream = nativeMarkdownStream();
 	const [sample, setSample] = createSignal(untrack(_text));
 	const input = createMemo(() => {
 		const _textValue = _text(),
@@ -72,27 +71,12 @@ export function useNativeMarkdown(
 							streaming: _streamingValue,
 						};
 					}
-					const response = await sendJson(
-						"/api/native/markdown",
-						{
-							text: _inputValue,
-							streaming: _streamingValue,
-							chat: _chatValue,
-						},
-						{
-							signal: requestSignal,
-						},
+					const prepared = await prepareNativeMarkdown(
+						_inputValue,
+						_streamingValue,
+						_chatValue,
+						requestSignal,
 					);
-					if (!response.ok) {
-						const failure = await response.json().catch(() => null);
-						throw new Error(
-							failure?.error ?? `Markdown request failed (${response.status})`,
-						);
-					}
-					const prepared: PreparedMarkdown = await response.json();
-					if (prepared.version !== 1 || !Array.isArray(prepared.blocks)) {
-						throw new Error("Unsupported Markdown response");
-					}
 					return {
 						...prepared,
 						text: _inputValue,

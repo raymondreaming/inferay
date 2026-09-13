@@ -1,5 +1,5 @@
+import { DotMatrixRipple } from "@shared/ui/DotMatrixLoader/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { DotMatrixRipple } from "../../../../shared/ui/DotMatrixLoader/index.tsx";
 import { styles } from "./styles.ts";
 export function CommandSystemCard(_props: { command: CommandSystemMessage }) {
 	const commandLabel = () =>

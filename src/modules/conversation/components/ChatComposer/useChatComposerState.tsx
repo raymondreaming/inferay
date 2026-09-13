@@ -1,4 +1,7 @@
 import type { WorkspaceAgentKind } from "@contracts";
+import type { RefCell } from "@shared/lib/dom.tsx";
+import { hasId } from "@shared/lib/dom.tsx";
+import { getAgentDefinition } from "@shared/lib/native.tsx";
 import {
 	type Accessor,
 	createEffect,
@@ -7,9 +10,6 @@ import {
 	type Element,
 	merge,
 } from "solid-js";
-import type { RefCell } from "../../../../shared/lib/dom.tsx";
-import { hasId } from "../../../../shared/lib/dom.tsx";
-import { getAgentDefinition } from "../../../../shared/lib/native.tsx";
 import type { useAgentChatComposerState } from "../../hooks/useAgentChatComposerState.tsx";
 import type { useAgentChatMenus } from "../../hooks/useAgentChatMenus.tsx";
 export type AgentOption = {

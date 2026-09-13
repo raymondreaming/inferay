@@ -1,18 +1,9 @@
+import { iconSize } from "@design-system/styles.stylex.ts";
+import { useSyntaxHighlight } from "@shared/hooks/useSyntaxHighlight.tsx";
+import { domStyle } from "@shared/lib/dom.tsx";
+import { IconChevronRight, IconFilePlus } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import {
-	createEffect,
-	createMemo,
-	createSignal,
-	For,
-	onSettled,
-} from "solid-js";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { useSyntaxHighlight } from "../../../../shared/hooks/useSyntaxHighlight.tsx";
-import { domStyle } from "../../../../shared/lib/dom.tsx";
-import {
-	IconChevronRight,
-	IconFilePlus,
-} from "../../../../shared/ui/Icons/index.tsx";
+import { createMemo, createSignal, For, onSettled } from "solid-js";
 import type { DiffHunk } from "../../hooks/useNativeEditDiff.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
@@ -244,7 +235,7 @@ export function EditDiffCard(_props: {
 																								each={lineSegments()}
 																								keyed={false}
 																							>
-																								{(segment, segmentIndex) => (
+																								{(segment) => (
 																									<span
 																										{...stylex.attrs(
 																											segment().changed &&
@@ -269,7 +260,7 @@ export function EditDiffCard(_props: {
 																								each={highlightedTokens()}
 																								keyed={false}
 																							>
-																								{(token, tokenIndex) => (
+																								{(token) => (
 																									<span
 																										class={`syntax-${token().kind}`}
 																									>

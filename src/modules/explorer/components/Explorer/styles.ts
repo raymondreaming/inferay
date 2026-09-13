@@ -1,3 +1,4 @@
+import type { CSSProperties } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	color,
@@ -7,7 +8,6 @@ import {
 	motion,
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
-import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 export const styles = stylex.create({
 	root: {
 		boxSizing: "border-box",

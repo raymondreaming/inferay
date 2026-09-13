@@ -1,3 +1,4 @@
+import { listenWindowEvent } from "@shared/lib/dom.tsx";
 import {
 	type Accessor,
 	createEffect,
@@ -5,7 +6,6 @@ import {
 	onSettled,
 	untrack,
 } from "solid-js";
-import { listenWindowEvent } from "../../../../shared/lib/dom.tsx";
 import { chatViewportState } from "./chatViewportCache.ts";
 import type { ChatVirtualizerControls } from "./index.tsx";
 

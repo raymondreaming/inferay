@@ -1,10 +1,7 @@
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { Button } from "../../../../shared/ui/Button/index.tsx";
-import {
-	IconAgent,
-	IconGitBranch,
-} from "../../../../shared/ui/Icons/index.tsx";
-import { WorkspaceEmptyState } from "../../../../shared/ui/WorkspacePage/index.tsx";
+import { iconSize } from "@design-system/styles.stylex.ts";
+import { Button } from "@shared/ui/Button/index.tsx";
+import { IconAgent, IconGitBranch } from "@shared/ui/Icons/index.tsx";
+import { WorkspaceEmptyState } from "@shared/ui/WorkspacePage/index.tsx";
 export function SettingsGithubEmptyState(_props: {
 	onConnect: () => void;
 	connecting: boolean;

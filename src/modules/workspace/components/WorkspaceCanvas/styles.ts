@@ -1,3 +1,4 @@
+import type { CSSProperties } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	color,
@@ -5,7 +6,6 @@ import {
 	layer,
 	motion,
 } from "../../../../design-system/styles.stylex.ts";
-import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 export const styles = stylex.create({
 	rowScroller: {
 		backgroundColor: color.transparent,

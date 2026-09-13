@@ -1,8 +1,8 @@
+import { iconSize } from "@design-system/styles.stylex.ts";
+import type { useForgeAccounts } from "@repository/hooks/useForgeAccounts.tsx";
+import { openSettingsModal } from "@shared/lib/dom.tsx";
+import { IconUser } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
-import { openSettingsModal } from "../../../../shared/lib/dom.tsx";
-import { IconUser } from "../../../../shared/ui/Icons/index.tsx";
-import type { useForgeAccounts } from "../../../repository/hooks/useForgeAccounts.tsx";
 import { styles } from "./styles.ts";
 export function SidebarAccountButton(_props: {
 	githubAccount: ReturnType<typeof useForgeAccounts>["data"][number] | null;

@@ -1,5 +1,5 @@
+import type { Dispatch, StateUpdate } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
-import type { Dispatch, StateUpdate } from "../../../../shared/lib/dom.tsx";
 import type {
 	FileMenuState,
 	FileSearchResult,
