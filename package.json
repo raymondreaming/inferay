@@ -13,6 +13,7 @@
 		"build:native": "bun scripts/check-bun-version.mjs && cargo build --release -p inferay-desktop",
 		"build:renderer": "bun scripts/check-bun-version.mjs && bash scripts/sync-file-icons.sh && bun run build:presentation && node node_modules/vite/bin/vite.js build --mode production",
 		"build": "bash scripts/build-rust-app.sh",
+		"dmg": "bash scripts/build-dmg.sh && open artifacts/inferay-installer.dmg",
 		"start": "bun run build:renderer && cargo run --release -p inferay-desktop",
 		"release": "cargo run -p inferay-tooling -- release",
 		"release:resume": "cargo run -p inferay-tooling -- release --resume",
