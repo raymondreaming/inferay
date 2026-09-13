@@ -10,8 +10,8 @@ pub(super) async fn handle(state: &ServerState, request: Request) -> ApiResult {
         body["workspaceId"].as_str().filter(|id| !id.is_empty()),
         "workspaceId is required",
     )?;
-    let _guard = state.client_storage_write.lock().await;
-    let mut entries = read_client_storage(&state.client_storage_path).await?;
+    let mut storage = state.client_storage.lock().await;
+    let entries = storage.read().await?;
     let key = format!("{KEY}{workspace_id}");
     let stored = entries
         .get(&key)
@@ -30,8 +30,12 @@ pub(super) async fn handle(state: &ServerState, request: Request) -> ApiResult {
         None => None,
     };
     if stored.as_ref() != Some(&current) {
-        entries.insert(key, Value::String(current.to_string()));
-        write_json_object(&state.client_storage_path, &entries).await?;
+        storage
+            .update(std::collections::BTreeMap::from([(
+                key,
+                Some(Value::String(current.to_string())),
+            )]))
+            .await?;
     }
     if body.get("action").is_none() && current["fileRequest"].is_object() {
         current["fileRequest"]["token"] = json!(unix_millis());
@@ -47,8 +51,8 @@ pub(super) async fn restore_documents(state: &ServerState, request: Request) -> 
     let workspace = required(body["workspaceId"].as_str(), "workspaceId is required")?;
     let session_id = required(body["sessionId"].as_str(), "sessionId is required")?;
     let saved = {
-        let _guard = state.client_storage_write.lock().await;
-        let entries = read_client_storage(&state.client_storage_path).await?;
+        let mut storage = state.client_storage.lock().await;
+        let entries = storage.read().await?;
         let decode = |key: &str| {
             entries
                 .get(key)

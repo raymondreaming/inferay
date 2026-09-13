@@ -168,8 +168,8 @@ pub(super) async fn handle(state: &ServerState, request: Request) -> ApiResult {
         columns
     };
     let preset = json!([body["mode"], columns]);
-    let _guard = state.client_storage_write.lock().await;
-    let mut entries = read_client_storage(&state.client_storage_path).await?;
+    let mut storage = state.client_storage.lock().await;
+    let entries = storage.read().await?;
     let key = format!("native-workspace-dock:{workspace}");
     let saved = entries
         .get(&key)
@@ -260,8 +260,7 @@ pub(super) async fn handle(state: &ServerState, request: Request) -> ApiResult {
     }
     let value = Value::String(json!({"tree":tree,"preset":preset}).to_string());
     if entries.get(&key) != Some(&value) {
-        entries.insert(key, value);
-        write_json_object(&state.client_storage_path, &entries).await?;
+        storage.update(std::collections::BTreeMap::from([(key, Some(value))])).await?;
     }
     let tree = tree.map(|t| t.constrain(display_columns));
     Ok(

@@ -54,6 +54,7 @@ mod atomic_write;
 pub mod chat_persistence;
 mod chat_runtime;
 pub mod checkpoint;
+mod client_storage;
 mod forge;
 mod highlight;
 mod markdown;
@@ -121,8 +122,7 @@ struct ServerState {
     agent_command_resolver: Arc<AgentCommandResolver>,
     agent_state_store: Arc<Mutex<AgentStateStore>>,
     background_dir: PathBuf,
-    client_storage_path: PathBuf,
-    client_storage_write: Arc<tokio::sync::Mutex<()>>,
+    client_storage: Arc<tokio::sync::Mutex<client_storage::ClientStorage>>,
     chat_persistence: chat_persistence::ChatPersistence,
     chat_runtime: chat_runtime::ChatRuntime,
     checkpoint_service: checkpoint::CheckpointService,
@@ -319,7 +319,9 @@ fn build_router_with_connection_reset(
     )));
     let chat_persistence = chat_persistence::ChatPersistence::new(config.user_data_dir.clone());
     let agent_state_store = Arc::new(Mutex::new(AgentStateStore::new(agent_state_path.clone())));
-    let client_storage_write = Arc::new(tokio::sync::Mutex::new(()));
+    let client_storage = Arc::new(tokio::sync::Mutex::new(client_storage::ClientStorage::new(
+        config.user_data_dir.join("client-storage.json"),
+    )));
     let chat_runtime = chat_runtime::ChatRuntime::new(
         chat_persistence.clone(),
         checkpoint_service.clone(),
@@ -336,8 +338,7 @@ fn build_router_with_connection_reset(
         agent_command_resolver,
         agent_state_store,
         background_dir: config.user_data_dir.join("backgrounds"),
-        client_storage_path: config.user_data_dir.join("client-storage.json"),
-        client_storage_write,
+        client_storage,
         chat_persistence,
         chat_runtime,
         checkpoint_service,
@@ -433,7 +434,13 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             ("/api/native/provider-config", "GET") => {
                 // A broken skill library must not prevent startup or local commands.
                 let skills = state.prompts.lock().await.load().unwrap_or_default();
-                let entries = read_json_object(&state.client_storage_path).await;
+                let entries = state
+                    .client_storage
+                    .lock()
+                    .await
+                    .select(&["inferay-default-chat-settings"])
+                    .await
+                    .unwrap_or_default();
                 let defaults = entries
                     .get("inferay-default-chat-settings")
                     .and_then(Value::as_str)
@@ -616,17 +623,19 @@ async fn provider_configuration(state: &ServerState, request: Request) -> ApiRes
     let mut input: Value = api_body(request).await?;
     let Some(pane_id) = input["paneId"].as_str().map(str::to_owned) else {
         let resolved = inferay_core::provider_config::resolve(&input);
-        let _guard = state.client_storage_write.lock().await;
-        let mut entries = read_client_storage(&state.client_storage_path).await?;
-        entries.insert(
-            "inferay-default-chat-settings".into(),
-            Value::String(resolved.to_string()),
-        );
-        write_json_object(&state.client_storage_path, &entries).await?;
+        state
+            .client_storage
+            .lock()
+            .await
+            .update(std::collections::BTreeMap::from([(
+                "inferay-default-chat-settings".into(),
+                Some(Value::String(resolved.to_string())),
+            )]))
+            .await?;
         return Ok(resolved);
     };
-    let _guard = state.client_storage_write.lock().await;
-    let mut entries = read_client_storage(&state.client_storage_path).await?;
+    let mut storage = state.client_storage.lock().await;
+    let entries = storage.read().await?;
     input["defaults"] = entries
         .get("inferay-default-chat-settings")
         .and_then(Value::as_str)
@@ -645,16 +654,25 @@ async fn provider_configuration(state: &ServerState, request: Request) -> ApiRes
         }
     }
     let resolved = inferay_core::provider_config::resolve(&input);
-    for (field, key) in fields {
-        entries.insert(key, resolved[field].clone());
-    }
-    write_json_object(&state.client_storage_path, &entries).await?;
+    storage
+        .update(
+            fields
+                .into_iter()
+                .map(|(field, key)| (key, Some(resolved[field].clone())))
+                .collect(),
+        )
+        .await?;
     Ok(resolved)
 }
 
 async fn default_chat_kind(state: &ServerState) -> &'static str {
-    let _guard = state.client_storage_write.lock().await;
-    let entries = read_json_object(&state.client_storage_path).await;
+    let entries = state
+        .client_storage
+        .lock()
+        .await
+        .select(&["inferay-default-chat-settings"])
+        .await
+        .unwrap_or_default();
     let defaults = entries
         .get("inferay-default-chat-settings")
         .and_then(Value::as_str)
@@ -1184,8 +1202,8 @@ async fn skill_proposal(state: &ServerState, request: Request) -> ApiResult {
         "Missing proposal message ID",
     )?;
     let key = format!("inferay-skill-proposal:{id}");
-    let _guard = state.client_storage_write.lock().await;
-    let mut entries = read_client_storage(&state.client_storage_path).await?;
+    let mut storage = state.client_storage.lock().await;
+    let entries = storage.read().await?;
     let stored = entries
         .get(&key)
         .and_then(Value::as_str)
@@ -1198,8 +1216,12 @@ async fn skill_proposal(state: &ServerState, request: Request) -> ApiResult {
         unix_millis(),
     )?;
     if let Some(record) = record {
-        entries.insert(key, Value::String(record.to_string()));
-        write_json_object(&state.client_storage_path, &entries).await?;
+        storage
+            .update(std::collections::BTreeMap::from([(
+                key,
+                Some(Value::String(record.to_string())),
+            )]))
+            .await?;
     }
     Ok(json!(view))
 }
@@ -1745,41 +1767,50 @@ fn migrate_vscode_appearance(entries: &mut serde_json::Map<String, Value>) -> bo
 
 async fn get_client_storage(state: &ServerState, request: Request) -> ApiResult {
     let requested_key = query_value(&request, "key");
-    let _guard = state.client_storage_write.lock().await;
-    let mut entries = read_client_storage(&state.client_storage_path).await?;
-    if migrate_vscode_appearance(&mut entries) {
-        write_json_object(&state.client_storage_path, &entries).await?;
-    }
-    if let Some(Value::String(stored)) = entries.get("inferay-app-background") {
+    let mut storage = state.client_storage.lock().await;
+    let mut migrations = storage
+        .select(&[
+            "inferay-vscode-appearance-version",
+            "inferay-app-background",
+        ])
+        .await?;
+    let mut changed = migrate_vscode_appearance(&mut migrations);
+    if let Some(Value::String(stored)) = migrations.get("inferay-app-background") {
         let normalized = normalize_background_settings(stored);
         if normalized != *stored {
-            entries.insert("inferay-app-background".into(), Value::String(normalized));
-            write_json_object(&state.client_storage_path, &entries).await?;
+            migrations.insert("inferay-app-background".into(), Value::String(normalized));
+            changed = true;
         }
     }
-    if let Some(key) = requested_key {
-        entries.retain(|entry_key, _| entry_key == &key);
+    if changed {
+        storage
+            .update(
+                migrations
+                    .into_iter()
+                    .map(|(key, value)| (key, Some(value)))
+                    .collect(),
+            )
+            .await?;
     }
+    let entries = if let Some(key) = requested_key {
+        storage.select(&[&key]).await?
+    } else {
+        storage.read().await?.clone()
+    };
     Ok(json!({"entries":entries,"storageKeyPattern":client_storage_key_pattern()}))
 }
 
 async fn update_client_storage(state: &ServerState, request: Request) -> ApiResult {
     let body: Value = api_body(request).await?;
     let entries = normalize_client_storage_entries(&body["entries"]);
-    let _guard = state.client_storage_write.lock().await;
-    let mut snapshot = read_client_storage(&state.client_storage_path).await?;
-    let mut changed = false;
-    for (key, value) in entries {
-        if value.is_null() && !is_chat_preference_key(&key) {
-            changed |= snapshot.remove(&key).is_some();
-        } else if snapshot.get(&key) != Some(&value) {
-            snapshot.insert(key, value);
-            changed = true;
-        }
-    }
-    if changed {
-        write_json_object(&state.client_storage_path, &snapshot).await?;
-    }
+    let changes = entries
+        .into_iter()
+        .map(|(key, value)| {
+            let remove = value.is_null() && !is_chat_preference_key(&key);
+            (key, (!remove).then_some(value))
+        })
+        .collect();
+    state.client_storage.lock().await.update(changes).await?;
     Ok(json!({"ok":true}))
 }
 
@@ -2477,8 +2508,15 @@ async fn handle_native_websocket_message(
                 input.agent_kind = "claude".into();
             }
             let settings = {
-                let _guard = state.client_storage_write.lock().await;
-                read_client_storage(&state.client_storage_path).await
+                state
+                    .client_storage
+                    .lock()
+                    .await
+                    .select(&[
+                        &format!("inferay-chat-model-{pane_id}"),
+                        &format!("inferay-chat-reasoning-{pane_id}"),
+                    ])
+                    .await
             };
             let settings = match settings {
                 Ok(settings) => settings,
