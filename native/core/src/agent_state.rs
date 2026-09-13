@@ -514,9 +514,9 @@ impl Workspace {
                 self.selected_group_id = id;
             }
             "removePane" => {
-                let group = self.group(string(action, "groupId")?)?;
+                let group_id = string(action, "groupId")?;
                 let id = string(action, "paneId")?;
-                group.panes.retain(|p| p.id != id);
+                self.remove_pane(group_id, id, default_kind(action))?;
             }
             "reorderPanes" => {
                 let group = self.group(string(action, "groupId")?)?;
@@ -598,12 +598,166 @@ impl Workspace {
         }
         Ok(())
     }
+
+    fn remove_pane(&mut self, group_id: &str, id: &str, default_kind: &str) -> Result<(), String> {
+        // Capture the visible tab order before removing its last entry.
+        let mut paths = Vec::new();
+        for pane in self.groups.iter().flat_map(|group| &group.panes) {
+            let path = repository_path(pane.cwd.as_deref().unwrap_or(""));
+            if !path.is_empty() && !paths.iter().any(|existing| existing == path) {
+                paths.push(path.to_owned());
+            }
+        }
+        let selected_group = self.selected_group_id == group_id;
+        let group = self.group(group_id)?;
+        let Some(pane) = group.panes.iter().find(|pane| pane.id == id) else {
+            return Ok(());
+        };
+        let removed_path = repository_path(pane.cwd.as_deref().unwrap_or("")).to_owned();
+        let selected = selected_group && group.selected_pane_id.as_deref() == Some(id);
+        group.panes.retain(|pane| pane.id != id);
+        group.repair_selection();
+        if !selected {
+            return Ok(());
+        }
+
+        // Prefer another chat in the same repository, then the nearest tab to
+        // its left. Removing the first tab falls forward to the next repository.
+        let index = paths
+            .iter()
+            .position(|path| path == &removed_path)
+            .unwrap_or(paths.len());
+        let preferred = std::iter::once(&removed_path)
+            .chain(paths[..index].iter().rev())
+            .chain(paths[index..].iter())
+            .find(|path| {
+                self.groups
+                    .iter()
+                    .flat_map(|group| &group.panes)
+                    .any(|pane| {
+                        !path.is_empty()
+                            && repository_path(pane.cwd.as_deref().unwrap_or("")) == path.as_str()
+                    })
+            })
+            .cloned();
+        if let Some(cwd) = preferred {
+            self.apply(&serde_json::json!({"type":"selectRepository", "cwd":cwd}))?;
+        } else if let Some(group) = self.groups.iter_mut().find(|group| !group.panes.is_empty()) {
+            group.repair_selection();
+            self.selected_group_id = group.id.clone();
+        } else {
+            self.group(group_id)?.add(Pane::new(default_kind));
+        }
+        self.compact();
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod presentation_tests {
     use super::*;
     use serde_json::json;
+
+    fn deletion_workspace(groups: Value, selected: &str) -> Workspace {
+        serde_json::from_value(json!({
+            "groups": groups, "selectedGroupId": selected,
+            "themeId":"default", "fontSize":13, "fontFamily":"SF Mono", "opacity":1
+        }))
+        .unwrap()
+    }
+
+    fn repository_group(id: &str, cwd: &str) -> Value {
+        json!({"id":id,"name":id,"selectedPaneId":format!("{id}-chat"),"columns":1,"rows":1,
+            "panes":[{"id":format!("{id}-chat"),"title":id,"agentKind":"codex","cwd":cwd}]})
+    }
+
+    #[test]
+    fn deleting_last_repository_chat_selects_previous_tab_or_next_for_first_tab() {
+        for (selected, expected) in [("b", "/a"), ("a", "/b"), ("c", "/b")] {
+            let mut workspace = deletion_workspace(
+                json!([
+                    repository_group("a", "/a"),
+                    repository_group("b", "/b"),
+                    repository_group("c", "/c")
+                ]),
+                selected,
+            );
+            workspace.apply(&json!({"type":"removePane","groupId":selected,"paneId":format!("{selected}-chat")})).unwrap();
+            workspace.validate().unwrap();
+            let saved: Workspace =
+                serde_json::from_value(serde_json::to_value(&workspace).unwrap()).unwrap();
+            let result = saved.presentation().unwrap();
+            assert_eq!(result["repositories"]["activePath"], expected);
+            assert_eq!(
+                result["repositories"]["workspaces"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                2
+            );
+        }
+    }
+
+    #[test]
+    fn deleting_selected_chat_keeps_same_repository_across_groups() {
+        let mut workspace = deletion_workspace(
+            json!([
+                repository_group("a", "/a"),
+                repository_group("b", "/b/"),
+                repository_group("other", "/b")
+            ]),
+            "b",
+        );
+        workspace
+            .apply(&json!({"type":"removePane","groupId":"b","paneId":"b-chat"}))
+            .unwrap();
+        workspace.validate().unwrap();
+        assert_eq!(workspace.selected_group_id, "other");
+        assert_eq!(
+            workspace.presentation().unwrap()["repositories"]["activePath"],
+            "/b"
+        );
+    }
+
+    #[test]
+    fn deleting_background_chat_preserves_active_repository() {
+        let mut workspace = deletion_workspace(
+            json!([
+                repository_group("a", "/a"),
+                repository_group("b", "/b"),
+                repository_group("c", "/c")
+            ]),
+            "c",
+        );
+        workspace
+            .apply(&json!({"type":"removePane","groupId":"b","paneId":"b-chat"}))
+            .unwrap();
+        workspace.validate().unwrap();
+        assert_eq!(
+            workspace.presentation().unwrap()["repositories"]["activePath"],
+            "/c"
+        );
+    }
+
+    #[test]
+    fn deleting_final_chat_leaves_a_usable_new_chat() {
+        let mut workspace = deletion_workspace(json!([repository_group("a", "/a")]), "a");
+        workspace.apply(&json!({"type":"removePane","groupId":"a","paneId":"a-chat","defaultAgentKind":"claude"})).unwrap();
+        workspace.validate().unwrap();
+        let result = workspace.presentation().unwrap();
+        assert_eq!(result["repositories"]["workspaces"], json!([]));
+        assert_eq!(
+            result["repositories"]["visibleEntries"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            result["repositories"]["visibleEntries"][0]["pane"]["agentKind"],
+            "claude"
+        );
+    }
 
     #[test]
     fn repository_projection_preserves_panes_and_normalizes_paths() {
