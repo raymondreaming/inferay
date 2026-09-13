@@ -1446,7 +1446,6 @@ name = "inferay-native-diff"
 version = "0.1.0"
 dependencies = [
  "inferay-core",
- "inferay-presentation",
  "serde",
  "serde_json",
  "wait-timeout",
@@ -1456,6 +1455,7 @@ dependencies = [
 name = "inferay-presentation"
 version = "0.1.0"
 dependencies = [
+ "inferay-core",
  "serde",
  "serde_json",
  "ts-rs",

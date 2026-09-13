@@ -6,7 +6,10 @@ mod composer;
 pub mod dock;
 pub mod graph;
 pub mod panels;
-pub mod repository;
+/// Renderer compatibility facade for repository contracts owned by the core.
+pub mod repository {
+    pub use inferay_core::repository::*;
+}
 pub mod skills;
 pub mod transcript;
 mod workbench;

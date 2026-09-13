@@ -12,6 +12,7 @@ pub mod prompts;
 pub mod tool_presentation;
 
 pub mod provider_config;
+pub mod repository;
 
 /// Count UTF-16 code units used by the chat wire format's text limits.
 pub fn utf16_length(value: &str) -> usize {

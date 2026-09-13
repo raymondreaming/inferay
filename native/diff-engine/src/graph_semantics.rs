@@ -1,7 +1,7 @@
 //! Repository semantics prepared once alongside graph layout. The client keeps
 //! row geometry and interaction, without repeating ancestry walks per keypress.
 use crate::{GitGraphRefKind, GraphCommit};
-use inferay_presentation::repository::GraphAncestry;
+use inferay_core::repository::GraphAncestry;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
 pub(crate) fn prepare(commits: &mut [GraphCommit]) -> GraphAncestry {
