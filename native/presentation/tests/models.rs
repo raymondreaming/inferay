@@ -140,19 +140,6 @@ fn transcript_local_notices_keep_their_anchor_and_acknowledged_sends_disappear()
     );
 }
 #[test]
-fn liquid_morphs_settle_after_irregular_frames() {
-    let mut body = inferay_presentation::liquid::LiquidBody::new();
-    let mut settled = false;
-    for index in 0..300 {
-        let tick=serde_json::from_value(json!({"frame":{"x":if index==0{0}else{100},"y":0,"w":if index==0{40}else{200},"h":40},"dt":0.1,"now":100+index*100,"radius":20,"dynamics":{"evolve":true}})).unwrap();
-        let frame = body.advance(tick);
-        assert!(frame.paint.w.parse::<f64>().unwrap().is_finite());
-        settled = frame.settled;
-    }
-    assert!(settled);
-}
-
-#[test]
 fn dock_preview_preserves_saved_geometry_and_reconciles_membership() {
     let input =
         serde_json::json!({"ids":["a","b","c"],"columns":3,"mode":"grid","visibleColumns":3});

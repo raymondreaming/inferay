@@ -7,6 +7,8 @@ import type {
 } from "@contracts";
 import providerCatalog from "../../../build/presentation/provider-catalog.json";
 import { traceUi } from "./uiPerformance.ts";
+
+export { ChatReplica } from "../../../build/presentation/presentation.js";
 export async function fetchJson<T>(
 	input: RequestInfo | URL,
 	init?: RequestInit,
@@ -343,12 +345,6 @@ initSync({ module: wasmBytes(wasmUrl) });
 export function project<T>(operation: string, input: unknown): T {
 	return JSON.parse(presentation(operation, JSON.stringify(input)));
 }
-export {
-	ChatReplica,
-	LiquidBody,
-	LiquidGroup,
-	rounded_rect,
-} from "../../../build/presentation/presentation.js";
 export function adjacentGitFile<T>(
 	files: readonly T[],
 	isSelected: (file: T) => boolean,

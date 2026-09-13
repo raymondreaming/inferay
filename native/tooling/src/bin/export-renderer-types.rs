@@ -26,7 +26,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         GitFileEntry,
         inferay_presentation::appearance::AppearanceCatalog,
         inferay_presentation::appearance::BackgroundModel,
-        inferay_presentation::shadow::ShadowLayer,
         inferay_core::provider_config::ProviderCatalog,
         inferay_presentation::chat_view::ChatListRow,
         inferay_presentation::graph::GraphLines,
@@ -48,9 +47,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         GraphNavigation,
         inferay_presentation::panels::PanelSession,
         inferay_presentation::panels::PanelAction,
-        inferay_presentation::liquid::EvolveOptions,
-        inferay_presentation::liquid::MoveOptions,
-        inferay_presentation::liquid::LiquidFrame,
         inferay_core::prompts::Prompt,
         inferay_core::prompts::SkillProposal,
         inferay_core::prompts::SkillProposalView,
@@ -86,13 +82,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(
         presentation_path.join("appearance-catalog.json"),
         serde_json::to_string(&inferay_presentation::appearance::catalog())?,
-    )?;
-    std::fs::write(
-        presentation_path.join("liquid-defaults.json"),
-        serde_json::to_string(&serde_json::json!({
-            "evolve": inferay_presentation::liquid::EvolveOptions::default(),
-            "move": inferay_presentation::liquid::MoveOptions::default(),
-        }))?,
     )?;
     let catalog_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../build/presentation/provider-catalog.json");
