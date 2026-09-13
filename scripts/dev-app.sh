@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT}"
+bun scripts/check-bun-version.mjs
 
 DEV_BACKEND_ADDR="127.0.0.1:4317"
 BUILD_MARKER="$(mktemp)"

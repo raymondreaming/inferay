@@ -10,6 +10,7 @@ MACOS_DIR="${CONTENTS_DIR}/MacOS"
 RESOURCES_DIR="${CONTENTS_DIR}/Resources"
 
 cd "${ROOT}"
+bun scripts/check-bun-version.mjs
 bun run build:renderer
 cargo build --release -p inferay-desktop
 

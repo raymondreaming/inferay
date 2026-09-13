@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+bun scripts/check-bun-version.mjs
 if ! command -v wasm-bindgen >/dev/null || [[ "$(wasm-bindgen --version)" != "wasm-bindgen 0.2.127" ]]; then
   echo 'Install the matching bindings tool: cargo install wasm-bindgen-cli --version 0.2.127 --locked' >&2
   exit 1
