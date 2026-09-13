@@ -407,7 +407,7 @@ impl Workspace {
         let group = Group::new(
             "Default".into(),
             if kind == "claude" { "claude" } else { "codex" },
-            1,
+            3,
             1,
         );
         Self {

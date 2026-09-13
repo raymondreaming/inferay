@@ -304,7 +304,7 @@ export function clearAgentChatPaneState(paneId: string) {
 	removeStoredValue(INPUT_KEY_PREFIX + paneId);
 }
 export const loadAgentLayoutMode = (): AgentLayoutMode =>
-	readStoredValue("agent-layout-mode") === "grid" ? "grid" : "rows";
+	readStoredValue("agent-layout-mode") === "rows" ? "rows" : "grid";
 export const listenAgentLayoutMode = (set: (mode: AgentLayoutMode) => void) =>
 	listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
 		if (
