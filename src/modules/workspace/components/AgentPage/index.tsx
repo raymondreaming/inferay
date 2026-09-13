@@ -19,17 +19,17 @@ import {
 	wsClient,
 } from "@shared/lib/native.tsx";
 import {
+	mutateAgentWorkspaceState,
+	useWorkspaceState,
+} from "@workspace/hooks/useWorkspaceState.tsx";
+import type { AgentGroupsAction } from "@workspace/model/workspace.ts";
+import {
 	createEffect,
 	createMemo,
 	createSignal,
 	For,
 	onSettled,
 } from "solid-js";
-import {
-	type AgentGroupsAction,
-	mutateAgentWorkspaceState,
-	useWorkspaceState,
-} from "../../hooks/useWorkspaceState.tsx";
 import { RepositorySurface } from "./RepositorySurface.tsx";
 import {
 	retainWorkspaceViews,

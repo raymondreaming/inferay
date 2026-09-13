@@ -9,6 +9,16 @@ pub enum WorkspaceAgentKind {
     Claude,
     Codex,
 }
+
+impl WorkspaceAgentKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Agent => "agent",
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+        }
+    }
+}
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentIconKey {

@@ -710,20 +710,19 @@ async fn get_agent_state(state: &ServerState, _request: Request) -> ApiResult {
 }
 
 async fn apply_agent_workspace_action(state: &ServerState, request: Request) -> ApiResult {
-    let body: serde_json::Value = api_body(request).await?;
-    let mut action = body.get("action").cloned().unwrap_or(Value::Null);
-    if let Some(object) = action.as_object_mut() {
-        object
-            .entry("defaultAgentKind")
-            .or_insert(json!(default_chat_kind(state).await));
+    #[derive(Deserialize)]
+    struct Input {
+        action: inferay_core::workspace_action::AgentWorkspaceAction,
     }
-    ((state
+    let body: Input = api_body(request).await?;
+    let default_kind = default_chat_kind(state).await;
+    state
         .agent_state_store
         .lock()
         .expect("agent state lock poisoned")
-        .apply_workspace_action(&action))
-    .map(|value| json!({ "state": value })))
-    .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error))
+        .apply_workspace_action(&body.action, default_kind)
+        .map(|value| json!({ "state": value }))
+        .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error))
 }
 
 #[derive(Debug)]
@@ -2487,7 +2486,7 @@ async fn handle_native_websocket_message(
                     .lock()
                     .expect("agent state lock poisoned");
                 if store.pane(pane_id)?.is_some() {
-                    store.apply_workspace_action(&json!({"type":"setPaneProviderSession", "paneId":pane_id, "providerSessionId":null}))?;
+                    store.set_pane_provider_session(pane_id, None)?;
                 }
                 Ok::<_, String>(())
             })();

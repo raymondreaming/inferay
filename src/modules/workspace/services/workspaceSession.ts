@@ -1,8 +1,5 @@
-import type { AgentSavedState } from "@contracts";
-import type {
-	AgentWorkspaceAction,
-	WorkspaceSnapshot,
-} from "@workspace/model/workspace.ts";
+import type { AgentSavedState, AgentWorkspaceAction } from "@contracts";
+import type { WorkspaceSnapshot } from "@workspace/model/workspace.ts";
 
 export interface WorkspacePersistencePort {
 	initialize(): Promise<AgentSavedState>;

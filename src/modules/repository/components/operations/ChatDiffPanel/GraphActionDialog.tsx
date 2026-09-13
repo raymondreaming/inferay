@@ -27,6 +27,7 @@ export function GraphActionDialog(
 ) {
 	return (
 		<div {...stylex.attrs(styles.refActionOverlay)}>
+			{/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape bubbles from the dialog's inputs and buttons to close the dialog. */}
 			<div
 				role="dialog"
 				aria-modal="true"

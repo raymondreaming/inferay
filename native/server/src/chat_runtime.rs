@@ -799,9 +799,7 @@ impl ChatRuntime {
                 .workspaces
                 .lock()
                 .expect("agent state lock poisoned")
-                .apply_workspace_action(
-                    &json!({"type":"setPaneSummary","paneId":state.pane_id,"summary":title}),
-                );
+                .set_pane_summary(&state.pane_id, Some(title));
             if let Err(error) = result {
                 eprintln!("Could not save chat title: {error}");
                 return;

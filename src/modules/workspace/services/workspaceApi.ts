@@ -1,4 +1,4 @@
-import type { AgentSavedState } from "@contracts";
+import type { AgentSavedState, AgentWorkspaceAction } from "@contracts";
 import {
 	fetchJsonOr,
 	postJson,
@@ -60,7 +60,7 @@ export async function loadWorkspaceState(): Promise<AgentSavedState | null> {
 }
 
 export async function saveWorkspaceAction(
-	action: object,
+	action: AgentWorkspaceAction,
 ): Promise<AgentSavedState> {
 	const { state } = await postJson<{ state: AgentSavedState }>(
 		"/api/agent/state/workspace-action",

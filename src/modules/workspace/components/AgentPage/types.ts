@@ -1,7 +1,7 @@
 import type { WorkspaceAgentKind } from "@contracts";
 import type { AgentChatHandle } from "@conversation/components/AgentChatView/index.tsx";
 import type { MutableRef } from "@shared/lib/dom.tsx";
-import type { AgentGroupsAction } from "../../hooks/useWorkspaceState.tsx";
+import type { AgentGroupsAction } from "@workspace/model/workspace.ts";
 
 export type AgentPaneActionsArgs = {
 	readonly chatRefs: MutableRef<Map<string, AgentChatHandle> | null>;

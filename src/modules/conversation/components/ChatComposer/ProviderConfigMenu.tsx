@@ -21,6 +21,7 @@ export function ProviderConfigMenu(
 			ref={(_element) => assignRef(_props.agentConfigMenuRef, _element)}
 			{...stylex.attrs(styles.providerConfigAnchor)}
 		>
+			{/* oxlint-disable-next-line jsx-a11y/interactive-supports-focus -- Focus is managed on the menuitemradio buttons; this container handles their bubbling keys. */}
 			<div
 				role="menu"
 				aria-label={ariaValue(_props.activeControl.title)}

@@ -1,4 +1,7 @@
 //! The workspace file has one schema and one writer: validated workspace actions.
+mod actions;
+
+use crate::workspace_action::AgentWorkspaceAction;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashSet, path::PathBuf};
@@ -102,12 +105,30 @@ impl AgentStateStore {
         self.save(&self.load()?.unwrap_or_else(|| Workspace::new(default_kind)))
     }
 
-    pub fn apply_workspace_action(&self, action: &Value) -> Result<Value, String> {
-        let mut state = self
-            .load()?
-            .unwrap_or_else(|| Workspace::new(default_kind(action)));
-        state.apply(action)?;
+    pub fn apply_workspace_action(
+        &self,
+        action: &AgentWorkspaceAction,
+        default_kind: &str,
+    ) -> Result<Value, String> {
+        let mut state = self.load()?.unwrap_or_else(|| Workspace::new(default_kind));
+        state.apply_action(action, default_kind)?;
         state.validate()?;
+        self.save(&state)
+    }
+
+    pub fn set_pane_summary(&self, id: &str, summary: Option<String>) -> Result<Value, String> {
+        let mut state = self.load()?.ok_or("Workspace not initialized")?;
+        state.pane_mut(id)?.summary = summary;
+        self.save(&state)
+    }
+
+    pub fn set_pane_provider_session(
+        &self,
+        id: &str,
+        session: Option<String>,
+    ) -> Result<Value, String> {
+        let mut state = self.load()?.ok_or("Workspace not initialized")?;
+        state.pane_mut(id)?.provider_session_id = session;
         self.save(&state)
     }
 
@@ -210,18 +231,6 @@ fn repository_path(path: &str) -> &str {
     }
 }
 
-fn default_kind(action: &Value) -> &str {
-    if action["defaultAgentKind"] == "claude" {
-        "claude"
-    } else {
-        "codex"
-    }
-}
-fn string<'a>(value: &'a Value, key: &str) -> Result<&'a str, String> {
-    value[key]
-        .as_str()
-        .ok_or_else(|| format!("{key} must be a string"))
-}
 fn kind(value: &str) -> Result<&str, String> {
     if matches!(value, "claude" | "codex" | "agent") {
         Ok(value)
@@ -229,14 +238,6 @@ fn kind(value: &str) -> Result<&str, String> {
         Err("Unknown agentKind".into())
     }
 }
-fn paths(value: &Value) -> Result<Vec<String>, String> {
-    if value.is_null() {
-        Ok(Vec::new())
-    } else {
-        serde_json::from_value(value.clone()).map_err(|e| e.to_string())
-    }
-}
-
 impl Pane {
     fn new(kind: &str) -> Self {
         let mut pane = Self {
@@ -471,188 +472,17 @@ impl Workspace {
             .find(|g| g.id == id)
             .ok_or_else(|| "Workspace not found".into())
     }
+    #[cfg(test)]
     fn apply(&mut self, action: &Value) -> Result<(), String> {
-        let action_type = string(action, "type")?;
-        match action_type {
-            "reorderRepository" => {
-                let cwd = repository_path(string(action, "cwd")?);
-                let mut order = self.repository_paths();
-                let from = order
-                    .iter()
-                    .position(|path| path == cwd)
-                    .ok_or("Repository not found")?;
-                let before = if action["beforeCwd"].is_null() {
-                    None
-                } else {
-                    Some(repository_path(string(action, "beforeCwd")?))
-                };
-                if before == Some(cwd) {
-                    return Ok(());
-                }
-                let path = order.remove(from);
-                let to = match before {
-                    Some(before) => order
-                        .iter()
-                        .position(|path| path == before)
-                        .ok_or("Target repository not found")?,
-                    None => order.len(),
-                };
-                order.insert(to, path);
-                self.repository_order = order;
-            }
-            "selectRepository" => {
-                let cwd = string(action, "cwd")?;
-                let target = self.groups.iter().flat_map(|group| {
-                    group.panes.iter().filter(move |pane| pane.cwd.as_deref().is_some_and(|path| repository_path(path) == cwd))
-                        .map(move |pane| (group, pane))
-                }).min_by_key(|(group, pane)| {
-                    if group.id == self.selected_group_id { 0 }
-                    else if group.selected_pane_id.as_deref() == Some(&pane.id) { 1 }
-                    else { 2 }
-                }).map(|(group, pane)| serde_json::json!({"type":"selectPane","groupId":group.id,"paneId":pane.id}));
-                if let Some(target) = target {
-                    self.apply(&target)?;
-                }
-            }
-            "selectWorkspace" | "selectPane" => {
-                let id = string(action, "groupId")?;
-                let group = self.group(id)?;
-                if action_type == "selectPane" {
-                    let pane = string(action, "paneId")?;
-                    if !group.panes.iter().any(|p| p.id == pane) {
-                        return Err("Pane not found".into());
-                    }
-                    group.selected_pane_id = Some(pane.into());
-                }
-                self.selected_group_id = id.into();
-                self.compact();
-            }
-            "addWorkspace" => {
-                self.compact();
-                let selected = self.group(&self.selected_group_id.clone())?;
-                let (columns, rows) = (selected.columns, selected.rows);
-                let group = Group::new(
-                    format!("Workspace {}", self.groups.len() + 1),
-                    default_kind(action),
-                    columns,
-                    rows,
-                );
-                self.selected_group_id = group.id.clone();
-                self.groups.push(group);
-            }
-            "removeWorkspace" => {
-                let id = string(action, "groupId")?;
-                if self.groups.len() > 1 {
-                    self.groups.retain(|g| g.id != id);
-                }
-            }
-            "renameWorkspace" => {
-                let name = string(action, "name")?.trim();
-                if !name.is_empty() {
-                    self.group(string(action, "groupId")?)?.name = name.into();
-                }
-            }
-            "addPane" => {
-                let id = action["groupId"]
-                    .as_str()
-                    .unwrap_or(&self.selected_group_id)
-                    .to_owned();
-                let mut pane = Pane::new(kind(
-                    action["agentKind"].as_str().unwrap_or(default_kind(action)),
-                )?);
-                if let Some(cwd) = action["cwd"].as_str() {
-                    pane.cwd = Some(cwd.into());
-                    pane.pending_cwd = false;
-                    pane.update_title();
-                }
-                pane.reference_paths = paths(&action["referencePaths"])?;
-                self.group(&id)?.add(pane);
-                self.selected_group_id = id;
-            }
-            "removePane" => {
-                let group_id = string(action, "groupId")?;
-                let id = string(action, "paneId")?;
-                self.remove_pane(group_id, id, default_kind(action))?;
-            }
-            "reorderPanes" => {
-                let group = self.group(string(action, "groupId")?)?;
-                let index = |key| {
-                    action[key]
-                        .as_u64()
-                        .and_then(|n| usize::try_from(n).ok())
-                        .ok_or_else(|| format!("Invalid {key}"))
-                };
-                let (from, to) = (index("fromIndex")?, index("toIndex")?);
-                if from < group.panes.len() && to < group.panes.len() {
-                    let pane = group.panes.remove(from);
-                    group.panes.insert(to, pane);
-                }
-            }
-            "setGridDimensions" => {
-                let group = self.group(string(action, "groupId")?)?;
-                for (key, target) in [("columns", &mut group.columns), ("rows", &mut group.rows)] {
-                    if !action[key].is_null() {
-                        *target = action[key]
-                            .as_u64()
-                            .filter(|n| *n > 0)
-                            .ok_or_else(|| format!("Invalid {key}"))?;
-                    }
-                }
-            }
-            "setTheme" => {
-                let theme = string(action, "themeId")?;
-                if !matches!(theme, "default" | "midnight") {
-                    return Err("Unknown themeId".into());
-                }
-                self.theme_id = theme.into();
-            }
-            "directorySelected"
-            | "setPaneAgentKind"
-            | "changePaneAgentKind"
-            | "setPaneProviderSession"
-            | "setPaneSummary" => {
-                let id = string(action, "paneId")?;
-                let pane = self
-                    .groups
-                    .iter_mut()
-                    .filter(|g| action["groupId"].as_str().is_none_or(|id| g.id == id))
-                    .flat_map(|g| &mut g.panes)
-                    .find(|p| p.id == id)
-                    .ok_or("Pane not found")?;
-                match action_type {
-                    "directorySelected" => {
-                        pane.cwd = serde_json::from_value(action["path"].clone())
-                            .map_err(|e| e.to_string())?;
-                        pane.pending_cwd = false;
-                        pane.reference_paths = paths(&action["referencePaths"])?;
-                        pane.pending_workspace_paths.clear();
-                        pane.update_title();
-                    }
-                    "setPaneSummary" => {
-                        pane.summary = serde_json::from_value(action["summary"].clone())
-                            .map_err(|e| e.to_string())?;
-                    }
-                    "setPaneProviderSession" => {
-                        if action.get("providerSessionId").is_none() {
-                            return Err("Missing providerSessionId".into());
-                        }
-                        pane.provider_session_id =
-                            serde_json::from_value(action["providerSessionId"].clone())
-                                .map_err(|e| e.to_string())?;
-                        if pane.provider_session_id.is_none() {
-                            pane.summary = None;
-                        }
-                    }
-                    _ => {
-                        pane.agent_kind = kind(string(action, "agentKind")?)?.into();
-                        pane.provider_session_id = None;
-                        pane.update_title();
-                    }
-                }
-            }
-            _ => return Err("Unknown workspace action".into()),
-        }
-        Ok(())
+        let default_kind = if action["defaultAgentKind"] == "claude" {
+            "claude"
+        } else {
+            "codex"
+        };
+        self.apply_action(
+            &serde_json::from_value(action.clone()).map_err(|error| error.to_string())?,
+            default_kind,
+        )
     }
 
     fn remove_pane(&mut self, group_id: &str, id: &str, default_kind: &str) -> Result<(), String> {
@@ -691,7 +521,10 @@ impl Workspace {
             })
             .cloned();
         if let Some(cwd) = preferred {
-            self.apply(&serde_json::json!({"type":"selectRepository", "cwd":cwd}))?;
+            self.apply_action(
+                &AgentWorkspaceAction::SelectRepository { cwd },
+                default_kind,
+            )?;
         } else if let Some(group) = self.groups.iter_mut().find(|group| !group.panes.is_empty()) {
             group.repair_selection();
             self.selected_group_id = group.id.clone();
@@ -736,9 +569,13 @@ mod presentation_tests {
         let store = AgentStateStore::new(path.clone());
         let initial = store.save(&workspace).unwrap();
         store
-            .apply_workspace_action(&json!({
-                "type":"reorderRepository", "cwd":"/c/", "beforeCwd":"/a"
-            }))
+            .apply_workspace_action(
+                &AgentWorkspaceAction::ReorderRepository {
+                    cwd: "/c/".into(),
+                    before_cwd: Some("/a".into()),
+                },
+                "codex",
+            )
             .unwrap();
         let result = AgentStateStore::new(path.clone()).read().unwrap();
         std::fs::remove_file(path).unwrap();

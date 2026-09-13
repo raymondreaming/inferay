@@ -1,3 +1,8 @@
+import type {
+	Group,
+	RepositoryWorkspaceIndex,
+	WorkspaceAgentKind,
+} from "@contracts";
 import type { WorkspaceSnapshot } from "@workspace/model/workspace.ts";
 import {
 	createWorkspaceSession,
@@ -6,14 +11,6 @@ import {
 	type WorkspaceSelectionPort,
 	type WorkspaceSession,
 } from "@workspace/services/workspaceSession.ts";
-
-export type { AgentGroupsAction } from "@workspace/model/workspace.ts";
-
-import type {
-	Group,
-	RepositoryWorkspaceIndex,
-	WorkspaceAgentKind,
-} from "@contracts";
 import {
 	type Accessor,
 	createEffect,

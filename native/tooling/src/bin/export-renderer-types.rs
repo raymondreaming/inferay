@@ -53,6 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         inferay_core::prompts::SkillRead,
         inferay_presentation::skills::SkillFormState,
         inferay_core::agent_state::AgentSavedState,
+        inferay_core::workspace_action::AgentWorkspaceAction,
         inferay_core::agent_context::AgentContextUpdate,
         inferay_core::tool_presentation::ToolDisplayInfo,
         inferay_core::tool_presentation::McpElicitation,

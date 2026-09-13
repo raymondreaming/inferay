@@ -6,8 +6,8 @@ import {
 	REMOVE_AGENT_PANE_REQUEST_EVENT,
 	type RemoveAgentPaneRequestDetail,
 } from "@shared/lib/dom.tsx";
+import type { AgentGroupsAction } from "@workspace/model/workspace.ts";
 import { type Accessor, createEffect, createMemo, merge } from "solid-js";
-import type { AgentGroupsAction } from "../../hooks/useWorkspaceState.tsx";
 import type { AgentPaneActionsArgs } from "./types.ts";
 
 /** Translates pane UI actions and window requests into workspace mutations. */
