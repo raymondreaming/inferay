@@ -67,3 +67,5 @@ public/file-icons/
 /scripts/tests/fixtures/solid-runtime.html
 /scripts/tests/fixtures/solid-runtime.tsx
 /scripts/tests/fixtures/solid-controls.tsx
+/scripts/tests/panel-visibility.test.ts
+/scripts/tests/ui-performance.test.ts
