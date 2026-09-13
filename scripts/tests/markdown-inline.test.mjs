@@ -14,7 +14,7 @@ const compiled = compile(readFileSync(file, "utf8"), {
   filename: fileURLToPath(file), generate: "ssr", hydratable: false, omitQuotes: false,
 });
 const stripped = await transformWithOxc(compiled.code, fileURLToPath(file), { lang: "ts" });
-const code = stripped.code.replace(
+const code = stripped.code.replaceAll('"./imageSource.ts"', JSON.stringify(new URL("./imageSource.ts", file).href)).replace(
   /from (["'])(@solidjs\/web|solid-js)\1/g,
   (_, quote, name) => `from '${import.meta.resolve(name)}'`,
 );
@@ -57,10 +57,10 @@ test("preview and chat retain different autolink and image fallback behavior", (
 		/rel="noopener noreferrer"/,
 	);
 	assert.match(
-		render([{ type: "image", text: "fallback" }], { image: { alt: "" } }),
+		render([{ type: "image", text: "fallback", href: "https://example.com/image.png" }], { image: { alt: "" } }),
 		/alt(?:="")?(?=\s|\/?>)/,
 	);
-	assert.match(render([{ type: "image", text: "fallback" }]), /alt="fallback"/);
+	assert.match(render([{ type: "image", text: "fallback", href: "https://example.com/image.png" }]), /alt="fallback"/);
 });
 
 test("markdown paths become controls only when the view handles them", () => {
@@ -70,4 +70,13 @@ test("markdown paths become controls only when the view handles them", () => {
 		/<button/,
 	);
 	assert.doesNotMatch(render(tokens), /<button/);
+});
+
+
+test("local image sources use the host endpoint and missing sources show a fallback", () => {
+	for (const href of ["file:///tmp/my%20image.png", "sandbox:/tmp/my image.png", "/tmp/my image.png"]) {
+		assert.match(render([{ type: "image", text: "image", href }]), /src="\/api\/file\?path=%2Ftmp%2Fmy%20image.png"/);
+	}
+	assert.match(render([{ type: "image", text: "image" }]), /Image unavailable/);
+	assert.doesNotMatch(render([{ type: "image", text: "image", href: "file://remote/tmp/image.png" }]), /<img/);
 });

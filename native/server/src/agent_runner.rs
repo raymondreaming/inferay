@@ -364,6 +364,15 @@ pub async fn run_codex(
     }
     .await;
     if let Ok((thread_id, turn_id)) = &startup {
+        // Best-effort inventory discovery runs alongside the turn. Older app
+        // servers can reject this without interrupting the conversation.
+        let mut icon_request = rpc
+            .send(
+                "mcpServerStatus/list",
+                json!({"threadId":thread_id,"limit":100}),
+            )
+            .await
+            .ok();
         let (control_tx, mut control_rx) = mpsc::unbounded_channel();
         handle.set_codex_control(control_tx);
         let mut pending_steers = HashMap::<u64, oneshot::Sender<Result<(), String>>>::new();
@@ -435,6 +444,19 @@ pub async fn run_codex(
                 }
                 read = rpc.read() => {
                     let Some(message) = read else { break };
+                    if message.get("method").is_none()
+                        && icon_request.is_some()
+                        && message.get("id").and_then(Value::as_u64) == icon_request
+                    {
+                        icon_request = None;
+                        if let Some(page) = message.get("result") {
+                            crate::mcp_icons::register(page);
+                            if let Some(cursor) = page["nextCursor"].as_str() {
+                                icon_request = rpc.send("mcpServerStatus/list", json!({"threadId":thread_id,"limit":100,"cursor":cursor})).await.ok();
+                            }
+                        }
+                        continue;
+                    }
                     if message.get("method").is_none()
                         && let Some(id) = message.get("id").and_then(Value::as_u64)
                         && let Some(response) = pending_steers.remove(&id)
@@ -1045,16 +1067,19 @@ mod runner_tests {
         );
         assert_eq!(turn["input"].as_array().unwrap().len(), 1);
         let env = HashMap::new();
-        let args = claude_invocation_args(&ClaudeRun {
-            binary: Path::new("claude"),
-            prompt: "What instructions did I give you?",
-            developer_instructions: Some(&instructions),
-            cwd: &invocation.cwd,
-            model: None,
-            session_id: Some("existing-session"),
-            env: &env,
-            mcp_servers: None,
-        }, None);
+        let args = claude_invocation_args(
+            &ClaudeRun {
+                binary: Path::new("claude"),
+                prompt: "What instructions did I give you?",
+                developer_instructions: Some(&instructions),
+                cwd: &invocation.cwd,
+                model: None,
+                session_id: Some("existing-session"),
+                env: &env,
+                mcp_servers: None,
+            },
+            None,
+        );
         let index = args
             .iter()
             .position(|arg| arg == "--append-system-prompt")

@@ -1,5 +1,6 @@
 use inferay_presentation::appearance::normalize_background_settings;
 mod files;
+mod mcp_icons;
 use files::{image_content_type, is_image_extension};
 mod git_actions;
 mod workspace_dock;
@@ -473,6 +474,33 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             ("/api/workspace/dock", "POST") => workspace_dock::handle(&state, request).await,
 
             ("/api/files/search", "GET") => search_files(&state, request).await,
+            ("/api/mcp-icons", "GET") => Ok(mcp_icons::manifest()),
+            ("/api/mcp-icon", "GET") => {
+                let server = query_value(&request, "server").unwrap_or_default();
+                let response = match mcp_icons::get(&server).await {
+                    Some((mime, bytes)) => {
+                        let mut response = Response::new(Body::from(bytes));
+                        response
+                            .headers_mut()
+                            .insert(CONTENT_TYPE, HeaderValue::from_str(&mime).unwrap());
+                        response.headers_mut().insert(
+                            CACHE_CONTROL,
+                            HeaderValue::from_static("private, max-age=3600"),
+                        );
+                        response.headers_mut().insert(
+                            "content-security-policy",
+                            HeaderValue::from_static("default-src 'none'; sandbox"),
+                        );
+                        response.headers_mut().insert(
+                            "x-content-type-options",
+                            HeaderValue::from_static("nosniff"),
+                        );
+                        Ok(response)
+                    }
+                    None => Err(api_error(StatusCode::NOT_FOUND, "Icon unavailable")),
+                };
+                return api_http_response(response, &request_headers);
+            }
             ("/api/files/list", "GET") => list_project_files(&state, request).await,
             ("/api/workspace/documents", "POST") => {
                 workspace_panels::restore_documents(&state, request).await

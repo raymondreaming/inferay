@@ -1,6 +1,7 @@
 import type { JSX } from "@solidjs/web";
-import { createMemo, For, Match, Show, Switch } from "solid-js";
+import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
 import type { MdInlineToken } from "../../../../build/presentation/contracts/MdInlineToken.ts";
+import { markdownImageSource } from "./imageSource.ts";
 export type InlineAppearance = Partial<
 	Record<
 		MdInlineToken["type"] | "boldItalicEm",
@@ -33,6 +34,8 @@ export function MarkdownInline(
 function InlineToken(props: InlineProps & { token: MdInlineToken }) {
 	const kind = createMemo(() => props.token.type);
 	const appearance = createMemo(() => props.appearance[kind()]);
+	const imageSource = createMemo(() => markdownImageSource(props.token.href));
+	const [failedSource, setFailedSource] = createSignal<string>();
 	const Children = () => (
 		<Show when={props.token.children} fallback={props.token.text}>
 			{(tokens) => (
@@ -75,11 +78,21 @@ function InlineToken(props: InlineProps & { token: MdInlineToken }) {
 				<br />
 			</Match>
 			<Match when={kind() === "image"}>
-				<img
-					{...appearance()}
-					src={props.token.href}
-					alt={props.token.alt ?? appearance()?.alt ?? props.token.text}
-				/>
+				<Show
+					when={imageSource() && failedSource() !== imageSource()}
+					fallback={
+						<span role="status">
+							Image unavailable{props.token.alt ? `: ${props.token.alt}` : ""}
+						</span>
+					}
+				>
+					<img
+						{...appearance()}
+						src={imageSource()}
+						alt={props.token.alt ?? appearance()?.alt ?? props.token.text}
+						onError={() => setFailedSource(imageSource())}
+					/>
+				</Show>
 			</Match>
 			<Match when={kind() === "markdown_path" && !!props.onMdFileClick}>
 				<button
