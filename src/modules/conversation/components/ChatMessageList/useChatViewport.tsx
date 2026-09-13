@@ -49,6 +49,7 @@ export function useChatViewport(
 	};
 	// Event handlers need the latest intent even before Solid commits signal writes.
 	let following = retainedViewport.snapshot.atBottom;
+	let scrollingTowardBottom = false;
 	const [isAtBottom, publishFollowing] = createSignal(following);
 	const setFollowing = (value: boolean) => {
 		following = value;
@@ -64,9 +65,8 @@ export function useChatViewport(
 		// Content growth can emit scroll events without a user's scroll. Keep
 		// following until the viewport actually moves up or the user asks to.
 		const movement = el.scrollTop - scrollSnapshotRef.current.top;
-		if (fromBottom <= 1) setFollowing(true);
+		if (fromBottom <= 1 && scrollingTowardBottom) setFollowing(true);
 		else if (movement < -1) setFollowing(false);
-		else if (fromBottom <= 80 && movement > 1) setFollowing(true);
 		retainedViewport.snapshot = scrollSnapshotRef.current = {
 			atBottom: following,
 			fromBottom,
@@ -145,10 +145,12 @@ export function useChatViewport(
 			if (!element) return;
 			const stopFollowing = () => {
 				cancelScrollRestore();
+				scrollingTowardBottom = false;
 				setFollowing(false);
 			};
 			const wheel = (event: WheelEvent) => {
 				if (event.deltaY < 0) stopFollowing();
+				else if (event.deltaY > 0) scrollingTowardBottom = true;
 			};
 			let touchY = 0;
 			const touchStart = (event: TouchEvent) => {
@@ -157,26 +159,42 @@ export function useChatViewport(
 			const touchMove = (event: TouchEvent) => {
 				const next = event.touches[0]?.clientY ?? touchY;
 				if (next > touchY) stopFollowing();
+				else if (next < touchY) scrollingTowardBottom = true;
 				touchY = next;
 			};
-			element.addEventListener("wheel", wheel, { passive: true });
+			element.addEventListener("wheel", wheel, {
+				passive: true,
+				capture: true,
+			});
 			element.addEventListener("touchstart", touchStart, { passive: true });
 			element.addEventListener("touchmove", touchMove, { passive: true });
 			return () => {
-				element.removeEventListener("wheel", wheel);
+				element.removeEventListener("wheel", wheel, true);
 				element.removeEventListener("touchstart", touchStart);
 				element.removeEventListener("touchmove", touchMove);
 			};
 		},
 	);
 	const handleWindowKeyDown = (e: KeyboardEvent) => {
-		if (e.key !== "ArrowDown") return;
 		const active = document.activeElement;
-		if (active && (active.tagName === "TEXTAREA" || active.tagName === "INPUT"))
+		if (
+			e.defaultPrevented ||
+			!active ||
+			!scrollRef.current?.contains(active) ||
+			active.closest(
+				"input, textarea, select, button, a, [contenteditable='true']",
+			)
+		)
 			return;
-		if (!following) {
-			e.preventDefault();
-			scrollToBottom();
+		if (
+			["ArrowUp", "PageUp", "Home"].includes(e.key) ||
+			(e.key === " " && e.shiftKey)
+		) {
+			cancelScrollRestore();
+			scrollingTowardBottom = false;
+			setFollowing(false);
+		} else if (["ArrowDown", "PageDown", "End", " "].includes(e.key)) {
+			scrollingTowardBottom = true;
 		}
 	};
 	createEffect(

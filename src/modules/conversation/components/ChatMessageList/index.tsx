@@ -145,7 +145,22 @@ export const ChatMessageList = function ChatMessageList(_props: {
 			}
 			const element = _props.scrollElementRef.current;
 			const previousTop = element?.scrollTop ?? 0;
-			const firstVisible = _source().firstVisible;
+			const list = messageListRef.current;
+			// The scroll listener publishes on another frame. Anchor measurements
+			// to the current viewport, not its previous (possibly lower) position.
+			const liveOffset =
+				element && list
+					? Math.max(
+							0,
+							element.getBoundingClientRect().top -
+								list.getBoundingClientRect().top,
+						)
+					: scrollOffset();
+			const firstVisible = rustProject<ChatWindow>("chatWindow", {
+				offsets: offsets(),
+				scrollOffset: liveOffset,
+				viewportHeight: viewportHeight(),
+			}).firstVisible;
 			let changed = false;
 			let adjustment = 0;
 			for (const [row, height] of pendingMeasurements) {
@@ -159,7 +174,12 @@ export const ChatMessageList = function ChatMessageList(_props: {
 				changed = true;
 			}
 			pendingMeasurements.clear();
-			if (changed) flush(() => setMeasurementVersion((version) => version + 1));
+			if (changed)
+				flush(() => {
+					if (virtual() && !_props.stickToBottom && liveOffset !== null)
+						setScrollOffset(liveOffset + adjustment);
+					setMeasurementVersion((version) => version + 1);
+				});
 			if (element) {
 				if (_props.stickToBottom) pinToBottom();
 				else if (virtual() && adjustment)
