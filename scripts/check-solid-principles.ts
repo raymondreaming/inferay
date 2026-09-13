@@ -34,12 +34,6 @@ const staticLists = new Map([
 	["shared/ui/DotMatrixLoader/index.tsx", new Set(["SPIRAL_DOTS"])],
 	["shared/ui/Icons/shared.tsx", new Set(["pathList"])],
 ]);
-// These custom primitives bind external subscriptions during construction.
-// Their disposal must not wait for a subtree's async content to settle.
-const cleanupBridges = new Set([
-	"shared/hooks/useQueryResource.tsx",
-	"shared/lib/dom.tsx",
-]);
 function containsJSX(node: t.Node): boolean {
 	let found = false;
 	t.traverseFast(node, (child) => {
@@ -120,14 +114,21 @@ for (const file of files(root)) {
 					node,
 					"Memoize data; keep component structure in JSX and flow components.",
 				);
-			if (
-				t.isIdentifier(node.callee, { name: "onCleanup" }) &&
-				!cleanupBridges.has(name)
-			)
-				fail(
-					node,
-					"Use owned onSettled setup with returned teardown; custom bridges need an explicit audit.",
-				);
+			if (t.isIdentifier(node.callee, { name: "onCleanup" })) {
+				const callback = path.getFunctionParent();
+				const parentCall = callback?.parentPath;
+				if (
+					parentCall?.isCallExpression() &&
+					t.isIdentifier(parentCall.node.callee) &&
+					["onSettled", "createTrackedEffect"].includes(
+						parentCall.node.callee.name,
+					)
+				)
+					fail(
+						node,
+						"Return teardown from this callback; register onCleanup in its owning primitive.",
+					);
+			}
 			checkList(path);
 		},
 		OptionalCallExpression: checkList,
@@ -172,9 +173,7 @@ for (const file of files(root)) {
 			if (
 				t.isIdentifier(node.id) &&
 				/^_.*Value\d*$/.test(node.id.name) &&
-				path.findParent(
-					(parent) => parent.isObjectMethod() && parent.node.kind === "get",
-				) &&
+				path.getFunctionParent() &&
 				path.scope.getBinding(node.id.name)?.referencePaths.length === 0
 			)
 				fail(
