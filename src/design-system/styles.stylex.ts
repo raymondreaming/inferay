@@ -340,7 +340,7 @@ export const surfaceStyles = stylex.create({
 	/** The one treatment for every floating layer: modals, dialogs, menus, popovers. */
 	overlay: {
 		backdropFilter: "var(--inferay-overlay-blur, none)",
-		backgroundColor: color.backgroundModal,
+		backgroundColor: color.backgroundPanel,
 		backgroundImage: "none",
 		borderColor: color.border,
 		borderStyle: "solid",
