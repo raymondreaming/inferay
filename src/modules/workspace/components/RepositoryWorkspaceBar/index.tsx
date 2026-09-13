@@ -38,7 +38,10 @@ import {
 	IconPanelRight,
 	IconPlus,
 } from "../../../../shared/ui/Icons/index.tsx";
-import { panelQuery } from "../../../workbench/hooks/useWorkspacePanelSession.tsx";
+import {
+	panelQuery,
+	usePanelVisibility,
+} from "../../../workbench/hooks/useWorkspacePanelSession.tsx";
 import {
 	mutateAgentWorkspaceState,
 	useWorkspaceState,
@@ -61,6 +64,7 @@ export function RepositoryWorkspaceBar() {
 		current: HTMLDivElement | null;
 	};
 	const projection = createMemo(() => state().repositories);
+	const panelVisibility = usePanelVisibility();
 	const panelState = useBackgroundQuery(
 		() => ({
 			...panelQuery(projection().activePath ?? ""),
@@ -279,7 +283,7 @@ export function RepositoryWorkspaceBar() {
 					title="Toggle commit graph"
 					aria-pressed={ariaValue(
 						panelState.data?.mainViewMode === "graph" &&
-							panelState.data?.graphVisible === true,
+							panelVisibility().graphVisible,
 					)}
 					{...changesSidebarToggleProps()}
 					class={`${APP_REGION_NO_DRAG_CLASS} ${changesSidebarToggleProps().class ?? ""}`}
@@ -291,7 +295,7 @@ export function RepositoryWorkspaceBar() {
 					onClick={dispatchToggleActiveGitSidebar}
 					disabled={!projection().activeWorkspace}
 					aria-label="Toggle changes sidebar"
-					aria-pressed={ariaValue(panelState.data?.sidebarVisible ?? false)}
+					aria-pressed={ariaValue(panelVisibility().sidebarVisible)}
 					title="Toggle changes sidebar"
 					{...changesSidebarToggleProps()}
 					class={`${APP_REGION_NO_DRAG_CLASS} ${changesSidebarToggleProps().class ?? ""}`}

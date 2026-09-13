@@ -44,6 +44,10 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         )),
         "mergeTranscriptOrder" => transcript::merge_order(input),
         "emptyPanels" => panels::normalize(&Value::Null),
+        "panelVisibility" => json!({
+            "graphVisible": input["graphVisible"].as_bool().unwrap_or(true),
+            "sidebarVisible": input["sidebarVisible"].as_bool().unwrap_or(true),
+        }),
         "panelPreview" => {
             let mut session = input["session"].clone();
             panels::apply_action(

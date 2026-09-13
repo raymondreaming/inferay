@@ -141,6 +141,12 @@ export function useRepositoryWorkbench(
 	);
 	const [diffViewMode, setDiffViewModeState] = createSignal(loadDiffViewMode);
 	const [zenMode, setZenMode] = createSignal(false);
+	createEffect(
+		() => panelSession().graphVisible,
+		(visible) => {
+			if (!visible) setZenMode(false);
+		},
+	);
 	const [graphActionError, setGraphActionError] = createSignal<string | null>(
 		null,
 	);

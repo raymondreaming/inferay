@@ -1,14 +1,42 @@
 import type { PanelAction, PanelSession } from "@contracts";
 import { useMutation } from "@tanstack/solid-query";
-import { type Accessor, createMemo, untrack } from "solid-js";
-import { useBackgroundQuery as useQuery } from "../../../shared/hooks/useQueryResource.tsx";
-import { queryClient } from "../../../shared/lib/dom.tsx";
 import {
+	type Accessor,
+	createMemo,
+	createSignal,
+	onSettled,
+	untrack,
+} from "solid-js";
+import { useBackgroundQuery as useQuery } from "../../../shared/hooks/useQueryResource.tsx";
+import { listenWindowEvent, queryClient } from "../../../shared/lib/dom.tsx";
+import {
+	CLIENT_STORAGE_CHANGED_EVENT,
 	emptyGitWorkspacePanelSession,
 	postJson,
+	readStoredJson,
 	project as rustProject,
+	writeStoredJson,
 } from "../../../shared/lib/native.tsx";
+
+type PanelVisibility = Pick<PanelSession, "graphVisible" | "sidebarVisible">;
+const VISIBILITY_KEY = "agent-workspace-panel-visibility";
+const loadPanelVisibility = () =>
+	rustProject<PanelVisibility>(
+		"panelVisibility",
+		readStoredJson(VISIBILITY_KEY, {}),
+	);
+export function usePanelVisibility() {
+	const [visibility, setVisibility] = createSignal(loadPanelVisibility);
+	onSettled(() =>
+		listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
+			if ((event as CustomEvent<{ key: string }>).detail.key === VISIBILITY_KEY)
+				setVisibility(loadPanelVisibility());
+		}),
+	);
+	return visibility;
+}
 export function useWorkspacePanelSession(_workspaceId: Accessor<string>) {
+	const visibility = usePanelVisibility();
 	const model = createMemo(() => createWorkspacePanelModel());
 	const query = useQuery(
 		() => model().queryOptions(_workspaceId()),
@@ -19,9 +47,32 @@ export function useWorkspacePanelSession(_workspaceId: Accessor<string>) {
 		() => queryClient,
 	);
 	const mutate = createMemo(() => mutation.mutate);
+	const session = createMemo(() => ({
+		...(query.data ?? emptyPanelSession),
+		...visibility(),
+	}));
 	// Commands snapshot their target when invoked, including from effect apply callbacks.
 	const update = (action: PanelAction) =>
 		untrack(() => {
+			if (action.type === "toggleGraph" || action.type === "toggleSidebar") {
+				// Read the shared preference directly so rapid toggles see pending writes.
+				const next = rustProject<PanelSession>("panelPreview", {
+					session: { ...session(), ...loadPanelVisibility() },
+					action,
+					now: Date.now(),
+				});
+				writeStoredJson(VISIBILITY_KEY, {
+					graphVisible: next.graphVisible,
+					sidebarVisible: next.sidebarVisible,
+				});
+				if (action.type === "toggleSidebar" || !next.graphVisible) return;
+				action = { type: "openGraph", cwd: action.cwd };
+			}
+			if (action.type === "openGraph")
+				writeStoredJson(VISIBILITY_KEY, {
+					...loadPanelVisibility(),
+					graphVisible: true,
+				});
 			mutate()(model().preview(_workspaceId(), action));
 		});
 	const error = createMemo(() =>
@@ -32,7 +83,7 @@ export function useWorkspacePanelSession(_workspaceId: Accessor<string>) {
 				: null,
 	);
 	return [
-		() => query.data ?? emptyPanelSession,
+		session,
 		update,
 		() => error(),
 		() => mutation.data?.announcement,
