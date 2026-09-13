@@ -1,6 +1,7 @@
 import type { AgentAccountProviderStatus, GithubRepo } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For } from "solid-js";
+import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
 import type { SettingsModalTarget } from "../../../../shared/lib/dom.tsx";
 import {
@@ -12,6 +13,13 @@ import {
 	sendJson,
 } from "../../../../shared/lib/native.tsx";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
+import { IconRefreshCw } from "../../../../shared/ui/Icons/index.tsx";
+import {
+	SettingsEmpty,
+	SettingsRow,
+	SettingsSection,
+	SettingsStack,
+} from "../../../../shared/ui/SettingsSurface/index.tsx";
 import { TextInput } from "../../../../shared/ui/TextInput/index.tsx";
 import { AgentIcon } from "../../../agents/components/AgentIcon/index.tsx";
 import {
@@ -31,7 +39,6 @@ import {
 	SettingsSuccessBanner,
 } from "../SettingsStatus/index.tsx";
 import { ChatDefaultsSettings } from "./ChatDefaultsSettings.tsx";
-import { SettingsSection } from "./SettingsSection.tsx";
 import { styles } from "./styles.ts";
 export type SettingsModalSection = "all" | SettingsModalTarget;
 export function SettingsModalContent(_props: {
@@ -134,158 +141,165 @@ export function SettingsModalContent(_props: {
 		}
 	};
 	return (
-		<div {...stylex.attrs(styles.settingsLayout)}>
-			<main {...stylex.attrs(styles.modalScroller)}>
-				<div {...stylex.attrs(styles.content)}>
-					{_props.section === "all" || _props.section === "agents" ? (
-						<ChatDefaultsSettings
-							agentAccountStatusesError={_source3.error}
-							refreshAgentAccountStatuses={_source3.refresh}
-							agentAccountStatuses={_source3.data}
-							agentAccountStatusesLoading={_source3.loading}
-							defaultChatSettings={defaultChatSettings()}
-							updateDefaultChatSettings={updateDefaultChatSettings}
-							defaultModelOptions={defaultModelOptions()}
-							defaultAgentDefinition={defaultAgentDefinition()}
-						/>
-					) : null}
+		<SettingsStack>
+			{_props.section === "all" || _props.section === "agents" ? (
+				<ChatDefaultsSettings
+					agentAccountStatusesError={_source3.error}
+					refreshAgentAccountStatuses={_source3.refresh}
+					agentAccountStatuses={_source3.data}
+					agentAccountStatusesLoading={_source3.loading}
+					defaultChatSettings={defaultChatSettings()}
+					updateDefaultChatSettings={updateDefaultChatSettings}
+					defaultModelOptions={defaultModelOptions()}
+					defaultAgentDefinition={defaultAgentDefinition()}
+				/>
+			) : null}
 
-					{_props.section === "all" ||
-					_props.section === "agents" ||
-					_props.section === "appearance" ||
-					_props.section === "workspace" ? (
-						<div {...stylex.attrs(styles.settingsCollection)}>
-							<SettingsContent
-								showVersion={false}
-								embedded
-								section={_props.section}
+			{_props.section === "all" ||
+			_props.section === "agents" ||
+			_props.section === "appearance" ||
+			_props.section === "workspace" ? (
+				<SettingsContent section={_props.section} />
+			) : null}
+
+			{_props.section === "all" || _props.section === "github" ? (
+				<>
+					<SettingsSection
+						id="github-account"
+						title={_source.data.length > 1 ? "Accounts" : "Account"}
+						description="Your GitHub identity, detected from the GitHub CLI."
+						action={
+							<Button
+								liquid={false}
+								type="button"
+								onClick={() => void refreshGithubAccounts()}
+								variant="ghost"
+								size="sm"
+								class={stylex.attrs(styles.noShrink).class}
+							>
+								<IconRefreshCw size={iconSize.md} />
+								<span>Refresh</span>
+							</Button>
+						}
+					>
+						{_source.error ? (
+							<div {...stylex.attrs(styles.banner)}>
+								<SettingsErrorBanner message={_source.error} />
+							</div>
+						) : null}
+						{_source.loading ? (
+							<SettingsEmpty>Checking GitHub CLI account…</SettingsEmpty>
+						) : _source.data.length > 0 ? (
+							<For
+								each={_source.data}
+								keyed={(row) => JSON.stringify([row.host, row.login])}
+							>
+								{(account) => <SettingsGithubAccount account={account()} />}
+							</For>
+						) : (
+							<SettingsGithubEmptyState
+								onConnect={connectGithub}
+								connecting={connecting()}
 							/>
-						</div>
-					) : null}
+						)}
+					</SettingsSection>
 
-					{_props.section === "all" || _props.section === "github" ? (
-						<>
-							<SettingsSection
-								id="github-account"
-								title={_source.data.length > 1 ? "Accounts" : "Account"}
-								description="Your GitHub identity, detected from the GitHub CLI."
-								onRefresh={refreshGithubAccounts}
-								refreshNoShrink
-							>
-								{_source.error ? (
-									<SettingsErrorBanner message={_source.error} />
-								) : null}
-								{_source.loading ? (
-									<div {...stylex.attrs(styles.accountLoadingState)}>
-										Checking GitHub CLI account…
-									</div>
-								) : _source.data.length > 0 ? (
-									<div {...stylex.attrs(styles.githubAccountList)}>
-										{
-											<For
-												each={_source.data}
-												keyed={(row) => JSON.stringify([row.host, row.login])}
-											>
-												{(account) => (
-													<SettingsGithubAccount account={account()} />
-												)}
-											</For>
+					<SettingsSection
+						id="github"
+						title="Repositories"
+						description="Find repositories from your connected account and clone them locally."
+						action={
+							_source.data.length > 0 ? (
+								<Button
+									liquid={false}
+									type="button"
+									onClick={() => void loadRepos()}
+									variant="ghost"
+									size="sm"
+									class={stylex.attrs(styles.noShrink).class}
+								>
+									<IconRefreshCw size={iconSize.md} />
+									<span>Refresh</span>
+								</Button>
+							) : undefined
+						}
+					>
+						{githubResourceError() ? (
+							<div {...stylex.attrs(styles.banner)}>
+								<SettingsErrorBanner message={githubResourceError()!} />
+							</div>
+						) : null}
+						{cloneStatus() ? (
+							<div {...stylex.attrs(styles.banner)}>
+								<SettingsSuccessBanner message={cloneStatus()!} />
+							</div>
+						) : null}
+
+						{_source.data.length > 0 ? (
+							<>
+								<SettingsRow label="Find a repository">
+									<TextInput
+										type="text"
+										size="sm"
+										value={repoQuery()}
+										onChange={(event) =>
+											setRepoQuery(event.currentTarget.value)
 										}
-									</div>
-								) : (
-									<SettingsGithubEmptyState
-										onConnect={connectGithub}
-										connecting={connecting()}
+										placeholder="Search repositories"
+										class={stylex.attrs(styles.search).class}
 									/>
-								)}
-							</SettingsSection>
-
-							<SettingsSection
-								id="github"
-								title="Repositories"
-								description="Find repositories from your connected account and clone them locally."
-								onRefresh={_source.data.length > 0 ? loadRepos : undefined}
-								refreshLabel="Repos"
-								refreshNoShrink
-							>
-								{githubResourceError() ? (
-									<SettingsErrorBanner message={githubResourceError()!} />
-								) : null}
-								{cloneStatus() ? (
-									<SettingsSuccessBanner message={cloneStatus()!} />
-								) : null}
-
-								{_source.data.length > 0 ? (
-									<>
-										<div {...stylex.attrs(styles.cloneControls)}>
-											<TextInput
-												type="text"
-												value={repoQuery()}
-												onChange={(event) =>
-													setRepoQuery(event.currentTarget.value)
-												}
-												placeholder="Search repositories"
-												fullWidth
-												class={stylex.attrs(styles.flexInput).class}
-											/>
-											<div {...stylex.attrs(styles.cloneDirControls)}>
-												<TextInput
-													type="text"
-													value={cloneDirectory()}
-													onChange={(event) =>
-														setCloneDirectory(event.currentTarget.value)
-													}
-													fullWidth
-													class={stylex.attrs(styles.flexInput).class}
+								</SettingsRow>
+								<SettingsRow
+									label="Clone into"
+									description="Where new clones land on disk."
+								>
+									<TextInput
+										type="text"
+										size="sm"
+										value={cloneDirectory()}
+										onChange={(event) =>
+											setCloneDirectory(event.currentTarget.value)
+										}
+										class={stylex.attrs(styles.cloneDirectory).class}
+									/>
+									<Button
+										liquid={false}
+										type="button"
+										onClick={() => void pickCloneDirectory()}
+										variant="ghost"
+										size="sm"
+										class={stylex.attrs(styles.noShrink).class}
+									>
+										Browse
+									</Button>
+								</SettingsRow>
+								<div {...stylex.attrs(styles.repoList)}>
+									{_source2.loading ? (
+										<SettingsEmpty>Loading repositories…</SettingsEmpty>
+									) : filteredRepos().length === 0 ? (
+										<SettingsEmpty>No repositories found.</SettingsEmpty>
+									) : (
+										<For each={filteredRepos()} keyed={(row) => row.full_name}>
+											{(repo) => (
+												<SettingsRepoRow
+													repo={repo()}
+													cloning={cloningRepo() === repo().full_name}
+													onClone={() => void cloneRepo(repo())}
 												/>
-												<Button
-													liquid={false}
-													type="button"
-													onClick={() => void pickCloneDirectory()}
-													variant="ghost"
-													size="md"
-													class={stylex.attrs(styles.noShrink).class}
-												>
-													Browse
-												</Button>
-											</div>
-										</div>
-										<div {...stylex.attrs(styles.repoList)}>
-											{_source2.loading ? (
-												<div {...stylex.attrs(styles.loadingState)}>
-													Loading repositories…
-												</div>
-											) : filteredRepos().length === 0 ? (
-												<div {...stylex.attrs(styles.loadingState)}>
-													No repositories found.
-												</div>
-											) : (
-												<For
-													each={filteredRepos()}
-													keyed={(row) => row.full_name}
-												>
-													{(repo) => (
-														<SettingsRepoRow
-															repo={repo()}
-															cloning={cloningRepo() === repo().full_name}
-															onClone={() => void cloneRepo(repo())}
-														/>
-													)}
-												</For>
 											)}
-										</div>
-									</>
-								) : (
-									<div {...stylex.attrs(styles.githubRepoUnavailable)}>
-										Connect a GitHub account to browse repositories.
-									</div>
-								)}
-							</SettingsSection>
-						</>
-					) : null}
-				</div>
-			</main>
-		</div>
+										</For>
+									)}
+								</div>
+							</>
+						) : (
+							<SettingsEmpty>
+								Connect a GitHub account to browse repositories.
+							</SettingsEmpty>
+						)}
+					</SettingsSection>
+				</>
+			) : null}
+		</SettingsStack>
 	);
 }
 export async function fetchAgentAccountStatuses(signal?: AbortSignal) {

@@ -1,15 +1,4 @@
-import type { AppThemeId } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
-import { Loading, lazy } from "solid-js";
-
-const Settings = lazy(() =>
-	import("../../../settings/components/Settings/index.tsx").then(
-		({ Settings }) => ({
-			default: Settings,
-		}),
-	),
-);
-
 import { styles } from "./styles.ts";
 
 type AgentMainSurfaceProps = {
@@ -20,11 +9,7 @@ type AgentMainSurfaceProps = {
 	readonly chatSidebar: import("solid-js").Element;
 	readonly chatZenMode: boolean;
 	readonly hasCurrentPanes: boolean;
-	readonly onThemeChange: (id: AppThemeId) => void;
-	readonly setShowSettings: (value: boolean) => void;
-	readonly showSettings: boolean;
 	readonly agentGrid: import("solid-js").Element;
-	readonly themeId: AppThemeId;
 };
 export function AgentMainSurface(_props: AgentMainSurfaceProps) {
 	return (
@@ -65,15 +50,6 @@ export function AgentMainSurface(_props: AgentMainSurfaceProps) {
 										{_props.chatSidebar}
 									</div>
 								</div>
-							)}
-							{_props.showSettings && (
-								<Loading fallback={null}>
-									<Settings
-										themeId={_props.themeId}
-										onThemeChange={_props.onThemeChange}
-										onClose={_props.setShowSettings.bind(null, false)}
-									/>
-								</Loading>
 							)}
 						</div>
 					</div>

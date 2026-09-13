@@ -4,6 +4,7 @@ import {
 	createEffect,
 	createMemo,
 	createSignal,
+	For,
 	Loading,
 	onSettled,
 	Show,
@@ -17,6 +18,7 @@ import {
 	OPEN_SETTINGS_MODAL_EVENT,
 	type OpenSettingsModalDetail,
 	type SettingsModalTarget,
+	setInputValue,
 } from "../../../../shared/lib/dom.tsx";
 import { ErrorBoundary } from "../../../../shared/ui/ErrorBoundary/index.tsx";
 import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
@@ -24,7 +26,7 @@ import {
 	IconAgent,
 	IconGitBranch,
 	IconLayoutGrid,
-	IconSettings,
+	IconSearch,
 	IconSparkles,
 	IconX,
 } from "../../../../shared/ui/Icons/index.tsx";
@@ -32,39 +34,56 @@ import { SettingsModalContent } from "../SettingsModalContent/index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
-const SETTINGS_SECTIONS = [
-	{
-		id: "agents",
-		label: "Agents",
-		description: "Defaults for new conversations and global instructions.",
-		icon: IconAgent,
-	},
-	{
-		id: "appearance",
-		label: "Appearance",
-		description: "Theme, type, background, and code presentation.",
-		icon: IconSparkles,
-	},
-	{
-		id: "workspace",
-		label: "Workspace",
-		description: "Pane layout and project search locations.",
-		icon: IconLayoutGrid,
-	},
-	{
-		id: "github",
-		label: "GitHub",
-		description: "Connected accounts, repository access, and cloning.",
-		icon: IconGitBranch,
-	},
-] as const satisfies ReadonlyArray<{
+interface SettingsNavItem {
 	id: SettingsModalTarget;
 	label: string;
-	description: string;
 	icon: typeof IconAgent;
-}>;
+}
+interface SettingsNavGroup {
+	id: string;
+	label: string;
+	sections: readonly SettingsNavItem[];
+}
+const SETTINGS_GROUPS = [
+	{
+		id: "workspace-group",
+		label: "Settings",
+		sections: [
+			{
+				id: "agents",
+				label: "Agents",
+				icon: IconAgent,
+			},
+			{
+				id: "workspace",
+				label: "Workspace",
+				icon: IconLayoutGrid,
+			},
+			{
+				id: "github",
+				label: "GitHub",
+				icon: IconGitBranch,
+			},
+		],
+	},
+	{
+		id: "customize-group",
+		label: "Customize",
+		sections: [
+			{
+				id: "appearance",
+				label: "Appearance",
+				icon: IconSparkles,
+			},
+		],
+	},
+] as const satisfies ReadonlyArray<SettingsNavGroup>;
+const SETTINGS_SECTIONS: readonly SettingsNavItem[] = SETTINGS_GROUPS.flatMap(
+	(group) => group.sections as readonly SettingsNavItem[],
+);
 export function SettingsModalHost() {
 	const [open, setOpen] = createSignal(false);
+	const [query, setQuery] = createSignal("");
 	const [activeSection, setActiveSection] =
 		createSignal<SettingsModalTarget>("agents");
 	const contentRef = {
@@ -77,6 +96,16 @@ export function SettingsModalHost() {
 			SETTINGS_SECTIONS.find((section) => section.id === activeSection()) ??
 			SETTINGS_SECTIONS[0],
 	);
+	const matchingGroups = createMemo<readonly SettingsNavGroup[]>(() => {
+		const needle = query().trim().toLowerCase();
+		return SETTINGS_GROUPS.map((group) => ({
+			id: group.id,
+			label: group.label,
+			sections: (group.sections as readonly SettingsNavItem[]).filter(
+				(section) => !needle || section.label.toLowerCase().includes(needle),
+			),
+		})).filter((group) => group.sections.length > 0);
+	});
 	onSettled(() => {
 		return listenWindowEvent(OPEN_SETTINGS_MODAL_EVENT, (event) => {
 			const requestedSection = (event as CustomEvent<OpenSettingsModalDetail>)
@@ -86,6 +115,7 @@ export function SettingsModalHost() {
 					? requestedSection
 					: "agents",
 			);
+			setQuery("");
 			setOpen(true);
 		});
 	});
@@ -118,72 +148,102 @@ export function SettingsModalHost() {
 					style={domStyle(inlineStyles.getSettingsModalHostSectionStyle())}
 				>
 					<aside {...stylex.attrs(styles.sidebar)}>
-						<div {...stylex.attrs(styles.brand)}>
-							<span {...stylex.attrs(styles.brandIcon)}>
-								<IconSettings size={iconSize.md} />
-							</span>
-							<strong {...stylex.attrs(styles.brandTitle)}>Settings</strong>
+						<div {...stylex.attrs(styles.searchWrap)}>
+							<IconSearch
+								size={iconSize.md}
+								{...stylex.attrs(styles.searchIcon)}
+							/>
+							<input
+								type="search"
+								value={query()}
+								onInput={setInputValue.bind(null, setQuery)}
+								placeholder="Search"
+								aria-label="Search settings"
+								{...stylex.attrs(styles.searchInput)}
+							/>
 						</div>
 						<nav aria-label="Settings sections" {...stylex.attrs(styles.nav)}>
-							{SETTINGS_SECTIONS.map((section) => {
-								const SectionIcon = createMemo(() => section.icon);
-								const selected = createMemo(
-									() => section.id === activeSection(),
-								);
-								return (
-									<button
-										type="button"
-										aria-current={ariaValue(selected() ? "page" : undefined)}
-										onClick={() => {
-											setActiveSection(section.id);
-											if (contentRef.current) contentRef.current.scrollTop = 0;
-										}}
-										{...stylex.attrs(
-											styles.navItem,
-											selected() && styles.navItemSelected,
-										)}
-									>
-										<Dynamic component={SectionIcon()} size={iconSize.md} />
-										<span>{section.label}</span>
-									</button>
-								);
-							})}
+							<For each={matchingGroups()} keyed={(row) => row.id}>
+								{(group) => (
+									<div {...stylex.attrs(styles.navGroup)}>
+										<span {...stylex.attrs(styles.navGroupLabel)}>
+											{group().label}
+										</span>
+										<For each={group().sections} keyed={(row) => row.id}>
+											{(section) => {
+												const selected = createMemo(
+													() => section().id === activeSection(),
+												);
+												return (
+													<button
+														type="button"
+														aria-current={ariaValue(
+															selected() ? "page" : undefined,
+														)}
+														onClick={() => {
+															setActiveSection(section().id);
+															if (contentRef.current)
+																contentRef.current.scrollTop = 0;
+														}}
+														{...stylex.attrs(
+															styles.navItem,
+															selected() && styles.navItemSelected,
+														)}
+													>
+														<Dynamic
+															component={section().icon}
+															size={iconSize.md}
+														/>
+														<span {...stylex.attrs(styles.navLabel)}>
+															{section().label}
+														</span>
+													</button>
+												);
+											}}
+										</For>
+									</div>
+								)}
+							</For>
+							{matchingGroups().length === 0 ? (
+								<span {...stylex.attrs(styles.navEmpty)}>No matches</span>
+							) : null}
 						</nav>
 					</aside>
 					<div {...stylex.attrs(styles.main)}>
-						<header {...stylex.attrs(styles.header)}>
-							<div {...stylex.attrs(styles.heading)}>
-								<h1 id="settings-modal-title" {...stylex.attrs(styles.title)}>
-									{activePage().label}
-								</h1>
-								<p {...stylex.attrs(styles.subtitle)}>
-									{activePage().description}
-								</p>
-							</div>
-							<IconButton
-								type="button"
-								onClick={() => setOpen(false)}
-								variant="ghost"
-								size="sm"
-								title="Close settings"
-								aria-label="Close settings"
-							>
-								<IconX size={iconSize.md} />
-							</IconButton>
-						</header>
+						<IconButton
+							type="button"
+							onClick={() => setOpen(false)}
+							variant="ghost"
+							size="sm"
+							title="Close settings"
+							aria-label="Close settings"
+							class={stylex.attrs(styles.close).class}
+						>
+							<IconX size={iconSize.md} />
+						</IconButton>
 						<div
 							ref={(element) => (contentRef.current = element)}
 							{...stylex.attrs(styles.content)}
 						>
-							<Show when={activeSection()} keyed>
-								{(section) => (
-									<ErrorBoundary label="Settings" contained>
-										<Loading fallback={<p role="status">Loading settings…</p>}>
-											<SettingsModalContent section={section} />
-										</Loading>
-									</ErrorBoundary>
-								)}
-							</Show>
+							<div {...stylex.attrs(styles.page)}>
+								<h1
+									id="settings-modal-title"
+									{...stylex.attrs(styles.pageTitle)}
+								>
+									{activePage().label}
+								</h1>
+								<Show when={activeSection()} keyed>
+									{(section) => (
+										<ErrorBoundary label="Settings" contained>
+											<Loading
+												fallback={<p role="status">Loading settings…</p>}
+											>
+												<SettingsModalContent section={section} />
+											</Loading>
+										</ErrorBoundary>
+									)}
+								</Show>
+							</div>
 						</div>
 					</div>
 				</section>

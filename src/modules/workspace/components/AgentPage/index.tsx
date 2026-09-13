@@ -72,7 +72,6 @@ export function AgentPage() {
 			workspace().groups.flatMap((group) => group.panes.map((pane) => pane.id)),
 		(ids) => chatSessionCache.setPaneIds(ids),
 	);
-	const [showSettings, setShowSettings] = createSignal(false);
 	const [themeId, setThemeId] = createSignal(loadAppThemeId);
 	onSettled(() => {
 		return listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
@@ -198,11 +197,6 @@ export function AgentPage() {
 		}
 		void mutateAgentWorkspaceState(action);
 	};
-	onSettled(() => {
-		return listenWindowEvent("agent-open-theme-panel", () =>
-			setShowSettings(true),
-		);
-	});
 	const _source2 = useAgentPaneActions(() => {
 		const _sourceValue2 = _source();
 		return {
@@ -223,10 +217,6 @@ export function AgentPage() {
 						active={view().key === activeViewKey()}
 						layoutMode={layoutMode()}
 						theme={theme()}
-						themeId={themeId()}
-						onThemeChange={setThemeId}
-						showSettings={showSettings()}
-						setShowSettings={setShowSettings}
 						actions={_source2}
 						onFocusPane={focusChatComposer}
 					/>

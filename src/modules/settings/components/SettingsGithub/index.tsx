@@ -15,7 +15,7 @@ export function SettingsGithubAccount(_props: { account: ForgeAccount }) {
 	return (
 		<div
 			data-settings-github-account={_props.account.login}
-			{...stylex.attrs(styles.accountCard)}
+			{...stylex.attrs(styles.row)}
 		>
 			<div {...stylex.attrs(styles.accountAvatar)}>
 				{_props.account.avatarUrl ? (
@@ -30,8 +30,8 @@ export function SettingsGithubAccount(_props: { account: ForgeAccount }) {
 					<IconUser size={iconSize.lg} />
 				)}
 			</div>
-			<div {...stylex.attrs(styles.accountIdentity)}>
-				<div {...stylex.attrs(styles.accountNameRow)}>
+			<div {...stylex.attrs(styles.rowText)}>
+				<div {...stylex.attrs(styles.rowTitleLine)}>
 					<strong {...stylex.attrs(styles.accountName)}>
 						{_props.account.login}
 					</strong>
@@ -43,14 +43,10 @@ export function SettingsGithubAccount(_props: { account: ForgeAccount }) {
 						{_props.account.active ? "Active" : "Connected"}
 					</span>
 				</div>
-				<span {...stylex.attrs(styles.accountHandle)}>
-					@{_props.account.login} · {_props.account.host}
+				<span {...stylex.attrs(styles.subtleText)}>
+					{_props.account.host}
+					{_props.account.email ? ` · ${_props.account.email}` : ""}
 				</span>
-				{_props.account.email ? (
-					<span {...stylex.attrs(styles.accountEmail)}>
-						{_props.account.email}
-					</span>
-				) : null}
 			</div>
 			<a
 				href={`https://${_props.account.host}/${_props.account.login}`}

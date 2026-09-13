@@ -1,29 +1,4 @@
-import type { AppThemeId } from "@contracts";
-import * as stylex from "@stylexjs/stylex";
-import { SettingsContent } from "./SettingsContent.tsx";
-import { styles } from "./styles.ts";
-
-interface SettingsProps {
-	themeId: AppThemeId;
-	onThemeChange: (id: AppThemeId) => void;
-	onClose: () => void;
-}
-export const Settings = function Settings(_props: SettingsProps) {
-	return (
-		<div {...stylex.attrs(styles.overlay)}>
-			<button
-				type="button"
-				aria-label="Close agent settings"
-				{...stylex.attrs(styles.backdrop)}
-				onClick={_props.onClose}
-			/>
-			<div {...stylex.attrs(styles.panel)}>
-				<SettingsContent
-					themeId={_props.themeId}
-					onThemeChange={_props.onThemeChange}
-				/>
-			</div>
-		</div>
-	);
-};
+export { BackgroundScenePicker } from "./BackgroundScenePicker.tsx";
+export { GlobalAgentInstructionsSection } from "./GlobalAgentInstructionsSection.tsx";
+export { SearchFoldersSection } from "./SearchFoldersSection.tsx";
 export { SettingsContent } from "./SettingsContent.tsx";

@@ -26,6 +26,18 @@ const staticLists = new Map([
 		new Set(["SETTINGS_SECTIONS"]),
 	],
 	[
+		"modules/settings/components/Settings/BackgroundScenePicker.tsx",
+		new Set(["BACKGROUND_MODES"]),
+	],
+	[
+		"modules/settings/components/SettingsModalContent/ChatDefaultsSettings.tsx",
+		new Set(["PROVIDERS"]),
+	],
+	[
+		"modules/skills/components/SkillsModal/SkillLibrary.tsx",
+		new Set(["SKILL_FILTERS"]),
+	],
+	[
 		"modules/workspace/components/WorkspaceSidebar/SidebarWorkspacesSection.tsx",
 		new Set(["GRID_DIMENSIONS"]),
 	],

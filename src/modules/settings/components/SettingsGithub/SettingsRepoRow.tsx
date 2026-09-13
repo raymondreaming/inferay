@@ -13,9 +13,9 @@ export function SettingsRepoRow(_props: {
 	onClone: () => void;
 }) {
 	return (
-		<div {...stylex.attrs(styles.repoRow)}>
+		<div {...stylex.attrs(styles.row)}>
 			<div {...stylex.attrs(styles.rowText)}>
-				<div {...stylex.attrs(styles.inlineRow)}>
+				<div {...stylex.attrs(styles.rowTitleLine)}>
 					<p {...stylex.attrs(styles.repoName)}>{_props.repo.full_name}</p>
 					{_props.repo.private ? (
 						<span {...stylex.attrs(styles.privatePill)}>Private</span>
@@ -39,8 +39,9 @@ export function SettingsRepoRow(_props: {
 				type="button"
 				onClick={_props.onClone}
 				disabled={_props.cloning}
-				variant="secondary"
+				variant="ghost"
 				size="sm"
+				class={stylex.attrs(styles.noShrink).class}
 			>
 				<IconPlus size={iconSize.md} />
 				<span>{_props.cloning ? "Cloning" : "Clone"}</span>

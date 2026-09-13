@@ -1,4 +1,4 @@
-import type { AgentTheme, AppThemeId } from "@contracts";
+import type { AgentTheme } from "@contracts";
 import { createMemo } from "solid-js";
 import { useRepositoryWorkbench } from "../../../workbench/hooks/useRepositoryWorkbench.tsx";
 import {
@@ -15,10 +15,6 @@ export function RepositorySurface(props: {
 	active: boolean;
 	layoutMode: AgentLayoutMode;
 	theme: AgentTheme;
-	themeId: AppThemeId;
-	onThemeChange: (id: AppThemeId) => void;
-	showSettings: boolean;
-	setShowSettings: (show: boolean) => void;
 	actions: ReturnType<typeof useAgentPaneActions>;
 	onFocusPane: (paneId: string) => void;
 }) {
@@ -83,11 +79,7 @@ export function RepositorySurface(props: {
 			chatSidebar={workbench.sidebar}
 			chatZenMode={props.active && workbench.zenMode}
 			hasCurrentPanes={props.view.panes.length > 0}
-			onThemeChange={props.onThemeChange}
-			setShowSettings={props.setShowSettings}
-			showSettings={props.active && props.showSettings}
 			agentGrid={grid}
-			themeId={props.themeId}
 		/>
 	);
 }

@@ -3,15 +3,26 @@ import { createMemo, createSignal, For } from "solid-js";
 import {
 	updateAppBackground,
 	useBackgroundModel,
-	usesNativeGlass,
 } from "../../../../app/hooks/useAppAppearance.tsx";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
 import { IconFolder } from "../../../../shared/ui/Icons/index.tsx";
+import {
+	SettingsRow,
+	SettingsSection,
+	SettingsSegment,
+	SettingsSegmented,
+} from "../../../../shared/ui/SettingsSurface/index.tsx";
 import { BackgroundSceneCard } from "./BackgroundSceneCard.tsx";
 import { BackgroundSceneControls } from "./BackgroundSceneControls.tsx";
 import { styles } from "./styles.ts";
-export function BackgroundScenePicker(_props: { contained?: boolean }) {
+
+const BACKGROUND_MODES = [
+	{ id: "solid", label: "Solid black" },
+	{ id: "scene", label: "Scene" },
+	{ id: "glass", label: "Glass" },
+] as const;
+export function BackgroundScenePicker() {
 	const _source = useBackgroundModel();
 	const [uploading, setUploading] = createSignal(false);
 	const [uploadError, setUploadError] = createSignal<string | null>(null);
@@ -51,70 +62,56 @@ export function BackgroundScenePicker(_props: { contained?: boolean }) {
 		}
 	};
 	return (
-		<div
-			{...stylex.attrs(
-				styles.section,
-				(_props.contained === undefined ? false : _props.contained) &&
-					styles.sectionContained,
-			)}
-		>
-			<div {...stylex.attrs(styles.backgroundHeadingRow)}>
-				<div>
-					<h4 {...stylex.attrs(styles.sectionHeading)}>Background</h4>
-					<p {...stylex.attrs(styles.sectionDescription)}>
-						Choose a clean solid background, a scene, or desktop glass.
-					</p>
-				</div>
-				{_source().background.mode === "scene" ? (
+		<SettingsSection
+			id="background"
+			title="Background"
+			description="Choose a clean solid background, a scene, or desktop glass."
+			action={
+				_source().background.mode === "scene" ? (
 					<Button
 						liquid={false}
 						type="button"
 						size="sm"
-						variant="secondary"
+						variant="ghost"
 						onClick={() => fileInputRef.current?.click()}
 						disabled={uploading()}
+						class={stylex.attrs(styles.noShrink).class}
 					>
-						<IconFolder size={iconSize.sm} />
-						{uploading() ? "Importing…" : "Choose image"}
+						<IconFolder size={iconSize.md} />
+						<span>{uploading() ? "Importing…" : "Choose image"}</span>
 					</Button>
-				) : null}
-				<input
-					ref={(element) => (fileInputRef.current = element)}
-					type="file"
-					accept="image/png,image/jpeg,image/webp,image/gif"
-					onInput={(event) =>
-						void uploadCustomBackground(event.currentTarget.files?.[0] ?? null)
-					}
-					{...stylex.attrs(styles.hiddenFileInput)}
-				/>
-			</div>
-			<div {...stylex.attrs(styles.colorSourceOptions)}>
-				{(["solid", "scene", "glass"] as const).map((mode) => (
-					<button
-						type="button"
-						onClick={() =>
-							updateAppBackground({
-								mode,
-							})
-						}
-						{...stylex.attrs(
-							styles.colorSourceButton,
-							_source().background.mode === mode &&
-								styles.colorSourceButtonSelected,
-						)}
-					>
-						{mode === "solid"
-							? "Solid black"
-							: mode === "scene"
-								? "Scene"
-								: "Glass"}
-					</button>
-				))}
-			</div>
+				) : undefined
+			}
+		>
+			<input
+				ref={(element) => (fileInputRef.current = element)}
+				type="file"
+				accept="image/png,image/jpeg,image/webp,image/gif"
+				onInput={(event) =>
+					void uploadCustomBackground(event.currentTarget.files?.[0] ?? null)
+				}
+				{...stylex.attrs(styles.hiddenFileInput)}
+			/>
+			<SettingsRow label="Style">
+				<SettingsSegmented label="Background style">
+					{BACKGROUND_MODES.map((mode) => (
+						<SettingsSegment
+							selected={_source().background.mode === mode.id}
+							onSelect={() =>
+								updateAppBackground({
+									mode: mode.id,
+								})
+							}
+						>
+							{mode.label}
+						</SettingsSegment>
+					))}
+				</SettingsSegmented>
+			</SettingsRow>
 			{_source().background.mode === "scene" ? (
 				<>
-					<div {...stylex.attrs(styles.backgroundGrid)}>
-						{
+					<div {...stylex.attrs(styles.sceneArea)}>
+						<div {...stylex.attrs(styles.backgroundGrid)}>
 							<For each={_source().scenes} keyed={(row) => row.id}>
 								{(scene) => {
 									const selected = createMemo(
@@ -136,11 +133,11 @@ export function BackgroundScenePicker(_props: { contained?: boolean }) {
 									);
 								}}
 							</For>
-						}
+						</div>
+						{uploadError() ? (
+							<p {...stylex.attrs(styles.backgroundError)}>{uploadError()}</p>
+						) : null}
 					</div>
-					{uploadError() ? (
-						<p {...stylex.attrs(styles.backgroundError)}>{uploadError()}</p>
-					) : null}
 					<BackgroundSceneControls
 						background={_source().background}
 						updateBackground={updateAppBackground}
@@ -148,13 +145,13 @@ export function BackgroundScenePicker(_props: { contained?: boolean }) {
 				</>
 			) : null}
 			{_source().background.mode === "glass" ? (
-				<div {...stylex.attrs(styles.backgroundControls)}>
-					<label {...stylex.attrs(styles.backgroundControl)}>
-						<span>{usesNativeGlass ? "Glass strength" : "Window blur"}</span>
+				<>
+					<SettingsRow label="Window blur">
 						<input
 							type="range"
 							min="0"
 							max="40"
+							aria-label="Window blur"
 							value={_source().background.glassBlur}
 							{...stylex.attrs(styles.backgroundRange)}
 							onInput={(event) =>
@@ -164,17 +161,15 @@ export function BackgroundScenePicker(_props: { contained?: boolean }) {
 							}
 						/>
 						<span {...stylex.attrs(styles.backgroundValue)}>
-							{usesNativeGlass
-								? `${Math.round((_source().background.glassBlur / 40) * 100)}%`
-								: `${_source().background.glassBlur}px`}
+							{_source().background.glassBlur}px
 						</span>
-					</label>
-					<label {...stylex.attrs(styles.backgroundControl)}>
-						<span>Window transparency</span>
+					</SettingsRow>
+					<SettingsRow label="Window transparency">
 						<input
 							type="range"
 							min="0"
 							max="92"
+							aria-label="Window transparency"
 							value={100 - _source().background.glassOpacity}
 							{...stylex.attrs(styles.backgroundRange)}
 							onInput={(event) =>
@@ -186,9 +181,9 @@ export function BackgroundScenePicker(_props: { contained?: boolean }) {
 						<span {...stylex.attrs(styles.backgroundValue)}>
 							{100 - _source().background.glassOpacity}%
 						</span>
-					</label>
-				</div>
+					</SettingsRow>
+				</>
 			) : null}
-		</div>
+		</SettingsSection>
 	);
 }

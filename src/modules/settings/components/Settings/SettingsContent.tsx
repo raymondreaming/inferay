@@ -1,6 +1,6 @@
 import type { AppFontId, AppThemeId } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
-import { createEffect, createMemo, createSignal, onSettled } from "solid-js";
+import { createMemo, createSignal, onSettled } from "solid-js";
 import {
 	APP_FONTS,
 	APP_THEMES,
@@ -13,7 +13,6 @@ import {
 	saveAppFontId,
 	saveAppThemeId,
 } from "../../../../app/hooks/useAppAppearance.tsx";
-import { useAppInfo } from "../../../../app/hooks/useAppInfo.tsx";
 import {
 	SYNTAX_HIGHLIGHT_THEMES,
 	type SyntaxHighlightTheme,
@@ -26,19 +25,19 @@ import {
 	CLIENT_STORAGE_CHANGED_EVENT,
 } from "../../../../shared/lib/native.tsx";
 import { DropdownButton } from "../../../../shared/ui/DropdownButton/index.tsx";
+import {
+	SettingsRow,
+	SettingsSection,
+} from "../../../../shared/ui/SettingsSurface/index.tsx";
 import { mutateAgentWorkspaceState } from "../../../workspace/hooks/useWorkspaceState.tsx";
 import { BackgroundScenePicker } from "./BackgroundScenePicker.tsx";
 import { GlobalAgentInstructionsSection } from "./GlobalAgentInstructionsSection.tsx";
 import { SearchFoldersSection } from "./SearchFoldersSection.tsx";
 import { styles } from "./styles.ts";
 import { ThemeOrb } from "./ThemeOrb.tsx";
-import { WorkspaceLayoutSection } from "./WorkspaceLayoutSection.tsx";
 
 interface SettingsContentProps {
-	themeId?: AppThemeId;
 	onThemeChange?: (id: AppThemeId) => void;
-	showVersion?: boolean;
-	embedded?: boolean;
 	section?: "all" | "agents" | "appearance" | "workspace";
 }
 export const SettingsContent = function SettingsContent(
@@ -50,7 +49,6 @@ export const SettingsContent = function SettingsContent(
 	);
 	const [syntaxTheme, setSyntaxTheme] = useSyntaxHighlightTheme();
 	const [appFontId, setAppFontId] = createSignal<AppFontId>(loadAppFontId);
-	const _source = useAppInfo();
 	const handleThemeChange = (id: AppThemeId) => {
 		setAppThemeId(id);
 		saveAppThemeId(id);
@@ -86,71 +84,29 @@ export const SettingsContent = function SettingsContent(
 			}
 		});
 	});
+	const section = createMemo(() =>
+		_props.section === undefined ? "all" : _props.section,
+	);
 	const showAgents = createMemo(
-		() =>
-			(_props.section === undefined ? "all" : _props.section) === "all" ||
-			(_props.section === undefined ? "all" : _props.section) === "agents",
+		() => section() === "all" || section() === "agents",
 	);
 	const showAppearance = createMemo(
-		() =>
-			(_props.section === undefined ? "all" : _props.section) === "all" ||
-			(_props.section === undefined ? "all" : _props.section) === "appearance",
+		() => section() === "all" || section() === "appearance",
 	);
 	const showWorkspace = createMemo(
-		() =>
-			(_props.section === undefined ? "all" : _props.section) === "all" ||
-			(_props.section === undefined ? "all" : _props.section) === "workspace",
+		() => section() === "all" || section() === "workspace",
 	);
 	return (
-		<div
-			{...stylex.attrs(
-				styles.panelBody,
-				(_props.embedded === undefined ? false : _props.embedded) &&
-					styles.panelBodyEmbedded,
-			)}
-		>
-			{showAgents() ? (
-				<GlobalAgentInstructionsSection
-					contained={_props.embedded === undefined ? false : _props.embedded}
-				/>
-			) : null}
-			{showAgents() &&
-			showWorkspace() &&
-			!(_props.embedded === undefined ? false : _props.embedded) ? (
-				<div {...stylex.attrs(styles.divider)} />
-			) : null}
-			{showWorkspace() ? (
-				<>
-					<WorkspaceLayoutSection
-						contained={_props.embedded === undefined ? false : _props.embedded}
-					/>
-					{!(_props.embedded === undefined ? false : _props.embedded) ? (
-						<div {...stylex.attrs(styles.divider)} />
-					) : null}
-					<SearchFoldersSection
-						contained={_props.embedded === undefined ? false : _props.embedded}
-					/>
-				</>
-			) : null}
-			{showWorkspace() &&
-			showAppearance() &&
-			!(_props.embedded === undefined ? false : _props.embedded) ? (
-				<div {...stylex.attrs(styles.divider)} />
-			) : null}
+		<>
+			{showAgents() ? <GlobalAgentInstructionsSection /> : null}
+			{showWorkspace() ? <SearchFoldersSection /> : null}
 			{showAppearance() ? (
 				<>
-					<div
+					<SettingsSection
 						id="appearance"
-						{...stylex.attrs(
-							styles.section,
-							(_props.embedded === undefined ? false : _props.embedded) &&
-								styles.sectionContained,
-						)}
+						title="Theme"
+						description="A subtle tint for Inferay's solid background."
 					>
-						<h4 {...stylex.attrs(styles.sectionHeading)}>Theme</h4>
-						<p {...stylex.attrs(styles.sectionDescription)}>
-							A subtle tint for Inferay's solid background.
-						</p>
 						<div {...stylex.attrs(styles.themeGrid)}>
 							{APP_THEMES.map((t) => (
 								<ThemeOrb
@@ -162,76 +118,51 @@ export const SettingsContent = function SettingsContent(
 								/>
 							))}
 						</div>
-					</div>
-					{!(_props.embedded === undefined ? false : _props.embedded) ? (
-						<div {...stylex.attrs(styles.divider)} />
-					) : null}
-					<div
-						{...stylex.attrs(
-							styles.section,
-							(_props.embedded === undefined ? false : _props.embedded) &&
-								styles.sectionContained,
-						)}
+					</SettingsSection>
+					<BackgroundScenePicker />
+					<SettingsSection
+						id="typography"
+						title="Text and code"
+						description="How Inferay renders interface text, diffs, and source."
 					>
-						<h4 {...stylex.attrs(styles.sectionHeading)}>Interface font</h4>
-						<p {...stylex.attrs(styles.sectionDescription)}>
-							Use system interface text with Menlo for code and diffs.
-						</p>
-						<DropdownButton
-							liquid={false}
-							value={appFontId()}
-							options={APP_FONTS.map((option) => ({
-								id: option.id,
-								label: option.label,
-							}))}
-							onChange={(id) => {
-								const next = id as AppFontId;
-								setAppFontId(next);
-								saveAppFontId(next);
-								applyAppFont(next);
-							}}
-							fullWidth
-							buttonClassName={stylex.attrs(styles.syntaxThemeButton).class}
-						/>
-					</div>
-					{!(_props.embedded === undefined ? false : _props.embedded) ? (
-						<div {...stylex.attrs(styles.divider)} />
-					) : null}
-					<BackgroundScenePicker
-						contained={_props.embedded === undefined ? false : _props.embedded}
-					/>
-					{!(_props.embedded === undefined ? false : _props.embedded) ? (
-						<div {...stylex.attrs(styles.divider)} />
-					) : null}
-					<div
-						{...stylex.attrs(
-							styles.section,
-							(_props.embedded === undefined ? false : _props.embedded) &&
-								styles.sectionContained,
-						)}
-					>
-						<h4 {...stylex.attrs(styles.sectionHeading)}>Code appearance</h4>
-						<p {...stylex.attrs(styles.sectionDescription)}>
-							Syntax colors for full file and inline diffs.
-						</p>
-						<DropdownButton
-							liquid={false}
-							value={syntaxTheme()}
-							options={SYNTAX_HIGHLIGHT_THEMES}
-							onChange={(id) => setSyntaxTheme(id as SyntaxHighlightTheme)}
-							placeholder="Syntax theme"
-							fullWidth
-							buttonClassName={stylex.attrs(styles.syntaxThemeButton).class}
-							labelClassName={stylex.attrs(styles.syntaxThemeLabel).class}
-						/>
-					</div>
+						<SettingsRow
+							label="Interface font"
+							description="System interface text with Menlo for code and diffs."
+						>
+							<DropdownButton
+								liquid={false}
+								value={appFontId()}
+								options={APP_FONTS.map((option) => ({
+									id: option.id,
+									label: option.label,
+								}))}
+								onChange={(id) => {
+									const next = id as AppFontId;
+									setAppFontId(next);
+									saveAppFontId(next);
+									applyAppFont(next);
+								}}
+								buttonClassName={stylex.attrs(styles.control).class}
+								labelClassName={stylex.attrs(styles.controlLabel).class}
+							/>
+						</SettingsRow>
+						<SettingsRow
+							label="Code theme"
+							description="Syntax colors for full files and inline diffs."
+						>
+							<DropdownButton
+								liquid={false}
+								value={syntaxTheme()}
+								options={SYNTAX_HIGHLIGHT_THEMES}
+								onChange={(id) => setSyntaxTheme(id as SyntaxHighlightTheme)}
+								placeholder="Syntax theme"
+								buttonClassName={stylex.attrs(styles.control).class}
+								labelClassName={stylex.attrs(styles.controlLabel).class}
+							/>
+						</SettingsRow>
+					</SettingsSection>
 				</>
 			) : null}
-			{(_props.showVersion === undefined ? true : _props.showVersion) ? (
-				<p {...stylex.attrs(styles.versionText)}>
-					inferay {_source.data.version}
-				</p>
-			) : null}
-		</div>
+		</>
 	);
 };

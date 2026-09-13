@@ -75,9 +75,14 @@ export function InstructionsEditor() {
 				value={instructions()}
 				onInput={(event) => setInstructions(event.currentTarget.value)}
 				placeholder="How should agents work with you?"
-				{...stylex.attrs(styles.agentInstructionsEditor)}
+				{...stylex.attrs(styles.instructionsEditor)}
 			/>
-			<div {...stylex.attrs(styles.agentInstructionsActions)}>
+			<div {...stylex.attrs(styles.instructionsActions)}>
+				{error() ? (
+					<p role="alert" {...stylex.attrs(styles.instructionsError)}>
+						{error()}
+					</p>
+				) : null}
 				<Button
 					variant="secondary"
 					size="sm"
@@ -88,11 +93,6 @@ export function InstructionsEditor() {
 					{isSaving() ? "Saving…" : "Save"}
 				</Button>
 			</div>
-			{error() ? (
-				<p role="alert" {...stylex.attrs(styles.backgroundError)}>
-					{error()}
-				</p>
-			) : null}
 		</>
 	);
 }

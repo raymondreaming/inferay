@@ -15,10 +15,15 @@ import {
 	IconPlus,
 	IconX,
 } from "../../../../shared/ui/Icons/index.tsx";
+import {
+	SettingsEmpty,
+	SettingsRow,
+	SettingsSection,
+} from "../../../../shared/ui/SettingsSurface/index.tsx";
 import { styles } from "./styles.ts";
 
 const EMPTY_FOLDERS: string[] = [];
-export function SearchFoldersSection(_props: { contained?: boolean }) {
+export function SearchFoldersSection() {
 	const _source = useQueryResource<string[] | null>(
 		() => fetchSearchFolders,
 		() => null,
@@ -63,41 +68,46 @@ export function SearchFoldersSection(_props: { contained?: boolean }) {
 				const _newFolderValue = newFolder();
 				if (!_source.data) return null;
 				return (
-					<div
-						{...stylex.attrs(
-							styles.section,
-							(_props.contained === undefined ? false : _props.contained) &&
-								styles.sectionContained,
-						)}
+					<SettingsSection
+						id="search-folders"
+						title="Search folders"
+						description="Directories to scan when searching for projects. Use ~/path for home-relative paths."
+						action={
+							<Button
+								liquid={false}
+								type="button"
+								onClick={browseFolder}
+								variant="ghost"
+								size="sm"
+								class={stylex.attrs(styles.noShrink).class}
+							>
+								<IconFolder size={iconSize.md} />
+								<span>Browse</span>
+							</Button>
+						}
 					>
-						<h4 {...stylex.attrs(styles.sectionHeading)}>Search folders</h4>
-						<p {...stylex.attrs(styles.sectionDescription)}>
-							Directories to scan when searching for projects. Use ~/path for
-							home-relative paths.
-						</p>
-						<div {...stylex.attrs(styles.folderList)}>
-							{
-								<For each={folders()} keyed={(row) => row}>
-									{(folder, idx) => (
-										<div {...stylex.attrs(styles.folderRow)}>
-											<span {...stylex.attrs(styles.folderPath)}>
-												{folder()}
-											</span>
-											<IconButton
-												type="button"
-												onClick={() => removeFolder(idx())}
-												variant="danger"
-												size="xs"
-												title="Remove"
-											>
-												<IconX size={iconSize.xs} />
-											</IconButton>
-										</div>
-									)}
-								</For>
-							}
-						</div>
-						<div {...stylex.attrs(styles.folderInputRow)}>
+						{folders().length === 0 ? (
+							<SettingsEmpty>No search folders yet.</SettingsEmpty>
+						) : (
+							<For each={folders()} keyed={(row) => row}>
+								{(folder, idx) => (
+									<SettingsRow>
+										<span {...stylex.attrs(styles.folderPath)}>{folder()}</span>
+										<IconButton
+											type="button"
+											onClick={() => removeFolder(idx())}
+											variant="danger"
+											size="xs"
+											title="Remove folder"
+											aria-label="Remove folder"
+										>
+											<IconX size={iconSize.xs} />
+										</IconButton>
+									</SettingsRow>
+								)}
+							</For>
+						)}
+						<SettingsRow label="Add a folder">
 							<input
 								ref={(element) => (inputRef.current = element)}
 								type="text"
@@ -107,6 +117,7 @@ export function SearchFoldersSection(_props: { contained?: boolean }) {
 									if (e.key === "Enter") addFolder();
 								}}
 								placeholder="~/path/to/folder"
+								aria-label="Folder path"
 								{...stylex.attrs(styles.folderInput)}
 							/>
 							<Button
@@ -114,29 +125,15 @@ export function SearchFoldersSection(_props: { contained?: boolean }) {
 								type="button"
 								onClick={addFolder}
 								disabled={!_newFolderValue.trim()}
-								variant="secondary"
+								variant="ghost"
 								size="sm"
-								class={stylex.attrs(styles.folderActionButton).class}
+								class={stylex.attrs(styles.noShrink).class}
 							>
-								<IconPlus size={iconSize.sm} />
-								Add
+								<IconPlus size={iconSize.md} />
+								<span>Add</span>
 							</Button>
-							<Button
-								liquid={false}
-								type="button"
-								onClick={browseFolder}
-								variant="secondary"
-								size="sm"
-								class={
-									stylex.attrs(styles.browseButton, styles.folderActionButton)
-										.class
-								}
-							>
-								<IconFolder size={iconSize.sm} />
-								Browse
-							</Button>
-						</div>
-					</div>
+						</SettingsRow>
+					</SettingsSection>
 				);
 			})()}
 		</>
