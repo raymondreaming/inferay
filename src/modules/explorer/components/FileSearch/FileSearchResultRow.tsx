@@ -1,7 +1,7 @@
 import { iconSize } from "@design-system/styles.stylex.ts";
+import type { ExplorerSearchResult as FileSearchResult } from "@explorer/model/files.ts";
 import * as stylex from "@stylexjs/stylex";
 import { FileTypeIcon } from "../FileTypeIcon/index.tsx";
-import type { FileSearchResult } from "./index.tsx";
 import { styles } from "./styles.ts";
 export function FileSearchResultRow(_props: {
 	result: FileSearchResult;

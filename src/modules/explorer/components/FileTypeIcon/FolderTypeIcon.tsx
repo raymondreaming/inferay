@@ -3,7 +3,7 @@ import {
 	getIconForFolder,
 	getIconForOpenFolder,
 } from "@yutengjing/vscode-icons";
-import { iconUrl, resolveFileIconUrl } from "./index.tsx";
+import { iconUrl, resolveFileIconUrl } from "./iconUrl.ts";
 import * as inlineStyles from "./styles.ts";
 export function resolveFolderIconUrl(path: string, open = false): string {
 	const name = path.split(/[\\/]/).filter(Boolean).pop() || path;

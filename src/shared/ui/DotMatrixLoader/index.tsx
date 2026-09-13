@@ -3,6 +3,7 @@ import { createMemo } from "solid-js";
 import { type CSSProperties, domStyle } from "../../lib/dom.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
+import type { DotMatrixLoaderProps } from "./types.ts";
 
 export { DotMatrixRipple } from "./DotMatrixRipple.tsx";
 export { DotMatrixWeave } from "./DotMatrixWeave.tsx";
@@ -63,10 +64,3 @@ function DotMatrixLoader(_props: DotMatrixLoaderProps) {
 	);
 }
 void DotMatrixLoader;
-
-export interface DotMatrixLoaderProps {
-	dotSize?: number;
-	gap?: number;
-	speed?: number;
-	ariaLabel?: string;
-}

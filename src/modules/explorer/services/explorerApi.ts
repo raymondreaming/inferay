@@ -1,18 +1,14 @@
+import type {
+	ExplorerEntry,
+	ExplorerSearchResult,
+} from "@explorer/model/files.ts";
+
+export type {
+	ExplorerEntry,
+	ExplorerSearchResult,
+} from "@explorer/model/files.ts";
+
 import { fetchJson } from "@shared/lib/native.tsx";
-
-export type ExplorerSearchResult = {
-	readonly cwd?: string;
-	readonly isDir: boolean;
-	readonly name: string;
-	readonly path: string;
-};
-
-export type ExplorerEntry = {
-	readonly cwd: string;
-	readonly isDir: boolean;
-	readonly name: string;
-	readonly path: string;
-};
 
 export async function searchFiles(
 	cwd: string,

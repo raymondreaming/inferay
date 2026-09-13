@@ -1,9 +1,9 @@
 import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";
 import { type CSSProperties, domStyle } from "../../lib/dom.tsx";
-import type { DotMatrixLoaderProps } from "./index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
+import type { DotMatrixLoaderProps } from "./types.ts";
 
 const RIPPLE_RING_5 = [
 	4, 3, 2, 3, 4, 3, 2, 1, 2, 3, 2, 1, 0, 1, 2, 3, 2, 1, 2, 3, 4, 3, 2, 3, 4,
