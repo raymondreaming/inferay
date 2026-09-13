@@ -98,9 +98,7 @@ export function useGitGraph(
 			get searchQuery() {
 				return searchQuery();
 			},
-			get setSearchQuery() {
-				return setSearchQuery;
-			},
+			setSearchQuery,
 			get loading() {
 				return _source3.loading;
 			},

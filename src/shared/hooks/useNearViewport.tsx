@@ -27,9 +27,7 @@ export function useNearViewport() {
 		return () => observer.disconnect();
 	});
 	return {
-		get ref() {
-			return ref;
-		},
+		ref,
 		get visible() {
 			return visible();
 		},

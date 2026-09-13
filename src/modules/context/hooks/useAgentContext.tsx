@@ -70,9 +70,7 @@ export function useAgentContext(
 		get context() {
 			return query.data ?? empty;
 		},
-		get save() {
-			return save;
-		},
+		save,
 	};
 }
 export type AgentContextMode = "inherit" | "replace";

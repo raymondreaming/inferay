@@ -38,7 +38,6 @@ export function Directory(_props: {
 							signal,
 						},
 					),
-				gcTime: 0,
 				staleTime: 0,
 				retry: false,
 				refetchOnReconnect: false,

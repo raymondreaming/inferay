@@ -195,21 +195,15 @@ export function useChatDiffPanelState(
 		get hoveredModeIndex() {
 			return hoveredModeIndex();
 		},
-		get setHoveredModeIndex() {
-			return setHoveredModeIndex;
-		},
+		setHoveredModeIndex,
 		get pendingRefAction() {
 			return pendingRefAction();
 		},
-		get setPendingRefAction() {
-			return setPendingRefAction;
-		},
+		setPendingRefAction,
 		get refOperationResult() {
 			return refOperationResult();
 		},
-		get setRefOperationResult() {
-			return setRefOperationResult;
-		},
+		setRefOperationResult,
 		get refOperationRunning() {
 			return refOperationRunning();
 		},
@@ -224,36 +218,24 @@ export function useChatDiffPanelState(
 		get pendingGraphAction() {
 			return pendingGraphAction();
 		},
-		get setPendingGraphAction() {
-			return setPendingGraphAction;
-		},
+		setPendingGraphAction,
 		get graphActionName() {
 			return graphActionName();
 		},
-		get setGraphActionName() {
-			return setGraphActionName;
-		},
+		setGraphActionName,
 		get graphActionMessage() {
 			return graphActionMessage();
 		},
-		get setGraphActionMessage() {
-			return setGraphActionMessage;
-		},
+		setGraphActionMessage,
 		get graphActionResult() {
 			return graphActionResult();
 		},
 		get graphActionRunning() {
 			return graphActionRunning();
 		},
-		get runRefOperation() {
-			return runRefOperation;
-		},
-		get requestGraphAction() {
-			return requestGraphAction;
-		},
-		get runGraphAction() {
-			return runGraphAction;
-		},
+		runRefOperation,
+		requestGraphAction,
+		runGraphAction,
 		get activeModeIndex() {
 			return activeModeIndex();
 		},

@@ -41,9 +41,7 @@ export function useCopyText(
 		get copied() {
 			return copied();
 		},
-		get handleCopy() {
-			return handleCopy;
-		},
+		handleCopy,
 	};
 }
 export function CopyButton(_props: { text: string; class?: string }) {

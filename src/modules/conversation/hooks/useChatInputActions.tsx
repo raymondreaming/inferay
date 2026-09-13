@@ -163,11 +163,7 @@ export function useChatInputActions(
 		}
 	};
 	return {
-		get handleKeyDown() {
-			return handleKeyDown;
-		},
-		get sendUserMessage() {
-			return sendUserMessage;
-		},
+		handleKeyDown,
+		sendUserMessage,
 	};
 }

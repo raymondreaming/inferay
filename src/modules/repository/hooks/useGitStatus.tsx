@@ -42,7 +42,6 @@ export function useGitStatus(
 		() => EMPTY_GIT_PROJECTS,
 		() => ({
 			queryKey: ["git", "status", cwdKey()],
-			staleTime: 0,
 			enabled: _options().enabled && requestedCwds().length > 0,
 		}),
 	);
@@ -68,9 +67,7 @@ export function useGitStatus(
 		get projectMap() {
 			return projectMap();
 		},
-		get refetch() {
-			return refetch;
-		},
+		refetch,
 		get loaded() {
 			return (
 				!_options().enabled || requestedCwds().length === 0 || _source.loaded
@@ -136,29 +133,17 @@ export function useGitChangeActions(
 		}
 	};
 	return {
-		get commit() {
-			return commit;
-		},
+		commit,
 		get commitMessage() {
 			return commitMessage();
 		},
-		get setCommitMessage() {
-			return setCommitMessage;
-		},
+		setCommitMessage,
 		get isCommitting() {
 			return isCommitting();
 		},
-		get stageFile() {
-			return stageFile;
-		},
-		get unstageFile() {
-			return unstageFile;
-		},
-		get stageAll() {
-			return stageAll;
-		},
-		get unstageAll() {
-			return unstageAll;
-		},
+		stageFile,
+		unstageFile,
+		stageAll,
+		unstageAll,
 	};
 }

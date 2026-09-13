@@ -216,9 +216,7 @@ export function useSpeechToText(
 		() => (_options().enabled ?? true) && isSupported(),
 	);
 	return {
-		get cancelListening() {
-			return release;
-		},
+		cancelListening: release,
 		get error() {
 			return error();
 		},
@@ -228,11 +226,7 @@ export function useSpeechToText(
 		get isSupported() {
 			return visibleIsSupported();
 		},
-		get stopListening() {
-			return release;
-		},
-		get toggleListening() {
-			return toggleListening;
-		},
+		stopListening: release,
+		toggleListening,
 	};
 }

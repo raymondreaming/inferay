@@ -307,12 +307,8 @@ export function useAgentPaneActions(_options: Accessor<AgentPaneActionsArgs>) {
 			return actions();
 		},
 		{
-			get handleChatRef() {
-				return handleChatRef;
-			},
-			get removePane() {
-				return removePane;
-			},
+			handleChatRef,
+			removePane,
 		},
 	);
 }

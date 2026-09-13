@@ -187,30 +187,18 @@ export function useChatComposerState(
 				? false
 				: _sourceValue4.beamActive;
 		},
-		get fileInputRef() {
-			return fileInputRef;
-		},
-		get agentConfigControlsRef() {
-			return agentConfigControlsRef;
-		},
-		get agentConfigButtonRef() {
-			return agentConfigButtonRef;
-		},
-		get agentConfigMenuRef() {
-			return agentConfigMenuRef;
-		},
+		fileInputRef,
+		agentConfigControlsRef,
+		agentConfigButtonRef,
+		agentConfigMenuRef,
 		get activeConfig() {
 			return activeConfig();
 		},
-		get setActiveConfig() {
-			return setActiveConfig;
-		},
+		setActiveConfig,
 		get messageInputFocused() {
 			return messageInputFocused();
 		},
-		get setMessageInputFocused() {
-			return setMessageInputFocused;
-		},
+		setMessageInputFocused,
 		get usePlainTextarea() {
 			return usePlainTextarea();
 		},

@@ -189,9 +189,7 @@ export function useSyntaxHighlight(_options: Accessor<HighlightInput>) {
 		return cut;
 	};
 	return {
-		get getLineTokens() {
-			return getLineTokens;
-		},
+		getLineTokens,
 		get isReady() {
 			return !active() || document() !== null || !query.isPending;
 		},

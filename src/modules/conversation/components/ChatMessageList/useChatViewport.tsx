@@ -205,32 +205,16 @@ export function useChatViewport(
 		},
 	);
 	return {
-		get chatVirtualizerRef() {
-			return chatVirtualizerRef;
-		},
-		get cancelScrollRestore() {
-			return cancelScrollRestore;
-		},
-		get handleScroll() {
-			return handleScroll;
-		},
-		get highlightOverlayRef() {
-			return highlightOverlayRef;
-		},
+		chatVirtualizerRef,
+		cancelScrollRestore,
+		handleScroll,
+		highlightOverlayRef,
 		get isAtBottom() {
 			return isAtBottom();
 		},
-		get scheduleScrollToBottom() {
-			return scheduleScrollToBottom;
-		},
-		get scrollRef() {
-			return scrollRef;
-		},
-		get scrollToBottom() {
-			return scrollToBottom;
-		},
-		get textareaRef() {
-			return textareaRef;
-		},
+		scheduleScrollToBottom,
+		scrollRef,
+		scrollToBottom,
+		textareaRef,
 	};
 }
