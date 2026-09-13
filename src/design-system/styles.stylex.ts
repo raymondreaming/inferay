@@ -426,6 +426,7 @@ const selection = stylex.create({
 		color: color.textMain,
 	},
 	selectedBorder: {
+		boxShadow: "none",
 		borderColor:
 			"var(--inferay-selection-border, var(--color-inferay-gray-border))",
 	},

@@ -139,7 +139,7 @@ export const styles = stylex.create({
 		borderWidth: 1,
 		borderStyle: "solid",
 		borderColor: color.border,
-		backgroundColor: color.backgroundPanel,
+		backgroundColor: color.backgroundModal,
 	},
 	fileMenu: {
 		maxHeight: "300px",
