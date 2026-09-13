@@ -332,7 +332,16 @@ pub fn normalize(value: &Value) -> Value {
     );
     session["historicalDiff"] =
         json!(diff_mode && matches!(context.as_str(), "commit" | "comparison"));
-    session["sidebarContent"] = json!(if session["mainViewMode"] == "graph" {
+    session["sidebarContent"] = json!(sidebar_content(&session));
+    session
+}
+
+/// Without the graph, the sidebar is a direct entry point to current changes.
+pub fn sidebar_content(session: &Value) -> &'static str {
+    if session["graphVisible"] == false {
+        return "workingTree";
+    }
+    if session["mainViewMode"] == "graph" {
         if session["selectedCommitHash"]
             .as_str()
             .is_some_and(|id| id == "wip" || id.starts_with("wip:"))
@@ -341,12 +350,14 @@ pub fn normalize(value: &Value) -> Value {
         } else {
             "history"
         }
-    } else if matches!(context.as_str(), "workingTree" | "graphWorkingTree") {
+    } else if matches!(
+        session["selectedFile"]["source"]["kind"].as_str(),
+        Some("workingTree" | "graphWorkingTree")
+    ) {
         "workingTree"
     } else {
         "history"
-    });
-    session
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]

@@ -44,6 +44,7 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         )),
         "mergeTranscriptOrder" => transcript::merge_order(input),
         "emptyPanels" => panels::normalize(&Value::Null),
+        "panelSidebarContent" => json!(panels::sidebar_content(input)),
         "panelVisibility" => json!({
             "graphVisible": input["graphVisible"].as_bool().unwrap_or(true),
             "sidebarVisible": input["sidebarVisible"].as_bool().unwrap_or(true),

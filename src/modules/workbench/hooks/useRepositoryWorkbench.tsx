@@ -283,6 +283,7 @@ export function useRepositoryWorkbench(
 		})),
 	);
 	const selectedGraphWorktree = createMemo(() =>
+		panelSession().graphVisible &&
 		selectedGraphItem()?.itemKind === "worktreeWip"
 			? (graph.worktrees.find(
 					(worktree) => worktree.path === selectedGraphItem().worktreePath,

@@ -47,10 +47,21 @@ export function useWorkspacePanelSession(_workspaceId: Accessor<string>) {
 		() => queryClient,
 	);
 	const mutate = createMemo(() => mutation.mutate);
-	const session = createMemo(() => ({
-		...(query.data ?? emptyPanelSession),
-		...visibility(),
-	}));
+	const session = createMemo(() => {
+		const value = { ...(query.data ?? emptyPanelSession), ...visibility() };
+		return {
+			...value,
+			sidebarContent: rustProject<PanelSession["sidebarContent"]>(
+				"panelSidebarContent",
+				{
+					graphVisible: value.graphVisible,
+					mainViewMode: value.mainViewMode,
+					selectedCommitHash: value.selectedCommitHash,
+					selectedFile: value.selectedFile,
+				},
+			),
+		};
+	});
 	// Commands snapshot their target when invoked, including from effect apply callbacks.
 	const update = (action: PanelAction) =>
 		untrack(() => {

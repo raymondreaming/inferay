@@ -293,6 +293,28 @@ fn grid_resize_paths_remain_valid_inside_partial_rows() {
 }
 
 #[test]
+fn sidebar_without_graph_defaults_to_current_changes() {
+    for mode in ["graph", "diff"] {
+        let mut session = panels::normalize(&json!({
+            "mainViewMode": mode, "graphVisible": true, "sidebarVisible": true,
+            "selectedCommitHash": "abc123", "selectedCommitIds": ["abc123"],
+            "selectedFile": {"path":"file.rs","staged":false,"source":{"kind":"commit","commitHash":"abc123","commitParent":null}}
+        }));
+        assert_eq!(session["sidebarContent"], "history");
+        session["graphVisible"] = json!(false);
+        assert_eq!(
+            project("panelSidebarContent", &session).unwrap(),
+            "workingTree"
+        );
+        assert_eq!(panels::normalize(&session)["sidebarContent"], "workingTree");
+        // Restoring the graph retains the user's previous history selection.
+        session["graphVisible"] = json!(true);
+        assert_eq!(project("panelSidebarContent", &session).unwrap(), "history");
+        assert_eq!(session["selectedCommitHash"], "abc123");
+    }
+}
+
+#[test]
 fn graph_and_changes_sidebar_toggle_independently() {
     let mut session = panels::normalize(&json!({"mainViewMode":"graph","sidebarVisible":true}));
     assert_eq!(session["graphVisible"], true);
