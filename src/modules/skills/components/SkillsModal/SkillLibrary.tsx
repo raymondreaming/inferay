@@ -1,14 +1,22 @@
 import type { Prompt, SkillFormState } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For } from "solid-js";
-import {
-	iconSize,
-	surfaceStyles,
-} from "../../../../design-system/styles.stylex.ts";
+import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { setInputValue } from "../../../../shared/lib/dom.tsx";
+import { Button } from "../../../../shared/ui/Button/index.tsx";
 import { IconPlus, IconSearch } from "../../../../shared/ui/Icons/index.tsx";
+import {
+	SettingsSegment,
+	SettingsSegmented,
+} from "../../../../shared/ui/SettingsSurface/index.tsx";
 import { SkillLibraryItem } from "./SkillLibraryItem.tsx";
 import { styles } from "./styles.ts";
+
+const SKILL_FILTERS = [
+	{ id: "all", label: "All" },
+	{ id: "builtin", label: "Built-in" },
+	{ id: "custom", label: "Personal" },
+] as const;
 export function SkillLibrary(_props: {
 	startCreate: () => void;
 	form: Pick<SkillFormState, "isSaving" | "isCreating">;
@@ -25,18 +33,18 @@ export function SkillLibrary(_props: {
 	return (
 		<aside aria-label="Skills library" {...stylex.attrs(styles.listPane)}>
 			<div {...stylex.attrs(styles.libraryControls)}>
-				<button
+				<Button
+					liquid={false}
 					type="button"
+					variant="secondary"
+					size="sm"
 					onClick={_props.startCreate}
 					disabled={_props.form.isSaving}
-					{...stylex.attrs(
-						surfaceStyles.panel,
-						styles.newButton,
-						styles.libraryNew,
-					)}
+					class={stylex.attrs(styles.newButton).class}
 				>
-					<IconPlus size={iconSize.sm} /> New skill
-				</button>
+					<IconPlus size={iconSize.md} />
+					<span>New skill</span>
+				</Button>
 				<div {...stylex.attrs(styles.searchWrap)}>
 					<IconSearch size={iconSize.md} {...stylex.attrs(styles.searchIcon)} />
 					<input
@@ -48,28 +56,29 @@ export function SkillLibrary(_props: {
 						{...stylex.attrs(styles.searchInput)}
 					/>
 				</div>
-				<div {...stylex.attrs(styles.libraryHeading)}>
-					<select
-						aria-label="Filter skills"
-						value={_props.filter}
-						onInput={(event) => _props.setFilter(event.currentTarget.value)}
-						{...stylex.attrs(styles.filter)}
-					>
-						<option value="all">All skills</option>
-						<option value="builtin">Built-in</option>
-						<option value="custom">Personal</option>
-					</select>
-					<span {...stylex.attrs(styles.count)}>{_props.filtered.length}</span>
-				</div>
+				<SettingsSegmented label="Filter skills">
+					{SKILL_FILTERS.map((option) => (
+						<SettingsSegment
+							selected={_props.filter === option.id}
+							onSelect={() => _props.setFilter(option.id)}
+						>
+							{option.label}
+						</SettingsSegment>
+					))}
+				</SettingsSegmented>
+			</div>
+			<div {...stylex.attrs(styles.libraryHeading)}>
+				<span {...stylex.attrs(styles.libraryHeadingLabel)}>Library</span>
+				<span {...stylex.attrs(styles.count)}>{_props.filtered.length}</span>
 			</div>
 			<nav aria-label="Saved skills" {...stylex.attrs(styles.skillList)}>
 				{_props.filtered.length === 0 ? (
 					<div {...stylex.attrs(styles.emptyList)}>
-						<p>
+						<span>
 							{_props.loading || _props.filtering
 								? "Loading skills…"
 								: "No skills found"}
-						</p>
+						</span>
 						<span>
 							{_props.search
 								? "Try another name or command."

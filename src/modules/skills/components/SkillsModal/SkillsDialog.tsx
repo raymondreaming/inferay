@@ -2,12 +2,11 @@ import type { Prompt, SkillFormState } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, onCleanup, onSettled } from "solid-js";
 import { APP_REGION_NO_DRAG_CLASS } from "../../../../app/hooks/useAppAppearance.tsx";
-import {
-	iconSize,
-	surfaceStyles,
-} from "../../../../design-system/styles.stylex.ts";
+import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import type { SkillsTarget } from "../../../../shared/lib/dom.tsx";
 import { project as rustProject } from "../../../../shared/lib/native.tsx";
+import { Button } from "../../../../shared/ui/Button/index.tsx";
+import { IconButton } from "../../../../shared/ui/IconButton/index.tsx";
 import { IconPlus, IconX } from "../../../../shared/ui/Icons/index.tsx";
 import { removeSkill, saveSkill, useSkills } from "../../hooks/useSkills.tsx";
 import { SkillEditor } from "../SkillEditor/index.tsx";
@@ -202,16 +201,18 @@ export function SkillsDialog(_props: {
 			class={`${APP_REGION_NO_DRAG_CLASS} ${stylex.attrs(styles.dialog).class ?? ""}`}
 		>
 			<div {...stylex.attrs(styles.root)}>
-				<button
+				<IconButton
 					type="button"
+					variant="ghost"
+					size="sm"
 					aria-label="Close skills"
 					title="Close skills"
 					onClick={close}
 					disabled={form().isSaving || deleting()}
-					{...stylex.attrs(styles.closeButton)}
+					class={stylex.attrs(styles.closeButton).class}
 				>
 					<IconX size={iconSize.md} />
-				</button>
+				</IconButton>
 				{(_source.error || _source2.error) && (
 					<p role="alert" {...stylex.attrs(styles.error)}>
 						{_source.error || _source2.error}
@@ -269,13 +270,19 @@ export function SkillsDialog(_props: {
 					) : (
 						<div {...stylex.attrs(styles.editorEmpty)}>
 							<h2 {...stylex.attrs(styles.emptyTitle)}>Select a skill</h2>
-							<button
+							<p {...stylex.attrs(styles.emptyHint)}>
+								Pick a skill from the library to read it, or start a new one.
+							</p>
+							<Button
+								liquid={false}
 								type="button"
+								variant="secondary"
+								size="sm"
 								onClick={startCreate}
-								{...stylex.attrs(surfaceStyles.panel, styles.newButton)}
 							>
-								<IconPlus size={iconSize.sm} /> Create a skill
-							</button>
+								<IconPlus size={iconSize.md} />
+								<span>Create a skill</span>
+							</Button>
 							{form().error && (
 								<p role="alert" {...stylex.attrs(styles.error)}>
 									{form().error}

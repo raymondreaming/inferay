@@ -1,10 +1,8 @@
 import type { Prompt } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";
-import {
-	iconSize,
-	surfaceStyles,
-} from "../../../../design-system/styles.stylex.ts";
+import { iconSize } from "../../../../design-system/styles.stylex.ts";
+import { Button } from "../../../../shared/ui/Button/index.tsx";
 import {
 	IconCheck,
 	IconCode,
@@ -78,14 +76,17 @@ export function SkillEditor(_props: SkillEditorProps) {
 				{!editing() &&
 					_props.selectedSkill &&
 					!_props.selectedSkill.isBuiltIn && (
-						<button
+						<Button
+							liquid={false}
 							type="button"
+							variant="ghost"
+							size="sm"
 							onClick={_props.onStartEditing}
 							disabled={busy()}
-							{...stylex.attrs(styles.button)}
 						>
-							<IconPencil size={iconSize.sm} /> Edit skill
-						</button>
+							<IconPencil size={iconSize.md} />
+							<span>Edit skill</span>
+						</Button>
 					)}
 			</div>
 			<div {...stylex.attrs(styles.body)}>
@@ -163,45 +164,50 @@ export function SkillEditor(_props: SkillEditorProps) {
 					{_props.selectedSkill &&
 						!_props.selectedSkill.isBuiltIn &&
 						!_props.isCreatingNew && (
-							<button
+							<Button
+								liquid={false}
 								type="button"
+								variant="ghost"
+								size="sm"
 								disabled={busy()}
 								onClick={_props.onDelete}
-								{...stylex.attrs(styles.button, styles.deleteButton)}
+								class={stylex.attrs(styles.deleteButton).class}
 							>
-								<IconTrash size={iconSize.sm} />{" "}
-								{_props.isDeleting ? "Deleting…" : "Delete skill"}
-							</button>
+								<IconTrash size={iconSize.md} />
+								<span>{_props.isDeleting ? "Deleting…" : "Delete skill"}</span>
+							</Button>
 						)}
 				</div>
 				<div {...stylex.attrs(styles.actions)}>
 					{editing() ? (
 						<>
-							<button
+							<Button
+								liquid={false}
 								type="button"
+								variant="ghost"
+								size="sm"
 								disabled={busy()}
 								onClick={_props.onCancelEditing}
-								{...stylex.attrs(styles.button)}
 							>
 								Cancel
-							</button>
-							<button
+							</Button>
+							<Button
+								liquid={false}
 								type="button"
+								variant="secondary"
+								size="sm"
 								disabled={busy()}
 								onClick={() => _props.onSave(_props.isEditing)}
-								{...stylex.attrs(
-									surfaceStyles.panel,
-									styles.button,
-									styles.saveButton,
-								)}
 							>
-								<IconCheck size={iconSize.sm} />{" "}
-								{_props.isSaving
-									? "Saving…"
-									: _props.isCreatingNew
-										? "Create skill"
-										: "Save changes"}
-							</button>
+								<IconCheck size={iconSize.md} />
+								<span>
+									{_props.isSaving
+										? "Saving…"
+										: _props.isCreatingNew
+											? "Create skill"
+											: "Save changes"}
+								</span>
+							</Button>
 						</>
 					) : null}
 				</div>

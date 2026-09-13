@@ -1,6 +1,5 @@
 import type { Prompt } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
-import { surfaceStyles } from "../../../../design-system/styles.stylex.ts";
 import { ariaValue } from "../../../../shared/lib/dom.tsx";
 import { styles } from "./styles.ts";
 export function SkillLibraryItem(_props: {
@@ -16,11 +15,7 @@ export function SkillLibraryItem(_props: {
 			onClick={() => _props.selectSkill(_props.skill)}
 			aria-current={ariaValue(_props.active ? "true" : undefined)}
 			title={_props.skill.description || _props.skill.name}
-			{...stylex.attrs(
-				styles.skillRow,
-				_props.active && surfaceStyles.panel,
-				_props.active && styles.skillRowActive,
-			)}
+			{...stylex.attrs(styles.skillRow, _props.active && styles.skillRowActive)}
 		>
 			<span {...stylex.attrs(styles.skillCopy)}>
 				<span {...stylex.attrs(styles.skillCommand)}>
