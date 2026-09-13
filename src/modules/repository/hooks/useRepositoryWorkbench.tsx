@@ -52,6 +52,7 @@ import {
 	resolveSelectedGraphItems,
 	type SelectedGraphCache,
 	SIDEBAR_WIDTH_KEY,
+	workingTreeKeyboardFiles,
 } from "@repository/model/workbench.ts";
 import {
 	checkoutGitBranch,
@@ -320,6 +321,11 @@ export function useRepositoryWorkbench(
 	const workingTreeFiles = createMemo(
 		() => selectedLinkedWorktreeStatus()?.fileGroups ?? fileGroups(),
 	);
+	const workingTreePresentation = createMemo(
+		() =>
+			selectedLinkedWorktreeStatus()?.filePresentation ??
+			project()?.filePresentation,
+	);
 	const selectedWorkingTreeCwd = createMemo(
 		() => selectedGraphWorktree()?.path ?? activeCwd(),
 	);
@@ -451,21 +457,12 @@ export function useRepositoryWorkbench(
 		},
 	);
 	const keyboardFiles = createMemo(() => {
-		const _source3Value = fileGroups(),
-			_projectValue = project(),
+		const _source3Value = workingTreeFiles(),
+			_presentationValue = workingTreePresentation(),
 			_fileViewModeValue = fileViewMode();
-		return [
-			...visibleGitFiles(
-				[..._source3Value.modified, ..._source3Value.untracked],
-				_projectValue?.filePresentation,
-				_fileViewModeValue,
-			),
-			...visibleGitFiles(
-				_source3Value.staged,
-				_projectValue?.filePresentation,
-				_fileViewModeValue,
-			),
-		];
+		return workingTreeKeyboardFiles(_source3Value, (files) =>
+			visibleGitFiles(files, _presentationValue, _fileViewModeValue),
+		);
 	});
 	const commitKeyboardFiles = createMemo(() => {
 		const commitFiles = commitDetailsState.details?.files ?? [];
@@ -1060,10 +1057,7 @@ export function useRepositoryWorkbench(
 				>
 					<ChangesPanel
 						onPrefetchFiles={prefetchFiles()}
-						filePresentation={
-							selectedLinkedWorktreeStatus()?.filePresentation ??
-							project()?.filePresentation
-						}
+						filePresentation={workingTreePresentation()}
 						cwd={selectedWorkingTreeCwd()}
 						fileViewMode={fileViewMode()}
 						onFileViewModeChange={setFileViewMode}

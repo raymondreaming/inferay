@@ -319,6 +319,21 @@ test("file navigation preserves object identity without serializing file payload
 	expect(adjacentGitFile([], () => false, 1, true)).toBeUndefined();
 });
 
+test("WIP keyboard navigation opens the first visible file from the selected worktree", async () => {
+	const { workingTreeKeyboardFiles } = await import(
+		"../../src/modules/repository/model/workbench.ts"
+	);
+	const modified = { path: "modified.ts", staged: false, status: "modified" };
+	const untracked = { path: "new.ts", staged: false, status: "untracked" };
+	const staged = { path: "staged.ts", staged: true, status: "modified" };
+	const files = workingTreeKeyboardFiles(
+		{ modified: [modified], untracked: [untracked], staged: [staged] },
+		(entries) => [...entries].reverse(),
+	);
+	expect(files).toEqual([untracked, modified, staged]);
+	expect(files[0]).toBe(untracked);
+});
+
 test("changes model keeps staging, tree navigation, history and totals independent", () => {
 	const modified = { path: "b", staged: false, additions: 3, deletions: 1 };
 	const untracked = {
