@@ -171,7 +171,12 @@ export const CommitRow = function CommitRow(_props: {
 				_props.onOpenItemContextMenu?.(_props.commit, event);
 			}}
 			onKeyDown={(event) => {
-				if (event.key !== "Enter" && event.key !== " ") return;
+				if (event.target !== event.currentTarget) return;
+				if (event.key === " ") {
+					event.preventDefault();
+					return;
+				}
+				if (event.key !== "Enter") return;
 				event.preventDefault();
 				handleSelect();
 			}}

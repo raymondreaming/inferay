@@ -227,6 +227,19 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 			scroller.scrollTo({ top, behavior: repeat ? "instant" : "smooth" });
 	};
 	const navigateRows = (event: KeyboardEvent) => {
+		// Space pages files, never the graph. Leave nested controls usable.
+		if (event.key === " ") {
+			const target = event.target;
+			if (
+				target instanceof HTMLElement &&
+				(target.isContentEditable ||
+					target.closest("input, textarea, select, button, a, [role='menu']"))
+			)
+				return;
+			event.preventDefault();
+			event.stopPropagation();
+			return;
+		}
 		// Left returns from the file sidebar, but has no action inside the graph.
 		if (event.key === "ArrowLeft") {
 			event.preventDefault();
