@@ -75,7 +75,8 @@ export function SettingsModalContent(_props: {
 	);
 	const defaultModelOptions = createMemo(() =>
 		defaultAgentDefinition().models.map((option) => ({
-			...option,
+			id: option.id,
+			label: option.label,
 			iconComponent: ModelIcon,
 		})),
 	);

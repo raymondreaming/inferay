@@ -103,7 +103,9 @@ export function ChatDefaultsSettings(_props: {
 									{
 										key: "reasoningLevel",
 										label: "Reasoning",
-										options: _props.defaultAgentDefinition.reasoningLevels,
+										options: _props.defaultAgentDefinition.reasoningLevels.map(
+											(level) => ({ id: level.id, label: level.label }),
+										),
 									},
 								]
 							: []),
