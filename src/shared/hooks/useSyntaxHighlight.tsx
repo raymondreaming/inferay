@@ -98,7 +98,7 @@ export function useSyntaxHighlight(_options: Accessor<HighlightInput>) {
 	const document = createMemo(() => {
 		// Observe fetch completion, but always select the current document's cache entry.
 		// Cached navigation must not wait for the observer effect or use the previous file's runs.
-		query.data;
+		void query.data;
 		return active()
 			? (queryClient.getQueryData<ClassifiedDocument | null>(
 					options().queryKey,

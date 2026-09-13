@@ -18,7 +18,9 @@
 		"release": "cargo run -p inferay-tooling -- release",
 		"release:resume": "cargo run -p inferay-tooling -- release --resume",
 		"format": "bunx biome format --write ./src",
-		"check": "bunx biome check --write ./src",
+		"lint": "oxlint --deny-warnings .",
+		"lint:fix": "oxlint --fix --deny-warnings .",
+		"check": "bun run lint && bunx biome check ./src",
 		"code": "bun scripts/count-code.ts",
 		"check:components": "bun scripts/check-component-structure.ts",
 		"check:architecture": "bash scripts/check-architecture.sh",
@@ -29,7 +31,11 @@
 		"sync:file-icons": "bash scripts/sync-file-icons.sh"
 	},
 	"lint-staged": {
-		"*.{js,jsx,ts,tsx,json,css}": "biome check --write --no-errors-on-unmatched"
+		"*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}": [
+			"oxlint --deny-warnings --no-error-on-unmatched-pattern",
+			"biome check --write --no-errors-on-unmatched"
+		],
+		"*.{json,css}": "biome check --write --no-errors-on-unmatched"
 	},
 	"devDependencies": {
 		"@babel/core": "^7",

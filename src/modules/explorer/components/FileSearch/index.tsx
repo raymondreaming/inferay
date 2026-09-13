@@ -17,11 +17,11 @@ export function FileSearch(_props: {
 	readonly placement?: "shell" | "panel" | "sidebar";
 }) {
 	const [open, setOpen] = createSignal(() => {
-		_props.cwd;
+		void _props.cwd;
 		return false;
 	});
 	const [query, setQuery] = createSignal(() => {
-		_props.cwd;
+		void _props.cwd;
 		return "";
 	});
 	const [debouncedQuery, setDebouncedQuery] = createSignal("");

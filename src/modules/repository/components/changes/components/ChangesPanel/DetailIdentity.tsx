@@ -30,8 +30,8 @@ export function DetailIdentity(_props: {
 		() => identity()?.login || _props.name || "Unknown author",
 	);
 	const [avatarFailed, setAvatarFailed] = createSignal(() => {
-		_props.email;
-		_props.name;
+		void _props.email;
+		void _props.name;
 		return false;
 	});
 	return (

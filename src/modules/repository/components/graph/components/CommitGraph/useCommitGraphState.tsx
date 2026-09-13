@@ -104,7 +104,7 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 			ROW_HEIGHT,
 		);
 	const [query, setQuery] = createSignal(() => {
-		_props().repositoryKey;
+		void _props().repositoryKey;
 		return _props().searchQuery ?? "";
 	});
 	const [refContextMenu, setRefContextMenu] = createSignal<{

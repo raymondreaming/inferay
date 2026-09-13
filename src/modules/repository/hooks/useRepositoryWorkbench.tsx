@@ -142,8 +142,8 @@ export function useRepositoryWorkbench(
 		});
 	});
 	const [sidebarWidth, setSidebarWidth] = createSignal(() => {
-		_options().active;
-		_options().workspaceId;
+		void _options().active;
+		void _options().workspaceId;
 		return loadSidebarWidth(readStoredValue);
 	});
 	const [diffWidth, setDiffWidth] = createSignal(

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+echo "==> Oxlint"
+bun run lint
+
 echo "==> Architecture boundaries"
 bun run check:boundaries
 
