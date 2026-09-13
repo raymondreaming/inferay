@@ -5,6 +5,7 @@ import {
 	request,
 	sendJson,
 } from "@shared/lib/native.tsx";
+import type { WorkspacePanelPort } from "@workspace/services/workspacePanels.ts";
 
 export type DirectoryPick = {
 	readonly name: string;
@@ -68,9 +69,8 @@ export async function saveWorkspaceAction(
 	return state;
 }
 
-export function saveWorkspacePanel<T>(_endpoint: string, input: object) {
-	return postJson<T>("/api/workspace/panels", input);
-}
+export const saveWorkspacePanel: WorkspacePanelPort = (input) =>
+	postJson("/api/workspace/panels", input);
 
 export function saveWorkspaceDock<T>(input: object) {
 	return postJson<T>("/api/workspace/dock", input);

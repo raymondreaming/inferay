@@ -12,7 +12,12 @@ function model(send: (path: string, body: any) => Promise<any>) {
 			save: async (action) =>
 				(await send("/api/agent/state/workspace-action", { action })).state,
 		},
-		project,
+		{
+			select: (state, groupId, paneId) =>
+				project("workspaceSelection", { state, groupId, paneId }),
+			forRepository: (state, cwd) =>
+				project("repositorySelection", { state, cwd }),
+		},
 	);
 	return {
 		initializeAgentState: session.initialize,

@@ -10,13 +10,36 @@ export interface WorkspacePersistencePort {
 	save(action: AgentWorkspaceAction): Promise<AgentSavedState>;
 }
 
+export interface WorkspaceSelectionPort {
+	select(
+		state: AgentSavedState,
+		groupId: string,
+		paneId?: string,
+	): AgentSavedState;
+	forRepository(
+		state: AgentSavedState,
+		cwd: string,
+	): { groupId: string; paneId: string } | null;
+}
+
+export type WorkspaceMutation =
+	| AgentWorkspaceAction
+	| ((state: AgentSavedState) => AgentWorkspaceAction | null);
+export interface WorkspaceSession {
+	readonly snapshot: WorkspaceSnapshot;
+	initialize(): Promise<AgentSavedState>;
+	load(): Promise<AgentSavedState | null>;
+	mutate(action: WorkspaceMutation): Promise<AgentSavedState | null>;
+	publish(snapshot: WorkspaceSnapshot): void;
+}
+
 /** Serializes persistence while publishing optimistic selection immediately. */
 export function createWorkspaceSession(
 	port: WorkspacePersistencePort,
-	project: <T>(operation: string, input: unknown) => T,
+	selectionModel: WorkspaceSelectionPort,
 	onSnapshot: (snapshot: WorkspaceSnapshot) => void = () => {},
 	onSelection?: () => void,
-) {
+): WorkspaceSession {
 	let snapshot: WorkspaceSnapshot = {
 		state: null,
 		error: null,
@@ -40,11 +63,7 @@ export function createWorkspaceSession(
 		groupId: string,
 		paneId?: string,
 	): AgentSavedState {
-		return project("workspaceSelection", {
-			state,
-			groupId,
-			paneId,
-		});
+		return selectionModel.select(state, groupId, paneId);
 	}
 	function loadAgentState() {
 		return snapshot.state;
@@ -94,10 +113,7 @@ export function createWorkspaceSession(
 			typeof action === "function"
 				? null
 				: action.type === "selectRepository" && snapshot.state
-					? project<{ groupId: string; paneId: string } | null>(
-							"repositorySelection",
-							{ state: snapshot.state, cwd: action.cwd },
-						)
+					? selectionModel.forRepository(snapshot.state, action.cwd)
 					: action.type === "selectPane" || action.type === "selectWorkspace"
 						? {
 								groupId: action.groupId,

@@ -1,5 +1,3 @@
-import { render } from "@solidjs/web";
-import { RootComponent } from "./app/components/RootComponent/index.tsx";
 import {
 	applyAppBackgroundSurfaces,
 	applyAppFont,
@@ -7,7 +5,9 @@ import {
 	loadAppBackgroundSettings,
 	loadAppFontId,
 	loadAppThemeId,
-} from "./app/hooks/useAppAppearance.tsx";
+} from "@settings/hooks/useAppAppearance.tsx";
+import { render } from "@solidjs/web";
+import { RootComponent } from "./app/components/RootComponent/index.tsx";
 import { preloadSkills } from "./modules/skills/hooks/useSkills.tsx";
 import { initializeAgentState } from "./modules/workspace/hooks/useWorkspaceState.tsx";
 import { restoreSyntaxTheme } from "./shared/hooks/useSyntaxHighlight.tsx";
@@ -16,6 +16,7 @@ import {
 	initializeAgentCatalog,
 } from "./shared/lib/native.tsx";
 
+configureNativeWorkspace();
 let restoreStartupContent: (() => void) | undefined;
 while (true) {
 	try {
@@ -65,3 +66,5 @@ idle(() => void preloadSkills());
 const container = document.getElementById("__app");
 if (!container) throw new Error("Missing application root.");
 render(() => <RootComponent />, container);
+
+import { configureNativeWorkspace } from "@app/bootstrap/workspace.ts";

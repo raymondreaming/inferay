@@ -1,5 +1,11 @@
 import type { WorkspaceSnapshot } from "@workspace/model/workspace.ts";
-import { createWorkspaceSession } from "@workspace/services/workspaceSession.ts";
+import {
+	createWorkspaceSession,
+	type WorkspaceMutation,
+	type WorkspacePersistencePort,
+	type WorkspaceSelectionPort,
+	type WorkspaceSession,
+} from "@workspace/services/workspaceSession.ts";
 
 export type { AgentGroupsAction } from "@workspace/model/workspace.ts";
 
@@ -8,13 +14,6 @@ import type {
 	RepositoryWorkspaceIndex,
 	WorkspaceAgentKind,
 } from "@contracts";
-import { project as rustProject } from "@shared/lib/native.tsx";
-import { traceUi } from "@shared/lib/uiPerformance.ts";
-import {
-	initializeWorkspaceState,
-	loadWorkspaceState,
-	saveWorkspaceAction,
-} from "@workspace/services/workspaceApi.ts";
 import {
 	type Accessor,
 	createEffect,
@@ -34,22 +33,33 @@ const [published, setPublished] = createStore<WorkspaceSnapshot>({
 	state: null,
 	error: null,
 });
-const session = createWorkspaceSession(
-	{
-		initialize: initializeWorkspaceState,
-		load: loadWorkspaceState,
-		save: saveWorkspaceAction,
-	},
-	rustProject,
-	(next) =>
-		setPublished(
-			reconcile(next, (item) => item.id ?? item.cwd ?? item.pane?.id),
-		),
-	() => traceUi("selection-published"),
-);
-export const initializeAgentState = session.initialize;
-export const loadCanonicalAgentState = session.load;
-export const mutateAgentWorkspaceState = session.mutate;
+let configuredSession: WorkspaceSession | undefined;
+export function configureWorkspaceState(
+	port: WorkspacePersistencePort,
+	selection: WorkspaceSelectionPort,
+	onSelection?: () => void,
+) {
+	if (configuredSession)
+		throw new Error("Workspace state is already configured");
+	configuredSession = createWorkspaceSession(
+		port,
+		selection,
+		(next) =>
+			setPublished(
+				reconcile(next, (item) => item.id ?? item.cwd ?? item.pane?.id),
+			),
+		onSelection,
+	);
+}
+function workspaceSession(): WorkspaceSession {
+	if (!configuredSession)
+		throw new Error("Configure workspace state before mounting the app");
+	return configuredSession;
+}
+export const initializeAgentState = () => workspaceSession().initialize();
+export const loadCanonicalAgentState = () => workspaceSession().load();
+export const mutateAgentWorkspaceState = (action: WorkspaceMutation) =>
+	workspaceSession().mutate(action);
 export const changePaneAgentKind = (
 	paneId: string,
 	agentKind: WorkspaceAgentKind,
@@ -93,6 +103,7 @@ export function useWorkspaceState(
 			| SidebarWorkspaceState
 			| ((state: SidebarWorkspaceState) => SidebarWorkspaceState),
 	) => {
+		const session = workspaceSession();
 		const current = session.snapshot.state;
 		if (!current) return;
 		const next = storeSnapshot(

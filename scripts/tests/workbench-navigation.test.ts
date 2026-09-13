@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { parse } from "@babel/parser";
+import type { PanelAction, PanelSession } from "@contracts";
 import { QueryClient } from "@tanstack/query-core";
+import { createWorkspacePanelModel } from "@workspace/services/workspacePanels.ts";
 import { project } from "../../src/shared/lib/native.tsx";
 
 // Load the production models without compiling the Solid UI runtime. The
@@ -37,30 +39,20 @@ function setup() {
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false, gcTime: 0 } },
 	});
-	const empty = project("emptyPanels", null);
-	const { createWorkspacePanelModel, panelQuery } = functions(
-		"../../src/modules/workspace/hooks/useWorkspacePanelSession.tsx",
-		["createWorkspacePanelModel", "panelQuery"],
-		{
-			queryClient: client,
-			emptyPanelSession: empty,
-			rustProject: project,
-			saveWorkspacePanel: () => {
-				throw new Error("unexpected request");
-			},
-			postJson: () => {
-				throw new Error("unexpected request");
-			},
-		},
-	);
+	const empty = project<PanelSession>("emptyPanels", null);
 	const sent: unknown[] = [];
 	let read = () => Promise.resolve({ session: empty });
-	const send = (_url: string, body: unknown) => {
+	const send = (body: unknown) => {
 		sent.push(body);
 		return read();
 	};
-	const model = createWorkspacePanelModel(client, send);
-	const key = panelQuery("repo", send).queryKey;
+	const model = createWorkspacePanelModel(
+		client,
+		send,
+		(session, action, now) => project("panelPreview", { session, action, now }),
+		empty,
+	);
+	const key = model.queryOptions("repo").queryKey;
 	client.setQueryData(key, empty);
 	return {
 		client,
@@ -68,8 +60,11 @@ function setup() {
 		sent,
 		empty,
 		current: () => client.getQueryData<any>(key),
-		select: (id: string, intent?: unknown, orderedIds: string[] = []) =>
-			model.preview("repo", { type: "selectGraph", id, intent, orderedIds }),
+		select: (
+			id: string,
+			intent?: Extract<PanelAction, { type: "selectGraph" }>["intent"],
+			orderedIds: string[] = [],
+		) => model.preview("repo", { type: "selectGraph", id, intent, orderedIds }),
 		mutation: model.mutationOptions("repo"),
 		setRead: (next: typeof read) => {
 			read = next;
@@ -183,6 +178,8 @@ describe("navigation while native persistence is pending", () => {
 		expect(current().selectedFile.path).toBe("a.rs");
 		expect(current().diffViewerCwd).toBe("/repo");
 		const initialFile = {
+			cwd: "/repo",
+			path: "a.rs",
 			content: "large document",
 			toJSON() {
 				throw new Error("file content crossed panel bridge");
