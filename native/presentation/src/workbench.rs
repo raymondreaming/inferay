@@ -1,9 +1,13 @@
 use crate::{array, flag, number, string};
 use serde_json::{Value, json};
 
-fn ordered<'a>(files: Vec<&'a Value>, presentation: &Value, mode: &Value) -> Vec<&'a Value> {
+fn ordered<'a>(
+    files: impl IntoIterator<Item = &'a Value>,
+    presentation: &Value,
+    mode: &str,
+) -> Vec<&'a Value> {
     if presentation.is_null() {
-        return files;
+        return files.into_iter().collect();
     }
     let order = &presentation[if mode == "tree" {
         "treeOrder"
@@ -24,29 +28,25 @@ pub fn visible_files(input: &Value) -> Value {
         return input["files"].clone();
     }
     json!(ordered(
-        array(&input["files"]).iter().collect(),
+        array(&input["files"]).iter(),
         &input["presentation"],
-        &input["mode"]
+        string(&input["mode"])
     ))
 }
 pub fn adjacent_file(input: &Value) -> Value {
-    let files = array(&input["files"]);
+    let count = input["count"].as_i64().unwrap_or(0);
     let current = input["current"].as_i64().unwrap_or(-1);
     let direction = input["direction"].as_i64().unwrap_or(1);
-    if files.is_empty() {
+    if count <= 0 {
         return Value::Null;
     }
     let next = if current < 0 {
-        if direction > 0 {
-            0
-        } else {
-            files.len() as i64 - 1
-        }
+        if direction > 0 { 0 } else { count - 1 }
     } else {
-        (current + direction).clamp(0, files.len() as i64 - 1)
+        current.saturating_add(direction).clamp(0, count - 1)
     };
     if flag(&input["repeatBoundary"]) || next != current {
-        files[next as usize].clone()
+        json!(next)
     } else {
         Value::Null
     }
@@ -75,24 +75,16 @@ pub fn selection_after_toggle(input: &Value) -> Value {
 }
 pub fn changes_panel(i: &Value) -> Value {
     let presentation = &i["filePresentation"];
-    let mode = &i["fileViewMode"];
+    let mode = string(&i["fileViewMode"]);
     let unstaged = ordered(
-        array(&i["modified"])
-            .iter()
-            .chain(array(&i["untracked"]))
-            .collect(),
+        array(&i["modified"]).iter().chain(array(&i["untracked"])),
         presentation,
-        &json!("path"),
+        "path",
     );
-    let staged = ordered(
-        array(&i["staged"]).iter().collect(),
-        presentation,
-        &json!("path"),
-    );
-    let working: Vec<_> = unstaged.iter().chain(&staged).copied().collect();
-    let navigable: Vec<_> = ordered(unstaged.clone(), presentation, mode)
+    let staged = ordered(array(&i["staged"]).iter(), presentation, "path");
+    let navigable: Vec<_> = ordered(unstaged.iter().copied(), presentation, mode)
         .into_iter()
-        .chain(ordered(staged.clone(), presentation, mode))
+        .chain(ordered(staged.iter().copied(), presentation, mode))
         .collect();
     let showing = i["content"] == "workingTree";
     let comparing = number(&i["selectedCommitCount"]) > 1.;
@@ -115,7 +107,11 @@ pub fn changes_panel(i: &Value) -> Value {
         &i["commitDetails"]
     };
     let historical_files: Vec<_> = array(&history["files"]).iter().collect();
-    let displayed = if showing { &working } else { &historical_files };
+    let displayed = if showing {
+        [unstaged.as_slice(), staged.as_slice()]
+    } else {
+        [historical_files.as_slice(), &[]]
+    };
     let message = if loading {
         if comparing {
             "Comparing…"
@@ -133,12 +129,12 @@ pub fn changes_panel(i: &Value) -> Value {
     } else {
         "Select a commit to view details"
     };
-    json!({"unstagedFiles":unstaged, "stagedFiles":staged, "workingFiles":working,
+    json!({"unstagedFiles":unstaged, "stagedFiles":staged,
         "navigableFiles":navigable, "showingWorkingTree":showing, "comparing":comparing,
         "historyDetails":details, "historyLoading":loading, "historyMessage":message,
-        "navigableHistoricalFiles":ordered(historical_files.clone(), &history["filePresentation"], &i["fileViewMode"]),
-        "additions":displayed.iter().map(|f|number(&f["additions"])).sum::<f64>(),
-        "deletions":displayed.iter().map(|f|number(&f["deletions"])).sum::<f64>()})
+        "navigableHistoricalFiles":ordered(historical_files.iter().copied(), &history["filePresentation"], mode),
+        "additions":displayed.iter().flat_map(|files| *files).map(|f|number(&f["additions"])).sum::<f64>(),
+        "deletions":displayed.iter().flat_map(|files| *files).map(|f|number(&f["deletions"])).sum::<f64>()})
 }
 fn grouped(n: usize) -> String {
     let text = n.to_string();

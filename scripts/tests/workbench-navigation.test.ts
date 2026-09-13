@@ -298,3 +298,64 @@ test("repository tab selection matches native preference order", () => {
 		}),
 	).toBeNull();
 });
+
+test("file navigation preserves object identity without serializing file payloads", async () => {
+	const { adjacentGitFile } = await import("../../src/shared/lib/native.tsx");
+	const files = [0, 1, 2].map((id) => ({
+		id,
+		toJSON() {
+			throw new Error("File payload must stay in the renderer");
+		},
+	}));
+	expect(adjacentGitFile(files, (file) => file.id === 1, 1)).toBe(files[2]);
+	expect(adjacentGitFile(files, (file) => file.id === 1, -1)).toBe(files[0]);
+	expect(adjacentGitFile(files, () => false, 1)).toBe(files[0]);
+	expect(adjacentGitFile(files, () => false, -1)).toBe(files[2]);
+	expect(adjacentGitFile(files, (file) => file.id === 2, 1)).toBeUndefined();
+	expect(adjacentGitFile(files, (file) => file.id === 2, 1, true)).toBe(
+		files[2],
+	);
+	expect(adjacentGitFile(files, (file) => file.id === 0, -1)).toBeUndefined();
+	expect(adjacentGitFile([], () => false, 1, true)).toBeUndefined();
+});
+
+test("changes model keeps staging, tree navigation, history and totals independent", () => {
+	const modified = { path: "b", staged: false, additions: 3, deletions: 1 };
+	const untracked = {
+		path: "dir/a",
+		staged: false,
+		additions: 5,
+		deletions: 0,
+	};
+	const staged = { path: "b", staged: true, additions: 2, deletions: 4 };
+	const input = {
+		content: "workingTree",
+		fileViewMode: "tree",
+		modified: [modified],
+		untracked: [untracked],
+		staged: [staged],
+		filePresentation: { pathOrder: ["b", "dir/a"], treeOrder: ["dir/a", "b"] },
+	};
+	const model = project<any>("changesPanel", input);
+	expect(model.unstagedFiles).toEqual([modified, untracked]);
+	expect(model.stagedFiles).toEqual([staged]);
+	expect(model.navigableFiles).toEqual([untracked, modified, staged]);
+	expect([model.additions, model.deletions]).toEqual([10, 5]);
+	const incomplete = project<any>("changesPanel", {
+		...input,
+		filePresentation: { ...input.filePresentation, treeOrder: [] },
+	});
+	expect(incomplete.navigableFiles).toEqual([]);
+	expect([incomplete.additions, incomplete.deletions]).toEqual([10, 5]);
+	const history = project<any>("changesPanel", {
+		...input,
+		content: "history",
+		selectedCommitCount: 2,
+		comparisonDetails: { files: [{ path: "old", additions: 7, deletions: 8 }] },
+	});
+	expect(history.comparing).toBe(true);
+	expect(history.navigableHistoricalFiles).toEqual([
+		{ path: "old", additions: 7, deletions: 8 },
+	]);
+	expect([history.additions, history.deletions]).toEqual([7, 8]);
+});

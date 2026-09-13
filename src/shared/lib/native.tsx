@@ -351,14 +351,13 @@ export function adjacentGitFile<T>(
 	direction: -1 | 1,
 	repeatBoundary = false,
 ): T | undefined {
-	return (
-		project<T | null>("adjacentFile", {
-			files,
-			current: files.findIndex(isSelected),
-			direction,
-			repeatBoundary,
-		}) ?? undefined
-	);
+	const index = project<number | null>("adjacentFile", {
+		count: files.length,
+		current: files.findIndex(isSelected),
+		direction,
+		repeatBoundary,
+	});
+	return index === null ? undefined : files[index];
 }
 export function visibleGitFiles<
 	T extends {

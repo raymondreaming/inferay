@@ -61,7 +61,7 @@ fn file_navigation_preserves_staging_and_tree_order() {
     assert_eq!(
         render(
             "adjacentFile",
-            json!({"files":files,"current":2,"direction":1,"repeatBoundary":false})
+            json!({"count":3,"current":2,"direction":1,"repeatBoundary":false})
         ),
         Value::Null
     );
