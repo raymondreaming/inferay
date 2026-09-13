@@ -186,11 +186,12 @@ fn install_window_backdrop(
         .contentView()
         .expect("window has a content view");
     let backdrop = NSVisualEffectView::initWithFrame(marker.alloc(), content.bounds());
-    // Inferay's two themes are dark even when the system appearance is light.
+    // Inferay stays dark even when the system appearance is light.
     backdrop.setAppearance(
         NSAppearance::appearanceNamed(unsafe { NSAppearanceNameVibrantDark }).as_deref(),
     );
-    backdrop.setMaterial(NSVisualEffectMaterial::Sidebar);
+    // A window backdrop should not carry the opaque gray tint of a sidebar.
+    backdrop.setMaterial(NSVisualEffectMaterial::UnderWindowBackground);
     backdrop.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
     // Keep the desktop blurred when the user moves focus to another window.
     backdrop.setState(NSVisualEffectState::Active);
@@ -302,7 +303,9 @@ fn main() -> wry::Result<()> {
             }
             Event::UserEvent(UserEvent::SetBackdrop(strength)) => {
                 #[cfg(target_os = "macos")]
-                backdrop.setAlphaValue(strength);
+                // Fading the material mixes sharp desktop pixels back into the blur.
+                // Keep the native effect intact; the renderer owns the dark tint.
+                backdrop.setAlphaValue(if strength > 0.0 { 1.0 } else { 0.0 });
                 #[cfg(not(target_os = "macos"))]
                 let _ = strength;
             }

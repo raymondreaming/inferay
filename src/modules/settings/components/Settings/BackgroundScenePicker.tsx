@@ -3,6 +3,7 @@ import { createMemo, createSignal, For } from "solid-js";
 import {
 	updateAppBackground,
 	useBackgroundModel,
+	usesNativeGlass,
 } from "../../../../app/hooks/useAppAppearance.tsx";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
@@ -146,24 +147,26 @@ export function BackgroundScenePicker() {
 			) : null}
 			{_source().background.mode === "glass" ? (
 				<>
-					<SettingsRow label="Window blur">
-						<input
-							type="range"
-							min="0"
-							max="60"
-							aria-label="Window blur"
-							value={_source().background.glassBlur}
-							{...stylex.attrs(styles.backgroundRange)}
-							onInput={(event) =>
-								updateAppBackground({
-									glassBlur: Number(event.currentTarget.value),
-								})
-							}
-						/>
-						<span {...stylex.attrs(styles.backgroundValue)}>
-							{_source().background.glassBlur}px
-						</span>
-					</SettingsRow>
+					{!usesNativeGlass ? (
+						<SettingsRow label="Window blur">
+							<input
+								type="range"
+								min="0"
+								max="60"
+								aria-label="Window blur"
+								value={_source().background.glassBlur}
+								{...stylex.attrs(styles.backgroundRange)}
+								onInput={(event) =>
+									updateAppBackground({
+										glassBlur: Number(event.currentTarget.value),
+									})
+								}
+							/>
+							<span {...stylex.attrs(styles.backgroundValue)}>
+								{_source().background.glassBlur}px
+							</span>
+						</SettingsRow>
+					) : null}
 					<SettingsRow label="Window transparency">
 						<input
 							type="range"
