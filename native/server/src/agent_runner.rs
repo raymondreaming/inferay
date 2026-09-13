@@ -546,7 +546,7 @@ pub async fn run_codex(
                     }
                     let is_completed = message.get("method").and_then(Value::as_str) == Some("turn/completed");
                     if let Some(method) = message["method"].as_str() {
-                        state.handle_notification(context, method, &message["params"]);
+                        crate::agent_protocol::handle_codex_notification(state, context, method, &message["params"]);
                         flush_emissions(context, emissions);
                     }
                     if is_completed {
@@ -710,7 +710,12 @@ impl CodexConnection {
                 continue;
             }
             if let Some(method) = message["method"].as_str() {
-                state.handle_notification(context, method, &message["params"]);
+                crate::agent_protocol::handle_codex_notification(
+                    state,
+                    context,
+                    method,
+                    &message["params"],
+                );
                 flush_emissions(context, emissions);
             }
         }

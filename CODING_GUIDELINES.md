@@ -28,6 +28,12 @@ Keep domain-shaped behavior in Rust pure models where it is shared with the nati
 
 Workspace actions are defined in `native/core/src/workspace_action.rs`, exported through `@contracts`, and matched by the transition code in `native/core/src/agent_state/actions.rs`. Do not recreate that union in TypeScript or dispatch workspace actions by indexing arbitrary JSON. The HTTP boundary deserializes the same Rust contract; server-only summary and provider-session updates use dedicated store methods. Persistence and default-provider selection stay outside the transition dispatcher.
 
+`native/core/src/agent_state.rs` owns the workspace schema and invariants. Its `actions.rs` module owns transitions and pending-directory consumption; `queries.rs` owns pane lookup, active-directory ordering, and renderer projections. File reads, atomic saves, and reload orchestration belong to `native/server/src/workspace_store.rs`. The native boundary check rejects storage, transport, and process references in the workspace core. Persistence tests live beside the server store; core tests exercise transitions and contracts without a filesystem.
+
+The same boundary applies to agent context and search-folder settings. Core `agent_context.rs` composes layers and activates skills from an in-memory state and caller-supplied project keys; `config.rs` owns settings vocabulary and defaults. Server `agent_context_store.rs` and `settings_store.rs` own file access, and the context adapter normalizes relative project paths before entering the core. Core code must not read the process's current directory to resolve a project key.
+
+Core `agent_kind.rs` owns provider vocabulary. Binary discovery, environment construction, and command availability probing belong to server `agent_command.rs`. The server's `agent_protocol.rs` captures file snapshots and resolves reference roots before invoking the core protocol translator with `ProtocolFiles`. Protocol translation must not read files; tests can supply before/after contents directly.
+
 ## Solid 2 reactivity
 
 Use Solid's fine-grained graph directly. Derive values with `createMemo`; do not mirror a derived value into a signal through an effect. Use `createEffect` only to synchronize with an external system such as the DOM, a browser listener, timer, native subscription, or query observer, and return its cleanup from the same effect.

@@ -100,6 +100,13 @@ impl ClaudeProtocolState {
     }
 }
 
+/// File facts captured by the server for a single notification.
+#[derive(Debug, Default)]
+pub struct ProtocolFiles {
+    pub roots: Vec<PathBuf>,
+    pub snapshots: HashMap<PathBuf, Option<String>>,
+}
+
 #[derive(Debug, Default)]
 pub struct CodexProtocolState {
     pub assistant_open: bool,
@@ -118,6 +125,7 @@ impl CodexProtocolState {
         context: &mut AgentProtocolContext,
         method: &str,
         params: &Value,
+        files: &ProtocolFiles,
     ) {
         let item = params.get("item").unwrap_or(&Value::Null);
         let item_type = string_field(item, "type");
@@ -149,9 +157,9 @@ impl CodexProtocolState {
                 self.close_tool(context);
             }
             ("item/started", "fileChange") => {
-                let paths = file_change_paths(context, item);
+                let paths = file_change_paths(context, item, &files.roots);
                 self.active_patch_paths = paths.clone();
-                self.snapshot_paths(&paths);
+                self.snapshot_paths(&paths, files);
                 let changes = item
                     .get("changes")
                     .filter(|value| !value.is_null())
@@ -162,13 +170,13 @@ impl CodexProtocolState {
             }
             ("item/completed", "fileChange") => {
                 self.close_tool(context);
-                let paths = file_change_paths(context, item);
+                let paths = file_change_paths(context, item, &files.roots);
                 let paths = if paths.is_empty() {
                     self.active_patch_paths.clone()
                 } else {
                     paths
                 };
-                self.emit_diffs_for_paths(context, &paths);
+                self.emit_diffs_for_paths(context, &paths, files);
                 if !paths.is_empty() {
                     context.emissions.push(ProtocolEmission::FileChange(paths));
                 }
@@ -231,6 +239,25 @@ impl CodexProtocolState {
                 }
             }
             _ => {}
+        }
+    }
+
+    pub fn snapshot_paths_for_notification(
+        &self,
+        context: &AgentProtocolContext,
+        method: &str,
+        params: &Value,
+        roots: &[PathBuf],
+    ) -> Vec<PathBuf> {
+        let item = &params["item"];
+        if item["type"] != "fileChange" || !matches!(method, "item/started" | "item/completed") {
+            return Vec::new();
+        }
+        let paths = file_change_paths(context, item, roots);
+        if paths.is_empty() && method == "item/completed" {
+            self.active_patch_paths.clone()
+        } else {
+            paths
         }
     }
 
@@ -394,29 +421,42 @@ impl CodexProtocolState {
             .insert(item_id.into(), next_output.into());
     }
 
-    fn snapshot_paths(&mut self, paths: &[PathBuf]) {
+    fn snapshot_paths(&mut self, paths: &[PathBuf], files: &ProtocolFiles) {
         for path in paths {
             self.file_snapshots
-                .insert(path.clone(), read_snapshot(path));
+                .insert(path.clone(), files.snapshots.get(path).cloned().flatten());
         }
     }
 
-    fn emit_diffs_for_paths(&mut self, context: &mut AgentProtocolContext, paths: &[PathBuf]) {
+    fn emit_diffs_for_paths(
+        &mut self,
+        context: &mut AgentProtocolContext,
+        paths: &[PathBuf],
+        files: &ProtocolFiles,
+    ) {
         let mut unique = HashSet::new();
         for path in paths {
             if unique.insert(path.clone()) {
-                self.emit_live_diff_for_path(context, path);
+                self.emit_live_diff_for_path(context, path, files);
             }
         }
     }
 
-    fn emit_live_diff_for_path(&mut self, context: &mut AgentProtocolContext, path: &Path) {
+    fn emit_live_diff_for_path(
+        &mut self,
+        context: &mut AgentProtocolContext,
+        path: &Path,
+        files: &ProtocolFiles,
+    ) {
         let before = self.file_snapshots.remove(path).flatten();
-        let after = read_snapshot(path);
-        if let (Some(before), Some(after)) = (before.as_deref(), after.as_deref())
+        let after = files
+            .snapshots
+            .get(path)
+            .and_then(|snapshot| snapshot.as_deref());
+        if let (Some(before), Some(after)) = (before.as_deref(), after)
             && before != after
         {
-            self.emit_edit_diff(context, path, before, after);
+            self.emit_edit_diff(context, path, before, after, &files.roots);
         }
     }
 
@@ -426,12 +466,13 @@ impl CodexProtocolState {
         path: &Path,
         before: &str,
         after: &str,
+        roots: &[PathBuf],
     ) {
         if before == after || javascript_length(before) + javascript_length(after) > 80_000 {
             return;
         }
         let input = json!({
-            "file_path": display_path(context, path),
+            "file_path": display_path(context, path, roots),
             "old_string": before,
             "new_string": after,
         });
@@ -479,7 +520,11 @@ fn extract_text(value: &Value) -> String {
         .unwrap_or_default()
 }
 
-fn workspace_path(context: &AgentProtocolContext, value: &str) -> Option<PathBuf> {
+fn workspace_path(
+    context: &AgentProtocolContext,
+    value: &str,
+    roots: &[PathBuf],
+) -> Option<PathBuf> {
     if value.is_empty() {
         return None;
     }
@@ -490,13 +535,17 @@ fn workspace_path(context: &AgentProtocolContext, value: &str) -> Option<PathBuf
         context.cwd.join(candidate)
     };
     let candidate = resolve_lexically(&candidate).ok()?;
-    workspace_roots(&context.cwd, &context.reference_paths)
+    roots
         .iter()
         .any(|root| is_within_directory(&candidate, root))
         .then_some(candidate)
 }
 
-fn file_change_paths(context: &AgentProtocolContext, value: &Value) -> Vec<PathBuf> {
+fn file_change_paths(
+    context: &AgentProtocolContext,
+    value: &Value,
+    roots: &[PathBuf],
+) -> Vec<PathBuf> {
     let record = value;
     let mut candidates = Vec::new();
     for key in ["changes", "files"] {
@@ -517,21 +566,21 @@ fn file_change_paths(context: &AgentProtocolContext, value: &Value) -> Vec<PathB
     let mut unique = HashSet::new();
     candidates
         .into_iter()
-        .filter_map(|path| workspace_path(context, &path))
+        .filter_map(|path| workspace_path(context, &path, roots))
         .filter(|path| unique.insert(path.clone()))
         .collect()
 }
 
-fn display_path(context: &AgentProtocolContext, absolute_path: &Path) -> String {
+fn display_path(context: &AgentProtocolContext, absolute_path: &Path, roots: &[PathBuf]) -> String {
     let cwd = resolve_lexically(&context.cwd).unwrap_or_else(|_| context.cwd.clone());
-    for root in workspace_roots(&context.cwd, &context.reference_paths) {
-        let Ok(relative) = absolute_path.strip_prefix(&root) else {
+    for root in roots {
+        let Ok(relative) = absolute_path.strip_prefix(root) else {
             continue;
         };
         if relative.as_os_str().is_empty() {
             continue;
         }
-        if root == cwd {
+        if root == &cwd {
             return relative.to_string_lossy().into_owned();
         }
         let basename = root
@@ -548,16 +597,6 @@ fn display_paths(paths: &[PathBuf]) -> Vec<String> {
         .iter()
         .map(|path| path.to_string_lossy().into_owned())
         .collect()
-}
-
-fn read_snapshot(path: &Path) -> Option<String> {
-    let metadata = std::fs::metadata(path).ok()?;
-    if !metadata.is_file() || metadata.len() > 80_000 {
-        return None;
-    }
-    std::fs::read(path)
-        .ok()
-        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// Claude reconnects every MCP server on each spawn. Measured on a trivial turn:
@@ -599,32 +638,6 @@ pub fn build_claude_invocation_args(
         ]);
     }
     arguments
-}
-
-pub fn workspace_roots(cwd: &Path, reference_paths: &[PathBuf]) -> Vec<PathBuf> {
-    let cwd_root = resolve_lexically(cwd).unwrap_or_else(|_| cwd.to_path_buf());
-    let mut roots = vec![cwd_root.clone()];
-    for path in reference_paths {
-        let Ok(path) = resolve_lexically(path) else {
-            continue;
-        };
-        let root = if path.is_dir() {
-            path
-        } else if path.is_file() {
-            path.parent().map(Path::to_path_buf).unwrap_or(path)
-        } else {
-            continue;
-        };
-        if is_within_directory(&root, &cwd_root)
-            || roots
-                .iter()
-                .any(|existing_root| is_within_directory(&root, existing_root))
-        {
-            continue;
-        }
-        roots.push(root);
-    }
-    roots
 }
 
 pub fn truncate_agent_result(value: &str) -> String {

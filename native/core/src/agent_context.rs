@@ -1,5 +1,5 @@
+//! Context composition and skill activation. Project keys are normalized by the caller.
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
@@ -39,31 +39,24 @@ pub struct AgentContextUpdate {
     pub mode: Option<String>,
 }
 
-#[derive(Debug)]
-pub struct AgentContextStore {
-    path: PathBuf,
-}
-
-#[derive(Debug, Default, Deserialize, Serialize)]
-struct AgentContextFile {
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct AgentContextState {
     global: AgentContextLayer,
     projects: BTreeMap<String, AgentContextLayer>,
     chats: BTreeMap<String, AgentContextLayer>,
 }
 
-impl AgentContextStore {
-    pub fn new(path: PathBuf) -> Self {
-        Self { path }
-    }
-
-    pub fn resolve(&self, cwd: Option<&str>, pane_id: Option<&str>) -> EffectiveAgentContext {
-        let mut stored = self.load();
-        let project = project_key(cwd).and_then(|key| stored.projects.remove(&key));
-        let chat = pane_id.and_then(|id| stored.chats.remove(id));
-        let effective_instructions =
-            compose_layers(&stored.global, project.as_ref(), chat.as_ref());
+impl AgentContextState {
+    pub fn resolve(
+        mut self,
+        project_key: Option<&str>,
+        pane_id: Option<&str>,
+    ) -> EffectiveAgentContext {
+        let project = project_key.and_then(|key| self.projects.remove(key));
+        let chat = pane_id.and_then(|id| self.chats.remove(id));
+        let effective_instructions = compose_layers(&self.global, project.as_ref(), chat.as_ref());
         EffectiveAgentContext {
-            global: stored.global,
+            global: self.global,
             project,
             chat,
             effective_instructions,
@@ -72,13 +65,13 @@ impl AgentContextStore {
     }
 
     pub fn resolve_for_agent(
-        &self,
-        cwd: Option<&str>,
+        self,
+        project_key: Option<&str>,
         pane_id: Option<&str>,
         text: &str,
         skills: &[Prompt],
     ) -> EffectiveAgentContext {
-        let mut context = self.resolve(cwd, pane_id);
+        let mut context = self.resolve(project_key, pane_id);
         let normalized = text.to_lowercase();
         context.activated_skills = skills
             .iter()
@@ -103,25 +96,26 @@ impl AgentContextStore {
         context
     }
 
-    pub fn update(&self, update: AgentContextUpdate, now: u64) -> Result<(), String> {
-        let mut stored = self.load();
+    pub fn update(&mut self, update: AgentContextUpdate, now: u64) -> Result<(), String> {
         let layer = AgentContextLayer {
             instructions: update.instructions.trim().to_string(),
             mode: normalize_mode(update.mode.as_deref()),
             updated_at: now,
         };
         match update.scope.as_str() {
-            "global" => stored.global = layer,
+            "global" => self.global = layer,
             "project" | "chat" => {
                 let (layers, key) = if update.scope == "project" {
                     (
-                        &mut stored.projects,
-                        project_key(update.cwd.as_deref())
+                        &mut self.projects,
+                        update
+                            .cwd
+                            .filter(|key| !key.is_empty())
                             .ok_or_else(|| "A project directory is required".to_string())?,
                     )
                 } else {
                     (
-                        &mut stored.chats,
+                        &mut self.chats,
                         update
                             .pane_id
                             .filter(|value| !value.is_empty())
@@ -136,15 +130,7 @@ impl AgentContextStore {
             }
             _ => return Err("scope is invalid".into()),
         }
-        let bytes = serde_json::to_vec_pretty(&stored).map_err(|error| error.to_string())?;
-        crate::atomic_write::overwrite(&self.path, &bytes)
-    }
-
-    fn load(&self) -> AgentContextFile {
-        std::fs::read(&self.path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+        Ok(())
     }
 }
 
@@ -164,16 +150,6 @@ fn normalize_mode(value: Option<&str>) -> String {
     } else {
         "inherit".into()
     }
-}
-
-fn project_key(cwd: Option<&str>) -> Option<String> {
-    let cwd = cwd?.trim();
-    if cwd.is_empty() {
-        return None;
-    }
-    std::path::absolute(cwd)
-        .ok()
-        .map(|path| path.to_string_lossy().into_owned())
 }
 
 fn compose_layers(

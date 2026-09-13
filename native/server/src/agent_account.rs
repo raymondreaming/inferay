@@ -1,5 +1,6 @@
 use super::{ApiResult, ServerState};
-use inferay_core::agent_command::{AgentCommandResolver, AgentKind};
+use crate::agent_command::AgentCommandResolver;
+use inferay_core::agent_kind::AgentKind;
 use serde::Serialize;
 use serde_json::json;
 use std::path::{Path, PathBuf};

@@ -4,20 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum AgentKind {
-    Claude,
-    Codex,
-}
-
-impl AgentKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Claude => "claude",
-            Self::Codex => "codex",
-        }
-    }
-}
+use inferay_core::agent_kind::AgentKind;
 
 #[derive(Debug)]
 pub struct AgentCommandResolver {

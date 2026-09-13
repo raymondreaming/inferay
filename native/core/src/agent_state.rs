@@ -1,146 +1,13 @@
-//! The workspace file has one schema and one writer: validated workspace actions.
+//! Workspace schema and invariants, independent of persistence and HTTP.
 mod actions;
+mod queries;
 
 use crate::workspace_action::AgentWorkspaceAction;
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use serde_json::Value;
-use std::{collections::HashSet, path::PathBuf};
+use std::collections::HashSet;
 use uuid::Uuid;
-
-#[derive(Debug)]
-pub struct AgentStateStore {
-    path: PathBuf,
-}
-
-impl AgentStateStore {
-    pub fn new(path: PathBuf) -> Self {
-        Self { path }
-    }
-
-    fn load(&self) -> Result<Option<Workspace>, String> {
-        match std::fs::read(&self.path) {
-            Ok(bytes) => {
-                let mut state: Workspace =
-                    serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-                state.validate()?;
-                Ok(Some(state))
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e.to_string()),
-        }
-    }
-
-    pub fn read(&self) -> Result<Value, String> {
-        self.load()?
-            .map(|state| state.presentation())
-            .transpose()
-            .map(|state| state.unwrap_or(Value::Null))
-    }
-
-    pub fn pane(&self, id: &str) -> Result<Option<Pane>, String> {
-        Ok(self
-            .load()?
-            .into_iter()
-            .flat_map(|state| state.groups)
-            .flat_map(|group| group.panes)
-            .find(|pane| pane.id == id))
-    }
-
-    /// Stages a repository picker result without committing it to the pane.
-    /// Chat messages use these methods on the websocket thread so staging and
-    /// first-send consumption have one ordering boundary.
-    pub fn set_pending_workspace(&self, id: &str, paths: Vec<String>) -> Result<Value, String> {
-        let mut state = self.load()?.ok_or("Workspace not initialized")?;
-        let pane = state.pane_mut(id)?;
-        pane.pending_workspace_paths = paths.into_iter().filter(|path| !path.is_empty()).collect();
-        self.save(&state)
-    }
-
-    pub fn consume_pending_workspace(
-        &self,
-        id: &str,
-    ) -> Result<Option<(String, Vec<String>)>, String> {
-        let mut state = self.load()?.ok_or("Workspace not initialized")?;
-        let pane = state.pane_mut(id)?;
-        if pane.cwd.as_deref().is_some_and(|cwd| !cwd.is_empty())
-            || pane.pending_workspace_paths.is_empty()
-        {
-            return Ok(None);
-        }
-        let paths = std::mem::take(&mut pane.pending_workspace_paths);
-        let cwd = paths[0].clone();
-        let references = paths[1..].to_vec();
-        pane.cwd = Some(cwd.clone());
-        pane.pending_cwd = false;
-        pane.reference_paths = references.clone();
-        pane.update_title();
-        self.save(&state)?;
-        Ok(Some((cwd, references)))
-    }
-
-    /// Selected pane first, then the other panes in the selected group.
-    pub fn active_cwds(&self) -> Result<Vec<String>, String> {
-        let Some(state) = self.load()? else {
-            return Ok(Vec::new());
-        };
-        let Some(mut group) = state
-            .groups
-            .into_iter()
-            .find(|group| group.id == state.selected_group_id)
-        else {
-            return Ok(Vec::new());
-        };
-        group
-            .panes
-            .sort_by_key(|pane| group.selected_pane_id.as_deref() != Some(pane.id.as_str()));
-        Ok(group
-            .panes
-            .into_iter()
-            .filter_map(|pane| pane.cwd)
-            .filter(|cwd| !cwd.is_empty())
-            .collect())
-    }
-
-    pub fn initialize(&self, default_kind: &str) -> Result<Value, String> {
-        self.save(&self.load()?.unwrap_or_else(|| Workspace::new(default_kind)))
-    }
-
-    pub fn apply_workspace_action(
-        &self,
-        action: &AgentWorkspaceAction,
-        default_kind: &str,
-    ) -> Result<Value, String> {
-        let mut state = self.load()?.unwrap_or_else(|| Workspace::new(default_kind));
-        state.apply_action(action, default_kind)?;
-        state.validate()?;
-        self.save(&state)
-    }
-
-    pub fn set_pane_summary(&self, id: &str, summary: Option<String>) -> Result<Value, String> {
-        let mut state = self.load()?.ok_or("Workspace not initialized")?;
-        state.pane_mut(id)?.summary = summary;
-        self.save(&state)
-    }
-
-    pub fn set_pane_provider_session(
-        &self,
-        id: &str,
-        session: Option<String>,
-    ) -> Result<Value, String> {
-        let mut state = self.load()?.ok_or("Workspace not initialized")?;
-        state.pane_mut(id)?.provider_session_id = session;
-        self.save(&state)
-    }
-
-    fn save(&self, state: &Workspace) -> Result<Value, String> {
-        let value = serde_json::to_value(state).map_err(|e| e.to_string())?;
-        crate::atomic_write::overwrite(
-            &self.path,
-            &serde_json::to_vec(&value).map_err(|e| e.to_string())?,
-        )?;
-        state.presentation()
-    }
-}
 
 #[derive(Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
@@ -168,7 +35,7 @@ pub struct Group {
     rows: u64,
 }
 
-#[derive(Serialize, Deserialize, ts_rs::TS)]
+#[derive(Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct Pane {
     id: String,
@@ -311,23 +178,6 @@ impl Group {
     }
 }
 impl Workspace {
-    fn repository_paths(&self) -> Vec<String> {
-        let mut paths = Vec::new();
-        for pane in self.groups.iter().flat_map(|group| &group.panes) {
-            let path = repository_path(pane.cwd.as_deref().unwrap_or(""));
-            if !path.is_empty() && !paths.iter().any(|existing| existing == path) {
-                paths.push(path.to_owned());
-            }
-        }
-        paths.sort_by_key(|path| {
-            self.repository_order
-                .iter()
-                .position(|saved| saved == path)
-                .unwrap_or(usize::MAX)
-        });
-        paths
-    }
-
     fn pane_mut(&mut self, id: &str) -> Result<&mut Pane, String> {
         self.groups
             .iter_mut()
@@ -335,76 +185,7 @@ impl Workspace {
             .find(|pane| pane.id == id)
             .ok_or_else(|| "Pane not found".into())
     }
-    fn presentation(&self) -> Result<Value, String> {
-        let mut workspaces: Vec<RepositoryWorkspace<'_>> = Vec::new();
-        let mut unassigned_entries = Vec::new();
-        for group in &self.groups {
-            for pane in &group.panes {
-                let cwd = repository_path(pane.cwd.as_deref().unwrap_or(""));
-                let entry = RepositoryWorkspaceEntry {
-                    group_id: &group.id,
-                    pane,
-                };
-                if cwd.is_empty() {
-                    unassigned_entries.push(entry);
-                } else if let Some(workspace) =
-                    workspaces.iter_mut().find(|workspace| workspace.cwd == cwd)
-                {
-                    workspace.entries.push(entry);
-                } else {
-                    let name = cwd
-                        .rsplit(['/', '\\'])
-                        .find(|part| !part.is_empty())
-                        .unwrap_or(cwd);
-                    workspaces.push(RepositoryWorkspace {
-                        cwd,
-                        name,
-                        entries: vec![entry],
-                    });
-                }
-            }
-        }
-        workspaces.sort_by_key(|workspace| {
-            self.repository_order
-                .iter()
-                .position(|path| path == workspace.cwd)
-                .unwrap_or(usize::MAX)
-        });
-        let active_path = self
-            .groups
-            .iter()
-            .find(|group| group.id == self.selected_group_id)
-            .and_then(|group| {
-                group
-                    .panes
-                    .iter()
-                    .find(|pane| Some(&pane.id) == group.selected_pane_id.as_ref())
-                    .or_else(|| group.panes.first())
-            })
-            .and_then(|pane| pane.cwd.as_deref())
-            .map(repository_path)
-            .filter(|path| !path.is_empty());
-        let active_workspace = active_path
-            .and_then(|path| workspaces.iter().find(|workspace| workspace.cwd == path))
-            .cloned();
-        let visible_entries = active_workspace
-            .as_ref()
-            .map(|workspace| workspace.entries.clone())
-            .unwrap_or_else(|| unassigned_entries.clone());
-        serde_json::to_value(AgentSavedState {
-            workspace: self,
-            repositories: RepositoryWorkspaceIndex {
-                workspaces,
-                unassigned_entries,
-                active_path,
-                active_workspace,
-                visible_entries,
-            },
-        })
-        .map_err(|error| error.to_string())
-    }
-
-    fn new(kind: &str) -> Self {
+    pub fn new(kind: &str) -> Self {
         let group = Group::new(
             "Default".into(),
             if kind == "claude" { "claude" } else { "codex" },
@@ -421,7 +202,7 @@ impl Workspace {
             opacity: 1.,
         }
     }
-    fn validate(&mut self) -> Result<(), String> {
+    pub fn validate(&mut self) -> Result<(), String> {
         if self.groups.is_empty() {
             return Err("Workspace must contain a group".into());
         }
@@ -552,44 +333,6 @@ mod presentation_tests {
     fn repository_group(id: &str, cwd: &str) -> Value {
         json!({"id":id,"name":id,"selectedPaneId":format!("{id}-chat"),"columns":1,"rows":1,
             "panes":[{"id":format!("{id}-chat"),"title":id,"agentKind":"codex","cwd":cwd}]})
-    }
-
-    #[test]
-    fn repository_order_persists_without_reordering_chats_or_selection() {
-        let workspace = deletion_workspace(
-            json!([
-                repository_group("a", "/a"),
-                repository_group("b", "/b"),
-                repository_group("c", "/c/"),
-                repository_group("other", "/a")
-            ]),
-            "b",
-        );
-        let path = std::env::temp_dir().join(format!("repository-order-{}.json", Uuid::new_v4()));
-        let store = AgentStateStore::new(path.clone());
-        let initial = store.save(&workspace).unwrap();
-        store
-            .apply_workspace_action(
-                &AgentWorkspaceAction::ReorderRepository {
-                    cwd: "/c/".into(),
-                    before_cwd: Some("/a".into()),
-                },
-                "codex",
-            )
-            .unwrap();
-        let result = AgentStateStore::new(path.clone()).read().unwrap();
-        std::fs::remove_file(path).unwrap();
-        assert_eq!(result["repositoryOrder"], json!(["/c", "/a", "/b"]));
-        assert_eq!(result["groups"], initial["groups"]);
-        assert_eq!(result["repositories"]["activePath"], "/b");
-        assert_eq!(result["repositories"]["workspaces"][0]["cwd"], "/c");
-        assert_eq!(
-            result["repositories"]["workspaces"][1]["entries"]
-                .as_array()
-                .unwrap()
-                .len(),
-            2
-        );
     }
 
     #[test]

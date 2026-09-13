@@ -5,9 +5,10 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use super::{ApiResult, ServerState, api_body, api_error, required, safe_cwd};
+use crate::agent_command::AgentCommandResolver;
 use axum::extract::Request;
 use axum::http::StatusCode;
-use inferay_core::agent_command::{AgentCommandResolver, AgentKind};
+use inferay_core::agent_kind::AgentKind;
 use inferay_core::agent_protocol::{build_claude_invocation_args, truncate_agent_result};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};

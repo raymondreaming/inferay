@@ -1,0 +1,55 @@
+//! Settings persistence; defaults and file vocabulary belong to the core.
+use inferay_core::config::{DEFAULT_SEARCH_FOLDERS, SearchFolderSettings};
+use std::path::PathBuf;
+
+#[derive(Debug)]
+pub(crate) struct ConfigManager {
+    path: PathBuf,
+}
+
+impl ConfigManager {
+    pub fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+
+    pub fn search_folders(&self) -> Result<Vec<String>, String> {
+        match std::fs::read(&self.path) {
+            Ok(bytes) => serde_json::from_slice::<SearchFolderSettings>(&bytes)
+                .map(|settings| settings.search_folders)
+                .map_err(|error| error.to_string()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Ok(DEFAULT_SEARCH_FOLDERS
+                    .iter()
+                    .map(|folder| (*folder).into())
+                    .collect())
+            }
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
+    pub fn set_search_folders(&self, search_folders: Vec<String>) -> Result<(), String> {
+        let bytes = serde_json::to_vec(&SearchFolderSettings { search_folders })
+            .map_err(|error| error.to_string())?;
+        inferay_core::atomic_write::overwrite(&self.path, &bytes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settings_distinguish_missing_saved_and_invalid_files() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("settings.json");
+        let store = ConfigManager::new(path.clone());
+        assert_eq!(store.search_folders().unwrap(), DEFAULT_SEARCH_FOLDERS);
+        store.set_search_folders(vec!["/repo".into()]).unwrap();
+        assert_eq!(
+            ConfigManager::new(path.clone()).search_folders().unwrap(),
+            ["/repo"]
+        );
+        std::fs::write(path, b"invalid").unwrap();
+        assert!(store.search_folders().is_err());
+    }
+}

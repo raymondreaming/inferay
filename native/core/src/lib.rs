@@ -1,5 +1,5 @@
-pub mod agent_command;
 pub mod agent_context;
+pub mod agent_kind;
 pub mod agent_protocol;
 pub mod agent_state;
 pub mod atomic_write;

@@ -1,6 +1,6 @@
 //! Owns live sessions, queued turns, transcript publication and checkpoint lifecycle.
 use crate::unix_millis as now_millis;
-use inferay_core::agent_command::AgentKind;
+use inferay_core::agent_kind::AgentKind;
 use inferay_core::agent_protocol::{
     AgentProtocolContext, CodexInvocationContext, CodexProtocolState,
 };
@@ -9,10 +9,7 @@ use inferay_core::utf16_slice as javascript_slice;
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
 use inferay_core::{
-    agent_command::AgentCommandResolver,
-    agent_context::AgentContextStore,
     agent_protocol::ProtocolEmission,
-    agent_state::AgentStateStore,
     chat_protocol::{ChatMessageBuffer, ChatTranscriptMessage},
     prompts::{ChainStep, PromptStore},
 };
@@ -22,9 +19,12 @@ use tokio::sync::{Mutex, broadcast};
 use uuid::Uuid;
 
 use crate::{
+    agent_command::AgentCommandResolver,
+    agent_context_store::AgentContextStore,
     agent_runner::{AgentProcessHandle, RuntimePidTracker},
     chat_persistence::{ChatPersistence, QueuedMessageInfo},
     checkpoint::CheckpointService,
+    workspace_store::AgentStateStore,
 };
 
 const DISCONNECTED_SESSION_TTL: Duration = Duration::from_secs(5 * 60);
@@ -657,7 +657,7 @@ impl ChatRuntime {
         cwd: PathBuf,
         client_id: ClientId,
         sender: broadcast::Sender<Value>,
-        resolver: &inferay_core::agent_command::AgentCommandResolver,
+        resolver: &AgentCommandResolver,
     ) {
         let session = self
             .ensure_session(&SendMessageInput {

@@ -2,9 +2,12 @@ use inferay_presentation::appearance::normalize_background_settings;
 mod files;
 mod mcp_icons;
 use files::{image_content_type, is_image_extension};
+mod agent_context_store;
 mod git_actions;
+mod settings_store;
 mod workspace_dock;
 mod workspace_panels;
+mod workspace_store;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
@@ -12,6 +15,10 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
+use crate::agent_command::AgentCommandResolver;
+use crate::agent_context_store::AgentContextStore;
+use crate::settings_store::ConfigManager;
+use crate::workspace_store::AgentStateStore;
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::extract::ws::{Message as AxumMessage, WebSocket};
@@ -24,10 +31,6 @@ use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::any;
 use futures_util::{SinkExt, StreamExt, future::join_all};
-use inferay_core::agent_command::AgentCommandResolver;
-use inferay_core::agent_context::AgentContextStore;
-use inferay_core::agent_state::AgentStateStore;
-use inferay_core::config::ConfigManager;
 use inferay_core::path_security::{
     AllowedPaths, is_safe_relative_path, is_within_directory, resolve_lexically,
 };
@@ -49,6 +52,8 @@ use url::Url;
 use uuid::Uuid;
 
 mod agent_account;
+mod agent_command;
+mod agent_protocol;
 mod agent_runner;
 mod atomic_write;
 pub mod chat_persistence;

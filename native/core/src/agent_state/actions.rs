@@ -3,6 +3,47 @@ use super::{Group, Pane, Workspace, repository_path};
 use crate::workspace_action::AgentWorkspaceAction;
 
 impl Workspace {
+    /// Stages picker results for first-send consumption without changing the current directory.
+    pub fn set_pending_workspace(&mut self, id: &str, paths: Vec<String>) -> Result<(), String> {
+        self.pane_mut(id)?.pending_workspace_paths =
+            paths.into_iter().filter(|path| !path.is_empty()).collect();
+        Ok(())
+    }
+
+    pub fn consume_pending_workspace(
+        &mut self,
+        id: &str,
+    ) -> Result<Option<(String, Vec<String>)>, String> {
+        let pane = self.pane_mut(id)?;
+        if pane.cwd.as_deref().is_some_and(|cwd| !cwd.is_empty())
+            || pane.pending_workspace_paths.is_empty()
+        {
+            return Ok(None);
+        }
+        let paths = std::mem::take(&mut pane.pending_workspace_paths);
+        let cwd = paths[0].clone();
+        let references = paths[1..].to_vec();
+        pane.cwd = Some(cwd.clone());
+        pane.pending_cwd = false;
+        pane.reference_paths = references.clone();
+        pane.update_title();
+        Ok(Some((cwd, references)))
+    }
+
+    pub fn set_pane_summary(&mut self, id: &str, summary: Option<String>) -> Result<(), String> {
+        self.pane_mut(id)?.summary = summary;
+        Ok(())
+    }
+
+    pub fn set_pane_provider_session(
+        &mut self,
+        id: &str,
+        session: Option<String>,
+    ) -> Result<(), String> {
+        self.pane_mut(id)?.provider_session_id = session;
+        Ok(())
+    }
+
     pub fn apply_action(
         &mut self,
         action: &AgentWorkspaceAction,

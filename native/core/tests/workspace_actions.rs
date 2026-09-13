@@ -1,7 +1,4 @@
-use inferay_core::{
-    agent_state::{AgentStateStore, Workspace},
-    workspace_action::AgentWorkspaceAction,
-};
+use inferay_core::{agent_state::Workspace, workspace_action::AgentWorkspaceAction};
 use serde_json::{Value, json};
 
 fn action(value: Value) -> AgentWorkspaceAction {
@@ -67,50 +64,26 @@ fn directory_selection_transitions_do_not_need_a_store_or_server() {
 }
 
 #[test]
-fn typed_actions_keep_defaults_metadata_and_persistence_consistent() {
-    let path =
-        std::env::temp_dir().join(format!("workspace-actions-{}.json", uuid::Uuid::new_v4()));
-    let store = AgentStateStore::new(path.clone());
-    let state = store.initialize("claude").unwrap();
-    let group = state["selectedGroupId"].as_str().unwrap();
-    let pane = state["groups"][0]["selectedPaneId"].as_str().unwrap();
-    store
-        .set_pane_summary(pane, Some("A title".into()))
-        .unwrap();
-    store
-        .set_pane_provider_session(pane, Some("session".into()))
-        .unwrap();
-    let state = store
-        .apply_workspace_action(
-            &action(json!({
-                "type":"setPaneAgentKind","groupId":group,"paneId":pane,"agentKind":"codex"
-            })),
-            "claude",
+fn staged_directories_are_consumed_once_by_the_model() {
+    let mut state = Workspace::new("codex");
+    let view = state.presentation().unwrap();
+    let pane_id = view["groups"][0]["selectedPaneId"].as_str().unwrap();
+    state
+        .set_pending_workspace(
+            pane_id,
+            vec!["".into(), "/repo".into(), "/reference".into()],
         )
         .unwrap();
-    assert_eq!(state["groups"][0]["panes"][0]["agentKind"], "codex");
-    assert!(state["groups"][0]["panes"][0]["providerSessionId"].is_null());
-    assert_eq!(state["groups"][0]["panes"][0]["summary"], "A title");
-    assert!(
-        store
-            .apply_workspace_action(
-                &action(json!({
-                    "type":"setGridDimensions","groupId":group,"columns":0
-                })),
-                "claude"
-            )
-            .is_err()
+    assert!(state.pane(pane_id).unwrap().cwd.is_none());
+    assert_eq!(
+        state.consume_pending_workspace(pane_id).unwrap(),
+        Some(("/repo".into(), vec!["/reference".into()]))
     );
-    assert_eq!(store.read().unwrap(), state);
-    let state = store
-        .apply_workspace_action(
-            &action(json!({
-                "type":"removePane","groupId":group,"paneId":pane
-            })),
-            "claude",
-        )
+    assert!(state.consume_pending_workspace(pane_id).unwrap().is_none());
+    assert_eq!(state.active_cwds(), ["/repo"]);
+    state
+        .set_pending_workspace(pane_id, vec!["/replacement".into()])
         .unwrap();
-    assert_eq!(state["groups"][0]["panes"][0]["agentKind"], "claude");
-    assert_eq!(store.read().unwrap(), state);
-    std::fs::remove_file(path).unwrap();
+    assert!(state.consume_pending_workspace(pane_id).unwrap().is_none());
+    assert_eq!(state.pane(pane_id).unwrap().cwd.as_deref(), Some("/repo"));
 }
