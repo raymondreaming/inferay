@@ -322,18 +322,18 @@ export function useAgentChatSettings(
 			}
 		});
 	};
-	createEffect(
-		() => JSON.stringify([_paneId(), _agentKind()]),
-		(key) => {
-			scopeVersion++;
-			const [paneId, agentKind] = JSON.parse(key);
-			resolveSelection({}, { paneId, agentKind });
-			return () => {
-				scopeVersion++;
-				requestRevision.current++;
-			};
-		},
+	const settingsIdentity = createMemo(() =>
+		JSON.stringify([_paneId(), _agentKind()]),
 	);
+	createEffect(settingsIdentity, (key) => {
+		scopeVersion++;
+		const [paneId, agentKind] = JSON.parse(key);
+		resolveSelection({}, { paneId, agentKind });
+		return () => {
+			scopeVersion++;
+			requestRevision.current++;
+		};
+	});
 	const agentKindOptions = createMemo(() =>
 		(["claude", "codex"] as const).map((id) => ({
 			id,
