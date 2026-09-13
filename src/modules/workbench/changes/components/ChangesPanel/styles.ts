@@ -647,15 +647,12 @@ export const styles = stylex.create({
 		lineHeight: 1.3,
 	},
 	pathDirectory: {
-		color: color.textMuted,
-	},
-	filePathLabel: {
-		minWidth: 0,
-		maxWidth: "100%",
+		flex: "0 1 auto",
+		minWidth: controlSize._0,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
-		textAlign: "left",
+		color: color.textMuted,
 	},
 	fileStatsHidden: {
 		visibility: "hidden",
@@ -670,9 +667,14 @@ export const styles = stylex.create({
 		textAlign: "left",
 	},
 	pathFileName: {
+		flexShrink: 0,
+		maxWidth: "100%",
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
 		color: color.textMain,
 		fontSize: font.size_2,
-		fontWeight: font.weight_5,
+		fontWeight: font.weight_6,
 		lineHeight: 1.3,
 		transitionProperty: "color",
 		transitionDuration: motion.durationFast,
@@ -760,8 +762,6 @@ export const styles = stylex.create({
 		flexShrink: 0,
 	},
 	treeFileName: {
-		display: "flex",
-		justifyContent: "flex-start",
 		minWidth: controlSize._0,
 		flex: 1,
 		overflow: "hidden",

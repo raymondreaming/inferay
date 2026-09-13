@@ -137,28 +137,24 @@ export function TreeNodeRow(props: {
 										active() && styles.activeText,
 									)}
 								>
-									<span {...stylex.attrs(styles.filePathLabel)}>
-										{props.node.name}
-									</span>
+									{props.node.name}
 								</span>
 							) : (
 								<span {...stylex.attrs(styles.fileButton)}>
-									<span {...stylex.attrs(styles.filePathLabel)}>
-										{separator() >= 0 && (
-											<span {...stylex.attrs(styles.pathDirectory)}>
-												{file()?.path.slice(0, separator())}
-											</span>
-										)}
-										<span {...stylex.attrs(styles.pathFileName)}>
-											{(() => {
-												const _separatorValue2 = separator(),
-													_fileValue4 = file();
-												if (!_fileValue4) return null;
-												return _separatorValue2 >= 0
-													? _fileValue4.path.slice(_separatorValue2)
-													: _fileValue4.path;
-											})()}
+									{separator() >= 0 && (
+										<span {...stylex.attrs(styles.pathDirectory)}>
+											{file()?.path.slice(0, separator())}
 										</span>
+									)}
+									<span {...stylex.attrs(styles.pathFileName)}>
+										{(() => {
+											const _separatorValue2 = separator(),
+												_fileValue4 = file();
+											if (!_fileValue4) return null;
+											return _separatorValue2 >= 0
+												? _fileValue4.path.slice(_separatorValue2)
+												: _fileValue4.path;
+										})()}
 									</span>
 								</span>
 							)}
