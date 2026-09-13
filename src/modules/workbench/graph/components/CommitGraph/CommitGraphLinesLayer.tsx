@@ -1,5 +1,5 @@
+import type { GraphLines } from "@contracts";
 import { For } from "solid-js";
-import type { GraphLines } from "../../../../../../build/presentation/contracts/GraphLines.ts";
 import {
 	type CSSProperties,
 	domStyle,

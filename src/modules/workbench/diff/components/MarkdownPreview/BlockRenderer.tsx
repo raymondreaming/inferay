@@ -1,6 +1,6 @@
+import type { MdBlock } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For, Match, Show, Switch } from "solid-js";
-import type { MdBlock } from "../../../../../../build/presentation/contracts/MdBlock.ts";
 import { InlineTokens } from "./InlineTokens.tsx";
 import { ListItemRenderer } from "./ListItemRenderer.tsx";
 import { MermaidBlock } from "./MermaidBlock.tsx";

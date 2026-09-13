@@ -1,6 +1,6 @@
+import type { FileContent } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { For } from "solid-js";
-import type { FileContent } from "../../../../../../build/presentation/contracts/FileContent.ts";
 import { APP_REGION_NO_DRAG_CLASS } from "../../../../../app/hooks/useAppAppearance.tsx";
 import { DocumentTab } from "./DocumentTab.tsx";
 import { styles } from "./styles.ts";

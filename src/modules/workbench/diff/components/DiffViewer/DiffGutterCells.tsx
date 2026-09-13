@@ -1,6 +1,6 @@
+import type { GitDiffLine } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";
-import type { GitDiffLine } from "../../../../../../build/presentation/contracts/GitDiffLine.ts";
 import { domStyle } from "../../../../../shared/lib/dom.tsx";
 import * as inlineStyles from "./styles.ts";
 import { DIFF_CONFIG, diffStyles } from "./styles.ts";

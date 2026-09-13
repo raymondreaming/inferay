@@ -1,5 +1,5 @@
+import type { AppBackgroundSettings } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
-import type { AppBackgroundSettings } from "../../../../../build/presentation/contracts/AppBackgroundSettings.ts";
 import { styles } from "./styles.ts";
 export function BackgroundSceneControls(_props: {
 	background: AppBackgroundSettings;

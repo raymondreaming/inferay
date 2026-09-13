@@ -1,6 +1,6 @@
+import type { GitGraphRef } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For } from "solid-js";
-import type { GitGraphRef } from "../../../../../../build/presentation/contracts/GitGraphRef.ts";
 import { domStyle } from "../../../../../shared/lib/dom.tsx";
 import {
 	IconSearch,

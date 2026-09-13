@@ -1,6 +1,6 @@
+import type { Prompt } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";
-import type { Prompt } from "../../../../../build/presentation/contracts/Prompt.ts";
 import {
 	iconSize,
 	surfaceStyles,

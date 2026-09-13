@@ -1,6 +1,6 @@
+import type { McpToolSource } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal, onSettled, Show } from "solid-js";
-import type { McpToolSource } from "../../../../../build/presentation/contracts/McpToolSource.ts";
 import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
 import { domStyle, queryClient } from "../../../../shared/lib/dom.tsx";
 import { fetchJson } from "../../../../shared/lib/native.tsx";

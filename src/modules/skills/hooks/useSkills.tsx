@@ -1,5 +1,5 @@
+import type { Prompt, SkillProposal, SkillProposalView } from "@contracts";
 import type { Accessor } from "solid-js";
-import type { Prompt } from "../../../../build/presentation/contracts/Prompt.ts";
 import { useBackgroundQuery as useQuery } from "../../../shared/hooks/useQueryResource.tsx";
 import { queryClient } from "../../../shared/lib/dom.tsx";
 import { fetchJson, postJson, sendJson } from "../../../shared/lib/native.tsx";
@@ -73,12 +73,10 @@ export function preloadSkills() {
 }
 export async function decideSkillProposal(
 	messageId: string,
-	proposal: import("../../../../build/presentation/contracts/SkillProposal.ts").SkillProposal,
+	proposal: SkillProposal,
 	decision: "approve" | "reject",
 ) {
-	const view = await postJson<
-		import("../../../../build/presentation/contracts/SkillProposalView.ts").SkillProposalView
-	>("/api/prompts/proposal", {
+	const view = await postJson<SkillProposalView>("/api/prompts/proposal", {
 		messageId,
 		proposal,
 		decision,

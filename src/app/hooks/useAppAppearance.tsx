@@ -1,12 +1,14 @@
+import type {
+	AppBackgroundId,
+	AppBackgroundMode,
+	AppBackgroundSettings,
+	AppearanceCatalog,
+	AppFontId,
+	AppThemeId,
+	BackgroundModel,
+} from "@contracts";
 import { createEffect, createMemo, onSettled } from "solid-js";
 import appearanceCatalog from "../../../build/presentation/appearance-catalog.json";
-import type { AppBackgroundId } from "../../../build/presentation/contracts/AppBackgroundId.ts";
-import type { AppBackgroundMode } from "../../../build/presentation/contracts/AppBackgroundMode.ts";
-import type { AppBackgroundSettings } from "../../../build/presentation/contracts/AppBackgroundSettings.ts";
-import type { AppearanceCatalog } from "../../../build/presentation/contracts/AppearanceCatalog.ts";
-import type { AppFontId } from "../../../build/presentation/contracts/AppFontId.ts";
-import type { AppThemeId } from "../../../build/presentation/contracts/AppThemeId.ts";
-import type { BackgroundModel } from "../../../build/presentation/contracts/BackgroundModel.ts";
 import {
 	createExternalSignal,
 	listenWindowEvent,

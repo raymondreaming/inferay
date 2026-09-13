@@ -1,6 +1,6 @@
+import type { AppThemeId } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { Loading, lazy } from "solid-js";
-import type { AppThemeId } from "../../../../../build/presentation/contracts/AppThemeId.ts";
 
 const Settings = lazy(() =>
 	import("../../../settings/components/Settings/index.tsx").then(

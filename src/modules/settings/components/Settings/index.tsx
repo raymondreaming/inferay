@@ -1,5 +1,5 @@
+import type { AppThemeId } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
-import type { AppThemeId } from "../../../../../build/presentation/contracts/AppThemeId.ts";
 import { SettingsContent } from "./SettingsContent.tsx";
 import { styles } from "./styles.ts";
 

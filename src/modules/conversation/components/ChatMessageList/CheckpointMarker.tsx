@@ -1,6 +1,6 @@
+import type { CheckpointMeta } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal, For } from "solid-js";
-import type { CheckpointMeta } from "../../../../../build/presentation/contracts/CheckpointMeta.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { domStyle } from "../../../../shared/lib/dom.tsx";
 import {

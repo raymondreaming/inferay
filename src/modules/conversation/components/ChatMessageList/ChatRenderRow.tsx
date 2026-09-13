@@ -1,7 +1,6 @@
+import type { ChatListRow, CheckpointMeta } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, onSettled } from "solid-js";
-import type { ChatListRow } from "../../../../../build/presentation/contracts/ChatListRow.ts";
-import type { CheckpointMeta } from "../../../../../build/presentation/contracts/CheckpointMeta.ts";
 import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
 import { GroupedEditDiff } from "../ChatEditDiff/index.tsx";
 import { Bubble } from "./Bubble.tsx";

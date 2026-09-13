@@ -1,6 +1,6 @@
+import type { AgentAccountProviderStatus } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For } from "solid-js";
-import type { AgentAccountProviderStatus } from "../../../../../build/presentation/contracts/AgentAccountProviderStatus.ts";
 import type {
 	getAgentDefinition,
 	loadDefaultChatSettings,

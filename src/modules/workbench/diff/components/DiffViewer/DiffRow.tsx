@@ -1,6 +1,6 @@
+import type { GitDiffLine } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For } from "solid-js";
-import type { GitDiffLine } from "../../../../../../build/presentation/contracts/GitDiffLine.ts";
 import type { SyntaxToken } from "../../../../../shared/hooks/useSyntaxHighlight.tsx";
 import {
 	type CSSProperties,

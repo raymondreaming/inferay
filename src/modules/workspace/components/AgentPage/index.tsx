@@ -1,3 +1,4 @@
+import type { AgentSavedState, WorkspaceAgentKind } from "@contracts";
 import {
 	type Accessor,
 	createEffect,
@@ -7,8 +8,6 @@ import {
 	merge,
 	onSettled,
 } from "solid-js";
-import type { AgentSavedState } from "../../../../../build/presentation/contracts/AgentSavedState.ts";
-import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import {
 	getThemeById,
 	loadAppThemeId,

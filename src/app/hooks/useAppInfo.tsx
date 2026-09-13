@@ -1,4 +1,4 @@
-import type { AppInfo } from "../../../build/presentation/contracts/AppInfo.ts";
+import type { AppInfo } from "@contracts";
 import { useQueryResource } from "../../shared/hooks/useQueryResource.tsx";
 import { fetchJsonOr } from "../../shared/lib/native.tsx";
 

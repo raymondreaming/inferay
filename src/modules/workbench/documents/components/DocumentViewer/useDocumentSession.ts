@@ -1,3 +1,4 @@
+import type { FileContent } from "@contracts";
 import {
 	createEffect,
 	createMemo,
@@ -6,7 +7,6 @@ import {
 	onSettled,
 	untrack,
 } from "solid-js";
-import type { FileContent } from "../../../../../../build/presentation/contracts/FileContent.ts";
 import { fetchJson, postJson } from "../../../../../shared/lib/native.tsx";
 import type { DocumentViewerProps } from "./types.ts";
 

@@ -1,6 +1,5 @@
+import type { GitActionResponse, GitRefOperationPreflight } from "@contracts";
 import { type Accessor, createMemo, createSignal, merge } from "solid-js";
-import type { GitActionResponse } from "../../../../../build/presentation/contracts/GitActionResponse.ts";
-import type { GitRefOperationPreflight } from "../../../../../build/presentation/contracts/GitRefOperationPreflight.ts";
 import { useBackgroundQuery as useQuery } from "../../../../shared/hooks/useQueryResource.tsx";
 import { queryClient } from "../../../../shared/lib/dom.tsx";
 import { postJson, project } from "../../../../shared/lib/native.tsx";

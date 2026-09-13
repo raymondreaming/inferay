@@ -1,6 +1,6 @@
+import type { MdInlineToken } from "@contracts";
 import type { JSX } from "@solidjs/web";
 import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
-import type { MdInlineToken } from "../../../../build/presentation/contracts/MdInlineToken.ts";
 import { markdownImageSource } from "./imageSource.ts";
 export type InlineAppearance = Partial<
 	Record<

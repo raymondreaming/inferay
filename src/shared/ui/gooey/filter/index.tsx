@@ -1,6 +1,6 @@
+import type { ShadowLayer } from "@contracts";
 import type { Element } from "solid-js";
 import { createMemo, For, Show } from "solid-js";
-import type { ShadowLayer } from "../../../../../build/presentation/contracts/ShadowLayer.ts";
 import { InsetPass } from "./InsetPass.tsx";
 import { ShadowPass } from "./ShadowPass.tsx";
 

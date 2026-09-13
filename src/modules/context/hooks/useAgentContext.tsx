@@ -1,6 +1,5 @@
+import type { AgentContextUpdate, EffectiveAgentContext } from "@contracts";
 import type { Accessor } from "solid-js";
-import type { AgentContextUpdate } from "../../../../build/presentation/contracts/AgentContextUpdate.ts";
-import type { EffectiveAgentContext } from "../../../../build/presentation/contracts/EffectiveAgentContext.ts";
 import { useBackgroundQuery } from "../../../shared/hooks/useQueryResource.tsx";
 import { queryClient } from "../../../shared/lib/dom.tsx";
 import { fetchJson, postJson } from "../../../shared/lib/native.tsx";

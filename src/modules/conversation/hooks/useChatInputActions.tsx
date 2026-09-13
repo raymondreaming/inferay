@@ -1,5 +1,5 @@
+import type { WorkspaceAgentKind } from "@contracts";
 import type { Accessor } from "solid-js";
-import type { WorkspaceAgentKind } from "../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import type {
 	Dispatch,
 	RefCell,

@@ -1,5 +1,5 @@
+import type { FileContent } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
-import type { FileContent } from "../../../../../../build/presentation/contracts/FileContent.ts";
 import { iconSize } from "../../../../../design-system/styles.stylex.ts";
 import {
 	ariaValue,

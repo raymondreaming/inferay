@@ -1,6 +1,6 @@
+import type { ToolDisplayInfo } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For, Show } from "solid-js";
-import type { ToolDisplayInfo } from "../../../../../build/presentation/contracts/ToolDisplayInfo.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { IconChevronDown } from "../../../../shared/ui/Icons/index.tsx";
 import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";

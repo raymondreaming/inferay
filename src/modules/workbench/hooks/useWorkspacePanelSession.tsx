@@ -1,7 +1,6 @@
+import type { PanelAction, PanelSession } from "@contracts";
 import { useMutation } from "@tanstack/solid-query";
 import { type Accessor, createMemo, untrack } from "solid-js";
-import type { PanelAction } from "../../../../build/presentation/contracts/PanelAction.ts";
-import type { PanelSession } from "../../../../build/presentation/contracts/PanelSession.ts";
 import { useBackgroundQuery as useQuery } from "../../../shared/hooks/useQueryResource.tsx";
 import { queryClient } from "../../../shared/lib/dom.tsx";
 import {

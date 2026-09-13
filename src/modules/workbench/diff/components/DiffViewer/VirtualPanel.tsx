@@ -1,7 +1,6 @@
+import type { GitDiffLine, MinimapSegment } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createMemo, For, onSettled } from "solid-js";
-import type { GitDiffLine } from "../../../../../../build/presentation/contracts/GitDiffLine.ts";
-import type { MinimapSegment } from "../../../../../../build/presentation/contracts/MinimapSegment.ts";
 import {
 	type SyntaxToken,
 	useSyntaxHighlight,

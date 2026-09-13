@@ -1,6 +1,6 @@
+import type { EffectiveAgentContext } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal, onCleanup, onSettled } from "solid-js";
-import type { EffectiveAgentContext } from "../../../../../build/presentation/contracts/EffectiveAgentContext.ts";
 import { queryClient } from "../../../../shared/lib/dom.tsx";
 import { fetchJson, postJson } from "../../../../shared/lib/native.tsx";
 import { Button } from "../../../../shared/ui/Button/index.tsx";

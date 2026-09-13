@@ -1,11 +1,10 @@
+import type { SlashCommand, WorkspaceAgentKind } from "@contracts";
 import {
 	type Accessor,
 	createEffect,
 	createMemo,
 	createSignal,
 } from "solid-js";
-import type { SlashCommand } from "../../../../build/presentation/contracts/SlashCommand.ts";
-import type { WorkspaceAgentKind } from "../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
 import type { RefCell } from "../../../shared/lib/dom.tsx";
 import {

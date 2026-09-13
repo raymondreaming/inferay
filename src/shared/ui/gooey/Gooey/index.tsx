@@ -207,10 +207,12 @@ export function useGooeyContext(): GooeyContextValue {
 	return ctx;
 }
 
-import type { EvolveOptions } from "../../../../../build/presentation/contracts/EvolveOptions.ts";
-import type { LiquidFrame } from "../../../../../build/presentation/contracts/LiquidFrame.ts";
-import type { MoveOptions } from "../../../../../build/presentation/contracts/MoveOptions.ts";
-import type { ShadowLayer } from "../../../../../build/presentation/contracts/ShadowLayer.ts";
+import type {
+	EvolveOptions,
+	LiquidFrame,
+	MoveOptions,
+	ShadowLayer,
+} from "@contracts";
 import liquidDefaults from "../../../../../build/presentation/liquid-defaults.json";
 import {
 	LiquidBody,

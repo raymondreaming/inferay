@@ -1,6 +1,6 @@
+import type { GitGraphRefKind } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For } from "solid-js";
-import type { GitGraphRefKind } from "../../../../../../build/presentation/contracts/GitGraphRefKind.ts";
 import { palette } from "../../../../../design-system/styles.stylex.ts";
 import { domStyle } from "../../../../../shared/lib/dom.tsx";
 import { RefIcon } from "./RefIcon.tsx";

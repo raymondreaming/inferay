@@ -1,5 +1,5 @@
+import type { GithubRepo } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
-import type { GithubRepo } from "../../../../../build/presentation/contracts/GithubRepo.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
 import {

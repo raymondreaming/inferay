@@ -1,6 +1,5 @@
+import type { GitFileEntry, GitFilePresentation } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
-import type { GitFileEntry } from "../../../../../../build/presentation/contracts/GitFileEntry.ts";
-import type { GitFilePresentation } from "../../../../../../build/presentation/contracts/GitFilePresentation.ts";
 import { FileGroup } from "./FileGroup.tsx";
 import type { SelectedFile } from "./index.tsx";
 import { RepositoryStatus } from "./RepositoryStatus.tsx";

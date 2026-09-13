@@ -1,5 +1,5 @@
+import type { MdInlineToken } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
-import type { MdInlineToken } from "../../../../../../build/presentation/contracts/MdInlineToken.ts";
 import { MarkdownInline } from "../../../../../shared/ui/MarkdownInline/index.tsx";
 import { styles } from "./styles.ts";
 

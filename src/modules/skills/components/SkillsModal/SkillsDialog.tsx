@@ -1,7 +1,6 @@
+import type { Prompt, SkillFormState } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createMemo, createSignal, onSettled } from "solid-js";
-import type { Prompt } from "../../../../../build/presentation/contracts/Prompt.ts";
-import type { SkillFormState } from "../../../../../build/presentation/contracts/SkillFormState.ts";
 import { APP_REGION_NO_DRAG_CLASS } from "../../../../app/hooks/useAppAppearance.tsx";
 import {
 	iconSize,

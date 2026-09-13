@@ -1,5 +1,5 @@
+import type { ShadowLayer } from "@contracts";
 import { createMemo, Show } from "solid-js";
-import type { ShadowLayer } from "../../../../../build/presentation/contracts/ShadowLayer.ts";
 
 /** Keep the SVG dependency chain declarative as shadow properties change. */
 export function ShadowPass(props: { i: number; s: ShadowLayer }) {

@@ -1,6 +1,4 @@
-import type { Group } from "../../../../../build/presentation/contracts/Group.ts";
-import type { Pane } from "../../../../../build/presentation/contracts/Pane.ts";
-import type { RepositoryWorkspaceIndex } from "../../../../../build/presentation/contracts/RepositoryWorkspaceIndex.ts";
+import type { Group, Pane, RepositoryWorkspaceIndex } from "@contracts";
 import { project } from "../../../../shared/lib/native.tsx";
 
 export type WorkspaceView = {

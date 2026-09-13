@@ -1,5 +1,5 @@
+import type { HunkDiff } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
-import type { HunkDiff } from "../../../../../../build/presentation/contracts/HunkDiff.ts";
 import { diffStyles } from "./styles.ts";
 export function BinaryPreview(_props: {
 	diff: Pick<HunkDiff, "isImage" | "imagePath">;

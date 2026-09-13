@@ -1,6 +1,6 @@
+import type { ForgeAccount } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";
-import type { ForgeAccount } from "../../../../../build/presentation/contracts/ForgeAccount.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { ariaValue } from "../../../../shared/lib/dom.tsx";
 import {

@@ -1,7 +1,9 @@
+import type {
+	GitCommitFile,
+	GitFileEntry,
+	GitFilePresentation,
+} from "@contracts";
 import { createMemo } from "solid-js";
-import type { GitCommitFile } from "../../../../../../build/presentation/contracts/GitCommitFile.ts";
-import type { GitFileEntry } from "../../../../../../build/presentation/contracts/GitFileEntry.ts";
-import type { GitFilePresentation } from "../../../../../../build/presentation/contracts/GitFilePresentation.ts";
 import { visibleGitFiles } from "../../../../../shared/lib/native.tsx";
 import { FileGroup } from "./FileGroup.tsx";
 import type { SelectedFile } from "./index.tsx";

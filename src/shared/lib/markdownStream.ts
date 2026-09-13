@@ -1,5 +1,4 @@
-import type { MarkdownPatch } from "../../../build/presentation/contracts/MarkdownPatch.ts";
-import type { MdBlock } from "../../../build/presentation/contracts/MdBlock.ts";
+import type { MarkdownPatch, MdBlock } from "@contracts";
 
 type StreamRequest = {
 	streamId: string;

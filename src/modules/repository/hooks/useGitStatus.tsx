@@ -1,5 +1,5 @@
+import type { GitStatusResult } from "@contracts";
 import { type Accessor, createMemo, createSignal } from "solid-js";
-import type { GitStatusResult } from "../../../../build/presentation/contracts/GitStatusResult.ts";
 import { usePollingQuery } from "../../../shared/hooks/useQueryResource.tsx";
 import { postJson, sendJson } from "../../../shared/lib/native.tsx";
 import type { useGitGraph } from "./useGitGraph.tsx";

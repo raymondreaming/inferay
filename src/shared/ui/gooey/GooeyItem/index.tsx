@@ -55,6 +55,5 @@ export type Internal = GooeyItemProps & {
 	ctx: GooeyContextValue;
 };
 
-import type { EvolveOptions } from "../../../../../build/presentation/contracts/EvolveOptions.ts";
-import type { MoveOptions } from "../../../../../build/presentation/contracts/MoveOptions.ts";
+import type { EvolveOptions, MoveOptions } from "@contracts";
 import type { CornerRadii, GooeyContextValue } from "../Gooey/index.tsx";

@@ -1,6 +1,10 @@
-import type { ProviderCatalog } from "../../../build/presentation/contracts/ProviderCatalog.ts";
-import type { ProviderSettings } from "../../../build/presentation/contracts/ProviderSettings.ts";
-import type { WorkspaceAgentKind } from "../../../build/presentation/contracts/WorkspaceAgentKind.ts";
+import type {
+	GitFilePresentation,
+	PanelSession,
+	ProviderCatalog,
+	ProviderSettings,
+	WorkspaceAgentKind,
+} from "@contracts";
 import providerCatalog from "../../../build/presentation/provider-catalog.json";
 import { traceUi } from "./uiPerformance.ts";
 export async function fetchJson<T>(
@@ -319,8 +323,6 @@ export const loadSidebarCollapsed = () =>
 	readStoredBoolean("sidebar-collapsed");
 
 import wasmUrl from "../../../build/presentation/bytes.js";
-import type { GitFilePresentation } from "../../../build/presentation/contracts/GitFilePresentation.ts";
-import type { PanelSession } from "../../../build/presentation/contracts/PanelSession.ts";
 import {
 	initSync,
 	presentation,

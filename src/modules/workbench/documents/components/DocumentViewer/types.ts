@@ -1,5 +1,4 @@
-import type { DocumentSession } from "../../../../../../build/presentation/contracts/DocumentSession.ts";
-import type { FileContent } from "../../../../../../build/presentation/contracts/FileContent.ts";
+import type { DocumentSession, FileContent } from "@contracts";
 export type DocumentViewerProps = {
 	readonly cwd: string;
 	readonly sessionId?: string;

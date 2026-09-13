@@ -1,5 +1,5 @@
+import type { SkillRead } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
-import type { SkillRead } from "../../../../../build/presentation/contracts/SkillRead.ts";
 import { surfaceStyles } from "../../../../design-system/styles.stylex.ts";
 import { ariaValue, openSkills } from "../../../../shared/lib/dom.tsx";
 import { styles } from "./styles.ts";

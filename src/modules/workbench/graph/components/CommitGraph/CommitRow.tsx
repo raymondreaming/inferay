@@ -1,8 +1,6 @@
+import type { GitGraphRef, GitWorktree, GraphCommit } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For } from "solid-js";
-import type { GitGraphRef } from "../../../../../../build/presentation/contracts/GitGraphRef.ts";
-import type { GitWorktree } from "../../../../../../build/presentation/contracts/GitWorktree.ts";
-import type { GraphCommit } from "../../../../../../build/presentation/contracts/GraphCommit.ts";
 import { runtimeGitGraphLaneColors } from "../../../../../design-system/styles.stylex.ts";
 import { ariaValue, domStyle } from "../../../../../shared/lib/dom.tsx";
 import { CommitGraphCell } from "./CommitGraphCell.tsx";

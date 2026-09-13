@@ -1,7 +1,6 @@
+import type { GitFileEntry, GitFilePresentation } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createMemo, createSignal, For } from "solid-js";
-import type { GitFileEntry } from "../../../../../../build/presentation/contracts/GitFileEntry.ts";
-import type { GitFilePresentation } from "../../../../../../build/presentation/contracts/GitFilePresentation.ts";
 import {
 	iconSize,
 	selectionAppearance,

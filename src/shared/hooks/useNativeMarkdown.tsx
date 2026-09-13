@@ -1,3 +1,4 @@
+import type { PreparedMarkdown } from "@contracts";
 import {
 	type Accessor,
 	createEffect,
@@ -5,7 +6,6 @@ import {
 	createSignal,
 	untrack,
 } from "solid-js";
-import type { PreparedMarkdown } from "../../../build/presentation/contracts/PreparedMarkdown.ts";
 import { queryClient } from "../lib/dom.tsx";
 import { createMarkdownStreamClient } from "../lib/markdownStream.ts";
 import { sendJson } from "../lib/native.tsx";

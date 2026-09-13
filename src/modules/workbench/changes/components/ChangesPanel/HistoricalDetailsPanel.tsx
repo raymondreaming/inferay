@@ -1,8 +1,10 @@
+import type {
+	GitCommitDetails,
+	GitCommitFile,
+	GitComparisonDetails,
+} from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";
-import type { GitCommitDetails } from "../../../../../../build/presentation/contracts/GitCommitDetails.ts";
-import type { GitCommitFile } from "../../../../../../build/presentation/contracts/GitCommitFile.ts";
-import type { GitComparisonDetails } from "../../../../../../build/presentation/contracts/GitComparisonDetails.ts";
 import { domStyle } from "../../../../../shared/lib/dom.tsx";
 import { DetailIdentity } from "./DetailIdentity.tsx";
 import { HistoricalFileList } from "./HistoricalFileList.tsx";

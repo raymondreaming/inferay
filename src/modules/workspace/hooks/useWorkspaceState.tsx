@@ -1,8 +1,10 @@
+import type {
+	AgentSavedState,
+	Group,
+	RepositoryWorkspaceIndex,
+	WorkspaceAgentKind,
+} from "@contracts";
 import { type Accessor, createEffect, createMemo } from "solid-js";
-import type { AgentSavedState } from "../../../../build/presentation/contracts/AgentSavedState.ts";
-import type { Group } from "../../../../build/presentation/contracts/Group.ts";
-import type { RepositoryWorkspaceIndex } from "../../../../build/presentation/contracts/RepositoryWorkspaceIndex.ts";
-import type { WorkspaceAgentKind } from "../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import { createExternalSignal, noop } from "../../../shared/lib/dom.tsx";
 import {
 	postJson,

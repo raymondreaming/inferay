@@ -1,4 +1,4 @@
-import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
+import type { WorkspaceAgentKind } from "@contracts";
 export interface AgentChatHandle {
 	focusInput: (atEnd?: boolean) => void;
 	highlightComposer: () => void;

@@ -1,7 +1,6 @@
+import type { GitFileEntry, GitFileTreeNode } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For, Show } from "solid-js";
-import type { GitFileEntry } from "../../../../../../build/presentation/contracts/GitFileEntry.ts";
-import type { GitFileTreeNode } from "../../../../../../build/presentation/contracts/GitFileTreeNode.ts";
 import { iconSize } from "../../../../../design-system/styles.stylex.ts";
 import { ariaValue, domStyle } from "../../../../../shared/lib/dom.tsx";
 import {

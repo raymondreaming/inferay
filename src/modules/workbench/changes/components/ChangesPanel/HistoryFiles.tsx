@@ -1,7 +1,9 @@
+import type {
+	GitCommitDetails,
+	GitCommitFile,
+	GitComparisonDetails,
+} from "@contracts";
 import * as stylex from "@stylexjs/stylex";
-import type { GitCommitDetails } from "../../../../../../build/presentation/contracts/GitCommitDetails.ts";
-import type { GitCommitFile } from "../../../../../../build/presentation/contracts/GitCommitFile.ts";
-import type { GitComparisonDetails } from "../../../../../../build/presentation/contracts/GitComparisonDetails.ts";
 import { HistoricalDetailsPanel } from "./HistoricalDetailsPanel.tsx";
 import type { SelectedFile } from "./index.tsx";
 import { styles } from "./styles.ts";

@@ -1,5 +1,5 @@
+import type { AppInfo } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
-import type { AppInfo } from "../../../../../build/presentation/contracts/AppInfo.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { IconRefreshCw } from "../../../../shared/ui/Icons/index.tsx";
 import { styles } from "./styles.ts";

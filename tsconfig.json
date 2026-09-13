@@ -13,6 +13,7 @@
 		// Bundler mode
 		"moduleResolution": "bundler",
 		"paths": {
+			"@contracts": ["./build/presentation/contracts/index.ts"],
 			"@tanstack/query-core": [
 				"./node_modules/@tanstack/query-core/src/index.ts"
 			]

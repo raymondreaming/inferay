@@ -1,7 +1,6 @@
+import type { AskUserQuestion, McpElicitation } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For } from "solid-js";
-import type { AskUserQuestion } from "../../../../../build/presentation/contracts/AskUserQuestion.ts";
-import type { McpElicitation } from "../../../../../build/presentation/contracts/McpElicitation.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { domStyle } from "../../../../shared/lib/dom.tsx";
 import { project as rustProject } from "../../../../shared/lib/native.tsx";

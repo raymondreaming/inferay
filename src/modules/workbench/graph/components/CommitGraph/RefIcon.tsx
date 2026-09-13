@@ -1,7 +1,7 @@
+import type { GitGraphRefKind } from "@contracts";
 import { Dynamic } from "@solidjs/web";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";
-import type { GitGraphRefKind } from "../../../../../../build/presentation/contracts/GitGraphRefKind.ts";
 import {
 	IconCloud,
 	IconComputer,

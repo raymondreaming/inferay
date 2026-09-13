@@ -1,5 +1,5 @@
+import type { GitDiffLine } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
-import type { GitDiffLine } from "../../../../../../build/presentation/contracts/GitDiffLine.ts";
 import { DiffGutterCells } from "./DiffGutterCells.tsx";
 import { diffStyles } from "./styles.ts";
 export const DiffGutterRow = function DiffGutterRow(_props: {

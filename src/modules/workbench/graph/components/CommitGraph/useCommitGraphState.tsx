@@ -1,3 +1,10 @@
+import type {
+	GitGraphRef,
+	GitWorktree,
+	GraphCommit,
+	GraphLines,
+	GraphRow,
+} from "@contracts";
 import {
 	type Accessor,
 	createEffect,
@@ -5,11 +12,6 @@ import {
 	createSignal,
 	merge,
 } from "solid-js";
-import type { GitGraphRef } from "../../../../../../build/presentation/contracts/GitGraphRef.ts";
-import type { GitWorktree } from "../../../../../../build/presentation/contracts/GitWorktree.ts";
-import type { GraphCommit } from "../../../../../../build/presentation/contracts/GraphCommit.ts";
-import type { GraphLines } from "../../../../../../build/presentation/contracts/GraphLines.ts";
-import type { GraphRow } from "../../../../../../build/presentation/contracts/GraphRow.ts";
 import { runtimeGitGraphLaneColors } from "../../../../../design-system/styles.stylex.ts";
 import { createPointerResize } from "../../../../../shared/lib/dom.tsx";
 import {

@@ -1,5 +1,5 @@
+import type { WorkspaceAgentKind } from "@contracts";
 import { createMemo, Match, Switch } from "solid-js";
-import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import { getAgentDefinition } from "../../../../shared/lib/native.tsx";
 import {
 	IconAgent,

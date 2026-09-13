@@ -1,6 +1,5 @@
+import type { AgentTheme, AppThemeId } from "@contracts";
 import { createMemo } from "solid-js";
-import type { AgentTheme } from "../../../../../build/presentation/contracts/AgentTheme.ts";
-import type { AppThemeId } from "../../../../../build/presentation/contracts/AppThemeId.ts";
 import { useRepositoryWorkbench } from "../../../workbench/hooks/useRepositoryWorkbench.tsx";
 import {
 	type AgentLayoutMode,

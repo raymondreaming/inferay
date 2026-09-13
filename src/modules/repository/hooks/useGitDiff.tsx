@@ -1,5 +1,5 @@
+import type { HunkDiff } from "@contracts";
 import { type Accessor, createMemo, onSettled } from "solid-js";
-import type { HunkDiff } from "../../../../build/presentation/contracts/HunkDiff.ts";
 import { useBackgroundQuery as useQuery } from "../../../shared/hooks/useQueryResource.tsx";
 import { prefetchSyntaxPreview } from "../../../shared/hooks/useSyntaxHighlight.tsx";
 import { queryClient } from "../../../shared/lib/dom.tsx";

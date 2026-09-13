@@ -1,3 +1,4 @@
+import type { RepositoryWorkspace } from "@contracts";
 import { useLocation, useNavigate } from "@solidjs/router";
 import * as stylex from "@stylexjs/stylex";
 import {
@@ -7,7 +8,6 @@ import {
 	For,
 	onSettled,
 } from "solid-js";
-import type { RepositoryWorkspace } from "../../../../../build/presentation/contracts/RepositoryWorkspace.ts";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,

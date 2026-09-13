@@ -1,3 +1,4 @@
+import type { AgentTheme, Pane, WorkspaceAgentKind } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import {
 	createEffect,
@@ -9,9 +10,6 @@ import {
 	Show,
 	untrack,
 } from "solid-js";
-import type { AgentTheme } from "../../../../../build/presentation/contracts/AgentTheme.ts";
-import type { Pane } from "../../../../../build/presentation/contracts/Pane.ts";
-import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import {
 	captureEvent,
 	createPointerResize,

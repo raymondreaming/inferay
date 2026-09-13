@@ -1,3 +1,13 @@
+import type {
+	AskUserQuestion,
+	CheckpointMeta,
+	McpElicitation,
+	SkillProposal,
+	SkillRead,
+	ToolDisplayInfo,
+	ToolOutputSummary,
+	WorkspaceAgentKind,
+} from "@contracts";
 import {
 	type Accessor,
 	createEffect,
@@ -6,14 +16,6 @@ import {
 	onSettled,
 	untrack,
 } from "solid-js";
-import type { AskUserQuestion } from "../../../../../build/presentation/contracts/AskUserQuestion.ts";
-import type { CheckpointMeta } from "../../../../../build/presentation/contracts/CheckpointMeta.ts";
-import type { McpElicitation } from "../../../../../build/presentation/contracts/McpElicitation.ts";
-import type { SkillProposal } from "../../../../../build/presentation/contracts/SkillProposal.ts";
-import type { SkillRead } from "../../../../../build/presentation/contracts/SkillRead.ts";
-import type { ToolDisplayInfo } from "../../../../../build/presentation/contracts/ToolDisplayInfo.ts";
-import type { ToolOutputSummary } from "../../../../../build/presentation/contracts/ToolOutputSummary.ts";
-import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import {
 	ChatReplica,
 	clearAgentChatPaneState,

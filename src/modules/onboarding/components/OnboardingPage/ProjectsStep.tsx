@@ -1,6 +1,6 @@
+import type { GithubRepo } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For } from "solid-js";
-import type { GithubRepo } from "../../../../../build/presentation/contracts/GithubRepo.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { ariaValue } from "../../../../shared/lib/dom.tsx";
 import { Button } from "../../../../shared/ui/Button/index.tsx";

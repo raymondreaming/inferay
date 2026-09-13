@@ -1,3 +1,4 @@
+import type { HunkDiff } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import {
 	createEffect,
@@ -8,7 +9,6 @@ import {
 	Show,
 	Switch,
 } from "solid-js";
-import type { HunkDiff } from "../../../../../../build/presentation/contracts/HunkDiff.ts";
 import {
 	assignRef,
 	listenWindowEvent,

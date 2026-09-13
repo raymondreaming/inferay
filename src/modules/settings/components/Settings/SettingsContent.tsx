@@ -1,7 +1,6 @@
+import type { AppFontId, AppThemeId } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createMemo, createSignal, onSettled } from "solid-js";
-import type { AppFontId } from "../../../../../build/presentation/contracts/AppFontId.ts";
-import type { AppThemeId } from "../../../../../build/presentation/contracts/AppThemeId.ts";
 import {
 	APP_FONTS,
 	APP_THEMES,

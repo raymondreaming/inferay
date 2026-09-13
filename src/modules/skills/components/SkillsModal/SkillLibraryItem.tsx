@@ -1,5 +1,5 @@
+import type { Prompt } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
-import type { Prompt } from "../../../../../build/presentation/contracts/Prompt.ts";
 import { surfaceStyles } from "../../../../design-system/styles.stylex.ts";
 import { ariaValue } from "../../../../shared/lib/dom.tsx";
 import { styles } from "./styles.ts";

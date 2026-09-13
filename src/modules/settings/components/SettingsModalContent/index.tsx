@@ -1,7 +1,6 @@
+import type { AgentAccountProviderStatus, GithubRepo } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For } from "solid-js";
-import type { AgentAccountProviderStatus } from "../../../../../build/presentation/contracts/AgentAccountProviderStatus.ts";
-import type { GithubRepo } from "../../../../../build/presentation/contracts/GithubRepo.ts";
 import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
 import type { SettingsModalTarget } from "../../../../shared/lib/dom.tsx";
 import {

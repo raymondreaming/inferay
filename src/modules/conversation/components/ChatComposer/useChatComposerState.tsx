@@ -1,3 +1,4 @@
+import type { WorkspaceAgentKind } from "@contracts";
 import {
 	type Accessor,
 	createEffect,
@@ -6,7 +7,6 @@ import {
 	type Element,
 	merge,
 } from "solid-js";
-import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import type { RefCell } from "../../../../shared/lib/dom.tsx";
 import { hasId } from "../../../../shared/lib/dom.tsx";
 import { getAgentDefinition } from "../../../../shared/lib/native.tsx";

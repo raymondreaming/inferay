@@ -1,6 +1,5 @@
+import type { ForgeAccount, GithubRepo } from "@contracts";
 import type { Accessor } from "solid-js";
-import type { ForgeAccount } from "../../../../build/presentation/contracts/ForgeAccount.ts";
-import type { GithubRepo } from "../../../../build/presentation/contracts/GithubRepo.ts";
 import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
 import { queryClient } from "../../../shared/lib/dom.tsx";
 import { fetchJson } from "../../../shared/lib/native.tsx";

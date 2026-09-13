@@ -1,7 +1,6 @@
+import type { Pane, WorkspaceAgentKind } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";
-import type { Pane } from "../../../../../build/presentation/contracts/Pane.ts";
-import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import {
 	isChatAgentKind,
 	loadDefaultChatSettings,

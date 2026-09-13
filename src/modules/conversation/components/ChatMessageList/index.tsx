@@ -1,3 +1,4 @@
+import type { ChatListRow, ChatWindow, CheckpointMeta } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import {
 	createEffect,
@@ -8,8 +9,6 @@ import {
 	onSettled,
 	untrack,
 } from "solid-js";
-import type { ChatWindow } from "../../../../../build/presentation/contracts/ChatWindow.ts";
-import type { CheckpointMeta } from "../../../../../build/presentation/contracts/CheckpointMeta.ts";
 import {
 	bindImperativeRef,
 	domStyle,
@@ -330,8 +329,6 @@ export const ChatMessageList = function ChatMessageList(_props: {
 };
 
 import { type Accessor, createProjection } from "solid-js";
-
-import type { ChatListRow } from "../../../../../build/presentation/contracts/ChatListRow.ts";
 
 /** Reconcile stream patches by message ID so text updates do not regroup the transcript. */
 export function createChatListModel(

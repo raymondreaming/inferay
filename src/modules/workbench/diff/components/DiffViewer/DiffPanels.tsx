@@ -1,6 +1,6 @@
+import type { HunkDiff } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, omit, Show } from "solid-js";
-import type { HunkDiff } from "../../../../../../build/presentation/contracts/HunkDiff.ts";
 import type { RefCell } from "../../../../../shared/lib/dom.tsx";
 import {
 	type DiffScrollSource,

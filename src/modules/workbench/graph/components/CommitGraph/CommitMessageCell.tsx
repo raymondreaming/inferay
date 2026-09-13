@@ -1,5 +1,5 @@
+import type { GraphCommit } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
-import type { GraphCommit } from "../../../../../../build/presentation/contracts/GraphCommit.ts";
 import { domStyle } from "../../../../../shared/lib/dom.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";

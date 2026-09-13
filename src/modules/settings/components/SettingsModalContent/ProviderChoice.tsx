@@ -1,5 +1,5 @@
+import type { AgentAccountProviderStatus } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
-import type { AgentAccountProviderStatus } from "../../../../../build/presentation/contracts/AgentAccountProviderStatus.ts";
 import {
 	getAgentDefinition,
 	type loadDefaultChatSettings,

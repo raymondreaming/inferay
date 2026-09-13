@@ -1,3 +1,12 @@
+import type {
+	DiffSource,
+	FileContent,
+	GitActionResponse,
+	GitCommitFile,
+	GitFileEntry,
+	GraphCommit,
+	PanelSession,
+} from "@contracts";
 import {
 	type Accessor,
 	createEffect,
@@ -7,12 +16,6 @@ import {
 	Show,
 	untrack,
 } from "solid-js";
-import type { DiffSource } from "../../../../build/presentation/contracts/DiffSource.ts";
-import type { GitActionResponse } from "../../../../build/presentation/contracts/GitActionResponse.ts";
-import type { GitCommitFile } from "../../../../build/presentation/contracts/GitCommitFile.ts";
-import type { GitFileEntry } from "../../../../build/presentation/contracts/GitFileEntry.ts";
-import type { GraphCommit } from "../../../../build/presentation/contracts/GraphCommit.ts";
-import type { PanelSession } from "../../../../build/presentation/contracts/PanelSession.ts";
 import {
 	postJson,
 	readStoredValue,
@@ -28,7 +31,6 @@ const EMPTY_FILE_GROUPS = {
 	untracked: [],
 };
 
-import type { FileContent } from "../../../../build/presentation/contracts/FileContent.ts";
 import {
 	createPointerResize,
 	DOCUMENT_OPEN_EVENT,

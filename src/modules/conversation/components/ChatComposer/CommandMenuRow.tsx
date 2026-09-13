@@ -1,5 +1,5 @@
+import type { SlashCommand } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
-import type { SlashCommand } from "../../../../../build/presentation/contracts/SlashCommand.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import type { Dispatch, StateUpdate } from "../../../../shared/lib/dom.tsx";
 import { ariaValue, openSkills } from "../../../../shared/lib/dom.tsx";

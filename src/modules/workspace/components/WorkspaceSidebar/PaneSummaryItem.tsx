@@ -1,6 +1,6 @@
+import type { Pane } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";
-import type { Pane } from "../../../../../build/presentation/contracts/Pane.ts";
 import {
 	iconSize,
 	selectionAppearance,

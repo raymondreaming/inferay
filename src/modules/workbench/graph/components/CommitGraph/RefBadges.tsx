@@ -1,7 +1,6 @@
+import type { GitGraphRef, GitGraphRefKind } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";
-import type { GitGraphRef } from "../../../../../../build/presentation/contracts/GitGraphRef.ts";
-import type { GitGraphRefKind } from "../../../../../../build/presentation/contracts/GitGraphRefKind.ts";
 import { RefBadge } from "./RefBadge.tsx";
 import { styles } from "./styles.ts";
 export function RefBadges(_props: {

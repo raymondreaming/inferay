@@ -1,5 +1,5 @@
+import type { MdListItem } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
-import type { MdListItem } from "../../../../../../build/presentation/contracts/MdListItem.ts";
 import { InlineTokens } from "./InlineTokens.tsx";
 import { styles } from "./styles.ts";
 export function ListItemRenderer(_props: { item: MdListItem }) {

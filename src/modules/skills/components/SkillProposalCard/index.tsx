@@ -1,7 +1,6 @@
+import type { SkillProposal, SkillProposalView } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal } from "solid-js";
-import type { SkillProposal } from "../../../../../build/presentation/contracts/SkillProposal.ts";
-import type { SkillProposalView } from "../../../../../build/presentation/contracts/SkillProposalView.ts";
 import { surfaceStyles } from "../../../../design-system/styles.stylex.ts";
 import { useQueryResource } from "../../../../shared/hooks/useQueryResource.tsx";
 import { ariaValue, openSkills } from "../../../../shared/lib/dom.tsx";

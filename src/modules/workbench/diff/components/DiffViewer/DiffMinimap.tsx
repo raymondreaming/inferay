@@ -1,6 +1,6 @@
+import type { MinimapSegment } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For, onSettled } from "solid-js";
-import type { MinimapSegment } from "../../../../../../build/presentation/contracts/MinimapSegment.ts";
 import { domStyle } from "../../../../../shared/lib/dom.tsx";
 import * as inlineStyles from "./styles.ts";
 import { diffStyles } from "./styles.ts";

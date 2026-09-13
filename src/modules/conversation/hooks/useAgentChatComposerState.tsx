@@ -1,3 +1,4 @@
+import type { QueuedMessageInfo } from "@contracts";
 import {
 	type Accessor,
 	createEffect,
@@ -6,7 +7,6 @@ import {
 	onCleanup,
 	untrack,
 } from "solid-js";
-import type { QueuedMessageInfo } from "../../../../build/presentation/contracts/QueuedMessageInfo.ts";
 import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
 import {
 	fetchJson,

@@ -1,6 +1,6 @@
+import type { FileContent } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createMemo, createSignal, For } from "solid-js";
-import type { FileContent } from "../../../../../../build/presentation/contracts/FileContent.ts";
 import {
 	shouldDisableSnippetHighlighting,
 	useSyntaxHighlight,

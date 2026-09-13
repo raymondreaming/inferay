@@ -1,3 +1,17 @@
+import type {
+	ComparisonPlan,
+	GitCommitDetails,
+	GitComparisonDetails,
+	GitGraphItemKind,
+	GitGraphRef,
+	GitRepositoryOperationState,
+	GitRepositorySnapshotState,
+	GitStash,
+	GitWorktree,
+	GraphActionPresentation,
+	GraphCommit,
+	GraphRow,
+} from "@contracts";
 import {
 	type Accessor,
 	createMemo,
@@ -5,18 +19,6 @@ import {
 	merge,
 	untrack,
 } from "solid-js";
-import type { ComparisonPlan } from "../../../../build/presentation/contracts/ComparisonPlan.ts";
-import type { GitCommitDetails } from "../../../../build/presentation/contracts/GitCommitDetails.ts";
-import type { GitComparisonDetails } from "../../../../build/presentation/contracts/GitComparisonDetails.ts";
-import type { GitGraphItemKind } from "../../../../build/presentation/contracts/GitGraphItemKind.ts";
-import type { GitGraphRef } from "../../../../build/presentation/contracts/GitGraphRef.ts";
-import type { GitRepositoryOperationState } from "../../../../build/presentation/contracts/GitRepositoryOperationState.ts";
-import type { GitRepositorySnapshotState } from "../../../../build/presentation/contracts/GitRepositorySnapshotState.ts";
-import type { GitStash } from "../../../../build/presentation/contracts/GitStash.ts";
-import type { GitWorktree } from "../../../../build/presentation/contracts/GitWorktree.ts";
-import type { GraphActionPresentation } from "../../../../build/presentation/contracts/GraphActionPresentation.ts";
-import type { GraphCommit } from "../../../../build/presentation/contracts/GraphCommit.ts";
-import type { GraphRow } from "../../../../build/presentation/contracts/GraphRow.ts";
 import {
 	usePollingQuery,
 	useQueryResource,

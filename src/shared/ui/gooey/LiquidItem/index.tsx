@@ -1,6 +1,5 @@
+import type { EvolveOptions, MoveOptions } from "@contracts";
 import { createMemo, type Element, omit } from "solid-js";
-import type { EvolveOptions } from "../../../../../build/presentation/contracts/EvolveOptions.ts";
-import type { MoveOptions } from "../../../../../build/presentation/contracts/MoveOptions.ts";
 import type { CSSProperties } from "../../../lib/dom.tsx";
 import {
 	type CornerRadii,
