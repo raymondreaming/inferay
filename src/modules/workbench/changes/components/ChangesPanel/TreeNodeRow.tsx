@@ -8,7 +8,8 @@ import {
 	IconFolderFill,
 } from "../../../../../shared/ui/Icons/index.tsx";
 import { FileActionIcon } from "./FileActionIcon.tsx";
-import { FileChangeIcon } from "./FileChangeIcon.tsx";
+// File and status icons are temporarily hidden; retain FileChangeIcon for restoration.
+// import { FileChangeIcon } from "./FileChangeIcon.tsx";
 import { FileDiffStats } from "./FileDiffStats.tsx";
 import type { SelectedFile } from "./index.tsx";
 import * as inlineStyles from "./styles.ts";
@@ -128,7 +129,7 @@ export function TreeNodeRow(props: {
 							{props.node && (
 								<span {...stylex.attrs(styles.treeIndentSpacer)} />
 							)}
-							<FileChangeIcon file={file()!} />
+							{/* <FileChangeIcon file={file()!} /> */}
 							{props.node ? (
 								<span
 									{...stylex.attrs(
