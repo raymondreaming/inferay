@@ -5,6 +5,7 @@ import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import {
 	iconSize,
 	runtimeColor,
+	surfaceStyles,
 } from "../../../design-system/styles.stylex.ts";
 import { domStyle, hasId } from "../../lib/dom.tsx";
 import { LiquidPopoverSurface } from "../gooey/LiquidPopoverSurface/index.tsx";
@@ -187,7 +188,7 @@ export function DropdownButton(_props: DropdownButtonProps) {
 	const Menu = () => (
 		<div
 			ref={(element) => (menuRef.current = element)}
-			class={`${stylex.attrs(styles.menu, liquid() && styles.menuLiquid).class ?? ""} ${liquid() ? `inferay-liquid-popover-panel inferay-liquid-popover-panel--${pos().placement} ${open() ? "inferay-liquid-popover-panel--open" : "inferay-liquid-popover-panel--closing"}` : ""}`}
+			class={`${stylex.attrs(surfaceStyles.overlay, styles.menu, liquid() && styles.menuLiquid).class ?? ""} ${liquid() ? `inferay-liquid-popover-panel inferay-liquid-popover-panel--${pos().placement} ${open() ? "inferay-liquid-popover-panel--open" : "inferay-liquid-popover-panel--closing"}` : ""}`}
 			style={domStyle(
 				inlineStyles.getDropdownButtonMenuStyle(
 					onTop() ? undefined : pos().top,

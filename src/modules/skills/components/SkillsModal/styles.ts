@@ -5,20 +5,14 @@ import {
 	font,
 	motion,
 	radius,
-	shadow,
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
 	dialog: {
 		position: "relative",
 		margin: "auto",
 		boxSizing: "border-box",
-		backgroundColor: color.backgroundModal,
 		color: color.textMain,
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.borderStrong,
 		borderRadius: radius._2xl,
-		boxShadow: shadow.modal,
 		width: "min(1080px, calc(100vw - 32px))",
 		height: "min(780px, calc(100dvh - 48px))",
 		maxWidth: "calc(100vw - 32px)",

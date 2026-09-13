@@ -7,7 +7,6 @@ import {
 	layer,
 	motion,
 	radius,
-	shadow,
 } from "../../../../design-system/styles.stylex.ts";
 import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 export const styles = stylex.create({
@@ -22,12 +21,7 @@ export const styles = stylex.create({
 		zIndex: layer.criticalOverlay,
 	},
 	modal: {
-		backgroundColor: color.backgroundModal,
-		borderColor: color.borderStrong,
 		borderRadius: radius._2xl,
-		borderStyle: "solid",
-		borderWidth: 1,
-		boxShadow: shadow.modal,
 		display: "grid",
 		gridTemplateColumns: {
 			default: "3.5rem minmax(0, 1fr)",

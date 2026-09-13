@@ -333,6 +333,16 @@ export const runtimeLayer = {
 	criticalOverlay: 9999,
 } as const;
 export const surfaceStyles = stylex.create({
+	/** The one treatment for every floating layer: modals, dialogs, menus, popovers. */
+	overlay: {
+		backdropFilter: "blur(20px)",
+		backgroundColor: color.surfaceGlassStrong,
+		backgroundImage: "none",
+		borderColor: color.border,
+		borderStyle: "solid",
+		borderWidth: 1,
+		boxShadow: shadow.popover,
+	},
 	panel: {
 		backgroundColor: color.backgroundPanel,
 		borderColor: color.border,

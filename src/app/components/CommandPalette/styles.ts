@@ -5,7 +5,6 @@ import {
 	font,
 	layer,
 	radius,
-	shadow,
 } from "../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
 	trigger: {
@@ -46,12 +45,7 @@ export const styles = stylex.create({
 	palette: {
 		width: "min(31rem, calc(100vw - 32px))",
 		overflow: "hidden",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.borderStrong,
 		borderRadius: radius.lg,
-		backgroundColor: color.headerPopoverOpaque,
-		boxShadow: shadow.popover,
 	},
 	search: {
 		display: "flex",

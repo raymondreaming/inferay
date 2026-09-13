@@ -1,6 +1,9 @@
 import * as stylex from "@stylexjs/stylex";
 import { For } from "solid-js";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
+import {
+	iconSize,
+	surfaceStyles,
+} from "../../../../design-system/styles.stylex.ts";
 import { openSkills } from "../../../../shared/lib/dom.tsx";
 import { IconPlus } from "../../../../shared/ui/Icons/index.tsx";
 import { CommandMenuRow } from "./CommandMenuRow.tsx";
@@ -13,7 +16,13 @@ type CommandMenuProps = Pick<
 >;
 export function CommandMenu(_props: CommandMenuProps) {
 	return (
-		<div {...stylex.attrs(styles.floatingMenu, styles.commandMenu)}>
+		<div
+			{...stylex.attrs(
+				surfaceStyles.overlay,
+				styles.floatingMenu,
+				styles.commandMenu,
+			)}
+		>
 			<div {...stylex.attrs(styles.commandList)}>
 				{
 					<For each={_props.filteredCommands} keyed={(row) => row.name}>

@@ -15,6 +15,7 @@ import {
 import {
 	iconSize,
 	selectionAppearance,
+	surfaceStyles,
 } from "../../../../design-system/styles.stylex.ts";
 import { useBackgroundQuery } from "../../../../shared/hooks/useQueryResource.tsx";
 import {
@@ -173,7 +174,7 @@ export function RepositoryWorkspaceBar() {
 					<div
 						role="menu"
 						aria-label="Create new"
-						{...stylex.attrs(styles.newMenu)}
+						{...stylex.attrs(surfaceStyles.overlay, styles.newMenu)}
 					>
 						<button
 							type="button"

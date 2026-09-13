@@ -77,13 +77,7 @@ export const styles = stylex.create({
 		width: "100%",
 	},
 	menu: {
-		backgroundColor: color.popoverOpaque,
-		backgroundImage: "none",
-		borderColor: color.border,
 		borderRadius: radius.lg,
-		borderStyle: "solid",
-		borderWidth: 1,
-		boxShadow: shadow.popover,
 		overflow: "hidden",
 		position: "fixed",
 		userSelect: "none",

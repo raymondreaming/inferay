@@ -2,7 +2,10 @@ import type { Prompt, SkillFormState } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, onCleanup, onSettled } from "solid-js";
 import { APP_REGION_NO_DRAG_CLASS } from "../../../../app/hooks/useAppAppearance.tsx";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
+import {
+	iconSize,
+	surfaceStyles,
+} from "../../../../design-system/styles.stylex.ts";
 import type { SkillsTarget } from "../../../../shared/lib/dom.tsx";
 import { project as rustProject } from "../../../../shared/lib/native.tsx";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
@@ -194,7 +197,7 @@ export function SkillsDialog(_props: {
 				close();
 			}}
 			onKeyDown={(event) => event.stopPropagation()}
-			class={`${APP_REGION_NO_DRAG_CLASS} ${stylex.attrs(styles.dialog).class ?? ""}`}
+			class={`${APP_REGION_NO_DRAG_CLASS} ${stylex.attrs(surfaceStyles.overlay, styles.dialog).class ?? ""}`}
 		>
 			<div {...stylex.attrs(styles.root)}>
 				<IconButton

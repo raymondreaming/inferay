@@ -10,7 +10,10 @@ import {
 	Show,
 } from "solid-js";
 import { APP_REGION_NO_DRAG_CLASS } from "../../../../app/hooks/useAppAppearance.tsx";
-import { iconSize } from "../../../../design-system/styles.stylex.ts";
+import {
+	iconSize,
+	surfaceStyles,
+} from "../../../../design-system/styles.stylex.ts";
 import {
 	ariaValue,
 	domStyle,
@@ -127,7 +130,7 @@ export function SettingsModalHost() {
 		window.addEventListener("keydown", closeOnEscape);
 		return () => window.removeEventListener("keydown", closeOnEscape);
 	});
-	const modalProps = stylex.attrs(styles.modal);
+	const modalProps = stylex.attrs(surfaceStyles.overlay, styles.modal);
 	const backdropProps = stylex.attrs(styles.backdrop);
 	return (
 		<Show when={open()}>

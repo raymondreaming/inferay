@@ -136,10 +136,6 @@ export const styles = stylex.create({
 		right: controlSize._0,
 		bottom: "100%",
 		zIndex: layer.criticalOverlay,
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		backgroundColor: color.backgroundModal,
 	},
 	fileMenu: {
 		maxHeight: "300px",

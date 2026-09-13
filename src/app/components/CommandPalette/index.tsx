@@ -7,6 +7,7 @@ import {
 	For,
 	onSettled,
 } from "solid-js";
+import { surfaceStyles } from "../../../design-system/styles.stylex.ts";
 import { ariaValue } from "../../../shared/lib/dom.tsx";
 import { IconSearch } from "../../../shared/ui/Icons/index.tsx";
 import { APP_REGION_NO_DRAG_CLASS } from "../../hooks/useAppAppearance.tsx";
@@ -97,8 +98,8 @@ export function CommandPalette(_props: {
 						role="dialog"
 						aria-modal="true"
 						aria-label="Command palette"
-						{...stylex.attrs(styles.palette)}
-						class={`${APP_REGION_NO_DRAG_CLASS} ${stylex.attrs(styles.palette).class ?? ""}`}
+						{...stylex.attrs(surfaceStyles.overlay, styles.palette)}
+						class={`${APP_REGION_NO_DRAG_CLASS} ${stylex.attrs(surfaceStyles.overlay, styles.palette).class ?? ""}`}
 					>
 						<label {...stylex.attrs(styles.search)}>
 							<IconSearch size={16} />
