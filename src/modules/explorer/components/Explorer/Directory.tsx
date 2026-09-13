@@ -21,30 +21,30 @@ export function Directory(_props: {
 	depth?: number;
 }) {
 	const query = useQuery(
-		() => ({
-			queryKey: [
-				"explorer-directory",
-				_props.cwd,
-				_props.path === undefined ? "" : _props.path,
-			],
-			queryFn: ({ signal }) =>
-				fetchJson<{
-					entries: ExplorerEntry[];
-				}>(
-					`/api/files/list?${new URLSearchParams({
-						cwd: _props.cwd,
-						path: _props.path === undefined ? "" : _props.path,
-					})}`,
-					{
-						signal,
-					},
-				),
-			gcTime: 0,
-			staleTime: 0,
-			retry: false,
-			refetchOnReconnect: false,
-			refetchOnWindowFocus: false,
-		}),
+		() => {
+			const cwd = _props.cwd;
+			const path = _props.path ?? "";
+			return {
+				queryKey: ["explorer-directory", cwd, path],
+				queryFn: ({ signal }) =>
+					fetchJson<{
+						entries: ExplorerEntry[];
+					}>(
+						`/api/files/list?${new URLSearchParams({
+							cwd,
+							path,
+						})}`,
+						{
+							signal,
+						},
+					),
+				gcTime: 0,
+				staleTime: 0,
+				retry: false,
+				refetchOnReconnect: false,
+				refetchOnWindowFocus: false,
+			};
+		},
 		() => queryClient,
 	);
 	const entries = createMemo(() => query.data?.entries ?? []);

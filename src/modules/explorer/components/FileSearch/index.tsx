@@ -81,17 +81,14 @@ export function FileSearch(_props: {
 		current: HTMLInputElement | null;
 	};
 	const selected = createMemo(() => results()[selectedIndex()] ?? null);
-	createEffect(
-		() => [open()],
-		() => {
-			if (!open()) return;
-			const close = (event: MouseEvent) => {
-				if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-			};
-			document.addEventListener("mousedown", close);
-			return () => document.removeEventListener("mousedown", close);
-		},
-	);
+	createEffect(open, (isOpen) => {
+		if (!isOpen) return;
+		const close = (event: MouseEvent) => {
+			if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+		};
+		document.addEventListener("mousedown", close);
+		return () => document.removeEventListener("mousedown", close);
+	});
 	const choose = (file: FileSearchResult | null) => {
 		if (!file) return;
 		_props.onSelect(file);

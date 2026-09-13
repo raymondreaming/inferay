@@ -4,7 +4,6 @@ import {
 	createMemo,
 	createSignal,
 	merge,
-	onSettled,
 } from "solid-js";
 import type { GitGraphRef } from "../../../../../../build/presentation/contracts/GitGraphRef.ts";
 import type { GitWorktree } from "../../../../../../build/presentation/contracts/GitWorktree.ts";
@@ -21,12 +20,12 @@ import {
 } from "../../../../../shared/lib/native.tsx";
 import type { GraphPresentation } from "../../../../repository/hooks/useGitGraph.tsx";
 import { getGraphLineLayerStyle } from "./styles.ts";
+import { useGraphViewport } from "./useGraphViewport.tsx";
+
 export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 	const trackResize = createPointerResize();
-	const _source = createMemo(() => _props());
 	const preferences = createMemo(() => _props().preferences);
 	const setPreferences = createMemo(() => _props().onPreferencesChange);
-	const _source2 = createMemo(() => preferences());
 	const setters = createMemo(() => {
 		const field =
 			<K extends keyof GraphPreferences>(key: K) =>
@@ -48,29 +47,22 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 			setPinnedRefs: field("pinnedRefs"),
 		};
 	});
-	const _source3 = createMemo(() => setters());
 	const [isColumnsOpen, setIsColumnsOpen] = createSignal(false);
 	const [commitAvatars, setCommitAvatars] = createSignal<
 		Record<string, string | null>
 	>({});
 	const avatarHashes = createMemo(() =>
-		_source()
+		_props()
 			.commits.filter((commit) => commit.itemKind === "commit")
 			.slice(0, 100)
 			.map((commit) => commit.hash),
 	);
 	createEffect(
-		() => [avatarHashes(), _source().repositoryKey],
-		() => {
-			const _sourceValue = _source(),
-				_avatarHashesValue = avatarHashes();
+		() => [avatarHashes(), _props().repositoryKey] as const,
+		([hashes, repository]) => {
 			let current = true;
-			if (!_sourceValue.repositoryKey || _avatarHashesValue.length === 0)
-				return;
-			void resolveGitCommitAvatars(
-				_sourceValue.repositoryKey,
-				_avatarHashesValue,
-			).then((avatars) => {
+			if (!repository || hashes.length === 0) return;
+			void resolveGitCommitAvatars(repository, hashes).then((avatars) => {
 				if (current) setCommitAvatars(avatars);
 			});
 			return () => {
@@ -79,7 +71,7 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		},
 	);
 	const selectedIdSet = createMemo(() => {
-		const _sourceValue2 = _source();
+		const _sourceValue2 = _props();
 		return new Set(
 			_sourceValue2.selectedIds === undefined
 				? EMPTY_SELECTED_IDS
@@ -101,42 +93,15 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 	const handleRowHover = (itemId: string | null) => {
 		if (!keyboardNavigationRef.current) setHoveredRow(itemId);
 	};
-	const [scrollerElement, setScrollerElement] =
-		createSignal<HTMLDivElement | null>(null);
-	const scrollerRef = {
-		get current() {
-			return scrollerElement();
-		},
-		set current(element: HTMLDivElement | null) {
-			setScrollerElement(element);
-		},
-	};
-	const scrollFrameRef = {
-		current: null,
-	} as {
-		current: number | null;
-	};
-	const scrollWriteTimerRef = {
-		current: null,
-	} as {
-		current: number | null;
-	};
-	const scrollPositionRef = {
-		current: {
-			top: 0,
-			left: 0,
-		},
-	};
-	const restoredScrollKeyRef = {
-		current: null,
-	} as {
-		current: string | null;
-	};
-	const [scrollTop, setScrollTop] = createSignal(0);
-	const [viewportHeight, setViewportHeight] = createSignal(600);
+	const { scrollerRef, scrollTop, viewportHeight, rememberScroll } =
+		useGraphViewport(
+			() => _props().repositoryKey,
+			() => _props().commits.length > 0,
+			ROW_HEIGHT,
+		);
 	const [query, setQuery] = createSignal(() => {
-		_source().repositoryKey;
-		return _source().searchQuery ?? "";
+		_props().repositoryKey;
+		return _props().searchQuery ?? "";
 	});
 	const [refContextMenu, setRefContextMenu] = createSignal<{
 		ref: GitGraphRef;
@@ -148,77 +113,23 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		x: number;
 		y: number;
 	} | null>(null);
-	const hasCommits = createMemo(() => _source().commits.length > 0);
+	const hasCommits = createMemo(() => _props().commits.length > 0);
 	createEffect(
-		() => {
-			const _sourceValue3 = _source();
-			return [
-				_sourceValue3.embedded === undefined ? false : _sourceValue3.embedded,
+		() =>
+			[
+				_props().embedded,
 				hasCommits(),
-				_sourceValue3.repositoryKey,
-			];
-		},
-		() => {
-			const _sourceValue4 = _source();
-			if (
-				!(_sourceValue4.embedded === undefined
-					? false
-					: _sourceValue4.embedded) ||
-				!hasCommits()
-			)
-				return;
-			scrollerRef.current?.focus({
-				preventScroll: true,
-			});
+				_props().repositoryKey,
+				scrollerRef.current,
+			] as const,
+		([embedded, ready, , scroller]) => {
+			if (embedded && ready) scroller?.focus({ preventScroll: true });
 		},
 	);
 	createEffect(
-		() => {
-			const _sourceValue5 = _source();
-			return [_sourceValue5.commits.length, _sourceValue5.repositoryKey];
-		},
-		() => {
-			const _sourceValue6 = _source();
-			const key = scrollPreferencesKey(_sourceValue6.repositoryKey);
-			if (
-				restoredScrollKeyRef.current === key ||
-				_sourceValue6.commits.length === 0
-			)
-				return;
-			const position = readStoredJson<{
-				top?: number;
-				left?: number;
-			}>(key, {});
-			const scroller = scrollerRef.current;
-			if (!scroller) return;
-			restoredScrollKeyRef.current = key;
-			const top = typeof position.top === "number" ? position.top : 0;
-			const left = typeof position.left === "number" ? position.left : 0;
-			scrollPositionRef.current = {
-				top,
-				left,
-			};
-			scroller.scrollTop = top;
-			scroller.scrollLeft = left;
-			setScrollTop(top);
-		},
-	);
-	createEffect(
-		() => [_source().repositoryKey],
-		() => () => {
-			if (scrollWriteTimerRef.current !== null) {
-				window.clearTimeout(scrollWriteTimerRef.current);
-			}
-			writeStoredJson(
-				scrollPreferencesKey(_source().repositoryKey),
-				scrollPositionRef.current,
-			);
-		},
-	);
-	createEffect(
-		() => [itemContextMenu(), refContextMenu()],
-		() => {
-			if (!refContextMenu() && !itemContextMenu()) return;
+		() => !!itemContextMenu() || !!refContextMenu(),
+		(open) => {
+			if (!open) return;
 			const close = () => {
 				setRefContextMenu(null);
 				setItemContextMenu(null);
@@ -235,14 +146,14 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		},
 	);
 	createEffect(
-		() => [preferences(), _source().repositoryKey],
-		() => {
-			writeStoredJson(preferencesKey(_source().repositoryKey), preferences());
+		() => [preferences(), _props().repositoryKey] as const,
+		([value, repository]) => {
+			writeStoredJson(preferencesKey(repository), value);
 		},
 	);
 	const graphModel = createMemo(() => {
-		const _source2Value = _source2(),
-			_sourceValue7 = _source();
+		const _source2Value = preferences(),
+			_sourceValue7 = _props();
 		return buildCommitGraphViewModel({
 			columns: _source2Value.columns,
 			commits: _sourceValue7.commits,
@@ -254,7 +165,7 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		});
 	});
 	const viewportModel = createMemo(() => {
-		const _sourceValue8 = _source();
+		const _sourceValue8 = _props();
 		return projectCommitGraphViewport(
 			_sourceValue8.rows,
 			_sourceValue8.commits.length,
@@ -263,71 +174,25 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 			graphModel().displayColumns,
 		);
 	});
-	const _source4 = createMemo(() => graphModel());
 	const lineLayerStyle = createMemo(() =>
-		getGraphLineLayerStyle(_source4().graphLeft, TOP_PADDING),
+		getGraphLineLayerStyle(graphModel().graphLeft, TOP_PADDING),
 	);
 	const normalizedQuery = createMemo(() => (query() ?? "").trim());
 	createEffect(
-		() => [normalizedQuery(), _source().onSearchChange],
-		() => {
-			const timer = window.setTimeout(
-				() => _source().onSearchChange?.(normalizedQuery()),
-				200,
-			);
+		() => [normalizedQuery(), _props().onSearchChange] as const,
+		([query, onSearchChange]) => {
+			const timer = window.setTimeout(() => onSearchChange?.(query), 200);
 			return () => window.clearTimeout(timer);
 		},
 	);
-	createEffect(
-		() => scrollerRef.current,
-		(scroller) => {
-			if (!scroller) return;
-			const update = () => setViewportHeight(scroller.clientHeight);
-			update();
-			const observer = new ResizeObserver(update);
-			observer.observe(scroller);
-			return () => observer.disconnect();
-		},
-	);
 	const toggleColumn = (key: keyof ColumnVisibility) =>
-		_source3().setColumns((cur) => ({
+		setters().setColumns((cur) => ({
 			...cur,
 			[key]: !cur[key],
 		}));
 	const moveColumn = (source: ColumnKey, target: ColumnKey) => {
-		_source3().setOrder((current) => moveGraphColumn(current, source, target));
+		setters().setOrder((current) => moveGraphColumn(current, source, target));
 	};
-	const rememberScroll = (top: number, left: number) => {
-		scrollPositionRef.current = {
-			top,
-			left,
-		};
-		if (scrollFrameRef.current === null) {
-			scrollFrameRef.current = requestAnimationFrame(() => {
-				scrollFrameRef.current = null;
-				const nextTop = scrollPositionRef.current.top;
-				setScrollTop((current) =>
-					Math.floor(current / ROW_HEIGHT) === Math.floor(nextTop / ROW_HEIGHT)
-						? current
-						: nextTop,
-				);
-			});
-		}
-		if (scrollWriteTimerRef.current !== null) {
-			window.clearTimeout(scrollWriteTimerRef.current);
-		}
-		scrollWriteTimerRef.current = window.setTimeout(() => {
-			writeStoredJson(scrollPreferencesKey(_source().repositoryKey), {
-				top,
-				left,
-			});
-			scrollWriteTimerRef.current = null;
-		}, 160);
-	};
-	onSettled(() => () => {
-		if (scrollFrameRef.current !== null)
-			cancelAnimationFrame(scrollFrameRef.current);
-	});
 	const openRefContextMenu = (ref: GitGraphRef, event: MouseEvent) => {
 		setItemContextMenu(null);
 		setRefContextMenu({
@@ -365,8 +230,8 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 			event.preventDefault();
 			return;
 		}
-		const _source4Value = _source4(),
-			_sourceValue0 = _source();
+		const _source4Value = graphModel(),
+			_sourceValue0 = _props();
 		if (
 			event.key !== "ArrowUp" &&
 			event.key !== "ArrowDown" &&
@@ -438,9 +303,9 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		if (event.button !== 0) return;
 		event.preventDefault();
 		const startX = event.clientX;
-		const startWidth = _source2().widths[column];
+		const startWidth = preferences().widths[column];
 		const move = (moveEvent: PointerEvent) => {
-			_source3().setWidths((current) => ({
+			setters().setWidths((current) => ({
 				...current,
 				[column]: Math.max(
 					MIN_COLUMN_WIDTHS[column],
@@ -450,172 +315,215 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		};
 		trackResize(event.pointerId, move);
 	};
-	return merge(
-		() => {
-			const _sourceValue1 = _source(),
-				_source2Value2 = _source2(),
-				_source3Value = _source3();
-			return _props();
+	return merge(_props, {
+		get containingBranches() {
+			return graphModel().containingBranches;
 		},
-		() => {
-			const _sourceValue1 = _source(),
-				_source2Value2 = _source2(),
-				_source3Value = _source3();
-			return graphModel();
+		get defaultRemoteName() {
+			return graphModel().defaultRemoteName;
 		},
-		() => {
-			const _sourceValue1 = _source(),
-				_source2Value2 = _source2(),
-				_source3Value = _source3();
-			return viewportModel();
+		get displayGraphColumn() {
+			return graphModel().displayGraphColumn;
 		},
-		{
-			get emptyLabel() {
-				const _sourceValue1 = _source();
-				return _sourceValue1.emptyLabel === undefined
-					? "No matching commits"
-					: _sourceValue1.emptyLabel;
-			},
-			get searchActive() {
-				const _sourceValue1 = _source();
-				return _sourceValue1.searchActive === undefined
-					? false
-					: _sourceValue1.searchActive;
-			},
-			get selectedIds() {
-				const _sourceValue1 = _source();
-				return _sourceValue1.selectedIds === undefined
-					? EMPTY_SELECTED_IDS
-					: _sourceValue1.selectedIds;
-			},
-			get class() {
-				const _sourceValue1 = _source();
-				return _sourceValue1.class === undefined ? "" : _sourceValue1.class;
-			},
-			get embedded() {
-				const _sourceValue1 = _source();
-				return _sourceValue1.embedded === undefined
-					? false
-					: _sourceValue1.embedded;
-			},
-			get hasMore() {
-				const _sourceValue1 = _source();
-				return _sourceValue1.hasMore === undefined
-					? false
-					: _sourceValue1.hasMore;
-			},
-			get loadingMore() {
-				const _sourceValue1 = _source();
-				return _sourceValue1.loadingMore === undefined
-					? false
-					: _sourceValue1.loadingMore;
-			},
-			get columns() {
-				const _source2Value2 = _source2();
-				return _source2Value2.columns;
-			},
-			get widths() {
-				const _source2Value2 = _source2();
-				return _source2Value2.widths;
-			},
-			get order() {
-				const _source2Value2 = _source2();
-				return _source2Value2.order;
-			},
-			get setHiddenRefs() {
-				const _source3Value = _source3();
-				return _source3Value.setHiddenRefs;
-			},
-			get soloRefs() {
-				const _source2Value2 = _source2();
-				return _source2Value2.soloRefs;
-			},
-			get setSoloRefs() {
-				const _source3Value = _source3();
-				return _source3Value.setSoloRefs;
-			},
-			get pinnedRefs() {
-				const _source2Value2 = _source2();
-				return _source2Value2.pinnedRefs;
-			},
-			get setPinnedRefs() {
-				const _source3Value = _source3();
-				return _source3Value.setPinnedRefs;
-			},
-			get isColumnsOpen() {
-				return isColumnsOpen();
-			},
-			get setIsColumnsOpen() {
-				return setIsColumnsOpen;
-			},
-			get commitAvatars() {
-				return commitAvatars();
-			},
-			get selectedIdSet() {
-				return selectedIdSet();
-			},
-			get hoveredRow() {
-				return hoveredRow();
-			},
-			get setHoveredRow() {
-				return setHoveredRow;
-			},
-			get keyboardNavigationRef() {
-				return keyboardNavigationRef;
-			},
-			get mousePositionRef() {
-				return mousePositionRef;
-			},
-			get handleRowHover() {
-				return handleRowHover;
-			},
-			get scrollerRef() {
-				return scrollerRef;
-			},
-			get query() {
-				return query();
-			},
-			get setQuery() {
-				return setQuery;
-			},
-			get refContextMenu() {
-				return refContextMenu();
-			},
-			get setRefContextMenu() {
-				return setRefContextMenu;
-			},
-			get itemContextMenu() {
-				return itemContextMenu();
-			},
-			get setItemContextMenu() {
-				return setItemContextMenu;
-			},
-			get lineLayerStyle() {
-				return lineLayerStyle();
-			},
-			get toggleColumn() {
-				return toggleColumn;
-			},
-			get moveColumn() {
-				return moveColumn;
-			},
-			get rememberScroll() {
-				return rememberScroll;
-			},
-			get openRefContextMenu() {
-				return openRefContextMenu;
-			},
-			get openItemContextMenu() {
-				return openItemContextMenu;
-			},
-			get navigateRows() {
-				return navigateRows;
-			},
-			get startColumnResize() {
-				return startColumnResize;
-			},
+		get displayColumns() {
+			return graphModel().displayColumns;
 		},
-	);
+		get visibleOrder() {
+			return graphModel().visibleOrder;
+		},
+		get graphWidth() {
+			return graphModel().graphWidth;
+		},
+		get graphLeft() {
+			return graphModel().graphLeft;
+		},
+		get graphHeight() {
+			return graphModel().graphHeight;
+		},
+		get tableWidth() {
+			return graphModel().tableWidth;
+		},
+		get totalHeight() {
+			return graphModel().totalHeight;
+		},
+		get hiddenRefDetails() {
+			return graphModel().hiddenRefDetails;
+		},
+		get hiddenRefNames() {
+			return graphModel().hiddenRefNames;
+		},
+		get itemIndexes() {
+			return graphModel().itemIndexes;
+		},
+		get matchingHashes() {
+			return graphModel().matchingHashes;
+		},
+		get pinnedRefNames() {
+			return graphModel().pinnedRefNames;
+		},
+		get reachableHistory() {
+			return graphModel().reachableHistory;
+		},
+		get selectableItems() {
+			return graphModel().selectableItems;
+		},
+		get worktreesByPath() {
+			return graphModel().worktreesByPath;
+		},
+		get visibleStart() {
+			return viewportModel().visibleStart;
+		},
+		get visibleEnd() {
+			return viewportModel().visibleEnd;
+		},
+		get lines() {
+			return viewportModel().lines;
+		},
+		get emptyLabel() {
+			const _sourceValue1 = _props();
+			return _sourceValue1.emptyLabel === undefined
+				? "No matching commits"
+				: _sourceValue1.emptyLabel;
+		},
+		get searchActive() {
+			const _sourceValue1 = _props();
+			return _sourceValue1.searchActive === undefined
+				? false
+				: _sourceValue1.searchActive;
+		},
+		get selectedIds() {
+			const _sourceValue1 = _props();
+			return _sourceValue1.selectedIds === undefined
+				? EMPTY_SELECTED_IDS
+				: _sourceValue1.selectedIds;
+		},
+		get class() {
+			const _sourceValue1 = _props();
+			return _sourceValue1.class === undefined ? "" : _sourceValue1.class;
+		},
+		get embedded() {
+			const _sourceValue1 = _props();
+			return _sourceValue1.embedded === undefined
+				? false
+				: _sourceValue1.embedded;
+		},
+		get hasMore() {
+			const _sourceValue1 = _props();
+			return _sourceValue1.hasMore === undefined
+				? false
+				: _sourceValue1.hasMore;
+		},
+		get loadingMore() {
+			const _sourceValue1 = _props();
+			return _sourceValue1.loadingMore === undefined
+				? false
+				: _sourceValue1.loadingMore;
+		},
+		get columns() {
+			const _source2Value2 = preferences();
+			return _source2Value2.columns;
+		},
+		get widths() {
+			const _source2Value2 = preferences();
+			return _source2Value2.widths;
+		},
+		get order() {
+			const _source2Value2 = preferences();
+			return _source2Value2.order;
+		},
+		get setHiddenRefs() {
+			const _source3Value = setters();
+			return _source3Value.setHiddenRefs;
+		},
+		get soloRefs() {
+			const _source2Value2 = preferences();
+			return _source2Value2.soloRefs;
+		},
+		get setSoloRefs() {
+			const _source3Value = setters();
+			return _source3Value.setSoloRefs;
+		},
+		get pinnedRefs() {
+			const _source2Value2 = preferences();
+			return _source2Value2.pinnedRefs;
+		},
+		get setPinnedRefs() {
+			const _source3Value = setters();
+			return _source3Value.setPinnedRefs;
+		},
+		get isColumnsOpen() {
+			return isColumnsOpen();
+		},
+		get setIsColumnsOpen() {
+			return setIsColumnsOpen;
+		},
+		get commitAvatars() {
+			return commitAvatars();
+		},
+		get selectedIdSet() {
+			return selectedIdSet();
+		},
+		get hoveredRow() {
+			return hoveredRow();
+		},
+		get setHoveredRow() {
+			return setHoveredRow;
+		},
+		get keyboardNavigationRef() {
+			return keyboardNavigationRef;
+		},
+		get mousePositionRef() {
+			return mousePositionRef;
+		},
+		get handleRowHover() {
+			return handleRowHover;
+		},
+		get scrollerRef() {
+			return scrollerRef;
+		},
+		get query() {
+			return query();
+		},
+		get setQuery() {
+			return setQuery;
+		},
+		get refContextMenu() {
+			return refContextMenu();
+		},
+		get setRefContextMenu() {
+			return setRefContextMenu;
+		},
+		get itemContextMenu() {
+			return itemContextMenu();
+		},
+		get setItemContextMenu() {
+			return setItemContextMenu;
+		},
+		get lineLayerStyle() {
+			return lineLayerStyle();
+		},
+		get toggleColumn() {
+			return toggleColumn;
+		},
+		get moveColumn() {
+			return moveColumn;
+		},
+		get rememberScroll() {
+			return rememberScroll;
+		},
+		get openRefContextMenu() {
+			return openRefContextMenu;
+		},
+		get openItemContextMenu() {
+			return openItemContextMenu;
+		},
+		get navigateRows() {
+			return navigateRows;
+		},
+		get startColumnResize() {
+			return startColumnResize;
+		},
+	});
 }
 export async function resolveGitCommitAvatars(
 	cwd: string,

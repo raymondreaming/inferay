@@ -34,22 +34,18 @@ export function useNativeEditDiff(
 	const query = useQuery(
 		() => {
 			const _streamingValue = _streaming();
+			const input = _streamingValue
+				? null
+				: { before: _before(), after: _after(), edits: _edits() };
 			return {
-				queryKey: _streamingValue
-					? ["native-edit-diff", "disabled"]
-					: ["native-edit-diff", _before(), _after(), _edits() ?? null],
+				queryKey: input
+					? ["native-edit-diff", input.before, input.after, input.edits ?? null]
+					: ["native-edit-diff", "disabled"],
 				queryFn: async ({ signal }: { signal: AbortSignal }) => {
-					const response = await sendJson(
-						"/api/native/diff",
-						{
-							before: _before(),
-							after: _after(),
-							edits: _edits(),
-						},
-						{
-							signal: AbortSignal.any([signal, AbortSignal.timeout(12000)]),
-						},
-					);
+					if (!input) return EMPTY_HUNKS;
+					const response = await sendJson("/api/native/diff", input, {
+						signal: AbortSignal.any([signal, AbortSignal.timeout(12000)]),
+					});
 					if (!response.ok) {
 						const failure = await response.json().catch(() => null);
 						throw new Error(

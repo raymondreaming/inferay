@@ -63,10 +63,9 @@ export function useChatDiffPanelState(
 		readonly drag?: DragProps;
 	}>,
 ) {
-	const _source = createMemo(() => _props());
 	const stats = createMemo(
 		() =>
-			_source().diff?.metadata?.stats ?? {
+			_props().diff?.metadata?.stats ?? {
 				added: 0,
 				removed: 0,
 				hunks: 0,
@@ -92,26 +91,22 @@ export function useChatDiffPanelState(
 	const [graphActionRunning, setGraphActionRunning] = createSignal(false);
 	const preflight = useQuery(
 		() => {
-			const _sourceValue = _source(),
+			const repositoryKey = _props().repositoryKey,
 				_pendingRefActionValue = pendingRefAction();
 			return {
-				queryKey: [
-					"git-ref-preflight",
-					_sourceValue.repositoryKey,
-					_pendingRefActionValue,
-				],
+				queryKey: ["git-ref-preflight", repositoryKey, _pendingRefActionValue],
 				queryFn: ({ signal }) =>
 					postJson<GitRefOperationPreflight>(
 						"/api/git/ref-operation-preflight",
 						{
-							cwd: _source().repositoryKey,
-							...pendingRefAction(),
+							cwd: repositoryKey,
+							..._pendingRefActionValue,
 						},
 						{
 							signal,
 						},
 					),
-				enabled: !!_pendingRefActionValue && !!_sourceValue.repositoryKey,
+				enabled: !!_pendingRefActionValue && !!repositoryKey,
 				gcTime: 0,
 				staleTime: 0,
 				retry: false,
@@ -127,7 +122,7 @@ export function useChatDiffPanelState(
 		const _pendingRefActionValue2 = pendingRefAction();
 		if (action === "start" && !_pendingRefActionValue2) return;
 		setRefOperationRunning(true);
-		const result = await _source().onRunRefOperation({
+		const result = await _props().onRunRefOperation({
 			operation,
 			action,
 			source: _pendingRefActionValue2?.source,
@@ -149,7 +144,7 @@ export function useChatDiffPanelState(
 		const _pendingGraphActionValue = pendingGraphAction();
 		if (!_pendingGraphActionValue) return;
 		setGraphActionRunning(true);
-		const result = await _source().onRunGraphAction({
+		const result = await _props().onRunGraphAction({
 			..._pendingGraphActionValue,
 			name: graphActionName().trim() || undefined,
 			message: graphActionMessage().trim() || undefined,
@@ -159,7 +154,7 @@ export function useChatDiffPanelState(
 		if (result.ok) setPendingGraphAction(null);
 	};
 	const activeModeIndex = createMemo(() => {
-		const _sourceValue2 = _source();
+		const _sourceValue2 = _props();
 		return _sourceValue2.zenMode
 			? 2
 			: _sourceValue2.mainViewMode === "graph"
@@ -171,7 +166,7 @@ export function useChatDiffPanelState(
 	const pendingGraphActionPresentation = createMemo(() => {
 		const _pendingGraphActionValue2 = pendingGraphAction();
 		return _pendingGraphActionValue2
-			? (_source().graph.actions[_pendingGraphActionValue2.action] ?? null)
+			? (_props().graph.actions[_pendingGraphActionValue2.action] ?? null)
 			: null;
 	});
 	const operationModel = createMemo(() =>
@@ -187,7 +182,7 @@ export function useChatDiffPanelState(
 			recoveryTitle: string | null;
 			recoveryMessage: string;
 		}>("gitOperationModel", {
-			repository: _source().graph.operation,
+			repository: _props().graph.operation,
 			result: refOperationResult(),
 			graphResult: graphActionResult(),
 			preflight: preflight.data,
@@ -196,93 +191,87 @@ export function useChatDiffPanelState(
 				refOperationRunning() || graphActionRunning() || preflight.isFetching,
 		}),
 	);
-	return merge(
-		() => {
+	return merge(_props, {
+		get stats() {
+			return stats();
+		},
+		get hoveredModeIndex() {
+			return hoveredModeIndex();
+		},
+		get setHoveredModeIndex() {
+			return setHoveredModeIndex;
+		},
+		get pendingRefAction() {
+			return pendingRefAction();
+		},
+		get setPendingRefAction() {
+			return setPendingRefAction;
+		},
+		get refOperationResult() {
+			return refOperationResult();
+		},
+		get setRefOperationResult() {
+			return setRefOperationResult;
+		},
+		get refOperationRunning() {
+			return refOperationRunning();
+		},
+		get refPreflightRunning() {
+			return preflight.isFetching;
+		},
+		get refPreflightError() {
+			return preflight.error
+				? preflight.error.message || "Unable to check branch operations"
+				: null;
+		},
+		get pendingGraphAction() {
+			return pendingGraphAction();
+		},
+		get setPendingGraphAction() {
+			return setPendingGraphAction;
+		},
+		get graphActionName() {
+			return graphActionName();
+		},
+		get setGraphActionName() {
+			return setGraphActionName;
+		},
+		get graphActionMessage() {
+			return graphActionMessage();
+		},
+		get setGraphActionMessage() {
+			return setGraphActionMessage;
+		},
+		get graphActionResult() {
+			return graphActionResult();
+		},
+		get graphActionRunning() {
+			return graphActionRunning();
+		},
+		get runRefOperation() {
+			return runRefOperation;
+		},
+		get requestGraphAction() {
+			return requestGraphAction;
+		},
+		get runGraphAction() {
+			return runGraphAction;
+		},
+		get activeModeIndex() {
+			return activeModeIndex();
+		},
+		get operationModel() {
 			const _operationModelValue = operationModel();
-			return _props();
+			return _operationModelValue;
 		},
-		{
-			get stats() {
-				return stats();
-			},
-			get hoveredModeIndex() {
-				return hoveredModeIndex();
-			},
-			get setHoveredModeIndex() {
-				return setHoveredModeIndex;
-			},
-			get pendingRefAction() {
-				return pendingRefAction();
-			},
-			get setPendingRefAction() {
-				return setPendingRefAction;
-			},
-			get refOperationResult() {
-				return refOperationResult();
-			},
-			get setRefOperationResult() {
-				return setRefOperationResult;
-			},
-			get refOperationRunning() {
-				return refOperationRunning();
-			},
-			get refPreflightRunning() {
-				return preflight.isFetching;
-			},
-			get refPreflightError() {
-				return preflight.error
-					? preflight.error.message || "Unable to check branch operations"
-					: null;
-			},
-			get pendingGraphAction() {
-				return pendingGraphAction();
-			},
-			get setPendingGraphAction() {
-				return setPendingGraphAction;
-			},
-			get graphActionName() {
-				return graphActionName();
-			},
-			get setGraphActionName() {
-				return setGraphActionName;
-			},
-			get graphActionMessage() {
-				return graphActionMessage();
-			},
-			get setGraphActionMessage() {
-				return setGraphActionMessage;
-			},
-			get graphActionResult() {
-				return graphActionResult();
-			},
-			get graphActionRunning() {
-				return graphActionRunning();
-			},
-			get runRefOperation() {
-				return runRefOperation;
-			},
-			get requestGraphAction() {
-				return requestGraphAction;
-			},
-			get runGraphAction() {
-				return runGraphAction;
-			},
-			get activeModeIndex() {
-				return activeModeIndex();
-			},
-			get operationModel() {
-				const _operationModelValue = operationModel();
-				return _operationModelValue;
-			},
-			get pendingGraphActionPresentation() {
-				return pendingGraphActionPresentation();
-			},
-			get operationActivity() {
-				const _operationModelValue = operationModel();
-				return _operationModelValue.operationActivity;
-			},
+		get pendingGraphActionPresentation() {
+			return pendingGraphActionPresentation();
 		},
-	);
+		get operationActivity() {
+			const _operationModelValue = operationModel();
+			return _operationModelValue.operationActivity;
+		},
+	});
 }
 type GitOperationActivityPhase =
 	| "idle"

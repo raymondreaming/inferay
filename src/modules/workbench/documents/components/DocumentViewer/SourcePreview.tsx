@@ -142,7 +142,7 @@ export const SourcePreview = function SourcePreview(_props: {
 										<span {...stylex.attrs(styles.sourceCode)}>
 											{tokens()?.length ? (
 												<For each={tokens()!} keyed={false}>
-													{(token, tokenIndex) => (
+													{(token) => (
 														<span class={`syntax-${token().kind}`}>
 															{token().text}
 														</span>
