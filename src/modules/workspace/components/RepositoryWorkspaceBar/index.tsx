@@ -237,33 +237,39 @@ export function RepositoryWorkspaceBar() {
 					<span {...stylex.attrs(styles.emptyLabel)}>No repository open</span>
 				)}
 			</div>
-			<button
-				type="button"
-				onClick={dispatchToggleActiveGitGraph}
-				disabled={!projection().activeWorkspace}
-				aria-label="Toggle commit graph"
-				title="Toggle commit graph"
-				aria-pressed={ariaValue(
-					panelState.data?.mainViewMode === "graph" &&
-						panelState.data?.graphVisible === true,
-				)}
-				{...changesSidebarToggleProps()}
-				class={`${APP_REGION_NO_DRAG_CLASS} ${changesSidebarToggleProps().class ?? ""}`}
+			<div
+				role="group"
+				aria-label="Repository panels"
+				{...stylex.attrs(styles.panelControls)}
 			>
-				<IconGitBranch size={iconSize.md} />
-			</button>
-			<button
-				type="button"
-				onClick={dispatchToggleActiveGitSidebar}
-				disabled={!projection().activeWorkspace}
-				aria-label="Toggle changes sidebar"
-				aria-pressed={ariaValue(panelState.data?.sidebarVisible ?? false)}
-				title="Toggle changes sidebar"
-				{...changesSidebarToggleProps()}
-				class={`${APP_REGION_NO_DRAG_CLASS} ${changesSidebarToggleProps().class ?? ""}`}
-			>
-				<IconPanelRight size={iconSize.md} />
-			</button>
+				<button
+					type="button"
+					onClick={dispatchToggleActiveGitGraph}
+					disabled={!projection().activeWorkspace}
+					aria-label="Toggle commit graph"
+					title="Toggle commit graph"
+					aria-pressed={ariaValue(
+						panelState.data?.mainViewMode === "graph" &&
+							panelState.data?.graphVisible === true,
+					)}
+					{...changesSidebarToggleProps()}
+					class={`${APP_REGION_NO_DRAG_CLASS} ${changesSidebarToggleProps().class ?? ""}`}
+				>
+					<IconGitBranch size={iconSize.md} />
+				</button>
+				<button
+					type="button"
+					onClick={dispatchToggleActiveGitSidebar}
+					disabled={!projection().activeWorkspace}
+					aria-label="Toggle changes sidebar"
+					aria-pressed={ariaValue(panelState.data?.sidebarVisible ?? false)}
+					title="Toggle changes sidebar"
+					{...changesSidebarToggleProps()}
+					class={`${APP_REGION_NO_DRAG_CLASS} ${changesSidebarToggleProps().class ?? ""}`}
+				>
+					<IconPanelRight size={iconSize.md} />
+				</button>
+			</div>
 		</header>
 	);
 }

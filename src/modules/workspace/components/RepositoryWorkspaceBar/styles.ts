@@ -50,11 +50,15 @@ export const styles = stylex.create({
 		borderRightStyle: "solid",
 		borderRightWidth: 1,
 	},
+	panelControls: {
+		display: "flex",
+		flexShrink: 0,
+		marginLeft: "auto",
+	},
 	changesSidebarToggle: {
 		borderLeftColor: color.border,
 		borderLeftStyle: "solid",
 		borderLeftWidth: 1,
-		marginLeft: "auto",
 	},
 	newMenuRoot: {
 		display: "flex",
