@@ -44,6 +44,7 @@ import {
 	useWorkspaceState,
 } from "../../hooks/useWorkspaceState.tsx";
 import { styles } from "./styles.ts";
+import { useRepositoryTabDrag } from "./useRepositoryTabDrag.ts";
 export function RepositoryWorkspaceBar() {
 	const navigate = useNavigate();
 	const location = useLocation();
@@ -67,6 +68,11 @@ export function RepositoryWorkspaceBar() {
 			enabled: false,
 		}),
 		() => queryClient,
+	);
+	const tabDrag = useRepositoryTabDrag(
+		() => projection().workspaces,
+		(cwd, beforeCwd) =>
+			mutateAgentWorkspaceState({ type: "reorderRepository", cwd, beforeCwd }),
 	);
 	onSettled(() => {
 		return listenWindowEvent(WORKSPACE_SIDEBAR_COLLAPSED_EVENT, (event) => {
@@ -201,13 +207,14 @@ export function RepositoryWorkspaceBar() {
 				) : null}
 			</div>
 			<div
+				ref={tabDrag.setContainer}
 				{...tabsProps()}
 				class={`${APP_REGION_NO_DRAG_CLASS} ${tabsProps().class ?? ""}`}
 				role="tablist"
 				aria-label="Repository workspaces"
 			>
 				{projection().workspaces.length > 0 ? (
-					<For each={projection().workspaces} keyed={(row) => row.cwd}>
+					<For each={tabDrag.ordered()} keyed={(row) => row.cwd}>
 						{(workspace) => {
 							const active = createMemo(
 								() => workspace().cwd === projection().activePath,
@@ -218,11 +225,28 @@ export function RepositoryWorkspaceBar() {
 									role="tab"
 									aria-selected={ariaValue(active())}
 									data-repository-tab={workspace().cwd}
-									title={workspace().cwd}
-									onClick={() => activateWorkspace(workspace())}
+									title={`${workspace().cwd}\nDrag to reorder · Alt+Shift+Arrow keys to move`}
+									aria-keyshortcuts="Alt+Shift+ArrowLeft Alt+Shift+ArrowRight"
+									onPointerDown={(event) =>
+										tabDrag.onPointerDown(event, workspace().cwd)
+									}
+									onKeyDown={(event) =>
+										tabDrag.onKeyDown(event, workspace().cwd)
+									}
+									onClick={(event) => {
+										if (!tabDrag.consumeClick(event))
+											activateWorkspace(workspace());
+									}}
 									{...stylex.attrs(
 										...selectionAppearance("repository", active()),
 										styles.tab,
+										tabDrag.dragging() === workspace().cwd &&
+											styles.draggingTab,
+										tabDrag.target()?.before === workspace().cwd &&
+											styles.dropBefore,
+										tabDrag.target()?.before === null &&
+											tabDrag.ordered().at(-1)?.cwd === workspace().cwd &&
+											styles.dropAfter,
 									)}
 								>
 									<IconGitBranch size={iconSize.sm} />
@@ -237,6 +261,11 @@ export function RepositoryWorkspaceBar() {
 					<span {...stylex.attrs(styles.emptyLabel)}>No repository open</span>
 				)}
 			</div>
+			{tabDrag.error() ? (
+				<span role="alert" {...stylex.attrs(styles.emptyLabel)}>
+					{tabDrag.error()}
+				</span>
+			) : null}
 			<div
 				role="group"
 				aria-label="Repository panels"

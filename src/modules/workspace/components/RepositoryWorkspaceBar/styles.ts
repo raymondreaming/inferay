@@ -135,6 +135,9 @@ export const styles = stylex.create({
 	},
 	tab: {
 		alignItems: "center",
+		cursor: "grab",
+		touchAction: "none",
+		userSelect: "none",
 		color: color.textMain,
 		display: "flex",
 		flexShrink: 0,
@@ -143,6 +146,16 @@ export const styles = stylex.create({
 		gap: controlSize._1_5,
 		maxWidth: 220,
 		paddingInline: controlSize._3,
+	},
+	draggingTab: {
+		cursor: "grabbing",
+		opacity: 0.55,
+	},
+	dropBefore: {
+		boxShadow: "inset 2px 0 0 currentColor",
+	},
+	dropAfter: {
+		boxShadow: "inset -2px 0 0 currentColor",
 	},
 	tabLabel: {
 		minWidth: controlSize._0,

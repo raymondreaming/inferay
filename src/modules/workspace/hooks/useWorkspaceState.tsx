@@ -20,6 +20,11 @@ import { traceUi } from "../../../shared/lib/uiPerformance.ts";
 
 type AgentWorkspaceAction =
 	| {
+			type: "reorderRepository";
+			cwd: string;
+			beforeCwd: string | null;
+	  }
+	| {
 			type: "selectWorkspace";
 			groupId: string;
 	  }

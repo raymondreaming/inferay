@@ -126,6 +126,9 @@ impl AgentStateStore {
 pub struct Workspace {
     groups: Vec<Group>,
     selected_group_id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<String>>", optional)]
+    repository_order: Vec<String>,
     #[ts(type = "'default' | 'midnight'")]
     theme_id: String,
     font_size: f64,
@@ -307,6 +310,23 @@ impl Group {
     }
 }
 impl Workspace {
+    fn repository_paths(&self) -> Vec<String> {
+        let mut paths = Vec::new();
+        for pane in self.groups.iter().flat_map(|group| &group.panes) {
+            let path = repository_path(pane.cwd.as_deref().unwrap_or(""));
+            if !path.is_empty() && !paths.iter().any(|existing| existing == path) {
+                paths.push(path.to_owned());
+            }
+        }
+        paths.sort_by_key(|path| {
+            self.repository_order
+                .iter()
+                .position(|saved| saved == path)
+                .unwrap_or(usize::MAX)
+        });
+        paths
+    }
+
     fn pane_mut(&mut self, id: &str) -> Result<&mut Pane, String> {
         self.groups
             .iter_mut()
@@ -343,6 +363,12 @@ impl Workspace {
                 }
             }
         }
+        workspaces.sort_by_key(|workspace| {
+            self.repository_order
+                .iter()
+                .position(|path| path == workspace.cwd)
+                .unwrap_or(usize::MAX)
+        });
         let active_path = self
             .groups
             .iter()
@@ -386,6 +412,7 @@ impl Workspace {
         );
         Self {
             selected_group_id: group.id.clone(),
+            repository_order: Vec::new(),
             groups: vec![group],
             theme_id: "default".into(),
             font_size: 13.,
@@ -417,6 +444,9 @@ impl Workspace {
         if !self.groups.iter().any(|g| g.id == self.selected_group_id) {
             self.selected_group_id = self.groups[0].id.clone();
         }
+        if !self.repository_order.is_empty() {
+            self.repository_order = self.repository_paths();
+        }
         Ok(())
     }
     fn compact(&mut self) {
@@ -444,6 +474,32 @@ impl Workspace {
     fn apply(&mut self, action: &Value) -> Result<(), String> {
         let action_type = string(action, "type")?;
         match action_type {
+            "reorderRepository" => {
+                let cwd = repository_path(string(action, "cwd")?);
+                let mut order = self.repository_paths();
+                let from = order
+                    .iter()
+                    .position(|path| path == cwd)
+                    .ok_or("Repository not found")?;
+                let before = if action["beforeCwd"].is_null() {
+                    None
+                } else {
+                    Some(repository_path(string(action, "beforeCwd")?))
+                };
+                if before == Some(cwd) {
+                    return Ok(());
+                }
+                let path = order.remove(from);
+                let to = match before {
+                    Some(before) => order
+                        .iter()
+                        .position(|path| path == before)
+                        .ok_or("Target repository not found")?,
+                    None => order.len(),
+                };
+                order.insert(to, path);
+                self.repository_order = order;
+            }
             "selectRepository" => {
                 let cwd = string(action, "cwd")?;
                 let target = self.groups.iter().flat_map(|group| {
@@ -601,13 +657,7 @@ impl Workspace {
 
     fn remove_pane(&mut self, group_id: &str, id: &str, default_kind: &str) -> Result<(), String> {
         // Capture the visible tab order before removing its last entry.
-        let mut paths = Vec::new();
-        for pane in self.groups.iter().flat_map(|group| &group.panes) {
-            let path = repository_path(pane.cwd.as_deref().unwrap_or(""));
-            if !path.is_empty() && !paths.iter().any(|existing| existing == path) {
-                paths.push(path.to_owned());
-            }
-        }
+        let paths = self.repository_paths();
         let selected_group = self.selected_group_id == group_id;
         let group = self.group(group_id)?;
         let Some(pane) = group.panes.iter().find(|pane| pane.id == id) else {
@@ -669,6 +719,97 @@ mod presentation_tests {
     fn repository_group(id: &str, cwd: &str) -> Value {
         json!({"id":id,"name":id,"selectedPaneId":format!("{id}-chat"),"columns":1,"rows":1,
             "panes":[{"id":format!("{id}-chat"),"title":id,"agentKind":"codex","cwd":cwd}]})
+    }
+
+    #[test]
+    fn repository_order_persists_without_reordering_chats_or_selection() {
+        let workspace = deletion_workspace(
+            json!([
+                repository_group("a", "/a"),
+                repository_group("b", "/b"),
+                repository_group("c", "/c/"),
+                repository_group("other", "/a")
+            ]),
+            "b",
+        );
+        let path = std::env::temp_dir().join(format!("repository-order-{}.json", Uuid::new_v4()));
+        let store = AgentStateStore::new(path.clone());
+        let initial = store.save(&workspace).unwrap();
+        store
+            .apply_workspace_action(&json!({
+                "type":"reorderRepository", "cwd":"/c/", "beforeCwd":"/a"
+            }))
+            .unwrap();
+        let result = AgentStateStore::new(path.clone()).read().unwrap();
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(result["repositoryOrder"], json!(["/c", "/a", "/b"]));
+        assert_eq!(result["groups"], initial["groups"]);
+        assert_eq!(result["repositories"]["activePath"], "/b");
+        assert_eq!(result["repositories"]["workspaces"][0]["cwd"], "/c");
+        assert_eq!(
+            result["repositories"]["workspaces"][1]["entries"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn repository_reordering_handles_end_noop_and_stale_targets() {
+        let mut workspace = deletion_workspace(
+            json!([
+                repository_group("a", "/a"),
+                repository_group("b", "/b"),
+                repository_group("c", "/c")
+            ]),
+            "b",
+        );
+        workspace
+            .apply(&json!({"type":"reorderRepository","cwd":"/a","beforeCwd":null}))
+            .unwrap();
+        assert_eq!(workspace.repository_paths(), ["/b", "/c", "/a"]);
+        workspace
+            .apply(&json!({"type":"reorderRepository","cwd":"/b","beforeCwd":"/b"}))
+            .unwrap();
+        assert!(
+            workspace
+                .apply(&json!({"type":"reorderRepository","cwd":"/c","beforeCwd":"/missing"}))
+                .is_err()
+        );
+        assert!(
+            workspace
+                .apply(&json!({"type":"reorderRepository","cwd":"/missing","beforeCwd":null}))
+                .is_err()
+        );
+        assert_eq!(workspace.repository_paths(), ["/b", "/c", "/a"]);
+        workspace
+            .apply(&json!({"type":"addPane","groupId":"c","cwd":"/new"}))
+            .unwrap();
+        workspace.validate().unwrap();
+        assert_eq!(workspace.repository_paths(), ["/b", "/c", "/a", "/new"]);
+    }
+
+    #[test]
+    fn closing_a_reordered_repository_selects_its_visible_left_neighbor() {
+        let mut workspace = deletion_workspace(
+            json!([
+                repository_group("a", "/a"),
+                repository_group("b", "/b"),
+                repository_group("c", "/c")
+            ]),
+            "b",
+        );
+        workspace
+            .apply(&json!({"type":"reorderRepository","cwd":"/c","beforeCwd":"/b"}))
+            .unwrap();
+        workspace
+            .apply(&json!({"type":"removePane","groupId":"b","paneId":"b-chat"}))
+            .unwrap();
+        workspace.validate().unwrap();
+        let result = workspace.presentation().unwrap();
+        assert_eq!(result["repositories"]["activePath"], "/c");
+        assert_eq!(workspace.repository_order, ["/a", "/c"]);
     }
 
     #[test]
