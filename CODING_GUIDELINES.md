@@ -20,7 +20,9 @@ src/app/, src/router.tsx, client.tsx composition root
 
 `native/core` must not depend on the server, desktop host, renderer, or Solid. Pure Rust projections and engines must not reach into HTTP, persistence, or UI. Cargo owns Rust crate acyclicity; do not add reverse dependencies to make a local import convenient.
 
-`src/shared` is the TypeScript common library. It must not import app, feature, or adapter code. Put shared contracts there before passing values between native-client storage and a feature. `src/app` composes modules; modules must not depend on route entries or `client.tsx`.
+`src/shared` contains reusable primitives, contracts, UI, and browser/native adapters. It must not import app or feature code. Generated native types may enter through `@contracts`. `src/app` composes modules; modules must not import it, route entries, or `client.tsx`.
+
+Within a feature, `model/` owns vocabulary and framework-independent rules; `services/` owns native adapters and persistence orchestration; `hooks/` adapts those operations to Solid; `components/` renders and translates input. Models must not import hooks, components, services, or browser/native runtime adapters. Shared model code follows the same rule. Keep appearance settings in `modules/settings`, and window-host constants in `shared/lib/windowChrome.ts`, so features never need to reach into the composition root.
 
 Keep domain-shaped behavior in Rust pure models where it is shared with the native server and WebAssembly renderer. Solid hooks adapt signals, browser events, and query lifecycles; components render and translate interactions. Pass context-derived values into pure functions instead of reading browser state from them.
 
@@ -32,11 +34,13 @@ Keep a hook when it owns a cohesive browser or query lifecycle. Do not create a 
 
 ## Network boundary
 
-`src/shared/lib/native.tsx` is the sole low-level browser HTTP client. It applies a timeout to every request. Do not use `fetch()` elsewhere. Keep endpoint-specific orchestration in feature hooks or adapters, and pass side-effecting operations into presentational children as callbacks.
+`src/shared/lib/native.tsx` is the sole low-level browser HTTP client. It applies a timeout to every request. Do not use `fetch()` elsewhere. Keep endpoint-specific orchestration in services, and pass side-effecting operations into presentational children as callbacks. Services must check failed HTTP responses before reporting a mutation as saved.
 
 Feature services own endpoint paths, request payloads, and response parsing. For example, `src/modules/settings/services/settingsApi.ts` is the settings HTTP adapter. UI code may depend on a feature service contract, never on a raw endpoint or the HTTP wrapper.
 
-The architecture checker permits raw endpoint helpers only in a `services/` module. Its named transport-debt baseline covers remaining legacy callers and rejects any new caller; remove an entry as its endpoint moves into the matching feature service.
+The architecture checker permits raw endpoint helpers only in a `services/` module, including shared native-compute services. It parses imports and re-exports and resolves both aliases and relative paths; namespace and dynamic imports cannot bypass this rule. There are no transport exceptions.
+
+Persistence orchestration accepts an injected port. `modules/workspace/services/workspaceSession.ts` owns request ordering and optimistic selection without importing Solid or a live transport. Its tests instantiate the same service with a controlled persistence port and the native projection function.
 
 ## Module shape
 
@@ -48,7 +52,7 @@ StyleX `styles.ts` modules are the exception: its compiler resolves theme defini
 
 Avoid barrel files unless repeated import churn demonstrates a stable public interface. Keep components under 500 lines. Existing oversized repository and workspace files are hotspots: extract new responsibilities rather than extending them.
 
-The boundary checker freezes the current cyclic-import origins as a named debt baseline and rejects every new cycle. Remove an entry from that baseline when extracting a stable parent/child interface; do not add new exemptions for feature work.
+The boundary checker rejects all source import cycles, including type-only cycles. There are no cycle exceptions. Put parent/child contracts in a local `types.ts` or the owning model instead of importing a parent component from its child.
 
 ## TypeScript and tests
 
@@ -56,4 +60,8 @@ Keep TypeScript strict: unused locals and parameters, implicit returns, switch f
 
 Use the lowest useful test level. Write a small failing test before behavior changes: Bun unit tests for pure projections and state transitions; component tests for Solid behavior; browser tests for journeys. Copy-only, styling-only, dependency-only, and behavior-preserving moves may use `TEST_EXEMPT=1` during commit.
 
-Run `bun run check:boundaries`, `bunx tsc --noEmit`, `bun test scripts/tests`, and the relevant Rust checks before completion. Use Biome, not Prettier: this repository already uses Biome as its formatter and linter.
+Run `bun run lint`, `bun run check:boundaries`, `bunx tsc --noEmit`, `bun test scripts/tests`, and the relevant Rust checks before completion. `bun run check:architecture` starts with Oxlint and includes the architecture, Solid, type, Rust, and renderer build checks.
+
+Oxlint is the repository-wide JavaScript/TypeScript linter, configured in `.oxlintrc.json`. Correctness violations and warnings fail checks. Use `bun run lint:fix` for safe automatic fixes. Generated output, vendored icons, documentation, and the separate `site/` project are excluded. The Solid structural audit and architecture dependency checker remain authoritative for framework and layer rules; React hook rules do not apply to Solid. Intentional reactive property reads should use `void` so their tracking purpose is explicit. Underscore-prefixed callback parameters may be unused, and side-effecting ternaries and short-circuit expressions are allowed.
+
+Keep Biome for formatting, import organization, and the existing supplementary lint checks; Oxlint adoption does not remove those guardrails. Pre-commit runs Oxlint on staged JavaScript/TypeScript and Biome on supported staged files. `bun run check` validates without rewriting files; `bun run format` formats renderer source.

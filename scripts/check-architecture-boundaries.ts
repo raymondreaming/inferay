@@ -1,5 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
+import { parse } from "@babel/parser";
+import * as t from "@babel/types";
 
 type SourceFiles = Record<string, string>;
 const root = resolve(import.meta.dir, "..");
@@ -25,22 +27,13 @@ const frozenFileCaps: Record<string, number> = {
 	"src/modules/repository/components/graph/components/CommitGraph/useCommitGraphState.tsx": 680,
 	"src/modules/conversation/components/AgentChatView/useChatConnection.tsx": 509,
 };
-// Existing cycles are frozen while their parent/child public interfaces are
-// extracted. New cycles fail immediately; remove an entry when its seam is fixed.
-const grandfatheredCycleOrigins = new Set([
-	"src/shared/ui/DropdownButton/DropdownCustomOption.tsx",
-	"src/shared/ui/DropdownButton/DropdownOptions.tsx",
-	"src/modules/explorer/components/FileTypeIcon/FolderTypeIcon.tsx",
-	"src/shared/ui/DotMatrixLoader/DotMatrixRipple.tsx",
-	"src/shared/ui/DotMatrixLoader/DotMatrixWeave.tsx",
-	"src/modules/conversation/components/AgentChatView/useChatConnection.tsx",
-	"src/modules/conversation/components/AgentChatView/transcriptSplice.ts",
-	"src/modules/repository/components/operations/ChatDiffPanel/useChatDiffPanelState.tsx",
-	"src/modules/explorer/components/FileSearch/FileSearchResultRow.tsx",
+const transportNames = new Set([
+	"fetchJson",
+	"fetchJsonOr",
+	"postJson",
+	"sendJson",
+	"request",
 ]);
-// Endpoint transport belongs in feature services. Keep this empty: adding an
-// exception requires an explicit migration plan and a matching removal test.
-const grandfatheredTransportOrigins = new Set<string>();
 
 function filesIn(directory: string): string[] {
 	return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -57,34 +50,65 @@ function productionFiles(): SourceFiles {
 	);
 }
 
-function imports(source: string): string[] {
-	return [
-		...source.matchAll(
-			/(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?\s+from\s+)?["']([^"']+)["']/g,
-		),
-	].map((match) => match[1]!);
-}
-
-function importsNativeTransport(source: string): boolean {
-	return [
-		...source.matchAll(
-			/import\s*\{([\s\S]*?)\}\s*from\s*["']@shared\/lib\/native\.tsx["']/g,
-		),
-	].some((match) =>
-		/\b(?:fetchJson|fetchJsonOr|postJson|sendJson|request)\b/.test(match[1]!),
-	);
-}
-
-function resolvesToFeature(specifier: string): boolean {
-	return /(?:^|\/)\.{1,2}\/.*(?:^|\/)(?:app|modules|adapters)(?:\/|$)/.test(
-		specifier,
-	);
+type Dependency = { specifier: string; transport: boolean };
+function dependencies(source: string): Dependency[] {
+	const result: Dependency[] = [];
+	const ast = parse(source, {
+		sourceType: "module",
+		plugins: ["typescript", "jsx"],
+	});
+	const name = (node: t.Identifier | t.StringLiteral) =>
+		t.isIdentifier(node) ? node.name : node.value;
+	t.traverseFast(ast, (node) => {
+		if (t.isImportDeclaration(node)) {
+			result.push({
+				specifier: node.source.value,
+				transport:
+					node.importKind !== "type" &&
+					node.specifiers.some(
+						(entry) =>
+							t.isImportNamespaceSpecifier(entry) ||
+							(t.isImportSpecifier(entry) &&
+								entry.importKind !== "type" &&
+								transportNames.has(name(entry.imported))),
+					),
+			});
+		} else if (t.isExportNamedDeclaration(node) && node.source) {
+			result.push({
+				specifier: node.source.value,
+				transport:
+					node.exportKind !== "type" &&
+					node.specifiers.some(
+						(entry) =>
+							t.isExportNamespaceSpecifier(entry) ||
+							(t.isExportSpecifier(entry) &&
+								entry.exportKind !== "type" &&
+								transportNames.has(name(entry.local))),
+					),
+			});
+		} else if (t.isExportAllDeclaration(node)) {
+			result.push({
+				specifier: node.source.value,
+				transport: node.exportKind !== "type",
+			});
+		} else if (
+			t.isCallExpression(node) &&
+			t.isImport(node.callee) &&
+			t.isStringLiteral(node.arguments[0])
+		) {
+			result.push({ specifier: node.arguments[0].value, transport: true });
+		} else if (t.isImportExpression(node) && t.isStringLiteral(node.source)) {
+			result.push({ specifier: node.source.value, transport: true });
+		}
+	});
+	return result;
 }
 
 function resolvedImport(
 	path: string,
 	specifier: string,
 	files: SourceFiles,
+	allowUnlisted = false,
 ): string | undefined {
 	const alias = Object.entries(importAliases).find(
 		([name]) => specifier === name || specifier.startsWith(`${name}/`),
@@ -103,25 +127,27 @@ function resolvedImport(
 		const local = relative(root, candidate);
 		if (files[local] !== undefined) return local;
 	}
-	return undefined;
+	return allowUnlisted ? relative(root, base) : undefined;
 }
 
-function cycles(files: SourceFiles): string[] {
+function cycles(
+	files: SourceFiles,
+	graph: Record<string, Dependency[]>,
+): string[] {
 	const state = new Map<string, "visiting" | "visited">();
 	const stack: string[] = [];
 	const violations: string[] = [];
 	const visit = (path: string) => {
 		state.set(path, "visiting");
 		stack.push(path);
-		for (const specifier of imports(files[path]!)) {
+		for (const { specifier } of graph[path]!) {
 			const target = resolvedImport(path, specifier, files);
 			if (!target || state.get(target) === "visited") continue;
 			if (state.get(target) === "visiting") {
 				const start = stack.indexOf(target);
-				if (!grandfatheredCycleOrigins.has(path))
-					violations.push(
-						`${path}: circular dependency ${[...stack.slice(start), target].join(" -> ")}`,
-					);
+				violations.push(
+					`${path}: circular dependency ${[...stack.slice(start), target].join(" -> ")}`,
+				);
 				continue;
 			}
 			visit(target);
@@ -135,6 +161,9 @@ function cycles(files: SourceFiles): string[] {
 
 export function architectureViolations(files = productionFiles()): string[] {
 	const violations: string[] = [];
+	const graph = Object.fromEntries(
+		Object.entries(files).map(([path, source]) => [path, dependencies(source)]),
+	);
 	for (const [path, source] of Object.entries(files)) {
 		const lines = source.split("\n").length - Number(source.endsWith("\n"));
 		const cap =
@@ -144,25 +173,48 @@ export function architectureViolations(files = productionFiles()): string[] {
 				: undefined);
 		if (cap !== undefined && lines > cap)
 			violations.push(`${path}: exceeds its ${cap}-line responsibility cap`);
-		if (path.startsWith("src/shared/")) {
-			for (const specifier of imports(source)) {
-				if (resolvesToFeature(specifier))
-					violations.push(
-						`${path}: shared code must not import app, modules, or adapters`,
-					);
-			}
+		for (const { specifier, transport } of graph[path]!) {
+			const target = resolvedImport(path, specifier, files, true);
+			if (
+				path.startsWith("src/shared/") &&
+				target &&
+				/^src\/(?:app|modules|adapters)\//.test(target)
+			)
+				violations.push(
+					`${path}: shared code must not import app, modules, or adapters`,
+				);
+			if (
+				path.startsWith("src/modules/") &&
+				target &&
+				/^src\/(?:app\/|(?:client|router)\.tsx?$)/.test(target)
+			)
+				violations.push(
+					`${path}: features must not import the composition root`,
+				);
+			if (
+				path.includes("/model/") &&
+				(/^(?:solid-js|@solidjs\/|react|@tanstack\/)/.test(specifier) ||
+					(target &&
+						/\/(?:components|hooks|services|ui|app)\/|\/lib\/(?:native|dom)\.tsx?$/.test(
+							target,
+						)))
+			)
+				violations.push(
+					`${path}: models must not import UI, hooks, services, or runtime adapters`,
+				);
+			if (
+				path !== nativeClient &&
+				target?.replace(/\.tsx?$/, "") ===
+					nativeClient.replace(/\.tsx?$/, "") &&
+				transport &&
+				!path.includes("/services/")
+			)
+				violations.push(
+					`${path}: endpoint transport belongs in its feature service`,
+				);
 		}
 		if (path !== nativeClient && /\bfetch\s*\(/.test(source))
 			violations.push(`${path}: only ${nativeClient} may call fetch()`);
-		if (
-			path !== nativeClient &&
-			importsNativeTransport(source) &&
-			!path.includes("/services/") &&
-			!grandfatheredTransportOrigins.has(path)
-		)
-			violations.push(
-				`${path}: endpoint transport belongs in its feature service`,
-			);
 		if (
 			/\b(?:import|export)\b[^"']*["'][^"']*(?:\.test\.|\.spec\.|\/tests\/)[^"']*["']/.test(
 				source,
@@ -170,7 +222,7 @@ export function architectureViolations(files = productionFiles()): string[] {
 		)
 			violations.push(`${path}: production code must not import test code`);
 	}
-	return [...violations, ...cycles(files)];
+	return [...violations, ...cycles(files, graph)];
 }
 
 const violations = architectureViolations();
