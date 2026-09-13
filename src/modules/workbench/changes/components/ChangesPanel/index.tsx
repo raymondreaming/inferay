@@ -20,7 +20,6 @@ import { styles } from "./styles.ts";
 import { WorkingTreeFiles } from "./WorkingTreeFiles.tsx";
 
 interface ChangesPanelProps {
-	prefetchKey?: string;
 	onPrefetchFiles?: (files: GitFileEntry[]) => void;
 	filePresentation?: GitFilePresentation;
 	cwd?: string;
@@ -110,8 +109,8 @@ export const ChangesPanel = function ChangesPanel(props: ChangesPanelProps) {
 			: [],
 	);
 	createEffect(
-		() => [prefetchFiles(), props.prefetchKey] as const,
-		([files]) => props.onPrefetchFiles?.(files),
+		() => [prefetchFiles(), props.onPrefetchFiles] as const,
+		([files, prefetch]) => prefetch?.(files),
 	);
 
 	const selectAdjacentFile = (direction: -1 | 1) => {

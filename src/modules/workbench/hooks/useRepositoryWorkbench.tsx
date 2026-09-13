@@ -497,20 +497,21 @@ export function useRepositoryWorkbench(
 				: graphRevisionsRef.current.get(selectedWorkingTreeCwd() ?? ""),
 		viewMode: diffViewMode(),
 	}));
-	const prefetchFiles = (files: GitFileEntry[]) => {
+	const prefetchFiles = createMemo(() => {
 		const context = prefetchContext();
-		prefetchDiffs(
-			context.active
-				? files.flatMap((file) => {
-						const request = rustProject<DiffRequest | null>("diffRequest", {
-							...context,
-							selectedFile: file,
-						});
-						return request ? [request] : [];
-					})
-				: [],
-		);
-	};
+		return (files: GitFileEntry[]) =>
+			prefetchDiffs(
+				context.active
+					? files.flatMap((file) => {
+							const request = rustProject<DiffRequest | null>("diffRequest", {
+								...context,
+								selectedFile: file,
+							});
+							return request ? [request] : [];
+						})
+					: [],
+			);
+	});
 
 	const fileDiff = useGitDiff(() => diffRequest());
 	createEffect(
@@ -1043,8 +1044,7 @@ export function useRepositoryWorkbench(
 					onResize={handleResizeStart}
 				>
 					<ChangesPanel
-						prefetchKey={JSON.stringify(prefetchContext())}
-						onPrefetchFiles={prefetchFiles}
+						onPrefetchFiles={prefetchFiles()}
 						filePresentation={
 							selectedLinkedWorktreeStatus()?.filePresentation ??
 							project()?.filePresentation
