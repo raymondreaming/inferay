@@ -288,6 +288,13 @@ impl ChatMessageBuffer {
                             crate::tool_presentation::questions(value)
                         })
                         .expect("question serialization");
+                    render["elicitation"] =
+                        serde_json::to_value(if message.is_streaming == Some(true) {
+                            None
+                        } else {
+                            crate::tool_presentation::elicitation(value)
+                        })
+                        .expect("elicitation serialization");
                     // Complete commands can be described while executing. Editing and
                     // input consumers still wait for the authoritative settled input.
                     if message.is_streaming != Some(true)

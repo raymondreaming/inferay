@@ -12,7 +12,10 @@ export function McpSourceMark(props: { source: McpToolSource }) {
 		<>
 			<span
 				aria-hidden="true"
-				{...stylex.attrs(styles.toolMilestoneMark)}
+				{...stylex.attrs(
+					styles.toolMilestoneMark,
+					mark() && styles.toolMilestoneBrandMark,
+				)}
 				style={domStyle(getMcpSourceMarkStyle(props.source.hue))}
 			>
 				<Show when={mark()} keyed fallback={props.source.monogram}>

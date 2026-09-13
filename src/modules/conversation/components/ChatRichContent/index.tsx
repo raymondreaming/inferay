@@ -1,11 +1,13 @@
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For } from "solid-js";
 import type { AskUserQuestion } from "../../../../../build/presentation/contracts/AskUserQuestion.ts";
+import type { McpElicitation } from "../../../../../build/presentation/contracts/McpElicitation.ts";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { domStyle } from "../../../../shared/lib/dom.tsx";
 import { project as rustProject } from "../../../../shared/lib/native.tsx";
 import {
 	IconCheck,
+	IconExternalLink,
 	IconHelpCircle,
 	IconSend,
 } from "../../../../shared/ui/Icons/index.tsx";
@@ -242,6 +244,97 @@ export function AskUserQuestionCard(_props: {
 }
 export { CopyButton } from "./CopyButton.tsx";
 export { Markdown } from "./Markdown.tsx";
+/// An MCP server cannot finish its request until the user answers, so the card
+/// owns the whole exchange: what was asked, the link to visit when one is
+/// offered, and the accept or decline that releases the turn. Answering reuses
+/// the composer channel, the same way AskUserQuestionCard does, so no new
+/// transport is needed for a reply the agent is already waiting on.
+export function McpElicitationCard(_props: {
+	elicitation: McpElicitation;
+	isStreaming?: boolean;
+	onSendMessage?: (text: string) => void;
+}) {
+	const [answered, setAnswered] = createSignal<"accept" | "decline" | null>(
+		null,
+	);
+	const [typed, setTyped] = createSignal("");
+	const prompt = createMemo(() => _props.elicitation.prompt);
+	const respond = (decision: "accept" | "decline") => {
+		if (answered() || !_props.onSendMessage) return;
+		setAnswered(decision);
+		const reply =
+			decision === "decline"
+				? "decline"
+				: prompt() && typed().trim()
+					? typed().trim()
+					: "connect";
+		_props.onSendMessage(reply);
+	};
+	return (
+		<div {...stylex.attrs(styles.questionCard)}>
+			<div {...stylex.attrs(styles.questionHeader)}>
+				<IconHelpCircle size={iconSize.sm} />
+				<span {...stylex.attrs(styles.questionText)}>Connection requested</span>
+				{_props.elicitation.server && (
+					<span {...stylex.attrs(styles.elicitationServer)}>
+						{_props.elicitation.server}
+					</span>
+				)}
+			</div>
+			<p {...stylex.attrs(styles.elicitationMessage)}>
+				{_props.elicitation.message}
+			</p>
+			{_props.elicitation.url && (
+				<a
+					{...stylex.attrs(styles.elicitationLink)}
+					href={_props.elicitation.url}
+					target="_blank"
+					rel="noreferrer noopener"
+				>
+					{_props.elicitation.url}
+				</a>
+			)}
+			{prompt() && !answered() && (
+				<input
+					{...stylex.attrs(styles.elicitationField)}
+					type="text"
+					placeholder={prompt()!}
+					value={typed()}
+					onInput={(event) => setTyped(event.currentTarget.value)}
+					onKeyDown={(event) => {
+						if (event.key === "Enter") respond("accept");
+					}}
+				/>
+			)}
+			{answered() === null ? (
+				<div {...stylex.attrs(styles.elicitationActions)}>
+					<button
+						type="button"
+						{...stylex.attrs(styles.elicitationAccept)}
+						onClick={() => respond("accept")}
+					>
+						{_props.elicitation.url ? (
+							<IconExternalLink size={iconSize.xs} />
+						) : null}
+						{prompt() ? "Send" : "Connect"}
+					</button>
+					<button
+						type="button"
+						{...stylex.attrs(styles.elicitationDecline)}
+						onClick={() => respond("decline")}
+					>
+						Not now
+					</button>
+				</div>
+			) : (
+				<div {...stylex.attrs(styles.elicitationSettled)}>
+					{answered() === "accept" ? "Sent to the server." : "Declined."}
+				</div>
+			)}
+		</div>
+	);
+}
+
 export function formatAskUserAnswer(
 	questions: AskUserQuestion[],
 	selections: Map<number, Set<number>>,

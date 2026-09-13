@@ -49,6 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         inferay_core::agent_state::AgentSavedState,
         inferay_core::agent_context::AgentContextUpdate,
         inferay_core::tool_presentation::ToolDisplayInfo,
+        inferay_core::tool_presentation::McpElicitation,
         inferay_core::tool_presentation::ToolOutputSummary,
         inferay_core::tool_presentation::AskUserQuestion,
         inferay_core::agent_context::EffectiveAgentContext

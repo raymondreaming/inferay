@@ -368,6 +368,10 @@ pub async fn run_codex(
         handle.set_codex_control(control_tx);
         let mut pending_steers = HashMap::<u64, oneshot::Sender<Result<(), String>>>::new();
         let mut pending_user_input: Option<(Value, Vec<String>)> = None;
+        // An MCP server waiting on the user. Held separately from
+        // pending_user_input because the reply shape is MCP's
+        // {action, content}, not Codex's answers map.
+        let mut pending_elicitation: Option<(Value, Option<String>)> = None;
         let mut completed = false;
         let mut interrupt_deadline = None;
         loop {
@@ -386,7 +390,18 @@ pub async fn run_codex(
                         Some(CodexControl::Steer { text, images, response }) => {
                             state.prepare_for_steering(context);
                             flush_emissions(context, emissions);
-                            if let Some((response_id, question_ids)) = pending_user_input.take() {
+                            if let Some((response_id, field)) = pending_elicitation.take() {
+                                let reply = elicitation_reply(&response_id, &text, field.as_deref());
+                                let result = rpc
+                                    .write(&reply)
+                                    .await
+                                    .map_err(|error| error.to_string());
+                                if result.is_ok() {
+                                    state.close_tool(context);
+                                    flush_emissions(context, emissions);
+                                }
+                                let _ = response.send(result);
+                            } else if let Some((response_id, question_ids)) = pending_user_input.take() {
                                 let answers = question_ids.into_iter().map(|question_id| {
                                     (question_id, json!({"answers":[text]}))
                                 }).collect::<serde_json::Map<_, _>>();
@@ -460,6 +475,24 @@ pub async fn run_codex(
                             emit_error(context, error);
                             break;
                         }
+                        continue;
+                    }
+                    if message.get("method").and_then(Value::as_str)
+                        == Some("mcpServer/elicitation/request")
+                        && let Some(id) = message.get("id").cloned()
+                    {
+                        // Declining this is what made MCP servers needing consent
+                        // unusable: the server asks, Inferay refuses, and the
+                        // connect prompt can never reach the user.
+                        let params = message.pointer("/params").cloned().unwrap_or(Value::Null);
+                        let field = params
+                            .pointer("/requestedSchema/properties")
+                            .and_then(Value::as_object)
+                            .filter(|properties| properties.len() == 1)
+                            .and_then(|properties| properties.keys().next().cloned());
+                        pending_elicitation = Some((id, field));
+                        state.begin_tool(context, "McpElicitation", params);
+                        flush_emissions(context, emissions);
                         continue;
                     }
                     if let Some(reply) = unsupported_codex_request(&message) {
@@ -646,6 +679,25 @@ impl CodexConnection {
 
 // Server requests have their own ID namespace. Never confuse them with replies
 // to our requests, and never leave an unsupported request waiting indefinitely.
+/// MCP expects `{action, content}` back. A declining word means declined; a
+/// server that asked for one string field gets the user's text as that field,
+/// and everything else is a plain acceptance.
+fn elicitation_reply(id: &Value, text: &str, field: Option<&str>) -> Value {
+    let answer = text.trim();
+    let declined = matches!(
+        answer.to_lowercase().as_str(),
+        "decline" | "declined" | "cancel" | "cancelled" | "no" | "deny" | "reject" | "skip"
+    );
+    if declined {
+        return json!({"id": id, "result": {"action": "decline"}});
+    }
+    let content = match field {
+        Some(field) if !answer.is_empty() => json!({ field: answer }),
+        _ => json!({}),
+    };
+    json!({"id": id, "result": {"action": "accept", "content": content}})
+}
+
 fn unsupported_codex_request(message: &Value) -> Option<Value> {
     let method = message.get("method")?.as_str()?;
     let id = message.get("id")?;
@@ -1011,6 +1063,29 @@ mod runner_tests {
         assert!(
             args.iter()
                 .any(|arg| arg == "What instructions did I give you?")
+        );
+    }
+
+    #[test]
+    fn elicitation_replies_carry_the_mcp_action_and_requested_field() {
+        let id = json!(7);
+        assert_eq!(
+            elicitation_reply(&id, "connect", None),
+            json!({"id":7,"result":{"action":"accept","content":{}}})
+        );
+        assert_eq!(
+            elicitation_reply(&id, "  Decline  ", None),
+            json!({"id":7,"result":{"action":"decline"}})
+        );
+        // A server asking for one string field receives the typed answer there.
+        assert_eq!(
+            elicitation_reply(&id, "ray@example.com", Some("email")),
+            json!({"id":7,"result":{"action":"accept","content":{"email":"ray@example.com"}}})
+        );
+        // Accepting without typing still accepts rather than sending an empty field.
+        assert_eq!(
+            elicitation_reply(&id, "connect", Some("email")),
+            json!({"id":7,"result":{"action":"accept","content":{"email":"connect"}}})
         );
     }
 

@@ -481,6 +481,10 @@ export const styles = stylex.create({
 		lineHeight: 1,
 		width: controlSize._3_5,
 	},
+	toolMilestoneBrandMark: {
+		backgroundColor: "transparent",
+		borderWidth: 0,
+	},
 	toolMilestoneSource: {
 		color: color.textSoft,
 		flexShrink: 0,

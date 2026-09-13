@@ -46,6 +46,56 @@ pub struct QuestionOption {
     #[ts(optional)]
     pub description: Option<String>,
 }
+/// An MCP server asking the user for something mid-turn, most often consent to
+/// connect an account. Codex raises it as `mcpServer/elicitation/request`; the
+/// turn cannot proceed until the user accepts or declines, so it needs a card
+/// rather than a log line.
+#[derive(Debug, Serialize, PartialEq, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct McpElicitation {
+    /// What the server is asking, in its own words.
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub server: Option<String>,
+    /// A link the user must visit to satisfy the request, when one is offered.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub url: Option<String>,
+    /// Free-text the server expects back, rather than a plain accept.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub prompt: Option<String>,
+}
+
+/// A URL is worth surfacing as an action only when it is one the user's browser
+/// can actually open, so anything but http(s) stays text.
+fn web_url(value: &Value, key: &str) -> Option<String> {
+    let candidate = string(value, key)?;
+    (candidate.starts_with("https://") || candidate.starts_with("http://")).then_some(candidate)
+}
+
+pub fn elicitation(input: &Value) -> Option<McpElicitation> {
+    let message = string(input, "message")?;
+    let schema = input.get("requestedSchema");
+    // MCP puts the response shape in requestedSchema. A single string property
+    // means the server wants text typed back; anything else is accept/decline.
+    let prompt = schema
+        .and_then(|schema| schema.get("properties"))
+        .and_then(Value::as_object)
+        .and_then(|properties| {
+            let (name, definition) = properties.iter().next()?;
+            (properties.len() == 1 && definition.get("type") == Some(&Value::String("string".into())))
+                .then(|| string(definition, "description").unwrap_or_else(|| name.clone()))
+        });
+    Some(McpElicitation {
+        message,
+        server: string(input, "server").or_else(|| string(input, "serverName")),
+        url: web_url(input, "url").or_else(|| web_url(input, "authorizationUrl")),
+        prompt,
+    })
+}
+
 fn string(value: &Value, key: &str) -> Option<String> {
     value.get(key)?.as_str().map(str::to_owned)
 }
@@ -399,4 +449,53 @@ pub fn display(tool_name: Option<&str>, input: &Value) -> ToolDisplayInfo {
                 .map_or_else(|| "Running tool".into(), |name| format!("Using {name}")),
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn elicitation_reads_the_message_link_and_single_text_field() {
+        let request = json!({
+            "message": "Connect your Figma account to continue.",
+            "serverName": "figma",
+            "url": "https://mcp.figma.com/authorize",
+            "requestedSchema": {
+                "properties": {"code": {"type": "string", "description": "Paste the code"}}
+            }
+        });
+        let parsed = elicitation(&request).expect("elicitation");
+        assert_eq!(parsed.message, "Connect your Figma account to continue.");
+        assert_eq!(parsed.server.as_deref(), Some("figma"));
+        assert_eq!(
+            parsed.url.as_deref(),
+            Some("https://mcp.figma.com/authorize")
+        );
+        assert_eq!(parsed.prompt.as_deref(), Some("Paste the code"));
+    }
+
+    #[test]
+    fn elicitation_offers_no_link_for_a_scheme_a_browser_cannot_open() {
+        let parsed = elicitation(&json!({"message": "Approve", "url": "file:///etc/passwd"}))
+            .expect("elicitation");
+        assert_eq!(parsed.url, None);
+        assert_eq!(parsed.prompt, None);
+    }
+
+    #[test]
+    fn elicitation_needing_several_fields_is_accept_or_decline_only() {
+        let parsed = elicitation(&json!({
+            "message": "Approve",
+            "requestedSchema": {"properties": {"a": {"type": "string"}, "b": {"type": "string"}}}
+        }))
+        .expect("elicitation");
+        assert_eq!(parsed.prompt, None);
+    }
+
+    #[test]
+    fn a_request_without_a_message_is_not_an_elicitation_card() {
+        assert!(elicitation(&json!({"url": "https://example.com"})).is_none());
+    }
 }

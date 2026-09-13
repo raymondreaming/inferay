@@ -19,6 +19,7 @@ import {
 	AskUserQuestionCard,
 	CopyButton,
 	Markdown,
+	McpElicitationCard,
 } from "../ChatRichContent/index.tsx";
 import { DecoratedText } from "../ChatTokenDecorators/index.tsx";
 import { CommandSystemCard } from "./CommandSystemCard.tsx";
@@ -246,6 +247,20 @@ export const Bubble = function Bubble(_props: {
 								</div>
 							}
 						>
+							<Match
+								when={
+									_props.msg.toolName === "McpElicitation" &&
+									_props.msg.render?.elicitation
+								}
+							>
+								{(elicitation) => (
+									<McpElicitationCard
+										elicitation={elicitation()}
+										isStreaming={_props.msg.isStreaming}
+										onSendMessage={_props.onSendMessage}
+									/>
+								)}
+							</Match>
 							<Match when={_props.msg.toolName === "AskUserQuestion"}>
 								<AskUserQuestionCard
 									nativeQuestions={_props.msg.render?.questions}

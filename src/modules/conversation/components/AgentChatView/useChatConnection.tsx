@@ -1,6 +1,7 @@
 import { type Accessor, createEffect, createSignal, onSettled } from "solid-js";
 import type { AskUserQuestion } from "../../../../../build/presentation/contracts/AskUserQuestion.ts";
 import type { CheckpointMeta } from "../../../../../build/presentation/contracts/CheckpointMeta.ts";
+import type { McpElicitation } from "../../../../../build/presentation/contracts/McpElicitation.ts";
 import type { SkillProposal } from "../../../../../build/presentation/contracts/SkillProposal.ts";
 import type { SkillRead } from "../../../../../build/presentation/contracts/SkillRead.ts";
 import type { ToolDisplayInfo } from "../../../../../build/presentation/contracts/ToolDisplayInfo.ts";
@@ -305,6 +306,7 @@ export interface NativeChatRender {
 	display?: ToolDisplayInfo;
 	summary?: ToolOutputSummary | null;
 	questions?: AskUserQuestion[] | null;
+	elicitation?: McpElicitation | null;
 	command?: CommandSystemMessage;
 	goal?: GoalSystemMessage;
 	skillProposal?: SkillProposal;
