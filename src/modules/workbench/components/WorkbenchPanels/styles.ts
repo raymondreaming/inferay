@@ -47,6 +47,7 @@ export const styles = stylex.create({
 	diffRailZen: {
 		minWidth: controlSize._0,
 		flex: 1,
+		borderLeftWidth: 0,
 	},
 	diffResizeHandle: {
 		position: "absolute",
@@ -58,10 +59,16 @@ export const styles = stylex.create({
 		borderWidth: 0,
 		padding: controlSize._0,
 		touchAction: "none",
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlActive,
+		backgroundColor: color.transparent,
+		"::before": {
+			content: "",
+			position: "absolute",
+			insetBlock: 0,
+			left: 3,
+			width: 1,
+			backgroundColor: color.transparent,
 		},
+		":hover::before": { backgroundColor: color.borderStrong },
 		cursor: "ew-resize",
 	},
 	resizeHandle: {

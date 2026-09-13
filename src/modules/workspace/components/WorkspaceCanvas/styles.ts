@@ -18,6 +18,8 @@ export const styles = stylex.create({
 		backgroundColor: color.transparent,
 		borderRightStyle: "solid",
 		borderRightWidth: 1,
+		// The adjacent workbench (or window frame) owns the final outer edge.
+		":last-child": { borderRightWidth: 0 },
 		flexShrink: 0,
 		height: "100%",
 		overflow: "hidden",
