@@ -54,19 +54,16 @@ export function SidebarWorkspacesSection(_props: {
 		const _selectedCwdValue = selectedCwd();
 		return _selectedCwdValue ? [_selectedCwdValue] : [];
 	});
-	createEffect(
-		() => [gridMenuOpen()],
-		() => {
-			if (!gridMenuOpen()) return;
-			const closeMenu = (event: MouseEvent) => {
-				if (!gridMenuRef.current?.contains(event.target as Node)) {
-					setGridMenuOpen(false);
-				}
-			};
-			document.addEventListener("mousedown", closeMenu);
-			return () => document.removeEventListener("mousedown", closeMenu);
-		},
-	);
+	createEffect(gridMenuOpen, (isOpen) => {
+		if (!isOpen) return;
+		const closeMenu = (event: MouseEvent) => {
+			if (!gridMenuRef.current?.contains(event.target as Node)) {
+				setGridMenuOpen(false);
+			}
+		};
+		document.addEventListener("mousedown", closeMenu);
+		return () => document.removeEventListener("mousedown", closeMenu);
+	});
 	return (
 		<div class={workspaceSectionProps().class}>
 			<div

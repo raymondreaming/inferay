@@ -13,6 +13,7 @@ import { DropdownOptions } from "./DropdownOptions.tsx";
 import { DropdownSearch } from "./DropdownSearch.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
+import { useDropdownPosition } from "./useDropdownPosition.ts";
 
 interface DropdownButtonProps {
 	value: string | null;
@@ -37,11 +38,7 @@ export function DropdownButton(_props: DropdownButtonProps) {
 	const [open, setOpen] = createSignal(false);
 	const [menuPresent, setMenuPresent] = createSignal(false);
 	const [search, setSearch] = createSignal("");
-	const btnRef = {
-		current: null,
-	} as {
-		current: HTMLButtonElement | null;
-	};
+	const [trigger, setTrigger] = createSignal<HTMLButtonElement | null>(null);
 	const menuRef = {
 		current: null,
 	} as {
@@ -52,108 +49,62 @@ export function DropdownButton(_props: DropdownButtonProps) {
 	} as {
 		current: HTMLInputElement | null;
 	};
-	const [pos, setPos] = createSignal({
-		top: 0,
-		bottom: 0,
-		left: 0,
-		width: 0,
-		maxH: 300,
-		placement: "bottom" as "top" | "bottom",
-	});
+	const pos = useDropdownPosition(() =>
+		open()
+			? {
+					element: trigger(),
+					liquid: _props.liquid ?? true,
+					placement: _props.menuPlacement ?? "auto",
+					rowHeight: _props.optionHeight ?? (_props.renderOption ? 34 : 30),
+					count: _props.options.length,
+					maxVisible: _props.maxVisibleOptions,
+					minWidth: _props.minWidth ?? 220,
+				}
+			: null,
+	);
 	createEffect(
-		() => [menuPresent(), open()],
-		() => {
-			if (open()) {
+		() => [menuPresent(), open()] as const,
+		([present, isOpen]) => {
+			if (isOpen) {
 				setMenuPresent(true);
 				return;
 			}
-			if (!menuPresent()) return;
+			if (!present) return;
 			const timeout = window.setTimeout(() => setMenuPresent(false), 220);
 			return () => window.clearTimeout(timeout);
 		},
 	);
-	createEffect(
-		() => [open()],
-		() => {
-			if (!open()) return;
-			const handleDocumentPointerDown = (event: MouseEvent) => {
-				if (
-					menuRef.current &&
-					!menuRef.current.contains(event.target as Node) &&
-					!btnRef.current?.contains(event.target as Node)
-				)
-					setOpen(false);
-			};
-			const handleWindowScroll = (event: Event) => {
-				if (!menuRef.current?.contains(event.target as Node)) setOpen(false);
-			};
-			const handleDocumentKeyDown = (event: KeyboardEvent) => {
-				if (event.key === "Escape") setOpen(false);
-			};
-			document.addEventListener("mousedown", handleDocumentPointerDown);
-			window.addEventListener("scroll", handleWindowScroll, true);
-			document.addEventListener("keydown", handleDocumentKeyDown);
-			return () => {
-				document.removeEventListener("mousedown", handleDocumentPointerDown);
-				window.removeEventListener("scroll", handleWindowScroll, true);
-				document.removeEventListener("keydown", handleDocumentKeyDown);
-			};
-		},
-	);
-	const updateMenuPosition = () => {
-		if (!btnRef.current) return;
-		const rect = btnRef.current.getBoundingClientRect();
-		const menuGap = (_props.liquid === undefined ? true : _props.liquid)
-			? 12
-			: 4;
-		const spaceBelow = window.innerHeight - rect.bottom - menuGap;
-		const spaceAbove = rect.top - menuGap;
-		const placeAbove =
-			(_props.menuPlacement === undefined ? "auto" : _props.menuPlacement) ===
-				"top" ||
-			((_props.menuPlacement === undefined ? "auto" : _props.menuPlacement) ===
-				"auto" &&
-				spaceAbove > spaceBelow);
-		const rowHeight = _props.optionHeight ?? (_props.renderOption ? 34 : 30);
-		const searchHeight = _props.options.length > 5 ? 38 : 0;
-		const visibleOptionCount = _props.maxVisibleOptions
-			? Math.min(_props.options.length, _props.maxVisibleOptions)
-			: _props.options.length;
-		const contentHeight = Math.min(
-			visibleOptionCount * rowHeight + searchHeight + 2,
-			400,
-		);
-		const maxH = Math.min(contentHeight, placeAbove ? spaceAbove : spaceBelow);
-		setPos({
-			top: placeAbove ? 0 : rect.bottom + menuGap,
-			bottom: placeAbove ? window.innerHeight - rect.top + menuGap : 0,
-			left: Math.min(
-				Math.max(8, rect.left),
-				Math.max(
-					8,
-					window.innerWidth -
-						Math.max(
-							rect.width,
-							_props.minWidth === undefined ? 220 : _props.minWidth,
-						) -
-						8,
-				),
-			),
-			width: Math.max(
-				rect.width,
-				_props.minWidth === undefined ? 220 : _props.minWidth,
-			),
-			maxH,
-			placement: placeAbove ? "top" : "bottom",
-		});
-	};
+	createEffect(open, (isOpen) => {
+		if (!isOpen) return;
+		const handleDocumentPointerDown = (event: MouseEvent) => {
+			if (
+				menuRef.current &&
+				!menuRef.current.contains(event.target as Node) &&
+				!trigger()?.contains(event.target as Node)
+			)
+				setOpen(false);
+		};
+		const handleWindowScroll = (event: Event) => {
+			if (!menuRef.current?.contains(event.target as Node)) setOpen(false);
+		};
+		const handleDocumentKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") setOpen(false);
+		};
+		document.addEventListener("mousedown", handleDocumentPointerDown);
+		window.addEventListener("scroll", handleWindowScroll, true);
+		document.addEventListener("keydown", handleDocumentKeyDown);
+		return () => {
+			document.removeEventListener("mousedown", handleDocumentPointerDown);
+			window.removeEventListener("scroll", handleWindowScroll, true);
+			document.removeEventListener("keydown", handleDocumentKeyDown);
+		};
+	});
+
 	const toggle = () => {
 		const _openValue = open();
 		if (!_openValue) {
 			_props.onOpen?.();
-			updateMenuPosition();
 			setSearch("");
-			setTimeout(() => searchRef.current?.focus(), 0);
 		}
 		setOpen(!_openValue);
 	};
@@ -170,6 +121,14 @@ export function DropdownButton(_props: DropdownButtonProps) {
 		),
 	);
 	const showSearch = createMemo(() => _props.options.length > 5);
+	createEffect(
+		() => open() && menuPresent() && showSearch(),
+		(focus) => {
+			if (!focus) return;
+			const timer = setTimeout(() => searchRef.current?.focus(), 0);
+			return () => clearTimeout(timer);
+		},
+	);
 	const filtered = createMemo(() => {
 		const _searchValue = search();
 		if (!_searchValue) return _props.options;
@@ -206,7 +165,7 @@ export function DropdownButton(_props: DropdownButtonProps) {
 	const Trigger = () => (
 		<button
 			type="button"
-			ref={(element) => (btnRef.current = element)}
+			ref={setTrigger}
 			onClick={toggle}
 			{...buttonProps()}
 			class={`${buttonProps().class ?? ""} ${_props.buttonClassName ?? ""}`}

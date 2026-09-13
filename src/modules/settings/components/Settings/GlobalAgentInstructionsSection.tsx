@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { createSignal, onSettled } from "solid-js";
+import { createSignal, onCleanup, onSettled } from "solid-js";
 import type { EffectiveAgentContext } from "../../../../../build/presentation/contracts/EffectiveAgentContext.ts";
 import { queryClient } from "../../../../shared/lib/dom.tsx";
 import { fetchJson, postJson } from "../../../../shared/lib/native.tsx";
@@ -8,6 +8,13 @@ import { styles } from "./styles.ts";
 export function GlobalAgentInstructionsSection(_props: {
 	contained?: boolean;
 }) {
+	let disposed = false;
+	let saving = false;
+	const loadController = new AbortController();
+	onCleanup(() => {
+		disposed = true;
+		loadController.abort();
+	});
 	const [instructions, setInstructions] = createSignal("");
 	const [savedInstructions, setSavedInstructions] = createSignal("");
 	const [isLoading, setIsLoading] = createSignal(true);
@@ -16,13 +23,16 @@ export function GlobalAgentInstructionsSection(_props: {
 	onSettled(() => {
 		void fetchJson<EffectiveAgentContext>(
 			"/api/agent-context?paneId=global-settings",
+			{ signal: loadController.signal },
 		)
 			.then((context) => {
+				if (disposed) return;
 				setInstructions(context.global.instructions);
 				setSavedInstructions(context.global.instructions);
 				setError("");
 			})
 			.catch((cause) => {
+				if (disposed) return;
 				setError(
 					cause instanceof Error
 						? cause.message
@@ -30,10 +40,12 @@ export function GlobalAgentInstructionsSection(_props: {
 				);
 			})
 			.finally(() => {
-				setIsLoading(false);
+				if (!disposed) setIsLoading(false);
 			});
 	});
 	const handleSave = async () => {
+		if (disposed || saving || isLoading()) return;
+		saving = true;
 		const _instructionsValue = instructions();
 		setIsSaving(true);
 		setError("");
@@ -50,16 +62,18 @@ export function GlobalAgentInstructionsSection(_props: {
 					method: "PUT",
 				},
 			);
-			setSavedInstructions(_instructionsValue);
+			if (!disposed) setSavedInstructions(_instructionsValue);
 			await queryClient.invalidateQueries({ queryKey: ["agent-context"] });
 		} catch (cause) {
+			if (disposed) return;
 			setError(
 				cause instanceof Error
 					? cause.message
 					: "Unable to save agent instructions",
 			);
 		} finally {
-			setIsSaving(false);
+			saving = false;
+			if (!disposed) setIsSaving(false);
 		}
 	};
 	return (

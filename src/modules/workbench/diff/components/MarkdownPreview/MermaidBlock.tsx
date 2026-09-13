@@ -10,29 +10,40 @@ function loadMermaid(): Promise<unknown> {
 		const script = document.createElement("script");
 		script.src = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js";
 		script.onload = () => {
-			const m = (window as unknown as Record<string, unknown>).mermaid as {
-				initialize: (cfg: Record<string, unknown>) => void;
-			};
-			m.initialize({
-				startOnLoad: false,
-				theme: "dark",
-				themeVariables: {
-					darkMode: true,
-					background: "transparent",
-					primaryColor: "var(--color-inferay-gray-border)",
-					primaryTextColor: "var(--color-inferay-soft-white)",
-					primaryBorderColor: "var(--color-inferay-gray-border-bold)",
-					lineColor: "var(--color-inferay-muted-gray)",
-					secondaryColor: "var(--color-inferay-gray)",
-					tertiaryColor: "var(--color-inferay-dark-gray)",
-					fontFamily: runtimeFont.familyMono,
-					fontSize: runtimeFont.sizeCompact,
-				},
-			});
-			resolve(m);
+			try {
+				const m = (window as unknown as Record<string, unknown>).mermaid as {
+					initialize: (cfg: Record<string, unknown>) => void;
+				};
+				m.initialize({
+					startOnLoad: false,
+					theme: "dark",
+					themeVariables: {
+						darkMode: true,
+						background: "transparent",
+						primaryColor: "var(--color-inferay-gray-border)",
+						primaryTextColor: "var(--color-inferay-soft-white)",
+						primaryBorderColor: "var(--color-inferay-gray-border-bold)",
+						lineColor: "var(--color-inferay-muted-gray)",
+						secondaryColor: "var(--color-inferay-gray)",
+						tertiaryColor: "var(--color-inferay-dark-gray)",
+						fontFamily: runtimeFont.familyMono,
+						fontSize: runtimeFont.sizeCompact,
+					},
+				});
+				resolve(m);
+			} catch (error) {
+				script.remove();
+				reject(error);
+			}
 		};
-		script.onerror = reject;
+		script.onerror = () => {
+			script.remove();
+			reject(new Error("Unable to load Mermaid"));
+		};
 		document.head.appendChild(script);
+	}).catch((error) => {
+		mermaidPromise = null;
+		throw error;
 	});
 	return mermaidPromise;
 }
@@ -64,8 +75,8 @@ export function MermaidBlock(_props: { code: string }) {
 	};
 	const [error, setError] = createSignal<string | null>(null);
 	createEffect(
-		() => [_props.code],
-		() => {
+		() => _props.code,
+		(code) => {
 			setError(null);
 			if (ref.current) ref.current.replaceChildren();
 			const controller = new AbortController();
@@ -82,7 +93,7 @@ export function MermaidBlock(_props: { code: string }) {
 							svg: string;
 						}>;
 					};
-					return m.render(id, _props.code);
+					return m.render(id, code);
 				})
 				.then((result) => {
 					if (signal.aborted || !ref.current || !result) return;

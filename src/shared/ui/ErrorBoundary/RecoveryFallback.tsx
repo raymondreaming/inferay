@@ -6,13 +6,10 @@ export function RecoveryFallback(_props: {
 	reset: () => void;
 }) {
 	createEffect(
-		() => [_props.error, _props.reset],
-		() => {
-			console.error(
-				"[renderer] Recovered from an app render error:",
-				_props.error,
-			);
-			const timer = window.setTimeout(_props.reset, 1500);
+		() => [_props.error, _props.reset] as const,
+		([error, reset]) => {
+			console.error("[renderer] Recovered from an app render error:", error);
+			const timer = window.setTimeout(reset, 1500);
 			return () => window.clearTimeout(timer);
 		},
 	);

@@ -88,17 +88,14 @@ export function SettingsModalHost() {
 			setOpen(true);
 		});
 	});
-	createEffect(
-		() => [open()],
-		() => {
-			if (!open()) return;
-			const closeOnEscape = (event: KeyboardEvent) => {
-				if (event.key === "Escape") setOpen(false);
-			};
-			window.addEventListener("keydown", closeOnEscape);
-			return () => window.removeEventListener("keydown", closeOnEscape);
-		},
-	);
+	createEffect(open, (isOpen) => {
+		if (!isOpen) return;
+		const closeOnEscape = (event: KeyboardEvent) => {
+			if (event.key === "Escape") setOpen(false);
+		};
+		window.addEventListener("keydown", closeOnEscape);
+		return () => window.removeEventListener("keydown", closeOnEscape);
+	});
 	const modalProps = stylex.attrs(styles.modal);
 	const backdropProps = stylex.attrs(styles.backdrop);
 	return (
