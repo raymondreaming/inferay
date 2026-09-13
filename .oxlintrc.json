@@ -1,10 +1,23 @@
 {
 	"$schema": "./node_modules/oxlint/configuration_schema.json",
-	"plugins": ["typescript", "unicorn", "oxc"],
+	"plugins": ["typescript", "unicorn", "oxc", "jsx-a11y"],
 	"categories": {
 		"correctness": "error"
 	},
 	"rules": {
+		"eslint/eqeqeq": ["error", "always", { "null": "ignore" }],
+		"eslint/no-var": "error",
+		"eslint/prefer-const": "error",
+		"eslint/no-eval": "error",
+		"eslint/no-useless-catch": "error",
+		"eslint/no-useless-rename": "error",
+		"eslint/no-empty": ["error", { "allowEmptyCatch": true }],
+		"typescript/no-extra-non-null-assertion": "error",
+		"typescript/no-non-null-asserted-optional-chain": "error",
+		"typescript/no-unnecessary-type-constraint": "error",
+		"jsx-a11y/prefer-tag-over-role": "off",
+		"jsx-a11y/no-static-element-interactions": "off",
+		"jsx-a11y/click-events-have-key-events": "off",
 		"eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
 		"eslint/no-unused-expressions": [
 			"error",

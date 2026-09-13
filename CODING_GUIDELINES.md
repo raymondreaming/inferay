@@ -26,6 +26,8 @@ Within a feature, `model/` owns vocabulary and framework-independent rules; `ser
 
 Keep domain-shaped behavior in Rust pure models where it is shared with the native server and WebAssembly renderer. Solid hooks adapt signals, browser events, and query lifecycles; components render and translate interactions. Pass context-derived values into pure functions instead of reading browser state from them.
 
+Workspace actions are defined in `native/core/src/workspace_action.rs`, exported through `@contracts`, and matched by the transition code in `native/core/src/agent_state/actions.rs`. Do not recreate that union in TypeScript or dispatch workspace actions by indexing arbitrary JSON. The HTTP boundary deserializes the same Rust contract; server-only summary and provider-session updates use dedicated store methods. Persistence and default-provider selection stay outside the transition dispatcher.
+
 ## Solid 2 reactivity
 
 Use Solid's fine-grained graph directly. Derive values with `createMemo`; do not mirror a derived value into a signal through an effect. Use `createEffect` only to synchronize with an external system such as the DOM, a browser listener, timer, native subscription, or query observer, and return its cleanup from the same effect.
@@ -41,6 +43,8 @@ Feature services own endpoint paths, request payloads, and response parsing. For
 The architecture checker permits raw endpoint helpers only in a `services/` module, including shared native-compute services. It parses imports and re-exports and resolves both aliases and relative paths; namespace and dynamic imports cannot bypass this rule. There are no transport exceptions.
 
 Persistence orchestration accepts an injected port. `modules/workspace/services/workspaceSession.ts` owns request ordering and optimistic selection without importing Solid or a live transport. Its tests instantiate the same service with a controlled persistence port and the native projection function.
+
+`src/app/bootstrap/workspace.ts` wires production persistence and projection implementations for workspace state and panel sessions. Their hooks own Solid state and query lifecycles; the services accept ports and can be tested directly without loading the UI or a live backend.
 
 ## Module shape
 
@@ -64,4 +68,6 @@ Run `bun run lint`, `bun run check:boundaries`, `bunx tsc --noEmit`, `bun test s
 
 Oxlint is the repository-wide JavaScript/TypeScript linter, configured in `.oxlintrc.json`. Correctness violations and warnings fail checks. Use `bun run lint:fix` for safe automatic fixes. Generated output, vendored icons, documentation, and the separate `site/` project are excluded. The Solid structural audit and architecture dependency checker remain authoritative for framework and layer rules; React hook rules do not apply to Solid. Intentional reactive property reads should use `void` so their tracking purpose is explicit. Underscore-prefixed callback parameters may be unused, and side-effecting ternaries and short-circuit expressions are allowed.
 
-Keep Biome for formatting, import organization, and the existing supplementary lint checks; Oxlint adoption does not remove those guardrails. Pre-commit runs Oxlint on staged JavaScript/TypeScript and Biome on supported staged files. `bun run check` validates without rewriting files; `bun run format` formats renderer source.
+Oxlint replaces Biome's JavaScript/TypeScript linting, including the former focused architecture lint command. It enables correctness checks from the ESLint, TypeScript, Unicorn, Oxc, and JSX accessibility rule sets, plus explicit equality, const/var, eval, empty-block, redundant-code, and type-assertion checks. The previous accessibility exceptions for static element handlers, semantic tag preference, and click/key pairing remain. Suppress exceptional diagnostics narrowly with `oxlint-disable-next-line rule -- reason`.
+
+Keep Biome only for formatting, import organization, and CSS/JSON linting, which Oxlint does not provide. React-specific hook and fragment rules are intentionally omitted for Solid. Existing TypeScript compiler checks and custom architecture/Solid checks remain; Oxlint's default rules are not a substitute for those checks or a one-to-one copy of Biome's recommendations. Pre-commit runs Oxlint on staged JavaScript/TypeScript and Biome on supported staged files. `bun run check` validates without rewriting files; `bun run format` formats renderer source.

@@ -16,21 +16,6 @@ bun run build:presentation
 echo "==> Rust presentation usage"
 bun scripts/check-presentation-usage.ts
 
-echo "==> Biome focused architecture lint"
-bunx biome lint \
-	src/modules/conversation/components/AgentChatView/index.tsx \
-	src/modules/conversation/components/ChatMessageList/index.tsx \
-	src/modules/conversation/hooks/useAgentChatComposerState.tsx \
-	src/modules/conversation/components/AgentChatView/useChatConnection.tsx \
-	src/modules/conversation/hooks/useChatInputActions.tsx \
-	src/modules/repository/hooks/useGitDiff.tsx \
-	src/modules/workspace/hooks/useWorkspaceState.tsx \
-	src/shared/hooks/useSyntaxHighlight.tsx \
-	src/modules/repository/components/diff/components/DiffViewer/index.tsx \
-	src/modules/workspace/components/WorkspaceCanvas/index.tsx \
-	src/modules/workspace/components/PaneView/index.tsx \
-	src/app/components/RootComponent/index.tsx
-
 echo
 echo "==> Component folder structure"
 bun run check:components

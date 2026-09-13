@@ -134,7 +134,6 @@ export const CommitRow = function CommitRow(_props: {
 		() => _props.graphStart + nodeCenter(),
 	);
 	return (
-		// biome-ignore lint/a11y/useFocusableInteractive: Solid uses lowercase tabindex, supplied below.
 		<div
 			role="option"
 			aria-selected={ariaValue(_props.selected)}
