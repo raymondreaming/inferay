@@ -37,7 +37,7 @@ function devAppCandidates(cwd = process.cwd()) {
 
 export function findExistingApp(
 	cwd = process.cwd(),
-	{ includeDev = false } = {}
+	{ includeDev = false } = {},
 ) {
 	const candidates = includeDev
 		? [...devAppCandidates(cwd), ...installedAppCandidates()]

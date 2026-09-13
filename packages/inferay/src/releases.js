@@ -1,8 +1,8 @@
 import { createWriteStream } from "node:fs";
 import { mkdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { tmpdir } from "node:os";
 
 const DEFAULT_REPO = "raymondreaming/inferay";
 

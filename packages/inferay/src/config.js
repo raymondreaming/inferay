@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
 const CONFIG_DIR = join(homedir(), ".inferay");
 export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
@@ -30,7 +30,7 @@ export async function setChannel(channel) {
 	const allowed = new Set(["stable", "nightly", "dev"]);
 	if (!allowed.has(channel)) {
 		throw new Error(
-			`unknown channel "${channel}". Use stable, nightly, or dev.`
+			`unknown channel "${channel}". Use stable, nightly, or dev.`,
 		);
 	}
 	const config = await readConfig();

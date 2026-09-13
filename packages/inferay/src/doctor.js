@@ -33,7 +33,7 @@ async function appVersion(appPath) {
 		["-c", "Print :CFBundleShortVersionString", plist],
 		{
 			encoding: "utf8",
-		}
+		},
 	);
 	return result.status === 0 ? result.stdout.trim() : null;
 }
@@ -74,7 +74,7 @@ export async function doctor({ dev = false } = {}) {
 		]);
 		try {
 			const packageJson = JSON.parse(
-				await readFile(join(process.cwd(), "package.json"), "utf8")
+				await readFile(join(process.cwd(), "package.json"), "utf8"),
 			);
 			checks.push(["Project", packageJson.name || "unknown"]);
 		} catch {
