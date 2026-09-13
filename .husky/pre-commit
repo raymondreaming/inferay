@@ -1,3 +1,4 @@
 #!/usr/bin/env sh
 
 bunx lint-staged
+bash scripts/check-test-first.sh

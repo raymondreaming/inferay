@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+echo "==> Architecture boundaries"
+bun run check:boundaries
+
+echo "==> Native dependency boundaries"
+bash scripts/check-native-boundaries.sh
+
 echo "==> Build Rust renderer models and contracts"
 bun run build:presentation
 
@@ -17,7 +23,7 @@ bunx biome lint \
 	src/modules/repository/hooks/useGitDiff.tsx \
 	src/modules/workspace/hooks/useWorkspaceState.tsx \
 	src/shared/hooks/useSyntaxHighlight.tsx \
-	src/modules/workbench/diff/components/DiffViewer/index.tsx \
+	src/modules/repository/components/diff/components/DiffViewer/index.tsx \
 	src/modules/workspace/components/WorkspaceCanvas/index.tsx \
 	src/modules/workspace/components/PaneView/index.tsx \
 	src/app/components/RootComponent/index.tsx

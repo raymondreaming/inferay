@@ -21,6 +21,7 @@
 		"code": "bun scripts/count-code.ts",
 		"check:components": "bun scripts/check-component-structure.ts",
 		"check:architecture": "bash scripts/check-architecture.sh",
+		"check:boundaries": "bun scripts/check-architecture-boundaries.ts",
 		"check:native": "cargo check -p inferay-desktop",
 		"check:rust-host": "cargo check -p inferay-desktop",
 		"build:presentation": "bash scripts/build-presentation.sh",
