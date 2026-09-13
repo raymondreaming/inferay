@@ -137,7 +137,7 @@ export const styles = stylex.create({
 		display: "flex",
 		flexShrink: 0,
 		fontSize: font.size_1,
-		fontWeight: font.weight_5,
+		fontWeight: font.weight_6,
 		gap: controlSize._1_5,
 		maxWidth: 220,
 		paddingInline: controlSize._3,
