@@ -127,8 +127,16 @@ export function useRepositoryWorkbench(
 		_options().workspaceId;
 		return loadSidebarWidth();
 	});
-	const [diffWidth, setDiffWidth] = createSignal(() =>
-		loadDiffWidth(_options().workspaceId),
+	const [diffWidth, setDiffWidth] = createSignal(
+		untrack(() => loadDiffWidth(_options().workspaceId)),
+	);
+	onSettled(() =>
+		listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
+			const { key } = (event as CustomEvent<{ key?: string }>).detail ?? {};
+			if (key === DIFF_WIDTH_KEY)
+				setDiffWidth(loadDiffWidth(_options().workspaceId));
+			if (key === SIDEBAR_WIDTH_KEY) setSidebarWidth(loadSidebarWidth());
+		}),
 	);
 	const [diffViewMode, setDiffViewModeState] = createSignal(loadDiffViewMode);
 	const [zenMode, setZenMode] = createSignal(false);
@@ -849,9 +857,7 @@ export function useRepositoryWorkbench(
 			},
 			() => {
 				writeStoredValue(
-					isDiff
-						? `${DIFF_WIDTH_KEY_PREFIX}${_options().workspaceId}`
-						: SIDEBAR_WIDTH_KEY,
+					isDiff ? DIFF_WIDTH_KEY : SIDEBAR_WIDTH_KEY,
 					String(width),
 				);
 				if (isDiff) setDiffWidth(width);
@@ -1135,6 +1141,7 @@ export function loadGitFileViewMode(): "path" | "tree" {
 		: "tree";
 }
 export const SIDEBAR_WIDTH_KEY = "agent-workspace-changes-width";
+export const DIFF_WIDTH_KEY = "agent-workspace-diff-width";
 export const DIFF_WIDTH_KEY_PREFIX = "agent-workspace-diff-width:";
 export const DIFF_VIEW_MODE_KEY = "agent-workspace-diff-view-mode";
 export const MIN_SIDEBAR_WIDTH = 230;
@@ -1150,7 +1157,8 @@ export function loadSidebarWidth() {
 }
 export function loadDiffWidth(workspaceId: string) {
 	const stored = Number(
-		readStoredValue(`${DIFF_WIDTH_KEY_PREFIX}${workspaceId}`),
+		readStoredValue(DIFF_WIDTH_KEY) ??
+			readStoredValue(`${DIFF_WIDTH_KEY_PREFIX}${workspaceId}`),
 	);
 	return Number.isFinite(stored) && stored > 0
 		? Math.max(MIN_DIFF_WIDTH, stored)
