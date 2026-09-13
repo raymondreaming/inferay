@@ -4,6 +4,7 @@ import {
 	controlSize,
 	font,
 	layer,
+	layoutSize,
 	motion,
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
@@ -11,7 +12,6 @@ import type { CSSProperties } from "../../../../shared/lib/dom.tsx";
 
 const CHAT_LIST_TOP_PADDING_PX = 16;
 const CHAT_LIST_BOTTOM_PADDING_PX = 16;
-const CHAT_LIST_INLINE_GUTTER = "clamp(0.75rem, 3vw, 1.25rem)";
 export const styles = stylex.create({
 	toolMuted: {
 		color: color.textMuted,
@@ -589,6 +589,8 @@ export const styles = stylex.create({
 		color: color.success,
 	},
 	messageList: {
+		maxWidth: layoutSize.chatColumn,
+		marginInline: "auto",
 		overflowAnchor: "none",
 		boxSizing: "border-box",
 		display: "flex",
@@ -597,7 +599,7 @@ export const styles = stylex.create({
 		minHeight: "100%",
 		minWidth: controlSize._0,
 		paddingBottom: CHAT_LIST_BOTTOM_PADDING_PX,
-		paddingInline: CHAT_LIST_INLINE_GUTTER,
+		paddingInline: controlSize._3,
 		paddingTop: CHAT_LIST_TOP_PADDING_PX,
 		width: "100%",
 	},

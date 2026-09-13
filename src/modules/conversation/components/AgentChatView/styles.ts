@@ -4,6 +4,7 @@ import {
 	controlSize,
 	font,
 	layer,
+	layoutSize,
 	motion,
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
@@ -68,7 +69,7 @@ export const styles = stylex.create({
 		},
 	},
 	directoryPickerWrap: {
-		maxWidth: "574px",
+		maxWidth: layoutSize.chatColumn,
 		marginInline: "auto",
 		position: "absolute",
 		zIndex: layer.control,
@@ -133,7 +134,7 @@ export const styles = stylex.create({
 	},
 	composerContent: {
 		width: "100%",
-		maxWidth: "574px",
+		maxWidth: layoutSize.chatColumn,
 		marginInline: "auto",
 		position: "relative",
 		zIndex: layer.control,

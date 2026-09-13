@@ -107,7 +107,8 @@ export const ChatMessageList = function ChatMessageList(_props: {
 				});
 			};
 			const viewportObserver = new ResizeObserver(() => {
-				const width = element.clientWidth;
+				const width =
+					messageListRef.current?.clientWidth ?? element.clientWidth;
 				if (width <= 0 || _props.active === false) return;
 				if (width > 0 && retainedViewport.width !== width) {
 					if (retainedViewport.width !== null) {

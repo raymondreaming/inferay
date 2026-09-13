@@ -166,6 +166,10 @@ export const controlSize = stylex.defineVars({
 	_12: stylex.types.length("3rem"),
 	_16: stylex.types.length("4rem"),
 });
+// A 600px chat column with 12px gutters on either side.
+export const layoutSize = stylex.defineVars({
+	chatColumn: stylex.types.length("624px"),
+});
 export const font = stylex.defineVars({
 	familySans: "var(--font-sans)",
 	familyMono: "var(--font-mono)",
