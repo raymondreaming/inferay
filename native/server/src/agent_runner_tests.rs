@@ -1,6 +1,52 @@
 use super::*;
 use std::os::unix::fs::PermissionsExt;
 
+#[tokio::test]
+async fn provider_progresses_during_slow_emission_and_drains_before_returning() {
+    let (applying, applied) = oneshot::channel();
+    let (release, released) = oneshot::channel();
+    let mut applying = Some(applying);
+    let mut released = Some(released);
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        drive_protocol(
+            |sender| async move {
+                sender
+                    .send(ProtocolEmission::System("first".into()))
+                    .unwrap();
+                // Simulate a provider that needs polling while the first durable
+                // write is pending. The old select/await loop deadlocks here.
+                applied.await.unwrap();
+                sender
+                    .send(ProtocolEmission::System("second".into()))
+                    .unwrap();
+                release.send(()).unwrap();
+                "complete"
+            },
+            |emission| {
+                let applying = applying.take();
+                let released = released.take();
+                let seen = seen.clone();
+                async move {
+                    if let Some(applying) = applying {
+                        applying.send(()).unwrap();
+                        released.unwrap().await.unwrap();
+                    }
+                    let ProtocolEmission::System(text) = emission else {
+                        panic!("unexpected emission")
+                    };
+                    seen.lock().unwrap().push(text);
+                }
+            },
+        ),
+    )
+    .await
+    .expect("provider must keep progressing during a pending write");
+    assert_eq!(output, "complete");
+    assert_eq!(*seen.lock().unwrap(), ["first", "second"]);
+}
+
 struct Fixture {
     root: PathBuf,
     binary: PathBuf,

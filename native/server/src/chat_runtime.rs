@@ -1123,64 +1123,55 @@ impl ChatRuntime {
                 handle,
             )
         };
-        let (emission_tx, mut emission_rx) = tokio::sync::mpsc::unbounded_channel();
-        let executed = async {
-            let kind = if agent_kind == "codex" {
-                AgentKind::Codex
-            } else {
-                AgentKind::Claude
-            };
-            let binary = self.resolver.resolve_agent_binary(kind);
-            let environment = self.resolver.create_agent_env(kind);
-            let mut protocol = AgentProtocolContext::new(invocation.cwd.clone());
-            protocol.reference_paths = invocation.reference_paths.clone();
-            protocol.session_id = invocation.session_id.clone();
-            if agent_kind == "codex" {
-                crate::agent_runner::run_codex(
-                    crate::agent_runner::CodexRun {
-                        binary: &binary,
-                        prompt: &prompt,
-                        invocation: &invocation,
-                        env: &environment,
-                    },
-                    &handle,
-                    &self.pid_tracker,
-                    &mut protocol,
-                    &mut CodexProtocolState::default(),
-                    &emission_tx,
-                )
-                .await
-            } else {
-                crate::agent_runner::run_claude(
-                    crate::agent_runner::ClaudeRun {
-                        binary: &binary,
-                        prompt: &prompt,
-                        developer_instructions: invocation.developer_instructions.as_deref(),
-                        cwd: &invocation.cwd,
-                        model: invocation.model.as_deref(),
-                        session_id: invocation.session_id.as_deref(),
-                        env: &environment,
-                        mcp_servers: invocation.mcp_servers.as_deref(),
-                    },
-                    &handle,
-                    &mut protocol,
-                    &emission_tx,
-                )
-                .await
-            }
-        };
-        tokio::pin!(executed);
-        let executed = loop {
-            tokio::select! {
-                result = &mut executed => break result,
-                Some(emission) = emission_rx.recv() => {
-                    self.apply_emission(session, emission, checkpoint_id).await;
+        let executed = crate::agent_runner::drive_protocol(
+            |emission_tx| async move {
+                let kind = if agent_kind == "codex" {
+                    AgentKind::Codex
+                } else {
+                    AgentKind::Claude
+                };
+                let binary = self.resolver.resolve_agent_binary(kind);
+                let environment = self.resolver.create_agent_env(kind);
+                let mut protocol = AgentProtocolContext::new(invocation.cwd.clone());
+                protocol.reference_paths = invocation.reference_paths.clone();
+                protocol.session_id = invocation.session_id.clone();
+                if agent_kind == "codex" {
+                    crate::agent_runner::run_codex(
+                        crate::agent_runner::CodexRun {
+                            binary: &binary,
+                            prompt: &prompt,
+                            invocation: &invocation,
+                            env: &environment,
+                        },
+                        &handle,
+                        &self.pid_tracker,
+                        &mut protocol,
+                        &mut CodexProtocolState::default(),
+                        &emission_tx,
+                    )
+                    .await
+                } else {
+                    crate::agent_runner::run_claude(
+                        crate::agent_runner::ClaudeRun {
+                            binary: &binary,
+                            prompt: &prompt,
+                            developer_instructions: invocation.developer_instructions.as_deref(),
+                            cwd: &invocation.cwd,
+                            model: invocation.model.as_deref(),
+                            session_id: invocation.session_id.as_deref(),
+                            env: &environment,
+                            mcp_servers: invocation.mcp_servers.as_deref(),
+                        },
+                        &handle,
+                        &mut protocol,
+                        &emission_tx,
+                    )
+                    .await
                 }
-            }
-        };
-        while let Ok(emission) = emission_rx.try_recv() {
-            self.apply_emission(session, emission, checkpoint_id).await;
-        }
+            },
+            |emission| self.apply_emission(session, emission, checkpoint_id),
+        )
+        .await;
         session.lock().await.current_handle = None;
         self.flush_pending_steers(session).await;
         executed

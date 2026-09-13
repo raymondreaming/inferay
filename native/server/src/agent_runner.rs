@@ -25,6 +25,24 @@ const MAX_STREAM_CHARS: usize = 64_000;
 const CODEX_RPC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 const CODEX_INTERRUPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// Poll the provider while an emission waits for persistence or a file diff.
+/// Applying emissions stays ordered, and the turn cannot finish before they drain.
+pub(crate) async fn drive_protocol<R, F, H, A>(run: R, mut apply: H) -> F::Output
+where
+    R: FnOnce(mpsc::UnboundedSender<ProtocolEmission>) -> F,
+    F: std::future::Future,
+    H: FnMut(ProtocolEmission) -> A,
+    A: std::future::Future<Output = ()>,
+{
+    let (sender, mut receiver) = mpsc::unbounded_channel();
+    let (result, ()) = tokio::join!(run(sender), async {
+        while let Some(emission) = receiver.recv().await {
+            apply(emission).await;
+        }
+    });
+    result
+}
+
 /// Process control shared with the session owner while `run_*` is awaiting.
 #[derive(Clone)]
 pub struct AgentProcessHandle {
