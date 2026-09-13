@@ -18,78 +18,6 @@ export const styles = stylex.create({
 	noShrink: {
 		flexShrink: 0,
 	},
-	themeGrid: {
-		display: "flex",
-		gap: controlSize._2,
-		overflowX: "auto",
-		overscrollBehaviorX: "contain",
-		paddingBlock: controlSize._2,
-		scrollSnapType: "x proximity",
-		scrollbarWidth: "none",
-	},
-	themeOrbButton: {
-		display: "flex",
-		flex: "0 0 4.5rem",
-		flexDirection: "column",
-		alignItems: "center",
-		gap: "0.375rem",
-		borderWidth: 0,
-		borderRadius: controlSize._2,
-		paddingBlock: controlSize._1,
-		paddingInline: controlSize._0,
-		scrollSnapAlign: "start",
-		transitionProperty: "opacity, color",
-		transitionDuration: motion.durationBase,
-		backgroundColor: color.transparent,
-		opacity: {
-			default: 0.72,
-			":hover": 1,
-		},
-	},
-	themeOrbSelected: {
-		opacity: 1,
-	},
-	themeOrb: {
-		position: "relative",
-		width: controlSize._10,
-		height: controlSize._10,
-		borderRadius: radius.pill,
-	},
-	themeOrbDashed: {
-		borderWidth: 1,
-		borderStyle: "dashed",
-		borderColor: color.border,
-	},
-	themeOrbSelectedRing: {
-		outlineColor: color.borderStrong,
-		outlineOffset: controlSize._1,
-		outlineStyle: "solid",
-		outlineWidth: 1,
-	},
-	themeOrbFill: {
-		position: "absolute",
-		inset: controlSize._0,
-		borderRadius: radius.pill,
-		transitionProperty: "transform",
-		transitionDuration: motion.durationBase,
-	},
-	themeOrbGlow: {
-		position: "absolute",
-		borderRadius: radius.pill,
-	},
-	themeOrbHighlight: {
-		position: "absolute",
-		borderRadius: radius.pill,
-	},
-	themeOrbLabel: {
-		color: color.textMuted,
-		fontSize: font.size_1,
-		lineHeight: 1,
-	},
-	themeOrbLabelSelected: {
-		color: color.textMain,
-		fontWeight: font.weight_6,
-	},
 	hiddenFileInput: {
 		display: "none",
 	},
@@ -241,41 +169,5 @@ export function getBackgroundScenePickerBackgroundPreviewStyle(
 ): CSSProperties {
 	return {
 		backgroundImage: backgroundImage,
-	} as CSSProperties;
-}
-export function getThemeOrbThemeOrbStyle(
-	backgroundColor: CSSProperties["backgroundColor"],
-): CSSProperties {
-	return {
-		backgroundColor: backgroundColor,
-	} as CSSProperties;
-}
-export function getThemeOrbThemeOrbFillStyle(
-	background: CSSProperties["background"],
-): CSSProperties {
-	return {
-		background: background,
-	} as CSSProperties;
-}
-export function getThemeOrbThemeOrbGlowStyle(
-	background: CSSProperties["background"],
-): CSSProperties {
-	return {
-		top: "15%",
-		left: "20%",
-		width: "30%",
-		height: "24%",
-		background: background,
-		filter: "blur(2px)",
-	} as CSSProperties;
-}
-export function getThemeOrbThemeOrbHighlightStyle(): CSSProperties {
-	return {
-		top: "18%",
-		left: "24%",
-		width: "22%",
-		height: "18%",
-		background: `radial-gradient(ellipse at center, rgba(255,255,255,0.45), transparent 70%)`,
-		filter: "blur(1.5px)",
 	} as CSSProperties;
 }
