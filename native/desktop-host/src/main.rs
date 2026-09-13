@@ -303,9 +303,13 @@ fn main() -> wry::Result<()> {
             }
             Event::UserEvent(UserEvent::SetBackdrop(strength)) => {
                 #[cfg(target_os = "macos")]
-                // Fading the material mixes sharp desktop pixels back into the blur.
-                // Keep the native effect intact; the renderer owns the dark tint.
-                backdrop.setAlphaValue(if strength > 0.0 { 1.0 } else { 0.0 });
+                // Higher window transparency reveals some desktop detail while
+                // retaining at least 65% of the native window material.
+                backdrop.setAlphaValue(if strength > 0.0 {
+                    0.65 + 0.35 * strength
+                } else {
+                    0.0
+                });
                 #[cfg(not(target_os = "macos"))]
                 let _ = strength;
             }

@@ -131,10 +131,13 @@ export function updateAppBackground(patch: Partial<AppBackgroundSettings>) {
 export function useAppAppearance() {
 	const _source = useBackgroundModel();
 	createEffect(
-		() => _source().background.mode === "glass",
-		(enabled) => {
+		() =>
+			_source().background.mode === "glass"
+				? _source().background.glassOpacity / 100
+				: 0,
+		(opacity) => {
 			if (usesNativeGlass)
-				window.ipc?.postMessage(`window_backdrop:${enabled ? 1 : 0}`);
+				window.ipc?.postMessage(`window_backdrop:${opacity}`);
 		},
 	);
 	onSettled(() => {
