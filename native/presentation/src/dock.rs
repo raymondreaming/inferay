@@ -1,6 +1,37 @@
 //! Pure dock layout shared by the renderer preview and native persistence.
 use serde_json::{Value, json};
 
+#[cfg(test)]
+fn resize_preview(body: &Value) -> Result<Value, String> {
+    let mut tree: Tree =
+        serde_json::from_value(body["tree"].clone()).map_err(|error| error.to_string())?;
+    let path = body["path"].as_array().ok_or("resize path is required")?;
+    let ratio = body["ratio"].as_f64().ok_or("resize ratio is required")?;
+    tree.resize(path, ratio);
+    serde_json::to_value(tree).map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod resize_tests {
+    use super::*;
+
+    #[test]
+    fn resize_preview_preserves_padding_and_clamps_the_selected_split() {
+        let tree = json!({"type":"split","direction":"vertical","ratio":0.5,
+            "first":{"type":"panel","id":"a"},
+            "second":{"type":"split","direction":"horizontal","ratio":0.5,
+                "first":{"type":"panel","id":"b"},"second":{"type":"empty","columns":2}}});
+        let resized = resize_preview(&json!({"tree":tree,"path":["second"],"ratio":2})).unwrap();
+        assert_eq!(resized["ratio"], 0.5);
+        assert_eq!(resized["second"]["ratio"], 0.86);
+        assert_eq!(resized["first"], tree["first"]);
+        assert_eq!(resized["second"]["second"], tree["second"]["second"]);
+        let unchanged =
+            resize_preview(&json!({"tree":tree,"path":["first","second"],"ratio":0})).unwrap();
+        assert_eq!(unchanged, tree);
+    }
+}
+
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Tree {
