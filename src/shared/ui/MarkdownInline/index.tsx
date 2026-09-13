@@ -37,6 +37,7 @@ function InlineToken(props: InlineProps & { token: MdInlineToken }) {
 	const imageSource = createMemo(() => markdownImageSource(props.token.href));
 	const [failedSource, setFailedSource] = createSignal<string>();
 	const Children = () => (
+		// biome-ignore lint/complexity/noUselessFragments: JSX marks fallback text for Solid SSR escaping.
 		<Show when={props.token.children} fallback={<>{props.token.text}</>}>
 			{(tokens) => (
 				<MarkdownInline
@@ -48,6 +49,7 @@ function InlineToken(props: InlineProps & { token: MdInlineToken }) {
 		</Show>
 	);
 	return (
+		// biome-ignore lint/complexity/noUselessFragments: JSX marks fallback text for Solid SSR escaping.
 		<Switch fallback={<>{props.token.text}</>}>
 			<Match when={kind() === "code"}>
 				<code {...appearance()}>{props.token.text}</code>

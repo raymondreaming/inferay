@@ -1,40 +1,23 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { createStore, reconcile } from "@solidjs/signals";
+import { createWorkspaceSession } from "@workspace/services/workspaceSession.ts";
 import { project } from "../../src/shared/lib/native.tsx";
 
-// Exercise the production queue without mounting the Solid runtime.
+// Exercise the production queue through its injected persistence port.
 function model(send: (path: string, body: any) => Promise<any>) {
-	const source = readFileSync(
-		new URL(
-			"../../src/modules/workspace/hooks/useWorkspaceState.tsx",
-			import.meta.url,
-		),
-		"utf8",
-	);
-	const declarations = source
-		.slice(
-			source.indexOf("let snapshot:"),
-			source.indexOf("export const changePaneAgentKind"),
-		)
-		.replaceAll("export ", "");
-	const code = new Bun.Transpiler({ loader: "ts" }).transformSync(declarations);
-	return new Function(
-		"postJson",
-		"rustProject",
-		"noop",
-		"traceUi",
-		"createStore",
-		"reconcile",
-		`${code}\nreturn { initializeAgentState, mutateAgentWorkspaceState };`,
-	)(
-		send,
+	const session = createWorkspaceSession(
+		{
+			initialize: async () =>
+				(await send("/api/agent/state/initialize", {})).state,
+			load: async () => (await send("/api/agent/state", {})).state,
+			save: async (action) =>
+				(await send("/api/agent/state/workspace-action", { action })).state,
+		},
 		project,
-		() => {},
-		() => {},
-		createStore,
-		reconcile,
 	);
+	return {
+		initializeAgentState: session.initialize,
+		mutateAgentWorkspaceState: session.mutate,
+	};
 }
 function initialState() {
 	return {
@@ -139,5 +122,5 @@ test("selection after queued creation is preserved even when it matches the old 
 	await adding;
 	const selected = await selecting;
 	expect(sent).toEqual(["addPane", "selectPane"]);
-	expect(selected.groups[0].selectedPaneId).toBe("a");
+	expect(selected?.groups[0]?.selectedPaneId).toBe("a");
 });
