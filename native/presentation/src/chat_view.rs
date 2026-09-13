@@ -165,20 +165,21 @@ pub fn window(input: &ChatViewport) -> ChatWindow {
             end: count,
         };
     }
-    let first_visible = input
+    let height = if input.viewport_height > 0. {
+        input.viewport_height
+    } else {
+        800.
+    };
+    // Following uses the tail's measured offsets. Keep the mounted window
+    // independent of programmatic DOM scroll events while heights settle.
+    let scroll = input
         .scroll_offset
-        .map_or(count.saturating_sub(24), |scroll| {
-            input.offsets[1..]
-                .partition_point(|offset| *offset <= scroll)
-                .min(count - 1)
-        });
+        .unwrap_or_else(|| (input.offsets[count] - height).max(0.));
+    let first_visible = input.offsets[1..]
+        .partition_point(|offset| *offset <= scroll)
+        .min(count - 1);
     let start = first_visible.saturating_sub(8);
-    let bottom = input.scroll_offset.unwrap_or(input.offsets[first_visible])
-        + if input.viewport_height == 0. {
-            800.
-        } else {
-            input.viewport_height
-        };
+    let bottom = scroll + height;
     let low = first_visible
         + input.offsets[first_visible..count].partition_point(|offset| *offset < bottom);
     ChatWindow {
@@ -278,6 +279,27 @@ mod tests {
     }
 
     #[test]
+    fn following_covers_the_viewport_with_short_rows_and_tracks_tail_growth() {
+        let mut viewport = ChatViewport {
+            offsets: offsets(&vec![Some(20.); 100]),
+            scroll_offset: None,
+            viewport_height: 1200.,
+        };
+        let initial = window(&viewport);
+        assert_eq!(initial.first_visible, 40);
+        assert_eq!(initial.end, 100);
+        assert!(viewport.offsets[initial.start] <= 800.);
+        // A growing final row must remain mounted, with enough rows above it
+        // to fill the screen, without depending on a DOM scroll event.
+        viewport.offsets[100] += 600.;
+        let grown = window(&viewport);
+        assert_eq!(grown.first_visible, 70);
+        assert_eq!(grown.end, 100);
+        viewport.viewport_height = 4000.;
+        assert_eq!(window(&viewport).start, 0);
+    }
+
+    #[test]
     fn viewport_handles_empty_initial_and_past_end_positions() {
         assert_eq!(
             offsets(&[Some(0.), None, Some(25.5)]),
@@ -291,8 +313,8 @@ mod tests {
         assert_eq!(
             window(&viewport),
             ChatWindow {
-                first_visible: 76,
-                start: 68,
+                first_visible: 95,
+                start: 87,
                 end: 100
             }
         );

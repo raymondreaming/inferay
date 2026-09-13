@@ -1,6 +1,7 @@
 import {
 	type Accessor,
 	createEffect,
+	createMemo,
 	createSignal,
 	onSettled,
 	untrack,
@@ -19,16 +20,17 @@ import {
 	project as rustProject,
 	wsClient,
 } from "../../../../shared/lib/native.tsx";
+import { traceUi } from "../../../../shared/lib/uiPerformance.ts";
 import { loadCanonicalAgentState } from "../../../workspace/hooks/useWorkspaceState.tsx";
 import type { QueuedChatMessage } from "../../hooks/useAgentChatComposerState.tsx";
 import type { CommandSystemMessage } from "../ChatMessageList/CommandSystemCard.tsx";
 import type { GoalSystemMessage } from "../ChatMessageList/GoalSystemCard.tsx";
 import { chatSessionCache } from "./chatSessionCache.ts";
-import type { ChatLoadingState } from "./index.tsx";
 import {
 	admittedTranscriptMessages,
 	type TranscriptAdmission,
 } from "./transcriptSplice.ts";
+import type { ChatLoadingState } from "./types.ts";
 
 const DEFAULT_CHAT_RUN_STATUS: ChatLoadingState = {
 	isLoading: false,
@@ -39,6 +41,7 @@ const STREAM_RENDER_INTERVAL_MS = 16;
 export function useChatConnection(
 	_options: Accessor<{
 		enabled?: boolean;
+		visible?: boolean;
 		agentKind: WorkspaceAgentKind;
 		cwd?: string;
 		paneId: string;
@@ -48,13 +51,17 @@ export function useChatConnection(
 		stageSteeringMessage?: (message: QueuedChatMessage) => void;
 	}>,
 ) {
-	const initial = untrack(_options);
-	const initialIdentity = JSON.stringify([
-		initial.agentKind,
-		initial.cwd ?? null,
-		initial.paneId,
-	]);
+	const initialIdentity = untrack(() =>
+		JSON.stringify([
+			_options().agentKind,
+			_options().cwd ?? null,
+			_options().paneId,
+		]),
+	);
 	const retained = chatSessionCache.take(initialIdentity);
+	const [transcriptReady, setTranscriptReady] = createSignal(
+		retained?.nativeTranscript != null,
+	);
 	const [messages, setMessages] = createSignal<ChatMessage[]>(
 		retained?.messages ?? [],
 	);
@@ -91,15 +98,22 @@ export function useChatConnection(
 			window.clearTimeout(nativeFrameRef.current);
 		nativeFrameRef.current = null;
 		const native = nativeTranscriptRef.current;
-		if (!native) return;
+		if (!native || _options().visible === false) return;
 		setMessages((current) => mergeNativeTranscript(current, native));
 		nativeTranscriptShared = true;
 	};
+	createEffect(
+		() => _options().visible !== false,
+		(visible) => {
+			if (visible) flushNativeTranscript();
+		},
+	);
 	const resetTranscript = () => {
 		if (nativeFrameRef.current !== null)
 			window.clearTimeout(nativeFrameRef.current);
 		nativeFrameRef.current = null;
 		nativeTranscriptRef.current = null;
+		setTranscriptReady(false);
 		replicaRef.current!.clear();
 		setMessages([]);
 		setCheckpoints([]);
@@ -130,181 +144,184 @@ export function useChatConnection(
 		replicaRef.current = null;
 	});
 	let transcriptIdentity = initialIdentity;
-	createEffect(
-		() => {
-			const _optionsValue = _options();
-			// Callback changes do not change the native chat subscription.
-			return JSON.stringify([
-				_optionsValue.enabled ?? true,
-				_optionsValue.agentKind,
-				_optionsValue.cwd,
-				_optionsValue.paneId,
-			]);
-		},
-		(key) => {
-			const [enabled, agentKind, cwd, paneId] = JSON.parse(key) as [
-				boolean,
-				WorkspaceAgentKind,
-				string | null,
-				string,
-			];
-			const identity = JSON.stringify([agentKind, cwd, paneId]);
-			if (transcriptIdentity !== undefined && transcriptIdentity !== identity)
-				resetTranscript();
-			transcriptIdentity = identity;
-			if (!enabled) return;
-			let subscribed = true;
-			const cleanup = wsClient.subscribe(paneId, (rawMessage, serialized) => {
-				const _optionsValue2 = _options();
-				if (
-					!subscribed ||
-					!isChatServerMessage(rawMessage) ||
-					rawMessage.paneId !== paneId
-				)
-					return;
-				const msg = rawMessage;
-				const update: TranscriptAdmission =
-					msg.type === "chat:sync" || msg.transcriptUpdate
-						? JSON.parse(replicaRef.current!.receive(serialized))
-						: { kind: "none" };
-				if (update.kind === "resync") {
-					if (update.reconnect)
-						wsClient.send({
-							type: "chat:reconnect",
-							paneId,
-						});
-					return;
-				}
-				if (update.kind === "ignore") return;
-				if (update.kind === "sync" || update.kind === "patch") {
-					const before = nativeTranscriptRef.current ?? [];
-					const inserted = admittedTranscriptMessages(update, before, {
-						messages: msg.messages,
-						transcriptUpdate: msg.transcriptUpdate,
+	const subscriptionKey = createMemo(() => {
+		const _optionsValue = _options();
+		// Solid 2 effects rerun on dependency changes even when their computed
+		// value is equal. Memoize identity so workspace object replacement,
+		// selection and callback changes cannot tear down this subscription.
+		return JSON.stringify([
+			_optionsValue.enabled ?? true,
+			_optionsValue.agentKind,
+			_optionsValue.cwd,
+			_optionsValue.paneId,
+		]);
+	});
+	createEffect(subscriptionKey, (key) => {
+		const [enabled, agentKind, cwd, paneId] = JSON.parse(key) as [
+			boolean,
+			WorkspaceAgentKind,
+			string | null,
+			string,
+		];
+		const identity = JSON.stringify([agentKind, cwd, paneId]);
+		if (transcriptIdentity !== undefined && transcriptIdentity !== identity)
+			resetTranscript();
+		transcriptIdentity = identity;
+		if (!enabled) return;
+		let subscribed = true;
+		const cleanup = wsClient.subscribe(paneId, (rawMessage, serialized) => {
+			const _optionsValue2 = _options();
+			if (
+				!subscribed ||
+				!isChatServerMessage(rawMessage) ||
+				rawMessage.paneId !== paneId
+			)
+				return;
+			const msg = rawMessage;
+			const update: TranscriptAdmission =
+				msg.type === "chat:sync" || msg.transcriptUpdate
+					? JSON.parse(replicaRef.current!.receive(serialized))
+					: { kind: "none" };
+			if (update.kind === "resync") {
+				if (update.reconnect)
+					wsClient.send({
+						type: "chat:reconnect",
+						paneId,
 					});
-					const pending = nativeTranscriptShared ? before.slice() : before;
-					pending.splice(update.start, update.deleteCount, ...inserted);
-					nativeTranscriptRef.current = pending;
-					nativeTranscriptShared = false;
-					if (update.kind === "sync") {
-						flushNativeTranscript();
-					} else if (nativeFrameRef.current === null) {
-						nativeFrameRef.current = window.setTimeout(
-							flushNativeTranscript,
-							STREAM_RENDER_INTERVAL_MS,
-						);
-					}
-				}
-				if (msg.type === "chat:sync") {
-					for (const pending of msg.pendingSteers ?? [])
-						if (typeof pending?.id === "string")
-							_optionsValue2.stageSteeringMessage?.(pending);
-				}
-				if (msg.type === "chat:summary" || msg.type === "chat:workspace")
-					void loadCanonicalAgentState();
-				if (msg.type === "chat:control") {
-					if (msg.action === "cleared") {
-						clearChatState();
-						clearAgentChatPaneState(_optionsValue2.paneId);
-						setMessages((messages) =>
-							appendSystemMessage(messages, "Chat cleared"),
-						);
-					} else if (msg.action === "exit") _optionsValue2.onExit?.();
-					return;
-				}
-				if (msg.runStatus)
-					setRunStatus((current) => {
-						const next = rustProject<ChatLoadingState>("chatRunStatus", {
-							current,
-							incoming: msg.runStatus,
-							terminal: msg.type === "chat:done" || msg.type === "chat:error",
-						});
-						return current.isLoading === next.isLoading &&
-							current.status === next.status &&
-							current.startTime === next.startTime
-							? current
-							: next;
-					});
-				if (Array.isArray(msg.checkpoints)) setCheckpoints(msg.checkpoints);
-				if (msg.type === "chat:done") {
-					flushNativeTranscript();
-					setMessages((current) => {
-						const updated = current.map((message) =>
-							message.isStreaming
-								? {
-										...message,
-										isStreaming: false,
-									}
-								: message,
-						);
-						const ids = new Set(updated.map((message) => message.id));
-						setExpandedTools((previous) => {
-							const next = new Set([...previous].filter((id) => ids.has(id)));
-							return next.size === previous.size ? previous : next;
-						});
-						return updated;
-					});
-				} else if (
-					msg.type === "chat:steer_pending" &&
-					msg.message &&
-					typeof msg.message.id === "string"
-				) {
-					_optionsValue2.stageSteeringMessage?.(
-						msg.message as QueuedChatMessage,
-					);
-				} else if (msg.type === "chat:steered") {
-					if (typeof msg.messageId === "string")
-						_optionsValue2.resolveSteeringMessage?.(msg.messageId);
-				} else if (msg.type === "chat:error") {
-					if (msg.modelVersion !== 1)
-						setMessages((messages) =>
-							appendSystemMessage(messages, String(msg.error ?? "Chat failed")),
-						);
-					if (!msg.runStatus)
-						setRunStatus({
-							isLoading: false,
-							status: "error",
-							startTime: null,
-						});
-				} else if (msg.type === "chat:queue" && Array.isArray(msg.queue)) {
-					_optionsValue2.replaceQueuedMessages(msg.queue);
-				} else if (msg.type === "checkpoint:reverted") {
-					setMessages((prev) =>
-						appendSystemMessage(
-							prev,
-							`Reverted ${msg.restoredFiles?.length ?? 0} file(s) to checkpoint`,
-						),
-					);
-				} else if (msg.type === "checkpoint:error") {
-					setMessages((prev) =>
-						appendSystemMessage(prev, `Revert failed: ${msg.error}`),
-					);
-				}
-			});
-			const reconnectChat = () => {
-				if (!subscribed) return;
-				replicaRef.current!.reconnect();
-				wsClient.send({
-					type: "chat:reconnect",
-					paneId,
-					...JSON.parse(replicaRef.current!.cursor()),
-					agentKind,
-					cwd: cwd ?? undefined,
+				return;
+			}
+			if (update.kind === "ignore") return;
+			if (update.kind === "sync" || update.kind === "patch") {
+				const before = nativeTranscriptRef.current ?? [];
+				const inserted = admittedTranscriptMessages(update, before, {
+					messages: msg.messages,
+					transcriptUpdate: msg.transcriptUpdate,
 				});
-			};
-			reconnectChat();
-			const cleanupReconnect = wsClient.onReconnect(reconnectChat);
-			return () => {
-				subscribed = false;
-				if (nativeFrameRef.current !== null)
-					window.clearTimeout(nativeFrameRef.current);
-				nativeFrameRef.current = null;
-				cleanupReconnect();
-				cleanup();
-				wsClient.send({ type: "chat:unsubscribe", paneId });
-			};
-		},
-	);
+				const pending = nativeTranscriptShared ? before.slice() : before;
+				pending.splice(update.start, update.deleteCount, ...inserted);
+				nativeTranscriptRef.current = pending;
+				nativeTranscriptShared = false;
+				if (update.kind === "sync") {
+					flushNativeTranscript();
+				} else if (
+					_optionsValue2.visible !== false &&
+					nativeFrameRef.current === null
+				) {
+					nativeFrameRef.current = window.setTimeout(
+						flushNativeTranscript,
+						STREAM_RENDER_INTERVAL_MS,
+					);
+				}
+			}
+			if (msg.type === "chat:sync") {
+				setTranscriptReady(true);
+				traceUi("transcript-ready");
+				for (const pending of msg.pendingSteers ?? [])
+					if (typeof pending?.id === "string")
+						_optionsValue2.stageSteeringMessage?.(pending);
+			}
+			if (msg.type === "chat:summary" || msg.type === "chat:workspace")
+				void loadCanonicalAgentState();
+			if (msg.type === "chat:control") {
+				if (msg.action === "cleared") {
+					clearChatState();
+					clearAgentChatPaneState(_optionsValue2.paneId);
+					setMessages((messages) =>
+						appendSystemMessage(messages, "Chat cleared"),
+					);
+				} else if (msg.action === "exit") _optionsValue2.onExit?.();
+				return;
+			}
+			if (msg.runStatus)
+				setRunStatus((current) => {
+					const next = rustProject<ChatLoadingState>("chatRunStatus", {
+						current,
+						incoming: msg.runStatus,
+						terminal: msg.type === "chat:done" || msg.type === "chat:error",
+					});
+					return current.isLoading === next.isLoading &&
+						current.status === next.status &&
+						current.startTime === next.startTime
+						? current
+						: next;
+				});
+			if (Array.isArray(msg.checkpoints)) setCheckpoints(msg.checkpoints);
+			if (msg.type === "chat:done") {
+				flushNativeTranscript();
+				setMessages((current) => {
+					const updated = current.map((message) =>
+						message.isStreaming
+							? {
+									...message,
+									isStreaming: false,
+								}
+							: message,
+					);
+					const ids = new Set(updated.map((message) => message.id));
+					setExpandedTools((previous) => {
+						const next = new Set([...previous].filter((id) => ids.has(id)));
+						return next.size === previous.size ? previous : next;
+					});
+					return updated;
+				});
+			} else if (
+				msg.type === "chat:steer_pending" &&
+				msg.message &&
+				typeof msg.message.id === "string"
+			) {
+				_optionsValue2.stageSteeringMessage?.(msg.message as QueuedChatMessage);
+			} else if (msg.type === "chat:steered") {
+				if (typeof msg.messageId === "string")
+					_optionsValue2.resolveSteeringMessage?.(msg.messageId);
+			} else if (msg.type === "chat:error") {
+				if (msg.modelVersion !== 1)
+					setMessages((messages) =>
+						appendSystemMessage(messages, String(msg.error ?? "Chat failed")),
+					);
+				if (!msg.runStatus)
+					setRunStatus({
+						isLoading: false,
+						status: "error",
+						startTime: null,
+					});
+			} else if (msg.type === "chat:queue" && Array.isArray(msg.queue)) {
+				_optionsValue2.replaceQueuedMessages(msg.queue);
+			} else if (msg.type === "checkpoint:reverted") {
+				setMessages((prev) =>
+					appendSystemMessage(
+						prev,
+						`Reverted ${msg.restoredFiles?.length ?? 0} file(s) to checkpoint`,
+					),
+				);
+			} else if (msg.type === "checkpoint:error") {
+				setMessages((prev) =>
+					appendSystemMessage(prev, `Revert failed: ${msg.error}`),
+				);
+			}
+		});
+		const reconnectChat = () => {
+			if (!subscribed) return;
+			replicaRef.current!.reconnect();
+			wsClient.send({
+				type: "chat:reconnect",
+				paneId,
+				...JSON.parse(replicaRef.current!.cursor()),
+				agentKind,
+				cwd: cwd ?? undefined,
+			});
+		};
+		reconnectChat();
+		const cleanupReconnect = wsClient.onReconnect(reconnectChat);
+		return () => {
+			subscribed = false;
+			if (nativeFrameRef.current !== null)
+				window.clearTimeout(nativeFrameRef.current);
+			nativeFrameRef.current = null;
+			cleanupReconnect();
+			cleanup();
+			wsClient.send({ type: "chat:unsubscribe", paneId });
+		};
+	});
 	const beginRun = () =>
 		setRunStatus((current) =>
 			rustProject<ChatLoadingState>("chatRunStatus", {
@@ -332,6 +349,9 @@ export function useChatConnection(
 		},
 		get status() {
 			return runStatus().status;
+		},
+		get transcriptReady() {
+			return transcriptReady();
 		},
 		get startTime() {
 			return runStatus().startTime;

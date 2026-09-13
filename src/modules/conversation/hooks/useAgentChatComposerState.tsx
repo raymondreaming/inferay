@@ -3,6 +3,8 @@ import {
 	createEffect,
 	createMemo,
 	createSignal,
+	onCleanup,
+	untrack,
 } from "solid-js";
 import type { QueuedMessageInfo } from "../../../../build/presentation/contracts/QueuedMessageInfo.ts";
 import { useQueryResource } from "../../../shared/hooks/useQueryResource.tsx";
@@ -22,15 +24,13 @@ export function useAgentChatComposerState(
 	const [queuedMessages, setQueuedMessages] = createSignal<QueuedChatMessage[]>(
 		[],
 	);
+	let disposed = false;
+	onCleanup(() => {
+		disposed = true;
+	});
 	const queueRef = {
 		current: [] as QueuedChatMessage[],
 	};
-	createEffect(
-		() => queuedMessages(),
-		(messages) => {
-			queueRef.current = messages;
-		},
-	);
 	const queueRevision = {
 		current: 0,
 	};
@@ -47,13 +47,15 @@ export function useAgentChatComposerState(
 		id: string,
 		text?: string,
 	) => {
+		const paneId = _paneId();
 		let requestRevision = 0;
 		const result = mutationChain.current
 			.catch(() => undefined)
 			.then(async () => {
+				if (disposed || paneId !== _paneId()) return;
 				requestRevision = ++queueRevision.current;
 				const response = await sendJson(
-					`/api/chat-queues/${encodeURIComponent(_paneId())}`,
+					`/api/chat-queues/${encodeURIComponent(paneId)}`,
 					{
 						action,
 						id,
@@ -70,14 +72,23 @@ export function useAgentChatComposerState(
 						queue: QueuedChatMessage[];
 					}
 				).queue;
-				if (queueRevision.current === requestRevision)
+				if (
+					!disposed &&
+					paneId === _paneId() &&
+					queueRevision.current === requestRevision
+				)
 					replaceQueue([
 						...queue,
 						...queueRef.current.filter((item) => item.transient),
 					]);
 			})
 			.catch((error) => {
-				if (queueRevision.current === requestRevision) throw error;
+				if (
+					!disposed &&
+					paneId === _paneId() &&
+					queueRevision.current === requestRevision
+				)
+					throw error;
 			});
 		mutationChain.current = result;
 		return result;
@@ -85,6 +96,16 @@ export function useAgentChatComposerState(
 	const [queueError, setQueueError] = createSignal<string | null>(null);
 	const [editingQueueId, setEditingQueueId] = createSignal<string | null>(null);
 	const [editingQueueText, setEditingQueueText] = createSignal("");
+	let queuePaneId = untrack(_paneId);
+	createEffect(_paneId, (paneId) => {
+		if (paneId === queuePaneId) return;
+		queuePaneId = paneId;
+		replaceQueue([]);
+		setQueueError(null);
+		setEditingQueueId(null);
+		setEditingQueueText("");
+		setAttachedImages([]);
+	});
 	const [previewPath, setPreviewPath] = createSignal<string | null>(null);
 	const preview = useQueryResource(
 		() => {
@@ -188,9 +209,11 @@ export function useAgentChatComposerState(
 		cancelQueuedMessageEdit();
 	};
 	const attachImage = async (file: File) => {
+		const paneId = _paneId();
 		try {
 			const image = await uploadChatImage(file);
-			if (image) setAttachedImages((previous) => [...previous, image]);
+			if (image && !disposed && paneId === _paneId())
+				setAttachedImages((previous) => [...previous, image]);
 		} catch {}
 	};
 	const removeAttachedImage = (path: string) => {

@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { createMemo } from "solid-js";
+import { createMemo, Show } from "solid-js";
 import { APP_REGION_NO_DRAG_CLASS } from "../../../../app/hooks/useAppAppearance.tsx";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { IconFolder } from "../../../../shared/ui/Icons/index.tsx";
@@ -22,19 +22,21 @@ export const AgentWorkspaceControl = function AgentWorkspaceControl(
 			_props.isAgentContextOpen && styles.projectButtonActive,
 		),
 	);
-	return dirName() ? (
-		<button
-			type="button"
-			onClick={(event) => {
-				event.stopPropagation();
-				_props.onAgentContext?.();
-			}}
-			{...projectButtonProps()}
-			class={`${APP_REGION_NO_DRAG_CLASS} ${projectButtonProps().class ?? ""}`}
-			title={_props.cwd}
-		>
-			<IconFolder size={iconSize.sm} />
-			<span {...stylex.attrs(styles.sessionLabel)}>{dirName()}</span>
-		</button>
-	) : null;
+	return (
+		<Show when={dirName()}>
+			<button
+				type="button"
+				onClick={(event) => {
+					event.stopPropagation();
+					_props.onAgentContext?.();
+				}}
+				{...projectButtonProps()}
+				class={`${APP_REGION_NO_DRAG_CLASS} ${projectButtonProps().class ?? ""}`}
+				title={_props.cwd}
+			>
+				<IconFolder size={iconSize.sm} />
+				<span {...stylex.attrs(styles.sessionLabel)}>{dirName()}</span>
+			</button>
+		</Show>
+	);
 };

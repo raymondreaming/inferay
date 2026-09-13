@@ -20,6 +20,7 @@ export function useChatComposerState(
 	_props: Accessor<
 		ReturnType<typeof useAgentChatComposerState> &
 			ReturnType<typeof useAgentChatMenus> & {
+				active?: boolean;
 				agentKind: WorkspaceAgentKind;
 				agentKindOptions: AgentOption[];
 				model: string;
@@ -45,7 +46,6 @@ export function useChatComposerState(
 			}
 	>,
 ) {
-	const _source = createMemo(() => _props());
 	const fileInputRef = {
 		current: null,
 	} as {
@@ -70,27 +70,27 @@ export function useChatComposerState(
 	const agentConfigOpen = createMemo(() => activeConfig() !== null);
 	const [messageInputFocused, setMessageInputFocused] = createSignal(false);
 	createEffect(
-		() => [agentConfigOpen(), _source().onAgentConfigOpenChange] as const,
+		() => [agentConfigOpen(), _props().onAgentConfigOpenChange] as const,
 		([open, notify]) => {
 			notify?.(open);
 		},
 	);
 	createEffect(
-		() => _source().onAgentConfigOpenChange,
+		() => _props().onAgentConfigOpenChange,
 		(notify) => () => notify?.(false),
 	);
-	const usePlainTextarea = createMemo(() => _source().input.length > 6000);
+	const usePlainTextarea = createMemo(() => _props().input.length > 6000);
 	const agentDefinition = createMemo(() =>
-		getAgentDefinition(_source().agentKind),
+		getAgentDefinition(_props().agentKind),
 	);
 	const selectedModel = createMemo(() =>
-		agentDefinition().models.find(hasId.bind(null, _source().model)),
+		agentDefinition().models.find(hasId.bind(null, _props().model)),
 	);
 	const selectedModelLabel = createMemo(
-		() => selectedModel()?.label || _source().model || "No model",
+		() => selectedModel()?.label || _props().model || "No model",
 	);
 	const selectedReasoningLabel = createMemo(() => {
-		const _sourceValue2 = _source();
+		const _sourceValue2 = _props();
 		return (
 			agentDefinition().reasoningLevels.find(
 				hasId.bind(null, _sourceValue2.reasoningLevel),
@@ -99,7 +99,7 @@ export function useChatComposerState(
 	});
 	const configControls = createMemo(() => {
 		const _agentDefinitionValue = agentDefinition(),
-			_sourceValue3 = _source();
+			_sourceValue3 = _props();
 		return [
 			{
 				id: "provider",
@@ -109,7 +109,7 @@ export function useChatComposerState(
 				options: _sourceValue3.agentKindOptions,
 				agentKind: _sourceValue3.agentKind,
 				onChange: (id: string) =>
-					_source().onAgentKindChange(id as WorkspaceAgentKind),
+					_props().onAgentKindChange(id as WorkspaceAgentKind),
 			},
 			...(_agentDefinitionValue.models.length
 				? [
@@ -180,54 +180,48 @@ export function useChatComposerState(
 			)?.focus();
 		},
 	);
-	return merge(
-		() => {
-			const _sourceValue4 = _source();
-			return _props();
+	return merge(_props, {
+		get beamActive() {
+			const _sourceValue4 = _props();
+			return _sourceValue4.beamActive === undefined
+				? false
+				: _sourceValue4.beamActive;
 		},
-		{
-			get beamActive() {
-				const _sourceValue4 = _source();
-				return _sourceValue4.beamActive === undefined
-					? false
-					: _sourceValue4.beamActive;
-			},
-			get fileInputRef() {
-				return fileInputRef;
-			},
-			get agentConfigControlsRef() {
-				return agentConfigControlsRef;
-			},
-			get agentConfigButtonRef() {
-				return agentConfigButtonRef;
-			},
-			get agentConfigMenuRef() {
-				return agentConfigMenuRef;
-			},
-			get activeConfig() {
-				return activeConfig();
-			},
-			get setActiveConfig() {
-				return setActiveConfig;
-			},
-			get messageInputFocused() {
-				return messageInputFocused();
-			},
-			get setMessageInputFocused() {
-				return setMessageInputFocused;
-			},
-			get usePlainTextarea() {
-				return usePlainTextarea();
-			},
-			get selectedModelLabel() {
-				return selectedModelLabel();
-			},
-			get configControls() {
-				return configControls();
-			},
-			get activeControl() {
-				return activeControl();
-			},
+		get fileInputRef() {
+			return fileInputRef;
 		},
-	);
+		get agentConfigControlsRef() {
+			return agentConfigControlsRef;
+		},
+		get agentConfigButtonRef() {
+			return agentConfigButtonRef;
+		},
+		get agentConfigMenuRef() {
+			return agentConfigMenuRef;
+		},
+		get activeConfig() {
+			return activeConfig();
+		},
+		get setActiveConfig() {
+			return setActiveConfig;
+		},
+		get messageInputFocused() {
+			return messageInputFocused();
+		},
+		get setMessageInputFocused() {
+			return setMessageInputFocused;
+		},
+		get usePlainTextarea() {
+			return usePlainTextarea();
+		},
+		get selectedModelLabel() {
+			return selectedModelLabel();
+		},
+		get configControls() {
+			return configControls();
+		},
+		get activeControl() {
+			return activeControl();
+		},
+	});
 }

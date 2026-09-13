@@ -27,10 +27,18 @@ import { QueuedMessages } from "./QueuedMessages.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 import { useChatComposerState } from "./useChatComposerState.tsx";
+import { useComposerTextarea } from "./useComposerTextarea.ts";
+
 export const ChatComposer = function ChatComposer(
 	props: ReturnType<Parameters<typeof useChatComposerState>[0]>,
 ) {
 	const view = useChatComposerState(() => props);
+	const textarea = useComposerTextarea({
+		input: () => props.input,
+		active: () => props.active !== false,
+		textareaRef: () => props.textareaRef,
+		overlayRef: () => props.highlightOverlayRef,
+	});
 	return (
 		<>
 			<input
@@ -40,11 +48,12 @@ export const ChatComposer = function ChatComposer(
 				multiple
 				{...stylex.attrs(styles.hidden)}
 				onInput={async (e) => {
-					const files = Array.from(e.currentTarget.files || []).filter((file) =>
+					const input = e.currentTarget;
+					const files = Array.from(input.files || []).filter((file) =>
 						file.type.startsWith("image/"),
 					);
 					await Promise.all(files.map((file) => view.attachImage(file)));
-					e.currentTarget.value = "";
+					input.value = "";
 				}}
 			/>
 
@@ -157,9 +166,7 @@ export const ChatComposer = function ChatComposer(
 											</div>
 										)}
 										<textarea
-											ref={(_element3) =>
-												assignRef(view.textareaRef, _element3)
-											}
+											ref={textarea}
 											value={view.input}
 											onFocus={() => view.setMessageInputFocused(true)}
 											onBlur={() => view.setMessageInputFocused(false)}

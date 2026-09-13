@@ -1,14 +1,22 @@
 import * as stylex from "@stylexjs/stylex";
-import { createEffect, createMemo, createSignal, onSettled } from "solid-js";
+import { createEffect, createMemo, createSignal } from "solid-js";
 import { ariaValue } from "../../lib/dom.tsx";
 import { DotMatrixRipple } from "./DotMatrixRipple.tsx";
 import { styles } from "./styles.ts";
-export function ThinkingIndicator(_props: { startTime: number }) {
+export function ThinkingIndicator(_props: {
+	startTime: number;
+	active?: boolean;
+}) {
 	const [now, setNow] = createSignal((() => Date.now())());
-	onSettled(() => {
-		const id = window.setInterval(() => setNow(Date.now()), 1000);
-		return () => window.clearInterval(id);
-	});
+	createEffect(
+		() => _props.active !== false,
+		(active) => {
+			if (!active) return;
+			setNow(Date.now());
+			const id = window.setInterval(() => setNow(Date.now()), 1000);
+			return () => window.clearInterval(id);
+		},
+	);
 	const elapsed = createMemo(() => formatElapsedMs(now() - _props.startTime));
 	return (
 		<output

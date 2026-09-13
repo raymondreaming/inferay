@@ -5,6 +5,7 @@ import { IconStop } from "../../../../shared/ui/Icons/index.tsx";
 import { styles } from "./styles.ts";
 
 interface AgentChatStatusBarProps {
+	active?: boolean;
 	isLoading: boolean;
 	startTime?: number | null;
 	onStop: () => void;
@@ -17,11 +18,14 @@ export const AgentChatStatusBar = function AgentChatStatusBar(
 			{(() => {
 				if (!_props.isLoading) return null;
 				return (
-					<div {...stylex.attrs(styles.root)}>
+					<div data-chat-activity {...stylex.attrs(styles.root)}>
 						{_props.isLoading && (
 							<div {...stylex.attrs(styles.activity)}>
 								{_props.startTime ? (
-									<ThinkingIndicator startTime={_props.startTime} />
+									<ThinkingIndicator
+										active={_props.active}
+										startTime={_props.startTime}
+									/>
 								) : null}
 							</div>
 						)}

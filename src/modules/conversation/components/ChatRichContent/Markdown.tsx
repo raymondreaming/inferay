@@ -42,7 +42,10 @@ export const Markdown = function Markdown(_props: {
 		event.preventDefault();
 	};
 	return (
-		<div {...stylex.attrs(styles.markdownRoot)}>
+		<div
+			data-chat-formatting={_source.loading ? "pending" : "ready"}
+			{...stylex.attrs(styles.markdownRoot)}
+		>
 			{_source.loading || _source.error ? (
 				<p
 					{...stylex.attrs(styles.paragraph)}

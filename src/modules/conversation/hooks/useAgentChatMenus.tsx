@@ -297,19 +297,20 @@ export function useAgentChatSettings(
 	const requests = {
 		current: Promise.resolve(),
 	};
+	let scopeVersion = 0;
 	const resolveSelection = (
 		patch: Partial<ReturnType<typeof selection>> = {},
+		identity = { paneId: _paneId(), agentKind: _agentKind() },
 	) => {
 		const revision = ++requestRevision.current;
+		const version = scopeVersion;
+		const target = { ...identity, ...patch };
 		requests.current = requests.current.then(async () => {
+			if (version !== scopeVersion) return;
 			try {
 				const resolved = await postJson<ReturnType<typeof selection>>(
 					"/api/native/provider-config",
-					{
-						paneId: _paneId(),
-						agentKind: _agentKind(),
-						...patch,
-					},
+					target,
 				);
 				if (revision !== requestRevision.current) return;
 				setSelection(resolved);
@@ -323,10 +324,13 @@ export function useAgentChatSettings(
 		});
 	};
 	createEffect(
-		() => [resolveSelection, _paneId(), _agentKind()],
-		() => {
-			resolveSelection();
+		() => JSON.stringify([_paneId(), _agentKind()]),
+		(key) => {
+			scopeVersion++;
+			const [paneId, agentKind] = JSON.parse(key);
+			resolveSelection({}, { paneId, agentKind });
 			return () => {
+				scopeVersion++;
 				requestRevision.current++;
 			};
 		},

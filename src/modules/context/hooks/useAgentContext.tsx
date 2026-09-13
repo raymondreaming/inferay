@@ -21,19 +21,22 @@ export function useAgentContext(
 		effectiveInstructions: "",
 	};
 	const query = useBackgroundQuery(
-		() => ({
-			queryKey: ["agent-context", _paneId(), _cwd()],
-			queryFn: async ({ signal }) => {
-				const params = new URLSearchParams({ paneId: _paneId() });
-				const cwd = _cwd();
-				if (cwd) params.set("cwd", cwd);
-				return fetchJson<EffectiveAgentContext>(
-					`/api/agent-context?${params}`,
-					{ signal },
-				);
-			},
-			retry: false,
-		}),
+		() => {
+			const paneId = _paneId(),
+				cwd = _cwd();
+			return {
+				queryKey: ["agent-context", paneId, cwd],
+				queryFn: async ({ signal }) => {
+					const params = new URLSearchParams({ paneId });
+					if (cwd) params.set("cwd", cwd);
+					return fetchJson<EffectiveAgentContext>(
+						`/api/agent-context?${params}`,
+						{ signal },
+					);
+				},
+				retry: false,
+			};
+		},
 		() => queryClient,
 	);
 	const save = async (

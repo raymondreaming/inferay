@@ -17,7 +17,7 @@ export function AgentContextPanel(_props: {
 		() => _props.paneId,
 		() => _props.cwd,
 	);
-	const [scope, setScope] = createSignal<Scope>(
+	const [scope, setScope] = createSignal<Scope>(() =>
 		_props.cwd ? "project" : "chat",
 	);
 	const layer = createMemo(() =>

@@ -6,6 +6,7 @@ import {
 	For,
 	flush,
 	onSettled,
+	untrack,
 } from "solid-js";
 import type { ChatWindow } from "../../../../../build/presentation/contracts/ChatWindow.ts";
 import type { CheckpointMeta } from "../../../../../build/presentation/contracts/CheckpointMeta.ts";
@@ -17,6 +18,7 @@ import {
 import { project as rustProject } from "../../../../shared/lib/native.tsx";
 import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
 import { ChatRenderRow } from "./ChatRenderRow.tsx";
+import { chatViewportState } from "./chatViewportCache.ts";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 export type ChatVirtualizerControls = {
@@ -25,6 +27,7 @@ export type ChatVirtualizerControls = {
 	getDistanceFromEnd: () => number;
 };
 export const ChatMessageList = function ChatMessageList(_props: {
+	active?: boolean;
 	paneId: string;
 	messages: ChatMessage[];
 	scrollElementRef: RefCell<HTMLDivElement | null>;
@@ -38,9 +41,6 @@ export const ChatMessageList = function ChatMessageList(_props: {
 	slashCommandNames: readonly string[];
 	stickToBottom: boolean;
 }) {
-	const didInitialScrollRef = {
-		current: false,
-	};
 	const messageListRef = {
 		current: null,
 	} as {
@@ -50,9 +50,8 @@ export const ChatMessageList = function ChatMessageList(_props: {
 		() => _props.messages,
 		() => _props.checkpoints,
 	);
-	const measuredHeights = {
-		current: new Map<string, number>(),
-	};
+	const retainedViewport = untrack(() => chatViewportState(_props.paneId));
+	const measuredHeights = { current: retainedViewport.heights };
 	const [measurementVersion, setMeasurementVersion] = createSignal(0);
 	const [scrollOffset, setScrollOffset] = createSignal<number | null>(null);
 	const virtual = createMemo(() => renderRows().length > 60);
@@ -67,22 +66,26 @@ export const ChatMessageList = function ChatMessageList(_props: {
 	const _source = createMemo(() =>
 		rustProject<ChatWindow>("chatWindow", {
 			offsets: offsets(),
-			scrollOffset: scrollOffset(),
+			scrollOffset: _props.stickToBottom ? null : scrollOffset(),
 			viewportHeight: viewportHeight(),
 		}),
 	);
 	createEffect(
-		() => [_props.scrollElementRef, virtual()] as const,
-		([scrollRef, isVirtual]) => {
-			const element = scrollRef.current;
-			if (!element || !isVirtual) return;
+		() =>
+			[
+				_props.scrollElementRef.current,
+				virtual(),
+				_props.active !== false,
+			] as const,
+		([element, isVirtual, active]) => {
+			if (!element || !isVirtual || !active) return;
 			let frame = 0;
 			const update = () => {
 				if (frame) return;
 				frame = requestAnimationFrame(() => {
 					frame = 0;
 					const list = messageListRef.current;
-					if (!list) return;
+					if (!list || _props.active === false) return;
 					setScrollOffset(
 						Math.max(
 							0,
@@ -93,7 +96,27 @@ export const ChatMessageList = function ChatMessageList(_props: {
 				});
 			};
 			const viewportObserver = new ResizeObserver(() => {
+				const width = element.clientWidth;
+				if (width <= 0 || _props.active === false) return;
+				if (width > 0 && retainedViewport.width !== width) {
+					if (retainedViewport.width !== null) {
+						measuredHeights.current.clear();
+						// Cached heights from another width are estimates. Seed the
+						// currently mounted rows together after layout, before offsets.
+						for (const row of observedRows) {
+							const key = row.dataset.chatRowKey;
+							if (key)
+								measuredHeights.current.set(
+									key,
+									row.getBoundingClientRect().height,
+								);
+						}
+						setMeasurementVersion((version) => version + 1);
+					}
+					retainedViewport.width = width;
+				}
 				setViewportHeight(element.clientHeight);
+				scheduleLayout();
 				update();
 			});
 			viewportObserver.observe(element);
@@ -113,20 +136,16 @@ export const ChatMessageList = function ChatMessageList(_props: {
 	// This avoids ResizeObserver feedback loops and browser scroll anchoring fighting ours.
 	const pendingMeasurements = new Map<HTMLElement, number>();
 	let measurementFrame = 0;
-	const handleMeasurements = (entries: ResizeObserverEntry[]) => {
-		for (const entry of entries)
-			pendingMeasurements.set(
-				entry.target as HTMLElement,
-				entry.borderBoxSize[0]?.blockSize ?? entry.contentRect.height,
-			);
+	const scheduleLayout = () => {
 		if (measurementFrame) return;
 		measurementFrame = requestAnimationFrame(() => {
 			measurementFrame = 0;
+			if (_props.active === false) {
+				pendingMeasurements.clear();
+				return;
+			}
 			const element = _props.scrollElementRef.current;
 			const previousTop = element?.scrollTop ?? 0;
-			const atEnd =
-				!!element &&
-				element.scrollHeight - previousTop - element.clientHeight <= 80;
 			const firstVisible = _source().firstVisible;
 			let changed = false;
 			let adjustment = 0;
@@ -141,14 +160,13 @@ export const ChatMessageList = function ChatMessageList(_props: {
 				changed = true;
 			}
 			pendingMeasurements.clear();
-			if (!changed) return;
-			flush(() => setMeasurementVersion((version) => version + 1));
+			if (changed) flush(() => setMeasurementVersion((version) => version + 1));
 			if (element) {
-				if (atEnd || _props.stickToBottom)
-					element.scrollTop = element.scrollHeight;
-				else if (adjustment) element.scrollTop = previousTop + adjustment;
+				if (_props.stickToBottom) pinToBottom();
+				else if (virtual() && adjustment)
+					element.scrollTop = previousTop + adjustment;
 				const list = messageListRef.current;
-				if (list)
+				if (list && !_props.stickToBottom)
 					setScrollOffset(
 						Math.max(
 							0,
@@ -158,6 +176,15 @@ export const ChatMessageList = function ChatMessageList(_props: {
 					);
 			}
 		});
+	};
+	const handleMeasurements = (entries: ResizeObserverEntry[]) => {
+		if (_props.active === false) return;
+		for (const entry of entries)
+			pendingMeasurements.set(
+				entry.target as HTMLElement,
+				entry.borderBoxSize[0]?.blockSize ?? entry.contentRect.height,
+			);
+		scheduleLayout();
 	};
 	const observedRows = new Set<HTMLDivElement>();
 	let rowObserver: ResizeObserver | undefined;
@@ -189,16 +216,10 @@ export const ChatMessageList = function ChatMessageList(_props: {
 	);
 	const pinToBottom = (behavior: ScrollBehavior = "auto") => {
 		const element = _props.scrollElementRef.current;
-		if (!element) return;
-		// Mount the final window before reading its DOM height. Otherwise a stale
-		// scroll offset can replace the bottom rows while estimates are settling.
-		if (virtual() && behavior !== "smooth") {
-			flush(() =>
-				setScrollOffset(
-					Math.max(0, offsets()[renderRows().length]! - element.clientHeight),
-				),
-			);
-		}
+		if (!element || _props.active === false) return;
+		// A null offset asks Rust for the tail window. Using a pixel estimate
+		// here and a DOM offset on scroll alternated windows as rows resized.
+		if (virtual() && behavior !== "smooth") flush(() => setScrollOffset(null));
 		if (behavior === "smooth") {
 			element.scrollTo({
 				top: element.scrollHeight,
@@ -231,68 +252,25 @@ export const ChatMessageList = function ChatMessageList(_props: {
 		}),
 	);
 	createEffect(
-		() => [renderRows().length, _props.scrollElementRef] as const,
-		([rowCount, scrollRef]) => {
-			if (rowCount === 0) return;
-			if (!didInitialScrollRef.current) {
-				didInitialScrollRef.current = true;
-				let raf2 = 0;
-				const raf1 = requestAnimationFrame(() => {
-					pinToBottom();
-					raf2 = requestAnimationFrame(() => {
-						pinToBottom();
-					});
-				});
-				return () => {
-					cancelAnimationFrame(raf1);
-					if (raf2) cancelAnimationFrame(raf2);
-				};
-			}
-			const scrollElement = scrollRef.current;
-			if (scrollElement) {
-				const distanceFromBottom =
-					scrollElement.scrollHeight -
-					scrollElement.scrollTop -
-					scrollElement.clientHeight;
-				// Only auto-stick to the bottom when the user is already there.
-				// Yanking the viewport mid-read is both jarring and an extra
-				// layout/paint we can't afford on every new message.
-				if (distanceFromBottom > 120) return;
-			}
-			const raf = requestAnimationFrame(() => {
-				pinToBottom();
-			});
-			return () => cancelAnimationFrame(raf);
+		() =>
+			[
+				renderRows().length,
+				_props.stickToBottom,
+				_props.active !== false,
+			] as const,
+		() => {
+			scheduleLayout();
 		},
 	);
-	createEffect(
-		() => _props.stickToBottom,
-		(stickToBottom) => {
-			const list = messageListRef.current;
-			if (!list || !stickToBottom || typeof ResizeObserver === "undefined")
-				return;
-			let frame = 0;
-			const observer = new ResizeObserver(() => {
-				if (frame) return;
-				frame = requestAnimationFrame(() => {
-					frame = 0;
-					pinToBottom();
-				});
-			});
-			observer.observe(list);
-			return () => {
-				observer.disconnect();
-				if (frame) cancelAnimationFrame(frame);
-			};
-		},
-	);
-	createEffect(
-		() => renderRows().length,
-		(rowCount) => {
-			if (rowCount > 0) return;
-			didInitialScrollRef.current = false;
-		},
-	);
+	onSettled(() => {
+		const list = messageListRef.current;
+		if (!list) return;
+		// Row measurements, late image/Markdown layout and new messages share
+		// one frame. No second observer is allowed to scroll independently.
+		const observer = new ResizeObserver(scheduleLayout);
+		observer.observe(list);
+		return () => observer.disconnect();
+	});
 	return (
 		<div
 			ref={(element) => (messageListRef.current = element)}
@@ -400,10 +378,18 @@ export function createChatListModel(
 				),
 		},
 	);
+	const checkpointLinks = createMemo(
+		() => checkpoints().map(({ afterMessageId }) => afterMessageId),
+		{
+			equals: (before, after) =>
+				before.length === after.length &&
+				before.every((id, index) => id === after[index]),
+		},
+	);
 	const renderRows = createMemo(() =>
 		rustProject<ChatListRow[]>("chatList", {
 			messages: rowFacts(),
-			checkpoints: checkpoints().map(({ afterMessageId }) => ({
+			checkpoints: checkpointLinks().map((afterMessageId) => ({
 				afterMessageId,
 			})),
 		}),

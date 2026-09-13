@@ -1,15 +1,30 @@
-import { type Accessor, createEffect, createSignal, onSettled } from "solid-js";
+import {
+	type Accessor,
+	createEffect,
+	createSignal,
+	onSettled,
+	untrack,
+} from "solid-js";
 import { listenWindowEvent } from "../../../../shared/lib/dom.tsx";
+import { chatViewportState } from "./chatViewportCache.ts";
 import type { ChatVirtualizerControls } from "./index.tsx";
+
 export function useChatViewport(
-	_input: Accessor<string>,
 	_isSelected: Accessor<boolean | undefined> = () => undefined,
 	_isVisible: Accessor<boolean> = () => true,
+	_paneId: Accessor<string> = () => "",
 ) {
+	const retainedViewport = untrack(() => chatViewportState(_paneId()));
+	const [scrollElement, setScrollElement] = createSignal<HTMLDivElement | null>(
+		null,
+	);
 	const scrollRef = {
-		current: null,
-	} as {
-		current: HTMLDivElement | null;
+		get current() {
+			return scrollElement();
+		},
+		set current(element: HTMLDivElement | null) {
+			setScrollElement(element);
+		},
 	};
 	const chatVirtualizerRef = {
 		current: null,
@@ -27,27 +42,40 @@ export function useChatViewport(
 		current: HTMLDivElement | null;
 	};
 	const scrollSnapshotRef = {
-		current: {
-			atBottom: true,
-			fromBottom: 0,
-			top: 0,
-		},
+		current: retainedViewport.snapshot,
 	};
 	const restoreFrameRef = {
 		current: 0,
 	};
-	const [isAtBottom, setIsAtBottom] = createSignal(true);
+	// Event handlers need the latest intent even before Solid commits signal writes.
+	let following = retainedViewport.snapshot.atBottom;
+	const [isAtBottom, publishFollowing] = createSignal(following);
+	const setFollowing = (value: boolean) => {
+		following = value;
+		publishFollowing(value);
+	};
 	const handleScroll = () => {
 		const el = scrollRef.current;
-		if (!el) return;
-		setIsAtBottom(
-			chatVirtualizerRef.current?.isAtEnd() ??
-				el.scrollHeight - el.scrollTop - el.clientHeight < 48,
+		if (!el || el.clientHeight === 0) return;
+		const fromBottom = Math.max(
+			0,
+			el.scrollHeight - el.scrollTop - el.clientHeight,
 		);
+		// Content growth can emit scroll events without a user's scroll. Keep
+		// following until the viewport actually moves up or the user asks to.
+		const movement = el.scrollTop - scrollSnapshotRef.current.top;
+		if (fromBottom <= 1) setFollowing(true);
+		else if (movement < -1) setFollowing(false);
+		else if (fromBottom <= 80 && movement > 1) setFollowing(true);
+		retainedViewport.snapshot = scrollSnapshotRef.current = {
+			atBottom: following,
+			fromBottom,
+			top: el.scrollTop,
+		};
 	};
 	const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
 		const el = scrollRef.current;
-		if (!el) return;
+		if (!el || el.clientHeight === 0) return;
 		if (chatVirtualizerRef.current)
 			chatVirtualizerRef.current.scrollToEnd(behavior);
 		else
@@ -55,7 +83,7 @@ export function useChatViewport(
 				top: el.scrollHeight,
 				behavior,
 			});
-		setIsAtBottom(true);
+		setFollowing(true);
 	};
 	let bottomFrame = 0;
 	const cancelScheduledBottom = () => {
@@ -78,35 +106,33 @@ export function useChatViewport(
 		restoreFrameRef.current = 0;
 	};
 	createEffect(
-		() => _isVisible(),
-		(visible) => {
-			if (!visible) {
+		() => [_isVisible(), scrollElement()] as const,
+		([visible, element]) => {
+			if (!visible || !element) {
 				cancelScheduledBottom();
 				return;
 			}
 			const snapshot = scrollSnapshotRef.current;
 			let passes = 3;
 			const restore = () => {
-				const el = scrollRef.current;
-				if (!el) return;
+				const el = element;
+				if (el.clientHeight === 0) return;
 				const max = Math.max(0, el.scrollHeight - el.clientHeight);
-				el.scrollTop = snapshot.atBottom
-					? Math.max(0, max - snapshot.fromBottom)
-					: Math.min(snapshot.top, max);
-				setIsAtBottom(snapshot.atBottom);
+				el.scrollTop = snapshot.atBottom ? max : Math.min(snapshot.top, max);
+				setFollowing(snapshot.atBottom);
 				if (--passes) restoreFrameRef.current = requestAnimationFrame(restore);
 			};
 			restore();
 			return () => {
 				cancelScrollRestore();
-				const el = scrollRef.current;
-				if (!el) return;
+				const el = element;
+				if (!el || el.clientHeight === 0) return;
 				const fromBottom = Math.max(
 					0,
 					el.scrollHeight - el.scrollTop - el.clientHeight,
 				);
-				scrollSnapshotRef.current = {
-					atBottom: fromBottom < 48,
+				retainedViewport.snapshot = scrollSnapshotRef.current = {
+					atBottom: following,
 					fromBottom,
 					top: el.scrollTop,
 				};
@@ -114,20 +140,33 @@ export function useChatViewport(
 		},
 	);
 	createEffect(
-		() => [_input(), _isVisible()] as const,
-		([input, visible]) => {
-			if (!visible) return;
-			const ta = textareaRef.current;
-			if (!ta) return;
-			if (!input) {
-				ta.style.height = "20px";
-			} else {
-				ta.style.height = "20px";
-				ta.style.height = `${Math.min(Math.max(ta.scrollHeight, 20), 120)}px`;
-			}
-			if (highlightOverlayRef.current) {
-				highlightOverlayRef.current.style.transform = `translateY(-${ta.scrollTop}px)`;
-			}
+		() => scrollElement(),
+		(element) => {
+			if (!element) return;
+			const stopFollowing = () => {
+				cancelScrollRestore();
+				setFollowing(false);
+			};
+			const wheel = (event: WheelEvent) => {
+				if (event.deltaY < 0) stopFollowing();
+			};
+			let touchY = 0;
+			const touchStart = (event: TouchEvent) => {
+				touchY = event.touches[0]?.clientY ?? 0;
+			};
+			const touchMove = (event: TouchEvent) => {
+				const next = event.touches[0]?.clientY ?? touchY;
+				if (next > touchY) stopFollowing();
+				touchY = next;
+			};
+			element.addEventListener("wheel", wheel, { passive: true });
+			element.addEventListener("touchstart", touchStart, { passive: true });
+			element.addEventListener("touchmove", touchMove, { passive: true });
+			return () => {
+				element.removeEventListener("wheel", wheel);
+				element.removeEventListener("touchstart", touchStart);
+				element.removeEventListener("touchmove", touchMove);
+			};
 		},
 	);
 	const handleWindowKeyDown = (e: KeyboardEvent) => {
@@ -135,7 +174,7 @@ export function useChatViewport(
 		const active = document.activeElement;
 		if (active && (active.tagName === "TEXTAREA" || active.tagName === "INPUT"))
 			return;
-		if (!isAtBottom()) {
+		if (!following) {
 			e.preventDefault();
 			scrollToBottom();
 		}
