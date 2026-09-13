@@ -647,12 +647,18 @@ export const styles = stylex.create({
 		lineHeight: 1.3,
 	},
 	pathDirectory: {
-		flex: "0 1 auto",
-		minWidth: controlSize._0,
+		color: color.textMuted,
+	},
+	filePathLabel: {
+		minWidth: 0,
+		maxWidth: "100%",
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
-		color: color.textMuted,
+		textAlign: "left",
+	},
+	fileStatsHidden: {
+		visibility: "hidden",
 	},
 	fileRowButton: {
 		display: "flex",
@@ -664,11 +670,6 @@ export const styles = stylex.create({
 		textAlign: "left",
 	},
 	pathFileName: {
-		flexShrink: 0,
-		maxWidth: "100%",
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
 		color: color.textMain,
 		fontSize: font.size_2,
 		fontWeight: font.weight_5,
@@ -695,8 +696,8 @@ export const styles = stylex.create({
 		borderColor: color.border,
 		borderRadius: radius.circle,
 		backgroundColor: {
-			default: color.backgroundRaised,
-			":hover": color.controlHover,
+			default: "var(--color-inferay-dark-gray)",
+			":hover": "var(--color-inferay-light-gray)",
 		},
 		color: color.textSoft,
 		opacity: 0,
@@ -728,8 +729,8 @@ export const styles = stylex.create({
 		borderColor: color.border,
 		borderRadius: radius.circle,
 		backgroundColor: {
-			default: color.backgroundRaised,
-			":hover": color.controlHover,
+			default: "var(--color-inferay-dark-gray)",
+			":hover": "var(--color-inferay-light-gray)",
 		},
 		color: color.textSoft,
 		opacity: 0,
@@ -759,6 +760,8 @@ export const styles = stylex.create({
 		flexShrink: 0,
 	},
 	treeFileName: {
+		display: "flex",
+		justifyContent: "flex-start",
 		minWidth: controlSize._0,
 		flex: 1,
 		overflow: "hidden",
