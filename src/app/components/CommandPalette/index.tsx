@@ -56,17 +56,15 @@ export function CommandPalette(_props: {
 		window.addEventListener("keydown", handleShortcut);
 		return () => window.removeEventListener("keydown", handleShortcut);
 	});
-	createEffect(
-		() => [open()],
-		() => {
-			if (!open()) {
-				setQuery("");
-				setActiveIndex(0);
-				return;
-			}
-			requestAnimationFrame(() => inputRef.current?.focus());
-		},
-	);
+	createEffect(open, (isOpen) => {
+		if (!isOpen) {
+			setQuery("");
+			setActiveIndex(0);
+			return;
+		}
+		const frame = requestAnimationFrame(() => inputRef.current?.focus());
+		return () => cancelAnimationFrame(frame);
+	});
 	const execute = (command: CommandPaletteItem | undefined) => {
 		if (!command) return;
 		setOpen(false);
@@ -135,17 +133,16 @@ export function CommandPalette(_props: {
 							{filteredCommands().length ? (
 								<For each={filteredCommands()} keyed={(row) => row.id}>
 									{(command, index) => {
-										const _activeIndexValue = activeIndex();
 										return (
 											<button
 												type="button"
 												role="option"
-												aria-selected={ariaValue(index() === _activeIndexValue)}
+												aria-selected={ariaValue(index() === activeIndex())}
 												onMouseEnter={() => setActiveIndex(index())}
 												onClick={() => execute(command())}
 												{...stylex.attrs(
 													styles.command,
-													index() === _activeIndexValue && styles.commandActive,
+													index() === activeIndex() && styles.commandActive,
 												)}
 											>
 												<span {...stylex.attrs(styles.commandIcon)}>
