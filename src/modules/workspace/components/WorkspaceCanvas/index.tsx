@@ -69,7 +69,10 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 	]);
 	const effectiveColumns = createMemo(() =>
 		props.layoutMode === "grid"
-			? Math.max(1, Math.min(props.columns, availableGridColumns()))
+			? Math.max(
+					1,
+					Math.min(props.columns, availableGridColumns(), panelIds().length),
+				)
 			: props.columns,
 	);
 	const panelKey = createMemo(() => JSON.stringify(panelIds()));
@@ -576,6 +579,10 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 								<DockSplit
 									direction={branch()?.direction ?? "horizontal"}
 									ratio={branch()?.ratio ?? 0.5}
+									resizable={
+										branch()?.first.type !== "empty" &&
+										branch()?.second.type !== "empty"
+									}
 									first={
 										<DockNode
 											node={branch()?.first ?? nodeProps.node}
@@ -767,6 +774,7 @@ export type DockOuterEdge = Exclude<DockEdge, "center">;
 export const MIN_RESPONSIVE_PANE_WIDTH = 300;
 export type DockSplitNode = Extract<DockTree, { readonly type: "split" }>;
 export type DockTree =
+	| { readonly type: "empty"; readonly columns: number }
 	| {
 			readonly type: "panel";
 			readonly id: string;
@@ -794,7 +802,7 @@ export function resizeDockSplit(
 				}
 			: tree;
 	}
-	if (tree.type === "panel") return tree;
+	if (tree.type !== "split") return tree;
 	const [branch, ...rest] = path;
 	const key = branch === "first" ? "first" : "second";
 	return {

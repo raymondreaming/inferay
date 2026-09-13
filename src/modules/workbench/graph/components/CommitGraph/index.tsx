@@ -81,27 +81,6 @@ export const CommitGraph = function CommitGraph(
 			onMouseLeave={() => view.setHoveredRow(null)}
 			onKeyDown={view.navigateRows}
 		>
-			<HeaderRow
-				graphWidth={view.graphWidth}
-				columns={view.columns}
-				widths={view.widths}
-				order={view.order}
-				isColumnsOpen={view.isColumnsOpen}
-				onToggleColumnsMenu={() => view.setIsColumnsOpen((open) => !open)}
-				onToggleColumn={view.toggleColumn}
-				onMoveColumn={view.moveColumn}
-				onResizeStart={view.startColumnResize}
-				hiddenRefs={view.hiddenRefDetails}
-				onShowRef={(fullName) =>
-					view.setHiddenRefs((current) =>
-						current.filter((value) => value !== fullName),
-					)
-				}
-				query={view.query ?? ""}
-				onQueryChange={view.setQuery}
-				matchCount={view.matchingHashes.size}
-			/>
-
 			{view.commits.length === 0 ? (
 				<div
 					role="status"
@@ -110,7 +89,7 @@ export const CommitGraph = function CommitGraph(
 					{view.emptyLabel}
 				</div>
 			) : null}
-			{/* Lines and nodes share the same origin below the header. */}
+			{/* Column controls occupy the existing top spacer; lines and nodes share its origin. */}
 			<div
 				{...stylex.attrs(styles.rowsLayer)}
 				style={domStyle(
@@ -120,6 +99,26 @@ export const CommitGraph = function CommitGraph(
 					),
 				)}
 			>
+				<HeaderRow
+					graphWidth={view.graphWidth}
+					columns={view.columns}
+					widths={view.widths}
+					order={view.order}
+					isColumnsOpen={view.isColumnsOpen}
+					onToggleColumnsMenu={() => view.setIsColumnsOpen((open) => !open)}
+					onToggleColumn={view.toggleColumn}
+					onMoveColumn={view.moveColumn}
+					onResizeStart={view.startColumnResize}
+					hiddenRefs={view.hiddenRefDetails}
+					onShowRef={(fullName) =>
+						view.setHiddenRefs((current) =>
+							current.filter((value) => value !== fullName),
+						)
+					}
+					query={view.query ?? ""}
+					onQueryChange={view.setQuery}
+					matchCount={view.matchingHashes.size}
+				/>
 				<CommitGraphLinesLayer
 					class={stylex.attrs(styles.linesLayer).class}
 					width={view.graphWidth}

@@ -235,3 +235,90 @@ fn activity_starts_locally_and_timer_survives_delayed_acknowledgement() {
         true
     );
 }
+
+#[test]
+fn grid_uses_available_chats_then_preserves_columns_in_partial_rows() {
+    fn widths(tree: &Value, width: f64, result: &mut Vec<f64>) {
+        match tree["type"].as_str() {
+            Some("panel") => result.push(width),
+            Some("split") => {
+                let horizontal = tree["direction"] == "horizontal";
+                let ratio = tree["ratio"].as_f64().unwrap();
+                widths(
+                    &tree["first"],
+                    width * if horizontal { ratio } else { 1.0 },
+                    result,
+                );
+                widths(
+                    &tree["second"],
+                    width * if horizontal { 1.0 - ratio } else { 1.0 },
+                    result,
+                );
+            }
+            _ => {}
+        }
+    }
+    for columns in 1..=4 {
+        let mut saved = Value::Null;
+        for count in 1..=10 {
+            let ids: Vec<_> = (0..count).map(|i| i.to_string()).collect();
+            let input = json!({"ids":ids,"columns":columns,"visibleColumns":columns,"mode":"grid","saved":saved});
+            let layout = project("workspaceDock", &input).unwrap();
+            let mut actual = vec![];
+            widths(&layout["tree"], 1.0, &mut actual);
+            assert_eq!(actual.len(), count);
+            let expected = 1.0 / columns.min(count) as f64;
+            assert!(
+                actual.iter().all(|width| (width - expected).abs() < 1e-9),
+                "columns={columns}, count={count}, widths={actual:?}"
+            );
+            assert!(!layout["saved"].to_string().contains("empty"));
+            let mut repeat_input = input.clone();
+            repeat_input["saved"] = layout["saved"].clone();
+            let repeated = project("workspaceDock", &repeat_input).unwrap();
+            // Persisted geometry projects to the same padded rows on subsequent renders.
+            assert_eq!(repeated["tree"], layout["tree"]);
+            saved = layout["saved"].clone();
+        }
+    }
+}
+
+#[test]
+fn grid_resize_paths_remain_valid_inside_partial_rows() {
+    let input = json!({"ids":["a","b","c","d","e"],"columns":3,"mode":"grid"});
+    let layout = project("workspaceDock", &input).unwrap();
+    let resized = project("workspaceDock", &json!({"ids":input["ids"],"columns":3,"mode":"grid","saved":layout["saved"],"action":{"type":"resize","path":["second","first"],"ratio":0.6}})).unwrap();
+    assert_eq!(resized["tree"]["second"]["first"]["ratio"], 0.6);
+    assert!(!resized["saved"].to_string().contains("empty"));
+}
+
+#[test]
+fn graph_and_changes_sidebar_toggle_independently() {
+    let mut session = panels::normalize(&json!({"mainViewMode":"graph","sidebarVisible":true}));
+    assert_eq!(session["graphVisible"], true);
+    panels::apply_action(&mut session, &json!({"type":"toggleSidebar"}), 1).unwrap();
+    assert_eq!(session["sidebarVisible"], false);
+    assert_eq!(session["graphVisible"], true);
+    panels::apply_action(
+        &mut session,
+        &json!({"type":"toggleGraph","cwd":"/repo"}),
+        2,
+    )
+    .unwrap();
+    assert_eq!(session["graphVisible"], false);
+    panels::apply_action(&mut session, &json!({"type":"toggleSidebar"}), 3).unwrap();
+    assert_eq!(session["sidebarVisible"], true);
+    assert_eq!(session["graphVisible"], false);
+    panels::apply_action(
+        &mut session,
+        &json!({"type":"toggleGraph","cwd":"/repo"}),
+        4,
+    )
+    .unwrap();
+    assert_eq!(session["sidebarVisible"], true);
+    assert_eq!(session["graphVisible"], true);
+    assert_eq!(
+        panels::normalize(&json!({"mainViewMode":"graph","sidebarVisible":false}))["graphVisible"],
+        false
+    );
+}

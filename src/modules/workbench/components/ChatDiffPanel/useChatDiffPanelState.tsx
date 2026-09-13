@@ -154,13 +154,11 @@ export function useChatDiffPanelState(
 	};
 	const activeModeIndex = createMemo(() => {
 		const _sourceValue2 = _props();
-		return _sourceValue2.zenMode
-			? 2
-			: _sourceValue2.mainViewMode === "graph"
-				? -1
-				: _sourceValue2.viewMode === "split"
-					? 0
-					: 1;
+		return _sourceValue2.mainViewMode === "graph"
+			? -1
+			: _sourceValue2.viewMode === "split"
+				? 0
+				: 1;
 	});
 	const pendingGraphActionPresentation = createMemo(() => {
 		const _pendingGraphActionValue2 = pendingGraphAction();

@@ -97,7 +97,7 @@ export function recordUiTimings(publish: (sample: UiTiming) => void) {
 		if (!surface || !visible(surface)) return false;
 		const panes = [
 			...surface.querySelectorAll<HTMLElement>("[data-chat-pane-id]"),
-		];
+		].filter(visible);
 		return (
 			panes.length === Number(surface.dataset.expectedPanes) &&
 			panes.every(

@@ -103,7 +103,7 @@ export function ViewerHeader(_props: ViewerHeaderProps) {
 					>
 						<LiquidSegmentedRail
 							activeIndex={_props.hoveredModeIndex ?? _props.activeModeIndex}
-							itemCount={3}
+							itemCount={2}
 							radius={4}
 						/>
 						<button
@@ -154,34 +154,38 @@ export function ViewerHeader(_props: ViewerHeaderProps) {
 						>
 							<IconGitBranch size={iconSize.compact} />
 						</button>
-						<button
-							type="button"
-							onMouseEnter={() => _props.setHoveredModeIndex(2)}
-							onPointerDown={(event) => {
-								if (event.button === 0 && event.isPrimary)
-									_props.onToggleZenMode();
-							}}
-							onClick={(event) => {
-								if (event.detail === 0) _props.onToggleZenMode();
-							}}
-							title={_props.zenMode ? "Exit focus mode" : "Focus workspace"}
-							aria-label={ariaValue(
-								_props.zenMode ? "Exit focus mode" : "Focus workspace",
-							)}
-							{...stylex.attrs(
-								styles.viewerModeButton,
-								_props.zenMode && styles.viewerModeButtonActive,
-							)}
-						>
-							{_props.zenMode ? (
-								<IconCollapse size={iconSize.compact} />
-							) : (
-								<IconExpand size={iconSize.compact} />
-							)}
-						</button>
 					</div>
 				</>
 			) : null}
+			<button
+				type="button"
+				onClick={_props.onToggleZenMode}
+				title={
+					_props.zenMode
+						? "Restore chats (Esc)"
+						: _props.mainViewMode === "graph"
+							? "Expand commit graph"
+							: "Expand diff"
+				}
+				aria-label={
+					_props.zenMode
+						? "Restore chats"
+						: _props.mainViewMode === "graph"
+							? "Expand commit graph"
+							: "Expand diff"
+				}
+				aria-pressed={ariaValue(_props.zenMode)}
+				{...stylex.attrs(
+					styles.viewerModeButton,
+					_props.zenMode && styles.viewerModeButtonActive,
+				)}
+			>
+				{_props.zenMode ? (
+					<IconCollapse size={iconSize.compact} />
+				) : (
+					<IconExpand size={iconSize.compact} />
+				)}
+			</button>
 			{_props.mainViewMode !== "graph" ? (
 				<button
 					type="button"

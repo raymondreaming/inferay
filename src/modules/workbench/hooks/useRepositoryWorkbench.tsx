@@ -37,6 +37,7 @@ import {
 	type DocumentOpenDetail,
 	listenWindowEvent,
 	OPEN_ACTIVE_GIT_GRAPH_EVENT,
+	TOGGLE_ACTIVE_GIT_GRAPH_EVENT,
 	TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT,
 } from "../../../shared/lib/dom.tsx";
 import {
@@ -186,7 +187,7 @@ export function useRepositoryWorkbench(
 	});
 	const graphCwd = createMemo(() => {
 		const _sourceValue2 = panelSession();
-		return _sourceValue2.mainViewMode === "graph"
+		return _sourceValue2.mainViewMode === "graph" && _sourceValue2.graphVisible
 			? (_sourceValue2.diffViewerCwd ?? undefined)
 			: undefined;
 	});
@@ -584,6 +585,7 @@ export function useRepositoryWorkbench(
 		});
 	};
 	const closeDiffViewer = () => {
+		setZenMode(false);
 		updatePanelSession({
 			type: "dismissDiff",
 		});
@@ -702,6 +704,18 @@ export function useRepositoryWorkbench(
 			mode,
 		});
 	};
+	createEffect(
+		() => _options().active,
+		(active) => {
+			if (!active) return;
+			return listenWindowEvent(TOGGLE_ACTIVE_GIT_GRAPH_EVENT, () => {
+				const cwd = activeCwd();
+				if (!cwd) return;
+				setZenMode(false);
+				updatePanelSession({ type: "toggleGraph", cwd });
+			});
+		},
+	);
 	createEffect(
 		() => _options().active,
 		(active) => {
@@ -948,7 +962,7 @@ export function useRepositoryWorkbench(
 		<>
 			{panelSession().diffViewerCwd &&
 			(panelSession().mainViewMode === "graph"
-				? panelSession().sidebarVisible
+				? panelSession().graphVisible
 				: Boolean(panelSession().selectedFile)) ? (
 				<WorkbenchDiffRail
 					zenMode={zenMode()}

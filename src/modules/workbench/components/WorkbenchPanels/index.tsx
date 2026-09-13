@@ -26,12 +26,14 @@ export function WorkbenchDiffRail(_props: {
 			)}
 			ref={captureEvent("pointerdown", (event) => _props.onFocus?.())}
 		>
-			<button
-				type="button"
-				aria-label="Resize diff panel"
-				onPointerDown={_props.onResize}
-				{...stylex.attrs(styles.diffResizeHandle)}
-			/>
+			{!_props.zenMode && (
+				<button
+					type="button"
+					aria-label="Resize diff panel"
+					onPointerDown={_props.onResize}
+					{...stylex.attrs(styles.diffResizeHandle)}
+				/>
+			)}
 			{_props.children}
 		</aside>
 	);

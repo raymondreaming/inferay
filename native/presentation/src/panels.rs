@@ -86,6 +86,7 @@ pub fn apply_action(
             }
             session["repositoryInitialized"] = json!(true);
             session["sidebarVisible"] = json!(true);
+            session["graphVisible"] = json!(true);
         }
         "openGraph" => {
             if action["reset"] == true {
@@ -93,7 +94,18 @@ pub fn apply_action(
             }
             session["diffViewerCwd"] = cwd.clone();
             session["mainViewMode"] = json!("graph");
+            session["graphVisible"] = json!(true);
             focus(session, "workspace-diff-viewer", cwd);
+        }
+        "toggleGraph" => {
+            if session["mainViewMode"] == "graph" && session["graphVisible"] == true {
+                session["graphVisible"] = json!(false);
+            } else {
+                session["diffViewerCwd"] = cwd.clone();
+                session["mainViewMode"] = json!("graph");
+                session["graphVisible"] = json!(true);
+                focus(session, "workspace-diff-viewer", cwd);
+            }
         }
         "focusChat" => {
             if cwd.is_string() && session["mainViewMode"] == "graph" {
@@ -261,6 +273,7 @@ pub fn normalize(value: &Value) -> Value {
     let mut session = json!({
         "repositoryInitialized":value["repositoryInitialized"].as_bool().unwrap_or(matches!(value["mainViewMode"].as_str(), Some("graph" | "diff"))),
         "sidebarVisible":value["sidebarVisible"].as_bool().unwrap_or(mode == "graph"),
+        "graphVisible":value["graphVisible"].as_bool().unwrap_or(value["sidebarVisible"].as_bool().unwrap_or(mode == "graph")),
         "fileViewerOpen":value["fileViewerOpen"] == true,
         "fileViewerCwd":string("fileViewerCwd"), "diffViewerCwd":string("diffViewerCwd"),
         "focusedAuxiliaryPanel":null, "detachedFilePanels":[], "documentSessions":{}, "fileRequest":null, "selectedFile":null,
@@ -393,6 +406,7 @@ pub enum SidebarContent {
 pub struct PanelSession {
     pub repository_initialized: bool,
     pub sidebar_visible: bool,
+    pub graph_visible: bool,
     pub file_viewer_open: bool,
     pub file_viewer_cwd: Option<String>,
     pub diff_viewer_cwd: Option<String>,
@@ -446,6 +460,9 @@ pub enum PanelAction {
         mode: MainView,
     },
     ToggleSidebar,
+    ToggleGraph {
+        cwd: String,
+    },
     DismissDiff,
     Document {
         cwd: String,

@@ -53,15 +53,11 @@ export function RepositorySurface(props: {
 	};
 	const grid = (
 		<WorkspaceCanvas
-			active={props.active}
-			panes={
-				workbench.zenMode && selectedPane()
-					? [selectedPane()!]
-					: props.view.panes
-			}
+			active={props.active && !workbench.zenMode}
+			panes={props.view.panes}
 			selectedPaneId={selectedPaneId()}
-			columns={workbench.zenMode ? 1 : props.view.group.columns}
-			rows={workbench.zenMode ? 1 : (props.view.group.rows ?? DEFAULT_ROWS)}
+			columns={props.view.group.columns}
+			rows={props.view.group.rows ?? DEFAULT_ROWS}
 			layoutMode={props.layoutMode}
 			theme={props.theme}
 			onSelectPane={selectPane}
@@ -82,9 +78,7 @@ export function RepositorySurface(props: {
 		<AgentMainSurface
 			active={props.active}
 			repositoryCwd={props.view.cwd ?? ""}
-			paneCount={
-				workbench.zenMode && selectedPane() ? 1 : props.view.panes.length
-			}
+			paneCount={workbench.zenMode ? 0 : props.view.panes.length}
 			chatDiffPanel={workbench.diffPanel}
 			chatSidebar={workbench.sidebar}
 			chatZenMode={props.active && workbench.zenMode}

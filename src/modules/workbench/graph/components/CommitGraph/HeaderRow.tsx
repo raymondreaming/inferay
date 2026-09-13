@@ -14,6 +14,7 @@ import {
 	type ColumnVisibility,
 	type ColumnWidths,
 	TOOLS_WIDTH,
+	TOP_PADDING,
 } from "./useCommitGraphState.tsx";
 export function HeaderRow(_props: {
 	graphWidth: number;
@@ -55,7 +56,10 @@ export function HeaderRow(_props: {
 		<div
 			data-graph-header="true"
 			{...stylex.attrs(styles.header)}
-			style={domStyle(inlineStyles.getHeaderRowHeaderStyle(headerWidth()))}
+			style={domStyle({
+				...inlineStyles.getHeaderRowHeaderStyle(headerWidth()),
+				height: TOP_PADDING,
+			})}
 		>
 			{
 				<For each={visibleOrder()} keyed={(row) => row}>
@@ -93,7 +97,6 @@ export function HeaderRow(_props: {
 									),
 								)}
 							>
-								{labels()[column()]}
 								<ColumnResizeHandle
 									column={column()}
 									onResizeStart={_props.onResizeStart}

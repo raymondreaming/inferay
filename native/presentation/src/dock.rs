@@ -4,6 +4,9 @@ use serde_json::{Value, json};
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Tree {
+    Empty {
+        columns: usize,
+    },
     Panel {
         id: String,
     },
@@ -17,6 +20,13 @@ enum Tree {
 impl Tree {
     fn span(&self, axis: &str) -> usize {
         match self {
+            Self::Empty { columns } => {
+                if axis == "horizontal" {
+                    *columns
+                } else {
+                    1
+                }
+            }
             Self::Panel { .. } => 1,
             Self::Split {
                 direction,
@@ -31,6 +41,7 @@ impl Tree {
     }
     fn ids(&self) -> Vec<String> {
         match self {
+            Self::Empty { .. } => vec![],
             Self::Panel { id } => vec![id.clone()],
             Self::Split { first, second, .. } => [first.ids(), second.ids()].concat(),
         }
@@ -48,6 +59,7 @@ impl Tree {
     }
     fn map(self, visit: &impl Fn(String) -> Option<Self>, preserve: bool) -> Option<Self> {
         match self {
+            Self::Empty { .. } => None,
             Self::Panel { id } => visit(id),
             Self::Split {
                 direction,
@@ -80,6 +92,38 @@ impl Tree {
             self
         } else {
             build(&self.ids(), columns).expect("nonempty tree")
+        }
+    }
+    // Empty cells belong only to the displayed grid. Keep incomplete rows at
+    // the selected column width without creating or persisting fake panels.
+    fn pad_rows(self, columns: usize) -> Self {
+        match self {
+            Self::Split {
+                direction,
+                ratio,
+                first,
+                second,
+            } if direction == "vertical" => Self::Split {
+                direction,
+                ratio,
+                first: Box::new(first.pad_rows(columns)),
+                second: Box::new(second.pad_rows(columns)),
+            },
+            row => {
+                let occupied = row.span("horizontal");
+                if occupied < columns {
+                    Self::split(
+                        "horizontal",
+                        row,
+                        Self::Empty {
+                            columns: columns - occupied,
+                        },
+                        Some(occupied as f64 / columns as f64),
+                    )
+                } else {
+                    row
+                }
+            }
         }
     }
     fn append(mut self, id: String, columns: usize) -> Self {
@@ -157,7 +201,8 @@ pub fn project(body: &Value) -> Result<Value, String> {
     let mut seen = std::collections::HashSet::new();
     ids.retain(|id| seen.insert(id.clone()));
     let columns = body["columns"].as_u64().unwrap_or(1).clamp(1, 4) as usize;
-    let display_columns = if body["mode"] == "grid" {
+    let grid = body["mode"] == "grid";
+    let display_columns = if grid {
         body["visibleColumns"]
             .as_u64()
             .unwrap_or(columns as u64)
@@ -165,6 +210,7 @@ pub fn project(body: &Value) -> Result<Value, String> {
     } else {
         columns
     };
+    let display_columns = display_columns.min(if grid { ids.len().max(1) } else { columns });
     let preset = json!([body["mode"], columns]);
     let saved = body.get("saved").filter(|value| value.is_object());
     let legacy = body.get("legacy").filter(|value| value.is_object());
@@ -178,7 +224,10 @@ pub fn project(body: &Value) -> Result<Value, String> {
     };
     let action = &body["action"];
     if action.is_object() {
-        tree = tree.map(|t| t.constrain(display_columns));
+        tree = tree.map(|t| {
+            let t = t.constrain(display_columns);
+            if grid { t.pad_rows(display_columns) } else { t }
+        });
         if action["type"] == "resize" {
             if let (Some(tree), Some(path), Some(ratio)) = (
                 &mut tree,
@@ -247,8 +296,17 @@ pub fn project(body: &Value) -> Result<Value, String> {
             tree = tree.map(|t| t.constrain(display_columns));
         }
     }
+    // Display padding must never enter persisted geometry.
+    tree = tree.and_then(|t| t.map(&|id| Some(Tree::Panel { id }), true));
     let saved = json!({"tree":tree,"preset":preset});
-    let tree = tree.map(|tree| tree.constrain(display_columns));
+    let tree = tree.map(|tree| {
+        let tree = tree.constrain(display_columns);
+        if grid {
+            tree.pad_rows(display_columns)
+        } else {
+            tree
+        }
+    });
     Ok(json!({
         "saved": saved,
         "tree": tree,

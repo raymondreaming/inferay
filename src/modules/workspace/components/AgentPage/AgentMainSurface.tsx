@@ -52,12 +52,7 @@ export function AgentMainSurface(_props: AgentMainSurfaceProps) {
 										styles.surfaceLayerVisible,
 									)}
 								>
-									<div
-										{...stylex.attrs(
-											styles.repositoryWorkbench,
-											_props.chatZenMode && styles.chatWorkspaceZen,
-										)}
-									>
+									<div {...stylex.attrs(styles.repositoryWorkbench)}>
 										<div
 											{...stylex.attrs(
 												styles.chatDock,

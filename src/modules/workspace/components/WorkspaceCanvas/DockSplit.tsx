@@ -1,11 +1,12 @@
 import * as stylex from "@stylexjs/stylex";
-import type { Element } from "solid-js";
+import { type Element, Show } from "solid-js";
 import { ariaValue, domStyle } from "../../../../shared/lib/dom.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 export function DockSplit(_props: {
 	direction: "horizontal" | "vertical";
 	ratio: number;
+	resizable?: boolean;
 	first: Element;
 	second: Element;
 	onResize: (
@@ -31,19 +32,21 @@ export function DockSplit(_props: {
 			>
 				{_props.first}
 			</div>
-			<button
-				type="button"
-				aria-label={ariaValue(
-					`Resize ${_props.direction === "horizontal" ? "columns" : "rows"}`,
-				)}
-				onPointerDown={_props.onResize}
-				{...stylex.attrs(
-					styles.dockDivider,
-					_props.direction === "horizontal"
-						? styles.dockDividerHorizontal
-						: styles.dockDividerVertical,
-				)}
-			/>
+			<Show when={_props.resizable !== false}>
+				<button
+					type="button"
+					aria-label={ariaValue(
+						`Resize ${_props.direction === "horizontal" ? "columns" : "rows"}`,
+					)}
+					onPointerDown={_props.onResize}
+					{...stylex.attrs(
+						styles.dockDivider,
+						_props.direction === "horizontal"
+							? styles.dockDividerHorizontal
+							: styles.dockDividerVertical,
+					)}
+				/>
+			</Show>
 			<div
 				{...stylex.attrs(styles.dockBranch)}
 				style={domStyle(

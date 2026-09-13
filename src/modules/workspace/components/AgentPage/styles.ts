@@ -67,12 +67,6 @@ export const styles = stylex.create({
 		minHeight: controlSize._0,
 		overflow: "hidden",
 	},
-	chatWorkspaceZen: {
-		position: "fixed",
-		zIndex: layer.appModal,
-		inset: controlSize._0,
-		backgroundColor: color.background,
-	},
 	chatDock: {
 		display: "flex",
 		minWidth: 300,
@@ -81,9 +75,7 @@ export const styles = stylex.create({
 		overflow: "hidden",
 	},
 	chatDockZen: {
-		width: 360,
-		maxWidth: "28vw",
-		flex: "0 0 auto",
+		display: "none",
 	},
 	emptyWorkspace: {
 		flex: 1,

@@ -16,12 +16,15 @@ import {
 	iconSize,
 	selectionAppearance,
 } from "../../../../design-system/styles.stylex.ts";
+import { useBackgroundQuery } from "../../../../shared/hooks/useQueryResource.tsx";
 import {
 	ariaValue,
 	type CreateAgentChatTarget,
 	dispatchCreateAgentChat,
+	dispatchToggleActiveGitGraph,
 	dispatchToggleActiveGitSidebar,
 	listenWindowEvent,
+	queryClient,
 	setWorkspaceSidebarCollapsed,
 	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
 	type WorkspaceSidebarCollapsedDetail,
@@ -35,6 +38,7 @@ import {
 	IconPanelRight,
 	IconPlus,
 } from "../../../../shared/ui/Icons/index.tsx";
+import { panelQuery } from "../../../workbench/hooks/useWorkspacePanelSession.tsx";
 import {
 	mutateAgentWorkspaceState,
 	useWorkspaceState,
@@ -56,6 +60,14 @@ export function RepositoryWorkspaceBar() {
 		current: HTMLDivElement | null;
 	};
 	const projection = createMemo(() => state().repositories);
+	const panelState = useBackgroundQuery(
+		() => ({
+			...panelQuery(projection().activePath ?? ""),
+			// The workbench owns loading and transitions; this observer only reflects its cache.
+			enabled: false,
+		}),
+		() => queryClient,
+	);
 	onSettled(() => {
 		return listenWindowEvent(WORKSPACE_SIDEBAR_COLLAPSED_EVENT, (event) => {
 			setWorkspaceSidebarCollapsedState(
@@ -227,9 +239,25 @@ export function RepositoryWorkspaceBar() {
 			</div>
 			<button
 				type="button"
+				onClick={dispatchToggleActiveGitGraph}
+				disabled={!projection().activeWorkspace}
+				aria-label="Toggle commit graph"
+				title="Toggle commit graph"
+				aria-pressed={ariaValue(
+					panelState.data?.mainViewMode === "graph" &&
+						panelState.data?.graphVisible === true,
+				)}
+				{...changesSidebarToggleProps()}
+				class={`${APP_REGION_NO_DRAG_CLASS} ${changesSidebarToggleProps().class ?? ""}`}
+			>
+				<IconGitBranch size={iconSize.md} />
+			</button>
+			<button
+				type="button"
 				onClick={dispatchToggleActiveGitSidebar}
 				disabled={!projection().activeWorkspace}
 				aria-label="Toggle changes sidebar"
+				aria-pressed={ariaValue(panelState.data?.sidebarVisible ?? false)}
 				title="Toggle changes sidebar"
 				{...changesSidebarToggleProps()}
 				class={`${APP_REGION_NO_DRAG_CLASS} ${changesSidebarToggleProps().class ?? ""}`}
