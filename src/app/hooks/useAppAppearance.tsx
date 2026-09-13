@@ -49,7 +49,9 @@ export function applyAppTheme(id: AppThemeId): void {
 	root.dataset.inferayTheme = id;
 }
 export function applyAppBackgroundSurfaces(mode: AppBackgroundMode): void {
-	document.documentElement.dataset.inferayBackground = mode;
+	const root = document.documentElement;
+	if (root.dataset.inferayBackground !== mode)
+		root.dataset.inferayBackground = mode;
 }
 export function loadAppBackgroundSettings(): AppBackgroundSettings {
 	return readStoredJson(
@@ -63,8 +65,11 @@ export function saveAppBackgroundSettings(
 	applyAppBackgroundSurfaces(settings.mode);
 	writeStoredJson(APP_BACKGROUND_STORAGE_KEY, settings);
 }
-export function applyAppBackgroundPalette(id: AppBackgroundId): void {
-	applyAppTheme(loadAppThemeId());
+export function applyAppBackgroundPalette(
+	id: AppBackgroundId,
+	themeId = loadAppThemeId(),
+): void {
+	applyAppTheme(themeId);
 	if (APP_BACKGROUNDS.some((background) => background.id === id)) {
 		document.documentElement.dataset.inferayScene = id;
 	}
@@ -100,7 +105,10 @@ export function useBackgroundModel() {
 	const themeId = createExternalSignal(subscribeAppearance, loadAppThemeId);
 	return createMemo(() =>
 		rustProject<BackgroundModel>("backgroundModel", {
-			stored: (stored(), loadAppBackgroundSettings()),
+			stored:
+				stored() === null
+					? DEFAULT_APP_BACKGROUND_SETTINGS
+					: loadAppBackgroundSettings(),
 			themeId: themeId(),
 		}),
 	);
@@ -128,28 +136,24 @@ export function useAppAppearance() {
 				applyAppFont(loadAppFontId());
 		});
 	});
-	createEffect(
-		() => [_source().background.mode],
+	createEffect(() => _source().background.mode, applyAppBackgroundSurfaces);
+	const palette = createMemo(
 		() => {
-			applyAppBackgroundSurfaces(_source().background.mode);
+			const model = _source();
+			return {
+				themeId: model.themeId,
+				sceneId: model.background.autoTheme ? model.background.id : null,
+			};
+		},
+		{
+			equals: (previous, next) =>
+				previous.themeId === next.themeId && previous.sceneId === next.sceneId,
 		},
 	);
-	createEffect(
-		() => {
-			const _sourceValue = _source();
-			return [
-				_sourceValue.background.autoTheme,
-				_sourceValue.background.id,
-				_sourceValue.themeId,
-			];
-		},
-		() => {
-			const _sourceValue2 = _source();
-			if (_sourceValue2.background.autoTheme)
-				applyAppBackgroundPalette(_sourceValue2.background.id);
-			else applyAppTheme(_sourceValue2.themeId);
-		},
-	);
+	createEffect(palette, ({ themeId, sceneId }) => {
+		if (sceneId) applyAppBackgroundPalette(sceneId, themeId);
+		else applyAppTheme(themeId);
+	});
 	return {
 		get background() {
 			const _sourceValue3 = _source();

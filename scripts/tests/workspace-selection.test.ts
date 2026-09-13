@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { createStore, reconcile } from "@solidjs/signals";
 import { project } from "../../src/shared/lib/native.tsx";
 
 // Exercise the production queue without mounting the Solid runtime.
@@ -23,12 +24,16 @@ function model(send: (path: string, body: any) => Promise<any>) {
 		"rustProject",
 		"noop",
 		"traceUi",
+		"createStore",
+		"reconcile",
 		`${code}\nreturn { initializeAgentState, mutateAgentWorkspaceState };`,
 	)(
 		send,
 		project,
 		() => {},
 		() => {},
+		createStore,
+		reconcile,
 	);
 }
 function initialState() {

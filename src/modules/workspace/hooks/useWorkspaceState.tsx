@@ -4,8 +4,14 @@ import type {
 	RepositoryWorkspaceIndex,
 	WorkspaceAgentKind,
 } from "@contracts";
-import { type Accessor, createEffect, createMemo } from "solid-js";
-import { createExternalSignal, noop } from "../../../shared/lib/dom.tsx";
+import {
+	type Accessor,
+	createEffect,
+	createStore,
+	reconcile,
+	snapshot as storeSnapshot,
+} from "solid-js";
+import { noop } from "../../../shared/lib/dom.tsx";
 import {
 	postJson,
 	project as rustProject,
@@ -106,10 +112,12 @@ let snapshot: WorkspaceSnapshot = {
 	error: null,
 };
 let canonicalState: AgentSavedState | null = null;
-const subscribers = new Set<() => void>();
+// One reconciled UI store preserves pane/repository identities across native
+// snapshots. The queue keeps raw snapshots for synchronous mutation ordering.
+const [published, setPublished] = createStore<WorkspaceSnapshot>(snapshot);
 const publish = (next: WorkspaceSnapshot) => {
 	snapshot = next;
-	for (const subscriber of subscribers) subscriber();
+	setPublished(reconcile(next, (item) => item.id ?? item.cwd ?? item.pane?.id));
 };
 let queue: Promise<unknown> = Promise.resolve();
 let read: Promise<AgentSavedState | null> | null = null;
@@ -266,45 +274,49 @@ export function useWorkspaceState(
 	_loadCanonical: Accessor<boolean> = () => true,
 	_selectFirst: Accessor<boolean> = () => true,
 ) {
-	const current = createExternalSignal(
-		(subscribe) => {
-			subscribers.add(subscribe);
-			return () => subscribers.delete(subscribe);
+	const emptyGroups: Group[] = [];
+	const state: SidebarWorkspaceState = {
+		get groups() {
+			return published.state?.groups ?? emptyGroups;
 		},
-		() => snapshot,
-	);
-	const project = (s: AgentSavedState | null) => ({
-		groups: s?.groups ?? [],
-		repositories: s?.repositories ?? EMPTY,
-		selectedGroupId:
-			s?.selectedGroupId ?? (_selectFirst() ? s?.groups[0]?.id : null) ?? null,
+		get repositories() {
+			return published.state?.repositories ?? EMPTY;
+		},
+		get selectedGroupId() {
+			return (
+				published.state?.selectedGroupId ??
+				(_selectFirst() ? published.state?.groups[0]?.id : null) ??
+				null
+			);
+		},
+	};
+	createEffect(_loadCanonical, (load) => {
+		if (load) void loadCanonicalAgentState();
 	});
-	createEffect(
-		() => [_loadCanonical(), _selectFirst()] as const,
-		([load]) => {
-			if (load) void loadCanonicalAgentState();
-		},
-	);
-	const state = createMemo<SidebarWorkspaceState>(() =>
-		project(current().state),
-	);
 	const setState = (
 		update:
 			| SidebarWorkspaceState
 			| ((state: SidebarWorkspaceState) => SidebarWorkspaceState),
 	) => {
-		const _currentValue = current();
-		const next = typeof update === "function" ? update(state()) : update;
-		if (_currentValue.state)
-			publish({
-				..._currentValue,
-				state: {
-					..._currentValue.state,
-					...next,
-					selectedGroupId:
-						next.selectedGroupId ?? _currentValue.state.selectedGroupId,
-				},
-			});
+		const current = snapshot.state;
+		if (!current) return;
+		const next = storeSnapshot(
+			typeof update === "function"
+				? update({
+						groups: current.groups,
+						repositories: current.repositories,
+						selectedGroupId: current.selectedGroupId,
+					})
+				: update,
+		);
+		publish({
+			...snapshot,
+			state: {
+				...current,
+				...next,
+				selectedGroupId: next.selectedGroupId ?? current.selectedGroupId,
+			},
+		});
 	};
-	return [() => state(), setState, () => current().error] as const;
+	return [() => state, setState, () => published.error] as const;
 }
