@@ -57,3 +57,13 @@ public/file-icons/
 # Local performance investigation tools
 /scripts/benchmarks/
 /native/server/examples/chat_performance_fixture.rs
+
+# Local Solid audit and regression fixtures
+/docs/solid-2-audit-2026-09-13.md
+/scripts/tests/chat-scroll.test.ts
+/scripts/tests/chat-viewport-cache.test.ts
+/scripts/tests/retained-workspaces.test.ts
+/scripts/tests/solid-runtime.test.mjs
+/scripts/tests/fixtures/solid-runtime.html
+/scripts/tests/fixtures/solid-runtime.tsx
+/scripts/tests/fixtures/solid-controls.tsx
