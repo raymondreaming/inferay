@@ -139,7 +139,7 @@ export function recordUiTimings(publish: (sample: UiTiming) => void) {
 				ms: performance.now() - current.start,
 			});
 		return originalFetch.call(window, input, init).finally(() => {
-			if (current && current.sample.stages.length < 256)
+			if (current && pending === current && current.sample.stages.length < 256)
 				current.sample.stages.push({
 					name: `response:${path}`,
 					ms: performance.now() - current.start,

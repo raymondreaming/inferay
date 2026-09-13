@@ -68,6 +68,14 @@ export default function PerformanceRecorder(props: { onClose: () => void }) {
 							}{" "}
 							requests
 						</div>
+						<details>
+							<summary>Request and render timeline</summary>
+							<pre>
+								{sample.stages
+									.map((stage) => `${stage.ms.toFixed(1)} ms ${stage.name}`)
+									.join("\n")}
+							</pre>
+						</details>
 					</div>
 				)}
 			</For>
