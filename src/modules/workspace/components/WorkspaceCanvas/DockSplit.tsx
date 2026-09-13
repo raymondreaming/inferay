@@ -32,7 +32,21 @@ export function DockSplit(_props: {
 			>
 				{_props.first}
 			</div>
-			<Show when={_props.resizable !== false}>
+			<Show
+				when={_props.resizable !== false}
+				fallback={
+					<div
+						aria-hidden="true"
+						{...stylex.attrs(
+							styles.dockDivider,
+							_props.direction === "horizontal"
+								? styles.dockDividerHorizontal
+								: styles.dockDividerVertical,
+							styles.dockDividerFixed,
+						)}
+					/>
+				}
+			>
 				<button
 					type="button"
 					aria-label={ariaValue(

@@ -109,6 +109,10 @@ export const styles = stylex.create({
 			backgroundColor: "var(--color-inferay-gray-border)",
 		},
 	},
+	dockDividerFixed: {
+		pointerEvents: "none",
+		cursor: "default",
+	},
 	dockCell: {
 		position: "relative",
 		display: "flex",
