@@ -44,6 +44,45 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 		current: HTMLDivElement | null;
 	};
 	const [dragIndex, setDragIndex] = createSignal<number | null>(null);
+	createEffect(
+		() => props.active !== false,
+		(active) => {
+			if (!active) return;
+			const containChatSelection = () => {
+				const selection = window.getSelection();
+				if (
+					!selection ||
+					selection.isCollapsed ||
+					!selection.anchorNode ||
+					!selection.focusNode
+				)
+					return;
+				const anchor = selection.anchorNode;
+				const pane = (
+					anchor instanceof Element ? anchor : anchor.parentElement
+				)?.closest("[data-chat-pane-id]");
+				if (
+					!pane ||
+					!containerRef.current?.contains(pane) ||
+					pane.contains(selection.focusNode)
+				)
+					return;
+				const bounds = document.createRange();
+				bounds.selectNodeContents(pane);
+				const before =
+					bounds.comparePoint(selection.focusNode, selection.focusOffset) < 0;
+				selection.setBaseAndExtent(
+					anchor,
+					selection.anchorOffset,
+					pane,
+					before ? 0 : pane.childNodes.length,
+				);
+			};
+			document.addEventListener("selectionchange", containChatSelection);
+			return () =>
+				document.removeEventListener("selectionchange", containChatSelection);
+		},
+	);
 	const [dragOverIndex, setDragOverIndex] = createSignal<number | null>(null);
 	const [dragPanelId, setDragPanelId] = createSignal<string | null>(null);
 	const [availableGridColumns, setAvailableGridColumns] = createSignal(
