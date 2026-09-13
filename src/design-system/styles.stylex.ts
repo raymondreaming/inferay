@@ -420,10 +420,13 @@ const selection = stylex.create({
 		borderWidth: 1,
 	},
 	selected: {
-		backgroundColor: color.backgroundPanel,
+		backgroundColor:
+			"var(--inferay-selection-fill, var(--inferay-surface-panel))",
+		boxShadow: "var(--inferay-selection-outline, none)",
 		color: color.textMain,
 	},
 	selectedBorder: {
-		borderColor: color.border,
+		borderColor:
+			"var(--inferay-selection-border, var(--color-inferay-gray-border))",
 	},
 });

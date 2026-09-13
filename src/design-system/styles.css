@@ -165,6 +165,9 @@
 }
 
 :root[data-inferay-background="glass"] {
+	--inferay-selection-fill: rgba(255, 255, 255, 0.14);
+	--inferay-selection-border: rgba(255, 255, 255, 0.22);
+	--inferay-selection-outline: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
 	--inferay-surface-base: transparent;
 	--inferay-surface-raised: color-mix(
 		in srgb,
