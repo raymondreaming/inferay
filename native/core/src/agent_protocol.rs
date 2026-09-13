@@ -95,9 +95,7 @@ impl ClaudeProtocolState {
                     | "result"
             )
         ) {
-            context
-                .emissions
-                .push(ProtocolEmission::Chat(data.clone()));
+            context.emissions.push(ProtocolEmission::Chat(data.clone()));
         }
     }
 }

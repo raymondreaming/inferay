@@ -85,8 +85,9 @@ pub fn elicitation(input: &Value) -> Option<McpElicitation> {
         .and_then(Value::as_object)
         .and_then(|properties| {
             let (name, definition) = properties.iter().next()?;
-            (properties.len() == 1 && definition.get("type") == Some(&Value::String("string".into())))
-                .then(|| string(definition, "description").unwrap_or_else(|| name.clone()))
+            (properties.len() == 1
+                && definition.get("type") == Some(&Value::String("string".into())))
+            .then(|| string(definition, "description").unwrap_or_else(|| name.clone()))
         });
     Some(McpElicitation {
         message,

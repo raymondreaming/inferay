@@ -3,6 +3,7 @@
 pub mod appearance;
 pub mod chat_view;
 mod composer;
+pub mod dock;
 pub mod graph;
 pub mod liquid;
 pub mod panels;
@@ -63,6 +64,8 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         "diffRequest" => workbench::diff_request(input),
         "repositorySelection" => workbench::repository_selection(input),
         "workspaceSelection" => workbench::workspace_selection(input),
+        "workspaceDock" => dock::project(input)?,
+        "retainedWorkspaces" => workbench::retained_workspaces(input),
         "chatRunStatus" => chat_view::run_status(input),
         "graphPreferences" => graph::preferences(input),
         "graphLayout" => graph::layout(input),

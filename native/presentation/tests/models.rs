@@ -153,6 +153,45 @@ fn liquid_morphs_settle_after_irregular_frames() {
 }
 
 #[test]
+fn dock_preview_preserves_saved_geometry_and_reconciles_membership() {
+    let input =
+        serde_json::json!({"ids":["a","b","c"],"columns":3,"mode":"grid","visibleColumns":3});
+    let first = inferay_presentation::project("workspaceDock", &input).unwrap();
+    assert_eq!(first["horizontal"], 3);
+    let resized = inferay_presentation::project(
+        "workspaceDock",
+        &serde_json::json!({
+            "saved":first["saved"], "action":{"type":"resize","path":[],"ratio":0.7},
+            "ids":["a","b","c"],"columns":3,"mode":"grid","visibleColumns":3,
+        }),
+    )
+    .unwrap();
+    assert_eq!(resized["tree"]["ratio"], 0.7);
+    let restored = inferay_presentation::project("workspaceDock", &serde_json::json!({
+        "saved":resized["saved"],"ids":["a","b","c"],"columns":3,"mode":"grid","visibleColumns":3,
+    })).unwrap();
+    assert_eq!(resized, restored);
+    let narrow = inferay_presentation::project("workspaceDock", &serde_json::json!({
+        "saved":resized["saved"],"ids":["a","b","c"],"columns":3,"mode":"grid","visibleColumns":1,
+    })).unwrap();
+    assert_eq!(narrow["horizontal"], 1);
+    assert_eq!(narrow["vertical"], 3);
+    assert_eq!(narrow["saved"], resized["saved"]);
+    let changed = inferay_presentation::project(
+        "workspaceDock",
+        &serde_json::json!({
+            "saved":resized["saved"],"ids":["a","d"],"columns":3,"mode":"grid","visibleColumns":3,
+        }),
+    )
+    .unwrap();
+    assert_eq!(changed["tree"]["first"]["id"], "a");
+    assert_eq!(changed["tree"]["second"]["id"], "d");
+    assert!(
+        inferay_presentation::project("workspaceDock", &serde_json::json!({"ids":[5]})).is_err()
+    );
+}
+
+#[test]
 fn activity_starts_locally_and_timer_survives_delayed_acknowledgement() {
     use serde_json::json;
     let apply = |input| inferay_presentation::project("chatRunStatus", &input).unwrap();

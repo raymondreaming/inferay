@@ -584,3 +584,29 @@ mod prefetch_tests {
         assert_eq!(diff_prefetch_files(&json!({"files":[]})), json!([]));
     }
 }
+
+/// The renderer supplies compact view identities/counts, never chat contents.
+pub fn retained_workspaces(input: &Value) -> Value {
+    let active = string(&input["activeKey"]);
+    let available: std::collections::HashMap<&str, u64> = array(&input["available"])
+        .iter()
+        .map(|view| (string(&view["key"]), view["panes"].as_u64().unwrap_or(0)))
+        .collect();
+    if !available.contains_key(active) {
+        return json!([]);
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut retained: std::collections::VecDeque<&str> = array(&input["previous"])
+        .iter()
+        .map(string)
+        .filter(|key| *key != active && available.contains_key(key) && seen.insert(*key))
+        .collect();
+    retained.push_back(active);
+    let max_views = input["maxViews"].as_u64().unwrap_or(8).max(1) as usize;
+    let max_panes = input["maxPanes"].as_u64().unwrap_or(24);
+    let mut panes: u64 = retained.iter().map(|key| available[key]).sum();
+    while retained.len() > 1 && (retained.len() > max_views || panes > max_panes) {
+        panes -= available[retained.pop_front().unwrap()];
+    }
+    json!(retained)
+}
