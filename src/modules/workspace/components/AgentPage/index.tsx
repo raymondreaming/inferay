@@ -3,9 +3,9 @@ import {
 	createEffect,
 	createMemo,
 	createSignal,
+	For,
 	merge,
 	onSettled,
-	Show,
 } from "solid-js";
 import type { AgentSavedState } from "../../../../../build/presentation/contracts/AgentSavedState.ts";
 import type { WorkspaceAgentKind } from "../../../../../build/presentation/contracts/WorkspaceAgentKind.ts";
@@ -33,14 +33,18 @@ import {
 } from "../../../../shared/lib/native.tsx";
 import { chatSessionCache } from "../../../conversation/components/AgentChatView/chatSessionCache.ts";
 import type { AgentChatHandle } from "../../../conversation/components/AgentChatView/index.tsx";
-import { useRepositoryWorkbench } from "../../../workbench/hooks/useRepositoryWorkbench.tsx";
 import {
 	type AgentGroupsAction,
 	mutateAgentWorkspaceState,
 	useWorkspaceState,
 } from "../../hooks/useWorkspaceState.tsx";
-import { DEFAULT_ROWS, WorkspaceCanvas } from "../WorkspaceCanvas/index.tsx";
-import { AgentMainSurface } from "./AgentMainSurface.tsx";
+import { RepositorySurface } from "./RepositorySurface.tsx";
+import {
+	retainWorkspaceViews,
+	type WorkspaceView,
+	workspaceViewKey,
+	workspaceViews,
+} from "./retainedWorkspaces.ts";
 export type AgentPaneActionsArgs = {
 	readonly chatRefs: MutableRef<Map<string, AgentChatHandle> | null>;
 	readonly cleanupPane: (paneId: string) => void;
@@ -156,30 +160,19 @@ export function AgentPage() {
 			hasId.bind(null, _sourceValue.selectedGroupId),
 		);
 	});
-	const selectedPane = createMemo(
-		() =>
-			currentGroup()?.panes.find(
-				(pane) => pane.id === currentGroup()?.selectedPaneId,
-			) ?? null,
+	const activeViewKey = createMemo(() =>
+		workspaceViewKey(
+			currentGroup()?.id ?? "",
+			workspace().repositories.activePath,
+		),
 	);
-	const currentRepositoryPanes = createMemo(() => {
-		const visible = new Set(
-			workspace()
-				.repositories.visibleEntries.filter(
-					(entry) => entry.groupId === currentGroup()?.id,
-				)
-				.map((entry) => entry.pane.id),
-		);
-		return currentGroup()?.panes.filter((pane) => visible.has(pane.id)) ?? [];
-	});
-	const repositoryWorkbench = useRepositoryWorkbench(() => ({
-		active: true,
-		cwd: selectedPane()?.cwd,
-		workspaceId:
-			workspace().repositories.activeWorkspace?.cwd ??
-			currentGroup()?.id ??
-			"default",
-	}));
+	const retainedViews = createMemo<WorkspaceView[]>((previous) =>
+		retainWorkspaceViews(
+			previous ?? [],
+			workspaceViews(workspace().groups, workspace().repositories),
+			activeViewKey(),
+		),
+	);
 	const cleanupPane = (paneId: string) => {
 		wsClient.send({
 			type: "chat:destroy",
@@ -221,67 +214,29 @@ export function AgentPage() {
 			selectedGroupId: _sourceValue2.selectedGroupId,
 		};
 	});
-	const selectChatPane = (paneId: string) => {
-		const paneCwd = currentGroup()?.panes.find(
-			(pane) => pane.id === paneId,
-		)?.cwd;
-		repositoryWorkbench.focusWorkbench(paneCwd);
-		_source2.selectPane(paneId);
-	};
-	const agentGrid = (
-		<Show when={currentGroup()?.id} keyed>
-			{(groupId) => (
-				<WorkspaceCanvas
-					active
-					panes={
-						repositoryWorkbench.zenMode && selectedPane()
-							? [selectedPane()!]
-							: currentRepositoryPanes()
-					}
-					selectedPaneId={currentGroup()?.selectedPaneId ?? null}
-					columns={
-						repositoryWorkbench.zenMode ? 1 : (currentGroup()?.columns ?? 1)
-					}
-					rows={
-						repositoryWorkbench.zenMode
-							? 1
-							: (currentGroup()?.rows ?? DEFAULT_ROWS)
-					}
-					layoutMode={layoutMode()}
-					theme={theme()}
-					onSelectPane={selectChatPane}
-					onFocusPane={focusChatComposer}
-					onClosePane={_source2.removePane}
-					onDirectorySelect={_source2.handleDirectorySelected}
-					onDirectoryCancel={_source2.removePane}
-					onChatRef={_source2.handleChatRef}
-					onReorderPanes={_source2.reorderPanes}
-					onAddPane={_source2.handleAddPane}
-					onSetPaneAgentKind={_source2.handleSetPaneAgentKind}
-					workspaceId={groupId}
-					auxiliaryPanels={repositoryWorkbench.auxiliaryPanels}
-				/>
-			)}
-		</Show>
-	);
-	const hasCurrentPanes = createMemo(() => currentRepositoryPanes().length > 0);
 	return (
 		<>
 			{workspaceError() ? <div role="alert">{workspaceError()}</div> : null}
-			<AgentMainSurface
-				chatDiffPanel={repositoryWorkbench.diffPanel}
-				chatSidebar={repositoryWorkbench.sidebar}
-				chatZenMode={repositoryWorkbench.zenMode}
-				hasCurrentPanes={hasCurrentPanes()}
-				onThemeChange={setThemeId}
-				setShowSettings={setShowSettings}
-				showSettings={showSettings()}
-				agentGrid={agentGrid}
-				themeId={themeId()}
-			/>
+			<For each={retainedViews()} keyed={(view) => view.key}>
+				{(view) => (
+					<RepositorySurface
+						view={view()}
+						active={view().key === activeViewKey()}
+						layoutMode={layoutMode()}
+						theme={theme()}
+						themeId={themeId()}
+						onThemeChange={setThemeId}
+						showSettings={showSettings()}
+						setShowSettings={setShowSettings}
+						actions={_source2}
+						onFocusPane={focusChatComposer}
+					/>
+				)}
+			</For>
 		</>
 	);
 }
+
 export function useAgentPaneActions(_options: Accessor<AgentPaneActionsArgs>) {
 	const removePane = (paneId: string) => {
 		const _optionsValue = _options();

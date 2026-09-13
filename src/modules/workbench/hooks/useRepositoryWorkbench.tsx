@@ -5,6 +5,7 @@ import {
 	createSignal,
 	onSettled,
 	Show,
+	untrack,
 } from "solid-js";
 import type { DiffSource } from "../../../../build/presentation/contracts/DiffSource.ts";
 import type { GitActionResponse } from "../../../../build/presentation/contracts/GitActionResponse.ts";
@@ -92,8 +93,7 @@ export function useRepositoryWorkbench(
 		panelSessionError,
 		panelAnnouncement,
 	] = useWorkspacePanelSession(() => _options().workspaceId);
-	const _source = createMemo(() => panelSession());
-	const fileSource = createMemo(() => _source().selectedFile?.source);
+	const fileSource = createMemo(() => panelSession().selectedFile?.source);
 	const saveDocumentSession = (
 		sessionId: string,
 		session: PanelSession["documentSessions"][string],
@@ -146,9 +146,9 @@ export function useRepositoryWorkbench(
 	const trackResize = createPointerResize();
 	const toggleZenMode = () => setZenMode((current) => !current);
 	createEffect(
-		() => [_options().active, zenMode()],
-		() => {
-			if (!_options().active || !zenMode()) return;
+		() => _options().active && zenMode(),
+		(enabled) => {
+			if (!enabled) return;
 			return listenWindowEvent("keydown", (event) => {
 				if ((event as KeyboardEvent).key !== "Escape") return;
 				(event as KeyboardEvent).preventDefault();
@@ -157,28 +157,26 @@ export function useRepositoryWorkbench(
 		},
 	);
 	const activeCwd = createMemo(
-		() => _source().focusedAuxiliaryPanel?.cwd ?? _options().cwd,
+		() => panelSession().focusedAuxiliaryPanel?.cwd ?? _options().cwd,
 	);
 	const trackedCwds = createMemo(() => {
 		const _optionsValue = _options(),
-			_sourceValue = _source();
-		return _optionsValue.active
-			? [
-					...new Set(
-						[
-							_optionsValue.cwd,
-							_sourceValue.fileViewerCwd,
-							_sourceValue.diffViewerCwd,
-							_sourceValue.focusedAuxiliaryPanel?.cwd,
-							..._sourceValue.detachedFilePanels.map((panel) => panel.cwd),
-						].filter((value): value is string => Boolean(value)),
-					),
-				]
-			: [];
+			_sourceValue = panelSession();
+		return [
+			...new Set(
+				[
+					_optionsValue.cwd,
+					_sourceValue.fileViewerCwd,
+					_sourceValue.diffViewerCwd,
+					_sourceValue.focusedAuxiliaryPanel?.cwd,
+					..._sourceValue.detachedFilePanels.map((panel) => panel.cwd),
+				].filter((value): value is string => Boolean(value)),
+			),
+		];
 	});
 	const graphCwd = createMemo(() => {
-		const _sourceValue2 = _source();
-		return _options().active && _sourceValue2.mainViewMode === "graph"
+		const _sourceValue2 = panelSession();
+		return _sourceValue2.mainViewMode === "graph"
 			? (_sourceValue2.diffViewerCwd ?? undefined)
 			: undefined;
 	});
@@ -201,30 +199,30 @@ export function useRepositoryWorkbench(
 		() => graphCwd(),
 		() => graphLimit(),
 		() => graphPreferences(),
+		() => _options().active,
 	);
-	const _source2 = useGitStatus(
+	const gitStatus = useGitStatus(
 		() => trackedCwds(),
 		() => ({
-			enabled: trackedCwds().length > 0,
+			enabled: _options().active && trackedCwds().length > 0,
 			graph: graphCwd() ? graph : undefined,
 		}),
 	);
 	const project = createMemo(() => {
 		const _activeCwdValue = activeCwd();
 		return _activeCwdValue
-			? (_source2.projectMap.get(_activeCwdValue) ?? null)
+			? (gitStatus.projectMap.get(_activeCwdValue) ?? null)
 			: null;
 	});
 	const diffViewerProject = createMemo(() => {
-		const _sourceValue3 = _source();
+		const _sourceValue3 = panelSession();
 		return _sourceValue3.diffViewerCwd
-			? (_source2.projectMap.get(_sourceValue3.diffViewerCwd) ?? null)
+			? (gitStatus.projectMap.get(_sourceValue3.diffViewerCwd) ?? null)
 			: null;
 	});
 	const fileGroups = createMemo(
 		() => project()?.fileGroups ?? EMPTY_FILE_GROUPS,
 	);
-	const _source3 = createMemo(() => fileGroups());
 	const graphRevisionsRef = {
 		current: new Map<string, string>(),
 	};
@@ -245,7 +243,7 @@ export function useRepositoryWorkbench(
 		current: SelectedGraphCache;
 	};
 	const selectedGraph = createMemo(() => {
-		const _sourceValue4 = _source();
+		const _sourceValue4 = panelSession();
 		const result = resolveSelectedGraphItems(
 			selectedGraphCache.current,
 			graphCwd(),
@@ -280,7 +278,7 @@ export function useRepositoryWorkbench(
 			? _selectedGraphWorktreeValue.status
 			: null;
 	});
-	const _source4 = createMemo(
+	const workingTreeFiles = createMemo(
 		() => selectedLinkedWorktreeStatus()?.fileGroups ?? fileGroups(),
 	);
 	const selectedWorkingTreeCwd = createMemo(
@@ -297,7 +295,7 @@ export function useRepositoryWorkbench(
 		});
 	};
 	const historical = createMemo(() => {
-		const _sourceValue5 = _source();
+		const _sourceValue5 = panelSession();
 		return rustProject<{
 			commitSource: Extract<
 				DiffSource,
@@ -336,7 +334,6 @@ export function useRepositoryWorkbench(
 			fileSource: fileSource(),
 		});
 	});
-	const _source5 = createMemo(() => historical());
 	const commitDetailsState = useCommitDetails(
 		() => historical().commit.cwd,
 		() => historical().commit.hash,
@@ -349,7 +346,7 @@ export function useRepositoryWorkbench(
 		() => historical().comparison.to,
 		() => historical().revision,
 		() => {
-			const _sourceValue6 = _source();
+			const _sourceValue6 = panelSession();
 			return _sourceValue6.mainViewMode === "graph" &&
 				_sourceValue6.selectedCommitIds.length > 1
 				? comparisonSelection()
@@ -387,7 +384,7 @@ export function useRepositoryWorkbench(
 				branch,
 			});
 			if (!result.ok) throw new Error(result.error ?? "Checkout failed");
-			await _source2.refetch();
+			await gitStatus.refetch();
 			selectGraphCommit(null);
 		} catch (error) {
 			setGraphActionError(
@@ -395,44 +392,34 @@ export function useRepositoryWorkbench(
 			);
 		}
 	};
-	const _source6 = createMemo(() =>
-		createGitOperations(graphCwd(), _source2.refetch, selectGraphCommit),
+	const gitOperations = createMemo(() =>
+		createGitOperations(graphCwd(), gitStatus.refetch, selectGraphCommit),
 	);
 	createEffect(
-		() => [
-			graph.commits,
-			graph.loading,
-			_source().mainViewMode,
-			panelSession(),
-			updatePanelSession,
-		],
-		() => {
-			const _panelSessionValue = panelSession();
-			if (
-				_source().mainViewMode !== "graph" ||
-				graph.loading ||
-				!graph.commits.length
-			)
+		() => ({
+			commits: graph.commits,
+			loading: graph.loading,
+			session: panelSession(),
+		}),
+		({ commits, loading, session }) => {
+			if (session.mainViewMode !== "graph" || loading || !commits.length)
 				return;
-			const visible = new Set(graph.commits.map((item) => item.id));
+			const visible = new Set(commits.map((item) => item.id));
 			if (
-				_panelSessionValue.selectedCommitHash &&
-				visible.has(_panelSessionValue.selectedCommitHash) &&
-				_panelSessionValue.selectedCommitIds.length &&
-				_panelSessionValue.selectedCommitIds.every((id) => visible.has(id))
+				session.selectedCommitHash &&
+				visible.has(session.selectedCommitHash) &&
+				session.selectedCommitIds.length &&
+				session.selectedCommitIds.every((id) => visible.has(id))
 			)
 				return;
 			updatePanelSession({
 				type: "reconcileGraph",
-				items: graph.commits.map(({ id, message }) => ({
-					id,
-					message,
-				})),
+				items: commits.map(({ id, message }) => ({ id, message })),
 			});
 		},
 	);
 	const keyboardFiles = createMemo(() => {
-		const _source3Value = _source3(),
+		const _source3Value = fileGroups(),
 			_projectValue = project(),
 			_fileViewModeValue = fileViewMode();
 		return [
@@ -464,12 +451,12 @@ export function useRepositoryWorkbench(
 			fileViewMode(),
 		);
 	});
-	const _source7 = useGitChangeActions(() => ({
+	const changeActions = useGitChangeActions(() => ({
 		cwd: activeCwd(),
-		refetchStatus: _source2.refetch,
+		refetchStatus: gitStatus.refetch,
 	}));
 	const diffRequest = createMemo(() => {
-		const _sourceValue7 = _source();
+		const _sourceValue7 = panelSession();
 		return rustProject<DiffRequest | null>("diffRequest", {
 			active: _options().active,
 			cwd: _sourceValue7.diffViewerCwd,
@@ -485,7 +472,7 @@ export function useRepositoryWorkbench(
 	});
 	const prefetchDiffs = useDiffPrefetch();
 	const prefetchContext = createMemo(() => ({
-		active: _options().active && _source().sidebarVisible,
+		active: _options().active && panelSession().sidebarVisible,
 		cwd: selectedWorkingTreeCwd(),
 		revision:
 			graphCwd() === selectedWorkingTreeCwd()
@@ -508,82 +495,52 @@ export function useRepositoryWorkbench(
 		);
 	};
 
-	const _source8 = useGitDiff(() => diffRequest());
+	const fileDiff = useGitDiff(() => diffRequest());
 	createEffect(
-		() => {
-			const _source5Value = _source5();
-			return [
-				diffViewerProject(),
-				_source().selectedFile,
-				_source5Value.commitSource,
-				_source5Value.comparisonSource,
-				updatePanelSession,
-			];
-		},
-		() => {
-			const _sourceValue9 = _source(),
-				_diffViewerProjectValue = diffViewerProject(),
-				_source5Value2 = _source5();
+		() => ({
+			project: diffViewerProject(),
+			file: panelSession().selectedFile,
+			historical: historical(),
+		}),
+		({ project, file, historical }) => {
 			if (
-				!_sourceValue9.selectedFile ||
-				!_diffViewerProjectValue ||
-				_source5Value2.commitSource ||
-				_source5Value2.comparisonSource
+				!file ||
+				!project ||
+				historical.commitSource ||
+				historical.comparisonSource
 			)
 				return;
 			const current =
-				_diffViewerProjectValue.files.find((file) => {
-					const _sourceValue8 = _sourceValue9;
-					return (
-						file.path === _sourceValue8.selectedFile?.path &&
-						file.staged === _sourceValue8.selectedFile?.staged
-					);
-				}) ??
-				_diffViewerProjectValue.files.find(
-					(file) => file.path === _sourceValue9.selectedFile?.path,
-				);
-			if (current && current.staged === _sourceValue9.selectedFile.staged)
-				return;
+				project.files.find(
+					(item) => item.path === file.path && item.staged === file.staged,
+				) ?? project.files.find((item) => item.path === file.path);
+			if (current && current.staged === file.staged) return;
 			updatePanelSession({
 				type: "reconcileFile",
-				expected: _sourceValue9.selectedFile,
+				expected: file,
 				staged: current?.staged ?? null,
 			});
 		},
 	);
 	createEffect(
 		() => {
-			const _optionsValue3 = _options();
-			return [
-				_optionsValue3.active,
-				_optionsValue3.cwd,
-				_source2.loaded,
-				_source2.projectMap,
-				panelSession().repositoryInitialized,
-				_source().diffViewerCwd,
-				updatePanelSession,
-			];
+			const { active, cwd } = _options();
+			return active &&
+				cwd &&
+				gitStatus.loaded &&
+				gitStatus.projectMap.has(cwd) &&
+				(!panelSession().repositoryInitialized || !panelSession().diffViewerCwd)
+				? cwd
+				: null;
 		},
-		() => {
-			const _optionsValue4 = _options();
-			if (
-				!_optionsValue4.active ||
-				!_optionsValue4.cwd ||
-				!_source2.loaded ||
-				!_source2.projectMap.has(_optionsValue4.cwd)
-			)
-				return;
-			if (!panelSession().repositoryInitialized || !_source().diffViewerCwd)
-				updatePanelSession({
-					type: "initialize",
-					cwd: _optionsValue4.cwd,
-				});
+		(cwd) => {
+			if (cwd) updatePanelSession({ type: "initialize", cwd });
 		},
 	);
 	createEffect(
-		() => [_options().active, updatePanelSession],
-		() => {
-			if (!_options().active) return;
+		() => _options().active,
+		(active) => {
+			if (!active) return;
 			return listenWindowEvent(DOCUMENT_OPEN_EVENT, (event) => {
 				const detail = (event as CustomEvent<DocumentOpenDetail>).detail;
 				if (!detail?.cwd || !detail.path) return;
@@ -596,10 +553,10 @@ export function useRepositoryWorkbench(
 		},
 	);
 	createEffect(
-		() => [_options().active, updatePanelSession],
-		() => {
+		() => _options().active,
+		(active) => {
+			if (!active) return;
 			return listenWindowEvent(TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT, () => {
-				if (!_options().active) return;
 				updatePanelSession({
 					type: "toggleSidebar",
 				});
@@ -633,8 +590,8 @@ export function useRepositoryWorkbench(
 		});
 	};
 	const selectCommitFile = (file: GitCommitFile) => {
-		const _source5Value3 = _source5(),
-			_sourceValue0 = _source(),
+		const _source5Value3 = historical(),
+			_sourceValue0 = panelSession(),
 			_selectedGraphItemValue = selectedGraphItem();
 		const commitCwd = _source5Value3.commitSource?.commitHash
 			? _sourceValue0.diffViewerCwd
@@ -657,9 +614,9 @@ export function useRepositoryWorkbench(
 		});
 	};
 	const selectComparisonFile = (file: GitCommitFile) => {
-		const _source5Value4 = _source5();
+		const _source5Value4 = historical();
 		const fileComparisonCwd = _source5Value4.comparisonSource?.comparisonFrom
-			? _source().diffViewerCwd
+			? panelSession().diffViewerCwd
 			: comparisonCwd();
 		const fileComparisonFrom =
 			_source5Value4.comparisonSource?.comparisonFrom ?? comparisonFrom();
@@ -681,74 +638,44 @@ export function useRepositoryWorkbench(
 		() => {
 			const request = pendingGraphFileOpen();
 			if (!request) return null;
-			const session = _source();
+			const session = panelSession();
 			if (
 				session.mainViewMode !== "graph" ||
 				session.selectedCommitHash !== request
 			)
-				return "cancel";
-			if (selectedGraphItem()?.itemKind === "worktreeWip")
-				return [
-					request,
-					keyboardFiles(),
-					session.selectedFile?.path,
-					session.selectedFile?.staged,
-				];
-			const comparing = session.selectedCommitIds.length > 1;
-			const loading = comparing
-				? comparisonDetailsState.loading
-				: commitDetailsState.loading;
-			return [
-				request,
-				comparing,
-				loading,
-				loading
-					? null
-					: comparing
-						? comparisonKeyboardFiles()
-						: commitKeyboardFiles(),
-				session.selectedFile?.path,
-			];
-		},
-		() => {
-			const _pendingGraphFileOpenValue = pendingGraphFileOpen();
-			if (!_pendingGraphFileOpenValue) return;
-			const _sourceValue11 = _source();
-			if (
-				_sourceValue11.mainViewMode !== "graph" ||
-				_sourceValue11.selectedCommitHash !== _pendingGraphFileOpenValue
-			) {
-				setPendingGraphFileOpen(null);
-				return;
-			}
+				return () => {};
 			if (selectedGraphItem()?.itemKind === "worktreeWip") {
-				setPendingGraphFileOpen(null);
-				const _keyboardFilesValue = keyboardFiles();
-				const firstFile =
-					_keyboardFilesValue.find((file) => {
-						const _sourceValue10 = _source();
-						return (
-							file.path === _sourceValue10.selectedFile?.path &&
-							file.staged === _sourceValue10.selectedFile.staged
-						);
-					}) ?? _keyboardFilesValue[0];
-				if (firstFile) selectChangedFile(firstFile);
-				return;
+				const files = keyboardFiles();
+				const file =
+					files.find(
+						(file) =>
+							file.path === session.selectedFile?.path &&
+							file.staged === session.selectedFile.staged,
+					) ?? files[0];
+				return () => {
+					if (file) selectChangedFile(file);
+				};
 			}
-			const comparing = _sourceValue11.selectedCommitIds.length > 1;
+			const comparing = session.selectedCommitIds.length > 1;
 			if (
 				comparing ? comparisonDetailsState.loading : commitDetailsState.loading
 			)
-				return;
-			setPendingGraphFileOpen(null);
+				return null;
 			const files = comparing
 				? comparisonKeyboardFiles()
 				: commitKeyboardFiles();
-			const firstFile =
-				files.find((file) => file.path === _source().selectedFile?.path) ??
+			const file =
+				files.find((file) => file.path === session.selectedFile?.path) ??
 				files[0];
-			if (firstFile)
-				(comparing ? selectComparisonFile : selectCommitFile)(firstFile);
+			return () => {
+				if (file) (comparing ? selectComparisonFile : selectCommitFile)(file);
+			};
+		},
+		(command) => {
+			if (!command) return;
+			setPendingGraphFileOpen(null);
+			// Selection commands snapshot current target state, as keyboard actions do.
+			untrack(command);
 		},
 	);
 	const changeMainViewMode = (mode: "diff" | "graph") => {
@@ -766,10 +693,11 @@ export function useRepositoryWorkbench(
 		});
 	};
 	createEffect(
-		() => [_options().active, changeMainViewMode, activeCwd()],
-		() => {
+		() => _options().active,
+		(active) => {
+			if (!active) return;
 			return listenWindowEvent(OPEN_ACTIVE_GIT_GRAPH_EVENT, () => {
-				if (_options().active) changeMainViewMode("graph");
+				changeMainViewMode("graph");
 			});
 		},
 	);
@@ -786,7 +714,7 @@ export function useRepositoryWorkbench(
 		updatePanelSession({ type: "focusChat", cwd: repositoryCwd });
 	};
 	const focusDiffViewer = () => {
-		const _sourceValue12 = _source();
+		const _sourceValue12 = panelSession();
 		if (_sourceValue12.diffViewerCwd)
 			updatePanelSession({
 				type: "focus",
@@ -800,7 +728,7 @@ export function useRepositoryWorkbench(
 		const next = adjacentGitFile(
 			keyboardFiles(),
 			(file) => {
-				const _sourceValue13 = _source();
+				const _sourceValue13 = panelSession();
 				return (
 					file.path === _sourceValue13.selectedFile?.path &&
 					file.staged === _sourceValue13.selectedFile?.staged
@@ -811,13 +739,13 @@ export function useRepositoryWorkbench(
 		if (next) selectChangedFile(next);
 	};
 	const cycleHistoricalFile = (direction: -1 | 1) => {
-		const comparisonDiff = _source5().comparisonSource !== null;
+		const comparisonDiff = historical().comparisonSource !== null;
 		const historicalFiles = comparisonDiff
 			? comparisonKeyboardFiles()
 			: commitKeyboardFiles();
 		const nextFile = adjacentGitFile(
 			historicalFiles,
-			(file) => file.path === _source().selectedFile?.path,
+			(file) => file.path === panelSession().selectedFile?.path,
 			direction,
 		);
 		if (!nextFile) return;
@@ -825,7 +753,7 @@ export function useRepositoryWorkbench(
 		else selectCommitFile(nextFile);
 	};
 	const handleDiffKeyboardNavigation = (event: KeyboardEvent) => {
-		const _sourceValue14 = _source(),
+		const _sourceValue14 = panelSession(),
 			_panelSessionValue2 = panelSession();
 		if (
 			_sourceValue14.focusedAuxiliaryPanel?.id !== "workspace-diff-viewer" ||
@@ -865,31 +793,17 @@ export function useRepositoryWorkbench(
 				_sourceValue14.selectedFile,
 			);
 			if (_sourceValue14.selectedFile.staged)
-				_source7.unstageFile(_sourceValue14.selectedFile.path);
-			else _source7.stageFile(_sourceValue14.selectedFile.path);
+				changeActions.unstageFile(_sourceValue14.selectedFile.path);
+			else changeActions.stageFile(_sourceValue14.selectedFile.path);
 			if (nextSelection) selectChangedFile(nextSelection);
 		}
 	};
 	createEffect(
-		() => [
-			_options().active,
-			handleDiffKeyboardNavigation,
-			_source(),
-			_source5(),
-			comparisonKeyboardFiles(),
-			commitKeyboardFiles(),
-			comparisonCwd(),
-			comparisonFrom(),
-			comparisonTo(),
-			selectedGraphItem(),
-			activeCwd(),
-			keyboardFiles(),
-			selectedWorkingTreeCwd(),
-		],
-		() => {
-			if (!_options().active) return;
-			return listenWindowEvent("keydown", handleDiffKeyboardNavigation);
-		},
+		() => _options().active,
+		(active) =>
+			active
+				? listenWindowEvent("keydown", handleDiffKeyboardNavigation)
+				: undefined,
 	);
 	const handleResizeStart = (
 		event: PointerEvent & {
@@ -909,7 +823,7 @@ export function useRepositoryWorkbench(
 					MIN_DIFF_WIDTH,
 					(rail?.parentElement?.getBoundingClientRect().width ??
 						window.innerWidth) -
-						(_source().sidebarVisible ? _sidebarWidthValue : 0) -
+						(panelSession().sidebarVisible ? _sidebarWidthValue : 0) -
 						MIN_RESPONSIVE_PANE_WIDTH,
 				)
 			: MAX_SIDEBAR_WIDTH;
@@ -965,18 +879,18 @@ export function useRepositoryWorkbench(
 		if (id === "workspace-file-viewer")
 			return (
 				<DocumentViewer
-					cwd={_source().fileViewerCwd!}
-					sessionId={`workspace-file-viewer:${_options().workspaceId}:${_source().fileViewerCwd}`}
+					cwd={panelSession().fileViewerCwd!}
+					sessionId={`workspace-file-viewer:${_options().workspaceId}:${panelSession().fileViewerCwd}`}
 					workspaceId={_options().workspaceId}
 					onSessionChange={saveDocumentSession}
-					openRequest={_source().fileRequest}
+					openRequest={panelSession().fileRequest}
 					onClose={closeFileViewer}
 					onFileTabDragStart={startFileDrag.bind(null, drag)}
 					{...drag}
 				/>
 			);
 		const panel = createMemo(() =>
-			_source().detachedFilePanels.find((panel) => panel.id === id),
+			panelSession().detachedFilePanels.find((panel) => panel.id === id),
 		);
 		const retained = createMemo<
 			PanelSession["detachedFilePanels"][number] | undefined
@@ -1006,7 +920,7 @@ export function useRepositoryWorkbench(
 		);
 	};
 	const auxiliaryPanels = createMemo(() => {
-		const session = _source();
+		const session = panelSession();
 		const panels = session.detachedFilePanels.map((panel) => ({
 			id: panel.id,
 			cwd: panel.cwd,
@@ -1024,23 +938,23 @@ export function useRepositoryWorkbench(
 	});
 	const diffPanel = (
 		<>
-			{_source().diffViewerCwd &&
-			(_source().mainViewMode === "graph"
-				? _source().sidebarVisible
-				: Boolean(_source().selectedFile)) ? (
+			{panelSession().diffViewerCwd &&
+			(panelSession().mainViewMode === "graph"
+				? panelSession().sidebarVisible
+				: Boolean(panelSession().selectedFile)) ? (
 				<WorkbenchDiffRail
 					zenMode={zenMode()}
 					width={diffWidth()}
-					maxWidth={`max(0px, calc(100% - ${MIN_RESPONSIVE_PANE_WIDTH + (_source().sidebarVisible ? sidebarWidth() : 0)}px))`}
+					maxWidth={`max(0px, calc(100% - ${MIN_RESPONSIVE_PANE_WIDTH + (panelSession().sidebarVisible ? sidebarWidth() : 0)}px))`}
 					onFocus={focusDiffViewer}
 					onResize={(event) => handleResizeStart(event, true)}
 				>
 					<ChatDiffPanel
-						diff={_source8.diff}
-						file={_source().selectedFile}
-						loading={_source8.loading}
-						error={_source8.error}
-						mainViewMode={_source().mainViewMode}
+						diff={fileDiff.diff}
+						file={panelSession().selectedFile}
+						loading={fileDiff.loading}
+						error={fileDiff.error}
+						mainViewMode={panelSession().mainViewMode}
 						onMainViewModeChange={changeMainViewMode}
 						graph={graph}
 						graphPreferences={graphPreferences()}
@@ -1064,13 +978,13 @@ export function useRepositoryWorkbench(
 						graphError={graphActionError() ?? graph.error}
 						selectionAnnouncement={graphSelectionAnnouncement()}
 						repositoryKey={graphCwd()}
-						selectedCommitHash={_source().selectedCommitHash}
-						selectedCommitIds={_source().selectedCommitIds}
+						selectedCommitHash={panelSession().selectedCommitHash}
+						selectedCommitIds={panelSession().selectedCommitIds}
 						onSelectCommit={selectGraphCommit}
 						onOpenGraphSelection={openGraphSelection}
 						onCheckoutRef={checkoutGraphRef}
-						onRunRefOperation={_source6().runGraphRefOperation}
-						onRunGraphAction={_source6().runGraphActionRequest}
+						onRunRefOperation={gitOperations().runGraphRefOperation}
+						onRunGraphAction={gitOperations().runGraphActionRequest}
 						onLoadMoreCommits={() => setGraphLimit(nextGitGraphHistoryLimit)}
 						branch={project()?.branch}
 						onClose={closeDiffViewer}
@@ -1082,7 +996,7 @@ export function useRepositoryWorkbench(
 						viewMode={diffViewMode()}
 						onViewModeChange={setDiffViewMode}
 						startAtFirstChange={
-							!_source5().commitSource && !_source5().comparisonSource
+							!historical().commitSource && !historical().comparisonSource
 						}
 						zenMode={zenMode()}
 						onToggleZenMode={toggleZenMode}
@@ -1095,7 +1009,7 @@ export function useRepositoryWorkbench(
 		<>
 			{
 				<WorkbenchSidebar
-					visible={_source().sidebarVisible}
+					visible={panelSession().sidebarVisible}
 					width={sidebarWidth()}
 					error={panelSessionError()}
 					onResize={handleResizeStart}
@@ -1111,24 +1025,25 @@ export function useRepositoryWorkbench(
 						fileViewMode={fileViewMode()}
 						onFileViewModeChange={setFileViewMode}
 						content={panelSession().sidebarContent}
-						graphActive={_source().mainViewMode === "graph"}
-						modified={_source4().modified}
-						untracked={_source4().untracked}
-						staged={_source4().staged}
+						graphActive={panelSession().mainViewMode === "graph"}
+						modified={workingTreeFiles().modified}
+						untracked={workingTreeFiles().untracked}
+						staged={workingTreeFiles().staged}
 						selectedFile={
-							_source().focusedAuxiliaryPanel?.id === "workspace-diff-viewer"
-								? _source().selectedFile
+							panelSession().focusedAuxiliaryPanel?.id ===
+							"workspace-diff-viewer"
+								? panelSession().selectedFile
 								: null
 						}
 						onSelectFile={selectChangedFile}
-						onStageFile={_source7.stageFile}
-						onUnstageFile={_source7.unstageFile}
-						onStageAll={_source7.stageAll}
-						onUnstageAll={_source7.unstageAll}
+						onStageFile={changeActions.stageFile}
+						onUnstageFile={changeActions.unstageFile}
+						onStageAll={changeActions.stageAll}
+						onUnstageAll={changeActions.unstageAll}
 						hasProject={!!project() || !!selectedLinkedWorktreeStatus()}
-						projectLoading={!!activeCwd() && !_source2.loaded}
-						selectedCommitHash={_source().selectedCommitHash}
-						selectedCommitCount={_source().selectedCommitIds.length}
+						projectLoading={!!activeCwd() && !gitStatus.loaded}
+						selectedCommitHash={panelSession().selectedCommitHash}
+						selectedCommitCount={panelSession().selectedCommitIds.length}
 						selectedWorktreePath={selectedGraphWorktree()?.path}
 						onOpenWorktree={
 							selectedGraphWorktree() && !selectedGraphWorktree()!.isCurrent
@@ -1143,10 +1058,10 @@ export function useRepositoryWorkbench(
 						onSelectCommitFile={selectCommitFile}
 						onSelectComparisonFile={selectComparisonFile}
 						branch={selectedGraphWorktree()?.branch ?? project()?.branch}
-						commitMessage={_source7.commitMessage}
-						onCommitMessageChange={_source7.setCommitMessage}
-						onCommit={_source7.commit}
-						isCommitting={_source7.isCommitting}
+						commitMessage={changeActions.commitMessage}
+						onCommitMessageChange={changeActions.setCommitMessage}
+						onCommit={changeActions.commit}
+						isCommitting={changeActions.isCommitting}
 						showFileActions={!selectedLinkedWorktreeStatus()}
 						showCommitSection={!selectedLinkedWorktreeStatus()}
 					/>

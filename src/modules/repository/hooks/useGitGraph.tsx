@@ -1,4 +1,10 @@
-import { type Accessor, createMemo, createSignal, merge } from "solid-js";
+import {
+	type Accessor,
+	createMemo,
+	createSignal,
+	merge,
+	untrack,
+} from "solid-js";
 import type { ComparisonPlan } from "../../../../build/presentation/contracts/ComparisonPlan.ts";
 import type { GitCommitDetails } from "../../../../build/presentation/contracts/GitCommitDetails.ts";
 import type { GitComparisonDetails } from "../../../../build/presentation/contracts/GitComparisonDetails.ts";
@@ -24,10 +30,11 @@ export function useGitGraph(
 		soloRefs: [],
 		pinnedRefs: [],
 	}),
+	_enabled: Accessor<boolean> = () => true,
 ) {
 	const preferenceKey = createMemo(() => JSON.stringify(_preferences()));
 	const [search, setSearch] = createSignal({
-		cwd: _cwd(),
+		cwd: untrack(_cwd),
 		query: "",
 	});
 	const searchQuery = createMemo(() => {
@@ -62,7 +69,7 @@ export function useGitGraph(
 					searchQuery(),
 					preferenceKey(),
 				],
-				enabled: !!_cwdValue,
+				enabled: _enabled() && !!_cwdValue,
 			};
 		},
 	);

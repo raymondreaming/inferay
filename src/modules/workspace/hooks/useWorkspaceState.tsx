@@ -8,6 +8,7 @@ import {
 	postJson,
 	project as rustProject,
 } from "../../../shared/lib/native.tsx";
+import { traceUi } from "../../../shared/lib/uiPerformance.ts";
 
 type AgentWorkspaceAction =
 	| {
@@ -214,6 +215,7 @@ export function mutateAgentWorkspaceState(
 				state: selected(state, selection.groupId, selection.paneId),
 			});
 	}
+	if (selection) traceUi("selection-published");
 	const mutation = queue.then(async () => {
 		const current = snapshot.state ?? (await initializeAgentState()),
 			next = typeof action === "function" ? action(current) : action;

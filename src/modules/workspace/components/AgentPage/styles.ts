@@ -5,6 +5,9 @@ import {
 	layer,
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
+	inactive: {
+		display: "none",
+	},
 	appRoot: {
 		display: "flex",
 		flexDirection: "column",

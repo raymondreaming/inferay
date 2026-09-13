@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/solid-query";
-import { type Accessor, createMemo } from "solid-js";
+import { type Accessor, createMemo, untrack } from "solid-js";
 import type { PanelAction } from "../../../../build/presentation/contracts/PanelAction.ts";
 import type { PanelSession } from "../../../../build/presentation/contracts/PanelSession.ts";
 import { useBackgroundQuery as useQuery } from "../../../shared/hooks/useQueryResource.tsx";
@@ -20,9 +20,11 @@ export function useWorkspacePanelSession(_workspaceId: Accessor<string>) {
 		() => queryClient,
 	);
 	const mutate = createMemo(() => mutation.mutate);
-	const update = (action: PanelAction) => {
-		mutate()(model().preview(_workspaceId(), action));
-	};
+	// Commands snapshot their target when invoked, including from effect apply callbacks.
+	const update = (action: PanelAction) =>
+		untrack(() => {
+			mutate()(model().preview(_workspaceId(), action));
+		});
 	const error = createMemo(() =>
 		query.error
 			? "Saved workspace panels could not be restored."

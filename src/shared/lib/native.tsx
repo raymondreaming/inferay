@@ -2,6 +2,7 @@ import type { ProviderCatalog } from "../../../build/presentation/contracts/Prov
 import type { ProviderSettings } from "../../../build/presentation/contracts/ProviderSettings.ts";
 import type { WorkspaceAgentKind } from "../../../build/presentation/contracts/WorkspaceAgentKind.ts";
 import providerCatalog from "../../../build/presentation/provider-catalog.json";
+import { traceUi } from "./uiPerformance.ts";
 export async function fetchJson<T>(
 	input: RequestInfo | URL,
 	init?: RequestInit,
@@ -118,6 +119,13 @@ class WebSocketClient {
 		};
 	}
 	send(data: unknown) {
+		if (
+			data &&
+			typeof data === "object" &&
+			"type" in data &&
+			typeof data.type === "string"
+		)
+			traceUi(data.type);
 		const json = JSON.stringify(data);
 		if (this.ws?.readyState === WebSocket.OPEN) {
 			this.ws.send(json);

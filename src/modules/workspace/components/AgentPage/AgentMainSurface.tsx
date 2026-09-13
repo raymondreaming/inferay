@@ -13,6 +13,9 @@ const Settings = lazy(() =>
 import { styles } from "./styles.ts";
 
 type AgentMainSurfaceProps = {
+	readonly active?: boolean;
+	readonly repositoryCwd?: string;
+	readonly paneCount?: number;
 	readonly chatDiffPanel: import("solid-js").Element;
 	readonly chatSidebar: import("solid-js").Element;
 	readonly chatZenMode: boolean;
@@ -25,7 +28,17 @@ type AgentMainSurfaceProps = {
 };
 export function AgentMainSurface(_props: AgentMainSurfaceProps) {
 	return (
-		<div {...stylex.attrs(styles.appRoot, styles.fullHeight)}>
+		<div
+			data-repository-surface={_props.repositoryCwd}
+			data-repository-active={_props.active === false ? "false" : "true"}
+			data-expected-panes={_props.paneCount}
+			aria-hidden={_props.active === false ? "true" : undefined}
+			{...stylex.attrs(
+				styles.appRoot,
+				styles.fullHeight,
+				_props.active === false && styles.inactive,
+			)}
+		>
 			<div {...stylex.attrs(styles.appFrame)}>
 				<div {...stylex.attrs(styles.appColumn)}>
 					<div {...stylex.attrs(styles.appBody)}>

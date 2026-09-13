@@ -64,29 +64,26 @@ export function RepositoryWorkspaceBar() {
 			);
 		});
 	});
-	createEffect(
-		() => [newMenuOpen()],
-		() => {
-			if (!newMenuOpen()) return;
-			const closeOnOutsidePointer = (event: PointerEvent) => {
-				if (
-					event.target instanceof Node &&
-					!newMenuRef.current?.contains(event.target)
-				) {
-					setNewMenuOpen(false);
-				}
-			};
-			const closeOnEscape = (event: KeyboardEvent) => {
-				if (event.key === "Escape") setNewMenuOpen(false);
-			};
-			document.addEventListener("pointerdown", closeOnOutsidePointer);
-			window.addEventListener("keydown", closeOnEscape);
-			return () => {
-				document.removeEventListener("pointerdown", closeOnOutsidePointer);
-				window.removeEventListener("keydown", closeOnEscape);
-			};
-		},
-	);
+	createEffect(newMenuOpen, (isOpen) => {
+		if (!isOpen) return;
+		const closeOnOutsidePointer = (event: PointerEvent) => {
+			if (
+				event.target instanceof Node &&
+				!newMenuRef.current?.contains(event.target)
+			) {
+				setNewMenuOpen(false);
+			}
+		};
+		const closeOnEscape = (event: KeyboardEvent) => {
+			if (event.key === "Escape") setNewMenuOpen(false);
+		};
+		document.addEventListener("pointerdown", closeOnOutsidePointer);
+		window.addEventListener("keydown", closeOnEscape);
+		return () => {
+			document.removeEventListener("pointerdown", closeOnOutsidePointer);
+			window.removeEventListener("keydown", closeOnEscape);
+		};
+	});
 	const createChat = (target: CreateAgentChatTarget) => {
 		setNewMenuOpen(false);
 		dispatchCreateAgentChat(target);
@@ -208,6 +205,7 @@ export function RepositoryWorkspaceBar() {
 									type="button"
 									role="tab"
 									aria-selected={ariaValue(active())}
+									data-repository-tab={workspace().cwd}
 									title={workspace().cwd}
 									onClick={() => activateWorkspace(workspace())}
 									{...stylex.attrs(
