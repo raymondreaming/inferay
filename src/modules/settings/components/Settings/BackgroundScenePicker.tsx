@@ -3,6 +3,7 @@ import { createMemo, createSignal, For } from "solid-js";
 import {
 	updateAppBackground,
 	useBackgroundModel,
+	usesNativeGlass,
 } from "../../../../app/hooks/useAppAppearance.tsx";
 import { iconSize } from "../../../../design-system/styles.stylex.ts";
 import { Button } from "../../../../shared/ui/Button/index.tsx";
@@ -149,7 +150,7 @@ export function BackgroundScenePicker(_props: { contained?: boolean }) {
 			{_source().background.mode === "glass" ? (
 				<div {...stylex.attrs(styles.backgroundControls)}>
 					<label {...stylex.attrs(styles.backgroundControl)}>
-						<span>Window blur</span>
+						<span>{usesNativeGlass ? "Glass strength" : "Window blur"}</span>
 						<input
 							type="range"
 							min="0"
@@ -163,7 +164,9 @@ export function BackgroundScenePicker(_props: { contained?: boolean }) {
 							}
 						/>
 						<span {...stylex.attrs(styles.backgroundValue)}>
-							{_source().background.glassBlur}px
+							{usesNativeGlass
+								? `${Math.round((_source().background.glassBlur / 40) * 100)}%`
+								: `${_source().background.glassBlur}px`}
 						</span>
 					</label>
 					<label {...stylex.attrs(styles.backgroundControl)}>

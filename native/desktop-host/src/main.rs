@@ -13,16 +13,22 @@ use tao::{
 use wry::WebViewBuilder;
 
 #[cfg(target_os = "macos")]
-use tao::platform::macos::WindowBuilderExtMacOS;
+use tao::platform::macos::{WindowBuilderExtMacOS, WindowExtMacOS};
 
 #[cfg(target_os = "macos")]
 use {
     objc2::{MainThreadMarker, runtime::Sel, sel},
-    objc2_app_kit::{NSApplication, NSMenu, NSMenuItem},
+    objc2_app_kit::{
+        NSAppearance, NSAppearanceCustomization, NSAppearanceNameVibrantDark, NSApplication,
+        NSAutoresizingMaskOptions, NSMenu, NSMenuItem, NSVisualEffectBlendingMode,
+        NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindow,
+        NSWindowOrderingMode,
+    },
     objc2_foundation::NSString,
 };
 
 const INITIALIZATION_SCRIPT: &str = r#"
+window.inferayNativeGlass = navigator.platform.startsWith('Mac');
 document.addEventListener('mousedown', (event) => {
   if (event.button !== 0) return;
   const target = event.target instanceof Element ? event.target : null;
@@ -113,6 +119,7 @@ enum UserEvent {
     DragWindow,
     ToggleMaximize,
     SyncFullscreen,
+    SetBackdrop(f64),
 }
 
 fn project_root() -> PathBuf {
@@ -167,6 +174,34 @@ fn sync_fullscreen(window: &tao::window::Window, webview: &wry::WebView) {
     ));
 }
 
+#[cfg(target_os = "macos")]
+fn install_window_backdrop(
+    window: &tao::window::Window,
+) -> objc2::rc::Retained<NSVisualEffectView> {
+    let marker = MainThreadMarker::new().expect("window backdrop requires the main thread");
+    // Wry replaces Tao's content view. Resolve the final NSWindow content view
+    // after WebView::build; Tao's original ns_view is no longer in the window.
+    let native_window = unsafe { &*window.ns_window().cast::<NSWindow>() };
+    let content = native_window
+        .contentView()
+        .expect("window has a content view");
+    let backdrop = NSVisualEffectView::initWithFrame(marker.alloc(), content.bounds());
+    // Inferay's two themes are dark even when the system appearance is light.
+    backdrop.setAppearance(
+        NSAppearance::appearanceNamed(unsafe { NSAppearanceNameVibrantDark }).as_deref(),
+    );
+    backdrop.setMaterial(NSVisualEffectMaterial::Sidebar);
+    backdrop.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+    // Keep the desktop blurred when the user moves focus to another window.
+    backdrop.setState(NSVisualEffectState::Active);
+    backdrop.setAlphaValue(0.0);
+    backdrop.setAutoresizingMask(
+        NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
+    );
+    content.addSubview_positioned_relativeTo(&backdrop, NSWindowOrderingMode::Below, None);
+    backdrop
+}
+
 fn main() -> wry::Result<()> {
     let external_addr = external_server_addr().expect("unable to read Inferay backend address");
     let mut server = if external_addr.is_some() {
@@ -203,16 +238,6 @@ fn main() -> wry::Result<()> {
         .build(&event_loop)
         .expect("failed to open window");
 
-    // Install the effect view before Wry adds its transparent WKWebView so the
-    // native blur is the bottom-most, persistent layer in the content view.
-    #[cfg(target_os = "macos")]
-    let _ = window_vibrancy::apply_vibrancy(
-        &window,
-        window_vibrancy::NSVisualEffectMaterial::UnderWindowBackground,
-        Some(window_vibrancy::NSVisualEffectState::Active),
-        None,
-    );
-
     #[cfg(target_os = "windows")]
     let _ = window_vibrancy::apply_acrylic(&window, Some((0, 0, 0, 150)));
 
@@ -228,13 +253,20 @@ fn main() -> wry::Result<()> {
                 "drag_window" => Some(UserEvent::DragWindow),
                 "toggle_maximize" => Some(UserEvent::ToggleMaximize),
                 "sync_fullscreen" => Some(UserEvent::SyncFullscreen),
-                _ => None,
+                message => message
+                    .strip_prefix("window_backdrop:")
+                    .and_then(|value| value.parse::<f64>().ok())
+                    .filter(|value| value.is_finite())
+                    .map(|value| UserEvent::SetBackdrop(value.clamp(0.0, 1.0))),
             };
             if let Some(event) = event {
                 let _ = proxy.send_event(event);
             }
         })
         .build(&window)?;
+
+    #[cfg(target_os = "macos")]
+    let backdrop = install_window_backdrop(&window);
 
     sync_fullscreen(&window, &webview);
     let mut webview = Some(webview);
@@ -267,6 +299,12 @@ fn main() -> wry::Result<()> {
                 if let Some(webview) = webview.as_ref() {
                     sync_fullscreen(&window, webview);
                 }
+            }
+            Event::UserEvent(UserEvent::SetBackdrop(strength)) => {
+                #[cfg(target_os = "macos")]
+                backdrop.setAlphaValue(strength);
+                #[cfg(not(target_os = "macos"))]
+                let _ = strength;
             }
             _ => {}
         }

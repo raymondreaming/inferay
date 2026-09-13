@@ -1,13 +1,16 @@
 import * as stylex from "@stylexjs/stylex";
 import type { Element } from "solid-js";
-import { createEffect, Loading, onSettled } from "solid-js";
+import { Loading, onSettled } from "solid-js";
 import { SettingsModalHost } from "../../../modules/settings/components/SettingsModal/index.tsx";
 import { SkillsModalHost } from "../../../modules/skills/components/SkillsModal/index.tsx";
 import { RepositoryWorkspaceBar } from "../../../modules/workspace/components/RepositoryWorkspaceBar/index.tsx";
 import { WorkspaceSidebar } from "../../../modules/workspace/components/WorkspaceSidebar/index.tsx";
 import { type CSSProperties, domStyle } from "../../../shared/lib/dom.tsx";
 import { wsClient } from "../../../shared/lib/native.tsx";
-import { useAppAppearance } from "../../hooks/useAppAppearance.tsx";
+import {
+	useAppAppearance,
+	usesNativeGlass,
+} from "../../hooks/useAppAppearance.tsx";
 import { AppHeader } from "../AppHeader/index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { shellThemeProps, styles } from "./styles.ts";
@@ -47,8 +50,12 @@ export function AppLayout(props: { children: Element }) {
 					{...stylex.attrs(styles.glassBackdrop)}
 					style={domStyle(
 						inlineStyles.getAppLayoutGlassBackdropStyle(
-							`blur(${_source.background.glassBlur}px) saturate(115%)`,
-							`blur(${_source.background.glassBlur}px) saturate(115%)`,
+							usesNativeGlass
+								? "none"
+								: `blur(${_source.background.glassBlur}px) saturate(115%)`,
+							usesNativeGlass
+								? "none"
+								: `blur(${_source.background.glassBlur}px) saturate(115%)`,
 							`color-mix(in srgb, #000000 ${_source.background.glassOpacity}%, transparent)`,
 						),
 					)}

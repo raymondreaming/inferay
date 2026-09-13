@@ -26,6 +26,14 @@ import {
 } from "../../shared/lib/native.tsx";
 
 const catalog = appearanceCatalog as AppearanceCatalog;
+declare global {
+	interface Window {
+		inferayNativeGlass?: boolean;
+		ipc?: { postMessage: (message: string) => void };
+	}
+}
+export const usesNativeGlass =
+	typeof window !== "undefined" && window.inferayNativeGlass === true;
 export const APP_THEMES = catalog.themes;
 export const APP_BACKGROUNDS = catalog.backgrounds;
 export const APP_FONTS = catalog.fonts;
@@ -124,6 +132,16 @@ export function updateAppBackground(patch: Partial<AppBackgroundSettings>) {
 }
 export function useAppAppearance() {
 	const _source = useBackgroundModel();
+	createEffect(
+		() =>
+			_source().background.mode === "glass"
+				? _source().background.glassBlur / 40
+				: 0,
+		(strength) => {
+			if (usesNativeGlass)
+				window.ipc?.postMessage(`window_backdrop:${strength}`);
+		},
+	);
 	onSettled(() => {
 		return listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
 			if (
