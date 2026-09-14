@@ -2,11 +2,13 @@ import type {
 	GitCommitDetails,
 	GitCommitFile,
 	GitComparisonDetails,
+	SelectedPanelFile,
 } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { HistoricalDetailsPanel } from "./HistoricalDetailsPanel.tsx";
 import { styles } from "./styles.ts";
-import type { SelectedFile } from "./types.ts";
+
+type SelectedFile = Pick<SelectedPanelFile, "path" | "staged">;
 export function HistoryFiles(_props: {
 	historyLoading: boolean;
 	historyDetails: GitCommitDetails | GitComparisonDetails | null;

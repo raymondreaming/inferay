@@ -481,12 +481,11 @@ pub fn historical_query(i: &Value) -> Value {
     }
     result
 }
-fn repository_selection(i: &Value) -> Value {
-    let state = &i["state"];
+fn repository_selection(state: &Value, cwd: &Value) -> Option<WorkspaceSelection> {
     let groups = array(&state["groups"]);
     let target = array(&state["repositories"]["workspaces"])
         .iter()
-        .find(|workspace| workspace["cwd"] == i["cwd"])
+        .find(|workspace| workspace["cwd"] == *cwd)
         .map(|workspace| array(&workspace["entries"]))
         .unwrap_or(&[])
         .iter()
@@ -501,10 +500,12 @@ fn repository_selection(i: &Value) -> Value {
                 2
             }
         });
-    target.map_or(
-        Value::Null,
-        |entry| json!({"groupId":entry["groupId"],"paneId":entry["pane"]["id"]}),
-    )
+    target.and_then(|entry| {
+        Some(WorkspaceSelection {
+            group_id: entry["groupId"].as_str()?.to_owned(),
+            pane_id: Some(entry["pane"]["id"].as_str()?.to_owned()),
+        })
+    })
 }
 
 #[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]
@@ -522,14 +523,9 @@ pub struct WorkspaceMutationPlan {
     pub(crate) unchanged: bool,
 }
 
-pub fn workspace_mutation_plan(input: &Value) -> WorkspaceMutationPlan {
-    let state = &input["state"];
-    let action = &input["action"];
+pub fn workspace_mutation_plan(state: &Value, action: &Value) -> WorkspaceMutationPlan {
     let selection: Option<WorkspaceSelection> = match string(&action["type"]) {
-        "selectRepository" => serde_json::from_value(repository_selection(
-            &json!({"state":state,"cwd":action["cwd"]}),
-        ))
-        .ok(),
+        "selectRepository" => repository_selection(state, &action["cwd"]),
         "selectPane" | "selectWorkspace" => Some(WorkspaceSelection {
             group_id: string(&action["groupId"]).to_owned(),
             pane_id: action["paneId"].as_str().map(str::to_owned),
@@ -552,18 +548,17 @@ pub fn workspace_mutation_plan(input: &Value) -> WorkspaceMutationPlan {
     }
 }
 
-pub fn workspace_selection(i: &Value) -> Value {
-    let mut state = i["state"].clone();
+pub(crate) fn workspace_selection(state: &mut Value, selection: &WorkspaceSelection) {
     if let Some(groups) = state["groups"].as_array_mut() {
         for group in groups.iter_mut() {
-            if group["id"] == i["groupId"] && !i["paneId"].is_null() {
-                group["selectedPaneId"] = i["paneId"].clone();
+            if group["id"] == selection.group_id && selection.pane_id.is_some() {
+                group["selectedPaneId"] = json!(selection.pane_id);
             }
         }
     }
     let group = array(&state["groups"])
         .iter()
-        .find(|g| g["id"] == i["groupId"]);
+        .find(|g| g["id"] == selection.group_id);
     let pane = group.and_then(|g| {
         array(&g["panes"])
             .iter()
@@ -586,7 +581,7 @@ pub fn workspace_selection(i: &Value) -> Value {
         .find(|w| w["cwd"].as_str() == cwd.as_deref())
         .cloned()
         .unwrap_or(Value::Null);
-    state["selectedGroupId"] = i["groupId"].clone();
+    state["selectedGroupId"] = json!(selection.group_id);
     state["repositories"]["activePath"] = json!(cwd);
     state["repositories"]["visibleEntries"] = if active.is_null() {
         state["repositories"]["unassignedEntries"].clone()
@@ -594,7 +589,6 @@ pub fn workspace_selection(i: &Value) -> Value {
         active["entries"].clone()
     };
     state["repositories"]["activeWorkspace"] = active;
-    state
 }
 
 pub fn git_operation_model(input: &Value) -> Value {

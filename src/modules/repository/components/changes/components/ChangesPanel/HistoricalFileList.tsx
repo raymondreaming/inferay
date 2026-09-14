@@ -2,11 +2,13 @@ import type {
 	GitCommitFile,
 	GitFileEntry,
 	GitFilePresentation,
+	SelectedPanelFile,
 } from "@contracts";
 import { visibleGitFiles } from "@shared/lib/native.tsx";
 import { createMemo } from "solid-js";
 import { FileGroup } from "./FileGroup.tsx";
-import type { SelectedFile } from "./types.ts";
+
+type SelectedFile = Pick<SelectedPanelFile, "path" | "staged">;
 export function HistoricalFileList(_props: {
 	files: GitCommitFile[];
 	filePresentation?: GitFilePresentation;

@@ -38,7 +38,7 @@ fn ui_timing_summaries_group_comparable_ready_samples_and_compute_percentiles() 
 fn workspace_mutation_plan_distinguishes_selection_from_structure() {
     let plan = |state: &Value, action: Value| {
         json!(inferay_presentation::workbench::workspace_mutation_plan(
-            &json!({"state":state,"action":action})
+            state, &action
         ))
     };
     let state = json!({"selectedGroupId":"g", "groups":[{"id":"g","selectedPaneId":"a"}],

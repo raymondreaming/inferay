@@ -2,6 +2,7 @@ import type {
 	GitCommitDetails,
 	GitCommitFile,
 	GitComparisonDetails,
+	SelectedPanelFile,
 } from "@contracts";
 import { domStyle } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
@@ -10,7 +11,8 @@ import { DetailIdentity } from "./DetailIdentity.tsx";
 import { HistoricalFileList } from "./HistoricalFileList.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
-import type { SelectedFile } from "./types.ts";
+
+type SelectedFile = Pick<SelectedPanelFile, "path" | "staged">;
 export function HistoricalDetailsPanel(_props: {
 	details: GitCommitDetails | GitComparisonDetails;
 	selectionCount?: number;

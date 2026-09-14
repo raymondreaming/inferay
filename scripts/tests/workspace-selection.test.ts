@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createWorkspaceSession } from "@workspace/services/workspaceSession.ts";
+import { createWorkspaceSession } from "@workspace/hooks/useWorkspaceState.tsx";
 
 // Exercise the production queue through its injected persistence port.
 function model(send: (path: string, body: any) => Promise<any>) {

@@ -1,4 +1,8 @@
-import type { GitFileEntry, GitFilePresentation } from "@contracts";
+import type {
+	GitFileEntry,
+	GitFilePresentation,
+	SelectedPanelFile,
+} from "@contracts";
 import { iconSize, selectionAppearance } from "@design-system/styles.stylex.ts";
 import { ariaValue } from "@shared/lib/dom.tsx";
 import { IconChevronRight } from "@shared/ui/Icons/index.tsx";
@@ -6,7 +10,8 @@ import * as stylex from "@stylexjs/stylex";
 import { createEffect, createMemo, createSignal, For } from "solid-js";
 import { styles } from "./styles.ts";
 import { TreeNodeRow } from "./TreeNodeRow.tsx";
-import type { SelectedFile } from "./types.ts";
+
+type SelectedFile = Pick<SelectedPanelFile, "path" | "staged">;
 export function FileGroup(_props: {
 	title: string;
 	files: GitFileEntry[];

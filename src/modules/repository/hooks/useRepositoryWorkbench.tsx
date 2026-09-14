@@ -3,8 +3,11 @@ import type {
 	DiffSource,
 	DiffViewMode,
 	FileContent,
+	GitActionResponse,
 	GitCommitFile,
 	GitFileEntry,
+	GitGraphActionRequest,
+	GitRefOperationRequest,
 	GraphCommit,
 	GraphFileOpen,
 	PanelAction,
@@ -35,8 +38,10 @@ import {
 	useGitChangeActions,
 	useGitStatus,
 } from "@repository/hooks/useGitStatus.tsx";
-import { checkoutGitBranch } from "@repository/services/gitApi.ts";
-import { createGitOperations } from "@repository/services/gitOperations.ts";
+import {
+	checkoutGitBranch,
+	runGitOperation,
+} from "@repository/services/gitApi.ts";
 import {
 	createPointerResize,
 	DOCUMENT_OPEN_EVENT,
@@ -415,9 +420,36 @@ export function useRepositoryWorkbench(
 			);
 		}
 	};
-	const gitOperations = createMemo(() =>
-		createGitOperations(graphCwd(), gitStatus.refetch, selectGraphCommit),
-	);
+	const runGraphOperation = async (
+		endpoint: string,
+		operation: string,
+		input: object,
+		fallback: string,
+	): Promise<GitActionResponse> => {
+		const cwd = graphCwd();
+		try {
+			if (!cwd) throw new Error("No Git repository selected");
+			const result = await runGitOperation(cwd, endpoint, input);
+			await gitStatus.refetch();
+			if (result.selection) selectGraphCommit(result.selection.commit);
+			return result;
+		} catch (error) {
+			return rustProject("gitActionFailure", {
+				operation,
+				error: error instanceof Error ? error.message : fallback,
+				errorKind: cwd ? "commandFailed" : "invalidInput",
+			});
+		}
+	};
+	const runGraphRefOperation = (input: GitRefOperationRequest) =>
+		runGraphOperation(
+			"ref-operation",
+			input.operation,
+			input,
+			"Git operation failed",
+		);
+	const runGraphActionRequest = (input: GitGraphActionRequest) =>
+		runGraphOperation("graph-action", input.action, input, "Git action failed");
 	createEffect(
 		() => ({
 			commits: graph.commits,
@@ -923,8 +955,8 @@ export function useRepositoryWorkbench(
 						onSelectCommit={selectGraphCommit}
 						onOpenGraphSelection={openGraphSelection}
 						onCheckoutRef={checkoutGraphRef}
-						onRunRefOperation={gitOperations().runGraphRefOperation}
-						onRunGraphAction={gitOperations().runGraphActionRequest}
+						onRunRefOperation={runGraphRefOperation}
+						onRunGraphAction={runGraphActionRequest}
 						onLoadMoreCommits={() => setGraphLimit(nextGitGraphHistoryLimit)}
 						branch={project()?.branch}
 						onClose={closeDiffViewer}

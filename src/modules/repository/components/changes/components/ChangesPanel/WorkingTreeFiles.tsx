@@ -1,9 +1,14 @@
-import type { GitFileEntry, GitFilePresentation } from "@contracts";
+import type {
+	GitFileEntry,
+	GitFilePresentation,
+	SelectedPanelFile,
+} from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { FileGroup } from "./FileGroup.tsx";
 import { RepositoryStatus } from "./RepositoryStatus.tsx";
 import { styles } from "./styles.ts";
-import type { SelectedFile } from "./types.ts";
+
+type SelectedFile = Pick<SelectedPanelFile, "path" | "staged">;
 export function WorkingTreeFiles(_props: {
 	hasProject: boolean;
 	projectLoading: boolean;

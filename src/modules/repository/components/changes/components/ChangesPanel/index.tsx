@@ -4,6 +4,7 @@ import type {
 	GitComparisonDetails,
 	GitFileEntry,
 	GitFilePresentation,
+	SelectedPanelFile,
 } from "@contracts";
 import { captureEvent } from "@shared/lib/dom.tsx";
 import {
@@ -17,15 +18,15 @@ import { ChangesPanelHeader } from "./ChangesPanelHeader.tsx";
 import { CommitSection } from "./CommitSection.tsx";
 import { HistoryFiles } from "./HistoryFiles.tsx";
 import { styles } from "./styles.ts";
-import type { SelectedFile } from "./types.ts";
 import { WorkingTreeFiles } from "./WorkingTreeFiles.tsx";
+
+export type SelectedFile = Pick<SelectedPanelFile, "path" | "staged">;
 
 export {
 	getFileSelectionAfterToggle,
 	visibleGitFiles,
 } from "@shared/lib/native.tsx";
 export { CollapsedChangesPanel } from "./CollapsedChangesPanel.tsx";
-export type { SelectedFile } from "./types.ts";
 
 export const ChangesPanel = function ChangesPanel(props: {
 	onPrefetchFiles?: (files: GitFileEntry[]) => void;

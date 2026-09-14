@@ -122,16 +122,12 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 		readonly edge: DockEdge;
 	} | null>(null);
 	const auxiliaryPanels = () => props.auxiliaryPanels ?? EMPTY_AUXILIARY_PANELS;
-	const auxiliaryPanelIdKey = createMemo(() => {
-		return auxiliaryPanels()
-			.map((panel) => panel.id)
-			.join("\u0000");
-	});
-	const panelIds = createMemo(() => [
-		...props.panes.map((pane) => pane.id),
-		...auxiliaryPanelIdKey().split("\u0000").filter(Boolean),
-	]);
-	const panelKey = createMemo(() => JSON.stringify(panelIds()));
+	const panelKey = createMemo(() =>
+		JSON.stringify([
+			...props.panes.map((pane) => pane.id),
+			...auxiliaryPanels().map((panel) => panel.id),
+		]),
+	);
 	const dockInput = createMemo(() => ({
 		workspaceId: props.workspaceId ?? "default",
 		legacyWorkspaceId: props.legacyWorkspaceId,
@@ -237,7 +233,7 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 				y: moveEvent.clientY,
 				root: root.getBoundingClientRect(),
 				mode: props.layoutMode,
-				panelCount: panelIds().length,
+				panelCount: dockInput().ids.length,
 				source: sourceId,
 				insert: !!pendingPanel,
 				rowId: row?.dataset.agentRowPaneId,

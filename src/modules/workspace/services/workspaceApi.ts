@@ -10,7 +10,7 @@ import {
 	postJson,
 	sendJson,
 } from "@shared/lib/native.tsx";
-import type { WorkspacePanelPort } from "@workspace/services/workspacePanels.ts";
+import type { WorkspacePanelPort } from "@workspace/hooks/useWorkspacePanelSession.tsx";
 
 export function loadDirectoryQuickPicks() {
 	return fetchJsonOr<DirectoryQuickPicks>(

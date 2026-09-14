@@ -1,5 +1,5 @@
 import type { DockLayout, DockRequest, DockTree } from "@contracts";
-import { DockSession } from "@shared/lib/native.tsx";
+import { DockSession, readStoredValue } from "@shared/lib/native.tsx";
 import { saveWorkspaceDock } from "@workspace/services/workspaceApi.ts";
 import {
 	type Accessor,
@@ -9,7 +9,6 @@ import {
 	onSettled,
 	untrack,
 } from "solid-js";
-import { beginDockLayout } from "./dockLayoutCache.ts";
 
 /** Persists dock layouts sequentially while exposing the latest rendered tree. */
 export function useDockLayout(
@@ -17,7 +16,30 @@ export function useDockLayout(
 	active: Accessor<boolean>,
 ) {
 	const model = new DockSession();
-	const initial = beginDockLayout(model, untrack(input))!;
+	const begin = (
+		request: DockRequest,
+		deduplicate = false,
+	): {
+		revision: number;
+		layout: DockLayout | null;
+		persist: boolean;
+	} | null => {
+		const read = (prefix: string) =>
+			readStoredValue(`${prefix}:${request.workspaceId}`) ??
+			(request.legacyWorkspaceId
+				? readStoredValue(`${prefix}:${request.legacyWorkspaceId}`)
+				: null) ??
+			undefined;
+		return JSON.parse(
+			model.begin(
+				JSON.stringify(request),
+				read("native-workspace-dock"),
+				read("agent-workspace-dock"),
+				deduplicate,
+			),
+		);
+	};
+	const initial = begin(untrack(input))!;
 	const [layout, setLayout] = createSignal<DockLayout>(initial.layout!);
 	const tree = createMemo(() => layout().tree);
 	const [error, setError] = createSignal<string | null>(null);
@@ -28,10 +50,12 @@ export function useDockLayout(
 		deduplicate = false,
 	) => {
 		const request = { ...target, action };
-		const pending = beginDockLayout(model, request, deduplicate);
+		const pending = begin(request, deduplicate);
 		if (!pending) return Promise.resolve(true);
 		if (pending.layout) setLayout(pending.layout);
+		if (!pending.persist) return Promise.resolve(true);
 		const result = requests.current.then(async () => {
+			if (deduplicate && !model.is_current(pending.revision)) return true;
 			try {
 				const saved = await saveWorkspaceDock<DockLayout>(request);
 				const accepted: DockLayout | null = JSON.parse(
@@ -43,8 +67,8 @@ export function useDockLayout(
 				);
 				if (accepted?.canvas && "tree" in accepted) {
 					setLayout(accepted);
-					setError(null);
 				}
+				if (model.is_current(pending.revision)) setError(null);
 				return true;
 			} catch {
 				if (model.fail(pending.revision))

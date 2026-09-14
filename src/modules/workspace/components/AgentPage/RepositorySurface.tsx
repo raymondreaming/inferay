@@ -1,10 +1,31 @@
-import type { AgentTheme, Group, WorkspaceView } from "@contracts";
+import type {
+	AgentTheme,
+	Group,
+	WorkspaceAgentKind,
+	WorkspaceView,
+} from "@contracts";
+import type { AgentChatHandle } from "@conversation/components/AgentChatView/index.tsx";
 import { useRepositoryWorkbench } from "@repository/hooks/useRepositoryWorkbench.tsx";
 import type { AgentLayoutMode } from "@shared/contracts/workspace.ts";
 import { createMemo } from "solid-js";
 import { DEFAULT_ROWS, WorkspaceCanvas } from "../WorkspaceCanvas/index.tsx";
 import { AgentMainSurface } from "./AgentMainSurface.tsx";
-import type { AgentPaneActions } from "./types.ts";
+export type AgentPaneActions = {
+	handleAddPane: (agentKind: WorkspaceAgentKind) => void;
+	reorderPanes: (fromIndex: number, toIndex: number) => void;
+	handleSetPaneAgentKind: (
+		paneId: string,
+		agentKind: WorkspaceAgentKind,
+	) => void;
+	handleDirectorySelected: (
+		paneId: string,
+		path: string | null,
+		referencePaths?: string[],
+	) => void;
+	selectPane: (paneId: string) => void;
+	handleChatRef: (id: string, handle: AgentChatHandle | null) => void;
+	removePane: (paneId: string) => void;
+};
 
 export function RepositorySurface(props: {
 	view: WorkspaceView;

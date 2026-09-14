@@ -1,4 +1,8 @@
-import type { GitFileEntry, GitFileTreeNode } from "@contracts";
+import type {
+	GitFileEntry,
+	GitFileTreeNode,
+	SelectedPanelFile,
+} from "@contracts";
 import { iconSize } from "@design-system/styles.stylex.ts";
 import { ariaValue, domStyle } from "@shared/lib/dom.tsx";
 import { IconChevronRight, IconFolderFill } from "@shared/ui/Icons/index.tsx";
@@ -10,7 +14,8 @@ import { FileActionIcon } from "./FileActionIcon.tsx";
 import { FileDiffStats } from "./FileDiffStats.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
-import type { SelectedFile } from "./types.ts";
+
+type SelectedFile = Pick<SelectedPanelFile, "path" | "staged">;
 export function TreeNodeRow(props: {
 	node?: GitFileTreeNode;
 	pathFile?: GitFileEntry;

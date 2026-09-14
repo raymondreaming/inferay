@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { PanelAction, PanelSession } from "@contracts";
 import { QueryClient } from "@tanstack/query-core";
-import { createWorkspacePanelModel } from "@workspace/services/workspacePanels.ts";
+import { createWorkspacePanelModel } from "@workspace/hooks/useWorkspacePanelSession.tsx";
 import { project } from "../../src/shared/lib/native.tsx";
 
 function setup() {

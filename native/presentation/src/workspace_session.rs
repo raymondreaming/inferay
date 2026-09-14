@@ -1,5 +1,5 @@
 //! Optimistic workspace selection and acknowledgement policy. HTTP ordering stays in JS.
-use crate::workbench::{workspace_mutation_plan, workspace_selection};
+use crate::workbench::{WorkspaceSelection, workspace_mutation_plan, workspace_selection};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -17,7 +17,7 @@ pub struct WorkspaceSnapshot {
 pub struct WorkspaceReplica {
     snapshot: WorkspaceSnapshot,
     canonical: Value,
-    pending: Option<(u32, Value)>,
+    pending: Option<(u32, WorkspaceSelection)>,
     structural: HashSet<u32>,
     sequence: u32,
 }
@@ -38,14 +38,14 @@ impl WorkspaceReplica {
     pub fn begin(&mut self, action: &str) -> Result<String, JsValue> {
         let action: Value =
             serde_json::from_str(action).map_err(|e| JsValue::from_str(&e.to_string()))?;
-        let plan = workspace_mutation_plan(&json!({"state":self.snapshot.state,"action":action}));
+        let plan = workspace_mutation_plan(&self.snapshot.state, &action);
         if plan.unchanged && self.structural.is_empty() && self.snapshot.error.is_none() {
             return Ok("null".into());
         }
         self.sequence += 1;
         let selecting = plan.selection.is_some();
         if let Some(selection) = plan.selection {
-            self.pending = Some((self.sequence, json!(selection)));
+            self.pending = Some((self.sequence, selection));
             self.overlay();
         } else {
             self.structural.insert(self.sequence);
@@ -95,9 +95,7 @@ impl WorkspaceReplica {
         if let Some((_, selection)) = &self.pending
             && !self.snapshot.state.is_null()
         {
-            self.snapshot.state = workspace_selection(
-                &json!({"state":self.snapshot.state,"groupId":selection["groupId"],"paneId":selection["paneId"]}),
-            );
+            workspace_selection(&mut self.snapshot.state, selection);
         }
     }
 }
