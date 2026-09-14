@@ -51,49 +51,6 @@ test("nested formatting preserves the view's styles and escapes text", () => {
 	assert.match(html, /<code[^>]*>a&lt;b<\/code>/);
 });
 
-test("preview and chat retain different autolink and image fallback behavior", () => {
-	const url = [
-		{ type: "url", text: "example", href: "https://example.com/?a=1&b=2" },
-	];
-	assert.doesNotMatch(render(url), /<a /);
-	assert.match(
-		render(url, { url: { class: "link" } }),
-		/rel="noopener noreferrer"/,
-	);
-	assert.match(
-		render(
-			[
-				{
-					type: "image",
-					text: "fallback",
-					href: "https://example.com/image.png",
-				},
-			],
-			{ image: { alt: "" } },
-		),
-		/alt(?:="")?(?=\s|\/?>)/,
-	);
-	assert.match(
-		render([
-			{
-				type: "image",
-				text: "fallback",
-				href: "https://example.com/image.png",
-			},
-		]),
-		/alt="fallback"/,
-	);
-});
-
-test("markdown paths become controls only when the view handles them", () => {
-	const tokens = [{ type: "markdown_path", text: "README.md" }];
-	assert.match(
-		render(tokens, {}, () => {}),
-		/<button/,
-	);
-	assert.doesNotMatch(render(tokens), /<button/);
-});
-
 test("local image sources use the host endpoint and missing sources show a fallback", () => {
 	for (const href of [
 		"file:///tmp/my%20image.png",

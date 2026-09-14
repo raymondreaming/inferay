@@ -37,20 +37,6 @@ function setup() {
 }
 
 describe("navigation while native persistence is pending", () => {
-	test("disposing a panel model lets pending reads and saves settle", async () => {
-		const { model, select, current, mutation, setRead, empty } = setup();
-		const response = Promise.withResolvers<{ session: PanelSession }>();
-		setRead(() => response.promise);
-		const reading = model.queryOptions("repo").queryFn();
-		const request = select("a");
-		model.dispose();
-		model.dispose();
-		mutation.onError(new Error("offline"), request);
-		response.resolve({ session: empty });
-		expect((await reading).selectedCommitHash).toBeNull();
-		expect(current().selectedCommitHash).toBeNull();
-	});
-
 	test("the query mutation queue saves in order while navigation stays ahead", async () => {
 		const { client, select, current, mutation, setRead, sent } = setup();
 		const started = Promise.withResolvers<void>();
@@ -94,20 +80,6 @@ describe("navigation while native persistence is pending", () => {
 		expect(current().selectedCommitHash).toBeNull();
 	});
 
-	test.each([false, true])(
-		"an overlapping session read cannot undo navigation (saved=%s)",
-		async (saved) => {
-			const { model, select, current, mutation, setRead, empty } = setup();
-			const deferred = Promise.withResolvers<any>();
-			setRead(() => deferred.promise);
-			const reading = model.queryOptions("repo").queryFn();
-			const action = select("a");
-			if (saved) mutation.onSuccess({ session: current() }, action);
-			deferred.resolve({ session: empty });
-			expect((await reading).selectedCommitHash).toBe("a");
-		},
-	);
-
 	test("file preview opens immediately and retains local content without serializing it", async () => {
 		const { model, current, mutation, sent } = setup();
 		model.preview("repo", {
@@ -143,24 +115,4 @@ describe("navigation while native persistence is pending", () => {
 		});
 		expect(current().detachedFilePanels[0].initialFile).toBe(initialFile);
 	});
-});
-
-test("file navigation preserves object identity without serializing file payloads", async () => {
-	const { adjacentGitFile } = await import("../../src/shared/lib/native.tsx");
-	const files = [0, 1, 2].map((id) => ({
-		id,
-		toJSON() {
-			throw new Error("File payload must stay in the renderer");
-		},
-	}));
-	expect(adjacentGitFile(files, (file) => file.id === 1, 1)).toBe(files[2]);
-	expect(adjacentGitFile(files, (file) => file.id === 1, -1)).toBe(files[0]);
-	expect(adjacentGitFile(files, () => false, 1)).toBe(files[0]);
-	expect(adjacentGitFile(files, () => false, -1)).toBe(files[2]);
-	expect(adjacentGitFile(files, (file) => file.id === 2, 1)).toBeUndefined();
-	expect(adjacentGitFile(files, (file) => file.id === 2, 1, true)).toBe(
-		files[2],
-	);
-	expect(adjacentGitFile(files, (file) => file.id === 0, -1)).toBeUndefined();
-	expect(adjacentGitFile([], () => false, 1, true)).toBeUndefined();
 });

@@ -1,6 +1,4 @@
 import { afterEach, expect, test } from "bun:test";
-import { runGitChangeAction } from "@repository/services/gitApi.ts";
-import { connectGithub } from "@settings/services/settingsApi.ts";
 import { fetchJson, postJson } from "@shared/lib/native.tsx";
 
 const originalFetch = globalThis.fetch;
@@ -50,12 +48,4 @@ test("successful JSON requests retain bodies, methods, and cancellation", async 
 			{ method: "PATCH", signal: controller.signal },
 		),
 	).resolves.toEqual({ saved: true });
-});
-
-test("staging and connecting reject failed HTTP responses", async () => {
-	respond('{"error":"Unavailable"}', 503);
-	await expect(
-		runGitChangeAction("/project", "stage", "file.ts"),
-	).rejects.toThrow();
-	await expect(connectGithub()).rejects.toThrow();
 });

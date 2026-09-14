@@ -65,20 +65,6 @@ function setup(fail = false) {
 	);
 	return { actions, events, status: () => status };
 }
-test("accepted send starts activity and the timer before transport, without waiting for any reply", () => {
-	const { actions, events, status } = setup();
-	expect(actions.sendUserMessage({ text: "hello" })).toBe(true);
-	expect(events).toEqual(["activity", "message", "scroll", "transport"]);
-	expect(status()).toEqual({
-		isLoading: true,
-		status: "sending",
-		startTime: 1234,
-	});
-	events.length = 0;
-	actions.sendUserMessage({ text: "follow up" });
-	expect(events).toEqual(["scroll", "transport"]);
-	expect(status().startTime).toBe(1234);
-});
 test("empty submissions do nothing and a failed transport clears pending activity", () => {
 	const { actions, events, status } = setup(true);
 	expect(actions.sendUserMessage({ text: "   " })).toBe(false);

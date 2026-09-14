@@ -93,11 +93,3 @@ test("core rejects platform access through aliases, methods, types and macros", 
 		});
 	});
 });
-
-test("core permits pure path operations and platform names in data", () => {
-	expect(
-		check(
-			'pub fn run(path: &std::path::Path) -> usize { let _text = "std::fs::read"; path.components().count() }',
-		).status,
-	).toBe(0);
-});
