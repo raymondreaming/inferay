@@ -4,14 +4,14 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RowDescriptor {
-    kind: Option<String>,
+struct RowDescriptor<'a> {
+    kind: Option<&'a str>,
     #[serde(default)]
     hidden: bool,
     #[serde(default)]
     group_leader: bool,
     group_end: Option<usize>,
-    file_path: Option<String>,
+    file_path: Option<&'a str>,
     #[serde(default)]
     continues_after: bool,
 }
@@ -35,45 +35,6 @@ pub enum ChatRow {
     },
 }
 
-pub fn rows(descriptors: &[Option<RowDescriptor>]) -> Vec<ChatRow> {
-    descriptors
-        .iter()
-        .enumerate()
-        .filter_map(|(index, descriptor)| {
-            let Some(render) = descriptor else {
-                return Some(ChatRow::Message { index });
-            };
-            if render.hidden
-                || (render.kind.as_deref() == Some("edit-group") && !render.group_leader)
-            {
-                return None;
-            }
-            if render.kind.as_deref() == Some("edit-group")
-                && let Some(path) = render.file_path.as_ref().filter(|path| !path.is_empty())
-            {
-                let end = render.group_end.unwrap_or(index + 1).min(descriptors.len());
-                return Some(if end > index + 1 {
-                    ChatRow::EditGroup {
-                        start: index,
-                        end,
-                        file_path: path.clone(),
-                    }
-                } else {
-                    ChatRow::Message { index }
-                });
-            }
-            Some(if render.kind.as_deref() == Some("tool-group") {
-                ChatRow::ToolGroup {
-                    index,
-                    continues_after: render.continues_after,
-                }
-            } else {
-                ChatRow::Message { index }
-            })
-        })
-        .collect()
-}
-
 #[derive(Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatListRow {
@@ -86,11 +47,6 @@ pub struct ChatListRow {
 pub fn list(input: &serde_json::Value) -> Result<Vec<ChatListRow>, String> {
     use crate::{array, flag, string};
     let messages = array(&input["messages"]);
-    let descriptors = messages
-        .iter()
-        .map(|message| serde_json::from_value(message["render"].clone()))
-        .collect::<Result<Vec<Option<RowDescriptor>>, _>>()
-        .map_err(|error| error.to_string())?;
     let checkpoints: std::collections::HashMap<_, _> = array(&input["checkpoints"])
         .iter()
         .enumerate()
@@ -101,34 +57,51 @@ pub fn list(input: &serde_json::Value) -> Result<Vec<ChatListRow>, String> {
                 .map(|id| (id, index))
         })
         .collect();
-    Ok(rows(&descriptors)
-        .into_iter()
-        .enumerate()
-        .map(|(index, row)| {
-            let message = &messages[match &row {
-                ChatRow::Message { index } | ChatRow::ToolGroup { index, .. } => *index,
-                ChatRow::EditGroup { start, .. } => *start,
-            }];
-            let key = message["render"]["rowId"]
-                .as_str()
-                .or_else(|| message["id"].as_str())
-                .map(str::to_owned)
-                .unwrap_or_else(|| format!("row-{index}"));
-            let checkpoint = if matches!(row, ChatRow::Message { .. })
-                && message["role"] == "assistant"
-                && !flag(&message["isStreaming"])
+    let mut result = Vec::with_capacity(messages.len());
+    for (index, message) in messages.iter().enumerate() {
+        let render = Option::<RowDescriptor>::deserialize(&message["render"])
+            .map_err(|error| error.to_string())?
+            .unwrap_or_default();
+        if render.hidden || (render.kind == Some("edit-group") && !render.group_leader) {
+            continue;
+        }
+        let end = render.group_end.unwrap_or(index + 1).min(messages.len());
+        let row = match render.kind {
+            Some("edit-group")
+                if end > index + 1 && render.file_path.is_some_and(|path| !path.is_empty()) =>
             {
-                checkpoints.get(string(&message["id"])).copied()
-            } else {
-                None
-            };
-            ChatListRow {
-                row,
-                key,
-                checkpoint,
+                ChatRow::EditGroup {
+                    start: index,
+                    end,
+                    file_path: render.file_path.unwrap().into(),
+                }
             }
-        })
-        .collect())
+            Some("tool-group") => ChatRow::ToolGroup {
+                index,
+                continues_after: render.continues_after,
+            },
+            _ => ChatRow::Message { index },
+        };
+        let key = message["render"]["rowId"]
+            .as_str()
+            .or_else(|| message["id"].as_str())
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("row-{}", result.len()));
+        let checkpoint = if matches!(row, ChatRow::Message { .. })
+            && message["role"] == "assistant"
+            && !flag(&message["isStreaming"])
+        {
+            checkpoints.get(string(&message["id"])).copied()
+        } else {
+            None
+        };
+        result.push(ChatListRow {
+            row,
+            key,
+            checkpoint,
+        });
+    }
+    Ok(result)
 }
 
 pub fn offsets(heights: &[Option<f64>]) -> Vec<f64> {
@@ -356,17 +329,22 @@ mod tests {
 
     #[test]
     fn groups_keep_original_indices_and_unhydrated_messages() {
-        let input = serde_json::from_value::<Vec<Option<RowDescriptor>>>(json!([
+        let descriptors = json!([
             null,
             {"hidden":true},
             {"kind":"edit-group", "groupLeader":true, "groupEnd":4, "filePath":"a.rs"},
             {"kind":"edit-group", "groupLeader":false},
             {"kind":"tool-group", "continuesAfter":true},
             {"kind":"edit-group", "groupLeader":true, "groupEnd":999, "filePath":"b.rs"}
-        ]))
-        .unwrap();
+        ]);
+        let input = json!({"messages": descriptors.as_array().unwrap().iter()
+            .map(|render| json!({"render": render})).collect::<Vec<_>>()});
         assert_eq!(
-            rows(&input),
+            list(&input)
+                .unwrap()
+                .into_iter()
+                .map(|row| row.row)
+                .collect::<Vec<_>>(),
             vec![
                 ChatRow::Message { index: 0 },
                 ChatRow::EditGroup {

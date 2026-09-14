@@ -39,7 +39,7 @@ pub struct ChatTranscriptMessage {
     pub render: Option<NativeChatRender>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, ts_rs::TS)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct NativeChatRender {
     #[ts(type = "1")]
@@ -97,9 +97,10 @@ pub struct NativeChatRender {
     pub skill_parts: Option<Vec<ChatSkillPart>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, ts_rs::TS)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "kebab-case")]
 pub enum ChatRenderKind {
+    #[default]
     Message,
     EditGroup,
     ToolGroup,
@@ -110,33 +111,6 @@ pub struct ChatEdit {
     pub file_path: String,
     pub old_string: String,
     pub new_string: String,
-}
-
-impl NativeChatRender {
-    fn new() -> Self {
-        Self {
-            version: 1,
-            kind: ChatRenderKind::Message,
-            group_id: String::new(),
-            group_end: None,
-            group_leader: None,
-            hidden: false,
-            continues_after: None,
-            row_id: None,
-            file_path: None,
-            edit: None,
-            output_start: None,
-            display: None,
-            summary: None,
-            questions: None,
-            elicitation: None,
-            command: None,
-            goal: None,
-            skill_proposal: None,
-            skill_read: None,
-            skill_parts: None,
-        }
-    }
 }
 
 impl ChatTranscriptMessage {
@@ -389,7 +363,10 @@ impl ChatMessageBuffer {
             {
                 cached.unwrap()
             } else {
-                let mut render = NativeChatRender::new();
+                let mut render = NativeChatRender {
+                    version: 1,
+                    ..Default::default()
+                };
                 if message.role == "system" {
                     if let Ok(value) = serde_json::from_str::<Value>(&message.content) {
                         prepare_system_card(&value, &mut render);
@@ -890,46 +867,28 @@ fn bounded_chat_content(current: &str, delta: &str, max_chars: usize) -> String 
     if current_length + delta_length <= max_chars {
         return format!("{current}{delta}");
     }
+    // Both a short tail and a marked truncation share the same append boundary.
+    let tail = |count: usize| {
+        if delta_length >= count {
+            javascript_slice(delta, delta_length - count, delta_length)
+        } else {
+            format!(
+                "{}{}",
+                javascript_slice(
+                    current,
+                    current_length.saturating_sub(count - delta_length),
+                    current_length
+                ),
+                delta
+            )
+        }
+    };
     let marker_length = javascript_length(CHAT_TRUNCATION_MARKER);
     if max_chars <= marker_length {
-        if delta_length >= max_chars {
-            return javascript_slice(delta, delta_length - max_chars, delta_length);
-        }
-        let combined = format!(
-            "{}{}",
-            javascript_slice(
-                current,
-                current_length.saturating_sub(max_chars - delta_length),
-                current_length
-            ),
-            delta
-        );
-        let combined_length = javascript_length(&combined);
-        return javascript_slice(
-            &combined,
-            combined_length.saturating_sub(max_chars),
-            combined_length,
-        );
+        return tail(max_chars);
     }
-    let prefix_length = (max_chars / 4).min(max_chars - marker_length);
-    let prefix = javascript_slice(current, 0, prefix_length);
-    let suffix_length = max_chars - marker_length - javascript_length(&prefix);
-    if suffix_length == 0 {
-        return javascript_slice(&format!("{prefix}{CHAT_TRUNCATION_MARKER}"), 0, max_chars);
-    }
-    let suffix = if delta_length >= suffix_length {
-        javascript_slice(delta, delta_length - suffix_length, delta_length)
-    } else {
-        format!(
-            "{}{}",
-            javascript_slice(
-                current,
-                current_length.saturating_sub(suffix_length - delta_length),
-                current_length
-            ),
-            delta
-        )
-    };
+    let prefix = javascript_slice(current, 0, (max_chars / 4).min(max_chars - marker_length));
+    let suffix = tail(max_chars - marker_length - javascript_length(&prefix));
     format!("{prefix}{CHAT_TRUNCATION_MARKER}{suffix}")
 }
 
@@ -1022,6 +981,38 @@ fn prepare_system_card(value: &Value, render: &mut NativeChatRender) {
 #[cfg(test)]
 mod output_reference_tests {
     use super::*;
+
+    #[test]
+    fn truncation_preserves_utf16_limits_and_stream_append_boundaries() {
+        let current = "a🌳b".repeat(80);
+        for delta in ["", "x", "🌳", &"🌳x".repeat(120)] {
+            let combined: Vec<_> = current.encode_utf16().chain(delta.encode_utf16()).collect();
+            for limit in 0..=combined.len() + 1 {
+                let actual = if delta.is_empty() {
+                    truncate_chat_content(&current, limit)
+                } else {
+                    append_bounded_chat_content(&current, delta, limit)
+                };
+                assert!(javascript_length(&actual) <= limit, "limit={limit}");
+                if limit >= combined.len() {
+                    assert_eq!(actual, format!("{current}{delta}"));
+                } else if limit <= javascript_length(CHAT_TRUNCATION_MARKER) {
+                    assert_eq!(
+                        actual,
+                        String::from_utf16_lossy(&combined[combined.len() - limit..])
+                    );
+                } else {
+                    assert!(actual.contains(CHAT_TRUNCATION_MARKER));
+                }
+            }
+        }
+        assert_eq!(append_bounded_chat_content("unchanged", "", 0), "unchanged");
+        assert_eq!(javascript_slice("a🌳b", 2, 3), "�");
+        assert_eq!(javascript_slice("a🌳b", 1, 3), "🌳");
+        assert_eq!(javascript_slice("a🌳b", 3, usize::MAX), "b");
+        assert_eq!(javascript_slice("a🌳b", 7, 9), "");
+        assert_eq!(javascript_slice("a🌳b", 3, 1), "");
+    }
 
     #[test]
     fn tool_output_uses_utf16_reference_instead_of_duplicate_text() {

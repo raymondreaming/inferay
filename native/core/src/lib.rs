@@ -20,8 +20,12 @@ pub fn utf16_length(value: &str) -> usize {
 }
 
 pub fn utf16_slice(value: &str, start: usize, end: usize) -> String {
-    let units = value.encode_utf16().collect::<Vec<_>>();
-    String::from_utf16_lossy(&units[start.min(units.len())..end.min(units.len())])
+    let units = value
+        .encode_utf16()
+        .take(end)
+        .skip(start)
+        .collect::<Vec<_>>();
+    String::from_utf16_lossy(&units)
 }
 
 pub mod syntax;
