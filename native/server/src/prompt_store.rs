@@ -6,7 +6,7 @@ use inferay_core::prompts::{
     merge_prompts, tools,
 };
 use serde_json::{Map, Value};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[cfg(test)]
 mod tests;
@@ -26,16 +26,9 @@ impl PromptStore {
     }
 
     pub fn load(&self) -> Result<Vec<Prompt>, String> {
-        fn read(path: &Path) -> Result<Vec<Prompt>, String> {
-            if !path.is_file() {
-                return Ok(Vec::new());
-            }
-            let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
-            serde_json::from_slice(&bytes).map_err(|error| error.to_string())
-        }
         Ok(merge_prompts(
-            read(&self.bundled_path)?,
-            read(&self.local_path)?,
+            crate::json_file::read_existing(&self.bundled_path)?.unwrap_or_default(),
+            crate::json_file::read_existing(&self.local_path)?.unwrap_or_default(),
         ))
     }
 
@@ -111,8 +104,7 @@ impl PromptStore {
     }
 
     fn save(&self, prompts: &[Prompt]) -> Result<(), String> {
-        let bytes = serde_json::to_vec_pretty(prompts).map_err(|error| error.to_string())?;
-        crate::atomic_write::overwrite_sync(&self.local_path, &bytes)
+        crate::json_file::write_pretty(&self.local_path, prompts)
     }
 }
 

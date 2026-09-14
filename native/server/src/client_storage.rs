@@ -8,6 +8,17 @@ use std::sync::Arc;
 use std::time::SystemTime;
 type Changes = BTreeMap<String, Option<Value>>;
 
+pub(crate) fn decode_json(entries: &Map<String, Value>, key: &str) -> Option<Value> {
+    entries
+        .get(key)
+        .and_then(Value::as_str)
+        .and_then(|text| serde_json::from_str(text).ok())
+}
+
+pub(crate) fn encode_json(value: &Value) -> Value {
+    Value::String(value.to_string())
+}
+
 #[derive(PartialEq, Eq)]
 struct Version {
     bytes: u64,

@@ -13,24 +13,18 @@ impl ConfigManager {
     }
 
     pub fn search_folders(&self) -> Result<Vec<String>, String> {
-        match std::fs::read(&self.path) {
-            Ok(bytes) => serde_json::from_slice::<SearchFolderSettings>(&bytes)
-                .map(|settings| settings.search_folders)
-                .map_err(|error| error.to_string()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                Ok(DEFAULT_SEARCH_FOLDERS
+        Ok(crate::json_file::read::<SearchFolderSettings>(&self.path)?
+            .map(|settings| settings.search_folders)
+            .unwrap_or_else(|| {
+                DEFAULT_SEARCH_FOLDERS
                     .iter()
                     .map(|folder| (*folder).into())
-                    .collect())
-            }
-            Err(error) => Err(error.to_string()),
-        }
+                    .collect()
+            }))
     }
 
     pub fn set_search_folders(&self, search_folders: Vec<String>) -> Result<(), String> {
-        let bytes = serde_json::to_vec(&SearchFolderSettings { search_folders })
-            .map_err(|error| error.to_string())?;
-        crate::atomic_write::overwrite_sync(&self.path, &bytes)
+        crate::json_file::write(&self.path, &SearchFolderSettings { search_folders })
     }
 }
 

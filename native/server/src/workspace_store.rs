@@ -20,16 +20,11 @@ impl AgentStateStore {
     }
 
     fn load(&self) -> Result<Option<Workspace>, String> {
-        match std::fs::read(&self.path) {
-            Ok(bytes) => {
-                let mut state: Workspace =
-                    serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
-                state.validate()?;
-                Ok(Some(state))
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(error.to_string()),
+        let mut state = crate::json_file::read::<Workspace>(&self.path)?;
+        if let Some(state) = &mut state {
+            state.validate()?;
         }
+        Ok(state)
     }
 
     fn require_state(&self) -> Result<Workspace, String> {
@@ -105,8 +100,7 @@ impl AgentStateStore {
     }
 
     fn save(&self, state: &Workspace) -> Result<Value, String> {
-        let bytes = serde_json::to_vec(state).map_err(|error| error.to_string())?;
-        crate::atomic_write::overwrite_sync(&self.path, &bytes)?;
+        crate::json_file::write(&self.path, state)?;
         state.presentation()
     }
 }

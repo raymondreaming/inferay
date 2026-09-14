@@ -62,6 +62,7 @@ pub mod checkpoint;
 mod client_storage;
 mod forge;
 mod highlight;
+mod json_file;
 mod markdown;
 mod markdown_stream;
 mod native_app;

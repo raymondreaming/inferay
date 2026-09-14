@@ -13,10 +13,7 @@ pub(super) async fn handle(state: &ServerState, request: Request) -> ApiResult {
     let mut storage = state.client_storage.lock().await;
     let entries = storage.read().await?;
     let key = format!("{KEY}{workspace_id}");
-    let stored = entries
-        .get(&key)
-        .and_then(Value::as_str)
-        .and_then(|text| serde_json::from_str::<Value>(text).ok());
+    let stored = crate::client_storage::decode_json(entries, &key);
     let mut current =
         inferay_presentation::panels::normalize(stored.as_ref().unwrap_or(&Value::Null));
     let announcement = match body.get("action") {
@@ -33,7 +30,7 @@ pub(super) async fn handle(state: &ServerState, request: Request) -> ApiResult {
         storage
             .update(std::collections::BTreeMap::from([(
                 key,
-                Some(Value::String(current.to_string())),
+                Some(crate::client_storage::encode_json(&current)),
             )]))
             .await?;
     }
@@ -53,18 +50,17 @@ pub(super) async fn restore_documents(state: &ServerState, request: Request) -> 
     let saved = {
         let mut storage = state.client_storage.lock().await;
         let entries = storage.read().await?;
-        let decode = |key: &str| {
-            entries
-                .get(key)
-                .and_then(Value::as_str)
-                .and_then(|text| serde_json::from_str::<Value>(text).ok())
-        };
-        let panels = decode(&format!("{KEY}{workspace}"));
+        let panels = crate::client_storage::decode_json(entries, &format!("{KEY}{workspace}"));
         panels
             .as_ref()
             .and_then(|panels| panels["documentSessions"].get(session_id))
             .cloned()
-            .or_else(|| decode(&format!("agent-workspace-files:{session_id}")))
+            .or_else(|| {
+                crate::client_storage::decode_json(
+                    entries,
+                    &format!("agent-workspace-files:{session_id}"),
+                )
+            })
             .filter(|session| session["cwd"] == cwd)
             .unwrap_or(Value::Null)
     };

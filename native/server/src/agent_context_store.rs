@@ -34,15 +34,11 @@ impl AgentContextStore {
         update.cwd = project_key(update.cwd.as_deref());
         let mut state = self.load();
         state.update(update, now)?;
-        let bytes = serde_json::to_vec_pretty(&state).map_err(|error| error.to_string())?;
-        crate::atomic_write::overwrite_sync(&self.path, &bytes)
+        crate::json_file::write_pretty(&self.path, &state)
     }
 
     fn load(&self) -> AgentContextState {
-        std::fs::read(&self.path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+        crate::json_file::read_lossy(&self.path)
     }
 }
 
