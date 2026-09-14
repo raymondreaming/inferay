@@ -11,6 +11,7 @@ import {
 
 /** Choose the native persistence and projection implementations before rendering. */
 export function configureNativeWorkspace() {
+	configureGitOperations(runGitOperation);
 	configureWorkspacePanels(saveWorkspacePanel, (session, action, now) =>
 		project("panelPreview", { session, action, now }),
 	);
@@ -29,3 +30,6 @@ export function configureNativeWorkspace() {
 		() => traceUi("selection-published"),
 	);
 }
+
+import { runGitOperation } from "@repository/services/gitApi.ts";
+import { configureGitOperations } from "@repository/services/gitOperations.ts";

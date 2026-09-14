@@ -1,4 +1,4 @@
-import type { GitFileEntry, GitFileGroups, GraphCommit } from "@contracts";
+import type { GraphCommit } from "@contracts";
 import type { DiffViewMode } from "@repository/model/diff.ts";
 
 export type SelectedGraphCache = {
@@ -35,16 +35,6 @@ export function resolveSelectedGraphItems(
 		}),
 		item: selectedHash ? (current.items.get(selectedHash) ?? null) : null,
 	};
-}
-
-export function workingTreeKeyboardFiles(
-	groups: GitFileGroups,
-	visible: (files: readonly GitFileEntry[]) => GitFileEntry[],
-): GitFileEntry[] {
-	return [
-		...visible([...groups.modified, ...groups.untracked]),
-		...visible(groups.staged),
-	];
 }
 
 export const GIT_FILE_VIEW_MODE_STORAGE_KEY = "inferay-git-file-view-mode";

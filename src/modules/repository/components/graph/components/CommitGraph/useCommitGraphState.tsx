@@ -3,10 +3,10 @@ import type {
 	GitWorktree,
 	GraphCommit,
 	GraphLines,
+	GraphPresentation,
 	GraphRow,
 } from "@contracts";
 import { runtimeGitGraphLaneColors } from "@design-system/styles.stylex.ts";
-import type { GraphPresentation } from "@repository/hooks/useGitGraph.tsx";
 import { resolveGitCommitAvatars } from "@repository/services/gitApi.ts";
 import { createPointerResize } from "@shared/lib/dom.tsx";
 import {

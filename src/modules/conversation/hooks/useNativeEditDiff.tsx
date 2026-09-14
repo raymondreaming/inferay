@@ -37,16 +37,13 @@ export function useNativeEditDiff(
 	);
 	return {
 		get hunks() {
-			const _streamingValue2 = _streaming();
-			return _streamingValue2 ? EMPTY_HUNKS : (query.data ?? EMPTY_HUNKS);
+			return _streaming() ? EMPTY_HUNKS : (query.data ?? EMPTY_HUNKS);
 		},
 		get loading() {
-			const _streamingValue2 = _streaming();
-			return !_streamingValue2 && query.isPending;
+			return !_streaming() && query.isPending;
 		},
 		get error() {
-			const _streamingValue2 = _streaming();
-			return _streamingValue2 ? undefined : query.error?.message;
+			return _streaming() ? undefined : query.error?.message;
 		},
 	};
 }

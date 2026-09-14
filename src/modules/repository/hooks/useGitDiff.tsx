@@ -39,20 +39,16 @@ export function useGitDiff(
 	);
 	return {
 		get diff() {
-			const _requestValue3 = _request();
-			return _requestValue3 && !query.error ? (query.data ?? null) : null;
+			return _request() && !query.error ? (query.data ?? null) : null;
 		},
 		get error() {
-			const _requestValue3 = _request();
-			return _requestValue3 ? query.error?.message : undefined;
+			return _request() ? query.error?.message : undefined;
 		},
 		get request() {
-			const _requestValue3 = _request();
-			return _requestValue3;
+			return _request();
 		},
 		get loading() {
-			const _requestValue3 = _request();
-			return _requestValue3 !== null && query.isPending;
+			return _request() !== null && query.isPending;
 		},
 	};
 }

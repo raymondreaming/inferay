@@ -235,29 +235,25 @@ export function useAgentChatSettings(
 	const [configurationError, setConfigurationError] = createSignal<
 		string | null
 	>(null);
-	const requestRevision = {
-		current: 0,
-	};
-	const requests = {
-		current: Promise.resolve(),
-	};
+	let requestRevision = 0;
+	let requests = Promise.resolve();
 	let scopeVersion = 0;
 	const resolveSelection = (
 		patch: Partial<ReturnType<typeof selection>> = {},
 		identity = { paneId: _paneId(), agentKind: _agentKind() },
 	) => {
-		const revision = ++requestRevision.current;
+		const revision = ++requestRevision;
 		const version = scopeVersion;
 		const target = { ...identity, ...patch };
-		requests.current = requests.current.then(async () => {
+		requests = requests.then(async () => {
 			if (version !== scopeVersion) return;
 			try {
 				const resolved = await resolveProviderConfig(target);
-				if (revision !== requestRevision.current) return;
+				if (revision !== requestRevision) return;
 				setSelection(resolved);
 				setConfigurationError(null);
 			} catch (error) {
-				if (revision === requestRevision.current)
+				if (revision === requestRevision)
 					setConfigurationError(
 						`Could not update chat settings: ${String(error)}`,
 					);
@@ -273,7 +269,7 @@ export function useAgentChatSettings(
 		resolveSelection({}, { paneId, agentKind });
 		return () => {
 			scopeVersion++;
-			requestRevision.current++;
+			requestRevision++;
 		};
 	});
 	const agentKindOptions = createMemo(() =>
@@ -290,28 +286,16 @@ export function useAgentChatSettings(
 			return agentKindOptions();
 		},
 		get effectiveSelectedModel() {
-			const _selectionValue = selection();
-			return _selectionValue.model;
+			return selection().model;
 		},
 		get selectedReasoningLevel() {
-			const _selectionValue = selection();
-			return _selectionValue.reasoningLevel;
+			return selection().reasoningLevel;
 		},
-		get handleAgentKindChange() {
-			return (kind: WorkspaceAgentKind) => changePaneAgentKind(_paneId(), kind);
-		},
-		get handleModelChange() {
-			return (model: string) =>
-				resolveSelection({
-					model,
-				});
-		},
-		get handleReasoningLevelChange() {
-			return (reasoningLevel: string) =>
-				resolveSelection({
-					reasoningLevel,
-				});
-		},
+		handleAgentKindChange: (kind: WorkspaceAgentKind) =>
+			changePaneAgentKind(_paneId(), kind),
+		handleModelChange: (model: string) => resolveSelection({ model }),
+		handleReasoningLevelChange: (reasoningLevel: string) =>
+			resolveSelection({ reasoningLevel }),
 	};
 }
 export function findTriggerAtCursor(

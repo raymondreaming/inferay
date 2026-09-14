@@ -6,7 +6,6 @@ import type {
 } from "@contracts";
 import {
 	DEFAULT_GIT_GRAPH_HISTORY_LIMIT,
-	EMPTY_GRAPH,
 	type GraphData,
 	type GraphSemanticPreferences,
 } from "@repository/model/gitGraph.ts";
@@ -19,6 +18,7 @@ import {
 	usePollingQuery,
 	useQueryResource,
 } from "@shared/hooks/useQueryResource.tsx";
+import { project } from "@shared/lib/native.tsx";
 import {
 	type Accessor,
 	createMemo,
@@ -29,9 +29,10 @@ import {
 
 export type {
 	GraphData,
-	GraphPresentation,
 	GraphSemanticPreferences,
 } from "@repository/model/gitGraph.ts";
+
+const EMPTY_GRAPH = project<GraphData>("emptyGitGraph", null);
 export function useGitGraph(
 	_cwd: Accessor<string | undefined>,
 	_limit: Accessor<number> = () => DEFAULT_GIT_GRAPH_HISTORY_LIMIT,

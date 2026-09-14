@@ -56,11 +56,10 @@ export function useGitStatus(
 	const projectMap = createMemo(
 		() => new Map(projects().map((project) => [project.cwd, project])),
 	);
-	const refreshGraph = createMemo(() => graph()?.refresh);
 	const refetch = async () => {
 		await Promise.all([
 			requestedCwds().length > 0 ? _source.refresh() : undefined,
-			refreshGraph()?.(),
+			graph()?.refresh(),
 		]);
 	};
 	return {
@@ -97,14 +96,6 @@ export function useGitChangeActions(
 				void _options2().refetchStatus();
 			});
 	};
-	const stageMutation = (staged: boolean, file?: string) => {
-		if (!_options2().cwd) return;
-		gitAction(staged ? "stage" : "unstage", file || undefined);
-	};
-	const stageFile = (file: string) => stageMutation(true, file);
-	const unstageFile = (file: string) => stageMutation(false, file);
-	const stageAll = () => stageMutation(true);
-	const unstageAll = () => stageMutation(false);
 	const commit = async () => {
 		const _options2Value2 = _options2(),
 			_commitMessageValue = commitMessage();
@@ -129,9 +120,9 @@ export function useGitChangeActions(
 		get isCommitting() {
 			return isCommitting();
 		},
-		stageFile,
-		unstageFile,
-		stageAll,
-		unstageAll,
+		stageFile: (file: string) => gitAction("stage", file || undefined),
+		unstageFile: (file: string) => gitAction("unstage", file || undefined),
+		stageAll: () => gitAction("stage"),
+		unstageAll: () => gitAction("unstage"),
 	};
 }

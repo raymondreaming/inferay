@@ -37,8 +37,10 @@ export function useAgentChatComposerState(
 		queueSnapshot = queue;
 		setQueuedMessages(queue);
 	};
-	const projectQueue = (operation: string, input: object) =>
-		replaceQueue(rustProject(operation, { current: queueSnapshot, ...input }));
+	const projectQueue = (action: "merge" | "stage" | "resolve", input: object) =>
+		replaceQueue(
+			rustProject("chatQueue", { current: queueSnapshot, action, ...input }),
+		);
 	const mutateQueue = (
 		action: "edit" | "remove",
 		id: string,
@@ -57,7 +59,7 @@ export function useAgentChatComposerState(
 					paneId === _paneId() &&
 					queueRevision === requestRevision
 				)
-					projectQueue("mergeQueue", { persisted: queue });
+					projectQueue("merge", { persisted: queue });
 			})
 			.catch((error) => {
 				if (
@@ -122,13 +124,13 @@ export function useAgentChatComposerState(
 			setQueueError(null);
 			cancelQueuedMessageEdit();
 		}
-		projectQueue("mergeQueue", { persisted: messages });
+		projectQueue("merge", { persisted: messages });
 	};
 	const stageSteeringMessage = (message: QueuedChatMessage) => {
-		projectQueue("stageQueueMessage", { message });
+		projectQueue("stage", { message });
 	};
 	const resolveSteeringMessage = (id: string) => {
-		projectQueue("resolveQueueMessage", { id });
+		projectQueue("resolve", { id });
 	};
 	const removeQueuedMessage = (id: string) => {
 		const existing = queueSnapshot.find((message) => message.id === id);

@@ -1,20 +1,13 @@
 import type {
 	DiffSource,
 	FileContent,
-	GitActionResponse,
 	GitCommitFile,
 	GitFileEntry,
 	PanelSession,
 } from "@contracts";
-import {
-	ChangesPanel,
-	visibleGitFiles,
-} from "@repository/components/changes/components/ChangesPanel/index.tsx";
+import { ChangesPanel } from "@repository/components/changes/components/ChangesPanel/index.tsx";
 import { DocumentViewer } from "@repository/components/documents/components/DocumentViewer/index.tsx";
-import type {
-	GitGraphActionRequest,
-	GraphSelectionIntent,
-} from "@repository/components/graph/components/CommitGraph/index.tsx";
+import type { GraphSelectionIntent } from "@repository/components/graph/components/CommitGraph/index.tsx";
 import {
 	DEFAULT_GIT_GRAPH_HISTORY_LIMIT,
 	loadPreferences,
@@ -52,12 +45,9 @@ import {
 	resolveSelectedGraphItems,
 	type SelectedGraphCache,
 	SIDEBAR_WIDTH_KEY,
-	workingTreeKeyboardFiles,
 } from "@repository/model/workbench.ts";
-import {
-	checkoutGitBranch,
-	runGitOperation,
-} from "@repository/services/gitApi.ts";
+import { checkoutGitBranch } from "@repository/services/gitApi.ts";
+import { createGitOperations } from "@repository/services/gitOperations.ts";
 import {
 	createPointerResize,
 	DOCUMENT_OPEN_EVENT,
@@ -73,6 +63,7 @@ import {
 	getFileSelectionAfterToggle,
 	readStoredValue,
 	project as rustProject,
+	visibleGitFiles,
 	writeStoredValue,
 } from "@shared/lib/native.tsx";
 import type { DragProps } from "@workspace/components/WorkspaceCanvas/index.tsx";
@@ -127,21 +118,6 @@ export function useRepositoryWorkbench(
 	const [fileViewMode, setFileViewModeState] = createSignal(() =>
 		loadGitFileViewMode(readStoredValue),
 	);
-	onSettled(() => {
-		const applyStoredMode = (value: string | null) => {
-			if (value === "path" || value === "tree") setFileViewModeState(value);
-		};
-		return listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
-			const detail = (
-				event as CustomEvent<{
-					key?: string;
-					value?: string | null;
-				}>
-			).detail;
-			if (detail?.key === GIT_FILE_VIEW_MODE_STORAGE_KEY)
-				applyStoredMode(detail.value ?? null);
-		});
-	});
 	const [sidebarWidth, setSidebarWidth] = createSignal(() => {
 		void _options().active;
 		void _options().workspaceId;
@@ -152,7 +128,14 @@ export function useRepositoryWorkbench(
 	);
 	onSettled(() =>
 		listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
-			const { key } = (event as CustomEvent<{ key?: string }>).detail ?? {};
+			const { key, value } =
+				(event as CustomEvent<{ key?: string; value?: string | null }>)
+					.detail ?? {};
+			if (
+				key === GIT_FILE_VIEW_MODE_STORAGE_KEY &&
+				(value === "path" || value === "tree")
+			)
+				setFileViewModeState(value);
 			if (key === DIFF_WIDTH_KEY)
 				setDiffWidth(loadDiffWidth(readStoredValue, _options().workspaceId));
 			if (key === SIDEBAR_WIDTH_KEY)
@@ -262,35 +245,29 @@ export function useRepositoryWorkbench(
 	const fileGroups = createMemo(
 		() => project()?.fileGroups ?? EMPTY_FILE_GROUPS,
 	);
-	const graphRevisionsRef = {
-		current: new Map<string, string>(),
-	};
+	const graphRevisions = new Map<string, string>();
 	createEffect(
 		() => [graphCwd(), graph.revision] as const,
 		([cwd, revision]) => {
 			if (cwd && revision) {
-				graphRevisionsRef.current.set(cwd, revision);
+				graphRevisions.set(cwd, revision);
 			}
 		},
 	);
-	const selectedGraphCache = {
-		current: {
-			cwd: undefined,
-			items: new Map(),
-		},
-	} as {
-		current: SelectedGraphCache;
+	let selectedGraphCache: SelectedGraphCache = {
+		cwd: undefined,
+		items: new Map(),
 	};
 	const selectedGraph = createMemo(() => {
 		const _sourceValue4 = panelSession();
 		const result = resolveSelectedGraphItems(
-			selectedGraphCache.current,
+			selectedGraphCache,
 			graphCwd(),
 			graph.commits,
 			_sourceValue4.selectedCommitIds,
 			_sourceValue4.selectedCommitHash,
 		);
-		selectedGraphCache.current = result.cache;
+		selectedGraphCache = result.cache;
 		return result;
 	});
 	const selectedGraphItems = createMemo(() => selectedGraph().items);
@@ -371,7 +348,7 @@ export function useRepositoryWorkbench(
 			graphCwd: graphCwd(),
 			graphRevision: graph.revision,
 			storedRevision: _sourceValue5.diffViewerCwd
-				? graphRevisionsRef.current.get(_sourceValue5.diffViewerCwd)
+				? graphRevisions.get(_sourceValue5.diffViewerCwd)
 				: undefined,
 			selectedCommitIds: _sourceValue5.selectedCommitIds,
 			selectedCommitParent: _sourceValue5.selectedCommitParent,
@@ -456,14 +433,14 @@ export function useRepositoryWorkbench(
 			});
 		},
 	);
-	const keyboardFiles = createMemo(() => {
-		const _source3Value = workingTreeFiles(),
-			_presentationValue = workingTreePresentation(),
-			_fileViewModeValue = fileViewMode();
-		return workingTreeKeyboardFiles(_source3Value, (files) =>
-			visibleGitFiles(files, _presentationValue, _fileViewModeValue),
-		);
-	});
+	const keyboardFiles = createMemo(
+		() =>
+			rustProject<{ navigableFiles: GitFileEntry[] }>("changesPanel", {
+				...workingTreeFiles(),
+				filePresentation: workingTreePresentation(),
+				fileViewMode: fileViewMode(),
+			}).navigableFiles,
+	);
 	const commitKeyboardFiles = createMemo(() => {
 		const commitFiles = commitDetailsState.details?.files ?? [];
 		return visibleGitFiles(
@@ -493,7 +470,7 @@ export function useRepositoryWorkbench(
 			revision: _sourceValue7.diffViewerCwd
 				? graphCwd() === _sourceValue7.diffViewerCwd
 					? graph.revision
-					: graphRevisionsRef.current.get(_sourceValue7.diffViewerCwd)
+					: graphRevisions.get(_sourceValue7.diffViewerCwd)
 				: undefined,
 			fileSource: fileSource(),
 			viewMode: diffViewMode(),
@@ -506,7 +483,7 @@ export function useRepositoryWorkbench(
 		revision:
 			graphCwd() === selectedWorkingTreeCwd()
 				? graph.revision
-				: graphRevisionsRef.current.get(selectedWorkingTreeCwd() ?? ""),
+				: graphRevisions.get(selectedWorkingTreeCwd() ?? ""),
 		viewMode: diffViewMode(),
 	}));
 	const prefetchFiles = createMemo(() => {
@@ -565,32 +542,6 @@ export function useRepositoryWorkbench(
 		},
 		(cwd) => {
 			if (cwd) updatePanelSession({ type: "initialize", cwd });
-		},
-	);
-	createEffect(
-		() => _options().active,
-		(active) => {
-			if (!active) return;
-			return listenWindowEvent(DOCUMENT_OPEN_EVENT, (event) => {
-				const detail = (event as CustomEvent<DocumentOpenDetail>).detail;
-				if (!detail?.cwd || !detail.path) return;
-				updatePanelSession({
-					type: "document",
-					cwd: detail.cwd,
-					path: detail.path,
-				});
-			});
-		},
-	);
-	createEffect(
-		() => _options().active,
-		(active) => {
-			if (!active) return;
-			return listenWindowEvent(TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT, () => {
-				updatePanelSession({
-					type: "toggleSidebar",
-				});
-			});
 		},
 	);
 	const setFileViewMode = (mode: "path" | "tree") => {
@@ -723,27 +674,6 @@ export function useRepositoryWorkbench(
 			mode,
 		});
 	};
-	createEffect(
-		() => _options().active,
-		(active) => {
-			if (!active) return;
-			return listenWindowEvent(TOGGLE_ACTIVE_GIT_GRAPH_EVENT, () => {
-				const cwd = activeCwd();
-				if (!cwd) return;
-				setZenMode(false);
-				updatePanelSession({ type: "toggleGraph", cwd });
-			});
-		},
-	);
-	createEffect(
-		() => _options().active,
-		(active) => {
-			if (!active) return;
-			return listenWindowEvent(OPEN_ACTIVE_GIT_GRAPH_EVENT, () => {
-				changeMainViewMode("graph");
-			});
-		},
-	);
 	const focusWorkbench = (repositoryCwd?: string) => {
 		if (repositoryCwd && repositoryCwd !== _options().cwd) return;
 		const session = panelSession();
@@ -843,10 +773,34 @@ export function useRepositoryWorkbench(
 	};
 	createEffect(
 		() => _options().active,
-		(active) =>
-			active
-				? listenWindowEvent("keydown", handleDiffKeyboardNavigation)
-				: undefined,
+		(active) => {
+			if (!active) return;
+			const cleanup = [
+				listenWindowEvent("keydown", handleDiffKeyboardNavigation),
+				listenWindowEvent(DOCUMENT_OPEN_EVENT, (event) => {
+					const detail = (event as CustomEvent<DocumentOpenDetail>).detail;
+					if (detail?.cwd && detail.path)
+						updatePanelSession({
+							type: "document",
+							cwd: detail.cwd,
+							path: detail.path,
+						});
+				}),
+				listenWindowEvent(TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT, () =>
+					updatePanelSession({ type: "toggleSidebar" }),
+				),
+				listenWindowEvent(TOGGLE_ACTIVE_GIT_GRAPH_EVENT, () => {
+					const cwd = activeCwd();
+					if (!cwd) return;
+					setZenMode(false);
+					updatePanelSession({ type: "toggleGraph", cwd });
+				}),
+				listenWindowEvent(OPEN_ACTIVE_GIT_GRAPH_EVENT, () =>
+					changeMainViewMode("graph"),
+				),
+			];
+			return () => cleanup.forEach((remove) => remove());
+		},
 	);
 	const handleResizeStart = (
 		event: PointerEvent & {
@@ -1116,71 +1070,5 @@ export function useRepositoryWorkbench(
 		get zenMode() {
 			return zenMode();
 		},
-	};
-}
-export function createGitOperations(
-	graphCwd: string | undefined,
-	refetch: () => Promise<unknown>,
-	selectGraphCommit: (id: string | null) => void,
-) {
-	async function run(
-		endpoint: string,
-		operation: string,
-		request: object,
-		fallback: string,
-	): Promise<GitActionResponse> {
-		const failed = (
-			error: string,
-			errorKind: "invalidInput" | "commandFailed",
-		): GitActionResponse => ({
-			ok: false,
-			operation,
-			outcome: "failed",
-			conflicts: [],
-			errorKind,
-			errorLabel:
-				errorKind === "invalidInput"
-					? "Invalid Git action"
-					: "Git command failed",
-			error,
-		});
-		if (!graphCwd) return failed("No Git repository selected", "invalidInput");
-		try {
-			const result = await runGitOperation(graphCwd, endpoint, request);
-			await refetch();
-			if (result.selection) selectGraphCommit(result.selection.commit);
-			return result;
-		} catch (error) {
-			return failed(
-				error instanceof Error ? error.message : fallback,
-				"commandFailed",
-			);
-		}
-	}
-	return {
-		runGraphRefOperation: (request: GitRefOperationRequest) =>
-			run("ref-operation", request.operation, request, "Git operation failed"),
-		runGraphActionRequest: ({
-			action,
-			target,
-			targets,
-			name,
-			message,
-		}: GitGraphActionRequest & {
-			name?: string;
-			message?: string;
-		}) =>
-			run(
-				"graph-action",
-				action,
-				{
-					action,
-					target,
-					targets,
-					name,
-					message,
-				},
-				"Git action failed",
-			),
 	};
 }
