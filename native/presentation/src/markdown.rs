@@ -1,4 +1,5 @@
 //! Streaming transport cursor. Parsing is already native; block objects stay in JS.
+use crate::wasm_json;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
@@ -94,11 +95,8 @@ impl MarkdownCursor {
         retry.then(|| self.restart(attempt, id))
     }
     pub fn finish(&mut self, attempt: u32, status: u16, metadata: &str) -> Result<String, JsValue> {
-        let metadata: Value =
-            serde_json::from_str(metadata).map_err(|e| JsValue::from_str(&e.to_string()))?;
-        self.settle(attempt, status, &metadata)
-            .map(|result| result.to_string())
-            .map_err(|error| JsValue::from_str(&error))
+        let metadata: Value = wasm_json::parse(metadata)?;
+        wasm_json::result(self.settle(attempt, status, &metadata)).map(|result| result.to_string())
     }
     pub fn discard(&mut self, attempt: u32) {
         self.requests.remove(&attempt);

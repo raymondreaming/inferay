@@ -1,3 +1,4 @@
+use crate::wasm_json;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -118,8 +119,7 @@ impl UiTimingRecorder {
         now: f64,
         long_tasks: bool,
     ) -> Result<f64, wasm_bindgen::JsValue> {
-        let context = serde_json::from_str(context)
-            .map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))?;
+        let context = wasm_json::parse(context)?;
         self.start = if timestamp > 0. && timestamp <= now {
             timestamp
         } else {
@@ -267,6 +267,6 @@ impl UiTimingRecorder {
                 .map(|ready| self.sample.frame_ready_ms - ready);
         }
         self.sample.result = result;
-        serde_json::to_string(&self.sample).expect("timing sample")
+        wasm_json::stringify(&self.sample, "timing sample")
     }
 }

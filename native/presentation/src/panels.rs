@@ -1,8 +1,6 @@
 //! Shared workbench transitions. The native server is the durable writer.
+use crate::wasm_json;
 use serde_json::{Value, json};
-fn required<T>(value: Option<T>, message: &str) -> Result<T, String> {
-    value.ok_or_else(|| message.to_owned())
-}
 
 #[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]
 #[serde(
@@ -67,194 +65,263 @@ pub fn apply_action(
     action: &Value,
     now: u64,
 ) -> Result<Option<String>, String> {
-    // Validate the command against the same enum that generates renderer bindings.
-    let _: PanelAction = serde_json::from_value(action.clone()).map_err(|e| e.to_string())?;
-    let kind = required(action["type"].as_str(), "Missing panel action")?;
-    let cwd = &action["cwd"];
-    let source = session["selectedFile"]["source"]["kind"]
+    let action: PanelAction = serde_json::from_value(action.clone()).map_err(|e| e.to_string())?;
+    let selected_source = session["selectedFile"]["source"]["kind"]
         .as_str()
-        .unwrap_or("")
+        .unwrap_or_default()
         .to_owned();
-    match kind {
-        "initialize" => {
+    match action {
+        PanelAction::Initialize { cwd } => {
             if session["repositoryInitialized"] == true && session["diffViewerCwd"].is_string() {
                 return Ok(None);
             }
             if session["diffViewerCwd"].is_null() {
-                session["diffViewerCwd"] = cwd.clone();
+                session["diffViewerCwd"] = json!(cwd);
                 session["mainViewMode"] = json!("graph");
             }
             session["repositoryInitialized"] = json!(true);
             session["sidebarVisible"] = json!(true);
             session["graphVisible"] = json!(true);
         }
-        "openGraph" => {
-            if action["reset"] == true {
+        PanelAction::OpenGraph { cwd, reset } => {
+            if reset == Some(true) {
                 clear_selection(session);
             }
-            session["diffViewerCwd"] = cwd.clone();
+            session["diffViewerCwd"] = json!(cwd);
             session["mainViewMode"] = json!("graph");
             session["graphVisible"] = json!(true);
-            focus(session, "workspace-diff-viewer", cwd);
+            focus(session, "workspace-diff-viewer", &json!(cwd));
         }
-        "toggleGraph" => {
+        PanelAction::ToggleGraph { cwd } => {
             if session["mainViewMode"] == "graph" && session["graphVisible"] == true {
                 session["graphVisible"] = json!(false);
             } else {
-                session["diffViewerCwd"] = cwd.clone();
+                session["diffViewerCwd"] = json!(cwd);
                 session["mainViewMode"] = json!("graph");
                 session["graphVisible"] = json!(true);
-                focus(session, "workspace-diff-viewer", cwd);
+                focus(session, "workspace-diff-viewer", &json!(cwd));
             }
         }
-        "focusChat" => {
-            if cwd.is_string() && session["mainViewMode"] == "graph" {
-                if session["diffViewerCwd"] != *cwd {
+        PanelAction::FocusChat { cwd } => {
+            if let Some(cwd) = cwd.filter(|_| session["mainViewMode"] == "graph") {
+                if session["diffViewerCwd"] != cwd {
                     clear_selection(session);
                 }
-                session["diffViewerCwd"] = cwd.clone();
+                session["diffViewerCwd"] = json!(cwd);
             }
             session["focusedAuxiliaryPanel"] = Value::Null;
         }
-        "focus" => session["focusedAuxiliaryPanel"] = action["panel"].clone(),
-        "mode" => session["mainViewMode"] = action["mode"].clone(),
-        "toggleSidebar" => session["sidebarVisible"] = json!(session["sidebarVisible"] != true),
-        "document" => {
-            session["fileViewerCwd"] = cwd.clone();
-            session["fileViewerOpen"] = json!(true);
-            session["fileRequest"] = json!({"path":action["path"],"token":now});
-            focus(session, "workspace-file-viewer", cwd);
+        PanelAction::Focus { panel } => session["focusedAuxiliaryPanel"] = json!(panel),
+        PanelAction::Mode { mode } => session["mainViewMode"] = json!(mode),
+        PanelAction::ToggleSidebar => {
+            session["sidebarVisible"] = json!(session["sidebarVisible"] != true);
         }
-        "detachFile" => {
+        PanelAction::Document { cwd, path } => {
+            session["fileViewerCwd"] = json!(cwd);
+            session["fileViewerOpen"] = json!(true);
+            session["fileRequest"] = json!({"path":path,"token":now});
+            focus(session, "workspace-file-viewer", &json!(cwd));
+        }
+        PanelAction::DetachFile { id, cwd, path, .. } => {
             let panels = session["detachedFilePanels"]
                 .as_array_mut()
                 .expect("normalized panels");
-            if !panels.iter().any(|panel| panel["id"] == action["id"]) {
-                panels.push(json!({"id":action["id"],"cwd":cwd,"path":action["path"]}));
+            if !panels.iter().any(|panel| panel["id"] == id) {
+                panels.push(json!({"id":id,"cwd":cwd,"path":path}));
             }
-            session["focusedAuxiliaryPanel"] = json!({"id":action["id"],"cwd":cwd});
+            session["focusedAuxiliaryPanel"] = json!({"id":id,"cwd":cwd});
         }
-        "closeFile" => {
-            if action["id"] == "workspace-file-viewer" {
+        PanelAction::CloseFile { id } => {
+            if id == "workspace-file-viewer" {
                 session["fileViewerOpen"] = json!(false);
             } else {
                 session["detachedFilePanels"]
                     .as_array_mut()
                     .expect("normalized panels")
-                    .retain(|panel| panel["id"] != action["id"]);
+                    .retain(|panel| panel["id"] != id);
             }
-            if session["focusedAuxiliaryPanel"]["id"] == action["id"] {
+            if session["focusedAuxiliaryPanel"]["id"] == id {
                 session["focusedAuxiliaryPanel"] = Value::Null;
             }
         }
-        "documents" => {
-            let session_id = required(action["sessionId"].as_str(), "Missing document session")?;
+        PanelAction::Documents {
+            session_id,
+            cwd,
+            active_path,
+            paths,
+        } => {
             session["documentSessions"][session_id] = json!({
-                "cwd": required(action["cwd"].as_str(), "Missing document cwd")?,
-                "activePath": action["activePath"],
-                "paths": action["paths"],
+                "cwd": cwd, "activePath": active_path, "paths": paths,
             });
         }
-        "dismissDiff" => {
+        PanelAction::DismissDiff => {
             session["mainViewMode"] = json!("graph");
             if session["diffViewerCwd"].is_string() {
                 let cwd = session["diffViewerCwd"].clone();
                 focus(session, "workspace-diff-viewer", &cwd);
             }
         }
-        "workingTreeFile" | "commitFile" | "comparisonFile" => {
-            let source = match kind {
-                "commitFile" => {
-                    json!({"kind":"commit","commitHash":action["commitHash"],"commitParent":action["commitParent"]})
-                }
-                "comparisonFile" => {
-                    json!({"kind":"comparison","comparisonFrom":action["from"],"comparisonTo":action["to"]})
-                }
-                _ => {
-                    json!({"kind":if session["mainViewMode"] == "graph" || (session["mainViewMode"] == "diff" && source == "graphWorkingTree") { "graphWorkingTree" } else { "workingTree" }})
-                }
+        PanelAction::WorkingTreeFile { cwd, path, staged } => {
+            let kind = if session["mainViewMode"] == "graph"
+                || (session["mainViewMode"] == "diff" && selected_source == "graphWorkingTree")
+            {
+                "graphWorkingTree"
+            } else {
+                "workingTree"
             };
-            session["selectedFile"] = json!({"path":action["path"],"staged":kind == "workingTreeFile" && action["staged"] == true,"source":source});
-            session["mainViewMode"] = json!("diff");
-            session["diffViewerCwd"] = cwd.clone();
-            focus(session, "workspace-diff-viewer", cwd);
+            select_file(session, cwd, path, staged, json!({"kind":kind}));
         }
-        "reconcileFile" if session["selectedFile"] == action["expected"] => {
-            if action["staged"].is_boolean() {
-                session["selectedFile"]["staged"] = action["staged"].clone();
-            } else {
-                session["selectedFile"] = Value::Null;
-                session["diffViewerCwd"] = Value::Null;
-            }
+        PanelAction::CommitFile {
+            cwd,
+            path,
+            commit_hash,
+            commit_parent,
+        } => {
+            select_file(
+                session,
+                cwd,
+                path,
+                false,
+                json!({
+                    "kind":"commit", "commitHash":commit_hash, "commitParent":commit_parent
+                }),
+            );
         }
-        "reconcileFile" => {}
-        "selectGraph" | "reconcileGraph" => {
-            let old_primary = session["selectedCommitHash"].clone();
-            let old_ids = session["selectedCommitIds"]
-                .as_array()
-                .expect("normalized selection")
-                .clone();
-            let mut ids = vec![action["id"].clone()];
-            let primary;
-            let mut announcement = None;
-            if kind == "reconcileGraph" {
-                let items = required(action["items"].as_array(), "Missing graph items")?;
-                let Some(first) = items.first() else {
-                    return Ok(None);
-                };
-                let visible = |id: &Value| items.iter().any(|item| item["id"] == *id);
-                ids = old_ids.iter().filter(|id| visible(id)).cloned().collect();
-                if ids.is_empty() {
-                    ids.push(first["id"].clone());
-                }
-                primary = if visible(&old_primary) {
-                    old_primary.clone()
+        PanelAction::ComparisonFile {
+            cwd,
+            path,
+            from,
+            to,
+        } => {
+            select_file(
+                session,
+                cwd,
+                path,
+                false,
+                json!({
+                    "kind":"comparison", "comparisonFrom":from, "comparisonTo":to
+                }),
+            );
+        }
+        PanelAction::ReconcileFile { expected, staged } => {
+            if session["selectedFile"] == json!(expected) {
+                if let Some(staged) = staged {
+                    session["selectedFile"]["staged"] = json!(staged);
                 } else {
-                    ids.last().cloned().unwrap_or(Value::Null)
-                };
-                if old_primary.is_string() && (primary != old_primary || ids != old_ids) {
-                    announcement = Some(format!(
-                        "The selected graph item is no longer available. Selected {}.",
-                        first["message"].as_str().unwrap_or_default()
-                    ));
-                }
-            } else {
-                let id = &action["id"];
-                if id.is_null() {
-                    ids.clear();
-                } else if action["intent"]["range"] == true && old_primary.is_string() {
-                    let ordered = required(action["orderedIds"].as_array(), "Missing graph order")?;
-                    if let (Some(anchor), Some(target)) = (
-                        ordered.iter().position(|id| *id == old_primary),
-                        ordered.iter().position(|candidate| candidate == id),
-                    ) {
-                        ids = ordered[anchor.min(target)..=anchor.max(target)].to_vec();
-                    }
-                } else if action["intent"]["additive"] == true {
-                    ids = old_ids.clone();
-                    if ids.contains(id) {
-                        ids.retain(|candidate| candidate != id);
-                    } else {
-                        ids.push(id.clone());
-                    }
-                }
-                primary = if ids.contains(id) {
-                    id.clone()
-                } else {
-                    ids.last().cloned().unwrap_or(Value::Null)
-                };
-                if id.is_string() && (primary != old_primary || ids != old_ids) {
                     session["selectedFile"] = Value::Null;
+                    session["diffViewerCwd"] = Value::Null;
                 }
             }
-            session["selectedCommitHash"] = primary;
-            session["selectedCommitIds"] = json!(ids);
-            session["selectedCommitParent"] = Value::Null;
-            return Ok(announcement);
         }
-        _ => return Err("Unknown panel action".into()),
+        PanelAction::SelectGraph {
+            id,
+            ordered_ids,
+            intent,
+        } => {
+            return select_graph(session, id, &ordered_ids, intent.as_ref());
+        }
+        PanelAction::ReconcileGraph { items } => return reconcile_graph(session, &items),
     }
     Ok(None)
+}
+
+fn select_file(session: &mut Value, cwd: String, path: String, staged: bool, source: Value) {
+    session["selectedFile"] = json!({"path":path,"staged":staged,"source":source});
+    session["mainViewMode"] = json!("diff");
+    session["diffViewerCwd"] = json!(cwd);
+    focus(session, "workspace-diff-viewer", &json!(cwd));
+}
+
+struct GraphSelection {
+    primary: Option<String>,
+    ids: Vec<String>,
+}
+impl GraphSelection {
+    fn read(session: &Value) -> Self {
+        Self {
+            primary: session["selectedCommitHash"].as_str().map(str::to_owned),
+            ids: session["selectedCommitIds"]
+                .as_array()
+                .expect("normalized selection")
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect(),
+        }
+    }
+    fn write(self, session: &mut Value) {
+        session["selectedCommitHash"] = json!(self.primary);
+        session["selectedCommitIds"] = json!(self.ids);
+        session["selectedCommitParent"] = Value::Null;
+    }
+}
+
+fn select_graph(
+    session: &mut Value,
+    id: Option<String>,
+    ordered_ids: &[String],
+    intent: Option<&SelectionIntent>,
+) -> Result<Option<String>, String> {
+    let old = GraphSelection::read(session);
+    let mut ids = id.iter().cloned().collect::<Vec<_>>();
+    if let Some(id) = &id {
+        if intent.is_some_and(|intent| intent.range) && old.primary.is_some() {
+            if let (Some(anchor), Some(target)) = (
+                ordered_ids
+                    .iter()
+                    .position(|item| Some(item) == old.primary.as_ref()),
+                ordered_ids.iter().position(|item| item == id),
+            ) {
+                ids = ordered_ids[anchor.min(target)..=anchor.max(target)].to_vec();
+            }
+        } else if intent.is_some_and(|intent| intent.additive) {
+            ids = old.ids.clone();
+            if ids.contains(id) {
+                ids.retain(|candidate| candidate != id);
+            } else {
+                ids.push(id.clone());
+            }
+        }
+    }
+    let primary = id
+        .filter(|id| ids.contains(id))
+        .or_else(|| ids.last().cloned());
+    if primary.is_some() && (primary != old.primary || ids != old.ids) {
+        session["selectedFile"] = Value::Null;
+    }
+    GraphSelection { primary, ids }.write(session);
+    Ok(None)
+}
+
+fn reconcile_graph(session: &mut Value, items: &[GraphItem]) -> Result<Option<String>, String> {
+    let Some(first) = items.first() else {
+        return Ok(None);
+    };
+    let old = GraphSelection::read(session);
+    let visible = |id: &str| items.iter().any(|item| item.id == id);
+    let mut ids = old
+        .ids
+        .iter()
+        .filter(|id| visible(id))
+        .cloned()
+        .collect::<Vec<_>>();
+    if ids.is_empty() {
+        ids.push(first.id.clone());
+    }
+    let primary = old
+        .primary
+        .clone()
+        .filter(|id| visible(id))
+        .or_else(|| ids.last().cloned());
+    let announcement =
+        (old.primary.is_some() && (primary != old.primary || ids != old.ids)).then(|| {
+            format!(
+                "The selected graph item is no longer available. Selected {}.",
+                first.message
+            )
+        });
+    GraphSelection { primary, ids }.write(session);
+    Ok(announcement)
 }
 
 pub fn normalize(value: &Value) -> Value {
@@ -569,14 +636,11 @@ impl PanelReplica {
         now: f64,
         current: &str,
     ) -> Result<String, wasm_bindgen::JsValue> {
-        let action: Value = serde_json::from_str(action)
-            .map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))?;
-        let current: Value = serde_json::from_str(current)
-            .map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))?;
+        let action: Value = wasm_json::parse(action)?;
+        let current: Value = wasm_json::parse(current)?;
         let state = self.workspaces.entry(workspace.into()).or_default();
         let mut next = normalize(&current);
-        apply_action(&mut next, &action, now as u64)
-            .map_err(|e| wasm_bindgen::JsValue::from_str(&e))?;
+        wasm_json::result(apply_action(&mut next, &action, now as u64))?;
         if state.pending.is_empty() {
             state.canonical = current;
         }
@@ -590,8 +654,7 @@ impl PanelReplica {
         revision: u32,
         session: &str,
     ) -> Result<String, wasm_bindgen::JsValue> {
-        let session = serde_json::from_str(session)
-            .map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))?;
+        let session = wasm_json::parse(session)?;
         let state = self.workspaces.entry(workspace.into()).or_default();
         if state.revision == revision {
             state.canonical = session;
@@ -604,10 +667,7 @@ impl PanelReplica {
         sequence: u32,
         session: Option<String>,
     ) -> Result<String, wasm_bindgen::JsValue> {
-        let canonical = session
-            .map(|s| serde_json::from_str(&s))
-            .transpose()
-            .map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))?;
+        let canonical = session.map(|s| wasm_json::parse(&s)).transpose()?;
         let state = self.workspaces.entry(workspace.into()).or_default();
         state.pending.retain(|(id, _, _)| *id != sequence);
         if let Some(canonical) = canonical {

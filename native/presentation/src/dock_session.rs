@@ -1,5 +1,5 @@
 //! Dock request ordering and retained layout previews. Storage and HTTP stay in the renderer.
-use crate::dock;
+use crate::{dock, wasm_json};
 use serde_json::{Value, json};
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -54,8 +54,8 @@ impl DockSession {
         let request_key = request.to_owned();
         let previous_revision = self.revision;
         self.revision = self.revision.wrapping_add(1);
-        let request: DockRequest = serde_json::from_str(request).map_err(js_error)?;
-        let mut request = serde_json::to_value(request).map_err(js_error)?;
+        let request: DockRequest = wasm_json::parse(request)?;
+        let mut request = wasm_json::result(serde_json::to_value(request))?;
         let workspace = request["workspaceId"].as_str().unwrap_or_default();
         let settled = self
             .acknowledged
@@ -76,11 +76,12 @@ impl DockSession {
         if let Some(legacy) = parse_optional(legacy) {
             request["legacy"] = legacy;
         }
-        let layout = request["action"]
-            .is_null()
-            .then(|| dock::project(&request))
-            .transpose()
-            .map_err(|error| JsValue::from_str(&error))?;
+        let layout = wasm_json::result(
+            request["action"]
+                .is_null()
+                .then(|| dock::project(&request))
+                .transpose(),
+        )?;
         // Display-only changes need no save after the latest mutation is acknowledged.
         let persist = !deduplicate
             || !settled
@@ -106,7 +107,7 @@ impl DockSession {
         workspace: &str,
         layout: &str,
     ) -> Result<String, JsValue> {
-        let layout: Value = serde_json::from_str(layout).map_err(js_error)?;
+        let layout: Value = wasm_json::parse(layout)?;
         SAVED.with(|cache| {
             let mut cache = cache.borrow_mut();
             cache.retain(|(id, _)| id != workspace);
@@ -146,7 +147,4 @@ impl DockSession {
 
 fn parse_optional(value: Option<String>) -> Option<Value> {
     value.and_then(|value| serde_json::from_str(&value).ok())
-}
-fn js_error(error: serde_json::Error) -> JsValue {
-    JsValue::from_str(&error.to_string())
 }

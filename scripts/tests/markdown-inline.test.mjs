@@ -7,6 +7,7 @@ import { createServer } from "vite";
 // Keep imports in a normal module graph, including local TypeScript helpers.
 const server = await createServer({
 	configFile: false,
+	optimizeDeps: { noDiscovery: true, include: [] },
 	resolve: {
 		alias: { "@shared": new URL("../../src/shared", import.meta.url).pathname },
 	},

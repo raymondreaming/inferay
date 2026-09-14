@@ -1,5 +1,6 @@
 //! Bounded chat retention metadata. Browser-owned replicas, messages, and viewport maps stay in
 //! the renderer; this model owns recency, weights, and closed-pane eviction.
+use crate::wasm_json;
 use std::collections::{HashMap, HashSet, VecDeque};
 use wasm_bindgen::prelude::*;
 
@@ -56,7 +57,7 @@ impl ChatSessionRetention {
     }
 
     pub fn set_pane_ids(&mut self, pane_ids: &str) -> Result<String, JsValue> {
-        let pane_ids: HashSet<String> = serde_json::from_str(pane_ids).map_err(js_error)?;
+        let pane_ids: HashSet<String> = wasm_json::parse(pane_ids)?;
         let evicted = self
             .order
             .iter()
@@ -71,7 +72,7 @@ impl ChatSessionRetention {
             self.remove(identity);
         }
         self.pane_ids = Some(pane_ids);
-        serde_json::to_string(&evicted).map_err(js_error)
+        Ok(wasm_json::stringify(&evicted, "chat session evictions"))
     }
 }
 
@@ -116,12 +117,8 @@ impl ChatViewportRetention {
             self.entries.remove(&oldest);
             evicted.push(oldest);
         }
-        serde_json::to_string(&evicted).expect("viewport eviction identities")
+        wasm_json::stringify(&evicted, "viewport eviction identities")
     }
-}
-
-fn js_error(error: serde_json::Error) -> JsValue {
-    JsValue::from_str(&error.to_string())
 }
 
 #[cfg(test)]

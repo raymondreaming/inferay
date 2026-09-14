@@ -1,4 +1,5 @@
 //! Optimistic workspace selection and acknowledgement policy. HTTP ordering stays in JS.
+use crate::wasm_json;
 use crate::workbench::{WorkspaceSelection, workspace_mutation_plan, workspace_selection};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -28,16 +29,14 @@ impl WorkspaceReplica {
         Self::default()
     }
     pub fn snapshot(&self) -> String {
-        serde_json::to_string(&self.snapshot).expect("workspace snapshot")
+        wasm_json::stringify(&self.snapshot, "workspace snapshot")
     }
     pub fn publish(&mut self, snapshot: &str) -> Result<String, JsValue> {
-        self.snapshot =
-            serde_json::from_str(snapshot).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        self.snapshot = wasm_json::parse(snapshot)?;
         Ok(self.snapshot())
     }
     pub fn begin(&mut self, action: &str) -> Result<String, JsValue> {
-        let action: Value =
-            serde_json::from_str(action).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let action: Value = wasm_json::parse(action)?;
         let plan = workspace_mutation_plan(&self.snapshot.state, &action);
         if plan.unchanged && self.structural.is_empty() && self.snapshot.error.is_none() {
             return Ok("null".into());
@@ -53,7 +52,7 @@ impl WorkspaceReplica {
         Ok(json!({"id":self.sequence,"selecting":selecting}).to_string())
     }
     pub fn accept(&mut self, state: &str, request: Option<u32>) -> Result<String, JsValue> {
-        let state = serde_json::from_str(state).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let state = wasm_json::parse(state)?;
         self.clear(request);
         self.canonical = state;
         self.snapshot.state = self.canonical.clone();

@@ -1,4 +1,5 @@
 //! Document selection and admission; the browser retains file bodies by path.
+use crate::wasm_json;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use ts_rs::TS;
@@ -29,8 +30,7 @@ impl DocumentReplica {
     ) -> Result<DocumentReplica, JsValue> {
         Ok(Self {
             view: DocumentView {
-                paths: serde_json::from_str(paths)
-                    .map_err(|e| JsValue::from_str(&e.to_string()))?,
+                paths: wasm_json::parse(paths)?,
                 active_path,
                 restoring,
                 error: None,
@@ -41,7 +41,7 @@ impl DocumentReplica {
         })
     }
     pub fn snapshot(&self) -> String {
-        serde_json::to_string(&self.view).expect("document view")
+        wasm_json::stringify(&self.view, "document view")
     }
     pub fn select(&mut self, path: &str) {
         self.selection += 1;
@@ -85,8 +85,7 @@ impl DocumentReplica {
         true
     }
     pub fn restore(&mut self, paths: &str, active: Option<String>) -> Result<(), JsValue> {
-        let mut paths: Vec<String> =
-            serde_json::from_str(paths).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let mut paths: Vec<String> = wasm_json::parse(paths)?;
         paths.retain(|p| !self.closed.contains(p));
         if self.selection == 0 && self.view.active_path.is_none() {
             self.view.active_path = if active.as_ref().is_some_and(|p| self.closed.contains(p)) {

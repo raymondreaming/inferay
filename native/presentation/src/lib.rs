@@ -22,6 +22,7 @@ pub mod repository {
 pub mod skills;
 pub mod transcript;
 pub mod ui_performance;
+mod wasm_json;
 pub mod workbench;
 pub mod workspace_session;
 
