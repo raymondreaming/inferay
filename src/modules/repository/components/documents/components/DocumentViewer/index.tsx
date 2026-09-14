@@ -5,8 +5,8 @@ import {
 	loadFileContent,
 	restoreDocumentSession,
 } from "@repository/services/gitApi.ts";
+import { APP_REGION_DRAG_CLASS } from "@shared/lib/dom.tsx";
 import { DocumentReplica } from "@shared/lib/native.tsx";
-import { APP_REGION_DRAG_CLASS } from "@shared/lib/windowChrome.ts";
 import { ErrorBoundary } from "@shared/ui/ErrorBoundary/index.tsx";
 import { IconCode, IconX } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";

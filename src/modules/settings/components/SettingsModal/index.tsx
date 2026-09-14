@@ -1,5 +1,6 @@
 import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
 import {
+	APP_REGION_NO_DRAG_CLASS,
 	ariaValue,
 	domStyle,
 	listenWindowEvent,
@@ -8,7 +9,6 @@ import {
 	type SettingsModalTarget,
 	setInputValue,
 } from "@shared/lib/dom.tsx";
-import { APP_REGION_NO_DRAG_CLASS } from "@shared/lib/windowChrome.ts";
 import { ErrorBoundary } from "@shared/ui/ErrorBoundary/index.tsx";
 import { IconButton } from "@shared/ui/IconButton/index.tsx";
 import {

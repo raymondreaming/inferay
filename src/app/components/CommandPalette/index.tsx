@@ -1,6 +1,5 @@
 import { surfaceStyles } from "@design-system/styles.stylex.ts";
-import { ariaValue } from "@shared/lib/dom.tsx";
-import { APP_REGION_NO_DRAG_CLASS } from "@shared/lib/windowChrome.ts";
+import { APP_REGION_NO_DRAG_CLASS, ariaValue } from "@shared/lib/dom.tsx";
 import { IconSearch } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import type { Element } from "solid-js";

@@ -1,10 +1,17 @@
 import { domStyle } from "@shared/lib/dom.tsx";
 import {
+	DEFAULT_FILE,
+	getIconForFile,
 	getIconForFolder,
 	getIconForOpenFolder,
 } from "@yutengjing/vscode-icons";
-import { iconUrl, resolveFileIconUrl } from "./iconUrl.ts";
 import * as inlineStyles from "./styles.ts";
+
+const iconUrl = (iconFileName: string) => `/file-icons/${iconFileName}`;
+export function resolveFileIconUrl(path: string): string {
+	const name = path.split(/[\\/]/).pop() || path;
+	return iconUrl(getIconForFile(name) ?? DEFAULT_FILE);
+}
 export function resolveFolderIconUrl(path: string, open = false): string {
 	const name = path.split(/[\\/]/).filter(Boolean).pop() || path;
 	const iconFileName = open

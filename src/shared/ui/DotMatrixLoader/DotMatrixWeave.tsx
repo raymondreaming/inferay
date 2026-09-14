@@ -3,7 +3,12 @@ import { createMemo } from "solid-js";
 import { type CSSProperties, domStyle } from "../../lib/dom.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
-import type { DotMatrixLoaderProps } from "./types.ts";
+export interface DotMatrixLoaderProps {
+	dotSize?: number;
+	gap?: number;
+	speed?: number;
+	ariaLabel?: string;
+}
 
 const WEAVE_DOTS = Array.from(
 	{

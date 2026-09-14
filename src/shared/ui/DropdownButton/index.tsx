@@ -1,18 +1,64 @@
+import type { DropdownPosition } from "@contracts";
 import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
 import { Portal } from "@solidjs/web";
 import * as stylex from "@stylexjs/stylex";
-import type { Element } from "solid-js";
-import { createEffect, createMemo, createSignal, Show } from "solid-js";
+import {
+	createEffect,
+	createMemo,
+	createSignal,
+	type Element,
+	Show,
+} from "solid-js";
 import { domStyle, hasId } from "../../lib/dom.tsx";
+import { project } from "../../lib/native.tsx";
 import { IconChevronDown } from "../Icons/index.tsx";
+import type {
+	DropdownOption,
+	DropdownOptionRenderer,
+} from "./DropdownCustomOption.tsx";
 import { DropdownOptions } from "./DropdownOptions.tsx";
 import { DropdownSearch } from "./DropdownSearch.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
-import type { DropdownOption, DropdownOptionRenderer } from "./types.ts";
-import { useDropdownPosition } from "./useDropdownPosition.ts";
 
 export type { DropdownOption, DropdownOptionRenderer };
+
+function useDropdownPosition(
+	layout: () => {
+		element: HTMLButtonElement | null;
+		placement: "auto" | "top" | "bottom";
+		rowHeight: number;
+		count: number;
+		maxVisible?: number;
+		minWidth: number;
+	} | null,
+) {
+	const [position, setPosition] = createSignal(
+		project<DropdownPosition>("dropdownPosition", {}),
+	);
+	createEffect(layout, (layout) => {
+		if (!layout?.element) return;
+		const { element, ...options } = layout;
+		const measure = () =>
+			setPosition(
+				project("dropdownPosition", {
+					...options,
+					rect: element.getBoundingClientRect(),
+					width: window.innerWidth,
+					height: window.innerHeight,
+				}),
+			);
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(element);
+		window.addEventListener("resize", measure);
+		return () => {
+			observer.disconnect();
+			window.removeEventListener("resize", measure);
+		};
+	});
+	return position;
+}
 
 export function DropdownButton(props: {
 	value: string | null;

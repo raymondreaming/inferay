@@ -11,7 +11,8 @@ import {
 	presentation,
 } from "../../../build/presentation/presentation.js";
 import providerCatalog from "../../../build/presentation/provider-catalog.json";
-import type { AgentLayoutMode } from "../contracts/workspace.ts";
+export type AgentLayoutMode = "grid" | "rows";
+
 import {
 	dispatchWindowEvent,
 	listenWindowEvent,

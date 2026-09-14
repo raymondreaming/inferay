@@ -2,13 +2,13 @@ import type { SkillDialogView, SkillSaveRequest } from "@contracts";
 import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
 import { useBackgroundQuery as useQuery } from "@shared/hooks/useQueryResource.tsx";
 import {
+	APP_REGION_NO_DRAG_CLASS,
 	listenWindowEvent,
 	OPEN_SKILLS_EVENT,
 	queryClient,
 	type SkillsTarget,
 } from "@shared/lib/dom.tsx";
 import { SkillDialogReplica } from "@shared/lib/native.tsx";
-import { APP_REGION_NO_DRAG_CLASS } from "@shared/lib/windowChrome.ts";
 import { Button } from "@shared/ui/Button/index.tsx";
 import { IconButton } from "@shared/ui/IconButton/index.tsx";
 import { IconPlus, IconX } from "@shared/ui/Icons/index.tsx";

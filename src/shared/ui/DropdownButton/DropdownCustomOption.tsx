@@ -2,7 +2,19 @@ import { Dynamic } from "@solidjs/web";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";
 import { styles } from "./styles.ts";
-import type { DropdownOption, DropdownOptionRenderer } from "./types.ts";
+export interface DropdownOption {
+	iconComponent?: import("solid-js").Component;
+	id: string;
+	label: string;
+	detail?: string;
+	status?: string;
+	icon?: import("solid-js").Element;
+}
+
+export type DropdownOptionRenderer = (props: {
+	option: DropdownOption;
+	isSelected: boolean;
+}) => import("solid-js").Element;
 export function DropdownCustomOption(_props: {
 	opt: DropdownOption;
 	isSelected: boolean;

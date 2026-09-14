@@ -2,13 +2,16 @@ import { Dynamic } from "@solidjs/web";
 import * as stylex from "@stylexjs/stylex";
 import { For, Show } from "solid-js";
 import { domStyle } from "../../lib/dom.tsx";
+import type {
+	DropdownOption,
+	DropdownOptionRenderer,
+} from "./DropdownCustomOption.tsx";
 import {
 	DropdownCustomOption,
 	selectDropdownOption,
 } from "./DropdownCustomOption.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
-import type { DropdownOption, DropdownOptionRenderer } from "./types.ts";
 export function DropdownOptions(_props: {
 	maxHeight: number;
 	filtered: readonly DropdownOption[];

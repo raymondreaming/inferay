@@ -1,5 +1,5 @@
 import { type CSSProperties, domStyle } from "@shared/lib/dom.tsx";
-import { resolveFileIconUrl } from "./iconUrl.ts";
+import { resolveFileIconUrl } from "./FolderTypeIcon.tsx";
 import * as inlineStyles from "./styles.ts";
 
 export { FolderTypeIcon, resolveFolderIconUrl } from "./FolderTypeIcon.tsx";
