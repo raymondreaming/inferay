@@ -35,10 +35,31 @@ export function request(
 export async function fetchJson<T>(
 	input: RequestInfo | URL,
 	init?: RequestInit,
+	failure?: JsonFailure,
 ): Promise<T> {
-	const response = await request(input, init);
+	return readJson(await request(input, init), failure);
+}
+type JsonFailure = {
+	message?: string | ((status: number) => string);
+	server?: boolean;
+};
+async function readJson<T>(
+	response: Response,
+	failure?: JsonFailure,
+): Promise<T> {
 	if (!response.ok) {
-		throw new Error(`Request failed: ${response.status}`);
+		const body = failure?.server
+			? await response.json().catch(() => null)
+			: null;
+		const message =
+			typeof failure?.message === "function"
+				? failure.message(response.status)
+				: failure?.message;
+		throw new Error(
+			(typeof body?.error === "string" ? body.error : undefined) ??
+				message ??
+				`Request failed: ${response.status}`,
+		);
 	}
 	return response.json() as Promise<T>;
 }
@@ -57,10 +78,9 @@ export async function postJson<TResponse>(
 	input: RequestInfo | URL,
 	body?: unknown,
 	init?: RequestInit,
+	failure?: JsonFailure,
 ): Promise<TResponse> {
-	const response = await sendJson(input, body, init);
-	if (!response.ok) throw new Error(`Request failed: ${response.status}`);
-	return response.json() as Promise<TResponse>;
+	return readJson(await sendJson(input, body, init), failure);
 }
 export async function sendJson(
 	input: RequestInfo | URL,

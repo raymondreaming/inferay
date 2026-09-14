@@ -1,3 +1,4 @@
+import type { DecoratedTextSegment } from "@contracts";
 import { project as rustProject } from "@shared/lib/native.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For, Show } from "solid-js";
@@ -52,31 +53,9 @@ export function InputHighlights(props: Omit<DecoratedTextProps, "pills">) {
 export function decoratedTextSegments(
 	text: string,
 	slashCommandNames?: readonly string[],
-) {
-	const segments: Array<{ text: string; highlighted: boolean }> = [];
-	let lastEnd = 0;
-	for (const token of findDecoratedTokenRanges(text, slashCommandNames)) {
-		if (token.start < lastEnd) continue;
-		if (token.start > lastEnd)
-			segments.push({
-				text: text.slice(lastEnd, token.start),
-				highlighted: false,
-			});
-		segments.push({
-			text: text.slice(token.start, token.end),
-			highlighted: true,
-		});
-		lastEnd = token.end;
-	}
-	if (lastEnd < text.length)
-		segments.push({ text: text.slice(lastEnd), highlighted: false });
-	return segments;
-}
-
-type TokenRange = { start: number; end: number };
-export function findDecoratedTokenRanges(
-	text: string,
-	slashCommandNames?: readonly string[],
-): TokenRange[] {
-	return rustProject("decoratedTokens", { text, commands: slashCommandNames });
+): DecoratedTextSegment[] {
+	return rustProject("decoratedTextSegments", {
+		text,
+		commands: slashCommandNames,
+	});
 }

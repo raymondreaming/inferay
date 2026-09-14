@@ -1,21 +1,12 @@
-import type {
-	ExplorerEntry,
-	ExplorerSearchResult,
-} from "@explorer/model/files.ts";
-
-export type {
-	ExplorerEntry,
-	ExplorerSearchResult,
-} from "@explorer/model/files.ts";
-
+import type { ProjectFileEntry } from "@contracts";
 import { fetchJson } from "@shared/lib/native.tsx";
 
 export async function searchFiles(
 	cwd: string,
 	query: string,
 	signal?: AbortSignal,
-): Promise<ExplorerSearchResult[]> {
-	const response = await fetchJson<{ results: ExplorerSearchResult[] }>(
+): Promise<ProjectFileEntry[]> {
+	const response = await fetchJson<{ results: ProjectFileEntry[] }>(
 		`/api/files/search?${new URLSearchParams({ cwd, q: query, limit: "24" })}`,
 		{ signal },
 	);
@@ -26,8 +17,8 @@ export async function listDirectory(
 	cwd: string,
 	path: string,
 	signal?: AbortSignal,
-): Promise<ExplorerEntry[]> {
-	const response = await fetchJson<{ entries: ExplorerEntry[] }>(
+): Promise<ProjectFileEntry[]> {
+	const response = await fetchJson<{ entries: ProjectFileEntry[] }>(
 		`/api/files/list?${new URLSearchParams({ cwd, path })}`,
 		{ signal },
 	);

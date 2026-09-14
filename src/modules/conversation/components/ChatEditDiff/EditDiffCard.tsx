@@ -1,16 +1,16 @@
+import type { PreparedEditHunk } from "@contracts";
 import { iconSize } from "@design-system/styles.stylex.ts";
 import { useSyntaxHighlight } from "@shared/hooks/useSyntaxHighlight.tsx";
 import { domStyle } from "@shared/lib/dom.tsx";
 import { IconChevronRight, IconFilePlus } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For, onSettled } from "solid-js";
-import type { DiffHunk } from "../../hooks/useNativeEditDiff.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 export function EditDiffCard(_props: {
 	fileName: string;
 	filePath: string;
-	hunks: DiffHunk[];
+	hunks: PreparedEditHunk[];
 	isStreaming?: boolean;
 	error?: string;
 }) {

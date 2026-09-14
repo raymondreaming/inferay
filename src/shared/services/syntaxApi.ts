@@ -1,4 +1,4 @@
-import { sendJson } from "@shared/lib/native.tsx";
+import { postJson } from "@shared/lib/native.tsx";
 
 export interface ClassifiedDocument {
 	version: number;
@@ -15,8 +15,11 @@ export async function highlightSyntax(
 	},
 	signal: AbortSignal,
 ): Promise<ClassifiedDocument | null> {
-	const response = await sendJson("/api/native/highlight", input, { signal });
-	if (!response.ok) throw new Error("Highlight request failed");
-	const document: ClassifiedDocument | null = await response.json();
+	const document = await postJson<ClassifiedDocument | null>(
+		"/api/native/highlight",
+		input,
+		{ signal },
+		{ message: "Highlight request failed" },
+	);
 	return document && [1, 2, 3].includes(document.version) ? document : null;
 }

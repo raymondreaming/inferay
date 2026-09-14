@@ -68,6 +68,7 @@ function showCompletion<Key extends "atIndex" | "slashIndex">(
 export function useAgentChatMenus(
 	_options: Accessor<UseAgentChatMenusOptions>,
 ) {
+	const enabled = createMemo(() => _options().enabled !== false);
 	const [fileMenu, setFileMenu] = createSignal<FileMenuState>({
 		show: false,
 		selectedIdx: 0,
@@ -90,8 +91,7 @@ export function useAgentChatMenus(
 			const _optionsValue = _options();
 			return {
 				queryKey: ["skills", "commands", _optionsValue.agentKind],
-				enabled:
-					_optionsValue.enabled === undefined ? true : _optionsValue.enabled,
+				enabled: enabled(),
 			};
 		},
 	);
@@ -115,10 +115,7 @@ export function useAgentChatMenus(
 					_optionsValue3.cwd ?? "",
 					_fileMenuValue.query,
 				],
-				enabled:
-					(_optionsValue3.enabled === undefined
-						? true
-						: _optionsValue3.enabled) && _fileMenuValue.show,
+				enabled: enabled() && _fileMenuValue.show,
 				gcTime: 0,
 			};
 		},
@@ -136,39 +133,14 @@ export function useAgentChatMenus(
 			cmd.name.toLowerCase().startsWith(query),
 		);
 	});
-	const visibleFileMenu = createMemo(() => {
-		const _optionsValue4 = _options(),
-			_fileMenuValue2 = fileMenu();
-		return (
-			_optionsValue4.enabled === undefined
-				? true
-				: _optionsValue4.enabled
-		)
-			? _fileMenuValue2
-			: hideMenuState(_fileMenuValue2);
-	});
-	const visibleSlashMenu = createMemo(() => {
-		const _optionsValue5 = _options(),
-			_slashMenuValue2 = slashMenu();
-		return (
-			_optionsValue5.enabled === undefined
-				? true
-				: _optionsValue5.enabled
-		)
-			? _slashMenuValue2
-			: hideMenuState(_slashMenuValue2);
-	});
-	const showCommands = createMemo(() => {
-		const _optionsValue6 = _options();
-		return (
-			(_optionsValue6.enabled === undefined ? true : _optionsValue6.enabled) &&
-			visibleSlashMenu().show
-		);
-	});
+	const visibleFileMenu = createMemo(() =>
+		enabled() ? fileMenu() : hideMenuState(fileMenu()),
+	);
+	const visibleSlashMenu = createMemo(() =>
+		enabled() ? slashMenu() : hideMenuState(slashMenu()),
+	);
 	const handleInputForSlashMenu = (value: string, cursorPos: number) => {
-		const _optionsValue7 = _options();
-		if (!(_optionsValue7.enabled === undefined ? true : _optionsValue7.enabled))
-			return;
+		if (!enabled()) return;
 		const trigger = findTriggerAtCursor(value, cursorPos, "/");
 		if (!trigger) {
 			setSlashMenu((prev) => (prev.show ? hideMenuState(prev) : prev));
@@ -177,9 +149,7 @@ export function useAgentChatMenus(
 		setSlashMenu((previous) => showCompletion(previous, "slashIndex", trigger));
 	};
 	const handleInputForFileMenu = (value: string, cursorPos: number) => {
-		const _optionsValue8 = _options();
-		if (!(_optionsValue8.enabled === undefined ? true : _optionsValue8.enabled))
-			return;
+		if (!enabled()) return;
 		const trigger = findTriggerAtCursor(value, cursorPos, "@");
 		if (!trigger) {
 			setFileMenu((prev) => (prev.show ? hideMenuState(prev) : prev));
@@ -243,7 +213,7 @@ export function useAgentChatMenus(
 			return filteredCommands();
 		},
 		get showCommands() {
-			return showCommands();
+			return visibleSlashMenu().show;
 		},
 		get slashCommandNames() {
 			return slashCommandNames();

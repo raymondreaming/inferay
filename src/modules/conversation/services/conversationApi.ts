@@ -1,27 +1,28 @@
 import type {
+	PreparedEditHunk,
+	ProjectFileEntry,
+	ProviderSettings,
 	QueuedMessageInfo,
+	SequentialEdit,
 	SlashCommand,
 	WorkspaceAgentKind,
 } from "@contracts";
-import type { DiffHunk, SequentialEdit } from "@conversation/model/editDiff.ts";
 import {
 	fetchJson,
 	fetchJsonOr,
 	postJson,
 	request,
-	sendJson,
 } from "@shared/lib/native.tsx";
 
-export type ChatFileSearchResult = {
-	name: string;
-	path: string;
-	isDir: boolean;
-};
+export type ChatFileSearchResult = Pick<
+	ProjectFileEntry,
+	"name" | "path" | "isDir"
+>;
 
-export type ProviderConfigSelection = {
-	model: string;
-	reasoningLevel: string;
-};
+export type ProviderConfigSelection = Pick<
+	ProviderSettings,
+	"model" | "reasoningLevel"
+>;
 
 export type UploadedChatImage = {
 	name: string;
@@ -75,14 +76,13 @@ export async function updateChatQueue(
 	id: string,
 	text?: string,
 ): Promise<QueuedMessageInfo[]> {
-	const response = await sendJson(
+	const result = await postJson<{ queue: QueuedMessageInfo[] }>(
 		`/api/chat-queues/${encodeURIComponent(paneId)}`,
 		{ action, id, text },
 		{ method: "PATCH" },
+		{ message: "Could not update queued message. Please retry." },
 	);
-	if (!response.ok)
-		throw new Error("Could not update queued message. Please retry.");
-	return ((await response.json()) as { queue: QueuedMessageInfo[] }).queue;
+	return result.queue;
 }
 
 export function loadMarkdownPreview(path: string, signal?: AbortSignal) {
@@ -111,16 +111,17 @@ export async function uploadTempChatImage(
 export async function prepareNativeEditDiff(
 	input: { before: string; after: string; edits?: SequentialEdit[] },
 	signal: AbortSignal,
-): Promise<DiffHunk[]> {
-	const response = await sendJson("/api/native/diff", input, {
-		signal: AbortSignal.any([signal, AbortSignal.timeout(12_000)]),
-	});
-	if (!response.ok) {
-		const failure = await response.json().catch(() => null);
-		throw new Error(
-			failure?.error ?? `Diff request failed (${response.status})`,
-		);
-	}
-	const result = (await response.json()) as { prepared: { hunks: DiffHunk[] } };
+): Promise<PreparedEditHunk[]> {
+	const result = await postJson<{
+		prepared: { hunks: PreparedEditHunk[] };
+	}>(
+		"/api/native/diff",
+		input,
+		{ signal },
+		{
+			server: true,
+			message: (status) => `Diff request failed (${status})`,
+		},
+	);
 	return result.prepared.hunks;
 }

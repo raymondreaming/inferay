@@ -1,8 +1,8 @@
 import type { AgentSavedState, AgentWorkspaceAction } from "@contracts";
 import {
+	fetchJson,
 	fetchJsonOr,
 	postJson,
-	request,
 	sendJson,
 } from "@shared/lib/native.tsx";
 import type { WorkspacePanelPort } from "@workspace/services/workspacePanels.ts";
@@ -53,10 +53,10 @@ export async function initializeWorkspaceState(): Promise<AgentSavedState> {
 	return state;
 }
 
-export async function loadWorkspaceState(): Promise<AgentSavedState | null> {
-	const response = await request("/api/agent/state");
-	if (!response.ok) throw new Error("Could not load workspace state");
-	return (await response.json()) as AgentSavedState | null;
+export function loadWorkspaceState(): Promise<AgentSavedState | null> {
+	return fetchJson("/api/agent/state", undefined, {
+		message: "Could not load workspace state",
+	});
 }
 
 export async function saveWorkspaceAction(

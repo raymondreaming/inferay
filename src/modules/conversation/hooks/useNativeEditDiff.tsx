@@ -1,17 +1,10 @@
-import type { DiffHunk, SequentialEdit } from "@conversation/model/editDiff.ts";
+import type { PreparedEditHunk, SequentialEdit } from "@contracts";
 import { prepareNativeEditDiff } from "@conversation/services/conversationApi.ts";
 import { useBackgroundQuery as useQuery } from "@shared/hooks/useQueryResource.tsx";
 import { queryClient } from "@shared/lib/dom.tsx";
 import type { Accessor } from "solid-js";
 
-export type {
-	DiffHunk,
-	GitDiffLine,
-	LineTextSegment,
-	SequentialEdit,
-} from "@conversation/model/editDiff.ts";
-
-const EMPTY_HUNKS: DiffHunk[] = [];
+const EMPTY_HUNKS: PreparedEditHunk[] = [];
 export function useNativeEditDiff(
 	_before: Accessor<string>,
 	_after: Accessor<string>,

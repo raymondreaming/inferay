@@ -1,5 +1,5 @@
 import type { Prompt, SkillProposal, SkillProposalView } from "@contracts";
-import { fetchJson, postJson, sendJson } from "@shared/lib/native.tsx";
+import { fetchJson, postJson } from "@shared/lib/native.tsx";
 
 export function loadSkills(
 	filter: string,
@@ -12,20 +12,13 @@ export function loadSkills(
 	);
 }
 
-export async function saveSkillRequest(
-	data: Record<string, unknown>,
-	id?: string,
-) {
-	const response = await sendJson(
+export function saveSkillRequest(data: Record<string, unknown>, id?: string) {
+	return postJson<Prompt>(
 		id ? `/api/prompts/${id}` : "/api/prompts",
 		data,
 		{ method: id ? "PUT" : "POST" },
+		{ server: true },
 	);
-	if (!response.ok) {
-		const failure = await response.json().catch(() => null);
-		throw new Error(failure?.error ?? `Request failed: ${response.status}`);
-	}
-	return (await response.json()) as Prompt;
 }
 
 export function removeSkillRequest(id: string) {

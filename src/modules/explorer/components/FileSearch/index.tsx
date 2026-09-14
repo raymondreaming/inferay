@@ -1,8 +1,6 @@
+import type { ProjectFileEntry } from "@contracts";
 import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
-import {
-	type ExplorerSearchResult,
-	searchFiles,
-} from "@explorer/services/explorerApi.ts";
+import { searchFiles } from "@explorer/services/explorerApi.ts";
 import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
 import { assignRef, queryClient } from "@shared/lib/dom.tsx";
 import { IconSearch } from "@shared/ui/Icons/index.tsx";
@@ -10,7 +8,7 @@ import * as stylex from "@stylexjs/stylex";
 import { createEffect, createMemo, createSignal, For } from "solid-js";
 import { FileSearchResultRow } from "./FileSearchResultRow.tsx";
 import { styles } from "./styles.ts";
-export type FileSearchResult = ExplorerSearchResult;
+export type FileSearchResult = ProjectFileEntry;
 export function FileSearch(_props: {
 	readonly cwd?: string | null;
 	readonly onSelect: (file: FileSearchResult) => void;

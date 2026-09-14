@@ -1,6 +1,6 @@
 import type { PreparedMarkdown } from "@contracts";
 import { createMarkdownStreamClient } from "@shared/lib/markdownStream.ts";
-import { sendJson } from "@shared/lib/native.tsx";
+import { postJson, sendJson } from "@shared/lib/native.tsx";
 
 export const nativeMarkdownStream = () =>
 	createMarkdownStreamClient((body, signal) =>
@@ -13,18 +13,15 @@ export async function prepareNativeMarkdown(
 	chat: boolean,
 	signal: AbortSignal,
 ): Promise<PreparedMarkdown> {
-	const response = await sendJson(
+	const prepared = await postJson<PreparedMarkdown>(
 		"/api/native/markdown",
 		{ text, streaming, chat },
 		{ signal },
+		{
+			server: true,
+			message: (status) => `Markdown request failed (${status})`,
+		},
 	);
-	if (!response.ok) {
-		const failure = await response.json().catch(() => null);
-		throw new Error(
-			failure?.error ?? `Markdown request failed (${response.status})`,
-		);
-	}
-	const prepared: PreparedMarkdown = await response.json();
 	if (prepared.version !== 1 || !Array.isArray(prepared.blocks))
 		throw new Error("Unsupported Markdown response");
 	return prepared;

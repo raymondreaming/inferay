@@ -25,7 +25,7 @@ export async function runGitChangeAction(
 	action: "stage" | "unstage",
 	file?: string,
 ): Promise<void> {
-	await sendJson(`/api/git/${action}`, { cwd, file });
+	await postJson(`/api/git/${action}`, { cwd, file });
 }
 
 export async function commitGitChanges(
@@ -161,12 +161,13 @@ export async function loadGitDiff(
 	const query = new URLSearchParams();
 	for (const [key, value] of Object.entries(input))
 		if (value !== undefined) query.set(key, String(value));
-	const response = await request(`/api/git/diff?${query}`, {
-		signal: AbortSignal.any([signal, AbortSignal.timeout(12_000)]),
-	});
-	if (!response.ok)
-		throw new Error(`Diff request failed (HTTP ${response.status})`);
-	return (await response.json()) as HunkDiff;
+	return fetchJson(
+		`/api/git/diff?${query}`,
+		{ signal },
+		{
+			message: (status) => `Diff request failed (HTTP ${status})`,
+		},
+	);
 }
 
 export async function loadGitGraph(
@@ -210,14 +211,12 @@ export async function loadGitCommitDetails(
 	signal?: AbortSignal,
 ): Promise<GitCommitDetails | null> {
 	if (!cwd || !hash) return null;
-	const response = await request(
+	const result = await fetchJson<{ details?: GitCommitDetails }>(
 		`/api/git/commit-details?${new URLSearchParams({ cwd, hash, ...(parent ? { parent } : {}) })}`,
 		{ signal },
+		{ message: "Failed to fetch commit details" },
 	);
-	if (!response.ok) throw new Error("Failed to fetch commit details");
-	return (
-		((await response.json()) as { details?: GitCommitDetails }).details ?? null
-	);
+	return result.details ?? null;
 }
 
 export async function loadGitComparisonDetails(
@@ -232,7 +231,7 @@ export async function loadGitComparisonDetails(
 } | null> {
 	if (!cwd || (!selectionKey && (!fromHash || !toHash || fromHash === toHash)))
 		return null;
-	const response = await request(
+	return fetchJson(
 		`/api/git/comparison-details?${selectionKey ? new URLSearchParams({ cwd }) : new URLSearchParams({ cwd, from: fromHash!, to: toHash! })}`,
 		selectionKey
 			? {
@@ -242,10 +241,6 @@ export async function loadGitComparisonDetails(
 					body: `{"selection":${selectionKey}}`,
 				}
 			: { signal },
+		{ message: "Failed to compare commits" },
 	);
-	if (!response.ok) throw new Error("Failed to compare commits");
-	return (await response.json()) as {
-		details: GitComparisonDetails | null;
-		plan: import("@contracts").ComparisonPlan | null;
-	};
 }

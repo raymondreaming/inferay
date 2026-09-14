@@ -1,8 +1,6 @@
+import type { ProjectFileEntry } from "@contracts";
 import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
-import {
-	type ExplorerEntry,
-	listDirectory,
-} from "@explorer/services/explorerApi.ts";
+import { listDirectory } from "@explorer/services/explorerApi.ts";
 import { useBackgroundQuery as useQuery } from "@shared/hooks/useQueryResource.tsx";
 import {
 	dispatchDocumentOpen,
@@ -71,7 +69,7 @@ export function Directory(_props: {
 
 const EXPLORER_ROW_HEIGHT = 24;
 const PROJECT_HEADER_HEIGHT = 26;
-export function Entry(_props2: { entry: ExplorerEntry; depth: number }) {
+export function Entry(_props2: { entry: ProjectFileEntry; depth: number }) {
 	const [expanded, setExpanded] = createSignal(false);
 	const activate = () => {
 		if (_props2.entry.isDir) setExpanded((value) => !value);

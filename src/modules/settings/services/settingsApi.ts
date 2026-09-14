@@ -7,6 +7,7 @@ import {
 	fetchJson,
 	fetchJsonOr,
 	pickCloneDirectory as pickNativeDirectory,
+	postJson,
 	request,
 	sendJson,
 } from "@shared/lib/native.tsx";
@@ -80,7 +81,7 @@ export async function fetchAgentAccountStatuses(signal?: AbortSignal) {
 }
 
 export async function connectGithub() {
-	await sendJson("/api/forge/connect", { provider: "github" });
+	await postJson("/api/forge/connect", { provider: "github" });
 }
 
 export async function pickCloneDirectory() {
@@ -91,14 +92,14 @@ export async function cloneGithubRepo(
 	repo: GithubRepo,
 	cloneDirectory: string,
 ) {
-	const response = await sendJson("/api/forge/clone", {
-		gitUrl: repo.html_url,
-		cloneDirectory,
-	});
-	const payload = (await response.json()) as {
-		error?: string;
-		displayPath?: string;
-	};
-	if (!response.ok) throw new Error(payload.error ?? "Clone failed");
+	const payload = await postJson<{ displayPath?: string }>(
+		"/api/forge/clone",
+		{
+			gitUrl: repo.html_url,
+			cloneDirectory,
+		},
+		undefined,
+		{ server: true, message: "Clone failed" },
+	);
 	return `Cloned ${repo.full_name} to ${payload.displayPath}`;
 }

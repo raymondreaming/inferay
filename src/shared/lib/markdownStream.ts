@@ -1,13 +1,5 @@
-import type { MarkdownPatch, MdBlock } from "@contracts";
+import type { MarkdownPatch, MarkdownStreamRequest, MdBlock } from "@contracts";
 
-type StreamRequest = {
-	streamId: string;
-	baseRevision?: number;
-	text?: string;
-	append?: string;
-	streaming: boolean;
-	chat: boolean;
-};
 type Snapshot = {
 	id: string;
 	text: string;
@@ -18,7 +10,10 @@ type Snapshot = {
 
 /** Owns a disposable parser cursor; the caller still owns query cancellation. */
 export function createMarkdownStreamClient(
-	send: (request: StreamRequest, signal: AbortSignal) => Promise<Response>,
+	send: (
+		request: MarkdownStreamRequest,
+		signal: AbortSignal,
+	) => Promise<Response>,
 ) {
 	let snapshot: Snapshot | undefined;
 	let attempt = 0;

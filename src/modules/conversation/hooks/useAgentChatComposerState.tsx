@@ -1,6 +1,7 @@
 import type { QueuedMessageInfo } from "@contracts";
 import {
 	loadMarkdownPreview,
+	type UploadedChatImage,
 	updateChatQueue,
 	uploadTempChatImage,
 } from "@conversation/services/conversationApi.ts";
@@ -18,7 +19,7 @@ export function useAgentChatComposerState(
 	_paneId: Accessor<string>,
 	_enabled: Accessor<boolean> = () => true,
 ) {
-	const [attachedImages, setAttachedImages] = createSignal<AttachedImageInfo[]>(
+	const [attachedImages, setAttachedImages] = createSignal<UploadedChatImage[]>(
 		[],
 	);
 	const [queuedMessages, setQueuedMessages] = createSignal<QueuedChatMessage[]>(
@@ -28,20 +29,16 @@ export function useAgentChatComposerState(
 	onCleanup(() => {
 		disposed = true;
 	});
-	const queueRef = {
-		current: [] as QueuedChatMessage[],
-	};
-	const queueRevision = {
-		current: 0,
-	};
-	const mutationChain = {
-		current: Promise.resolve(),
-	};
+	let queueSnapshot: QueuedChatMessage[] = [];
+	let queueRevision = 0;
+	let mutationChain = Promise.resolve();
 	const replaceQueue = (queue: QueuedChatMessage[]) => {
-		queueRevision.current++;
-		queueRef.current = queue;
+		queueRevision++;
+		queueSnapshot = queue;
 		setQueuedMessages(queue);
 	};
+	const projectQueue = (operation: string, input: object) =>
+		replaceQueue(rustProject(operation, { current: queueSnapshot, ...input }));
 	const mutateQueue = (
 		action: "edit" | "remove",
 		id: string,
@@ -49,44 +46,44 @@ export function useAgentChatComposerState(
 	) => {
 		const paneId = _paneId();
 		let requestRevision = 0;
-		const result = mutationChain.current
+		const result = mutationChain
 			.catch(() => undefined)
 			.then(async () => {
 				if (disposed || paneId !== _paneId()) return;
-				requestRevision = ++queueRevision.current;
+				requestRevision = ++queueRevision;
 				const queue = await updateChatQueue(paneId, action, id, text);
 				if (
 					!disposed &&
 					paneId === _paneId() &&
-					queueRevision.current === requestRevision
+					queueRevision === requestRevision
 				)
-					replaceQueue([
-						...queue,
-						...queueRef.current.filter((item) => item.transient),
-					]);
+					projectQueue("mergeQueue", { persisted: queue });
 			})
 			.catch((error) => {
 				if (
 					!disposed &&
 					paneId === _paneId() &&
-					queueRevision.current === requestRevision
+					queueRevision === requestRevision
 				)
 					throw error;
 			});
-		mutationChain.current = result;
+		mutationChain = result;
 		return result;
 	};
 	const [queueError, setQueueError] = createSignal<string | null>(null);
 	const [editingQueueId, setEditingQueueId] = createSignal<string | null>(null);
 	const [editingQueueText, setEditingQueueText] = createSignal("");
+	const cancelQueuedMessageEdit = () => {
+		setEditingQueueId(null);
+		setEditingQueueText("");
+	};
 	let queuePaneId = untrack(_paneId);
 	createEffect(_paneId, (paneId) => {
 		if (paneId === queuePaneId) return;
 		queuePaneId = paneId;
 		replaceQueue([]);
 		setQueueError(null);
-		setEditingQueueId(null);
-		setEditingQueueText("");
+		cancelQueuedMessageEdit();
 		setAttachedImages([]);
 	});
 	const [previewPath, setPreviewPath] = createSignal<string | null>(null);
@@ -123,46 +120,28 @@ export function useAgentChatComposerState(
 	const replaceQueuedMessages = (messages: QueuedChatMessage[]) => {
 		if (messages.length === 0) {
 			setQueueError(null);
-			setEditingQueueId(null);
-			setEditingQueueText("");
+			cancelQueuedMessageEdit();
 		}
-		replaceQueue(
-			rustProject("mergeQueue", {
-				current: queueRef.current,
-				persisted: messages,
-			}),
-		);
+		projectQueue("mergeQueue", { persisted: messages });
 	};
 	const stageSteeringMessage = (message: QueuedChatMessage) => {
-		replaceQueue([
-			...queueRef.current.filter((item) => item.id !== message.id),
-			{
-				...message,
-				transient: true,
-			},
-		]);
+		projectQueue("stageQueueMessage", { message });
 	};
 	const resolveSteeringMessage = (id: string) => {
-		replaceQueue(queueRef.current.filter((message) => message.id !== id));
+		projectQueue("resolveQueueMessage", { id });
 	};
 	const removeQueuedMessage = (id: string) => {
-		const queue = queueRef.current;
-		const existing = queue.find((message) => message.id === id);
+		const existing = queueSnapshot.find((message) => message.id === id);
 		if (!existing || existing.transient) return;
 		setQueueError(null);
 		void mutateQueue("remove", id).catch((error: Error) =>
 			setQueueError(error.message),
 		);
-		if (editingQueueId() === id) {
-			setEditingQueueId(null);
-			setEditingQueueText("");
-		}
+		if (editingQueueId() === id) cancelQueuedMessageEdit();
 	};
 	const updateQueuedMessage = (id: string, text: string) => {
-		const queue = queueRef.current;
-		const existing = queue.find((message) => message.id === id);
-		if (!existing || existing.text === text) return;
-		if (existing.transient) return;
+		const existing = queueSnapshot.find((message) => message.id === id);
+		if (!existing || existing.transient || existing.text === text) return;
 		setQueueError(null);
 		void mutateQueue("edit", id, text).catch((error: Error) =>
 			setQueueError(error.message),
@@ -171,10 +150,6 @@ export function useAgentChatComposerState(
 	const startQueuedMessageEdit = (id: string, text: string) => {
 		setEditingQueueId(id);
 		setEditingQueueText(text);
-	};
-	const cancelQueuedMessageEdit = () => {
-		setEditingQueueId(null);
-		setEditingQueueText("");
 	};
 	const saveQueuedMessageEdit = (id: string) => {
 		const trimmed = editingQueueText().trim();
@@ -257,11 +232,6 @@ export function useAgentChatComposerState(
 		handlePaste,
 	};
 }
-export async function uploadChatImage(
-	file: File,
-): Promise<AttachedImageInfo | null> {
-	return uploadTempChatImage(file);
-}
 export function usePendingChatWorkspace(
 	_paneId2: Accessor<string>,
 	_cwd: Accessor<string | undefined>,
@@ -290,8 +260,3 @@ export function usePendingChatWorkspace(
 export type QueuedChatMessage = QueuedMessageInfo & {
 	transient?: boolean;
 };
-export interface AttachedImageInfo {
-	name: string;
-	path: string;
-	previewUrl: string;
-}

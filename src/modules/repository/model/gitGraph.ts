@@ -1,29 +1,15 @@
 import type {
 	GitGraphRef,
-	GitRepositoryOperationState,
-	GitRepositorySnapshotState,
-	GitStash,
-	GitWorktree,
+	GitGraphSnapshot,
 	GraphActionPresentation,
-	GraphCommit,
-	GraphRow,
 } from "@contracts";
 
 export const DEFAULT_GIT_GRAPH_HISTORY_LIMIT = 1_000;
 
-export interface GraphData {
+export type GraphData = Omit<GitGraphSnapshot, "ancestry"> & {
 	actions: Record<string, GraphActionPresentation>;
-	commits: GraphCommit[];
-	rows: GraphRow[];
-	hasMore: boolean;
-	worktrees: GitWorktree[];
-	stashes: GitStash[];
-	revision: string;
-	operation: GitRepositoryOperationState;
 	presentation: GraphPresentation;
-	state: GitRepositorySnapshotState;
-	stateError?: string;
-}
+};
 
 export interface GraphSemanticPreferences {
 	hiddenRefs: string[];

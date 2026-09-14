@@ -74,9 +74,6 @@ export function applyAppBackgroundPalette(
 		document.documentElement.dataset.inferayScene = id;
 	}
 }
-export function restoreAppTheme(): void {
-	applyAppTheme(loadAppThemeId());
-}
 export function loadAppFontId(): AppFontId {
 	const stored = readStoredValue(APP_FONT_STORAGE_KEY);
 	return APP_FONTS.find((font) => font.id === stored)?.id ?? "vscode";
