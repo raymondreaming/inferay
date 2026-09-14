@@ -636,7 +636,7 @@ async fn patch_chat_queue(state: &ServerState, request: Request, pane_id: &str) 
 async fn provider_configuration(state: &ServerState, request: Request) -> ApiResult {
     let mut input: Value = api_body(request).await?;
     let Some(pane_id) = input["paneId"].as_str().map(str::to_owned) else {
-        let resolved = inferay_core::provider_config::resolve(&input);
+        let resolved = json!(inferay_core::provider_config::resolve(&input));
         state
             .client_storage
             .lock()
@@ -667,7 +667,7 @@ async fn provider_configuration(state: &ServerState, request: Request) -> ApiRes
             input[field] = entries.get(key).cloned().unwrap_or(Value::Null);
         }
     }
-    let resolved = inferay_core::provider_config::resolve(&input);
+    let resolved = json!(inferay_core::provider_config::resolve(&input));
     storage
         .update(
             fields
@@ -2454,13 +2454,7 @@ async fn handle_native_websocket_message(
                 .unwrap_or("claude");
             let help = inferay_core::provider_config::composer_commands(kind, &skills)
                 .into_iter()
-                .filter_map(|command| {
-                    Some(format!(
-                        "/{} - {}",
-                        command["name"].as_str()?,
-                        command["description"].as_str()?
-                    ))
-                })
+                .map(|command| format!("/{} - {}", command.name, command.description))
                 .collect::<Vec<_>>()
                 .join("\n");
             state

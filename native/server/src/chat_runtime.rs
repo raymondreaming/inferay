@@ -244,14 +244,11 @@ impl ChatRuntime {
             let resolved = inferay_core::provider_config::resolve(
                 &json!({"agentKind":input.agent_kind,"model":input.model,"reasoningLevel":input.reasoning_level}),
             );
-            input.agent_kind = resolved["agentKind"].as_str().unwrap().to_owned();
-            input.model = resolved["model"]
-                .as_str()
-                .filter(|s| !s.is_empty())
-                .map(str::to_owned);
+            input.agent_kind = resolved.agent_kind.as_str().to_owned();
+            input.model = (!resolved.model.is_empty()).then_some(resolved.model);
             if input.reasoning_level_provided {
-                input.reasoning_level = (input.agent_kind == "codex")
-                    .then(|| resolved["reasoningLevel"].as_str().unwrap().to_owned());
+                input.reasoning_level =
+                    (input.agent_kind == "codex").then_some(resolved.reasoning_level);
             }
             let session = self.ensure_session(&input).await;
             if input.expand_commands {
