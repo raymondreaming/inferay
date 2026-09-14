@@ -2566,19 +2566,9 @@ pub fn get_git_graph_snapshot_with_query(
     }
 }
 
-#[derive(Clone)]
-struct ActiveLane {
-    hash: String,
-}
-
-#[derive(Clone, Copy)]
-struct LaneReservation {
-    column: usize,
-}
-
 #[derive(Default)]
 struct GraphLaneAllocator {
-    reservations: HashMap<String, LaneReservation>,
+    reservations: HashMap<String, usize>,
     columns_to_free_when_found: HashMap<String, Vec<usize>>,
     columns_used: Vec<bool>,
     has_merge_node_child: HashSet<String>,
@@ -2602,9 +2592,7 @@ impl GraphLaneAllocator {
     }
 
     fn reservation_column(&self, hash: &str) -> Option<usize> {
-        self.reservations
-            .get(hash)
-            .map(|reservation| reservation.column)
+        self.reservations.get(hash).copied()
     }
 
     fn assign_column(&mut self, commit: &GraphCommit) -> usize {
@@ -2623,9 +2611,7 @@ impl GraphLaneAllocator {
         }
 
         let current_reservation = self.reservations.remove(&commit.hash);
-        let commit_column = current_reservation
-            .map(|reservation| reservation.column)
-            .unwrap_or_else(|| self.first_free_column());
+        let commit_column = current_reservation.unwrap_or_else(|| self.first_free_column());
 
         for (parent_index, parent) in commit.parents.iter().enumerate() {
             if commit.parents.len() > 1 {
@@ -2633,20 +2619,11 @@ impl GraphLaneAllocator {
             }
 
             let existing_parent = self.reservations.get(parent).copied();
-            if parent_index == 0
-                && existing_parent.is_some_and(|reservation| reservation.column != commit_column)
-            {
+            if parent_index == 0 && existing_parent.is_some_and(|column| column != commit_column) {
                 let existing_parent = existing_parent.expect("checked above");
-                if existing_parent.column > commit_column
-                    && !self.has_merge_node_child.contains(parent)
-                {
-                    self.reservations.insert(
-                        parent.clone(),
-                        LaneReservation {
-                            column: commit_column,
-                        },
-                    );
-                    self.schedule_column_release(parent, existing_parent.column);
+                if existing_parent > commit_column && !self.has_merge_node_child.contains(parent) {
+                    self.reservations.insert(parent.clone(), commit_column);
+                    self.schedule_column_release(parent, existing_parent);
                 } else {
                     self.schedule_column_release(parent, commit_column);
                 }
@@ -2656,12 +2633,7 @@ impl GraphLaneAllocator {
                 } else {
                     self.first_free_column()
                 };
-                self.reservations.insert(
-                    parent.clone(),
-                    LaneReservation {
-                        column: parent_column,
-                    },
-                );
+                self.reservations.insert(parent.clone(), parent_column);
             }
         }
 
@@ -2682,7 +2654,7 @@ fn layout_graph(mut commits: Vec<GraphCommit>) -> (Vec<GraphCommit>, Vec<GraphRo
     // Empty slots are intentionally retained. Compressing the vector whenever
     // a lane ends makes every lane to its right jump sideways on that row;
     // stable holes can be reused by later tips without moving unresolved rails.
-    let mut active_lanes: Vec<Option<ActiveLane>> = Vec::new();
+    let mut active_lanes: Vec<Option<String>> = Vec::new();
     let mut lane_allocator = GraphLaneAllocator::default();
     let mut graph_rows = Vec::with_capacity(commits.len());
 
@@ -2692,22 +2664,18 @@ fn layout_graph(mut commits: Vec<GraphCommit>) -> (Vec<GraphCommit>, Vec<GraphRo
             .enumerate()
             .filter_map(|(column, lane)| {
                 lane.as_ref()
-                    .is_some_and(|lane| lane.hash == commit.hash)
+                    .is_some_and(|lane| *lane == commit.hash)
                     .then_some(column)
             })
             .collect::<Vec<_>>();
         let commit_column = lane_allocator.assign_column(commit);
-        let existing_commit_column = incoming_columns
-            .contains(&commit_column)
-            .then_some(commit_column);
+        let has_incoming_lane = incoming_columns.contains(&commit_column);
         if active_lanes.len() <= commit_column {
             active_lanes.resize(commit_column + 1, None);
         }
         let commit_color = graph_lane_color(commit_column);
-        if existing_commit_column.is_none() {
-            active_lanes[commit_column] = Some(ActiveLane {
-                hash: commit.hash.clone(),
-            });
+        if !has_incoming_lane {
+            active_lanes[commit_column] = Some(commit.hash.clone());
         }
 
         let (id, item_kind, hash, worktree_path) =
@@ -2734,77 +2702,12 @@ fn layout_graph(mut commits: Vec<GraphCommit>) -> (Vec<GraphCommit>, Vec<GraphRo
                 )
             };
 
-        let mut next_lanes = active_lanes.clone();
-        for column in &incoming_columns {
-            next_lanes[*column] = None;
-        }
-        if incoming_columns.is_empty() {
-            next_lanes[commit_column] = None;
-        }
-        let mut transitions = Vec::new();
-        let mut convergences = incoming_columns
-            .iter()
-            .copied()
-            .filter(|column| *column != commit_column)
-            .filter_map(|column| {
-                active_lanes[column].as_ref().map(|_| GraphTransition {
-                    from_column: column,
-                    to_column: commit_column,
-                    color_index: graph_lane_color(column),
-                })
-            })
-            .collect::<Vec<_>>();
-
-        if let Some(first_parent) = commit.parents.first() {
-            // First-parent continuity belongs to the child lane even when
-            // another child already targets the same parent. The duplicate is
-            // resolved only when that parent row is reached.
-            next_lanes[commit_column] = Some(ActiveLane {
-                hash: first_parent.clone(),
-            });
-        }
-
-        for parent in commit.parents.iter().skip(1) {
-            let parent_column = lane_allocator
-                .reservation_column(parent)
-                .expect("every additional parent receives a lane reservation");
-            if next_lanes.len() <= parent_column {
-                next_lanes.resize(parent_column + 1, None);
-            }
-            if next_lanes[parent_column].is_none() {
-                next_lanes[parent_column] = Some(ActiveLane {
-                    hash: parent.clone(),
-                });
-            }
-            if parent_column != commit_column {
-                transitions.push(GraphTransition {
-                    from_column: commit_column,
-                    to_column: parent_column,
-                    color_index: graph_lane_color(parent_column),
-                });
-            }
-        }
-
-        while next_lanes.last().is_some_and(Option::is_none) {
-            next_lanes.pop();
-        }
-
-        transitions.sort_by_key(|transition| (transition.from_column, transition.to_column));
-        transitions.dedup_by(|a, b| {
-            a.from_column == b.from_column
-                && a.to_column == b.to_column
-                && a.color_index == b.color_index
-        });
-        convergences.sort_by_key(|transition| (transition.from_column, transition.to_column));
-
-        let incoming_set = incoming_columns.iter().copied().collect::<HashSet<_>>();
         let has_first_parent = !commit.parents.is_empty();
         let mut rails = active_lanes
             .iter()
             .enumerate()
             .filter_map(|(column, lane)| {
-                lane.as_ref()?;
-                if column == commit_column || incoming_set.contains(&column) {
+                if column == commit_column || lane.as_ref()? == &commit.hash {
                     return None;
                 }
                 Some(GraphRail {
@@ -2815,15 +2718,70 @@ fn layout_graph(mut commits: Vec<GraphCommit>) -> (Vec<GraphCommit>, Vec<GraphRo
                 })
             })
             .collect::<Vec<_>>();
-        if existing_commit_column.is_some() || has_first_parent {
+        if has_incoming_lane || has_first_parent {
             rails.push(GraphRail {
                 column: commit_column,
                 color_index: graph_lane_color(commit_column),
-                starts_at_node: existing_commit_column.is_none(),
+                starts_at_node: !has_incoming_lane,
                 ends_at_node: !has_first_parent,
             });
         }
         rails.sort_by_key(|rail| rail.column);
+
+        let mut transitions = Vec::new();
+        let convergences = incoming_columns
+            .iter()
+            .copied()
+            .filter(|column| *column != commit_column)
+            .map(|column| GraphTransition {
+                from_column: column,
+                to_column: commit_column,
+                color_index: graph_lane_color(column),
+            })
+            .collect::<Vec<_>>();
+
+        for column in &incoming_columns {
+            active_lanes[*column] = None;
+        }
+        if incoming_columns.is_empty() {
+            active_lanes[commit_column] = None;
+        }
+        if let Some(first_parent) = commit.parents.first() {
+            // First-parent continuity belongs to the child lane even when
+            // another child already targets the same parent. The duplicate is
+            // resolved only when that parent row is reached.
+            active_lanes[commit_column] = Some(first_parent.clone());
+        }
+
+        for parent in commit.parents.iter().skip(1) {
+            let parent_column = lane_allocator
+                .reservation_column(parent)
+                .expect("every additional parent receives a lane reservation");
+            if active_lanes.len() <= parent_column {
+                active_lanes.resize(parent_column + 1, None);
+            }
+            if active_lanes[parent_column].is_none() {
+                active_lanes[parent_column] = Some(parent.clone());
+            }
+            if parent_column != commit_column {
+                transitions.push(GraphTransition {
+                    from_column: commit_column,
+                    to_column: parent_column,
+                    color_index: graph_lane_color(parent_column),
+                });
+            }
+        }
+
+        while active_lanes.last().is_some_and(Option::is_none) {
+            active_lanes.pop();
+        }
+
+        transitions.sort_by_key(|transition| (transition.from_column, transition.to_column));
+        transitions.dedup_by(|a, b| {
+            a.from_column == b.from_column
+                && a.to_column == b.to_column
+                && a.color_index == b.color_index
+        });
 
         graph_rows.push(GraphRow {
             row: row_index,
@@ -2841,7 +2799,6 @@ fn layout_graph(mut commits: Vec<GraphCommit>) -> (Vec<GraphCommit>, Vec<GraphRo
         commit.stash_name = None;
         commit.column = commit_column;
         commit.color_index = commit_color;
-        active_lanes = next_lanes;
     }
 
     if let Some(last_row) = graph_rows.last_mut() {
@@ -2860,6 +2817,64 @@ fn layout_graph(mut commits: Vec<GraphCommit>) -> (Vec<GraphCommit>, Vec<GraphRo
     }
 
     (commits, graph_rows)
+}
+
+#[cfg(test)]
+mod graph_layout_tests {
+    use super::*;
+
+    #[test]
+    fn separate_child_lanes_converge_at_the_parent_and_preserve_truncated_edges() {
+        let input: Vec<_> = [("a", "c"), ("b", "c"), ("c", "d")]
+            .into_iter()
+            .map(|(hash, parent)| GraphCommit {
+                hash: hash.into(),
+                parents: vec![parent.into()],
+                ..Default::default()
+            })
+            .collect();
+        let (commits, rows) = layout_graph(input.clone());
+        assert_eq!(
+            commits
+                .iter()
+                .map(|commit| commit.column)
+                .collect::<Vec<_>>(),
+            [0, 1, 0]
+        );
+        assert_eq!(
+            rows[1]
+                .rails
+                .iter()
+                .map(|rail| (rail.column, rail.starts_at_node, rail.ends_at_node))
+                .collect::<Vec<_>>(),
+            [(0, false, false), (1, true, false)]
+        );
+        assert_eq!(
+            rows[2].convergences,
+            [GraphTransition {
+                from_column: 1,
+                to_column: 0,
+                color_index: graph_lane_color(1)
+            }]
+        );
+        assert_eq!(
+            rows[2].truncated_edges,
+            [GraphRail {
+                column: 0,
+                color_index: graph_lane_color(0),
+                starts_at_node: false,
+                ends_at_node: false
+            }]
+        );
+        let mut complete = input;
+        complete.push(GraphCommit {
+            hash: "d".into(),
+            ..Default::default()
+        });
+        let (_, rows) = layout_graph(complete);
+        assert!(rows.iter().all(|row| row.truncated_edges.is_empty()));
+        assert!(rows.last().unwrap().rails[0].ends_at_node);
+    }
 }
 
 #[cfg(test)]
