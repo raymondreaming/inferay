@@ -4,6 +4,108 @@ use serde_json::{Value, json};
 const COLUMNS: [&str; 6] = ["date", "refs", "graph", "message", "author", "sha"];
 const DEFAULT_WIDTHS: [f64; 6] = [132., 192., 96., 340., 136., 76.];
 const MIN_WIDTHS: [f64; 6] = [84., 96., 48., 160., 88., 56.];
+const ROW_HEIGHT: f64 = 23.;
+
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphKeyboardNavigation {
+    handled: bool,
+    select_item: Option<String>,
+    select_index: Option<usize>,
+    open_item: Option<String>,
+}
+
+pub fn navigation(input: &Value) -> GraphKeyboardNavigation {
+    let key = string(&input["key"]);
+    let items = array(&input["items"]);
+    let count = items.len();
+    let current = items.iter().position(|item| item == &input["current"]);
+    let mut result = GraphKeyboardNavigation {
+        handled: count > 0
+            && matches!(
+                key,
+                "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight" | "Home" | "End"
+            ),
+        select_item: None,
+        select_index: None,
+        open_item: None,
+    };
+    if !result.handled {
+        return result;
+    }
+    if flag(&input["branch"]) && matches!(key, "ArrowUp" | "ArrowDown") {
+        result.select_item = input["branchTarget"]
+            .as_str()
+            .filter(|target| !target.is_empty())
+            .map(str::to_owned);
+        result.select_index = result
+            .select_item
+            .as_ref()
+            .and_then(|target| items.iter().position(|item| item.as_str() == Some(target)));
+        return result;
+    }
+    if key == "ArrowRight" {
+        if flag(&input["canOpen"]) {
+            result.open_item = current
+                .and_then(|index| items[index].as_str())
+                .map(str::to_owned);
+        }
+    } else {
+        let index = match key {
+            "Home" => Some(0),
+            "End" => Some(count - 1),
+            "ArrowUp" => Some(current.map_or(count - 1, |index| index.saturating_sub(1))),
+            "ArrowDown" => Some(current.map_or(0, |index| (index + 1).min(count - 1))),
+            _ => None,
+        };
+        result.select_index = index;
+        result.select_item = index
+            .and_then(|index| items[index].as_str())
+            .map(str::to_owned);
+    }
+    result
+}
+
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphViewport {
+    visible_start: usize,
+    visible_end: usize,
+}
+
+pub fn viewport(input: &Value) -> GraphViewport {
+    let count = number(&input["count"]).max(0.).floor() as usize;
+    let scroll = (number(&input["scrollTop"]) - ROW_HEIGHT).max(0.);
+    let height = number(&input["height"]).max(0.);
+    GraphViewport {
+        visible_start: ((scroll / ROW_HEIGHT).floor() as usize).saturating_sub(12),
+        visible_end: (((scroll + height) / ROW_HEIGHT).ceil() as usize)
+            .saturating_add(12)
+            .min(count),
+    }
+}
+
+pub fn reveal(input: &Value) -> Value {
+    let row_top = number(&input["index"]) * ROW_HEIGHT;
+    let scroll = number(&input["scrollTop"]);
+    let height = number(&input["height"]);
+    let padding = ROW_HEIGHT * 2.;
+    json!(if row_top < scroll + padding {
+        (row_top - padding).max(0.)
+    } else if row_top + ROW_HEIGHT > scroll + height - padding {
+        row_top + ROW_HEIGHT - height + padding
+    } else {
+        scroll
+    })
+}
+
+pub fn resize_column(input: &Value) -> Value {
+    let index = COLUMNS
+        .iter()
+        .position(|column| *column == string(&input["column"]))
+        .unwrap_or(0);
+    json!(number(&input["width"]).clamp(MIN_WIDTHS[index], 480.))
+}
 
 pub fn preferences(stored: &Value) -> Value {
     let mut widths = json!({});

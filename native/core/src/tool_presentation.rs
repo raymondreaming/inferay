@@ -4,7 +4,7 @@ use crate::{utf16_length as javascript_length, utf16_slice as javascript_slice};
 use serde::Serialize;
 use serde_json::Value;
 
-#[derive(Debug, Serialize, PartialEq, ts_rs::TS)]
+#[derive(Clone, Debug, Serialize, PartialEq, ts_rs::TS)]
 pub struct ToolDisplayInfo {
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -15,7 +15,7 @@ pub struct ToolDisplayInfo {
     #[ts(optional)]
     pub source: Option<McpToolSource>,
 }
-#[derive(Debug, Serialize, PartialEq, ts_rs::TS)]
+#[derive(Clone, Debug, Serialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolOutputSummary {
     #[serde(rename = "type")]
@@ -25,7 +25,7 @@ pub struct ToolOutputSummary {
     #[ts(optional)]
     pub file_name: Option<String>,
 }
-#[derive(Debug, Serialize, PartialEq, ts_rs::TS)]
+#[derive(Clone, Debug, Serialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct AskUserQuestion {
     pub question: String,
@@ -39,7 +39,7 @@ pub struct AskUserQuestion {
     #[ts(optional)]
     pub multi_select: Option<bool>,
 }
-#[derive(Debug, Serialize, PartialEq, ts_rs::TS)]
+#[derive(Clone, Debug, Serialize, PartialEq, ts_rs::TS)]
 pub struct QuestionOption {
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -50,7 +50,7 @@ pub struct QuestionOption {
 /// connect an account. Codex raises it as `mcpServer/elicitation/request`; the
 /// turn cannot proceed until the user accepts or declines, so it needs a card
 /// rather than a log line.
-#[derive(Debug, Serialize, PartialEq, ts_rs::TS)]
+#[derive(Clone, Debug, Serialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct McpElicitation {
     /// What the server is asking, in its own words.

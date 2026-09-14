@@ -270,18 +270,19 @@ pub(crate) fn image_content_type(path: &Path) -> &'static str {
     }
 }
 
-#[derive(Serialize)]
-struct AgentDirectory {
-    name: String,
-    path: String,
-}
-
-#[derive(Serialize)]
+#[derive(Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
-struct AgentQuickPick {
+pub(crate) struct AgentDirectory {
     name: String,
     path: String,
     is_git_repo: bool,
+}
+
+#[derive(Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DirectoryQuickPicks {
+    quick_picks: Vec<AgentDirectory>,
+    home: String,
 }
 
 pub(super) async fn get_agent_directories(
@@ -316,9 +317,10 @@ pub(super) async fn get_agent_directories(
         return Ok(json!({"directories": directories, "parent": null}));
     }
     if query_value(&request, "quickPicks").as_deref() == Some("true") {
-        return Ok(
-            json!({"quickPicks": find_agent_quick_picks(state.configured_search_paths().await), "home": home.to_string_lossy()}),
-        );
+        return Ok(json!(DirectoryQuickPicks {
+            quick_picks: find_agent_quick_picks(state.configured_search_paths().await),
+            home: home.to_string_lossy().into_owned()
+        }));
     }
     Ok(
         json!({"directories": agent_directories(home, 1).collect::<Vec<_>>(), "parent": null, "home": home.to_string_lossy()}),
@@ -380,6 +382,7 @@ fn agent_directories(base: &Path, depth: usize) -> impl Iterator<Item = AgentDir
         .map(|entry| AgentDirectory {
             name: entry.file_name().to_string_lossy().into_owned(),
             path: entry.path().to_string_lossy().into_owned(),
+            is_git_repo: false,
         })
 }
 
@@ -421,7 +424,7 @@ fn search_agent_directories(
         .collect()
 }
 
-fn find_agent_quick_picks(configured_paths: Vec<PathBuf>) -> Vec<AgentQuickPick> {
+fn find_agent_quick_picks(configured_paths: Vec<PathBuf>) -> Vec<AgentDirectory> {
     let mut results = Vec::new();
     for directory in configured_paths.into_iter().filter(|path| path.is_dir()) {
         let mut entries = WalkDir::new(directory)
@@ -442,7 +445,7 @@ fn find_agent_quick_picks(configured_paths: Vec<PathBuf>) -> Vec<AgentQuickPick>
                     .unwrap_or(UNIX_EPOCH);
                 results.push((
                     modified,
-                    AgentQuickPick {
+                    AgentDirectory {
                         name: entry.file_name().to_string_lossy().into_owned(),
                         path: path.to_string_lossy().into_owned(),
                         is_git_repo: true,
@@ -509,4 +512,28 @@ pub(super) async fn image_thumbnail(path: PathBuf) -> Result<Vec<u8>, String> {
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+#[cfg(test)]
+mod directory_tests {
+    use super::*;
+
+    #[test]
+    fn directory_search_and_quick_picks_share_the_renderer_contract() {
+        let root = tempfile::tempdir().unwrap();
+        let repo = root.path().join("project");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        let search =
+            serde_json::to_value(agent_directories(root.path(), 1).collect::<Vec<_>>()).unwrap();
+        let quick = serde_json::to_value(DirectoryQuickPicks {
+            quick_picks: find_agent_quick_picks(vec![root.path().into()]),
+            home: root.path().to_string_lossy().into_owned(),
+        })
+        .unwrap();
+        assert_eq!(search[0]["name"], "project");
+        assert_eq!(search[0]["path"], quick["quickPicks"][0]["path"]);
+        assert_eq!(search[0]["isGitRepo"], false);
+        assert_eq!(quick["quickPicks"][0]["isGitRepo"], true);
+        assert_eq!(quick["home"], root.path().to_string_lossy().as_ref());
+    }
 }

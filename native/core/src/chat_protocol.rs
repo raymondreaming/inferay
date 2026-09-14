@@ -1,7 +1,13 @@
 use crate::{utf16_length as javascript_length, utf16_slice as javascript_slice};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::Value;
 use std::collections::HashSet;
+
+use crate::prompts::cards::ChatSkillPart;
+use crate::prompts::{SkillProposal, SkillRead};
+use crate::tool_presentation::{
+    AskUserQuestion, McpElicitation, ToolDisplayInfo, ToolOutputSummary,
+};
 
 pub const CHAT_MESSAGE_RETAIN_LIMIT: usize = 5_000;
 pub const CHAT_MESSAGE_CHAR_LIMIT: usize = 1_000_000;
@@ -9,19 +15,128 @@ pub const CHAT_SINGLE_MESSAGE_CHAR_LIMIT: usize = 256_000;
 pub const CHAT_TRUNCATION_MARKER: &str =
     "\n\n[… content truncated to keep Inferay responsive …]\n\n";
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatTranscriptMessage {
     pub id: String,
+    #[ts(type = "'user' | 'assistant' | 'tool' | 'system' | 'btw'")]
     pub role: String,
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub images: Option<Vec<String>>,
     #[serde(rename = "toolName", skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub tool_name: Option<String>,
     #[serde(rename = "isStreaming", skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub is_streaming: Option<bool>,
-    #[serde(flatten)]
-    pub extra: Map<String, Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub btw_question: Option<String>,
+    #[serde(skip_deserializing, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub render: Option<NativeChatRender>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeChatRender {
+    #[ts(type = "1")]
+    pub version: u8,
+    pub kind: ChatRenderKind,
+    pub group_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub group_end: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub group_leader: Option<bool>,
+    pub hidden: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub continues_after: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub row_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub file_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub edit: Option<ChatEdit>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub output_start: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub display: Option<ToolDisplayInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub summary: Option<ToolOutputSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub questions: Option<Vec<AskUserQuestion>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub elicitation: Option<McpElicitation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub command: Option<CommandCard>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub goal: Option<GoalCard>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub skill_proposal: Option<SkillProposal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub skill_read: Option<SkillRead>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub skill_parts: Option<Vec<ChatSkillPart>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, ts_rs::TS)]
+#[serde(rename_all = "kebab-case")]
+pub enum ChatRenderKind {
+    Message,
+    EditGroup,
+    ToolGroup,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, ts_rs::TS)]
+pub struct ChatEdit {
+    pub file_path: String,
+    pub old_string: String,
+    pub new_string: String,
+}
+
+impl NativeChatRender {
+    fn new() -> Self {
+        Self {
+            version: 1,
+            kind: ChatRenderKind::Message,
+            group_id: String::new(),
+            group_end: None,
+            group_leader: None,
+            hidden: false,
+            continues_after: None,
+            row_id: None,
+            file_path: None,
+            edit: None,
+            output_start: None,
+            display: None,
+            summary: None,
+            questions: None,
+            elicitation: None,
+            command: None,
+            goal: None,
+            skill_proposal: None,
+            skill_read: None,
+            skill_parts: None,
+        }
+    }
 }
 
 impl ChatTranscriptMessage {
@@ -33,7 +148,8 @@ impl ChatTranscriptMessage {
             images: None,
             tool_name: None,
             is_streaming: None,
-            extra: Map::new(),
+            btw_question: None,
+            render: None,
         }
     }
 }
@@ -43,20 +159,52 @@ struct PublishedMessage {
     content_bytes: usize,
 }
 
-#[derive(Serialize)]
-struct ChatMessagePatch<'a> {
+#[derive(Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMessagePatch<'a> {
     id: &'a str,
+    #[ts(type = "'user' | 'assistant' | 'tool' | 'system' | 'btw'")]
     role: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     content: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    images: &'a Option<Vec<String>>,
+    #[ts(optional)]
+    images: Option<&'a Vec<String>>,
     #[serde(rename = "toolName", skip_serializing_if = "Option::is_none")]
-    tool_name: &'a Option<String>,
+    #[ts(optional)]
+    tool_name: Option<&'a String>,
     #[serde(rename = "isStreaming", skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     is_streaming: Option<bool>,
-    #[serde(flatten)]
-    extra: &'a Map<String, Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    btw_question: Option<&'a String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    render: Option<&'a NativeChatRender>,
+}
+
+#[derive(Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatTranscriptChange<'a> {
+    message: ChatMessagePatch<'a>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    append_content: Option<&'a str>,
+}
+
+#[derive(Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatTranscriptUpdate<'a> {
+    version: u8,
+    epoch: &'a str,
+    base_revision: u64,
+    revision: u64,
+    reset: bool,
+    start: usize,
+    delete_count: usize,
+    messages: Vec<ChatTranscriptChange<'a>>,
 }
 
 struct ChatEpoch(String);
@@ -116,9 +264,7 @@ impl ChatMessageBuffer {
                 let mut message = ChatTranscriptMessage::new("btw", "");
                 message.id = id.into();
                 message.is_streaming = Some(true);
-                message
-                    .extra
-                    .insert("btwQuestion".into(), event["question"].clone());
+                message.btw_question = event["question"].as_str().map(str::to_owned);
                 self.push(message);
             }
             Some(kind @ ("chat:btw:delta" | "chat:btw:done")) => {
@@ -140,7 +286,7 @@ impl ChatMessageBuffer {
                     )
                 };
                 message.is_streaming = Some(!done);
-                message.extra.remove("render");
+                message.render = None;
                 self.mark_changed(index);
                 self.trim();
                 self.prepare_render_model();
@@ -174,7 +320,7 @@ impl ChatMessageBuffer {
         let mut first_changed = None;
         for (index, message) in self.messages.iter_mut().enumerate() {
             if message.is_streaming == Some(true) {
-                message.extra.remove("render");
+                message.render = None;
                 first_changed.get_or_insert(index);
             }
             message.is_streaming = Some(false);
@@ -197,7 +343,7 @@ impl ChatMessageBuffer {
             .into_iter()
             .map(|mut message| {
                 message.is_streaming = Some(false);
-                message.extra.remove("render");
+                message.render = None;
                 message
             })
             .collect();
@@ -234,23 +380,21 @@ impl ChatMessageBuffer {
             return;
         };
         for index in start..self.messages.len() {
-            let cached = self.messages[index].extra.remove("render");
+            let cached = self.messages[index].render.take();
             let message = &self.messages[index];
             let mut render = if message.role == "tool"
-                && cached.as_ref().is_some_and(|r| r.get("display").is_some())
+                && cached
+                    .as_ref()
+                    .is_some_and(|render| render.display.is_some())
             {
                 cached.unwrap()
             } else {
-                let mut render = serde_json::json!({"version":1});
+                let mut render = NativeChatRender::new();
                 if message.role == "system" {
                     if let Ok(value) = serde_json::from_str::<Value>(&message.content) {
                         prepare_system_card(&value, &mut render);
-                        if let Some(proposal) = crate::prompts::cards::chat_skill_proposal(&value) {
-                            render["skillProposal"] = proposal;
-                        }
-                        if let Some(skill) = crate::prompts::cards::chat_skill_read(&value) {
-                            render["skillRead"] = skill;
-                        }
+                        render.skill_proposal = crate::prompts::cards::chat_skill_proposal(&value);
+                        render.skill_read = crate::prompts::cards::chat_skill_read(&value);
                     }
                     if let Some(name) = message
                         .content
@@ -259,8 +403,10 @@ impl ChatMessageBuffer {
                         && !name.is_empty()
                         && !name.contains(['\n', '\r'])
                     {
-                        render["command"] =
-                            serde_json::json!({"type":"inferay.command", "name":name});
+                        prepare_system_card(
+                            &serde_json::json!({"type":"inferay.command", "name":name}),
+                            &mut render,
+                        );
                     }
                 } else if message.role == "assistant"
                     && let Some(parts) = crate::prompts::cards::chat_skill_parts(
@@ -268,33 +414,20 @@ impl ChatMessageBuffer {
                         message.is_streaming == Some(true),
                     )
                 {
-                    render["skillParts"] = parts;
+                    render.skill_parts = Some(parts);
                 }
                 if message.role == "tool" {
                     let input = parse_tool_envelope(&message.content);
                     let value = input.as_ref().map_or(&Value::Null, |(value, _)| value);
-                    render["display"] = serde_json::to_value(crate::tool_presentation::display(
+                    render.display = Some(crate::tool_presentation::display(
                         message.tool_name.as_deref(),
                         value,
-                    ))
-                    .expect("tool display serialization");
-                    render["summary"] =
-                        serde_json::to_value(crate::tool_presentation::summary(value))
-                            .expect("tool summary serialization");
-                    render["questions"] =
-                        serde_json::to_value(if message.is_streaming == Some(true) {
-                            None
-                        } else {
-                            crate::tool_presentation::questions(value)
-                        })
-                        .expect("question serialization");
-                    render["elicitation"] =
-                        serde_json::to_value(if message.is_streaming == Some(true) {
-                            None
-                        } else {
-                            crate::tool_presentation::elicitation(value)
-                        })
-                        .expect("elicitation serialization");
+                    ));
+                    render.summary = crate::tool_presentation::summary(value);
+                    if message.is_streaming != Some(true) {
+                        render.questions = crate::tool_presentation::questions(value);
+                        render.elicitation = crate::tool_presentation::elicitation(value);
+                    }
                     // Complete commands can be described while executing. Editing and
                     // input consumers still wait for the authoritative settled input.
                     if message.is_streaming != Some(true)
@@ -305,29 +438,31 @@ impl ChatMessageBuffer {
                             && input.get("new_string").is_some_and(Value::is_string)
                             && let Some(path) = input.get("file_path").and_then(Value::as_str)
                         {
-                            render["filePath"] = Value::String(path.to_owned());
-                            render["edit"] = serde_json::json!({"file_path":path,"old_string":input["old_string"],"new_string":input["new_string"]});
+                            render.file_path = Some(path.to_owned());
+                            render.edit = Some(ChatEdit {
+                                file_path: path.to_owned(),
+                                old_string: input["old_string"].as_str().unwrap().to_owned(),
+                                new_string: input["new_string"].as_str().unwrap().to_owned(),
+                            });
                         }
                         let output = message.content[end..].trim_start();
                         let start = message.content.len() - output.len();
-                        render["outputStart"] =
-                            Value::from(crate::utf16_length(&message.content[..start]));
+                        render.output_start = Some(crate::utf16_length(&message.content[..start]));
                     }
                 }
                 render
             };
-            let file_path = render.get("filePath").and_then(Value::as_str);
-            let kind = if file_path.is_some() {
-                "edit-group"
+            let kind = if render.file_path.is_some() {
+                ChatRenderKind::EditGroup
             } else if message.role == "tool"
                 && !matches!(
                     message.tool_name.as_deref(),
                     Some("Edit" | "AskUserQuestion")
                 )
             {
-                "tool-group"
+                ChatRenderKind::ToolGroup
             } else {
-                "message"
+                ChatRenderKind::Message
             };
             let mut group_id = message.id.clone();
             let mut hidden = false;
@@ -338,54 +473,55 @@ impl ChatMessageBuffer {
                 hidden = previous.role == message.role
                     && previous.tool_name == message.tool_name
                     && previous.content == message.content;
-                if let Some(render) = previous.extra.get("render")
-                    && kind != "message"
-                    && render["kind"] == kind
-                    && render.get("filePath").and_then(Value::as_str) == file_path
-                    && let Some(id) = render["groupId"].as_str()
+                if let Some(previous_render) = previous.render.as_ref()
+                    && kind != ChatRenderKind::Message
+                    && previous_render.kind == kind
+                    && previous_render.file_path == render.file_path
                 {
-                    group_id = id.to_owned();
+                    group_id.clone_from(&previous_render.group_id);
                 }
             }
-            render["kind"] = Value::String(kind.into());
-            render["groupId"] = Value::String(group_id);
-            render["hidden"] = Value::Bool(hidden);
-            render["continuesAfter"] = Value::Bool(false);
-            render["groupEnd"] = Value::from(index + 1);
-            render["groupLeader"] = Value::Bool(render["groupId"] == message.id);
-            render["rowId"] = Value::String(if kind == "edit-group" {
-                format!(
-                    "edit-group:{}",
-                    render["groupId"].as_str().unwrap_or(&message.id)
-                )
-            } else if kind == "tool-group" {
+            render.kind = kind.clone();
+            render.group_id = group_id;
+            render.hidden = hidden;
+            render.continues_after = Some(false);
+            render.group_end = Some(index + 1);
+            render.group_leader = Some(render.group_id == message.id);
+            render.row_id = Some(if kind == ChatRenderKind::EditGroup {
+                format!("edit-group:{}", render.group_id)
+            } else if kind == ChatRenderKind::ToolGroup {
                 format!("tool-group:{}", message.id)
             } else {
                 message.id.clone()
             });
-            self.messages[index]
-                .extra
-                .insert("render".to_owned(), render);
-            if kind != "message"
-                && self.messages[index].extra["render"]["groupId"] != self.messages[index].id
+            self.messages[index].render = Some(render);
+            if kind != ChatRenderKind::Message
+                && self.messages[index].render.as_ref().unwrap().group_id != self.messages[index].id
             {
-                let group_id = self.messages[index].extra["render"]["groupId"].clone();
+                let group_id = self.messages[index]
+                    .render
+                    .as_ref()
+                    .unwrap()
+                    .group_id
+                    .clone();
                 let member = |&candidate: &usize| {
-                    self.messages[candidate].extra["render"]["groupId"] == group_id
-                        && !self.messages[candidate].extra["render"]["hidden"]
-                            .as_bool()
-                            .unwrap_or(false)
+                    self.messages[candidate].render.as_ref().unwrap().group_id == group_id
+                        && !self.messages[candidate].render.as_ref().unwrap().hidden
                 };
-                let leader = if kind == "edit-group" {
+                let leader = if kind == ChatRenderKind::EditGroup {
                     (0..index).find(member)
                 } else {
                     (0..index).rev().find(member)
                 };
                 if let Some(leader) = leader {
-                    if kind == "edit-group" {
-                        self.messages[leader].extra["render"]["groupEnd"] = Value::from(index + 1);
+                    if kind == ChatRenderKind::EditGroup {
+                        self.messages[leader].render.as_mut().unwrap().group_end = Some(index + 1);
                     } else if !hidden {
-                        self.messages[leader].extra["render"]["continuesAfter"] = Value::Bool(true);
+                        self.messages[leader]
+                            .render
+                            .as_mut()
+                            .unwrap()
+                            .continues_after = Some(true);
                     }
                     self.mark_changed(leader);
                 }
@@ -421,18 +557,28 @@ impl ChatMessageBuffer {
                 id: &message.id,
                 role: &message.role,
                 content: append.is_none().then_some(message.content.as_str()),
-                images: &message.images,
-                tool_name: &message.tool_name,
+                images: message.images.as_ref(),
+                tool_name: message.tool_name.as_ref(),
                 is_streaming: message.is_streaming,
-                extra: &message.extra,
+                btw_question: message.btw_question.as_ref(),
+                render: message.render.as_ref(),
             };
-            let mut change = serde_json::json!({"message":patch});
-            if let Some(append) = append {
-                change["appendContent"] = Value::String(append.to_owned());
-            }
-            changes.push(change);
+            changes.push(ChatTranscriptChange {
+                message: patch,
+                append_content: append,
+            });
         }
-        let update = serde_json::json!({"version":1,"epoch":self.epoch(),"baseRevision":self.published_revision,"revision":self.revision,"reset":reset,"start":start,"deleteCount":self.published.len().saturating_sub(start),"messages":changes});
+        let update = serde_json::to_value(ChatTranscriptUpdate {
+            version: 1,
+            epoch: self.epoch(),
+            base_revision: self.published_revision,
+            revision: self.revision,
+            reset,
+            start,
+            delete_count: self.published.len().saturating_sub(start),
+            messages: changes,
+        })
+        .expect("transcript update serialization");
         self.published.truncate(start);
         self.published.extend(
             self.messages[start..]
@@ -561,7 +707,7 @@ impl ChatMessageBuffer {
             self.replaced_content.insert(message.id.clone());
         }
         message.content = next;
-        message.extra.remove("render");
+        message.render = None;
         self.mark_changed(index);
     }
 
@@ -612,7 +758,7 @@ impl ChatMessageBuffer {
             return;
         };
         if message.is_streaming != Some(value) {
-            message.extra.remove("render");
+            message.render = None;
         }
         message.is_streaming = Some(value);
         self.mark_changed(index);
@@ -662,7 +808,7 @@ impl ChatMessageBuffer {
                 message.content =
                     truncate_chat_content(&message.content, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
                 self.replaced_content.insert(message.id.clone());
-                message.extra.remove("render");
+                message.render = None;
                 chars = javascript_length(&message.content);
             }
             self.message_chars.push(chars);
@@ -809,36 +955,68 @@ fn javascript_truthy(value: &Value) -> bool {
     }
 }
 
-fn prepare_system_card(value: &Value, render: &mut Value) {
-    let (key, fields) = match value["type"].as_str() {
+#[derive(Clone, Debug, PartialEq, Serialize, ts_rs::TS)]
+pub struct CommandCard {
+    label: String,
+    description: Option<String>,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "lowercase")]
+pub enum GoalCardStatus {
+    Active,
+    Paused,
+    Complete,
+    Cleared,
+    Empty,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalCard {
+    status: GoalCardStatus,
+    title: String,
+    objective: Option<String>,
+    turns_label: Option<String>,
+    detail: Option<String>,
+}
+
+fn prepare_system_card(value: &Value, render: &mut NativeChatRender) {
+    match value["type"].as_str() {
         Some("inferay.command")
             if value["name"]
                 .as_str()
                 .is_some_and(|name| !name.trim().is_empty()) =>
         {
-            ("command", &["name", "description", "args"][..])
+            let name = value["name"].as_str().unwrap();
+            let args = value["args"].as_str().filter(|args| !args.is_empty());
+            render.command = Some(CommandCard {
+                label: args.map_or_else(|| format!("/{name}"), |args| format!("/{name} {args}")),
+                description: value["description"].as_str().map(str::to_owned),
+            });
         }
-        Some("inferay.goal")
-            if matches!(
-                value["status"].as_str(),
-                Some("active" | "paused" | "complete" | "cleared" | "empty")
-            ) =>
-        {
-            ("goal", &["status", "objective", "detail"][..])
+        Some("inferay.goal") => {
+            let Ok(status) = serde_json::from_value::<GoalCardStatus>(value["status"].clone())
+            else {
+                return;
+            };
+            let title = match status {
+                GoalCardStatus::Active => "Pursuing Goal",
+                GoalCardStatus::Paused => "Goal Paused",
+                GoalCardStatus::Complete => "Goal Achieved",
+                GoalCardStatus::Cleared => "Goal Cleared",
+                GoalCardStatus::Empty => "No Active Goal",
+            };
+            render.goal = Some(GoalCard {
+                status,
+                title: title.into(),
+                objective: value["objective"].as_str().map(str::to_owned),
+                detail: value["detail"].as_str().map(str::to_owned),
+                turns_label: value["turns"]
+                    .as_f64()
+                    .map(|turns| format!("{turns} turn{}", if turns == 1. { "" } else { "s" })),
+            });
         }
-        _ => return,
-    };
-    let mut card = serde_json::Map::new();
-    card.insert("type".into(), value["type"].clone());
-    for field in fields {
-        if value[field].is_string() {
-            card.insert((*field).into(), value[field].clone());
-        }
+        _ => {}
     }
-    if key == "goal" && value["turns"].is_number() {
-        card.insert("turns".into(), value["turns"].clone());
-    }
-    render[key] = Value::Object(card);
 }
 
 #[cfg(test)]
@@ -858,9 +1036,10 @@ mod output_reference_tests {
         let mut buffer = ChatMessageBuffer::default();
         buffer.replace_messages(vec![message]);
         let message = &buffer.messages()[0];
-        let render = &message.extra["render"];
-        assert!(render.get("trailingOutput").is_none());
-        let start = render["outputStart"].as_u64().unwrap() as usize;
+        let render = message.render.as_ref().unwrap();
+        let serialized = serde_json::to_value(render).unwrap();
+        assert!(serialized.get("trailingOutput").is_none());
+        let start = render.output_start.unwrap();
         assert_eq!(
             crate::utf16_slice(
                 &message.content,
@@ -873,6 +1052,9 @@ mod output_reference_tests {
         // Restoring the saved transcript rebuilds this reference from its source.
         let saved = buffer.messages().to_vec();
         buffer.replace_messages(saved);
-        assert_eq!(buffer.messages()[0].extra["render"]["outputStart"], start);
+        assert_eq!(
+            buffer.messages()[0].render.as_ref().unwrap().output_start,
+            Some(start)
+        );
     }
 }

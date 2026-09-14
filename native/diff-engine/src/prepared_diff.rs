@@ -18,8 +18,7 @@ pub struct LineTextSegment {
 #[serde(rename_all = "camelCase")]
 pub struct PreparedEditLine {
     #[serde(rename = "type")]
-    #[ts(type = "'context' | 'removed' | 'added'")]
-    kind: &'static str,
+    line_type: GitDiffLineType,
     text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -34,17 +33,12 @@ pub struct PreparedEditLine {
 
 #[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
-pub struct PreparedEditHunk {
-    lines: Vec<PreparedEditLine>,
-    old_start: usize,
-    old_count: usize,
-    new_start: usize,
-    new_count: usize,
-}
-
-#[derive(Debug, Serialize, ts_rs::TS)]
 pub struct PreparedEditDiff {
-    hunks: Vec<PreparedEditHunk>,
+    lines: Vec<PreparedEditLine>,
+    line_count: usize,
+    content_width_chars: usize,
+    virtualized: bool,
+    has_changes: bool,
 }
 
 fn inline_tokens(text: &str) -> Vec<&str> {
@@ -183,15 +177,13 @@ pub fn prepare_edit_diff(
     }
     let old: Vec<&str> = before.split('\n').collect();
     let new: Vec<&str> = after.split('\n').collect();
-    let mut hunks = Vec::new();
+    let mut lines = Vec::new();
     let mut removed = Vec::new();
     let mut added = Vec::new();
     let mut inline_budget = 4_000_000usize;
     let mut flush = |removed: &mut Vec<PreparedEditLine>,
                      added: &mut Vec<PreparedEditLine>,
-                     hunks: &mut Vec<PreparedEditHunk>,
-                     old_cursor: usize,
-                     new_cursor: usize| {
+                     lines: &mut Vec<PreparedEditLine>| {
         if removed.is_empty() && added.is_empty() {
             return;
         }
@@ -201,56 +193,49 @@ pub fn prepare_edit_diff(
             old.segments = Some(old_segments);
             new.segments = Some(new_segments);
         }
-        let old_start = removed
-            .first()
-            .and_then(|line| line.old_line_num)
-            .unwrap_or(old_cursor.saturating_sub(1));
-        let new_start = added
-            .first()
-            .and_then(|line| line.new_line_num)
-            .unwrap_or(new_cursor.saturating_sub(1));
-        let old_count = removed.len();
-        let new_count = added.len();
-        let mut lines = std::mem::take(removed);
+        lines.append(removed);
         lines.append(added);
-        hunks.push(PreparedEditHunk {
-            lines,
-            old_start,
-            old_count,
-            new_start,
-            new_count,
-        });
     };
-    let (mut old_cursor, mut new_cursor) = (1, 1);
     for (op, i, j) in diff_operations(&old, &new) {
         match op {
-            DiffOperation::Unchanged => {
-                flush(&mut removed, &mut added, &mut hunks, old_cursor, new_cursor)
-            }
+            DiffOperation::Unchanged => flush(&mut removed, &mut added, &mut lines),
             DiffOperation::Removed => removed.push(PreparedEditLine {
-                kind: "removed",
+                line_type: GitDiffLineType::Remove,
                 text: old[i.unwrap()].to_owned(),
                 old_line_num: i.map(|i| i + 1),
                 new_line_num: None,
                 segments: None,
             }),
             DiffOperation::Added => added.push(PreparedEditLine {
-                kind: "added",
+                line_type: GitDiffLineType::Add,
                 text: new[j.unwrap()].to_owned(),
                 old_line_num: None,
                 new_line_num: j.map(|j| j + 1),
                 segments: None,
             }),
         }
-        if let Some(i) = i {
-            old_cursor = i + 2;
-        }
-        if let Some(j) = j {
-            new_cursor = j + 2;
-        }
     }
-    flush(&mut removed, &mut added, &mut hunks, old_cursor, new_cursor);
-    Ok(PreparedEditDiff { hunks })
+    flush(&mut removed, &mut added, &mut lines);
+    let content_width_chars = lines
+        .iter()
+        .map(|line| {
+            line.text
+                .chars()
+                .map(|ch| if ch == '\t' { 4 } else { ch.len_utf16() })
+                .sum::<usize>()
+        })
+        .max()
+        .unwrap_or(0)
+        .saturating_add(10)
+        .clamp(34, 8000);
+    let line_count = lines.len();
+    Ok(PreparedEditDiff {
+        lines,
+        line_count,
+        content_width_chars,
+        virtualized: line_count > 80,
+        has_changes: line_count > 0,
+    })
 }
 
 /// Conflict markers are domain syntax; the browser only themes these rows.
@@ -291,4 +276,45 @@ pub fn prepare_conflict_lines(content: &str) -> Vec<GitDiffLine> {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod edit_card_tests {
+    use super::*;
+
+    #[test]
+    fn changed_rows_preserve_order_numbers_and_inline_segments_across_hunks() {
+        let prepared = serde_json::to_value(
+            prepare_edit_diff(
+                "old one\nunchanged\nold two",
+                "new one\nunchanged\nnew two",
+                &[],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let lines = prepared["lines"].as_array().expect("flat changed rows");
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines[0]["text"], "old one");
+        assert_eq!(lines[0]["oldLineNum"], 1);
+        assert_eq!(lines[1]["newLineNum"], 1);
+        assert_eq!(lines[2]["oldLineNum"], 3);
+        assert_eq!(lines[3]["text"], "new two");
+        assert_eq!(lines[0]["segments"][0]["changed"], true);
+        assert_eq!(lines[0]["segments"][1]["changed"], false);
+        assert!(prepared.get("hunks").is_none());
+        assert_eq!(prepared["contentWidthChars"], 34);
+    }
+
+    #[test]
+    fn width_uses_browser_units_tab_expansion_and_a_rendering_cap() {
+        for (text, width) in [("😀\t".repeat(5), 40), ("x".repeat(9000), 8000)] {
+            let prepared =
+                serde_json::to_value(prepare_edit_diff("", &text, &[]).unwrap()).unwrap();
+            assert_eq!(prepared["contentWidthChars"], width);
+        }
+        let unchanged =
+            serde_json::to_value(prepare_edit_diff("same", "same", &[]).unwrap()).unwrap();
+        assert_eq!(unchanged["lines"], serde_json::json!([]));
+    }
 }

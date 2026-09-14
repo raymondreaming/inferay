@@ -6,6 +6,55 @@ use crate::{array, string};
 use serde_json::{Value, json};
 use wasm_bindgen::prelude::*;
 
+#[derive(Default, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum TranscriptAdmission {
+    #[default]
+    None,
+    Ignore,
+    Resync {
+        reconnect: bool,
+    },
+    Sync {
+        start: usize,
+        delete_count: usize,
+    },
+    Patch {
+        start: usize,
+        delete_count: usize,
+    },
+}
+
+#[derive(serde::Deserialize, serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatLoadingState {
+    is_loading: bool,
+    status: String,
+    start_time: Option<f64>,
+}
+
+#[derive(Default, serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatEventPlan {
+    admission: TranscriptAdmission,
+    ready: bool,
+    refresh_workspace: bool,
+    #[ts(type = "'cleared' | 'exit' | null")]
+    control: Option<String>,
+    status: Option<ChatLoadingState>,
+    finish: bool,
+    checkpoints: bool,
+    pending_steers: Vec<usize>,
+    stage_steer: bool,
+    resolve_steer: Option<String>,
+    queue: bool,
+    notice: Option<String>,
+}
+
 fn valid_integer(value: &Value) -> Option<u64> {
     value.as_u64().filter(|v| *v <= 9_007_199_254_740_991)
 }
@@ -39,13 +88,83 @@ impl ChatReplica {
     pub fn reconnect(&mut self) {
         self.reconnecting = true;
     }
-    pub fn receive(&mut self, message: &str) -> Result<String, JsValue> {
+    pub fn receive(&mut self, message: &str, pane: &str, current: &str) -> Result<String, JsValue> {
         let message = serde_json::from_str(message)
             .map_err(|e: serde_json::Error| JsValue::from_str(&e.to_string()))?;
-        serde_json::to_string(&self.admit(&message)).map_err(|e| JsValue::from_str(&e.to_string()))
+        let current = serde_json::from_str(current)
+            .map_err(|e: serde_json::Error| JsValue::from_str(&e.to_string()))?;
+        serde_json::to_string(&self.event(&message, pane, &current))
+            .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 }
 impl ChatReplica {
+    fn event(&mut self, message: &Value, pane: &str, current: &Value) -> Value {
+        let kind = string(&message["type"]);
+        if message["paneId"] != pane
+            || !(kind.starts_with("chat:") || kind.starts_with("checkpoint:"))
+        {
+            return Value::Null;
+        }
+        let admission =
+            serde_json::from_value(self.admit(message)).expect("native transcript admission");
+        let mut plan = ChatEventPlan {
+            admission,
+            ..Default::default()
+        };
+        if matches!(
+            plan.admission,
+            TranscriptAdmission::Ignore | TranscriptAdmission::Resync { .. }
+        ) {
+            return json!(plan);
+        }
+        if kind == "chat:control" {
+            plan.control = matches!(string(&message["action"]), "cleared" | "exit")
+                .then(|| string(&message["action"]).into());
+            return json!(plan);
+        }
+        plan.ready = kind == "chat:sync";
+        plan.refresh_workspace = matches!(kind, "chat:summary" | "chat:workspace");
+        plan.finish = kind == "chat:done";
+        plan.checkpoints = message["checkpoints"].is_array();
+        plan.pending_steers = if plan.ready {
+            array(&message["pendingSteers"])
+                .iter()
+                .enumerate()
+                .filter_map(|(index, steer)| steer["id"].is_string().then_some(index))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        plan.stage_steer = kind == "chat:steer_pending" && message["message"]["id"].is_string();
+        plan.resolve_steer = (kind == "chat:steered")
+            .then(|| message["messageId"].as_str().map(str::to_owned))
+            .flatten();
+        plan.queue = kind == "chat:queue" && message["queue"].is_array();
+        let status = if message["runStatus"].is_object() {
+            run_status(
+                &json!({"current":current,"incoming":message["runStatus"],"terminal":matches!(kind,"chat:done"|"chat:error")}),
+            )
+        } else if kind == "chat:error" {
+            json!({"isLoading":false,"status":"error","startTime":null})
+        } else {
+            Value::Null
+        };
+        if !status.is_null() && status != *current {
+            plan.status = serde_json::from_value(status).ok();
+        }
+        plan.notice = match kind {
+            "chat:error" if message["modelVersion"] != 1 => {
+                Some(message["error"].as_str().unwrap_or("Chat failed").into())
+            }
+            "checkpoint:reverted" => Some(format!(
+                "Reverted {} file(s) to checkpoint",
+                array(&message["restoredFiles"]).len()
+            )),
+            "checkpoint:error" => Some(format!("Revert failed: {}", string(&message["error"]))),
+            _ => None,
+        };
+        json!(plan)
+    }
     fn resync(&mut self) -> Value {
         let reconnect = !self.reconnecting;
         self.reconnecting = true;
@@ -201,9 +320,81 @@ pub fn merge_order(i: &Value) -> Value {
     json!(order)
 }
 
+/// Local submission starts activity immediately; provider acknowledgement keeps
+/// that start time. A reconnect's old idle snapshot cannot cancel a pending send.
+pub fn run_status(input: &serde_json::Value) -> serde_json::Value {
+    use serde_json::json;
+    let current = &input["current"];
+    if input["begin"] == true {
+        return if current["isLoading"] == true {
+            current.clone()
+        } else {
+            json!({"isLoading":true,"status":"sending","startTime":input["now"]})
+        };
+    }
+    let mut next = input["incoming"].clone();
+    if current["status"] == "sending" && next["status"] == "idle" && input["terminal"] != true {
+        return current.clone();
+    }
+    if next["isLoading"] == true
+        && current["isLoading"] == true
+        && let Some(start) = current["startTime"].as_u64()
+    {
+        next["startTime"] = json!(
+            next["startTime"]
+                .as_u64()
+                .map_or(start, |native| native.min(start))
+        );
+    }
+    next
+}
+
 #[cfg(test)]
 mod reconnect_tests {
     use super::*;
+
+    #[test]
+    fn event_plan_rejects_wrong_panes_and_stale_sync_side_effects() {
+        let mut replica = ChatReplica::new();
+        let idle = json!({"isLoading":false,"status":"idle","startTime":null});
+        assert!(
+            replica
+                .event(&json!({"type":"chat:done","paneId":"other"}), "pane", &idle)
+                .is_null()
+        );
+        let sync = json!({"type":"chat:sync","paneId":"pane","modelVersion":1,"epoch":"one","revision":3,"messages":[],"pendingSteers":[{}, {"id":"valid"}]});
+        let plan = replica.event(&sync, "pane", &idle);
+        assert_eq!(plan["ready"], true);
+        assert_eq!(plan["pendingSteers"], json!([1]));
+        let mut stale = sync;
+        stale["revision"] = json!(2);
+        let plan = replica.event(&stale, "pane", &idle);
+        assert_eq!(plan["admission"]["kind"], "ignore");
+        assert_eq!(plan["ready"], false);
+        assert_eq!(plan["pendingSteers"], json!([]));
+    }
+
+    #[test]
+    fn event_plan_preserves_pending_activity_and_formats_terminal_notices() {
+        let mut replica = ChatReplica::new();
+        let sending = json!({"isLoading":true,"status":"sending","startTime":123});
+        let event = |kind| json!({"type":kind,"paneId":"pane"});
+        let mut idle = event("chat:status");
+        idle["runStatus"] = json!({"isLoading":false,"status":"idle","startTime":null});
+        assert!(replica.event(&idle, "pane", &sending)["status"].is_null());
+        let failed = replica.event(&event("chat:error"), "pane", &sending);
+        assert_eq!(failed["status"]["status"], "error");
+        assert_eq!(failed["notice"], "Chat failed");
+        let mut native_error = event("chat:error");
+        native_error["modelVersion"] = json!(1);
+        assert!(replica.event(&native_error, "pane", &sending)["notice"].is_null());
+        let mut reverted = event("checkpoint:reverted");
+        reverted["restoredFiles"] = json!(["a", "b"]);
+        assert_eq!(
+            replica.event(&reverted, "pane", &sending)["notice"],
+            "Reverted 2 file(s) to checkpoint"
+        );
+    }
 
     #[test]
     fn unchanged_reconnect_preserves_history_and_accepts_the_next_delta() {

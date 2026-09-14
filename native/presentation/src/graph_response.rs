@@ -5,6 +5,23 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(serde::Serialize, ts_rs::TS)]
+pub struct GraphData<'a> {
+    #[serde(flatten)]
+    snapshot: &'a GitGraphSnapshot,
+    presentation: GraphPresentation<'a>,
+    #[ts(as = "BTreeMap<String, git_actions::GraphActionPresentation>")]
+    actions: &'a Value,
+}
+
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphSemanticPreferences<'a> {
+    pub hidden_refs: &'a [String],
+    pub solo_refs: &'a [String],
+    pub pinned_refs: &'a [String],
+}
+
+#[derive(serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphPresentation<'a> {
     pub containing_branches: BTreeMap<&'a str, &'a GitGraphRef>,
@@ -25,6 +42,11 @@ pub fn response(
     solo: &[String],
     pinned: &[String],
 ) -> Value {
+    let preferences = GraphSemanticPreferences {
+        hidden_refs: hidden,
+        solo_refs: solo,
+        pinned_refs: pinned,
+    };
     use inferay_core::repository::GitGraphRefKind;
     let commits = &snapshot.commits;
     let refs = commits
@@ -42,7 +64,7 @@ pub fn response(
         })
         .collect::<BTreeMap<_, _>>();
     let mut reachable = BTreeSet::new();
-    for name in solo {
+    for name in preferences.solo_refs {
         for [start, end] in snapshot.ancestry.get(name).into_iter().flatten() {
             reachable.extend(
                 commits
@@ -53,7 +75,8 @@ pub fn response(
             );
         }
     }
-    let pinned_columns = pinned
+    let pinned_columns = preferences
+        .pinned_refs
         .iter()
         .filter_map(|name| {
             let target = &refs.get(name.as_str())?.target;
@@ -63,26 +86,28 @@ pub fn response(
                 .map(|commit| commit.column)
         })
         .collect::<Vec<_>>();
-    let presentation = json!(GraphPresentation {
+    let presentation = GraphPresentation {
         containing_branches: containing,
         default_remote_name: refs
             .values()
             .find(|reference| reference.kind == GitGraphRefKind::RemoteBranch)
             .and_then(|reference| reference.remote_name.as_deref()),
-        hidden_ref_details: hidden
+        hidden_ref_details: preferences
+            .hidden_refs
             .iter()
             .filter_map(|name| refs.get(name.as_str()).copied())
             .collect::<Vec<_>>(),
-        hidden_ref_names: hidden,
+        hidden_ref_names: preferences.hidden_refs,
         pinned_columns,
-        pinned_ref_names: pinned,
+        pinned_ref_names: preferences.pinned_refs,
         reachable_history: reachable,
         selectable_items: commits.iter().map(|commit| &commit.id).collect::<Vec<_>>(),
-    });
-    let mut response = json!(snapshot);
-    response["presentation"] = presentation;
-    response["actions"] = git_actions::CATALOG.clone();
-    response
+    };
+    json!(GraphData {
+        snapshot: &snapshot,
+        presentation,
+        actions: &git_actions::CATALOG
+    })
 }
 
 #[cfg(test)]

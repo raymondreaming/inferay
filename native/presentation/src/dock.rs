@@ -1,5 +1,117 @@
 //! Pure dock layout shared by the renderer preview and native persistence.
+use crate::{flag, number, string};
 use serde_json::{Value, json};
+
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DockPointerTarget {
+    id: String,
+    #[ts(type = "'center' | 'left' | 'right' | 'top' | 'bottom'")]
+    edge: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    row_index: Option<usize>,
+}
+
+pub fn pointer_target(input: &Value) -> Option<DockPointerTarget> {
+    if input["mode"] != "rows"
+        && number(&input["panelCount"]) > if flag(&input["insert"]) { 0. } else { 1. }
+    {
+        let edge = hit(&json!({"x":input["x"],"y":input["y"],"rect":input["root"],"outer":true}));
+        if let Some(edge) = edge.as_str() {
+            return Some(DockPointerTarget {
+                id: "__workspace-root__".into(),
+                edge: edge.into(),
+                row_index: None,
+            });
+        }
+    }
+    if let Some(id) = input["rowId"].as_str() {
+        return input["rowIndex"].as_u64().map(|index| DockPointerTarget {
+            id: id.into(),
+            edge: "center".into(),
+            row_index: Some(index as usize),
+        });
+    }
+    let id = input["cellId"].as_str().filter(|id| !id.is_empty())?;
+    if !flag(&input["insert"]) && input["source"] == id {
+        return None;
+    }
+    Some(DockPointerTarget {
+        id: id.into(),
+        edge: string(&hit(
+            &json!({"x":input["x"],"y":input["y"],"rect":input["cell"]}),
+        ))
+        .into(),
+        row_index: None,
+    })
+}
+
+#[derive(serde::Serialize, ts_rs::TS)]
+pub struct DockWheel {
+    capture: bool,
+    horizontal: bool,
+    delta: f64,
+}
+
+pub fn wheel(input: &Value) -> DockWheel {
+    let dx = number(&input["deltaX"]);
+    let dy = number(&input["deltaY"]);
+    let rows = input["mode"] == "rows";
+    let mut result = DockWheel {
+        capture: false,
+        horizontal: rows,
+        delta: 0.,
+    };
+    if rows {
+        result.capture = flag(&input["shift"]) || dx.abs() > 0. && dx.abs() >= dy.abs();
+        if result.capture && !flag(&input["selected"]) {
+            result.delta = if flag(&input["shift"]) { dy } else { dx };
+        }
+    } else if input["mode"] == "grid" && dy != 0. {
+        let inner = &input["inner"];
+        let can_scroll = if dy < 0. {
+            number(&inner["offset"]) > 0.
+        } else {
+            number(&inner["offset"]) + number(&inner["size"]) < number(&inner["extent"]) - 1.
+        };
+        result.capture = !flag(&input["selected"]) || inner.is_null() || !can_scroll;
+        if result.capture {
+            result.delta = dy;
+        }
+    }
+    result
+}
+
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DockCanvas {
+    min_height: String,
+    width: String,
+    sparse: bool,
+}
+
+#[derive(serde::Serialize, ts_rs::TS)]
+pub struct DockSaved {
+    tree: Option<Tree>,
+    preset: (Option<String>, usize),
+}
+
+#[derive(serde::Serialize, ts_rs::TS)]
+pub struct DockLayout {
+    canvas: DockCanvas,
+    tree: Option<Tree>,
+    saved: DockSaved,
+}
+
+pub fn responsive_columns(input: &Value) -> Value {
+    json!(
+        (number(&input["width"]) / 300.)
+            .floor()
+            .min(number(&input["columns"]))
+            .clamp(1., 4.)
+    )
+}
 
 pub fn resize_preview(body: &Value) -> Result<Value, String> {
     let mut tree: Tree =
@@ -243,12 +355,12 @@ pub fn project(body: &Value) -> Result<Value, String> {
         columns
     };
     let display_columns = display_columns.min(if grid { ids.len().max(1) } else { columns });
-    let preset = json!([body["mode"], columns]);
+    let preset = (body["mode"].as_str().map(str::to_owned), columns);
     let saved = body.get("saved").filter(|value| value.is_object());
     let legacy = body.get("legacy").filter(|value| value.is_object());
     let stored = saved.map(|s| &s["tree"]).or(legacy);
     let tree = stored.and_then(|v| serde_json::from_value::<Tree>(v.clone()).ok());
-    let reset = body["mode"] == "grid" && saved.is_some_and(|s| s["preset"] != preset);
+    let reset = body["mode"] == "grid" && saved.is_some_and(|s| s["preset"] != json!(preset));
     let mut tree = if reset {
         build(&ids, columns)
     } else {
@@ -330,7 +442,10 @@ pub fn project(body: &Value) -> Result<Value, String> {
     }
     // Display padding must never enter persisted geometry.
     tree = tree.and_then(|t| t.map(&|id| Some(Tree::Panel { id }), true));
-    let saved = json!({"tree":tree,"preset":preset});
+    let saved = DockSaved {
+        tree: tree.clone(),
+        preset,
+    };
     let tree = tree.map(|tree| {
         let tree = tree.constrain(display_columns);
         if grid {
@@ -339,10 +454,63 @@ pub fn project(body: &Value) -> Result<Value, String> {
             tree
         }
     });
-    Ok(json!({
-        "saved": saved,
-        "tree": tree,
-        "horizontal": tree.as_ref().map_or(1, |tree| tree.span("horizontal")),
-        "vertical": tree.as_ref().map_or(1, |tree| tree.span("vertical")),
+    let horizontal = tree.as_ref().map_or(1, |tree| tree.span("horizontal"));
+    let vertical = tree.as_ref().map_or(1, |tree| tree.span("vertical"));
+    let canvas = DockCanvas {
+        min_height: format!(
+            "max({}%, {}px)",
+            (vertical as f64 / number(&body["rows"]).max(1.) * 100.).max(100.),
+            vertical * 340
+        ),
+        width: format!(
+            "{}%",
+            if grid && tree.is_some() {
+                horizontal as f64 / display_columns as f64 * 100.
+            } else {
+                100.
+            }
+        ),
+        sparse: grid && tree.is_some() && horizontal < display_columns,
+    };
+    Ok(json!(DockLayout {
+        saved,
+        tree,
+        canvas,
     }))
+}
+
+/// Resolve a pointer against measured bounds; event/DOM access stays in the renderer.
+fn hit(body: &Value) -> Value {
+    let number = |key: &str| body["rect"][key].as_f64().unwrap_or_default();
+    let x = body["x"].as_f64().unwrap_or_default() - number("left");
+    let y = body["y"].as_f64().unwrap_or_default() - number("top");
+    let width = number("width");
+    let height = number("height");
+    let outer = body["outer"] == true;
+    let (x, y, right, bottom) = if outer {
+        (x, y, width - x, height - y)
+    } else {
+        let x = x / width.max(1.);
+        let y = y / height.max(1.);
+        (x, y, 1. - x, 1. - y)
+    };
+    let (edge, distance) = [
+        ("left", x),
+        ("right", right),
+        ("top", y),
+        ("bottom", bottom),
+    ]
+    .into_iter()
+    .reduce(|a, b| if b.1 < a.1 { b } else { a })
+    .expect("four edges");
+    if outer {
+        let band = (width.min(height) * 0.1).clamp(28., 72.);
+        if distance >= 0. && distance <= band {
+            json!(edge)
+        } else {
+            Value::Null
+        }
+    } else {
+        json!(if distance > 0.28 { "center" } else { edge })
+    }
 }

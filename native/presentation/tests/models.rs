@@ -3,6 +3,164 @@ use serde_json::{Value, json};
 fn render(op: &str, input: Value) -> Value {
     project(op, &input).unwrap()
 }
+fn dock(input: &Value) -> Result<Value, String> {
+    inferay_presentation::dock::project(input)
+}
+
+#[test]
+fn ui_timing_summaries_group_comparable_ready_samples_and_compute_percentiles() {
+    let context = json!({"retained":false,"alreadySelected":false,"visibleChats":1,
+        "activeRuns":0,"viewportWidth":1200,"viewportHeight":800,"targetWidth":900});
+    let mut samples = (1..=20)
+        .map(|frame| {
+            json!({"kind":"repository","result":"frame-ready","target":"repo",
+            "context":context,"frameReadyMs":frame})
+        })
+        .collect::<Vec<_>>();
+    samples.push(
+        json!({"kind":"repository","result":"timeout","target":"repo",
+        "context":context,"frameReadyMs":1000}),
+    );
+    let mut selected_context = context.clone();
+    selected_context["alreadySelected"] = json!(true);
+    samples.push(
+        json!({"kind":"repository","result":"frame-ready","target":"repo",
+        "context":selected_context,"frameReadyMs":1000}),
+    );
+    assert_eq!(
+        render("uiTimingSummaries", json!(samples)),
+        json!([{"kind":"repository","target":"repo","context":context,
+            "count":20,"medianMs":10.5,"p95Ms":19.0}])
+    );
+}
+
+#[test]
+fn workspace_mutation_plan_distinguishes_selection_from_structure() {
+    let plan = |state: &Value, action: Value| {
+        json!(inferay_presentation::workbench::workspace_mutation_plan(
+            &json!({"state":state,"action":action})
+        ))
+    };
+    let state = json!({"selectedGroupId":"g", "groups":[{"id":"g","selectedPaneId":"a"}],
+        "repositories":{"workspaces":[{"cwd":"/repo","entries":[{"groupId":"g","pane":{"id":"a"}}]}]}});
+    for action in [
+        json!({"type":"selectPane","groupId":"g","paneId":"a"}),
+        json!({"type":"selectRepository","cwd":"/repo"}),
+    ] {
+        assert_eq!(
+            plan(&state, action),
+            json!({"selection":{"groupId":"g","paneId":"a"},"unchanged":true})
+        );
+    }
+    assert_eq!(
+        plan(&state, json!({"type":"selectWorkspace","groupId":"g"})),
+        json!({"selection":{"groupId":"g"},"unchanged":true})
+    );
+    assert_eq!(
+        plan(
+            &state,
+            json!({"type":"selectPane","groupId":"g","paneId":"b"})
+        ),
+        json!({"selection":{"groupId":"g","paneId":"b"},"unchanged":false})
+    );
+    for action in [
+        Value::Null,
+        json!({"type":"addPane","groupId":"g"}),
+        json!({"type":"selectRepository","cwd":"/missing"}),
+    ] {
+        assert_eq!(
+            plan(&state, action),
+            json!({"selection":null,"unchanged":false})
+        );
+    }
+}
+
+#[test]
+fn retained_workspaces_follow_group_membership_and_evict_only_inactive_views() {
+    let key = |group: &str, cwd: Option<&str>| json!([group, cwd]).to_string();
+    let mut input = json!({
+        "groups": [
+            {"id":"first", "panes":[{"id":"b"},{"id":"a"},{"id":"loose"}]},
+            {"id":"empty", "panes":[]},
+            {"id":"second", "panes":[{"id":"c"}]}
+        ],
+        "repositories": {
+            "workspaces":[{"cwd":"/repo", "entries":[
+                {"groupId":"first","pane":{"id":"a"}},
+                {"groupId":"second","pane":{"id":"c"}},
+                {"groupId":"first","pane":{"id":"b"}}
+            ]}],
+            "unassignedEntries":[{"groupId":"first","pane":{"id":"loose"}}]
+        },
+        "activeKey":key("first", Some("/repo")), "previous":[]
+    });
+    let first = render("retainedWorkspaces", input.clone());
+    assert_eq!(
+        first,
+        json!([{
+            "key":key("first", Some("/repo")), "groupIndex":0,
+            "cwd":"/repo", "paneIndices":[0,1]
+        }])
+    );
+    input["previous"] = json!([
+        key("first", Some("/repo")),
+        "deleted",
+        key("first", Some("/repo"))
+    ]);
+    input["activeKey"] = json!(key("empty", None));
+    let next = render("retainedWorkspaces", input.clone());
+    assert_eq!(next.as_array().unwrap().len(), 2);
+    assert_eq!(
+        next[1],
+        json!({"key":key("empty", None), "groupIndex":1, "cwd":null, "paneIndices":[]})
+    );
+    input["activeKey"] = json!(key("first", None));
+    assert_eq!(
+        render("retainedWorkspaces", input.clone())[1]["paneIndices"],
+        json!([2])
+    );
+    input["activeKey"] = json!(key("second", Some("/repo")));
+    assert_eq!(
+        render("retainedWorkspaces", input.clone())[1]["groupIndex"],
+        2
+    );
+    input["activeKey"] = json!("missing");
+    assert_eq!(render("retainedWorkspaces", input), json!([]));
+
+    let mut input = json!({"groups":[], "repositories":{"workspaces":[],"unassignedEntries":[]}, "previous":[]});
+    for i in 0..10 {
+        let group = format!("group-{i}");
+        input["groups"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"id":group,"panes":[]}));
+        input["previous"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!(key(&group, None)));
+    }
+    input["activeKey"] = json!(key("group-0", None));
+    let retained = render("retainedWorkspaces", input.clone());
+    assert_eq!(retained.as_array().unwrap().len(), 8);
+    assert_eq!(retained[0]["groupIndex"], 3);
+    assert_eq!(retained[7]["groupIndex"], 0);
+
+    // The active workspace survives even when its pane count alone exceeds the budget.
+    for i in 0..25 {
+        let pane = json!({"id":format!("pane-{i}")});
+        input["groups"][0]["panes"]
+            .as_array_mut()
+            .unwrap()
+            .push(pane.clone());
+        input["repositories"]["unassignedEntries"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"groupId":"group-0","pane":pane}));
+    }
+    let retained = render("retainedWorkspaces", input);
+    assert_eq!(retained.as_array().unwrap().len(), 1);
+    assert_eq!(retained[0]["paneIndices"].as_array().unwrap().len(), 25);
+}
 
 #[test]
 fn decorated_segments_preserve_unicode_text_and_only_highlight_known_tokens() {
@@ -45,17 +203,18 @@ fn decorated_segments_preserve_unicode_text_and_only_highlight_known_tokens() {
 
 #[test]
 fn composer_offsets_follow_utf16_and_tokens_respect_word_boundaries() {
+    let state = json!({"show":false,"selectedIdx":0,"query":"","index":-1});
     assert_eq!(
         render(
-            "trigger",
-            json!({"value":"🦀 /review","cursorPos":10,"trigger":"/"})
+            "completionMenuInput",
+            json!({"state":state,"value":"🦀 /review","cursorPos":10,"trigger":"/"})
         ),
-        json!({"index":3,"query":"review"})
+        json!({"show":true,"selectedIdx":0,"index":3,"query":"review"})
     );
     assert_eq!(
         render(
-            "trigger",
-            json!({"value":"a/b","cursorPos":3,"trigger":"/"})
+            "completionMenuInput",
+            json!({"state":state,"value":"a/b","cursorPos":3,"trigger":"/"})
         ),
         Value::Null
     );
@@ -175,39 +334,33 @@ fn transcript_local_notices_keep_their_anchor_and_acknowledged_sends_disappear()
 fn dock_preview_preserves_saved_geometry_and_reconciles_membership() {
     let input =
         serde_json::json!({"ids":["a","b","c"],"columns":3,"mode":"grid","visibleColumns":3});
-    let first = inferay_presentation::project("workspaceDock", &input).unwrap();
-    assert_eq!(first["horizontal"], 3);
-    let resized = inferay_presentation::project(
-        "workspaceDock",
-        &serde_json::json!({
-            "saved":first["saved"], "action":{"type":"resize","path":[],"ratio":0.7},
-            "ids":["a","b","c"],"columns":3,"mode":"grid","visibleColumns":3,
-        }),
-    )
+    let first = dock(&input).unwrap();
+    assert_eq!(first["canvas"]["width"], "100%");
+    let resized = dock(&serde_json::json!({
+        "saved":first["saved"], "action":{"type":"resize","path":[],"ratio":0.7},
+        "ids":["a","b","c"],"columns":3,"mode":"grid","visibleColumns":3,
+    }))
     .unwrap();
     assert_eq!(resized["tree"]["ratio"], 0.7);
-    let restored = inferay_presentation::project("workspaceDock", &serde_json::json!({
+    let restored = dock(&serde_json::json!({
         "saved":resized["saved"],"ids":["a","b","c"],"columns":3,"mode":"grid","visibleColumns":3,
-    })).unwrap();
+    }))
+    .unwrap();
     assert_eq!(resized, restored);
-    let narrow = inferay_presentation::project("workspaceDock", &serde_json::json!({
+    let narrow = dock(&serde_json::json!({
         "saved":resized["saved"],"ids":["a","b","c"],"columns":3,"mode":"grid","visibleColumns":1,
-    })).unwrap();
-    assert_eq!(narrow["horizontal"], 1);
-    assert_eq!(narrow["vertical"], 3);
+    }))
+    .unwrap();
+    assert_eq!(narrow["canvas"]["width"], "100%");
+    assert_eq!(narrow["canvas"]["minHeight"], "max(300%, 1020px)");
     assert_eq!(narrow["saved"], resized["saved"]);
-    let changed = inferay_presentation::project(
-        "workspaceDock",
-        &serde_json::json!({
-            "saved":resized["saved"],"ids":["a","d"],"columns":3,"mode":"grid","visibleColumns":3,
-        }),
-    )
+    let changed = dock(&serde_json::json!({
+        "saved":resized["saved"],"ids":["a","d"],"columns":3,"mode":"grid","visibleColumns":3,
+    }))
     .unwrap();
     assert_eq!(changed["tree"]["first"]["id"], "a");
     assert_eq!(changed["tree"]["second"]["id"], "d");
-    assert!(
-        inferay_presentation::project("workspaceDock", &serde_json::json!({"ids":[5]})).is_err()
-    );
+    assert!(dock(&serde_json::json!({"ids":[5]})).is_err());
 }
 
 #[test]
@@ -282,7 +435,7 @@ fn grid_uses_available_chats_then_preserves_columns_in_partial_rows() {
         for count in 1..=10 {
             let ids: Vec<_> = (0..count).map(|i| i.to_string()).collect();
             let input = json!({"ids":ids,"columns":columns,"visibleColumns":columns,"mode":"grid","saved":saved});
-            let layout = project("workspaceDock", &input).unwrap();
+            let layout = dock(&input).unwrap();
             let mut actual = vec![];
             widths(&layout["tree"], 1.0, &mut actual);
             assert_eq!(actual.len(), count);
@@ -294,7 +447,7 @@ fn grid_uses_available_chats_then_preserves_columns_in_partial_rows() {
             assert!(!layout["saved"].to_string().contains("empty"));
             let mut repeat_input = input.clone();
             repeat_input["saved"] = layout["saved"].clone();
-            let repeated = project("workspaceDock", &repeat_input).unwrap();
+            let repeated = dock(&repeat_input).unwrap();
             // Persisted geometry projects to the same padded rows on subsequent renders.
             assert_eq!(repeated["tree"], layout["tree"]);
             saved = layout["saved"].clone();
@@ -305,8 +458,8 @@ fn grid_uses_available_chats_then_preserves_columns_in_partial_rows() {
 #[test]
 fn grid_resize_paths_remain_valid_inside_partial_rows() {
     let input = json!({"ids":["a","b","c","d","e"],"columns":3,"mode":"grid"});
-    let layout = project("workspaceDock", &input).unwrap();
-    let resized = project("workspaceDock", &json!({"ids":input["ids"],"columns":3,"mode":"grid","saved":layout["saved"],"action":{"type":"resize","path":["second","first"],"ratio":0.6}})).unwrap();
+    let layout = dock(&input).unwrap();
+    let resized = dock(&json!({"ids":input["ids"],"columns":3,"mode":"grid","saved":layout["saved"],"action":{"type":"resize","path":["second","first"],"ratio":0.6}})).unwrap();
     assert_eq!(resized["tree"]["second"]["first"]["ratio"], 0.6);
     assert!(!resized["saved"].to_string().contains("empty"));
 }
@@ -432,4 +585,77 @@ fn empty_graph_uses_the_native_snapshot_and_presentation_contract() {
     assert_eq!(response["presentation"]["containingBranches"], json!({}));
     assert!(response.get("stateError").is_none());
     assert!(response["actions"]["fetch"]["title"].is_string());
+}
+#[test]
+fn diff_change_navigation_is_strict_and_wraps_at_both_ends() {
+    for (line, direction, expected) in [
+        (0, 1, 0),
+        (10, 1, 1),
+        (20, -1, 0),
+        (40, 1, 0),
+        (0, -1, 2),
+        (21, -1, 1),
+    ] {
+        assert_eq!(
+            project(
+                "nextDiffChange",
+                &json!({
+                    "ranges":[[10,11],[20,22],[40,45]], "line":line, "direction":direction
+                })
+            )
+            .unwrap(),
+            expected
+        );
+    }
+    assert_eq!(
+        project(
+            "nextDiffChange",
+            &json!({"ranges":[], "line":0, "direction":1})
+        )
+        .unwrap(),
+        json!(null)
+    );
+}
+#[test]
+fn diff_navigation_clears_scroll_and_highlight_independently() {
+    let update = |state: Value, action: Value| {
+        project("diffNavigation", &json!({"state":state,"action":action})).unwrap()
+    };
+    let jumped = update(
+        json!({}),
+        json!({"type":"jumpToChange","changeIdx":2,"top":90}),
+    );
+    assert_eq!(
+        jumped,
+        json!({"scroll":{"source":"all","top":90.0},"highlight":2})
+    );
+    let cleared = update(jumped.clone(), json!({"type":"clearScroll"}));
+    assert_eq!(cleared, json!({"highlight":2}));
+    assert_eq!(
+        update(cleared.clone(), json!({"type":"clearScroll"})),
+        json!(null)
+    );
+    let synced = update(
+        cleared,
+        json!({"type":"jumpToPosition","source":"left","top":120}),
+    );
+    assert_eq!(
+        synced,
+        json!({"scroll":{"source":"left","top":120.0},"highlight":2})
+    );
+    assert_eq!(
+        update(synced, json!({"type":"clearHighlight"})),
+        json!({"scroll":{"source":"left","top":120.0}})
+    );
+    assert_eq!(
+        update(json!({"highlight":2}), json!({"type":"clearHighlight"})),
+        json!({})
+    );
+    assert!(
+        project(
+            "diffNavigation",
+            &json!({"state":{},"action":{"type":"unknown"}})
+        )
+        .is_err()
+    );
 }

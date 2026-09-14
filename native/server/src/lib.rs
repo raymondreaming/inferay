@@ -77,12 +77,14 @@ mod render_jobs;
 pub fn export_renderer_types(config: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
     use ts_rs::TS;
     files::ProjectFileEntry::export_all(config)?;
+    files::DirectoryQuickPicks::export_all(config)?;
     markdown_stream::Input::export_all(config)?;
     agent_account::AgentAccountProviderStatus::export_all(config)?;
     forge::ForgeAccount::export_all(config)?;
     forge::GithubRepo::export_all(config)?;
     markdown::PreparedMarkdown::export_all(config)?;
     markdown::MarkdownPatch::export_all(config)?;
+    highlight::Classified::export_all(config)?;
     checkpoint::CheckpointMeta::export_all(config)?;
     chat_persistence::QueuedMessageInfo::export_all(config)?;
     native_app::AppInfo::export_all(config)?;
@@ -172,20 +174,15 @@ struct GitBranchBody {
 #[derive(Deserialize)]
 struct GitRefOperationBody {
     cwd: Option<String>,
-    operation: Option<String>,
-    action: Option<String>,
-    source: Option<String>,
-    target: Option<String>,
+    #[serde(flatten)]
+    request: git_actions::GitRefOperationRequest,
 }
 
 #[derive(Deserialize)]
 struct GitGraphActionBody {
     cwd: Option<String>,
-    action: Option<String>,
-    target: Option<String>,
-    targets: Option<Vec<String>>,
-    name: Option<String>,
-    message: Option<String>,
+    #[serde(flatten)]
+    request: git_actions::GitGraphActionRequest,
 }
 
 #[derive(Deserialize)]
@@ -838,11 +835,15 @@ async fn git_checkout_branch(state: &ServerState, request: Request) -> ApiResult
 async fn git_ref_operation(state: &ServerState, request: Request) -> ApiResult {
     let body: GitRefOperationBody = api_body(request).await?;
     let cwd = request_cwd(state, body.cwd.as_deref())?;
-    let operation = body.operation.unwrap_or_default();
-    let action = body.action.unwrap_or_else(|| "start".into());
+    let git_actions::GitRefOperationRequest {
+        operation,
+        action,
+        source,
+        target,
+    } = body.request;
     let result = if action == "start" {
-        let source = required(body.source, "Missing source branch")?;
-        let target = required(body.target, "Missing target branch")?;
+        let source = required(source, "Missing source branch")?;
+        let target = required(target, "Missing target branch")?;
         tokio::task::spawn_blocking(move || {
             perform_git_ref_operation(&cwd, &operation, &source, &target)
         })
@@ -856,8 +857,8 @@ async fn git_ref_operation(state: &ServerState, request: Request) -> ApiResult {
 async fn git_ref_operation_preflight(state: &ServerState, request: Request) -> ApiResult {
     let body: GitRefOperationBody = api_body(request).await?;
     let cwd = request_cwd(state, body.cwd.as_deref())?;
-    let source = required(body.source, "Missing source branch")?;
-    let target = required(body.target, "Missing target branch")?;
+    let source = required(body.request.source, "Missing source branch")?;
+    let target = required(body.request.target, "Missing target branch")?;
     Ok(json!(
         tokio::task::spawn_blocking(move || preflight_git_ref_operation(&cwd, &source, &target))
             .await?
@@ -870,11 +871,11 @@ async fn git_graph_action(state: &ServerState, request: Request) -> ApiResult {
         tokio::task::spawn_blocking(move || {
             perform_git_graph_action_with_targets(
                 &cwd,
-                body.action.as_deref().unwrap_or_default(),
-                body.target.as_deref(),
-                body.targets.as_deref().unwrap_or_default(),
-                body.name.as_deref(),
-                body.message.as_deref(),
+                &body.request.action,
+                body.request.target.as_deref(),
+                body.request.targets.as_deref().unwrap_or_default(),
+                body.request.name.as_deref(),
+                body.request.message.as_deref(),
             )
         })
         .await?,
@@ -1175,7 +1176,7 @@ async fn git_diff(state: &ServerState, request: Request) -> ApiResult<Response> 
         } else {
             get_git_commit_hunk_diff_for_parent(&cwd, &from, to.as_deref(), &file, review)
         };
-        diff.map(render_jobs::diff_bytes)
+        diff.map(|diff| render_jobs::diff_bytes(diff, &file))
     });
     let (unchanged, unavailable) = if comparison {
         (

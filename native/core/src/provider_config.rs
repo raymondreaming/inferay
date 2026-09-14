@@ -88,6 +88,134 @@ pub struct ProviderSettings {
     pub model: String,
     pub reasoning_level: String,
 }
+
+#[derive(serde::Serialize, ts_rs::TS)]
+pub struct ProviderSettingsChoice {
+    kind: WorkspaceAgentKind,
+    label: String,
+    title: String,
+    selected: bool,
+    disabled: bool,
+    model: String,
+}
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ProviderSettingsFieldKey {
+    Model,
+    ReasoningLevel,
+}
+#[derive(serde::Serialize, ts_rs::TS)]
+pub struct ProviderSettingsOption {
+    id: String,
+    label: String,
+}
+#[derive(serde::Serialize, ts_rs::TS)]
+pub struct ProviderSettingsField {
+    key: ProviderSettingsFieldKey,
+    label: String,
+    value: String,
+    options: Vec<ProviderSettingsOption>,
+}
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderSettingsView {
+    status_label: String,
+    providers: Vec<ProviderSettingsChoice>,
+    fields: Vec<ProviderSettingsField>,
+}
+
+/// Account facts and saved defaults produce the complete settings choice model.
+pub fn settings_view(input: &Value) -> ProviderSettingsView {
+    let settings = &input["settings"];
+    let kind = settings["agentKind"].as_str().unwrap_or("codex");
+    let definition = &catalog()["agents"][kind];
+    let loading = input["loading"] == true;
+    let status = |kind: &str| {
+        input["statuses"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|status| status["kind"] == kind)
+    };
+    let active = status(kind);
+    let label = definition["label"].as_str().unwrap_or_default();
+    let status_label = if loading && active.is_none() {
+        "Checking accounts…".into()
+    } else {
+        format!(
+            "{label} {}",
+            match active.and_then(|status| status["health"].as_str()) {
+                Some("ready") => "is connected.",
+                Some("needs-login") => "needs a login.",
+                _ => "is not installed.",
+            }
+        )
+    };
+    let providers = [WorkspaceAgentKind::Claude, WorkspaceAgentKind::Codex]
+        .into_iter()
+        .map(|provider| {
+            let name = provider.as_str();
+            let definition = &catalog()["agents"][name];
+            let label = definition["label"].as_str().unwrap_or_default();
+            let status = status(name);
+            let health = status.and_then(|status| status["health"].as_str());
+            let detail = if loading && status.is_none() {
+                "Checking…"
+            } else {
+                match health {
+                    Some("ready") => "Connected",
+                    Some("needs-login") => "Login needed",
+                    _ => "Not installed",
+                }
+            };
+            ProviderSettingsChoice {
+                selected: name == kind,
+                disabled: if status.is_some() {
+                    health != Some("ready")
+                } else {
+                    loading
+                },
+                model: definition["defaultModel"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .into(),
+                label: label.into(),
+                title: format!("{label} · {detail}"),
+                kind: provider,
+            }
+        })
+        .collect();
+    let mut fields = vec![(ProviderSettingsFieldKey::Model, "Model", "model", "models")];
+    if kind == "codex" {
+        fields.push((
+            ProviderSettingsFieldKey::ReasoningLevel,
+            "Reasoning",
+            "reasoningLevel",
+            "reasoningLevels",
+        ));
+    }
+    ProviderSettingsView {
+        status_label,
+        providers,
+        fields: fields
+            .into_iter()
+            .map(|(key, label, value, options)| ProviderSettingsField {
+                key,
+                label: label.into(),
+                value: settings[value].as_str().unwrap_or_default().into(),
+                options: definition[options]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|option| ProviderSettingsOption {
+                        id: option["id"].as_str().unwrap_or_default().into(),
+                        label: option["label"].as_str().unwrap_or_default().into(),
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
 #[derive(Clone, Debug, serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderCatalog {
@@ -336,6 +464,58 @@ pub fn requires_new_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_choices_preserve_account_loading_and_availability_rules() {
+        let mut input = json!({"settings":{"agentKind":"codex","model":"custom","reasoningLevel":"high"},
+            "statuses":[], "loading":true});
+        let pending = settings_view(&input);
+        assert_eq!(pending.status_label, "Checking accounts…");
+        assert!(pending.providers.iter().all(|provider| provider.disabled));
+        assert_eq!(pending.providers[1].title, "Codex · Checking…");
+        input["statuses"] =
+            json!([{"kind":"claude","health":"ready"},{"kind":"codex","health":"needs-login"}]);
+        let ready = settings_view(&input);
+        assert_eq!(ready.status_label, "Codex needs a login.");
+        assert!(!ready.providers[0].disabled);
+        assert!(ready.providers[1].disabled);
+        assert!(ready.providers[1].selected);
+        assert_eq!(ready.providers[0].title, "Claude · Connected");
+        input["loading"] = json!(false);
+        input["statuses"] = json!([]);
+        let absent = settings_view(&input);
+        assert!(!absent.providers[0].disabled);
+        assert_eq!(absent.status_label, "Codex is not installed.");
+    }
+
+    #[test]
+    fn settings_fields_and_provider_changes_use_the_native_catalog() {
+        let mut input =
+            json!({"settings":{"agentKind":"codex","model":"custom","reasoningLevel":"high"}});
+        let codex = settings_view(&input);
+        assert_eq!(codex.fields.len(), 2);
+        assert_eq!(codex.fields[0].value, "custom");
+        assert_eq!(codex.fields[1].value, "high");
+        for provider in &codex.providers {
+            assert_eq!(
+                provider.model,
+                catalog()["agents"][provider.kind.as_str()]["defaultModel"]
+                    .as_str()
+                    .unwrap()
+            );
+        }
+        input["settings"]["agentKind"] = json!("claude");
+        let claude = settings_view(&input);
+        assert_eq!(claude.fields.len(), 1);
+        assert_eq!(
+            claude.fields[0].options.len(),
+            catalog()["agents"]["claude"]["models"]
+                .as_array()
+                .unwrap()
+                .len()
+        );
+        assert!(claude.providers[0].selected);
+    }
 
     #[test]
     fn renderer_catalog_preserves_the_endpoint_contract_and_command_precedence() {

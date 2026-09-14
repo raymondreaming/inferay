@@ -78,6 +78,83 @@ fn highlight_previews() -> &'static JobPool {
 mod tests {
     use super::*;
 
+    #[test]
+    fn diff_responses_prepare_render_policy_for_the_requested_file() {
+        use inferay_native_diff::{GitDiffLine, GitDiffLineType, GitHunkDiff};
+        use serde_json::{Value, json};
+        let line = |content: &str| GitDiffLine {
+            number: Some(1),
+            content: content.into(),
+            line_type: GitDiffLineType::Context,
+        };
+        let diff = GitHunkDiff {
+            new_lines: vec![line("# Title"), line("body")],
+            ..Default::default()
+        };
+        let response =
+            |diff, path| serde_json::from_slice::<Value>(&diff_bytes(diff, path)).unwrap();
+        let markdown = response(diff.clone(), "notes.md");
+        assert_eq!(
+            markdown["viewer"],
+            json!({"extension":"md", "conflict":false,
+            "message":null,"markdown":"# Title\nbody","navigable":false})
+        );
+        assert_eq!(
+            response(diff.clone(), "notes.MD")["viewer"]["markdown"],
+            Value::Null
+        );
+        let compact = inferay_native_diff::compact_git_hunk_diff(diff.clone());
+        assert_eq!(
+            response(compact, "notes.md")["viewer"]["markdown"],
+            Value::Null
+        );
+        let conflicted = GitHunkDiff {
+            merge_conflict_content: Some("<<<<<<< ours\na\n=======\nb\n>>>>>>> theirs".into()),
+            ..diff.clone()
+        };
+        assert_eq!(
+            response(conflicted.clone(), "code.rs")["viewer"]["conflict"],
+            true
+        );
+        assert_eq!(
+            response(conflicted, "notes.md")["viewer"]["conflict"],
+            false
+        );
+        let large = response(
+            GitHunkDiff {
+                new_lines: vec![line("File is too large to display.")],
+                ..Default::default()
+            },
+            "code.rs",
+        );
+        assert_eq!(large["viewer"]["message"], "File is too large to display.");
+        assert_eq!(large["viewer"]["navigable"], false);
+        let long_line = response(
+            GitHunkDiff {
+                new_lines: vec![line(&"😀".repeat(4001))],
+                ..Default::default()
+            },
+            "code.rs",
+        );
+        assert!(
+            long_line["viewer"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("8,002 characters")
+        );
+        assert_eq!(long_line["viewer"]["navigable"], false);
+        assert_eq!(
+            response(
+                GitHunkDiff {
+                    is_binary: true,
+                    ..diff
+                },
+                "image.png"
+            )["viewer"]["navigable"],
+            false
+        );
+    }
+
     #[tokio::test]
     async fn highlighting_cannot_block_foreground_work() {
         let occupied = highlighting()
@@ -341,6 +418,7 @@ pub(crate) struct HunkDiff {
     #[serde(flatten)]
     diff: inferay_native_diff::GitHunkDiff,
     metadata: HunkDiffMetadata,
+    viewer: inferay_presentation::diff::DiffViewerModel,
     #[serde(rename = "inlineLines", skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     inline_lines: Option<Vec<inferay_native_diff::GitDiffLine>>,
@@ -350,7 +428,7 @@ pub(crate) struct HunkDiff {
 }
 
 /// Git HTTP responses contain prepared view data; raw patches remain internal.
-pub fn diff_bytes(mut diff: inferay_native_diff::GitHunkDiff) -> Vec<u8> {
+pub fn diff_bytes(mut diff: inferay_native_diff::GitHunkDiff, file_path: &str) -> Vec<u8> {
     use inferay_native_diff::GitDiffLineType;
     let old_max = max_line_chars(&diff.old_lines);
     let new_max = max_line_chars(&diff.new_lines);
@@ -434,6 +512,14 @@ pub fn diff_bytes(mut diff: inferay_native_diff::GitHunkDiff) -> Vec<u8> {
             .is_some_and(|patch| patch.lines().any(|line| line.encode_utf16().count() > 1000));
     diff.raw_patch = None;
     serde_json::to_vec(&HunkDiff {
+        viewer: inferay_presentation::diff::viewer(
+            &diff,
+            file_path,
+            old_max
+                .max(new_max)
+                .max(max_inline_line_chars)
+                .max(max_conflict_line_chars),
+        ),
         diff,
         inline_lines,
         conflict_lines,

@@ -1,6 +1,107 @@
 use crate::{array, flag, number, string};
 use serde_json::{Value, json};
 
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "lowercase")]
+pub enum ComposerConfigKind {
+    Provider,
+    Model,
+    Reasoning,
+}
+#[derive(serde::Serialize, ts_rs::TS)]
+pub struct ComposerConfigOption {
+    id: String,
+    label: String,
+}
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposerConfigControl {
+    id: ComposerConfigKind,
+    title: String,
+    label: String,
+    tooltip: String,
+    value: String,
+    agent_kind: Option<inferay_core::provider_config::WorkspaceAgentKind>,
+    options: Vec<ComposerConfigOption>,
+}
+
+/// Project the supplied runtime catalog; providers with no choices omit the control.
+pub fn config_controls(input: &Value) -> Vec<ComposerConfigControl> {
+    let definition = &input["definition"];
+    [
+        (
+            ComposerConfigKind::Provider,
+            "Provider",
+            &input["agentKind"],
+            &input["agentKindOptions"],
+        ),
+        (
+            ComposerConfigKind::Model,
+            "Model",
+            &input["model"],
+            &definition["models"],
+        ),
+        (
+            ComposerConfigKind::Reasoning,
+            "Reasoning",
+            &input["reasoningLevel"],
+            &definition["reasoningLevels"],
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(id, title, value, options)| {
+        let provider = matches!(id, ComposerConfigKind::Provider);
+        if !provider && array(options).is_empty() {
+            return None;
+        }
+        let selected = array(options).iter().find(|option| option["id"] == *value);
+        let full_label = selected
+            .map(|option| string(&option["label"]))
+            .filter(|label| !label.is_empty())
+            .unwrap_or(string(value));
+        let full_label = if matches!(id, ComposerConfigKind::Model) && full_label.is_empty() {
+            "No model"
+        } else {
+            full_label
+        };
+        let label = if provider {
+            string(&definition["label"])
+        } else if matches!(id, ComposerConfigKind::Model) {
+            selected
+                .map(|option| string(&option["shortLabel"]))
+                .filter(|label| !label.is_empty())
+                .unwrap_or(full_label)
+        } else {
+            full_label
+        };
+        Some(ComposerConfigControl {
+            tooltip: if matches!(id, ComposerConfigKind::Model) {
+                full_label
+            } else {
+                title
+            }
+            .into(),
+            id,
+            title: title.into(),
+            label: label.into(),
+            value: string(value).into(),
+            agent_kind: if provider {
+                serde_json::from_value(value.clone()).ok()
+            } else {
+                None
+            },
+            options: array(options)
+                .iter()
+                .map(|option| ComposerConfigOption {
+                    id: string(&option["id"]).into(),
+                    label: string(&option["label"]).into(),
+                })
+                .collect(),
+        })
+    })
+    .collect()
+}
+
 // Browser selection offsets are UTF-16 code units, not UTF-8 byte positions.
 fn units(value: &Value) -> Vec<u16> {
     string(value).encode_utf16().collect()
@@ -22,7 +123,7 @@ fn has_command(commands: &Value, name: &str) -> bool {
         .iter()
         .any(|c| string(c).eq_ignore_ascii_case(name))
 }
-pub fn trigger(i: &Value) -> Value {
+fn trigger(i: &Value) -> Value {
     let text = units(&i["value"]);
     let cursor = (number(&i["cursorPos"]) as usize).min(text.len());
     let trigger = string(&i["trigger"])
@@ -43,7 +144,56 @@ pub fn trigger(i: &Value) -> Value {
     }
     Value::Null
 }
-pub fn completion(i: &Value) -> Value {
+
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionMenuState {
+    show: bool,
+    selected_idx: usize,
+    query: String,
+    index: i64,
+}
+
+/// Input opens a fresh completion at the browser cursor; hiding retains context.
+pub fn menu_input(i: &Value) -> Value {
+    let previous = &i["state"];
+    let found = trigger(i);
+    let next = if found.is_null() {
+        let mut hidden = previous.clone();
+        hidden["show"] = json!(false);
+        hidden
+    } else {
+        json!(CompletionMenuState {
+            show: true,
+            selected_idx: 0,
+            query: string(&found["query"]).into(),
+            index: number(&found["index"]) as i64,
+        })
+    };
+    if next == *previous { Value::Null } else { next }
+}
+
+pub fn menu_commands(i: &Value) -> Value {
+    let state = &i["state"];
+    if !flag(&state["show"]) || number(&state["index"]) < 0. {
+        return json!([]);
+    }
+    let query = string(&state["query"]).to_lowercase();
+    json!(
+        array(&i["commands"])
+            .iter()
+            .enumerate()
+            .filter_map(|(index, command)| {
+                string(&command["name"])
+                    .to_lowercase()
+                    .starts_with(&query)
+                    .then_some(index)
+            })
+            .collect::<Vec<_>>()
+    )
+}
+
+fn completion(i: &Value) -> Value {
     let text = units(&i["input"]);
     let cursor = (number(&i["cursorPos"]) as usize).min(text.len());
     let index = (number(&i["triggerIndex"]) as usize).min(text.len());
@@ -256,6 +406,36 @@ mod send_tests {
     use super::*;
 
     #[test]
+    fn completion_menu_resets_selection_for_input_and_retains_hidden_context() {
+        let previous = json!({"show":true,"selectedIdx":2,"query":"r","index":3});
+        let state =
+            menu_input(&json!({"state":previous,"value":"😀 /re","cursorPos":6,"trigger":"/"}));
+        assert_eq!(
+            state,
+            json!({"show":true,"selectedIdx":0,"query":"re","index":3})
+        );
+        assert!(
+            menu_input(&json!({"state":state,"value":"😀 /re","cursorPos":6,"trigger":"/"}))
+                .is_null()
+        );
+        let hidden =
+            menu_input(&json!({"state":previous,"value":"plain","cursorPos":5,"trigger":"/"}));
+        assert_eq!(
+            hidden,
+            json!({"show":false,"selectedIdx":2,"query":"r","index":3})
+        );
+    }
+
+    #[test]
+    fn command_menu_filters_case_insensitively_in_source_order() {
+        let input = json!({"state":{"show":true,"index":0,"query":"Re"},"commands":[{"name":"review"},{"name":"help"},{"name":"RESET"}]});
+        assert_eq!(menu_commands(&input), json!([0, 2]));
+        let mut hidden = input;
+        hidden["state"]["show"] = json!(false);
+        assert_eq!(menu_commands(&hidden), json!([]));
+    }
+
+    #[test]
     fn system_notices_suppress_only_completed_nonempty_duplicates() {
         let previous = json!({"role":"system","content":"Stopped"});
         assert!(system_notice(&json!({"content":"Stopped","previous":previous})).is_null());
@@ -304,4 +484,103 @@ mod send_tests {
                 .ends_with("[… pending message truncated for display …]")
         );
     }
+}
+
+/// Both file and command picks replace the active trigger through the same operation.
+pub fn select_completion(input: &Value) -> Value {
+    let Some(item) = array(&input["items"]).get(number(&input["index"]) as usize) else {
+        return Value::Null;
+    };
+    let command = input["kind"] == "command";
+    let replacement = format!(
+        "{}{}",
+        if command { "/" } else { "@" },
+        string(&item[if command { "name" } else { "path" }])
+    );
+    completion(
+        &json!({"input":input["input"],"cursorPos":input["cursorPos"],"triggerIndex":input["menu"]["index"],"replacement":replacement}),
+    )
+}
+
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "lowercase")]
+pub enum CompletionMenuKind {
+    File,
+    Command,
+}
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ChatKeyAction {
+    Move {
+        menu: CompletionMenuKind,
+        delta: i32,
+        count: usize,
+    },
+    Select {
+        menu: CompletionMenuKind,
+        index: usize,
+    },
+    Hide {
+        menu: CompletionMenuKind,
+    },
+    Send,
+    Consume,
+}
+/// Route both completion menus and send shortcuts without touching browser events.
+pub fn input_key(input: &Value) -> Option<ChatKeyAction> {
+    if flag(&input["composing"]) || input["keyCode"] == 229 {
+        return None;
+    }
+    let key = string(&input["key"]);
+    for (menu, state, count) in [
+        (
+            CompletionMenuKind::File,
+            &input["file"],
+            number(&input["files"]) as usize,
+        ),
+        (
+            CompletionMenuKind::Command,
+            &input["command"],
+            number(&input["commands"]) as usize,
+        ),
+    ] {
+        if !flag(&state["show"]) || count == 0 {
+            continue;
+        }
+        match key {
+            "ArrowDown" | "ArrowUp" => {
+                return Some(ChatKeyAction::Move {
+                    menu,
+                    delta: if key == "ArrowDown" { 1 } else { -1 },
+                    count,
+                });
+            }
+            "Tab" | "Enter" if key == "Tab" || !flag(&input["shift"]) => {
+                return Some(ChatKeyAction::Select {
+                    menu,
+                    index: number(&state["selectedIdx"]) as usize,
+                });
+            }
+            "Escape" => return Some(ChatKeyAction::Hide { menu }),
+            _ => {}
+        }
+    }
+    (key == "Enter" && !flag(&input["shift"])).then(|| {
+        if flag(&input["repeat"]) {
+            ChatKeyAction::Consume
+        } else {
+            ChatKeyAction::Send
+        }
+    })
+}
+pub fn menu_step(input: &Value) -> Value {
+    let mut state = input["state"].clone();
+    let count = input["count"].as_i64().unwrap_or(0);
+    if count > 0 {
+        state["selectedIdx"] = json!(
+            (number(&state["selectedIdx"]) as i64 + input["delta"].as_i64().unwrap_or(0))
+                .rem_euclid(count)
+        );
+    }
+    state
 }

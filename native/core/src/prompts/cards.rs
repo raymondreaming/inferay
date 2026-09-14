@@ -2,9 +2,25 @@
 use super::{SkillProposal, SkillRead, valid_command};
 use serde_json::Value;
 
+#[derive(Clone, Debug, PartialEq, serde::Serialize, ts_rs::TS)]
+#[serde(untagged)]
+pub enum ChatSkillPart {
+    Text {
+        start: usize,
+        end: usize,
+    },
+    Proposal {
+        proposal: SkillProposal,
+        index: usize,
+    },
+    Pending {
+        pending: bool,
+    },
+}
+
 /// Presentation validation for saved and live skill cards. Applying a proposal
 /// still requires the native store's independent revision/approval validation.
-pub fn chat_skill_proposal(value: &Value) -> Option<Value> {
+pub(crate) fn chat_skill_proposal(value: &Value) -> Option<SkillProposal> {
     if value["type"] != "inferay.skill-proposal"
         || !matches!(value["action"].as_str(), Some("create" | "update"))
     {
@@ -31,7 +47,7 @@ pub fn chat_skill_proposal(value: &Value) -> Option<Value> {
     } else {
         (None, None)
     };
-    serde_json::to_value(SkillProposal {
+    Some(SkillProposal {
         kind: "inferay.skill-proposal",
         action: value["action"].as_str()?.to_owned(),
         skill_id,
@@ -42,19 +58,18 @@ pub fn chat_skill_proposal(value: &Value) -> Option<Value> {
         prompt_template: value["promptTemplate"].as_str()?.to_owned(),
         reason: value["reason"].as_str()?.to_owned(),
     })
-    .ok()
 }
 
-pub fn chat_skill_read(value: &Value) -> Option<Value> {
+pub(crate) fn chat_skill_read(value: &Value) -> Option<SkillRead> {
     if value["type"] != "inferay.skill-read" {
         return None;
     }
     let skill: SkillRead = serde_json::from_value(value["skill"].clone()).ok()?;
-    serde_json::to_value(skill).ok()
+    Some(skill)
 }
 
 /// Text spans use JavaScript UTF-16 coordinates without duplicating message text.
-pub fn chat_skill_parts(content: &str, streaming: bool) -> Option<Value> {
+pub(crate) fn chat_skill_parts(content: &str, streaming: bool) -> Option<Vec<ChatSkillPart>> {
     if !content.contains("```inferay-skill") {
         return None;
     }
@@ -96,9 +111,15 @@ pub fn chat_skill_parts(content: &str, streaming: bool) -> Option<Value> {
         if let Some(proposal) = proposal {
             let start_utf16 = cursor_utf16 + content[cursor..start].encode_utf16().count();
             if start > cursor {
-                parts.push(serde_json::json!({"start":cursor_utf16, "end":start_utf16}));
+                parts.push(ChatSkillPart::Text {
+                    start: cursor_utf16,
+                    end: start_utf16,
+                });
             }
-            parts.push(serde_json::json!({"proposal":proposal, "index":start_utf16}));
+            parts.push(ChatSkillPart::Proposal {
+                proposal,
+                index: start_utf16,
+            });
             cursor_utf16 = start_utf16 + content[start..block_end].encode_utf16().count();
             cursor = block_end;
         }
@@ -118,13 +139,19 @@ pub fn chat_skill_parts(content: &str, streaming: bool) -> Option<Value> {
     };
     if let Some(partial) = partial {
         if partial > 0 {
-            parts.push(serde_json::json!({"start":cursor_utf16, "end":cursor_utf16 + rest[..partial].encode_utf16().count()}));
+            parts.push(ChatSkillPart::Text {
+                start: cursor_utf16,
+                end: cursor_utf16 + rest[..partial].encode_utf16().count(),
+            });
         }
-        parts.push(serde_json::json!({"pending":true}));
+        parts.push(ChatSkillPart::Pending { pending: true });
     } else if !rest.is_empty() {
-        parts.push(serde_json::json!({"start":cursor_utf16, "end":cursor_utf16 + rest.encode_utf16().count()}));
+        parts.push(ChatSkillPart::Text {
+            start: cursor_utf16,
+            end: cursor_utf16 + rest.encode_utf16().count(),
+        });
     }
-    Some(Value::Array(parts))
+    Some(parts)
 }
 
 #[cfg(test)]
@@ -140,13 +167,16 @@ mod skill_card_tests {
             "name": "Review", "command": "review-2", "description": "Review changes",
             "promptTemplate": "Check the diff", "reason": "Save this workflow"
         });
-        assert_eq!(chat_skill_proposal(&proposal), Some(proposal.clone()));
+        assert_eq!(
+            serde_json::to_value(chat_skill_proposal(&proposal)).unwrap(),
+            proposal
+        );
         proposal["expectedUpdatedAt"] = json!(9_007_199_254_740_992_u64);
         assert!(chat_skill_proposal(&proposal).is_none());
         proposal["action"] = json!("create");
         let created = chat_skill_proposal(&proposal).unwrap();
-        assert!(created.get("skillId").is_none());
-        assert!(created.get("expectedUpdatedAt").is_none());
+        assert!(created.skill_id.is_none());
+        assert!(created.expected_updated_at.is_none());
         proposal["command"] = json!("Review");
         assert!(chat_skill_proposal(&proposal).is_none());
         proposal["command"] = json!("review");
@@ -161,7 +191,10 @@ mod skill_card_tests {
             "description": "Review changes", "promptTemplate": "Check the diff",
             "isBuiltIn": false, "updatedAt": 42, "futureField": {"enabled": true}
         }});
-        assert_eq!(chat_skill_read(&envelope), Some(envelope["skill"].clone()));
+        assert_eq!(
+            serde_json::to_value(chat_skill_read(&envelope)).unwrap(),
+            envelope["skill"]
+        );
         envelope["skill"]["isBuiltIn"] = json!("false");
         assert!(chat_skill_read(&envelope).is_none());
         envelope["skill"]["isBuiltIn"] = json!(false);

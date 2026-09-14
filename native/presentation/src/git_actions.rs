@@ -2,6 +2,46 @@
 use serde_json::{Value, json};
 use std::sync::LazyLock;
 
+#[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GitGraphActionRequest {
+    #[serde(default)]
+    #[ts(
+        type = "'createBranch' | 'createTag' | 'cherryPick' | 'revert' | 'stashPush' | 'stashApply' | 'stashPop' | 'stashDrop' | 'stashRename' | 'renameBranch' | 'deleteBranch' | 'deleteTag' | 'setUpstream' | 'pushSetUpstream' | 'deleteRemoteBranch' | 'pushTag' | 'deleteRemoteTag' | 'forcePushWithLease' | 'resetSoft' | 'resetMixed' | 'resetHard' | 'fetch' | 'pull' | 'push'"
+    )]
+    pub action: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub targets: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub message: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]
+pub struct GitRefOperationRequest {
+    #[serde(default)]
+    pub operation: String,
+    #[serde(default = "start_operation")]
+    #[ts(type = "'start' | 'continue' | 'skip' | 'abort'")]
+    pub action: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub target: Option<String>,
+}
+fn start_operation() -> String {
+    "start".into()
+}
+
 #[derive(serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphActionPresentation {

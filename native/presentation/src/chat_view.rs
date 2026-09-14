@@ -208,39 +208,125 @@ pub fn window(input: &ChatViewport) -> ChatWindow {
     }
 }
 
-/// Local submission starts activity immediately; provider acknowledgement keeps
-/// that start time. A reconnect's old idle snapshot cannot cancel a pending send.
-pub fn run_status(input: &serde_json::Value) -> serde_json::Value {
+#[derive(Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatScrollSnapshot {
+    at_bottom: bool,
+    from_bottom: f64,
+    top: f64,
+}
+
+#[derive(Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatScrollState {
+    snapshot: ChatScrollSnapshot,
+    toward_bottom: bool,
+    cancel_restore: bool,
+}
+
+/// Browser events supply intent and measurements; growth alone must not stop following.
+pub fn scroll_state(input: &serde_json::Value) -> serde_json::Value {
+    use crate::{flag, number, string};
     use serde_json::json;
-    let current = &input["current"];
-    if input["begin"] == true {
-        return if current["isLoading"] == true {
-            current.clone()
-        } else {
-            json!({"isLoading":true,"status":"sending","startTime":input["now"]})
-        };
+    let mut state = input["state"].clone();
+    state["cancelRestore"] = json!(false);
+    match string(&input["action"]) {
+        "follow" => state["snapshot"]["atBottom"] = json!(input["value"] != false),
+        "intent" => {
+            let delta = match string(&input["key"]) {
+                "ArrowUp" | "PageUp" | "Home" => -1.,
+                " " if flag(&input["shift"]) => -1.,
+                "ArrowDown" | "PageDown" | "End" | " " => 1.,
+                _ => number(&input["delta"]),
+            };
+            if delta < 0. {
+                state["towardBottom"] = json!(false);
+                state["snapshot"]["atBottom"] = json!(false);
+                state["cancelRestore"] = json!(true);
+            } else if delta > 0. {
+                state["towardBottom"] = json!(true);
+            }
+        }
+        action @ ("scroll" | "capture") if number(&input["viewport"]) > 0. => {
+            let top = number(&input["top"]);
+            let from_bottom = (number(&input["height"]) - top - number(&input["viewport"])).max(0.);
+            if action == "scroll" {
+                if from_bottom <= 1. && flag(&state["towardBottom"]) {
+                    state["snapshot"]["atBottom"] = json!(true);
+                } else if top - number(&state["snapshot"]["top"]) < -1. {
+                    state["snapshot"]["atBottom"] = json!(false);
+                }
+            }
+            state["snapshot"]["fromBottom"] = json!(from_bottom);
+            state["snapshot"]["top"] = json!(top);
+        }
+        _ => {}
     }
-    let mut next = input["incoming"].clone();
-    if current["status"] == "sending" && next["status"] == "idle" && input["terminal"] != true {
-        return current.clone();
+    state
+}
+
+pub fn restore_scroll(input: &serde_json::Value) -> f64 {
+    use crate::{flag, number};
+    let max = (number(&input["height"]) - number(&input["viewport"])).max(0.);
+    if flag(&input["snapshot"]["atBottom"]) {
+        max
+    } else {
+        number(&input["snapshot"]["top"]).min(max)
     }
-    if next["isLoading"] == true
-        && current["isLoading"] == true
-        && let Some(start) = current["startTime"].as_u64()
-    {
-        next["startTime"] = json!(
-            next["startTime"]
-                .as_u64()
-                .map_or(start, |native| native.min(start))
-        );
-    }
-    next
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn scroll_intent_distinguishes_content_growth_from_user_navigation() {
+        let mut state = json!({"snapshot":{"atBottom":true,"fromBottom":0,"top":100},"towardBottom":false,"cancelRestore":false});
+        let apply = |state: &serde_json::Value, action, top, height| {
+            scroll_state(
+                &json!({"state":state,"action":action,"top":top,"height":height,"viewport":100}),
+            )
+        };
+        state = apply(&state, "scroll", 100, 400);
+        assert_eq!(state["snapshot"]["atBottom"], true);
+        state = apply(&state, "scroll", 50, 400);
+        assert_eq!(state["snapshot"]["atBottom"], false);
+        state = apply(&state, "scroll", 300, 400);
+        assert_eq!(state["snapshot"]["atBottom"], false);
+        state = scroll_state(&json!({"state":state,"action":"intent","key":"End"}));
+        state = apply(&state, "scroll", 300, 400);
+        assert_eq!(state["snapshot"]["atBottom"], true);
+        state = scroll_state(&json!({"state":state,"action":"intent","key":" ","shift":true}));
+        assert_eq!(state["snapshot"]["atBottom"], false);
+        assert_eq!(state["cancelRestore"], true);
+        assert_eq!(state["towardBottom"], false);
+    }
+
+    #[test]
+    fn scroll_restoration_clamps_retained_positions_without_hidden_viewport_capture() {
+        let state = json!({"snapshot":{"atBottom":false,"fromBottom":10,"top":800},"towardBottom":false,"cancelRestore":false});
+        assert_eq!(
+            scroll_state(
+                &json!({"state":state,"action":"capture","top":0,"height":0,"viewport":0})
+            ),
+            state
+        );
+        assert_eq!(
+            restore_scroll(&json!({"snapshot":state["snapshot"],"height":500,"viewport":100})),
+            400.
+        );
+        assert_eq!(
+            restore_scroll(
+                &json!({"snapshot":{"atBottom":true,"top":50},"height":500,"viewport":100})
+            ),
+            400.
+        );
+        assert_eq!(
+            restore_scroll(&json!({"snapshot":{"atBottom":true},"height":50,"viewport":100})),
+            0.
+        );
+    }
 
     #[test]
     fn list_projects_stable_identity_and_checkpoint_eligibility() {

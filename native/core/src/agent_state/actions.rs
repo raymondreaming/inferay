@@ -52,27 +52,13 @@ impl Workspace {
         use AgentWorkspaceAction::*;
         match action {
             ReorderRepository { cwd, before_cwd } => {
-                let cwd = repository_path(cwd);
-                let mut order = self.repository_paths();
-                let from = order
-                    .iter()
-                    .position(|path| path == cwd)
-                    .ok_or("Repository not found")?;
-                let before = before_cwd.as_deref().map(repository_path);
-                if before == Some(cwd) {
-                    return Ok(());
-                }
-                let path = order.remove(from);
-                let to = match before {
-                    Some(before) => order
-                        .iter()
-                        .position(|path| path == before)
-                        .ok_or("Target repository not found")?,
-                    None => order.len(),
-                };
-                order.insert(to, path);
-                self.repository_order = order;
+                self.repository_order = reorder_repositories(
+                    self.repository_paths(),
+                    repository_path(cwd),
+                    before_cwd.as_deref().map(repository_path),
+                )?;
             }
+
             SelectRepository { cwd } => {
                 let target = self
                     .groups
@@ -245,4 +231,29 @@ impl Pane {
         self.provider_session_id = None;
         self.update_title();
     }
+}
+
+/// Shared by persisted actions and optimistic tab ordering.
+pub fn reorder_repositories(
+    mut paths: Vec<String>,
+    cwd: &str,
+    before: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let from = paths
+        .iter()
+        .position(|p| p == cwd)
+        .ok_or("Repository not found")?;
+    if before == Some(cwd) {
+        return Ok(paths);
+    }
+    let path = paths.remove(from);
+    let to = match before {
+        Some(before) => paths
+            .iter()
+            .position(|p| p == before)
+            .ok_or("Target repository not found")?,
+        None => paths.len(),
+    };
+    paths.insert(to, path);
+    Ok(paths)
 }

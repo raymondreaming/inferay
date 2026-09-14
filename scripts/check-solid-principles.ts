@@ -18,20 +18,12 @@ let count = 0;
 // These arrays are fixed visual definitions, constructed once, not reactive collections.
 const staticLists = new Map([
 	[
-		"modules/settings/components/Settings/SettingsContent.tsx",
-		new Set(["APP_THEMES"]),
-	],
-	[
 		"modules/settings/components/SettingsModal/index.tsx",
 		new Set(["SETTINGS_SECTIONS"]),
 	],
 	[
 		"modules/settings/components/Settings/BackgroundScenePicker.tsx",
 		new Set(["BACKGROUND_MODES"]),
-	],
-	[
-		"modules/settings/components/SettingsModalContent/ChatDefaultsSettings.tsx",
-		new Set(["PROVIDERS"]),
 	],
 	[
 		"modules/workspace/components/WorkspaceSidebar/SidebarWorkspacesSection.tsx",

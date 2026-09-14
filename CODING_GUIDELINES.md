@@ -1,5 +1,24 @@
 # Coding guidelines
 
+## Default engineering decisions
+
+Prefer the smallest coherent implementation that solves the real problem. These decisions apply to features, fixes, refactors, migrations, tooling, tests, and documentation in every language. Architecture should reduce complexity, not add sophistication.
+
+- Try deletion, inlining, merging, reuse, specialization, and simplification before adding code. Follow deletion cascades through unused types, imports, tests, and empty files.
+- Give each behavior one semantic owner. Keep validation, formatting, transitions, and persistence near the concept they serve. Merge related responsibilities; do not create unrelated god files or generic utility dumping grounds.
+- Inline trivial one-use helpers and constants unless their names express important policy or a real boundary. Tests do not count as production consumers. Do not split files merely to shorten them.
+- Prefer direct calls and standard platform functionality. Remove pass-through layers, duplicate representations, conversion chains, and unused configurability. Keep interfaces, traits, factories, classes, and generic systems only when their actual responsibilities justify them; testing convenience alone is insufficient.
+- Preserve real runtime, API, security, transactional, and ownership boundaries. Do not invent intermediate layers or speculative extension points. A few repeated lines can be cheaper than an abstraction.
+- Store authoritative facts and derive summaries. Keep mutation and persistence ownership explicit, validate at real trust boundaries, and normalize once. Importing an ordinary module must not unexpectedly start processes, connect services, or perform writes.
+- Remove unused outputs and obsolete compatibility after checking actual consumers and persisted data requirements. Version control is the archive; finish migrations without leaving aliases or duplicate paths behind.
+- Before porting code to Rust, delete dead behavior, consolidate duplicates, and simplify its owner. Migrate only what remains. Track TypeScript lines and file count as well as total size; moving code between frontend files is not a reduction.
+- Optimize redundant work, serialization, allocation, and I/O before adding caches or infrastructure. Measure performance claims when practical.
+- Keep public APIs small and semantic, implementation details private, control flow obvious, and reductions readable. Never pursue counts through minification, giant functions, or weakened verification.
+- Test observable behavior and failure invariants rather than preserving unused APIs for tests. Fix the source of truth instead of adding compensating layers.
+- Keep documentation canonical and current. Rewrite outdated descriptions instead of appending a history of corrections.
+
+When choices are comparable, prefer fewer concepts, fewer execution paths, fewer representations, and fewer indirect calls. The surrounding code should be easier to trace, modify, and delete after the change.
+
 ## Architecture
 
 Inferay has a local Rust backend and a Solid renderer. Dependencies flow inward:
@@ -27,6 +46,8 @@ Within a feature, `model/` owns vocabulary and framework-independent rules; `ser
 Keep domain-shaped behavior in Rust pure models where it is shared with the native server and WebAssembly renderer. Solid hooks adapt signals, browser events, and query lifecycles; components render and translate interactions. Pass context-derived values into pure functions instead of reading browser state from them.
 
 Reuse serialized Rust types through `@contracts` instead of redeclaring their fields in TypeScript. Derive renderer subsets with `Pick`, `Omit`, or `Extract`. Dock resizing and decorated-text segmentation run in the Rust presentation engine; the browser supplies pointer coordinates and text and renders the result. Check `bun run code` after each reduction pass and report both frontend and total changes without changing counting exclusions.
+
+Native diff responses include viewer metadata prepared by the Rust presentation model. Render it through the generated `HunkDiff` contract; do not serialize diff contents back into WebAssembly to derive the same metadata. Change navigation uses the existing change ranges. Directory search and quick picks likewise share the native `AgentDirectory` contract instead of parallel renderer models and per-result conversions.
 
 Workspace actions are defined in `native/core/src/workspace_action.rs`, exported through `@contracts`, and matched by the transition code in `native/core/src/agent_state/actions.rs`. Do not recreate that union in TypeScript or dispatch workspace actions by indexing arbitrary JSON. The HTTP boundary deserializes the same Rust contract; server-only summary and provider-session updates use dedicated store methods. Persistence and default-provider selection stay outside the transition dispatcher.
 
@@ -56,11 +77,13 @@ Feature services own endpoint paths, request payloads, and response parsing. For
 
 The architecture checker permits raw endpoint helpers only in a `services/` module, including shared native-compute services. It parses imports and re-exports and resolves both aliases and relative paths; namespace and dynamic imports cannot bypass this rule. There are no transport exceptions.
 
-Persistence orchestration accepts an injected port. `modules/workspace/services/workspaceSession.ts` owns request ordering and optimistic selection without importing Solid or a live transport. Its tests instantiate the same service with a controlled persistence port and the native projection function.
+Persistence orchestration accepts an injected port. `modules/workspace/services/workspaceSession.ts` owns request ordering and publishes optimistic selection without importing Solid or a live transport. The Rust workspace replica owns selection intent, repeated-selection suppression, optimistic state, and acknowledgement rollback. The service retains the asynchronous persistence queue. Tests supply controlled persistence and exercise the same native rules.
 
 Git action labels, response contracts, and post-action selection rules belong to `native/presentation/src/git_actions.rs`; server routes and renderer transport failures use that same model. `modules/repository/services/gitOperations.ts` sequences requests, refreshes, and selection callbacks through an injected transport configured in `app/bootstrap/workspace.ts`. Keep these operations out of the rendering controller. Working-tree keyboard navigation uses the Rust changes-panel model so its file order matches the sidebar.
 
-`src/app/bootstrap/workspace.ts` wires production persistence and projection implementations for workspace state and panel sessions. Their hooks own Solid state and query lifecycles; the services accept ports and can be tested directly without loading the UI or a live backend.
+`src/app/bootstrap/workspace.ts` wires production persistence for workspace state and panel sessions. Rust panel replicas replay pending actions over acknowledged sessions; file bodies remain in the browser cache. Their hooks own Solid state and query lifecycles; services can be tested without loading the UI or a live backend.
+
+Rust workbench models also resolve retained workspace views from the active and previously visited keys. The renderer receives group and pane indices into its current state, preserving object identity without constructing every possible view or duplicating pane records. Only visited views count toward the eight-view/twenty-four-pane budget; an oversized active view remains mounted.
 
 ## Module shape
 

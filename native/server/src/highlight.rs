@@ -7,42 +7,38 @@ use std::sync::OnceLock;
 use syntect::easy::ScopeRegionIterator;
 use syntect::parsing::{ParseState, Scope, ScopeStack, SyntaxReference, SyntaxSet};
 
-/// Above these a file renders as plain text: classification cost is unbounded
-/// in pathological minified sources and the reader gains nothing.
-const MAX_LINES: usize = 50_000;
-const MAX_BYTES: usize = 4 * 1024 * 1024;
-const MAX_LINE_BYTES: usize = 4_000;
+use inferay_core::syntax::{MAX_BYTES, MAX_LINE_BYTES, MAX_LINES, SyntaxKind};
 
 /// Kinds a renderer can style, most specific selector first. Anything
 /// unrecognised stays `plain` rather than growing this set: a stable vocabulary
 /// keeps the stylesheet finite.
-const SELECTORS: &[(&str, &str)] = &[
-    ("comment", "comment"),
-    ("constant.character.escape", "string"),
-    ("constant.numeric", "number"),
-    ("constant", "constant"),
-    ("string", "string"),
-    ("keyword.control", "control"),
-    ("keyword.operator.word", "keyword"),
-    ("keyword.operator", "operator"),
-    ("keyword", "keyword"),
+const SELECTORS: &[(&str, SyntaxKind)] = &[
+    ("comment", SyntaxKind::Comment),
+    ("constant.character.escape", SyntaxKind::String),
+    ("constant.numeric", SyntaxKind::Number),
+    ("constant", SyntaxKind::Constant),
+    ("string", SyntaxKind::String),
+    ("keyword.control", SyntaxKind::Control),
+    ("keyword.operator.word", SyntaxKind::Keyword),
+    ("keyword.operator", SyntaxKind::Operator),
+    ("keyword", SyntaxKind::Keyword),
     // `storage.type` marks declaration keywords — const, let, fn, class — not
     // type names. Those arrive as entity.name.type / support.type below.
-    ("storage", "keyword"),
-    ("entity.name.function", "function"),
-    ("support.function", "function"),
-    ("entity.name.tag", "tag"),
-    ("entity.other.attribute-name", "attribute"),
-    ("entity.name", "type"),
-    ("support.type", "type"),
-    ("support.class", "type"),
-    ("variable.type", "type"),
-    ("variable.function", "function"),
-    ("variable", "variable"),
-    ("support.variable", "variable"),
-    ("meta.object-literal.key", "variable"),
-    ("meta.property.object", "variable"),
-    ("punctuation", "punctuation"),
+    ("storage", SyntaxKind::Keyword),
+    ("entity.name.function", SyntaxKind::Function),
+    ("support.function", SyntaxKind::Function),
+    ("entity.name.tag", SyntaxKind::Tag),
+    ("entity.other.attribute-name", SyntaxKind::Attribute),
+    ("entity.name", SyntaxKind::Type),
+    ("support.type", SyntaxKind::Type),
+    ("support.class", SyntaxKind::Type),
+    ("variable.type", SyntaxKind::Type),
+    ("variable.function", SyntaxKind::Function),
+    ("variable", SyntaxKind::Variable),
+    ("support.variable", SyntaxKind::Variable),
+    ("meta.object-literal.key", SyntaxKind::Variable),
+    ("meta.property.object", SyntaxKind::Variable),
+    ("punctuation", SyntaxKind::Punctuation),
 ];
 
 fn syntaxes() -> &'static SyntaxSet {
@@ -61,8 +57,8 @@ fn deferred() -> Scope {
     *DEFERRED.get_or_init(|| Scope::new("punctuation.definition").expect("static selector"))
 }
 
-fn selectors() -> &'static [(Scope, &'static str)] {
-    static SELECTOR_SCOPES: OnceLock<Vec<(Scope, &'static str)>> = OnceLock::new();
+fn selectors() -> &'static [(Scope, SyntaxKind)] {
+    static SELECTOR_SCOPES: OnceLock<Vec<(Scope, SyntaxKind)>> = OnceLock::new();
     SELECTOR_SCOPES.get_or_init(|| {
         SELECTORS
             .iter()
@@ -106,7 +102,7 @@ fn syntax(path: &str) -> Option<&'static SyntaxReference> {
 
 /// Innermost scope wins, so walk the stack outwards and stop at the first
 /// selector that matches. An unmatched stack is ordinary code.
-fn kind(stack: &ScopeStack) -> &'static str {
+fn kind(stack: &ScopeStack) -> SyntaxKind {
     for scope in stack.as_slice().iter().rev() {
         if deferred().is_prefix_of(*scope) {
             continue;
@@ -115,19 +111,21 @@ fn kind(stack: &ScopeStack) -> &'static str {
             .iter()
             .find(|(selector, _)| selector.is_prefix_of(*scope))
         {
-            return kind;
+            return *kind;
         }
     }
-    "plain"
+    SyntaxKind::Plain
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ts_rs::TS)]
+#[ts(rename = "ClassifiedDocument")]
 pub struct Classified {
     pub version: u8,
     pub language: String,
     /// One entry per line, each a flat `[length, kind, length, kind, …]` run
     /// list. Lengths are UTF-16 code units so the renderer slices the string it
     /// already holds instead of re-encoding it.
+    #[ts(type = "Array<Array<number | string>>")]
     pub lines: Vec<Vec<serde_json::Value>>,
 }
 
@@ -154,7 +152,7 @@ pub fn classify(path: &str, text: &str) -> Option<Classified> {
         }
         let ops = state.parse_line(line, set).ok()?;
         let mut runs: Vec<serde_json::Value> = Vec::new();
-        let mut open: Option<(&'static str, usize)> = None;
+        let mut open: Option<(SyntaxKind, usize)> = None;
         for (piece, op) in ScopeRegionIterator::new(&ops, line) {
             stack.apply(op).ok()?;
             let piece = piece.trim_end_matches('\n');
@@ -368,7 +366,7 @@ mod tests {
         assert!(last.chunks_exact(2).any(|run| run[1] == json!("number")));
         // Also cover the real component that exposed the JSX fragment failure.
         let source =
-            include_str!("../../../src/modules/settings/components/Settings/SettingsContent.tsx");
+            include_str!("../../../src/modules/settings/components/SettingsModalContent/index.tsx");
         let result = classify("SettingsContent.tsx", source).unwrap();
         for (line, runs) in source.lines().zip(result.lines) {
             if line.trim_start().starts_with("import ") {

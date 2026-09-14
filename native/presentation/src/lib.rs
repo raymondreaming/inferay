@@ -1,20 +1,28 @@
 //! Pure renderer models. Native persistence and side effects remain in core/server.
 //! The browser supplies interaction facts and renders the resulting projections.
 pub mod appearance;
+pub mod chat_retention;
 pub mod chat_view;
 pub mod composer;
+pub mod diff;
 pub mod dock;
+pub mod dock_session;
+pub mod documents;
 pub mod git_actions;
 pub mod graph;
 pub mod graph_response;
+pub mod markdown;
 pub mod panels;
+pub mod repository_tabs;
 /// Renderer compatibility facade for repository contracts owned by the core.
 pub mod repository {
     pub use inferay_core::repository::*;
 }
 pub mod skills;
 pub mod transcript;
-mod workbench;
+pub mod ui_performance;
+pub mod workbench;
+pub mod workspace_session;
 
 use serde_json::{Value, json};
 use wasm_bindgen::prelude::*;
@@ -34,6 +42,19 @@ fn flag(value: &Value) -> bool {
 
 pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
     Ok(match operation {
+        "syntaxInput" => json!(inferay_core::syntax::input(
+            &serde_json::from_value::<Vec<String>>(input["lines"].clone())
+                .map_err(|e| e.to_string())?,
+            serde_json::from_value::<Option<Vec<String>>>(input["lineTypes"].clone())
+                .map_err(|e| e.to_string())?
+                .as_deref(),
+            input["enabled"] != false,
+        )),
+        "dockPointerTarget" => json!(dock::pointer_target(input)),
+        "dockWheel" => json!(dock::wheel(input)),
+        "responsiveDockColumns" => dock::responsive_columns(input),
+        "dropdownPosition" => json!(appearance::dropdown_position(input)),
+        "sidebarResize" => json!(appearance::sidebar_resize(input)),
         "backgroundModel" => json!(appearance::background_model(input)),
         "chatList" => json!(chat_view::list(input)?),
         "chatOffsets" => json!(chat_view::offsets(
@@ -62,23 +83,38 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         }
         "gitOperationModel" => workbench::git_operation_model(input),
         "gitActionFailure" => git_actions::failed_operation(input),
-        "diffViewer" => workbench::diff_viewer(input),
+        "nextDiffChange" => diff::next_change(input),
+        "diffNavigation" => diff::navigation(input)?,
         "changesPanel" => workbench::changes_panel(input),
         "visibleFiles" => workbench::visible_files(input),
         "adjacentFile" => workbench::adjacent_file(input),
         "selectionAfterToggle" => workbench::selection_after_toggle(input),
         "historicalQuery" => workbench::historical_query(input),
-        "diffPrefetchFiles" => workbench::diff_prefetch_files(input),
-        "diffRequest" => workbench::diff_request(input),
-        "repositorySelection" => workbench::repository_selection(input),
-        "workspaceSelection" => workbench::workspace_selection(input),
-        "workspaceDock" => dock::project(input)?,
+        "repositoryFileSelection" => json!(workbench::file_selection(input)),
+        "repositoryPreferences" => json!(workbench::preferences(input)),
+        "repositoryResize" => workbench::resize(input),
+        "repositoryWorkbenchContext" => workbench::context(input),
+        "repositorySelectedWorktree" => workbench::selected_worktree(input),
+        "repositoryInteraction" => json!(workbench::interaction(input)),
+        "repositoryKeyboardAction" => workbench::keyboard_action(input),
+        "repositoryResizeStart" => workbench::resize_start(input),
+        "retainedGraphSelection" => json!(workbench::retained_graph_selection(input)),
+        "graphFileOpen" => json!(workbench::graph_file_open(input)),
+        "diffPrefetchFiles" => diff::diff_prefetch_files(input),
+        "diffRequest" => diff::diff_request(input),
         "resizeDockSplit" => dock::resize_preview(input)?,
         "retainedWorkspaces" => workbench::retained_workspaces(input),
-        "chatRunStatus" => chat_view::run_status(input),
+        "chatRunStatus" => transcript::run_status(input),
+        "chatScrollState" => chat_view::scroll_state(input),
+        "chatScrollRestore" => json!(chat_view::restore_scroll(input)),
+        "uiTimingSummaries" => ui_performance::summaries(input),
         "graphPreferences" => graph::preferences(input),
         "emptyGitGraph" => graph_response::response(Default::default(), &[], &[], &[]),
         "graphLayout" => graph::layout(input),
+        "graphNavigation" => json!(graph::navigation(input)),
+        "graphViewport" => json!(graph::viewport(input)),
+        "graphReveal" => graph::reveal(input),
+        "resizeGraphColumn" => graph::resize_column(input),
         "graphLines" => json!(graph::lines(input)),
         "moveColumn" => graph::move_column(input),
         "nextHistoryLimit" => json!(
@@ -86,13 +122,14 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
                 .max(number(input) * 2.)
                 .min(100_000.)
         ),
-        "emptySkillForm" => skills::empty(),
-        "skillDialog" => skills::dialog(input),
-        "skillEdit" => skills::edit(input),
-        "skillDuplicate" => skills::duplicate(input),
-        "skillDirty" => skills::dirty(input),
-        "trigger" => composer::trigger(input),
-        "completion" => composer::completion(input),
+        "providerSettings" => json!(inferay_core::provider_config::settings_view(input)),
+        "composerConfig" => json!(composer::config_controls(input)),
+        "completionMenuInput" => composer::menu_input(input),
+        "completionMenuCommands" => composer::menu_commands(input),
+        "editDiffWindow" => json!(diff::edit_window(input)),
+        "chatInputKey" => json!(composer::input_key(input)),
+        "completionMenuStep" => composer::menu_step(input),
+        "selectCompletion" => composer::select_completion(input),
         "decoratedTextSegments" => json!(composer::decorated_segments(input)),
         "askAnswer" => composer::ask_answer(input),
         "systemNotice" => composer::system_notice(input),

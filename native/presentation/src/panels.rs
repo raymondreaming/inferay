@@ -526,3 +526,94 @@ pub enum PanelAction {
         staged: Option<bool>,
     },
 }
+
+/// Optimistic panel metadata. File bodies remain in the renderer's cache.
+#[wasm_bindgen::prelude::wasm_bindgen]
+#[derive(Default)]
+pub struct PanelReplica {
+    workspaces: std::collections::HashMap<String, PanelPending>,
+    sequence: u32,
+}
+#[derive(Default)]
+struct PanelPending {
+    canonical: Value,
+    pending: Vec<(u32, Value, u64)>,
+    revision: u32,
+}
+impl PanelPending {
+    fn session(&self) -> Value {
+        let mut session = normalize(&self.canonical);
+        for (_, action, now) in &self.pending {
+            // Actions are validated before admission; replay uses the same reducer.
+            apply_action(&mut session, action, *now).expect("admitted panel action");
+        }
+        normalize(&session)
+    }
+}
+#[wasm_bindgen::prelude::wasm_bindgen]
+impl PanelReplica {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn revision(&mut self, workspace: &str) -> u32 {
+        self.workspaces
+            .entry(workspace.into())
+            .or_default()
+            .revision
+    }
+    pub fn preview(
+        &mut self,
+        workspace: &str,
+        action: &str,
+        now: f64,
+        current: &str,
+    ) -> Result<String, wasm_bindgen::JsValue> {
+        let action: Value = serde_json::from_str(action)
+            .map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))?;
+        let current: Value = serde_json::from_str(current)
+            .map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))?;
+        let state = self.workspaces.entry(workspace.into()).or_default();
+        let mut next = normalize(&current);
+        apply_action(&mut next, &action, now as u64)
+            .map_err(|e| wasm_bindgen::JsValue::from_str(&e))?;
+        if state.pending.is_empty() {
+            state.canonical = current;
+        }
+        self.sequence += 1;
+        state.pending.push((self.sequence, action, now as u64));
+        Ok(json!({"sequence": self.sequence, "session": normalize(&next)}).to_string())
+    }
+    pub fn load(
+        &mut self,
+        workspace: &str,
+        revision: u32,
+        session: &str,
+    ) -> Result<String, wasm_bindgen::JsValue> {
+        let session = serde_json::from_str(session)
+            .map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))?;
+        let state = self.workspaces.entry(workspace.into()).or_default();
+        if state.revision == revision {
+            state.canonical = session;
+        }
+        Ok(state.session().to_string())
+    }
+    pub fn settle(
+        &mut self,
+        workspace: &str,
+        sequence: u32,
+        session: Option<String>,
+    ) -> Result<String, wasm_bindgen::JsValue> {
+        let canonical = session
+            .map(|s| serde_json::from_str(&s))
+            .transpose()
+            .map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))?;
+        let state = self.workspaces.entry(workspace.into()).or_default();
+        state.pending.retain(|(id, _, _)| *id != sequence);
+        if let Some(canonical) = canonical {
+            state.canonical = canonical;
+            state.revision += 1;
+        }
+        Ok(state.session().to_string())
+    }
+}

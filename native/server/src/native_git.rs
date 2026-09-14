@@ -114,11 +114,14 @@ pub async fn full_diff(
                     .is_some_and(|patch| !patch.trim().is_empty())
                 || diff.merge_conflict_content.is_some();
             changed.then(|| {
-                render_jobs::diff_bytes(if review {
-                    compact_git_hunk_diff(diff)
-                } else {
-                    diff
-                })
+                render_jobs::diff_bytes(
+                    if review {
+                        compact_git_hunk_diff(diff)
+                    } else {
+                        diff
+                    },
+                    &file,
+                )
             })
         },
         move || fingerprint == diff_fingerprint(&root, &path),

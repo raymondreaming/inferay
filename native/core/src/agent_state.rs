@@ -1,5 +1,6 @@
 //! Workspace schema and invariants, independent of persistence and HTTP.
 mod actions;
+pub use actions::reorder_repositories;
 mod queries;
 
 use crate::workspace_action::AgentWorkspaceAction;

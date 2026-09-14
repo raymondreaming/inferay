@@ -22,7 +22,7 @@ pub struct Prompt {
     pub updated_at: u64,
 }
 
-#[derive(Serialize, ts_rs::TS)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillProposal {
     #[serde(rename = "type")]
@@ -54,7 +54,7 @@ pub struct SkillProposalView {
     message: Option<String>,
 }
 
-#[derive(Deserialize, Serialize, ts_rs::TS)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillRead {
     #[serde(rename = "_id")]

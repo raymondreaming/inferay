@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use inferay_core::chat_protocol::{ChatTranscriptMessage, trim_messages};
-use serde_json::{Map, Value};
+use serde_json::Value;
 use tokio::{
     fs,
     io::{AsyncReadExt, AsyncSeekExt, SeekFrom},
@@ -161,6 +161,7 @@ fn message(content: &str, role: &str, source_id: Option<&Value>) -> Option<ChatT
         images: None,
         tool_name: None,
         is_streaming: Some(false),
-        extra: Map::new(),
+        btw_question: None,
+        render: None,
     })
 }
