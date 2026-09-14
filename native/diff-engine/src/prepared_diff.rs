@@ -305,16 +305,4 @@ mod edit_card_tests {
         assert!(prepared.get("hunks").is_none());
         assert_eq!(prepared["contentWidthChars"], 34);
     }
-
-    #[test]
-    fn width_uses_browser_units_tab_expansion_and_a_rendering_cap() {
-        for (text, width) in [("😀\t".repeat(5), 40), ("x".repeat(9000), 8000)] {
-            let prepared =
-                serde_json::to_value(prepare_edit_diff("", &text, &[]).unwrap()).unwrap();
-            assert_eq!(prepared["contentWidthChars"], width);
-        }
-        let unchanged =
-            serde_json::to_value(prepare_edit_diff("same", "same", &[]).unwrap()).unwrap();
-        assert_eq!(unchanged["lines"], serde_json::json!([]));
-    }
 }

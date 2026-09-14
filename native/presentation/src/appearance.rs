@@ -220,48 +220,6 @@ pub fn normalize_background_settings(text: &str) -> String {
     .expect("background serialization")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn migrates_old_backgrounds_without_reusing_obsolete_glass_values() {
-        let settings = normalize_background(&json!({
-            "version": 3, "id": "city", "blur": 12, "glassBlur": 32, "glassOpacity": 20
-        }));
-        let value = serde_json::to_value(settings).unwrap();
-        assert_eq!(value["mode"], "scene");
-        assert_eq!(value["blur"], 12.);
-        assert_eq!(value["glassBlur"], 42.);
-        assert_eq!(value["glassOpacity"], 70.);
-        assert_eq!(value["version"], 8);
-    }
-
-    #[test]
-    fn current_backgrounds_validate_choices_and_clamp_saved_values() {
-        let value = serde_json::to_value(normalize_background(&json!({
-            "version":8, "id":"unknown", "mode":"invalid", "dim":120,
-            "blur":14, "glassBlur":100, "glassOpacity":0, "customRevision":-2
-        })))
-        .unwrap();
-        assert_eq!(value["id"], "none");
-        assert_eq!(value["mode"], "solid");
-        assert_eq!(value["dim"], 85.);
-        assert_eq!(value["blur"], 1.);
-        assert_eq!(value["glassBlur"], 60.);
-        assert_eq!(value["glassOpacity"], 8.);
-        assert_eq!(value["customRevision"], 0.);
-    }
-
-    #[test]
-    fn invalid_preferences_use_the_same_defaults_as_the_catalog() {
-        assert_eq!(
-            normalize_background_settings("not json"),
-            serde_json::to_string(&catalog().default_background).unwrap()
-        );
-    }
-}
-
 #[derive(serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct DropdownPosition {

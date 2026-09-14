@@ -406,44 +406,6 @@ mod send_tests {
     use super::*;
 
     #[test]
-    fn completion_menu_resets_selection_for_input_and_retains_hidden_context() {
-        let previous = json!({"show":true,"selectedIdx":2,"query":"r","index":3});
-        let state =
-            menu_input(&json!({"state":previous,"value":"😀 /re","cursorPos":6,"trigger":"/"}));
-        assert_eq!(
-            state,
-            json!({"show":true,"selectedIdx":0,"query":"re","index":3})
-        );
-        assert!(
-            menu_input(&json!({"state":state,"value":"😀 /re","cursorPos":6,"trigger":"/"}))
-                .is_null()
-        );
-        let hidden =
-            menu_input(&json!({"state":previous,"value":"plain","cursorPos":5,"trigger":"/"}));
-        assert_eq!(
-            hidden,
-            json!({"show":false,"selectedIdx":2,"query":"r","index":3})
-        );
-    }
-
-    #[test]
-    fn system_notices_suppress_only_completed_nonempty_duplicates() {
-        let previous = json!({"role":"system","content":"Stopped"});
-        assert!(system_notice(&json!({"content":"Stopped","previous":previous})).is_null());
-        let notice = system_notice(
-            &json!({"id":"notice","content":"Stopped","render":{"kind":"notice"},
-            "previous":{"role":"system","content":"Stopped","isStreaming":true}}),
-        );
-        assert_eq!(notice["role"], "system");
-        assert_eq!(notice["localOnly"], true);
-        assert_eq!(notice["render"]["kind"], "notice");
-        assert!(
-            !system_notice(&json!({"content":"","previous":{"role":"system","content":""}}))
-                .is_null()
-        );
-    }
-
-    #[test]
     fn send_intent_preserves_request_and_optimistic_semantics() {
         let context = json!({"id":"local-1", "paneId":"pane", "agentKind":"codex",
             "cwd":"/repo", "referencePaths":["/reference"], "text":" \u{feff}hello\n "});

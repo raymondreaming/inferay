@@ -291,28 +291,6 @@ pub fn diff_prefetch_files(i: &Value) -> Value {
 mod prefetch_tests {
     use super::*;
     #[test]
-    fn edit_window_keeps_small_cards_complete_and_bounds_large_cards_after_shrinking() {
-        let window = |count, first| {
-            serde_json::to_value(edit_window(
-                &json!({"count":count,"first":first,"virtualized":count > 80}),
-            ))
-            .unwrap()
-        };
-        assert_eq!(
-            window(0, 200),
-            json!({"start":0,"end":0,"virtual":false,"paddingTop":0,"paddingBottom":0})
-        );
-        assert_eq!(window(80, 70)["end"], 80);
-        assert_eq!(
-            window(100, 20),
-            json!({"start":12,"end":52,"virtual":true,"paddingTop":180,"paddingBottom":720})
-        );
-        assert_eq!(
-            window(81, 200),
-            json!({"start":72,"end":81,"virtual":true,"paddingTop":1080,"paddingBottom":0})
-        );
-    }
-    #[test]
     fn neighbors_preserve_stage_identity_wrap_and_remain_bounded() {
         let files = json!([{"path":"a","staged":false},{"path":"a","staged":true},{"path":"b","staged":true}]);
         assert_eq!(

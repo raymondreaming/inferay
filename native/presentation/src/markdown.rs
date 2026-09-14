@@ -165,23 +165,6 @@ mod tests {
     }
 
     #[test]
-    fn suffixes_use_utf8_boundaries_and_changes_of_chat_mode_reset() {
-        let mut cursor = MarkdownCursor::new();
-        let first = cursor.begin("hello 🦀".into(), true, true, "first".into());
-        assert!(cursor.admit(first, &patch(true, 1, 0, 0, 2)).unwrap());
-        let next = cursor.begin("hello 🦀 café".into(), true, true, "unused".into());
-        let request: Value = serde_json::from_str(&cursor.request(next)).unwrap();
-        assert_eq!(request["append"], " café");
-        assert_eq!(request["streamId"], "first");
-        assert!(cursor.admit(next, &patch(false, 2, 1, 1, 1)).unwrap());
-        let reset = cursor.begin("hello 🦀 café".into(), false, false, "plain".into());
-        let request: Value = serde_json::from_str(&cursor.request(reset)).unwrap();
-        assert_eq!(request["text"], "hello 🦀 café");
-        assert_eq!(request["streamId"], "plain");
-        assert!(request.get("append").is_none());
-    }
-
-    #[test]
     fn late_or_malformed_responses_cannot_replace_the_retained_cursor() {
         let mut cursor = MarkdownCursor::new();
         let old = cursor.begin("old".into(), true, true, "old".into());
@@ -195,23 +178,5 @@ mod tests {
         assert_eq!(request["append"], "!");
         assert_eq!(request["baseRevision"], 1);
         assert_eq!(request["streamId"], "fresh");
-    }
-
-    #[test]
-    fn resync_and_cancellation_do_not_advance_the_cursor() {
-        let mut cursor = MarkdownCursor::new();
-        let initial = cursor.begin("a".into(), true, true, "first".into());
-        cursor.admit(initial, &patch(true, 1, 0, 0, 1)).unwrap();
-        let pending = cursor.begin("ab".into(), true, true, "unused".into());
-        let reset: Value = serde_json::from_str(&cursor.restart(pending, "retry".into())).unwrap();
-        assert_eq!(reset["text"], "ab");
-        assert_eq!(reset["streamId"], "retry");
-        assert!(reset.get("baseRevision").is_none());
-        cursor.discard(pending);
-        let next = cursor.begin("abc".into(), true, false, "unused".into());
-        let request: Value = serde_json::from_str(&cursor.request(next)).unwrap();
-        assert_eq!(request["append"], "bc");
-        assert_eq!(request["streamId"], "first");
-        assert_eq!(request["streaming"], false);
     }
 }

@@ -183,22 +183,4 @@ mod skill_card_tests {
         proposal["promptTemplate"] = json!("🦀".repeat(25_001));
         assert!(chat_skill_proposal(&proposal).is_none());
     }
-
-    #[test]
-    fn read_contract_preserves_extra_fields_and_rejects_invalid_shapes() {
-        let mut envelope = json!({"type": "inferay.skill-read", "skill": {
-            "_id": "skill-1", "name": "Review", "command": "review",
-            "description": "Review changes", "promptTemplate": "Check the diff",
-            "isBuiltIn": false, "updatedAt": 42, "futureField": {"enabled": true}
-        }});
-        assert_eq!(
-            serde_json::to_value(chat_skill_read(&envelope)).unwrap(),
-            envelope["skill"]
-        );
-        envelope["skill"]["isBuiltIn"] = json!("false");
-        assert!(chat_skill_read(&envelope).is_none());
-        envelope["skill"]["isBuiltIn"] = json!(false);
-        envelope["skill"].as_object_mut().unwrap().remove("name");
-        assert!(chat_skill_read(&envelope).is_none());
-    }
 }

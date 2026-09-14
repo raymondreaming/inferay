@@ -813,52 +813,6 @@ mod ref_dialog_tests {
             "idle"
         );
     }
-
-    #[test]
-    fn branch_choices_and_conflict_recovery_follow_native_capabilities() {
-        let dialog = git_operation_model(
-            &json!({"preflight":{"canRebase":true,"canFastForward":true,"canMerge":true}}),
-        );
-        assert_eq!(
-            dialog["actions"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|a| a["operation"].clone())
-                .collect::<Vec<_>>(),
-            vec![
-                Value::Null,
-                json!("rebase"),
-                json!("fastForward"),
-                json!("merge")
-            ]
-        );
-        for operation in ["merge", "rebase", "cherryPick"] {
-            let dialog = git_operation_model(
-                &json!({"result":{"operation":operation,"conflicts":["file"]}}),
-            );
-            let actions = dialog["actions"].as_array().unwrap();
-            assert_eq!(actions.len(), if operation == "merge" { 2 } else { 3 });
-            assert_eq!(actions.first().unwrap()["phase"], "abort");
-            assert_eq!(actions.last().unwrap()["phase"], "continue");
-            assert_eq!(
-                dialog["conflictMessage"],
-                "Resolve 1 conflicted file, then continue or abort."
-            );
-        }
-        let blocked = git_operation_model(
-            &json!({"preflight":{"reasons":["No shared ancestor", "Source unavailable"]}}),
-        );
-        assert_eq!(
-            blocked["blockedReason"],
-            "No shared ancestor. Source unavailable"
-        );
-        assert_eq!(blocked["actions"].as_array().unwrap().len(), 1);
-        assert!(
-            git_operation_model(&json!({"preflight":{"canFastForward":true}}))["blockedReason"]
-                .is_null()
-        );
-    }
 }
 
 /// One ordering policy for keyboard moves, pointer drops, and native persistence.

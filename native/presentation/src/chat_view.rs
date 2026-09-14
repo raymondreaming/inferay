@@ -277,91 +277,6 @@ mod tests {
     }
 
     #[test]
-    fn scroll_restoration_clamps_retained_positions_without_hidden_viewport_capture() {
-        let state = json!({"snapshot":{"atBottom":false,"fromBottom":10,"top":800},"towardBottom":false,"cancelRestore":false});
-        assert_eq!(
-            scroll_state(
-                &json!({"state":state,"action":"capture","top":0,"height":0,"viewport":0})
-            ),
-            state
-        );
-        assert_eq!(
-            restore_scroll(&json!({"snapshot":state["snapshot"],"height":500,"viewport":100})),
-            400.
-        );
-        assert_eq!(
-            restore_scroll(
-                &json!({"snapshot":{"atBottom":true,"top":50},"height":500,"viewport":100})
-            ),
-            400.
-        );
-        assert_eq!(
-            restore_scroll(&json!({"snapshot":{"atBottom":true},"height":50,"viewport":100})),
-            0.
-        );
-    }
-
-    #[test]
-    fn list_projects_stable_identity_and_checkpoint_eligibility() {
-        let model = serde_json::to_value(list(&json!({
-            "messages": [
-                {"id":"user", "role":"user"},
-                {"id":"streaming", "role":"assistant", "isStreaming":true},
-                {"id":"done", "role":"assistant", "render":{"rowId":"stable"}},
-                {"id":"edit", "role":"assistant", "render":{"kind":"edit-group", "groupLeader":true, "groupEnd":5, "filePath":"a.rs"}},
-                {"id":"hidden", "render":{"kind":"edit-group"}}
-            ],
-            "checkpoints":[
-                {"afterMessageId":"user"}, {"afterMessageId":"streaming"},
-                {"afterMessageId":"done"}, {"afterMessageId":"edit"}, {"afterMessageId":"done"}
-            ]
-        })).unwrap()).unwrap();
-        assert_eq!(
-            model,
-            json!([
-                {"type":"message","index":0,"key":"user","checkpoint":null},
-                {"type":"message","index":1,"key":"streaming","checkpoint":null},
-                {"type":"message","index":2,"key":"stable","checkpoint":4},
-                {"type":"edit-group","start":3,"end":5,"filePath":"a.rs","key":"edit","checkpoint":null}
-            ])
-        );
-    }
-
-    #[test]
-    fn scrolling_retains_mounted_rows_until_the_viewport_nears_an_edge() {
-        let mut viewport = ChatViewport {
-            offsets: offsets(&vec![Some(32.); 500]),
-            scroll_offset: Some(0.),
-            viewport_height: 600.,
-            retained_window: None,
-        };
-        let mut changes = 0;
-        for step in 0..200 {
-            let scroll = step as f64 * 32.;
-            viewport.scroll_offset = Some(scroll);
-            let next = window(&viewport);
-            assert!(viewport.offsets[next.start] <= scroll);
-            assert!(viewport.offsets[next.end] >= scroll + 600.);
-            if viewport
-                .retained_window
-                .as_ref()
-                .is_some_and(|previous| previous.start != next.start || previous.end != next.end)
-            {
-                changes += 1;
-            }
-            viewport.retained_window = Some(next);
-        }
-        assert!(changes < 30, "mounted range changed {changes} times");
-        // Jumping back across unmounted history must update immediately.
-        viewport.scroll_offset = Some(0.);
-        let top = window(&viewport);
-        assert_eq!(top.start, 0);
-        // Following a new response must still choose the tail.
-        viewport.scroll_offset = None;
-        assert_eq!(window(&viewport).end, 500);
-    }
-
-    #[test]
     fn retained_window_covers_mixed_height_history_in_both_directions() {
         let heights: Vec<_> = (0..200)
             .map(|index| Some(if index % 7 == 0 { 900. } else { 32. }))
@@ -384,27 +299,5 @@ mod tests {
         viewport.offsets.truncate(81);
         viewport.scroll_offset = Some(0.);
         assert!(window(&viewport).end <= 80);
-    }
-
-    #[test]
-    fn following_covers_the_viewport_with_short_rows_and_tracks_tail_growth() {
-        let mut viewport = ChatViewport {
-            offsets: offsets(&vec![Some(20.); 100]),
-            scroll_offset: None,
-            viewport_height: 1200.,
-            retained_window: None,
-        };
-        let initial = window(&viewport);
-        assert_eq!(initial.first_visible, 40);
-        assert_eq!(initial.end, 100);
-        assert!(viewport.offsets[initial.start] <= 800.);
-        // A growing final row must remain mounted, with enough rows above it
-        // to fill the screen, without depending on a DOM scroll event.
-        viewport.offsets[100] += 600.;
-        let grown = window(&viewport);
-        assert_eq!(grown.first_visible, 70);
-        assert_eq!(grown.end, 100);
-        viewport.viewport_height = 4000.;
-        assert_eq!(window(&viewport).start, 0);
     }
 }

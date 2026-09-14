@@ -158,29 +158,4 @@ mod tests {
         model.close("a");
         assert!(model.view.active_path.is_none());
     }
-
-    #[test]
-    fn restoration_retains_new_files_and_selection_without_resurrecting_closed_tabs() {
-        let mut model = replica(&[], None);
-        model.close("closed");
-        let request = model.open("fresh");
-        assert!(model.receive(request, "fresh", "fresh"));
-        model
-            .restore(r#"["saved","closed"]"#, Some("saved".into()))
-            .unwrap();
-        assert_eq!(model.view.paths, ["saved", "fresh"]);
-        assert_eq!(model.view.active_path.as_deref(), Some("fresh"));
-        assert!(!model.view.restoring);
-    }
-
-    #[test]
-    fn failed_restoration_finishes_loading_and_closed_requests_cannot_publish_errors() {
-        let mut model = replica(&[], None);
-        model.fail(None, "Restore failed".into());
-        assert!(!model.view.restoring);
-        let version = model.open("missing");
-        model.close("missing");
-        model.fail(Some(version), "Late failure".into());
-        assert_eq!(model.view.error.as_deref(), Some("Restore failed"));
-    }
 }

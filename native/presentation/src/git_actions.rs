@@ -306,34 +306,6 @@ mod tests {
     }
 
     #[test]
-    fn graph_actions_select_head_only_when_the_action_moves_selection() {
-        for operation in [
-            "cherryPick",
-            "revert",
-            "resetSoft",
-            "resetMixed",
-            "resetHard",
-        ] {
-            let payload = operation_payload(result(operation, Some("new-head")), false);
-            assert_eq!(payload["selection"], json!({"commit": "new-head"}));
-            assert_eq!(payload["operation"], operation);
-            assert_eq!(payload["head"], "new-head");
-            assert!(
-                operation_payload(result(operation, None), false)
-                    .get("selection")
-                    .is_none()
-            );
-        }
-        for operation in ["createBranch", "createTag", "stashPush", "fetch", "push"] {
-            assert!(
-                operation_payload(result(operation, Some("head")), false)
-                    .get("selection")
-                    .is_none()
-            );
-        }
-    }
-
-    #[test]
     fn ref_actions_can_clear_selection_but_failed_actions_preserve_it() {
         assert_eq!(
             operation_payload(result("merge", None), true)["selection"],

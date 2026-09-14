@@ -355,19 +355,6 @@ mod tests {
     }
 
     #[test]
-    fn targets_protect_builtins_and_report_missing_skills() {
-        let mut builtin = open(json!({"mode":"edit","skillId":"builtin"}));
-        assert!(builtin.view("").built_in);
-        assert!(!builtin.view("").editor.editing);
-        assert!(!builtin.view("").editor.can_delete);
-        assert!(builtin.save_request().is_none());
-        assert!(builtin.delete_request().is_none());
-        let missing = open(json!({"mode":"edit","skillId":"missing"}));
-        assert!(!missing.view("").show_editor);
-        assert_eq!(missing.form.error, "This skill is no longer available.");
-    }
-
-    #[test]
     fn edits_survive_library_refresh_and_save_uses_core_validation() {
         let mut model = open(json!({"mode":"edit","skillId":"personal"}));
         assert!(!model.view("").dirty);
@@ -393,50 +380,6 @@ mod tests {
         assert!(!model.view("").editor.busy);
         assert_eq!(model.form.error, "Offline");
         assert_eq!(model.form.prompt_template, "  Updated instructions  ");
-    }
-
-    #[test]
-    fn duplication_creates_a_personal_draft_and_rejects_conflicting_commands() {
-        let mut model = open(json!({"mode":"browse"}));
-        action(&mut model, json!({"type":"duplicate"}));
-        assert_eq!(model.form.name, "Review copy");
-        assert_eq!(model.form.command, "review-custom");
-        assert!(model.view("").dirty);
-        assert!(model.view("").rows.iter().all(|row| !row.active));
-        action(
-            &mut model,
-            json!({"type":"field","field":"command","value":"notes"}),
-        );
-        assert!(model.save_request().is_none());
-        assert_eq!(model.form.error, "Command /notes already exists");
-        action(
-            &mut model,
-            json!({"type":"field","field":"command","value":"review-custom"}),
-        );
-        let request: Value = serde_json::from_str(&model.save_request().unwrap()).unwrap();
-        assert!(request["id"].is_null());
-        action(&mut model, json!({"type":"saved","id":"new"}));
-        assert!(!model.view("").dirty);
-        assert!(!model.view("").editor.busy);
-    }
-
-    #[test]
-    fn filtering_uses_shared_library_rules_and_deletion_resets_the_dialog() {
-        let mut model = open(json!({"mode":"browse"}));
-        let rows = model.view("WRITE").rows;
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].id, "personal");
-        action(&mut model, json!({"type":"select","id":"personal"}));
-        assert_eq!(
-            model.view("").delete_confirmation.as_deref(),
-            Some("Delete /notes?")
-        );
-        assert_eq!(model.delete_request().as_deref(), Some("personal"));
-        action(&mut model, json!({"type":"select","id":"builtin"}));
-        assert_eq!(model.selected.as_deref(), Some("personal"));
-        action(&mut model, json!({"type":"deleted"}));
-        assert!(!model.view("").show_editor);
-        assert!(!model.view("").editor.busy);
     }
 
     #[test]

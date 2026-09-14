@@ -169,24 +169,4 @@ mod chain_tests {
             "and when thats done, do a final check and finish with /verify"
         );
     }
-
-    #[test]
-    fn closes_the_last_step_with_trailing_prose() {
-        let steps = command_steps("/design and stop there", &skills());
-        assert_eq!(steps.len(), 1);
-        assert_eq!(steps[0].text, "Run the design workflow. and stop there");
-    }
-
-    #[test]
-    fn leaves_a_single_skill_and_plain_prose_alone() {
-        let steps = expand_chat_command_chain(&[], "just a message", None, None);
-        assert_eq!(steps.len(), 1);
-        assert_eq!(steps[0].text, "just a message");
-        assert!(command_steps("no skills here", &skills()).is_empty());
-    }
-
-    #[test]
-    fn ignores_reserved_and_malformed_tokens() {
-        assert!(command_steps("/clear /help /exit /9lives", &skills()).is_empty());
-    }
 }

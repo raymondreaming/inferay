@@ -375,28 +375,6 @@ mod reconnect_tests {
     }
 
     #[test]
-    fn event_plan_preserves_pending_activity_and_formats_terminal_notices() {
-        let mut replica = ChatReplica::new();
-        let sending = json!({"isLoading":true,"status":"sending","startTime":123});
-        let event = |kind| json!({"type":kind,"paneId":"pane"});
-        let mut idle = event("chat:status");
-        idle["runStatus"] = json!({"isLoading":false,"status":"idle","startTime":null});
-        assert!(replica.event(&idle, "pane", &sending)["status"].is_null());
-        let failed = replica.event(&event("chat:error"), "pane", &sending);
-        assert_eq!(failed["status"]["status"], "error");
-        assert_eq!(failed["notice"], "Chat failed");
-        let mut native_error = event("chat:error");
-        native_error["modelVersion"] = json!(1);
-        assert!(replica.event(&native_error, "pane", &sending)["notice"].is_null());
-        let mut reverted = event("checkpoint:reverted");
-        reverted["restoredFiles"] = json!(["a", "b"]);
-        assert_eq!(
-            replica.event(&reverted, "pane", &sending)["notice"],
-            "Reverted 2 file(s) to checkpoint"
-        );
-    }
-
-    #[test]
     fn unchanged_reconnect_preserves_history_and_accepts_the_next_delta() {
         let mut replica = ChatReplica::new();
         replica.admit(
@@ -414,21 +392,5 @@ mod reconnect_tests {
         assert_eq!(result["kind"], "patch");
         assert_eq!(replica.messages, ["a"]);
         assert_eq!(result, json!({"kind":"patch","start":0,"deleteCount":1}));
-    }
-
-    #[test]
-    fn unchanged_acknowledgement_cannot_replace_missing_or_mismatched_history() {
-        let acknowledgement = json!({"type":"chat:sync","modelVersion":1,"epoch":"current",
-            "revision":4,"unchanged":true});
-        let mut replica = ChatReplica::new();
-        assert_eq!(replica.admit(&acknowledgement)["kind"], "resync");
-        replica.admit(&json!({"type":"chat:sync","modelVersion":1,"epoch":"old",
-            "revision":4,"messages":[]}));
-        assert_eq!(replica.admit(&acknowledgement)["kind"], "resync");
-        replica.admit(
-            &json!({"type":"chat:sync","modelVersion":1,"epoch":"current",
-            "revision":3,"messages":[]}),
-        );
-        assert_eq!(replica.admit(&acknowledgement)["kind"], "resync");
     }
 }

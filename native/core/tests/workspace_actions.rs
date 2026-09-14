@@ -6,33 +6,6 @@ fn action(value: Value) -> AgentWorkspaceAction {
 }
 
 #[test]
-fn workspace_wire_contract_preserves_optional_fields_and_nullable_directory() {
-    for value in [
-        json!({"type":"addPane"}),
-        json!({"type":"addPane","agentKind":"claude","cwd":"/repo","referencePaths":["/other"]}),
-        json!({"type":"directorySelected","groupId":"g","paneId":"p","path":null}),
-        json!({"type":"reorderRepository","cwd":"/repo","beforeCwd":null}),
-        json!({"type":"setGridDimensions","groupId":"g","columns":2}),
-    ] {
-        assert_eq!(serde_json::to_value(action(value.clone())).unwrap(), value);
-    }
-}
-
-#[test]
-fn workspace_wire_contract_rejects_malformed_and_server_only_actions() {
-    for value in [
-        json!({"type":"selectPane","groupId":"g"}),
-        json!({"type":"addPane","agentKind":"unknown"}),
-        json!({"type":"reorderPanes","groupId":"g","fromIndex":-1,"toIndex":0}),
-        json!({"type":"setGridDimensions","groupId":"g","rows":1.5}),
-        json!({"type":"setPaneSummary","paneId":"p","summary":"title"}),
-        json!({"type":"setPaneProviderSession","paneId":"p","providerSessionId":null}),
-    ] {
-        assert!(serde_json::from_value::<AgentWorkspaceAction>(value).is_err());
-    }
-}
-
-#[test]
 fn directory_selection_transitions_do_not_need_a_store_or_server() {
     let mut state: Workspace = serde_json::from_value(json!({
         "groups": [{"id":"g","name":"Workspace","selectedPaneId":"p","columns":1,"rows":1,

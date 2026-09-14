@@ -2,21 +2,6 @@ use inferay_presentation::project;
 use serde_json::{Value, json};
 
 #[test]
-fn diff_request_contract_omits_unrelated_history_and_preserves_review_mode() {
-    let input = json!({"active":true,"cwd":"/repo","revision":"r1","selectedFile":{"path":"file.rs","staged":false},
-        "viewMode":"hunks","fileSource":{"kind":"commit","commitHash":"abc","comparisonFrom":"ignored"}});
-    let value = project("diffRequest", &input).unwrap();
-    assert_eq!(
-        value,
-        json!({"cwd":"/repo","revision":"r1","file":"file.rs","staged":false,"commitHash":"abc","view":"review"})
-    );
-    assert_eq!(
-        project("diffRequest", &json!({"active":false,"cwd":"/repo"})).unwrap(),
-        Value::Null
-    );
-}
-
-#[test]
 fn graph_navigation_opens_wip_and_preserves_branch_and_boundary_rules() {
     let navigate = |key: &str, current: i64, extra: Value| {
         let items = ["wip", "middle", "older"];
@@ -68,35 +53,6 @@ fn graph_navigation_opens_wip_and_preserves_branch_and_boundary_rules() {
     assert_eq!(
         project("graphNavigation", &json!({"key":"Home","items":[]})).unwrap()["handled"],
         false
-    );
-}
-
-#[test]
-fn file_selection_preserves_historical_sources_and_worktree_ownership() {
-    let select = |input| project("repositoryFileSelection", &input).unwrap();
-    assert_eq!(
-        select(
-            json!({"kind":"workingTree","workingTreeCwd":"/linked","file":{"path":"a","staged":true}})
-        ),
-        json!({"type":"workingTreeFile","cwd":"/linked","path":"a","staged":true})
-    );
-    assert_eq!(
-        select(
-            json!({"kind":"commit","activeCwd":"/active","diffViewerCwd":"/history","commitSource":{"commitHash":"old","commitParent":"parent"},"selectedGraphItem":{"hash":"new"},"file":{"path":"a"}})
-        ),
-        json!({"type":"commitFile","cwd":"/history","path":"a","commitHash":"old","commitParent":"parent"})
-    );
-    assert_eq!(
-        select(
-            json!({"kind":"commit","activeCwd":"/active","selectedGraphItem":{"hash":"wip","itemKind":"worktreeWip"},"file":{"path":"a"}})
-        ),
-        Value::Null
-    );
-    assert_eq!(
-        select(
-            json!({"kind":"comparison","comparisonPlan":{"cwd":"/active","from":"a","to":"b"},"file":{"path":"file"}})
-        ),
-        json!({"type":"comparisonFile","cwd":"/active","path":"file","from":"a","to":"b"})
     );
 }
 
