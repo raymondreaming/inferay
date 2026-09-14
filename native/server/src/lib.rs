@@ -982,16 +982,21 @@ async fn git_graph(state: &ServerState, request: Request) -> ApiResult<Response>
     }
     let started = std::time::Instant::now();
     let task = async move {
+        let (pr_revision, pull_requests) = forge::graph_pull_requests(state, Path::new(&cwd)).await;
         let input_cwd = cwd.clone();
         let input =
             render_jobs::run(move || inferay_native_diff::prepare_git_graph(&input_cwd)).await?;
         let key = format!(
-            "graph-v4\0{cwd}\0{limit}\0{}\0{query}\0{:?}\0{:?}\0{:?}",
+            "graph-v5\0{cwd}\0{limit}\0{}\0{pr_revision}\0{query}\0{:?}\0{:?}\0{:?}",
             input.revision, hidden_refs, solo_refs, pinned_refs
         );
         render_jobs::cached(key, std::time::Duration::from_secs(30), move || {
-            let snapshot =
+            let mut snapshot =
                 inferay_native_diff::get_git_graph_snapshot_with_query(&cwd, limit, input, &query);
+            inferay_presentation::graph_response::annotate_pull_requests(
+                &mut snapshot,
+                &pull_requests,
+            );
             let response = inferay_presentation::graph_response::response(
                 snapshot,
                 &hidden_refs,

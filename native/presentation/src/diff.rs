@@ -168,6 +168,8 @@ fn grouped(n: usize) -> String {
 }
 #[derive(serde::Serialize, ts_rs::TS)]
 pub struct DiffViewerModel {
+    #[serde(rename = "fullWidth")]
+    full_width: bool,
     extension: String,
     conflict: bool,
     message: Option<String>,
@@ -226,6 +228,11 @@ pub fn viewer(
         .is_some_and(|content| !content.is_empty())
         && markdown.is_none();
     DiffViewerModel {
+        full_width: diff.is_new
+            || diff
+                .raw_patch
+                .as_ref()
+                .is_some_and(|patch| patch.lines().any(|line| line == "+++ /dev/null")),
         extension: extension.into(),
         conflict,
         navigable: !diff.is_binary && (conflict || (message.is_none() && markdown.is_none())),

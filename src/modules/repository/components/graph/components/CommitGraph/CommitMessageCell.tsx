@@ -22,6 +22,29 @@ export function CommitMessageCell(_props: {
 				),
 			)}
 		>
+			{_props.commit.pullRequest ? (
+				<a
+					href={_props.commit.pullRequest.url}
+					target="_blank"
+					rel="noopener noreferrer"
+					onClick={(event) => event.stopPropagation()}
+					title={`PR #${_props.commit.pullRequest.number} merged into ${_props.commit.pullRequest.baseBranch} as ${_props.commit.pullRequest.mergeHash.slice(0, 8)}. ${
+						_props.commit.pullRequest.localBranchDiffers
+							? "This local branch differs from the merged PR tip. Its current work is not confirmed as included."
+							: "Graph lines show Git parent relationships. A merged PR does not always create a connecting merge line."
+					}`}
+					{...stylex.attrs(
+						styles.pullRequestBadge,
+						_props.commit.pullRequest.localBranchDiffers &&
+							styles.pullRequestDiffers,
+					)}
+				>
+					PR #{_props.commit.pullRequest.number}
+					{_props.commit.pullRequest.localBranchDiffers
+						? " merged · local differs"
+						: " merged"}
+				</a>
+			) : null}
 			<span
 				{...stylex.attrs(styles.commitMessage)}
 				style={domStyle(

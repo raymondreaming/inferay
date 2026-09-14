@@ -24,6 +24,9 @@ export const DiffPanels = function DiffPanels(_props: {
 	);
 	const metadata = createMemo(() => _props.diff.metadata);
 	const conflict = createMemo(() => _props.mode === "conflict");
+	const fullWidthSplit = createMemo(
+		() => _props.mode === "split" && _props.diff.viewer.fullWidth,
+	);
 	const oldLines = createMemo(() =>
 		_props.diff.isNew ? [] : _props.diff.oldLines,
 	);
@@ -34,7 +37,7 @@ export const DiffPanels = function DiffPanels(_props: {
 		<>
 			{
 				<Show
-					when={_props.mode === "split"}
+					when={_props.mode === "split" && !fullWidthSplit()}
 					fallback={
 						<div
 							{...stylex.attrs(
@@ -62,18 +65,28 @@ export const DiffPanels = function DiffPanels(_props: {
 								lines={
 									(conflict()
 										? _props.diff.conflictLines
-										: (_props.diff.inlineLines ?? _props.diff.compactLines)) ??
-									[]
+										: fullWidthSplit()
+											? _props.diff.isNew
+												? _props.diff.newLines
+												: _props.diff.oldLines
+											: (_props.diff.inlineLines ??
+												_props.diff.compactLines)) ?? []
 								}
 								maxLineChars={
 									conflict()
 										? metadata().maxConflictLineChars
-										: metadata().maxInlineLineChars
+										: fullWidthSplit()
+											? _props.diff.isNew
+												? metadata().maxNewLineChars
+												: metadata().maxOldLineChars
+											: metadata().maxInlineLineChars
 								}
 								minimapSegments={
 									conflict()
 										? metadata().conflictMinimap
-										: metadata().inlineMinimap
+										: fullWidthSplit()
+											? metadata().splitMinimap
+											: metadata().inlineMinimap
 								}
 								scrollRef={_props.scrollRef}
 								side="single"
@@ -90,7 +103,9 @@ export const DiffPanels = function DiffPanels(_props: {
 										: omit(_props, "diff", "mode", "scrollRef")
 												.externalScrollSource
 								}
-								highlightedRange={undefined}
+								highlightedRange={
+									fullWidthSplit() ? _props.highlightedRange : undefined
+								}
 							/>
 						</div>
 					}

@@ -398,7 +398,7 @@ export const styles = stylex.create({
 	},
 	commitMessage: {
 		maxWidth: "64%",
-		flexShrink: 0,
+		flexShrink: 1,
 		overflow: "hidden",
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
@@ -414,6 +414,24 @@ export const styles = stylex.create({
 		whiteSpace: "nowrap",
 		color: color.textMuted,
 		fontSize: font.size_2,
+	},
+	pullRequestBadge: {
+		flexShrink: 0,
+		maxWidth: "60%",
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+		fontSize: font.size_1,
+		lineHeight: 1.5,
+		paddingInline: controlSize._1,
+		borderRadius: radius.sm,
+		backgroundColor: color.surfaceControl,
+		color: color.textSoft,
+		textDecoration: "none",
+		":hover": { color: color.textMain },
+	},
+	pullRequestDiffers: {
+		color: color.warning,
 	},
 	fileCount: {
 		flexShrink: 0,

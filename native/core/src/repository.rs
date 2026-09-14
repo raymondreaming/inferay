@@ -340,6 +340,9 @@ pub struct GitGraphRef {
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphCommit {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub pull_request: Option<GraphPullRequest>,
     #[serde(default)]
     pub navigation: GraphNavigation,
     /// Stable graph-item identity. Commit items use their object ID; synthetic
@@ -366,6 +369,27 @@ pub struct GraphCommit {
     pub stash_name: Option<String>,
     pub column: usize,
     pub color_index: usize,
+}
+
+/// Verified forge metadata. PR integration does not change Git parentage.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct MergedPullRequest {
+    pub number: u64,
+    pub url: String,
+    pub base_branch: String,
+    pub head_branch: String,
+    pub head_hash: String,
+    pub merge_hash: String,
+    pub from_fork: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphPullRequest {
+    #[serde(flatten)]
+    pub merged: MergedPullRequest,
+    pub local_branch_differs: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]

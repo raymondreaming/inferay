@@ -433,16 +433,17 @@ pub fn diff_bytes(mut diff: inferay_native_diff::GitHunkDiff, file_path: &str) -
             .raw_patch
             .as_ref()
             .is_some_and(|patch| patch.lines().any(|line| line.encode_utf16().count() > 1000));
+    let viewer = inferay_presentation::diff::viewer(
+        &diff,
+        file_path,
+        old_max
+            .max(new_max)
+            .max(max_inline_line_chars)
+            .max(max_conflict_line_chars),
+    );
     diff.raw_patch = None;
     serde_json::to_vec(&HunkDiff {
-        viewer: inferay_presentation::diff::viewer(
-            &diff,
-            file_path,
-            old_max
-                .max(new_max)
-                .max(max_inline_line_chars)
-                .max(max_conflict_line_chars),
-        ),
+        viewer,
         diff,
         inline_lines,
         conflict_lines,

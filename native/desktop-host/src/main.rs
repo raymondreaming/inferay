@@ -10,7 +10,8 @@ use tao::{
     event_loop::{ControlFlow, EventLoopBuilder},
     window::WindowBuilder,
 };
-use wry::WebViewBuilder;
+use url::Url;
+use wry::{NewWindowResponse, WebViewBuilder};
 
 #[cfg(target_os = "macos")]
 use tao::platform::macos::{WindowBuilderExtMacOS, WindowExtMacOS};
@@ -22,9 +23,9 @@ use {
         NSAppearance, NSAppearanceCustomization, NSAppearanceNameVibrantDark, NSApplication,
         NSAutoresizingMaskOptions, NSMenu, NSMenuItem, NSVisualEffectBlendingMode,
         NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindow,
-        NSWindowOrderingMode,
+        NSWindowOrderingMode, NSWorkspace,
     },
-    objc2_foundation::NSString,
+    objc2_foundation::{NSString, NSURL},
 };
 
 const INITIALIZATION_SCRIPT: &str = r#"
@@ -174,6 +175,60 @@ fn sync_fullscreen(window: &tao::window::Window, webview: &wry::WebView) {
     ));
 }
 
+fn is_app_navigation(url: &str, origin: &url::Origin) -> bool {
+    Url::parse(url).is_ok_and(|url| &url.origin() == origin)
+}
+
+fn open_external_link(url: &str) {
+    let Ok(url) = Url::parse(url) else { return };
+    if !matches!(url.scheme(), "http" | "https" | "mailto") {
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(url) = NSURL::URLWithString(&NSString::from_str(url.as_str()))
+        && !NSWorkspace::sharedWorkspace().openURL(&url)
+    {
+        eprintln!("Unable to open link in its default application");
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let opener = if cfg!(target_os = "windows") {
+            "explorer.exe"
+        } else {
+            "xdg-open"
+        };
+        // Reap the opener away from the UI thread; no shell interprets the URL.
+        std::thread::spawn(move || {
+            if let Err(error) = std::process::Command::new(opener)
+                .arg(url.as_str())
+                .status()
+            {
+                eprintln!("Unable to open link: {error}");
+            }
+        });
+    }
+}
+
+#[test]
+fn only_the_backend_origin_navigates_inside_inferay() {
+    let origin = Url::parse("http://127.0.0.1:4317").unwrap().origin();
+    for url in [
+        "http://127.0.0.1:4317/",
+        "http://127.0.0.1:4317/chat#message",
+    ] {
+        assert!(is_app_navigation(url, &origin));
+    }
+    for url in [
+        "https://linear.app/aivre",
+        "http://127.0.0.1:43170/",
+        "http://127.0.0.1:4317@evil.example/",
+        "javascript:alert(1)",
+        "file:///etc/hosts",
+    ] {
+        assert!(!is_app_navigation(url, &origin));
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn install_window_backdrop(
     window: &tao::window::Window,
@@ -217,6 +272,9 @@ fn main() -> wry::Result<()> {
             .local_addr()
     });
     let renderer_url = format!("http://{server_addr}");
+    let renderer_origin = Url::parse(&renderer_url)
+        .expect("valid backend URL")
+        .origin();
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
 
@@ -245,6 +303,17 @@ fn main() -> wry::Result<()> {
     let proxy = event_loop.create_proxy();
     let webview = WebViewBuilder::new()
         .with_url(renderer_url)
+        .with_navigation_handler(move |url| {
+            if is_app_navigation(&url, &renderer_origin) {
+                return true;
+            }
+            open_external_link(&url);
+            false
+        })
+        .with_new_window_req_handler(|url, _| {
+            open_external_link(&url);
+            NewWindowResponse::Deny
+        })
         .with_transparent(true)
         .with_initialization_script(INITIALIZATION_SCRIPT)
         .with_accept_first_mouse(true)

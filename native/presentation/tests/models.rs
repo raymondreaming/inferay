@@ -5,6 +5,25 @@ fn render(op: &str, input: Value) -> Value {
 }
 
 #[test]
+fn added_and_deleted_files_use_full_width_but_modified_files_stay_split() {
+    use inferay_core::repository::GitHunkDiff;
+    for (is_new, patch, full_width) in [
+        (true, "", true),
+        (false, "--- a/file.ts\n+++ /dev/null\n", true),
+        (false, "--- a/file.ts\n+++ b/file.ts\n", false),
+    ] {
+        let diff = GitHunkDiff {
+            is_new,
+            raw_patch: Some(patch.into()),
+            ..Default::default()
+        };
+        let viewer =
+            serde_json::to_value(inferay_presentation::diff::viewer(&diff, "file.ts", 0)).unwrap();
+        assert_eq!(viewer["fullWidth"], full_width);
+    }
+}
+
+#[test]
 fn retained_workspaces_follow_group_membership_and_evict_only_inactive_views() {
     let key = |group: &str, cwd: Option<&str>| json!([group, cwd]).to_string();
     let mut input = json!({

@@ -3,10 +3,12 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::Request;
 use futures_util::future::join_all;
+use inferay_core::repository::MergedPullRequest;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -34,6 +36,96 @@ pub(super) struct ForgeState {
     accounts_cache: tokio::sync::Mutex<Option<AccountsCache>>,
     repos_cache: tokio::sync::Mutex<Option<ReposCache>>,
     commit_avatar_cache: tokio::sync::Mutex<HashMap<String, Option<String>>>,
+    merged_pr_cache: Arc<tokio::sync::Mutex<HashMap<String, MergedPrCache>>>,
+}
+
+#[derive(Default)]
+struct MergedPrCache {
+    attempted_at: u64,
+    revision: u64,
+    refreshing: bool,
+    value: Arc<Vec<MergedPullRequest>>,
+}
+
+/// Return verified cached metadata immediately; graph polling picks up the
+/// background result. Unavailable authentication never blocks local history.
+pub(super) async fn graph_pull_requests(
+    state: &ServerState,
+    cwd: &Path,
+) -> (String, Arc<Vec<MergedPullRequest>>) {
+    let Ok(remote) = run_git(&["remote", "get-url", "origin"], Some(cwd), 2_000).await else {
+        return (String::new(), Arc::default());
+    };
+    let Some((host, owner, repository)) = parse_github_remote(remote.trim()) else {
+        return (String::new(), Arc::default());
+    };
+    let key = format!("{host}/{owner}/{repository}");
+    let cache = state.forge_state.merged_pr_cache.clone();
+    let mut entries = cache.lock().await;
+    if !entries.contains_key(&key) && entries.len() >= 32 {
+        if let Some(oldest) = entries
+            .iter()
+            .filter(|(_, entry)| !entry.refreshing)
+            .min_by_key(|(_, entry)| entry.attempted_at)
+            .map(|(key, _)| key.clone())
+        {
+            entries.remove(&oldest);
+        } else {
+            return (String::new(), Arc::default());
+        }
+    }
+    let entry = entries.entry(key.clone()).or_default();
+    let revision = format!("{key}:{}", entry.revision);
+    let now = epoch_millis();
+    if !entry.refreshing && now.saturating_sub(entry.attempted_at) >= REPOS_CACHE_TTL_MS {
+        entry.refreshing = true;
+        entry.attempted_at = now;
+        let cache = cache.clone();
+        tokio::spawn(async move {
+            let result = run_gh(&[
+                "pr", "list", "--repo", &key, "--state", "merged", "--limit", "100",
+                "--search", "sort:updated-desc",
+                "--json", "number,url,state,baseRefName,headRefName,headRefOid,mergeCommit,isCrossRepository",
+            ], 15_000).await;
+            let value = result
+                .ok()
+                .and_then(|output| parse_merged_pull_requests(&output));
+            let mut entries = cache.lock().await;
+            if let Some(entry) = entries.get_mut(&key) {
+                entry.refreshing = false;
+                if let Some(value) = value
+                    && *entry.value != value
+                {
+                    entry.revision += 1;
+                    entry.value = Arc::new(value);
+                }
+            }
+        });
+    }
+    (revision, entry.value.clone())
+}
+
+fn parse_merged_pull_requests(output: &str) -> Option<Vec<MergedPullRequest>> {
+    let values: Vec<Value> = serde_json::from_str(output).ok()?;
+    Some(
+        values
+            .iter()
+            .filter_map(|pr| {
+                if pr["state"] != "MERGED" {
+                    return None;
+                }
+                Some(MergedPullRequest {
+                    number: pr["number"].as_u64()?,
+                    url: pr["url"].as_str()?.to_owned(),
+                    base_branch: pr["baseRefName"].as_str()?.to_owned(),
+                    head_branch: pr["headRefName"].as_str()?.to_owned(),
+                    head_hash: pr["headRefOid"].as_str()?.to_owned(),
+                    merge_hash: pr.pointer("/mergeCommit/oid")?.as_str()?.to_owned(),
+                    from_fork: pr["isCrossRepository"].as_bool()?,
+                })
+            })
+            .collect(),
+    )
 }
 
 struct AccountsCache {
@@ -486,41 +578,9 @@ async fn open_github_login(state: &ServerState) -> Result<bool, CommandError> {
     *state.forge_state.accounts_cache.lock().await = None;
     *state.forge_state.repos_cache.lock().await = None;
 
-    #[cfg(target_os = "macos")]
-    {
-        let gh = resolve_gh_binary().to_string_lossy().into_owned();
-        let script = [
-            "tell application \"Terminal\"".to_string(),
-            "activate".to_string(),
-            format!(
-                "do script \"{} \"",
-                quote_apple_script(&format!("{gh} auth login"))
-            ),
-            "end tell".to_string(),
-        ]
-        .join("\n");
-        run_command(Path::new("osascript"), &["-e", &script], None, 10_000).await?;
-        Ok(true)
-    }
-
-    #[cfg(target_os = "windows")]
-    let (program, arguments) = (
-        "cmd.exe",
-        vec!["/c", "start", "cmd.exe", "/k", "gh auth login"],
-    );
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let (program, arguments) = ("x-terminal-emulator", vec!["-e", "gh auth login"]);
-    #[cfg(not(target_os = "macos"))]
-    {
-        let status = Command::new(program)
-            .args(arguments)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .await
-            .map_err(parse_error)?;
-        Ok(status.success())
-    }
+    crate::native_app::open_terminal_command(&resolve_gh_binary(), &["auth", "login"])
+        .await
+        .map_err(parse_error)
 }
 
 async fn clone_repository(
@@ -628,10 +688,6 @@ fn is_github_clone_url(value: &str) -> bool {
     Regex::new(r"(?i)^git@(?:github\.com|[\w.-]+\.ghe\.com):[\w.-]+/[\w.-]+(?:\.git)?$")
         .expect("static GitHub clone URL regex must compile")
         .is_match(value)
-}
-
-fn quote_apple_script(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 async fn run_gh(arguments: &[&str], timeout_ms: u64) -> Result<String, CommandError> {
