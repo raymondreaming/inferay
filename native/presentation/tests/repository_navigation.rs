@@ -80,3 +80,117 @@ fn graph_file_open_waits_for_history_but_opens_wip_in_sidebar_order() {
         json!({"ready":true,"action":null})
     );
 }
+
+#[test]
+fn hidden_graph_keeps_file_keyboard_navigation_after_closing_and_reopening_diff() {
+    use inferay_presentation::panels;
+    for (current, expected) in [(-1, 0), (1, 1)] {
+        assert_eq!(
+            project(
+                "adjacentFile",
+                &json!({"count":3,"current":current,"direction":0,"repeatBoundary":true})
+            )
+            .unwrap(),
+            expected,
+        );
+    }
+    for selection in [
+        json!({"type":"workingTreeFile","cwd":"/repo","path":"a.rs","staged":false}),
+        json!({"type":"commitFile","cwd":"/repo","path":"a.rs","commitHash":"commit","commitParent":null}),
+        json!({"type":"comparisonFile","cwd":"/repo","path":"a.rs","from":"base","to":"head"}),
+    ] {
+        let mut session = panels::normalize(
+            &json!({"graphVisible":false,"sidebarVisible":true,"mainViewMode":"diff"}),
+        );
+        panels::apply_action(&mut session, &selection, 1).unwrap();
+        let navigate = |session: &Value, key: &str| {
+            project(
+                "repositoryKeyboardAction",
+                &json!({
+                    "key":key, "focusedPanelId":session["focusedAuxiliaryPanel"]["id"],
+                    "mainViewMode":session["mainViewMode"], "graphVisible":false,
+                    "sidebarVisible":true, "hasFile":true,
+                }),
+            )
+            .unwrap()
+        };
+        assert_eq!(navigate(&session, "ArrowLeft"), json!({"type":"close"}));
+        let selected = session["selectedFile"].clone();
+        panels::apply_action(&mut session, &json!({"type":"dismissDiff"}), 2).unwrap();
+        assert_eq!(navigate(&session, "ArrowRight"), json!({"type":"open"}));
+        assert_eq!(navigate(&session, "Enter"), Value::Null);
+        panels::apply_action(&mut session, &json!({"type":"mode","mode":"diff"}), 3).unwrap();
+        assert_eq!(session["selectedFile"], selected);
+        assert_eq!(
+            navigate(&session, "ArrowDown"),
+            json!({"type":"cycle","direction":1})
+        );
+        assert_eq!(
+            navigate(&session, "ArrowUp"),
+            json!({"type":"cycle","direction":-1})
+        );
+        session["focusedAuxiliaryPanel"] = Value::Null;
+        assert_eq!(navigate(&session, "ArrowDown"), Value::Null);
+    }
+    for guard in [
+        json!({"editable":true}),
+        json!({"blocked":true}),
+        json!({"graphVisible":true}),
+    ] {
+        let mut input = json!({"key":"ArrowRight","focusedPanelId":"workspace-diff-viewer","mainViewMode":"graph","graphVisible":false,"sidebarVisible":true,"hasFile":true});
+        input
+            .as_object_mut()
+            .unwrap()
+            .extend(guard.as_object().unwrap().clone());
+        assert_eq!(
+            project("repositoryKeyboardAction", &input).unwrap(),
+            Value::Null
+        );
+    }
+}
+
+#[test]
+fn right_from_chat_enters_sidebar_again_after_returning_to_chat() {
+    use inferay_presentation::panels;
+    let mut session = panels::normalize(&json!({"graphVisible":false,"sidebarVisible":true}));
+    for empty_composer in [false, true] {
+        for _ in 0..2 {
+            let mut input = json!({"key":"ArrowRight","chatFocused":true,"sidebarVisible":true,
+                "focusedPanelId":session["focusedAuxiliaryPanel"]["id"],
+                "editable":empty_composer,"emptyComposer":empty_composer});
+            assert_eq!(
+                project("repositoryKeyboardAction", &input).unwrap(),
+                json!({"type":"enterSidebar"})
+            );
+            for guard in [
+                json!({"sidebarVisible":false}),
+                json!({"blocked":true}),
+                json!({"editable":true,"emptyComposer":false}),
+            ] {
+                let mut guarded = input.clone();
+                guarded
+                    .as_object_mut()
+                    .unwrap()
+                    .extend(guard.as_object().unwrap().clone());
+                assert_eq!(
+                    project("repositoryKeyboardAction", &guarded).unwrap(),
+                    Value::Null
+                );
+            }
+            input["key"] = json!("ArrowDown");
+            assert_eq!(
+                project("repositoryKeyboardAction", &input).unwrap(),
+                Value::Null
+            );
+            panels::apply_action(
+                &mut session,
+                &json!({"type":"workingTreeFile","cwd":"/repo","path":"first.rs","staged":false}),
+                1,
+            )
+            .unwrap();
+            panels::apply_action(&mut session, &json!({"type":"dismissDiff"}), 2).unwrap();
+            panels::apply_action(&mut session, &json!({"type":"focusChat","cwd":"/repo"}), 3)
+                .unwrap();
+        }
+    }
+}

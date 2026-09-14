@@ -594,11 +594,14 @@ export function useRepositoryWorkbench(
 			id: "workspace-file-viewer",
 		});
 	};
+	let sidebarElement: HTMLElement | undefined;
 	const closeDiffViewer = () => {
 		setZenMode(false);
 		updatePanelSession({
 			type: "dismissDiff",
 		});
+		if (!panelSession().graphVisible)
+			sidebarElement?.focus({ preventScroll: true });
 	};
 	const returnsToGraphOnClose = createMemo(() => panelSession().graphDrillIn);
 	const fileSelectionContext = createMemo(() => ({
@@ -712,31 +715,60 @@ export function useRepositoryWorkbench(
 		const session = panelSession();
 		const target = event.target as HTMLElement;
 		const action = rustProject<
-			| { type: "close" }
+			| { type: "close" | "open" | "enterSidebar" }
 			| { type: "cycle"; direction: -1 | 1 }
 			| { type: "toggle" }
 			| null
 		>("repositoryKeyboardAction", {
 			focusedPanelId: session.focusedAuxiliaryPanel?.id,
+			chatFocused:
+				Boolean(target.closest("[data-chat-pane-id]")) ||
+				(target === document.body && !session.focusedAuxiliaryPanel),
+			emptyComposer:
+				target instanceof HTMLTextAreaElement &&
+				target.hasAttribute("data-chat-composer") &&
+				target.value.length === 0,
 			blocked:
 				event.defaultPrevented ||
+				event.isComposing ||
+				event.shiftKey ||
 				event.metaKey ||
 				event.ctrlKey ||
 				event.altKey,
 			mainViewMode: session.mainViewMode,
+			graphVisible: session.graphVisible,
+			sidebarVisible: session.sidebarVisible,
 			editable:
 				target.tagName === "INPUT" ||
 				target.tagName === "TEXTAREA" ||
 				target.isContentEditable,
 			key: event.key,
-			graphDrillIn: session.graphDrillIn,
 			historical: session.historicalDiff,
 			hasFile: Boolean(session.selectedFile),
 			button: target.tagName === "BUTTON",
 		});
 		if (!action) return;
 		event.preventDefault();
-		if (action.type === "close") closeDiffViewer();
+		if (action.type === "enterSidebar") {
+			const kind =
+				session.sidebarContent === "workingTree"
+					? "workingTree"
+					: session.selectedCommitIds.length > 1
+						? "comparison"
+						: "commit";
+			const first = (
+				kind === "workingTree"
+					? keyboardFiles()
+					: kind === "comparison"
+						? comparisonKeyboardFiles()
+						: commitKeyboardFiles()
+			)[0];
+			if (!first) return;
+			// Focus the mounted sidebar before selection renders the diff and file rows.
+			sidebarElement?.focus({ preventScroll: true });
+			selectFile(kind, first);
+		} else if (action.type === "close") closeDiffViewer();
+		else if (action.type === "open") changeMainViewMode("diff");
 		else if (action.type === "cycle") cycleFile(action.direction);
 		else if (session.selectedFile) {
 			const nextSelection = getFileSelectionAfterToggle(
@@ -981,12 +1013,16 @@ export function useRepositoryWorkbench(
 		<>
 			{
 				<WorkbenchSidebar
+					ref={(element) => {
+						sidebarElement = element;
+					}}
 					visible={panelSession().sidebarVisible}
 					width={sidebarWidth()}
 					error={panelSessionError()}
 					onResize={handleResizeStart}
 				>
 					<ChangesPanel
+						onDismissDiff={closeDiffViewer}
 						onPrefetchFiles={prefetchFiles()}
 						filePresentation={workingTreePresentation()}
 						cwd={selectedWorkingTreeCwd()}

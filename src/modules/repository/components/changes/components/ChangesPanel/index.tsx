@@ -67,6 +67,7 @@ export const ChangesPanel = function ChangesPanel(props: {
 	showCommitSection?: boolean;
 	onCollapse?: () => void;
 	onOpenGraph?: () => void;
+	onDismissDiff?: () => void;
 }) {
 	const selectedCommitCount = createMemo(
 		() => props.selectedCommitCount ?? (props.selectedCommitHash ? 1 : 0),
@@ -113,7 +114,7 @@ export const ChangesPanel = function ChangesPanel(props: {
 		([files, prefetch]) => prefetch?.(files),
 	);
 
-	const selectAdjacentFile = (direction: -1 | 1) => {
+	const selectAdjacentFile = (direction: -1 | 0 | 1) => {
 		const state = model();
 		const selected = props.selectedFile;
 		if (state.showingWorkingTree) {
@@ -165,6 +166,19 @@ export const ChangesPanel = function ChangesPanel(props: {
 				if (event.key === "ArrowUp" || event.key === "ArrowDown") {
 					event.preventDefault();
 					selectAdjacentFile(event.key === "ArrowUp" ? -1 : 1);
+				} else if (
+					target.closest("[data-git-file-select]") &&
+					event.key === "ArrowRight"
+				) {
+					event.preventDefault();
+					selectAdjacentFile(0);
+				} else if (
+					target.closest("[data-git-file-select]") &&
+					event.key === "ArrowLeft" &&
+					props.onDismissDiff
+				) {
+					event.preventDefault();
+					props.onDismissDiff();
 				} else if (
 					event.key === "Enter" &&
 					model().showingWorkingTree &&

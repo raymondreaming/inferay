@@ -3,6 +3,7 @@ import * as stylex from "@stylexjs/stylex";
 import type { Element } from "solid-js";
 import { sidebarStyle, styles } from "./styles.ts";
 export function WorkbenchSidebar(_props: {
+	ref?: (element: HTMLElement) => void;
 	visible: boolean;
 	width: number;
 	error: string | null;
@@ -15,6 +16,9 @@ export function WorkbenchSidebar(_props: {
 }) {
 	return (
 		<aside
+			ref={_props.ref}
+			tabindex={-1}
+			aria-label="Changes sidebar"
 			{...stylex.attrs(styles.sidebarShell)}
 			style={domStyle(sidebarStyle(_props.visible ? _props.width : 0))}
 		>

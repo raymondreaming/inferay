@@ -133,19 +133,31 @@ pub fn interaction(input: &Value) -> Option<crate::panels::PanelAction> {
 }
 
 pub fn keyboard_action(input: &Value) -> Value {
-    if input["focusedPanelId"] != "workspace-diff-viewer"
-        || flag(&input["blocked"])
-        || input["mainViewMode"] == "graph"
-        || flag(&input["editable"])
+    if flag(&input["blocked"]) {
+        return Value::Null;
+    }
+    if input["key"] == "ArrowRight"
+        && flag(&input["chatFocused"])
+        && flag(&input["sidebarVisible"])
+        && (!flag(&input["editable"]) || flag(&input["emptyComposer"]))
     {
+        return json!({"type":"enterSidebar"});
+    }
+    if input["focusedPanelId"] != "workspace-diff-viewer" || flag(&input["editable"]) {
+        return Value::Null;
+    }
+    let diff = input["mainViewMode"] == "diff";
+    if !diff && (input["graphVisible"] != false || input["sidebarVisible"] != true) {
         return Value::Null;
     }
     match string(&input["key"]) {
-        "ArrowLeft" if flag(&input["graphDrillIn"]) => json!({"type":"close"}),
+        "ArrowLeft" if diff && flag(&input["hasFile"]) => json!({"type":"close"}),
+        "ArrowRight" if !diff && flag(&input["hasFile"]) => json!({"type":"open"}),
         "ArrowUp" => json!({"type":"cycle","direction":-1}),
         "ArrowDown" => json!({"type":"cycle","direction":1}),
         "Enter"
-            if !flag(&input["historical"])
+            if diff
+                && !flag(&input["historical"])
                 && flag(&input["hasFile"])
                 && !flag(&input["button"]) =>
         {
@@ -344,7 +356,7 @@ pub fn adjacent_file(input: &Value) -> Value {
         return Value::Null;
     }
     let next = if current < 0 {
-        if direction > 0 { 0 } else { count - 1 }
+        if direction >= 0 { 0 } else { count - 1 }
     } else {
         current.saturating_add(direction).clamp(0, count - 1)
     };

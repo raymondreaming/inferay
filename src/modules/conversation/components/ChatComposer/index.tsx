@@ -173,6 +173,7 @@ export const ChatComposer = function ChatComposer(
 									</div>
 								)}
 								<textarea
+									data-chat-composer
 									ref={textarea}
 									value={view.input}
 									onFocus={() => view.setMessageInputFocused(true)}

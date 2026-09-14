@@ -403,7 +403,7 @@ export function project<T>(operation: string, input: unknown): T {
 export function adjacentGitFile<T>(
 	files: readonly T[],
 	isSelected: (file: T) => boolean,
-	direction: -1 | 1,
+	direction: -1 | 0 | 1,
 	repeatBoundary = false,
 ): T | undefined {
 	const index = project<number | null>("adjacentFile", {
