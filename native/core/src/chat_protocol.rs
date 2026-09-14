@@ -245,10 +245,10 @@ impl ChatMessageBuffer {
                 if message.role == "system" {
                     if let Ok(value) = serde_json::from_str::<Value>(&message.content) {
                         prepare_system_card(&value, &mut render);
-                        if let Some(proposal) = crate::prompts::chat_skill_proposal(&value) {
+                        if let Some(proposal) = crate::prompts::cards::chat_skill_proposal(&value) {
                             render["skillProposal"] = proposal;
                         }
-                        if let Some(skill) = crate::prompts::chat_skill_read(&value) {
+                        if let Some(skill) = crate::prompts::cards::chat_skill_read(&value) {
                             render["skillRead"] = skill;
                         }
                     }
@@ -263,7 +263,7 @@ impl ChatMessageBuffer {
                             serde_json::json!({"type":"inferay.command", "name":name});
                     }
                 } else if message.role == "assistant"
-                    && let Some(parts) = crate::prompts::chat_skill_parts(
+                    && let Some(parts) = crate::prompts::cards::chat_skill_parts(
                         &message.content,
                         message.is_streaming == Some(true),
                     )

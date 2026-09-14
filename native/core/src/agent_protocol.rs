@@ -534,7 +534,7 @@ fn workspace_path(
     } else {
         context.cwd.join(candidate)
     };
-    let candidate = resolve_lexically(&candidate).ok()?;
+    let candidate = resolve_lexically(&candidate, &context.cwd).ok()?;
     roots
         .iter()
         .any(|root| is_within_directory(&candidate, root))
@@ -572,7 +572,7 @@ fn file_change_paths(
 }
 
 fn display_path(context: &AgentProtocolContext, absolute_path: &Path, roots: &[PathBuf]) -> String {
-    let cwd = resolve_lexically(&context.cwd).unwrap_or_else(|_| context.cwd.clone());
+    let cwd = resolve_lexically(&context.cwd, &context.cwd).unwrap_or_else(|_| context.cwd.clone());
     for root in roots {
         let Ok(relative) = absolute_path.strip_prefix(root) else {
             continue;

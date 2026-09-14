@@ -1,26 +1,29 @@
 use std::ffi::OsStr;
-use std::io;
 use std::path::{Component, Path, PathBuf};
 
 /// The local roots that Inferay is permitted to expose to application services.
 ///
 /// Keeping the roots explicit makes the security boundary deterministic and
 /// testable. The desktop/server adapter is responsible for supplying the project
-/// root and the current user's home directory.
+/// root, home directory, and working directory. No filesystem access occurs here.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AllowedPaths {
     project_root: PathBuf,
     home_directory: PathBuf,
+    working_directory: PathBuf,
 }
 
 impl AllowedPaths {
     pub fn new(
         project_root: impl AsRef<Path>,
         home_directory: impl AsRef<Path>,
-    ) -> io::Result<Self> {
+        working_directory: impl AsRef<Path>,
+    ) -> Result<Self, &'static str> {
+        let working_directory = working_directory.as_ref();
         Ok(Self {
-            project_root: resolve_lexically(project_root.as_ref())?,
-            home_directory: resolve_lexically(home_directory.as_ref())?,
+            project_root: resolve_lexically(project_root.as_ref(), working_directory)?,
+            home_directory: resolve_lexically(home_directory.as_ref(), working_directory)?,
+            working_directory: working_directory.to_path_buf(),
         })
     }
 
@@ -35,7 +38,7 @@ impl AllowedPaths {
     /// Mirrors the existing TypeScript boundary: a path is allowed when its
     /// lexical resolution is inside either the application root or user home.
     pub fn is_allowed_local_path(&self, pathname: impl AsRef<Path>) -> bool {
-        let Ok(pathname) = resolve_lexically(pathname.as_ref()) else {
+        let Ok(pathname) = resolve_lexically(pathname.as_ref(), &self.working_directory) else {
             return false;
         };
 
@@ -44,16 +47,8 @@ impl AllowedPaths {
     }
 
     pub fn resolve_allowed_local_path(&self, pathname: impl AsRef<Path>) -> Option<PathBuf> {
-        let resolved = resolve_lexically(pathname.as_ref()).ok()?;
+        let resolved = resolve_lexically(pathname.as_ref(), &self.working_directory).ok()?;
         self.is_allowed_local_path(&resolved).then_some(resolved)
-    }
-
-    /// Resolves symlinks and requires the resulting filesystem path to remain
-    /// inside an allowed root. Missing or inaccessible paths are rejected.
-    pub fn resolve_real_allowed_local_path(&self, pathname: impl AsRef<Path>) -> Option<PathBuf> {
-        let resolved = self.resolve_allowed_local_path(pathname)?;
-        let real = resolved.canonicalize().ok()?;
-        self.is_allowed_local_path(&real).then_some(real)
     }
 
     pub fn resolve_allowed_child_path(
@@ -66,17 +61,18 @@ impl AllowedPaths {
         }
 
         let directory = self.resolve_allowed_local_path(directory)?;
-        let resolved = resolve_lexically(&directory.join(pathname)).ok()?;
+        let resolved =
+            resolve_lexically(&directory.join(pathname), &self.working_directory).ok()?;
         is_resolved_within_directory(&resolved, &directory).then_some(resolved)
     }
 }
 
-/// Lexically checks containment after resolving relative paths against the
-/// process working directory. Files do not need to exist.
+/// Lexically checks absolute paths. Relative inputs require an explicit base
+/// through `resolve_lexically` first; files do not need to exist.
 pub fn is_within_directory(pathname: impl AsRef<Path>, directory: impl AsRef<Path>) -> bool {
     let (Ok(pathname), Ok(directory)) = (
-        resolve_lexically(pathname.as_ref()),
-        resolve_lexically(directory.as_ref()),
+        resolve_lexically(pathname.as_ref(), Path::new("")),
+        resolve_lexically(directory.as_ref(), Path::new("")),
     ) else {
         return false;
     };
@@ -99,13 +95,18 @@ fn is_resolved_within_directory(pathname: &Path, directory: &Path) -> bool {
     pathname == directory || pathname.strip_prefix(directory).is_ok()
 }
 
-pub fn resolve_lexically(pathname: &Path) -> io::Result<PathBuf> {
+pub fn resolve_lexically(
+    pathname: &Path,
+    working_directory: &Path,
+) -> Result<PathBuf, &'static str> {
     let absolute = if pathname.is_absolute() {
         pathname.to_path_buf()
     } else {
-        std::env::current_dir()?.join(pathname)
+        working_directory.join(pathname)
     };
-
+    if !absolute.is_absolute() {
+        return Err("Path resolution requires an absolute working directory");
+    }
     Ok(normalize_absolute_path(&absolute))
 }
 

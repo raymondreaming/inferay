@@ -2,33 +2,37 @@
 use super::{diff_operations, DiffOperation, GitDiffLine, GitDiffLineType};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, ts_rs::TS)]
 pub struct SequentialEdit {
     pub old_string: String,
     pub new_string: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, ts_rs::TS)]
 pub struct LineTextSegment {
     text: String,
     changed: bool,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct PreparedEditLine {
     #[serde(rename = "type")]
+    #[ts(type = "'context' | 'removed' | 'added'")]
     kind: &'static str,
     text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     old_line_num: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     new_line_num: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     segments: Option<Vec<LineTextSegment>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct PreparedEditHunk {
     lines: Vec<PreparedEditLine>,
@@ -38,7 +42,7 @@ pub struct PreparedEditHunk {
     new_count: usize,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ts_rs::TS)]
 pub struct PreparedEditDiff {
     hunks: Vec<PreparedEditHunk>,
 }

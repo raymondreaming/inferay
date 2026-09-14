@@ -146,8 +146,7 @@ async fn write(
             // Preserve the existing close-before-replace behavior on Windows.
             #[cfg(windows)]
             drop(file);
-            inferay_core::atomic_write::replace(&temporary, &path)
-                .map_err(|error| error.to_string())?;
+            crate::atomic_write::replace(&temporary, &path).map_err(|error| error.to_string())?;
             #[cfg(not(windows))]
             {
                 file.metadata()
@@ -211,7 +210,7 @@ mod tests {
                 .as_ptr(),
             large
         );
-        inferay_core::atomic_write::overwrite(&path, br#"{"model":"other"}"#).unwrap();
+        crate::atomic_write::overwrite_sync(&path, br#"{"model":"other"}"#).unwrap();
         assert_eq!(store.select(&["model"]).await.unwrap()["model"], "other");
         std::fs::remove_file(&path).unwrap();
         assert!(store.read().await.unwrap().is_empty());

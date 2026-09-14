@@ -106,7 +106,7 @@ impl AgentStateStore {
 
     fn save(&self, state: &Workspace) -> Result<Value, String> {
         let bytes = serde_json::to_vec(state).map_err(|error| error.to_string())?;
-        inferay_core::atomic_write::overwrite(&self.path, &bytes)?;
+        crate::atomic_write::overwrite_sync(&self.path, &bytes)?;
         state.presentation()
     }
 }

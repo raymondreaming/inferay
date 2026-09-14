@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use super::{ApiError, ServerState, api_error};
+use crate::path_resolution::{is_within_directory, resolve_lexically};
 use axum::http::StatusCode;
-use inferay_core::path_security::{is_within_directory, resolve_lexically};
 use serde::Serialize;
 use walkdir::WalkDir;
 
@@ -16,7 +16,7 @@ const MAX_FILE_CONTENT_BYTES: u64 = 1024 * 1024;
 const MAX_SEARCH_RESULTS: usize = 50;
 const MAX_DIRECTORY_DEPTH: usize = 4;
 
-#[derive(Serialize)]
+#[derive(Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct ProjectFileEntry {
     name: String,

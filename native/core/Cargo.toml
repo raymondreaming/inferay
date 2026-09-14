@@ -5,11 +5,13 @@ edition = "2024"
 license = "LicenseRef-Inferay"
 description = "UI-independent application core for Inferay"
 
+[lints.clippy]
+disallowed_methods = "deny"
+disallowed_types = "deny"
+disallowed_macros = "deny"
+
 [dependencies]
 ts-rs = { version = "12.0.1", features = ["serde-json-impl"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 uuid = { version = "1.21.0", features = ["v4", "js"] }
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }

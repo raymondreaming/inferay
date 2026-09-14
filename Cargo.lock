@@ -1425,7 +1425,6 @@ dependencies = [
  "serde_json",
  "ts-rs",
  "uuid",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1448,6 +1447,8 @@ dependencies = [
  "inferay-core",
  "serde",
  "serde_json",
+ "tempfile",
+ "ts-rs",
  "wait-timeout",
 ]
 
@@ -1487,6 +1488,7 @@ dependencies = [
  "url",
  "uuid",
  "walkdir",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

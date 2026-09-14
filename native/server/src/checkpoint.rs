@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 
-use inferay_core::path_security::{AllowedPaths, is_within_directory, resolve_lexically};
+use crate::path_resolution::{is_within_directory, resolve_lexically};
+use inferay_core::path_security::AllowedPaths;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;

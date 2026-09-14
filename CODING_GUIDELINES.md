@@ -26,6 +26,8 @@ Within a feature, `model/` owns vocabulary and framework-independent rules; `ser
 
 Keep domain-shaped behavior in Rust pure models where it is shared with the native server and WebAssembly renderer. Solid hooks adapt signals, browser events, and query lifecycles; components render and translate interactions. Pass context-derived values into pure functions instead of reading browser state from them.
 
+Reuse serialized Rust types through `@contracts` instead of redeclaring their fields in TypeScript. Derive renderer subsets with `Pick`, `Omit`, or `Extract`. Dock resizing and decorated-text segmentation run in the Rust presentation engine; the browser supplies pointer coordinates and text and renders the result. Check `bun run code` after each reduction pass and report both frontend and total changes without changing counting exclusions.
+
 Workspace actions are defined in `native/core/src/workspace_action.rs`, exported through `@contracts`, and matched by the transition code in `native/core/src/agent_state/actions.rs`. Do not recreate that union in TypeScript or dispatch workspace actions by indexing arbitrary JSON. The HTTP boundary deserializes the same Rust contract; server-only summary and provider-session updates use dedicated store methods. Persistence and default-provider selection stay outside the transition dispatcher.
 
 `native/core/src/agent_state.rs` owns the workspace schema and invariants. Its `actions.rs` module owns transitions and pending-directory consumption; `queries.rs` owns pane lookup, active-directory ordering, and renderer projections. File reads, atomic saves, and reload orchestration belong to `native/server/src/workspace_store.rs`. The native boundary check rejects storage, transport, and process references in the workspace core. Persistence tests live beside the server store; core tests exercise transitions and contracts without a filesystem.
@@ -33,6 +35,12 @@ Workspace actions are defined in `native/core/src/workspace_action.rs`, exported
 The same boundary applies to agent context and search-folder settings. Core `agent_context.rs` composes layers and activates skills from an in-memory state and caller-supplied project keys; `config.rs` owns settings vocabulary and defaults. Server `agent_context_store.rs` and `settings_store.rs` own file access, and the context adapter normalizes relative project paths before entering the core. Core code must not read the process's current directory to resolve a project key.
 
 Core `agent_kind.rs` owns provider vocabulary. Binary discovery, environment construction, and command availability probing belong to server `agent_command.rs`. The server's `agent_protocol.rs` captures file snapshots and resolves reference roots before invoking the core protocol translator with `ProtocolFiles`. Protocol translation must not read files; tests can supply before/after contents directly.
+
+Core `prompts.rs` owns skill vocabulary and validation. Its `prompts/library.rs`, `commands.rs`, `cards.rs`, and `tools.rs` modules operate on supplied values: editing and proposal decisions, command expansion, card parsing, and tool dispatch. Server `prompt_store.rs` loads the bundled/local libraries and persists accepted changes. Atomic file replacement and its platform dependencies belong to server `atomic_write.rs`. Read-only skill tools and proposal previews must never write the library.
+
+Core `path_security.rs` normalizes paths against a caller-supplied working directory and checks containment without reading the filesystem. Server `path_resolution.rs` resolves route inputs against the process directory. Repository `diff-engine/src/path_access.rs` resolves real files and checks the resolved path against the same policy before reading content. Keep symlink and missing-file tests beside that adapter.
+
+`native/core/clippy.toml` and its Cargo lint settings prohibit filesystem, process, network, environment, and terminal access throughout the core crate, including aliases and `Path` methods. Native boundary checks run this compiler-backed gate for every module; there is no migrated-file allowlist. Core tests use supplied facts, while platform integration tests belong to the owning adapter crate.
 
 ## Solid 2 reactivity
 

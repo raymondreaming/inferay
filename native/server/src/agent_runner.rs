@@ -11,11 +11,11 @@ use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::prompt_store::PromptStore;
 use inferay_core::agent_protocol::{
     AgentProtocolContext, ClaudeProtocolState, CodexInvocationContext, CodexProtocolState,
     ProtocolEmission, build_claude_invocation_args,
 };
-use inferay_core::prompts::PromptStore;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
@@ -332,7 +332,7 @@ pub async fn run_codex(
             .await?;
         let mut start_params = codex_thread_params(run.invocation);
         configure_codex_transport(&mut start_params, &config["config"]);
-        start_params["dynamicTools"] = PromptStore::tool_definitions();
+        start_params["dynamicTools"] = inferay_core::prompts::tools::tool_definitions();
         let thread_response = if let Some(thread_id) = &run.invocation.session_id {
             let mut params = codex_thread_params(run.invocation);
             configure_codex_transport(&mut params, &config["config"]);

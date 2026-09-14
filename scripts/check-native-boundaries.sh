@@ -28,12 +28,8 @@ if rg -n '(^|use )(?:axum|tokio|wry|tao|wasm_bindgen|inferay_server|inferay_nati
 	exit 1
 fi
 
-# Migrated models, transitions, and projections are independent of storage.
-if rg -n '\b(fs|io|net|process|atomic_write|AgentStateStore|AgentContextStore|ConfigManager|AgentCommandResolver)\b|std::(env|path)::(current_dir|absolute)' \
-	native/core/src/agent_state.rs native/core/src/agent_state native/core/src/workspace_action.rs \
-	native/core/src/agent_context.rs native/core/src/config.rs native/core/src/agent_kind.rs native/core/src/agent_protocol.rs; then
-	echo "Core models must not depend on filesystem, transport, process, or store implementations" >&2
-	exit 1
-fi
+# The crate's Clippy configuration resolves aliases and method calls throughout
+# every core module, including newly added files. Data and comments are ignored.
+cargo clippy -p inferay-core --all-targets -- -D warnings
 
 echo "Native dependency boundaries passed."

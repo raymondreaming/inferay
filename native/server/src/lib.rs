@@ -17,6 +17,8 @@ use std::thread::{self, JoinHandle};
 
 use crate::agent_command::AgentCommandResolver;
 use crate::agent_context_store::AgentContextStore;
+use crate::path_resolution::{is_within_directory, resolve_lexically};
+use crate::prompt_store::PromptStore;
 use crate::settings_store::ConfigManager;
 use crate::workspace_store::AgentStateStore;
 use axum::Router;
@@ -31,10 +33,8 @@ use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::any;
 use futures_util::{SinkExt, StreamExt, future::join_all};
-use inferay_core::path_security::{
-    AllowedPaths, is_safe_relative_path, is_within_directory, resolve_lexically,
-};
-use inferay_core::prompts::{PromptError, PromptStore};
+use inferay_core::path_security::{AllowedPaths, is_safe_relative_path};
+use inferay_core::prompts::PromptError;
 use inferay_native_diff::{
     checkout_git_branch, commit_git, finish_git_ref_operation, get_git_branches,
     get_git_commit_details_for_parent, get_git_commit_hunk_diff_for_parent,
@@ -67,6 +67,8 @@ mod markdown_stream;
 mod native_app;
 pub mod native_git;
 mod one_shot;
+mod path_resolution;
+mod prompt_store;
 mod provider_history;
 mod render_jobs;
 
@@ -74,6 +76,8 @@ mod render_jobs;
 /// beside the server makes renderer contracts follow backend schema changes.
 pub fn export_renderer_types(config: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
     use ts_rs::TS;
+    files::ProjectFileEntry::export_all(config)?;
+    markdown_stream::Input::export_all(config)?;
     agent_account::AgentAccountProviderStatus::export_all(config)?;
     forge::ForgeAccount::export_all(config)?;
     forge::GithubRepo::export_all(config)?;
@@ -299,8 +303,12 @@ fn build_router_with_connection_reset(
     } else {
         config.app_root.join("views")
     };
-    let allowed_paths = AllowedPaths::new(&config.app_root, &config.home_directory)
-        .expect("server path roots must resolve");
+    let allowed_paths = AllowedPaths::new(
+        &config.app_root,
+        &config.home_directory,
+        std::env::current_dir().expect("server working directory must resolve"),
+    )
+    .expect("server path roots must resolve");
     let bundled_prompts = config.app_root.join("data/prompts.json");
     let agent_state_path = config.user_data_dir.join("agent-state.json");
     let checkpoints_path = config.user_data_dir.join("checkpoints.json");

@@ -1,6 +1,6 @@
 //! Captures platform file facts before the core translates protocol notifications.
+use crate::path_resolution::{is_within_directory, resolve_lexically};
 use inferay_core::agent_protocol::{AgentProtocolContext, CodexProtocolState, ProtocolFiles};
-use inferay_core::path_security::{is_within_directory, resolve_lexically};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
@@ -13,6 +13,7 @@ pub(super) fn handle_codex_notification(
     let files = if params["item"]["type"] == "fileChange"
         && matches!(method, "item/started" | "item/completed")
     {
+        context.cwd = resolve_lexically(&context.cwd).unwrap_or_else(|_| context.cwd.clone());
         let roots = workspace_roots(&context.cwd, &context.reference_paths);
         let snapshots = state
             .snapshot_paths_for_notification(context, method, params, &roots)
@@ -70,6 +71,22 @@ mod tests {
     use super::*;
     use inferay_core::agent_protocol::ProtocolEmission;
     use serde_json::json;
+
+    #[test]
+    fn relative_protocol_roots_are_resolved_before_requesting_snapshots() {
+        let cwd = std::env::current_dir().unwrap();
+        let filename = format!(".inferay-missing-{}", uuid::Uuid::new_v4());
+        let mut context = AgentProtocolContext::new(".");
+        let mut state = CodexProtocolState::default();
+        let event = json!({"item":{"type":"fileChange","path":filename}});
+        handle_codex_notification(&mut state, &mut context, "item/completed", &event);
+        assert_eq!(context.cwd, cwd);
+        assert!(
+            context
+                .take_emissions()
+                .contains(&ProtocolEmission::FileChange(vec![cwd.join(filename)]))
+        );
+    }
 
     #[test]
     fn file_change_notifications_capture_bounded_snapshots_at_the_adapter() {

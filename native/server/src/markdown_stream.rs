@@ -9,12 +9,16 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename = "MarkdownStreamRequest")]
 pub(crate) struct Input {
     pub stream_id: String,
+    #[ts(optional)]
     pub base_revision: Option<u64>,
+    #[ts(optional)]
     pub text: Option<String>,
+    #[ts(optional)]
     pub append: Option<String>,
     #[serde(default)]
     pub streaming: bool,

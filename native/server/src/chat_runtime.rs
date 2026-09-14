@@ -1,4 +1,5 @@
 //! Owns live sessions, queued turns, transcript publication and checkpoint lifecycle.
+use crate::prompt_store::PromptStore;
 use crate::unix_millis as now_millis;
 use inferay_core::agent_kind::AgentKind;
 use inferay_core::agent_protocol::{
@@ -11,7 +12,7 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 use inferay_core::{
     agent_protocol::ProtocolEmission,
     chat_protocol::{ChatMessageBuffer, ChatTranscriptMessage},
-    prompts::{ChainStep, PromptStore},
+    prompts::commands::ChainStep,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};

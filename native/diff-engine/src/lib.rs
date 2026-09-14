@@ -4,9 +4,11 @@ pub use prepared_diff::{
 };
 mod git_exec;
 mod graph_semantics;
+mod path_access;
 
 use git_exec::{run_git, run_git_timed};
 use inferay_core::path_security::{is_safe_relative_path, AllowedPaths};
+use path_access::resolve_real_allowed_local_path;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::Command;
@@ -544,7 +546,7 @@ pub fn get_git_worktree_comparison_hunk_diff(
     let full_path = if deleted {
         requested_path
     } else {
-        allowed_paths.resolve_real_allowed_local_path(requested_path)?
+        resolve_real_allowed_local_path(allowed_paths, requested_path)?
     };
     let new_bytes = if deleted {
         Vec::new()
@@ -628,7 +630,7 @@ pub fn get_git_hunk_diff(
     let full_path = if deleted_patch {
         Some(requested_path)
     } else {
-        allowed_paths.resolve_real_allowed_local_path(requested_path)
+        resolve_real_allowed_local_path(allowed_paths, requested_path)
     };
     let Some(full_path) = full_path else {
         return too_large_diff("Access denied", false);
@@ -1893,7 +1895,7 @@ pub fn get_git_worktree_comparison_details(
         {
             let bytes = allowed_paths
                 .resolve_allowed_child_path(cwd, &entry.path)
-                .and_then(|path| allowed_paths.resolve_real_allowed_local_path(path))
+                .and_then(|path| resolve_real_allowed_local_path(allowed_paths, path))
                 .and_then(|path| std::fs::read(path).ok())
                 .unwrap_or_default();
             let binary = bytes.contains(&0);
