@@ -42,6 +42,7 @@ export const color = stylex.defineVars({
 	backgroundRaised: "var(--inferay-surface-raised)",
 	backgroundSubtle: "var(--inferay-surface-subtle)",
 	backgroundPanel: "var(--inferay-surface-panel)",
+	backgroundElevated: "var(--inferay-surface-elevated)",
 	backgroundModal: "var(--inferay-surface-modal)",
 	backgroundCanvas: "var(--inferay-surface-canvas)",
 	backgroundOverlay: stylex.types.color("rgba(0, 0, 0, 0.6)"),
@@ -241,11 +242,13 @@ export const shadow = stylex.defineVars({
 	focusRing: "var(--shadow-inferay-focus-ring)",
 	popover: "var(--shadow-inferay-popover)",
 	modal: "var(--shadow-inferay-modal)",
+	elevated: "var(--shadow-inferay-elevated)",
 });
 export const effect = stylex.defineVars({
 	controlDepth: "var(--effect-inferay-control-depth)",
 	controlDepthHover: "var(--effect-inferay-control-depth-hover)",
 	popoverDepth: "var(--effect-inferay-popover-depth)",
+	elevatedDepth: "var(--effect-inferay-elevated-depth)",
 	tokenHighlightBackground:
 		"color-mix(in srgb, var(--color-inferay-accent) 15%, transparent)",
 });
@@ -340,12 +343,12 @@ export const surfaceStyles = stylex.create({
 	/** The one treatment for every floating layer: modals, dialogs, menus, popovers. */
 	overlay: {
 		backdropFilter: "var(--inferay-overlay-blur, none)",
-		backgroundColor: color.backgroundPanel,
-		backgroundImage: "none",
+		backgroundColor: color.backgroundElevated,
+		backgroundImage: effect.elevatedDepth,
 		borderColor: color.border,
 		borderStyle: "solid",
 		borderWidth: 1,
-		boxShadow: shadow.popover,
+		boxShadow: shadow.elevated,
 	},
 	panel: {
 		backgroundColor: color.backgroundPanel,
