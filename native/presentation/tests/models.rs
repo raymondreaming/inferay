@@ -370,9 +370,9 @@ fn queue_actions_replace_optimistic_messages_and_preserve_persisted_order() {
         {"id":"pending", "text":"old", "transient":true}
     ]);
     let staged = project(
-        "stageQueueMessage",
+        "chatQueue",
         &json!({
-            "current":current, "message":{"id":"pending", "text":"new"}
+            "action":"stage", "current":current, "message":{"id":"pending", "text":"new"}
         }),
     )
     .unwrap();
@@ -384,21 +384,52 @@ fn queue_actions_replace_optimistic_messages_and_preserve_persisted_order() {
         ])
     );
     let resolved = project(
-        "resolveQueueMessage",
+        "chatQueue",
         &json!({
-            "current":staged, "id":"pending"
+            "action":"resolve", "current":staged, "id":"pending"
         }),
     )
     .unwrap();
     assert_eq!(resolved, json!([{"id":"saved", "text":"persisted"}]));
     assert_eq!(
         project(
-            "resolveQueueMessage",
+            "chatQueue",
             &json!({
-                "current":resolved, "id":"missing"
+                "action":"resolve", "current":resolved, "id":"missing"
             })
         )
         .unwrap(),
         resolved
     );
+    assert_eq!(
+        project(
+            "chatQueue",
+            &json!({
+                "action":"merge", "current":staged,
+                "persisted":[{"id":"pending", "text":"accepted"}]
+            })
+        )
+        .unwrap(),
+        json!([{"id":"pending", "text":"accepted"}])
+    );
+    assert!(project("chatQueue", &json!({"action":"unknown"})).is_err());
+}
+#[test]
+fn empty_graph_uses_the_native_snapshot_and_presentation_contract() {
+    let response = project("emptyGitGraph", &json!(null)).unwrap();
+    let snapshot: inferay_core::repository::GitGraphSnapshot =
+        serde_json::from_value(response.clone()).unwrap();
+    assert_eq!(
+        snapshot.state,
+        inferay_core::repository::GitRepositorySnapshotState::Empty
+    );
+    assert_eq!(
+        snapshot.operation.kind,
+        inferay_core::repository::GitRepositoryOperationKind::Idle
+    );
+    assert!(snapshot.commits.is_empty());
+    assert_eq!(response["presentation"]["selectableItems"], json!([]));
+    assert_eq!(response["presentation"]["containingBranches"], json!({}));
+    assert!(response.get("stateError").is_none());
+    assert!(response["actions"]["fetch"]["title"].is_string());
 }

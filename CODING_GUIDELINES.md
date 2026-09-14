@@ -58,6 +58,8 @@ The architecture checker permits raw endpoint helpers only in a `services/` modu
 
 Persistence orchestration accepts an injected port. `modules/workspace/services/workspaceSession.ts` owns request ordering and optimistic selection without importing Solid or a live transport. Its tests instantiate the same service with a controlled persistence port and the native projection function.
 
+Git action labels, response contracts, and post-action selection rules belong to `native/presentation/src/git_actions.rs`; server routes and renderer transport failures use that same model. `modules/repository/services/gitOperations.ts` sequences requests, refreshes, and selection callbacks through an injected transport configured in `app/bootstrap/workspace.ts`. Keep these operations out of the rendering controller. Working-tree keyboard navigation uses the Rust changes-panel model so its file order matches the sidebar.
+
 `src/app/bootstrap/workspace.ts` wires production persistence and projection implementations for workspace state and panel sessions. Their hooks own Solid state and query lifecycles; the services accept ports and can be tested directly without loading the UI or a live backend.
 
 ## Module shape

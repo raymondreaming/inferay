@@ -4,7 +4,9 @@ pub mod appearance;
 pub mod chat_view;
 pub mod composer;
 pub mod dock;
+pub mod git_actions;
 pub mod graph;
+pub mod graph_response;
 pub mod panels;
 /// Renderer compatibility facade for repository contracts owned by the core.
 pub mod repository {
@@ -59,6 +61,7 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
             panels::normalize(&session)
         }
         "gitOperationModel" => workbench::git_operation_model(input),
+        "gitActionFailure" => git_actions::failed_operation(input),
         "diffViewer" => workbench::diff_viewer(input),
         "changesPanel" => workbench::changes_panel(input),
         "visibleFiles" => workbench::visible_files(input),
@@ -74,6 +77,7 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         "retainedWorkspaces" => workbench::retained_workspaces(input),
         "chatRunStatus" => chat_view::run_status(input),
         "graphPreferences" => graph::preferences(input),
+        "emptyGitGraph" => graph_response::response(Default::default(), &[], &[], &[]),
         "graphLayout" => graph::layout(input),
         "graphLines" => json!(graph::lines(input)),
         "moveColumn" => graph::move_column(input),
@@ -94,9 +98,12 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         "systemNotice" => composer::system_notice(input),
         "prepareChatSend" => composer::prepare_send(input),
         "userMessage" => composer::user_message(input),
-        "mergeQueue" => composer::merge_queue(input),
-        "stageQueueMessage" => composer::update_queue(input, true),
-        "resolveQueueMessage" => composer::update_queue(input, false),
+        "chatQueue" => match input["action"].as_str() {
+            Some("merge") => composer::merge_queue(input),
+            Some("stage") => composer::update_queue(input, true),
+            Some("resolve") => composer::update_queue(input, false),
+            _ => return Err("Unknown chat queue action".into()),
+        },
         _ => return Err(format!("Unknown presentation operation: {operation}")),
     })
 }

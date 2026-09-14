@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 
 #[derive(serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct GraphActionPresentation {
+pub struct GraphActionPresentation {
     title: String,
     copy: String,
     confirm: String,
@@ -16,21 +16,21 @@ pub(crate) struct GraphActionPresentation {
     danger: bool,
 }
 #[derive(serde::Serialize, ts_rs::TS)]
-pub(crate) struct GitActionSelection {
+pub struct GitActionSelection {
     commit: Option<String>,
 }
 #[derive(serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct GitActionResponse {
+pub struct GitActionResponse {
     #[serde(flatten)]
-    result: inferay_native_diff::GitOperationResult,
+    result: inferay_core::repository::GitOperationResult,
     error_label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     selection: Option<GitActionSelection>,
 }
 
-pub(super) static CATALOG: LazyLock<Value> = LazyLock::new(|| {
+pub static CATALOG: LazyLock<Value> = LazyLock::new(|| {
     let entries = [
         (
             "createBranch",
@@ -196,11 +196,11 @@ pub(super) static CATALOG: LazyLock<Value> = LazyLock::new(|| {
     )
 });
 
-pub(super) fn operation_payload(
-    result: inferay_native_diff::GitOperationResult,
+pub fn operation_payload(
+    result: inferay_core::repository::GitOperationResult,
     ref_operation: bool,
 ) -> Value {
-    use inferay_native_diff::GitOperationErrorKind::*;
+    use inferay_core::repository::GitOperationErrorKind::*;
     let label = match result.error_kind {
         Some(Conflict) => "Merge conflict",
         Some(DirtyWorktree) => "Working tree has changes",
@@ -230,10 +230,28 @@ pub(super) fn operation_payload(
     })
 }
 
+pub fn failed_operation(input: &Value) -> Value {
+    use inferay_core::repository::{GitOperationOutcome, GitOperationResult};
+    operation_payload(
+        GitOperationResult {
+            ok: false,
+            operation: crate::string(&input["operation"]).into(),
+            outcome: GitOperationOutcome::Failed,
+            head: None,
+            conflicts: Vec::new(),
+            error_kind: serde_json::from_value(input["errorKind"].clone()).ok(),
+            error: Some(crate::string(&input["error"]).into()),
+        },
+        false,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use inferay_native_diff::{GitOperationErrorKind, GitOperationOutcome, GitOperationResult};
+    use inferay_core::repository::{
+        GitOperationErrorKind, GitOperationOutcome, GitOperationResult,
+    };
 
     fn result(operation: &str, head: Option<&str>) -> GitOperationResult {
         GitOperationResult {

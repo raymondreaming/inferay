@@ -91,9 +91,10 @@ pub struct GitStash {
     pub date: String,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[derive(Default, Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub enum GitRepositoryOperationKind {
+    #[default]
     Idle,
     Merge,
     Rebase,
@@ -101,15 +102,16 @@ pub enum GitRepositoryOperationKind {
     Revert,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[derive(Default, Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub enum GitRepositoryOperationPhase {
+    #[default]
     Idle,
     AwaitingContinuation,
     Conflicted,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[derive(Default, Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GitRepositoryOperationState {
     pub kind: GitRepositoryOperationKind,
@@ -410,7 +412,7 @@ pub struct GraphRow {
     pub truncated_edges: Vec<GraphRail>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[derive(Default, Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GitGraphSnapshot {
     #[serde(default)]
@@ -428,11 +430,12 @@ pub struct GitGraphSnapshot {
     pub state_error: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[derive(Default, Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub enum GitRepositorySnapshotState {
     Ready,
     Unborn,
+    #[default]
     Empty,
     NonRepository,
     CommandFailed,

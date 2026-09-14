@@ -3,7 +3,7 @@ mod files;
 mod mcp_icons;
 use files::{image_content_type, is_image_extension};
 mod agent_context_store;
-mod git_actions;
+use inferay_presentation::git_actions;
 mod settings_store;
 mod workspace_dock;
 mod workspace_panels;
@@ -81,8 +81,6 @@ pub fn export_renderer_types(config: &ts_rs::Config) -> Result<(), ts_rs::Export
     agent_account::AgentAccountProviderStatus::export_all(config)?;
     forge::ForgeAccount::export_all(config)?;
     forge::GithubRepo::export_all(config)?;
-    git_actions::GraphActionPresentation::export_all(config)?;
-    git_actions::GitActionResponse::export_all(config)?;
     markdown::PreparedMarkdown::export_all(config)?;
     markdown::MarkdownPatch::export_all(config)?;
     checkpoint::CheckpointMeta::export_all(config)?;
@@ -963,8 +961,12 @@ async fn git_graph(state: &ServerState, request: Request) -> ApiResult<Response>
         render_jobs::cached(key, std::time::Duration::from_secs(30), move || {
             let snapshot =
                 inferay_native_diff::get_git_graph_snapshot_with_query(&cwd, limit, input, &query);
-            let response =
-                native_git::graph_response(snapshot, &hidden_refs, &solo_refs, &pinned_refs);
+            let response = inferay_presentation::graph_response::response(
+                snapshot,
+                &hidden_refs,
+                &solo_refs,
+                &pinned_refs,
+            );
             serde_json::to_vec(&response).ok()
         })
         .await

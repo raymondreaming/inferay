@@ -2455,16 +2455,11 @@ pub fn get_git_graph_snapshot_with_query(
         GitRepositorySnapshotState::NonRepository | GitRepositorySnapshotState::CommandFailed
     ) {
         return GitGraphSnapshot {
-            ancestry: GraphAncestry::default(),
-            commits: Vec::new(),
-            rows: Vec::new(),
-            has_more: false,
-            worktrees: Vec::new(),
-            stashes: Vec::new(),
             revision: stable_revision_token(&[cwd.to_string()]),
             operation: input.operation,
             state,
             state_error,
+            ..Default::default()
         };
     }
     let worktrees = input.worktrees;
@@ -2478,16 +2473,13 @@ pub fn get_git_graph_snapshot_with_query(
             Err(error) => {
                 eprintln!("[git-graph] {error}");
                 return GitGraphSnapshot {
-                    ancestry: GraphAncestry::default(),
-                    commits: Vec::new(),
-                    rows: Vec::new(),
-                    has_more: false,
                     worktrees,
                     stashes,
                     revision: stable_revision_token(&[cwd.to_string(), error.clone()]),
                     operation: input.operation,
                     state: GitRepositorySnapshotState::CommandFailed,
                     state_error: Some(error),
+                    ..Default::default()
                 };
             }
         };
