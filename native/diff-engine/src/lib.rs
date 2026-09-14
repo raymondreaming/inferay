@@ -2496,9 +2496,15 @@ pub fn get_git_graph_snapshot_with_query(
     semantic_commits.truncate(limit);
 
     // A worktree's index and working directory are not commits. Insert a
-    // synthetic child immediately before its real HEAD so it participates in
-    // the same deterministic lane layout without ever masquerading as an OID.
-    for worktree in worktrees.iter().rev().filter(|_| query.trim().is_empty()) {
+    // synthetic child before its real HEAD. Insert the current WIP last at
+    // row zero, above stashes and linked worktrees, before calculating lanes.
+    for worktree in worktrees
+        .iter()
+        .rev()
+        .filter(|worktree| !worktree.is_current)
+        .chain(worktrees.iter().filter(|worktree| worktree.is_current))
+        .filter(|_| query.trim().is_empty())
+    {
         let has_changes = worktree
             .status
             .as_ref()
@@ -2506,10 +2512,14 @@ pub fn get_git_graph_snapshot_with_query(
         if !has_changes {
             continue;
         }
-        let head_index = semantic_commits
-            .iter()
-            .position(|commit| commit.hash == worktree.head)
-            .unwrap_or(0);
+        let head_index = if worktree.is_current {
+            0
+        } else {
+            semantic_commits
+                .iter()
+                .position(|commit| commit.hash == worktree.head)
+                .unwrap_or(0)
+        };
         let identity = if worktree.is_current {
             format!("inferay-wip-current:{}", worktree.path)
         } else {
@@ -2822,6 +2832,56 @@ fn layout_graph(mut commits: Vec<GraphCommit>) -> (Vec<GraphCommit>, Vec<GraphRo
 #[cfg(test)]
 mod graph_layout_tests {
     use super::*;
+
+    #[test]
+    fn current_wip_precedes_stashes_and_linked_worktrees() {
+        let root = tempfile::tempdir().unwrap();
+        let cwd = root.path().to_str().unwrap();
+        let git = |args: &[&str]| {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(root.path())
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["init", "-b", "main"]);
+        git(&["config", "user.email", "fixture@example.invalid"]);
+        git(&["config", "user.name", "Fixture"]);
+        git(&["config", "commit.gpgsign", "false"]);
+        let file = root.path().join("file.txt");
+        std::fs::write(&file, "original\n").unwrap();
+        git(&["add", "file.txt"]);
+        git(&["commit", "-m", "Initial"]);
+        std::fs::write(&file, "stashed\n").unwrap();
+        git(&["stash", "push"]);
+        let linked = root.path().join("linked");
+        git(&["worktree", "add", "-b", "linked", linked.to_str().unwrap()]);
+        std::fs::write(linked.join("file.txt"), "linked changes\n").unwrap();
+        std::fs::write(&file, "current changes\n").unwrap();
+        let head = current_git_head(cwd).unwrap();
+
+        // Worktree enumeration order must not move another WIP above the current one.
+        for reverse in [false, true] {
+            let mut input = prepare_git_graph(cwd);
+            if reverse {
+                input.worktrees.reverse();
+            }
+            let snapshot = get_git_graph_snapshot_with_query(cwd, 100, input, "");
+            assert_eq!(snapshot.commits[0].id, "wip");
+            assert_eq!(snapshot.commits[0].parents, std::slice::from_ref(&head));
+            assert_eq!(snapshot.commits[1].item_kind, GitGraphItemKind::Stash);
+            assert_eq!(snapshot.commits[1].parents, std::slice::from_ref(&head));
+            assert_eq!(snapshot.commits[2].item_kind, GitGraphItemKind::WorktreeWip);
+            assert_eq!(snapshot.commits[3].hash, head);
+            assert_eq!(snapshot.commits.len(), 4);
+            assert_eq!(snapshot.rows.len(), 4);
+        }
+    }
 
     #[test]
     fn separate_child_lanes_converge_at_the_parent_and_preserve_truncated_edges() {
