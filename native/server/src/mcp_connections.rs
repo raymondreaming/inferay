@@ -158,9 +158,8 @@ fn codex_connections(config: &Value, servers: Vec<Value>) -> Vec<McpConnection> 
                 Some("starting" | "notStarted")
             ) {
                 "Starting"
-            } else if server["runtimeStatus"] == "connected" {
-                "Connected"
-            } else if tools > 0
+            } else if server["runtimeStatus"] == "connected"
+                || tools > 0
                 || server["resources"]
                     .as_array()
                     .is_some_and(|items| !items.is_empty())
@@ -304,6 +303,12 @@ pub(super) async fn act(state: &ServerState, request: axum::extract::Request) ->
     state
         .agent_command_resolver
         .set_mcp_enabled(kind, &input.name, enabled)?;
+    if enabled && server.status == "Needs sign-in" && input.name.starts_with("claude.ai ") {
+        return Ok(serde_json::json!({
+            "message": "Connect this service in Claude, then refresh connections.",
+            "url": "https://claude.ai/customize/connectors"
+        }));
+    }
     let message = if enabled && server.status == "Needs sign-in" {
         crate::native_app::open_terminal_command(
             &state.agent_command_resolver.resolve_agent_binary(kind),

@@ -3,8 +3,46 @@ import {
 	breakpoint,
 	color,
 	controlSize,
+	font,
+	radius,
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
+	mcpGrid: {
+		display: "grid",
+		gridTemplateColumns: {
+			default: "minmax(0, 1fr)",
+			[breakpoint.tablet]: "repeat(2, minmax(0, 1fr))",
+		},
+		gap: controlSize._6,
+		alignItems: "start",
+	},
+	mcpCard: {
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._2,
+		padding: controlSize._3,
+		marginBlockStart: controlSize._2,
+		minWidth: 0,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.borderSubtle,
+		borderRadius: radius.lg,
+		backgroundColor: color.surfaceControl,
+	},
+	mcpIdentity: {
+		display: "flex",
+		flexDirection: "column",
+		gap: controlSize._0_5,
+		minWidth: 0,
+	},
+	mcpLabel: {
+		fontSize: font.size_3,
+		fontWeight: font.weight_5,
+		color: color.textSoft,
+		overflowWrap: "anywhere",
+	},
+	mcpStatus: { fontSize: font.size_1, color: color.textMuted },
+	mcpConnected: { color: color.success },
 	mcpName: { display: "flex", alignItems: "center", gap: "10px", minWidth: 0 },
 	mcpIcon: {
 		display: "inline-flex",

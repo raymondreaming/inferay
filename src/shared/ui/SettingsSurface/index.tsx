@@ -7,7 +7,7 @@ export function SettingsStack(_props: { children: Element }) {
 }
 export function SettingsSection(_props: {
 	id?: string;
-	title: string;
+	title: Element;
 	description?: string;
 	action?: Element;
 	children: Element;

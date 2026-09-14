@@ -84,7 +84,10 @@ export function fetchMcpStatus(
 }
 
 export function updateMcpConnection(action: McpAction) {
-	return postJson<{ message: string }>("/api/agents/mcp-action", action);
+	return postJson<{ message: string; url?: string }>(
+		"/api/agents/mcp-action",
+		action,
+	);
 }
 
 export async function connectGithub() {

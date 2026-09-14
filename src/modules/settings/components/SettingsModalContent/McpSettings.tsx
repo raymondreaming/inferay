@@ -1,4 +1,6 @@
+import { AgentIcon } from "@agents/components/AgentIcon/index.tsx";
 import type { McpAction, McpProviderStatus } from "@contracts";
+import { iconSize } from "@design-system/styles.stylex.ts";
 import {
 	fetchMcpStatus,
 	updateMcpConnection,
@@ -7,7 +9,6 @@ import { useQueryResource } from "@shared/hooks/useQueryResource.tsx";
 import { Button } from "@shared/ui/Button/index.tsx";
 import {
 	SettingsEmpty,
-	SettingsRow,
 	SettingsSection,
 } from "@shared/ui/SettingsSurface/index.tsx";
 import * as stylex from "@stylexjs/stylex";
@@ -17,22 +18,17 @@ import { styles } from "./styles.ts";
 
 export function McpSettings() {
 	return (
-		<>
-			<p>
-				Codex and Claude have separate connections and sign-in. This checks a
-				fresh provider session; tools in an existing chat can differ by project
-				and session. A timeout means the connection could not be verified.
-				GitKraken is disabled here.
-			</p>
-			<McpProvider kind="codex" />
+		<div {...stylex.attrs(styles.mcpGrid)}>
 			<McpProvider kind="claude" />
-		</>
+			<McpProvider kind="codex" />
+		</div>
 	);
 }
 
 function McpProvider(props: { kind: "codex" | "claude" }) {
 	const [pending, setPending] = createSignal<string | null>(null);
 	const [notice, setNotice] = createSignal<string | null>(null);
+	const [loginUrl, setLoginUrl] = createSignal<string | undefined>();
 	const [refreshError, setRefreshError] = createSignal<string | null>(null);
 	const connections = useQueryResource(
 		() => (signal?: AbortSignal) => fetchMcpStatus(props.kind, signal),
@@ -59,6 +55,7 @@ function McpProvider(props: { kind: "codex" | "claude" }) {
 		setPending(name);
 		setRefreshError(null);
 		setNotice(null);
+		setLoginUrl(undefined);
 		try {
 			const result = await updateMcpConnection({
 				provider: props.kind,
@@ -66,6 +63,7 @@ function McpProvider(props: { kind: "codex" | "claude" }) {
 				action,
 			});
 			setNotice(result.message);
+			setLoginUrl(result.url);
 			await connections.refresh();
 		} catch (error) {
 			setRefreshError(error instanceof Error ? error.message : String(error));
@@ -76,13 +74,19 @@ function McpProvider(props: { kind: "codex" | "claude" }) {
 	return (
 		<SettingsSection
 			id={`mcp-${props.kind}`}
-			title={props.kind === "codex" ? "Codex" : "Claude"}
+			title={
+				<span {...stylex.attrs(styles.mcpName)}>
+					<AgentIcon kind={props.kind} size={iconSize.lg} />
+					{props.kind === "codex" ? "Codex" : "Claude"}
+				</span>
+			}
 			description={
-				connections.data.checking
-					? "Checking connections…"
-					: connections.data.checkedAt
-						? `Last checked ${new Date(connections.data.checkedAt).toLocaleTimeString()}`
-						: "Not checked yet"
+				connections.data.checking ||
+				(!connections.loaded && connections.loading)
+					? "Checking…"
+					: connections.data.error || connections.error || refreshError()
+						? "Check unavailable"
+						: `${connections.data.servers.filter((server) => server.status === "Connected").length} connected`
 			}
 			action={
 				<Button
@@ -104,42 +108,55 @@ function McpProvider(props: { kind: "codex" | "claude" }) {
 				/>
 			)}
 			{notice() && <p role="status">{notice()}</p>}
+			{loginUrl() && (
+				<a href={loginUrl()} target="_blank" rel="noopener noreferrer">
+					Open Claude connections
+				</a>
+			)}
 			{connections.data.error && connections.data.servers.length > 0 && (
-				<p>Showing the last successful check.</p>
+				<span {...stylex.attrs(styles.mcpStatus)}>Last known status</span>
 			)}
 			<For each={connections.data.servers} keyed={(server) => server.name}>
 				{(server) => {
 					const [failedIcon, setFailedIcon] = createSignal<string | null>(null);
 					return (
-						<SettingsRow
-							label={
-								<span {...stylex.attrs(styles.mcpName)}>
-									<span {...stylex.attrs(styles.mcpIcon)} aria-hidden="true">
-										<Show
-											when={
-												server().iconUrl && server().iconUrl !== failedIcon()
-													? server().iconUrl
-													: undefined
-											}
-											keyed
-											fallback={server().source?.monogram ?? "M"}
-										>
-											{(url) => (
-												<img
-													{...stylex.attrs(styles.mcpImage)}
-													src={url}
-													alt=""
-													draggable={false}
-													onError={() => setFailedIcon(url)}
-												/>
-											)}
-										</Show>
-									</span>
-									<span>{server().source?.serverLabel ?? server().name}</span>
+						<article {...stylex.attrs(styles.mcpCard)}>
+							<div {...stylex.attrs(styles.mcpName)}>
+								<span {...stylex.attrs(styles.mcpIcon)} aria-hidden="true">
+									<Show
+										when={
+											server().iconUrl && server().iconUrl !== failedIcon()
+												? server().iconUrl
+												: undefined
+										}
+										keyed
+										fallback={server().source?.monogram ?? "M"}
+									>
+										{(url) => (
+											<img
+												{...stylex.attrs(styles.mcpImage)}
+												src={url}
+												alt=""
+												draggable={false}
+												onError={() => setFailedIcon(url)}
+											/>
+										)}
+									</Show>
 								</span>
-							}
-							description={`${server().status}${server().toolCount !== null && server().status === "Connected" ? ` · ${server().toolCount} tools` : ""}${server().version ? ` · v${server().version}` : ""}`}
-						>
+								<div {...stylex.attrs(styles.mcpIdentity)}>
+									<span {...stylex.attrs(styles.mcpLabel)}>
+										{server().source?.serverLabel ?? server().name}
+									</span>
+									<span
+										{...stylex.attrs(
+											styles.mcpStatus,
+											server().status === "Connected" && styles.mcpConnected,
+										)}
+									>
+										{server().status}
+									</span>
+								</div>
+							</div>
 							<div {...stylex.attrs(styles.mcpActions)}>
 								{server().canToggle && (
 									<>
@@ -183,12 +200,14 @@ function McpProvider(props: { kind: "codex" | "claude" }) {
 									</>
 								)}
 							</div>
-						</SettingsRow>
+						</article>
 					);
 				}}
 			</For>
-			{!connections.data.checking &&
+			{connections.loaded &&
+				!connections.data.checking &&
 				!connections.data.error &&
+				!connections.error &&
 				connections.data.servers.length === 0 && (
 					<SettingsEmpty>No MCP connections found.</SettingsEmpty>
 				)}

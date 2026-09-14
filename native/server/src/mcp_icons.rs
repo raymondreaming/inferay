@@ -59,11 +59,11 @@ pub fn register(page: &Value) {
             registry.servers.remove(&source.server_id);
         }
     }
-    if registry.servers != previous {
-        if let Some(path) = &registry.cache_path {
-            // Metadata is a best-effort cache; a failed write must not interrupt chat.
-            let _ = crate::json_file::write(path, &registry.servers);
-        }
+    if registry.servers != previous
+        && let Some(path) = &registry.cache_path
+    {
+        // Metadata is a best-effort cache; a failed write must not interrupt chat.
+        let _ = crate::json_file::write(path, &registry.servers);
     }
 }
 fn supported_source(src: &str) -> bool {
