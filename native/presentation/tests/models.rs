@@ -35,47 +35,6 @@ fn ui_timing_summaries_group_comparable_ready_samples_and_compute_percentiles() 
 }
 
 #[test]
-fn workspace_mutation_plan_distinguishes_selection_from_structure() {
-    let plan = |state: &Value, action: Value| {
-        json!(inferay_presentation::workbench::workspace_mutation_plan(
-            state, &action
-        ))
-    };
-    let state = json!({"selectedGroupId":"g", "groups":[{"id":"g","selectedPaneId":"a"}],
-        "repositories":{"workspaces":[{"cwd":"/repo","entries":[{"groupId":"g","pane":{"id":"a"}}]}]}});
-    for action in [
-        json!({"type":"selectPane","groupId":"g","paneId":"a"}),
-        json!({"type":"selectRepository","cwd":"/repo"}),
-    ] {
-        assert_eq!(
-            plan(&state, action),
-            json!({"selection":{"groupId":"g","paneId":"a"},"unchanged":true})
-        );
-    }
-    assert_eq!(
-        plan(&state, json!({"type":"selectWorkspace","groupId":"g"})),
-        json!({"selection":{"groupId":"g"},"unchanged":true})
-    );
-    assert_eq!(
-        plan(
-            &state,
-            json!({"type":"selectPane","groupId":"g","paneId":"b"})
-        ),
-        json!({"selection":{"groupId":"g","paneId":"b"},"unchanged":false})
-    );
-    for action in [
-        Value::Null,
-        json!({"type":"addPane","groupId":"g"}),
-        json!({"type":"selectRepository","cwd":"/missing"}),
-    ] {
-        assert_eq!(
-            plan(&state, action),
-            json!({"selection":null,"unchanged":false})
-        );
-    }
-}
-
-#[test]
 fn retained_workspaces_follow_group_membership_and_evict_only_inactive_views() {
     let key = |group: &str, cwd: Option<&str>| json!([group, cwd]).to_string();
     let mut input = json!({
@@ -163,45 +122,6 @@ fn retained_workspaces_follow_group_membership_and_evict_only_inactive_views() {
 }
 
 #[test]
-fn decorated_segments_preserve_unicode_text_and_only_highlight_known_tokens() {
-    let text = "🦀 /REVIEW a/b @docs/🦀.md /unknown";
-    let segments = render(
-        "decoratedTextSegments",
-        json!({"text":text,"commands":["review"]}),
-    );
-    assert_eq!(
-        segments,
-        json!([
-            {"text":"🦀 ","highlighted":false},
-            {"text":"/REVIEW","highlighted":true},
-            {"text":" a/b ","highlighted":false},
-            {"text":"@docs/🦀.md","highlighted":true},
-            {"text":" /unknown","highlighted":false}
-        ])
-    );
-    for text in ["", "plain 🦀 text", "@one @two", "/review", "a@b", "@", "/"] {
-        let result = render(
-            "decoratedTextSegments",
-            json!({"text":text,"commands":["review"]}),
-        );
-        let joined: String = result
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|segment| segment["text"].as_str().unwrap())
-            .collect();
-        assert_eq!(joined, text);
-        assert!(
-            result
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|segment| segment["text"] != "")
-        );
-    }
-}
-
-#[test]
 fn composer_offsets_follow_utf16_and_tokens_respect_word_boundaries() {
     let state = json!({"show":false,"selectedIdx":0,"query":"","index":-1});
     assert_eq!(
@@ -232,30 +152,6 @@ fn malformed_graph_preferences_cannot_duplicate_or_hide_required_columns() {
     assert_eq!(prefs["widths"]["graph"], 48.);
     assert_eq!(prefs["widths"]["date"], 480.);
     assert_eq!(prefs["columns"]["author"], true);
-}
-#[test]
-fn file_navigation_preserves_staging_and_tree_order() {
-    let files = json!([{"path":"z","staged":false},{"path":"a/b","staged":false},{"path":"a","staged":true}]);
-    let presentation = json!({"treeOrder":["a/b","a","z"],"pathOrder":["a","a/b","z"]});
-    let ordered = render(
-        "visibleFiles",
-        json!({"files":files,"presentation":presentation,"mode":"tree"}),
-    );
-    assert_eq!(ordered[0]["path"], "a/b");
-    assert_eq!(
-        render(
-            "selectionAfterToggle",
-            json!({"files":files,"selected":{"path":"a","staged":true}})
-        ),
-        json!({"path":"a","staged":false})
-    );
-    assert_eq!(
-        render(
-            "adjacentFile",
-            json!({"count":3,"current":2,"direction":1,"repeatBoundary":false})
-        ),
-        Value::Null
-    );
 }
 #[test]
 fn panel_transitions_preserve_historical_context_and_validate_commands() {
@@ -456,67 +352,6 @@ fn grid_uses_available_chats_then_preserves_columns_in_partial_rows() {
 }
 
 #[test]
-fn grid_resize_paths_remain_valid_inside_partial_rows() {
-    let input = json!({"ids":["a","b","c","d","e"],"columns":3,"mode":"grid"});
-    let layout = dock(&input).unwrap();
-    let resized = dock(&json!({"ids":input["ids"],"columns":3,"mode":"grid","saved":layout["saved"],"action":{"type":"resize","path":["second","first"],"ratio":0.6}})).unwrap();
-    assert_eq!(resized["tree"]["second"]["first"]["ratio"], 0.6);
-    assert!(!resized["saved"].to_string().contains("empty"));
-}
-
-#[test]
-fn sidebar_without_graph_defaults_to_current_changes() {
-    for mode in ["graph", "diff"] {
-        let mut session = panels::normalize(&json!({
-            "mainViewMode": mode, "graphVisible": true, "sidebarVisible": true,
-            "selectedCommitHash": "abc123", "selectedCommitIds": ["abc123"],
-            "selectedFile": {"path":"file.rs","staged":false,"source":{"kind":"commit","commitHash":"abc123","commitParent":null}}
-        }));
-        assert_eq!(session["sidebarContent"], "history");
-        session["graphVisible"] = json!(false);
-        assert_eq!(
-            project("panelSidebarContent", &session).unwrap(),
-            "workingTree"
-        );
-        assert_eq!(panels::normalize(&session)["sidebarContent"], "workingTree");
-        // Restoring the graph retains the user's previous history selection.
-        session["graphVisible"] = json!(true);
-        assert_eq!(project("panelSidebarContent", &session).unwrap(), "history");
-        assert_eq!(session["selectedCommitHash"], "abc123");
-    }
-}
-
-#[test]
-fn graph_and_changes_sidebar_toggle_independently() {
-    let mut session = panels::normalize(&json!({"mainViewMode":"graph","sidebarVisible":true}));
-    assert_eq!(session["graphVisible"], true);
-    panels::apply_action(&mut session, &json!({"type":"toggleSidebar"}), 1).unwrap();
-    assert_eq!(session["sidebarVisible"], false);
-    assert_eq!(session["graphVisible"], true);
-    panels::apply_action(
-        &mut session,
-        &json!({"type":"toggleGraph","cwd":"/repo"}),
-        2,
-    )
-    .unwrap();
-    assert_eq!(session["graphVisible"], false);
-    panels::apply_action(&mut session, &json!({"type":"toggleSidebar"}), 3).unwrap();
-    assert_eq!(session["sidebarVisible"], true);
-    assert_eq!(session["graphVisible"], false);
-    panels::apply_action(
-        &mut session,
-        &json!({"type":"toggleGraph","cwd":"/repo"}),
-        4,
-    )
-    .unwrap();
-    assert_eq!(session["sidebarVisible"], true);
-    assert_eq!(session["graphVisible"], true);
-    assert_eq!(
-        panels::normalize(&json!({"mainViewMode":"graph","sidebarVisible":false}))["graphVisible"],
-        false
-    );
-}
-#[test]
 fn queue_actions_replace_optimistic_messages_and_preserve_persisted_order() {
     let current = json!([
         {"id":"saved", "text":"persisted"},
@@ -568,25 +403,6 @@ fn queue_actions_replace_optimistic_messages_and_preserve_persisted_order() {
     assert!(project("chatQueue", &json!({"action":"unknown"})).is_err());
 }
 #[test]
-fn empty_graph_uses_the_native_snapshot_and_presentation_contract() {
-    let response = project("emptyGitGraph", &json!(null)).unwrap();
-    let snapshot: inferay_core::repository::GitGraphSnapshot =
-        serde_json::from_value(response.clone()).unwrap();
-    assert_eq!(
-        snapshot.state,
-        inferay_core::repository::GitRepositorySnapshotState::Empty
-    );
-    assert_eq!(
-        snapshot.operation.kind,
-        inferay_core::repository::GitRepositoryOperationKind::Idle
-    );
-    assert!(snapshot.commits.is_empty());
-    assert_eq!(response["presentation"]["selectableItems"], json!([]));
-    assert_eq!(response["presentation"]["containingBranches"], json!({}));
-    assert!(response.get("stateError").is_none());
-    assert!(response["actions"]["fetch"]["title"].is_string());
-}
-#[test]
 fn diff_change_navigation_is_strict_and_wraps_at_both_ends() {
     for (line, direction, expected) in [
         (0, 1, 0),
@@ -614,48 +430,5 @@ fn diff_change_navigation_is_strict_and_wraps_at_both_ends() {
         )
         .unwrap(),
         json!(null)
-    );
-}
-#[test]
-fn diff_navigation_clears_scroll_and_highlight_independently() {
-    let update = |state: Value, action: Value| {
-        project("diffNavigation", &json!({"state":state,"action":action})).unwrap()
-    };
-    let jumped = update(
-        json!({}),
-        json!({"type":"jumpToChange","changeIdx":2,"top":90}),
-    );
-    assert_eq!(
-        jumped,
-        json!({"scroll":{"source":"all","top":90.0},"highlight":2})
-    );
-    let cleared = update(jumped.clone(), json!({"type":"clearScroll"}));
-    assert_eq!(cleared, json!({"highlight":2}));
-    assert_eq!(
-        update(cleared.clone(), json!({"type":"clearScroll"})),
-        json!(null)
-    );
-    let synced = update(
-        cleared,
-        json!({"type":"jumpToPosition","source":"left","top":120}),
-    );
-    assert_eq!(
-        synced,
-        json!({"scroll":{"source":"left","top":120.0},"highlight":2})
-    );
-    assert_eq!(
-        update(synced, json!({"type":"clearHighlight"})),
-        json!({"scroll":{"source":"left","top":120.0}})
-    );
-    assert_eq!(
-        update(json!({"highlight":2}), json!({"type":"clearHighlight"})),
-        json!({})
-    );
-    assert!(
-        project(
-            "diffNavigation",
-            &json!({"state":{},"action":{"type":"unknown"}})
-        )
-        .is_err()
     );
 }

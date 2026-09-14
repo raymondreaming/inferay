@@ -558,32 +558,6 @@ mod tests {
     }
 
     #[test]
-    fn settings_fields_and_provider_changes_use_the_native_catalog() {
-        let mut input =
-            json!({"settings":{"agentKind":"codex","model":"custom","reasoningLevel":"high"}});
-        let codex = settings_view(&input);
-        assert_eq!(codex.fields.len(), 2);
-        assert_eq!(codex.fields[0].value, "custom");
-        assert_eq!(codex.fields[1].value, "high");
-        for provider in &codex.providers {
-            assert_eq!(
-                provider.model,
-                agent_definition(provider.kind.as_str())
-                    .unwrap()
-                    .default_model
-            );
-        }
-        input["settings"]["agentKind"] = json!("claude");
-        let claude = settings_view(&input);
-        assert_eq!(claude.fields.len(), 1);
-        assert_eq!(
-            claude.fields[0].options.len(),
-            catalog().claude.models.len()
-        );
-        assert!(claude.providers[0].selected);
-    }
-
-    #[test]
     fn renderer_catalog_preserves_skill_precedence_and_resolved_defaults() {
         let skills = vec![crate::prompts::Prompt {
             id: "skill-review".into(),

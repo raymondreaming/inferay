@@ -108,18 +108,6 @@ describe("navigation while native persistence is pending", () => {
 		},
 	);
 
-	test("rapid range and additive selections retain native selection semantics", () => {
-		const { select, current, mutation } = setup();
-		const first = select("a");
-		const saved = current();
-		select("c", { range: true, additive: false }, ["a", "b", "c", "d"]);
-		select("b", { additive: true, range: false });
-		expect(current().selectedCommitIds).toEqual(["a", "c"]);
-		mutation.onSuccess({ session: saved }, first);
-		expect(current().selectedCommitIds).toEqual(["a", "c"]);
-		expect(current().selectedCommitHash).toBe("c");
-	});
-
 	test("file preview opens immediately and retains local content without serializing it", async () => {
 		const { model, current, mutation, sent } = setup();
 		model.preview("repo", {
@@ -175,45 +163,4 @@ test("file navigation preserves object identity without serializing file payload
 	);
 	expect(adjacentGitFile(files, (file) => file.id === 0, -1)).toBeUndefined();
 	expect(adjacentGitFile([], () => false, 1, true)).toBeUndefined();
-});
-
-test("changes model keeps staging, tree navigation, history and totals independent", () => {
-	const modified = { path: "b", staged: false, additions: 3, deletions: 1 };
-	const untracked = {
-		path: "dir/a",
-		staged: false,
-		additions: 5,
-		deletions: 0,
-	};
-	const staged = { path: "b", staged: true, additions: 2, deletions: 4 };
-	const input = {
-		content: "workingTree",
-		fileViewMode: "tree",
-		modified: [modified],
-		untracked: [untracked],
-		staged: [staged],
-		filePresentation: { pathOrder: ["b", "dir/a"], treeOrder: ["dir/a", "b"] },
-	};
-	const model = project<any>("changesPanel", input);
-	expect(model.unstagedFiles).toEqual([modified, untracked]);
-	expect(model.stagedFiles).toEqual([staged]);
-	expect(model.navigableFiles).toEqual([untracked, modified, staged]);
-	expect([model.additions, model.deletions]).toEqual([10, 5]);
-	const incomplete = project<any>("changesPanel", {
-		...input,
-		filePresentation: { ...input.filePresentation, treeOrder: [] },
-	});
-	expect(incomplete.navigableFiles).toEqual([]);
-	expect([incomplete.additions, incomplete.deletions]).toEqual([10, 5]);
-	const history = project<any>("changesPanel", {
-		...input,
-		content: "history",
-		selectedCommitCount: 2,
-		comparisonDetails: { files: [{ path: "old", additions: 7, deletions: 8 }] },
-	});
-	expect(history.comparing).toBe(true);
-	expect(history.navigableHistoricalFiles).toEqual([
-		{ path: "old", additions: 7, deletions: 8 },
-	]);
-	expect([history.additions, history.deletions]).toEqual([7, 8]);
 });

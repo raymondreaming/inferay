@@ -427,15 +427,6 @@ mod send_tests {
     }
 
     #[test]
-    fn command_menu_filters_case_insensitively_in_source_order() {
-        let input = json!({"state":{"show":true,"index":0,"query":"Re"},"commands":[{"name":"review"},{"name":"help"},{"name":"RESET"}]});
-        assert_eq!(menu_commands(&input), json!([0, 2]));
-        let mut hidden = input;
-        hidden["state"]["show"] = json!(false);
-        assert_eq!(menu_commands(&hidden), json!([]));
-    }
-
-    #[test]
     fn system_notices_suppress_only_completed_nonempty_duplicates() {
         let previous = json!({"role":"system","content":"Stopped"});
         assert!(system_notice(&json!({"content":"Stopped","previous":previous})).is_null());

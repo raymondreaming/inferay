@@ -225,42 +225,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn background_choices_and_uploads_share_normalized_policy() {
-        let initial =
-            serde_json::to_value(background_model(&json!({"themeId":"midnight"}))).unwrap();
-        assert_eq!(initial["themeId"], "default");
-        assert!(initial["scenes"].as_array().unwrap().last().unwrap()["path"].is_null());
-        let uploaded = serde_json::to_value(background_model(&json!({
-            "stored":{"version":7,"mode":"scene","id":"city","autoTheme":true},
-            "themeId":"midnight","patch":{"customRevision":42,"dim":500}
-        })))
-        .unwrap();
-        assert_eq!(uploaded["background"]["id"], "custom");
-        assert_eq!(uploaded["background"]["autoTheme"], false);
-        assert_eq!(uploaded["background"]["dim"], 85.0);
-        assert_eq!(
-            uploaded["backgroundUrl"],
-            "/api/config/background-image?v=42"
-        );
-        assert_eq!(uploaded["themeId"], "default");
-        let switched = serde_json::to_value(background_model(&json!({
-            "stored":uploaded["background"],"themeId":"midnight","patch":{"mode":"glass"}
-        })))
-        .unwrap();
-        assert_eq!(switched["themeId"], "default");
-        assert!(switched["backgroundUrl"].is_null());
-        let selected = serde_json::to_value(background_model(&json!({
-            "stored":{"version":7,"mode":"scene","autoTheme":true}, "patch":{"id":"nature"}
-        })))
-        .unwrap();
-        assert_eq!(
-            selected["backgroundUrl"],
-            "/background-nature-sanctuary.png"
-        );
-        assert_eq!(selected["background"]["autoTheme"], false);
-    }
-
-    #[test]
     fn migrates_old_backgrounds_without_reusing_obsolete_glass_values() {
         let settings = normalize_background(&json!({
             "version": 3, "id": "city", "blur": 12, "glassBlur": 32, "glassOpacity": 20

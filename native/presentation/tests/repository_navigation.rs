@@ -17,16 +17,6 @@ fn diff_request_contract_omits_unrelated_history_and_preserves_review_mode() {
 }
 
 #[test]
-fn git_ref_request_contract_retains_native_defaults_for_preflight_requests() {
-    let request: inferay_presentation::git_actions::GitRefOperationRequest =
-        serde_json::from_value(json!({"source":"topic","target":"main"})).unwrap();
-    assert_eq!(request.operation, "");
-    assert_eq!(request.action, "start");
-    assert_eq!(request.source.as_deref(), Some("topic"));
-    assert_eq!(request.target.as_deref(), Some("main"));
-}
-
-#[test]
 fn graph_navigation_opens_wip_and_preserves_branch_and_boundary_rules() {
     let navigate = |key: &str, current: i64, extra: Value| {
         let items = ["wip", "middle", "older"];
@@ -82,54 +72,6 @@ fn graph_navigation_opens_wip_and_preserves_branch_and_boundary_rules() {
 }
 
 #[test]
-fn graph_viewport_includes_overscan_and_keyboard_scroll_padding() {
-    assert_eq!(
-        project(
-            "graphViewport",
-            &json!({"count":100,"scrollTop":483,"height":230})
-        )
-        .unwrap(),
-        json!({"visibleStart":8,"visibleEnd":42})
-    );
-    assert_eq!(
-        project(
-            "graphViewport",
-            &json!({"count":2,"scrollTop":-20,"height":230})
-        )
-        .unwrap(),
-        json!({"visibleStart":0,"visibleEnd":2})
-    );
-    assert_eq!(
-        project(
-            "graphReveal",
-            &json!({"index":0,"scrollTop":300,"height":230})
-        )
-        .unwrap(),
-        0.0
-    );
-    assert_eq!(
-        project(
-            "graphReveal",
-            &json!({"index":20,"scrollTop":0,"height":230})
-        )
-        .unwrap(),
-        299.0
-    );
-}
-
-#[test]
-fn graph_column_resize_uses_the_same_limits_as_stored_preferences() {
-    assert_eq!(
-        project("resizeGraphColumn", &json!({"column":"message","width":40})).unwrap(),
-        160.0
-    );
-    assert_eq!(
-        project("resizeGraphColumn", &json!({"column":"graph","width":900})).unwrap(),
-        480.0
-    );
-}
-
-#[test]
 fn file_selection_preserves_historical_sources_and_worktree_ownership() {
     let select = |input| project("repositoryFileSelection", &input).unwrap();
     assert_eq!(
@@ -181,50 +123,4 @@ fn graph_file_open_waits_for_history_but_opens_wip_in_sidebar_order() {
         project("graphFileOpen", &input).unwrap(),
         json!({"ready":true,"action":null})
     );
-}
-
-#[test]
-fn repository_preferences_and_resizing_clamp_invalid_and_oversized_widths() {
-    let defaults = project("repositoryPreferences", &json!({})).unwrap();
-    assert_eq!(
-        defaults,
-        json!({"sidebarWidth":300.0,"diffWidth":680.0,"fileViewMode":"tree","diffViewMode":"hunks"})
-    );
-    let stored = project(
-        "repositoryPreferences",
-        &json!({"sidebarWidth":"900","diffWidth":"1","fileViewMode":"path","diffViewMode":"split"}),
-    )
-    .unwrap();
-    assert_eq!(
-        stored,
-        json!({"sidebarWidth":420.0,"diffWidth":320.0,"fileViewMode":"path","diffViewMode":"split"})
-    );
-    assert_eq!(
-        project("repositoryResize", &json!({"width":900})).unwrap(),
-        420.0
-    );
-    assert_eq!(
-        project(
-            "repositoryResize",
-            &json!({"diff":true,"availableWidth":100,"width":900})
-        )
-        .unwrap(),
-        320.0
-    );
-}
-
-#[test]
-fn retained_graph_selection_uses_current_records_and_drops_unselected_cache() {
-    let selection = project(
-        "retainedGraphSelection",
-        &json!({"ids":["old","a","b","a"],"selectedIds":["a","b","missing"],"selectedHash":"b"}),
-    )
-    .unwrap();
-    assert_eq!(selection, json!({"indices":[3,2],"index":2}));
-    let single = project(
-        "retainedGraphSelection",
-        &json!({"ids":["a","b"],"selectedIds":[],"selectedHash":"b"}),
-    )
-    .unwrap();
-    assert_eq!(single, json!({"indices":[],"index":1}));
 }

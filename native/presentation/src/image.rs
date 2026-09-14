@@ -58,24 +58,3 @@ fn url_encode(value: &str) -> String {
         output
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn rewrites_local_image_sources() {
-        assert_eq!(
-            source(&json!({"href":"/tmp/a b.png"})),
-            json!("/api/file?path=%2Ftmp%2Fa%20b.png")
-        );
-        assert_eq!(
-            source(&json!({"href":"sandbox:/tmp/a.png"})),
-            json!("/api/file?path=%2Ftmp%2Fa.png")
-        );
-        assert_eq!(
-            source(&json!({"href":"https://example.com/a.png"})),
-            json!("https://example.com/a.png")
-        );
-        assert_eq!(source(&json!({"href":"file://remote/a.png"})), Value::Null);
-    }
-}

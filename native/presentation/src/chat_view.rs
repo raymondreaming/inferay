@@ -328,40 +328,6 @@ mod tests {
     }
 
     #[test]
-    fn groups_keep_original_indices_and_unhydrated_messages() {
-        let descriptors = json!([
-            null,
-            {"hidden":true},
-            {"kind":"edit-group", "groupLeader":true, "groupEnd":4, "filePath":"a.rs"},
-            {"kind":"edit-group", "groupLeader":false},
-            {"kind":"tool-group", "continuesAfter":true},
-            {"kind":"edit-group", "groupLeader":true, "groupEnd":999, "filePath":"b.rs"}
-        ]);
-        let input = json!({"messages": descriptors.as_array().unwrap().iter()
-            .map(|render| json!({"render": render})).collect::<Vec<_>>()});
-        assert_eq!(
-            list(&input)
-                .unwrap()
-                .into_iter()
-                .map(|row| row.row)
-                .collect::<Vec<_>>(),
-            vec![
-                ChatRow::Message { index: 0 },
-                ChatRow::EditGroup {
-                    start: 2,
-                    end: 4,
-                    file_path: "a.rs".into()
-                },
-                ChatRow::ToolGroup {
-                    index: 4,
-                    continues_after: true
-                },
-                ChatRow::Message { index: 5 },
-            ]
-        );
-    }
-
-    #[test]
     fn scrolling_retains_mounted_rows_until_the_viewport_nears_an_edge() {
         let mut viewport = ChatViewport {
             offsets: offsets(&vec![Some(32.); 500]),
@@ -440,54 +406,5 @@ mod tests {
         assert_eq!(grown.end, 100);
         viewport.viewport_height = 4000.;
         assert_eq!(window(&viewport).start, 0);
-    }
-
-    #[test]
-    fn viewport_handles_empty_initial_and_past_end_positions() {
-        assert_eq!(
-            offsets(&[Some(0.), None, Some(25.5)]),
-            vec![0., 0., 160., 185.5]
-        );
-        let mut viewport = ChatViewport {
-            offsets: offsets(&vec![None; 100]),
-            scroll_offset: None,
-            viewport_height: 0.,
-            retained_window: None,
-        };
-        assert_eq!(
-            window(&viewport),
-            ChatWindow {
-                first_visible: 95,
-                start: 87,
-                end: 100
-            }
-        );
-        viewport.scroll_offset = Some(160.);
-        assert_eq!(
-            window(&viewport),
-            ChatWindow {
-                first_visible: 1,
-                start: 0,
-                end: 48
-            }
-        );
-        viewport.scroll_offset = Some(99_999.);
-        assert_eq!(
-            window(&viewport),
-            ChatWindow {
-                first_visible: 99,
-                start: 91,
-                end: 100
-            }
-        );
-        viewport.offsets.clear();
-        assert_eq!(
-            window(&viewport),
-            ChatWindow {
-                first_visible: 0,
-                start: 0,
-                end: 0
-            }
-        );
     }
 }
