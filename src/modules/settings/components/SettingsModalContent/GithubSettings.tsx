@@ -33,7 +33,7 @@ import {
 import { styles } from "./styles.ts";
 
 /** GitHub account discovery, repository browsing, and cloning settings. */
-export function GithubSettings(props: { externalError: string | null }) {
+export function GithubSettings() {
 	const accounts = useForgeAccounts(() => true);
 	const repos = useGithubRepos(() => accounts.data.length > 0);
 	const [error, setError] = createSignal<string | null>(null);
@@ -87,9 +87,7 @@ export function GithubSettings(props: { externalError: string | null }) {
 			setCloningRepo(null);
 		}
 	};
-	const resourceError = createMemo(
-		() => props.externalError ?? error() ?? repos.error,
-	);
+	const resourceError = createMemo(() => error() ?? repos.error);
 	return (
 		<>
 			<SettingsSection

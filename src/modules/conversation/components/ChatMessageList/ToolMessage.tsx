@@ -2,7 +2,7 @@ import { iconSize } from "@design-system/styles.stylex.ts";
 import { IconChevronDown } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, Match, Switch } from "solid-js";
-import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
+import type { ChatMessage } from "../AgentChatView/types.ts";
 import { MiniEditDiff } from "../ChatEditDiff/index.tsx";
 import {
 	AskUserQuestionCard,

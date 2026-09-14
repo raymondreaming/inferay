@@ -1,44 +1,17 @@
-import type { WorkspaceAgentKind } from "@contracts";
-import type { Dispatch, RefCell, StateUpdate } from "@shared/lib/dom.tsx";
+import type {
+	ChatKeyAction,
+	CompletionMenuState,
+	WorkspaceAgentKind,
+} from "@contracts";
+import type { RefCell } from "@shared/lib/dom.tsx";
 import { project as rustProject, wsClient } from "@shared/lib/native.tsx";
 import type { Accessor } from "solid-js";
-import {
-	type ChatMessage,
-	nextId,
-} from "../components/AgentChatView/useChatConnection.tsx";
+import type { ChatMessage } from "../components/AgentChatView/types.ts";
+import { nextId } from "../components/AgentChatView/useChatConnection.tsx";
 import type { useAgentChatComposerState } from "./useAgentChatComposerState.tsx";
 import type { useAgentChatMenus } from "./useAgentChatMenus.tsx";
 import { hideMenuState } from "./useAgentChatMenus.tsx";
 
-type MenuState = {
-	show: boolean;
-	selectedIdx: number;
-};
-function handleMenuKey<S extends MenuState>(
-	e: KeyboardEvent,
-	count: number,
-	setMenu: Dispatch<StateUpdate<S>>,
-	selectIdx: number,
-	onSelect: (idx: number) => void,
-) {
-	const delta = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
-	if (delta) {
-		e.preventDefault();
-		setMenu((prev) => ({
-			...prev,
-			selectedIdx: (prev.selectedIdx + delta + count) % count,
-		}));
-		return true;
-	}
-	if (e.key !== "Tab" && (e.key !== "Enter" || e.shiftKey)) {
-		if (e.key !== "Escape") return false;
-		setMenu(hideMenuState);
-	} else {
-		onSelect(selectIdx);
-	}
-	e.preventDefault();
-	return true;
-}
 export function useChatInputActions(
 	_options: Accessor<
 		ReturnType<typeof useAgentChatComposerState> &
@@ -121,40 +94,41 @@ export function useChatInputActions(
 			_optionsValue2.textareaRef.current.style.height = "20px";
 		}
 	};
-	const handleKeyDown = (e: KeyboardEvent) => {
-		// Enter confirms IME text before it acts as a composer shortcut.
-		if (e.isComposing || e.keyCode === 229) return;
-		const _optionsValue3 = _options();
-		if (
-			_optionsValue3.fileMenu.show &&
-			_optionsValue3.fileResults.length > 0 &&
-			handleMenuKey(
-				e,
-				_optionsValue3.fileResults.length,
-				_optionsValue3.setFileMenu,
-				_optionsValue3.fileMenu.selectedIdx,
-				_optionsValue3.selectFile,
-			)
-		)
-			return;
-		if (
-			_optionsValue3.showCommands &&
-			_optionsValue3.filteredCommands.length > 0 &&
-			handleMenuKey(
-				e,
-				_optionsValue3.filteredCommands.length,
-				_optionsValue3.setSlashMenu,
-				_optionsValue3.slashMenu.selectedIdx,
-				_optionsValue3.selectCommand,
-			)
-		)
-			return;
-		if (e.key === "Enter" && !e.shiftKey) {
-			e.preventDefault();
-			if (e.repeat) return;
-			sendMessage();
+	const handleKeyDown = (event: KeyboardEvent) => {
+		const options = _options();
+		const action = rustProject<ChatKeyAction | null>("chatInputKey", {
+			key: event.key,
+			composing: event.isComposing,
+			keyCode: event.keyCode,
+			shift: event.shiftKey,
+			repeat: event.repeat,
+			file: options.fileMenu,
+			files: options.fileResults.length,
+			command: options.slashMenu,
+			commands: options.filteredCommands.length,
+		});
+		if (!action) return;
+		event.preventDefault();
+		if (action.type === "send") sendMessage();
+		else if (action.type === "select")
+			(action.menu === "file" ? options.selectFile : options.selectCommand)(
+				action.index,
+			);
+		else if (action.type === "move" || action.type === "hide") {
+			const setMenu =
+				action.menu === "file" ? options.setFileMenu : options.setSlashMenu;
+			setMenu((state) =>
+				action.type === "hide"
+					? hideMenuState(state)
+					: rustProject<CompletionMenuState>("completionMenuStep", {
+							state,
+							count: action.count,
+							delta: action.delta,
+						}),
+			);
 		}
 	};
+
 	return {
 		handleKeyDown,
 		sendUserMessage,

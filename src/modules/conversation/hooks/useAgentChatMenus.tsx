@@ -1,4 +1,4 @@
-import type { SlashCommand, WorkspaceAgentKind } from "@contracts";
+import type { CompletionMenuState, WorkspaceAgentKind } from "@contracts";
 import {
 	type ChatFileSearchResult,
 	loadAgentCommands,
@@ -7,7 +7,7 @@ import {
 	searchChatFiles,
 } from "@conversation/services/conversationApi.ts";
 import { useQueryResource } from "@shared/hooks/useQueryResource.tsx";
-import type { RefCell } from "@shared/lib/dom.tsx";
+import type { Dispatch, RefCell, StateUpdate } from "@shared/lib/dom.tsx";
 import {
 	getAgentDefinition,
 	project as rustProject,
@@ -19,18 +19,6 @@ import {
 	createMemo,
 	createSignal,
 } from "solid-js";
-export interface FileMenuState {
-	show: boolean;
-	selectedIdx: number;
-	query: string;
-	atIndex: number;
-}
-export interface SlashMenuState {
-	show: boolean;
-	selectedIdx: number;
-	query: string;
-	slashIndex: number;
-}
 export type FileSearchResult = ChatFileSearchResult;
 interface UseAgentChatMenusOptions {
 	agentKind: WorkspaceAgentKind;
@@ -40,46 +28,21 @@ interface UseAgentChatMenusOptions {
 	setInput: (value: string) => void;
 	textareaRef: RefCell<HTMLTextAreaElement | null>;
 }
-function showCompletion<Key extends "atIndex" | "slashIndex">(
-	previous: {
-		show: boolean;
-		selectedIdx: number;
-		query: string;
-	} & Record<Key, number>,
-	key: Key,
-	trigger: {
-		index: number;
-		query: string;
-	},
-) {
-	return previous.show &&
-		previous.selectedIdx === 0 &&
-		previous.query === trigger.query &&
-		previous[key] === trigger.index
-		? previous
-		: {
-				...previous,
-				show: true,
-				selectedIdx: 0,
-				query: trigger.query,
-				[key]: trigger.index,
-			};
-}
 export function useAgentChatMenus(
 	_options: Accessor<UseAgentChatMenusOptions>,
 ) {
 	const enabled = createMemo(() => _options().enabled !== false);
-	const [fileMenu, setFileMenu] = createSignal<FileMenuState>({
+	const [fileMenu, setFileMenu] = createSignal<CompletionMenuState>({
 		show: false,
 		selectedIdx: 0,
 		query: "",
-		atIndex: -1,
+		index: -1,
 	});
-	const [slashMenu, setSlashMenu] = createSignal<SlashMenuState>({
+	const [slashMenu, setSlashMenu] = createSignal<CompletionMenuState>({
 		show: false,
 		selectedIdx: 0,
 		query: "",
-		slashIndex: -1,
+		index: -1,
 	});
 	const _source = useQueryResource(
 		() => {
@@ -123,76 +86,57 @@ export function useAgentChatMenus(
 	const slashCommandNames = createMemo(() =>
 		_source.data.map((command) => command.name),
 	);
-	const filteredCommands = createMemo(() => {
-		const _slashMenuValue = slashMenu();
-		if (!_slashMenuValue.show || _slashMenuValue.slashIndex === -1) {
-			return [] as SlashCommand[];
-		}
-		const query = _slashMenuValue.query.toLowerCase();
-		return _source.data.filter((cmd) =>
-			cmd.name.toLowerCase().startsWith(query),
-		);
-	});
+	const filteredCommands = createMemo(() =>
+		rustProject<number[]>("completionMenuCommands", {
+			state: slashMenu(),
+			commands: _source.data,
+		}).map((index) => _source.data[index]!),
+	);
 	const visibleFileMenu = createMemo(() =>
 		enabled() ? fileMenu() : hideMenuState(fileMenu()),
 	);
 	const visibleSlashMenu = createMemo(() =>
 		enabled() ? slashMenu() : hideMenuState(slashMenu()),
 	);
-	const handleInputForSlashMenu = (value: string, cursorPos: number) => {
+	const handleInput = (
+		value: string,
+		cursorPos: number,
+		trigger: "/" | "@",
+		setMenu: Dispatch<StateUpdate<CompletionMenuState>>,
+	) => {
 		if (!enabled()) return;
-		const trigger = findTriggerAtCursor(value, cursorPos, "/");
-		if (!trigger) {
-			setSlashMenu((prev) => (prev.show ? hideMenuState(prev) : prev));
-			return;
-		}
-		setSlashMenu((previous) => showCompletion(previous, "slashIndex", trigger));
+		setMenu(
+			(state) =>
+				rustProject<CompletionMenuState | null>("completionMenuInput", {
+					state,
+					value,
+					cursorPos,
+					trigger,
+				}) ?? state,
+		);
 	};
-	const handleInputForFileMenu = (value: string, cursorPos: number) => {
-		if (!enabled()) return;
-		const trigger = findTriggerAtCursor(value, cursorPos, "@");
-		if (!trigger) {
-			setFileMenu((prev) => (prev.show ? hideMenuState(prev) : prev));
-			return;
-		}
-		setFileMenu((previous) => showCompletion(previous, "atIndex", trigger));
-	};
-	const complete = (index: number, replacement: string, hide: () => void) => {
-		const _optionsValue9 = _options();
-		const cursor =
-			_optionsValue9.textareaRef.current?.selectionStart ??
-			_optionsValue9.input.length;
-		const { nextValue, nextCursor } = rustProject<{
+	const select = (kind: "command" | "file", index: number) => {
+		const options = _options();
+		const result = rustProject<{
 			nextValue: string;
 			nextCursor: number;
-		}>("completion", {
-			input: _optionsValue9.input,
-			cursorPos: cursor,
-			triggerIndex: index,
-			replacement,
+		} | null>("selectCompletion", {
+			kind,
+			index,
+			items: kind === "command" ? filteredCommands() : _source2.data,
+			menu: kind === "command" ? slashMenu() : fileMenu(),
+			input: options.input,
+			cursorPos:
+				options.textareaRef.current?.selectionStart ?? options.input.length,
 		});
-		_optionsValue9.setInput(nextValue);
-		hide();
+		if (!result) return;
+		options.setInput(result.nextValue);
+		(kind === "command" ? setSlashMenu : setFileMenu)(hideMenuState);
 		requestAnimationFrame(() => {
 			const textarea = _options().textareaRef.current;
-			if (!textarea) return;
-			textarea.focus();
-			textarea.setSelectionRange(nextCursor, nextCursor);
+			textarea?.focus();
+			textarea?.setSelectionRange(result.nextCursor, result.nextCursor);
 		});
-	};
-	const selectCommand = (index: number) => {
-		const command = filteredCommands()[index];
-		if (command)
-			complete(slashMenu().slashIndex, `/${command.name}`, () =>
-				setSlashMenu(hideMenuState),
-			);
-	};
-	const selectFile = (index: number) => {
-		const file = _source2.data[index];
-		if (file)
-			complete(fileMenu().atIndex, `@${file.path}`, () =>
-				setFileMenu(hideMenuState),
-			);
 	};
 	return {
 		get allCommands() {
@@ -218,10 +162,12 @@ export function useAgentChatMenus(
 		get slashCommandNames() {
 			return slashCommandNames();
 		},
-		handleInputForFileMenu,
-		handleInputForSlashMenu,
-		selectCommand,
-		selectFile,
+		handleInputForFileMenu: (value: string, cursor: number) =>
+			handleInput(value, cursor, "@", setFileMenu),
+		handleInputForSlashMenu: (value: string, cursor: number) =>
+			handleInput(value, cursor, "/", setSlashMenu),
+		selectCommand: (index: number) => select("command", index),
+		selectFile: (index: number) => select("file", index),
 	};
 }
 export function useAgentChatSettings(
@@ -249,11 +195,11 @@ export function useAgentChatSettings(
 			if (version !== scopeVersion) return;
 			try {
 				const resolved = await resolveProviderConfig(target);
-				if (revision !== requestRevision) return;
+				if (revision !== requestRevision || version !== scopeVersion) return;
 				setSelection(resolved);
 				setConfigurationError(null);
 			} catch (error) {
-				if (revision === requestRevision)
+				if (revision === requestRevision && version === scopeVersion)
 					setConfigurationError(
 						`Could not update chat settings: ${String(error)}`,
 					);
@@ -298,27 +244,10 @@ export function useAgentChatSettings(
 			resolveSelection({ reasoningLevel }),
 	};
 }
-export function findTriggerAtCursor(
-	value: string,
-	cursorPos: number,
-	trigger: "/" | "@",
-): {
-	index: number;
-	query: string;
-} | null {
-	return rustProject("trigger", {
-		value,
-		cursorPos,
-		trigger,
-	});
-}
 export function hideMenuState<
 	S extends {
 		show: boolean;
 	},
 >(state: S): S {
-	return {
-		...state,
-		show: false,
-	};
+	return { ...state, show: false };
 }

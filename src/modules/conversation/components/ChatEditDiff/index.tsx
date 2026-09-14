@@ -1,8 +1,8 @@
+import type { NativeChatRender } from "@contracts";
 import { useNearViewport } from "@shared/hooks/useNearViewport.tsx";
 import { assignRef, domStyle } from "@shared/lib/dom.tsx";
 import { createMemo } from "solid-js";
 import { useNativeEditDiff } from "../../hooks/useNativeEditDiff.tsx";
-import type { NativeChatRender } from "../AgentChatView/useChatConnection.tsx";
 import { EditDiffCard } from "./EditDiffCard.tsx";
 import * as inlineStyles from "./styles.ts";
 
@@ -17,9 +17,6 @@ export function GroupedEditDiff(_props: {
 	filePath: string;
 	edits: EditMessage[];
 }) {
-	const fileName = createMemo(
-		() => _props.filePath.split("/").pop() || _props.filePath,
-	);
 	const _source = useNearViewport();
 	const isStreaming = createMemo(() =>
 		_props.edits.some((edit) => edit.isStreaming),
@@ -37,7 +34,7 @@ export function GroupedEditDiff(_props: {
 	);
 	const showCard = createMemo(
 		() =>
-			_source2.hunks.length > 0 ||
+			_source2.prepared.hasChanges ||
 			_source2.loading ||
 			_source2.error ||
 			isStreaming() ||
@@ -48,15 +45,14 @@ export function GroupedEditDiff(_props: {
 			ref={(_element) => assignRef(_source.ref, _element)}
 			style={domStyle(
 				inlineStyles.getGroupedEditDiffDivStyle(
-					showCard() && !_source2.hunks.length ? 28 : undefined,
+					showCard() && !_source2.prepared.hasChanges ? 28 : undefined,
 				),
 			)}
 		>
 			{showCard() && (
 				<EditDiffCard
-					fileName={fileName()}
 					filePath={_props.filePath}
-					hunks={_source2.hunks}
+					prepared={_source2.prepared}
 					error={_source2.error}
 					isStreaming={isStreaming() || _source2.loading || !_source.visible}
 				/>

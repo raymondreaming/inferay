@@ -1,7 +1,8 @@
+import type { UiTiming } from "@contracts";
+import { project } from "@shared/lib/native.tsx";
 import {
 	recordUiTimings,
-	summarizeUiTimings,
-	type UiTiming,
+	type UiTimingSummary,
 } from "@shared/lib/uiPerformance.ts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For, onSettled } from "solid-js";
@@ -14,7 +15,9 @@ export default function PerformanceRecorder(props: { onClose: () => void }) {
 			setSamples((previous) => [...previous.slice(-99), sample]),
 		),
 	);
-	const summaries = createMemo(() => summarizeUiTimings(samples()));
+	const summaries = createMemo(() =>
+		project<UiTimingSummary[]>("uiTimingSummaries", samples()),
+	);
 	const ms = (value: number | null) =>
 		value === null ? "—" : `${value.toFixed(1)} ms`;
 	const download = () => {

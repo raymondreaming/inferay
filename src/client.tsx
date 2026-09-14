@@ -8,7 +8,7 @@ import {
 } from "@settings/hooks/useAppAppearance.tsx";
 import { render } from "@solidjs/web";
 import { RootComponent } from "./app/components/RootComponent/index.tsx";
-import { preloadSkills } from "./modules/skills/hooks/useSkills.tsx";
+import { preloadSkills } from "./modules/skills/services/skillsApi.ts";
 import { initializeAgentState } from "./modules/workspace/hooks/useWorkspaceState.tsx";
 import { restoreSyntaxTheme } from "./shared/hooks/useSyntaxHighlight.tsx";
 import {

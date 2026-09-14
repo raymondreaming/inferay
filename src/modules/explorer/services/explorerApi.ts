@@ -10,7 +10,7 @@ export async function searchFiles(
 		`/api/files/search?${new URLSearchParams({ cwd, q: query, limit: "24" })}`,
 		{ signal },
 	);
-	return response.results.filter((result) => !result.isDir);
+	return response.results;
 }
 
 export async function listDirectory(

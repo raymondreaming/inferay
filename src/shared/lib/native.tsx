@@ -18,9 +18,20 @@ import {
 	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
 	type WorkspaceSidebarCollapsedDetail,
 } from "./dom.tsx";
-import { traceUi } from "./uiPerformance.ts";
 
-export { ChatReplica } from "../../../build/presentation/presentation.js";
+export {
+	ChatReplica,
+	ChatSessionRetention,
+	ChatViewportRetention,
+	DockSession,
+	DocumentReplica,
+	MarkdownCursor,
+	PanelReplica,
+	RepositoryTabs,
+	SkillDialogReplica,
+	UiTimingRecorder,
+	WorkspaceReplica,
+} from "../../../build/presentation/presentation.js";
 /** The only low-level browser HTTP seam. Every request has a finite deadline. */
 export function request(
 	input: RequestInfo | URL,
@@ -436,4 +447,10 @@ export function getFileSelectionAfterToggle<
 }
 export function emptyGitWorkspacePanelSession(): PanelSession {
 	return project("emptyPanels", null);
+}
+
+/** Installed only while the explicit performance recorder is open. */
+export const uiTrace: { record?: (name: string) => void } = {};
+export function traceUi(name: string) {
+	uiTrace.record?.(name);
 }

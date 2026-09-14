@@ -1,16 +1,14 @@
+import type { CompletionMenuState } from "@contracts";
 import type { Dispatch, StateUpdate } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
-import type {
-	FileMenuState,
-	FileSearchResult,
-} from "../../hooks/useAgentChatMenus.tsx";
+import type { FileSearchResult } from "../../hooks/useAgentChatMenus.tsx";
 import { styles } from "./styles.ts";
 export const FileMenuRow = function FileMenuRow(_props: {
 	file: FileSearchResult;
 	index: number;
 	selected: boolean;
 	selectFile: (idx: number) => void;
-	setFileMenu: Dispatch<StateUpdate<FileMenuState>>;
+	setFileMenu: Dispatch<StateUpdate<CompletionMenuState>>;
 }) {
 	return (
 		<button

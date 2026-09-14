@@ -1,4 +1,6 @@
+import type { ChatScrollState } from "@contracts";
 import { listenWindowEvent } from "@shared/lib/dom.tsx";
+import { project } from "@shared/lib/native.tsx";
 import {
 	type Accessor,
 	createEffect,
@@ -41,37 +43,32 @@ export function useChatViewport(
 	} as {
 		current: HTMLDivElement | null;
 	};
-	const scrollSnapshotRef = {
-		current: retainedViewport.snapshot,
+	const restoreFrameRef = { current: 0 };
+	// Event handlers use native intent immediately, before Solid publishes it.
+	let state: ChatScrollState = {
+		snapshot: retainedViewport.snapshot,
+		towardBottom: false,
+		cancelRestore: false,
 	};
-	const restoreFrameRef = {
-		current: 0,
+	const [isAtBottom, publishFollowing] = createSignal(state.snapshot.atBottom);
+	const update = (action: string, input: Record<string, unknown> = {}) => {
+		state = project<ChatScrollState>("chatScrollState", {
+			state,
+			action,
+			...input,
+		});
+		retainedViewport.snapshot = state.snapshot;
+		publishFollowing(state.snapshot.atBottom);
+		if (state.cancelRestore) cancelScrollRestore();
 	};
-	// Event handlers need the latest intent even before Solid commits signal writes.
-	let following = retainedViewport.snapshot.atBottom;
-	let scrollingTowardBottom = false;
-	const [isAtBottom, publishFollowing] = createSignal(following);
-	const setFollowing = (value: boolean) => {
-		following = value;
-		publishFollowing(value);
-	};
+	const capture = (element: HTMLDivElement, action = "capture") =>
+		update(action, {
+			top: element.scrollTop,
+			height: element.scrollHeight,
+			viewport: element.clientHeight,
+		});
 	const handleScroll = () => {
-		const el = scrollRef.current;
-		if (!el || el.clientHeight === 0) return;
-		const fromBottom = Math.max(
-			0,
-			el.scrollHeight - el.scrollTop - el.clientHeight,
-		);
-		// Content growth can emit scroll events without a user's scroll. Keep
-		// following until the viewport actually moves up or the user asks to.
-		const movement = el.scrollTop - scrollSnapshotRef.current.top;
-		if (fromBottom <= 1 && scrollingTowardBottom) setFollowing(true);
-		else if (movement < -1) setFollowing(false);
-		retainedViewport.snapshot = scrollSnapshotRef.current = {
-			atBottom: following,
-			fromBottom,
-			top: el.scrollTop,
-		};
+		if (scrollRef.current) capture(scrollRef.current, "scroll");
 	};
 	const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
 		const el = scrollRef.current;
@@ -83,7 +80,7 @@ export function useChatViewport(
 				top: el.scrollHeight,
 				behavior,
 			});
-		setFollowing(true);
+		update("follow");
 	};
 	let bottomFrame = 0;
 	const cancelScheduledBottom = () => {
@@ -112,30 +109,23 @@ export function useChatViewport(
 				cancelScheduledBottom();
 				return;
 			}
-			const snapshot = scrollSnapshotRef.current;
+			const snapshot = state.snapshot;
 			let passes = 3;
 			const restore = () => {
 				const el = element;
 				if (el.clientHeight === 0) return;
-				const max = Math.max(0, el.scrollHeight - el.clientHeight);
-				el.scrollTop = snapshot.atBottom ? max : Math.min(snapshot.top, max);
-				setFollowing(snapshot.atBottom);
+				el.scrollTop = project<number>("chatScrollRestore", {
+					snapshot,
+					height: el.scrollHeight,
+					viewport: el.clientHeight,
+				});
+				update("follow", { value: snapshot.atBottom });
 				if (--passes) restoreFrameRef.current = requestAnimationFrame(restore);
 			};
 			restore();
 			return () => {
 				cancelScrollRestore();
-				const el = element;
-				if (!el || el.clientHeight === 0) return;
-				const fromBottom = Math.max(
-					0,
-					el.scrollHeight - el.scrollTop - el.clientHeight,
-				);
-				retainedViewport.snapshot = scrollSnapshotRef.current = {
-					atBottom: following,
-					fromBottom,
-					top: el.scrollTop,
-				};
+				capture(element);
 			};
 		},
 	);
@@ -143,23 +133,15 @@ export function useChatViewport(
 		() => scrollElement(),
 		(element) => {
 			if (!element) return;
-			const stopFollowing = () => {
-				cancelScrollRestore();
-				scrollingTowardBottom = false;
-				setFollowing(false);
-			};
-			const wheel = (event: WheelEvent) => {
-				if (event.deltaY < 0) stopFollowing();
-				else if (event.deltaY > 0) scrollingTowardBottom = true;
-			};
+			const wheel = (event: WheelEvent) =>
+				update("intent", { delta: event.deltaY });
 			let touchY = 0;
 			const touchStart = (event: TouchEvent) => {
 				touchY = event.touches[0]?.clientY ?? 0;
 			};
 			const touchMove = (event: TouchEvent) => {
 				const next = event.touches[0]?.clientY ?? touchY;
-				if (next > touchY) stopFollowing();
-				else if (next < touchY) scrollingTowardBottom = true;
+				update("intent", { delta: touchY - next });
 				touchY = next;
 			};
 			element.addEventListener("wheel", wheel, {
@@ -186,16 +168,7 @@ export function useChatViewport(
 			)
 		)
 			return;
-		if (
-			["ArrowUp", "PageUp", "Home"].includes(e.key) ||
-			(e.key === " " && e.shiftKey)
-		) {
-			cancelScrollRestore();
-			scrollingTowardBottom = false;
-			setFollowing(false);
-		} else if (["ArrowDown", "PageDown", "End", " "].includes(e.key)) {
-			scrollingTowardBottom = true;
-		}
+		update("intent", { key: e.key, shift: e.shiftKey });
 	};
 	createEffect(
 		() => !!_isSelected() && _isVisible(),

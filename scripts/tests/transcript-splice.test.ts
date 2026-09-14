@@ -1,14 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import type { TranscriptAdmission } from "@contracts";
 import {
 	ChatReplica,
 	initSync,
 } from "../../build/presentation/presentation.js";
-import {
-	admittedTranscriptMessages,
-	type TranscriptAdmission,
-} from "../../src/modules/conversation/components/AgentChatView/transcriptSplice.ts";
-import type { ChatMessage } from "../../src/modules/conversation/components/AgentChatView/useChatConnection.tsx";
+import { admittedTranscriptMessages } from "../../src/modules/conversation/components/AgentChatView/transcriptSplice.ts";
+import type { ChatMessage } from "../../src/modules/conversation/components/AgentChatView/types.ts";
 
 initSync({
 	module: readFileSync(
@@ -30,8 +28,12 @@ function client() {
 			return messages;
 		},
 		receive(event: object) {
-			const admission: TranscriptAdmission = JSON.parse(
-				replica.receive(JSON.stringify(event)),
+			const { admission }: { admission: TranscriptAdmission } = JSON.parse(
+				replica.receive(
+					JSON.stringify({ type: "chat:delta", paneId: "pane", ...event }),
+					"pane",
+					"null",
+				),
 			);
 			if (admission.kind === "sync" || admission.kind === "patch") {
 				const inserted = admittedTranscriptMessages(admission, messages, event);

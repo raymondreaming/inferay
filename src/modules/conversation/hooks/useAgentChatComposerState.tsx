@@ -25,22 +25,30 @@ export function useAgentChatComposerState(
 	const [queuedMessages, setQueuedMessages] = createSignal<QueuedChatMessage[]>(
 		[],
 	);
+	let currentQueue: QueuedChatMessage[] = [];
 	let disposed = false;
 	onCleanup(() => {
 		disposed = true;
 	});
-	let queueSnapshot: QueuedChatMessage[] = [];
 	let queueRevision = 0;
 	let mutationChain = Promise.resolve();
 	const replaceQueue = (queue: QueuedChatMessage[]) => {
 		queueRevision++;
-		queueSnapshot = queue;
+		currentQueue = queue;
 		setQueuedMessages(queue);
 	};
-	const projectQueue = (action: "merge" | "stage" | "resolve", input: object) =>
-		replaceQueue(
-			rustProject("chatQueue", { current: queueSnapshot, action, ...input }),
-		);
+	const projectQueue = (
+		action: "merge" | "stage" | "resolve",
+		input: object,
+	) => {
+		queueRevision++;
+		currentQueue = rustProject("chatQueue", {
+			current: currentQueue,
+			action,
+			...input,
+		});
+		setQueuedMessages(currentQueue);
+	};
 	const mutateQueue = (
 		action: "edit" | "remove",
 		id: string,
@@ -133,7 +141,7 @@ export function useAgentChatComposerState(
 		projectQueue("resolve", { id });
 	};
 	const removeQueuedMessage = (id: string) => {
-		const existing = queueSnapshot.find((message) => message.id === id);
+		const existing = currentQueue.find((message) => message.id === id);
 		if (!existing || existing.transient) return;
 		setQueueError(null);
 		void mutateQueue("remove", id).catch((error: Error) =>
@@ -142,7 +150,7 @@ export function useAgentChatComposerState(
 		if (editingQueueId() === id) cancelQueuedMessageEdit();
 	};
 	const updateQueuedMessage = (id: string, text: string) => {
-		const existing = queueSnapshot.find((message) => message.id === id);
+		const existing = currentQueue.find((message) => message.id === id);
 		if (!existing || existing.transient || existing.text === text) return;
 		setQueueError(null);
 		void mutateQueue("edit", id, text).catch((error: Error) =>
@@ -167,18 +175,14 @@ export function useAgentChatComposerState(
 		} catch {}
 	};
 	const removeAttachedImage = (path: string) => {
-		setAttachedImages((prev) => {
-			const target = prev.find((image) => image.path === path);
-			if (!target) return prev;
-			return prev.filter((item) => item.path !== path);
-		});
+		setAttachedImages((images) =>
+			images.some((image) => image.path === path)
+				? images.filter((image) => image.path !== path)
+				: images,
+		);
 	};
-	const clearAttachedImages = () => {
-		setAttachedImages((prev) => {
-			if (prev.length === 0) return prev;
-			return [];
-		});
-	};
+	const clearAttachedImages = () =>
+		setAttachedImages((images) => (images.length ? [] : images));
 	const handleDrop = async (e: DragEvent) => {
 		e.preventDefault();
 		if (!e.dataTransfer) return;

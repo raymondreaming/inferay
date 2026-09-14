@@ -2,10 +2,12 @@ import type { SkillProposal, SkillProposalView } from "@contracts";
 import { surfaceStyles } from "@design-system/styles.stylex.ts";
 import { useQueryResource } from "@shared/hooks/useQueryResource.tsx";
 import { ariaValue, openSkills } from "@shared/lib/dom.tsx";
-import { previewSkillProposal } from "@skills/services/skillsApi.ts";
+import {
+	decideSkillProposal,
+	previewSkillProposal,
+} from "@skills/services/skillsApi.ts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal } from "solid-js";
-import { decideSkillProposal } from "../../hooks/useSkills.tsx";
 import { styles } from "./styles.ts";
 
 export { SkillReadCard } from "./SkillReadCard.tsx";

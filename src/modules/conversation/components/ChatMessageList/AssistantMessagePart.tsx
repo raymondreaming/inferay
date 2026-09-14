@@ -1,6 +1,6 @@
 import { SkillProposalCard } from "@skills/components/SkillProposalCard/index.tsx";
 import { createMemo, Show } from "solid-js";
-import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
+import type { ChatMessage } from "../AgentChatView/types.ts";
 import { Markdown } from "../ChatRichContent/index.tsx";
 
 /** Renders one streamed text or skill-proposal segment of an assistant message. */

@@ -1,17 +1,13 @@
+import type {
+	ChatTranscriptMessage,
+	ChatTranscriptUpdate,
+	TranscriptAdmission,
+} from "@contracts";
 import type { ChatMessage } from "./types.ts";
 
-export type TranscriptAdmission =
-	| { kind: "none" | "ignore" | "resync"; reconnect?: boolean }
-	| { kind: "sync" | "patch"; start: number; deleteCount: number };
-
-type TranscriptEnvelope = {
-	messages?: ChatMessage[];
-	transcriptUpdate?: {
-		messages: Array<{
-			message: ChatMessage;
-			appendContent?: string;
-		}>;
-	};
+export type TranscriptEnvelope = {
+	messages?: ChatTranscriptMessage[];
+	transcriptUpdate?: ChatTranscriptUpdate;
 };
 
 /** Only call after this exact event has been admitted by ChatReplica. */
@@ -23,7 +19,7 @@ export function admittedTranscriptMessages(
 	if (admission.kind === "sync") return event.messages!;
 	return event.transcriptUpdate!.messages.map((change, index) =>
 		change.appendContent === undefined
-			? change.message
+			? { ...change.message, content: change.message.content! }
 			: {
 					...change.message,
 					content:

@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
+import type { ChatMessage } from "../AgentChatView/types.ts";
 import { Markdown } from "../ChatRichContent/index.tsx";
 import { styles } from "./styles.ts";
 

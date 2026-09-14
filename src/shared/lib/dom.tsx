@@ -128,13 +128,6 @@ export function createExternalSignal<T>(
 	});
 	return value;
 }
-export function createReducer<S, A>(
-	reducer: (state: S, action: A) => S,
-	initial: S,
-): [Accessor<S>, (action: A) => void] {
-	const [state, setState] = createSignal<S>(() => initial);
-	return [state, (action) => setState((previous) => reducer(previous, action))];
-}
 export function bindImperativeRef<T>(
 	ref: Accessor<import("solid-js").Ref<T | null> | { current: T | null }>,
 	value: () => T,

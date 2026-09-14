@@ -1,10 +1,5 @@
+import type { ClassifiedDocument } from "@contracts";
 import { postJson } from "@shared/lib/native.tsx";
-
-export interface ClassifiedDocument {
-	version: number;
-	language: string;
-	lines: Array<Array<number | string>>;
-}
 
 export async function highlightSyntax(
 	input: {

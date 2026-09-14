@@ -1,7 +1,6 @@
-import type { WorkspaceAgentKind } from "@contracts";
+import type { ComposerConfigControl, WorkspaceAgentKind } from "@contracts";
 import type { RefCell } from "@shared/lib/dom.tsx";
-import { hasId } from "@shared/lib/dom.tsx";
-import { getAgentDefinition } from "@shared/lib/native.tsx";
+import { getAgentDefinition, project } from "@shared/lib/native.tsx";
 import {
 	type Accessor,
 	createEffect,
@@ -46,25 +45,17 @@ export function useChatComposerState(
 			}
 	>,
 ) {
-	const fileInputRef = {
+	const fileInputRef: RefCell<HTMLInputElement | null> = {
 		current: null,
-	} as {
-		current: HTMLInputElement | null;
 	};
-	const agentConfigControlsRef = {
+	const agentConfigControlsRef: RefCell<HTMLDivElement | null> = {
 		current: null,
-	} as {
-		current: HTMLDivElement | null;
 	};
-	const agentConfigButtonRef = {
+	const agentConfigButtonRef: RefCell<HTMLButtonElement | null> = {
 		current: null,
-	} as {
-		current: HTMLButtonElement | null;
 	};
-	const agentConfigMenuRef = {
+	const agentConfigMenuRef: RefCell<HTMLDivElement | null> = {
 		current: null,
-	} as {
-		current: HTMLDivElement | null;
 	};
 	const [activeConfig, setActiveConfig] = createSignal<string | null>(null);
 	const agentConfigOpen = createMemo(() => activeConfig() !== null);
@@ -80,64 +71,24 @@ export function useChatComposerState(
 		(notify) => () => notify?.(false),
 	);
 	const usePlainTextarea = createMemo(() => _props().input.length > 6000);
-	const agentDefinition = createMemo(() =>
-		getAgentDefinition(_props().agentKind),
-	);
-	const selectedModel = createMemo(() =>
-		agentDefinition().models.find(hasId.bind(null, _props().model)),
-	);
-	const selectedModelLabel = createMemo(
-		() => selectedModel()?.label || _props().model || "No model",
-	);
-	const selectedReasoningLabel = createMemo(() => {
-		const _sourceValue2 = _props();
-		return (
-			agentDefinition().reasoningLevels.find(
-				hasId.bind(null, _sourceValue2.reasoningLevel),
-			)?.label || _sourceValue2.reasoningLevel
-		);
-	});
 	const configControls = createMemo(() => {
-		const _agentDefinitionValue = agentDefinition(),
-			_sourceValue3 = _props();
-		return [
-			{
-				id: "provider",
-				title: "Provider",
-				label: _agentDefinitionValue.label,
-				value: _sourceValue3.agentKind,
-				options: _sourceValue3.agentKindOptions,
-				agentKind: _sourceValue3.agentKind,
-				onChange: (id: string) =>
-					_props().onAgentKindChange(id as WorkspaceAgentKind),
-			},
-			...(_agentDefinitionValue.models.length
-				? [
-						{
-							id: "model",
-							title: "Model",
-							label: selectedModel()?.shortLabel || selectedModelLabel(),
-							value: _sourceValue3.model,
-							options: _agentDefinitionValue.models,
-							agentKind: null,
-							onChange: _sourceValue3.onModelChange,
-						},
-					]
-				: []),
-			...(_agentDefinitionValue.reasoningLevels.length
-				? [
-						{
-							id: "reasoning",
-							title: "Reasoning",
-							label: selectedReasoningLabel(),
-							value: _sourceValue3.reasoningLevel,
-							options: _agentDefinitionValue.reasoningLevels,
-							agentKind: null,
-							onChange: _sourceValue3.onReasoningLevelChange,
-						},
-					]
-				: []),
-		];
+		const props = _props();
+		const { label, models, reasoningLevels } = getAgentDefinition(
+			props.agentKind,
+		);
+		const changes = {
+			provider: (id: string) =>
+				_props().onAgentKindChange(id as WorkspaceAgentKind),
+			model: props.onModelChange,
+			reasoning: props.onReasoningLevelChange,
+		};
+		return project<ComposerConfigControl[]>("composerConfig", {
+			definition: { label, models, reasoningLevels },
+			agentKind: props.agentKind,
+			agentKindOptions: props.agentKindOptions,
+			model: props.model,
+			reasoningLevel: props.reasoningLevel,
+		}).map((control) => ({ ...control, onChange: changes[control.id] }));
 	});
 	const activeControl = createMemo(() =>
 		configControls().find((control) => control.id === activeConfig()),
@@ -182,10 +133,7 @@ export function useChatComposerState(
 	);
 	return merge(_props, {
 		get beamActive() {
-			const _sourceValue4 = _props();
-			return _sourceValue4.beamActive === undefined
-				? false
-				: _sourceValue4.beamActive;
+			return _props().beamActive ?? false;
 		},
 		fileInputRef,
 		agentConfigControlsRef,
@@ -201,9 +149,6 @@ export function useChatComposerState(
 		setMessageInputFocused,
 		get usePlainTextarea() {
 			return usePlainTextarea();
-		},
-		get selectedModelLabel() {
-			return selectedModelLabel();
 		},
 		get configControls() {
 			return configControls();

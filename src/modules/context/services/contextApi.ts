@@ -13,12 +13,6 @@ export function loadAgentContext(
 	});
 }
 
-export function saveAgentContext(input: {
-	scope: AgentContextUpdate["scope"];
-	instructions: string;
-	mode: "inherit" | "replace";
-	cwd?: string;
-	paneId: string;
-}) {
+export function saveAgentContext(input: AgentContextUpdate) {
 	return postJson("/api/agent-context", input, { method: "PUT" });
 }

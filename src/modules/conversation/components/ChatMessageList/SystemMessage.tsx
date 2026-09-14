@@ -1,12 +1,18 @@
+import type { CommandCard, GoalCard } from "@contracts";
+import { iconSize } from "@design-system/styles.stylex.ts";
+import { DotMatrixRipple } from "@shared/ui/DotMatrixLoader/index.tsx";
+import {
+	IconAlertTriangle,
+	IconCheck,
+	IconTarget,
+} from "@shared/ui/Icons/index.tsx";
 import {
 	SkillProposalCard,
 	SkillReadCard,
 } from "@skills/components/SkillProposalCard/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, Match, Switch } from "solid-js";
-import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
-import { CommandSystemCard } from "./CommandSystemCard.tsx";
-import { GoalSystemCard } from "./GoalSystemCard.tsx";
+import type { ChatMessage } from "../AgentChatView/types.ts";
 import { styles } from "./styles.ts";
 
 /** Selects the specialized card for a system message's native rendering data. */
@@ -42,5 +48,90 @@ export function SystemMessage(props: {
 				<CommandSystemCard command={commandMessage()!} />
 			</Match>
 		</Switch>
+	);
+}
+
+function GoalSystemCard(_props: { goal: GoalCard }) {
+	return (
+		<div
+			{...stylex.attrs(
+				styles.goalCard,
+				_props.goal.status === "active" && styles.goalCardActive,
+				_props.goal.status === "paused" && styles.goalCardPaused,
+				_props.goal.status === "complete" && styles.goalCardComplete,
+			)}
+		>
+			<span
+				{...stylex.attrs(
+					styles.goalIconSlot,
+					_props.goal.status === "active" && styles.goalIconActive,
+					_props.goal.status === "paused" && styles.goalIconPaused,
+					_props.goal.status === "complete" && styles.goalIconComplete,
+				)}
+			>
+				{_props.goal.status === "active" ? (
+					<DotMatrixRipple
+						dotSize={1.35}
+						gap={1}
+						speed={1.1}
+						ariaLabel="Goal running"
+					/>
+				) : _props.goal.status === "complete" ? (
+					<IconCheck size={iconSize.md} />
+				) : _props.goal.status === "paused" ? (
+					<IconAlertTriangle size={iconSize.md} />
+				) : (
+					<IconTarget size={iconSize.md} />
+				)}
+			</span>
+			<div {...stylex.attrs(styles.goalCardBody)}>
+				<div {...stylex.attrs(styles.goalCardHeader)}>
+					<span {...stylex.attrs(styles.goalCardTitle)}>
+						{_props.goal.title}
+					</span>
+					{_props.goal.turnsLabel && (
+						<span {...stylex.attrs(styles.goalTurns)}>
+							{_props.goal.turnsLabel}
+						</span>
+					)}
+				</div>
+				{_props.goal.objective && (
+					<div {...stylex.attrs(styles.goalObjective)}>
+						{_props.goal.objective}
+					</div>
+				)}
+				{_props.goal.detail && (
+					<div {...stylex.attrs(styles.goalDetail)}>{_props.goal.detail}</div>
+				)}
+			</div>
+		</div>
+	);
+}
+
+function CommandSystemCard(_props: { command: CommandCard }) {
+	return (
+		<div {...stylex.attrs(styles.goalCard, styles.goalCardActive)}>
+			<span {...stylex.attrs(styles.goalIconSlot, styles.goalIconActive)}>
+				<DotMatrixRipple
+					dotSize={1.35}
+					gap={1}
+					speed={1.1}
+					ariaLabel="Command running"
+				/>
+			</span>
+			<div {...stylex.attrs(styles.goalCardBody)}>
+				<div {...stylex.attrs(styles.goalCardHeader)}>
+					<span {...stylex.attrs(styles.goalCardTitle)}>Running Command</span>
+				</div>
+				<div {...stylex.attrs(styles.commandObjective)}>
+					{_props.command.label}
+				</div>
+				{_props.command.description && (
+					<div {...stylex.attrs(styles.goalDetail)}>
+						{_props.command.description}
+					</div>
+				)}
+			</div>
+		</div>
 	);
 }

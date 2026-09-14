@@ -1,26 +1,18 @@
-import {
-	contentKey,
-	type SyntaxKind,
-	type SyntaxToken,
-	shouldDisableSnippetHighlighting,
-} from "@shared/model/syntax.ts";
-import {
-	type ClassifiedDocument,
-	highlightSyntax,
-} from "@shared/services/syntaxApi.ts";
+import type { ClassifiedDocument, SyntaxInput, SyntaxKind } from "@contracts";
+import { highlightSyntax } from "@shared/services/syntaxApi.ts";
 import { type Accessor, createMemo, createSignal, onSettled } from "solid-js";
 import {
 	dispatchWindowEvent,
 	listenWindowEvent,
 	queryClient,
 } from "../lib/dom.tsx";
-import { readStoredValue, writeStoredValue } from "../lib/native.tsx";
+import { project, readStoredValue, writeStoredValue } from "../lib/native.tsx";
 import { useBackgroundQuery as useQuery } from "./useQueryResource.tsx";
 
 /** Query lifecycle only: native code owns all syntax interpretation. Kinds are
  *  a closed vocabulary the stylesheet colours, so one classification serves
  *  every theme and the client never ships a grammar. */
-export { type SyntaxKind, type SyntaxToken, shouldDisableSnippetHighlighting };
+export type SyntaxToken = { text: string; kind: SyntaxKind };
 
 type HighlightInput = {
 	filePath: string;
@@ -30,21 +22,15 @@ type HighlightInput = {
 	preview?: boolean;
 };
 function syntaxQueryOptions(input: HighlightInput) {
-	const enabled =
-		input.enabled !== false &&
-		input.lines.length > 0 &&
-		!shouldDisableSnippetHighlighting(input.lines);
+	const { enabled, contentKey, lineTypesKey } = project<SyntaxInput>(
+		"syntaxInput",
+		input,
+	);
 	const path = input.filePath;
 	const text = enabled ? input.lines.join("\n") : "";
 	const lineTypes = input.lineTypes ? [...input.lineTypes] : undefined;
 	return {
-		queryKey: [
-			"syntax",
-			4,
-			path,
-			enabled ? contentKey(input.lines) : String(input.lines.length),
-			lineTypes ? contentKey(lineTypes) : "source",
-		],
+		queryKey: ["syntax", 4, path, contentKey, lineTypesKey],
 		enabled,
 		queryFn: ({ signal }: { signal: AbortSignal }) =>
 			highlightSyntax(

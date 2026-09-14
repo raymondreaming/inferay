@@ -1,4 +1,4 @@
-import { traceUi } from "@shared/lib/uiPerformance.ts";
+import { traceUi } from "@shared/lib/native.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { WorkspaceDockHandle } from "@workspace/components/WorkspaceDockHandle/index.tsx";
 import { createSignal, onSettled } from "solid-js";

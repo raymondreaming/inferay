@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { MdBlock } from "../../build/presentation/contracts/MdBlock.ts";
-import { createMarkdownStreamClient } from "../../src/shared/lib/markdownStream.ts";
+import { nativeMarkdownStream } from "../../src/shared/services/markdownApi.ts";
 
 const block = (content: string): MdBlock => ({
 	type: "paragraph",
@@ -17,7 +17,7 @@ const reply = (
 
 test("successive requests send only suffixes and preserve stable block identity", async () => {
 	const requests: any[] = [];
-	const client = createMarkdownStreamClient(async (request) => {
+	const client = nativeMarkdownStream(async (request) => {
 		requests.push(request);
 		return requests.length === 1
 			? reply(true, 1, [block("stable"), block("tail")])
@@ -45,7 +45,7 @@ test("successive requests send only suffixes and preserve stable block identity"
 
 test("a stale cursor retries once with full text and a new stream identity", async () => {
 	const requests: any[] = [];
-	const client = createMarkdownStreamClient(async (request) => {
+	const client = nativeMarkdownStream(async (request) => {
 		requests.push(request);
 		if (requests.length === 2) return new Response("stale", { status: 409 });
 		return reply(true, 1, [block(request.text!)]);
@@ -66,7 +66,7 @@ test("a stale cursor retries once with full text and a new stream identity", asy
 test("an old request resolving after a replacement cannot overwrite the current cursor", async () => {
 	const late = Promise.withResolvers<Response>();
 	const requests: any[] = [];
-	const client = createMarkdownStreamClient(async (request) => {
+	const client = nativeMarkdownStream(async (request) => {
 		requests.push(request);
 		if (requests.length === 1) return late.promise;
 		return request.text !== undefined
@@ -90,7 +90,7 @@ test("an old request resolving after a replacement cannot overwrite the current 
 test("cancellation after native completion cannot commit an unobserved cursor", async () => {
 	const late = Promise.withResolvers<Response>();
 	const requests: any[] = [];
-	const client = createMarkdownStreamClient(async (request) => {
+	const client = nativeMarkdownStream(async (request) => {
 		requests.push(request);
 		return requests.length === 1
 			? late.promise
@@ -113,7 +113,7 @@ test("cancellation after native completion cannot commit an unobserved cursor", 
 
 test("malformed replies fail without advancing the retained cursor", async () => {
 	const requests: any[] = [];
-	const client = createMarkdownStreamClient(async (request) => {
+	const client = nativeMarkdownStream(async (request) => {
 		requests.push(request);
 		if (requests.length === 1) return reply(true, 1, [block("a")]);
 		if (requests.length === 2) return reply(false, 2, [block("bad")], 99, 1);

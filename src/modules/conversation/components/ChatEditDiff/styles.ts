@@ -79,9 +79,6 @@ export const styles = stylex.create({
 	bodyInner: {
 		minWidth: "100%",
 	},
-	hunkBlock: {
-		minWidth: "100%",
-	},
 	diffLine: {
 		display: "flex",
 		lineHeight: "15px",

@@ -1,28 +1,33 @@
 import type { Prompt, SkillProposal, SkillProposalView } from "@contracts";
+import { queryClient } from "@shared/lib/dom.tsx";
 import { fetchJson, postJson } from "@shared/lib/native.tsx";
 
-export function loadSkills(
-	filter: string,
-	search: string,
-	signal?: AbortSignal,
-) {
-	return fetchJson<Prompt[]>(
-		`/api/prompts?${new URLSearchParams({ filter, search })}`,
-		{ signal },
-	);
+const skillsKey = ["skills"] as const;
+export const skillsQuery = () => ({
+	queryKey: skillsKey,
+	queryFn: ({ signal }: { signal: AbortSignal }) =>
+		fetchJson<Prompt[]>("/api/prompts", { signal }),
+});
+export const preloadSkills = () => queryClient.prefetchQuery(skillsQuery());
+async function refreshSkills() {
+	await queryClient.cancelQueries({ queryKey: skillsKey });
+	await queryClient.invalidateQueries({ queryKey: skillsKey });
 }
 
-export function saveSkillRequest(data: Record<string, unknown>, id?: string) {
-	return postJson<Prompt>(
+export async function saveSkill(data: unknown, id?: string) {
+	const skill = await postJson<Prompt>(
 		id ? `/api/prompts/${id}` : "/api/prompts",
 		data,
 		{ method: id ? "PUT" : "POST" },
 		{ server: true },
 	);
+	await refreshSkills();
+	return skill;
 }
 
-export function removeSkillRequest(id: string) {
-	return fetchJson(`/api/prompts/${id}`, { method: "DELETE" });
+export async function removeSkill(id: string) {
+	await fetchJson(`/api/prompts/${id}`, { method: "DELETE" });
+	await refreshSkills();
 }
 
 export function previewSkillProposal(
@@ -34,14 +39,16 @@ export function previewSkillProposal(
 	});
 }
 
-export function decideSkillProposalRequest(
+export async function decideSkillProposal(
 	messageId: string,
 	proposal: SkillProposal,
 	decision: "approve" | "reject",
 ) {
-	return postJson<SkillProposalView>("/api/prompts/proposal", {
+	const result = await postJson<SkillProposalView>("/api/prompts/proposal", {
 		messageId,
 		proposal,
 		decision,
 	});
+	await refreshSkills();
+	return result;
 }

@@ -1,14 +1,13 @@
-import type {
-	AgentAccountProviderStatus,
-	EffectiveAgentContext,
-	GithubRepo,
-} from "@contracts";
+import {
+	loadAgentContext,
+	saveAgentContext,
+} from "@context/services/contextApi.ts";
+import type { AgentAccountProviderStatus, GithubRepo } from "@contracts";
 import {
 	fetchJson,
 	fetchJsonOr,
 	pickCloneDirectory as pickNativeDirectory,
 	postJson,
-	request,
 	sendJson,
 } from "@shared/lib/native.tsx";
 
@@ -25,35 +24,23 @@ export const settingsApi: SettingsApi = {
 	async uploadBackgroundImage(file) {
 		const body = new FormData();
 		body.append("file", file);
-		const response = await request("/api/config/background-image", {
-			method: "POST",
-			body,
-		});
-		if (!response.ok) {
-			const failure = await response.json().catch(() => null);
-			throw new Error(failure?.error || "Could not import that image");
-		}
-		return response.json() as Promise<{ revision: number }>;
+		return fetchJson<{ revision: number }>(
+			"/api/config/background-image",
+			{ method: "POST", body },
+			{ server: true, message: "Could not import that image" },
+		);
 	},
 	async loadGlobalInstructions(signal) {
-		const context = await fetchJson<EffectiveAgentContext>(
-			"/api/agent-context?paneId=global-settings",
-			{ signal },
-		);
-		return context.global.instructions;
+		return (await loadAgentContext("global-settings", undefined, signal)).global
+			.instructions;
 	},
 	async saveGlobalInstructions(instructions) {
-		const response = await sendJson(
-			"/api/agent-context",
-			{
-				scope: "global",
-				instructions,
-				mode: "inherit",
-				paneId: "global-settings",
-			},
-			{ method: "PUT" },
-		);
-		if (!response.ok) throw new Error("Could not save agent instructions");
+		await saveAgentContext({
+			scope: "global",
+			instructions,
+			mode: "inherit",
+			paneId: "global-settings",
+		});
 	},
 	async loadSearchFolders() {
 		return (
@@ -84,9 +71,7 @@ export async function connectGithub() {
 	await postJson("/api/forge/connect", { provider: "github" });
 }
 
-export async function pickCloneDirectory() {
-	return pickNativeDirectory();
-}
+export const pickCloneDirectory = pickNativeDirectory;
 
 export async function cloneGithubRepo(
 	repo: GithubRepo,

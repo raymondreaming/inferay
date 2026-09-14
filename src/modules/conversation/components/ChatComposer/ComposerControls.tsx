@@ -13,7 +13,6 @@ export function ComposerControls(
 		| "agentConfigControlsRef"
 		| "configControls"
 		| "activeConfig"
-		| "selectedModelLabel"
 		| "agentConfigButtonRef"
 		| "setActiveConfig"
 		| "workspaceControl"
@@ -32,11 +31,7 @@ export function ComposerControls(
 							aria-label={ariaValue(`${control().title}: ${control().label}`)}
 							aria-haspopup="menu"
 							aria-expanded={ariaValue(_props.activeConfig === control().id)}
-							title={
-								control().id === "model"
-									? _props.selectedModelLabel
-									: control().title
-							}
+							title={control().tooltip}
 							onClick={(event) => {
 								_props.agentConfigButtonRef.current = event.currentTarget;
 								_props.setActiveConfig((current) =>

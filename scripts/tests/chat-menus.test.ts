@@ -14,10 +14,10 @@ test("completion menus hide while disabled and retain their selection when enabl
 	const code = new Bun.Transpiler({ loader: "ts" }).transformSync(
 		[
 			source.slice(
-				source.indexOf("function showCompletion"),
+				source.indexOf("export function useAgentChatMenus"),
 				source.indexOf("export function useAgentChatSettings"),
 			),
-			source.slice(source.indexOf("export function findTriggerAtCursor")),
+			source.slice(source.indexOf("export function hideMenuState")),
 		]
 			.join("\n")
 			.replaceAll("export ", ""),

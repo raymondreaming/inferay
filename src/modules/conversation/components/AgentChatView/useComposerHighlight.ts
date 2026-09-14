@@ -7,17 +7,13 @@ export function useComposerHighlight(selected: Accessor<boolean>) {
 	const cancel = () => {
 		cancelAnimationFrame(frame);
 		clearTimeout(timer);
-		frame = 0;
-		timer = undefined;
 	};
 	const highlight = () => {
 		cancel();
 		setActive(false);
 		frame = requestAnimationFrame(() => {
-			frame = 0;
 			setActive(true);
 			timer = setTimeout(() => {
-				timer = undefined;
 				setActive(false);
 			}, 1800);
 		});

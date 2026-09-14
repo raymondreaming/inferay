@@ -4,9 +4,8 @@ import { DEFAULT_FILE, getIconForFile } from "@yutengjing/vscode-icons";
 // name keeps all 1553 out of the bundle: an eager import.meta.glob built a
 // name->hashed-URL map that cost ~340KB of JavaScript to parse, and every view
 // importing this component paid it to render a handful of icons.
-export const FILE_ICON_BASE = "/file-icons";
 export function iconUrl(iconFileName: string): string {
-	return `${FILE_ICON_BASE}/${iconFileName}`;
+	return `/file-icons/${iconFileName}`;
 }
 export function resolveFileIconUrl(path: string): string {
 	const name = path.split(/[\\/]/).pop() || path;

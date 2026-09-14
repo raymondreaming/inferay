@@ -1,5 +1,5 @@
 import type {
-	PreparedEditHunk,
+	PreparedEditDiff,
 	ProjectFileEntry,
 	ProviderSettings,
 	QueuedMessageInfo,
@@ -111,9 +111,9 @@ export async function uploadTempChatImage(
 export async function prepareNativeEditDiff(
 	input: { before: string; after: string; edits?: SequentialEdit[] },
 	signal: AbortSignal,
-): Promise<PreparedEditHunk[]> {
+): Promise<PreparedEditDiff> {
 	const result = await postJson<{
-		prepared: { hunks: PreparedEditHunk[] };
+		prepared: PreparedEditDiff;
 	}>(
 		"/api/native/diff",
 		input,
@@ -123,5 +123,5 @@ export async function prepareNativeEditDiff(
 			message: (status) => `Diff request failed (${status})`,
 		},
 	);
-	return result.prepared.hunks;
+	return result.prepared;
 }

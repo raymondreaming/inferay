@@ -1,8 +1,8 @@
+import { project } from "@shared/lib/native.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For } from "solid-js";
-import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
+import type { ChatMessage } from "../AgentChatView/types.ts";
 import { DecoratedText } from "../ChatTokenDecorators/index.tsx";
-import { getUserMessagePresentation } from "./messagePresentation.ts";
 import { styles } from "./styles.ts";
 
 /** Renders user text and attached images without carrying other message roles. */
@@ -11,7 +11,10 @@ export function UserMessage(props: {
 	slashCommandNames: readonly string[];
 }) {
 	const presentation = createMemo(() =>
-		getUserMessagePresentation(props.message, props.slashCommandNames),
+		project<{ content: string; imagePaths: string[] } | null>("userMessage", {
+			message: props.message,
+			commands: props.slashCommandNames,
+		}),
 	);
 	return (
 		<div {...stylex.attrs(styles.userRow)}>
