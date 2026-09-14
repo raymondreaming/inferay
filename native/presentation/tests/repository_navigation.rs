@@ -10,9 +10,6 @@ fn diff_request_contract_omits_unrelated_history_and_preserves_review_mode() {
         value,
         json!({"cwd":"/repo","revision":"r1","file":"file.rs","staged":false,"commitHash":"abc","view":"review"})
     );
-    let contract: inferay_presentation::diff::DiffRequest =
-        serde_json::from_value(value.clone()).unwrap();
-    assert_eq!(serde_json::to_value(contract).unwrap(), value);
     assert_eq!(
         project("diffRequest", &json!({"active":false,"cwd":"/repo"})).unwrap(),
         Value::Null

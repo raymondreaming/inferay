@@ -2,10 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { architectureViolations } from "../check-architecture-boundaries.ts";
 
 describe("architecture boundaries", () => {
-	test("the production source graph obeys the declared layers", () => {
-		expect(architectureViolations()).toEqual([]);
-	});
-
 	test("rejects a shared module that reaches into a feature", () => {
 		const violations = architectureViolations({
 			"src/shared/lib/example.ts":

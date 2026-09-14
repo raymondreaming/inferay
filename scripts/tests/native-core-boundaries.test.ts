@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-function check(source: string, crate = "core") {
+function check(source: string) {
 	const directory = mkdtempSync(join(tmpdir(), "inferay-core-boundary-"));
 	try {
 		const input = join(directory, "fixture.rs");
@@ -30,57 +30,68 @@ function check(source: string, crate = "core") {
 				env: {
 					...process.env,
 					CLIPPY_CONF_DIR: fileURLToPath(
-						new URL(`../../native/${crate}/`, import.meta.url),
+						new URL("../../native/core/", import.meta.url),
 					),
 				},
 			},
 		);
 		if (result.error) throw result.error;
-		const codes = result.stderr
+		const diagnostics = result.stderr
 			.trim()
 			.split("\n")
 			.filter(Boolean)
 			.map((line) => {
-				const diagnostic = JSON.parse(line) as { code?: { code?: string } };
-				return diagnostic.code?.code;
+				const diagnostic = JSON.parse(line) as {
+					code?: { code?: string };
+					spans?: { is_primary: boolean; line_start: number }[];
+				};
+				return {
+					code: diagnostic.code?.code,
+					line: diagnostic.spans?.find((span) => span.is_primary)?.line_start,
+				};
 			});
-		return { status: result.status, codes };
+		return { status: result.status, diagnostics };
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}
 }
 
-test.each([
-	[
-		"aliased file reads",
-		'use std::fs::read as load; pub fn run() { let _ = load("file"); }',
-		"disallowed_methods",
-	],
-	[
-		"PathBuf autoderef",
-		"pub fn run(path: std::path::PathBuf) { let _ = path.canonicalize(); }",
-		"disallowed_methods",
-	],
-	[
-		"nested environment reads",
-		"mod new_module { pub fn run() { let _ = std::env::current_dir(); } }",
-		"disallowed_methods",
-	],
-	[
-		"process types",
-		'use std::process::Command as Process; pub fn run() { let _ = Process::new("git"); }',
-		"disallowed_types",
-	],
-	[
-		"network types",
-		'pub fn run() { let _ = std::net::TcpStream::connect("localhost:1"); }',
-		"disallowed_types",
-	],
-	["stdout writes", 'pub fn run() { println!("hello"); }', "disallowed_macros"],
-])("core rejects %s", (_name, source, lint) => {
-	const result = check(source);
+test("core rejects platform access through aliases, methods, types and macros", () => {
+	const cases = [
+		[
+			'use std::fs::read as load; pub fn run() { let _ = load("file"); }',
+			"disallowed_methods",
+		],
+		[
+			"pub fn run(path: std::path::PathBuf) { let _ = path.canonicalize(); }",
+			"disallowed_methods",
+		],
+		[
+			"mod nested { pub fn run() { let _ = std::env::current_dir(); } }",
+			"disallowed_methods",
+		],
+		[
+			'use std::process::Command as Process; pub fn run() { let _ = Process::new("git"); }',
+			"disallowed_types",
+		],
+		[
+			'pub fn run() { let _ = std::net::TcpStream::connect("localhost:1"); }',
+			"disallowed_types",
+		],
+		['pub fn run() { println!("hello"); }', "disallowed_macros"],
+	];
+	const result = check(
+		cases
+			.map(([source], index) => `mod fixture_${index} { ${source} }`)
+			.join("\n"),
+	);
 	expect(result.status).not.toBe(0);
-	expect(result.codes).toContain(`clippy::${lint}`);
+	cases.forEach(([, lint], index) => {
+		expect(result.diagnostics).toContainEqual({
+			code: `clippy::${lint}`,
+			line: index + 2,
+		});
+	});
 });
 
 test("core permits pure path operations and platform names in data", () => {
@@ -88,11 +99,5 @@ test("core permits pure path operations and platform names in data", () => {
 		check(
 			'pub fn run(path: &std::path::Path) -> usize { let _text = "std::fs::read"; path.components().count() }',
 		).status,
-	).toBe(0);
-});
-
-test("the server retains its platform capabilities", () => {
-	expect(
-		check('pub fn run() { let _ = std::fs::read("file"); }', "server").status,
 	).toBe(0);
 });

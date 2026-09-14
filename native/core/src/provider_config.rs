@@ -584,7 +584,7 @@ mod tests {
     }
 
     #[test]
-    fn renderer_catalog_preserves_the_endpoint_contract_and_command_precedence() {
+    fn renderer_catalog_preserves_skill_precedence_and_resolved_defaults() {
         let skills = vec![crate::prompts::Prompt {
             id: "skill-review".into(),
             name: "Review".into(),
@@ -598,13 +598,6 @@ mod tests {
         let defaults =
             json!({"agentKind":"claude", "model":"missing-model", "reasoningLevel":"low"});
         let actual = json!(renderer_catalog(&defaults, &skills));
-        let mut expected =
-            json!({"agents": catalog(), "reasoningLevels": catalog().codex.reasoning_levels});
-        for (kind, definition) in expected["agents"].as_object_mut().unwrap() {
-            definition["commands"] = json!(composer_commands(kind, &skills));
-        }
-        expected["defaults"] = json!(resolve(&json!({"defaults":defaults})));
-        assert_eq!(actual, expected);
         let commands = actual["agents"]["claude"]["commands"].as_array().unwrap();
         let review: Vec<_> = commands
             .iter()

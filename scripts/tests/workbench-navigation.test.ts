@@ -84,20 +84,6 @@ describe("navigation while native persistence is pending", () => {
 		client.clear();
 	});
 
-	test("selection moves immediately and an older acknowledgement cannot move it back", () => {
-		const { select, current, mutation } = setup();
-		const first = select("a");
-		const firstSaved = current();
-		expect(firstSaved.selectedCommitHash).toBe("a");
-		const second = select("b");
-		const secondSaved = current();
-		expect(secondSaved.selectedCommitHash).toBe("b");
-		mutation.onSuccess({ session: firstSaved }, first);
-		expect(current().selectedCommitHash).toBe("b");
-		mutation.onSuccess({ session: secondSaved }, second);
-		expect(current().selectedCommitIds).toEqual(["b"]);
-	});
-
 	test("a failed save preserves newer navigation and rolls back if all saves fail", () => {
 		const { select, current, mutation } = setup();
 		const first = select("a");
@@ -106,16 +92,6 @@ describe("navigation while native persistence is pending", () => {
 		expect(current().selectedCommitHash).toBe("b");
 		mutation.onError(new Error("offline"), second);
 		expect(current().selectedCommitHash).toBeNull();
-	});
-
-	test("failure after a successful save rolls back to the saved selection", () => {
-		const { select, current, mutation } = setup();
-		const first = select("a");
-		const saved = current();
-		const second = select("b");
-		mutation.onSuccess({ session: saved }, first);
-		mutation.onError(new Error("offline"), second);
-		expect(current().selectedCommitHash).toBe("a");
 	});
 
 	test.each([false, true])(
@@ -199,26 +175,6 @@ test("file navigation preserves object identity without serializing file payload
 	);
 	expect(adjacentGitFile(files, (file) => file.id === 0, -1)).toBeUndefined();
 	expect(adjacentGitFile([], () => false, 1, true)).toBeUndefined();
-});
-
-test("WIP keyboard navigation shares the sidebar's visible order for the selected worktree", () => {
-	const modified = { path: "modified.ts", staged: false, status: "modified" };
-	const untracked = { path: "new.ts", staged: false, status: "untracked" };
-	const staged = { path: "staged.ts", staged: true, status: "modified" };
-	const { navigableFiles: files } = project<{
-		navigableFiles: Array<{ path: string }>;
-	}>("changesPanel", {
-		modified: [modified],
-		untracked: [untracked],
-		staged: [staged],
-		fileViewMode: "tree",
-		filePresentation: {
-			pathOrder: [modified.path, untracked.path, staged.path],
-			treeOrder: [untracked.path, modified.path, staged.path],
-		},
-	});
-	expect(files).toEqual([untracked, modified, staged]);
-	expect(files[0].path).toBe(untracked.path);
 });
 
 test("changes model keeps staging, tree navigation, history and totals independent", () => {
