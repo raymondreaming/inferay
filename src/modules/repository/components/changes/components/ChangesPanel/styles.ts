@@ -634,7 +634,7 @@ export const styles = stylex.create({
 		minWidth: controlSize._0,
 		flex: 1,
 		display: "flex",
-		justifyContent: "flex-end",
+		justifyContent: "flex-start",
 		textAlign: "left",
 		fontSize: font.size_2,
 		fontWeight: font.weight_5,
