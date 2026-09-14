@@ -228,6 +228,7 @@ pub fn path(i: &Value) -> Value {
 
 #[derive(serde::Serialize, ts_rs::TS)]
 pub struct GraphLine {
+    dashed: bool,
     key: String,
     row: f64,
     column: f64,
@@ -238,6 +239,7 @@ pub struct GraphLine {
 }
 #[derive(serde::Serialize, ts_rs::TS)]
 pub struct GraphCurve {
+    dashed: bool,
     key: String,
     path: String,
     color: String,
@@ -279,6 +281,7 @@ pub fn lines(i: &Value) -> GraphLines {
                     .map(|segment| {
                         let y = number(&row["row"]) * 23.;
                         GraphLine {
+                            dashed: flag(&segment["dashed"]),
                             key: format!("{prefix}-{}-{}", row["row"], segment["column"]),
                             row: number(&row["row"]),
                             column: number(&segment["column"]),
@@ -310,6 +313,7 @@ pub fn lines(i: &Value) -> GraphLines {
                 array(&row[field])
                     .iter()
                     .map(|curve| GraphCurve {
+                        dashed: flag(&curve["dashed"]),
                         key: format!(
                             "{}{}:{}:{}:{}",
                             if convergence { "convergence:" } else { "" },

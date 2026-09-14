@@ -143,8 +143,8 @@ export function RefBadge(_props: {
 				(_props.ghost === undefined ? false : _props.ghost) &&
 					styles.ghostRefBadge,
 			)}
-			style={domStyle(
-				inlineStyles.getRefBadgeRefBadgeStyle(
+			style={domStyle({
+				...inlineStyles.getRefBadgeRefBadgeStyle(
 					(_props.ghost === undefined ? false : _props.ghost)
 						? hexToRgba(_props.color, hovered() ? 0.18 : 0.055)
 						: hexToRgba(_props.color, hovered() ? 0.75 : 0.5),
@@ -152,7 +152,10 @@ export function RefBadge(_props: {
 						? _props.color
 						: palette.white,
 				),
-			)}
+				...(_props.kind === "stash"
+					? { outline: `1px dashed ${_props.color}`, outlineOffset: "-1px" }
+					: {}),
+			})}
 		>
 			<RefIcon kind={_props.kind} />
 			<span {...stylex.attrs(styles.truncate)}>{_props.label}</span>

@@ -1,127 +1,68 @@
-import { runtimeFont } from "@design-system/styles.stylex.ts";
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createSignal } from "solid-js";
 import { styles } from "./styles.ts";
 
-let mermaidPromise: Promise<unknown> | null = null;
-function loadMermaid(): Promise<unknown> {
-	if (mermaidPromise) return mermaidPromise;
-	mermaidPromise = new Promise((resolve, reject) => {
-		const script = document.createElement("script");
-		script.src = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js";
-		script.onload = () => {
-			try {
-				const m = (window as unknown as Record<string, unknown>).mermaid as {
-					initialize: (cfg: Record<string, unknown>) => void;
-				};
-				m.initialize({
-					startOnLoad: false,
-					theme: "dark",
-					themeVariables: {
-						darkMode: true,
-						background: "transparent",
-						primaryColor: "var(--color-inferay-gray-border)",
-						primaryTextColor: "var(--color-inferay-soft-white)",
-						primaryBorderColor: "var(--color-inferay-gray-border-bold)",
-						lineColor: "var(--color-inferay-muted-gray)",
-						secondaryColor: "var(--color-inferay-gray)",
-						tertiaryColor: "var(--color-inferay-dark-gray)",
-						fontFamily: runtimeFont.familyMono,
-						fontSize: runtimeFont.sizeCompact,
-					},
-				});
-				resolve(m);
-			} catch (error) {
-				script.remove();
-				reject(error);
-			}
-		};
-		script.onerror = () => {
-			script.remove();
-			reject(new Error("Unable to load Mermaid"));
-		};
-		document.head.appendChild(script);
-	}).catch((error) => {
-		mermaidPromise = null;
-		throw error;
-	});
-	return mermaidPromise;
+let renderer: Promise<typeof import("mermaid")["default"]> | undefined;
+function loadMermaid() {
+	return (renderer ??= import("mermaid")
+		.then(({ default: mermaid }) => {
+			mermaid.initialize({
+				startOnLoad: false,
+				securityLevel: "strict",
+				theme: "dark",
+				suppressErrorRendering: true,
+			});
+			return mermaid;
+		})
+		.catch((error) => {
+			renderer = undefined;
+			throw error;
+		}));
 }
-function sanitizeMermaidSvg(svg: string): string {
-	const document = new DOMParser().parseFromString(svg, "image/svg+xml");
-	for (const element of document.querySelectorAll("script, foreignObject")) {
-		element.remove();
-	}
-	for (const element of document.querySelectorAll("*")) {
-		for (const attribute of Array.from(element.attributes)) {
-			const name = attribute.name.toLowerCase();
-			const value = attribute.value.trim().toLowerCase();
-			if (
-				name.startsWith("on") ||
-				((name === "href" || name === "xlink:href") &&
-					value.startsWith("javascript:"))
-			) {
-				element.removeAttribute(attribute.name);
-			}
-		}
-	}
-	return new XMLSerializer().serializeToString(document.documentElement);
-}
+
 export function MermaidBlock(_props: { code: string }) {
-	const ref = {
-		current: null,
-	} as {
-		current: HTMLDivElement | null;
-	};
+	let container: HTMLDivElement | undefined;
 	const [error, setError] = createSignal<string | null>(null);
 	createEffect(
 		() => _props.code,
 		(code) => {
+			let active = true;
 			setError(null);
-			if (ref.current) ref.current.replaceChildren();
-			const controller = new AbortController();
-			const { signal } = controller;
-			const id = `mermaid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-			loadMermaid()
-				.then(() => {
-					if (signal.aborted || !ref.current) return;
-					const m = (window as unknown as Record<string, unknown>).mermaid as {
-						render: (
-							id: string,
-							code: string,
-						) => Promise<{
-							svg: string;
-						}>;
-					};
-					return m.render(id, code);
+			container?.replaceChildren();
+			void loadMermaid()
+				.then(async (mermaid) => {
+					if (!active || !container) return;
+					const { svg } = await mermaid.render(
+						`mermaid-${crypto.randomUUID()}`,
+						code,
+					);
+					// Mermaid's strict renderer sanitizes SVG, including its HTML labels.
+					if (active && container) container.innerHTML = svg;
 				})
-				.then((result) => {
-					if (signal.aborted || !ref.current || !result) return;
-					ref.current.innerHTML = sanitizeMermaidSvg(result.svg);
-				})
-				.catch((err) => {
-					if (!signal.aborted) setError(String(err));
+				.catch((cause) => {
+					if (active)
+						setError(cause instanceof Error ? cause.message : String(cause));
 				});
-			return controller.abort.bind(controller);
+			return () => {
+				active = false;
+			};
 		},
 	);
 	return (
-		<>
-			{(() => {
-				const _errorValue = error();
-				if (_errorValue)
-					return (
-						<div {...stylex.attrs(styles.mermaidBox)}>
-							<pre {...stylex.attrs(styles.errorPre)}>{_errorValue}</pre>
-						</div>
-					);
-				return (
-					<div
-						ref={(element) => (ref.current = element)}
-						{...stylex.attrs(styles.mermaidBox, styles.mermaidRender)}
-					/>
-				);
-			})()}
-		</>
+		<div {...stylex.attrs(styles.mermaidBox)}>
+			<div
+				ref={(element) => {
+					container = element;
+				}}
+				{...stylex.attrs(styles.mermaidRender)}
+			/>
+			{error() && (
+				<details>
+					<summary>Diagram could not be rendered</summary>
+					<pre {...stylex.attrs(styles.errorPre)}>{error()}</pre>
+					<pre {...stylex.attrs(styles.codeText)}>{_props.code}</pre>
+				</details>
+			)}
+		</div>
 	);
 }

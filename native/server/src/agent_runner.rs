@@ -393,6 +393,24 @@ pub async fn run_codex(
             .to_owned();
         state.set_session(context, thread_id.clone());
         flush_emissions(context, emissions);
+        // Resolve MCP tools before the model snapshots its tool inventory.
+        // Starting discovery after turn/start leaves slow servers out of that turn.
+        let mut cursor = Value::Null;
+        loop {
+            let page = rpc
+                .request(
+                    "mcpServerStatus/list",
+                    json!({"threadId":thread_id,"limit":100,"cursor":cursor,"detail":"toolsAndAuthOnly"}),
+                    (&mut *context, &mut *state, emissions),
+                )
+                .await
+                .map_err(|error| format!("Could not prepare Codex MCP tools: {error}"))?;
+            crate::mcp_icons::register(&page);
+            cursor = page["nextCursor"].clone();
+            if cursor.is_null() {
+                break;
+            }
+        }
         let turn_response = rpc
             .request(
                 "turn/start",
@@ -409,15 +427,6 @@ pub async fn run_codex(
     }
     .await;
     if let Ok((thread_id, turn_id)) = &startup {
-        // Best-effort inventory discovery runs alongside the turn. Older app
-        // servers can reject this without interrupting the conversation.
-        let mut icon_request = rpc
-            .send(
-                "mcpServerStatus/list",
-                json!({"threadId":thread_id,"limit":100,"detail":"toolsAndAuthOnly"}),
-            )
-            .await
-            .ok();
         let (control_tx, mut control_rx) = mpsc::unbounded_channel();
         handle.set_codex_control(control_tx);
         let mut pending_steers = HashMap::<u64, oneshot::Sender<Result<(), String>>>::new();
@@ -489,19 +498,6 @@ pub async fn run_codex(
                 }
                 read = rpc.read() => {
                     let Some(message) = read else { break };
-                    if message.get("method").is_none()
-                        && icon_request.is_some()
-                        && message.get("id").and_then(Value::as_u64) == icon_request
-                    {
-                        icon_request = None;
-                        if let Some(page) = message.get("result") {
-                            crate::mcp_icons::register(page);
-                            if let Some(cursor) = page["nextCursor"].as_str() {
-                                icon_request = rpc.send("mcpServerStatus/list", json!({"threadId":thread_id,"limit":100,"cursor":cursor,"detail":"toolsAndAuthOnly"})).await.ok();
-                            }
-                        }
-                        continue;
-                    }
                     if message.get("method").is_none()
                         && let Some(id) = message.get("id").and_then(Value::as_u64)
                         && let Some(response) = pending_steers.remove(&id)

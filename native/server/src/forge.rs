@@ -369,8 +369,8 @@ async fn resolve_commit_avatars(
     {
         let cache = state.forge_state.commit_avatar_cache.lock().await;
         for hash in hashes {
-            if let Some(avatar) = cache.get(&format!("{prefix}{hash}")) {
-                result.insert(hash.clone(), avatar.clone());
+            if let Some(Some(avatar)) = cache.get(&format!("{prefix}{hash}")) {
+                result.insert(hash.clone(), Some(avatar.clone()));
             } else {
                 missing.push(hash.clone());
             }
@@ -410,7 +410,9 @@ async fn resolve_commit_avatars(
             .and_then(|repo| repo.pointer(&format!("/c{index}/author/user/avatarUrl")))
             .and_then(Value::as_str)
             .map(str::to_string);
-        cache.insert(format!("{prefix}{hash}"), avatar.clone());
+        if avatar.is_some() {
+            cache.insert(format!("{prefix}{hash}"), avatar.clone());
+        }
         result.insert(hash.clone(), avatar);
     }
     Ok(result)

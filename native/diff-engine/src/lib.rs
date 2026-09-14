@@ -2530,6 +2530,18 @@ pub fn get_git_graph_snapshot_with_query(
             GraphCommit {
                 hash: identity,
                 message: "Uncommitted changes".to_string(),
+                change_summary: worktree.status.as_ref().map(|status| {
+                    inferay_core::repository::GitChangeSummary {
+                        files: status
+                            .files
+                            .iter()
+                            .map(|file| &file.path)
+                            .collect::<HashSet<_>>()
+                            .len(),
+                        additions: status.files.iter().filter_map(|file| file.additions).sum(),
+                        deletions: status.files.iter().filter_map(|file| file.deletions).sum(),
+                    }
+                }),
 
                 author: "Workspace".to_string(),
 
@@ -2548,11 +2560,16 @@ pub fn get_git_graph_snapshot_with_query(
         );
     }
 
-    let (mut commits, rows) = layout_graph(semantic_commits);
     let stash_names = stashes
         .iter()
         .map(|stash| (stash.hash.as_str(), stash.name.as_str()))
         .collect::<HashMap<_, _>>();
+    for commit in &mut semantic_commits {
+        if stash_names.contains_key(commit.hash.as_str()) {
+            commit.item_kind = GitGraphItemKind::Stash;
+        }
+    }
+    let (mut commits, rows) = layout_graph(semantic_commits);
     for commit in &mut commits {
         commit.navigation.history_order = history_order.get(&commit.hash).copied();
         if let Some(stash_name) = stash_names.get(commit.hash.as_str()) {
@@ -2664,7 +2681,7 @@ fn layout_graph(mut commits: Vec<GraphCommit>) -> (Vec<GraphCommit>, Vec<GraphRo
     // Empty slots are intentionally retained. Compressing the vector whenever
     // a lane ends makes every lane to its right jump sideways on that row;
     // stable holes can be reused by later tips without moving unresolved rails.
-    let mut active_lanes: Vec<Option<String>> = Vec::new();
+    let mut active_lanes: Vec<Option<(String, bool)>> = Vec::new();
     let mut lane_allocator = GraphLaneAllocator::default();
     let mut graph_rows = Vec::with_capacity(commits.len());
 
@@ -2674,7 +2691,7 @@ fn layout_graph(mut commits: Vec<GraphCommit>) -> (Vec<GraphCommit>, Vec<GraphRo
             .enumerate()
             .filter_map(|(column, lane)| {
                 lane.as_ref()
-                    .is_some_and(|lane| *lane == commit.hash)
+                    .is_some_and(|lane| lane.0 == commit.hash)
                     .then_some(column)
             })
             .collect::<Vec<_>>();
@@ -2685,7 +2702,7 @@ fn layout_graph(mut commits: Vec<GraphCommit>) -> (Vec<GraphCommit>, Vec<GraphRo
         }
         let commit_color = graph_lane_color(commit_column);
         if !has_incoming_lane {
-            active_lanes[commit_column] = Some(commit.hash.clone());
+            active_lanes[commit_column] = Some((commit.hash.clone(), false));
         }
 
         let (id, item_kind, hash, worktree_path) =
@@ -2706,21 +2723,26 @@ fn layout_graph(mut commits: Vec<GraphCommit>) -> (Vec<GraphCommit>, Vec<GraphRo
             } else {
                 (
                     commit.hash.clone(),
-                    GitGraphItemKind::Commit,
+                    commit.item_kind.clone(),
                     commit.hash.clone(),
                     None,
                 )
             };
 
+        let dashed = item_kind != GitGraphItemKind::Commit;
+        let incoming_dashed = active_lanes[commit_column]
+            .as_ref()
+            .is_some_and(|lane| lane.1);
         let has_first_parent = !commit.parents.is_empty();
         let mut rails = active_lanes
             .iter()
             .enumerate()
             .filter_map(|(column, lane)| {
-                if column == commit_column || lane.as_ref()? == &commit.hash {
+                if column == commit_column || lane.as_ref()?.0 == commit.hash {
                     return None;
                 }
                 Some(GraphRail {
+                    dashed: lane.as_ref()?.1,
                     column,
                     color_index: graph_lane_color(column),
                     starts_at_node: false,
@@ -2728,12 +2750,32 @@ fn layout_graph(mut commits: Vec<GraphCommit>) -> (Vec<GraphCommit>, Vec<GraphRo
                 })
             })
             .collect::<Vec<_>>();
-        if has_incoming_lane || has_first_parent {
+        if has_incoming_lane && has_first_parent && incoming_dashed != dashed {
             rails.push(GraphRail {
                 column: commit_column,
-                color_index: graph_lane_color(commit_column),
+                color_index: commit_color,
+                starts_at_node: false,
+                ends_at_node: true,
+                dashed: incoming_dashed,
+            });
+            rails.push(GraphRail {
+                column: commit_column,
+                color_index: commit_color,
+                starts_at_node: true,
+                ends_at_node: false,
+                dashed,
+            });
+        } else if has_incoming_lane || has_first_parent {
+            rails.push(GraphRail {
+                column: commit_column,
+                color_index: commit_color,
                 starts_at_node: !has_incoming_lane,
                 ends_at_node: !has_first_parent,
+                dashed: if has_incoming_lane {
+                    incoming_dashed
+                } else {
+                    dashed
+                },
             });
         }
         rails.sort_by_key(|rail| rail.column);
@@ -2744,6 +2786,7 @@ fn layout_graph(mut commits: Vec<GraphCommit>) -> (Vec<GraphCommit>, Vec<GraphRo
             .copied()
             .filter(|column| *column != commit_column)
             .map(|column| GraphTransition {
+                dashed: active_lanes[column].as_ref().is_some_and(|lane| lane.1),
                 from_column: column,
                 to_column: commit_column,
                 color_index: graph_lane_color(column),
@@ -2760,7 +2803,7 @@ fn layout_graph(mut commits: Vec<GraphCommit>) -> (Vec<GraphCommit>, Vec<GraphRo
             // First-parent continuity belongs to the child lane even when
             // another child already targets the same parent. The duplicate is
             // resolved only when that parent row is reached.
-            active_lanes[commit_column] = Some(first_parent.clone());
+            active_lanes[commit_column] = Some((first_parent.clone(), dashed));
         }
 
         for parent in commit.parents.iter().skip(1) {
@@ -2771,10 +2814,11 @@ fn layout_graph(mut commits: Vec<GraphCommit>) -> (Vec<GraphCommit>, Vec<GraphRo
                 active_lanes.resize(parent_column + 1, None);
             }
             if active_lanes[parent_column].is_none() {
-                active_lanes[parent_column] = Some(parent.clone());
+                active_lanes[parent_column] = Some((parent.clone(), dashed));
             }
             if parent_column != commit_column {
                 transitions.push(GraphTransition {
+                    dashed,
                     from_column: commit_column,
                     to_column: parent_column,
                     color_index: graph_lane_color(parent_column),
@@ -2816,7 +2860,8 @@ fn layout_graph(mut commits: Vec<GraphCommit>) -> (Vec<GraphCommit>, Vec<GraphRo
             .iter()
             .enumerate()
             .filter_map(|(column, lane)| {
-                lane.as_ref().map(|_| GraphRail {
+                lane.as_ref().map(|lane| GraphRail {
+                    dashed: lane.1,
                     column,
                     color_index: graph_lane_color(column),
                     starts_at_node: false,
@@ -2861,6 +2906,7 @@ mod graph_layout_tests {
         git(&["stash", "push"]);
         let linked = root.path().join("linked");
         git(&["worktree", "add", "-b", "linked", linked.to_str().unwrap()]);
+        std::fs::write(root.path().join(".git/info/exclude"), "linked/\n").unwrap();
         std::fs::write(linked.join("file.txt"), "linked changes\n").unwrap();
         std::fs::write(&file, "current changes\n").unwrap();
         let head = current_git_head(cwd).unwrap();
@@ -2880,7 +2926,39 @@ mod graph_layout_tests {
             assert_eq!(snapshot.commits[3].hash, head);
             assert_eq!(snapshot.commits.len(), 4);
             assert_eq!(snapshot.rows.len(), 4);
+            let summary = snapshot.commits[0].change_summary.as_ref().unwrap();
+            assert_eq!(
+                (summary.files, summary.additions, summary.deletions),
+                (1, 1, 1)
+            );
+            assert!(snapshot.rows[0].rails.iter().all(|rail| rail.dashed));
+            assert!(snapshot.rows[1].rails.iter().all(|rail| rail.dashed));
+            assert!(snapshot.rows[3].convergences.iter().all(|edge| edge.dashed));
         }
+    }
+
+    #[test]
+    fn synthetic_edge_stops_dashing_at_its_parent() {
+        let (_, rows) = layout_graph(vec![
+            GraphCommit {
+                hash: "inferay-wip-current:/repo".into(),
+                parents: vec!["head".into()],
+                ..Default::default()
+            },
+            GraphCommit {
+                hash: "head".into(),
+                parents: vec!["root".into()],
+                ..Default::default()
+            },
+            GraphCommit {
+                hash: "root".into(),
+                ..Default::default()
+            },
+        ]);
+        assert_eq!(rows[1].rails.len(), 2);
+        assert!(rows[1].rails[0].dashed && rows[1].rails[0].ends_at_node);
+        assert!(!rows[1].rails[1].dashed && rows[1].rails[1].starts_at_node);
+        assert!(!rows[2].rails[0].dashed);
     }
 
     #[test]
@@ -2912,6 +2990,7 @@ mod graph_layout_tests {
         assert_eq!(
             rows[2].convergences,
             [GraphTransition {
+                dashed: false,
                 from_column: 1,
                 to_column: 0,
                 color_index: graph_lane_color(1)
@@ -2920,6 +2999,7 @@ mod graph_layout_tests {
         assert_eq!(
             rows[2].truncated_edges,
             [GraphRail {
+                dashed: false,
                 column: 0,
                 color_index: graph_lane_color(0),
                 starts_at_node: false,

@@ -120,7 +120,10 @@ export const CommitRow = function CommitRow(_props: {
 			(_props.selected || _props.rowActive),
 	);
 	const fileCount = createMemo(
-		() => _props.worktree?.status?.files.length ?? 0,
+		() =>
+			_props.commit.changeSummary?.files ??
+			_props.worktree?.status?.files.length ??
+			0,
 	);
 	const worktreeLabel = createMemo(
 		() => _props.worktree?.branch ?? "detached HEAD",
@@ -266,9 +269,6 @@ export const CommitRow = function CommitRow(_props: {
 												commit={_props.commit}
 												width={_props.widths.message}
 												isWip={isWip()}
-												showWipRef={showWipRef()}
-												worktreeLabel={worktreeLabel()}
-												fileCount={fileCount()}
 											/>
 										);
 									case "author":

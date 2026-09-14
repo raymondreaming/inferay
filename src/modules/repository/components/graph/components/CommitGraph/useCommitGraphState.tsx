@@ -55,14 +55,14 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 	const [commitAvatars, setCommitAvatars] = createSignal<
 		Record<string, string | null>
 	>({});
-	const avatarHashes = createMemo(() =>
+	const avatarCommits = createMemo(() =>
 		_props()
 			.commits.filter((commit) => commit.itemKind === "commit")
 			.slice(0, 100)
-			.map((commit) => commit.hash),
+			.map(({ hash, author, authorEmail }) => ({ hash, author, authorEmail })),
 	);
 	createEffect(
-		() => [avatarHashes(), _props().repositoryKey] as const,
+		() => [avatarCommits(), _props().repositoryKey] as const,
 		([hashes, repository]) => {
 			let current = true;
 			if (!repository || hashes.length === 0) return;

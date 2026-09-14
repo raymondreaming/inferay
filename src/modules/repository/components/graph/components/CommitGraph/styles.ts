@@ -372,6 +372,25 @@ export const styles = stylex.create({
 		transform: "translateY(-0.5px)",
 		zIndex: layer.content,
 	},
+	wipGraphCell: { overflow: "visible", zIndex: layer.overlayContent },
+	wipSummary: {
+		position: "absolute",
+		top: 0,
+		height: "100%",
+		display: "flex",
+		alignItems: "center",
+		gap: 8,
+		whiteSpace: "nowrap",
+		color: color.textMuted,
+		fontSize: font.size_2,
+	},
+	nodeOutline: {
+		position: "absolute",
+		inset: 0,
+		width: "100%",
+		height: "100%",
+		pointerEvents: "none",
+	},
 	wipNode: {
 		position: "absolute",
 		display: "flex",
@@ -379,8 +398,6 @@ export const styles = stylex.create({
 		justifyContent: "center",
 		width: AVATAR_SIZE,
 		height: AVATAR_SIZE,
-		borderWidth: 1,
-		borderStyle: "dashed",
 		borderRadius: radius.pill,
 		backgroundColor: "var(--color-inferay-black)",
 		boxShadow: "0 0 2px rgba(249,115,22,0.16)",
@@ -432,11 +449,6 @@ export const styles = stylex.create({
 	},
 	pullRequestDiffers: {
 		color: color.warning,
-	},
-	fileCount: {
-		flexShrink: 0,
-		color: color.textMuted,
-		fontSize: font.size_2,
 	},
 	authorCell: {
 		display: "flex",
@@ -602,17 +614,6 @@ export function getCommitRowRefToNodeConnectorStyle(
 	return {
 		width: width,
 		backgroundColor: backgroundColor,
-	} as CSSProperties;
-}
-export function getCommitRowWipNodeStyle(
-	left: CSSProperties["left"],
-	top: CSSProperties["top"],
-	borderColor: CSSProperties["borderColor"],
-): CSSProperties {
-	return {
-		left: left,
-		top: top,
-		borderColor: borderColor,
 	} as CSSProperties;
 }
 export function getCommitRowMessageCellStyle(

@@ -342,6 +342,9 @@ pub struct GitGraphRef {
 pub struct GraphCommit {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
+    pub change_summary: Option<GitChangeSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub pull_request: Option<GraphPullRequest>,
     #[serde(default)]
     pub navigation: GraphNavigation,
@@ -369,6 +372,13 @@ pub struct GraphCommit {
     pub stash_name: Option<String>,
     pub column: usize,
     pub color_index: usize,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
+pub struct GitChangeSummary {
+    pub files: usize,
+    pub additions: usize,
+    pub deletions: usize,
 }
 
 /// Verified forge metadata. PR integration does not change Git parentage.
@@ -404,6 +414,8 @@ pub enum GitGraphItemKind {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphRail {
+    #[serde(default)]
+    pub dashed: bool,
     pub column: usize,
     pub color_index: usize,
     /// A tip created on this row starts at the node instead of implying an
@@ -418,6 +430,8 @@ pub struct GraphRail {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphTransition {
+    #[serde(default)]
+    pub dashed: bool,
     pub from_column: usize,
     pub to_column: usize,
     pub color_index: usize,

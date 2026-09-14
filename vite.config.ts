@@ -65,7 +65,7 @@ export default defineConfig(({ mode }) => ({
 						return "vendor-solid";
 					if (id.includes("syntect") || id.includes("shiki"))
 						return "vendor-highlight";
-					return "vendor";
+					return undefined;
 				},
 			},
 		},

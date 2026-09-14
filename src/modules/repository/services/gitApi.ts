@@ -77,17 +77,29 @@ export function preflightGitRefOperation(
 
 export async function resolveGitCommitAvatars(
 	cwd: string,
-	hashes: readonly string[],
+	commits: readonly { hash: string; author: string; authorEmail: string }[],
 ): Promise<Record<string, string | null>> {
-	if (!cwd || hashes.length === 0) return {};
+	if (!cwd || commits.length === 0) return {};
 	try {
 		const response = await postJson<{
 			avatars?: Record<string, string | null>;
+			identities?: Array<{ avatarUrl: string | null } | null>;
 		}>("/api/forge/commit-avatars", {
 			cwd,
-			hashes: [...new Set(hashes)],
+			hashes: [...new Set(commits.map((commit) => commit.hash))],
+			identities: commits.map((commit) => ({
+				email: commit.authorEmail,
+				name: commit.author,
+			})),
 		});
-		return response.avatars ?? {};
+		return Object.fromEntries(
+			commits.map((commit, index) => [
+				commit.hash,
+				response.avatars?.[commit.hash] ??
+					response.identities?.[index]?.avatarUrl ??
+					null,
+			]),
+		);
 	} catch {
 		return {};
 	}

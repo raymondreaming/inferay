@@ -32,6 +32,8 @@ export const CommitGraphLinesLayer = function CommitGraphLinesLayer(_props: {
 							x2={segment().x}
 							y2={segment().bottom}
 							stroke={segment().color}
+							stroke-dasharray={segment().dashed ? "2 1" : undefined}
+							stroke-linecap={segment().dashed ? "butt" : "round"}
 							stroke-opacity={0.98}
 						/>
 					)}
@@ -44,6 +46,8 @@ export const CommitGraphLinesLayer = function CommitGraphLinesLayer(_props: {
 							data-graph-transition="true"
 							d={curve().path}
 							stroke={curve().color}
+							stroke-dasharray={curve().dashed ? "2 1" : undefined}
+							stroke-linecap={curve().dashed ? "butt" : "round"}
 							stroke-opacity={0.96}
 							stroke-linejoin="round"
 							fill="none"
@@ -58,6 +62,8 @@ export const CommitGraphLinesLayer = function CommitGraphLinesLayer(_props: {
 							data-graph-convergence="true"
 							d={curve().path}
 							stroke={curve().color}
+							stroke-dasharray={curve().dashed ? "2 1" : undefined}
+							stroke-linecap={curve().dashed ? "butt" : "round"}
 							stroke-opacity={0.98}
 							stroke-linejoin="round"
 							fill="none"
@@ -76,7 +82,7 @@ export const CommitGraphLinesLayer = function CommitGraphLinesLayer(_props: {
 								x2={segment().x}
 								y2={segment().bottom}
 								stroke={segment().color}
-								stroke-dasharray="2 3"
+								stroke-dasharray="2 1"
 							/>
 							<circle
 								cx={segment().x}

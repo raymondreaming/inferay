@@ -24,7 +24,7 @@ export function AuthorAvatar(_props: {
 	top: number;
 	stash: boolean;
 }) {
-	const [failed, setFailed] = createSignal(false);
+	const [failedUrl, setFailedUrl] = createSignal<string | null>(null);
 	return (
 		<span
 			aria-hidden="true"
@@ -33,24 +33,43 @@ export function AuthorAvatar(_props: {
 				inlineStyles.getAuthorAvatarGraphAvatarStyle(
 					_props.left,
 					_props.top,
-					`1px solid ${_props.color}`,
+					_props.stash ? "none" : `1px solid ${_props.color}`,
 					`0 0 2px ${hexToRgba(_props.color, 0.18)}`,
 				),
 			)}
 		>
-			{_props.githubAvatar && !failed() ? (
+			{_props.githubAvatar && _props.githubAvatar !== failedUrl() ? (
 				<img
 					src={_props.githubAvatar}
 					alt=""
 					loading="lazy"
 					referrerpolicy="no-referrer"
-					onError={() => setFailed(true)}
+					onError={() => setFailedUrl(_props.githubAvatar ?? null)}
 					{...stylex.attrs(styles.avatarImage)}
 				/>
 			) : _props.stash ? (
 				<IconGitCommit size={10} />
 			) : (
 				authorInitials(_props.name)
+			)}
+			{_props.stash && (
+				<svg
+					viewBox="0 0 18 18"
+					width="18"
+					height="18"
+					{...stylex.attrs(styles.nodeOutline)}
+				>
+					<rect
+						x="0.5"
+						y="0.5"
+						width="17"
+						height="17"
+						rx="3"
+						fill="none"
+						stroke={_props.color}
+						stroke-dasharray="2 1"
+					/>
+				</svg>
 			)}
 		</span>
 	);

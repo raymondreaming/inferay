@@ -8,9 +8,6 @@ export function CommitMessageCell(_props: {
 	color: string;
 	width: number;
 	isWip: boolean;
-	showWipRef: boolean;
-	worktreeLabel: string;
-	fileCount: number;
 }) {
 	return (
 		<div
@@ -22,53 +19,48 @@ export function CommitMessageCell(_props: {
 				),
 			)}
 		>
-			{_props.commit.pullRequest ? (
-				<a
-					href={_props.commit.pullRequest.url}
-					target="_blank"
-					rel="noopener noreferrer"
-					onClick={(event) => event.stopPropagation()}
-					title={`PR #${_props.commit.pullRequest.number} merged into ${_props.commit.pullRequest.baseBranch} as ${_props.commit.pullRequest.mergeHash.slice(0, 8)}. ${
-						_props.commit.pullRequest.localBranchDiffers
-							? "This local branch differs from the merged PR tip. Its current work is not confirmed as included."
-							: "Graph lines show Git parent relationships. A merged PR does not always create a connecting merge line."
-					}`}
-					{...stylex.attrs(
-						styles.pullRequestBadge,
-						_props.commit.pullRequest.localBranchDiffers &&
-							styles.pullRequestDiffers,
-					)}
-				>
-					PR #{_props.commit.pullRequest.number}
-					{_props.commit.pullRequest.localBranchDiffers
-						? " merged · local differs"
-						: " merged"}
-				</a>
-			) : null}
-			<span
-				{...stylex.attrs(styles.commitMessage)}
-				style={domStyle(
-					inlineStyles.getCommitRowCommitMessageStyle(
-						_props.commit.body ? "64%" : "100%",
-					),
-				)}
-			>
-				{_props.isWip
-					? _props.showWipRef
-						? `// WIP ${_props.worktreeLabel}`
-						: "// WIP"
-					: _props.commit.message}
-			</span>
-			{!_props.isWip && _props.commit.body ? (
-				<span {...stylex.attrs(styles.commitBody)}>
-					— {_props.commit.body.replace(/\s+/g, " ")}
-				</span>
-			) : null}
-			{_props.isWip ? (
-				<span {...stylex.attrs(styles.fileCount)}>
-					{_props.fileCount} file{_props.fileCount === 1 ? "" : "s"}
-				</span>
-			) : null}
+			{!_props.isWip && (
+				<>
+					{_props.commit.pullRequest ? (
+						<a
+							href={_props.commit.pullRequest.url}
+							target="_blank"
+							rel="noopener noreferrer"
+							onClick={(event) => event.stopPropagation()}
+							title={`PR #${_props.commit.pullRequest.number} merged into ${_props.commit.pullRequest.baseBranch} as ${_props.commit.pullRequest.mergeHash.slice(0, 8)}. ${
+								_props.commit.pullRequest.localBranchDiffers
+									? "This local branch differs from the merged PR tip. Its current work is not confirmed as included."
+									: "Graph lines show Git parent relationships. A merged PR does not always create a connecting merge line."
+							}`}
+							{...stylex.attrs(
+								styles.pullRequestBadge,
+								_props.commit.pullRequest.localBranchDiffers &&
+									styles.pullRequestDiffers,
+							)}
+						>
+							PR #{_props.commit.pullRequest.number}
+							{_props.commit.pullRequest.localBranchDiffers
+								? " merged · local differs"
+								: " merged"}
+						</a>
+					) : null}
+					<span
+						{...stylex.attrs(styles.commitMessage)}
+						style={domStyle(
+							inlineStyles.getCommitRowCommitMessageStyle(
+								_props.commit.body ? "64%" : "100%",
+							),
+						)}
+					>
+						{_props.commit.message}
+					</span>
+					{!_props.isWip && _props.commit.body ? (
+						<span {...stylex.attrs(styles.commitBody)}>
+							— {_props.commit.body.replace(/\s+/g, " ")}
+						</span>
+					) : null}
+				</>
+			)}
 		</div>
 	);
 }
