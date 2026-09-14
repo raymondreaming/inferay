@@ -5,6 +5,45 @@ fn render(op: &str, input: Value) -> Value {
 }
 
 #[test]
+fn decorated_segments_preserve_unicode_text_and_only_highlight_known_tokens() {
+    let text = "🦀 /REVIEW a/b @docs/🦀.md /unknown";
+    let segments = render(
+        "decoratedTextSegments",
+        json!({"text":text,"commands":["review"]}),
+    );
+    assert_eq!(
+        segments,
+        json!([
+            {"text":"🦀 ","highlighted":false},
+            {"text":"/REVIEW","highlighted":true},
+            {"text":" a/b ","highlighted":false},
+            {"text":"@docs/🦀.md","highlighted":true},
+            {"text":" /unknown","highlighted":false}
+        ])
+    );
+    for text in ["", "plain 🦀 text", "@one @two", "/review", "a@b", "@", "/"] {
+        let result = render(
+            "decoratedTextSegments",
+            json!({"text":text,"commands":["review"]}),
+        );
+        let joined: String = result
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|segment| segment["text"].as_str().unwrap())
+            .collect();
+        assert_eq!(joined, text);
+        assert!(
+            result
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|segment| segment["text"] != "")
+        );
+    }
+}
+
+#[test]
 fn composer_offsets_follow_utf16_and_tokens_respect_word_boundaries() {
     assert_eq!(
         render(
@@ -12,13 +51,6 @@ fn composer_offsets_follow_utf16_and_tokens_respect_word_boundaries() {
             json!({"value":"🦀 /review","cursorPos":10,"trigger":"/"})
         ),
         json!({"index":3,"query":"review"})
-    );
-    assert_eq!(
-        render(
-            "decoratedTokens",
-            json!({"text":"🦀 /REVIEW a/b @docs/🦀.md /unknown","commands":["review"]})
-        ),
-        json!([{"start":3,"end":10},{"start":15,"end":26}])
     );
     assert_eq!(
         render(
@@ -329,5 +361,44 @@ fn graph_and_changes_sidebar_toggle_independently() {
     assert_eq!(
         panels::normalize(&json!({"mainViewMode":"graph","sidebarVisible":false}))["graphVisible"],
         false
+    );
+}
+#[test]
+fn queue_actions_replace_optimistic_messages_and_preserve_persisted_order() {
+    let current = json!([
+        {"id":"saved", "text":"persisted"},
+        {"id":"pending", "text":"old", "transient":true}
+    ]);
+    let staged = project(
+        "stageQueueMessage",
+        &json!({
+            "current":current, "message":{"id":"pending", "text":"new"}
+        }),
+    )
+    .unwrap();
+    assert_eq!(
+        staged,
+        json!([
+            {"id":"saved", "text":"persisted"},
+            {"id":"pending", "text":"new", "transient":true}
+        ])
+    );
+    let resolved = project(
+        "resolveQueueMessage",
+        &json!({
+            "current":staged, "id":"pending"
+        }),
+    )
+    .unwrap();
+    assert_eq!(resolved, json!([{"id":"saved", "text":"persisted"}]));
+    assert_eq!(
+        project(
+            "resolveQueueMessage",
+            &json!({
+                "current":resolved, "id":"missing"
+            })
+        )
+        .unwrap(),
+        resolved
     );
 }

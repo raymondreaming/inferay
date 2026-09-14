@@ -1,8 +1,7 @@
 //! Pure dock layout shared by the renderer preview and native persistence.
 use serde_json::{Value, json};
 
-#[cfg(test)]
-fn resize_preview(body: &Value) -> Result<Value, String> {
+pub fn resize_preview(body: &Value) -> Result<Value, String> {
     let mut tree: Tree =
         serde_json::from_value(body["tree"].clone()).map_err(|error| error.to_string())?;
     let path = body["path"].as_array().ok_or("resize path is required")?;
@@ -32,9 +31,10 @@ mod resize_tests {
     }
 }
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 #[serde(tag = "type", rename_all = "lowercase")]
-enum Tree {
+#[ts(rename = "DockTree")]
+pub enum Tree {
     Empty {
         columns: usize,
     },
@@ -42,6 +42,7 @@ enum Tree {
         id: String,
     },
     Split {
+        #[ts(type = "'horizontal' | 'vertical'")]
         direction: String,
         ratio: f64,
         first: Box<Tree>,

@@ -1,3 +1,4 @@
+import type { DockTree } from "@contracts";
 import {
 	captureEvent,
 	createPointerResize,
@@ -29,7 +30,7 @@ import {
 	scrollElementBy,
 	shouldFocusPaneComposer,
 } from "./dockGeometry.ts";
-import type { DockSplitNode, DockTree } from "./dockTypes.ts";
+import type { DockSplitNode } from "./dockTypes.ts";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 import {

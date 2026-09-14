@@ -52,9 +52,24 @@ pub fn completion(i: &Value) -> Value {
     json!({"nextValue":format!("{}{replacement}{}",String::from_utf16_lossy(&text[..index]),if after.is_empty(){" "}else{&after}),
         "nextCursor":index + replacement.encode_utf16().count() + usize::from(after.is_empty())})
 }
-pub fn decorated_tokens(i: &Value) -> Value {
+#[derive(serde::Serialize, ts_rs::TS)]
+pub struct DecoratedTextSegment {
+    text: String,
+    highlighted: bool,
+}
+
+pub fn decorated_segments(i: &Value) -> Vec<DecoratedTextSegment> {
     let text = units(&i["text"]);
-    let mut ranges = Vec::new();
+    let mut segments = Vec::new();
+    let mut push = |start, end, highlighted| {
+        if start < end {
+            segments.push(DecoratedTextSegment {
+                text: String::from_utf16_lossy(&text[start..end]),
+                highlighted,
+            });
+        }
+    };
+    let mut last_end = 0;
     let mut index = 0;
     while index < text.len() {
         if index > 0 && !whitespace(text[index - 1]) {
@@ -62,29 +77,36 @@ pub fn decorated_tokens(i: &Value) -> Value {
             continue;
         }
         let start = index;
-        if text[index] == b'/' as u16 && text.get(index + 1).is_some_and(|c| ascii_letter(*c)) {
+        let highlighted = if text[index] == b'/' as u16
+            && text.get(index + 1).is_some_and(|c| ascii_letter(*c))
+        {
             index += 2;
             while index < text.len() && command_char(text[index]) {
                 index += 1;
             }
-            if has_command(
+            has_command(
                 &i["commands"],
                 &String::from_utf16_lossy(&text[start + 1..index]),
-            ) {
-                ranges.push(json!({"start":start,"end":index}));
-            }
+            )
         } else if text[index] == b'@' as u16 && text.get(index + 1).is_some_and(|c| !whitespace(*c))
         {
             index += 2;
             while index < text.len() && !whitespace(text[index]) {
                 index += 1;
             }
-            ranges.push(json!({"start":start,"end":index}));
+            true
         } else {
             index += 1;
+            false
+        };
+        if highlighted {
+            push(last_end, start, false);
+            push(start, index, true);
+            last_end = index;
         }
     }
-    json!(ranges)
+    push(last_end, text.len(), false);
+    segments
 }
 pub fn ask_answer(i: &Value) -> Value {
     let mut parts = Vec::new();
@@ -140,6 +162,21 @@ pub fn merge_queue(i: &Value) -> Value {
             )
             .collect::<Vec<_>>()
     )
+}
+
+pub fn update_queue(i: &Value, stage: bool) -> Value {
+    let id = if stage { &i["message"]["id"] } else { &i["id"] };
+    let mut queue: Vec<_> = array(&i["current"])
+        .iter()
+        .filter(|message| message["id"] != *id)
+        .cloned()
+        .collect();
+    if stage {
+        let mut message = i["message"].clone();
+        message["transient"] = json!(true);
+        queue.push(message);
+    }
+    json!(queue)
 }
 
 fn local_content(content: &str) -> String {

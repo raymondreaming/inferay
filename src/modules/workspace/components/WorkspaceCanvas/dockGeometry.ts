@@ -1,4 +1,5 @@
-import type { DockTree } from "./dockTypes.ts";
+import type { DockTree } from "@contracts";
+import { project } from "@shared/lib/native.tsx";
 
 export type DockEdge = "center" | "left" | "right" | "top" | "bottom";
 export type DockOuterEdge = Exclude<DockEdge, "center">;
@@ -6,22 +7,12 @@ export const MIN_RESPONSIVE_PANE_WIDTH = 300;
 export const ROOT_DOCK_TARGET_ID = "__workspace-root__";
 export const MIN_GRID_ROW_HEIGHT = 340;
 
-function clampRatio(ratio: number) {
-	return Math.max(0.14, Math.min(0.86, ratio));
-}
-
 export function resizeDockSplit(
 	tree: DockTree,
 	path: readonly ("first" | "second")[],
 	ratio: number,
 ): DockTree {
-	if (path.length === 0) {
-		return tree.type === "split" ? { ...tree, ratio: clampRatio(ratio) } : tree;
-	}
-	if (tree.type !== "split") return tree;
-	const [branch, ...rest] = path;
-	const key = branch === "first" ? "first" : "second";
-	return { ...tree, [key]: resizeDockSplit(tree[key], rest, ratio) };
+	return project("resizeDockSplit", { tree, path, ratio });
 }
 
 export const canScrollInDirection = (element: HTMLElement, delta: number) =>

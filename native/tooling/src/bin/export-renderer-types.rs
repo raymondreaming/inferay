@@ -24,6 +24,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     macro_rules! export { ($($ty:ty),* $(,)?) => { $(<$ty>::export_all(&cfg)?;)* }; }
     export!(
         GitFileEntry,
+        PreparedEditDiff,
+        SequentialEdit,
+        inferay_presentation::dock::Tree,
+        inferay_presentation::composer::DecoratedTextSegment,
         inferay_presentation::appearance::AppearanceCatalog,
         inferay_presentation::appearance::BackgroundModel,
         inferay_core::provider_config::ProviderCatalog,

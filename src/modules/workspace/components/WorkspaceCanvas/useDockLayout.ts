@@ -1,3 +1,4 @@
+import type { DockTree } from "@contracts";
 import { saveWorkspaceDock } from "@workspace/services/workspaceApi.ts";
 import {
 	type Accessor,
@@ -12,7 +13,6 @@ import {
 	previewDockLayout,
 	rememberDockLayout,
 } from "./dockLayoutCache.ts";
-import type { DockTree } from "./dockTypes.ts";
 
 type DockInput = Parameters<typeof previewDockLayout>[0];
 

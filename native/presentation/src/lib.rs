@@ -2,7 +2,7 @@
 //! The browser supplies interaction facts and renders the resulting projections.
 pub mod appearance;
 pub mod chat_view;
-mod composer;
+pub mod composer;
 pub mod dock;
 pub mod graph;
 pub mod panels;
@@ -70,6 +70,7 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         "repositorySelection" => workbench::repository_selection(input),
         "workspaceSelection" => workbench::workspace_selection(input),
         "workspaceDock" => dock::project(input)?,
+        "resizeDockSplit" => dock::resize_preview(input)?,
         "retainedWorkspaces" => workbench::retained_workspaces(input),
         "chatRunStatus" => chat_view::run_status(input),
         "graphPreferences" => graph::preferences(input),
@@ -88,12 +89,14 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         "skillDirty" => skills::dirty(input),
         "trigger" => composer::trigger(input),
         "completion" => composer::completion(input),
-        "decoratedTokens" => composer::decorated_tokens(input),
+        "decoratedTextSegments" => json!(composer::decorated_segments(input)),
         "askAnswer" => composer::ask_answer(input),
         "systemNotice" => composer::system_notice(input),
         "prepareChatSend" => composer::prepare_send(input),
         "userMessage" => composer::user_message(input),
         "mergeQueue" => composer::merge_queue(input),
+        "stageQueueMessage" => composer::update_queue(input, true),
+        "resolveQueueMessage" => composer::update_queue(input, false),
         _ => return Err(format!("Unknown presentation operation: {operation}")),
     })
 }
