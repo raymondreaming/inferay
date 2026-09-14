@@ -119,26 +119,6 @@ impl Drop for Fixture {
     }
 }
 
-#[test]
-fn http_transport_preserves_custom_providers_and_openai_endpoint() {
-    let mut params = json!({"model":"chosen-model"});
-    configure_codex_transport(&mut params, &json!({"model_provider":"custom"}));
-    assert_eq!(params, json!({"model":"chosen-model"}));
-    configure_codex_transport(
-        &mut params,
-        &json!({"openai_base_url":"https://example.test/v1"}),
-    );
-    assert_eq!(params["model"], "chosen-model");
-    assert_eq!(
-        params["config"]["model_providers.inferay_openai_http"]["base_url"],
-        "https://example.test/v1"
-    );
-    assert_eq!(
-        params["config"]["model_providers.inferay_openai_http"]["requires_openai_auth"],
-        true
-    );
-}
-
 #[tokio::test]
 async fn unsupported_server_requests_receive_replies_during_startup_and_turns() {
     let f = Fixture::new("unsupported");

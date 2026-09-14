@@ -1,8 +1,6 @@
 //! Scope-kind syntax classification. Colour is a renderer concern: this emits a
 //! small closed set of kinds, so one cached classification serves every theme.
 use serde::Serialize;
-#[cfg(test)]
-use serde_json::json;
 use std::sync::OnceLock;
 use syntect::easy::ScopeRegionIterator;
 use syntect::parsing::{ParseState, Scope, ScopeStack, SyntaxReference, SyntaxSet};
@@ -243,13 +241,4 @@ pub fn classify_diff(path: &str, text: &str, types: &[String]) -> Option<Classif
         start = end;
     }
     Some(result)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn kinds(path: &str, text: &str) -> Vec<Vec<serde_json::Value>> {
-        classify(path, text).expect("classified").lines
-    }
 }

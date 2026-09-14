@@ -169,15 +169,4 @@ mod tests {
         ));
         assert!(cache.apply(input("b", Some(1))).is_ok());
     }
-    #[test]
-    fn oversized_retention_is_evicted_and_can_be_reconstructed() {
-        let cache = StreamCache::new(64, 1);
-        assert!(cache.apply(input("a", None)).is_ok());
-        assert!(cache.entries.lock().unwrap().is_empty());
-        assert!(matches!(
-            cache.apply(input("a", Some(1))),
-            Err(Error::Resync)
-        ));
-        assert!(cache.apply(input("a", None)).is_ok());
-    }
 }

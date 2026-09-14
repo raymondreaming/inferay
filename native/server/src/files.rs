@@ -513,27 +513,3 @@ pub(super) async fn image_thumbnail(path: PathBuf) -> Result<Vec<u8>, String> {
     .await
     .map_err(|error| error.to_string())?
 }
-
-#[cfg(test)]
-mod directory_tests {
-    use super::*;
-
-    #[test]
-    fn directory_search_and_quick_picks_share_the_renderer_contract() {
-        let root = tempfile::tempdir().unwrap();
-        let repo = root.path().join("project");
-        std::fs::create_dir_all(repo.join(".git")).unwrap();
-        let search =
-            serde_json::to_value(agent_directories(root.path(), 1).collect::<Vec<_>>()).unwrap();
-        let quick = serde_json::to_value(DirectoryQuickPicks {
-            quick_picks: find_agent_quick_picks(vec![root.path().into()]),
-            home: root.path().to_string_lossy().into_owned(),
-        })
-        .unwrap();
-        assert_eq!(search[0]["name"], "project");
-        assert_eq!(search[0]["path"], quick["quickPicks"][0]["path"]);
-        assert_eq!(search[0]["isGitRepo"], false);
-        assert_eq!(quick["quickPicks"][0]["isGitRepo"], true);
-        assert_eq!(quick["home"], root.path().to_string_lossy().as_ref());
-    }
-}

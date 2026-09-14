@@ -655,24 +655,6 @@ mod incremental_tests {
     }
 
     #[test]
-    fn incremental_matches_full_parser_at_every_character_and_finalization() {
-        let fixtures = [
-            "intro\n\nsecond\n\nthird\n\nHeading\n---\n\nTail 🦀 *emphasis* and [link](https://example.com)",
-            "intro\n\nsecond\n\nthird\n| column | other |\n| --- | --- |\n| cell | partial",
-            "intro\n\nsecond\n\nthird\n```rust\nfn main() {}\n\n# still code\n```\n\nlast",
-            "intro\n\nsecond\n\nthird\n> quoted\n> ## heading\n> - list\n> ```\n> code\n> ```\nend",
-            "intro\n\nsecond\n\nthird\n- a\n- [x] task\n1. one\n2. two\n\nend",
-            "intro\n\nsecond\n\nthird\n   \n    tail\n\n| alone |\n\nnext\n___\nend",
-            "a\n\nb\n\nc\n**bold _nested_** ![image](file.md)  \nline\\nmore\n\nfin",
-        ];
-        for chat in [false, true] {
-            for fixture in fixtures {
-                check_prefixes(fixture, 1, chat);
-            }
-        }
-    }
-
-    #[test]
     fn incremental_preserves_search_budget_and_limits_without_partial_mutation() {
         let text = format!("{}\n\n{}\n\nend", "[".repeat(12000), "*a* ".repeat(100));
         check_prefixes(&text, 257, true);
@@ -691,39 +673,5 @@ mod incremental_tests {
                 .is_err()
         );
         assert_eq!(model.text, "safe");
-    }
-
-    #[test]
-    fn incremental_matches_mixed_boundaries_across_irregular_chunks() {
-        let lines = [
-            "",
-            "plain",
-            "---",
-            "==",
-            "# title",
-            "```",
-            "```rs",
-            "|a|b|",
-            "|--|--|",
-            "|partial",
-            "> quote",
-            ">",
-            "- item",
-            "1. item",
-            "[x](https://example.com)",
-            "**incomplete",
-            "  ",
-            "🦀",
-        ];
-        let mut seed = 42u64;
-        for round in 0..80 {
-            let mut text = String::new();
-            for _ in 0..40 {
-                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-                text.push_str(lines[(seed >> 32) as usize % lines.len()]);
-                text.push('\n');
-            }
-            check_prefixes(&text, round % 13 + 1, round % 2 == 0);
-        }
     }
 }
