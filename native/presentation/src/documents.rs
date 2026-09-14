@@ -177,7 +177,9 @@ mod tests {
         assert!(model.view.paths.is_empty());
         assert!(model.view.active_path.is_none());
         assert!(!model.view.restoring);
-        model.restore(r#"["a", "b", "c"]"#, Some("b".into())).unwrap();
+        model
+            .restore(r#"["a", "b", "c"]"#, Some("b".into()))
+            .unwrap();
         assert!(model.view.paths.is_empty());
         let next = model.open("d");
         assert!(model.receive(next, "d", "d"));
