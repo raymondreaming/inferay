@@ -427,7 +427,6 @@ export const styles = stylex.create({
 		alignItems: "center",
 		justifyContent: "center",
 		backgroundColor: color.backgroundOverlay,
-		backdropFilter: "blur(var(--inferay-glass-blur, 4px))",
 	},
 	modalBackdropButton: {
 		position: "absolute",
@@ -444,11 +443,7 @@ export const styles = stylex.create({
 		maxHeight: "80%",
 		flexDirection: "column",
 		overflow: "hidden",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
 		borderRadius: controlSize._2,
-		backgroundColor: color.background,
 	},
 	modalHeader: {
 		display: "flex",

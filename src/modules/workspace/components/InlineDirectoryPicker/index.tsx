@@ -1,5 +1,5 @@
 import type { AgentDirectory } from "@contracts";
-import { iconSize } from "@design-system/styles.stylex.ts";
+import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
 import { useQueryResource } from "@shared/hooks/useQueryResource.tsx";
 import { setInputValue } from "@shared/lib/dom.tsx";
 import { IconFolder } from "@shared/ui/Icons/index.tsx";
@@ -143,7 +143,7 @@ export function InlineDirectoryPicker(props: {
 			{(() => {
 				if (props.hideInput) {
 					return (
-						<div {...stylex.attrs(styles.compactRoot)}>
+						<div {...stylex.attrs(surfaceStyles.overlay, styles.compactRoot)}>
 							<div {...stylex.attrs(styles.compactList)}>
 								{
 									<For each={displayList()} keyed={(row) => row.path}>

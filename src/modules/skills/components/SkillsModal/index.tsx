@@ -1,8 +1,7 @@
 import type { SkillDialogView, SkillSaveRequest } from "@contracts";
-import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
+import { iconSize } from "@design-system/styles.stylex.ts";
 import { useBackgroundQuery as useQuery } from "@shared/hooks/useQueryResource.tsx";
 import {
-	APP_REGION_NO_DRAG_CLASS,
 	listenWindowEvent,
 	OPEN_SKILLS_EVENT,
 	queryClient,
@@ -10,8 +9,8 @@ import {
 } from "@shared/lib/dom.tsx";
 import { SkillDialogReplica } from "@shared/lib/native.tsx";
 import { Button } from "@shared/ui/Button/index.tsx";
-import { IconButton } from "@shared/ui/IconButton/index.tsx";
-import { IconPlus, IconX } from "@shared/ui/Icons/index.tsx";
+import { IconPlus } from "@shared/ui/Icons/index.tsx";
+import { Modal } from "@shared/ui/Modal/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	createEffect,
@@ -74,7 +73,6 @@ export function SkillsDialog(_props: {
 	});
 	const publish = () => setRevision((value) => value + 1);
 	let disposed = false;
-	let dialog: HTMLDialogElement | undefined;
 	onCleanup(() => {
 		disposed = true;
 		model.free();
@@ -107,11 +105,6 @@ export function SkillsDialog(_props: {
 	const close = () => {
 		if (canLeave()) _props.onClose();
 	};
-	onSettled(() => {
-		const previousFocus = document.activeElement as HTMLElement | null;
-		dialog?.showModal();
-		return () => previousFocus?.focus();
-	});
 	const handleSave = async () => {
 		if (disposed) return;
 		const serialized = model.save_request();
@@ -150,29 +143,13 @@ export function SkillsDialog(_props: {
 		}
 	};
 	return (
-		<dialog
-			ref={(element) => (dialog = element)}
-			aria-label="Skills"
-			onCancel={(event) => {
-				event.preventDefault();
-				close();
-			}}
-			onKeyDown={(event) => event.stopPropagation()}
-			class={`${APP_REGION_NO_DRAG_CLASS} ${stylex.attrs(surfaceStyles.overlay, styles.dialog).class ?? ""}`}
+		<Modal
+			label="Skills"
+			onClose={close}
+			closeDisabled={view().editor.busy}
+			class={stylex.attrs(styles.dialog).class}
 		>
 			<div {...stylex.attrs(styles.root)}>
-				<IconButton
-					type="button"
-					variant="ghost"
-					size="sm"
-					aria-label="Close skills"
-					title="Close skills"
-					onClick={close}
-					disabled={view().editor.busy}
-					class={stylex.attrs(styles.closeButton).class}
-				>
-					<IconX size={iconSize.md} />
-				</IconButton>
 				{query.error && (
 					<p role="alert" {...stylex.attrs(styles.error)}>
 						{query.error?.message}
@@ -230,6 +207,6 @@ export function SkillsDialog(_props: {
 					)}
 				</div>
 			</div>
-		</dialog>
+		</Modal>
 	);
 }

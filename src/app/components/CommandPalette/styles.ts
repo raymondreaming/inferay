@@ -39,7 +39,6 @@ export const styles = stylex.create({
 		justifyContent: "center",
 		paddingTop: "15vh",
 		backgroundColor: "rgba(0,0,0,0.36)",
-		backdropFilter: "blur(3px)",
 		pointerEvents: "auto",
 	},
 	palette: {

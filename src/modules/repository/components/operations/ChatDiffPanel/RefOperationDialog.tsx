@@ -1,3 +1,4 @@
+import { surfaceStyles } from "@design-system/styles.stylex.ts";
 import * as stylex from "@stylexjs/stylex";
 import { For } from "solid-js";
 import { styles } from "./styles.ts";
@@ -25,7 +26,7 @@ export function RefOperationDialog(
 				role="dialog"
 				aria-modal="true"
 				aria-label="Choose branch operation"
-				{...stylex.attrs(styles.refActionDialog)}
+				{...stylex.attrs(surfaceStyles.overlay, styles.refActionDialog)}
 			>
 				<strong {...stylex.attrs(styles.refActionTitle)}>
 					Move branch history

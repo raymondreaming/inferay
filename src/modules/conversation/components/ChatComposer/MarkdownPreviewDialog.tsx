@@ -1,4 +1,4 @@
-import { iconSize } from "@design-system/styles.stylex.ts";
+import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
 import { IconButton } from "@shared/ui/IconButton/index.tsx";
 import { IconX } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
@@ -20,7 +20,7 @@ export function MarkdownPreviewDialog(
 				{...stylex.attrs(styles.modalBackdropButton)}
 				onClick={_props.closeMdPreview}
 			/>
-			<div {...stylex.attrs(styles.modal)}>
+			<div {...stylex.attrs(surfaceStyles.overlay, styles.modal)}>
 				<div {...stylex.attrs(styles.modalHeader)}>
 					<span {...stylex.attrs(styles.modalTitle)}>
 						{_props.mdPreview.path}

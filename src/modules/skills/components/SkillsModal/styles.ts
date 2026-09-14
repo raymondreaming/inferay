@@ -8,32 +8,13 @@ import {
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
 	dialog: {
-		position: "relative",
-		margin: "auto",
-		boxSizing: "border-box",
-		color: color.textMain,
-		borderRadius: radius._2xl,
 		width: "min(1080px, calc(100vw - 32px))",
 		height: "min(780px, calc(100dvh - 48px))",
-		maxWidth: "calc(100vw - 32px)",
-		maxHeight: "calc(100dvh - 48px)",
-		padding: 0,
-		overflow: "hidden",
-		"::backdrop": {
-			backgroundColor: "rgba(0, 0, 0, 0.4)",
-			backdropFilter: "blur(7px)",
-		},
 	},
 	root: {
 		display: "flex",
 		height: "100%",
 		flexDirection: "column",
-	},
-	closeButton: {
-		position: "absolute",
-		top: controlSize._3,
-		right: controlSize._3,
-		zIndex: 1,
 	},
 	content: {
 		display: "flex",

@@ -1,4 +1,4 @@
-import { iconSize } from "@design-system/styles.stylex.ts";
+import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
 import { ariaValue } from "@shared/lib/dom.tsx";
 import {
 	IconArrowDown,
@@ -39,7 +39,13 @@ export function ViewerHeader(
 	>,
 ) {
 	return (
-		<header {...stylex.attrs(styles.viewerHeader, styles.viewerHeaderFloating)}>
+		<header
+			{...stylex.attrs(
+				surfaceStyles.panel,
+				styles.viewerHeader,
+				styles.viewerHeaderFloating,
+			)}
+		>
 			{_props.mainViewMode === "graph" && _props.drag ? (
 				<WorkspaceDockHandle {..._props.drag} />
 			) : null}

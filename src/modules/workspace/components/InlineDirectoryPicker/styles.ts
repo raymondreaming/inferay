@@ -23,14 +23,7 @@ export const styles = stylex.create({
 		minWidth: controlSize._0,
 		overflow: "hidden",
 		width: "100%",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
 		borderRadius: controlSize._3,
-		backgroundColor: color.backgroundPanel,
-		backgroundImage: "none",
-		boxShadow:
-			"inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 24px 54px rgba(0, 0, 0, 0.64)",
 	},
 	compactList: {
 		maxHeight: "210px",

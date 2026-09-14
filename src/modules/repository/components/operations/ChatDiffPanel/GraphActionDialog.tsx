@@ -1,3 +1,4 @@
+import { surfaceStyles } from "@design-system/styles.stylex.ts";
 import { ariaValue } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { For } from "solid-js";
@@ -32,7 +33,7 @@ export function GraphActionDialog(
 				role="dialog"
 				aria-modal="true"
 				aria-label={ariaValue(_props.pendingGraphActionPresentation.title)}
-				{...stylex.attrs(styles.refActionDialog)}
+				{...stylex.attrs(surfaceStyles.overlay, styles.refActionDialog)}
 				onKeyDown={(event) => {
 					if (event.key === "Escape" && !_props.graphActionRunning) {
 						_props.setPendingGraphAction(null);
