@@ -70,6 +70,15 @@ impl DocumentReplica {
         }
         self.view.paths.len()
     }
+    pub fn clear(&mut self) {
+        self.closed.extend(self.view.paths.drain(..));
+        self.closed.extend(self.pending.keys().cloned());
+        self.pending.clear();
+        self.selection += 1;
+        self.view.active_path = None;
+        self.view.restoring = false;
+        self.view.error = None;
+    }
     pub fn receive(&mut self, version: u32, requested: &str, path: &str) -> bool {
         if self.pending.get(requested) != Some(&version) {
             return false;
@@ -157,5 +166,21 @@ mod tests {
         model.close("b");
         model.close("a");
         assert!(model.view.active_path.is_none());
+    }
+
+    #[test]
+    fn closing_viewer_clears_tabs_and_rejects_inflight_files() {
+        let mut model = replica(&["a", "b"], Some("b"));
+        let pending = model.open("c");
+        model.clear();
+        assert!(!model.receive(pending, "c", "c"));
+        assert!(model.view.paths.is_empty());
+        assert!(model.view.active_path.is_none());
+        assert!(!model.view.restoring);
+        model.restore(r#"["a", "b", "c"]"#, Some("b".into())).unwrap();
+        assert!(model.view.paths.is_empty());
+        let next = model.open("d");
+        assert!(model.receive(next, "d", "d"));
+        assert_eq!(model.view.paths, ["d"]);
     }
 }

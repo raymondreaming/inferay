@@ -746,17 +746,17 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 									each={auxiliaryPanel() ? [auxiliaryPanel()!] : []}
 									keyed={(panel) => panel.id}
 								>
-									{(panel) => (
-										<>
-											{" "}
-											{panel().render({
+									{(panel) =>
+										// Mount once per panel ID; selection/persistence updates must not reopen tabs.
+										untrack(() =>
+											panel().render({
 												draggable: true,
 												onDragStart: handleAuxiliaryDragStart,
 												onCreatePanelDragStart: handleCreatePanelDragStart,
 												onDragEnd: clearDragState,
-											})}{" "}
-										</>
-									)}
+											}),
+										)
+									}
 								</For>
 							)}
 							{isDropTarget() ? (

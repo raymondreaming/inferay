@@ -77,6 +77,7 @@ function DocumentSessionView(_props: DocumentViewerProps) {
 		openFile,
 		selectFile,
 		closeFile,
+		closeViewer,
 		startFileTabDrag,
 	} = useDocumentSession(_props);
 	return (
@@ -101,12 +102,7 @@ function DocumentSessionView(_props: DocumentViewerProps) {
 				<FileSearch cwd={_props.cwd} onSelect={openFile} placement="panel" />
 				<button
 					type="button"
-					onPointerDown={(event) => {
-						if (event.button === 0 && event.isPrimary) _props.onClose();
-					}}
-					onClick={(event) => {
-						if (event.detail === 0) _props.onClose();
-					}}
+					onClick={closeViewer}
 					title="Close file viewer"
 					aria-label="Close file viewer"
 					{...stylex.attrs(styles.iconButton)}
@@ -164,23 +160,24 @@ function useDocumentSession(props: DocumentViewerProps) {
 		view().paths.map((path) => files.get(path)!),
 	);
 	const controller = new AbortController();
-	const publish = () => setView(JSON.parse(model.snapshot()));
+	const publish = () => {
+		const next: DocumentView = JSON.parse(model.snapshot());
+		setView(next);
+		if (next.restoring) return;
+		sessions.set(key, {
+			activePath: next.activePath,
+			openFiles: next.paths.map((path) => files.get(path)!),
+		});
+		props.onSessionChange?.(identity.sessionId, {
+			cwd: identity.cwd,
+			activePath: next.activePath,
+			paths: next.paths,
+		});
+	};
 	onCleanup(() => {
 		controller.abort();
 		model.free();
 	});
-	createEffect(
-		() => ({ view: view(), files: openFiles(), notify: props.onSessionChange }),
-		({ view, files, notify }) => {
-			if (view.restoring) return;
-			sessions.set(key, { activePath: view.activePath, openFiles: files });
-			notify?.(identity.sessionId, {
-				cwd: identity.cwd,
-				activePath: view.activePath,
-				paths: view.paths,
-			});
-		},
-	);
 	const fail = (cause: unknown, fallback: string, version?: number) => {
 		if (controller.signal.aborted) return;
 		model.fail(version, cause instanceof Error ? cause.message : fallback);
@@ -225,10 +222,19 @@ function useDocumentSession(props: DocumentViewerProps) {
 			if (request) void openFile(JSON.parse(request));
 		},
 	);
+	const closeViewer = () => {
+		controller.abort();
+		model.clear();
+		files.clear();
+		// Persist before the parent unmounts this viewer.
+		publish();
+		props.onClose();
+	};
 	const closeFile = (path: string) => {
 		const remaining = model.close(path);
 		files.delete(path);
-		publish();
+		if (remaining === 0) closeViewer();
+		else publish();
 		return remaining;
 	};
 	return {
@@ -242,6 +248,7 @@ function useDocumentSession(props: DocumentViewerProps) {
 			publish();
 		},
 		closeFile,
+		closeViewer,
 		startFileTabDrag: (event: PointerEvent, file: FileContent) => {
 			if (
 				!props.onFileTabDragStart ||
@@ -250,8 +257,7 @@ function useDocumentSession(props: DocumentViewerProps) {
 				return;
 			event.stopPropagation();
 			props.onFileTabDragStart(event, file, () => {
-				if (!controller.signal.aborted && closeFile(file.path) === 0)
-					props.onClose();
+				if (!controller.signal.aborted) closeFile(file.path);
 			});
 		},
 	};

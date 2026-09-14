@@ -26,13 +26,7 @@ export function DocumentTab(_props: {
 		>
 			<button
 				type="button"
-				onPointerDown={(event) => {
-					if (event.button === 0 && event.isPrimary)
-						_props.setActivePath(_props.file.path);
-				}}
-				onClick={(event) => {
-					if (event.detail === 0) _props.setActivePath(_props.file.path);
-				}}
+				onClick={() => _props.setActivePath(_props.file.path)}
 				{...stylex.attrs(styles.fileTabSelect)}
 			>
 				<FileTypeIcon path={_props.file.path} size={iconSize._2md} />
@@ -43,14 +37,9 @@ export function DocumentTab(_props: {
 			<button
 				type="button"
 				aria-label={ariaValue(`Close ${fileName(_props.file.path)}`)}
-				onPointerDown={(event) => {
-					event.stopPropagation();
-					if (event.button === 0 && event.isPrimary)
-						_props.closeFile(_props.file.path);
-				}}
 				onClick={(event) => {
 					event.stopPropagation();
-					if (event.detail === 0) _props.closeFile(_props.file.path);
+					_props.closeFile(_props.file.path);
 				}}
 				{...stylex.attrs(styles.fileTabClose)}
 			>
